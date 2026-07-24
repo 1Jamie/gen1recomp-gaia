@@ -2393,10 +2393,17 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   -- PP: not for continuations, struggle, called moves, or (under
   -- gen1_faithful) wild/trainer enemies — pokered DecrementPP only ever
   -- mutates wBattleMonPP / party PP (engine/battle/decrement_pp.asm).
+  -- That rule doesn't apply in a link battle: "the enemy" there is a real
+  -- human peer independently tracking their own PP the normal way, not an
+  -- AI Gen 1 never bothered to decrement -- applying it made each side
+  -- silently skip decrementing the OTHER side's PP for the move it just
+  -- used, so both simulations' party state diverged by exactly 1 PP on
+  -- the very first move either side made, failing the lockstep hash
+  -- check turn 1 of literally every link battle.
   local isContinuation = releasing
       or (user.thrashTurns and user.thrashTurns > 0 and moveInst == user.thrashMove)
       or moveInst == user.rageMove
-  local enemyUnlimited = not user.isPlayer
+  local enemyUnlimited = not user.isPlayer and self.kind ~= "link"
       and self.ruleset and self.ruleset.enemyUnlimitedPP
   if not isContinuation and not moveInst.struggle and not isCalled
       and not enemyUnlimited then
