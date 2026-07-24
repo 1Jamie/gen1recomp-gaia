@@ -67,6 +67,17 @@ function Handshake.linkModified(game)
   return false
 end
 
+-- online play (the relay-based online match / tournament flows in
+-- LinkState/Tournament) meets strangers, not a coordinating friend, so it
+-- skips the LAN path's per-peer compatibility negotiation entirely and
+-- just requires vanilla on both ends: no mod-added Pokemon, no surprises.
+-- Mods only ever get baked in at boot (Loader:load), so this is a gate on
+-- attempting to go online, not a live mod toggle -- the player disables
+-- mods via the mod manager and relaunches.
+function Handshake.onlineAllowed(game)
+  return #Handshake.mods(game) == 0
+end
+
 -- mode is nil on the guest: it pairs and announces itself before the host
 -- has picked, and compatibility is decided from the two hellos, not the mode
 function Handshake.hello(game, mode)

@@ -295,6 +295,16 @@ function PaletteFX.monPal(data, species, transformed)
     return p.palettes.GRAYMON
         or (data and data.palettes and data.palettes.palettes.GRAYMON)
   end
+  -- a species' own `palette` field (per-record override) wins over the
+  -- vanilla species->name map. Mod-registered palettes live in
+  -- data.palettes.palettes even when the active pack is the RED++ gbc pack,
+  -- so fall back to it when the pack itself doesn't carry the name.
+  local def = data and data.pokemon and data.pokemon[species]
+  if def and def.palette then
+    local pal = p.palettes[def.palette]
+             or (data and data.palettes and data.palettes.palettes[def.palette])
+    if pal then return pal end
+  end
   local name = p.pokemon[species] or "MEWMON"
   local c = p.palettes[name]
   if c then return c end
@@ -308,6 +318,12 @@ end
 -- palette name a species currently resolves to (for image-cache keys)
 function PaletteFX.monPalName(data, species, transformed)
   if transformed then return "GRAYMON" end
+  -- honor the per-record palette override, matching monPal
+  local def = data and data.pokemon and data.pokemon[species]
+  if def and def.palette and data.palettes
+     and data.palettes.palettes[def.palette] then
+    return def.palette
+  end
   local p = PaletteFX.pack(data)
   if p and p.pokemon[species] then return p.pokemon[species] end
   if data and data.palettes and data.palettes.pokemon[species] then
