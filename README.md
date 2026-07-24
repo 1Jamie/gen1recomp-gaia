@@ -1,18 +1,19 @@
 # Pokemon Gen 1 Recompilation Project
 
-A native LÖVE2D recreation of Pokemon Red. The engine and map behavior are
-hand-written Lua; game data and graphics are decoded from a ROM supplied by
-the player.
+A native LÖVE2D recreation of Pokemon Red and Blue. The engine and map
+behavior are hand-written Lua; game data and graphics are decoded from a ROM
+supplied by the player.
 
 SUPPORT AND ANNOUNCEMENTS: [Discord](https://bois.icu)
 
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
-or download a disassembly. A canonical US Pokemon Red ROM is the only game
-content input.
+or download a disassembly. A canonical US Pokemon Red or Blue ROM is the only
+game content input.
 
 The ROM is verified, used during import, and then released from memory. It is
 not copied into the cache. Later launches load the private generated cache and
-do not ask for the ROM again.
+do not ask for the ROM again. Red and Blue can both be imported and played
+side by side.
 
 ## Quick Start
 
@@ -20,8 +21,12 @@ Open the desktop app. On first boot, choose your legally obtained `.gb` file
 or drop it onto the window. Import takes a few seconds and the game starts
 automatically.
 
-Only the canonical 1 MiB US Red ROM is accepted. The importer verifies SHA-1
-`ea9bcae617fdf159b045185467ae58b2e4a48b9a` before creating any game data.
+Only the canonical 1 MiB US Red and Blue ROMs are accepted. The importer
+verifies SHA-1 before creating any game data:
+
+- Red: `ea9bcae617fdf159b045185467ae58b2e4a48b9a`
+- Blue: `d7037c83e1ae5b39bde3c30787637ba1d4c48ce2`
+
 The packaged app contains neither a ROM nor pre-extracted game data. Music,
 sound effects, and cries are synthesized while the game runs from compact
 audio channel programs copied out of the verified ROM.
@@ -33,11 +38,11 @@ B; Escape opens START. F1 saves and F2 loads. Controllers are supported.
 
 ## Running From Source
 
-Requires LÖVE 11.x. Place the ROM in the project folder and double-click
-`Play-Mac.command` or `Play-Windows.bat`, or run:
+Requires LÖVE 11.x. Place a Red or Blue ROM in the project folder and
+double-click `Play-Mac.command` or `Play-Windows.bat`, or run:
 
 ```sh
-scripts/setup.sh --rom "/path/to/Pokemon Red.gb"
+scripts/setup.sh --rom "/path/to/Pokemon Red.gb"   # or Pokemon Blue.gb
 scripts/run.sh
 ```
 
@@ -107,7 +112,3 @@ request with real detail is one that can actually get built.
 This project would not be possible without [pret](https://github.com/pret) >
 the pret band of decompiling maniacs > and their
 [pokered](https://github.com/pret/pokered) disassembly.
-
-## Wanna Support My Work?
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/bryanthaboi)
-

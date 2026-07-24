@@ -216,7 +216,9 @@ local function useOn(game, battle, id, target, list, moveIndex)
       consume(game, id)
       require("src.core.Sound").play(game.data, "Teleport_Exit1")
       ow.player.surfing = false
-      ow:warpToHealPoint()
+      -- EnterMapAnim on arrival (BIT_ESCAPE_WARP / special warp path);
+      -- blackouts omit arrive="teleport" (HandleBlackOut has no LeaveMapAnim)
+      ow:warpToHealPoint(nil, { arrive = "teleport" })
     else
       showMessages(game, { "OAK: " .. game.save.player.name
         .. "!\nThis isn't the\ntime to use that!" })

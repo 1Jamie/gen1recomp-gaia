@@ -476,7 +476,9 @@ check(title.version and title.version.path
   "the shipped version ribbon loads")
 
 -- issue #128: title SGB zones must resolve Blue's LOGO1 (blue ribbon),
--- not Red's, when the ROM pack carries Blue SuperPalettes
+-- not Red's, when the ROM pack carries Blue SuperPalettes.  Color 0 is
+-- forced to pure white so ROM's {255,239,255} does not paint a pink band
+-- against GBC-pack LOGO2/MEWMON whites.
 do
   local GameVersion = require("src.core.GameVersion")
   local PaletteFX = require("src.render.PaletteFX")
@@ -496,15 +498,107 @@ do
   PaletteFX.setMode("redpp")
   GameVersion.set("blue")
   local zones = TitleState.sgbPalettes(title, game)
-  check(zones and zones[2] and zones[2].colors == blueLogo1,
-        "Blue title ribbon zone uses ROM LOGO1 under RED++")
+  local ribbon = zones and zones[2] and zones[2].colors
+  check(ribbon and ribbon[4][1] == 115 and ribbon[4][3] == 239,
+        "Blue title ribbon zone keeps ROM LOGO1 blue ink under RED++")
+  check(ribbon and ribbon[1][1] == 255 and ribbon[1][2] == 255
+        and ribbon[1][3] == 255,
+        "Blue title ribbon white is pure (no pink SGB band)")
   GameVersion.set("red")
   zones = TitleState.sgbPalettes(title, game)
   local gbcLogo1 = PaletteFX.gbcPack().palettes.LOGO1
-  check(zones and zones[2] and zones[2].colors == gbcLogo1,
-        "Red title under RED++ keeps gbc-pack LOGO1 even if ROM has Blue's")
+  ribbon = zones and zones[2] and zones[2].colors
+  check(ribbon and ribbon[4][1] == gbcLogo1[4][1]
+        and ribbon[4][2] == gbcLogo1[4][2]
+        and ribbon[4][3] == gbcLogo1[4][3],
+        "Red title under RED++ keeps gbc-pack LOGO1 ink even if ROM has Blue's")
   GameVersion.set(prevVer)
   PaletteFX.setMode(prevMode)
+end
+
+-- issue #133: title menu / continue overlays must not inherit LOGO2/LOGO1
+-- (blue/red UI ink).  A trailing trueColor zone covers the overlay box.
+do
+  local logo2 = {
+    { 255, 255, 255 }, { 230, 197, 0 }, { 148, 156, 148 }, { 41, 99, 181 },
+  }
+  local logo1 = {
+    { 255, 255, 255 }, { 247, 247, 140 }, { 140, 189, 82 }, { 173, 0, 33 },
+  }
+  local mewmon = {
+    { 255, 239, 255 }, { 247, 181, 140 }, { 132, 115, 156 }, { 25, 16, 16 },
+  }
+  local game = {
+    data = { palettes = { palettes = {
+      LOGO1 = logo1, LOGO2 = logo2, MEWMON = mewmon,
+    } } },
+    stack = newStack(),
+  }
+  local bare = TitleState.sgbPalettes(title, game)
+  check(bare and #bare == 3 and bare[1].colors == logo2,
+        "bare title keeps three LOGO/MEWMON zones")
+  check(not bare[4], "bare title has no overlay trueColor zone")
+
+  game.stack:push(title)
+  -- openMenu needs SaveData/hasSave; stub a no-save menu via the same stamp
+  local Menu = require("src.ui.Menu")
+  local menu = Menu.new(game, { { label = "NEW GAME" } },
+                        { tx = 0, ty = 0, tw = 13, th = 4 })
+  menu.titleUiBox = { 0, 0, 12, 3 }
+  game.stack:push(menu)
+  local withMenu = TitleState.sgbPalettes(title, game)
+  check(withMenu and #withMenu == 4 and withMenu[4].colors == false,
+        "title menu adds a trueColor overlay zone")
+  check(withMenu[4].x == 0 and withMenu[4].y == 0
+        and withMenu[4].w == 13 * 8 and withMenu[4].h == 4 * 8,
+        "menu overlay covers the CONTINUE/NEW GAME box")
+
+  game.stack:pop()
+  game.stack:push({ titleUiBox = { 4, 7, 19, 16 } })
+  local withCont = TitleState.sgbPalettes(title, game)
+  check(withCont and #withCont == 4 and withCont[4].colors == false,
+        "continue-info overlay adds a trueColor zone")
+  check(withCont[4].x == 4 * 8 and withCont[4].y == 7 * 8
+        and withCont[4].w == 16 * 8 and withCont[4].h == 10 * 8,
+        "continue overlay matches DisplayContinueGameInfo's box")
+
+  -- openMenu itself must stamp titleUiBox on the real Menu it pushes
+  while game.stack:top() do game.stack:pop() end
+  title.game = game
+  title:openMenu()
+  local opened = game.stack:top()
+  check(opened and opened.titleUiBox
+        and opened.titleUiBox[1] == 0 and opened.titleUiBox[3] == 12,
+        "openMenu stamps titleUiBox on the pushed Menu")
+end
+
+-- Options / mod manager opened from the title must not inherit LOGO1
+-- (third options box = rows 8-9 would otherwise tint pink).
+do
+  local OptionsMenu = require("src.ui.OptionsMenu")
+  local ManagerState = require("src.mods.ManagerState")
+  local PaletteFX = require("src.render.PaletteFX")
+  local mewmon = {
+    { 255, 255, 255 }, { 239, 156, 107 }, { 115, 33, 165 }, { 0, 0, 0 },
+  }
+  local game = { data = { palettes = { palettes = { MEWMON = mewmon } } },
+                 save = { options = {} } }
+  local optZones = OptionsMenu.sgbPalettes(OptionsMenu, game)
+  check(optZones and #optZones == 1 and optZones[1].colors == mewmon,
+        "OptionsMenu owns a whole-screen MEWMON zone")
+  local modZones = ManagerState.sgbPalettes(ManagerState, game)
+  check(modZones and #modZones == 1 and modZones[1].colors == mewmon,
+        "ManagerState owns a whole-screen MEWMON zone")
+  -- stack walk: with Options on top of Title, Game would pick Options
+  local titleZones = TitleState.sgbPalettes(title, {
+    data = { palettes = { palettes = {
+      LOGO1 = { { 255, 239, 255 }, { 1, 2, 3 }, { 4, 5, 6 }, { 115, 156, 239 } },
+      LOGO2 = mewmon, MEWMON = mewmon,
+    } } },
+  })
+  check(titleZones and titleZones[2].colors[1][2] == 255,
+        "title LOGO1 sanitize still pure-white with pink ROM input")
+  check(PaletteFX.wholeNamed, "PaletteFX.wholeNamed still available for menus")
 end
 
 local OakSpeech = require("src.ui.OakSpeech")

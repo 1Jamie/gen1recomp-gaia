@@ -79,6 +79,58 @@ do
         "the queued trap anim row is attributed to the attacker")
 end
 
+-- (2b) Issue #140: being held by Wrap must NOT skip DisplayBattleMenu
+-- (core.asm:312 then 323-329).  FIGHT forces CANNOT_MOVE; AI still
+-- auto-selects bound.  A player switch clears the foe's trap bit
+-- (SendOutMon core.asm:1761-1762).
+do
+  local tb = freshBattle()
+  tb.enemy.trappingTurns = 2
+  tb.enemy.trapMove = "WRAP"
+  tb.enemy.trapDamage = 5
+  check(tb:menuLockedAction(tb.player) == nil,
+        "a Wrap victim still gets the battle menu")
+  local fight = tb:fightLockedAction(tb.player)
+  check(fight and fight.special == "bound",
+        "FIGHT while wrapped selects CANNOT_MOVE (bound)")
+  -- wrapper continues only after FIGHT, not by skipping the menu
+  check(tb:menuLockedAction(tb.enemy) == nil,
+        "a Wrap user still gets the battle menu")
+  check(tb:fightLockedAction(tb.enemy) and
+        tb:fightLockedAction(tb.enemy).special == "trapping",
+        "FIGHT while wrapping continues the trap")
+  check(tb:lockedAction(tb.player) and tb:lockedAction(tb.player).special == "bound",
+        "lockedAction still reports bound for AI / callers")
+end
+do
+  Game.save.party = {
+    Pokemon.new(Data, "BULBASAUR", 20),
+    Pokemon.new(Data, "SQUIRTLE", 20),
+  }
+  local tb = BattleState.newWild(Game, "EKANS", 10)
+  tb.enemy.trappingTurns = 3
+  tb.enemy.trapMove = "WRAP"
+  tb.enemy.trapDamage = 7
+  local acts = {}
+  function tb:act(fn) acts[#acts + 1] = fn end
+  function tb:actNext(fn) acts[#acts + 1] = fn end
+  function tb:sayNext() end
+  function tb:animNext() end
+  function tb:startGrowIn() end
+  function tb:syncSides() end
+  function tb:markParticipant() end
+  function tb:restoreMimicked() end
+  function tb:executeAction() end
+  function tb:endOfTurn() end
+  function tb:enemyAction() return { special = "bound" } end
+  tb:resolveSwitch(Game.save.party[2])
+  acts[1]() -- send-out clears foe trap
+  eq(tb.enemy.trappingTurns, nil, "player switch clears foe Wrap/Bind/etc.")
+  eq(tb.enemy.trapMove, nil, "player switch clears trapMove")
+  check(tb:fightLockedAction(tb.player) == nil,
+        "switch-in is free to choose a move")
+end
+
 -- (3) MIMIC runs MID-move (MimicEffect, effects.asm:1203-1273): the
 -- move executes, MoveHitTest runs, and only on a hit does the player's
 -- copy menu open (.letPlayerChooseMove) -- the enemy's Mimic and link
@@ -169,9 +221,34 @@ do
   check(fe.chooser == nil, "enemy Mimic never opens a chooser")
   eq(tbe.enemy.curMoves[1].id, "SAND_ATTACK",
      "enemy Mimic copies a random player move immediately")
-  eq(tbe.enemy.curMoves[1].pp, 9, "enemy Mimic also keeps the slot's PP")
+  -- Gen 1 never decrements enemy PP, so the copied move inherits Mimic's
+  -- full remaining PP (still 10). Player Mimic would leave 9.
+  eq(tbe.enemy.curMoves[1].pp, 10, "enemy Mimic keeps full slot PP (no enemy drain)")
   check(fe.anim and hasText(fe, "learned"),
         "enemy Mimic still plays the animation and learned text")
+
+-- === #94: gen1_faithful enemies never deplete PP; player still does ===
+do
+  local tb = freshBattle()
+  check(tb.ruleset.enemyUnlimitedPP,
+        "default ruleset grants enemy unlimited PP")
+  local enemyMove = { id = "TACKLE", pp = 5 }
+  local playerMove = { id = "TACKLE", pp = 5 }
+  tb.queue, tb.nextInsert = {}, 0
+  tb:performMove(tb.enemy, tb.player, enemyMove)
+  eq(enemyMove.pp, 5, "gen1_faithful: enemy move PP is not decremented")
+  tb.queue, tb.nextInsert = {}, 0
+  tb:performMove(tb.player, tb.enemy, playerMove)
+  eq(playerMove.pp, 4, "gen1_faithful: player move PP still decrements")
+
+  -- modern_clean tracks enemy PP (Gen 2+ style)
+  local modern = require("src.battle.rulesets.modern_clean")
+  tb.ruleset = modern
+  local enemyModern = { id = "TACKLE", pp = 5 }
+  tb.queue, tb.nextInsert = {}, 0
+  tb:performMove(tb.enemy, tb.player, enemyModern)
+  eq(enemyModern.pp, 4, "modern_clean: enemy move PP decrements")
+end
 
   -- link battle: the player's Mimic rolls random too (no chooser)
   local tbl = freshBattle()

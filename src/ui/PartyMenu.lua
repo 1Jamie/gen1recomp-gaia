@@ -294,7 +294,9 @@ function PartyMenu:update(dt)
         if ow and heal then
           self.game.stack:push(Transition.whiteFlash(self.game, nil, function()
             require("src.core.Sound").play(self.game.data, "Teleport_Exit1")
-            ow:warpToHealPoint()
+            -- EnterMapAnim on arrival (HandleFlyWarpOrDungeonWarp sets
+            -- BIT_FLY_WARP); blackouts must not pass arrive="teleport"
+            ow:warpToHealPoint(nil, { arrive = "teleport" })
           end))
         end
         return

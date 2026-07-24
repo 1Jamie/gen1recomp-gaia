@@ -187,4 +187,55 @@ check(OW.objectVisible(Game.save, "SEAFOAM_ISLANDS_B4F",
                        objOf("SEAFOAM_ISLANDS_B4F", "SEAFOAMISLANDSB4F_BOULDER2")),
       "SEAFOAMISLANDSB4F_BOULDER2 is visible at the end state")
 
+-- === issue #129: B3F current auto-warps via BIT_FORCED_WARP ===
+-- South-edge stairs at (20,17) are water warps (not door/warp tiles), so
+-- CheckWarpsNoCollision needs BIT_FORCED_WARP (or a held d-pad).  B3F
+-- currents set that bit; after the RLE lands, the warp must fire without
+-- further player input.
+do
+  local FieldDefaults = require("src.world.FieldDefaults")
+  check(FieldDefaults.fieldValue(Data, "seafoam", "SEAFOAM_ISLANDS_B3F",
+                                 "setsForcedWarp") == true,
+        "B3F seafoam setsForcedWarp (BIT_FORCED_WARP) is configured")
+
+  while Game.stack:top() do Game.stack:pop() end
+  Game.save = SaveData.newGame()
+  Game.save.flags = {}
+  -- Landing on the B3F force-surf mouth mounts SURF and arms the current
+  -- (EnterMap CheckForceBikeOrSurf + Seafoam MOVE_OBJECT), including
+  -- BIT_FORCED_WARP for the south-edge stairs.
+  Game.stack:push(OW, "SEAFOAM_ISLANDS_B3F", 18, 7, "down")
+  local cur = Game.stack:top()
+  check(cur.player.surfing == true,
+        "B3F force-surf mouth mounts SURF on map entry")
+  check(cur.forcedWarp == true,
+        "B3F current arms forcedWarp (BIT_FORCED_WARP)")
+  check(#cur.scriptMoves > 0 or cur.player.moving,
+        "unplugged B3F current at (18,7) starts forced surfing RLE")
+
+  -- Fast-forward the scripted current onto the south-edge warp.
+  local guard = 0
+  while guard < 2000 do
+    guard = guard + 1
+    StateStack:update(1 / 60)
+    if cur.map and cur.map.id ~= "SEAFOAM_ISLANDS_B3F" then break end
+    if cur.transitioning then break end
+  end
+  -- Drain the warp Transition onto B4F (and any immediate forcedExit shove).
+  guard = 0
+  while guard < 400 do
+    guard = guard + 1
+    StateStack:update(1 / 60)
+    if Game.stack:top() == cur and cur.map and cur.map.id == "SEAFOAM_ISLANDS_B4F"
+       and not cur.transitioning and #cur.scriptMoves == 0
+       and not cur.player.moving then
+      break
+    end
+  end
+  check(cur.map and cur.map.id == "SEAFOAM_ISLANDS_B4F",
+        "B3F current auto-warps to B4F without a held d-pad (#129)")
+  check(cur.player.cellX == 20 or cur.player.cellX == 21,
+        "forced current lands on the B4F stair-warp column")
+end
+
 S.finish()

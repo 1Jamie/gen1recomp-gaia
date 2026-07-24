@@ -113,6 +113,22 @@ eq(#game2.save.hallOfFame, 1, "winning team recorded (SaveHallOfFameTeams)")
 local HallOfFame = require("src.ui.HallOfFame")
 check(getmetatable(stack2:top()) == HallOfFame, "induction showcase pushed")
 
+-- Gen1 layout (issue #102): pic rests at hlcoord (12,5); mon phase starts
+-- with the LEVEL/TYPE info box (not a top "HALL OF FAME" banner alone)
+local hofUi = stack2:top()
+eq(hofUi.phase, "mons", "induction opens on the mon showcase phase")
+eq(hofUi.scrollX < 12 * 8, true, "front pic starts off-screen left of (12,5)")
+-- drive past the scroll so the info box is armed
+local scrollGuard = 0
+while hofUi.scrollX < 12 * 8 and scrollGuard < 200 do
+  scrollGuard = scrollGuard + 1
+  hofUi:update(1 / 60)
+end
+eq(hofUi.scrollX, 12 * 8, "front pic settles at hlcoord (12,5)")
+eq(hofUi.showHofBanner, false, "bottom HALL OF FAME banner waits for the 80-frame hold")
+check(hofUi.timer == 80 or hofUi.timer < 80,
+      "info hold uses the pokered 80 DelayFrames window")
+
 -- drive induction + full credits with A held (pages are unskippable; A
 -- only advances the induction and the final THE END wait)
 pressed.a = true

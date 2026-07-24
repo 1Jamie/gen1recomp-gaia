@@ -478,6 +478,25 @@ SaveData.addCoreMigration(2, function(save)
   end
 end)
 
+-- #131 / follow-up to #50: Game Corner poster grunt used to stay on the
+-- floor after defeat (defeatedTrainers only).  The #50 script now hides
+-- him via objectToggles, but saves that already beat him never got the
+-- toggle -- he still blocks the hideout switch.  from=3 so every pre-4
+-- save reconciles once, then is skipped after re-stamp.
+SaveData.addCoreMigration(3, function(save)
+  local defeated = save.defeatedTrainers
+  if not defeated or not defeated["GAME_CORNER_obj_11"] then return end
+  save.objectToggles = save.objectToggles or {}
+  local mapToggles = save.objectToggles.GAME_CORNER
+  if not mapToggles then
+    mapToggles = {}
+    save.objectToggles.GAME_CORNER = mapToggles
+  end
+  if mapToggles.GAMECORNER_ROCKET ~= false then
+    mapToggles.GAMECORNER_ROCKET = false
+  end
+end)
+
 -- ------- write
 
 -- Game progress only; options are written separately via saveOptions.

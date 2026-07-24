@@ -412,14 +412,23 @@ M.GAME_CORNER = {
   -- EVENT_FOUND_ROCKET_HIDEOUT is unset, $43 after)
   onEnter = function(game, ow)
     local poster = game.data.field.gameCornerPoster
-    if not poster then return end
-    local block = game.save.flags[poster.event] and poster.openBlock
-                  or poster.closedBlock
-    ow:replaceBlock(poster.x, poster.y, block)
+    if poster then
+      local block = game.save.flags[poster.event] and poster.openBlock
+                    or poster.closedBlock
+      ow:replaceBlock(poster.x, poster.y, block)
+    end
     -- pick this visit's lucky slot machine
     -- (wLuckySlotHiddenEventIndex, engine/slots/game_corner_slots2.asm)
     local seats = game.data.field.slotMachines.GAME_CORNER
     ow.luckySlot = love.math.random(1, #seats)
+    -- #131: pre-#50 saves beat the poster grunt (defeatedTrainers) but
+    -- never hid him; clear the tile if he is already marked defeated
+    local rocketId = "GAME_CORNER_obj_11"
+    if game.save.defeatedTrainers and game.save.defeatedTrainers[rocketId] then
+      local Commands = require("src.script.Commands")
+      Commands.hide_object({ game = game, save = game.save, overworld = ow },
+                           "GAME_CORNER", "GAMECORNER_ROCKET")
+    end
   end,
   talk = {
     -- the poster bg event: pressing A reveals the hidden switch
@@ -448,7 +457,16 @@ M.GAME_CORNER = {
     -- losing he warns the BOSS and leaves the floor for good, freeing
     -- the tile in front of the hideout switch
     TEXT_GAMECORNER_ROCKET = function(game, ow, npc, done)
+      local Commands = require("src.script.Commands")
+      local function hideRocket()
+        Commands.hide_object({ game = game, save = game.save,
+                               overworld = ow },
+                             "GAME_CORNER", "GAMECORNER_ROCKET")
+      end
+      -- already beaten: hide anyway so pre-#50 saves that only have
+      -- defeatedTrainers (no objectToggles hide) clear the poster tile
       if ow:trainerDefeated(npc) then
+        hideRocket()
         done()
         return
       end
@@ -462,10 +480,7 @@ M.GAME_CORNER = {
           game.data.text._GameCornerRocketAfterBattleText
           or "Our hideout might\nbe discovered! I\nbetter tell BOSS!",
           function()
-            local Commands = require("src.script.Commands")
-            Commands.hide_object({ game = game, save = game.save,
-                                   overworld = ow },
-                                 "GAME_CORNER", "GAMECORNER_ROCKET")
+            hideRocket()
             done()
           end))
       end)

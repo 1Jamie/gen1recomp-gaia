@@ -13,13 +13,35 @@ TitleState.isOpaque = true
 
 -- SGB title zones (PalPacket_Titlescreen): the logo rows get LOGO2,
 -- the version-ribbon band LOGO1, the rest MEWMON.
+--
+-- The CONTINUE / NEW GAME menu and the continue-info box sit inside those
+-- LOGO bands.  pokered's MainMenu clears the title and runs
+-- RunDefaultPaletteCommand so black UI ink stays black; this port keeps the
+-- title art visible underneath, so without an overlay those boxes inherit
+-- LOGO2 blue / LOGO1 red (issue #133).  A trailing trueColor zone leaves the
+-- overlay's DMG black unshaded while the logo and title mon keep title pals.
+--
+-- ROM SuperPal whites are often {255,239,255}.  Under RED++, LOGO2/MEWMON
+-- come from the GBC pack (pure white) while Blue's LOGO1 stays on the ROM
+-- pack (#128), so the version-ribbon row reads as a pink band.  Force that
+-- slot to pure white; ink colors (Blue/Red "Version" text) stay intact.
+local function withPureWhite(pal)
+  if not pal then return nil end
+  return { { 255, 255, 255 }, pal[2], pal[3], pal[4] }
+end
+
 function TitleState:sgbPalettes(game)
   local P = require("src.render.PaletteFX")
   local z = {
     P.zone(P.pal(game.data, "LOGO2"), 0, 0, 19, 7),
-    P.zone(P.pal(game.data, "LOGO1"), 0, 8, 19, 9),
+    P.zone(withPureWhite(P.pal(game.data, "LOGO1")), 0, 8, 19, 9),
     P.zone(P.pal(game.data, "MEWMON"), 0, 10, 19, 17),
   }
+  local top = game.stack and game.stack:top()
+  local box = top and top.titleUiBox
+  if box then
+    z[#z + 1] = P.trueColorZone(box[1], box[2], box[3], box[4])
+  end
   return z[3] and z or nil
 end
 
@@ -119,8 +141,11 @@ local ContinueInfo = {}
 ContinueInfo.__index = ContinueInfo
 
 function ContinueInfo.new(title, save)
-  return setmetatable({ title = title, game = title.game, save = save },
-                      ContinueInfo)
+  -- box at (4,7), 16x10 tiles -- see ContinueInfo:draw / DisplayContinueGameInfo
+  return setmetatable({
+    title = title, game = title.game, save = save,
+    titleUiBox = { 4, 7, 19, 16 },
+  }, ContinueInfo)
 end
 
 function ContinueInfo:update(dt)
@@ -184,8 +209,11 @@ function TitleState:openMenu()
       love.event.quit()
     end
   end })
-  game.stack:push(Menu.new(game, items,
-                           { tx = 0, ty = 0, tw = 13, th = #items * 2 + 2 }))
+  local th = #items * 2 + 2
+  local menu = Menu.new(game, items, { tx = 0, ty = 0, tw = 13, th = th })
+  -- full-width title LOGO zones would recolor this box; see sgbPalettes
+  menu.titleUiBox = { 0, 0, 12, th - 1 }
+  game.stack:push(menu)
 end
 
 function TitleState:update(dt)

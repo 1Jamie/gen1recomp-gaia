@@ -31,13 +31,16 @@ local function starterBall(askText, species, choseFlag, ownBall,
       { species = species, forceOwned = true } }, -- 5
     { "ask", askText },                           -- 6
     { "jump_if_false", 21 },                      -- 7
-    { "give_pokemon", species, 5 },               -- 8
-    { "set_flag", "EVENT_GOT_STARTER" },          -- 9
-    { "set_flag", choseFlag },                    -- 10
+    -- OaksLab.asm prints ReceivedMon then AddPartyMon (AskName lives
+    -- inside give_pokemon).  Show the received text first so the
+    -- nickname prompt follows "you got X", matching Gen1.
+    { "show_text", "_OaksLabReceivedMonText", { RAM = species } }, -- 8
+    { "give_pokemon", species, 5 },               -- 9
+    { "set_flag", "EVENT_GOT_STARTER" },          -- 10
+    { "set_flag", choseFlag },                    -- 11
     -- POKé BALLs are not handed out here in the original -- Oak gives
     -- them later, at OaksLabOak1Text's .give_poke_balls beat once the
     -- player has beaten the Route 22 rival (see TEXT_OAKSLAB_OAK1 below)
-    { "show_text", "_OaksLabReceivedMonText", { RAM = species } }, -- 11
     { "hide_object", "OAKS_LAB", ownBall },       -- 12
     -- the rival walks to the countering ball (around the furniture)
     { "move_npc_to", 1, rivalBallX, 4 },          -- 13

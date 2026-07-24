@@ -13,4 +13,7 @@ return {
   randMax = 255,
   -- Focus Energy famously QUARTERS the crit rate instead of x4
   focusEnergyBug = true,
+  -- Wild/trainer enemies never spend PP (DecrementPP only touches the
+  -- player side in pokered). They therefore never Struggle from empty PP.
+  enemyUnlimitedPP = true,
 }

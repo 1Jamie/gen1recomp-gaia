@@ -7,6 +7,7 @@
 -- over later, at TEXT_OAKSLAB_OAK1's .give_poke_balls beat, gated on
 -- EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE and the one-shot
 -- EVENT_GOT_POKEBALLS_FROM_OAK flag (data/scripts/oaks_lab.lua).
+-- Also #137: starter give_pokemon runs AskName (nickname yes/no).
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 local Data = require("src.core.Data")
@@ -21,6 +22,8 @@ local StateStack = require("src.core.StateStack")
 local SaveData = require("src.core.SaveData")
 local ScriptRunner = require("src.script.ScriptRunner")
 local Flags = require("src.script.Flags")
+local ChoiceBox = require("src.ui.ChoiceBox")
+local NamingScreen = require("src.ui.NamingScreen")
 local mapScripts = require("data.scripts.init")
 
 Game.data = Data
@@ -29,16 +32,15 @@ Game.stack = StateStack; StateStack:init()
 Game.save = SaveData.newGame()
 require("src.render.Font").load(Data)
 
--- pumps a script coroutine to completion, mashing A through any
--- show_text/ask boxes along the way (mirrors tests/run_tests.lua's
--- runScript helper for the parcel/pokedex chain)
-local function runScript(script)
+-- pumps a script coroutine to completion; pressFn returns the Input.pressed
+-- table for this frame (default: mash A through text/ask/naming)
+local function runScript(script, pressFn)
   local r = ScriptRunner.new(Game, nil)
   r:run(script, {})
   local guard = 0
-  while r:isRunning() and guard < 2000 do
+  while r:isRunning() and guard < 4000 do
     guard = guard + 1
-    Input.pressed = { a = true }
+    Input.pressed = pressFn and pressFn() or { a = true }
     StateStack:update(1 / 60)
     r:update()
   end
@@ -58,6 +60,11 @@ check(runScript(mapScripts.talkScript("OAKS_LAB", "TEXT_OAKSLAB_BULBASAUR_POKE_B
       "starter pick script completes")
 check(Flags.get(Game.save, "EVENT_GOT_STARTER"), "starter flag set")
 eq(Game.save.inventory.POKE_BALL, nil, "no POKe BALLs yet right after picking a starter")
+check(Game.save.party[1] and Game.save.party[1].species == "BULBASAUR",
+      "starter joined the party")
+-- A-mash accepts the nickname prompt and fills NamingScreen with A's
+check(Game.save.party[1].nickname == "AAAAAAAAAA",
+      "starter nickname prompt accepted (AskName / #137)")
 
 -- === 2) the parcel/pokedex beat still doesn't grant POKé BALLs ===
 check(runScript(mapScripts.talkScript("VIRIDIAN_MART", "TEXT_VIRIDIANMART_CLERK")),
@@ -106,5 +113,36 @@ local repaired = Game.save.objectToggles.OAKS_LAB
 check(repaired.OAKSLAB_POKEDEX1 == false
       and repaired.OAKSLAB_POKEDEX2 == false,
       "onEnter hides both Pokédex table sprites when EVENT_GOT_POKEDEX is set")
+
+-- === 6) #137: declining the starter nickname leaves no nickname ===
+-- Choice boxes in order: (1) "you want X?" YES, (2) nickname YES/NO -> NO
+Game.save = SaveData.newGame()
+Flags.set(Game.save, "EVENT_FOLLOWED_OAK_INTO_LAB")
+local choicesSeen, lastChoice = 0, nil
+local function declineNickname()
+  local top = StateStack:top()
+  local mt = getmetatable(top)
+  if mt == ChoiceBox and top ~= lastChoice then
+    choicesSeen = choicesSeen + 1
+    lastChoice = top
+  elseif mt ~= ChoiceBox then
+    lastChoice = nil
+  end
+  if mt == ChoiceBox and choicesSeen >= 2 then
+    return { b = true }
+  end
+  if mt == NamingScreen then
+    return { start = true }
+  end
+  return { a = true }
+end
+check(runScript(mapScripts.talkScript("OAKS_LAB", "TEXT_OAKSLAB_CHARMANDER_POKE_BALL"),
+                declineNickname),
+      "starter pick with declined nickname completes")
+check(Flags.get(Game.save, "EVENT_GOT_STARTER"), "declined-nickname path still sets starter flag")
+eq(Game.save.party[1] and Game.save.party[1].species, "CHARMANDER",
+   "declined-nickname path still gives Charmander")
+eq(Game.save.party[1] and Game.save.party[1].nickname, nil,
+   "declining nickname leaves the species name")
 
 S.finish()

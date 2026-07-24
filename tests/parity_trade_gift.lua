@@ -222,16 +222,21 @@ check(runScript("VERMILION_TRADE_HOUSE", "TEXT_VERMILIONTRADEHOUSE_LITTLE_GIRL")
       "DUX post-trade script completes")
 shownIs({ "_AfterTrade3Text" }, "DUX uses the happy dialogset")
 
--- === 9) Celadon Eevee: no confirm prompt, GotMonText, ball hidden ===
+-- === 9) Celadon Eevee: no confirm prompt, AskName then GotMonText,
+--         ball hidden (GivePokemon -> AddPartyMon AskName; script still
+--         prints GotMonText after the silent give_pokemon row) ===
 local EEVEE_MAP, EEVEE_BALL =
   "CELADON_MANSION_ROOF_HOUSE", "CELADONMANSION_ROOF_HOUSE_EEVEE_POKEBALL"
 local EEVEE_TEXT = "TEXT_CELADONMANSION_ROOF_HOUSE_EEVEE_POKEBALL"
 Game.save = SaveData.newGame()
 check(runScript(EEVEE_MAP, EEVEE_TEXT), "Eevee ball script completes")
-shownIs({ "_GotMonText" }, "Eevee gives immediately (no ask prompt)")
+shownIs({ "_DoYouWantToNicknameText", "_GotMonText" },
+        "Eevee gives immediately (nickname ask, then GotMonText)")
 eq(#Game.save.party, 1, "Eevee joins the party")
 eq(Game.save.party[1].species, "EEVEE", "gift species is EEVEE")
 eq(Game.save.party[1].level, 25, "Eevee is level 25")
+check(Game.save.party[1].nickname == "AAAAAAAAAA",
+      "Eevee nickname prompt accepted (A-mash NamingScreen)")
 check(Flags.get(Game.save, "EVENT_GOT_EEVEE"), "EVENT_GOT_EEVEE bookkeeping set")
 eq(toggleOf(EEVEE_MAP, EEVEE_BALL), false, "the poke ball object is hidden")
 check(Game.save.pokedex.owned.EEVEE, "Eevee registered owned")

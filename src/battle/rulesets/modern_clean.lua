@@ -9,4 +9,6 @@ return {
   randMin = 217,
   randMax = 255,
   focusEnergyBug = false,
+  -- Gen 2+ style: AI opponents deplete PP and can Struggle when empty.
+  enemyUnlimitedPP = false,
 }

@@ -18,6 +18,12 @@ ManagerState.isOpaque = true
 -- Game:keypressed recognizes a directly-pushed instance
 ManagerState.screenId = "ManagerState"
 
+-- Same as OptionsMenu: without this, title LOGO zones leak through when
+-- MODS is opened from the title-screen options path.
+function ManagerState:sgbPalettes(game)
+  return require("src.render.PaletteFX").wholeNamed(game.data, "MEWMON")
+end
+
 -- the charmap has no * ~ + < > glyphs, so the status gutter uses what it
 -- does have: staged-awaiting-restart, disabled, errored, dep-unhealthy
 local GLYPH = { staged = ".", disabled = "-", errored = "!", blocked = "?" }

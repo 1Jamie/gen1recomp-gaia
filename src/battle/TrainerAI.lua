@@ -15,7 +15,8 @@
 -- (super-effective) or adds 1 (not-effective when a better move exists);
 -- the MINIMUM-scored move is chosen, ties broken uniformly among the
 -- tied minima (core.asm:2971-3002).  A non-minimal move is never
--- selectable.  Respects PP, Disable and Transform/Mimic move overrides.
+-- selectable.  Respects Disable (and PP only when the ruleset depletes
+-- enemy PP — Gen 1 AI never reads wEnemyMonPP).
 
 local TypeChart = require("src.battle.TypeChart")
 
@@ -212,9 +213,13 @@ end
 
 function TrainerAI.chooseMove(battler, rng, battle)
   rng = rng or love.math.random
+  -- Gen 1: SelectEnemyMove never consults wEnemyMonPP; Struggle only when
+  -- every move slot is missing/disabled (core.asm:2957-2999). modern_clean
+  -- depletes enemy PP and falls back to Struggle when none remain.
+  local unlimited = battle and battle.ruleset and battle.ruleset.enemyUnlimitedPP
   local usable = {}
   for i, mv in ipairs(battler.curMoves) do
-    if mv.pp > 0 and battler.disabledSlot ~= i then
+    if battler.disabledSlot ~= i and (unlimited or mv.pp > 0) then
       table.insert(usable, mv)
     end
   end

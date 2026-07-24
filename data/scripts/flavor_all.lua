@@ -28,6 +28,7 @@ local files = {
   "data.scripts.flavor.pokemon_fan_club",
   "data.scripts.flavor.power_plant",
   "data.scripts.flavor.reds_house_1f",
+  "data.scripts.flavor.reds_house_2f",
   "data.scripts.flavor.route11_gate_2f",
   "data.scripts.flavor.route18_gate_2f",
   "data.scripts.flavor.route_12_gate_2f",

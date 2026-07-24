@@ -215,6 +215,41 @@ do
   SaveData.runMigrations(tagged)
   check(tagged.version == "blue", "an existing version tag is left untouched")
 
+  -- #131: format-3 save that beat the Game Corner poster grunt before
+  -- hide_object was wired -- defeatedTrainers only, no objectToggles hide
+  local stuckGrunt = {
+    meta = { format = 3, mods = {} },
+    defeatedTrainers = { GAME_CORNER_obj_11 = true },
+    objectToggles = {},
+    flags = {},
+    player = {},
+  }
+  SaveData.runMigrations(stuckGrunt)
+  check(stuckGrunt.objectToggles.GAME_CORNER
+        and stuckGrunt.objectToggles.GAME_CORNER.GAMECORNER_ROCKET == false,
+        "Game Corner rocket hide backfilled from defeatedTrainers")
+  check(stuckGrunt.meta.format == Version.saveFormat,
+        "format-3 hideout migration stamps to current")
+  -- already-hidden stays hidden; undefeated grunt is left alone
+  local alreadyHidden = {
+    meta = { format = 3, mods = {} },
+    defeatedTrainers = { GAME_CORNER_obj_11 = true },
+    objectToggles = { GAME_CORNER = { GAMECORNER_ROCKET = false } },
+    player = {},
+  }
+  SaveData.runMigrations(alreadyHidden)
+  check(alreadyHidden.objectToggles.GAME_CORNER.GAMECORNER_ROCKET == false,
+        "already-hidden rocket toggle is left false")
+  local neverFought = {
+    meta = { format = 3, mods = {} },
+    defeatedTrainers = {},
+    objectToggles = {},
+    player = {},
+  }
+  SaveData.runMigrations(neverFought)
+  check(not neverFought.objectToggles.GAME_CORNER,
+        "undefeated Game Corner rocket is not auto-hidden")
+
   love.filesystem = realFS
 end
 

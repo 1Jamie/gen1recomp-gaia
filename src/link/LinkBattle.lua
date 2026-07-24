@@ -36,18 +36,13 @@ local function makeRng(seed)
   end
 end
 
--- battler builder shared by both sides -- NO badge boosts, so both
--- machines compute identical stats
+-- Battlers go through BattleState.makeBattler so pics get the same
+-- Assets.resolve + SGB/GBC palette + padBottom path as wild/trainer
+-- battles.  save=nil skips badge boosts so both machines keep identical
+-- stats (Gen 1 cable battles famously kept badges; we still diverge).
 local function mkBattler(data, mon, isPlayer)
-  local def = data.pokemon[mon.species]
-  local ok, img = pcall(love.graphics.newImage,
-                        isPlayer and def.spriteBack or def.spriteFront)
-  return {
-    mon = mon, def = def, isPlayer = isPlayer, stages = {},
-    name = mon.nickname or def.name,
-    curStats = mon.stats, curTypes = def.types, curMoves = mon.moves,
-    sprite = ok and img or nil,
-  }
+  local BattleState = require("src.battle.BattleState")
+  return BattleState.makeBattler(data, mon, isPlayer, nil)
 end
 
 -- canonical (host-side-first) state hash, unchanged since v1: it stays on
@@ -213,6 +208,8 @@ function LinkBattle.new(game, net, opts)
   self.player = mkBattler(game.data, myParty[1], true)
   self.enemy = mkBattler(game.data, theirParty[1], false)
   self.enemyParty = theirParty
+  self.playerParty = myParty -- intro ball row uses the clamped copies
+  self.opponentName = theirName
   self.introText = ("%s wants\nto battle!"):format(theirName)
   self.remoteHashes = {}
   self.localHashes = {}
@@ -233,6 +230,43 @@ function LinkBattle.new(game, net, opts)
   local function orderMove(action)
     if action and action.id then return game.data.moves[action.id] end
     return nil
+  end
+
+  -- player-side SendOutMon (poof + grow-in + cry); mirrors BattleState
+  local function sendOutPlayer(s, mon)
+    local previous = s.player
+    s.player = mkBattler(game.data, mon, true)
+    s:syncSides()
+    Runtime.emit("battle.battler_switched", {
+      battle = s, side = s.sides[1], battler = s.player, previous = previous,
+    })
+    s.sendingOut = true
+    s:sayNext(s:sendOutText(s.player.name))
+    s:animNext("POOF_ANIM", false)
+    s:actNext(function()
+      s.sendingOut = false
+      s:startGrowIn(s.player)
+      require("src.core.Sound").playCry(s.data, s.player.mon.species)
+    end)
+  end
+
+  -- enemy-side EnemySendOut (grow-in + cry; no poof)
+  local function sendOutEnemy(s, mon)
+    local previous = s.enemy
+    s.enemy = mkBattler(game.data, mon, false)
+    s:syncSides()
+    Runtime.emit("battle.battler_switched", {
+      battle = s, side = s.sides[2], battler = s.enemy, previous = previous,
+    })
+    s.enemySendingOut = true
+    s:sayNext(("%s sent\nout %s!"):format(theirName, s.enemy.name))
+    s:actNext(function()
+      s.enemySendingOut = false
+      s:startGrowIn(s.enemy)
+      s:actNext(function()
+        require("src.core.Sound").playCry(s.data, s.enemy.mon.species)
+      end)
+    end)
   end
 
   -- decode a remote action message against the enemy battler
@@ -306,17 +340,11 @@ function LinkBattle.new(game, net, opts)
     -- switches happen before attacks (both may switch)
     if myMsg.kind == "switch" then
       local idx = myMsg.index
-      s:act(function()
-        s.player = mkBattler(game.data, myParty[idx], true)
-        s:sayNext(("Go! %s!"):format(s.player.name))
-      end)
+      s:act(function() sendOutPlayer(s, myParty[idx]) end)
       myAction = nil
     end
     if theirSwitch then
-      s:act(function()
-        s.enemy = mkBattler(game.data, theirParty[theirSwitch], false)
-        s:sayNext(("%s sent\nout %s!"):format(theirName, s.enemy.name))
-      end)
+      s:act(function() sendOutEnemy(s, theirParty[theirSwitch]) end)
     end
 
     s:act(function()
@@ -452,10 +480,7 @@ function LinkBattle.new(game, net, opts)
   self.playerMonFainted = function(s)
     for _, mon in ipairs(myParty) do
       if mon.hp > 0 then
-        s:act(function()
-          s.player = mkBattler(game.data, mon, true)
-          s:sayNext(("Go! %s!"):format(s.player.name))
-        end)
+        s:act(function() sendOutPlayer(s, mon) end)
         return
       end
     end
@@ -468,10 +493,7 @@ function LinkBattle.new(game, net, opts)
   self.enemyMonFainted = function(s)
     for _, mon in ipairs(theirParty) do
       if mon.hp > 0 then
-        s:act(function()
-          s.enemy = mkBattler(game.data, mon, false)
-          s:sayNext(("%s sent\nout %s!"):format(theirName, s.enemy.name))
-        end)
+        s:act(function() sendOutEnemy(s, mon) end)
         return
       end
     end

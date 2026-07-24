@@ -27,4 +27,12 @@ function FixedStep:update(dt)
   end
 end
 
+-- Drop any pending catch-up steps.  A hitch inside one logic step (map
+-- seam setMap / song start) makes the next real-time dt huge; without this
+-- the while-loop above would advance many walk frames before the next
+-- draw, which looks like a slide with no leg animation (issue #93).
+function FixedStep:discardCatchup()
+  self.accum = 0
+end
+
 return FixedStep

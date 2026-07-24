@@ -22,6 +22,14 @@ local OptionsMenu = {}
 OptionsMenu.__index = OptionsMenu
 OptionsMenu.isOpaque = true
 
+-- Opaque full-screen menu: own MEWMON so opening OPTION from the title
+-- (or over the overworld) does not inherit TitleState's LOGO1 band -- that
+-- zone covers UI rows 8-9, which is the third options box label line
+-- (pink "MODS" strip when Blue's ROM LOGO1 white is {255,239,255}).
+function OptionsMenu:sgbPalettes(game)
+  return PaletteFX.wholeNamed(game.data, "MEWMON")
+end
+
 -- TextSpeedOptionData frame delays with the original labels
 local SPEEDS = { { 1, "FAST" }, { 3, "MEDIUM" }, { 5, "SLOW" } }
 -- no-loader fallback for the ruleset row, same pair BattleState keeps

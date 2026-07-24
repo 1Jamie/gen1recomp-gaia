@@ -23,6 +23,29 @@ Renderer.HEIGHT = 144
 -- endFrame composites the padded canvas back with a matching offset.
 Renderer.UPRIGHT_MARGIN = 160
 
+-- LOVE units + framebuffer pixels + the live unit→pixel ratio.
+-- Android's DisplayMetrics.density (love.graphics.getDPIScale) is often
+-- non-integer (1.5, 2.75, …).  Integer scaling in units then maps each GB
+-- pixel to a fractional number of framebuffer pixels → shimmer, uneven /
+-- non-square "pixels", and movement judder (issue #87).  Always derive the
+-- crisp integer scale from the drawable pixel size; draw with (pixels/dpi)
+-- so the GPU lands on whole framebuffer pixels.  Desktop dpi=1 is unchanged.
+local function displayMetrics()
+  local ww, wh = love.graphics.getDimensions()
+  local pw, ph = ww, wh
+  if love.graphics.getPixelDimensions then
+    pw, ph = love.graphics.getPixelDimensions()
+  end
+  local dpi = 1
+  if ww > 0 and pw > 0 then
+    dpi = pw / ww
+  elseif love.graphics.getDPIScale then
+    dpi = love.graphics.getDPIScale()
+  end
+  if not dpi or dpi < 1e-6 then dpi = 1 end
+  return ww, wh, pw, ph, dpi
+end
+
 function Renderer:init()
   self.canvas = love.graphics.newCanvas(self.WIDTH, self.HEIGHT)
   self.canvas:setFilter("nearest", "nearest")
@@ -36,10 +59,12 @@ function Renderer:init()
   self.uprightActive = false
 end
 
--- integer scale that fits the GB UI viewport in the window
+-- Integer framebuffer pixels per GB pixel that fit the window.  Zoom /
+-- GBCFX / callers treat this as the crisp scale; endFrame converts to LOVE
+-- units via / dpi when drawing.
 function Renderer:fitScale()
-  local ww, wh = love.graphics.getDimensions()
-  return math.max(1, math.floor(math.min(ww / self.WIDTH, wh / self.HEIGHT)))
+  local _, _, pw, ph = displayMetrics()
+  return math.max(1, math.floor(math.min(pw / self.WIDTH, ph / self.HEIGHT)))
 end
 
 -- world-pass canvas size in world pixels: enough to fill the window at s'.
@@ -48,9 +73,13 @@ end
 -- background peeking at the receded top/bottom corners; flat mode returns
 -- exactly today's size (growth factor is 1 when tilt is inactive).
 function Renderer:worldViewSize()
-  local ww, wh = love.graphics.getDimensions()
-  local s = Zoom.scale(self:fitScale())
+  local ww, wh, _, _, dpi = displayMetrics()
+  local s = Zoom.scale(self:fitScale()) / dpi
   local vw, vh = Zoom.fillViewSize(s, ww, wh)
+  -- Even sizes keep Camera:follow on integer pixels (viewW/2 is integral),
+  -- so unfloored FX/sprite math cannot phase-shimmer against the tile layer.
+  if vw % 2 ~= 0 then vw = vw + 1 end
+  if vh % 2 ~= 0 then vh = vh + 1 end
   if Tilt.active() then
     local g = Tilt.viewGrowth()
     vw, vh = math.ceil(vw * g), math.ceil(vh * g)
@@ -289,11 +318,14 @@ end
 -- presented through the GBC FX shader as a final pass.
 function Renderer:endFrame(zones, worldZones)
   love.graphics.setCanvas()
-  local ww, wh = love.graphics.getDimensions()
-  local S = self:fitScale()
+  local ww, wh, pw, ph, dpi = displayMetrics()
+  -- Sp = integer framebuffer pixels per GB pixel; S = LOVE-unit draw scale.
+  local Sp = self:fitScale()
+  local S = Sp / dpi
   local vpw, vph = self.WIDTH * S, self.HEIGHT * S
-  local ox = math.floor((ww - vpw) / 2)
-  local oy = math.floor((wh - vph) / 2)
+  -- Snap the letterbox origin to a framebuffer pixel, then convert to units.
+  local ox = math.floor((pw - self.WIDTH * Sp) / 2) / dpi
+  local oy = math.floor((ph - self.HEIGHT * Sp) / 2) / dpi
   local GBCFX = require("src.render.GBCFX")
   -- Forced mono/Classic modes still need a whole-screen zone when a state
   -- exposes no SGB packets (raw DMG canvas), so sendColors can remap.
@@ -321,9 +353,9 @@ function Renderer:endFrame(zones, worldZones)
   love.graphics.rectangle("fill", 0, 0, ww, wh)
   love.graphics.setColor(1, 1, 1, 1)
 
-  -- blit `canvas` at integer `scale` into origin (bx, by), scissored to
+  -- blit `canvas` at `scale` (LOVE units) into origin (bx, by), scissored to
   -- the (boxX, boxY, boxW, boxH) screen rect.  zoneScale converts zone
-  -- coords (canvas-space) into screen pixels.
+  -- coords (canvas-space) into screen units.
   local function blit(canvas, scale, zoneList, zoneScale, bx, by, boxX, boxY, boxW, boxH)
     local shader = zoneList and zoneList[1] and PaletteFX.shader() or nil
     if not shader then
@@ -355,11 +387,12 @@ function Renderer:endFrame(zones, worldZones)
   end
 
   if self.worldActive then
-    local s = Zoom.scale(S)
+    local sp = Zoom.scale(Sp)
+    local s = sp / dpi
     local wvw = self.worldCanvas:getWidth()
     local wvh = self.worldCanvas:getHeight()
-    local wox = math.floor((ww - wvw * s) / 2)
-    local woy = math.floor((wh - wvh * s) / 2)
+    local wox = math.floor((pw - wvw * sp) / 2) / dpi
+    local woy = math.floor((ph - wvh * sp) / 2) / dpi
     -- Tilt mode projects the ground world pass through the perspective mesh
     -- (SGB zones baked in beforehand -- see drawTiltedWorld -- so no zone
     -- scissoring here).  drawTiltedWorld returns false when tilt is off or
@@ -433,7 +466,8 @@ function Renderer:endFrame(zones, worldZones)
 
   if present then
     love.graphics.setCanvas()
-    GBCFX.present(present, S)
+    -- shader grid/shadow math is in framebuffer pixels
+    GBCFX.present(present, Sp)
   end
   self.worldActive = false
   self.uprightActive = false

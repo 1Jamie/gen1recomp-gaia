@@ -21,12 +21,17 @@ check(hof and type(hof.onEnter) == "function", "HALL_OF_FAME.onEnter is a functi
 
 local champ = init.get("CHAMPIONS_ROOM")
 check(champ ~= nil, "CHAMPIONS_ROOM map script registered")
+check(champ and type(champ.onEnter) == "function",
+      "CHAMPIONS_ROOM.onEnter is a function (forced rival entrance)")
 local rows = champ and champ.talk and champ.talk.TEXT_CHAMPIONSROOM_RIVAL
 check(type(rows) == "table", "CHAMPIONS_ROOM.talk.TEXT_CHAMPIONSROOM_RIVAL exists")
 
 -- (2) the rival cutscene rows contain the pokered beats in order
 rows = rows or {}
 local preds = {
+  { "play_music Music_Cities1 (OakArrives / Music_Cities1AlternateTempo)",
+    function(r) return r[1] == "play_music" and r[2] == "Music_Cities1"
+      and type(r[3]) == "table" and r[3].keep == true end },
   { "show_object CHAMPIONSROOM_OAK",
     function(r) return r[1] == "show_object" and r[3] == "CHAMPIONSROOM_OAK" end },
   { "move_npc(2,'up',5) OakEntranceAfterVictoryMovement",
@@ -82,7 +87,13 @@ check(champToHof, "CHAMPIONS_ROOM has a warp up into HALL_OF_FAME")
 -- (5) functional: HALL_OF_FAME.onEnter consumes the one-shot marker and
 -- queues (does not directly run) the room cutscene.
 local queued
-local fakeOw = { queueScript = function(self, script, extra) queued = script; self.pendingScript = { script = script } end }
+local fakeOw = {
+  map = { def = { signs = {} }, widthCells = 10, signAt = {} },
+  queueScript = function(self, script, extra)
+    queued = script
+    self.pendingScript = { script = script }
+  end,
+}
 local fakeGame = { save = { pendingHallOfFame = true } }
 hof.onEnter(fakeGame, fakeOw)
 check(queued ~= nil, "HALL_OF_FAME.onEnter queues a cutscene script when marker set")
@@ -101,5 +112,42 @@ queued = nil
 fakeGame.save.pendingHallOfFame = false
 hof.onEnter(fakeGame, fakeOw)
 check(queued == nil, "HALL_OF_FAME.onEnter does not replay once the marker is consumed")
+
+-- (6) Champions Room forced entrance (ChampionsRoomPlayerEntersScript):
+-- from Lance (y=7), queue RivalEntrance walk then the rival battle script.
+local champQueued = {}
+local champOw = {
+  player = { cellX = 3, cellY = 7 },
+  npcs = { { def = { name = "CHAMPIONSROOM_RIVAL" } } },
+  queueScript = function(_, script, extra)
+    champQueued[#champQueued + 1] = { script = script, extra = extra }
+  end,
+}
+local champGame = { save = { flags = {} } }
+champ.onEnter(champGame, champOw)
+eq(#champQueued, 2, "CHAMPIONS_ROOM.onEnter queues entrance walk + rival script")
+local walk = champQueued[1] and champQueued[1].script
+check(walk and walk[1][1] == "move_player" and walk[1][2] == "up" and walk[1][3] == 1
+        and walk[2][1] == "move_player" and walk[2][2] == "right" and walk[2][3] == 1
+        and walk[3][1] == "move_player" and walk[3][2] == "up" and walk[3][3] == 3,
+      "entrance walk is RivalEntrance_RLEMovement (up 1, right 1, up 3)")
+check(champQueued[2] and champQueued[2].script == rows,
+      "second queue is TEXT_CHAMPIONSROOM_RIVAL script rows")
+check(champQueued[2] and champQueued[2].extra
+        and champQueued[2].extra.npc == champOw.npcs[1],
+      "rival script receives the CHAMPIONSROOM_RIVAL npc")
+
+-- already beaten this run: no forced entrance
+champQueued = {}
+champGame.save.flags.EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN = true
+champ.onEnter(champGame, champOw)
+eq(#champQueued, 0, "CHAMPIONS_ROOM.onEnter idle after champion beaten this run")
+
+-- Hall of Fame return (y=0) must not re-trigger even if the run flag is clear
+champQueued = {}
+champGame.save.flags.EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN = nil
+champOw.player.cellY = 0
+champ.onEnter(champGame, champOw)
+eq(#champQueued, 0, "CHAMPIONS_ROOM.onEnter ignores Hall of Fame return landing")
 
 S.finish()

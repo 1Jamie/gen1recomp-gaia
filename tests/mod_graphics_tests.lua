@@ -128,6 +128,8 @@ love.graphics = {
   translate = noop, scale = noop, rotate = noop, origin = noop,
   setScissor = noop, getColor = function() return 1, 1, 1, 1 end,
   getDimensions = function() return 640, 576 end,
+  getPixelDimensions = function() return 640, 576 end,
+  getDPIScale = function() return 1 end,
 }
 
 -- Fresh copies of the modules that cache a compiled shader or a page set

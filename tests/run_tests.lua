@@ -1659,6 +1659,47 @@ do
   eq(cam.y, 160 - (288 / 2 - 8), "wide view keeps player centered y")
 end
 
+-- ---------------------------------------------------------------- dpi fit scale (#87)
+-- Android density is often non-integer; fitScale must use framebuffer
+-- pixels so each GB pixel maps to a whole number of physical pixels.
+do
+  local Renderer = require("src.render.Renderer")
+  local Zoom = require("src.render.Zoom")
+  local g = love.graphics
+  local oldDim, oldPix, oldDpi = g.getDimensions, g.getPixelDimensions, g.getDPIScale
+
+  -- desktop / dpi=1: identical to the pre-fix unit-based floor scale
+  g.getDimensions = function() return 1920, 1080 end
+  g.getPixelDimensions = function() return 1920, 1080 end
+  g.getDPIScale = function() return 1 end
+  eq(Renderer:fitScale(), 7, "dpi=1 1080p fitScale is floor(1080/144)=7")
+
+  -- density 1.5 on a 1920x1080 panel → LOVE units 1280x720
+  g.getDimensions = function() return 1280, 720 end
+  g.getPixelDimensions = function() return 1920, 1080 end
+  g.getDPIScale = function() return 1.5 end
+  eq(Renderer:fitScale(), 7,
+     "non-integer density still picks integer framebuffer pixels (7, not 5)")
+  -- old unit-only math would have returned floor(min(1280/160,720/144))=5
+  -- and 5*1.5=7.5 physical px/GB px (shimmer). 7 physical is crisp.
+
+  Zoom.reset()
+  local vw, vh = Renderer:worldViewSize()
+  check(vw % 2 == 0 and vh % 2 == 0, "world view sizes are even (integer camera)")
+  -- ceil(pw/Sp)=ceil(1920/7)=275 → even 276; ceil(1080/7)=155 → even 156
+  eq(vw, 276, "world fill width covers the unit window at pixel scale 7")
+  eq(vh, 156, "world fill height covers the unit window at pixel scale 7")
+
+  -- missing pixel API falls back to getDimensions (headless / old stub)
+  g.getPixelDimensions = nil
+  g.getDPIScale = nil
+  g.getDimensions = function() return 640, 576 end
+  eq(Renderer:fitScale(), 4, "no pixel API: fitScale uses unit dimensions")
+
+  g.getDimensions, g.getPixelDimensions, g.getDPIScale = oldDim, oldPix, oldDpi
+  Zoom.reset()
+end
+
 -- ---------------------------------------------------------------- spawn filter
 do
   local OW = require("src.world.OverworldController")
@@ -2442,6 +2483,94 @@ do
   local mapText = pushed[2] and table.concat(pushed[2].pages[1], "\n") or ""
   check(mapText:find("TOWN MAP", 1, true) ~= nil,
         "{RAM:wStringBuffer} renders the item name")
+end
+end
+
+-- ================= issue #142: player backsprite X =================
+do
+-- pret/pokered places the player mon pic at hlcoord 1,5 (screen x=8).
+-- Drawing at x=16 put every backsprite one tile too far right.
+do
+  local img = {
+    getWidth = function() return 28 end,
+    getHeight = function() return 28 end,
+  }
+  local battle = setmetatable({
+    showPlayerBack = false,
+    safari = false,
+    demo = false,
+    sendingOut = false,
+    phase = "command",
+    player = { sprite = img, isPlayer = true },
+  }, BattleState)
+  function battle:picImage(i) return i end
+  function battle:growInScale() return nil end
+  function battle:fxHidden() return false end
+
+  local xs = {}
+  local origDraw = love.graphics.draw
+  love.graphics.draw = function(drawn, x, y, r, sx, sy)
+    if drawn == img then xs[#xs + 1] = x end
+  end
+  battle:drawPicsLayer(0, 0, 0)
+  love.graphics.draw = origDraw
+  eq(xs[1], 8, "player backsprite rests at hlcoord 1,5 (x=8)")
+
+  -- trainer/old-man back pic uses the same slot
+  battle.showPlayerBack = true
+  battle.playerBackPic = img
+  xs = {}
+  love.graphics.draw = function(drawn, x, y, r, sx, sy)
+    if drawn == img then xs[#xs + 1] = x end
+  end
+  battle:drawPicsLayer(0, 0, 0)
+  love.graphics.draw = origDraw
+  eq(xs[1], 8, "player/old-man back pic also rests at x=8")
+end
+
+-- Front pics: LoadUncompressedSpriteData centers in a 7x7 buffer at
+-- hlcoord 12,0. A 5x5 (40x40) Squirtle rests at (104,16), not
+-- right/bottom-aligned to (112,8).
+do
+  local front = {
+    getWidth = function() return 40 end,
+    getHeight = function() return 40 end,
+  }
+  local battle = setmetatable({
+    showEnemyTrainer = false,
+    enemyHidden = false,
+    enemySendingOut = false,
+    phase = "command",
+    enemy = { sprite = front, isPlayer = false },
+  }, BattleState)
+  function battle:picImage(i) return i end
+  function battle:growInScale() return nil end
+  function battle:fxHidden() return false end
+  function battle:drawBattlerPic(b, x, y, scale)
+    battle._ex, battle._ey, battle._scale = x, y, scale
+  end
+  battle:drawPicsLayer(0, 0, 0)
+  eq(battle._ex, 104, "enemy 5x5 front rests at hlcoord 12,0 + hPad 1 (x=104)")
+  eq(battle._ey, 16, "enemy 5x5 front bottom-aligned in 7x7 (y=16)")
+  eq(battle._scale, 1, "enemy front draws at 1x")
+end
+
+-- Battle message lines skip a tile row (14 then 16), matching the menu.
+do
+  local Font = require("src.render.Font")
+  local ys, origCode, origBox = {}, Font.drawCode, Font.drawBox
+  Font.drawBox = function() end
+  Font.drawCode = function(_, _, y) ys[#ys + 1] = y end
+  local battle = setmetatable({
+    phase = "messages",
+    current = true,
+    charIndex = 999,
+    lines = { { 0x80 }, { 0x81 } },
+  }, BattleState)
+  battle:drawTextArea()
+  Font.drawCode, Font.drawBox = origCode, origBox
+  eq(ys[1], 112, "battle text line 1 at row 14 (y=112)")
+  eq(ys[2], 128, "battle text line 2 at row 16 (y=128)")
 end
 end
 

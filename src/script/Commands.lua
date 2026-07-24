@@ -484,11 +484,51 @@ function Commands.heal_party(ctx)
   end
 end
 
+-- AskName (engine/menus/naming_screen.asm): yes/no then NamingScreen.
+-- AddPartyMon only offers this for party mons (box deposits skip it).
+-- Preserves ctx.lastCheck so GivePokemon's carry is not clobbered by the
+-- yes/no result (scripts jump_if_false on give failure afterwards).
+local function askNickname(ctx, mon)
+  local runner = ctx.runner
+  if not runner then return end
+  local success = ctx.lastCheck
+  local name = ctx.game.stringBuffer
+    or (ctx.game.data.pokemon[mon.species]
+        and ctx.game.data.pokemon[mon.species].name)
+    or mon.species
+  -- Prefer the real text label; fall back to the BattleState wording.
+  if ctx.game.data.text and ctx.game.data.text._DoYouWantToNicknameText then
+    Commands.show_text(ctx, "_DoYouWantToNicknameText", { RAM = name })
+  else
+    Commands.show_text(ctx, ("Do you want to\ngive a nickname\nto %s?"):format(name))
+  end
+  local ChoiceBox = require("src.ui.ChoiceBox")
+  ctx.game.stack:push(ChoiceBox.new(ctx.game, function(yes)
+    if not yes then
+      ctx.lastCheck = success
+      runner:resume()
+      return
+    end
+    Screens.push(ctx.game, "NamingScreen", {
+      title = "NICKNAME?", maxLen = 10,
+      onDone = function(nick)
+        if nick and #nick > 0 then mon.nickname = nick end
+        ctx.lastCheck = success
+        runner:resume()
+      end,
+    })
+  end))
+  runner:yield()
+  ctx.lastCheck = success
+end
+
 -- give_pokemon <species> <level>: _GivePokemon (engine/events/
 -- give_pokemon.asm) -- party first, then the box.  ctx.lastCheck gets
 -- the asm's carry: true when the mon was given, false when both the
 -- party and every box are full (that .boxFull path leaves the giver's
 -- script able to offer again later, e.g. the Celadon Eevee ball).
+-- Party adds run AskName (AddPartyMon) when a script runner is present;
+-- mods that pre-set gift.nickname skip the prompt.
 function Commands.give_pokemon(ctx, species, level)
   -- Native mods can transform a gift before the Pokémon object is created.
   -- This is intentionally an event rather than a special-case starter hook:
@@ -505,7 +545,8 @@ function Commands.give_pokemon(ctx, species, level)
   ctx.game.stringBuffer = ctx.game.data.pokemon[species].name or species
   ctx.pendingPokemonName = species
   require("src.battle.BattleState").stampOT(ctx.save, mon)
-  if not Party.add(ctx.save.party, mon) then
+  local addedToParty = Party.add(ctx.save.party, mon)
+  if not addedToParty then
     if not require("src.pokemon.Boxes").deposit(ctx.save, mon) then
       ctx.lastCheck = false
       return
@@ -517,6 +558,11 @@ function Commands.give_pokemon(ctx, species, level)
     dex.owned[species] = true
   end
   ctx.lastCheck = true
+  -- AddPartyMon AskName: party only; skip box deposits, mod-set nicknames,
+  -- and callback-style callers that have no script runner to yield on.
+  if addedToParty and not gift.nickname and ctx.runner then
+    askNickname(ctx, mon)
+  end
 end
 
 function Commands.give_money(ctx, amount)
@@ -1066,7 +1112,8 @@ for _, verb in ipairs({ "show_text", "ask", "choice", "start_battle", "warp",
 end
 for _, verb in ipairs({ "show_text", "ask", "choice", "start_battle", "warp",
     "open_mart", "trade", "push_screen", "record_hall_of_fame",
-    "old_man_demo", "static_battle", "rival_battle", "give_item", "wait",
+    "old_man_demo", "static_battle", "rival_battle", "give_item",
+    "give_pokemon", "wait",
     "wait_flag", "move_player", "move_npc", "move_npc_to", "walk_npc",
     "emote", "fade", "pan_camera", "play_once" }) do
   local meta = Commands.meta[verb] or {}

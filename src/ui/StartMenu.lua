@@ -7,6 +7,7 @@
 local Font = require("src.render.Font")
 local Logger = require("src.core.Logger")
 local Menu = require("src.ui.Menu")
+local Renderer = require("src.render.Renderer")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 
@@ -117,11 +118,20 @@ function StartMenu.new(game)
   -- the start menu's mask is PAD_DOWN | PAD_UP | PAD_START | PAD_B | PAD_A
   -- (engine/menus/draw_start_menu.asm), so START closes it back to the
   -- overworld -- unlike most menus, whose masks omit PAD_START.
+  --
+  -- item count isn't fixed: POKéDEX/LINK/MODS come and go with save state,
+  -- and mods can append their own rows through the hook above, so the
+  -- double-spaced box (the original's style) can grow past the 18-tile
+  -- canvas. Cap it at however many rows actually fit and scroll the rest,
+  -- with Menu's moreArrow showing while there's more below.
+  local rowStep = 2
+  local maxVisible = math.floor((Renderer.HEIGHT / 8 - 2) / rowStep)
   local menu = Menu.new(game, items,
-    { tx = 9, ty = 0, tw = 11, th = #items * 2 + 2, startCloses = true })
+    { tx = 9, ty = 0, tw = 11, maxVisible = maxVisible, startCloses = true })
   -- the cursor position survives closing the menu
   -- (wBattleAndStartSavedMenuItem, home/start_menu.asm)
   menu.index = math.min(game.save.startMenuIndex or 1, #items)
+  menu:clampScroll()
   local baseUpdate = menu.update
   menu.update = function(self, dt)
     baseUpdate(self, dt)

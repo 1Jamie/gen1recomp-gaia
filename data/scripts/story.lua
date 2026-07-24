@@ -616,7 +616,8 @@ M.SILPH_CO_11F = {
 -- -------------------------------------------------------------------
 -- Victory Road boulder switches (scripts/VictoryRoad1F/2F/3F.asm):
 -- a boulder resting on a switch removes a barrier block; the 3F hole
--- drops a boulder down to the 2F switch.
+-- drops a boulder down to the 2F switch, and also dungeon-warps the
+-- player (IsPlayerOnDungeonWarp + DungeonWarpList/Data -> 2F at 22,16).
 -- -------------------------------------------------------------------
 
 local function boulderAt(ow, x, y)
@@ -682,6 +683,18 @@ M.VICTORY_ROAD_3F = {
       Commands.show_object(ctx, "VICTORY_ROAD_2F", "VICTORYROAD2F_BOULDER")
     end
   end,
+  -- scripts/VictoryRoad3F.asm VictoryRoad3FDefaultScript: the same hole
+  -- is a dungeon warp for the player (wDungeonWarpDestinationMap =
+  -- VICTORY_ROAD_2F, wWhichDungeonWarp = 2 -> DungeonWarpData 22,16).
+  -- Mirrors POKEMON_MANSION_3F.onStep; CAVERN $22 is walkable so the
+  -- fall is onStep, not a collision block.
+  onStep = function(game, ow, x, y)
+    if x == 23 and y == 15 then
+      ow:startWarpTo("VICTORY_ROAD_2F", 22, 16, ow.player.facing)
+      return true
+    end
+    return false
+  end,
 }
 
 -- -------------------------------------------------------------------
@@ -694,6 +707,16 @@ M.VICTORY_ROAD_3F = {
 -- IndigoPlateauLobby.asm) so the champion is re-fightable on rematches,
 -- like pokered's re-entry cutscene.  EVENT_BEAT_CHAMPION_RIVAL stays set
 -- forever (postgame gates like the Cerulean cave guard read it).
+--
+-- pokered forces the fight on map entry: Agatha's victory arms
+-- SCRIPT_CHAMPIONSROOM_PLAYER_ENTERS (scripts/AgathasRoom.asm), and
+-- ChampionsRoomPlayerEntersScript then runs RivalEntrance_RLEMovement
+-- (up 1, right 1, up 3) before ChampionsRoomRivalReadyToBattleScript.
+-- The rival object has no trainer header / sight range, so without that
+-- entrance script the player can walk past (issue #99).  We arm on the
+-- run flag instead of Agatha's victory bit: same observable effect for
+-- first clear and Indigo rematches, without a cross-map script pointer.
+--
 -- scripts/ChampionsRoom.asm ChampionsRoomRivalDefeatedScript ->
 -- OakArrivesScript -> OakCongratulatesPlayerScript ->
 -- OakDisappointedWithRivalScript -> OakComeWithMeScript -> OakExitsScript,
@@ -702,43 +725,69 @@ M.VICTORY_ROAD_3F = {
 -- itself is NOT run here: it belongs to the HALL_OF_FAME room script
 -- (scripts/HallOfFame.asm), so we set a one-shot marker and warp; the room
 -- onEnter (M.HALL_OF_FAME below) drives the HoF Oak speech + record.
+local championsRoomRivalScript = {
+  { "face_player" },                                        -- 1
+  { "check_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },   -- 2
+  { "jump_if_true", 25 },                                   -- 3  past end
+  { "show_text", "_ChampionsRoomRivalIntroText" },          -- 4
+  { "rival_battle", "OPP_RIVAL3", 1 },                      -- 5
+  { "jump_if_false", 25 },                                  -- 6  past end
+  { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },     -- 7
+  { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL" },              -- 8
+  -- ChampionsRoomRivalDefeatedScript re-displays TEXT_CHAMPIONSROOM_RIVAL,
+  -- whose text_asm takes the EVENT_BEAT_CHAMPION_RIVAL branch =
+  -- _ChampionsRoomRivalAfterBattleText (the in-battle _RivalDefeatedText
+  -- is the port's generic "<PLAYER> defeated BLUE!" engine line instead).
+  { "show_text", "_ChampionsRoomRivalAfterBattleText" },    -- 9
+  -- ChampionsRoomOakArrivesScript: Music_Cities1AlternateTempo
+  -- (Cities1, kept into HALL_OF_FAME like BIT_NO_MAP_MUSIC after
+  -- defeating RIVAL3), then Oak's "{PLAYER}!" + reveal + walk in
+  { "play_music", "Music_Cities1", { keep = true } },       -- 10
+  { "show_text", "_ChampionsRoomOakText" },                 -- 11
+  { "show_object", "CHAMPIONS_ROOM", "CHAMPIONSROOM_OAK" },  -- 12
+  { "move_npc", 2, "up", 5 },                               -- 13 OakEntranceAfterVictoryMovement
+  -- OakCongratulatesPlayerScript: rival faces left, Oak faces down
+  { "face_object", 1, "left" },                             -- 14
+  { "face_object", 2, "down" },                             -- 15
+  { "show_text", "_ChampionsRoomOakCongratulatesPlayerText" }, -- 16
+  -- OakDisappointedWithRivalScript: Oak turns to the rival (right)
+  { "face_object", 2, "right" },                            -- 17
+  { "show_text", "_ChampionsRoomOakDisappointedWithRivalText" }, -- 18
+  -- OakComeWithMeScript: Oak faces down again, then exits up
+  { "face_object", 2, "down" },                             -- 19
+  { "show_text", "_ChampionsRoomOakComeWithMeText" },       -- 20
+  { "move_npc", 2, "up", 2 },                               -- 21 OakExitChampionsRoomMovement
+  { "hide_object", "CHAMPIONS_ROOM", "CHAMPIONSROOM_OAK" },  -- 22
+  -- hand the induction off to the HALL_OF_FAME room (consumed by its
+  -- onEnter), then warp up into it (destWarp 1 lands at (4,7) facing up)
+  { "set_field", "pendingHallOfFame", true },               -- 23
+  { "warp", "HALL_OF_FAME", 4, 7, "up" },                   -- 24
+}
+
 M.CHAMPIONS_ROOM = {
+  onEnter = function(game, ow)
+    if game.save.flags.EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN then return end
+    -- Lance entrance warps land at y=7; HoF return warps land at y=0.
+    -- Only the south entry should run ChampionsRoomPlayerEntersScript.
+    if ow.player.cellY < 7 then return end
+    local rival
+    for _, npc in ipairs(ow.npcs) do
+      if npc.def and npc.def.name == "CHAMPIONSROOM_RIVAL" then
+        rival = npc
+        break
+      end
+    end
+    -- RivalEntrance_RLEMovement, then the battle/Oak script (queued
+    -- separately so talk-script jump indices stay 1-based as written).
+    ow:queueScript({
+      { "move_player", "up", 1 },
+      { "move_player", "right", 1 },
+      { "move_player", "up", 3 },
+    })
+    ow:queueScript(championsRoomRivalScript, { npc = rival })
+  end,
   talk = {
-    TEXT_CHAMPIONSROOM_RIVAL = {
-      { "face_player" },                                        -- 1
-      { "check_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },   -- 2
-      { "jump_if_true", 24 },                                   -- 3
-      { "show_text", "_ChampionsRoomRivalIntroText" },          -- 4
-      { "rival_battle", "OPP_RIVAL3", 1 },                      -- 5
-      { "jump_if_false", 24 },                                  -- 6
-      { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },     -- 7
-      { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL" },              -- 8
-      -- ChampionsRoomRivalDefeatedScript re-displays TEXT_CHAMPIONSROOM_RIVAL,
-      -- whose text_asm takes the EVENT_BEAT_CHAMPION_RIVAL branch =
-      -- _ChampionsRoomRivalAfterBattleText (the in-battle _RivalDefeatedText
-      -- is the port's generic "<PLAYER> defeated BLUE!" engine line instead).
-      { "show_text", "_ChampionsRoomRivalAfterBattleText" },    -- 9
-      -- ChampionsRoomOakArrivesScript: Oak's "{PLAYER}!" then reveal + walk in
-      { "show_text", "_ChampionsRoomOakText" },                 -- 10
-      { "show_object", "CHAMPIONS_ROOM", "CHAMPIONSROOM_OAK" },  -- 11
-      { "move_npc", 2, "up", 5 },                               -- 12 OakEntranceAfterVictoryMovement (3,7)->(3,2)
-      -- OakCongratulatesPlayerScript: rival faces left, Oak faces down
-      { "face_object", 1, "left" },                             -- 13
-      { "face_object", 2, "down" },                             -- 14
-      { "show_text", "_ChampionsRoomOakCongratulatesPlayerText" }, -- 15
-      -- OakDisappointedWithRivalScript: Oak turns to the rival (right)
-      { "face_object", 2, "right" },                            -- 16
-      { "show_text", "_ChampionsRoomOakDisappointedWithRivalText" }, -- 17
-      -- OakComeWithMeScript: Oak faces down again, then exits up
-      { "face_object", 2, "down" },                             -- 18
-      { "show_text", "_ChampionsRoomOakComeWithMeText" },       -- 19
-      { "move_npc", 2, "up", 2 },                               -- 20 OakExitChampionsRoomMovement (3,2)->(3,0)
-      { "hide_object", "CHAMPIONS_ROOM", "CHAMPIONSROOM_OAK" },  -- 21
-      -- hand the induction off to the HALL_OF_FAME room (consumed by its
-      -- onEnter), then warp up into it (destWarp 1 lands at (4,7) facing up)
-      { "set_field", "pendingHallOfFame", true },               -- 22
-      { "warp", "HALL_OF_FAME", 4, 7, "up" },                   -- 23
-    },
+    TEXT_CHAMPIONSROOM_RIVAL = championsRoomRivalScript,
   },
 }
 

@@ -115,11 +115,39 @@ do
 end
 
 -- === STRUGGLE fallback when nothing is usable ===
+-- modern_clean / no unlimited flag: empty PP forces Struggle.
 do
   local aiMon = { curMoves = { { id = "TACKLE", pp = 0 } } }
-  local pick = TrainerAI.chooseMove(aiMon, rngLo, { enemyAIMods = { 1 }, data = Data,
-                                                    player = { mon = {}, curTypes = {} } })
-  check(pick and pick.struggle and pick.id == "STRUGGLE", "STRUGGLE fallback when no PP")
+  local pick = TrainerAI.chooseMove(aiMon, rngLo, {
+    enemyAIMods = { 1 }, data = Data,
+    player = { mon = {}, curTypes = {} },
+    ruleset = { enemyUnlimitedPP = false },
+  })
+  check(pick and pick.struggle and pick.id == "STRUGGLE",
+        "STRUGGLE fallback when no PP (enemy PP tracked)")
+end
+
+-- gen1_faithful: AI ignores PP; a 0-PP move is still selectable.
+do
+  local aiMon = { curMoves = { { id = "TACKLE", pp = 0 } } }
+  local pick = TrainerAI.chooseMove(aiMon, rngLo, {
+    enemyAIMods = { 1 }, data = Data,
+    player = { mon = {}, curTypes = {} },
+    ruleset = { enemyUnlimitedPP = true },
+  })
+  eq(pick and pick.id, "TACKLE",
+     "gen1_faithful: enemy still picks 0-PP moves (no Struggle)")
+end
+
+-- Disable with unlimited PP: sole disabled move still yields Struggle.
+do
+  local aiMon = { curMoves = { { id = "TACKLE", pp = 10 } }, disabledSlot = 1 }
+  local pick = TrainerAI.chooseMove(aiMon, rngLo, {
+    enemyAIMods = {}, data = Data,
+    ruleset = { enemyUnlimitedPP = true },
+  })
+  check(pick and pick.struggle and pick.id == "STRUGGLE",
+        "gen1_faithful: Struggle only when every move is disabled")
 end
 
 -- === switchAction off-by-one fix (matches AISwitchIfEnoughMons cp 2) ===

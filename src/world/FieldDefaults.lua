@@ -120,8 +120,11 @@ FieldDefaults.FIELD = {
                   doorBlock = { bx = 2, by = 2, block = 5 } },
   },
   -- IsSurfingAllowed refuses SURF on the B4F stairs square until both
-  -- plug boulders are down (engine/overworld/field_move_messages.asm)
+  -- plug boulders are down (engine/overworld/field_move_messages.asm).
+  -- B3F currents set BIT_FORCED_WARP so the south-edge water warps fire
+  -- without a held d-pad (scripts/SeafoamIslandsB3F.asm).
   seafoam = {
+    SEAFOAM_ISLANDS_B3F = { setsForcedWarp = true },
     SEAFOAM_ISLANDS_B4F = {
       surfBlocked = { { x = 7, y = 11, untilEvents = {
         "EVENT_SEAFOAM4_BOULDER1_DOWN_HOLE",

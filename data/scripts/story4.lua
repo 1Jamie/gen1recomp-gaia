@@ -645,12 +645,44 @@ local function e4ExitSeal(flag, closedBlock, openBlock, dontRunText, autoFlag)
   }
 end
 
+-- Lorelei/Bruno/Agatha EndBattleScript (pokered): EndTrainerBattle then
+-- DisplayTextID -> TalkToTrainer, which prints the AfterBattle text on a
+-- win.  engageTrainer only shows the won line, so wrap talk like Lance /
+-- Game Corner Rocket and push header.after immediately after a win.
+local function e4LeaderTalk(afterLabel)
+  return function(game, ow, npc, done)
+    done = done or function() end
+    if ow:trainerDefeated(npc) then
+      local after = text(game)[afterLabel]
+      if after then push(game, after, done) else done() end
+      return
+    end
+    ow:engageTrainer(npc, function()
+      if not ow:trainerDefeated(npc) then
+        done()
+        return
+      end
+      local after = text(game)[afterLabel]
+      if after then push(game, after, done) else done() end
+    end)
+  end
+end
+
 M.LORELEIS_ROOM = e4ExitSeal("EVENT_BEAT_LORELEIS_ROOM_TRAINER_0", 0x24, 0x05,
   "_LoreleisRoomLoreleiDontRunAwayText", "EVENT_AUTOWALKED_INTO_LORELEIS_ROOM")
+M.LORELEIS_ROOM.talk = {
+  TEXT_LORELEISROOM_LORELEI = e4LeaderTalk("_LoreleisRoomLoreleiAfterBattleText"),
+}
 M.BRUNOS_ROOM = e4ExitSeal("EVENT_BEAT_BRUNOS_ROOM_TRAINER_0", 0x24, 0x05,
   "_BrunosRoomBrunoDontRunAwayText", "EVENT_AUTOWALKED_INTO_BRUNOS_ROOM")
+M.BRUNOS_ROOM.talk = {
+  TEXT_BRUNOSROOM_BRUNO = e4LeaderTalk("_BrunoAfterBattleText"),
+}
 M.AGATHAS_ROOM = e4ExitSeal("EVENT_BEAT_AGATHAS_ROOM_TRAINER_0", 0x3b, 0x0e,
   "_AgathasRoomAgathaDontRunAwayText", "EVENT_AUTOWALKED_INTO_AGATHAS_ROOM")
+M.AGATHAS_ROOM.talk = {
+  TEXT_AGATHASROOM_AGATHA = e4LeaderTalk("_AgathaAfterBattleText"),
+}
 
 -- -------------------------------------------------------------------
 -- Lance's room (scripts/LancesRoom.asm). Unlike the other three E4
@@ -672,12 +704,20 @@ M.AGATHAS_ROOM = e4ExitSeal("EVENT_BEAT_AGATHAS_ROOM_TRAINER_0", 0x3b, 0x0e,
 --                 EVENT_LANCES_ROOM_LOCK_DOOR: first crossing seals
 --                 the door behind the player with SFX_GO_INSIDE
 --   (24,16)       the entrance staircase -> WalkToLance: an auto-walk
---                 (up 12, left 12, down 7, left 6) landing on (6,11).
---                 It marches straight across the room's water decor:
---                 pokered's CollisionCheckOnLand skips collision
---                 entirely while simulated joypad states run, and our
---                 scriptMove is collision-free the same way.
+--                 landing on (6,11). Vanilla WalkToLance_RLEList is
+--                 up 12 / left 12 / down 7 / left 6 and skips collision
+--                 through void tiles; our camera follows that literally
+--                 and briefly shows the empty upper chamber (reads as
+--                 "Gary's room"). We keep the same landing cell but
+--                 route along the open-door floor corridor instead.
 -- -------------------------------------------------------------------
+
+-- Floor corridor (24,16) -> (6,11) with EVENT_LANCES_ROOM_LOCK_DOOR
+-- unset (entrance blocks $31/$32). Exposed for parity tests.
+local LANCE_WALK_IN = {
+  { "down", 2 }, { "left", 6 }, { "down", 5 }, { "left", 10 },
+  { "up", 9 }, { "left", 2 }, { "up", 3 },
+}
 
 local function lanceEntranceBlocks(game, ow)
   local locked = game.save.flags.EVENT_LANCES_ROOM_LOCK_DOOR
@@ -693,21 +733,24 @@ local function lanceLockDoor(game, ow)
 end
 
 local function lanceWalkIn(game, ow)
-  ow:scriptMove(ow.player, "up", 12, function()
-    ow:scriptMove(ow.player, "left", 12, function()
-      ow:scriptMove(ow.player, "down", 7, function()
-        ow:scriptMove(ow.player, "left", 6, function()
-          -- the walk lands on (6,11); vanilla's per-frame coord poll
-          -- then locks the door at once. scriptMove landings do not
-          -- fire onStep, so lock here.
-          lanceLockDoor(game, ow)
-        end)
-      end)
-    end)
-  end)
+  local i = 0
+  local function step()
+    i = i + 1
+    local seg = LANCE_WALK_IN[i]
+    if not seg then
+      -- lands on (6,11); vanilla's per-frame coord poll then locks the
+      -- door at once. scriptMove landings do not fire onStep, so lock
+      -- here.
+      lanceLockDoor(game, ow)
+      return
+    end
+    ow:scriptMove(ow.player, seg[1], seg[2], step)
+  end
+  step()
 end
 
 M.LANCES_ROOM = {
+  walkInRoute = LANCE_WALK_IN,
   onEnter = function(game, ow)
     lanceEntranceBlocks(game, ow)
     -- the warp arrival lands ON the staircase trigger, and onStep only
@@ -727,7 +770,14 @@ M.LANCES_ROOM = {
       end
       if not lance or ow:trainerDefeated(lance) then return false end
       lance:facePlayer(ow.player)
-      ow:engageTrainer(lance, function() end)
+      -- LancesRoomLanceEndBattleScript DisplayTextID -> TalkToTrainer
+      -- after-battle text (rival became champion first). engageTrainer
+      -- only shows the won line, so push the after text on a win.
+      ow:engageTrainer(lance, function()
+        if not ow:trainerDefeated(lance) then return end
+        local after = text(game)._LancesRoomLanceAfterBattleText
+        if after then push(game, after) end
+      end)
       return true
     end
     if (x == 5 or x == 6) and y == 11 then

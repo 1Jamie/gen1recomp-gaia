@@ -19,7 +19,16 @@ function Menu.new(game, items, opts)
   self.tx = opts.tx or 10
   self.ty = opts.ty or 0
   self.tw = opts.tw or 10
-  self.th = opts.th or (#items * 2 + 2)
+  self.rowStep = opts.rowStep or 2
+  -- maxVisible: cap the box to this many rows and scroll the rest instead
+  -- of growing past it (e.g. the start menu, whose row count varies with
+  -- save state and mod hooks); nil/unset keeps every caller's old
+  -- behavior of sizing the box to fit all items.
+  self.maxVisible = opts.maxVisible
+  self.scroll = 0
+  local visible = (self.maxVisible and math.min(self.maxVisible, #items))
+    or #items
+  self.th = opts.th or (visible * self.rowStep + 2)
   self.cancelable = opts.cancelable ~= false
   -- Whether START closes the menu.  In pokered a menu responds only to the
   -- keys in its wMenuWatchedKeys mask; the common PAD_A | PAD_B (and the
@@ -31,7 +40,23 @@ function Menu.new(game, items, opts)
   -- BIT_NO_MENU_BUTTON_SOUND (wMiscFlags): the PC session runs its
   -- menus silent (home/window.asm HandleMenuInput_)
   self.noSound = opts.noSound or false
+  self:clampScroll()
   return self
+end
+
+-- keeps self.index inside the visible [scroll+1, scroll+maxVisible] window;
+-- callers that move self.index directly (e.g. restoring a saved cursor
+-- position) should call this afterwards to scroll it into view
+function Menu:clampScroll()
+  if not (self.maxVisible and #self.items > self.maxVisible) then
+    self.scroll = 0
+    return
+  end
+  if self.index - self.scroll > self.maxVisible then
+    self.scroll = self.index - self.maxVisible
+  elseif self.index - self.scroll < 1 then
+    self.scroll = self.index - 1
+  end
 end
 
 function Menu:update(dt)
@@ -61,15 +86,29 @@ function Menu:update(dt)
     self.game.stack:pop()
     if self.onCancel then self.onCancel() end
   end
+  self:clampScroll()
 end
 
 function Menu:draw()
   Font.drawBox(self.tx, self.ty, self.tw, self.th)
   love.graphics.setColor(0, 0, 0, 1)
-  for i, item in ipairs(self.items) do
-    Font.draw(item.label, (self.tx + 2) * 8, (self.ty + i * 2 - 1) * 8)
+  local visible = (self.maxVisible and math.min(self.maxVisible, #self.items))
+    or #self.items
+  for row = 1, visible do
+    local item = self.items[self.scroll + row]
+    if not item then break end
+    Font.draw(item.label, (self.tx + 2) * 8,
+      (self.ty + row * self.rowStep - (self.rowStep - 1)) * 8)
   end
-  Font.drawCode(Theme.cursor, (self.tx + 1) * 8, (self.ty + self.index * 2 - 1) * 8)
+  local cursorRow = self.index - self.scroll
+  Font.drawCode(Theme.cursor, (self.tx + 1) * 8,
+    (self.ty + cursorRow * self.rowStep - (self.rowStep - 1)) * 8)
+  -- moreArrow ($EE): the same "more below" glyph OptionRows/ManagerState
+  -- use, sat on the bottom border like TextBox's page-advance cursor
+  if self.maxVisible and self.scroll + self.maxVisible < #self.items then
+    Font.drawCode(Theme.moreArrow, (self.tx + self.tw - 2) * 8,
+      (self.ty + self.th - 2) * 8)
+  end
   love.graphics.setColor(1, 1, 1, 1)
 end
 
