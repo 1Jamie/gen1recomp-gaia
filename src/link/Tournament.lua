@@ -9,6 +9,7 @@
 -- time, uninterrupted by individual matches.
 
 local CodeEntry = require("src.link.CodeEntry")
+local DiscordPresence = require("src.core.DiscordPresence")
 local Font = require("src.render.Font")
 local Handshake = require("src.link.Handshake")
 local LinkBattle = require("src.link.LinkBattle")
@@ -33,7 +34,14 @@ local ANY = "ANY" -- sentinel: a leading *nil* array entry breaks ipairs
                   -- to nil only on the wire
 local LEVEL_STEPS = { ANY, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65,
                        70, 75, 80, 85, 90, 95, 100 }
-local SETTINGS_ROWS = 5 -- POKEMON, MIN LV, MAX LV, TIMER, PLAYING
+local SETTINGS_ROWS = 6 -- POKEMON, MIN LV, MAX LV, TIMER, LEVELS, PLAYING
+-- LEVELS cycles through this: ANY (real levels) or a fixed level every
+-- match normalizes to, regardless of each side's real party
+local FORCE_LEVEL_STEPS = { ANY, 50, 100 }
+-- tournaments have no real participant cap (any number can join before
+-- start); this is just generous headroom so Discord's party.size never
+-- reads as "full" and blocks a real invite click
+local TOURNAMENT_PARTY_MAX = 16
 
 local function indexOf(list, value)
   for i, v in ipairs(list) do
@@ -50,6 +58,10 @@ end
 
 local function levelForWire(v)
   return v == ANY and nil or v
+end
+
+local function forceLevelLabel(v)
+  return (v == ANY or v == nil) and "ANY" or ("AUTO " .. tostring(v))
 end
 
 local function partyStats(party)
@@ -69,7 +81,7 @@ function Tournament.new(game)
   self.stage = "menu"
   self.index = 1
   self.settings = { turnLimit = 6, requiredPartySize = 3, minLevel = ANY, maxLevel = ANY,
-                    participating = true }
+                    forceLevel = ANY, participating = true }
   self.settingsIndex = 1
   self.roster = {}
   self.spectatorRoster = {}
@@ -77,7 +89,24 @@ function Tournament.new(game)
   return self
 end
 
+-- entry point for a Discord "Ask to Join" click on a tournament invite
+-- (see DiscordPresence.lua): skips the HOST/JOIN menu and code entry,
+-- straight to "connecting with this code"
+function Tournament.newJoinOnline(game, code)
+  local self = Tournament.new(game)
+  self:startJoining(code)
+  return self
+end
+
+-- headcount for Discord's party.size: the roster only ever lists
+-- competing players, so a non-participating (organizer-only) host isn't
+-- in it even though they're right here running the thing
+function Tournament:discordPartySize()
+  return #self.roster + (self.participating == false and 1 or 0)
+end
+
 function Tournament:exitWith(message)
+  DiscordPresence.setJoinCode(nil)
   Sound.stopLoop(MUSIC)
   Runtime.emit("link.ended", { reason = message and "error" or "bye" })
   if self.net then self.net:close() end
@@ -106,6 +135,7 @@ function Tournament:startHosting()
     requiredPartySize = self.settings.requiredPartySize,
     minLevel = levelForWire(self.settings.minLevel),
     maxLevel = levelForWire(self.settings.maxLevel),
+    forceLevel = levelForWire(self.settings.forceLevel),
     participating = self.settings.participating,
     name = self.game.save.player.name,
     partySize = size, partyMinLevel = minL, partyMaxLevel = maxL,
@@ -145,8 +175,22 @@ function Tournament:handleMessage(msg)
   if msg.type == "tournament_hosted" then
     self.code = msg.code
     self.settings.turnLimit = msg.turnLimit
+    self.settings.forceLevel = msg.forceLevel == nil and ANY or msg.forceLevel
     self.participating = msg.participating
     self.stage = "bracket"
+    -- the server already seeded t.players/spectators with the creator at
+    -- creation time; mirror that here so the Discord party size (and the
+    -- "waiting for players" list) show the host from the very first frame,
+    -- not just once someone else joins and a real roster broadcast arrives
+    if self.participating then
+      self.roster = { self.game.save.player.name }
+    else
+      self.spectatorRoster = { self.game.save.player.name }
+    end
+    if self.isCreator then
+      DiscordPresence.setJoinCode(self.code, "tournament",
+        self:discordPartySize(), TOURNAMENT_PARTY_MAX)
+    end
   elseif msg.type == "tournament_host_error" then
     if msg.reason == "party_ineligible" then
       self:exitWith(("Can't host:\nneed %d Pokemon\nLv %s-%s."):format(
@@ -168,7 +212,12 @@ function Tournament:handleMessage(msg)
     self.settings.requiredPartySize = msg.requiredPartySize
     self.settings.minLevel = msg.minLevel == nil and ANY or msg.minLevel
     self.settings.maxLevel = msg.maxLevel == nil and ANY or msg.maxLevel
+    self.settings.forceLevel = msg.forceLevel == nil and ANY or msg.forceLevel
     self.stage = "bracket"
+    if self.isCreator and self.code then
+      DiscordPresence.setJoinCode(self.code, "tournament",
+        self:discordPartySize(), TOURNAMENT_PARTY_MAX)
+    end
   elseif msg.type == "bracket_update" then
     self.bracket = msg.tournament
     self.code = self.bracket.code
@@ -238,6 +287,7 @@ function Tournament:beginMatchBattle()
     verdict = verdict,
     strict = Handshake.strict(verdict),
     turnLimit = self.matchTurnLimit,
+    forceLevel = levelForWire(self.settings.forceLevel),
     keepNetOpen = true, -- this is the tournament's own connection, not a
                         -- dedicated match socket -- don't let finish() close it
   }
@@ -360,6 +410,7 @@ function Tournament:update(dt)
             hostParty = self.spectate.hostParty, guestParty = self.spectate.guestParty,
             hostName = self.spectate.hostName, guestName = self.spectate.guestName,
             seed = self.spectate.seed,
+            forceLevel = levelForWire(self.settings.forceLevel),
           })
           if not battle then
             self:exitWith(why or "Can't watch this\nmatch.")
@@ -426,6 +477,10 @@ function Tournament:update(dt)
         i = ((i - 1 + delta) % #TURN_LIMITS) + 1
         self.settings.turnLimit = TURN_LIMITS[i]
       elseif self.settingsIndex == 5 then
+        local i = indexOf(FORCE_LEVEL_STEPS, self.settings.forceLevel)
+        i = ((i - 1 + delta) % #FORCE_LEVEL_STEPS) + 1
+        self.settings.forceLevel = FORCE_LEVEL_STEPS[i]
+      elseif self.settingsIndex == 6 then
         self.settings.participating = not self.settings.participating
       end
     elseif input:wasPressed("a") or input:wasPressed("start") then
@@ -454,6 +509,7 @@ function Tournament:update(dt)
   elseif self.stage == "bracket" then
     if input:wasPressed("b") then self:exitWith(nil) return end
     if input:wasPressed("a") and self.isCreator and #self.roster >= 2 then
+      DiscordPresence.setJoinCode(nil) -- roster's locking in; stop advertising
       self.net:send({ type = "start_tournament" })
     end
 
@@ -475,7 +531,7 @@ local function drawTitle(text)
   Font.draw(text, 8, 6)
 end
 
-local SETTINGS_LABELS = { "POKEMON", "MIN LV", "MAX LV", "TIMER", "PLAYING" }
+local SETTINGS_LABELS = { "POKEMON", "MIN LV", "MAX LV", "TIMER", "LEVELS", "PLAYING" }
 
 function Tournament:draw()
   if self.stage == "menu" then
@@ -491,6 +547,7 @@ function Tournament:draw()
       levelLabel(self.settings.minLevel),
       levelLabel(self.settings.maxLevel),
       self.settings.turnLimit .. "s",
+      forceLevelLabel(self.settings.forceLevel),
       self.settings.participating and "YES" or "NO",
     }
     for i, label in ipairs(SETTINGS_LABELS) do

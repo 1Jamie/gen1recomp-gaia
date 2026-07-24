@@ -364,6 +364,40 @@ eq(gameA.save.money, 3000, "no prize money in link battles")
 eq(gameA.save.party[1].hp, gameA.save.party[1].stats.hp,
    "the real party is untouched (battle used clamped copies)")
 
+-- ---------------------------------------------------------------- forced-level ("auto 50") matches
+-- online matches/tournaments may force every participant's real level to a
+-- fixed value for the match (opts.forceLevel), regardless of their save's
+-- actual level -- this checks both sides normalize identically and stats
+-- recompute for the forced level rather than clamping the original level's
+local gameG = makeFakeGame("PIKACHU")
+gameG.save.party[1] = Pokemon.new(Data, "PIKACHU", 12)
+local gameH = makeFakeGame("GEODUDE")
+gameH.save.party[1] = Pokemon.new(Data, "GEODUDE", 100)
+gameH.save.player.name = "BLUE"
+local netG, netH = Net.loopbackPair()
+local packedG = Protocol.packParty(gameG.save.party)
+local packedH = Protocol.packParty(gameH.save.party)
+local seedGH = 13579
+
+local battleG = LinkBattle.newHost(gameG, netG, {
+  myParty = packedG, theirParty = packedH, theirName = "BLUE", seed = seedGH,
+  forceLevel = 50,
+})
+local battleH = LinkBattle.newGuest(gameH, netH, {
+  myParty = packedH, theirParty = packedG, theirName = "RED", seed = seedGH,
+  forceLevel = 50,
+})
+eq(battleG.player.mon.level, 50, "forced level overrides a low real level (12 -> 50)")
+eq(battleG.enemy.mon.level, 50, "...and a high real level (100 -> 50) the same way")
+eq(battleH.player.mon.level, 50, "the guest's own mon is forced too")
+eq(battleH.enemy.mon.level, 50, "the guest sees the host's mon forced too")
+local expectedStats = require("src.pokemon.Stats").calc(
+  Data.pokemon["PIKACHU"], 50, battleG.player.mon.dvs, battleG.player.mon.statExp)
+eq(battleG.player.mon.stats.hp, expectedStats.hp,
+   "forced-level stats are recomputed for level 50, not clamped from level 12")
+eq(gameG.save.party[1].level, 12, "the real save data keeps its actual level")
+eq(gameH.save.party[1].level, 100, "...on both sides")
+
 -- ---------------------------------------------------------------- tournament shot clock
 -- opts.turnLimit only applies to tournament matches; the guest mashes
 -- through its own menu every frame while the host never presses anything,

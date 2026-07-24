@@ -3,6 +3,7 @@
 -- lua-enet (bundled with LÖVE),  no relay server.
 
 local CodeEntry = require("src.link.CodeEntry")
+local DiscordPresence = require("src.core.DiscordPresence")
 local Font = require("src.render.Font")
 local Handshake = require("src.link.Handshake")
 local Net = require("src.link.Net")
@@ -16,6 +17,26 @@ LinkState.__index = LinkState
 LinkState.isOpaque = true
 
 local CURSOR = 0xED
+local ANY = "ANY" -- sentinel: a leading nil array entry breaks ipairs under
+                  -- LuaJIT even though # still reports the full size, so
+                  -- the level picker cycles this string instead of nil,
+                  -- converted to nil only on the wire (see levelForWire)
+local FORCE_LEVEL_STEPS = { ANY, 50, 100 }
+
+local function indexOf(list, value)
+  for i, v in ipairs(list) do
+    if v == value then return i end
+  end
+  return 1
+end
+
+local function levelForWire(v)
+  return v == ANY and nil or v
+end
+
+local function forceLevelLabel(v)
+  return (v == ANY or v == nil) and "ANY" or ("AUTO " .. tostring(v))
+end
 
 -- stages before any Net object is meaningfully "this session's link" --
 -- .net can still be a leftover failed attempt sitting on self, so error/
@@ -54,7 +75,23 @@ function LinkState.new(game)
   return self
 end
 
+-- entry point for a Discord "Ask to Join" click (see DiscordPresence.lua):
+-- skips the whole LAN/ONLINE/TOURNAMENT menu and jumps straight to
+-- "connecting with this code", same as if the player had typed it in
+function LinkState.newJoinOnline(game, code)
+  local self = LinkState.new(game)
+  self.net = Net.new()
+  if self.net:joinOnline(nil, code) then
+    self.stage = "onlineJoining"
+  else
+    self.stage = "menu" -- exitWith below needs a real stage to unwind from
+    self:exitWith("Link error:\n" .. (self.net.error or "?"))
+  end
+  return self
+end
+
 function LinkState:exitWith(message, reason)
+  DiscordPresence.setJoinCode(nil)
   Runtime.emit("link.ended", { reason = reason or (message and "error" or "bye") })
   if self.net then self.net:close() end
   self.game.stack:pop()
@@ -108,7 +145,12 @@ function LinkState:decideCompat(mode, isHost)
                mods = peer and peer.mods, fingerprint = peer and peer.fingerprint },
   })
   if self.verdict == "full" or self.verdict == "vanilla_peer" then
-    self:startMode(mode, isHost)
+    if isHost and mode == "battle" then
+      -- host picks the level rule now, before the parties are exchanged
+      self.stage = "battleOptions"
+    else
+      self:startMode(mode, isHost)
+    end
     return
   end
   -- naming the difference up front is the whole point: the old behaviour
@@ -208,8 +250,13 @@ function LinkState:update(dt)
     end
 
   elseif self.stage == "onlineHosting" then
+    if not self.discordCodeSet and self.net.code then
+      DiscordPresence.setJoinCode(self.net.code)
+      self.discordCodeSet = true
+    end
     if input:wasPressed("b") then self:exitWith(nil) return end
     if self.net.paired then
+      DiscordPresence.setJoinCode(nil) -- someone's here now; stop advertising
       self.stage = "modeSelect"
       self.index = 1
     end
@@ -300,6 +347,23 @@ function LinkState:update(dt)
       self:exitWith(nil)
     end
 
+  elseif self.stage == "battleOptions" then -- host picks the level rule,
+                                             -- once compat is confirmed and
+                                             -- before parties are exchanged
+    self.levelChoice = self.levelChoice or ANY
+    if input:wasPressed("b") then
+      self:exitWith(nil)
+    elseif input:wasPressed("up") or input:wasPressed("down")
+        or input:wasPressed("left") or input:wasPressed("right") then
+      local delta = (input:wasPressed("down") or input:wasPressed("left")) and -1 or 1
+      local i = indexOf(FORCE_LEVEL_STEPS, self.levelChoice)
+      i = ((i - 1 + delta) % #FORCE_LEVEL_STEPS) + 1
+      self.levelChoice = FORCE_LEVEL_STEPS[i]
+    elseif input:wasPressed("a") then
+      self.forceLevel = levelForWire(self.levelChoice)
+      self:startMode(self.pendingMode, true)
+    end
+
   elseif self.stage == "waitHello" then -- host waits for the peer's hello
     if input:wasPressed("b") then self:exitWith(nil) return end
     local got, other = self:pollHello()
@@ -343,6 +407,9 @@ function LinkState:update(dt)
     local msgs = self.net:poll()
     for i, msg in ipairs(msgs) do
       if msg.type == "party" then
+        -- the host owns this rule (same as mode); the guest only learns
+        -- it here, off the host's own party message
+        if not self.isHost then self.forceLevel = msg.forceLevel end
         local LinkBattle = require("src.link.LinkBattle")
         local opts = {
           myParty = Protocol.packParty(self.game.save.party),
@@ -351,6 +418,7 @@ function LinkState:update(dt)
           seed = self.isHost and self.linkSeed or msg.seed,
           verdict = self.verdict,
           strict = Handshake.strict(self.verdict),
+          forceLevel = self.forceLevel,
         }
         local battle, why
         if self.isHost then
@@ -401,7 +469,8 @@ function LinkState:startMode(mode, isHost)
     end
     self.net:send({ type = "party",
                     mons = Protocol.packParty(self.game.save.party),
-                    seed = self.linkSeed })
+                    seed = self.linkSeed,
+                    forceLevel = isHost and self.forceLevel or nil })
   end
 end
 
@@ -556,6 +625,12 @@ function LinkState:draw()
     Font.draw("TRADE", 32, 48)
     Font.draw("BATTLE", 32, 68)
     Font.drawCode(CURSOR, 24, self.index == 1 and 48 or 68)
+
+  elseif self.stage == "battleOptions" then
+    drawTitle("BATTLE OPTIONS")
+    Font.draw("LEVELS:", 16, 56)
+    Font.draw(forceLevelLabel(self.levelChoice or ANY), 88, 56)
+    Font.draw("A: continue  B: back", 8, 128)
 
   elseif self.stage == "waitMode" or self.stage == "waitHello" then
     drawTitle("CONNECTED!")

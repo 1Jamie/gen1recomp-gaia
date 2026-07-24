@@ -38,7 +38,17 @@ local state = {
   unsubs = {},
   pid = nil,
   loggedAbsent = false, -- one quiet note when Discord isn't running
+  game = nil,          -- kept for the "friend clicked join" -> push a screen path
+  joinCode = nil,       -- the online-match/tournament code to advertise as a join secret, if any
+  joinKind = "match",   -- "match" (LinkState online) or "tournament"
+  partySize = 1,        -- current headcount for the party.size Discord shows
+  partyMax = 2,
+  subscribedJoin = false, -- SUBSCRIBE ACTIVITY_JOIN sent on this connection?
 }
+
+-- MSG_DONTWAIT differs by OS (Darwin 0x80, Linux 0x40); only used for the
+-- ongoing per-frame inbound poll, never for the one-time connect/handshake
+local MSG_DONTWAIT_BY_OS = { ["OS X"] = 0x80, Linux = 0x40 }
 
 local function disabledByEnv()
   return os.getenv("POKEPORT_NO_DISCORD") == "1"
@@ -378,6 +388,15 @@ local function connect()
     state.dirty = true
     state.lastSentKey = nil
     state.loggedAbsent = false
+    state.subscribedJoin = false
+    -- ask for "friend clicked join" dispatches; a plain outbound write, so
+    -- it's harmless to send even on Windows, where the inbound poll below
+    -- isn't implemented yet (see pollJoinRequest)
+    if sendFrame(OP_FRAME, Json.encode({
+      cmd = "SUBSCRIBE", evt = "ACTIVITY_JOIN", nonce = nonce(),
+    })) then
+      state.subscribedJoin = true
+    end
     Logger.info("discord: rich presence connected")
     return true
   end)
@@ -427,7 +446,7 @@ local function buildActivity()
     activityState = "At the title screen"
   end
 
-  return {
+  local activity = {
     details = details,
     state = activityState,
     timestamps = { start = state.startedAt },
@@ -436,10 +455,25 @@ local function buildActivity()
       large_text = "Pokemon Gen1Recomp",
     },
   }
+  -- a party/join-secret pair is what makes Discord show "Ask to Join" on
+  -- the profile card; the secret carries our own room/tournament code plus
+  -- a one-letter kind tag ("m"/"t") so the click handler on the other end
+  -- knows which screen to jump into -- Discord only echoes the string
+  -- back, so the kind has to ride inside it
+  if state.joinCode then
+    local kindTag = state.joinKind == "tournament" and "t" or "m"
+    activity.party = { id = "pokeport-" .. state.joinCode,
+                       size = { state.partySize, state.partyMax } }
+    activity.secrets = { join = "join:" .. kindTag .. ":" .. state.joinCode }
+  end
+  return activity
 end
 
 local function activityKey(activity)
-  return (activity.details or "") .. "|" .. (activity.state or "")
+  local partyKey = activity.party
+    and (activity.party.size[1] .. "/" .. activity.party.size[2]) or ""
+  return (activity.details or "") .. "|" .. (activity.state or "") .. "|"
+    .. (activity.secrets and activity.secrets.join or "") .. "|" .. partyKey
 end
 
 local function flush(force)
@@ -567,6 +601,96 @@ local function subscribe(game)
   end)
 end
 
+-- Advertise (or clear, with code=nil) an online-match/tournament code as a
+-- Discord join secret. LinkState/Tournament call this once they have a
+-- real code from the relay, and clear it again once paired/started or the
+-- hosting screen exits (an invite that's already full or gone is worse
+-- than no invite). kind is "match" (default) or "tournament"; size/max are
+-- the party.size Discord shows (default 1/2, a plain 1v1 room) -- a
+-- tournament passes its live roster count and a generous cap instead, and
+-- should call this again whenever the roster changes, not just once.
+function DiscordPresence.setJoinCode(code, kind, size, max)
+  pcall(function()
+    state.joinCode = code
+    state.joinKind = kind or "match"
+    state.partySize = size or 1
+    state.partyMax = max or 2
+    state.dirty = true
+    flush(false)
+  end)
+end
+
+-- A friend clicked "Ask to Join" on our profile and Discord delivered the
+-- secret back over this same connection. Only act from a safe spot (never
+-- yank the player out of a battle or an already-running link session) --
+-- "exploring"/"menu" are the coarse buckets subscribe() above already
+-- tracks; anything more specific (a shop, a dialogue box) is a rarer miss
+-- worth accepting rather than adding a second, finer-grained state tracker
+-- just for this.
+local function handleJoinRequest(secret)
+  if not secret or secret == "" then return end
+  if state.activity == "battle" then return end
+  local game = state.game
+  if not game or not game.stack then return end
+  local top = game.stack:top()
+  if top and top.stage and top.net then return end -- already in a link session
+  local kindTag, code = secret:match("^(%a):(.+)$")
+  if not kindTag then kindTag, code = "m", secret end -- older/plain secret: assume match
+  Runtime.emit("discord.join_requested", { code = code, kind = kindTag })
+  if kindTag == "t" then
+    local ok, Tournament = pcall(require, "src.link.Tournament")
+    if ok and Tournament.newJoinOnline then
+      game.stack:push(Tournament.newJoinOnline(game, code))
+    end
+  else
+    local ok, LinkState = pcall(require, "src.link.LinkState")
+    if ok and LinkState.newJoinOnline then
+      game.stack:push(LinkState.newJoinOnline(game, code))
+    end
+  end
+end
+
+-- non-blocking peek for an incoming ACTIVITY_JOIN dispatch. Unix (FFI)
+-- only for now: reading a Windows named pipe without risking a stall needs
+-- a HANDLE-level PeekNamedPipe that the plain io.open() connection below
+-- doesn't give us, so a Windows player's presence/party/join-secret still
+-- all work (they can still be seen and clicked), the click just isn't
+-- delivered back to their own game session yet.
+local function pollJoinRequest()
+  if state.isWindows or not state.ffi or not state.socket or not state.subscribedJoin then
+    return
+  end
+  pcall(function()
+    local ffi = state.ffi
+    local dontwait = MSG_DONTWAIT_BY_OS[love.system.getOS()] or 0
+    local hbuf = ffi.new("char[8]")
+    local n = ffi.C.recv(state.socket, hbuf, 8, dontwait)
+    if not n or tonumber(n) <= 0 then return end -- nothing waiting right now
+    local header = ffi.string(hbuf, 8)
+    local opcode = unpackU32(header:sub(1, 4))
+    local length = unpackU32(header:sub(5, 8))
+    if not opcode or not length or length < 0 or length > 65536 then return end
+    -- the body may lag the header by a packet; the connection's normal
+    -- (short-timeout) blocking read is fine here since it has already
+    -- announced its exact length
+    local body = length > 0 and readExact(length) or ""
+    if body == nil then return end
+    if opcode == 3 then -- PING -> PONG, keeps Discord from closing on us
+      sendFrame(4, body)
+      return
+    end
+    if opcode ~= 1 then return end
+    local decoded = Json.decode(body)
+    if decoded and decoded.evt == "ACTIVITY_JOIN" then
+      local secret = decoded.data and decoded.data.secret
+      if type(secret) == "string" and secret ~= "" then
+        if secret:sub(1, 5) == "join:" then secret = secret:sub(6) end
+        handleJoinRequest(secret)
+      end
+    end
+  end)
+end
+
 function DiscordPresence.init(game)
   local ok, err = pcall(function()
     DiscordPresence.shutdown()
@@ -579,6 +703,8 @@ function DiscordPresence.init(game)
     state.location = "Title screen"
     state.mapId = nil
     state.battleLabel = nil
+    state.joinCode = nil
+    state.game = game
     state.dirty = true
     state.nextReconnectAt = 0
     state.loggedAbsent = false
@@ -621,6 +747,7 @@ function DiscordPresence.update(_dt)
       end
       return
     end
+    pollJoinRequest()
     if state.dirty then flush(false) end
   end)
 end
@@ -649,6 +776,8 @@ function DiscordPresence.shutdown()
   state.lastSentKey = nil
   state.connected = false
   state.socket = nil
+  state.subscribedJoin = false
+  state.joinCode = nil
 end
 
 -- test / debug helpers

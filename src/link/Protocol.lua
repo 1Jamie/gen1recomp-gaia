@@ -77,6 +77,13 @@ function Protocol.unpackMon(data, packed, opts)
     return nil
   end
   local level = math.max(2, math.min(100, math.floor(packed.level or 5)))
+  -- "auto-level" tournaments/matches: every participant's real level is
+  -- ignored and everyone rebuilds at the same fixed level instead, so a
+  -- Lv12 and a Lv100 party can battle on equal footing. Both sides pass
+  -- the identical forceLevel for a given match, so this stays symmetric.
+  if opts and opts.forceLevel then
+    level = math.max(2, math.min(100, math.floor(opts.forceLevel)))
+  end
   local dvs = {}
   for _, k in ipairs({ "hp", "attack", "defense", "speed", "special" }) do
     dvs[k] = math.max(0, math.min(15, math.floor((packed.dvs or {})[k] or 0)))
@@ -104,6 +111,14 @@ function Protocol.unpackMon(data, packed, opts)
     if strict then return nil, "no shared moves" end
     moves = { { id = "TACKLE", pp = 35 } }
   end
+  -- a forced level scales every stat including max HP, so the real party's
+  -- current HP/status (a different level's numbers, possibly mid-fight)
+  -- isn't meaningful anymore -- auto-level starts everyone full and fresh,
+  -- same as a standardized tournament format would
+  local forced = opts and opts.forceLevel
+  local hp = forced and stats.hp
+    or math.max(0, math.min(stats.hp, math.floor(packed.hp or stats.hp)))
+  local status = forced and nil or packed.status
   return {
     species = packed.species,
     level = level,
@@ -111,8 +126,8 @@ function Protocol.unpackMon(data, packed, opts)
     dvs = dvs,
     statExp = statExp,
     stats = stats,
-    hp = math.max(0, math.min(stats.hp, math.floor(packed.hp or stats.hp))),
-    status = packed.status,
+    hp = hp,
+    status = status,
     nickname = packed.nickname,
     moves = moves,
     -- a namespace whose mod this install lacks survives untouched, so the

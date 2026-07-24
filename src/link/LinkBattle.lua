@@ -182,7 +182,7 @@ function LinkBattle.new(game, net, opts)
 
   -- both parties pass through the same pack->unpack clamp on both
   -- machines, so the copies are identical everywhere
-  local unpackOpts = { strict = opts.strict or false }
+  local unpackOpts = { strict = opts.strict or false, forceLevel = opts.forceLevel }
   local myParty, myErr = unpackParty(game, opts.myParty, unpackOpts, function(p)
     return ("Your %s can't\nbattle on the\nother game."):format(tostring(p.species))
   end)
@@ -646,7 +646,7 @@ function LinkBattle.newSpectator(game, net, opts)
     return nil, "Link battle needs\nthe same mods on\nboth games."
   end
 
-  local unpackOpts = { strict = opts.strict or false }
+  local unpackOpts = { strict = opts.strict or false, forceLevel = opts.forceLevel }
   local hostParty, hostErr = unpackParty(game, opts.hostParty, unpackOpts, function(p)
     return ("%s's %s can't\nbattle on this\ngame."):format(hostName, tostring(p.species))
   end)
