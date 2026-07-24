@@ -81,6 +81,14 @@ end
 
 -- Advance one fixed step; returns true when a step just completed.
 function Player:update()
+  -- land-frame walk pose lasts only through the draw after completion;
+  -- the next update (idle or a chained step) clears it
+  self.stepLanded = false
+  -- Ledge-hop arc is cosmetic but must track the fixed 60Hz logic step,
+  -- not love.draw's display refresh (issue #4: >59fps ended early).
+  if self.hopFrames and self.hopFrames > 0 then
+    self.hopFrames = self.hopFrames - 1
+  end
   if self.turnTimer > 0 then
     self.turnTimer = self.turnTimer - 1
   end
@@ -109,6 +117,11 @@ function Player:update()
     self.px, self.py = self.cellX * 16, self.cellY * 16
     self.moving = false
     self.stepFlip = not self.stepFlip
+    -- keep animClock's pose on this frame (issue #82): bike steps land
+    -- mid-cycle (animClock % 16 == 8), and walkPhase used to snap to
+    -- stand whenever moving cleared — a stand flash every tile on the
+    -- bike, and sometimes after dismount when the clock is desynced
+    self.stepLanded = true
     return true
   end
   return false
@@ -119,7 +132,7 @@ function Player:facingCell()
 end
 
 function Player:walkPhase()
-  if not self.moving then return 0 end
+  if not self.moving and not self.stepLanded then return 0 end
   -- walk frame during the middle of each 16-frame animation cycle
   local p = (self.animClock or self.progress) % 16
   return (p >= 4 and p < 12) and 1 or 0
@@ -129,10 +142,13 @@ local SPIN_ORDER = { "down", "left", "up", "right" }
 
 function Player:draw(camX, camY)
   local py = self.py
-  -- ledge hops arc (set for 2 cells by the ledge handler); surfing bobs
+  -- ledge hops arc (set for 2 cells by the ledge handler); surfing bobs.
+  -- hopFrames counts down in Player:update (fixed step), never here.
   if self.hopFrames and self.hopFrames > 0 then
-    self.hopFrames = self.hopFrames - 1
-    local t = 1 - self.hopFrames / (self.hopTotal or 32)
+    local total = self.hopTotal or 32
+    -- update runs before draw, so remaining N means N steps already
+    -- consumed this hop → t matches the old draw-side post-decrement phase
+    local t = 1 - self.hopFrames / total
     py = py - math.floor(10 * math.sin(t * math.pi) + 0.5)
     -- the shadow stays on the ground under the jumper: one 8x8 tile
     -- mirrored into a 2x2 block (normal/XFLIP/YFLIP/both) whose top-left

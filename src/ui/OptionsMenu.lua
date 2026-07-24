@@ -110,7 +110,7 @@ local function sameRows(_, rows) return rows end
 -- the vanilla rows as descriptors; each step body is the old per-index
 -- ladder's, so the save.options mutations are unchanged
 local function buildRows(game)
-  return {
+  local rows = {
     { id = "textSpeed", label = "TEXT SPEED",
       value = function(g) return SPEEDS[speedIndex(g)][2] end,
       step = function(g)
@@ -252,6 +252,15 @@ local function buildRows(game)
         require("src.ui.Screens").push(g, "BindingsMenu")
       end },
   }
+  -- issue #136: hide GBC FX on Android/iOS -- the present shader soft-bricks
+  if not GBCFX.isSupported() then
+    local filtered = {}
+    for _, row in ipairs(rows) do
+      if row.id ~= "gbcfx" then filtered[#filtered + 1] = row end
+    end
+    rows = filtered
+  end
+  return rows
 end
 
 function OptionsMenu.new(game)

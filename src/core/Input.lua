@@ -11,7 +11,12 @@ local DEFAULT_BINDINGS = {
   z = "a", ["return"] = "a", space = "a",
   x = "b", backspace = "b",
   ["kpenter"] = "start", escape = "start",
+  -- Select: fight-menu move reorder + bag item reorder. Tab is the
+  -- discoverable default (shown in CONTROLS); both shifts stay as
+  -- aliases so Right-Shift muscle memory from older builds still works.
+  tab = "select",
   rshift = "select",
+  lshift = "select",
 }
 
 -- keys that map to "start" but also to "a" would conflict; keep Enter = a,

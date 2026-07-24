@@ -295,7 +295,8 @@ check(bm.screenId == "BindingsMenu",
 check(#bm.items == 8, "one row per logical button")
 check(bm.items[1].label == "UP" and bm.items[1].right == "UP"
   and bm.items[5].label == "A" and bm.items[5].right == "Z"
-  and bm.items[7].label == "START" and bm.items[7].right == "ESCAPE",
+  and bm.items[7].label == "START" and bm.items[7].right == "ESCAPE"
+  and bm.items[8].label == "SELECT" and bm.items[8].right == "TAB/BACK",
   "with no rebind the rows mirror the fixed map")
 check(cbGame.save.options.bindings == nil,
   "opening the screen alone writes nothing")

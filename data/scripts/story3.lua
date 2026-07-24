@@ -62,6 +62,50 @@ M.ROUTE_12_SUPER_ROD_HOUSE.talk.TEXT_ROUTE12SUPERRODHOUSE_FISHING_GURU[9] =
   { "show_text", "_Route12SuperRodHouseFishingGuruTryFishingText" }
 
 -- -------------------------------------------------------------------
+-- Pokemon Tower 5F purified zone (scripts/PokemonTower5F.asm
+-- PokemonTower5FDefaultScript): the 2x2 center pad heals the party once
+-- per visit.  EVENT_IN_PURIFIED_ZONE latches until the player steps off;
+-- while on the pad the map script also sets BIT_NO_BATTLES (we return
+-- true from onStep so wild encounters are skipped the same way).
+-- -------------------------------------------------------------------
+
+local TOWER_5F_PURIFIED = {
+  [10 * 256 + 8] = true, [11 * 256 + 8] = true,
+  [10 * 256 + 9] = true, [11 * 256 + 9] = true,
+}
+
+-- HealParty -> GBFadeOutToWhite -> Delay3 -> Delay3 -> GBFadeInFromWhite
+-- -> TEXT_POKEMONTOWER5F_PURIFIEDZONE (no Music_PkmnHealed).
+local TOWER_5F_HEAL = {
+  { "heal_party" },
+  { "fade", "out", "white" },
+  { "wait", 3 },
+  { "wait", 3 },
+  { "fade", "in", "white" },
+  { "show_text", "_PokemonTower5FPurifiedZoneText" },
+}
+
+M.POKEMON_TOWER_5F = {
+  onStep = function(game, ow, x, y)
+    if not TOWER_5F_PURIFIED[x * 256 + y] then
+      game.save.flags.EVENT_IN_PURIFIED_ZONE = nil
+      return false
+    end
+    if game.save.flags.EVENT_IN_PURIFIED_ZONE then
+      return true
+    end
+    if ow.runner and ow.runner:isRunning() then return false end
+    game.save.flags.EVENT_IN_PURIFIED_ZONE = true
+    if ow.runner then
+      ow.runner:run(TOWER_5F_HEAL)
+    elseif ow.queueScript then
+      ow:queueScript(TOWER_5F_HEAL)
+    end
+    return true
+  end,
+}
+
+-- -------------------------------------------------------------------
 -- The ghost Marowak (scripts/PokemonTower6F.asm): blocks the stairs at
 -- (10,16) until defeated.
 --

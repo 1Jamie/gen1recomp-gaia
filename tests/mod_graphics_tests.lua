@@ -620,6 +620,22 @@ check(PaletteFX.pal({ palettes = nil }, "ROUTE") == gbc.palettes.ROUTE,
       "RED++ still has ROUTE (aliased from VIRIDIAN)")
 check(PaletteFX.effectiveColors(gbc.palettes.MEWMON) == gbc.palettes.MEWMON,
       "RED++ passes zone colors through like GBC")
+-- issue #84: CELADON_DINER shares LOBBY block 29 (table top) with
+-- CELADON_MART_ROOF (#52); both need the $37->$5a BROWN alias
+do
+  local aliases = PaletteFX.TILE_ALIASES
+  local roof = aliases and aliases.CELADON_MART_ROOF
+  local diner = aliases and aliases.CELADON_DINER
+  check(roof ~= nil and diner ~= nil,
+        "CELADON_MART_ROOF and CELADON_DINER both have TILE_ALIASES")
+  check(diner == roof,
+        "diner reuses the same lobby table-top alias as the mart roof")
+  local al = diner and diner[1]
+  check(al and al.block == 29 and al.tile == 0x37 and al.alias == 0x5a
+        and al.group == 5 and al.cells[5] and al.cells[6]
+        and al.cells[9] and al.cells[10],
+        "lobby table-top alias remaps block 29 cells 5/6/9/10")
+end
 -- issue #128: RED++'s gbc pack is Red-derived; Blue must keep ROM LOGO1
 -- (and the Blue-only SLOTS* rows) so the title ribbon is blue, not red
 do

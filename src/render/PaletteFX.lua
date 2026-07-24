@@ -353,18 +353,21 @@ local TILESET_GROUP_EXCEPTIONS = {
   CEMETERY = { tiles = { [0x22] = true }, group = 0 },
 }
 
--- pokered-gbc's lobby.bst repoints the Celadon roof table's flat top
+-- pokered-gbc's lobby.bst repoints the Celadon LOBBY table's flat top
 -- (block 29, cells 5/6/9/10) at a duplicate tile ($5a, BROWN) so the
 -- tabletop and the checkerboard floor -- both raw tile $37 -- can take
 -- different palettes; the vanilla-derived blockset shares the one tile
 -- id, so the RED++ atlas path re-creates the duplicate: the alias slot
 -- is baked as a copy of `tile` in `group`'s colors, and the listed
 -- 0-based block cells draw the alias instead of the shared tile.
+-- Same block appears on CELADON_MART_ROOF (#52) and CELADON_DINER (#84).
+local LOBBY_TABLE_TOP_ALIAS = {
+  { block = 29, cells = { [5] = true, [6] = true, [9] = true, [10] = true },
+    tile = 0x37, alias = 0x5a, group = 5 },
+}
 PaletteFX.TILE_ALIASES = {
-  CELADON_MART_ROOF = {
-    { block = 29, cells = { [5] = true, [6] = true, [9] = true, [10] = true },
-      tile = 0x37, alias = 0x5a, group = 5 },
-  },
+  CELADON_MART_ROOF = LOBBY_TABLE_TOP_ALIAS,
+  CELADON_DINER = LOBBY_TABLE_TOP_ALIAS,
 }
 local ROOF_GROUP = 6
 local ROUTE_6_SAFFRON = { mapId = "ROUTE_6", useMapId = "SAFFRON_CITY", cellYBelow = 2 }

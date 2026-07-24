@@ -176,25 +176,51 @@ function EffectRegistry.runDamaging(battle, ctx, record)
   end
   battle.lastDamage = dmg -- wDamage (shared by both sides, read by Counter)
 
-  -- the hit blink + damage sound ride the queue behind the animation:
-  -- on the move's anim row when one was announced, else on a bare hit
-  -- row (thrash/rage continuations), placed BEFORE the drain rows the
-  -- hits loop inserts so the blink precedes the bar drain
-  local hitRow = battle.moveAnimRow
-  if not hitRow then
-    battle.nextInsert = (battle.nextInsert or 0) + 1
-    hitRow = { hitRow = true }
-    table.insert(battle.queue, battle.nextInsert, hitRow)
-  end
+  -- the hit blink + damage sound ride each animation row, placed BEFORE
+  -- that hit's drain so the blink precedes the bar.  Multi-hit moves
+  -- replay PlayMoveAnimation per strike (pokered: GetPlayerAnimationType
+  -- / GetEnemyAnimationType loop on wNumAttacksLeft); hit 1 reuses the
+  -- announcement-time moveAnimRow, later hits queue fresh anim rows.
+  -- Thrash/rage continuations have no announcement anim -- a bare
+  -- hitRow carries the blink instead.
+  local hitSfx = info.typeMult > 10 and "Super_Effective"
+                 or info.typeMult < 10 and "Not_Very_Effective" or "Damage"
+  local hitFx = { sfx = hitSfx,
+                  blink = battle:animationsOn() and target or nil }
 
   local totalDealt = 0
   local landed, brokeSub = 0, false
   for h = 1, hits do
     if target.mon.hp <= 0 then break end
+    local hitRow
+    if h == 1 then
+      hitRow = battle.moveAnimRow
+      if not hitRow then
+        battle.nextInsert = (battle.nextInsert or 0) + 1
+        hitRow = { hitRow = true }
+        table.insert(battle.queue, battle.nextInsert, hitRow)
+      end
+    else
+      battle.nextInsert = (battle.nextInsert or 0) + 1
+      hitRow = { anim = move.id, attackerIsPlayer = user.isPlayer }
+      table.insert(battle.queue, battle.nextInsert, hitRow)
+    end
     local hadSub = target.substituteHP ~= nil
     local dealt = battle:applyDamage(target, dmg)
     totalDealt = totalDealt + dealt
     landed = h
+    if dealt > 0 then hitRow.hit = hitFx end
+    -- PrintCriticalOHKOText + DisplayEffectiveness run inside the
+    -- multi-hit loop (core.asm .moveDidNotMiss before the jump back
+    -- to GetPlayerAnimationType), so crit/effectiveness reprint on
+    -- every strike -- damage was only rolled once
+    if info.crit then battle:sayNext("Critical hit!") end
+    if info.ohko then battle:sayNext("One-hit KO!") end
+    if info.typeMult > 10 then
+      battle:sayNext("It's super\neffective!")
+    elseif info.typeMult < 10 then
+      battle:sayNext("It's not very\neffective...")
+    end
     if Runtime.wants("battle.damage_dealt") then
       Runtime.emit("battle.damage_dealt", {
         battle = battle, user = user, target = target, move = move,
@@ -208,23 +234,6 @@ function EffectRegistry.runDamaging(battle, ctx, record)
     end
   end
   hits = landed > 0 and landed or hits
-  if totalDealt > 0 then
-    -- the original's per-hit sound: normal / super / not-very-effective
-    local hitSfx = info.typeMult > 10 and "Super_Effective"
-                   or info.typeMult < 10 and "Not_Very_Effective" or "Damage"
-    hitRow.hit = { sfx = hitSfx,
-                   blink = battle:animationsOn() and target or nil }
-  end
-  -- PrintCriticalOHKOText prints "Critical hit!"/"One-hit KO!" right
-  -- after the damage lands, BEFORE DisplayEffectiveness (core.asm
-  -- .moveDidNotMiss); the multi-hit count follows the last hit
-  if info.crit then battle:sayNext("Critical hit!") end
-  if info.ohko then battle:sayNext("One-hit KO!") end
-  if info.typeMult > 10 then
-    battle:sayNext("It's super\neffective!")
-  elseif info.typeMult < 10 then
-    battle:sayNext("It's not very\neffective...")
-  end
   if hits > 1 then
     -- player: _MultiHitText; enemy: _HitXTimesText (always plural)
     if user.isPlayer then

@@ -432,6 +432,50 @@ check(actsFaint.fly and actsFaint.cut and actsFaint.surf and actsFaint.strength,
       "fainted mon still lists FLY/CUT/SURF/STRENGTH in the party submenu")
 popToOW()
 
+-- ===========================================================================
+-- #83: FLY/TELEPORT use CheckIfInOutsideMap (OVERWORLD + PLATEAU), so the
+-- outdoor strip between Victory Road and the Elite Four / Indigo Plateau
+-- building allows Fly like any other outdoor overworld map.
+-- ===========================================================================
+Game.save.party = { mkMon("AERODACTYL", "FLY", "TELEPORT") }
+Game.save.inventory = { THUNDERBADGE = true }
+ow = pushOW("INDIGO_PLATEAU", 10, 5, "down")
+eq(ow.map.def.tileset, "PLATEAU", "Indigo Plateau outdoor uses PLATEAU tileset")
+local pmIndigo = PartyMenu.new(Game)
+Game.stack:push(pmIndigo)
+frame({ "a" })
+local actsIndigo = submenuActions(pmIndigo)
+check(actsIndigo.fly, "FLY listed on Indigo Plateau outdoor (PLATEAU)")
+check(actsIndigo.escape, "TELEPORT listed on Indigo Plateau outdoor (PLATEAU)")
+popToOW()
+
+ow = pushOW("ROUTE_23", 10, 6, "down")
+eq(ow.map.def.tileset, "PLATEAU", "Route 23 uses PLATEAU tileset")
+local pmR23 = PartyMenu.new(Game)
+Game.stack:push(pmR23)
+frame({ "a" })
+check(submenuActions(pmR23).fly, "FLY listed on Route 23 (PLATEAU)")
+popToOW()
+
+-- Indoors at the lobby still blocks FLY/TELEPORT (MART tileset)
+ow = pushOW("INDIGO_PLATEAU_LOBBY", 7, 8, "down")
+check(ow.map.def.tileset ~= "OVERWORLD" and ow.map.def.tileset ~= "PLATEAU",
+      "Indigo lobby is not an outside tileset")
+local pmLobby = PartyMenu.new(Game)
+Game.stack:push(pmLobby)
+frame({ "a" })
+local actsLobby = submenuActions(pmLobby)
+check(not actsLobby.fly, "FLY omitted inside Indigo Plateau lobby")
+check(not actsLobby.escape, "TELEPORT omitted inside Indigo Plateau lobby")
+popToOW()
+
+-- restore fainted field-move mon for the STRENGTH/SURF cases below
+Game.save.party = { fainted }
+Game.save.inventory = {
+  THUNDERBADGE = true, CASCADEBADGE = true,
+  RAINBOWBADGE = true, SOULBADGE = true,
+}
+
 -- STRENGTH activation from a fainted user (name text + strengthActive)
 ow = pushOW("SEAFOAM_ISLANDS_1F", 17, 10, "right")
 clearCaptured()

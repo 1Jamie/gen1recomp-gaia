@@ -322,7 +322,9 @@ function Game:keypressed(key)
     return
   elseif key == "5" then
     -- cycle GBC FX OFF → 1 → 2 → 3 → 4 (unlit-GBC ladder); always on
+    -- desktop.  Mobile refuses the present shader (issue #136).
     local GBCFX = require("src.render.GBCFX")
+    if not GBCFX.isSupported() then return end
     self.save.options.gbcfx = GBCFX.cycle()
     self:writeOptions()
     return
@@ -443,12 +445,15 @@ function Game:applyOptions(opts)
   if Sound.applyOptions then Sound.applyOptions(opts) end
   require("src.render.PaletteFX").applyOptions(opts)
   require("src.render.Tilt").applyOptions(opts)
-  require("src.render.GBCFX").applyOptions(opts)
+  -- returns true when a persisted GBC FX level was cleared on mobile
+  local gbcCleared = require("src.render.GBCFX").applyOptions(opts)
   require("src.core.VideoMode").applyOptions(opts)
   -- normalizes a nil/garbage cap to the 60 default, so old saves with no
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)
   Input:applyBindings(opts.bindings)
+  -- heal soft-bricked APK installs that already saved gbcfx > 0 (#136)
+  if gbcCleared then self:writeOptions() end
 end
 
 function Game:restoreSave(loaded, recovered)

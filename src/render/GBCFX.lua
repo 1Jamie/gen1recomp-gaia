@@ -22,6 +22,15 @@ GBCFX.level = 0
 
 local shader -- false = unavailable (headless / no shader support)
 
+-- Mobile GPUs often compile this pass but present a black frame, and the
+-- level persists in options.lua -- soft-bricking the APK until a manual
+-- edit (issue #136).  Desktop is unchanged; Android/iOS refuse the effect.
+function GBCFX.isSupported()
+  if not love or not love.system or not love.system.getOS then return true end
+  local osName = love.system.getOS()
+  return osName ~= "Android" and osName ~= "iOS"
+end
+
 -- GLSL 1.20-compatible (no array initializers; wavelength terms and the
 -- shadow blur are unrolled by hand).
 local SHADER_SRC = [[
@@ -214,6 +223,7 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 pc)
 GBCFX.SHADER_SRC = SHADER_SRC -- exposed for the standalone compile check
 
 function GBCFX.shader()
+  if not GBCFX.isSupported() then return nil end
   if shader == nil then
     local ok, sh = pcall(love.graphics.newShader, SHADER_SRC)
     shader = ok and sh or false
@@ -222,6 +232,10 @@ function GBCFX.shader()
 end
 
 function GBCFX.setLevel(level)
+  if not GBCFX.isSupported() then
+    GBCFX.level = 0
+    return
+  end
   level = math.floor(tonumber(level) or 0)
   if level < 0 then level = 0 end
   if level > 4 then level = 4 end
@@ -230,12 +244,26 @@ end
 
 -- Advance OFF → 1 → 2 → 3 → 4 → OFF.  Returns the new level.
 function GBCFX.cycle()
+  if not GBCFX.isSupported() then
+    GBCFX.level = 0
+    return 0
+  end
   GBCFX.setLevel((GBCFX.level + 1) % 5)
   return GBCFX.level
 end
 
+-- Apply opts.gbcfx.  On unsupported platforms force OFF and clear a
+-- persisted non-zero value so boot recovers from a soft-brick.  Returns
+-- true when opts was sanitized (caller should persist options.lua).
 function GBCFX.applyOptions(opts)
+  if not GBCFX.isSupported() then
+    local had = opts and (tonumber(opts.gbcfx) or 0) ~= 0
+    if opts then opts.gbcfx = 0 end
+    GBCFX.level = 0
+    return had and true or false
+  end
   GBCFX.setLevel(opts and opts.gbcfx or 0)
+  return false
 end
 
 function GBCFX.levelLabel(level)
@@ -243,7 +271,7 @@ function GBCFX.levelLabel(level)
 end
 
 function GBCFX.active()
-  return GBCFX.level > 0 and GBCFX.shader() ~= nil
+  return GBCFX.isSupported() and GBCFX.level > 0 and GBCFX.shader() ~= nil
 end
 
 -- Draw `canvas` fullscreen through the GBC FX shader into the current

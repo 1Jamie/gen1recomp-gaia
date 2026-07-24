@@ -11,7 +11,9 @@ local Input = require("src.core.Input")
 local BindingsMenu = setmetatable({}, { __index = ListMenu })
 BindingsMenu.__index = BindingsMenu
 
--- Input.lua's map, primary key first where several keys share a button
+-- Input.lua's map, primary key first where several keys share a button.
+-- `pad` is the default SDL gamecontroller button (see Input.lua); shown
+-- on the SELECT row so controller Back/View is discoverable (#73).
 local BUTTONS = {
   { id = "up", label = "UP", key = "up" },
   { id = "down", label = "DOWN", key = "down" },
@@ -20,7 +22,7 @@ local BUTTONS = {
   { id = "a", label = "A", key = "z" },
   { id = "b", label = "B", key = "x" },
   { id = "start", label = "START", key = "escape" },
-  { id = "select", label = "SELECT", key = "rshift" },
+  { id = "select", label = "SELECT", key = "tab", pad = "back" },
 }
 
 -- a binding is a plain key string or { key, pad }; absent = the fixed
@@ -32,13 +34,29 @@ local function boundKey(overlay, def)
   return def.key
 end
 
+local function boundPad(overlay, def)
+  local b = overlay and overlay[def.id]
+  if type(b) == "table" and b.pad then return b.pad end
+  return def.pad
+end
+
+-- Key column for every row. SELECT also appends "/PAD" (default BACK)
+-- so controller Select/View is visible without opening a second legend.
+local function boundRight(overlay, def)
+  local key = boundKey(overlay, def)
+  if def.id ~= "select" then return key:upper() end
+  local pad = boundPad(overlay, def)
+  if pad then return (key .. "/" .. pad):upper() end
+  return key:upper()
+end
+
 function BindingsMenu.new(game)
   local overlay = game.save and game.save.options
                   and game.save.options.bindings
   local items = {}
   for i, def in ipairs(BUTTONS) do
     items[i] = { label = def.label,
-                 right = boundKey(overlay, def):upper(), button = def }
+                 right = boundRight(overlay, def), button = def }
   end
   local self = setmetatable(ListMenu.new(game, "CONTROLS", items, {}),
                             BindingsMenu)
@@ -78,7 +96,7 @@ function BindingsMenu:storeBinding(slot, value)
   end
   b[slot] = value
   opts.bindings[item.button.id] = b
-  item.right = boundKey(opts.bindings, item.button):upper()
+  item.right = boundRight(opts.bindings, item.button)
   Input:applyBindings(opts.bindings)
   if game.writeOptions then game:writeOptions() end
 end

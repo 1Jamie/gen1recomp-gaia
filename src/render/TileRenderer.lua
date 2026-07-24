@@ -55,8 +55,29 @@ local FLOWER_IMAGES = {
 local SPINNER_STRIP = "assets/generated/tilesets/spinners.png"
 
 local animFrame = 0
-function TileRenderer.tick()
-  animFrame = animFrame + 1
+local animAccum = 0
+local ANIM_STEP = 1 / 60 -- Game Boy logic rate (matches FixedStep.STEP)
+
+-- Advance water/flower/spinner tile animation.  Called from the overworld
+-- draw path so it keeps running under dialogs (overworld update does not),
+-- but consumes wall-clock dt into 60Hz steps so high/low display refresh
+-- no longer speeds up or slows the cycle (issue #4).
+-- tick() / tick(nil) with no love.timer.getDelta (headless tests) still
+-- advances exactly one frame per call.
+function TileRenderer.tick(dt)
+  if dt == nil and love and love.timer and love.timer.getDelta then
+    dt = love.timer.getDelta()
+  end
+  if dt == nil then
+    animFrame = animFrame + 1
+    return
+  end
+  -- Cap catch-up so a long stall cannot jump many water/flower periods
+  animAccum = math.min(animAccum + dt, 0.25)
+  while animAccum >= ANIM_STEP do
+    animAccum = animAccum - ANIM_STEP
+    animFrame = animFrame + 1
+  end
 end
 
 -- ------------------------------------------------------------------

@@ -48,7 +48,7 @@ local KEY = {
   a = "z",
   b = "x",
   start = "escape",
-  select = "rshift",
+  select = "tab",
 }
 
 local function nowMs()

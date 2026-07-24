@@ -80,5 +80,46 @@ check(drawn and drawn[1] == canvas and drawn[2] == 0 and drawn[3] == 0,
 
 GBCFX.setLevel(0)
 
+-- issue #136: Android/iOS refuse GBC FX (shader soft-bricks the APK)
+check(GBCFX.isSupported(), "desktop / headless stub supports GBC FX")
+local prevSystem = love.system
+love.system = { getOS = function() return "Android" end }
+check(not GBCFX.isSupported(), "Android reports GBC FX unsupported")
+GBCFX.setLevel(3)
+eq(GBCFX.level, 0, "setLevel forces OFF on Android")
+eq(GBCFX.cycle(), 0, "cycle stays OFF on Android")
+local opts = { gbcfx = 4 }
+check(GBCFX.applyOptions(opts) == true,
+      "applyOptions reports a cleared persisted level on Android")
+eq(opts.gbcfx, 0, "applyOptions clears opts.gbcfx on Android")
+eq(GBCFX.level, 0, "applyOptions leaves level OFF on Android")
+check(not GBCFX.active(), "active() is false on Android")
+eq(GBCFX.shader(), nil, "shader() is nil on Android")
+love.system = { getOS = function() return "iOS" end }
+check(not GBCFX.isSupported(), "iOS reports GBC FX unsupported")
+love.system = prevSystem
+check(GBCFX.isSupported(), "support restores when OS stub is removed")
+-- desktop path still applies a level after leaving the mobile gate
+GBCFX.applyOptions({ gbcfx = 2 })
+eq(GBCFX.level, 2, "applyOptions still sets levels on desktop")
+GBCFX.setLevel(0)
+
+-- Options menu hides the GBC FX row on Android
+local OptionsMenu = require("src.ui.OptionsMenu")
+love.system = { getOS = function() return "Android" end }
+local om = OptionsMenu.new({
+  data = { rulesets = {}, constants = {} },
+  save = { options = {} },
+  stack = { pop = function() end },
+  input = { wasPressed = function() return false end },
+  modStatus = { available = {} },
+})
+local hasGbc = false
+for _, row in ipairs(om.rows) do
+  if row.id == "gbcfx" then hasGbc = true end
+end
+check(not hasGbc, "Options menu omits GBC FX on Android")
+love.system = prevSystem
+
 -- === summary ===
 S.finish()

@@ -1072,6 +1072,81 @@ do
   mh:performMove(mh.player, mh.enemy, { id = "DOUBLESLAP", pp = 10 })
   check(hasText(mh, "Hit the enemy\n5 times!"),
         "player multi-hit uses _MultiHitText")
+  -- #85: multi-hit replays PlayMoveAnimation per strike (pokered
+  -- GetPlayerAnimationType loop), interleaved with each HP drain
+  do
+    local anims, seq = 0, {}
+    for _, r in ipairs(mh.queue) do
+      if r.anim == "DOUBLESLAP" then
+        anims = anims + 1
+        seq[#seq + 1] = "anim"
+      elseif r.drain then
+        seq[#seq + 1] = "drain"
+      end
+    end
+    eq(anims, 5, "multi-hit queues the move animation once per hit")
+    eq(table.concat(seq, ","),
+       "anim,drain,anim,drain,anim,drain,anim,drain,anim,drain",
+       "multi-hit interleaves anim + drain per strike")
+    for _, r in ipairs(mh.queue) do
+      if r.anim == "DOUBLESLAP" then
+        check(r.hit ~= nil, "each multi-hit anim carries hit blink/sfx")
+      end
+    end
+  end
+  -- #85: crit / effectiveness reprint each strike (.moveDidNotMiss
+  -- before the GetPlayerAnimationType loop-back).  DOUBLE_KICK is a
+  -- fixed 2-hit Fighting move -- SE vs Normal SNORLAX.
+  do
+    local function countText(b, s)
+      local n = 0
+      for _, it in ipairs(b.queue) do
+        if it.text and it.text:find(s, 1, true) then n = n + 1 end
+      end
+      return n
+    end
+    Game.save.party = { Pokemon.new(Data, "BULBASAUR", 20) }
+    local mhk = BattleState.newWild(Game, "SNORLAX", 40)
+    mhk.rng = mkseq({ 0, 255, 255 }) -- hit, no crit, max roll
+    mhk:performMove(mhk.player, mhk.enemy, { id = "DOUBLE_KICK", pp = 10 })
+    eq(countText(mhk, "It's super\neffective!"), 2,
+       "multi-hit prints effectiveness once per strike")
+    local seq = {}
+    for _, r in ipairs(mhk.queue) do
+      if r.anim == "DOUBLE_KICK" then seq[#seq + 1] = "anim"
+      elseif r.drain then seq[#seq + 1] = "drain"
+      elseif r.text == "It's super\neffective!" then seq[#seq + 1] = "se"
+      elseif r.text and r.text:find("times!", 1, true) then seq[#seq + 1] = "count"
+      end
+    end
+    eq(table.concat(seq, ","), "anim,drain,se,anim,drain,se,count",
+       "multi-hit queues SE text between strikes, count after")
+
+    local Runtime = require("src.mods.Runtime")
+    local Hooks = require("src.mods.Hooks")
+    local Events = require("src.mods.Events")
+    local savedE, savedH = Runtime.events, Runtime.hooks
+    local hooks = Hooks.new()
+    Runtime.install(Events.new(), hooks)
+    local unsub = hooks:wrap("battle.crit", function() return true end)
+    local mhc = BattleState.newWild(Game, "SNORLAX", 40)
+    mhc.rng = mkseq({ 0, 255 }) -- acc, damage; crit from the hook
+    mhc:performMove(mhc.player, mhc.enemy, { id = "DOUBLE_KICK", pp = 10 })
+    eq(countText(mhc, "Critical hit!"), 2,
+       "multi-hit prints Critical hit! once per strike")
+    local cseq = {}
+    for _, r in ipairs(mhc.queue) do
+      if r.anim == "DOUBLE_KICK" then cseq[#cseq + 1] = "anim"
+      elseif r.drain then cseq[#cseq + 1] = "drain"
+      elseif r.text == "Critical hit!" then cseq[#cseq + 1] = "crit"
+      elseif r.text == "It's super\neffective!" then cseq[#cseq + 1] = "se"
+      end
+    end
+    eq(table.concat(cseq, ","), "anim,drain,crit,se,anim,drain,crit,se",
+       "crit then effectiveness follow each multi-hit drain")
+    unsub()
+    Runtime.install(savedE, savedH)
+  end
   Game.save.party = { Pokemon.new(Data, "SNORLAX", 30) }
   local mh2 = BattleState.newWild(Game, "RATTATA", 5)
   mh2.rng = mkseq({ 7, 0, 255, 255 })
@@ -2610,6 +2685,43 @@ do
             :format(i, tostring(c[1]), tostring(c[2]),
                     tostring(c[3]), tostring(c[4])))
   end
+end
+
+-- == issue #4: ledge hop countdown is fixed-step, not draw-rate ==
+-- hopFrames used to decrement inside Player:draw, so >59fps ended the
+-- arc early and <59fps stretched it. Countdown belongs in update().
+do
+  local Player = require("src.world.Player")
+  local p = Player.new(Data, 5, 6, "down")
+  p.hopFrames, p.hopTotal = 32, 32
+  p:draw(0, 0)
+  p:draw(0, 0)
+  p:draw(0, 0)
+  eq(p.hopFrames, 32, "draw does not consume hopFrames")
+  for _ = 1, 10 do p:update() end
+  eq(p.hopFrames, 22, "ten fixed updates consume ten hopFrames")
+  for _ = 1, 22 do p:update() end
+  eq(p.hopFrames, 0, "hop expires after hopTotal fixed updates")
+  p:update()
+  eq(p.hopFrames, 0, "hopFrames stays at 0 once expired")
+end
+
+-- == issue #4: tile anim tick accumulates wall-clock into 60Hz steps ==
+do
+  local TileRenderer = require("src.render.TileRenderer")
+  TileRenderer.setSpinning(true)
+  local before = TileRenderer.spinBlurActive()
+  for _ = 1, 8 do TileRenderer.tick(1 / 60) end
+  check(before ~= TileRenderer.spinBlurActive(),
+        "tick(1/60) advances water/spinner clock at fixed 60Hz")
+  local mid = TileRenderer.spinBlurActive()
+  TileRenderer.tick(1 / 120)
+  eq(TileRenderer.spinBlurActive(), mid,
+     "sub-frame dt does not advance the tile anim clock")
+  TileRenderer.tick(1 / 120)
+  -- second half-frame completes one step; phase may or may not flip
+  -- (8-tick blur period), but the clock must have accepted the step
+  TileRenderer.setSpinning(false)
 end
 end
 

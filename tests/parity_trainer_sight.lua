@@ -169,4 +169,53 @@ do
         "tile behind the trainer never engages (CheckPlayerIsInFrontOfSprite)")
 end
 
+-- === (4) Route 9 Bug Catcher: 4-tiles-north screen Y $fc quirk ===
+-- Object 7 = SPRITE_YOUNGSTER at (22,2), STAY DOWN, OPP_BUG_CATCHER
+-- (data/maps/objects/Route9.asm); header range 4 (Route9TrainerHeader6).
+-- A ledge sits on (22,5); the walkable tile below it is (22,6) at cell
+-- distance 4.  Cell math would engage, but pokered's unsigned screen-Y
+-- distance with SPRITESTATEDATA1_YPIXELS=$fc is $c0 > range<<4 ($40), so
+-- the trainer must not challenge through that ledge (GitHub #76).
+local ROUTE9_BUG_CATCHER = 7
+
+local function freshRoute9(px, py, facing)
+  while Game.stack:top() do Game.stack:pop() end
+  Game.save = SaveData.newGame()
+  Input:init()
+  OW.engaging = false
+  OW.emote = nil
+  Game.stack:push(OW, "ROUTE_9", px, py, facing)
+  local ow = Game.stack:top()
+  local trainer
+  for _, npc in ipairs(ow.npcs) do
+    if npc.def.index == ROUTE9_BUG_CATCHER then trainer = npc end
+  end
+  return ow, trainer
+end
+
+do
+  local ow, trainer = freshRoute9(22, 6, "up")
+  check(trainer ~= nil and trainer.cellX == 22 and trainer.cellY == 2,
+        "Route 9 Bug Catcher stands at (22,2)")
+  eq(trainer.facing, "down", "Bug Catcher faces down (STAY DOWN)")
+  local header = Data:trainerHeader("Route9", ROUTE9_BUG_CATCHER)
+  eq(header and header.range, 4, "Bug Catcher sight range is 4")
+
+  for _ = 1, 10 do frame(ow) end
+  check(not ow.engaging,
+        "distance 4 south of DOWN trainer: no engage (screen Y $fc quirk)")
+
+  -- same plateau, still in pixel range: distance 2 and 3 must engage
+  local ow2, t2 = freshRoute9(22, 4, "up")
+  local guard = 0
+  while not ow2.engaging and guard < 10 do guard = guard + 1; frame(ow2) end
+  check(ow2.engaging and t2.cellY == 2,
+        "distance 2 on the upper plateau still engages")
+
+  local ow3 = freshRoute9(22, 3, "up")
+  guard = 0
+  while not ow3.engaging and guard < 10 do guard = guard + 1; frame(ow3) end
+  check(ow3.engaging, "distance 3 on the upper plateau still engages")
+end
+
 S.finish()

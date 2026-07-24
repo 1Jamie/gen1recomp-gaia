@@ -11,6 +11,8 @@ local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Theme = require("src.ui.Theme")
+local FieldDefaults = require("src.world.FieldDefaults")
+local Map = require("src.world.Map")
 
 local PartyMenu = {}
 PartyMenu.__index = PartyMenu
@@ -355,8 +357,12 @@ function PartyMenu:update(dt)
       -- Battle still excludes this list via `not self.battle`. Softboiled
       -- can appear for a fainted user; its heal transfer then no-ops.
       if not self.battle and ow then
+        -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU —
+        -- Route 23 / Indigo Plateau outdoor), not OVERWORLD alone (#83)
+        local outside = Map.isOutside(ow.map.def,
+          FieldDefaults.field(self.game.data, "outsideTilesets"))
         for _, mv in ipairs(mon.moves) do
-          if mv.id == "FLY" and ow.map.def.tileset == "OVERWORLD"
+          if mv.id == "FLY" and outside
              and self.game.save.inventory.THUNDERBADGE then
             table.insert(items, { label = "FLY", action = "fly" })
           elseif mv.id == "FLASH" and ow.dark
@@ -375,7 +381,7 @@ function PartyMenu:update(dt)
             table.insert(items, { label = "STRENGTH", action = "strength" })
           elseif mv.id == "SOFTBOILED" then
             table.insert(items, { label = "SOFTBOILED", action = "softboiled" })
-          elseif mv.id == "TELEPORT" and ow.map.def.tileset == "OVERWORLD" then
+          elseif mv.id == "TELEPORT" and outside then
             -- TELEPORT works only OUTDOORS (start_sub_menus.asm
             -- .teleport -> CheckIfInOutsideMap); dark maps don't
             -- block it

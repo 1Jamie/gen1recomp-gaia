@@ -2431,6 +2431,27 @@ function OverworldState:runVictoryHook()
   if hooks and hooks.onVictory then hooks.onVictory(Game, self) end
 end
 
+-- pokered player sprite is fixed at screen ($40, $3c).  TrainerEngage reads
+-- the NPC's 8-bit SPRITESTATEDATA1 X/Y pixels and CalcDifference; engage
+-- distance is stored as range<<4 (pixels).  There is no tile LOS check for
+-- interposed NPCs / walls -- but unsigned 8-bit Y makes a sprite exactly 4
+-- tiles north of the player sit at Y=$fc, so |$3c-$fc|=$c0 and a range-4
+-- DOWN trainer does not engage that tile (Route 9 Bug Catcher / issue #76).
+local PLAYER_SCREEN_X, PLAYER_SCREEN_Y = 0x40, 0x3c
+local function u8(n) return n % 256 end
+local function calcDiff(a, b)
+  a, b = u8(a), u8(b)
+  return a >= b and a - b or b - a
+end
+local function trainerSightPixelDist(npc, player, horizontal)
+  if horizontal then
+    return calcDiff(PLAYER_SCREEN_X,
+                    u8(PLAYER_SCREEN_X + (npc.cellX - player.cellX) * 16))
+  end
+  return calcDiff(PLAYER_SCREEN_Y,
+                  u8(PLAYER_SCREEN_Y + (npc.cellY - player.cellY) * 16))
+end
+
 -- STAY trainers with a facing spot the player crossing their line of
 -- sight (range from the extracted trainer headers), walk up and battle.
 function OverworldState:checkTrainerSight()
@@ -2448,22 +2469,23 @@ function OverworldState:checkTrainerSight()
       local range = header and header.range or 0
       local vec = DIRVEC[npc.facing]
       if range > 0 and vec then
-        local dist
+        local dist, horizontal
         if vec[1] ~= 0 and npc.cellY == p.cellY then
           dist = (p.cellX - npc.cellX) * vec[1]
+          horizontal = true
         elseif vec[2] ~= 0 and npc.cellX == p.cellX then
           dist = (p.cellY - npc.cellY) * vec[2]
+          horizontal = false
         end
-        -- pokered's TrainerEngage / CheckSpriteCanSeePlayer compares screen
-        -- coordinates only (home/trainers.asm, engine/overworld/
-        -- trainer_sight.asm) -- there is no line-of-sight obstruction check.
-        -- An aligned trainer within range engages through interposed NPCs and
-        -- unwalkable tiles, and the scripted walk-up below (scriptMove) also
-        -- ignores collision, so the trainer simply walks/overlaps through
-        -- anything on the line -- exactly as OAM sprites overlap on hardware.
-        if dist and dist >= 1 and dist <= range then
-          self:startTrainerApproach(npc, dist)
-          return
+        -- Screen-pixel range (CheckSpriteCanSeePlayer), not cell count:
+        -- same facing-line rule as before, but the $fc Y quirk excludes the
+        -- 4-tiles-north tile that cell math would still count as in range.
+        if dist and dist >= 1 then
+          local pixelDist = trainerSightPixelDist(npc, p, horizontal)
+          if pixelDist > 0 and pixelDist <= range * 16 then
+            self:startTrainerApproach(npc, dist)
+            return
+          end
         end
       end
     end
@@ -3492,7 +3514,9 @@ function OverworldState:billboard(fx, fy, vw, vh, colors, keyed, drawFn)
 end
 
 function OverworldState:drawWorld()
-  -- advance the water/flower tile animation (runs under dialogs too)
+  -- advance the water/flower tile animation (runs under dialogs too).
+  -- TileRenderer.tick uses wall-clock 60Hz steps so display refresh rate
+  -- does not speed or slow the cycle (issue #4).
   require("src.render.TileRenderer").tick()
   -- let the renderer know whether a spinner puzzle is currently sliding
   -- the player, so it can flicker the arrow tiles between the blur and
