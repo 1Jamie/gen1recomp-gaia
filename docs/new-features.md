@@ -8,26 +8,41 @@ behavior is in docs/behavior-porting-notes.md.
 
 ## Survey zoom
 
-The mouse wheel (or `-`/`=`) zooms the overworld between 1 pixel per world
-pixel (full survey) and 2× the window fit scale (close-up), in crisp
-integer steps. This has no Game Boy equivalent:
+The mouse wheel (or `-`/`=`), the Options **ZOOM** row, or hotkey `4`
+zooms the overworld between 1 pixel per world pixel (full survey) and 2×
+the window fit scale (close-up), in crisp integer steps. This has no Game
+Boy equivalent:
 
 - Connected maps render their full bodies, and their NPCs appear as
   visual-only "ghosts",  they wander but have no sight lines, triggers,
   dialogue, or collision until the map is actually entered.
 - Menus, text boxes, and battles draw at normal scale on top of the
   zoomed world. Zoom input is ignored while a script, menu, or battle is
-  active; the zoom level persists across warps and is never saved.
-- Beyond the border ring the border block repeats indefinitely (interiors
-  stay black, seaside towns stay water,  except OVERWORLD-tileset maps,
-  whose beyond-edge space fills with the solid tree wall instead of the
-  per-map border block), and each visible map area is colorized with its
-  own SGB palette (the original recolored the whole screen per map).
+  active; the zoom offset is persisted as `save.options.zoom` (default
+  `0` = FIT) and survives New Game via `options.lua`.
+- Hotkey `4` ticks through every integer zoom level (survey → FIT →
+  close-up → wrap). The Options row shows `FIT` / `OUTn` / `INn`.
+- Beyond the border ring the void fill repeats indefinitely (see VOID
+  FILL below); interiors keep their own border block. Each visible map
+  area is colorized with its own SGB palette (the original recolored the
+  whole screen per map).
 - Neighbor maps load two connection hops out so corner-adjacent maps
   don't pop in and out, and ghost NPCs share instances with the real ones
   so their wander positions persist across seamless connection crossings
   (a warp or fresh map entry still respawns everything at its script
   position, like the original's per-entry sprite init).
+
+## VOID FILL
+
+The Options **VOID FILL** row picks what paints the infinite beyond-edge
+space on OVERWORLD-tileset maps during survey zoom:
+
+- **TREES** (default): solid tree wall block `$0F`.
+- **WATER**: animated water tile `$14` (same hshift cycle as on-map water).
+- **BLACK**: solid black.
+
+Other tilesets are unchanged (house/cave borders stay as authored).
+Persisted as `save.options.voidFill`.
 
 ## Tilt mode
 
@@ -139,7 +154,7 @@ Nidorino-vs-Gengar attract scene) mirror the original.
 Options persist in a standalone `options.lua` (separate from the game
 progress `save.lua`), so audio/display/battle preferences survive New Game
 and aren't wiped when a save slot is cleared. Changing a row in the Options
-menu or cycling hotkeys `2`/`3`/`5` writes immediately; an in-game save also
+menu or cycling hotkeys `2`/`3`/`4`/`5` writes immediately; an in-game save also
 flushes the live options. Old saves that still embed an `options` table are
 migrated once into `options.lua` on load.
 
@@ -150,6 +165,18 @@ migrated once into `options.lua` on load.
   hotkey `2` (OG RED = GBC boot-ROM look; RED++ uses pokered-gbc
   SuperPalettes + per-species mon colors)
 - TILT (OFF / 15 / 35 / 50),  also hotkey `3` while free-roaming
+- ZOOM (FIT / OUTn / INn),  also hotkey `4` while free-roaming; wheel and
+  `-`/`=` step one level and save
+- VOID FILL (TREES / WATER / BLACK) for OVERWORLD beyond-edge space
 - GBC FX (OFF / 1 / 2 / 3 / 4),  also hotkey `5`
 - MAX FPS (30 / 40 / 50 / 60 / 75 / 90 / 100 / 120 / 144 / 160, default 60),
   a hard render frame-rate cap (`save.options.fpsCap`).
+
+## Battle transition cascade + white battle letterbox
+
+Into-battle wipes still run the original eight styles inside the classic
+160×144 letterbox. On wide/tall windows (survey zoom), matching black 8×8
+blocks cascade outward from that square into the surrounding world so the
+void outside the OG wipe fills in lockstep. Once the battle state is up,
+letterbox voids around the battle canvas fill **white** instead of black
+so the whole window reads as one continuous battle screen.

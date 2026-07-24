@@ -33,8 +33,32 @@ audio channel programs copied out of the verified ROM.
 
 ## Controls
 
-arrow keys or WASD move; Z, Enter, or Space is A; X or Backspace is
-B; Escape opens START. F1 saves and F2 loads. Controllers are supported.
+| Action | Keyboard | Controller |
+|--------|----------|------------|
+| Move | Arrow keys / WASD | D-pad / left stick |
+| A | Z / Enter / Space | A |
+| B | X / Backspace | B |
+| Start | Escape | Start |
+| Select | Tab / Shift | Back / Select |
+
+Rebind any of these in-game under **OPTIONS → CONTROLS**. Controllers are
+supported out of the box.
+
+### Hotkeys
+
+| Key | What it does |
+|-----|----------------|
+| `-` / `=` | Zoom out / in (overworld; also mouse wheel) |
+| `2` | Cycle COLORS |
+| `3` | Cycle TILT (free-roam overworld) |
+| `4` | Cycle ZOOM through every level (free-roam overworld) |
+| `5` | Cycle GBC FX |
+| `F1` | Save |
+| `F2` | Load |
+| `F10` | Open / close the mod manager |
+
+COLORS, TILT, ZOOM, GBC FX, and VOID FILL are also in the Options menu
+and persist in `options.lua`.
 
 ## Running From Source
 

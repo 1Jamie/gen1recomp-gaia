@@ -230,6 +230,11 @@ function BattleTransition:draw()
 
   love.graphics.setColor(0, 0, 0, 1)
   local prog = math.min(1, self.t / self.wipeLen)
+  -- Cascade black 8x8 blocks across the window area *outside* the classic
+  -- 160x144 wipe square, in lockstep with the OG wipe progress.  Renderer
+  -- paints them in screen space after the world blit (see endFrame).
+  local renderer = self.game and self.game.renderer
+  if renderer then renderer.battleCascadeProg = prog end
   local style = self.style
 
   -- a registered style may draw itself; the eight built-ins do not

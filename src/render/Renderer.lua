@@ -94,6 +94,8 @@ function Renderer:beginFrame(transparent)
   -- warp-fade overlay from Transition (issue #121); cleared each frame so
   -- a popped transition cannot leave a sticky black veil
   self.worldFadeAlpha = nil
+  -- battle-transition cascade outside the 160x144 wipe (BattleTransition)
+  self.battleCascadeProg = nil
   -- last frame's trueColor rects and sprite redraws go before anything
   -- draws this one
   PaletteFX.clearTrueColor()
@@ -105,6 +107,46 @@ function Renderer:beginFrame(transparent)
   else
     love.graphics.clear(1, 1, 1, 1)
   end
+end
+
+-- Black 8x8 (scaled) blocks cascading outward from the classic GB letterbox
+-- into the surrounding window, matching BattleTransition wipe progress.
+-- Tiles that sit entirely inside the 160x144 square are left to the OG wipe.
+function Renderer:drawBattleCascade(prog, ww, wh, ox, oy, vpw, vph, S)
+  if not prog or prog <= 0 then return end
+  local TILE = 8 * S
+  if TILE < 1 then TILE = 1 end
+  local cols = math.ceil(ww / TILE)
+  local rows = math.ceil(wh / TILE)
+  local cx, cy = ox + vpw / 2, oy + vph / 2
+  local order = {}
+  for row = 0, rows - 1 do
+    for col = 0, cols - 1 do
+      local x, y = col * TILE, row * TILE
+      -- any tile with area outside the letterbox participates
+      if x < ox or y < oy or x + TILE > ox + vpw or y + TILE > oy + vph then
+        local dist = math.max(math.abs(x + TILE / 2 - cx),
+                              math.abs(y + TILE / 2 - cy))
+        order[#order + 1] = { x, y, dist }
+      end
+    end
+  end
+  if #order == 0 then return end
+  table.sort(order, function(a, b)
+    if a[3] ~= b[3] then return a[3] < b[3] end
+    if a[2] ~= b[2] then return a[2] < b[2] end
+    return a[1] < b[1]
+  end)
+  local n = math.floor(#order * math.min(1, prog) + 1e-6)
+  if prog >= 1 then n = #order end
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.setScissor(0, 0, ww, wh)
+  for i = 1, n do
+    local t = order[i]
+    love.graphics.rectangle("fill", t[1], t[2], TILE, TILE)
+  end
+  love.graphics.setScissor()
+  love.graphics.setColor(1, 1, 1, 1)
 end
 
 function Renderer:beginWorldPass()
@@ -349,7 +391,20 @@ function Renderer:endFrame(zones, worldZones)
     present = self.presentCanvas
     love.graphics.setCanvas(present)
   end
-  love.graphics.setColor(0, 0, 0, 1)
+  -- Default letterbox is black.  Battle (and any state that opts in via
+  -- letterboxWhite) fills the voids white so the window matches the
+  -- white battle canvas instead of showing black bars.
+  local clearR, clearG, clearB = 0, 0, 0
+  if not self.worldActive then
+    local ok, Game = pcall(require, "src.core.Game")
+    local stack = ok and Game and Game.stack
+    local base = stack and stack.visibleBase and stack:visibleBase()
+    local state = base and stack.states and stack.states[base]
+    if state and state.letterboxWhite then
+      clearR, clearG, clearB = 1, 1, 1
+    end
+  end
+  love.graphics.setColor(clearR, clearG, clearB, 1)
   love.graphics.rectangle("fill", 0, 0, ww, wh)
   love.graphics.setColor(1, 1, 1, 1)
 
@@ -459,6 +514,11 @@ function Renderer:endFrame(zones, worldZones)
       love.graphics.setColor(0, 0, 0, fade)
       love.graphics.rectangle("fill", 0, 0, ww, wh)
       love.graphics.setColor(1, 1, 1, 1)
+    end
+    -- Battle transition: cascade black blocks into the area outside the
+    -- classic 160x144 wipe square (world still shows through until filled).
+    if self.battleCascadeProg then
+      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, S)
     end
   end
   -- UI stays in the classic centered GB letterbox

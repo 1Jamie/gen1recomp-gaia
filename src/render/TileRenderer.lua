@@ -10,18 +10,56 @@ TileRenderer.__index = TileRenderer
 
 local BORDER_BLOCKS = 3 -- ring width; > half a screen (2.5 blocks)
 
--- OVERWORLD maps fill beyond-edge space with the solid tree wall
--- (blockset $0F: four regular-tree metatiles, tiles $40/$41/$50/$51, 
--- the border block of ViridianCity/CeruleanCity/CeladonCity et al.),
--- not each map's own border_block, which can be grass ($0B, the
--- CutTreeBlockSwaps $0B->$0A cut-grass block) or water; other
--- tilesets keep their designated border (interiors stay black/void)
+-- OVERWORLD maps fill beyond-edge space from save.options.voidFill:
+--   trees (default) — solid tree wall $0F (Viridian/Cerulean/Celadon)
+--   water           — solid water $43 (Cinnabar/Route 19 border block)
+--   black           — solid black (no tiled metatile)
+-- Other tilesets keep their designated border (interiors stay black/void).
 local TREE_WALL_BLOCK = 0x0F
+local WATER_BORDER_BLOCK = 0x43
+TileRenderer.VOID_FILLS = { "trees", "water", "black" }
+TileRenderer.voidFill = "trees"
+
 local function borderBlockFor(map)
-  if map.def.tileset == "OVERWORLD" then return TREE_WALL_BLOCK end
+  if map.def.tileset == "OVERWORLD" then
+    local mode = TileRenderer.voidFill or "trees"
+    if mode == "water" then return WATER_BORDER_BLOCK end
+    if mode == "black" then return false end
+    return TREE_WALL_BLOCK
+  end
   return map.def.borderBlock
 end
 TileRenderer.borderBlockFor = borderBlockFor
+
+function TileRenderer.setVoidFill(mode)
+  local ok = false
+  for _, m in ipairs(TileRenderer.VOID_FILLS) do
+    if m == mode then ok = true; break end
+  end
+  TileRenderer.voidFill = ok and mode or "trees"
+end
+
+function TileRenderer.cycleVoidFill()
+  local cur = TileRenderer.voidFill or "trees"
+  local idx = 1
+  for i, m in ipairs(TileRenderer.VOID_FILLS) do
+    if m == cur then idx = i; break end
+  end
+  TileRenderer.setVoidFill(
+    TileRenderer.VOID_FILLS[idx % #TileRenderer.VOID_FILLS + 1])
+  return TileRenderer.voidFill
+end
+
+function TileRenderer.applyOptions(opts)
+  TileRenderer.setVoidFill(opts and opts.voidFill or "trees")
+end
+
+function TileRenderer.voidFillLabel(mode)
+  mode = mode or TileRenderer.voidFill or "trees"
+  if mode == "water" then return "WATER" end
+  if mode == "black" then return "BLACK" end
+  return "TREES"
+end
 
 local imageCache = {}
 
@@ -487,42 +525,118 @@ function TileRenderer.new(map, data)
   self.anims = anims
   self.claimedBy = claimedBy
 
-  -- a repeating 32x32 image of the border block, tiled behind
-  -- everything the 3-block ring doesn't cover (the survey zoom sees
-  -- far past the ring; interiors keep their black border this way)
-  pcall(function()
-    local border = map.tileset.blocks[borderBlockFor(map) + 1]
-    if not border then return end
-    local canvas = love.graphics.newCanvas(32, 32)
-    love.graphics.push("all")
-    love.graphics.setCanvas(canvas)
-    love.graphics.clear(1, 1, 1, 1)
-    for ty = 0, 3 do
-      for tx = 0, 3 do
-        local quad = self.quads[border[ty * 4 + tx + 1]]
-        if quad then love.graphics.draw(self.image, quad, tx * 8, ty * 8) end
-      end
-    end
-    love.graphics.setCanvas()
-    love.graphics.pop()
-    local img = love.graphics.newImage(canvas:newImageData())
-    img:setWrap("repeat", "repeat")
-    img:setFilter("nearest", "nearest")
-    self.borderFill = img
-  end)
+  -- border-fill image is built lazily in :ensureBorderFill so a VOID FILL
+  -- option change can swap trees/water/black without reloading the map
+  self.borderFillMode = nil
+  self.borderFill = nil
 
   return self
+end
+
+-- Bake a static repeating 32x32 of `block` into self.borderFill.
+local function bakeBorderFill(self, block)
+  local border = self.map.tileset.blocks[block + 1]
+  if not border then return end
+  local canvas = love.graphics.newCanvas(32, 32)
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(1, 1, 1, 1)
+  for ty = 0, 3 do
+    for tx = 0, 3 do
+      local quad = self.quads[border[ty * 4 + tx + 1]]
+      if quad then love.graphics.draw(self.image, quad, tx * 8, ty * 8) end
+    end
+  end
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  local img = love.graphics.newImage(canvas:newImageData())
+  img:setWrap("repeat", "repeat")
+  img:setFilter("nearest", "nearest")
+  self.borderFill = img
+end
+
+-- WATER void fill: the eight hshift frames of tile $14 (same cycle as map
+-- water), wrap-tiled so the void scrolls in lockstep with on-map water.
+local function ensureWaterBorderFill(self)
+  if self.borderWaterTextures then return true end
+  local map = self.map
+  local perRow = map.tileset.tilesPerRow
+  local colors, gbcKey
+  if self.gbcAtlas and self.data then
+    local group = PaletteFX.worldGroupAt(map.tileset.id, map.id, WATER_TILE)
+    local groupColors = PaletteFX.worldGroupColors(
+      self.data, map.tileset.id, map.id, nil)
+    colors = group and groupColors and groupColors[group + 1] or nil
+    gbcKey = "#gbc:" .. map.id
+  end
+  local textures = getShiftVariants(map.tileset.image, perRow, WATER_TILE,
+                                    colors, gbcKey)
+  if not textures then return false end
+  for _, img in ipairs(textures) do
+    img:setWrap("repeat", "repeat")
+    img:setFilter("nearest", "nearest")
+  end
+  self.borderWaterTextures = textures
+  return true
+end
+
+-- (re)build the repeating border image when the VOID FILL mode or tileset
+-- choice changes.  OVERWORLD "black" leaves borderFill nil and draws a
+-- solid clear; "water" keeps the live hshift textures instead of a bake.
+function TileRenderer:ensureBorderFill()
+  local block = borderBlockFor(self.map)
+  local mode = block == false and "black"
+              or ((self.map.def.tileset == "OVERWORLD")
+                  and (TileRenderer.voidFill or "trees")
+                  or "map")
+  local ready = (mode == "black")
+                or (mode == "water" and self.borderWaterTextures)
+                or (mode ~= "water" and mode ~= "black" and self.borderFill)
+  if self.borderFillMode == mode and ready then return end
+  if self.borderFill and self.borderFill.release then
+    pcall(self.borderFill.release, self.borderFill)
+  end
+  self.borderFill = nil
+  -- shared shift-variant cache: drop the reference only, never release
+  self.borderWaterTextures = nil
+  self.borderFillMode = mode
+  if mode == "black" or block == false or block == nil then return end
+  if mode == "water" then
+    if ensureWaterBorderFill(self) then return end
+    -- headless / missing pixels: fall back to the static water block bake
+  end
+  pcall(bakeBorderFill, self, block)
 end
 
 -- tile the border block across the whole view (world-aligned so it
 -- meshes seamlessly with the ring batch)
 function TileRenderer:drawBorderFill(camX, camY, vw, vh)
-  if not self.borderFill then return end
+  self:ensureBorderFill()
+  if self.borderFillMode == "black" then
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.rectangle("fill", 0, 0, vw, vh)
+    love.graphics.setColor(1, 1, 1, 1)
+    return
+  end
   if self.trueColor then PaletteFX.markTrueColor(0, 0, vw, vh) end
   local x, y = math.floor(camX), math.floor(camY)
   -- one reused Quad per renderer, mutated in place: this runs every
   -- overworld frame, so allocating a fresh Quad here churned the GC
   local q = self.borderQuad
+  if self.borderFillMode == "water" and self.borderWaterTextures then
+    local step = math.floor(animFrame / ANIM_PERIOD) % #WATER_OFFSETS + 1
+    local tex = self.borderWaterTextures[WATER_OFFSETS[step] + 1]
+    if not tex then return end
+    if q then
+      q:setViewport(x, y, vw, vh, 8, 8)
+    else
+      q = love.graphics.newQuad(x, y, vw, vh, 8, 8)
+      self.borderQuad = q
+    end
+    love.graphics.draw(tex, q, 0, 0)
+    return
+  end
+  if not self.borderFill then return end
   if q then
     q:setViewport(x, y, vw, vh, 32, 32)
   else
@@ -730,6 +844,9 @@ function TileRenderer:releaseBatches()
   safeRelease(self.winBatch); self.winBatch = nil
   safeRelease(self.borderFill); self.borderFill = nil
   safeRelease(self.borderQuad); self.borderQuad = nil
+  -- shared shift-variant cache; only drop the reference
+  self.borderWaterTextures = nil
+  self.borderFillMode = nil
   self.win = nil
   if self.quads then
     for _, q in pairs(self.quads) do safeRelease(q) end
