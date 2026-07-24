@@ -1573,6 +1573,13 @@ do
   eq(back.options.colors, "og", "options.lua round-trips colors")
   eq(back.options.tilt, 2, "options.lua round-trips tilt")
   eq(back.options.gbcfx, 3, "options.lua round-trips gbcfx")
+  -- zoom / voidFill ride the same options.lua path when present
+  rep.options.zoom = -2
+  rep.options.voidFill = "water"
+  SD.saveOptions(rep.options)
+  local optBack = SD.loadOptions()
+  eq(optBack.zoom, -2, "options.lua round-trips zoom")
+  eq(optBack.voidFill, "water", "options.lua round-trips voidFill")
   local origOpts, loadedOpts = rep.options, back.options
   rep.options, back.options = nil, nil
   local same, where = deepEq(rep, back, "save")
@@ -1719,6 +1726,16 @@ do
   ow.transitioning = false
   ow.runner = { isRunning = function() return true end }
   check(not Zoom.gateOK(ow, ow), "gate closed while a script runs")
+  Zoom.reset()
+
+  -- cycle wraps survey → … → close-up → survey; labels track offset
+  eq(Zoom.offsetLabel(0), "FIT", "zoom label FIT at offset 0")
+  eq(Zoom.offsetLabel(-2), "OUT2", "zoom label OUT for negative offset")
+  eq(Zoom.offsetLabel(3), "IN3", "zoom label IN for positive offset")
+  Zoom.offset = S -- max close-up
+  eq(Zoom.cycle(S), 1 - S, "zoom cycle wraps from max in to full survey")
+  Zoom.applyOptions({ zoom = -1 })
+  eq(Zoom.offset, -1, "applyOptions restores saved zoom offset")
   Zoom.reset()
 end
 
@@ -2307,6 +2324,8 @@ do
   eq(og.save.options.colors, "gbc", "new saves default COLORS to GBC")
   eq(og.save.options.tilt, 0, "new saves default TILT to OFF")
   eq(og.save.options.gbcfx, 0, "new saves default GBC FX to OFF")
+  eq(og.save.options.zoom, 0, "new saves default ZOOM to FIT")
+  eq(og.save.options.voidFill, "trees", "new saves default VOID FILL to TREES")
   eq(og.save.options.videoMode, "windowed",
      "new saves default VIDEO MODE to WINDOWED")
   eq(om.scroll, 0, "options viewport starts at the top")
@@ -2345,7 +2364,25 @@ do
   for _ = 1, 4 do press("a") end
   eq(og.save.options.gbcfx, 0, "GBC FX wraps back to OFF")
   press("down")
-  eq(om.index, 11, "cursor reaches VIDEO MODE")
+  eq(om.index, 11, "cursor reaches ZOOM")
+  local ZoomOpt = require("src.render.Zoom")
+  press("a")
+  eq(og.save.options.zoom, 1, "A cycles ZOOM to IN1")
+  eq(ZoomOpt.offset, 1, "Zoom.offset tracks ZOOM option")
+  press("left")
+  eq(og.save.options.zoom, 0, "left steps ZOOM back to FIT")
+  press("down")
+  eq(om.index, 12, "cursor reaches VOID FILL")
+  local TR = require("src.render.TileRenderer")
+  press("a")
+  eq(og.save.options.voidFill, "water", "A cycles VOID FILL to WATER")
+  eq(TR.voidFill, "water", "TileRenderer.voidFill tracks VOID FILL option")
+  press("a")
+  eq(og.save.options.voidFill, "black", "A cycles VOID FILL to BLACK")
+  press("a")
+  eq(og.save.options.voidFill, "trees", "VOID FILL wraps back to TREES")
+  press("down")
+  eq(om.index, 13, "cursor reaches VIDEO MODE")
   press("a")
   eq(og.save.options.videoMode, "borderless",
      "A cycles VIDEO MODE to BORDERLESS")
@@ -2353,7 +2390,7 @@ do
   eq(og.save.options.videoMode, "windowed",
      "VIDEO MODE wraps back to WINDOWED")
   press("down")
-  eq(om.index, 12, "cursor reaches MAX FPS")
+  eq(om.index, 14, "cursor reaches MAX FPS")
   press("a")
   eq(og.save.options.fpsCap, 75, "A cycles MAX FPS up from 60 to 75")
   eq(FrameCap.current, 75, "the live render cap tracks the MAX FPS option")
@@ -2362,7 +2399,7 @@ do
   for _ = 1, #FrameCap.STEPS - 1 do press("a") end
   eq(og.save.options.fpsCap, 60, "MAX FPS wraps back to 60")
   press("down")
-  eq(om.index, 13, "cursor reaches GAME SPEED")
+  eq(om.index, 15, "cursor reaches GAME SPEED")
   press("a")
   eq(og.save.options.speed, 2, "A cycles GAME SPEED to 2X")
   -- Driven by the level list rather than a literal press count: adding a
@@ -2371,25 +2408,27 @@ do
   for _ = 1, #GameSpeed.LEVELS - 1 do press("a") end
   eq(og.save.options.speed, 1, "GAME SPEED wraps back to NORMAL")
   press("down")
-  eq(om.index, 14, "cursor reaches MODS")
+  eq(om.index, 16, "cursor reaches MODS")
   press("down")
-  eq(om.index, 15, "cursor reaches CONTROLS")
+  eq(om.index, 17, "cursor reaches CONTROLS")
   press("down")
-  eq(om.index, 16, "CANCEL stays the fixed final row")
-  eq(om.scroll, 11, "CANCEL keeps the last option boxes on screen")
+  eq(om.index, 18, "CANCEL stays the fixed final row")
+  eq(om.scroll, 13, "CANCEL keeps the last option boxes on screen")
   om:draw() -- smoke: scrolled layout draws under the headless stub
   press("a")
   check(popped, "A on CANCEL closes the options menu")
   local om2 = OptionsMenu.new(og)
   OInput.pressed = { up = true }; om2:update(1 / 60); OInput.pressed = {}
-  eq(om2.index, 16, "up from the top wraps to CANCEL")
-  eq(om2.scroll, 11, "wrapping to CANCEL scrolls to the tail")
+  eq(om2.index, 18, "up from the top wraps to CANCEL")
+  eq(om2.scroll, 13, "wrapping to CANCEL scrolls to the tail")
   -- headless-safe: no love.audio, setters only update internal state
   require("src.core.Music").applyOptions(og.save.options)
   require("src.core.Sound").applyOptions(og.save.options)
   PaletteFX.applyOptions(og.save.options)
   Tilt.applyOptions(og.save.options)
   GBCFX.applyOptions(og.save.options)
+  require("src.render.Zoom").applyOptions(og.save.options)
+  require("src.render.TileRenderer").applyOptions(og.save.options)
   VideoMode.applyOptions(og.save.options)
 end
 end
@@ -2727,18 +2766,26 @@ end
 
 -- ================= BUGS.md batch: border-tree =================
 do
--- ---------------------------------------------------------------- border fill (tree wall)
+-- ---------------------------------------------------------------- border fill (tree wall / VOID FILL)
 local TileRenderer = require("src.render.TileRenderer")
--- OVERWORLD maps fill beyond-edge space with the solid tree wall $0F
--- (ViridianCity/CeruleanCity/CeladonCity border_block: four regular-tree
--- metatiles); per-map borders like Pallet's all-grass $0B (the
--- CutTreeBlockSwaps $0B->$0A block) only apply to other tilesets
+-- OVERWORLD maps fill beyond-edge space from VOID FILL (default trees $0F);
+-- per-map borders like Pallet's all-grass $0B only apply to other tilesets
+TileRenderer.setVoidFill("trees")
 eq(TileRenderer.borderBlockFor({ def = { tileset = "OVERWORLD", borderBlock = 33 } }), 0x0F,
    "OVERWORLD border fill uses the tree wall block")
 eq(TileRenderer.borderBlockFor({ def = { tileset = "HOUSE", borderBlock = 7 } }), 7,
    "interior border fill keeps the map's border block")
 eq(TileRenderer.borderBlockFor({ def = Data.maps.PALLET_TOWN }), 0x0F,
    "Pallet Town border fill is trees, not its all-grass border block")
+TileRenderer.setVoidFill("water")
+eq(TileRenderer.borderBlockFor({ def = { tileset = "OVERWORLD", borderBlock = 33 } }), 0x43,
+   "VOID FILL water uses the solid water border block")
+TileRenderer.setVoidFill("black")
+eq(TileRenderer.borderBlockFor({ def = { tileset = "OVERWORLD", borderBlock = 33 } }), false,
+   "VOID FILL black disables the tiled border block")
+eq(TileRenderer.borderBlockFor({ def = { tileset = "HOUSE", borderBlock = 7 } }), 7,
+   "VOID FILL does not change interior borders")
+TileRenderer.setVoidFill("trees")
 local treeWallCuttable = false
 for _, swap in ipairs(Data.field.cutTreeSwaps) do
   if swap.before == 0x0F then treeWallCuttable = true end

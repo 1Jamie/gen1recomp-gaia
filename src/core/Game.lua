@@ -246,7 +246,11 @@ end
 function Game:zoomStep(delta)
   local Zoom = require("src.render.Zoom")
   if not Zoom.gateOK(self.stack:top(), self.overworld) then return end
-  Zoom.step(delta, Renderer:fitScale())
+  local offset = Zoom.step(delta, Renderer:fitScale())
+  if self.save and self.save.options then
+    self.save.options.zoom = offset
+    self:writeOptions()
+  end
 end
 
 function Game:wheelmoved(_, dy)
@@ -317,6 +321,14 @@ function Game:keypressed(key)
     local Tilt = require("src.render.Tilt")
     if Tilt.gateOK(self.stack:top(), self.overworld) then
       self.save.options.tilt = Tilt.cycle()
+      self:writeOptions()
+    end
+    return
+  elseif key == "4" then
+    -- cycle ZOOM through every integer level (survey → FIT → close-up → wrap)
+    local Zoom = require("src.render.Zoom")
+    if Zoom.gateOK(self.stack:top(), self.overworld) then
+      self.save.options.zoom = Zoom.cycle(Renderer:fitScale())
       self:writeOptions()
     end
     return
@@ -445,6 +457,8 @@ function Game:applyOptions(opts)
   if Sound.applyOptions then Sound.applyOptions(opts) end
   require("src.render.PaletteFX").applyOptions(opts)
   require("src.render.Tilt").applyOptions(opts)
+  require("src.render.Zoom").applyOptions(opts)
+  require("src.render.TileRenderer").applyOptions(opts)
   -- returns true when a persisted GBC FX level was cleared on mobile
   local gbcCleared = require("src.render.GBCFX").applyOptions(opts)
   require("src.core.VideoMode").applyOptions(opts)

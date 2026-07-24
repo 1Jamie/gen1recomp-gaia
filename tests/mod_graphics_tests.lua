@@ -754,6 +754,97 @@ do
   love.graphics.rectangle, love.graphics.setColor = savedRect, savedColor
 end
 
+-- ------- battle transition cascade outside the OG square + white letterbox
+do
+  local rects = {}
+  local color = { 1, 1, 1, 1 }
+  local savedRect, savedColor = love.graphics.rectangle, love.graphics.setColor
+  local savedGetDims = love.graphics.getDimensions
+  local savedGetPix = love.graphics.getPixelDimensions
+  -- taller-than-fit window so the 160x144 letterbox leaves real voids
+  -- (default 640x576 is an exact 4x fit with nothing outside the square)
+  love.graphics.getDimensions = function() return 800, 600 end
+  love.graphics.getPixelDimensions = function() return 800, 600 end
+  love.graphics.rectangle = function(mode, x, y, w, h)
+    rects[#rects + 1] = {
+      mode = mode, x = x, y = y, w = w, h = h,
+      r = color[1], g = color[2], b = color[3], a = color[4],
+    }
+  end
+  love.graphics.setColor = function(r, g, b, a)
+    color[1], color[2], color[3], color[4] = r, g, b, a or 1
+  end
+
+  Renderer:init()
+  local btGame = { renderer = Renderer, stack = { pop = noop } }
+  local wipe = BattleTransition.new(btGame, nil, {})
+  wipe.phase = "wipe"
+  wipe.t = math.floor(wipe.wipeLen / 2)
+  Renderer:beginFrame(true)
+  Renderer:beginWorldPass()
+  Renderer:endWorldPass()
+  wipe:draw()
+  check(Renderer.battleCascadeProg ~= nil
+        and Renderer.battleCascadeProg > 0
+        and Renderer.battleCascadeProg < 1,
+        "battle wipe publishes mid-progress cascade to the renderer")
+  rects = {}
+  Renderer:endFrame(nil, fullWorldZones())
+  local cascadeTile
+  for _, r in ipairs(rects) do
+    -- fitScale at 800x600 is min(5,4)=4 → 32px tiles outside the letterbox
+    if r.mode == "fill" and r.r == 0 and r.a == 1 and r.w == 32 and r.h == 32 then
+      cascadeTile = r
+      break
+    end
+  end
+  check(cascadeTile ~= nil,
+        "endFrame paints cascading black tiles outside the OG wipe square")
+  love.graphics.rectangle, love.graphics.setColor = savedRect, savedColor
+  love.graphics.getDimensions = savedGetDims
+  love.graphics.getPixelDimensions = savedGetPix
+end
+
+do
+  -- BattleState asks for white letterbox voids instead of black bars
+  local BattleState = require("src.battle.BattleState")
+  check(BattleState.letterboxWhite == true,
+        "BattleState opts into white letterbox fill")
+  local rects = {}
+  local color = { 1, 1, 1, 1 }
+  local savedRect, savedColor = love.graphics.rectangle, love.graphics.setColor
+  love.graphics.rectangle = function(mode, x, y, w, h)
+    rects[#rects + 1] = {
+      mode = mode, x = x, y = y, w = w, h = h,
+      r = color[1], g = color[2], b = color[3], a = color[4],
+    }
+  end
+  love.graphics.setColor = function(r, g, b, a)
+    color[1], color[2], color[3], color[4] = r, g, b, a or 1
+  end
+  local Game = require("src.core.Game")
+  local savedStack = Game.stack
+  Game.stack = {
+    states = { { letterboxWhite = true, isOpaque = true } },
+    visibleBase = function() return 1 end,
+  }
+  Renderer:init()
+  Renderer:beginFrame(false)
+  rects = {}
+  Renderer:endFrame(nil, nil)
+  local clear
+  for _, r in ipairs(rects) do
+    if r.mode == "fill" and r.x == 0 and r.y == 0 and r.w == 640 and r.h == 576 then
+      clear = r
+      break
+    end
+  end
+  check(clear and clear.r == 1 and clear.g == 1 and clear.b == 1,
+        "endFrame fills the window white when the visible base wants letterboxWhite")
+  Game.stack = savedStack
+  love.graphics.rectangle, love.graphics.setColor = savedRect, savedColor
+end
+
 -- ------- the transition.style hook
 
 local stack = { pop = function() end }

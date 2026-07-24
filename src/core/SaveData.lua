@@ -186,10 +186,14 @@ function SaveData.defaultOptions()
     musicFilter = 0,
     -- logic fast-forward multiplier; audio is unaffected (GameSpeed.lua)
     speed = 1,
-    -- port display options (OptionsMenu / hotkeys 2/3/5)
+    -- port display options (OptionsMenu / hotkeys 2/3/4/5)
     colors = "gbc",
     tilt = 0,
     gbcfx = 0,
+    -- survey zoom offset from window fit scale (0 = FIT); see Zoom.lua
+    zoom = 0,
+    -- OVERWORLD beyond-edge fill: trees | water | black
+    voidFill = "trees",
     -- windowed | borderless (desktop fullscreen); ignored on mobile
     videoMode = "windowed",
     -- hard render frame-rate cap; render-only pacing (issue #88, FrameCap.lua)

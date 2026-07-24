@@ -3,7 +3,8 @@
 -- (cycles the merged rulesets registry; gen1_faithful keeps the original
 -- quirks), plus the port's audio rows and display rows: music/SFX
 -- volume (0-7), music low-pass filter (OFF/1X/2X/3X), COLORS / TILT /
--- GBC FX / VIDEO MODE, and the MODS row that opens the mod manager.
+-- GBC FX / ZOOM / VOID FILL / VIDEO MODE, and the MODS row that opens
+-- the mod manager.
 -- Rows are descriptors fed through the ui.options.rows hook, so mods can
 -- add their own; CANCEL is appended after the hook and stays fixed on the
 -- bottom line like pokered's.
@@ -11,12 +12,15 @@
 local PaletteFX = require("src.render.PaletteFX")
 local Tilt = require("src.render.Tilt")
 local GBCFX = require("src.render.GBCFX")
+local Zoom = require("src.render.Zoom")
+local TileRenderer = require("src.render.TileRenderer")
 local GameSpeed = require("src.core.GameSpeed")
 local VideoMode = require("src.core.VideoMode")
 local FrameCap = require("src.core.FrameCap")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local OptionRows = require("src.ui.OptionRows")
+local Renderer = require("src.render.Renderer")
 
 local OptionsMenu = {}
 OptionsMenu.__index = OptionsMenu
@@ -199,6 +203,37 @@ local function buildRows(game)
         local o = g.save.options
         o.gbcfx = wrapIndex((o.gbcfx or 0) + dir, 5)
         GBCFX.setLevel(o.gbcfx)
+        return true
+      end },
+    { id = "zoom", label = "ZOOM",
+      value = function(g)
+        return Zoom.offsetLabel(g.save.options.zoom or 0)
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        local S = Renderer:fitScale()
+        local lo, hi = Zoom.offsetRange(S)
+        local off = (o.zoom or 0) + dir
+        if off > hi then off = lo
+        elseif off < lo then off = hi end
+        o.zoom = off
+        Zoom.offset = off
+        return true
+      end },
+    { id = "voidFill", label = "VOID FILL",
+      value = function(g)
+        return TileRenderer.voidFillLabel(g.save.options.voidFill)
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        local modes = TileRenderer.VOID_FILLS
+        local cur = o.voidFill or "trees"
+        local i = 1
+        for idx, m in ipairs(modes) do
+          if m == cur then i = idx; break end
+        end
+        o.voidFill = modes[wrapIndex(i - 1 + dir, #modes) + 1]
+        TileRenderer.setVoidFill(o.voidFill)
         return true
       end },
     { id = "videoMode", label = "VIDEO MODE",

@@ -206,7 +206,8 @@ end
 local om = OptionsMenu.new(optGame())
 local WANT_IDS = { "textSpeed", "animations", "battleStyle", "ruleset",
                    "musicVol", "sfxVol", "musicFilter", "colors", "tilt",
-                   "gbcfx", "videoMode", "fpsCap", "speed", "mods", "controls" }
+                   "gbcfx", "zoom", "voidFill", "videoMode", "fpsCap",
+                   "speed", "mods", "controls" }
 check(#om.rows == #WANT_IDS, "vanilla options row count (plus MODS/CONTROLS)")
 for i, id in ipairs(WANT_IDS) do
   check(om.rows[i].id == id, "options row order: " .. id)
@@ -236,17 +237,35 @@ check(om.game.save.options.musicVol == 6, "music volume steps down")
 for _ = 1, 10 do om.rows[5].step(om.game, -1) end
 check(om.game.save.options.musicVol == 0, "music volume clamps at 0")
 
+-- ZOOM / VOID FILL rows
+local Zoom = require("src.render.Zoom")
+local TileRenderer = require("src.render.TileRenderer")
+om.game.save.options.zoom = 0
+Zoom.offset = 0
+check(om.rows[11].value(om.game) == "FIT", "ZOOM row shows FIT at offset 0")
+om.rows[11].step(om.game, 1)
+check(om.game.save.options.zoom == 1 and Zoom.offset == 1,
+  "ZOOM row steps to IN1")
+om.rows[12].step(om.game, 1)
+check(om.game.save.options.voidFill == "water"
+      and TileRenderer.voidFill == "water",
+  "VOID FILL row cycles TREES → WATER")
+om.rows[12].step(om.game, 1)
+check(om.game.save.options.voidFill == "black", "VOID FILL steps to BLACK")
+om.rows[12].step(om.game, 1)
+check(om.game.save.options.voidFill == "trees", "VOID FILL wraps to TREES")
+
 -- the MAX FPS row cycles the render-cap steps and shows the value plain
 om.game.save.options.fpsCap = nil
-check(om.rows[12].value(om.game) == "60",
+check(om.rows[14].value(om.game) == "60",
   "MAX FPS row defaults to 60 with no saved cap")
-om.rows[12].step(om.game, 1)
+om.rows[14].step(om.game, 1)
 check(om.game.save.options.fpsCap == 75, "MAX FPS steps up from 60 to 75")
-check(om.rows[12].value(om.game) == "75", "the MAX FPS row renders the cap")
+check(om.rows[14].value(om.game) == "75", "the MAX FPS row renders the cap")
 om.game.save.options.fpsCap = 160
-om.rows[12].step(om.game, 1)
+om.rows[14].step(om.game, 1)
 check(om.game.save.options.fpsCap == 30, "MAX FPS wraps past the ceiling to 30")
-om.rows[12].step(om.game, -1)
+om.rows[14].step(om.game, -1)
 check(om.game.save.options.fpsCap == 160, "MAX FPS wraps back down to the ceiling")
 
 -- ------- FrameCap normalize / cycle (issue #88)
@@ -276,7 +295,7 @@ check(FrameCap.current == 60, "FrameCap.applyOptions defaults a missing key to 6
 -- the MODS row is the manager's discoverable home
 local mgGame = optGame()
 om = OptionsMenu.new(mgGame)
-om.rows[14].activate(mgGame)
+om.rows[16].activate(mgGame)
 check(getmetatable(mgGame.stack:top()) == ManagerState,
   "the MODS row opens the manager")
 check(mgGame.stack:top().screenId == "ManagerState",
@@ -286,7 +305,7 @@ check(mgGame.stack:top().screenId == "ManagerState",
 local BindingsMenu = require("src.ui.BindingsMenu")
 local cbGame = optGame()
 om = OptionsMenu.new(cbGame)
-om.rows[15].activate(cbGame)
+om.rows[17].activate(cbGame)
 local bm = cbGame.stack:top()
 check(getmetatable(bm) == BindingsMenu,
   "the CONTROLS row opens the rebind list")

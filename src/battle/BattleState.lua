@@ -30,6 +30,9 @@ local TypeChart = require("src.battle.TypeChart")
 local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
+-- Letterbox voids around the 160x144 battle canvas fill white so the
+-- window reads as one continuous battle screen (no black bars).
+BattleState.letterboxWhite = true
 
 -- Battle colors itself per-pixel (species pics + HP bar tints), so the
 -- SGB whole-screen remap must not run over it.
