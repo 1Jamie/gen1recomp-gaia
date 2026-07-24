@@ -127,6 +127,130 @@ else
   print("skip real enet pairing (lua-enet not available under this interpreter)")
 end
 
+-- ---------------------------------------------------------------- relay (TCP) transport
+-- Pure framing logic needs no socket at all: Net:drainLines()/handleTCPLine
+-- operate directly on rxBuf, so this much runs even under plain luajit.
+do
+  local n = Net.new()
+  local encoded = Json.encode({ type = "hosted", code = "ABCDEF" })
+  n.rxBuf = encoded .. "\n"
+  n:drainLines()
+  eq(n.code, "ABCDEF", "relay framing: a complete hosted line sets net.code")
+  check(n.rxBuf == "", "relay framing: a complete line is fully consumed")
+
+  local n2 = Net.new()
+  n2.rxBuf = encoded:sub(1, 5) -- the line straddles two reads
+  n2:drainLines()
+  check(n2.code == nil, "relay framing: a partial line doesn't parse yet")
+  n2.rxBuf = n2.rxBuf .. encoded:sub(6) .. "\n"
+  n2:drainLines()
+  eq(n2.code, "ABCDEF", "relay framing: completing the line resolves it")
+
+  local n3 = Net.new()
+  n3.rxBuf = Json.encode({ type = "join_error", reason = "not_found" }) .. "\n"
+  n3:drainLines()
+  check(n3.error ~= nil and n3.closed, "relay framing: join_error sets error and closes")
+
+  local n4 = Net.new()
+  n4.rxBuf = Json.encode({ type = "paired" }) .. "\n"
+  n4:drainLines()
+  check(n4.paired, "relay framing: paired flips net.paired")
+
+  local n5 = Net.new()
+  n5.paired = true
+  n5.rxBuf = Json.encode({ type = "peer_gone" }) .. "\n"
+  n5:drainLines()
+  check(n5.closed, "relay framing: peer_gone closes the connection")
+
+  local n6 = Net.new()
+  n6.rxBuf = Json.encode({ type = "hello", name = "RED" }) .. "\n"
+  n6:drainLines()
+  eq(#n6.inbox, 1, "relay framing: an unrecognized control type lands in the inbox")
+  eq(n6.inbox[1] and n6.inbox[1].name, "RED", "relay framing: ...with its payload intact")
+end
+
+-- real pokeserver over TCP localhost (only when luasocket is present, i.e.
+-- inside LOVE or a luajit with luasocket installed, AND node is on PATH to
+-- spawn the real relay; otherwise this section is skipped, same spirit as
+-- the enet gate above)
+local hasSocket = pcall(require, "socket")
+local nodeCheck = os.execute("command -v node >/dev/null 2>&1")
+local hasNode = nodeCheck == true or nodeCheck == 0
+if not hasSocket then
+  print("skip real relay pairing (luasocket not available under this interpreter)")
+elseif not hasNode then
+  print("skip real relay pairing (node not on PATH to spawn pokeserver)")
+else
+  local PORT = 17778
+  local pidFile = os.tmpname()
+  os.execute(("(cd ../pokeserver && PORT=%d HTTP_PORT=%d node server.js >/tmp/pokeserver_test.log 2>&1 & echo $! > %q)")
+             :format(PORT, PORT + 1, pidFile))
+
+  local function busyWait(seconds)
+    local t0 = os.clock()
+    while os.clock() - t0 < seconds do end
+  end
+
+  local function tcpConnectable(host, port)
+    local socket = require("socket")
+    local tcp = socket.tcp()
+    tcp:settimeout(0.2)
+    local ok = tcp:connect(host, port)
+    tcp:close()
+    return ok ~= nil
+  end
+
+  local ready = false
+  for _ = 1, 50 do
+    ready = tcpConnectable("127.0.0.1", PORT)
+    if ready then break end
+    busyWait(0.1)
+  end
+
+  if not ready then
+    print("skip real relay pairing (couldn't reach the spawned pokeserver)")
+  else
+    local host = Net.new()
+    check(host:hostOnline("127.0.0.1:" .. PORT), "relay: hostOnline connects: " .. tostring(host.error))
+    local deadline = os.clock() + 3
+    while not host.code and os.clock() < deadline do host:update() end
+    check(host.code ~= nil, "relay: a real server assigns a room code")
+
+    local guest = Net.new()
+    check(guest:joinOnline("127.0.0.1:" .. PORT, host.code or ""),
+          "relay: joinOnline connects: " .. tostring(guest.error))
+    deadline = os.clock() + 3
+    while (not host.paired or not guest.paired) and os.clock() < deadline do
+      host:update()
+      guest:update()
+    end
+    check(host.paired and guest.paired, "relay: both sides pair over a real TCP server")
+
+    host:send({ type = "hello", name = "RED" })
+    local relayed = nil
+    deadline = os.clock() + 3
+    while not relayed and os.clock() < deadline do
+      host:update()
+      guest:update()
+      for _, m in ipairs(guest:poll()) do
+        if m.type == "hello" then relayed = m end
+      end
+    end
+    eq(relayed and relayed.name, "RED", "relay: a message round-trips through the real server")
+
+    host:close()
+    guest:close()
+  end
+
+  local pidHandle = io.open(pidFile, "r")
+  if pidHandle then
+    local pid = pidHandle:read("*l")
+    pidHandle:close()
+    if pid and pid ~= "" then os.execute("kill " .. pid .. " >/dev/null 2>&1") end
+  end
+  os.remove(pidFile)
+end
+
 -- ---------------------------------------------------------------- trade session
 local partyA = { Pokemon.new(Data, "KADABRA", 30), Pokemon.new(Data, "PIDGEY", 10) }
 local partyB = { Pokemon.new(Data, "MACHOKE", 32) }
@@ -239,6 +363,133 @@ check(not leftoverMismatch, "no desync detected across the whole battle")
 eq(gameA.save.money, 3000, "no prize money in link battles")
 eq(gameA.save.party[1].hp, gameA.save.party[1].stats.hp,
    "the real party is untouched (battle used clamped copies)")
+
+-- ---------------------------------------------------------------- tournament shot clock
+-- opts.turnLimit only applies to tournament matches; the guest mashes
+-- through its own menu every frame while the host never presses anything,
+-- so the host's clock is the only one that can expire.
+local gameC = makeFakeGame("PIKACHU")
+local gameD = makeFakeGame("SNORLAX")
+gameD.save.player.name = "YELLOW"
+local netC, netD = Net.loopbackPair()
+local packedC = Protocol.packParty(gameC.save.party)
+local packedD = Protocol.packParty(gameD.save.party)
+local battleC = LinkBattle.newHost(gameC, netC, {
+  myParty = packedC, theirParty = packedD, theirName = "YELLOW", seed = 42,
+  turnLimit = 0.05,
+})
+local battleD = LinkBattle.newGuest(gameD, netD, {
+  myParty = packedD, theirParty = packedC, theirName = "RED", seed = 42,
+  turnLimit = 0.05,
+})
+local resC, resD = nil, nil
+battleC.onFinish = function(r) resC = r end
+battleD.onFinish = function(r) resD = r end
+gameC.stack:push(battleC)
+gameD.stack:push(battleD)
+
+-- both sides need "a" to get through the intro's messages/animations
+-- (send-out poofs, cries...) before the host's own menu even shows; only
+-- once the host's decision point is actually up does withholding input
+-- from it mean anything
+local guardIntro = 0
+while battleC.phase ~= "menu" and guardIntro < 6000 do
+  guardIntro = guardIntro + 1
+  Input.pressed = { a = true }
+  gameC.stack:update(1 / 60)
+  gameD.stack:update(1 / 60)
+end
+check(battleC.phase == "menu", "shot clock: host reaches its own decision point")
+
+local guard2 = 0
+while resD == nil and guard2 < 6000 do
+  guard2 = guard2 + 1
+  Input.pressed = { a = true }
+  gameD.stack:update(1 / 60) -- guest mashes through its menu
+  Input.pressed = {}
+  gameC.stack:update(1 / 60) -- host presses nothing; its clock ticks down
+end
+check(resD == "win", "shot clock: the timed-out player's opponent wins immediately")
+
+-- the timed-out host still has to dismiss its own "time's up" message to
+-- reach finish() -- exactly like a slow-but-present player would; this
+-- isn't the clock's business, just the ordinary message queue
+local guard3 = 0
+while resC == nil and guard3 < 6000 do
+  guard3 = guard3 + 1
+  Input.pressed = { a = true }
+  gameC.stack:update(1 / 60)
+end
+check(resC == "lose", "shot clock: the timed-out host is recorded as the loser")
+
+-- ---------------------------------------------------------------- tournament spectator replay
+-- A spectator (LinkBattle.newSpectator) reconstructs the same lockstep
+-- battle from a copy of the wire traffic tagged by side -- exactly what
+-- pokeserver's tournament fan-out gives it. Feed it directly here rather
+-- than standing up a real relay: wrap the host/guest loopback sends so
+-- every message they exchange also lands, tagged, in a fake spectator net.
+local gameE = makeFakeGame("CHARIZARD")
+local gameF = makeFakeGame("BLASTOISE")
+gameF.save.player.name = "BLUE"
+local gameSpec = makeFakeGame("RATTATA")
+local netE, netF = Net.loopbackPair()
+local packedE = Protocol.packParty(gameE.save.party)
+local packedF = Protocol.packParty(gameF.save.party)
+local specSeed = 13579
+
+local specInbox = {}
+local origSendE, origSendF = netE.send, netF.send
+netE.send = function(self, msg)
+  origSendE(self, msg)
+  table.insert(specInbox, { type = "spectate", side = "host", msg = msg })
+end
+netF.send = function(self, msg)
+  origSendF(self, msg)
+  table.insert(specInbox, { type = "spectate", side = "guest", msg = msg })
+end
+local specNet = {
+  closed = false,
+  update = function() end,
+  poll = function()
+    local msgs = specInbox
+    specInbox = {}
+    return msgs
+  end,
+}
+
+local battleE = LinkBattle.newHost(gameE, netE, {
+  myParty = packedE, theirParty = packedF, theirName = "BLUE", seed = specSeed,
+})
+local battleF = LinkBattle.newGuest(gameF, netF, {
+  myParty = packedF, theirParty = packedE, theirName = "RED", seed = specSeed,
+})
+local battleSpec = LinkBattle.newSpectator(gameSpec, specNet, {
+  hostParty = packedE, guestParty = packedF, hostName = "RED", guestName = "BLUE",
+  seed = specSeed,
+})
+check(battleSpec ~= nil, "spectator battle constructs")
+eq(battleSpec.spectating, true, "spectator battle is marked as such (not a reportable match)")
+
+local resE, resF = nil, nil
+battleE.onFinish = function(r) resE = r end
+battleF.onFinish = function(r) resF = r end
+gameE.stack:push(battleE)
+gameF.stack:push(battleF)
+gameSpec.stack:push(battleSpec)
+
+local guard3 = 0
+while (resE == nil or resF == nil) and guard3 < 60000 do
+  guard3 = guard3 + 1
+  Input.pressed = { a = true }
+  gameE.stack:update(1 / 60)
+  gameF.stack:update(1 / 60)
+  gameSpec.stack:update(1 / 60)
+end
+check(resE ~= nil and resF ~= nil, "spectator test: the underlying match completes")
+eq(battleSpec.player.mon.hp, battleE.player.mon.hp,
+   "spectator's host-side HP matches the host's own view")
+eq(battleSpec.enemy.mon.hp, battleF.player.mon.hp,
+   "spectator's guest-side HP matches the guest's own view")
 
 -- ---------------------------------------------------------------- mod link compat
 -- Self-contained like the tests/mod_*.lua suites: own bootstrap and

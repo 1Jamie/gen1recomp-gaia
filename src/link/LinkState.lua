@@ -2,6 +2,7 @@
 -- the other joins by typing that address in.  Direct peer-to-peer over
 -- lua-enet (bundled with LÖVE),  no relay server.
 
+local CodeEntry = require("src.link.CodeEntry")
 local Font = require("src.render.Font")
 local Handshake = require("src.link.Handshake")
 local Net = require("src.link.Net")
@@ -15,6 +16,12 @@ LinkState.__index = LinkState
 LinkState.isOpaque = true
 
 local CURSOR = 0xED
+
+-- stages before any Net object is meaningfully "this session's link" --
+-- .net can still be a leftover failed attempt sitting on self, so error/
+-- closed checks below skip these rather than keying off self.net's
+-- presence alone
+local PRE_CONNECT_STAGES = { menu = true, lanMenu = true, onlineMenu = true }
 
 -- how long the host waits for a v2 hello before deciding the peer predates
 -- the handshake (a pre-mod guest sends nothing until it hears the mode)
@@ -119,25 +126,54 @@ function LinkState:update(dt)
   local input = self.game.input
   if self.net then
     self.net:update()
-    if self.net.error and self.stage ~= "menu" then
+    if self.net.error and not PRE_CONNECT_STAGES[self.stage] then
       self:exitWith("Link error:\n" .. self.net.error:sub(1, 60))
       return
     end
     -- the peer vanished without a bye (only once the inbox is drained,
     -- so a final message travelling with the disconnect still counts)
     if self.net.closed and #self.net.inbox == 0
-       and self.stage ~= "menu" and self.stage ~= "addrEntry"
-       and self.stage ~= "notice" and self.stage ~= "battleRunning" then
+       and not PRE_CONNECT_STAGES[self.stage] and self.stage ~= "addrEntry"
+       and self.stage ~= "codeEntry" and self.stage ~= "notice"
+       and self.stage ~= "battleRunning" then
       self:exitWith("The link was\nbroken.")
       return
     end
   end
 
   if self.stage == "menu" then
+    if input:wasPressed("down") then
+      self.index = self.index % 3 + 1
+    elseif input:wasPressed("up") then
+      self.index = (self.index - 2) % 3 + 1
+    elseif input:wasPressed("b") then
+      self:exitWith(nil)
+    elseif input:wasPressed("a") then
+      if self.index == 1 then
+        self.stage = "lanMenu"
+        self.index = 1
+      elseif self.index == 2 or self.index == 3 then
+        if not Handshake.onlineAllowed(self.game) then
+          self:exitWith("Online play needs\nno mods enabled.\fDisable them in\nSTART > MODS.")
+          return
+        end
+        if self.index == 2 then
+          self.stage = "onlineMenu"
+        else
+          local Tournament = require("src.link.Tournament")
+          self.game.stack:pop()
+          self.game.stack:push(Tournament.new(self.game))
+        end
+        self.index = 1
+      end
+    end
+
+  elseif self.stage == "lanMenu" then
     if input:wasPressed("up") or input:wasPressed("down") then
       self.index = self.index == 1 and 2 or 1
     elseif input:wasPressed("b") then
-      self:exitWith(nil)
+      self.stage = "menu"
+      self.index = 1
     elseif input:wasPressed("a") then
       self.net = Net.new()
       if self.index == 1 then
@@ -149,6 +185,62 @@ function LinkState:update(dt)
       else
         self.stage = "addrEntry"
       end
+    end
+
+  elseif self.stage == "onlineMenu" then
+    if input:wasPressed("up") or input:wasPressed("down") then
+      self.index = self.index == 1 and 2 or 1
+    elseif input:wasPressed("b") then
+      self.stage = "menu"
+      self.index = 2
+    elseif input:wasPressed("a") then
+      if self.index == 1 then
+        self.net = Net.new()
+        if self.net:hostOnline() then
+          self.stage = "onlineHosting"
+        else
+          self:exitWith("Link error:\n" .. (self.net.error or "?"))
+        end
+      else
+        self.stage = "codeEntry"
+        self.codeEntry = CodeEntry.new()
+      end
+    end
+
+  elseif self.stage == "onlineHosting" then
+    if input:wasPressed("b") then self:exitWith(nil) return end
+    if self.net.paired then
+      self.stage = "modeSelect"
+      self.index = 1
+    end
+
+  elseif self.stage == "codeEntry" then
+    if input:wasPressed("b") then
+      self.stage = "onlineMenu"
+      self.index = 2
+    elseif input:wasPressed("up") then
+      CodeEntry.up(self.codeEntry)
+    elseif input:wasPressed("down") then
+      CodeEntry.down(self.codeEntry)
+    elseif input:wasPressed("left") then
+      CodeEntry.left(self.codeEntry)
+    elseif input:wasPressed("right") then
+      CodeEntry.right(self.codeEntry)
+    elseif input:wasPressed("a") then
+      local code = CodeEntry.text(self.codeEntry)
+      self.net = Net.new()
+      if self.net:joinOnline(nil, code) then
+        self.stage = "onlineJoining"
+      else
+        self:exitWith("Link error:\n" .. (self.net.error or "?"))
+      end
+    end
+
+  elseif self.stage == "onlineJoining" then
+    if input:wasPressed("b") then self:exitWith(nil) return end
+    if self.net.paired then
+      self.stage = "waitMode"
+      self:sendHello(nil) -- the host owns the mode; this is just who we are
     end
 
   elseif self.stage == "hosting" then
@@ -389,11 +481,48 @@ end
 
 function LinkState:draw()
   if self.stage == "menu" then
-    drawTitle("LINK CABLE CLUB")
+    drawTitle("BOIS CLUB LIVE")
+    Font.draw("LINK CABLE (LAN)", 32, 44)
+    Font.draw("ONLINE MATCH", 32, 60)
+    Font.draw("TOURNAMENT", 32, 76)
+    Font.drawCode(CURSOR, 24, 44 + (self.index - 1) * 16)
+
+  elseif self.stage == "lanMenu" then
+    drawTitle("LINK CABLE (LAN)")
     Font.draw("HOST A GAME", 32, 48)
     Font.draw("JOIN A GAME", 32, 68)
     Font.drawCode(CURSOR, 24, self.index == 1 and 48 or 68)
     Font.draw("UDP port " .. Net.defaultPort(), 8, 128)
+
+  elseif self.stage == "onlineMenu" then
+    drawTitle("ONLINE MATCH")
+    Font.draw("HOST ONLINE", 32, 48)
+    Font.draw("JOIN ONLINE", 32, 68)
+    Font.drawCode(CURSOR, 24, self.index == 1 and 48 or 68)
+
+  elseif self.stage == "onlineHosting" then
+    drawTitle("HOSTING ONLINE")
+    Font.draw("Tell your friend", 16, 40)
+    Font.draw("the code:", 16, 52)
+    Font.draw(self.net.code or "??????", 32, 68)
+    Font.draw("Waiting for join...", 8, 96)
+
+  elseif self.stage == "codeEntry" then
+    drawTitle("ENTER CODE")
+    for i = 1, CodeEntry.LENGTH do
+      local x = 16 + (i - 1) * 16
+      local ch = CodeEntry.CHARSET:sub(self.codeEntry.chars[i], self.codeEntry.chars[i])
+      Font.draw(ch, x, 64)
+      if i == self.codeEntry.pos then
+        Font.drawCode(0xEE, x, 76) -- ▼ under the active slot
+      end
+    end
+    Font.draw("A: connect  B: back", 8, 128)
+
+  elseif self.stage == "onlineJoining" then
+    drawTitle("CONNECTING...")
+    Font.draw("Calling...", 8, 56)
+    Font.draw(self.net.target or "", 8, 72)
 
   elseif self.stage == "hosting" then
     drawTitle("HOSTING")
