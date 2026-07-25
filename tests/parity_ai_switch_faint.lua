@@ -111,4 +111,62 @@ do
   eq(b.afterQueue, "finish", "victory finishes after the queue")
 end
 
+-- #162: SHIFT style with 2+ party slots announces the next mon and
+-- offers a free switch (TrainerAboutToUseText + YES/NO).  Party count
+-- gates the offer (pokered wPartyCount), not living-HP count — a fainted
+-- reserve still unlocks the prompt.
+do
+  local Game = freshGame()
+  Game.save.options.battleStyle = "shift"
+  local reserve = Pokemon.new(Data, "SQUIRTLE", 40)
+  reserve.hp = 0
+  table.insert(Game.save.party, reserve)
+  local b = BattleState.newTrainer(Game, "OPP_YOUNGSTER", 1)
+  check(#b.enemyParty >= 2, "youngster has a second mon")
+  b.enemyParty[1].hp = 0
+  b.enemyIndex = 1
+  b.enemy.mon = b.enemyParty[1]
+  b.participants = { [Game.save.party[1]] = true }
+  b:enemyMonFainted()
+  local about, willChoice, sent = false, false, false
+  local n = 0
+  while #b.queue > 0 and n < 200 do
+    n = n + 1
+    local item = table.remove(b.queue, 1)
+    if item.fn then
+      b.nextInsert = 0
+      item.fn()
+    elseif item.text then
+      if item.text:find("about to use", 1, true) then about = true end
+      if item.text:find("change POKéMON", 1, true) and item.choice then
+        willChoice = true
+        item.choice(false) -- decline; enemy still sends out
+      end
+      if item.text:find("sent", 1, true) then sent = true end
+    end
+  end
+  check(about, "SHIFT announces trainer about-to-use")
+  check(willChoice, "SHIFT queues Will-change with YES/NO choice")
+  check(sent, "enemy send-out still follows after declining")
+  check(b.enemy.mon.hp > 0, "second enemy mon is out after the offer")
+end
+
+-- SET style (and single-mon parties) skip the offer entirely.
+do
+  local Game = freshGame()
+  Game.save.options.battleStyle = "set"
+  table.insert(Game.save.party, Pokemon.new(Data, "SQUIRTLE", 40))
+  local b = BattleState.newTrainer(Game, "OPP_YOUNGSTER", 1)
+  b.enemyParty[1].hp = 0
+  b.enemyIndex = 1
+  b.enemy.mon = b.enemyParty[1]
+  b.participants = { [Game.save.party[1]] = true }
+  b:enemyMonFainted()
+  local about = false
+  for _, item in ipairs(b.queue) do
+    if item.text and item.text:find("about to use", 1, true) then about = true end
+  end
+  check(not about, "SET style skips about-to-use")
+end
+
 S.finish()

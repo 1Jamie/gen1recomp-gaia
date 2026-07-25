@@ -56,6 +56,12 @@ local function bootGame(version)
 end
 
 function love.load(args)
+  -- Self-updater boot shell: a fused build may mount and chainload a newer
+  -- downloaded payload here.  True means it took over, so we must stop.  A
+  -- dev / source checkout no-ops (see src/update/Boot.lua).
+  local Boot = require("src.update.Boot")
+  if Boot.run(args) then return end
+
   local savePath
   for i, a in ipairs(args or {}) do
     if a == "--editor" then

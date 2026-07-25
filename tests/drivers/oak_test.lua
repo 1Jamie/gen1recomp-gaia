@@ -1,6 +1,5 @@
--- Driver: the full Pallet intro chain.  Steps north to trigger Oak,
--- follows him to the lab, takes a starter, watches the rival
--- counter-pick, tries to leave (door gate + ambush battle).
+-- Driver: Pallet intro (Oak escort → starter → rival ambush) plus the
+-- #158 parcel-return / rival-join / Pokédex-gift cutscene.
 
 return function(game)
   local U = dofile("tests/drivers/util.lua")
@@ -96,13 +95,68 @@ return function(game)
   U.log("final:", ow.map.id, ow.player.cellX, ow.player.cellY,
         "battled:", tostring(game.save.flags.EVENT_BATTLED_RIVAL_IN_OAKS_LAB),
         "battleSeen:", tostring(BattleSeen))
-  U.log("stuck-state: runner=", tostring(ow.runner:isRunning()),
-        "moves=", #ow.scriptMoves, "top=", tostring(game.stack:top() == ow),
-        "transitioning=", tostring(ow.transitioning),
-        "emote=", tostring(ow.emote ~= nil))
-  for i, mv in ipairs(ow.scriptMoves) do
-    U.log(("  move %d: entity=%s dir=%s remaining=%d moving=%s"):format(
-      i, tostring(mv.entity.def and mv.entity.def.sprite or "PLAYER"),
-      tostring(mv.dir), mv.remaining, tostring(mv.entity.moving)))
+
+  -- ---- #158: return Oak's Parcel → rival joins → Pokédex gift ----
+  local Flags = require("src.script.Flags")
+  Flags.set(game.save, "EVENT_GOT_OAKS_PARCEL")
+  game.save.inventory.OAKS_PARCEL = 1
+  -- desk Oak + both dexes visible; rival hidden until the script shows
+  -- him.  Keep the starter-ball hides from the pick (Squirtle + Bulbasaur).
+  game.save.objectToggles = game.save.objectToggles or {}
+  game.save.objectToggles.OAKS_LAB = {
+    OAKSLAB_OAK1 = true,
+    OAKSLAB_OAK2 = false,
+    OAKSLAB_RIVAL = false,
+    OAKSLAB_POKEDEX1 = true,
+    OAKSLAB_POKEDEX2 = true,
+    OAKSLAB_SQUIRTLE_POKE_BALL = false,
+    OAKSLAB_BULBASAUR_POKE_BALL = false,
+  }
+  U.teleport(game, "OAKS_LAB", 5, 3, "up")
+  ow = game.overworld
+  U.wait(20)
+  U.shot(game, DIR .. "/oak_12_parcel_ready.png")
+  U.tap(game, "a")
+  U.wait(40)
+  U.shot(game, DIR .. "/oak_13_deliver.png")
+  local rivalSeen, atDeskShot, leaveShot = false, false, false
+  for _ = 1, 1200 do
+    if idle() and Flags.get(game.save, "EVENT_GOT_POKEDEX")
+       and not ow:npcByIndex(1) then
+      break
+    end
+    local rival = ow:npcByIndex(1)
+    local top = game.stack:top()
+    if rival and not rivalSeen then
+      rivalSeen = true
+      U.wait(24)
+      U.shot(game, DIR .. "/oak_14_rival_arrive.png")
+    end
+    if rival and rival.cellY <= 3 and not atDeskShot then
+      atDeskShot = true
+      U.shot(game, DIR .. "/oak_14b_rival_at_desk.png")
+    end
+    if rival and rival.cellY >= 6 and Flags.get(game.save, "EVENT_GOT_POKEDEX")
+       and not leaveShot then
+      leaveShot = true
+      U.shot(game, DIR .. "/oak_14c_rival_leave.png")
+    end
+    if top ~= ow then
+      U.tap(game, "a")
+    end
+    U.wait(4)
   end
+  mashUntil(idle, "pokedex cutscene done", 600)
+  U.shot(game, DIR .. "/oak_15_after_pokedex.png")
+  local toggles = game.save.objectToggles and game.save.objectToggles.OAKS_LAB
+  local rivalAfter = ow:npcByIndex(1)
+  U.log("parcel:",
+        "gotDex=", tostring(Flags.get(game.save, "EVENT_GOT_POKEDEX")),
+        "oakGot=", tostring(Flags.get(game.save, "EVENT_OAK_GOT_PARCEL")),
+        "rivalSeen=", tostring(rivalSeen),
+        "rivalGone=", tostring(rivalAfter == nil),
+        "atDesk=", tostring(atDeskShot),
+        "dex1=", tostring(toggles and toggles.OAKSLAB_POKEDEX1),
+        "dex2=", tostring(toggles and toggles.OAKSLAB_POKEDEX2),
+        "route22=", tostring(Flags.get(game.save, "EVENT_ROUTE22_RIVAL_WANTS_BATTLE")))
 end

@@ -37,8 +37,12 @@ function ListMenu.new(game, title, items, opts)
   -- text box, a money box sits top-right, and the list shortens to
   -- clear them (DisplayPokemartDialogue_'s screen)
   self.dialogue = opts.dialogue
+  -- PC item lists (players_pc.asm): PrintListMenuEntries shows 4 names
+  -- and PrintText footers ("How many?", stored/withdrew) use the standard
+  -- bottom text box — same row budget as the mart, without the money box.
+  self.messageBox = opts.messageBox
   self.money = opts.money          -- () -> current money for the box
-  self.rows = opts.dialogue and 4 or ROWS
+  self.rows = opts.rows or ((opts.dialogue or opts.messageBox) and 4 or ROWS)
   return self
 end
 
@@ -137,8 +141,10 @@ function ListMenu:draw()
     love.graphics.setColor(0, 0, 0, 1)
     local money = ("¥%d"):format(self.money and self.money() or 0)
     Font.draw(money, 152 - Font.width(money), 8)
-    -- the clerk's line in the standard bottom text box; long prompts
-    -- wrap and keep their last two lines, like the GB's scrolled box
+  end
+  if self.dialogue or (self.messageBox and self.footer) then
+    -- standard bottom text box (PrintText); long prompts wrap and keep
+    -- their last two lines, like the GB's scrolled box (#115/#174)
     Font.drawBox(0, 12, 20, 6)
     love.graphics.setColor(0, 0, 0, 1)
     if self.footer then
@@ -153,8 +159,7 @@ function ListMenu:draw()
       end
     end
   elseif self.footer then
-    -- PC deposit/withdraw footers use "\n"; draw the last two lines so
-    -- long item names are not clipped at the screen edge (#115).
+    -- bare footer (bag money line, etc.)
     local flat = {}
     for _, page in ipairs(require("src.render.TextBox").paginate(self.footer)) do
       for _, line in ipairs(page) do flat[#flat + 1] = line end

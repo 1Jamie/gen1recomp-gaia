@@ -114,10 +114,11 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
   local itemDef = data.items[itemId]
   local name = itemDef and itemDef.name or itemId
 
-  -- ItemUseVitamin / ItemUsePPUp / ItemUseEvoStone / ItemUseCoinCase
-  -- all refuse mid-battle (jp nz, ItemUseNotTime)
+  -- ItemUseVitamin / ItemUsePPUp / ItemUseEvoStone / ItemUseCoinCase /
+  -- ItemUseTMHM all refuse mid-battle (jp nz, ItemUseNotTime)
   if battle and (VITAMINS[itemId] or STONES[itemId] or itemId == "PP_UP"
-                 or itemId == "RARE_CANDY" or itemId == "COIN_CASE") then
+                 or itemId == "RARE_CANDY" or itemId == "COIN_CASE"
+                 or (itemDef and itemDef.machine)) then
     return "failed", { "OAK: " .. save.player.name
       .. "!\nThis isn't the\ntime to use that!" }
   end

@@ -218,4 +218,78 @@ do
   check(ow3.engaging, "distance 3 on the upper plateau still engages")
 end
 
+-- === (5) off-screen sprites never engage (CheckSpriteAvailability) ===
+-- TrainerEngage bails when IMAGEINDEX=$ff.  The 8-bit screen-pixel distance
+-- wraps so a trainer ~12/28 tiles away can look in-range; the GB 10x9 window
+-- (player±4/±5) is what stops that (GitHub #153 / #183).
+local VF_BUG_CATCHER = 2 -- ViridianForest Youngster2 at (30,33) LEFT range 4
+
+local function freshForest(px, py, facing)
+  while Game.stack:top() do Game.stack:pop() end
+  Game.save = SaveData.newGame()
+  Input:init()
+  OW.engaging = false
+  OW.emote = nil
+  Game.stack:push(OW, "VIRIDIAN_FOREST", px, py, facing)
+  local ow = Game.stack:top()
+  local trainer
+  for _, npc in ipairs(ow.npcs) do
+    if npc.def.index == VF_BUG_CATCHER then trainer = npc end
+  end
+  return ow, trainer
+end
+
+do
+  -- (18,33) is walkable west of the tree wall; dx=12 to (30,33) wraps
+  -- the 8-bit pixel distance into range-4, but the sprite is off the GB screen.
+  local ow, trainer = freshForest(18, 33, "right")
+  check(trainer ~= nil and trainer.cellX == 30 and trainer.cellY == 33,
+        "Viridian Forest Bug Catcher stands at (30,33)")
+  eq(trainer.facing, "left", "Bug Catcher faces left")
+  local header = Data:trainerHeader("ViridianForest", VF_BUG_CATCHER)
+  eq(header and header.range, 4, "Bug Catcher sight range is 4")
+
+  for _ = 1, 10 do frame(ow) end
+  check(not ow.engaging,
+        "through-trees tile (dx=12 wrap) must not engage: sprite off GB screen")
+  check(trainer.cellX == 30 and trainer.cellY == 33,
+        "off-screen trainer must not walk up through trees")
+
+  -- same corridor as the trainer, distance 4, on the GB screen: must engage
+  local ow2, t2 = freshForest(26, 33, "right")
+  local guard = 0
+  while not ow2.engaging and guard < 10 do guard = guard + 1; frame(ow2) end
+  check(ow2.engaging and t2.cellX == 30,
+        "distance 4 on-screen still engages (real sight line)")
+end
+
+-- Victory Road 2F Hiker at (12,9) LEFT range 4: far west same row wraps
+local VR_HIKER = 1
+
+local function freshVR2(px, py, facing)
+  while Game.stack:top() do Game.stack:pop() end
+  Game.save = SaveData.newGame()
+  Input:init()
+  OW.engaging = false
+  OW.emote = nil
+  Game.stack:push(OW, "VICTORY_ROAD_2F", px, py, facing)
+  local ow = Game.stack:top()
+  local trainer
+  for _, npc in ipairs(ow.npcs) do
+    if npc.def.index == VR_HIKER then trainer = npc end
+  end
+  return ow, trainer
+end
+
+do
+  local ow, trainer = freshVR2(0, 9, "right")
+  check(trainer ~= nil and trainer.cellX == 12 and trainer.cellY == 9,
+        "Victory Road 2F Hiker stands at (12,9)")
+  for _ = 1, 10 do frame(ow) end
+  check(not ow.engaging,
+        "Victory Road far same-row (dx=12 wrap) must not engage through walls")
+  check(trainer.cellX == 12 and trainer.cellY == 9,
+        "off-screen Victory Road trainer must stay put")
+end
+
 S.finish()

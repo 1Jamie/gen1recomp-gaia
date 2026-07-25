@@ -89,6 +89,36 @@ local pages = TextBox.paginate("I'm raising\nPOKéMON too!\fWhen they get\nstron
 eq(#pages, 2, "two pages")
 eq(#pages[1], 2, "page 1 has two lines")
 eq(#pages[2], 3, "page 2 keeps scrolled line")
+eq(pages.contBefore[1][1], false, "page1 line1 is not cont")
+eq(pages.contBefore[1][2], false, "page1 line2 via \\n has no wait")
+eq(pages.contBefore[2][3], true, "page2 line3 via \\v waits (cont)")
+-- #163: ContText must set waiting + ▼ before scrolling the next line
+do
+  local pressed = { a = true }
+  local box = TextBox.new({
+    input = {
+      wasPressed = function(_, k) return pressed[k] end,
+      isDown = function() return false end,
+    },
+    save = { options = { textSpeed = 1 }, player = { name = "RED" } },
+    data = {},
+    stringBuffer = "",
+    stack = { pop = function() end, push = function() end },
+  }, "AAA\nBBB\vCCC")
+  pressed.a = false
+  for _ = 1, 80 do
+    if box.waiting or box.done then break end
+    box:update(0)
+  end
+  check(box.waiting and box.contAdvance,
+        "cont boundary waits for A with contAdvance")
+  check(not box.done, "cont wait is not the final done prompt")
+  eq(box.lineIndex, 2, "cont wait stays on the finished line until A")
+  pressed.a = true
+  box:update(0)
+  check(not box.waiting and not box.contAdvance, "A clears cont wait")
+  eq(box.lineIndex, 3, "A advances into the cont line")
+end
 
 -- ---------------------------------------------------------------- stats & growth
 local Stats = require("src.pokemon.Stats")
@@ -239,6 +269,14 @@ local r3 = ItemEffects.use(Data, save, "TM_TOXIC", pikachu)
 check(r3 == "learn", "Pikachu can learn Toxic (in tmhm list)")
 local r4 = ItemEffects.use(Data, save, "HM_SURF", pikachu)
 eq(r4, "failed", "Pikachu can't learn Surf")
+do
+  local rBattle, oakMsg = ItemEffects.use(Data, save, "TM_TOXIC", hurt, {})
+  eq(rBattle, "failed", "TM refuses mid-battle (ItemUseNotTime)")
+  check(oakMsg and oakMsg[1] and oakMsg[1]:find("isn't the", 1, true),
+        "TM mid-battle Oak text")
+  eq(ItemEffects.use(Data, save, "HM_SURF", pikachu, {}), "failed",
+     "HM refuses mid-battle")
+end
 local r5, _, extra = ItemEffects.use(Data, save, "THUNDER_STONE", pikachu)
 eq(r5, "consumed", "Thunder Stone works on Pikachu")
 eq(extra.evolveTo, "RAICHU", "Thunder Stone evolves Pikachu to Raichu")
@@ -494,7 +532,7 @@ local function runScript(script)
   local r = ScriptRunner.new(Game, nil)
   r:run(script, {})
   local guard = 0
-  while r:isRunning() and guard < 2000 do
+  while r:isRunning() and guard < 4000 do
     guard = guard + 1
     Input.pressed = { a = true }
     StateStack:update(1 / 60)
@@ -505,6 +543,7 @@ local function runScript(script)
 end
 
 Flags.set(Game.save, "EVENT_GOT_STARTER")
+Flags.set(Game.save, "EVENT_BATTLED_RIVAL_IN_OAKS_LAB")
 check(runScript(mapScripts.talkScript("VIRIDIAN_MART", "TEXT_VIRIDIANMART_CLERK")),
       "mart clerk script completes")
 eq(Game.save.inventory.OAKS_PARCEL, 1, "clerk hands over Oak's Parcel")
@@ -768,6 +807,10 @@ eq(Data.field.darkMaps.maps[1], "ROCK_TUNNEL_1F", "Rock Tunnel is dark")
 check(Data.field.hiddenExtras.trashCans.adjacent[0][1] == 1,
       "trash can adjacency table extracted")
 check(#Data.field.hiddenExtras.trashCans.cans == 15, "15 Vermilion trash cans")
+check(#(Data.field.hiddenExtras.printTrash.SS_ANNE_KITCHEN or {}) == 2,
+      "SS Anne kitchen PrintTrashText bins")
+check(#(Data.field.hiddenExtras.printTrash.VERMILION_GYM or {}) == 1,
+      "Vermilion Gym PrintTrashText bin")
 local tf = io.open(Data.field.title.logo.path, "rb")
 check(tf ~= nil, "title logo asset exists")
 if tf then tf:close() end
@@ -880,6 +923,35 @@ do
     sbst.rng = function() error("self move must not roll accuracy") end
     sbst:performMove(sbst.player, sbst.enemy, { id = "SHARPEN", pp = 10 })
     eq(sbst.player.stages.attack, 1, "SHARPEN skips the accuracy roll")
+  end
+
+  -- #169: HUD status (shownStatus) stays hidden through announce/anim/
+  -- inflict text, then syncs after Execute*Move (DrawHUDsAndHPBars)
+  do
+    Game.save.party = { Pokemon.new(Data, "BULBASAUR", 10) }
+    local pb = BattleState.newWild(Game, "RATTATA", 5)
+    pb.rng = function(a, b) return a or 0 end -- always hit
+    pb.phase = "messages"
+    pb:executeAction(pb.player, pb.enemy, { id = "POISONPOWDER", pp = 10 })
+    eq(pb.enemy.mon.status, "PSN", "POISONPOWDER sets mon.status immediately")
+    eq(pb.enemy.shownStatus, nil, "HUD status deferred until after move queue")
+    local sawPoisonText, synced = false, false
+    local steps = 0
+    while steps < 4000 and not synced do
+      steps = steps + 1
+      if pb.enemy.shownStatus == "PSN" then synced = true; break end
+      if not sawPoisonText and pb.current and pb.current.text
+         and pb.current.text:find("poisoned", 1, true) then
+        sawPoisonText = true
+        eq(pb.enemy.shownStatus, nil,
+           "PSN icon still deferred while poisoned text shows")
+      end
+      Input.pressed = { a = true }
+      if not pb:updateQueue() then break end
+      Input.pressed = {}
+    end
+    check(sawPoisonText, "poisoned text appeared before HUD sync")
+    eq(pb.enemy.shownStatus, "PSN", "HUD status syncs after move completes")
   end
 
   -- HandleIfPlayerMoveMissed: skip PlayMoveAnimation on a miss
@@ -1256,6 +1328,23 @@ do
         "_ItemUseBallText08 before meeting Bill")
   check(not hasText(cb2, "New POKéDEX data"),
         "no dex page for an already-owned species")
+  -- #172: SendNewMonToBox still runs AskName before the PC text
+  local hasNickUi = false
+  for _, it in ipairs(cb2.queue) do
+    if it.ui then
+      local ui = it.ui()
+      if ui and ui.pages then
+        for _, page in ipairs(ui.pages) do
+          for _, line in ipairs(page) do
+            if type(line) == "string" and line:lower():find("nickname", 1, true) then
+              hasNickUi = true
+            end
+          end
+        end
+      end
+    end
+  end
+  check(hasNickUi, "full-party catch still asks for a nickname (#172)")
   Game.save.flags.EVENT_MET_BILL = true
   local cb3 = BattleState.newWild(Game, "EKANS", 5)
   cb3:storeCaughtMon()
@@ -1269,7 +1358,9 @@ do
   tb.enemyIndex = #tb.enemyParty
   tb.enemy = { mon = tb.enemyParty[#tb.enemyParty], def = tb.enemy.def,
                name = tb.enemy.name, isPlayer = false }
-  tb.enemy.mon.hp = 0
+  -- the whole team must be down: enemyMonFainted scans every slot for a
+  -- replacement (EnemySendOutFirstMon / AnyEnemyPokemonAliveCheck)
+  for _, m in ipairs(tb.enemyParty) do m.hp = 0 end
   tb:enemyMonFainted()
   check(hasText(tb, ("%s defeated\n%s!"):format(Game.save.player.name,
                                                 tb.trainer.name)),
@@ -1946,8 +2037,9 @@ end
 -- ---------------------------------------------------------------- heal machine cadence
 -- AnimateHealingMachine (engine/overworld/healing_machine.asm): one ball
 -- per party mon every 30 frames (SFX_HEALING_MACHINE each), then the
--- healed jingle while the machine flashes 8 times (10 frames a toggle),
--- then a 32-frame beat after the jingle ends.
+-- healed jingle while the machine flashes 8 times (10 frames a toggle).
+-- #157: fighting-fit text follows the flash immediately (no .waitLoop2 /
+-- DelayFrames 32 hold after the machine).
 do
   local OW = require("src.world.OverworldController")
   local ha = { balls = 3, lit = 0, timer = 0, visible = true }
@@ -1958,32 +2050,26 @@ do
       local ev = OW.stepHealAnim(ha)
       if ha.visible ~= wasVisible then toggles = toggles + 1 end
       if ev then events[#events + 1] = frame .. ev end
-      if ev == "jingle" then ha.jingleDone = true end -- headless: no audio
       if ev == "done" then break end
     end
   end)
   check(ok, "stepHealAnim runs")
   eq(table.concat(events, ","),
-     "1ball,31ball,61ball,91jingle,203done",
+     "1ball,31ball,61ball,91jingle,171done",
      "heal machine: a ball per mon every 30 frames, jingle, flash, done")
   eq(toggles, 8, "machine sprites flash 8 times")
   check(ha.visible, "machine sprites end visible")
 
-  -- the wait phase holds until the jingle actually finishes
+  -- unfinished jingle must not delay "done" past the flash (#157)
   local ha2 = { balls = 1, lit = 0, timer = 0, visible = true }
-  local doneEarly = false
+  local doneAt
   pcall(function()
-    for _ = 1, 300 do
-      if OW.stepHealAnim(ha2) == "done" then doneEarly = true end
+    for frame = 1, 300 do
+      if OW.stepHealAnim(ha2) == "done" then doneAt = frame break end
     end
   end)
-  check(not doneEarly, "heal machine waits for the jingle to end")
-  ha2.jingleDone = true
-  local extra = 0
-  pcall(function()
-    repeat extra = extra + 1 until OW.stepHealAnim(ha2) == "done" or extra > 100
-  end)
-  eq(extra, 32, "32-frame beat after the jingle")
+  -- 1 ball @1, jingle @31, 8x10 flash -> done @111
+  eq(doneAt, 111, "fighting fit is not gated on the jingle ending")
 end
 
 -- ---------------------------------------------------------------- HP bar right cap
@@ -2213,8 +2299,12 @@ do
   cb4.onFinish = function() end
   cb4.rng = function(a, b) return a end -- rng low: guaranteed capture
   local origStart = cb4.startMessage
+  local ballAtCaughtText
   cb4.startMessage = function(s, item)
     log[#log + 1] = "text:" .. item.text:gsub("\n.*", "")
+    if item.text:find("All right!", 1, true) then
+      ballAtCaughtText = cb4.lockedBall and #cb4.lockedBall > 0
+    end
     return origStart(s, item)
   end
   cb4.queue = {}
@@ -2223,8 +2313,11 @@ do
   while steps < 4000 do
     steps = steps + 1
     Input.pressed = { a = true }
-    if not cb4:updateQueue() then break end
+    -- the #172 nickname ui row parks the queue on waitingUI (the battle
+    -- is not on the stack here); everything under test has run by then
+    if cb4.waitingUI or not cb4:updateQueue() then break end
   end
+  if cb4.waitingUI then StateStack:pop() end -- the pushed nickname TextBox
   Input.pressed = {}
   Sound.play = origPlay
   local caughtAt, fanfareAt, fanfares, tinks = nil, nil, 0, 0
@@ -2244,7 +2337,9 @@ do
   check(fanfareAt and caughtAt and fanfareAt < caughtAt,
         "Caught_Mon sounds with the caught text, not after its dismissal")
   eq(cb4.result, "caught", "the capture resolved the battle")
-  check(cb4.lockedBall and #cb4.lockedBall > 0,
+  -- the nickname AskName that follows clears it (ClearSprites), so the
+  -- assertion is sampled while the caught text is up
+  check(ballAtCaughtText,
         "the resting closed ball stays compiled for the caught text")
   Game.save.party = savedParty
 end
@@ -2940,6 +3035,7 @@ runSuites(orderedGlob("tests/mod_*.lua tests/modkit_tests.lua", {
   "tests/mod_constants_tests.lua", "tests/mod_catalog_tests.lua",
   "tests/mod_audio_tests.lua", "tests/mod_world_tests.lua",
   "tests/mod_battle_tests.lua", "tests/mod_graphics_tests.lua",
+  "tests/mod_render_tests.lua", "tests/mod_battle_scale_tests.lua",
   "tests/mod_scripting_tests.lua", "tests/mod_ui_tests.lua",
   "tests/mod_save_tests.lua", "tests/modkit_tests.lua",
 }, {
@@ -2962,6 +3058,9 @@ runSuites({ "tests/input_hold_test.lua" })
 
 -- ---------------------------------------------- launcher cursor (#114)
 runSuites({ "tests/rom_importer_cursor_test.lua" })
+
+-- ---------------------------------------------- Android second ROM pick (#167)
+runSuites({ "tests/rom_importer_android_pick_test.lua" })
 
 -- ---------------------------------------------- parity workstream tests
 -- Each tests/parity_*.lua is a self-contained file (own bootstrap + check,

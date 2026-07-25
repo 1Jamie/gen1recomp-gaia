@@ -17,6 +17,7 @@ local Runtime = require("src.mods.Runtime")
 local Semver = require("src.mods.Semver")
 local Boxes = require("src.pokemon.Boxes")
 local Bag = require("src.inventory.Bag")
+local Badges = require("src.inventory.Badges")
 
 local GameVersion = require("src.core.GameVersion")
 
@@ -31,10 +32,11 @@ local OPTIONS_FILENAME = "options.lua"
 -- Main / backup / staged-witness names for a version (defaults to the active
 -- one).  The backup is a rolling copy and .tmp is the staged-write witness;
 -- load promotes either when the main file is missing or fails to parse.
-local function saveNames(version)
-  local main = "save" .. GameVersion.saveSuffix(version) .. ".lua"
-  return main, main .. ".bak", main .. ".tmp"
-end
+-- Forward-declared here so saveFilename (just below) and every save/load
+-- caller share the one upvalue; the body is filled in under "save slots"
+-- once the options IO it depends on exists, because it now resolves the
+-- ACTIVE slot for a version rather than the fixed flat name.
+local saveNames
 
 -- The main save filename for a version -- used by the title screen's
 -- CONTINUE gate so it looks for the right game's save.
@@ -89,6 +91,18 @@ local function makePortableFs(dir)
     end,
     remove = function(name)
       os.remove(full(name))
+      return true
+    end,
+    createDirectory = function(name)
+      -- portable mode writes real files through io.*, which will not
+      -- create missing parent directories; mkdir the tree so a slot path
+      -- like "saves/red" exists before a write lands inside it
+      local osPath = full(name):gsub("/", SEP)
+      if SEP == "\\" then
+        os.execute('mkdir "' .. osPath .. '" 2>nul')
+      else
+        os.execute('mkdir -p "' .. osPath .. '" 2>/dev/null')
+      end
       return true
     end,
   }
@@ -198,6 +212,11 @@ function SaveData.defaultOptions()
     videoMode = "windowed",
     -- hard render frame-rate cap; render-only pacing (issue #88, FrameCap.lua)
     fpsCap = 60,
+    -- Per-pipeline display levels, keyed by render_pipelines id (see
+    -- src/render/Pipelines.lua).  A level for a mod that is not installed
+    -- is kept rather than pruned, so re-enabling the mod restores the mode
+    -- the player left it in.
+    pipelines = {},
     -- Native mod enablement is an installation option, not save-slot data.
     -- Missing entries mean enabled so newly installed mods work by default.
     mods = {},
@@ -281,6 +300,264 @@ function SaveData.loadOptions(fs)
     return SaveData.defaultOptions()
   end
   return SaveData.mergeOptions(data)
+end
+
+-- ------- save slots
+
+-- A version's playthroughs live in numbered slots under saves/<version>/;
+-- the active slot is where in-game SAVE and CONTINUE land.  The registry
+-- (the ordered slot list plus which one is active) persists in options.lua
+-- under options.saveSlots[version]; the active slot is also cached
+-- process-wide (like GameVersion.current) so the hot saveNames path does
+-- not re-read options every call.  A false cache entry means "no slot in
+-- use" and the flat legacy path (save.lua / save_blue.lua) is used, which
+-- keeps a brand-new install and every pre-slots caller working unchanged.
+local activeSlotCache = {}   -- version -> slotId in use, or false when none
+local slotsChecked = {}      -- version -> true once resolved this process
+
+local function slotDir(version) return "saves/" .. version end
+
+local function slotNames(version, id)
+  local main = slotDir(version) .. "/" .. id .. ".lua"
+  return main, main .. ".bak", main .. ".tmp"
+end
+
+-- the pre-slots flat names a version always used (save.lua for Red,
+-- save_blue.lua for Blue); still the destination before any slot exists
+local function legacyNames(version)
+  local main = "save" .. GameVersion.saveSuffix(version) .. ".lua"
+  return main, main .. ".bak", main .. ".tmp"
+end
+
+-- Slot resolution is only meaningful for versions GameVersion actually knows
+-- (red/blue).  The launcher also renders a locked placeholder tab ("yellow")
+-- that has no info entry and therefore no saveSuffix; resolving its legacy
+-- names would index a nil info table and crash.  Treat any unknown version as
+-- having no slots so the slot APIs degrade to empty/no-op instead.
+local function knownVersion(version)
+  return GameVersion.info(version) ~= nil
+end
+
+-- Create the parent directory of a slot path when the fs supports it.
+-- love.filesystem.createDirectory makes the whole tree; the injected memfs
+-- stub keys files by full path and exposes no such method, so this is a
+-- no-op there.
+local function ensureParentDir(fs, name)
+  local dir = name:match("^(.*)/[^/]+$")
+  if dir and fs.createDirectory then fs.createDirectory(dir) end
+end
+
+-- Decode a slot's save using the same recovery order load() uses -- main,
+-- then the .tmp write-witness, then the .bak -- so a slot mid-crash still
+-- summarizes.  nil when nothing readable is present.
+local function decodeSlot(fs, version, id)
+  local main, bak, tmp = slotNames(version, id)
+  local data = fs.getInfo(main) and SaveSerializer.decode(fs.read(main) or "")
+  if data then return data end
+  data = fs.getInfo(tmp) and SaveSerializer.decode(fs.read(tmp) or "")
+  if data then return data end
+  data = fs.getInfo(bak) and SaveSerializer.decode(fs.read(bak) or "")
+  return data or nil
+end
+
+-- One-time legacy consolidation: a pre-slots install has a flat save file
+-- (+ .bak) and no saves/<version>/ registry.  Copy both into slot1, verify
+-- the copy reads back, then remove the originals and register slot1 as the
+-- active slot.  Returns the new slot id, or nil when there is nothing to
+-- migrate or the copy could not be verified (originals left in place so no
+-- data is ever lost to a failed move).
+local function tryMigrateLegacy(version, fs)
+  local lmain, lbak, ltmp = legacyNames(version)
+  local mainBody = fs.getInfo(lmain) and fs.read(lmain)
+  local bakBody = fs.getInfo(lbak) and fs.read(lbak)
+  if not (mainBody or bakBody) then return nil end
+  local id = "slot1"
+  local dmain, dbak = slotNames(version, id)
+  ensureParentDir(fs, dmain)
+  if mainBody then fs.write(dmain, mainBody) end
+  if bakBody then fs.write(dbak, bakBody) end
+  -- refuse to delete the originals unless the new slot is loadable (from
+  -- the main copy or, failing that, the backup)
+  if not decodeSlot(fs, version, id) then return nil end
+  remove(fs, lmain)
+  remove(fs, lbak)
+  remove(fs, ltmp)
+  local opts = SaveData.loadOptions(fs)
+  opts.saveSlots = opts.saveSlots or {}
+  opts.saveSlots[version] = { list = { id }, active = id }
+  SaveData.saveOptions(opts, fs)
+  return id
+end
+
+-- Resolve (once per version per process) which slot in-game saves use: an
+-- existing registry wins; otherwise a lazy legacy migration may create
+-- slot1; otherwise false, meaning the flat legacy path.
+local function ensureVersionSlots(version, fs)
+  if slotsChecked[version] then return end
+  slotsChecked[version] = true
+  if not knownVersion(version) then
+    activeSlotCache[version] = false
+    return
+  end
+  local opts = SaveData.loadOptions(fs)
+  local reg = opts.saveSlots and opts.saveSlots[version]
+  if reg and type(reg.list) == "table" and #reg.list > 0 then
+    activeSlotCache[version] = reg.active or reg.list[1]
+    return
+  end
+  activeSlotCache[version] = tryMigrateLegacy(version, fs) or false
+end
+
+-- (body for the forward-declared saveNames.)  Resolves the ACTIVE slot for
+-- the version, falling back to the flat legacy names when no slot is in use.
+function saveNames(version)
+  version = version or GameVersion.get()
+  local fs = persistFs(nil)
+  ensureVersionSlots(version, fs)
+  local slot = activeSlotCache[version]
+  if slot then return slotNames(version, slot) end
+  return legacyNames(version)
+end
+
+-- Pure extraction of the launcher's per-slot summary from a decoded save,
+-- factored out so it is unit-testable with no filesystem: the player name
+-- (nil for an empty slot) and { badges, timeText, dexCount } -- the same
+-- fields the title screen's ContinueInfo derives.  Badges resolve against
+-- the vanilla gym list (launcher has no loaded Data), which is what the
+-- flat launcher meta line needs.
+function SaveData.slotSummary(save)
+  if type(save) ~= "table" then return nil, nil end
+  local name = save.player and save.player.name or nil
+  local dexCount = 0
+  for _ in pairs((save.pokedex and save.pokedex.owned) or {}) do
+    dexCount = dexCount + 1
+  end
+  local t = math.floor(save.playTime or 0)
+  local timeText = ("%d:%02d"):format(math.floor(t / 3600),
+                                      math.floor(t / 60) % 60)
+  return name, {
+    badges = Badges.count(nil, save),
+    timeText = timeText,
+    dexCount = dexCount,
+  }
+end
+
+-- Slots visible to the launcher: every registered slot for a version, each
+-- with whether it holds a save and the cheap summary above.  A fresh
+-- install with nothing registered returns an empty array; a legacy install
+-- is migrated to slot1 first.
+function SaveData.listSlots(version)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return {} end
+  local fs = persistFs(nil)
+  ensureVersionSlots(version, fs)
+  local opts = SaveData.loadOptions(fs)
+  local reg = opts.saveSlots and opts.saveSlots[version]
+  local list = (reg and reg.list) or {}
+  local out = {}
+  for _, id in ipairs(list) do
+    local save = decodeSlot(fs, version, id)
+    local name, meta = SaveData.slotSummary(save)
+    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta }
+  end
+  return out
+end
+
+-- Point the active slot at slotId (registering it if new) and persist the
+-- choice to options.lua; also update the process-global cache so the very
+-- next save/load lands in the chosen slot.
+function SaveData.setActiveSlot(version, slotId)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  local fs = persistFs(nil)
+  local opts = SaveData.loadOptions(fs)
+  opts.saveSlots = opts.saveSlots or {}
+  local reg = opts.saveSlots[version] or { list = {}, active = nil }
+  local found = false
+  for _, id in ipairs(reg.list) do
+    if id == slotId then found = true break end
+  end
+  if not found then reg.list[#reg.list + 1] = slotId end
+  reg.active = slotId
+  opts.saveSlots[version] = reg
+  SaveData.saveOptions(opts, fs)
+  slotsChecked[version] = true
+  activeSlotCache[version] = slotId
+  return slotId
+end
+
+-- Register a new empty slot for the version and return its id.  Does NOT
+-- write a save file and does NOT change the active slot: an empty slot
+-- means the title screen offers NEW GAME only.  Ids are "slot%d+",
+-- allocated one past the highest existing number so a reused id can never
+-- collide with a lingering file.
+function SaveData.createSlot(version)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  local fs = persistFs(nil)
+  ensureVersionSlots(version, fs)
+  local opts = SaveData.loadOptions(fs)
+  opts.saveSlots = opts.saveSlots or {}
+  local reg = opts.saveSlots[version] or { list = {}, active = nil }
+  local maxN = 0
+  for _, id in ipairs(reg.list) do
+    local n = tonumber(tostring(id):match("^slot(%d+)$"))
+    if n and n > maxN then maxN = n end
+  end
+  local id = "slot" .. (maxN + 1)
+  reg.list[#reg.list + 1] = id
+  opts.saveSlots[version] = reg
+  SaveData.saveOptions(opts, fs)
+  return id
+end
+
+-- The active slot id in use for a version (resolved once per process like
+-- saveNames does), or nil when none is registered and the flat legacy path is
+-- in use.  Public so the launcher's save Import/Export glue can name an export
+-- after the slot it came from without reaching into the private cache.
+function SaveData.activeSlot(version)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  local fs = persistFs(nil)
+  ensureVersionSlots(version, fs)
+  return activeSlotCache[version] or nil
+end
+
+-- Write saveTable into an existing slot's file (SaveSerializer.encode), through
+-- the same fs seam every other save/load call uses (so portable mode keeps
+-- working) and the same .tmp-witness / .bak recovery discipline SaveData.save
+-- uses for the flat path.  Used by the launcher's save-import glue, which has
+-- already registered the slot via createSlot but written no bytes yet; unlike
+-- SaveData.save this targets a specific slot and never rebuilds meta or touches
+-- options.  Returns true, or false + an error string on a failed write.
+function SaveData.writeSlot(version, slotId, saveTable)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  if type(slotId) ~= "string" then return false, "missing slot id" end
+  if type(saveTable) ~= "table" then return false, "missing save table" end
+  local main, bak, tmp = slotNames(version, slotId)
+  local encoded = SaveSerializer.encode(saveTable)
+  local fs = persistFs(nil)
+  ensureParentDir(fs, main)
+  if fs.getInfo(main) then
+    local prev = fs.read(main)
+    if prev then fs.write(bak, prev) end
+  end
+  local ok, err = fs.write(tmp, encoded)
+  if not ok then return false, err end
+  remove(fs, main)
+  ok, err = fs.write(main, encoded)
+  if not ok then return false, err end
+  remove(fs, tmp)
+  return true
+end
+
+-- Test seam: drop the process-global slot cache so a suite can exercise
+-- migration/resolution against a freshly injected filesystem.  Unused by
+-- the game, which resolves each version exactly once per boot.
+function SaveData.resetSlotState()
+  for k in pairs(activeSlotCache) do activeSlotCache[k] = nil end
+  for k in pairs(slotsChecked) do slotsChecked[k] = nil end
 end
 
 -- ------- meta
@@ -525,6 +802,9 @@ function SaveData.save(data, mods)
   end
   local encoded = SaveSerializer.encode(gameOnly)
   local fs = persistFs(nil)
+  -- the active slot may live in saves/<version>/, which must exist before
+  -- the .tmp/.bak/main writes land (a no-op for the flat legacy path)
+  ensureParentDir(fs, FILENAME)
   if fs.getInfo(FILENAME) then
     local prev = fs.read(FILENAME)
     if prev then fs.write(BACKUP_FILENAME, prev) end

@@ -40,6 +40,19 @@ function f.int(min, max)
     end }
 end
 
+-- a bounded float; like f.int but keeps the fractional part (scales,
+-- gains).  Rejects out-of-range with the "expected number a..b" message.
+function f.numRange(min, max)
+  local desc = "number"
+  if min and max then desc = ("number %s..%s"):format(min, max)
+  elseif min then desc = ("number >= %s"):format(min) end
+  return { kind = "num", min = min, max = max, desc = desc,
+    check = function(v)
+      return type(v) == "number"
+        and (min == nil or v >= min) and (max == nil or v <= max)
+    end }
+end
+
 function f.enum(values)
   local set = {}
   for _, value in ipairs(values) do set[value] = true end
@@ -420,6 +433,12 @@ R.pokemon = {
                                         frames = f.opt(f.int(1)) } }),
     cry = f.opt(f.id("cries")), palette = f.opt(f.id("palettes")),
     trueColor = f.opt(f.bool),
+    -- battle-pic scale overrides for this species' own pics: front is the
+    -- enemy pic (default 1x), back is the player pic (default 2x).  An
+    -- image-level battle_sprite_scales entry for the same path beats these.
+    -- The pic stays grounded (feet pinned) at any scale; see docs/modding.md.
+    battleScaleFront = f.opt(f.numRange(0.25, 4.0)),
+    battleScaleBack = f.opt(f.numRange(0.25, 4.0)),
   },
   example = 'mod.content.pokemon:patch("MEW", { baseStats = { attack = 120 } })',
 }
@@ -789,6 +808,118 @@ R.transitions = {
     flash = f.opt(f.bool),
   },
   example = 'mod.content.transitions:register("dissolve", { frames = 30, draw = fn })',
+}
+
+-- ------- rendering pipelines
+--
+-- A pipeline is a display mode that owns part of the frame: it may replace
+-- the overworld's world pass with geometry of its own (drawWorld) and/or
+-- post-process the finished composite (present).  Everything around that --
+-- the OFF/1/2/3 ladder, its options row, its hotkey, persistence in
+-- save.options.pipelines and the gating that keeps it out of battles and
+-- menus -- is engine plumbing driven from this record, so a renderer mod
+-- declares what it is and writes only the two draw functions.
+--
+-- Both callbacks are optional and independent: a present-only pipeline is a
+-- post-process (bloom, tilt-shift, a CRT curve) that leaves whatever
+-- rendered the frame alone, and a drawWorld-only pipeline is a world
+-- renderer that composites straight.  See src/render/Pipelines.lua for the
+-- ctx each receives and docs/modding.md for the worked example.
+R.render_pipelines = {
+  semantics = "record", target = "render_pipelines",
+  fields = {
+    -- shown in the options menu; the ladder labels default to OFF/ON
+    label = f.str,
+    levels = f.opt(f.list(f.str)),
+    -- keyboard key that cycles the ladder, checked after the engine's own
+    -- display hotkeys so a pipeline can never shadow one
+    hotkey = f.opt(f.str),
+    -- higher wins when two world pipelines are somehow active at once;
+    -- also the options-row order, so a mode and its post-process sort
+    -- together instead of by id
+    priority = f.opt(f.num),
+    -- hardware/driver gate, checked every frame: false keeps the vanilla
+    -- 2D path, which is what a headless run and a driver with no depth
+    -- canvas both get
+    available = f.opt(f.fn),
+    -- (top, overworld) -> boolean: whether the player may CHANGE the mode
+    -- right now.  Defaults to the survey-zoom gate (free-roam overworld
+    -- only), which keeps a hotkey press from switching modes mid-warp or
+    -- mid-cutscene.  It has no say over whether an already-on mode draws:
+    -- a mode that stopped rendering during a warp would flash the flat 2D
+    -- world every time the player walked through a door.
+    gate = f.opt(f.fn),
+    -- (dt, level): presentational tweens, ticked on real frame time
+    update = f.opt(f.fn),
+    -- (ctx) -> canvas | nil: render the world.  nil falls back to the
+    -- vanilla flat/tilt draw for this frame.
+    drawWorld = f.opt(f.fn),
+    -- (canvas, ctx) -> canvas: post-process the WORLD image, before the UI
+    -- composites over it -- a depth-of-field or colour grade that must not
+    -- touch the dialog boxes and menus sitting on top.  Only runs when some
+    -- pipeline rendered the world, since the vanilla world pass has no
+    -- single finished image to hand over.
+    worldPresent = f.opt(f.fn),
+    -- (canvas, ctx) -> canvas: post-process the whole finished composite,
+    -- world and UI alike (a CRT curve, a full-screen grade).  Must return a
+    -- canvas; the input unchanged is the correct answer when the effect is
+    -- off.
+    present = f.opt(f.fn),
+    -- drop GPU objects (window resize, hot reload, mode switch)
+    invalidate = f.opt(f.fn),
+  },
+  -- a pipeline that does neither half is dead weight and would silently
+  -- occupy an options row and a hotkey
+  extra = function(_, value)
+    if value.drawWorld == nil and value.present == nil
+        and value.worldPresent == nil then
+      return "a render pipeline needs drawWorld, worldPresent or present"
+    end
+  end,
+  -- A pipeline callback fails at play time, long after the load phase has
+  -- handed its report to the mod manager, so the merge leaves behind who
+  -- wrote each record for Pipelines to name in the failure -- the same
+  -- provenance trick the audio registries use (Loader.stampAudioOwners).
+  -- Placement is otherwise the default record merge.
+  write = function(target, registry)
+    local owners, tombstones = {}, {}
+    for id in pairs(registry.ops) do
+      local value = registry:get(id)
+      if value == nil then
+        tombstones[#tombstones + 1] = id
+      else
+        target[id] = value
+        local owner = registry.owners[id]
+        if owner and owner ~= Schemas.ENGINE then owners[id] = owner end
+      end
+    end
+    for _, id in ipairs(tombstones) do target[id] = nil end
+    target._owners = owners
+  end,
+  example = 'mod.content.render_pipelines:register("voxel", ' ..
+    '{ label = "VOXEL", levels = { "OFF", "15", "35", "50" }, drawWorld = fn })',
+}
+
+-- ------- battle sprite scales
+--
+-- Per-image battle-pic scale overrides, keyed by record id and consulted
+-- by asset path at draw time.  Where a species' battleScaleFront /
+-- battleScaleBack scales its own front/back pic, this scales ANY battle
+-- pic by the path it is drawn from -- the only handle on the non-species
+-- pics like the player's trainer back sprite.  Image-level beats
+-- species-level; both compose with the send-out grow and keep the sprite
+-- grounded (feet pinned) at whatever scale.  See docs/modding.md.
+R.battle_sprite_scales = {
+  semantics = "record", target = "battle_sprite_scales",
+  fields = {
+    -- the asset path exactly as data references it, e.g.
+    -- "assets/generated/battle/back/abrab.png"
+    path = f.path,
+    -- 1 = native pixels; the drawn size relative to the pic's own pixels
+    scale = f.numRange(0.25, 4.0),
+  },
+  example = 'mod.content.battle_sprite_scales:register("abra_back", ' ..
+    '{ path = "assets/generated/battle/back/abrab.png", scale = 1.5 })',
 }
 
 -- ------- progression

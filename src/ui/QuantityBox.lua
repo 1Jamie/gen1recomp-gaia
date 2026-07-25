@@ -40,15 +40,19 @@ function QuantityBox:update(dt)
 end
 
 function QuantityBox:draw()
-  local w = self.unitPrice and 11 or 7
-  local tx = 20 - w - 1
-  Font.drawBox(tx, 13, w, 3)
+  -- DisplayChooseQuantityMenu (home/list_menu.asm): non-priced box at
+  -- hlcoord 15,9 (interior 3x1); priced at hlcoord 7,9 (interior 11x1).
+  -- TextBoxBorder adds the frame, so outer size is +2 on each axis.
+  local tw = self.unitPrice and 13 or 5
+  local tx = self.unitPrice and 7 or 15
+  local ty = 9
+  Font.drawBox(tx, ty, tw, 3)
   love.graphics.setColor(0, 0, 0, 1)
   local s = ("×%02d"):format(self.qty) -- the multiply glyph tile
   if self.unitPrice then
     s = s .. (" ¥%d"):format(self.qty * self.unitPrice)
   end
-  Font.draw(s, (tx + 1) * 8, 14 * 8)
+  Font.draw(s, (tx + 1) * 8, (ty + 1) * 8)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

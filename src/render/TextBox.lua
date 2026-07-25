@@ -50,6 +50,7 @@ function TextBox.new(game, text, onDone, opts)
   self.charIndex = 0
   self.shown = {} -- visible lines (max 2), each a list of glyph codes
   self.waiting = false
+  self.contAdvance = false
   self.done = false
   self.blink = 0
   self:beginLine()
@@ -65,7 +66,11 @@ TextBox.TOKENS = {
   PLAYER = function(game) return game.save.player.name or "RED" end,
   RIVAL = function(game) return game.save.player.rival or "BLUE" end,
   RAM = function(game, arg)
-    return arg == "wStringBuffer" and game.stringBuffer or nil
+    if arg == "wStringBuffer" then return game.stringBuffer end
+    if arg == "wBoxNumString" then return game.boxNumString end
+    -- SendNewMonToBox / _SentToBoxText reads the deposited nick here
+    if arg == "wBoxMonNicks" then return game.boxMonNicks end
+    return nil
   end,
 }
 
@@ -83,31 +88,55 @@ end
 
 -- Split marked-up text into pages of lines.  \v-scrolled lines become
 -- additional lines on the same page (the box scrolls them).
+-- pages.contBefore[p][i] is true when line i was preceded by \v (cont):
+-- pokered ContText waits for A/B + ▼ before scrolling that line in.
 function TextBox.paginate(text, maxCols)
   maxCols = maxCols or (Theme.textBox and Theme.textBox.maxCols) or MAX_COLS
   local pages = {}
+  local contBefore = {}
+  local function pushLine(lines, conts, line, wait)
+    while #line > maxCols do
+      local cut = maxCols
+      for i = maxCols, 1, -1 do
+        if line:sub(i, i) == " " then cut = i break end
+      end
+      table.insert(lines, line:sub(1, cut))
+      table.insert(conts, wait)
+      wait = false
+      line = line:sub(cut + 1)
+    end
+    table.insert(lines, line)
+    table.insert(conts, wait)
+  end
   for pageText in (text .. "\f"):gmatch("(.-)\f") do
     if pageText ~= "" then
-      local lines = {}
-      for chunk in (pageText .. "\n"):gmatch("(.-)[\n\v]") do
-        local line = chunk
-        -- wrap long lines defensively (the source rarely needs it)
-        while #line > maxCols do
-          local cut = maxCols
-          for i = maxCols, 1, -1 do
-            if line:sub(i, i) == " " then cut = i break end
-          end
-          table.insert(lines, line:sub(1, cut))
-          line = line:sub(cut + 1)
+      local lines, conts = {}, {}
+      local pos, waitNext = 1, false
+      while true do
+        local npos = pageText:find("[\n\v]", pos)
+        if not npos then
+          pushLine(lines, conts, pageText:sub(pos), waitNext)
+          break
         end
-        table.insert(lines, line)
+        pushLine(lines, conts, pageText:sub(pos, npos - 1), waitNext)
+        waitNext = pageText:sub(npos, npos) == "\v"
+        pos = npos + 1
       end
-      -- drop trailing empty line from the final gmatch round
-      if lines[#lines] == "" then table.remove(lines) end
-      if #lines > 0 then table.insert(pages, lines) end
+      if lines[#lines] == "" then
+        table.remove(lines)
+        table.remove(conts)
+      end
+      if #lines > 0 then
+        table.insert(pages, lines)
+        table.insert(contBefore, conts)
+      end
     end
   end
-  if #pages == 0 then pages = { { "" } } end
+  if #pages == 0 then
+    pages = { { "" } }
+    contBefore = { { false } }
+  end
+  pages.contBefore = contBefore
   return pages
 end
 
@@ -179,10 +208,17 @@ function TextBox:update(dt)
     if input:wasPressed("a") or input:wasPressed("b") then
       require("src.core.Sound").play(self.game.data, "Press_AB")
       self.waiting = false
-      self.shown = {}
-      self.pageIndex = self.pageIndex + 1
-      self.lineIndex = 1
-      self:beginLine()
+      if self.contAdvance then
+        -- ContText / ManualTextScroll: keep the box, scroll one line
+        self.contAdvance = false
+        self.lineIndex = self.lineIndex + 1
+        self:beginLine()
+      else
+        self.shown = {}
+        self.pageIndex = self.pageIndex + 1
+        self.lineIndex = 1
+        self:beginLine()
+      end
     end
     return
   end
@@ -203,10 +239,19 @@ function TextBox:update(dt)
       -- line finished
       local page = self.pages[self.pageIndex]
       if self.lineIndex < #page then
-        self.lineIndex = self.lineIndex + 1
-        self:beginLine()
+        local nextIdx = self.lineIndex + 1
+        local conts = self.pages.contBefore and self.pages.contBefore[self.pageIndex]
+        if conts and conts[nextIdx] then
+          -- pokered <CONT>: ▼ + WaitForTextScrollButtonPress before scroll
+          self.waiting = true
+          self.contAdvance = true
+        else
+          self.lineIndex = nextIdx
+          self:beginLine()
+        end
       elseif self.pageIndex < #self.pages then
         self.waiting = true
+        self.contAdvance = false
       else
         self.done = true
       end

@@ -24,7 +24,10 @@ local S = require("tests.harness").suite("parity ghost marowak")
 local check, eq = S.check, S.eq
 
 -- Real TextBoxes want a Font atlas; the decision under test is which
--- branch runs, not how the text renders.
+-- branch runs, not how the text renders.  Both stubs are restored at the
+-- bottom for the suites run_tests.lua chains after this file.
+local realTextBox = package.loaded["src.render.TextBox"]
+local realBattleState = package.loaded["src.battle.BattleState"]
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, done) return { text = text, done = done } end,
 }
@@ -157,5 +160,8 @@ do
   check(not game.save.flags.EVENT_BEAT_GHOST_MAROWAK, "a loss does not clear it")
   eq(0, #moved, "no scripted step on a loss")
 end
+
+package.loaded["src.render.TextBox"] = realTextBox
+package.loaded["src.battle.BattleState"] = realBattleState
 
 S.finish()

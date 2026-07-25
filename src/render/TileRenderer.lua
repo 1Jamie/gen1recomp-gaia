@@ -179,6 +179,11 @@ local function recolorSample(r, g, b, a, colors)
   return col[1] / 255, col[2] / 255, col[3] / 255, a
 end
 
+-- exported: a render pipeline bakes a map's palette into its own texture
+-- atlas the same way, and has to land on the identical colors as the 2D
+-- tiles it is standing in for
+TileRenderer.recolorSample = recolorSample
+
 -- the 8 shifted variants of one tile (built once per sheet + tile id [+
 -- gbcKey, when `colors` recolors it for RED++ -- see buildAnim])
 local shiftVariants = {}

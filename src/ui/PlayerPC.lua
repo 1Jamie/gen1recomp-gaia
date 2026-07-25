@@ -71,6 +71,7 @@ end
 local function withdraw(game)
   local pc = game.save.pcItems
   game.stack:push(ListMenu.new(game, "WITHDRAW ITEM", buildItems(game, pc), {
+    messageBox = true,
     onChoose = function(item, list)
       askQuantity(game, list, pc[item.value] or 1, item.value, function(qty)
         local Bag = require("src.inventory.Bag")
@@ -107,6 +108,7 @@ local function deposit(game)
     if not Bag.isBadge(id) then depositable[id] = count end
   end
   game.stack:push(ListMenu.new(game, "DEPOSIT ITEM", buildItems(game, depositable), {
+    messageBox = true,
     onChoose = function(item, list)
       askQuantity(game, list, inv[item.value] or 1, item.value, function(qty)
         if pcFull(game, pc, item.value) then
@@ -126,6 +128,7 @@ end
 local function toss(game)
   local pc = game.save.pcItems
   game.stack:push(ListMenu.new(game, "TOSS ITEM", buildItems(game, pc), {
+    messageBox = true,
     onChoose = function(item, list)
       local def = game.data.items[item.value]
       if (def and def.keyItem) or item.value:find("^HM_") then
@@ -161,9 +164,9 @@ function PlayerPC.new(game)
     { label = "DEPOSIT ITEM", onSelect = function() deposit(game) end },
     { label = "TOSS ITEM", onSelect = function() toss(game) end },
     { label = "LOG OFF" },
-    -- the whole PC session runs silent (BIT_NO_MENU_BUTTON_SOUND,
-    -- engine/menus/players_pc.asm PlayersPCMenu)
-  }, { tx = 3, ty = 0, tw = 17, th = 10, noSound = true })
+    -- silent PC session (BIT_NO_MENU_BUTTON_SOUND); players_pc.asm
+    -- PlayersPCMenu TextBoxBorder (0,0) b=8 c=14 → 16x10
+  }, { tx = 0, ty = 0, tw = 16, th = 10, noSound = true })
 end
 
 return PlayerPC

@@ -180,5 +180,43 @@ do
   eq(game.save.daycare.mon.level, 5, "decline restores mon.level to depositLevel")
 end
 
+-- === 6) skipped level-up moves granted on retrieve (#184 / WriteMonMoves) ===
+do
+  local game = newGame()
+  local mon = boardAtLevel(game, "MAGIKARP", 13, "FISHY")
+  game.save.daycare.depositLevel = 13
+  local hasTackle = false
+  for _, mv in ipairs(mon.moves) do
+    if mv.id == "TACKLE" then hasTackle = true break end
+  end
+  check(not hasTackle, "Magikarp Lv13 does not already know Tackle")
+  game.save.daycare.steps = stepsForLevels("MAGIKARP", 13, 6) -- → 19
+  choiceAnswer = true
+  check(talk(game), "Magikarp retrieve talk completes")
+  local back = game.save.party[1]
+  eq(back.level, 19, "Magikarp raised 13→19 on retrieve")
+  local moveIds = {}
+  for _, mv in ipairs(back.moves) do moveIds[#moveIds + 1] = mv.id end
+  local joined = table.concat(moveIds, ",")
+  check(joined:find("TACKLE", 1, true),
+        "Magikarp learns Tackle at 15 via daycare skip (#184): " .. joined)
+  check(joined:find("SPLASH", 1, true), "Splash retained alongside Tackle")
+end
+
+-- === 7) decline does not teach skipped moves ===
+do
+  local game = newGame()
+  local mon = boardAtLevel(game, "MAGIKARP", 13)
+  game.save.daycare.depositLevel = 13
+  game.save.daycare.steps = stepsForLevels("MAGIKARP", 13, 6)
+  choiceAnswer = false
+  talk(game)
+  local hasTackle = false
+  for _, mv in ipairs(game.save.daycare.mon.moves) do
+    if mv.id == "TACKLE" then hasTackle = true break end
+  end
+  check(not hasTackle, "decline leaves moves unchanged (no Tackle yet)")
+end
+
 package.loaded["src.render.TextBox"] = realTextBox
 S.finish()

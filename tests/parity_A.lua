@@ -312,10 +312,15 @@ do
   local Renderer = require("src.render.Renderer")
   local SaveData = require("src.core.SaveData")
   local OW = require("src.world.OverworldController")
-  local realTB = package.loaded["src.render.TextBox"]
-  package.loaded["src.render.TextBox"] = {
-    new = function(game, text, done) return { text = text, onDone = done } end,
-  }
+  local function stackedDialogue()
+    local top = Game.stack:top()
+    if not (top and top.pages) then return "" end
+    local parts = {}
+    for _, page in ipairs(top.pages) do
+      parts[#parts + 1] = table.concat(page, "\n")
+    end
+    return table.concat(parts, "\n")
+  end
   Game.data = Data
   Game.input = Input; Input:init()
   Game.renderer = Renderer; Renderer:init()
@@ -328,10 +333,17 @@ do
   Game.stack:push(OW, "PEWTER_GYM", 4, 13, "up")
   local ow = Game.stack:top()
   ow:checkVictoryRewards("OPP_BROCK", 1)
+  local brockText = stackedDialogue()
   check(Game.save.flags.EVENT_BEAT_BROCK, "Brock victory sets EVENT_BEAT_BROCK")
   check(Game.save.inventory.BOULDERBADGE == 1, "Brock victory awards BOULDERBADGE")
   check(Game.save.flags.EVENT_BEAT_PEWTER_GYM_TRAINER_0,
         "Brock victory deactivates the Pewter Gym Cooltrainer")
+  check(brockText:find("I took", 1, true),
+        "Brock victory dialogue starts with ReceivedBoulderBadge speech")
+  check(brockText:find("FLASH", 1, true),
+        "Brock victory dialogue includes BoulderBadge FLASH explanation")
+  check(brockText:find("BIDE", 1, true),
+        "Brock victory dialogue includes TM34 BIDE explanation")
   local pewterNpc
   for _, npc in ipairs(ow.npcs) do
     if npc.def.index == 2 then pewterNpc = npc break end
@@ -353,6 +365,19 @@ do
   Game.save.flags = {}
   Game.save.inventory = {}
   Game.save.defeatedTrainers = {}
+  Game.stack:push(OW, "CERULEAN_GYM", 4, 10, "up")
+  ow = Game.stack:top()
+  ow:checkVictoryRewards("OPP_MISTY", 1)
+  local mistyText = stackedDialogue()
+  check(mistyText:find("CUT", 1, true),
+        "Misty victory dialogue includes CascadeBadge CUT explanation")
+  check(Game.save.inventory.CASCADEBADGE == 1, "Misty victory awards CASCADEBADGE")
+
+  while Game.stack:top() do Game.stack:pop() end
+  Game.save = SaveData.newGame()
+  Game.save.flags = {}
+  Game.save.inventory = {}
+  Game.save.defeatedTrainers = {}
   Game.stack:push(OW, "CINNABAR_GYM", 16, 15, "up")
   ow = Game.stack:top()
   ow:checkVictoryRewards("OPP_BLAINE", 1)
@@ -368,7 +393,6 @@ do
         "unfought Cinnabar trainer is defeated via seeded header event")
 
   while Game.stack:top() do Game.stack:pop() end
-  package.loaded["src.render.TextBox"] = realTB
 end
 
 S.finish()

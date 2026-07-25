@@ -102,6 +102,8 @@ function Data:seedDefaults()
   -- after-battle rows so Blaine's SetEventRange deactivation and talk
   -- after-text work like the other gyms (scripts/CinnabarGym.asm).
   self:seedCinnabarGymTrainerHeaders()
+  -- #189: 1F cabin door order vs rooms map (survey zoom)
+  require("src.world.SsAnneLayout").apply(self.maps)
 end
 
 function Data:seedCinnabarGymTrainerHeaders()

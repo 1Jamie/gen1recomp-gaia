@@ -223,6 +223,12 @@ function Map:setBlock(bx, by, block)
   self.def.blocks[by * self.def.width + bx + 1] = block
 end
 
+-- true if the cell's collision tile is a door tile
+-- (pokered IsPlayerStandingOnDoorTile)
+function Map:isDoorTileCell(cx, cy)
+  return self.doorTiles[self:cellTile(cx, cy)] or false
+end
+
 -- true if the cell's collision tile is a door or warp-activating tile
 function Map:isWarpTileCell(cx, cy)
   local t = self:cellTile(cx, cy)

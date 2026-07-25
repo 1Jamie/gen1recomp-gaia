@@ -731,6 +731,11 @@ local function switchTo(battle, slot)
     end
     local t = replacementMenu()
     if not t or t.index ~= slot then break end
+    press("a") -- select mon -> SWITCH / STATS / CANCEL
+    U.wait(8)
+    t = replacementMenu()
+    if not (t and t.submenu) then break end
+    -- SWITCH is first (SwitchStatsCancelText)
     press("a")
     U.wait(10)
     ok = true

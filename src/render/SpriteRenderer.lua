@@ -65,8 +65,12 @@ end
 
 Assets.register(SpriteRenderer.invalidate)
 
+-- exported: a render pipeline's own sprite geometry picks frames by the
+-- same tables, so a 3D pose can never drift from the 2D one
 local STAND = { down = 0, up = 1, left = 2, right = 2 }
 local WALK = { down = 3, up = 4, left = 5, right = 5 }
+SpriteRenderer.STAND = STAND
+SpriteRenderer.WALK = WALK
 
 -- seed: any stable per-instance value (e.g. an NPC's `id`) used to resolve
 -- RED++'s per-instance "random" OBP sentinel (PaletteFX.spriteObp)
@@ -81,6 +85,29 @@ function SpriteRenderer.new(spriteDef, seed)
     self.frames[f] = love.graphics.newQuad(0, f * 16, 16, 16, iw, ih)
   end
   return self
+end
+
+-- The image this sprite would draw from right now: the plain sheet, or the
+-- OBP-recolored bake of it.  Exposed so a render pipeline can texture its
+-- own geometry from the very same image -- the geometry carries sheet pixel
+-- coordinates rather than baked colors, so sharing this one resolver is
+-- what makes palette modes and sprite-replacing mods apply to 2D and 3D
+-- alike.
+--
+-- Deliberately free of draw's bookkeeping: markTrueColor and
+-- markSpriteRedraw exist to patch up the screen-space zone shader, and a
+-- pipeline that renders into its own canvas never runs through it.  For the
+-- same reason the OG-RED bake is returned unconditionally here rather than
+-- only during a redraw pass -- there is no later pass to restore it.
+function SpriteRenderer:resolveImage()
+  if self.def.trueColor then return self.image end
+  if PaletteFX.usesGbcPack() then
+    local colors, group = PaletteFX.spriteObp(self.def, self.seed)
+    if colors then return getObpImage(self.def.image, colors, group) end
+  elseif PaletteFX.usesSpriteObp() then
+    return getObpImage(self.def.image, PaletteFX.GBC_OBJ, "gbcobj")
+  end
+  return self.image
 end
 
 -- facing: down/up/left/right; walkPhase: 0 stand, 1 walk; flip: alternate

@@ -145,6 +145,32 @@ pack_game_love() {
     fail "game.love unexpectedly contains generated ROM data"
   fi
   say "game.love: $(du -h "$LOVE_FILE" | cut -f1) -> $LOVE_FILE"
+
+  # This script packs its own game.love (it does not reuse build.sh's), so it
+  # stamps the release version the same way: patch a copy of Version.lua
+  # (engine set to $VERSION) under a throwaway staging dir and replace the
+  # entry inside the archive in place -- never the source tree. VERSION is
+  # already validated as X.Y.Z above; when it is empty the packaged game keeps
+  # the "0.0.0-dev" default. The stamp is read back out and the build fails if
+  # it did not take.
+  if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    say "stamping engine version $VERSION into game.love"
+    local stamp_dir
+    stamp_dir="$(mktemp -d)"
+    mkdir -p "$stamp_dir/src/core"
+    sed -E "s/(engine[[:space:]]*=[[:space:]]*\")[^\"]*(\")/\1$VERSION\2/" \
+      "$ROOT/src/core/Version.lua" > "$stamp_dir/src/core/Version.lua"
+    (cd "$stamp_dir" && zip -q "$LOVE_FILE" src/core/Version.lua)
+    local version_re
+    version_re="$(printf '%s' "$VERSION" | sed 's/\./\\./g')"
+    unzip -p "$LOVE_FILE" src/core/Version.lua \
+      | grep -Eq "engine[[:space:]]*=[[:space:]]*\"$version_re\"" \
+      || fail "version stamp failed: game.love does not report engine $VERSION"
+    rm -rf "$stamp_dir"
+    say "stamped engine version: $VERSION"
+  else
+    say "no X.Y.Z --version,  shipping default engine (no stamp)"
+  fi
 }
 
 # --------------------------------------------------------------- SDK check

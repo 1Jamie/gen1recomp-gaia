@@ -212,30 +212,31 @@ M.COPYCATS_HOUSE_2F = {
   talk = {
     TEXT_COPYCATSHOUSE2F_COPYCAT = function(game, ow, npc, done)
       local t = text(game)
+      local Bag = require("src.inventory.Bag")
       if game.save.flags.EVENT_GOT_TM31 then
-        push(game, t._CopycatsHouse2FCopycatWhirlingText
-          or "Huh? Huh? Huh?", done)
+        push(game, t._CopycatsHouse2FCopycatTM31Explanation2Text, done)
         return
       end
-      if (game.save.inventory.POKE_DOLL or 0) > 0 then
-        ask(game, t._CopycatsHouse2FCopycatPokeDollText
-          or "Oh wow!\nA POKé DOLL!\fFor me?\nCan I have it?", function(yes)
-          if not yes then done() return end
-          game.save.inventory.POKE_DOLL = game.save.inventory.POKE_DOLL - 1
-          if game.save.inventory.POKE_DOLL == 0 then
-            game.save.inventory.POKE_DOLL = nil
-          end
-          if not require("src.inventory.Bag").add(game.save, "TM_MIMIC", 1) then
-            push(game, "You don't have\nroom for TM31!", done)
+      -- Mimic line first; auto-trade POKE DOLL for TM31 (no YES/NO).
+      push(game, t._CopycatsHouse2FCopycatDoYouLikePokemonText, function()
+        if (game.save.inventory.POKE_DOLL or 0) <= 0 then
+          done()
+          return
+        end
+        push(game, t._CopycatsHouse2FCopycatTM31PreReceiveText, function()
+          if not Bag.add(game.save, "TM_MIMIC", 1) then
+            push(game, t._CopycatsHouse2FCopycatTM31NoRoomText, done)
             return
           end
+          game.stringBuffer = game.data.items.TM_MIMIC.name
+          require("src.core.Sound").play(game.data, "Get_Item1")
+          Bag.remove(game.save, "POKE_DOLL", 1)
           game.save.flags.EVENT_GOT_TM31 = true
-          push(game, ("%s got\nTM31!"):format(game.save.player.name), done)
+          push(game, t._CopycatsHouse2FCopycatReceivedTM31Text, function()
+            push(game, t._CopycatsHouse2FCopycatTM31Explanation1Text, done)
+          end)
         end)
-        return
-      end
-      push(game, t._CopycatsHouse2FCopycatText
-        or "I like to mimic\npeople!", done)
+      end)
     end,
   },
 }

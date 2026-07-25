@@ -15,6 +15,16 @@ if not _G.love then _G.love = require("tests.love_stub") end
 local S = require("tests.harness").suite("parity ss anne guard")
 local check, eq = S.check, S.eq
 
+-- restored at the bottom for the suites run after this file
+local realTextBox = package.loaded["src.render.TextBox"]
+local realMusic = package.loaded["src.core.Music"]
+local realSound = package.loaded["src.core.Sound"]
+-- Commands captures TextBox at module load; drop any already-loaded copy
+-- so the script runner below binds the stub, not the real renderer
+local realCommands = package.loaded["src.script.Commands"]
+local realScriptRunner = package.loaded["src.script.ScriptRunner"]
+package.loaded["src.script.Commands"] = nil
+package.loaded["src.script.ScriptRunner"] = nil
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, done) return { text = text, done = done } end,
 }
@@ -195,5 +205,11 @@ do
   end
   check(found, "captain script plays Music_PkmnHealed after the rub")
 end
+
+package.loaded["src.render.TextBox"] = realTextBox
+package.loaded["src.core.Music"] = realMusic
+package.loaded["src.core.Sound"] = realSound
+package.loaded["src.script.Commands"] = realCommands
+package.loaded["src.script.ScriptRunner"] = realScriptRunner
 
 S.finish()

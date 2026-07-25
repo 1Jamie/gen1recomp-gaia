@@ -15,7 +15,8 @@ local Theme = {
   cols = Renderer.WIDTH / 8,
   rows = Renderer.HEIGHT / 8,
   textBox = { tx = 0, ty = 12, tw = 20, th = 6, maxCols = 18 },
-  choiceBox = { tx = 0, ty = 7, tw = 6, th = 5 },
+  -- InitYesNoTextBoxParameters / AskName: hlcoord 14, 7 (YES_NO_MENU 4x3)
+  choiceBox = { tx = 14, ty = 7, tw = 6, th = 5 },
 }
 
 function Theme.load(data)

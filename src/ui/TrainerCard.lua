@@ -34,7 +34,8 @@ function TrainerCard.new(game)
   local self = setmetatable({ game = game }, TrainerCard)
   local img = tryImage("assets/generated/trainer_card/badges.png")
   if img then
-    -- 8 pairs of [gym leader face, badge]
+    -- badges.2bpp is 8 stacked [face, badge] pairs (DrawBadges FaceBadgeTiles)
+    self.faces = { img = img, quads = quads16(img, 8, 32, 0, 0) }
     self.badges = { img = img, quads = quads16(img, 8, 32, 0, 16) }
   end
   local nums = tryImage("assets/generated/trainer_card/badge_numbers.png")
@@ -124,7 +125,7 @@ function TrainerCard:draw()
     love.graphics.setColor(0, 0, 0, 1)
   end
 
-  -- numbered badge grid (rows 11-17): earned solid, unearned dimmed
+  -- numbered badge grid (rows 11-17): face by default, badge when owned
   self:frameBox(0, 11, 20, 7)
   local badges = Badges.list(self.game.data)
   for i = 1, #badges do
@@ -136,12 +137,11 @@ function TrainerCard:draw()
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.draw(self.nums.img, self.nums.quads[i - 1], tx, ty)
     end
-    if self.badges and self.badges.quads[i - 1]
-        and save.inventory[Badges.itemFor(badges[i])] then
-      -- unearned badge slots stay blank (DrawBadges)
+    if self.faces and self.faces.quads[i - 1] then
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(self.badges.img, self.badges.quads[i - 1],
-                         tx + 4, ty + 6)
+      local owned = save.inventory[Badges.itemFor(badges[i])]
+      local sheet = owned and self.badges or self.faces
+      love.graphics.draw(sheet.img, sheet.quads[i - 1], tx + 4, ty + 6)
     end
   end
   love.graphics.setColor(1, 1, 1, 1)

@@ -29,6 +29,34 @@ function Pokemon.movesAtLevel(speciesDef, level)
   return moves
 end
 
+-- Day Care retrieve (pokered WriteMonMoves + wLearningMovesFromDayCare):
+-- grant learnset moves with startLevel < moveLevel <= newLevel, shifting
+-- the oldest slot out when full. Silent — no LearnMove prompts.
+function Pokemon.learnMovesFromDayCare(data, mon, speciesDef, startLevel, newLevel)
+  if not (speciesDef and speciesDef.learnset and mon) then return end
+  mon.moves = mon.moves or {}
+  for _, entry in ipairs(speciesDef.learnset) do
+    local moveLevel = entry.level
+    if moveLevel > newLevel then break end
+    if moveLevel > startLevel then
+      local known = false
+      for _, mv in ipairs(mon.moves) do
+        if mv.id == entry.move then known = true break end
+      end
+      if not known then
+        local mdef = data.moves[entry.move]
+        local slot = { id = entry.move, pp = mdef and mdef.pp or 0 }
+        if #mon.moves < 4 then
+          mon.moves[#mon.moves + 1] = slot
+        else
+          table.remove(mon.moves, 1)
+          mon.moves[#mon.moves + 1] = slot
+        end
+      end
+    end
+  end
+end
+
 function Pokemon.new(data, species, level, rng)
   local def = data.pokemon[species]
   assert(def, "unknown species " .. tostring(species))

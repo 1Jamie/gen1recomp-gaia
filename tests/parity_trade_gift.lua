@@ -254,11 +254,29 @@ shownIs({}, "old save: silent")
 eq(#Game.save.party, 0, "old save: no Eevee re-gift")
 eq(toggleOf(EEVEE_MAP, EEVEE_BALL), false, "old save: leftover ball hidden")
 
--- === 11) GivePokemon failure (party + every box full): BoxIsFullText,
+-- === 11) GivePokemon party full, box has room: AskName + SentToBoxText
+--         (SendNewMonToBox), then script GotMonText; ball hidden ===
+Game.save = SaveData.newGame()
+for i = 1, 6 do Game.save.party[i] = Pokemon.new(Data, "PIDGEY", 5) end
+check(runScript(EEVEE_MAP, EEVEE_TEXT), "full-party Eevee script completes")
+shownIs({ "_DoYouWantToNicknameText", "_SentToBoxText", "_GotMonText" },
+        "full-party gift: nickname, sent-to-box, then GotMonText")
+eq(#Game.save.party, 6, "full-party gift leaves party size at 6")
+local Boxes = require("src.pokemon.Boxes")
+local boxed = false
+for _, box in ipairs(Boxes.ensure(Game.save)) do
+  for _, m in ipairs(box) do
+    if m.species == "EEVEE" then boxed = true end
+  end
+end
+check(boxed, "full-party Eevee lands in a box")
+check(Flags.get(Game.save, "EVENT_GOT_EEVEE"), "full-party gift still sets flag")
+eq(toggleOf(EEVEE_MAP, EEVEE_BALL), false, "full-party gift hides the ball")
+
+-- === 12) GivePokemon failure (party + every box full): BoxIsFullText,
 --         ball stays, flag unset -- the gift stays claimable ===
 Game.save = SaveData.newGame()
 for i = 1, 6 do Game.save.party[i] = Pokemon.new(Data, "PIDGEY", 5) end
-local Boxes = require("src.pokemon.Boxes")
 Boxes.ensure(Game.save)
 for b = 1, Boxes.COUNT do
   for s = 1, Boxes.CAPACITY do Game.save.boxes[b][s] = { species = "PIDGEY" } end
@@ -268,7 +286,7 @@ shownIs({ "_BoxIsFullText" }, "full party+box shows BoxIsFullText")
 check(not Flags.get(Game.save, "EVENT_GOT_EEVEE"), "full party+box leaves flag unset")
 eq(toggleOf(EEVEE_MAP, EEVEE_BALL), nil, "full party+box leaves the ball visible")
 
--- === 12) SS Anne rival ambush guard (scripts/SSAnne2F.asm: the
+-- === 13) SS Anne rival ambush guard (scripts/SSAnne2F.asm: the
 --         wSSAnne2FCurScript NOOP progression <-> the port's
 --         EVENT_BEAT_SS_ANNE_RIVAL flag) ===
 local ss = require("data.scripts.story5").SS_ANNE_2F

@@ -423,6 +423,38 @@ check(#pm.subItems == 2, "a non-table submenu result keeps the vanilla list")
 hooks:removeOwner("bad")
 pm.submenu = nil
 
+-- ------- battle PKMN: SWITCH / STATS / CANCEL (#180)
+local switched
+local bgame = partyGame()
+local bpm = PartyMenu.new(bgame, {
+  battle = {},
+  onSwitch = function(mon) switched = mon end,
+})
+bpm.game = bgame
+bgame.stack:push(bpm)
+press(bpm, "a")
+check(bpm.submenu and #bpm.subItems == 3
+  and bpm.subItems[1].label == "SWITCH"
+  and bpm.subItems[2].label == "STATS"
+  and bpm.subItems[3].label == "CANCEL",
+  "voluntary battle party opens SWITCH/STATS/CANCEL")
+press(bpm, "a") -- SWITCH
+check(switched == bgame.save.party[1], "battle SWITCH hands the mon to onSwitch")
+check(bgame.stack:top() ~= bpm, "battle SWITCH closes the party menu")
+
+local forced
+local fgame = partyGame()
+local fpm = PartyMenu.new(fgame, {
+  battle = {},
+  forceSwitch = true,
+  onSwitch = function(mon) forced = mon end,
+})
+fpm.game = fgame
+fgame.stack:push(fpm)
+press(fpm, "a")
+check(not fpm.submenu and forced == fgame.save.party[1],
+  "forceSwitch still picks immediately (ChooseNextMon / SHIFT)")
+
 -- ------- mod.ui helpers and theme defaults
 local items = { { label = "A" }, { label = "B" } }
 ModUI.insertAfter(items, "A", { label = "X" })
@@ -440,9 +472,9 @@ check(type(ModUI.push) == "function", "mod.ui.push opens screens")
 
 check(Theme.cursor == 0xED and Theme.cursorHollow == 0xEC
   and Theme.moreArrow == 0xEE, "theme defaults are the old literals")
-check(Theme.choiceBox.tx == 0 and Theme.choiceBox.ty == 7
+check(Theme.choiceBox.tx == 14 and Theme.choiceBox.ty == 7
   and Theme.choiceBox.tw == 6 and Theme.choiceBox.th == 5,
-  "choice box geometry keeps its vanilla tiles")
+  "choice box geometry keeps its vanilla tiles (InitYesNoTextBoxParameters hlcoord 14,7)")
 Theme.load({ field = { theme = { cursor = 0xAA } } })
 check(Theme.cursor == 0xAA, "field.theme restyles the cursor glyph")
 Theme.cursor = 0xED

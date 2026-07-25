@@ -331,6 +331,12 @@ end
 
 local function useItem(game, battle, id, list)
   local def = game.data.items[id]
+  -- ItemUseTMHM checks wIsInBattle before BootedUpTMText
+  if battle and def and def.machine then
+    local _, payload = ItemEffects.use(game.data, game.save, id, nil, battle)
+    showMessages(game, payload)
+    return
+  end
   if ItemEffects.needsTarget(id, def) and not ItemEffects.isBall(id) then
     -- TMs/HMs boot up and announce their move before the target picker
     -- (ItemUseTMHM: BootedUpTMText / BootedUpHMText + TeachMachineMoveText)

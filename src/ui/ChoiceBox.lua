@@ -1,4 +1,4 @@
--- YES/NO choice box (top-left of the text box area, like the original).
+-- YES/NO choice box (InitYesNoTextBoxParameters: above the text box, right).
 
 local Font = require("src.render.Font")
 local Theme = require("src.ui.Theme")
@@ -14,6 +14,11 @@ function ChoiceBox.new(game, onChoose, opts)
   self.index = (opts and opts.defaultNo) and 2 or 1
   -- BIT_NO_MENU_BUTTON_SOUND: PC-session prompts stay silent
   self.noSound = (opts and opts.noSound) or false
+  local box = Theme.choiceBox
+  self.tx = (opts and opts.tx) or box.tx
+  self.ty = (opts and opts.ty) or box.ty
+  self.tw = (opts and opts.tw) or box.tw
+  self.th = (opts and opts.th) or box.th
   return self
 end
 
@@ -38,13 +43,13 @@ function ChoiceBox:update(dt)
 end
 
 function ChoiceBox:draw()
-  local box = Theme.choiceBox
-  Font.drawBox(box.tx, box.ty, box.tw, box.th)
+  local tx, ty, tw, th = self.tx, self.ty, self.tw, self.th
+  Font.drawBox(tx, ty, tw, th)
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw("YES", (box.tx + 2) * 8, (box.ty + 1) * 8)
-  Font.draw("NO", (box.tx + 2) * 8, (box.ty + 3) * 8)
-  Font.drawCode(Theme.cursor, (box.tx + 1) * 8,
-                (box.ty + (self.index == 1 and 1 or 3)) * 8)
+  Font.draw("YES", (tx + 2) * 8, (ty + 1) * 8)
+  Font.draw("NO", (tx + 2) * 8, (ty + 3) * 8)
+  Font.drawCode(Theme.cursor, (tx + 1) * 8,
+                (ty + (self.index == 1 and 1 or 3)) * 8)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

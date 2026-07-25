@@ -28,6 +28,17 @@ end
 
 local files = {} -- in-memory love.filesystem
 
+-- Minimal graphics-state tracking so push("all")/pop actually save and
+-- restore, and getShader/getCanvas/etc can be read back.  The render-pipeline
+-- fold fences each mod callback between push("all")/pop so a callback that
+-- dirties state cannot leak into the engine composite; mod_render_tests
+-- asserts exactly that, which needs the stub to model the save/restore rather
+-- than no-op it.  Plain push()/pop() (the tilt upright pass) ride the same
+-- stack and restore the same fields, which for those call sites is a no-op.
+local gstate = { shader = nil, canvas = nil, blend = "alpha",
+                 color = { 1, 1, 1, 1 } }
+local gstack = {}
+
 stub.graphics = {
   newImage = function(path)
     local w, h = pngSize(path)
@@ -44,13 +55,37 @@ stub.graphics = {
     function batch:setTexture(tex) self.texture = tex end
     return batch
   end,
-  draw = noop, rectangle = noop, setColor = noop, clear = noop,
-  setCanvas = noop, setDefaultFilter = noop, print = noop,
+  draw = noop, rectangle = noop, clear = noop,
+  setDefaultFilter = noop, print = noop,
+  setColor = function(r, g, b, a) gstate.color = { r, g, b, a } end,
+  getColor = function()
+    local c = gstate.color
+    return c[1], c[2], c[3], c[4]
+  end,
+  setCanvas = function(c) gstate.canvas = c or nil end,
+  getCanvas = function() return gstate.canvas end,
+  setShader = function(s) gstate.shader = s or nil end,
+  getShader = function() return gstate.shader end,
+  setBlendMode = function(m) gstate.blend = m or "alpha" end,
+  getBlendMode = function() return gstate.blend end,
   -- coordinate-transform + state stack used by the tilt-mode upright pass
-  -- (billboards); plain no-ops here (tests that need to observe them swap
+  -- (billboards) and the render-pipeline fold; push snapshots the tracked
+  -- state, pop restores it (tests that need to observe the transforms swap
   -- in their own recorders, e.g. tests/parity_tilt.lua)
-  push = noop, pop = noop, translate = noop, scale = noop,
-  rotate = noop, origin = noop, setShader = noop, setScissor = noop,
+  push = function()
+    gstack[#gstack + 1] = { shader = gstate.shader, canvas = gstate.canvas,
+                            blend = gstate.blend, color = gstate.color }
+  end,
+  pop = function()
+    local s = gstack[#gstack]
+    if s then
+      gstack[#gstack] = nil
+      gstate.shader, gstate.canvas = s.shader, s.canvas
+      gstate.blend, gstate.color = s.blend, s.color
+    end
+  end,
+  translate = noop, scale = noop,
+  rotate = noop, origin = noop, setScissor = noop,
   getDimensions = function() return 640, 576 end,
   -- dpi=1 desktop default; issue #87 tests override these for Android density
   getPixelDimensions = function() return 640, 576 end,
@@ -68,6 +103,7 @@ stub.math = {
 stub.filesystem = {
   write = function(name, content) files[name] = content return true end,
   read = function(name) return files[name] end,
+  remove = function(name) files[name] = nil return true end,
   -- directories are implied by key prefixes ("mods/x/manifest.json")
   getInfo = function(name)
     if files[name] then return { type = "file" } end
@@ -83,13 +119,25 @@ stub.filesystem = {
   end,
   getDirectoryItems = function(name)
     local seen, items = {}, {}
-    local prefix = name .. "/"
-    for key in pairs(files) do
-      if key:sub(1, #prefix) == prefix then
-        local child = key:sub(#prefix + 1):match("^[^/]+")
+    name = name or ""
+    -- "" / "/" = save-dir root (RomImporter Android ROM scan)
+    if name == "" or name == "/" then
+      for key in pairs(files) do
+        local child = key:match("^[^/]+")
         if child and not seen[child] then
           seen[child] = true
           items[#items + 1] = child
+        end
+      end
+    else
+      local prefix = name .. "/"
+      for key in pairs(files) do
+        if key:sub(1, #prefix) == prefix then
+          local child = key:sub(#prefix + 1):match("^[^/]+")
+          if child and not seen[child] then
+            seen[child] = true
+            items[#items + 1] = child
+          end
         end
       end
     end

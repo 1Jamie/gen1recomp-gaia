@@ -4,6 +4,7 @@ local Registry = require("src.mods.Registry")
 local Events = require("src.mods.Events")
 local Hooks = require("src.mods.Hooks")
 local Manifest = require("src.mods.Manifest")
+local Semver = require("src.mods.Semver")
 local Logger = require("src.core.Logger")
 local Version = require("src.core.Version")
 local Runtime = require("src.mods.Runtime")
@@ -141,8 +142,8 @@ check(manifest.id == "test_mod" and manifest.path == "mods/test_mod",
   "manifest validation")
 
 check(type(Version.engine) == "string"
-  and Version.engine:match("^%d+%.%d+%.%d+$") ~= nil,
-  "engine version is a semver triple")
+  and Semver.parse(Version.engine) ~= nil,
+  "engine version parses as a semver (triple, optionally with a pre-release)")
 check(Version.modApi == 2, "mod api version is 2")
 check(Version.title("X") == "X v" .. Version.engine,
   "window title carries the engine version")

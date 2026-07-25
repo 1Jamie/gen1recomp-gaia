@@ -113,7 +113,7 @@ def engine_version(repo):
     src = open(os.path.join(repo, "src", "core", "Version.lua"),
                encoding="utf-8").read()
     match = re.search(r'engine\s*=\s*"([^"]+)"', src)
-    return match.group(1) if match else "1.0.0"
+    return match.group(1) if match else "0.0.0-dev"
 
 
 def known_permissions(repo):

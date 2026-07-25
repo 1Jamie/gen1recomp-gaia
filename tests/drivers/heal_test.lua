@@ -1,10 +1,11 @@
--- Driver: Pokémon Center nurse heal,  welcome/choice dialogue, the
--- machine monitor + per-mon balls, the jingle flash, and the farewell.
+-- Driver: Pokémon Center nurse heal + Mom home heal.
+-- Logs frames between healAnim end and the fighting-fit / looking-great text.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
   local Pokemon = require("src.pokemon.Pokemon")
   local ChoiceBox = require("src.ui.ChoiceBox")
+  local TextBox = require("src.render.TextBox")
   local mon = Pokemon.new(game.data, "CHARMANDER", 12)
   mon.hp = 3
   table.insert(game.save.party, mon)
@@ -14,7 +15,6 @@ return function(game)
   U.teleport(game, "VIRIDIAN_POKECENTER", 3, 3, "up")
   local ow = game.overworld
 
-  -- mash A until a condition holds
   local function mashUntil(cond)
     for _ = 1, 400 do
       if cond() then return true end
@@ -24,6 +24,11 @@ return function(game)
     return false
   end
 
+  local function topIsText()
+    return getmetatable(game.stack:top()) == TextBox
+  end
+
+  -- -------- Poké Center --------
   U.tap(game, "a") -- talk to the nurse
   U.wait(30)
   U.shot(game, DIR .. "/heal_00_welcome.png")
@@ -38,7 +43,6 @@ return function(game)
   U.shot(game, DIR .. "/heal_02_ball1.png")
   U.wait(28)
   U.shot(game, DIR .. "/heal_03_ball2.png")
-  -- overlay must stay glued to the machine under survey zoom
   game:zoomStep(-1); game:zoomStep(-1)
   U.wait(3)
   U.shot(game, DIR .. "/heal_03z_zoomed.png")
@@ -51,14 +55,73 @@ return function(game)
   U.shot(game, DIR .. "/heal_05_flash_b.png")
   U.wait(10)
   U.shot(game, DIR .. "/heal_06_flash_c.png")
-  -- wait out the jingle + 32-frame beat
-  for _ = 1, 40 do
-    if not ow.healAnim then break end
-    U.wait(10)
+
+  local animEndFrame, fitFrame
+  for _ = 1, 400 do
+    if ow.healAnim == nil and not animEndFrame then
+      animEndFrame = U.frame()
+      if topIsText() then fitFrame = animEndFrame end
+      U.shot(game, DIR .. "/heal_06b_anim_end.png")
+      if fitFrame then break end
+    end
+    if animEndFrame and topIsText() and not fitFrame then
+      fitFrame = U.frame()
+      break
+    end
+    U.wait(1)
   end
   U.shot(game, DIR .. "/heal_07_fit.png")
+  U.log("pc anim_end_frame:", animEndFrame, "fit_frame:", fitFrame,
+        "gap_anim_to_text:",
+        (fitFrame and animEndFrame) and (fitFrame - animEndFrame) or "n/a")
   U.log("farewell reached:", mashUntil(function()
     return game.stack:top() == ow
   end))
   U.shot(game, DIR .. "/heal_08_end.png")
+
+  -- -------- Mom (Reds House) --------
+  require("src.script.Flags").set(game.save, "EVENT_GOT_STARTER")
+  for _, m in ipairs(game.save.party) do
+    m.hp = 1
+  end
+  -- stand below Mom (5,4) facing up
+  U.teleport(game, "REDS_HOUSE_1F", 5, 5, "up")
+  ow = game.overworld
+  U.tap(game, "a")
+  U.wait(20)
+  U.shot(game, DIR .. "/heal_mom_00_rest.png")
+  U.log("mom fade started:", mashUntil(function()
+    return ow.fadeOverlay ~= nil
+  end))
+  local fadeStart = U.frame()
+  U.shot(game, DIR .. "/heal_mom_01_fade.png")
+  local Music = require("src.core.Music")
+  local sawJingle, jingleDoneFrame, fadeGone, greatFrame = false
+  for _ = 1, 600 do
+    if Music.oneShotPlaying() then sawJingle = true end
+    if sawJingle and not Music.oneShotPlaying() and not jingleDoneFrame then
+      jingleDoneFrame = U.frame()
+    end
+    if ow.fadeOverlay == nil and fadeStart and not fadeGone
+       and U.frame() > fadeStart + 5 then
+      fadeGone = U.frame()
+    end
+    if fadeGone and topIsText() then
+      greatFrame = U.frame()
+      break
+    end
+    U.wait(1)
+  end
+  U.shot(game, DIR .. "/heal_mom_02_great.png")
+  U.log("mom saw_jingle:", sawJingle,
+        "jingle_done_frame:", jingleDoneFrame,
+        "fade_gone_frame:", fadeGone,
+        "great_frame:", greatFrame,
+        "gap_fade_to_text:",
+        (greatFrame and fadeGone) and (greatFrame - fadeGone) or "n/a")
+  mashUntil(function()
+    return game.stack:top() == ow
+  end)
+  U.shot(game, DIR .. "/heal_mom_03_end.png")
 end
+

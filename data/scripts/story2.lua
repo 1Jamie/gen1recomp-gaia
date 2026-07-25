@@ -445,33 +445,67 @@ local function engageSuperNerd(game, ow, onDone)
   ow:engageTrainer(nerd, onDone)
 end
 
-local function mtMoonFossil(itemId, otherName)
+-- MtMoonB2FMoveSuperNerdScript: player-near-dome coords walk RIGHT then
+-- UP (MoveRight falls through into MoveUp); near-helix walks UP only.
+local function mtMoonNerdWalk(px, py, itemId)
+  if (px == 12 and py == 7) or (px == 11 and py == 6) or (px == 12 and py == 5) then
+    return { "right", "up" }
+  end
+  if (px == 13 and py == 7) or (px == 14 and py == 6) or (px == 14 and py == 5) then
+    return { "up" }
+  end
+  return (itemId == "DOME_FOSSIL") and { "right", "up" } or { "up" }
+end
+
+-- scripts/MtMoonB2F.asm Dome/Helix fossil text_asm + MoveSuperNerd +
+-- SuperNerdTakesOtherFossil: pick one, hide it, walk the nerd to the
+-- other, "All right. Then this is mine!", hide the other.
+local function mtMoonFossil(itemId, otherName, gotFlag)
   return function(game, ow, npc, done)
     local TextBox = require("src.render.TextBox")
-    local ChoiceBox = require("src.ui.ChoiceBox")
-    if game.save.flags.EVENT_GOT_A_FOSSIL then
-      game.stack:push(TextBox.new(game, "You already took\na fossil.", done))
+    local t = game.data.text
+    local flags = game.save.flags
+    if flags.EVENT_GOT_DOME_FOSSIL or flags.EVENT_GOT_HELIX_FOSSIL then
+      done()
       return
     end
-    -- can't grab a fossil until the Super Nerd is beaten -- he intercepts
     if not superNerdBeaten(ow) then
       engageSuperNerd(game, ow, done)
       return
     end
-    local name = game.data.items[itemId].name
-    game.stack:push(TextBox.new(game, ("You want the\n%s?"):format(name), function()
-      game.stack:push(ChoiceBox.new(game, function(yes)
-        if not yes then done() return end
-        game.save.inventory[itemId] = 1
-        game.save.flags.EVENT_GOT_A_FOSSIL = true
-        local Commands = require("src.script.Commands")
-        local ctx = { save = game.save, overworld = ow, game = game }
-        Commands.hide_object(ctx, "MT_MOON_B2F", npc.def.name)
-        Commands.hide_object(ctx, "MT_MOON_B2F", otherName)
+    local want = (itemId == "DOME_FOSSIL")
+      and (t._MtMoonB2FDomeFossilYouWantText or "You want the\nDOME FOSSIL?")
+      or (t._MtMoonB2FHelixFossilYouWantText or "You want the\nHELIX FOSSIL?")
+    game.stack:push(TextBox.new(game, want, nil, { choice = function(yes)
+      if not yes then done() return end
+      if not require("src.inventory.Bag").add(game.save, itemId, 1) then
         game.stack:push(TextBox.new(game,
-          ("%s got the\n%s!"):format(game.save.player.name, name), done))
-      end))
-    end))
+          t._MtMoonB2FYouHaveNoRoomText or "Look, you've got\nno room for this.",
+          done))
+        return
+      end
+      local idef = game.data.items[itemId]
+      game.stringBuffer = idef and idef.name or itemId
+      require("src.core.Sound").play(game.data, "Get_Key_Item")
+      local dirs = mtMoonNerdWalk(ow.player.cellX, ow.player.cellY, itemId)
+      game.stack:push(TextBox.new(game,
+        t._MtMoonB2FReceivedFossilText
+          or ("{PLAYER} got the\n" .. game.stringBuffer .. "!"),
+        function()
+          local Commands = require("src.script.Commands")
+          Commands.hide_object(
+            { save = game.save, overworld = ow, game = game },
+            "MT_MOON_B2F", npc.def.name)
+          flags[gotFlag] = true
+          ow.runner:run({
+            { "walk_npc", 1, dirs },
+            { "text_opts", { auto = true } },
+            { "show_text", "_MtMoonB2FSuperNerdThenThisIsMineText" },
+            { "play_sound", "Get_Key_Item" },
+            { "hide_object", "MT_MOON_B2F", otherName },
+          }, { onDone = done })
+        end))
+    end }))
   end
 end
 
@@ -486,8 +520,10 @@ M.MT_MOON_B2F = {
     return false
   end,
   talk = {
-    TEXT_MTMOONB2F_DOME_FOSSIL = mtMoonFossil("DOME_FOSSIL", "MTMOONB2F_HELIX_FOSSIL"),
-    TEXT_MTMOONB2F_HELIX_FOSSIL = mtMoonFossil("HELIX_FOSSIL", "MTMOONB2F_DOME_FOSSIL"),
+    TEXT_MTMOONB2F_DOME_FOSSIL = mtMoonFossil(
+      "DOME_FOSSIL", "MTMOONB2F_HELIX_FOSSIL", "EVENT_GOT_DOME_FOSSIL"),
+    TEXT_MTMOONB2F_HELIX_FOSSIL = mtMoonFossil(
+      "HELIX_FOSSIL", "MTMOONB2F_DOME_FOSSIL", "EVENT_GOT_HELIX_FOSSIL"),
   },
 }
 
@@ -822,6 +858,10 @@ M.DAYCARE = {
               if def then
                 mon.stats = Stats.calc(def, mon.level, mon.dvs, mon.statExp)
                 mon.hp = mon.stats.hp
+                -- Daycare.asm: WriteMonMoves with wLearningMovesFromDayCare
+                local Pokemon = require("src.pokemon.Pokemon")
+                Pokemon.learnMovesFromDayCare(
+                  game.data, mon, def, startLevel, newLevel)
               end
               table.insert(game.save.party, mon)
               game.save.daycare = nil

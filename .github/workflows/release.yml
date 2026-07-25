@@ -214,7 +214,20 @@ jobs:
           apk="$(find dist/android/debug -name '*.apk' | head -1)"
           [ -n "$apk" ] || { echo "::error::no Android APK found under dist/android/debug"; exit 1; }
           cp "$apk" "$outdir/gen1recomp-${v}-android.apk"
+
+          # Platform-independent update payload, built alongside the desktop
+          # apps above (same game.love that gets fused into each of them).
+          love_file=".bazinga/work/game.love"
+          [ -f "$love_file" ] || { echo "::error::$love_file not found (expected from scripts/build.sh)"; exit 1; }
+          cp "$love_file" "$outdir/gen1recomp-${v}.love"
+
           ls -lh "$outdir"
+
+          # Checksums for every staged release asset (sums file itself is
+          # written after this and named outside the gen1recomp-* glob, so it
+          # never lists itself).
+          (cd "$outdir" && shasum -a 256 gen1recomp-* > sha256sums.txt)
+          cat "$outdir/sha256sums.txt"
 
       - name: Publish GitHub Release
         env:
@@ -266,7 +279,9 @@ jobs:
             "dist/release/gen1recomp-${v}-macos.zip" \
             "dist/release/gen1recomp-${v}-windows.zip" \
             "dist/release/gen1recomp-${v}-linux.zip" \
-            "dist/release/gen1recomp-${v}-android.apk"
+            "dist/release/gen1recomp-${v}-android.apk" \
+            "dist/release/gen1recomp-${v}.love" \
+            "dist/release/sha256sums.txt"
 
           echo "Published release $tag"
 

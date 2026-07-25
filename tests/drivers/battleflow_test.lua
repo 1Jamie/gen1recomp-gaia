@@ -1,10 +1,12 @@
--- Driver: the two reworked battle flows.
+-- Driver: reworked battle flows.
 --  A) Old man catch tutorial (DisplayBattleMenu's old-man script):
 --     scripted cursor FIGHT(80f) -> ITEM(50f), forced item menu with
 --     one POKé BALL x50 -- itself scripted (list_menu.asm:65-80):
 --     '▶' hover 80f, auto-A leaves the hollow '▷', always-caught throw.
 --  B) Mimic's MID-move copy menu (MimicEffect): the chooser opens only
 --     after the hit test, at (0,7) like MoveSelectionMenu .mimicmenu.
+--  C) #162 trainer SHIFT offer: after KO'ing the first enemy mon,
+--     "about to use" + "Will … change POKéMON?" with YES/NO.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
@@ -81,6 +83,56 @@ return function(game)
   mashUntil(function() return battle.phase == "moveSelect" end, 40)
   U.wait(2)
   U.shot(game, DIR .. "/mimic_5_moves_after.png")    -- slot now holds the copy
+  while game.stack:top() ~= ow do game.stack:pop() end
+  U.wait(5)
+
+  -- ------------------------------------------------ C) SHIFT about-to-use
+  -- Inject the foe-faint path at the menu so screenshots don't depend on
+  -- accuracy rolls; party has 2 slots so TrainerAboutToUseText fires.
+  local ChoiceBox = require("src.ui.ChoiceBox")
+  local PartyMenu = require("src.ui.PartyMenu")
+  game.save.options = game.save.options or {}
+  game.save.options.battleStyle = "shift"
+  game.save.options.animations = false
+  game.save.party = {
+    Pokemon.new(game.data, "CHARIZARD", 50),
+    Pokemon.new(game.data, "BLASTOISE", 50),
+  }
+  local trainer = BattleState.newTrainer(game, "OPP_YOUNGSTER", 1)
+  trainer.onFinish = function() end
+  ow:pushBattle(trainer)
+  mashUntil(function() return trainer.phase == "menu" end)
+  U.shot(game, DIR .. "/shift_0_menu.png")
+  trainer:markParticipant()
+  trainer.enemy.mon.hp = 0
+  trainer.enemyParty[1].hp = 0
+  trainer.phase = "messages"
+  trainer.afterQueue = "menu"
+  trainer:onFaint(trainer.enemy)
+  local function topIs(cls)
+    return getmetatable(game.stack:top()) == cls
+  end
+  local function textDone(needle)
+    local t = trainer.current and trainer.current.text
+    return t and t:find(needle, 1, true)
+      and (trainer.charIndex or 0) >= (trainer.total or 0)
+  end
+  mashUntil(function() return textDone("about to use") end, 200)
+  U.shot(game, DIR .. "/shift_1_about_to_use.png")
+  mashUntil(function() return textDone("change POKéMON") end, 80)
+  U.wait(20) -- ChoiceBox auto-opens once the page has typed out
+  mashUntil(function() return topIs(ChoiceBox) end, 40)
+  U.shot(game, DIR .. "/shift_2_will_change.png")
+  U.shot(game, DIR .. "/shift_3_yes_no.png")
+  U.tap(game, "a"); U.wait(8)                        -- YES
+  mashUntil(function() return topIs(PartyMenu) end, 40)
+  U.shot(game, DIR .. "/shift_4_party.png")
+  U.tap(game, "down"); U.wait(4)
+  U.tap(game, "a"); U.wait(8)                        -- BLASTOISE
+  mashUntil(function() return textDone("sent") end, 120)
+  U.shot(game, DIR .. "/shift_5_enemy_sent.png")
+  mashUntil(function() return textDone("BLASTOISE") end, 120)
+  U.shot(game, DIR .. "/shift_6_player_sent.png")
   while game.stack:top() ~= ow do game.stack:pop() end
   U.wait(5)
   love.event.quit()

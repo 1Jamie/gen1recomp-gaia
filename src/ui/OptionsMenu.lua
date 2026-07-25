@@ -10,6 +10,7 @@
 -- bottom line like pokered's.
 
 local PaletteFX = require("src.render.PaletteFX")
+local Pipelines = require("src.render.Pipelines")
 local Tilt = require("src.render.Tilt")
 local GBCFX = require("src.render.GBCFX")
 local Zoom = require("src.render.Zoom")
@@ -193,6 +194,15 @@ local function buildRows(game)
         local o = g.save.options
         o.tilt = wrapIndex((o.tilt or 0) + dir, 4)
         Tilt.setLevel(o.tilt)
+        -- tilt and a mod's world pipeline are two answers to the same
+        -- question; turning this on switches that off (Pipelines does the
+        -- same in the other direction)
+        if o.tilt > 0 then
+          for _, entry in ipairs(Pipelines.list()) do
+            if entry.def.drawWorld then Pipelines.setLevel(entry.id, 0) end
+          end
+          Pipelines.syncOptions(o)
+        end
         return true
       end },
     { id = "gbcfx", label = "GBC FX",
@@ -294,6 +304,26 @@ local function buildRows(game)
       if row.id ~= "gbcfx" then filtered[#filtered + 1] = row end
     end
     rows = filtered
+  end
+  -- A mod's render pipelines are display modes like TILT, so their rows sit
+  -- with it rather than at the end of the list where a mod's own
+  -- ui.options.rows additions land.  Nothing registered means nothing
+  -- spliced, so a vanilla install sees the list it always had.
+  local pipelineRows = Pipelines.rows(game)
+  if pipelineRows[1] then
+    local merged = {}
+    for _, row in ipairs(rows) do
+      merged[#merged + 1] = row
+      if row.id == "tilt" then
+        for _, extra in ipairs(pipelineRows) do merged[#merged + 1] = extra end
+      end
+    end
+    -- no TILT row to anchor to (a future build could drop it): append
+    -- rather than silently lose the modes
+    if #merged == #rows then
+      for _, extra in ipairs(pipelineRows) do merged[#merged + 1] = extra end
+    end
+    rows = merged
   end
   return rows
 end

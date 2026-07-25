@@ -37,6 +37,9 @@ function Game:load()
   self.mods = ModLoader.new()
   self.mods:load(Data)
   self.modStatus = self.mods:status()
+  -- render pipelines dispatch off the merged dataset; point them at the
+  -- one the mods just merged into before anything can draw a frame
+  require("src.render.Pipelines").install(Data)
 
   self.input = Input
   Input:init()
@@ -198,6 +201,9 @@ function Game:update(dt)
   -- Overworld tilt toggle tween: presentational, so it runs on the real
   -- frame dt (not the fixed logic step) for a smooth ~0.25s glide.
   require("src.render.Tilt").update(dt)
+  -- mod render pipelines tween on the same real-frame clock, for the same
+  -- reason: they are presentational, so fast-forward must not speed them up
+  require("src.render.Pipelines").update(dt)
   pcall(function() require("src.core.DiscordPresence").update(dt) end)
   -- Steady-state memory backstop: advance the incremental collector one
   -- small step every rendered frame.  The heavy GPU objects are now freed
@@ -341,6 +347,17 @@ function Game:keypressed(key)
     self:writeOptions()
     return
   end
+  -- Mod render pipelines claim their hotkeys last, so one can never shadow
+  -- an engine display key however a mod declares it (12 §rendering
+  -- pipelines).  syncOptions writes the whole ladder back, including the
+  -- tilt exclusion a world pipeline forces.
+  local Pipelines = require("src.render.Pipelines")
+  if Pipelines.hotkey(key, self.stack:top(), self.overworld) then
+    Pipelines.syncOptions(self.save.options)
+    require("src.render.Tilt").setLevel(self.save.options.tilt or 0)
+    self:writeOptions()
+    return
+  end
   Input:keypressed(key)
 end
 
@@ -457,6 +474,9 @@ function Game:applyOptions(opts)
   if Sound.applyOptions then Sound.applyOptions(opts) end
   require("src.render.PaletteFX").applyOptions(opts)
   require("src.render.Tilt").applyOptions(opts)
+  -- after Tilt, so a persisted world pipeline can switch the tilt level it
+  -- just restored back off (the two are mutually exclusive)
+  require("src.render.Pipelines").applyOptions(opts)
   require("src.render.Zoom").applyOptions(opts)
   require("src.render.TileRenderer").applyOptions(opts)
   -- returns true when a persisted GBC FX level was cleared on mobile

@@ -33,7 +33,15 @@ end
 
 function U.shot(game, path)
   game.capturePath = path
-  U.wait(2) -- let the capture flush
+  -- love.draw consumes capturePath once per rendered frame, but fast runs
+  -- (POKEPORT_SPEED) step the driver many times per render; spin until the
+  -- capture lands so later actions can't outrun it
+  for _ = 1, 120 do
+    if not game.capturePath then break end
+    frame = frame + 1
+    coroutine.yield()
+  end
+  U.wait(1)
 end
 
 -- skip the intro movie + title into a fresh overworld game

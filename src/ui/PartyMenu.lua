@@ -1,8 +1,11 @@
 -- Party menu: list the party, choose a member.
 -- Modes:
---   default: A -> submenu (STATS / SWITCH order / CANCEL)
---   opts.onSwitch: A -> hand the chosen mon to the callback (battle
---                  switch, item targeting via opts.pickOnly)
+--   default: A -> submenu (STATS / SWITCH / field moves)
+--   opts.onSwitch + opts.battle (voluntary PKMN): A -> SWITCH / STATS /
+--     CANCEL (core.asm PartyMenuOrRockOrRun), then onSwitch on SWITCH
+--   opts.onSwitch + opts.forceSwitch: A -> onSwitch immediately
+--     (ChooseNextMon / SHIFT free-switch)
+--   opts.pickOnly + opts.onSwitch: A -> onSwitch (item / script target)
 --   opts.onCancel: fired when the menu closes without a pick (B)
 -- Pops itself on B.
 
@@ -125,6 +128,7 @@ function PartyMenu.new(game, opts)
   self.onSwitch = opts.onSwitch
   self.onCancel = opts.onCancel
   self.pickOnly = opts.pickOnly
+  self.forceSwitch = opts.forceSwitch
   self.battle = opts.battle
   self.party = opts.party -- link battles pass their clamped copies
   self.swapFrom = nil
@@ -156,7 +160,17 @@ function PartyMenu:update(dt)
         -- hook-injected entries carry a callback instead of an action id
         entry.onSelect(mon, self.game)
       elseif action == "stats" then
+        -- battle and field alike return to the party list afterwards
+        -- (core.asm .partyMenuWasSelected)
         Screens.push(self.game, "SummaryMenu", mon)
+      elseif action == "battle_switch" then
+        self.game.stack:pop()
+        self.onSwitch(mon)
+        return
+      elseif action == "cancel" then
+        self.game.stack:pop()
+        if self.onCancel then self.onCancel() end
+        return
       elseif action == "switch" then
         self.swapFrom = self.index
       elseif action == "fly" then
@@ -341,58 +355,66 @@ function PartyMenu:update(dt)
         require("src.core.Sound").play(self.game.data, "Swap")
       end
       self.swapFrom = nil
-    elseif self.onSwitch then
+    elseif self.onSwitch and (self.forceSwitch or self.pickOnly or not self.battle) then
       self.game.stack:pop()
       self.onSwitch(mon)
     else
       self.submenu = true
       self.subIndex = 1
-      -- STATS/SWITCH plus this mon's field moves (start_sub_menus.asm
-      -- builds the same dynamic list)
-      local items = { { label = "STATS", action = "stats" },
-                      { label = "SWITCH", action = "switch" } }
+      local items
       local ow = self.game.overworld
-      -- Field moves (HMs/TMs) are usable out of battle even when the mon
-      -- is fainted -- Gen 1 does not require HP for Cut/Fly/Surf/etc.
-      -- Battle still excludes this list via `not self.battle`. Softboiled
-      -- can appear for a fainted user; its heal transfer then no-ops.
-      if not self.battle and ow then
-        -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU —
-        -- Route 23 / Indigo Plateau outdoor), not OVERWORLD alone (#83)
-        local outside = Map.isOutside(ow.map.def,
-          FieldDefaults.field(self.game.data, "outsideTilesets"))
-        for _, mv in ipairs(mon.moves) do
-          if mv.id == "FLY" and outside
-             and self.game.save.inventory.THUNDERBADGE then
-            table.insert(items, { label = "FLY", action = "fly" })
-          elseif mv.id == "FLASH" and ow.dark
-             and self.game.save.inventory.BOULDERBADGE then
-            table.insert(items, { label = "FLASH", action = "flash" })
-          elseif mv.id == "CUT" and self.game.save.inventory.CASCADEBADGE then
-            -- CUT/SURF/STRENGTH are party-menu field moves too
-            -- (start_sub_menus.asm .outOfBattleMovePointers); listed here
-            -- with the same list-time badge filter this file already uses
-            -- for FLY/FLASH.  The facing-tile/activation check happens on
-            -- selection (useCutFieldMove/useSurfFieldMove).
-            table.insert(items, { label = "CUT", action = "cut" })
-          elseif mv.id == "SURF" and self.game.save.inventory.SOULBADGE then
-            table.insert(items, { label = "SURF", action = "surf" })
-          elseif mv.id == "STRENGTH" and self.game.save.inventory.RAINBOWBADGE then
-            table.insert(items, { label = "STRENGTH", action = "strength" })
-          elseif mv.id == "SOFTBOILED" then
-            table.insert(items, { label = "SOFTBOILED", action = "softboiled" })
-          elseif mv.id == "TELEPORT" and outside then
-            -- TELEPORT works only OUTDOORS (start_sub_menus.asm
-            -- .teleport -> CheckIfInOutsideMap); dark maps don't
-            -- block it
-            table.insert(items, { label = "TELEPORT", action = "escape" })
-          elseif mv.id == "DIG" and DIG_TILESETS[ow.map.def.tileset]
-             and ow.map.id ~= "AGATHAS_ROOM" then
-            -- DIG runs ItemUseEscapeRope (.dig sets wCurItem =
-            -- ESCAPE_ROPE): usable in the dungeon tilesets of
-            -- escape_rope_tilesets.asm minus Agatha's room, even in
-            -- the dark (Rock Tunnel)
-            table.insert(items, { label = "DIG", action = "escape" })
+      if self.battle and self.onSwitch then
+        -- SwitchStatsCancelText (core.asm PartyMenuOrRockOrRun)
+        items = { { label = "SWITCH", action = "battle_switch" },
+                  { label = "STATS", action = "stats" },
+                  { label = "CANCEL", action = "cancel" } }
+      else
+        -- STATS/SWITCH plus this mon's field moves (start_sub_menus.asm
+        -- builds the same dynamic list)
+        items = { { label = "STATS", action = "stats" },
+                  { label = "SWITCH", action = "switch" } }
+        -- Field moves (HMs/TMs) are usable out of battle even when the mon
+        -- is fainted -- Gen 1 does not require HP for Cut/Fly/Surf/etc.
+        -- Battle still excludes this list via `not self.battle`. Softboiled
+        -- can appear for a fainted user; its heal transfer then no-ops.
+        if not self.battle and ow then
+          -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU —
+          -- Route 23 / Indigo Plateau outdoor), not OVERWORLD alone (#83)
+          local outside = Map.isOutside(ow.map.def,
+            FieldDefaults.field(self.game.data, "outsideTilesets"))
+          for _, mv in ipairs(mon.moves) do
+            if mv.id == "FLY" and outside
+               and self.game.save.inventory.THUNDERBADGE then
+              table.insert(items, { label = "FLY", action = "fly" })
+            elseif mv.id == "FLASH" and ow.dark
+               and self.game.save.inventory.BOULDERBADGE then
+              table.insert(items, { label = "FLASH", action = "flash" })
+            elseif mv.id == "CUT" and self.game.save.inventory.CASCADEBADGE then
+              -- CUT/SURF/STRENGTH are party-menu field moves too
+              -- (start_sub_menus.asm .outOfBattleMovePointers); listed here
+              -- with the same list-time badge filter this file already uses
+              -- for FLY/FLASH.  The facing-tile/activation check happens on
+              -- selection (useCutFieldMove/useSurfFieldMove).
+              table.insert(items, { label = "CUT", action = "cut" })
+            elseif mv.id == "SURF" and self.game.save.inventory.SOULBADGE then
+              table.insert(items, { label = "SURF", action = "surf" })
+            elseif mv.id == "STRENGTH" and self.game.save.inventory.RAINBOWBADGE then
+              table.insert(items, { label = "STRENGTH", action = "strength" })
+            elseif mv.id == "SOFTBOILED" then
+              table.insert(items, { label = "SOFTBOILED", action = "softboiled" })
+            elseif mv.id == "TELEPORT" and outside then
+              -- TELEPORT works only OUTDOORS (start_sub_menus.asm
+              -- .teleport -> CheckIfInOutsideMap); dark maps don't
+              -- block it
+              table.insert(items, { label = "TELEPORT", action = "escape" })
+            elseif mv.id == "DIG" and DIG_TILESETS[ow.map.def.tileset]
+               and ow.map.id ~= "AGATHAS_ROOM" then
+              -- DIG runs ItemUseEscapeRope (.dig sets wCurItem =
+              -- ESCAPE_ROPE): usable in the dungeon tilesets of
+              -- escape_rope_tilesets.asm minus Agatha's room, even in
+              -- the dark (Rock Tunnel)
+              table.insert(items, { label = "DIG", action = "escape" })
+            end
           end
         end
       end

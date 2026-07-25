@@ -43,9 +43,12 @@ The embedded `game.love` deliberately excludes `data/generated/`,
 `assets/generated/`, and any ROM. It contains the first-boot Lua importer and
 `tools/rom_manifest.json`.
 
-The current importer has desktop file pickers only. A production Android
-release still needs a Storage Access Framework handoff that passes the chosen
-ROM to LÖVE; the APK packaging itself is data-free.
+ROM import on Android uses `love.system.pickFile()` →
+`GameActivity.showRomFilePicker` (Storage Access Framework), which copies the
+chosen file to `picked_rom.gb` under the app save directory. `RomImporter`
+imports pending (not-yet-ready) `.gb` files from that folder on Choose /
+refocus; see `docs/launcher.md` (Android multi-ROM import). The APK payload
+itself remains data-free (no embedded ROM or generated cache).
 
 ### SDK / NDK
 

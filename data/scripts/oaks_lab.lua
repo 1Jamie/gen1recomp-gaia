@@ -59,52 +59,97 @@ end
 
 return {
   talk = {
-    -- Oak: accepts the parcel and hands over the Pokédex, then (once the
-    -- player has beaten the Route 22 rival) hands over the real POKé
-    -- BALLs (scripts/OaksLab.asm OaksLabOak1Text, simplified: no rival
-    -- recall / dex-rating / "pokemon can fight" / "around the world"
-    -- branches -- see docs/known-differences.md)
+    -- Oak: OaksLabOak1Text.  Parcel delivery kicks SCRIPT_OAKSLAB_RIVAL_
+    -- ARRIVES_AT_OAKS_REQUEST + OaksLabOakGivesPokedexScript (rival walk-
+    -- in, full Pokédex speech, rival exit, Route 22 arm).  Dex-rating
+    -- (DisplayDexRating) is still skipped.
     TEXT_OAKSLAB_OAK1 = {
-      { "face_player" },                                          -- 1
-      { "check_flag", "EVENT_GOT_OAKS_PARCEL" },                  -- 2
-      { "jump_if_false", 16 },                                    -- 3
-      { "check_flag", "EVENT_OAK_GOT_PARCEL" },                   -- 4
-      { "jump_if_true", 16 },                                     -- 5
-      { "show_text", "_OaksLabOak1DeliverParcelText" },           -- 6
-      { "take_item", "OAKS_PARCEL", 1 },                          -- 7
-      { "set_flag", "EVENT_OAK_GOT_PARCEL" },                     -- 8
-      { "show_text", "_OaksLabOak1PokemonAroundTheWorldText" },   -- 9
-      { "set_flag", "EVENT_GOT_POKEDEX" },                        -- 10
-      -- OaksLab.asm OakGivesPokedex: HideObject TOGGLE_POKEDEX_1/2
-      -- so the table sprites leave with the gift (#106).
-      { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX1" },          -- 11
-      { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX2" },          -- 12
-      -- the Pokédex swaps Viridian's two old men (OaksLab.asm:602-606:
-      -- HideObject TOGGLE_LYING_OLD_MAN / ShowObject TOGGLE_OLD_MAN).
-      -- Until this ran, the walking man at (17,5) -- who owns the coffee
-      -- ask and the catch tutorial -- stayed OFF for the whole game
-      -- (toggleable_objects.asm seeds him OFF, the sleeper ON).
-      { "hide_object", "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN_SLEEPY" }, -- 13
-      { "show_object", "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN" },  -- 14
-      { "jump", "end" },                                          -- 15
-      { "check_flag", "EVENT_GOT_STARTER" },                      -- 16
-      { "jump_if_false", 31 },                                    -- 17
-      { "check_item", "POKE_BALL" },                              -- 18
-      { "jump_if_true", 29 },                                     -- 19
-      { "check_flag", "EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE" },    -- 20
-      { "jump_if_false", 33 },                                    -- 21
-      { "check_flag", "EVENT_GOT_POKEBALLS_FROM_OAK" },           -- 22
-      { "jump_if_true", 29 },                                     -- 23
-      { "set_flag", "EVENT_GOT_POKEBALLS_FROM_OAK" },             -- 24
-      { "give_item", "POKE_BALL", 5, false },                     -- 25
-      { "show_text", "_OaksLabOak1ReceivedPokeballsText" },       -- 26
-      { "show_text", "_OaksLabGivePokeballsExplanationText" },    -- 27
-      { "jump", "end" },                                          -- 28
-      { "show_text", "_OaksLabOak1ComeSeeMeSometimesText" },      -- 29
-      { "jump", "end" },                                          -- 30
-      { "show_text", "_OaksLabOak1WhichPokemonDoYouWantText" },   -- 31
-      { "jump", "end" },                                          -- 32
-      { "show_text", "_OaksLabOak1RaiseYourYoungPokemonText" },   -- 33
+      { "face_player" },
+      { "check_item", "POKE_BALL" },
+      { "jump_if_true", "come_see" },
+      { "check_flag", "EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE" },
+      { "jump_if_true", "give_balls" },
+      { "check_flag", "EVENT_GOT_POKEDEX" },
+      { "jump_if_true", "around_world" },
+      { "check_flag", "EVENT_BATTLED_RIVAL_IN_OAKS_LAB" },
+      { "jump_if_false", "pre_lab_battle" },
+      { "check_item", "OAKS_PARCEL" },
+      { "jump_if_false", "raise_young" },
+      -- OaksLabOak1Text.got_parcel → RivalArrives + OakGivesPokedex
+      { "show_text", "_OaksLabOak1DeliverParcelText" },
+      { "play_sound", "Get_Key_Item" },
+      { "show_text", "_OaksLabOak1ParcelThanksText" },
+      { "take_item", "OAKS_PARCEL", 1 },
+      { "stop_music" },
+      { "play_music", "Music_MeetRival" },
+      { "show_text", "_OaksLabRivalGrampsText" },
+      { "show_object", "OAKS_LAB", "OAKSLAB_RIVAL" },
+      -- OaksLabCalcRivalMovementScript: sprite map (8,11) → cell (4,7)
+      -- when the player stands below Oak (the usual desk talk).
+      { "place_npc", 1, 4, 7, "up" },
+      { "move_npc_to", 1, 4, 3 },
+      { "play_music", "Music_OaksLab" },
+      { "face_object", 1, "up" },
+      { "face_object", 5, "down" },
+      { "show_text", "_OaksLabRivalWhatDidYouCallMeForText" },
+      { "face_object", 1, "up" },
+      { "face_object", 5, "down" },
+      { "show_text", "_OaksLabOakIHaveARequestText" },
+      { "face_object", 1, "up" },
+      { "face_object", 5, "down" },
+      { "show_text", "_OaksLabOakMyInventionPokedexText" },
+      { "show_text", "_OaksLabOakGotPokedexText" },
+      { "play_sound", "Get_Key_Item" },
+      { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX1" },
+      { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX2" },
+      { "face_object", 1, "up" },
+      { "face_object", 5, "down" },
+      { "show_text", "_OaksLabOakThatWasMyDreamText" },
+      { "face_object", 1, "right" },
+      { "show_text", "_OaksLabRivalLeaveItAllToMeText" },
+      { "set_flag", "EVENT_GOT_POKEDEX" },
+      { "set_flag", "EVENT_OAK_GOT_PARCEL" },
+      { "hide_object", "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN_SLEEPY" },
+      { "show_object", "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN" },
+      { "stop_music" },
+      { "play_music", "Music_MeetRival" },
+      { "move_npc_to", 1, 4, 7 },
+      { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" },
+      { "play_music", "Music_OaksLab" },
+      { "set_flag", "EVENT_1ST_ROUTE22_RIVAL_BATTLE" },
+      { "clear_flag", "EVENT_2ND_ROUTE22_RIVAL_BATTLE" },
+      { "set_flag", "EVENT_ROUTE22_RIVAL_WANTS_BATTLE" },
+      { "show_object", "ROUTE_22", "ROUTE22_RIVAL1" },
+      { "jump", "end" },
+
+      { "label", "raise_young" },
+      { "show_text", "_OaksLabOak1RaiseYourYoungPokemonText" },
+      { "jump", "end" },
+
+      { "label", "pre_lab_battle" },
+      { "check_flag", "EVENT_GOT_STARTER" },
+      { "jump_if_true", "can_fight" },
+      { "show_text", "_OaksLabOak1WhichPokemonDoYouWantText" },
+      { "jump", "end" },
+      { "label", "can_fight" },
+      { "show_text", "_OaksLabOak1YourPokemonCanFightText" },
+      { "jump", "end" },
+
+      { "label", "around_world" },
+      { "show_text", "_OaksLabOak1PokemonAroundTheWorldText" },
+      { "jump", "end" },
+
+      { "label", "give_balls" },
+      { "check_flag", "EVENT_GOT_POKEBALLS_FROM_OAK" },
+      { "jump_if_true", "come_see" },
+      { "set_flag", "EVENT_GOT_POKEBALLS_FROM_OAK" },
+      { "give_item", "POKE_BALL", 5, false },
+      { "show_text", "_OaksLabOak1ReceivedPokeballsText" },
+      { "show_text", "_OaksLabGivePokeballsExplanationText" },
+      { "jump", "end" },
+
+      { "label", "come_see" },
+      { "show_text", "_OaksLabOak1ComeSeeMeSometimesText" },
     },
 
     TEXT_OAKSLAB_CHARMANDER_POKE_BALL =

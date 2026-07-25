@@ -22,6 +22,8 @@ function MoveLearnMenu.new(game, mon, newMoveId, onDone)
   self.newMoveId = newMoveId
   self.onDone = onDone
   self.index = 1
+  -- forget-list UI only after TryingToLearn YES (learn_move.asm .loop)
+  self.selecting = false
   return self
 end
 
@@ -31,24 +33,32 @@ end
 
 -- TryingToLearnText + yes/no (learn_move.asm TryingToLearn): NO offers
 -- AbandonLearning, whose own NO loops back here (DontAbandonLearning).
+-- Use TextBox opts.choice so YES/NO overlays the still-visible prompt;
+-- pushing ChoiceBox from onDone pops the text first and leaves YES/NO
+-- on "Which move should be forgotten?" (#173).
 function MoveLearnMenu:enter()
   local TextBox = require("src.render.TextBox")
-  local ChoiceBox = require("src.ui.ChoiceBox")
   local game = self.game
   local mdef = game.data.moves[self.newMoveId]
   local name = self:monName()
+  self.selecting = false
   game.stack:push(TextBox.new(game,
     ("%s is\ntrying to learn\v%s!\fBut, %s\ncan't learn more\vthan 4 moves!\f")
       :format(name, mdef.name, name) ..
     ("Delete an older\nmove to make room\vfor %s?"):format(mdef.name),
-    function()
-      game.stack:push(ChoiceBox.new(game, function(yes)
-        if not yes then self:confirmAbandon() end
-      end))
-    end))
+    nil, {
+      choice = function(yes)
+        if yes then
+          self.selecting = true
+        else
+          self:confirmAbandon()
+        end
+      end,
+    }))
 end
 
 function MoveLearnMenu:update(dt)
+  if not self.selecting then return end
   local input = self.game.input
   local n = #self.mon.moves + 1 -- moves + CANCEL
   if input:wasPressed("up") then
@@ -82,15 +92,15 @@ end
 -- (DontAbandonLearning)
 function MoveLearnMenu:confirmAbandon()
   local TextBox = require("src.render.TextBox")
-  local ChoiceBox = require("src.ui.ChoiceBox")
   local game = self.game
   local mdef = game.data.moves[self.newMoveId]
+  self.selecting = false
   game.stack:push(TextBox.new(game,
-    ("Abandon learning\n%s?"):format(mdef.name), function()
-    game.stack:push(ChoiceBox.new(game, function(yes)
-      if yes then self:finish(false) else self:enter() end
-    end))
-  end))
+    ("Abandon learning\n%s?"):format(mdef.name), nil, {
+      choice = function(yes)
+        if yes then self:finish(false) else self:enter() end
+      end,
+    }))
 end
 
 function MoveLearnMenu:finish(learned)
@@ -98,6 +108,7 @@ function MoveLearnMenu:finish(learned)
   local game = self.game
   local name = self:monName()
   local mdef = game.data.moves[self.newMoveId]
+  self.selecting = false
   game.stack:pop()
   local msg
   if learned then
@@ -114,6 +125,7 @@ function MoveLearnMenu:finish(learned)
 end
 
 function MoveLearnMenu:draw()
+  if not self.selecting then return end
   -- single-spaced move list box (TryingToLearn: TextBoxBorder at 4,7)
   -- plus the port's extra CANCEL row
   Font.drawBox(4, 5, 16, 7)

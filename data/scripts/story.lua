@@ -878,16 +878,23 @@ M.HALL_OF_FAME = {
 
 M.CERULEAN_CITY = {
   talk = {
+    -- CeruleanCityRivalText: Bill line once beaten; pre-battle otherwise.
+    -- Post-fight walk matches CeruleanCityMovement4 (right then into town).
     TEXT_CERULEANCITY_RIVAL = {
-      { "face_player" },                                    -- 1
-      { "check_flag", "EVENT_BEAT_CERULEAN_RIVAL" },        -- 2
-      { "jump_if_true", 9 },                                -- 3
-      { "show_text", "_CeruleanCityRivalPreBattleText" },   -- 4
-      { "rival_battle", "OPP_RIVAL1", 7 },                  -- 5
-      { "jump_if_false", 10 },                              -- 6
-      { "set_flag", "EVENT_BEAT_CERULEAN_RIVAL" },          -- 7
-      { "show_text", "_CeruleanCityRivalDefeatedText" },    -- 8
-      { "jump", 10 },                                       -- 9
+      { "face_player" },                                         -- 1
+      { "check_flag", "EVENT_BEAT_CERULEAN_RIVAL" },             -- 2
+      { "jump_if_true", 13 },                                    -- 3
+      { "show_text", "_CeruleanCityRivalPreBattleText" },        -- 4
+      { "rival_battle", "OPP_RIVAL1", 7 },                       -- 5
+      { "jump_if_false", "end" },                                -- 6
+      { "set_flag", "EVENT_BEAT_CERULEAN_RIVAL" },               -- 7
+      { "show_text", "_CeruleanCityRivalDefeatedText" },         -- 8
+      { "show_text", "_CeruleanCityRivalIWentToBillsText" },     -- 9
+      { "walk_npc", 1, { "right", "down", "down", "down",
+                         "down", "down", "down" } },             -- 10
+      { "hide_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 11
+      { "jump", "end" },                                         -- 12
+      { "show_text", "_CeruleanCityRivalIWentToBillsText" },     -- 13
     },
   },
 }

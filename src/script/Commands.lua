@@ -261,7 +261,9 @@ function Commands.move_player(ctx, dir, tiles)
 end
 
 function Commands.move_npc(ctx, objIndex, dir, tiles)
-  local npc = ctx.overworld:npcByIndex(objIndex)
+  local ow = ctx.overworld
+  if not ow then return end
+  local npc = ow:npcByIndex(objIndex)
   if npc then walkEntity(ctx, npc, dir, tiles) end
 end
 
@@ -308,6 +310,7 @@ end
 
 function Commands.move_npc_to(ctx, objIndex, tx, ty)
   local ow = ctx.overworld
+  if not ow then return end
   local npc = ow:npcByIndex(objIndex)
   if not npc then return end
   local path = bfsPath(ow.map, npc.cellX, npc.cellY, tx, ty, ow.entities, npc)
@@ -337,6 +340,20 @@ end
 function Commands.face_object(ctx, objIndex, dir)
   local npc = ctx.overworld and ctx.overworld:npcByIndex(objIndex)
   if npc then npc.facing = dir end
+end
+
+-- Instantly relocate an NPC (OaksLabCalcRivalMovementScript / SetSpritePosition1).
+-- facing is optional.  Headless-safe no-op without an overworld.
+function Commands.place_npc(ctx, objIndex, x, y, facing)
+  local ow = ctx.overworld
+  if not ow then return end
+  local npc = ow:npcByIndex(objIndex)
+  if not npc then return end
+  npc.cellX, npc.cellY = x, y
+  npc.px, npc.py = x * 16, y * 16
+  npc.moving = false
+  npc.targetX, npc.targetY = nil, nil
+  if facing then npc.facing = facing end
 end
 
 function Commands.face_npc(ctx)
@@ -485,7 +502,7 @@ function Commands.heal_party(ctx)
 end
 
 -- AskName (engine/menus/naming_screen.asm): yes/no then NamingScreen.
--- AddPartyMon only offers this for party mons (box deposits skip it).
+-- AddPartyMon and SendNewMonToBox both offer this.
 -- Preserves ctx.lastCheck so GivePokemon's carry is not clobbered by the
 -- yes/no result (scripts jump_if_false on give failure afterwards).
 local function askNickname(ctx, mon)
@@ -527,8 +544,9 @@ end
 -- the asm's carry: true when the mon was given, false when both the
 -- party and every box are full (that .boxFull path leaves the giver's
 -- script able to offer again later, e.g. the Celadon Eevee ball).
--- Party adds run AskName (AddPartyMon) when a script runner is present;
--- mods that pre-set gift.nickname skip the prompt.
+-- AskName runs for party (AddPartyMon) and box (SendNewMonToBox) when a
+-- script runner is present; mods that pre-set gift.nickname skip it.
+-- Box deposits also print SentToBoxText (give_pokemon.asm:36-37).
 function Commands.give_pokemon(ctx, species, level)
   -- Native mods can transform a gift before the Pokémon object is created.
   -- This is intentionally an event rather than a special-case starter hook:
@@ -540,14 +558,17 @@ function Commands.give_pokemon(ctx, species, level)
   end
   local Pokemon = require("src.pokemon.Pokemon")
   local Party = require("src.pokemon.Party")
+  local Boxes = require("src.pokemon.Boxes")
   local mon = Pokemon.new(ctx.game.data, species, level)
   if gift.nickname then mon.nickname = gift.nickname end
   ctx.game.stringBuffer = ctx.game.data.pokemon[species].name or species
   ctx.pendingPokemonName = species
   require("src.battle.BattleState").stampOT(ctx.save, mon)
   local addedToParty = Party.add(ctx.save.party, mon)
+  local boxNum = nil
   if not addedToParty then
-    if not require("src.pokemon.Boxes").deposit(ctx.save, mon) then
+    boxNum = Boxes.deposit(ctx.save, mon)
+    if not boxNum then
       ctx.lastCheck = false
       return
     end
@@ -558,10 +579,29 @@ function Commands.give_pokemon(ctx, species, level)
     dex.owned[species] = true
   end
   ctx.lastCheck = true
-  -- AddPartyMon AskName: party only; skip box deposits, mod-set nicknames,
-  -- and callback-style callers that have no script runner to yield on.
-  if addedToParty and not gift.nickname and ctx.runner then
+  ctx.addedToParty = addedToParty
+  ctx.boxNum = boxNum
+  -- AskName: both AddPartyMon and SendNewMonToBox; skip mod-set nicks
+  -- and callback-style callers with no script runner to yield on.
+  if not gift.nickname and ctx.runner then
     askNickname(ctx, mon)
+  end
+  if boxNum then
+    local name = mon.nickname
+      or (ctx.game.data.pokemon[species] and ctx.game.data.pokemon[species].name)
+      or species
+    ctx.game.boxMonNicks = name
+    ctx.game.stringBuffer = tostring(boxNum)
+    if ctx.runner then
+      Commands.show_text(ctx, "_SentToBoxText")
+    else
+      local TextBox = require("src.render.TextBox")
+      local raw = ctx.game.data.text and ctx.game.data.text._SentToBoxText
+      ctx.game.stack:push(TextBox.new(ctx.game, raw or (
+        "There's no more\nroom for POKéMON!\v" .. name
+        .. " was\vsent to POKéMON\vBOX " .. boxNum .. " on PC!"),
+        function() end))
+    end
   end
 end
 
@@ -783,6 +823,8 @@ function Commands.trade(ctx, tradeIndex, doneFlag)
   local newMon = Pokemon.new(data, trade.get, sent.level)
   newMon.nickname = trade.nickname
   newMon.traded = true -- boosted exp + Name Rater refusal (different OT)
+  newMon.ot = "TRAINER" -- InGameTrade_TrainerString
+  newMon.otId = (love.math and love.math.random or math.random)(0, 65535)
   table.remove(party, slot)
   table.insert(party, newMon)
   local dex = ctx.save.pokedex
@@ -790,9 +832,13 @@ function Commands.trade(ctx, tradeIndex, doneFlag)
     dex.seen[trade.get] = true
     dex.owned[trade.get] = true
   end
-  -- the trade machine animation (engine/movie/trade.asm)
+  -- InternalClockTradeAnim (engine/movie/trade.asm)
   Screens.push(ctx.game, "TradeAnim", {
     sent = sent, received = newMon,
+    enemyName = "TRAINER",
+    playerOt = ctx.save.player.name,
+    playerOtId = sent.otId or ctx.save.player.id,
+    enemyOtId = newMon.otId,
     onDone = function() runner:resume() end,
   })
   runner:yield()

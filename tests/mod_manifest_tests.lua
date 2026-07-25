@@ -160,7 +160,7 @@ check(not pcall(Manifest.validate, {
 local versionLoader = Loader.new({ fs = memfs({
   ["mods/future/manifest.json"] = manifestJson("future", { game_version = '">=2.0"' }),
   ["mods/future/main.lua"] = "return function(mod) mod.content.items:register('NOPE', {}) end",
-  ["mods/current/manifest.json"] = manifestJson("current", { game_version = '">=1.0 <2.0"' }),
+  ["mods/current/manifest.json"] = manifestJson("current", { game_version = '">=0.0.0-0 <2.0"' }),
   ["mods/current/main.lua"] = NOOP,
 }) })
 local versionData = { items = {} }

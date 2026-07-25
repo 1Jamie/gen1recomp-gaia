@@ -6,7 +6,8 @@ Sources:
   data/tilesets/water_tilesets.asm  -> tilesets where Surf works
   data/events/hidden_events.asm     -> hidden items / coins / slot machines,
                                        PC tiles, bench guys, gym statues,
-                                       Vermilion Gym trash cans
+                                       PrintTrashText bins, Vermilion Gym
+                                       trash cans
   data/events/bench_guys.asm        -> bench guy text per map
   data/events/slot_machine_wheels.asm -> the three slot wheel symbol lists
   data/events/card_key_{coords,maps}.asm + engine/events/card_key.asm
@@ -117,15 +118,20 @@ def parse_hidden_events(pokered):
     StartSlotMachine (slot machine seats; arg SLOTS_* marks broken ones).
     Also collects the engine text hooks that the port implements natively:
     OpenPokemonCenterPC / OpenRedsPC (the player's storage PC in the
-    bedroom), PrintBenchGuyText, GymStatues and the Vermilion
-    Gym GymTrashScript cans (arg = [wGymTrashCanIndex]).  For those the
-    fourth macro argument is the facing direction required to trigger the
-    event, except GymTrashScript where it is the can index.
+    bedroom), PrintBenchGuyText, GymStatues, PrintTrashText (plain
+    "only trash here" bins) and the Vermilion Gym GymTrashScript cans
+    (arg = [wGymTrashCanIndex]).  For those the fourth macro argument is
+    the facing direction required to trigger the event, except
+    GymTrashScript where it is the can index and PrintTrashText which
+    stores a facing but ignores it.
     """
     items = {}
     coins = {}
     slots = {}
-    extras = {"pcTiles": {}, "benchGuys": {}, "gymStatues": {}, "trashCans": []}
+    extras = {
+        "pcTiles": {}, "benchGuys": {}, "gymStatues": {},
+        "printTrash": {}, "trashCans": [],
+    }
     current = None
     path = os.path.join(pokered, "data/events/hidden_events.asm")
     for lineno, line in read_asm(path):
@@ -162,6 +168,9 @@ def parse_hidden_events(pokered):
                 {"x": x, "y": y, "facing": DIRS.get(arg, arg)})
         elif func == "GymStatues":
             extras["gymStatues"].setdefault(current, []).append(
+                {"x": x, "y": y, "facing": DIRS.get(arg, arg)})
+        elif func == "PrintTrashText":
+            extras["printTrash"].setdefault(current, []).append(
                 {"x": x, "y": y, "facing": DIRS.get(arg, arg)})
         elif func == "GymTrashScript":
             if current != "VERMILION_GYM":
@@ -1339,6 +1348,7 @@ def extract(pokered, out_dir):
         "pcTiles": extras["pcTiles"],
         "benchGuys": extras["benchGuys"],
         "gymStatues": extras["gymStatues"],
+        "printTrash": extras["printTrash"],
         "trashCans": parse_trash_can_puzzle(pokered, extras["trashCans"]),
     }
 
@@ -1373,6 +1383,7 @@ def extract(pokered, out_dir):
     credits["theEnd"] = gfx.extract_the_end(pokered, assets_dir)
     battle_hud = gfx.extract_battle_hud(pokered, assets_dir)
     town_map["background"] = gfx.extract_town_map_bg(pokered, assets_dir)
+    trade_art = gfx.extract_trade(pokered, assets_dir)
 
     if not ledges or not cut_trees or "OVERWORLD" not in water or len(trades) < 8 \
        or "PALLET_TOWN" not in fly_warps:
@@ -1387,7 +1398,9 @@ def extract(pokered, out_dir):
        or len(hidden_extras["pcTiles"]) < 10 \
        or "VIRIDIAN_GYM" not in hidden_extras["gymStatues"] \
        or hidden_extras["benchGuys"].get("VIRIDIAN_POKECENTER",
-                                         [{}])[0].get("text") is None:
+                                         [{}])[0].get("text") is None \
+       or len(hidden_extras["printTrash"].get("SS_ANNE_KITCHEN", [])) != 2 \
+       or len(hidden_extras["printTrash"].get("VERMILION_GYM", [])) != 1:
         util.die("hidden extras extraction sanity check failed")
     if sorted(forced_movement["tiles"]) != ["ROUTE_16", "ROUTE_18",
                                             "SEAFOAM_ISLANDS_B3F",
@@ -1499,6 +1512,7 @@ def extract(pokered, out_dir):
                     "townMap": town_map,
                     "credits": credits,
                     "slotSymbols": slot_symbols,
+                    "tradeArt": trade_art,
                     "emotionBubbles": emotion_bubbles,
                     "oakSpeech": oak_speech,
                     "overworldFx": overworld_fx,
@@ -1525,6 +1539,7 @@ def extract(pokered, out_dir):
                               "+ gfx/credits/the_end.png,\n"
                               "constants/script_constants.asm (SLOTS*, *_BUBBLE)\n"
                               "+ gfx/slots/red_slots_{1,2}.png + gfx/emotes/*.png\n"
+                              "+ gfx/trade/* (InternalClockTradeAnim),\n"
                               "+ engine/{slots/slot_machine,overworld/emotion_bubbles}.asm,\n"
                               "scripts/ViridianCity.asm + engine/battle/core.asm,\n"
                               "scripts/GameCorner.asm + text/GameCorner.asm,\n"

@@ -67,6 +67,8 @@ check(Game.save.party[1].nickname == "AAAAAAAAAA",
       "starter nickname prompt accepted (AskName / #137)")
 
 -- === 2) the parcel/pokedex beat still doesn't grant POKé BALLs ===
+-- OaksLabOak1Text.got_parcel requires EVENT_BATTLED_RIVAL_IN_OAKS_LAB
+Flags.set(Game.save, "EVENT_BATTLED_RIVAL_IN_OAKS_LAB")
 check(runScript(mapScripts.talkScript("VIRIDIAN_MART", "TEXT_VIRIDIANMART_CLERK")),
       "mart clerk script completes")
 eq(Game.save.inventory.OAKS_PARCEL, 1, "clerk hands over Oak's Parcel")
@@ -84,8 +86,8 @@ check(labToggles and labToggles.OAKSLAB_POKEDEX2 == false,
       "POKEDEX2 hidden after receiving Pokédex")
 eq(Game.save.inventory.POKE_BALL, nil, "still no POKe BALLs at the pokedex beat")
 
--- talking to Oak again before beating the Route 22 rival should fall
--- into the RaiseYourYoungPokemon branch, not give balls
+-- talking to Oak again before beating the Route 22 rival is the
+-- .mon_around_the_world branch (not the poke-ball grant)
 check(runScript(mapScripts.talkScript("OAKS_LAB", "TEXT_OAKSLAB_OAK1")),
       "Oak talk (pre-Route22-win) script completes")
 eq(Game.save.inventory.POKE_BALL, nil, "still no POKe BALLs before the Route 22 rival is beaten")

@@ -116,6 +116,16 @@ FieldDefaults.FIELD = {
   badgeGates = { ROUTE_22_GATE = { passedFlag = "PASSED_ROUTE22_GATE" } },
   -- VermilionGymSetDoorTile opens the motorized door once both locks are hit
   hiddenExtras = {
+    -- PrintTrashText bins (#188); seeds stale caches missing the key
+    printTrash = {
+      SS_ANNE_KITCHEN = {
+        { x = 13, y = 5, facing = "down" },
+        { x = 13, y = 7, facing = "down" },
+      },
+      VERMILION_GYM = {
+        { x = 6, y = 1, facing = "down" },
+      },
+    },
     trashCans = { map = "VERMILION_GYM",
                   doorBlock = { bx = 2, by = 2, block = 5 } },
   },

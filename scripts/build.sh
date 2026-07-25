@@ -68,6 +68,31 @@ if unzip -Z1 "$LOVE_FILE" \
 fi
 say "game.love: $(du -h "$LOVE_FILE" | cut -f1)"
 
+# ------------------------------------------------------- stamp release version
+# The working tree ships Version.lua with engine "0.0.0-dev"; the real release
+# number only ever lives inside the packed archive. When --version is a strict
+# X.Y.Z, patch a copy of Version.lua (engine set to that number) under a staging
+# dir and replace the entry inside game.love in place -- never the source tree.
+# Short-hash / "dev" builds are left with the "-dev" default so they cannot be
+# mistaken for a release. The stamp is then read back out of the archive and the
+# build fails if it did not take.
+if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  say "stamping engine version $VERSION into game.love"
+  stamp_dir="$WORK/stamp"
+  rm -rf "$stamp_dir"
+  mkdir -p "$stamp_dir/src/core"
+  sed -E "s/(engine[[:space:]]*=[[:space:]]*\")[^\"]*(\")/\1$VERSION\2/" \
+    "$ROOT/src/core/Version.lua" > "$stamp_dir/src/core/Version.lua"
+  (cd "$stamp_dir" && zip -q "$LOVE_FILE" src/core/Version.lua)
+  version_re="$(printf '%s' "$VERSION" | sed 's/\./\\./g')"
+  unzip -p "$LOVE_FILE" src/core/Version.lua \
+    | grep -Eq "engine[[:space:]]*=[[:space:]]*\"$version_re\"" \
+    || fail "version stamp failed: game.love does not report engine $VERSION"
+  say "stamped engine version: $VERSION"
+else
+  say "version '$VERSION' is not X.Y.Z,  shipping default engine (no stamp)"
+fi
+
 # --------------------------------------------------------------- macOS
 build_mac() {
   say "building macOS app"

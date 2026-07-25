@@ -140,28 +140,29 @@ end
 
 local SPIN_ORDER = { "down", "left", "up", "right" }
 
-function Player:draw(camX, camY)
+-- What this frame renders to: the sheet, where it sits, which way it faces
+-- and how far through a step it is.  Shared by the 2D draw below and by a
+-- render pipeline's own geometry (src/render/Pipelines.lua), so the two can
+-- never disagree about which sprite or facing is current.
+--
+-- The last return says the player is mid-ledge-hop, which is what the 2D
+-- path draws the ground shadow from and a 3D path turns into vertical lift.
+--
+-- This ADVANCES the surf-bob and spinner timers, so exactly one of pose()
+-- and draw() may run per frame -- and draw() is written in terms of pose()
+-- to keep that true by construction.  (hopFrames counts down in
+-- Player:update, on the fixed step, so it is safe to read here.)
+function Player:pose()
   local py = self.py
-  -- ledge hops arc (set for 2 cells by the ledge handler); surfing bobs.
-  -- hopFrames counts down in Player:update (fixed step), never here.
+  local hopping = false
+  -- ledge hops arc (set for 2 cells by the ledge handler); surfing bobs
   if self.hopFrames and self.hopFrames > 0 then
     local total = self.hopTotal or 32
     -- update runs before draw, so remaining N means N steps already
     -- consumed this hop → t matches the old draw-side post-decrement phase
     local t = 1 - self.hopFrames / total
     py = py - math.floor(10 * math.sin(t * math.pi) + 0.5)
-    -- the shadow stays on the ground under the jumper: one 8x8 tile
-    -- mirrored into a 2x2 block (normal/XFLIP/YFLIP/both) whose top-left
-    -- is 8px below the sprite's standing top-left (LoadHoppingShadowOAM +
-    -- LedgeHoppingShadowOAMBlock, engine/overworld/ledges.asm)
-    if self.shadowImg then
-      local sx = math.floor(self.px - camX)
-      local sy = math.floor(self.py - camY) - 4 + 8
-      love.graphics.draw(self.shadowImg, sx, sy)
-      love.graphics.draw(self.shadowImg, sx + 16, sy, 0, -1, 1)
-      love.graphics.draw(self.shadowImg, sx, sy + 16, 0, 1, -1)
-      love.graphics.draw(self.shadowImg, sx + 16, sy + 16, 0, -1, -1)
-    end
+    hopping = true
   elseif self.surfing then
     self.bobTimer = ((self.bobTimer or 0) + 1) % 32
     py = py + (self.bobTimer < 16 and 0 or 1)
@@ -186,7 +187,24 @@ function Player:draw(camX, camY)
   end
   local sprite = (self.surfing and self.surfSprite)
                  or (self.onBike and self.bikeSprite) or self.sprite
-  sprite:draw(self.px, py, camX, camY, facing, phase, flip)
+  return sprite, self.px, py, facing, phase, flip, hopping
+end
+
+function Player:draw(camX, camY)
+  local sprite, px, py, facing, phase, flip, hopping = self:pose()
+  -- the shadow stays on the ground under the jumper: one 8x8 tile
+  -- mirrored into a 2x2 block (normal/XFLIP/YFLIP/both) whose top-left
+  -- is 8px below the sprite's standing top-left (LoadHoppingShadowOAM +
+  -- LedgeHoppingShadowOAMBlock, engine/overworld/ledges.asm)
+  if hopping and self.shadowImg then
+    local sx = math.floor(self.px - camX)
+    local sy = math.floor(self.py - camY) - 4 + 8
+    love.graphics.draw(self.shadowImg, sx, sy)
+    love.graphics.draw(self.shadowImg, sx + 16, sy, 0, -1, 1)
+    love.graphics.draw(self.shadowImg, sx, sy + 16, 0, 1, -1)
+    love.graphics.draw(self.shadowImg, sx + 16, sy + 16, 0, -1, -1)
+  end
+  sprite:draw(px, py, camX, camY, facing, phase, flip)
 end
 
 return Player

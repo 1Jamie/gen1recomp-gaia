@@ -375,6 +375,8 @@ function RomExtractor:extractMaps()
     }
     self:tick("Maps", mapIndex, #keys)
   end
+  -- keep the extract ROM-faithful; Data:seedDefaults applies the #189
+  -- S.S. Anne 1F cabin reorder at load time
   self:write("maps", out)
   return out
 end

@@ -457,6 +457,19 @@ end
 -- EVENT_ROUTE22_RIVAL_WANTS_BATTLE in Oak's lab (expired by Pewter
 -- Gym) and again in Viridian Gym; we derive the same windows from the
 -- surrounding story flags so old saves work too.
+-- Rival1Exit → Viridian (right/down); Rival2Exit → League (left).
+local function route22ExitDirs(n, py)
+  if n == 2 then
+    if py == 5 then return { "left", "left", "left", "left" } end
+    return { "left", "left", "left" }
+  end
+  if py == 5 then
+    return { "right", "right", "down", "down", "down", "down", "down" }
+  end
+  return { "up", "right", "right", "right",
+           "down", "down", "down", "down", "down", "down" }
+end
+
 local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag, py)
   return {
     { "show_object", "ROUTE_22", objName },                    -- 1
@@ -468,7 +481,7 @@ local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag,
     { "set_flag", beatFlag },                                  -- 7
     { "show_text", "_Route22Rival" .. n .. "DefeatedText" },   -- 8
     { "show_text", "_Route22RivalAfterBattleText" .. n },      -- 9
-    { "move_npc_to", objIndex, 25, 5 },                        -- 10
+    { "walk_npc", objIndex, route22ExitDirs(n, py) },          -- 10
     { "hide_object", "ROUTE_22", objName },                    -- 11
   }
 end
@@ -495,6 +508,14 @@ M.ROUTE_22 = {
 -- Cerulean City: the Nugget Bridge rival ambush (CeruleanCityCoords2),
 -- the TM28 rocket thief with his forced-fight cells (Coords1), and the
 -- cave guard who steps aside once you are Champion.
+-- Post-battle: Bill text then CeruleanCityMovement3/4 into town.
+local function ceruleanRivalExitDirs(px)
+  if px == 20 then
+    return { "right", "down", "down", "down", "down", "down", "down" }
+  end
+  return { "left", "down", "down", "down", "down", "down", "down" }
+end
+
 local function ceruleanRivalScene(px, py)
   return {
     { "show_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 1
@@ -502,41 +523,43 @@ local function ceruleanRivalScene(px, py)
     { "face_object", 1, "down" },                              -- 3
     { "show_text", "_CeruleanCityRivalPreBattleText" },        -- 4
     { "rival_battle", "OPP_RIVAL1", 7 },                       -- 5
-    { "jump_if_false", 10 },                                   -- 6
+    { "jump_if_false", 11 },                                   -- 6
     { "set_flag", "EVENT_BEAT_CERULEAN_RIVAL" },               -- 7
     { "show_text", "_CeruleanCityRivalDefeatedText" },         -- 8
-    { "move_npc_to", 1, 20, 2 },                               -- 9
-    { "hide_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 10
+    { "show_text", "_CeruleanCityRivalIWentToBillsText" },     -- 9
+    { "walk_npc", 1, ceruleanRivalExitDirs(px) },              -- 10
+    { "hide_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 11
   }
 end
 
 -- scripts/CeruleanCity.asm CeruleanCityRocketText: fight the thief,
--- then he returns TM28 (DIG) and hurries off
+-- then he returns TM28 (DIG) and hurries off.  CeruleanHideRocket
+-- (CeruleanCity_2.asm) is GBFadeOutToBlack → Show GUARD1 / Hide GUARD2 /
+-- Hide ROCKET → GBFadeInFromBlack — not a bare hide_object.
 local rocketRows = {
   { "face_player" },                                           -- 1
   { "check_flag", "EVENT_GOT_TM28" },                          -- 2
-  { "jump_if_true", 15 },                                      -- 3
+  { "jump_if_true", 15 },                                      -- 3 → CeruleanHideRocket
   { "check_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },        -- 4
   { "jump_if_true", 9 },                                       -- 5
   { "show_text", "_CeruleanCityRocketText" },                  -- 6
   { "start_battle", "trainer", "OPP_ROCKET", 5 },              -- 7
-  { "jump_if_false", 18 },                                     -- 8
+  { "jump_if_false", "end" },                                  -- 8
   { "show_text", "_CeruleanCityRocketIllReturnTheTMText" },    -- 9
   { "set_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },          -- 10
   { "give_item", "TM_DIG", 1, false },                         -- 11 (row 13 prints)
   { "set_flag", "EVENT_GOT_TM28" },                            -- 12
   { "show_text", "_CeruleanCityRocketReceivedTM28Text" },      -- 13
   { "show_text", "_CeruleanCityRocketIBetterGetMovingText" },  -- 14
-  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_ROCKET" },   -- 15
-  -- CeruleanHideRocket (scripts/CeruleanCity_2.asm) does all three behind
-  -- one fade: the ROCKET goes, GUARD1 (28,12) appears and GUARD2 (27,12)
-  -- disappears.  GUARD2 stands on the only walkable neighbour of the
-  -- trashed house's south door, which is one of the two ways through the
-  -- fence dividing Cerulean, so this swap is what reconnects the city.
-  -- Bill's ticket performs the same swap (data/scripts/story.lua), and
-  -- both are idempotent, so whichever the player reaches first opens it.
+  { "fade", "out" },                                           -- 15 GBFadeOutToBlack
+  -- CeruleanHideRocket while black: GUARD1 (28,12) appears, GUARD2
+  -- (27,12) and the ROCKET go.  GUARD2 blocks the trashed-house south
+  -- door neighbour — the swap reconnects the city (Bill's ticket does
+  -- the same in story.lua; either route is enough).
   { "show_object", "CERULEAN_CITY", "CERULEANCITY_GUARD1" },   -- 16
   { "hide_object", "CERULEAN_CITY", "CERULEANCITY_GUARD2" },   -- 17
+  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_ROCKET" },   -- 18
+  { "fade", "in" },                                            -- 19 GBFadeInFromBlack
 }
 
 M.CERULEAN_CITY = {

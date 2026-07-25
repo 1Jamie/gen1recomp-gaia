@@ -501,6 +501,10 @@ function LinkState:updateTrade(input)
     require("src.core.Sound").play(game.data, "Trade_Machine")
     Screens.push(game, "TradeAnim", {
       sent = sent, received = received,
+      enemyName = (self.peerName or "TRAINER"),
+      playerOt = game.save.player.name,
+      playerOtId = sent.otId or game.save.player.id,
+      enemyOtId = received.otId,
       onDone = function()
         game.stack:push(TextBox.new(game,
           ("Trade completed!\f%s received\n%s!"):format(game.save.player.name, name),

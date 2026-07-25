@@ -1,5 +1,5 @@
--- Driver: reproduce the door-warp flow.  Teleports to Pallet Town in
--- front of Red's house, walks in, tries to move inside, walks back out.
+-- Driver: door-warp flow (Pallet house) plus #187 S.S. Anne enter-from-above.
+-- Anne-only shots: tests/drivers/anne_door_test.lua
 
 return function(game)
   local U = dofile("tests/drivers/util.lua")
@@ -32,4 +32,20 @@ return function(game)
   U.shot(game, DIR .. "/door_9_back_outside.png")
   U.log("final map:", ow.map.id, "pos:", ow.player.cellX, ow.player.cellY,
         "transitioning:", tostring(ow.transitioning))
+
+  -- #187: enter SS Anne cabin from above; expect one tile south of door
+  U.teleport(game, "SS_ANNE_1F", 31, 9, "up")
+  U.shot(game, DIR .. "/door_10_anne_before.png")
+  U.hold(game, "up", 20)
+  for _ = 1, 90 do
+    U.wait(1)
+    if ow.map.id == "SS_ANNE_1F_ROOMS" and not ow.transitioning
+       and #ow.scriptMoves == 0 and not ow.player.moving then
+      break
+    end
+  end
+  U.wait(8)
+  U.shot(game, DIR .. "/door_11_anne_after.png")
+  U.log("anne map:", ow.map.id, "pos:", ow.player.cellX, ow.player.cellY,
+        "facing:", ow.player.facing)
 end

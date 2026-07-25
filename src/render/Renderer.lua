@@ -9,11 +9,27 @@
 local Zoom = require("src.render.Zoom")
 local Tilt = require("src.render.Tilt")
 local PaletteFX = require("src.render.PaletteFX")
+local Pipelines = require("src.render.Pipelines")
 
 local Renderer = {}
 
 Renderer.WIDTH = 160
 Renderer.HEIGHT = 144
+
+-- Whether a value is a real Canvas we can composite.  Real LOVE canvases are
+-- userdata answering typeOf("Canvas"); the headless test stub fakes them as
+-- tables carrying the Canvas method shape.  A mod pipeline handing back a
+-- non-canvas must be rejected before it reaches love.graphics.draw, which
+-- would otherwise take the frame down with it.
+local function isCanvas(v)
+  if type(v) == "userdata" then
+    return type(v.typeOf) == "function" and v:typeOf("Canvas") == true
+  end
+  if type(v) == "table" then
+    return type(v.getWidth) == "function" and type(v.getHeight) == "function"
+  end
+  return false
+end
 
 -- Tilt mode: the upright billboard canvas is grown by this many world
 -- pixels on every side beyond the ground world view, so a structure or
@@ -57,6 +73,22 @@ function Renderer:init()
   -- the projected ground in endFrame; never touched while tilt is off.
   self.uprightCanvas = nil
   self.uprightActive = false
+  -- a render pipeline's finished world image, already at window resolution
+  -- (see src/render/Pipelines.lua).  nil is "no pipeline rendered this
+  -- frame", which is every vanilla frame.
+  self.worldOverride = nil
+end
+
+-- Hand endFrame a pipeline's world image to composite instead of the world
+-- canvas.  Cleared every frame, so a pipeline that declines one frame falls
+-- straight back to the 2D path rather than showing a stale image.
+function Renderer:setWorldOverride(canvas)
+  -- Defensive: a pipeline that hands back a non-canvas (forgotten return, a
+  -- truthy sentinel) must not reach the worldOverride blit in endFrame, where
+  -- love.graphics.draw on it would crash the frame.  Reject it and fall back
+  -- to the 2D path rather than trust it.
+  if canvas ~= nil and not isCanvas(canvas) then canvas = nil end
+  self.worldOverride = canvas
 end
 
 -- Integer framebuffer pixels per GB pixel that fit the window.  Zoom /
@@ -91,6 +123,7 @@ end
 function Renderer:beginFrame(transparent)
   self.worldActive = false
   self.uprightActive = false
+  self.worldOverride = nil
   -- warp-fade overlay from Transition (issue #121); cleared each frame so
   -- a popped transition cannot leave a sticky black veil
   self.worldFadeAlpha = nil
@@ -380,7 +413,11 @@ function Renderer:endFrame(zones, worldZones)
   zones = withTrueColor(zones, "ui")
   worldZones = withTrueColor(worldZones, "world")
 
-  local needPresent = GBCFX.active()
+  -- A post-process pipeline needs the whole composite in a canvas for the
+  -- same reason GBC FX does, so either one alone is enough to take the
+  -- present path; with neither, the frame draws straight to the screen
+  -- exactly as it always did.
+  local needPresent = GBCFX.active() or Pipelines.wantsPresent()
   local present = nil
   if needPresent then
     if not self.presentCanvas or self.presentCanvas:getWidth() ~= ww
@@ -441,7 +478,27 @@ function Renderer:endFrame(zones, worldZones)
     love.graphics.setShader()
   end
 
-  if self.worldActive then
+  if self.worldOverride then
+    -- A render pipeline already produced the whole world -- terrain,
+    -- characters and its own FX overlay -- as one window-resolution image,
+    -- so it composites with a straight 1:1 blit and the world canvas is
+    -- skipped entirely (nothing drew into it).  The UI blit below still
+    -- runs, so dialogs, menus and the HUD sit on top as usual.
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setScissor(0, 0, ww, wh)
+    love.graphics.draw(self.worldOverride, 0, 0, 0, 1 / dpi, 1 / dpi)
+    love.graphics.setScissor()
+    -- the screen-space overlays the flat path draws over its composite
+    local fade = self.worldFadeAlpha
+    if fade and fade > 0 then
+      love.graphics.setColor(0, 0, 0, fade)
+      love.graphics.rectangle("fill", 0, 0, ww, wh)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    if self.battleCascadeProg then
+      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, S)
+    end
+  elseif self.worldActive then
     local sp = Zoom.scale(Sp)
     local s = sp / dpi
     local wvw = self.worldCanvas:getWidth()
@@ -526,11 +583,26 @@ function Renderer:endFrame(zones, worldZones)
 
   if present then
     love.graphics.setCanvas()
-    -- shader grid/shadow math is in framebuffer pixels
-    GBCFX.present(present, Sp)
+    -- Post-process pipelines run over the finished composite -- world, UI
+    -- and all -- and before GBC FX, so a blur or colour grade is what the
+    -- LCD grid is then drawn over rather than something that smears the
+    -- grid itself.  Each pass hands back a canvas; with none registered
+    -- this returns `present` unchanged and the frame is byte-identical.
+    local composed = Pipelines.present(present,
+      { width = ww, height = wh, scale = Sp, dpi = dpi }) or present
+    if GBCFX.active() then
+      -- shader grid/shadow math is in framebuffer pixels
+      GBCFX.present(composed, Sp)
+    else
+      -- the present canvas only existed for the post-process, so put the
+      -- result on the screen at the same 1:1 unit mapping it was built at
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(composed, 0, 0)
+    end
   end
   self.worldActive = false
   self.uprightActive = false
+  self.worldOverride = nil
   PaletteFX.setPass(nil)
 end
 

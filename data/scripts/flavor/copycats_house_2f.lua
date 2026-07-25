@@ -1,9 +1,8 @@
 -- Flavor talk scripts for CopycatsHouse2F (registry id COPYCATS_HOUSE_2F).
 -- Source: pokered/scripts/CopycatsHouse2F.asm, pokered/text/CopycatsHouse2F.asm
 --
--- TEXT_COPYCATSHOUSE2F_COPYCAT is already ported (with the POKE DOLL /
--- TM31 MIMIC trade) in data/scripts/story4.lua, so it is intentionally
--- omitted here.
+-- TEXT_COPYCATSHOUSE2F_COPYCAT (POKE DOLL -> TM31 MIMIC) lives in
+-- data/scripts/story4.lua.
 
 return {
   COPYCATS_HOUSE_2F = {

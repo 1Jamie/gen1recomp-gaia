@@ -101,9 +101,18 @@ function NPC:walkPhase()
   return (p >= 4 and p < 12) and 1 or 0
 end
 
+-- Same contract as Player:pose -- the sheet, position, facing and step
+-- phase this frame renders to -- so a render pipeline can pose an NPC
+-- without caring which kind of entity it is.  An NPC never hops, so the
+-- trailing hop flag is always false.
+function NPC:pose()
+  return self.sprite, self.px, self.py, self.facing,
+         self:walkPhase(), self.stepFlip, false
+end
+
 function NPC:draw(camX, camY)
-  self.sprite:draw(self.px, self.py, camX, camY, self.facing,
-                   self:walkPhase(), self.stepFlip)
+  local sprite, px, py, facing, phase, flip = self:pose()
+  sprite:draw(px, py, camX, camY, facing, phase, flip)
 end
 
 return NPC

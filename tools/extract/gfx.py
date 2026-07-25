@@ -809,3 +809,110 @@ def extract_town_map_bg(pokered, assets_dir):
         "source": "gfx/town_map/town_map.rle + town_map.png "
                   "(engine/items/town_map.asm LoadTownMap)",
     }
+
+
+# ---------------------------------------------------------------------------
+# Trade animation graphics (engine/movie/trade.asm)
+# ---------------------------------------------------------------------------
+
+def _unique_tiles(im, cols):
+    """Row-major 8x8 tiles kept in first-seen order (rgbgfx --remove-duplicates)."""
+    kept, index_of = [], {}
+    for r in range(im.size[1] // 8):
+        for c in range(cols):
+            tile = im.crop((c * 8, r * 8, c * 8 + 8, r * 8 + 8))
+            key = tile.tobytes()
+            if key not in index_of:
+                index_of[key] = len(kept)
+                kept.append(tile)
+    return kept
+
+
+def _all_tiles(im, cols):
+    return [im.crop((c * 8, r * 8, c * 8 + 8, r * 8 + 8))
+            for r in range(im.size[1] // 8) for c in range(cols)]
+
+
+def extract_trade(pokered, assets_dir):
+    """TradingAnimationGraphics (+ cable ball / bubble) for InternalClockTradeAnim.
+
+    game_boy.2bpp is built with --remove-duplicates; link_cable.2bpp is not.
+    Tilemaps reference absolute vChars2 ids starting at $31.  We rebuild the
+    open-cable plate and cable segment tiles from that atlas, and convert the
+    Game Boy / ball / bubble sheets for direct blitting.
+    """
+    trade_dir = os.path.join(pokered, "gfx/trade")
+    out_dir = os.path.join(assets_dir, "trade")
+    gb_src = Image.open(os.path.join(trade_dir, "game_boy.png")).convert("L")
+    lc_src = Image.open(os.path.join(trade_dir, "link_cable.png")).convert("L")
+    if gb_src.size != (48, 64) or lc_src.size != (24, 40):
+        util.die(f"trade sheets: unexpected sizes {gb_src.size} / {lc_src.size}")
+    atlas = _unique_tiles(gb_src, 6) + _all_tiles(lc_src, 3)
+    if len(atlas) != 49:
+        util.die(f"trade atlas: expected 49 tiles after dedupe, got {len(atlas)}")
+
+    convert_png(os.path.join(trade_dir, "game_boy.png"),
+                os.path.join(out_dir, "game_boy.png"), transparent_matte=True)
+    convert_png(os.path.join(trade_dir, "bubble.png"),
+                os.path.join(out_dir, "bubble.png"), transparent_color0=True)
+
+    # cable_ball.2bpp is four 8x8 tiles at vSprites $7c; the ball OAM uses
+    # tile $7e four times with X/Y flips (and $7f for the bulge frame).
+    ball_src = _convert_image(
+        Image.open(os.path.join(trade_dir, "cable_ball.png")),
+        transparent_color0=True)
+    if ball_src.size != (16, 16):
+        util.die(f"cable_ball.png: expected 16x16, got {ball_src.size}")
+
+    def compose_ball(tile):
+        out = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        out.paste(tile, (0, 0))
+        out.paste(tile.transpose(Image.FLIP_LEFT_RIGHT), (8, 0))
+        out.paste(tile.transpose(Image.FLIP_TOP_BOTTOM), (0, 8))
+        out.paste(tile.transpose(Image.FLIP_LEFT_RIGHT).transpose(
+            Image.FLIP_TOP_BOTTOM), (8, 8))
+        return out
+
+    _save_png(compose_ball(ball_src.crop((0, 8, 8, 16))),
+              os.path.join(out_dir, "cable_ball.png"))
+    _save_png(compose_ball(ball_src.crop((8, 8, 16, 16))),
+              os.path.join(out_dir, "cable_ball_alt.png"))
+
+    with open(os.path.join(trade_dir, "link_cable.tilemap"), "rb") as fh:
+        lc_map = fh.read()
+    if len(lc_map) != 36:
+        util.die(f"link_cable.tilemap: expected 36 bytes, got {len(lc_map)}")
+    open_cable = Image.new("L", (96, 24), 255)
+    for i, tid in enumerate(lc_map):
+        idx = tid - 0x31
+        if idx < 0 or idx >= len(atlas):
+            util.die(f"link_cable.tilemap: tile ${tid:02x} outside atlas")
+        open_cable.paste(atlas[idx], ((i % 12) * 8, (i // 12) * 8))
+    _save_png(_convert_image(open_cable), os.path.join(out_dir, "open_cable.png"))
+
+    for name, vid in (("cable_seg", 0x5E), ("cable_conn", 0x5D),
+                      ("cable_vert", 0x61), ("cable_corner", 0x5F),
+                      ("cable_end", 0x60)):
+        _save_png(_convert_image(atlas[vid - 0x31]),
+                  os.path.join(out_dir, f"{name}.png"))
+
+    horiz = Image.new("L", (160, 8), 255)
+    seg = atlas[0x5E - 0x31]
+    for x in range(20):
+        horiz.paste(seg, (x * 8, 0))
+    _save_png(_convert_image(horiz), os.path.join(out_dir, "cable_horiz.png"))
+
+    return {
+        "gameBoy": "assets/generated/trade/game_boy.png",
+        "openCable": "assets/generated/trade/open_cable.png",
+        "cableHoriz": "assets/generated/trade/cable_horiz.png",
+        "cableConn": "assets/generated/trade/cable_conn.png",
+        "cableVert": "assets/generated/trade/cable_vert.png",
+        "cableCorner": "assets/generated/trade/cable_corner.png",
+        "cableEnd": "assets/generated/trade/cable_end.png",
+        "cableBall": "assets/generated/trade/cable_ball.png",
+        "cableBallAlt": "assets/generated/trade/cable_ball_alt.png",
+        "bubble": "assets/generated/trade/bubble.png",
+        "source": "gfx/trade/* (TradingAnimationGraphics, "
+                  "engine/movie/trade.asm InternalClockTradeAnim)",
+    }
