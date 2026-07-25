@@ -1,10 +1,10 @@
 -- Headless regression: two Bill's PC releases in one list session (#171).
+-- ROM-free: fixture species only (CI has no data/generated/).
 package.path = "./?.lua;./?/init.lua;" .. package.path
-if not _G.love then _G.love = require("tests.love_stub") end
 
-local T = require("tests.harness")
-local Data = require("src.core.Data")
-if not (Data.pokemon and Data.pokemon.RATTATA) then Data:load() end
+local T = require("tests.modkit")
+local Data = T.fixtures.load()
+local ids = T.fixtures.ids
 require("src.render.Font").load(Data)
 
 local Pokemon = require("src.pokemon.Pokemon")
@@ -45,10 +45,11 @@ local game = {
 game.save.options = game.save.options or {}
 game.save.options.textSpeed = 1
 
+local a, b, c = ids.species[1], ids.species[2], ids.species[3]
 local box = Boxes.active(game.save)
-box[1] = Pokemon.new(Data, "RATTATA", 5)
-box[2] = Pokemon.new(Data, "PIDGEY", 6)
-box[3] = Pokemon.new(Data, "CATERPIE", 4)
+box[1] = Pokemon.new(Data, a, 5)
+box[2] = Pokemon.new(Data, b, 6)
+box[3] = Pokemon.new(Data, c, 4)
 
 local function press(btn)
   pressed = { [btn] = true }
@@ -86,7 +87,7 @@ releaseCurrent()
 releaseCurrent()
 T.eq(#box, 1, "two releases leave one mon")
 T.check(topMt() == ListMenu, "still on RELEASE list after the second")
-T.eq(box[1].species, "CATERPIE", "remaining mon is the third seeded one")
+T.eq(box[1].species, c, "remaining mon is the third seeded one")
 
 Sound.playCry, Sound.play = realCry, realPlay
 T.finish("pc_release")

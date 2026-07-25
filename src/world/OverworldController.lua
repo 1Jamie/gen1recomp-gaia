@@ -3323,10 +3323,19 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
       -- outdoor. Auto-walk leaves the mat, so the arrival disable
       -- (warpEntryCell / justWarped) is unnecessary -- and would let you
       -- stand on the door without re-entering if you hold back into it.
+      -- The walk-out is a simulated d-pad press (wSimulatedJoypadStates),
+      -- not a forced move, so it obeys collision: on a landing with a
+      -- solid cell south of the door (the mansion stair landings back
+      -- onto shelves) the step bumps and the player stays on the door,
+      -- arrival disable intact, instead of clipping into the wall.
       if self.map:isDoorTileCell(self.player.cellX, self.player.cellY) then
-        self.warpEntryCell = nil
-        self.justWarped = false
-        self:scriptMove(self.player, "down", 1)
+        if Collision.canMove(self.map, self.entities, self.player, "down") then
+          self.warpEntryCell = nil
+          self.justWarped = false
+          self:scriptMove(self.player, "down", 1)
+        else
+          self.player.facing = "down"
+        end
       end
     end
   end, function()

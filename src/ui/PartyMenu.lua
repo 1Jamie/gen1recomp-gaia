@@ -9,6 +9,7 @@
 --   opts.onCancel: fired when the menu closes without a pick (B)
 -- Pops itself on B.
 
+local Assets = require("src.render.Assets")
 local Font = require("src.render.Font")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
@@ -96,7 +97,10 @@ local function drawIcon(game, mon, x, y, selected, counter)
   end
   if not path then return end
   if iconImages[path] == nil then
-    local ok, img = pcall(love.graphics.newImage, path)
+    -- resolve through Assets so an overrides/ or transform-derived icon
+    -- (e.g. a per-species image at assets/generated/icons/<name>.png) is
+    -- picked up the same way battle sprites are
+    local ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
     iconImages[path] = ok and img or false
   end
   local img = iconImages[path]

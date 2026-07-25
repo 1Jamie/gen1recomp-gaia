@@ -1,10 +1,9 @@
 -- Bill's PC vs player's PC top-menu origin/size (#176).
+-- ROM-free: uses the fixture dataset so CI (no data/generated/) stays green.
 package.path = "./?.lua;./?/init.lua;" .. package.path
-if not _G.love then _G.love = require("tests.love_stub") end
 
-local T = require("tests.harness")
-local Data = require("src.core.Data")
-if not (Data.pokemon and next(Data.pokemon)) then Data:load() end
+local T = require("tests.modkit")
+local Data = T.fixtures.load()
 
 local SaveData = require("src.core.SaveData")
 local BoxMenu = require("src.ui.BoxMenu")

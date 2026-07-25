@@ -783,5 +783,6 @@ end
 -- test / debug helpers
 DiscordPresence._state = state
 DiscordPresence.locationName = locationName
+DiscordPresence.handleJoinRequest = handleJoinRequest
 
 return DiscordPresence

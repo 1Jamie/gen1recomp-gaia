@@ -1,10 +1,11 @@
 -- TradeAnim InternalClockTradeFuncSequence completes under A-skip and
 -- exposes the cable-trade phases (engine/movie/trade.asm).
+-- ROM-free: fixture species only (CI has no data/generated/).
 package.path = "./?.lua;./?/init.lua;" .. package.path
-if not _G.love then _G.love = require("tests.love_stub") end
 
-local Data = require("src.core.Data")
-if not (Data.maps and Data.maps.PALLET_TOWN) then Data:load() end
+local T = require("tests.modkit")
+local Data = T.fixtures.load()
+local ids = T.fixtures.ids
 
 local S = require("tests.harness").suite("trade anim")
 local check, eq = S.check, S.eq
@@ -22,8 +23,8 @@ Game.stack = StateStack; StateStack:init()
 Game.save = SaveData.newGame()
 require("src.render.Font").load(Data)
 
-local sent = Pokemon.new(Data, "SPEAROW", 10)
-local recv = Pokemon.new(Data, "FARFETCHD", 10)
+local sent = Pokemon.new(Data, ids.species[1], 10)
+local recv = Pokemon.new(Data, ids.species[2], 10)
 recv.nickname = "DUX"
 recv.ot = "TRAINER"
 recv.otId = 8193

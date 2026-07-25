@@ -51,10 +51,17 @@ local function fresh()
 end
 
 -- ---- crosswalk data + synthetic 32KB save (built the way the codec tests do)
+-- Gen1 encode/decode needs Red species/item indices from data/generated/,
+-- which CI never has.  Skip cleanly so the ROM-free T1/T2 tier stays green.
+local loadPokemon = loadfile("data/generated/pokemon.lua")
+if not loadPokemon then
+  print("save_file_io skipped (needs data/generated/ for Gen1 save codec)")
+  os.exit(0)
+end
 
 GenSave.setCharmap(loadfile("src/save_convert/data/charmap.lua")())
 local data = {
-  pokemon = loadfile("data/generated/pokemon.lua")(),
+  pokemon = loadPokemon(),
   moves = loadfile("data/generated/moves.lua")(),
   items = loadfile("data/generated/items.lua")(),
   maps = loadfile("data/generated/maps.lua")(),
