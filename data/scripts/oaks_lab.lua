@@ -6,7 +6,8 @@
 --   takes it ("I'll take this one, then!") and both balls disappear.
 --   Source: scripts/OaksLab.asm OaksLabCharmanderPokeBallText /
 --   OaksLabRivalTakePokeBallScript.
--- * Rival (object 1): before starter -> "gramps isn't around"; with
+-- * Rival (object 1): before starter -> "go ahead and choose" once Oak
+--   has walked you in, else "gramps isn't around" (#218); with
 --   starter -> taunt + battle OPP_RIVAL1 with the counter-pick party
 --   (player Bulbasaur -> rival Charmander etc., parties 1/2/3 =
 --   Squirtle/Bulbasaur/Charmander in data/trainers/parties.asm);
@@ -162,36 +163,45 @@ return {
       starterBall("_OaksLabYouWantBulbasaurText", "BULBASAUR", "EVENT_CHOSE_BULBASAUR",
                   "OAKSLAB_BULBASAUR_POKE_BALL", 6, "OAKSLAB_CHARMANDER_POKE_BALL"),
 
+    -- Talking to the rival only ever prints a line: the lab battle is a
+    -- coordinate trigger (OaksLabRivalChallengesPlayerScript, wYCoord == 6;
+    -- see onStep below), never a talk action.  The handler used to fall
+    -- through from the "looks stronger" taunt straight into start_battle,
+    -- so talking to Blue at the table launched the rival fight before the
+    -- player ever stepped onto the trigger (#219).  scripts/OaksLab.asm
+    -- OaksLabText8 branches text only:
+    --   * got starter, not yet battled -> _OaksLabRivalMyPokemonLooksStronger
+    --   * already battled -> _OaksLabRivalFedUpWithWaitingText (a Route 22
+    --     line; normally unreachable since the rival is hidden after the
+    --     lab battle in OaksLabRivalEndBattleScript)
+    --   * no starter yet -> the FOLLOWED_OAK pre-starter fork (#218)
     TEXT_OAKSLAB_RIVAL = {
-      { "face_player" },                                          -- 1
-      { "check_flag", "EVENT_GOT_STARTER" },                      -- 2
-      { "jump_if_false", 21 },                                    -- 3
-      { "check_flag", "EVENT_BATTLED_RIVAL_IN_OAKS_LAB" },        -- 4
-      { "jump_if_true", 19 },                                     -- 5
-      { "show_text", "_OaksLabRivalMyPokemonLooksStrongerText" }, -- 6
-      { "check_flag", "EVENT_CHOSE_BULBASAUR" },                  -- 7
-      { "jump_if_false", 11 },                                    -- 8
-      { "start_battle", "trainer", "OPP_RIVAL1", 3 },             -- 9  Charmander
-      { "jump", 16 },                                             -- 10
-      { "check_flag", "EVENT_CHOSE_SQUIRTLE" },                   -- 11
-      { "jump_if_false", 15 },                                    -- 12
-      { "start_battle", "trainer", "OPP_RIVAL1", 2 },             -- 13 Bulbasaur
-      { "jump", 16 },                                             -- 14
-      { "start_battle", "trainer", "OPP_RIVAL1", 1 },             -- 15 Squirtle
-      -- OaksLabRivalEndBattleScript: HealParty + flag, then exit either way
-      { "heal_party" },                                           -- 16
-      { "set_flag", "EVENT_BATTLED_RIVAL_IN_OAKS_LAB" },          -- 17
-      { "jump", 23 },                                             -- 18
-      { "show_text", "_OaksLabRivalFedUpWithWaitingText" },       -- 19
-      { "jump", "end" },                                          -- 20
-      { "show_text", "_OaksLabRivalGrampsIsntAroundText" },       -- 21
-      { "jump", "end" },                                          -- 22
-      -- win: sulk text then exit; loss: Rival1WinText already played in
-      -- battle (HandlePlayerBlackOut), so skip straight to the walk-out
-      { "jump_if_false", 25 },                                    -- 23
-      { "show_text", "_OaksLabRivalIPickedTheWrongPokemonText" }, -- 24
-      { "move_npc_to", 1, 4, 11 },                                -- 25
-      { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" },             -- 26
+      { "face_player" },
+      { "check_flag", "EVENT_GOT_STARTER" },
+      { "jump_if_false", "pre_starter" },
+      { "check_flag", "EVENT_BATTLED_RIVAL_IN_OAKS_LAB" },
+      { "jump_if_true", "after_battle" },
+      -- has a starter, has not fought yet: just the taunt.  The battle is
+      -- the coordinate trigger in onStep, not this talk (#219)
+      { "show_text", "_OaksLabRivalMyPokemonLooksStrongerText" },
+      { "jump", "end" },
+
+      { "label", "after_battle" },
+      { "show_text", "_OaksLabRivalFedUpWithWaitingText" },
+      { "jump", "end" },
+
+      -- pre-starter fork (scripts/OaksLab.asm OaksLabText8 rival handler):
+      -- Oak has already escorted you in (three balls on the table) -> he
+      -- waves you on to choose; not yet escorted (very early game) -> the
+      -- "Gramps isn't around" line.  #218
+      { "label", "pre_starter" },
+      { "check_flag", "EVENT_FOLLOWED_OAK_INTO_LAB" },
+      { "jump_if_false", "gramps_gone" },
+      { "show_text", "_OaksLabRivalGoAheadAndChooseText" },
+      { "jump", "end" },
+
+      { "label", "gramps_gone" },
+      { "show_text", "_OaksLabRivalGrampsIsntAroundText" },
     },
   },
 
@@ -213,9 +223,16 @@ return {
   -- OaksLabScript8 / OaksLabRivalChallenge)
   onStep = function(game, ow, x, y)
     local flags = game.save.flags
-    -- Oak blocks the exit mats (4,11)/(5,11) until you take a starter
+    -- Oak stops you leaving without a starter at the bookshelf row (cell
+    -- y == 6): this is the same wYCoord == 6 coordinate script the rival
+    -- challenge just below uses (scripts/OaksLab.asm, both gated on
+    -- EVENT_GOT_STARTER), so Oak halts you level with the shelves, not one
+    -- corridor length later on the exit mat.  At y>=6 only the x=4,5
+    -- corridor is walkable and the up-push keeps the player above y=7, so
+    -- this only ever fires at y=6 in the corridor -- matching the rival
+    -- trigger's shape. (#232)
     if flags.EVENT_FOLLOWED_OAK_INTO_LAB and not flags.EVENT_GOT_STARTER
-       and y == 11 and (x == 4 or x == 5) then
+       and y >= 6 then
       ow.runner:run({
         { "show_text", "_OaksLabOakDontGoAwayYetText" },
         { "move_player", "up", 1 },
@@ -254,10 +271,18 @@ return {
       -- OaksLabRivalEndBattleScript: heal + flag on win or loss; no blackout
       table.insert(rows, { "heal_party" })
       table.insert(rows, { "set_flag", "EVENT_BATTLED_RIVAL_IN_OAKS_LAB" })
-      -- win: sulk text then exit; loss jumps to the walk-out (taunt was
-      -- already shown in-battle via Rival1WinText)
+      -- OaksLabRivalEndBattleScript: on WIN, print the "picked the wrong
+      -- POKéMON!" gloat, then BOTH win and loss print the shared exit line
+      -- _OaksLabRivalSmellYouLaterText ("OK! I'll make my POKéMON fight to
+      -- toughen it up!\012<PLAYER>! Gramps! Smell you later!") before Blue
+      -- marches out.  A loss skips only the gloat (that taunt was already
+      -- shown in-battle via Rival1WinText), never the exit line (#231).  The
+      -- jump_if_false convergence point is the exit line: base+6 indexes the
+      -- SmellYouLater row below, so WIN falls IPicked -> SmellYouLater and
+      -- LOSS jumps straight to SmellYouLater (both then walk-out + hide).
       table.insert(rows, { "jump_if_false", base + 6 })
       table.insert(rows, { "show_text", "_OaksLabRivalIPickedTheWrongPokemonText" })
+      table.insert(rows, { "show_text", "_OaksLabRivalSmellYouLaterText" })
       table.insert(rows, { "move_npc_to", 1, 4, 11 })
       table.insert(rows, { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" })
       ow.runner:run(rows, { npc = rival })

@@ -204,6 +204,16 @@ function Map:isWalkableCell(cx, cy)
 end
 
 function Map:isGrassCell(cx, cy)
+  -- Off-map cells never count as tall grass (issue #217).  cellTile
+  -- border-extends out-of-bounds coordinates with the map's borderBlock,
+  -- and some border blocks (e.g. ROUTE_1's block 11) have the grass tile
+  -- ($52 = 82) in their bottom row -- filler scenery, never standable
+  -- grass.  During a map-connection seam step crossConnection parks the
+  -- player one cell before the entry point (cellY = -1 crossing Viridian
+  -- City -> Route 1), so without this guard the feet-overdraw painted an
+  -- animated grass tuft over the player's head for the whole step.  pokered
+  -- only ever reads $52 from loaded map tiles, not the border filler.
+  if not self:inBounds(cx, cy) then return false end
   local grass = self.tileset.grassTile
   return grass ~= nil and self:cellTile(cx, cy) == grass
 end

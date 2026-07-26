@@ -4254,6 +4254,27 @@
     },
     "cardKeyDoors": {
       "closedDoors": {
+        "ROCKET_HIDEOUT_B1F": [
+          {
+            "block": 84,
+            "bx": 12,
+            "by": 8,
+            "event": "EVENT_BEAT_ROCKET_HIDEOUT_1_TRAINER_4",
+            "open": 14
+          }
+        ],
+        "ROCKET_HIDEOUT_B4F": [
+          {
+            "block": 45,
+            "bx": 12,
+            "by": 5,
+            "events": [
+              "EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_0",
+              "EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_1"
+            ],
+            "open": 14
+          }
+        ],
         "SILPH_CO_10F": [
           {
             "block": 84,
@@ -6754,7 +6775,7 @@
                 "x": 18,
                 "y": 6
               },
-              "showObject": "TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_3",
+              "showObject": "TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_5",
               "x": 19,
               "y": 6
             },
@@ -6765,7 +6786,7 @@
                 "x": 19,
                 "y": 6
               },
-              "showObject": "TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_4",
+              "showObject": "TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_6",
               "x": 22,
               "y": 6
             }

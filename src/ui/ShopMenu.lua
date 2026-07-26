@@ -106,8 +106,11 @@ local function sell(game)
     onChoose = function(item)
       local def = game.data.items[item.value]
       -- only key items and HMs are unsellable (pokemart.asm IsKeyItem /
-      -- IsItemHM); zero-price items like ETHER sell for ¥0
-      if (def and def.keyItem) or item.value:find("^HM_") then
+      -- IsItemHM); zero-price items like ETHER sell for ¥0.  An unknown id
+      -- (nil def) has no price, so treat it as unsellable too rather than
+      -- indexing nil below -- guards saves that already picked up a bogus
+      -- ITEM_NONE "0" from Blue's House before that pickup was fixed (#11).
+      if not def or def.keyItem or item.value:find("^HM_") then
         list.footer = txt(game, "_PokemartUnsellableItemText",
                           "I can't put a\nprice on that.")
         return

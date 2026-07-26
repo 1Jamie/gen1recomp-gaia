@@ -313,15 +313,34 @@ def parse_card_key_doors(pokered):
             util.die(f"card_key.asm: {needle!r} not found (door tiles/blocks changed?)")
     if n_doors != 22 or len(maps) != 10:
         util.die(f"card key doors: expected 22 doors / 10 maps, got {n_doors}/{len(maps)}")
-    # closedDoors is hand-ported, not extracted: no retail .blk layout places
-    # a closed-door block at any of the coordinates above (the feature is
-    # unused/cut in the original game), so there is no ROM or disassembly
-    # source to derive this from. It restores that cut content by stamping
-    # facility.bst blocks 0x54/0x5f (2F-10F) or interior.bst block 0x20
-    # (11F) over each door on map load, opened by that door's
-    # EVENT_SILPH_CO_n_UNLOCKED_DOORn flag. Kept in sync by hand with
-    # tools/rom_manifest.json's field.cardKeyDoors.closedDoors.
+    # closedDoors is hand-ported, not extracted: the .blk layouts ship with
+    # these doorways open and each floor's map script stamps the closed block
+    # on load, which the extractor cannot see from static map bytes. Kept in
+    # sync by hand with tools/rom_manifest.json's field.cardKeyDoors.closedDoors.
+    #
+    # ROCKET_HIDEOUT_* are the elevator lift gates, live in retail: the
+    # RocketHideoutB1F/B4F DoorCallbackScripts (scripts/RocketHideoutB1F.asm,
+    # RocketHideoutB4F.asm) ReplaceTileBlock a barred facility block over the
+    # lift doorway with floor block 0x0e until the guards are beaten. B1F
+    # stamps 0x54 at (12,8), opened by EVENT_BEAT_ROCKET_HIDEOUT_1_TRAINER_4
+    # (EVENT_ENTERED_ROCKET_HIDEOUT is never SetEvent -- the noted SFX bug --
+    # so it is not part of the open condition). B4F stamps 0x2d at (12,5),
+    # opened once BOTH EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_0 and _1 are set
+    # (CheckBothEventsSet). B2F/B3F call no door callback (spinner floors).
+    #
+    # SILPH_CO_* restore cut content instead: no retail .blk places a closed
+    # block at those coords and no retail script stamps them (the feature is
+    # unused in the original game), stamping facility.bst blocks 0x54/0x5f
+    # (2F-10F) or interior.bst block 0x20 (11F) over each door, opened by that
+    # door's EVENT_SILPH_CO_n_UNLOCKED_DOORn flag.
     closed_doors = {
+        "ROCKET_HIDEOUT_B1F": [
+            {"block": 0x54, "bx": 12, "by": 8, "event": "EVENT_BEAT_ROCKET_HIDEOUT_1_TRAINER_4", "open": 0x0e},
+        ],
+        "ROCKET_HIDEOUT_B4F": [
+            {"block": 0x2d, "bx": 12, "by": 5,
+             "events": ["EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_0", "EVENT_BEAT_ROCKET_HIDEOUT_4_TRAINER_1"], "open": 0x0e},
+        ],
         "SILPH_CO_2F": [
             {"block": 0x54, "bx": 2, "by": 2, "event": "EVENT_SILPH_CO_2_UNLOCKED_DOOR1", "open": 0x0e},
             {"block": 0x54, "bx": 2, "by": 5, "event": "EVENT_SILPH_CO_2_UNLOCKED_DOOR2", "open": 0x0e},

@@ -183,7 +183,22 @@ end
 
 -- the image a battler pic actually draws with this frame
 function BattleState:picImage(img)
-  if self.grayPics then return grayImage(img) end
+  local PaletteFX = require("src.render.PaletteFX")
+  -- #207: OG / OG INV / CLASSIC are forced-mono display modes.  A battle that
+  -- exposes no SGB zones (sgbPalettes() == nil) has a whole-screen GRAYS zone
+  -- invented by PaletteFX.ensureZones, so Renderer:endFrame re-thresholds the
+  -- WHOLE finished frame through the shade shader a second time (keyed on the
+  -- red channel).  A pic baked with the species' SGB color is then remapped
+  -- again and loses its warm mid shades -- REDMON's reds 1.0/0.839 both land in
+  -- the c0 bucket, collapsing CHARMANDER's body into the white paper and
+  -- leaving only the outline.  Emit the raw DMG-gray build instead (exactly
+  -- what the SE_WAVY_SCREEN grayPics path already does) so the downstream remap
+  -- recolors 255->c0/170->c1/85->c2/0->c3 and all four shades survive; cool
+  -- palettes (CYANMON reds 0.678/0.451) already rendered correctly.  This mode
+  -- set mirrors PaletteFX.ensureZones / effectiveColors -- keep them in sync.
+  local mono = PaletteFX.mode == "og" or PaletteFX.mode == "og_inv"
+               or PaletteFX.mode == "classic"
+  if self.grayPics or mono then return grayImage(img) end
   return fadeImage(img, self:activeBgp())
 end
 
@@ -666,16 +681,53 @@ local function shownHP(b)
   return math.floor(shown)
 end
 
+-- Parse a battle message into its rendered lines.  The extractor marks
+-- \n = next line and \v = CONT (home/text.asm ContText: draw the blinking
+-- ▼, WaitForTextScrollButtonPress, then ScrollTextUpOneLine); the boosted /
+-- EXP.ALL exp lines end in the CONT code in the ROM (data/generated/text.lua
+-- _BoostedText/_WithExpAllText = "...\011").  Each entry is { codes, cont },
+-- cont true when the line was preceded by \v.  Splitting before Font.encode
+-- keeps the control chars out of the glyph stream.  The box then types into
+-- a rolling 2-line window (self.shown) that scrolls when a 3rd line arrives
+-- instead of drawing it off-screen at y=144 (#216).
 function BattleState:startMessage(item)
   self.current = item
   self.lines = {}
   self.total = 0
-  for chunk in (item.text .. "\n"):gmatch("(.-)\n") do
+  local text = item.text or ""
+  local pos, cont = 1, false
+  while true do
+    local npos = text:find("[\n\v]", pos)
+    local chunk = npos and text:sub(pos, npos - 1) or text:sub(pos)
     local codes = Font.encode(chunk)
-    table.insert(self.lines, codes)
+    self.lines[#self.lines + 1] = { codes = codes, cont = cont }
     self.total = self.total + #codes
+    if not npos then break end
+    cont = text:sub(npos, npos) == "\v"
+    pos = npos + 1
   end
+  self.shown = {}        -- up to two visible lines of revealed glyph codes
+  self.lineIndex = 0
+  -- self.charIndex counts glyphs typed across the WHOLE message (drivers read
+  -- it against self.total); the current line's revealed count is #shown[last]
   self.charIndex = 0
+  self.msgWaiting = nil
+  self.scrollPx = nil
+  self:beginMsgLine()
+end
+
+-- Start typing the next line into the rolling window.  When the box already
+-- shows two lines, drop the top one and set the pixel scroll-up
+-- (ScrollTextUpOneLine), mirroring TextBox:beginLine.
+function BattleState:beginMsgLine()
+  self.lineIndex = self.lineIndex + 1
+  local ln = self.lines[self.lineIndex]
+  self.codes = ln and ln.codes or {}
+  if #self.shown >= 2 then
+    table.remove(self.shown, 1)
+    self.scrollPx = 8
+  end
+  self.shown[#self.shown + 1] = {}
 end
 
 function BattleState:updateQueue()
@@ -823,8 +875,32 @@ function BattleState:updateQueue()
     end
     self:startMessage(item)
   end
-  if self.charIndex < self.total then
-    self.charIndex = math.min(self.total, self.charIndex + 2)
+  local input = self.game.input
+  -- a \v CONT wait holds the box until A/B, then scrolls the next line in
+  -- (home/text.asm ContText); this keeps a 3rd line on-screen (#216)
+  if self.msgWaiting then
+    if input:wasPressed("a") or input:wasPressed("b") then
+      self.msgWaiting = nil
+      self:beginMsgLine()
+    end
+    return true
+  end
+  local cur = self.shown[#self.shown]
+  if #cur < #self.codes then
+    -- battle typewriter cadence: two glyphs per fixed step (as before)
+    for _ = 1, 2 do
+      if #cur >= #self.codes then break end
+      cur[#cur + 1] = self.codes[#cur + 1]
+      self.charIndex = self.charIndex + 1
+    end
+  elseif self.lineIndex < #self.lines then
+    -- current line finished, more lines remain: \v waits for A/B + ▼ before
+    -- scrolling, \n advances now (beginMsgLine scrolls if the box is full)
+    if self.lines[self.lineIndex + 1].cont then
+      self.msgWaiting = true
+    else
+      self:beginMsgLine()
+    end
   else
     local item = self.current
     -- TrainerAboutToUseText ends in `done` then DisplayTextBoxID: YES/NO
@@ -841,7 +917,6 @@ function BattleState:updateQueue()
       end))
       return true
     end
-    local input = self.game.input
     if not (item and item.choice)
        and (input:wasPressed("a") or input:wasPressed("b")) then
       self.current = nil
@@ -2715,12 +2790,15 @@ function BattleState:enemyMonFainted()
       -- _WithExpAllText / _BoostedText / _ExpPointsText; the EXP.ALL
       -- pass beats the traded boost (wBoostExpByExpAll checks first),
       -- and _ExpPointsText prints wExpAmountGained -- the raw share,
-      -- captured before the max-level cap (experience.asm:92-100)
+      -- captured before the max-level cap (experience.asm:92-100).
+      -- _BoostedText / _WithExpAllText end in the CONT code (\v, "...\011"
+      -- in data/generated/text.lua): the box waits for A/B + ▼ then scrolls
+      -- the amount line in, so it stays on-screen instead of at y=144 (#216).
       local tail = "%d EXP. Points!"
       if announce == "expAll" then
-        tail = "with EXP.ALL,\n" .. tail
+        tail = "with EXP.ALL,\v" .. tail
       elseif mon.traded then
-        tail = "a boosted\n" .. tail
+        tail = "a boosted\v" .. tail
       end
       self:sayNext(("%s gained\n" .. tail):format(name, gained))
     end
@@ -2733,6 +2811,17 @@ function BattleState:enemyMonFainted()
         require("src.core.Sound").play(game.data, "Level_Up")
         return StatBox.new(game, mon)
       end)
+      -- After PrintStatsBox, experience.asm reloads the active battler's
+      -- wBattleMon and runs DrawHUDsAndHPBars, so its HP bar reflects the
+      -- higher current HP.  Experience.lua:84 already raised mon.hp by
+      -- (newMaxHP - oldMaxHP); the party mon and the battler share one table
+      -- (makeBattler), so mon.stats.hp (the bar's denominator) jumps to the
+      -- new max instantly while the battler's shownHP numerator lags at the
+      -- old current HP -- the bar SHRINKS (#224).  Animate shownHP up to the
+      -- new current HP (house convention: potions drain the bar too, see
+      -- itemUsed) so the bar grows instead.  Only the active player battler
+      -- shares its table with the HUD; other party mons (EXP.ALL) have no bar.
+      if mon == self.player.mon then self:drainNext() end
       for _, moveId in ipairs(Experience.movesLearnedAt(
           self.data.pokemon[mon.species], lv)) do
         self:learnMove(mon, moveId)
@@ -4114,7 +4203,12 @@ function BattleState:drawHUDs(slide)
   -- the HUD clears with the send-out text (ClearScreenArea,
   -- core.asm:1414-1417) and DrawEnemyHUDAndHPBar (1435) only redraws
   -- it after the grow-in + cry
-  local barData = self:colorMode() and {} or self.data -- gray fill when zoned
+  -- In colorized modes the zone pass (drawZonePass over BATTLE_ZONES pal 0/1)
+  -- recolors the bar's DMG gray fill by region, so drawHPBar must skip its
+  -- per-pixel tint (grayFill) -- otherwise GREENBAR's red-channel-0 fill
+  -- double-applies and the zone shade shader maps the whole bar to black (#229).
+  local grayFill = self:colorMode()
+  local barData = self.data
   local fx = self.fx
   local hudShake = (fx and fx.hudShakeX) or 0
   -- FaintEnemyPokemon clears the enemy HUD area; it stays blank through
@@ -4139,7 +4233,8 @@ function BattleState:drawHUDs(slide)
     end
     hudTile(0x73, 8, 16)
     drawHPBar(barData, 2, 2,
-              { hp = shownHP(self.enemy), stats = self.enemy.mon.stats })
+              { hp = shownHP(self.enemy), stats = self.enemy.mon.stats },
+              nil, grayFill)
     hudTile(0x74, 8, 24)
     for i = 2, 9 do hudTile(0x76, i * 8, 24) end
     hudTile(0x78, 80, 24)
@@ -4187,7 +4282,7 @@ function BattleState:drawHUDs(slide)
     end
     drawHPBar(barData, 10, 9,
               { hp = shownHP(self.player), stats = self.player.mon.stats },
-              1) -- wHPBarType 1: the $6D cap
+              1, grayFill) -- wHPBarType 1: the $6D cap
     Font.draw(("%3d/%3d"):format(shownHP(self.player), self.player.mon.stats.hp), 88, 80)
     hudTile(0x73, 144, 80)
     hudTile(0x77, 144, 88)
@@ -4200,15 +4295,26 @@ function BattleState:drawTextArea()
   Font.drawBox(0, 12, 20, 6)
   love.graphics.setColor(0, 0, 0, 1)
   if self.phase == "messages" and self.current then
-    local shown = 0
-    for li, codes in ipairs(self.lines) do
-      -- battle text uses every other tile row (hlcoord *,14 / *,16)
-      local y = 112 + (li - 1) * 16
-      for i = 1, #codes do
-        if shown >= self.charIndex then break end
-        Font.drawCode(codes[i], 8 + (i - 1) * 8, y)
-        shown = shown + 1
+    -- rolling 2-line window: shown[1] at row y=112, shown[2] at y=128 (battle
+    -- text uses every other tile row, hlcoord *,14 / *,16).  scrollPx animates
+    -- the lines up one row (ScrollTextUpOneLine) so a 3rd line scrolls into
+    -- view instead of drawing off-screen at y=144 (#216).
+    if self.scrollPx and self.scrollPx > 0 then
+      self.scrollPx = self.scrollPx - 2
+      if self.scrollPx <= 0 then self.scrollPx = nil end
+    end
+    local off = self.scrollPx or 0
+    local ys = { 112, 128 }
+    for li, line in ipairs(self.shown or {}) do
+      local y = (ys[li] or 128) + off
+      for i = 1, #line do
+        Font.drawCode(line[i], 8 + (i - 1) * 8, y)
       end
+    end
+    -- the blinking down arrow ('▼', glyph $EE) while a \v CONT wait holds the
+    -- box, bottom-right of the box like TextBox / home/text.asm
+    if self.msgWaiting and self.frame % 60 < 30 then
+      Font.drawCode(0xEE, (0 + 20 - 2) * 8, (12 + 6 - 1) * 8 - 4)
     end
   elseif self.phase == "menu" and self.demo then
     -- the old-man script (DisplayBattleMenu, core.asm:2038-2049): the

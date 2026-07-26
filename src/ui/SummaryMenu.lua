@@ -5,6 +5,13 @@
 -- A on page 2) closes.
 
 local Font = require("src.render.Font")
+-- status_screen.asm PrintMonType prints the type's DISPLAY name from the
+-- TypeNames table, not the constant: species types are stored as pokered
+-- constants (RomExtractor:typesById) and PSYCHIC's is "PSYCHIC_TYPE" (so it
+-- won't collide with the PSYCHIC move), which would overflow the TYPE field.
+-- TypeChart.displayName maps it back to "PSYCHIC", like HallOfFame and the
+-- battle move-type box already do (#214).
+local TypeChart = require("src.battle.TypeChart")
 
 local SummaryMenu = {}
 SummaryMenu.__index = SummaryMenu
@@ -99,10 +106,10 @@ function SummaryMenu:draw()
     -- TYPE1/TYPE2/IDNo/OT column (10,9) with values indented (11,10)
     drawLineBox(19, 9, 8, 6)
     Font.draw("TYPE1/", 80, 72)
-    Font.draw(def.types[1] or "", 88, 80)
+    Font.draw(def.types[1] and TypeChart.displayName(def.types[1]) or "", 88, 80)
     if def.types[2] then
       Font.draw("TYPE2/", 80, 88)
-      Font.draw(def.types[2], 88, 96)
+      Font.draw(TypeChart.displayName(def.types[2]), 88, 96)
     end
     Font.draw("IDNo/", 80, 104)
     -- the trainer ID is rolled at new game (SaveData.newGame) and

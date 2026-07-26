@@ -524,8 +524,17 @@ M.GAME_CORNER = {
           game.data.text._GameCornerRocketAfterBattleText
           or "Our hideout might\nbe discovered! I\nbetter tell BOSS!",
           function()
-            hideRocket()
-            done()
+            -- #198: GameCornerRocketExitScript (scripts/GameCorner.asm)
+            -- ApplyMovementData walks the grunt one tile UP into the poster
+            -- (the hideout's secret entrance at 9,4) before HideObject, so
+            -- he leaves the floor rather than popping out of existence on
+            -- (9,5).  scriptMove locks player input (#scriptMoves>0) and
+            -- ignores collision, so we despawn + unfreeze (done) only once
+            -- the step lands.
+            ow:scriptMove(npc, "up", 1, function()
+              hideRocket()
+              done()
+            end)
           end))
       end)
     end,
@@ -606,40 +615,62 @@ local function activePrizes()
   return require("src.core.GameVersion").isBlue() and BLUE_PRIZES or RED_PRIZES
 end
 
+-- Prize counters (engine/menus/prize_menu.asm CeladonPrizeMenu; the prize
+-- list itself is data/events/prizes.asm, prize_mon_levels.asm).  Gen1 gates
+-- the prize window on the COIN CASE: it does IsItemInBag COIN_CASE first, and
+-- with no case prints RequireCoinCaseText and returns without ever opening a
+-- window; only with the case does it print ExchangeCoinsForPrizesText and then
+-- show the prizes.  #194: the port used to open the window unconditionally and
+-- skip both text boxes.
 local function prizeCounter(game, ow, npc, done)
   local ListMenu = require("src.ui.ListMenu")
   local Commands = require("src.script.Commands")
-  local items = {}
-  for _, p in ipairs(activePrizes()) do
-    local label
-    if p.kind == "mon" then
-      label = ("%s L%d"):format(game.data.pokemon[p.species].name, p.level)
-    else
-      label = game.data.items[p.item].name
-    end
-    table.insert(items, { label = label, right = tostring(p.cost), value = p })
+  local TextBox = require("src.render.TextBox")
+  local t = game.data.text
+  -- IsItemInBag COIN_CASE: without the case, deny and open no window
+  -- (COIN_CASE is a numeric count in save.inventory, nil when absent).
+  if not game.save.inventory.COIN_CASE then
+    game.stack:push(TextBox.new(game,
+      t._RequireCoinCaseText or "A COIN CASE is\nrequired!", done))
+    return
   end
-  local list
-  list = ListMenu.new(game, "PRIZES (COINS)", items, {
-    footer = ("COINS %d"):format(game.save.coins or 0),
-    onChoose = function(item)
-      local p = item.value
-      if (game.save.coins or 0) < p.cost then
-        list.footer = "Not enough coins!"
-        return
+  -- ExchangeCoinsForPrizesText plays before the prize window opens.
+  game.stack:push(TextBox.new(game,
+    t._ExchangeCoinsForPrizesText or "We exchange your\ncoins for prizes.",
+    function()
+      local items = {}
+      for _, p in ipairs(activePrizes()) do
+        local label
+        if p.kind == "mon" then
+          label = ("%s L%d"):format(game.data.pokemon[p.species].name, p.level)
+        else
+          label = game.data.items[p.item].name
+        end
+        table.insert(items,
+          { label = label, right = tostring(p.cost), value = p })
       end
-      game.save.coins = game.save.coins - p.cost
-      if p.kind == "mon" then
-        Commands.give_pokemon({ save = game.save, game = game },
-                              p.species, p.level)
-      else
-        game.save.inventory[p.item] = (game.save.inventory[p.item] or 0) + 1
-      end
-      list.footer = ("Got it! COINS %d"):format(game.save.coins)
-    end,
-    onCancel = done,
-  })
-  game.stack:push(list)
+      local list
+      list = ListMenu.new(game, "PRIZES (COINS)", items, {
+        footer = ("COINS %d"):format(game.save.coins or 0),
+        onChoose = function(item)
+          local p = item.value
+          if (game.save.coins or 0) < p.cost then
+            list.footer = "Not enough coins!"
+            return
+          end
+          game.save.coins = game.save.coins - p.cost
+          if p.kind == "mon" then
+            Commands.give_pokemon({ save = game.save, game = game },
+                                  p.species, p.level)
+          else
+            game.save.inventory[p.item] = (game.save.inventory[p.item] or 0) + 1
+          end
+          list.footer = ("Got it! COINS %d"):format(game.save.coins)
+        end,
+        onCancel = done,
+      })
+      game.stack:push(list)
+    end))
 end
 
 M.GAME_CORNER_PRIZE_ROOM = {

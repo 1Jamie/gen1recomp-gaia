@@ -102,8 +102,39 @@ function Data:seedDefaults()
   -- after-battle rows so Blaine's SetEventRange deactivation and talk
   -- after-text work like the other gyms (scripts/CinnabarGym.asm).
   self:seedCinnabarGymTrainerHeaders()
+  -- #197: the Fighting Dojo Karate Master is text_asm, so the extractor
+  -- writes no header for him -- seed one so he engages on sight and has
+  -- his defeat / re-talk lines (same idea as the Cinnabar seed above).
+  self:seedFightingDojoKarateMaster()
   -- #189: 1F cabin door order vs rooms map (survey zoom)
   require("src.world.SsAnneLayout").apply(self.maps)
+end
+
+-- The Karate Master (FightingDojo.asm) is a text_asm object: his object has
+-- no def_trainers row (DisplayTextID routes to his ASM script), so the
+-- extractor emits headers only for the four blackbelts ([2]..[5]).  Seed
+-- object index [1] so he behaves like the real leader:
+--   * range 4 (matches the strongest blackbelt) -> CheckFightingMapTrainers
+--     spots the player in his DOWN line and he challenges on sight (#197),
+--   * battle = his pre-battle challenge, won = "Hwa! Arrgh! Beaten!",
+--   * after = the "Stay and train at Karate with us!" re-talk line.
+-- Deliberately NO `event`: EVENT_BEAT_KARATE_MASTER is owned by
+-- victories.lua (OPP_BLACKBELT#1) exactly like the gym leaders, and
+-- engageTrainer sets header.event *before* checkVictoryRewards runs -- if
+-- this header also set it, the reward's flag guard would early-return and
+-- swallow the prize dialogue.  trainerDefeated tracks him via
+-- defeatedTrainers[npc.id] like the leaders.
+function Data:seedFightingDojoKarateMaster()
+  local headers = self.trainer_headers
+  if not headers then return end
+  headers.FightingDojo = headers.FightingDojo or {}
+  if headers.FightingDojo[1] then return end
+  headers.FightingDojo[1] = {
+    range = 4,
+    battle = "_FightingDojoKarateMasterText",
+    won = "_FightingDojoKarateMasterDefeatedText",
+    after = "_FightingDojoKarateMasterStayAndTrainWithUsText",
+  }
 end
 
 function Data:seedCinnabarGymTrainerHeaders()

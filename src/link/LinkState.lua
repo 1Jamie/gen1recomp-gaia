@@ -31,7 +31,12 @@ local function indexOf(list, value)
 end
 
 local function levelForWire(v)
-  return v == ANY and nil or v
+  -- ANY ("use each mon's real level") goes on the wire as nil (no forced
+  -- level).  An explicit guard, not `v == ANY and nil or v`: that idiom's
+  -- true branch is nil, so it falls through to `or v` and returned the
+  -- literal "ANY" string, which then crashed math.floor in unpackMon (#204).
+  if v == ANY then return nil end
+  return v
 end
 
 local function forceLevelLabel(v)
@@ -493,6 +498,14 @@ function LinkState:updateTrade(input)
   if t.stage == "done" then
     local sent = t.party[t.myPick]
     local received, evoTo = t:apply(self.game)
+    -- Autosave the instant the swap commits into game.save.party, matching the
+    -- Cable Club: pokered engine/link/cable_club.asm calls SaveSAVtoSRAM
+    -- (engine/menus/save.asm) right after every trade so the trade is on the
+    -- cartridge before the animation runs.  Without this the received mon
+    -- lives only in memory until a manual START-menu save, so a force-quit
+    -- would lose it and a reset would clone the sent mon (#222).  Guarded so
+    -- headless LinkBattle-style fake games with no writeSave are unaffected.
+    if self.game.writeSave then self.game:writeSave() end
     local name = received.nickname or self.game.data.pokemon[received.species].name
     Runtime.emit("link.ended", { reason = "done" })
     self.net:close()
@@ -510,7 +523,13 @@ function LinkState:updateTrade(input)
           ("Trade completed!\f%s received\n%s!"):format(game.save.player.name, name),
           function()
             if evoTo then
-              require("src.pokemon.Evolution").evolve(game, received, evoTo)
+              -- via="TRADE": a trade evolution cannot be B-cancelled
+              -- (pokered LINK_STATE_TRADING skips the flash B-poll) (#213).
+              -- Re-save once the evolution movie finishes so the evolved
+              -- species (not the pre-evo landed by t:apply) is what persists,
+              -- keeping disk in step with the autosave above (#222).
+              require("src.pokemon.Evolution").evolve(game, received, evoTo,
+                function() if game.writeSave then game:writeSave() end end, "TRADE")
             end
           end))
       end,

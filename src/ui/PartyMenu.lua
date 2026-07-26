@@ -132,6 +132,10 @@ function PartyMenu.new(game, opts)
   self.onSwitch = opts.onSwitch
   self.onCancel = opts.onCancel
   self.pickOnly = opts.pickOnly
+  -- TM/HM teaching: opts.tmhm = { move, kind } switches the list to Gen 1's
+  -- TM/HM display (ABLE / NOT ABLE per mon instead of the HP bar, and the
+  -- "Use TM on which POKeMON?" prompt). Set by BagMenu.pickTargetAndUse. #210
+  self.tmhm = opts.tmhm
   self.forceSwitch = opts.forceSwitch
   self.battle = opts.battle
   self.party = opts.party -- link battles pass their clamped copies
@@ -178,8 +182,15 @@ function PartyMenu:update(dt)
       elseif action == "switch" then
         self.swapFrom = self.index
       elseif action == "fly" then
+        -- FLY opens the TOWN MAP with a cursor over the visited fly towns,
+        -- not a plain text list (engine/menus/town_map.asm LoadTownMap_Fly).
+        -- flyTo (OverworldController) validates the fly-warp + runs the
+        -- departure/warp, so we just hand it the chosen mapId (#195).
+        local ow = self.game.overworld
         self.game.stack:pop() -- close the party menu
-        Screens.push(self.game, "FlyMenu")
+        Screens.push(self.game, "TownMap", { fly = true, onFly = function(mapId)
+          if ow then ow:flyTo(mapId) end
+        end })
         return
       elseif action == "flash" then -- FLASH lights dark tunnels
         -- start_sub_menus.asm .flash: PrintText _FlashLightsAreaText, then
@@ -304,21 +315,15 @@ function PartyMenu:update(dt)
         -- 1/5 of the user's max HP to a chosen teammate
         self.softboiledFrom = self.index
       elseif action == "escape" then
-        -- DIG / TELEPORT both warp to the last Pokémon Center town
-        -- (wLastBlackoutMap, special_warps.asm escape warp); .dig/.teleport
-        -- end with GBPalWhiteOutWithDelay3 + jp .goBackToMap
+        -- DIG / TELEPORT warp to the last Pokémon Center TOWN (wLastBlackoutMap,
+        -- special_warps.asm escape warp).  pokered's .dig/.teleport spin the
+        -- player up (LeaveMapAnim), white/fade out, then land it; this port
+        -- lands OUTSIDE the town PC door like Fly (#196).  beginTeleportOut
+        -- centralizes the spin -> fade -> warp so BagMenu's ESCAPE ROPE shares
+        -- the exact departure; the fade + warp fire when the spin ends.
         local ow = self.game.overworld
-        local heal = self.game.save.lastHeal
-        local Transition = require("src.render.Transition")
         self.game.stack:pop()
-        if ow and heal then
-          self.game.stack:push(Transition.whiteFlash(self.game, nil, function()
-            require("src.core.Sound").play(self.game.data, "Teleport_Exit1")
-            -- EnterMapAnim on arrival (HandleFlyWarpOrDungeonWarp sets
-            -- BIT_FLY_WARP); blackouts must not pass arrive="teleport"
-            ow:warpToHealPoint(nil, { arrive = "teleport" })
-          end))
-        end
+        if ow then ow:beginTeleportOut() end
         return
       end
       self.submenu = nil
@@ -436,6 +441,30 @@ function PartyMenu:update(dt)
   end
 end
 
+-- The bottom-of-screen context message for the current menu state
+-- (pokered engine/menus/party_menu.asm PartyMenuMessage / RedrawPartyMenu_):
+-- the party menu always prints a message in the bottom text box.  With the
+-- normal message id that is PartyMenuBattleText ("Bring out which POKéMON?")
+-- when IsInBattle else PartyMenuNormalText ("Choose a POKéMON."); the swap /
+-- item / TM-HM ids print their own strings, which draw() handles inline.
+-- Pure (no side effects) so drivers can assert it. #147
+function PartyMenu:bottomMessage()
+  if self.swapFrom then
+    return "Move to where?"
+  elseif self.softboiledFrom or self.pickOnly then
+    return "Use on which one?"
+  elseif self.tmhm then
+    return self.game.data.text._PartyMenuUseTMText
+      or "Use TM on which\nPOKéMON?"
+  elseif self.battle then
+    return self.game.data.text._PartyMenuBattleText
+      or "Bring out which\nPOKéMON?"
+  else
+    return self.game.data.text._PartyMenuNormalText
+      or "Choose a POKéMON."
+  end
+end
+
 function PartyMenu:draw()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
@@ -462,16 +491,34 @@ function PartyMenu:draw()
       -- PrintLevel overwrites the <LV> tile with the third digit
       Font.draw(tostring(mon.level), 104, y)
     end
-    if mon.hp <= 0 then
-      Font.draw("FNT", 136, y)
-    elseif mon.status then
-      Font.draw(mon.status, 136, y)
+    if self.tmhm then
+      -- TM/HM teaching menu (engine/menus/party_menu.asm PrintPartyMenu):
+      -- the second row shows the inline "ABLE" / "NOT ABLE" learnability
+      -- strings in place of the HP bar and status, decided by CanLearnTM.
+      -- The learnset scan mirrors ItemEffects.use so the display can never
+      -- disagree with the actual teach. #210
+      local can = false
+      for _, m in ipairs(def.tmhm or {}) do
+        if m == self.tmhm.move then can = true break end
+      end
+      -- right-aligned so the shorter "ABLE" shares "NOT ABLE"'s right edge
+      if can then
+        Font.draw("ABLE", 120, y + 8)
+      else
+        Font.draw("NOT ABLE", 88, y + 8)
+      end
+    else
+      if mon.hp <= 0 then
+        Font.draw("FNT", 136, y)
+      elseif mon.status then
+        Font.draw(mon.status, 136, y)
+      end
+      -- the colored tile HP bar (DrawHP2 + SetPartyMenuHPBarColor)
+      love.graphics.setColor(1, 1, 1, 1)
+      HudTiles.drawHPBar(self.game.data, 5, (y + 8) / 8, mon)
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.draw(("%3d/%3d"):format(mon.hp, mon.stats.hp), 104, y + 8)
     end
-    -- the colored tile HP bar (DrawHP2 + SetPartyMenuHPBarColor)
-    love.graphics.setColor(1, 1, 1, 1)
-    HudTiles.drawHPBar(self.game.data, 5, (y + 8) / 8, mon)
-    love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(("%3d/%3d"):format(mon.hp, mon.stats.hp), 104, y + 8)
     if i == self.index then
       Font.drawCode(Theme.cursor, 0, y)
     end
@@ -483,8 +530,34 @@ function PartyMenu:draw()
     Font.draw("Move to where?", 8, 136)
   elseif self.softboiledFrom then
     Font.draw("Use on which one?", 8, 136)
+  elseif self.tmhm then
+    -- "Use TM on which\nPOKeMON?" in the standard bottom text box
+    -- (party_menu.asm keeps the message box for the TM/HM menu); box + line
+    -- geometry match TextBox's default (rows 12-17, text on rows 14/16). #210
+    Font.drawBox(0, 12, 20, 6)
+    love.graphics.setColor(0, 0, 0, 1)
+    local prompt = self.game.data.text._PartyMenuUseTMText
+      or "Use TM on which\nPOKéMON?"
+    local ly = 112
+    for line in (prompt .. "\n"):gmatch("([^\n]*)\n") do
+      Font.draw(line, 8, ly)
+      ly = ly + 16
+    end
   elseif self.pickOnly then
     Font.draw("Use on which one?", 8, 136)
+  else
+    -- default field party menu (StartMenu) and the battle voluntary-switch
+    -- (BattleState:openParty): Gen1 prints PartyMenuNormalText / PartyMenuBattleText
+    -- in the standard bottom text box (party_menu.asm PartyMenuMessage), not
+    -- plain bottom-row text.  Box + line geometry match the #210 TM/HM case and
+    -- TextBox's default (rows 12-17, text on rows 14/16). #147
+    Font.drawBox(0, 12, 20, 6)
+    love.graphics.setColor(0, 0, 0, 1)
+    local ly = 112
+    for line in (self:bottomMessage() .. "\n"):gmatch("([^\n]*)\n") do
+      Font.draw(line, 8, ly)
+      ly = ly + 16
+    end
   end
   if self.submenu then
     local n = #self.subItems

@@ -101,15 +101,14 @@ end
 -- ported, kept here as a regression check of the full chain).
 --
 -- Note: the B2F -> B3F leg's *destination* visibility (steps 5-6 below)
--- is a known pre-existing gap unrelated to this workstream: B3F's
--- toggleable_objects.asm ordinal skips BOULDER1/BOULDER4, so
--- TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_3/4 (which should land on
--- SEAFOAMISLANDSB3F_BOULDER5/6) resolve through
--- OverworldController.lua's toggleToObjectName() to the wrong (already-
--- visible) BOULDER3/4 instead. That resolver lives outside this
--- workstream's port targets, so only the event flag + source-hide (both
--- correct today) are asserted for that leg; the cosmetic destination
--- reveal is left as-is.
+-- was a pre-existing gap (issue #212): the plug rocks that stop the B3F
+-- strong current land at (18,6)/(19,6) -- the hidden SEAFOAMISLANDSB3F_
+-- BOULDER5/6 -- but field.pluggedByHolesOn wired those holes' showObject to
+-- TOGGLE_SEAFOAM_ISLANDS_B3F_BOULDER_3/4, which toggleToObjectName() resolves
+-- to the already-visible BOULDER3/4 at (8,14)/(9,14), so the landing rocks
+-- never appeared.  Fixed by repointing the showObject toggles to BOULDER_5/_6
+-- (tools/rom_manifest*.json + the data/generated/field.lua cache), so the
+-- destination reveal now works and is asserted here (checkDst = true).
 local pushes = {
   { curMap = "SEAFOAM_ISLANDS_1F", hx = 17, hy = 6,
     event = "EVENT_SEAFOAM1_BOULDER1_DOWN_HOLE",
@@ -135,12 +134,12 @@ local pushes = {
     event = "EVENT_SEAFOAM3_BOULDER1_DOWN_HOLE",
     srcMap = "SEAFOAM_ISLANDS_B2F", srcName = "SEAFOAMISLANDSB2F_BOULDER1",
     dstMap = "SEAFOAM_ISLANDS_B3F", dstName = "SEAFOAMISLANDSB3F_BOULDER5",
-    checkDst = false },
+    checkDst = true },
   { curMap = "SEAFOAM_ISLANDS_B2F", hx = 22, hy = 6,
     event = "EVENT_SEAFOAM3_BOULDER2_DOWN_HOLE",
     srcMap = "SEAFOAM_ISLANDS_B2F", srcName = "SEAFOAMISLANDSB2F_BOULDER2",
     dstMap = "SEAFOAM_ISLANDS_B3F", dstName = "SEAFOAMISLANDSB3F_BOULDER6",
-    checkDst = false },
+    checkDst = true },
   { curMap = "SEAFOAM_ISLANDS_B3F", hx = 3, hy = 16,
     event = "EVENT_SEAFOAM4_BOULDER1_DOWN_HOLE",
     srcMap = "SEAFOAM_ISLANDS_B3F", srcName = "SEAFOAMISLANDSB3F_BOULDER1",

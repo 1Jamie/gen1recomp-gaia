@@ -52,6 +52,26 @@ local clamped = Protocol.unpackMon(Data, packed)
 eq(clamped.level, 100, "tampered level clamped")
 eq(clamped.dvs.attack, 15, "tampered DV clamped")
 
+-- OT identity survives the wire (#215): pokered's trade sends each mon's OT
+-- ID (party_struct MON_OTID) and OT name (wPartyMonOT); the receiver keeps
+-- them verbatim so a traded mon shows its original trainer, not the receiver.
+local otMon = Pokemon.new(Data, "KADABRA", 30)
+otMon.ot = "CULLEN"
+otMon.otId = 16012
+local otRt = Protocol.unpackMon(Data, Protocol.packMon(otMon))
+eq(otRt.ot, "CULLEN", "OT name survives the wire")
+eq(otRt.otId, 16012, "OT ID survives the wire")
+-- a tampered OT ID is clamped into the 16-bit range like every other field
+local otPack = Protocol.packMon(otMon)
+otPack.otId = 999999
+eq(Protocol.unpackMon(Data, otPack).otId, 65535, "over-range OT ID clamped")
+otPack.otId = -5
+eq(Protocol.unpackMon(Data, otPack).otId, 0, "under-range OT ID clamped")
+-- an old peer that never sends OT leaves it nil (no worse than legacy; the
+-- load-time stampOT backfill then fills the receiver's own, as before)
+local legacy = Protocol.packMon(Pokemon.new(Data, "PIDGEY", 10))
+check(Protocol.unpackMon(Data, legacy).ot == nil, "missing OT stays nil (legacy peer)")
+
 -- ---------------------------------------------------------------- transport
 local Net = require("src.link.Net")
 
@@ -254,6 +274,10 @@ end
 -- ---------------------------------------------------------------- trade session
 local partyA = { Pokemon.new(Data, "KADABRA", 30), Pokemon.new(Data, "PIDGEY", 10) }
 local partyB = { Pokemon.new(Data, "MACHOKE", 32) }
+-- distinct original trainers so a preserved OT is unmistakable after the swap
+-- (#215): A's KADABRA belongs to CULLEN/16012, B's MACHOKE to RED/60368
+partyA[1].ot = "CULLEN"; partyA[1].otId = 16012
+partyB[1].ot = "RED"; partyB[1].otId = 60368
 local tA = Protocol.TradeSession.new(Data, partyA)
 local tB = Protocol.TradeSession.new(Data, partyB)
 tA:handle({ type = "party", mons = Protocol.packParty(partyB) })
@@ -272,9 +296,14 @@ eq(tA.stage, "done", "trade completes")
 local gotMon, evoTo = tA:apply(nil)
 eq(gotMon.species, "MACHOKE", "A received Machoke")
 eq(evoTo, "MACHAMP", "trade evolution triggers (Machoke -> Machamp)")
+-- the received mon keeps its SENDER's OT, not the receiver's (#215)
+eq(gotMon.ot, "RED", "A's received Machoke keeps sender B's OT name")
+eq(gotMon.otId, 60368, "A's received Machoke keeps sender B's OT ID")
 local gotMon2, evoTo2 = tB:apply(nil)
 eq(gotMon2.species, "KADABRA", "B received Kadabra")
 eq(evoTo2, "ALAKAZAM", "Kadabra -> Alakazam on trade")
+eq(gotMon2.ot, "CULLEN", "B's received Kadabra keeps sender A's OT name")
+eq(gotMon2.otId, 16012, "B's received Kadabra keeps sender A's OT ID")
 
 -- declined trades cancel
 local tC = Protocol.TradeSession.new(Data, partyA)
@@ -397,6 +426,52 @@ eq(battleG.player.mon.stats.hp, expectedStats.hp,
    "forced-level stats are recomputed for level 50, not clamped from level 12")
 eq(gameG.save.party[1].level, 12, "the real save data keeps its actual level")
 eq(gameH.save.party[1].level, 100, "...on both sides")
+
+-- ---------------------------------------------------------------- "ANY" level ruling (#204)
+-- The link "level ruling" picker cycles a string sentinel "ANY" meaning
+-- "use each mon's real level" (Gen1 link cable always used the real level).
+-- LinkState/Tournament.levelForWire turns that sentinel into nil on the wire;
+-- a broken `x and nil or y` idiom used to let the literal "ANY" through into
+-- opts.forceLevel, and Protocol.unpackMon then called math.floor("ANY") ->
+-- "bad argument #1 to 'floor' (number expected, got string)", crashing the
+-- host the instant parties were unpacked in newHost (see the #204 report's
+-- traceback: unpackMon <- unpackParty <- newHost <- LinkState.update).
+-- unpackMon now coerces forceLevel with tonumber, so any non-numeric level
+-- string means "no forced level" and the mon keeps its packed real level.
+local anyPk = Protocol.packMon(Pokemon.new(Data, "PIKACHU", 12))
+local okAny, monAny = pcall(Protocol.unpackMon, Data, anyPk, { forceLevel = "ANY" })
+check(okAny, "unpackMon does not crash on the ANY sentinel string")
+eq(okAny and monAny and monAny.level, 12, "ANY forceLevel keeps the mon's real level (12)")
+local okStr, monStr = pcall(Protocol.unpackMon, Data, anyPk, { forceLevel = "50" })
+eq(okStr and monStr and monStr.level, 50, "a numeric-string forceLevel is still honored (50)")
+local okNil, monNil = pcall(Protocol.unpackMon, Data, anyPk, { forceLevel = nil })
+eq(okNil and monNil and monNil.level, 12, "no forceLevel keeps the real level (12)")
+
+-- end-to-end host path from the crash report: newHost -> unpackParty ->
+-- unpackMon, with the exact bad value the bug emitted (forceLevel = "ANY").
+local gameI = makeFakeGame("PIKACHU")
+gameI.save.party[1] = Pokemon.new(Data, "PIKACHU", 12)
+local gameJ = makeFakeGame("GEODUDE")
+gameJ.save.party[1] = Pokemon.new(Data, "GEODUDE", 100)
+gameJ.save.player.name = "BLUE"
+local netI, netJ = Net.loopbackPair()
+local packedI = Protocol.packParty(gameI.save.party)
+local packedJ = Protocol.packParty(gameJ.save.party)
+local seedIJ = 24680
+local okHost, battleI = pcall(LinkBattle.newHost, gameI, netI, {
+  myParty = packedI, theirParty = packedJ, theirName = "BLUE", seed = seedIJ,
+  forceLevel = "ANY",
+})
+local okGuest, battleJ = pcall(LinkBattle.newGuest, gameJ, netJ, {
+  myParty = packedJ, theirParty = packedI, theirName = "RED", seed = seedIJ,
+  forceLevel = "ANY",
+})
+check(okHost and battleI ~= nil, "newHost does not crash with the ANY ruling")
+check(okGuest and battleJ ~= nil, "newGuest does not crash with the ANY ruling")
+eq(okHost and battleI and battleI.player.mon.level, 12,
+   "ANY ruling: the host keeps its mon's real level (12, not forced)")
+eq(okHost and battleI and battleI.enemy.mon.level, 100,
+   "ANY ruling: the enemy mon keeps its real level (100, not forced)")
 
 -- ---------------------------------------------------------------- tournament shot clock
 -- opts.turnLimit only applies to tournament matches; the guest mashes

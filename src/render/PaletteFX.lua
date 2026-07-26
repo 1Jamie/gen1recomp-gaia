@@ -50,14 +50,23 @@ PaletteFX.GBC_OBJ = {
 }
 
 -- OG BLUE: Pokemon Blue's Game Boy Color boot-ROM auto-palette.  Same
--- one-global-pair scheme as OG RED (Blue also ships no CGB code), but the
--- boot ROM colorizes the background blue instead of red -- so "OG RED" for a
--- Blue playthrough is white -> light blue -> dark blue -> black, mirroring
--- GBC_BG channel-for-channel so the blue reads at the same brightness.  The
--- OBJ (sprite) palette stays the same green, matching how Red and Blue share
--- the green-character look on a Game Boy Color.
+-- one-global-pair scheme as OG RED (Blue also ships no CGB code), but the boot
+-- ROM gives Blue its OWN entry rather than a recolored Red: a light-blue/blue
+-- BACKGROUND and -- unlike Red -- a PINK object palette (OBP0).  Values from
+-- Bulbapedia's "List of color palettes ... Generation I" GBC boot-ROM table
+-- (BG 0x63A5FF/0x0000FF, OBJ 0xFF8484/0x943A3A), confirmed against a Gambatte
+-- hardware capture.  The earlier code mirrored GBC_BG channel-for-channel
+-- (0x8484FF/0x3A3A94) and reused Red's green sprites for both versions on the
+-- premise that Red and Blue "share the green-character look"; both premises
+-- are wrong -- Blue's background is a genuinely different blue and its
+-- characters are pink (#155).  Lightest shade first, like GBC_BG.
 PaletteFX.GBC_BG_BLUE = {
-  { 255, 255, 255 }, { 132, 132, 255 }, { 58, 58, 148 }, { 0, 0, 0 },
+  { 255, 255, 255 }, { 99, 165, 255 }, { 0, 0, 255 }, { 0, 0, 0 },
+}
+-- Blue's OBJ palette (OBP0) is the red/pink ramp -- the very same colors OG
+-- RED uses for its BACKGROUND (GBC_BG), just applied to objects instead.
+PaletteFX.GBC_OBJ_BLUE = {
+  { 255, 255, 255 }, { 255, 132, 132 }, { 148, 58, 58 }, { 0, 0, 0 },
 }
 
 -- The active game's OG boot-ROM background palette: blue for a Blue
@@ -67,6 +76,16 @@ PaletteFX.GBC_BG_BLUE = {
 function PaletteFX.ogBg()
   if GameVersion.isBlue() then return PaletteFX.GBC_BG_BLUE end
   return PaletteFX.GBC_BG
+end
+
+-- The active game's OG boot-ROM object palette (OBP0): Blue's pink ramp for a
+-- Blue playthrough, Red's green otherwise.  Returns the colors AND a
+-- version-distinct cache-group string, because SpriteRenderer.getObpImage keys
+-- its baked-image cache by (image path, group): a shared group would collide a
+-- Red bake with a Blue one and one version would show the other's colors.
+function PaletteFX.ogObj()
+  if GameVersion.isBlue() then return PaletteFX.GBC_OBJ_BLUE, "gbcobj_blue" end
+  return PaletteFX.GBC_OBJ, "gbcobj"
 end
 
 local INV_MAP = { [0] = 3, [1] = 2, [2] = 1, [3] = 0 }
@@ -183,17 +202,25 @@ function PaletteFX.usesGbcPack(mode)
 end
 
 -- Whether the active mode bakes a per-OBJ palette onto overworld sprites
--- (the OBP bake + post-zone redraw path).  ONLY OG RED does: it wears the
--- GBC boot-ROM green object palette (PaletteFX.GBC_OBJ) so the player and
--- NPCs stay green over the red background, exactly like Pokemon Red on a
--- Game Boy Color.  SGB mode deliberately does NOT: an SGB OBJ carries no
--- palette of its own, so the characters tint with the whole-map region
--- palette along with the terrain (the Super Game Boy never colored Pokemon
--- Red's sprites separately -- baking a per-sprite palette there was the
--- "reds coloring on the player/NPCs" bug).  RED++ colors sprites through
--- the usesGbcPack() path in SpriteRenderer instead.
+-- (the OBP bake + post-zone redraw path).  OG RED and SGB both do: characters
+-- wear the GBC boot-ROM object palette (PaletteFX.ogObj -- green over Red's red
+-- background, pink over Blue's blue background), so the player and NPCs carry a
+-- fixed object color instead of tinting with whatever region palette their
+-- feet stand over.  On real hardware a sprite is an OBJ colored by an OBJ
+-- palette (color/sprites.asm ColorOverworldSprite), distinct from the BG it
+-- overlaps -- so Red's cap must stay green in tall grass, not turn the ROUTE
+-- palette's light-blue (issue #150: SGB region-tinting sent the cap to shade-2
+-- = light-blue and the character clashed with the grass it should blend into).
+-- Terrain is unaffected -- pal() below still hands SGB its per-map BG palette;
+-- only OG RED short-circuits BG to the one global red palette.  An EARLIER
+-- attempt at per-sprite SGB color baked GBC_BG (the RED background ramp) onto
+-- characters -- that was the "reds coloring on the player/NPCs" bug; the object
+-- palette is GBC_OBJ (green), so baking it here is the fix, not that
+-- regression.  RED++ colors sprites through the usesGbcPack() path in
+-- SpriteRenderer instead.
 function PaletteFX.usesSpriteObp(mode)
-  return (mode or PaletteFX.mode) == "ogred"
+  mode = mode or PaletteFX.mode
+  return mode == "ogred" or mode == "gbc"
 end
 
 -- ------- post-zone sprite redraw (GBC mode)

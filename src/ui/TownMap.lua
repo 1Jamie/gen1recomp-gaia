@@ -7,6 +7,11 @@
 -- the selected name in a banner up top, and the player's current
 -- location blinking.  List mode (townMap data missing): up/down through
 -- an ordered list of fly towns instead.  B closes.
+--
+-- Fly mode (opts.fly + opts.onFly, LoadTownMap_Fly): the same Kanto map,
+-- but the cursor cycles ONLY the visited fly destinations (Up/Down, in fly
+-- order), the banner reads "To <NAME>", and A calls onFly(mapId) to depart.
+-- This is what the party-menu FLY field move opens (#195).
 
 local Font = require("src.render.Font")
 local Sound = require("src.core.Sound")
@@ -80,7 +85,10 @@ local function buildLocations(game)
   local seen = {}
   for _, mapId in ipairs(field.flyOrder or {}) do
     local def = game.data.maps and game.data.maps[mapId]
-    if not seen[mapId] and def and Map.isOutdoor(def) then
+    -- accept the PLATEAU tileset too so Indigo Plateau shows on the
+    -- stale-asset list fallback, matching the fly-list filter (#203)
+    if not seen[mapId] and def
+       and (Map.isOutdoor(def) or def.tileset == "PLATEAU") then
       seen[mapId] = true
       local loc = { name = mapId:gsub("_", " ") }
       table.insert(locs, loc)
@@ -119,6 +127,42 @@ local function markerXY(loc)
   return loc.x * 8 + 16, loc.y * 8 + 8
 end
 
+-- the row-0 name banner; fly mode prefixes "To " like LoadTownMap_Fly
+-- (engine/menus/town_map.asm prints the destination as "To <NAME>")
+function TownMap:bannerText(loc)
+  return (self.fly and "To " or "") .. loc.name
+end
+
+-- Fly mode selection set (engine/menus/town_map.asm LoadTownMap_Fly): the
+-- cursor cycles ONLY the visited fly destinations, in fly order, each landing
+-- on its town square.  Built from field.flyOrder filtered to visited outdoor
+-- towns that have a fly-warp spot, deduped, reusing the grid loc so the cursor
+-- lands on the town and its name shows in the banner.
+local function buildFlyList(game, byMap)
+  local field = game.data.field or {}
+  local visited = game.save.visited or {}
+  local flyWarps = field.flyWarps or {}
+  local Map = require("src.world.Map")
+  local flyLocs, flyMapIds, seen = {}, {}, {}
+  for _, mapId in ipairs(field.flyOrder or {}) do
+    local def = game.data.maps and game.data.maps[mapId]
+    -- INDIGO_PLATEAU is a normal Fly spot (engine/menus/town_map.asm
+    -- LoadTownMap_Fly cycles it like any town), but its map uses tileset
+    -- "PLATEAU" not OVERWORLD, so Map.isOutdoor() alone dropped it from the
+    -- cursor even though it is visited and has a fly warp.  Allow PLATEAU here
+    -- while the CAVERN/FACILITY dungeon escape spots that share flyOrder still
+    -- fail the gate and stay out (#203).
+    if not seen[mapId] and visited[mapId] and flyWarps[mapId]
+       and def and (Map.isOutdoor(def) or def.tileset == "PLATEAU") then
+      seen[mapId] = true
+      local loc = byMap[mapId] or { name = mapId:gsub("_", " ") }
+      table.insert(flyLocs, loc)
+      flyMapIds[#flyLocs] = mapId
+    end
+  end
+  return flyLocs, flyMapIds
+end
+
 -- opts.nestSpecies: the Pokédex AREA screen (LoadTownMap_Nest) --
 -- blink a nest icon on every map whose wild slots hold the species
 function TownMap.new(game, opts)
@@ -151,6 +195,26 @@ function TownMap.new(game, opts)
                           (nest and nest.path)
                           or "assets/generated/townmap/nest.png")
     self.nestIcon = ok and img or nil
+  end
+  if opts.fly then
+    -- FLY picker (LoadTownMap_Fly): restrict the selectable set to the
+    -- visited fly towns so Up/Down cycle only those and A knows the mapId.
+    local flyLocs, flyMapIds = buildFlyList(game, self.byMap)
+    if #flyLocs > 0 then
+      self.fly = true
+      self.onFly = opts.onFly
+      self.locs = flyLocs
+      self.flyMapIds = flyMapIds
+      -- grid rendering needs coords on every entry; without them fall back to
+      -- the name list so the fly screen still works on stale asset builds
+      if self.mode == "grid" then
+        for _, loc in ipairs(flyLocs) do
+          if not (loc.x and loc.y) then self.mode = "list" break end
+        end
+      end
+    end
+    -- with nothing visited yet there is nowhere to fly: leave self.fly unset
+    -- so the screen degrades to a plain viewer (B closes)
   end
   -- the player's current location (guard: overworld may not be running)
   local mapId = game.overworld and game.overworld.map and game.overworld.map.id
@@ -199,7 +263,19 @@ function TownMap:update(dt)
     self.game.stack:pop()
     return
   end
-  if self.nestSpecies then
+  if self.fly then
+    -- LoadTownMap_Fly: Up/Down cycle the visited destinations, A flies there,
+    -- B cancels (handled above).  moveList walks self.locs, now the fly list.
+    if input:wasPressed("a") then
+      Sound.play(self.game.data, "Press_AB")
+      local mapId = self.flyMapIds[self.sel]
+      self.game.stack:pop()
+      if mapId and self.onFly then self.onFly(mapId) end
+      return
+    elseif input:wasPressed("up") then self:moveList(-1)
+    elseif input:wasPressed("down") then self:moveList(1)
+    end
+  elseif self.nestSpecies then
     if input:wasPressed("a") then
       Sound.play(self.game.data, "Press_AB")
       self.game.stack:pop()
@@ -260,18 +336,28 @@ function TownMap:draw()
       love.graphics.setColor(1, 1, 1, 1)
       return
     end
-    -- the player's current location blinks (slow phase)
+    -- the player's current location blinks (slow phase).  Paint it with a
+    -- palette-safe DARK shade (red 0), not red: this screen composites through
+    -- the TOWNMAP SGB shade-remap shader (PaletteFX.shader), which keys ONLY on
+    -- the red channel, and a red-0.75 dot lands in the c1 bucket = TOWNMAP
+    -- {165,214,255}, the exact light-blue used for the water and the town-square
+    -- fill, so the marker was drawn but recolored invisible (#152).  Red 0 -> c3
+    -- {25,16,16} = a solid dark "you are here" dot, visible on land and water.
     if self.playerLoc and self.blink < 20 then
       local x, y = markerXY(self.playerLoc)
-      love.graphics.setColor(0.75, 0.1, 0.1, 1)
+      love.graphics.setColor(0, 0, 0, 1)
       love.graphics.rectangle("fill", x + 2, y + 2, 4, 4)
       love.graphics.setColor(1, 1, 1, 1)
     end
-    -- blinking cursor on the selected location
+    -- blinking cursor on the selected location.  markerXY is the 8x8 cell's
+    -- top-left; the cursor asset is a 16x16 hollow frame centered on its own
+    -- (8,8), so draw it -4,-4 to enclose the cell (engine/menus/town_map.asm
+    -- draws the box cursor CENTERED on the selected location).  Drawing it at
+    -- the cell top-left put the square in the frame's top-left quadrant (#152).
     if selected and self.blink % 16 < 10 then
       local x, y = markerXY(selected)
       if self.bg.cursor then
-        love.graphics.draw(self.bg.cursor, x, y)
+        love.graphics.draw(self.bg.cursor, x - 4, y - 4)
       else
         love.graphics.setColor(0, 0, 0, 1)
         love.graphics.rectangle("line", x + 0.5, y + 0.5, 7, 7)
@@ -281,7 +367,7 @@ function TownMap:draw()
     -- the name strip on row 0 (DisplayTownMap: ClearScreenArea + name)
     love.graphics.rectangle("fill", 0, 0, 160, 8)
     love.graphics.setColor(0, 0, 0, 1)
-    if selected then Font.draw(selected.name, 8, 0) end
+    if selected then Font.draw(self:bannerText(selected), 8, 0) end
     love.graphics.setColor(1, 1, 1, 1)
     return
   end
@@ -294,7 +380,9 @@ function TownMap:draw()
       drawSquare(loc)
     end
     if self.playerLoc and self.blink < 20 then
-      love.graphics.setColor(0.75, 0.1, 0.1, 1)
+      -- palette-safe dark, same red-channel shade-remap reason as the primary
+      -- grid path above (#152); stale-asset builds hit this fallback square
+      love.graphics.setColor(0, 0, 0, 1)
       love.graphics.rectangle("fill", self.playerLoc.x * 8 + 2,
                               self.playerLoc.y * 8 + 2, 4, 4)
     end
@@ -317,7 +405,10 @@ function TownMap:draw()
         end
         Font.draw(loc.name, 24, y)
         if loc == self.playerLoc and self.blink < 20 then
-          -- blinking marker on the player's current town
+          -- blinking marker on the player's current town; force the palette-safe
+          -- dark shade explicitly so the red-channel shade-remap keeps it
+          -- visible regardless of Font.draw's leftover color (#152)
+          love.graphics.setColor(0, 0, 0, 1)
           love.graphics.rectangle("fill", 24 + #loc.name * 8 + 6, y + 2, 4, 4)
         end
       end
@@ -327,7 +418,7 @@ function TownMap:draw()
   -- name banner across the top
   Font.drawBox(0, 0, 20, 3)
   love.graphics.setColor(0, 0, 0, 1)
-  if selected then Font.draw(selected.name, 8, 8) end
+  if selected then Font.draw(self:bannerText(selected), 8, 8) end
   love.graphics.setColor(1, 1, 1, 1)
 end
 

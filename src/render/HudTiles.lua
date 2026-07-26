@@ -77,7 +77,17 @@ end
 -- one-pixel sliver.  The fill is tinted with the SGB bar palettes at
 -- GetHealthBarColor's thresholds (>= 27 px green, >= 10 yellow, else
 -- red).
-function HudTiles.drawHPBar(data, tx, ty, mon, barType)
+--
+-- grayFill (#229): when the caller will colorize this bar with an SGB
+-- region palette (BattleState's zone pass, BATTLE_ZONES pal 0/1 =
+-- GetHealthBarColor), leave the fill as its raw DMG shade-2 gray and skip
+-- the per-pixel tint -- the DMG hardware bar is ONE gray shade recolored by
+-- the region palette (engine/gfx/palettes.asm SetPal_Battle,
+-- data/sgb/sgb_packets.asm BlkPacket_Battle), never a per-pixel repaint.
+-- Tinting first would double-apply the color: GREENBAR's fill {0,189,0} has
+-- red channel 0, so the tint zeroes the whole bar's red and the zone's
+-- red-channel-keyed shade shader then maps every pixel to color 3 = black.
+function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill)
   local x, y = tx * 8, ty * 8
   HudTiles.tile(0x71, x, y)
   HudTiles.tile(0x62, x + 8, y)
@@ -86,15 +96,17 @@ function HudTiles.drawHPBar(data, tx, ty, mon, barType)
     px = math.max(1, math.floor(mon.hp * 48 / mon.stats.hp))
   end
   local tint
-  local PaletteFX = require("src.render.PaletteFX")
-  local name = px >= 27 and "GREENBAR" or px >= 10 and "YELLOWBAR" or "REDBAR"
-  local colors = PaletteFX.pal(data, name)
-  if colors then
-    local c = colors[3] -- GB color 2 is the fill shade
-    -- the fill pixels are the 2/3-gray shade; divide so they land on
-    -- the palette color exactly (the black outline stays black)
-    tint = { math.min(1, c[1] / 170), math.min(1, c[2] / 170),
-             math.min(1, c[3] / 170), 1 }
+  if not grayFill then
+    local PaletteFX = require("src.render.PaletteFX")
+    local name = px >= 27 and "GREENBAR" or px >= 10 and "YELLOWBAR" or "REDBAR"
+    local colors = PaletteFX.pal(data, name)
+    if colors then
+      local c = colors[3] -- GB color 2 is the fill shade
+      -- the fill pixels are the 2/3-gray shade; divide so they land on
+      -- the palette color exactly (the black outline stays black)
+      tint = { math.min(1, c[1] / 170), math.min(1, c[2] / 170),
+               math.min(1, c[3] / 170), 1 }
+    end
   end
   for i = 0, 5 do
     local seg = math.min(8, math.max(0, px - i * 8))

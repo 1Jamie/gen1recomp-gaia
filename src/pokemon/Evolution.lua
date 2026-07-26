@@ -106,11 +106,55 @@ function Evolution.apply(game, mon, newSpecies, via)
   })
 end
 
+-- After the "evolved into" text, Gen1 re-runs the level-up learn check on
+-- the EVOLVED species (engine/pokemon/evos_moves.asm EvolveMon calls the
+-- LearnMoveFromLevelUp predef, engine/pokemon/learn_move.asm) -- a mon
+-- evolving at exactly a learnset level gains that move (GYARADOS learns
+-- BITE at 20, so MAGIKARP->GYARADOS @20 learns BITE, @21 does not) (#12).
+-- Mirrors the rare-candy learn loop in src/ui/BagMenu.lua so a full move
+-- list opens the forget prompt.  mon.species is already the new species
+-- (Evolution.apply ran before the congrats text).  onDone runs once the
+-- learn list is exhausted, replacing the caller's direct onDone.
+function Evolution.learnEvolutionMoves(game, mon, onDone)
+  local Experience = require("src.battle.Experience")
+  local def = game.data.pokemon[mon.species]
+  -- movesLearnedAt uses entry.level == level (exact Gen1 rule); do NOT use
+  -- Pokemon.movesAtLevel (<= level), which would over-grant older moves.
+  local moves = Experience.movesLearnedAt(def, mon.level)
+  local i = 0
+  local function nextStep()
+    i = i + 1
+    local moveId = moves[i]
+    if not moveId then
+      if onDone then onDone() end
+      return
+    end
+    for _, mv in ipairs(mon.moves) do
+      if mv.id == moveId then return nextStep() end
+    end
+    local mdef = game.data.moves[moveId]
+    if not mdef then return nextStep() end
+    local name = mon.nickname or def.name
+    if #mon.moves < 4 then
+      table.insert(mon.moves, { id = moveId, pp = mdef.pp })
+      Runtime.emit("pokemon.move_learned", { mon = mon, moveId = moveId })
+      game.stack:push(TextBox.new(game,
+        ("%s learned\n%s!"):format(name, mdef.name), nextStep))
+    else
+      -- LearnMoveFromLevelUp with a full moveset: the forget UI
+      Screens.push(game, "MoveLearnMenu", mon, moveId, nextStep)
+    end
+  end
+  nextStep()
+end
+
 -- Play the evolution movie (flashing forms), then apply + text.
 -- Headless (no real graphics) falls back to the plain text flow.
 function Evolution.evolve(game, mon, newSpecies, onDone, via)
   if love.image and love.image.newImageData then
-    Screens.push(game, "EvolutionState", mon, newSpecies, onDone)
+    -- forward `via` so EvolutionState can keep trade evolutions
+    -- non-cancelable (LINK_STATE_TRADING) while others accept B (#213)
+    Screens.push(game, "EvolutionState", mon, newSpecies, onDone, via)
     return
   end
   Music.play(game.data, Music.special(game.data, "evolution"))
@@ -120,7 +164,9 @@ function Evolution.evolve(game, mon, newSpecies, onDone, via)
               :format(oldName, oldName, game.data.pokemon[newSpecies].name)
   game.stack:push(TextBox.new(game, msg, function()
     Music.restoreMap(game.data)
-    if onDone then onDone() end
+    -- re-run the evolved species' level-up learn check before onDone
+    -- (evos_moves.asm EvolveMon -> learn_move.asm LearnMoveFromLevelUp, #12)
+    Evolution.learnEvolutionMoves(game, mon, onDone)
   end))
 end
 

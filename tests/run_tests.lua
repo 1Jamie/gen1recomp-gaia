@@ -1244,7 +1244,9 @@ do
   eb2.participants = { [Game.save.party[1]] = true }
   eb2:enemyMonFainted()
   local boosted = Experience.gainFor(Data.pokemon.RATTATA, 10, false, 1, true)
-  check(hasText(eb2, ("BULBASAUR gained\na boosted\n%d EXP. Points!"):format(boosted)),
+  -- _BoostedText ends in the ROM CONT code \v ("a boosted\011"), so the box
+  -- waits + scrolls the amount into view rather than drawing it off-screen (#216)
+  check(hasText(eb2, ("BULBASAUR gained\na boosted\v%d EXP. Points!"):format(boosted)),
         "_BoostedText tail for traded mons")
 
   Game.save.party = { Pokemon.new(Data, "BULBASAUR", 30) }
@@ -1253,7 +1255,8 @@ do
   eb3.participants = { [Game.save.party[1]] = true }
   eb3:enemyMonFainted()
   local share = Experience.gainFor(Data.pokemon.RATTATA, 10, false, 2, false)
-  check(hasText(eb3, ("BULBASAUR gained\nwith EXP.ALL,\n%d EXP. Points!"):format(share)),
+  -- _WithExpAllText likewise ends in the CONT code \v ("with EXP.ALL,\011") (#216)
+  check(hasText(eb3, ("BULBASAUR gained\nwith EXP.ALL,\v%d EXP. Points!"):format(share)),
         "_WithExpAllText tail on the EXP.ALL pass")
   check(not hasText(eb3, "divided"), "no invented EXP.ALL summary line")
   Game.save.inventory.EXP_ALL = nil
@@ -1872,6 +1875,25 @@ do
   -- ceil(pw/Sp)=ceil(1920/7)=275 → even 276; ceil(1080/7)=155 → even 156
   eq(vw, 276, "world fill width covers the unit window at pixel scale 7")
   eq(vh, 156, "world fill height covers the unit window at pixel scale 7")
+
+  -- #208: on a dual-screen surface (AYN Thor, forced landscape) LOVE can
+  -- report drawable == unit size (pw/ww == 1) while its real coordinate->pixel
+  -- transform is 1.5.  fitScale stays keyed off the drawable pixel size, but
+  -- the unit<->pixel conversion must use the REAL getDPIScale, not pw/ww, so
+  -- each GB pixel still lands on a WHOLE number of physical pixels (square) --
+  -- not the stretched 6-vs-9-device-px fractional pixels the reporter saw.
+  -- Before the fix drawScale()==Sp/(pw/ww)==7 and 7*1.5==10.5 px/GB px.
+  Zoom.reset()
+  g.getDimensions = function() return 1920, 1080 end
+  g.getPixelDimensions = function() return 1920, 1080 end
+  g.getDPIScale = function() return 1.5 end
+  eq(Renderer:fitScale(), 7,
+     "#208 divergent DPI: fitScale still 7 from drawable pixels")
+  local physical = Renderer:drawScale() * g.getDPIScale()
+  local rounded = math.floor(physical + 0.5)
+  check(math.abs(physical - rounded) < 1e-9,
+        "#208 GB pixel lands on a whole number of physical pixels (square)")
+  eq(rounded, 7, "#208 each GB pixel covers exactly fitScale (7) physical px")
 
   -- missing pixel API falls back to getDimensions (headless / old stub)
   g.getPixelDimensions = nil
@@ -2765,6 +2787,8 @@ do
 end
 
 -- Battle message lines skip a tile row (14 then 16), matching the menu.
+-- The box renders the rolling 2-line window (self.shown); #216 reworked the
+-- renderer so a 3rd line scrolls into view instead of drawing at y=144.
 do
   local Font = require("src.render.Font")
   local ys, origCode, origBox = {}, Font.drawCode, Font.drawBox
@@ -2773,8 +2797,7 @@ do
   local battle = setmetatable({
     phase = "messages",
     current = true,
-    charIndex = 999,
-    lines = { { 0x80 }, { 0x81 } },
+    shown = { { 0x80 }, { 0x81 } },
   }, BattleState)
   battle:drawTextArea()
   Font.drawCode, Font.drawBox = origCode, origBox

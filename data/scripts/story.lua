@@ -395,7 +395,93 @@ M.SS_ANNE_CAPTAINS_ROOM = {
 -- MrFujisHouse.asm; the teleport back to his house is a warp)
 -- -------------------------------------------------------------------
 
+-- scripts/PokemonTower7F.asm: after each Rocket loses,
+-- PokemonTower7FEndBattleScript shows its EndBattle text (EndTrainerBattle),
+-- prints its AfterBattle text (DisplayTextID), then
+-- PokemonTower7FRocketLeaveMovementScript walks the grunt off toward the
+-- (9,16) stairs (MoveSprite) and PokemonTower7FHideNPCScript despawns it
+-- (HideObject).  Without this the beaten grunts stood in the corridor
+-- forever (#200).
+local POKEMON_TOWER_7F_ROCKETS = {
+  { index = 1, name = "POKEMONTOWER7F_ROCKET1",
+    beat = "EVENT_BEAT_POKEMONTOWER_7_TRAINER_0",
+    after = "_PokemonTower7FRocket1AfterBattleText" },
+  { index = 2, name = "POKEMONTOWER7F_ROCKET2",
+    beat = "EVENT_BEAT_POKEMONTOWER_7_TRAINER_1",
+    after = "_PokemonTower7FRocket2AfterBattleText" },
+  { index = 3, name = "POKEMONTOWER7F_ROCKET3",
+    beat = "EVENT_BEAT_POKEMONTOWER_7_TRAINER_2",
+    after = "_PokemonTower7FRocket3AfterBattleText" },
+}
+
+-- PokemonTower7FNPCCoordMovementTable, keyed by the PLAYER's tile ("x,y")
+-- at the engagement (both the talk and the sight walk-up leave the player on
+-- the tile the vanilla table indexes).  Each list is that entry's
+-- NPC_MOVEMENT_* exit, applied from the grunt's current tile.  The exact
+-- tables are one per grunt (dbmapcoord bytes decoded back to x,y).
+local POKEMON_TOWER_7F_EXITS = {
+  [1] = { -- ROCKET1 @ (9,11), faces RIGHT
+    ["9,12"]  = { "right", "down", "down", "down", "down", "down", "left" },
+    ["10,11"] = { "down", "right", "down", "down", "down", "down" },
+    ["11,11"] = { "down", "down", "down", "down", "down" },
+    ["12,11"] = { "down", "down", "down", "down", "down" },
+  },
+  [2] = { -- ROCKET2 @ (12,9), faces LEFT
+    ["12,10"] = { "left", "down", "down", "down", "down", "down", "down" },
+    ["11,9"]  = { "down", "down", "down", "left", "down", "down" },
+    ["10,9"]  = { "down", "down", "down", "down", "down" },
+    ["9,9"]   = { "down", "down", "down", "down", "down" },
+  },
+  [3] = { -- ROCKET3 @ (9,7), faces RIGHT
+    ["9,8"]  = { "right", "down", "down", "down", "down", "down", "down" },
+    ["10,7"] = { "down", "down", "down", "down", "down" },
+    ["11,7"] = { "down", "down", "down", "down", "down" },
+    ["12,7"] = { "down", "down", "down", "down", "down" },
+  },
+}
+-- The vanilla table only lists the sight/talk tiles the map geometry allows;
+-- a plain down-walk keeps any other engagement tile (e.g. talking from the
+-- side) safe -- it still clears the corridor and despawns the grunt.
+local POKEMON_TOWER_7F_EXIT_FALLBACK =
+  { "down", "down", "down", "down", "down" }
+
 M.POKEMON_TOWER_7F = {
+  -- Repair saves that beat a grunt before the exit walk was ported: in
+  -- vanilla HideObject persists (wMissableObjectFlags), so a beaten grunt is
+  -- still gone on re-entry.  hide_object below writes objectToggles for new
+  -- wins; this hides any grunt whose BEAT flag is already set.
+  onEnter = function(game, ow)
+    local Commands = require("src.script.Commands")
+    local ctx = { game = game, save = game.save, overworld = ow }
+    for _, r in ipairs(POKEMON_TOWER_7F_ROCKETS) do
+      if game.save.flags[r.beat] then
+        Commands.hide_object(ctx, "POKEMON_TOWER_7F", r.name)
+      end
+    end
+  end,
+  -- runVictoryHook fires after every trainer win on the map (both the sight
+  -- and talk paths route through engageTrainer -> checkVictoryRewards), so
+  -- this walks off whichever grunt was just beaten but is still standing.
+  -- The AfterBattle text + walk queue UNDER the EndBattle box engageTrainer
+  -- pushes right after, giving the vanilla order: EndBattle, AfterBattle,
+  -- walk, despawn.
+  onVictory = function(game, ow)
+    if ow.runner:isRunning() then return end
+    for _, r in ipairs(POKEMON_TOWER_7F_ROCKETS) do
+      local npc = ow:npcByIndex(r.index)
+      if npc and game.save.flags[r.beat] then
+        local key = ow.player.cellX .. "," .. ow.player.cellY
+        local dirs = (POKEMON_TOWER_7F_EXITS[r.index] or {})[key]
+                     or POKEMON_TOWER_7F_EXIT_FALLBACK
+        ow.runner:run({
+          { "show_text", r.after },                       -- DisplayTextID
+          { "walk_npc", r.index, dirs },                  -- MoveSprite
+          { "hide_object", "POKEMON_TOWER_7F", r.name },  -- HideObject
+        }, { npc = npc })
+        return
+      end
+    end
+  end,
   talk = {
     TEXT_POKEMONTOWER7F_MR_FUJI = {
       { "face_player" },                                  -- 1

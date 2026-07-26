@@ -196,14 +196,24 @@ local function inCoords(coords, x, y)
   return false
 end
 
--- coordinate block: show a line and push the player back one step
+-- coordinate block: show a line and shove the player back one step.  pokered
+-- shoves with a SIMULATED JOYPAD press (scripts/ViridianCity.asm ViridianCity-
+-- CheckGymOpenScript), which runs the normal overworld step pipeline including
+-- HandleLedges (engine/overworld/ledges.asm), so the shove must HOP a ledge
+-- when one sits in front: the tile below the Viridian Gym door is a down-ledge
+-- (#151).  Gates with no ledge in front (Cinnabar gym lock at (18,4)) get
+-- checkLedgeHop == false and fall back to the plain forced step, unchanged.
 local function stepGate(opts)
   return function(game, ow, x, y)
     if not inCoords(opts.coords, x, y) then return false end
     if not opts.blocked(game) then return false end
     require("src.core.Sound").play(game.data, "Denied")
-    push(game, text(game)[opts.text] or opts.fallback,
-         function() ow:scriptMove(ow.player, opts.push, 1) end)
+    push(game, text(game)[opts.text] or opts.fallback, function()
+      ow.player.facing = opts.push
+      if not ow:checkLedgeHop(opts.push) then
+        ow:scriptMove(ow.player, opts.push, 1)
+      end
+    end)
     return true
   end
 end

@@ -43,7 +43,12 @@ Protocol.plainCopy = plainCopy
 
 -- serialize a mon instance for the wire (plain data only).  ppUps rides
 -- along because the real cable transmitted it and its absence silently
--- capped a PP-Upped move at base PP on the receiving side.
+-- capped a PP-Upped move at base PP on the receiving side.  ot/otId ride
+-- along too: pokered's trade sends the whole party block including each
+-- mon's OT ID (party_struct MON_OTID) and the OT-names block (wPartyMonOT),
+-- and the receiver keeps them verbatim -- a differing OT/ID is what marks a
+-- mon as traded (boosted EXP, high-level disobedience).  Omitting them made
+-- a received mon show the receiver as its OT (#215).
 function Protocol.packMon(mon)
   local moves = {}
   for _, mv in ipairs(mon.moves) do
@@ -59,6 +64,8 @@ function Protocol.packMon(mon)
     dvs = mon.dvs,
     statExp = mon.statExp,
     moves = moves,
+    ot = mon.ot,
+    otId = mon.otId,
     extra = plainCopy(mon.extra),
   }
 end
@@ -71,6 +78,14 @@ function Protocol.unpackMon(data, packed, opts)
   local Stats = require("src.pokemon.Stats")
   local Growth = require("src.pokemon.Growth")
   local strict = opts and opts.strict
+  -- forceLevel comes from an "auto-level" ruling.  The picker's ANY choice
+  -- ("use each mon's real level", Gen1's only mode) is a string sentinel on
+  -- the LinkState/Tournament side (see levelForWire) that must mean "no
+  -- forced level" here.  Coerce once so a non-numeric level string -- the ANY
+  -- sentinel, an old peer, or a mod (#204) -- can never reach math.floor
+  -- below: tonumber("ANY") == nil, i.e. keep the packed real level, while
+  -- tonumber(50)/tonumber("50") both give 50.
+  local forceLevel = opts and tonumber(opts.forceLevel) or nil
   local def = data.pokemon[packed.species]
   if not def then
     if strict then return nil, "unknown POKéMON" end
@@ -81,8 +96,8 @@ function Protocol.unpackMon(data, packed, opts)
   -- ignored and everyone rebuilds at the same fixed level instead, so a
   -- Lv12 and a Lv100 party can battle on equal footing. Both sides pass
   -- the identical forceLevel for a given match, so this stays symmetric.
-  if opts and opts.forceLevel then
-    level = math.max(2, math.min(100, math.floor(opts.forceLevel)))
+  if forceLevel then
+    level = math.max(2, math.min(100, math.floor(forceLevel)))
   end
   local dvs = {}
   for _, k in ipairs({ "hp", "attack", "defense", "speed", "special" }) do
@@ -115,10 +130,19 @@ function Protocol.unpackMon(data, packed, opts)
   -- current HP/status (a different level's numbers, possibly mid-fight)
   -- isn't meaningful anymore -- auto-level starts everyone full and fresh,
   -- same as a standardized tournament format would
-  local forced = opts and opts.forceLevel
+  local forced = forceLevel
   local hp = forced and stats.hp
     or math.max(0, math.min(stats.hp, math.floor(packed.hp or stats.hp)))
   local status = forced and nil or packed.status
+  -- preserve the sender's original-trainer identity (party_struct MON_OTID +
+  -- wPartyMonOT on a real cable), clamped/typed like every other field so a
+  -- tampered packet can't inject a bad ID or a huge name.  Left nil when the
+  -- packet omits them (a v1/old peer) -- no worse than before for that legacy
+  -- path, and once ot is set the load-time stampOT backfill (mon.ot or ...)
+  -- becomes a no-op so the sender's identity survives save/reload (#215).
+  local otId = packed.otId
+    and math.max(0, math.min(65535, math.floor(packed.otId))) or nil
+  local ot = type(packed.ot) == "string" and packed.ot:sub(1, 10) or nil
   return {
     species = packed.species,
     level = level,
@@ -129,6 +153,8 @@ function Protocol.unpackMon(data, packed, opts)
     hp = hp,
     status = status,
     nickname = packed.nickname,
+    ot = ot,
+    otId = otId,
     moves = moves,
     -- a namespace whose mod this install lacks survives untouched, so the
     -- mon keeps it for the trip home

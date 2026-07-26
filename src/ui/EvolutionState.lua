@@ -1,8 +1,11 @@
 -- The evolution movie (engine/movie/evolution.asm): the mon's pic
 -- flashes back and forth with the evolved form, speeding up, then the
 -- new form appears with its cry and the congratulations text.
--- B during the flash cancels ("Huh? ... stopped evolving!"? -- Gen 1
--- has no cancel; the flash always completes).
+-- pokered engine/pokemon/evos_moves.asm (EvolveMon) polls hJoyHeld during
+-- the flash: holding B aborts the evolution -- the mon keeps its species
+-- and _StoppedEvolvingText ("Huh? MON stopped evolving!") prints.  The
+-- lone exception is trade evolutions (wLinkState == LINK_STATE_TRADING),
+-- which skip that poll and cannot be cancelled (#213).
 
 local Font = require("src.render.Font")
 local Music = require("src.core.Music")
@@ -14,7 +17,10 @@ EvolutionState.isOpaque = true
 -- SGB: SetPal_PokemonWholeScreen for the mon on display
 function EvolutionState:sgbPalettes(game)
   local P = require("src.render.PaletteFX")
-  local species = self.done and self.newSpecies or self.mon.species
+  -- a cancelled evolution keeps the old species (never applied), so only
+  -- colorize with the new form once it has actually evolved
+  local species = (self.done and not self.canceled) and self.newSpecies
+    or self.mon.species
   local c = P.monPal(game.data, species)
   if c then return { P.whole(c) } end
   return P.wholeNamed(game.data, "MEWMON")
@@ -29,17 +35,22 @@ local function frontSprite(game, species)
   return ok and img or nil
 end
 
-function EvolutionState.new(game, mon, newSpecies, onDone)
+function EvolutionState.new(game, mon, newSpecies, onDone, via)
   local self = setmetatable({}, EvolutionState)
   self.game = game
   self.mon = mon
   self.newSpecies = newSpecies
   self.onDone = onDone
+  self.via = via
+  -- evos_moves.asm: only trade evolutions (LINK_STATE_TRADING) skip the
+  -- B-cancel poll; level-up, stone and rare-candy evos are all cancelable.
+  self.cancelable = (via ~= "TRADE")
   self.oldName = mon.nickname or game.data.pokemon[mon.species].name
   self.oldSprite = frontSprite(game, mon.species)
   self.newSprite = frontSprite(game, newSpecies)
   self.t = 0
   self.done = false
+  self.canceled = false
   Music.play(game.data, Music.special(game.data, "evolution"))
   return self
 end
@@ -47,11 +58,28 @@ end
 function EvolutionState:update(dt)
   self.t = self.t + 1
   if self.done then return end
+  local game = self.game
+  -- evos_moves.asm EvolveMon: each flash iteration polls hJoyHeld and, for
+  -- a cancelable evolution, aborts when B is held -- the mon keeps its
+  -- species (Evolution.apply never runs) and _StoppedEvolvingText prints.
+  if self.cancelable and game.input:isDown("b") then
+    self.done = true
+    self.canceled = true
+    local TextBox = require("src.render.TextBox")
+    -- mirrors data/generated/text.lua _StoppedEvolvingText
+    game.stack:push(TextBox.new(game,
+      ("Huh? %s\nstopped evolving!"):format(self.oldName),
+      function()
+        Music.restoreMap(game.data)
+        game.stack:pop() -- the evolution screen itself
+        if self.onDone then self.onDone() end
+      end))
+    return
+  end
   if self.t >= FLASH_FRAMES then
     self.done = true
-    local game = self.game
     local Evolution = require("src.pokemon.Evolution")
-    Evolution.apply(game, self.mon, self.newSpecies)
+    Evolution.apply(game, self.mon, self.newSpecies, self.via)
     require("src.core.Sound").playCry(game.data, self.newSpecies)
     local TextBox = require("src.render.TextBox")
     local newName = game.data.pokemon[self.newSpecies].name
@@ -61,7 +89,12 @@ function EvolutionState:update(dt)
       function()
         Music.restoreMap(game.data)
         game.stack:pop() -- the evolution screen itself
-        if self.onDone then self.onDone() end
+        -- Gen1 re-runs the level-up learn check on the evolved species
+        -- after the "evolved into" text (evos_moves.asm EvolveMon ->
+        -- learn_move.asm LearnMoveFromLevelUp, #12).  Pop the evo screen
+        -- first so the "learned MOVE!" text / forget prompt push onto the
+        -- overworld / battle-return, not this state.
+        Evolution.learnEvolutionMoves(game, self.mon, self.onDone)
       end))
   end
 end
@@ -73,7 +106,8 @@ function EvolutionState:draw()
   -- accelerating flash between the two forms
   local sprite
   if self.done then
-    sprite = self.newSprite
+    -- a cancelled evolution settles back on the original form
+    sprite = self.canceled and self.oldSprite or self.newSprite
   else
     local period = math.max(4, 28 - math.floor(self.t / 40) * 6)
     local showNew = math.floor(self.t / period) % 2 == 1

@@ -528,7 +528,9 @@ M.MT_MOON_B2F = {
 }
 
 -- The ticket clerk (scripts/Museum1F.asm Museum1FScientist1Text):
--- Y50, once; declining at the rope walks you back out.
+-- Y50, once.  Declining at the rope shoves the player one tile SOUTH back off
+-- the exhibit rope they crossed heading north (#151); the museum floor has no
+-- ledges, so a plain scriptMove("down",1) is the correct primitive.
 local function museumClerk(game, ow, done, onDecline)
   local TextBox = require("src.render.TextBox")
   local ChoiceBox = require("src.ui.ChoiceBox")
@@ -563,7 +565,7 @@ M.MUSEUM_1F = {
     if y == 4 and (x == 9 or x == 10)
        and not game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET then
       museumClerk(game, ow, nil, function()
-        ow:scriptMove(ow.player, "right", 1)
+        ow:scriptMove(ow.player, "down", 1)
       end)
       return true
     end

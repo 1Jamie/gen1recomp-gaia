@@ -61,16 +61,26 @@ function Player:tryMove(dir, map, entities)
   if self.facing ~= dir then
     self.facing = dir
     self.turnTimer = self.turnFrames or TURN_FRAMES
+    self.bumpFrames = nil -- turning to a new facing ends any wall-bonk cycle
     return "turned"
   end
   if self.turnTimer > 0 then return nil end
   local ok, why = Collision.canMove(map, entities, self, dir)
   if not ok then
+    -- Gen1: a blocked step still animates the player walking in place --
+    -- the collision path spends the step's worth of frames running
+    -- UpdateSprites before returning control, so the legs cycle without
+    -- the cell changing (home/overworld.asm collision handling; issue
+    -- #230).  Re-armed every frame the direction is held into the wall;
+    -- Player:update ticks the walk clock while it counts down, so releasing
+    -- returns to the standing pose within a step's length.
+    self.bumpFrames = self.stepFrames or STEP_FRAMES
     return "blocked", why
   end
   local tx, ty = Collision.target(self.cellX, self.cellY, dir)
   self.targetX, self.targetY = tx, ty
   self.moving = true
+  self.bumpFrames = nil -- a real step supersedes any in-place bonk
   self.progress = 0
   -- the bicycle doubles walking speed (8 frames per step)
   local save = require("src.core.Game").save
@@ -97,8 +107,18 @@ function Player:update()
     if self.spinFrames <= 0 then
       self.spinFrames = nil
       self.spinDrop = nil
+      self.spinRise = nil -- teleport-out departure lift (#196)
       self.spinning = false
     end
+  end
+  -- wall-bonk walk-in-place (issue #230): while pushing into a wall the
+  -- collision path keeps the walk clock running without moving the cell,
+  -- so the sprite animates against the wall.  Guarded on not-moving so a
+  -- real step (which clears bumpFrames and advances animClock itself
+  -- below) can never double-tick the leg cadence.
+  if not self.moving and self.bumpFrames and self.bumpFrames > 0 then
+    self.bumpFrames = self.bumpFrames - 1
+    self.animClock = (self.animClock or 0) + 1
   end
   if not self.moving then return false end
   local stepLen = self.stepFramesCur or self.stepFrames or STEP_FRAMES
@@ -132,7 +152,12 @@ function Player:facingCell()
 end
 
 function Player:walkPhase()
-  if not self.moving and not self.stepLanded then return 0 end
+  -- moving, the land-frame after a completed step, or an active wall-bonk
+  -- (issue #230) animate; a standing sprite otherwise
+  if not self.moving and not self.stepLanded
+     and not (self.bumpFrames and self.bumpFrames > 0) then
+    return 0
+  end
   -- walk frame during the middle of each 16-frame animation cycle
   local p = (self.animClock or self.progress) % 16
   return (p >= 4 and p < 12) and 1 or 0
@@ -183,6 +208,13 @@ function Player:pose()
     -- (EnterMapAnim PlayerSpinWhileMovingDown)
     if self.spinFrames and self.spinDrop then
       py = py - math.floor(self.spinFrames * 24 / (self.spinTotal or 64))
+    elseif self.spinFrames and self.spinRise then
+      -- Dig/Teleport/Escape-Rope departures spin the sprite UP out of the
+      -- map before the fade (LeaveMapAnim PlayerSpinWhileMovingUp) -- the
+      -- mirror of the arrival spin-down: the lift grows from 0 as spinFrames
+      -- counts down to 0 (#196), opposite sign to spinDrop above.
+      local total = self.spinTotal or 64
+      py = py - math.floor((total - self.spinFrames) * 24 / total)
     end
   end
   local sprite = (self.surfing and self.surfSprite)

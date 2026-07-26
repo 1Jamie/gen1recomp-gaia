@@ -235,6 +235,79 @@ do
   end
 end
 
+-- ---------------------------------------------- #206: exported map + position
+-- Regression guard for issue #206 ("exported .sav loads as a glitch map /
+-- crashes in an emulator"). The Gen1 continue path rebuilds the entire
+-- overworld from the saved current-map byte and the player's tile coords
+-- (engine/menus/main_menu.asm SpecialEnterMap -> ResetPlayerSpriteData ->
+-- EnterMap -> LoadMapHeader), so the two ways a real cartridge glitches on
+-- Continue are (a) wCurMap not resolving to a real map header, and (b) the
+-- player's wYCoord/wXCoord falling outside the map's walk grid. A cell is 2x2
+-- background tiles (home/overworld.asm), so a WxH-block map is 2W x 2H cells
+-- and valid coords are 0..2W-1 / 0..2H-1. Drive the launcher's real export
+-- path (import -> SaveData.load -> exportActiveSlot) and assert the emitted
+-- bytes land a loadable player across interior/outdoor/cave maps, including
+-- each map's far corner, so this class of corruption cannot slip back in.
+do
+  local mapsByIndex = {}
+  for id, def in pairs(data.maps) do
+    if def.index then mapsByIndex[def.index] = id end
+  end
+
+  -- One export cycle through the exact glue the SAVE FILES card uses. Returns
+  -- the raw exported image, or nil if any stage refused (checked by callers).
+  local function exportedThrough(mapId, x, y)
+    local files = fresh()
+    local seed = SaveData.newGame({ playerName = "JOHN", rivalName = "BLUE" })
+    seed.player.map, seed.player.x, seed.player.y = mapId, x, y
+    -- a plausible mid-game party so the slot is not a blank new game
+    seed.party = { {
+      species = "SQUIRTLE", level = 16, exp = 4000,
+      dvs = { hp = 1, attack = 2, defense = 3, speed = 4, special = 5 },
+      statExp = { hp = 0, attack = 0, defense = 0, speed = 0, special = 0 },
+      stats = { hp = 44, attack = 28, defense = 31, speed = 26, special = 30 },
+      hp = 44, moves = { { id = "TACKLE", pp = 35, ppUps = 0 } },
+      nickname = "SQ", ot = "JOHN", otId = seed.player.id, catchRate = 45,
+    } }
+    if not SaveFileIO.importToSlot(GenSave.encode(seed, data, nil), "red") then return nil end
+    if not SaveData.load("red") then return nil end
+    if not SaveFileIO.exportActiveSlot("red") then return nil end
+    return files["exports/gen1recomp-red-slot1.sav"]
+  end
+
+  local function assertLoadable(label, mapId, x, y)
+    local def = data.maps[mapId]
+    if not def then return end -- this data set lacks the map; skip silently
+    local out = exportedThrough(mapId, x, y)
+    check(out ~= nil and #out == GenSave.SAVE_SIZE,
+      label .. ": exports a 32768-byte image through the launcher path")
+    if not out then return end
+    -- (a) wCurMap resolves: an unresolved index loads a garbage header, the
+    -- #206 glitch/crash itself
+    eq(mapsByIndex[out:byte(OFF.curMap + 1)], mapId,
+      label .. ": exported wCurMap resolves to the saved map")
+    -- (b) tile coords inside the 2W x 2H cell grid, and unchanged by the round trip
+    local cx, cy = out:byte(OFF.xCoord + 1), out:byte(OFF.yCoord + 1)
+    check(cx <= 2 * def.width - 1 and cy <= 2 * def.height - 1,
+      ("%s: player cell (%d,%d) is in-bounds for the %dx%d-block map")
+        :format(label, cx, cy, def.width, def.height))
+    eq(cx, x, label .. ": wXCoord survives load -> export unchanged")
+    eq(cy, y, label .. ": wYCoord survives load -> export unchanged")
+    check(mainChecksumValid(out), label .. ": exported main-data checksum is valid")
+  end
+
+  assertLoadable("bedroom interior", "REDS_HOUSE_2F", 3, 6)
+  assertLoadable("outdoor town", "PALLET_TOWN", 5, 6)
+  assertLoadable("outdoor city", "CERULEAN_CITY", 27, 15)
+  assertLoadable("cave floor", "MT_MOON_1F", 5, 5)
+  -- the map's far corner (2W-1, 2H-1): proves the boundary coord writes and
+  -- survives without truncation or an off-by-one out-of-bounds
+  if data.maps.VIRIDIAN_CITY then
+    local d = data.maps.VIRIDIAN_CITY
+    assertLoadable("far corner", "VIRIDIAN_CITY", 2 * d.width - 1, 2 * d.height - 1)
+  end
+end
+
 love.filesystem = realFS
 
 T.finish("save_file_io")

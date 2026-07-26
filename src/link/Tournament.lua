@@ -57,7 +57,12 @@ local function levelLabel(v)
 end
 
 local function levelForWire(v)
-  return v == ANY and nil or v
+  -- ANY ("use each mon's real level") goes on the wire as nil (no forced
+  -- level).  An explicit guard, not `v == ANY and nil or v`: that idiom's
+  -- true branch is nil, so it falls through to `or v` and returned the
+  -- literal "ANY" string, which then crashed math.floor in unpackMon (#204).
+  if v == ANY then return nil end
+  return v
 end
 
 local function forceLevelLabel(v)

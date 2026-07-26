@@ -105,7 +105,10 @@ function SpriteRenderer:resolveImage()
     local colors, group = PaletteFX.spriteObp(self.def, self.seed)
     if colors then return getObpImage(self.def.image, colors, group) end
   elseif PaletteFX.usesSpriteObp() then
-    return getObpImage(self.def.image, PaletteFX.GBC_OBJ, "gbcobj")
+    -- OG boot-ROM OBJ palette: green on Red, pink on Blue (PaletteFX.ogObj
+    -- returns colors + a version-distinct cache group so the two never
+    -- collide in obpCache) -- see issue #155
+    return getObpImage(self.def.image, PaletteFX.ogObj())
   end
   return self.image
 end
@@ -141,11 +144,13 @@ function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip)
       image = getObpImage(self.def.image, colors, group)
     end
   elseif PaletteFX.usesSpriteObp() and PaletteFX.spriteRedrawPassActive() then
-    -- OG RED (GBC boot-ROM look): every OBJ wears the one global green
-    -- object palette.  The red BG zone shader still runs over the world
-    -- canvas, so the baked sprite is queued for a post-zone redraw
-    -- (PaletteFX.markSpriteRedraw) that restores its green pixels on top.
-    image = getObpImage(self.def.image, PaletteFX.GBC_OBJ, "gbcobj")
+    -- OG RED (GBC boot-ROM look): every OBJ wears the one global object
+    -- palette -- green over Red's red background, pink over Blue's blue
+    -- background (PaletteFX.ogObj, #155).  The BG zone shader still runs over
+    -- the world canvas, so the baked sprite is queued for a post-zone redraw
+    -- (PaletteFX.markSpriteRedraw) that restores its object-colored pixels on
+    -- top.
+    image = getObpImage(self.def.image, PaletteFX.ogObj())
     redraw = true
   end
   -- single-frame sprites (item balls, fossils...) have one fixed pose;

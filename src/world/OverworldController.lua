@@ -222,17 +222,31 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
     self.map.renderer:rebuild()
     self.cutBlocks[mapId] = nil
   end
-  -- Silph Co card key doors: the .blk layouts ship with the doorways
-  -- open; each floor's map script stamps the closed door block on load
-  -- until its unlock event is set (scripts/SilphCo2F.asm
-  -- SilphCo2FGateCallbackScript et al., closed blocks $54/$5f/$20)
+  -- Silph Co card key doors + Rocket Hideout elevator gates: the .blk
+  -- layouts ship with the doorways open; each floor's map script stamps
+  -- the closed door block on load until its unlock event is set
+  -- (scripts/SilphCo2F.asm SilphCo2FGateCallbackScript et al., closed
+  -- blocks $54/$5f/$20; scripts/RocketHideoutB1F.asm +
+  -- RocketHideoutB4F.asm ...DoorCallbackScript, closed blocks $54/$2d over
+  -- the lift doorway).  A door opens on its single `event`, or on `events`
+  -- when every listed flag must be set (Rocket Hideout B4F's lift gate
+  -- needs both guard trainers beaten -- CheckBothEventsSet).
   local closedDoors = FieldDefaults.fieldValue(Game.data, "cardKeyDoors",
                                                "closedDoors")
   local floorDoors = closedDoors and closedDoors[mapId]
   if floorDoors then
     local stamped = false
     for _, door in ipairs(floorDoors) do
-      local want = Game.save.flags[door.event] and door.open or door.block
+      local open
+      if door.events then
+        open = true
+        for _, ev in ipairs(door.events) do
+          if not Game.save.flags[ev] then open = false break end
+        end
+      else
+        open = Game.save.flags[door.event]
+      end
+      local want = open and door.open or door.block
       if self.map:blockAt(door.bx, door.by) ~= want then
         self.map:setBlock(door.bx, door.by, want)
         stamped = true
@@ -749,6 +763,27 @@ function OverworldState:update(dt)
     end
   end
 
+  -- Dig/Teleport/Escape-Rope departure spin (beginTeleportOut).  The sprite
+  -- spins UP out of the map before the fade (player_animations.asm
+  -- _LeaveMapAnim -> PlayerSpinWhileMovingUp + SFX_TELEPORT_EXIT_1), the
+  -- mirror of Fly's flyAnim lead-in above.  Only when the spin finishes does
+  -- warpToHealPoint push the fade + warp, so the arrival spin-down lands the
+  -- player OUTSIDE the last Pokemon Center door (#196).  player.spinFrames
+  -- decrements in lockstep in Player:update, so the rising spin ends here too.
+  if self.teleportOut then
+    self.teleportOut.frames = self.teleportOut.frames - 1
+    if self.teleportOut.frames <= 0 then
+      local onDone = self.teleportOut.onDone
+      self.teleportOut = nil
+      self.player.spinning = false
+      self.player.spinFrames = nil
+      self.player.spinRise = nil
+      self.player.inputLocked = false
+      self:warpToHealPoint(onDone, { arrive = "teleport" })
+      return
+    end
+  end
+
   -- delayed one-shot SFX (the teleport-in spin's second note)
   if self.delaySfx then
     self.delaySfx.frames = self.delaySfx.frames - 1
@@ -787,7 +822,7 @@ function OverworldState:update(dt)
   -- escort then walks an extra tile before PlayerEntryMovementRLE, and
   -- the player lands on desk Oak.
   local scripted = self.runner:isRunning() or #self.scriptMoves > 0
-                   or self.engaging or self.emote
+                   or self.engaging or self.emote or self.teleportOut
   if not scripted and not self.transitioning then
     self:checkTrainerSight()
     -- CheckFightingMapTrainers (home/trainers.asm) zeroes hJoyHeld and
@@ -795,7 +830,7 @@ function OverworldState:update(dt)
     -- direction handling (JoypadOverworld runs the map script first) --
     -- the player can never start another step after being spotted.
     scripted = self.runner:isRunning() or #self.scriptMoves > 0
-               or self.engaging or self.emote
+               or self.engaging or self.emote or self.teleportOut
   end
   if not scripted and not self.transitioning then
     self:handleInput()
@@ -854,6 +889,21 @@ function OverworldState:dirHeld()
       or input:isDown("left") or input:isDown("right")
 end
 
+-- The warp cell the player WARPED IN on is inert until they physically step
+-- off it: standing on it, or bonking a wall/edge from it, must not re-fire a
+-- warp (CheckWarpsNoCollision's arrival-disable; see setMap where
+-- warpEntryCell/justWarped are set and onStepComplete where they clear).
+-- Both stand-still warp triggers -- the map-edge exit (checkEdgeExit) and the
+-- blocked-step collision warp (handleInput) -- must consult this, or a corner
+-- staircase whose warp tile sits on the map edge (Red's-house (7,1)) bounces
+-- floors every input frame (issue #230).
+function OverworldState:onWarpArrivalCell()
+  if self.justWarped then return true end
+  local entry = self.warpEntryCell
+  return entry ~= nil and self.player.cellX == entry.x
+         and self.player.cellY == entry.y
+end
+
 function OverworldState:handleInput()
   local input = Game.input
 
@@ -875,10 +925,11 @@ function OverworldState:handleInput()
         if self:checkBoulderPush(dir) then return end
       end
       local result, why = self.player:tryMove(dir, self.map, self.entities)
-      if result == "blocked" then
-        -- a collision while standing on a warp square fires the warp
-        -- when the extra check passes (CheckWarpsCollision: route-gate
-        -- doorways, dock entrances, ...)
+      -- a collision while standing on a warp square fires the warp when the
+      -- extra check passes (CheckWarpsCollision: route-gate doorways, dock
+      -- entrances, ...) -- but never on the inert cell we just warped in on
+      -- (issue #230), which the completed-step path guards the same way.
+      if result == "blocked" and not self:onWarpArrivalCell() then
         local w = Warp.onCollision(self.map, Game.data.field.warpCarpets,
                                    self.player.cellX, self.player.cellY, dir)
         if w then
@@ -1009,6 +1060,11 @@ function OverworldState:checkEdgeExit(dir)
 
   local w = Warp.onEdge(self.map, p.cellX, p.cellY, dir)
   if w then
+    -- ...but not while still standing on the warp cell we just arrived on
+    -- (issue #230): fall through so pushing into the edge bonks (SFX +
+    -- walk-in-place) instead of instantly re-warping.  A real step onto an
+    -- exit-carpet edge cleared warpEntryCell first, so those still fire.
+    if self:onWarpArrivalCell() then return false end
     self:takeWarp(w.def)
     return true
   end
@@ -1256,6 +1312,37 @@ function OverworldState:flyTo(mapId)
   self.flyDest = { map = mapId, x = spot.x, y = spot.y }
 end
 
+-- Dig / Teleport / Escape Rope departure animation, then land OUTSIDE the
+-- last Pokemon Center door like Fly (#196).  pokered's _LeaveMapAnim
+-- (engine/overworld/player_animations.asm) plays SFX_TELEPORT_EXIT_1 and
+-- spins the player while it rises up off the map (PlayerSpinWhileMovingUp)
+-- before the palettes fade; Fly's bird lead-in (flyTo/flyAnim) is the
+-- analogous departure this mirrors.  When the spin finishes (the teleportOut
+-- countdown in OverworldState:update), warpToHealPoint pushes the fade + warp
+-- with arrive="teleport" so the sprite spins back DOWN in front of the town
+-- PC door.  Shared by the party-menu DIG/TELEPORT action and BagMenu's
+-- ESCAPE ROPE so all three animate identically.
+function OverworldState:beginTeleportOut(onDone)
+  if not Game.save.lastHeal then
+    -- a save that has never visited a Pokemon Center has no heal point to
+    -- warp to; skip the animation entirely (matches the old guard that did
+    -- nothing when lastHeal was absent) instead of spinning into a nil warp
+    if onDone then onDone() end
+    return
+  end
+  require("src.core.Sound").play(Game.data, "Teleport_Exit1")
+  self.player.surfing = false
+  self.player.inputLocked = true
+  -- rising spin: the mirror of the arrival spin-drop set in startWarpTo, so
+  -- spinRise lifts the sprite (Player:pose) while spinFrames counts down
+  self.player.spinning = true
+  self.player.spinTimer = 0
+  self.player.spinFrames = 48
+  self.player.spinTotal = 48
+  self.player.spinRise = true
+  self.teleportOut = { frames = 48, onDone = onDone }
+end
+
 function OverworldState:npcAtCell(cx, cy)
   for _, npc in ipairs(self.npcs) do
     if (npc.cellX == cx and npc.cellY == cy) or
@@ -1474,7 +1561,17 @@ function OverworldState:tryHiddenObject(fx, fy)
   -- Pokémon Center PCs and other PC tiles
   for _, h in ipairs(extras.pcTiles[self.map.id] or {}) do
     if h.x == fx and h.y == fy and (not h.facing or h.facing == facing) then
-      self:openPC()
+      if self.map.id == "REDS_HOUSE_2F" then
+        -- The player's bedroom PC is the one location in Red/Blue whose PC
+        -- callback is OpenRedsPC (engine/events/hidden_objects/players_pc.asm),
+        -- which runs the PlayerPC predef directly -- item storage, no
+        -- SOMEONE'S/BILL'S PC main menu (DisplayPCMainMenu).  Every other
+        -- pcTile is a Pokémon Center-style PC that shows the multi-PC menu. (#228)
+        require("src.core.Sound").play(Game.data, "Turn_On_PC")
+        Screens.push(Game, "PlayerPC")
+      else
+        self:openPC()
+      end
       return true
     end
   end
@@ -2007,8 +2104,12 @@ function OverworldState:talkTo(npc)
     return
   end
 
-  -- item balls (object_event item argument)
-  if d.item then
+  -- item balls (object_event item argument).  A payload id of "0" is
+  -- pokered's ITEM_NONE sentinel: the ROM object sets the 0x80 "has item"
+  -- bit but names item 0, so it is a plain text object, not an item ball
+  -- (e.g. Blue's House wall Town Map / walking Daisy, #11).  Lua treats
+  -- the string "0" as truthy, so screen it out and fall through to text.
+  if d.item and d.item ~= "0" and d.item ~= 0 then
     if not require("src.inventory.Bag").add(Game.save, d.item, 1) then
       Game.stack:push(TextBox.new(Game, "You can't carry\nany more items!"))
       return
@@ -3257,11 +3358,32 @@ function OverworldState:warpToHealPoint(onDone, opts)
   -- HandleFlyWarpOrDungeonWarp + DisplayPlayerBlackedOutText both clear
   -- BIT_ALWAYS_ON_BIKE (home/overworld.asm / home/text_script.asm)
   Game.save.forcedBike = nil
-  if opts and opts.arrive == "teleport" then
+  local map, x, y = heal.map, heal.x, heal.y
+  local teleport = opts and opts.arrive == "teleport"
+  if teleport then
     self.arriveWarp = "teleport"
+    -- Dig/Teleport/Escape Rope land OUTSIDE at the last Pokemon Center TOWN
+    -- door, like Fly (#196) -- NOT the interior heal cell a blackout returns
+    -- to.  pret routes escape-warp and blackout both through wLastBlackoutMap
+    -- (both appear inside in front of the nurse), but this port has decided
+    -- the escape-warp destination is the town PC door.  Prefer the canonical
+    -- Fly landing (field.flyWarps, one tile south of the PC door warp), else
+    -- the remembered outdoor door cell; fall back to the interior heal cell
+    -- only for an old save with no recorded outdoor.
+    local out = heal.outdoor
+    if out then
+      local fw = (Game.data.field.flyWarps or {})[out.id]
+      map = out.id
+      x = fw and fw.x or out.x
+      y = fw and fw.y or out.y
+    end
   end
-  self:startWarpTo(heal.map, heal.x, heal.y, "down", onDone)
-  if heal.outdoor then
+  self:startWarpTo(map, x, y, "down", onDone)
+  -- Blackouts land at the interior heal cell, so re-point LAST_MAP exits at
+  -- the remembered town door.  The teleport branch already lands ON that
+  -- outdoor map, so startWarpTo remembers it on the next exit; re-pointing
+  -- here would wrongly steer exits away from where the player now stands.
+  if heal.outdoor and not teleport then
     self:rememberOutdoor(heal.outdoor.id, heal.outdoor.x, heal.outdoor.y)
   end
 end

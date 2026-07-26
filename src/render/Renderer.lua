@@ -46,17 +46,29 @@ Renderer.UPRIGHT_MARGIN = 160
 -- non-square "pixels", and movement judder (issue #87).  Always derive the
 -- crisp integer scale from the drawable pixel size; draw with (pixels/dpi)
 -- so the GPU lands on whole framebuffer pixels.  Desktop dpi=1 is unchanged.
+--
+-- `dpi` here must be the factor LOVE actually applies to every draw call
+-- (getDPIScale), NOT the drawable/unit size ratio pw/ww.  On a normal device
+-- those are equal (getPixelDimensions == getDimensions * getDPIScale), but on
+-- the AYN Thor dual-screen surface in forced landscape they diverge: LOVE
+-- reports pw/ww ≈ 1 while its real transform is 1.5, so scaling by pw/ww lands
+-- each GB pixel on Sp*(getDPIScale/(pw/ww)) physical pixels -- a fractional,
+-- stretched/non-square count (issue #208).  Prefer getDPIScale so draws land
+-- on whole physical pixels through LOVE's actual transform; fall back to pw/ww
+-- (then 1) only when getDPIScale is unavailable.  Since getDPIScale == pw/ww
+-- on every normal device, #87's behavior is byte-identical there.
 local function displayMetrics()
   local ww, wh = love.graphics.getDimensions()
   local pw, ph = ww, wh
   if love.graphics.getPixelDimensions then
     pw, ph = love.graphics.getPixelDimensions()
   end
-  local dpi = 1
-  if ww > 0 and pw > 0 then
-    dpi = pw / ww
-  elseif love.graphics.getDPIScale then
+  local dpi
+  if love.graphics.getDPIScale then
     dpi = love.graphics.getDPIScale()
+  end
+  if (not dpi or dpi < 1e-6) and ww > 0 and pw > 0 then
+    dpi = pw / ww
   end
   if not dpi or dpi < 1e-6 then dpi = 1 end
   return ww, wh, pw, ph, dpi
@@ -97,6 +109,18 @@ end
 function Renderer:fitScale()
   local _, _, pw, ph = displayMetrics()
   return math.max(1, math.floor(math.min(pw / self.WIDTH, ph / self.HEIGHT)))
+end
+
+-- The LOVE-unit draw scale endFrame uses for the UI blit: the integer
+-- framebuffer scale (fitScale) divided by the live coordinate->pixel factor,
+-- so a GB pixel lands on fitScale() whole PHYSICAL pixels once LOVE applies
+-- its own transform (fitScale() == drawScale() * dpi).  Exposed so #208's
+-- regression can assert GB pixels stay square on divergent-DPI surfaces
+-- without reaching into endFrame's locals; endFrame recomputes the same value
+-- inline (`S = Sp / dpi`).
+function Renderer:drawScale()
+  local _, _, _, _, dpi = displayMetrics()
+  return self:fitScale() / dpi
 end
 
 -- world-pass canvas size in world pixels: enough to fill the window at s'.

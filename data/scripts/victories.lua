@@ -114,9 +114,12 @@ return {
   -- Fighting Dojo Karate Master (scripts/FightingDojo.asm
   -- FightingDojoKarateMasterPostBattleScript sets EVENT_BEAT_KARATE_MASTER,
   -- which gates the HITMONLEE/HITMONCHAN gift).  OPP_BLACKBELT party 1 is
-  -- only him (data/maps/objects/FightingDojo.asm).
+  -- only him (data/maps/objects/FightingDojo.asm).  `dialogue` is the
+  -- concede + prize offer he speaks after the win (his header supplies the
+  -- "Hwa! Arrgh! Beaten!" won line first; #197).
   ["OPP_BLACKBELT#1"] = { flag = "EVENT_BEAT_KARATE_MASTER",
-                          deactivate = range("EVENT_BEAT_FIGHTING_DOJO_TRAINER_", 0, 3) },
+                          deactivate = range("EVENT_BEAT_FIGHTING_DOJO_TRAINER_", 0, 3),
+                          dialogue = { "_FightingDojoKarateMasterIWillGiveYouAPokemonText" } },
 
   -- Elite Four progress flags (their rooms' door logic isn't ported, but
   -- the flags make the Hall of Fame checkable)

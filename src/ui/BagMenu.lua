@@ -214,11 +214,10 @@ local function useOn(game, battle, id, target, list, moveIndex)
        and ow.map.id ~= "AGATHAS_ROOM" then
       list:close()
       consume(game, id)
-      require("src.core.Sound").play(game.data, "Teleport_Exit1")
-      ow.player.surfing = false
-      -- EnterMapAnim on arrival (BIT_ESCAPE_WARP / special warp path);
-      -- blackouts omit arrive="teleport" (HandleBlackOut has no LeaveMapAnim)
-      ow:warpToHealPoint(nil, { arrive = "teleport" })
+      -- LeaveMapAnim spin-up + SFX_TELEPORT_EXIT_1, a fade, then land OUTSIDE
+      -- the last Pokémon Center town door like Fly (#196), via the shared
+      -- departure helper -- the same path Dig/Teleport take from the party menu
+      ow:beginTeleportOut()
     else
       showMessages(game, { "OAK: " .. game.save.player.name
         .. "!\nThis isn't the\ntime to use that!" })
@@ -303,7 +302,8 @@ local function pickTargetAndUse(game, battle, id, list)
   -- the ETHERs and PP UP open the move menu after picking a mon
   -- (ItemUsePPRestore / ItemUsePPUp); the ELIXERs hit every move
   local wantsMove = id == "ETHER" or id == "MAX_ETHER" or id == "PP_UP"
-  require("src.ui.Screens").push(game, "PartyMenu", {
+  local def = game.data.items[id]
+  local opts = {
     pickOnly = true,
     onSwitch = function(mon)
       if not wantsMove then
@@ -326,7 +326,17 @@ local function pickTargetAndUse(game, battle, id, list)
         end,
       }))
     end,
-  })
+  }
+  -- TM/HM: open the party menu in Gen 1's TM/HM display mode so each mon
+  -- shows ABLE / NOT ABLE from its learnset and the prompt reads "Use TM on
+  -- which POKeMON?" (engine/items/item_effects.asm ItemUseTMHM ->
+  -- party_menu.asm TM/HM type). Stones and other pickOnly items keep the
+  -- plain HP layout (Gen 1 shows no ABLE/NOT ABLE for them), so gate
+  -- strictly on def.machine. #210
+  if def and def.machine then
+    opts.tmhm = { move = def.machine.move, kind = def.machine.kind }
+  end
+  require("src.ui.Screens").push(game, "PartyMenu", opts)
 end
 
 local function useItem(game, battle, id, list)

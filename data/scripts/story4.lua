@@ -134,12 +134,19 @@ M.MT_MOON_POKECENTER = {
 -- Karate Master, take HITMONLEE or HITMONCHAN (the other disappears)
 -- -------------------------------------------------------------------
 
+-- ownBall/otherBall keep their spots for signature symmetry; only ownBall
+-- is ever hidden (Gen1 removes just the chosen ball).
 local function dojoBall(species, ownBall, otherBall, askKey)
   return function(game, ow, npc, done)
     local t = text(game)
     local flags = game.save.flags
+    -- Already took one prize: the OTHER ball is still on the mat, so
+    -- talking to it now gives the "Better not get greedy..." refusal
+    -- (FightingDojo.asm .gotThePokemon / _FightingDojoBetterNotGetGreedyText),
+    -- not a silent no-op (#197).
     if flags.EVENT_GOT_HITMONLEE or flags.EVENT_GOT_HITMONCHAN then
-      done()
+      push(game, t._FightingDojoBetterNotGetGreedyText
+        or "Better not get\ngreedy...", done)
       return
     end
     if not flags.EVENT_BEAT_KARATE_MASTER then
@@ -153,8 +160,10 @@ local function dojoBall(species, ownBall, otherBall, askKey)
       local Commands = require("src.script.Commands")
       local ctx = { save = game.save, game = game, overworld = ow }
       Commands.give_pokemon(ctx, species, 30)
+      -- Hide ONLY the chosen ball; the other stays (FightingDojo.asm hides
+      -- just the picked object's index) and routes to the greedy line above
+      -- when talked to (#197).
       Commands.hide_object(ctx, "FIGHTING_DOJO", ownBall)
-      Commands.hide_object(ctx, "FIGHTING_DOJO", otherBall)
       push(game, ("%s got\n%s!"):format(game.save.player.name, species), done)
     end)
   end
@@ -171,6 +180,21 @@ M.FIGHTING_DOJO = {
                "FIGHTINGDOJO_HITMONLEE_POKE_BALL",
                "_FightingDojoHitmonchanPokeBallText"),
   },
+  -- The two dojo posters on the north wall (FightingDojo.asm bg_events at
+  -- the top of the room, cells (4,0)/(5,0) directly above the prize balls)
+  -- print _EnemiesOnEverySideText.  The map extractor dropped the dojo
+  -- bg_events (signs = {}), so wire the poster read here, the same
+  -- facing-up + coord shape the mansion switches use.  Reachable only once
+  -- a claimed prize frees the ball cell below the poster (#197).
+  onInteract = function(game, ow, fx, fy)
+    if ow.player.facing ~= "up" then return false end
+    if fy == 0 and (fx == 4 or fx == 5) then
+      push(game, text(game)._EnemiesOnEverySideText
+        or "Enemies on every\nside!")
+      return true
+    end
+    return false
+  end,
 }
 
 -- -------------------------------------------------------------------
