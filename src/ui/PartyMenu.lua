@@ -465,6 +465,14 @@ function PartyMenu:bottomMessage()
   end
 end
 
+-- Name-row pixel Y for party slot i (1-based).
+-- pokered party_menu.asm RedrawPartyMenu_: hlcoord 3, 0, then each entry
+-- advances 2*SCREEN_WIDTH (16 px).  The bottom message box sits at tile
+-- row 12 (y=96); slot 6's HP row is therefore at y=88. #262
+function PartyMenu.entryY(i)
+  return (i - 1) * 16
+end
+
 function PartyMenu:draw()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
@@ -476,9 +484,9 @@ function PartyMenu:draw()
   local HudTiles = require("src.render.HudTiles")
   for i, mon in ipairs(party) do
     local def = self.game.data.pokemon[mon.species]
-    local y = (i - 1) * 16 + 12
+    local y = PartyMenu.entryY(i)
     love.graphics.setColor(1, 1, 1, 1)
-    drawIcon(self.game, mon, 8, y - 2, i == self.index, self.blink or 0)
+    drawIcon(self.game, mon, 8, y, i == self.index, self.blink or 0)
     love.graphics.setColor(0, 0, 0, 1)
     Font.draw(mon.nickname or def.name, 24, y)
     -- level at column 13 (<LV> tile + digits, PrintLevel) AND the

@@ -39,39 +39,42 @@ end
 -- endFrame composites the padded canvas back with a matching offset.
 Renderer.UPRIGHT_MARGIN = 160
 
--- LOVE units + framebuffer pixels + the live unit→pixel ratio.
--- Android's DisplayMetrics.density (love.graphics.getDPIScale) is often
--- non-integer (1.5, 2.75, …).  Integer scaling in units then maps each GB
--- pixel to a fractional number of framebuffer pixels → shimmer, uneven /
--- non-square "pixels", and movement judder (issue #87).  Always derive the
--- crisp integer scale from the drawable pixel size; draw with (pixels/dpi)
--- so the GPU lands on whole framebuffer pixels.  Desktop dpi=1 is unchanged.
+-- LOVE units + framebuffer pixels + per-axis unit→pixel ratios.
+-- Android's DisplayMetrics.density is often non-integer (1.5, 2.75, …).
+-- Integer scaling in units then maps each GB pixel to a fractional number of
+-- framebuffer pixels → shimmer, uneven / non-square "pixels", and movement
+-- judder (issue #87).  Always derive the crisp integer scale from the
+-- *drawable* pixel size (the window framebuffer we present into -- not a
+-- combined multi-display metric), then draw with (pixels / axisDpi) so the
+-- GPU lands on whole framebuffer pixels.  Desktop dpi=1 is unchanged.
 --
--- `dpi` here must be the factor LOVE actually applies to every draw call
--- (getDPIScale), NOT the drawable/unit size ratio pw/ww.  On a normal device
--- those are equal (getPixelDimensions == getDimensions * getDPIScale), but on
--- the AYN Thor dual-screen surface in forced landscape they diverge: LOVE
--- reports pw/ww ≈ 1 while its real transform is 1.5, so scaling by pw/ww lands
--- each GB pixel on Sp*(getDPIScale/(pw/ww)) physical pixels -- a fractional,
--- stretched/non-square count (issue #208).  Prefer getDPIScale so draws land
--- on whole physical pixels through LOVE's actual transform; fall back to pw/ww
--- (then 1) only when getDPIScale is unavailable.  Since getDPIScale == pw/ww
--- on every normal device, #87's behavior is byte-identical there.
+-- LOVE's projection is anisotropic: 1 unit in X covers pw/ww framebuffer
+-- pixels and 1 unit in Y covers ph/wh.  Those ratios match on a normal
+-- highdpi surface, but diverge when unit sizes are truncated independently
+-- (`(int)(pixels/density)`) or when a dual-screen / forced-rotation device
+-- reports mismatched unit vs drawable aspects (AYN Thor, issue #208).
+-- love.graphics.getDPIScale() is only ph/wh, so using it (or pw/ww alone)
+-- for both axes makes the other axis land on a fractional, stretched count.
+-- Keep separate dpiX/dpiY so each GB pixel covers fitScale() physical pixels
+-- on BOTH axes (square).
 local function displayMetrics()
   local ww, wh = love.graphics.getDimensions()
   local pw, ph = ww, wh
   if love.graphics.getPixelDimensions then
     pw, ph = love.graphics.getPixelDimensions()
   end
-  local dpi
-  if love.graphics.getDPIScale then
-    dpi = love.graphics.getDPIScale()
+  local dpiX, dpiY = 1, 1
+  if ww > 0 and pw > 0 then dpiX = pw / ww end
+  if wh > 0 and ph > 0 then dpiY = ph / wh end
+  -- No pixel API (headless / old stub): fall back to getDPIScale, else 1.
+  if (dpiX == 1 and dpiY == 1) and not love.graphics.getPixelDimensions
+     and love.graphics.getDPIScale then
+    local d = love.graphics.getDPIScale()
+    if d and d > 1e-6 then dpiX, dpiY = d, d end
   end
-  if (not dpi or dpi < 1e-6) and ww > 0 and pw > 0 then
-    dpi = pw / ww
-  end
-  if not dpi or dpi < 1e-6 then dpi = 1 end
-  return ww, wh, pw, ph, dpi
+  if dpiX < 1e-6 then dpiX = 1 end
+  if dpiY < 1e-6 then dpiY = 1 end
+  return ww, wh, pw, ph, dpiX, dpiY
 end
 
 function Renderer:init()
@@ -105,33 +108,43 @@ end
 
 -- Integer framebuffer pixels per GB pixel that fit the window.  Zoom /
 -- GBCFX / callers treat this as the crisp scale; endFrame converts to LOVE
--- units via / dpi when drawing.
+-- units via / dpiX and / dpiY when drawing.
 function Renderer:fitScale()
   local _, _, pw, ph = displayMetrics()
   return math.max(1, math.floor(math.min(pw / self.WIDTH, ph / self.HEIGHT)))
 end
 
--- The LOVE-unit draw scale endFrame uses for the UI blit: the integer
--- framebuffer scale (fitScale) divided by the live coordinate->pixel factor,
--- so a GB pixel lands on fitScale() whole PHYSICAL pixels once LOVE applies
--- its own transform (fitScale() == drawScale() * dpi).  Exposed so #208's
--- regression can assert GB pixels stay square on divergent-DPI surfaces
--- without reaching into endFrame's locals; endFrame recomputes the same value
--- inline (`S = Sp / dpi`).
-function Renderer:drawScale()
-  local _, _, _, _, dpi = displayMetrics()
-  return self:fitScale() / dpi
+-- LOVE-unit draw scales endFrame uses for the UI blit: integer framebuffer
+-- scale (fitScale) divided by each axis's unit→pixel factor, so a GB pixel
+-- lands on fitScale() whole PHYSICAL pixels on both axes once LOVE applies
+-- its projection (fitScale() == drawScaleX() * dpiX == drawScaleY() * dpiY).
+-- Exposed for #208's regression (square pixels when dpiX ≠ dpiY).
+function Renderer:drawScaleX()
+  local _, _, _, _, dpiX = displayMetrics()
+  return self:fitScale() / dpiX
 end
 
--- world-pass canvas size in world pixels: enough to fill the window at s'.
--- In tilt mode the canvas grows (both dimensions, by Tilt.viewGrowth) so
--- the projected ground plane still covers the whole window with no
--- background peeking at the receded top/bottom corners; flat mode returns
--- exactly today's size (growth factor is 1 when tilt is inactive).
+function Renderer:drawScaleY()
+  local _, _, _, _, _, dpiY = displayMetrics()
+  return self:fitScale() / dpiY
+end
+
+-- Back-compat alias: uniform surfaces have drawScaleX == drawScaleY.
+function Renderer:drawScale()
+  return self:drawScaleX()
+end
+
+-- world-pass canvas size in world pixels: enough to fill the drawable at s'.
+-- Sized from framebuffer pixels (not unit dims) so anisotropic dpiX/dpiY
+-- cannot over/under-cover the window.  In tilt mode the canvas grows (both
+-- dimensions, by Tilt.viewGrowth) so the projected ground plane still covers
+-- the whole window with no background peeking at the receded top/bottom
+-- corners; flat mode returns exactly today's size (growth factor is 1 when
+-- tilt is inactive).
 function Renderer:worldViewSize()
-  local ww, wh, _, _, dpi = displayMetrics()
-  local s = Zoom.scale(self:fitScale()) / dpi
-  local vw, vh = Zoom.fillViewSize(s, ww, wh)
+  local _, _, pw, ph = displayMetrics()
+  local sp = Zoom.scale(self:fitScale())
+  local vw, vh = math.ceil(pw / sp), math.ceil(ph / sp)
   -- Even sizes keep Camera:follow on integer pixels (viewW/2 is integral),
   -- so unfloored FX/sprite math cannot phase-shimmer against the tile layer.
   if vw % 2 ~= 0 then vw = vw + 1 end
@@ -169,21 +182,24 @@ end
 -- Black 8x8 (scaled) blocks cascading outward from the classic GB letterbox
 -- into the surrounding window, matching BattleTransition wipe progress.
 -- Tiles that sit entirely inside the 160x144 square are left to the OG wipe.
-function Renderer:drawBattleCascade(prog, ww, wh, ox, oy, vpw, vph, S)
+-- Sx/Sy are LOVE-unit scales (Sy defaults to Sx on uniform surfaces).
+function Renderer:drawBattleCascade(prog, ww, wh, ox, oy, vpw, vph, Sx, Sy)
   if not prog or prog <= 0 then return end
-  local TILE = 8 * S
-  if TILE < 1 then TILE = 1 end
-  local cols = math.ceil(ww / TILE)
-  local rows = math.ceil(wh / TILE)
+  Sy = Sy or Sx
+  local TILE_W, TILE_H = 8 * Sx, 8 * Sy
+  if TILE_W < 1 then TILE_W = 1 end
+  if TILE_H < 1 then TILE_H = 1 end
+  local cols = math.ceil(ww / TILE_W)
+  local rows = math.ceil(wh / TILE_H)
   local cx, cy = ox + vpw / 2, oy + vph / 2
   local order = {}
   for row = 0, rows - 1 do
     for col = 0, cols - 1 do
-      local x, y = col * TILE, row * TILE
+      local x, y = col * TILE_W, row * TILE_H
       -- any tile with area outside the letterbox participates
-      if x < ox or y < oy or x + TILE > ox + vpw or y + TILE > oy + vph then
-        local dist = math.max(math.abs(x + TILE / 2 - cx),
-                              math.abs(y + TILE / 2 - cy))
+      if x < ox or y < oy or x + TILE_W > ox + vpw or y + TILE_H > oy + vph then
+        local dist = math.max(math.abs(x + TILE_W / 2 - cx),
+                              math.abs(y + TILE_H / 2 - cy))
         order[#order + 1] = { x, y, dist }
       end
     end
@@ -200,7 +216,7 @@ function Renderer:drawBattleCascade(prog, ww, wh, ox, oy, vpw, vph, S)
   love.graphics.setScissor(0, 0, ww, wh)
   for i = 1, n do
     local t = order[i]
-    love.graphics.rectangle("fill", t[1], t[2], TILE, TILE)
+    love.graphics.rectangle("fill", t[1], t[2], TILE_W, TILE_H)
   end
   love.graphics.setScissor()
   love.graphics.setColor(1, 1, 1, 1)
@@ -323,10 +339,11 @@ end
 -- into (nil = default framebuffer; presentCanvas when CRT is on).
 -- Returns true on success; false (no shader/mesh) tells endFrame to fall
 -- back to the flat blit unchanged.
-function Renderer:drawTiltedWorld(zoneList, s, wox, woy, target)
+function Renderer:drawTiltedWorld(zoneList, sx, sy, wox, woy, target)
   local shader = self:tiltShader()
   local mesh = self:tiltMesh()
   if not (shader and mesh) then return false end
+  sy = sy or sx
   local wvw = self.worldCanvas:getWidth()
   local wvh = self.worldCanvas:getHeight()
 
@@ -375,7 +392,7 @@ function Renderer:drawTiltedWorld(zoneList, s, wox, woy, target)
   mesh:setVertices(Tilt.meshCorners(wvw, wvh))
   love.graphics.push()
   love.graphics.translate(wox, woy)
-  love.graphics.scale(s, s)
+  love.graphics.scale(sx, sy)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(shader)
   love.graphics.draw(mesh)
@@ -417,14 +434,15 @@ end
 -- presented through the GBC FX shader as a final pass.
 function Renderer:endFrame(zones, worldZones)
   love.graphics.setCanvas()
-  local ww, wh, pw, ph, dpi = displayMetrics()
-  -- Sp = integer framebuffer pixels per GB pixel; S = LOVE-unit draw scale.
+  local ww, wh, pw, ph, dpiX, dpiY = displayMetrics()
+  -- Sp = integer framebuffer pixels per GB pixel;
+  -- Sx/Sy = LOVE-unit draw scales (may differ when dpiX ≠ dpiY).
   local Sp = self:fitScale()
-  local S = Sp / dpi
-  local vpw, vph = self.WIDTH * S, self.HEIGHT * S
+  local Sx, Sy = Sp / dpiX, Sp / dpiY
+  local vpw, vph = self.WIDTH * Sx, self.HEIGHT * Sy
   -- Snap the letterbox origin to a framebuffer pixel, then convert to units.
-  local ox = math.floor((pw - self.WIDTH * Sp) / 2) / dpi
-  local oy = math.floor((ph - self.HEIGHT * Sp) / 2) / dpi
+  local ox = math.floor((pw - self.WIDTH * Sp) / 2) / dpiX
+  local oy = math.floor((ph - self.HEIGHT * Sp) / 2) / dpiY
   local GBCFX = require("src.render.GBCFX")
   -- Forced mono/Classic modes still need a whole-screen zone when a state
   -- exposes no SGB packets (raw DMG canvas), so sendColors can remap.
@@ -469,14 +487,15 @@ function Renderer:endFrame(zones, worldZones)
   love.graphics.rectangle("fill", 0, 0, ww, wh)
   love.graphics.setColor(1, 1, 1, 1)
 
-  -- blit `canvas` at `scale` (LOVE units) into origin (bx, by), scissored to
-  -- the (boxX, boxY, boxW, boxH) screen rect.  zoneScale converts zone
-  -- coords (canvas-space) into screen units.
-  local function blit(canvas, scale, zoneList, zoneScale, bx, by, boxX, boxY, boxW, boxH)
+  -- blit `canvas` at (sx, sy) LOVE-unit scales into origin (bx, by),
+  -- scissored to the (boxX, boxY, boxW, boxH) screen rect.  zoneSx/zoneSy
+  -- convert zone coords (canvas-space) into screen units.
+  local function blit(canvas, sx, sy, zoneList, zoneSx, zoneSy,
+                      bx, by, boxX, boxY, boxW, boxH)
     local shader = zoneList and zoneList[1] and PaletteFX.shader() or nil
     if not shader then
       love.graphics.setScissor(boxX, boxY, boxW, boxH)
-      love.graphics.draw(canvas, bx, by, 0, scale, scale)
+      love.graphics.draw(canvas, bx, by, 0, sx, sy)
       love.graphics.setScissor()
       return
     end
@@ -492,10 +511,10 @@ function Renderer:endFrame(zones, worldZones)
         love.graphics.setShader(not plain and shader or nil)
       end
       if not plain then PaletteFX.sendColors(shader, z.colors) end
-      if scissorClamped(bx + z.x * zoneScale, by + z.y * zoneScale,
-                        z.w * zoneScale, z.h * zoneScale,
+      if scissorClamped(bx + z.x * zoneSx, by + z.y * zoneSy,
+                        z.w * zoneSx, z.h * zoneSy,
                         boxX, boxY, boxW, boxH) then
-        love.graphics.draw(canvas, bx, by, 0, scale, scale)
+        love.graphics.draw(canvas, bx, by, 0, sx, sy)
       end
     end
     love.graphics.setScissor()
@@ -510,7 +529,7 @@ function Renderer:endFrame(zones, worldZones)
     -- runs, so dialogs, menus and the HUD sit on top as usual.
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setScissor(0, 0, ww, wh)
-    love.graphics.draw(self.worldOverride, 0, 0, 0, 1 / dpi, 1 / dpi)
+    love.graphics.draw(self.worldOverride, 0, 0, 0, 1 / dpiX, 1 / dpiY)
     love.graphics.setScissor()
     -- the screen-space overlays the flat path draws over its composite
     local fade = self.worldFadeAlpha
@@ -520,15 +539,15 @@ function Renderer:endFrame(zones, worldZones)
       love.graphics.setColor(1, 1, 1, 1)
     end
     if self.battleCascadeProg then
-      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, S)
+      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, Sx, Sy)
     end
   elseif self.worldActive then
     local sp = Zoom.scale(Sp)
-    local s = sp / dpi
+    local sx, sy = sp / dpiX, sp / dpiY
     local wvw = self.worldCanvas:getWidth()
     local wvh = self.worldCanvas:getHeight()
-    local wox = math.floor((pw - wvw * sp) / 2) / dpi
-    local woy = math.floor((ph - wvh * sp) / 2) / dpi
+    local wox = math.floor((pw - wvw * sp) / 2) / dpiX
+    local woy = math.floor((ph - wvh * sp) / 2) / dpiY
     -- Tilt mode projects the ground world pass through the perspective mesh
     -- (SGB zones baked in beforehand -- see drawTiltedWorld -- so no zone
     -- scissoring here).  drawTiltedWorld returns false when tilt is off or
@@ -536,12 +555,12 @@ function Renderer:endFrame(zones, worldZones)
     -- falls through to the flat blit, keeping the flat frame byte-for-byte
     -- identical to today.
     local projected =
-      Tilt.active() and self:drawTiltedWorld(worldZones or zones, s, wox, woy, present)
+      Tilt.active() and self:drawTiltedWorld(worldZones or zones, sx, sy, wox, woy, present)
     if not projected then
       if worldZones then
-        blit(self.worldCanvas, s, worldZones, s, wox, woy, 0, 0, ww, wh)
+        blit(self.worldCanvas, sx, sy, worldZones, sx, sy, wox, woy, 0, 0, ww, wh)
       else
-        blit(self.worldCanvas, s, zones, S, wox, woy, 0, 0, ww, wh)
+        blit(self.worldCanvas, sx, sy, zones, Sx, Sy, wox, woy, 0, 0, ww, wh)
       end
       -- OBP-baked overworld sprites replay on top of the zone pass (GBC
       -- mode per-object coloring; see PaletteFX.markSpriteRedraw).  Grass
@@ -562,11 +581,11 @@ function Renderer:endFrame(zones, worldZones)
           end
           if wanted then PaletteFX.sendColors(wanted, r.colors) end
           if r.quad then
-            love.graphics.draw(r.image, r.quad, wox + r.x * s, woy + r.y * s,
-                               0, s * r.sx, s)
+            love.graphics.draw(r.image, r.quad, wox + r.x * sx, woy + r.y * sy,
+                               0, sx * r.sx, sy)
           else
-            love.graphics.draw(r.image, wox + r.x * s, woy + r.y * s,
-                               0, s * r.sx, s)
+            love.graphics.draw(r.image, wox + r.x * sx, woy + r.y * sy,
+                               0, sx * r.sx, sy)
           end
         end
         if activeShader then love.graphics.setShader() end
@@ -583,7 +602,7 @@ function Renderer:endFrame(zones, worldZones)
       local M = self.UPRIGHT_MARGIN
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.setScissor(0, 0, ww, wh)
-      love.graphics.draw(self.uprightCanvas, wox - M * s, woy - M * s, 0, s, s)
+      love.graphics.draw(self.uprightCanvas, wox - M * sx, woy - M * sy, 0, sx, sy)
       love.graphics.setScissor()
     end
     -- Screen-space warp fade (Transition) over the full world composite so
@@ -599,11 +618,11 @@ function Renderer:endFrame(zones, worldZones)
     -- Battle transition: cascade black blocks into the area outside the
     -- classic 160x144 wipe square (world still shows through until filled).
     if self.battleCascadeProg then
-      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, S)
+      self:drawBattleCascade(self.battleCascadeProg, ww, wh, ox, oy, vpw, vph, Sx, Sy)
     end
   end
   -- UI stays in the classic centered GB letterbox
-  blit(self.canvas, S, zones, S, ox, oy, ox, oy, vpw, vph)
+  blit(self.canvas, Sx, Sy, zones, Sx, Sy, ox, oy, ox, oy, vpw, vph)
 
   if present then
     love.graphics.setCanvas()
@@ -613,7 +632,7 @@ function Renderer:endFrame(zones, worldZones)
     -- grid itself.  Each pass hands back a canvas; with none registered
     -- this returns `present` unchanged and the frame is byte-identical.
     local composed = Pipelines.present(present,
-      { width = ww, height = wh, scale = Sp, dpi = dpi }) or present
+      { width = ww, height = wh, scale = Sp, dpi = dpiY, dpiX = dpiX, dpiY = dpiY }) or present
     if GBCFX.active() then
       -- shader grid/shadow math is in framebuffer pixels
       GBCFX.present(composed, Sp)

@@ -8,6 +8,8 @@
 -- Case 1 (level path, cancelable): open EvolutionState directly, wait a
 -- few frames into the flash (t well under FLASH_FRAMES=220), hold B, and
 -- assert the mon stays CATERPIE with "stopped evolving" text on screen.
+-- Case 1b: after cancel, checkParty with no level-ups must not re-offer;
+-- a subsequent level-up set must offer again (EvolveAfterBattle parity).
 -- Case 2 (control): let the flash run to completion with no input and
 -- assert the mon becomes METAPOD with the "Congratulations!" text.
 --
@@ -102,6 +104,27 @@ return function(game)
   mashUntil(function() return done1 end, 80) -- close the stopped-evolving text
   assert(done1, "cancel onDone never fired")
   assert(mon.species == "CATERPIE", "species changed after cancel tail")
+
+  -- === Case 1b: after B-cancel, checkParty without a level-up must not
+  -- re-offer (regression: cancelled mons stuck at threshold tried again
+  -- after every later battle, even non-participants). ===
+  local nQuiet = Evolution.checkParty(game, nil, {})
+  assert(nQuiet == 0, "checkParty with no level-ups re-offered after cancel")
+  assert(not evoTop(), "EvolutionState opened after quiet afterBattle")
+  assert(mon.species == "CATERPIE", "species changed on quiet checkParty")
+
+  local nLevel = Evolution.checkParty(game, nil, { [mon] = true })
+  assert(nLevel == 1, "checkParty after a real level-up should offer once")
+  if not waitFor(evoTop, 300) then
+    error("EvolutionState never opened after level-up re-offer")
+  end
+  U.wait(20)
+  U.hold(game, "b", 20) -- cancel so case 2 stays independent
+  if not waitFor(function() return not evoTop() end, 240) then
+    error("level-up re-offer did not abort on B")
+  end
+  mashUntil(function() return not findText("stopped evolving") end, 80)
+  assert(mon.species == "CATERPIE", "species changed after re-offer cancel")
 
   -- === Case 2 (control): no input -> evolution completes ===
   local mon2 = Pokemon.new(game.data, "CATERPIE", 7)

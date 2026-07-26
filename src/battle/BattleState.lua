@@ -2781,6 +2781,13 @@ function BattleState:enemyMonFainted()
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, mon.traded)
+    -- Track level-ups for EvolveAfterBattle (OverworldState:afterBattle ->
+    -- Evolution.checkParty).  B-cancel leaves the mon at/above threshold;
+    -- without this gate it re-triggers after every later fight (#213).
+    if #levels > 0 then
+      self.leveledUp = self.leveledUp or {}
+      self.leveledUp[mon] = true
+    end
     Runtime.emit("battle.exp_gained", {
       battle = self, mon = mon, gained = gained, levels = levels,
     })

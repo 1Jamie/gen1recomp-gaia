@@ -512,6 +512,46 @@ do
         "the registered method's own gate holds")
 end
 
+-- ------- checkParty only offers evolutions for mons that leveled (#213)
+
+do
+  local caterpie = Pokemon.new(Data, "CATERPIE", 7) -- at LEVEL evo threshold
+  local bench = Pokemon.new(Data, "PIDGEY", 5)
+  local save = SaveData.newGame()
+  save.party = { caterpie, bench }
+  local stack = { states = {} }
+  function stack:push(state) self.states[#self.states + 1] = state end
+  function stack:pop() return table.remove(self.states) end
+  function stack:top() return self.states[#self.states] end
+  local game = { data = Data, save = save, stack = stack }
+
+  local offered = {}
+  local origEvolve = Evolution.evolve
+  Evolution.evolve = function(_, mon, to, onDone)
+    offered[#offered + 1] = { mon = mon, to = to }
+    if onDone then onDone() end
+  end
+
+  check(Evolution.checkParty(game) == 0,
+        "checkParty with no leveledUp set offers nothing")
+  check(#offered == 0, "no evolve calls without leveledUp")
+
+  check(Evolution.checkParty(game, nil, {}) == 0,
+        "checkParty with empty leveledUp offers nothing")
+  check(#offered == 0, "cancel-at-threshold does not re-offer next battle")
+
+  check(Evolution.checkParty(game, nil, { [bench] = true }) == 0,
+        "a leveled mon with no pending evo is skipped")
+  check(#offered == 0, "bench level-up alone does not evolve CATERPIE")
+
+  check(Evolution.checkParty(game, nil, { [caterpie] = true }) == 1,
+        "checkParty offers evo for the mon that leveled")
+  check(#offered == 1 and offered[1].mon == caterpie and offered[1].to == "METAPOD",
+        "the leveled CATERPIE is queued for METAPOD")
+
+  Evolution.evolve = origEvolve
+end
+
 -- ------- the rare-candy flow runs the hook-wrapped dispatch
 
 do

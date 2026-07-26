@@ -3257,7 +3257,9 @@ function OverworldState:afterBattle(result, battle)
               lead and lead.stats.hp or 0)
   local Evolution = require("src.pokemon.Evolution")
   local function evolutions()
-    Evolution.checkParty(Game)
+    -- Only mons that gained a level this battle (EXP.ALL included).
+    -- Scanning the whole party re-offered B-cancelled evolutions forever (#213).
+    Evolution.checkParty(Game, nil, battle and battle.leveledUp)
   end
   if result == "lose" then
     local oaksLabRival = battle and battle.oppClass == "OPP_RIVAL1"

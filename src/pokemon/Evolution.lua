@@ -184,13 +184,22 @@ function Evolution.request(game, mon, trigger, onDone)
   return species
 end
 
--- After-battle hook: evolve everyone who qualifies (queued one at a time).
-function Evolution.checkParty(game, onDone)
+-- After-battle hook: evolve mons that leveled this battle and still
+-- qualify (queued one at a time, party order).  Gen1 EvolveAfterBattle
+-- only considers mons that gained a level during the fight — a B-cancel
+-- means "not this time", and the next offer waits for the next level-up
+-- (or Rare Candy / stone, which call Evolution.evolve directly).
+-- leveledUp is a set of party mon tables; nil/empty yields no evolutions.
+function Evolution.checkParty(game, onDone, leveledUp)
   local pending = {}
-  for _, mon in ipairs(game.save.party) do
-    local target, evo = Evolution.pendingFor(game, mon, { kind = "levelup" })
-    if target then
-      table.insert(pending, { mon = mon, to = target, via = evo and evo.method })
+  if leveledUp then
+    for _, mon in ipairs(game.save.party) do
+      if leveledUp[mon] then
+        local target, evo = Evolution.pendingFor(game, mon, { kind = "levelup" })
+        if target then
+          table.insert(pending, { mon = mon, to = target, via = evo and evo.method })
+        end
+      end
     end
   end
   local i = 0

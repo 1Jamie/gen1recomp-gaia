@@ -1845,9 +1845,12 @@ do
   eq(cam.y, 160 - (288 / 2 - 8), "wide view keeps player centered y")
 end
 
--- ---------------------------------------------------------------- dpi fit scale (#87)
+-- ---------------------------------------------------------------- dpi fit scale (#87 / #208)
 -- Android density is often non-integer; fitScale must use framebuffer
 -- pixels so each GB pixel maps to a whole number of physical pixels.
+-- When axis unit→pixel ratios diverge (truncated highdpi sizes, dual-screen
+-- / forced-rotation mismatch), draw scales must be anisotropic so X and Y
+-- both land on the same integer physical count (square pixels).
 do
   local Renderer = require("src.render.Renderer")
   local Zoom = require("src.render.Zoom")
@@ -1873,27 +1876,46 @@ do
   local vw, vh = Renderer:worldViewSize()
   check(vw % 2 == 0 and vh % 2 == 0, "world view sizes are even (integer camera)")
   -- ceil(pw/Sp)=ceil(1920/7)=275 → even 276; ceil(1080/7)=155 → even 156
-  eq(vw, 276, "world fill width covers the unit window at pixel scale 7")
-  eq(vh, 156, "world fill height covers the unit window at pixel scale 7")
+  eq(vw, 276, "world fill width covers the drawable at pixel scale 7")
+  eq(vh, 156, "world fill height covers the drawable at pixel scale 7")
 
-  -- #208: on a dual-screen surface (AYN Thor, forced landscape) LOVE can
-  -- report drawable == unit size (pw/ww == 1) while its real coordinate->pixel
-  -- transform is 1.5.  fitScale stays keyed off the drawable pixel size, but
-  -- the unit<->pixel conversion must use the REAL getDPIScale, not pw/ww, so
-  -- each GB pixel still lands on a WHOLE number of physical pixels (square) --
-  -- not the stretched 6-vs-9-device-px fractional pixels the reporter saw.
-  -- Before the fix drawScale()==Sp/(pw/ww)==7 and 7*1.5==10.5 px/GB px.
+  -- #208: axis DPI mismatch.  LOVE's projection uses pw/ww on X and ph/wh
+  -- on Y independently; getDPIScale() is only ph/wh.  A single-dpi draw
+  -- scale makes one axis fractional → stretched / non-square GB pixels
+  -- (fonts especially).  Truncated density-2.75 unit sizes on 1080p:
+  local dpiX = 1920 / 698
+  local dpiY = 1080 / 392
   Zoom.reset()
-  g.getDimensions = function() return 1920, 1080 end
+  g.getDimensions = function() return 698, 392 end
   g.getPixelDimensions = function() return 1920, 1080 end
-  g.getDPIScale = function() return 1.5 end
+  g.getDPIScale = function() return dpiY end  -- real love.graphics.getDPIScale
   eq(Renderer:fitScale(), 7,
-     "#208 divergent DPI: fitScale still 7 from drawable pixels")
-  local physical = Renderer:drawScale() * g.getDPIScale()
-  local rounded = math.floor(physical + 0.5)
-  check(math.abs(physical - rounded) < 1e-9,
-        "#208 GB pixel lands on a whole number of physical pixels (square)")
-  eq(rounded, 7, "#208 each GB pixel covers exactly fitScale (7) physical px")
+     "#208 anisotropic DPI: fitScale still 7 from drawable pixels")
+  local physX = Renderer:drawScaleX() * dpiX
+  local physY = Renderer:drawScaleY() * dpiY
+  check(math.abs(physX - 7) < 1e-9,
+        "#208 GB pixel covers exactly fitScale (7) physical px on X")
+  check(math.abs(physY - 7) < 1e-9,
+        "#208 GB pixel covers exactly fitScale (7) physical px on Y")
+  check(math.abs(physX - physY) < 1e-9,
+        "#208 physical X/Y match (square pixels)")
+  -- single-dpi (getDPIScale-only) path would stretch X:
+  --   7 * dpiX / dpiY ≈ 6.989 ≠ 7
+  check(math.abs(7 * dpiX / dpiY - 7) > 1e-6,
+        "#208 fixture really has dpiX ≠ dpiY (guards the regression)")
+
+  -- #208 severe case: unit aspect swapped vs drawable (forced-rotation /
+  -- dual-screen mis-report).  Uniform dpi would heavily stretch one axis;
+  -- anisotropic scales keep 7x7 physical GB pixels.
+  Zoom.reset()
+  g.getDimensions = function() return 1080, 1920 end
+  g.getPixelDimensions = function() return 1920, 1080 end
+  g.getDPIScale = function() return 1080 / 1920 end
+  eq(Renderer:fitScale(), 7, "#208 swapped-aspect: fitScale from drawable")
+  physX = Renderer:drawScaleX() * (1920 / 1080)
+  physY = Renderer:drawScaleY() * (1080 / 1920)
+  check(math.abs(physX - 7) < 1e-9 and math.abs(physY - 7) < 1e-9,
+        "#208 swapped-aspect still yields square 7x7 physical GB pixels")
 
   -- missing pixel API falls back to getDimensions (headless / old stub)
   g.getPixelDimensions = nil
@@ -3003,6 +3025,13 @@ eq(frameFor("WATER", true), 3, "WATER animates to the walk frame")
 -- icons outside the table keep the old uniform fallback
 eq(frameFor("BALL", true, 96), 3, "fallback: 16x96 sheet animates to 3")
 eq(frameFor("HELIX", true, 32), 1, "fallback: 16x32 sheet animates to 1")
+
+-- party list Y (pokered party_menu.asm hlcoord 3, 0 + 2-row stride). #262
+-- A +12 offset pushed slot 6 into the bottom message box at tile row 12.
+local entryY = require("src.ui.PartyMenu").entryY
+eq(entryY(1), 0, "party slot 1 name row is y=0")
+eq(entryY(6), 80, "party slot 6 name row is y=80")
+check(entryY(6) + 8 < 96, "slot 6 HP row stays above the message box (y=96)")
 end
 
 -- ---------------------------------------------- suite discovery
