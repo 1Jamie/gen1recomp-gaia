@@ -47,8 +47,9 @@ function love.conf(t)
     -- freely to portrait or landscape), otherwise locked to the window's w/h
     -- aspect.  So a non-resizable tall window forced portrait; resizable lets
     -- the game follow the device.  The renderer letterboxes the 160x144
-    -- viewport into whatever size results, and touch input is gesture-based,
-    -- so both orientations just work.  iOS follows the Info.plist orientations
+    -- viewport into whatever size results, and the on-screen touch controls
+    -- re-lay themselves out from the new window size, so both orientations
+    -- just work.  iOS follows the Info.plist orientations
     -- (see mobile/ios/overlays/love-ios.plist, now portrait + landscape).
     t.window.resizable = true
     -- Starting size is a tall portrait hint; the OS resizes to the real

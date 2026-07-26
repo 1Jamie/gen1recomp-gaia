@@ -180,3 +180,17 @@ blocks cascade outward from that square into the surrounding world so the
 void outside the OG wipe fills in lockstep. Once the battle state is up,
 letterbox voids around the battle canvas fill **white** instead of black
 so the whole window reads as one continuous battle screen.
+
+## On-screen touch controls (mobile)
+
+On Android/iOS the game draws a translucent d-pad (bottom-left), A/B
+buttons (bottom-right, Game Boy diagonal), and +/- START/SELECT (bottom
+center) over the frame, using Xelu's CC0 controller prompts
+(`assets/touch/`). Real buttons, not gestures: press lands the frame the
+finger does, sliding on the d-pad changes direction without lifting, and
+multi-touch chords (e.g. hold a direction + tap B) work. The overlay only
+appears while no controller is being used: the first gamepad button or
+stick push hides it, the next screen touch brings it back, and unplugging
+the last controller restores it immediately. Layout re-derives from the
+window size on rotation. Desktop testing: `POKEPORT_TOUCH=1 love .` forces
+the overlay on and lets the mouse act as a finger (`=0` forces it off).

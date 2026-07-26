@@ -154,6 +154,17 @@ function Input:step()
   self.pressQueue = {}
 end
 
+-- The on-screen touch overlay (src/core/TouchControls.lua) presses GB
+-- buttons directly by name -- not through a keyboard alias -- so a player
+-- rebind can never detach or shadow the overlay.
+function Input:overlayPressed(btn)
+  press(self, btn, "touch:" .. btn)
+end
+
+function Input:overlayReleased(btn)
+  release(self, btn, "touch:" .. btn)
+end
+
 function Input:gamepadpressed(joystick, button)
   local btn = self.padBindings[button]
   if btn then

@@ -8,7 +8,7 @@ local Logger = require("src.core.Logger")
 local Renderer = require("src.render.Renderer")
 local SaveData = require("src.core.SaveData")
 local StateStack = require("src.core.StateStack")
-local TouchInput = require("src.core.TouchInput")
+local TouchControls = require("src.core.TouchControls")
 local ModLoader = require("src.mods.Loader")
 local ModRuntime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
@@ -44,8 +44,8 @@ function Game:load()
   self.input = Input
   Input:init()
 
-  self.touchInput = TouchInput
-  TouchInput:init()
+  self.touchControls = TouchControls
+  TouchControls:init()
 
   self.renderer = Renderer
   Renderer:init()
@@ -180,9 +180,6 @@ function Game:logicSpeed()
 end
 
 function Game:update(dt)
-  -- Touch timers / prior-frame auto-releases before the fixed step so
-  -- deferred A and edge pulses land in Input's press queue for this step.
-  TouchInput:update(dt)
   -- Fast-forward scales only the logic clock (see src/core/GameSpeed.lua).
   -- Give the accumulator room for one full frame at the current speed,
   -- or the anti-spiral clamp quietly caps every level above ~15X.
@@ -246,6 +243,8 @@ function Game:draw()
     worldZones = self.overworld:sgbWorldZones()
   end
   Renderer:endFrame(zones, worldZones)
+  -- on-screen mobile controls: pure screen-space, over the finished frame
+  TouchControls:draw()
 end
 
 -- overworld survey zoom: wheel up / '=' zooms in, wheel down / '-' out
@@ -375,6 +374,9 @@ function Game:keyreleased(key)
 end
 
 function Game:gamepadpressed(joystick, button)
+  -- a controller is being used: the touch overlay steps aside until the
+  -- next screen touch (mobile only; a no-op elsewhere)
+  TouchControls:noteGamepad()
   -- BindingsMenu's pad capture rides the same top-state routing as keys
   local top = self.stack and self.stack:top()
   if top and top.onGamepadPressed then
@@ -389,6 +391,8 @@ function Game:gamepadreleased(joystick, button)
 end
 
 function Game:gamepadaxis(joystick, axis, value)
+  -- past-deadzone only, so resting-stick drift can't hide the overlay
+  if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
   Input:gamepadaxis(joystick, axis, value)
 end
 
@@ -398,12 +402,12 @@ end
 -- state is worse than asking the player to re-press.
 function Game:focus(f)
   Input:reset()
-  TouchInput:reset()
+  TouchControls:reset()
 end
 
 function Game:visible(v)
   Input:reset()
-  TouchInput:reset()
+  TouchControls:reset()
 end
 
 -- A disconnected/dropped controller can't send the button-up for whatever
@@ -411,19 +415,19 @@ end
 -- flags it owned.
 function Game:joystickremoved(joystick)
   Input:reset()
-  TouchInput:reset()
+  TouchControls:joystickremoved()
 end
 
 function Game:touchpressed(id, x, y)
-  TouchInput:touchpressed(id, x, y)
+  TouchControls:touchpressed(id, x, y)
 end
 
 function Game:touchmoved(id, x, y)
-  TouchInput:touchmoved(id, x, y)
+  TouchControls:touchmoved(id, x, y)
 end
 
 function Game:touchreleased(id, x, y)
-  TouchInput:touchreleased(id, x, y)
+  TouchControls:touchreleased(id, x, y)
 end
 
 -- Point the loader's mod.save backing at this save's modData so per-mod

@@ -18,6 +18,11 @@ local driverCo  -- optional frame-driver (POKEPORT_DRIVER=file.lua): a
 -- bot or screenshot run is not at the mercy of the player's last choice.
 local speedOverride = tonumber(os.getenv("POKEPORT_SPEED"))
 
+-- POKEPORT_TOUCH=1 forces the mobile on-screen controls on and lets the
+-- mouse stand in for a finger, so the overlay can be exercised on desktop
+-- (see src/core/TouchControls.lua).
+local mouseTouch = os.getenv("POKEPORT_TOUCH") == "1"
+
 -- How many times to run a scripted act+step loop per rendered frame.  Only
 -- scripted runs use this; interactive play fast-forwards through
 -- Game.speedOverride / the GAME SPEED option instead.
@@ -274,12 +279,25 @@ function love.mousepressed(x, y, button)
   if editorMode and EditorApp.mousepressed then
     return EditorApp.mousepressed(x, y, button)
   end
+  if mouseTouch and Game and button == 1 then
+    Game:touchpressed("mouse", x, y)
+  end
 end
 
 function love.mousereleased(x, y, button)
   if Importer then return end
   if editorMode and EditorApp.mousereleased then
     return EditorApp.mousereleased(x, y, button)
+  end
+  if mouseTouch and Game and button == 1 then
+    Game:touchreleased("mouse", x, y)
+  end
+end
+
+function love.mousemoved(x, y)
+  if editorMode or Importer then return end
+  if mouseTouch and Game and love.mouse.isDown(1) then
+    Game:touchmoved("mouse", x, y)
   end
 end
 
