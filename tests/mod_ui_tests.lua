@@ -185,6 +185,83 @@ check(#menu.items == #VANILLA_START and menu.items[3].label == "ITEM",
 check(logged("ui.start_menu.items returned"), "the degrade is logged")
 hooks:removeOwner("bad")
 
+-- ------- issue #270: B in a start submenu returns to the start menu
+-- (RedisplayStartMenu), not to the overworld.  The generic Menu pops the
+-- start menu when a row is selected, so every vanilla submenu must carry
+-- an onCancel that re-opens it.
+local function gameForSubmenus()
+  local game = startGame()
+  game.save.inventory = {}
+  game.save.money = 0
+  game.save.pcItems = { POTION = 1 }
+  game.data.items = { POTION = { name = "POTION" } }
+  game.data.pokemon = {}
+  game.data.constants = {}
+  game.data.rulesets = {}
+  game.modStatus = { available = {} }
+  return game
+end
+
+local MenuClass = require("src.ui.Menu")
+for _, rowLabel in ipairs({ "POKéDEX", "POKéMON", "ITEM", "RED", "OPTION" }) do
+  local game = gameForSubmenus()
+  local start = Screens.push(game, "StartMenu")
+  for i, item in ipairs(start.items) do
+    if item.label == rowLabel then start.index = i end
+  end
+  press(start, "a")
+  local sub = game.stack:top()
+  check(sub ~= start, rowLabel .. " opens a submenu over the overworld")
+  press(sub, "b")
+  local top = game.stack:top()
+  check(top ~= nil and top ~= sub and getmetatable(top) == MenuClass
+    and top.items[1].label == "POKéDEX",
+    "B from " .. rowLabel .. " re-opens the start menu")
+  check(#game.stack.states == 1,
+    "B from " .. rowLabel .. " leaves exactly the start menu on the stack")
+  check(top.index == start.index,
+    "the re-opened start menu restores the " .. rowLabel .. " cursor row")
+end
+
+-- the trainer card also dismisses on A, back to the start menu
+local cardGame = gameForSubmenus()
+local cardStart = Screens.push(cardGame, "StartMenu")
+for i, item in ipairs(cardStart.items) do
+  if item.label == "RED" then cardStart.index = i end
+end
+press(cardStart, "a")
+press(cardGame.stack:top(), "a")
+check(getmetatable(cardGame.stack:top()) == MenuClass
+  and cardGame.stack:top().items[1].label == "POKéDEX",
+  "A on the trainer card also returns to the start menu")
+
+-- the options CANCEL row takes the same path as B
+local optCancelGame = gameForSubmenus()
+local optStart = Screens.push(optCancelGame, "StartMenu")
+for i, item in ipairs(optStart.items) do
+  if item.label == "OPTION" then optStart.index = i end
+end
+press(optStart, "a")
+local optMenu = optCancelGame.stack:top()
+optMenu.index = #optMenu.rows + 1 -- CANCEL
+press(optMenu, "a")
+check(getmetatable(optCancelGame.stack:top()) == MenuClass
+  and optCancelGame.stack:top().items[1].label == "POKéDEX",
+  "the options CANCEL row returns to the start menu")
+
+-- the PC session (players_pc.asm): B in an item list returns to the PC's
+-- root menu, which stays on the stack via keepOpen rows
+local pcGame = gameForSubmenus()
+local pcRoot = Screens.push(pcGame, "PlayerPC")
+press(pcRoot, "a") -- WITHDRAW ITEM
+check(#pcGame.stack.states == 2,
+  "WITHDRAW ITEM keeps the PC root menu underneath")
+press(pcGame.stack:top(), "b")
+check(pcGame.stack:top() == pcRoot,
+  "B in the withdraw list returns to the PC root menu")
+press(pcRoot, "b")
+check(#pcGame.stack.states == 0, "B on the PC root logs off to the overworld")
+
 -- ------- ui.options.rows and the descriptor refactor
 local OptionsMenu = require("src.ui.OptionsMenu")
 local function optGame()
@@ -710,6 +787,27 @@ check(type("intro.oak_speech.started") == "string"
   and type("intro.oak_speech.finished") == "string",
   "intro.oak_speech lifecycle event names are stable")
 events:removeOwner("fixture")
+
+-- issue #308: finish runs once even when a finished-listener pushes a
+-- screen (the pop in finish() then removes that screen instead of the
+-- speech, and a live shrink re-fires the event every frame)
+do
+  local fgame = { data = {}, stack = newStack(), input = newInput(),
+                  save = { player = {} } }
+  local fspeech = OakSpeech.new(fgame, nil)
+  fspeech.shrink = { frame = 103 } -- past the shrink timeline's end
+  fgame.stack:push(fspeech)
+  fspeech.picReveal = nil -- skip the intro fade so update reaches shrink
+  local finishes = 0
+  events:on("intro.oak_speech.finished", function()
+    finishes = finishes + 1
+    fgame.stack:push({ pushedByListener = true }) -- the #308 trap
+  end, 0, "t308")
+  for _ = 1, 3 do fspeech:update(1 / 60) end
+  events:removeOwner("t308")
+  check(finishes == 1,
+    "finished fires once when a listener pushes a screen")
+end
 
 -- ModUI step helpers
 local tiny = { { id = "a" }, { id = "c" } }

@@ -7,10 +7,12 @@
 -- name/time/money boxes plus the dex rating.  Plays Music_HallOfFame
 -- when the audio data has it.  Calls onDone() after popping itself.
 
+local Assets = require("src.render.Assets")
 local Font = require("src.render.Font")
 local Music = require("src.core.Music")
 local Sound = require("src.core.Sound")
 local TypeChart = require("src.battle.TypeChart")
+local Strings = require("src.core.Strings")
 
 local HallOfFame = {}
 HallOfFame.__index = HallOfFame
@@ -47,9 +49,11 @@ local FADE_FRAMES = 20
 -- HoFPrintTextAndDelay after each dex line
 local DEX_HOLD = 120
 
+-- through Assets.resolve so an enabled mod's overrides/ shadows these the
+-- same way it shadows every other generated asset
 local function tryImage(path)
   if not path then return nil end
-  local ok, img = pcall(love.graphics.newImage, path)
+  local ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
   return ok and img or nil
 end
 
@@ -79,7 +83,8 @@ function HallOfFame.new(game, onDone)
   self.timer = 0
   self.phase = "mons"
   self.sprites = {} -- species -> image or false
-  self.playerPic = tryImage("assets/generated/trainer_card/red.png")
+  self.playerPic = tryImage(require("src.pokemon.Sprites").playerPath(
+    game.data, "front", { kind = "hof" }))
   self.scrollX = PIC_X
   self.showHofBanner = false
   self.fade = 0
@@ -206,13 +211,13 @@ function HallOfFame:drawMonInfo(mon)
   love.graphics.setColor(0, 0, 0, 1)
   local name = mon.nickname or (def and def.name) or mon.species
   Font.draw(name, 1 * 8, 4 * 8)
-  Font.draw("LEVEL/", 2 * 8, 6 * 8)
-  Font.draw("TYPE1/", 2 * 8, 7 * 8)
+  Font.draw(Strings("LEVEL/"), 2 * 8, 6 * 8)
+  Font.draw(Strings("TYPE1/"), 2 * 8, 7 * 8)
   local t1 = def and def.types and def.types[1]
   local t2 = def and def.types and def.types[2]
   local dual = t2 and t2 ~= t1
   if dual then
-    Font.draw("TYPE2/", 2 * 8, 8 * 8)
+    Font.draw(Strings("TYPE2/"), 2 * 8, 8 * 8)
   end
   -- PrintLevelCommon at (8,7): bare level digits (no <LV> tile here)
   Font.draw(tostring(mon.level), 8 * 8, 7 * 8)
@@ -229,7 +234,7 @@ end
 function HallOfFame:drawHofBanner()
   Font.drawBox(2, 13, 16, 5)
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw("HALL OF FAME", 4 * 8, 15 * 8)
+  Font.draw(Strings("HALL OF FAME"), 4 * 8, 15 * 8)
 end
 
 function HallOfFame:drawPic(img)
@@ -249,11 +254,11 @@ function HallOfFame:drawPlayerStats()
   -- play time / money box: TextBoxBorder (0,4) b=6,c=10 → drawBox(0,4,12,8)
   Font.drawBox(0, 4, 12, 8)
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw("PLAY TIME", 1 * 8, 6 * 8)
+  Font.draw(Strings("PLAY TIME"), 1 * 8, 6 * 8)
   local t = math.floor(save.playTime or 0)
   Font.draw(("%3d:%02d"):format(math.floor(t / 3600), math.floor(t / 60) % 60),
             5 * 8, 7 * 8)
-  Font.draw("MONEY", 1 * 8, 9 * 8)
+  Font.draw(Strings("MONEY"), 1 * 8, 9 * 8)
   -- PrintBCDNumber with MONEY_SIGN; port uses ¥ like TrainerCard
   Font.draw(("¥%d"):format(save.money or 0), 4 * 8, 10 * 8)
 end
@@ -266,16 +271,16 @@ function HallOfFame:drawDexBox(kind)
   if kind == "seen" then
     local seen, owned = self:dexSeenOwned()
     local seenOwned = text._DexSeenOwnedText
-      or "POKéDEX   Seen:{NUM:wDexRatingNumMonsSeen, 1, 3}\n         Owned:{NUM:wDexRatingNumMonsOwned, 1, 3}"
+      or Strings("POKéDEX   Seen:{NUM:wDexRatingNumMonsSeen, 1, 3}\n         Owned:{NUM:wDexRatingNumMonsOwned, 1, 3}")
     seenOwned = seenOwned
       :gsub("{NUM:wDexRatingNumMonsSeen[^}]*}", tostring(seen))
       :gsub("{NUM:wDexRatingNumMonsOwned[^}]*}", tostring(owned))
     drawTextBlock(seenOwned, 1 * 8, 14 * 8, 17 * 8)
   else
     local _, owned = self:dexSeenOwned()
-    local ratingHeader = (text._DexRatingText or "POKéDEX Rating{COLON}"):gsub("{COLON}", ":")
+    local ratingHeader = (text._DexRatingText or Strings("POKéDEX Rating{COLON}")):gsub("{COLON}", ":")
     Font.draw(ratingHeader, 1 * 8, 14 * 8)
-    local rating = text[dexRatingKey(owned)] or "Keep it up!"
+    local rating = text[dexRatingKey(owned)] or Strings("Keep it up!")
     drawTextBlock(rating, 1 * 8, 15 * 8, 17 * 8)
   end
 end

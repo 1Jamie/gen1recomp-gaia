@@ -10,6 +10,7 @@ local Flags = require("src.script.Flags")
 local Logger = require("src.core.Logger")
 local Screens = require("src.ui.Screens")
 local TextBox = require("src.render.TextBox")
+local Strings = require("src.core.Strings")
 
 local Commands = {}
 
@@ -74,6 +75,9 @@ end
 -- <PROMPT> of its own; the box only closes once WaitForSoundToFinish's poll
 -- loop sees the cry channel go quiet, so it's a no-button-wait auto text
 -- gated on the cry, not a button-wait one -- see TextBox's opts.auto.
+-- play_cry's waitForButton form keeps that cry gate but hands the box back
+-- to the A/B path once the cry is over -- see TextBox's opts.auto.wait
+-- (#247, #251).
 function Commands.show_text(ctx, textId, subs)
   local text = ctx.game.data.text[textId]
   if not text and ctx.overworld then
@@ -100,10 +104,12 @@ function Commands.show_text(ctx, textId, subs)
   local opts
   if ctx.pendingCry then
     local species = ctx.pendingCry
-    ctx.pendingCry = nil
+    local waitForButton = ctx.pendingCryWait
+    ctx.pendingCry, ctx.pendingCryWait = nil, nil
+    -- delay 0: WaitForSoundToFinish has no trailing Delay3 of its own
     opts = { auto = { sound = function()
       return require("src.core.Sound").playCry(ctx.game.data, species)
-    end, delay = 0 } } -- WaitForSoundToFinish has no trailing Delay3 of its own
+    end, delay = 0, wait = waitForButton } }
   end
   -- text_opts armed the next box: auto = true is the plain no-button-wait
   -- form, overlap folds under auto, everything else passes through
@@ -189,7 +195,7 @@ function Commands.give_item(ctx, itemId, count, gotText)
   -- skips the received text entirely when AddItemToInventory refuses)
   if not require("src.inventory.Bag").add(ctx.save, itemId, count or 1) then
     Commands.show_text(ctx, ctx.game.data.text
-      and ctx.game.data.text._BagFullText or "You can't carry\nany more items!")
+      and ctx.game.data.text._BagFullText or Strings("You can't carry\nany more items!"))
     return math.huge
   end
   local def = ctx.game.data.items[itemId]
@@ -202,7 +208,7 @@ function Commands.give_item(ctx, itemId, count, gotText)
     (def and def.keyItem) and "Get_Key_Item" or "Get_Item1")
   if gotText ~= false then
     Commands.show_text(ctx, gotText
-      or "{PLAYER} got\n" .. ctx.game.stringBuffer .. "!")
+      or Strings("{PLAYER} got\n%s!", ctx.game.stringBuffer))
   end
 end
 
@@ -469,18 +475,26 @@ function Commands.play_once(ctx, songId)
   runner:yield()
 end
 
--- play_cry <species>: PlayCry (home/audio.asm).  The text_asm bodies that
--- use it run text_far (a no-button-wait "...@" string) -> PlayCry ->
--- WaitForSoundToFinish, all within the same text ID -- the cry only starts
--- once the box has finished typing, and the box then auto-closes (no A
--- press) the instant the cry finishes, rather than firing immediately
+-- play_cry <species> [waitForButton]: PlayCry (home/audio.asm).  The
+-- text_asm bodies that use it run text_far (a no-button-wait "...@" string)
+-- -> PlayCry -> WaitForSoundToFinish, all within the same text ID -- the cry
+-- only starts once the box has finished typing, and the box then auto-closes
+-- (no A press) the instant the cry finishes, rather than firing immediately
 -- alongside the typewriter effect. Script rows run strictly in order, so
 -- this stashes the species on ctx for the show_text row that always
 -- immediately follows it (Power Plant Zapdos, Seafoam Articuno, Victory
 -- Road Moltres, Cerulean Cave Mewtwo battle text) to play once its box is
 -- done typing (see show_text's opts.auto).  Headless-safe no-op there.
-function Commands.play_cry(ctx, species)
+--
+-- waitForButton is the pet-NPC form (scripts/PewterNidoranHouse.asm and
+-- scripts/ViridianNicknameHouse.asm: the text prints, then PlayCry,
+-- WaitForSoundToFinish, TextScriptEnd).  Nothing is queued behind the cry
+-- there, so DisplayTextID's trailing WaitForTextScrollButtonPress still
+-- runs and the box holds until A/B like any other NPC line instead of
+-- popping itself into a static battle (#247, #251).
+function Commands.play_cry(ctx, species, waitForButton)
   ctx.pendingCry = species
+  ctx.pendingCryWait = waitForButton or nil
 end
 
 -- check_battle_result <r1> [r2 ...]: lastCheck = the last scripted
@@ -517,7 +531,7 @@ local function askNickname(ctx, mon)
   if ctx.game.data.text and ctx.game.data.text._DoYouWantToNicknameText then
     Commands.show_text(ctx, "_DoYouWantToNicknameText", { RAM = name })
   else
-    Commands.show_text(ctx, ("Do you want to\ngive a nickname\nto %s?"):format(name))
+    Commands.show_text(ctx, Strings("Do you want to\ngive a nickname\nto %s?", name))
   end
   local ChoiceBox = require("src.ui.ChoiceBox")
   ctx.game.stack:push(ChoiceBox.new(ctx.game, function(yes)
@@ -527,7 +541,7 @@ local function askNickname(ctx, mon)
       return
     end
     Screens.push(ctx.game, "NamingScreen", {
-      title = "NICKNAME?", maxLen = 10,
+      title = Strings("NICKNAME?"), maxLen = 10,
       onDone = function(nick)
         if nick and #nick > 0 then mon.nickname = nick end
         ctx.lastCheck = success
@@ -598,8 +612,9 @@ function Commands.give_pokemon(ctx, species, level)
       local TextBox = require("src.render.TextBox")
       local raw = ctx.game.data.text and ctx.game.data.text._SentToBoxText
       ctx.game.stack:push(TextBox.new(ctx.game, raw or (
-        "There's no more\nroom for POKéMON!\v" .. name
-        .. " was\vsent to POKéMON\vBOX " .. boxNum .. " on PC!"),
+        Strings(
+          "There's no more\nroom for POKéMON!\v%s was\vsent to POKéMON\vBOX %s on PC!",
+          name, boxNum)),
         function() end))
     end
   end

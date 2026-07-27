@@ -7,12 +7,14 @@
 -- mod can insertBefore("name_player", ...) without counting indices.
 -- Calls onDone() after popping itself.
 
+local Assets = require("src.render.Assets")
 local Sound = require("src.core.Sound")
 local Music = require("src.core.Music")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local TextBox = require("src.render.TextBox")
 local Font = require("src.render.Font")
+local Strings = require("src.core.Strings")
 
 local OakSpeech = {}
 OakSpeech.__index = OakSpeech
@@ -51,9 +53,11 @@ local function textOr(game, key)
   return (t and t[key]) or FALLBACKS[key]
 end
 
+-- through Assets.resolve so an enabled mod's overrides/ shadows these the
+-- same way it shadows every other generated asset
 local function tryImage(path)
   if not path then return nil end
-  local ok, img = pcall(love.graphics.newImage, path)
+  local ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
   return ok and img or nil
 end
 
@@ -101,7 +105,9 @@ function OakSpeech.resolvePic(game, desc, speech)
     if speech and speech.playerPic and not desc.path then
       return speech.playerPic, false
     end
-    return tryImage(desc.path or "assets/generated/trainer_card/red.png"), false
+    if desc.path then return tryImage(desc.path), false end
+    return tryImage(require("src.pokemon.Sprites").playerPath(
+      game.data, "front", { kind = "intro" })), false
   elseif t == "image" then
     return tryImage(desc.path), desc.flip and true or false
   elseif t == "sprite" then
@@ -140,7 +146,7 @@ function OakSpeech.defaultSteps(speech)
       id = "name_player",
       kind = "name",
       who = "player",
-      title = "YOUR NAME?",
+      title = Strings("YOUR NAME?"),
       presetsWho = "player",
       presetsFallback = { "RED", "ASH", "JACK" },
     },
@@ -154,7 +160,7 @@ function OakSpeech.defaultSteps(speech)
       id = "name_rival",
       kind = "name",
       who = "rival",
-      title = "HIS NAME?",
+      title = Strings("HIS NAME?"),
       presetsWho = "rival",
       presetsFallback = { "BLUE", "GARY", "JOHN" },
     },
@@ -220,7 +226,8 @@ function OakSpeech.new(game, onDone)
   self.nameLen = constants.playerNameLength or 7
   -- RedPicFront (gfx/player/red.png, shared with the trainer card) and
   -- the ShrinkPic1/ShrinkPic2 frames (gfx/player/shrink{1,2}.png)
-  self.playerPic = tryImage("assets/generated/trainer_card/red.png")
+  self.playerPic = tryImage(require("src.pokemon.Sprites").playerPath(
+    game.data, "front", { kind = "intro" }))
   self.shrinkPic1 = tryImage(oakGfx.shrink1
                              or "assets/generated/intro/shrink1.png")
   self.shrinkPic2 = tryImage(oakGfx.shrink2
@@ -337,7 +344,7 @@ function OakSpeech:runStep(step)
     self.picFlip = true
     self:revealPic("wipe", function()
       Sound.playCry(self.game.data, self.demoSpecies)
-      self:say("_OakSpeechText2A", function() self:advance() end)
+      self:say(Strings("_OakSpeechText2A"), function() self:advance() end)
     end)
   elseif kind == "name" then
     local who = step.who or "player"
@@ -345,7 +352,7 @@ function OakSpeech:runStep(step)
       or namePresets(self.game, step.presetsWho or who,
                      step.presetsFallback or { "RED" })
     require("src.ui.Screens").push(self.game, "NamingScreen", {
-      title = step.title or (who == "rival" and "HIS NAME?" or "YOUR NAME?"),
+      title = step.title or (who == "rival" and "HIS NAME?" or Strings("YOUR NAME?")),
       presets = presets,
       maxLen = step.maxLen or self.nameLen,
       onDone = function(name)
@@ -542,6 +549,10 @@ function OakSpeech:update(dt)
   elseif s.frame >= 79 and s.frame <= 102 then
     self.fadeLevel = math.floor((s.frame - 79) / 8) + 1
   elseif s.frame > 102 then
+    -- clear before finish(): a finished-listener that pushes a state gets
+    -- ITS state popped in the speech's place, and a live shrink would call
+    -- finish() again next frame, re-firing the event every frame (#308)
+    self.shrink = nil
     self:finish()
   end
 end

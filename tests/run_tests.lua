@@ -2860,6 +2860,32 @@ do
   eq(ys[1], 112, "battle text line 1 at row 14 (y=112)")
   eq(ys[2], 128, "battle text line 2 at row 16 (y=128)")
 end
+
+-- issue #296: the used-move text stays up during the move animation.
+-- current is nil once the message is dismissed, but shown still holds the
+-- lines; pokered's animations never touch the textbox tilemap.
+do
+  local Font = require("src.render.Font")
+  local drawn, origCode, origBox = 0, Font.drawCode, Font.drawBox
+  Font.drawBox = function() end
+  Font.drawCode = function() drawn = drawn + 1 end
+  local battle = setmetatable({
+    phase = "messages",
+    current = nil,
+    animPlaying = true,
+    shown = { { 0x80 }, { 0x81 } },
+  }, BattleState)
+  battle:drawTextArea()
+  eq(drawn, 2, "text keeps drawing while the move animation plays")
+
+  -- without an animation the dismissed message is still hidden, so states
+  -- that clear the box (e.g. pushed UI rows) are unchanged
+  drawn = 0
+  battle.animPlaying = nil
+  battle:drawTextArea()
+  Font.drawCode, Font.drawBox = origCode, origBox
+  eq(drawn, 0, "no current message and no animation draws no text")
+end
 end
 
 -- ================= BUGS.md batch: ledge-shadow =================
@@ -3178,12 +3204,13 @@ runSuites(orderedGlob("tests/parity_*.lua", {
 -- always been; scripts/test.sh also runs them directly.
 do
   local lua = (arg and arg[-1]) or "luajit"
+  local devnull = package.config:sub(1, 1) == "\\" and "nul" or "/dev/null"
   for _, tier in ipairs({ "tests/run_content_red.lua",
       "tests/run_engine.lua", "tests/run_modkit.lua" }) do
     local handle = io.open(tier, "r")
     if handle then
       handle:close()
-      local status = os.execute(("%q %s > /dev/null 2>&1"):format(lua, tier))
+      local status = os.execute(("%q %s > " .. devnull .. " 2>&1"):format(lua, tier))
       check(status == 0 or status == true, tier:match("([^/]+)%.lua$") .. " tier")
     end
   end
