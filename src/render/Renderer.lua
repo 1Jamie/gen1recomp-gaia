@@ -10,6 +10,8 @@ local Zoom = require("src.render.Zoom")
 local Tilt = require("src.render.Tilt")
 local PaletteFX = require("src.render.PaletteFX")
 local Pipelines = require("src.render.Pipelines")
+local PixelCanvas = require("src.render.PixelCanvas")
+local Runtime = require("src.mods.Runtime")
 
 local Renderer = {}
 
@@ -78,8 +80,10 @@ local function displayMetrics()
 end
 
 function Renderer:init()
-  self.canvas = love.graphics.newCanvas(self.WIDTH, self.HEIGHT)
-  self.canvas:setFilter("nearest", "nearest")
+  -- 160x144 real pixels, never DPI-scaled: see src/render/PixelCanvas.lua
+  -- (#208).  Every canvas below is sized in framebuffer pixels for the same
+  -- reason -- worldViewSize() already works in drawable pixels.
+  self.canvas = PixelCanvas.new(self.WIDTH, self.HEIGHT, "nearest")
   self.worldCanvas = nil
   self.worldActive = false
   -- tilt mode only: a transparent overlay canvas the size of the world
@@ -230,8 +234,7 @@ function Renderer:beginWorldPass()
     -- the view size every frame, so without this the superseded canvases
     -- pile up in VRAM until a GC finalizer happens to run
     if self.worldCanvas and self.worldCanvas.release then self.worldCanvas:release() end
-    self.worldCanvas = love.graphics.newCanvas(vw, vh)
-    self.worldCanvas:setFilter("nearest", "nearest")
+    self.worldCanvas = PixelCanvas.new(vw, vh, "nearest")
   end
   self.worldActive = true
   PaletteFX.setPass("world")
@@ -259,8 +262,7 @@ function Renderer:beginUprightPass()
   if not self.uprightCanvas or self.uprightCanvas:getWidth() ~= cw
      or self.uprightCanvas:getHeight() ~= ch then
     if self.uprightCanvas and self.uprightCanvas.release then self.uprightCanvas:release() end
-    self.uprightCanvas = love.graphics.newCanvas(cw, ch)
-    self.uprightCanvas:setFilter("nearest", "nearest")
+    self.uprightCanvas = PixelCanvas.new(cw, ch, "nearest")
   end
   self.uprightActive = true
   PaletteFX.setPass(nil)
@@ -354,8 +356,7 @@ function Renderer:drawTiltedWorld(zoneList, sx, sy, wox, woy, target)
   if not self.tiltCanvas or self.tiltCanvas:getWidth() ~= wvw
      or self.tiltCanvas:getHeight() ~= wvh then
     if self.tiltCanvas and self.tiltCanvas.release then self.tiltCanvas:release() end
-    self.tiltCanvas = love.graphics.newCanvas(wvw, wvh)
-    self.tiltCanvas:setFilter("linear", "linear")
+    self.tiltCanvas = PixelCanvas.new(wvw, wvh, "linear")
   end
 
   love.graphics.setCanvas(self.tiltCanvas)
@@ -464,6 +465,14 @@ function Renderer:endFrame(zones, worldZones)
   if needPresent then
     if not self.presentCanvas or self.presentCanvas:getWidth() ~= ww
        or self.presentCanvas:getHeight() ~= wh then
+      -- The one canvas NOT built through PixelCanvas: it is sized in LOVE
+      -- units and blitted back at unit scale 1 (and handed to mod present
+      -- passes as ww x wh), so it has to keep the screen's DPI scale for its
+      -- texture to cover the framebuffer.  Everything composited into it is
+      -- already native-resolution now, so #208's fractional source is gone;
+      -- what remains here is the dpiX vs dpiY truncation gap (well under 1%,
+      -- one seam across the window) that a single scalar dpiscale cannot
+      -- express.
       self.presentCanvas = love.graphics.newCanvas(ww, wh)
       self.presentCanvas:setFilter("linear", "linear")
     end
@@ -486,6 +495,17 @@ function Renderer:endFrame(zones, worldZones)
   love.graphics.setColor(clearR, clearG, clearB, 1)
   love.graphics.rectangle("fill", 0, 0, ww, wh)
   love.graphics.setColor(1, 1, 1, 1)
+  -- render.letterbox: SGB borders / custom void art in the bars around the
+  -- 160x144 (or world) blit.  Drawn after the clear and before the game
+  -- canvas so the playfield sits on top of the border.
+  if Runtime.wantsHook("render.letterbox") then
+    Runtime.call("render.letterbox", function() end, {
+      ww = ww, wh = wh, pw = pw, ph = ph,
+      ox = ox, oy = oy, vpw = vpw, vph = vph,
+      scale = Sp, dpiX = dpiX, dpiY = dpiY,
+      worldActive = self.worldActive and true or false,
+    })
+  end
 
   -- blit `canvas` at (sx, sy) LOVE-unit scales into origin (bx, by),
   -- scissored to the (boxX, boxY, boxW, boxH) screen rect.  zoneSx/zoneSy
