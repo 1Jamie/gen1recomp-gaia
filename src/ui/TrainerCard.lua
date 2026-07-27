@@ -4,8 +4,10 @@
 -- are built from the real trainer_info.png frame tiles (the patterned
 -- band + line style).
 
+local Assets = require("src.render.Assets")
 local Badges = require("src.inventory.Badges")
 local Font = require("src.render.Font")
+local Strings = require("src.core.Strings")
 
 local TrainerCard = {}
 TrainerCard.__index = TrainerCard
@@ -16,8 +18,11 @@ function TrainerCard:sgbPalettes(game)
   return require("src.render.PaletteFX").wholeNamed(game.data, "MEWMON")
 end
 
+-- through Assets.resolve so an enabled mod's overrides/ shadows these the
+-- same way it shadows every other generated asset
 local function tryImage(path)
-  local ok, img = pcall(love.graphics.newImage, path)
+  if not path then return nil end
+  local ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
   return ok and img or nil
 end
 
@@ -62,7 +67,8 @@ function TrainerCard.new(game, opts)
     end
   end
   self.circle = tryImage("assets/generated/trainer_card/circle_tile.png")
-  self.pic = tryImage("assets/generated/trainer_card/red.png")
+  self.pic = tryImage(require("src.pokemon.Sprites").playerPath(
+    game.data, "front", { kind = "trainer_card" }))
   return self
 end
 
@@ -114,7 +120,7 @@ function TrainerCard:draw()
     love.graphics.draw(self.pic, 104, 4)
   end
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw("NAME/" .. (save.player.name or "RED"), 16, 16)
+  Font.draw(Strings("NAME/%s", save.player.name or "RED"), 16, 16)
   Font.draw(("MONEY/¥%d"):format(save.money or 0), 16, 32)
   local t = math.floor(save.playTime or 0)
   Font.draw(("TIME/%3d:%02d"):format(math.floor(t / 3600),
@@ -123,7 +129,7 @@ function TrainerCard:draw()
   -- the circle-dotted BADGES banner (TrainerInfo_BadgesText)
   self:frameBox(0, 8, 20, 3)
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw("BADGES", 56, 72)
+  Font.draw(Strings("BADGES"), 56, 72)
   if self.circle then
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(self.circle, 48, 72)

@@ -5,6 +5,7 @@
 local Font = require("src.render.Font")
 local Runtime = require("src.mods.Runtime")
 local Theme = require("src.ui.Theme")
+local Strings = require("src.core.Strings")
 
 local ListMenu = {}
 ListMenu.__index = ListMenu
@@ -192,7 +193,7 @@ function ListMenu:draw()
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(self.title, 8, 4)
   if #self.items == 0 then
-    Font.draw("Nothing here.", 16, 64)
+    Font.draw(Strings("Nothing here."), 16, 64)
   end
   for row = 1, self.rows do
     local i = self.scroll + row
@@ -201,7 +202,10 @@ function ListMenu:draw()
     local y = 8 + row * 16
     Font.draw(item.label, 16, y)
     if item.ball then -- the Pokédex owned-ball marker tile
-      local bx = 16 + (#item.label + 1) * 8 + 3
+      -- one blank glyph after the name, measured in glyph advances rather
+      -- than bytes: NIDORAN♂/♀ carry a multi-byte charmap entry, so
+      -- `#item.label` overcounted by 2 and pushed their ball 16px right (#285)
+      local bx = 16 + Font.width(item.label) + 8 + 3
       local by = y + 3
       love.graphics.circle("fill", bx, by, 3.5)
       love.graphics.setColor(1, 1, 1, 1)
