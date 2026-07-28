@@ -302,7 +302,7 @@ function love.mousemoved(x, y)
 end
 
 function love.textinput(text)
-  if Importer then return end
+  if Importer then return Importer:textinput(text) end
   if editorMode and EditorApp.textinput then
     return EditorApp.textinput(text)
   end

@@ -1005,6 +1005,31 @@ local function printB(text, x, y)
   love.graphics.print(text, x + 0.6, y)
 end
 
+-- UTF-8 helpers for the slot-rename field (#205).  The `utf8` library only
+-- exists inside LOVE (plain luajit, which loads this module in tests, has
+-- none), so codepoint walking is done by hand -- the same lead-byte width
+-- classes GenSave's encodeName uses.  utf8Back drops the last codepoint;
+-- utf8Cap truncates to maxChars whole codepoints.
+local function utf8Back(t)
+  local i = #t
+  while i > 0 do
+    local b = t:byte(i)
+    i = i - 1
+    if b < 0x80 or b >= 0xC0 then break end -- lead or ASCII: dropped, done
+  end
+  return t:sub(1, i)
+end
+local function utf8Cap(t, maxChars)
+  local count, i = 0, 1
+  while i <= #t do
+    count = count + 1
+    if count > maxChars then return t:sub(1, i - 1) end
+    local b = t:byte(i)
+    i = i + ((b < 0x80) and 1 or (b < 0xE0) and 2 or (b < 0xF0) and 3 or 4)
+  end
+  return t
+end
+
 -- One reusable unit quad, recoloured per call, for every vertical gradient
 -- fill (LOVE has no gradient primitive and a per-frame newMesh would churn
 -- the GPU).  Callers set the blend mode; this only touches colour + geometry.
@@ -1522,6 +1547,50 @@ function RomImporter:draw()
   -- events reach the launcher, so click-vs-drag is resolved here)
   self:_updateSlotDrag()
 
+  -- save-slot rename modal (#205), drawn over everything
+  if self._rename then
+    col(PAL.bgBot, 0.72)
+    love.graphics.rectangle("fill", 0, 0, width, height)
+    local dw = math.min(appW - 32 * s, 420 * s)
+    local dh = 128 * s
+    local dx = appX + (appW - dw) / 2
+    local dy = (height - dh) / 2
+    local rr = 12 * s
+    neonGlow(dx, dy, dw, dh, rr, PAL.green, 0.4)
+    fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.85, 0.85)
+    love.graphics.setLineWidth(math.max(1, 1.2 * s))
+    col(PAL.green, 0.5)
+    love.graphics.rectangle("line", dx, dy, dw, dh, rr, rr)
+
+    love.graphics.setFont(self.slotNameFont)
+    col(PAL.white)
+    love.graphics.print(Strings("Name save slot"), dx + 16 * s, dy + 14 * s)
+
+    -- the field: bordered strip, current text, blinking caret on the pulse
+    local fx, fy = dx + 16 * s, dy + 44 * s
+    local fw, fh = dw - 32 * s, 30 * s
+    col(PAL.bgBot, 0.9)
+    love.graphics.rectangle("fill", fx, fy, fw, fh, 8 * s, 8 * s)
+    love.graphics.setLineWidth(math.max(1, s))
+    col(PAL.cardBorder, 0.45)
+    love.graphics.rectangle("line", fx, fy, fw, fh, 8 * s, 8 * s)
+    love.graphics.setFont(self.detailFont)
+    col(PAL.heading)
+    local shown = ellipsize(self.detailFont, self._rename.text, fw - 20 * s)
+    love.graphics.print(shown, fx + 10 * s, fy + (fh - self.detailFont:getHeight()) / 2)
+    if (self.pulse * 2 % 1) < 0.5 then
+      local cx = fx + 10 * s + self.detailFont:getWidth(shown) + 2 * s
+      col(PAL.green)
+      love.graphics.rectangle("fill", cx, fy + 6 * s, math.max(1, 1.5 * s),
+        fh - 12 * s)
+    end
+
+    love.graphics.setFont(self.hintFont)
+    col(PAL.detail)
+    printfB(Strings("Enter to save - Esc to cancel - empty clears"),
+      dx + 16 * s, dy + dh - 30 * s, dw - 32 * s, "left")
+  end
+
   -- pointer cursor over any interactive element (desktop only)
   if self._hoverEnabled and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
     if self._anyHover then
@@ -1538,6 +1607,20 @@ local function inside(r, x, y)
 end
 
 function RomImporter:mousepressed(x, y, button)
+  if self._rename then return end -- the rename modal swallows all clicks
+  -- right-click a save-slot row to rename it (#205); desktop only (touch
+  -- has no secondary button)
+  if button == 2 then
+    if not self.android and self.workState ~= "working" then
+      for _, r in ipairs(self.slotRects or {}) do
+        if inside(r, x, y) then
+          self:_beginRename(self.panelVersion, r.id)
+          return
+        end
+      end
+    end
+    return
+  end
   if button ~= 1 then return end
   if inside(self.bcgButton, x, y) or inside(self.linkUrlRect, x, y) then
     love.system.openURL(COMMUNITY_URL)
@@ -1642,6 +1725,16 @@ function RomImporter:mousepressed(x, y, button)
 end
 
 function RomImporter:keypressed(key)
+  if self._rename then
+    if key == "backspace" then
+      self._rename.text = utf8Back(self._rename.text)
+    elseif key == "return" or key == "kpenter" then
+      self:_commitRename()
+    elseif key == "escape" then
+      self._rename = nil
+    end
+    return
+  end
   if self.workState == "working" then return end
   if key == "return" or key == "space" or key == "kpenter" then
     -- Enter acts on the visible game tab: Play if its ROM is ready, otherwise
@@ -2069,6 +2162,33 @@ function RomImporter:_selectSlot(version, id)
   self.activeSlot[version] = id
 end
 
+-- Inline slot rename (#205): right-click arms a modal text field; Enter
+-- commits through SaveData.renameSlot (empty clears the label), Esc cancels.
+-- While it is up, keypressed/textinput/mousepressed all route here first.
+local MAX_SLOT_LABEL = 24
+
+function RomImporter:_beginRename(version, id)
+  local label
+  for _, slot in ipairs(self.slots[version] or {}) do
+    if slot.id == id then label = slot.label break end
+  end
+  self._rename = { version = version, id = id, text = label or "" }
+  self._slotPress = nil -- cancel any armed click/drag on the list
+end
+
+function RomImporter:_commitRename()
+  local r = self._rename
+  if not r then return end
+  self._rename = nil
+  require("src.core.SaveData").renameSlot(r.version, r.id, r.text)
+  self:_refreshSlots(r.version)
+end
+
+function RomImporter:textinput(text)
+  if not self._rename then return end
+  self._rename.text = utf8Cap(self._rename.text .. text, MAX_SLOT_LABEL)
+end
+
 -- "+ New save slot": register an empty slot, make it active, relist, and pin the
 -- scroll to the bottom (clamped next draw) so the new row is on screen.
 function RomImporter:_newSlot(version)
@@ -2242,7 +2362,8 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
 
         love.graphics.setFont(self.slotNameFont)
         col(PAL.white)
-        local name = slot.name or Strings("NEW GAME")
+        -- a custom label (#205) wins over the player name; both ellipsize
+        local name = slot.label or slot.name or Strings("NEW GAME")
         printB(ellipsize(self.slotNameFont, name, rw - 24 * s - math.max(pillW, rightReserve)),
           rx + 12 * s, ry + rowPadV)
 

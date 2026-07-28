@@ -458,9 +458,42 @@ function SaveData.listSlots(version)
   for _, id in ipairs(list) do
     local save = decodeSlot(fs, version, id)
     local name, meta = SaveData.slotSummary(save)
-    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta }
+    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta,
+                      label = reg.names and reg.names[id] or nil }
   end
   return out
+end
+
+-- Give a registered slot a custom label (#205: "a way to name save slots so
+-- you can see that in the launcher").  The label lives in the options
+-- registry next to list/active, never in the save file itself, so renaming
+-- needs no save rewrite and an empty slot can be labeled too.  The label is
+-- trimmed; an empty (or whitespace-only) one clears it.  Returns true, or
+-- false + an error string when the id is not registered.
+function SaveData.renameSlot(version, slotId, name)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  if type(slotId) ~= "string" or slotId == "" then
+    return false, "missing slot id"
+  end
+  local fs = persistFs(nil)
+  local opts = SaveData.loadOptions(fs)
+  opts.saveSlots = opts.saveSlots or {}
+  local reg = opts.saveSlots[version]
+  if not reg or not reg.list then return false, "slot not registered" end
+  local found = false
+  for _, id in ipairs(reg.list) do
+    if id == slotId then found = true break end
+  end
+  if not found then return false, "slot not registered" end
+  local label = type(name) == "string" and name:match("^%s*(.-)%s*$") or nil
+  if label == "" then label = nil end
+  reg.names = reg.names or {}
+  reg.names[slotId] = label
+  if next(reg.names) == nil then reg.names = nil end
+  opts.saveSlots[version] = reg
+  SaveData.saveOptions(opts, fs)
+  return true
 end
 
 -- Point the active slot at slotId (registering it if new) and persist the
@@ -580,6 +613,7 @@ function SaveData.deleteSlot(version, slotId)
   remove(fs, tmp)
 
   table.remove(reg.list, idx)
+  if reg.names then reg.names[slotId] = nil end
   if reg.active == slotId then
     reg.active = reg.list[1]  -- may be nil when the list is now empty
   end
