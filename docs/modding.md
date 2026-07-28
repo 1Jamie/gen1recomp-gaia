@@ -164,10 +164,11 @@ for a tool to offer a fresh-session action before gameplay begins.
 Ephemeral tools can wrap `save.write(next, game)` and return `false` to veto a
 progress write before world state is captured or any bytes reach disk.
 
-`render.hud` receives `(next, game, viewport)` after visible states draw and
-before the UI canvas is presented. `viewport.width` and `viewport.height` are
-the active UI dimensions, so status indicators can stay visible over normal
-and widescreen screens without pushing an updating game state.
+`render.hud` receives `(next, game, viewport)` after the finished game frame is
+composited and before touch controls draw. The window-space viewport contains
+`width`, `height`, `gameX`, `gameY`, `gameWidth`, `gameHeight`, `scale`, `dpiX`,
+and `dpiY`, so a tool can use the letterbox margins without drawing over the
+playfield or pushing an updating game state.
 
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.

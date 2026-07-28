@@ -255,14 +255,6 @@ function Game:draw()
   end
   Renderer:beginFrame(worldBelow)
   self.stack:draw()
-  -- Persistent tool status belongs above every game state but inside the
-  -- active UI canvas, so it composes with palette/render mods and survives
-  -- menus, battles, and transitions without becoming an updating state.
-  if ModRuntime.wantsHook("render.hud") then
-    local width, height = Renderer:uiSize()
-    ModRuntime.call("render.hud", function() end, self,
-      { width = width, height = height })
-  end
   -- SGB colorization: the topmost state that knows its palette owns the
   -- screen (overlays like text boxes inherit from what's beneath them);
   -- the overworld's world pass colors each visible map area separately
@@ -282,7 +274,13 @@ function Game:draw()
   if worldBelow and self.overworld.sgbWorldZones then
     worldZones = self.overworld:sgbWorldZones()
   end
-  Renderer:endFrame(zones, worldZones)
+  local viewport = Renderer:endFrame(zones, worldZones)
+  -- Persistent tool status is screen-space UI: draw it over the completed
+  -- render pipeline with exact playfield/margin geometry, but below mobile
+  -- controls. It never becomes an updating game state.
+  if ModRuntime.wantsHook("render.hud") then
+    ModRuntime.call("render.hud", function() end, self, viewport)
+  end
   -- on-screen mobile controls: pure screen-space, over the finished frame
   TouchControls:draw()
 end

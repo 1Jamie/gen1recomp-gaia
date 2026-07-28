@@ -86,9 +86,9 @@ do
   hooks:removeOwner("tool_fixture")
 end
 
--- A tool status indicator must draw after every visible game state but before
--- the renderer presents that frame. This keeps the HUD visible over the
--- overworld, menus, battles, and compatible render pipelines.
+-- A tool status indicator draws in window space after the renderer composites
+-- the game. This gives it exact playfield/margin geometry and keeps it crisp
+-- over compatible render pipelines without entering the game canvas.
 do
   local Renderer = require("src.render.Renderer")
   local TouchControls = require("src.core.TouchControls")
@@ -98,7 +98,15 @@ do
   local order = {}
   Renderer.setUISize = function() end
   Renderer.beginFrame = function() end
-  Renderer.endFrame = function() order[#order + 1] = "present" end
+  Renderer.endFrame = function()
+    order[#order + 1] = "present"
+    return {
+      width = 1024, height = 768,
+      gameX = 112, gameY = 24,
+      gameWidth = 800, gameHeight = 720,
+      scale = 5,
+    }
+  end
   TouchControls.draw = function() order[#order + 1] = "touch" end
 
   local fake = { overworld = {}, stack = { states = {} } }
@@ -108,15 +116,17 @@ do
 
   hooks:wrap("render.hud", function(nextFn, game, viewport)
     T.check(game == fake, "render.hud receives the live Game object")
-    T.eq(viewport.width, 160, "render.hud receives the UI width")
-    T.eq(viewport.height, 144, "render.hud receives the UI height")
+    T.eq(viewport.width, 1024, "render.hud receives the window width")
+    T.eq(viewport.height, 768, "render.hud receives the window height")
+    T.eq(viewport.gameX, 112, "render.hud receives the playfield origin")
+    T.eq(viewport.gameWidth, 800, "render.hud receives the playfield width")
     order[#order + 1] = "hud"
     return nextFn(game, viewport)
   end, 0, "tool_fixture")
 
   require("src.core.Game").draw(fake)
-  T.eq(table.concat(order, ","), "states,hud,present,touch",
-    "render.hud draws over states before frame presentation")
+  T.eq(table.concat(order, ","), "states,present,hud,touch",
+    "render.hud draws after frame composition and before touch controls")
   hooks:removeOwner("tool_fixture")
   Renderer.setUISize, Renderer.beginFrame, Renderer.endFrame,
     TouchControls.draw = savedSetUISize, savedBegin, savedEnd, savedTouch
