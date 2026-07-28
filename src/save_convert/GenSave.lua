@@ -38,6 +38,8 @@ local NAME_LENGTH = 11
 local PARTY_LENGTH = 6
 local MONS_PER_BOX = 20
 local NUM_BADGES = 8
+local NUM_CITY_MAPS = 11     -- PALLET_TOWN..SAFFRON_CITY, the bit width of
+                              -- wTownVisitedFlag (constants/map_constants.asm)
 local BOX_STRUCT_SIZE = 33   -- Species,HP,Level,Status,Type1,Type2,CatchRate,
                               -- Moves x4,OTID,Exp x3,HPExp,AtkExp,DefExp,
                               -- SpdExp,SpcExp,DVs,PP x4 (macros/ram.asm box_struct)
@@ -65,6 +67,22 @@ O.numPcItems = O.mainData + 579                           -- 1B
 O.pcItems = O.mainData + 580                              -- 101B (50 x (id,qty) + $FF term)
 O.currentBoxNum = O.mainData + 681                        -- 1B (bits 0-6: box 0-11, bit 7: unused here)
 O.coins = O.mainData + 685                                -- 2B BCD
+-- wTownVisitedFlag (ram/wram.asm:2057): the FLY destination set, a
+-- flag_array NUM_CITY_MAPS whose bit index IS the town's map index (see the
+-- decode note).  Triangulated from both neighbours, which agree exactly:
+-- backwards from the checksum-covered, independently derived O.eventFlags
+-- below by summing every wram.asm declaration between the two labels --
+-- 2 (wTownVisitedFlag) + 2 (wSafariSteps) + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 1
+-- + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 8 + 1 + 1 + 1 (wBeatGymFlags) + 1 + 1 + 1
+-- (wStatusFlags3, aliased wCableClubDestinationMap) + 1 + 1 + 1 + 1 + 1 + 1
+-- + 1 + 1 + 1 (wMovementFlags) + 2 + 2 + 1 + 1 + 2 + 1 + 1 + 2 + 1 + 1 + 2
+-- = 60, so 1104 - 60 = 1044; and forwards from O.coins (mainData + 685)
+-- with 2 (wPlayerCoins) + 32 (wToggleableObjectFlags, flag_array $100) + 7
+-- + 1 (wSavedSpriteImageIndex) + 33 (wToggleableObjectList) + 1 + 200
+-- (wGameProgressFlags..End) + 56 + 14 (wObtainedHiddenItemsFlags,
+-- flag_array MAX_HIDDEN_ITEMS = 112) + 2 (wObtainedHiddenCoinsFlags) + 1
+-- (wWalkBikeSurfState) + 10 = 359, so 685 + 359 = 1044 as well.
+O.townVisited = O.mainData + 1044                         -- 2B (flag_array NUM_CITY_MAPS)
 O.eventFlags = O.mainData + 1104                          -- 320B (flag_array NUM_EVENTS = 2560 bits)
 -- Play time (wPlayTimeHours/Maxed/Minutes/Seconds/Frames) lives INSIDE the
 -- sMainData window (wMainDataStart..wMainDataEnd is copied verbatim into
@@ -375,6 +393,40 @@ function GenSave.crosswalks(data)
   }
 end
 
+-- Gen1 has no "is nicknamed" bit.  An un-nicknamed mon literally stores its
+-- species' standard name in the nickname slot: engine/menus/naming_screen.asm
+-- AskName's .declinedNickname copies wNameBuffer (the MonsterNames entry
+-- GetMonName just loaded) straight over the mon's nickname field.  The game
+-- recovers "was it nicknamed?" by comparing the two --
+-- engine/pokemon/evos_moves.asm RenameEvolvedMon rewrites the name on
+-- evolution only while the stored one still equals the PRE-evolution
+-- species' standard name ("Renames the mon to its new, evolved form's
+-- standard name unless it had a nickname, in which case the nickname is
+-- kept").  This project models that state as mon.nickname == nil instead:
+-- every display site reads `mon.nickname or def.name` and
+-- src/pokemon/Evolution.lua deliberately never touches the field.  So the
+-- two conventions must be translated at this boundary, or an imported
+-- SQUIRTLE still reads "SQUIRTLE" after it becomes a WARTORTLE and an
+-- engine-origin export writes the species CONSTANT ("NIDORAN_M", whose "_"
+-- has no charmap glyph and encodes as "?") where the cartridge keeps the
+-- display name.  Both read back as a forced nickname (#257).
+--
+-- def.name is byte-for-byte what the cartridge stores: tools/extract/
+-- pokemon.py parse_names reads pokered's data/pokemon/names.asm, the very
+-- table GetMonName loads from, and all 151 names round-trip exactly through
+-- src/save_convert/data/charmap.lua, so the equality test below is exact
+-- and never mis-fires on a name the charmap mangles.
+local function speciesName(cw, species)
+  local def = species and cw.speciesDefs[species]
+  return (def and def.name) or species or ""
+end
+
+-- stored fixed-length name -> save.lua nickname (nil when never nicknamed)
+local function importedNickname(cw, species, stored)
+  if stored == speciesName(cw, species) then return nil end
+  return stored
+end
+
 -- ------------------------------------------------------------------
 -- Mon struct (box_struct is a byte-for-byte prefix of party_struct;
 -- decodeMon reads the box_struct fields, then Level+Stats if isParty).
@@ -573,7 +625,10 @@ function GenSave.decode(bytes, data, opts)
     local mon = decodeMon(bytes, O.partyMons + i * PARTY_STRUCT_SIZE, true, cw)
     if mon then
       mon.ot = decodeName(bytes, O.partyMonOT + i * NAME_LENGTH, NAME_LENGTH)
-      mon.nickname = decodeName(bytes, O.partyMonNicks + i * NAME_LENGTH, NAME_LENGTH)
+      -- a stored name equal to the species' standard name means NOT
+      -- nicknamed, which this project spells as nil (#257)
+      mon.nickname = importedNickname(cw, mon.species,
+        decodeName(bytes, O.partyMonNicks + i * NAME_LENGTH, NAME_LENGTH))
       save.party[#save.party + 1] = mon
     end
   end
@@ -586,7 +641,8 @@ function GenSave.decode(bytes, data, opts)
       local mon = decodeMon(bytes, base + 22 + i * BOX_STRUCT_SIZE, false, cw)
       if mon then
         mon.ot = decodeName(bytes, base + 22 + MONS_PER_BOX * BOX_STRUCT_SIZE + i * NAME_LENGTH, NAME_LENGTH)
-        mon.nickname = decodeName(bytes, base + 22 + MONS_PER_BOX * (BOX_STRUCT_SIZE + NAME_LENGTH) + i * NAME_LENGTH, NAME_LENGTH)
+        mon.nickname = importedNickname(cw, mon.species,
+          decodeName(bytes, base + 22 + MONS_PER_BOX * (BOX_STRUCT_SIZE + NAME_LENGTH) + i * NAME_LENGTH, NAME_LENGTH))
         table.insert(save.boxes[boxNum], mon)
       end
     end
@@ -607,6 +663,28 @@ function GenSave.decode(bytes, data, opts)
   if events then
     for bitIdx, name in pairs(events.byBit) do
       if bitGet(bytes, O.eventFlags, bitIdx) then save.flags[name] = true end
+    end
+  end
+
+  -- FLY destinations.  wTownVisitedFlag's bit index IS the town's map index:
+  -- engine/items/town_map.asm BuildFlyLocationsList loads the 16-bit value
+  -- into de and rotates it right one bit per iteration with b counting up
+  -- from 0, storing b ("the map number of the town if it has been visited"),
+  -- so bit 0 = map 0 = PALLET_TOWN, LSB first; and
+  -- engine/overworld/toggleable_objects.asm
+  -- MarkTownVisitedAndLoadToggleableObjects sets bit [wCurMap] on entry for
+  -- any map below FIRST_ROUTE_MAP.  Map indices 0-10 in
+  -- data/generated/maps.lua match PALLET_TOWN..SAFFRON_CITY one for one.
+  -- This project keeps the same set as save.visited[mapId]
+  -- (src/ui/FlyMenu.lua, src/ui/TownMap.lua, and the only writer,
+  -- src/world/OverworldController.lua's mark-on-map-entry), which an import
+  -- used to leave nil: FLY then listed only the town the player happened to
+  -- be standing in when the save was loaded (#263).
+  save.visited = {}
+  for townIdx = 0, NUM_CITY_MAPS - 1 do
+    if bitGet(bytes, O.townVisited, townIdx) then
+      local townId = cw.mapsByIndex[townIdx]
+      if townId then save.visited[townId] = true end
     end
   end
 
@@ -700,6 +778,18 @@ function GenSave.encode(save, data, template)
     end
   end
 
+  -- FLY destinations back into wTownVisitedFlag (see the decode note), so a
+  -- save exported from this port is flyable on hardware (#263).  A save
+  -- table with no `visited` key at all says nothing about the set, so leave
+  -- the template's bits exactly as they are rather than blanking every town.
+  if type(save.visited) == "table" then
+    for townIdx = 0, NUM_CITY_MAPS - 1 do
+      local townId = cw.mapsByIndex[townIdx]
+      bitSet(buf, O.townVisited, townIdx,
+             (townId and save.visited[townId]) and true or false)
+    end
+  end
+
   -- party
   local party = save.party or {}
   local partyN = math.min(#party, PARTY_LENGTH)
@@ -710,8 +800,10 @@ function GenSave.encode(save, data, template)
     setByte(buf, O.partySpecies + i, cw.pokemonIndex[mon.species] or 0)
     encodeName(buf, O.partyMonOT + i * NAME_LENGTH, NAME_LENGTH,
               mon.ot or (save.player and save.player.name) or "RED")
+    -- no nickname stores the species' DISPLAY name, not its ROM constant id
+    -- ("NIDORAN_M" would charmap the "_" to "?") (#257)
     encodeName(buf, O.partyMonNicks + i * NAME_LENGTH, NAME_LENGTH,
-              mon.nickname or mon.species or "")
+              mon.nickname or speciesName(cw, mon.species))
   end
   -- $FF-terminate the species index list right after the last real mon. The
   -- struct, OT-name and nickname bytes of the empty slots past partyN are left
@@ -734,7 +826,7 @@ function GenSave.encode(save, data, template)
       encodeName(buf, base + 22 + MONS_PER_BOX * BOX_STRUCT_SIZE + i * NAME_LENGTH, NAME_LENGTH,
                 mon.ot or (save.player and save.player.name) or "RED")
       encodeName(buf, base + 22 + MONS_PER_BOX * (BOX_STRUCT_SIZE + NAME_LENGTH) + i * NAME_LENGTH, NAME_LENGTH,
-                mon.nickname or mon.species or "")
+                mon.nickname or speciesName(cw, mon.species))  -- #257, as above
     end
     -- $FF-terminate the species list after the last real mon; empty slots past
     -- n keep their template bytes (byte-identical round-trip) or zero (fresh

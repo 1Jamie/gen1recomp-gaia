@@ -1,21 +1,27 @@
 -- Visual + render-decision regression for #150 ("Grass transparency is off").
 --
 -- The reporter's should_be.png shows Red standing in Route 1 tall grass with a
--- GREEN cap that blends into the grass.  The default SGB color mode instead
--- region-tints the player with the per-map SGB BG palette: Red's dark-gray cap
--- (DMG shade 2) maps to the ROUTE palette's shade-2 = light-blue (165,214,255)
--- (data/generated/palettes.lua ROUTE), so the character clashes with the grass.
--- On real GBC/SGB an OBJ carries its own object palette; OG RED already bakes
--- PaletteFX.ogObj() (green over Red, pink over Blue -- color/sprites.asm
--- ColorOverworldSprite) onto overworld characters.  The fix makes SGB mode do
--- the same while leaving terrain on its per-map SGB palette.
+-- GREEN cap that blends into the grass.  That green is the ROUTE palette's own
+-- entry 2 (173,230,90), not an object palette of the character's: overworld
+-- OBJs run through rOBP0 = $D0 (home/fade.asm FadePal4 `dc 3,1,0,0`), which
+-- lifts OBJ color 1 to DMG shade 0 and color 2 to shade 1, so the cap lands on
+-- the very colour the grass beside it uses.  Drawn with an identity shade map
+-- the cap landed on shade 2 = light-blue (165,214,255) instead -- the clash
+-- #150 reported.  The first fix baked PaletteFX.ogObj() (the Game Boy Color
+-- boot ROM's green) onto SGB characters, which is a different machine's answer
+-- and became #301 ("people in SGB mode are green"): the Super Game Boy cannot
+-- colour an OBJ apart from the BG at all, since pokered never sends OBJ_TRN
+-- (data/sgb/sgb_packets.asm defines ATTR_BLK / PAL_SET / PAL_TRN / MLT_REQ /
+-- CHR_TRN / PCT_TRN and nothing else).  So SGB bakes the OBP0 ramp
+-- (PaletteFX.dmgObj) and lets the zone shader colour the result.
 --
 -- Gate (fails before the fix, passes after):
---   * PaletteFX.usesSpriteObp("gbc") == true
---   * the player SpriteRenderer bakes a distinct OBJ image in SGB mode
---     (resolveImage() ~= the raw grayscale sheet) -- the pixel path that
---     recolors the cap green
---   * that baked OBJ palette's shade-2 (the cap) is green, not ROUTE light-blue
+--   * PaletteFX.usesSpriteObp("gbc") == false -- SGB owns no object palette
+--   * the player SpriteRenderer still bakes a distinct image in SGB mode
+--     (resolveImage() ~= the raw grayscale sheet): rOBP0 plus the alpha key
+--   * that bake puts the cap (sheet shade 2) on DMG shade 1, which the zone
+--     shader then reads out of the map palette as its entry 2 -- ROUTE's grass
+--     green, not its light-blue
 -- Regression guard (must hold before AND after -- terrain is untouched):
 --   * the ROUTE terrain palette still carries BOTH grass green (173,230,90) and
 --     light-blue (165,214,255), so the grass field keeps its green+blue dither.
@@ -65,23 +71,27 @@ return function(game)
   U.shot(game, DIR .. "/grass_bug150_sgb.png")
 
   -- === render-decision gate: fails before the fix, passes after =========
-  check(PaletteFX.usesSpriteObp("gbc") == true,
-        "SGB mode bakes an OBJ palette onto overworld characters")
+  check(PaletteFX.usesSpriteObp("gbc") == false,
+        "SGB owns no object palette (it cannot colour an OBJ apart from the BG)")
 
-  -- the player's sprite must resolve to a baked OBJ image (not the raw
-  -- grayscale sheet) in SGB mode -- this is the exact path that colors the cap
+  -- the player's sprite must still resolve to a baked image (not the raw
+  -- grayscale sheet) in SGB mode -- that bake is rOBP0 plus the alpha key
   local spr = p.sprite
   check(spr and spr.image and spr:resolveImage() ~= spr.image,
-        "player sprite bakes a distinct OBJ image in SGB mode")
+        "player sprite bakes a distinct OBP0 image in SGB mode")
 
-  -- the baked object palette's shade-2 (the cap) is a green, and specifically
-  -- NOT the ROUTE light-blue the region shader used to hand it
-  local obj = PaletteFX.ogObj()   -- {white, brightgreen, darkgreen, black}
-  local cap = obj and obj[3]      -- DMG shade 2 -> 3rd palette entry
+  -- OBP0 (`dc 3,1,0,0`) sends the cap -- sheet shade 2 -- to DMG shade 1, so
+  -- the zone shader hands it the map palette's entry 2 rather than the entry 3
+  -- light-blue an identity shade map used to pick
+  local obp = PaletteFX.dmgObj()
+  check(obp and obp[3][1] == 170 and obp[3][2] == 170 and obp[3][3] == 170,
+        "OBP0 bake puts sheet shade 2 on DMG shade 1 (170)")
+  local cap = PaletteFX.pal(game.data, ow:paletteNameFor(ow.map))
+  cap = cap and cap[2]            -- DMG shade 1 -> 2nd palette entry
   check(cap and cap[2] > cap[1] and cap[2] > cap[3],
-        "OBJ cap color is green-dominant (g>r and g>b)")
+        "the cap's resolved map colour is green-dominant (g>r and g>b)")
   check(cap and not (cap[1] == 165 and cap[2] == 214 and cap[3] == 255),
-        "OBJ cap color is NOT ROUTE light-blue (165,214,255)")
+        "the cap's resolved map colour is NOT ROUTE light-blue (165,214,255)")
 
   -- === regression guard: terrain palette untouched =====================
   local terrain = PaletteFX.pal(game.data, ow:paletteNameFor(ow.map))

@@ -86,7 +86,7 @@ Game Boy equivalent:
 ## Colors mode
 
 The `2` key (and the Options menu COLORS row) cycles the display mode
-through **OG RED → SGB → RED++ → OG → OG INV → SGB INV → CLASSIC → OG RED**.
+through **OG RED → SGB → ADVANCED → OG → OG INV → SGB INV → CLASSIC → OG RED**.
 The first three are the real colorizations; the rest are DMG-shade novelties:
 
 - **OG RED**: the Game Boy Color boot-ROM look for Pokemon Red -- one global
@@ -97,8 +97,9 @@ The first three are the real colorizations; the rest are DMG-shade novelties:
 - **SGB** (default): the per-map Super Game Boy region palettes
   (`data/sgb/sgb_palettes.asm`). Sprites tint with the region palette, as on
   real SGB. (This is the mode formerly mislabeled "GBC".)
-- **RED++**: pokered-gbc SuperPalettes -- real per-tile GBC coloring plus
-  per-species mon colors (`data/palettes_gbc.lua`).
+- **ADVANCED**: pokered-gbc SuperPalettes -- real per-tile GBC coloring plus
+  per-species mon colors (`data/palettes_gbc.lua`). (Formerly labeled
+  "RED++"; it is the richest colorization rather than anything Red-specific.)
 - **OG**: force the four DMG grays (colorization off).
 - **OG INV**: inverted DMG grays.
 - **SGB INV**: each SGB zone palette with shade order reversed.
@@ -109,7 +110,8 @@ The shade-remap transform is applied centrally in `PaletteFX.sendColors`, so
 it covers overworld, menus, battles, and tilt upright billboards. OG RED's
 global BG palette is supplied by `OverworldState:overworldBgColors` (per-map
 override in the overworld pass). Persisted as `save.options.colors`; the
-`gbc` / `gbc_inv` save ids are kept for back-compat under the new labels.
+`gbc` / `gbc_inv` / `redpp` save ids are kept for back-compat under the new
+labels.
 
 ## GBC FX
 
@@ -161,8 +163,9 @@ migrated once into `options.lua` on load.
 - Music / SFX volume
 - Music Filter
 - OG GLITCHES on / off (Gen 1 quirks vs. modern-clean battle rules)
-- COLORS (OG RED / SGB / RED++ / OG / OG INV / SGB INV / CLASSIC),  also
-  hotkey `2` (OG RED = GBC boot-ROM look; RED++ uses pokered-gbc
+- BATTLE LAYOUT (OG / WIDE); see "Widescreen battle layout" below
+- COLORS (OG RED / SGB / ADVANCED / OG / OG INV / SGB INV / CLASSIC),  also
+  hotkey `2` (OG RED = GBC boot-ROM look; ADVANCED uses pokered-gbc
   SuperPalettes + per-species mon colors)
 - TILT (OFF / 15 / 35 / 50),  also hotkey `3` while free-roaming
 - ZOOM (FIT / OUTn / INn),  also hotkey `4` while free-roaming; wheel and
@@ -180,6 +183,36 @@ blocks cascade outward from that square into the surrounding world so the
 void outside the OG wipe fills in lockstep. Once the battle state is up,
 letterbox voids around the battle canvas fill **white** instead of black
 so the whole window reads as one continuous battle screen.
+
+## Widescreen battle layout
+
+Options **BATTLE LAYOUT** picks the battle screen's composition: **OG**
+(the default: the original 160×144 arrangement, unchanged) or **WIDE**,
+which gives battles a 304×144 native-pixel surface and a Gen 3-style
+arrangement on it:
+
+- the foe's status box upper left, the foe's picture upper right;
+- the player's picture lower left, the player's status box lower right,
+  with a longer HP bar and the numeric HP under it;
+- a full-width message window;
+- a split "What will X do?" prompt / 2×2 command window;
+- a 2×2 move menu, navigated with all four directions, with a PP and type
+  panel attached to its right.
+
+Only the composition changes. Pictures, palettes, HP-bar colors, font
+pages, window borders, sounds, animations, timing and every battle rule
+stay the engine's, so a COLORS mode or an asset mod still owns the look.
+Each side's picture keeps its original pixels and placement math and is
+composited into its own region of the wider battlefield -- nothing is
+scaled or squeezed -- and animations, which are authored in the original
+160-pixel space, shift as one rigid group onto whichever side they play
+on. The whole screen is drawn at the window's integer fit scale for the
+wider surface, so a 304-pixel screen is drawn a step smaller than a
+160-pixel one in the same window.
+
+The wide surface is live only while the battle itself is the screen on
+top: a party menu, the bag or a nickname prompt is a 160×144 screen and
+brings the classic surface back with it.
 
 ## On-screen touch controls (mobile)
 
@@ -228,3 +261,48 @@ be packed). `--refresh` re-harvests after an engine update, keeping
 existing translations and parking orphaned keys rather than dropping them.
 
 See the wiki's Translations guide.
+
+## Save editor (bundled, reachable from the launcher)
+
+The save editor ships inside every build instead of being a developer-only
+script, and the launcher's SAVE SLOT card grows an **Edit** label next to
+Delete on every slot that actually holds a save. Edit suspends the
+launcher, opens that slot's file in the editor, and **Close** hands the
+process back to the launcher with the slot list re-read (a rename, a badge
+or a dex change shows up on the row immediately). Unsaved edits arm a
+confirm first, so leaving cannot lose work. `love . --editor` still opens
+it standalone, where Close quits instead; `--save <path>` points it at any
+file, and a save can be dragged onto the window.
+
+The editor now wears the launcher's visual language - the same navy radial
+field, 16px translucent cards, tri-colour version rail and green/yellow/red
+semantics - so the two windows read as one app. Six tabs:
+
+- **Party**: the roster with sprites, HP bars and level chips on the left,
+  and the mon inspector permanently docked on the right instead of floating
+  over the list. Species, level, DVs and moves all round-trip through the
+  Gen 1 formulas, so the inspector can never show illegal stats.
+- **Boxes**: the 12 PC boxes as a 5x4 grid with a fill meter per box and a
+  party dock, so deposit and withdraw live in one place. Empty slots are
+  clickable and create a mon there.
+- **Items**: money, a searchable item picker (replacing the arrows that
+  cycled one id at a time through ~250 items), the 20-slot bag, PC storage
+  with no slot cap, and the eight badges as toggle chips.
+- **Events**: flags, defeated trainers, taken items and per-map object
+  toggles, with a real filter field and a two-column paged grid.
+- **Map**: any map rendered with the game's own renderer, warps followable,
+  and the player / lastHeal / lastOutdoor spawn points settable by clicking
+  a cell. Setting lastOutdoor on a map the game would not accept as an
+  outdoor source is refused with the reason.
+- **Dex**: seen / owned completion meters and a four-column grid; owning
+  implies seen and un-seeing clears owned, exactly as the game requires.
+
+Two rules run through all of it. Every mutation goes through one funnel
+that sets the dirty flag and writes the status line together, so nothing
+changes silently and no branch can quietly no-op - "Party is full", "Bag is
+full", "click a cell first" all say so. And every destructive verb (Remove,
+Release, Clear all, Wipe dex) arms on the first click and commits on the
+second, relabelling itself to `Confirm?` in between.
+
+A validation pill in the tab rail mirrors what the running game would
+quarantine on load; clicking it jumps to the tab holding the first problem.

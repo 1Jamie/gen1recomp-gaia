@@ -187,7 +187,7 @@ end
 
 -- After-battle hook: evolve mons that leveled this battle and still
 -- qualify (queued one at a time, party order).  Gen1 EvolveAfterBattle
--- only considers mons that gained a level during the fight — a B-cancel
+-- only considers mons that gained a level during the fight -- a B-cancel
 -- means "not this time", and the next offer waits for the next level-up
 -- (or Rare Candy / stone, which call Evolution.evolve directly).
 -- leveledUp is a set of party mon tables; nil/empty yields no evolutions.

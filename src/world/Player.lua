@@ -152,7 +152,7 @@ function Player:update()
     self.stepFlip = not self.stepFlip
     -- keep animClock's pose on this frame (issue #82): bike steps land
     -- mid-cycle (animClock % 16 == 8), and walkPhase used to snap to
-    -- stand whenever moving cleared — a stand flash every tile on the
+    -- stand whenever moving cleared -- a stand flash every tile on the
     -- bike, and sometimes after dismount when the clock is desynced
     self.stepLanded = true
     return true

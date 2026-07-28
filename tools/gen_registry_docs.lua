@@ -3,7 +3,7 @@
 --   luajit tools/gen_registry_docs.lua [outputDir]
 --
 -- The book lives in the GitHub wiki, so the target is a wiki checkout:
---   luajit tools/gen_registry_docs.lua ../pokemon-gen1-recomp-project.wiki
+--   luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
 --   POKEPORT_DOCS_DIR=../project.wiki luajit tools/gen_registry_docs.lua
 -- The full doc pipeline moves into the modkit CLI later; this is the
 -- Schemas -> markdown seed it will absorb.
@@ -13,7 +13,7 @@ local Schemas = require("src.mods.Schemas")
 
 -- the book lives in the GitHub wiki, so the default target is a sibling
 -- wiki checkout; pass a directory or set POKEPORT_DOCS_DIR to override
-local DEFAULT_DIR = "../pokemon-gen1-recomp-project.wiki"
+local DEFAULT_DIR = "../gen1recomp.wiki"
 local FILE = "Reference-Registries.md"
 
 -- precedence: argv, env, default -- so a wiki checkout is one flag away and

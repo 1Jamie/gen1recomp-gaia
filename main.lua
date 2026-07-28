@@ -1,8 +1,12 @@
 -- Native LÖVE2D port of Pokemon Red. A packaged build creates its private
 -- game-data cache from a user-provided ROM on first boot.
 --
--- Set POKEPORT_EDITOR=1 or pass `--editor` to `love .` to boot the save
--- editor tool (tools/save-editor/) instead of the game.
+-- The save editor (tools/save-editor/) ships inside every build and is
+-- reachable two ways:
+--   * standalone: POKEPORT_EDITOR=1 or `love . --editor`, its own window
+--   * from the launcher: Edit on a save row, which suspends the launcher,
+--     opens the editor on that slot's file, and restores the launcher when
+--     the editor's Close button is pressed (openEditor / closeEditor below)
 
 local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
 
@@ -29,6 +33,105 @@ local mouseTouch = os.getenv("POKEPORT_TOUCH") == "1"
 local function scriptedIterations()
   if not (autopilot or driverCo) then return 1 end
   return math.max(1, math.floor(require("src.core.GameSpeed").clamp(speedOverride)))
+end
+
+-- ------------------------------------------------------------ save editor
+-- The launcher instance parked while the editor is up, plus the version whose
+-- cache the editor mounted (so closing can put the read path back).
+local editorHost, editorVersion, editorWindow
+local closeEditor  -- forward declaration: openEditor hands it to the editor
+
+-- The editor's modules use flat names (require("Kit"), require("Party")), so
+-- their directories have to be on the require path.  It must be
+-- love.filesystem's path, not package.path: in a packaged build these files
+-- live inside the .love archive, which the stock Lua searcher cannot open.
+local function addEditorRequirePath()
+  local fs = love.filesystem
+  if not (fs.setRequirePath and fs.getRequirePath) then
+    -- very old LOVE: a source checkout still resolves through package.path
+    package.path = fs.getSource() .. "/tools/save-editor/?.lua;"
+                .. fs.getSource() .. "/tools/save-editor/panels/?.lua;"
+                .. package.path
+    return
+  end
+  local current = fs.getRequirePath()
+  if current:find("tools/save%-editor") then return end
+  fs.setRequirePath("tools/save-editor/?.lua;tools/save-editor/panels/?.lua;"
+    .. current)
+end
+
+-- Desktop only: the launcher window (1024x768) is tighter than the editor's
+-- design size, so grow it while editing and put it back on Close.  Never
+-- shrinks, never touches a fullscreen or mobile window.
+local function resizeForEditor()
+  if not (love.window and love.window.getMode and love.window.setMode) then return end
+  local osName = love.system.getOS()
+  if osName ~= "OS X" and osName ~= "Windows" and osName ~= "Linux" then return end
+  local w, h, flags = love.window.getMode()
+  if flags.fullscreen then return end
+  local dw, dh = love.window.getDesktopDimensions()
+  local wantW = math.max(w, math.min(1360, math.floor((dw or w) * 0.92)))
+  local wantH = math.max(h, math.min(860, math.floor((dh or h) * 0.88)))
+  if wantW <= w and wantH <= h then return end
+  editorWindow = { w = w, h = h }
+  love.window.setMode(wantW, wantH, flags)
+end
+
+local function restoreWindow()
+  if not editorWindow then return end
+  local _, _, flags = love.window.getMode()
+  love.window.setMode(editorWindow.w, editorWindow.h, flags)
+  editorWindow = nil
+end
+
+-- Open the editor on a launcher save row.  The version's cache has to be
+-- mounted before the editor's Data:load runs, or a Blue save would be edited
+-- against Red's species/item tables.
+local function openEditor(version, slotId)
+  local SaveData = require("src.core.SaveData")
+  local path = SaveData.slotDiskPath(version, slotId)
+  if not path then
+    if Importer then
+      Importer.saveNotice = Importer.saveNotice or {}
+      Importer.saveNotice[version] =
+        { ok = false, text = "Could not resolve that save slot on disk." }
+    end
+    return
+  end
+  local GameVersion = require("src.core.GameVersion")
+  GameVersion.set(version)
+  require("src.import.CacheFs").mountVersion(version)
+  editorVersion = version
+  editorHost = Importer
+  Importer = nil
+  editorMode = true
+  resizeForEditor()
+  addEditorRequirePath()
+  EditorApp = require("App")
+  EditorApp.load(path, { version = version, slotId = slotId, embedded = true,
+                         onClose = function() closeEditor() end })
+end
+
+-- Back to the launcher.  Everything the editor mounted or cached has to come
+-- back out: the version overlay (CacheFs) and the generated modules require
+-- cached behind it (Data), or pressing Play on the OTHER game would boot it
+-- with this one's data.
+function closeEditor()
+  local version = editorVersion
+  editorMode = false
+  if EditorApp and EditorApp.unload then EditorApp.unload() end
+  EditorApp = nil
+  if version then
+    require("src.import.CacheFs").unmountVersion(version)
+    require("src.core.Data"):unloadGenerated()
+  end
+  editorVersion = nil
+  restoreWindow()
+  Importer = editorHost
+  editorHost = nil
+  if Importer and version and Importer.savesChanged then
+    Importer:savesChanged(version)
+  end
 end
 
 local function bootGame(version)
@@ -81,12 +184,17 @@ function love.load(args)
   end
   love.graphics.setDefaultFilter("nearest", "nearest")
 
+  -- Standalone editor.  A bare `--editor` run has no launcher behind it, so
+  -- Close quits; --save points it at a specific file, otherwise it opens the
+  -- default save path for POKEPORT_VERSION (Red unless overridden), whose
+  -- cache has to be mounted before the editor's Data:load.
   if editorMode then
-    package.path = love.filesystem.getSource() .. "/tools/save-editor/?.lua;"
-                .. love.filesystem.getSource() .. "/tools/save-editor/panels/?.lua;"
-                .. package.path
+    local version = os.getenv("POKEPORT_VERSION") or "red"
+    require("src.core.GameVersion").set(version)
+    require("src.import.CacheFs").mountVersion(version)
+    addEditorRequirePath()
     EditorApp = require("App")
-    EditorApp.load(savePath)
+    EditorApp.load(savePath, { version = version })
     return
   end
 
@@ -127,10 +235,11 @@ function love.load(args)
   -- column shows Play when that game's ROM is already imported, or Choose ROM
   -- / drag-drop when it is not (Yellow is still a placeholder).  Any dropped
   -- .gb is routed to Red or Blue by its SHA-1; pressing Play boots that game.
+  -- Edit on a save row opens the bundled editor on that slot (openEditor).
   Importer = RomImporter.new(function(version)
     Importer = nil
     bootGame(version)
-  end, { launcher = true, forceImport = forceImport })
+  end, { launcher = true, forceImport = forceImport, onEditSave = openEditor })
 end
 
 function love.update(dt)
@@ -206,19 +315,19 @@ end
 
 function love.gamepadpressed(joystick, button)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadpressed(joystick, button) end
   Game:gamepadpressed(joystick, button)
 end
 
 function love.gamepadreleased(joystick, button)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadreleased(joystick, button) end
   Game:gamepadreleased(joystick, button)
 end
 
 function love.gamepadaxis(joystick, axis, value)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   Game:gamepadaxis(joystick, axis, value)
 end
 

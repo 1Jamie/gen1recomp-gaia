@@ -59,7 +59,7 @@ the same core data and graphics into the source tree for verification.
 | | `src/battle/Experience.lua`, `Catching.lua`, `TrainerAI.lua` | exp/levels, Gen 1 catch algorithm, AI |
 | | `src/battle/rulesets/` | `gen1_faithful` (default) vs `modern_clean` |
 | ui | `src/ui/*` | start menu, generic menu, yes/no box, party/bag lists |
-| | `tools/save-editor/` | Standalone save editor (`love . --editor`) |
+| | `tools/save-editor/` | Save editor: shipped in every build, opened from the launcher's Edit button or standalone with `love . --editor` |
 
 ## Map scripts
 

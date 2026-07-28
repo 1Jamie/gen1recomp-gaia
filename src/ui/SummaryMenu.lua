@@ -13,6 +13,7 @@ local Font = require("src.render.Font")
 -- battle move-type box already do (#214).
 local TypeChart = require("src.battle.TypeChart")
 local Strings = require("src.core.Strings")
+local Stats = require("src.pokemon.Stats")
 
 local SummaryMenu = {}
 SummaryMenu.__index = SummaryMenu
@@ -30,6 +31,16 @@ function SummaryMenu:sgbPalettes(game)
 end
 
 function SummaryMenu.new(game, mon)
+  -- status_screen.asm:66-76: StatusScreen recalculates the stat block before
+  -- it draws anything when the mon came from a box or the daycare ("mon is
+  -- in a box or daycare" -> CalcStats), because box_struct carries none.
+  -- Bill's PC hands us that mon table directly (src/ui/BoxMenu.lua's STATS
+  -- submenu entry), and for a .sav imported through
+  -- src/save_convert/GenSave.lua it really does arrive with mon.stats nil,
+  -- which crashed the HP bar draw below (#233).  Redundant once
+  -- SaveData.validate has run over a loaded save, but this is the site the
+  -- original recomputes at, and it also covers a mon handed in by a mod.
+  Stats.ensure(game.data.pokemon[mon.species], mon)
   local self = setmetatable({ game = game, mon = mon, page = 1 }, SummaryMenu)
   local Sprites = require("src.pokemon.Sprites")
   local path = Sprites.path(game.data, mon.species, "front",
@@ -59,10 +70,31 @@ end
 -- drawn from the same HUD tiles the original loads
 local function drawLineBox(tx, ty, b, c)
   local HudTiles = require("src.render.HudTiles")
-  for i = 0, b - 1 do HudTiles.tile(0x73, tx * 8, (ty + i) * 8) end
-  HudTiles.tile(0x77, tx * 8, (ty + b) * 8)
-  for i = 1, c do HudTiles.tile(0x76, (tx - i) * 8, (ty + b) * 8) end
-  HudTiles.tile(0x6F, (tx - c - 1) * 8, (ty + b) * 8)
+  -- Under the status screen's overlay the vertical is $78 -- DrawLineBox
+  -- writes `ld [hl], $78` (status_screen.asm:222), and :90-93 is what puts
+  -- hud_2's single bar tile there.  $73 is the <ID> glyph on this screen,
+  -- not a line, so the whole box has to come off statusTile (#280).  The
+  -- drawn shapes are unchanged: hud_2 tile 0 is the same bar the battle
+  -- layout parks at $73.
+  for i = 0, b - 1 do HudTiles.statusTile(0x78, tx * 8, (ty + i) * 8) end
+  HudTiles.statusTile(0x77, tx * 8, (ty + b) * 8)
+  for i = 1, c do HudTiles.statusTile(0x76, (tx - i) * 8, (ty + b) * 8) end
+  HudTiles.statusTile(0x6F, (tx - c - 1) * 8, (ty + b) * 8)
+end
+
+-- home/pokemon.asm:335-345 PrintLevel: the "<LV>" (":L") tile at (tx,ty)
+-- then the level LEFT_ALIGNed after it; at level 100 hl is decremented so
+-- the third digit is written back OVER the ":L" tile.  Both status pages
+-- print a level this way, and src/ui/PartyMenu.lua models the same rule for
+-- its rows. #280
+local function printLevel(tx, ty, level)
+  local HudTiles = require("src.render.HudTiles")
+  local x = tx * 8
+  if level < 100 then
+    HudTiles.statusTile(0x6E, x, ty * 8)
+    x = x + 8
+  end
+  Font.draw(tostring(level), x, ty * 8)
 end
 
 function SummaryMenu:draw()
@@ -73,21 +105,33 @@ function SummaryMenu:draw()
   local data = game.data
   local def = data.pokemon[mon.species]
 
-  -- shared header: pic (1,0), name (9,1), <LV> (14,2), No. (1,7)
+  -- shared header: pic (1,0), name (9,1), № + dex number (1,7).  The pic is
+  -- MIRRORED -- status_screen.asm:170 draws it through
+  -- LoadFlippedFrontSpriteByMonIndex (home/pokemon.asm sets wSpriteFlipped),
+  -- the same routine the intro's NIDORINO show-off uses (OakSpeech picFlip:
+  -- negative x scale anchored at the pic's right edge). #280
   if self.sprite then
-    love.graphics.draw(self.sprite, 8,
-                       math.max(0, 56 - self.sprite:getHeight()))
+    love.graphics.draw(self.sprite, 8 + self.sprite:getWidth(),
+                       math.max(0, 56 - self.sprite:getHeight()), 0, -1, 1)
   end
   local HudTiles = require("src.render.HudTiles")
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(mon.nickname or def.name, 72, 8)
-  HudTiles.tile(0x6E, 112, 16) -- <LV>
-  Font.draw(tostring(mon.level), 120, 16)
-  Font.draw(("No.%03d"):format(def.dex or 0), 8, 56)
+  -- status_screen.asm:109-113 backs hl up from DrawLineBox's end to write
+  -- the single-tile '№' at (1,7) and '<DOT>' at (2,7); :143-146 then
+  -- PrintNumbers the dex number (LEADING_ZEROES, 3 digits) at (3,7).
+  -- Spelling "No." out of three letter tiles pushed every digit a column
+  -- right of the original. #280
+  HudTiles.statusTile(0x74, 8, 56)  -- №
+  Font.drawCode(0xF2, 16, 56)       -- <DOT> (charmap.asm:182)
+  Font.draw(("%03d"):format(def.dex or 0), 24, 56)
 
   if self.page == 1 then
     -- HP bar (11,3) + numbers row 4, STATUS/ (9,6), the DrawLineBox
-    -- bracket around the name/HP block
+    -- bracket around the name/HP block, and PrintLevel at (14,2).  The
+    -- level belongs to page 1 ONLY: StatusScreen2 opens with ClearScreenArea
+    -- over (9,2) 5x10 (status_screen.asm:303-305), which wipes it. #280
+    printLevel(14, 2, mon.level)
     drawLineBox(19, 1, 6, 10)
     HudTiles.drawHPBar(data, 11, 3, mon, 1) -- wHPBarType 1
     Font.draw(("%3d/%3d"):format(mon.hp, mon.stats.hp), 96, 32)
@@ -114,7 +158,12 @@ function SummaryMenu:draw()
       Font.draw(Strings("TYPE2/"), 80, 88)
       Font.draw(TypeChart.displayName(def.types[2]), 88, 96)
     end
-    Font.draw(Strings("IDNo/"), 80, 104)
+    -- TypesIDNoOTText's third row is "<ID>№/" (status_screen.asm:205-210):
+    -- two single-tile glyphs and a slash, three columns wide, not the five
+    -- letter tiles "IDNo/" this used to spell out. #280
+    HudTiles.statusTile(0x73, 80, 104) -- <ID>
+    HudTiles.statusTile(0x74, 88, 104) -- №
+    Font.draw("/", 96, 104)
     -- the trainer ID is rolled at new game (SaveData.newGame) and
     -- backfilled on load for old saves
     Font.draw(("%05d"):format(mon.otId or game.save.player.id or 0), 96, 112)
@@ -124,17 +173,21 @@ function SummaryMenu:draw()
     -- page 2: EXP + the moves with PP (StatusScreen2)
     drawLineBox(19, 1, 6, 10)
     Font.draw(Strings("EXP POINTS"), 72, 24)
-    Font.draw(("%d"):format(mon.exp), 96, 32)
-    -- StatusScreen2: "LEVEL UP" at (9,5); next-exp PrintNumber 7 cols
-    -- at (7,6); space at (14,6); PrintLevel at (16,6).  The old
-    -- "%d to L%d" string at x=88 overflowed the DrawLineBox edge.
+    -- PrintNumber at (12,4) with 7 columns: the exp is RIGHT-aligned into
+    -- cols 12-18 (status_screen.asm:400-403), not left-aligned from col 12.
+    -- #280
+    Font.draw(("%7d"):format(mon.exp), 96, 32)
+    -- StatusScreen2: "LEVEL UP" at (9,5); next-exp PrintNumber 7 cols at
+    -- (7,6); the narrow '<to>' tile at (14,6); PrintLevel at (16,6)
+    -- (status_screen.asm:393-403).  The old "%d to L%d" string at x=88
+    -- overflowed the DrawLineBox edge.
     Font.draw(Strings("LEVEL UP"), 72, 40)
     local Growth = require("src.pokemon.Growth")
     local nextExp = mon.level < 100
       and (Growth.expForLevel(def.growthRate, mon.level + 1) - mon.exp) or 0
     Font.draw(("%7d"):format(math.max(0, nextExp)), 56, 48)
-    HudTiles.tile(0x6E, 128, 48) -- <LV>
-    Font.draw(tostring(math.min(100, mon.level + 1)), 136, 48)
+    HudTiles.statusTile(0x70, 112, 48) -- '<to>' at (14,6), was missing (#280)
+    printLevel(16, 6, math.min(100, mon.level + 1))
     Font.drawBox(0, 8, 20, 10)
     for i = 1, 4 do
       local mv = mon.moves[i]

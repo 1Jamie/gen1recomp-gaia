@@ -47,6 +47,24 @@ local HEAL_BALL_XY = {
 -- swaps the two middle shades of the monitor/ball art in place
 local HEAL_FLASH_MAP = { [0] = 0, [1] = 2, [2] = 1, [3] = 3 }
 
+-- Fishing rod placement (FishingRodOAM, engine/overworld/player_animations
+-- .asm).  Those dbsprite rows are raw shadow-OAM bytes like HEAL_BALL_XY
+-- above (screen = tile*8 + pixel - 8/16), measured against the player
+-- sprite's fixed screen spot: ResetPlayerSpriteData parks it at $3c/$40
+-- (home/reset_player_sprite.asm), i.e. screen (64,60).  So what ports over
+-- is the delta from the sprite's top-left, which SpriteRenderer:draw puts at
+-- (px, py - 4).  `tile` indexes the three stacked 8x8 tiles of
+-- assets/generated/fx/fishing_rod.png: FishingRodOAM only ever draws $fd
+-- (row 0, up/down) and $fe (row 1, left/right), and RIGHT is the LEFT tile
+-- x-flipped.  Blitting the whole 8x24 sheet is what drew the rod as a
+-- garbage strip (#321).
+local ROD_OAM = {
+  down  = { dx =  4, dy = 15, tile = 0 },              -- dbsprite  9, 11, 4, 3, $fd
+  up    = { dx =  4, dy = -8, tile = 0 },              -- dbsprite  9,  8, 4, 4, $fd
+  left  = { dx = -8, dy =  4, tile = 1 },              -- dbsprite  8, 10, 0, 0, $fe
+  right = { dx = 16, dy =  4, tile = 1, flip = true }, -- dbsprite 11, 10, 0, 0, $fe, XFLIP
+}
+
 -- object_event spawn filter (toggleable_objects, items taken, beaten
 -- static encounters), shared by the current map's real NPCs and the
 -- visual-only ghosts on connected neighbor maps
@@ -555,6 +573,19 @@ function OverworldState:sgbWorldZones()
   return zones
 end
 
+-- Whether the dark-map shade shift (PaletteFX.DARK_BGP, armed in drawWorld)
+-- can actually reach this frame's world pass.  It cannot in RED++: that mode
+-- bakes real per-tile colour into the tileset atlas and sgbWorldZones returns
+-- an EMPTY zone list above, so the world blits with no shade-remap shader at
+-- all and there is no palette left to permute.  Only then does fxDark
+-- composite the darkness by hand (#322).
+function OverworldState:darkNeedsOverlay()
+  if not self.dark then return false end
+  local renderer = self.map and self.map.renderer
+  return PaletteFX.usesGbcPack() and renderer ~= nil
+         and renderer.gbcAtlas ~= nil
+end
+
 function OverworldState:npcByIndex(index)
   for _, n in ipairs(self.npcs) do
     if n.def.index == index then return n end
@@ -980,9 +1011,15 @@ function OverworldState:handleInput()
   end
 
   -- Cycling Road's downhill pull: with no d-pad held the bike rolls
-  -- south (home/overworld.asm JoypadOverworld's simulated PAD_DOWN)
+  -- south (home/overworld.asm JoypadOverworld's simulated PAD_DOWN).
+  -- The mask there is PAD_CTRL_PAD | PAD_B | PAD_A, so HOLDING A or B
+  -- brakes exactly like a held direction: what the Route 17 sign
+  -- promises ("Press the A or B Button to stay in place") and what the
+  -- edge-only wasPressed("a") above can never deliver, since a press
+  -- stalls the roll for one frame only (issue #255).
   local fm = Game.data.field.forcedMovement
-  if fm and Game.save.onBike and not self.player.moving then
+  local braking = input:isDown("a") or input:isDown("b")
+  if fm and Game.save.onBike and not braking and not self.player.moving then
     for _, m in ipairs(fm.slopeMaps or {}) do
       if m == self.map.id then
         self.player.facing = "down"
@@ -1070,8 +1107,28 @@ function OverworldState:checkLedgeHop(dir)
        and ledge.facing == dir and ledge.input == dir
        and ledge.standingTile == standing and ledge.ledgeTile == front then
       local lx, ly = Collision.target(fx, fy, dir)
-      if self.map:inBounds(lx, ly)
-         and not Collision.occupied(self.entities, lx, ly, p)
+      if not self.map:inBounds(lx, ly) then
+        -- The landing is on the CONNECTED map.  pokered never checks where a
+        -- hop lands (engine/overworld/ledges.asm HandleLedges just simulates
+        -- two presses in the hop direction) and the connection strip is
+        -- loaded, so ROUTE_4's bottom-row ledge at (12,17)/(13,17) really
+        -- does drop onto ROUTE_3 row 0 (south connection, offset -25 ->
+        -- destX = curX + 50; ROUTE_3 (62,0)/(63,0) are walkable $39/$23):
+        -- the one-way shortcut off the Mt Moon plaza that the in-bounds gate
+        -- was silently refusing, which is issue #223.  Validate the seam
+        -- cell the way crossConnection does, hop the first cell onto the
+        -- ledge tile, and hand the second to checkEdgeExit, which owns the
+        -- crossing.
+        local dest, ts, cx, cy = self:connectionLanding(dir)
+        if not (dest and Map.defPassable(dest, ts, cx, cy, p.surfing)) then
+          return false
+        end
+        require("src.core.Sound").play(Game.data, "Ledge")
+        p.hopFrames, p.hopTotal = 32, 32 -- jump arc (cosmetic)
+        self:scriptMove(p, dir, 1, function() self:checkEdgeExit(dir) end)
+        return true
+      end
+      if not Collision.occupied(self.entities, lx, ly, p)
          and self.map:isWalkableCell(lx, ly) then
         require("src.core.Sound").play(Game.data, "Ledge")
         p.hopFrames, p.hopTotal = 32, 32 -- jump arc (cosmetic)
@@ -1322,12 +1379,18 @@ function OverworldState:goFishing(rod)
   -- FishingInit dot animation); the rod pose draws in the meantime
   self.fishing = { facing = self.player.facing }
   Game.stack:push(TextBox.new(Game, ". . .", function()
-    self.fishing = nil
+    -- FishingAnim (engine/overworld/player_animations.asm) holds
+    -- BIT_LEDGE_OR_FISHING -- the rod OAM and the fishing pose -- through
+    -- PrintText and only clears it once the verdict box is done, so the rod
+    -- must NOT vanish with the dots box (#321).
     if not enc then
-      Game.stack:push(TextBox.new(Game, Strings("Not even a nibble!")))
+      Game.stack:push(TextBox.new(Game, Strings("Not even a nibble!"), function()
+        self.fishing = nil
+      end))
       return
     end
     Game.stack:push(TextBox.new(Game, Strings("Oh!\nIt's a bite!"), function()
+      self.fishing = nil
       local BattleState = require("src.battle.BattleState")
       local battle = BattleState.newWild(Game, enc.species, enc.level, { hooked = true })
       if Game.save.safari and Map.inRegion(self.map.def, "SAFARI", "SAFARI_ZONE") then
@@ -2528,22 +2591,27 @@ function OverworldState:engageTrainer(npc, onDone)
   local BattleState = require("src.battle.BattleState")
   Game.stack:push(TextBox.new(Game, battleText, function()
     local battle = BattleState.newTrainer(Game, d.trainerClass, d.trainerParty)
+    -- PrintEndBattleText (home/trainers.asm:341) is called from
+    -- TrainerBattleVictory (engine/battle/core.asm:942), i.e. ON the battle
+    -- screen once ScrollTrainerPicAfterBattle has brought the beaten trainer
+    -- back, and before MoneyForWinningText -- not in the overworld after the
+    -- battle screen has torn down.  Handing the line to the battle also
+    -- stops a post-battle evolution being sandwiched between two overworld
+    -- cuts (#282).  Substituted here because BattleState:say takes finished
+    -- text, while TextBox expanded the {PLAYER}/{RIVAL} tokens itself.
+    battle.endBattleText = wonText and TextBox.substitute(Game, wonText) or nil
     battle.onFinish = function(result)
       if result == "win" then
         Game.save.defeatedTrainers[npc.id] = true
         if header and header.event then
           Game.save.flags[header.event] = true
         end
+        -- checkVictoryRewards pushes the badge/prize box and starts the map's
+        -- onVictory script UNDER whatever runs next, so the player still sees
+        -- EndBattle (now inside the battle), then the reward, then AfterBattle
         self:checkVictoryRewards(d.trainerClass, d.trainerParty)
-        local after = function()
-          self:afterBattle(result, battle)
-          if onDone then onDone() end
-        end
-        if wonText then
-          Game.stack:push(TextBox.new(Game, wonText, after))
-        else
-          after()
-        end
+        self:afterBattle(result, battle)
+        if onDone then onDone() end
       else
         self:afterBattle(result, battle)
         if onDone then onDone() end
@@ -2556,7 +2624,7 @@ end
 -- Badges/items awarded after specific battles (data/scripts/victories.lua).
 -- `deactivate` retires unfought gym/dojo trainers the way the originals'
 -- SetEvent / SetEventRange do after the leader victory.
--- `hide` is { { mapId, objName }, ... } — HideObject on those toggles
+-- `hide` is { { mapId, objName }, ... } -- HideObject on those toggles
 -- (e.g. Brock victory clears PEWTERCITY_YOUNGSTER / ROUTE22_RIVAL1).
 function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
   local victories = require("data.scripts.victories")
@@ -2924,14 +2992,25 @@ function OverworldState:onStepComplete()
     self.warpEntryCell = nil
     entry = nil
   end
-  if self.justWarped then
-    self.justWarped = false
-  elseif entry then
+  -- The arrival disable is POSITIONAL: warpEntryCell above is the whole
+  -- test.  justWarped only records that an arrival happened (it still
+  -- backs onWarpArrivalCell's bonk guard for issue #230), so consuming a
+  -- completed step with it swallowed the warp under the player's feet,
+  -- which is why a second ladder one cell from the first did nothing
+  -- (Seafoam B3F has warp tiles on (25,3) and (25,4)) -- issue #265.
+  -- pokered has no such counter: every completed step runs
+  -- CheckWarpsNoCollision (home/overworld.asm), and BIT_STANDING_ON_WARP,
+  -- the flag the bonk path needs, is only set by
+  -- CheckWarpsNoCollisionLoop itself or by IsPlayerStandingOnWarp from
+  -- MapEntryAfterBattle, never on a plain warp arrival -- which is
+  -- exactly what warpEntryCell reproduces.
+  self.justWarped = false
+  if entry then
     -- still standing on the warp we arrived through; do not re-trigger it
   else
     -- CheckWarpsNoCollision: door/warp tiles fire immediately; otherwise
     -- ExtraWarpCheck must pass AND either a d-pad is held or BIT_FORCED_WARP
-    -- is set (Seafoam B3F currents — home/overworld.asm).
+    -- is set (Seafoam B3F currents -- home/overworld.asm).
     local w = Warp.onArrive(self.map, p.cellX, p.cellY)
     if not w and (self:dirHeld() or self.forcedWarp) then
       w = Warp.onCollision(self.map, Game.data.field.warpCarpets,
@@ -3017,7 +3096,7 @@ function OverworldState:runSpinnerMoves(moves, i)
     -- Scripted steps skip onStepComplete while they run; once the RLE
     -- finishes, re-enter the normal landing pipeline so chained spinners,
     -- Seafoam currents, and CheckWarpsNoCollision (incl. BIT_FORCED_WARP)
-    -- see the tile we stopped on — same as pokered after simulated joypad.
+    -- see the tile we stopped on -- same as pokered after simulated joypad.
     self:onStepComplete()
     return
   end
@@ -3754,6 +3833,13 @@ function OverworldState:billboard(fx, fy, vw, vh, colors, keyed, drawFn)
 end
 
 function OverworldState:drawWorld()
+  -- Dark-map BG shade shift, armed for the whole frame before anything draws.
+  -- home/fade.asm's LoadGBPal writes ONE rBGP for the screen, so terrain, the
+  -- characters standing on it and any dialog over them darken together (#322);
+  -- Renderer:beginFrame cleared it, so a battle or a full-screen menu -- which
+  -- draws with no map beneath it -- stays lit exactly like
+  -- init_battle_variables.asm's `ld [wMapPalOffset], a` leaves the original.
+  PaletteFX.setShadeMap(self.dark and PaletteFX.DARK_BGP or nil)
   -- advance the water/flower tile animation (runs under dialogs too).
   -- TileRenderer.tick uses wall-clock 60Hz steps so display refresh rate
   -- does not speed or slow the cycle (issue #4).
@@ -3970,19 +4056,20 @@ function OverworldState:drawWorld()
     end
   end
 
-  -- Rock Tunnel darkness: a small window of light around the player
-  -- until FLASH is used (the original darkens the palette instead);
-  -- fills the whole world view, so surveying doesn't peek past it
+  -- Rock Tunnel darkness.  The original never cuts a window of light around
+  -- the player: it shifts the BG palette for the WHOLE screen (wMapPalOffset
+  -- = 6 -> home/fade.asm LoadGBPal -> FadePal2 `dc 3,3,3,2`) and FLASH shifts
+  -- it back (#322).  PaletteFX.DARK_BGP does that for every shade-remapped
+  -- mode, armed at the top of drawWorld.  RED++ is the one mode with no
+  -- palette left to shift -- TileRenderer bakes true colour into the tileset
+  -- atlas and sgbWorldZones hands the blit an EMPTY zone list, so no shader
+  -- runs over the world at all -- so there the darkness is composited instead:
+  -- a flat veil over the whole world view (surveying still cannot peek past
+  -- it) at the 85/255 brightness FadePal2 leaves DMG white on.
   local function fxDark()
-    if not self.dark then return end
-    local px = self.player.px - cam.x + 8
-    local py = self.player.py - cam.y + 8
-    local r = 28
-    love.graphics.setColor(0, 0, 0, 1)
-    love.graphics.rectangle("fill", 0, 0, vw, math.max(0, py - r))
-    love.graphics.rectangle("fill", 0, py + r, vw, vh - (py + r))
-    love.graphics.rectangle("fill", 0, py - r, math.max(0, px - r), r * 2)
-    love.graphics.rectangle("fill", px + r, py - r, vw - (px + r), r * 2)
+    if not self:darkNeedsOverlay() then return end
+    love.graphics.setColor(0, 0, 0, 1 - 85 / 255)
+    love.graphics.rectangle("fill", 0, 0, vw, vh)
     love.graphics.setColor(1, 1, 1, 1)
   end
 
@@ -4016,11 +4103,25 @@ function OverworldState:drawWorld()
       end
       if self.rodImg then
         local p = self.player
-        local vec = DIRVEC[self.fishing.facing] or DIRVEC.down
-        local rx = p.px - cam.x + 4 + vec[1] * 12
-        local ry = p.py - cam.y + 4 + vec[2] * 12
+        local oam = ROD_OAM[self.fishing.facing] or ROD_OAM.down
+        if not self.rodQuads then
+          -- one quad per 8x8 tile of the stacked sheet (ROD_OAM.tile)
+          local iw, ih = self.rodImg:getDimensions()
+          self.rodQuads = {}
+          for i = 0, math.floor(ih / 8) - 1 do
+            self.rodQuads[i] = love.graphics.newQuad(0, i * 8, 8, 8, iw, ih)
+          end
+        end
+        local quad = self.rodQuads[oam.tile]
+        -- the sprite's top-left is 4px above its cell (SpriteRenderer:draw)
+        local rx = p.px - cam.x + oam.dx
+        local ry = p.py - cam.y - 4 + oam.dy
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(self.rodImg, rx, ry)
+        if quad and oam.flip then
+          love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)
+        elseif quad then
+          love.graphics.draw(self.rodImg, quad, rx, ry)
+        end
       end
     end
   end
@@ -4100,10 +4201,12 @@ function OverworldState:drawWorld()
       if self.fishing then
         at(fxRod, self.player.px + 8, self.player.py + 16)
       end
-      -- Rock Tunnel darkness is a screen-space light window, not a ground
-      -- object: draw it flat over the finished scene like the tilt path.
-      -- It fills the view in world-pixel units, so it only needs the scale.
-      if self.dark then
+      -- Rock Tunnel darkness is a screen-space veil, not a ground object:
+      -- draw it flat over the finished scene like the tilt path.  It fills
+      -- the view in world-pixel units, so it only needs the scale, and it is
+      -- only needed at all in the mode whose palette cannot carry the
+      -- darkening itself (see fxDark).
+      if self:darkNeedsOverlay() then
         love.graphics.push()
         love.graphics.scale(scale, scale)
         fxDark()
@@ -4134,9 +4237,12 @@ function OverworldState:drawWorld()
     -- the pipeline owns the whole frame; nothing else draws into the world
   elseif not tilt then
     -- === FLAT PATH: everything into the one world canvas, as before =====
-    -- OBP-baked sprites replay after the zone pass in GBC mode, so their
+    -- OBP-baked sprites replay after the zone pass in OG RED mode, so their
     -- grass feet-overdraw must replay over them too, colorized with the
-    -- current map's palette (see PaletteFX.markSpriteRedraw)
+    -- current map's palette (see PaletteFX.markSpriteRedraw).  SGB no longer
+    -- takes that path -- its characters are colorized by the zone just like
+    -- the ground under them (#301) -- so there the first overdraw is already
+    -- the final one.
     local grassColors = PaletteFX.usesSpriteObp()
       and PaletteFX.pal(Game.data, self:paletteNameFor(self.map)) or nil
     for _, g in ipairs(self.ghosts) do
@@ -4257,10 +4363,10 @@ function OverworldState:drawWorld()
       self:billboard(fx, fy, vw, vh, zoneColorsAt(zones, fx, fy), false, fxRod)
     end
 
-    -- Rock Tunnel darkness is a screen-space light window, not a ground
-    -- object -- draw it flat into the upright canvas so it darkens the
-    -- final composited scene uniformly (the subtle tilt keeps the
-    -- projected player near the flat light centre).
+    -- Rock Tunnel darkness is a screen-space veil, not a ground object --
+    -- draw it flat into the upright canvas so it darkens the final
+    -- composited scene uniformly.  It no-ops unless this mode needs the
+    -- composited fallback (see fxDark).
     fxDark()
 
     Game.renderer:endUprightPass()

@@ -61,13 +61,20 @@ local function capture(mapMod, game, x, y)
   return rows
 end
 
--- Route22Rival1ExitMovementData1 / Data2
-local R1_Y5 = { "right", "right", "down", "down", "down", "down", "down" }
-local R1_Y4 = { "up", "right", "right", "right",
+-- Route22Rival1ExitMovementData1 / Data2, keyed on wSavedCoordIndex (which
+-- Route22RivalBattleCoords entry matched, counted from 1) and NOT on the
+-- rival's own row: index 1 is the (29,4) tile, where he stops BELOW the
+-- player on (29,5) and leaves east; index 2 is the (29,5) tile, where he
+-- stops LEFT of him on (28,5) and must step UP to row 4 to get around him.
+-- This mapping was backwards until #236 (the y=4 walk began UP into the
+-- cliff cell (28,3)), so these constants flipped with the fix.
+local R1_Y4 = { "right", "right", "down", "down", "down", "down", "down" }
+local R1_Y5 = { "up", "right", "right", "right",
                 "down", "down", "down", "down", "down", "down" }
--- Route22Rival2ExitMovementData1 falls through Data2 on y=5
-local R2_Y5 = { "left", "left", "left", "left" }
-local R2_Y4 = { "left", "left", "left" }
+-- Route22Rival2ExitMovementData1 falls through Data2, so index 1 (y=4) is
+-- LEFT x4 from (29,5) and index 2 (y=5) LEFT x3 from (28,5)
+local R2_Y4 = { "left", "left", "left", "left" }
+local R2_Y5 = { "left", "left", "left" }
 local CER_X20 = { "right", "down", "down", "down", "down", "down", "down" }
 local CER_X21 = { "left", "down", "down", "down", "down", "down", "down" }
 
@@ -75,8 +82,8 @@ do
   local game = { save = { flags = { EVENT_GOT_POKEDEX = true } }, data = {} }
   local w5 = findWalk(capture(story5.ROUTE_22, game, 29, 5))
   local w4 = findWalk(capture(story5.ROUTE_22, game, 29, 4))
-  check(dirsEqual(w5[3], R1_Y5), "Rival1 y=5 exits toward Viridian (R,R,D×5)")
-  check(dirsEqual(w4[3], R1_Y4), "Rival1 y=4 exits U,R×3,D×6")
+  check(dirsEqual(w5[3], R1_Y5), "Rival1 y=5 goes U,R×3,D×6 around the player")
+  check(dirsEqual(w4[3], R1_Y4), "Rival1 y=4 exits toward Viridian (R,R,D×5)")
   local rows = capture(story5.ROUTE_22,
     { save = { flags = { EVENT_GOT_POKEDEX = true } }, data = {} }, 29, 5)
   for _, r in ipairs(rows) do
@@ -93,8 +100,8 @@ do
   }
   local w5 = findWalk(capture(story5.ROUTE_22, { save = { flags = flags }, data = {} }, 29, 5))
   local w4 = findWalk(capture(story5.ROUTE_22, { save = { flags = flags }, data = {} }, 29, 4))
-  check(dirsEqual(w5[3], R2_Y5), "Rival2 y=5 exits left×4 toward League")
-  check(dirsEqual(w4[3], R2_Y4), "Rival2 y=4 exits left×3 toward League")
+  check(dirsEqual(w5[3], R2_Y5), "Rival2 y=5 exits left×3 toward League")
+  check(dirsEqual(w4[3], R2_Y4), "Rival2 y=4 exits left×4 toward League")
 end
 
 do

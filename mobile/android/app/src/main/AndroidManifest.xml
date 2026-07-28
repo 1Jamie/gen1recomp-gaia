@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" >
 <uses-permission android:name="android.permission.VIBRATE" />
   <uses-permission android:name="android.permission.BLUETOOTH" />
+  <!-- Link play (src/link/): both the LAN backend (enet UDP) and the relay
+       backend (luasocket TCP) are ordinary sockets, and Android denies those
+       to a UID without INTERNET. Bind and connect then come back EPERM, which
+       the link screen shows as "(Operation not permitted)" (issue #287).
+       scripts/build_android.sh must not strip this again. -->
+  <uses-permission android:name="android.permission.INTERNET" />
 <!-- OpenGL ES 2.0 -->
   <uses-feature android:glEsVersion="0x00020000" />
   <!-- Touchscreen support -->

@@ -112,6 +112,8 @@ save.bagOrder = { "POKE_BALL", "ANTIDOTE" }
 save.pcItems = { REVIVE = 2 }
 save.pokedex = { seen = { MEW = true, PIKACHU = true }, owned = { PIKACHU = true } }
 save.flags = { EVENT_GOT_STARTER = true, EVENT_GOT_POKEDEX = true }
+-- the FLY destination set (pokered's wTownVisitedFlag), keyed by map id
+save.visited = { PALLET_TOWN = true, CELADON_CITY = true }
 save.boxes = {}
 save.party = {
   {
@@ -151,6 +153,13 @@ check(decoded2.pokedex.seen.MEW and decoded2.pokedex.seen.PIKACHU and decoded2.p
 check(not decoded2.pokedex.owned.MEW, "a species only marked seen doesn't also come back owned")
 check(decoded2.flags.EVENT_GOT_STARTER and decoded2.flags.EVENT_GOT_POKEDEX,
       "event flags round-trip")
+-- wTownVisitedFlag: bit index == map index, LSB first (PALLET_TOWN is bit 0,
+-- CELADON_CITY bit 6).  Before #263 decode never touched it, so an imported
+-- save reached FLY with no destinations at all.
+check(decoded2.visited and decoded2.visited.PALLET_TOWN and decoded2.visited.CELADON_CITY,
+      "visited towns (the FLY destination set) round-trip")
+check(decoded2.visited and not decoded2.visited.PEWTER_CITY,
+      "a town that was never visited does not come back visited")
 
 local mon1 = decoded2.party[1]
 check(mon1 and mon1.species == "MEW", "party mon species round-trips")
@@ -160,7 +169,15 @@ check(mon1 and mon1.hp == 399 and mon1.stats and mon1.stats.hp == 399,
 check(mon1 and mon1.dvs.attack == 15 and mon1.dvs.speed == 12, "party mon DVs round-trip")
 check(mon1 and mon1.moves[1].id == "TRANSFORM" and mon1.moves[1].pp == 16
       and mon1.moves[1].ppUps == 3, "party mon move/PP/PP-Up round-trip")
-check(mon1 and mon1.nickname == "MEW" and mon1.otId == 55721, "party mon nickname/OT ID round-trip")
+-- Gen1 has no "is nicknamed" bit: an un-nicknamed mon stores its species'
+-- standard name in the nickname slot (engine/menus/naming_screen.asm AskName
+-- .declinedNickname) and the game reads exactly that back as "not nicknamed"
+-- (engine/pokemon/evos_moves.asm RenameEvolvedMon).  This project spells that
+-- state mon.nickname == nil, so this fixture's MEW named "MEW" must come back
+-- with no nickname at all, or it would refuse to rename itself on evolution
+-- and export as a forced nickname (#257).
+check(mon1 and mon1.nickname == nil and mon1.otId == 55721,
+      "a stored name equal to the species name decodes as NOT nicknamed, OT ID round-trips")
 check(mon1 and mon1.ot == "Lt<DOT>Ash",
       "an OT name containing a bracketed charmap token (\"<DOT>\") round-trips as one unit, "..
       "not per-byte \"?\" (got " .. tostring(mon1 and mon1.ot) .. ")")
@@ -168,6 +185,10 @@ check(mon1 and mon1.ot == "Lt<DOT>Ash",
 local box3mon = decoded2.boxes[3][1]
 check(box3mon and box3mon.species == "PIKACHU" and box3mon.status == "PSN",
       "a boxed mon's species and status condition round-trip")
+-- the positive half of the #257 rule: a name that differs from the species
+-- name IS a real nickname and must survive untouched
+check(box3mon and box3mon.nickname == "PIKA",
+      "a real nickname (different from the species name) still round-trips")
 check(box3mon and box3mon.moves[1].id == "THUNDERSHOCK", "a boxed mon's move round-trips")
 check(decoded2.currentBox == 1, "current box selection round-trips")
 

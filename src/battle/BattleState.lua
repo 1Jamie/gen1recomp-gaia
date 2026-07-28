@@ -27,6 +27,7 @@ local TrainerAI = require("src.battle.TrainerAI")
 local TurnOrder = require("src.battle.TurnOrder")
 local TypeChart = require("src.battle.TypeChart")
 local Strings = require("src.core.Strings")
+local WideBattle = require("src.battle.WideBattle")
 
 local BattleState = {}
 BattleState.__index = BattleState
@@ -35,9 +36,33 @@ BattleState.isOpaque = true
 -- window reads as one continuous battle screen (no black bars).
 BattleState.letterboxWhite = true
 
+-- BATTLE LAYOUT: the classic 160x144 arrangement, or the widescreen one on
+-- a 304x144 surface (src/battle/WideBattle.lua).  Only the composition
+-- differs; every battler, queue and animation below is shared.  The wide
+-- layout is live only while this battle is the state being drawn on top --
+-- a party menu or bag pushed over it is a 160x144 screen, so the surface
+-- goes back with it and the battle underneath is not drawn at all.
+function BattleState:wideLayout()
+  local options = self.game and self.game.save and self.game.save.options
+  if not options or options.battleLayout ~= "wide" then return false end
+  local stack = self.game.stack
+  return (stack and stack.top and stack:top()) == self
+end
+
+-- Renderer:setUISize asks the top state for its surface before anything draws
+function BattleState:uiSize()
+  if self:wideLayout() then return WideBattle.WIDTH, WideBattle.HEIGHT end
+  return 160, 144
+end
+
 -- Battle colors itself per-pixel (species pics + HP bar tints), so the
--- SGB whole-screen remap must not run over it.
-function BattleState.sgbPalettes() return nil end
+-- SGB whole-screen remap must not run over it.  The wide layout still
+-- needs a zone list of its own: the invented 160x144 one would leave its
+-- extra columns unremapped in the forced-mono modes (WideBattle.zones).
+function BattleState:sgbPalettes()
+  if self:wideLayout() then return WideBattle.zones() end
+  return nil
+end
 
 local Rulesets = {
   gen1_faithful = require("src.battle.rulesets.gen1_faithful"),
@@ -53,16 +78,22 @@ local BALL_ANIMS = {
 }
 
 local imageCache = {}
+-- The three tables below are keyed by the Image OBJECT, not by a path, and a
+-- running battle holds the pics it built at enter() (battler.sprite,
+-- playerBackPic, trainerPic).  Weak keys let a dropped pic's row go with it,
+-- so invalidate() can drop the path cache without orphaning what is on
+-- screen right now (#316).
+local WEAK_KEYS = { __mode = "k" }
 -- fully transparent rows below a pic's content (the extracted 32x32 back
 -- pics carry baked-in padding); used to sit the pic flush on the text box
-local imagePadBottom = {}
+local imagePadBottom = setmetatable({}, WEAK_KEYS)
 -- fully transparent columns left of a pic's content; at 2x (back pics)
 -- this is subtracted from hlcoord 1,5 so opaque pixels match hardware,
 -- where those columns were white-on-white rather than shifted content
-local imagePadLeft = {}
+local imagePadLeft = setmetatable({}, WEAK_KEYS)
 -- image -> { path, pal } so palette-fade variants (see fadeImage) can be
 -- rebuilt for any battle pic, whatever code loaded it
-local imageMeta = {}
+local imageMeta = setmetatable({}, WEAK_KEYS)
 -- pal = { name, colors } recolors the 4 GB shades like the Super Game Boy.
 -- trueColor art (14 §the 4-shade contract) opts out of the quantize
 -- entirely, so its palette variant collapses back onto the plain path.
@@ -118,10 +149,19 @@ local function getImage(path, pal, trueColor)
   return imageCache[key]
 end
 
--- hot reload: the next getImage re-resolves every pic through the asset
--- search path and re-measures its ground padding
+-- Hot reload / COLORS change (PaletteFX.setMode calls this): the next
+-- getImage re-resolves every pic through the asset search path and
+-- re-measures its ground padding.  ONLY the path->image cache is dropped.
+-- Wiping the three per-image tables as well orphaned the pics a running
+-- battle already holds: imagePadBottom went nil, so backPlacement lost the
+-- four transparent rows it grounds the back pic on and the pic jumped
+-- pad * 2x = 8px UP the frame COLORS changed (#316), and imageMeta went nil,
+-- so picImage's forced-mono grayImage (#207), fadeImage's BGP variants and
+-- imagePathOf's battle_sprite_scales lookup all silently stopped resolving.
+-- Those rows are weak-keyed, so entries for pics nothing references any more
+-- are collected on their own rather than leaking.
 function BattleState.invalidate()
-  imageCache, imagePadBottom, imagePadLeft, imageMeta = {}, {}, {}, {}
+  imageCache = {}
 end
 
 Assets.register(BattleState.invalidate)
@@ -174,6 +214,25 @@ local function grayImage(img)
   return getImage(meta.path) or img
 end
 
+-- The blacked-out battle screen.  HandlePlayerBlackOut (core.asm:1151) runs
+-- SET_PAL_BATTLE_BLACK, i.e. SetPal_BattleBlack sends PalPacket_Black --
+-- PAL_BLACK in all four slots of BlkPacket_Battle (engine/gfx/palettes.asm:
+-- 22-25).  The mon pics are drawn OVER the zone pass with their palette
+-- already baked in, so darkening them means re-baking through PAL_BLACK the
+-- way fadeImage re-bakes through a BGP permutation (#292).  Reads the palette
+-- out of the active pack, exactly like sgbBattlePals, so the zone pass and
+-- the pics can never disagree.  trueColor art has no DMG shades to remap.
+local function blackImage(data, img)
+  local meta = imageMeta[img]
+  if not meta or meta.trueColor then return img end
+  local PaletteFX = require("src.render.PaletteFX")
+  local pack = PaletteFX.pack(data)
+  local colors = pack and pack.palettes and pack.palettes.BLACK
+  if not colors then return img end
+  local name = PaletteFX.usesGbcPack() and "redpp:BLACK" or "BLACK"
+  return getImage(meta.path, { name = name, colors = colors }) or img
+end
+
 -- the asset path a loaded battle image came from (nil for the headless
 -- stub images), so the battle_sprite_scales registry can be looked up by
 -- the same path data references
@@ -200,6 +259,11 @@ function BattleState:picImage(img)
   local mono = PaletteFX.mode == "og" or PaletteFX.mode == "og_inv"
                or PaletteFX.mode == "classic"
   if self.grayPics or mono then return grayImage(img) end
+  -- SET_PAL_BATTLE_BLACK covers every battle palette slot, so the pics go
+  -- dark with the HP bars while the blackout text is up (#292).  Below the
+  -- mono check on purpose: the forced-mono modes re-threshold the whole
+  -- frame downstream, and the DMG had no SGB darkening to begin with.
+  if self.blackedOut then return blackImage(self.data, img) end
   return fadeImage(img, self:activeBgp())
 end
 
@@ -725,6 +789,7 @@ function BattleState:startMessage(item)
   -- it against self.total); the current line's revealed count is #shown[last]
   self.charIndex = 0
   self.msgWaiting = nil
+  self.msgPrompt = nil
   self.scrollPx = nil
   self:beginMsgLine()
 end
@@ -930,9 +995,18 @@ function BattleState:updateQueue()
       end))
       return true
     end
-    if not (item and item.choice)
-       and (input:wasPressed("a") or input:wasPressed("b")) then
-      self.current = nil
+    if not (item and item.choice) then
+      -- The page is typed out and waiting on the player: PromptText
+      -- (home/text.asm:209-217) writes '▼' at (18,16) and ManualTextScroll
+      -- blinks it until A/B, so the arrow belongs on a finished page and not
+      -- only on a \v CONT hold (#317).  A flag of its own, not msgWaiting:
+      -- that branch above scrolls the NEXT line in, which this page has not
+      -- got, so reusing it would call beginMsgLine on a drained message.
+      self.msgPrompt = true
+      if input:wasPressed("a") or input:wasPressed("b") then
+        self.msgPrompt = nil
+        self.current = nil
+      end
     end
   end
   return true
@@ -1021,6 +1095,17 @@ function BattleState:enter()
   -- sides slide in; the trainer pics stay up until the send-outs
   self.introSlide = 40
   self.showEnemyTrainer = self.kind == "trainer" and self.trainerPic ~= nil
+  -- DrawAllPokeballs (common_text.asm:27) puts the party ball rows AND the
+  -- HUD corner/underline tiles under them (PlacePlayerHUDTiles /
+  -- PlaceEnemyHUDTiles, draw_hud_pokeball_gfx.asm:119-165) on screen with
+  -- the intro text; _InitBattleCommon (core.asm:6755-6762) ClearScreenArea's
+  -- both HUD blocks and ClearSprites's the balls the moment that text is
+  -- dismissed.  This flag is exactly that window: drawHUDs draws the intro
+  -- chrome while it is up and holds the real enemy HUD back, since a wild
+  -- battle's DrawEnemyHUDAndHPBar only runs after the text (#317).  The
+  -- draw is still gated on the slide having landed, so nothing shows while
+  -- the silhouettes are still coming in.
+  self.introBalls = true
   -- SGB: the player-side battle palette while the back pic is up is
   -- MonsterPalettes[0] = PAL_MEWMON (wBattleMonSpecies is still 0 when
   -- the intro's SET_PAL_BATTLE runs -- SetPal_Battle,
@@ -1052,12 +1137,27 @@ function BattleState:enter()
     queueEnemyCry()
   end
   self:say(self.introText)
+  -- _InitBattleCommon (core.asm:6755-6762): the instant the intro text is
+  -- dismissed both HUD blocks are cleared and ClearSprites drops the
+  -- pokeball OAM, so the intro chrome never returns for the rest of the
+  -- battle -- not on a switch, and not when the beaten trainer's pic
+  -- scrolls back in (#317, #282)
+  self:act(function() self.introBalls = nil end)
   if self.kind == "trainer" then
+    -- EnemySendOutFirstMon (core.asm:1308-1310): SlideTrainerPicOffScreen
+    -- walks the foe's pic off the RIGHT edge (hlcoord 18,0, a = 8 tiles,
+    -- one tile every 2 frames) BEFORE TrainerSentOutText -- the pic does
+    -- not blink out under the text (#317)
+    self:act(function() self:slidePic("foe", 0, 64, 4) end)
+    table.insert(self.queue, { wait = 16 })
+    self:act(function()
+      self.showEnemyTrainer = false
+      self:slidePic("foe")
+    end)
     self:say(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
     self:act(function()
       -- EnemySendOutFirstMon (core.asm:1421-1434): after the text the
       -- pic grows out of the ball (AnimateSendingOutMon), then the cry
-      self.showEnemyTrainer = false
       self:startGrowIn(self.enemy)
     end)
     queueEnemyCry()
@@ -1075,13 +1175,20 @@ function BattleState:enter()
     queueEnemyCry()
   end
   if not self.safari and not self.demo then
-    self:say(self:sendOutText(self.player.name))
-    -- Red's pic clears, the POOF plays, then the mon appears with its
-    -- cry (SendOutMon: message -> AnimateSendingOutMon -> PlayCry)
+    -- StartBattle .playerSendOutFirstMon (core.asm:236-240): the back pic
+    -- walks off the LEFT edge (SlideTrainerPicOffScreen, hlcoord 1,5,
+    -- a = 9 tiles, one tile every 2 frames) BEFORE SendOutMon prints
+    -- "Go! X!" -- Red does not simply vanish under the message (#317)
+    self:act(function() self:slidePic("back", 0, -72, 4) end)
+    table.insert(self.queue, { wait = 18 })
     self:act(function()
       self.showPlayerBack = false
       self.sendingOut = true
+      self:slidePic("back")
     end)
+    self:say(self:sendOutText(self.player.name))
+    -- then the POOF plays and the mon appears with its cry
+    -- (SendOutMon: message -> AnimateSendingOutMon -> PlayCry)
     table.insert(self.queue, { anim = "POOF_ANIM", attackerIsPlayer = false })
     self:act(function()
       self.sendingOut = false
@@ -1211,6 +1318,15 @@ function BattleState:update(dt)
   end
 
   if self.phase == "messages" then
+    -- Nothing queued starts until the silhouettes have finished sliding in:
+    -- SlidePlayerAndEnemySilhouettesOnScreen ends with `jpfar
+    -- PrintBeginningBattleText` (engine/battle/core.asm:100), so the enemy
+    -- cry and the "Wild X appeared!" box belong at the end of the slide, not
+    -- on its first frame (#303).  The hold sits here rather than in
+    -- updateQueue because only this loop has a frame clock: updateFx above
+    -- counts introSlide down, and a headless caller driving updateQueue on
+    -- its own has no slide to wait for.
+    if (self.introSlide or 0) > 0 then return end
     if not self:updateQueue() then
       if self.afterQueue == "menu" then
         self.phase = "menu"
@@ -1332,7 +1448,14 @@ function BattleState:update(dt)
 
   if self.phase == "moveSelect" then
     local moves = self.player.curMoves
-    if input:wasPressed("up") then
+    -- The widescreen layout lays the four slots out as a 2x2 grid, so all
+    -- four directions navigate it; nil means no direction was pressed and
+    -- A / B / SELECT below behave the same in either layout.
+    local grid = self:wideLayout()
+                 and WideBattle.navigate(self.moveIndex, #moves, input)
+    if grid then
+      self.moveIndex = grid
+    elseif input:wasPressed("up") then
       self.moveIndex = self.moveIndex > 1 and self.moveIndex - 1 or #moves
     elseif input:wasPressed("down") then
       self.moveIndex = self.moveIndex < #moves and self.moveIndex + 1 or 1
@@ -1374,7 +1497,13 @@ function BattleState:update(dt)
   -- (core.asm:2553-2557), so there is no backing out with B.
   if self.phase == "mimicSelect" then
     local moves = self.mimicMoves
-    if input:wasPressed("up") then
+    -- the copy menu shares the widescreen move grid, so it navigates the
+    -- same way there (the classic layout keeps the vertical list)
+    local grid = self:wideLayout()
+                 and WideBattle.navigate(self.mimicIndex, #moves, input)
+    if grid then
+      self.mimicIndex = grid
+    elseif input:wasPressed("up") then
       self.mimicIndex = self.mimicIndex > 1 and self.mimicIndex - 1 or #moves
     elseif input:wasPressed("down") then
       self.mimicIndex = self.mimicIndex < #moves and self.mimicIndex + 1 or 1
@@ -2156,19 +2285,34 @@ end
 -- battle (EndLowHealthAlarm sets wLowHealthAlarmDisabled, mirrored by
 -- playVictoryMusic) and every other outcome tears it down in
 -- end_of_battle.asm -- self.result covers those.  The damage drain
--- gates the start (the HUD redraw runs after UpdateHPBar finishes),
--- but healing out of the red stops it at once (item_effects.asm clears
--- the alarm before the bar animates).  No alarm before the player HUD
--- first draws (send-out), nor in the safari/old-man battles, which
--- have no player mon HUD.
+-- gates the START (the HUD redraw runs after UpdateHPBar finishes) but
+-- never the stop, and healing out of the red silences it at once
+-- (item_effects.asm:991-994 clears the alarm before the bar animates).
+-- No alarm before the player HUD first draws (send-out), nor in the
+-- safari/old-man battles, which have no player mon HUD.
 function BattleState:lowHealthAlarmActive()
   local p = self.player
   if not p or self.safari or self.demo or self.result
      or self.lowHealthAlarmDisabled then return false end
   if self.showPlayerBack or (self.introSlide or 0) > 0 then return false end
+  if p.fainted then return false end
+  -- A siren that is ALREADY sounding follows the drawn bar, not the
+  -- model: wLowHealthAlarm is a latch DrawPlayerHUDAndHPBar only revisits
+  -- once UpdateHPBar2 has finished animating (core.asm:4727-4729 /
+  -- core.asm:4845-4847 both drain first, then jp DrawHUDsAndHPBars), and
+  -- a KO clears it in RemoveFaintedPlayerMon (core.asm:1011-1016), i.e.
+  -- after the bar has drained empty.  applyDamage takes the HP off the
+  -- model while the turn is still being queued, so keying a running alarm
+  -- off mon.hp cut it dead for the whole "used X!" line + move animation
+  -- + drain window (#293).  max() keeps a heal out of the red silencing
+  -- it on the spot, the way item_effects.asm does.
   local hp = p.mon.hp
-  if hp <= 0 or p.fainted then return false end
-  if p.shownHP and p.shownHP > hp then return false end -- drain running
+  if self.lowHealthAlarmOn then
+    hp = math.max(hp, shownHP(p))
+  elseif p.shownHP and p.shownHP > hp then
+    return false -- drain running: the HUD redraw has not happened yet
+  end
+  if hp <= 0 then return false end
   local px = math.max(1, math.floor(hp * 48 / math.max(1, p.mon.stats.hp)))
   return px < 10
 end
@@ -2184,9 +2328,46 @@ local function stepProgram(prog)
   return head
 end
 
+-- Trainer-pic slides.  SlideTrainerPicOffScreen (core.asm:1235) walks a
+-- trainer pic off its own screen edge one tile every 2 frames (9 tiles left
+-- for the player back pic, 8 tiles right for the foe), and
+-- _ScrollTrainerPicAfterBattle (engine/battle/scroll_draw_trainer_pic.asm)
+-- brings the beaten foe back in from the right one column every 4 frames.
+-- picOff holds the live programs by slot -- "foe" = the enemy trainer pic,
+-- "back" = the player's back pic -- as a screen-pixel x offset stepped
+-- toward `to`; updateFx advances them, drawPicsLayer adds them, and the
+-- queue rows that start them park a { wait } of the matching length.  Call
+-- with no target to clear a slot (#317, #282).
+function BattleState:slidePic(slot, from, to, step)
+  self.picOff = self.picOff or {}
+  if to == nil then
+    self.picOff[slot] = nil
+    return
+  end
+  self.picOff[slot] = { x = from or 0, to = to, step = step or 4 }
+end
+
+-- the live x offset for a pic slot, 0 when nothing is sliding
+function BattleState:picOffset(slot)
+  local p = self.picOff and self.picOff[slot]
+  return p and p.x or 0
+end
+
 function BattleState:updateFx()
   if self.introSlide and self.introSlide > 0 then
     self.introSlide = self.introSlide - 1
+  end
+  -- step each live trainer-pic slide toward its target; a landed program
+  -- holds its offset (the after-battle scroll-in rests two tiles right of
+  -- the battle slot) until its owner clears the slot
+  if self.picOff then
+    for _, p in pairs(self.picOff) do
+      if p.x < p.to then
+        p.x = math.min(p.to, p.x + p.step)
+      elseif p.x > p.to then
+        p.x = math.max(p.to, p.x - p.step)
+      end
+    end
   end
   local fx = self.fx
   if fx then
@@ -2276,7 +2457,12 @@ function BattleState:updateFx()
   -- low-HP alarm (audio/low_health_alarm.asm): the two-tone siren
   -- loops while the player's bar is red; see lowHealthAlarmActive
   local Sound = require("src.core.Sound")
-  if self:lowHealthAlarmActive() then
+  -- self.lowHealthAlarmOn mirrors wLowHealthAlarm's bit 7: a latch read
+  -- back inside lowHealthAlarmActive (the RHS sees last frame's value)
+  -- so a sounding siren rides out the next hit's HP drain instead of
+  -- dropping out mid-announcement (#293)
+  self.lowHealthAlarmOn = self:lowHealthAlarmActive()
+  if self.lowHealthAlarmOn then
     Sound.startLoop(self.data, "Low_Health_Alarm")
   else
     Sound.stopLoop("Low_Health_Alarm")
@@ -2548,7 +2734,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   end
 
   -- PP: not for continuations, struggle, called moves, or (under
-  -- gen1_faithful) wild/trainer enemies — pokered DecrementPP only ever
+  -- gen1_faithful) wild/trainer enemies -- pokered DecrementPP only ever
   -- mutates wBattleMonPP / party PP (engine/battle/decrement_pp.asm).
   -- That rule doesn't apply in a link battle: "the enemy" there is a real
   -- human peer independently tracking their own PP the normal way, not an
@@ -2913,6 +3099,16 @@ function BattleState:enemyMonFainted()
       local style = tostring((self.game.save.options or {}).battleStyle or "shift")
         :lower()
       local partyCount = #self.game.save.party
+      -- ReplaceFaintedEnemyMon (core.asm:892-896): DrawEnemyPokeballs puts the
+      -- foe's party ball row -- and the HUD chrome PlaceEnemyHUDTiles lays
+      -- down under it (draw_hud_pokeball_gfx.asm:9-11, 33-45, 134-141) -- into
+      -- the block FaintEnemyPokemon just cleared, after the exp text and
+      -- BEFORE the next send-out.  It survives EnemySendOutFirstMon's
+      -- SlideTrainerPicOffScreen (core.asm:1308-1310, 8 steps x DelayFrames 2)
+      -- so SET style gets the brief flash, and stays up through the whole
+      -- SHIFT prompt below (#283).
+      self:act(function() self.showEnemyBalls = true end)
+      table.insert(self.queue, { wait = 16 })
       -- SwitchPlayerMon runs AFTER TrainerSentOutText (core.asm:1436-1443)
       local shiftSwitchMon = nil
       if style ~= "set" and partyCount > 1 and self.player.mon.hp > 0 then
@@ -2948,6 +3144,10 @@ function BattleState:enemyMonFainted()
         })
         self.aiUses = self:aiUsesFor()
         markSeen(self.game, self.enemy.mon.species)
+        -- EnemySendOutFirstMon .next4 (core.asm:1413-1417): ClearSprites and
+        -- the 4x11 ClearScreenArea take the ball row away with the rest of
+        -- the enemy HUD block, right before TrainerSentOutText (#283)
+        self.showEnemyBalls = nil
         self:markParticipant()
         -- EnemySendOutFirstMon (core.asm:1413-1435): the enemy HUD area
         -- clears, TrainerSentOutText prints, THEN the pic appears
@@ -2975,6 +3175,20 @@ function BattleState:enemyMonFainted()
           battle = self, side = self.sides[1],
           battler = self.player, previous = previous,
         })
+        -- Taking the SHIFT offer ZEROES wPartyGainExpFlags and
+        -- wPartyFoughtCurrentEnemyFlags before jumping to SwitchPlayerMon
+        -- (EnemySendOutFirstMon tail, core.asm:1436-1443), and SwitchPlayerMon
+        -- then FLAG_SETs only the mon coming in (core.asm:2424-2433).  Without
+        -- the reset the mon that was out when the enemy fainted -- marked by
+        -- the send-out act above, which mirrors EnemySendOut's own re-flag
+        -- (core.asm:1276-1289) -- stayed a participant, so the exp divisor in
+        -- enemyMonFainted counted two mons and the switch-in earned half the
+        -- next KO (#275).  Voluntary switches (resolveSwitch) and post-faint
+        -- replacements (openReplacementMenu) must NOT do this: pokered's
+        -- party-menu SwitchPlayerMon keeps the outgoing mon flagged, which is
+        -- the deliberate exp-share, and a fainted mon is already dropped by
+        -- onFaint mirroring RemoveFaintedPlayerMon (core.asm:1002-1007).
+        self.participants = {}
         self:markParticipant()
         self.nextInsert = 0
         self.sendingOut = true
@@ -2990,16 +3204,39 @@ function BattleState:enemyMonFainted()
     end
     local prize = (self.trainer.baseMoney or 0) * self.enemy.mon.level
     self.game.save.money = self.game.save.money + prize
-    -- the beaten trainer's pic returns for the defeat text (pokered
-    -- DisplayBattleMenu's defeat flow)
-    self:act(function() self.showEnemyTrainer = self.trainerPic ~= nil end)
-    -- TrainerBattleVictory (core.asm:915-933): EndLowHealthAlarm, then
-    -- the victory theme starts BEFORE TrainerDefeatedText and the
-    -- prize money
+    -- TrainerBattleVictory (core.asm:915-949) in order: EndLowHealthAlarm
+    -- and the victory theme, TrainerDefeatedText, ScrollTrainerPicAfterBattle
+    -- (the beaten trainer scrolls back in from the right, one column every 4
+    -- frames, resting two tiles right of the battle slot), DelayFrames 40,
+    -- PrintEndBattleText -- the trainer's OWN loss line, on the battle
+    -- screen -- and only then MoneyForWinningText.  Every row rides the
+    -- *Next inserters so it keeps that order behind the running queue item;
+    -- the plain act() the pic used to ride appended to the END of the queue,
+    -- which is why the trainer only flashed up for a frame or two as the
+    -- battle popped and the loss line had to be printed by the overworld
+    -- afterwards, stranding any evolution between two cuts (#282).
+    -- endBattleText is filled in by whoever started the battle
+    -- (OverworldState:engageTrainer in src/world/OverworldController.lua);
+    -- scripted battles that print their own follow-up leave it nil.
     self:actNext(function() self:playVictoryMusic() end)
     -- _TrainerDefeatedText: "<PLAYER> defeated\nTRAINER!"
     self:sayNext(Strings("%s defeated\n%s!", self.game.save.player.name,
                                              self.trainer.name))
+    self:actNext(function()
+      self.showEnemyTrainer = self.trainerPic ~= nil
+      if self.showEnemyTrainer then self:slidePic("foe", 64, 16, 2) end
+    end)
+    -- the 24-frame scroll-in plus the DelayFrames 40 that follows it
+    self.nextInsert = (self.nextInsert or 0) + 1
+    table.insert(self.queue, self.nextInsert, { wait = 64 })
+    if self.endBattleText then
+      -- PrintEndBattleText prints one text box; a `para` (\f) inside it
+      -- starts a fresh page, which is a message row of its own here (five
+      -- EndBattleTexts carry one, e.g. _Route9Youngster1EndBattleText)
+      for page in (self.endBattleText .. "\f"):gmatch("(.-)\f") do
+        if page ~= "" then self:sayNext(page) end
+      end
+    end
     self:sayNext(Strings("%s got ¥%d\nfor winning!", self.game.save.player.name, prize))
   end
   self.result = "win"
@@ -3067,6 +3304,15 @@ function BattleState:playerMonFainted()
     -- Oak's Lab starter rival: Rival1WinText only (no blackout lines).
     -- Any other wipe, including Route 22 RIVAL1, still blacks out.
     if not BattleState.isOaksLabStarterRival(self) then
+      -- HandlePlayerBlackOut (core.asm:1150-1159): SET_PAL_BATTLE_BLACK runs
+      -- BEFORE PlayerBlackedOutText2, so the enemy pic and both HP bars are
+      -- already dark under the blackout lines (#292).  The Oak's Lab starter
+      -- rival returns one line above that call and never darkens.  Set here
+      -- rather than queued: this whole function already runs from a queued
+      -- act after "<mon> fainted!" was dismissed, which is where the palette
+      -- command sits.  (The Route 22 RIVAL1 wipe darkens one box early, over
+      -- Rival1WinText, which pokered prints just before the same command.)
+      self.blackedOut = true
       self:sayNext(Strings("%s is out of\nuseable POKéMON!", self.game.save.player.name))
       self:sayNext(Strings("%s blacked\nout!", self.game.save.player.name))
     end
@@ -3475,13 +3721,41 @@ end
 
 -- called by BagMenu when a ball is thrown
 function BattleState:throwBall(ball)
-  self:say(Strings("%s used\n%s!", self.game.save.player.name,
-                                   self.data.items[ball].name))
+  -- ItemUseBall branches to ThrowBallAtTrainerMon on wIsInBattle != 1
+  -- (item_effects.asm:109-113) BEFORE it reaches `ld hl, ItemUseText00 /
+  -- call PrintText` (:146-147), so a trainer battle never shows the
+  -- "<PLAYER> used <ITEM>!" line (#291).  Safari and the old man demo are
+  -- still wIsInBattle == 1, and this port models both as kind == "wild".
+  if self.kind == "wild" then
+    self:say(Strings("%s used\n%s!", self.game.save.player.name,
+                                     self.data.items[ball].name))
+  end
   self:act(function()
     require("src.core.Sound").play(self.data, "Ball_Toss")
     if self.kind ~= "wild" then
-      self:sayNext(Strings("The TRAINER\nblocked the BALL!"))
-      self:sayNext(Strings("Don't be a thief!"))
+      -- ThrowBallAtTrainerMon (item_effects.asm:2292-2303) still animates the
+      -- toss: MoveAnimation routes TOSS_ANIM to TossBallAnimation, which takes
+      -- its .BlockBall branch in a trainer battle (animations.asm:2582-2585,
+      -- 2629-2637) -- the plain TOSS arc whatever the ball tier, then
+      -- SFX_FAINT_THUD and BLOCKBALL_ANIM, and only then the two texts.  The
+      -- ball still counts as used: UseItem_ sets
+      -- wActionResultOrTookBattleTurn = 1 (item_effects.asm:1-3) and this path
+      -- never clears it, so UseBagItem does not fall back to the bag
+      -- (core.asm:2257-2259) and the turn is spent -- the foe moves (#291).
+      local t = self.data.text
+      self:animNext("TOSS_ANIM", true, nil, ball)
+      self:actNext(function()
+        require("src.core.Sound").play(self.data, "Faint_Thud")
+      end)
+      self:animNext("BLOCKBALL_ANIM", true)
+      self:sayNext(t._ThrowBallAtTrainerMonText1
+                   or Strings("The trainer\nblocked the BALL!"))
+      self:sayNext(t._ThrowBallAtTrainerMonText2
+                   or Strings("Don't be a thief!"))
+      self:act(function()
+        self:executeAction(self.enemy, self.player, self:enemyAction())
+      end)
+      self:act(function() self:endOfTurn() end)
       return
     end
     if self.ghost then
@@ -3802,7 +4076,12 @@ function BattleState:drawBattlerPic(battler, x, y, scale)
   -- while an SE effect displaces the pic, confine it to its side's
   -- tile window like the GB tilemap does (the pic can never overwrite
   -- the HUD columns or the text box rows)
+  -- ...except under the widescreen layout, where the side's own region
+  -- scissor is already that window on a battlefield the classic tile
+  -- columns do not describe (an 88..160 clip would fall entirely outside
+  -- the enemy's region and erase the pic).
   local clip = love.graphics.setScissor and love.graphics.intersectScissor
+                 and not self.wideRegion
   local scx, scy, scw, sch
   if clip then
     scx, scy, scw, sch = love.graphics.getScissor()
@@ -3932,6 +4211,16 @@ function BattleState:sgbBattlePals()
   local pack = PaletteFX.pack(self.data)
   local pals = pack and pack.palettes
   if not pals then return nil end
+  -- HandlePlayerBlackOut (core.asm:1151) runs SET_PAL_BATTLE_BLACK:
+  -- SetPal_BattleBlack sends PalPacket_Black, PAL_BLACK in all four slots of
+  -- BlkPacket_Battle (engine/gfx/palettes.asm:22-25), so every zone of the
+  -- battle screen -- both HP bars and both mon regions -- goes dark behind
+  -- the blackout text.  picImage re-bakes the pics through the same palette,
+  -- since those draw over the zone pass rather than through it (#292).
+  if self.blackedOut and pals.BLACK then
+    local b = pals.BLACK
+    return { [0] = b, [1] = b, [2] = b, [3] = b }
+  end
   local function bar(b)
     if not b then return pals.GREENBAR end
     local hp = b.shownHP or b.mon.hp
@@ -4150,15 +4439,21 @@ end
 
 -- the two mon pics (or the trainer/back pics), offset by the window
 -- shake -- on the GB the pics are BG tiles, so they move with it
-function BattleState:drawPicsLayer(slide, sx, sy)
+-- onlySide ("player" / "enemy") draws one side's pic alone, and
+-- skipMenuClip drops the move-menu row clip below: the widescreen layout
+-- composites each side into its own region of a taller battlefield, where
+-- neither the other side's pixels nor the classic menu rows apply.
+function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
   -- The move-select boxes are BG tiles on the GB, so they REPLACE the
   -- player pic's rows: the TYPE/PP box at (0,8) (PrintMenuItem) wipes
   -- pic rows 8+, and Mimic's copy menu at (0,7) (MoveSelectionMenu
   -- .mimicmenu) wipes rows 7+.  The port draws pics above the menu
   -- layer in the colorized pipeline, so clip them to the visible rows.
   local g = love.graphics
-  local clipY = self.phase == "mimicSelect" and 56
-                or self.phase == "moveSelect" and 64 or nil
+  local clipY = not skipMenuClip
+                and (self.phase == "mimicSelect" and 56
+                     or self.phase == "moveSelect" and 64)
+                or nil
   local clipped, cs1, cs2, cs3, cs4
   if clipY and g.getScissor and g.intersectScissor then
     cs1, cs2, cs3, cs4 = g.getScissor()
@@ -4166,13 +4461,15 @@ function BattleState:drawPicsLayer(slide, sx, sy)
     clipped = true
   end
   -- Enemy: front sprite in the 7x7 slot at hlcoord 12,0.
-  if self.showEnemyTrainer and self.trainerPic then
+  if onlySide ~= "player" and self.showEnemyTrainer and self.trainerPic then
     -- the enemy trainer pic holds the mon slot until the send-out
     local img = self:picImage(self.trainerPic)
     love.graphics.setColor(1, 1, 1, 1)
     local ex, ey = enemyPicXY(img, slide, sx, sy)
-    love.graphics.draw(img, ex, ey)
-  elseif self.enemy and self.enemy.sprite and not self.enemyHidden
+    -- SlideTrainerPicOffScreen / _ScrollTrainerPicAfterBattle offset (#317)
+    love.graphics.draw(img, ex + self:picOffset("foe"), ey)
+  elseif onlySide ~= "player"
+     and self.enemy and self.enemy.sprite and not self.enemyHidden
      and not self.enemySendingOut and not self:fxHidden(self.enemy) then
     local img = self:picImage(self.enemy.sprite)
     love.graphics.setColor(1, 1, 1, 1)
@@ -4201,7 +4498,7 @@ function BattleState:drawPicsLayer(slide, sx, sy)
   -- Left transparent columns (matted white) are pulled back so opaque
   -- pixels land where hardware's white-on-white columns left them.
   local hidePlayer = self.safari or self.demo
-  if self.showPlayerBack and self.playerBackPic then
+  if onlySide ~= "enemy" and self.showPlayerBack and self.playerBackPic then
     -- Red's (or the old man's) back pic until "Go!"; it stays up for
     -- the whole safari / catch-demo battle like the original
     local img = self:picImage(self.playerBackPic)
@@ -4214,8 +4511,11 @@ function BattleState:drawPicsLayer(slide, sx, sy)
     love.graphics.setColor(1, 1, 1, 1)
     local dx, dy = BattleState.backPlacement(img:getWidth(), img:getHeight(),
       pad, padL, s)
-    love.graphics.draw(img, dx + slide + sx, dy + sy, 0, s, s)
-  elseif self.player and self.player.sprite and not hidePlayer
+    -- picOffset: SlideTrainerPicOffScreen walking the back pic off the left
+    love.graphics.draw(img, dx + slide + sx + self:picOffset("back"),
+                       dy + sy, 0, s, s)
+  elseif onlySide ~= "enemy"
+     and self.player and self.player.sprite and not hidePlayer
      and not self.sendingOut and not self:fxHidden(self.player) then
     local img = self:picImage(self.player.sprite)
     love.graphics.setColor(1, 1, 1, 1)
@@ -4267,9 +4567,13 @@ function BattleState:drawHUDs(slide)
   local hudShake = (fx and fx.hudShakeX) or 0
   -- FaintEnemyPokemon clears the enemy HUD area; it stays blank through
   -- TrainerAboutToUseText until DrawEnemyHUDAndHPBar after the next send-out
+  -- ...and it is not up yet during the intro text either: a wild battle's
+  -- DrawEnemyHUDAndHPBar is called from _InitBattleCommon (core.asm:6763)
+  -- AFTER PrintBeginningBattleText returns, so "Wild X appeared!" shows the
+  -- player's ball row with no enemy HUD beside it (#317)
   if self.enemy and not self.showEnemyTrainer and not self.enemySendingOut
      and not self:growInScale(self.enemy) and slide == 0
-     and not self.enemy.fainted then
+     and not self.introBalls and not self.enemy.fainted then
     -- enemy HUD (DrawEnemyHUDAndHPBar): name row 0, <LV>+level (4,1),
     -- HP bar (2,2) with the vertical tick at (1,2), underline row 3;
     -- AnimationShakeEnemyHUD nudges just this block via SCX
@@ -4297,28 +4601,60 @@ function BattleState:drawHUDs(slide)
     end
   end
 
+  -- ReplaceFaintedEnemyMon -> DrawEnemyPokeballs (core.asm:896,
+  -- draw_hud_pokeball_gfx.asm:9-11 -> SetupEnemyPartyPokeballs :33-45):
+  -- between a KO and the next send-out the foe's ball row sits in the enemy
+  -- HUD block FaintEnemyPokemon cleared, over the chrome PlaceEnemyHUDTiles
+  -- writes with it -- the same $73 (1,2) / $74 (1,3) / $76 run / $78 tiles
+  -- the live HUD draws, minus the HP bar (#283).  Its own block rather than
+  -- a third arm of showIntroBalls below: that window is DrawAllPokeballs's
+  -- (#317) and clears for the rest of the battle, this one reopens on every
+  -- enemy faint.  wBaseCoordX $48 / wBaseCoordY $20 stepping -8 is screen
+  -- (64,16) leftward, the same row the intro draws.
+  if self.showEnemyBalls and self.enemyParty and slide == 0 then
+    hudTile(0x73, 8, 16)
+    hudTile(0x74, 8, 24)
+    for i = 2, 9 do hudTile(0x76, i * 8, 24) end
+    hudTile(0x78, 80, 24)
+    love.graphics.setColor(1, 1, 1, 1)
+    self:drawBallRow(self.enemyParty, 64, 16, -8)
+  end
+
   -- Safari shows only the ball count; the old man demo shows neither mon
   if self.safari then
     love.graphics.setColor(0, 0, 0, 1)
     Font.draw(("BALLx%2d"):format(self.safari.balls), 88, 72)
   end
-  -- trainer/link party pokeball rows during the intro
-  -- (SetupPlayerAndEnemyPokeballs, draw_hud_pokeball_gfx.asm)
-  local showIntroBalls = slide == 0 and (
-    (self.kind == "trainer" and (self.showEnemyTrainer or self.showPlayerBack))
-    or (self.kind == "link" and (self.showPlayerBack or self.enemySendingOut))
-  )
+  -- Party pokeball rows and the HUD chrome under them, for exactly the
+  -- window DrawAllPokeballs owns (common_text.asm:27, with the intro text).
+  -- SetupOwnPartyPokeballs runs in EVERY battle, so the player's row belongs
+  -- on the wild intro too -- keying it off the enemy trainer pic meant a
+  -- wild battle never drew one (#317) -- and SetupEnemyPartyPokeballs is
+  -- skipped when wIsInBattle == 1, so only a trainer/link battle gets the
+  -- foe's row.  Gating on introBalls rather than on the pics also stops the
+  -- rows coming back when the beaten trainer scrolls in (#282):
+  -- _ScrollTrainerPicAfterBattle redraws tilemap columns and never touches
+  -- OAM, which ClearSprites emptied when the intro text was dismissed.
+  local showIntroBalls = self.introBalls and slide == 0
   if showIntroBalls then
-    love.graphics.setColor(1, 1, 1, 1)
-    if self.enemyParty and (
-         (self.kind == "trainer" and self.showEnemyTrainer)
-         or (self.kind == "link" and self.enemySendingOut)
-       ) then
+    if self.enemyParty and (self.kind == "trainer" or self.kind == "link") then
+      -- PlaceEnemyHUDTiles (hlcoord 1,2): $73, then $74 + 8x $76 + $78
+      -- rightward along row 3 (draw_hud_pokeball_gfx.asm:133-165)
+      hudTile(0x73, 8, 16)
+      hudTile(0x74, 8, 24)
+      for i = 2, 9 do hudTile(0x76, i * 8, 24) end
+      hudTile(0x78, 80, 24)
+      love.graphics.setColor(1, 1, 1, 1)
       self:drawBallRow(self.enemyParty, 64, 16, -8)
     end
-    if self.showPlayerBack then
-      self:drawBallRow(self.playerParty or self.game.save.party, 88, 80, 8)
-    end
+    -- PlacePlayerHUDTiles (hlcoord 18,10): $73, then $77 + 8x $76 + $6F
+    -- LEFTWARD along row 11 (draw_hud_pokeball_gfx.asm:119-131)
+    hudTile(0x73, 144, 80)
+    hudTile(0x77, 144, 88)
+    for i = 10, 17 do hudTile(0x76, i * 8, 88) end
+    hudTile(0x6F, 72, 88)
+    love.graphics.setColor(1, 1, 1, 1)
+    self:drawBallRow(self.playerParty or self.game.save.party, 88, 80, 8)
   end
   local hidePlayer = self.safari or self.demo
   if self.player and not hidePlayer and not self.showPlayerBack
@@ -4368,9 +4704,10 @@ function BattleState:drawTextArea()
         Font.drawCode(line[i], 8 + (i - 1) * 8, y)
       end
     end
-    -- the blinking down arrow ('▼', glyph $EE) while a \v CONT wait holds the
-    -- box, bottom-right of the box like TextBox / home/text.asm
-    if self.msgWaiting and self.frame % 60 < 30 then
+    -- the blinking down arrow ('▼', glyph $EE) while a \v CONT wait
+    -- (_ContText) or a typed-out page (PromptText) holds the box; both write
+    -- it at (18,16), bottom-right, like TextBox / home/text.asm (#317)
+    if (self.msgWaiting or self.msgPrompt) and self.frame % 60 < 30 then
       Font.drawCode(0xEE, (0 + 20 - 2) * 8, (12 + 6 - 1) * 8 - 4)
     end
   elseif self.phase == "menu" and self.demo then
@@ -4410,6 +4747,18 @@ function BattleState:drawTextArea()
     -- the move box's top border ('─' at (4,12), '┘' at (10,12)).
     Font.drawBox(0, 8, 11, 5)
     Font.drawBox(4, 12, 16, 6)
+    -- Those two cells are REPLACED on hardware: MoveSelectionMenu writes them
+    -- straight into the tilemap over the border it just laid down
+    -- (core.asm:2492-2501), and PrintMenuItem's own TextBoxBorder then redraws
+    -- the whole row on top (core.asm:2838-2844).  Font.drawCode blits a
+    -- black-on-transparent glyph instead, so the tile underneath survives: the
+    -- move box's '┌' keeps its Poké Ball corner showing through the '─', and
+    -- the '─' the move box drew at (10,12) pokes two dots out from under the
+    -- '┘' (#240).  Wipe each cell back to box white first, the way a tilemap
+    -- write does.
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 32, 96, 8, 8)
+    love.graphics.rectangle("fill", 80, 96, 8, 8)
     Font.drawCode(Font.BORDER.h, 32, 96)
     Font.drawCode(Font.BORDER.br, 80, 96)
     love.graphics.setColor(0, 0, 0, 1)
@@ -4449,7 +4798,12 @@ function BattleState:drawTextArea()
 end
 
 function BattleState:draw()
-  -- AskName: ClearSprites + wild ClearScreenArea — white field under the
+  if self:wideLayout() then return WideBattle.draw(self) end
+  return self:drawClassic()
+end
+
+function BattleState:drawClassic()
+  -- AskName: ClearSprites + wild ClearScreenArea -- white field under the
   -- nickname TextBox / YES/NO (naming_screen.asm); overlays draw on top.
   if self.blankForAskName then
     love.graphics.setColor(1, 1, 1, 1)

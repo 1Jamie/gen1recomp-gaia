@@ -113,7 +113,7 @@ end
 
 -- #162: SHIFT style with 2+ party slots announces the next mon and
 -- offers a free switch (TrainerAboutToUseText + YES/NO).  Party count
--- gates the offer (pokered wPartyCount), not living-HP count — a fainted
+-- gates the offer (pokered wPartyCount), not living-HP count -- a fainted
 -- reserve still unlocks the prompt.
 do
   local Game = freshGame()
@@ -167,6 +167,52 @@ do
     if item.text and item.text:find("about to use", 1, true) then about = true end
   end
   check(not about, "SET style skips about-to-use")
+end
+
+-- #275: taking the SHIFT offer hands the whole exp share to the mon coming
+-- in.  EnemySendOutFirstMon zeroes wPartyGainExpFlags before jumping to
+-- SwitchPlayerMon, which FLAG_SETs only the incoming mon's bit
+-- (core.asm:1436-1443, 2424-2433), so the mon that was out when the enemy
+-- fainted stops counting; leaving it in halved the switch-in's exp.
+do
+  local Game = freshGame()
+  Game.save.options.battleStyle = "shift"
+  local reserve = Pokemon.new(Data, "SQUIRTLE", 40)
+  table.insert(Game.save.party, reserve)
+  local b = BattleState.newTrainer(Game, "OPP_YOUNGSTER", 1)
+  b.enemyParty[1].hp = 0
+  b.enemyIndex = 1
+  b.enemy.mon = b.enemyParty[1]
+  b.participants = { [Game.save.party[1]] = true }
+  -- the prompt's YES opens the battle party menu; answer it in place
+  local Screens = require("src.ui.Screens")
+  local origPush = Screens.push
+  Screens.push = function(_, id, opts)
+    if id == "PartyMenu" and opts and opts.onSwitch then
+      opts.onSwitch(reserve)
+    end
+  end
+  local ok, err = pcall(function()
+    b:enemyMonFainted()
+    local n = 0
+    while #b.queue > 0 and n < 400 do
+      n = n + 1
+      local item = table.remove(b.queue, 1)
+      if item.fn then
+        b.nextInsert = 0
+        item.fn()
+      elseif item.choice and item.text
+             and item.text:find("change POKéMON", 1, true) then
+        item.choice(true) -- take the free switch
+      end
+    end
+  end)
+  Screens.push = origPush
+  check(ok, "the SHIFT switch pumped without error: " .. tostring(err))
+  check(b.player.mon == reserve, "the SHIFT switch sent the reserve out")
+  check(b.participants[reserve] == true, "the switch-in gains exp")
+  check(b.participants[Game.save.party[1]] == nil,
+        "the mon that was out when the enemy fainted drops out (#275)")
 end
 
 S.finish()

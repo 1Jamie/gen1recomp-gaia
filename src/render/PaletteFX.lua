@@ -5,10 +5,11 @@
 -- then drawn once per zone through a shader that remaps the four DMG
 -- shades to that zone's palette.
 --
--- Port display option: COLORS (GBC / RED++ / OG / OG INV / GBC INV / CLASSIC)
--- transforms every zone's palette at send time via effectiveColors.
--- RED++ swaps the named-palette pack for pokered-gbc SuperPalettes
--- (data/palettes_gbc.lua), including per-species mon colors.
+-- Port display option: COLORS (OG RED / SGB / ADVANCED / OG / OG INV /
+-- SGB INV / CLASSIC) transforms every zone's palette at send time via
+-- effectiveColors.  ADVANCED (the `redpp` id below) swaps the named-palette
+-- pack for pokered-gbc SuperPalettes (data/palettes_gbc.lua), including
+-- per-species mon colors.
 
 local GameVersion = require("src.core.GameVersion")
 
@@ -18,14 +19,18 @@ local shader -- false = unavailable (headless / no shader support)
 local gbcPack -- false = missing; nil = not loaded yet
 
 -- Cycle order matches OptionsMenu / hotkey 2.  The three real colorizations
--- come first (OG RED = GBC hardware, SGB = per-map Super Game Boy, RED++ =
+-- come first (OG RED = GBC hardware, SGB = per-map Super Game Boy, ADVANCED =
 -- pokered-gbc per-tile), then the DMG-shade novelty modes.
 PaletteFX.MODES = { "ogred", "gbc", "redpp", "og", "og_inv", "gbc_inv", "classic" }
--- `gbc`/`gbc_inv` keep their save-value ids for back-compat; their LABELS are
--- "SGB"/"SGB INV" because that is what the mode actually is (the old "GBC"
--- label was a misnomer -- it never was the real Game Boy Color palette).
+-- `gbc`/`gbc_inv`/`redpp` keep their save-value ids for back-compat while
+-- their LABELS say what the mode actually is: "SGB"/"SGB INV" because the old
+-- "GBC" label was a misnomer (it never was the real Game Boy Color palette),
+-- and "ADVANCED" because `redpp` is the richest colorization of the three
+-- rather than anything Red-specific -- it reads as a misnomer outright on a
+-- Blue playthrough.  Comments elsewhere still call it RED++, the name it has
+-- carried in this file since it landed.
 PaletteFX.MODE_LABELS = {
-  ogred = "OG RED", gbc = "SGB", redpp = "RED++", og = "OG",
+  ogred = "OG RED", gbc = "SGB", redpp = "ADVANCED", og = "OG",
   og_inv = "OG INV", gbc_inv = "SGB INV", classic = "CLASSIC",
 }
 PaletteFX.mode = "gbc"
@@ -86,6 +91,25 @@ end
 function PaletteFX.ogObj()
   if GameVersion.isBlue() then return PaletteFX.GBC_OBJ_BLUE, "gbcobj_blue" end
   return PaletteFX.GBC_OBJ, "gbcobj"
+end
+
+-- The DMG object ramp every mode except OG RED bakes onto overworld sprites,
+-- plus its cache group (same two-value contract as ogObj).  Entry 1 is never
+-- read -- SpriteRenderer.getObpImage keys OBJ color 0 to alpha, the hardware's
+-- unconditional OBJ transparency -- and entries 2..4 are OBJ colors 1..3 sent
+-- through rOBP0 = $D0 (home/fade.asm FadePal4 `dc 3,1,0,0`, the entry
+-- LoadGBPal reads while wMapPalOffset is 0): color 1 -> DMG shade 0, color 2
+-- -> shade 1, color 3 -> shade 3.  Leaving the result in DMG shades is the
+-- whole point: the zone shader then colors a character out of the same map
+-- palette it colors the ground with, which is all the Super Game Boy can do to
+-- an OBJ (#301), and the OBP0 lift is what puts Red's cap on the ROUTE
+-- palette's grass green instead of its light-blue (#150).
+PaletteFX.OBP0_SHADES = {
+  { 255, 255, 255 }, { 255, 255, 255 }, { 170, 170, 170 }, { 0, 0, 0 },
+}
+
+function PaletteFX.dmgObj()
+  return PaletteFX.OBP0_SHADES, "obp0"
 end
 
 local INV_MAP = { [0] = 3, [1] = 2, [2] = 1, [3] = 0 }
@@ -202,32 +226,45 @@ function PaletteFX.usesGbcPack(mode)
 end
 
 -- Whether the active mode bakes a per-OBJ palette onto overworld sprites
--- (the OBP bake + post-zone redraw path).  OG RED and SGB both do: characters
--- wear the GBC boot-ROM object palette (PaletteFX.ogObj -- green over Red's red
--- background, pink over Blue's blue background), so the player and NPCs carry a
--- fixed object color instead of tinting with whatever region palette their
--- feet stand over.  On real hardware a sprite is an OBJ colored by an OBJ
--- palette (color/sprites.asm ColorOverworldSprite), distinct from the BG it
--- overlaps -- so Red's cap must stay green in tall grass, not turn the ROUTE
--- palette's light-blue (issue #150: SGB region-tinting sent the cap to shade-2
--- = light-blue and the character clashed with the grass it should blend into).
--- Terrain is unaffected -- pal() below still hands SGB its per-map BG palette;
--- only OG RED short-circuits BG to the one global red palette.  An EARLIER
--- attempt at per-sprite SGB color baked GBC_BG (the RED background ramp) onto
+-- (the OBP bake + post-zone redraw path).  OG RED alone does: the Game Boy
+-- Color boot ROM hands the game one global object palette (PaletteFX.ogObj --
+-- green over Red's red background, pink over Blue's blue background), so on
+-- that machine the player and NPCs carry a fixed object color instead of
+-- tinting with whatever region palette their feet stand over.  An EARLIER
+-- attempt at per-sprite color baked GBC_BG (the RED background ramp) onto
 -- characters -- that was the "reds coloring on the player/NPCs" bug; the object
--- palette is GBC_OBJ (green), so baking it here is the fix, not that
--- regression.  RED++ colors sprites through the usesGbcPack() path in
--- SpriteRenderer instead.
+-- palette is GBC_OBJ (green), so baking that here is the fix, not that
+-- regression.  Terrain is unaffected -- pal() below still hands SGB its per-map
+-- BG palette; only OG RED short-circuits BG to the one global red palette.
+--
+-- SGB does NOT.  The Super Game Boy colorizes the composited DMG picture it is
+-- handed and cannot tell an OBJ pixel from a BG one; pokered never sends the
+-- OBJ_TRN packet that would enable SGB sprite mode (data/sgb/sgb_packets.asm
+-- defines ATTR_BLK / PAL_SET / PAL_TRN / MLT_REQ / CHR_TRN / PCT_TRN and
+-- nothing else), so a character there wears the very palette its map does.
+-- Baking GBC_OBJ over it was issue #301 ("people in SGB mode are green": the
+-- boot-ROM greens sat on top of ROUTE's own greens and blues).  What issue
+-- #150 actually caught was the missing rOBP0 step, not a missing object
+-- palette: overworld OBJs run through OBP0 = $D0 (home/fade.asm FadePal4
+-- `dc 3,1,0,0`), which lifts OBJ color 1 to DMG shade 0 and color 2 to shade 1,
+-- so Red's cap lands on the ROUTE palette's shade-1 GRASS GREEN and blends into
+-- the grass exactly as #150's reference shot shows.  Drawn with an identity
+-- shade map it landed on shade 2 = light-blue instead, which is the clash #150
+-- reported.  SpriteRenderer bakes that OBP0 ramp (PaletteFX.dmgObj) and lets
+-- the zone shader color the result.  RED++ colors sprites through the
+-- usesGbcPack() path in SpriteRenderer instead.
 function PaletteFX.usesSpriteObp(mode)
   mode = mode or PaletteFX.mode
-  return mode == "ogred" or mode == "gbc"
+  return mode == "ogred"
 end
 
--- ------- post-zone sprite redraw (GBC mode)
+-- ------- post-zone sprite redraw (OG RED)
 --
--- In GBC mode the world canvas still runs through the per-map zone
+-- In OG RED the world canvas still runs through the whole-screen zone
 -- shade-remap shader, which would corrupt an OBP-baked sprite's true-color
--- pixels.  So SpriteRenderer draws the baked sprite into the canvas (its
+-- pixels.  (SGB used to come through here too; it no longer bakes an object
+-- palette at all, so its characters are colorized by the zone like the ground
+-- they stand on and never queue a replay -- see usesSpriteObp, #301.)  So SpriteRenderer draws the baked sprite into the canvas (its
 -- pixels come out zone-tinted there) AND records the draw here;
 -- Renderer:endFrame replays the list on top of the finished zone pass,
 -- scaled into screen space -- the GBC's OBJ-over-BG compositing, one draw
@@ -529,6 +566,34 @@ function PaletteFX.permute(colors, map)
            colors[map[2] + 1], colors[map[3] + 1] }
 end
 
+-- ------- global shade map (rBGP)
+--
+-- home/fade.asm's LoadGBPal writes ONE rBGP for the whole screen, indexing
+-- FadePal4 - wMapPalOffset.  A dark cave sets wMapPalOffset = 6
+-- (home/overworld.asm's ROCK_TUNNEL_1F check; the value rides in the extracted
+-- field.darkMaps.palOffset), which lands on FadePal2 = `dc 3,3,3,2`: DMG white
+-- drops to shade 2 and every darker shade goes to shade 3.  So the WHOLE
+-- screen darkens -- the original never cuts a window of light around the
+-- player (#322) -- and FLASH clears wMapPalOffset again
+-- (engine/menus/start_sub_menus.asm .flash).
+--
+-- Renderer:beginFrame clears this every frame and the state that draws a dark
+-- map re-arms it while it draws, so it can never outlive the map it belongs
+-- to: a battle or a full-screen menu draws with no map beneath it and comes
+-- out lit, exactly like init_battle_variables.asm's `ld [wMapPalOffset], a`
+-- leaves the original.
+PaletteFX.DARK_BGP = { [0] = 2, [1] = 3, [2] = 3, [3] = 3 }
+
+local shadeMap = nil
+
+function PaletteFX.setShadeMap(map)
+  shadeMap = map
+end
+
+function PaletteFX.shadeMap()
+  return shadeMap
+end
+
 function PaletteFX.setMode(mode)
   local prev = PaletteFX.mode
   local ok = false
@@ -598,19 +663,42 @@ end
 -- Transform a 4-color palette for the active COLORS display mode.
 -- GBC and RED++ pass the zone colors through (RED++ already swapped the
 -- pack in pal/monPal); OG* / CLASSIC replace; GBC INV permutes shades.
+-- The "paper" shade of the active display mode: what a DMG-white background
+-- pixel ends up as once colorization has run.  Every palette in the SGB pack
+-- carries the same off-white (255,239,255) as color 0, so this is well
+-- defined for the whole screen rather than per zone.  Goes through
+-- PaletteFX.pal so OG RED short-circuits to the one global boot-ROM BG
+-- palette and RED++ falls back to the ROM pack, then through effectiveColors
+-- so the mono and inverted modes get their own paper (CLASSIC's pea green,
+-- and the dark paper the inverted modes should have).  Returns r, g, b in
+-- 0..1, white if nothing resolves.
+function PaletteFX.paperShade(data)
+  local base = PaletteFX.pal(data, "GREENBAR") or PaletteFX.GRAYS
+  local colors = PaletteFX.effectiveColors(base) or base
+  local c = colors and colors[1]
+  if not c then return 1, 1, 1 end
+  return c[1] / 255, c[2] / 255, c[3] / 255
+end
+
 function PaletteFX.effectiveColors(c)
   if not c then return nil end
   local mode = PaletteFX.mode or "gbc"
+  local out = c
   if mode == "og" then
-    return PaletteFX.GRAYS
+    out = PaletteFX.GRAYS
   elseif mode == "og_inv" then
-    return PaletteFX.permute(PaletteFX.GRAYS, INV_MAP)
+    out = PaletteFX.permute(PaletteFX.GRAYS, INV_MAP)
   elseif mode == "classic" then
-    return PaletteFX.CLASSIC
+    out = PaletteFX.CLASSIC
   elseif mode == "gbc_inv" then
-    return PaletteFX.permute(c, INV_MAP)
+    out = PaletteFX.permute(c, INV_MAP)
   end
-  return c
+  -- The shade map goes on LAST: rBGP is a hardware register write, so it
+  -- composes on top of whatever colors the display mode settled on -- a dark
+  -- cave has to read dark in CLASSIC's pea greens and in plain DMG grays too
+  -- (#322).  permute() is the identity (and returns `out` itself, which the
+  -- mod-graphics parity check leans on) while nothing has armed one.
+  return PaletteFX.permute(out, shadeMap)
 end
 
 -- send a 4-color (0-255 RGB) palette to the shade-remap shader, after

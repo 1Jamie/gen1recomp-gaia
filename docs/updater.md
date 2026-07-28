@@ -65,7 +65,7 @@ Each tagged release `vX.Y.Z` carries the existing per-platform archives
 
 A release missing either asset is treated as "no in-place update available":
 `Check` reports `needs_full` and sends the player to `Check.releaseUrl()`
-(`https://github.com/bryanthaboi/pokemon-gen1-recomp-project/releases/latest`).
+(`https://github.com/bryanthaboi/gen1recomp/releases/latest`).
 
 ## Save-directory layout
 

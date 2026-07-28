@@ -47,6 +47,17 @@ ItemEffects.BALLS = BALLS
 function ItemEffects.isBall(id) return BALLS[id] or false end
 function ItemEffects.isStone(id) return STONES[id] or false end
 
+-- Does using this item take item_effects.asm's .healHP path, the one that
+-- plays SFX_HEAL_HP and lengthens the party HP bar with UpdateHPBar2 before
+-- the message (item_effects.asm .doneHealing)?  The status-only cures branch
+-- to .playStatusAilmentCuringSound instead and never touch the bar.  BagMenu
+-- keeps the party picker open for these so the fill has something to draw
+-- on (#252).
+function ItemEffects.healsHP(id)
+  return HEAL_AMOUNT[id] ~= nil or id == "MAX_POTION" or id == "FULL_RESTORE"
+      or id == "REVIVE" or id == "MAX_REVIVE"
+end
+
 -- Does this item need a party-member target?
 function ItemEffects.needsTarget(id, itemDef)
   return HEAL_AMOUNT[id] or STATUS_HEAL[id] or id == "MAX_POTION"
@@ -257,6 +268,11 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     if not target or target.hp <= 0 or target.hp >= target.stats.hp then
       return "failed", { Strings("It won't have\nany effect.") }
     end
+    -- wHPBarOldHP: the bar animation starts from the HP the mon had BEFORE
+    -- the item landed (item_effects.asm latches it with the party menu still
+    -- up), so latch it here and hand it back as extra.healedFrom for the
+    -- party-menu fill (#252)
+    local before = target.hp
     if itemId == "MAX_POTION" or itemId == "FULL_RESTORE" then
       target.hp = target.stats.hp
     else
@@ -268,7 +284,7 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
       cureActiveToxic(battle, target)
     end
     require("src.core.Sound").play(data, "Heal_HP")
-    return "consumed", msgs
+    return "consumed", msgs, { healedFrom = before }
   end
 
   local cures = STATUS_HEAL[itemId]
@@ -289,7 +305,10 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     target.status = nil
     target.hp = itemId == "REVIVE" and math.floor(target.stats.hp / 2) or target.stats.hp
     require("src.core.Sound").play(data, "Heal_HP")
-    return "consumed", { Strings("%s\nis revitalized!", monName(data, target)) }
+    -- a revive takes the same .healHP -> .doneHealing route, animating up
+    -- from the fainted mon's 0 HP (#252)
+    return "consumed", { Strings("%s\nis revitalized!", monName(data, target)) },
+           { healedFrom = 0 }
   end
 
   if itemId == "RARE_CANDY" then

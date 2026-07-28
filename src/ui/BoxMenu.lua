@@ -7,6 +7,7 @@ local Font = require("src.render.Font")
 local ListMenu = require("src.ui.ListMenu")
 local Menu = require("src.ui.Menu")
 local Party = require("src.pokemon.Party")
+local Stats = require("src.pokemon.Stats")
 local TextBox = require("src.render.TextBox")
 local Strings = require("src.core.Strings")
 
@@ -73,6 +74,14 @@ local function withdraw(game)
           list.footer = "The party is full!"
           return
         end
+        -- add_mon.asm _MoveMon's tail ("returning mon to party, compute
+        -- level and stats"): a box mon carries no stat block, because
+        -- box_struct stops before MON_LEVEL/MON_STATS, so the party copy
+        -- runs CalcStats.  Without it a mon decoded out of an imported .sav
+        -- reaches the party menu with mon.stats nil and the HP bar draw
+        -- nil-indexes it (#304, same family as #233).  Already-shaped mons
+        -- (everything the engine itself put in a box) pass through.
+        Stats.ensure(game.data.pokemon[mon.species], mon)
         table.remove(box, item.value)
         table.insert(game.save.party, mon)
         local name = monName(game, mon)

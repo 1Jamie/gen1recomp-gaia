@@ -16,7 +16,7 @@
 -- the MINIMUM-scored move is chosen, ties broken uniformly among the
 -- tied minima (core.asm:2971-3002).  A non-minimal move is never
 -- selectable.  Respects Disable (and PP only when the ruleset depletes
--- enemy PP — Gen 1 AI never reads wEnemyMonPP).
+-- enemy PP -- Gen 1 AI never reads wEnemyMonPP).
 
 local TypeChart = require("src.battle.TypeChart")
 local Strings = require("src.core.Strings")

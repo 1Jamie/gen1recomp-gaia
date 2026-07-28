@@ -255,7 +255,36 @@ local function fileUrl(path)
   return "file://" .. encoded
 end
 
+-- The native pickers below block the whole loop inside io.popen, and they are
+-- opened straight out of mousepressed -- with the button still physically
+-- down.  SDL auto-captures the pointer for the length of a press (on X11 an
+-- XGrabPointer with owner_events) and only drops that capture when it
+-- processes the matching button-up, which it cannot do while we sit in popen
+-- and never pump.  The grab then outlives the click and every pointer event
+-- over the file chooser is still routed to our window: the dialog draws and
+-- keyboard-navigates (keyboard focus is a separate grab) but ignores the
+-- mouse entirely -- issue #254 on Linux.  Whether it bites is a race with how
+-- long the click was held, which is why the same build picks one ROM fine and
+-- then hangs the mouse on the next.  So pump until no button is held, letting
+-- SDL see the release and let go first; bounded, so a stuck button costs a
+-- moment and never the launcher.  pump() only drains OS events into LOVE's
+-- queue -- it dispatches nothing -- so there is no reentry into mousepressed
+-- and the release is still delivered normally on the next frame.
+local function releasePointerGrab()
+  if not (love.mouse and love.mouse.isDown and love.event and love.event.pump
+      and love.timer) then
+    return
+  end
+  local deadline = love.timer.getTime() + 1
+  while love.mouse.isDown(1, 2, 3) do
+    love.event.pump()
+    if love.timer.getTime() > deadline then break end
+    love.timer.sleep(0.005)
+  end
+end
+
 local function commandOutput(command)
+  releasePointerGrab()
   local pipe = io.popen(command, "r")
   if not pipe then return nil end
   local result = pipe:read("*a")
@@ -445,7 +474,10 @@ end
 -- own cache (Red at the root, Blue under blue/), so both can be imported and
 -- played side by side.  onComplete(version) hands the chosen game off to boot.
 -- opts: launcher (a fresh import stays on the launcher instead of auto-booting),
--- forceImport (treat every version as not-yet-imported, so re-import is forced).
+-- forceImport (treat every version as not-yet-imported, so re-import is forced),
+-- onEditSave(version, slotId) (host handler for the Edit affordance on a save
+-- row -- main.lua opens the bundled save editor on that slot; when it is not
+-- supplied the Edit label is not drawn at all).
 function RomImporter.new(onComplete, opts)
   opts = opts or {}
   local android = love.system.getOS() == "Android"
@@ -454,6 +486,7 @@ function RomImporter.new(onComplete, opts)
     onComplete = onComplete,
     launcher = opts.launcher or false,
     forceImport = opts.forceImport or false,
+    onEditSave = opts.onEditSave,
     android = android,
     tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
     logo = love.graphics.newImage("assets/logo/logo.png"),
@@ -486,6 +519,14 @@ function RomImporter.new(onComplete, opts)
     -- Android SAF create-document: which game's SAVE FILES card should show
     -- "Save exported." when export_done.flag appears on focus.
     androidPendingExportVersion = nil,
+    -- Virtual pointer for handhelds / gamepads (Anbernic stock OS has no
+    -- mouse).  D-pad + left stick move it; A clicks; shoulders cycle tabs;
+    -- right stick scrolls the save-slot / mods lists.
+    _padCursor = { x = 0, y = 0 },
+    _padCursorActive = false,
+    _padAxis = { leftx = 0, lefty = 0, righty = 0 },
+    _padDir = {},
+    _padInited = false,
   }, RomImporter)
 
   for _, version in ipairs(GameVersion.ORDER) do
@@ -536,6 +577,15 @@ function RomImporter.new(onComplete, opts)
       self.Check = Check
       pcall(Check.start)
     end
+  end
+
+  -- On Linux handhelds a gamepad is usually already connected at boot; arm
+  -- the virtual cursor immediately so the player does not have to press a
+  -- button before seeing something move.
+  if self.launcher and love.system.getOS() == "Linux"
+      and love.joystick and love.joystick.getJoystickCount
+      and love.joystick.getJoystickCount() > 0 then
+    self:_activatePadCursor()
   end
 
   return self
@@ -941,15 +991,37 @@ function RomImporter:choose(version)
   local path = chooseRom(GameVersion.info(self.chooseVersion).displayName)
   if path then
     self:startPath(path)
-  elseif love.system.getOS() ~= "OS X"
-      and love.system.getOS() ~= "Windows"
-      and love.system.getOS() ~= "Linux" then
+    return
+  end
+  -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
+  -- kdialog.  Fall back to the same "drop a .gb next to the game" scan used
+  -- on Android, which works when the game is launched as an unpacked
+  -- directory (see build-rg34xxsp.sh).
+  local name, data = findPendingRom(self.ready)
+  if name then
+    self:startData(data, name)
+    return
+  end
+  if love.system.getOS() == "Linux" then
+    local where = love.filesystem.getSourceBaseDirectory
+      and love.filesystem.getSourceBaseDirectory()
+      or love.filesystem.getSource and love.filesystem.getSource()
+      or "the game folder"
+    self.notice = {
+      version = self.chooseVersion,
+      status = "No file picker. Copy your .gb into:",
+      detail = where,
+    }
+    return
+  end
+  if love.system.getOS() ~= "OS X" and love.system.getOS() ~= "Windows" then
     self:setError("File selection is unavailable here. Drop the .gb file onto the window.")
   end
 end
 
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
+  self:_updatePadCursor(dt)
   if self.workState ~= "working" or not self.worker then return end
   local started = love.timer.getTime()
   repeat
@@ -964,6 +1036,125 @@ function RomImporter:update(dt)
       return
     end
   until love.timer.getTime() - started >= 0.008
+end
+
+-- ------- gamepad virtual cursor (handheld / PortMaster) --------------------
+local PAD_DEAD = 0.28
+local PAD_SPEED = 560   -- px/s at full stick deflection
+local PAD_DPAD_SPEED = 420
+
+function RomImporter:_activatePadCursor()
+  if self._padCursorActive then return end
+  local w, h = love.graphics.getDimensions()
+  if not self._padInited then
+    self._padCursor.x = w * 0.5
+    self._padCursor.y = h * 0.45
+    self._padInited = true
+  end
+  self._padCursorActive = true
+end
+
+function RomImporter:_cycleTab(delta)
+  local order = { "red", "blue", "yellow", "mods" }
+  local idx = 1
+  for i, id in ipairs(order) do
+    if id == self.tab then idx = i; break end
+  end
+  idx = ((idx - 1 + delta) % #order) + 1
+  self.tab = order[idx]
+  self._slotPress = nil
+  self._modPress = nil
+end
+
+function RomImporter:_updatePadCursor(dt)
+  -- Real mouse motion yields the pad cursor so desktop users keep a normal
+  -- pointer after bumping a stick once.
+  local mx, my = love.mouse.getPosition()
+  if self._lastMouseX and self._padCursorActive then
+    if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
+      self._padCursorActive = false
+    end
+  end
+  self._lastMouseX, self._lastMouseY = mx, my
+
+  local ax = self._padAxis.leftx or 0
+  local ay = self._padAxis.lefty or 0
+  local dx, dy = 0, 0
+  if math.abs(ax) > PAD_DEAD then dx = dx + ax end
+  if math.abs(ay) > PAD_DEAD then dy = dy + ay end
+  if self._padDir.dpleft then dx = dx - 1 end
+  if self._padDir.dpright then dx = dx + 1 end
+  if self._padDir.dpup then dy = dy - 1 end
+  if self._padDir.dpdown then dy = dy + 1 end
+
+  if dx ~= 0 or dy ~= 0 then
+    self:_activatePadCursor()
+    local mag = math.sqrt(dx * dx + dy * dy)
+    if mag > 1 then dx, dy = dx / mag, dy / mag end
+    local speed = (math.abs(ax) > PAD_DEAD or math.abs(ay) > PAD_DEAD)
+      and PAD_SPEED or PAD_DPAD_SPEED
+    local w, h = love.graphics.getDimensions()
+    local nx = self._padCursor.x + dx * speed * dt
+    local ny = self._padCursor.y + dy * speed * dt
+    self._padCursor.x = math.max(0, math.min(w, nx))
+    self._padCursor.y = math.max(0, math.min(h, ny))
+  end
+
+  -- Right stick scrolls the active list (save slots or mods).
+  local ry = self._padAxis.righty or 0
+  if math.abs(ry) > PAD_DEAD then
+    self:_activatePadCursor()
+    local step = -ry * 480 * dt
+    if self.tab == "mods" then
+      local maxS = self._modMax or 0
+      if maxS > 0 then
+        local next = (self.modScroll or 0) + step
+        self.modScroll = math.max(0, math.min(maxS, next))
+      end
+    elseif self.tab == "red" or self.tab == "blue" then
+      local maxS = (self._slotMax and self._slotMax[self.tab]) or 0
+      if maxS > 0 then
+        local next = (self.slotScroll[self.tab] or 0) + step
+        self.slotScroll[self.tab] = math.max(0, math.min(maxS, next))
+      end
+    end
+  end
+end
+
+function RomImporter:gamepadpressed(_, button)
+  self:_activatePadCursor()
+  if button == "a" then
+    -- Instant click at the virtual pointer (same path as a mouse/touch tap).
+    self:mousepressed(self._padCursor.x, self._padCursor.y, 1)
+  elseif button == "leftshoulder" then
+    self:_cycleTab(-1)
+  elseif button == "rightshoulder" then
+    self:_cycleTab(1)
+  elseif button == "dpup" or button == "dpdown"
+      or button == "dpleft" or button == "dpright" then
+    self._padDir[button] = true
+  elseif button == "start" or button == "back" then
+    -- Start / Select: Play if ready, else Choose ROM on the active game tab.
+    if self.workState == "working" then return end
+    local version = self.tab
+    if version == "red" or version == "blue" then
+      if self.ready[version] then self:play(version) else self:choose(version) end
+    end
+  end
+end
+
+function RomImporter:gamepadreleased(_, button)
+  if button == "dpup" or button == "dpdown"
+      or button == "dpleft" or button == "dpright" then
+    self._padDir[button] = nil
+  end
+end
+
+function RomImporter:gamepadaxis(_, axis, value)
+  if axis == "leftx" or axis == "lefty" or axis == "righty" then
+    self._padAxis[axis] = value
+    if math.abs(value) > PAD_DEAD then self:_activatePadCursor() end
+  end
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.
@@ -1160,12 +1351,17 @@ function RomImporter:draw()
   local pulse = self.pulse
   self._s = s
 
-  -- Hover state (desktop only -- touch has no cursor).  Panel methods read the
-  -- pointer + set self._anyHover through self:_hover; the cursor is set at the
-  -- end.  Reset the per-frame hit rects so a tab with no controls (mods) cannot
+  -- Hover state.  Desktop mouse, or the gamepad virtual cursor on handhelds
+  -- (Android stays touch-only -- no hover).  Panel methods read the pointer +
+  -- set self._anyHover through self:_hover; the cursor is set at the end.
+  -- Reset the per-frame hit rects so a tab with no controls (mods) cannot
   -- inherit last frame's game-panel buttons.
-  self._mx, self._my = love.mouse.getPosition()
-  self._hoverEnabled = not self.android
+  if self._padCursorActive then
+    self._mx, self._my = self._padCursor.x, self._padCursor.y
+  else
+    self._mx, self._my = love.mouse.getPosition()
+  end
+  self._hoverEnabled = self._padCursorActive or not self.android
   self._anyHover = false
   self.romButtonRect = nil
   self.playButtonRect = nil
@@ -1173,6 +1369,7 @@ function RomImporter:draw()
   -- Rebuilt only by the active version's SAVE SLOT panel, so the mods tab (or a
   -- version with no panel drawn this frame) cannot inherit last frame's rows.
   self.slotRects = nil
+  self.slotEditRects = nil
   self.newSlotRect = nil
   -- Rebuilt only by the mods panel; nil elsewhere so a game tab cannot inherit
   -- last frame's mod toggles / import button.
@@ -1523,13 +1720,42 @@ function RomImporter:draw()
   self:_updateSlotDrag()
 
   -- pointer cursor over any interactive element (desktop only)
-  if self._hoverEnabled and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
+  if self._hoverEnabled and not self._padCursorActive
+      and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
     if self._anyHover then
       self.handCursor = self.handCursor or love.mouse.getSystemCursor("hand")
       love.mouse.setCursor(self.handCursor)
     else
       resetPointerCursor(self)
     end
+  end
+
+  -- Gamepad virtual cursor (drawn last so it sits above the CRT overlay).
+  if self._padCursorActive then
+    local x, y = self._padCursor.x, self._padCursor.y
+    local hot = self._anyHover
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setLineWidth(1)
+    -- Drop shadow
+    love.graphics.setColor(0, 0, 0, 0.45)
+    love.graphics.polygon("fill",
+      x + 2, y + 2, x + 2, y + 22, x + 8, y + 16, x + 14, y + 26,
+      x + 18, y + 24, x + 11, y + 14, x + 20, y + 14)
+    -- Pointer body
+    if hot then
+      love.graphics.setColor(0.25, 0.95, 0.55, 1)
+    else
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    love.graphics.polygon("fill",
+      x, y, x, y + 20, x + 6, y + 14, x + 12, y + 24,
+      x + 16, y + 22, x + 9, y + 12, x + 18, y + 12)
+    love.graphics.setColor(0.05, 0.07, 0.12, 1)
+    love.graphics.polygon("line",
+      x, y, x, y + 20, x + 6, y + 14, x + 12, y + 24,
+      x + 16, y + 22, x + 9, y + 12, x + 18, y + 12)
+    love.graphics.pop()
   end
 end
 
@@ -1590,14 +1816,21 @@ function RomImporter:mousepressed(x, y, button)
     end
     return
   end
-  -- SAVE SLOT rows / Delete.  Delete is checked first so a tap on the Delete
-  -- label never also selects the row.  On desktop a press only ARMS a click:
-  -- _updateSlotDrag commits it on release when the pointer did not move (a
-  -- moved pointer scrolls instead).  Android has no reliable pointer polling,
-  -- so it selects on press.  Delete fires immediately (small fixed target).
+  -- SAVE SLOT rows / Edit / Delete.  The two labels are checked first so a tap
+  -- on either never also selects the row.  On desktop a press only ARMS a row
+  -- click: _updateSlotDrag commits it on release when the pointer did not move
+  -- (a moved pointer scrolls instead).  Android has no reliable pointer
+  -- polling, so it selects on press.  Edit and Delete fire immediately (small
+  -- fixed targets, no scroll conflict).
   for _, r in ipairs(self.slotDeleteRects or {}) do
     if inside(r, x, y) then
       self:_deleteSlot(self.panelVersion, r.id)
+      return
+    end
+  end
+  for _, r in ipairs(self.slotEditRects or {}) do
+    if inside(r, x, y) then
+      if self.onEditSave then self.onEditSave(self.panelVersion, r.id) end
       return
     end
   end
@@ -2062,6 +2295,13 @@ function RomImporter:_ensureSlots(version)
   if not self.slots[version] then self:_refreshSlots(version) end
 end
 
+-- The host calls this when the save editor closes: the edited slot's player
+-- name, badge count and dex total all feed the cached row summary, so it has
+-- to be re-read rather than trusted across the round trip.
+function RomImporter:savesChanged(version)
+  self:_refreshSlots(version)
+end
+
 -- Point the active slot at id (persisted immediately, per the contract) and
 -- reflect it in the LOADED pill without a full relist.
 function RomImporter:_selectSlot(version, id)
@@ -2179,6 +2419,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
       rw - 24 * s, "center")
     self.slotRects = {}
     self.slotDeleteRects = {}
+    self.slotEditRects = {}
   elseif listH > 0 then
     local nameH = self.slotNameFont:getHeight()
     local metaH = self.labelFont:getHeight()
@@ -2198,6 +2439,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
 
     self.slotRects = {}
     self.slotDeleteRects = {}
+    self.slotEditRects = {}
     love.graphics.setScissor(math.floor(rx), math.floor(listTop),
       math.ceil(rw), math.ceil(listH))
     for i, slot in ipairs(slots) do
@@ -2223,6 +2465,24 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
         col(dhot and PAL.red or PAL.warning)
         love.graphics.print(delText, delX, delY)
         local rightReserve = delW + 18 * s
+
+        -- Edit label, immediately left of Delete: opens the bundled save
+        -- editor (tools/save-editor) on this slot's file.  Only drawn when the
+        -- host supplied onEditSave and the slot actually holds a save -- there
+        -- is nothing to edit in an empty slot, and offering it would open the
+        -- editor on a new-game stub the player never asked for.
+        local erect = nil
+        if self.onEditSave and slot.exists then
+          local edText = "Edit"
+          local edW = self.hintFont:getWidth(edText)
+          local edX = delX - 14 * s - edW
+          erect = { x = edX - 6 * s, y = delY - 4 * s,
+            width = edW + 12 * s, height = delH + 8 * s, id = slot.id }
+          local ehot = self:_hover(erect)
+          col(ehot and PAL.blue or PAL.warning)
+          love.graphics.print(edText, edX, delY)
+          rightReserve = rightReserve + edW + 20 * s
+        end
 
         -- LOADED pill (top-right of the active row), then reserve its width
         local pillW = 0
@@ -2271,6 +2531,15 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
         if dvy2 > dvy then
           self.slotDeleteRects[#self.slotDeleteRects + 1] =
             { x = drect.x, y = dvy, width = drect.width, height = dvy2 - dvy, id = slot.id }
+        end
+        if erect then
+          local evy = math.max(erect.y, listTop)
+          local evy2 = math.min(erect.y + erect.height, listBottom)
+          if evy2 > evy then
+            self.slotEditRects[#self.slotEditRects + 1] =
+              { x = erect.x, y = evy, width = erect.width, height = evy2 - evy,
+                id = slot.id }
+          end
         end
       end
     end
@@ -2476,7 +2745,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
         love.graphics.printf(m.description, nx, ny + nameH + 6 * s, L.leftW, "left")
       end
 
-      -- right cluster: status chip, toggle, Delete — vertically centred
+      -- right cluster: status chip, toggle, Delete -- vertically centred
       local clusterX = x + w - padH - L.clusterW
       local clusterY = cy + (cardH - clusterH) / 2
       local _, chipColor = modStatusChip(m.status)

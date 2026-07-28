@@ -56,16 +56,28 @@ done
 mkdir -p "$CACHE" "$WORK" "$DIST/mac" "$DIST/win" "$DIST/linux"
 
 # --------------------------------------------------------------- game.love
+# tools/save-editor is part of the shipped app, not a dev-only script: the
+# launcher's Edit button on a save row opens it in-process (main.lua), and
+# `--editor` / POKEPORT_EDITOR=1 opens it standalone.  It is required through
+# love.filesystem's require path, so it has to live inside the archive.
 say "packing game.love"
 LOVE_FILE="$WORK/game.love"
 rm -f "$LOVE_FILE"
 (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
-  main.lua conf.lua src data assets tools/rom_manifest.json tools/rom_manifest_blue.json \
+  main.lua conf.lua src data assets tools/save-editor \
+  tools/rom_manifest.json tools/rom_manifest_blue.json \
   -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
 if unzip -Z1 "$LOVE_FILE" \
     | grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/'; then
   fail "game.love unexpectedly contains generated ROM data"
 fi
+# The editor is only reachable if its entry point and both module directories
+# made it in; a silent miss would ship a launcher whose Edit button crashes.
+for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
+                tools/save-editor/panels/Party.lua; do
+  unzip -Z1 "$LOVE_FILE" | grep -qx "$required" \
+    || fail "game.love is missing $required (save editor would not load)"
+done
 say "game.love: $(du -h "$LOVE_FILE" | cut -f1)"
 
 # ------------------------------------------------------- stamp release version
