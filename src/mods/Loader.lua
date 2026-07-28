@@ -162,7 +162,11 @@ function Loader:_loadState()
   if next(options.mods or {}) == nil and self.fs.getInfo
       and self.fs.getInfo(MOD_STATE_FILE) then
     local chunk = self.fs.load(MOD_STATE_FILE)
-    local ok, state = chunk and pcall(chunk)
+    -- `chunk and pcall(chunk)` truncates to one value, so state came back nil
+    -- however well the chunk ran and the migration below never fired once:
+    -- the guard has to be a statement for pcall's second return to survive.
+    local ok, state = false, nil
+    if chunk then ok, state = pcall(chunk) end
     if ok and type(state) == "table" then
       for id, disabled in pairs(state) do
         if disabled then

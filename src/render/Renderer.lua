@@ -480,8 +480,11 @@ function Renderer:endFrame(zones, worldZones)
     love.graphics.setCanvas(present)
   end
   -- Default letterbox is black.  Battle (and any state that opts in via
-  -- letterboxWhite) fills the voids white so the window matches the
-  -- white battle canvas instead of showing black bars.
+  -- letterboxWhite) fills the voids with the display mode's paper shade, so
+  -- the bars match the canvas they frame instead of showing black.  Not a
+  -- literal white: the battle canvas is colorized, and in SGB mode its paper
+  -- is the pack's off-white (255,239,255), which a hardcoded 1,1,1 framed in
+  -- a visibly brighter border.
   local clearR, clearG, clearB = 0, 0, 0
   if not self.worldActive then
     local ok, Game = pcall(require, "src.core.Game")
@@ -489,7 +492,7 @@ function Renderer:endFrame(zones, worldZones)
     local base = stack and stack.visibleBase and stack:visibleBase()
     local state = base and stack.states and stack.states[base]
     if state and state.letterboxWhite then
-      clearR, clearG, clearB = 1, 1, 1
+      clearR, clearG, clearB = PaletteFX.paperShade(Game and Game.data)
     end
   end
   love.graphics.setColor(clearR, clearG, clearB, 1)

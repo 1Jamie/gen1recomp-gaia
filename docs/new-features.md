@@ -86,7 +86,7 @@ Game Boy equivalent:
 ## Colors mode
 
 The `2` key (and the Options menu COLORS row) cycles the display mode
-through **OG RED → SGB → RED++ → OG → OG INV → SGB INV → CLASSIC → OG RED**.
+through **OG RED → SGB → ADVANCED → OG → OG INV → SGB INV → CLASSIC → OG RED**.
 The first three are the real colorizations; the rest are DMG-shade novelties:
 
 - **OG RED**: the Game Boy Color boot-ROM look for Pokemon Red -- one global
@@ -97,8 +97,9 @@ The first three are the real colorizations; the rest are DMG-shade novelties:
 - **SGB** (default): the per-map Super Game Boy region palettes
   (`data/sgb/sgb_palettes.asm`). Sprites tint with the region palette, as on
   real SGB. (This is the mode formerly mislabeled "GBC".)
-- **RED++**: pokered-gbc SuperPalettes -- real per-tile GBC coloring plus
-  per-species mon colors (`data/palettes_gbc.lua`).
+- **ADVANCED**: pokered-gbc SuperPalettes -- real per-tile GBC coloring plus
+  per-species mon colors (`data/palettes_gbc.lua`). (Formerly labeled
+  "RED++"; it is the richest colorization rather than anything Red-specific.)
 - **OG**: force the four DMG grays (colorization off).
 - **OG INV**: inverted DMG grays.
 - **SGB INV**: each SGB zone palette with shade order reversed.
@@ -109,7 +110,8 @@ The shade-remap transform is applied centrally in `PaletteFX.sendColors`, so
 it covers overworld, menus, battles, and tilt upright billboards. OG RED's
 global BG palette is supplied by `OverworldState:overworldBgColors` (per-map
 override in the overworld pass). Persisted as `save.options.colors`; the
-`gbc` / `gbc_inv` save ids are kept for back-compat under the new labels.
+`gbc` / `gbc_inv` / `redpp` save ids are kept for back-compat under the new
+labels.
 
 ## GBC FX
 
@@ -161,8 +163,8 @@ migrated once into `options.lua` on load.
 - Music / SFX volume
 - Music Filter
 - OG GLITCHES on / off (Gen 1 quirks vs. modern-clean battle rules)
-- COLORS (OG RED / SGB / RED++ / OG / OG INV / SGB INV / CLASSIC),  also
-  hotkey `2` (OG RED = GBC boot-ROM look; RED++ uses pokered-gbc
+- COLORS (OG RED / SGB / ADVANCED / OG / OG INV / SGB INV / CLASSIC),  also
+  hotkey `2` (OG RED = GBC boot-ROM look; ADVANCED uses pokered-gbc
   SuperPalettes + per-species mon colors)
 - TILT (OFF / 15 / 35 / 50),  also hotkey `3` while free-roaming
 - ZOOM (FIT / OUTn / INn),  also hotkey `4` while free-roaming; wheel and

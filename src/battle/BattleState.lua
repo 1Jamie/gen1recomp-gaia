@@ -1211,6 +1211,15 @@ function BattleState:update(dt)
   end
 
   if self.phase == "messages" then
+    -- Nothing queued starts until the silhouettes have finished sliding in:
+    -- SlidePlayerAndEnemySilhouettesOnScreen ends with `jpfar
+    -- PrintBeginningBattleText` (engine/battle/core.asm:100), so the enemy
+    -- cry and the "Wild X appeared!" box belong at the end of the slide, not
+    -- on its first frame (#303).  The hold sits here rather than in
+    -- updateQueue because only this loop has a frame clock: updateFx above
+    -- counts introSlide down, and a headless caller driving updateQueue on
+    -- its own has no slide to wait for.
+    if (self.introSlide or 0) > 0 then return end
     if not self:updateQueue() then
       if self.afterQueue == "menu" then
         self.phase = "menu"
@@ -2548,7 +2557,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   end
 
   -- PP: not for continuations, struggle, called moves, or (under
-  -- gen1_faithful) wild/trainer enemies — pokered DecrementPP only ever
+  -- gen1_faithful) wild/trainer enemies -- pokered DecrementPP only ever
   -- mutates wBattleMonPP / party PP (engine/battle/decrement_pp.asm).
   -- That rule doesn't apply in a link battle: "the enemy" there is a real
   -- human peer independently tracking their own PP the normal way, not an
@@ -4449,7 +4458,7 @@ function BattleState:drawTextArea()
 end
 
 function BattleState:draw()
-  -- AskName: ClearSprites + wild ClearScreenArea — white field under the
+  -- AskName: ClearSprites + wild ClearScreenArea -- white field under the
   -- nickname TextBox / YES/NO (naming_screen.asm); overlays draw on top.
   if self.blankForAskName then
     love.graphics.setColor(1, 1, 1, 1)

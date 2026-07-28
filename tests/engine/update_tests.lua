@@ -294,7 +294,7 @@ eq(Check.parseSums(nil, "anything"), nil, "parseSums(nil, target) returns nil wi
 -- ---------------------------------------------------------------------------
 
 eq(Check.releaseUrl(),
-   "https://github.com/bryanthaboi/pokemon-gen1-recomp-project/releases/latest",
+   "https://github.com/bryanthaboi/gen1recomp/releases/latest",
    "releaseUrl points at the repo's latest release")
 
 T.finish("update")

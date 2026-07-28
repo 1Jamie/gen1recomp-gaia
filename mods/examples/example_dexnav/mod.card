@@ -3,7 +3,7 @@
 return {
   summary = "A start-menu dex overlay with seen/owned counts and an inter-mod API.",
   author = "Pokemon Gen 1 Recompilation Project",
-  contact = "https://github.com/bryanthaboi/pokemon-gen1-recomp-project",
+  contact = "https://github.com/bryanthaboi/gen1recomp",
   tags = { "ui", "tool", "quality-of-life" },
   differences = {
     changed = { "the START menu gains a DEXNAV row above SAVE" },

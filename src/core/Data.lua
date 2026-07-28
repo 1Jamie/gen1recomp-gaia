@@ -246,6 +246,20 @@ function Data:resolveText(mapLabel, textConst)
     local s = self.text[entry.text]
     if s then return s, entry.asm end
   end
+  -- A text_asm entry names its wrapper label but carries no string, because
+  -- the extractor cannot follow asm.  A handful of those wrappers are plain
+  -- `text_far <label> / text_end` pairs with no logic at all -- BoulderText
+  -- (home/overworld_text.asm:16), MartSignText, PokeCenterSignText -- and
+  -- for those the extracted _Label string IS the whole behavior, so the
+  -- boulders and signs printed nothing at all (#318).  Wrappers that really
+  -- do run logic have no _Label string to find, so they still fall through
+  -- to their hand-ported script in data/scripts/.
+  -- needsAsm comes back false here on purpose: showMapText's warning tells
+  -- the reader to go port a script, and for these there is nothing to port.
+  if entry.label then
+    local s = self.text["_" .. entry.label]
+    if s then return s, false end
+  end
   return nil, entry.asm
 end
 

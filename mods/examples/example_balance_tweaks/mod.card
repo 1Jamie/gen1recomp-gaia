@@ -3,7 +3,7 @@
 return {
   summary = "Faster final starters, half-price TMs, a re-slotted Route 1.",
   author = "Pokemon Gen 1 Recompilation Project",
-  contact = "https://github.com/bryanthaboi/pokemon-gen1-recomp-project",
+  contact = "https://github.com/bryanthaboi/gen1recomp",
   tags = { "balance", "data-only", "beginner" },
   differences = {
     changed = {

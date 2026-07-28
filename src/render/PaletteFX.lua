@@ -5,10 +5,11 @@
 -- then drawn once per zone through a shader that remaps the four DMG
 -- shades to that zone's palette.
 --
--- Port display option: COLORS (GBC / RED++ / OG / OG INV / GBC INV / CLASSIC)
--- transforms every zone's palette at send time via effectiveColors.
--- RED++ swaps the named-palette pack for pokered-gbc SuperPalettes
--- (data/palettes_gbc.lua), including per-species mon colors.
+-- Port display option: COLORS (OG RED / SGB / ADVANCED / OG / OG INV /
+-- SGB INV / CLASSIC) transforms every zone's palette at send time via
+-- effectiveColors.  ADVANCED (the `redpp` id below) swaps the named-palette
+-- pack for pokered-gbc SuperPalettes (data/palettes_gbc.lua), including
+-- per-species mon colors.
 
 local GameVersion = require("src.core.GameVersion")
 
@@ -18,14 +19,18 @@ local shader -- false = unavailable (headless / no shader support)
 local gbcPack -- false = missing; nil = not loaded yet
 
 -- Cycle order matches OptionsMenu / hotkey 2.  The three real colorizations
--- come first (OG RED = GBC hardware, SGB = per-map Super Game Boy, RED++ =
+-- come first (OG RED = GBC hardware, SGB = per-map Super Game Boy, ADVANCED =
 -- pokered-gbc per-tile), then the DMG-shade novelty modes.
 PaletteFX.MODES = { "ogred", "gbc", "redpp", "og", "og_inv", "gbc_inv", "classic" }
--- `gbc`/`gbc_inv` keep their save-value ids for back-compat; their LABELS are
--- "SGB"/"SGB INV" because that is what the mode actually is (the old "GBC"
--- label was a misnomer -- it never was the real Game Boy Color palette).
+-- `gbc`/`gbc_inv`/`redpp` keep their save-value ids for back-compat while
+-- their LABELS say what the mode actually is: "SGB"/"SGB INV" because the old
+-- "GBC" label was a misnomer (it never was the real Game Boy Color palette),
+-- and "ADVANCED" because `redpp` is the richest colorization of the three
+-- rather than anything Red-specific -- it reads as a misnomer outright on a
+-- Blue playthrough.  Comments elsewhere still call it RED++, the name it has
+-- carried in this file since it landed.
 PaletteFX.MODE_LABELS = {
-  ogred = "OG RED", gbc = "SGB", redpp = "RED++", og = "OG",
+  ogred = "OG RED", gbc = "SGB", redpp = "ADVANCED", og = "OG",
   og_inv = "OG INV", gbc_inv = "SGB INV", classic = "CLASSIC",
 }
 PaletteFX.mode = "gbc"
@@ -598,6 +603,23 @@ end
 -- Transform a 4-color palette for the active COLORS display mode.
 -- GBC and RED++ pass the zone colors through (RED++ already swapped the
 -- pack in pal/monPal); OG* / CLASSIC replace; GBC INV permutes shades.
+-- The "paper" shade of the active display mode: what a DMG-white background
+-- pixel ends up as once colorization has run.  Every palette in the SGB pack
+-- carries the same off-white (255,239,255) as color 0, so this is well
+-- defined for the whole screen rather than per zone.  Goes through
+-- PaletteFX.pal so OG RED short-circuits to the one global boot-ROM BG
+-- palette and RED++ falls back to the ROM pack, then through effectiveColors
+-- so the mono and inverted modes get their own paper (CLASSIC's pea green,
+-- and the dark paper the inverted modes should have).  Returns r, g, b in
+-- 0..1, white if nothing resolves.
+function PaletteFX.paperShade(data)
+  local base = PaletteFX.pal(data, "GREENBAR") or PaletteFX.GRAYS
+  local colors = PaletteFX.effectiveColors(base) or base
+  local c = colors and colors[1]
+  if not c then return 1, 1, 1 end
+  return c[1] / 255, c[2] / 255, c[3] / 255
+end
+
 function PaletteFX.effectiveColors(c)
   if not c then return nil end
   local mode = PaletteFX.mode or "gbc"

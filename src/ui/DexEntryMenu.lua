@@ -37,7 +37,11 @@ function DexEntryMenu.new(game, speciesOrOpts)
   self.def = game.data.pokemon[species]
   local path = require("src.pokemon.Sprites").path(game.data, species, "front",
     { kind = "dex" })
-  local ok, img = path and pcall(love.graphics.newImage, path)
+  -- `path and pcall(...)` truncates to one value, so img was always nil and
+  -- every dex page drew without its pic (#307); the guard has to be a
+  -- statement for pcall's second return to survive.
+  local ok, img = false, nil
+  if path then ok, img = pcall(love.graphics.newImage, path) end
   self.sprite = ok and img or nil
   require("src.core.Sound").playCry(game.data, species)
   return self

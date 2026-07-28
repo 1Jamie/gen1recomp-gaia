@@ -294,10 +294,17 @@ function TextBox:draw()
     self.scrollPx = self.scrollPx - 2
     if self.scrollPx <= 0 then self.scrollPx = nil end
   end
+  -- Only the retained line carries the offset: it slides up from where it
+  -- already sat (line2Y) to line1Y.  The incoming line is drawn at its home
+  -- row instead, because offsetting it too put fresh glyphs 8px low -- on the
+  -- box's bottom border -- whenever the typewriter beat the 4-frame slide
+  -- (#314).  The sub-tile slide is ours to begin with: ScrollTextUpOneLine
+  -- (home/text.asm:283) copies the rows up whole and waits 5 frames, so
+  -- nothing in the original is ever drawn between two rows.
   local off = self.scrollPx or 0
   local ys = { self.line1Y, self.line2Y }
   for i, line in ipairs(self.shown) do
-    local y = (ys[i] or self.line2Y) + off
+    local y = (ys[i] or self.line2Y) + (i == 1 and off or 0)
     for j, code in ipairs(line) do
       Font.drawCode(code, self.textX + (j - 1) * 8, y)
     end
