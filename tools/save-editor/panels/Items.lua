@@ -1,225 +1,240 @@
--- Items panel: money, the 20-slot bag (Bag.add/remove, ordered by
--- Bag.order), gym badges (boolean flags on inventory), and PC Item
--- storage (a plain S.save.pcItems dict, created on first use).
+-- Items panel: money, the shared item picker, badges, the 20-slot bag
+-- (Bag.add/remove, ordered by Bag.order) and PC item storage (a plain
+-- S.save.pcItems dict with no slot cap).
+--
+-- The picker is a searchable list rather than the old pair of arrows that
+-- cycled one id at a time through ~250 items, which was the single worst
+-- interaction in the editor.  Badges sit in the wallet column as toggle
+-- chips because they are boolean inventory flags, not stackable items, and
+-- must not look like quantity rows.
 
 local Bag = require("src.inventory.Bag")
+local Theme = require("Theme")
+local Ops = require("Ops")
+local PAL = Theme.PAL
 
 local M = {}
 
-local ROW_H = 20
-local LIST_H = 200
-local VISIBLE_ROWS = math.floor(LIST_H / ROW_H)
+local MONEY_STEPS = { -1000, -100, 100, 1000 }
 
-local function mark(S)
-  S.dirty = true
+local function matches(id, query)
+  if query == "" then return true end
+  return id:lower():find(query:lower(), 1, true) ~= nil
 end
 
--- Prev/Next pagination (mirrors Events/Dex panels) so bag/PC lists longer
--- than VISIBLE_ROWS stay fully reachable instead of truncating silently.
-local function clampScroll(scroll, total)
-  local maxScroll = math.max(0, total - VISIBLE_ROWS)
-  scroll = scroll or 0
-  if scroll > maxScroll then scroll = maxScroll end
-  if scroll < 0 then scroll = 0 end
-  return scroll
+-- One quantity row shape, shared by the bag and the PC list: id, qty, then
+-- the -/+/drop cluster.  Returns true when the row body was clicked.
+local function quantityRow(S, Kit, x, y, w, h, id, qty, selected, onMinus, onPlus, onDrop)
+  local s = Kit.scale
+  local clicked = Kit.row(x, y, w, h, selected, PAL.blue, 9 * s)
+  local btn = 24 * s
+  local bx = x + w - 10 * s - 3 * btn - 2 * (6 * s)
+  if Kit.stepper(bx, y + (h - btn) / 2, btn, btn, "-", { font = "small" }) then
+    onMinus()
+  end
+  if Kit.stepper(bx + btn + 6 * s, y + (h - btn) / 2, btn, btn, "+",
+      { font = "small" }) then
+    onPlus()
+  end
+  if Kit.button(bx + 2 * (btn + 6 * s), y + (h - btn) / 2, btn, btn, "x",
+      { kind = "danger", font = "tiny", radius = 6 * s }) then
+    onDrop()
+  end
+  local qtyText = ("x%d"):format(qty)
+  local qtyW = Kit.textWidth("monoRow", qtyText)
+  Kit.textRight("monoRow", qtyText, bx - 10 * s,
+    y + (h - Kit.textHeight("monoRow")) / 2, PAL.heading)
+  Kit.text("mono", Kit.ellipsize("mono", id, bx - qtyW - 30 * s - (x + 10 * s)),
+    x + 10 * s, y + (h - Kit.textHeight("mono")) / 2, PAL.text)
+  return clicked
 end
 
-local function pageSlice(items, scroll)
-  local page = {}
-  for i = 1, math.min(VISIBLE_ROWS, #items - scroll) do
-    page[i] = items[scroll + i]
+function M.draw(S, Kit, x, y, w, h)
+  local s = Kit.scale
+  local gap = 20 * s
+  local pad = 16 * s
+  Ops.pcItems(S)
+
+  local leftW = math.max(260 * s, math.min(320 * s, w * 0.26))
+  local listW = (w - leftW - 2 * gap) / 2
+  local bagX = x + leftW + gap
+  local pcX = bagX + listW + gap
+
+  -- ------------------------------------------------------------- money
+  -- Money and badges are fixed-height so the picker gets every pixel left
+  -- over: cycling through ~250 item ids in a two-row list was the thing that
+  -- made the old panel unusable.
+  local moneyH = pad * 2 + Kit.textHeight("caption") + 8 * s
+    + Kit.textHeight("headline") + 10 * s + 30 * s
+  Kit.card(x, y, leftW, moneyH)
+  Kit.caption(x + pad, y + pad, "MONEY")
+  local maxW = 74 * s
+  if Kit.button(x + leftW - pad - maxW, y + pad - 4 * s, maxW, 26 * s, "Max out",
+      { kind = "accent", font = "tiny", radius = 7 * s,
+        enabled = (S.save.money or 0) < Ops.MONEY_MAX }) then
+    Ops.maxMoney(S)
   end
-  return page
-end
-
-local function drawPager(Kit, x, y, total, scroll, onPrev, onNext)
-  if Kit.button(x, y, 90, 26, "Prev") then onPrev() end
-  if Kit.button(x + 100, y, 90, 26, "Next") then onNext() end
-  local shown = math.min(VISIBLE_ROWS, math.max(0, total - scroll))
-  Kit.label(x + 210, y + 5, string.format("%d-%d of %d",
-    total > 0 and scroll + 1 or 0, scroll + shown, total))
-end
-
-local function clamp(n, lo, hi)
-  if n < lo then return lo end
-  if n > hi then return hi end
-  return n
-end
-
-local function isBadgeId(id)
-  return id:find("BADGE", 1, true) ~= nil
-end
-
-local function badgeIds(cat)
-  local ids = {}
-  for _, id in ipairs(cat.items) do
-    if isBadgeId(id) then table.insert(ids, id) end
-  end
-  return ids
-end
-
-local function bagLines(save)
-  local order = Bag.order(save)
-  local lines = {}
-  for i, id in ipairs(order) do
-    lines[i] = string.format("%-16s x%d", id, save.inventory[id] or 0)
-  end
-  return lines, order
-end
-
-local function pcItemOrder(pcItems)
-  local ids = {}
-  for id in pairs(pcItems) do table.insert(ids, id) end
-  table.sort(ids)
-  return ids
-end
-
-local function pcLines(pcItems, order)
-  local lines = {}
-  for i, id in ipairs(order) do
-    lines[i] = string.format("%-16s x%d", id, pcItems[id] or 0)
-  end
-  return lines
-end
-
-local function pcAdd(save, id, qty)
-  save.pcItems = save.pcItems or {}
-  local pc = save.pcItems
-  pc[id] = math.min(99, (pc[id] or 0) + (qty or 1))
-end
-
-local function pcRemove(save, id, qty)
-  local pc = save.pcItems
-  if not pc or not pc[id] then return end
-  pc[id] = pc[id] - (qty or 1)
-  if pc[id] <= 0 then pc[id] = nil end
-end
-
-function M.draw(S, Kit, x, y)
-  S.save.pcItems = S.save.pcItems or {}
-
-  -- Money
-  Kit.label(x, y, "Money: $" .. tostring(S.save.money))
-  local moneyBtnY = y + 22
-  if Kit.button(x, moneyBtnY, 60, 26, "-100") then
-    S.save.money = clamp(S.save.money - 100, 0, 999999); mark(S)
-  end
-  if Kit.button(x + 66, moneyBtnY, 60, 26, "-10") then
-    S.save.money = clamp(S.save.money - 10, 0, 999999); mark(S)
-  end
-  if Kit.button(x + 132, moneyBtnY, 60, 26, "+10") then
-    S.save.money = clamp(S.save.money + 10, 0, 999999); mark(S)
-  end
-  if Kit.button(x + 198, moneyBtnY, 60, 26, "+100") then
-    S.save.money = clamp(S.save.money + 100, 0, 999999); mark(S)
-  end
-
-  -- Item picker (species-like picker over S.cat.items) shared by bag/PC add
-  local pickerY = moneyBtnY + 40
-  S.itemPickerIdx = clamp(S.itemPickerIdx or 1, 1, #S.cat.items)
-  local pickId = S.cat.items[S.itemPickerIdx]
-  Kit.label(x, pickerY + 5, "Item:")
-  if Kit.button(x + 46, pickerY, 26, 26, "<") then
-    S.itemPickerIdx = ((S.itemPickerIdx - 2) % #S.cat.items) + 1
-  end
-  Kit.label(x + 82, pickerY + 5, pickId)
-  if Kit.button(x + 280, pickerY, 26, 26, ">") then
-    S.itemPickerIdx = (S.itemPickerIdx % #S.cat.items) + 1
-  end
-  if Kit.button(x + 320, pickerY, 110, 26, "Add to Bag") then
-    if Bag.add(S.save, pickId, 1) then mark(S) end
-  end
-  if Kit.button(x + 440, pickerY, 110, 26, "Add to PC") then
-    pcAdd(S.save, pickId, 1); mark(S)
-  end
-
-  -- Bag list
-  local bagLabelY = pickerY + 40
-  Kit.label(x, bagLabelY, string.format("Bag (%d/%d slots)", Bag.slots(S.save), Bag.CAPACITY))
-  local bagListY = bagLabelY + 20
-  local lines, order = bagLines(S.save)
-  S.selectedBagIdx = clamp(S.selectedBagIdx or 1, 1, math.max(#order, 1))
-  S.bagScroll = clampScroll(S.bagScroll, #order)
-  local bagClick = Kit.list(x, bagListY, 300, LIST_H, pageSlice(lines, S.bagScroll),
-    S.selectedBagIdx - S.bagScroll, ROW_H)
-  if bagClick then S.selectedBagIdx = S.bagScroll + bagClick end
-
-  local bagPagerY = bagListY + LIST_H + 8
-  drawPager(Kit, x, bagPagerY, #order, S.bagScroll,
-    function() S.bagScroll = clampScroll(S.bagScroll - VISIBLE_ROWS, #order) end,
-    function() S.bagScroll = clampScroll(S.bagScroll + VISIBLE_ROWS, #order) end)
-
-  local bagActionsY = bagPagerY + 34
-  if Kit.button(x, bagActionsY, 100, 28, "Remove 1") then
-    local id = order[S.selectedBagIdx]
-    if id then
-      Bag.remove(S.save, id, 1)
-      S.selectedBagIdx = clamp(S.selectedBagIdx, 1, math.max(#Bag.order(S.save), 1))
-      mark(S)
-    end
-  end
-  if Kit.button(x + 110, bagActionsY, 100, 28, "Remove all") then
-    local id = order[S.selectedBagIdx]
-    if id then
-      Bag.remove(S.save, id, S.save.inventory[id])
-      S.selectedBagIdx = clamp(S.selectedBagIdx, 1, math.max(#Bag.order(S.save), 1))
-      mark(S)
+  Kit.text("headline", ("$%d"):format(S.save.money or 0), x + pad,
+    y + pad + Kit.textHeight("caption") + 8 * s, PAL.yellow)
+  local mbY = y + moneyH - pad - 30 * s
+  local mbW = (leftW - 2 * pad - 3 * 8 * s) / 4
+  for i, delta in ipairs(MONEY_STEPS) do
+    local label = (delta > 0 and "+" or "") .. tostring(delta)
+    if Kit.button(x + pad + (i - 1) * (mbW + 8 * s), mbY, mbW, 30 * s, label,
+        { kind = "accent", font = "tiny", radius = 8 * s }) then
+      Ops.addMoney(S, delta)
     end
   end
 
-  -- PC items list (mirrors bag UX; plain dict, no slot cap)
-  local pcLabelY = bagActionsY + 40
-  local pcOrder = pcItemOrder(S.save.pcItems)
-  Kit.label(x, pcLabelY, string.format("PC Items (%d kinds)", #pcOrder))
-  local pcListY = pcLabelY + 20
-  S.selectedPcIdx = clamp(S.selectedPcIdx or 1, 1, math.max(#pcOrder, 1))
-  S.pcScroll = clampScroll(S.pcScroll, #pcOrder)
-  local pcClick = Kit.list(x, pcListY, 300, LIST_H,
-    pageSlice(pcLines(S.save.pcItems, pcOrder), S.pcScroll),
-    S.selectedPcIdx - S.pcScroll, ROW_H)
-  if pcClick then S.selectedPcIdx = S.pcScroll + pcClick end
+  -- ------------------------------------------------------------ picker
+  local badgeIds = Ops.badgeIds(S)
+  local badgeCols = 4
+  local badgeRows = math.ceil(#badgeIds / badgeCols)
+  local badgeH = pad * 2 + Kit.textHeight("caption") + 10 * s
+    + badgeRows * (28 * s + 7 * s) - 7 * s
+  local pickY = y + moneyH + gap
+  local pickH = h - moneyH - badgeH - 2 * gap
+  Kit.card(x, pickY, leftW, pickH)
+  Kit.caption(x + pad, pickY + pad, "ADD ITEM")
+  local qy = pickY + pad + Kit.textHeight("caption") + 8 * s
+  S.itemQuery = Kit.textfield("item-query", x + pad, qy, leftW - 2 * pad, 32 * s,
+    S.itemQuery or "", "search item ids...")
 
-  local pcPagerY = pcListY + LIST_H + 8
-  drawPager(Kit, x, pcPagerY, #pcOrder, S.pcScroll,
-    function() S.pcScroll = clampScroll(S.pcScroll - VISIBLE_ROWS, #pcOrder) end,
-    function() S.pcScroll = clampScroll(S.pcScroll + VISIBLE_ROWS, #pcOrder) end)
-
-  local pcActionsY = pcPagerY + 34
-  if Kit.button(x, pcActionsY, 100, 28, "Remove 1") then
-    local id = pcOrder[S.selectedPcIdx]
-    if id then
-      pcRemove(S.save, id, 1)
-      pcOrder = pcItemOrder(S.save.pcItems)
-      S.selectedPcIdx = clamp(S.selectedPcIdx, 1, math.max(#pcOrder, 1))
-      mark(S)
+  local choices = {}
+  for _, id in ipairs(S.cat.items) do
+    if not Ops.isBadgeId(id) and matches(id, S.itemQuery) then
+      choices[#choices + 1] = id
     end
   end
-  if Kit.button(x + 110, pcActionsY, 100, 28, "Remove all") then
-    local id = pcOrder[S.selectedPcIdx]
-    if id then
-      pcRemove(S.save, id, S.save.pcItems[id])
-      pcOrder = pcItemOrder(S.save.pcItems)
-      S.selectedPcIdx = clamp(S.selectedPcIdx, 1, math.max(#pcOrder, 1))
-      mark(S)
-    end
+  if not S.selectedItemId or not matches(S.selectedItemId, S.itemQuery) then
+    S.selectedItemId = choices[1]
   end
 
-  -- Badges: boolean flags directly on inventory, toggled by click
-  local badgeLabelY = pcActionsY + 40
-  Kit.label(x, badgeLabelY, "Badges (click to toggle)")
-  local badgeY = badgeLabelY + 20
-  local ids = badgeIds(S.cat)
-  for i, id in ipairs(ids) do
-    local col = (i - 1) % 4
-    local row = math.floor((i - 1) / 4)
-    local bx = x + col * 150
-    local by = badgeY + row * 30
+  local addH = 32 * s
+  local addY = pickY + pickH - pad - addH
+  local listTop = qy + 32 * s + 10 * s
+  local listBottom = addY - 10 * s
+  local cRowH = 28 * s
+  local cGap = 5 * s
+  local visible = math.max(1, math.floor((listBottom - listTop) / (cRowH + cGap)))
+  Kit.pushClip(x + pad, listTop, leftW - 2 * pad, listBottom - listTop)
+  for i = 1, math.min(visible, #choices) do
+    local id = choices[i]
+    local ry = listTop + (i - 1) * (cRowH + cGap)
+    if Kit.row(x + pad, ry, leftW - 2 * pad, cRowH, id == S.selectedItemId,
+        PAL.green, 8 * s) then
+      S.selectedItemId = id
+      Ops.say(S, "Picked " .. id)
+    end
+    Kit.text("mono", Kit.ellipsize("mono", id, leftW - 2 * pad - 20 * s),
+      x + pad + 10 * s, ry + (cRowH - Kit.textHeight("mono")) / 2, PAL.text)
+  end
+  Kit.popClip()
+  -- the overflow count rides the caption line, where it can never collide
+  -- with the list body or the two add buttons below it
+  if #choices > visible then
+    Kit.textRight("micro", ("+%d more"):format(#choices - visible),
+      x + leftW - pad, pickY + pad, PAL.faint)
+  elseif #choices == 0 then
+    Kit.text("mono", "no item matches", x + pad + 10 * s, listTop + 8 * s, PAL.faint)
+  end
+
+  local halfW = (leftW - 2 * pad - 8 * s) / 2
+  if Kit.button(x + pad, addY, halfW, addH, "-> Bag",
+      { font = "small", radius = 8 * s, enabled = S.selectedItemId ~= nil }) then
+    Ops.addToBag(S, S.selectedItemId)
+  end
+  if Kit.button(x + pad + halfW + 8 * s, addY, halfW, addH, "-> PC",
+      { font = "small", radius = 8 * s, enabled = S.selectedItemId ~= nil }) then
+    Ops.addToPc(S, S.selectedItemId)
+  end
+
+  -- ------------------------------------------------------------ badges
+  local badgeY = y + h - badgeH
+  Kit.card(x, badgeY, leftW, badgeH)
+  local earned = 0
+  for _, id in ipairs(badgeIds) do
+    if S.save.inventory[id] == true then earned = earned + 1 end
+  end
+  Kit.caption(x + pad, badgeY + pad, "BADGES")
+  Kit.textRight("mono", ("%d/%d"):format(earned, #badgeIds), x + leftW - pad,
+    badgeY + pad, PAL.caption)
+  local bTop = badgeY + pad + Kit.textHeight("caption") + 10 * s
+  local bW = (leftW - 2 * pad - (badgeCols - 1) * 7 * s) / badgeCols
+  for i, id in ipairs(badgeIds) do
+    local bc = (i - 1) % badgeCols
+    local br = math.floor((i - 1) / badgeCols)
     local on = S.save.inventory[id] == true
-    if Kit.button(bx, by, 144, 26, id .. (on and " [X]" or "")) then
-      if on then S.save.inventory[id] = nil else S.save.inventory[id] = true end
-      mark(S)
+    local short = id:gsub("BADGE$", "")
+    if Kit.chip(x + pad + bc * (bW + 7 * s), bTop + br * (28 * s + 7 * s),
+        bW, 28 * s, Kit.ellipsize("micro", short, bW - 8 * s), on,
+        PAL.green, PAL.steel) then
+      Ops.toggleBadge(S, id)
     end
   end
+
+  -- --------------------------------------------------------------- bag
+  local order = Bag.order(S.save)
+  Kit.card(bagX, y, listW, h)
+  Kit.caption(bagX + pad, y + pad, "BAG")
+  Kit.textRight("mono", ("%d/%d slots"):format(Bag.slots(S.save), Bag.CAPACITY),
+    bagX + listW - pad, y + pad, PAL.caption)
+  local barY = y + pad + Kit.textHeight("caption") + 8 * s
+  local slotFrac = Bag.slots(S.save) / Bag.CAPACITY
+  Kit.meter(bagX + pad, barY, listW - 2 * pad, 5 * s, slotFrac * 100,
+    slotFrac >= 1 and PAL.yellow or PAL.blue)
+
+  local pagerH = 30 * s
+  local pagerY = y + h - pad - pagerH
+  local rowsTop = barY + 5 * s + 12 * s
+  local rowH = 36 * s
+  local rowGap = 6 * s
+  local perPage = math.max(1, math.floor((pagerY - 12 * s - rowsTop) / (rowH + rowGap)))
+  S.bagOffset = Ops.clamp(S.bagOffset or 0, 0, math.max(0, #order - perPage))
+
+  if #order == 0 then
+    Kit.emptyBox(bagX + pad, rowsTop, listW - 2 * pad, 70 * s, "Bag is empty.")
+  end
+  for i = 1, math.min(perPage, #order - S.bagOffset) do
+    local id = order[S.bagOffset + i]
+    local ry = rowsTop + (i - 1) * (rowH + rowGap)
+    if quantityRow(S, Kit, bagX + pad, ry, listW - 2 * pad, rowH, id,
+        S.save.inventory[id] or 0, id == S.selectedBagId,
+        function() Ops.bagAdjust(S, id, -1) end,
+        function() Ops.bagAdjust(S, id, 1) end,
+        function() Ops.bagDrop(S, id) end) then
+      S.selectedBagId = id
+      Ops.say(S, ("Selected %s in the bag"):format(id))
+    end
+  end
+  S.bagOffset = Kit.pager(bagX + pad, pagerY, listW - 2 * pad, S.bagOffset,
+    #order, perPage)
+
+  -- -------------------------------------------------------- pc storage
+  local pcOrder = Ops.pcOrder(S)
+  Kit.card(pcX, y, listW, h)
+  Kit.caption(pcX + pad, y + pad, "PC STORAGE")
+  Kit.textRight("mono", ("%d kinds"):format(#pcOrder), pcX + listW - pad,
+    y + pad, PAL.caption)
+  S.pcOffset = Ops.clamp(S.pcOffset or 0, 0, math.max(0, #pcOrder - perPage))
+  if #pcOrder == 0 then
+    Kit.emptyBox(pcX + pad, rowsTop, listW - 2 * pad, 70 * s,
+      "PC storage is empty. Items sent here have no slot cap.")
+  end
+  for i = 1, math.min(perPage, #pcOrder - S.pcOffset) do
+    local id = pcOrder[S.pcOffset + i]
+    local ry = rowsTop + (i - 1) * (rowH + rowGap)
+    if quantityRow(S, Kit, pcX + pad, ry, listW - 2 * pad, rowH, id,
+        S.save.pcItems[id] or 0, id == S.selectedPcId,
+        function() Ops.pcAdjust(S, id, -1) end,
+        function() Ops.pcAdjust(S, id, 1) end,
+        function() Ops.pcDrop(S, id) end) then
+      S.selectedPcId = id
+      Ops.say(S, ("Selected %s in PC storage"):format(id))
+    end
+  end
+  S.pcOffset = Kit.pager(pcX + pad, pagerY, listW - 2 * pad, S.pcOffset,
+    #pcOrder, perPage)
 end
 
 return M

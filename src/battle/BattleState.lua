@@ -27,6 +27,7 @@ local TrainerAI = require("src.battle.TrainerAI")
 local TurnOrder = require("src.battle.TurnOrder")
 local TypeChart = require("src.battle.TypeChart")
 local Strings = require("src.core.Strings")
+local WideBattle = require("src.battle.WideBattle")
 
 local BattleState = {}
 BattleState.__index = BattleState
@@ -35,9 +36,33 @@ BattleState.isOpaque = true
 -- window reads as one continuous battle screen (no black bars).
 BattleState.letterboxWhite = true
 
+-- BATTLE LAYOUT: the classic 160x144 arrangement, or the widescreen one on
+-- a 304x144 surface (src/battle/WideBattle.lua).  Only the composition
+-- differs; every battler, queue and animation below is shared.  The wide
+-- layout is live only while this battle is the state being drawn on top --
+-- a party menu or bag pushed over it is a 160x144 screen, so the surface
+-- goes back with it and the battle underneath is not drawn at all.
+function BattleState:wideLayout()
+  local options = self.game and self.game.save and self.game.save.options
+  if not options or options.battleLayout ~= "wide" then return false end
+  local stack = self.game.stack
+  return (stack and stack.top and stack:top()) == self
+end
+
+-- Renderer:setUISize asks the top state for its surface before anything draws
+function BattleState:uiSize()
+  if self:wideLayout() then return WideBattle.WIDTH, WideBattle.HEIGHT end
+  return 160, 144
+end
+
 -- Battle colors itself per-pixel (species pics + HP bar tints), so the
--- SGB whole-screen remap must not run over it.
-function BattleState.sgbPalettes() return nil end
+-- SGB whole-screen remap must not run over it.  The wide layout still
+-- needs a zone list of its own: the invented 160x144 one would leave its
+-- extra columns unremapped in the forced-mono modes (WideBattle.zones).
+function BattleState:sgbPalettes()
+  if self:wideLayout() then return WideBattle.zones() end
+  return nil
+end
 
 local Rulesets = {
   gen1_faithful = require("src.battle.rulesets.gen1_faithful"),
@@ -1423,7 +1448,14 @@ function BattleState:update(dt)
 
   if self.phase == "moveSelect" then
     local moves = self.player.curMoves
-    if input:wasPressed("up") then
+    -- The widescreen layout lays the four slots out as a 2x2 grid, so all
+    -- four directions navigate it; nil means no direction was pressed and
+    -- A / B / SELECT below behave the same in either layout.
+    local grid = self:wideLayout()
+                 and WideBattle.navigate(self.moveIndex, #moves, input)
+    if grid then
+      self.moveIndex = grid
+    elseif input:wasPressed("up") then
       self.moveIndex = self.moveIndex > 1 and self.moveIndex - 1 or #moves
     elseif input:wasPressed("down") then
       self.moveIndex = self.moveIndex < #moves and self.moveIndex + 1 or 1
@@ -1465,7 +1497,13 @@ function BattleState:update(dt)
   -- (core.asm:2553-2557), so there is no backing out with B.
   if self.phase == "mimicSelect" then
     local moves = self.mimicMoves
-    if input:wasPressed("up") then
+    -- the copy menu shares the widescreen move grid, so it navigates the
+    -- same way there (the classic layout keeps the vertical list)
+    local grid = self:wideLayout()
+                 and WideBattle.navigate(self.mimicIndex, #moves, input)
+    if grid then
+      self.mimicIndex = grid
+    elseif input:wasPressed("up") then
       self.mimicIndex = self.mimicIndex > 1 and self.mimicIndex - 1 or #moves
     elseif input:wasPressed("down") then
       self.mimicIndex = self.mimicIndex < #moves and self.mimicIndex + 1 or 1
@@ -4038,7 +4076,12 @@ function BattleState:drawBattlerPic(battler, x, y, scale)
   -- while an SE effect displaces the pic, confine it to its side's
   -- tile window like the GB tilemap does (the pic can never overwrite
   -- the HUD columns or the text box rows)
+  -- ...except under the widescreen layout, where the side's own region
+  -- scissor is already that window on a battlefield the classic tile
+  -- columns do not describe (an 88..160 clip would fall entirely outside
+  -- the enemy's region and erase the pic).
   local clip = love.graphics.setScissor and love.graphics.intersectScissor
+                 and not self.wideRegion
   local scx, scy, scw, sch
   if clip then
     scx, scy, scw, sch = love.graphics.getScissor()
@@ -4396,15 +4439,21 @@ end
 
 -- the two mon pics (or the trainer/back pics), offset by the window
 -- shake -- on the GB the pics are BG tiles, so they move with it
-function BattleState:drawPicsLayer(slide, sx, sy)
+-- onlySide ("player" / "enemy") draws one side's pic alone, and
+-- skipMenuClip drops the move-menu row clip below: the widescreen layout
+-- composites each side into its own region of a taller battlefield, where
+-- neither the other side's pixels nor the classic menu rows apply.
+function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
   -- The move-select boxes are BG tiles on the GB, so they REPLACE the
   -- player pic's rows: the TYPE/PP box at (0,8) (PrintMenuItem) wipes
   -- pic rows 8+, and Mimic's copy menu at (0,7) (MoveSelectionMenu
   -- .mimicmenu) wipes rows 7+.  The port draws pics above the menu
   -- layer in the colorized pipeline, so clip them to the visible rows.
   local g = love.graphics
-  local clipY = self.phase == "mimicSelect" and 56
-                or self.phase == "moveSelect" and 64 or nil
+  local clipY = not skipMenuClip
+                and (self.phase == "mimicSelect" and 56
+                     or self.phase == "moveSelect" and 64)
+                or nil
   local clipped, cs1, cs2, cs3, cs4
   if clipY and g.getScissor and g.intersectScissor then
     cs1, cs2, cs3, cs4 = g.getScissor()
@@ -4412,14 +4461,15 @@ function BattleState:drawPicsLayer(slide, sx, sy)
     clipped = true
   end
   -- Enemy: front sprite in the 7x7 slot at hlcoord 12,0.
-  if self.showEnemyTrainer and self.trainerPic then
+  if onlySide ~= "player" and self.showEnemyTrainer and self.trainerPic then
     -- the enemy trainer pic holds the mon slot until the send-out
     local img = self:picImage(self.trainerPic)
     love.graphics.setColor(1, 1, 1, 1)
     local ex, ey = enemyPicXY(img, slide, sx, sy)
     -- SlideTrainerPicOffScreen / _ScrollTrainerPicAfterBattle offset (#317)
     love.graphics.draw(img, ex + self:picOffset("foe"), ey)
-  elseif self.enemy and self.enemy.sprite and not self.enemyHidden
+  elseif onlySide ~= "player"
+     and self.enemy and self.enemy.sprite and not self.enemyHidden
      and not self.enemySendingOut and not self:fxHidden(self.enemy) then
     local img = self:picImage(self.enemy.sprite)
     love.graphics.setColor(1, 1, 1, 1)
@@ -4448,7 +4498,7 @@ function BattleState:drawPicsLayer(slide, sx, sy)
   -- Left transparent columns (matted white) are pulled back so opaque
   -- pixels land where hardware's white-on-white columns left them.
   local hidePlayer = self.safari or self.demo
-  if self.showPlayerBack and self.playerBackPic then
+  if onlySide ~= "enemy" and self.showPlayerBack and self.playerBackPic then
     -- Red's (or the old man's) back pic until "Go!"; it stays up for
     -- the whole safari / catch-demo battle like the original
     local img = self:picImage(self.playerBackPic)
@@ -4464,7 +4514,8 @@ function BattleState:drawPicsLayer(slide, sx, sy)
     -- picOffset: SlideTrainerPicOffScreen walking the back pic off the left
     love.graphics.draw(img, dx + slide + sx + self:picOffset("back"),
                        dy + sy, 0, s, s)
-  elseif self.player and self.player.sprite and not hidePlayer
+  elseif onlySide ~= "enemy"
+     and self.player and self.player.sprite and not hidePlayer
      and not self.sendingOut and not self:fxHidden(self.player) then
     local img = self:picImage(self.player.sprite)
     love.graphics.setColor(1, 1, 1, 1)
@@ -4747,6 +4798,11 @@ function BattleState:drawTextArea()
 end
 
 function BattleState:draw()
+  if self:wideLayout() then return WideBattle.draw(self) end
+  return self:drawClassic()
+end
+
+function BattleState:drawClassic()
   -- AskName: ClearSprites + wild ClearScreenArea -- white field under the
   -- nickname TextBox / YES/NO (naming_screen.asm); overlays draw on top.
   if self.blankForAskName then

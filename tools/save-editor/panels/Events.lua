@@ -1,30 +1,35 @@
 -- Events panel: flags, defeated trainers, taken items, and per-map object
--- visibility toggles. All four sections read/write directly into S.save so
--- edits show up immediately on the next Save.
+-- visibility toggles.  All four sections read/write through Ops so a flip is
+-- always dirty + narrated.
 --
--- Layout is a fixed grid (sub-tabs -> info row -> paged checkbox list ->
--- pagination/actions) so it stays predictable for both mouse hit-testing
--- and headless tests.
+-- Sub-tabs are pills; the filter is a real Kit.textfield (the old panel
+-- edge-detected love.keyboard state every frame because Kit had no input
+-- widget, which swallowed every keystroke the rest of the app wanted); and
+-- the rows are a two-column grid so twenty fit per page instead of ten.
+
+local Theme = require("Theme")
+local Ops = require("Ops")
+local PAL = Theme.PAL
 
 local M = {}
 
-local ROW_H = 22
-local VISIBLE_ROWS = 10
-
 local SUB_TABS = {
-  { id = "flags", label = "Flags" },
+  { id = "flags",    label = "Flags" },
   { id = "trainers", label = "Trainers" },
-  { id = "items", label = "Items taken" },
-  { id = "toggles", label = "Object toggles" },
+  { id = "items",    label = "Items taken" },
+  { id = "toggles",  label = "Object toggles" },
 }
 
-local function mark(S)
-  S.dirty = true
-end
+local HINTS = {
+  flags    = "Story flags scraped from data/scripts and the trainer headers, plus any MOD_ flags a loaded mod defines.",
+  trainers = "Keys look like MAP_obj_N (save.defeatedTrainers): checked means that trainer stays beaten.",
+  items    = "Keys look like MAP_obj_N (save.itemsTaken): checked means that ground item is gone.",
+  toggles  = "Per-map object visibility overrides (save.objectToggles), grouped by map.",
+}
 
 local function sortedKeys(t)
   local keys = {}
-  for k in pairs(t) do table.insert(keys, k) end
+  for k in pairs(t) do keys[#keys + 1] = k end
   table.sort(keys)
   return keys
 end
@@ -34,187 +39,158 @@ local function contains(haystack, needle)
   return haystack:lower():find(needle:lower(), 1, true) ~= nil
 end
 
--- Simple free-text capture for the flags filter field. Kit has no text
--- widget, so we edge-detect a-z/0-9/backspace against love.keyboard each
--- frame this panel is drawn (only while the Flags sub-tab is active).
-local FILTER_KEYS = {}
-for c = string.byte("a"), string.byte("z") do
-  local ch = string.char(c)
-  FILTER_KEYS[ch] = ch
-end
-for c = string.byte("0"), string.byte("9") do
-  local ch = string.char(c)
-  FILTER_KEYS[ch] = ch
-end
-FILTER_KEYS["-"] = "_"
-
-local prevDown = {}
-
-local function pollFilterInput(S)
-  S.eventFilter = S.eventFilter or ""
-  for key, ch in pairs(FILTER_KEYS) do
-    local down = love.keyboard.isDown(key)
-    if down and not prevDown[key] then
-      S.eventFilter = S.eventFilter .. ch
+-- Each sub-tab reduces to the same shape: a list of rows, where a row knows
+-- how to read its checked state, render a label, and write a flip back.
+local function buildRows(S)
+  local tab = S.eventsTab
+  local filter = S.eventFilter or ""
+  local rows = {}
+  if tab == "flags" then
+    for _, name in ipairs(S.events or {}) do
+      if contains(name, filter) then
+        rows[#rows + 1] = {
+          label = name,
+          checked = S.save.flags[name] == true,
+          set = function(on) Ops.setFlag(S, name, on) end,
+        }
+      end
     end
-    prevDown[key] = down
-  end
-  local backspaceDown = love.keyboard.isDown("backspace")
-  if backspaceDown and not prevDown.backspace then
-    S.eventFilter = S.eventFilter:sub(1, -2)
-  end
-  prevDown.backspace = backspaceDown
-end
-
-local function clampScroll(S, total)
-  S.eventsScroll = S.eventsScroll or 0
-  local maxScroll = math.max(0, total - VISIBLE_ROWS)
-  if S.eventsScroll > maxScroll then S.eventsScroll = maxScroll end
-  if S.eventsScroll < 0 then S.eventsScroll = 0 end
-  return S.eventsScroll
-end
-
--- Draws up to VISIBLE_ROWS checkbox rows starting at rows[scroll+1], calling
--- onToggle(row, newChecked) when a row's box is clicked. `checkedOf(row)`
--- and `labelOf(row)` extract display state from whatever row shape the
--- caller uses (plain strings for Flags/Trainers/Items, tables for Toggles).
-local function drawRows(S, Kit, x, listY, rows, scroll, checkedOf, labelOf, onToggle)
-  for i = 1, math.min(VISIBLE_ROWS, #rows - scroll) do
-    local row = rows[scroll + i]
-    local ry = listY + (i - 1) * ROW_H
-    local checked = checkedOf(row)
-    if checked == nil then
-      Kit.label(x + 28, ry + 4, labelOf(row))
-    else
-      local newChecked, changed = Kit.checkbox(x, ry, checked, labelOf(row))
-      if changed then
-        onToggle(row, newChecked)
+  elseif tab == "trainers" or tab == "items" then
+    local key = (tab == "trainers") and "defeatedTrainers" or "itemsTaken"
+    S.save[key] = S.save[key] or {}
+    local t = S.save[key]
+    for _, k in ipairs(sortedKeys(t)) do
+      if contains(k, filter) then
+        rows[#rows + 1] = {
+          label = k,
+          checked = t[k] == true,
+          set = function(on) Ops.setKey(S, key, k, on) end,
+        }
+      end
+    end
+  else
+    S.save.objectToggles = S.save.objectToggles or {}
+    local toggles = S.save.objectToggles
+    for _, mapId in ipairs(sortedKeys(toggles)) do
+      local mapRows = {}
+      for _, name in ipairs(sortedKeys(toggles[mapId])) do
+        if contains(name, filter) or contains(mapId, filter) then
+          mapRows[#mapRows + 1] = {
+            label = name,
+            checked = toggles[mapId][name] == true,
+            set = function(on) Ops.setToggle(S, mapId, name, on) end,
+          }
+        end
+      end
+      if #mapRows > 0 then
+        rows[#rows + 1] = { header = true, label = "[" .. mapId .. "]" }
+        for _, r in ipairs(mapRows) do rows[#rows + 1] = r end
       end
     end
   end
+  return rows
 end
 
-local function drawPager(S, Kit, x, y, total, scroll)
-  local maxScroll = math.max(0, total - VISIBLE_ROWS)
-  if Kit.button(x, y, 90, 26, "Prev") then
-    S.eventsScroll = math.max(0, scroll - VISIBLE_ROWS)
-  end
-  if Kit.button(x + 100, y, 90, 26, "Next") then
-    S.eventsScroll = math.min(maxScroll, scroll + VISIBLE_ROWS)
-  end
-  local shown = math.min(VISIBLE_ROWS, math.max(0, total - scroll))
-  Kit.label(x + 210, y + 5, string.format("%d-%d of %d",
-    total > 0 and scroll + 1 or 0, scroll + shown, total))
-end
-
-local function drawFlagsTab(S, Kit, x, y)
-  pollFilterInput(S)
-
-  Kit.label(x, y + 4, "Filter: " .. S.eventFilter .. "_")
-  if Kit.button(x + 320, y, 110, 26, "Clear filter") then
-    S.eventFilter = ""
-  end
-
-  local filtered = {}
-  for _, name in ipairs(S.events or {}) do
-    if contains(name, S.eventFilter) then
-      table.insert(filtered, name)
-    end
-  end
-
-  local listY = y + 32
-  local scroll = clampScroll(S, #filtered)
-  drawRows(S, Kit, x, listY, filtered, scroll,
-    function(name) return S.save.flags[name] == true end,
-    function(name) return name end,
-    function(name, newChecked)
-      S.save.flags[name] = newChecked and true or nil
-      mark(S)
-    end)
-
-  drawPager(S, Kit, x, listY + VISIBLE_ROWS * ROW_H + 8, #filtered, scroll)
-end
-
-local function drawKeyToggleTab(S, Kit, x, y, note, tableKey, clearLabel)
-  Kit.label(x, y + 4, note)
-
-  S.save[tableKey] = S.save[tableKey] or {}
-  local t = S.save[tableKey]
-  local keys = sortedKeys(t)
-
-  local listY = y + 32
-  local scroll = clampScroll(S, #keys)
-  drawRows(S, Kit, x, listY, keys, scroll,
-    function(k) return t[k] == true end,
-    function(k) return k end,
-    function(k, newChecked)
-      t[k] = newChecked
-      mark(S)
-    end)
-
-  local pagerY = listY + VISIBLE_ROWS * ROW_H + 8
-  drawPager(S, Kit, x, pagerY, #keys, scroll)
-  if Kit.button(x + 400, pagerY, 190, 26, clearLabel) then
-    S.save[tableKey] = {}
-    mark(S)
-  end
-end
-
-local function drawTogglesTab(S, Kit, x, y)
-  Kit.label(x, y + 4, "Per-map object visibility overrides")
-
-  S.save.objectToggles = S.save.objectToggles or {}
-  local toggles = S.save.objectToggles
-
-  local rows = {}
-  for _, mapId in ipairs(sortedKeys(toggles)) do
-    table.insert(rows, { header = true, mapId = mapId })
-    for _, objName in ipairs(sortedKeys(toggles[mapId])) do
-      table.insert(rows, { header = false, mapId = mapId, name = objName })
-    end
-  end
-
-  local listY = y + 32
-  local scroll = clampScroll(S, #rows)
-  drawRows(S, Kit, x, listY, rows, scroll,
-    function(row)
-      if row.header then return nil end
-      return toggles[row.mapId][row.name] == true
-    end,
-    function(row) return row.header and ("[" .. row.mapId .. "]") or row.name end,
-    function(row, newChecked)
-      toggles[row.mapId][row.name] = newChecked
-      mark(S)
-    end)
-
-  drawPager(S, Kit, x, listY + VISIBLE_ROWS * ROW_H + 8, #rows, scroll)
-end
-
-function M.draw(S, Kit, x, y)
-  S.eventFilter = S.eventFilter or ""
+function M.draw(S, Kit, x, y, w, h)
+  local s = Kit.scale
+  local pad = 20 * s
   S.eventsTab = S.eventsTab or "flags"
+  S.eventFilter = S.eventFilter or ""
 
-  Kit.label(x, y, "Events")
+  Kit.card(x, y, w, h)
+  local cx = x + pad
+  local inner = w - 2 * pad
 
-  local newTab = Kit.tabs(x, y + 24, SUB_TABS, S.eventsTab)
-  if newTab then
-    S.eventsTab = newTab
-    S.eventsScroll = 0
+  -- ------------------------------------------------------------ sub-tabs
+  local pillH = 32 * s
+  local px = cx
+  for _, t in ipairs(SUB_TABS) do
+    local pw = Kit.textWidth("small", t.label) + 32 * s
+    local active = (S.eventsTab == t.id)
+    Theme.col(PAL.rowBg, 0.6)
+    love.graphics.rectangle("fill", px, y + pad, pw, pillH, pillH / 2, pillH / 2)
+    Theme.stroke(px, y + pad, pw, pillH, pillH / 2,
+      active and PAL.blue or PAL.cardBorder, active and 0.8 or 0.24,
+      active and 1.5 * s or 1)
+    Kit.textCenter("small", t.label, px, y + pad + (pillH - Kit.textHeight("small")) / 2,
+      pw, active and PAL.heading or PAL.muted)
+    if Kit.press(px, y + pad, pw, pillH) then
+      S.eventsTab = t.id
+      S.eventsOffset = 0
+      Ops.disarm(S)
+      Ops.say(S, HINTS[t.id])
+    end
+    px = px + pw + 10 * s
   end
 
-  local contentY = y + 64
-  if S.eventsTab == "flags" then
-    drawFlagsTab(S, Kit, x, contentY)
-  elseif S.eventsTab == "trainers" then
-    drawKeyToggleTab(S, Kit, x, contentY,
-      "Keys look like MAP_obj_N (defeatedTrainers)",
-      "defeatedTrainers", "Clear all trainers")
-  elseif S.eventsTab == "items" then
-    drawKeyToggleTab(S, Kit, x, contentY,
-      "Keys look like MAP_obj_N (itemsTaken)",
-      "itemsTaken", "Clear all items taken")
-  elseif S.eventsTab == "toggles" then
-    drawTogglesTab(S, Kit, x, contentY)
+  local clearW = 74 * s
+  local fieldW = math.min(280 * s, math.max(140 * s, cx + inner - clearW - 10 * s - px - 10 * s))
+  local fieldX = cx + inner - clearW - 10 * s - fieldW
+  S.eventFilter = Kit.textfield("event-filter", fieldX, y + pad, fieldW, pillH,
+    S.eventFilter, "filter keys...")
+  if Kit.button(cx + inner - clearW, y + pad, clearW, pillH, "Clear",
+      { kind = "accent", font = "small", radius = 8 * s,
+        enabled = S.eventFilter ~= "" }) then
+    S.eventFilter = ""
+    Kit.blur()
+    Ops.say(S, "Filter cleared")
+  end
+
+  local hintY = y + pad + pillH + 10 * s
+  Kit.text("small", HINTS[S.eventsTab] or "", cx, hintY, PAL.caption)
+
+  -- ---------------------------------------------------------- row grid
+  local rows = buildRows(S)
+  local pagerH = 30 * s
+  local pagerY = y + h - pad - pagerH
+  local gridTop = hintY + Kit.textHeight("small") + 14 * s
+  local rowH = 34 * s
+  local rowGap = 8 * s
+  local colGap = 20 * s
+  local colW = (inner - colGap) / 2
+  local perCol = math.max(1, math.floor((pagerY - 12 * s - gridTop) / (rowH + rowGap)))
+  local perPage = perCol * 2
+
+  S.eventsOffset = Ops.clamp(S.eventsOffset or 0, 0, math.max(0, #rows - perPage))
+
+  if #rows == 0 then
+    Kit.emptyBox(cx, gridTop, inner, 80 * s,
+      S.eventFilter ~= "" and "No key matches that filter."
+        or "Nothing recorded here yet.")
+  end
+  for i = 1, math.min(perPage, #rows - S.eventsOffset) do
+    local row = rows[S.eventsOffset + i]
+    local ci = (i - 1) % 2
+    local ri = math.floor((i - 1) / 2)
+    local rx = cx + ci * (colW + colGap)
+    local ry = gridTop + ri * (rowH + rowGap)
+    if row.header then
+      -- a map heading inside the toggles list: not a checkbox, so it must
+      -- not look clickable
+      Kit.text("mono", Kit.ellipsize("mono", row.label, colW),
+        rx + 4 * s, ry + (rowH - Kit.textHeight("mono")) / 2, PAL.caption)
+    else
+      local newChecked, changed = Kit.checkbox(rx, ry, colW, rowH,
+        row.checked, row.label)
+      if changed then row.set(newChecked) end
+    end
+  end
+
+  S.eventsOffset = Kit.pager(cx, pagerY, inner, S.eventsOffset, #rows, perPage)
+
+  -- "Clear all" only makes sense for the two key tables the editor owns
+  -- wholesale; flags and object toggles are cleared one row at a time.
+  local clearKey = (S.eventsTab == "trainers" and "defeatedTrainers")
+    or (S.eventsTab == "items" and "itemsTaken") or nil
+  if clearKey then
+    local label = (S.eventsTab == "trainers") and "Clear all trainers"
+      or "Clear all items taken"
+    local bw = Kit.textWidth("small", label) + 32 * s
+    if Kit.button(cx + inner - bw, pagerY, bw, pagerH,
+        Ops.armLabel(S, "clear-" .. clearKey, label),
+        { kind = "danger", font = "small", radius = 8 * s }) then
+      Ops.clearTable(S, clearKey, label:gsub("^Clear all ", ""))
+    end
   end
 end
 

@@ -15,8 +15,15 @@ local Runtime = require("src.mods.Runtime")
 
 local Renderer = {}
 
+-- The Game Boy surface.  WIDTH/HEIGHT are the classic dimensions every
+-- screen is laid out in; uiWidth/uiHeight are the surface actually
+-- allocated this frame, which a state may widen through setUISize (the
+-- widescreen battle layout asks for 304x144).  Anything drawing a normal
+-- 160x144 screen can keep reading WIDTH/HEIGHT.
 Renderer.WIDTH = 160
 Renderer.HEIGHT = 144
+Renderer.MAX_UI_WIDTH = 640
+Renderer.MAX_UI_HEIGHT = 576
 
 -- Whether a value is a real Canvas we can composite.  Real LOVE canvases are
 -- userdata answering typeOf("Canvas"); the headless test stub fakes them as
@@ -83,7 +90,8 @@ function Renderer:init()
   -- 160x144 real pixels, never DPI-scaled: see src/render/PixelCanvas.lua
   -- (#208).  Every canvas below is sized in framebuffer pixels for the same
   -- reason -- worldViewSize() already works in drawable pixels.
-  self.canvas = PixelCanvas.new(self.WIDTH, self.HEIGHT, "nearest")
+  self.uiWidth, self.uiHeight = self.WIDTH, self.HEIGHT
+  self.canvas = PixelCanvas.new(self.uiWidth, self.uiHeight, "nearest")
   self.worldCanvas = nil
   self.worldActive = false
   -- tilt mode only: a transparent overlay canvas the size of the world
@@ -115,7 +123,31 @@ end
 -- units via / dpiX and / dpiY when drawing.
 function Renderer:fitScale()
   local _, _, pw, ph = displayMetrics()
-  return math.max(1, math.floor(math.min(pw / self.WIDTH, ph / self.HEIGHT)))
+  local w, h = self:uiSize()
+  return math.max(1, math.floor(math.min(pw / w, ph / h)))
+end
+
+-- the native-pixel UI surface in use right now
+function Renderer:uiSize()
+  return self.uiWidth or self.WIDTH, self.uiHeight or self.HEIGHT
+end
+
+-- Ask for a UI surface of w x h native pixels; the canvas is reallocated
+-- only when the size actually changes, so the classic path never rebuilds
+-- it.  Sizes are resolved before any state draws (Game:draw) and bounded on
+-- both ends -- never smaller than the Game Boy screen every layout assumes,
+-- never large enough for a bad request to allocate an unbounded canvas.
+function Renderer:setUISize(w, h)
+  if type(w) ~= "number" or type(h) ~= "number"
+     or w < self.WIDTH or h < self.HEIGHT
+     or w > self.MAX_UI_WIDTH or h > self.MAX_UI_HEIGHT then
+    w, h = self.WIDTH, self.HEIGHT
+  end
+  w, h = math.floor(w), math.floor(h)
+  if w == self.uiWidth and h == self.uiHeight and self.canvas then return end
+  if self.canvas and self.canvas.release then self.canvas:release() end
+  self.uiWidth, self.uiHeight = w, h
+  self.canvas = PixelCanvas.new(w, h, "nearest")
 end
 
 -- LOVE-unit draw scales endFrame uses for the UI blit: integer framebuffer
@@ -443,10 +475,11 @@ function Renderer:endFrame(zones, worldZones)
   -- Sx/Sy = LOVE-unit draw scales (may differ when dpiX ≠ dpiY).
   local Sp = self:fitScale()
   local Sx, Sy = Sp / dpiX, Sp / dpiY
-  local vpw, vph = self.WIDTH * Sx, self.HEIGHT * Sy
+  local uiw, uih = self:uiSize()
+  local vpw, vph = uiw * Sx, uih * Sy
   -- Snap the letterbox origin to a framebuffer pixel, then convert to units.
-  local ox = math.floor((pw - self.WIDTH * Sp) / 2) / dpiX
-  local oy = math.floor((ph - self.HEIGHT * Sp) / 2) / dpiY
+  local ox = math.floor((pw - uiw * Sp) / 2) / dpiX
+  local oy = math.floor((ph - uih * Sp) / 2) / dpiY
   local GBCFX = require("src.render.GBCFX")
   -- Forced mono/Classic modes still need a whole-screen zone when a state
   -- exposes no SGB packets (raw DMG canvas), so sendColors can remap.

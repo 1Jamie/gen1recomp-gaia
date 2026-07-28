@@ -148,6 +148,37 @@ local function mountReadable(dir, append)
   return fn(dir, append)
 end
 
+-- PHYSFS_unmount, resolved the same way PHYSFS_mount is.  Only
+-- CacheFs.unmountVersion needs it: the launcher can open the save editor on
+-- one game's cache and then Play the other, and an overlay left mounted
+-- would win the read path for the rest of the process.
+local physfsUnmountFn = nil
+local function resolveUnmount()
+  if physfsUnmountFn ~= nil then return physfsUnmountFn end
+  physfsUnmountFn = false
+  local ok, ffi = pcall(require, "ffi")
+  if not ok then return physfsUnmountFn end
+  pcall(ffi.cdef, "int PHYSFS_unmount(const char *oldDir);")
+  local libs = {
+    function() return ffi.C end,
+    function() return ffi.load("love") end,
+  }
+  for _, getlib in ipairs(libs) do
+    local okl, lib = pcall(getlib)
+    if okl and lib then
+      local oks, fn = pcall(function() return lib.PHYSFS_unmount end)
+      if oks and fn then
+        physfsUnmountFn = function(d)
+          local okr, ret = pcall(fn, d)
+          return okr and ret ~= 0
+        end
+        break
+      end
+    end
+  end
+  return physfsUnmountFn
+end
+
 -- The portable game folder when the cache should live there, else nil.
 -- Resolved (and, for a fused build, mounted) once and cached.  Requires a
 -- desktop portable install (SaveData) and a working windowless mkdir.
@@ -321,6 +352,37 @@ function CacheFs.mountVersion(version)
     return love.filesystem.mount(sub, "", false)
   end
   return false
+end
+
+-- Undo mountVersion.  A process normally mounts exactly one version and then
+-- boots it, but the launcher can open the save editor on a Blue save, close
+-- it, and press Play on Red: with blue/ still prepended, Red's
+-- require("data.generated.*") and its generated art would silently resolve to
+-- Blue's files.  Callers must also drop the generated modules from
+-- package.loaded (src.core.Data:unloadGenerated) -- unmounting alone only
+-- fixes the read path, not what require already cached.
+--
+-- Returns true when nothing was mounted or the unmount took.  Red is a no-op
+-- because its cache lives at the root and was never overlaid.
+function CacheFs.unmountVersion(version)
+  local prefix = require("src.core.GameVersion").cachePrefix(version)
+  if prefix == "" then return true end
+  local sub = prefix:gsub("/+$", "")
+  local base = CacheFs.root()
+  if not base and love.filesystem.getSaveDirectory then
+    base = love.filesystem.getSaveDirectory()
+  end
+  local done = false
+  local fn = resolveUnmount()
+  if fn and base then
+    done = fn(base .. SEP .. sub) or done
+  end
+  -- also drop the love.filesystem.mount fallback, which registers the folder
+  -- under its bare name rather than its absolute path
+  if love.filesystem.unmount then
+    done = love.filesystem.unmount(sub) or done
+  end
+  return done
 end
 
 return CacheFs

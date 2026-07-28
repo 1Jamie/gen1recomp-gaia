@@ -206,10 +206,15 @@ function Data:load()
               (function() local n = 0 for _ in pairs(self.moves) do n = n + 1 end return n end)())
 end
 
--- dev-mode hot reload only (src/dev/HotReload.lua): drop every namespace the
--- mod merge created, then re-require the generated modules so base records
--- return to their on-disk values even where a mod edited them in place
-function Data:reloadGenerated()
+-- Drop every namespace the mod merge created and evict the generated modules
+-- from package.loaded, so the next load() re-reads them off disk instead of
+-- handing back the cached tables.  Two callers:
+--   * reloadGenerated below (dev hot reload)
+--   * main.lua, when the launcher closes the save editor -- the editor may
+--     have loaded the OTHER game's cache, and require would otherwise serve
+--     those modules to a subsequent Play (see CacheFs.unmountVersion, which
+--     clears the matching read-path overlay).
+function Data:unloadGenerated()
   local pristine = self._pristineKeys
   if pristine then
     for key in pairs(self) do
@@ -222,6 +227,13 @@ function Data:reloadGenerated()
   for _, name in ipairs(OPTIONAL) do
     package.loaded["data.generated." .. name] = nil
   end
+end
+
+-- dev-mode hot reload only (src/dev/HotReload.lua): drop every namespace the
+-- mod merge created, then re-require the generated modules so base records
+-- return to their on-disk values even where a mod edited them in place
+function Data:reloadGenerated()
+  self:unloadGenerated()
   self:load()
 end
 

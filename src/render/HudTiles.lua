@@ -127,6 +127,11 @@ end
 -- GetHealthBarColor's thresholds (>= 27 px green, >= 10 yellow, else
 -- red).
 --
+-- segments: how many 8px cells the bar spans (6, the hardware width,
+-- unless a caller asks for more -- the widescreen battle layout has room
+-- for a longer bar in the same tiles).  The color thresholds scale with
+-- it so a wider bar turns yellow and red at the same fractions of full.
+--
 -- grayFill (#229): when the caller will colorize this bar with an SGB
 -- region palette (BattleState's zone pass, BATTLE_ZONES pal 0/1 =
 -- GetHealthBarColor), leave the fill as its raw DMG shade-2 gray and skip
@@ -136,18 +141,22 @@ end
 -- Tinting first would double-apply the color: GREENBAR's fill {0,189,0} has
 -- red channel 0, so the tint zeroes the whole bar's red and the zone's
 -- red-channel-keyed shade shader then maps every pixel to color 3 = black.
-function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill)
+function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill, segments)
   local x, y = tx * 8, ty * 8
+  segments = math.max(1, math.floor(segments or 6))
   HudTiles.tile(0x71, x, y)
   HudTiles.tile(0x62, x + 8, y)
   local px = 0
   if mon.stats.hp > 0 and mon.hp > 0 then
-    px = math.max(1, math.floor(mon.hp * 48 / mon.stats.hp))
+    px = math.max(1, math.floor(mon.hp * segments * 8 / mon.stats.hp))
   end
   local tint
   if not grayFill then
     local PaletteFX = require("src.render.PaletteFX")
-    local name = px >= 27 and "GREENBAR" or px >= 10 and "YELLOWBAR" or "REDBAR"
+    local green = math.ceil(27 * segments / 6)
+    local yellow = math.ceil(10 * segments / 6)
+    local name = px >= green and "GREENBAR"
+                 or px >= yellow and "YELLOWBAR" or "REDBAR"
     local colors = PaletteFX.pal(data, name)
     if colors then
       local c = colors[3] -- GB color 2 is the fill shade
@@ -157,11 +166,11 @@ function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill)
                math.min(1, c[3] / 170), 1 }
     end
   end
-  for i = 0, 5 do
+  for i = 0, segments - 1 do
     local seg = math.min(8, math.max(0, px - i * 8))
     HudTiles.tile(seg >= 8 and 0x6B or 0x63 + seg, x + 16 + i * 8, y, tint)
   end
-  HudTiles.tile(HudTiles.capTile(barType), x + 64, y)
+  HudTiles.tile(HudTiles.capTile(barType), x + 16 + segments * 8, y)
 end
 
 return HudTiles

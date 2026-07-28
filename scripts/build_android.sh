@@ -137,14 +137,19 @@ pack_game_love() {
   say "packing game.love for love-android embed flavor"
   mkdir -p "$EMBED_ASSETS"
   rm -f "$LOVE_FILE"
+  # tools/save-editor ships with the app: the launcher's Edit button on a save
+  # row opens it in-process, so it must be inside the archive (see build.sh).
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
-    main.lua conf.lua src data assets tools/rom_manifest.json tools/rom_manifest_blue.json \
+    main.lua conf.lua src data assets tools/save-editor \
+    tools/rom_manifest.json tools/rom_manifest_blue.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   if unzip -Z1 "$LOVE_FILE" \
       | grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/'; then
     fail "game.love unexpectedly contains generated ROM data"
   fi
+  unzip -Z1 "$LOVE_FILE" | grep -qx 'tools/save-editor/App.lua' \
+    || fail "game.love is missing the save editor (Edit on a save row would crash)"
   say "game.love: $(du -h "$LOVE_FILE" | cut -f1) -> $LOVE_FILE"
 
   # This script packs its own game.love (it does not reuse build.sh's), so it

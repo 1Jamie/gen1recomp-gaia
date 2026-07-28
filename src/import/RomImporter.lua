@@ -474,7 +474,10 @@ end
 -- own cache (Red at the root, Blue under blue/), so both can be imported and
 -- played side by side.  onComplete(version) hands the chosen game off to boot.
 -- opts: launcher (a fresh import stays on the launcher instead of auto-booting),
--- forceImport (treat every version as not-yet-imported, so re-import is forced).
+-- forceImport (treat every version as not-yet-imported, so re-import is forced),
+-- onEditSave(version, slotId) (host handler for the Edit affordance on a save
+-- row -- main.lua opens the bundled save editor on that slot; when it is not
+-- supplied the Edit label is not drawn at all).
 function RomImporter.new(onComplete, opts)
   opts = opts or {}
   local android = love.system.getOS() == "Android"
@@ -483,6 +486,7 @@ function RomImporter.new(onComplete, opts)
     onComplete = onComplete,
     launcher = opts.launcher or false,
     forceImport = opts.forceImport or false,
+    onEditSave = opts.onEditSave,
     android = android,
     tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
     logo = love.graphics.newImage("assets/logo/logo.png"),
@@ -970,9 +974,30 @@ function RomImporter:choose(version)
   local path = chooseRom(GameVersion.info(self.chooseVersion).displayName)
   if path then
     self:startPath(path)
-  elseif love.system.getOS() ~= "OS X"
-      and love.system.getOS() ~= "Windows"
-      and love.system.getOS() ~= "Linux" then
+    return
+  end
+  -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
+  -- kdialog.  Fall back to the same "drop a .gb next to the game" scan used
+  -- on Android, which works when the game is launched as an unpacked
+  -- directory (see build-rg34xxsp.sh).
+  local name, data = findPendingRom(self.ready)
+  if name then
+    self:startData(data, name)
+    return
+  end
+  if love.system.getOS() == "Linux" then
+    local where = love.filesystem.getSourceBaseDirectory
+      and love.filesystem.getSourceBaseDirectory()
+      or love.filesystem.getSource and love.filesystem.getSource()
+      or "the game folder"
+    self.notice = {
+      version = self.chooseVersion,
+      status = "No file picker. Copy your .gb into:",
+      detail = where,
+    }
+    return
+  end
+  if love.system.getOS() ~= "OS X" and love.system.getOS() ~= "Windows" then
     self:setError("File selection is unavailable here. Drop the .gb file onto the window.")
   end
 end
@@ -1202,6 +1227,7 @@ function RomImporter:draw()
   -- Rebuilt only by the active version's SAVE SLOT panel, so the mods tab (or a
   -- version with no panel drawn this frame) cannot inherit last frame's rows.
   self.slotRects = nil
+  self.slotEditRects = nil
   self.newSlotRect = nil
   -- Rebuilt only by the mods panel; nil elsewhere so a game tab cannot inherit
   -- last frame's mod toggles / import button.
@@ -1619,14 +1645,21 @@ function RomImporter:mousepressed(x, y, button)
     end
     return
   end
-  -- SAVE SLOT rows / Delete.  Delete is checked first so a tap on the Delete
-  -- label never also selects the row.  On desktop a press only ARMS a click:
-  -- _updateSlotDrag commits it on release when the pointer did not move (a
-  -- moved pointer scrolls instead).  Android has no reliable pointer polling,
-  -- so it selects on press.  Delete fires immediately (small fixed target).
+  -- SAVE SLOT rows / Edit / Delete.  The two labels are checked first so a tap
+  -- on either never also selects the row.  On desktop a press only ARMS a row
+  -- click: _updateSlotDrag commits it on release when the pointer did not move
+  -- (a moved pointer scrolls instead).  Android has no reliable pointer
+  -- polling, so it selects on press.  Edit and Delete fire immediately (small
+  -- fixed targets, no scroll conflict).
   for _, r in ipairs(self.slotDeleteRects or {}) do
     if inside(r, x, y) then
       self:_deleteSlot(self.panelVersion, r.id)
+      return
+    end
+  end
+  for _, r in ipairs(self.slotEditRects or {}) do
+    if inside(r, x, y) then
+      if self.onEditSave then self.onEditSave(self.panelVersion, r.id) end
       return
     end
   end
@@ -2091,6 +2124,13 @@ function RomImporter:_ensureSlots(version)
   if not self.slots[version] then self:_refreshSlots(version) end
 end
 
+-- The host calls this when the save editor closes: the edited slot's player
+-- name, badge count and dex total all feed the cached row summary, so it has
+-- to be re-read rather than trusted across the round trip.
+function RomImporter:savesChanged(version)
+  self:_refreshSlots(version)
+end
+
 -- Point the active slot at id (persisted immediately, per the contract) and
 -- reflect it in the LOADED pill without a full relist.
 function RomImporter:_selectSlot(version, id)
@@ -2208,6 +2248,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
       rw - 24 * s, "center")
     self.slotRects = {}
     self.slotDeleteRects = {}
+    self.slotEditRects = {}
   elseif listH > 0 then
     local nameH = self.slotNameFont:getHeight()
     local metaH = self.labelFont:getHeight()
@@ -2227,6 +2268,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
 
     self.slotRects = {}
     self.slotDeleteRects = {}
+    self.slotEditRects = {}
     love.graphics.setScissor(math.floor(rx), math.floor(listTop),
       math.ceil(rw), math.ceil(listH))
     for i, slot in ipairs(slots) do
@@ -2252,6 +2294,24 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
         col(dhot and PAL.red or PAL.warning)
         love.graphics.print(delText, delX, delY)
         local rightReserve = delW + 18 * s
+
+        -- Edit label, immediately left of Delete: opens the bundled save
+        -- editor (tools/save-editor) on this slot's file.  Only drawn when the
+        -- host supplied onEditSave and the slot actually holds a save -- there
+        -- is nothing to edit in an empty slot, and offering it would open the
+        -- editor on a new-game stub the player never asked for.
+        local erect = nil
+        if self.onEditSave and slot.exists then
+          local edText = "Edit"
+          local edW = self.hintFont:getWidth(edText)
+          local edX = delX - 14 * s - edW
+          erect = { x = edX - 6 * s, y = delY - 4 * s,
+            width = edW + 12 * s, height = delH + 8 * s, id = slot.id }
+          local ehot = self:_hover(erect)
+          col(ehot and PAL.blue or PAL.warning)
+          love.graphics.print(edText, edX, delY)
+          rightReserve = rightReserve + edW + 20 * s
+        end
 
         -- LOADED pill (top-right of the active row), then reserve its width
         local pillW = 0
@@ -2300,6 +2360,15 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
         if dvy2 > dvy then
           self.slotDeleteRects[#self.slotDeleteRects + 1] =
             { x = drect.x, y = dvy, width = drect.width, height = dvy2 - dvy, id = slot.id }
+        end
+        if erect then
+          local evy = math.max(erect.y, listTop)
+          local evy2 = math.min(erect.y + erect.height, listBottom)
+          if evy2 > evy then
+            self.slotEditRects[#self.slotEditRects + 1] =
+              { x = erect.x, y = evy, width = erect.width, height = evy2 - evy,
+                id = slot.id }
+          end
         end
       end
     end

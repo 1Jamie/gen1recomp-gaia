@@ -194,6 +194,9 @@ function SaveData.defaultOptions()
     textSpeed = 3,
     animations = true,
     battleStyle = "shift",
+    -- battle screen composition: og (the 160x144 original) | wide
+    -- (304x144, src/battle/WideBattle.lua)
+    battleLayout = "og",
     ruleset = "gen1_faithful",
     -- 0-7 like the GB's NR50 master volume
     musicVol = 7,
@@ -441,6 +444,25 @@ function SaveData.slotSummary(save)
     timeText = timeText,
     dexCount = dexCount,
   }
+end
+
+-- The absolute on-disk path of a slot's save file, for the one caller that
+-- cannot go through love.filesystem: the save editor reads and writes with
+-- raw io.* so it can also open a file the player dragged in from anywhere.
+-- Resolves against the same root persistFs would write to -- the portable
+-- game folder when portable mode is on, otherwise LOVE's save directory --
+-- so Edit on a launcher save row lands on the file the game actually plays.
+-- nil when neither root is available (headless tests with an injected fs).
+function SaveData.slotDiskPath(version, slotId)
+  version = version or GameVersion.get()
+  if not knownVersion(version) or not slotId then return nil end
+  local base = SaveData.portableBaseDir()
+    or (love and love.filesystem and love.filesystem.getSaveDirectory
+        and love.filesystem.getSaveDirectory())
+  if not base then return nil end
+  local sep = package.config:sub(1, 1)
+  local rel = select(1, slotNames(version, slotId))
+  return base .. sep .. rel:gsub("/", sep)
 end
 
 -- Slots visible to the launcher: every registered slot for a version, each

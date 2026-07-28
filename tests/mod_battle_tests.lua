@@ -290,7 +290,9 @@ do
                  end },
                  stack = { pop = function() end } }
   local menu = OptionsMenu.new(game)
-  menu.index = 4
+  for i, row in ipairs(menu.rows) do
+    if row.id == "ruleset" then menu.index = i end
+  end
   local function press(key)
     pressed = { [key] = true }
     menu:update(1 / 60)

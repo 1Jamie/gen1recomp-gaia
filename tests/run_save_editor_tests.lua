@@ -3,11 +3,18 @@
 -- (If lua5.4 is missing, use the same interpreter as tests/run_tests.lua.)
 --
 -- Panel suites (Boxes/Items, Events/Dex, Map) live in separate files so each
--- can define its own harness without colliding with this runner:
+-- can define its own harness without colliding with this runner, and each is
+-- its own tier in scripts/test.sh:
 --   tests/save_editor_task6_tests.lua
 --   tests/save_editor_task7_tests.lua
 --   tests/save_editor_task8_tests.lua
+--   tests/save_editor_mod_tests.lua
 -- See tools/save-editor/README.md for the full list.
+--
+-- All of them drive tools/save-editor/Ops.lua rather than clicking pixel
+-- coordinates: the panels are layout over Ops, so the rules live there and a
+-- redesign cannot silently invalidate the suites (which is exactly what the
+-- old coordinate-based tests did not survive).
 
 package.path = package.path .. ";./?.lua;./?/init.lua;./tools/save-editor/?.lua"
   .. ";./tools/save-editor/panels/?.lua"
@@ -172,13 +179,10 @@ do
   check(s.dirty == true, "State.markDirty sets dirty")
 end
 
--- Party/MonEditor panels: drive Kit's immediate-mode hit-testing by placing
--- the "mouse" at the exact coordinates each panel draws its widgets at
--- (mirroring the layout constants in panels/{Party,MonEditor}.lua), so the
--- click handlers run for real without a live window.
-local Kit = require("Kit")
-local Party = require("Party")
-local MonEditor = require("MonEditor")
+-- Party roster + the docked mon inspector.  Both are pure layout over
+-- tools/save-editor/Ops.lua, so the rules are asserted against Ops directly
+-- instead of against pixel coordinates the design can (and did) move.
+local Ops = require("Ops")
 local Pokemon = require("src.pokemon.Pokemon")
 
 do
@@ -191,74 +195,100 @@ do
   S.save.party = { wartortle, pidgey }
   S.selectedParty = 1
 
-  local px, py = 12, 80
+  Ops.selectParty(S, 2)
+  eq(S.selectedParty, 2, "selectParty selects the row")
+  check(S.editingMon == pidgey, "selectParty points the inspector at that mon")
 
-  Kit.beginFrame(px + 10, py + 24 + 22 + 5, true) -- row 2 of the list
-  Party.draw(S, Kit, px, py)
-  eq(S.selectedParty, 2, "Party list click selects row")
-  check(S.editingMon == pidgey, "Party list click sets editingMon")
-
-  Kit.beginFrame(px + 10, py + 200 + 10, true) -- Add button
-  Party.draw(S, Kit, px, py)
-  eq(#S.save.party, 3, "Party Add appends a mon")
-  check(S.dirty == true, "Party Add marks dirty")
+  Ops.partyAdd(S)
+  eq(#S.save.party, 3, "partyAdd appends a mon")
+  check(S.dirty == true, "partyAdd marks the save dirty")
   S.dirty = false
 
   S.selectedParty = 3
-  Kit.beginFrame(px + 110 + 10, py + 200 + 10, true) -- Remove button
-  Party.draw(S, Kit, px, py)
-  eq(#S.save.party, 2, "Party Remove drops selected mon")
+  check(Ops.partyRemove(S) == false, "partyRemove arms on the first call")
+  eq(#S.save.party, 3, "an armed partyRemove has not removed anything")
+  check(Ops.partyRemove(S) == true, "partyRemove commits on the second call")
+  eq(#S.save.party, 2, "the committed partyRemove drops the selected mon")
 
   S.selectedParty = 2
-  Kit.beginFrame(px + 220 + 10, py + 200 + 10, true) -- Move Up button
-  Party.draw(S, Kit, px, py)
-  eq(S.selectedParty, 1, "Party Move Up updates selection")
-  check(S.save.party[1] == pidgey, "Party Move Up swaps order")
+  Ops.partyMove(S, -1)
+  eq(S.selectedParty, 1, "partyMove up follows the mon to its new slot")
+  check(S.save.party[1] == pidgey, "partyMove up swaps the two slots")
+
+  S.dirty = false
+  check(Ops.partyMove(S, -1) == false, "the lead mon cannot move further up")
+  check(S.dirty == false, "a refused partyMove does not dirty the save")
+  check(S.status:match("lead mon") ~= nil, "a refused partyMove explains itself")
+
+  -- a full party refuses another mon
+  while #S.save.party < require("src.pokemon.Party").MAX do
+    table.insert(S.save.party, MonOps.create(Data, "PIDGEY", 5))
+  end
+  S.dirty = false
+  check(Ops.partyAdd(S) == false, "partyAdd refuses a full party")
+  check(S.status:match("Party is full") ~= nil, "a refused partyAdd explains itself")
 end
 
 do
   local S = State.new()
   S.data = Data
   S.cat = Catalog.build(Data)
+  S.save = SaveData.newGame()
   local mon = MonOps.create(Data, "WARTORTLE", 20)
   S.editingMon = mon
 
-  local mx, my = 640, 80
   local levelBefore = mon.level
   local hpStatBefore = mon.stats.hp
-
-  Kit.beginFrame(mx + 148 + 10, my + 84 + 10, true) -- "+1" level button
-  MonEditor.draw(S, Kit, mx, my)
-  eq(mon.level, levelBefore + 1, "MonEditor +1 level button")
-  check(mon.stats.hp >= hpStatBefore, "MonEditor level up recalcs stats")
-  check(S.dirty == true, "MonEditor level change marks dirty")
+  Ops.setLevel(S, mon, mon.level + 1)
+  eq(mon.level, levelBefore + 1, "setLevel raises the level")
+  check(mon.stats.hp >= hpStatBefore, "a level change recalculates stats")
+  check(S.dirty == true, "a level change marks the save dirty")
   S.dirty = false
 
-  local dvY = my + 154
+  Ops.setLevel(S, mon, 999)
+  eq(mon.level, 100, "setLevel clamps at 100")
+  Ops.setLevel(S, mon, -5)
+  eq(mon.level, 1, "setLevel clamps at 1")
+
   local attackBefore = mon.dvs.attack
-  Kit.beginFrame(mx + 160 + 5, dvY + 5, true) -- attack DV "+" button
-  MonEditor.draw(S, Kit, mx, my)
-  eq(mon.dvs.attack, math.min(15, attackBefore + 1), "MonEditor DV attack + button")
+  Ops.setDv(S, mon, "attack", attackBefore + 1)
+  eq(mon.dvs.attack, math.min(15, attackBefore + 1), "setDv adjusts a DV")
+  Ops.setDv(S, mon, "attack", 99)
+  eq(mon.dvs.attack, 15, "setDv clamps at 15")
+  Ops.setDv(S, mon, "attack", -1)
+  eq(mon.dvs.attack, 0, "setDv clamps at 0")
+  -- the HP DV is the parity nibble of the other four, never set directly
+  eq(mon.dvs.hp,
+     (mon.dvs.attack % 2) * 8 + (mon.dvs.defense % 2) * 4
+     + (mon.dvs.speed % 2) * 2 + (mon.dvs.special % 2),
+     "setDv re-derives the HP DV from the other four")
 
-  local hpDvY = dvY + 4 * 30 + 6
-  local movesY = hpDvY + 34
-  local slot1Y = movesY + 24
   local moveBefore = mon.moves[1] and mon.moves[1].id
-  Kit.beginFrame(mx + 10, slot1Y + 10, true) -- move slot 1
-  MonEditor.draw(S, Kit, mx, my)
-  check(mon.moves[1] ~= nil, "MonEditor move slot has a move after cycle")
-  check(mon.moves[1].id ~= moveBefore, "MonEditor move slot cycles to a different move")
+  Ops.cycleMove(S, mon, 1)
+  check(mon.moves[1] ~= nil, "cycleMove leaves a move in the slot")
+  check(mon.moves[1].id ~= moveBefore, "cycleMove moves on to a different move")
 
-  local actionsY = movesY + 24 + 4 * 30 + 10
-  Kit.beginFrame(mx + 10, actionsY + 10, true) -- Reset moves to learnset
-  MonEditor.draw(S, Kit, mx, my)
+  Ops.clearMove(S, mon, 1)
+  eq(mon.moves[1], nil, "clearMove empties the slot")
+  S.dirty = false
+  check(Ops.clearMove(S, mon, 1) == false, "clearing an empty slot is a no-op")
+  check(S.dirty == false, "a no-op clearMove does not dirty the save")
+
+  Ops.resetMoves(S, mon)
   local def = Data.pokemon[mon.species]
   local learned = Pokemon.movesAtLevel(def, mon.level)
-  eq(#mon.moves, #learned, "MonEditor reset moves matches learnset size")
+  eq(#mon.moves, #learned, "resetMoves matches the learnset size")
 
-  Kit.beginFrame(mx + 10, actionsY + 38 + 10, true) -- Close
-  MonEditor.draw(S, Kit, mx, my)
-  check(S.editingMon == nil, "MonEditor Close clears editingMon")
+  mon.hp = 1
+  Ops.healMon(S, mon)
+  eq(mon.hp, mon.stats.hp, "healMon restores full HP")
+  S.dirty = false
+  check(Ops.healMon(S, mon) == false, "healing an already-full mon is a no-op")
+
+  local speciesBefore = mon.species
+  Ops.stepSpecies(S, mon, 1)
+  check(mon.species ~= speciesBefore, "stepSpecies changes the species")
+  eq(mon.level, 1, "stepSpecies keeps the level")
 end
 
 -- App.load corrupt-save vs missing-save (Important fix #2): App.load takes
@@ -266,17 +296,12 @@ end
 -- touching the real default save file.
 local App = require("App")
 
--- App.draw() sources its click state from App.mousepressed() + the mouse
--- position at draw time (not from a Kit.beginFrame call made by the test),
--- so simulating a click means moving the mouse and pressing before drawing.
-local appMouseX, appMouseY = 0, 0
-love.mouse = { getPosition = function() return appMouseX, appMouseY end }
-
-local function clickApp(x, y)
-  appMouseX, appMouseY = x, y
-  App.mousepressed(x, y, 1)
-  App.draw()
-end
+-- App.draw() reads the pointer at draw time, so a headless draw needs a mouse
+-- module.  Parked off-screen: these tests call App.save/App.reload/App.close
+-- directly (the chrome is layout over those, exactly like the panels are
+-- layout over Ops) and use App.draw only as a "does the whole editor still
+-- paint" smoke test.
+love.mouse = { getPosition = function() return -1, -1 end }
 
 do
   local tmpPath = os.tmpname() .. "-missing-save.lua"
@@ -301,9 +326,9 @@ do
   eq(s.allowSave, false, "App.load corrupt-file: allowSave set false")
   check(s.status:match("Corrupt save") ~= nil, "App.load corrupt-file status mentions corrupt save")
 
-  -- Clicking Save while loadError is set must be a no-op: file on disk
-  -- (the corrupt real save) must not be overwritten by the stub.
-  clickApp(110 + 10, 6 + 10) -- Save button
+  -- Save while loadError is set must be a no-op: the file on disk (the
+  -- corrupt real save) must not be overwritten by the stub we are editing.
+  App.save()
   local unchanged = io.open(tmpPath, "rb")
   local contents = unchanged:read("*a")
   unchanged:close()
@@ -314,7 +339,7 @@ do
   local fixed = io.open(tmpPath, "wb")
   fixed:write(SaveData.encode(SaveData.newGame()))
   fixed:close()
-  clickApp(200 + 10, 6 + 10) -- Reload button
+  App.reload()
   eq(App.getState().loadError, false, "Reload after fixing the file clears loadError")
   eq(App.getState().allowSave, true, "Reload after fixing the file re-enables allowSave")
 
@@ -322,19 +347,116 @@ do
 end
 
 do
-  -- Optional fix: quit-confirmation re-arms once new edits land, so a
-  -- prior "press quit again" arming doesn't leak across separate edits.
+  -- The quit / close confirmation re-arms once new edits land, so a prior
+  -- "press quit again" arming cannot be spent discarding later changes.
   local tmpPath = os.tmpname() .. "-quitarmed-save.lua"
   os.remove(tmpPath)
   App.load(tmpPath)
   local s = App.getState()
   s._quitArmed = true
-  s.tab = "items"
 
-  clickApp(12 + 132 + 10, 80 + 22 + 10) -- Items panel "+10" money button
+  Ops.addMoney(s, 10)
   eq(App.getState()._quitArmed, false, "A fresh dirty edit resets _quitArmed")
+  eq(App.getState()._openArmed, false, "A fresh dirty edit resets _openArmed")
 
   os.remove(tmpPath)
+end
+
+do
+  -- Close: unsaved edits arm once, and the teardown itself is deferred to the
+  -- end of the frame -- doing it inline left the rest of App.draw painting
+  -- against a state that had already been unloaded.
+  local tmpPath = os.tmpname() .. "-close-save.lua"
+  local f = io.open(tmpPath, "wb")
+  f:write(SaveData.encode(SaveData.newGame()))
+  f:close()
+
+  local closed = 0
+  App.load(tmpPath, { version = "red", slotId = "slot1", embedded = true,
+                      onClose = function() closed = closed + 1 end })
+  local s = App.getState()
+  Ops.addMoney(s, 10)
+
+  check(App.close() == false, "Close with unsaved edits arms instead of leaving")
+  eq(closed, 0, "an armed Close has not left yet")
+  check(s.status:match("Unsaved changes") ~= nil, "an armed Close explains itself")
+
+  check(App.close() == true, "a second Close goes through")
+  eq(closed, 0, "Close does not tear down mid-dispatch")
+  check(s._closeRequested, "Close records the request for the end of the frame")
+
+  App.draw()
+  eq(closed, 1, "the deferred Close ran once the frame finished")
+
+  -- the host (main.lua's closeEditor) is what unloads; after that, events
+  -- still in flight must not crash it
+  App.unload()
+  eq(App.getState(), nil, "App.unload drops the editor state")
+  App.draw()
+  App.keypressed("escape")
+  App.wheelmoved(0, 1)
+  eq(App.quit(), false, "a torn-down editor never blocks quit")
+  check(true, "post-close events are tolerated")
+
+  os.remove(tmpPath)
+  for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
+end
+
+do
+  -- Save and Reload need a modifier: a bare letter key is one stray keystroke
+  -- away from writing the file, and there is no undo.
+  local tmpPath = os.tmpname() .. "-shortcut-save.lua"
+  local f = io.open(tmpPath, "wb")
+  f:write(SaveData.encode(SaveData.newGame()))
+  f:close()
+
+  App.load(tmpPath)
+  local s = App.getState()
+  local before = s.save.money
+  Ops.addMoney(s, 10)
+  check(s.dirty, "the edit landed")
+
+  love.keyboard = { isDown = function() return false end }
+  App.keypressed("s")
+  check(App.getState().dirty, "bare s does not save")
+  App.keypressed("r")
+  eq(App.getState().save.money, before + 10, "bare r does not discard the edit")
+
+  love.keyboard = { isDown = function() return true end }
+  App.keypressed("s")
+  check(App.getState().dirty == false, "Cmd/Ctrl+S saves")
+  love.keyboard = { isDown = function() return false end }
+
+  os.remove(tmpPath)
+  for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
+end
+
+do
+  -- Whole-editor smoke test: every tab has to survive a real headless draw,
+  -- which is what catches a layout that divides by a nil font metric or
+  -- indexes a save field the panel assumed was always present.
+  local tmpPath = os.tmpname() .. "-draw-save.lua"
+  local data = SaveData.newGame()
+  data.party = { MonOps.create(Data, "CHARIZARD", 100) }
+  local f = io.open(tmpPath, "wb")
+  f:write(SaveData.encode(data))
+  f:close()
+
+  App.load(tmpPath, { version = "red" })
+  local s = App.getState()
+  for _, tab in ipairs({ "party", "boxes", "items", "events", "map", "dex" }) do
+    s.tab = tab
+    local ok, err = pcall(App.draw)
+    check(ok, "the " .. tab .. " tab draws headlessly: " .. tostring(err))
+  end
+  -- and with a mon selected, which is a different code path in the inspector
+  s.tab = "party"
+  Ops.selectParty(s, 1)
+  local ok, err = pcall(App.draw)
+  check(ok, "the party inspector draws with a selection: " .. tostring(err))
+
+  os.remove(tmpPath)
+  for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
 end
 
 do
