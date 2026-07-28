@@ -133,17 +133,26 @@ local function detectPortable()
   -- Recover the folder containing the .app so a packaged app finds its
   -- marker.  On Windows/Linux the executable is not a bundle, so this is nil
   -- and the plain source-base directory (next to the .exe/AppImage) is used.
-  local function appContainer(path)
-    local appPath = path and path:match("^(.*%.app)/Contents/")
-    return appPath and appPath:match("^(.*)/[^/]+$") or nil
+  local function parentDir(path)
+    return path and path:match("^(.*)/[^/]+$") or nil
   end
-  -- Order: the .app's containing folder (packaged macOS), then the
-  -- source-base directory (next to a packaged .exe/AppImage), then the
-  -- source itself (a `love <gamedir>` run drops portable.txt in the game
-  -- folder).  First one holding the marker wins.  Built by appending so a
-  -- nil (e.g. no .app in the path) never truncates the ipairs scan.
+  local function appContainer(path)
+    return parentDir(path and path:match("^(.*%.app)/Contents/"))
+  end
+  -- The Linux AppImage build works similarly to macOs, but the runtime mounts
+  -- the squashfs at a temp path, and that becomes the base directory.
+  -- The runtime exports the real .AppImage path in $APPIMAGE, so we get the
+  -- base dir from there.
+  local function appImageContainer()
+    return parentDir(os.getenv("APPIMAGE"))
+  end
+  -- Order: the packaged-app containing folder (macOS .app / Linux AppImage),
+  -- then the source-base directory (next to a packaged .exe), then the source
+  -- itself (a `love <gamedir>` run drops portable.txt in the game folder).
+  -- First one holding the marker wins.  Built by appending so a nil (e.g. no
+  -- .app in the path) never truncates the ipairs scan.
   local candidates = {}
-  local appDir = appContainer(src) or appContainer(sbd)
+  local appDir = appContainer(src) or appContainer(sbd) or appImageContainer()
   if appDir then candidates[#candidates + 1] = appDir end
   if sbd then candidates[#candidates + 1] = sbd end
   if src then candidates[#candidates + 1] = src end
