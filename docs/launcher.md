@@ -69,6 +69,15 @@ keeps working unchanged.
 - **Registry.** The ordered slot list and which one is active persist in
   `options.lua` (via the existing `SaveData.loadOptions`/`saveOptions`):
   `options.saveSlots = { [version] = { list = {"slot1", ...}, active = "slot1" } }`.
+  Custom slot labels (#205) live alongside them in the same registry:
+  `options.saveSlots[version].names = { slot1 = "Nuzlocke" }`, written by
+  `SaveData.renameSlot` (trimmed; an empty label clears it) and surfaced on
+  each `listSlots` row as `label` (the launcher row shows `label`, falling
+  back to the player name). `deleteSlot` drops the label with the slot.
+  Renaming never touches the save file, so an empty slot can be labeled.
+  On desktop, right-clicking a slot row opens the inline rename modal
+  (Enter commits, Esc cancels); touch has no secondary button, so the
+  affordance is desktop-only.
 - **Active slot resolution.** `saveNames(version)`, the function every
   existing caller (`TitleState` hasSave/load/save, recovery order) already
   goes through, now resolves the *active* slot instead of a fixed flat name.
