@@ -40,12 +40,12 @@ function OakSpeech:sgbPalettes(game)
 end
 
 local FALLBACKS = {
-  _OakSpeechText1 = "Hello there!\nWelcome to the\vworld of POKéMON!\fMy name is OAK!\nPeople call me\vthe POKéMON PROF!",
-  _OakSpeechText2A = "This world is\ninhabited by\vcreatures called\vPOKéMON!",
-  _OakSpeechText2B = "\fFor some people,\nPOKéMON are\vpets. Others use\vthem for fights.\fMyself...\fI study POKéMON\nas a profession.",
-  _OakSpeechText3 = "{PLAYER}!\fYour very own\nPOKéMON legend is\vabout to unfold!\fA world of dreams\nand adventures\vwith POKéMON\vawaits! Let's go!",
-  _IntroducePlayerText = "First, what is\nyour name?",
-  _IntroduceRivalText = "This is my grand-\nson. He's been\vyour rival since\vyou were a baby.\f...Erm, what is\nhis name again?",
+  _OakSpeechText1 = Strings.source("Hello there!\nWelcome to the\vworld of POKéMON!\fMy name is OAK!\nPeople call me\vthe POKéMON PROF!"),
+  _OakSpeechText2A = Strings.source("This world is\ninhabited by\vcreatures called\vPOKéMON!"),
+  _OakSpeechText2B = Strings.source("\fFor some people,\nPOKéMON are\vpets. Others use\vthem for fights.\fMyself...\fI study POKéMON\nas a profession."),
+  _OakSpeechText3 = Strings.source("{PLAYER}!\fYour very own\nPOKéMON legend is\vabout to unfold!\fA world of dreams\nand adventures\vwith POKéMON\vawaits! Let's go!"),
+  _IntroducePlayerText = Strings.source("First, what is\nyour name?"),
+  _IntroduceRivalText = Strings.source("This is my grand-\nson. He's been\vyour rival since\vyou were a baby.\f...Erm, what is\nhis name again?"),
 }
 
 local function textOr(game, key)
