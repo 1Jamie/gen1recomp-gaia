@@ -25,7 +25,16 @@ local shader -- false = unavailable (headless / no shader support)
 -- Mobile GPUs often compile this pass but present a black frame, and the
 -- level persists in options.lua -- soft-bricking the APK until a manual
 -- edit (issue #136).  Desktop is unchanged; Android/iOS refuse the effect.
+--
+-- POKEPORT_GBCFX overrides the platform default either way ("1" force on,
+-- "0" force off), same tri-state as POKEPORT_TOUCH.  Handheld packs whose
+-- GPU is in the same class as a phone's but whose getOS() says "Linux" set
+-- it to 0 in their launcher (build-rg34xxsp.sh); it also lets a desktop
+-- checkout exercise the unsupported path without stubbing love.system.
 function GBCFX.isSupported()
+  local env = os.getenv("POKEPORT_GBCFX")
+  if env == "1" then return true end
+  if env == "0" then return false end
   if not love or not love.system or not love.system.getOS then return true end
   local osName = love.system.getOS()
   return osName ~= "Android" and osName ~= "iOS"

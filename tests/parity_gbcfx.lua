@@ -121,5 +121,51 @@ end
 check(not hasGbc, "Options menu omits GBC FX on Android")
 love.system = prevSystem
 
+-- POKEPORT_GBCFX overrides the platform default both ways.  Handheld packs
+-- (build-rg34xxsp.sh) export 0 because their getOS() says "Linux" while the
+-- GPU is phone class; 1 is the escape hatch if a device turns out to cope.
+local prevEnv = os.getenv("POKEPORT_GBCFX")
+local realGetenv = os.getenv
+local stubEnv
+os.getenv = function(name)
+  if name == "POKEPORT_GBCFX" then return stubEnv end
+  return realGetenv(name)
+end
+
+stubEnv = "0"
+check(not GBCFX.isSupported(), "POKEPORT_GBCFX=0 refuses GBC FX on desktop")
+GBCFX.setLevel(3)
+eq(GBCFX.level, 0, "setLevel forces OFF under POKEPORT_GBCFX=0")
+local handheldOpts = { gbcfx = 4 }
+check(GBCFX.applyOptions(handheldOpts) == true,
+      "applyOptions reports a cleared level under POKEPORT_GBCFX=0")
+eq(handheldOpts.gbcfx, 0, "applyOptions heals a persisted level on a handheld")
+check(not GBCFX.active(), "active() is false under POKEPORT_GBCFX=0")
+
+local omHandheld = OptionsMenu.new({
+  data = { rulesets = {}, constants = {} },
+  save = { options = {} },
+  stack = { pop = function() end },
+  input = { wasPressed = function() return false end },
+  modStatus = { available = {} },
+})
+hasGbc = false
+for _, row in ipairs(omHandheld.rows) do
+  if row.id == "gbcfx" then hasGbc = true end
+end
+check(not hasGbc, "Options menu omits GBC FX under POKEPORT_GBCFX=0")
+
+-- "1" wins over the Android gate, so the override is a real two-way door.
+stubEnv = "1"
+love.system = { getOS = function() return "Android" end }
+check(GBCFX.isSupported(), "POKEPORT_GBCFX=1 forces GBC FX on despite Android")
+love.system = prevSystem
+
+stubEnv = nil
+check(GBCFX.isSupported(), "unset POKEPORT_GBCFX falls back to the OS check")
+os.getenv = realGetenv
+eq(os.getenv("POKEPORT_GBCFX"), prevEnv, "os.getenv restored")
+GBCFX.setLevel(0)
+
 -- === summary ===
 S.finish()

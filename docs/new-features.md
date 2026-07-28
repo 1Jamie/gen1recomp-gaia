@@ -129,6 +129,14 @@ It runs as a final present pass after world + UI composite in
 ([github.com/mattakins/Pixel_Transparency](https://github.com/mattakins/Pixel_Transparency)).
 Default OFF; persisted as `save.options.gbcfx`.
 
+Mobile GPUs often compile the pass but present a black frame, so Android and
+iOS hide the row entirely, pin the level to OFF, and rewrite a level already
+persisted in `options.lua` (issue #136). `POKEPORT_GBCFX` overrides that
+decision either way, same tri-state as `POKEPORT_TOUCH`: `=0` refuses the
+effect, `=1` forces it available. The Anbernic handheld pack exports `0` from
+its launcher because the device reports `"Linux"` while its GPU is in the
+phone class (see [Anbernic RG34XXSP](anbernic-rg34xxsp.md)).
+
 ## Peer-to-peer link play (lua-enet)
 
 Trades and link battles connect two copies of the game directly over

@@ -55,6 +55,16 @@ In-game controls use the normal PortMaster / SDL pad map, rebindable under
 
 ## Notes
 
+**GBC FX is off on this device.** The launcher exports `POKEPORT_GBCFX=0`,
+which hides the GBC FX row from OPTIONS, pins the level to OFF, and clears a
+level carried over in an `options.lua` from another machine. The H700's Mali
+GPU is in the same class as the phone GPUs that compile that present pass and
+then show a black frame (issue #136), and `love.system.getOS()` reports
+`"Linux"` here, so the Android gate would not have caught it. Every other
+display option — COLORS, TILT, ZOOM, VOID FILL, MAX FPS — works normally. If
+your device turns out to handle the pass, launch with `POKEPORT_GBCFX=1` to
+put the row back.
+
 The pack bundles the LÖVE 11.5 aarch64 runtime from
 [PortMaster](https://portmaster.games/), so the device does not need a
 separate `love_11.5` runtime download on first launch. The launcher resolves
