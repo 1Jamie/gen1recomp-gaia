@@ -9,6 +9,7 @@
 
 local Assets = require("src.render.Assets")
 local Font = require("src.render.Font")
+local TextBox = require("src.render.TextBox")
 local Music = require("src.core.Music")
 local Sound = require("src.core.Sound")
 local TypeChart = require("src.battle.TypeChart")
@@ -62,17 +63,6 @@ local function dexRatingKey(owned)
   if owned >= 150 then return "_DexRatingText_Own150To151" end
   local lo = math.floor(owned / 10) * 10
   return ("_DexRatingText_Own%dTo%d"):format(lo, lo + 9)
-end
-
--- \n/\v/\f-marked extracted text, one Font.draw line at a time (same
--- technique as DexEntryMenu.lua's dex-description block)
-local function drawTextBlock(text, x, y, maxY)
-  for line in (text:gsub("\v", "\n"):gsub("\f", "\n") .. "\n"):gmatch("(.-)\n") do
-    if maxY and y > maxY then break end
-    Font.draw(line, x, y)
-    y = y + 8
-  end
-  return y
 end
 
 function HallOfFame.new(game, onDone)
@@ -182,26 +172,50 @@ function HallOfFame:update(dt)
     self.phase = "player_stats"
     self.timer = DEX_HOLD
   elseif self.phase == "player_stats" then
-    -- name / play time / money boxes are up; then DexSeenOwnedText
+    -- name / play time / money boxes are up; then the dex texts
     self.timer = self.timer - 1
     if skip or self.timer <= 0 then
       self.phase = "player_dex"
-      self.timer = DEX_HOLD
-    end
-  elseif self.phase == "player_dex" then
-    self.timer = self.timer - 1
-    if skip or self.timer <= 0 then
-      self.phase = "player_rating"
-      self.timer = DEX_HOLD
-    end
-  elseif self.phase == "player_rating" then
-    self.timer = self.timer - 1
-    if skip or self.timer <= 0 then
-      -- HoFFadeOutScreenAndMusic -> Credits lead-in (no A wait here)
-      self.game.stack:pop()
-      if self.onDone then self.onDone() end
+      self:showDexTexts()
     end
   end
+  -- player_dex / player_rating are driven by the TextBox chain that
+  -- showDexTexts pushes; nothing is timed here
+end
+
+-- HoFDisplayPlayerStats' three HoFPrintTextAndDelay calls: seen/owned,
+-- "POKéDEX Rating:", then the tier text DisplayDexRating copied into
+-- wDexRatingText -- each through PrintText (the standard two-row box, so
+-- the tier text's \v rows scroll inside it) followed by 120 DelayFrames
+-- with no button wait.  Hand-drawing these flattened the \v scrolls and
+-- painted the third row over the box's bottom border (#314).
+function HallOfFame:showDexTexts()
+  local game = self.game
+  local text = game.data.text or {}
+  local seen, owned = self:dexSeenOwned()
+  local seenOwned = (text._DexSeenOwnedText
+      or Strings("POKéDEX   Seen:{NUM:wDexRatingNumMonsSeen, 1, 3}\n         Owned:{NUM:wDexRatingNumMonsOwned, 1, 3}"))
+    :gsub("{NUM:wDexRatingNumMonsSeen[^}]*}", tostring(seen))
+    :gsub("{NUM:wDexRatingNumMonsOwned[^}]*}", tostring(owned))
+  local header = (text._DexRatingText or Strings("POKéDEX Rating{COLON}"))
+    :gsub("{COLON}", ":")
+  local rating = text[dexRatingKey(owned)] or Strings("Keep it up!")
+  local function finish()
+    -- HoFFadeOutScreenAndMusic -> Credits lead-in (no A wait here)
+    game.stack:pop()
+    if self.onDone then self.onDone() end
+  end
+  local function showRating()
+    game.stack:push(TextBox.new(game, rating, finish,
+                                { auto = { delay = DEX_HOLD } }))
+  end
+  local function showHeader()
+    self.phase = "player_rating"
+    game.stack:push(TextBox.new(game, header, showRating,
+                                { auto = { delay = DEX_HOLD } }))
+  end
+  game.stack:push(TextBox.new(game, seenOwned, showHeader,
+                              { auto = { delay = DEX_HOLD } }))
 end
 
 -- HoFDisplayMonInfo: TextBoxBorder (0,2) b=9,c=10 + LEVEL/TYPE labels
@@ -263,28 +277,6 @@ function HallOfFame:drawPlayerStats()
   Font.draw(("¥%d"):format(save.money or 0), 4 * 8, 10 * 8)
 end
 
-function HallOfFame:drawDexBox(kind)
-  local save = self.game.save
-  local text = self.game.data.text or {}
-  Font.drawBox(0, 12, 20, 6)
-  love.graphics.setColor(0, 0, 0, 1)
-  if kind == "seen" then
-    local seen, owned = self:dexSeenOwned()
-    local seenOwned = text._DexSeenOwnedText
-      or Strings("POKéDEX   Seen:{NUM:wDexRatingNumMonsSeen, 1, 3}\n         Owned:{NUM:wDexRatingNumMonsOwned, 1, 3}")
-    seenOwned = seenOwned
-      :gsub("{NUM:wDexRatingNumMonsSeen[^}]*}", tostring(seen))
-      :gsub("{NUM:wDexRatingNumMonsOwned[^}]*}", tostring(owned))
-    drawTextBlock(seenOwned, 1 * 8, 14 * 8, 17 * 8)
-  else
-    local _, owned = self:dexSeenOwned()
-    local ratingHeader = (text._DexRatingText or Strings("POKéDEX Rating{COLON}")):gsub("{COLON}", ":")
-    Font.draw(ratingHeader, 1 * 8, 14 * 8)
-    local rating = text[dexRatingKey(owned)] or Strings("Keep it up!")
-    drawTextBlock(rating, 1 * 8, 15 * 8, 17 * 8)
-  end
-end
-
 function HallOfFame:draw()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
@@ -309,14 +301,10 @@ function HallOfFame:draw()
   elseif self.phase == "player_stats" then
     self:drawPic(self.playerPic)
     self:drawPlayerStats()
-  elseif self.phase == "player_dex" then
+  elseif self.phase == "player_dex" or self.phase == "player_rating" then
+    -- the TextBox chain draws the dex texts over the stat boxes
     self:drawPic(self.playerPic)
     self:drawPlayerStats()
-    self:drawDexBox("seen")
-  elseif self.phase == "player_rating" then
-    self:drawPic(self.playerPic)
-    self:drawPlayerStats()
-    self:drawDexBox("rating")
   end
 
   love.graphics.setColor(1, 1, 1, 1)
