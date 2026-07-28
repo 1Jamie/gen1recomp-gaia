@@ -304,10 +304,12 @@ function PartyMenu:update(dt)
           or Strings("{RAM:wNameBuffer} used\nSTRENGTH.")):gsub("{RAM:wNameBuffer}", name)
         local t2 = (self.game.data.text._CanMoveBouldersText
           or Strings("{RAM:wNameBuffer} can\nmove boulders.")):gsub("{RAM:wNameBuffer}", name)
+        -- like surf (#320): the blink belongs UNDER the texts, not as a
+        -- flashbang on the empty map after them; the stack only updates
+        -- the top state, so the flash holds until the texts close
+        self.game.stack:push(Transition.whiteFlash(self.game))
         self.game.stack:push(TextBox.new(self.game, t1, function()
-          self.game.stack:push(TextBox.new(self.game, t2, function()
-            self.game.stack:push(Transition.whiteFlash(self.game))
-          end))
+          self.game.stack:push(TextBox.new(self.game, t2))
         end, { auto = { sound = function()
           return require("src.core.Sound").playCry(self.game.data, mon.species)
         end } }))

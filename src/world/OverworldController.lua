@@ -2004,23 +2004,19 @@ function OverworldState:trySurf(fx, fy)
   if not mon then return end
   local name = mon.nickname or Game.data.pokemon[mon.species].name
   local p = self.player
-  p.surfing = true
-  require("src.core.Music").setSurfing(Game.data, true)
   local text = (Game.data.text._SurfingGotOnText or Strings("{PLAYER} got on\n{RAM:wNameBuffer}!"))
                :gsub("{RAM:wNameBuffer}", name)
+  -- GBPalWhiteOutWithDelay3 runs while the got-on text is still up
+  -- (start_sub_menus.asm .surf), so the blink reads as a text flash
+  -- instead of a flashbang on the empty map (#320).  The flash sits
+  -- under the textbox on the stack: only the top state updates, so it
+  -- holds its frames until the text closes.  surfing (and the sprite
+  -- swap) only applies when the step happens -- no paddling on land.
+  Game.stack:push(require("src.render.Transition").whiteFlash(Game))
   Game.stack:push(TextBox.new(Game, text, function()
-    -- start_sub_menus.asm .surf: UseItem returns (mount + text done),
-    -- then GBPalWhiteOutWithDelay3 blinks before the simulated forward
-    -- press steps onto the water (or across a connection strip, like
-    -- Cinnabar's east coast onto Route 20)
-    local Transition = require("src.render.Transition")
-    if Transition.whiteFlash then
-      Game.stack:push(Transition.whiteFlash(Game, nil, function()
-        self:stepForwardOrCrossEdge(p.facing)
-      end))
-    else
-      self:stepForwardOrCrossEdge(p.facing)
-    end
+    p.surfing = true
+    require("src.core.Music").setSurfing(Game.data, true)
+    self:stepForwardOrCrossEdge(p.facing)
   end))
 end
 

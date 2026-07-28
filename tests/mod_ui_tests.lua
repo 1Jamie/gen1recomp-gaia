@@ -532,6 +532,30 @@ press(fpm, "a")
 check(not fpm.submenu and forced == fgame.save.party[1],
   "forceSwitch still picks immediately (ChooseNextMon / SHIFT)")
 
+-- ------- issue #320: the STRENGTH blink sits under its texts
+do
+  local owStub = { strengthActive = false,
+                   map = { def = { tileset = "OVERWORLD" } }, dark = false }
+  local sgame = partyGame()
+  sgame.overworld = owStub
+  sgame.data.text = {} -- the strength texts fall back to Strings sources
+  sgame.save.inventory.RAINBOWBADGE = 1
+  sgame.save.party[1].moves = { { id = "STRENGTH" } }
+  local pm = PartyMenu.new(sgame)
+  pm.game = sgame
+  sgame.stack:push(pm)
+  press(pm, "a") -- open the submenu
+  check(pm.subItems[#pm.subItems].action == "strength",
+    "the strength row is listed with badge + move")
+  pm.subIndex = #pm.subItems
+  press(pm, "a") -- run STRENGTH
+  local states = sgame.stack.states
+  check(#states == 2 and states[1].frames ~= nil
+    and states[2].pages ~= nil,
+    "the blink sits under the strength texts")
+  check(owStub.strengthActive == true, "strength still activates")
+end
+
 -- ------- mod.ui helpers and theme defaults
 local items = { { label = "A" }, { label = "B" } }
 ModUI.insertAfter(items, "A", { label = "X" })
