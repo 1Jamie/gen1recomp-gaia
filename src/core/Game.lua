@@ -191,6 +191,15 @@ end
 -- or screenshot run does not depend on whatever the player last chose.
 function Game:logicSpeed()
   local GameSpeed = require("src.core.GameSpeed")
+  -- Link play is always 1X on both machines, and this wins over every other
+  -- source including POKEPORT_SPEED.  Fast-forward multiplies the logic
+  -- clock, so a peer at 10X burned a tournament shot clock ten times faster
+  -- than the opponent it is racing, and drove its own animation/message
+  -- queue at a different rate than the peer it is locked to.  Nothing about
+  -- a match should depend on what either player set this to.
+  if self.linkSession or (self.linkNet and not self.linkNet.closed) then
+    return 1
+  end
   if self.speedOverride then return GameSpeed.clamp(self.speedOverride) end
   local opts = self.save and self.save.options
   return GameSpeed.clamp(opts and opts.speed or GameSpeed.DEFAULT)

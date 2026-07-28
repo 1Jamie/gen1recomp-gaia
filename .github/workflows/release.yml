@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the macOS, Windows, and Linux desktop apps plus an Android APK
-# on the self-hosted Mac runner, and publishes them as a GitHub Release.
+# Builds the macOS, Windows, and Linux desktop apps, an Android APK, and the
+# Anbernic RG34XXSP (Stock OS 64-bit MOD / PortMaster) port on the self-hosted
+# Mac runner, and publishes them as a GitHub Release.
 #
 # Versioning:
 #   - First ever release is 0.1.0.
@@ -169,6 +170,13 @@ jobs:
           set -euo pipefail
           scripts/build_android.sh --version "${{ steps.ver.outputs.version }}"
 
+      - name: Build Anbernic RG34XXSP port
+        run: |
+          set -euo pipefail
+          # Self-contained aarch64 PortMaster-style pack; pulls the LÖVE 11.5
+          # runtime from PortMaster-GUI, so it needs no signing/notarization.
+          ./build-rg34xxsp.sh --version "${{ steps.ver.outputs.version }}"
+
       - name: Notarize & staple macOS app
         run: |
           set -euo pipefail
@@ -217,6 +225,12 @@ jobs:
           apk="$(find dist/android/debug -name '*.apk' | head -1)"
           [ -n "$apk" ] || { echo "::error::no Android APK found under dist/android/debug"; exit 1; }
           cp "$apk" "$outdir/gen1recomp-${v}-android.apk"
+
+          # Anbernic handheld port (suffix names the CFW it targets, so a
+          # future RG35XX/other-CFW pack can ship alongside it).
+          rg34="dist/rg34xxsp/gen1recomp-rg34xxsp-stockos64-mod.zip"
+          [ -f "$rg34" ] || { echo "::error::$rg34 not found (expected from ./build-rg34xxsp.sh)"; exit 1; }
+          cp "$rg34" "$outdir/gen1recomp-${v}-rg34xxsp-stockos64-mod.zip"
 
           # Platform-independent update payload, built alongside the desktop
           # apps above (same game.love that gets fused into each of them).
@@ -283,6 +297,7 @@ jobs:
             "dist/release/gen1recomp-${v}-windows.zip" \
             "dist/release/gen1recomp-${v}-linux.zip" \
             "dist/release/gen1recomp-${v}-android.apk" \
+            "dist/release/gen1recomp-${v}-rg34xxsp-stockos64-mod.zip" \
             "dist/release/gen1recomp-${v}.love" \
             "dist/release/sha256sums.txt"
 

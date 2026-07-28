@@ -475,6 +475,13 @@ function TileRenderer.new(map, data)
       -- match the atlas's static tiles instead of showing raw grayscale
       gbcCtx = { tilesetId = map.tileset.id, mapId = map.id, key = "#gbc:" .. map.id,
                 groupColors = PaletteFX.worldGroupColors(data, map.tileset.id, map.id, nil) }
+      -- ...and feeds the color-0-keyed single tiles the feet overdraw needs
+      -- (see getKeyedTile): same source image and palette groups, so keep the
+      -- context rather than re-deriving it per draw.
+      gbcCtx.imagePath = map.tileset.image
+      gbcCtx.perRow = map.tileset.tilesPerRow
+      self.gbcCtx = gbcCtx
+      self.gbcKeyed = {}
     end
   end
   -- a full-color atlas colors everything it paints, ring and border fill
@@ -672,17 +679,48 @@ local function getColor0KeyShader()
   return color0KeyShader or nil
 end
 
--- draw a cell's bottom tile row without touching the shader (the caller
--- owns it).  drawCellBottom wraps this with the color-0 key; tilt mode's
--- upright pass wraps it with a color-0-keyed palette shader instead
--- (PaletteFX.keyedShader) so the feet patch is colorized like the ground.
+-- RED++ (COLORS=ADVANCED): the color-0 key, BAKED instead of tested for.
+local function getKeyedTile(self, tile)
+  local ctx = self.gbcCtx
+  local cached = self.gbcKeyed[tile]
+  if cached ~= nil then return cached or nil end
+  local img = false
+  if ctx.groupColors and love.image and love.image.newImageData then
+    local group = PaletteFX.worldGroupAt(ctx.tilesetId, ctx.mapId, tile)
+    local colors = group and ctx.groupColors[group + 1]
+    local src = Assets.imageData(ctx.imagePath)
+    local ox = (tile % ctx.perRow) * 8
+    local oy = math.floor(tile / ctx.perRow) * 8
+    local out = love.image.newImageData(8, 8)
+    for py = 0, 7 do
+      for px = 0, 7 do
+        local r, g, b, a = src:getPixel(ox + px, oy + py)
+        -- read shade 0 off the RAW sheet, on recolorSample's own cutoff, so
+        -- the keyed pixels are exactly the ones the shader path keys
+        local shade0 = r > 0.83
+        r, g, b, a = recolorSample(r, g, b, a, colors)
+        out:setPixel(px, py, r, g, b, shade0 and 0 or a)
+      end
+    end
+    img = love.graphics.newImage(out)
+  end
+  self.gbcKeyed[tile] = img
+  return img or nil
+end
+
 function TileRenderer:drawCellBottomRaw(cx, cy, camX, camY)
   local ty = cy * 2 + 1
   for i = 0, 1 do
     local tx = cx * 2 + i
-    local quad = self.quads[self.map:tileAt(tx, ty)]
-    if quad then
-      love.graphics.draw(self.image, quad, tx * 8 - camX, ty * 8 - camY)
+    local tile = self.map:tileAt(tx, ty)
+    local keyed = tile and self.gbcCtx and getKeyedTile(self, tile)
+    if keyed then
+      love.graphics.draw(keyed, tx * 8 - camX, ty * 8 - camY)
+    else
+      local quad = self.quads[tile]
+      if quad then
+        love.graphics.draw(self.image, quad, tx * 8 - camX, ty * 8 - camY)
+      end
     end
   end
 end
@@ -690,7 +728,9 @@ end
 -- redraw a cell's bottom tile row (tall grass hides the lower half of
 -- sprites standing in it, like the GB sprite-priority trick)
 function TileRenderer:drawCellBottom(cx, cy, camX, camY)
-  local shader = getColor0KeyShader()
+  -- the RED++ path is pre-keyed; the white test would be a no-op there at
+  -- best, and a false hit on some other group's near-white color 0 at worst
+  local shader = not self.gbcCtx and getColor0KeyShader() or nil
   if shader then love.graphics.setShader(shader) end
   self:drawCellBottomRaw(cx, cy, camX, camY)
   if shader then love.graphics.setShader() end
@@ -712,13 +752,6 @@ function TileRenderer:markCellBottomRedraw(cx, cy, camX, camY, colors)
   end
 end
 
--- Window cover for the static tile layer.  Refill the reusable window batch
--- (and the per-entry animated batches) only when the camera has scrolled past
--- what they already cover; a small margin keeps small scrolls free.  Cost
--- scales with the view, never the map -- crossing a seam or warping in builds
--- nothing.  The beyond-body area (what the old 3-block ring drew) is painted
--- by :drawBorderFill, whose world-aligned border-block tiling is identical
--- there, so only body tiles are gathered here.
 local WINDOW_MARGIN = 8 -- tiles of slack kept around the view between refills
 
 function TileRenderer:ensureWindow(camX, camY, vw, vh)
@@ -873,6 +906,12 @@ end
 -- atlas -- is unique to this map (gbcAtlasCache is keyed by map id).
 function TileRenderer:release()
   self:releaseBatches()
+  if self.gbcKeyed then
+    -- baked per instance, shared with nobody (see getKeyedTile)
+    for _, img in pairs(self.gbcKeyed) do safeRelease(img) end
+    self.gbcKeyed = nil
+    self.gbcCtx = nil
+  end
   if self.gbcAtlas and self.image then
     local key = self.map.tileset.image .. "#gbc:" .. self.map.id
     if gbcAtlasCache[key] == self.image then gbcAtlasCache[key] = nil end

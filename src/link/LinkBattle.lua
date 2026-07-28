@@ -112,6 +112,19 @@ local function scalar(v)
   return tostring(v)
 end
 
+-- A volatile slot is "off" three interchangeable ways -- absent, false, or
+-- a counter sitting at 0 -- because every reader tests `if b.key then` or
+-- `key > 0`.  They have to hash the same, or a match ends over a difference
+-- that does not exist.  They routinely disagree: the menu-phase flinch
+-- clear (BattleState:update) and the FIGHT-branch boundTurns mirror
+-- (fightLockedAction) are written by whichever machine is sitting at ITS
+-- OWN menu, and in a link battle that is a different battler on each side,
+-- so one peer holds flinched=false / boundTurns=0 where the other still
+-- holds nil with two identical simulations underneath.
+local function off(v)
+  return v == nil or v == false or v == 0
+end
+
 local function stageStr(b)
   local out = {}
   for i, stat in ipairs(STAGES) do
@@ -131,7 +144,7 @@ end
 local function volStr(b)
   local out = {}
   for _, key in ipairs(VOLATILE) do
-    if b[key] ~= nil then
+    if not off(b[key]) then
       out[#out + 1] = key .. "=" .. scalar(b[key])
     end
   end
@@ -167,6 +180,17 @@ local function stateSig(self, role, myParty, theirParty)
 end
 
 local PARTS = { "actives", "volatile", "bench" }
+
+-- Which components are allowed to end a match.  `actives` and `bench` carry
+-- what decides one -- species, HP, status, stat stages, PP, the rest of the
+-- party -- so a divergence there is a real split between the two
+-- simulations and stays a draw.  `volatile` is per-turn bookkeeping that
+-- both sides recompute from the authoritative state every turn (see `off`
+-- above): it can disagree for a turn without either side being wrong, and
+-- when it does mean something real it lands in `actives` as damage or
+-- status within a turn or two, where it is caught.  Ending a match on it
+-- alone cost players games they were winning, over nothing.
+local FATAL_PART = { actives = true, bench = true }
 
 -- opts: { myParty = packed, theirParty = packed, theirName, role =
 -- "host"/"guest", seed, verdict, strict }.  Returns nil plus a reason when
@@ -315,10 +339,21 @@ function LinkBattle.new(game, net, opts)
     Logger.warn("link: desync turn %s component=%s (%s vs %s)",
                 tostring(turn), component, tostring(localH), tostring(remoteH))
     Runtime.emit("link.desync", { turn = turn, component = component,
-                                  localHash = localH, remoteHash = remoteH })
+                                  localHash = localH, remoteHash = remoteH,
+                                  fatal = true })
     endAsDraw(s, Strings(
       "Link desync!\n%s differs.\fAre both games\nrunning the same\nmods?",
       component))
+  end
+
+  -- a non-fatal component split: both sides log it and carry on, so the
+  -- match is decided by the battle rather than by bookkeeping
+  local function noteDrift(s, turn, component, localH, remoteH)
+    Logger.warn("link: %s drift on turn %s (%s vs %s) -- match continues",
+                component, tostring(turn), tostring(localH), tostring(remoteH))
+    Runtime.emit("link.desync", { turn = turn, component = component,
+                                  localHash = localH, remoteHash = remoteH,
+                                  fatal = false })
   end
 
   -- a verified turn stays recorded: consuming it here left a finished
@@ -333,8 +368,11 @@ function LinkBattle.new(game, net, opts)
         if mine and theirs then
           for _, component in ipairs(PARTS) do
             if mine[component] ~= theirs[component] then
-              reportDesync(s, turn, component, mine[component], theirs[component])
-              return
+              if FATAL_PART[component] then
+                reportDesync(s, turn, component, mine[component], theirs[component])
+                return
+              end
+              noteDrift(s, turn, component, mine[component], theirs[component])
             end
           end
         end
@@ -565,10 +603,19 @@ function LinkBattle.new(game, net, opts)
     if net.closed and not s.linkEnded and not s.result then
       endAsDraw(s)
     end
+    -- Both early returns below skip baseUpdate, which is where the
+    -- presentational clock normally advances -- so tick it here, in the same
+    -- order baseUpdate would (fx, then the queue).  Without this an
+    -- animation caught mid-flight froze for the whole wait: a flash stopped
+    -- on its inverted BGP step and repainted the UI in inverted shades, and
+    -- a pic part-way through a slide or grow-in stayed off screen, which is
+    -- the "the screen went inverted" / "a Pokemon just vanished" pair.
     if s.phase == "waitRemote" then
+      s:tickFx()
       return -- the other side is still choosing
     end
     if s.phase == "messages" and s.afterQueue == "linkNext" then
+      s:tickFx()
       if not s:updateQueue() then
         s.afterQueue = "menu"
         s.phase = "menu"
@@ -742,6 +789,13 @@ function LinkBattle.newSpectator(game, net, opts)
     end
 
     s:act(function()
+      -- the two real players cleared their flinch flags when their move
+      -- menu opened; a spectator has no menu, so it does it here instead,
+      -- at the same point in the turn (see BattleState:clearTurnFlinches).
+      -- Without this a flinch survived into the next turn and ate a move
+      -- that landed in the real match, and the replay -- sharing the RNG
+      -- stream -- was watching a different battle from that point on.
+      s:clearTurnFlinches()
       local hostAction = hostMsg.kind ~= "switch" and hostMsg.kind ~= "run"
                           and decodeWireAction(s, hostMsg, s.player) or nil
       local guestAction = guestMsg.kind ~= "switch" and guestMsg.kind ~= "run"
@@ -837,7 +891,11 @@ function LinkBattle.newSpectator(game, net, opts)
     if net.closed and not s.linkEnded and not s.result then
       endSpectate(s)
     end
+    -- same as the real-participant loop: every path that skips baseUpdate
+    -- still has to advance the presentational clock, and a spectator sits in
+    -- waitBoth between every single turn
     if s.phase == "messages" and s.afterQueue == "linkNext" then
+      s:tickFx()
       if not s:updateQueue() then
         s.afterQueue = "waitBoth"
         s.phase = "waitBoth"
@@ -845,6 +903,7 @@ function LinkBattle.newSpectator(game, net, opts)
       return
     end
     if s.phase == "menu" or s.phase == "waitBoth" then
+      s:tickFx()
       return -- frozen between resolved turns; never a real decision here
     end
     baseUpdate(s, dt)

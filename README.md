@@ -31,40 +31,6 @@ The packaged app contains neither a ROM nor pre-extracted game data. Music,
 sound effects, and cries are synthesized while the game runs from compact
 audio channel programs copied out of the verified ROM.
 
-## Anbernic RG34XXSP (Stock OS 64-bit MOD)
-
-Download `gen1recomp-*-rg34xxsp-stockos64-mod.zip` from
-[Releases](https://github.com/bryanthaboi/gen1recomp/releases). This build
-targets **Stock OS 64-bit MOD** on the RG34XXSP with PortMaster installed
-(TF1).
-
-1. Unzip the release on your computer. You get `Gen1recomp.sh` and a
-   `gen1recomp/` folder.
-2. Copy **both** onto the SD card under **`Roms/PORTS/`** so the layout is:
-
-   ```
-   Roms/PORTS/Gen1recomp.sh
-   Roms/PORTS/gen1recomp/
-   ```
-
-   On the device that path is `/mnt/mmc/Roms/PORTS/`. Keep the launcher and
-   the `gen1recomp/` folder as siblings — do not nest the `.sh` inside the
-   folder.
-3. Put your legal US Red and/or Blue `.gb` files inside the game folder:
-
-   ```
-   Roms/PORTS/gen1recomp/lovegame/
-   ```
-
-   Example: `Roms/PORTS/gen1recomp/lovegame/Pokemon - Red Version.gb`
-4. Eject the card, boot the handheld, open **Ports → Gen1recomp**.
-5. On the launcher, move the cursor with the D-pad or left stick, press **A**
-   to click. Choose the Red or Blue tab, then **Choose ROM** — with no file
-   picker on stock OS, that scans `lovegame/` for the `.gb` you dropped in.
-
-After import, saves and the ROM-derived cache stay next to the game on the
-SD card (`portable.txt`).
-
 ## Controls
 
 
@@ -167,7 +133,12 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## Handhelds
 
+A PortMaster-style port for the **Anbernic RG34XXSP** on Stock OS 64-bit MOD
+ships with every release as `gen1recomp-*-rg34xxsp-stockos64-mod.zip`.
+Install steps, controls, and troubleshooting live in
+[docs/anbernic-rg34xxsp.md](docs/anbernic-rg34xxsp.md).
 
 ## Modding
 
