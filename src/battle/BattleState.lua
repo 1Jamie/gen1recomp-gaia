@@ -1240,6 +1240,31 @@ local function clearTrapping(battler)
   battler.trapDamage = nil
 end
 
+-- core.asm:297-300: both sides' FLINCHED bits are cleared as a turn's move
+-- selection opens, but the clear is skipped for a mon that must recharge or
+-- is locked into Rage (core.asm:293-295 -- the Hyper Beam flinch-recharge
+-- glitch).
+--
+-- A method rather than three lines inside the menu branch, because two
+-- other places need the identical rule at the identical point in the turn
+-- and both got it wrong by not having it:
+--
+--   * guarded PER BATTLER, not off self.player alone.  This runs on
+--     whichever machine is looking at its own menu, and in a lockstep link
+--     battle "self.player" is the host's mon on one peer and the guest's on
+--     the other, so one shared guard let one peer clear both flags while
+--     the other cleared neither -- a bogus desync draw in a winnable match.
+--   * a tournament spectator never enters the menu phase at all (it has no
+--     decision to make), so nothing cleared a flinch in its replay: the
+--     flag survived into the next turn, ate a move the real players saw
+--     land, and from there the replay was watching a different battle.
+--     LinkBattle.newSpectator calls this at the head of every turn.
+function BattleState:clearTurnFlinches()
+  for _, b in ipairs({ self.player, self.enemy }) do
+    if b and not (b.mustRecharge or b.rageMove) then b.flinched = false end
+  end
+end
+
 -- Actions that skip DisplayBattleMenu entirely (core.asm:300-310):
 -- recharge, Rage, thrash, charge.  Bide / trapping / being held do NOT
 -- skip the menu -- the player can still item/switch (and must press
@@ -1260,11 +1285,17 @@ function BattleState:fightLockedAction(battler)
   end
   if battler.bideTurns then return { special = "bide" } end
   -- held while the OPPONENT's trapping bit is set (live mirror so a
-  -- trap ended early by paralysis/faint frees the victim immediately)
+  -- trap ended early by paralysis/faint frees the victim immediately).
+  -- Read, not written: executeAction refreshes battler.boundTurns from the
+  -- same expression when the action actually runs, and that site runs on
+  -- both peers of a link battle.  Storing it here instead wrote a hashed
+  -- field on whichever machine happened to open its own FIGHT menu, which
+  -- left the two peers holding boundTurns=0 against nil for the same
+  -- battler and ended the match as a desync over a mirror of a mirror.
   local opp = battler.isPlayer and self.enemy or self.player
-  battler.boundTurns = opp and opp.trappingTurns
-                       and math.max(1, opp.trappingTurns) or nil
-  if battler.boundTurns then
+  local bound = opp and opp.trappingTurns
+                and math.max(1, opp.trappingTurns) or nil
+  if bound then
     return { special = "bound" }
   end
   return nil
@@ -1301,9 +1332,23 @@ function BattleState:swapMoves(i, j)
   require("src.core.Sound").play(self.data, "Swap")
 end
 
-function BattleState:update(dt)
+-- One frame of the presentational clock: the BGP flash sequences, the
+-- per-battler pic slide/hide programs, the send-out grow-in, the intro
+-- slide and the screen-shake programs all advance in updateFx and nowhere
+-- else.  It lives behind its own entry point because a caller that has to
+-- skip the rest of update() for a frame must still tick this, and a link
+-- battle does exactly that on two hot paths -- waiting on the peer's action,
+-- and draining a resolved lockstep turn.  Skipping it there froze whatever
+-- was mid-flight: a flash stuck on its inverted BGP step repainted the whole
+-- UI in inverted shades, and a pic part-way through a slide-off or a grow-in
+-- simply stayed gone -- for as long as the opponent took to choose.
+function BattleState:tickFx()
   self.frame = self.frame + 1
   self:updateFx()
+end
+
+function BattleState:update(dt)
+  self:tickFx()
   local input = self.game.input
 
   -- safety net: HP/status changed outside a queued drain (level-up heals,
@@ -1386,13 +1431,7 @@ function BattleState:update(dt)
       end
       return
     end
-    -- core.asm:297-300: both sides' FLINCHED bits are cleared during
-    -- move selection, but the clear is skipped while the player must
-    -- recharge or is locked into Rage (core.asm:293-295 -- the Hyper
-    -- Beam flinch-recharge glitch)
-    if not (self.player.mustRecharge or self.player.rageMove) then
-      self.player.flinched, self.enemy.flinched = false, false
-    end
+    self:clearTurnFlinches()
     -- only recharge/Rage/thrash/charge skip DisplayBattleMenu; trapping
     -- victims (and wrappers) still get FIGHT/PKMN/ITEM/RUN (core.asm:312)
     local locked = self:menuLockedAction(self.player)

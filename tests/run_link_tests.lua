@@ -600,6 +600,51 @@ eq(battleSpec.player.mon.hp, battleE.player.mon.hp,
 eq(battleSpec.enemy.mon.hp, battleF.player.mon.hp,
    "spectator's guest-side HP matches the guest's own view")
 
+-- ---------------------------------------------------------------- fx clock
+-- A link battle skips BattleState:update on two hot paths -- waiting for the
+-- peer's action, and draining a resolved turn -- and the presentational
+-- clock (BGP flash sequences, pic slide/hide programs, the send-out grow-in)
+-- only advances inside it.  Frozen, a flash stopped on its inverted BGP step
+-- and repainted the UI in inverted shades, and a pic caught mid-slide stayed
+-- off screen, both for as long as the opponent took to choose.  These assert
+-- the clock keeps running on every path a link battle can sit in.
+local fxGame = makeFakeGame("CHARIZARD")
+local fxNetA = select(1, Net.loopbackPair())
+local fxBattle = LinkBattle.newHost(fxGame, fxNetA, {
+  myParty = Protocol.packParty(fxGame.save.party),
+  theirParty = Protocol.packParty(makeFakeGame("BLASTOISE").save.party),
+  theirName = "BLUE", seed = 99 })
+fxGame.stack:push(fxBattle)
+
+local function fxAdvances(phase, afterQueue)
+  fxBattle.phase = phase
+  fxBattle.afterQueue = afterQueue
+  -- a three-step flash sequence, exactly as an SE_* flash row starts one
+  fxBattle.fx = fxBattle.fx or {}
+  fxBattle.fx.bgpSeq = { steps = { { map = {}, frames = 2 },
+                                   { map = {}, frames = 2 },
+                                   { map = {}, frames = 2 } },
+                         idx = 1, left = 2 }
+  local startFrame = fxBattle.frame
+  for _ = 1, 4 do fxBattle:update(1 / 60) end
+  local seq = fxBattle.fx.bgpSeq
+  return fxBattle.frame > startFrame and (seq == nil or seq.idx > 1)
+end
+
+check(fxAdvances("waitRemote", nil),
+      "the fx clock keeps running while waiting for the peer's action")
+check(fxAdvances("messages", "linkNext"),
+      "the fx clock keeps running while a resolved turn drains")
+
+-- ---------------------------------------------------------------- desync fuzz
+-- The lockstep battle above holds A through one Charizard/Blastoise duel,
+-- which is one path.  This walks the rest -- random parties, switches,
+-- faints, locked actions -- with the two sides deliberately configured as
+-- DIFFERENT clients (options, game speed, relay lag), which is the shape
+-- every desync players reported actually had.
+local fuzzOk, fuzzErr = pcall(dofile, "tests/link_desync_fuzz.lua")
+check(fuzzOk, "lockstep desync fuzz" .. (fuzzOk and "" or (": " .. tostring(fuzzErr))))
+
 -- ---------------------------------------------------------------- mod link compat
 -- Self-contained like the tests/mod_*.lua suites: own bootstrap and
 -- assert-based checks, so it lands here as a single pass/fail line.

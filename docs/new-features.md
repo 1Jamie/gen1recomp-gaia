@@ -151,6 +151,30 @@ tradeoff vs. the relay). Headless tests drive the protocol over an
 in-memory loopback (`Net.loopbackPair`); under LÖVE the same test file
 also exercises real UDP pairing.
 
+## Fair play in link and online matches
+
+A link session is decided by the battle and nothing else, so for its
+duration:
+
+- **Game speed is pinned to normal.** The GAME SPEED option and
+  `POKEPORT_SPEED` are ignored from the moment LINK PLAY opens until it
+  closes, and apply again after. Fast-forward otherwise runs one peer's
+  queue faster than the peer it is locked to and drains a tournament shot
+  clock faster than the opponent racing it.
+- **Online play runs vanilla.** Picking ONLINE MATCH or TOURNAMENT with
+  mods enabled offers to switch them all off and relaunch (mods merge at
+  boot, so a restart is the only way). The restart is confirmed, not
+  silent. They stay listed as disabled, ready to switch back on.
+- **Only a meaningful split ends a match.** The per-turn state signature
+  both peers exchange is split three ways: `actives` and `bench` carry
+  species, HP, status, stat stages, PP and the rest of the party, and a
+  divergence there ends the match as a draw. `volatile` carries per-turn
+  flags both sides recompute anyway - a divergence there is logged and
+  reported to mods, and play continues.
+
+The relay logs which component diverged on which turn, so a desync report
+names something specific.
+
 ## Custom boot text
 
 The boot sequence replaces the Nintendo / GAME FREAK identifiers with

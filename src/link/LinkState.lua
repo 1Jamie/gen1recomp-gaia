@@ -73,6 +73,9 @@ end
 function LinkState.new(game)
   local self = setmetatable({}, LinkState)
   self.game = game
+  -- a link session runs at 1X on both machines whatever either player set
+  -- GAME SPEED to (see Game:logicSpeed); cleared in exitWith
+  game.linkSession = true
   self.stage = "menu"
   self.index = 1
   self.addr = ipDigits(Net.lanIP())
@@ -98,12 +101,53 @@ end
 
 function LinkState:exitWith(message, reason)
   DiscordPresence.setJoinCode(nil)
+  self.game.linkSession = nil -- back to the player's own GAME SPEED
   Runtime.emit("link.ended", { reason = reason or (message and "error" or "bye") })
   if self.net then self.net:close() end
   self.game.stack:pop()
   if message then
     self.game.stack:push(TextBox.new(self.game, message))
   end
+end
+
+-- Online play meets strangers, so it requires vanilla on both ends
+-- (Handshake.onlineAllowed).  Mods merge into the shared Data registries at
+-- boot and there is no unmerge, so switching them off has to go through a
+-- relaunch -- but the player should not have to go find the mod manager and
+-- work out which mods count.  This turns every enabled mod off, records
+-- them so the mod manager can put them back, and relaunches.  The restart
+-- is confirmed rather than silent: it drops unsaved progress.
+function LinkState:offerVanillaRestart()
+  local game = self.game
+  local loader = game.mods
+  local mods = Handshake.mods(game)
+  local names = {}
+  for i, mod in ipairs(mods) do
+    if i > 2 then break end
+    names[#names + 1] = tostring(mod.id):upper():sub(1, 12)
+  end
+  local list = table.concat(names, ", ")
+  if #mods > #names then list = list .. (" +%d"):format(#mods - #names) end
+  local text = Strings(
+    "Online play runs\nvanilla for both\nplayers.\fTurn off %s\nand restart?", list)
+  self.game.linkSession = nil
+  Runtime.emit("link.ended", { reason = "error" })
+  if self.net then self.net:close() end
+  game.stack:pop()
+  game.stack:push(TextBox.new(game, text, nil, { choice = function(yes)
+    if not yes then return end
+    -- setEnabled persists the toggle itself (Loader:_saveState), so the
+    -- relaunch comes up vanilla and the mod manager lists them as disabled
+    -- for the player to switch back on afterwards
+    for _, mod in ipairs(mods) do
+      if loader and loader.setEnabled then loader:setEnabled(mod.id, false) end
+    end
+    if game.restartWithMods then
+      game:restartWithMods()
+    elseif love.event and love.event.quit then
+      love.event.quit("restart")
+    end
+  end }))
 end
 
 -- -------------------------------------------------------------------
@@ -202,7 +246,7 @@ function LinkState:update(dt)
         self.index = 1
       elseif self.index == 2 or self.index == 3 then
         if not Handshake.onlineAllowed(self.game) then
-          self:exitWith(Strings("Online play needs\nno mods enabled.\fDisable them in\nSTART > MODS."))
+          self:offerVanillaRestart()
           return
         end
         if self.index == 2 then
@@ -509,6 +553,7 @@ function LinkState:updateTrade(input)
     if self.game.writeSave then self.game:writeSave() end
     local name = received.nickname or self.game.data.pokemon[received.species].name
     Runtime.emit("link.ended", { reason = "done" })
+    self.game.linkSession = nil -- this path pops without exitWith
     self.net:close()
     self.game.stack:pop()
     local game = self.game

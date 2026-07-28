@@ -91,6 +91,11 @@ function Tournament.new(game)
   self.settingsIndex = 1
   self.roster = {}
   self.spectatorRoster = {}
+  -- everything from here to exitWith runs at 1X regardless of the GAME
+  -- SPEED option (see Game:logicSpeed): a tournament's shot clock counts
+  -- down on the logic step, so fast-forward would hand one player less
+  -- real time to choose than the opponent they are racing
+  game.linkSession = true
   Sound.startLoop(game.data, MUSIC)
   return self
 end
@@ -113,6 +118,7 @@ end
 
 function Tournament:exitWith(message)
   DiscordPresence.setJoinCode(nil)
+  self.game.linkSession = nil -- back to the player's own GAME SPEED
   Sound.stopLoop(MUSIC)
   Runtime.emit("link.ended", { reason = message and "error" or "bye" })
   if self.net then self.net:close() end
