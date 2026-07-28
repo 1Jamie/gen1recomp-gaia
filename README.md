@@ -1,4 +1,4 @@
-# Pokemon Gen 1 Recompilation Project
+# Gen1Recomp
 
 A native LÖVE2D recreation of Pokemon Red and Blue. The engine and map
 behavior are hand-written Lua; game data and graphics are decoded from a ROM
