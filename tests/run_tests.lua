@@ -2886,6 +2886,47 @@ do
   Font.drawCode, Font.drawBox = origCode, origBox
   eq(drawn, 0, "no current message and no animation draws no text")
 end
+
+-- issue #295: during a window shake the zone pass draws only the shifted
+-- copy; a base copy underneath ghosted the HUD names in the vacated strip
+do
+  local PaletteFX = require("src.render.PaletteFX")
+  local origShaderFn, origSend = PaletteFX.shader, PaletteFX.sendColors
+  local origPermute = PaletteFX.permute
+  local origDraw, origRect = love.graphics.draw, love.graphics.rectangle
+  PaletteFX.shader = function() return nil end
+  PaletteFX.sendColors = function() end
+  PaletteFX.permute = function(p) return p end
+  local draws, fills = {}, 0
+  love.graphics.draw = function(_, x, y) draws[#draws + 1] = { x, y } end
+  love.graphics.rectangle = function(mode) if mode == "fill" then fills = fills + 1 end end
+  local battle = setmetatable({ fx = {} }, BattleState)
+  function battle:sgbBattlePals() return setmetatable({}, { __index = function() return {} end }) end
+  function battle:activeBgp() return nil end
+
+  battle:drawZonePass("canvas", 0, 8)
+  check(#draws > 0, "the zone pass still draws during a shake")
+  local shiftedOnly = true
+  for _, d in ipairs(draws) do
+    if d[1] == 0 and d[2] == 0 then shiftedOnly = false end
+    if d[2] ~= 8 then shiftedOnly = false end
+  end
+  check(shiftedOnly, "a shake draws only the shifted copy, no base copy")
+  check(fills == #draws, "the vacated strip is filled blank per zone")
+
+  draws, fills = {}, 0
+  battle:drawZonePass("canvas", 0, 0)
+  local baseOnly = #draws > 0
+  for _, d in ipairs(draws) do
+    if d[1] ~= 0 or d[2] ~= 0 then baseOnly = false end
+  end
+  check(baseOnly, "no shake draws the single base copy as before")
+  check(fills == 0, "no strip fill without a shake")
+
+  love.graphics.draw, love.graphics.rectangle = origDraw, origRect
+  PaletteFX.shader, PaletteFX.sendColors = origShaderFn, origSend
+  PaletteFX.permute = origPermute
+end
 end
 
 -- ================= BUGS.md batch: ledge-shadow =================

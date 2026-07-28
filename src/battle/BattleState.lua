@@ -4006,9 +4006,10 @@ end
 
 -- recolor the grayscale BG canvas per zone; an active BGP fade permutes
 -- the zone palette (the SGB colors the remapped DMG shade).  A window
--- shake draws a second, offset copy over the base one: the color
--- regions themselves never move on the SGB, and the vacated strip
--- shows the unshifted BG map like the hardware.
+-- shake draws only the offset copy: the baked canvas holds the HUDs and
+-- text box (window-layer content), so compositing an unshifted copy
+-- underneath ghosted every name in the vacated strip (#295).  The strip
+-- shows blank color 0 instead, like the hardware revealing empty BG.
 function BattleState:drawZonePass(src, sx, sy)
   local PaletteFX = require("src.render.PaletteFX")
   local shader = PaletteFX.shader()
@@ -4016,13 +4017,17 @@ function BattleState:drawZonePass(src, sx, sy)
   local bgp = self:activeBgp()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(shader)
+  local shaking = sx ~= 0 or sy ~= 0
   for _, z in ipairs(BATTLE_ZONES) do
     PaletteFX.sendColors(shader, PaletteFX.permute(pals[z.pal], bgp))
-    love.graphics.setScissor(z[1] * 8, z[2] * 8,
-                             (z[3] - z[1] + 1) * 8, (z[4] - z[2] + 1) * 8)
-    love.graphics.draw(src, 0, 0)
-    if sx ~= 0 or sy ~= 0 then
+    local zx, zy = z[1] * 8, z[2] * 8
+    local zw, zh = (z[3] - z[1] + 1) * 8, (z[4] - z[2] + 1) * 8
+    love.graphics.setScissor(zx, zy, zw, zh)
+    if shaking then
+      love.graphics.rectangle("fill", zx, zy, zw, zh)
       love.graphics.draw(src, sx, sy)
+    else
+      love.graphics.draw(src, 0, 0)
     end
   end
   love.graphics.setScissor()
