@@ -472,5 +472,101 @@ else
         math.floor(rs.playTime / 3600), math.floor(rs.playTime / 60) % 60))
 end
 
+-- ------------------------------------------------------------------
+-- #206 export fidelity, found while auditing the reporter's PKHeX shots:
+--
+-- 1. Name fields on a templateless (engine-origin) export must be
+--    $50-PADDED after the terminator, like every real save the naming
+--    screen ever wrote -- a zero tail is what PKHeX rendered as "JOHN{}".
+-- 2. wOptions (0x2601) must carry the text speed / battle style / battle
+--    effects bits; it was never written at all.
+-- 3. The party/box catch-rate byte freezes at catch time in Gen1
+--    (evolution does NOT update it), so a mon carries its
+--    as-caught catchRate and encode() must write that, not blindly
+--    re-derive from the current species (PKHeX: "Expected a preevolution
+--    catch rate").
+-- ------------------------------------------------------------------
+
+-- (1) templateless export pads every name tail with $50
+do
+  local function nameField(bytes, off, label)
+    local term
+    for i = 0, 10 do
+      if bytes:byte(off + i + 1) == 0x50 then term = i break end
+    end
+    check(term ~= nil, label .. ": a $50 terminator exists")
+    if term then
+      for i = term + 1, 10 do
+        if bytes:byte(off + i + 1) ~= 0x50 then
+          check(false, label .. ": tail byte " .. i .. " is $50 padding, got $"
+                .. ("%02X"):format(bytes:byte(off + i + 1)))
+          return
+        end
+      end
+      check(true, label .. ": the tail is $50-padded")
+    end
+  end
+  -- bytes2 is templateless (ASH/GARY, MEW in the party, PIKACHU boxed)
+  nameField(bytes2, OFF.playerName, "player name")
+  nameField(bytes2, OFF.rivalName, "rival name")
+  nameField(bytes2, OFF.partyMonOT, "party OT")
+  nameField(bytes2, OFF.partyMonNicks, "party nickname")
+  local box3 = OFF.box1 + 2 * GenSave.BOX_REGION_SIZE
+  nameField(bytes2, box3 + 22 + 20 * 33, "box OT")
+  nameField(bytes2, box3 + 22 + 20 * (33 + 11), "box nickname")
+  -- ...while a template's nonzero stale bytes still survive (round-trip):
+  -- the template-aware block above already proves byte-identical tails.
+end
+
+-- (2) wOptions carries text speed (bits 2-0), battle style (bit 6) and
+-- battle effects off (bit 7)
+do
+  local o = SaveData.newGame({ playerName = "RED" })
+  o.options = SaveData.mergeOptions({ textSpeed = 1, battleStyle = "set",
+                                      animations = false })
+  local ob = GenSave.encode(o, data, nil)
+  check(ob:byte(OFF.options + 1) == 0x80 + 0x40 + 1,
+        ("wOptions packs effects-off + set style + fast text ($%02X)"):format(
+          ob:byte(OFF.options + 1)))
+  local o2 = SaveData.newGame({ playerName = "RED" })
+  o2.options = SaveData.defaultOptions() -- textSpeed 3, shift, animations on
+  local ob2 = GenSave.encode(o2, data, nil)
+  check(ob2:byte(OFF.options + 1) == 3,
+        ("wOptions defaults to medium text, shift style, effects on ($%02X)"):format(
+          ob2:byte(OFF.options + 1)))
+  -- ...but with a template the cartridge's own byte wins (the round-trip
+  -- invariant): an imported save's FAST+SET options must not be flattened
+  -- to the session defaults on re-export
+  local tpl = {}
+  for i = 1, GenSave.SAVE_SIZE do tpl[i] = string.char(0) end
+  tpl[OFF.options + 1] = string.char(0xC1)
+  local ob3 = GenSave.encode(o2, data, table.concat(tpl))
+  check(ob3:byte(OFF.options + 1) == 0xC1,
+        ("wOptions survives from the template on re-export ($%02X)"):format(
+          ob3:byte(OFF.options + 1)))
+end
+
+-- (3) catchRate: Pokemon.new stamps the as-caught byte, evolution keeps it,
+-- encode prefers the mon's byte over the current species def
+do
+  local Pokemon = require("src.pokemon.Pokemon")
+  local Evolution = require("src.pokemon.Evolution")
+  local mon = Pokemon.new(data, "NIDORAN_F", 16)
+  check(mon.catchRate == data.pokemon.NIDORAN_F.catchRate,
+        "Pokemon.new stamps the species catchRate (the as-caught byte)")
+  local game = { data = data, save = { pokedex = { seen = {}, owned = {} } } }
+  Evolution.apply(game, mon, "NIDORINA")
+  check(mon.species == "NIDORINA" and mon.catchRate == data.pokemon.NIDORAN_F.catchRate,
+        "evolution preserves the as-caught catchRate byte (Gen1 quirk)")
+  local s = SaveData.newGame({ playerName = "RED" })
+  s.party = { mon }
+  for i = 1, 12 do s.boxes = s.boxes or {}; s.boxes[i] = {} end
+  local sb = GenSave.encode(s, data, nil)
+  check(sb:byte(OFF.partyMons + 7 + 1) == data.pokemon.NIDORAN_F.catchRate,
+        "encode writes the mon's catchRate, not the evolved species' ("
+        .. sb:byte(OFF.partyMons + 7 + 1) .. " vs "
+        .. data.pokemon.NIDORAN_F.catchRate .. ")")
+end
+
 print(string.format("save convert: %d/%d checks passed", checks - failures, checks))
 if failures > 0 then os.exit(1) end
