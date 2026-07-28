@@ -169,6 +169,11 @@ function Game:returnToTitle()
 end
 
 function Game:step(dt)
+  -- Tool mods (autoplay, accessibility drivers, input visualizers) act on
+  -- the same fixed-step boundary as a physical controller.  Run them before
+  -- Input:step promotes queued edges so a button chosen here is visible to
+  -- this logic tick, not one tick later.  With no wrapper this is a no-op.
+  ModRuntime.call("input.step", function() end, self, dt)
   self.input:step()
   -- serviced unconditionally: a link battle's ENet transport must not
   -- stall just because PartyMenu/ChoiceBox/NamingScreen is temporarily
@@ -476,6 +481,11 @@ end
 -- Capture the live world state into the save table and persist it.
 -- Options are flushed to options.lua as part of SaveData.save.
 function Game:writeSave()
+  -- Tool sessions can be deliberately ephemeral. Give them one narrow veto
+  -- before captureSave mutates the snapshot or any progress bytes reach disk.
+  if ModRuntime.call("save.write", function() return true end, self) == false then
+    return false
+  end
   if self.overworld and self.overworld.captureSave then
     self.overworld:captureSave(self.save)
   end
@@ -486,7 +496,7 @@ function Game:writeSave()
   if ModRuntime.wants("save.writing") then
     ModRuntime.emit("save.writing", { save = self.save, meta = self.save.meta })
   end
-  SaveData.save(self.save)
+  return SaveData.save(self.save)
 end
 
 -- Persist options.lua only (Options menu / hotkeys 2-5).  Keeps settings
