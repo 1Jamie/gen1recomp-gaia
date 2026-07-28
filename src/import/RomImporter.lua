@@ -519,6 +519,14 @@ function RomImporter.new(onComplete, opts)
     -- Android SAF create-document: which game's SAVE FILES card should show
     -- "Save exported." when export_done.flag appears on focus.
     androidPendingExportVersion = nil,
+    -- Virtual pointer for handhelds / gamepads (Anbernic stock OS has no
+    -- mouse).  D-pad + left stick move it; A clicks; shoulders cycle tabs;
+    -- right stick scrolls the save-slot / mods lists.
+    _padCursor = { x = 0, y = 0 },
+    _padCursorActive = false,
+    _padAxis = { leftx = 0, lefty = 0, righty = 0 },
+    _padDir = {},
+    _padInited = false,
   }, RomImporter)
 
   for _, version in ipairs(GameVersion.ORDER) do
@@ -569,6 +577,15 @@ function RomImporter.new(onComplete, opts)
       self.Check = Check
       pcall(Check.start)
     end
+  end
+
+  -- On Linux handhelds a gamepad is usually already connected at boot; arm
+  -- the virtual cursor immediately so the player does not have to press a
+  -- button before seeing something move.
+  if self.launcher and love.system.getOS() == "Linux"
+      and love.joystick and love.joystick.getJoystickCount
+      and love.joystick.getJoystickCount() > 0 then
+    self:_activatePadCursor()
   end
 
   return self
@@ -1004,6 +1021,7 @@ end
 
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
+  self:_updatePadCursor(dt)
   if self.workState ~= "working" or not self.worker then return end
   local started = love.timer.getTime()
   repeat
@@ -1018,6 +1036,125 @@ function RomImporter:update(dt)
       return
     end
   until love.timer.getTime() - started >= 0.008
+end
+
+-- ------- gamepad virtual cursor (handheld / PortMaster) --------------------
+local PAD_DEAD = 0.28
+local PAD_SPEED = 560   -- px/s at full stick deflection
+local PAD_DPAD_SPEED = 420
+
+function RomImporter:_activatePadCursor()
+  if self._padCursorActive then return end
+  local w, h = love.graphics.getDimensions()
+  if not self._padInited then
+    self._padCursor.x = w * 0.5
+    self._padCursor.y = h * 0.45
+    self._padInited = true
+  end
+  self._padCursorActive = true
+end
+
+function RomImporter:_cycleTab(delta)
+  local order = { "red", "blue", "yellow", "mods" }
+  local idx = 1
+  for i, id in ipairs(order) do
+    if id == self.tab then idx = i; break end
+  end
+  idx = ((idx - 1 + delta) % #order) + 1
+  self.tab = order[idx]
+  self._slotPress = nil
+  self._modPress = nil
+end
+
+function RomImporter:_updatePadCursor(dt)
+  -- Real mouse motion yields the pad cursor so desktop users keep a normal
+  -- pointer after bumping a stick once.
+  local mx, my = love.mouse.getPosition()
+  if self._lastMouseX and self._padCursorActive then
+    if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
+      self._padCursorActive = false
+    end
+  end
+  self._lastMouseX, self._lastMouseY = mx, my
+
+  local ax = self._padAxis.leftx or 0
+  local ay = self._padAxis.lefty or 0
+  local dx, dy = 0, 0
+  if math.abs(ax) > PAD_DEAD then dx = dx + ax end
+  if math.abs(ay) > PAD_DEAD then dy = dy + ay end
+  if self._padDir.dpleft then dx = dx - 1 end
+  if self._padDir.dpright then dx = dx + 1 end
+  if self._padDir.dpup then dy = dy - 1 end
+  if self._padDir.dpdown then dy = dy + 1 end
+
+  if dx ~= 0 or dy ~= 0 then
+    self:_activatePadCursor()
+    local mag = math.sqrt(dx * dx + dy * dy)
+    if mag > 1 then dx, dy = dx / mag, dy / mag end
+    local speed = (math.abs(ax) > PAD_DEAD or math.abs(ay) > PAD_DEAD)
+      and PAD_SPEED or PAD_DPAD_SPEED
+    local w, h = love.graphics.getDimensions()
+    local nx = self._padCursor.x + dx * speed * dt
+    local ny = self._padCursor.y + dy * speed * dt
+    self._padCursor.x = math.max(0, math.min(w, nx))
+    self._padCursor.y = math.max(0, math.min(h, ny))
+  end
+
+  -- Right stick scrolls the active list (save slots or mods).
+  local ry = self._padAxis.righty or 0
+  if math.abs(ry) > PAD_DEAD then
+    self:_activatePadCursor()
+    local step = -ry * 480 * dt
+    if self.tab == "mods" then
+      local maxS = self._modMax or 0
+      if maxS > 0 then
+        local next = (self.modScroll or 0) + step
+        self.modScroll = math.max(0, math.min(maxS, next))
+      end
+    elseif self.tab == "red" or self.tab == "blue" then
+      local maxS = (self._slotMax and self._slotMax[self.tab]) or 0
+      if maxS > 0 then
+        local next = (self.slotScroll[self.tab] or 0) + step
+        self.slotScroll[self.tab] = math.max(0, math.min(maxS, next))
+      end
+    end
+  end
+end
+
+function RomImporter:gamepadpressed(_, button)
+  self:_activatePadCursor()
+  if button == "a" then
+    -- Instant click at the virtual pointer (same path as a mouse/touch tap).
+    self:mousepressed(self._padCursor.x, self._padCursor.y, 1)
+  elseif button == "leftshoulder" then
+    self:_cycleTab(-1)
+  elseif button == "rightshoulder" then
+    self:_cycleTab(1)
+  elseif button == "dpup" or button == "dpdown"
+      or button == "dpleft" or button == "dpright" then
+    self._padDir[button] = true
+  elseif button == "start" or button == "back" then
+    -- Start / Select: Play if ready, else Choose ROM on the active game tab.
+    if self.workState == "working" then return end
+    local version = self.tab
+    if version == "red" or version == "blue" then
+      if self.ready[version] then self:play(version) else self:choose(version) end
+    end
+  end
+end
+
+function RomImporter:gamepadreleased(_, button)
+  if button == "dpup" or button == "dpdown"
+      or button == "dpleft" or button == "dpright" then
+    self._padDir[button] = nil
+  end
+end
+
+function RomImporter:gamepadaxis(_, axis, value)
+  if axis == "leftx" or axis == "lefty" or axis == "righty" then
+    self._padAxis[axis] = value
+    if math.abs(value) > PAD_DEAD then self:_activatePadCursor() end
+  end
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.
@@ -1214,12 +1351,17 @@ function RomImporter:draw()
   local pulse = self.pulse
   self._s = s
 
-  -- Hover state (desktop only -- touch has no cursor).  Panel methods read the
-  -- pointer + set self._anyHover through self:_hover; the cursor is set at the
-  -- end.  Reset the per-frame hit rects so a tab with no controls (mods) cannot
+  -- Hover state.  Desktop mouse, or the gamepad virtual cursor on handhelds
+  -- (Android stays touch-only -- no hover).  Panel methods read the pointer +
+  -- set self._anyHover through self:_hover; the cursor is set at the end.
+  -- Reset the per-frame hit rects so a tab with no controls (mods) cannot
   -- inherit last frame's game-panel buttons.
-  self._mx, self._my = love.mouse.getPosition()
-  self._hoverEnabled = not self.android
+  if self._padCursorActive then
+    self._mx, self._my = self._padCursor.x, self._padCursor.y
+  else
+    self._mx, self._my = love.mouse.getPosition()
+  end
+  self._hoverEnabled = self._padCursorActive or not self.android
   self._anyHover = false
   self.romButtonRect = nil
   self.playButtonRect = nil
@@ -1578,13 +1720,42 @@ function RomImporter:draw()
   self:_updateSlotDrag()
 
   -- pointer cursor over any interactive element (desktop only)
-  if self._hoverEnabled and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
+  if self._hoverEnabled and not self._padCursorActive
+      and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
     if self._anyHover then
       self.handCursor = self.handCursor or love.mouse.getSystemCursor("hand")
       love.mouse.setCursor(self.handCursor)
     else
       resetPointerCursor(self)
     end
+  end
+
+  -- Gamepad virtual cursor (drawn last so it sits above the CRT overlay).
+  if self._padCursorActive then
+    local x, y = self._padCursor.x, self._padCursor.y
+    local hot = self._anyHover
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setLineWidth(1)
+    -- Drop shadow
+    love.graphics.setColor(0, 0, 0, 0.45)
+    love.graphics.polygon("fill",
+      x + 2, y + 2, x + 2, y + 22, x + 8, y + 16, x + 14, y + 26,
+      x + 18, y + 24, x + 11, y + 14, x + 20, y + 14)
+    -- Pointer body
+    if hot then
+      love.graphics.setColor(0.25, 0.95, 0.55, 1)
+    else
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    love.graphics.polygon("fill",
+      x, y, x, y + 20, x + 6, y + 14, x + 12, y + 24,
+      x + 16, y + 22, x + 9, y + 12, x + 18, y + 12)
+    love.graphics.setColor(0.05, 0.07, 0.12, 1)
+    love.graphics.polygon("line",
+      x, y, x, y + 20, x + 6, y + 14, x + 12, y + 24,
+      x + 16, y + 22, x + 9, y + 12, x + 18, y + 12)
+    love.graphics.pop()
   end
 end
 

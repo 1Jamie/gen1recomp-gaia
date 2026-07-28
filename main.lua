@@ -315,19 +315,19 @@ end
 
 function love.gamepadpressed(joystick, button)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadpressed(joystick, button) end
   Game:gamepadpressed(joystick, button)
 end
 
 function love.gamepadreleased(joystick, button)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadreleased(joystick, button) end
   Game:gamepadreleased(joystick, button)
 end
 
 function love.gamepadaxis(joystick, axis, value)
   if editorMode then return end
-  if Importer then return end
+  if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   Game:gamepadaxis(joystick, axis, value)
 end
 

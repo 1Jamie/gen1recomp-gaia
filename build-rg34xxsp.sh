@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build a PortMaster-style aarch64 port of gen1recomp for Anbernic RG34XXSP
-# stock OS (Allwinner H700, 64-bit Stock OS / Stock OS Mod + PortMaster).
+# on Stock OS 64-bit MOD (H700; cbepx-me StockOS MOD / official V1.0.6 base
+# + PortMaster).
 #
 # The stock Anbernic firmware resolves ports relative to the launch script
 # (roms/PORTS/...), not PortMaster's /$directory/ports/... path. This pack
@@ -11,10 +12,10 @@
 #   ./build-rg34xxsp.sh [--version X.Y.Z]
 #
 # Output:
-#   dist/rg34xxsp/gen1recomp-rg34xxsp.zip
+#   dist/rg34xxsp/gen1recomp-rg34xxsp-stockos64-mod.zip
 #
 # Install on device:
-#   1. Flash / run 64-bit Stock OS (or Stock OS Mod) with PortMaster installed.
+#   1. Flash / run Stock OS 64-bit MOD with PortMaster installed.
 #   2. Unzip into the SD card's roms/PORTS/ folder so you have:
 #        roms/PORTS/Gen1recomp.sh
 #        roms/PORTS/gen1recomp/...
@@ -31,6 +32,10 @@ WORK="$HERE/work/rg34xxsp"
 DIST="$ROOT/dist/rg34xxsp"
 
 APP_NAME="gen1recomp"
+# Artifact suffix matches the CFW this port targets (Anbernic H700 Stock OS
+# 64-bit MOD for RG34XXSP). Release uploads stage it as
+# gen1recomp-<ver>-rg34xxsp-stockos64-mod.zip.
+ARTIFACT_SUFFIX="rg34xxsp-stockos64-mod"
 PORT_DIR_NAME="gen1recomp"
 LAUNCHER_NAME="Gen1recomp.sh"
 LOVE_VERSION="11.5"
@@ -235,7 +240,7 @@ cat > "$PORT_ROOT/port.json" <<EOF
   "attr": {
     "title": "gen1recomp",
     "desc": "Native LÖVE2D recreation of Pokemon Red and Blue. Supply your own legal US Red or Blue ROM.",
-    "inst": "Copy a canonical US Red or Blue .gb into gen1recomp/lovegame/, then launch and press Choose ROM. Requires 64-bit Stock OS with PortMaster.",
+    "inst": "Requires Anbernic RG34XXSP Stock OS 64-bit MOD with PortMaster. Copy a canonical US Red or Blue .gb into gen1recomp/lovegame/, then launch and press Choose ROM.",
     "genres": ["adventure", "rpg"],
     "porter": ["gen1recomp"],
     "image": {},
@@ -263,17 +268,29 @@ cat > "$PORT_ROOT/gameinfo.xml" <<EOF
 EOF
 
 cat > "$PORT_ROOT/README.md" <<'EOF'
-## gen1recomp (RG34XXSP / Anbernic stock OS)
+## gen1recomp (RG34XXSP / Stock OS 64-bit MOD)
 
-Native LÖVE 11.5 port of gen1recomp for Anbernic RG34XXSP (H700) 64-bit stock OS
-with PortMaster.
+Native LÖVE 11.5 port of gen1recomp for Anbernic RG34XXSP on
+**Stock OS 64-bit MOD** (H700, PortMaster).
 
 ### Install
 
-1. Use **64-bit Stock OS** (or Stock OS Mod) with PortMaster installed.
+1. Use **Stock OS 64-bit MOD** with PortMaster installed (TF1).
 2. Unzip so `Gen1recomp.sh` and the `gen1recomp/` folder sit in `roms/PORTS/`.
 3. Copy a legal US Pokemon Red or Blue `.gb` into `gen1recomp/lovegame/`.
 4. Refresh Ports / restart EmulationStation and launch **Gen1recomp**.
+
+### Controls (launcher)
+
+| Input | Action |
+|--|--|
+| D-pad / left stick | Move cursor |
+| A | Click |
+| L1 / R1 | Switch tabs |
+| Right stick | Scroll lists |
+| Start / Select | Play or Choose ROM |
+
+In-game controls use the normal PortMaster / SDL pad map (rebind under OPTIONS → CONTROLS).
 
 ### First run
 
@@ -286,23 +303,19 @@ Canonical SHA-1 (1 MiB US carts only):
 - Red: `ea9bcae617fdf159b045185467ae58b2e4a48b9a`
 - Blue: `d7037c83e1ae5b39bde3c30787637ba1d4c48ce2`
 
-### Controls
-
-Physical controls map through PortMaster / SDL. Rebind in-game under
-OPTIONS → CONTROLS.
-
 ### Thanks
 
 LÖVE runtime binaries from [PortMaster](https://portmaster.games/).
+Stock OS 64-bit MOD: [cbepx-me](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification).
 EOF
 
 # --------------------------------------------------------------- zip
-ZIP_OUT="$DIST/$APP_NAME-rg34xxsp.zip"
-rm -f "$ZIP_OUT"
+ZIP_OUT="$DIST/$APP_NAME-$ARTIFACT_SUFFIX.zip"
+rm -f "$ZIP_OUT" "$DIST/$APP_NAME-rg34xxsp.zip"
 say "packing $ZIP_OUT"
 (cd "$PORT_ROOT" && zip -q -9 -r "$ZIP_OUT" \
   "$LAUNCHER_NAME" "$PORT_DIR_NAME" port.json gameinfo.xml README.md)
 
 say "done."
 say "artifact: $ZIP_OUT ($(du -h "$ZIP_OUT" | cut -f1))"
-say "copy onto the RG34XXSP SD card under roms/PORTS/, then drop your .gb into gen1recomp/lovegame/"
+say "copy onto the RG34XXSP SD card under roms/PORTS/ (Stock OS 64-bit MOD), then drop your .gb into gen1recomp/lovegame/"
