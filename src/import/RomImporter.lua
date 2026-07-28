@@ -338,7 +338,10 @@ local function chooseRom(promptName)
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
       "$d.Filter='Game Boy ROM (*.gb)|*.gb|All files (*.*)|*.*';",
-      "if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.FileName)}",
+      -- write the pick as UTF-8: the console's OEM codepage would mangle
+      -- non-ASCII names (Pokémon -> Pok\x82mon) and crash any text draw
+      -- that shows them (#325)
+      "if($d.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Write($d.FileName)}",
     })
     return commandOutput(
       'powershell -NoProfile -STA -Command "' .. script .. '"')
@@ -369,7 +372,16 @@ local function chooseZip()
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
       "$d.Filter='Mod archive (*.zip)|*.zip|All files (*.*)|*.*';",
-      "if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.FileName)}",
+      -- copy the pick to a plain-ASCII temp name and answer with that:
+      -- the console's OEM codepage would mangle a non-ASCII path
+      -- (Pokémon -> Pok\x82mon) and io.open on Windows needs ANSI bytes,
+      -- so returning the original name both crashed the notice draw and
+      -- could never have opened the file (#325)
+      "if($d.ShowDialog() -eq 'OK'){",
+      "$t=Join-Path $env:TEMP 'pokeport_mod_pick.zip';",
+      "Copy-Item -LiteralPath $d.FileName -Destination $t -Force;",
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
+      "[Console]::Write($t)}",
     })
     return commandOutput(
       'powershell -NoProfile -STA -Command "' .. script .. '"')
@@ -400,7 +412,8 @@ local function chooseSav()
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
       "$d.Filter='Game Boy save (*.sav)|*.sav|All files (*.*)|*.*';",
-      "if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.FileName)}",
+      -- UTF-8, like the ROM and mod pickers (#325)
+      "if($d.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Write($d.FileName)}",
     })
     return commandOutput(
       'powershell -NoProfile -STA -Command "' .. script .. '"')
