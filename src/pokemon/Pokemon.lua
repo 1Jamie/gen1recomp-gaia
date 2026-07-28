@@ -31,7 +31,7 @@ end
 
 -- Day Care retrieve (pokered WriteMonMoves + wLearningMovesFromDayCare):
 -- grant learnset moves with startLevel < moveLevel <= newLevel, shifting
--- the oldest slot out when full. Silent — no LearnMove prompts.
+-- the oldest slot out when full. Silent -- no LearnMove prompts.
 function Pokemon.learnMovesFromDayCare(data, mon, speciesDef, startLevel, newLevel)
   if not (speciesDef and speciesDef.learnset and mon) then return end
   mon.moves = mon.moves or {}

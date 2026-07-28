@@ -41,10 +41,17 @@ local function showMessages(game, msgs, onDone)
   game.stack:push(TextBox.new(game, table.concat(msgs, "\f"), onDone))
 end
 
--- run the use-flow for an item on a chosen target
-local function useOn(game, battle, id, target, list, moveIndex)
+-- run the use-flow for an item on a chosen target.  `picker` is the party
+-- menu when it was opened with keepOpen (HP medicine only): it is still on
+-- the stack, so every exit that prints has to close it afterwards.  For
+-- every other item the picker popped itself first and closePicker's identity
+-- check makes it a no-op (#252).
+local function useOn(game, battle, id, target, list, moveIndex, picker)
   local result, payload, extra = ItemEffects.use(game.data, game.save, id, target,
                                                  battle, moveIndex, game.overworld)
+  local function closePicker()
+    if picker then picker:close() end
+  end
 
   -- field POKé FLUTE: play the tune, then the no-effect text
   if result == "flute_field" then
@@ -288,16 +295,29 @@ local function useOn(game, battle, id, target, list, moveIndex)
       end
     end
     list.index = math.min(list.index, math.max(1, #list.items))
+    -- HP medicine: fill the bar in the still-open picker first, then print
+    -- and close, the order item_effects.asm .doneHealing runs in
+    -- (SFX_HEAL_HP -> UpdateHPBar2 -> RedrawPartyMenu prints the message).
+    -- picker is nil for every other item and for in-battle use, which keeps
+    -- the pop-then-print path below.  #252
+    if picker and extra and extra.healedFrom and target then
+      picker:animateTo(target, extra.healedFrom, function()
+        showMessages(game, payload, closePicker)
+      end)
+      return
+    end
     if battle then
       list:close()
       showMessages(game, payload, function() battle:itemUsed({}) end)
     else
-      showMessages(game, payload)
+      showMessages(game, payload, closePicker)
     end
     return
   end
 
-  showMessages(game, payload) -- failed
+  -- .healingItemNoEffect prints over the still-drawn party menu too, so the
+  -- refusal closes the picker the same way (#252)
+  showMessages(game, payload, closePicker) -- failed
 end
 
 local function pickTargetAndUse(game, battle, id, list)
@@ -308,9 +328,13 @@ local function pickTargetAndUse(game, battle, id, list)
   local def = game.data.items[id]
   local opts = {
     pickOnly = true,
-    onSwitch = function(mon)
+    -- HP medicine animates its bar with the picker still up (#252).  Only
+    -- out of battle: the in-battle tail closes the bag list underneath
+    -- first, which needs the picker already gone.
+    keepOpen = (not battle) and ItemEffects.healsHP(id),
+    onSwitch = function(mon, picker)
       if not wantsMove then
-        useOn(game, battle, id, mon, list)
+        useOn(game, battle, id, mon, list, nil, picker)
         return
       end
       local rows = {}

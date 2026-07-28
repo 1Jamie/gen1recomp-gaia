@@ -42,7 +42,7 @@ return function(game)
   U.tap(game, "a"); U.wait(8) -- FIGHT
   U.tap(game, "a"); U.wait(2) -- POISONPOWDER
 
-  -- announce: "BULBASAUR used POISONPOWDER!" — no PSN on HUD yet
+  -- announce: "BULBASAUR used POISONPOWDER!" -- no PSN on HUD yet
   waitFor(function()
     return battle.current and battle.current.text
       and battle.current.text:find("POISONPOWDER", 1, true)

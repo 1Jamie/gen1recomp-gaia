@@ -300,7 +300,7 @@ local function elevator(elevatorMapId, keyGate, preFrames)
       -- Rocket Hideout: without LIFT_KEY the panel only prints the need-
       -- a-key line (scripts/RocketHideoutElevator.asm).  Exit warps are
       -- still seeded above so walking out returns to the entry floor
-      -- instead of the car's ROM default (B1F) — #90 / #105.
+      -- instead of the car's ROM default (B1F) -- #90 / #105.
       if keyGate and not game.save.inventory[keyGate.item] then
         local TextBox = require("src.render.TextBox")
         game.stack:push(TextBox.new(game,

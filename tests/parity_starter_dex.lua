@@ -2,7 +2,7 @@
 -- pret StarterDex (engine/events/starter_dex.asm) temporarily sets the
 -- owned bits so ShowPokedexData prints the full entry before the player
 -- has caught anything.  Also: English R/B prints only the kind string
--- (no " POKéMON" suffix — that clipped "LIZARD" to "LIZARD POKé").
+-- (no " POKéMON" suffix -- that clipped "LIZARD" to "LIZARD POKé").
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 local Data = require("src.core.Data")

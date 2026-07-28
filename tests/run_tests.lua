@@ -2240,20 +2240,34 @@ end
   local SummaryMenu = require("src.ui.SummaryMenu")
   local HudTiles = require("src.render.HudTiles")
   local drawn = {}
-  local savedDraw, savedTile = Font.draw, HudTiles.tile
+  local savedDraw, savedCode = Font.draw, Font.drawCode
+  -- The status screen draws its HUD glyphs through HudTiles.statusTile, not
+  -- HudTiles.tile: it loads a DIFFERENT VRAM overlay from the battle screen
+  -- (status_screen.asm:86-97 vs core.asm LoadHudTilePatterns), which is what
+  -- keeps $73/$74 as the <ID> and № glyphs there.  Stub both so this test
+  -- keeps seeing every tile the page puts down. #280
+  local savedTile, savedStatusTile = HudTiles.tile, HudTiles.statusTile
   Font.draw = function(text, x, y)
     drawn[#drawn + 1] = { text = tostring(text), x = x, y = y }
     return Font.width(text)
   end
+  Font.drawCode = function(code, x, y)
+    drawn[#drawn + 1] = { glyph = code, x = x, y = y }
+  end
   HudTiles.tile = function(code, x, y)
+    drawn[#drawn + 1] = { tile = code, x = x, y = y }
+  end
+  HudTiles.statusTile = function(code, x, y)
     drawn[#drawn + 1] = { tile = code, x = x, y = y }
   end
   local summary = SummaryMenu.new(Game, mon)
   summary.page = 2
   summary:draw()
   Font.draw = savedDraw
+  Font.drawCode = savedCode
   HudTiles.tile = savedTile
-  local nextExp, lvTile, lvNum
+  HudTiles.statusTile = savedStatusTile
+  local nextExp, lvTile, lvNum, toTile, lvOnPage2
   for _, d in ipairs(drawn) do
     if d.text == "LEVEL UP" then
       eq(d.y, 40, "LEVEL UP sits on tile row 5")
@@ -2261,6 +2275,10 @@ end
       nextExp = d
     elseif d.tile == 0x6E and d.y == 48 then
       lvTile = d
+    elseif d.tile == 0x70 and d.y == 48 then
+      toTile = d
+    elseif d.tile == 0x6E and d.y == 16 then
+      lvOnPage2 = d
     elseif d.text == "28" and d.y == 48 then
       lvNum = d
     end
@@ -2268,6 +2286,13 @@ end
   check(nextExp, "next-exp prints at (7,6)")
   check(lvTile and lvTile.x == 128, "next level uses the <LV> tile at col 16")
   check(lvNum and lvNum.x == 136, "next level digits follow <LV>")
+  -- status_screen.asm:393-397 writes the narrow '<to>' tile at (14,6)
+  -- between the next-exp number and PrintLevel; the port used to skip it (#280)
+  check(toTile and toTile.x == 112, "the '<to>' tile sits at (14,6)")
+  -- StatusScreen2 opens with ClearScreenArea over (9,2) 5x10
+  -- (status_screen.asm:303-305), which wipes PrintLevel's (14,2): page 2
+  -- must show no level in the header (#280)
+  check(not lvOnPage2, "page 2 draws no <LV> in the header")
   local edge = 19 * 8 -- DrawLineBox vertical at col 19
   check(lvNum.x + Font.width(lvNum.text) <= edge,
         "next level digits stay left of the status line-box")
@@ -2443,6 +2468,21 @@ do
   lp.shownHP = 20
   check(not lhb:lowHealthAlarmActive(), "alarm waits for the HP drain to catch up")
   lp.shownHP = 9
+  -- ...but once it IS sounding it follows the drawn bar, not the model:
+  -- applyDamage drops mon.hp while the turn is still being queued, so
+  -- keying the running siren off it silenced the whole "used X!" line +
+  -- move animation + drain window (#293)
+  lhb.lowHealthAlarmOn = true
+  lp.mon.hp, lp.shownHP = 3, 9
+  check(lhb:lowHealthAlarmActive(), "a sounding alarm rides the hit's drain out (#293)")
+  lp.mon.hp, lp.shownHP = 0, 9
+  check(lhb:lowHealthAlarmActive(), "a lethal hit holds it until the bar empties (#293)")
+  lp.mon.hp, lp.shownHP = 0, 0
+  check(not lhb:lowHealthAlarmActive(), "the empty bar silences it (RemoveFaintedPlayerMon)")
+  lp.mon.hp, lp.shownHP = 30, 9
+  check(not lhb:lowHealthAlarmActive(), "a heal out of the red silences it at once")
+  lhb.lowHealthAlarmOn = nil
+  lp.mon.hp, lp.shownHP = 9, 9
   lhb.result = "win"
   check(not lhb:lowHealthAlarmActive(), "decided battle keeps the alarm off (EndLowHealthAlarm)")
   lhb.result = nil

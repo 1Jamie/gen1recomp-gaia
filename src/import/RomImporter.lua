@@ -255,7 +255,36 @@ local function fileUrl(path)
   return "file://" .. encoded
 end
 
+-- The native pickers below block the whole loop inside io.popen, and they are
+-- opened straight out of mousepressed -- with the button still physically
+-- down.  SDL auto-captures the pointer for the length of a press (on X11 an
+-- XGrabPointer with owner_events) and only drops that capture when it
+-- processes the matching button-up, which it cannot do while we sit in popen
+-- and never pump.  The grab then outlives the click and every pointer event
+-- over the file chooser is still routed to our window: the dialog draws and
+-- keyboard-navigates (keyboard focus is a separate grab) but ignores the
+-- mouse entirely -- issue #254 on Linux.  Whether it bites is a race with how
+-- long the click was held, which is why the same build picks one ROM fine and
+-- then hangs the mouse on the next.  So pump until no button is held, letting
+-- SDL see the release and let go first; bounded, so a stuck button costs a
+-- moment and never the launcher.  pump() only drains OS events into LOVE's
+-- queue -- it dispatches nothing -- so there is no reentry into mousepressed
+-- and the release is still delivered normally on the next frame.
+local function releasePointerGrab()
+  if not (love.mouse and love.mouse.isDown and love.event and love.event.pump
+      and love.timer) then
+    return
+  end
+  local deadline = love.timer.getTime() + 1
+  while love.mouse.isDown(1, 2, 3) do
+    love.event.pump()
+    if love.timer.getTime() > deadline then break end
+    love.timer.sleep(0.005)
+  end
+end
+
 local function commandOutput(command)
+  releasePointerGrab()
   local pipe = io.popen(command, "r")
   if not pipe then return nil end
   local result = pipe:read("*a")
@@ -2476,7 +2505,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
         love.graphics.printf(m.description, nx, ny + nameH + 6 * s, L.leftW, "left")
       end
 
-      -- right cluster: status chip, toggle, Delete — vertically centred
+      -- right cluster: status chip, toggle, Delete -- vertically centred
       local clusterX = x + w - padH - L.clusterW
       local clusterY = cy + (cardH - clusterH) / 2
       local _, chipColor = modStatusChip(m.status)

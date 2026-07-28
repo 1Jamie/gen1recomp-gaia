@@ -1,7 +1,7 @@
 -- Driver: gym-leader post-battle dialogue chain (#164).
 -- Invokes checkVictoryRewards for Brock then Misty (same path as a win)
 -- and screenshots pages that must include badge-effect + TM explanation
--- text — not just a synthetic "received badge/TM" stub.
+-- text -- not just a synthetic "received badge/TM" stub.
 --
 --   SHOT_DIR=/tmp/gym164 POKEPORT_DRIVER=tests/drivers/gym_leader_victory_test.lua love .
 return function(game)

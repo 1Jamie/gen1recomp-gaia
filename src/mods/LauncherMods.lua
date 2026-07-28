@@ -3,8 +3,18 @@
 -- manifests only.  The full loader (src/mods/Loader.lua) still owns the real
 -- load at boot; this reads the same options.mods enable-state the loader
 -- writes, derives per-mod status with the pure ManagerState.resolveToggle,
--- installs a dropped/chosen .zip into the save-dir "mods/<id>/" tree, and
--- uninstalls a mod by removing that tree + clearing options.mods[id].
+-- installs a dropped/chosen .zip into a "mods/<id>/" tree, and uninstalls a
+-- mod by removing that tree + clearing options.mods[id].
+--
+-- Where that tree lives is CacheFs's call, not love.filesystem's: a portable
+-- install (portable.txt beside the executable) keeps its mods in the game
+-- folder like everything else it owns, and only the OS save directory
+-- otherwise (#330 -- love.filesystem.write always resolves to the save dir,
+-- so the installer used to strand every mod in appdata).  Reads stay on
+-- love.filesystem: the portable folder is on the physfs read path either way
+-- (it IS the source for a `love <gamedir>` run, and CacheFs mounts it for a
+-- fused build), which is why those mods still loaded while landing in the
+-- wrong place.
 --
 -- Split in two: the pure derivation (deriveList, locateRoot) has no love and
 -- no filesystem, so the engine tier can table-drive it; the discovery,
@@ -15,6 +25,7 @@ local ManagerState = require("src.mods.ManagerState")
 local Semver = require("src.mods.Semver")
 local Version = require("src.core.Version")
 local SaveData = require("src.core.SaveData")
+local CacheFs = require("src.import.CacheFs")
 
 local LauncherMods = {}
 
@@ -143,6 +154,13 @@ local function discover()
   local fs = love and love.filesystem
   local out = {}
   if not (fs and fs.getInfo and fs.getDirectoryItems) then return out end
+  -- A fused portable build keeps its mods in the game folder next to the
+  -- executable; resolving the cache root is what mounts that folder onto the
+  -- physfs read path, so this is what makes those mods enumerable at all
+  -- (#330).  A source run needs nothing (the game folder IS the source), and
+  -- the launcher's readiness check has usually resolved it already; the call
+  -- is cached and idempotent.
+  CacheFs.root()
   if not fs.getInfo("mods") then return out end
   local seen = {}
   for _, name in ipairs(fs.getDirectoryItems("mods")) do
@@ -233,11 +251,14 @@ local function topLevelPaths(mount)
   return paths
 end
 
+-- Copy the mounted archive subtree at `src` to the install path `dst`.  Reads
+-- come from love.filesystem (the .zip is mounted there); every write goes
+-- through CacheFs so it lands in the portable game folder when portable.txt is
+-- in play and in the OS save directory otherwise (#330).  No explicit mkdir:
+-- CacheFs.write creates the parent chain on both paths, which also means an
+-- empty folder inside the .zip is simply not carried over (it holds nothing).
 local function copyTree(src, dst)
   local fs = love.filesystem
-  if not fs.createDirectory(dst) then
-    return nil, "could not create " .. dst
-  end
   for _, name in ipairs(fs.getDirectoryItems(src)) do
     local s = src .. "/" .. name
     local d = dst .. "/" .. name
@@ -248,13 +269,18 @@ local function copyTree(src, dst)
     else
       local data = fs.read(s)
       if data == nil then return nil, "could not read " .. name end
-      local ok, err = fs.write(d, data)
+      local ok, err = CacheFs.write(d, data)
       if not ok then return nil, "could not write " .. name .. ": " .. tostring(err) end
     end
   end
   return true
 end
 
+-- Delete an installed mod subtree.  Enumeration stays on love.filesystem (the
+-- portable game folder is on its read path), but the deletes go through
+-- CacheFs so a portable install's real files actually go away instead of
+-- love.filesystem no-opping outside the save directory (#330).  Directories
+-- are removed after their children, since rmdir refuses a non-empty one.
 local function removeTree(path)
   local fs = love.filesystem
   local info = fs.getInfo(path)
@@ -263,7 +289,15 @@ local function removeTree(path)
     for _, child in ipairs(fs.getDirectoryItems(path)) do
       removeTree(path .. "/" .. child)
     end
+    CacheFs.removeDir(path)
+  else
+    CacheFs.remove(path)
   end
+  -- A portable install can still be carrying a pre-#330 copy in the OS save
+  -- directory, which is where every install used to land and which physfs
+  -- searches first.  CacheFs only touched the game folder, so clear the
+  -- save-directory twin too or that copy would keep the mod alive; outside
+  -- portable mode this repeats the delete CacheFs just did and no-ops.
   fs.remove(path)
 end
 
@@ -322,10 +356,19 @@ function LauncherMods.installZip(source)
     return nil, "a mod named '" .. manifest.id .. "' is already installed"
   end
 
-  fs.createDirectory("mods")
+  -- CacheFs.prefix steers ROM-cache writes into a version subtree (blue/...);
+  -- the mods tree is shared by Red and Blue, so pin the prefix to the root for
+  -- the copy and the rollback, then hand back whatever the launcher had set
+  -- (an import coroutine leaves it pointed at that version -- RomImporter.lua).
+  -- No fs.createDirectory("mods") here any more: CacheFs.write creates the
+  -- parent chain in both homes, and doing it through love.filesystem would
+  -- only ever make the directory in the save dir (#330).
+  local savedPrefix = CacheFs.prefix
+  CacheFs.prefix = ""
   local copied, copyErr = copyTree(root, dest)
+  if not copied then removeTree(dest) end
+  CacheFs.prefix = savedPrefix
   if not copied then
-    removeTree(dest)
     cleanup()
     return nil, copyErr or "could not copy the mod files"
   end
@@ -334,8 +377,9 @@ function LauncherMods.installZip(source)
 end
 
 -- uninstall(id) -> true  |  nil, errString
--- Removes mods/<id>/ from the save directory and clears options.mods[id] so the
--- loader and in-game manager no longer see it.  Rejects unknown / missing ids.
+-- Removes mods/<id>/ from wherever it was installed (the portable game folder
+-- or the save directory, CacheFs decides -- #330) and clears options.mods[id]
+-- so the loader and in-game manager no longer see it.  Rejects missing ids.
 -- Does not touch other mods' enable state.
 function LauncherMods.uninstall(id)
   if type(id) ~= "string" or id == "" then
@@ -352,7 +396,11 @@ function LauncherMods.uninstall(id)
   if not fs.getInfo(dest) then
     return nil, "mod '" .. id .. "' is not installed"
   end
+  -- same root pin as installZip: the mods tree is not version-prefixed (#330)
+  local savedPrefix = CacheFs.prefix
+  CacheFs.prefix = ""
   removeTree(dest)
+  CacheFs.prefix = savedPrefix
   -- Drop the enable flag so a reinstall of the same id starts from the
   -- loader's default (enabled) rather than a stale false.
   local options = SaveData.loadOptions()

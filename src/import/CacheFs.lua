@@ -75,6 +75,32 @@ local function resolveMkdir()
   return mkdirFn
 end
 
+-- Lazily-resolved windowless rmdir, the mirror of resolveMkdir above:
+-- function(absolutePath) or false when FFI is unavailable.  Both syscalls
+-- refuse a non-empty directory, so a caller has to delete the files first.
+local rmdirFn = nil
+
+local function resolveRmdir()
+  if rmdirFn ~= nil then return rmdirFn end
+  rmdirFn = false
+  local ok, ffi = pcall(require, "ffi")
+  if not ok then return rmdirFn end
+  if ffi.os == "Windows" then
+    pcall(ffi.cdef, "int RemoveDirectoryA(const char *lpPathName);")
+    local resolved = pcall(function() return ffi.C.RemoveDirectoryA end)
+    if resolved then
+      rmdirFn = function(path) pcall(ffi.C.RemoveDirectoryA, path) end
+    end
+  else
+    pcall(ffi.cdef, "int rmdir(const char *pathname);")
+    local resolved = pcall(function() return ffi.C.rmdir end)
+    if resolved then
+      rmdirFn = function(path) pcall(ffi.C.rmdir, path) end
+    end
+  end
+  return rmdirFn
+end
+
 -- Mount an external directory onto the physfs read path (appended, so the
 -- game's own source always wins a name clash).  Returns true on success.
 --
@@ -224,6 +250,23 @@ function CacheFs.remove(rel)
   local root = CacheFs.root()
   if root then
     os.remove(realPath(root, rel))
+    return
+  end
+  love.filesystem.remove(rel)
+end
+
+-- Remove a single cache-relative directory once its files are gone.  Needed
+-- because os.remove cannot delete a directory on Windows and
+-- love.filesystem.remove never reaches outside the save directory, so the
+-- portable game folder gets the same FFI-syscall treatment as its mkdir
+-- (issue #74: os.execute would flash a console window per call).  Used by the
+-- mod installer so an uninstall leaves nothing behind (#330).
+function CacheFs.removeDir(rel)
+  rel = withPrefix(rel)
+  local root = CacheFs.root()
+  if root then
+    local rmdir = resolveRmdir()
+    if rmdir then rmdir(realPath(root, rel)) end
     return
   end
   love.filesystem.remove(rel)

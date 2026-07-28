@@ -761,7 +761,7 @@ M.CINNABAR_LAB_FOSSIL_ROOM = {
 -- #118: do not raise mon.level until a paid retrieve (pokered reverts
 -- wDayCareMonBoxLevel on .leaveMonInDayCare). Fold pending steps into
 -- mon.exp once and clear them so a second talk cannot re-apply the same
--- walk. Fill {RAM:wNameBuffer}/{RAM:wDayCareMonName}/{NUM:...} here —
+-- walk. Fill {RAM:wNameBuffer}/{RAM:wDayCareMonName}/{NUM:...} here --
 -- TextBox.TOKENS.RAM only knows wStringBuffer.
 -- -------------------------------------------------------------------
 

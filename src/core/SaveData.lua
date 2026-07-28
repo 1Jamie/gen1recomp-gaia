@@ -16,6 +16,7 @@ local SaveSerializer = require("src.core.SaveSerializer")
 local Runtime = require("src.mods.Runtime")
 local Semver = require("src.mods.Semver")
 local Boxes = require("src.pokemon.Boxes")
+local Stats = require("src.pokemon.Stats")
 local Bag = require("src.inventory.Bag")
 local Badges = require("src.inventory.Badges")
 
@@ -972,6 +973,17 @@ local function scrubKnownMon(mon, data)
     for stat, v in pairs(mon.statExp) do mon.statExp[stat] = clamp(v, 0, 65535, 0) end
   end
   mon.level = clamp(mon.level, 1, 100, 1)
+  -- Box mons imported from a real .sav carry NO stat block: box_struct stops
+  -- before MON_LEVEL/MON_STATS, so src/save_convert/GenSave.lua decodeMon
+  -- only fills `stats` for party slots.  Every HP-bar draw then nil-indexes
+  -- mon.stats: the status screen opened in the box (#233) and the party list
+  -- after withdrawing one (#304).  The original derives them on demand
+  -- (status_screen.asm:66-76, add_mon.asm _MoveMon); deriving once here means
+  -- every later reader (menus, battle, items, SGB bar zones, the link
+  -- fingerprint) sees a party-shaped mon.  Runs after the level clamp above
+  -- so the derived stats use a sane level.  A save that already has stats is
+  -- untouched.
+  Stats.ensure(data.pokemon and data.pokemon[mon.species], mon)
   local moves = mon.moves
   if type(moves) ~= "table" then return end
   local hadMoves = #moves > 0
@@ -1216,7 +1228,7 @@ function SaveData.newGame(boot)
     inventory = {},
     -- Vanilla Gen1 seeds one Potion in the player's item PC
     -- (wBoxItems / players_pc.asm); existing saves keep whatever they
-    -- already have — this only applies to New Game.
+    -- already have -- this only applies to New Game.
     pcItems = { POTION = 1 },
     party = {},
     box = {},

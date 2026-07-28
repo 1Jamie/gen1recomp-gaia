@@ -2,6 +2,11 @@
 -- screen: pokered overlays the $62-$7F font area with the HP bar /
 -- status sheet (font_battle_extra -> $62) and the HUD line tiles
 -- (battle_hud_1 -> $6D, battle_hud_2+3 -> $73).
+--
+-- The two screens do NOT use the same overlay: the status screen scatters
+-- hud_2 and hud_3 instead of copying them contiguously, which is what keeps
+-- its № and <ID> glyphs alive.  HudTiles.tile draws the battle layout,
+-- HudTiles.statusTile the status one -- see STATUS_PAGES below. #280
 
 local Assets = require("src.render.Assets")
 
@@ -23,32 +28,62 @@ local PAGES = {
     image = "assets/generated/battle/battle_hud_3.png", base = 0x76 },
 }
 
-local tiles
-function HudTiles.tile(code, x, y, tint)
-  if not tiles then
-    tiles = {}
-    local registered = require("src.core.Data").font
-    registered = registered and registered.pages or nil
-    local function add(path, base)
-      local ok, img = pcall(Assets.image, path)
-      if not ok then return end
+-- The STATUS SCREEN overlays the SAME sheets differently, and the layout
+-- above would break it: engine/pokemon/status_screen.asm:86-97 copies 3
+-- tiles of hud_1 to $6D, ONE tile of hud_2 to $78 and 2 tiles of hud_3 to
+-- $76, which leaves $70/$73/$74 as font_battle_extra's <to>, <ID> and № --
+-- the glyphs the screen prints "№." and "<ID>№/" from
+-- (constants/charmap.asm:69-73).  The battle overlay instead copies
+-- hud_2+hud_3 contiguously over $73-$78 (engine/battle/core.asm:6520/6532),
+-- burying № under a line tile, so the status screen needs its own table.
+-- The line glyphs land identically either way -- $76 ─, $77 ┘, $6F the
+-- halfarrow -- only the vertical bar moves ($73 in battle, $78 here). #280
+local STATUS_PAGES = {
+  { id = "font_battle_extra",
+    image = "assets/generated/battle/font_battle_extra.png", base = 0x62 },
+  { id = "battle_hud_1",
+    image = "assets/generated/battle/battle_hud_1.png", base = 0x6D },
+  { id = "battle_hud_3",
+    image = "assets/generated/battle/battle_hud_3.png", base = 0x76, count = 2 },
+  { id = "battle_hud_2",
+    image = "assets/generated/battle/battle_hud_2.png", base = 0x78, count = 1 },
+}
+
+local tiles, statusTiles
+
+-- Build one code -> {img, quad} map from a page list.  `count` caps a page
+-- at the number of tiles the asm actually copies (the extracted sheets all
+-- carry 3 tiles; the status overlay uses fewer).  A mod's registered page
+-- swaps the image in either table, but only the battle table honors its
+-- `base`: the status layout is the asm's own placement, and sliding hud_2
+-- there would bury № again.
+local function build(pages, fixedBase)
+  local out = {}
+  local registered = require("src.core.Data").font
+  registered = registered and registered.pages or nil
+  for _, page in ipairs(pages) do
+    local override = registered and registered[page.id]
+    local path, base = page.image, page.base
+    if override and override.image then path = override.image end
+    if not fixedBase and override and override.base then base = override.base end
+    local ok, img = pcall(Assets.image, path)
+    if ok then
       local iw, ih = img:getDimensions()
       local per = iw / 8
-      for i = 0, per * (ih / 8) - 1 do
-        tiles[base + i] = {
+      local count = page.count or per * (ih / 8)
+      for i = 0, count - 1 do
+        out[base + i] = {
           img = img,
           quad = love.graphics.newQuad((i % per) * 8,
                                        math.floor(i / per) * 8, 8, 8, iw, ih),
         }
       end
     end
-    for _, page in ipairs(PAGES) do
-      local override = registered and registered[page.id]
-      add(override and override.image or page.image,
-          override and override.base or page.base)
-    end
   end
-  local t = tiles[code]
+  return out
+end
+
+local function put(t, x, y, tint)
   if not t then return end
   local r, g, b, a = love.graphics.getColor()
   love.graphics.setColor(tint or { 1, 1, 1, 1 })
@@ -56,9 +91,23 @@ function HudTiles.tile(code, x, y, tint)
   love.graphics.setColor(r, g, b, a)
 end
 
+function HudTiles.tile(code, x, y, tint)
+  if not tiles then tiles = build(PAGES) end
+  put(tiles[code], x, y, tint)
+end
+
+-- The same sheets under the status screen's overlay (STATUS_PAGES).  The HP
+-- bar codes $62-$6D are identical in both layouts, so drawHPBar below keeps
+-- using the battle table. #280
+function HudTiles.statusTile(code, x, y, tint)
+  if not statusTiles then statusTiles = build(STATUS_PAGES, true) end
+  put(statusTiles[code], x, y, tint)
+end
+
 -- lazy: the next tile() rebuilds every page from the search path
 function HudTiles.invalidate()
   tiles = nil
+  statusTiles = nil
 end
 
 Assets.register(HudTiles.invalidate)

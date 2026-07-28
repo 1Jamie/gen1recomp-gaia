@@ -1,30 +1,15 @@
--- Driver: manual look at the Pokedex entry pic (#307).
---
--- DexEntryMenu loaded its front pic through
---     local ok, img = path and pcall(love.graphics.newImage, path)
--- which reads as a guarded pcall but is not one: `path and pcall(...)` is an
--- expression, so Lua adjusts it to a single value, `img` is always nil, and
--- every dex page drew with an empty pic box.  Both callers were hit -- the
--- starter previews on Oak's lab balls (StarterDex, engine/events/
--- starter_dex.asm, which forces the owned bit so the page fills in) and
--- every entry opened from the Pokedex list.
---
--- tests/parity_dex_pic.lua asserts the page now holds an image.  What it
--- cannot judge is placement: pokedex.asm draws the pic at the top-left of
--- the page and DexEntryMenu bottom-aligns it against y=60, so a wrong-sized
--- or wrong-anchored sprite still "loads" while looking broken.
---
--- Screenshots land in the scratch path given below; the run also parks a
--- live Pokedex so the pages can be paged through by hand.
---
---   POKEPORT_DRIVER=tests/drivers/dex_pic_bug307_test.lua \
---     POKEPORT_IDENTITY=bug307 POKEPORT_TOUCH=0 POKEPORT_VERSION=red love .
+-- Look at the Pokedex entry pic (#307).
+-- `local ok, img = path and pcall(love.graphics.newImage, path)` is one
+-- expression, not a guarded pcall: img was always nil and every dex page drew
+-- an empty pic box.  parity_dex_pic.lua asserts the image loads; placement
+-- (top-left of the page, bottom-aligned to y=60) is the half only an eye can judge.
+--   POKEPORT_DRIVER=tests/drivers/dex_pic_bug307_test.lua POKEPORT_IDENTITY=bug307 POKEPORT_TOUCH=0 POKEPORT_VERSION=red love .
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local Screens = require("src.ui.Screens")
   local Sprites = require("src.pokemon.Sprites")
 
-  -- the three starters are the reported case (Oak's lab preview), plus one
+  -- the starters are the reported case (Oak's lab preview); PIDGEY is an
   -- ordinary list entry as the control
   local CASES = { "BULBASAUR", "CHARMANDER", "SQUIRTLE", "PIDGEY" }
 
@@ -33,9 +18,8 @@ return function(game)
     return ok
   end
 
-  -- ---- preconditions the eye cannot check --------------------------------
-  -- A path that does not resolve, a PNG that is missing from the cache, and
-  -- the truncation bug all render as the same empty box.
+  -- an unresolved path, a PNG missing from the cache and the truncation bug
+  -- itself all render as the same empty box
   local DexEntryMenu = require("src.ui.DexEntryMenu")
   for _, species in ipairs(CASES) do
     local path = Sprites.path(game.data, species, "front", { kind = "dex" })
@@ -51,7 +35,7 @@ return function(game)
     end
   end
 
-  -- ---- mark the cases seen so the list can reach them ---------------------
+  -- mark the cases seen so the list can reach them
   local dex = game.save.pokedex
   if dex then
     for _, species in ipairs(CASES) do
@@ -61,7 +45,7 @@ return function(game)
     U.log("flagged", #CASES, "species as seen+owned so the list can open them")
   end
 
-  -- ---- screenshots, one page at a time ------------------------------------
+  -- screenshots, one page at a time
   local SHOT_DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
   for _, species in ipairs(CASES) do
     while game.stack:top() do game.stack:pop() end
@@ -71,24 +55,15 @@ return function(game)
     U.log("captured", SHOT_DIR .. "/dex_" .. species:lower() .. ".png")
   end
 
-  -- ---- hand off on a live page, then stay out of the way -------------------
+  -- leave a live page up for the hand-off
   while game.stack:top() do game.stack:pop() end
   Screens.push(game, "DexEntryMenu", { species = "BULBASAUR", forceOwned = true })
   U.wait(10)
 
-  U.log("........................................................")
-  U.log("LOOK NOW: a BULBASAUR Pokedex entry is open on screen.")
-  U.log("  RIGHT: the BULBASAUR front sprite sits in the top-left of the")
-  U.log("         page, sitting on the line above HT/WT, with the name,")
-  U.log("         SEED POKeMON, No.001, height, weight and description")
-  U.log("         filled in down the right and bottom.")
-  U.log("  BUG #307 looks like: the whole left side is blank white where")
-  U.log("         the sprite belongs, everything else drawn normally.")
-  U.log("  ALSO WRONG: the sprite is there but floats too high or too low,")
-  U.log("         overlaps the text, or is the wrong species entirely.")
-  U.log("Screenshots of all four cases were written to " .. SHOT_DIR)
-  U.log("Press A or B to close the page; input is yours from here on.")
-  U.log("........................................................")
+  U.log("A BULBASAUR dex entry is open; shots of all four cases are in " .. SHOT_DIR)
+  U.log("The front sprite belongs in the top-left, standing on the line above")
+  U.log("HT/WT, not floating or overlapping the text.  Under #307 that whole")
+  U.log("side was blank white.  A or B closes the page.")
 
   while true do
     coroutine.yield()

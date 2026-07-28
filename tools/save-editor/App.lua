@@ -75,7 +75,21 @@ local function applyLoaded(path, statusVerb)
   S._quitArmed = false
   S._openArmed = false
   S.editingMon = nil
-  require("src.pokemon.Boxes").ensure(S.save)
+  local boxes = require("src.pokemon.Boxes").ensure(S.save)
+  -- Imported .sav box mons have no stat block (box_struct stops before
+  -- MON_STATS).  The game derives them in SaveData.validate; the editor
+  -- only validates a copy, so hydrate here for Boxes/Party/MonEditor.
+  local Stats = require("src.pokemon.Stats")
+  local function ensureStats(mon)
+    Stats.ensure(Data.pokemon and Data.pokemon[mon.species], mon)
+  end
+  for _, mon in ipairs(S.save.party or {}) do ensureStats(mon) end
+  for _, box in ipairs(boxes) do
+    for _, mon in ipairs(box) do ensureStats(mon) end
+  end
+  if S.save.daycare and S.save.daycare.mon then
+    ensureStats(S.save.daycare.mon)
+  end
   -- what the running game would quarantine, computed on a copy so the
   -- editor never mutates the file behind the user's back
   local SaveData = require("src.core.SaveData")

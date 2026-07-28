@@ -174,6 +174,9 @@ function Renderer:beginFrame(transparent)
   -- draws this one
   PaletteFX.clearTrueColor()
   PaletteFX.clearSpriteRedraws()
+  -- rBGP is a per-frame register here: the state that draws a dark map
+  -- re-arms it while it draws (#322), so nothing inherits last frame's
+  PaletteFX.setShadeMap(nil)
   PaletteFX.setPass("ui")
   love.graphics.setCanvas(self.canvas)
   if transparent then

@@ -11,9 +11,9 @@ TileRenderer.__index = TileRenderer
 local BORDER_BLOCKS = 3 -- ring width; > half a screen (2.5 blocks)
 
 -- OVERWORLD maps fill beyond-edge space from save.options.voidFill:
---   trees (default) — solid tree wall $0F (Viridian/Cerulean/Celadon)
---   water           — solid water $43 (Cinnabar/Route 19 border block)
---   black           — solid black (no tiled metatile)
+--   trees (default) -- solid tree wall $0F (Viridian/Cerulean/Celadon)
+--   water           -- solid water $43 (Cinnabar/Route 19 border block)
+--   black           -- solid black (no tiled metatile)
 -- Other tilesets keep their designated border (interiors stay black/void).
 local TREE_WALL_BLOCK = 0x0F
 local WATER_BORDER_BLOCK = 0x43

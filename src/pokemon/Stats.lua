@@ -42,6 +42,28 @@ function Stats.calc(speciesDef, level, dvs, statExp)
   return out
 end
 
+-- Give a mon a stat block when it has none.  A real Gen 1 box_struct is a
+-- byte-for-byte PREFIX of party_struct that stops before MON_LEVEL and
+-- MON_STATS (macros/ram.asm box_struct / party_struct), so mons decoded out
+-- of an imported .sav arrive without one (src/save_convert/GenSave.lua
+-- decodeMon, isParty = false).  The original derives them on demand at
+-- exactly two moments: when a box or daycare mon's status screen opens
+-- (engine/pokemon/status_screen.asm:66-76, "mon is in a box or daycare" ->
+-- CalcStats) and when one is moved back into the party
+-- (engine/pokemon/add_mon.asm _MoveMon tail).  The stored current HP is
+-- kept (box_struct does hold it) but clamped to the recalculated maximum so
+-- a tampered save cannot overfill the bar.  A mon that already has stats is
+-- returned untouched, so a vanilla save round-trips.  #233, #304
+function Stats.ensure(speciesDef, mon)
+  if type(mon) ~= "table" or type(mon.stats) == "table" then return mon end
+  if type(speciesDef) ~= "table" or type(speciesDef.baseStats) ~= "table" then
+    return mon
+  end
+  mon.stats = Stats.calc(speciesDef, mon.level or 1, mon.dvs or {}, mon.statExp)
+  mon.hp = math.max(0, math.min(tonumber(mon.hp) or mon.stats.hp, mon.stats.hp))
+  return mon
+end
+
 -- Battle stat stage multipliers (data/battle/stat_modifiers.asm): stages
 -- -6..+6 map to N/D pairs 25/100 .. 400/100.
 local STAGE_MULT = {

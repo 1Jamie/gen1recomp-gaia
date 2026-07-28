@@ -1,4 +1,4 @@
--- Driver: Bill's PC (#177) — chrome (What? / BOX No. / <PK><MN>) and
+-- Driver: Bill's PC (#177) -- chrome (What? / BOX No. / <PK><MN>) and
 -- withdraw/deposit returning to BillsPCMenu instead of closing the PC.
 
 return function(game)

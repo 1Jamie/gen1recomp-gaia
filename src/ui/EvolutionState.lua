@@ -20,6 +20,22 @@ EvolutionState.isOpaque = true
 -- SGB: SetPal_PokemonWholeScreen for the mon on display
 function EvolutionState:sgbPalettes(game)
   local P = require("src.render.PaletteFX")
+  -- engine/movie/evolution.asm EvolveMon runs the back-and-forth flash with
+  -- the whole screen on PAL_BLACK -- `ld c, 1 ; set PAL_BLACK instead of mon
+  -- palette` right before .animLoop, then `ld c, 0` again at .done once the
+  -- loop is over -- so both forms read as silhouettes while they trade places
+  -- and only the settled form wears a mon palette (#279).  PAL_BLACK is not
+  -- four blacks: data/sgb/sgb_palettes.asm gives it `RGB 31,29,31, 07,07,07,
+  -- 02,03,03, 03,02,02`, the usual paper white with the three darker shades
+  -- crushed, which is why a hardware capture shows a dark mon on an unchanged
+  -- background rather than an all-black screen.  Going through P.pal keeps
+  -- every COLORS mode honest for free: OG RED short-circuits every name to the
+  -- one global boot-ROM palette (a Game Boy Color ignores the SGB packets, so
+  -- it never blacks out) and the mono modes replace it in effectiveColors.
+  if not self.done then
+    local black = P.pal(game.data, "BLACK")
+    if black then return { P.whole(black) } end
+  end
   -- a cancelled evolution keeps the old species (never applied), so only
   -- colorize with the new form once it has actually evolved
   local species = (self.done and not self.canceled) and self.newSpecies

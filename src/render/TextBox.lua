@@ -27,6 +27,11 @@ local MAX_COLS = 18
 -- WaitForSoundToFinish; nil headless), then auto.delay frames pass
 -- (default 3, Delay3) and the box pops itself + calls onDone.  No
 -- blinking cursor, no Press_AB beep.
+-- opts.auto.tick, when given, runs once per frame for as long as the box
+-- is held open.  It is the only per-frame hook a script has while a box is
+-- up: StateStack updates the top state only, so the overworld and its
+-- ScriptRunner are frozen underneath (the Pewter JIGGLYPUFF dance drives
+-- its spin off it, data/scripts/story5.lua, #249).
 function TextBox.new(game, text, onDone, opts)
   local self = setmetatable({}, TextBox)
   self.game = game
@@ -179,6 +184,13 @@ function TextBox:update(dt)
         self.autoSrc = self.auto.sound and self.auto.sound() or nil
         self.autoTimer = 0
       end
+      -- auto.tick: one call per frame for as long as the box is held open,
+      -- run before the autoSrc gate so a tick-driven gate can clear itself
+      -- on the same frame.  It is the only per-frame hook a script gets
+      -- while a box is up, since StateStack updates the top state only and
+      -- the overworld underneath is frozen (the Pewter JIGGLYPUFF spin,
+      -- #249).
+      if self.auto.tick then self.auto.tick() end
       if self.autoSrc and self.autoSrc.isPlaying and self.autoSrc:isPlaying() then
         return -- the cry is still sounding (WaitForSoundToFinish)
       end

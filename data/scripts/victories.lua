@@ -16,7 +16,7 @@
 -- `dialogue` is the end-battle + post-battle text chain each gym leader
 -- runs (SaveEndBattleTextPointers then the map's *PostBattle / ReceiveTM
 -- script).  Leaders are not def_trainers entries, so engageTrainer has
--- no header.won — checkVictoryRewards shows this chain instead of a
+-- no header.won -- checkVictoryRewards shows this chain instead of a
 -- synthetic "received badge/TM" stub.
 
 local function range(prefix, first, last)
