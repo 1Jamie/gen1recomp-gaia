@@ -391,9 +391,7 @@ end
 -- LÖVE process ensures scripts, registries, and assets are all rebuilt from
 -- the newly selected mod state.
 function Game:restartWithMods()
-  if love.event and love.event.quit then
-    love.event.quit("restart")
-  end
+  require("src.core.HostShell").restart()
 end
 
 function Game:keyreleased(key)

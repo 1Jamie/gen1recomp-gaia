@@ -1860,7 +1860,7 @@ function RomImporter:mousepressed(x, y, button)
     if action == "download" and self.Check then
       pcall(self.Check.download)
     elseif action == "restart" then
-      love.event.quit("restart")
+      HostShell.restart()
     elseif action == "openurl" and self.Check then
       love.system.openURL(self.Check.releaseUrl())
     end
