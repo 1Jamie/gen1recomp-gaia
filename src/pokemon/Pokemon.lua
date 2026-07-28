@@ -75,6 +75,10 @@ function Pokemon.new(data, species, level, rng)
     statExp = { hp = 0, attack = 0, defense = 0, speed = 0, special = 0 },
     stats = stats,
     hp = stats.hp,
+    -- the Gen1 catch-rate byte freezes at catch time: evolution does NOT
+    -- update it, so PKHeX expects a preevolution's rate on an evolved mon
+    -- (#206).  Evolution.apply mutates in place and never touches this.
+    catchRate = def.catchRate,
     status = nil, -- "SLP"|"PSN"|"BRN"|"FRZ"|"PAR"
     moves = moves,
   }

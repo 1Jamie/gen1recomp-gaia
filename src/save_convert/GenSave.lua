@@ -250,12 +250,17 @@ local function encodeName(buf, off, len, text)
     setByte(buf, off + i, charmap.byToken[ch] or charmap.byToken["?"] or 0x50)
     i, pos = i + 1, pos + clen
   end
-  -- Write exactly ONE $50 terminator and then STOP. The bytes after it are
-  -- left untouched: when encoding over a template they stay as the original
-  -- save's post-terminator padding (so an unchanged name round-trips
-  -- byte-identical), and on a templateless export they stay zero-filled. The
-  -- game reads a name only up to the first $50, so whatever follows is inert.
+  -- Write exactly ONE $50 terminator and then $50-pad the rest of the
+  -- field: every real save the naming screen ever wrote fills the tail
+  -- with $50, and a zero tail is what PKHeX renders as garbage glyphs
+  -- after the name ("JOHN{}", #206).  Template bytes that are NOT zero
+  -- stay untouched, so an unchanged name still round-trips
+  -- byte-identical and stale template data survives.
   if i < len then setByte(buf, off + i, 0x50) end
+  for j = i + 1, len - 1 do
+    local cur = buf[off + j + 1]
+    if cur == nil or cur:byte() == 0 then setByte(buf, off + j, 0x50) end
+  end
 end
 
 -- ------------------------------------------------------------------
@@ -734,6 +739,19 @@ function GenSave.encode(save, data, template)
   encodeName(buf, O.playerName, NAME_LENGTH, (save.player and save.player.name) or "RED")
   encodeName(buf, O.rivalName, NAME_LENGTH, (save.player and save.player.rival) or "BLUE")
   setU16be(buf, O.playerId, (save.player and save.player.id) or 0)
+  -- wOptions (engine/menus/main_menu.asm InitOptions): bit 7 = battle
+  -- effects OFF, bit 6 = SET style, bits 2-0 = text speed -- the recomp's
+  -- textSpeed 1/3/5 are pokered's exact FAST/MEDIUM/SLOW values
+  -- (SaveData.defaultOptions).  Templateless exports only: with a
+  -- template the byte survives untouched (the round-trip invariant), and
+  -- decode() never reads it back anyway.
+  if not src then
+    local opts = save.options or {}
+    local ob = (tonumber(opts.textSpeed) or 3) % 8
+    if opts.battleStyle == "set" then ob = bit.bor(ob, 0x40) end
+    if opts.animations == false then ob = bit.bor(ob, 0x80) end
+    setByte(buf, O.options, ob)
+  end
   setBcd(buf, O.money, 3, math.min(save.money or 0, 999999))
   setBcd(buf, O.coins, 2, math.min(save.coins or 0, 9999))
 
