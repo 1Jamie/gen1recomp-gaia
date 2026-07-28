@@ -1,5 +1,6 @@
 local GameVersion = require("src.core.GameVersion")
 local Strings = require("src.core.Strings")
+local HostShell = require("src.core.HostShell")
 
 local RomImporter = {}
 RomImporter.__index = RomImporter
@@ -285,7 +286,7 @@ end
 
 local function commandOutput(command)
   releasePointerGrab()
-  local pipe = io.popen(command, "r")
+  local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
   pipe:close()
@@ -1859,7 +1860,7 @@ function RomImporter:mousepressed(x, y, button)
     if action == "download" and self.Check then
       pcall(self.Check.download)
     elseif action == "restart" then
-      love.event.quit("restart")
+      HostShell.restart()
     elseif action == "openurl" and self.Check then
       love.system.openURL(self.Check.releaseUrl())
     end
