@@ -5,9 +5,9 @@
 -- Forest / Victory Road trainers aggro through trees and walls.
 --
 -- Scene A: VIRIDIAN_FOREST (18,33), west of tree wall vs Bug Catcher
---          (30,33) LEFT range 4 — dx=12 pixel-wrap must NOT engage.
--- Scene B: same trainer at (26,33) on-screen — MUST engage + walk-up.
--- Scene C: VICTORY_ROAD_2F (0,9) vs Hiker (12,9) — dx=12 must NOT engage.
+--          (30,33) LEFT range 4 -- dx=12 pixel-wrap must NOT engage.
+-- Scene B: same trainer at (26,33) on-screen -- MUST engage + walk-up.
+-- Scene C: VICTORY_ROAD_2F (0,9) vs Hiker (12,9) -- dx=12 must NOT engage.
 
 return function(game)
   local U = dofile("tests/drivers/util.lua")

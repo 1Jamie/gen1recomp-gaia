@@ -116,7 +116,13 @@ if [ -f data/generated/maps.lua ]; then
     echo "-- T3 content: skipped (--quick)"
   else
     run_tier "T3 content behavior (Red)" run_content_behavior
+    # The save editor ships inside every build (the launcher's Edit button on
+    # a save row opens it), so its panel suites run in CI rather than by hand.
     run_tier "T3 save editor" "$LUA" tests/run_save_editor_tests.lua
+    run_tier "T3 save editor: boxes + items" "$LUA" tests/save_editor_task6_tests.lua
+    run_tier "T3 save editor: events + dex" "$LUA" tests/save_editor_task7_tests.lua
+    run_tier "T3 save editor: map browser" "$LUA" tests/save_editor_task8_tests.lua
+    run_tier "T3 save editor: mod awareness" "$LUA" tests/save_editor_mod_tests.lua
     run_tier "T5 link (loopback lockstep)" "$LUA" tests/run_link_tests.lua
   fi
 else

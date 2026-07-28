@@ -142,6 +142,17 @@ local function buildRows(game)
         o.battleStyle = o.battleStyle == "set" and "shift" or "set"
         return true
       end },
+    -- OG is the classic 160x144 battle screen; WIDE is the 304x144
+    -- widescreen composition (src/battle/WideBattle.lua)
+    { id = "battleLayout", label = Strings("BATTLE LAYOUT"),
+      value = function(g)
+        return g.save.options.battleLayout == "wide" and "WIDE" or "OG"
+      end,
+      step = function(g)
+        local o = g.save.options
+        o.battleLayout = o.battleLayout == "wide" and "og" or "wide"
+        return true
+      end },
     { id = "ruleset", label = Strings("RULESET"),
       value = function(g) return rulesetName(g) end,
       step = function(g, dir)

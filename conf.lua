@@ -13,7 +13,12 @@ function love.conf(t)
   _G.POKEPORT_DEV_MODE = developer
 
   if editor then
-    t.identity = os.getenv("POKEPORT_IDENTITY") or "pokemon-love2d-editor"
+    -- Same identity as the game, deliberately: the editor edits the game's
+    -- saves and reads the game's ROM cache, both of which live under this
+    -- folder.  A private editor identity would point love.filesystem at an
+    -- empty directory in a packaged build, so `--editor` could not find
+    -- data/generated at all (SaveIO.defaultPath already assumed this name).
+    t.identity = os.getenv("POKEPORT_IDENTITY") or "pokemon-love2d"
     t.window.title = "Pokemon Save Editor"
     t.window.width = 1280
     t.window.height = 800

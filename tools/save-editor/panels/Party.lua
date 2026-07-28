@@ -1,70 +1,122 @@
--- Party panel: lists the active party with add/remove/reorder controls and
--- selects a mon for the MonEditor overlay (App.lua draws that when
--- S.editingMon is set).
+-- Party panel: the roster on the left, the mon inspector permanently docked
+-- on the right, so the party stays visible while you edit one of its members.
+--
+-- Reorder lives on the row itself (the up/down pair appears on the selected
+-- row) rather than in a bottom button strip, which leaves Add / Remove as the
+-- only two panel-level verbs.
 
-local MonOps = require("MonOps")
 local PartyMod = require("src.pokemon.Party")
+local Theme = require("Theme")
+local Ops = require("Ops")
+local MonEditor = require("MonEditor")
+local PAL = Theme.PAL
 
 local Party = {}
 
-local function mark(S)
-  S.dirty = true
+-- Roster column width: the design's 460px at the reference size, but it gives
+-- ground to the inspector on a narrow window so neither column collapses.
+local function rosterWidth(w, s)
+  return math.max(300 * s, math.min(460 * s, w * 0.36))
 end
 
-function Party.draw(S, Kit, x, y)
-  local lines = {}
-  for i, mon in ipairs(S.save.party) do
-    lines[i] = string.format("%d. %-12s Lv%-3d HP %d/%d",
-      i, mon.species, mon.level, mon.hp, mon.stats.hp)
-  end
+-- HP colour follows the game's own health bar thresholds.
+local function hpColor(frac)
+  if frac <= 0.2 then return PAL.red end
+  if frac <= 0.5 then return PAL.yellow end
+  return PAL.green
+end
 
-  Kit.label(x, y, string.format("Party (%d/%d)", #S.save.party, PartyMod.MAX))
-  local click = Kit.list(x, y + 24, 360, 160, lines, S.selectedParty)
-  if click then
-    S.selectedParty = click
-    S.editingMon = S.save.party[click]
-  end
+function Party.draw(S, Kit, x, y, w, h)
+  local s = Kit.scale
+  local gap = 20 * s
+  local listW = rosterWidth(w, s)
 
-  if Kit.button(x, y + 200, 100, 28, "Add") then
-    if #S.save.party < PartyMod.MAX then
-      local species = S.cat.species[1]
-      local mon = MonOps.create(S.data, species, 5)
-      mon.ot = S.save.player.name
-      mon.otId = S.save.player.id
-      table.insert(S.save.party, mon)
-      S.selectedParty = #S.save.party
-      mark(S)
+  Kit.card(x, y, listW, h)
+  local pad = 18 * s
+  local cx = x + pad
+  local innerW = listW - 2 * pad
+
+  Kit.caption(cx, y + pad, "PARTY")
+  Kit.textRight("mono", ("%d/%d"):format(#S.save.party, PartyMod.MAX),
+    cx + innerW, y + pad, PAL.caption)
+
+  -- "+ Add mon" / "Remove" pinned to the card bottom; the roster fills above.
+  local actH = 34 * s
+  local actY = y + h - pad - actH
+  local listTop = y + pad + Kit.textHeight("caption") + 12 * s
+  local listH = actY - 12 * s - listTop
+
+  if #S.save.party == 0 then
+    Kit.emptyBox(cx, listTop, innerW, listH,
+      "Party is empty - Add creates a Lv5 mon owned by the save's player.")
+  else
+    local rowH = 64 * s
+    local rowGap = 8 * s
+    S.selectedParty = Ops.clamp(S.selectedParty or 1, 1, #S.save.party)
+    for i, mon in ipairs(S.save.party) do
+      local ry = listTop + (i - 1) * (rowH + rowGap)
+      if ry + rowH > listTop + listH then break end
+      local selected = (S.editingMon == mon)
+      if Kit.row(cx, ry, innerW, rowH, selected, PAL.green) then
+        Ops.selectParty(S, i)
+      end
+
+      local rpad = 12 * s
+      local icon = 44 * s
+      MonEditor.drawSprite(S, Kit, mon.species, cx + rpad,
+        ry + (rowH - icon) / 2, icon)
+
+      -- right cluster first, so the name knows how much room it has left
+      local rightW = 52 * s
+      local chipH = 20 * s
+      local lvText = ("Lv%d"):format(mon.level)
+      local chipW = Kit.textWidth("tiny", lvText) + 14 * s
+      local chipX = cx + innerW - rpad - chipW
+      Theme.stroke(chipX, ry + 10 * s, chipW, chipH, 6 * s, PAL.cardBorder, 0.3, 1)
+      Kit.textCenter("tiny", lvText, chipX,
+        ry + 10 * s + (chipH - Kit.textHeight("tiny")) / 2, chipW, PAL.blueInk)
+      if selected then
+        local ab = 22 * s
+        local aw = 24 * s
+        local ax = cx + innerW - rpad - 2 * aw - 4 * s
+        local ay = ry + rowH - 10 * s - ab
+        if Kit.stepper(ax, ay, aw, ab, "^", { font = "tiny" }) then
+          Ops.partyMove(S, -1)
+        end
+        if Kit.stepper(ax + aw + 4 * s, ay, aw, ab, "v", { font = "tiny" }) then
+          Ops.partyMove(S, 1)
+        end
+        rightW = 2 * aw + 4 * s + rpad
+      end
+
+      local tx = cx + rpad + icon + 12 * s
+      local tw = math.max(40 * s, (cx + innerW - rightW - 10 * s) - tx)
+      local name = Kit.ellipsize("monoRow", mon.species, tw - 34 * s)
+      Kit.text("monoRow", name, tx, ry + 10 * s, PAL.heading)
+      Kit.text("tiny", ("#%d"):format(i),
+        tx + Kit.textWidth("monoRow", name) + 8 * s, ry + 12 * s, PAL.caption)
+
+      local maxHp = (mon.stats and mon.stats.hp) or 1
+      local frac = Ops.clamp((mon.hp or 0) / math.max(maxHp, 1), 0, 1)
+      Kit.meter(tx, ry + rowH / 2 + 2 * s, tw, 6 * s, frac * 100, hpColor(frac))
+      Kit.text("tiny", ("HP %d/%d"):format(mon.hp or 0, maxHp), tx,
+        ry + rowH - 10 * s - Kit.textHeight("tiny"), PAL.muted)
     end
   end
 
-  if Kit.button(x + 110, y + 200, 100, 28, "Remove") then
-    local mon = S.save.party[S.selectedParty]
-    if mon then
-      table.remove(S.save.party, S.selectedParty)
-      if S.editingMon == mon then S.editingMon = nil end
-      S.selectedParty = math.min(S.selectedParty, #S.save.party)
-      if S.selectedParty < 1 then S.selectedParty = 1 end
-      mark(S)
-    end
+  local halfW = (innerW - 10 * s) / 2
+  if Kit.button(cx, actY, halfW, actH, "+ Add mon",
+      { font = "small", radius = 9 * s,
+        enabled = #S.save.party < PartyMod.MAX }) then
+    Ops.partyAdd(S)
+  end
+  if Kit.button(cx + halfW + 10 * s, actY, halfW, actH,
+      Ops.armLabel(S, "party-remove", "Remove"),
+      { kind = "danger", font = "small", radius = 9 * s }) then
+    Ops.partyRemove(S)
   end
 
-  if Kit.button(x + 220, y + 200, 90, 28, "Move Up") then
-    local i = S.selectedParty
-    if i and i > 1 and S.save.party[i] then
-      S.save.party[i], S.save.party[i - 1] = S.save.party[i - 1], S.save.party[i]
-      S.selectedParty = i - 1
-      mark(S)
-    end
-  end
-
-  if Kit.button(x + 320, y + 200, 100, 28, "Move Down") then
-    local i = S.selectedParty
-    if i and S.save.party[i] and S.save.party[i + 1] then
-      S.save.party[i], S.save.party[i + 1] = S.save.party[i + 1], S.save.party[i]
-      S.selectedParty = i + 1
-      mark(S)
-    end
-  end
+  MonEditor.draw(S, Kit, x + listW + gap, y, w - listW - gap, h)
 end
 
 return Party

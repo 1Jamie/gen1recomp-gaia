@@ -293,7 +293,11 @@ pewterEscort.guySteps = {
   "right", "right", "right",
 }
 
--- Walk home: reverse of guySteps with opposite facings (gym → spawn).
+-- Reverse of guySteps with opposite facings, i.e. the gym-to-spawn
+-- mirror of RLEList_PewterGymGuy.  Kept as the documented inverse that
+-- tests/parity_pewter_escort.lua checks; the youngster does NOT walk it
+-- home any more, because its first step is LEFT through the player
+-- parked on (11,18) (#241).  See walkHome below.
 do
   local opp = { up = "down", down = "up", left = "right", right = "left" }
   local ret = {}
@@ -371,20 +375,44 @@ local function pewterGymEscort(game, ow)
   local head = plan.guyHeadStart
 
   -- After the walk: face the player, restore map music, "Go take on
-  -- BROCK", then retrace RLEList_PewterGymGuy back to his spawn (35,16).
-  -- (pokered teleports him via MovementData_PewterGymGuyExit; we walk
-  -- the same route home instead.  Brock victory still HideObject's him.)
+  -- BROCK", then MovementData_PewterGymGuyExit -- five steps RIGHT out of
+  -- (12,18), the cell PewterCityYoungsterShowsPlayerGymScript pins him to
+  -- with SetSpritePosition1 (hSpriteMapXCoord 16 / hSpriteMapYCoord 22,
+  -- minus the +4 border offset object_event coords carry per
+  -- macros/scripts/maps.asm) and exactly where the escort leaves him.
+  -- That lands him on (17,18), the last walkable cell before the fence at
+  -- (18,18) and one column past the screen edge with the player parked on
+  -- (11,18).  PewterCityHideYoungsterScript then HideObject's him and
+  -- PewterCityResetYoungsterScript's SetSpritePosition2 + ShowObject put
+  -- him back on his object_event spawn (35,16) facing DOWN, which is the
+  -- snap below (the vanish/reappear is off screen, same as the original).
+  --
+  -- The old code retraced guyReturnSteps instead, whose first step is
+  -- LEFT into (11,18) -- the cell the player is standing on -- and
+  -- scriptMove is a pure tween with no entity test, so he walked straight
+  -- through Red (#241).  There is no honest route home: (17,18) is a
+  -- dead-end pocket ((18,18) fence, (17,17) wall), which is precisely why
+  -- the original teleports.  guyReturnSteps stays as the documented
+  -- mirror of RLEList_PewterGymGuy that parity_pewter_escort asserts.
+  -- Brock victory still HideObject's him.
   local function walkHome()
     if not guy then return end
-    local ret = pewterEscort.guyReturnSteps
     local i = 0
     local function tick()
       i = i + 1
-      if not ret[i] then
+      if i > 5 then
+        -- SetSpritePosition2: same field writes as Commands.place_npc,
+        -- including the target clear -- a stale targetX/targetY would
+        -- leave OverworldState:npcAtCell reserving (17,18) forever and
+        -- silently wall the player out of that pocket.
+        guy.cellX, guy.cellY = 35, 16
+        guy.px, guy.py = 35 * 16, 16 * 16
+        guy.moving = false
+        guy.targetX, guy.targetY = nil, nil
         guy.facing = "down"
         return
       end
-      ow:scriptMove(guy, ret[i], 1, tick)
+      ow:scriptMove(guy, "right", 1, tick)
     end
     tick()
   end
@@ -468,23 +496,48 @@ end
 -- Gym) and again in Viridian Gym; we derive the same windows from the
 -- surrounding story flags so old saves work too.
 -- Rival1Exit → Viridian (right/down); Rival2Exit → League (left).
+-- Both exit lists are keyed on wSavedCoordIndex -- WHICH entry of
+-- Route22DefaultScript.Route22RivalBattleCoords the player matched -- not
+-- on where the rival ended up.  CheckCoords (home/map_objects.asm:107)
+-- zeroes wCoordIndex and `inc [hl]` BEFORE each compare, so the first
+-- entry reports 1: index 1 is (29,4), index 2 is (29,5).
+-- Route22Rival1AfterBattleScript (Route22.asm:175) takes
+-- ...ExitMovementData1 on index 1 and ...Data2 otherwise.  From the top
+-- tile the rival stands BELOW the player on (29,5) and leaves east along
+-- row 5; from the bottom tile he stands LEFT of him on (28,5) and has to
+-- step UP to row 4 to get around him.  The port had the two branches
+-- swapped, so the top tile started the walk with UP out of (28,4) into
+-- the cliff cell (28,3), which is not walkable (#236).
 local function route22ExitDirs(n, py)
   if n == 2 then
-    if py == 5 then return { "left", "left", "left", "left" } end
+    -- Route22Rival2ExitMovementData1 falls through into ...Data2: LEFT x4
+    -- from (29,5), LEFT x3 from (28,5), both back onto the spawn (25,5).
+    if py == 4 then return { "left", "left", "left", "left" } end
     return { "left", "left", "left" }
   end
-  if py == 5 then
+  -- Route22Rival1ExitMovementData1: (29,5) -> (31,5) -> (31,10)
+  if py == 4 then
     return { "right", "right", "down", "down", "down", "down", "down" }
   end
+  -- Route22Rival1ExitMovementData2: (28,5) -> (28,4) -> (31,4) -> (31,10)
   return { "up", "right", "right", "right",
            "down", "down", "down", "down", "down", "down" }
 end
 
 local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag, py)
+  -- Route22MoveRivalRightScript (Route22.asm:39) walks him RIGHT along his
+  -- own row from the object_event spawn (25,5): the full four-RIGHT
+  -- Route22RivalMovementData on coord index 1 (player on (29,4)), so he
+  -- stops BELOW the player on (29,5); `inc de` drops one RIGHT on index 2
+  -- (player on (29,5)), so he stops LEFT of him on (28,5).  He never
+  -- leaves row 5.  Route22Rival{1,2}StartBattleScript (Route22.asm:110)
+  -- then faces him UP on index 1 and RIGHT otherwise (#236).
+  local rx = (py == 4) and 29 or 28
+  local rivalFacing = (py == 4) and "up" or "right"
   return {
     { "show_object", "ROUTE_22", objName },                    -- 1
-    { "move_npc_to", objIndex, 28, py },                       -- 2
-    { "face_object", objIndex, "right" },                      -- 3
+    { "move_npc_to", objIndex, rx, 5 },                        -- 2
+    { "face_object", objIndex, rivalFacing },                  -- 3
     { "show_text", "_Route22RivalBeforeBattleText" .. n },     -- 4
     { "rival_battle", oppClass, baseParty },                   -- 5
     { "jump_if_false", 11 },                                   -- 6
@@ -496,20 +549,25 @@ local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag,
   }
 end
 
+-- Route22Rival{1,2}StartBattleScript turns the player toward him too:
+-- PLAYER_DIR_DOWN on coord index 1 (the (29,4) tile, rival below him),
+-- and the PLAYER_DIR_LEFT Route22DefaultScript already set on index 2
+-- (the (29,5) tile, rival to his left) (#236).
 M.ROUTE_22 = {
   onStep = function(game, ow, x, y)
     if not inCoords({ { 29, 4 }, { 29, 5 } }, x, y) then return false end
     local f = game.save.flags
+    local playerFacing = (y == 4) and "down" or "left"
     if f.EVENT_GOT_POKEDEX and not f.EVENT_BEAT_BROCK
        and not f.EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE then
       return runAmbush(game, ow,
         route22Scene(1, 1, "ROUTE22_RIVAL1", "OPP_RIVAL1", 4,
-                     "EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE", y), "left")
+                     "EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE", y), playerFacing)
     end
     if f.EVENT_BEAT_GIOVANNI and not f.EVENT_BEAT_ROUTE22_RIVAL_2ND_BATTLE then
       return runAmbush(game, ow,
         route22Scene(2, 2, "ROUTE22_RIVAL2", "OPP_RIVAL2", 10,
-                     "EVENT_BEAT_ROUTE22_RIVAL_2ND_BATTLE", y), "left")
+                     "EVENT_BEAT_ROUTE22_RIVAL_2ND_BATTLE", y), playerFacing)
     end
     return false
   end,
@@ -545,7 +603,7 @@ end
 -- scripts/CeruleanCity.asm CeruleanCityRocketText: fight the thief,
 -- then he returns TM28 (DIG) and hurries off.  CeruleanHideRocket
 -- (CeruleanCity_2.asm) is GBFadeOutToBlack → Show GUARD1 / Hide GUARD2 /
--- Hide ROCKET → GBFadeInFromBlack — not a bare hide_object.
+-- Hide ROCKET → GBFadeInFromBlack -- not a bare hide_object.
 local rocketRows = {
   { "face_player" },                                           -- 1
   { "check_flag", "EVENT_GOT_TM28" },                          -- 2
@@ -564,7 +622,7 @@ local rocketRows = {
   { "fade", "out" },                                           -- 15 GBFadeOutToBlack
   -- CeruleanHideRocket while black: GUARD1 (28,12) appears, GUARD2
   -- (27,12) and the ROCKET go.  GUARD2 blocks the trashed-house south
-  -- door neighbour — the swap reconnects the city (Bill's ticket does
+  -- door neighbour -- the swap reconnects the city (Bill's ticket does
   -- the same in story.lua; either route is enough).
   { "show_object", "CERULEAN_CITY", "CERULEANCITY_GUARD1" },   -- 16
   { "hide_object", "CERULEAN_CITY", "CERULEANCITY_GUARD2" },   -- 17
@@ -628,13 +686,83 @@ M.MUSEUM_1F = {
 }
 
 -- The Pewter Center's singing JIGGLYPUFF (scripts/PewterPokecenter.asm
--- plays MUSIC_JIGGLYPUFF_SONG, then the map theme resumes)
+-- PewterPokecenterJigglypuffText).  The text_asm sets
+-- wDoNotWaitForButtonPressAfterDisplayingText before PrintText, so the box
+-- prints with no A prompt and the script keeps running underneath it:
+-- SFX_STOP_ALL_MUSIC, DelayFrames 32, PlayMusic MUSIC_JIGGLYPUFF_SONG,
+-- then .spinMovementLoop writes the next of DOWN -> LEFT -> UP -> RIGHT (a
+-- clockwise turn) every 24 frames for as long as the song's CHAN1/CHAN2
+-- still sound, DelayFrames 48, PlayDefaultMusic, TextScriptEnd.  Only that
+-- last step closes the box, so the whole dance plays out unskippably
+-- (#249).  Music.playOnce's pendingRestore stands in for both the channel
+-- poll and PlayDefaultMusic, so the Center's theme comes back the frame
+-- the song ends rather than 48 frames later.
+local JIGGLYPUFF_SPIN = { "down", "left", "up", "right" }
+local JIGGLYPUFF_SILENCE, JIGGLYPUFF_STEP, JIGGLYPUFF_TAIL = 32, 24, 48
+
+-- Built as a TextBox `auto` table: auto.sound fires the frame the last
+-- page has typed out (PrintText returning), and auto.tick then runs once
+-- per frame while the gate it returns still reads as playing.
+local function jigglypuffDance(game, npc)
+  local Music = require("src.core.Music")
+  -- .findMatchingFacingDirectionLoop: the rotation picks up at the entry
+  -- matching the sprite's current facing (showMapText has just turned it
+  -- toward the player), and the first write is that same facing, so the
+  -- first visible quarter turn lands 24 frames in
+  local step = 1
+  for i, dir in ipairs(JIGGLYPUFF_SPIN) do
+    if npc and npc.facing == dir then step = i end
+  end
+  local frames, phase = 0, "silence"
+  return {
+    sound = function()
+      Music.stop() -- SFX_STOP_ALL_MUSIC
+      return { isPlaying = function() return phase ~= "done" end }
+    end,
+    tick = function()
+      frames = frames + 1
+      if phase == "silence" then
+        if frames < JIGGLYPUFF_SILENCE then return end
+        frames = 0
+        if Music.playOnce(game.data, "Music_JigglypuffSong") then
+          phase = "spin"
+        else
+          -- no song def (or headless): Music.stop above already took the
+          -- map theme down and nothing armed pendingRestore, so put it
+          -- back by hand and fall through to the tail rather than hold
+          -- the box on a poll that would never clear
+          Music.restoreMap(game.data)
+          phase = "tail"
+        end
+        return
+      end
+      if phase == "spin" then
+        if frames < JIGGLYPUFF_STEP then return end
+        frames = 0
+        -- the loop tests the channels after the delay and before the next
+        -- write, so a song that just ended costs no extra quarter turn
+        if not Music.oneShotPlaying() then
+          phase = "tail"
+          return
+        end
+        step = step % #JIGGLYPUFF_SPIN + 1
+        if npc then npc.facing = JIGGLYPUFF_SPIN[step] end
+        return
+      end
+      if frames >= JIGGLYPUFF_TAIL then phase = "done" end
+    end,
+  }
+end
+
 M.PEWTER_POKECENTER = {
   talk = {
     TEXT_PEWTERPOKECENTER_JIGGLYPUFF = function(game, ow, npc, done)
-      require("src.core.Music").playOnce(game.data, "Music_JigglypuffSong")
-      push(game, text(game)._PewterPokecenterJigglypuffText
-        or "JIGGLYPUFF: Puu\npupuu!", done)
+      -- not the local push() helper: this box needs opts.auto, which is
+      -- also what suppresses the blinking arrow and the A dismissal
+      local TextBox = require("src.render.TextBox")
+      game.stack:push(TextBox.new(game,
+        text(game)._PewterPokecenterJigglypuffText or "JIGGLYPUFF: Puu\npupuu!",
+        done, { auto = jigglypuffDance(game, npc) }))
     end,
   },
 }

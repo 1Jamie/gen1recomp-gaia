@@ -219,6 +219,50 @@ do
   T.check(loaded and loaded.player.name == "SLOT2", "load reads back from slot2")
 end
 
+-- ---------------------------------------------- renameSlot (#205)
+
+do
+  local files = fresh()
+  local a = SaveData.createSlot("red")
+  local b = SaveData.createSlot("red")
+  local save = SaveData.newGame()
+  save.player.name = "ASH"
+  T.check(SaveData.writeSlot("red", a, save), "seed slot1 with a save")
+
+  T.check(SaveData.renameSlot("red", a, "Nuzlocke"),
+    "renameSlot labels a registered slot")
+  local opts = SaveSerializer.decode(files["options.lua"])
+  T.eq(opts.saveSlots.red.names[a], "Nuzlocke",
+    "the label persists in the options registry")
+
+  local slots = SaveData.listSlots("red")
+  T.eq(slots[1].label, "Nuzlocke", "listSlots carries the custom label")
+  T.eq(slots[1].name, "ASH", "the player name still comes through separately")
+  T.eq(slots[2].label, nil, "an unlabeled slot has no label")
+
+  T.check(SaveData.renameSlot("red", b, "  "), "whitespace-only clears")
+  T.check(SaveData.renameSlot("red", a, ""),
+    "an empty name clears the label")
+  opts = SaveSerializer.decode(files["options.lua"])
+  T.eq(opts.saveSlots.red.names and opts.saveSlots.red.names[a], nil,
+    "cleared labels leave the registry")
+  T.eq(SaveData.listSlots("red")[1].label, nil, "the row is unlabeled again")
+
+  -- trimming + delete cleanup
+  T.check(SaveData.renameSlot("red", a, "  Victory run  "),
+    "renameSlot trims the label")
+  T.eq(SaveData.listSlots("red")[1].label, "Victory run",
+    "the stored label is trimmed")
+  T.check(SaveData.deleteSlot("red", a), "delete the labeled slot")
+  opts = SaveSerializer.decode(files["options.lua"])
+  T.eq(opts.saveSlots.red.names[a], nil, "deleteSlot drops the label too")
+
+  local bad, badErr = SaveData.renameSlot("red", "slot99", "x")
+  T.check(not bad, "renaming an unknown slot fails")
+  T.check(tostring(badErr):find("not registered", 1, true) ~= nil,
+    "unknown-slot rename error is user-presentable")
+end
+
 -- ---------------------------------------------- a version with no slots
 
 do

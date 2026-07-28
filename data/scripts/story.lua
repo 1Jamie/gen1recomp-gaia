@@ -94,6 +94,27 @@ M.VIRIDIAN_CITY = {
       { "show_text", "_ViridianCityOldManTimeIsMoneyText" },             -- 8 (9 = end)
     },
   },
+  -- Re-apply the Pokedex old-man swap for a save that already holds the flag
+  -- but was never standing here when it fired: a vanilla .sav imported
+  -- through src/save_convert, whose codec does not model pokered's
+  -- wToggleableObjectFlags array, so save.objectToggles arrives empty and
+  -- both objects fall back to their compiled-in defaults -- the sleeper ON
+  -- (data/maps/toggleable_objects.asm toggleable_objects_for VIRIDIAN_CITY),
+  -- still lying across the north path (#234).
+  -- OaksLabOakGivesPokedexScript (scripts/OaksLab.asm) sets EVENT_GOT_POKEDEX
+  -- and, with no branch in between, runs HideObject TOGGLE_LYING_OLD_MAN /
+  -- ShowObject TOGGLE_OLD_MAN, so that one flag settles both toggles exactly.
+  -- Same shape as M.OAKS_LAB.onEnter in data/scripts/oaks_lab.lua, which
+  -- re-applies the same script's other two HideObjects on entry (#106).
+  onEnter = function(game, ow)
+    if not (game.save.flags and game.save.flags.EVENT_GOT_POKEDEX) then
+      return
+    end
+    local Commands = require("src.script.Commands")
+    local ctx = { save = game.save, game = game, overworld = ow }
+    Commands.hide_object(ctx, "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN_SLEEPY")
+    Commands.show_object(ctx, "VIRIDIAN_CITY", "VIRIDIANCITY_OLD_MAN")
+  end,
   -- ViridianCityCheckGotPokedexScript: the north corridor is gated on
   -- EVENT_GOT_POKEDEX, NOT on the sleeper being hidden, and it triggers
   -- on exactly one cell -- (19,9), the gap east of the sleeper (18,9)
@@ -719,11 +740,20 @@ local function boulderAt(ow, x, y)
   return npc and npc.def.sprite == "SPRITE_BOULDER" and npc or nil
 end
 
+-- Each barrier is stamped BOTH ways on entry.  pokered only ever stamps the
+-- OPEN block (ReplaceTileBlock edits the loaded block map, which the next map
+-- load throws away, so a fresh entry always shows the .blk's closed barrier),
+-- but OverworldState:replaceBlock writes through Map:setBlock into the SHARED
+-- map record in Game.data, so the port has to put the closed block back
+-- itself or a solved barrier stays open for the rest of the session (#258).
+-- The closed ids are the shipped .blk bytes: VictoryRoad1F.blk (4,6) = $25,
+-- VictoryRoad2F.blk (3,4) = $37 and (11,7) = $25, VictoryRoad3F.blk
+-- (3,5) = $25.  Same both-ways pattern as the card-key doors in
+-- OverworldState:setMap.
 M.VICTORY_ROAD_1F = {
   onEnter = function(game, ow)
-    if game.save.flags.EVENT_VICTORY_ROAD_1_BOULDER_ON_SWITCH then
-      ow:replaceBlock(4, 6, 0x1D)
-    end
+    ow:replaceBlock(4, 6,
+      game.save.flags.EVENT_VICTORY_ROAD_1_BOULDER_ON_SWITCH and 0x1D or 0x25)
   end,
   onBoulderMoved = function(game, ow, npc)
     if npc.cellX == 17 and npc.cellY == 13
@@ -736,12 +766,14 @@ M.VICTORY_ROAD_1F = {
 
 M.VICTORY_ROAD_2F = {
   onEnter = function(game, ow)
-    if game.save.flags.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH1 then
-      ow:replaceBlock(3, 4, 0x15)
-    end
-    if game.save.flags.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH2 then
-      ow:replaceBlock(11, 7, 0x1D)
-    end
+    -- VictoryRoad2FResetBoulderEventScript (scripts/VictoryRoad2F.asm:19):
+    -- entering 2F clears the 1F switch event, so 1F's barrier is closed
+    -- again the next time you climb down (#258)
+    game.save.flags.EVENT_VICTORY_ROAD_1_BOULDER_ON_SWITCH = nil
+    ow:replaceBlock(3, 4,
+      game.save.flags.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH1 and 0x15 or 0x37)
+    ow:replaceBlock(11, 7,
+      game.save.flags.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH2 and 0x1D or 0x25)
   end,
   onBoulderMoved = function(game, ow, npc)
     if npc.cellX == 1 and npc.cellY == 16
@@ -759,9 +791,8 @@ M.VICTORY_ROAD_2F = {
 
 M.VICTORY_ROAD_3F = {
   onEnter = function(game, ow)
-    if game.save.flags.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH1 then
-      ow:replaceBlock(3, 5, 0x1D)
-    end
+    ow:replaceBlock(3, 5,
+      game.save.flags.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH1 and 0x1D or 0x25)
   end,
   onBoulderMoved = function(game, ow, npc)
     if npc.cellX == 3 and npc.cellY == 5
@@ -769,12 +800,23 @@ M.VICTORY_ROAD_3F = {
       game.save.flags.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH1 = true
       ow:replaceBlock(3, 5, 0x1D)
     end
-    -- the hole at (23,15): the boulder drops to 2F next to switch 2
-    if npc.cellX == 23 and npc.cellY == 15 then
+    -- the hole at (23,15): the boulder drops to 2F next to switch 2.
+    -- VictoryRoad3FDefaultScript .handle_hole gates the swap on
+    -- CheckAndSetEvent EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH2, then
+    -- HideObject TOGGLE_VICTORY_ROAD_3F_BOULDER / ShowObject
+    -- TOGGLE_VICTORY_ROAD_2F_BOULDER.  Those two toggles are
+    -- VICTORYROAD3F_BOULDER4 and VICTORYROAD2F_BOULDER3
+    -- (data/maps/toggleable_objects.asm); the old "VICTORYROAD2F_BOULDER"
+    -- matched no object_event name, so the toggle landed under a key
+    -- objectVisible never reads: harmless only while nothing hid that
+    -- boulder, and fatal once Route 23's reset does (#258).
+    if npc.cellX == 23 and npc.cellY == 15
+       and not game.save.flags.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH2 then
+      game.save.flags.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH2 = true
       local Commands = require("src.script.Commands")
       local ctx = { save = game.save, overworld = ow, game = game }
       Commands.hide_object(ctx, "VICTORY_ROAD_3F", npc.def.name)
-      Commands.show_object(ctx, "VICTORY_ROAD_2F", "VICTORYROAD2F_BOULDER")
+      Commands.show_object(ctx, "VICTORY_ROAD_2F", "VICTORYROAD2F_BOULDER3")
     end
   end,
   -- scripts/VictoryRoad3F.asm VictoryRoad3FDefaultScript: the same hole

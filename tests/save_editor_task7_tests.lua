@@ -1,11 +1,12 @@
--- Headless tests for the Task 7 Events + Dex panels.
--- Run from repo root: /opt/homebrew/Cellar/lua@5.4/5.4.8/bin/lua tests/save_editor_task7_tests.lua
+-- Headless tests for the save editor's Events + Dex behaviour.
+-- Run from repo root: luajit tests/save_editor_task7_tests.lua
+-- (also chained from tests/run_save_editor_tests.lua so CI covers it)
 --
--- Mirrors tests/run_save_editor_tests.lua's approach: drive Kit's
--- immediate-mode hit-testing by placing the "mouse" at the exact
--- coordinates each panel draws its widgets at (see the layout comments in
--- panels/Events.lua and panels/Dex.lua), so click handlers run for real
--- without a live LOVE window.
+-- Driven through tools/save-editor/Ops.lua rather than by clicking pixel
+-- coordinates: the rules worth protecting here are the save-shape ones
+-- (flags write true/nil, object toggles write true/false, owning implies
+-- seen, un-seeing clears owned, wholesale clears arm before they commit),
+-- and those all live in Ops.
 
 package.path = package.path .. ";./?.lua;./?/init.lua;./tools/save-editor/?.lua"
   .. ";./tools/save-editor/panels/?.lua"
@@ -28,269 +29,184 @@ local function eq(a, b, msg)
   check(a == b, msg .. string.format(" (got %s, want %s)", tostring(a), tostring(b)))
 end
 
+local function count(t)
+  local n = 0
+  for _ in pairs(t or {}) do n = n + 1 end
+  return n
+end
+
 print("== save editor task 7 tests (Events + Dex) ==")
 
-local Kit = require("Kit")
+local Ops = require("Ops")
 local State = require("State")
-local SaveIO = require("SaveIO")
-local SaveData = require("src.core.SaveData")
-local Events = require("Events")
-local Dex = require("Dex")
 
-local px, py = 12, 80
-
--- ===== Events: Flags tab =====
-do
+local function newState()
   local S = State.new()
   S.events = { "EVENT_ALPHA", "EVENT_BEAT_BROCK", "EVENT_ZETA" }
+  S.cat = { species = { "BULBASAUR", "CHARMANDER", "SQUIRTLE", "PIKACHU" },
+            items = {}, moves = {} }
   S.save = {
     flags = {}, defeatedTrainers = {}, itemsTaken = {}, objectToggles = {},
     party = {}, boxes = {},
   }
+  return S
+end
 
-  Kit.beginFrame(0, 0, false)
-  Events.draw(S, Kit, px, py)
-  eq(S.eventFilter, "", "Events.draw defaults eventFilter to empty string")
-  eq(S.eventsTab, "flags", "Events.draw defaults eventsTab to flags")
+-- Events --------------------------------------------------------------
 
-  local listY = py + 64 + 32 -- contentY(+64) + list offset(+32)
+do
+  local S = newState()
 
-  Kit.beginFrame(px + 10, listY + 10, true) -- row 1: EVENT_ALPHA
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_ALPHA == true, "Flags row1 checkbox sets EVENT_ALPHA")
-  check(S.dirty == true, "Flags checkbox toggle marks dirty")
+  Ops.setFlag(S, "EVENT_ALPHA", true)
+  eq(S.save.flags.EVENT_ALPHA, true, "setFlag on writes true")
+  check(S.dirty, "setFlag dirties the save")
+  check(S.status:match("EVENT_ALPHA") ~= nil, "setFlag names the flag it changed")
+
+  Ops.setFlag(S, "EVENT_ALPHA", false)
+  eq(S.save.flags.EVENT_ALPHA, nil,
+     "setFlag off writes nil, not false (a false flag would still serialize)")
+end
+
+do
+  local S = newState()
+
+  Ops.setKey(S, "defeatedTrainers", "PEWTER_GYM_obj_1", true)
+  eq(S.save.defeatedTrainers.PEWTER_GYM_obj_1, true, "setKey marks a trainer beaten")
+  Ops.setKey(S, "defeatedTrainers", "PEWTER_GYM_obj_1", false)
+  eq(S.save.defeatedTrainers.PEWTER_GYM_obj_1, nil, "setKey off clears the entry")
+
+  Ops.setKey(S, "itemsTaken", "VIRIDIAN_FOREST_obj_3", true)
+  eq(S.save.itemsTaken.VIRIDIAN_FOREST_obj_3, true, "setKey works for itemsTaken too")
+
+  -- setKey creates the table when a save predates it
+  S.save.newTable = nil
+  Ops.setKey(S, "newTable", "k", true)
+  eq(S.save.newTable.k, true, "setKey creates a missing table")
+end
+
+do
+  -- object toggles are an explicit true/false override, NOT presence/absence:
+  -- false means "this object is hidden", which is different from "no override"
+  local S = newState()
+  Ops.setToggle(S, "CELADON_CITY", "gym_guide", true)
+  eq(S.save.objectToggles.CELADON_CITY.gym_guide, true, "setToggle on writes true")
+  Ops.setToggle(S, "CELADON_CITY", "gym_guide", false)
+  eq(S.save.objectToggles.CELADON_CITY.gym_guide, false,
+     "setToggle off writes false, not nil")
+end
+
+do
+  -- clearing a whole key table is destructive: arm, then commit
+  local S = newState()
+  S.save.defeatedTrainers = { a = true, b = true, c = true }
   S.dirty = false
 
-  Kit.beginFrame(px + 10, listY + 22 + 10, true) -- row 2: EVENT_BEAT_BROCK
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_BEAT_BROCK == true, "Flags row2 checkbox sets EVENT_BEAT_BROCK")
+  check(Ops.clearTable(S, "defeatedTrainers", "trainers") == false,
+        "clearTable arms on the first call")
+  eq(count(S.save.defeatedTrainers), 3, "an armed clear has not cleared anything")
+  check(S.status:match("Clear all 3") ~= nil, "the arming message counts the entries")
+  eq(Ops.armLabel(S, "clear-defeatedTrainers", "Clear all trainers"), "Confirm?",
+     "an armed clear relabels its button")
 
-  Kit.beginFrame(px + 10, listY + 22 + 10, true) -- click row 2 again to uncheck
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_BEAT_BROCK == nil, "Unchecking a flag clears the key (not just false)")
+  check(Ops.clearTable(S, "defeatedTrainers", "trainers") == true,
+        "clearTable commits on the second call")
+  eq(count(S.save.defeatedTrainers), 0, "the committed clear empties the table")
+  check(S.dirty, "the committed clear dirties the save")
 
-  -- re-check it, then persist through SaveIO to confirm it round-trips to disk
-  Kit.beginFrame(px + 10, listY + 22 + 10, true)
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_BEAT_BROCK == true, "Flags row2 re-checked")
-
-  local path = os.tmpname() .. "-task7-events.lua"
-  local ok, err = SaveIO.save(path, S.save)
-  check(ok, "SaveIO.save ok: " .. tostring(err))
-  local f = io.open(path, "r")
-  local raw = f:read("*a")
-  f:close()
-  check(raw:find("EVENT_BEAT_BROCK") ~= nil, "saved file contains EVENT_BEAT_BROCK key")
-  local loaded = SaveData.decode(raw)
-  check(loaded ~= nil and loaded.flags.EVENT_BEAT_BROCK == true,
-    "reloaded save confirms EVENT_BEAT_BROCK = true")
-  os.remove(path)
+  S.dirty = false
+  check(Ops.clearTable(S, "defeatedTrainers", "trainers") == false,
+        "clearing an already-empty table is a no-op")
+  check(S.dirty == false, "a no-op clear does not dirty the save")
+  check(S.status:match("already empty") ~= nil, "a no-op clear explains itself")
 end
 
--- ===== Events: filter field + Clear filter =====
+-- Dex -----------------------------------------------------------------
+
 do
-  local S = State.new()
-  S.events = { "EVENT_ALPHA", "EVENT_BEAT_BROCK", "EVENT_ZETA" }
-  S.save = {
-    flags = {}, defeatedTrainers = {}, itemsTaken = {}, objectToggles = {},
-    party = {}, boxes = {},
-  }
-  S.eventFilter = "beat" -- love.keyboard.isDown always false in love_stub,
-                         -- so setting this directly stands in for typing
+  local S = newState()
+  local dex = Ops.dex(S)
+  check(type(dex.seen) == "table" and type(dex.owned) == "table",
+        "Ops.dex creates the seen/owned tables")
 
-  local listY = py + 64 + 32
-  Kit.beginFrame(px + 10, listY + 10, true) -- only visible row under the filter
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_BEAT_BROCK == true, "Filtered row1 toggles the filtered-in event")
-  check(S.save.flags.EVENT_ALPHA == nil, "Filter hides EVENT_ALPHA from row1's slot")
+  Ops.dexSeen(S, "BULBASAUR", true)
+  eq(dex.seen.BULBASAUR, true, "dexSeen marks seen")
+  eq(dex.owned.BULBASAUR, nil, "seeing alone does not own")
 
-  local clearBtnX, clearBtnY = px + 320, py + 64
-  Kit.beginFrame(clearBtnX + 10, clearBtnY + 10, true) -- Clear filter button
-  Events.draw(S, Kit, px, py)
-  eq(S.eventFilter, "", "Clear filter button resets eventFilter")
+  Ops.dexOwned(S, "CHARMANDER", true)
+  eq(dex.owned.CHARMANDER, true, "dexOwned marks owned")
+  eq(dex.seen.CHARMANDER, true, "owning implies having seen")
+
+  Ops.dexSeen(S, "CHARMANDER", false)
+  eq(dex.seen.CHARMANDER, nil, "un-seeing clears seen")
+  eq(dex.owned.CHARMANDER, nil, "un-seeing also clears owned (can't own the unseen)")
 end
 
--- ===== Events: Flags pagination =====
 do
-  local S = State.new()
-  S.events = {}
-  for i = 1, 25 do
-    S.events[i] = string.format("EVENT_%02d", i)
-  end
-  S.save = {
-    flags = {}, defeatedTrainers = {}, itemsTaken = {}, objectToggles = {},
-    party = {}, boxes = {},
-  }
+  local S = newState()
+  local seen, owned, total = Ops.dexCounts(S)
+  eq(seen, 0, "a fresh dex has seen nothing")
+  eq(owned, 0, "a fresh dex owns nothing")
+  eq(total, #S.cat.species, "dexCounts reports the catalog size")
 
-  local listY = py + 64 + 32
-  local pagerY = listY + 10 * 22 + 8
+  Ops.dexSeeAll(S)
+  seen, owned = Ops.dexCounts(S)
+  eq(seen, #S.cat.species, "dexSeeAll marks every species seen")
+  eq(owned, 0, "dexSeeAll does not own anything")
 
-  Kit.beginFrame(px + 100 + 10, pagerY + 10, true) -- Next button
-  Events.draw(S, Kit, px, py)
-  eq(S.eventsScroll, 10, "Next button scrolls by VISIBLE_ROWS")
-
-  Kit.beginFrame(px + 10, listY + 10, true) -- row1 now maps to EVENT_11
-  Events.draw(S, Kit, px, py)
-  check(S.save.flags.EVENT_11 == true, "Row1 after scrolling toggles the 11th event")
-  check(S.save.flags.EVENT_01 == nil, "First event untouched after scrolling")
-
-  Kit.beginFrame(px + 10, pagerY + 10, true) -- Prev button
-  Events.draw(S, Kit, px, py)
-  eq(S.eventsScroll, 0, "Prev button scrolls back")
+  Ops.dexOwnAll(S)
+  seen, owned = Ops.dexCounts(S)
+  eq(owned, #S.cat.species, "dexOwnAll marks every species owned")
+  eq(seen, #S.cat.species, "dexOwnAll leaves everything seen too")
 end
 
--- ===== Events: Trainers tab =====
 do
-  local S = State.new()
-  S.events = {}
-  S.save = {
-    flags = {},
-    defeatedTrainers = { PALLET_TOWN_obj_0 = true, ROUTE1_obj_2 = false },
-    itemsTaken = {}, objectToggles = {}, party = {}, boxes = {},
-  }
-
-  local tabsY = py + 24
-  local trainersTabX = px + 64 + 4 -- after the "Flags" tab (w = 8*5+24 = 64)
-  Kit.beginFrame(trainersTabX + 10, tabsY + 10, true)
-  Events.draw(S, Kit, px, py)
-  eq(S.eventsTab, "trainers", "Trainers tab click switches sub-tab")
-
-  local listY = py + 64 + 32
-  Kit.beginFrame(px + 10, listY + 22 + 10, true) -- row2: ROUTE1_obj_2 (sorted after PALLET_TOWN_obj_0)
-  Events.draw(S, Kit, px, py)
-  check(S.save.defeatedTrainers.ROUTE1_obj_2 == true, "Trainers checkbox sets known key true")
-
-  local pagerY = listY + 10 * 22 + 8
-  local clearAllX = px + 400
-  Kit.beginFrame(clearAllX + 10, pagerY + 10, true) -- Clear all trainers
-  Events.draw(S, Kit, px, py)
-  check(next(S.save.defeatedTrainers) == nil, "Clear all trainers empties the table")
-end
-
--- ===== Events: Items taken tab =====
-do
-  local S = State.new()
-  S.events = {}
-  S.save = {
-    flags = {}, defeatedTrainers = {},
-    itemsTaken = { PALLET_TOWN_obj_1 = false },
-    objectToggles = {}, party = {}, boxes = {},
-  }
-
-  local tabsY = py + 24
-  local trainersTabX = px + 64 + 4
-  local itemsTabX = trainersTabX + 88 + 4 -- after "Trainers" (w = 8*8+24 = 88)
-  Kit.beginFrame(itemsTabX + 10, tabsY + 10, true)
-  Events.draw(S, Kit, px, py)
-  eq(S.eventsTab, "items", "Items taken tab click switches sub-tab")
-
-  local listY = py + 64 + 32
-  Kit.beginFrame(px + 10, listY + 10, true) -- row1: PALLET_TOWN_obj_1
-  Events.draw(S, Kit, px, py)
-  check(S.save.itemsTaken.PALLET_TOWN_obj_1 == true, "Items checkbox sets known key true")
-end
-
--- ===== Events: Object toggles tab =====
-do
-  local S = State.new()
-  S.events = {}
-  S.save = {
-    flags = {}, defeatedTrainers = {}, itemsTaken = {},
-    objectToggles = { PALLET_TOWN = { OAK = false, SIGN = true } },
-    party = {}, boxes = {},
-  }
-
-  local tabsY = py + 24
-  local trainersTabX = px + 64 + 4
-  local itemsTabX = trainersTabX + 88 + 4
-  local togglesTabX = itemsTabX + 112 + 4 -- after "Items taken" (w = 8*11+24 = 112)
-  Kit.beginFrame(togglesTabX + 10, tabsY + 10, true)
-  Events.draw(S, Kit, px, py)
-  eq(S.eventsTab, "toggles", "Object toggles tab click switches sub-tab")
-
-  local listY = py + 64 + 32
-  -- row1 is the "[PALLET_TOWN]" header (not clickable); row2/3 are OAK, SIGN (sorted)
-  Kit.beginFrame(px + 10, listY + 22 + 10, true) -- row2: OAK (false -> true)
-  Events.draw(S, Kit, px, py)
-  check(S.save.objectToggles.PALLET_TOWN.OAK == true, "Toggle row flips OAK to true")
-
-  Kit.beginFrame(px + 10, listY + 44 + 10, true) -- row3: SIGN (true -> false)
-  Events.draw(S, Kit, px, py)
-  check(S.save.objectToggles.PALLET_TOWN.SIGN == false, "Toggle row flips SIGN to false")
-
-  -- clicking the header row (row1) must not error and must not touch data
-  Kit.beginFrame(px + 10, listY + 10, true)
-  local ok = pcall(Events.draw, S, Kit, px, py)
-  check(ok, "Clicking the map header row does not error")
-end
-
--- ===== Dex panel =====
-do
-  local S = State.new()
-  S.cat = { species = { "BULBASAUR", "CHARMANDER", "SQUIRTLE" } }
-  S.save = { party = {}, boxes = {}, pokedex = { seen = {}, owned = {} } }
-
-  Kit.beginFrame(0, 0, false)
-  Dex.draw(S, Kit, px, py)
-
-  local seenX, ownedX = px + 220, px + 300
-  local listY = py + 64 + 24
-
-  Kit.beginFrame(seenX + 10, listY + 10, true) -- row1 seen: BULBASAUR
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.seen.BULBASAUR == true, "Dex row1 seen checkbox sets BULBASAUR seen")
-
-  Kit.beginFrame(ownedX + 10, listY + 10, true) -- row1 owned: BULBASAUR
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.owned.BULBASAUR == true, "Dex row1 owned checkbox sets BULBASAUR owned")
-
-  Kit.beginFrame(seenX + 10, listY + 10, true) -- uncheck seen
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.seen.BULBASAUR == nil, "Unchecking seen clears BULBASAUR")
-  check(S.save.pokedex.owned.BULBASAUR == nil, "Unchecking seen also clears owned (can't own unseen)")
-
-  S.save.party = { { species = "CHARMANDER" } }
+  -- stamping from the save's own mons, party and boxes both
+  local S = newState()
+  S.save.party = { { species = "PIKACHU" } }
   S.save.boxes = { { { species = "SQUIRTLE" } } }
-  Kit.beginFrame(px + 10, py + 24 + 10, true) -- Own party+boxes
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.owned.CHARMANDER == true, "Own party+boxes marks party mon owned")
-  check(S.save.pokedex.owned.SQUIRTLE == true, "Own party+boxes marks boxed mon owned")
 
-  Kit.beginFrame(px + 190 + 10, py + 24 + 10, true) -- See all
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.seen.BULBASAUR == true, "See all marks every species seen")
+  Ops.dexStamp(S)
+  local dex = Ops.dex(S)
+  eq(dex.owned.PIKACHU, true, "dexStamp owns party mons")
+  eq(dex.owned.SQUIRTLE, true, "dexStamp owns box mons")
+  eq(dex.seen.PIKACHU, true, "dexStamp marks stamped mons seen")
+  check(S.status:match("2 more") ~= nil, "dexStamp reports how many it added")
 
-  Kit.beginFrame(px + 310 + 10, py + 24 + 10, true) -- Clear
-  Dex.draw(S, Kit, px, py)
-  check(next(S.save.pokedex.seen) == nil, "Clear empties seen")
-  check(next(S.save.pokedex.owned) == nil, "Clear empties owned")
+  S.dirty = false
+  check(Ops.dexStamp(S) == false, "a second dexStamp with nothing new is a no-op")
+  check(S.dirty == false, "a no-op dexStamp does not dirty the save")
 end
 
--- ===== Dex pagination =====
 do
-  local S = State.new()
-  S.cat = { species = {} }
-  for i = 1, 25 do
-    S.cat.species[i] = string.format("SPECIES_%02d", i)
-  end
-  S.save = { party = {}, boxes = {}, pokedex = { seen = {}, owned = {} } }
+  -- wiping the dex is destructive: arm, then commit
+  local S = newState()
+  Ops.dexOwnAll(S)
+  S.dirty = false
 
-  local seenX = px + 220
-  local listY = py + 64 + 24
-  local pagerY = listY + 12 * 22 + 8
+  check(Ops.dexClear(S) == false, "dexClear arms on the first call")
+  local _, owned = Ops.dexCounts(S)
+  eq(owned, #S.cat.species, "an armed dexClear has not wiped anything")
+  eq(Ops.armLabel(S, "dex-clear", "Wipe dex"), "Confirm?",
+     "an armed dexClear relabels its button")
 
-  Kit.beginFrame(px + 100 + 10, pagerY + 10, true) -- Next
-  Dex.draw(S, Kit, px, py)
-  eq(S.dexScroll, 12, "Dex Next button scrolls by VISIBLE_ROWS")
+  check(Ops.dexClear(S) == true, "dexClear commits on the second call")
+  local seen2, owned2 = Ops.dexCounts(S)
+  eq(seen2, 0, "the committed dexClear clears seen")
+  eq(owned2, 0, "the committed dexClear clears owned")
+  check(S.dirty, "the committed dexClear dirties the save")
+end
 
-  Kit.beginFrame(seenX + 10, listY + 10, true) -- row1 -> SPECIES_13
-  Dex.draw(S, Kit, px, py)
-  check(S.save.pokedex.seen.SPECIES_13 == true, "Row1 after scrolling toggles the 13th species")
-  check(S.save.pokedex.seen.SPECIES_01 == nil, "First species untouched after scrolling")
-
-  Kit.beginFrame(px + 10, pagerY + 10, true) -- Prev
-  Dex.draw(S, Kit, px, py)
-  eq(S.dexScroll, 0, "Dex Prev button scrolls back")
+do
+  -- doing anything else disarms a pending confirmation: an unrelated click
+  -- must never become the second half of a destructive one
+  local S = newState()
+  Ops.dexOwnAll(S)
+  Ops.dexClear(S)
+  eq(S.armed, "dex-clear", "dexClear left the button armed")
+  Ops.dexSeen(S, "PIKACHU", true)
+  eq(S.armed, nil, "an unrelated mutation disarms the pending confirmation")
+  local _, owned = Ops.dexCounts(S)
+  check(owned > 0, "the dex was not wiped by the unrelated click")
 end
 
 print(string.format("save editor task 7 tests: %d passed, %d failed", passed, failed))

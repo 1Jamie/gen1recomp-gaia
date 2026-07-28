@@ -23,9 +23,51 @@ local PartyMenu = {}
 PartyMenu.__index = PartyMenu
 PartyMenu.isOpaque = true
 
--- SGB: generic whole-screen palette (SET_PAL_GENERIC)
+-- SGB (SetPal_PartyMenu, engine/gfx/palettes.asm:90): the party screen is
+-- NOT a one-palette screen.  data/sgb/sgb_packets.asm BlkPacket_PartyMenu
+-- splits it into MEWMON over the mon-icon column with GREENBAR everywhere
+-- else, plus one block per HP bar row whose palette
+-- UpdatePartyMenuBlkPacket (engine/gfx/palettes.asm:299-325) sets from that
+-- mon's GetHealthBarColor -- pal 1 GREENBAR / 2 YELLOWBAR / 3 REDBAR
+-- (PalPacket_PartyMenu, sgb_packets.asm:219).  Handing the whole screen
+-- MEWMON instead painted every bar with MEWMON's shades, which is why a
+-- full bar came out black and a low one purple (#274, absorbing #272).
+--
+-- Two rects differ from the packet's, both because this port draws pixels
+-- where the hardware drew OAM over BG:
+--   * the icon block is rows 0-11, not the packet's 0-12 -- row 12 is the
+--     message box's top edge, which on hardware was BG under an OBJ-free
+--     part of the block; here it would take MEWMON instead of the base.
+--   * the bar blocks sit one tile right of the packet's 05-11 because this
+--     port's bar starts at tile 5 where party_menu.asm:71-76 starts it at
+--     4; the span is the same "left cap + six fill tiles".
 function PartyMenu:sgbPalettes(game)
-  return require("src.render.PaletteFX").wholeNamed(game.data, "MEWMON")
+  local P = require("src.render.PaletteFX")
+  local base = P.pal(game.data, "GREENBAR")
+  if not base then return nil end
+  local zones = { P.whole(base) }
+  local mew = P.pal(game.data, "MEWMON")
+  if mew then zones[#zones + 1] = P.zone(mew, 1, 0, 2, 11) end
+  -- the TM/HM list prints ABLE / NOT ABLE where the bar would be, so those
+  -- rows have no bar to color (party_menu.asm .teachMoveMenu; #210)
+  if not self.tmhm then
+    local party = self.party or (game.save and game.save.party) or {}
+    for i, mon in ipairs(party) do
+      -- While a medicine's bar fill runs the block palette is STALE, not
+      -- recomputed: SetPartyMenuHPBarColor (party_menu.asm:80/295) is only
+      -- reached from the party-menu redraw loop, never from hp_bar.asm, so
+      -- UpdateHPBar2 lengthens the bar under the PRE-heal color and
+      -- RedrawPartyMenu snaps it green when the message prints.  Hold the
+      -- starting HP here for exactly that window (#252).
+      local hp = mon.hp
+      if self.heal and self.heal.mon == mon then hp = self.heal.from end
+      local bar = P.pal(game.data, P.barPalName(hp, mon.stats.hp))
+      if bar then
+        zones[#zones + 1] = P.zone(bar, 6, i * 2 - 1, 12, i * 2 - 1)
+      end
+    end
+  end
+  return zones
 end
 
 local function sameItems(_, items) return items end
@@ -50,7 +92,9 @@ local DIG_TILESETS = { FOREST = true, CEMETERY = true, CAVERN = true,
 -- Frame1; SNAKE/QUADRUPED are the reverse.  Sprite-reused icons draw
 -- from 16x16x6 overworld sheets where index 3 is walk-down (tile 12):
 -- MON/FAIRY/BIRD rest on the walk frame and animate to standing
--- (tile 0); WATER (Seel) is the reverse.
+-- (tile 0); WATER (Seel) is the reverse.  Only the frame's LEFT half
+-- ever reaches the screen -- see PartyMenu.mirrorsIcon (#276) -- which
+-- is why a walk frame does not look like a walk frame here.
 PartyMenu.iconFrames = {
   BUG       = { rest = 1, alt = 0 }, -- BugIconFrame2 <-> BugIconFrame1
   GRASS     = { rest = 1, alt = 0 }, -- PlantIconFrame2 <-> PlantIconFrame1
@@ -71,7 +115,45 @@ function PartyMenu.frameFor(name, alt, ih)
   return alt and ((ih or 0) >= 64 and 3 or 1) or 0
 end
 
+-- HELIX is the one icon WriteMonPartySpriteOAM sends down the asymmetric
+-- path (engine/gfx/mon_icons.asm:246 `cp ICON_HELIX << 2 / jr z, .helix`);
+-- every other built-in icon is drawn as a mirrored left half (see
+-- drawIcon).  A mod that supplies its own image instead of a built-in icon
+-- name has no vanilla counterpart, so its art draws whole. #276
+function PartyMenu.mirrorsIcon(name)
+  return name ~= nil and name ~= "HELIX"
+end
+
 local iconImages = {}
+
+-- Party icons are OBJs (engine/gfx/mon_icons.asm WriteMonPartySpriteOAM
+-- writes OAM blocks), so they render through OBP0, and GBPalNormal
+-- (home/palettes.asm:20-26 `ld a, %11010000 ; 3100 / ldh [rOBP0], a`)
+-- holds OBP0 at "3100": OBJ color 1 shows as shade 0, color 2 as shade 1,
+-- color 3 as shade 3.  An object never displays shade 2.  This canvas has
+-- no OBJ layer, so bake that map into the icon art once per path (the same
+-- CPU-remap trick as SpriteRenderer.getObpImage, and the same "#obp" cache
+-- key convention) and let the screen's SGB zone color the result.  Without
+-- it every color-2 pixel took the zone palette's shade-2 color -- the
+-- ADVANCED pack's MEWMON purple {115,33,165}, i.e. the "weirdly colored"
+-- party sprites of #274.
+local function obpIcon(path)
+  if not (love.image and love.image.newImageData) then
+    return love.graphics.newImage(Assets.resolve(path)) -- headless stub
+  end
+  local id = Assets.imageData(path)
+  id:mapPixel(function(_, _, r, _, _, a)
+    -- the extracted art is the four DMG grays, keyed off the red channel
+    -- exactly the way PaletteFX's shade-remap shader keys them
+    local v = 0
+    if r > 0.5 then v = 1               -- OBJ colors 0 and 1 -> shade 0
+    elseif r > 0.17 then v = 170 / 255  -- OBJ color 2 -> shade 1
+    end                                 -- OBJ color 3 -> shade 3
+    return v, v, v, a
+  end)
+  return love.graphics.newImage(id)
+end
+
 local function drawIcon(game, mon, x, y, selected, counter)
   local icons = game.data.icons
   if not icons then return end
@@ -98,14 +180,26 @@ local function drawIcon(game, mon, x, y, selected, counter)
   end
   path = require("src.pokemon.Sprites").iconPath(game.data, mon, path, { name = name })
   if not path then return end
-  if iconImages[path] == nil then
+  -- Built-in icon classes are DMG 2bpp OBJ art and get the OBP0 bake; a
+  -- mod's own image (an entry table rather than an icon name) is authored
+  -- art with no hardware counterpart, so it loads untouched -- the same
+  -- split PartyMenu.mirrorsIcon makes for the OAM mirror.  Both live in one
+  -- cache under different keys, so a mod pointing a table entry at a
+  -- built-in path still gets its unbaked copy. #274
+  local key = name and (path .. "#obp") or path
+  if iconImages[key] == nil then
     -- resolve through Assets so an overrides/ or transform-derived icon
     -- (e.g. a per-species image at assets/generated/icons/<name>.png) is
     -- picked up the same way battle sprites are
-    local ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
-    iconImages[path] = ok and img or false
+    local ok, img
+    if name then
+      ok, img = pcall(obpIcon, path)
+    else
+      ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
+    end
+    iconImages[key] = ok and img or false
   end
-  local img = iconImages[path]
+  local img = iconImages[key]
   if not img then return end
   local alt = false
   if selected then
@@ -118,10 +212,28 @@ local function drawIcon(game, mon, x, y, selected, counter)
     alt = false
   end
   local iw, ih = img:getDimensions()
-  if ih > 16 then
-    local frame = PartyMenu.frameFor(name, alt, ih)
+  -- a 16x16 sheet (BALL, HELIX) is its own only frame
+  local frame = ih > 16 and PartyMenu.frameFor(name, alt, ih) or 0
+  if PartyMenu.mirrorsIcon(name) then
+    -- WriteSymmetricMonPartySpriteOAM (engine/items/town_map.asm:494-534)
+    -- lays each icon out as 2x2 OAM blocks that use only the frame's LEFT
+    -- column of tiles (base+0, base+2): the inner loop writes the same
+    -- wOAMBaseTile twice with the attributes alternating 0 / OAM_XFLIP and
+    -- only then bumps the tile by 2, because "all the sprites other than
+    -- the helix one have a vertical line of symmetry".  MON / FAIRY / BIRD
+    -- reuse overworld sheets whose walk-down frame is NOT symmetric, so
+    -- drawing the raw 16x16 showed a tucked-back foot the hardware never
+    -- displays (#276, absorbing #238).
+    local half = love.graphics.newQuad(0, frame * 16, 8, 16, iw, ih)
+    love.graphics.draw(img, half, x, y)
+    -- sx = -1 about the block's right edge, so the flipped copy lands on
+    -- x+8..x+16: the OAM_XFLIP half
+    love.graphics.draw(img, half, x + 16, y, 0, -1, 1)
+  elseif ih > 16 then
     love.graphics.draw(img, love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih), x, y)
   else
+    -- HELIX and any mod art that is a single frame: drawn whole, at
+    -- whatever size the file is (unchanged path)
     love.graphics.draw(img, x, y)
   end
 end
@@ -134,6 +246,11 @@ function PartyMenu.new(game, opts)
   self.onSwitch = opts.onSwitch
   self.onCancel = opts.onCancel
   self.pickOnly = opts.pickOnly
+  -- Medicine keeps the picker on screen: item_effects.asm .doneHealing
+  -- animates the party HP bar and then prints the message through
+  -- RedrawPartyMenu with the menu STILL up, so BagMenu asks for keepOpen and
+  -- calls :close() itself once the message is done (#252).
+  self.keepOpen = opts.keepOpen
   -- TM/HM teaching: opts.tmhm = { move, kind } switches the list to Gen 1's
   -- TM/HM display (ABLE / NOT ABLE per mon instead of the HP bar, and the
   -- "Use TM on which POKeMON?" prompt). Set by BagMenu.pickTargetAndUse. #210
@@ -148,9 +265,47 @@ function PartyMenu.new(game, opts)
   return self
 end
 
+-- UpdateHPBar2 (engine/gfx/hp_bar.asm, predef'd from item_effects.asm's
+-- .doneHealing): UpdateHPBar_AnimateHPBar is documented "for (a) ticks (two
+-- waiting frames each)" over a 48-pixel bar, so the shown HP walks
+-- maxHP/96 per frame -- the same rate the battle HUD drains at
+-- (BattleState:stepHPDrain).  onDone fires on the frame it lands, which is
+-- when the caller prints its message. #252
+function PartyMenu:animateTo(mon, fromHP, onDone)
+  if not (mon and mon.stats) then
+    if onDone then onDone() end
+    return
+  end
+  local from = math.max(0, fromHP or mon.hp)
+  -- `from` outlives `shown`: sgbPalettes above needs the pre-heal HP for the
+  -- whole fill, because the SGB bar color does not move until the redraw.
+  self.heal = { mon = mon, from = from, shown = from, onDone = onDone }
+end
+
+-- Close a picker the caller kept open (see self.keepOpen).  A TextBox pops
+-- itself BEFORE it fires onDone (src/render/TextBox.lua), so this menu is
+-- the top state by then; the identity check makes it a no-op for the pickers
+-- that already popped themselves, and stops a double close eating the bag
+-- underneath. #252
+function PartyMenu:close()
+  if self.game.stack:top() == self then self.game.stack:pop() end
+end
+
 function PartyMenu:update(dt)
   -- icon animation counter; 320 = a whole cycle at every HP speed
   self.blink = ((self.blink or 0) + 1) % 320
+  -- The bar fill owns the menu while it runs: UpdateHPBar2 is a blocking
+  -- predef in item_effects.asm, so no button is read until it lands (#252).
+  local heal = self.heal
+  if heal then
+    heal.shown = math.min(heal.mon.hp,
+                          heal.shown + math.max(1, heal.mon.stats.hp) / 96)
+    if heal.shown >= heal.mon.hp then
+      self.heal = nil
+      if heal.onDone then heal.onDone() end
+    end
+    return
+  end
   local input = self.game.input
   local party = self.party or self.game.save.party
 
@@ -304,10 +459,12 @@ function PartyMenu:update(dt)
           or Strings("{RAM:wNameBuffer} used\nSTRENGTH.")):gsub("{RAM:wNameBuffer}", name)
         local t2 = (self.game.data.text._CanMoveBouldersText
           or Strings("{RAM:wNameBuffer} can\nmove boulders.")):gsub("{RAM:wNameBuffer}", name)
+        -- like surf (#320): the blink belongs UNDER the texts, not as a
+        -- flashbang on the empty map after them; the stack only updates
+        -- the top state, so the flash holds until the texts close
+        self.game.stack:push(Transition.whiteFlash(self.game))
         self.game.stack:push(TextBox.new(self.game, t1, function()
-          self.game.stack:push(TextBox.new(self.game, t2, function()
-            self.game.stack:push(Transition.whiteFlash(self.game))
-          end))
+          self.game.stack:push(TextBox.new(self.game, t2))
         end, { auto = { sound = function()
           return require("src.core.Sound").playCry(self.game.data, mon.species)
         end } }))
@@ -367,8 +524,12 @@ function PartyMenu:update(dt)
       end
       self.swapFrom = nil
     elseif self.onSwitch and (self.forceSwitch or self.pickOnly or not self.battle) then
-      self.game.stack:pop()
-      self.onSwitch(mon)
+      -- keepOpen callers (HP medicine) need the menu still drawn while the
+      -- bar fills and the message prints, and close it themselves; everyone
+      -- else keeps the old pop-then-call order.  Popping first is what made
+      -- a POTION snap the picker shut before the item had even run (#252).
+      if not self.keepOpen then self.game.stack:pop() end
+      self.onSwitch(mon, self)
     else
       self.submenu = true
       self.subIndex = 1
@@ -389,7 +550,7 @@ function PartyMenu:update(dt)
         -- Battle still excludes this list via `not self.battle`. Softboiled
         -- can appear for a fainted user; its heal transfer then no-ops.
         if not self.battle and ow then
-          -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU —
+          -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU --
           -- Route 23 / Indigo Plateau outdoor), not OVERWORLD alone (#83)
           local outside = Map.isOutside(ow.map.def,
             FieldDefaults.field(self.game.data, "outsideTilesets"))
@@ -484,6 +645,16 @@ function PartyMenu:draw()
     Font.draw(Strings("No POKéMON!"), 16, 64)
   end
   local HudTiles = require("src.render.HudTiles")
+  local PaletteFX = require("src.render.PaletteFX")
+  -- Each bar row carries its own GREENBAR / YELLOWBAR / REDBAR zone (see
+  -- sgbPalettes), so the fill must stay the raw DMG shade-2 gray and let
+  -- the zone color it -- but only when a zone pass will actually run.
+  -- Renderer's blit takes the shader path exactly when the zone list is
+  -- non-empty AND PaletteFX.shader() resolves, which is the same pair of
+  -- conditions tested here; with no shader the canvas blits unshaded and
+  -- drawHPBar's per-pixel tint is the only color the bar can get. #274
+  local barZoned = PaletteFX.shader() ~= nil
+                   and PaletteFX.pal(self.game.data, "GREENBAR") ~= nil
   for i, mon in ipairs(party) do
     local def = self.game.data.pokemon[mon.species]
     local y = PartyMenu.entryY(i)
@@ -523,11 +694,25 @@ function PartyMenu:draw()
       elseif mon.status then
         Font.draw(mon.status, 136, y)
       end
-      -- the colored tile HP bar (DrawHP2 + SetPartyMenuHPBarColor)
+      -- the tile HP bar (DrawHP2 + SetPartyMenuHPBarColor).  grayFill:
+      -- tinting the fill AND running it through the row's zone
+      -- double-applies -- a green fill has red channel 0, so the tint
+      -- zeroes the bar's red and the zone's red-keyed shade shader then
+      -- maps every pixel to color 3, i.e. black.  That is the #229 hazard
+      -- HudTiles documents; #274 (with #272) is this screen's instance.
+      --
+      -- While a medicine's UpdateHPBar2 fill runs, this row draws the HP the
+      -- animation has reached rather than the final value; drawHPBar reads
+      -- only .hp and .stats, so a shim table is enough and the real mon is
+      -- never mutated for display (#252).
+      local shown = mon
+      if self.heal and self.heal.mon == mon then
+        shown = { hp = math.floor(self.heal.shown), stats = mon.stats }
+      end
       love.graphics.setColor(1, 1, 1, 1)
-      HudTiles.drawHPBar(self.game.data, 5, (y + 8) / 8, mon)
+      HudTiles.drawHPBar(self.game.data, 5, (y + 8) / 8, shown, nil, barZoned)
       love.graphics.setColor(0, 0, 0, 1)
-      Font.draw(("%3d/%3d"):format(mon.hp, mon.stats.hp), 104, y + 8)
+      Font.draw(("%3d/%3d"):format(shown.hp, mon.stats.hp), 104, y + 8)
     end
     -- home/pokemon.asm PartyMenuInit seeds wTopMenuItemY/X with 1/0, so the
     -- cursor sits on the entry's *second* tile row (the level/HP line),

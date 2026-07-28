@@ -28,7 +28,29 @@ local function badgeGuard(badge, passFlag)
   }
 end
 
+-- Route23SetVictoryRoadBoulders (pokered scripts/Route23.asm:8): every entry
+-- to Route 23 resets the Victory Road boulder puzzle behind you.  The 2F/3F
+-- switch events clear (so those barriers are closed again on the next floor
+-- load) and the boulder that fell through 3F's hole goes back upstairs:
+-- ShowObject TOGGLE_VICTORY_ROAD_3F_BOULDER / HideObject
+-- TOGGLE_VICTORY_ROAD_2F_BOULDER, which are VICTORYROAD3F_BOULDER4 and
+-- VICTORYROAD2F_BOULDER3 (data/maps/toggleable_objects.asm).  1F's event is
+-- reset by the Indigo Plateau lobby and by Victory Road 2F, not here.  This
+-- is what makes the puzzle "completely reset" on a return trip (#258).
+-- onEnter is the port's BIT_CUR_MAP_LOADED_2 equivalent: setMap runs it on
+-- every map entry, connection crossings included, like EnterMap.
 M.ROUTE_23 = {
+  onEnter = function(game, ow)
+    local f = game.save.flags
+    f.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH1 = nil
+    f.EVENT_VICTORY_ROAD_2_BOULDER_ON_SWITCH2 = nil
+    f.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH1 = nil
+    f.EVENT_VICTORY_ROAD_3_BOULDER_ON_SWITCH2 = nil
+    local Commands = require("src.script.Commands")
+    local ctx = { save = game.save, overworld = ow, game = game }
+    Commands.show_object(ctx, "VICTORY_ROAD_3F", "VICTORYROAD3F_BOULDER4")
+    Commands.hide_object(ctx, "VICTORY_ROAD_2F", "VICTORYROAD2F_BOULDER3")
+  end,
   talk = {
     -- Route23Guard1Text: EventFlagBit ..., EVENT_PASSED_EARTHBADGE_CHECK
     -- -> wWhichBadge = EARTHBADGE

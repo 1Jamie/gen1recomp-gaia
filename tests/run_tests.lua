@@ -2240,20 +2240,34 @@ end
   local SummaryMenu = require("src.ui.SummaryMenu")
   local HudTiles = require("src.render.HudTiles")
   local drawn = {}
-  local savedDraw, savedTile = Font.draw, HudTiles.tile
+  local savedDraw, savedCode = Font.draw, Font.drawCode
+  -- The status screen draws its HUD glyphs through HudTiles.statusTile, not
+  -- HudTiles.tile: it loads a DIFFERENT VRAM overlay from the battle screen
+  -- (status_screen.asm:86-97 vs core.asm LoadHudTilePatterns), which is what
+  -- keeps $73/$74 as the <ID> and № glyphs there.  Stub both so this test
+  -- keeps seeing every tile the page puts down. #280
+  local savedTile, savedStatusTile = HudTiles.tile, HudTiles.statusTile
   Font.draw = function(text, x, y)
     drawn[#drawn + 1] = { text = tostring(text), x = x, y = y }
     return Font.width(text)
   end
+  Font.drawCode = function(code, x, y)
+    drawn[#drawn + 1] = { glyph = code, x = x, y = y }
+  end
   HudTiles.tile = function(code, x, y)
+    drawn[#drawn + 1] = { tile = code, x = x, y = y }
+  end
+  HudTiles.statusTile = function(code, x, y)
     drawn[#drawn + 1] = { tile = code, x = x, y = y }
   end
   local summary = SummaryMenu.new(Game, mon)
   summary.page = 2
   summary:draw()
   Font.draw = savedDraw
+  Font.drawCode = savedCode
   HudTiles.tile = savedTile
-  local nextExp, lvTile, lvNum
+  HudTiles.statusTile = savedStatusTile
+  local nextExp, lvTile, lvNum, toTile, lvOnPage2
   for _, d in ipairs(drawn) do
     if d.text == "LEVEL UP" then
       eq(d.y, 40, "LEVEL UP sits on tile row 5")
@@ -2261,6 +2275,10 @@ end
       nextExp = d
     elseif d.tile == 0x6E and d.y == 48 then
       lvTile = d
+    elseif d.tile == 0x70 and d.y == 48 then
+      toTile = d
+    elseif d.tile == 0x6E and d.y == 16 then
+      lvOnPage2 = d
     elseif d.text == "28" and d.y == 48 then
       lvNum = d
     end
@@ -2268,6 +2286,13 @@ end
   check(nextExp, "next-exp prints at (7,6)")
   check(lvTile and lvTile.x == 128, "next level uses the <LV> tile at col 16")
   check(lvNum and lvNum.x == 136, "next level digits follow <LV>")
+  -- status_screen.asm:393-397 writes the narrow '<to>' tile at (14,6)
+  -- between the next-exp number and PrintLevel; the port used to skip it (#280)
+  check(toTile and toTile.x == 112, "the '<to>' tile sits at (14,6)")
+  -- StatusScreen2 opens with ClearScreenArea over (9,2) 5x10
+  -- (status_screen.asm:303-305), which wipes PrintLevel's (14,2): page 2
+  -- must show no level in the header (#280)
+  check(not lvOnPage2, "page 2 draws no <LV> in the header")
   local edge = 19 * 8 -- DrawLineBox vertical at col 19
   check(lvNum.x + Font.width(lvNum.text) <= edge,
         "next level digits stay left of the status line-box")
@@ -2443,6 +2468,21 @@ do
   lp.shownHP = 20
   check(not lhb:lowHealthAlarmActive(), "alarm waits for the HP drain to catch up")
   lp.shownHP = 9
+  -- ...but once it IS sounding it follows the drawn bar, not the model:
+  -- applyDamage drops mon.hp while the turn is still being queued, so
+  -- keying the running siren off it silenced the whole "used X!" line +
+  -- move animation + drain window (#293)
+  lhb.lowHealthAlarmOn = true
+  lp.mon.hp, lp.shownHP = 3, 9
+  check(lhb:lowHealthAlarmActive(), "a sounding alarm rides the hit's drain out (#293)")
+  lp.mon.hp, lp.shownHP = 0, 9
+  check(lhb:lowHealthAlarmActive(), "a lethal hit holds it until the bar empties (#293)")
+  lp.mon.hp, lp.shownHP = 0, 0
+  check(not lhb:lowHealthAlarmActive(), "the empty bar silences it (RemoveFaintedPlayerMon)")
+  lp.mon.hp, lp.shownHP = 30, 9
+  check(not lhb:lowHealthAlarmActive(), "a heal out of the red silences it at once")
+  lhb.lowHealthAlarmOn = nil
+  lp.mon.hp, lp.shownHP = 9, 9
   lhb.result = "win"
   check(not lhb:lowHealthAlarmActive(), "decided battle keeps the alarm off (EndLowHealthAlarm)")
   lhb.result = nil
@@ -2502,9 +2542,16 @@ do
   eq(og.save.options.videoMode, "windowed",
      "new saves default VIDEO MODE to WINDOWED")
   eq(om.scroll, 0, "options viewport starts at the top")
-  for _ = 1, 4 do press("down") end
-  eq(om.index, 5, "cursor reaches MUSIC VOL")
-  eq(om.scroll, 1, "viewport scrolls to keep MUSIC VOL on screen")
+  for _ = 1, 3 do press("down") end
+  eq(om.index, 4, "cursor reaches BATTLE LAYOUT")
+  press("a")
+  eq(og.save.options.battleLayout, "wide",
+     "A switches the battle screen to the WIDE layout")
+  press("a")
+  eq(og.save.options.battleLayout, "og", "BATTLE LAYOUT wraps back to OG")
+  for _ = 1, 2 do press("down") end
+  eq(om.index, 6, "cursor reaches MUSIC VOL")
+  eq(om.scroll, 2, "viewport scrolls to keep MUSIC VOL on screen")
   press("left")
   eq(og.save.options.musicVol, 6, "left lowers MUSIC VOL")
   press("right")
@@ -2519,25 +2566,25 @@ do
   press("a")
   eq(og.save.options.musicFilter, 0, "MUSIC FILTER wraps back to OFF")
   press("down")
-  eq(om.index, 8, "cursor reaches COLORS")
+  eq(om.index, 9, "cursor reaches COLORS")
   press("a")
   for _ = 1, 4 do press("a") end
   press("down")
-  eq(om.index, 9, "cursor reaches TILT")
+  eq(om.index, 10, "cursor reaches TILT")
   press("a")
   eq(og.save.options.tilt, 1, "A cycles TILT to 15")
   eq(Tilt.level, 1, "Tilt level tracks TILT option")
   press("a"); press("a"); press("a")
   eq(og.save.options.tilt, 0, "TILT wraps back to OFF")
   press("down")
-  eq(om.index, 10, "cursor reaches GBC FX")
+  eq(om.index, 11, "cursor reaches GBC FX")
   press("a")
   eq(og.save.options.gbcfx, 1, "A cycles GBC FX to 1")
   eq(GBCFX.level, 1, "GBCFX level tracks GBC FX option")
   for _ = 1, 4 do press("a") end
   eq(og.save.options.gbcfx, 0, "GBC FX wraps back to OFF")
   press("down")
-  eq(om.index, 11, "cursor reaches ZOOM")
+  eq(om.index, 12, "cursor reaches ZOOM")
   local ZoomOpt = require("src.render.Zoom")
   press("a")
   eq(og.save.options.zoom, 1, "A cycles ZOOM to IN1")
@@ -2545,7 +2592,7 @@ do
   press("left")
   eq(og.save.options.zoom, 0, "left steps ZOOM back to FIT")
   press("down")
-  eq(om.index, 12, "cursor reaches VOID FILL")
+  eq(om.index, 13, "cursor reaches VOID FILL")
   local TR = require("src.render.TileRenderer")
   press("a")
   eq(og.save.options.voidFill, "water", "A cycles VOID FILL to WATER")
@@ -2555,7 +2602,7 @@ do
   press("a")
   eq(og.save.options.voidFill, "trees", "VOID FILL wraps back to TREES")
   press("down")
-  eq(om.index, 13, "cursor reaches VIDEO MODE")
+  eq(om.index, 14, "cursor reaches VIDEO MODE")
   press("a")
   eq(og.save.options.videoMode, "borderless",
      "A cycles VIDEO MODE to BORDERLESS")
@@ -2563,7 +2610,7 @@ do
   eq(og.save.options.videoMode, "windowed",
      "VIDEO MODE wraps back to WINDOWED")
   press("down")
-  eq(om.index, 14, "cursor reaches MAX FPS")
+  eq(om.index, 15, "cursor reaches MAX FPS")
   press("a")
   eq(og.save.options.fpsCap, 75, "A cycles MAX FPS up from 60 to 75")
   eq(FrameCap.current, 75, "the live render cap tracks the MAX FPS option")
@@ -2572,7 +2619,7 @@ do
   for _ = 1, #FrameCap.STEPS - 1 do press("a") end
   eq(og.save.options.fpsCap, 60, "MAX FPS wraps back to 60")
   press("down")
-  eq(om.index, 15, "cursor reaches GAME SPEED")
+  eq(om.index, 16, "cursor reaches GAME SPEED")
   press("a")
   eq(og.save.options.speed, 2, "A cycles GAME SPEED to 2X")
   -- Driven by the level list rather than a literal press count: adding a
@@ -2581,19 +2628,19 @@ do
   for _ = 1, #GameSpeed.LEVELS - 1 do press("a") end
   eq(og.save.options.speed, 1, "GAME SPEED wraps back to NORMAL")
   press("down")
-  eq(om.index, 16, "cursor reaches MODS")
+  eq(om.index, 17, "cursor reaches MODS")
   press("down")
-  eq(om.index, 17, "cursor reaches CONTROLS")
+  eq(om.index, 18, "cursor reaches CONTROLS")
   press("down")
-  eq(om.index, 18, "CANCEL stays the fixed final row")
-  eq(om.scroll, 13, "CANCEL keeps the last option boxes on screen")
+  eq(om.index, 19, "CANCEL stays the fixed final row")
+  eq(om.scroll, 14, "CANCEL keeps the last option boxes on screen")
   om:draw() -- smoke: scrolled layout draws under the headless stub
   press("a")
   check(popped, "A on CANCEL closes the options menu")
   local om2 = OptionsMenu.new(og)
   OInput.pressed = { up = true }; om2:update(1 / 60); OInput.pressed = {}
-  eq(om2.index, 18, "up from the top wraps to CANCEL")
-  eq(om2.scroll, 13, "wrapping to CANCEL scrolls to the tail")
+  eq(om2.index, 19, "up from the top wraps to CANCEL")
+  eq(om2.scroll, 14, "wrapping to CANCEL scrolls to the tail")
   -- headless-safe: no love.audio, setters only update internal state
   require("src.core.Music").applyOptions(og.save.options)
   require("src.core.Sound").applyOptions(og.save.options)
@@ -2885,6 +2932,47 @@ do
   battle:drawTextArea()
   Font.drawCode, Font.drawBox = origCode, origBox
   eq(drawn, 0, "no current message and no animation draws no text")
+end
+
+-- issue #295: during a window shake the zone pass draws only the shifted
+-- copy; a base copy underneath ghosted the HUD names in the vacated strip
+do
+  local PaletteFX = require("src.render.PaletteFX")
+  local origShaderFn, origSend = PaletteFX.shader, PaletteFX.sendColors
+  local origPermute = PaletteFX.permute
+  local origDraw, origRect = love.graphics.draw, love.graphics.rectangle
+  PaletteFX.shader = function() return nil end
+  PaletteFX.sendColors = function() end
+  PaletteFX.permute = function(p) return p end
+  local draws, fills = {}, 0
+  love.graphics.draw = function(_, x, y) draws[#draws + 1] = { x, y } end
+  love.graphics.rectangle = function(mode) if mode == "fill" then fills = fills + 1 end end
+  local battle = setmetatable({ fx = {} }, BattleState)
+  function battle:sgbBattlePals() return setmetatable({}, { __index = function() return {} end }) end
+  function battle:activeBgp() return nil end
+
+  battle:drawZonePass("canvas", 0, 8)
+  check(#draws > 0, "the zone pass still draws during a shake")
+  local shiftedOnly = true
+  for _, d in ipairs(draws) do
+    if d[1] == 0 and d[2] == 0 then shiftedOnly = false end
+    if d[2] ~= 8 then shiftedOnly = false end
+  end
+  check(shiftedOnly, "a shake draws only the shifted copy, no base copy")
+  check(fills == #draws, "the vacated strip is filled blank per zone")
+
+  draws, fills = {}, 0
+  battle:drawZonePass("canvas", 0, 0)
+  local baseOnly = #draws > 0
+  for _, d in ipairs(draws) do
+    if d[1] ~= 0 or d[2] ~= 0 then baseOnly = false end
+  end
+  check(baseOnly, "no shake draws the single base copy as before")
+  check(fills == 0, "no strip fill without a shake")
+
+  love.graphics.draw, love.graphics.rectangle = origDraw, origRect
+  PaletteFX.shader, PaletteFX.sendColors = origShaderFn, origSend
+  PaletteFX.permute = origPermute
 end
 end
 

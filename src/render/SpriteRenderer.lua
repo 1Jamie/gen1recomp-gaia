@@ -18,10 +18,14 @@ local function getImage(path)
   return imageCache[path]
 end
 
--- RED++ overworld sprite OBJ-palette recolor (color/sprites.asm
--- ColorOverworldSprite), baked into an ImageData like BattleState's mon-pic
--- palette bake (src/battle/BattleState.lua getImage): CPU-remap the 4 DMG
--- shades to the resolved OBP colors, cached per (image path, group).
+-- Overworld sprite OBJ-palette recolor, baked into an ImageData like
+-- BattleState's mon-pic palette bake (src/battle/BattleState.lua getImage):
+-- CPU-remap the 4 DMG shades to the resolved OBP colors, cached per
+-- (image path, group).  Every colour mode goes through it now (#301): RED++
+-- resolves real per-sprite colours (color/sprites.asm ColorOverworldSprite),
+-- OG RED the one boot-ROM object palette, and everything else the plain
+-- rOBP0 = $D0 shade lift (PaletteFX.dmgObj) that leaves the sprite in DMG
+-- shades for the zone shader to colour.
 --
 -- Sprite sheets carry no real alpha (every pixel, including the
 -- background, is opaque -- confirmed by sampling the extracted PNGs): the
@@ -110,7 +114,13 @@ function SpriteRenderer:resolveImage()
     -- collide in obpCache) -- see issue #155
     return getObpImage(self.def.image, PaletteFX.ogObj())
   end
-  return self.image
+  -- Every other mode (SGB and the mono/inverted novelties) leaves the sprite
+  -- in DMG shades so the zone shader colors it out of the map's own palette,
+  -- but still bakes rOBP0 = $D0 in and keys OBJ color 0 to alpha -- the two
+  -- things a raw sheet blit cannot express (#301, #150).  The sheets carry no
+  -- real alpha (see getObpImage), so returning self.image here would put an
+  -- opaque white box behind every character a pipeline textures.
+  return getObpImage(self.def.image, PaletteFX.dmgObj())
 end
 
 -- facing: down/up/left/right; walkPhase: 0 stand, 1 walk; flip: alternate
@@ -152,6 +162,17 @@ function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip)
     -- top.
     image = getObpImage(self.def.image, PaletteFX.ogObj())
     redraw = true
+  else
+    -- SGB and the mono/inverted modes (and OG RED's tilt upright pass, which
+    -- has no post-zone replay to restore a bake): the sprite stays in DMG
+    -- shades -- rOBP0 = $D0 baked in, OBJ color 0 keyed to alpha -- and the
+    -- whole-canvas zone shader colors it with the map's palette.  That is the
+    -- only thing the Super Game Boy can do to an OBJ, since pokered never
+    -- sends the OBJ_TRN packet that would give sprites palettes of their own
+    -- (data/sgb/sgb_packets.asm defines ATTR_BLK / PAL_SET / PAL_TRN /
+    -- MLT_REQ / CHR_TRN / PCT_TRN and nothing else).  No redraw is queued:
+    -- being colorized by the zone IS the point (#301).
+    image = getObpImage(self.def.image, PaletteFX.dmgObj())
   end
   -- single-frame sprites (item balls, fossils...) have one fixed pose;
   -- still 3-frame sprites turn to face (the nurse at her machine,

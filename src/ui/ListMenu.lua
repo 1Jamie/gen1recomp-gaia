@@ -75,7 +75,7 @@ function ListMenu.new(game, title, items, opts)
   self.dialogue = opts.dialogue
   -- PC item lists (players_pc.asm): PrintListMenuEntries shows 4 names
   -- and PrintText footers ("How many?", stored/withdrew) use the standard
-  -- bottom text box — same row budget as the mart, without the money box.
+  -- bottom text box -- same row budget as the mart, without the money box.
   self.messageBox = opts.messageBox
   self.money = opts.money          -- () -> current money for the box
   self.rows = opts.rows or ((opts.dialogue or opts.messageBox) and 4 or ROWS)

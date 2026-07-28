@@ -23,6 +23,20 @@ local FLASH_STEPS = { 1 / 3, 2 / 3, 1, 2 / 3, 1 / 3, 0,
 local FLASH_HOLD = 2   -- frames per palette step
 local FLASH_CYCLES = 3
 
+-- The screen stays black after the wipe lands.  Shrink and Split ask for it
+-- outright (BattleTransition_BlackScreen, then `ld c, 10 / jp DelayFrames`:
+-- battle_transitions.asm:390-392 and 422-424); the other six get the same gap
+-- for free, because BattleTransition_BlackScreen has already set rBGP/rOBP0/
+-- rOBP1 to $ff (:168-174) while DoBattleTransitionAndInitBattleVariables
+-- reloads the HUD tile patterns and clears the screen (core.asm:6152-6185),
+-- InitBattleCommon decompresses the front pic (core.asm:6694-6730), and
+-- SlidePlayerAndEnemySilhouettesOnScreen rebuilds the whole tilemap between
+-- DisableLCD and EnableLCD (core.asm:9-49) before anything moves.  This port
+-- has no load to hide behind, so the hold has to be explicit (#315).  30 is a
+-- frame budget for that work, not a number pokered states; retune this one
+-- constant against a reference recording if it reads long or short.
+local BLACK_HOLD = 30
+
 local TILE = 8
 local COLS, ROWS = 160 / TILE, 144 / TILE -- 20 x 18 tiles
 
@@ -208,7 +222,7 @@ function BattleTransition:update(dt)
       self.t = 0
     end
   else
-    if self.t >= self.wipeLen + 6 then
+    if self.t >= self.wipeLen + BLACK_HOLD then
       self.game.stack:pop()
       if self.onDone then self.onDone() end
     end

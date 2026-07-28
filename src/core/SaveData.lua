@@ -16,6 +16,7 @@ local SaveSerializer = require("src.core.SaveSerializer")
 local Runtime = require("src.mods.Runtime")
 local Semver = require("src.mods.Semver")
 local Boxes = require("src.pokemon.Boxes")
+local Stats = require("src.pokemon.Stats")
 local Bag = require("src.inventory.Bag")
 local Badges = require("src.inventory.Badges")
 
@@ -132,17 +133,26 @@ local function detectPortable()
   -- Recover the folder containing the .app so a packaged app finds its
   -- marker.  On Windows/Linux the executable is not a bundle, so this is nil
   -- and the plain source-base directory (next to the .exe/AppImage) is used.
-  local function appContainer(path)
-    local appPath = path and path:match("^(.*%.app)/Contents/")
-    return appPath and appPath:match("^(.*)/[^/]+$") or nil
+  local function parentDir(path)
+    return path and path:match("^(.*)/[^/]+$") or nil
   end
-  -- Order: the .app's containing folder (packaged macOS), then the
-  -- source-base directory (next to a packaged .exe/AppImage), then the
-  -- source itself (a `love <gamedir>` run drops portable.txt in the game
-  -- folder).  First one holding the marker wins.  Built by appending so a
-  -- nil (e.g. no .app in the path) never truncates the ipairs scan.
+  local function appContainer(path)
+    return parentDir(path and path:match("^(.*%.app)/Contents/"))
+  end
+  -- The Linux AppImage build works similarly to macOs, but the runtime mounts
+  -- the squashfs at a temp path, and that becomes the base directory.
+  -- The runtime exports the real .AppImage path in $APPIMAGE, so we get the
+  -- base dir from there.
+  local function appImageContainer()
+    return parentDir(os.getenv("APPIMAGE"))
+  end
+  -- Order: the packaged-app containing folder (macOS .app / Linux AppImage),
+  -- then the source-base directory (next to a packaged .exe), then the source
+  -- itself (a `love <gamedir>` run drops portable.txt in the game folder).
+  -- First one holding the marker wins.  Built by appending so a nil (e.g. no
+  -- .app in the path) never truncates the ipairs scan.
   local candidates = {}
-  local appDir = appContainer(src) or appContainer(sbd)
+  local appDir = appContainer(src) or appContainer(sbd) or appImageContainer()
   if appDir then candidates[#candidates + 1] = appDir end
   if sbd then candidates[#candidates + 1] = sbd end
   if src then candidates[#candidates + 1] = src end
@@ -193,6 +203,9 @@ function SaveData.defaultOptions()
     textSpeed = 3,
     animations = true,
     battleStyle = "shift",
+    -- battle screen composition: og (the 160x144 original) | wide
+    -- (304x144, src/battle/WideBattle.lua)
+    battleLayout = "og",
     ruleset = "gen1_faithful",
     -- 0-7 like the GB's NR50 master volume
     musicVol = 7,
@@ -442,6 +455,25 @@ function SaveData.slotSummary(save)
   }
 end
 
+-- The absolute on-disk path of a slot's save file, for the one caller that
+-- cannot go through love.filesystem: the save editor reads and writes with
+-- raw io.* so it can also open a file the player dragged in from anywhere.
+-- Resolves against the same root persistFs would write to -- the portable
+-- game folder when portable mode is on, otherwise LOVE's save directory --
+-- so Edit on a launcher save row lands on the file the game actually plays.
+-- nil when neither root is available (headless tests with an injected fs).
+function SaveData.slotDiskPath(version, slotId)
+  version = version or GameVersion.get()
+  if not knownVersion(version) or not slotId then return nil end
+  local base = SaveData.portableBaseDir()
+    or (love and love.filesystem and love.filesystem.getSaveDirectory
+        and love.filesystem.getSaveDirectory())
+  if not base then return nil end
+  local sep = package.config:sub(1, 1)
+  local rel = select(1, slotNames(version, slotId))
+  return base .. sep .. rel:gsub("/", sep)
+end
+
 -- Slots visible to the launcher: every registered slot for a version, each
 -- with whether it holds a save and the cheap summary above.  A fresh
 -- install with nothing registered returns an empty array; a legacy install
@@ -458,9 +490,42 @@ function SaveData.listSlots(version)
   for _, id in ipairs(list) do
     local save = decodeSlot(fs, version, id)
     local name, meta = SaveData.slotSummary(save)
-    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta }
+    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta,
+                      label = reg.names and reg.names[id] or nil }
   end
   return out
+end
+
+-- Give a registered slot a custom label (#205: "a way to name save slots so
+-- you can see that in the launcher").  The label lives in the options
+-- registry next to list/active, never in the save file itself, so renaming
+-- needs no save rewrite and an empty slot can be labeled too.  The label is
+-- trimmed; an empty (or whitespace-only) one clears it.  Returns true, or
+-- false + an error string when the id is not registered.
+function SaveData.renameSlot(version, slotId, name)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  if type(slotId) ~= "string" or slotId == "" then
+    return false, "missing slot id"
+  end
+  local fs = persistFs(nil)
+  local opts = SaveData.loadOptions(fs)
+  opts.saveSlots = opts.saveSlots or {}
+  local reg = opts.saveSlots[version]
+  if not reg or not reg.list then return false, "slot not registered" end
+  local found = false
+  for _, id in ipairs(reg.list) do
+    if id == slotId then found = true break end
+  end
+  if not found then return false, "slot not registered" end
+  local label = type(name) == "string" and name:match("^%s*(.-)%s*$") or nil
+  if label == "" then label = nil end
+  reg.names = reg.names or {}
+  reg.names[slotId] = label
+  if next(reg.names) == nil then reg.names = nil end
+  opts.saveSlots[version] = reg
+  SaveData.saveOptions(opts, fs)
+  return true
 end
 
 -- Point the active slot at slotId (registering it if new) and persist the
@@ -580,6 +645,7 @@ function SaveData.deleteSlot(version, slotId)
   remove(fs, tmp)
 
   table.remove(reg.list, idx)
+  if reg.names then reg.names[slotId] = nil end
   if reg.active == slotId then
     reg.active = reg.list[1]  -- may be nil when the list is now empty
   end
@@ -972,6 +1038,17 @@ local function scrubKnownMon(mon, data)
     for stat, v in pairs(mon.statExp) do mon.statExp[stat] = clamp(v, 0, 65535, 0) end
   end
   mon.level = clamp(mon.level, 1, 100, 1)
+  -- Box mons imported from a real .sav carry NO stat block: box_struct stops
+  -- before MON_LEVEL/MON_STATS, so src/save_convert/GenSave.lua decodeMon
+  -- only fills `stats` for party slots.  Every HP-bar draw then nil-indexes
+  -- mon.stats: the status screen opened in the box (#233) and the party list
+  -- after withdrawing one (#304).  The original derives them on demand
+  -- (status_screen.asm:66-76, add_mon.asm _MoveMon); deriving once here means
+  -- every later reader (menus, battle, items, SGB bar zones, the link
+  -- fingerprint) sees a party-shaped mon.  Runs after the level clamp above
+  -- so the derived stats use a sane level.  A save that already has stats is
+  -- untouched.
+  Stats.ensure(data.pokemon and data.pokemon[mon.species], mon)
   local moves = mon.moves
   if type(moves) ~= "table" then return end
   local hadMoves = #moves > 0
@@ -1216,7 +1293,7 @@ function SaveData.newGame(boot)
     inventory = {},
     -- Vanilla Gen1 seeds one Potion in the player's item PC
     -- (wBoxItems / players_pc.asm); existing saves keep whatever they
-    -- already have — this only applies to New Game.
+    -- already have -- this only applies to New Game.
     pcItems = { POTION = 1 },
     party = {},
     box = {},

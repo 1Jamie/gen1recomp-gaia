@@ -806,10 +806,13 @@ do
 end
 
 do
-  -- BattleState asks for white letterbox voids instead of black bars
+  -- BattleState asks for the display mode's paper shade in the letterbox
+  -- voids instead of black bars.  It is deliberately NOT a hardcoded white:
+  -- the battle canvas is colorized, so in SGB mode its paper is the pack's
+  -- off-white and a literal 1,1,1 framed it in a visibly brighter border.
   local BattleState = require("src.battle.BattleState")
   check(BattleState.letterboxWhite == true,
-        "BattleState opts into white letterbox fill")
+        "BattleState opts into a filled letterbox")
   local rects = {}
   local color = { 1, 1, 1, 1 }
   local savedRect, savedColor = love.graphics.rectangle, love.graphics.setColor
@@ -823,24 +826,51 @@ do
     color[1], color[2], color[3], color[4] = r, g, b, a or 1
   end
   local Game = require("src.core.Game")
-  local savedStack = Game.stack
+  local PaletteFX = require("src.render.PaletteFX")
+  local savedStack, savedMode = Game.stack, PaletteFX.mode
   Game.stack = {
     states = { { letterboxWhite = true, isOpaque = true } },
     visibleBase = function() return 1 end,
   }
-  Renderer:init()
-  Renderer:beginFrame(false)
-  rects = {}
-  Renderer:endFrame(nil, nil)
-  local clear
-  for _, r in ipairs(rects) do
-    if r.mode == "fill" and r.x == 0 and r.y == 0 and r.w == 640 and r.h == 576 then
-      clear = r
-      break
+
+  local function clearColorFor(mode)
+    PaletteFX.setMode(mode)
+    Renderer:init()
+    Renderer:beginFrame(false)
+    rects = {}
+    Renderer:endFrame(nil, nil)
+    for _, r in ipairs(rects) do
+      if r.mode == "fill" and r.x == 0 and r.y == 0 and r.w == 640 and r.h == 576 then
+        return r
+      end
     end
   end
-  check(clear and clear.r == 1 and clear.g == 1 and clear.b == 1,
-        "endFrame fills the window white when the visible base wants letterboxWhite")
+
+  -- These two modes resolve without a loaded palette pack, so the assertion
+  -- does not depend on whether generated data reached this suite: OG RED
+  -- short-circuits to the boot-ROM BG palette, and CLASSIC ignores its input
+  -- entirely and returns the DMG pea-soup ramp.
+  local og = clearColorFor("ogred")
+  check(og and og.r == 1 and og.g == 1 and og.b == 1,
+        "OG RED letterbox stays white (its paper really is white)")
+
+  local classic = clearColorFor("classic")
+  local cc = PaletteFX.CLASSIC[1]
+  check(classic and classic.r == cc[1] / 255 and classic.g == cc[2] / 255
+        and classic.b == cc[3] / 255,
+        "CLASSIC letterbox is the pea-soup paper, not white")
+  check(classic and classic.g ~= 1,
+        "the letterbox tracks the palette instead of filling flat white")
+
+  -- whatever the mode, the fill is exactly what paperShade reports
+  for _, mode in ipairs({ "ogred", "classic", "og_inv" }) do
+    local got = clearColorFor(mode)
+    local pr, pg, pb = PaletteFX.paperShade(Game.data)
+    check(got and got.r == pr and got.g == pg and got.b == pb,
+          "letterbox fill matches PaletteFX.paperShade in " .. mode)
+  end
+
+  PaletteFX.setMode(savedMode)
   Game.stack = savedStack
   love.graphics.rectangle, love.graphics.setColor = savedRect, savedColor
 end

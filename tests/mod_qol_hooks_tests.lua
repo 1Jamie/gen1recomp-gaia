@@ -43,7 +43,7 @@ do
     field = { playerSprites = { walk = "SPRITE_RED" } },
     constants = { world = { stepFrames = 16, bikeStepFrames = 8, turnFrames = 2 } },
   }
-  -- FieldDefaults reads from data; Player.new needs Collision for tryMove —
+  -- FieldDefaults reads from data; Player.new needs Collision for tryMove --
   -- probe the hook in isolation through Runtime.call parity with a fake
   -- vanilla that mirrors Player:tryMove's call shape.
   local unsub = wrap("movement.speed", function(next, frames, ctx)

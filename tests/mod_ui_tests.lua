@@ -281,9 +281,9 @@ local function optGame()
   }
 end
 local om = OptionsMenu.new(optGame())
-local WANT_IDS = { "textSpeed", "animations", "battleStyle", "ruleset",
-                   "musicVol", "sfxVol", "musicFilter", "colors", "tilt",
-                   "gbcfx", "zoom", "voidFill", "videoMode", "fpsCap",
+local WANT_IDS = { "textSpeed", "animations", "battleStyle", "battleLayout",
+                   "ruleset", "musicVol", "sfxVol", "musicFilter", "colors",
+                   "tilt", "gbcfx", "zoom", "voidFill", "videoMode", "fpsCap",
                    "speed", "mods", "controls" }
 check(#om.rows == #WANT_IDS, "vanilla options row count (plus MODS/CONTROLS)")
 for i, id in ipairs(WANT_IDS) do
@@ -292,11 +292,11 @@ end
 
 -- ruleset row cycles the sorted non-hidden registry ids showing name
 om.game.save.options.ruleset = "gen1_faithful"
-check(om.rows[4].value(om.game) == "GEN 1", "ruleset row shows record.name")
-om.rows[4].step(om.game, 1)
+check(om.rows[5].value(om.game) == "GEN 1", "ruleset row shows record.name")
+om.rows[5].step(om.game, 1)
 check(om.game.save.options.ruleset == "modern_clean",
   "ruleset row cycles sorted registry ids")
-om.rows[4].step(om.game, 1)
+om.rows[5].step(om.game, 1)
 check(om.game.save.options.ruleset == "gen1_faithful",
   "hidden rulesets are excluded from the cycle")
 
@@ -309,9 +309,15 @@ om.rows[2].step(om.game, 1)
 check(om.game.save.options.animations == false, "animations toggles off")
 om.rows[3].step(om.game, 1)
 check(om.game.save.options.battleStyle == "set", "battle style flips to SET")
-om.rows[5].step(om.game, -1)
+check(om.rows[4].value(om.game) == "OG", "battle layout starts on the OG screen")
+om.rows[4].step(om.game, 1)
+check(om.game.save.options.battleLayout == "wide", "battle layout flips to WIDE")
+check(om.rows[4].value(om.game) == "WIDE", "the WIDE layout renders its label")
+om.rows[4].step(om.game, 1)
+check(om.game.save.options.battleLayout == "og", "battle layout flips back")
+om.rows[6].step(om.game, -1)
 check(om.game.save.options.musicVol == 6, "music volume steps down")
-for _ = 1, 10 do om.rows[5].step(om.game, -1) end
+for _ = 1, 10 do om.rows[6].step(om.game, -1) end
 check(om.game.save.options.musicVol == 0, "music volume clamps at 0")
 
 -- ZOOM / VOID FILL rows
@@ -319,30 +325,30 @@ local Zoom = require("src.render.Zoom")
 local TileRenderer = require("src.render.TileRenderer")
 om.game.save.options.zoom = 0
 Zoom.offset = 0
-check(om.rows[11].value(om.game) == "FIT", "ZOOM row shows FIT at offset 0")
-om.rows[11].step(om.game, 1)
+check(om.rows[12].value(om.game) == "FIT", "ZOOM row shows FIT at offset 0")
+om.rows[12].step(om.game, 1)
 check(om.game.save.options.zoom == 1 and Zoom.offset == 1,
   "ZOOM row steps to IN1")
-om.rows[12].step(om.game, 1)
+om.rows[13].step(om.game, 1)
 check(om.game.save.options.voidFill == "water"
       and TileRenderer.voidFill == "water",
   "VOID FILL row cycles TREES → WATER")
-om.rows[12].step(om.game, 1)
+om.rows[13].step(om.game, 1)
 check(om.game.save.options.voidFill == "black", "VOID FILL steps to BLACK")
-om.rows[12].step(om.game, 1)
+om.rows[13].step(om.game, 1)
 check(om.game.save.options.voidFill == "trees", "VOID FILL wraps to TREES")
 
 -- the MAX FPS row cycles the render-cap steps and shows the value plain
 om.game.save.options.fpsCap = nil
-check(om.rows[14].value(om.game) == "60",
+check(om.rows[15].value(om.game) == "60",
   "MAX FPS row defaults to 60 with no saved cap")
-om.rows[14].step(om.game, 1)
+om.rows[15].step(om.game, 1)
 check(om.game.save.options.fpsCap == 75, "MAX FPS steps up from 60 to 75")
-check(om.rows[14].value(om.game) == "75", "the MAX FPS row renders the cap")
+check(om.rows[15].value(om.game) == "75", "the MAX FPS row renders the cap")
 om.game.save.options.fpsCap = 160
-om.rows[14].step(om.game, 1)
+om.rows[15].step(om.game, 1)
 check(om.game.save.options.fpsCap == 30, "MAX FPS wraps past the ceiling to 30")
-om.rows[14].step(om.game, -1)
+om.rows[15].step(om.game, -1)
 check(om.game.save.options.fpsCap == 160, "MAX FPS wraps back down to the ceiling")
 
 -- ------- FrameCap normalize / cycle (issue #88)
@@ -372,7 +378,7 @@ check(FrameCap.current == 60, "FrameCap.applyOptions defaults a missing key to 6
 -- the MODS row is the manager's discoverable home
 local mgGame = optGame()
 om = OptionsMenu.new(mgGame)
-om.rows[16].activate(mgGame)
+om.rows[17].activate(mgGame)
 check(getmetatable(mgGame.stack:top()) == ManagerState,
   "the MODS row opens the manager")
 check(mgGame.stack:top().screenId == "ManagerState",
@@ -382,7 +388,7 @@ check(mgGame.stack:top().screenId == "ManagerState",
 local BindingsMenu = require("src.ui.BindingsMenu")
 local cbGame = optGame()
 om = OptionsMenu.new(cbGame)
-om.rows[17].activate(cbGame)
+om.rows[18].activate(cbGame)
 local bm = cbGame.stack:top()
 check(getmetatable(bm) == BindingsMenu,
   "the CONTROLS row opens the rebind list")
@@ -531,6 +537,30 @@ fgame.stack:push(fpm)
 press(fpm, "a")
 check(not fpm.submenu and forced == fgame.save.party[1],
   "forceSwitch still picks immediately (ChooseNextMon / SHIFT)")
+
+-- ------- issue #320: the STRENGTH blink sits under its texts
+do
+  local owStub = { strengthActive = false,
+                   map = { def = { tileset = "OVERWORLD" } }, dark = false }
+  local sgame = partyGame()
+  sgame.overworld = owStub
+  sgame.data.text = {} -- the strength texts fall back to Strings sources
+  sgame.save.inventory.RAINBOWBADGE = 1
+  sgame.save.party[1].moves = { { id = "STRENGTH" } }
+  local pm = PartyMenu.new(sgame)
+  pm.game = sgame
+  sgame.stack:push(pm)
+  press(pm, "a") -- open the submenu
+  check(pm.subItems[#pm.subItems].action == "strength",
+    "the strength row is listed with badge + move")
+  pm.subIndex = #pm.subItems
+  press(pm, "a") -- run STRENGTH
+  local states = sgame.stack.states
+  check(#states == 2 and states[1].frames ~= nil
+    and states[2].pages ~= nil,
+    "the blink sits under the strength texts")
+  check(owStub.strengthActive == true, "strength still activates")
+end
 
 -- ------- mod.ui helpers and theme defaults
 local items = { { label = "A" }, { label = "B" } }

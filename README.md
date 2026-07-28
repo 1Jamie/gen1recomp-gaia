@@ -1,13 +1,13 @@
-# Pokemon Gen 1 Recompilation Project
+# Gen1Recomp
 
-A native LÖVE2D recreation of Pokemon Red and Blue. The engine and map
+A native LÖVE2D recreation of Poke Red and Blue. The engine and map
 behavior are hand-written Lua; game data and graphics are decoded from a ROM
 supplied by the player.
 
 SUPPORT AND ANNOUNCEMENTS: [Discord](https://bois.icu)
 
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
-or download a disassembly. A canonical US Pokemon Red or Blue ROM is the only
+or download a disassembly. A canonical US Poke Red or Blue ROM is the only
 game content input.
 
 The ROM is verified, used during import, and then released from memory. It is
@@ -31,34 +31,104 @@ The packaged app contains neither a ROM nor pre-extracted game data. Music,
 sound effects, and cries are synthesized while the game runs from compact
 audio channel programs copied out of the verified ROM.
 
+## Anbernic RG34XXSP (Stock OS 64-bit MOD)
+
+Download `gen1recomp-*-rg34xxsp-stockos64-mod.zip` from
+[Releases](https://github.com/bryanthaboi/gen1recomp/releases). This build
+targets **Stock OS 64-bit MOD** on the RG34XXSP with PortMaster installed
+(TF1).
+
+1. Unzip the release on your computer. You get `Gen1recomp.sh` and a
+   `gen1recomp/` folder.
+2. Copy **both** onto the SD card under **`Roms/PORTS/`** so the layout is:
+
+   ```
+   Roms/PORTS/Gen1recomp.sh
+   Roms/PORTS/gen1recomp/
+   ```
+
+   On the device that path is `/mnt/mmc/Roms/PORTS/`. Keep the launcher and
+   the `gen1recomp/` folder as siblings — do not nest the `.sh` inside the
+   folder.
+3. Put your legal US Red and/or Blue `.gb` files inside the game folder:
+
+   ```
+   Roms/PORTS/gen1recomp/lovegame/
+   ```
+
+   Example: `Roms/PORTS/gen1recomp/lovegame/Pokemon - Red Version.gb`
+4. Eject the card, boot the handheld, open **Ports → Gen1recomp**.
+5. On the launcher, move the cursor with the D-pad or left stick, press **A**
+   to click. Choose the Red or Blue tab, then **Choose ROM** — with no file
+   picker on stock OS, that scans `lovegame/` for the `.gb` you dropped in.
+
+After import, saves and the ROM-derived cache stay next to the game on the
+SD card (`portable.txt`).
+
 ## Controls
 
-| Action | Keyboard | Controller |
-|--------|----------|------------|
-| Move | Arrow keys / WASD | D-pad / left stick |
-| A | Z / Enter / Space | A |
-| B | X / Backspace | B |
-| Start | Escape | Start |
-| Select | Tab / Shift | Back / Select |
+
+| Action | Keyboard          | Controller         |
+| ------ | ----------------- | ------------------ |
+| Move   | Arrow keys / WASD | D-pad / left stick |
+| A      | Z / Enter / Space | A                  |
+| B      | X / Backspace     | B                  |
+| Start  | Escape            | Start              |
+| Select | Tab / Shift       | Back / Select      |
+
 
 Rebind any of these in-game under **OPTIONS → CONTROLS**. Controllers are
 supported out of the box.
 
 ### Hotkeys
 
-| Key | What it does |
-|-----|----------------|
-| `-` / `=` | Zoom out / in (overworld; also mouse wheel) |
-| `2` | Cycle COLORS |
-| `3` | Cycle TILT (free-roam overworld) |
-| `4` | Cycle ZOOM through every level (free-roam overworld) |
-| `5` | Cycle GBC FX |
-| `F1` | Save |
-| `F2` | Load |
-| `F10` | Open / close the mod manager |
+
+| Key       | What it does                                         |
+| --------- | ---------------------------------------------------- |
+| `-` / `=` | Zoom out / in (overworld; also mouse wheel)          |
+| `2`       | Cycle COLORS                                         |
+| `3`       | Cycle TILT (free-roam overworld)                     |
+| `4`       | Cycle ZOOM through every level (free-roam overworld) |
+| `5`       | Cycle GBC FX                                         |
+| `F1`      | Save                                                 |
+| `F2`      | Load                                                 |
+| `F10`     | Open / close the mod manager                         |
+
 
 COLORS, TILT, ZOOM, GBC FX, and VOID FILL are also in the Options menu
 and persist in `options.lua`.
+
+### Rulesets
+
+**OPTIONS → RULESET** picks which set of Gen 1 battle behaviors to run.
+Both rulesets share the same damage formulas; they differ only in whether
+the original's quirks are kept. The setting persists in `options.lua`, and
+mods can register their own.
+
+`gen1_faithful` is the default and reproduces the original cartridge,
+famous bugs included:
+
+| Rule                        | Behavior                                              |
+| --------------------------- | ----------------------------------------------------- |
+| `oneIn256Miss`              | A 100%-accurate move still misses on a roll of 255     |
+| `critUsesBaseSpeed`         | Crit rate reads base speed, not the current stat       |
+| `critIgnoresStages`         | Crit rate ignores stat stages                          |
+| `focusEnergyBug`            | FOCUS ENERGY quarters the crit rate instead of x4      |
+| `enemyUnlimitedPP`          | Enemies never spend PP, so they never Struggle         |
+| `hyperBeamSkipRechargeOnKO` | HYPER BEAM skips its recharge when the target faints   |
+| `randMin` / `randMax`       | Damage random factor 217-255                           |
+
+`modern_clean` keeps the formulas but removes the notorious quirks:
+
+| Rule                        | Behavior                                              |
+| --------------------------- | ----------------------------------------------------- |
+| `oneIn256Miss`              | Off: a 100%-accurate move always hits                  |
+| `critUsesBaseSpeed`         | Unchanged: crit rate still reads base speed            |
+| `critIgnoresStages`         | Off: stat stages count toward the crit rate            |
+| `focusEnergyBug`            | Off: FOCUS ENERGY raises the crit rate as intended     |
+| `enemyUnlimitedPP`          | Off: enemies deplete PP and Struggle when empty        |
+| `hyperBeamSkipRechargeOnKO` | Off: HYPER BEAM always recharges, like Gen 2+          |
+| `randMin` / `randMax`       | Damage random factor 217-255, same as faithful         |
 
 ## Running From Source
 
@@ -66,13 +136,13 @@ Requires LÖVE 11.x. Place a Red or Blue ROM in the project folder and
 double-click `Play-Mac.command` or `Play-Windows.bat`, or run:
 
 ```sh
-scripts/setup.sh --rom "/path/to/Pokemon Red.gb"   # or Pokemon Blue.gb
+scripts/setup.sh --rom "/path/to/Poke Red.gb"   # or Poke Blue.gb
 scripts/run.sh
 ```
 
 then `love .` for later launches. Windows PowerShell scripts, the optional
 developer data build, test suites, and cache management are covered in
-[Developer Setup](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/wiki/Guide-Developer-Setup).
+[Developer Setup](https://github.com/bryanthaboi/gen1recomp/wiki/Guide-Developer-Setup).
 
 ## Portable Mode
 
@@ -80,7 +150,7 @@ By default the game keeps your save, options, and the private ROM-derived
 data cache in your OS's normal per-user app data folder. To keep everything
 next to the game instead (handy for a USB stick or portable drive you carry
 between computers), drop an empty file named `portable.txt` next to the app
-(next to `PokemonRed.app`/`.exe`, or next to `main.lua`/`conf.lua` when
+(next to `gen1recomp.app`/`.exe`, or next to `main.lua`/`conf.lua` when
 running from source), then launch the game. Portable mode is desktop-only
 (Windows, Linux, macOS); it has no effect on Android or iOS, where the app
 runs from a read-only package.
@@ -88,14 +158,16 @@ runs from a read-only package.
 With `portable.txt` present:
 
 - `save.lua`, `save.lua.bak`, and `options.lua` are read from and written to
-  that same folder instead of the OS save directory.
+that same folder instead of the OS save directory.
 - A ROM import writes the generated `data/generated` and `assets/generated`
-  cache straight into that folder too (nothing is left in the OS save
-  directory), so a later launch reuses it without asking for the ROM again
-  even on a different computer, as long as the same folder comes along.
+cache straight into that folder too (nothing is left in the OS save
+directory), so a later launch reuses it without asking for the ROM again
+even on a different computer, as long as the same folder comes along.
 - Deleting `portable.txt` switches back to the normal OS save directory; nothing
-  already written to either location is touched automatically, so copy files
-  over yourself if you want to carry existing progress across the switch.
+already written to either location is touched automatically, so copy files
+over yourself if you want to carry existing progress across the switch.
+
+
 
 ## Modding
 
@@ -103,33 +175,35 @@ The game ships a native mod platform: content registries, events and hooks,
 per-mod saves and options, and an in-game manager. The full modding book —
 getting started, a twelve-rung tutorial ladder, a cookbook, and the generated
 reference — lives on the
-[project wiki](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/wiki).
+[project wiki](https://github.com/bryanthaboi/gen1recomp/wiki).
 
-Shipped example mods, one per kind of author, live in [`mods/`](mods/).
+Shipped example mods, one per kind of author, live in `[mods/](mods/)`.
 
 ## Bugs and Ideas
 
 Found a bug? A warp dropping you somewhere it shouldn't, a battle doing math
 that looks wrong, text in the wrong box, anything that does not match the
 original game.
-[Open a bug report](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/issues/new?template=bug_report.yml).
+[Open a bug report](https://github.com/bryanthaboi/gen1recomp/issues/new?template=bug_report.yml).
 Attach a screenshot if you can. It saves a lot of back and forth, and if you
 can't get one, the form asks you to describe what you saw instead.
 
 Thought of a feature that could be good, or a way to improve one that already
 exists?
-[Open a feature request](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/issues/new?template=feature_request.yml).
+[Open a feature request](https://github.com/bryanthaboi/gen1recomp/issues/new?template=feature_request.yml).
 Say what you want, why it is worth doing, and how you picture it working. A
 request with real detail is one that can actually get built.
 
 ## More
 
-- [Link play](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/wiki/Guide-Link-Play)
-  — START > LINK connects two copies directly over UDP.
-- [Save editor](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/wiki/Guide-Save-Editor)
-  — edit party, boxes, items, events, and Pokédex flags outside the game.
+- [Link play](https://github.com/bryanthaboi/gen1recomp/wiki/Guide-Link-Play)
+— START > LINK connects two copies directly over UDP.
+- [Save editor](https://github.com/bryanthaboi/gen1recomp/wiki/Guide-Save-Editor)
+— edit party, boxes, items, events, and Pokédex flags outside the game.
 - `docs/architecture.md` — runtime details;
-  `docs/behavior-porting-notes.md` — formula provenance.
+`docs/behavior-porting-notes.md` — formula provenance.
+
+
 
 ## Special Thanks
 

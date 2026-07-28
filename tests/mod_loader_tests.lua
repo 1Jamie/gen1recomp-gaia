@@ -234,6 +234,43 @@ Events.emit = realEmit
 check(counts["mods.loaded"] == 1, "boot emits mods.loaded exactly once")
 check(counts["game.ready"] == 1, "boot emits game.ready exactly once")
 
+-- ------- legacy mod_state.lua migration
+--
+-- The prototype manager kept enable/disable flags in their own mod_state.lua;
+-- _loadState folds that file into options.mods once, then never looks again.
+-- It read the chunk as `local ok, state = chunk and pcall(chunk)`, which Lua
+-- adjusts to a single value -- so state was always nil, the `type(state) ==
+-- "table"` guard never passed, and no legacy state was ever migrated.
+do
+  local stateFiles = {
+    ["mod_state.lua"] = "return { snoozing_mod = true, awake_mod = false }",
+  }
+  local writes = {}
+  local fs = memfs(stateFiles)
+  fs.write = function(path, contents) writes[path] = contents return true end
+  local migrateLoader = Loader.new({ fs = fs })
+  migrateLoader:_loadState()
+
+  check(migrateLoader.disabled.snoozing_mod == true,
+        "legacy mod_state.lua disables carry into the loader")
+  check(migrateLoader.disabled.awake_mod == nil,
+        "a legacy entry set false is left enabled")
+  check(writes["options.lua"] ~= nil,
+        "the migration writes the folded state back to options.lua")
+  check(writes["options.lua"]
+        and writes["options.lua"]:find("snoozing_mod", 1, true) ~= nil,
+        "options.lua records the disabled mod")
+
+  -- a chunk that throws must not take the boot down with it
+  local badFs = memfs({ ["mod_state.lua"] = "error('legacy state exploded')" })
+  badFs.write = function() return true end
+  local badLoader = Loader.new({ fs = badFs })
+  local ok = pcall(badLoader._loadState, badLoader)
+  check(ok, "a mod_state.lua that errors is swallowed, not raised")
+  check(next(badLoader.disabled) == nil,
+        "and nothing is disabled off a failed migration")
+end
+
 -- leave shared singletons the way we found them for later chained tests
 local StateStack = require("src.core.StateStack")
 while StateStack:top() do StateStack:pop() end

@@ -238,6 +238,16 @@ function Game:draw()
   -- white clear
   local base = self.stack:visibleBase()
   local worldBelow = self.stack.states[base] == self.overworld
+  -- The UI surface is resolved once, before any state draws: the top state
+  -- may want more than the Game Boy's 160x144 (the widescreen battle layout
+  -- asks for 304x144).  Anything else keeps the classic surface, so a menu
+  -- pushed over a wide battle brings the screen straight back to 160x144.
+  local top = self.stack:top()
+  if top and top.uiSize then
+    Renderer:setUISize(top:uiSize())
+  else
+    Renderer:setUISize(Renderer.WIDTH, Renderer.HEIGHT)
+  end
   Renderer:beginFrame(worldBelow)
   self.stack:draw()
   -- SGB colorization: the topmost state that knows its palette owns the

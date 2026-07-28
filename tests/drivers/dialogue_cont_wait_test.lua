@@ -56,7 +56,7 @@ return function(game)
   end
 
   -- Youngster5 @ (27,40): "I ran out of POKé / BALLs to catch" then
-  -- \v "POKéMON with!" — the bug auto-scrolled past this with no ▼.
+  -- \v "POKéMON with!" -- the bug auto-scrolled past this with no ▼.
   U.teleport(game, "VIRIDIAN_FOREST", 27, 41, "up")
   U.tap(game, "a")
   local box = waitForTextBox(90)

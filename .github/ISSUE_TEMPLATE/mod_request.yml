@@ -10,7 +10,7 @@ body:
         soundtrack packs, Gen 2-like battle toggles, map cosmetics, bag QoL, etc.
 
         The engine already exposes a lot of this through registries and hooks
-        ([modding wiki](https://github.com/bryanthaboi/pokemon-gen1-recomp-project/wiki)).
+        ([modding wiki](https://github.com/bryanthaboi/gen1recomp/wiki)).
         Use a **Feature request** instead for launcher / ports / video options /
         networking / save tooling / new API seams.
 

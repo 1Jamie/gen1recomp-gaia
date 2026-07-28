@@ -56,7 +56,23 @@ stub.graphics = {
     return batch
   end,
   draw = noop, rectangle = noop, clear = noop,
-  setDefaultFilter = noop, print = noop,
+  setDefaultFilter = noop, print = noop, printf = noop,
+  line = noop, circle = noop, setLineWidth = noop,
+  -- Fonts: the save editor lays itself out from font metrics, so a headless
+  -- draw needs measurable text.  A fixed 6px advance / 12px line is enough
+  -- for the layout to be exercised (tests assert state, never pixels).
+  -- newMesh / stencil stay absent on purpose: tools/save-editor/Theme.lua
+  -- probes for them and falls back to flat fills, which is the path a
+  -- headless run should take.
+  newFont = function(size)
+    local px = size or 12
+    return {
+      getWidth = function(_, text) return #tostring(text) * math.max(1, px * 0.5) end,
+      getHeight = function() return px end,
+    }
+  end,
+  setFont = function(f) gstate.font = f end,
+  getFont = function() return gstate.font end,
   setColor = function(r, g, b, a) gstate.color = { r, g, b, a } end,
   getColor = function()
     local c = gstate.color

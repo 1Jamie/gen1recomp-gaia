@@ -3,7 +3,7 @@
 -- walkPhase used to return 0 whenever moving was false.  A step clears
 -- moving on its final FixedStep tick, so the draw after landing snapped
 -- to stand even when animClock was mid walk-cycle.  Bike steps are 8
--- frames, so they land at animClock % 16 == 8 (walk) every tile — always
+-- frames, so they land at animClock % 16 == 8 (walk) every tile -- always
 -- stuttery.  Walking after a bike ride inherits a desynced animClock and
 -- hit the same stand flash "sometimes."
 --

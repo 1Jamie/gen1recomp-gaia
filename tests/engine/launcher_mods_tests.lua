@@ -208,4 +208,26 @@ do
   check(err ~= nil, "missing-mod uninstall carries a reason")
 end
 
+-- ------- issue #325: the Windows pickers must not hand back mangled paths
+
+do
+  -- PowerShell writes the pick in the console's OEM codepage by default
+  -- (Pokémon -> Pok\x82mon), which broke the open AND crashed the mods
+  -- panel's UTF-8-validating text draw.  Every Windows picker script must
+  -- force UTF-8 output, and the mod picker must return an ASCII temp copy
+  -- since io.open on Windows needs ANSI bytes to open the file at all.
+  local f = assert(io.open("src/import/RomImporter.lua", "rb"))
+  local src = f:read("*a")
+  f:close()
+  local utf8, copies = 0, 0
+  for _ in src:gmatch("OutputEncoding=%[Text%.Encoding%]::UTF8") do
+    utf8 = utf8 + 1
+  end
+  check(utf8 >= 3, "all three Windows pickers force UTF-8 output")
+  check(src:find("pokeport_mod_pick.zip", 1, true) ~= nil,
+    "the mod picker copies the pick to an ASCII temp name")
+  check(src:find("Copy%-Item %-LiteralPath") ~= nil,
+    "the copy uses the literal picked path")
+end
+
 T.finish("launcher_mods")

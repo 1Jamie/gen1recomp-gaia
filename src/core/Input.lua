@@ -144,7 +144,7 @@ function Input:step()
     elseif next(sources) ~= nil then
       self.state[btn] = true
     end
-    -- sources == {}: real press fully released before this step — keep up
+    -- sources == {}: real press fully released before this step -- keep up
   end
   for btn, sources in pairs(self.sources) do
     if next(sources) == nil then

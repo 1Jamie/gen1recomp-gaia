@@ -31,7 +31,19 @@ function U.hold(game, btn, n)
   game.input.state[btn] = false
 end
 
+-- Returns true when the screenshot actually reached disk.
+--
+-- main.lua writes the capture with a plain `io.open(path, "wb")` guarded by
+-- `if f then`, so a missing parent directory (the usual case: SHOT_DIR points
+-- somewhere that was never created) silently writes nothing.  A driver that
+-- logs "captured" on that path sends the reader off to look at a file that is
+-- not there, which is the one thing a screenshot check must never do -- so
+-- make the directory first, then confirm the file exists.
 function U.shot(game, path)
+  local dir = path:match("^(.*)[/\\][^/\\]+$")
+  if dir and dir ~= "" then
+    os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
+  end
   game.capturePath = path
   -- love.draw consumes capturePath once per rendered frame, but fast runs
   -- (POKEPORT_SPEED) step the driver many times per render; spin until the
@@ -42,6 +54,10 @@ function U.shot(game, path)
     coroutine.yield()
   end
   U.wait(1)
+  local f = io.open(path, "rb")
+  if f then f:close() return true end
+  U.log("FAIL screenshot did not reach disk:", path)
+  return false
 end
 
 -- skip the intro movie + title into a fresh overworld game

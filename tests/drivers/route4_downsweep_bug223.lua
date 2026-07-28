@@ -10,13 +10,18 @@
 -- directly below, teleport the player onto it facing DOWN, hold DOWN, and
 -- assert the Gen1 hop fires (p.hopFrames>0) and lands two cells south.
 --
--- Finding: all 139 reachable/functional south ledges hop.  The only two that
--- do not -- (12,16) and (13,16) -- sit on the SOUTH boundary of the Mt Moon
--- Poke Center plaza, where the cell two south is off the map onto the border
--- mountain (tile 17); there is no landing, so the hop is correctly refused
--- (checkLedgeHop's landing-walkable gate).  These are NOT the reporter's spot
--- (an open EAST plateau, cells ~62-80) and refusing a hop into the map border
--- is correct, so they are treated as EXPECTED refusals here.
+-- Finding: all 139 reachable/functional south ledges hop with one exception:
+-- (12,16) and (13,16), the SOUTH edge of the Mt Moon Poke Center plaza.  The
+-- earlier read of those two as "correctly refused, the landing is border
+-- mountain" was WRONG.  ROUTE_4 has a south connection to ROUTE_3 (offset -25,
+-- destX = curX + 50), so the cell two south is ROUTE_3 (62,0)/(63,0), the
+-- walkable $39/$23 top of the ramp; pokered hops straight onto it, because
+-- HandleLedges never checks the landing at all.  THAT is the reporter's
+-- "bottom-most cliff on the right side" (the two round Route 3 boulders in
+-- the screenshot sit just below-left of it), and it is issue #223.
+-- Post-fix the hop crosses the seam, so the player ends on ROUTE_3 rather
+-- than at (cx, cy+2); this sweep's same-map landing assertion cannot express
+-- that, so the two cells stay listed below and are reported, not failed.
 --
 -- Run:
 --   POKEPORT_DRIVER=tests/drivers/route4_downsweep_bug223.lua \
@@ -64,9 +69,11 @@ return function(game)
     return p.cellX, p.cellY, hop
   end
 
-  -- (12,16)/(13,16): south ledges on the plaza's map-border edge; the cell two
-  -- south is off-map (border mountain), so the refusal is correct, not a bug.
-  local expectedRefusal = { ["12,16"] = true, ["13,16"] = true }
+  -- (12,16)/(13,16): the #223 seam ledges.  Their landing is on ROUTE_3, so
+  -- the same-map "(cx, cy+2)" assertion below cannot judge them either way;
+  -- they are reported separately rather than failed.  Verify them with a
+  -- driver that watches for a map change to ROUTE_3.
+  local seamLedge = { ["12,16"] = true, ["13,16"] = true }
 
   local standers = {}
   for cy = 0, H - 2 do
@@ -87,9 +94,9 @@ return function(game)
     local ex, ey, hop = holdDown(cx, cy, 44)
     local ok = hop and ex == cx and ey == cy + 2
     if not ok then
-      if expectedRefusal[cx .. "," .. cy] then
+      if seamLedge[cx .. "," .. cy] then
         refusals = refusals + 1
-        U.log(("  refused (expected, map-border edge) (%d,%d) -> (%d,%d) hop=%s")
+        U.log(("  seam ledge onto ROUTE_3 (%d,%d) -> (%d,%d) hop=%s")
           :format(cx, cy, ex, ey, tostring(hop)))
       else
         fails = fails + 1
@@ -97,7 +104,7 @@ return function(game)
       end
     end
   end
-  U.log(("#223 sweep DONE: %d hopped, %d expected border-refusals, %d unexpected FAILS")
+  U.log(("#223 sweep DONE: %d hopped, %d seam ledges (ROUTE_3 landing), %d unexpected FAILS")
     :format(#standers - fails - refusals, refusals, fails))
   if fails > 0 then error(fails .. " unexpected south-ledge DOWN-hop failure(s)") end
 end
