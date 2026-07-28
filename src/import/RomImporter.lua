@@ -1,5 +1,6 @@
 local GameVersion = require("src.core.GameVersion")
 local Strings = require("src.core.Strings")
+local HostShell = require("src.core.HostShell")
 
 local RomImporter = {}
 RomImporter.__index = RomImporter
@@ -285,7 +286,7 @@ end
 
 local function commandOutput(command)
   releasePointerGrab()
-  local pipe = io.popen(command, "r")
+  local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
   pipe:close()
