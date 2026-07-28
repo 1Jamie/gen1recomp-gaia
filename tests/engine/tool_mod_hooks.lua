@@ -86,6 +86,42 @@ do
   hooks:removeOwner("tool_fixture")
 end
 
+-- A tool status indicator must draw after every visible game state but before
+-- the renderer presents that frame. This keeps the HUD visible over the
+-- overworld, menus, battles, and compatible render pipelines.
+do
+  local Renderer = require("src.render.Renderer")
+  local TouchControls = require("src.core.TouchControls")
+  local savedSetUISize, savedBegin, savedEnd, savedTouch =
+    Renderer.setUISize, Renderer.beginFrame, Renderer.endFrame,
+    TouchControls.draw
+  local order = {}
+  Renderer.setUISize = function() end
+  Renderer.beginFrame = function() end
+  Renderer.endFrame = function() order[#order + 1] = "present" end
+  TouchControls.draw = function() order[#order + 1] = "touch" end
+
+  local fake = { overworld = {}, stack = { states = {} } }
+  function fake.stack:visibleBase() return 1 end
+  function fake.stack:top() return {} end
+  function fake.stack:draw() order[#order + 1] = "states" end
+
+  hooks:wrap("render.hud", function(nextFn, game, viewport)
+    T.check(game == fake, "render.hud receives the live Game object")
+    T.eq(viewport.width, 160, "render.hud receives the UI width")
+    T.eq(viewport.height, 144, "render.hud receives the UI height")
+    order[#order + 1] = "hud"
+    return nextFn(game, viewport)
+  end, 0, "tool_fixture")
+
+  require("src.core.Game").draw(fake)
+  T.eq(table.concat(order, ","), "states,hud,present,touch",
+    "render.hud draws over states before frame presentation")
+  hooks:removeOwner("tool_fixture")
+  Renderer.setUISize, Renderer.beginFrame, Renderer.endFrame,
+    TouchControls.draw = savedSetUISize, savedBegin, savedEnd, savedTouch
+end
+
 Runtime.events, Runtime.hooks, Runtime.errors =
   savedEvents, savedHooks, savedErrors
 
