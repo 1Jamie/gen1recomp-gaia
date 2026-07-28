@@ -26,8 +26,20 @@
 --   * the ROUTE terrain palette still carries BOTH grass green (173,230,90) and
 --     light-blue (165,214,255), so the grass field keeps its green+blue dither.
 --
--- Screenshots (SHOT_DIR): grass_bug150_sgb.png (the reported view) and
--- grass_bug150_ogred.png (OG RED reference -- green character, red terrain).
+-- The SECOND half of #150 is the feet overdraw itself.  Tall grass hides the
+-- lower half of whoever stands in it (the GB OBJ-priority trick: an OBJ shows
+-- through BG colour 0 and hides under colours 1-3), which the port reproduces
+-- by redrawing the cell's bottom tile row over the sprite with shade 0 keyed
+-- to alpha.  Every mode but ADVANCED still has DMG white sitting in shade 0 at
+-- draw time, so a white test finds it; ADVANCED bakes the real per-tile GBC
+-- palette into the atlas first (TileRenderer.getGbcAtlas), which turns the
+-- grass tile's shade 0 into its palette's light green -- the white test then
+-- never fires and the patch paints an opaque block over the player.  Hence the
+-- gap-pixel gate below, run in BOTH modes so the two can't drift apart again.
+--
+-- Screenshots (SHOT_DIR): grass_bug150_sgb.png (the reported view),
+-- grass_bug150_advanced.png (the ADVANCED view) and grass_bug150_ogred.png
+-- (OG RED reference -- green character, red terrain).
 --
 -- Run: POKEPORT_DRIVER=tests/drivers/grass_overlay_bug150_test.lua \
 --      POKEPORT_IDENTITY=bug150 POKEPORT_TOUCH=0 love .
@@ -47,6 +59,31 @@ return function(game)
       if pal[i][1] == r and pal[i][2] == g and pal[i][3] == b then return true end
     end
     return false
+  end
+
+  -- How many of the 16x8 feet-overdraw pixels let the thing underneath show
+  -- through, measured the way the screen does it: render the cell's bottom
+  -- tile row over an opaque magenta field and count the magenta survivors.
+  -- Mode-agnostic on purpose -- it asks what reached the framebuffer, not
+  -- which of the two keying paths (shader or baked alpha) produced it.
+  local function grassGapPixels(ow)
+    local p = ow.player
+    local canvas = love.graphics.newCanvas(16, 8)
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(1, 0, 1, 1)
+    love.graphics.setColor(1, 1, 1, 1)
+    -- camera placed so the cell's bottom tile row lands at the canvas origin
+    ow.map.renderer:drawCellBottom(p.cellX, p.cellY, p.cellX * 16, p.cellY * 16 + 8)
+    love.graphics.setCanvas()
+    local id = canvas:newImageData()
+    local n = 0
+    for y = 0, 7 do
+      for x = 0, 15 do
+        local r, g, b = id:getPixel(x, y)
+        if r > 0.9 and g < 0.1 and b > 0.9 then n = n + 1 end
+      end
+    end
+    return n
   end
 
   -- a party + starter flag so the overworld is fully usable
@@ -69,6 +106,13 @@ return function(game)
 
   U.wait(40) -- let the grass/flower tile animation cycle
   U.shot(game, DIR .. "/grass_bug150_sgb.png")
+
+  -- the feet overdraw is see-through in SGB (the mode the reporter compared
+  -- ADVANCED against), so this side of the gate holds before AND after
+  local sgbGaps = grassGapPixels(ow)
+  check(sgbGaps > 0,
+        "SGB grass feet overdraw shows the sprite through its gaps ("
+        .. sgbGaps .. "/128 px)")
 
   -- === render-decision gate: fails before the fix, passes after =========
   check(PaletteFX.usesSpriteObp("gbc") == false,
@@ -100,7 +144,47 @@ return function(game)
   check(hasColor(terrain, 165, 214, 255),
         "ROUTE terrain palette still contains light-blue (grass keeps its blue dither)")
 
+  -- === ADVANCED (RED++): the same overdraw, over a baked true-colour atlas ==
+  -- setMode drops every cached Map/TileRenderer and reloads the visible one,
+  -- so re-read the state's map before touching its renderer.
+  game.save.options.colors = "redpp"
+  PaletteFX.setMode("redpp")
+  U.wait(20)
+  ow = game.overworld
+  check(ow.map.renderer.gbcAtlas ~= nil,
+        "ADVANCED baked the per-tile GBC atlas for ROUTE_1")
+  local advGaps = grassGapPixels(ow)
+  check(advGaps > 0,
+        "ADVANCED grass feet overdraw shows the sprite through its gaps ("
+        .. advGaps .. "/128 px)")
+  -- the gaps must be the SAME pixels the other modes key -- a baked-in green
+  -- shade 0 is what #150 saw, so the count has to match SGB's exactly
+  check(advGaps == sgbGaps,
+        "ADVANCED keys the same shade-0 pixels SGB does (" .. advGaps
+        .. " vs " .. sgbGaps .. ")")
+  U.shot(game, DIR .. "/grass_bug150_advanced.png")
+
+  -- ROUTE_1 is the OVERWORLD tileset; the other two tilesets that own a grass
+  -- tile (FOREST $20, PLATEAU $45) file it under the very same pack group 2,
+  -- so all three baked the same green over shade 0 and all three broke
+  -- together.  One tileset passing proves nothing about the other two.
+  for _, spot in ipairs({ { "VIRIDIAN_FOREST", 6, 6, "FOREST" },
+                          { "ROUTE_23", 10, 44, "PLATEAU" } }) do
+    local id, cx, cy, tsId = spot[1], spot[2], spot[3], spot[4]
+    U.teleport(game, id, cx, cy, "down")
+    U.wait(10)
+    ow = game.overworld
+    check(ow.map.tileset.id == tsId
+          and ow.map:isGrassCell(ow.player.cellX, ow.player.cellY),
+          id .. ": player stands on " .. tsId .. " tall grass")
+    check(ow.map.renderer.gbcAtlas ~= nil, id .. ": ADVANCED baked its atlas")
+    local gaps = grassGapPixels(ow)
+    check(gaps > 0, id .. ": ADVANCED grass feet overdraw shows the sprite "
+          .. "through its gaps (" .. gaps .. "/128 px)")
+  end
+
   -- OG RED reference for the human diff (green character over red terrain)
+  U.teleport(game, "ROUTE_1", 10, 6, "down")
   game.save.options.colors = "ogred"
   PaletteFX.setMode("ogred")
   U.wait(20)
