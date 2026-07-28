@@ -938,6 +938,24 @@ end
 function OverworldState:handleInput()
   local input = Game.input
 
+  -- the wall-bonk SFX cooldown ticks with any held direction, step or not
+  -- (it is a port invention, not part of JoypadOverworld, so the
+  -- wWalkCounter gate below must not freeze it mid-step)
+  if self:dirHeld() then
+    self.bumpCooldown = math.max(0, (self.bumpCooldown or 0) - 1)
+  end
+
+  -- OverworldLoop (home/overworld.asm) gates ALL of JoypadOverworld on
+  -- wWalkCounter == 0 ("if the player sprite has not yet completed the
+  -- walking animation" it jumps straight to .moveAhead): A, START and
+  -- direction initiation are only ever looked at while the player stands
+  -- on a tile, and a button pressed mid-step is simply never seen.
+  -- Without this gate a mid-step A/START pushed its TextBox/StartMenu
+  -- right there and froze Red between tiles, mid-animation (#286).  Held
+  -- directions need no buffering -- isDown below picks them up on the
+  -- landing frame.
+  if self.player.moving then return end
+
   if input:wasPressed("a") then
     self:interact()
     return
@@ -974,7 +992,6 @@ function OverworldState:handleInput()
           self.bumpCooldown = 16
         end
       end
-      self.bumpCooldown = math.max(0, (self.bumpCooldown or 0) - 1)
       return result
     end
   end
