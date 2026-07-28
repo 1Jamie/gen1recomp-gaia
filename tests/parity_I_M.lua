@@ -166,6 +166,9 @@ ow.player.facing = "down"; ow.player.surfing = false
 clearCaptured()
 local pmSurf = PartyMenu.new(Game)
 selectSubItem(pmSurf, 3)
+-- the blink sits under the got-on text (#320); dismissing the text is
+-- what mounts and steps
+Game.stack:top().onDone()
 eq(ow.player.surfing, true, "SURF from the party menu sets player.surfing")
 check(not onStack(pmSurf), "party menu closes after a successful SURF")
 check(sawText("got on"), "_SurfingGotOnText shown on a successful SURF")
@@ -498,6 +501,7 @@ clearCaptured()
 -- submenu order: STATS, SWITCH, FLY, CUT, STRENGTH, SURF (move order on mon)
 local pmFaintSurf = PartyMenu.new(Game)
 selectSubItem(pmFaintSurf, 6)
+Game.stack:top().onDone() -- dismiss the text: mount + step (#320)
 eq(ow.player.surfing, true, "fainted mon can SURF from the party menu")
 check(not onStack(pmFaintSurf), "party menu closes after fainted SURF")
 

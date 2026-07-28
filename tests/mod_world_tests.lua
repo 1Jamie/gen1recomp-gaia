@@ -608,6 +608,38 @@ do
 end
 
 do
+  -- issue #320: the surf blink sits UNDER the "got on" text (pokered's
+  -- GBPalWhiteOutWithDelay3 runs while the text is up), and the surfing
+  -- sprite swap waits for the actual step onto the water
+  require("src.render.Font").load(Data)
+  local save = {
+    flags = {},
+    inventory = { SOULBADGE = 1 },
+    party = { { species = "SQUIRTLE", moves = { { id = "SURF" } } } },
+    player = { name = "RED" },
+  }
+  local stack = { states = {} }
+  function stack:push(s) self.states[#self.states + 1] = s end
+  function stack:pop() return table.remove(self.states) end
+  function stack:top() return self.states[#self.states] end
+  local game = { data = Data, save = save, stack = stack }
+  check(bindGame(OW.trySurf, game), "trySurf binds a test Game")
+  check(bindGame(OW.partyKnows, game), "partyKnows binds the same Game")
+  local ow = setmetatable({ player = { facing = "down" } }, { __index = OW })
+  ow.stepForwardOrCrossEdge = function(_, dir) ow.stepped = dir end
+
+  ow:trySurf(10, 10)
+  local bottom, top = stack.states[1], stack.states[2]
+  check(bottom and bottom.frames ~= nil and top and top.pages ~= nil,
+    "the blink sits under the surf text on the stack")
+  check(not ow.player.surfing, "no surfing sprite while the text is up")
+
+  top.onDone()
+  check(ow.player.surfing == true, "surfing applies with the step")
+  check(ow.stepped == "down", "the step onto the water fires")
+end
+
+do
   -- warp.destination reroutes one door without owning the warp table
   local warpDef = Data.maps.PALLET_TOWN.warps[1]
   local m1 = Warp.destination(Data, warpDef)
