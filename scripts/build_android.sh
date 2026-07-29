@@ -26,6 +26,11 @@ APP_NAME="gen1recomp"
 APPLICATION_ID="com.theboisclub.pokemonred"
 LOVE_ANDROID_VERSION="11.5a"
 NDK_VERSION="25.2.9519653"
+YELLOW_MANIFEST_RELATIVE="tools/rom_manifest_yellow.json"
+# A fresh source checkout normally supplies this through Git.  This URL is
+# deliberately only a last resort for incomplete source exports: the manifest
+# contains extraction metadata, never a ROM or extracted game data.
+YELLOW_MANIFEST_URL="${YELLOW_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_yellow.json}"
 
 VERSION=""
 PACKAGE_ONLY=false
@@ -71,6 +76,59 @@ if [ ! -d "$ANDROID_DIR/love/src/jni/love/src" ]; then
   They are vendored in this repo,  your checkout looks incomplete.
   Re-clone or 'git checkout -- mobile/android'. See mobile/ANDROID.md."
 fi
+
+# ------------------------------------------------------- Yellow import metadata
+# Android packages game.love itself rather than reusing scripts/build.sh's
+# archive.  Keep a partial source export from silently shipping an APK that can
+# list Yellow but cannot import it.  Prefer the exact manifest from this
+# checkout's Git object database; only then fall back to the public repository.
+yellow_manifest_is_valid() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json, pathlib, sys
+
+try:
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if manifest.get("romSha1") ==
+                 "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1" else 1)
+PY
+}
+
+ensure_yellow_manifest() {
+  local manifest="$ROOT/$YELLOW_MANIFEST_RELATIVE"
+  local staged
+  staged="$(mktemp)"
+
+  if yellow_manifest_is_valid "$manifest"; then
+    rm -f "$staged"
+    return
+  fi
+
+  warn "Yellow import manifest is missing or invalid; recovering it before packaging"
+  if git -C "$ROOT" show "HEAD:$YELLOW_MANIFEST_RELATIVE" > "$staged" 2>/dev/null \
+      && yellow_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "restored Yellow import manifest from this checkout's Git data"
+    return
+  fi
+
+  if command -v curl >/dev/null 2>&1 \
+      && curl --fail --location --retry 2 --connect-timeout 15 \
+          --output "$staged" "$YELLOW_MANIFEST_URL" \
+      && yellow_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "downloaded Yellow import manifest from the project repository"
+    return
+  fi
+
+  rm -f "$staged"
+  fail "Yellow import manifest is unavailable. Git recovery failed and could not download $YELLOW_MANIFEST_URL"
+}
 
 # --------------------------------------------------------------- branding
 # love-android 11.5+ reads app id / name / orientation from gradle.properties.
@@ -135,6 +193,7 @@ PY
 # --------------------------------------------------------------- game.love
 pack_game_love() {
   say "packing game.love for love-android embed flavor"
+  ensure_yellow_manifest
   mkdir -p "$EMBED_ASSETS"
   rm -f "$LOVE_FILE"
   # tools/save-editor ships with the app: the launcher's Edit button on a save
@@ -142,14 +201,21 @@ pack_game_love() {
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
+    tools/rom_manifest_yellow.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   if unzip -Z1 "$LOVE_FILE" \
       | grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/'; then
     fail "game.love unexpectedly contains generated ROM data"
   fi
-  unzip -Z1 "$LOVE_FILE" | grep -qx 'tools/save-editor/App.lua' \
+  # Do not pipe unzip straight into grep here: on a large archive grep can
+  # finish early and make unzip report SIGPIPE under `set -o pipefail`.
+  local archive_entries
+  archive_entries="$(unzip -Z1 "$LOVE_FILE")"
+  grep -qx 'tools/save-editor/App.lua' <<< "$archive_entries" \
     || fail "game.love is missing the save editor (Edit on a save row would crash)"
+  grep -qx "$YELLOW_MANIFEST_RELATIVE" <<< "$archive_entries" \
+    || fail "game.love is missing the Yellow ROM import manifest"
   say "game.love: $(du -h "$LOVE_FILE" | cut -f1) -> $LOVE_FILE"
 
   # This script packs its own game.love (it does not reuse build.sh's), so it
