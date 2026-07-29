@@ -297,9 +297,10 @@ check(scSave and scSave.lastHeal and scSave.lastHeal.map == scSave.player.map,
       "SaveConvert.importSav: lastHeal derives from the decoded position")
 check(scSave and scSave.lastOutdoor and scSave.lastOutdoor.id ~= nil,
       "SaveConvert.importSav: lastOutdoor is set")
--- the import template + decode warnings never leak into the slot table
-check(scSave and scSave.rawImport == nil and scSave.warnings == nil,
-      "SaveConvert.importSav: rawImport/warnings stripped from the returned table")
+-- The original SRAM image carries the current-map cache that Red restores on
+-- Continue, while decode warnings are only import diagnostics.
+check(scSave and type(scSave.rawImport) == "string" and scSave.warnings == nil,
+      "SaveConvert.importSav: keeps the SRAM template but drops warnings")
 
 -- size / type validation
 local badSize, badSizeErr = SaveConvert.importSav("too short", 2)
