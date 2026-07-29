@@ -126,9 +126,9 @@ local function resolveMount()
     if okl and lib then
       local oks, fn = pcall(function() return lib.PHYSFS_mount end)
       if oks and fn then
-        physfsMountFn = function(d, append)
+        physfsMountFn = function(d, mountPoint, append)
           if append == nil then append = true end
-          local okr, ret = pcall(fn, d, "", append and 1 or 0)
+          local okr, ret = pcall(fn, d, mountPoint or "", append and 1 or 0)
           return okr and ret ~= 0
         end
         break
@@ -145,7 +145,7 @@ end
 local function mountReadable(dir, append)
   local fn = resolveMount()
   if not fn then return false end
-  return fn(dir, append)
+  return fn(dir, "", append)
 end
 
 -- PHYSFS_unmount, resolved the same way PHYSFS_mount is.  Only
@@ -383,6 +383,33 @@ function CacheFs.unmountVersion(version)
     done = love.filesystem.unmount(sub) or done
   end
   return done
+end
+
+-- Mount `dir` at `mountPoint` for the length of `fn()`, then take it back off
+-- the read path and hand back whatever fn returned.
+--
+-- Every other mount here is permanent and lands at the physfs root: this one
+-- exists to *look* at a folder the game has deliberately not mounted, which
+-- is a different job.  The mods panel uses it to read a mods/ folder sitting
+-- beside the executable of a non-portable install (LauncherMods.strays).
+-- Because it unmounts again, and because a non-empty mountPoint keeps the
+-- tree in its own corner of the namespace while it is up, a folder inspected
+-- this way can never shadow a game file or change what the running game
+-- resolves -- which is what makes it safe to point at a folder whose contents
+-- nobody has validated.
+--
+-- Returns nil when the mount is unavailable (no ffi, no PHYSFS symbol, or the
+-- mount was refused), which callers must treat as "could not look", not as
+-- "nothing there".  An error inside fn still unmounts before it propagates.
+function CacheFs.withMounted(dir, mountPoint, fn)
+  if not dir or dir == "" then return nil end
+  local mount, unmount = resolveMount(), resolveUnmount()
+  if not (mount and unmount) then return nil end
+  if not mount(dir, mountPoint, true) then return nil end
+  local ok, res = pcall(fn)
+  unmount(dir)
+  if not ok then error(res, 0) end
+  return res
 end
 
 return CacheFs

@@ -109,11 +109,14 @@ local function makePortableFs(dir)
   }
 end
 
-local function detectPortable()
-  if portableChecked then return portableBase end
-  portableChecked = true
-  portableBase = false
-  if not (love and love.filesystem) then return false end
+-- Every folder a player might reasonably call "the game folder", best first:
+-- the packaged-app container, the folder holding the executable, then the
+-- source itself.  Portable mode is the case where one of these holds the
+-- marker; the list itself is just locations, marker or not, which is also
+-- what the mods panel needs to notice a mod dropped beside the game by hand
+-- (LauncherMods.strays).  Empty on Android/iOS and outside LOVE.
+function SaveData.gameFolders()
+  if not (love and love.filesystem) then return {} end
   -- Desktop only: portable mode carries the save (and, since issue #74, the
   -- ROM cache) in the game folder next to the executable/source.  On
   -- Android/iOS the source is a read-only package with no such folder, so
@@ -121,7 +124,7 @@ local function detectPortable()
   if love.system and love.system.getOS then
     local osName = love.system.getOS()
     if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
-      return false
+      return {}
     end
   end
   local src = love.filesystem.getSource and love.filesystem.getSource()
@@ -149,15 +152,24 @@ local function detectPortable()
   -- Order: the packaged-app containing folder (macOS .app / Linux AppImage),
   -- then the source-base directory (next to a packaged .exe), then the source
   -- itself (a `love <gamedir>` run drops portable.txt in the game folder).
-  -- First one holding the marker wins.  Built by appending so a nil (e.g. no
-  -- .app in the path) never truncates the ipairs scan.
+  -- Built by appending so a nil (e.g. no .app in the path) never truncates
+  -- the ipairs scan.
   local candidates = {}
   local appDir = appContainer(src) or appContainer(sbd) or appImageContainer()
   if appDir then candidates[#candidates + 1] = appDir end
-  if sbd then candidates[#candidates + 1] = sbd end
-  if src then candidates[#candidates + 1] = src end
-  for _, base in ipairs(candidates) do
-    if base ~= "" and pathExists(base .. SEP .. PORTABLE_MARKER) then
+  if sbd and sbd ~= "" then candidates[#candidates + 1] = sbd end
+  if src and src ~= "" then candidates[#candidates + 1] = src end
+  return candidates
+end
+
+-- The game folder carrying portable.txt, or false.  First candidate holding
+-- the marker wins.
+local function detectPortable()
+  if portableChecked then return portableBase end
+  portableChecked = true
+  portableBase = false
+  for _, base in ipairs(SaveData.gameFolders()) do
+    if pathExists(base .. SEP .. PORTABLE_MARKER) then
       portableBase = base
       break
     end
