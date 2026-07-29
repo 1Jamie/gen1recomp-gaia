@@ -9,6 +9,9 @@ supplied by the player.
 **SUPPORT / ANNOUNCEMENTS / MODS:** [Discord](https://bois.icu)
 
 <p align="center"> <a href="https://www.polygon.com/pokemon-red-blue-3d-voxel-mod-battle-pixels-gameplay-footage-remake/"> <img src="https://img.shields.io/badge/AS%20SEEN%20ON-POLYGON-ea2e49?style=for-the-badge" alt="As seen on Polygon"> </a> </p>
+<p align="center"> <a href="https://kotaku.com/pokemon-red-blue-recompilation-project-voxel-3d-mod-2000720281"> <img src="https://img.shields.io/badge/AS%20SEEN%20ON-KOTAKU-ea2e49?style=for-the-badge" alt="As seen on KOTAKU"> </a> </p>
+
+
 
 ### Watch the latest update video
 
