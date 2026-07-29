@@ -1,6 +1,6 @@
 # Gen1Recomp
 
-A native LÖVE2D recreation of Poke Red and Blue. The engine and map
+A native LÖVE2D recreation of Poke Red, Blue and Yellow. The engine and map
 behavior are hand-written Lua; game data and graphics are decoded from a ROM
 supplied by the player.
 
