@@ -18,6 +18,23 @@ Regenerate the reference straight into a wiki checkout:
 luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
 ```
 
+## Editing maps in Tiled
+
+Maps are data, not assets, so they can be authored in a real map editor and
+exported as a mod. `tools/tiled_export.py` builds a
+[Tiled](https://www.mapeditor.org) workspace out of the imported ROM cache:
+
+```sh
+python3 tools/tiled_export.py          # -> build/tiled/ (gitignored)
+```
+
+Open `build/tiled/gen1.tiled-project`, edit any of the 222 maps (or
+`kanto.world` for the stitched overworld), and export with the
+`gen1-mod-export` extension — one map file, or a whole loadable mod folder.
+An edited vanilla map becomes a `mod.content.maps:patch` carrying only the
+fields that moved; a new map becomes a `:register`. See
+`docs/new-features.md` and the extension's own README.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it

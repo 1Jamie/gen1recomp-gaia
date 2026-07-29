@@ -35,3 +35,7 @@ mobile/ios/build/
 
 # Legacy manual convenience-copy location (superseded by /dist/android/)
 mobile/dist/
+
+# Tiled map-editing workspace (tools/tiled_export.py). Derived from the imported
+# ROM cache exactly like data/generated/, so it is never committable.
+/build/tiled/

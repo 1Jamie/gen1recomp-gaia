@@ -150,6 +150,11 @@ reference — lives on the
 
 Shipped example mods, one per kind of author, live in `[mods/](mods/)`.
 
+Maps can be edited in our own build of [Tiled](https://www.mapeditor.org),
+[bryanthaboi/tiled_gen1recomp](https://github.com/bryanthaboi/tiled_gen1recomp/releases),
+and exported back out as a mod; see
+[docs/tiled-map-editing.md](docs/tiled-map-editing.md).
+
 ## Bugs and Ideas
 
 Found a bug? A warp dropping you somewhere it shouldn't, a battle doing math
