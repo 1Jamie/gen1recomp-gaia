@@ -35,14 +35,15 @@ function DexEntryMenu.new(game, speciesOrOpts)
   local species, forceOwned = resolveArgs(speciesOrOpts)
   local self = setmetatable({ game = game, forceOwned = forceOwned }, DexEntryMenu)
   self.def = game.data.pokemon[species]
-  local path = require("src.pokemon.Sprites").path(game.data, species, "front",
-    { kind = "dex" })
+  local path, trueColor = require("src.pokemon.Sprites").path(
+    game.data, species, "front", { kind = "dex" })
   -- `path and pcall(...)` truncates to one value, so img was always nil and
   -- every dex page drew without its pic (#307); the guard has to be a
   -- statement for pcall's second return to survive.
   local ok, img = false, nil
   if path then ok, img = pcall(love.graphics.newImage, path) end
   self.sprite = ok and img or nil
+  self.spriteTrueColor = self.sprite and trueColor or false
   require("src.core.Sound").playCry(game.data, species)
   return self
 end
@@ -59,7 +60,12 @@ function DexEntryMenu:draw()
   love.graphics.rectangle("fill", 0, 0, 160, 144)
   local def = self.def
   if self.sprite then
-    love.graphics.draw(self.sprite, 8, math.max(0, 60 - self.sprite:getHeight()))
+    local y = math.max(0, 60 - self.sprite:getHeight())
+    love.graphics.draw(self.sprite, 8, y)
+    if self.spriteTrueColor then
+      require("src.render.PaletteFX").markTrueColor(
+        8, y, self.sprite:getDimensions())
+    end
   end
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(def.name, 72, 8)
