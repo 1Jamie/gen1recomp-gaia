@@ -518,6 +518,17 @@ function Commands.play_cry(ctx, species, waitForButton)
   ctx.pendingCryWait = waitForButton or nil
 end
 
+-- mark_seen <species>: DisplayPokedex (pokedex.asm) records the species as
+-- seen before opening its entry. Map scripts use this for NPC-driven
+-- Pokédex previews that do not begin a battle or give the player a Pokémon.
+function Commands.mark_seen(ctx, species)
+  local dex = ctx.save and ctx.save.pokedex
+  if dex then
+    dex.seen = dex.seen or {}
+    dex.seen[species] = true
+  end
+end
+
 -- check_battle_result <r1> [r2 ...]: lastCheck = the last scripted
 -- battle ended with any of the given results
 -- ("win"|"lose"|"run"|"caught"), for branches like
