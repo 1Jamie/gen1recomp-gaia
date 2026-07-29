@@ -98,6 +98,30 @@ local function imagePath(entry)
   return entry
 end
 
+-- PaletteFX redraws a true-color rectangle after the palette pass.  Red's
+-- title art is drawn on top of the title mon, so leave its bounds out of the
+-- rectangle rather than redrawing that art without its title palette.
+local function markVisibleTrueColor(x, y, w, h, cover)
+  local P = require("src.render.PaletteFX")
+  if not cover then
+    P.markTrueColor(x, y, w, h)
+    return
+  end
+  local cx, cy, cw, ch = cover[1], cover[2], cover[3], cover[4]
+  local right, bottom = x + w, y + h
+  local cright, cbottom = cx + cw, cy + ch
+  local ix1, iy1 = math.max(x, cx), math.max(y, cy)
+  local ix2, iy2 = math.min(right, cright), math.min(bottom, cbottom)
+  if ix1 >= ix2 or iy1 >= iy2 then
+    P.markTrueColor(x, y, w, h)
+    return
+  end
+  if y < iy1 then P.markTrueColor(x, y, w, iy1 - y) end
+  if iy2 < bottom then P.markTrueColor(x, iy2, w, bottom - iy2) end
+  if x < ix1 then P.markTrueColor(x, iy1, ix1 - x, iy2 - iy1) end
+  if ix2 < right then P.markTrueColor(ix2, iy1, right - ix2, iy2 - iy1) end
+end
+
 function TitleState.new(game, opts)
   opts = opts or {}
   local self = setmetatable({}, TitleState)
@@ -148,7 +172,7 @@ function TitleState.new(game, opts)
   self.cycleSpecies = (type(title.cycleSpecies) == "table"
                        and #title.cycleSpecies > 0)
                       and title.cycleSpecies or defaultCycle
-  self.sprites = {} -- species -> image or false (load failed)
+  self.sprites = {} -- species -> { image, trueColor } or false (load failed)
   self.cycleIndex = 1
   self.timer = 0
   self.blink = 0
@@ -252,12 +276,13 @@ function TitleState:currentSprite()
   local species = self.cycleSpecies[self.cycleIndex]
   local cached = self.sprites[species]
   if cached == nil then
-    local path = require("src.pokemon.Sprites").path(
+    local path, trueColor = require("src.pokemon.Sprites").path(
       self.game.data, species, "front", { kind = "title" })
-    cached = tryImage(path) or false
+    local image = tryImage(path)
+    cached = image and { image = image, trueColor = trueColor } or false
     self.sprites[species] = cached
   end
-  return cached or nil
+  return cached and cached.image or nil, cached and cached.trueColor or false
 end
 
 local function hasSave()
@@ -446,13 +471,27 @@ function TitleState:draw()
           love.graphics.newQuad(40, 0, 40, 8, iw, ih), 80, 64)
       end
     end
-    local sprite = self:currentSprite()
+    local sprite, spriteTrueColor = self:currentSprite()
     if sprite then
       local w, h = sprite:getDimensions()
-      local slide = (self.slideIn or 0) * 8
-      love.graphics.draw(sprite, 40 + math.floor((56 - w) / 2) + slide,
-                         136 - h)
+      local slide = (self.slideIn or 0) * 8 -- scroll in from the right
+      -- bottom-aligned and centered in the (5,10)-(11,16) tile box
+      local x = 40 + math.floor((56 - w) / 2) + slide
+      local y = 136 - h
+      love.graphics.draw(sprite, x, y)
+      -- a full-color mon keeps its own palette through the SGB pass, minus
+      -- the strip Red's OAM covers (#350).  Yellow never reaches here: its
+      -- layout has no cycling mon and no Red art (title_yellow.asm).
+      if spriteTrueColor then
+        local cover
+        if self.player then
+          local pw, ph = self.player:getDimensions()
+          cover = { 82, 80, pw, ph }
+        end
+        markVisibleTrueColor(x, y, w, h, cover)
+      end
     end
+    -- Red is OAM in the original: he draws over the mon's box edge
     if self.player then
       love.graphics.draw(self.player, 82, 80)
     end

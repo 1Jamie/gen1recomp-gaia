@@ -38,15 +38,16 @@ BattleState.letterboxWhite = true
 
 -- BATTLE LAYOUT: the classic 160x144 arrangement, or the widescreen one on
 -- a 304x144 surface (src/battle/WideBattle.lua).  Only the composition
--- differs; every battler, queue and animation below is shared.  The wide
--- layout is live only while this battle is the state being drawn on top --
--- a party menu or bag pushed over it is a 160x144 screen, so the surface
--- goes back with it and the battle underneath is not drawn at all.
-function BattleState:wideLayout()
+-- differs; every battler, queue and animation below is shared.  Menus and
+-- prompts pushed during a wide battle keep its wide canvas, while drawing
+-- their classic 160px UI centred within it (Game:draw).
+function BattleState:isWideBattleLayout()
   local options = self.game and self.game.save and self.game.save.options
-  if not options or options.battleLayout ~= "wide" then return false end
-  local stack = self.game.stack
-  return (stack and stack.top and stack:top()) == self
+  return options and options.battleLayout == "wide" or false
+end
+
+function BattleState:wideLayout()
+  return self:isWideBattleLayout()
 end
 
 -- Renderer:setUISize asks the top state for its surface before anything draws
