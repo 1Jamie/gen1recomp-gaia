@@ -10,6 +10,11 @@ supplied by the player.
 
 <p align="center"> <a href="https://www.polygon.com/pokemon-red-blue-3d-voxel-mod-battle-pixels-gameplay-footage-remake/"> <img src="https://img.shields.io/badge/AS%20SEEN%20ON-POLYGON-ea2e49?style=for-the-badge" alt="As seen on Polygon"> </a> </p>
 
+### Watch the latest update video
+
+[![Watch the latest update video](https://img.youtube.com/vi/TbHdJIrKJJU/maxresdefault.jpg)](https://www.youtube.com/watch?v=TbHdJIrKJJU)
+
+
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
 or download a disassembly. A canonical US Poke Red or Blue ROM is the only
 game content input.
