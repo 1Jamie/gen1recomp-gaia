@@ -6,11 +6,19 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local T = require("tests.modkit")
 local WideBattle = require("src.battle.WideBattle")
 local Renderer = require("src.render.Renderer")
+local Game = require("src.core.Game")
 
 T.eq(WideBattle.WIDTH, 304, "the wide layout runs on a 304px native surface")
 T.eq(WideBattle.HEIGHT, 144, "the wide surface keeps the native height")
 T.eq(WideBattle.FIELD_BOTTOM, 104,
   "the lower 40 rows are the message / command windows")
+
+local wide = { isWideBattleLayout = function() return true end }
+local normal = { isWideBattleLayout = function() return false end }
+T.eq(Game.wideBattleInStack({ states = { normal, wide, normal } }), wide,
+  "a wide battle remains the surface owner under a classic overlay")
+T.eq(Game.wideBattleInStack({ states = { normal } }), nil,
+  "a classic stack keeps the normal surface")
 
 -- move grid: slots are laid out 1 2 / 3 4
 T.eq(WideBattle.moveGridIndex(1, 4, "right"), 2, "RIGHT crosses the row")
