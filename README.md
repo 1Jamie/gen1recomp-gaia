@@ -4,7 +4,11 @@ A native LÖVE2D recreation of Poke Red and Blue. The engine and map
 behavior are hand-written Lua; game data and graphics are decoded from a ROM
 supplied by the player.
 
-SUPPORT AND ANNOUNCEMENTS: [Discord](https://bois.icu)
+<p align="center"><img src="https://raw.githubusercontent.com/bryanthaboi/gen1recomp/refs/heads/dev/assets/logo/logo.png"></p>
+
+**SUPPORT / ANNOUNCEMENTS / MODS:** [Discord](https://bois.icu)
+
+<p align="center"> <a href="https://www.polygon.com/pokemon-red-blue-3d-voxel-mod-battle-pixels-gameplay-footage-remake/"> <img src="https://img.shields.io/badge/AS%20SEEN%20ON-POLYGON-ea2e49?style=for-the-badge" alt="As seen on Polygon"> </a> </p>
 
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
 or download a disassembly. A canonical US Poke Red or Blue ROM is the only
@@ -186,3 +190,5 @@ request with real detail is one that can actually get built.
 This project would not be possible without [pret](https://github.com/pret) >
 the pret band of decompiling maniacs > and their
 [pokered](https://github.com/pret/pokered) disassembly.
+
+<p align="center"><a href="https://boisclub.games"><img src="https://raw.githubusercontent.com/bryanthaboi/gen1recomp/refs/heads/dev/assets/logo/bcg.png"></a></p>
