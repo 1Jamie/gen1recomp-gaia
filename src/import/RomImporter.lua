@@ -490,6 +490,14 @@ function RomImporter.new(onComplete, opts)
     forceImport = opts.forceImport or false,
     onEditSave = opts.onEditSave,
     android = android,
+    -- Android drag: the launcher is handed no move events at all (main.lua
+    -- forwards neither touchmoved nor mousemoved while it is up), and its mouse
+    -- emulation is what "no reliable pointer polling" below refers to.
+    -- love.touch IS pollable, so where it exists a touch drag can be resolved
+    -- inside draw the same way the desktop mouse is.  Where it does not, every
+    -- Android path stays exactly as it was: act on press, never arm.
+    touchPollable = android and love.touch ~= nil
+      and love.touch.getTouches ~= nil and love.touch.getPosition ~= nil,
     tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
     logo = love.graphics.newImage("assets/logo/logo.png"),
     bcg = love.graphics.newImage("assets/logo/bcg.png"),
@@ -515,6 +523,10 @@ function RomImporter.new(onComplete, opts)
     -- modScroll is the list scroll offset (px, clamped in draw); modNotice is
     -- the last install/delete result { ok, text } shown as a line above the list.
     mods = nil, modScroll = 0, modNotice = nil,
+    -- Page scroll offset (px) for the column under the tab bar -- panel, updater
+    -- banner and footer -- used only while that column is taller than the window
+    -- (see draw()).  Clamped against content in draw, reset on a tab change.
+    pageScroll = 0,
     -- Android SAF: which game tab should receive the next picked_save.sav when
     -- focus consumes it (set by chooseSaveImport before opening the picker).
     androidPendingVersion = nil,
@@ -1111,12 +1123,16 @@ function RomImporter:_updatePadCursor(dt)
     self._padCursor.y = math.max(0, math.min(h, ny))
   end
 
-  -- Right stick scrolls the active list (save slots or mods).
+  -- Right stick scrolls the active list (save slots or mods), or the whole page
+  -- when it is the thing that overflows.
   local ry = self._padAxis.righty or 0
   if math.abs(ry) > PAD_DEAD then
     self:_activatePadCursor()
     local step = -ry * 480 * dt
-    if self.tab == "mods" then
+    local maxPage = self._pageMax or 0
+    if maxPage > 0 then
+      self.pageScroll = math.max(0, math.min(maxPage, (self.pageScroll or 0) + step))
+    elseif self.tab == "mods" then
       local maxS = self._modMax or 0
       if maxS > 0 then
         local next = (self.modScroll or 0) + step
@@ -1381,6 +1397,24 @@ local function roundedCard(x, y, w, h, r)
   love.graphics.rectangle("line", x, y, w, h, r, r)
 end
 
+-- {top, bottom} of the scrolling page viewport, or nil while the page fits and
+-- nothing scrolls.  Written once per frame by draw(); read by the two hit tests
+-- (`inside` for clicks, `_ptIn` for hover) so a control scrolled out from under
+-- the pinned header, or past the window bottom, stops responding at the moment
+-- it stops being visible.  Rects that live in the pinned header carry
+-- `pinned = true` and are exempt.
+local pageBand = nil
+
+-- Page-scroll arithmetic, kept pure (no love, no self) so the engine tier can
+-- pin it: given how tall the column under the tab bar wants to be and how much
+-- room is left under it, say whether the page scrolls, where it sits, and how
+-- far it can go.  A window that grew back pulls the offset down with it rather
+-- than leaving the page parked past its own end.
+function RomImporter.pageScrollFor(naturalH, viewportH, scroll)
+  local maxPage = math.max(0, (naturalH or 0) - math.max(0, viewportH or 0))
+  return maxPage > 0, clamp(scroll or 0, 0, maxPage), maxPage
+end
+
 function RomImporter:draw()
   local width, height = love.graphics.getDimensions()
   local s = clamp(height / 768, 0.7, 1.6)
@@ -1538,17 +1572,16 @@ function RomImporter:draw()
   end
 
   -- Footer (Boi's Club Games logo + trust warning), measured first so the
-  -- content region knows where it must stop.  Drawn near the end.
+  -- content region knows where it must stop.  Only its height is fixed here:
+  -- it is laid out from a top edge further down, which is the window bottom
+  -- while the page fits and the end of the scrolled content when it does not.
   local warningWidth = math.min(appW - 32 * s, 640 * s)
   local _, warningLines = self.warningFont:getWrap(TRUST_WARNING, warningWidth)
   local warningH = #warningLines * self.warningFont:getHeight()
-  local warningY = height - warningH - 12 * s
   local bcgW, bcgH = self.bcg:getDimensions()
   local bcgScale = math.min(math.min(appW - 48 * s, 190 * s) / bcgW, height * 0.06 / bcgH)
   local bcgDW, bcgDH = bcgW * bcgScale, bcgH * bcgScale
-  local bcgX, bcgY = appX + (appW - bcgDW) / 2, warningY - bcgDH - 6 * s
-  self.bcgButton = { x = bcgX, y = bcgY, width = bcgDW, height = bcgDH }
-  local footerTop = bcgY - 10 * s
+  local footerH = 10 * s + bcgDH + 6 * s + warningH + 12 * s
 
   -- Logo: centred over the strip, width clamped, gentle bob + glow pulse.  The
   -- resting metrics fix the tab bar's top so the layout never shifts as it bobs.
@@ -1584,36 +1617,53 @@ function RomImporter:draw()
   -- Content region: from below the tab bar down to the footer, minus the
   -- updater band when one is showing.
   local contentTop = tabBarY + tabBarH + 16 * s
-  local contentBottom = footerTop - (bannerActive and (bannerH + 20 * s) or 6 * s)
+  local bannerBand = bannerActive and (bannerH + 20 * s) or 6 * s
   local cX = appX + padH
   local cW = appW - 2 * padH
+  local contentBottom = height - footerH - bannerBand
   local cH = math.max(0, contentBottom - contentTop)
 
-  -- tab bar (rebuilds self.tabRects)
+  -- Page scroll.  Everything under the tab bar -- panel, updater banner and
+  -- footer -- is one column: too short a window scrolls it instead of letting
+  -- the panel run under a footer pinned to the window bottom (a stacked
+  -- single-column layout on a phone-shaped window overflows by a card or two).
+  -- The panels report their natural height as they draw, so the decision reads
+  -- the previous frame's measurement, the same one-frame settle the slot and
+  -- mod lists already rely on.  While the page fits, `paged` is false and every
+  -- measurement below is what it always was.
+  local viewportH = math.max(0, height - contentTop)
+  self._panelNaturalH = self._panelNaturalH or {}
+  local naturalH = (self._panelNaturalH[self.tab] or 0) + bannerBand + footerH
+  local paged, pageScroll, maxPage =
+    RomImporter.pageScrollFor(naturalH, viewportH, self.pageScroll)
+  self.pageScroll, self._pageMax = pageScroll, maxPage
+  -- read by the hit tests; a scrolled control is live only inside the viewport
+  pageBand = paged and { contentTop, height } or nil
+
+  -- tab bar (rebuilds self.tabRects).  Pinned: it is the launcher's navigation,
+  -- and it sits above the scrolling viewport.
   self:_drawTabBar(cX, tabBarY, cW, tabBarH, chip)
 
-  -- content: game panel for a version tab, mods panel for the mods tab
-  if self.tab == "mods" then
-    self:_drawModsPanel(cX, contentTop, cW, cH)
-  else
-    self:_drawGamePanel(self.tab, cX, contentTop, cW, cH)
+  local panelY = contentTop - (paged and self.pageScroll or 0)
+  if paged then
+    love.graphics.setScissor(math.floor(appX), math.floor(contentTop),
+      math.ceil(appW), math.ceil(viewportH))
   end
 
-  -- logo, over the split, with a gentle bob + gold glow + sweeping shine
-  local bob = math.sin(pulse * (2 * math.pi / 4)) * 6 * s
-  local lx, ly = (width - logoDW) / 2, logoY + bob
-  love.graphics.setBlendMode("add")
-  love.graphics.setColor(1, 0.85, 0.2, 0.16 + 0.12 * (0.5 + 0.5 * math.sin(pulse * 1.6)))
-  love.graphics.draw(self.logo, (width - logoDW * 1.05) / 2, ly - logoDH * 0.025, 0,
-    logoScale * 1.05, logoScale * 1.05)
-  love.graphics.setBlendMode("alpha")
-  local shineW = 0.16
-  self.shineShader:send("shinePos", -shineW + ((pulse % 2.8) / 2.8) * (1 + 2 * shineW))
-  self.shineShader:send("shineW", shineW)
-  love.graphics.setShader(self.shineShader)
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(self.logo, lx, ly, 0, logoScale, logoScale)
-  love.graphics.setShader()
+  -- content: game panel for a version tab, mods panel for the mods tab
+  local panelH
+  if self.tab == "mods" then
+    panelH = self:_drawModsPanel(cX, panelY, cW, cH, paged)
+  else
+    panelH = self:_drawGamePanel(self.tab, cX, panelY, cW, cH, paged)
+  end
+  panelH = panelH or 0
+  self._panelNaturalH[self.tab] = panelH
+
+  -- The updater band and the footer follow the content: pinned to the window
+  -- bottom while the page fits, riding at the end of the scroll when it does not.
+  local bandTop = paged and (panelY + panelH) or contentBottom
+  local footerTop = bandTop + bannerBand
 
   -- Self-updater banner: a compact pill centred in the reserved band just above
   -- the footer, on every tab.  Same green "Play" treatment on its CTA.
@@ -1621,7 +1671,7 @@ function RomImporter:draw()
   if bannerActive then
     local bannerW = math.min(appW - 32 * s, 560 * s)
     local bx = appX + (appW - bannerW) / 2
-    local by = contentBottom + math.max(0, (footerTop - contentBottom - bannerH) / 2)
+    local by = bandTop + math.max(0, (footerTop - bandTop - bannerH) / 2)
     local r = 12 * s
     local accent = PAL.gold
 
@@ -1702,10 +1752,16 @@ function RomImporter:draw()
   end
 
   -- footer: a hairline top border, the BCG mark (inverted to white, glowing
-  -- brighter on hover) + the trust warning with its live bois.icu link.
+  -- brighter on hover) + the trust warning with its live bois.icu link.  Laid
+  -- out downward from footerTop, so the same code serves the pinned and the
+  -- scrolled position.
   love.graphics.setLineWidth(1)
   col(PAL.cardBorder, 0.18)
   love.graphics.line(appX + padH, footerTop, appX + appW - padH, footerTop)
+
+  local bcgX, bcgY = appX + (appW - bcgDW) / 2, footerTop + 10 * s
+  local warningY = bcgY + bcgDH + 6 * s
+  self.bcgButton = { x = bcgX, y = bcgY, width = bcgDW, height = bcgDH }
 
   local bcgHot = self:_hover(self.bcgButton)
   love.graphics.setShader(self.invertShader)
@@ -1743,6 +1799,35 @@ function RomImporter:draw()
         break
       end
     end
+  end
+
+  -- End of the scrolling column; the logo and the page scrollbar are pinned and
+  -- draw outside it.
+  if paged then love.graphics.setScissor() end
+
+  -- logo, over the split, with a gentle bob + gold glow + sweeping shine
+  local bob = math.sin(pulse * (2 * math.pi / 4)) * 6 * s
+  local lx, ly = (width - logoDW) / 2, logoY + bob
+  love.graphics.setBlendMode("add")
+  love.graphics.setColor(1, 0.85, 0.2, 0.16 + 0.12 * (0.5 + 0.5 * math.sin(pulse * 1.6)))
+  love.graphics.draw(self.logo, (width - logoDW * 1.05) / 2, ly - logoDH * 0.025, 0,
+    logoScale * 1.05, logoScale * 1.05)
+  love.graphics.setBlendMode("alpha")
+  local shineW = 0.16
+  self.shineShader:send("shinePos", -shineW + ((pulse % 2.8) / 2.8) * (1 + 2 * shineW))
+  self.shineShader:send("shineW", shineW)
+  love.graphics.setShader(self.shineShader)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(self.logo, lx, ly, 0, logoScale, logoScale)
+  love.graphics.setShader()
+
+  -- page scrollbar: the same thin thumb the lists use, against the app edge
+  if paged then
+    local thumbH = math.max(24 * s, viewportH * (viewportH / naturalH))
+    local thumbY = contentTop + (viewportH - thumbH) * (self.pageScroll / maxPage)
+    col(PAL.cardBorder, 0.35)
+    love.graphics.rectangle("fill", appX + appW - padH * 0.5, thumbY, 3 * s, thumbH,
+      1.5 * s, 1.5 * s)
   end
 
   -- CRT scanlines + vignette, over everything
@@ -1840,11 +1925,22 @@ function RomImporter:draw()
 end
 
 local function inside(r, x, y)
-  return r and x >= r.x and x <= r.x + r.width and y >= r.y and y <= r.y + r.height
+  if not (r and x >= r.x and x <= r.x + r.width and y >= r.y and y <= r.y + r.height) then
+    return false
+  end
+  -- Page-scroll mode: only the header is pinned, so any other rect is a
+  -- scrolled one and is live only where the viewport actually shows it.
+  if pageBand and not r.pinned and (y < pageBand[1] or y > pageBand[2]) then
+    return false
+  end
+  return true
 end
 
 function RomImporter:mousepressed(x, y, button)
   if self._rename then return end -- the rename modal swallows all clicks
+  -- Whether a press can be ARMED and resolved on release, which needs a
+  -- pollable pointer: always on desktop, on Android only where love.touch is.
+  local armDrag = (not self.android) or self.touchPollable
   -- right-click a save-slot row to rename it (#205); desktop only (touch
   -- has no secondary button)
   if button == 2 then
@@ -1883,6 +1979,10 @@ function RomImporter:mousepressed(x, y, button)
       self.tab = t.id
       self._slotPress = nil   -- drop any half-started slot drag on tab change
       self._modPress = nil    -- and any half-started mod toggle press
+      self._pagePress = nil   -- and any half-started page pan
+      -- Each tab is its own column of a different length; carrying one tab's
+      -- offset into another lands somewhere arbitrary.
+      self.pageScroll = 0
       return
     end
   end
@@ -1911,11 +2011,12 @@ function RomImporter:mousepressed(x, y, button)
     return
   end
   -- SAVE SLOT rows / Edit / Delete.  The two labels are checked first so a tap
-  -- on either never also selects the row.  On desktop a press only ARMS a row
-  -- click: _updateSlotDrag commits it on release when the pointer did not move
-  -- (a moved pointer scrolls instead).  Android has no reliable pointer
-  -- polling, so it selects on press.  Edit and Delete fire immediately (small
-  -- fixed targets, no scroll conflict).
+  -- on either never also selects the row.  A press only ARMS a row click:
+  -- _updateSlotDrag commits it on release when the pointer did not move (a
+  -- moved pointer scrolls instead).  Android arms too wherever love.touch can
+  -- be polled; without that there is nothing to resolve a release with, so it
+  -- keeps selecting on press.  Edit and Delete fire immediately (small fixed
+  -- targets, no scroll conflict).
   for _, r in ipairs(self.slotDeleteRects or {}) do
     if inside(r, x, y) then
       self:_deleteSlot(self.panelVersion, r.id)
@@ -1930,11 +2031,12 @@ function RomImporter:mousepressed(x, y, button)
   end
   for _, r in ipairs(self.slotRects or {}) do
     if inside(r, x, y) then
-      if self.android then
+      if not armDrag then
         self:_selectSlot(self.panelVersion, r.id)
       else
         self._slotPress = { version = self.panelVersion, id = r.id, y0 = y,
-          scroll0 = self.slotScroll[self.panelVersion] or 0, moved = false }
+          scroll0 = self.slotScroll[self.panelVersion] or 0,
+          pageScroll0 = self.pageScroll or 0, moved = false }
       end
       return
     end
@@ -1957,14 +2059,19 @@ function RomImporter:mousepressed(x, y, button)
   end
   for _, r in ipairs(self.modRects or {}) do
     if inside(r, x, y) then
-      if self.android then
+      if not armDrag then
         self:_toggleMod(r.id)
       else
-        self._modPress = { id = r.id, y0 = y,
-          scroll0 = self.modScroll or 0, moved = false }
+        self._modPress = { id = r.id, y0 = y, scroll0 = self.modScroll or 0,
+          pageScroll0 = self.pageScroll or 0, moved = false }
       end
       return
     end
+  end
+  -- Nothing was hit.  On a scrolling page that is a press on empty background,
+  -- which is the natural place to grab and pan from.
+  if armDrag and (self._pageMax or 0) > 0 then
+    self._pagePress = { y0 = y, scroll0 = self.pageScroll or 0 }
   end
 end
 
@@ -1997,7 +2104,14 @@ end
 
 function RomImporter:_ptIn(r)
   local mx, my = self._mx, self._my
-  return r and mx >= r.x and mx <= r.x + r.width and my >= r.y and my <= r.y + r.height
+  if not (r and mx >= r.x and mx <= r.x + r.width and my >= r.y and my <= r.y + r.height) then
+    return false
+  end
+  -- Same clip the click path applies, so nothing glows outside the viewport.
+  if pageBand and not r.pinned and (my < pageBand[1] or my > pageBand[2]) then
+    return false
+  end
+  return true
 end
 
 function RomImporter:_hover(r)
@@ -2126,8 +2240,9 @@ function RomImporter:_drawTabBar(x, y, w, h, chip)
       col(PAL.bgBot, 0.62)
       love.graphics.rectangle("fill", cursorX, chipY, chip, chip, r, r)
     end
+    -- pinned: the tab bar never scrolls, so it stays live above the viewport
     self.tabRects[#self.tabRects + 1] =
-      { x = cursorX, y = chipY, width = chip, height = chip, id = t.id }
+      { x = cursorX, y = chipY, width = chip, height = chip, id = t.id, pinned = true }
     local segEnd = cursorX + chip
     if active then
       love.graphics.setFont(self.tabLabelFont)
@@ -2159,7 +2274,12 @@ end
 
 -- One version's game panel: header (name + status pill), then a responsive
 -- two-column grid (left: ROM + SAVE FILES cards + Play; right: SAVE SLOT).
-function RomImporter:_drawGamePanel(version, x, y, w, h)
+-- `paged`: the whole page is scrolling (see draw()), so nothing stretches to
+-- fill `h` -- Play sits right under the SAVE FILES card instead of being pinned
+-- to the column bottom, and the slot card takes its natural height.  Returns
+-- the panel's natural height either way, which is what draw() measures the page
+-- against on the next frame.
+function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
   local s, pulse = self._s, self.pulse
   self.panelVersion = version
   -- Defensive: only lock when the version is absent from GameVersion (never
@@ -2294,8 +2414,9 @@ function RomImporter:_drawGamePanel(version, x, y, w, h)
   -- vertical placement of the left column
   local romY = bodyTop
   local saveFilesY = romY + romCardH + 12 * s
+  local leftNaturalH = romCardH + 12 * s + saveFilesH + 12 * s + playH
   local playY
-  if twoCol then
+  if twoCol and not paged then
     playY = bodyTop + bodyH - playH        -- pinned to the column's bottom
   else
     playY = saveFilesY + saveFilesH + 12 * s
@@ -2372,15 +2493,29 @@ function RomImporter:_drawGamePanel(version, x, y, w, h)
 
   -- SAVE SLOT card (right column, or stacked below Play when single-column).
   -- Skip only when the version is absent from GameVersion (no save backend).
+  local slotNaturalH = 0
   if not locked then
     if twoCol then
-      self:_drawSaveSlotPanel(version, rightX, bodyTop, colW, bodyH)
+      _, slotNaturalH = self:_drawSaveSlotPanel(version, rightX, bodyTop, colW, bodyH, paged)
     else
       local slotY = playY + playH + 12 * s
       local slotH = math.max(160 * s, (bodyTop + bodyH) - slotY)
-      self:_drawSaveSlotPanel(version, leftX, slotY, colW, slotH)
+      _, slotNaturalH = self:_drawSaveSlotPanel(version, leftX, slotY, colW, slotH, paged)
     end
   end
+
+  -- Natural height: side by side the two columns overlap, stacked they add up.
+  -- Measured from the panel's own top (y), so draw() can compare it against the
+  -- viewport without knowing anything about the cards inside.
+  local bodyNaturalH
+  if twoCol then
+    bodyNaturalH = math.max(leftNaturalH, slotNaturalH)
+  elseif locked then
+    bodyNaturalH = leftNaturalH
+  else
+    bodyNaturalH = leftNaturalH + 12 * s + slotNaturalH
+  end
+  return (bodyTop - y) + bodyNaturalH
 end
 
 -- Reload a version's slot list + active id from SaveData (the source of truth).
@@ -2457,17 +2592,53 @@ end
 -- launcher, so a press only ARMS a click (see mousepressed) and this resolves
 -- it: a pointer that moved past the threshold scrolls; one that did not, on
 -- release, selects.  Desktop only -- Android selects on press instead.
+-- Where the pointer is this frame and whether it is held, read by polling
+-- because no move event ever reaches the launcher: the mouse on desktop, the
+-- first active touch on Android.  A nil y means "nothing to read" -- the
+-- release branches below do not need one.
+function RomImporter:_pointerHold()
+  if not self.android then return love.mouse.isDown(1), self._my end
+  if not self.touchPollable then return false, nil end
+  local ok, list = pcall(love.touch.getTouches)
+  if not ok or type(list) ~= "table" or list[1] == nil then return false, nil end
+  local ok2, _, ty = pcall(love.touch.getPosition, list[1])
+  if not ok2 or type(ty) ~= "number" then return false, nil end
+  return true, ty
+end
+
 function RomImporter:_updateSlotDrag()
-  if self.android then return end
-  local down = love.mouse.isDown(1)
+  if self.android and not self.touchPollable then return end
+  local down, py = self:_pointerHold()
+  py = py or self._my
+  local maxPage = self._pageMax or 0
+
+  -- A press on empty background pans the page while it overflows.  Nothing is
+  -- armed by it, so there is no release action to resolve.
+  local pp = self._pagePress
+  if pp then
+    if down then
+      if maxPage > 0 then
+        self.pageScroll = clamp(pp.scroll0 - (py - pp.y0), 0, maxPage)
+      end
+    else
+      self._pagePress = nil
+    end
+  end
+
   local p = self._slotPress
   if p then
     if down then
-      local d = self._my - p.y0
+      local d = py - p.y0
       if math.abs(d) > 4 * (self._s or 1) then p.moved = true end
       if p.moved then
-        local maxS = (self._slotMax and self._slotMax[p.version]) or 0
-        self.slotScroll[p.version] = clamp(p.scroll0 - d, 0, maxS)
+        -- Paged, the list has no scroll of its own: the drag pans the page, so
+        -- a swipe that starts on a slot row behaves like one starting beside it.
+        if maxPage > 0 then
+          self.pageScroll = clamp(p.pageScroll0 - d, 0, maxPage)
+        else
+          local maxS = (self._slotMax and self._slotMax[p.version]) or 0
+          self.slotScroll[p.version] = clamp(p.scroll0 - d, 0, maxS)
+        end
       end
     else
       if not p.moved then self:_selectSlot(p.version, p.id) end
@@ -2479,10 +2650,14 @@ function RomImporter:_updateSlotDrag()
   local mp = self._modPress
   if mp then
     if down then
-      local d = self._my - mp.y0
+      local d = py - mp.y0
       if math.abs(d) > 4 * (self._s or 1) then mp.moved = true end
       if mp.moved then
-        self.modScroll = clamp(mp.scroll0 - d, 0, self._modMax or 0)
+        if maxPage > 0 then
+          self.pageScroll = clamp(mp.pageScroll0 - d, 0, maxPage)
+        else
+          self.modScroll = clamp(mp.scroll0 - d, 0, self._modMax or 0)
+        end
       end
     else
       if not mp.moved then self:_toggleMod(mp.id) end
@@ -2496,6 +2671,13 @@ end
 -- content extent draw computed for that version.
 function RomImporter:wheelmoved(_, dy)
   local step = 48 * (self._s or 1)
+  -- An overflowing page scrolls as a whole; the panels' own lists are flattened
+  -- in that mode, so there is never a second scroll region competing for this.
+  local maxPage = self._pageMax or 0
+  if maxPage > 0 then
+    self.pageScroll = clamp((self.pageScroll or 0) - dy * step, 0, maxPage)
+    return
+  end
   if self.tab == "mods" then
     local maxS = self._modMax or 0
     if maxS <= 0 then return end
@@ -2512,14 +2694,34 @@ end
 -- SAVE SLOT card: header ("SAVE SLOT" + "N slots"), a scrollable list of slot
 -- rows (name + meta, LOADED pill on the active one), and a dashed "+ New save
 -- slot" button pinned to the bottom.  Empty registries show a dashed hint box.
-function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
+-- `paged` (the whole launcher page is scrolling, see draw()) drops the inner
+-- scroll region: the card grows to its natural height, every row is drawn, and
+-- the page's own scrollbar is the only one on screen.  Returns the height the
+-- card actually took, which is what the caller measures the page against.
+function RomImporter:_drawSaveSlotPanel(version, x, y, w, h, paged)
   local s = self._s
   local pad = 16 * s
-  roundedCard(x, y, w, h, 16 * s)
   self:_ensureSlots(version)
   local slots = self.slots[version] or {}
   local active = self.activeSlot[version]
   local n = #slots
+
+  -- Row metrics up front: the natural height needs them, and the natural height
+  -- decides the card's height before anything is drawn.
+  local labelH = self.labelFont:getHeight()
+  local newBtnH = math.max(38 * s, self.saveBtnFont:getHeight() + 18 * s)
+  local nameH = self.slotNameFont:getHeight()
+  local metaH = self.labelFont:getHeight()
+  local rowPadV = 10 * s
+  local rowH = rowPadV * 2 + nameH + 4 * s + metaH
+  local rowGap = 8 * s
+  local rr = 12 * s
+  -- an empty registry shows a fixed-height dashed hint box instead of rows
+  local totalH = (n > 0) and (n * rowH + (n - 1) * rowGap) or (96 * s)
+  local naturalH = pad + labelH + 12 * s + totalH + 10 * s + newBtnH + pad
+  if paged then h = naturalH end
+
+  roundedCard(x, y, w, h, 16 * s)
 
   -- header: "SAVE SLOT" (left) + "N slots" / "1 slot" (right)
   love.graphics.setFont(self.labelFont)
@@ -2529,11 +2731,9 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
   local cw = self.labelFont:getWidth(countTxt)
   love.graphics.print(countTxt, x + w - pad - cw, y + pad)
 
-  local labelH = self.labelFont:getHeight()
   local listTop = y + pad + labelH + 12 * s
 
   -- "+ New save slot" pinned to the card bottom; the list fills the gap above.
-  local newBtnH = math.max(38 * s, self.saveBtnFont:getHeight() + 18 * s)
   local newBtnY = y + h - pad - newBtnH
   local listBottom = newBtnY - 10 * s
   local listH = math.max(0, listBottom - listTop)
@@ -2553,16 +2753,10 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
     self.slotDeleteRects = {}
     self.slotEditRects = {}
   elseif listH > 0 then
-    local nameH = self.slotNameFont:getHeight()
-    local metaH = self.labelFont:getHeight()
-    local rowPadV = 10 * s
-    local rowH = rowPadV * 2 + nameH + 4 * s + metaH
-    local rowGap = 8 * s
-    local rr = 12 * s
-
     -- clamp scroll against the current content extent, and stash the max so the
-    -- wheel handler (which has no geometry) can clamp against the same value
-    local totalH = n * rowH + (n - 1) * rowGap
+    -- wheel handler (which has no geometry) can clamp against the same value.
+    -- Paged, listH already equals totalH, so this is 0 and the wheel falls
+    -- through to the page scroll.
     local maxScroll = math.max(0, totalH - listH)
     self._slotMax = self._slotMax or {}
     self._slotMax[version] = maxScroll
@@ -2572,8 +2766,12 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
     self.slotRects = {}
     self.slotDeleteRects = {}
     self.slotEditRects = {}
-    love.graphics.setScissor(math.floor(rx), math.floor(listTop),
-      math.ceil(rw), math.ceil(listH))
+    -- Paged, the page viewport's scissor is already set and nothing here
+    -- overflows the card, so leave it alone rather than replace and clear it.
+    if not paged then
+      love.graphics.setScissor(math.floor(rx), math.floor(listTop),
+        math.ceil(rw), math.ceil(listH))
+    end
     for i, slot in ipairs(slots) do
       local ry = listTop - scroll + (i - 1) * (rowH + rowGap)
       if ry + rowH >= listTop and ry <= listBottom then
@@ -2676,7 +2874,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
         end
       end
     end
-    love.graphics.setScissor()
+    if not paged then love.graphics.setScissor() end
 
     -- thin scrollbar thumb when the list overflows
     if maxScroll > 0 then
@@ -2700,6 +2898,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h)
   printfB("+ New save slot", nrect.x,
     nrect.y + (newBtnH - self.saveBtnFont:getHeight()) / 2, nrect.width, "center")
   self.newSlotRect = nrect
+  return h, naturalH
 end
 
 -- Reload the mods list from LauncherMods (the source of truth: it reads the
@@ -2762,7 +2961,10 @@ end
 -- install-result / drag-drop notice line, then a scrollable list of mod cards
 -- (name + badge chip + description, a status chip, and a toggle switch).  An
 -- empty install shows a friendly dashed hint box.
-function RomImporter:_drawModsPanel(x, y, w, h)
+-- `paged` behaves as it does on the game panel: no inner scroll region, the
+-- card list is drawn whole, and the returned natural height is what draw()
+-- measures the page against.
+function RomImporter:_drawModsPanel(x, y, w, h, paged)
   local s = self._s
   self:_ensureMods()
   local mods = self.mods or {}
@@ -2807,7 +3009,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
 
   -- empty state: a dashed box with a centred hint
   if #mods == 0 then
-    local boxH = math.min(listH, 120 * s)
+    local boxH = paged and (120 * s) or math.min(listH, 120 * s)
     love.graphics.setLineWidth(math.max(1, 1 * s))
     col(PAL.cardBorder, 0.45)
     dashedRoundRect(x, top, w, boxH, 14 * s, 7 * s, 5 * s)
@@ -2821,7 +3023,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
     self.modRects = {}
     self.modDeleteRects = {}
     self._modMax = 0
-    return
+    return (top - y) + boxH
   end
 
   -- card metrics (design: rounded 14, padding 14x16; toggle 56x28; Delete under)
@@ -2858,6 +3060,9 @@ function RomImporter:_drawModsPanel(x, y, w, h)
   end
   total = total + (#mods - 1) * cardGap
 
+  -- Paged, the list band is the list itself: nothing to clip, nothing to scroll
+  -- here, and the page's scrollbar covers the overflow.
+  if paged then listH = total end
   local maxScroll = math.max(0, total - listH)
   self._modMax = maxScroll
   local scroll = clamp(self.modScroll or 0, 0, maxScroll)
@@ -2865,8 +3070,10 @@ function RomImporter:_drawModsPanel(x, y, w, h)
   self.modRects = {}
   self.modDeleteRects = {}
 
-  love.graphics.setScissor(math.floor(x), math.floor(top),
-    math.ceil(w), math.ceil(listH))
+  if not paged then
+    love.graphics.setScissor(math.floor(x), math.floor(top),
+      math.ceil(w), math.ceil(listH))
+  end
   local cy = top - scroll
   for i, m in ipairs(mods) do
     local L = layout[i]
@@ -2962,7 +3169,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
     end
     cy = cy + cardH + cardGap
   end
-  love.graphics.setScissor()
+  if not paged then love.graphics.setScissor() end
 
   -- thin scrollbar thumb when the list overflows
   if maxScroll > 0 then
@@ -2971,6 +3178,7 @@ function RomImporter:_drawModsPanel(x, y, w, h)
     col(PAL.cardBorder, 0.35)
     love.graphics.rectangle("fill", x + w - 3 * s, thumbY, 3 * s, thumbH, 1.5 * s, 1.5 * s)
   end
+  return (top - y) + total
 end
 
 return RomImporter
