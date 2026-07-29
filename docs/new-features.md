@@ -338,3 +338,9 @@ second, relabelling itself to `Confirm?` in between.
 
 A validation pill in the tab rail mirrors what the running game would
 quarantine on load; clicking it jumps to the tab holding the first problem.
+
+## Tiled map editing (mod authoring)
+
+`tools/tiled_export.py` turns the imported ROM cache into a Tiled workspace,
+so maps can be edited in a real map editor and exported back out as a mod.
+It has its own document: docs/tiled-map-editing.md.
