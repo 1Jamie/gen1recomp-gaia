@@ -12,11 +12,18 @@
 -- different files can each add NPCs to the same map), and mod
 -- contributions from the map_scripts registry compose on top of it.
 
+local GameVersion = require("src.core.GameVersion")
 local MapScripts = require("src.script.MapScripts")
+
+-- OaksLab is a full Yellow rewrite (one Eevee ball + forced Pikachu);
+-- Red/Blue keep the three-starter choose flow.
+local oaksLab = GameVersion.isYellow()
+  and "data.scripts.oaks_lab_yellow"
+  or "data.scripts.oaks_lab"
 
 for _, mapEntry in ipairs({
   { "PALLET_TOWN", "data.scripts.pallet_town" },
-  { "OAKS_LAB", "data.scripts.oaks_lab" },
+  { "OAKS_LAB", oaksLab },
   { "REDS_HOUSE_1F", "data.scripts.reds_house" },
   { "CELADON_MANSION_ROOF_HOUSE", "data.scripts.celadon_eevee" },
 }) do
@@ -33,6 +40,18 @@ for _, file in ipairs({ "data.scripts.story", "data.scripts.story2",
                         "data.scripts.gyms" }) do
   for mapId, mod in pairs(require(file)) do
     MapScripts.attachBase(mapId, mod)
+  end
+end
+
+-- Yellow-only content on top of the shared tables (talk keys merge per
+-- TEXT constant): the Kanto-starter gift quests and Jessie & James.
+if GameVersion.isYellow() then
+  for _, file in ipairs({ "data.scripts.yellow_gifts",
+                          "data.scripts.yellow_jessie_james",
+                          "data.scripts.yellow_beach_house" }) do
+    for mapId, mod in pairs(require(file)) do
+      MapScripts.attachBase(mapId, mod)
+    end
   end
 end
 

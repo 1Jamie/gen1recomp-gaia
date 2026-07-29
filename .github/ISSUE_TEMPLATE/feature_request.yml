@@ -26,6 +26,20 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: game
+    attributes:
+      label: Which game is this about
+      description: Pick every version it applies to.
+      multiple: true
+      options:
+        - Red
+        - Blue
+        - Yellow
+        - Not version-specific
+    validations:
+      required: true
+
   - type: input
     id: discord
     attributes:

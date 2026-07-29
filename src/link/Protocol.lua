@@ -382,6 +382,12 @@ function TradeSession:apply(game)
   Runtime.emit("pokemon.received",
                { mon = received, from = "link", peerName = self.peerName })
   self.party[self.myPick] = received
+  -- PIKAHAPPY_TRADE (engine/link/cable_club.asm:801): trading the
+  -- companion away is the biggest happiness hit and zeroes the mood
+  if game and sent then
+    require("src.world.PikachuFollower")
+      .modifyHappiness(game.save, "TRADE", sent)
+  end
   if game and game.save.pokedex then
     game.save.pokedex.seen[received.species] = true
     game.save.pokedex.owned[received.species] = true

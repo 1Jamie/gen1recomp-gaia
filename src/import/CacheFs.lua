@@ -32,11 +32,11 @@ local CacheFs = {}
 local SEP = package.config:sub(1, 1)
 
 -- Cache-relative paths are prefixed with this before every read/write, so a
--- Blue import lands in blue/ (see src.core.GameVersion) while a Red import
--- keeps the historical root.  The launcher sets it per import / per readiness
--- check; it stays "" for Red.  Runtime *reads* (require / newImage) do NOT go
--- through here -- CacheFs.mountVersion overlays the active version's subtree
--- onto the un-prefixed paths instead.
+-- Blue/Yellow import lands under its GameVersion.cachePrefix (blue/, yellow/)
+-- while a Red import keeps the historical root.  The launcher sets it per
+-- import / per readiness check; it stays "" for Red.  Runtime *reads*
+-- (require / newImage) do NOT go through here -- CacheFs.mountVersion overlays
+-- the active version's subtree onto the un-prefixed paths instead.
 CacheFs.prefix = ""
 
 local function withPrefix(rel)
@@ -330,16 +330,16 @@ end
 -- Overlay the active version's extracted cache onto the un-prefixed read
 -- paths, so require("data.generated.*") and love.graphics.newImage(
 -- "assets/generated/*") resolve to that version's files.  Red lives at the
--- cache root and needs nothing; Blue lives under blue/ and is *prepended* so
--- it wins over any Red copy at the root and over the game source.  Called
--- once at boot, before Game:load (main.lua).  Returns true when nothing was
--- needed or the mount succeeded.
+-- cache root and needs nothing; non-Red versions (blue/, yellow/, …) are
+-- *prepended* so they win over any Red copy at the root and over the game
+-- source.  Called once at boot, before Game:load (main.lua).  Returns true
+-- when nothing was needed or the mount succeeded.
 function CacheFs.mountVersion(version)
   local prefix = require("src.core.GameVersion").cachePrefix(version)
   if prefix == "" then return true end            -- Red: already at the root
-  local sub = prefix:gsub("/+$", "")              -- "blue/" -> "blue"
+  local sub = prefix:gsub("/+$", "")              -- "blue/" / "yellow/" -> bare dir
   -- The cache root is the portable game folder when active, else LÖVE's OS
-  -- save directory (where love.filesystem wrote blue/...).
+  -- save directory (where love.filesystem wrote blue/... or yellow/...).
   local base = CacheFs.root()
   if not base and love.filesystem.getSaveDirectory then
     base = love.filesystem.getSaveDirectory()
@@ -355,12 +355,12 @@ function CacheFs.mountVersion(version)
 end
 
 -- Undo mountVersion.  A process normally mounts exactly one version and then
--- boots it, but the launcher can open the save editor on a Blue save, close
--- it, and press Play on Red: with blue/ still prepended, Red's
--- require("data.generated.*") and its generated art would silently resolve to
--- Blue's files.  Callers must also drop the generated modules from
--- package.loaded (src.core.Data:unloadGenerated) -- unmounting alone only
--- fixes the read path, not what require already cached.
+-- boots it, but the launcher can open the save editor on a Blue/Yellow save,
+-- close it, and press Play on Red: with that version's subtree still
+-- prepended, Red's require("data.generated.*") and its generated art would
+-- silently resolve to the other game's files.  Callers must also drop the
+-- generated modules from package.loaded (src.core.Data:unloadGenerated) --
+-- unmounting alone only fixes the read path, not what require already cached.
 --
 -- Returns true when nothing was mounted or the unmount took.  Red is a no-op
 -- because its cache lives at the root and was never overlaid.

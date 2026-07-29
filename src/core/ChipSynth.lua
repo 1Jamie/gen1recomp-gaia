@@ -14,15 +14,15 @@ local bit = require("bit")
 
 local ChipSynth = {}
 
-local SAMPLE_RATE = 22050
+local SAMPLE_RATE = 44100
 local TICKS_PER_SECOND = 15360
 local FRAME_TICKS = 256
 local GB_CLOCK = 4194304
 
--- one 4096-sample stereo SoundData is the unit both the worker hands off and
+-- one 8192-sample stereo SoundData is the unit both the worker hands off and
 -- the synchronous fallback queues; the source keeps MUSIC_BUFFER_COUNT of them
--- (~6s) for stall tolerance (window resize, a long GC pause)
-local MUSIC_BUFFER_SAMPLES = 4096
+-- (~6s at 44100) for stall tolerance (window resize, a long GC pause)
+local MUSIC_BUFFER_SAMPLES = 8192
 local MUSIC_BUFFER_COUNT = 32
 
 ChipSynth.SAMPLE_RATE = SAMPLE_RATE
@@ -33,7 +33,13 @@ local PITCHES = {
   0xF82C, 0xF89D, 0xF907, 0xF96B, 0xF9CA, 0xFA23,
   0xFA77, 0xFAC7, 0xFB12, 0xFB58, 0xFB9B, 0xFBDA,
 }
-local DUTY = { [0] = 0.125, [1] = 0.25, [2] = 0.5, [3] = 0.75 }
+-- LuaGB / DMG 8-step duty tables (index 0-3); stored on channels as that index
+local WAVE_PATTERN_TABLES = {
+  [0] = {0, 0, 0, 0, 0, 0, 0, 1},
+  [1] = {1, 0, 0, 0, 0, 0, 0, 1},
+  [2] = {1, 0, 0, 0, 0, 1, 1, 1},
+  [3] = {0, 1, 1, 1, 1, 1, 1, 0},
+}
 local WAVE_LEVEL = { [0] = 0, [1] = 1, [2] = 0.5, [3] = 0.25 }
 local NOISE_DIVISORS = {
   [0] = 8, [1] = 16, [2] = 32, [3] = 48,
@@ -41,7 +47,7 @@ local NOISE_DIVISORS = {
 }
 
 local function snapTicks(ticks)
-  return math.floor((ticks * 735 + 256) / 512)
+  return math.floor((ticks * 1470 + 256) / 512)
 end
 
 local cachedProgramFile
@@ -143,7 +149,7 @@ function Channel.new(engine, spec, options)
     speed = 12,
     volume = 12,
     fade = 0,
-    duty = 0.5,
+    duty = 2,
     octave = 4,
     waveInstrument = 0,
     waveLevel = 1,
@@ -317,7 +323,7 @@ function Channel:nextEvent()
         target = self:frequency(bit.band(packed, 0x0F), octave),
       }
     elseif command == 0xEC then
-      self.duty = DUTY[bit.band(self:byte(), 3)] or 0.5
+      self.duty = bit.band(self:byte(), 3)
     elseif command == 0xED then
       self.engine.tempo = self:byte() * 0x100 + self:byte()
     elseif command == 0xEE then
@@ -329,10 +335,10 @@ function Channel:nextEvent()
     elseif command == 0xFC then
       local packed = self:byte()
       self.duty = {
-        DUTY[bit.band(bit.rshift(packed, 6), 3)],
-        DUTY[bit.band(bit.rshift(packed, 4), 3)],
-        DUTY[bit.band(bit.rshift(packed, 2), 3)],
-        DUTY[bit.band(packed, 3)],
+        bit.band(bit.rshift(packed, 6), 3),
+        bit.band(bit.rshift(packed, 4), 3),
+        bit.band(bit.rshift(packed, 2), 3),
+        bit.band(packed, 3),
       }
     elseif command == 0xFD then
       self.callStack[#self.callStack + 1] = self.address + 2
@@ -423,27 +429,23 @@ function Channel:sampleNoise(parameter)
   parameter = parameter or 0
   local divisor = NOISE_DIVISORS[bit.band(parameter, 7)]
   local shift = bit.rshift(parameter, 4)
-  local output = bit.band(self.noiseLfsr, 1) == 0 and 1 or -1
-  if shift >= 14 then return output end
-  local cycles = GB_CLOCK / divisor / (2 ^ shift) / SAMPLE_RATE
-  local width7 = bit.band(parameter, 8) ~= 0
-  local remaining = cycles
-  local area = 0
-
-  while remaining > 0 do
-    local untilClock = 1 - self.noiseClock
-    local span = math.min(remaining, untilClock)
-    output = bit.band(self.noiseLfsr, 1) == 0 and 1 or -1
-    area = area + output * span
-    self.noiseClock = self.noiseClock + span
-    remaining = remaining - span
-    if self.noiseClock >= 1 - 1e-12 then
-      self.noiseClock = 0
-      self:clockNoise(width7)
+  if shift < 14 then
+    local cycles = GB_CLOCK / divisor / (2 ^ shift) / SAMPLE_RATE
+    local width7 = bit.band(parameter, 8) ~= 0
+    local remaining = cycles
+    while remaining > 0 do
+      local untilClock = 1 - self.noiseClock
+      local span = math.min(remaining, untilClock)
+      self.noiseClock = self.noiseClock + span
+      remaining = remaining - span
+      if self.noiseClock >= 1 - 1e-12 then
+        self.noiseClock = 0
+        self:clockNoise(width7)
+      end
     end
   end
-
-  return area / cycles
+  -- LuaGB: instantaneous inverted LFSR LSB (high when bit0 == 0)
+  return bit.band(self.noiseLfsr, 1) == 0 and 1 or -1
 end
 
 local function sweepCalculation(register, sweep)
@@ -481,7 +483,7 @@ function Channel:sampleDrum(event, sampleIndex)
   end
   local elapsed = (sampleIndex - segment.startSample) / SAMPLE_RATE
   local volume = envelopeVolume(segment.volume, segment.fade, elapsed)
-  return self:sampleNoise(segment.parameter) * volume / 15 * 0.35
+  return self:sampleNoise(segment.parameter) * volume / 15
 end
 
 function Channel:sample()
@@ -502,7 +504,7 @@ function Channel:sample()
   local volume = envelopeVolume(
     event.volume or 0, event.fade or 0, event.elapsed)
   if event.noise then
-    return self:sampleNoise(event.noiseParameter) * volume / 15 * 0.35
+    return self:sampleNoise(event.noiseParameter) * volume / 15
   end
 
   local register = event.register
@@ -537,13 +539,18 @@ function Channel:sample()
     -- a def-local program may omit its wave table entirely
     if not wave then return 0 end
     local index = math.min(32, math.floor(phase * 32) + 1)
-    return wave[index] * event.waveLevel * 0.55
+    return wave[index] * event.waveLevel
   end
   local duty = event.duty
   if type(duty) == "table" then
     duty = duty[frame % 4 + 1]
   end
-  return (phase < duty and 1 or -1) * volume / 15 * 0.5
+  local pattern = WAVE_PATTERN_TABLES[duty or 2] or WAVE_PATTERN_TABLES[2]
+  local step = math.floor(phase * 8) % 8
+  if pattern[step + 1] == 0 then
+    return -volume / 15
+  end
+  return volume / 15
 end
 
 local Engine = {}
@@ -597,8 +604,8 @@ local function readWaves(banks, audio, engineNumber)
     for byteIndex = 0, 15 do
       local packed = romByte(
         banks, spec.bank, spec.address + wave * 16 + byteIndex)
-      values[#values + 1] = (bit.rshift(packed, 4) - 7.5) / 7.5
-      values[#values + 1] = (bit.band(packed, 0x0F) - 7.5) / 7.5
+      values[#values + 1] = (bit.rshift(packed, 4) - 8) / 8
+      values[#values + 1] = (bit.band(packed, 0x0F) - 8) / 8
     end
     waves[#waves + 1] = values
   end
@@ -606,8 +613,8 @@ local function readWaves(banks, audio, engineNumber)
   for byteIndex = 0, 15 do
     local packed = romByte(
       banks, spec.bank, spec.address + 5 * 16 + byteIndex)
-    values[#values + 1] = (bit.rshift(packed, 4) - 7.5) / 7.5
-    values[#values + 1] = (bit.band(packed, 0x0F) - 7.5) / 7.5
+    values[#values + 1] = (bit.rshift(packed, 4) - 8) / 8
+    values[#values + 1] = (bit.band(packed, 0x0F) - 8) / 8
   end
   for _ = 1, 4 do waves[#waves + 1] = values end
   return waves
@@ -615,7 +622,7 @@ end
 
 -- def-local waves are authored either as raw 0-15 nibbles (the ROM's own
 -- units) or as the -1..1 samples readWaves produces; the synth wants the
--- latter
+-- latter (LuaGB: (nibble - 8) / 8)
 local function normalizeWaves(source)
   local waves = {}
   for index, values in ipairs(source) do
@@ -625,7 +632,7 @@ local function normalizeWaves(source)
     end
     local wave = {}
     for position, value in ipairs(values) do
-      wave[position] = nibbles and (value - 7.5) / 7.5 or value
+      wave[position] = nibbles and (value - 8) / 8 or value
     end
     waves[index] = wave
   end
@@ -690,7 +697,7 @@ end
 function Engine:sample()
   local value = 0
   for _, channel in ipairs(self.channels) do value = value + channel:sample() end
-  return math.max(-1, math.min(1, value * 0.5))
+  return math.max(-1, math.min(1, value / 4))
 end
 
 function Engine:sampleStereo()
@@ -701,8 +708,8 @@ function Engine:sampleStereo()
     if not event or event.panLeft ~= false then left = left + value end
     if not event or event.panRight ~= false then right = right + value end
   end
-  return math.max(-1, math.min(1, left * 0.5)),
-    math.max(-1, math.min(1, right * 0.5))
+  return math.max(-1, math.min(1, left / 4)),
+    math.max(-1, math.min(1, right / 4))
 end
 
 function Engine:sampleChannel(number)
@@ -711,7 +718,7 @@ function Engine:sampleChannel(number)
     local value = channel:sample()
     if channel.number == number then selected = value end
   end
-  return math.max(-1, math.min(1, selected * 0.5))
+  return math.max(-1, math.min(1, selected / 4))
 end
 
 -- render `samples` frames into a fresh SoundData (mono or stereo).  love.sound

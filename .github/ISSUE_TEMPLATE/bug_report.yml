@@ -19,6 +19,19 @@ body:
       required: true
 
   - type: dropdown
+    id: game
+    attributes:
+      label: Which game were you playing
+      description: Pick every version you saw the bug in.
+      multiple: true
+      options:
+        - Red
+        - Blue
+        - Yellow
+    validations:
+      required: true
+
+  - type: dropdown
     id: os
     attributes:
       label: Which build are you running
@@ -30,6 +43,26 @@ body:
         - Multiple platforms
     validations:
       required: true
+
+  - type: dropdown
+    id: mods_enabled
+    attributes:
+      label: Were any mods on
+      description: Check the MODS tab in the launcher if you're not sure.
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: input
+    id: mods_which
+    attributes:
+      label: Which mods (if any were on)
+      description: List the enabled mods. Leave blank if none were on.
+      placeholder: nuzlocke 1.0.0, running-shoes 0.3
+    validations:
+      required: false
 
   - type: input
     id: version

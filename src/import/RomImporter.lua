@@ -37,8 +37,8 @@ local REQUIRED_FILES = {
 
 -- "Split-screen ROM selector" first-run palette (matches FirstRun.dc.html from
 -- the Claude Design project): a dark neon arcade panel, one column per game.
--- Red is live; Blue and Yellow are lit placeholders until those games are
--- supported.  Values are 0-255 RGB; alpha is applied per draw.
+-- Red, Blue, and Yellow share the same importer flow once listed in
+-- GameVersion.VERSIONS.  Values are 0-255 RGB; alpha is applied per draw.
 local PAL = {
   -- radial background gradient (bright navy at top-centre -> near black)
   bgTop       = { 22, 34, 74 },   -- #16224a
@@ -302,13 +302,13 @@ end
 -- it directly through love.filesystem -- already mounted at the physfs
 -- root, so no io.* absolute-path handling is needed.
 --
--- Only a .gb whose SHA maps to a version that is not yet ready counts as
+-- Only a .gb/.gbc whose SHA maps to a version that is not yet ready counts as
 -- pending.  GameActivity always writes the SAF pick to picked_rom.gb, so a
--- naive "first .gb wins" scan would re-import Red when the player tries to
--- add Blue (issue #167).
+-- naive "first ROM wins" scan would re-import Red when the player tries to
+-- add Blue (issue #167).  Yellow carts are typically .gbc.
 local function findPendingRom(ready)
   for _, name in ipairs(love.filesystem.getDirectoryItems("")) do
-    if name:lower():match("%.gb$") and love.filesystem.getInfo(name, "file") then
+    if name:lower():match("%.gbc?$") and love.filesystem.getInfo(name, "file") then
       local data = love.filesystem.read(name)
       if type(data) == "string" and #data == 1024 * 1024 then
         local version = GameVersion.forSha1(sha1(data))
@@ -360,14 +360,14 @@ local function chooseRom(promptName)
   local platform = love.system.getOS()
   if platform == "OS X" then
     return commandOutput(
-      ([[osascript -e 'POSIX path of (choose file with prompt "%s" of type {"gb"})' 2>/dev/null]])
+      ([[osascript -e 'POSIX path of (choose file with prompt "%s" of type {"gb", "gbc"})' 2>/dev/null]])
         :format(prompt))
   elseif platform == "Windows" then
     local script = table.concat({
       "Add-Type -AssemblyName System.Windows.Forms;",
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
-      "$d.Filter='Game Boy ROM (*.gb)|*.gb|All files (*.*)|*.*';",
+      "$d.Filter='Game Boy ROM (*.gb;*.gbc)|*.gb;*.gbc|All files (*.*)|*.*';",
       -- write the pick as UTF-8: the console's OEM codepage would mangle
       -- non-ASCII names (Pokémon -> Pok\x82mon) and crash any text draw
       -- that shows them (#325)
@@ -377,11 +377,11 @@ local function chooseRom(promptName)
       'powershell -NoProfile -STA -Command "' .. script .. '"')
   elseif platform == "Linux" then
     local path = commandOutput(
-      ([[zenity --file-selection --title="%s" --file-filter="Game Boy ROM | *.gb" 2>/dev/null]])
+      ([[zenity --file-selection --title="%s" --file-filter="Game Boy ROM | *.gb *.gbc" 2>/dev/null]])
         :format(prompt))
     if path then return path end
     return commandOutput(
-      [[kdialog --getopenfilename "$HOME" "*.gb|Game Boy ROM" 2>/dev/null]])
+      [[kdialog --getopenfilename "$HOME" "*.gb *.gbc|Game Boy ROM" 2>/dev/null]])
   end
   return nil
 end
@@ -470,10 +470,11 @@ local function updaterAllowed()
   return true
 end
 
--- The launcher runs Red and Blue as two independent columns.  Each dropped or
+-- The launcher runs each GameVersion as an independent tab.  Each dropped or
 -- chosen ROM is routed to its version by SHA-1, extracted into that version's
--- own cache (Red at the root, Blue under blue/), so both can be imported and
--- played side by side.  onComplete(version) hands the chosen game off to boot.
+-- own cache (Red at the root, Blue under blue/, Yellow under yellow/), so all
+-- can be imported and played side by side.  onComplete(version) hands the
+-- chosen game off to boot.
 -- opts: launcher (a fresh import stays on the launcher instead of auto-booting),
 -- forceImport (treat every version as not-yet-imported, so re-import is forced),
 -- onEditSave(version, slotId) (host handler for the Edit affordance on a save
@@ -542,13 +543,18 @@ function RomImporter.new(onComplete, opts)
     CacheFs.prefix = saved
     self.returning[version] =
       (not ready) and marker ~= nil and marker ~= markerFor(version)
-    self.romName[version] = "pokemon_" .. info.id .. ".gb"
+    self.romName[version] = "pokemon_" .. info.id
+      .. (info.id == "yellow" and ".gbc" or ".gb")
   end
 
-  -- Android: import a save-dir .gb that is not yet ready (USB drop or a
+  -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
-  -- so a stale picked_rom.gb cannot block the opposite version.
-  if android and not (self.ready.red and self.ready.blue) then
+  -- so a stale picked_rom.gb cannot block another version.
+  local needRom = false
+  for _, version in ipairs(GameVersion.ORDER) do
+    if not self.ready[version] then needRom = true; break end
+  end
+  if android and needRom then
     local name, data = findPendingRom(self.ready)
     if name then self:startData(data, name) end
   end
@@ -608,7 +614,7 @@ function RomImporter:focus(f)
     local version = self.androidPendingExportVersion or self:_savedropTarget()
     self.androidPendingExportVersion = nil
     self.saveNotice[version] = { ok = true, text = "Save exported." }
-    if self.tab == "mods" or self.tab == "yellow" then self.tab = version end
+    if self.tab == "mods" then self.tab = version end
     return
   end
   local modName = findPendingMod(false)
@@ -629,9 +635,13 @@ function RomImporter:focus(f)
     end
     return
   end
-  if self.ready.red and self.ready.blue then return end
-  local name, data = findPendingRom(self.ready)
-  if name then self:startData(data, name) end
+  for _, v in ipairs(GameVersion.ORDER) do
+    if not self.ready[v] then
+      local name, data = findPendingRom(self.ready)
+      if name then self:startData(data, name) end
+      return
+    end
+  end
 end
 
 function RomImporter:setError(message, version)
@@ -660,7 +670,8 @@ local function resetPointerCursor(self)
 end
 
 -- Verify + extract a ROM.  The version is decided by the ROM's own SHA-1, so
--- dropping a Red or Blue cart into either column always lands in the right one.
+-- dropping a Red, Blue, or Yellow cart into any column always lands in the
+-- right one.
 function RomImporter:startData(data, displayName)
   if self.workState == "working" then return end
   if type(data) ~= "string" then
@@ -676,14 +687,14 @@ function RomImporter:startData(data, displayName)
   local version = GameVersion.forSha1(actualHash)
   if not version then
     self:setError(("Unsupported ROM (SHA-1 %s). Use an unmodified US Pokemon "
-      .. "Red or Blue ROM."):format(actualHash))
+      .. "Red, Blue, or Yellow ROM."):format(actualHash))
     return
   end
   local info = GameVersion.info(version)
 
   -- Bring the launcher to this version's tab so its progress bar is on screen
   -- (a dropped cart is routed by SHA-1 regardless of which tab was showing).
-  if self.tab == "red" or self.tab == "blue" or self.tab == "yellow" then
+  if GameVersion.VERSIONS[self.tab] then
     self.tab = version
   end
   self.importing = version
@@ -731,7 +742,7 @@ function RomImporter:startData(data, displayName)
     self.returning[version] = false
     self.romName[version] = (displayName
       and (displayName:match("[^/\\]+$") or displayName)) or self.romName[version]
-    -- Android: drop the consumed save-dir .gb (picked_rom.gb or a USB copy)
+    -- Android: drop the consumed save-dir .gb/.gbc (picked_rom.gb or a USB copy)
     -- so the next Choose / focus cannot treat it as a fresh pending ROM.
     if self.android and type(displayName) == "string"
         and not displayName:find("[/\\]") then
@@ -845,12 +856,12 @@ function RomImporter:chooseMod()
 end
 
 -- Which game a dropped .sav imports into: a .sav has no version signature of
--- its own, so it lands on the active game tab.  When a non-game tab (mods, or
--- the locked yellow placeholder) is showing, default to red -- the always-
--- present first game -- rather than guess.
+-- its own, so it lands on the active game tab.  When a non-game tab (mods) is
+-- showing, default to red -- the always-present first game -- rather than
+-- guess.
 function RomImporter:_savedropTarget()
   local v = self.tab
-  if v == "red" or v == "blue" then return v end
+  if GameVersion.VERSIONS[v] then return v end
   return "red"
 end
 
@@ -861,8 +872,7 @@ end
 -- playable with its game's data present.
 function RomImporter:_importSave(version, source)
   if self.workState == "working" then return end
-  if self.tab == "red" or self.tab == "blue" or self.tab == "mods"
-      or self.tab == "yellow" then
+  if GameVersion.VERSIONS[self.tab] or self.tab == "mods" then
     self.tab = version
   end
   if not self.ready[version] then
@@ -971,8 +981,8 @@ function RomImporter:choose(version)
   if self.workState == "working" then return end
   self.chooseVersion = version or "red"
   if self.android then
-    -- Prefer a not-yet-imported .gb already in the save dir (USB copy, or a
-    -- fresh SAF pick).  Never reuse an already-imported cart's file -- that
+    -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
+    -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
     -- was the #167 failure mode (second Choose just re-extracted Red).
     local name, data = findPendingRom(self.ready)
     if name then
@@ -995,8 +1005,8 @@ function RomImporter:choose(version)
     return
   end
   -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
-  -- kdialog.  Fall back to the same "drop a .gb next to the game" scan used
-  -- on Android, which works when the game is launched as an unpacked
+  -- kdialog.  Fall back to the same "drop a .gb/.gbc next to the game" scan
+  -- used on Android, which works when the game is launched as an unpacked
   -- directory (see build-rg34xxsp.sh).
   local name, data = findPendingRom(self.ready)
   if name then
@@ -1010,13 +1020,13 @@ function RomImporter:choose(version)
       or "the game folder"
     self.notice = {
       version = self.chooseVersion,
-      status = "No file picker. Copy your .gb into:",
+      status = "No file picker. Copy your .gb/.gbc into:",
       detail = where,
     }
     return
   end
   if love.system.getOS() ~= "OS X" and love.system.getOS() ~= "Windows" then
-    self:setError("File selection is unavailable here. Drop the .gb file onto the window.")
+    self:setError("File selection is unavailable here. Drop the .gb/.gbc file onto the window.")
   end
 end
 
@@ -1112,7 +1122,7 @@ function RomImporter:_updatePadCursor(dt)
         local next = (self.modScroll or 0) + step
         self.modScroll = math.max(0, math.min(maxS, next))
       end
-    elseif self.tab == "red" or self.tab == "blue" then
+    elseif GameVersion.VERSIONS[self.tab] then
       local maxS = (self._slotMax and self._slotMax[self.tab]) or 0
       if maxS > 0 then
         local next = (self.slotScroll[self.tab] or 0) + step
@@ -1138,7 +1148,7 @@ function RomImporter:gamepadpressed(_, button)
     -- Start / Select: Play if ready, else Choose ROM on the active game tab.
     if self.workState == "working" then return end
     local version = self.tab
-    if version == "red" or version == "blue" then
+    if GameVersion.VERSIONS[version] then
       if self.ready[version] then self:play(version) else self:choose(version) end
     end
   end
@@ -1972,9 +1982,9 @@ function RomImporter:keypressed(key)
   if self.workState == "working" then return end
   if key == "return" or key == "space" or key == "kpenter" then
     -- Enter acts on the visible game tab: Play if its ROM is ready, otherwise
-    -- open its picker.  The mods / placeholder tabs have no keyboard action.
+    -- open its picker.  The mods tab has no keyboard action.
     local version = self.tab
-    if version == "red" or version == "blue" then
+    if GameVersion.VERSIONS[version] then
       if self.ready[version] then self:play(version) else self:choose(version) end
     end
   end
@@ -2132,7 +2142,7 @@ function RomImporter:_drawTabBar(x, y, w, h, chip)
     end
     cursorX = segEnd + gap
   end
-  -- "N of 3 ready" (Red + Blue count; Yellow never ready), hidden if no room
+  -- "N of 3 ready" (Red + Blue + Yellow once in GameVersion.ORDER)
   local ready = 0
   for _, v in ipairs(GameVersion.ORDER) do if self.ready[v] then ready = ready + 1 end end
   love.graphics.setFont(self.readyFont)
@@ -2152,9 +2162,12 @@ end
 function RomImporter:_drawGamePanel(version, x, y, w, h)
   local s, pulse = self._s, self.pulse
   self.panelVersion = version
-  local locked = version == "yellow"
-  local info = (not locked) and GameVersion.info(version) or nil
-  local gameName = locked and "Pokemon Yellow" or info.displayName
+  -- Defensive: only lock when the version is absent from GameVersion (never
+  -- solely because id == "yellow").
+  local info = GameVersion.info(version)
+  local locked = info == nil
+  local gameName = info and (info.launcherName or info.displayName)
+                   or tostring(version)
   local ready = (not locked) and self.ready[version] or false
 
   -- header: name + status pill
@@ -2191,12 +2204,13 @@ function RomImporter:_drawGamePanel(version, x, y, w, h)
   local rightX = twoCol and (x + colW + colGap) or x
 
   -- ROM card contents by state (rehomes the existing import flow)
-  local dropHint = self.android and "Copy the .gb via USB."
-    or Strings("Or drop the .gb file here.")
-  local accent = locked and PAL.gold or (version == "red" and PAL.red or PAL.blue)
+  local dropHint = self.android and "Copy the .gb/.gbc via USB."
+    or Strings("Or drop the .gb/.gbc file here.")
+  local accent = version == "yellow" and PAL.gold
+    or (version == "red" and PAL.red or PAL.blue)
   local romState, romDetail, romBtnLabel, romBtnEnabled, romProgress
   if locked then
-    romState, romDetail = "Not supported yet", "Yellow support is on the way."
+    romState, romDetail = "Not supported yet", "Support for this game is on the way."
     romBtnLabel, romBtnEnabled = "Import unavailable", false
   else
     local importing = self.importing == version
@@ -2245,7 +2259,6 @@ function RomImporter:_drawGamePanel(version, x, y, w, h)
 
   -- SAVE FILES card: Import save is live once the ROM is imported (playable);
   -- Export save is live only when the active slot actually holds a save.  The
-  -- locked yellow placeholder has no save backend, so both stay disabled.  The
   -- hint line doubles as the last import/export outcome (green ok / red error).
   local sfImportEnabled, sfExportEnabled = false, false
   if not locked then
@@ -2358,9 +2371,7 @@ function RomImporter:_drawGamePanel(version, x, y, w, h)
   self:_playButton(leftX, playY, colW, playH, gameName, ready, locked)
 
   -- SAVE SLOT card (right column, or stacked below Play when single-column).
-  -- The locked Yellow placeholder has no save backend (no GameVersion entry, so
-  -- no slots can exist); skip the panel entirely rather than draw an empty,
-  -- non-functional "+ New save slot" on a COMING SOON game.
+  -- Skip only when the version is absent from GameVersion (no save backend).
   if not locked then
     if twoCol then
       self:_drawSaveSlotPanel(version, rightX, bodyTop, colW, bodyH)

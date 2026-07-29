@@ -755,14 +755,14 @@ def parse_badge_gates(pokered):
 
 
 def parse_preset_names(pokered):
-    """constants/player_constants.asm: the _RED preset name menus.
+    """constants/player_constants.asm: preset name menus.
 
     The naming menus (engine/movie/oak_speech/oak_speech2.asm with
     data/player/names.asm / names_list.asm) offer NEW NAME plus these
-    three presets each.
+    three presets each.  Red/Blue gate the lists with IF DEF(_RED)/_BLUE;
+    Yellow ships a single ungated set (YELLOW/ASH/JACK, BLUE/GARY/JOHN).
+    read_asm resolves version conditionals via util.ASM_DEFINES.
     """
-    # read_asm resolves the version conditionals (util.ASM_DEFINES), so
-    # only the _RED name set reaches us
     player, rival = [], []
     path = os.path.join(pokered, "constants/player_constants.asm")
     for lineno, line in read_asm(path):
@@ -1116,24 +1116,16 @@ def parse_credits(pokered):
         os.path.join(pokered, "constants/credits_constants.asm"),
         stop_at="NUM_CRED_STRINGS")
 
-    # CreditsTextPointers: CRED_* value -> string label
+    # CreditsTextPointers: CRED_* value -> string label.
+    # Version-gated CredVersion / CreditsText_Version bodies (Red/Blue IF
+    # DEF) are resolved by read_asm via util.ASM_DEFINES; Yellow has no
+    # gates and a single "YELLOW VERSION" string.
     pointers = []
     strings = {}
-    skip = False
     label = None
     path = os.path.join(pokered, "data/credits/credits_text.asm")
     for lineno, line in read_asm(path):
         s = line.strip()
-        if re.match(r"IF\s+DEF\(_RED\)", s):
-            continue
-        if re.match(r"IF\s+DEF\(", s):
-            skip = True
-            continue
-        if s == "ENDC":
-            skip = False
-            continue
-        if skip:
-            continue
         m = re.match(r"dw\s+(\w+)$", s)
         if m:
             pointers.append(m.group(1))
@@ -1142,6 +1134,7 @@ def parse_credits(pokered):
         if m and m.group(1) != "CreditsTextPointers":
             label = m.group(1)
             continue
+        # Optional trailing @ terminator (Yellow omits it on some lines).
         m = re.match(r'db\s+(-\d+),\s*"([^"]*)"$', s)
         if m and label:
             strings[label] = {
@@ -1445,9 +1438,20 @@ def extract(pokered, out_dir):
        or badge_gates["ROUTE_23"]["guards"][-1]["badge"] != "CASCADEBADGE" \
        or len(badge_gates["ROUTE_22_GATE"]["coords"]) != 2:
         util.die("badge gate extraction sanity check failed")
-    if "RED" not in preset_names["player"] or "BLUE" not in preset_names["rival"] \
-       or len(preset_names["player"]) != 3 or len(preset_names["rival"]) != 3:
+    if len(preset_names["player"]) != 3 or len(preset_names["rival"]) != 3:
         util.die("preset name extraction sanity check failed")
+    # Red expects RED/ASH/JACK + BLUE/GARY/JOHN. Yellow ships YELLOW/... with
+    # no IF DEF gates; Blue swaps player/rival. Only enforce the Red pair when
+    # building Red (ASM_DEFINES has _RED) or when RED already appears.
+    if "_RED" in util.ASM_DEFINES or "RED" in preset_names["player"]:
+        if "YELLOW" in preset_names["player"]:
+            pass  # pokeyellow ungated presets; Red name check does not apply
+        elif "RED" not in preset_names["player"] \
+                or "BLUE" not in preset_names["rival"]:
+            util.die("preset name extraction sanity check failed")
+    elif "YELLOW" in preset_names["player"]:
+        if "BLUE" not in preset_names["rival"]:
+            util.die("preset name extraction sanity check failed")
     if "ROCK_TUNNEL_1F" not in dark_maps["maps"]:
         util.die("dark map extraction sanity check failed")
     if warp_carpets["tiles"]["down"] != [0x01, 0x12, 0x17, 0x3D, 0x04, 0x18, 0x33] \

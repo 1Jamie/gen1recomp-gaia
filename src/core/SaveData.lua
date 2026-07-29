@@ -24,10 +24,11 @@ local GameVersion = require("src.core.GameVersion")
 
 local SaveData = {}
 
--- Progress files carry the game-version suffix so Red and Blue saves coexist:
--- Red keeps save.lua / .bak / .tmp exactly as before; Blue is save_blue.lua
--- (+ .bak/.tmp).  options.lua is deliberately shared across versions (it holds
--- global preferences and the mod enable-state, not per-playthrough data).
+-- Progress files carry the game-version suffix so Red / Blue / Yellow saves
+-- coexist: Red keeps save.lua / .bak / .tmp exactly as before; Blue is
+-- save_blue.lua and Yellow is save_yellow.lua (+ .bak/.tmp).  options.lua is
+-- deliberately shared across versions (it holds global preferences and the
+-- mod enable-state, not per-playthrough data).
 local OPTIONS_FILENAME = "options.lua"
 
 -- Main / backup / staged-witness names for a version (defaults to the active
@@ -323,8 +324,9 @@ end
 -- under options.saveSlots[version]; the active slot is also cached
 -- process-wide (like GameVersion.current) so the hot saveNames path does
 -- not re-read options every call.  A false cache entry means "no slot in
--- use" and the flat legacy path (save.lua / save_blue.lua) is used, which
--- keeps a brand-new install and every pre-slots caller working unchanged.
+-- use" and the flat legacy path (save.lua / save_blue.lua / save_yellow.lua)
+-- is used, which keeps a brand-new install and every pre-slots caller
+-- working unchanged.
 local activeSlotCache = {}   -- version -> slotId in use, or false when none
 local slotsChecked = {}      -- version -> true once resolved this process
 
@@ -336,17 +338,18 @@ local function slotNames(version, id)
 end
 
 -- the pre-slots flat names a version always used (save.lua for Red,
--- save_blue.lua for Blue); still the destination before any slot exists
+-- save_blue.lua / save_yellow.lua for the others); still the destination
+-- before any slot exists
 local function legacyNames(version)
   local main = "save" .. GameVersion.saveSuffix(version) .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
 
 -- Slot resolution is only meaningful for versions GameVersion actually knows
--- (red/blue).  The launcher also renders a locked placeholder tab ("yellow")
--- that has no info entry and therefore no saveSuffix; resolving its legacy
--- names would index a nil info table and crash.  Treat any unknown version as
--- having no slots so the slot APIs degrade to empty/no-op instead.
+-- (red / blue / yellow).  An unknown id has no info entry and therefore no
+-- saveSuffix; resolving its legacy names would index a nil info table and
+-- crash.  Treat any unknown version as having no slots so the slot APIs
+-- degrade to empty/no-op instead.
 local function knownVersion(version)
   return GameVersion.info(version) ~= nil
 end
@@ -892,7 +895,7 @@ end)
 -- a .tmp witness before the swap, so a crash mid-write is recoverable.
 function SaveData.save(data, mods)
   -- write to the file matching this save's own version, not just the active
-  -- one, so a Blue playthrough always lands in save_blue.lua
+  -- one, so Blue/Yellow playthroughs land in save_blue.lua / save_yellow.lua
   local FILENAME, BACKUP_FILENAME, TMP_FILENAME = saveNames(data.version)
   if data.options then
     SaveData.saveOptions(data.options)
