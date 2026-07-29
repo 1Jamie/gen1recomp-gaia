@@ -35,6 +35,7 @@ local Json    = loadModule("src/link/Json.lua")
 local Check   = loadModule("src/update/Check.lua")
 local Version = loadModule("src/core/Version.lua")
 local Semver  = loadModule("src/update/Semver.lua")
+local HostShell = loadModule("src/core/HostShell.lua")
 -- Boot's top-level require("src.update.Semver") cannot resolve in this thread
 -- (no src.* searcher), which would leave Boot nil and the minShell gate
 -- permanently permissive.  Seed the loaded table first so it resolves.
@@ -76,8 +77,8 @@ local function curlCapture(url)
     .. "-H " .. shq("User-Agent: gen1recomp-updater") .. " "
     .. "-H " .. shq("Accept: application/vnd.github+json") .. " "
     .. shq(url)
-  local ok, pipe = pcall(io.popen, cmd)
-  if not ok or not pipe then return nil end
+  local pipe = HostShell.popen(cmd)
+  if not pipe then return nil end
   local out = pipe:read("*a")
   pipe:close()
   if not out or out == "" then return nil end
@@ -85,8 +86,8 @@ local function curlCapture(url)
 end
 
 local function haveCurl()
-  local ok, pipe = pcall(io.popen, "curl --version")
-  if not ok or not pipe then return false end
+  local pipe = HostShell.popen("curl --version")
+  if not pipe then return false end
   local out = pipe:read("*a")
   pipe:close()
   return out ~= nil and out:find("curl", 1, true) ~= nil
@@ -239,7 +240,7 @@ local function launchDownload(url, partAbs, doneAbs)
     os.execute('start "" /b ' .. shq(saveDir .. "/" .. batRel))
   else
     -- ( ... ) & backgrounds the whole group so os.execute returns at once
-    os.execute("( curl -fsSL --connect-timeout 15 --max-time 900 -o "
+    os.execute("( " .. HostShell.envPrefix() .. "curl -fsSL --connect-timeout 15 --max-time 900 -o "
       .. shq(partAbs) .. " " .. shq(url)
       .. " ; touch " .. shq(doneAbs) .. " ) >/dev/null 2>&1 &")
   end
