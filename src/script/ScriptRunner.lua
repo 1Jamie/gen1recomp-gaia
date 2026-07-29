@@ -191,8 +191,18 @@ function ScriptRunner:yield()
 end
 
 function ScriptRunner:resume(...)
-  if not self.co then return end
-  local ok, err = coroutine.resume(self.co, ...)
+  local co = self.co
+  if not co then return end
+  -- A completion callback can fire synchronously from inside the running
+  -- coroutine (e.g. a battle that finishes during its own stack push when
+  -- the party is already fainted).  Resuming a running coroutine is an
+  -- error that would kill the whole script, so land the pending yield
+  -- first and continue on the next update tick instead.
+  if coroutine.status(co) == "running" then
+    self.waitingFrames = 1
+    return
+  end
+  local ok, err = coroutine.resume(co, ...)
   if not ok then
     local source = self.ctx and self.ctx.source
     local where = source
@@ -209,8 +219,10 @@ function ScriptRunner:resume(...)
     self.co = nil
     self.waitingFrames = nil
     self.waitingCheck = nil
-  elseif coroutine.status(self.co) == "dead" then
-    self.co = nil
+  -- status via the captured co: a nested resume during the call above may
+  -- already have torn self.co down, and status(nil) would throw
+  elseif coroutine.status(co) == "dead" then
+    if self.co == co then self.co = nil end
   end
 end
 

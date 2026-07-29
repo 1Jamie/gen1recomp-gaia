@@ -19,17 +19,58 @@ local FEE = 500
 local BALLS = 30
 local STEPS = 502
 
-local function startGame(game, t, done)
-  game.save.money = game.save.money - FEE
-  game.save.safari = { balls = BALLS, steps = STEPS }
+local function startGame(game, t, done, balls, introText)
+  game.save.safari = { balls = balls or BALLS, steps = STEPS }
+  game.save.safariNags = nil
   local TextBox = require("src.render.TextBox")
-  local paid = (t._SafariZoneGateSafariZoneWorker1ThatllBe500PleaseText
-                or "That'll be ¥500\nplease!\f{PLAYER} received\n30 SAFARI BALLs!")
-               :gsub("{PLAYER}", game.save.player.name)
+  local paid = introText
+    or (t._SafariZoneGateSafariZoneWorker1ThatllBe500PleaseText
+        or "That'll be ¥500\nplease!\f{PLAYER} received\n30 SAFARI BALLs!")
+       :gsub("{NUM:[^}]*}", "500")
+  paid = paid:gsub("{PLAYER}", game.save.player.name)
   local pa = t._SafariZoneGateSafariZoneWorker1CallYouOnThePAText
              or "\fWe'll call you on\nthe PA when you\nrun out of time\nor SAFARI BALLs!"
   local luck = t._SafariZoneGateSafariZoneWorker1GoodLuckText or "Good Luck!"
   game.stack:push(TextBox.new(game, paid .. pa .. "\f" .. luck, done))
+end
+
+-- Yellow's soft-lock fix (scripts/SafariZoneGate_2.asm): a player short of
+-- the full fee still gets in.
+--   0 < money < 500: SafariZoneEntranceCalculateLowCostAdmission takes
+--   everything and hands over min(money/23 + 1, 29) balls.
+--   money == 0: SafariZoneEntranceGetLowCostAdmissionText nags four times
+--   (LowCostText5/6/7/8), then relents -- free entry, one ball.
+local function yellowLowCost(game, ow, t, done, back)
+  local TextBox = require("src.render.TextBox")
+  if game.save.money > 0 then
+    local balls = math.min(math.floor(game.save.money / 23) + 1, 29)
+    game.save.money = 0
+    local intro =
+      (t._SafariZoneGateSafariZoneWorker1NotEnoughMoneyText
+       or "Oops! Not enough\nmoney!")
+      .. (t._SafariZoneLowCostText1
+          or "\fOh, all right, pay\nme what you have.")
+      .. "\f" .. (t._SafariZoneLowCostText2
+                  or "But, I can't give\nyou all 30 BALLs.")
+    startGame(game, t, done, balls, intro)
+    return
+  end
+  local nag = game.save.safariNags or 0
+  game.save.safariNags = nag + 1
+  if nag >= 3 then
+    local intro =
+      (t._SafariZoneLowCostText8 or "Read my lips, NO!\nGet it?")
+      .. (t._SafariZoneLowCostText3
+          or "\fYou're persistent,\naren't you?\fOK, you can go in\nfor free, but\njust this once!")
+    startGame(game, t, done, 1, intro)
+    return
+  end
+  local nags = {
+    t._SafariZoneLowCostText5 or "I'm sorry, but you\nhave to pay to\nenter.",
+    t._SafariZoneLowCostText6 or "You can't enter\nwithout paying!",
+    t._SafariZoneLowCostText7 or "I said, no money,\nno entry!",
+  }
+  back(nags[nag + 1])
 end
 
 local function joinPrompt(game, ow, done)
@@ -51,9 +92,14 @@ local function joinPrompt(game, ow, done)
           back(t._SafariZoneGateSafariZoneWorker1PleaseComeAgainText
                or "OK! Please come\nagain!")
         elseif game.save.money < FEE then
-          back(t._SafariZoneGateSafariZoneWorker1NotEnoughMoneyText
-               or "Oops! Not enough\nmoney!")
+          if require("src.core.GameVersion").isYellow() then
+            yellowLowCost(game, ow, t, done, back)
+          else
+            back(t._SafariZoneGateSafariZoneWorker1NotEnoughMoneyText
+                 or "Oops! Not enough\nmoney!")
+          end
         else
+          game.save.money = game.save.money - FEE
           startGame(game, t, done)
         end
       end))

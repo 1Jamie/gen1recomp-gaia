@@ -35,6 +35,14 @@ function love.conf(t)
     -- starting size, not the game's resolution.
     t.window.width = 1024
     t.window.height = 768
+    -- Floor for the resizable desktop window.  The launcher's single-column
+    -- layout is laid out against ~420 logical px of content, and the game
+    -- canvas letterboxes fine below that, so this only stops a drag that would
+    -- squeeze the cards past the point where their buttons still read.  Kept
+    -- well under the smallest supported desktop display; mobile ignores it
+    -- (fullscreen), so the handheld ports are unaffected.
+    t.window.minwidth = 480
+    t.window.minheight = 360
   end
   t.version = "11.5"
   t.window.vsync = 1

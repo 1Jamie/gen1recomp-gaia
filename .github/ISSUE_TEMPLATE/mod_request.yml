@@ -23,6 +23,20 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: game
+    attributes:
+      label: Which game is this for
+      description: Pick every version the mod should cover.
+      multiple: true
+      options:
+        - Red
+        - Blue
+        - Yellow
+        - Not version-specific
+    validations:
+      required: true
+
   - type: input
     id: discord
     attributes:

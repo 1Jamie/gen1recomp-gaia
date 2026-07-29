@@ -192,10 +192,45 @@ local function newCrySource(data, species, def)
   return newFileSource(resolved)
 end
 
+-- Yellow's voiced Pikachu clips (audio/pikachu_pcm.asm
+-- PlayPikachuSoundClip): 1-bit PCM decoded to WAVs at import
+-- (data.audio.pikaCries = clip count).  Returns the source, nil when the
+-- cache carries no clips (Red/Blue) or headless.
+function Sound.playPikaCry(data, n)
+  if not love.audio then return nil end
+  local count = data.audio and data.audio.pikaCries
+  if not count then return nil end
+  n = math.max(1, math.min(count, n or 1))
+  local key = "pikacry:" .. n
+  local src = cache[key]
+  if src == false then return nil end
+  if not src then
+    local ok, s = pcall(love.audio.newSource,
+      ("assets/generated/audio/pika_cries/cry_%02d.wav"):format(n), "static")
+    if not ok then
+      cache[key] = false
+      return nil
+    end
+    s:setVolume(BASE_VOLUME * volumeScale)
+    cache[key] = s
+    src = s
+  end
+  src:stop()
+  src:play()
+  played("cry", "PIKACHU_PCM_" .. n, "PIKACHU")
+  return src
+end
+
 -- returns the source (nil headless) so callers that block on the cry
 -- like the original's PlayCry -> WaitForSoundToFinish can poll it
 function Sound.playCry(data, species)
   if not love.audio then return nil end
+  -- Yellow voices every Pikachu cry with the PCM clips (the chip cry is
+  -- never used for the species there); clip 1 is the everyday "Pika!"
+  if species == "PIKACHU" then
+    local src = Sound.playPikaCry(data, 1)
+    if src then return src end
+  end
   local cries = data.audio and data.audio.cries
   local def = cries and cries[species]
   if not def then return nil end

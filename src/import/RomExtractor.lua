@@ -163,8 +163,12 @@ function RomExtractor:extractTilesets()
       for pos = offset, offset + 15 do block[#block + 1] = blocksRaw[pos] end
       blocks[#blocks + 1] = block
     end
+    -- Red/Blue keep collision lists in ROM0; Yellow moved them to bank 1
+    -- (pokeyellow Overworld_Coll at 01:4ac2). Pointers in $4000-$7FFF are
+    -- banked; treat ROM0-range pointers as bank 0.
+    local collBank = collisionPointer < 0x4000 and 0 or 1
     local walkable = sorted(self:readTerminated(
-      0, collisionPointer, 0xFF))
+      collBank, collisionPointer, 0xFF))
     local warpPointer = self.rom:word(
       warpPointers.bank, warpPointers.address + (index - 1) * 2)
     local warpTiles = unique(self:readTerminated(
@@ -447,14 +451,26 @@ function RomExtractor:extractSprites()
     local pointer = self.rom:word(pointerTable.bank, address)
     local firstHalf = self.rom:byte(pointerTable.bank, address + 2)
     local bank = self.rom:byte(pointerTable.bank, address + 3)
-    local byteLength = spec.imageWidth * spec.imageHeight / 4
-    local frames = spec.imageHeight / 16
+    local width = spec.imageWidth
+    local height = spec.imageHeight
+    local byteLength = width * height / 4
+    local frames = height / 16
     local expected = firstHalf * (frames >= 6 and 2 or 1)
-    assert(byteLength == expected, constName .. ": sprite length mismatch")
+    if byteLength ~= expected then
+      -- Commercial ROM sheet length wins over pret PNG atlases (Yellow nurse
+      -- PNG is taller than the 12-tile SpriteSheetPointerTable entry).
+      byteLength = expected
+      assert(byteLength * 4 % width == 0,
+        constName .. ": ROM sprite length not tile-aligned")
+      height = byteLength * 4 / width
+      frames = height / 16
+      expected = firstHalf * (frames >= 6 and 2 or 1)
+      assert(byteLength == expected, constName .. ": sprite length mismatch")
+    end
     local base = spec.imageBase
     if not written[base] then
       self:write2bpp(self.rom:bytes(bank, pointer, byteLength),
-        spec.imageWidth, spec.imageHeight,
+        width, height,
         "sprites/" .. base .. ".png", true)
       written[base] = true
     end
@@ -862,20 +878,24 @@ function RomExtractor:extractPalettes()
   local order = self.manifest.paletteOrder
   local paletteTable = self:symbol("SuperPalettes")
   local function scale5(value) return round(value * 255 / 31) end
-  local palettes = {}
-  for index, name in ipairs(order) do
-    local colors = {}
-    for color = 0, 3 do
-      local value = self.rom:word(paletteTable.bank,
-        paletteTable.address + (index - 1) * 8 + color * 2)
-      colors[#colors + 1] = {
-        scale5(bit.band(value, 0x1F)),
-        scale5(bit.band(bit.rshift(value, 5), 0x1F)),
-        scale5(bit.band(bit.rshift(value, 10), 0x1F)),
-      }
+  local function readTable(symbol, names)
+    local out = {}
+    for index, name in ipairs(names) do
+      local colors = {}
+      for color = 0, 3 do
+        local value = self.rom:word(symbol.bank,
+          symbol.address + (index - 1) * 8 + color * 2)
+        colors[#colors + 1] = {
+          scale5(bit.band(value, 0x1F)),
+          scale5(bit.band(bit.rshift(value, 5), 0x1F)),
+          scale5(bit.band(bit.rshift(value, 10), 0x1F)),
+        }
+      end
+      out[name] = colors
     end
-    palettes[name] = colors
+    return out
   end
+  local palettes = readTable(paletteTable, order)
   local monsterTable = self:symbol("MonsterPalettes")
   local monsterPalettes = {}
   for index, species in ipairs(self.manifest.dexOrder) do
@@ -887,6 +907,11 @@ function RomExtractor:extractPalettes()
     source = "ROM:SuperPalettes + MonsterPalettes",
     palettes = palettes, order = order, pokemon = monsterPalettes,
   }
+  -- Yellow (and GBC carts) also carry CGBBasePalettes beside SuperPalettes.
+  if self.symbols["CGBBasePalettes"] then
+    data.cgbBase = readTable(self:symbol("CGBBasePalettes"), order)
+    data.source = data.source .. " + CGBBasePalettes"
+  end
   self:write("palettes", data)
   self:tick("Color palettes", 1, 1)
   return data
@@ -915,6 +940,10 @@ function RomExtractor:extractIcons()
     GRASS = "assets/generated/icons/plant.png",
     SNAKE = "assets/generated/icons/snake.png",
     QUADRUPED = "assets/generated/icons/quadruped.png",
+    -- Yellow's ICON_PIKACHU draws from the overworld PikachuSprite sheet
+    -- (data/icon_pointers.asm mon_icon_header PikachuSprite, 0/12);
+    -- only referenced when the manifest's iconOrder includes it
+    PIKACHU = "assets/generated/sprites/pikachu.png",
   }
   local frames = {
     { "bug", "BugIconFrame1", "BugIconFrame2" },
@@ -1048,7 +1077,9 @@ function RomExtractor:extractPokemon()
   local typeById = self:typesById()
   local names = self:symbol("MonsterNames")
   local baseStats = self:symbol("BaseStats")
-  local mewStats = self:symbol("MewBaseStats")
+  -- Red/Blue keep Mew outside BaseStats (pret pokered MewBaseStats).
+  -- Yellow stores Mew as dex 151 inside BaseStats (pret/pokeyellow).
+  local mewStats = self.symbols["MewBaseStats"] and self:symbol("MewBaseStats")
   local decodedNames = {}
   for index = 1, #speciesOrder do
     decodedNames[index] = self.rom:decodeText(
@@ -1067,7 +1098,7 @@ function RomExtractor:extractPokemon()
       local dex = assert(dexBySpecies[species],
         "missing dex number for " .. species)
       local row
-      if species == "MEW" then
+      if species == "MEW" and mewStats then
         row = self.rom:bytes(mewStats.bank, mewStats.address, 28)
       else
         row = self.rom:bytes(
@@ -1410,6 +1441,142 @@ function RomExtractor:extractText()
   }
 end
 
+function RomExtractor:extractYellowTitleArt()
+  -- pret/pokeyellow engine/movie/title_yellow.asm: the Yellow title is a
+  -- tilemap composition over BOTH tile banks.  LoadYellowTitleScreenGFX
+  -- loads PokemonLogoGraphics into vChars2 (BG ids $00-$7F),
+  -- TitlePikachuBGGraphics into vChars1 (ids $80-$EF),
+  -- TitlePikachuOBGraphics at vChars1 tile $70 (ids $F0-$FC, also the eye
+  -- OAM tiles), and PokemonLogoCornerGraphics at vChars1 tile $7D (ids
+  -- $FD-$FF).  Every tilemap mixes ids from several of those sheets, so a
+  -- single-sheet lookup shows checkerboard garbage where a foreign-bank id
+  -- lands (e.g. blank id $00 = logo tile 0, not Pikachu BG tile 0).
+  if not self.symbols["TitlePikachuBGGraphics"] then return end
+  -- raw sheets, kept for debugging / mod reference
+  self:raw2bpp("TitlePikachuBGGraphics", 128, 32,
+    "title/pikachu_bg.png", { transparent = true })
+  self:raw2bpp("TitlePikachuOBGraphics", 96, 8,
+    "title/pikachu_ob.png", { transparent = true })
+
+  -- Tile counts are the Graphics..GraphicsEnd symbol gaps in pokeyellow.sym.
+  local function sheetTiles(label, count, transparent)
+    local symbol = self:symbol(label)
+    local raw = self.rom:bytes(symbol.bank, symbol.address, count * 16)
+    local tiles = {}
+    for offset = 1, #raw, 16 do
+      local one = {}
+      for i = offset, offset + 15 do one[#one + 1] = raw[i] end
+      tiles[#tiles + 1] = ImageWriter.decode2bpp(one, 8, 8, transparent)
+    end
+    return tiles
+  end
+  local logo = sheetTiles("PokemonLogoGraphics", 115)
+  local corner = sheetTiles("PokemonLogoCornerGraphics", 3)
+  local bg = sheetTiles("TitlePikachuBGGraphics", 64)
+  local ob = sheetTiles("TitlePikachuOBGraphics", 12)
+  local obClear = sheetTiles("TitlePikachuOBGraphics", 12, true)
+  local function tileFor(id)
+    if id < 0x80 then return logo[id + 1] end
+    if id < 0xF0 then return bg[id - 0x80 + 1] end
+    if id < 0xFD then return ob[id - 0xF0 + 1] end
+    return corner[id - 0xFD + 1]
+  end
+  -- OAM-style blit: color-0 pixels stay whatever the target already holds
+  -- (ImageWriter.blit copies alpha-0 pixels wholesale, which would punch
+  -- holes into the face under the eye sprites).
+  local function blitSprite(target, tile, tx, ty, flipX)
+    for y = 0, 7 do
+      for x = 0, 7 do
+        local sx = flipX and 7 - x or x
+        local r, g, b, a = tile:getPixel(sx, y)
+        if a ~= 0 then target:setPixel(tx + x, ty + y, r, g, b, a) end
+      end
+    end
+  end
+  -- cells = { {id, col, row}, ... }; untouched cells stay transparent
+  local function compose(cols, rows, cells)
+    local pose = ImageWriter.blank(cols * 8, rows * 8, 1, 1, 1, 0)
+    for _, cell in ipairs(cells) do
+      local tile = tileFor(cell[1])
+      if tile then ImageWriter.blit(pose, tile, cell[2] * 8, cell[3] * 8) end
+    end
+    return pose
+  end
+  local function mapCells(map, cols, rows)
+    local ids = self.rom:bytes(map.bank, map.address, cols * rows)
+    local cells = {}
+    for index, id in ipairs(ids) do
+      cells[#cells + 1] =
+        { id, (index - 1) % cols, math.floor((index - 1) / cols) }
+    end
+    return cells
+  end
+
+  -- TitleScreen_PlacePokemonLogo: 16x7 box at (2,1).  Yellow's logo sheet
+  -- is deduplicated (unlike Red's sequential rip), so the raw2bpp
+  -- pokemon_logo.png from extractField is scrambled; overwrite it with the
+  -- tilemap composition.  Kept opaque: TitleState clears to white behind it.
+  self:save(compose(16, 7,
+    mapCells(self:symbol("TitleScreenPokemonLogoTilemap"), 16, 7)),
+    "title/pokemon_logo.png")
+
+  -- TitleScreen_PlacePikaSpeechBubble: 7x4 box at (6,4) plus the two tail
+  -- tiles $64/$65 the routine pokes at (9,8) -- one row below the box, over
+  -- blank cells of the Pikachu row.  Composed 7x5 with the tail at (3,4);
+  -- matteColor0 clears the outside-the-balloon whites, the outline protects
+  -- the interior.
+  local bubbleCells = mapCells(
+    self:symbol("TitleScreenPikaBubbleTilemap"), 7, 4)
+  bubbleCells[#bubbleCells + 1] = { 0x64, 3, 4 }
+  bubbleCells[#bubbleCells + 1] = { 0x65, 4, 4 }
+  self:save(ImageWriter.matteColor0(compose(7, 5, bubbleCells)),
+    "title/pika_bubble.png")
+
+  -- TitleScreen_PlacePikachu: 12x9 box at (4,8) plus the right-ear edge
+  -- tiles it pokes down column 16 (rows 10-13) -- composed 13x9 with those
+  -- at relative column 12, rows 2-5.  The open eyes are OAM
+  -- (TitleScreenPikachuEyesOAMData, copied at place time): OB tiles 0-3 at
+  -- screen (56,80)/(88,80) blocks, the left eye x-flipped (attr $22); baked
+  -- into the composition relative to the box origin px(32,64).
+  local pikaCells = mapCells(self:symbol("TitleScreenPikachuTilemap"), 12, 9)
+  pikaCells[#pikaCells + 1] = { 0x96, 12, 2 }
+  pikaCells[#pikaCells + 1] = { 0x9d, 12, 3 }
+  pikaCells[#pikaCells + 1] = { 0xa7, 12, 4 }
+  pikaCells[#pikaCells + 1] = { 0xb1, 12, 5 }
+  local pikachu = ImageWriter.matteColor0(compose(13, 9, pikaCells))
+  -- DoTitleScreenFunction's blink rewrites the eye OAM tile ids with
+  -- `and $f3 / or e` (e = 0 open / 4 half / 8 closed), so the OB sheet
+  -- holds three 4-tile eye sets.  Bake the open set into pikachu.png and
+  -- save half/closed as standalone overlays for TitleState's blink.
+  local EYE_LAYOUT = {
+    { 2, 24, 16, true }, { 1, 32, 16, true },
+    { 4, 24, 24, true }, { 3, 32, 24, true },
+    { 1, 56, 16 }, { 2, 64, 16 },
+    { 3, 56, 24 }, { 4, 64, 24 },
+  }
+  -- Blink overlays for the (24,16)-(71,31) eye band: the BG face is
+  -- eyeless (the eyes are OAM), so each overlay = the blank-face crop
+  -- with the half (+4) / closed (+8) tile set composited color-0
+  -- transparent -- exactly what the hardware shows mid-blink.
+  local overlays = {}
+  for suffix, base in pairs({ eyes_half = 4, eyes_closed = 8 }) do
+    local overlay = ImageWriter.blank(48, 16, 1, 1, 1, 0)
+    ImageWriter.blit(overlay, pikachu, 0, 0, 24, 16, 48, 16)
+    for _, e in ipairs(EYE_LAYOUT) do
+      blitSprite(overlay, obClear[base + e[1]], e[2] - 24, e[3] - 16, e[4])
+    end
+    overlays[suffix] = overlay
+  end
+  -- open eyes bake into pikachu.png AFTER the blank-face crops
+  for _, e in ipairs(EYE_LAYOUT) do
+    blitSprite(pikachu, obClear[e[1]], e[2], e[3], e[4])
+  end
+  self:save(pikachu, "title/pikachu.png")
+  for suffix, overlay in pairs(overlays) do
+    self:save(overlay, "title/" .. suffix .. ".png")
+  end
+end
+
 function RomExtractor:raw2bpp(label, width, height, relative, options)
   options = options or {}
   local expected = width * height / 4
@@ -1454,6 +1621,8 @@ function RomExtractor:extractField()
     "title/copyright.png"); tick()
   self:raw2bpp("GameFreakLogoGraphics", 72, 8,
     "title/gamefreak_inc.png"); tick()
+  -- Yellow fixed Pikachu title art (no-op on Red/Blue manifests).
+  self:extractYellowTitleArt(); tick()
 
   local fallingStar = self:raw2bpp(
     "FallingStar", 8, 8, "intro/falling_star.png",
@@ -1502,35 +1671,71 @@ function RomExtractor:extractField()
   end
   self:save(star, "intro/big_star.png"); tick()
 
-  local gengar = self:symbol("FightIntroBackMon")
-  local gengarRaw = self.rom:bytes(
-    gengar.bank, gengar.address, 96 * 16)
-  local gengarTiles = {}
-  for offset = 1, #gengarRaw, 16 do
-    local raw = {}
-    for index = offset, offset + 15 do raw[#raw + 1] = gengarRaw[index] end
-    gengarTiles[#gengarTiles + 1] = ImageWriter.decode2bpp(raw, 8, 8)
-  end
-  for number = 1, 3 do
-    local tilemap = self:symbol("GengarIntroTiles" .. number)
-    local tileIds = self.rom:bytes(tilemap.bank, tilemap.address, 49)
-    local pose = ImageWriter.blank(56, 56, 0, 0, 0, 0)
-    for index, tileId in ipairs(tileIds) do
-      ImageWriter.blit(pose, gengarTiles[tileId + 1],
-        (index - 1) % 7 * 8, math.floor((index - 1) / 7) * 8)
+  -- Yellow has no FightIntro Gengar/Nidorino fight (pret/pokeyellow
+  -- engine/movie/intro_yellow.asm); write blank placeholders so Title/
+  -- Intro still find the expected paths. Red/Blue keep the tilemap rip.
+  if self.symbols["FightIntroBackMon"] then
+    local gengar = self:symbol("FightIntroBackMon")
+    local gengarRaw = self.rom:bytes(
+      gengar.bank, gengar.address, 96 * 16)
+    local gengarTiles = {}
+    for offset = 1, #gengarRaw, 16 do
+      local raw = {}
+      for index = offset, offset + 15 do raw[#raw + 1] = gengarRaw[index] end
+      gengarTiles[#gengarTiles + 1] = ImageWriter.decode2bpp(raw, 8, 8)
     end
-    pose = ImageWriter.matteColor0(pose)
-    self:save(pose, "intro/gengar_" .. number .. ".png"); tick()
+    for number = 1, 3 do
+      local tilemap = self:symbol("GengarIntroTiles" .. number)
+      local tileIds = self.rom:bytes(tilemap.bank, tilemap.address, 49)
+      local pose = ImageWriter.blank(56, 56, 0, 0, 0, 0)
+      for index, tileId in ipairs(tileIds) do
+        ImageWriter.blit(pose, gengarTiles[tileId + 1],
+          (index - 1) % 7 * 8, math.floor((index - 1) / 7) * 8)
+      end
+      pose = ImageWriter.matteColor0(pose)
+      self:save(pose, "intro/gengar_" .. number .. ".png"); tick()
+    end
+  else
+    for number = 1, 3 do
+      self:save(ImageWriter.blank(56, 56, 0, 0, 0, 0),
+        "intro/gengar_" .. number .. ".png"); tick()
+    end
   end
 
-  for number, label in ipairs({
-    "FightIntroFrontMon", "FightIntroFrontMon2", "FightIntroFrontMon3",
-  }) do
-    self:raw2bpp(label, 48, 48,
-      "intro/red_nidorino_" .. number .. ".png",
-      { transparent = true, columns = true })
-    tick()
+  if self.symbols["FightIntroFrontMon"] then
+    for number, label in ipairs({
+      "FightIntroFrontMon", "FightIntroFrontMon2", "FightIntroFrontMon3",
+    }) do
+      self:raw2bpp(label, 48, 48,
+        "intro/red_nidorino_" .. number .. ".png",
+        { transparent = true, columns = true })
+      tick()
+    end
+  else
+    for number = 1, 3 do
+      self:save(ImageWriter.blank(48, 48, 1, 1, 1, 0),
+        "intro/red_nidorino_" .. number .. ".png"); tick()
+    end
   end
+
+  -- Optional Yellow-only intro atlas (pret/pokeyellow gfx/yellow_intro.asm).
+  if self.symbols["YellowIntroGraphics1"] then
+    self:raw2bpp("YellowIntroGraphics1", 128, 64,
+      "intro/yellow_intro_1.png")
+  end
+  if self.symbols["YellowIntroGraphics2"] then
+    -- atlas2 doubles as the intro's OBJ tile bank (vChars0); OBJ color 0
+    -- is hardware-transparent, and the BG draws it over a white clear so
+    -- BG cells lose nothing
+    self:raw2bpp("YellowIntroGraphics2", 128, 128,
+      "intro/yellow_intro_2.png", { transparent = true })
+  end
+  -- Yellow intro clouds (intro_yellow.asm YellowIntroCloudGFX): 8 tiles,
+  -- two 4-tile animation frames -- saved 32x16, one frame per row.
+  if self.symbols["YellowIntroCloudGFX"] then
+    self:raw2bpp("YellowIntroCloudGFX", 32, 16, "intro/clouds.png")
+  end
+
   for number = 1, 2 do
     self:writeCompressedPic(
       "ShrinkPic" .. number, "intro/shrink" .. number .. ".png")
@@ -1563,16 +1768,53 @@ function RomExtractor:extractField()
   end
   self:save(symbolSheet, "slots/symbols.png"); tick()
 
-  local emotes = ImageWriter.blank(48, 16, 1, 1, 1, 0)
-  for index, label in ipairs({
-    "ShockEmote", "QuestionEmote", "HappyEmote",
-  }) do
+  -- Emote sheet layout comes from manifest.field.emotionBubbles so the
+  -- versions can differ: Red ships the three shared bubbles, Yellow adds
+  -- the five Pikachu-only ones (emotion_bubbles.asm Skull/Heart/Bolt/
+  -- Zzz/FishEmote, used by the PikachuEmotionTable reactions).
+  local EMOTE_SYMBOLS = {
+    EXCLAMATION_BUBBLE = "ShockEmote", QUESTION_BUBBLE = "QuestionEmote",
+    SMILE_BUBBLE = "HappyEmote", SKULL_BUBBLE = "SkullEmote",
+    HEART_BUBBLE = "HeartEmote", BOLT_BUBBLE = "BoltEmote",
+    ZZZ_BUBBLE = "ZzzEmote", FISH_BUBBLE = "FishEmote",
+  }
+  local bubbleDefs = self.manifest.field.emotionBubbles
+    and self.manifest.field.emotionBubbles.bubbles
+  local emoteLabels = {}
+  for _, b in ipairs(bubbleDefs or {}) do
+    emoteLabels[#emoteLabels + 1] = EMOTE_SYMBOLS[b.name]
+  end
+  if #emoteLabels == 0 then
+    emoteLabels = { "ShockEmote", "QuestionEmote", "HappyEmote" }
+  end
+  local emotes = ImageWriter.blank(#emoteLabels * 16, 16, 1, 1, 1, 0)
+  for index, label in ipairs(emoteLabels) do
     local symbol = self:symbol(label)
     local image = ImageWriter.decode2bpp(
       self.rom:bytes(symbol.bank, symbol.address, 64), 16, 16, true)
     ImageWriter.blit(emotes, image, (index - 1) * 16, 0)
   end
   self:save(emotes, "emotes.png"); tick()
+
+  -- Yellow-only: the Surfing Pikachu minigame sheets
+  -- (gfx/surfing_pikachu.asm) at pret's canvas widths, so
+  -- src/ui/SurfingMinigame.lua's quads can be read off the source pngs.
+  -- 1a is the BG set (water/beach/score tiles, opaque); 1b the OAM pose
+  -- sheet and 1c the intro set (both color-0 transparent).
+  for _, spec in ipairs({
+    { "SurfingPikachu1Graphics1", 65, 40, false, "minigame/surf_1a.png" },
+    { "SurfingPikachu1Graphics2", 256, 128, true, "minigame/surf_1b.png" },
+    { "SurfingPikachu1Graphics3", 144, 96, true, "minigame/surf_1c.png" },
+  }) do
+    if self.symbols[spec[1]] then
+      local symbol = self:symbol(spec[1])
+      local tilesPerRow = spec[3] / 8
+      local image = ImageWriter.decode2bpp(
+        self.rom:bytes(symbol.bank, symbol.address, spec[2] * 16),
+        spec[3], spec[2] / tilesPerRow * 8, spec[4])
+      self:save(image, spec[5])
+    end
+  end
 
   self:raw1bpp("LedgeHoppingShadow", 8, 8,
     "fx/shadow.png", true); tick()
@@ -1664,7 +1906,9 @@ end
 function RomExtractor:extractAudio()
   self:beginStage("Sound programs")
   local metadata = copy(self.manifest.audio)
-  local bankOrder = { 2, 8, 31 }
+  -- Yellow adds a fourth music bank ($20: Jessie & James, Surfing
+  -- Pikachu, GB Printer); the manifest names the pack when it needs it.
+  local bankOrder = metadata.programBanks or { 2, 8, 31 }
   local chunks = {}
   for index, bank in ipairs(bankOrder) do
     local first = Rom.offset(bank, 0x4000) + 1
@@ -1683,6 +1927,7 @@ function RomExtractor:extractAudio()
   for name, header in pairs(metadata.musicHeaders) do
     songs[name] = header
   end
+  metadata.pikaCries = self:extractPikachuCries()
   local cries = {}
   local cryData = metadata.cryData
   for index, species in ipairs(self.manifest.constants.speciesOrder) do
@@ -1707,6 +1952,57 @@ function RomExtractor:extractAudio()
   self:write("audio", metadata)
   self:tick("Sound programs", #bankOrder + 2, #bankOrder + 2)
   return metadata
+end
+
+-- Yellow's voiced Pikachu clips (audio/pikachu_cries_pointers.asm
+-- PikachuCriesPointerTable, 42 `dba` rows; each clip is `dw length` then
+-- 1-bit PCM, MSB first -- home/pikachu_cries.asm PlayPikachuPCM toggles
+-- rAUD3LEVEL per bit at roughly 190 CPU cycles a sample).  Decoded to
+-- plain 8-bit mono WAVs; returns the clip count for data.audio.pikaCries,
+-- or nil when the manifest has no pointer table (Red/Blue).
+function RomExtractor:extractPikachuCries()
+  if not self.symbols["PikachuCriesPointerTable"] then return nil end
+  local NUM = 42   -- NUM_PIKA_CRIES
+  local RATE = 22050 -- ~4.19 MHz / ~190 cycles per sample
+  -- byte -> 8 samples, MSB first (LoadNextSoundClipSample: `and $80`)
+  local lut = {}
+  for byte = 0, 255 do
+    local out = {}
+    for bit = 7, 0, -1 do
+      local on = math.floor(byte / 2 ^ bit) % 2 == 1
+      out[#out + 1] = string.char(on and 0xE0 or 0x20)
+    end
+    lut[byte] = table.concat(out)
+  end
+  local function u16(v)
+    return string.char(v % 256, math.floor(v / 256) % 256)
+  end
+  local function u32(v)
+    return string.char(v % 256, math.floor(v / 256) % 256,
+      math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  end
+  local CacheFs = require("src.import.CacheFs")
+  local pointers = self:symbol("PikachuCriesPointerTable")
+  for index = 0, NUM - 1 do
+    local row = self.rom:bytes(pointers.bank, pointers.address + index * 3, 3)
+    local bank, address = row[1], row[2] + row[3] * 256
+    local header = self.rom:bytes(bank, address, 2)
+    local length = header[1] + header[2] * 256
+    local raw = self.rom:bytes(bank, address + 2, length)
+    local samples = {}
+    for i, byte in ipairs(raw) do samples[i] = lut[byte] end
+    local pcm = table.concat(samples)
+    local wav = "RIFF" .. u32(36 + #pcm) .. "WAVEfmt " .. u32(16)
+      .. u16(1) .. u16(1) .. u32(RATE) .. u32(RATE) .. u16(1) .. u16(8)
+      .. "data" .. u32(#pcm) .. pcm
+    local ok, err = CacheFs.write(
+      ("assets/generated/audio/pika_cries/cry_%02d.wav"):format(index + 1),
+      wav)
+    if not ok then
+      error("could not write pika cry " .. (index + 1) .. ": " .. tostring(err))
+    end
+  end
+  return NUM
 end
 
 function RomExtractor:run()

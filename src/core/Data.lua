@@ -85,6 +85,13 @@ function Data:seedDefaults()
   for key, value in pairs(BOOT_DEFAULTS) do
     if boot[key] == nil then boot[key] = copy(value) end
   end
+  -- Yellow boots its own attract movie (engine/movie/intro_yellow.asm);
+  -- only the un-overridden default flips, so a total conversion that set
+  -- field.boot.screens.splash keeps its choice on any version.
+  if boot.screens.splash == BOOT_DEFAULTS.screens.splash
+     and require("src.core.GameVersion").isYellow() then
+    boot.screens.splash = "YellowIntro"
+  end
   -- the naming screen presets the importer already extracts but nothing
   -- ever read (field.presetNames)
   if boot.namePresets == nil then

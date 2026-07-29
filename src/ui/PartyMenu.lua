@@ -104,6 +104,7 @@ PartyMenu.iconFrames = {
   FAIRY     = { rest = 3, alt = 0 }, -- FairySprite tile 12 <-> tile 0
   BIRD      = { rest = 3, alt = 0 }, -- BirdSprite tile 12 <-> tile 0
   WATER     = { rest = 0, alt = 3 }, -- SeelSprite tile 0 <-> tile 12
+  PIKACHU   = { rest = 0, alt = 3 }, -- Yellow: PikachuSprite tile 0 <-> 12
 }
 
 -- Which 16x16 frame of `name`'s sheet to draw; `ih` (sheet pixel

@@ -1,12 +1,13 @@
--- Which Gen-1 game this process is running: Red (the historical default) or
--- Blue.  One source of truth for everything that differs by version -- the
--- accepted ROM hash, the import manifest, where the extracted cache lives,
--- and the save-file suffix -- so the importer, cache mount, SaveData, title
--- screen and palette all agree.
+-- Which Gen-1 game this process is running: Red (the historical default),
+-- Blue, or Yellow.  One source of truth for everything that differs by
+-- version -- the accepted ROM hash, the import manifest, where the
+-- extracted cache lives, and the save-file suffix -- so the importer,
+-- cache mount, SaveData, title screen and palette all agree.
 --
 -- Red keeps every un-suffixed path it always used (save.lua, the root cache),
 -- so existing installs are untouched; Blue is namespaced under blue/ and
--- _blue so both can be imported and played side by side.
+-- _blue, Yellow under yellow/ and _yellow, so all three can be imported and
+-- played side by side.
 --
 -- Zero requires, so it loads during love.conf and under plain Lua for tools
 -- and tests.  The active version is a process-global set once at boot from
@@ -19,6 +20,7 @@ GameVersion.VERSIONS = {
     id = "red",
     label = "Red",
     displayName = "Pokemon Red",
+    launcherName = "Red",       -- game-panel header in the launcher
     sha1 = "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
     manifest = "tools/rom_manifest.json",
     cachePrefix = "",       -- Red owns the cache root (backwards compatible)
@@ -28,15 +30,26 @@ GameVersion.VERSIONS = {
     id = "blue",
     label = "Blue",
     displayName = "Pokemon Blue",
+    launcherName = "Blue",
     sha1 = "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
     manifest = "tools/rom_manifest_blue.json",
     cachePrefix = "blue/",  -- blue/data/generated, blue/assets/generated
     saveSuffix = "_blue",   -- save_blue.lua / .bak / .tmp
   },
+  yellow = {
+    id = "yellow",
+    label = "Yellow",
+    displayName = "Pokemon Yellow",
+    launcherName = "Yellow (alpha)",
+    sha1 = "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1",
+    manifest = "tools/rom_manifest_yellow.json",
+    cachePrefix = "yellow/",  -- yellow/data/generated, yellow/assets/generated
+    saveSuffix = "_yellow",   -- save_yellow.lua / .bak / .tmp
+  },
 }
 
--- Launcher column order (Yellow is still a placeholder, handled by the UI).
-GameVersion.ORDER = { "red", "blue" }
+-- Launcher column order.
+GameVersion.ORDER = { "red", "blue", "yellow" }
 
 GameVersion.current = "red"
 
@@ -51,6 +64,10 @@ end
 
 function GameVersion.isBlue()
   return GameVersion.current == "blue"
+end
+
+function GameVersion.isYellow()
+  return GameVersion.current == "yellow"
 end
 
 -- Metadata for a version id, defaulting to the active one.

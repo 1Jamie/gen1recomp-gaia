@@ -7,19 +7,19 @@
 -- CheckFightingMapTrainers/TalkToTrainer via the existing trainer
 -- system, and the item pickups carry no talk text of their own here.
 --
--- TEXT_SSANNE2FROOMS_GENTLEMAN3 also opens the POKéDEX entry for
--- SNORLAX after the text box (DisplayPokedex in the original), which
--- has no equivalent talk-script hook in this port (DexEntryMenu has
--- no done-callback the way other pushed UI states do) -- only the
--- flavor line is ported here.
+-- TEXT_SSANNE2FROOMS_GENTLEMAN3 opens SNORLAX's POKéDEX entry after its
+-- text box, like DisplayPokedex in the original. The preview marks it seen
+-- but does not mark it owned.
 return {
   SS_ANNE_2F_ROOMS = {
     talk = {
-      -- SSAnne2FRoomsGentleman3Text: PrintText(_SSAnne2FRoomsGentleman3Text)
-      -- (then DisplayPokedex SNORLAX -- not ported, see note above)
+      -- SSAnne2FRoomsGentleman3Text: PrintText(_SSAnne2FRoomsGentleman3Text),
+      -- then DisplayPokedex SNORLAX.
       TEXT_SSANNE2FROOMS_GENTLEMAN3 = {
         { "face_player" },
         { "show_text", "_SSAnne2FRoomsGentleman3Text" },
+        { "mark_seen", "SNORLAX" },
+        { "push_screen", "DexEntryMenu", "SNORLAX" },
       },
 
       -- SSAnne2FRoomsGentleman4Text: PrintText(_SSAnne2FRoomsGentleman4Text)

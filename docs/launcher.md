@@ -202,3 +202,64 @@ column, slot card below Play, when the window is too narrow for both
 (wheel, or drag on touch/desktop) clamped to their own content extent,
 recomputed every draw. The tab bar labels only the active chip so it stays
 narrow-safe, and content caps out at `~1440 * s` wide, centered.
+
+The desktop window has a floor of 480x360 (`conf.lua` `minwidth`/`minheight`),
+under which the cards stop being readable at all. Mobile ignores it: those
+windows are fullscreen.
+
+### Page scroll
+
+Two columns fit any window the launcher is likely to open in; one stacked
+column does not. On a phone-shaped window the ROM card, SAVE FILES, Play and
+SAVE SLOT together run past the bottom, and a footer pinned to the window
+bottom painted over them with the overflow unreachable.
+
+So the whole column under the tab bar -- panel, updater banner, footer --
+scrolls as one page whenever it is taller than the room below the tab bar:
+
+- The strip, logo and tab bar stay pinned, so navigation is always on screen.
+  Everything else draws at `contentTop - pageScroll` inside a scissor, and the
+  footer is laid out downward from `footerTop` right after the content instead
+  of upward from the window bottom.
+- `RomImporter.pageScrollFor(naturalH, viewportH, scroll)` is the whole
+  decision, pure and pinned by `tests/engine/launcher_page_scroll.lua`. A
+  window that grows back drags the offset down with it, so the page can never
+  stay parked past its own end.
+- The panels report their natural height as they draw (`_drawGamePanel` and
+  `_drawModsPanel` return it), so the decision reads the previous frame's
+  measurement -- the same one-frame settle the two lists already rely on.
+- **One scroll axis at a time.** While the page scrolls, the panels draw
+  `paged`: the slot and mod lists take their natural height, keep no inner
+  scroll region and report a max of 0, so the wheel, the right stick and a drag
+  all move the page and never fight a list for the same gesture. Two-column
+  layouts do not overflow, `paged` stays false, and every one of these behaves
+  exactly as it did before.
+- Hit testing follows the clip: `inside` (clicks) and `_ptIn` (hover) reject a
+  rect that scrolled out of the viewport, so a control that slid under the tab
+  bar cannot be clicked through it. Tab chips carry `pinned = true` and are
+  exempt. `pageScroll` resets on a tab change, each tab being a different
+  length.
+- A press on empty background pans the page, resolved in `_updateSlotDrag` like
+  every other drag here.
+
+### Dragging on Android
+
+The launcher is handed no move events on any platform: `main.lua` forwards
+neither `touchmoved` nor `mousemoved` while it is up, which is why every drag
+here is resolved by polling inside `draw` instead. Desktop polls the mouse;
+Android used to poll nothing at all ("no reliable pointer polling" meant its
+mouse emulation), so it had no scroll gesture whatsoever -- fine while every
+scroll region was an inner list with a wheel alternative, useless the moment
+the page itself became the thing that scrolls, since a phone is exactly where
+it overflows.
+
+`love.touch` is pollable, so `_pointerHold` reads the first active touch there
+and hands `_updateSlotDrag` the same (held, y) pair the mouse gives on desktop.
+Consequences:
+
+- Slot rows and mod toggles ARM on press and commit on release on Android too,
+  matching desktop, so a swipe that starts on a card scrolls instead of
+  selecting the row it started on.
+- `touchPollable` (set once in `new`) gates all of it. Where `love.touch` is
+  missing, every Android path is exactly what it was: act on press, never arm,
+  no drag.

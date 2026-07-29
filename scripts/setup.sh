@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build game data from a user-provided Pokemon Red ROM and install LÖVE.
+# Build game data from a user-provided Pokemon Red/Blue/Yellow ROM and install LÖVE.
 #
 # Usage:
 #   scripts/setup.sh --rom /path/to/pokemon-red.gb
+#   scripts/setup.sh --rom /path/to/pokemon-yellow.gbc
 #   ROM_PATH=/path/to/pokemon-red.gb scripts/setup.sh
 #
-# With no explicit path, the first *.gb file in the project root is used.
+# With no explicit path, the first *.gb / *.gbc file in the project root is used.
 
 set -euo pipefail
 
@@ -34,15 +35,17 @@ command -v python3 >/dev/null 2>&1 \
   || fail "Python 3 is required to decode the ROM"
 
 if [ -z "$ROM" ]; then
-  for candidate in "$ROOT"/*.gb; do
+  shopt -s nullglob
+  for candidate in "$ROOT"/*.gb "$ROOT"/*.gbc; do
     if [ -f "$candidate" ]; then
       ROM="$candidate"
       break
     fi
   done
+  shopt -u nullglob
 fi
 [ -n "$ROM" ] && [ -f "$ROM" ] \
-  || fail "Pokemon Red ROM not found. Put your .gb file in $ROOT or pass --rom /path/to/file.gb"
+  || fail "Pokemon ROM not found. Put a .gb or .gbc in $ROOT or pass --rom /path/to/file"
 
 if [ ! -x "$VENV/bin/python3" ]; then
   say "creating Python environment"

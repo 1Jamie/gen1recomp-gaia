@@ -183,6 +183,12 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
       return "failed", { Strings("OAK: %s!\nThis isn't the\ntime to use that!", save.player.name) }
     end
     local b = battle.player
+    -- PIKAHAPPY_USEDXITEM (item_effects.asm ItemUseXAccuracy /
+    -- GuardSpec / DireHit / XStat) on the active companion
+    if itemId ~= "POKE_DOLL" then
+      require("src.world.PikachuFollower")
+        .modifyHappiness(save, "USEDXITEM", b and b.mon)
+    end
     if itemId == "X_ACCURACY" then
       -- ItemUseXAccuracy sets USING_X_ACCURACY: moves never miss
       -- (not an accuracy stage)
@@ -251,6 +257,18 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
       return "failed", { Strings("It won't have\nany effect.") }
     end
     return "consumed", { Strings("%s's PP\nwas restored!", monName(data, target)) }
+  end
+
+  -- PIKAHAPPY_USEDITEM (item_effects.asm ItemUseMedicine, item id up to
+  -- CALCIUM): fires once a medicine has a target, before the effect
+  -- resolves -- potions, status cures, revives and vitamins all count,
+  -- RARE_CANDY does not (its success is a LEVELUP bump instead)
+  if target and (HEAL_AMOUNT[itemId] or STATUS_HEAL[itemId]
+                 or itemId == "MAX_POTION" or itemId == "FULL_RESTORE"
+                 or itemId == "REVIVE" or itemId == "MAX_REVIVE"
+                 or VITAMINS[itemId]) then
+    require("src.world.PikachuFollower")
+      .modifyHappiness(save, "USEDITEM", target)
   end
 
   local heal = HEAL_AMOUNT[itemId]
@@ -323,12 +341,29 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     local old = target.stats
     target.stats = Stats.calc(speciesDef, target.level, target.dvs, target.statExp)
     target.hp = math.min(target.stats.hp, target.hp + (target.stats.hp - old.hp))
+    -- PIKAHAPPY_LEVELUP on a candy level (item_effects.asm:1540)
+    require("src.world.PikachuFollower")
+      .modifyHappiness(save, "LEVELUP", target)
     return "consumed", { Strings("%s grew\nto level %d!", monName(data, target), target.level) },
            { leveledTo = target.level }
   end
 
   if STONES[itemId] then
     if not target then return "failed", { Strings("It won't have\nany effect.") } end
+    -- Yellow's starter Pikachu never evolves: ItemUseEvoStone runs
+    -- IsThisPartyMonStarterPikachu (OT identity match) before
+    -- TryEvolvingMon and bails with the voiced cry + RefusingText.
+    -- The stone is NOT consumed on the refuse path.
+    if target.species == "PIKACHU"
+       and require("src.core.GameVersion").isYellow()
+       and target.ot == save.player.name
+       and target.otId == save.player.id then
+      require("src.core.Sound").playCry(data, "PIKACHU")
+      local raw = data.text and data.text._RefusingText
+      local line = raw and raw:gsub("{RAM:[^}]*}", monName(data, target))
+        or Strings("%s\nis refusing!", monName(data, target))
+      return "failed", { line }
+    end
     local speciesDef = data.pokemon[target.species]
     for _, evo in ipairs(speciesDef.evolutions) do
       if evo.method == "ITEM" and evo.item == itemId then

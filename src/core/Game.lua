@@ -90,10 +90,13 @@ function Game:load()
                     self.save.player.x, self.save.player.y, self.save.player.facing)
   else
     local titleState = self:makeTitleState()
-    -- the copyright splash + Nidorino-vs-Gengar attract movie plays
-    -- before the title (engine/movie/splash.asm + intro.asm); the ids come
-    -- from field.boot.screens so a total conversion owns the whole boot
-    Screens.push(self, bootScreens(self).splash or "IntroMovie", function()
+    -- the copyright splash + attract movie plays before the title
+    -- (engine/movie/splash.asm + intro.asm; Yellow swaps in its own
+    -- 18-scene movie, engine/movie/intro_yellow.asm); the ids come from
+    -- field.boot.screens so a total conversion owns the whole boot
+    local splash = require("src.core.GameVersion").isYellow()
+      and "YellowIntro" or "IntroMovie"
+    Screens.push(self, bootScreens(self).splash or splash, function()
       StateStack:push(titleState)
     end)
   end

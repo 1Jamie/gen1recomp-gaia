@@ -32,11 +32,11 @@ local CacheFs = {}
 local SEP = package.config:sub(1, 1)
 
 -- Cache-relative paths are prefixed with this before every read/write, so a
--- Blue import lands in blue/ (see src.core.GameVersion) while a Red import
--- keeps the historical root.  The launcher sets it per import / per readiness
--- check; it stays "" for Red.  Runtime *reads* (require / newImage) do NOT go
--- through here -- CacheFs.mountVersion overlays the active version's subtree
--- onto the un-prefixed paths instead.
+-- Blue/Yellow import lands under its GameVersion.cachePrefix (blue/, yellow/)
+-- while a Red import keeps the historical root.  The launcher sets it per
+-- import / per readiness check; it stays "" for Red.  Runtime *reads*
+-- (require / newImage) do NOT go through here -- CacheFs.mountVersion overlays
+-- the active version's subtree onto the un-prefixed paths instead.
 CacheFs.prefix = ""
 
 local function withPrefix(rel)
@@ -126,9 +126,9 @@ local function resolveMount()
     if okl and lib then
       local oks, fn = pcall(function() return lib.PHYSFS_mount end)
       if oks and fn then
-        physfsMountFn = function(d, append)
+        physfsMountFn = function(d, mountPoint, append)
           if append == nil then append = true end
-          local okr, ret = pcall(fn, d, "", append and 1 or 0)
+          local okr, ret = pcall(fn, d, mountPoint or "", append and 1 or 0)
           return okr and ret ~= 0
         end
         break
@@ -145,7 +145,7 @@ end
 local function mountReadable(dir, append)
   local fn = resolveMount()
   if not fn then return false end
-  return fn(dir, append)
+  return fn(dir, "", append)
 end
 
 -- PHYSFS_unmount, resolved the same way PHYSFS_mount is.  Only
@@ -330,16 +330,16 @@ end
 -- Overlay the active version's extracted cache onto the un-prefixed read
 -- paths, so require("data.generated.*") and love.graphics.newImage(
 -- "assets/generated/*") resolve to that version's files.  Red lives at the
--- cache root and needs nothing; Blue lives under blue/ and is *prepended* so
--- it wins over any Red copy at the root and over the game source.  Called
--- once at boot, before Game:load (main.lua).  Returns true when nothing was
--- needed or the mount succeeded.
+-- cache root and needs nothing; non-Red versions (blue/, yellow/, …) are
+-- *prepended* so they win over any Red copy at the root and over the game
+-- source.  Called once at boot, before Game:load (main.lua).  Returns true
+-- when nothing was needed or the mount succeeded.
 function CacheFs.mountVersion(version)
   local prefix = require("src.core.GameVersion").cachePrefix(version)
   if prefix == "" then return true end            -- Red: already at the root
-  local sub = prefix:gsub("/+$", "")              -- "blue/" -> "blue"
+  local sub = prefix:gsub("/+$", "")              -- "blue/" / "yellow/" -> bare dir
   -- The cache root is the portable game folder when active, else LÖVE's OS
-  -- save directory (where love.filesystem wrote blue/...).
+  -- save directory (where love.filesystem wrote blue/... or yellow/...).
   local base = CacheFs.root()
   if not base and love.filesystem.getSaveDirectory then
     base = love.filesystem.getSaveDirectory()
@@ -355,12 +355,12 @@ function CacheFs.mountVersion(version)
 end
 
 -- Undo mountVersion.  A process normally mounts exactly one version and then
--- boots it, but the launcher can open the save editor on a Blue save, close
--- it, and press Play on Red: with blue/ still prepended, Red's
--- require("data.generated.*") and its generated art would silently resolve to
--- Blue's files.  Callers must also drop the generated modules from
--- package.loaded (src.core.Data:unloadGenerated) -- unmounting alone only
--- fixes the read path, not what require already cached.
+-- boots it, but the launcher can open the save editor on a Blue/Yellow save,
+-- close it, and press Play on Red: with that version's subtree still
+-- prepended, Red's require("data.generated.*") and its generated art would
+-- silently resolve to the other game's files.  Callers must also drop the
+-- generated modules from package.loaded (src.core.Data:unloadGenerated) --
+-- unmounting alone only fixes the read path, not what require already cached.
 --
 -- Returns true when nothing was mounted or the unmount took.  Red is a no-op
 -- because its cache lives at the root and was never overlaid.
@@ -383,6 +383,33 @@ function CacheFs.unmountVersion(version)
     done = love.filesystem.unmount(sub) or done
   end
   return done
+end
+
+-- Mount `dir` at `mountPoint` for the length of `fn()`, then take it back off
+-- the read path and hand back whatever fn returned.
+--
+-- Every other mount here is permanent and lands at the physfs root: this one
+-- exists to *look* at a folder the game has deliberately not mounted, which
+-- is a different job.  The mods panel uses it to read a mods/ folder sitting
+-- beside the executable of a non-portable install (LauncherMods.strays).
+-- Because it unmounts again, and because a non-empty mountPoint keeps the
+-- tree in its own corner of the namespace while it is up, a folder inspected
+-- this way can never shadow a game file or change what the running game
+-- resolves -- which is what makes it safe to point at a folder whose contents
+-- nobody has validated.
+--
+-- Returns nil when the mount is unavailable (no ffi, no PHYSFS symbol, or the
+-- mount was refused), which callers must treat as "could not look", not as
+-- "nothing there".  An error inside fn still unmounts before it propagates.
+function CacheFs.withMounted(dir, mountPoint, fn)
+  if not dir or dir == "" then return nil end
+  local mount, unmount = resolveMount(), resolveUnmount()
+  if not (mount and unmount) then return nil end
+  if not mount(dir, mountPoint, true) then return nil end
+  local ok, res = pcall(fn)
+  unmount(dir)
+  if not ok then error(res, 0) end
+  return res
 end
 
 return CacheFs

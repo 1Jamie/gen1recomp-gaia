@@ -343,6 +343,9 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   self.pendingSeamMusic = nil
   self.entities = { self.player }
   for _, n in ipairs(self.npcs) do table.insert(self.entities, n) end
+  -- Yellow's companion Pikachu trails the player (never in
+  -- self.entities: it does not block movement, pikachu_follow.asm)
+  require("src.world.PikachuFollower").onMapEntered(Game, self)
 
   -- opts.keepMusic: the Oak-escort warp keeps MUSIC_MEET_PROF_OAK
   -- playing into the lab (BIT_NO_MAP_MUSIC in wStatusFlags7);
@@ -870,6 +873,7 @@ function OverworldState:update(dt)
   for _, npc in ipairs(self.npcs) do
     npc:update(self.map, self.entities)
   end
+  require("src.world.PikachuFollower").update(Game, self)
 
   for _, g in ipairs(self.ghosts) do
     g.npc:update(g.map, g.peers)
@@ -1494,7 +1498,12 @@ function OverworldState:interact()
   end
   if npc then
     if not npc.moving then
-      self:talkTo(npc)
+      if npc.pikachuFollower then
+        -- the companion answers directly (TalkToPikachu), no map text id
+        require("src.world.PikachuFollower").talk(Game, self, npc)
+      else
+        self:talkTo(npc)
+      end
     end
     interacted(self, fx, fy, "npc", npc)
     return
@@ -2431,7 +2440,7 @@ end
 -- Prof. Oak's dex rating service (engine/events/pokedex_rating.asm):
 -- the completion line with seen AND owned counts, then the per-decade
 -- rating text.
-function OverworldState:dexRating()
+function OverworldState:dexRating(onDone)
   require("src.core.Sound").play(Game.data, "Pokedex_Rating")
   local seen, owned = 0, 0
   for _ in pairs(Game.save.pokedex.seen or {}) do seen = seen + 1 end
@@ -2449,7 +2458,7 @@ function OverworldState:dexRating()
   completion = completion
     :gsub("{NUM:hDexRatingNumMonsSeen[^}]*}", tostring(seen))
     :gsub("{NUM:hDexRatingNumMonsOwned[^}]*}", tostring(owned))
-  Game.stack:push(TextBox.new(Game, completion .. "\f" .. rating))
+  Game.stack:push(TextBox.new(Game, completion .. "\f" .. rating, onDone))
 end
 
 -- AnimateHealingMachine (engine/overworld/healing_machine.asm): balls
@@ -2874,6 +2883,9 @@ function OverworldState:applyFieldPoison()
         mon.hp = 0
         mon.status = nil -- the original clears status on the faint
         table.insert(fainted, mon)
+        -- callfar_ModifyPikachuHappiness PIKAHAPPY_PSNFNT (poison.asm)
+        require("src.world.PikachuFollower")
+          .modifyHappiness(save, "PSNFNT", mon)
       end
     end
   end
@@ -2942,6 +2954,8 @@ end
 function OverworldState:onStepComplete()
   local p = self.player
   self.todSteps = (self.todSteps or 0) + 1
+  -- UpdatePikachuHappinessAndMood rides the step counter (poison.asm)
+  require("src.world.PikachuFollower").onStep(Game.save)
   -- re-evaluate day/night so a step-based clock can fire world.tod_changed;
   -- paletteNameFor reads self.tod on the next paint
   if Runtime.wantsHook("world.tod") then
@@ -4032,6 +4046,9 @@ function OverworldState:drawWorld()
   -- the "!" bubble above a trainer who spotted the player
   local function fxEmote()
     if not (self.emote and self.emote.npc) then return end
+    -- bubble = false is a silent hold (a Pikachu emotion that plays a
+    -- cry with no bubble still pauses the world for its beat)
+    if self.emote.bubble == false then return end
     local npc = self.emote.npc
     local ex = npc.px - cam.x + 4
     local ey = npc.py - cam.y - 14

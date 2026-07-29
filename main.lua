@@ -135,10 +135,10 @@ function closeEditor()
 end
 
 local function bootGame(version)
-  -- The launcher hands us the chosen game (Red / Blue); scripted and headless
-  -- runs fall back to POKEPORT_VERSION, then Red.  Set the active version and
-  -- overlay its extracted cache BEFORE anything requires generated data, so
-  -- data/generated + assets/generated resolve to that version's files.
+  -- The launcher hands us the chosen game (Red / Blue / Yellow); scripted and
+  -- headless runs fall back to POKEPORT_VERSION, then Red.  Set the active
+  -- version and overlay its extracted cache BEFORE anything requires generated
+  -- data, so data/generated + assets/generated resolve to that version's files.
   local GameVersion = require("src.core.GameVersion")
   GameVersion.set(version or os.getenv("POKEPORT_VERSION") or "red")
   require("src.import.CacheFs").mountVersion(GameVersion.get())
@@ -231,11 +231,11 @@ function love.load(args)
     return
   end
 
-  -- Interactive: the launcher always runs.  Red and Blue are each live: a
-  -- column shows Play when that game's ROM is already imported, or Choose ROM
-  -- / drag-drop when it is not (Yellow is still a placeholder).  Any dropped
-  -- .gb is routed to Red or Blue by its SHA-1; pressing Play boots that game.
-  -- Edit on a save row opens the bundled editor on that slot (openEditor).
+  -- Interactive: the launcher always runs.  Red, Blue, and Yellow are each
+  -- live: a column shows Play when that game's ROM is already imported, or
+  -- Choose ROM / drag-drop when it is not.  Any dropped .gb is routed by its
+  -- SHA-1 (GameVersion.forSha1); pressing Play boots that game.  Edit on a
+  -- save row opens the bundled editor on that slot (openEditor).
   Importer = RomImporter.new(function(version)
     Importer = nil
     bootGame(version)

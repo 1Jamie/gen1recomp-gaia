@@ -57,7 +57,7 @@ function PokedexMenu.new(game, opts)
       -- original, QUIT returns to the list
       local Menu = require("src.ui.Menu")
       local Screens = require("src.ui.Screens")
-      game.stack:push(Menu.new(game, {
+      local entries = {
         { label = Strings("DATA"), onSelect = function()
             Screens.push(game, "DexEntryMenu", item.value)
           end },
@@ -67,8 +67,34 @@ function PokedexMenu.new(game, opts)
         { label = Strings("AREA"), onSelect = function()
             Screens.push(game, "TownMap", { nestSpecies = item.value })
           end },
-        { label = Strings("QUIT") },
-      }, { tx = 12, ty = 8, tw = 8, th = 10 }))
+      }
+      -- Yellow's PRNT item (engine/menus/pokedex.asm PokedexMenuItemsText
+      -- _YELLOW branch -> PrintPokedexEntry): the Game Boy Printer job is
+      -- stood in for by a PNG of the entry page saved under prints/.
+      if require("src.core.GameVersion").isYellow() then
+        entries[#entries + 1] = { label = Strings("PRNT"), onSelect = function()
+          local DexEntryMenu = require("src.ui.DexEntryMenu")
+          local Printer = require("src.core.Printer")
+          local TextBox = require("src.render.TextBox")
+          local def = game.data.pokemon[item.value]
+          local path = require("src.pokemon.Sprites").path(
+            game.data, item.value, "front", { kind = "dex" })
+          local ok, sprite = false, nil
+          if path then ok, sprite = pcall(love.graphics.newImage, path) end
+          local saved, err = Printer.save("dex_" .. item.value, 160, 144,
+            function()
+              DexEntryMenu.render(game, def, ok and sprite or nil, false)
+            end)
+          game.stack:push(TextBox.new(game, saved
+            and Strings("Printed %s's\ndata!\fSaved as\n%s\vin the save\nfolder.",
+                        def.name, saved)
+            or Strings("Printer error!\n%s", tostring(err))))
+        end }
+      end
+      entries[#entries + 1] = { label = Strings("QUIT") }
+      game.stack:push(Menu.new(game, entries,
+        { tx = 12, ty = 8, tw = 8,
+          th = #entries * 2 + 2 }))
     end,
   })
   list.sgbPalettes = PokedexMenu.sgbPalettes

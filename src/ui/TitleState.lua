@@ -33,11 +33,25 @@ end
 
 function TitleState:sgbPalettes(game)
   local P = require("src.render.PaletteFX")
-  local z = {
-    P.zone(P.pal(game.data, "LOGO2"), 0, 0, 19, 7),
-    P.zone(withPureWhite(P.pal(game.data, "LOGO1")), 0, 8, 19, 9),
-    P.zone(P.pal(game.data, "MEWMON"), 0, 10, 19, 17),
-  }
+  local z
+  if self.yellowLayout then
+    -- Yellow's BlkPacket_Titlescreen (pokeyellow data/sgb/sgb_packets.asm):
+    -- rows 0-7 logo band pal 0 (PAL_LOGO2), rows 8-17 Pikachu + copyright
+    -- pal 2 (PAL_MEWMON), then the two bubble-tail cells at (9,8)-(10,8)
+    -- back on pal 0.  No Red/Blue LOGO1 ribbon band.
+    local logoPal = P.pal(game.data, "LOGO2")
+    z = {
+      P.zone(logoPal, 0, 0, 19, 7),
+      P.zone(P.pal(game.data, "MEWMON"), 0, 8, 19, 17),
+      P.zone(logoPal, 9, 8, 10, 8),
+    }
+  else
+    z = {
+      P.zone(P.pal(game.data, "LOGO2"), 0, 0, 19, 7),
+      P.zone(withPureWhite(P.pal(game.data, "LOGO1")), 0, 8, 19, 9),
+      P.zone(P.pal(game.data, "MEWMON"), 0, 10, 19, 17),
+    }
+  end
   local top = game.stack and game.stack:top()
   local box = top and top.titleUiBox
   if box then
@@ -60,6 +74,14 @@ local BLUE_CYCLE_SPECIES = {
   "SQUIRTLE", "CHARMANDER", "BULBASAUR", "MANKEY", "HITMONLEE",
   "VULPIX", "CHANSEY", "AERODACTYL", "JOLTEON", "SNORLAX",
   "GLOOM", "POLIWAG", "DODUO", "PORYGON", "GENGAR", "RAICHU",
+}
+-- Yellow has no TitleMons table (engine/movie/title_yellow.asm is a fixed
+-- Pikachu title).  Until field.title.cycleSpecies is imported, keep a short
+-- Pikachu-centric list so the Red/Blue cycling UI still has something to show.
+local YELLOW_CYCLE_SPECIES = {
+  "PIKACHU", "EEVEE", "BULBASAUR", "CHARMANDER", "SQUIRTLE",
+  "JIGGLYPUFF", "MEOWTH", "PSYDUCK", "VULPIX", "ABRA",
+  "GROWLITHE", "CUBONE", "GASTLY", "HITMONLEE", "SNORLAX", "DRAGONITE",
 }
 local CYCLE_FRAMES = 240 -- the original waits ~4s between picks
 
@@ -93,9 +115,36 @@ function TitleState.new(game, opts)
                           or "assets/generated/title/red_version.png")
   self.player = tryImage("assets/generated/title/player.png")
   self.blue = GameVersion.isBlue()
-  -- Blue cycles its own title mons and prints its ribbon contiguously; a
-  -- field.title.cycleSpecies override (mods / total conversions) still wins.
-  local defaultCycle = self.blue and BLUE_CYCLE_SPECIES or CYCLE_SPECIES
+  self.yellow = GameVersion.isYellow()
+    or title.layout == "yellow_pikachu"
+  -- Yellow title is a fixed Pikachu composition (title_yellow.asm), not
+  -- TitleMons cycling.  Prefer composed pikachu.png from the Yellow import.
+  self.yellowPikachu = self.yellow and tryImage(imagePath(title.pikachu)
+    or "assets/generated/title/pikachu.png") or nil
+  self.yellowBubble = self.yellow and tryImage(imagePath(title.pikaBubble)
+    or "assets/generated/title/pika_bubble.png") or nil
+  self.yellowLayout = self.yellow and self.yellowPikachu ~= nil
+  if self.yellowLayout then
+    -- title.asm boot: hSCY starts at $40 with the logo parked above the
+    -- viewport; .bouncePokemonLogoLoop drops it in with an overshoot
+    -- bounce, then the whoosh, the speech bubble, and PikachuCry1 before
+    -- the title music starts.  Blink overlays are the OB tile swaps of
+    -- DoTitleScreenFunction.
+    self.eyesHalf = tryImage("assets/generated/title/eyes_half.png")
+    self.eyesClosed = tryImage("assets/generated/title/eyes_closed.png")
+    self.scy = 0x40
+    self.phase = "drop"
+    self.dropStep, self.dropLeft = 1, nil
+    self.showBubble = false
+    self.blinkTimer = 0
+    self.blinkAt = nil
+  else
+    self.phase = "loop"
+    self.showBubble = true
+  end
+  local defaultCycle = self.yellowLayout and { "PIKACHU" }
+                    or (self.yellow and YELLOW_CYCLE_SPECIES)
+                    or (self.blue and BLUE_CYCLE_SPECIES or CYCLE_SPECIES)
   self.cycleSpecies = (type(title.cycleSpecies) == "table"
                        and #title.cycleSpecies > 0)
                       and title.cycleSpecies or defaultCycle
@@ -107,11 +156,96 @@ function TitleState.new(game, opts)
 end
 
 function TitleState:enter()
+  -- Yellow defers the title theme until after the logo drop and
+  -- Pikachu's cry (title.asm plays MUSIC_TITLE_SCREEN only after
+  -- WaitForSoundToFinish on PikachuCry1)
+  if self.yellowLayout then return end
+  self:startMusic()
+end
+
+function TitleState:startMusic()
   local data = self.game.data
   local song = self.title.music or "Music_TitleScreen"
   if data.audio and data.audio.songs and data.audio.songs[song] then
     pcall(Music.play, data, song)
   end
+end
+
+-- .TitleScreenPokemonLogoYScrolls: { dy per frame, frames }; the -3
+-- rebound step lands with SFX_INTRO_CRASH
+local DROP_STEPS = {
+  { -4, 16 }, { 3, 4 }, { -3, 4 }, { 2, 2 }, { -2, 2 }, { 1, 2 }, { -1, 2 },
+}
+
+-- the boot cinematic up to the interactive loop; one call per frame
+function TitleState:updateSequence()
+  local Sound = require("src.core.Sound")
+  local data = self.game.data
+  if self.phase == "drop" then
+    local step = DROP_STEPS[self.dropStep]
+    if not step then
+      self.phase = "settle"
+      self.timer = 0
+      return
+    end
+    if self.dropLeft == nil then
+      self.dropLeft = step[2]
+      if step[1] == -3 then Sound.play(data, "Intro_Crash") end
+    end
+    self.scy = self.scy + step[1]
+    self.dropLeft = self.dropLeft - 1
+    if self.dropLeft <= 0 then
+      self.dropStep = self.dropStep + 1
+      self.dropLeft = nil
+    end
+  elseif self.phase == "settle" then
+    -- ld c, 36 / DelayFrames, then the whoosh and the bubble
+    self.timer = self.timer + 1
+    if self.timer >= 36 then
+      Sound.play(data, "Intro_Whoosh")
+      self.showBubble = true
+      self.phase = "bubble"
+      self.timer = 0
+    end
+  elseif self.phase == "bubble" then
+    self.timer = self.timer + 1
+    if self.timer >= 3 then
+      self.crySrc = Sound.playPikaCry(data, 1)
+      self.phase = "cry"
+      self.timer = 0
+    end
+  elseif self.phase == "cry" then
+    -- WaitForSoundToFinish before the music starts
+    self.timer = self.timer + 1
+    local playing = self.crySrc and self.crySrc.isPlaying
+      and self.crySrc:isPlaying()
+    if not playing or self.timer > 180 then
+      self.crySrc = nil
+      self:startMusic()
+      self.phase = "loop"
+      self.blinkTimer = 0
+    end
+  end
+end
+
+-- DoTitleScreenFunction.CheckTimer: an 8-bit frame counter blinks at 0,
+-- $80 and $90; the blink itself runs half/closed/half over 9 frames
+function TitleState:updateBlink()
+  local t = self.blinkTimer
+  self.blinkTimer = (t + 1) % 256
+  if t == 0 or t == 0x80 or t == 0x90 then self.blinkAt = 0 end
+  if self.blinkAt then
+    self.blinkAt = self.blinkAt + 1
+    if self.blinkAt > 9 then self.blinkAt = nil end
+  end
+end
+
+-- the blink overlay for this frame (nil = open eyes)
+function TitleState:blinkOverlay()
+  local at = self.blinkAt
+  if not at then return nil end
+  if at <= 3 or at > 6 then return self.eyesHalf end
+  return self.eyesClosed
 end
 
 function TitleState:currentSprite()
@@ -219,9 +353,26 @@ function TitleState:openMenu()
 end
 
 function TitleState:update(dt)
+  if self.yellowLayout then
+    if self.phase ~= "loop" then
+      self:updateSequence()
+      return -- input is ignored until the cinematic lands (title.asm)
+    end
+    self:updateBlink()
+    local input = self.game.input
+    if input:wasPressed("start") or input:wasPressed("a") then
+      -- .go_to_main_menu voices PikachuCry11 on the way out
+      local Sound = require("src.core.Sound")
+      if not Sound.playPikaCry(self.game.data, 11) then
+        Sound.playCry(self.game.data, "PIKACHU")
+      end
+      self:openMenu()
+    end
+    return
+  end
   self.timer = self.timer + 1
   self.blink = (self.blink + 1) % 60
-  if self.timer >= CYCLE_FRAMES then
+  if not self.yellowLayout and self.timer >= CYCLE_FRAMES then
     self.timer = 0
     -- random pick that never repeats the current one
     if #self.cycleSpecies > 1 then
@@ -238,9 +389,11 @@ function TitleState:update(dt)
   end
   local input = self.game.input
   if input:wasPressed("start") or input:wasPressed("a") then
-    -- the title mon cries when you leave the title (.finishedWaiting)
+    -- the title mon cries when you leave the title (.finishedWaiting);
+    -- Yellow's fixed Pikachu title always cries Pikachu.
     require("src.core.Sound").playCry(self.game.data,
-                                      self.cycleSpecies[self.cycleIndex])
+      self.yellowLayout and "PIKACHU"
+      or self.cycleSpecies[self.cycleIndex])
     self:openMenu()
   end
 end
@@ -248,50 +401,65 @@ end
 -- The original tilemap (engine/movie/title.asm): logo at tile (2,1),
 -- the version ribbon at (7,8), Red's title art as OAM at px (82,80),
 -- the title mon in the 7x7 box at tile (5,10), copyright on row 17.
+-- Yellow (title_yellow.asm): logo (2,1), speech bubble (6,4), Pikachu
+-- (4,8) 12x9 — no version ribbon, no cycling mon, no Red OAM.
 function TitleState:draw()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
+  local scrollY = self.yellowLayout and -(self.scy or 0) or 0
   if self.logo then
-    love.graphics.draw(self.logo, 16, 8)
+    love.graphics.draw(self.logo, 16, 8 + scrollY)
   else
     love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(self.blue and "POKéMON BLUE" or Strings("POKéMON RED"),
-      (160 - 12 * 8) / 2, 24)
+    local brand = self.yellow and "POKéMON YELLOW"
+               or (self.blue and "POKéMON BLUE" or Strings("POKéMON RED"))
+    Font.draw(brand, (160 - 12 * 8) / 2, 24 + scrollY)
     love.graphics.setColor(1, 1, 1, 1)
   end
-  if self.version then
-    local iw, ih = self.version:getDimensions()
-    if self.blue then
-      -- Blue prints its ribbon contiguously ("Blue Version", hlcoord 7,8).
-      -- The extracted strip packs those eight glyph tiles into image tiles
-      -- 0..7 (tiles 8..9 are blank), so draw that 64px run at px (56, 64).
-      love.graphics.draw(self.version,
-        love.graphics.newQuad(0, 0, 64, 8, iw, ih), 56, 64)
-    else
-      -- Red's strip holds Red+Green+Version glyphs; the tilemap prints
-      -- tiles $60,$61 ("Red"), a space, then $65-$69 ("Version").
-      love.graphics.draw(self.version,
-        love.graphics.newQuad(0, 0, 16, 8, iw, ih), 56, 64)
-      love.graphics.draw(self.version,
-        love.graphics.newQuad(40, 0, 40, 8, iw, ih), 80, 64)
+  if self.yellowLayout then
+    -- everything scrolls together through the logo drop (rSCY): screen
+    -- y = BG y - SCY, so the composition rides at -scy until it lands
+    local dy = scrollY
+    if self.yellowBubble and self.showBubble then
+      love.graphics.draw(self.yellowBubble, 48, 32 + dy)
+    end
+    -- hlcoord 4,8 → px (32, 64); composed 13x9 tile sprite
+    love.graphics.draw(self.yellowPikachu, 32, 64 + dy)
+    local overlay = self:blinkOverlay()
+    if overlay then
+      -- the eye OAM band sits at (56,80) on the landed screen
+      love.graphics.draw(overlay, 32 + 24, 64 + 16 + dy)
+    end
+  else
+    -- Yellow's Version_GFX slot holds a leftover "Blue Version" ribbon
+    -- (pokeyellow gfx/title/blue_version.png, unreferenced by title code);
+    -- the Yellow fallback layout draws no ribbon at all.
+    if self.version and not self.yellow then
+      local iw, ih = self.version:getDimensions()
+      if self.blue then
+        love.graphics.draw(self.version,
+          love.graphics.newQuad(0, 0, 64, 8, iw, ih), 56, 64)
+      else
+        love.graphics.draw(self.version,
+          love.graphics.newQuad(0, 0, 16, 8, iw, ih), 56, 64)
+        love.graphics.draw(self.version,
+          love.graphics.newQuad(40, 0, 40, 8, iw, ih), 80, 64)
+      end
+    end
+    local sprite = self:currentSprite()
+    if sprite then
+      local w, h = sprite:getDimensions()
+      local slide = (self.slideIn or 0) * 8
+      love.graphics.draw(sprite, 40 + math.floor((56 - w) / 2) + slide,
+                         136 - h)
+    end
+    if self.player then
+      love.graphics.draw(self.player, 82, 80)
     end
   end
-  local sprite = self:currentSprite()
-  if sprite then
-    local w, h = sprite:getDimensions()
-    local slide = (self.slideIn or 0) * 8 -- scroll in from the right
-    -- bottom-aligned and centered in the (5,10)-(11,16) tile box
-    love.graphics.draw(sprite, 40 + math.floor((56 - w) / 2) + slide,
-                       136 - h)
-  end
-  -- Red is OAM in the original: he draws over the mon's box edge
-  if self.player then
-    love.graphics.draw(self.player, 82, 80)
-  end
   love.graphics.setColor(0, 0, 0, 1)
-  -- the copyright row (tile 2,17); copyrightText because field.title's
-  -- copyright key already names the extracted image strip
-  Font.draw(self.title.copyrightText or Strings("2026 bois club games"), 1, 136)
+  Font.draw(self.title.copyrightText or Strings("2026 bois club games"),
+    1, 136 + scrollY)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
