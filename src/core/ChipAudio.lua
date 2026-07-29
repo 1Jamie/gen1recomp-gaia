@@ -25,6 +25,29 @@ local SAMPLE_RATE = ChipSynth.SAMPLE_RATE
 local MUSIC_BUFFER_SAMPLES = ChipSynth.MUSIC_BUFFER_SAMPLES
 local MUSIC_BUFFER_COUNT = ChipSynth.MUSIC_BUFFER_COUNT
 
+-- ---------------------------------------------------------------------------
+-- Per-channel mix (edit these)
+-- Applied on load and whenever this file hot-reloads.
+-- Runtime: ChipAudio.setChannelVolume / setChannelPitch.
+--   [1] pulse 1   [2] pulse 2   [3] wave   [4] noise / drums
+-- Volume: 1 = authentic, 0 = mute, >1 boosts
+-- Pitch:  1 = authentic, 2 = +1 octave, 0.5 = -1 octave
+-- ---------------------------------------------------------------------------
+local CHANNEL_VOLUME = {
+  [1] = 1, -- pulse 1
+  [2] = 1, -- pulse 2
+  [3] = 0.25, -- wave
+  [4] = 1, -- noise / drums
+}
+local CHANNEL_PITCH = {
+  [1] = 1, -- pulse 1
+  [2] = 1, -- pulse 2
+  [3] = 0.5, -- wave
+  [4] = 1, -- noise / drums
+}
+ChipSynth.setChannelVolumes(CHANNEL_VOLUME)
+ChipSynth.setChannelPitches(CHANNEL_PITCH)
+
 -- currentMusic: { source, gen, threaded, started, finished, engine }
 --   threaded songs stream from the worker (engine is nil here);
 --   the fallback path owns a local engine and fills the source itself.
@@ -152,11 +175,21 @@ function ChipAudio.playMusic(data, header, allowLoops)
   musicGen = musicGen + 1
   local gen = musicGen
   cmdCh:push({ cmd = "play", gen = gen, header = header,
-               allowLoops = allowLoops, audio = slimAudio(data) })
+               allowLoops = allowLoops, audio = slimAudio(data),
+               channelVolumes = ChipSynth.getChannelVolumes(),
+               channelPitches = ChipSynth.getChannelPitches() })
   currentMusic = { source = source, gen = gen, threaded = true,
                    started = false, finished = false }
   -- playback starts in update() once the first buffer arrives (~1 frame)
   return source
+end
+
+local function pushChannelMix()
+  if workerReady and cmdCh then
+    cmdCh:push({ cmd = "channelMix",
+                 volumes = ChipSynth.getChannelVolumes(),
+                 pitches = ChipSynth.getChannelPitches() })
+  end
 end
 
 -- move finished buffers from the worker into the Source; start playback once
@@ -268,6 +301,53 @@ function ChipAudio.invalidate()
   ChipAudio.stopMusic()
   ChipSynth.invalidateBanks()
   if workerReady and cmdCh then cmdCh:push({ cmd = "invalidate" }) end
+end
+
+-- Runtime mix for one hardware channel (1..4).  Takes effect on the next
+-- synthesized buffer (live music) and on any SFX/cry rendered after the call.
+function ChipAudio.setChannelVolume(hw, scale)
+  ChipSynth.setChannelVolume(hw, scale)
+  pushChannelMix()
+end
+
+function ChipAudio.getChannelVolume(hw)
+  return ChipSynth.getChannelVolume(hw)
+end
+
+function ChipAudio.setChannelVolumes(volumes)
+  ChipSynth.setChannelVolumes(volumes)
+  pushChannelMix()
+end
+
+function ChipAudio.getChannelVolumes()
+  return ChipSynth.getChannelVolumes()
+end
+
+function ChipAudio.setChannelPitch(hw, scale)
+  ChipSynth.setChannelPitch(hw, scale)
+  pushChannelMix()
+end
+
+function ChipAudio.getChannelPitch(hw)
+  return ChipSynth.getChannelPitch(hw)
+end
+
+function ChipAudio.setChannelPitches(pitches)
+  ChipSynth.setChannelPitches(pitches)
+  pushChannelMix()
+end
+
+function ChipAudio.getChannelPitches()
+  return ChipSynth.getChannelPitches()
+end
+
+-- aliases for channel 4 (noise / drums)
+function ChipAudio.setNoiseVolume(scale)
+  ChipAudio.setChannelVolume(4, scale)
+end
+
+function ChipAudio.getNoiseVolume()
+  return ChipAudio.getChannelVolume(4)
 end
 
 -- a stale song must not keep sounding past the flush that replaced its

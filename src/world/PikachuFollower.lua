@@ -15,6 +15,7 @@
 -- UpdatePikachuHappinessAndMood (256-step coin-flip WALKING bump, mood
 -- converging by 1 per step toward 128).
 
+local Collision = require("src.world.Collision")
 local GameVersion = require("src.core.GameVersion")
 
 local PikachuFollower = {}
@@ -140,6 +141,14 @@ local function makeFollower(game, ow, x, y, facing)
   npc.pikachuFollower = true
   npc.passable = true -- never blocks a step (Collision.occupied)
   npc.facing = facing or "down"
+  -- the idle animations below pose the walk cycle with no step under it,
+  -- which NPC:walkPhase (moving-only) cannot express.  An instance field
+  -- shadows the class method, so NPC:pose keeps working unchanged (#411).
+  npc.walkPhase = function(self)
+    local idle = self.idle
+    if idle and idle.phase then return idle.phase % 2 end
+    return NPC.walkPhase(self)
+  end
   return npc
 end
 
@@ -183,9 +192,157 @@ function PikachuFollower.onMapEntered(game, ow)
   ow.pikachuTrail = { x = ow.player.cellX, y = ow.player.cellY }
 end
 
+-- ---------------------------------------------------------------------
+-- Idle behavior (pikachu_follow.asm Func_fc803 and the Func_fc842 roll it
+-- hands off to).  Standing still, the follower burns down a frame
+-- counter; at zero it either looks in a random direction (Random & $c,
+-- another $20 frames later) or, when the buffered follow command puts it
+-- two or more cells off the player (ComputePikachuFollowCommand's 5-8
+-- band), rolls one of four in-place animations: a bounce, the walk cycle
+-- on the spot, a two frame shuffle, or a clockwise spin.  Func_fc82e
+-- drops whichever is running the moment the player takes a step.  Nothing
+-- here plays a bubble or a cry -- those are TalkToPikachu's alone (#411).
+-- ---------------------------------------------------------------------
+
+local IDLE_LOOK = 0x20  -- Func_fc803's pause between random glances
+local IDLE_REST = 0x10  -- Func_fc835's pause after an animation ends
+local IDLE_FRAME = 8    -- frames per sprite frame in Func_fc8f8/92b/95d
+
+local FACINGS = { "down", "up", "left", "right" }
+-- Func_fc95d .Facings, the order the spin turns through
+local CLOCKWISE = { down = "left", left = "up", up = "right", right = "down" }
+
+-- Pointer_fc8d6, transposed to (dx, dy): the asm stores (y, x) and walks
+-- the table backwards as the $11 counter runs down, so entry N here is
+-- what counter N draws.  A sway four pixels right then four left with the
+-- body bobbing up twice, netting zero displacement.
+local BOUNCE = {
+  {  0,  0 }, { -1, -2 }, { -2, -4 }, { -3, -2 }, { -4,  0 },
+  { -3, -2 }, { -2, -4 }, { -1, -2 }, {  0,  0 }, {  1, -2 },
+  {  2, -4 }, {  3, -2 }, {  4,  0 }, {  3, -2 }, {  2, -4 },
+  {  1, -2 }, {  0,  0 },
+}
+
+local function randomInt(a, b)
+  local rand = love and love.math and love.math.random or math.random
+  return rand(a, b)
+end
+
+-- back onto the cell's own pixels: while the follower stands, nothing else
+-- writes px/py, so the bounce offset has to be undone from here
+local function idleReset(npc)
+  npc.idle = nil
+  npc.px, npc.py = npc.cellX * 16, npc.cellY * 16
+end
+
+-- ComputePikachuFollowCommand: the command the idle state reads back is
+-- 1-4 while the follower sits within a cell of the player and 5-8 once it
+-- is two or more off, Y deciding whenever the rows differ.  Returns the
+-- facing those 5-8 encode (Func_fc862 turns that way before it bounces),
+-- or nil for the near band, which only ever glances.
+local function strandedFacing(ow, npc)
+  local p = ow.player
+  local dy = p.cellY - npc.cellY
+  if dy ~= 0 then
+    if dy > -2 and dy < 2 then return nil end
+    return dy > 0 and "down" or "up"
+  end
+  local dx = p.cellX - npc.cellX
+  if dx > -2 and dx < 2 then return nil end
+  return dx > 0 and "right" or "left"
+end
+
+-- Func_fc842: an even roll over the four PointerTable_fc85a entries
+local function startIdleAnim(npc, facing)
+  local roll = randomInt(0, 3)
+  if roll == 0 then
+    -- Func_fc862 turns toward the player, then asm_fc87f bounces
+    npc.facing = facing or npc.facing
+    npc.idle = { kind = "bounce", frames = 0x11 }
+  elseif roll == 1 then
+    npc.idle = { kind = "walk", frames = 0x30, tick = 0, phase = 0 }
+  elseif roll == 2 then
+    npc.idle = { kind = "shuffle", frames = 0x20, tick = 0, phase = 0 }
+  else
+    npc.idle = { kind = "spin", frames = 0x20, tick = 0 }
+  end
+end
+
+local function idleTick(ow, npc)
+  -- Func_fc82e: a step in progress ends the idle state outright
+  if ow.player.moving then idleReset(npc) return end
+  local idle = npc.idle
+  if not idle then
+    idle = { kind = "wait", frames = IDLE_LOOK }
+    npc.idle = idle
+  end
+  if idle.kind == "wait" then
+    idle.frames = idle.frames - 1
+    if idle.frames > 0 then return end
+    local facing = strandedFacing(ow, npc)
+    if facing then
+      startIdleAnim(npc, facing)
+    else
+      npc.facing = FACINGS[randomInt(1, 4)]
+      idle.frames = IDLE_LOOK
+    end
+    return
+  end
+  if idle.kind == "bounce" then
+    local o = BOUNCE[idle.frames] or BOUNCE[1]
+    npc.px = npc.cellX * 16 + o[1]
+    npc.py = npc.cellY * 16 + o[2]
+  else
+    idle.tick = idle.tick + 1
+    if idle.tick >= IDLE_FRAME then
+      idle.tick = 0
+      if idle.kind == "walk" then
+        -- Func_fc8f8 runs the anim counter through all four frames; the
+        -- top bit is the mirrored foot, which is our stepFlip
+        idle.phase = (idle.phase + 1) % 4
+        npc.stepFlip = idle.phase >= 2
+      elseif idle.kind == "shuffle" then
+        idle.phase = idle.phase == 0 and 1 or 0 -- Func_fc92b's xor $1
+      else
+        npc.facing = CLOCKWISE[npc.facing] or "down"
+      end
+    end
+  end
+  idle.frames = idle.frames - 1
+  if idle.frames <= 0 then
+    -- Func_fc835: a $10 frame rest, then the idle counter again
+    idleReset(npc)
+    npc.idle = { kind = "wait", frames = IDLE_REST }
+  end
+end
+
+-- The cell ahead is a ledge the player just hopped (data/tilesets/
+-- ledge_tiles.asm, the same row match OverworldState:checkLedgeHop makes).
+-- The follower only ever retraces cells the player stood on, so a ledge
+-- tile in the trail means the player jumped it (#409).
+local function ledgeStep(game, ow, cx, cy, dir)
+  local map = ow.map
+  local d = Collision.DELTA[dir]
+  local fx, fy = cx + d[1], cy + d[2]
+  local lx, ly = cx + d[1] * 2, cy + d[2] * 2
+  if not (map:inBounds(fx, fy) and map:inBounds(lx, ly)) then return false end
+  local tileset = map.def.tileset
+  local standing = map:cellTile(cx, cy)
+  local front = map:cellTile(fx, fy)
+  for _, ledge in ipairs(game.data.field.ledges or {}) do
+    if (ledge.tileset or "OVERWORLD") == tileset
+       and ledge.facing == dir and ledge.input == dir
+       and ledge.standingTile == standing and ledge.ledgeTile == front then
+      return true
+    end
+  end
+  return false
+end
+
 -- one follow step per frame: chase the cell the player last vacated
 -- (pikachu_follow.asm keeps it one walk step behind)
 function PikachuFollower.update(game, ow)
+  if ow.pikaHop then return end -- the counter hop owns the follower (#417)
   local npc = findFollower(ow)
   if not npc then
     if shouldSpawn(game, ow) then PikachuFollower.onMapEntered(game, ow) end
@@ -201,15 +358,31 @@ function PikachuFollower.update(game, ow)
     trail = { x = p.cellX, y = p.cellY }
     ow.pikachuTrail = trail
   end
-  -- the player left the trailing cell: it becomes Pikachu's next goal
-  if p.cellX ~= trail.x or p.cellY ~= trail.y then
+  -- The follow command is queued the frame the player COMMITS a step, not
+  -- the frame it lands: home/overworld.asm .noCollision sets wWalkCounter
+  -- and calls Func_fcc08 (pikachu_follow.asm Func_fcc42 reads the direction
+  -- of the step just started) before AdvancePlayerSprite, so Pikachu walks
+  -- into the cell the player is vacating during that same step and rests
+  -- exactly one cell behind.  Waiting for p.cellX to change put a whole
+  -- extra step between them -- the two-tile gap of issue #410.  targetX/Y
+  -- is the committed destination while a step is in flight and nil when
+  -- standing, so a warp or teleport still registers here (and the far > 6
+  -- snap below still catches it).
+  local destX = p.targetX or p.cellX
+  local destY = p.targetY or p.cellY
+  if destX ~= trail.x or destY ~= trail.y then
     npc.goalX, npc.goalY = trail.x, trail.y
-    trail.x, trail.y = p.cellX, p.cellY
+    trail.x, trail.y = destX, destY
   end
-  if npc.moving or not npc.goalX then return end
+  -- standing still with nothing to chase is the idle state (Func_fc803);
+  -- once a step is under way NPC:update owns px/py, so only the idle
+  -- record is dropped here -- never the interpolated pixels
+  if npc.moving then npc.idle = nil return end
+  if not npc.goalX then idleTick(ow, npc) return end
   local gx, gy = npc.goalX, npc.goalY
   if npc.cellX == gx and npc.cellY == gy then
     npc.goalX, npc.goalY = nil, nil
+    idleTick(ow, npc)
     return
   end
   -- fell more than a screen behind (forced movement, warp math): snap
@@ -218,8 +391,10 @@ function PikachuFollower.update(game, ow)
     npc.cellX, npc.cellY = gx, gy
     npc.px, npc.py = gx * 16, gy * 16
     npc.goalX, npc.goalY = nil, nil
+    npc.idle = nil -- the snap already rewrote px/py
     return
   end
+  idleReset(npc) -- a real step overrides whatever the idle pose was
   local dir
   if npc.cellX < gx then dir = "right"
   elseif npc.cellX > gx then dir = "left"
@@ -228,15 +403,44 @@ function PikachuFollower.update(game, ow)
   npc.facing = dir
   npc.targetX = npc.cellX + (dir == "right" and 1 or dir == "left" and -1 or 0)
   npc.targetY = npc.cellY + (dir == "down" and 1 or dir == "up" and -1 or 0)
+  -- the cell ahead is the ledge the player hopped: clear both cells in one
+  -- step instead of stopping on the ledge (#409).  pikachu_follow.asm
+  -- Func_fcc08 appends the $5-$8 hop commands while BIT_LEDGE_OR_FISHING
+  -- is set, and Func_fca0a runs them as two AddPikachuStepVector cells over
+  -- one normal step's frames -- no arc and no shadow, the hop command only
+  -- doubles the step vector (NPC:update's hopStep span).
+  if ledgeStep(game, ow, npc.cellX, npc.cellY, dir) then
+    local d = Collision.DELTA[dir]
+    npc.targetX, npc.targetY = npc.cellX + d[1] * 2, npc.cellY + d[2] * 2
+    npc.goalX, npc.goalY = npc.targetX, npc.targetY
+    npc.hopStep = true
+  end
+  -- walk at the player's own step length (the bicycle is moot: shouldSpawn
+  -- hides the follower on a bike, ShouldPikachuSpawn's wWalkBikeSurfState
+  -- check), and halve it while more than one cell behind -- that is
+  -- FastPikachuFollow, which pikachu_follow.asm picks whenever two or more
+  -- steps are queued (AreThereAtLeastTwoStepsInPikachuFollowCommandBuffer:
+  -- walk counter $4 instead of NormalPikachuFollow's $8).
+  local stepLen = p.stepFramesCur or p.stepFrames or 16
+  if far > 1 then stepLen = math.max(1, math.floor(stepLen / 2)) end
+  npc.stepFrames = stepLen
   npc.moving = true
   npc.progress = 0
+  -- this frame's npc:update loop already ran (OverworldState:update walks
+  -- self.npcs, then calls here), so burn the step's first frame now.
+  -- Without it the step costs a frame more than the player's and Pikachu
+  -- trails a pixel further every tile.
+  npc:update(ow.map, ow.entities)
 end
 
 -- ---------------------------------------------------------------------
 -- TalkToPikachu (engine/pikachu/pikachu_emotions.asm + data/pikachu/
 -- pikachu_emotions.asm): pick a scripted emotion, then play its bubble
--- and voiced PCM clip.  The face-pic animation half of each emotion
--- (pikaemotion_pikapic) has no port; the bubble + clip carry the beat.
+-- and voiced PCM clip, and raise the framed Pikachu picture the original
+-- puts over the map (pikaemotion_pikapic -> pikachu_pic_animation.asm
+-- PlacePikapicTextBoxBorder), drawn by OverworldController:drawUI.  The
+-- per-emotion animation frames (gfx/pikachu/unknown_*) are not extracted,
+-- so the front pic stands in for all twenty of them (#407).
 -- ---------------------------------------------------------------------
 
 -- PikachuEmotionTable, reduced to each entry's bubble + pikaemotion_pcm
@@ -340,6 +544,20 @@ local function bubbleIndex(game, name)
 end
 
 function PikachuFollower.talk(game, ow, npc, done)
+  -- pikachu_follow.asm steps the follower on the player's own walk clock,
+  -- so it is never mid-tile while the player stands and can always be
+  -- addressed; this port's follow is a frame late, so land the step here
+  -- rather than answer from between two cells (#407).  The emote hold
+  -- returns before the npc update loop, so a follower left mid-step would
+  -- freeze between cells for the whole beat.
+  if npc.moving then
+    npc.cellX, npc.cellY = npc.targetX or npc.cellX, npc.targetY or npc.cellY
+    npc.targetX, npc.targetY = nil, nil
+    npc.moving = false
+    npc.progress = 0
+    npc.hopStep = nil
+  end
+  idleReset(npc) -- the bubble anchor reads px/py, and the hold freezes it
   npc:facePlayer(ow.player)
   ow.player.facing = OPPOSITE[npc.facing] or ow.player.facing
   local save = game.save
@@ -357,10 +575,95 @@ function PikachuFollower.talk(game, ow, npc, done)
   -- caches built before the Yellow bubble sheet only carry the three
   -- shared bubbles; a missing crop degrades to a silent hold
   local bi = e.bubble and bubbleIndex(game, e.bubble)
+  -- pikaemotion_pikapic: every entry in data/pikachu/pikachu_emotions.asm
+  -- ends with one, and its box is the only thing most of them put on
+  -- screen (emotion 5, the fresh-save cell, has no bubble at all).  The
+  -- 40x40 front pic is the size of PikaAnimTilemap_1's 5x5 base frame;
+  -- Sprites.path keeps a mod's replacement skin in play.  The scripts'
+  -- 32-58 frame durations bracket the hold below, so it stays at 50.
+  local Sprites = require("src.pokemon.Sprites")
+  local pic = Sprites.path(game.data, "PIKACHU", "front",
+                           { kind = "overworld" })
   ow.emote = {
-    npc = npc, frames = 50, bubble = bi or false,
+    npc = npc, frames = 50, bubble = bi or false, pikaPic = pic,
     onDone = done,
   }
+end
+
+-- ---------------------------------------------------------------------
+-- PikachuWalksToNurseJoy (engine/pikachu/pikachu_emotions.asm, run by
+-- engine/events/pokecenter.asm once the heal is accepted): the companion
+-- looks up ($36) and hops onto the Poke Center counter.  The original
+-- picks one of three movement scripts by where it stands -- below the
+-- player (.PikaMovementData1: walk up left, hop up right), left of it
+-- (.PikaMovementData2: hop up right) or right of it (.PikaMovementData3:
+-- hop up left) -- and all three land on the counter tile directly in
+-- front of the player, so the port animates that one hop.  Pikachu
+-- already above the player yields zero movement bytes: no beat (#417).
+-- ---------------------------------------------------------------------
+
+local HOP_FRAMES = 32 -- the port's ledge-hop arc (Player:pose hopTotal)
+
+function PikachuFollower.hopToCounter(ow, done)
+  local npc = GameVersion.isYellow() and findFollower(ow) or nil
+  local p = ow.player
+  local cx, cy = p:facingCell()
+  -- the nurse is talked to across a counter tile (OverworldState:interact);
+  -- anything else is the .pikachu_above_player no-op path
+  if not npc or p.facing ~= "up" or not ow.map:isCounterCell(cx, cy) then
+    if done then done() end
+    return
+  end
+  npc.goalX, npc.goalY = nil, nil
+  npc.targetX, npc.targetY = nil, nil
+  npc.moving, npc.progress, npc.hopStep = false, 0, nil
+  npc.idle = nil
+  npc.facing = "up" -- $36, look up
+  ow.pikaHop = {
+    npc = npc, frames = 0, cellX = cx, cellY = cy, onDone = done,
+    fromX = npc.px, fromY = npc.py, toX = cx * 16, toY = cy * 16,
+  }
+end
+
+-- One frame of that hop.  OverworldState:update holds the world for it the
+-- way it holds for the heal machine (only the top state updates, so this
+-- has to sit between the two text boxes); the arc matches Player:pose's
+-- ledge hop -- a 10px sine over 32 frames.
+function PikachuFollower.updateHop(ow)
+  local h = ow.pikaHop
+  if not h then return end
+  h.frames = h.frames + 1
+  local t = math.min(1, h.frames / HOP_FRAMES)
+  h.npc.px = h.fromX + (h.toX - h.fromX) * t
+  h.npc.py = h.fromY + (h.toY - h.fromY) * t
+             - math.floor(10 * math.sin(t * math.pi) + 0.5)
+  if h.frames < HOP_FRAMES then return end
+  h.npc.cellX, h.npc.cellY = h.cellX, h.cellY
+  h.npc.px, h.npc.py = h.toX, h.toY
+  ow.pikaHop = nil
+  -- the player has not moved, so the trail restarts under his feet and the
+  -- follower only steps back off the counter once he walks away
+  ow.pikachuTrail = { x = ow.player.cellX, y = ow.player.cellY }
+  if h.onDone then h.onDone() end
+end
+
+-- Disable/EnablePikachuOverworldSpriteDrawing around the healing machine
+-- (engine/events/pokecenter.asm): Pikachu goes behind the counter with the
+-- party and comes back standing on it, facing the player -- the respawn is
+-- wPikachuSpawnState = 5, which is .above_player in pikachu_follow.asm,
+-- followed by `lb bc, 15, 0` (sprite struct 15 is Pikachu, image index 0
+-- is facing down).  ow.entities is the draw list and ow.npcs the update
+-- list, so dropping it from entities alone hides it in place (#417).
+function PikachuFollower.setVisible(ow, visible)
+  local npc = findFollower(ow)
+  if not npc then return end
+  for i, e in ipairs(ow.entities or {}) do
+    if e == npc then table.remove(ow.entities, i) break end
+  end
+  if visible then
+    npc.facing = "down"
+    table.insert(ow.entities, npc)
+  end
 end
 
 -- npc the player is facing, when it is the follower (interact hook)
