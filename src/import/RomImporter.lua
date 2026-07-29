@@ -2708,6 +2708,30 @@ end
 -- so a still list costs nothing after the first paint.
 function RomImporter:_refreshMods()
   local LauncherMods = require("src.mods.LauncherMods")
+  -- Once per session, ahead of the first listing: pull in any mod the player
+  -- unzipped beside the executable, which an ordinary (non-portable) install
+  -- has no way to read.  It happens here rather than behind a button because
+  -- the failure being fixed is one where nothing on screen suggests there is
+  -- anything to press -- the panel just comes up empty.  Guarded so a toggle
+  -- or a delete does not re-scan; adoptStrays is idempotent regardless.
+  if not self.modStraysChecked then
+    self.modStraysChecked = true
+    local imported, failed = {}, {}
+    for _, s in ipairs(LauncherMods.adoptStrays() or {}) do
+      table.insert(s.err and failed or imported, s.id)
+    end
+    -- the failure wins the notice: an import that worked speaks for itself in
+    -- the list right below it, one that did not is the only word they get
+    if #imported > 0 then
+      self.modNotice = { ok = true,
+        text = "Imported from the game folder: " .. table.concat(imported, ", ") }
+    end
+    if #failed > 0 then
+      self.modNotice = { ok = false,
+        text = "Found beside the game but could not import: "
+               .. table.concat(failed, ", ") }
+    end
+  end
   self.mods = LauncherMods.list() or {}
 end
 

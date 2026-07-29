@@ -16,9 +16,19 @@
 -- fused build), which is why those mods still loaded while landing in the
 -- wrong place.
 --
--- Split in two: the pure derivation (deriveList, locateRoot) has no love and
--- no filesystem, so the engine tier can table-drive it; the discovery,
--- install, and uninstall paths reach for love.filesystem and SaveData.
+-- The same split decides where a mod is FOUND, and that has a sharp edge: a
+-- non-portable install never reads the game folder at all, so a mod unzipped
+-- next to the executable -- where most games would want it -- is not wrong so
+-- much as invisible, with an empty panel and no error to explain it.
+-- adoptStrays looks in those folders anyway (a scoped mount that comes down
+-- again, CacheFs.withMounted) and copies what it finds into the tree the game
+-- really reads, so the mistake costs a line of notice rather than a support
+-- thread.
+--
+-- Split in two: the pure derivation (deriveList, locateRoot, pickStrays) has
+-- no love and no filesystem, so the engine tier can table-drive it; the
+-- discovery, install, uninstall, and stray-scan paths reach for
+-- love.filesystem and SaveData.
 
 local Manifest = require("src.mods.Manifest")
 local ManagerState = require("src.mods.ManagerState")
@@ -134,6 +144,28 @@ function LauncherMods.locateRoot(paths)
     return nil, "the .zip must contain a single mod folder"
   end
   return nil, "no manifest.json found in the .zip"
+end
+
+-- pickStrays(found, installed) -> the rows worth adopting, pure.
+-- found is an array of { id, name, folder, path } in scan order (game folder
+-- order, then directory order); installed is the id -> true set of what the
+-- game can already see.  An installed id is dropped -- the player has a
+-- working copy and the loose folder is just where they first put it -- and a
+-- duplicate id across two game folders keeps the first, the same first-wins
+-- rule discover() uses.  Sorted by id so the notice reads the same every time.
+function LauncherMods.pickStrays(found, installed)
+  installed = installed or {}
+  local out, seen = {}, {}
+  for _, row in ipairs(found or {}) do
+    local id = row.id
+    if id and not installed[id] and not seen[id] then
+      seen[id] = true
+      out[#out + 1] = { id = id, name = row.name or id,
+                        folder = row.folder, path = row.path }
+    end
+  end
+  table.sort(out, function(a, b) return a.id < b.id end)
+  return out
 end
 
 -- ------- discovery (love.filesystem)
@@ -300,6 +332,109 @@ local function removeTree(path)
   -- portable mode this repeats the delete CacheFs just did and no-ops.
   fs.remove(path)
 end
+
+-- ------- strays: mods dropped beside the game that it cannot see
+
+-- love.filesystem looks in two places for "mods/": the save directory, and --
+-- portable installs only -- the game folder, which CacheFs mounts.  A player
+-- who unzips a mod next to the executable of an ordinary install, which is
+-- where very nearly every other game would want it, gets no error and no mod.
+-- The MODS panel simply stays empty, and there is nothing on screen to
+-- suggest the files are twenty centimetres away in the wrong folder.
+--
+-- The scan mounts each game folder at a private mount point just long enough
+-- to list mods/ inside it and drops it again (CacheFs.withMounted), so the
+-- read path the game actually runs on is never touched and a stray can never
+-- shadow a real file.
+local STRAY_MOUNT = "stray_scan"
+
+-- Run fn(mountedModsRoot) for each game folder that has a readable mods/
+-- directory, one mount at a time.  Folders that are already the physfs source
+-- are skipped: their mods/ is discoverable by definition, so anything there is
+-- installed already and not a stray (this is every `love <gamedir>` dev run).
+local function eachStrayRoot(fn)
+  local SaveData_ = require("src.core.SaveData")
+  local fs = love and love.filesystem
+  if not fs then return end
+  local source = fs.getSource and fs.getSource()
+  local seen = {}
+  for _, folder in ipairs(SaveData_.gameFolders() or {}) do
+    if not seen[folder] and folder ~= source then
+      seen[folder] = true
+      CacheFs.withMounted(folder, STRAY_MOUNT, function()
+        local root = STRAY_MOUNT .. "/mods"
+        if fs.getInfo(root) then fn(root, folder) end
+      end)
+    end
+  end
+end
+
+-- Every valid mod folder sitting in a game folder's mods/, in scan order.
+-- Only reads.  The rows carry the mounted path, which is live for the length
+-- of the mount and dead after it -- copying has to happen inside the same
+-- scan, which is why adoption is a flag here rather than a second pass.
+local function findStrays(fs, adopt, installed)
+  local found, adopted = {}, {}
+  eachStrayRoot(function(root, folder)
+    local batch = {}
+    for _, name in ipairs(fs.getDirectoryItems(root)) do
+      local path = root .. "/" .. name
+      local info = fs.getInfo(path)
+      if info and info.type == "directory" then
+        local raw = fs.read(path .. "/manifest.json")
+        local manifest = raw and decodeManifest(raw, path)
+        if manifest then
+          batch[#batch + 1] = { id = manifest.id,
+                                name = manifest.name or manifest.id,
+                                folder = folder, path = path }
+        end
+      end
+    end
+    -- filtered per mount, so a copy only ever runs for a row that survived
+    -- the pure rules -- and so the second game folder sees the first one's
+    -- ids as taken
+    for _, row in ipairs(LauncherMods.pickStrays(batch, installed)) do
+      if adopt then
+        -- same root pin installZip uses: the mods tree is shared by Red and
+        -- Blue, never version-prefixed (#330)
+        local savedPrefix = CacheFs.prefix
+        CacheFs.prefix = ""
+        local dest = "mods/" .. row.id
+        local copied, copyErr = copyTree(row.path, dest)
+        if not copied then removeTree(dest) end
+        CacheFs.prefix = savedPrefix
+        if not copied then row.err = copyErr or "could not copy the files" end
+      end
+      installed[row.id] = true
+      row.path = nil                    -- dead once this mount comes down
+      adopted[#adopted + 1] = row
+      found[#found + 1] = row
+    end
+  end)
+  return LauncherMods.pickStrays(found, {})
+end
+
+-- The strays, optionally adopted.  A folder whose id the game can already see
+-- is left out: the player has a working copy, and the loose one is just where
+-- they first put it.  Rows that failed to copy come back with .err set.
+local function scanStrays(adopt)
+  local fs = love and love.filesystem
+  if not fs then return {} end
+  local installed = {}
+  for _, m in ipairs(discover()) do installed[m.id] = true end
+  return findStrays(fs, adopt, installed)
+end
+
+-- strays() -> the rows, nothing copied.
+function LauncherMods.strays() return scanStrays(false) end
+
+-- adoptStrays() -> the rows, each one copied into the mods tree the game
+-- really reads (rows carrying .err failed).  Idempotent: a second call finds
+-- the ids installed and returns nothing, so the panel can run this on every
+-- open without duplicating anything or nagging twice.  The loose folder is
+-- deliberately left where it is -- deleting files outside the save directory
+-- on the player's behalf is not this function's call to make.
+function LauncherMods.adoptStrays() return scanStrays(true) end
 
 -- installZip(source) -> true, id  |  nil, errString
 -- source is an external path or a love DroppedFile.  The archive is validated
