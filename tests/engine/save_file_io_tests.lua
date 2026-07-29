@@ -96,7 +96,14 @@ local function syntheticSave(name)
     moves = { { id = "TACKLE", pp = 35, ppUps = 0 } },
     nickname = "SQ", ot = name, otId = seed.player.id, catchRate = 45,
   } }
-  return GenSave.encode(seed, data, nil)
+  -- The current-map view pointer is part of wMainData's map cache, not a
+  -- modeled save field.  Pokémon Red restores that cache before Continue,
+  -- so it is a useful canary for the import -> slot -> export path.
+  local raw = GenSave.encode(seed, data, nil)
+  local cacheOff = OFF.mainData + 104
+  local cacheTemplate = raw:sub(1, cacheOff) .. string.char(0xA5)
+    .. raw:sub(cacheOff + 2)
+  return GenSave.encode(seed, data, cacheTemplate)
 end
 
 -- ---------------------------------------------- importToSlot -> listSlots
@@ -149,6 +156,8 @@ do
   eq(outBytes and #outBytes, GenSave.SAVE_SIZE, "the export is exactly 32768 bytes")
   check(outBytes and mainChecksumValid(outBytes),
     "the export carries a valid main-data checksum")
+  eq(outBytes and outBytes:byte(OFF.mainData + 105), 0xA5,
+    "the export keeps the saved current-map cache")
 
   -- the export re-imports to an equivalent save
   local re = SaveConvert.importSav(outBytes, "red")

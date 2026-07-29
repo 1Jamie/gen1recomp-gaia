@@ -116,13 +116,12 @@ local function defaultsSave()
 end
 
 -- Merge a GenSave.decode() result over the new-game defaults, exactly the
--- way convert.lua did, then stamp the requested version.  The 32768-byte
--- import template GenSave stashes as `rawImport` and the decode `warnings`
--- are dropped here: neither belongs in a serialized slot file (a fresh
--- export always starts zero-filled -- see GenSave.lua's header).
+-- way convert.lua did, then stamp the requested version.  Keep the imported
+-- SRAM image with the slot: Pokémon Red restores its saved current-map cache
+-- before Continue, and an export needs that unmodeled data to remain bootable.
+-- Decode warnings are only import diagnostics and do not belong in the slot.
 local function mergeDefaults(decoded, version)
   decoded.warnings = nil
-  decoded.rawImport = nil
   local save = defaultsSave()
   for k, v in pairs(decoded) do save[k] = v end
   save.lastHeal = { map = save.player.map, x = save.player.x, y = save.player.y }
