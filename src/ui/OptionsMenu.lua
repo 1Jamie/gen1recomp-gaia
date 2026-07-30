@@ -84,7 +84,7 @@ local function rulesetName(game)
   local ids = rulesetIds(game)
   local id = ids[rulesetIndex(game, ids)] or game.save.options.ruleset
   local record = id and rulesets[id]
-  return record and record.name or id or "----"
+  return Strings(record and record.name or id or "----")
 end
 
 -- 0-7 volume level display (0 = OFF)
@@ -120,7 +120,7 @@ local function sameRows(_, rows) return rows end
 local function buildRows(game)
   local rows = {
     { id = "textSpeed", label = Strings("TEXT SPEED"),
-      value = function(g) return SPEEDS[speedIndex(g)][2] end,
+      value = function(g) return Strings(SPEEDS[speedIndex(g)][2]) end,
       step = function(g)
         local i = speedIndex(g) % #SPEEDS + 1
         g.save.options.textSpeed = SPEEDS[i][1]
@@ -128,7 +128,7 @@ local function buildRows(game)
       end },
     { id = "animations", label = Strings("BATTLE ANIMATION"),
       value = function(g)
-        return g.save.options.animations == false and "OFF" or "ON"
+        return g.save.options.animations == false and Strings("OFF") or Strings("ON")
       end,
       step = function(g)
         local o = g.save.options
@@ -137,7 +137,7 @@ local function buildRows(game)
       end },
     { id = "battleStyle", label = Strings("BATTLE STYLE"),
       value = function(g)
-        return g.save.options.battleStyle == "set" and "SET" or "SHIFT"
+        return g.save.options.battleStyle == "set" and Strings("SET") or Strings("SHIFT")
       end,
       step = function(g)
         local o = g.save.options
@@ -148,7 +148,7 @@ local function buildRows(game)
     -- widescreen composition (src/battle/WideBattle.lua)
     { id = "battleLayout", label = Strings("BATTLE LAYOUT"),
       value = function(g)
-        return g.save.options.battleLayout == "wide" and "WIDE" or "OG"
+        return g.save.options.battleLayout == "wide" and Strings("WIDE") or Strings("OG")
       end,
       step = function(g)
         local o = g.save.options
