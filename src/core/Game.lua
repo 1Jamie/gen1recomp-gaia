@@ -491,6 +491,25 @@ function Game:gamepadaxis(joystick, axis, value)
   Input:gamepadaxis(joystick, axis, value)
 end
 
+function Game:joystickpressed(joystick, button)
+  TouchControls:noteGamepad()
+  Input:joystickpressed(joystick, button)
+end
+
+function Game:joystickreleased(joystick, button)
+  Input:joystickreleased(joystick, button)
+end
+
+function Game:joystickaxis(joystick, axis, value)
+  if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
+  Input:joystickaxis(joystick, axis, value)
+end
+
+function Game:joystickhat(joystick, hat, direction)
+  if direction ~= "c" then TouchControls:noteGamepad() end
+  Input:joystickhat(joystick, hat, direction)
+end
+
 -- Window focus/visibility flips: a release due while unfocused/hidden can
 -- be swallowed by the OS. Reset on both edges -- gaining focus with a
 -- physically held key won't re-fire keypressed, so trusting leftover
