@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build game data directly from a canonical Pokemon Red ROM.
+"""Build game data directly from a canonical Pokemon Red/Blue/Yellow ROM.
 
-It accepts one user-provided, canonical US Pokemon Red ROM. Symbol
-addresses and assembly-erased names are bundled as non-ROM metadata, so no
-pret/pokered checkout, RGBDS build, or external .sym file is required.
+It accepts one user-provided, canonical US Gen-1 ROM. Symbol addresses and
+assembly-erased names are bundled as non-ROM metadata, so no pret checkout,
+RGBDS build, or external .sym file is required for the public ROM path.
 """
 
 from __future__ import annotations
@@ -21,8 +21,11 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from extract import util  # noqa: E402
-from rom_data import (RomImage, SymbolTable, bcd, decode_text,  # noqa: E402
-                      decompress_pic, load_manifest, read_string)
+from rom_data import (  # noqa: E402
+    CANONICAL_BLUE_SHA1, CANONICAL_RED_SHA1, CANONICAL_YELLOW_SHA1,
+    RomImage, SymbolTable, bcd, decode_text, decompress_pic, load_manifest,
+    read_string,
+)
 
 
 DATASETS = (
@@ -30,6 +33,19 @@ DATASETS = (
     "type_chart", "palettes", "icons", "pokemon", "trainers", "encounters",
     "text", "field", "battle_anims",
 )
+
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+VERSION_MANIFESTS = {
+    "red": os.path.join(_TOOLS_DIR, "rom_manifest.json"),
+    "blue": os.path.join(_TOOLS_DIR, "rom_manifest_blue.json"),
+    "yellow": os.path.join(_TOOLS_DIR, "rom_manifest_yellow.json"),
+}
+VERSION_SHA1 = {
+    "red": CANONICAL_RED_SHA1,
+    "blue": CANONICAL_BLUE_SHA1,
+    "yellow": CANONICAL_YELLOW_SHA1,
+}
+SHA1_TO_VERSION = {sha1: version for version, sha1 in VERSION_SHA1.items()}
 
 GB_SHADES = (
     (255, 255, 255, 255),
@@ -44,6 +60,36 @@ def _symbol(symbols, name):
         return symbols[name]
     except KeyError as exc:
         raise ValueError(f"required symbol {name!r} is missing") from exc
+
+
+def _has_symbol(symbols, name):
+    return name in symbols.by_name
+
+
+def resolve_manifest_path(version, manifest_arg):
+    """Pick the shipped manifest for --version, or an explicit --manifest path."""
+    if manifest_arg is not None:
+        return manifest_arg
+    path = VERSION_MANIFESTS[version]
+    if not os.path.isfile(path):
+        raise ValueError(
+            f"manifest for version {version!r} is missing: {path} "
+            f"(generate it before extracting)")
+    return path
+
+
+def version_for_manifest(manifest, requested_version=None, manifest_explicit=False):
+    """Resolve game version from an explicit flag or the manifest romSha1."""
+    rom_sha1 = manifest.get("romSha1")
+    detected = SHA1_TO_VERSION.get(rom_sha1)
+    if manifest_explicit:
+        # Explicit --manifest wins: hash/version come from the file itself.
+        return detected or requested_version or "red"
+    if requested_version and detected and requested_version != detected:
+        raise ValueError(
+            f"--version {requested_version} does not match manifest romSha1 "
+            f"{rom_sha1} ({detected})")
+    return detected or requested_version or "red"
 
 
 def extract_constants(manifest, out_dir):
@@ -227,8 +273,12 @@ def extract_tilesets(rom, symbols, manifest, out_dir, assets_dir):
             list(blocks_raw[offset:offset + 16])
             for offset in range(0, len(blocks_raw), 16)
         ]
+        # Red/Blue keep collision lists in ROM0; Yellow moved them to bank 1
+        # (pokeyellow Overworld_Coll at 01:4ac2). Pointers in $4000-$7FFF are
+        # banked; treat ROM0-range pointers as bank 0.
+        coll_bank = 0 if collision_pointer < 0x4000 else 1
         walkable = sorted(_read_terminated(
-            rom, 0, collision_pointer, 0xFF))
+            rom, coll_bank, collision_pointer, 0xFF))
         warp_pointer = rom.word(
             warp_pointers.bank, warp_pointers.address + index * 2)
         warp_tiles = sorted(set(_read_terminated(
@@ -356,19 +406,33 @@ def extract_sprites(rom, symbols, manifest, out_dir, assets_dir):
         pointer = rom.word(table.bank, address)
         first_half_length = rom.byte(table.bank, address + 2)
         bank = rom.byte(table.bank, address + 3)
-        byte_length = spec["imageWidth"] * spec["imageHeight"] // 4
-        frames = spec["imageHeight"] // 16
+        width = spec["imageWidth"]
+        height = spec["imageHeight"]
+        byte_length = width * height // 4
+        frames = height // 16
         expected_length = first_half_length * (2 if frames >= 6 else 1)
         if byte_length != expected_length:
-            raise ValueError(
-                f"{const_name}: ROM sprite length {expected_length} does not "
-                f"match atlas length {byte_length}")
+            # Commercial ROM sheet length wins over pret PNG atlases (Yellow's
+            # nurse.png is 16x64 but SpriteSheetPointerTable still stores 12
+            # tiles / 192 bytes).
+            byte_length = expected_length
+            if byte_length * 4 % width:
+                raise ValueError(
+                    f"{const_name}: ROM sprite length {byte_length} is not "
+                    f"tile-aligned for width {width}")
+            height = byte_length * 4 // width
+            frames = height // 16
+            expected_length = first_half_length * (2 if frames >= 6 else 1)
+            if byte_length != expected_length:
+                raise ValueError(
+                    f"{const_name}: ROM sprite length {expected_length} does not "
+                    f"match atlas length {width * spec['imageHeight'] // 4}")
 
         base = spec["imageBase"]
         if base not in written:
             _write_2bpp_png(
                 rom.bytes(bank, pointer, byte_length),
-                spec["imageWidth"], spec["imageHeight"],
+                width, height,
                 os.path.join(assets_dir, "sprites", base + ".png"),
                 transparent_color0=True)
             written.add(base)
@@ -1040,9 +1104,25 @@ def extract_palettes(rom, symbols, manifest, out_dir):
         "order": order,
         "pokemon": mon_pals,
     }
+    if _has_symbol(symbols, "CGBBasePalettes"):
+        cgb_table = _symbol(symbols, "CGBBasePalettes")
+        cgb = {}
+        for index, name in enumerate(order):
+            colors = []
+            for color in range(4):
+                value = rom.word(
+                    cgb_table.bank, cgb_table.address + index * 8 + color * 2)
+                colors.append([
+                    _scale5(value & 0x1F),
+                    _scale5((value >> 5) & 0x1F),
+                    _scale5((value >> 10) & 0x1F),
+                ])
+            cgb[name] = colors
+        data["cgbBase"] = cgb
+        data["source"] = data["source"] + " + CGBBasePalettes"
     util.write_lua(
         os.path.join(out_dir, "palettes.lua"), data,
-        header="Source: canonical Pokemon Red ROM; 4 RGB colors per palette")
+        header="Source: canonical Gen-1 ROM; 4 RGB colors per palette")
     return data
 
 
@@ -1216,7 +1296,9 @@ def extract_pokemon(rom, symbols, manifest, out_dir, assets_dir):
     type_by_id = _types_by_id(manifest)
     names = _symbol(symbols, "MonsterNames")
     base_stats = _symbol(symbols, "BaseStats")
-    mew_stats = _symbol(symbols, "MewBaseStats")
+    # Red/Blue keep Mew outside BaseStats at MewBaseStats; Yellow folds Mew
+    # into BaseStats at dex 151 (pret/pokeyellow), so the symbol is optional.
+    mew_stats = symbols.by_name.get("MewBaseStats")
 
     decoded_names = []
     for index in range(len(species_order)):
@@ -1232,7 +1314,7 @@ def extract_pokemon(rom, symbols, manifest, out_dir, assets_dir):
                 ("MISSINGNO", "UNUSED", "FOSSIL_", "MON_GHOST")):
             continue
         dex = dex_by_species[species]
-        if species == "MEW":
+        if species == "MEW" and mew_stats is not None:
             row = rom.bytes(mew_stats.bank, mew_stats.address, 28)
         else:
             row = rom.bytes(
@@ -1634,6 +1716,111 @@ def extract_field(rom, symbols, manifest, out_dir, assets_dir):
     raw_2bpp(
         "GameFreakLogoGraphics", 72, 8, "title/gamefreak_inc.png")
 
+    # Yellow fixed Pikachu title (pret/pokeyellow title_yellow.asm): tilemap
+    # composition over both tile banks -- PokemonLogoGraphics in vChars2
+    # (BG ids $00-$7F), TitlePikachuBGGraphics in vChars1 (ids $80-$EF),
+    # TitlePikachuOBGraphics at vChars1 tile $70 (ids $F0-$FC, also the eye
+    # OAM tiles), PokemonLogoCornerGraphics at vChars1 tile $7D ($FD-$FF).
+    # Mirrors RomExtractor:extractYellowTitleArt.
+    if _has_symbol(symbols, "TitlePikachuBGGraphics"):
+        raw_2bpp(
+            "TitlePikachuBGGraphics", 128, 32, "title/pikachu_bg.png",
+            transparent=True)
+        raw_2bpp(
+            "TitlePikachuOBGraphics", 96, 8, "title/pikachu_ob.png",
+            transparent=True)
+
+        def sheet_tiles(label, count, transparent=False):
+            symbol = _symbol(symbols, label)
+            raw = rom.bytes(symbol.bank, symbol.address, count * 16)
+            return [
+                _decode_2bpp(raw[index:index + 16], 8, 8, transparent)
+                for index in range(0, len(raw), 16)
+            ]
+
+        # tile counts = Graphics..GraphicsEnd symbol gaps in pokeyellow.sym
+        logo_tiles = sheet_tiles("PokemonLogoGraphics", 115)
+        corner_tiles = sheet_tiles("PokemonLogoCornerGraphics", 3)
+        bg_tiles = sheet_tiles("TitlePikachuBGGraphics", 64)
+        ob_tiles = sheet_tiles("TitlePikachuOBGraphics", 12)
+        ob_clear = sheet_tiles("TitlePikachuOBGraphics", 12, True)
+
+        def tile_for(tid):
+            if tid < 0x80:
+                return logo_tiles[tid]
+            if tid < 0xF0:
+                return bg_tiles[tid - 0x80]
+            if tid < 0xFD:
+                return ob_tiles[tid - 0xF0]
+            return corner_tiles[tid - 0xFD]
+
+        def matte_color0(pose):
+            from collections import deque
+            w, h = pose.size
+            seen = set()
+            q = deque()
+
+            def add(x, y):
+                if (x, y) in seen or not (0 <= x < w and 0 <= y < h):
+                    return
+                if pose.getpixel((x, y)) == (255, 255, 255, 255):
+                    seen.add((x, y))
+                    q.append((x, y))
+            for x in range(w):
+                add(x, 0); add(x, h - 1)
+            for y in range(h):
+                add(0, y); add(w - 1, y)
+            while q:
+                x, y = q.popleft()
+                pose.putpixel((x, y), (255, 255, 255, 0))
+                add(x - 1, y); add(x + 1, y); add(x, y - 1); add(x, y + 1)
+            return pose
+
+        def compose(cols, rows, cells):
+            pose = Image.new("RGBA", (cols * 8, rows * 8), (255, 255, 255, 0))
+            for tid, cx, cy in cells:
+                pose.paste(tile_for(tid), (cx * 8, cy * 8))
+            return pose
+
+        def map_cells(label, cols, rows):
+            loc = _symbol(symbols, label)
+            ids = list(rom.bytes(loc.bank, loc.address, cols * rows))
+            return [
+                (tid, index % cols, index // cols)
+                for index, tid in enumerate(ids)
+            ]
+
+        # 16x7 logo box at (2,1); overwrites the scrambled sequential rip
+        # above (Yellow's logo sheet is deduplicated, Red's is not)
+        _save_png(
+            compose(16, 7, map_cells("TitleScreenPokemonLogoTilemap", 16, 7)),
+            os.path.join(assets_dir, "title/pokemon_logo.png"))
+
+        # 7x4 bubble at (6,4) + the two tail tiles poked at (9,8)
+        bubble_cells = map_cells("TitleScreenPikaBubbleTilemap", 7, 4)
+        bubble_cells += [(0x64, 3, 4), (0x65, 4, 4)]
+        _save_png(
+            matte_color0(compose(7, 5, bubble_cells)),
+            os.path.join(assets_dir, "title/pika_bubble.png"))
+
+        # 12x9 Pikachu at (4,8) + right-ear edge tiles down column 16 and
+        # the baked OAM eyes (TitleScreenPikachuEyesOAMData, left eye
+        # x-flipped, attr $22)
+        pika_cells = map_cells("TitleScreenPikachuTilemap", 12, 9)
+        pika_cells += [(0x96, 12, 2), (0x9d, 12, 3),
+                       (0xa7, 12, 4), (0xb1, 12, 5)]
+        pikachu = matte_color0(compose(13, 9, pika_cells))
+        for ob_index, px, py, flip in (
+                (1, 24, 16, True), (0, 32, 16, True),
+                (3, 24, 24, True), (2, 32, 24, True),
+                (0, 56, 16, False), (1, 64, 16, False),
+                (2, 56, 24, False), (3, 64, 24, False)):
+            eye = ob_clear[ob_index]
+            if flip:
+                eye = eye.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            pikachu.paste(eye, (px, py), eye)
+        _save_png(pikachu, os.path.join(assets_dir, "title/pikachu.png"))
+
     falling_star = raw_2bpp(
         "FallingStar", 8, 8, "intro/falling_star.png",
         transparent=True)
@@ -1684,31 +1871,47 @@ def extract_field(rom, symbols, manifest, out_dir, assets_dir):
             (8, row * 8))
     _save_png(star, os.path.join(assets_dir, "intro/big_star.png"))
 
-    gengar = _symbol(symbols, "FightIntroBackMon")
-    gengar_raw = rom.bytes(gengar.bank, gengar.address, 96 * 16)
-    gengar_tiles = [
-        _decode_2bpp(gengar_raw[index:index + 16], 8, 8)
-        for index in range(0, len(gengar_raw), 16)
-    ]
-    for number in (1, 2, 3):
-        tilemap = _symbol(symbols, f"GengarIntroTiles{number}")
-        tile_ids = rom.bytes(tilemap.bank, tilemap.address, 49)
-        pose = Image.new("RGBA", (56, 56))
-        for index, tile_id in enumerate(tile_ids):
-            pose.paste(
-                gengar_tiles[tile_id],
-                ((index % 7) * 8, (index // 7) * 8))
-        pose = _matte_color0(pose)
-        _save_png(
-            pose, os.path.join(
-                assets_dir, "intro", f"gengar_{number}.png"))
+    # Yellow replaces the Gengar/Nidorino fight intro (no FightIntro* symbols).
+    # Still emit the Red/Blue asset paths so Title/Intro loaders stay happy.
+    if _has_symbol(symbols, "FightIntroBackMon"):
+        gengar = _symbol(symbols, "FightIntroBackMon")
+        gengar_raw = rom.bytes(gengar.bank, gengar.address, 96 * 16)
+        gengar_tiles = [
+            _decode_2bpp(gengar_raw[index:index + 16], 8, 8)
+            for index in range(0, len(gengar_raw), 16)
+        ]
+        for number in (1, 2, 3):
+            tilemap = _symbol(symbols, f"GengarIntroTiles{number}")
+            tile_ids = rom.bytes(tilemap.bank, tilemap.address, 49)
+            pose = Image.new("RGBA", (56, 56))
+            for index, tile_id in enumerate(tile_ids):
+                pose.paste(
+                    gengar_tiles[tile_id],
+                    ((index % 7) * 8, (index // 7) * 8))
+            pose = _matte_color0(pose)
+            _save_png(
+                pose, os.path.join(
+                    assets_dir, "intro", f"gengar_{number}.png"))
+    else:
+        blank = Image.new("RGBA", (56, 56), (0, 0, 0, 0))
+        for number in (1, 2, 3):
+            _save_png(
+                blank, os.path.join(
+                    assets_dir, "intro", f"gengar_{number}.png"))
 
-    for number, label in enumerate((
-            "FightIntroFrontMon", "FightIntroFrontMon2",
-            "FightIntroFrontMon3"), start=1):
-        raw_2bpp(
-            label, 48, 48, f"intro/red_nidorino_{number}.png",
-            transparent=True, columns=True)
+    if _has_symbol(symbols, "FightIntroFrontMon"):
+        for number, label in enumerate((
+                "FightIntroFrontMon", "FightIntroFrontMon2",
+                "FightIntroFrontMon3"), start=1):
+            raw_2bpp(
+                label, 48, 48, f"intro/red_nidorino_{number}.png",
+                transparent=True, columns=True)
+    else:
+        blank = Image.new("RGBA", (48, 48), (255, 255, 255, 0))
+        for number in (1, 2, 3):
+            _save_png(
+                blank, os.path.join(
+                    assets_dir, "intro", f"red_nidorino_{number}.png"))
 
     for number in (1, 2):
         _write_compressed_pic(
@@ -1864,10 +2067,16 @@ def build(rom, symbols, manifest, out_dir, assets_dir, datasets):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rom", required=True, help="canonical Pokemon Red ROM")
     parser.add_argument(
-        "--manifest",
-        default=os.path.join(os.path.dirname(__file__), "rom_manifest.json"))
+        "--rom", required=True,
+        help="canonical US Pokemon Red, Blue, or Yellow ROM")
+    parser.add_argument(
+        "--version", choices=sorted(VERSION_MANIFESTS), default="red",
+        help="select the shipped manifest for this version (default: red)")
+    parser.add_argument(
+        "--manifest", default=None,
+        help="explicit manifest path (overrides --version default path; "
+             "RomImage hash still comes from the file's romSha1)")
     parser.add_argument("--out", default="data/generated")
     parser.add_argument("--assets", default="assets/generated")
     parser.add_argument("--clean", action="store_true")
@@ -1877,8 +2086,13 @@ def main():
     args = parser.parse_args()
 
     try:
-        manifest = load_manifest(args.manifest)
-        rom = RomImage(args.rom, manifest["romSha1"])
+        manifest_explicit = args.manifest is not None
+        manifest_path = resolve_manifest_path(args.version, args.manifest)
+        manifest = load_manifest(manifest_path)
+        version = version_for_manifest(
+            manifest, args.version, manifest_explicit=manifest_explicit)
+        expected_sha1 = manifest.get("romSha1") or VERSION_SHA1[version]
+        rom = RomImage(args.rom, expected_sha1)
         symbols = SymbolTable(manifest["symbols"])
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1896,7 +2110,8 @@ def main():
     except (ValueError, KeyError, IndexError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    print(f"\ndone: decoded {', '.join(datasets)} from ROM {rom.sha1}")
+    print(
+        f"\ndone: decoded {', '.join(datasets)} from {version} ROM {rom.sha1}")
     return 0
 
 

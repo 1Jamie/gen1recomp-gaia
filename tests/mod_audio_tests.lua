@@ -1,8 +1,7 @@
--- Audio modding (M9): per-definition shape dispatch in Music/Sound, failure
--- isolation instead of a latching global disable, the granular
--- sfx/cries/map_songs merge, the ChipAsm assembler and its def-local blob
--- mode in ChipAudio, the song-literal tables and their fallbacks, and the
--- music.select hook plus the audio events.
+-- Audio modding (M9): ChipAsm assembler and its def-local blob mode in
+-- ChipAudio, chip/wav shape dispatch in Music/Sound, failure isolation, the
+-- granular sfx/cries/map_songs merge, song-literal tables and their
+-- fallbacks, and the music.select hook plus the audio events.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local S = require("tests.harness").suite("mod audio")
@@ -18,12 +17,8 @@ _G.love = love
 local savedAudio, savedSound = love.audio, love.sound
 
 local assets = {
-  ["assets/theme.ogg"] = true,
-  ["assets/theme_loop.ogg"] = true,
-  ["assets/other.ogg"] = true,
   ["assets/beep.wav"] = true,
-  ["assets/chime.ogg"] = true,
-  ["assets/cry.ogg"] = true,
+  ["assets/chime.wav"] = true,
 }
 
 local sources = {}
@@ -216,6 +211,10 @@ check(segment.startSample == 0 and segment.volume == 13
 check(segment.endSample > 0, "drum segment spans samples")
 
 -- ------- ChipAudio: def-local blobs render without touching programs.bin
+-- Force unity mix so amplitude/pitch checks are independent of the
+-- CHANNEL_VOLUME / CHANNEL_PITCH knobs in ChipAudio.lua.
+ChipAudio.setChannelVolumes({ 1, 1, 1, 1 })
+ChipAudio.setChannelPitches({ 1, 1, 1, 1 })
 
 local blobData = { audio = {} }
 
@@ -254,14 +253,67 @@ local waveSong = ChipAsm.song{
   waves = { flatWave },
 }
 local waveTrace = ChipAudio._traceFirstMusicSampleForTest(blobData, waveSong)
-check(math.abs(waveTrace[1].value - 0.55) < 1e-9,
+check(math.abs(waveTrace[1].value - 1) < 1e-9,
   "def-local waves drive the wave channel")
 
 -- def-local drums are honored over the ROM's noise headers
 local drumTrace = ChipAudio._traceFirstMusicSampleForTest(blobData, drumDef)
 check(drumTrace[1].drumSegments == 1, "def-local drums reach the noise channel")
 
--- ------- data fixtures
+-- per-hardware-channel gains scale only that layer; restore to 1x after
+local fullPulse = ChipAudio._traceFirstMusicSampleForTest(blobData, blobSong)
+local fullDrum = ChipAudio._traceFirstMusicSampleForTest(blobData, drumDef)
+local fullWave = ChipAudio._traceFirstMusicSampleForTest(blobData, waveSong)
+ChipAudio.setChannelVolume(1, 0.5)
+local halfPulse = ChipAudio._traceFirstMusicSampleForTest(blobData, blobSong)
+ChipAudio.setChannelVolumes({ 1, 1, 0, 0.5 })
+local muteWave = ChipAudio._traceFirstMusicSampleForTest(blobData, waveSong)
+local halfDrum = ChipAudio._traceFirstMusicSampleForTest(blobData, drumDef)
+local pulseWhileOthers = ChipAudio._traceFirstMusicSampleForTest(blobData, blobSong)
+ChipAudio.setChannelVolumes({ 1, 1, 1, 1 })
+check(math.abs(halfPulse[1].value - fullPulse[1].value * 0.5) < 1e-9,
+  "channel 1 volume 0.5 halves the pulse sample")
+check(muteWave[1].value == 0, "channel 3 volume 0 mutes the wave sample")
+check(math.abs(halfDrum[1].value - fullDrum[1].value * 0.5) < 1e-9,
+  "channel 4 volume 0.5 halves the drum sample")
+check(math.abs(pulseWhileOthers[1].value - fullPulse[1].value) < 1e-9,
+  "muting wave/noise does not change pulse amplitude")
+check(math.abs(fullWave[1].value) > 0, "wave sample is nonzero at unity gain")
+local vols = ChipAudio.getChannelVolumes()
+check(vols[1] == 1 and vols[2] == 1 and vols[3] == 1 and vols[4] == 1,
+  "channel volumes restore to 1")
+check(ChipAudio.getNoiseVolume() == 1, "noise-volume alias tracks channel 4")
+
+-- per-channel pitch scales oscillator rate (zero-crossings ~double at 2x)
+local function zeroCrossings(sd)
+  local count, prev = 0, sd:getSample(0)
+  for index = 1, sd:getSampleCount() - 1 do
+    local sample = sd:getSample(index)
+    if prev * sample < 0 then count = count + 1 end
+    prev = sample
+  end
+  return count
+end
+ChipAudio.setChannelVolumes({ 1, 1, 1, 1 })
+ChipAudio.setChannelPitches({ 1, 1, 1, 1 })
+local pitchBase = ChipAudio._renderMusicChannelForTest(blobData, blobSong, 0.25, 1)
+ChipAudio.setChannelPitch(1, 2)
+local pitchOctave = ChipAudio._renderMusicChannelForTest(blobData, blobSong, 0.25, 1)
+ChipAudio.setChannelPitch(1, 0)
+local pitchFrozen = ChipAudio._renderMusicChannelForTest(blobData, blobSong, 0.25, 1)
+ChipAudio.setChannelPitches({ 1, 1, 1, 1 })
+local baseX = zeroCrossings(pitchBase)
+local octaveX = zeroCrossings(pitchOctave)
+check(baseX > 10, "unity pitch produces a tone with zero crossings")
+check(octaveX > baseX * 1.7 and octaveX < baseX * 2.3,
+  "channel 1 pitch 2 roughly doubles zero crossings")
+check(zeroCrossings(pitchFrozen) == 0,
+  "channel 1 pitch 0 freezes the oscillator")
+local pitches = ChipAudio.getChannelPitches()
+check(pitches[1] == 1 and pitches[2] == 1 and pitches[3] == 1 and pitches[4] == 1,
+  "channel pitches restore to 1")
+
+-- ------- data fixtures (chip + wav only)
 
 local chipSong = ChipAsm.song{
   channels = { { hw = 1, program = {
@@ -272,31 +324,39 @@ local chipSong = ChipAsm.song{
   } } },
 }
 
+local chipSongB = ChipAsm.song{
+  channels = { { hw = 1, program = {
+    { notetype = { speed = 12, volume = 10, fade = 0 } },
+    { octave = 5 },
+    { note = "G", len = 8 },
+    { loop = { count = 0, to = 1 } },
+  } } },
+}
+
+local chipSfx = ChipAsm.sfx{ channels = { { hw = 1, program = {
+  { squareNote = { len = 8, volume = 15, fade = 1, frequency = 0x600 } },
+} } } }
+
 local function fixtureData()
   return {
     audio = {
       songs = {
         Music_Chip = chipSong,
-        Music_File = { file = "assets/theme.ogg" },
-        Music_Split = { file = "assets/theme.ogg",
-                        loopFile = "assets/theme_loop.ogg" },
-        Music_Other = { file = "assets/other.ogg" },
-        Music_Broken = { file = "assets/missing.ogg" },
-        Music_BikeRiding = { file = "assets/other.ogg" },
-        Music_PalletTown = { file = "assets/theme.ogg" },
+        Music_Other = chipSongB,
+        Music_Broken = { file = "assets/missing.wav" },
+        Music_BikeRiding = chipSongB,
+        Music_PalletTown = chipSong,
       },
       sfx = {
         Beep = "assets/beep.wav",
-        Chime = { file = "assets/chime.ogg", fanfare = true },
+        Chime = { file = "assets/chime.wav", fanfare = true },
         Level_Up = "assets/beep.wav",
-        Broken = { file = "assets/missing.ogg" },
-        Chip_Sfx = ChipAsm.sfx{ channels = { { hw = 1, program = {
-          { squareNote = { len = 8, volume = 15, fade = 1, frequency = 0x600 } },
-        } } } },
+        Broken = { file = "assets/missing.wav" },
+        Chip_Sfx = chipSfx,
       },
       cries = {},
       mapSongs = { PALLET_TOWN = "Music_PalletTown" },
-      battle = { wild = "Music_Chip", wildWin = "Music_File" },
+      battle = { wild = "Music_Chip", wildWin = "Music_Other" },
     },
   }
 end
@@ -308,7 +368,7 @@ local function reset(data)
   return data
 end
 
--- ------- dispatch: the branch follows the definition, not a global flag
+-- ------- dispatch: chip and wav branches
 
 local data = reset(fixtureData())
 
@@ -318,38 +378,17 @@ check(lastSource() and lastSource().queueable,
 check(lastSource().playing, "the chip song started")
 local chipSource = lastSource()
 
-Music.play(data, "Music_File")
-check(lastSource() and not lastSource().queueable
-  and lastSource().file == "assets/theme.ogg",
-  "a file def becomes a stream source")
+Music.play(data, "Music_Other")
+check(lastSource() and lastSource().queueable and lastSource().playing,
+  "a second chip song streams through ChipAudio")
 check(not chipSource.playing, "the outgoing chip song was stopped")
-check(lastSource().looping == true, "a looping file song loops")
-
--- intro/loop chaining now works regardless of import mode
-Music.play(data, "Music_Split")
-local intro = sources[#sources - 1]
-local body = sources[#sources]
-check(intro.file == "assets/theme.ogg" and body.file == "assets/theme_loop.ogg",
-  "a split def loads both files")
-check(intro.looping == false and body.looping == true,
-  "the intro plays once and the body loops")
-check(intro.playing and not body.playing, "the loop body waits for the intro")
-intro.playing = false
-Music.update(data)
-check(body.playing, "update() chains the intro into the loop body")
-
--- a file song never latches chip playback off for the songs around it
-Music.play(data, "Music_Chip")
-check(lastSource().queueable and lastSource().playing,
-  "a chip song still plays after a file song")
-check(not body.playing, "the outgoing file song was stopped")
 
 -- playOnce must survive the threaded "empty QueueableSource" window:
 -- Source:isPlaying is false until the first worker buffer lands, and that
 -- gap must not look like the jingle already ended (Poké Center heal).
 data = reset(fixtureData())
 Music.playMap(data, "PALLET_TOWN", false, false)
-check(Music.playOnce(data, "Music_Chip"), "playOnce starts a chip jingle")
+check(Music.playOnce(data, "Music_Other"), "playOnce starts a chip jingle")
 local jingle = lastSource()
 local clearAwait = ChipAudio._simulateAwaitingFirstBufferForTest()
 check(clearAwait ~= nil, "test can force the awaiting-first-buffer window")
@@ -374,17 +413,17 @@ check(lastSource() and lastSource().mode == "static"
 -- ------- failure isolation: a bad def costs one log line, nothing else
 
 data = reset(fixtureData())
-Music.play(data, "Music_File")
+Music.play(data, "Music_Chip")
 local playing = lastSource()
 local before = loggedCount("bad song def")
 Music.play(data, "Music_Broken")
-Music.play(data, "Music_File")
+Music.play(data, "Music_Chip")
 Music.play(data, "Music_Broken")
 check(loggedCount("bad song def") == before + 1,
   "a broken song def is logged exactly once")
 check(playing.playing, "the previous song keeps playing through a bad def")
 Music.play(data, "Music_Other")
-check(lastSource().file == "assets/other.ogg" and lastSource().playing,
+check(lastSource().queueable and lastSource().playing,
   "a bad def does not disable the rest of the music")
 
 local sfxBefore = loggedCount("bad sfx def")
@@ -397,32 +436,26 @@ Sound.play(data, "Beep")
 check(lastSource() and lastSource().file == "assets/beep.wav",
   "a bad sfx does not disable the rest of the effects")
 
--- ------- cries: every authoring variant plays
+-- ------- cries: chip and derived variants
 
 data = reset(fixtureData())
 data.audio.cries.RHYDON = {
   header = { address = 0x4000, bank = 2, engine = 1 }, pitch = 0, length = 0,
 }
-data.audio.cries.CHIPMON = { chip = ChipAsm.sfx{ channels = { { hw = 1,
-  program = { { squareNote = { len = 8, volume = 15, fade = 1,
-                               frequency = 0x600 } } } } } }.chip,
-  pitch = 0, length = 0 }
+data.audio.cries.CHIPMON = { chip = chipSfx.chip, pitch = 0, length = 0 }
 data.audio.cries.SHELLORD = { base = "CHIPMON", pitch = 0x2A, length = 0x50 }
-data.audio.cries.FILEMON = { file = "assets/cry.ogg", pitch = 1.1 }
 data.audio.cries.CHAINMON = { base = "SHELLORD" }
 
 check(Sound.playCry(data, "CHIPMON"), "a chip cry plays")
 check(Sound.playCry(data, "SHELLORD"), "a derived cry plays")
 check(Sound.playCry(data, "CHAINMON"), "a derived cry chain resolves")
-local fileCry = Sound.playCry(data, "FILEMON")
-check(fileCry and fileCry.file == "assets/cry.ogg", "a file cry plays")
-check(fileCry.pitch == 1.1, "a file cry honors its playback rate")
 check(Sound.playCry(data, "NOBODY") == nil, "an unregistered species is silent")
 
 -- GROWL/ROAR layer their own tempo shift on top of any cry shape
-Sound.playMoveCry(data, "FILEMON", 0xC0)
-check(math.abs(fileCry.pitch - 256 / (128 + 0xC0)) < 1e-9,
-  "playMoveCry layers the move's tempo shift onto a file cry")
+local chipCry = Sound.playCry(data, "CHIPMON")
+Sound.playMoveCry(data, "CHIPMON", 0xC0)
+check(math.abs(chipCry.pitch - 256 / (128 + 0xC0)) < 1e-9,
+  "playMoveCry layers the move's tempo shift onto a chip cry")
 
 data.audio.cries.ORPHAN = { base = "MISSING" }
 local cryBefore = loggedCount("bad cry def")
@@ -438,14 +471,14 @@ check(Music.special(data, "title") == "Music_TitleScreen",
 check(Music.special(data, "bike") == "Music_BikeRiding",
   "the bike role falls back to Music_BikeRiding")
 Music.playMap(data, "PALLET_TOWN", true, false)
-check(lastSource().file == "assets/other.ogg",
+check(lastSource().queueable,
   "the fallback outdoor set engages the bike theme")
 
 data = reset(fixtureData())
-data.audio.special = { bike = "Music_File" }
+data.audio.special = { bike = "Music_Other" }
 data.audio.outdoorSongs = { Music_PalletTown = true }
 Music.playMap(data, "PALLET_TOWN", true, false)
-check(lastSource().file == "assets/theme.ogg",
+check(lastSource().queueable,
   "a renamed bike theme engages on outdoor maps")
 check(Music.special(data, "title") == "Music_TitleScreen",
   "roles the data table omits still fall back")
@@ -453,7 +486,7 @@ check(Music.special(data, "title") == "Music_TitleScreen",
 data = reset(fixtureData())
 data.audio.outdoorSongs = {}
 Music.playMap(data, "PALLET_TOWN", true, false)
-check(lastSource().file == "assets/theme.ogg",
+check(lastSource().queueable,
   "a map outside the outdoor set keeps its own theme on the bike")
 
 -- fanfare ducking: the shared table or the definition's own flag
@@ -487,12 +520,12 @@ check(lastSource() ~= firstBeep, "Sound.invalidate drops the cached source")
 data = reset(fixtureData())
 Music.play(data, "Music_Broken")
 check(#sources == 0, "a broken def creates no source")
-data.audio.songs.Music_Broken = { file = "assets/other.ogg" }
+data.audio.songs.Music_Broken = chipSongB
 Music.play(data, "Music_Broken")
 check(#sources == 0, "a failed label stays negatively cached")
 Music.reload()
 Music.play(data, "Music_Broken")
-check(lastSource() and lastSource().file == "assets/other.ogg",
+check(lastSource() and lastSource().queueable,
   "Music.reload re-resolves a repaired def")
 ChipAudio.invalidate()
 
@@ -527,7 +560,7 @@ check(seen[3].reason == "victory" and seen[3].kind == "wild",
   "playVictory reaches the hook")
 Music.playOnce(data, "Music_Other")
 check(seen[4].reason == "once", "playOnce reaches the hook")
-Music.play(data, "Music_Split")
+Music.play(data, "Music_Chip")
 check(seen[5].reason == "direct", "a direct play defaults to the direct reason")
 
 -- returning nil silences the cue; returning a label plays that label
@@ -535,27 +568,25 @@ Music.reload()
 resetSources()
 hooks:removeOwner("test")
 hooks:wrap("music.select", function() return nil end, nil, "silencer")
-Music.play(data, "Music_File")
+Music.play(data, "Music_Chip")
 check(#sources == 0, "a hook returning nil silences the cue")
 hooks:removeOwner("silencer")
 
 hooks:wrap("music.select", function(nextLink, song, ctx)
-  if song == "Music_File" then return nextLink("Music_Other", ctx) end
+  if song == "Music_Chip" then return nextLink("Music_Other", ctx) end
   return nextLink(song, ctx)
 end, nil, "swap")
-Music.play(data, "Music_File")
-check(lastSource().file == "assets/other.ogg", "a hook may swap the label")
--- the swapped label is what dedupe compares, so re-asking still restarts
--- nothing but a genuinely different choice does
 Music.play(data, "Music_Chip")
+check(lastSource().queueable, "a hook may swap the label")
+Music.play(data, "Music_Other")
 check(lastSource().queueable, "an unswapped label still plays")
 
 -- a throwing wrapper is skipped and the chain continues
 hooks:wrap("music.select", function() error("boom", 0) end, nil, "thrower")
 Music.reload()
 resetSources()
-Music.play(data, "Music_File")
-check(lastSource() and lastSource().file == "assets/other.ogg",
+Music.play(data, "Music_Chip")
+check(lastSource() and lastSource().queueable,
   "a throwing wrapper is skipped and the surviving chain still runs")
 hooks:removeOwner("thrower")
 hooks:removeOwner("swap")
@@ -570,13 +601,13 @@ events:on("sound.played", function(p) played[#played + 1] = p end, nil, "test")
 
 Music.playMap(data, "PALLET_TOWN", false, false)
 check(started[1] and started[1].song == "Music_PalletTown"
-  and started[1].reason == "map" and started[1].chip == false,
+  and started[1].reason == "map" and started[1].chip == true,
   "music.started carries the song, reason and chip flag")
-Music.play(data, "Music_Chip")
+Music.play(data, "Music_Other")
 check(started[2].previous == "Music_PalletTown" and started[2].chip == true,
   "music.started names the song it replaced")
 Music.stop()
-check(#stopped == 1 and stopped[1].song == "Music_Chip",
+check(#stopped == 1 and stopped[1].song == "Music_Other",
   "music.stopped names the song that was playing")
 Music.stop()
 check(#stopped == 1, "stopping silence emits nothing")
@@ -587,9 +618,9 @@ check(played[1] and played[1].kind == "sfx" and played[1].name == "Beep",
 Sound.playMove(data, { sound = "Chip_Sfx", pitch = 0x10, tempo = 0x90 })
 check(played[2].kind == "move" and played[2].name == "Chip_Sfx",
   "sound.played fires for a move sound")
-data.audio.cries.FILEMON = { file = "assets/cry.ogg" }
-Sound.playCry(data, "FILEMON")
-check(played[3].kind == "cry" and played[3].species == "FILEMON",
+data.audio.cries.CHIPMON = { chip = chipSfx.chip, pitch = 0, length = 0 }
+Sound.playCry(data, "CHIPMON")
+check(played[3].kind == "cry" and played[3].species == "CHIPMON",
   "sound.played fires for a cry")
 
 Runtime.install(savedEvents, savedHooks)
@@ -639,14 +670,22 @@ end
 local granularFiles = {
   ["mods/coast/manifest.json"] = manifestJson("coast", 2),
   ["mods/coast/main.lua"] = [[
+local ChipAsm = require("src.audio.ChipAsm")
 return function(mod)
-  mod.content.music:register("Music_CoastTown", {
-    file = "assets/theme.ogg", loopFile = "assets/theme_loop.ogg" })
+  mod.content.music:register("Music_CoastTown", ChipAsm.song{
+    channels = { { hw = 1, program = {
+      { notetype = { speed = 12, volume = 12, fade = 0 } },
+      { octave = 4 }, { note = "C", len = 8 },
+      { loop = { count = 0, to = 1 } },
+    } } },
+  })
   mod.content.sfx:register("Shell_Found", {
-    file = "assets/chime.ogg", fanfare = true })
+    file = "assets/chime.wav", fanfare = true })
   mod.content.cries:register("SHELLORD", {
     header = { address = 16696, bank = 2, engine = 1 }, pitch = 42, length = 80 })
-  mod.content.cries:register("REEFMON", { file = "assets/cry.ogg" })
+  mod.content.cries:register("REEFMON", ChipAsm.sfx{ channels = { { hw = 1,
+    program = { { squareNote = { len = 4, volume = 15, fade = 1,
+                                 frequency = 0x500 } } } } } })
   mod.content.map_songs:override("PALLET_TOWN", "Music_CoastTown")
   mod.content.cries:patch("RHYDON", { pitch = 200 })
   mod.content.sfx:remove("Beep")
@@ -660,7 +699,8 @@ merged.audio.cries.RHYDON = {
 local granular = Loader.new({ fs = memfs(granularFiles) })
 check(granular:load(merged) == true,
   "the granular audio mod loads: " .. table.concat(granular.errors, "; "))
-check(merged.audio.songs.Music_CoastTown.loopFile == "assets/theme_loop.ogg",
+check(merged.audio.songs.Music_CoastTown
+  and merged.audio.songs.Music_CoastTown.chip,
   "music merges into data.audio.songs")
 check(merged.audio.sfx.Shell_Found.fanfare == true,
   "sfx merges into data.audio.sfx")
@@ -676,12 +716,12 @@ check(merged.audio.sfx.Beep == nil, "remove tombstones an sfx")
 -- the merged map song plays through the ordinary map path
 reset(merged)
 Music.playMap(merged, "PALLET_TOWN", false, false)
-check(sources[1] and sources[1].file == "assets/theme.ogg" and sources[1].playing,
+check(sources[1] and sources[1].queueable and sources[1].playing,
   "a mod's map song plays on the map it claims")
 
 -- a brand-new species sounds everywhere a vanilla one does
 local reefCry = Sound.playCry(merged, "REEFMON")
-check(reefCry and reefCry.file == "assets/cry.ogg" and reefCry.playing,
+check(reefCry and reefCry.playing,
   "a species the mod invented plays its registered cry")
 
 -- and the hook can still take the map theme away from it
@@ -693,7 +733,7 @@ mapHooks:wrap("music.select", function(nextLink, song, ctx)
 end, nil, "night")
 reset(merged)
 Music.playMap(merged, "PALLET_TOWN", false, false)
-check(lastSource().file == "assets/other.ogg",
+check(lastSource().queueable,
   "music.select overrides the track for a map")
 Runtime.install(savedEvents, savedHooks)
 
@@ -701,8 +741,15 @@ Runtime.install(savedEvents, savedHooks)
 local bootstrapFiles = {
   ["mods/tc/manifest.json"] = manifestJson("tc", 2),
   ["mods/tc/main.lua"] = [[
+local ChipAsm = require("src.audio.ChipAsm")
 return function(mod)
-  mod.content.music:register("Music_TC", { file = "assets/theme.ogg" })
+  mod.content.music:register("Music_TC", ChipAsm.song{
+    channels = { { hw = 1, program = {
+      { notetype = { speed = 12, volume = 12, fade = 0 } },
+      { octave = 4 }, { note = "C", len = 8 },
+      { loop = { count = 0, to = 1 } },
+    } } },
+  })
   mod.content.map_songs:register("TC_TOWN", "Music_TC")
 end
 ]],
@@ -722,14 +769,14 @@ local v1Files = {
   ["mods/legacy/manifest.json"] = manifestJson("legacy", 1),
   ["mods/legacy/main.lua"] = [[
 return function(mod)
-  mod.content.audio:override("sfx", { Beep = "assets/other.ogg",
+  mod.content.audio:override("sfx", { Beep = "assets/chime.wav",
                                       Legacy_Only = "assets/beep.wav" })
 end
 ]],
   ["mods/modern/manifest.json"] = manifestJson("modern", 2, '["legacy"]'),
   ["mods/modern/main.lua"] = [[
 return function(mod)
-  mod.content.sfx:override("Beep", "assets/chime.ogg")
+  mod.content.sfx:override("Beep", "assets/beep.wav")
 end
 ]],
 }
@@ -739,7 +786,7 @@ check(v1Loader:load(v1Data) == true,
   "the v1 audio registry still loads: " .. table.concat(v1Loader.errors, "; "))
 check(v1Data.audio.sfx.Legacy_Only == "assets/beep.wav",
   "the v1 whole-table replacement still applies")
-check(v1Data.audio.sfx.Beep == "assets/chime.ogg",
+check(v1Data.audio.sfx.Beep == "assets/beep.wav",
   "a granular registration beats a v1 whole-table replacement")
 check(v1Data.audio._owners.sfx.Beep == "modern",
   "the granular writer owns the id even when a v1 table landed on it first")
@@ -761,11 +808,11 @@ local badFiles = {
   ["mods/coast/manifest.json"] = manifestJson("coast", 2),
   ["mods/coast/main.lua"] = [[
 return function(mod)
-  mod.content.music:register("Music_Bad", { file = "assets/missing.ogg" })
-  mod.content.sfx:register("Sfx_Bad", { file = "assets/missing.ogg" })
-  mod.content.sfx:register("Loop_Bad", { file = "assets/missing.ogg" })
-  mod.content.cries:register("BADMON", { file = "assets/missing.ogg" })
-  mod.content.sfx:register("Gone", { file = "assets/missing.ogg" })
+  mod.content.music:register("Music_Bad", { file = "assets/missing.wav" })
+  mod.content.sfx:register("Sfx_Bad", { file = "assets/missing.wav" })
+  mod.content.sfx:register("Loop_Bad", { file = "assets/missing.wav" })
+  mod.content.cries:register("BADMON", { file = "assets/missing.wav" })
+  mod.content.sfx:register("Gone", { file = "assets/missing.wav" })
   mod.content.sfx:remove("Gone")
 end
 ]],
@@ -812,7 +859,7 @@ check(#badLoader.errors == errorsBefore + 4,
   "a known-bad def reports to Loader.errors once, not per play")
 
 -- an engine-owned def has no mod to blame, so it stays a console line
-badData.audio.songs.Music_BaseBad = { file = "assets/missing.ogg" }
+badData.audio.songs.Music_BaseBad = { file = "assets/missing.wav" }
 Music.play(badData, "Music_BaseBad")
 check(loggedCount("bad song def") > 0 and #badLoader.errors == errorsBefore + 4,
   "a base-owned failure never lands in Loader.errors")

@@ -35,14 +35,15 @@ function DexEntryMenu.new(game, speciesOrOpts)
   local species, forceOwned = resolveArgs(speciesOrOpts)
   local self = setmetatable({ game = game, forceOwned = forceOwned }, DexEntryMenu)
   self.def = game.data.pokemon[species]
-  local path = require("src.pokemon.Sprites").path(game.data, species, "front",
-    { kind = "dex" })
+  local path, trueColor = require("src.pokemon.Sprites").path(
+    game.data, species, "front", { kind = "dex" })
   -- `path and pcall(...)` truncates to one value, so img was always nil and
   -- every dex page drew without its pic (#307); the guard has to be a
   -- statement for pcall's second return to survive.
   local ok, img = false, nil
   if path then ok, img = pcall(love.graphics.newImage, path) end
   self.sprite = ok and img or nil
+  self.spriteTrueColor = self.sprite and trueColor or false
   require("src.core.Sound").playCry(game.data, species)
   return self
 end
@@ -55,11 +56,26 @@ function DexEntryMenu:update(dt)
 end
 
 function DexEntryMenu:draw()
+  DexEntryMenu.render(self.game, self.def, self.sprite, self.forceOwned,
+                      self.spriteTrueColor)
+end
+
+-- Static entry-page renderer, shared with the printer stand-in
+-- (src/core/Printer.lua renders the same page into a PNG the way
+-- PrintPokedexEntry rendered it to the Game Boy Printer).
+function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
-  local def = self.def
-  if self.sprite then
-    love.graphics.draw(self.sprite, 8, math.max(0, 60 - self.sprite:getHeight()))
+  if sprite then
+    local y = math.max(0, 60 - sprite:getHeight())
+    love.graphics.draw(sprite, 8, y)
+    -- a full-color pic has to sit out the SGB recolor, so mark its bounds
+    -- for the unshaded pass (#350).  The printer path leaves trueColor nil:
+    -- it renders to its own PNG canvas, and a mark left behind there would
+    -- bleed into the next real frame.
+    if trueColor then
+      require("src.render.PaletteFX").markTrueColor(8, y, sprite:getDimensions())
+    end
   end
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(def.name, 72, 8)
@@ -70,10 +86,10 @@ function DexEntryMenu:draw()
   Font.draw(e.kind or "?", 72, 20)
   -- same number width as the list (constants.dexDigits), so a dex past 999
   -- prints the extra digit everywhere at once
-  local digits = (self.game.data.constants or {}).dexDigits or 3
+  local digits = (game.data.constants or {}).dexDigits or 3
   Font.draw(("No.%0" .. digits .. "d"):format(def.dex or 0), 72, 32)
-  local owned = self.forceOwned
-    or (self.game.save.pokedex and self.game.save.pokedex.owned[def.id])
+  local owned = forceOwned
+    or (game.save.pokedex and game.save.pokedex.owned[def.id])
   -- height/weight print only once owned, like the description
   -- (pokedex.asm: "if the pokemon has not been owned, don't print the
   -- height, weight, or description")
@@ -84,7 +100,7 @@ function DexEntryMenu:draw()
     Font.draw(Strings("HT %d′%02d″", e.heightFt, e.heightIn or 0), 72, 44)
     Font.draw(Strings("WT %.1flb", (e.weight or 0) / 10), 72, 54)
   end
-  local text = owned and e.text and self.game.data.text[e.text] or nil
+  local text = owned and e.text and game.data.text[e.text] or nil
   local y = 72
   if text then
     for line in (text:gsub("\v", "\n"):gsub("\f", "\n") .. "\n"):gmatch("(.-)\n") do

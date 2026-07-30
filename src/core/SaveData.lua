@@ -24,10 +24,11 @@ local GameVersion = require("src.core.GameVersion")
 
 local SaveData = {}
 
--- Progress files carry the game-version suffix so Red and Blue saves coexist:
--- Red keeps save.lua / .bak / .tmp exactly as before; Blue is save_blue.lua
--- (+ .bak/.tmp).  options.lua is deliberately shared across versions (it holds
--- global preferences and the mod enable-state, not per-playthrough data).
+-- Progress files carry the game-version suffix so Red / Blue / Yellow saves
+-- coexist: Red keeps save.lua / .bak / .tmp exactly as before; Blue is
+-- save_blue.lua and Yellow is save_yellow.lua (+ .bak/.tmp).  options.lua is
+-- deliberately shared across versions (it holds global preferences and the
+-- mod enable-state, not per-playthrough data).
 local OPTIONS_FILENAME = "options.lua"
 
 -- Main / backup / staged-witness names for a version (defaults to the active
@@ -109,11 +110,14 @@ local function makePortableFs(dir)
   }
 end
 
-local function detectPortable()
-  if portableChecked then return portableBase end
-  portableChecked = true
-  portableBase = false
-  if not (love and love.filesystem) then return false end
+-- Every folder a player might reasonably call "the game folder", best first:
+-- the packaged-app container, the folder holding the executable, then the
+-- source itself.  Portable mode is the case where one of these holds the
+-- marker; the list itself is just locations, marker or not, which is also
+-- what the mods panel needs to notice a mod dropped beside the game by hand
+-- (LauncherMods.strays).  Empty on Android/iOS and outside LOVE.
+function SaveData.gameFolders()
+  if not (love and love.filesystem) then return {} end
   -- Desktop only: portable mode carries the save (and, since issue #74, the
   -- ROM cache) in the game folder next to the executable/source.  On
   -- Android/iOS the source is a read-only package with no such folder, so
@@ -121,7 +125,7 @@ local function detectPortable()
   if love.system and love.system.getOS then
     local osName = love.system.getOS()
     if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
-      return false
+      return {}
     end
   end
   local src = love.filesystem.getSource and love.filesystem.getSource()
@@ -149,15 +153,24 @@ local function detectPortable()
   -- Order: the packaged-app containing folder (macOS .app / Linux AppImage),
   -- then the source-base directory (next to a packaged .exe), then the source
   -- itself (a `love <gamedir>` run drops portable.txt in the game folder).
-  -- First one holding the marker wins.  Built by appending so a nil (e.g. no
-  -- .app in the path) never truncates the ipairs scan.
+  -- Built by appending so a nil (e.g. no .app in the path) never truncates
+  -- the ipairs scan.
   local candidates = {}
   local appDir = appContainer(src) or appContainer(sbd) or appImageContainer()
   if appDir then candidates[#candidates + 1] = appDir end
-  if sbd then candidates[#candidates + 1] = sbd end
-  if src then candidates[#candidates + 1] = src end
-  for _, base in ipairs(candidates) do
-    if base ~= "" and pathExists(base .. SEP .. PORTABLE_MARKER) then
+  if sbd and sbd ~= "" then candidates[#candidates + 1] = sbd end
+  if src and src ~= "" then candidates[#candidates + 1] = src end
+  return candidates
+end
+
+-- The game folder carrying portable.txt, or false.  First candidate holding
+-- the marker wins.
+local function detectPortable()
+  if portableChecked then return portableBase end
+  portableChecked = true
+  portableBase = false
+  for _, base in ipairs(SaveData.gameFolders()) do
+    if pathExists(base .. SEP .. PORTABLE_MARKER) then
       portableBase = base
       break
     end
@@ -323,8 +336,9 @@ end
 -- under options.saveSlots[version]; the active slot is also cached
 -- process-wide (like GameVersion.current) so the hot saveNames path does
 -- not re-read options every call.  A false cache entry means "no slot in
--- use" and the flat legacy path (save.lua / save_blue.lua) is used, which
--- keeps a brand-new install and every pre-slots caller working unchanged.
+-- use" and the flat legacy path (save.lua / save_blue.lua / save_yellow.lua)
+-- is used, which keeps a brand-new install and every pre-slots caller
+-- working unchanged.
 local activeSlotCache = {}   -- version -> slotId in use, or false when none
 local slotsChecked = {}      -- version -> true once resolved this process
 
@@ -336,17 +350,18 @@ local function slotNames(version, id)
 end
 
 -- the pre-slots flat names a version always used (save.lua for Red,
--- save_blue.lua for Blue); still the destination before any slot exists
+-- save_blue.lua / save_yellow.lua for the others); still the destination
+-- before any slot exists
 local function legacyNames(version)
   local main = "save" .. GameVersion.saveSuffix(version) .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
 
 -- Slot resolution is only meaningful for versions GameVersion actually knows
--- (red/blue).  The launcher also renders a locked placeholder tab ("yellow")
--- that has no info entry and therefore no saveSuffix; resolving its legacy
--- names would index a nil info table and crash.  Treat any unknown version as
--- having no slots so the slot APIs degrade to empty/no-op instead.
+-- (red / blue / yellow).  An unknown id has no info entry and therefore no
+-- saveSuffix; resolving its legacy names would index a nil info table and
+-- crash.  Treat any unknown version as having no slots so the slot APIs
+-- degrade to empty/no-op instead.
 local function knownVersion(version)
   return GameVersion.info(version) ~= nil
 end
@@ -892,7 +907,7 @@ end)
 -- a .tmp witness before the swap, so a crash mid-write is recoverable.
 function SaveData.save(data, mods)
   -- write to the file matching this save's own version, not just the active
-  -- one, so a Blue playthrough always lands in save_blue.lua
+  -- one, so Blue/Yellow playthroughs land in save_blue.lua / save_yellow.lua
   local FILENAME, BACKUP_FILENAME, TMP_FILENAME = saveNames(data.version)
   if data.options then
     SaveData.saveOptions(data.options)

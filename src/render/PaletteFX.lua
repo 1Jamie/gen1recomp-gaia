@@ -78,8 +78,11 @@ PaletteFX.GBC_OBJ_BLUE = {
 -- playthrough, red otherwise.  White (index 1) and black (index 4) are
 -- identical across versions, so callers that only touch the endpoints
 -- (e.g. BattleState's zone white/black snap) need no version branch.
+-- Yellow is CGB-enhanced (pokeyellow CGBBasePalettes) and has no extracted
+-- boot-ROM auto-palette here; keep the Red ramp -- never Blue's GBC_BG_BLUE.
 function PaletteFX.ogBg()
   if GameVersion.isBlue() then return PaletteFX.GBC_BG_BLUE end
+  if GameVersion.isYellow() then return PaletteFX.GBC_BG end
   return PaletteFX.GBC_BG
 end
 
@@ -88,8 +91,10 @@ end
 -- version-distinct cache-group string, because SpriteRenderer.getObpImage keys
 -- its baked-image cache by (image path, group): a shared group would collide a
 -- Red bake with a Blue one and one version would show the other's colors.
+-- Yellow: same Red OBJ green as above until Yellow-specific tables land.
 function PaletteFX.ogObj()
   if GameVersion.isBlue() then return PaletteFX.GBC_OBJ_BLUE, "gbcobj_blue" end
+  if GameVersion.isYellow() then return PaletteFX.GBC_OBJ, "gbcobj" end
   return PaletteFX.GBC_OBJ, "gbcobj"
 end
 
@@ -311,6 +316,9 @@ end
 -- Red-derived pokered-gbc pack, so under RED++ a Blue playthrough must
 -- read these from the ROM-imported table or the title ribbon stays red
 -- and the Game Corner reels keep Red's pink (issue #128).
+-- Yellow is intentionally NOT in BLUE_VERSIONED: skip Blue LOGO1/SLOTS*
+-- recolors.  When CGBBasePalettes were imported (palettes.cgbBase), Yellow
+-- prefers those over SGB SuperPalettes for named zones.
 local BLUE_VERSIONED = {
   LOGO1 = true, SLOTS2 = true, SLOTS3 = true, SLOTS4 = true,
 }
@@ -318,6 +326,11 @@ local BLUE_VERSIONED = {
 local function romNamedPal(data, name)
   local p = data and data.palettes
   return p and p.palettes and p.palettes[name]
+end
+
+local function yellowCgbNamedPal(data, name)
+  local p = data and data.palettes
+  return p and p.cgbBase and p.cgbBase[name]
 end
 
 -- named palette from the active pack (nil on stale builds / missing name).
@@ -329,9 +342,15 @@ end
 -- GBC_OBJ green), so this stays a BG-only hook.
 function PaletteFX.pal(data, name)
   if PaletteFX.mode == "ogred" then return PaletteFX.ogBg() end
+  -- Blue-only ROM override for versioned SuperPals.  Yellow (isYellow) and
+  -- Red keep the active pack / Red-like path -- do not apply Blue recolors.
   if GameVersion.isBlue() and BLUE_VERSIONED[name] then
     local fromRom = romNamedPal(data, name)
     if fromRom then return fromRom end
+  end
+  if GameVersion.isYellow() then
+    local fromCgb = yellowCgbNamedPal(data, name)
+    if fromCgb then return fromCgb end
   end
   local p = PaletteFX.pack(data)
   local c = p and p.palettes[name]
@@ -644,7 +663,10 @@ function PaletteFX.modeLabel(mode)
   mode = mode or PaletteFX.mode
   -- The GBC boot-ROM mode wears the running game's name: it is red for Red and
   -- blue for Blue (see ogBg), so a Blue playthrough shows "OG BLUE".
+  -- Yellow still uses the Red boot-ROM ramp (no Yellow table yet), so keep
+  -- the "OG RED" label rather than inventing an "OG YELLOW" without colors.
   if mode == "ogred" and GameVersion.isBlue() then return "OG BLUE" end
+  if mode == "ogred" and GameVersion.isYellow() then return "OG RED" end
   return PaletteFX.MODE_LABELS[mode] or "GBC"
 end
 

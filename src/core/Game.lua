@@ -90,10 +90,13 @@ function Game:load()
                     self.save.player.x, self.save.player.y, self.save.player.facing)
   else
     local titleState = self:makeTitleState()
-    -- the copyright splash + Nidorino-vs-Gengar attract movie plays
-    -- before the title (engine/movie/splash.asm + intro.asm); the ids come
-    -- from field.boot.screens so a total conversion owns the whole boot
-    Screens.push(self, bootScreens(self).splash or "IntroMovie", function()
+    -- the copyright splash + attract movie plays before the title
+    -- (engine/movie/splash.asm + intro.asm; Yellow swaps in its own
+    -- 18-scene movie, engine/movie/intro_yellow.asm); the ids come from
+    -- field.boot.screens so a total conversion owns the whole boot
+    local splash = require("src.core.GameVersion").isYellow()
+      and "YellowIntro" or "IntroMovie"
+    Screens.push(self, bootScreens(self).splash or splash, function()
       StateStack:push(titleState)
     end)
   end
@@ -241,34 +244,92 @@ end
 -- exactly as the owning state computed it
 local function sameZones(_, zones) return zones end
 
+-- A wide battle owns the surface until it leaves the stack.  The party,
+-- bag, choice and text states it opens still draw their original 160px UI,
+-- but the canvas must not snap to 160px between those states.
+function Game.wideBattleInStack(stack)
+  for i = #(stack and stack.states or {}), 1, -1 do
+    local state = stack.states[i]
+    if state and state.isWideBattleLayout and state:isWideBattleLayout() then
+      return state
+    end
+  end
+  return nil
+end
+
+-- Shift classic SGB zones to the centred UI. A full-width base zone extends
+-- into both margins, keeping the canvas' paper color continuous; narrower
+-- sprite and status zones move with the classic UI content.
+local function centerClassicZones(zones, offset)
+  if not zones or offset == 0 then return zones end
+  local shifted = {}
+  for i, zone in ipairs(zones) do
+    local copy = {}
+    for key, value in pairs(zone) do copy[key] = value end
+    if copy.x == 0 and copy.w == Renderer.WIDTH then
+      copy.w = copy.w + offset * 2
+    else
+      copy.x = (copy.x or 0) + offset
+    end
+    shifted[i] = copy
+  end
+  return shifted
+end
+
 function Game:draw()
   -- the UI canvas clears transparent when the overworld's world pass
   -- shows through beneath it; opaque full-screen states get the classic
   -- white clear
   local base = self.stack:visibleBase()
   local worldBelow = self.stack.states[base] == self.overworld
-  -- The UI surface is resolved once, before any state draws: the top state
-  -- may want more than the Game Boy's 160x144 (the widescreen battle layout
-  -- asks for 304x144).  Anything else keeps the classic surface, so a menu
-  -- pushed over a wide battle brings the screen straight back to 160x144.
+  -- A wide battle holds its 304px surface through every menu or prompt it
+  -- opens. States that do not draw the wide battle composition are centred
+  -- in that surface below, so their classic coordinates and hit testing stay
+  -- unchanged. Outside a battle, including the title screen, the option is
+  -- intentionally inactive because it is a battle-layout setting.
   local top = self.stack:top()
-  if top and top.uiSize then
+  local wideBattle = Game.wideBattleInStack(self.stack)
+  local classicOffset = 0
+  if wideBattle and wideBattle.uiSize then
+    Renderer:setUISize(wideBattle:uiSize())
+    classicOffset = math.floor((select(1, Renderer:uiSize()) - Renderer.WIDTH) / 2)
+  elseif top and top.uiSize then
     Renderer:setUISize(top:uiSize())
   else
     Renderer:setUISize(Renderer.WIDTH, Renderer.HEIGHT)
   end
   Renderer:beginFrame(worldBelow)
-  self.stack:draw()
+  for i = self.stack:visibleBase(), #self.stack.states do
+    local state = self.stack.states[i]
+    local wideState = state and state.isWideBattleLayout
+      and state:isWideBattleLayout()
+    if state and state.draw then
+      if classicOffset ~= 0 and not wideState then
+        love.graphics.push()
+        love.graphics.translate(classicOffset, 0)
+        state:draw()
+        love.graphics.pop()
+      else
+        state:draw()
+      end
+    end
+  end
   -- SGB colorization: the topmost state that knows its palette owns the
   -- screen (overlays like text boxes inherit from what's beneath them);
   -- the overworld's world pass colors each visible map area separately
-  local zones, worldZones
+  local zones, worldZones, zoneOwner
   for i = #self.stack.states, 1, -1 do
     local s = self.stack.states[i]
     if s.sgbPalettes then
       zones = s:sgbPalettes(self)
+      zoneOwner = s
       break
     end
+  end
+  if classicOffset ~= 0 and zoneOwner
+      and not (zoneOwner.isWideBattleLayout
+               and zoneOwner:isWideBattleLayout()) then
+    zones = centerClassicZones(zones, classicOffset)
   end
   -- 14's render.zones: weather/lighting overlays and custom colorization
   -- recolor or add zones before the blit

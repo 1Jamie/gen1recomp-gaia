@@ -230,4 +230,52 @@ do
     "the copy uses the literal picked path")
 end
 
+-- ------- pickStrays: which mods dropped beside the game are worth adopting
+
+do
+  -- the case this exists for: a player unzipped a mod next to the executable
+  -- of a non-portable install, where the game has no way to read it
+  local rows = LauncherMods.pickStrays({
+    { id = "b_mod", name = "B", folder = "/game", path = "m/b_mod" },
+    { id = "a_mod", name = "A", folder = "/game", path = "m/a_mod" },
+  }, {})
+  eq(#rows, 2, "an uninstalled stray is worth adopting")
+  eq(rows[1].id, "a_mod", "rows come back sorted by id")
+  eq(rows[2].id, "b_mod", "both of them")
+  eq(rows[1].path, "m/a_mod", "carrying the path the copy reads from")
+  eq(rows[1].folder, "/game", "and the folder it was found in, for the notice")
+end
+
+do
+  -- already installed: the player has a working copy and the loose folder is
+  -- just where they first put it.  Silence is right -- adopting would make a
+  -- second copy, and warning would nag on every open.
+  local rows = LauncherMods.pickStrays({
+    { id = "have", name = "Have" },
+    { id = "want", name = "Want" },
+  }, { have = true })
+  eq(#rows, 1, "a stray the game can already see is not a stray")
+  eq(rows[1].id, "want", "only the one it cannot see is adopted")
+end
+
+do
+  -- two game folders can both hold the same id (a launcher install plus an
+  -- older manual one).  First wins, matching discover()'s duplicate rule.
+  local rows = LauncherMods.pickStrays({
+    { id = "dup", name = "First", folder = "/a" },
+    { id = "dup", name = "Second", folder = "/b" },
+  }, {})
+  eq(#rows, 1, "a duplicate id across two game folders is adopted once")
+  eq(rows[1].name, "First", "and the first one found wins")
+end
+
+do
+  eq(#LauncherMods.pickStrays({}, {}), 0, "no candidates, nothing to adopt")
+  eq(#LauncherMods.pickStrays(nil, nil), 0, "and nil is not an error")
+  eq(#LauncherMods.pickStrays({ { name = "no id" } }, {}), 0,
+    "a row with no id is dropped rather than crashing the panel")
+  local rows = LauncherMods.pickStrays({ { id = "bare" } }, {})
+  eq(rows[1].name, "bare", "a nameless row falls back to its id")
+end
+
 T.finish("launcher_mods")

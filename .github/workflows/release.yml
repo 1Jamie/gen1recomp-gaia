@@ -254,19 +254,37 @@ jobs:
           v="${{ steps.ver.outputs.version }}"
           tag="${{ steps.ver.outputs.tag }}"
 
-          # Issues this release closes, per GitHub's own "closing issues" links
-          # (works for squash, rebase, and merge commits alike). Scans every
-          # commit since the previous tag so a skipped release run doesn't drop
-          # issues on the floor.
+          # Issues this release closes. Three sources, deduped by number:
+          #   1. GitHub's own "closing issues" links on every PR whose
+          #      commits are in the range (works for squash, rebase, and
+          #      merge commits alike) -- including PRs that were merged
+          #      into a branch this release PR is itself merging in.
+          #   2. CLOSES/fixes/resolves text in those PRs' titles + bodies
+          #      that GitHub didn't turn into a closing link (a PR into a
+          #      non-default branch never gets one).
+          #   3. The same text in raw commit messages, so a direct push
+          #      with "CLOSES #N #M" still lands in the notes.
+          # Scans every commit since the previous tag so a skipped release
+          # run doesn't drop issues on the floor.
           prev_tag="$(git tag -l 'v*' --sort=-v:refname | grep -v "^${tag}$" | head -1 || true)"
           range="${prev_tag:+${prev_tag}..}$GITHUB_SHA"
 
-          closed=""
-          for pr in $(git log --pretty=%H "$range" \
-                        | xargs -I{} gh api "repos/$GITHUB_REPOSITORY/commits/{}/pulls" \
-                              --jq '.[].number' 2>/dev/null \
-                        | sort -un || true); do
-            closed+="$(gh api graphql \
+          # every #N on a line that carries a closing keyword (handles the
+          # multi-issue "CLOSES #1 #2 #3" form the tracker uses)
+          scan_closes() {
+            grep -iE '\b(close[sd]?|fix(es|ed)?|resolve[sd]?)\b' \
+              | grep -oE '#[0-9]+' | tr -d '#' || true
+          }
+
+          nums=""
+          nums+=" $(git log --pretty=%B "$range" | scan_closes | tr '\n' ' ')"
+
+          prs="$(git log --pretty=%H "$range" \
+                   | xargs -I{} gh api "repos/$GITHUB_REPOSITORY/commits/{}/pulls" \
+                         --jq '.[].number' 2>/dev/null \
+                   | sort -un || true)"
+          for pr in $prs; do
+            nums+=" $(gh api graphql \
               -f owner="${GITHUB_REPOSITORY%/*}" \
               -f name="${GITHUB_REPOSITORY#*/}" \
               -F pr="$pr" \
@@ -274,18 +292,47 @@ jobs:
                 query($owner:String!, $name:String!, $pr:Int!) {
                   repository(owner:$owner, name:$name) {
                     pullRequest(number:$pr) {
-                      closingIssuesReferences(first:50) { nodes { number title } }
+                      closingIssuesReferences(first:50) { nodes { number } }
                     }
                   }
                 }' \
-              --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[]
-                    | "- #\(.number) \(.title)"' 2>/dev/null || true)"$'\n'
+              --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' \
+              2>/dev/null | grep -E '^[0-9]+$' | tr '\n' ' ' || true)"
+            nums+=" $(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" \
+              --jq '.title + " " + (.body // "")' 2>/dev/null \
+              | scan_closes | tr '\n' ' ' || true)"
+          done
+
+          # dedupe, drop anything that is a PR or does not exist, keep
+          # titles (gh api prints the response body to stdout on an HTTP
+          # error, so only a zero exit counts)
+          closed=""
+          for n in $(printf '%s' "$nums" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un); do
+            if title="$(gh api "repos/$GITHUB_REPOSITORY/issues/$n" \
+                --jq 'if .pull_request then empty else .title end' \
+                2>/dev/null)"; then
+              [ -n "$title" ] && closed+="- #$n $title"$'\n'
+            fi
           done
           closed="$(printf '%s' "$closed" | grep . | sort -t'#' -k2 -n || true)"
+
+          # Everyone whose commits are in the range: GitHub login when the
+          # commit is linked to an account, the raw git author name when not;
+          # CI bots filtered out.
+          base="${prev_tag:-$(git rev-list --max-parents=0 "$GITHUB_SHA" | tail -1)}"
+          contributors="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/compare/${base}...${GITHUB_SHA}" \
+            --jq '.commits[] | if .author and .author.login
+                              then "@" + .author.login
+                              else .commit.author.name end' 2>/dev/null \
+            | grep -viE '\[bot\]$' | sort -uf | sed 's/^/- /' || true)"
 
           notes="Download the correct version for your computer below."
           if [ -n "$closed" ]; then
             notes+=$'\n\n## Issues closed\n\n'"$closed"
+          fi
+          if [ -n "$contributors" ]; then
+            notes+=$'\n\n## Contributors\n\n'"$contributors"
           fi
           printf 'Release notes:\n%s\n' "$notes"
 

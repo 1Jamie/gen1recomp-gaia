@@ -493,6 +493,12 @@ R.maps = {
     width = f.int(1), height = f.int(1),
     blocks = f.list(f.int(0, 255)),
     borderBlock = f.opt(f.int(0, 255)),
+    -- A named SGB palette, which wins over the field.palettes cascade
+    -- (OverworldController.lua:506 reads map.def.palette first).  Deliberately
+    -- a plain string rather than f.id("palettes"): the ROM-free fixture base
+    -- carries no palettes at all, so an id reference would fail validation for
+    -- a perfectly good mod wherever there is no imported dataset.
+    palette = f.opt(f.str),
     warps = f.opt(f.list(f.rec{ x = f.int(0), y = f.int(0),
                                 destMap = f.str, destWarp = f.int(0) })),
     objects = f.opt(f.list(f.any)),

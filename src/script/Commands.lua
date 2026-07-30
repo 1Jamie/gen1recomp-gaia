@@ -173,6 +173,27 @@ function Commands.check_item(ctx, itemId)
   ctx.lastCheck = (ctx.save.inventory[itemId] or 0) > 0
 end
 
+-- check_dex_owned <n>: lastCheck = the player owns at least n species
+-- (the CountSetBits-over-wPokedexOwned gate in Yellow's OaksLabOak1Text)
+function Commands.check_dex_owned(ctx, n)
+  local owned = 0
+  for _ in pairs(ctx.save.pokedex and ctx.save.pokedex.owned or {}) do
+    owned = owned + 1
+  end
+  ctx.lastCheck = owned >= (n or 1)
+end
+
+-- dex_rating: DisplayDexRating (engine/events/pokedex_rating.asm) --
+-- Oak's seen/owned tally plus the per-decade rating line; blocks until
+-- the box closes.  Headless-safe no-op without an overworld.
+function Commands.dex_rating(ctx)
+  local ow = ctx.overworld
+  if not ow then return end
+  local runner = ctx.runner
+  ow:dexRating(function() runner:resume() end)
+  runner:yield()
+end
+
 function Commands.jump_if_true(ctx, target)
   if ctx.lastCheck then return target end
 end
@@ -497,6 +518,17 @@ function Commands.play_cry(ctx, species, waitForButton)
   ctx.pendingCryWait = waitForButton or nil
 end
 
+-- mark_seen <species>: DisplayPokedex (pokedex.asm) records the species as
+-- seen before opening its entry. Map scripts use this for NPC-driven
+-- Pokédex previews that do not begin a battle or give the player a Pokémon.
+function Commands.mark_seen(ctx, species)
+  local dex = ctx.save and ctx.save.pokedex
+  if dex then
+    dex.seen = dex.seen or {}
+    dex.seen[species] = true
+  end
+end
+
 -- check_battle_result <r1> [r2 ...]: lastCheck = the last scripted
 -- battle ended with any of the given results
 -- ("win"|"lose"|"run"|"caught"), for branches like
@@ -561,7 +593,10 @@ end
 -- AskName runs for party (AddPartyMon) and box (SendNewMonToBox) when a
 -- script runner is present; mods that pre-set gift.nickname skip it.
 -- Box deposits also print SentToBoxText (give_pokemon.asm:36-37).
-function Commands.give_pokemon(ctx, species, level)
+-- skipNickname suppresses the AskName prompt: Yellow's lab Pikachu is
+-- added straight through AddPartyMon (pokeyellow scripts/OaksLab.asm
+-- OaksLabPlayerReceivedMonText) -- the starter Pikachu keeps its name.
+function Commands.give_pokemon(ctx, species, level, skipNickname)
   -- Native mods can transform a gift before the Pokémon object is created.
   -- This is intentionally an event rather than a special-case starter hook:
   -- mods can use the same seam for story gifts, fossils, or custom scripts.
@@ -597,7 +632,7 @@ function Commands.give_pokemon(ctx, species, level)
   ctx.boxNum = boxNum
   -- AskName: both AddPartyMon and SendNewMonToBox; skip mod-set nicks
   -- and callback-style callers with no script runner to yield on.
-  if not gift.nickname and ctx.runner then
+  if not gift.nickname and not skipNickname and ctx.runner then
     askNickname(ctx, mon)
   end
   if boxNum then
@@ -748,7 +783,46 @@ end
 -- player CHARMANDER -> base+0, SQUIRTLE -> base+1, BULBASAUR -> base+2.
 -- offsets (flag -> party offset) lets a modded roster remap the pick;
 -- field.starterCounterpicks is the data-side default when stamped.
+-- Yellow's rival parties key off wRivalStarter (save.rivalStarter,
+-- 1 JOLTEON / 2 FLAREON / 3 VAPOREON -- set in oaks_lab_yellow.lua), not
+-- the player's starter counterpick.  Keyed by the Red call-site party so
+-- the shared story scripts need no version branches:
+--   Route 22 #1  RIVAL1 4  -> party 2 (fixed; Route22Script_50ed6), and
+--     a win upgrades FLAREON to JOLTEON (Route22Rival1AfterBattleScript)
+--   Cerulean     RIVAL1 7  -> party 3 (fixed; CeruleanCity.asm:143)
+--   S.S. Anne    RIVAL2 1  -> party 1 (fixed; SSAnne2F.asm:98)
+--   Tower 2F     RIVAL2 4  -> 1 + starter (PokemonTower2F.asm:148)
+--   Silph 7F     RIVAL2 7  -> 4 + starter (SilphCo7F.asm:185)
+--   Route 22 #2  RIVAL2 10 -> 7 + starter (Route22Script_50ee1)
+--   Champion     RIVAL3 1  -> 0 + starter (ChampionsRoom.asm:69)
+local YELLOW_RIVAL_PARTIES = {
+  OPP_RIVAL1 = {
+    [4] = { party = 2, upgradeOnWin = { from = 2, to = 1 } },
+    [7] = { party = 3 },
+  },
+  OPP_RIVAL2 = {
+    [1] = { party = 1 }, [4] = { base = 1 },
+    [7] = { base = 4 }, [10] = { base = 7 },
+  },
+  OPP_RIVAL3 = { [1] = { base = 0 } },
+}
+
 function Commands.rival_battle(ctx, oppClass, baseParty, offsets)
+  local GameVersion = require("src.core.GameVersion")
+  if GameVersion.isYellow() then
+    local spec = YELLOW_RIVAL_PARTIES[oppClass]
+      and YELLOW_RIVAL_PARTIES[oppClass][baseParty]
+    if spec then
+      local starter = ctx.save.rivalStarter or 1
+      local party = spec.party or (spec.base + starter)
+      Commands.start_battle(ctx, "trainer", oppClass, party)
+      if spec.upgradeOnWin and ctx.lastBattleResult == "win"
+         and ctx.save.rivalStarter == spec.upgradeOnWin.from then
+        ctx.save.rivalStarter = spec.upgradeOnWin.to
+      end
+      return
+    end
+  end
   offsets = offsets
     or (ctx.game.data.field and ctx.game.data.field.starterCounterpicks)
   local offset = 0
@@ -949,6 +1023,17 @@ end
 
 function Commands.stop_music(ctx)
   require("src.core.Music").stop()
+end
+
+-- play_default_music: PlayDefaultMusic -- resume the current map's own
+-- theme (data.audio.mapSongs) after a cutscene override, keeping the
+-- bike/surf substitution rules.  Headless-safe no-op without an overworld.
+function Commands.play_default_music(ctx)
+  local ow = ctx.overworld
+  if not ow then return end
+  require("src.core.Music").playMap(ctx.game.data, ow.map.id,
+                                    ctx.save and ctx.save.onBike,
+                                    ow.player and ow.player.surfing)
 end
 
 -- replace_block <bx> <by> <blockId>: the Cut-tree/card-key-door idiom,

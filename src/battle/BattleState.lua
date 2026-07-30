@@ -38,15 +38,16 @@ BattleState.letterboxWhite = true
 
 -- BATTLE LAYOUT: the classic 160x144 arrangement, or the widescreen one on
 -- a 304x144 surface (src/battle/WideBattle.lua).  Only the composition
--- differs; every battler, queue and animation below is shared.  The wide
--- layout is live only while this battle is the state being drawn on top --
--- a party menu or bag pushed over it is a 160x144 screen, so the surface
--- goes back with it and the battle underneath is not drawn at all.
-function BattleState:wideLayout()
+-- differs; every battler, queue and animation below is shared.  Menus and
+-- prompts pushed during a wide battle keep its wide canvas, while drawing
+-- their classic 160px UI centred within it (Game:draw).
+function BattleState:isWideBattleLayout()
   local options = self.game and self.game.save and self.game.save.options
-  if not options or options.battleLayout ~= "wide" then return false end
-  local stack = self.game.stack
-  return (stack and stack.top and stack:top()) == self
+  return options and options.battleLayout == "wide" or false
+end
+
+function BattleState:wideLayout()
+  return self:isWideBattleLayout()
 end
 
 -- Renderer:setUISize asks the top state for its surface before anything draws
@@ -652,8 +653,22 @@ end
 -- player mon; the battle menu appears under the OLD MAN's name and a
 -- scripted cursor hovers FIGHT, hops to ITEM and forces the item menu
 -- (one POKé BALL x50).  The throw always catches; nothing is kept.
-function BattleState:makeOldManDemo()
+-- Yellow's Pallet intro (BATTLE_TYPE_PIKACHU) is the same simulated
+-- script under "PROF.OAK" (pokeyellow core.asm .profOakName), so the
+-- displayed thrower name is a parameter.
+function BattleState:makeOldManDemo(name)
   self.demo = true
+  self.demoName = name or "OLD MAN"
+  -- Yellow's Pallet intro runs this before the player owns any mon
+  -- (BATTLE_TYPE_PIKACHU precedes the lab gift), so newWild flagged the
+  -- battle dead for lack of a party.  The demo never sends out, draws, or
+  -- acts with the player side; a hidden placeholder battler keeps the
+  -- shared battle phases nil-safe.
+  if not self.player then
+    self.dead = false
+    self.player = makeBattler(self.game.data,
+      Pokemon.new(self.game.data, self.enemy.mon.species, 5), true)
+  end
 end
 
 -- Safari Zone battles (engine/battle/core.asm safari sections +
@@ -1068,6 +1083,10 @@ function BattleState:computeMusicKind()
       end
     end
   end
+  -- init_battle.asm: challenging a gym leader (wGymLeaderNo, the badge
+  -- fights only -- not Lance or the Champion) bumps the companion's
+  -- happiness the moment the battle starts
+  self.isGymLeader = isBoss
   if self.kind == "trainer" and self.trainer
      and self.trainer.id == "OPP_RIVAL3" then
     return "final"
@@ -1108,6 +1127,10 @@ function BattleState:enter()
   end
   local Music = require("src.core.Music")
   self.musicKind = self:computeMusicKind()
+  if self.isGymLeader then
+    require("src.world.PikachuFollower")
+      .modifyHappiness(self.game.save, "GYMLEADER")
+  end
   -- normally already playing: the transition wipe starts the theme
   -- (audio/play_battle_music.asm runs before the transition, and
   -- Music.play no-ops on the same song); this covers battles pushed
@@ -1733,7 +1756,7 @@ function BattleState:oldManThrow()
   self.phase = "messages"
   self.afterQueue = "finish"
   self.result = "run" -- nothing is kept; wBattleResult only ends the demo
-  self:say(Strings("OLD MAN used\nPOKé BALL!"))
+  self:say(Strings("%s used\nPOKé BALL!", self.demoName or "OLD MAN"))
   self:act(function()
     require("src.core.Sound").play(self.data, "Ball_Toss")
     -- ItemUseBall's beat before the toss chain (like throwBall)
@@ -3008,6 +3031,17 @@ function BattleState:onFaint(battler)
     self.participants[battler.mon] = nil
   end
   Runtime.emit("battle.fainted", { battle = self, battler = battler })
+  if battler.isPlayer then
+    -- HandlePlayerMonFainted (core.asm:1070-1085): the companion loses
+    -- happiness on its own faint; an enemy 30+ levels above it makes
+    -- that the CARELESSTRAINER hit instead
+    local enemyLevel = self.enemy and self.enemy.mon
+                       and self.enemy.mon.level or 0
+    local reason = (enemyLevel - (battler.mon.level or 0)) >= 30
+                   and "CARELESSTRAINER" or "FAINTED"
+    require("src.world.PikachuFollower")
+      .modifyHappiness(self.game.save, reason, battler.mon)
+  end
   -- the faint slide + cry ride the queue (after the move animation and
   -- the HP-bar drain, pokered's order); the slide finishes before the
   -- faint text via a queued hold
@@ -3092,6 +3126,9 @@ function BattleState:enemyMonFainted()
     -- the move-learn checks (experience.asm:245-256)
     local game = self.game
     for _, lv in ipairs(levels) do
+      -- experience.asm:248 fires per grew-level text
+      require("src.world.PikachuFollower")
+        .modifyHappiness(game.save, "LEVELUP", mon)
       self:sayNext(Strings("%s grew\nto level %d!", name, lv))
       self:uiNext(function()
         require("src.core.Sound").play(game.data, "Level_Up")
@@ -3912,7 +3949,10 @@ function BattleState:finish()
   -- way back -- an unrecoverable state, not merely a wrong one.
   -- playerMonFainted is the path that should have caught this; if we land
   -- here it did not, so say so rather than silently papering over it.
-  if self.result ~= "lose" and not Party.firstHealthy(self.game.save.party) then
+  -- The old-man / PROF.OAK demo also skips it: the party never fought
+  -- (Yellow's Pallet intro runs before the player owns a mon at all).
+  if self.result ~= "lose" and not self.demo
+     and not Party.firstHealthy(self.game.save.party) then
     Logger.warn("battle finished %s with no healthy party; forcing blackout",
                 tostring(self.result))
     self.result = "lose"
@@ -4824,7 +4864,9 @@ function BattleState:drawTextArea()
     Font.drawCode(Font.BORDER.br, 80, 96)
     love.graphics.setColor(0, 0, 0, 1)
     for i, mv in ipairs(self.player.curMoves) do
-      Font.draw(self.data.moves[mv.id].name, 48, 96 + i * 8)
+      -- unknown ids (mod-injected moves) print raw instead of crashing
+      local def = self.data.moves[mv.id]
+      Font.draw(def and def.name or tostring(mv.id), 48, 96 + i * 8)
     end
     Font.drawCode((self.moveSwapIndex == self.moveIndex) and 0xEC or 0xED,
                   40, 96 + self.moveIndex * 8)
@@ -4833,10 +4875,10 @@ function BattleState:drawTextArea()
     end
     local sel = self.player.curMoves[self.moveIndex]
     if sel then
+      local def = self.data.moves[sel.id]
       if self.player.disabledSlot == self.moveIndex then
         Font.draw(Strings("disabled!"), 8, 80)
-      else
-        local def = self.data.moves[sel.id]
+      elseif def then
         Font.draw(Strings("TYPE/"), 8, 72)
         -- the type record's display name (a mod type shows its name, and
         -- PSYCHIC_TYPE prints PSYCHIC like the original)

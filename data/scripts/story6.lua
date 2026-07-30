@@ -173,7 +173,46 @@ local function syncGymGatesAfterBattle(game, ow)
   applyGymGates(game, ow)
 end
 
+-- Yellow's quiz-first rule (scripts/CinnabarGym.asm SuperNerd2..7): a
+-- gate guardian refuses to battle until his quiz was attempted -- a
+-- wrong answer sics him on you (the onInteract path below), a right one
+-- opens his gate; walking up and talking first just gets the room's
+-- CinnabarGymText_N lecture (Func_f2150's pointer table).
+local function yellowQuizTalk(machineIndex)
+  return function(game, ow, npc, done)
+    local yellow = require("src.core.GameVersion").isYellow()
+    local defeated = ow:trainerDefeated(npc)
+    local gateOpen = game.save.flags[gymGateFlag(machineIndex)]
+    if yellow and not defeated and not gateOpen then
+      local TextBox = require("src.render.TextBox")
+      local t = game.data.text
+      game.stack:push(TextBox.new(game,
+        t["_CinnabarGymText_" .. machineIndex]
+        or "You have to take\nthe quiz first!", done))
+      return
+    end
+    -- gate open (or Red/Blue): the ordinary trainer engagement /
+    -- after-battle line, mirroring talkTo's generic trainer branch
+    npc:facePlayer(ow.player)
+    if not defeated then
+      ow:engageTrainer(npc, done)
+      return
+    end
+    local header = game.data:trainerHeader(ow.map.def.label, npc.def.index)
+    local after = header and header.after and game.data.text[header.after]
+    local TextBox = require("src.render.TextBox")
+    game.stack:push(TextBox.new(game, after or "...", done))
+  end
+end
+
 M.CINNABAR_GYM = {
+  talk = (function()
+    local talk = {}
+    for i = 1, 6 do
+      talk["TEXT_CINNABARGYM_SUPER_NERD" .. (i + 1)] = yellowQuizTalk(i)
+    end
+    return talk
+  end)(),
   onEnter = applyGymGates,
   onVictory = syncGymGatesAfterBattle,
   onInteract = function(game, ow, fx, fy)

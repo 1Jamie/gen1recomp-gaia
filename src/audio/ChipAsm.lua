@@ -22,7 +22,7 @@ local NOTES = {
 -- mirrors ChipAudio's snapTicks so authored drums land on the same sample
 -- grid as the ROM's own drum tables
 local function snapTicks(ticks)
-  return math.floor((ticks * 735 + 256) / 512)
+  return math.floor((ticks * 1470 + 256) / 512)
 end
 
 -- ------- validation

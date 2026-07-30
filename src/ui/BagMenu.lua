@@ -158,15 +158,22 @@ local function useOn(game, battle, id, target, list, moveIndex, picker)
     local moveId = payload
     local mdef = game.data.moves[moveId]
     local function teach()
+      -- PIKAHAPPY_USEDTMHM on a successful teach (item_effects.asm:2500)
+      local function taught()
+        require("src.world.PikachuFollower")
+          .modifyHappiness(game.save, "USEDTMHM", target)
+      end
       if #target.moves < 4 then
         table.insert(target.moves, { id = moveId, pp = mdef.pp })
         showMessages(game, { Strings("%s learned\n%s!", target.nickname or
           game.data.pokemon[target.species].name, mdef.name) })
         if result == "learn" then consume(game, id) end
+        taught()
       else
         require("src.ui.Screens").push(game, "MoveLearnMenu", target, moveId,
           function(learned)
             if learned and result == "learn" then consume(game, id) end
+            if learned then taught() end
           end)
       end
     end

@@ -1,6 +1,10 @@
 -- More hand-ported events: the Pallet Town intro, the thirsty Saffron
 -- gate guards, the Bike Voucher chain, fossils and the day-care.
--- Registered via data/scripts/init.lua; each cites its pokered source.
+-- Registered via data/scripts/init.lua; Red/Blue cite pokered, Yellow
+-- cites pokeyellow (Pallet stop row, Oak spawn, walk RLE, and the
+-- wild-Pikachu beat before the lab escort).
+
+local GameVersion = require("src.core.GameVersion")
 
 local M = {}
 
@@ -35,72 +39,79 @@ function escort.findPath(fromX, fromY, toX, toY)
   return path
 end
 
--- PalletTownOakWalksToPlayerScript: Oak appears at his object spot
--- (8,5) and zigzags to one tile below the player (hNPCPlayerYDistance
--- is pre-decremented before predef FindPathToPlayer).
+-- Red: Oak object (8,5) -> one tile below the player at y=1.
+-- Yellow: Oak object (10,4); stop fires at y=0 (pokeyellow PalletTown).
 function escort.oakApproach(playerX)
+  if GameVersion.isYellow() then
+    return escort.findPath(10, 4, playerX, 1)
+  end
   return escort.findPath(8, 5, playerX, 2)
 end
 
--- RLEList_ProfOakWalkToLab (engine/overworld/auto_movement.asm):
--- DOWN x5, LEFT, DOWN x5, RIGHT x3, UP -- Oak's last step lands on the
--- lab door (12,11).  (The trailing NPC_CHANGE_FACING is a march-in-
--- place beat on the mat; here Oak just stands his final beat.)
-escort.oakSteps = {
-  "down", "down", "down", "down", "down",
-  "left",
-  "down", "down", "down", "down", "down",
-  "right", "right", "right",
-  "up",
-}
+-- RLEList_ProfOakWalkToLab (engine/overworld/auto_movement.asm).
+-- Yellow differs: first DOWN is x6 (Oak starts one tile farther north).
+local function buildOakSteps()
+  if GameVersion.isYellow() then
+    return {
+      "down", "down", "down", "down", "down", "down",
+      "left",
+      "down", "down", "down", "down", "down",
+      "right", "right", "right",
+      "up",
+    }
+  end
+  return {
+    "down", "down", "down", "down", "down",
+    "left",
+    "down", "down", "down", "down", "down",
+    "right", "right", "right",
+    "up",
+  }
+end
 
--- RLEList_PlayerWalkToLab decodes to UP x2, RIGHT x3, DOWN x5, LEFT,
--- DOWN x6 and plays in REVERSE buffer order (wSimulatedJoypadStatesEnd
--- grows downward): DOWN x6, LEFT, DOWN x5, RIGHT x3, UP x2 -- Oak's
--- exact path one step behind.  The 17th press (the second UP) is eaten
--- by the door-warp frame (WarpFound clears hJoyHeld via EnterMap), so
--- only 16 real steps happen; the walk ends on the door at (12,11).
+escort.oakSteps = buildOakSteps()
+
+-- Player stays one step behind Oak (simplified reverse-RLE port).
 escort.playerSteps = { "down" }
 for _, d in ipairs(escort.oakSteps) do
   escort.playerSteps[#escort.playerSteps + 1] = d
 end
 
+local function npcNamed(ow, name)
+  for _, n in ipairs(ow.npcs or {}) do
+    if n.def and n.def.name == name then return n end
+  end
+  return nil
+end
+
 M.PALLET_TOWN = {
   talk = require("data.scripts.pallet_town").talk,
   escort = escort,
-  -- Oak stops you at the north row (PalletTownDefaultScript's
-  -- `wYCoord == 1` check), walks up from (8,5), and leads you to his
-  -- lab with the player one step behind (scripts/PalletTown.asm +
-  -- PalletMovementScriptPointerTable in
-  -- engine/overworld/auto_movement.asm), then the lab walk-in and the
-  -- choose-mon exchange (scripts/OaksLab.asm OaksLabDefaultScript ..
-  -- OaksLabOakChooseMonSpeechScript).
+  -- Red: stop at y==1 from (8,5).  Yellow: stop at y==0 from (10,4),
+  -- then a wild Pikachu battle before the lab escort (pokeyellow
+  -- PalletTownPikachuBattleScript).
   onStep = function(game, ow, x, y)
-    if y ~= 1 or game.save.flags.EVENT_FOLLOWED_OAK_INTO_LAB
+    local yellow = GameVersion.isYellow()
+    local stopY = yellow and 0 or 1
+    if y ~= stopY or game.save.flags.EVENT_FOLLOWED_OAK_INTO_LAB
        or game.save.flags.EVENT_GOT_STARTER then
       return false
     end
     local TextBox = require("src.render.TextBox")
     local Commands = require("src.script.Commands")
     local Music = require("src.core.Music")
+    local BattleState = require("src.battle.BattleState")
     local t = game.data.text
     local ctx = { save = game.save, game = game, overworld = ow }
 
-    -- PalletTownDefaultScript: stop the player, turn them around
-    -- (wPlayerMovingDirection = PLAYER_DIR_DOWN applies on the very
-    -- next frame, before the text box opens) and strike up the "oak
-    -- appears" theme (MUSIC_MEET_PROF_OAK)
-    ow.player.facing = "down"
+    -- Red turns the player down; Yellow faces up at the north exit.
+    ow.player.facing = yellow and "up" or "down"
     Music.play(game.data, "Music_MeetProfOak")
 
-    -- DelayFrames-style hold: the world pauses (input stays locked)
-    -- for `frames` frames, then cb runs.  Reuses the emote pause slot;
-    -- with an `npc` the "!" bubble draws above it (EmotionBubble).
     local function hold(frames, npc, cb)
       ow.emote = { frames = frames, npc = npc, onDone = cb }
     end
 
-    -- chain single-tile scriptMoves through a direction list
     local function walkList(entity, steps, done)
       local i = 0
       local function nextStep()
@@ -114,10 +125,8 @@ M.PALLET_TOWN = {
       nextStep()
     end
 
-    -- ---- Oak's Lab side (scripts/OaksLab.asm) ----------------------
-
-    -- OaksLabOakChooseMonSpeechScript: the fed-up / choose-mon /
-    -- what-about-me / be-patient exchange, Delay3 between boxes
+    -- OaksLabOakChooseMonSpeechScript.  Yellow's OakChooseMon text is
+    -- the single-ball speech, not Red's "there are 3 POKéMON".
     local function chooseMonSpeech()
       local function say(key, fb, next)
         game.stack:push(TextBox.new(game, t[key] or fb, next))
@@ -126,7 +135,9 @@ M.PALLET_TOWN = {
           "{RIVAL}: Gramps!\nI'm fed up with\nwaiting!", function()
         hold(3, nil, function()
           say("_OaksLabOakChooseMonText",
-              "OAK: Here, {PLAYER}!\fThere are 3\nPOKéMON here!\fYou can have one!\nChoose!", function()
+              yellow
+                and "OAK: Look, {PLAYER}! Do\nyou see that ball\non the table?"
+                or "OAK: Here, {PLAYER}!\fThere are 3\nPOKéMON here!\fYou can have one!\nChoose!", function()
             hold(3, nil, function()
               say("_OaksLabRivalWhatAboutMeText",
                   "{RIVAL}: Hey!\nGramps! What\nabout me?", function()
@@ -143,30 +154,18 @@ M.PALLET_TOWN = {
       end)
     end
 
-    -- entering the lab: the door Oak (OAKSLAB_OAK2, (5,10)) walks up 3
-    -- ahead of the player (OaksLabOakEntersLabScript OakEntryMovement),
-    -- swaps for the desk Oak (OAKSLAB_OAK1, (5,2)), then the player
-    -- walks up 8 from the mat (PlayerEntryMovementRLE) while the rival
-    -- and Oak turn with them (OaksLabPlayerEntersLabScript /
-    -- OaksLabFollowedOakScript)
+    -- Door Oak is OAKSLAB_OAK2: Red index 8, Yellow index 6 (one ball).
     local function labWalkIn()
-      local oak2 = ow:npcByIndex(8)
+      local oak2 = npcNamed(ow, "OAKSLAB_OAK2") or ow:npcByIndex(yellow and 6 or 8)
       local function swapOaks()
         Commands.hide_object(ctx, "OAKS_LAB", "OAKSLAB_OAK2")
         Commands.show_object(ctx, "OAKS_LAB", "OAKSLAB_OAK1")
-        hold(3, nil, function() -- Delay3
-          Commands.face_object(ctx, 1, "down") -- rival watches you pass
+        hold(3, nil, function()
+          Commands.face_object(ctx, 1, "down")
           ow:scriptMove(ow.player, "up", 8, function()
-            -- OaksLabFollowedOakScript: flags only after the walk-in, so a
-            -- stray step on the door mat can't fire the "don't go away"
-            -- push-up (oaks_lab.lua onStep) mid-cutscene.  Outdoor escort
-            -- still re-arms on F1 mid-escort -- these flags stay clear
-            -- until the lab walk finishes.
             game.save.flags.EVENT_FOLLOWED_OAK_INTO_LAB = true
             game.save.flags.EVENT_FOLLOWED_OAK_INTO_LAB_2 = true
             Commands.face_object(ctx, 1, "up")
-            -- res BIT_NO_MAP_MUSIC + PlayDefaultMusic: the lab theme
-            -- only starts once the walk-in is done
             Music.playMap(game.data, "OAKS_LAB")
             chooseMonSpeech()
           end)
@@ -179,9 +178,6 @@ M.PALLET_TOWN = {
       end
     end
 
-    -- PalletMovementScript_Done + the door warp: Oak is hidden as the
-    -- player steps into the doorway; PALLET_TOWN warp 3 -> OAKS_LAB
-    -- warp 2 = (5,11), with the door SFX (WarpFound -> SFX_GO_INSIDE)
     local function enterLab()
       Commands.hide_object(ctx, "PALLET_TOWN", "PALLETTOWN_OAK")
       Commands.show_object(ctx, "OAKS_LAB", "OAKSLAB_OAK2")
@@ -190,10 +186,6 @@ M.PALLET_TOWN = {
                      { keepMusic = true })
     end
 
-    -- PalletMovementScript_WalkToLab: Oak's NPC movement and the
-    -- player's simulated joypad run simultaneously, in lockstep; the
-    -- player retraces Oak's path one step behind and follows him into
-    -- the doorway on the final beat
     local function walkToLab(oak)
       local i = 0
       local function tick()
@@ -206,9 +198,6 @@ M.PALLET_TOWN = {
         if oak and escort.oakSteps[i] then
           ow:scriptMove(oak, escort.oakSteps[i], 1)
         elseif oak then
-          -- RLEList_ProfOakWalkToLab's trailing NPC_CHANGE_FACING beat:
-          -- Oak marches in place on the door mat while the player takes
-          -- the final step up behind him (movement.asm ChangeFacingDirection)
           ow:marchInPlace(oak)
         end
         ow:scriptMove(ow.player, playerStep, 1, tick)
@@ -216,9 +205,6 @@ M.PALLET_TOWN = {
       tick()
     end
 
-    -- PalletMovementScript_OakMoveLeft/_PlayerMoveLeft: from the right
-    -- tile (x == 11) Oak sidesteps left first, then the player follows
-    -- left (wNumStepsToTake = wXCoord - 10), and only then both walk
     local function escortToLab(oak)
       local numSteps = x - 10
       if oak and numSteps > 0 then
@@ -232,37 +218,65 @@ M.PALLET_TOWN = {
       end
     end
 
-    -- ---- Pallet Town side (scripts/PalletTown.asm) -----------------
+    -- After Oak reaches the player: Red goes straight to "It's unsafe!".
+    -- Yellow (PalletTownOakGreetsPlayerScript..AfterPikachuBattleScript):
+    -- ThatWasClose -> Oak faces the grass patch -> BATTLE_TYPE_PIKACHU
+    -- (the old-man-style simulated battle where PROF.OAK throws the ball
+    -- and always catches the lv5 Pikachu) -> Whew -> ComeWithMe.
+    local function afterOakArrives(oak)
+      if not yellow then
+        game.stack:push(TextBox.new(game,
+          t._PalletTownOakItsUnsafeText
+          or "OAK: It's unsafe!\nWild POKéMON\nlive in tall grass!",
+          function() escortToLab(oak) end))
+        return
+      end
+      local function comeWithMe()
+        game.stack:push(TextBox.new(game,
+          t._PalletTownOakComeWithMe
+          or "OAK: Here, come with\nme!",
+          function() escortToLab(oak) end))
+      end
+      local function afterPikaBattle()
+        if oak then oak.facing = "up" end
+        game.stack:push(TextBox.new(game,
+          t._PalletTownOakWhewText or "OAK: Whew...",
+          comeWithMe))
+      end
+      game.stack:push(TextBox.new(game,
+        t._PalletTownOakThatWasCloseText
+        or "OAK: That was\nclose!\fWild POKéMON live\nin tall grass!",
+        function()
+          -- Oak turns toward the horizontally adjacent grass (left exit
+          -- looks right, right exit looks left -- the
+          -- EVENT_PLAYER_AT_RIGHT_EXIT_TO_PALLET_TOWN branch)
+          if oak then oak.facing = x == 10 and "right" or "left" end
+          local battle = BattleState.newWild(game, "PIKACHU", 5)
+          battle:makeOldManDemo("PROF.OAK")
+          battle.onFinish = function()
+            afterPikaBattle()
+          end
+          game.stack:push(battle)
+        end))
+    end
 
-    -- PalletTownOakWalksToPlayerScript: Oak appears at (8,5), faces up
-    -- (SetSpriteFacingDirectionAndDelay + Delay3), then zigzags to the
-    -- player; the "It's unsafe!" text follows and the escort begins
     local function oakAppearsAndWalks()
       Commands.show_object(ctx, "PALLET_TOWN", "PALLETTOWN_OAK")
-      local oak = ow:npcByIndex(1)
+      local oak = npcNamed(ow, "PALLETTOWN_OAK") or ow:npcByIndex(1)
       if oak then oak.facing = "up" end
       hold(6, nil, function()
         walkList(oak, escort.oakApproach(x), function()
-          -- PalletTownOakNotSafeComeWithMeScript: the second text waits
-          -- for a button, then the escort starts
-          game.stack:push(TextBox.new(game,
-            t._PalletTownOakItsUnsafeText
-            or "OAK: It's unsafe!\nWild POKéMON\nlive in tall grass!",
-            function() escortToLab(oak) end))
+          afterOakArrives(oak)
         end)
       end)
     end
 
-    -- The "Hey! Wait!" box ends without a button wait (auto), then the
-    -- "!" bubble shows over the player WHILE the box is still on screen
-    -- (PalletTownOakText: DelayFrames 10 then EmotionBubble, box not yet
-    -- cleared).  onOverlap sets the bubble during the box's last frames;
-    -- the box pops after `overlap`, and the bubble's 60-frame hold then
-    -- runs to Oak's appearance (the bubble is static while the box is up,
-    -- since the overworld pauses under it, so 10 overlap + 50 = 60).
     game.stack:push(TextBox.new(game,
       t._PalletTownOakHeyWaitDontGoOutText or "OAK: Hey! Wait!\nDon't go out!",
       nil, { auto = { delay = 10, overlap = 10, onOverlap = function()
+        -- .HeyWaitDontGoOutText turns the player to face down (toward
+        -- the approaching Oak) before the exclamation bubble
+        ow.player.facing = "down"
         ow.emote = { npc = ow.player, frames = 50, onDone = oakAppearsAndWalks }
       end } }))
     return true

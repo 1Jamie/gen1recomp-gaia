@@ -259,6 +259,7 @@ stick push hides it, the next screen touch brings it back, and unplugging
 the last controller restores it immediately. Layout re-derives from the
 window size on rotation. Desktop testing: `POKEPORT_TOUCH=1 love .` forces
 the overlay on and lets the mouse act as a finger (`=0` forces it off).
+
 ## Translation support
 
 Every string the player can read is now reachable from a mod, so a
@@ -338,3 +339,26 @@ second, relabelling itself to `Confirm?` in between.
 
 A validation pill in the tab rail mirrors what the running game would
 quarantine on load; clicking it jumps to the tab holding the first problem.
+
+## Tiled map editing (mod authoring)
+
+`tools/tiled_export.py` turns the imported ROM cache into a Tiled workspace,
+so maps can be edited in a real map editor and exported back out as a mod.
+It has its own document: docs/tiled-map-editing.md.
+
+## Pokédex diploma (both versions)
+
+The Celadon Mansion 3F game designer shows the dex-completion diploma
+once 150 species are owned. On Yellow, the graphic artist next to him
+then offers to print it, saving the certificate as a PNG under `prints/`
+in the save directory, and Bill's PC gains Yellow's PRINT BOX item which
+exports the current box list the same way.
+
+## Pokédex printing (Yellow)
+
+Yellow's Game Boy Printer PRNT option in the Pokédex side menu is stood in
+for by an image export: choosing PRNT renders the mon's entry page (sprite,
+kind, number, height/weight, dex text) to a PNG at 4x scale under
+`prints/` in the save directory, then reports the filename in a dialog.
+No printer hardware or link cable emulation involved; the file is the
+printout.

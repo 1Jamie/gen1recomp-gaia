@@ -4,6 +4,7 @@
 
 local Collision = require("src.world.Collision")
 local FieldDefaults = require("src.world.FieldDefaults")
+local GameVersion = require("src.core.GameVersion")
 local Runtime = require("src.mods.Runtime")
 local SpriteRenderer = require("src.render.SpriteRenderer")
 
@@ -237,17 +238,30 @@ end
 
 function Player:draw(camX, camY)
   local sprite, px, py, facing, phase, flip, hopping = self:pose()
-  -- the shadow stays on the ground under the jumper: one 8x8 tile
-  -- mirrored into a 2x2 block (normal/XFLIP/YFLIP/both) whose top-left
-  -- is 8px below the sprite's standing top-left (LoadHoppingShadowOAM +
-  -- LedgeHoppingShadowOAMBlock, engine/overworld/ledges.asm)
+  -- the shadow stays on the ground under the jumper, mirrored out of the
+  -- single 8x8 tile the ROM stores -- but the two engines lay it out
+  -- differently, and their shadow.png tiles differ to match.
+  --   RED/BLUE: a 2x2 block (normal/XFLIP/YFLIP/both) whose top-left sits
+  --   8px below the sprite's standing top-left (LoadHoppingShadowOAM +
+  --   LedgeHoppingShadowOAMBlock at "lb bc, $54, $48",
+  --   engine/overworld/ledges.asm); its tile is blank above the bottom
+  --   four rows, so the four copies make one 16x16 ellipse.
+  --   YELLOW: a single 16x8 row 4px lower.  Its LoadHoppingShadowOAM
+  --   copies only two entries (LedgeHoppingShadowOAM: dbsprite 9,11 and
+  --   dbsprite 10,11 OAM_XFLIP, raw OAM y=88 against RED's $54=84) and
+  --   parks sprites 38/39 offscreen at y=$a0, because its tile is a
+  --   full-height half-ellipse that already fills the row.  Mirroring
+  --   that tile downward stacked a second blob under the first (#408).
   if hopping and self.shadowImg then
+    local yellow = GameVersion.isYellow()
     local sx = math.floor(self.px - camX)
-    local sy = math.floor(self.py - camY) - 4 + 8
+    local sy = math.floor(self.py - camY) - 4 + 8 + (yellow and 4 or 0)
     love.graphics.draw(self.shadowImg, sx, sy)
     love.graphics.draw(self.shadowImg, sx + 16, sy, 0, -1, 1)
-    love.graphics.draw(self.shadowImg, sx, sy + 16, 0, 1, -1)
-    love.graphics.draw(self.shadowImg, sx + 16, sy + 16, 0, -1, -1)
+    if not yellow then
+      love.graphics.draw(self.shadowImg, sx, sy + 16, 0, 1, -1)
+      love.graphics.draw(self.shadowImg, sx + 16, sy + 16, 0, -1, -1)
+    end
   end
   sprite:draw(px, py, camX, camY, facing, phase, flip)
 end

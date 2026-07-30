@@ -37,16 +37,15 @@ local function countOwned(save)
   return n
 end
 
-local function oaksAide(threshold, itemId)
+local function oaksAide(threshold, itemId, repeatText)
   return function(game, ow, npc, done)
     local t = text(game)
     local flags = game.save.flags
     local itemName = game.data.items[itemId].name
     local flag = "EVENT_GOT_" .. itemId
     if flags[flag] then
-      push(game, fill(t._OaksAideComeBackText or
-        "I already gave\nyou the {RAM:}!",
-        { num = threshold, ram = itemName }), done)
+      push(game, t[repeatText] or
+        fill("I already gave\nyou the {RAM:}!", { ram = itemName }), done)
       return
     end
     ask(game, fill(t._OaksAideHiText or
@@ -83,13 +82,16 @@ local function oaksAide(threshold, itemId)
 end
 
 M.ROUTE_2_GATE = {
-  talk = { TEXT_ROUTE2GATE_OAKS_AIDE = oaksAide(10, "HM_FLASH") },
+  talk = { TEXT_ROUTE2GATE_OAKS_AIDE = oaksAide(10, "HM_FLASH",
+    "_Route2GateOaksAideFlashExplanationText") },
 }
 M.ROUTE_11_GATE_2F = {
-  talk = { TEXT_ROUTE11GATE2F_OAKS_AIDE = oaksAide(30, "ITEMFINDER") },
+  talk = { TEXT_ROUTE11GATE2F_OAKS_AIDE = oaksAide(30, "ITEMFINDER",
+    "_Route11Gate2FOaksAideItemfinderDescriptionText") },
 }
 M.ROUTE_15_GATE_2F = {
-  talk = { TEXT_ROUTE15GATE2F_OAKS_AIDE = oaksAide(50, "EXP_ALL") },
+  talk = { TEXT_ROUTE15GATE2F_OAKS_AIDE = oaksAide(50, "EXP_ALL",
+    "_Route15Gate2FOaksAideExpAllText") },
 }
 
 -- -------------------------------------------------------------------

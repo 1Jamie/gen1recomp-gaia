@@ -343,6 +343,9 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   self.pendingSeamMusic = nil
   self.entities = { self.player }
   for _, n in ipairs(self.npcs) do table.insert(self.entities, n) end
+  -- Yellow's companion Pikachu trails the player (never in
+  -- self.entities: it does not block movement, pikachu_follow.asm)
+  require("src.world.PikachuFollower").onMapEntered(Game, self)
 
   -- opts.keepMusic: the Oak-escort warp keeps MUSIC_MEET_PROF_OAK
   -- playing into the lab (BIT_NO_MAP_MUSIC in wStatusFlags7);
@@ -792,6 +795,12 @@ function OverworldState:update(dt)
       if ca.onDone then ca.onDone() end
     end
   end
+  -- Yellow's companion hopping up onto the Poke Center counter owns the
+  -- world for its arc, the same way the heal machine below does (#417)
+  if self.pikaHop then
+    require("src.world.PikachuFollower").updateHop(self)
+    return
+  end
   if self.healAnim then
     local ha = self.healAnim
     local ev = OverworldState.stepHealAnim(ha)
@@ -870,6 +879,7 @@ function OverworldState:update(dt)
   for _, npc in ipairs(self.npcs) do
     npc:update(self.map, self.entities)
   end
+  require("src.world.PikachuFollower").update(Game, self)
 
   for _, g in ipairs(self.ghosts) do
     g.npc:update(g.map, g.peers)
@@ -1493,7 +1503,17 @@ function OverworldState:interact()
     npc = self:npcAtCell(fx2, fy2)
   end
   if npc then
-    if not npc.moving then
+    if npc.pikachuFollower then
+      -- the companion answers directly (TalkToPikachu), no map text id --
+      -- and it answers mid-step too.  pikachu_follow.asm walks the follower
+      -- on the player's own step clock, so the original never has it
+      -- mid-tile while the player stands; this port's follow is a frame
+      -- late (the npc loop runs before Player:update lands the step), so
+      -- the not-moving gate used to eat the A press in the frames right
+      -- after landing -- exactly when you turn round to face it (#407).
+      -- talk() lands the follower on its cell first.
+      require("src.world.PikachuFollower").talk(Game, self, npc)
+    elseif not npc.moving then
       self:talkTo(npc)
     end
     interacted(self, fx, fy, "npc", npc)
@@ -2431,7 +2451,7 @@ end
 -- Prof. Oak's dex rating service (engine/events/pokedex_rating.asm):
 -- the completion line with seen AND owned counts, then the per-decade
 -- rating text.
-function OverworldState:dexRating()
+function OverworldState:dexRating(onDone)
   require("src.core.Sound").play(Game.data, "Pokedex_Rating")
   local seen, owned = 0, 0
   for _ in pairs(Game.save.pokedex.seen or {}) do seen = seen + 1 end
@@ -2449,7 +2469,7 @@ function OverworldState:dexRating()
   completion = completion
     :gsub("{NUM:hDexRatingNumMonsSeen[^}]*}", tostring(seen))
     :gsub("{NUM:hDexRatingNumMonsOwned[^}]*}", tostring(owned))
-  Game.stack:push(TextBox.new(Game, completion .. "\f" .. rating))
+  Game.stack:push(TextBox.new(Game, completion .. "\f" .. rating, onDone))
 end
 
 -- AnimateHealingMachine (engine/overworld/healing_machine.asm): balls
@@ -2500,41 +2520,56 @@ function OverworldState:nurseHeal(onDone, npc)
     hello = hello .. "\f"
             .. (t._ShallWeHealYourPokemonText or Strings("Shall we heal your\nPOKéMON?"))
   end
+  -- Yellow's companion has its own beat threaded through this sequence
+  local Follower = require("src.world.PikachuFollower")
   Game.stack:push(TextBox.new(Game, hello, nil, { choice = function(yes)
     if not yes then
       Game.stack:push(TextBox.new(Game, bye, onDone))
       return
     end
     local need = t._NeedYourPokemonText or Strings("OK. We'll need\nyour POKéMON.")
-    Game.stack:push(TextBox.new(Game, need, function()
-      -- the nurse turns to the machine, the map music stops, and the
-      -- party heals before the machine runs (predef HealParty)
-      if npc then npc.facing = "left" end
-      require("src.core.Music").stop()
-      local Pokemon = require("src.pokemon.Pokemon")
-      for _, mon in ipairs(Game.save.party) do
-        Pokemon.heal(mon)
-      end
-      Game.save.lastHeal = { -- SetLastBlackoutMap
-        map = self.map.id, x = self.player.cellX, y = self.player.cellY,
-        -- the town door of this interior, for LAST_MAP exits after a
-        -- blackout/ESCAPE ROPE warp here
-        outdoor = self.lastOutdoor
-          and { id = self.lastOutdoor.id, x = self.lastOutdoor.x, y = self.lastOutdoor.y }
-          or nil,
-      }
-      self.healAnim = { balls = #Game.save.party, lit = 0, timer = 0,
-                        visible = true,
-                        -- map anchor: the player's cell when healing
-                        -- began (the GB's fixed screen coords assume it
-                        -- BG-aligned at (64,64))
-                        px = self.player.cellX * 16,
-                        py = self.player.cellY * 16 }
-      self.healAnim.onDone = function()
-        if npc then npc:facePlayer(self.player) end
-        self:finishNurseHeal(bye, onDone)
-      end
-    end))
+    -- accepting the heal sends the companion up onto the counter to Nurse
+    -- Joy first: pokecenter.asm runs `callfar PikachuWalksToNurseJoy`
+    -- between SetLastBlackoutMap and NeedYourPokemonText, and the hop has
+    -- to finish before the text box goes up because only the top state
+    -- updates.  No follower (or not Yellow) calls straight through (#417).
+    Follower.hopToCounter(self, function()
+      Game.stack:push(TextBox.new(Game, need, function()
+        -- the nurse turns to the machine, the map music stops, and the
+        -- party heals before the machine runs (predef HealParty)
+        if npc then npc.facing = "left" end
+        -- DisablePikachuOverworldSpriteDrawing: Pikachu goes behind the
+        -- counter with the party for the machine animation
+        Follower.setVisible(self, false)
+        require("src.core.Music").stop()
+        local Pokemon = require("src.pokemon.Pokemon")
+        for _, mon in ipairs(Game.save.party) do
+          Pokemon.heal(mon)
+        end
+        Game.save.lastHeal = { -- SetLastBlackoutMap
+          map = self.map.id, x = self.player.cellX, y = self.player.cellY,
+          -- the town door of this interior, for LAST_MAP exits after a
+          -- blackout/ESCAPE ROPE warp here
+          outdoor = self.lastOutdoor
+            and { id = self.lastOutdoor.id, x = self.lastOutdoor.x, y = self.lastOutdoor.y }
+            or nil,
+        }
+        self.healAnim = { balls = #Game.save.party, lit = 0, timer = 0,
+                          visible = true,
+                          -- map anchor: the player's cell when healing
+                          -- began (the GB's fixed screen coords assume it
+                          -- BG-aligned at (64,64))
+                          px = self.player.cellX * 16,
+                          py = self.player.cellY * 16 }
+        self.healAnim.onDone = function()
+          -- EnablePikachuOverworldSpriteDrawing, before the fighting-fit
+          -- line: it comes back on the counter facing the player
+          Follower.setVisible(self, true)
+          if npc then npc:facePlayer(self.player) end
+          self:finishNurseHeal(bye, onDone)
+        end
+      end))
+    end)
   end }))
 end
 
@@ -2874,6 +2909,9 @@ function OverworldState:applyFieldPoison()
         mon.hp = 0
         mon.status = nil -- the original clears status on the faint
         table.insert(fainted, mon)
+        -- callfar_ModifyPikachuHappiness PIKAHAPPY_PSNFNT (poison.asm)
+        require("src.world.PikachuFollower")
+          .modifyHappiness(save, "PSNFNT", mon)
       end
     end
   end
@@ -2942,6 +2980,8 @@ end
 function OverworldState:onStepComplete()
   local p = self.player
   self.todSteps = (self.todSteps or 0) + 1
+  -- UpdatePikachuHappinessAndMood rides the step counter (poison.asm)
+  require("src.world.PikachuFollower").onStep(Game.save)
   -- re-evaluate day/night so a step-based clock can fire world.tod_changed;
   -- paletteNameFor reads self.tod on the next paint
   if Runtime.wantsHook("world.tod") then
@@ -4032,6 +4072,9 @@ function OverworldState:drawWorld()
   -- the "!" bubble above a trainer who spotted the player
   local function fxEmote()
     if not (self.emote and self.emote.npc) then return end
+    -- bubble = false is a silent hold (a Pikachu emotion that plays a
+    -- cry with no bubble still pauses the world for its beat)
+    if self.emote.bubble == false then return end
     local npc = self.emote.npc
     local ex = npc.px - cam.x + 4
     local ey = npc.py - cam.y - 14
@@ -4393,6 +4436,30 @@ end
 
 -- screen-space overlays: drawn to the UI canvas at normal scale
 function OverworldState:drawUI()
+  -- TalkToPikachu's picture box (engine/pikachu/pikachu_pic_animation.asm
+  -- PlacePikapicTextBoxBorder: TextBoxBorder at (6,5) with b,c = 5,5, so a
+  -- 7x7 box holding the 5x5 pic at (7,6) -- PikaAnimTilemap_1).  The
+  -- per-emotion frame gfx (gfx/pikachu/unknown_*) are not extracted, so
+  -- the front pic holds for the whole beat while the cry and any emote
+  -- bubble play over the world below (#407).
+  if self.emote and self.emote.pikaPic then
+    require("src.render.Font").drawBox(6, 5, 7, 7)
+    -- one image per path, cached: this draws every frame of the hold, and
+    -- a mod skin can move the path between talks
+    if self.pikaPicPath ~= self.emote.pikaPic then
+      local ok, loaded = pcall(love.graphics.newImage, self.emote.pikaPic)
+      self.pikaPicImg = ok and loaded or nil
+      self.pikaPicPath = self.emote.pikaPic
+    end
+    local img = self.pikaPicImg
+    if img then
+      love.graphics.setColor(1, 1, 1, 1)
+      local w, h = img:getDimensions()
+      love.graphics.draw(img, math.floor(56 + (40 - w) / 2),
+                         math.floor(48 + (40 - h) / 2))
+    end
+  end
+
   -- poison step flicker (ChangeBGPalColor0_4Frames: dark for two
   -- 4-frame pulses)
   if self.poisonFlash and self.poisonFlash > 0 then
