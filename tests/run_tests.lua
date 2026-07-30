@@ -3274,6 +3274,7 @@ runSuites(orderedGlob("tests/parity_*.lua", {
   "tests/parity_C.lua", "tests/parity_K.lua", "tests/parity_L.lua",
   "tests/parity_H.lua", "tests/parity_G.lua", "tests/parity_I_M.lua",
   "tests/parity_B.lua", "tests/parity_J.lua", "tests/parity_A.lua",
+  "tests/parity_cerulean_badge_house.lua",
   "tests/parity_flavor.lua", "tests/parity_trainer_sight.lua",
   "tests/parity_static.lua", "tests/parity_trashcans.lua",
   "tests/parity_hof.lua", "tests/parity_trade_gift.lua",
