@@ -176,6 +176,13 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## iOS
+
+Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore
+(Windows or Mac) — see [docs/ios-sideload.md](docs/ios-sideload.md). To
+build and install from source on a Mac instead, see
+[docs/ios-install.md](docs/ios-install.md).
+
 ## Handhelds
 
 A PortMaster-style port for the **Anbernic RG34XXSP** on Stock OS 64-bit MOD
