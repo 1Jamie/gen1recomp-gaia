@@ -604,6 +604,7 @@ function RomImporter.new(onComplete, opts)
     _padCursorActive = false,
     _padAxis = { leftx = 0, lefty = 0, righty = 0 },
     _padDir = {},
+    _rawHatDirs = {},
     _padInited = false,
   }, RomImporter)
 
@@ -1334,6 +1335,36 @@ function RomImporter:gamepadaxis(_, axis, value)
     self._padAxis[axis] = value
     if math.abs(value) > PAD_DEAD then self:_activatePadCursor() end
   end
+end
+
+function RomImporter:joystickpressed(joystick, button)
+  if button == 1 then self:gamepadpressed(joystick, "a") end
+end
+
+function RomImporter:joystickreleased(joystick, button)
+  if button == 1 then self:gamepadreleased(joystick, "a") end
+end
+
+function RomImporter:joystickaxis(joystick, axis, value)
+  if axis == 1 then
+    self:gamepadaxis(joystick, "leftx", value)
+  elseif axis == 2 then
+    self:gamepadaxis(joystick, "lefty", value)
+  end
+end
+
+function RomImporter:joystickhat(_, hat, direction)
+  for _, dir in ipairs(self._rawHatDirs[hat] or {}) do
+    self._padDir[dir] = nil
+  end
+  local dirs = ({
+    u = { "dpup" }, d = { "dpdown" }, l = { "dpleft" }, r = { "dpright" },
+    lu = { "dpleft", "dpup" }, ru = { "dpright", "dpup" },
+    ld = { "dpleft", "dpdown" }, rd = { "dpright", "dpdown" },
+  })[direction] or {}
+  for _, dir in ipairs(dirs) do self._padDir[dir] = true end
+  self._rawHatDirs[hat] = dirs
+  if #dirs > 0 then self:_activatePadCursor() end
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.

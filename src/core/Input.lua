@@ -39,6 +39,20 @@ local DEFAULT_GAMEPAD_BINDINGS = {
 local STICK_ON = 0.5
 local STICK_OFF = 0.3
 
+-- Generic SDL joysticks expose the left stick as the first two numbered
+-- axes and the D-pad as a hat.  This is common on Linux handhelds whose
+-- controller has no game-controller database entry.
+local RAW_BUTTON_BINDINGS = {
+  [1] = "a", [2] = "b",
+  [7] = "select", [8] = "start", [9] = "select", [10] = "start",
+}
+
+local HAT_DIRECTIONS = {
+  u = { "up" }, d = { "down" }, l = { "left" }, r = { "right" },
+  lu = { "left", "up" }, ru = { "right", "up" },
+  ld = { "left", "down" }, rd = { "right", "down" },
+}
+
 function Input:init()
   self:applyBindings(nil)
   self:reset()
@@ -79,6 +93,7 @@ function Input:reset()
   self.sources = {}
   self.stickAxis = { x = 0, y = 0 }
   self.stickDir = nil
+  self.hatDirs = {}
 end
 
 -- Multiple physical sources (W + Up, d-pad + stick, etc.) can claim the
@@ -179,6 +194,16 @@ function Input:gamepadreleased(joystick, button)
   end
 end
 
+function Input:joystickpressed(joystick, button)
+  local btn = RAW_BUTTON_BINDINGS[button]
+  if btn then press(self, btn, "joy:" .. button) end
+end
+
+function Input:joystickreleased(joystick, button)
+  local btn = RAW_BUTTON_BINDINGS[button]
+  if btn then release(self, btn, "joy:" .. button) end
+end
+
 -- left stick treated as a continuous held direction, same 4-way rule as
 -- the touch swipe d-pad: whichever axis has the larger magnitude wins.
 function Input:gamepadaxis(joystick, axis, value)
@@ -212,6 +237,26 @@ function Input:gamepadaxis(joystick, axis, value)
     end
     self.stickDir = newDir
   end
+end
+
+function Input:joystickaxis(joystick, axis, value)
+  if axis == 1 then
+    self:gamepadaxis(joystick, "leftx", value)
+  elseif axis == 2 then
+    self:gamepadaxis(joystick, "lefty", value)
+  end
+end
+
+function Input:joystickhat(joystick, hat, direction)
+  local source = "hat:" .. hat
+  for _, btn in ipairs(self.hatDirs[hat] or {}) do
+    release(self, btn, source)
+  end
+  local dirs = HAT_DIRECTIONS[direction] or {}
+  for _, btn in ipairs(dirs) do
+    press(self, btn, source)
+  end
+  self.hatDirs[hat] = dirs
 end
 
 function Input:isDown(btn)

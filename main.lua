@@ -331,6 +331,30 @@ function love.gamepadaxis(joystick, axis, value)
   Game:gamepadaxis(joystick, axis, value)
 end
 
+function love.joystickpressed(joystick, button)
+  if editorMode then return end
+  if Importer then return Importer:joystickpressed(joystick, button) end
+  Game:joystickpressed(joystick, button)
+end
+
+function love.joystickreleased(joystick, button)
+  if editorMode then return end
+  if Importer then return Importer:joystickreleased(joystick, button) end
+  Game:joystickreleased(joystick, button)
+end
+
+function love.joystickaxis(joystick, axis, value)
+  if editorMode then return end
+  if Importer then return Importer:joystickaxis(joystick, axis, value) end
+  Game:joystickaxis(joystick, axis, value)
+end
+
+function love.joystickhat(joystick, hat, direction)
+  if editorMode then return end
+  if Importer then return Importer:joystickhat(joystick, hat, direction) end
+  Game:joystickhat(joystick, hat, direction)
+end
+
 function love.joystickremoved(joystick)
   if editorMode then return end
   if Importer then return end

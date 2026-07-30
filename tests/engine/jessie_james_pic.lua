@@ -18,24 +18,24 @@ local yellow = { name = "ROCKET", pic = CLASS_PIC, picJessieJames = DUO_PIC }
 local grunt = { name = "ROCKET", pic = CLASS_PIC }
 
 for _, party in ipairs({ 42, 43, 44, 45 }) do
-  T.eq(BattleState.trainerPicPath(yellow, "OPP_ROCKET", party), DUO_PIC,
+  T.eq(BattleState.trainerPicPath(nil, yellow, "OPP_ROCKET", party), DUO_PIC,
     "party " .. party .. " fights behind the duo pic")
 end
 T.eq(yellow.name, "ROCKET", "the duo keeps the class name")
 
 -- $2a is the first duo party; every grunt below it keeps the class pic
-T.eq(BattleState.trainerPicPath(yellow, "OPP_ROCKET", 41), CLASS_PIC,
+T.eq(BattleState.trainerPicPath(nil, yellow, "OPP_ROCKET", 41), CLASS_PIC,
   "party 41 is still a lone grunt")
-T.eq(BattleState.trainerPicPath(yellow, "OPP_ROCKET", 1), CLASS_PIC,
+T.eq(BattleState.trainerPicPath(nil, yellow, "OPP_ROCKET", 1), CLASS_PIC,
   "the first ROCKET party is still a lone grunt")
-T.eq(BattleState.trainerPicPath(yellow, "OPP_ROCKET", nil), CLASS_PIC,
+T.eq(BattleState.trainerPicPath(nil, yellow, "OPP_ROCKET", nil), CLASS_PIC,
   "an unnumbered ROCKET falls back to party 1")
-T.eq(BattleState.trainerPicPath(
+T.eq(BattleState.trainerPicPath(nil,
        { pic = "assets/generated/battle/trainers/super_nerd.png",
          picJessieJames = DUO_PIC }, "OPP_SUPER_NERD", 42),
   "assets/generated/battle/trainers/super_nerd.png",
   "the class gate holds: only ROCKET swaps")
-T.eq(BattleState.trainerPicPath(grunt, "OPP_ROCKET", 42), CLASS_PIC,
+T.eq(BattleState.trainerPicPath(nil, grunt, "OPP_ROCKET", 42), CLASS_PIC,
   "a cache with no duo pic keeps the grunt instead of a nil pic")
 
 -- The extractor writes jessie_james.png only when the symbol is in the

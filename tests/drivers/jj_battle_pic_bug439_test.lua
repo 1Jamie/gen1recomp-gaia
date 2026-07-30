@@ -52,11 +52,11 @@ return function(game)
           CacheFs.exists(trainer.picJessieJames)
           or love.filesystem.getInfo(trainer.picJessieJames) ~= nil)
   end
-  local picked = BattleState.trainerPicPath(trainer, "OPP_ROCKET", 42)
+  local picked = BattleState.trainerPicPath(game.data, trainer, "OPP_ROCKET", 42)
   U.log("pic:", tostring(picked))
   check("party 42 selects the duo pic", picked == trainer.picJessieJames)
   check("a lone grunt party still selects the class pic",
-        BattleState.trainerPicPath(trainer, "OPP_ROCKET", 3) == trainer.pic)
+        BattleState.trainerPicPath(game.data, trainer, "OPP_ROCKET", 3) == trainer.pic)
 
   -- ---- reach the ambush ---------------------------------------------------
   -- one strong mon so the fight is survivable if the reader plays it out
