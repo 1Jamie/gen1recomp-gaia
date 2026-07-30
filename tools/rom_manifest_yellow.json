@@ -21981,6 +21981,10 @@
       9,
       20457
     ],
+    "JessieJamesPic": [
+      19,
+      31873
+    ],
     "JigglypuffPicBack": [
       11,
       25410
@@ -39058,6 +39062,7 @@
       ]
     },
     "labels": [
+      "SilphCo2FSilphWorkerFPleaseTakeThisText",
       "_AIBattleUseItemText",
       "_AIBattleWithdrawText",
       "_AbandonLearningText",
