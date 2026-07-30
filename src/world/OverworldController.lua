@@ -2093,6 +2093,7 @@ function OverworldState:billsHouseBillExits()
   local Commands = require("src.script.Commands")
   local ctx = { game = Game, save = Game.save, overworld = self }
   Commands.show_object(ctx, "BILLS_HOUSE", "BILLSHOUSE_BILL1")
+  require("src.world.PikachuFollower").onBillExitedMachine(Game, self)
   local function done()
     Game.save.flags.EVENT_MET_BILL = true
     Game.save.flags.EVENT_MET_BILL_2 = true

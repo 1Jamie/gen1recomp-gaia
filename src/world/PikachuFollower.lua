@@ -189,6 +189,9 @@ function PikachuFollower.current(ow)
 end
 
 function PikachuFollower.onMapEntered(game, ow, opts)
+  -- Bill's House owns a short scripted scene that deliberately keeps
+  -- Pikachu off the normal trailing loop.  A new map instance ends it.
+  ow.pikachuBillsScene = nil
   remove(ow)
   if not shouldSpawn(game, ow) then return end
   -- opts.keepPikachu is the follower a connection crossing kept alive:
@@ -393,6 +396,7 @@ end
 -- (pikachu_follow.asm keeps it one walk step behind)
 function PikachuFollower.update(game, ow)
   if ow.pikaHop then return end -- the counter hop owns the follower (#417)
+  if ow.pikachuBillsScene then return end
   local npc = findFollower(ow)
   if not npc then
     if shouldSpawn(game, ow) then PikachuFollower.onMapEntered(game, ow) end
@@ -739,6 +743,68 @@ function PikachuFollower.picLift(emote)
     tick = tick - run
   end
   return 0
+end
+
+-- Bill's House has three map-scripted Yellow companion beats
+-- (BillsHouseScript0/2/5): Pikachu walks over to investigate Bill, waits at
+-- the cell separator, then reacts when Bill reappears.  Keep it at the
+-- machine until this map instance is discarded, just like the cartridge's
+-- disabled following state.
+local function billsHouseEmotion(game, ow, npc, bubble)
+  local Sprites = require("src.pokemon.Sprites")
+  ow.emote = {
+    npc = npc, frames = 50, bubble = bubbleIndex(game, bubble) or false,
+    pikaPic = Sprites.path(game.data, "PIKACHU", "front",
+                           { kind = "overworld" }),
+  }
+end
+
+local function movePikachu(ow, npc, steps, onDone)
+  npc.goalX, npc.goalY = nil, nil
+  idleReset(npc)
+  local function nextStep(i)
+    local step = steps[i]
+    if not step then
+      if onDone then onDone() end
+      return
+    end
+    ow:scriptMove(npc, step[1], step[2], function() nextStep(i + 1) end)
+  end
+  nextStep(1)
+end
+
+function PikachuFollower.onBillsHouseEnter(game, ow)
+  if not (GameVersion.isYellow() and ow.map and ow.map.id == "BILLS_HOUSE") then
+    return
+  end
+  if game.save.flags.EVENT_MET_BILL_2 then return end
+  local npc = findFollower(ow)
+  if not npc then return end
+  ow.pikachuBillsScene = true
+  movePikachu(ow, npc, { { "right", 3 }, { "up", 1 } }, function()
+    billsHouseEmotion(game, ow, npc, "QUESTION_BUBBLE")
+  end)
+end
+
+function PikachuFollower.onBillEnteredMachine(game, ow)
+  if not (GameVersion.isYellow() and ow.pikachuBillsScene) then return end
+  local npc = findFollower(ow)
+  if not npc then return end
+  local steps = ow.player.facing == "down"
+      and { { "up", 3 } }
+      or { { "up", 1 }, { "left", 1 }, { "up", 2 }, { "right", 1 } }
+  movePikachu(ow, npc, steps, function()
+    billsHouseEmotion(game, ow, npc, "QUESTION_BUBBLE")
+  end)
+end
+
+function PikachuFollower.onBillExitedMachine(game, ow)
+  if not (GameVersion.isYellow() and ow.pikachuBillsScene) then return end
+  local npc = findFollower(ow)
+  if not npc then return end
+  idleReset(npc)
+  npc.facing = "left"
+  billsHouseEmotion(game, ow, npc, "EXCLAMATION_BUBBLE")
 end
 
 -- ---------------------------------------------------------------------
