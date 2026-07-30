@@ -41,13 +41,20 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Vibrator;
 import android.util.Log;
 import android.util.DisplayMetrics;
@@ -67,6 +74,7 @@ public class GameActivity extends SDLActivity {
     public static final int RECORD_AUDIO_REQUEST_CODE = 3;
     public static final int FILE_PICKER_REQUEST_CODE = 4;
     public static final int FILE_CREATE_REQUEST_CODE = 5;
+    public static final int STEP_PERMISSION_REQUEST_CODE = 6;
     /** @deprecated Prefer FILE_PICKER_REQUEST_CODE; kept for older call sites. */
     public static final int ROM_PICKER_REQUEST_CODE = FILE_PICKER_REQUEST_CODE;
     // Mirrors conf.lua's t.identity ("pokemon-love2d"): where the picked file
@@ -83,6 +91,17 @@ public class GameActivity extends SDLActivity {
     // basename as its body, so RomImporter:focus can say so in the launcher
     // instead of leaving the player on "No ROM imported" (issue #442).
     private static final String PICK_ERROR_FILENAME = "pick_error.flag";
+    // Step bridge (love.system.syncHealthSteps): pending-steps delivery
+    // consumed by the Pokéwalker mod, same contract as the iOS
+    // GRHealthBridge. Steps come from the hardware TYPE_STEP_COUNTER
+    // (cumulative since boot, counted by the OS whether or not any app is
+    // running), anchored in SharedPreferences so a walk is never credited
+    // twice.
+    private static final String PENDING_STEPS_FILENAME = "steps_pending.json";
+    private static final String STEP_PREFS = "pokewalker_steps";
+    private static final String STEP_PREF_ANCHOR = "anchor";
+    private static final String STEP_PREF_ANCHOR_WALLTIME = "anchor_walltime";
+    private static final long STEP_MAX_PER_SYNC = 50000;
     // Destination basename for the in-flight SAF pick (set by showFilePicker).
     private String pendingPickFilename = PICKED_ROM_FILENAME;
     // Suggested download name for the in-flight SAF create (set by showCreateDocument).
@@ -516,6 +535,160 @@ public class GameActivity extends SDLActivity {
         }
     }
 
+    /**
+     * Step sync, called from Lua as love.system.syncHealthSteps()
+     * (see modules/system/wrap_System.cpp). Asynchronous like the picker:
+     * returns whether a sync could be started; the result lands later as
+     * steps_pending.json in the save identity dir, where the Pokéwalker
+     * mod's poll consumes it.
+     *
+     * Android 10+ gates the step counter behind the ACTIVITY_RECOGNITION
+     * runtime permission; the first call shows the system prompt and a later
+     * sync (the mod retries on save load / option change) delivers.
+     */
+    @Keep
+    public static boolean syncHealthSteps() {
+        final GameActivity self = (GameActivity) mSingleton;
+        if (self == null) return false;
+        if (android.os.Build.VERSION.SDK_INT >= 29
+                && ActivityCompat.checkSelfPermission(self,
+                    Manifest.permission.ACTIVITY_RECOGNITION)
+                    != PackageManager.PERMISSION_GRANTED) {
+            self.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    ActivityCompat.requestPermissions(self,
+                        new String[]{Manifest.permission.ACTIVITY_RECOGNITION},
+                        STEP_PERMISSION_REQUEST_CODE);
+                }
+            });
+            return true;
+        }
+        self.startStepSensorRead();
+        return true;
+    }
+
+    /**
+     * One-shot read of the cumulative hardware step counter. The sensor
+     * usually reports its cached value moments after registration; some
+     * devices hold the event until the next physical step, so the listener
+     * is given 20 seconds before being torn down (the next sync retries).
+     */
+    private void startStepSensorRead() {
+        final SensorManager manager =
+            (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        if (manager == null) return;
+        Sensor counter = manager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
+        if (counter == null) {
+            Log.d("GameActivity", "no step counter sensor on this device");
+            return;
+        }
+        final SensorEventListener listener = new SensorEventListener() {
+            private boolean delivered = false;
+
+            @Override
+            public void onSensorChanged(SensorEvent event) {
+                if (delivered || event.values.length == 0) return;
+                delivered = true;
+                manager.unregisterListener(this);
+                deliverSteps((long) event.values[0]);
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            }
+        };
+        if (!manager.registerListener(listener, counter,
+                SensorManager.SENSOR_DELAY_NORMAL)) {
+            Log.d("GameActivity", "step counter listener registration failed");
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                // No-op if the listener already delivered and unregistered.
+                manager.unregisterListener(listener);
+            }
+        }, 20000);
+    }
+
+    /**
+     * Convert a cumulative counter reading into pending steps. The counter
+     * resets to zero on reboot: a reading below the stored anchor re-anchors
+     * without crediting (steps walked between the reboot and this sync are
+     * lost, which errs on the honest side).
+     */
+    private void deliverSteps(long counterNow) {
+        SharedPreferences prefs = getSharedPreferences(STEP_PREFS, MODE_PRIVATE);
+        long anchor = prefs.getLong(STEP_PREF_ANCHOR, -1);
+        long now = System.currentTimeMillis();
+        if (anchor < 0 || counterNow < anchor) {
+            prefs.edit()
+                .putLong(STEP_PREF_ANCHOR, counterNow)
+                .putLong(STEP_PREF_ANCHOR_WALLTIME, now)
+                .apply();
+            Log.d("GameActivity", "step anchor set at " + counterNow);
+            return;
+        }
+        long steps = Math.min(counterNow - anchor, STEP_MAX_PER_SYNC);
+        long fromWalltime = prefs.getLong(STEP_PREF_ANCHOR_WALLTIME, now);
+        if (steps <= 0) return;
+        prefs.edit()
+            .putLong(STEP_PREF_ANCHOR, counterNow)
+            .putLong(STEP_PREF_ANCHOR_WALLTIME, now)
+            .apply();
+
+        File dir = saveIdentityDir();
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            Log.d("GameActivity", "cannot create save dir for steps: " + dir);
+            return;
+        }
+        File pending = new File(dir, PENDING_STEPS_FILENAME);
+        long total = steps;
+        // Merge with an unconsumed earlier delivery so steps are never lost
+        // (same contract as the iOS bridge).
+        if (pending.isFile()) {
+            try {
+                byte[] raw = new byte[(int) Math.min(pending.length(), 4096)];
+                FileInputStream in = new FileInputStream(pending);
+                int read = in.read(raw);
+                in.close();
+                if (read > 0) {
+                    org.json.JSONObject old =
+                        new org.json.JSONObject(new String(raw, 0, read, "UTF-8"));
+                    total += Math.max(0, old.optLong("steps", 0));
+                }
+            } catch (Exception e) {
+                Log.d("GameActivity", "ignoring unreadable pending steps: " + e);
+            }
+        }
+        try {
+            org.json.JSONObject payload = new org.json.JSONObject();
+            payload.put("steps", total);
+            payload.put("from", isoTime(fromWalltime));
+            payload.put("to", isoTime(now));
+            File tmp = new File(dir, PENDING_STEPS_FILENAME + ".tmp");
+            FileOutputStream out = new FileOutputStream(tmp);
+            out.write(payload.toString().getBytes("UTF-8"));
+            out.close();
+            if (!tmp.renameTo(pending)) {
+                tmp.delete();
+                Log.d("GameActivity", "could not publish pending steps");
+                return;
+            }
+            Log.d("GameActivity", total + " steps pending for the Pokewalker mod");
+        } catch (Exception e) {
+            Log.d("GameActivity", "could not write pending steps: " + e);
+        }
+    }
+
+    private static String isoTime(long millis) {
+        java.text.SimpleDateFormat format =
+            new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US);
+        format.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return format.format(new java.util.Date(millis));
+    }
+
     private boolean copyFileToUri(File source, Uri destUri) {
         InputStream in = null;
         OutputStream out = null;
@@ -736,6 +909,17 @@ public class GameActivity extends SDLActivity {
                     synchronized (recordAudioRequestDummy) {
                         recordAudioRequestDummy[0] = grantResults[0];
                         recordAudioRequestDummy.notify();
+                    }
+                    break;
+                }
+                case STEP_PERMISSION_REQUEST_CODE: {
+                    if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                        Log.d("GameActivity", "Step permission granted");
+                        // Deliver right away so the sync the player just
+                        // opted into doesn't wait for the next launch.
+                        startStepSensorRead();
+                    } else {
+                        Log.d("GameActivity", "Did not get step permission.");
                     }
                     break;
                 }
