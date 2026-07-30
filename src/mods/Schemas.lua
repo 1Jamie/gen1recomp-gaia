@@ -555,6 +555,11 @@ R.trainers = {
     index = f.opt(f.int(0, 255)),
     -- unused vanilla classes ship without a pic, so it cannot be required
     pic = f.opt(f.path),
+    -- Optional Advanced-mode OBJ palette source for a custom trainer portrait.
+    -- It follows the same ROM crosswalk form as sprites.paletteSource.
+    paletteSource = f.opt(f.str),
+    -- Reuse a base trainer class's portrait without redistributing its asset.
+    basePic = f.opt(f.id("trainers")),
     baseMoney = f.opt(f.int(0)),
     parties = f.list(f.list(f.rec{ level = f.int(1),
                                    species = f.id("pokemon") })),
@@ -574,6 +579,10 @@ R.sprites = {
     frames = f.int(1),
     walker = f.opt(f.bool),
     trueColor = f.opt(f.bool),
+    -- Mod art can opt into an existing ROM sprite's Advanced-mode OBJ
+    -- palette assignment without claiming that the image itself came from
+    -- the ROM (which is what `source` documents on imported records).
+    paletteSource = f.opt(f.str),
   },
   example = 'mod.content.sprites:register("SPRITE_HERO", { image = "...", frames = 6 })',
 }
