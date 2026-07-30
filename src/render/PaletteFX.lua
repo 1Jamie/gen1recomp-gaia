@@ -537,7 +537,7 @@ end
 function PaletteFX.spriteObp(spriteDef, seed)
   local pack = PaletteFX.gbcPack()
   local w = pack and pack.world
-  local src = spriteDef and spriteDef.source
+  local src = spriteDef and (spriteDef.paletteSource or spriteDef.source)
   if not (w and src) then return nil end
   local idx = tonumber(src:match("%[(%d+)%]"))
   -- RedBikeSprite loads outside SpriteSheetPointerTable

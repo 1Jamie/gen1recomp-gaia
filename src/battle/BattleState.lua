@@ -188,6 +188,27 @@ local function namedPalette(data, name)
   return { name = key, colors = colors }
 end
 
+-- Custom trainer portraits can opt into the same Advanced OBJ palette source
+-- as their overworld walker. Vanilla trainers preserve the hardware-faithful
+-- MEWMON fallback used during the battle introduction.
+function BattleState.trainerPalette(data, trainer)
+  local source = trainer and trainer.paletteSource
+  if source then
+    local PaletteFX = require("src.render.PaletteFX")
+    local colors, group = PaletteFX.spriteObp({ paletteSource = source }, trainer.id)
+    if colors then
+      return { name = "trainer:" .. source .. ":" .. tostring(group), colors = colors }
+    end
+  end
+  return namedPalette(data, "MEWMON")
+end
+
+function BattleState.trainerPicPath(data, trainer)
+  if trainer and trainer.pic then return trainer.pic end
+  local base = trainer and trainer.basePic and data.trainers[trainer.basePic]
+  return base and base.pic or nil
+end
+
 -- The battle-BGP fade variant of a pic (AnimationFlashScreen and the
 -- SetAnimationBGPalette effects remap the four BG shades; on the SGB
 -- the colorizer then colors the REMAPPED shade, so a faded pic shows
@@ -608,7 +629,8 @@ function BattleState.newTrainer(game, oppClass, partyIndex)
   -- MonsterPalettes[0] = PAL_MEWMON -- InitBattleCommon zeroes
   -- wEnemyMonSpecies2 before the intro's SET_PAL_BATTLE
   -- (engine/battle/core.asm:6682, engine/gfx/palettes.asm SetPal_Battle)
-  self.trainerPic = getImage(self.trainer.pic, namedPalette(game.data, "MEWMON"))
+  self.trainerPic = getImage(BattleState.trainerPicPath(game.data, self.trainer),
+    BattleState.trainerPalette(game.data, self.trainer))
   self.introText = Strings("%s wants\nto fight!", self.trainer.name)
   return self
 end
