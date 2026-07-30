@@ -1,5 +1,8 @@
 # Build & install on your iPhone — step by step
 
+Don't want to install Xcode? Download the release IPA and sideload it with
+AltStore instead — see [ios-sideload.md](ios-sideload.md).
+
 This guide assumes **zero** programming experience. Follow it top to
 bottom and you'll have the game running on your own iPhone in roughly an
 hour (most of it is waiting for downloads).
@@ -93,9 +96,6 @@ ZIP**, then double-click the zip to unpack it.
 
 ## Optional goodies
 
-- **Pokéwalker mode** (real steps → EXP): in-game **mod manager →
-  POKEWALKER → SYNC STEPS on**, allow step access when iOS asks, and go
-  for a walk.
 - **Mods**: launcher → **MODS** tab → **Import mod .zip**.
 - **Save import/export**: buttons on each game's tab, using the normal
   iOS file picker.

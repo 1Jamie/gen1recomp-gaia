@@ -2,7 +2,8 @@
 # Packages the LÖVE2D Pokémon Red port into an iOS app via LÖVE 11.5's
 # official iOS Xcode project (love-11.5-ios-source.zip).
 #
-# Usage: scripts/build_ios.sh [--fetch] [--device] [--release] [--package-only]
+# Usage: scripts/build_ios.sh [--fetch] [--device] [--release] [--install]
+#                             [--version X.Y.Z] [--package-only]
 #
 #   (default)         Simulator Debug (ad-hoc signed)
 #   --device          iphoneos SDK; signing team auto-detected from the
@@ -10,6 +11,7 @@
 #   --install         after a --device build, install the app onto the
 #                     first connected iPhone/iPad (unlock it first)
 #   --release         Release configuration
+#   --version X.Y.Z   stamp MARKETING_VERSION / CURRENT_PROJECT_VERSION
 #   --fetch           Download love-11.5-ios-source.zip into mobile/ios/love-src/
 #   --package-only    Zip game.love + apply plist overlay; skip xcodebuild
 #
@@ -19,6 +21,7 @@
 #   - prebuilt iOS libraries under love-src/platform/xcode/ios/libraries/
 #
 # Output: dist/ios/<Config>-<sdk>/gen1recomp.app (convenience copy)
+#         dist/ios/gen1recomp.ipa                 (device builds only)
 #         mobile/ios/build/Build/Products/<Config>-<sdk>/gen1recomp.app
 
 set -euo pipefail
@@ -62,6 +65,7 @@ DEVICE=false
 RELEASE=false
 PACKAGE_ONLY=false
 INSTALL=false
+VERSION=""
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -74,23 +78,43 @@ while [ $# -gt 0 ]; do
     --release) RELEASE=true ;;
     --package-only) PACKAGE_ONLY=true ;;
     --install) INSTALL=true ;;
+    --version) VERSION="$2"; shift ;;
     -h|--help)
-      sed -n '2,22p' "$0"
+      sed -n '2,24p' "$0"
       exit 0
       ;;
-    *) fail "unknown argument: $1 (try --fetch, --device, --release, --install, or --package-only)" ;;
+    *) fail "unknown argument: $1 (try --fetch, --device, --release, --version, --install, or --package-only)" ;;
   esac
   shift
 done
 
+VERSION_CODE=""
+if [ -n "$VERSION" ]; then
+  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    fail "invalid --version '$VERSION' (expected X.Y.Z)"
+  fi
+  major="${VERSION%%.*}"
+  rest="${VERSION#*.}"
+  minor="${rest%%.*}"
+  patch="${rest##*.}"
+  VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+fi
+
 # ---------------------------------------------------------- signing identity
-# Auto-detect the Apple Development team when the caller didn't set one: the
-# OU field of the first Apple Development certificate in the keychain (Xcode
-# creates that certificate when you sign into Settings -> Accounts).
+# Auto-detect the Apple Development team when the caller didn't set one.
+# Prefer a *valid* identity from `find-identity` (the parenthetical there is
+# the cert id, not the team), then read that cert's OU. Scanning every
+# "Apple Development" certificate picks expired personal/work certs first.
 detect_team() {
-  security find-certificate -c "Apple Development" -p 2>/dev/null \
+  local cn
+  cn="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n -E 's/.*"Apple Development: ([^"]+)".*/\1/p' \
+    | head -1)"
+  [ -n "$cn" ] || return 1
+  security find-certificate -c "Apple Development: $cn" -p 2>/dev/null \
     | openssl x509 -noout -subject 2>/dev/null \
-    | sed -n 's/.*OU *= *\([A-Z0-9]*\).*/\1/p' | head -1
+    | sed -n 's/.*OU *= *\([A-Z0-9]*\).*/\1/p' \
+    | head -1
 }
 if $DEVICE && [ -z "${DEVELOPMENT_TEAM:-}" ]; then
   DEVELOPMENT_TEAM="$(detect_team || true)"
@@ -211,13 +235,14 @@ pack_game_love() {
   rm -f "$LOVE_FILE"
   # Same payload as scripts/build.sh / build_android.sh: game sources plus
   # tools/save-editor, which the launcher's Edit button opens in-process.
-  # mods/pokewalker rides inside game.love on iOS only: physfs merges the
-  # fused archive with the save dir, so the loader discovers it like any
-  # installed mod, and its Apple Health sync is a no-op everywhere else.
+  # Deliberately NO fused mods: a mod inside game.love sits in the
+  # read-only app bundle, so the mod manager's Delete can't remove it and
+  # it reappears every launch.  Mods install as .zips at runtime instead
+  # (launcher -> MODS -> Import mod .zip), the same lifecycle as every
+  # other platform.
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
-    mods/pokewalker \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # NOTE: grep -q here would race pipefail — it exits on first match, unzip
@@ -343,6 +368,15 @@ run_xcodebuild() {
 
   # Prefer -target + SYMROOT over -derivedDataPath: modern Xcode requires
   # -scheme whenever -derivedDataPath is set, and love-ios ships no shared schemes.
+  # Always stamp both: the overlay plist expands $(MARKETING_VERSION) /
+  # $(CURRENT_PROJECT_VERSION), and love-ios has no project-level defaults.
+  local marketing_version="$LOVE_VERSION"
+  local project_version="1"
+  if [ -n "$VERSION" ]; then
+    marketing_version="$VERSION"
+    project_version="$VERSION_CODE"
+  fi
+
   local args=(
     -project "$PROJECT"
     -target love-ios
@@ -352,7 +386,8 @@ run_xcodebuild() {
     SYMROOT="$BUILD_DIR/Build/Products"
     OBJROOT="$BUILD_DIR/Build/Intermediates"
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
-    MARKETING_VERSION="$LOVE_VERSION"
+    MARKETING_VERSION="$marketing_version"
+    CURRENT_PROJECT_VERSION="$project_version"
     ONLY_ACTIVE_ARCH=NO
   )
 
@@ -426,6 +461,10 @@ run_xcodebuild() {
   cp -R "$app" "$dist_dir/$APP_NAME.app"
   say "copied to $dist_dir/$APP_NAME.app"
 
+  if $DEVICE; then
+    package_ipa "$dist_dir/$APP_NAME.app"
+  fi
+
   say "iOS app: $app"
   say "bundle id: $BUNDLE_ID  display: $DISPLAY_NAME"
   if $DEVICE; then
@@ -437,6 +476,20 @@ run_xcodebuild() {
   else
     say "simulator tip: xcrun simctl install booted \"$app\""
   fi
+}
+
+# Pack Payload/<app>.app into dist/ios/gen1recomp.ipa for release / sideload tools.
+package_ipa() {
+  local app="$1"
+  local ipa="$DIST/$APP_NAME.ipa"
+  local tmp
+  tmp="$(mktemp -d "$DIST/ipa.XXXXXX")"
+  mkdir -p "$tmp/Payload"
+  cp -R "$app" "$tmp/Payload/$(basename "$app")"
+  rm -f "$ipa"
+  (cd "$tmp" && zip -q -r "$ipa" Payload)
+  rm -rf "$tmp"
+  say "ipa: $ipa ($(du -h "$ipa" | cut -f1))"
 }
 
 # ------------------------------------------------------------ device install
