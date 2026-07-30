@@ -211,13 +211,14 @@ pack_game_love() {
   rm -f "$LOVE_FILE"
   # Same payload as scripts/build.sh / build_android.sh: game sources plus
   # tools/save-editor, which the launcher's Edit button opens in-process.
-  # mods/pokewalker rides inside game.love on iOS only: physfs merges the
-  # fused archive with the save dir, so the loader discovers it like any
-  # installed mod, and its Apple Health sync is a no-op everywhere else.
+  # Deliberately NO fused mods: a mod inside game.love sits in the
+  # read-only app bundle, so the mod manager's Delete can't remove it and
+  # it reappears every launch.  Mods install as .zips at runtime instead
+  # (launcher -> MODS -> Import mod .zip), the same lifecycle as every
+  # other platform.
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
-    mods/pokewalker \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # NOTE: grep -q here would race pipefail — it exits on first match, unzip

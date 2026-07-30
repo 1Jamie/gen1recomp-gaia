@@ -93,9 +93,11 @@ ZIP**, then double-click the zip to unpack it.
 
 ## Optional goodies
 
-- **Pokéwalker mode** (real steps → EXP): in-game **mod manager →
-  POKEWALKER → SYNC STEPS on**, allow step access when iOS asks, and go
-  for a walk.
+- **Pokéwalker mode** (real steps → EXP): install the mod from
+  [Gen1ReComp-Pokewalker](https://github.com/mresnick67/Gen1ReComp-Pokewalker/releases)
+  (launcher → **MODS** → **Import mod .zip**), then in-game **mod
+  manager → POKEWALKER → SYNC STEPS on**, allow step access when iOS
+  asks, and go for a walk.
 - **Mods**: launcher → **MODS** tab → **Import mod .zip**.
 - **Save import/export**: buttons on each game's tab, using the normal
   iOS file picker.

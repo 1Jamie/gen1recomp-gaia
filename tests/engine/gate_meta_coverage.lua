@@ -121,6 +121,7 @@ local DEBT = {
   ["event:pokemon.evolved"] = "M7",
   ["event:pokemon.level_up"] = "M7",
   ["event:pokemon.move_learned"] = "M7",
+  ["event:save.loaded"] = "M11",
   ["event:save.loading"] = "M11",
   ["event:save.writing"] = "M11",
   ["event:trade.completed"] = "M12",
