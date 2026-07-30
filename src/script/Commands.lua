@@ -265,7 +265,18 @@ function Commands.start_battle(ctx, kind, a, b)
     ctx.lastBattleResult = result
     ctx.lastCheck = result == "win"
     if ctx.overworld then
-      ctx.overworld:afterBattle(result, battle)
+      -- A map script often follows a trainer battle with its own text.
+      -- Keep a level evolution behind that text: otherwise afterBattle
+      -- pushes the evolution screen, then this runner resumes and pushes
+      -- the trainer's text on top of it.
+      if result == "win" then
+        ctx.afterScript = ctx.afterScript or {}
+        table.insert(ctx.afterScript, function()
+          ctx.overworld:afterBattle(result, battle)
+        end)
+      else
+        ctx.overworld:afterBattle(result, battle)
+      end
     end
     runner:resume()
   end
