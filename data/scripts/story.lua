@@ -183,6 +183,7 @@ M.BILLS_HOUSE = {
                                    overworld = ow },
                                  "BILLS_HOUSE", "BILLSHOUSE_BILL_POKEMON")
             game.save.flags.EVENT_BILL_SAID_USE_CELL_SEPARATOR = true
+            require("src.world.PikachuFollower").onBillEnteredMachine(game, ow)
             done()
           end
           if ow.player.facing == "down" then
@@ -272,6 +273,9 @@ M.BILLS_HOUSE = {
       Commands.hide_object(ctx, "BILLS_HOUSE", "BILLSHOUSE_BILL_POKEMON")
       Commands.hide_object(ctx, "BILLS_HOUSE", "BILLSHOUSE_BILL1")
       Commands.show_object(ctx, "BILLS_HOUSE", "BILLSHOUSE_BILL2")
+    end
+    if not flags.EVENT_MET_BILL_2 then
+      require("src.world.PikachuFollower").onBillsHouseEnter(game, ow)
     end
   end,
 }
