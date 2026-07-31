@@ -734,11 +734,15 @@ function Commands.record_hall_of_fame(ctx)
       if game.overworld then
         game.overworld.lastOutdoor = ctx.save.lastOutdoor
       end
-      if game.writeSave then game:writeSave() end
+      local saveAllowed = true
+      if game.writeSave then saveAllowed = game:writeSave() ~= false end
       -- writeSave's captureSave re-stamps the live HALL_OF_FAME coords;
       -- re-apply home and persist so CONTINUE resumes in the bedroom.
       SaveData.applyPostGameHome(ctx.save, boot)
-      SaveData.save(ctx.save)
+      -- A tool session may veto Game:writeSave to keep its in-memory run
+      -- isolated from the player's real save.  The relocation write is part
+      -- of that same save operation and must honor the same decision.
+      if saveAllowed then SaveData.save(ctx.save) end
     end)
   end)
   runner:yield()
