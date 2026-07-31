@@ -381,3 +381,12 @@ kind, number, height/weight, dex text) to a PNG at 4x scale under
 `prints/` in the save directory, then reports the filename in a dialog.
 No printer hardware or link cable emulation involved; the file is the
 printout.
+
+## Find Mods (community mod indexes)
+
+A FIND MODS tab sits beside MODS in the launcher and browses a published
+mod index: a metadata-only feed listing mods that live in their authors'
+own repositories. No index ships with the launcher and none is ever added
+automatically, so the tab opens on an "Add an index" prompt until you name
+one; paste an index URL or its `owner/repo` and it is remembered in
+`options.lua`. More than one index can be added, and the listings merge.

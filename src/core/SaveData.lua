@@ -252,6 +252,16 @@ function SaveData.defaultOptions()
     -- GitHub release checks for mods with a manifest "github" field
     -- (src/mods/ModUpdate.lua). Keyed by owner/repo; TTL is six hours.
     modUpdateCache = {},
+    -- Community mod indexes the player has chosen to browse
+    -- (src/mods/ModIndex.lua), in the order they added them.  Empty by
+    -- default and never populated automatically: adding an index is how a
+    -- player says they trust whoever publishes it, so the launcher asks
+    -- rather than shipping one.  Rows are { url, feed, base, fallback,
+    -- label }.
+    modIndexes = {},
+    -- Parsed index listings keyed by feed URL; TTL is 24 hours, matching how
+    -- often the feeds themselves rebuild.
+    modIndexCache = {},
     -- On-screen touch overlay (Android/iOS; see src/core/TouchControls.lua).
     -- enabled=false hides it permanently (distinct from auto-hide-on-gamepad).
     -- positions are optional normalized centers {x=0..1, y=0..1} per control

@@ -594,6 +594,29 @@ function LauncherMods.installFromRelease(modId, release)
   return result, err
 end
 
+-- Install a mod listed in a community index (src/mods/ModIndex.lua).
+-- The index only ever tells us WHERE the zip is; resolving that URL is
+-- ModIndex's job and installing it is installFromRelease's, so this is the
+-- seam between them and nothing about the archive is special-cased.  expectId
+-- comes from the listing, so a feed that points an entry at somebody else's
+-- zip fails the manifest check instead of installing the wrong mod.
+-- Returns true, version | nil, errString.
+function LauncherMods.installFromIndex(entry)
+  local ok, result, err = pcall(function()
+    if type(entry) ~= "table" or type(entry.id) ~= "string" then
+      return nil, "index entry has no mod id"
+    end
+    local ModIndex = require("src.mods.ModIndex")
+    local release, why = ModIndex.releaseFor(entry)
+    if not release then
+      return nil, why or "this mod cannot be installed from the index"
+    end
+    return LauncherMods.installFromRelease(entry.id, release)
+  end)
+  if not ok then return nil, "install failed: " .. tostring(result) end
+  return result, err
+end
+
 -- uninstall(id) -> true  |  nil, errString
 -- Removes mods/<id>/ from wherever it was installed (the portable game folder
 -- or the save directory, CacheFs decides -- #330) and clears options.mods[id]
