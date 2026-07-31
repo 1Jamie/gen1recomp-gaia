@@ -1507,10 +1507,14 @@ function BattleState:update(dt)
     end
     local col = (self.menuIndex - 1) % 2
     local row = math.floor((self.menuIndex - 1) / 2)
-    if input:wasPressed("left") or input:wasPressed("right") then
-      col = 1 - col
-    elseif input:wasPressed("up") or input:wasPressed("down") then
-      row = 1 - row
+    if input:wasPressed("left") then
+      col = math.max(0, col - 1)
+    elseif input:wasPressed("right") then
+      col = math.min(1, col + 1)
+    elseif input:wasPressed("up") then
+      row = math.max(0, row - 1)
+    elseif input:wasPressed("down") then
+      row = math.min(1, row + 1)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
@@ -1539,10 +1543,14 @@ function BattleState:update(dt)
     end
     local col = (self.menuIndex - 1) % 2
     local row = math.floor((self.menuIndex - 1) / 2)
-    if input:wasPressed("left") or input:wasPressed("right") then
-      col = 1 - col
-    elseif input:wasPressed("up") or input:wasPressed("down") then
-      row = 1 - row
+    if input:wasPressed("left") then
+      col = math.max(0, col - 1)
+    elseif input:wasPressed("right") then
+      col = math.min(1, col + 1)
+    elseif input:wasPressed("up") then
+      row = math.max(0, row - 1)
+    elseif input:wasPressed("down") then
+      row = math.min(1, row + 1)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
