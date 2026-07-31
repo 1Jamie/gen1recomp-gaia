@@ -62,7 +62,10 @@ function love.conf(t)
     -- the game follow the device.  The renderer letterboxes the 160x144
     -- viewport into whatever size results, and the on-screen touch controls
     -- re-lay themselves out from the new window size, so both orientations
-    -- just work.  iOS follows the Info.plist orientations
+    -- just work.  FULL_SENSOR ignores the device's rotation lock, so
+    -- GameActivity.setOrientationBis remaps it to FULL_USER after SDL has
+    -- run: same orientations allowed, but auto-rotate being off now wins.
+    -- iOS follows the Info.plist orientations
     -- (see mobile/ios/overlays/love-ios.plist, now portrait + landscape).
     t.window.resizable = true
     -- Starting size is a tall portrait hint; the OS resizes to the real
