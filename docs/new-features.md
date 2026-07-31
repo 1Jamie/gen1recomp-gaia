@@ -137,6 +137,41 @@ effect, `=1` forces it available. The Anbernic handheld pack exports `0` from
 its launcher because the device reports `"Linux"` while its GPU is in the
 phone class (see [Anbernic RG34XXSP](anbernic-rg34xxsp.md)).
 
+## Performance tier (low-end devices)
+
+The Options **PERFORMANCE** row scales the port's optional presentation
+extras down for weaker hardware. The extras it governs are the three
+heaviest things the port adds on top of the original -- the whole-screen 3D
+**TILT** (transforms the entire map as a ground plane), the **GBC FX**
+post-process shader (a fullscreen pass), and survey **ZOOM** (zooming out
+renders the connected neighbor maps, a lot of extra overdraw) -- plus a hard
+FPS ceiling. None of this touches game logic, which is fixed-step off `dt`
+(`src/core/FixedStep.lua`), so every tier plays identically; they differ
+only in how much eye-candy the renderer is allowed to do.
+
+| Tier         | TILT | GBC FX | Survey ZOOM | Extra FPS ceiling |
+| ------------ | ---- | ------ | ----------- | ----------------- |
+| **HIGH**     | on   | on     | on          | none              |
+| **BALANCED** | off  | off    | on          | none              |
+| **LOW**      | off  | off    | off         | 60                |
+| **AUTO**     | picks a default from the device (below) |||
+
+- **AUTO** (the default) reads the device once at boot: ARM Linux handhelds
+  (e.g. the RG34XXSP) resolve to **LOW**, phones/tablets and very-low-core
+  desktops to **BALANCED**, and everything else -- a normal desktop, and
+  every existing `options.lua` that predates this option -- to **HIGH**,
+  so the common case is unchanged. See `src/core/Performance.detect`.
+- AUTO only chooses the *default*; all four tiers are selectable, so a
+  wrong guess is one row away from being overridden.
+- The clamps are applied **live** against your stored options and never
+  rewrite them (`Game:applyOptions`), so a lower tier hides your TILT / GBC
+  FX / ZOOM without forgetting them -- raising the tier restores exactly
+  what you had. (This is why the TILT / GBC FX / ZOOM rows still show your
+  saved choice on a clamped tier: it's your preference, waiting for a tier
+  that can afford it.)
+- Persisted as `save.options.performance` (`auto` | `high` | `balanced` |
+  `low`); unit-tested in `tests/engine/performance_tiers.lua`.
+
 ## Peer-to-peer link play (lua-enet)
 
 Trades and link battles connect two copies of the game directly over
