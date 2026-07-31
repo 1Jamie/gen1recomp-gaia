@@ -718,6 +718,42 @@ do
   unsub()
 end
 
+-- ------- battle.low_health_alarm hook: mirrors the siren toggle
+
+do
+  local Sound = require("src.core.Sound")
+  local calls = {}
+  local origStart, origStop = Sound.startLoop, Sound.stopLoop
+  Sound.startLoop = function(data, name) calls[#calls + 1] = { "start", name } end
+  Sound.stopLoop = function(name) calls[#calls + 1] = { "stop", name } end
+
+  local game = makeGame({ Pokemon.new(Data, "BULBASAUR", 20) })
+  local battle = BattleState.newWild(game, "RATTATA", 5)
+  battle.player.mon.hp = 1
+  battle.player.shownHP = 1
+
+  local seenOn = nil
+  local unsub = hooks:wrap("battle.low_health_alarm", function(nextFn, ctx)
+    seenOn = ctx.on
+    return nextFn(ctx)
+  end)
+  battle:updateFx()
+  check(seenOn == true, "battle.low_health_alarm hook sees the alarm toggle on")
+  check(calls[#calls][1] == "start" and calls[#calls][2] == "Low_Health_Alarm",
+        "an unmodified hook still starts the siren loop")
+  unsub()
+
+  unsub = hooks:wrap("battle.low_health_alarm", function(nextFn, ctx)
+    ctx.on = false
+    return nextFn(ctx)
+  end)
+  battle:updateFx()
+  check(calls[#calls][1] == "stop", "a mod can force the alarm off before vanilla acts")
+  unsub()
+
+  Sound.startLoop, Sound.stopLoop = origStart, origStop
+end
+
 -- ------- battle events: the scripted sequence
 
 do
