@@ -2677,10 +2677,24 @@ function BattleState:updateFx()
   -- so a sounding siren rides out the next hit's HP drain instead of
   -- dropping out mid-announcement (#293)
   self.lowHealthAlarmOn = self:lowHealthAlarmActive()
-  if self.lowHealthAlarmOn then
-    Sound.startLoop(self.data, "Low_Health_Alarm")
+  -- battle.low_health_alarm: on/off toggle for the siren loop, ctx.on
+  -- mirrors self.lowHealthAlarmOn. Vanilla just starts/stops the loop
+  -- each frame; a mod can wrap this to reshape the toggle (e.g. force
+  -- ctx.on false after some budget) before letting vanilla act on it.
+  if Runtime.wantsHook("battle.low_health_alarm") then
+    Runtime.call("battle.low_health_alarm", function(ctx)
+      if ctx.on then
+        Sound.startLoop(ctx.battle.data, "Low_Health_Alarm")
+      else
+        Sound.stopLoop("Low_Health_Alarm")
+      end
+    end, { on = self.lowHealthAlarmOn, battle = self })
   else
-    Sound.stopLoop("Low_Health_Alarm")
+    if self.lowHealthAlarmOn then
+      Sound.startLoop(self.data, "Low_Health_Alarm")
+    else
+      Sound.stopLoop("Low_Health_Alarm")
+    end
   end
 end
 
