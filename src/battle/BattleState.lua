@@ -4483,7 +4483,9 @@ function BattleState:sgbBattlePals()
   -- true white, which is what drew a white box around each pic on the pink
   -- field.  Snap every zone's color 0/3 to the global GBC white/black; the
   -- mid shades (and the green bar the user prefers) stay untouched.
-  if PaletteFX.mode == "ogred" then
+  -- Boot-ROM OG only (Red/Blue): snap zone paper to the global GBC white/black.
+  -- OG YELLOW keeps each CGBBasePalettes endpoint (already near-white / near-black).
+  if PaletteFX.mode == "ogred" and not require("src.core.GameVersion").isYellow() then
     local white, black = PaletteFX.GBC_BG[1], PaletteFX.GBC_BG[4]
     for i = 0, 3 do
       local c = out[i]

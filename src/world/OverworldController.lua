@@ -550,9 +550,26 @@ end
 -- UI-pass palette (text boxes and menus tint with the current map).  OG RED
 -- resolves every name to the one global red BG palette inside PaletteFX.pal,
 -- so this needs no mode-specific branch.
+--
+-- TalkToPikachu's framed frontpic is the one exception: pokeyellow
+-- LoadOverworldPikachuFrontpicPalettes loads the map pal as slot 0 and
+-- PAL_PIKACHU_PORTRAIT as slot 1, then ATTR_BLK's the 5x5 pic at
+-- (7,6)-(11,10) onto slot 1 (engine/gfx/palettes.asm:345-391).  Without
+-- that zone the pic wears the route/town palette and looks washed out.
 function OverworldState:sgbPalettes()
   local PaletteFX = require("src.render.PaletteFX")
-  return PaletteFX.wholeNamed(Game.data, self:paletteNameFor(self.map))
+  local mapName = self:paletteNameFor(self.map)
+  if self.emote and self.emote.pikaPic then
+    local base = PaletteFX.pal(Game.data, mapName)
+    if not base then return nil end
+    local zones = { PaletteFX.whole(base) }
+    local portrait = PaletteFX.pal(Game.data, "PIKACHU_PORTRAIT")
+    if portrait then
+      zones[#zones + 1] = PaletteFX.zone(portrait, 7, 6, 11, 10)
+    end
+    return zones
+  end
+  return PaletteFX.wholeNamed(Game.data, mapName)
 end
 
 -- World-pass palette zones in world-canvas pixels: each visible map
@@ -4479,7 +4496,8 @@ function OverworldState:drawUI()
   -- per-emotion frame gfx (gfx/pikachu/unknown_*) are not extracted, so the
   -- front pic stands in for every frame of the script; PikachuFollower
   -- .picLift lifts it on the runs that draw the alternate pose, and the
-  -- script's own duration times the beat (#407, #424).
+  -- script's own duration times the beat (#407, #424).  Palette zone
+  -- PAL_PIKACHU_PORTRAIT covers (7,6)-(11,10) via sgbPalettes above.
   if self.emote and self.emote.pikaPic then
     require("src.render.Font").drawBox(6, 5, 7, 7)
     -- one image per path, cached: this draws every frame of the hold, and
