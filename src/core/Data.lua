@@ -144,8 +144,8 @@ end
 -- no def_trainers row (DisplayTextID routes to his ASM script), so the
 -- extractor emits headers only for the four blackbelts ([2]..[5]).  Seed
 -- object index [1] so he behaves like the real leader:
---   * range 4 (matches the strongest blackbelt) -> CheckFightingMapTrainers
---     spots the player in his DOWN line and he challenges on sight (#197),
+--   * range 0: FightingDojoDefaultScript, not trainer sight, starts his
+--     battle from the single tile to his left (#495),
 --   * battle = his pre-battle challenge, won = "Hwa! Arrgh! Beaten!",
 --   * after = the "Stay and train at Karate with us!" re-talk line.
 -- Deliberately NO `event`: EVENT_BEAT_KARATE_MASTER is owned by
@@ -160,7 +160,7 @@ function Data:seedFightingDojoKarateMaster()
   headers.FightingDojo = headers.FightingDojo or {}
   if headers.FightingDojo[1] then return end
   headers.FightingDojo[1] = {
-    range = 4,
+    range = 0,
     battle = "_FightingDojoKarateMasterText",
     won = "_FightingDojoKarateMasterDefeatedText",
     after = "_FightingDojoKarateMasterStayAndTrainWithUsText",

@@ -86,14 +86,20 @@ Game Boy equivalent:
 ## Colors mode
 
 The `2` key (and the Options menu COLORS row) cycles the display mode
-through **OG RED → SGB → ADVANCED → OG → OG INV → SGB INV → CLASSIC → OG RED**.
+through **OG RED → SGB → ADVANCED → OG → OG INV → SGB INV → CLASSIC → OG RED**
+(on Blue the first slot labels **OG BLUE**; on Yellow, **OG YELLOW**).
 The first three are the real colorizations; the rest are DMG-shade novelties:
 
-- **OG RED**: the Game Boy Color boot-ROM look for Pokemon Red -- one global
-  red BG palette + one green OBJ palette, every map, no per-map variation
-  (Pokemon Red has no CGB code, so on a GBC the boot ROM colors it globally).
-  The player/NPCs stay green over the red terrain via the OBP bake +
-  post-zone redraw (`PaletteFX.GBC_BG` / `GBC_OBJ`).
+- **OG RED** / **OG BLUE**: the Game Boy Color boot-ROM look for that cart --
+  one global BG palette + one OBJ palette, every map, no per-map variation
+  (Red/Blue ship no CGB code, so on a GBC the boot ROM colors them globally).
+  The player/NPCs keep the boot-ROM OBJ color over the terrain via the OBP
+  bake + post-zone redraw (`PaletteFX.GBC_BG` / `GBC_OBJ`, or Blue's blue/pink
+  pair).
+- **OG YELLOW** (Yellow playthrough, same `ogred` save id): Pokemon Yellow's
+  authentic GBC look from `CGBBasePalettes` (`data/palettes_yellow.lua`,
+  sourced from pret/pokeyellow). Per-map / per-species colors, not a single
+  boot-ROM ramp -- Yellow was CGB-enhanced.
 - **SGB** (default): the per-map Super Game Boy region palettes
   (`data/sgb/sgb_palettes.asm`). Sprites tint with the region palette, as on
   real SGB. (This is the mode formerly mislabeled "GBC".)
@@ -265,6 +271,14 @@ the last controller restores it immediately. Layout re-derives from the
 window size on rotation. Desktop testing: `POKEPORT_TOUCH=1 love .` forces
 the overlay on and lets the mouse act as a finger (`=0` forces it off).
 
+The launcher's **Touch Controls** button opens a drag editor: move each
+button freely, **Disable** to hide the overlay permanently (for
+controllers / emulation handhelds — distinct from the temporary
+gamepad auto-hide), **Reset** for defaults, **Done** to save into
+`options.lua` as normalized window fractions so rotation keeps the
+relative placement. In-game, Options → **TOUCH PAD** toggles the same
+on/off flag without leaving a play session.
+
 ## Translation support
 
 Every string the player can read is now reachable from a mod, so a
@@ -367,3 +381,12 @@ kind, number, height/weight, dex text) to a PNG at 4x scale under
 `prints/` in the save directory, then reports the filename in a dialog.
 No printer hardware or link cable emulation involved; the file is the
 printout.
+
+## Find Mods (community mod indexes)
+
+A FIND MODS tab sits beside MODS in the launcher and browses a published
+mod index: a metadata-only feed listing mods that live in their authors'
+own repositories. No index ships with the launcher and none is ever added
+automatically, so the tab opens on an "Add an index" prompt until you name
+one; paste an index URL or its `owner/repo` and it is remembered in
+`options.lua`. More than one index can be added, and the listings merge.

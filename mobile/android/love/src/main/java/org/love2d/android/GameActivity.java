@@ -41,6 +41,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
 import android.media.AudioManager;
@@ -301,6 +302,54 @@ public class GameActivity extends SDLActivity {
     @Override
     public void onResume() {
         super.onResume();
+    }
+
+    /**
+     * SDL decides the activity's requested orientation at window creation
+     * (SDLActivity.setOrientationBis). With a resizable window and no
+     * SDL_HINT_ORIENTATIONS -- exactly what conf.lua produces on Android --
+     * it asks for SCREEN_ORIENTATION_FULL_SENSOR, and that request overrides
+     * the android:screenOrientation="fullUser" set in the manifest. The
+     * *_SENSOR constants follow the accelerometer even when the player has
+     * turned auto-rotate off, so the game kept rotating on a device whose
+     * rotation was locked.
+     *
+     * Remap SDL's choice onto the matching *_USER constant, which allows the
+     * same orientations but defers to the system rotation setting. Applied
+     * after super so SDL keeps deciding *which* orientations the window may
+     * take; this only changes who breaks the tie, the sensor or the player.
+     */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        super.setOrientationBis(w, h, resizable, hint);
+
+        // The *_USER constants only exist from API 18; below that the sensor
+        // ones are all there is, so leave SDL's request alone.
+        if (android.os.Build.VERSION.SDK_INT < 18) {
+            return;
+        }
+
+        int requested = getRequestedOrientation();
+        int userRequested;
+        switch (requested) {
+            case ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR:
+                userRequested = ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+                break;
+            case ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:
+                userRequested = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
+                break;
+            case ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT:
+                userRequested = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
+                break;
+            default:
+                // SENSOR / plain LANDSCAPE / PORTRAIT etc: either already
+                // explicit or never produced by setOrientationBis.
+                return;
+        }
+
+        Log.d("GameActivity", "requestedOrientation " + requested + " -> " + userRequested
+            + " (honour the device rotation lock)");
+        setRequestedOrientation(userRequested);
     }
 
     @Keep
