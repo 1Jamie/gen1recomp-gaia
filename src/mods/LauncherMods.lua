@@ -223,7 +223,9 @@ local function discover()
   for _, name in ipairs(fs.getDirectoryItems("mods")) do
     local path = "mods/" .. name
     local info = fs.getInfo(path)
-    if info and info.type == "directory" then
+    -- a dev-linked mod dir (ln -s) reports type "symlink" even with
+    -- setSymlinksEnabled(true); see the matching note in Loader:_discover.
+    if info and (info.type == "directory" or info.type == "symlink") then
       local raw = fs.read(path .. "/manifest.json")
       if raw then
         local manifest = decodeManifest(raw, path)
