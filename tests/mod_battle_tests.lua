@@ -716,6 +716,32 @@ do
   check(actBattle:enemyAction().hooked == true,
         "battle.enemy_action hook rewrites the choice")
   unsub()
+
+  -- battle.catch_exp: vanilla catches never grant exp; a mod can flip that
+  unsub = hooks:wrap("battle.catch_exp", function() return true end)
+  local catchExpParty = { Pokemon.new(Data, "BULBASAUR", 10) }
+  local catchExpGame = makeGame(catchExpParty)
+  local catchExpBattle = BattleState.newWild(catchExpGame, "RATTATA", 3)
+  catchExpBattle.enemy.mon = Pokemon.new(Data, "RATTATA", 3)
+  local expBeforeCatch = catchExpParty[1].exp
+  catchExpBattle:storeCaughtMon()
+  check(catchExpParty[1].exp > expBeforeCatch,
+        "battle.catch_exp hook pays out exp on a catch")
+  unsub()
+
+  -- battle.exp_award: a mod can replace the participant/EXP.ALL split
+  -- wholesale via ctx.applyShare
+  unsub = hooks:wrap("battle.exp_award", function(nextFn, ctx)
+    ctx.applyShare(ctx.alive[1], 999, "flatShare")
+  end)
+  local awardParty = { Pokemon.new(Data, "BULBASAUR", 10) }
+  local awardGame = makeGame(awardParty)
+  local awardBattle = BattleState.newWild(awardGame, "RATTATA", 3)
+  local expBeforeAward = awardParty[1].exp
+  awardBattle:awardExp()
+  check(awardParty[1].exp > expBeforeAward,
+        "battle.exp_award hook replaces the award split")
+  unsub()
 end
 
 -- ------- battle events: the scripted sequence
