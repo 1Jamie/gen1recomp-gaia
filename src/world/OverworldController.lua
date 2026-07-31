@@ -3,6 +3,7 @@
 -- surfing, Cut trees, trainer sight lines, and dispatches interactions to
 -- map scripts (data/scripts/), marts, nurses or extracted text.
 
+local Assets = require("src.render.Assets")
 local Camera = require("src.render.Camera")
 local Collision = require("src.world.Collision")
 local Encounter = require("src.world.Encounter")
@@ -3932,6 +3933,31 @@ function OverworldState:draw()
   self:drawUI()
 end
 
+-- The emote sheet is OBJ art (engine/overworld/emotion_bubbles.asm builds the
+-- bubble out of shadow OAM), so it renders through OBP0, and GBPalNormal
+-- (home/palettes.asm:20-26 `ld a, %11010000 ; 3100 / ldh [rOBP0], a`) holds
+-- OBP0 at "3100": OBJ color 1 shows as shade 0, color 2 as shade 1, color 3
+-- as shade 3.  Blitting the raw sheet skipped that lift and left the "!"
+-- bubble's interior (color 1) at DMG shade 1 grey instead of white (#505).
+-- Same CPU-remap bake as SpriteRenderer.getObpImage and PartyMenu's obpIcon,
+-- and it resolves through Assets so a mod's emotes.png override still wins.
+-- Color 0's alpha (a tRNS entry on the extracted png) is what keys the
+-- bubble's corners out, so carry it through untouched.
+local function obpEmoteImage(path)
+  if not (love.image and love.image.newImageData) then
+    return love.graphics.newImage(Assets.resolve(path)) -- headless stub
+  end
+  local id = Assets.imageData(path)
+  id:mapPixel(function(_, _, r, _, _, a)
+    local v = 0
+    if r > 0.5 then v = 1               -- OBJ colors 0 and 1 -> shade 0
+    elseif r > 0.17 then v = 170 / 255  -- OBJ color 2 -> shade 1
+    end                                 -- OBJ color 3 -> shade 3
+    return v, v, v, a
+  end)
+  return love.graphics.newImage(id)
+end
+
 -- The SGB palette a tilt-mode billboard at flat foot (fx, fy) sits under.
 -- World zones are rectangles in flat world-canvas space (the current map's
 -- base fills the view; neighbour maps stack on top), so the last zone that
@@ -4171,7 +4197,7 @@ function OverworldState:drawWorld()
     local drawn = false
     if bubble and bubble.path then
       local ok, img = pcall(function()
-        self.emoteImg = self.emoteImg or love.graphics.newImage(bubble.path)
+        self.emoteImg = self.emoteImg or obpEmoteImage(bubble.path)
         return self.emoteImg
       end)
       -- EXCLAMATION_BUBBLE is index 0 -> first crop; the emote command
