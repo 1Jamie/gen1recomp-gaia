@@ -619,6 +619,7 @@ function Game:applyOptions(opts)
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)
   Input:applyBindings(opts.bindings)
+  TouchControls:applyOptions(opts)
   -- heal soft-bricked APK installs that already saved gbcfx > 0 (#136)
   if gbcCleared then self:writeOptions() end
 end

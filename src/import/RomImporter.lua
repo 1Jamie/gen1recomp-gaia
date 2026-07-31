@@ -533,7 +533,9 @@ end
 -- forceImport (treat every version as not-yet-imported, so re-import is forced),
 -- onEditSave(version, slotId) (host handler for the Edit affordance on a save
 -- row -- main.lua opens the bundled save editor on that slot; when it is not
--- supplied the Edit label is not drawn at all).
+-- supplied the Edit label is not drawn at all),
+-- onEditTouchControls() (host handler for the Touch Controls button -- main.lua
+-- opens the layout editor; when it is not supplied the button is not drawn).
 function RomImporter.new(onComplete, opts)
   opts = opts or {}
   -- iOS rides the same mobile import flows as Android: the save-dir
@@ -548,6 +550,7 @@ function RomImporter.new(onComplete, opts)
     launcher = opts.launcher or false,
     forceImport = opts.forceImport or false,
     onEditSave = opts.onEditSave,
+    onEditTouchControls = opts.onEditTouchControls,
     android = android,
     ios = mobileOS == "iOS",
     -- One startup poll pass: files dropped through the Files app are swept
@@ -1622,6 +1625,9 @@ function RomImporter:_resetFrameRects()
   self.saveImportRect = nil
   self.saveExportRect = nil
   self.saveFolderRect = nil
+  -- Rebuilt only by the active game panel; nil elsewhere so the mods tab
+  -- cannot inherit last frame's Touch Controls button.
+  self.touchControlsRect = nil
 end
 
 function RomImporter:draw()
@@ -2217,6 +2223,10 @@ function RomImporter:mousepressed(x, y, button)
     end
     return
   end
+  if inside(self.touchControlsRect, x, y) then
+    if self.onEditTouchControls then self.onEditTouchControls() end
+    return
+  end
   -- SAVE SLOT rows / Edit / Delete.  The two labels are checked first so a tap
   -- on either never also selects the row.  A press only ARMS a row click:
   -- _updateSlotDrag commits it on release when the pointer did not move (a
@@ -2626,16 +2636,26 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
   local sfFolderH = (sfNotice and sfNotice.dir) and (self.hintFont:getHeight() + 4 * s) or 0
   local saveFilesH = pad + labelH + 10 * s + sfBtnH + 6 * s + sfHintH + sfFolderH + pad
   local playH = math.max(50 * s, self.playFont:getHeight() + 30 * s)
+  -- Touch Controls editor entry (layout + permanent disable).  Drawn whenever
+  -- the host supplied onEditTouchControls; height reserved only then so a
+  -- scripted/headless importer without the callback stays compact.
+  local touchBtnH = self.onEditTouchControls
+    and math.max(38 * s, self.saveBtnFont:getHeight() + 20 * s) or 0
+  local touchGap = self.onEditTouchControls and (12 * s) or 0
 
   -- vertical placement of the left column
   local romY = bodyTop
   local saveFilesY = romY + romCardH + 12 * s
-  local leftNaturalH = romCardH + 12 * s + saveFilesH + 12 * s + playH
-  local playY
+  local leftNaturalH = romCardH + 12 * s + saveFilesH + touchGap + touchBtnH
+    + 12 * s + playH
+  local playY, touchY
   if twoCol and not paged then
-    playY = bodyTop + bodyH - playH        -- pinned to the column's bottom
+    -- Play pinned to the column bottom; Touch Controls sits just above it
+    playY = bodyTop + bodyH - playH
+    touchY = playY - touchGap - touchBtnH
   else
-    playY = saveFilesY + saveFilesH + 12 * s
+    touchY = saveFilesY + saveFilesH + touchGap
+    playY = touchY + touchBtnH + 12 * s
   end
 
   -- ROM card
@@ -2702,6 +2722,12 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     love.graphics.line(ix, iy + self.hintFont:getHeight() - 1, ix + lw,
       iy + self.hintFont:getHeight() - 1)
     self.saveFolderRect = frect
+  end
+
+  -- Touch Controls: open the drag-to-reposition / disable editor (#327).
+  if self.onEditTouchControls and touchBtnH > 0 then
+    self.touchControlsRect = self:_glassyButton(
+      leftX, touchY, colW, touchBtnH, "Touch Controls", self.saveBtnFont, true)
   end
 
   -- Play button

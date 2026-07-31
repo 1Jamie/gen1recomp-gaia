@@ -271,6 +271,14 @@ the last controller restores it immediately. Layout re-derives from the
 window size on rotation. Desktop testing: `POKEPORT_TOUCH=1 love .` forces
 the overlay on and lets the mouse act as a finger (`=0` forces it off).
 
+The launcher's **Touch Controls** button opens a drag editor: move each
+button freely, **Disable** to hide the overlay permanently (for
+controllers / emulation handhelds — distinct from the temporary
+gamepad auto-hide), **Reset** for defaults, **Done** to save into
+`options.lua` as normalized window fractions so rotation keeps the
+relative placement. In-game, Options → **TOUCH PAD** toggles the same
+on/off flag without leaving a play session.
+
 ## Translation support
 
 Every string the player can read is now reachable from a mod, so a

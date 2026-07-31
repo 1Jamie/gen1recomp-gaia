@@ -1674,6 +1674,16 @@ do
   local optBack = SD.loadOptions()
   eq(optBack.zoom, -2, "options.lua round-trips zoom")
   eq(optBack.voidFill, "water", "options.lua round-trips voidFill")
+  -- touchControls (#327): enabled flag + normalized positions
+  rep.options.touchControls = {
+    enabled = false,
+    positions = { dpad = { x = 0.2, y = 0.8 }, a = { x = 0.9, y = 0.7 } },
+  }
+  SD.saveOptions(rep.options)
+  optBack = SD.loadOptions()
+  eq(optBack.touchControls.enabled, false, "options.lua round-trips touchControls.enabled")
+  eq(optBack.touchControls.positions.dpad.x, 0.2,
+     "options.lua round-trips touchControls.positions")
   local origOpts, loadedOpts = rep.options, back.options
   rep.options, back.options = nil, nil
   local same, where = deepEq(rep, back, "save")
@@ -1681,6 +1691,68 @@ do
   rep.options, back.options = origOpts, loadedOpts
   -- leave defaults for later tests that expect a clean options.lua
   SD.saveOptions(SD.defaultOptions())
+end
+
+-- ---------------------------------------------------------------- touch controls layout (#327)
+do
+  local TC = require("src.core.TouchControls")
+  local cfg = TC.normalizeConfig(nil)
+  eq(cfg.enabled, true, "touchControls default enabled")
+  check(cfg.positions == nil, "touchControls default positions nil")
+
+  cfg = TC.normalizeConfig({
+    enabled = false,
+    positions = {
+      dpad = { x = 1.5, y = -0.2 },  -- clamped
+      a = { x = 0.5, y = 0.5 },
+      junk = { x = 0, y = 0 },
+      b = { x = "nope", y = 0.1 },
+    },
+  })
+  eq(cfg.enabled, false, "normalizeConfig keeps enabled=false")
+  eq(cfg.positions.dpad.x, 1, "normalizeConfig clamps x high")
+  eq(cfg.positions.dpad.y, 0, "normalizeConfig clamps y low")
+  eq(cfg.positions.a.x, 0.5, "normalizeConfig keeps a")
+  check(cfg.positions.junk == nil, "normalizeConfig drops unknown controls")
+  check(cfg.positions.b == nil, "normalizeConfig drops non-numeric")
+
+  local L = TC.defaultLayout(400, 800)
+  check(L.dpad.cx < 200, "default d-pad on left half")
+  check(L.a.cx > 200, "default A on right half")
+  check(L.dpad.cy > 400, "default d-pad in bottom half")
+
+  -- applyOptions + visible gate (no real images needed for the gate)
+  TC.enabled = true
+  TC.active = true
+  TC.img = {}  -- pretend art loaded
+  TC.controllerHidden = false
+  TC.preview = false
+  TC:applyOptions({ touchControls = { enabled = false } })
+  eq(TC.enabled, false, "applyOptions disables overlay")
+  check(not TC:visible(), "disabled overlay is not visible")
+  TC:applyOptions({
+    touchControls = {
+      enabled = true,
+      positions = { dpad = { x = 0.25, y = 0.75 } },
+    },
+  })
+  eq(TC.enabled, true, "applyOptions re-enables overlay")
+  eq(TC.positions.dpad.x, 0.25, "applyOptions stores positions")
+  check(TC:visible(), "enabled overlay is visible when active+imaged")
+
+  -- custom position applied through layout()
+  local g = love.graphics
+  local oldDim, oldFont = g.getDimensions, g.newFont
+  g.getDimensions = function() return 400, 800 end
+  g.newFont = function() return { getWidth = function() return 10 end,
+                                  getHeight = function() return 10 end } end
+  TC.layoutW, TC.layoutH, TC.L = nil, nil, nil
+  local lay = TC:layout()
+  eq(lay.dpad.cx, 100, "custom dpad cx = nx * ww")
+  eq(lay.dpad.cy, 600, "custom dpad cy = ny * wh")
+  TC:clearPositions()
+  check(TC.positions == nil, "clearPositions wipes overrides")
+  g.getDimensions, g.newFont = oldDim, oldFont
 end
 
 -- ---------------------------------------------------------------- crit thresholds (CriticalHitTest)
