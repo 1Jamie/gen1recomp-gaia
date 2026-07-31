@@ -923,24 +923,38 @@ end
 -- or a love DroppedFile.
 function RomImporter:_installMod(source)
   if self.workState == "working" then return end
-  local LauncherMods = require("src.mods.LauncherMods")
-  local ok, res = LauncherMods.installZip(source)
-  if ok then
-    self:_refreshMods()
+  self.tab = "mods"
+  local ok, installed, res = pcall(function()
+    local LauncherMods = require("src.mods.LauncherMods")
+    return LauncherMods.installZip(source)
+  end)
+  if not ok then
+    self.modNotice = { ok = false,
+      text = "Import failed: " .. tostring(installed) }
+    return
+  end
+  if installed then
+    pcall(self._refreshMods, self)
     self.modNotice = { ok = true, text = "Installed " .. tostring(res) }
   else
     self.modNotice = { ok = false, text = tostring(res) }
   end
-  self.tab = "mods"
 end
 
 -- Remove an installed mod from the save-dir mods/ tree and refresh the panel.
 function RomImporter:_deleteMod(id)
   if self.workState == "working" then return end
-  local LauncherMods = require("src.mods.LauncherMods")
-  local ok, res = LauncherMods.uninstall(id)
-  if ok then
-    self:_refreshMods()
+  local ok, deleted, res = pcall(function()
+    local LauncherMods = require("src.mods.LauncherMods")
+    return LauncherMods.uninstall(id)
+  end)
+  if not ok then
+    self.modNotice = { ok = false,
+      text = "Delete failed: " .. tostring(deleted) }
+    return
+  end
+  if deleted then
+    pcall(self._refreshMods, self)
     self.modNotice = { ok = true, text = "Deleted " .. tostring(id) }
   else
     self.modNotice = { ok = false, text = tostring(res) }
@@ -1520,13 +1534,15 @@ end
 
 -- Clip text to a pixel width, appending an ellipsis when it overflows (the UI
 -- font has no built-in truncation).  Used for save-slot names / meta lines.
+-- Drops whole UTF-8 codepoints (never mid-byte) so Font:getWidth cannot see
+-- a truncated multi-byte sequence and throw "UTF-8 decoding error".
 local function ellipsize(font, text, maxW)
   text = tostring(text or "")
   if maxW <= 0 or font:getWidth(text) <= maxW then return text end
   local ell = "..."
   local ew = font:getWidth(ell)
   while #text > 0 and font:getWidth(text) + ew > maxW do
-    text = text:sub(1, #text - 1)
+    text = utf8Back(text)
   end
   return text .. ell
 end
@@ -2083,6 +2099,224 @@ function RomImporter:draw()
       dx + 16 * s, dy + dh - 30 * s, dw - 32 * s, "left")
   end
 
+  -- Mod confirm / versions / release-notes overlays
+  if self._modConfirm or self._modVersions or self._modReleaseNotes then
+    col(PAL.bgBot, 0.72)
+    love.graphics.rectangle("fill", 0, 0, width, height)
+  end
+  if self._modConfirm then
+    local c = self._modConfirm
+    local dw = math.min(appW - 32 * s, 400 * s)
+    local lineH = self.hintFont:getHeight() + 4 * s
+    local dh = 36 * s + (#c.lines) * lineH + 56 * s
+    local dx = appX + (appW - dw) / 2
+    local dy = (height - dh) / 2
+    local rr = 12 * s
+    fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.92, 0.92)
+    love.graphics.setLineWidth(math.max(1, 1.2 * s))
+    col((c.kind == "update") and PAL.green or PAL.gold, 0.65)
+    love.graphics.rectangle("line", dx, dy, dw, dh, rr, rr)
+    love.graphics.setFont(self.slotNameFont)
+    col(PAL.white)
+    love.graphics.printf(c.title or "Confirm", dx + 16 * s, dy + 14 * s,
+      dw - 32 * s, "left")
+    love.graphics.setFont(self.hintFont)
+    col(PAL.detail)
+    local ty = dy + 42 * s
+    for _, line in ipairs(c.lines) do
+      love.graphics.printf(line, dx + 16 * s, ty, dw - 32 * s, "left")
+      ty = ty + lineH
+    end
+    local btnH = 34 * s
+    local btnW = (dw - 48 * s) / 2
+    local by = dy + dh - btnH - 14 * s
+    self._modConfirmYes = { x = dx + 16 * s, y = by, width = btnW, height = btnH }
+    self._modConfirmNo = { x = dx + dw - 16 * s - btnW, y = by,
+      width = btnW, height = btnH }
+    local yhot = self:_hover(self._modConfirmYes)
+    local nhot = self:_hover(self._modConfirmNo)
+    fillGradRounded(self._modConfirmYes.x, by, btnW, btnH, 8 * s,
+      PAL.playTop, PAL.playBot, yhot and 1 or 0.85, yhot and 1 or 0.85)
+    col(PAL.disabled, nhot and 0.55 or 0.35)
+    love.graphics.rectangle("fill", self._modConfirmNo.x, by, btnW, btnH, 8 * s, 8 * s)
+    love.graphics.setFont(self.saveBtnFont)
+    col(PAL.white)
+    printfB(c.yesLabel or "OK", self._modConfirmYes.x,
+      by + (btnH - self.saveBtnFont:getHeight()) / 2, btnW, "center")
+    col(PAL.detail)
+    printfB("Cancel", self._modConfirmNo.x, by + (btnH - self.saveBtnFont:getHeight()) / 2,
+      btnW, "center")
+  elseif self._modReleaseNotes then
+    local n = self._modReleaseNotes
+    local ModUpdate = require("src.mods.ModUpdate")
+    local dw = math.min(appW - 32 * s, 480 * s)
+    local dh = math.min(height - 48 * s, 360 * s)
+    local dx = appX + (appW - dw) / 2
+    local dy = (height - dh) / 2
+    local rr = 12 * s
+    fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.92, 0.92)
+    love.graphics.setLineWidth(math.max(1, 1.2 * s))
+    col(PAL.green, 0.5)
+    love.graphics.rectangle("line", dx, dy, dw, dh, rr, rr)
+    love.graphics.setFont(self.slotNameFont)
+    col(PAL.white)
+    love.graphics.printf("v" .. tostring(n.version) .. " notes",
+      dx + 16 * s, dy + 12 * s, dw - 32 * s, "left")
+    local body = ModUpdate.cleanBody(n.body or "", 0)
+    if body == "" then body = "(No release notes.)" end
+    love.graphics.setFont(self.hintFont)
+    col(PAL.detail)
+    local textTop = dy + 44 * s
+    local textH = dh - 44 * s - 52 * s
+    love.graphics.setScissor(math.floor(dx + 16 * s), math.floor(textTop),
+      math.ceil(dw - 32 * s), math.ceil(textH))
+    love.graphics.printf(body, dx + 16 * s, textTop - (n.scroll or 0),
+      dw - 32 * s, "left")
+    love.graphics.setScissor()
+    local closeW = self.hintFont:getWidth("Close") + 28 * s
+    local closeH = 30 * s
+    self._modReleaseNotesClose = {
+      x = dx + (dw - closeW) / 2, y = dy + dh - closeH - 12 * s,
+      width = closeW, height = closeH,
+    }
+    local chot = self:_hover(self._modReleaseNotesClose)
+    col(PAL.disabled, chot and 0.55 or 0.35)
+    love.graphics.rectangle("fill", self._modReleaseNotesClose.x,
+      self._modReleaseNotesClose.y, closeW, closeH, 8 * s, 8 * s)
+    col(PAL.detail)
+    printfB("Close", self._modReleaseNotesClose.x,
+      self._modReleaseNotesClose.y + (closeH - self.hintFont:getHeight()) / 2,
+      closeW, "center")
+  elseif self._modVersions then
+    local ModUpdate = require("src.mods.ModUpdate")
+    local v = self._modVersions
+    local dw = math.min(appW - 40 * s, 520 * s)
+    local pad = 16 * s
+    local headerH = 56 * s
+    local rowH = 52 * s
+    local footerH = 48 * s
+    local listN = math.min(6, math.max(0, #v.releases))
+    local listH = math.max(rowH, listN * rowH)
+    local dh = headerH + listH + footerH
+    dh = math.min(dh, height - 40 * s)
+    -- recompute how many rows fit under the clamped dialog height
+    local fitN = math.max(1, math.floor((dh - headerH - footerH) / rowH))
+    listN = math.min(listN, fitN)
+    listH = listN * rowH
+    dh = headerH + listH + footerH
+    local dx = appX + (appW - dw) / 2
+    local dy = (height - dh) / 2
+    local rr = 12 * s
+    fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.96, 0.96)
+    love.graphics.setLineWidth(math.max(1, 1.2 * s))
+    col(PAL.green, 0.5)
+    love.graphics.rectangle("line", dx, dy, dw, dh, rr, rr)
+
+    love.graphics.setFont(self.slotNameFont)
+    col(PAL.white)
+    love.graphics.printf("Other versions — " .. tostring(v.name),
+      dx + pad, dy + 10 * s, dw - pad * 2, "left")
+    love.graphics.setFont(self.hintFont)
+    local info = self:_modUpdateInfo(v.id)
+    local statusTxt = "Installed: v" .. tostring(v.current)
+    local statusCol = PAL.detail
+    if info and info.status == "available" then
+      statusTxt = statusTxt .. "  -  Update v" .. tostring(info.latest)
+      statusCol = PAL.playTop
+    elseif info and info.status == "current" then
+      statusTxt = statusTxt .. "  -  Up to date"
+      statusCol = PAL.playTop
+    end
+    col(statusCol)
+    love.graphics.printf(statusTxt, dx + pad, dy + 34 * s, dw - pad * 2, "left")
+
+    self._modVersionRects = {}
+    self._modVersionNotesRects = {}
+    local listTop = dy + headerH
+    local notesW = self.hintFont:getWidth("Read more") + 20 * s
+    local installW = self.hintFont:getWidth("Install") + 20 * s
+    local btnH = 26 * s
+    -- clip the list to the band above the footer so nothing can paint over Close
+    love.graphics.setScissor(math.floor(dx + 2 * s), math.floor(listTop),
+      math.ceil(dw - 4 * s), math.ceil(listH))
+    for i = 1, listN do
+      local rel = v.releases[i]
+      local ly = listTop + (i - 1) * rowH
+      local rect = { x = dx + 12 * s, y = ly + 2 * s, width = dw - 24 * s,
+        height = rowH - 6 * s, release = rel }
+      col(PAL.bgBot, 0.45)
+      love.graphics.rectangle("fill", rect.x, rect.y, rect.width, rect.height, 8 * s, 8 * s)
+      love.graphics.setLineWidth(1)
+      col(PAL.cardBorder, 0.35)
+      love.graphics.rectangle("line", rect.x, rect.y, rect.width, rect.height, 8 * s, 8 * s)
+
+      love.graphics.setFont(self.hintFont)
+      local label = "v" .. rel.version
+      if rel.version == v.current then label = label .. " (installed)" end
+      if rel.prerelease then label = label .. " pre" end
+      col(rel.version == v.current and PAL.warning or PAL.white)
+      love.graphics.print(label, rect.x + 12 * s, rect.y + 6 * s)
+
+      -- one-line ellipsized preview only (never wrap changelog into the row)
+      local btnStackW = 0
+      local hasNotes = type(rel.body) == "string" and rel.body:match("%S")
+      local canInstall = rel.version ~= v.current
+      if hasNotes then btnStackW = btnStackW + notesW end
+      if canInstall then btnStackW = btnStackW + (hasNotes and 8 * s or 0) + installW end
+      local previewW = math.max(24 * s, rect.width - 24 * s - btnStackW - 12 * s)
+      local preview = ModUpdate.previewLine(rel.body or "", 90)
+      if preview ~= "" then
+        col(PAL.detail)
+        love.graphics.print(
+          ellipsize(self.hintFont, preview, previewW),
+          rect.x + 12 * s,
+          rect.y + 6 * s + self.hintFont:getHeight() + 2 * s)
+      end
+
+      local btnY = rect.y + (rect.height - btnH) / 2
+      local bx = rect.x + rect.width - 10 * s
+      if canInstall then
+        bx = bx - installW
+        local irect = self:_chipButton(bx, btnY, "Install", {
+          w = installW, h = btnH, id = v.id, kind = "accent",
+        })
+        irect.release = rel
+        self._modVersionRects[#self._modVersionRects + 1] = irect
+        bx = bx - 8 * s
+      end
+      if hasNotes then
+        bx = bx - notesW
+        local nrect = self:_chipButton(bx, btnY, "Read more", {
+          w = notesW, h = btnH, id = v.id, kind = "neutral",
+        })
+        nrect.release = rel
+        self._modVersionNotesRects[#self._modVersionNotesRects + 1] = nrect
+      end
+    end
+    love.graphics.setScissor()
+
+    -- opaque footer so list content can never bleed under Close
+    local footerY = dy + dh - footerH
+    col(PAL.slotBg, 1)
+    love.graphics.rectangle("fill", dx + 2 * s, footerY, dw - 4 * s, footerH - 2 * s)
+    local closeW = self.hintFont:getWidth("Close") + 32 * s
+    local closeH = 32 * s
+    self._modVersionsClose = {
+      x = dx + (dw - closeW) / 2,
+      y = footerY + (footerH - closeH) / 2 - 2 * s,
+      width = closeW, height = closeH,
+    }
+    local chot = self:_hover(self._modVersionsClose)
+    col(PAL.disabled, chot and 0.55 or 0.35)
+    love.graphics.rectangle("fill", self._modVersionsClose.x,
+      self._modVersionsClose.y, closeW, closeH, 8 * s, 8 * s)
+    love.graphics.setFont(self.hintFont)
+    col(PAL.detail)
+    printfB("Close", self._modVersionsClose.x,
+      self._modVersionsClose.y + (closeH - self.hintFont:getHeight()) / 2,
+      closeW, "center")
+  end
+
   -- pointer cursor over any interactive element (desktop only)
   if self._hoverEnabled and not self._padCursorActive
       and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
@@ -2147,6 +2381,53 @@ end
 
 function RomImporter:mousepressed(x, y, button)
   if self._rename then return end -- the rename modal swallows all clicks
+  -- Mod confirm / versions / release-notes modals swallow clicks too.
+  if self._modConfirm then
+    if button ~= 1 then return end
+    if inside(self._modConfirmYes, x, y) then
+      local c = self._modConfirm
+      self._modConfirm = nil
+      if c.kind == "update" then
+        self:_confirmModUpdate(c.id, c.release)
+      else
+        self:_toggleMod(c.id, true)
+      end
+    elseif inside(self._modConfirmNo, x, y) then
+      self._modConfirm = nil
+    end
+    return
+  end
+  if self._modReleaseNotes then
+    if button ~= 1 then return end
+    if inside(self._modReleaseNotesClose, x, y) then
+      self._modReleaseNotes = nil
+    end
+    return
+  end
+  if self._modVersions then
+    if button ~= 1 then return end
+    if inside(self._modVersionsClose, x, y) then
+      self._modVersions = nil
+      return
+    end
+    for _, r in ipairs(self._modVersionNotesRects or {}) do
+      if inside(r, x, y) and r.release then
+        self._modReleaseNotes = {
+          version = r.release.version,
+          body = r.release.body or "",
+          scroll = 0,
+        }
+        return
+      end
+    end
+    for _, r in ipairs(self._modVersionRects or {}) do
+      if inside(r, x, y) and r.release then
+        self:_installModVersion(self._modVersions.id, r.release)
+        return
+      end
+    end
+    return
+  end
   -- Whether a press can be ARMED and resolved on release, which needs a
   -- pollable pointer: always on desktop, on Android only where love.touch is.
   local armDrag = (not self.android) or self.touchPollable
@@ -2283,6 +2564,18 @@ function RomImporter:mousepressed(x, y, button)
       return
     end
   end
+  for _, r in ipairs(self.modUpdateRects or {}) do
+    if inside(r, x, y) then
+      self:_modGithubAction(r.id, "update")
+      return
+    end
+  end
+  for _, r in ipairs(self.modVersionsRects or {}) do
+    if inside(r, x, y) then
+      self:_modGithubAction(r.id, "versions")
+      return
+    end
+  end
   for _, r in ipairs(self.modRects or {}) do
     if inside(r, x, y) then
       if not armDrag then
@@ -2309,6 +2602,17 @@ function RomImporter:keypressed(key)
       self:_commitRename()
     elseif key == "escape" then
       self._rename = nil
+    end
+    return
+  end
+  if self._modConfirm or self._modVersions or self._modReleaseNotes then
+    if key == "escape" then
+      if self._modReleaseNotes then
+        self._modReleaseNotes = nil
+      else
+        self._modConfirm = nil
+        self._modVersions = nil
+      end
     end
     return
   end
@@ -2369,6 +2673,52 @@ function RomImporter:_glassyButton(x, y, w, h, label, font, enabled)
   col(PAL.white, 0.18)
   love.graphics.rectangle("line", x, y, w, h, r, r)
   col(PAL.white)
+  printfB(label, x, y + (h - font:getHeight()) / 2, w, "center")
+  return rect
+end
+
+-- Compact pill button for row actions (Edit / Delete / Update / Versions).
+-- kind: "neutral" (default), "accent" (green), "danger" (red), "dangerArmed"
+-- (filled confirm). Returns the hit rect; opts.id is copied onto it.
+function RomImporter:_chipButton(x, y, label, opts)
+  opts = opts or {}
+  local s = self._s
+  local font = opts.font or self.hintFont
+  local padX = opts.padX or (12 * s)
+  local h = opts.h or (font:getHeight() + 10 * s)
+  love.graphics.setFont(font)
+  local w = opts.w or (font:getWidth(label) + 2 * padX)
+  local r = opts.r or math.min(8 * s, h / 2)
+  local kind = opts.kind or "neutral"
+  local rect = { x = x, y = y, width = w, height = h, id = opts.id }
+  local hot = self:_hover(rect)
+
+  if kind == "dangerArmed" then
+    fillGradRounded(x, y, w, h, r, PAL.chooseTop, PAL.chooseBot,
+      hot and 1 or 0.92, hot and 1 or 0.92)
+    col(PAL.white)
+  elseif kind == "danger" then
+    col(PAL.chooseTop, hot and 0.28 or 0.14)
+    love.graphics.rectangle("fill", x, y, w, h, r, r)
+    love.graphics.setLineWidth(math.max(1, s))
+    col(PAL.chooseTop, hot and 0.95 or 0.7)
+    love.graphics.rectangle("line", x, y, w, h, r, r)
+    col(hot and PAL.white or PAL.chooseTop)
+  elseif kind == "accent" then
+    col(PAL.playTop, hot and 0.28 or 0.12)
+    love.graphics.rectangle("fill", x, y, w, h, r, r)
+    love.graphics.setLineWidth(math.max(1, s))
+    col(PAL.playTop, hot and 0.95 or 0.65)
+    love.graphics.rectangle("line", x, y, w, h, r, r)
+    col(hot and PAL.white or PAL.playTop)
+  else
+    fillGradRounded(x, y, w, h, r, PAL.white, PAL.white,
+      hot and 0.22 or 0.12, 0.04)
+    love.graphics.setLineWidth(math.max(1, s))
+    col(PAL.white, hot and 0.35 or 0.18)
+    love.graphics.rectangle("line", x, y, w, h, r, r)
+    col(PAL.white)
+  end
   printfB(label, x, y + (h - font:getHeight()) / 2, w, "center")
   return rect
 end
@@ -2955,9 +3305,15 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h, paged)
   local nameH = self.slotNameFont:getHeight()
   local metaH = self.labelFont:getHeight()
   local rowPadV = 10 * s
-  local rowH = rowPadV * 2 + nameH + 4 * s + metaH
+  local chipBtnH = self.hintFont:getHeight() + 10 * s
+  -- LOADED sits top-right; Edit/Delete sit bottom-right — row must fit both
+  -- without stacking on the same y (chip buttons are taller than the old text).
+  local loadedH = self.warningFont:getHeight() + 6 * s
+  local rowH = math.max(rowPadV * 2 + nameH + 4 * s + metaH,
+    rowPadV + loadedH + 4 * s + chipBtnH + rowPadV)
   local rowGap = 8 * s
   local rr = 12 * s
+  local btnGap = 8 * s
   -- an empty registry shows a fixed-height dashed hint box instead of rows
   local totalH = (n > 0) and (n * rowH + (n - 1) * rowGap) or (96 * s)
   local naturalH = pad + labelH + 12 * s + totalH + 10 * s + newBtnH + pad
@@ -3024,48 +3380,41 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h, paged)
         col(selected and PAL.green or PAL.cardBorder, selected and 0.9 or 0.22)
         love.graphics.rectangle("line", rx, ry, rw, rowH, rr, rr)
 
-        -- Delete label (bottom-right); reserve its width so name/meta don't overlap
+        -- Edit + Delete chip buttons (bottom-right row). Delete arms on the
+        -- first click and asks "Sure?" on the second; width stays on "Delete"
+        -- so the row never reflows (#433).
         love.graphics.setFont(self.hintFont)
-        local delText = "Delete"
-        local delW = self.hintFont:getWidth(delText)
-        local delH = self.hintFont:getHeight()
-        local delX = rx + rw - 12 * s - delW
-        local delY = ry + rowH - rowPadV - delH
-        local drect = { x = delX - 6 * s, y = delY - 4 * s,
-          width = delW + 12 * s, height = delH + 8 * s, id = slot.id }
-        local dhot = self:_hover(drect)
-        -- Armed by a first click, the label asks before a second one commits;
-        -- the box stays sized to "Delete" so the row never reflows (#433).
         local darmed = armedDelete(self._confirmDelete, "slot", slot.id, version)
-        col((darmed or dhot) and PAL.red or PAL.warning)
-        love.graphics.printf(darmed and "Sure?" or delText, delX, delY, delW, "center")
+        local delLabel = darmed and "Sure?" or "Delete"
+        local delW = self.hintFont:getWidth("Delete") + 24 * s
+        local delX = rx + rw - 12 * s - delW
+        local delY = ry + rowH - rowPadV - chipBtnH
+        local drect = self:_chipButton(delX, delY, delLabel, {
+          w = delW, h = chipBtnH, id = slot.id,
+          kind = darmed and "dangerArmed" or "danger",
+        })
         local rightReserve = delW + 18 * s
 
-        -- Edit label, immediately left of Delete: opens the bundled save
-        -- editor (tools/save-editor) on this slot's file.  Only drawn when the
-        -- host supplied onEditSave and the slot actually holds a save -- there
-        -- is nothing to edit in an empty slot, and offering it would open the
-        -- editor on a new-game stub the player never asked for.
+        -- Edit, immediately left of Delete: opens the bundled save editor on
+        -- this slot's file. Only when the host supplied onEditSave and the
+        -- slot actually holds a save.
         local erect = nil
         if self.onEditSave and slot.exists then
-          local edText = "Edit"
-          local edW = self.hintFont:getWidth(edText)
-          local edX = delX - 14 * s - edW
-          erect = { x = edX - 6 * s, y = delY - 4 * s,
-            width = edW + 12 * s, height = delH + 8 * s, id = slot.id }
-          local ehot = self:_hover(erect)
-          col(ehot and PAL.blue or PAL.warning)
-          love.graphics.print(edText, edX, delY)
-          rightReserve = rightReserve + edW + 20 * s
+          local edW = self.hintFont:getWidth("Edit") + 24 * s
+          local edX = delX - btnGap - edW
+          erect = self:_chipButton(edX, delY, "Edit", {
+            w = edW, h = chipBtnH, id = slot.id, kind = "accent",
+          })
+          rightReserve = rightReserve + edW + btnGap + 6 * s
         end
 
-        -- LOADED pill (top-right of the active row), then reserve its width
+        -- LOADED pill top-right (above the button row, never over Delete)
         local pillW = 0
         if selected then
           love.graphics.setFont(self.warningFont)
           local pText = "LOADED"
           local pw = self.warningFont:getWidth(pText) + 14 * s
-          local ph = self.warningFont:getHeight() + 6 * s
+          local ph = loadedH
           local ppx = rx + rw - 12 * s - pw
           local ppy = ry + rowPadV
           col(PAL.green)
@@ -3177,22 +3526,239 @@ function RomImporter:_refreshMods()
     end
   end
   self.mods = LauncherMods.list() or {}
+  self:_syncModUpdateInfo(false)
 end
 
 function RomImporter:_ensureMods()
   if not self.mods then self:_refreshMods() end
 end
 
+-- Resolve cached (or freshly fetched) GitHub status for every mod that
+-- declares a github field. force=true bypasses the 6h cache on every repo.
+-- Results live on self.modUpdateInfo[id] = { status, latest, best, releases }.
+function RomImporter:_syncModUpdateInfo(force)
+  local ModUpdate = require("src.mods.ModUpdate")
+  self.modUpdateInfo = self.modUpdateInfo or {}
+  for _, m in ipairs(self.mods or {}) do
+    if m.github and m.github ~= "" then
+      local ok, packed = pcall(function()
+        local releases, err, meta = ModUpdate.fetchReleases(m.github, m.id, {
+          force = force == true,
+        })
+        local cached = ModUpdate.readCache(m.github)
+        return {
+          releases = releases,
+          err = err,
+          meta = meta,
+          checkedAt = (cached and cached.checkedAt) or os.time(),
+        }
+      end)
+      if not ok then
+        self.modUpdateInfo[m.id] = {
+          status = "error", err = tostring(packed),
+        }
+      elseif packed.releases then
+        local status, best = ModUpdate.statusFor(m.version, packed.releases)
+        self.modUpdateInfo[m.id] = {
+          status = status,
+          latest = best and best.version or nil,
+          best = best,
+          releases = packed.releases,
+          err = nil,
+          checkedAt = packed.checkedAt or os.time(),
+        }
+      else
+        self.modUpdateInfo[m.id] = {
+          status = "error",
+          latest = nil,
+          best = nil,
+          releases = nil,
+          err = tostring(packed.err),
+        }
+      end
+    else
+      self.modUpdateInfo[m.id] = nil
+    end
+  end
+end
+
+function RomImporter:_modUpdateInfo(id)
+  return self.modUpdateInfo and self.modUpdateInfo[id] or nil
+end
+
 -- Flip a mod's enabled flag (persisted via LauncherMods.setEnabled) and relist
 -- so the toggle, count, and every status chip reflect the new resolution.
-function RomImporter:_toggleMod(id)
+-- Enabling an experimental mod arms a confirm first.
+function RomImporter:_toggleMod(id, confirmed)
   local LauncherMods = require("src.mods.LauncherMods")
-  local cur = false
+  local cur, experimental = false, false
   for _, m in ipairs(self.mods or {}) do
-    if m.id == id then cur = m.enabled; break end
+    if m.id == id then
+      cur = m.enabled
+      experimental = m.experimental == true
+      break
+    end
   end
-  LauncherMods.setEnabled(id, not cur)
+  local want = not cur
+  if want and experimental and not confirmed then
+    self._modConfirm = {
+      kind = "experimental", id = id,
+      title = "Experimental mod",
+      yesLabel = "Enable",
+      lines = {
+        "This mod is marked experimental.",
+        "It may be unfinished or unstable.",
+        "Enable it anyway?",
+      },
+    }
+    return
+  end
+  self._modConfirm = nil
+  LauncherMods.setEnabled(id, want)
   self:_refreshMods()
+end
+
+-- GitHub Update / Check for updates / Versions. Soft-fails into modNotice.
+-- Update button: when a newer release is known, confirm then install; when
+-- already current, force-refresh the 6h cache and report / offer update.
+function RomImporter:_modGithubAction(id, action)
+  local ran, err = pcall(function()
+    local ModUpdate = require("src.mods.ModUpdate")
+    local row
+    for _, m in ipairs(self.mods or {}) do
+      if m.id == id then row = m; break end
+    end
+    if not row or not row.github then
+      self.modNotice = { ok = false, text = "This mod has no github field" }
+      return
+    end
+
+    if action == "versions" then
+      self.modNotice = { ok = true, text = "Loading versions..." }
+      local releases, fetchErr = ModUpdate.fetchReleases(row.github, row.id, {})
+      if not releases then
+        self.modNotice = { ok = false, text = tostring(fetchErr) }
+        return
+      end
+      local status, best = ModUpdate.statusFor(row.version, releases)
+      self.modUpdateInfo = self.modUpdateInfo or {}
+      self.modUpdateInfo[row.id] = {
+        status = status, latest = best and best.version, best = best,
+        releases = releases,
+      }
+      self._modVersions = {
+        id = row.id, name = row.name, current = row.version,
+        releases = releases, scroll = 0,
+      }
+      self.modNotice = nil
+      return
+    end
+
+    -- update / check
+    local info = self:_modUpdateInfo(id)
+    if info and info.status == "available" and info.best then
+      self._modConfirm = {
+        kind = "update", id = row.id, release = info.best,
+        title = "Update available",
+        yesLabel = "Update",
+        lines = {
+          "Update " .. row.name .. "?",
+          "Installed v" .. tostring(row.version),
+          "Latest v" .. tostring(info.best.version),
+        },
+      }
+      return
+    end
+
+    -- Manual check (or first click when status is current/unknown/error)
+    self.modNotice = { ok = true, text = "Checking " .. row.github .. "..." }
+    local releases, fetchErr = ModUpdate.fetchReleases(row.github, row.id, {
+      force = true,
+    })
+    if not releases then
+      self.modNotice = { ok = false, text = tostring(fetchErr) }
+      return
+    end
+    if #releases == 0 then
+      self.modNotice = { ok = false, text = "No .zip releases found" }
+      return
+    end
+    local status, best = ModUpdate.statusFor(row.version, releases)
+    self.modUpdateInfo = self.modUpdateInfo or {}
+    self.modUpdateInfo[row.id] = {
+      status = status, latest = best and best.version, best = best,
+      releases = releases, checkedAt = os.time(),
+    }
+    if status == "available" and best then
+      self.modNotice = { ok = true,
+        text = row.name .. ": new version available (v" .. best.version .. ")" }
+      self._modConfirm = {
+        kind = "update", id = row.id, release = best,
+        title = "Update available",
+        yesLabel = "Update",
+        lines = {
+          "Update " .. row.name .. "?",
+          "Installed v" .. tostring(row.version),
+          "Latest v" .. tostring(best.version),
+        },
+      }
+    else
+      self.modNotice = { ok = true,
+        text = row.name .. " is up to date (v"
+          .. tostring(row.version) .. ")" }
+    end
+  end)
+  if not ran then
+    self._modVersions = nil
+    self.modNotice = { ok = false,
+      text = "Update failed: " .. tostring(err) }
+  end
+end
+
+function RomImporter:_confirmModUpdate(modId, release)
+  local row
+  for _, m in ipairs(self.mods or {}) do
+    if m.id == modId then row = m; break end
+  end
+  local name = row and row.name or modId
+  self.modNotice = { ok = true,
+    text = "Downloading " .. tostring(release and release.version or "?") .. "..." }
+  local ran, err = pcall(function()
+    local LauncherMods = require("src.mods.LauncherMods")
+    local ok, res = LauncherMods.installFromRelease(modId, release)
+    if ok then
+      pcall(self._refreshMods, self)
+      self.modNotice = { ok = true,
+        text = "Updated " .. name .. " to " .. tostring(res) }
+    else
+      self.modNotice = { ok = false, text = tostring(res) }
+    end
+  end)
+  if not ran then
+    self.modNotice = { ok = false, text = "Update failed: " .. tostring(err) }
+  end
+end
+
+function RomImporter:_installModVersion(modId, release)
+  self._modVersions = nil
+  self._modReleaseNotes = nil
+  local version = release and release.version or "?"
+  self.modNotice = { ok = true, text = "Downloading " .. tostring(version) .. "..." }
+  local ran, err = pcall(function()
+    local LauncherMods = require("src.mods.LauncherMods")
+    local ok, res = LauncherMods.installFromRelease(modId, release)
+    if ok then
+      pcall(self._refreshMods, self)
+      self.modNotice = { ok = true,
+        text = "Installed " .. tostring(modId) .. " " .. tostring(res) }
+    else
+      self.modNotice = { ok = false, text = tostring(res) }
+    end
+  end)
+  if not ran then
+    self.modNotice = { ok = false,
+      text = "Install failed: " .. tostring(err) }
+  end
 end
 
 -- The status-chip label + colour for a mod row (deriveList's status verdict).
@@ -3267,18 +3833,21 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
       x + 16 * s, top + boxH / 2 - self.hintFont:getHeight() / 2, w - 32 * s, "center")
     self.modRects = {}
     self.modDeleteRects = {}
+    self.modUpdateRects = {}
+    self.modVersionsRects = {}
     self._modMax = 0
     return (top - y) + boxH
   end
 
-  -- card metrics (design: rounded 14, padding 14x16; toggle 56x28; Delete under)
+  -- card metrics: status + toggle top-right; action chip-buttons in one row
+  -- under the body (Update / Versions / Delete when github is set).
   local padH, padV = 16 * s, 14 * s
   local cardGap, cardR = 10 * s, 14 * s
   local tw, th = 52 * s, 28 * s
   local innerW = w - 2 * padH
   local chipH = self.hintFont:getHeight() + 8 * s
-  local delH = self.hintFont:getHeight()
-  local clusterH = chipH + 6 * s + th + 6 * s + delH
+  local btnH = self.hintFont:getHeight() + 10 * s
+  local btnGap = 8 * s
 
   love.graphics.setFont(self.stateFont)
   local nameH = self.stateFont:getHeight()
@@ -3288,8 +3857,36 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
   for i, m in ipairs(mods) do
     local chipText = modStatusChip(m.status)
     local chipW = self.hintFont:getWidth(chipText) + 20 * s
-    local delW = self.hintFont:getWidth("Delete")
-    local clusterW = math.max(chipW, tw, delW)
+    local delW = self.hintFont:getWidth("Delete") + 24 * s
+    local verW = self.hintFont:getWidth("Versions") + 24 * s
+    local hasGh = m.github and m.github ~= ""
+    local info = hasGh and self:_modUpdateInfo(m.id) or nil
+    local updLabel = "Check for updates"
+    local updateKind = "neutral"
+    -- checkLine: always on the mod row for github mods so the check result
+    -- is visible without relying on the top-of-panel notice.
+    local checkLine = nil
+    local checkLineColor = PAL.detail
+    if info and info.status == "available" then
+      updLabel = "Update"
+      updateKind = "accent"
+      checkLine = "Checked for updates - v" .. tostring(info.latest) .. " available"
+      checkLineColor = PAL.playTop
+    elseif info and info.status == "current" then
+      updLabel = "Check again"
+      checkLine = "Checked for updates - up to date"
+      checkLineColor = PAL.playTop
+    elseif info and info.status == "error" then
+      checkLine = "Checked for updates - failed"
+      checkLineColor = PAL.chooseTop
+    elseif hasGh then
+      checkLine = "Not checked for updates yet"
+      checkLineColor = PAL.warning
+    end
+    local updW = self.hintFont:getWidth(updLabel) + 24 * s
+    local btnRowW = delW
+    if hasGh then btnRowW = updW + btnGap + verW + btnGap + delW end
+    local clusterW = math.max(chipW, tw)
     local leftW = math.max(40 * s, innerW - clusterW - 14 * s)
     local descH = 0
     if m.description ~= "" then
@@ -3297,10 +3894,22 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
       local _, dl = self.hintFont:getWrap(m.description, leftW)
       descH = math.max(1, #dl) * self.hintFont:getHeight()
     end
-    local contentH = padV * 2 + nameH + (descH > 0 and (6 * s + descH) or 0)
-    local cardH = math.max(contentH, padV * 2 + clusterH)
+    local clusterH = chipH + 6 * s + th
+    local metaH = self.hintFont:getHeight() + 2 * s
+    if checkLine then
+      metaH = metaH + self.hintFont:getHeight() + 2 * s
+    end
+    if descH > 0 then
+      metaH = metaH + self.hintFont:getHeight() + 2 * s + descH
+    end
+    local bodyH = math.max(nameH + 4 * s + metaH, clusterH)
+    local cardH = padV * 2 + bodyH + 10 * s + btnH
     layout[i] = { h = cardH, leftW = leftW, clusterW = clusterW,
-      chipText = chipText, chipW = chipW, delW = delW }
+      chipText = chipText, chipW = chipW, delW = delW,
+      updW = updW, verW = verW, hasGh = hasGh, clusterH = clusterH,
+      btnRowW = btnRowW, bodyH = bodyH, updLabel = updLabel,
+      updateKind = updateKind, checkLine = checkLine,
+      checkLineColor = checkLineColor }
     total = total + cardH
   end
   total = total + (#mods - 1) * cardGap
@@ -3314,6 +3923,8 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
   self.modScroll = scroll
   self.modRects = {}
   self.modDeleteRects = {}
+  self.modUpdateRects = {}
+  self.modVersionsRects = {}
 
   if not paged then
     love.graphics.setScissor(math.floor(x), math.floor(top),
@@ -3343,20 +3954,30 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
       col(PAL.cardBorder, 0.5)
       love.graphics.rectangle("line", bxx, byy, badgeW, badgeH, 5 * s, 5 * s)
       love.graphics.setFont(self.warningFont)
-      col(PAL.warning)
+      col(m.experimental and PAL.gold or PAL.warning)
       love.graphics.print(m.badge, bxx + 6 * s,
         byy + (badgeH - self.warningFont:getHeight()) / 2)
 
-      -- description under the name, wrapped in the left block
+      -- version + check status line + description under the name
+      love.graphics.setFont(self.hintFont)
+      col(PAL.detail)
+      local metaY = ny + nameH + 4 * s
+      love.graphics.print("v" .. tostring(m.version or "?"), nx, metaY)
+      metaY = metaY + self.hintFont:getHeight() + 2 * s
+      if L.checkLine then
+        col(L.checkLineColor or PAL.detail)
+        love.graphics.print(
+          ellipsize(self.hintFont, L.checkLine, L.leftW), nx, metaY)
+        metaY = metaY + self.hintFont:getHeight() + 2 * s
+      end
       if m.description ~= "" then
-        love.graphics.setFont(self.hintFont)
         col(PAL.detail)
-        love.graphics.printf(m.description, nx, ny + nameH + 6 * s, L.leftW, "left")
+        love.graphics.printf(m.description, nx, metaY, L.leftW, "left")
       end
 
-      -- right cluster: status chip, toggle, Delete -- vertically centred
+      -- right cluster: status chip + toggle (action buttons are a bottom row)
       local clusterX = x + w - padH - L.clusterW
-      local clusterY = cy + (cardH - clusterH) / 2
+      local clusterY = cy + padV
       local _, chipColor = modStatusChip(m.status)
       local chipX = clusterX + (L.clusterW - L.chipW) / 2
       col(chipColor, 0.1)
@@ -3388,30 +4009,45 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
       col(PAL.white)
       love.graphics.circle("fill", kcx, ty + th / 2, kd / 2)
 
-      -- Delete under the toggle
-      local delX = clusterX + (L.clusterW - L.delW) / 2
-      local delY = ty + th + 6 * s
-      local drect = { x = delX - 6 * s, y = delY - 2 * s,
-        width = L.delW + 12 * s, height = delH + 4 * s, id = m.id }
-      local dhot = self:_hover(drect)
-      love.graphics.setFont(self.hintFont)
-      -- Same two-click arm as a save slot's Delete (#433).
+      -- Action chip-buttons in one right-aligned row under the body
+      local btnY = cy + cardH - padV - btnH
+      local btnX = x + w - padH - L.btnRowW
       local darmed = armedDelete(self._confirmDelete, "mod", m.id, nil)
-      col((darmed or dhot) and PAL.red or PAL.warning)
-      love.graphics.printf(darmed and "Sure?" or "Delete", delX, delY, L.delW, "center")
+      local function clipHit(rect, bucket)
+        if not rect then return end
+        local vy = math.max(rect.y, top)
+        local vy2 = math.min(rect.y + rect.height, top + listH)
+        if vy2 > vy then
+          bucket[#bucket + 1] = {
+            x = rect.x, y = vy, width = rect.width, height = vy2 - vy,
+            id = rect.id,
+          }
+        end
+      end
+      if L.hasGh then
+        local urect = self:_chipButton(btnX, btnY, L.updLabel, {
+          w = L.updW, h = btnH, id = m.id, kind = L.updateKind or "neutral",
+        })
+        clipHit(urect, self.modUpdateRects)
+        btnX = btnX + L.updW + btnGap
+        local vrect = self:_chipButton(btnX, btnY, "Versions", {
+          w = L.verW, h = btnH, id = m.id, kind = "neutral",
+        })
+        clipHit(vrect, self.modVersionsRects)
+        btnX = btnX + L.verW + btnGap
+      end
+      local drect = self:_chipButton(btnX, btnY, darmed and "Sure?" or "Delete", {
+        w = L.delW, h = btnH, id = m.id,
+        kind = darmed and "dangerArmed" or "danger",
+      })
+      clipHit(drect, self.modDeleteRects)
 
-      -- hit rects clipped to the visible list band
+      -- toggle hit rect clipped to the visible list band
       local vy = math.max(trect.y, top)
       local vy2 = math.min(trect.y + trect.height, top + listH)
       if vy2 > vy then
         self.modRects[#self.modRects + 1] =
           { x = trect.x, y = vy, width = trect.width, height = vy2 - vy, id = m.id }
-      end
-      local dvy = math.max(drect.y, top)
-      local dvy2 = math.min(drect.y + drect.height, top + listH)
-      if dvy2 > dvy then
-        self.modDeleteRects[#self.modDeleteRects + 1] =
-          { x = drect.x, y = dvy, width = drect.width, height = dvy2 - dvy, id = m.id }
       end
     end
     cy = cy + cardH + cardGap

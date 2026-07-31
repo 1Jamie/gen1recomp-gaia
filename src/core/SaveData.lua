@@ -249,6 +249,9 @@ function SaveData.defaultOptions()
     -- Native mod enablement is an installation option, not save-slot data.
     -- Missing entries mean enabled so newly installed mods work by default.
     mods = {},
+    -- GitHub release checks for mods with a manifest "github" field
+    -- (src/mods/ModUpdate.lua). Keyed by owner/repo; TTL is six hours.
+    modUpdateCache = {},
     -- On-screen touch overlay (Android/iOS; see src/core/TouchControls.lua).
     -- enabled=false hides it permanently (distinct from auto-hide-on-gamepad).
     -- positions are optional normalized centers {x=0..1, y=0..1} per control
