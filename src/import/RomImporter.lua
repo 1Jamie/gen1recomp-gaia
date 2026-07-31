@@ -5,6 +5,25 @@ local HostShell = require("src.core.HostShell")
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
+-- love.system.pickFile is a NATIVE BRIDGE, not part of LÖVE: it exists only on
+-- builds that compiled one (Android, and iOS builds patched by
+-- mobile/ios/patch_love_src.py). A build without it must fall back to the
+-- copy-it-into-the-save-folder flow that every caller below already has --
+-- calling the nil field instead took the whole app down the moment the player
+-- pressed Import ROM:
+--
+--   src/import/RomImporter.lua: attempt to call field 'pickFile' (a nil value)
+--
+-- love.system.createFile was already guarded this way at its one call site;
+-- these three were not. Every caller here treats `false` as "no picker
+-- available" and shows its own notice, so a missing bridge now degrades to
+-- exactly the path a picker-less Android device has always taken.
+local function pickFile(...)
+  local fn = love.system.pickFile
+  if not fn then return false end
+  return fn(...) and true or false
+end
+
 -- Cache generation tag; bump to force every imported version to re-extract.
 local CACHE_FORMAT = "rom-cache-v8:"
 -- The completion marker is written under each version's cache prefix
@@ -984,7 +1003,7 @@ function RomImporter:chooseMod()
         self.modNotice and self.modNotice.ok)
       return
     end
-    if not love.system.pickFile("mod") then
+    if not pickFile("mod") then
       self.modNotice = { ok = false,
         text = "Could not open the file picker. Copy a mod .zip via USB." }
     else
@@ -1047,7 +1066,7 @@ function RomImporter:chooseSaveImport(version)
       return
     end
     self.androidPendingVersion = version
-    if not love.system.pickFile("sav") then
+    if not pickFile("sav") then
       self.androidPendingVersion = nil
       self.saveNotice[version] = { ok = false,
         text = "Could not open the file picker. Copy a .sav via USB." }
@@ -1135,7 +1154,7 @@ function RomImporter:choose(version)
       self:startData(data, name)
     elseif consumePickedRomError(self) then
       return   -- a rejected pick explains itself instead of silently reopening
-    elseif not love.system.pickFile() then
+    elseif not pickFile() then
       -- Picker unavailable (API < 19, or no document-picker app installed):
       -- fall back to the USB folder-drop path as a friendly notice, not an
       -- error (which would read as a rejected file).
