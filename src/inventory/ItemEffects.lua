@@ -10,7 +10,6 @@
 --   "ball"                          caller must throw it (battle only)
 --   "learn", moveId                 caller must run the learn-move flow
 
-local Pokemon = require("src.pokemon.Pokemon")
 local Flags = require("src.script.Flags")
 local Strings = require("src.core.Strings")
 
