@@ -109,10 +109,19 @@ do
   end
   TouchControls.draw = function() order[#order + 1] = "touch" end
 
-  local fake = { overworld = {}, stack = { states = {} } }
+  -- Game:draw iterates stack.states and calls each state's draw (it no
+  -- longer goes through stack:draw), so the fixture must put a drawable
+  -- state on the stack to observe composition order.
+  local fake = {
+    overworld = {},
+    stack = {
+      states = {
+        { draw = function() order[#order + 1] = "states" end },
+      },
+    },
+  }
   function fake.stack:visibleBase() return 1 end
-  function fake.stack:top() return {} end
-  function fake.stack:draw() order[#order + 1] = "states" end
+  function fake.stack:top() return self.states[#self.states] end
 
   hooks:wrap("render.hud", function(nextFn, game, viewport)
     T.check(game == fake, "render.hud receives the live Game object")
