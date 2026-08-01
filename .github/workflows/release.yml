@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: [self-hosted, macOS]
+    runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
 
     steps:
       # The self-hosted runner lives under the machine owner's home

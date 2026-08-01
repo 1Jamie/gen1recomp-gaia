@@ -51,7 +51,7 @@ jobs:
     name: iOS build
     needs: ios-changes
     if: needs.ios-changes.outputs.changed == 'true'
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - name: install xcbeautify
