@@ -60,34 +60,9 @@ mkdir -p "$CACHE" "$WORK" "$DIST/mac" "$DIST/win" "$DIST/linux"
 # launcher's Edit button on a save row opens it in-process (main.lua), and
 # `--editor` / POKEPORT_EDITOR=1 opens it standalone.  It is required through
 # love.filesystem's require path, so it has to live inside the archive.
-say "packing game.love"
 LOVE_FILE="$WORK/game.love"
-rm -f "$LOVE_FILE"
-(cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
-  main.lua conf.lua src data assets tools/save-editor \
-  tools/rom_manifest.json tools/rom_manifest_blue.json \
-  tools/rom_manifest_yellow.json \
-  -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
-# Materialize the listing once. Piping unzip→grep -q under `set -o pipefail`
-# SIGPIPEs unzip when grep exits early on a match and aborts the build.
 LOVE_LIST="$WORK/love-listing.txt"
-unzip -Z1 "$LOVE_FILE" > "$LOVE_LIST"
-if grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' "$LOVE_LIST"; then
-  fail "game.love unexpectedly contains generated ROM data"
-fi
-# The editor is only reachable if its entry point and both module directories
-# made it in, and every version's import manifest has to ship or that game's
-# ROM import fails in the built app (dev reads them off the source tree, so
-# the miss only ever shows up in a build -- the Yellow manifest shipped this
-# way once).
-for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
-                tools/save-editor/panels/Party.lua \
-                tools/rom_manifest.json tools/rom_manifest_blue.json \
-                tools/rom_manifest_yellow.json; do
-  grep -qxF "$required" "$LOVE_LIST" \
-    || fail "game.love is missing $required"
-done
-say "game.love: $(du -h "$LOVE_FILE" | cut -f1)"
+LOVE_FILE="$("$ROOT/scripts/pack_love.sh" --output "$LOVE_FILE" --listing "$LOVE_LIST")"
 
 # ------------------------------------------------------- stamp release version
 # The working tree ships Version.lua with engine "0.0.0-dev"; the real release
