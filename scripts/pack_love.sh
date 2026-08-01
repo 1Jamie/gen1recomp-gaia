@@ -74,6 +74,8 @@ if [ -n "$BUILD_INFO" ]; then
     || fail "game.love is missing build-info.json"
 fi
 
+"$ROOT/scripts/switch/verify_payload.sh" "$OUTPUT"
+
 say "game.love: $(du -h "$OUTPUT" | cut -f1)"
 
 if [ "$DRY_RUN" -eq 1 ]; then
