@@ -275,9 +275,9 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P0-08 | Joy-Con gameplay (incl. naming A/B) | **pass** | T16 @ `2699c9a` |
 | P0-09 | Save survives quit + reopen | **pass** | T19 |
 | P0-10 | ≥10 suspend cycles, no stuck input/dup audio | **pass** | T19 (operator 2026-08-01) |
-| P0-12 | Fused NRO boots without adjacent `game.love` | **deferred** | T24 blocked — operator hardware gate pending |
-| P0-14 | Fused NRO MTP round-trip SHA-256 | **deferred** | T24 blocked |
-| P0-15 | Replace NRO only; saves persist | **deferred** | T24 blocked |
+| P0-12 | Fused NRO boots without adjacent `game.love` | **pass** | T24 — `docs/switch-hardware-evidence.md` |
+| P0-14 | Fused NRO MTP round-trip SHA-256 | **pass** | T24 — first artifact `b019e2e8…` @ `6fb5602` (redeploy after Blue fix) |
+| P0-15 | Replace NRO only; saves persist | **pass** | T24 — operator NRO-only update keeps saves |
 | P1-01 | Docked vs handheld spot-check | **deferred** | Not exercised on OLED dock yet |
 | P1-02 | Applet Mode documented unsupported | **pass** | Title override required; Album path not validated |
 | P1-03 | Long-play soak (≥30 min) | **deferred** | No soak session recorded |
@@ -313,6 +313,6 @@ Split the eventual upstream PR into three reviewable slices. Each PR must declar
 - [ ] Manifest `scripts/switch/love-nx-11.5-nx1.sha256` filled; binaries not in git
 - [ ] `verify_payload.sh` rejects generated cache / ROM / `.sav` / `.bak`
 - [ ] P0 matrix rows marked pass only with linked hardware evidence
-- [ ] Fused NRO rows remain deferred until T24 evidence exists
+- [x] Fused NRO P0-12/14/15 pass with T24 evidence (`docs/switch-hardware-evidence.md`)
 - [ ] Updater / remote mod download hidden on NX (`networkValidated == false`)
 
