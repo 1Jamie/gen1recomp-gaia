@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Applies gen1recomp's iOS native-bridge patches to the fetched LÖVE 11.5
+"""Applies gen1recomp's iOS native-bridge patches to the fetched LÖVE 12.0
 source tree (mobile/ios/love-src/). Idempotent AND re-appliable: the first
 run stashes a pristine `.orig` copy of every file it rewrites, and later
 runs always start over from that copy — so editing the patch content here

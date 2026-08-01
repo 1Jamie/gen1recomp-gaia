@@ -641,7 +641,8 @@ function Renderer:endFrame(zones, worldZones)
     -- runs, so dialogs, menus and the HUD sit on top as usual.
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setScissor(0, 0, ww, wh)
-    if love.system and love.system.getOS and love.system.getOS() == "iOS" then
+    local loveMajor = love.getVersion()
+    if love.system and love.system.getOS and love.system.getOS() == "iOS" and loveMajor >= 12 then
       love.graphics.draw(self.worldOverride, 0, wh, 0, 1 / dpiX, -1 / dpiY)
     else
       love.graphics.draw(self.worldOverride, 0, 0, 0, 1 / dpiX, 1 / dpiY)
