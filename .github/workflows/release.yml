@@ -176,6 +176,11 @@ jobs:
           set -euo pipefail
           scripts/build_android.sh --version "${{ steps.ver.outputs.version }}"
 
+      - name: Install xcbeautify
+        run: |
+          set -euo pipefail
+          brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify
+
       - name: Build iOS
         run: |
           set -euo pipefail
