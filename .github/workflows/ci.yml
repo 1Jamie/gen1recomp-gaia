@@ -56,8 +56,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: install xcbeautify
         run: brew list xcbeautify >/dev/null 2>&1 || brew install xcbeautify
-      - name: build iOS simulator app
-        run: scripts/build_ios.sh --fetch --release
+      - name: build iOS release
+        env:
+          CANONICAL_REPOSITORY: ${{ github.repository == 'bryanthaboi/gen1recomp' }}
+        run: |
+          if [ "$CANONICAL_REPOSITORY" = true ]; then
+            scripts/build_ios.sh --fetch --device --release
+          else
+            scripts/build_ios.sh --fetch --release
+          fi
 
   headless:
     name: headless suites (no ROM)
