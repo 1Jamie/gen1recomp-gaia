@@ -197,7 +197,11 @@ check(not removed["imports/mods/a-bad.zip"], "mixed: bad zip retained")
 check(not removed["imports/mods/b-good.zip"], "mixed: good zip retained")
 check(love.filesystem.read("imports/mods/a-bad.zip") ~= nil, "mixed bad still present")
 check(love.filesystem.read("imports/mods/b-good.zip") ~= nil, "mixed good still present")
-check(ri.modNotice and ri.modNotice.ok, "mixed prefers success notice over sibling fail")
+check(ri.modNotice and ri.modNotice.ok, "mixed keeps overall success when one zip installs")
+check(ri.modNotice.text:find("failed", 1, true),
+  "mixed success notice still surfaces sibling failure")
+check(ri.modNotice.text:find("no manifest", 1, true),
+  "mixed success notice includes the failure reason")
 
 -- Mac MTP AppleDouble (._*.zip) must not be install candidates
 ri = freshImporter()
@@ -210,6 +214,23 @@ eq(#installCalls, 1, "AppleDouble ._*.zip is skipped")
 eq(installCalls[1], "imports/mods/DRAMATIC_SHAPE-1.4.0.zip",
   "only the real zip is installed")
 check(ri.modNotice and ri.modNotice.ok, "AppleDouble skip still shows install success")
+check(not (ri.modNotice.text or ""):find("failed", 1, true),
+  "AppleDouble-only sibling does not invent a mixed failure line")
+
+-- Mac MTP AppleDouble ROM sidecar must not be ROM inbox candidates
+ri = freshImporter()
+love.filesystem.write("imports/._cart.gb", string.rep("X", 16))
+love.filesystem.write("imports/cart.gb", string.rep("G", 16))
+roms = ri:scanInbox(ri.ready)
+local sawHidden, sawReal = false, false
+for _, path in ipairs(roms) do
+  if path:find("._cart", 1, true) then sawHidden = true end
+  if path == "imports/cart.gb" then sawReal = true end
+end
+check(not sawHidden, "ROM scanInbox skips AppleDouble ._*.gb")
+check(sawReal, "ROM scanInbox still finds the real .gb")
+love.filesystem.remove("imports/._cart.gb")
+love.filesystem.remove("imports/cart.gb")
 
 -- NXMOD-05: chooseMod on NX routes to inbox rescan; no HostShell/chooseZip
 local hostShellCalls = 0

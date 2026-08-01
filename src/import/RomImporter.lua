@@ -388,11 +388,15 @@ end
 
 local function listRomPaths(dir)
   local paths = {}
-  for _, name in ipairs(love.filesystem.getDirectoryItems(dir)) do
-    local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
-    if name:lower():match("%.gbc?$")
-        and love.filesystem.getInfo(path, "file") then
-      paths[#paths + 1] = path
+  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+    -- Skip AppleDouble / hidden junk from Mac MTP (._cart.gb ends in .gb
+    -- but is not a ROM — rescan would try it first and block the real dump).
+    if name:sub(1, 1) ~= "." then
+      local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
+      if name:lower():match("%.gbc?$")
+          and love.filesystem.getInfo(path, "file") then
+        paths[#paths + 1] = path
+      end
     end
   end
   return paths
@@ -447,6 +451,7 @@ function RomImporter:rescanModsAction()
   local anyOk = false
   local lastOk = nil
   local lastFail = nil
+  local failCount = 0
   for _, path in ipairs(candidates) do
     -- Reuse _installMod carefully: it must not remove the inbox source.
     self:_installMod(path)
@@ -454,12 +459,21 @@ function RomImporter:rescanModsAction()
       anyOk = true
       lastOk = self.modNotice
     else
+      failCount = failCount + 1
       lastFail = self.modNotice
     end
   end
-  -- Prefer success when at least one zip installed (a leftover MTP
-  -- AppleDouble / corrupt sibling must not hide a good install).
-  if anyOk then
+  -- Success wins overall ok=true so a leftover MTP junk sibling cannot hide
+  -- a good install; still append the last failure so a real broken zip is
+  -- visible beside the success line.
+  if anyOk and lastFail then
+    local okText = (lastOk and lastOk.text) or "Installed"
+    local failText = (lastFail and lastFail.text) or "unknown error"
+    self.modNotice = {
+      ok = true,
+      text = Strings("%s\n(%d failed: %s)", okText, failCount, failText),
+    }
+  elseif anyOk then
     self.modNotice = lastOk
   elseif lastFail then
     self.modNotice = lastFail
