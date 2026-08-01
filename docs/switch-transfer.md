@@ -70,6 +70,9 @@ names. Delete `._*` junk if a zip/ROM fails to open.
    and retry with a single client.
 5. Eject/unmount cleanly; exit MTP on the Switch; title-override launch.
 
+If MTP is unavailable or flaky on Linux, use **direct SD** (Hekate UMS or a
+card reader) or **FTP** instead — same destinations in the table above.
+
 #### Windows
 
 1. With DBI MTP active, open **This PC** / **File Explorer** and look under
@@ -81,6 +84,9 @@ names. Delete `._*` junk if a zip/ROM fails to open.
    → Update driver → **MTP USB Device** (or Standard MTP Device). Prefer a
    data-capable USB-C cable and a direct port.
 5. Safely disconnect; exit MTP on the Switch; title-override launch.
+
+If MTP is unavailable or flaky on Windows, use **direct SD** (Hekate UMS or a
+card reader) or **FTP** instead — same destinations in the table above.
 
 ### 2. Direct SD (Hekate UMS or card reader)
 

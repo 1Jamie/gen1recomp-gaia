@@ -1,6 +1,5 @@
--- Content gate for Switch transfer runbooks (XFER-01..06 for transfer.md).
+-- Content gate for Switch transfer runbooks (XFER-01..08).
 -- Self-contained: luajit tests/switch_transfer_docs_test.lua
--- Later tasks extend assertions for cross-links and NXMOD-12.
 
 local T = require("tests.harness")
 local check = T.check
@@ -26,12 +25,15 @@ mustContain(transfer, "FTP", "transfer")
 mustContain(transfer, "sdmc:/switch/gen1recomp/", "transfer")
 mustContain(transfer, "imports/", "transfer")
 mustContain(transfer, "imports/mods/", "transfer")
+mustContain(transfer, "1: SD Card", "transfer")
+mustContain(transfer, "Procurar novamente", "transfer")
 mustContain(transfer, "one contributor example", "transfer")
 mustContain(transfer, "Linux", "transfer")
 mustContain(transfer, "Windows", "transfer")
 mustContain(transfer, "macOS", "transfer")
 mustContain(transfer, "title override", "transfer")
 mustContain(transfer, "Applet Mode", "transfer")
+mustContain(transfer, "Exit MTP", "transfer")
 mustContain(transfer, "nxlink", "transfer")
 mustContain(transfer, "deferred", "transfer")
 mustContain(transfer, "gvfs-mtp", "transfer")
@@ -41,8 +43,12 @@ mustContain(transfer, "AppleDouble", "transfer")
 mustContain(transfer, "card reader", "transfer")
 mustContain(transfer, "Canonical methods", "transfer")
 mustContain(transfer, "OpenMTP", "transfer")
+mustContain(transfer, "only one", "transfer")
+mustContain(transfer, "USB-C", "transfer")
+-- Per-OS SD/FTP fallback when MTP is flaky (XFER-05 AC)
+mustContain(transfer, "If MTP is unavailable or flaky on Linux", "transfer")
+mustContain(transfer, "If MTP is unavailable or flaky on Windows", "transfer")
 
--- Cross-links from install / build (XFER rewire)
 local install = read("docs/switch-install.md")
 local build = read("docs/switch-build.md")
 mustContain(install, "switch-transfer.md", "install")
@@ -56,7 +62,6 @@ check(development:find("Non-macOS contributor MTP runbooks", 1, true) == nil,
 check(development:find("VoxelMod (and other community mods) OLED smoke still **pending**", 1, true) == nil,
   "development must not list VoxelMod smoke as pending")
 
--- NXMOD-12 closed (XFER-07)
 local evidence = read("docs/switch-hardware-evidence.md")
 local nxStart = evidence:find("## NXMOD-12", 1, true)
 check(nxStart ~= nil, "NXMOD-12 section present")
@@ -70,4 +75,4 @@ check(nxmod:find("Status | **pending**", 1, true) == nil
   and nxmod:find("| **pending** |", 1, true) == nil,
   "NXMOD-12 must not keep pending status/checklist")
 
-print("switch_transfer_docs_test: OK")
+T.finish("switch_transfer_docs_test")
