@@ -31,35 +31,39 @@ Inbox MTP → “Procurar novamente” → Play; Joy-Con launcher/gameplay (not 
 
 ---
 
-## T16 — Joy-Con launcher + gameplay — partial (naming fail)
+# T16 — Joy-Con launcher + gameplay — pass (naming re-verify)
+
+### Round 1 @ `7504753` — partial
+
+| Check | Result |
+| ----- | ------ |
+| Launcher / overworld (Joy-Con only) | **pass** |
+| Naming player/rival | **fail** (dual-path a+b; see below) |
+| Touch required | **no** |
+| `game.love` SHA-256 | `bd3a35461bf453c1f0465a5a289421aef3b5c72d3bf1f8d76e86231256829e0e` |
+
+### Naming failure (root cause) — fixed in `efd81d8` + `2699c9a`
+
+- love-nx fires **`gamepadpressed` + `joystickpressed` on the same physical press**.
+- `NamingScreen` tested `wasPressed("b")` before `"a"` → if both true in one frame, always deletes.
+- Dual-path fix: ignore raw when `isGamepad()` (`efd81d8`).
+- SDL-only UX then had physical B confirm / A erase; NX face remap (`2699c9a`) restores Nintendo A=confirm / B=cancel.
+
+### Round 2 @ `2699c9a` — pass (Nintendo UX)
 
 | Field | Value |
 | ----- | ----- |
-| Commit tested | `7504753` |
-| `game.love` SHA-256 | `bd3a35461bf453c1f0465a5a289421aef3b5c72d3bf1f8d76e86231256829e0e` |
+| Commit tested | `2699c9a` |
+| `game.love` SHA-256 | `a208b21e1f30b00e2e8c6fa6efe14f0e06d1db0ae1e50b810b16d9fb852926bc` |
 | Touch required | **no** |
 
 | Check | Result |
 | ----- | ------ |
-| Launcher (Joy-Con only, virtual cursor) | **pass** |
-| Overworld walk / interact | **pass** |
-| Naming — player | **fail** |
-| Naming — rival | **fail** (same behavior) |
+| Naming — player | **pass** — physical **A** confirms letter, **B** cancels/erases |
+| Naming — rival | **pass** (same) |
+| Launcher / overworld (prior round) | **pass** (unchanged mapping for d-pad/stick) |
 
-### Naming failure (root cause)
-
-- love-nx fires **`gamepadpressed` + `joystickpressed` on the same physical press**.
-- `NamingScreen` tested `wasPressed("b")` before `"a"` → if both true in one frame, always deletes.
-- Y appeared to “work” because face `y`/`x` are absent from `DEFAULT_GAMEPAD_BINDINGS`, so only raw applied (no a+b collision).
-- Observed: **Y places letter**; **X, A, and B erase**.
-
-### UX note (SDL gamepad-only)
-
-With LÖVE/SDL mapping only: physical **B** (south) → GB A (confirm); physical **A** (east) → GB B (erase). Explicit NX remap needed if physical A should confirm like retail Nintendo UX.
-
-### Follow-up fix (software)
-
-Skip raw face/menu when `joystick:isGamepad()`; align NX raw Y→a / X→b; prefer A over B in naming when both edges fire.
+T16 hardware gate: **closed**.
 
 ---
 
