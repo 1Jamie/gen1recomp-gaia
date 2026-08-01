@@ -24,7 +24,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   ios-changes:
@@ -102,24 +101,6 @@ jobs:
       - name: clean up signing keychain
         if: ${{ always() && github.repository == 'bryanthaboi/gen1recomp' }}
         run: security delete-keychain "$RUNNER_TEMP/gen1recomp-ci-signing.keychain-db" 2>/dev/null || true
-
-  ios-build-comment:
-    name: iOS artifact comment
-    needs: ios-build
-    if: github.event_name == 'pull_request' && github.repository == 'bryanthaboi/gen1recomp' && needs.ios-build.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: comment iOS artifact
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          message: |
-            #### iOS Release IPA
-
-            - [Download gen1recomp.ipa](${{ needs.ios-build.outputs.ipa_url }})
-
-            <sub>Automatically generated. [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>
-          comment-tag: ios-build-result
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   headless:
     name: headless suites (no ROM)
