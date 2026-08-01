@@ -34,6 +34,7 @@ This document covers what landed so far, known limitations, how hardware was tes
 - Payload gates so ROM / generated cache / saves never enter `game.love`
 - Community mod zip inbox at `imports/mods/` (rescan installs; FIND MODS stays network-gated)
 - Select+face display chords (COLORS / TILT / pipelines) on Joy-Con
+- VoxelMod OPTIONS + Switch performance tips documented (WATER / 3D-BTL / extras)
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
 
 ### What is still unfinished / out of this draft
@@ -353,23 +354,66 @@ Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, res
 
 **MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb`. Those are not real archives or ROMs — the launcher ignores hidden `.*` names under both `imports/` and `imports/mods/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
 
-**Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable.
+**Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable. Player-facing install + performance tips: [switch-install.md](switch-install.md#community-mods-voxelmod).
 
 ## Joy-Con display chords (Select + face)
 
 PC digit hotkeys for COLORS / TILT / pipelines have Joy-Con equivalents. Hold **Select** (`back` / −) and press a face/shoulder button; the engine runs the same path as `Game:keypressed` for that digit (including `writeOptions` / Pipelines parity).
 
-| Chord (Nintendo UX) | Engine key | Typical effect |
-| ------------------- | ---------- | -------------- |
-| Select + **A** | `2` | COLORS cycle |
-| Select + **B** | `3` | TILT / perspective cycle |
-| Select + **Y** | `5` | GBC FX / V-GRID (mod pipeline) |
-| Select + **X** | `6` | T-SHIFT / mod pipeline |
-| Select + **L** (left shoulder) | `7` | V-CURVE / mod pipeline |
+| Chord (Nintendo UX) | Engine key | Stock engine | With DramaticShape VoxelMod |
+| ------------------- | ---------- | ------------ | --------------------------- |
+| Select + **A** | `2` | COLORS cycle | COLORS cycle (unchanged) |
+| Select + **B** | `3` | TILT / perspective | **VOXEL** pitch (OFF → 15 → 35 → 50 → 75 → OFF); mod hides stock TILT |
+| Select + **Y** | `5` | GBC FX | **V-GRID** ON/OFF (mod hides stock GBC FX) |
+| Select + **X** | `6` | (pipeline) | **T-SHIFT** OFF → 1 → 2 → 3 → OFF (tilt-shift blur) |
+| Select + **L** (left shoulder) | `7` | (pipeline) | **V-CURVE** OFF → 1 → 2 → 3 (horizon bend) |
+
+There is **no** Joy-Con chord for VoxelMod **`8` (3D-BTL)** or **`9` (WATER)** — change those in **OPTIONS** (see below).
 
 Without Select held, face buttons keep normal GB A/B gameplay mapping (no accidental color/tilt cycles). The **Options** menu remains available for the same settings — chords are optional shortcuts, not the only path.
 
 On NX, A/B chords resolve through the Nintendo UX face remap so physical **A** → key `2` and physical **B** → key `3` match this table.
+
+## VoxelMod on Switch (options + performance)
+
+[DramaticShape VoxelMod](https://github.com/DramaticShape/DramaticShapeVoxelMod) is a heavy presentational mod (3D overworld, optional water shader, 3D battles). It runs on Switch OLED smoke (NXMOD-12), but weaker handheld budgets benefit from dialing options down. Everything below is **purely visual** — no gameplay rules change.
+
+### VoxelMod OPTIONS rows
+
+| OPTIONS row | PC key | Values | Notes |
+| ----------- | ------ | ------ | ----- |
+| **VOXEL** | `3` / Select+B | OFF → 15 → 35 → 50 → 75 → OFF | Camera pitch over the diorama |
+| **V-GRID** | `5` / Select+Y | OFF / ON | One-pixel wireframe on every voxel |
+| **T-SHIFT** | `6` / Select+X | OFF → 1 → 2 → 3 → OFF | Miniature tilt-shift blur |
+| **V-CURVE** | `7` / Select+L | OFF → 1 → 2 → 3 | Bend the world over the horizon |
+| **3D-BTL** | `8` (Options only) | ON / OFF | Fight on the map instead of a white field; **ON by default**, independent of VOXEL pitch |
+| **WATER** | `9` (Options only) | FULL / SKY / OFF | Waves + reflections. **FULL** = screen-space ray march (heaviest); **SKY** = sky/sun/moon/cast only; **OFF** = disable water shader |
+| **BACK SPRITES** | Options only | OFF / ON | Own Pokémon as classic back sprite on the battle menu; only shown while **3D-BTL** is on |
+| **DAYTIME** | Options only | SYNC / DAY / NIGHT / DUSK / DAWN / CYCLE | Outdoor lighting; held at SYNC (and off the menu) while VOXEL is FULL |
+
+While VoxelMod is installed it **hides and forces off** the engine’s **TILT** and **GBC FX** rows (those conflict with the diorama). Uninstall restores them to their last saved values.
+
+Upstream control table: [DramaticShape README](https://github.com/DramaticShape/DramaticShapeVoxelMod/blob/master/README.md).
+
+### Suggested Switch profile (smoother handheld)
+
+Priority order if the game feels heavy with VoxelMod enabled:
+
+1. **WATER** → **`OFF`** (or at most **`SKY`**; avoid **`FULL`** on Switch)
+2. **3D-BTL** → **`OFF`** (biggest win after water; battles go back to the stock field)
+3. **T-SHIFT** → **`OFF`**
+4. **V-CURVE** → **`OFF`**
+5. **V-GRID** → **`OFF`**
+6. **BACK SPRITES** → **`OFF`** if 3D-BTL is still on
+7. **DAYTIME** → prefer **`SYNC`** (or a fixed time); avoid **`CYCLE`**
+
+Keep **VOXEL** at a modest pitch (e.g. **35** or **50**) if you want the 3D look without stacking every extra pass.
+
+### Engine PERFORMANCE tier
+
+Separately from the mod, **OPTIONS → PERFORMANCE** clamps the port’s own extras (TILT / GBC FX / survey ZOOM) and can cap FPS. On Switch with VoxelMod, set **PERFORMANCE → LOW** (or **BALANCED**) if the handheld still stutters after the VoxelMod rows above are dialed down. Details: [new-features.md — Performance tier](new-features.md#performance-tier-low-end-devices).
+
+VoxelMod smoke evidence (install + overworld chords): NXMOD-12 in [switch-hardware-evidence.md](switch-hardware-evidence.md). Full soak of every VoxelMod option on OLED is still deferred.
 
 **Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
 

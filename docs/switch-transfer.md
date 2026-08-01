@@ -123,6 +123,8 @@ a single vendor tutorial.
    Mode is not supported** (not enough memory).
 3. For ROMs: launcher → **Procurar novamente** if the file was added after
    boot. For mods: MODS → **Procurar novamente** → enable → Play.
+   VoxelMod Joy-Con chords and Switch performance tips:
+   [switch-install.md](switch-install.md#community-mods-voxelmod).
 
 ### Optional NRO integrity check
 

@@ -60,6 +60,51 @@ This project ships **no** game data. On first launch:
 Saves live in the LÖVE save directory and **persist across NRO updates** —
 you can replace only the `.nro` and keep your progress.
 
+## Community mods (VoxelMod)
+
+Mods install from a zip inbox (same transfer methods as ROMs):
+
+1. Copy a release `.zip` into the save-dir **`imports/mods/`** path the
+   launcher shows (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)).
+2. In the launcher, open **MODS** → **Procurar novamente** → enable the mod →
+   **Play**.
+
+Remote **FIND MODS** / GitHub download stays **off** on Switch. Do not put
+mod zips into git.
+
+Example: [DramaticShape VoxelMod](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases).
+
+### Joy-Con shortcuts (Select + face)
+
+Hold **Select** (−) and press a face/shoulder button. Without Select, A/B stay
+normal gameplay confirm/cancel.
+
+| Chord | Same as PC key | Typical effect (stock / VoxelMod) |
+| ----- | -------------- | --------------------------------- |
+| Select + **A** | `2` | COLORS |
+| Select + **B** | `3` | TILT, or VoxelMod **VOXEL** pitch |
+| Select + **Y** | `5` | GBC FX, or VoxelMod **V-GRID** |
+| Select + **X** | `6` | VoxelMod **T-SHIFT** |
+| Select + **L** | `7` | VoxelMod **V-CURVE** |
+
+**3D-BTL** (`8`) and **WATER** (`9`) have no Joy-Con chord — use **OPTIONS**.
+
+### VoxelMod: lighter settings on Switch
+
+VoxelMod is visual-only but expensive. If the Switch stutters, open **OPTIONS**
+and prefer:
+
+1. **WATER** → `OFF` (or `SKY`; avoid `FULL`)
+2. **3D-BTL** → `OFF`
+3. **T-SHIFT** / **V-CURVE** / **V-GRID** → `OFF`
+4. **DAYTIME** → `SYNC` (avoid `CYCLE`)
+5. Engine **PERFORMANCE** → `LOW` or `BALANCED`
+
+Full tables, chords vs Options rows, and contributor notes:
+[switch-development.md](switch-development.md#joy-con-display-chords-select--face)
+and
+[switch-development.md](switch-development.md#voxelmod-on-switch-options--performance).
+
 ## Prefer building it yourself?
 
 Building the fused (or loose) NRO from source is covered in
