@@ -1058,7 +1058,7 @@ local function reclaim(save, data, report)
     if type(entry) == "table" and known(data.items, entry.id) then
       table.remove(orphaned.items, i)
       if entry.from == "pcItems" or type(save.inventory) ~= "table"
-          or not Bag.add(save, entry.id, entry.count or 1) then
+          or not Bag.add(save, entry.id, entry.count or 1, data) then
         save.pcItems = save.pcItems or {}
         save.pcItems[entry.id] = (save.pcItems[entry.id] or 0) + (entry.count or 1)
       end

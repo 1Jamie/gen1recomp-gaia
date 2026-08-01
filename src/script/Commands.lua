@@ -210,11 +210,12 @@ end
 -- text (label or literal; {RAM:wStringBuffer} becomes the item name);
 -- pass false when the script shows its own received-text row.
 function Commands.give_item(ctx, itemId, count, gotText)
-  -- the 20-slot bag can refuse (BAG_ITEM_CAPACITY): say so and halt
+  -- the bag can refuse at its configured capacity (20 in vanilla): halt
   -- the script, so later set_flag rows don't burn the gift -- make
   -- room and talk again, like the original (pokered's `jr nc, .bag_full`
   -- skips the received text entirely when AddItemToInventory refuses)
-  if not require("src.inventory.Bag").add(ctx.save, itemId, count or 1) then
+  if not require("src.inventory.Bag").add(
+      ctx.save, itemId, count or 1, ctx.game.data) then
     Commands.show_text(ctx, ctx.game.data.text
       and ctx.game.data.text._BagFullText or Strings("You can't carry\nany more items!"))
     return math.huge
