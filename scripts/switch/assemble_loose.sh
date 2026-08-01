@@ -10,17 +10,18 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+
 LOVE_NRO="$ROOT/.bazinga/love-nx/11.5-nx1/love.nro"
 GAME_LOVE="${1:-$ROOT/.bazinga/work/game.love}"
 OUT_DIR="$ROOT/dist/switch/loose"
 OUT_NRO="$OUT_DIR/gen1recomp.nro"
 OUT_LOVE="$OUT_DIR/game.love"
 
-fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
-
 if [ ! -f "$LOVE_NRO" ]; then
-  fail "missing pinned love.nro at $LOVE_NRO — fetch per docs/switch-development.md"
+  fail_need_fetch "missing pinned love.nro at $LOVE_NRO"
 fi
 
 if [ ! -f "$GAME_LOVE" ]; then
@@ -35,4 +36,5 @@ echo "assembled loose Switch dist:"
 echo "  $OUT_NRO"
 echo "  $OUT_LOVE"
 echo ""
-shasum -a 256 "$OUT_NRO" "$OUT_LOVE"
+printf '%s  %s\n' "$(sha256_file "$OUT_NRO")" "$OUT_NRO"
+printf '%s  %s\n' "$(sha256_file "$OUT_LOVE")" "$OUT_LOVE"

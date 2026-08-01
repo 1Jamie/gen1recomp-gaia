@@ -3,12 +3,13 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+
 LOVE_NX_TAG="11.5-nx1"
 LOVE_NX_DIR="$ROOT/.bazinga/love-nx/$LOVE_NX_TAG"
 MANIFEST="$ROOT/scripts/switch/love-nx-11.5-nx1.sha256"
-
-fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 read_manifest_hash() {
   local name="$1"
@@ -27,8 +28,8 @@ verify_file() {
   local path="$LOVE_NX_DIR/$name"
   local expected actual
   expected="$(read_manifest_hash "$name")"
-  [ -f "$path" ] || fail "missing pinned $name at $path — fetch per docs/switch-development.md"
-  actual="$(shasum -a 256 "$path" | awk '{print $1}')"
+  [ -f "$path" ] || fail_need_fetch "missing pinned $name at $path"
+  actual="$(sha256_file "$path")"
   [ "$actual" = "$expected" ] \
     || fail "$name checksum mismatch (expected $expected, got $actual)"
 }
