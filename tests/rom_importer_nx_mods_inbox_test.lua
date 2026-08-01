@@ -69,6 +69,7 @@ local function freshImporter()
     scanModsInbox = RomImporter.scanModsInbox,
     scanInbox = RomImporter.scanInbox,
     rescanModsAction = RomImporter.rescanModsAction,
+    chooseMod = RomImporter.chooseMod,
     _installMod = RomImporter._installMod,
     _refreshMods = function(self)
       self._refreshed = (self._refreshed or 0) + 1
@@ -184,11 +185,32 @@ check(not removed["imports/mods/b-good.zip"], "mixed: good zip retained")
 check(love.filesystem.read("imports/mods/a-bad.zip") ~= nil, "mixed bad still present")
 check(love.filesystem.read("imports/mods/b-good.zip") ~= nil, "mixed good still present")
 
+-- NXMOD-05: chooseMod on NX routes to inbox rescan; no HostShell/chooseZip
+local hostShellCalls = 0
+package.loaded["src.core.HostShell"] = {
+  run = function()
+    hostShellCalls = hostShellCalls + 1
+    error("HostShell must not run on NX chooseMod")
+  end,
+  available = function() return false end,
+}
+ri = freshImporter()
+installCalls = {}
+love.filesystem.write("imports/mods/from-choose.zip", "CHOOSE")
+installBehavior["imports/mods/from-choose.zip"] = { ok = true, id = "choose-mod" }
+ri:chooseMod()
+eq(hostShellCalls, 0, "NX chooseMod does not require HostShell")
+eq(#installCalls, 1, "NX chooseMod rescans and installs inbox zip")
+eq(installCalls[1], "imports/mods/from-choose.zip",
+  "NX chooseMod installs from imports/mods/")
+check(ri.modNotice and ri.modNotice.ok, "NX chooseMod success notice")
+
 -- Cleanup + restore stubs
 clearModsInbox()
 love.filesystem.remove("imports/other.zip")
 love.filesystem.remove("imports/modpack.zip")
 package.loaded["src.mods.LauncherMods"] = nil
+package.loaded["src.core.HostShell"] = nil
 love.system.getOS = saved.getOS
 love.filesystem.getSaveDirectory = saved.getSaveDirectory
 love.filesystem.createDirectory = saved.createDirectory

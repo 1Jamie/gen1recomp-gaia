@@ -1202,8 +1202,14 @@ end
 -- Android mirrors ROM import: scan for a pending .zip in the save dir (USB
 -- or a fresh SAF drop), else love.system.pickFile("mod") -> picked_mod.zip
 -- which focus/Choose consumes on return.
+-- NX: no HostShell/desktop picker — rescan imports/mods/ inbox instead.
 function RomImporter:chooseMod()
   if self.workState == "working" then return end
+  if self.isNX then
+    self:ensureModsInboxDir()
+    self:rescanModsAction()
+    return
+  end
   if self.android then
     local name = findPendingMod(true, self.pickSkip)
     if name then
