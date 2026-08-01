@@ -328,6 +328,114 @@ local function commandOutput(command)
   return result ~= "" and result or nil
 end
 
+local IMPORTS_DIR = "imports"
+local ROM_BYTES = 1024 * 1024
+
+-- Strip only a validated sdmc:/ prefix for OpenMTP/DBI relative paths.
+function RomImporter.mtpHintPath(saveDir)
+  if type(saveDir) ~= "string" then return "" end
+  if saveDir:sub(1, 6) == "sdmc:/" then return saveDir:sub(7) end
+  return saveDir
+end
+
+function RomImporter:ensureImportsDir()
+  local info = love.filesystem.getInfo(IMPORTS_DIR)
+  if info and info.type == "directory" then return true end
+  if info then return false end
+  if love.filesystem.createDirectory then
+    return love.filesystem.createDirectory(IMPORTS_DIR)
+  end
+  return false
+end
+
+function RomImporter:_setNxInboxNotice(version)
+  version = version or self.tab or "red"
+  local saveDir = love.filesystem.getSaveDirectory()
+  local rel = RomImporter.mtpHintPath(saveDir)
+  if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+  self.notice = {
+    version = version,
+    status = Strings("Copy your .gb/.gbc into:"),
+    detail = Strings("%s/imports/\nDBI MTP → 1: SD Card/%simports/", saveDir, rel),
+  }
+end
+
+local function listRomPaths(dir)
+  local paths = {}
+  for _, name in ipairs(love.filesystem.getDirectoryItems(dir)) do
+    local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
+    if name:lower():match("%.gbc?$")
+        and love.filesystem.getInfo(path, "file") then
+      paths[#paths + 1] = path
+    end
+  end
+  return paths
+end
+
+function RomImporter:scanInbox(ready)
+  ready = ready or self.ready
+  local paths = {}
+  for _, path in ipairs(listRomPaths(IMPORTS_DIR)) do
+    paths[#paths + 1] = path
+  end
+  for _, path in ipairs(listRomPaths("")) do
+  -- Root scan is second; imports/ entries were already collected above.
+    paths[#paths + 1] = path
+  end
+  return paths
+end
+
+function RomImporter:rescanAction(version)
+  if self.workState == "working" then return end
+  version = version or self.tab or "red"
+  self.chooseVersion = version
+  self:ensureImportsDir()
+  local ready = self.ready
+  local candidates = self:scanInbox(ready)
+  local sawReadyOnly = false
+  for _, path in ipairs(candidates) do
+    local data = love.filesystem.read(path)
+    local displayName = path:match("[^/\\]+$") or path
+    if type(data) ~= "string" then
+      self:setError("The file could not be read: " .. displayName, version)
+      return
+    end
+    if #data ~= ROM_BYTES then
+      self:startData(data, displayName)
+      return
+    end
+    local romVersion = GameVersion.forSha1(sha1(data))
+    if not romVersion then
+      self:startData(data, displayName)
+      return
+    end
+    if ready[romVersion] then
+      sawReadyOnly = true
+    else
+      self:startData(data, displayName)
+      return
+    end
+  end
+  if sawReadyOnly and #candidates > 0 then
+    self.notice = {
+      version = version,
+      status = Strings("No new ROM found."),
+      detail = Strings("Already-imported dumps are ignored. Add another version or "
+        .. "delete the copy when finished."),
+    }
+    return
+  end
+  self:_setNxInboxNotice(version)
+end
+
+function RomImporter:_romAction(version)
+  if self.isNX then
+    if self.ready[version] then self:reimport(version)
+    else self:rescanAction(version) end
+  elseif self.ready[version] then self:reimport(version)
+  else self:choose(version) end
+end
+
 -- LOVE 11.5 on Android has no native file picker (love.window.showFileDialog
 -- is a LOVE 12 nightly-only addition) and never fires love.filedropped, so
 -- neither desktop path below works there. conf.lua points the Android save
@@ -567,8 +675,13 @@ function RomImporter.new(onComplete, opts)
   -- pending-file scan plus love.system.pickFile / createFile, provided
   -- natively by the Swift GRPickerBridge (mobile/ios/native/).  The flag
   -- keeps its historical name so every Android call site stays untouched.
+  -- NX uses a separate save-directory inbox (isNX / romImportMode) and must
+  -- never set android or take the mobile delete-after-import path.
   local mobileOS = love.system.getOS()
-  local android = mobileOS == "Android" or mobileOS == "iOS"
+  local isNX = Platform.isNX()
+  local romImportMode = Platform.romImportMode()
+  local mobileFileBridge = mobileOS == "Android" or mobileOS == "iOS"
+  local android = mobileFileBridge
   local CacheFs = require("src.import.CacheFs")
   local self = setmetatable({
     onComplete = onComplete,
@@ -576,6 +689,9 @@ function RomImporter.new(onComplete, opts)
     forceImport = opts.forceImport or false,
     onEditSave = opts.onEditSave,
     onEditTouchControls = opts.onEditTouchControls,
+    isNX = isNX,
+    romImportMode = romImportMode,
+    mobileFileBridge = mobileFileBridge,
     android = android,
     ios = mobileOS == "iOS",
     -- One startup poll pass on both mobiles.  iOS: files dropped through the
@@ -587,14 +703,14 @@ function RomImporter.new(onComplete, opts)
     -- pick never arrives.  The file is sitting in the save dir either way, so
     -- boot armed and let the first poll tick consume it, rather than making the
     -- player tap Import a second time to trigger the scan by hand (#553).
-    pickPending = android or nil,
+    pickPending = mobileFileBridge or nil,
     -- Android drag: the launcher is handed no move events at all (main.lua
     -- forwards neither touchmoved nor mousemoved while it is up), and its mouse
     -- emulation is what "no reliable pointer polling" below refers to.
     -- love.touch IS pollable, so where it exists a touch drag can be resolved
     -- inside draw the same way the desktop mouse is.  Where it does not, every
     -- Android path stays exactly as it was: act on press, never arm.
-    touchPollable = android and love.touch ~= nil
+    touchPollable = mobileFileBridge and love.touch ~= nil
       and love.touch.getTouches ~= nil and love.touch.getPosition ~= nil,
     tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
     logo = love.graphics.newImage("assets/logo/logo.png"),
@@ -674,7 +790,7 @@ function RomImporter.new(onComplete, opts)
   for _, version in ipairs(GameVersion.ORDER) do
     if not self.ready[version] then needRom = true; break end
   end
-  if android and needRom then
+  if mobileFileBridge and needRom then
     local name, data = findPendingRom(self.ready)
     if name then
       self:startData(data, name)
@@ -683,6 +799,9 @@ function RomImporter.new(onComplete, opts)
       -- is up, so a rejected pick can outlive the focus handler (#442).
       consumePickedRomError(self)
     end
+  elseif self.isNX and self.launcher then
+    self:ensureImportsDir()
+    self:_setNxInboxNotice()
   end
 
   -- Mouse-wheel scroll for the save-slot / mods lists.  main.lua (off limits)
@@ -901,9 +1020,13 @@ function RomImporter:startData(data, displayName)
       and (displayName:match("[^/\\]+$") or displayName)) or self.romName[version]
     -- Android: drop the consumed save-dir .gb/.gbc (picked_rom.gb or a USB copy)
     -- so the next Choose / focus cannot treat it as a fresh pending ROM.
-    if self.android and type(displayName) == "string"
+    if self.mobileFileBridge and type(displayName) == "string"
         and not displayName:find("[/\\]") then
       love.filesystem.remove(displayName)
+    end
+    if self.isNX and type(displayName) == "string" then
+      self.detail = Strings("%s imported. You may delete the copy from "
+        .. "imports/ when finished.", displayName)
     end
     self.importing = nil
     self.workState = "complete"
@@ -1157,15 +1280,12 @@ end
 function RomImporter:choose(version)
   if self.workState == "working" then return end
   self.chooseVersion = version or "red"
-  if Platform.isNX() then
-    self.notice = {
-      version = self.chooseVersion,
-      status = "Copy your .gb/.gbc into:",
-      detail = love.filesystem.getSaveDirectory() .. "/imports/",
-    }
+  if self.isNX then
+    self:ensureImportsDir()
+    self:_setNxInboxNotice(self.chooseVersion)
     return
   end
-  if self.android then
+  if self.mobileFileBridge or self.android then
     -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
     -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
     -- was the #167 failure mode (second Choose just re-extracted Red).
@@ -1407,7 +1527,7 @@ function RomImporter:gamepadpressed(_, button)
     if self.workState == "working" then return end
     local version = self.tab
     if GameVersion.VERSIONS[version] then
-      if self.ready[version] then self:play(version) else self:choose(version) end
+      if self.ready[version] then self:play(version) else self:_romAction(version) end
     end
   end
 end
@@ -2702,8 +2822,7 @@ function RomImporter:mousepressed(x, y, button)
     self:play(self.panelVersion); return
   end
   if inside(self.romButtonRect, x, y) then
-    local version = self.panelVersion
-    if self.ready[version] then self:reimport(version) else self:choose(version) end
+    self:_romAction(self.panelVersion)
     return
   end
   -- SAVE FILES card: Import save / Export save, and the open-folder affordance
@@ -2908,7 +3027,7 @@ function RomImporter:keypressed(key)
     -- open its picker.  The mods tab has no keyboard action.
     local version = self.tab
     if GameVersion.VERSIONS[version] then
-      if self.ready[version] then self:play(version) else self:choose(version) end
+      if self.ready[version] then self:play(version) else self:_romAction(version) end
     end
   end
 end
@@ -3204,8 +3323,14 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
   local rightX = twoCol and (x + colW + colGap) or x
 
   -- ROM card contents by state (rehomes the existing import flow)
-  local dropHint = self.android and "Copy the .gb/.gbc via USB."
-    or Strings("Or drop the .gb/.gbc file here.")
+  local dropHint
+  if self.isNX then
+    dropHint = Strings("Copy your .gb/.gbc into the imports folder (see path above).")
+  elseif self.android then
+    dropHint = "Copy the .gb/.gbc via USB."
+  else
+    dropHint = Strings("Or drop the .gb/.gbc file here.")
+  end
   local accent = version == "yellow" and PAL.gold
     or (version == "red" and PAL.red or PAL.blue)
   local romState, romDetail, romBtnLabel, romBtnEnabled, romProgress
@@ -3227,11 +3352,13 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     elseif erroring then
       romState = "Import failed"
       romDetail = self.detail or Strings("That ROM could not be imported.")
-      romBtnLabel, romBtnEnabled = "Import ROM", true
+      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnEnabled = true
     elseif notice then
       romState = "No ROM imported"
       romDetail = trim((notice.status or "") .. " " .. (notice.detail or ""))
-      romBtnLabel, romBtnEnabled = "Import ROM", true
+      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnEnabled = true
     elseif self.returning[version] then
       romState = "Update required"
       romDetail = "This build needs a few more things from your "
@@ -3240,7 +3367,8 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     else
       romState = "No ROM imported"
       romDetail = "The ROM is verified before any files are created. " .. dropHint
-      romBtnLabel, romBtnEnabled = "Import ROM", true
+      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnEnabled = true
     end
   end
 
