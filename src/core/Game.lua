@@ -591,9 +591,12 @@ end
 function Game:onResume()
   Input:reset()
   TouchControls:reset()
-  -- Chip music may survive suspend as a duplicate stream; stop it and let
+  -- Chip music may survive NX suspend as a duplicate stream; stop it and let
   -- the active screen re-cue on the next frame (hardware audio check: T19).
-  require("src.core.ChipAudio").stopMusic()
+  -- Desktop/mobile window-visible flips must not kill overworld music.
+  if require("src.core.Platform").isNX() then
+    require("src.core.ChipAudio").stopMusic()
+  end
   local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
   if SwitchDiagnostics.isEnabled() then
     SwitchDiagnostics.onEvent("lifecycle", { event = "resume" })

@@ -91,6 +91,25 @@ pack_game_love() {
     --output "$love_out" \
     --listing "$listing" \
     --build-info "$build_info" >/dev/null
+  # Stamp release version into the archive (same as build.sh / build_android.sh).
+  # Working tree keeps 0.0.0-dev; only X.Y.Z --version patches Version.lua in-place.
+  if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    say "stamping engine version $VERSION into game.love"
+    local stamp_dir="$WORK/stamp"
+    rm -rf "$stamp_dir"
+    mkdir -p "$stamp_dir/src/core"
+    sed -E "s/(engine[[:space:]]*=[[:space:]]*\")[^\"]*(\")/\1$VERSION\2/" \
+      "$ROOT/src/core/Version.lua" > "$stamp_dir/src/core/Version.lua"
+    (cd "$stamp_dir" && zip -q "$love_out" src/core/Version.lua)
+    local version_re
+    version_re="$(printf '%s' "$VERSION" | sed 's/\./\\./g')"
+    unzip -p "$love_out" src/core/Version.lua \
+      | grep -Eq "engine[[:space:]]*=[[:space:]]*\"$version_re\"" \
+      || fail "version stamp failed: game.love does not report engine $VERSION"
+    say "stamped engine version: $VERSION"
+  else
+    say "version '$VERSION' is not X.Y.Z, shipping default engine (no stamp)"
+  fi
   cp "$build_info" "$DIST/build-info.json"
   cp "$build_info" "$DIST/gen1recomp-${VERSION}-build-info.json"
   printf '%s' "$love_out"

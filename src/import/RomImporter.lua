@@ -1136,15 +1136,18 @@ function RomImporter:startData(data, displayName)
         and not displayName:find("[/\\]") then
       love.filesystem.remove(displayName)
     end
-    if self.isNX and type(displayName) == "string" then
-      self.detail = Strings("%s imported. You may delete the copy from "
-        .. "imports/ when finished.", displayName)
-    end
     self.importing = nil
     self.workState = "complete"
     self.completeVersion = version
     self.status = "Ready"
-    self.detail = "Starting " .. info.displayName .. "..."
+    -- NX launcher stays put: keep the imports/ cleanup hint instead of
+    -- overwriting it with a "Starting…" line that never boots from here.
+    if self.launcher and self.isNX and type(displayName) == "string" then
+      self.detail = Strings("%s imported. You may delete the copy from "
+        .. "imports/ when finished.", displayName)
+    else
+      self.detail = "Starting " .. info.displayName .. "..."
+    end
     self.progress = 1
     if self.launcher then
       -- Stay on the launcher; the player presses Play to boot the new game.
