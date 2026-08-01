@@ -94,3 +94,40 @@ T19 hardware gate: **closed**. No stuck input, duplicate audio, or crash reporte
 | Touch required | no |
 
 T24 hardware gate: **closed**.
+
+---
+
+## NXMOD-12 — VoxelMod OLED smoke (scaffold)
+
+Operator fills results after software gates. **Do not commit** DramaticShape (or any) mod `.zip` bytes — transfer via MTP into `imports/mods/` only.
+
+| Field | Value (operator) |
+| ----- | ---------------- |
+| Status | **pending** |
+| gen1recomp commit | |
+| love-nx tag | `11.5-nx1` (or pin used) |
+| Console | Switch OLED |
+| Mod id | |
+| Mod version | |
+| Zip source URL | https://github.com/DramaticShape/DramaticShapeVoxelMod/releases |
+| Zip committed to git? | **no** (must remain no) |
+
+### Checklist
+
+| Step | Pass / fail / pending | Notes |
+| ---- | --------------------- | ----- |
+| MTP zip into save `imports/mods/` | pending | |
+| MODS → Procurar novamente → mod listed | pending | |
+| Enable mod + Play Red boots without crash | pending | |
+| Overworld Select+A → visible colors/settings change | pending | |
+| Overworld Select+B → visible tilt/perspective change | pending | |
+
+### Evidence notes
+
+```text
+Operator:
+Date:
+Commit tested:
+game.love / NRO SHA-256 (optional):
+Pass / fail summary:
+```
