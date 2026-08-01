@@ -100,6 +100,33 @@ T24 hardware gate: **closed**.
 
 ---
 
+## SWBLD — `build_switch.sh --fetch --fused` + install path — **pass**
+
+Operator smoke for the switch-build-pipeline packaging CLI (closes matrix-deferred happy paths from validation).
+
+| Field | Value |
+| ----- | ----- |
+| Command | `scripts/build_switch.sh --fetch --fused --version 0.0.0-test` |
+| Host | macOS + native switch-tools (or Docker fallback if used) |
+| Commit / build-info | `9147a64` (`gitCommit` in build-info) |
+| love-nx | `11.5-nx1` (manifest checksums match) |
+| Artifact | `dist/switch/gen1recomp-0.0.0-test-switch.nro` |
+| NRO SHA-256 | `210efb884a8d27443dc1c64ed8f071b0f862d8d0c9b140ad8185093c4e4027db` |
+| Install doc | `docs/switch-install.md` — copy NRO under `sdmc:/switch/gen1recomp/` |
+| Console | Switch OLED |
+| Operator | Andrew |
+| Date | 2026-08-01 |
+
+| Check | Result |
+| ----- | ------ |
+| `--fetch` + `--fused` produce NRO + `.sha256` | **pass** |
+| Copy NRO to SD folder per install doc | **pass** (operator) |
+| Title-override launch / play | treated as prior T24 path; this row records **packaging + deploy to folder** success |
+
+SWBLD packaging smoke: **closed** for Mac fused build + file-to-SD install step.
+
+---
+
 ## NXMOD-12 — VoxelMod OLED smoke (scaffold)
 
 Operator fills results after software gates. **Do not commit** DramaticShape (or any) mod `.zip` bytes — transfer via MTP into `imports/mods/` only.
