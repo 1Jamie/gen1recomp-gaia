@@ -1,6 +1,7 @@
 local GameVersion = require("src.core.GameVersion")
 local Strings = require("src.core.Strings")
 local HostShell = require("src.core.HostShell")
+local Platform = require("src.core.Platform")
 local SafeArea = require("src.core.SafeArea")
 
 local RomImporter = {}
@@ -317,6 +318,7 @@ local function releasePointerGrab()
 end
 
 local function commandOutput(command)
+  if not Platform.canSpawnProcess() then return nil end
   releasePointerGrab()
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
@@ -1154,6 +1156,14 @@ end
 function RomImporter:choose(version)
   if self.workState == "working" then return end
   self.chooseVersion = version or "red"
+  if Platform.isNX() then
+    self.notice = {
+      version = self.chooseVersion,
+      status = "Copy your .gb/.gbc into:",
+      detail = love.filesystem.getSaveDirectory() .. "/imports/",
+    }
+    return
+  end
   if self.android then
     -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
     -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
