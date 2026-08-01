@@ -1141,7 +1141,7 @@ function RomImporter:exportSave(version)
       return
     end
     self.androidPendingExportVersion = version
-    if love.system.createFile and love.system.createFile(suggested) then
+    if love.system.createFile and love.system.createFile(suggested, love.filesystem.getSaveDirectory()) then
       self.pickPending = true
       self.pickTimer = 0
       self.saveNotice[version] = { ok = true,
