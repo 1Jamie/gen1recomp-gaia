@@ -645,17 +645,63 @@ function BattleState.newTrainer(game, oppClass, partyIndex)
   return self
 end
 
+-- The disguise itself.  InitWildBattle .isGhost (engine/battle/core.asm)
+-- swaps only the pic and the nick -- wEnemyMonSpecies2 still holds the real
+-- species, so the SGB palette stays the disguised mon's.  ghostReal keeps
+-- what LoadEnemyMonData puts back when the scope unveils.
+local function disguiseAsGhost(self)
+  self.ghostReal = { name = self.enemy.name, sprite = self.enemy.sprite }
+  self.enemy.name = "GHOST"
+  self.enemy.sprite = getImage("assets/generated/battle/front/ghost.png",
+                               monPalette(self.data, self.enemy.mon.species))
+  self.introText = Strings("The GHOST\nappeared!")
+end
+
 -- Pokémon Tower ghosts (engine/battle/core.asm): without the Silph Scope
 -- the enemy is "GHOST", you're too scared to attack, and balls fail.
 function BattleState:makeGhost()
   self.ghost = true
-  self.enemy.name = "GHOST"
-  -- the ghost keeps the disguised mon's SGB palette: InitWildBattle
-  -- swaps only the pic, wEnemyMonSpecies2 still holds the real species
-  -- (engine/battle/core.asm InitWildBattle .isGhost)
-  self.enemy.sprite = getImage("assets/generated/battle/front/ghost.png",
-                               monPalette(self.data, self.enemy.mon.species))
-  self.introText = Strings("The GHOST\nappeared!")
+  disguiseAsGhost(self)
+end
+
+-- The RESTLESS SOUL with the SILPH SCOPE in the bag.  Mechanically this is
+-- not a ghost battle at all -- IsGhostBattle (core.asm) returns false the
+-- moment the scope is in the bag, so the mon attacks, is attacked and rolls
+-- for flight normally -- but InitWildBattle still enters disguised: its
+-- .isGhost branch fires on wCurOpponent == RESTLESS_SOUL as well.  Taking
+-- the disguise off is PrintBeginningBattleText .isMarowak's job
+-- (engine/battle/common_text.asm), which enter() queues through
+-- queueScopeReveal (#492).
+function BattleState:makeUnveiledGhost()
+  self.scopeReveal = true
+  disguiseAsGhost(self)
+end
+
+-- MarowakAnim (engine/battle/ghost_marowak_anim.asm) counted in frames: the
+-- ghost pic is copied into OAM and flashed 8 times by xor-ing rOBP1 with
+-- $80 (10 frames a side), the BG pic underneath is swapped to the RESTLESS
+-- SOUL, rOBP1 is shifted left two bits every 10 frames until the ghost has
+-- faded into the paper (3 shifts), and the Marowak copy fades back in the
+-- same way (4 shifts).  Alpha over the paper is what those OBP shifts look
+-- like on screen.
+BattleState.GHOST_FLASH_FRAMES = 80
+BattleState.GHOST_FADE_OUT_FRAMES = 30
+BattleState.GHOST_FADE_IN_FRAMES = 40
+BattleState.GHOST_REVEAL_FRAMES = 150
+
+-- The rows .isMarowak prints over the disguise, after the "GHOST appeared!"
+-- box enter() has already queued: the unveil line, MarowakAnim, then "Wild
+-- MAROWAK appeared!" under the restored name.  The fall-through into
+-- .playSFX at the end is the same SFX_TRAINER_APPEARED the port does not
+-- play for trainer intros either, so it is left out here too.
+function BattleState:queueScopeReveal()
+  local unveiled = self.data.text and self.data.text._UnveiledGhostText
+  self:say(unveiled
+           or Strings("SILPH SCOPE\nunveiled the\vGHOST's identity!"))
+  self:act(function() self.ghostReveal = { t = 0 } end)
+  table.insert(self.queue, { wait = BattleState.GHOST_REVEAL_FRAMES })
+  self:say(Strings("Wild %s\nappeared!",
+                   self.ghostReal and self.ghostReal.name or self.enemy.name))
 end
 
 -- The old man's catch tutorial (BATTLE_TYPE_OLD_MAN,
@@ -669,6 +715,12 @@ end
 function BattleState:makeOldManDemo(name)
   self.demo = true
   self.demoName = name or "OLD MAN"
+  -- LoadPlayerBackPic and DisplayBattleMenu split on the same wBattleType:
+  -- BATTLE_TYPE_OLD_MAN gets .oldManName + OldManPicBack, BATTLE_TYPE_PIKACHU
+  -- gets .profOakName + ProfOakPicBack (pokeyellow core.asm).  The thrower
+  -- name the caller passes IS that distinction here, so it picks the pic too
+  -- -- data/scripts/story2.lua is the only site that names PROF.OAK (#557).
+  self.oakDemo = name == "PROF.OAK"
   -- Yellow's Pallet intro runs this before the player owns any mon
   -- (BATTLE_TYPE_PIKACHU precedes the lab gift), so newWild flagged the
   -- battle dead for lack of a party.  The demo never sends out, draws, or
@@ -1214,7 +1266,8 @@ function BattleState:enter()
   -- fade, the ground-padding measurement and battle_sprite_scales.
   local backPath, backTrueColor =
     require("src.pokemon.Sprites").playerPath(self.data, "back",
-      { kind = "battle", demo = self.demo, battle = self })
+      { kind = "battle", demo = self.demo, oakDemo = self.oakDemo,
+        battle = self })
   self.playerBackPic = getImage(backPath,
     namedPalette(self.data, "MEWMON"), backTrueColor)
   self.showPlayerBack = self.playerBackPic ~= nil
@@ -1229,11 +1282,16 @@ function BattleState:enter()
   -- battle calls PlayCry BEFORE PrintText WildMonAppearedText, so the cry
   -- sounds with the "Wild X appeared!" box instead of waiting on the A
   -- press that clears its `prompt` (#303).  The Silph-Scope-less tower
-  -- ghost gets no cry at all (common_text.asm:43-48).
-  if self.kind ~= "trainer" and self.kind ~= "link" and not self.ghost then
+  -- ghost gets no cry at all (common_text.asm:43-48), and neither does the
+  -- unveiled MAROWAK: .isMarowak never reaches PlayCry (#492).
+  if self.kind ~= "trainer" and self.kind ~= "link"
+     and not self.ghost and not self.scopeReveal then
     queueEnemyCry()
   end
   self:say(self.introText)
+  -- the unveil rides on that same box, before _InitBattleCommon clears the
+  -- intro chrome below (#492)
+  if self.scopeReveal then self:queueScopeReveal() end
   -- _InitBattleCommon (core.asm:6755-6762): the instant the intro text is
   -- dismissed both HUD blocks are cleared and ClearSprites drops the
   -- pokeball OAM, so the intro chrome never returns for the rest of the
@@ -2663,6 +2721,35 @@ function BattleState:updateFx()
       end
     end
   end
+  -- The Silph Scope unveil (MarowakAnim; queueScopeReveal parks a wait row
+  -- of GHOST_REVEAL_FRAMES over it): the ghost flashes, fades out, the pic
+  -- and the nick swap back the way LoadEnemyMonData restores them, and the
+  -- real mon fades in (#492).
+  local gr = self.ghostReveal
+  if gr and self.enemy then
+    gr.t = gr.t + 1
+    local pf = self:picFxFor(self.enemy)
+    local flashEnd = BattleState.GHOST_FLASH_FRAMES
+    local outEnd = flashEnd + BattleState.GHOST_FADE_OUT_FRAMES
+    if gr.t <= flashEnd then
+      pf.fade = (math.floor((gr.t - 1) / 10) % 2 == 1) and 0.5 or 1
+    elseif gr.t <= outEnd then
+      pf.fade = 1 - math.ceil((gr.t - flashEnd) / 10) / 3
+    else
+      if not gr.swapped then
+        gr.swapped = true
+        local real = self.ghostReal
+        if real then
+          self.enemy.name = real.name or self.enemy.name
+          self.enemy.sprite = real.sprite or self.enemy.sprite
+        end
+      end
+      pf.fade = math.min(1, math.ceil((gr.t - outEnd) / 10) / 4)
+    end
+    if gr.t >= BattleState.GHOST_REVEAL_FRAMES then
+      self.ghostReveal, self.scopeReveal, pf.fade = nil, nil, nil
+    end
+  end
   -- the send-out grow-in (AnimateSendingOutMon): 3+4+5 frames, then
   -- the pic draws at full size again
   if self.growIn then
@@ -3353,10 +3440,12 @@ function BattleState:enemyMonFainted()
       -- SwitchPlayerMon runs AFTER TrainerSentOutText (core.asm:1436-1443)
       local shiftSwitchMon = nil
       if style ~= "set" and partyCount > 1 and self.player.mon.hp > 0 then
-        -- _TrainerAboutToUseText: "X is" / "about to use" then cont nick,
-        -- then para "Will PLAYER" / "change POKéMON?" with YES/NO.
-        self:say(Strings("%s is\nabout to use", self.trainer.name))
-        self:say(Strings("%s!", nextName))
+        -- _TrainerAboutToUseText (data/text/text_2.asm): "X is" / "about to
+        -- use" then a CONT to the nick, not a fresh box -- the box scrolls
+        -- "X is" off so "about to use" stays above the name, instead of the
+        -- page ending on a bare nick (#565).  Then para "Will PLAYER" /
+        -- "change POKéMON?" with YES/NO.
+        self:say(Strings("%s is\nabout to use\v%s!", self.trainer.name, nextName))
         self:sayChoice(
           Strings("Will %s\nchange POKéMON?", self.game.save.player.name),
           function(yes)
@@ -3474,8 +3563,18 @@ function BattleState:enemyMonFainted()
       -- PrintEndBattleText prints one text box; a `para` (\f) inside it
       -- starts a fresh page, which is a message row of its own here (five
       -- EndBattleTexts carry one, e.g. _Route9Youngster1EndBattleText)
+      -- TrainerEndBattleText (home/trainers.asm) prints _TrainerNameText
+      -- (wNameBuffer then ": ", data/text/text_1.asm) and only then the
+      -- saved pointer, so the loss line opens with the trainer class tag on
+      -- its first line (RIVAL1/2/3 tag with the rival's name:
+      -- TrainerNamePointers aims those entries at wTrainerName).  The tag
+      -- prints once, so a `para` page carries no second copy (#566).
+      local tag = self.trainer and self.trainer.name
       for page in (self.endBattleText .. "\f"):gmatch("(.-)\f") do
-        if page ~= "" then self:sayNext(page) end
+        if page ~= "" then
+          self:sayNext(tag and (tag .. ": " .. page) or page)
+          tag = nil
+        end
       end
     end
     self:sayNext(Strings("%s got ¥%d\nfor winning!", self.game.save.player.name, prize))
@@ -4303,6 +4402,18 @@ function BattleState:drawBattlerPic(battler, x, y, scale)
     return
   end
   if battler.fainted then return end
+
+  -- MarowakAnim's rOBP1 fades (updateFx): alpha over the paper is what those
+  -- palette shifts look like, and the test has to sit ahead of the plain
+  -- fast path below (#492)
+  local fadePf = self.picFx and self.picFx[battler]
+  if fadePf and fadePf.fade then
+    local cr, cg, cb, ca = love.graphics.getColor()
+    love.graphics.setColor(cr, cg, cb, ca * fadePf.fade)
+    love.graphics.draw(img, x, y, 0, scale, scale)
+    love.graphics.setColor(cr, cg, cb, ca)
+    return
+  end
 
   local pf = self.picFx and self.picFx[battler]
   if not pf or (not pf.kind and not pf.hidden and not pf.minimized

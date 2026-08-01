@@ -60,11 +60,22 @@ local REQUIRED_FILES = {
 -- them re-imports on its own, without dragging the other versions through a
 -- CACHE_FORMAT bump.
 local VERSION_REQUIRED_FILES = {
-  yellow = { "assets/generated/battle/trainers/jessie_james.png" }, -- #439
+  yellow = {
+    "assets/generated/battle/trainers/jessie_james.png", -- #439
+    -- Oak's own back pic and the pikapic base frames only exist in caches
+    -- built after their manifest symbols landed, so an older Yellow cache
+    -- has to re-import to stop falling back to the old man's back pic and
+    -- to the battle front pic (#557, #561).  Both are gated on manifest
+    -- symbols in RomExtractor, so these markers must only ever list files
+    -- tools/rom_manifest_yellow.json can actually produce -- otherwise the
+    -- cache reads as incomplete and re-importing cannot clear it.
+    "assets/generated/battle/profoakb.png",
+    "assets/generated/pikachu/pikapic_1.png",
+  },
 }
 
--- "Split-screen ROM selector" first-run palette (matches FirstRun.dc.html from
--- the Claude Design project): a dark neon arcade panel, one column per game.
+-- "Split-screen ROM selector" first-run palette (matches the FirstRun mockup):
+-- a dark neon arcade panel, one column per game.
 -- Red, Blue, and Yellow share the same importer flow once listed in
 -- GameVersion.VERSIONS.  Values are 0-255 RGB; alpha is applied per draw.
 local PAL = {
@@ -2398,7 +2409,7 @@ function RomImporter:draw()
 
     love.graphics.setFont(self.slotNameFont)
     col(PAL.white)
-    love.graphics.printf("Other versions — " .. tostring(v.name),
+    love.graphics.printf("Other versions: " .. tostring(v.name),
       dx + pad, dy + 10 * s, dw - pad * 2, "left")
     love.graphics.setFont(self.hintFont)
     local info = self:_modUpdateInfo(v.id)
@@ -3619,7 +3630,7 @@ function RomImporter:_drawSaveSlotPanel(version, x, y, w, h, paged)
   local metaH = self.labelFont:getHeight()
   local rowPadV = 10 * s
   local chipBtnH = self.hintFont:getHeight() + 10 * s
-  -- LOADED sits top-right; Edit/Delete sit bottom-right — row must fit both
+  -- LOADED sits top-right; Edit/Delete sit bottom-right -- row must fit both
   -- without stacking on the same y (chip buttons are taller than the old text).
   local loadedH = self.warningFont:getHeight() + 6 * s
   local rowH = math.max(rowPadV * 2 + nameH + 4 * s + metaH,

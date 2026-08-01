@@ -448,10 +448,21 @@ function OptionsMenu:update(dt)
     elseif row and row.step then
       changed = row.step(self.game, dir) and true or false
     elseif input:wasPressed("a") then -- CANCEL
+      -- DisplayOptionMenu .exitMenu (engine/menus/main_menu.asm) is the
+      -- only spot in this menu that plays SFX_PRESS_AB: A on a setting row
+      -- and the Left/Right toggles stay silent (#570).  game.data is nil
+      -- under the stub games the UI harnesses drive.
+      if self.game.data then
+        require("src.core.Sound").play(self.game.data, "Press_AB")
+      end
       self.game.stack:pop()
       if self.onCancel then self.onCancel() end
     end
   elseif input:wasPressed("b") or input:wasPressed("start") then
+    -- .exitMenu again: B and START leave the same way, sound and all
+    if self.game.data then
+      require("src.core.Sound").play(self.game.data, "Press_AB")
+    end
     self.game.stack:pop()
     if self.onCancel then self.onCancel() end
   end
