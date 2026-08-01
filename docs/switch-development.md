@@ -233,7 +233,7 @@ Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`). 
 
 **Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
 
-**Hardware re-test:** T16 **pass** @ `2699c9a` (naming A=confirm / B=cancel; launcher/overworld Joy-Con only). T19 quit/reopen save pass; suspend×10 still pending.
+**Hardware re-test:** T16 **pass** @ `2699c9a` (naming A=confirm / B=cancel). T19 **pass** (quit/reopen, suspend×10, reboot) — operator 2026-08-01.
 
 **Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).
 

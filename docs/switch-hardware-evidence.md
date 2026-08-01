@@ -67,12 +67,12 @@ T16 hardware gate: **closed**.
 
 ---
 
-## T19 — save / suspend — partial
+## T19 — save / suspend — pass
 
 | Check | Result |
 | ----- | ------ |
-| Save in-game → full quit → title-override reopen → load save | **pass** |
-| Suspend/resume ×10 | **not tested** |
-| Full console reboot persistence | **not tested** |
+| Save in-game → full quit → title-override reopen → load save | **pass** (@ `7504753` / retained) |
+| Suspend/resume ×10 (launcher / gameplay / mixed) | **pass** (operator 2026-08-01) |
+| Full console reboot persistence | **pass** (operator 2026-08-01) |
 
-T19 remains open until suspend×10 (and ideally reboot) are recorded.
+T19 hardware gate: **closed**. No stuck input, duplicate audio, or crash reported.
