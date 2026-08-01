@@ -818,7 +818,11 @@ local function resetPointerCursor(self)
   if not (love.mouse.isCursorSupported and love.mouse.isCursorSupported()) then
     return
   end
-  self.arrowCursor = self.arrowCursor or love.mouse.getSystemCursor("arrow")
+  if not self.arrowCursor then
+    local ok, cursor = pcall(love.mouse.getSystemCursor, "arrow")
+    if not ok then return end
+    self.arrowCursor = cursor
+  end
   love.mouse.setCursor(self.arrowCursor)
 end
 
@@ -2512,8 +2516,11 @@ function RomImporter:draw()
   if self._hoverEnabled and not self._padCursorActive
       and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
     if self._anyHover then
-      self.handCursor = self.handCursor or love.mouse.getSystemCursor("hand")
-      love.mouse.setCursor(self.handCursor)
+      if not self.handCursor then
+        local ok, cursor = pcall(love.mouse.getSystemCursor, "hand")
+        if ok then self.handCursor = cursor end
+      end
+      if self.handCursor then love.mouse.setCursor(self.handCursor) end
     else
       resetPointerCursor(self)
     end
