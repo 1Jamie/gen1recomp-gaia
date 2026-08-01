@@ -23,6 +23,7 @@
 -- and a player rebind can never detach the overlay.
 
 local Input = require("src.core.Input")
+local SafeArea = require("src.core.SafeArea")
 
 local TouchControls = {}
 
@@ -92,20 +93,23 @@ function TouchControls.normalizeConfig(tc)
   return out
 end
 
--- Pure default layout in LOVE units for a given window size.  Shared by
--- layout() and the editor's Reset path so defaults stay in one place.
-function TouchControls.defaultLayout(ww, wh)
+-- Pure default layout in LOVE units for a usable rect of size ww x wh at
+-- origin (ox, oy).  Shared by layout() and the editor's Reset path so
+-- defaults stay in one place.  ox/oy default to 0 for the headless tests
+-- and for callers that already pass a full-window size.
+function TouchControls.defaultLayout(ww, wh, ox, oy)
+  ox, oy = ox or 0, oy or 0
   local short = math.min(ww, wh)
   local dpadW = math.min(180, short * 0.34)
   local abW = dpadW * 0.46
   local ssW = dpadW * 0.30
   local margin = dpadW * 0.12
   return {
-    dpad = { cx = margin + dpadW / 2, cy = wh - margin - dpadW / 2, w = dpadW },
-    a = { cx = ww - margin - abW * 0.55, cy = wh - margin - abW * 1.75, w = abW },
-    b = { cx = ww - margin - abW * 1.60, cy = wh - margin - abW * 0.55, w = abW },
-    start = { cx = ww / 2 + ssW * 0.60, cy = wh - margin - ssW * 0.95, w = ssW },
-    select = { cx = ww / 2 - ssW * 0.60, cy = wh - margin - ssW * 0.95, w = ssW },
+    dpad = { cx = ox + margin + dpadW / 2, cy = oy + wh - margin - dpadW / 2, w = dpadW },
+    a = { cx = ox + ww - margin - abW * 0.55, cy = oy + wh - margin - abW * 1.75, w = abW },
+    b = { cx = ox + ww - margin - abW * 1.60, cy = oy + wh - margin - abW * 0.55, w = abW },
+    start = { cx = ox + ww / 2 + ssW * 0.60, cy = oy + wh - margin - ssW * 0.95, w = ssW },
+    select = { cx = ox + ww / 2 - ssW * 0.60, cy = oy + wh - margin - ssW * 0.95, w = ssW },
   }
 end
 
@@ -155,6 +159,7 @@ function TouchControls:applyOptions(opts)
   self.enabled = cfg.enabled
   self.positions = cfg.positions
   self.layoutW, self.layoutH = nil, nil
+  self.layoutOx, self.layoutOy = nil, nil
   if not self.enabled then
     self.controllerHidden = false
     self:reset()
@@ -185,30 +190,37 @@ function TouchControls:visible()
      and not self.controllerHidden
 end
 
-local function clampZone(zone, ww, wh)
+-- Keep a control fully inside the usable rect [x0,y0]..[x1,y1].
+local function clampZone(zone, x0, y0, x1, y1)
   local half = zone.w * 0.5
-  zone.cx = math.max(half, math.min(ww - half, zone.cx))
-  zone.cy = math.max(half, math.min(wh - half, zone.cy))
+  zone.cx = math.max(x0 + half, math.min(x1 - half, zone.cx))
+  zone.cy = math.max(y0 + half, math.min(y1 - half, zone.cy))
 end
 
 -- Layout in LOVE units (density-independent on mobile), recomputed when
--- the window size changes (rotation, resize).  Default: d-pad bottom-left,
--- B/A bottom-right with A above B (the Game Boy diagonal), START/SELECT
--- flanking the bottom center.  Custom positions (normalized 0..1) override
--- centers while sizes stay derived from the short edge.
+-- the window or safe area changes (rotation, resize, notch insets).
+-- Default: d-pad bottom-left, B/A bottom-right with A above B (the Game Boy
+-- diagonal), START/SELECT flanking the bottom center -- all inside the
+-- device safe area so thumbs clear the home indicator / cutouts.
+-- Custom positions (normalized 0..1 within the safe rect) override centers
+-- while sizes stay derived from the short edge.
 function TouchControls:layout()
-  local ww, wh = love.graphics.getDimensions()
-  if self.layoutW == ww and self.layoutH == wh and self.L then return self.L end
-  self.layoutW, self.layoutH = ww, wh
-  self.L = TouchControls.defaultLayout(ww, wh)
+  local ox, oy, sw, sh = SafeArea.rect()
+  if self.layoutW == sw and self.layoutH == sh
+     and self.layoutOx == ox and self.layoutOy == oy and self.L then
+    return self.L
+  end
+  self.layoutW, self.layoutH = sw, sh
+  self.layoutOx, self.layoutOy = ox, oy
+  self.L = TouchControls.defaultLayout(sw, sh, ox, oy)
   if self.positions then
     for _, name in ipairs(CONTROLS) do
       local p = self.positions[name]
       local zone = self.L[name]
       if p and zone then
-        zone.cx = p.x * ww
-        zone.cy = p.y * wh
-        clampZone(zone, ww, wh)
+        zone.cx = ox + p.x * sw
+        zone.cy = oy + p.y * sh
+        clampZone(zone, ox, oy, ox + sw, oy + sh)
       end
     end
   end
@@ -222,21 +234,25 @@ function TouchControls:layout()
 end
 
 -- Move one control to a screen-space point and persist its normalized
--- position.  Used by the layout editor while dragging.
+-- position within the safe rect.  Used by the layout editor while dragging.
 function TouchControls:setControlCenter(name, cx, cy)
-  local ww, wh = love.graphics.getDimensions()
+  local ox, oy, sw, sh = SafeArea.rect()
   local L = self:layout()
   local zone = L[name]
   if not zone then return end
   zone.cx, zone.cy = cx, cy
-  clampZone(zone, ww, wh)
+  clampZone(zone, ox, oy, ox + sw, oy + sh)
   self.positions = self.positions or {}
-  self.positions[name] = { x = zone.cx / ww, y = zone.cy / wh }
+  self.positions[name] = {
+    x = sw > 0 and (zone.cx - ox) / sw or 0,
+    y = sh > 0 and (zone.cy - oy) / sh or 0,
+  }
 end
 
 function TouchControls:clearPositions()
   self.positions = nil
   self.layoutW, self.layoutH = nil, nil
+  self.layoutOx, self.layoutOy = nil, nil
 end
 
 local function inCircle(zone, x, y, slop)
