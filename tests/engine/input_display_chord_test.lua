@@ -40,4 +40,10 @@ eq(GamepadMap.displayChordDigit("x"), "6", "NX X -> key 6")
 eq(GamepadMap.displayChordDigit("leftshoulder"), "7", "NX L -> key 7")
 GamepadMap._setForceNXForTests(false)
 
+-- Edge: map alone never invents a digit for non-chord faces (NXMOD-09 map half)
+for _, btn in ipairs({ "guide", "leftstick", "rightstick", "lefttrigger" }) do
+  eq(GamepadMap.displayChordDigit(btn), nil,
+    "edge: unmapped " .. btn .. " is not a display digit")
+end
+
 T.finish()

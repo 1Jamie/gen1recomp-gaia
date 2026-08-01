@@ -114,6 +114,25 @@ Game:gamepadpressed(joySelectDown, "y")
 eq(digits[1], "5", "Select via isGamepadDown(back) + Y -> 5")
 eq(#padForwarded, 0, "isGamepadDown Select chord does not forward face")
 
+-- Edge: every chord face without Select must not cycle (NXMOD-09)
+GamepadMap._setForceNXForTests(false)
+for _, btn in ipairs({ "a", "b", "y", "x", "leftshoulder" }) do
+  Input:init()
+  resetSpies()
+  Game:gamepadpressed(joy, btn)
+  eq(#digits, 0, "edge: no cycle without Select for " .. btn)
+  eq(#padForwarded, 1, "edge: " .. btn .. " still reaches Input without Select")
+  check(not wroteOptions, "edge: no options write without Select for " .. btn)
+end
+
+-- Edge: Select alone (no face) does not synthesize a digit
+holdSelect()
+resetSpies()
+-- pressing back again while held is not a display chord partner
+Game:gamepadpressed(joy, "back")
+eq(#digits, 0, "edge: Select alone does not fire a display digit")
+eq(#padForwarded, 1, "edge: Select alone still forwards to Input")
+
 GamepadMap._setForceNXForTests(false)
 Game.keypressed = origKeypressed
 Input.gamepadpressed = origPad

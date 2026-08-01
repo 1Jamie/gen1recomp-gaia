@@ -119,6 +119,19 @@ for _, path in ipairs(roms) do
 end
 eq(#roms, 0, "ROM scanInbox finds no zip-only inbox entries")
 
+-- Edge: ROM inbox with .gb alongside .zip still ignores zip (spec edge)
+ri = freshImporter()
+love.filesystem.write("imports/cart.gb", string.rep("G", 16))
+love.filesystem.write("imports/sidecar.zip", "NOTAROM")
+roms = ri:scanInbox(ri.ready)
+local sawGb, sawZip = false, false
+for _, path in ipairs(roms) do
+  if path:lower():match("%.zip$") then sawZip = true end
+  if path:lower():match("%.gb$") then sawGb = true end
+end
+check(sawGb, "ROM scan still finds .gb when zip present")
+check(not sawZip, "ROM scan never lists .zip even beside .gb")
+
 -- Stub LauncherMods.installZip for rescan tests (NXMOD-02..04)
 local installCalls = {}
 local installBehavior = {} -- path -> {ok=bool, id=string|err}
@@ -232,10 +245,27 @@ eq(desk:_modsImportButtonLabel(), "Import mod .zip",
 check(desk:_modsDefaultHint():find("drop a mod", 1, true),
   "desktop default hint stays drop-oriented")
 
+-- Edge: id-already-exists conflict retains inbox zip (no silent delete)
+ri = freshImporter()
+installCalls = {}
+removed = {}
+love.filesystem.write("imports/mods/dup.zip", "DUP")
+installBehavior["imports/mods/dup.zip"] = {
+  ok = false, err = "mod id already installed",
+}
+ri:rescanModsAction()
+eq(#installCalls, 1, "conflict still attempts installZip")
+check(ri.modNotice and not ri.modNotice.ok, "conflict surfaces notice")
+check(not removed["imports/mods/dup.zip"], "conflict retains inbox zip")
+check(love.filesystem.read("imports/mods/dup.zip") == "DUP",
+  "conflict leaves zip bytes intact")
+
 -- Cleanup + restore stubs
 clearModsInbox()
 love.filesystem.remove("imports/other.zip")
 love.filesystem.remove("imports/modpack.zip")
+love.filesystem.remove("imports/cart.gb")
+love.filesystem.remove("imports/sidecar.zip")
 package.loaded["src.mods.LauncherMods"] = nil
 package.loaded["src.core.HostShell"] = nil
 love.system.getOS = saved.getOS
