@@ -5,6 +5,9 @@ local SwitchDiagnostics = {}
 
 local MARKER = "switch-debug.txt"
 local LOG_FILE = "switch.log"
+local ERROR_LOG = "lua-error.log"
+local ERROR_LOG_ROTATED = "lua-error.log.1"
+local ERROR_LOG_MAX = 32 * 1024
 local FLUSH_INTERVAL = 1.0
 local RING_SIZE = 64
 
@@ -65,6 +68,11 @@ function SwitchDiagnostics._resetForTests()
   bufCount = 0
   lastFlushAt = -math.huge
   identityLine = nil
+  local filesystem = fs()
+  if filesystem then
+    filesystem.remove(ERROR_LOG)
+    filesystem.remove(ERROR_LOG_ROTATED)
+  end
 end
 
 function SwitchDiagnostics.isEnabled()
@@ -120,6 +128,24 @@ function SwitchDiagnostics.onJoystickEvent(kind, joystick, button, extra)
     for k, v in pairs(extra) do payload[k] = v end
   end
   SwitchDiagnostics.onEvent(kind, payload)
+end
+
+function SwitchDiagnostics.logLuaError(msg)
+  local filesystem = fs()
+  if not filesystem then return nil end
+
+  local text = redactString(tostring(msg or "unknown error"))
+  local existing = filesystem.read(ERROR_LOG) or ""
+  if #existing > ERROR_LOG_MAX then
+    filesystem.write(ERROR_LOG_ROTATED, existing)
+    existing = ""
+  end
+
+  local stamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  local line = ("[%s] %s\n"):format(stamp, text)
+  filesystem.write(ERROR_LOG, existing .. line .. SwitchDiagnostics.identityOverlay() .. "\n")
+
+  return "Details saved to lua-error.log in the save directory."
 end
 
 function SwitchDiagnostics.maybeFlush(force, now)

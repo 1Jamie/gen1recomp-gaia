@@ -70,7 +70,7 @@ verify_love() {
 run_self_test() {
   local work clean bad staging
   work="$(mktemp -d "${TMPDIR:-/tmp}/verify-payload.XXXXXX")"
-  trap 'rm -rf "$work"' EXIT
+  trap "rm -rf '$work'" EXIT
 
   clean="$work/clean.love"
   "$ROOT/scripts/pack_love.sh" --output "$clean" --listing "$work/clean-listing.txt" >/dev/null

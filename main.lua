@@ -12,6 +12,20 @@ local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE =
 
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
 
+-- Lua errors: persist a redacted trace in the save dir and surface a hint.
+do
+  local defaultErrorHandler = love.errorhandler
+  function love.errorhandler(msg)
+    local hint = SwitchDiagnostics.logLuaError(msg)
+    if hint and type(msg) == "string" then
+      msg = msg .. "\n\n" .. hint
+    end
+    if defaultErrorHandler then
+      return defaultErrorHandler(msg)
+    end
+  end
+end
+
 local Game, EditorApp, Importer, TouchEditor
 
 local autopilot -- optional scripted-input dev tool (tests/autopilot.lua)

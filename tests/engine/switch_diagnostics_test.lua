@@ -50,4 +50,15 @@ local logLate = love.filesystem.read("switch.log") or ""
 check(not logMid:find("n=2", 1, true), "flush waits until 1s elapsed")
 check(logLate:find("n=2", 1, true) ~= nil, "flush includes events after 1s")
 
+-- Lua error log: redacted, no ROM bytes.
+local romErr = string.char(0xEA, 0x9B, 0xCA, 0xE6)
+local hint = SwitchDiagnostics.logLuaError("probe failure")
+check(type(hint) == "string" and hint:find("lua-error.log", 1, true) ~= nil,
+  "error handler hint mentions lua-error.log")
+SwitchDiagnostics.logLuaError(romErr)
+local errLog = love.filesystem.read("lua-error.log") or ""
+check(errLog:find("probe failure", 1, true) ~= nil, "lua-error.log records message")
+check(errLog:find("<redacted>", 1, true) ~= nil, "lua-error.log strips ROM bytes")
+check(not errLog:find(romErr, 1, true), "lua-error.log omits raw ROM bytes")
+
 T.finish()

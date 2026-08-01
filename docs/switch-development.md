@@ -237,3 +237,24 @@ Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`). 
 
 **Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).
 
+## Lua error log (save directory)
+
+On any uncaught Lua error, Gen1Recomp appends a redacted trace to `lua-error.log` in the LÖVE save directory (`love.filesystem.getSaveDirectory()`). The on-screen error overlay includes a hint pointing at that file. Logs rotate to `lua-error.log.1` when the active file exceeds 32 KiB. ROM/save bytes and non-printable data are stripped — never commit or share logs that might contain private paths without reviewing them first.
+
+## Native crash triage (love-nx / Atmosphère)
+
+love-nx native faults land under the console’s `crash_reports/` folder on SD (reachable via the same MTP workflow as game deploys).
+
+1. **Collect** — DBI → `Run MTP responder`; copy `sdmc:/crash_reports/*.bin` (or the dated subfolder) to the Mac. Do **not** remove the microSD card.
+2. **Redact** — delete any attached screenshots or notes that mention ROM filenames, save paths, or private hashes before sharing logs publicly.
+3. **Symbolize** — use the **pinned** `love.elf` from `.bazinga/love-nx/11.5-nx1/` that matches `build-info.json` / `scripts/switch/love-nx-11.5-nx1.sha256`. Never use a “latest” download.
+
+   ```bash
+   # Example: aarch64-none-elf-addr2line from devkitPro
+   aarch64-none-elf-addr2line -e .bazinga/love-nx/11.5-nx1/love.elf -f -C 0xADDRESS_FROM_CRASH_REPORT
+   ```
+
+4. **Correlate** — compare `gitCommit` / `loveNxTag` from embedded `build-info.json` with the operator’s hardware notes.
+
+If `addr2line` cannot resolve an address, archive the crash `.bin` with the exact `love.elf` SHA-256 used for the build — addresses are only meaningful against that ELF.
+
