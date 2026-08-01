@@ -1017,7 +1017,6 @@ function RomImporter:chooseMod()
     else
       self.pickPending = true
       self.pickTimer = 0
-      self.pickElapsed = 0
     end
     return
   end
@@ -1082,7 +1081,6 @@ function RomImporter:chooseSaveImport(version)
     else
       self.pickPending = true
       self.pickTimer = 0
-      self.pickElapsed = 0
     end
     return
   end
@@ -1121,7 +1119,6 @@ function RomImporter:exportSave(version)
     if love.system.createFile and love.system.createFile(suggested) then
       self.pickPending = true
       self.pickTimer = 0
-      self.pickElapsed = 0
       self.saveNotice[version] = { ok = true,
         text = "Pick where to save " .. suggested .. "..." }
     else
@@ -1177,7 +1174,6 @@ function RomImporter:choose(version)
     else
       self.pickPending = true
       self.pickTimer = 0
-      self.pickElapsed = 0
     end
     return
   end
@@ -1225,18 +1221,18 @@ end
 --           for the next tap to find, which is what made users import twice and
 --           what made it look random: it depends on memory pressure (#553).
 --
--- Disarms after PICK_TIMEOUT so a cancelled picker (which delivers nothing,
--- ever) does not leave this scanning the save directory for the whole session.
-local PICK_TIMEOUT = 120
+-- Deliberately NO timeout.  A version of this disarmed the poll after 120s so a
+-- cancelled picker would stop scanning, which was wrong on iOS: the picker there
+-- is an in-process modal sheet, so update() keeps running while it is open and
+-- the window burned down while the player was still browsing Files.  The pick
+-- then landed with nothing armed to consume it, and because every path here is
+-- silent on success the import just did not happen, with no error shown.  A
+-- half-second directory listing on a menu screen is far cheaper than an import
+-- that vanishes, so the poll stays armed until something is actually consumed.
 
 function RomImporter:_pollPickedFiles(dt)
   if not self.pickPending then return end
   if self.workState == "working" then return end
-  self.pickElapsed = (self.pickElapsed or 0) + dt
-  if self.pickElapsed > PICK_TIMEOUT then
-    self.pickPending, self.pickElapsed = nil, nil
-    return
-  end
   self.pickTimer = (self.pickTimer or 0) + dt
   if self.pickTimer < 0.5 then return end
   self.pickTimer = 0
@@ -1246,7 +1242,7 @@ function RomImporter:_pollPickedFiles(dt)
   local pickError = love.filesystem.read("pick_error.txt")
   if pickError then
     love.filesystem.remove("pick_error.txt")
-    self.pickPending, self.pickElapsed = nil, nil
+    self.pickPending = nil
     self.modNotice = { ok = false, text = pickError }
     self.notice = { version = self.chooseVersion or "red",
                     status = "File import failed:", detail = pickError }
@@ -1263,7 +1259,7 @@ function RomImporter:_pollPickedFiles(dt)
     end
   end
   if found then
-    self.pickPending, self.pickElapsed = nil, nil
+    self.pickPending = nil
     self:focus(true)
   end
 end
