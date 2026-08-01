@@ -20,6 +20,7 @@ local GameSpeed = require("src.core.GameSpeed")
 local GameVersion = require("src.core.GameVersion")
 local VideoMode = require("src.core.VideoMode")
 local FrameCap = require("src.core.FrameCap")
+local Performance = require("src.core.Performance")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local OptionRows = require("src.ui.OptionRows")
@@ -200,6 +201,21 @@ local function buildRows(game)
         local o = g.save.options
         o.musicFilter = ((o.musicFilter or 0) + dir) % #FILTERS
         require("src.core.Music").setFilterLevel(o.musicFilter)
+        return true
+      end },
+    -- Heads the port's display group: one tier that scales the heavy extras
+    -- (TILT / GBC FX / survey ZOOM) and the FPS ceiling for weaker devices.
+    -- AUTO picks a default from the hardware; every tier is overridable.
+    -- Re-applies live so the extras clamp (or, on a higher tier, restore to
+    -- the player's stored TILT / GBC FX / ZOOM) the moment the row changes.
+    { id = "performance", label = Strings("PERFORMANCE"),
+      value = function(g)
+        return Strings(Performance.label(g.save.options.performance))
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.performance = Performance.cycle(o.performance, dir)
+        g:applyOptions(o)
         return true
       end },
     { id = "colors", label = Strings("COLORS"),

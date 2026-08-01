@@ -241,6 +241,11 @@ function SaveData.defaultOptions()
     videoMode = "windowed",
     -- hard render frame-rate cap; render-only pacing (issue #88, FrameCap.lua)
     fpsCap = 60,
+    -- graphics performance tier: auto | high | balanced | low.  "auto"
+    -- picks a default from the device (ARM handhelds/phones drop the heavy
+    -- extras); scales TILT / GBC FX / survey ZOOM / FPS but never game
+    -- logic.  See src/core/Performance.lua.
+    performance = "auto",
     -- Per-pipeline display levels, keyed by render_pipelines id (see
     -- src/render/Pipelines.lua).  A level for a mod that is not installed
     -- is kept rather than pruned, so re-enabling the mod restores the mode
