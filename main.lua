@@ -10,6 +10,8 @@
 
 local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
 
+local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+
 local Game, EditorApp, Importer, TouchEditor
 
 local autopilot -- optional scripted-input dev tool (tests/autopilot.lua)
@@ -268,6 +270,7 @@ function love.load(args)
 end
 
 function love.update(dt)
+  SwitchDiagnostics.maybeFlush(false)
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
   if Importer then return Importer:update(dt) end
@@ -342,48 +345,56 @@ function love.keyreleased(key)
 end
 
 function love.gamepadpressed(joystick, button)
+  SwitchDiagnostics.onJoystickEvent("gamepadpressed", joystick, button)
   if editorMode or TouchEditor then return end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   Game:gamepadpressed(joystick, button)
 end
 
 function love.gamepadreleased(joystick, button)
+  SwitchDiagnostics.onJoystickEvent("gamepadreleased", joystick, button)
   if editorMode or TouchEditor then return end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   Game:gamepadreleased(joystick, button)
 end
 
 function love.gamepadaxis(joystick, axis, value)
+  SwitchDiagnostics.onJoystickEvent("gamepadaxis", joystick, axis, { value = value })
   if editorMode or TouchEditor then return end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   Game:gamepadaxis(joystick, axis, value)
 end
 
 function love.joystickpressed(joystick, button)
+  SwitchDiagnostics.onJoystickEvent("joystickpressed", joystick, button)
   if editorMode or TouchEditor then return end
   if Importer then return Importer:joystickpressed(joystick, button) end
   Game:joystickpressed(joystick, button)
 end
 
 function love.joystickreleased(joystick, button)
+  SwitchDiagnostics.onJoystickEvent("joystickreleased", joystick, button)
   if editorMode or TouchEditor then return end
   if Importer then return Importer:joystickreleased(joystick, button) end
   Game:joystickreleased(joystick, button)
 end
 
 function love.joystickaxis(joystick, axis, value)
+  SwitchDiagnostics.onJoystickEvent("joystickaxis", joystick, axis, { value = value })
   if editorMode or TouchEditor then return end
   if Importer then return Importer:joystickaxis(joystick, axis, value) end
   Game:joystickaxis(joystick, axis, value)
 end
 
 function love.joystickhat(joystick, hat, direction)
+  SwitchDiagnostics.onJoystickEvent("joystickhat", joystick, hat, { direction = direction })
   if editorMode or TouchEditor then return end
   if Importer then return Importer:joystickhat(joystick, hat, direction) end
   Game:joystickhat(joystick, hat, direction)
 end
 
 function love.joystickremoved(joystick)
+  SwitchDiagnostics.onJoystickEvent("joystickremoved", joystick)
   if editorMode or TouchEditor then return end
   if Importer then return end
   Game:joystickremoved(joystick)
