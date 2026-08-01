@@ -356,8 +356,9 @@ pack_game_love() {
   # in the built app while dev, which reads the source tree, stayed green.
   archive_entries="$(unzip -Z1 "$LOVE_FILE")"
   # shellcheck disable=SC2086  # MANIFESTS is a deliberate word list
-  for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
-                  tools/save-editor/panels/Party.lua $MANIFESTS; do
+  for required in src/update/Boot.lua tools/save-editor/App.lua \
+                  tools/save-editor/Kit.lua tools/save-editor/panels/Party.lua \
+                  $MANIFESTS; do
     printf '%s\n' "$archive_entries" | grep -qx "$required" \
       || fail "game.love is missing $required"
   done
