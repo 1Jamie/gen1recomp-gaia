@@ -62,9 +62,12 @@ local function freshImporter()
     tab = "mods",
     modNotice = nil,
     mods = {},
+    ready = { red = false, blue = false, yellow = false },
     ensureImportsDir = RomImporter.ensureImportsDir,
     ensureModsInboxDir = RomImporter.ensureModsInboxDir,
     _setNxModsInboxNotice = RomImporter._setNxModsInboxNotice,
+    scanModsInbox = RomImporter.scanModsInbox,
+    scanInbox = RomImporter.scanInbox,
   }, RomImporter)
 end
 
@@ -88,8 +91,31 @@ check(ri.modNotice.text:find("DBI MTP", 1, true) ~= nil,
 check(ri.modNotice.text:find("switch/gen1recomp/pokemon-love2d/imports/mods/", 1, true),
   "hint uses sdmc-stripped relative imports/mods/ path")
 
+-- NXMOD-02: scanModsInbox returns only *.zip under imports/mods/
+ri = freshImporter()
+love.filesystem.write("imports/mods/valid.zip", "ZIPDATA")
+love.filesystem.write("imports/mods/readme.txt", "nope")
+love.filesystem.write("imports/mods/cart.gb", string.rep("R", 16))
+love.filesystem.write("imports/other.zip", "WRONGDIR")
+local zips = ri:scanModsInbox()
+eq(#zips, 1, "scanModsInbox returns one zip candidate")
+eq(zips[1], "imports/mods/valid.zip", "scanModsInbox path is under imports/mods/")
+
+-- ROM scanInbox must not treat .zip as ROM
+ri = freshImporter()
+love.filesystem.write("imports/modpack.zip", "ZIPROM")
+love.filesystem.write("imports/mods/also.zip", "ZIPMOD")
+local roms = ri:scanInbox(ri.ready)
+for _, path in ipairs(roms) do
+  check(not path:lower():match("%.zip$"),
+    "ROM scanInbox ignores zip: " .. tostring(path))
+end
+eq(#roms, 0, "ROM scanInbox finds no zip-only inbox entries")
+
 -- Cleanup + restore stubs
 clearModsInbox()
+love.filesystem.remove("imports/other.zip")
+love.filesystem.remove("imports/modpack.zip")
 love.system.getOS = saved.getOS
 love.filesystem.getSaveDirectory = saved.getSaveDirectory
 love.filesystem.createDirectory = saved.createDirectory

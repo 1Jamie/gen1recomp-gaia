@@ -398,6 +398,18 @@ local function listRomPaths(dir)
   return paths
 end
 
+local function listZipPaths(dir)
+  local paths = {}
+  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+    local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
+    if name:lower():match("%.zip$")
+        and love.filesystem.getInfo(path, "file") then
+      paths[#paths + 1] = path
+    end
+  end
+  return paths
+end
+
 function RomImporter:scanInbox(ready)
   ready = ready or self.ready
   local paths = {}
@@ -409,6 +421,12 @@ function RomImporter:scanInbox(ready)
     paths[#paths + 1] = path
   end
   return paths
+end
+
+-- NX mods inbox: only *.zip under imports/mods/ (never ROM extensions).
+function RomImporter:scanModsInbox()
+  self:ensureModsInboxDir()
+  return listZipPaths(MODS_INBOX_DIR)
 end
 
 function RomImporter:rescanAction(version)
