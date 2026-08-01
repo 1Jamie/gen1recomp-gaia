@@ -68,8 +68,11 @@ rm -f "$LOVE_FILE"
   tools/rom_manifest.json tools/rom_manifest_blue.json \
   tools/rom_manifest_yellow.json \
   -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
-if unzip -Z1 "$LOVE_FILE" \
-    | grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/'; then
+# Materialize the listing once. Piping unzip→grep -q under `set -o pipefail`
+# SIGPIPEs unzip when grep exits early on a match and aborts the build.
+LOVE_LIST="$WORK/love-listing.txt"
+unzip -Z1 "$LOVE_FILE" > "$LOVE_LIST"
+if grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' "$LOVE_LIST"; then
   fail "game.love unexpectedly contains generated ROM data"
 fi
 # The editor is only reachable if its entry point and both module directories
@@ -81,7 +84,7 @@ for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
                 tools/save-editor/panels/Party.lua \
                 tools/rom_manifest.json tools/rom_manifest_blue.json \
                 tools/rom_manifest_yellow.json; do
-  unzip -Z1 "$LOVE_FILE" | grep -qx "$required" \
+  grep -qxF "$required" "$LOVE_LIST" \
     || fail "game.love is missing $required"
 done
 say "game.love: $(du -h "$LOVE_FILE" | cut -f1)"
