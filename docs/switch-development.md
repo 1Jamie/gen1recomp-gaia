@@ -229,7 +229,39 @@ Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both 
 
 **Dual-path rule:** love-nx emits both `gamepadpressed` and `joystickpressed` for Joy-Con. When `joystick:isGamepad()` is true, Input and RomImporter **ignore raw** face/menu so NamingScreen does not see A+B in one frame. `NamingScreen` also prefers A over B if both edges still fire.
 
-Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`). Launcher and gameplay share the same converter.
+Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`, `displayChordDigit`). Launcher and gameplay share the same converter.
+
+## Mod zip inbox (NX)
+
+Community mods install from a **separate** MTP inbox (not mixed into the ROM `imports/` scan):
+
+| Item | Value |
+| ---- | ----- |
+| Save-relative path | `imports/mods/` |
+| MTP destination | `1: SD Card/<save identity>/imports/mods/` (see launcher notice for the live `getSaveDirectory()` path) |
+| Candidates | `*.zip` only |
+| Rescan | MODS tab → **Procurar novamente** (installs each zip via `LauncherMods.installZip`; source zips are retained on success and failure) |
+| FIND MODS | Remains network-gated / hidden on NX (`networkValidated == false`) |
+
+Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.
+
+**Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable.
+
+## Joy-Con display chords (Select + face)
+
+PC digit hotkeys for COLORS / TILT / pipelines have Joy-Con equivalents. Hold **Select** (`back` / −) and press a face/shoulder button; the engine runs the same path as `Game:keypressed` for that digit (including `writeOptions` / Pipelines parity).
+
+| Chord (Nintendo UX) | Engine key | Typical effect |
+| ------------------- | ---------- | -------------- |
+| Select + **A** | `2` | COLORS cycle |
+| Select + **B** | `3` | TILT / perspective cycle |
+| Select + **Y** | `5` | GBC FX / V-GRID (mod pipeline) |
+| Select + **X** | `6` | T-SHIFT / mod pipeline |
+| Select + **L** (left shoulder) | `7` | V-CURVE / mod pipeline |
+
+Without Select held, face buttons keep normal GB A/B gameplay mapping (no accidental color/tilt cycles). The **Options** menu remains available for the same settings — chords are optional shortcuts, not the only path.
+
+On NX, A/B chords resolve through the Nintendo UX face remap so physical **A** → key `2` and physical **B** → key `3` match this table.
 
 **Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
 
