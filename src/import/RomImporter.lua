@@ -1,4 +1,5 @@
 local GameVersion = require("src.core.GameVersion")
+local GamepadMap = require("src.core.GamepadMap")
 local Strings = require("src.core.Strings")
 local HostShell = require("src.core.HostShell")
 local Platform = require("src.core.Platform")
@@ -1547,11 +1548,13 @@ function RomImporter:gamepadaxis(_, axis, value)
 end
 
 function RomImporter:joystickpressed(joystick, button)
-  if button == 1 then self:gamepadpressed(joystick, "a") end
+  local padButton = GamepadMap.mapRawToGamepadButton(button)
+  if padButton then self:gamepadpressed(joystick, padButton) end
 end
 
 function RomImporter:joystickreleased(joystick, button)
-  if button == 1 then self:gamepadreleased(joystick, "a") end
+  local padButton = GamepadMap.mapRawToGamepadButton(button)
+  if padButton then self:gamepadreleased(joystick, padButton) end
 end
 
 function RomImporter:joystickaxis(joystick, axis, value)
