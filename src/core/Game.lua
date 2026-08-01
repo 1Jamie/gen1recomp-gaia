@@ -546,15 +546,48 @@ function Game:focus(f)
 end
 
 function Game:visible(v)
+  if v then
+    self:onResume()
+  else
+    Input:reset()
+    TouchControls:reset()
+  end
+end
+
+function Game:onResume()
   Input:reset()
   TouchControls:reset()
+  -- Chip music may survive suspend as a duplicate stream; stop it and let
+  -- the active screen re-cue on the next frame (hardware audio check: T19).
+  require("src.core.ChipAudio").stopMusic()
+  local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+  if SwitchDiagnostics.isEnabled() then
+    SwitchDiagnostics.onEvent("lifecycle", { event = "resume" })
+  end
+end
+
+function Game:recoverInput(event, joystick)
+  Input:reset()
+  TouchControls:reset()
+  local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+  if SwitchDiagnostics.isEnabled() then
+    if joystick then
+      SwitchDiagnostics.onJoystickEvent(event, joystick)
+    else
+      SwitchDiagnostics.onEvent("lifecycle", { event = event })
+    end
+  end
+end
+
+function Game:joystickadded(joystick)
+  self:recoverInput("joystickadded", joystick)
 end
 
 -- A disconnected/dropped controller can't send the button-up for whatever
 -- it was holding, so drop all input state rather than try to guess which
 -- flags it owned.
 function Game:joystickremoved(joystick)
-  Input:reset()
+  self:recoverInput("joystickremoved", joystick)
   TouchControls:joystickremoved()
 end
 

@@ -393,6 +393,13 @@ function love.joystickhat(joystick, hat, direction)
   Game:joystickhat(joystick, hat, direction)
 end
 
+function love.joystickadded(joystick)
+  SwitchDiagnostics.onJoystickEvent("joystickadded", joystick)
+  if editorMode or TouchEditor then return end
+  if Importer then return end
+  Game:joystickadded(joystick)
+end
+
 function love.joystickremoved(joystick)
   SwitchDiagnostics.onJoystickEvent("joystickremoved", joystick)
   if editorMode or TouchEditor then return end
@@ -421,6 +428,11 @@ function love.visible(v)
     return
   end
   Game:visible(v)
+end
+
+function love.lowmemory()
+  if editorMode or TouchEditor or Importer then return end
+  if Game then Game:onResume() end
 end
 
 function love.touchpressed(id, x, y, dx, dy, pressure)
