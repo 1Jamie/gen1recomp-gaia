@@ -1696,6 +1696,7 @@ end
 -- ---------------------------------------------------------------- touch controls layout (#327)
 do
   local TC = require("src.core.TouchControls")
+  local SafeArea = require("src.core.SafeArea")
   local cfg = TC.normalizeConfig(nil)
   eq(cfg.enabled, true, "touchControls default enabled")
   check(cfg.positions == nil, "touchControls default positions nil")
@@ -1721,6 +1722,12 @@ do
   check(L.a.cx > 200, "default A on right half")
   check(L.dpad.cy > 400, "default d-pad in bottom half")
 
+  -- safe-area origin shifts defaults without changing relative layout
+  local Ls = TC.defaultLayout(400, 800, 20, 30)
+  eq(Ls.dpad.cx, L.dpad.cx + 20, "defaultLayout ox shifts controls")
+  eq(Ls.dpad.cy, L.dpad.cy + 30, "defaultLayout oy shifts controls")
+  eq(Ls.a.cx, L.a.cx + 20, "defaultLayout ox shifts A")
+
   -- applyOptions + visible gate (no real images needed for the gate)
   TC.enabled = true
   TC.active = true
@@ -1743,16 +1750,37 @@ do
   -- custom position applied through layout()
   local g = love.graphics
   local oldDim, oldFont = g.getDimensions, g.newFont
+  local oldSafe = love.window and love.window.getSafeArea
   g.getDimensions = function() return 400, 800 end
   g.newFont = function() return { getWidth = function() return 10 end,
                                   getHeight = function() return 10 end } end
-  TC.layoutW, TC.layoutH, TC.L = nil, nil, nil
+  love.window = love.window or {}
+  love.window.getSafeArea = function() return 0, 0, 400, 800 end
+  TC.layoutW, TC.layoutH, TC.layoutOx, TC.layoutOy, TC.L = nil, nil, nil, nil, nil
   local lay = TC:layout()
   eq(lay.dpad.cx, 100, "custom dpad cx = nx * ww")
   eq(lay.dpad.cy, 600, "custom dpad cy = ny * wh")
+
+  -- inset safe area: custom positions stay inside the usable rect
+  love.window.getSafeArea = function() return 10, 40, 380, 720 end
+  TC.layoutW, TC.layoutH, TC.layoutOx, TC.layoutOy, TC.L = nil, nil, nil, nil, nil
+  lay = TC:layout()
+  eq(lay.dpad.cx, 10 + 0.25 * 380, "safe-area custom dpad cx")
+  eq(lay.dpad.cy, 40 + 0.75 * 720, "safe-area custom dpad cy")
+  check(lay.dpad.cy <= 40 + 720 - lay.dpad.w * 0.5 + 1e-6,
+        "safe-area dpad clears bottom inset")
+
+  local x, y, w, h = SafeArea.rect()
+  eq(x, 10, "SafeArea.rect x")
+  eq(y, 40, "SafeArea.rect y")
+  eq(w, 380, "SafeArea.rect w")
+  eq(h, 720, "SafeArea.rect h")
+
   TC:clearPositions()
   check(TC.positions == nil, "clearPositions wipes overrides")
   g.getDimensions, g.newFont = oldDim, oldFont
+  if oldSafe then love.window.getSafeArea = oldSafe
+  else love.window.getSafeArea = nil end
 end
 
 -- ---------------------------------------------------------------- crit thresholds (CriticalHitTest)

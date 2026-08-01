@@ -1,6 +1,7 @@
 local GameVersion = require("src.core.GameVersion")
 local Strings = require("src.core.Strings")
 local HostShell = require("src.core.HostShell")
+local SafeArea = require("src.core.SafeArea")
 
 local RomImporter = {}
 RomImporter.__index = RomImporter
@@ -1291,10 +1292,10 @@ local PAD_DPAD_SPEED = 420
 
 function RomImporter:_activatePadCursor()
   if self._padCursorActive then return end
-  local w, h = love.graphics.getDimensions()
+  local ox, oy, w, h = SafeArea.rect()
   if not self._padInited then
-    self._padCursor.x = w * 0.5
-    self._padCursor.y = h * 0.45
+    self._padCursor.x = ox + w * 0.5
+    self._padCursor.y = oy + h * 0.45
     self._padInited = true
   end
   self._padCursorActive = true
@@ -1340,11 +1341,11 @@ function RomImporter:_updatePadCursor(dt)
     if mag > 1 then dx, dy = dx / mag, dy / mag end
     local speed = (math.abs(ax) > PAD_DEAD or math.abs(ay) > PAD_DEAD)
       and PAD_SPEED or PAD_DPAD_SPEED
-    local w, h = love.graphics.getDimensions()
+    local ox, oy, w, h = SafeArea.rect()
     local nx = self._padCursor.x + dx * speed * dt
     local ny = self._padCursor.y + dy * speed * dt
-    self._padCursor.x = math.max(0, math.min(w, nx))
-    self._padCursor.y = math.max(0, math.min(h, ny))
+    self._padCursor.x = math.max(ox, math.min(ox + w, nx))
+    self._padCursor.y = math.max(oy, math.min(oy + h, ny))
   end
 
   -- Right stick scrolls the active list (save slots or mods), or the whole page
@@ -1722,7 +1723,10 @@ function RomImporter:_resetFrameRects()
 end
 
 function RomImporter:draw()
-  local width, height = love.graphics.getDimensions()
+  -- Full window for immersive backdrop; safe rect for interactive chrome so
+  -- notch / Dynamic Island / home indicator / Android cutouts are respected.
+  local fullW, fullH = love.graphics.getDimensions()
+  local ox, oy, width, height = SafeArea.rect()
   local s = clamp(height / 768, 0.7, 1.6)
   local pulse = self.pulse
   self._s = s
@@ -1741,8 +1745,9 @@ function RomImporter:draw()
   self._anyHover = false
   self:_resetFrameRects()
 
-  -- Fonts + size-dependent scenery, rebuilt only when the window size changes.
-  local fontKey = ("%dx%d"):format(width, height)
+  -- Fonts + size-dependent scenery, rebuilt only when the window / safe
+  -- area changes (rotation, resize, inset changes).
+  local fontKey = ("%dx%d@%d,%d"):format(fullW, fullH, ox, oy)
   if self.fontKey ~= fontKey then
     self.fontKey = fontKey
     local function f(px) return love.graphics.newFont(math.max(8, math.floor(px + 0.5))) end
@@ -1766,10 +1771,10 @@ function RomImporter:draw()
     -- Background: a radial gradient (bright navy at top-centre -> near black).
     -- A triangle fan from the top-centre gives the radial falloff; the screen
     -- is cleared to the outer colour first so the corners it does not reach
-    -- match seamlessly.
+    -- match seamlessly.  Sized to the full window so unsafe edges stay filled.
     do
-      local cx, cy = width / 2, 0
-      local rx, ry = width * 1.3, height * 1.08
+      local cx, cy = fullW / 2, 0
+      local rx, ry = fullW * 1.3, fullH * 1.08
       local n = 72
       local verts = { { cx, cy, 0, 0,
         PAL.bgTop[1] / 255, PAL.bgTop[2] / 255, PAL.bgTop[3] / 255, 1 } }
@@ -1783,8 +1788,8 @@ function RomImporter:draw()
 
     -- CRT vignette: a gentle edge darkening, centred slightly above the middle.
     do
-      local cx, cy = width / 2, height * 0.45
-      local rx, ry = width * 0.78, height * 0.78
+      local cx, cy = fullW / 2, fullH * 0.45
+      local rx, ry = fullW * 0.78, fullH * 0.78
       local n = 72
       local verts = { { cx, cy, 0, 0, 0, 0, 0, 0 } }
       for i = 0, n do
@@ -1806,7 +1811,7 @@ function RomImporter:draw()
       self.scanlineImage:setWrap("repeat", "repeat")
       self.scanlineImage:setFilter("nearest", "nearest")
     end
-    self.scanlineQuad = love.graphics.newQuad(0, 0, width, height, 1, 3)
+    self.scanlineQuad = love.graphics.newQuad(0, 0, fullW, fullH, 1, 3)
   end
 
   -- Invert shader: the Boi's Club Games mark is dark ink; on this dark panel it
@@ -1832,21 +1837,23 @@ function RomImporter:draw()
     }
   ]])
 
-  -- background
+  -- background (full window — unsafe edges stay painted)
   col(PAL.bgBot)
-  love.graphics.rectangle("fill", 0, 0, width, height)
+  love.graphics.rectangle("fill", 0, 0, fullW, fullH)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(self.bgMesh)
 
   -- Centered content container (max ~1440 scaled units on very wide windows)
   -- with a responsive side gutter; every column below derives from these.
+  -- Origin is the safe-area top-left so chrome clears device insets.
   local appW = math.min(width, 1440 * s)
-  local appX = (width - appW) / 2
+  local appX = ox + (width - appW) / 2
   local padH = clamp(appW * 0.03, 12 * s, 26 * s)
   local third = appW / 3
 
   -- tricolor strip (Red | Blue | Yellow), 6px tall, with a soft downward bloom
   local stripH = math.max(4, 6 * s)
+  local stripY = oy
   local segs = {
     { PAL.red,  appX,             third },
     { PAL.blue, appX + third,     third },
@@ -1854,11 +1861,11 @@ function RomImporter:draw()
   }
   love.graphics.setBlendMode("add")
   for _, seg in ipairs(segs) do
-    fillGrad(seg[2], stripH, seg[3], stripH * 3.6, seg[1], seg[1], 0.30, 0.0)
+    fillGrad(seg[2], stripY + stripH, seg[3], stripH * 3.6, seg[1], seg[1], 0.30, 0.0)
   end
   love.graphics.setBlendMode("alpha")
   for _, seg in ipairs(segs) do
-    col(seg[1]); love.graphics.rectangle("fill", seg[2], 0, seg[3], stripH)
+    col(seg[1]); love.graphics.rectangle("fill", seg[2], stripY, seg[3], stripH)
   end
 
   -- Footer (Boi's Club Games logo + trust warning), measured first so the
@@ -1880,7 +1887,7 @@ function RomImporter:draw()
     math.min(330 * s, appW - 32 * s))
   local logoScale = math.min(logoTargetW / logoW, height * 0.15 / logoH)
   local logoDW, logoDH = logoW * logoScale, logoH * logoScale
-  local logoY = stripH + 14 * s
+  local logoY = stripY + stripH + 14 * s
 
   -- Tab bar: R/B/Y/divider/MODS chips (label + underline on the active one),
   -- with "N of 3 ready" right-aligned.
@@ -1910,7 +1917,7 @@ function RomImporter:draw()
   local bannerBand = bannerActive and (bannerH + 20 * s) or 6 * s
   local cX = appX + padH
   local cW = appW - 2 * padH
-  local contentBottom = height - footerH - bannerBand
+  local contentBottom = oy + height - footerH - bannerBand
   local cH = math.max(0, contentBottom - contentTop)
 
   -- Page scroll.  Everything under the tab bar -- panel, updater banner and
@@ -1921,14 +1928,14 @@ function RomImporter:draw()
   -- the previous frame's measurement, the same one-frame settle the slot and
   -- mod lists already rely on.  While the page fits, `paged` is false and every
   -- measurement below is what it always was.
-  local viewportH = math.max(0, height - contentTop)
+  local viewportH = math.max(0, oy + height - contentTop)
   self._panelNaturalH = self._panelNaturalH or {}
   local naturalH = (self._panelNaturalH[self.tab] or 0) + bannerBand + footerH
   local paged, pageScroll, maxPage =
     RomImporter.pageScrollFor(naturalH, viewportH, self.pageScroll)
   self.pageScroll, self._pageMax = pageScroll, maxPage
   -- read by the hit tests; a scrolled control is live only inside the viewport
-  pageBand = paged and { contentTop, height } or nil
+  pageBand = paged and { contentTop, oy + height } or nil
 
   -- tab bar (rebuilds self.tabRects).  Pinned: it is the launcher's navigation,
   -- and it sits above the scrolling viewport.
@@ -2099,10 +2106,10 @@ function RomImporter:draw()
 
   -- logo, over the split, with a gentle bob + gold glow + sweeping shine
   local bob = math.sin(pulse * (2 * math.pi / 4)) * 6 * s
-  local lx, ly = (width - logoDW) / 2, logoY + bob
+  local lx, ly = ox + (width - logoDW) / 2, logoY + bob
   love.graphics.setBlendMode("add")
   love.graphics.setColor(1, 0.85, 0.2, 0.16 + 0.12 * (0.5 + 0.5 * math.sin(pulse * 1.6)))
-  love.graphics.draw(self.logo, (width - logoDW * 1.05) / 2, ly - logoDH * 0.025, 0,
+  love.graphics.draw(self.logo, ox + (width - logoDW * 1.05) / 2, ly - logoDH * 0.025, 0,
     logoScale * 1.05, logoScale * 1.05)
   love.graphics.setBlendMode("alpha")
   local shineW = 0.16
@@ -2135,11 +2142,11 @@ function RomImporter:draw()
   -- save-slot rename modal (#205), drawn over everything
   if self._rename then
     col(PAL.bgBot, 0.72)
-    love.graphics.rectangle("fill", 0, 0, width, height)
+    love.graphics.rectangle("fill", 0, 0, fullW, fullH)
     local dw = math.min(appW - 32 * s, 420 * s)
     local dh = 128 * s
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     neonGlow(dx, dy, dw, dh, rr, PAL.green, 0.4)
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.85, 0.85)
@@ -2181,11 +2188,11 @@ function RomImporter:draw()
   -- it is typed.
   if self._indexPrompt then
     col(PAL.bgBot, 0.72)
-    love.graphics.rectangle("fill", 0, 0, width, height)
+    love.graphics.rectangle("fill", 0, 0, fullW, fullH)
     local dw = math.min(appW - 32 * s, 520 * s)
     local dh = 168 * s
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     neonGlow(dx, dy, dw, dh, rr, PAL.modDot, 0.4)
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.9, 0.9)
@@ -2237,7 +2244,7 @@ function RomImporter:draw()
   if self._modConfirm or self._modVersions or self._modReleaseNotes
       or self._findDetails then
     col(PAL.bgBot, 0.72)
-    love.graphics.rectangle("fill", 0, 0, width, height)
+    love.graphics.rectangle("fill", 0, 0, fullW, fullH)
   end
   if self._modConfirm then
     local c = self._modConfirm
@@ -2245,7 +2252,7 @@ function RomImporter:draw()
     local lineH = self.hintFont:getHeight() + 4 * s
     local dh = 36 * s + (#c.lines) * lineH + 56 * s
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.92, 0.92)
     love.graphics.setLineWidth(math.max(1, 1.2 * s))
@@ -2287,7 +2294,7 @@ function RomImporter:draw()
     local dw = math.min(appW - 32 * s, 480 * s)
     local dh = math.min(height - 48 * s, 360 * s)
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.92, 0.92)
     love.graphics.setLineWidth(math.max(1, 1.2 * s))
@@ -2332,7 +2339,7 @@ function RomImporter:draw()
     local dw = math.min(appW - 32 * s, 520 * s)
     local dh = math.min(height - 48 * s, 420 * s)
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.94, 0.94)
     love.graphics.setLineWidth(math.max(1, 1.2 * s))
@@ -2389,7 +2396,7 @@ function RomImporter:draw()
     listH = listN * rowH
     dh = headerH + listH + footerH
     local dx = appX + (appW - dw) / 2
-    local dy = (height - dh) / 2
+    local dy = oy + (height - dh) / 2
     local rr = 12 * s
     fillGradRounded(dx, dy, dw, dh, rr, PAL.slotBg, PAL.slotBg, 0.96, 0.96)
     love.graphics.setLineWidth(math.max(1, 1.2 * s))
