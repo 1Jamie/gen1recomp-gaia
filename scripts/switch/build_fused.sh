@@ -17,7 +17,7 @@ LOVE_NX_DIR="$ROOT/.bazinga/love-nx/$LOVE_NX_TAG"
 LOVE_ELF="$LOVE_NX_DIR/love.elf"
 ICON="$ROOT/assets/switch/icon.jpg"
 APP_NAME="gen1recomp"
-BUNDLE_ID="com.theboisclub.pokemonred"
+APP_AUTHOR="bryanthaboi, port by andrewqsantos"
 DKP_IMAGE_FILE="$ROOT/scripts/switch/dkp-docker.image"
 
 GAME_LOVE="${1:-}"
@@ -58,7 +58,7 @@ run_fused_native() {
   cp "$GAME_LOVE" "$romfs_dir/game.love"
 
   nacp="$work/control.nacp"
-  nacptool --create "$APP_NAME" "$BUNDLE_ID" "$VERSION" "$nacp"
+  nacptool --create "$APP_NAME" "$APP_AUTHOR" "$VERSION" "$nacp"
 
   say "building fused NRO with pinned love.elf (native)"
   elf2nro "$LOVE_ELF" "$OUT_NRO" \
@@ -91,7 +91,7 @@ run_fused_docker() {
     "$image" \
     bash -c "
       set -euo pipefail
-      nacptool --create '$APP_NAME' '$BUNDLE_ID' '$VERSION' /work/control.nacp
+      nacptool --create '$APP_NAME' '$APP_AUTHOR' '$VERSION' /work/control.nacp
       elf2nro /src/.bazinga/love-nx/$LOVE_NX_TAG/love.elf /out/$out_base \
         --icon=/src/assets/switch/icon.jpg \
         --nacp=/work/control.nacp \
