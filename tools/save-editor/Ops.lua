@@ -8,7 +8,8 @@
 --
 -- Clamps mirror the running game, not the UI: level 1-100, DV 0-15, party 6
 -- (src/pokemon/Party), box 20 x 12 (src/pokemon/Boxes), money 0-999999,
--- item stack 99 and 20 bag slots (src/inventory/Bag).
+-- item stack 99 and the configured bag capacity (20 by default;
+-- src/inventory/Bag).
 
 local Pokemon = require("src.pokemon.Pokemon")
 local PartyMod = require("src.pokemon.Party")
@@ -441,11 +442,13 @@ end
 
 function Ops.addToBag(S, id)
   if not id then return Ops.say(S, "Pick an item first") end
-  if Bag.add(S.save, id, 1) then
+  local capacity = Bag.capacity(S.data)
+  if Bag.add(S.save, id, 1, S.data) then
     return Ops.mark(S, ("Added %s to the bag (%d/%d slots)")
-      :format(id, Bag.slots(S.save), Bag.CAPACITY))
+      :format(id, Bag.slots(S.save), capacity))
   end
-  return Ops.say(S, ("Bag is full (%d/%d slots)"):format(Bag.slots(S.save), Bag.CAPACITY))
+  return Ops.say(S, ("Bag is full (%d/%d slots)")
+    :format(Bag.slots(S.save), capacity))
 end
 
 function Ops.bagAdjust(S, id, delta)
@@ -455,7 +458,7 @@ function Ops.bagAdjust(S, id, delta)
     if have >= Ops.STACK_MAX then
       return Ops.say(S, ("%s is already at x%d"):format(id, Ops.STACK_MAX))
     end
-    Bag.add(S.save, id, delta)
+    Bag.add(S.save, id, delta, S.data)
   else
     Bag.remove(S.save, id, -delta)
     if not S.save.inventory[id] then

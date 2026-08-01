@@ -1810,7 +1810,7 @@ function OverworldState:tryHiddenObject(fx, fy)
     if h.x == fx and h.y == fy then
       save.hiddenTaken = save.hiddenTaken or {}
       if save.hiddenTaken[key] then return false end
-      if not require("src.inventory.Bag").add(save, h.item, 1) then
+      if not require("src.inventory.Bag").add(save, h.item, 1, Game.data) then
         Game.stack:push(TextBox.new(Game, Strings("You can't carry\nany more items!")))
         return true
       end
@@ -2441,7 +2441,7 @@ function OverworldState:talkTo(npc)
   -- (e.g. Blue's House wall Town Map / walking Daisy, #11).  Lua treats
   -- the string "0" as truthy, so screen it out and fall through to text.
   if d.item and d.item ~= "0" and d.item ~= 0 then
-    if not require("src.inventory.Bag").add(Game.save, d.item, 1) then
+    if not require("src.inventory.Bag").add(Game.save, d.item, 1, Game.data) then
       Game.stack:push(TextBox.new(Game, Strings("You can't carry\nany more items!")))
       return
     end

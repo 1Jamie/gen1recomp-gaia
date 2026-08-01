@@ -380,7 +380,8 @@ semantics - so the two windows read as one app. Six tabs:
   party dock, so deposit and withdraw live in one place. Empty slots are
   clickable and create a mon there.
 - **Items**: money, a searchable item picker (replacing the arrows that
-  cycled one id at a time through ~250 items), the 20-slot bag, PC storage
+  cycled one id at a time through ~250 items), the configurable bag (20 slots
+  by default), PC storage
   with no slot cap, and the eight badges as toggle chips.
 - **Events**: flags, defeated trainers, taken items and per-map object
   toggles, with a real filter field and a two-column paged grid.
