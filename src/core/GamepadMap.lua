@@ -67,6 +67,24 @@ function GamepadMap.mapGamepadButton(button)
   return GamepadMap.gamepadBindings()[button]
 end
 
+-- Select+face display chords (docs / Nintendo UX):
+--   Select+A → "2" (COLORS), Select+B → "3" (TILT),
+--   Select+Y → "5", Select+X → "6", Select+L (leftshoulder) → "7".
+-- For a/b: resolve through mapGamepadButton then GB a→"2", b→"3" so NX
+-- Nintendo physical A/B match the docs despite SDL face-label swap.
+-- Caller (Game:gamepadpressed) must require Select held; this is map-only.
+function GamepadMap.displayChordDigit(gamepadButton)
+  if gamepadButton == "y" then return "5" end
+  if gamepadButton == "x" then return "6" end
+  if gamepadButton == "leftshoulder" then return "7" end
+  if gamepadButton == "a" or gamepadButton == "b" then
+    local gb = GamepadMap.mapGamepadButton(gamepadButton)
+    if gb == "a" then return "2" end
+    if gb == "b" then return "3" end
+  end
+  return nil
+end
+
 -- love-nx / SDL: when isGamepad(), face+menu already arrive via gamepad*.
 -- Applying joystickpressed raw on top double-fires GB A/B in one frame.
 function GamepadMap.ignoreRawForJoystick(joystick)
