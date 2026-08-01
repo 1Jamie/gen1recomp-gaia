@@ -648,6 +648,8 @@ function RomImporter.new(onComplete, opts)
     -- Android SAF create-document: which game's SAVE FILES card should show
     -- "Save exported." when export_done.flag appears on focus.
     androidPendingExportVersion = nil,
+    iosPendingKind = nil,
+    iosPendingVersion = nil,
     -- Virtual pointer for handhelds / gamepads (Anbernic stock OS has no
     -- mouse).  D-pad + left stick move it; A clicks; shoulders cycle tabs;
     -- right stick scrolls the save-slot / mods lists.
@@ -829,7 +831,11 @@ local function resetPointerCursor(self)
   if not (love.mouse.isCursorSupported and love.mouse.isCursorSupported()) then
     return
   end
-  self.arrowCursor = self.arrowCursor or love.mouse.getSystemCursor("arrow")
+  if not self.arrowCursor then
+    local ok, cursor = pcall(love.mouse.getSystemCursor, "arrow")
+    if not ok then return end
+    self.arrowCursor = cursor
+  end
   love.mouse.setCursor(self.arrowCursor)
 end
 
@@ -1015,6 +1021,14 @@ end
 -- which focus/Choose consumes on return.
 function RomImporter:chooseMod()
   if self.workState == "working" then return end
+  if self.ios and love.system.getPickedFile then
+    self.iosPendingKind = "mod"
+    if not pickFile("mod") then
+      self.iosPendingKind = nil
+      self.modNotice = { ok = false, text = "Could not open the file picker." }
+    end
+    return
+  end
   if self.android then
     local name = findPendingMod(true, self.pickSkip)
     if name then
@@ -1076,6 +1090,16 @@ end
 -- Android mirrors ROM / mod import via love.system.pickFile("sav").
 function RomImporter:chooseSaveImport(version)
   if self.workState == "working" then return end
+  if self.ios and love.system.getPickedFile then
+    self.iosPendingKind = "sav"
+    self.iosPendingVersion = version
+    if not pickFile("sav") then
+      self.iosPendingKind = nil
+      self.iosPendingVersion = nil
+      self.saveNotice[version] = { ok = false, text = "Could not open the file picker." }
+    end
+    return
+  end
   if self.android then
     local name = findPendingSav(true, self.pickSkip)
     if name then
@@ -1128,7 +1152,7 @@ function RomImporter:exportSave(version)
       return
     end
     self.androidPendingExportVersion = version
-    if love.system.createFile and love.system.createFile(suggested) then
+    if love.system.createFile and love.system.createFile(suggested, love.filesystem.getSaveDirectory()) then
       self.pickPending = true
       self.pickTimer = 0
       self.saveNotice[version] = { ok = true,
@@ -1165,6 +1189,14 @@ end
 function RomImporter:choose(version)
   if self.workState == "working" then return end
   self.chooseVersion = version or "red"
+  if self.ios and love.system.getPickedFile then
+    self.iosPendingKind = "rom"
+    if not pickFile("rom") then
+      self.iosPendingKind = nil
+      self:setError("Could not open the file picker.")
+    end
+    return
+  end
   if self.android then
     -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
     -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
@@ -1279,6 +1311,37 @@ end
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
   self:_updatePadCursor(dt)
+  if self.ios and love.system.getPickedFile and self.workState ~= "working" then
+    local path = love.system.getPickedFile()
+    if path then
+      local kind = self.iosPendingKind or "rom"
+      local version = self.iosPendingVersion
+      self.iosPendingKind = nil
+      self.iosPendingVersion = nil
+      if kind == "mod" then
+        self:_installMod(path)
+      elseif kind == "sav" then
+        self:_importSave(version or self:_savedropTarget(), path)
+      else
+        self:startPath(path)
+      end
+    elseif love.system.getPickError then
+      local errorText = love.system.getPickError()
+      if errorText then
+        local kind = self.iosPendingKind or "rom"
+        local version = self.iosPendingVersion or self:_savedropTarget()
+        self.iosPendingKind = nil
+        self.iosPendingVersion = nil
+        if kind == "mod" then
+          self.modNotice = { ok = false, text = errorText }
+        elseif kind == "sav" then
+          self.saveNotice[version] = { ok = false, text = errorText }
+        else
+          self:setError(errorText)
+        end
+      end
+    end
+  end
   self:_pollPickedFiles(dt)
   if self.workState ~= "working" or not self.worker then return end
   local started = love.timer.getTime()
@@ -2523,8 +2586,11 @@ function RomImporter:draw()
   if self._hoverEnabled and not self._padCursorActive
       and love.mouse.isCursorSupported and love.mouse.isCursorSupported() then
     if self._anyHover then
-      self.handCursor = self.handCursor or love.mouse.getSystemCursor("hand")
-      love.mouse.setCursor(self.handCursor)
+      if not self.handCursor then
+        local ok, cursor = pcall(love.mouse.getSystemCursor, "hand")
+        if ok then self.handCursor = cursor end
+      end
+      if self.handCursor then love.mouse.setCursor(self.handCursor) end
     else
       resetPointerCursor(self)
     end
