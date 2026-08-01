@@ -476,10 +476,14 @@ function love.mousepressed(x, y, button, istouch)
     -- meant two choose() calls and two stacked SAF picker activities: the
     -- player picked their ROM, the top picker closed, and the second was still
     -- underneath asking for it again, which is the "import the file twice"
-    -- in #553.  Filtering on istouch rather than on the OS keeps a real mouse
-    -- (DeX, a Chromebook, a USB mouse) working, which an Android-wide return
-    -- would have broken.
-    if istouch then return end
+    -- in #553.  Filtering on istouch keeps a real mouse (DeX, a Chromebook, a
+    -- USB mouse) working, which an Android-wide return would have broken.
+    --
+    -- ANDROID ONLY, and the OS test is load bearing: love.touchpressed above
+    -- returns early on iOS and never forwards, so there the synthesized mouse
+    -- press is the ONLY event the launcher gets.  Filtering istouch on both
+    -- killed every tap on iOS outright.
+    if istouch and love.system.getOS() == "Android" then return end
     return Importer:mousepressed(x, y, button)
   end
   if editorMode and EditorApp.mousepressed then

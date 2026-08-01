@@ -109,34 +109,36 @@ function Editor.update(_dt)
 end
 
 function Editor.draw()
-  local ww, wh = love.graphics.getDimensions()
+  local SafeArea = require("src.core.SafeArea")
+  local fullW, fullH = love.graphics.getDimensions()
+  local ox, oy, ww, wh = SafeArea.rect()
   local s = math.max(0.75, math.min(1.4, wh / 768))
   Editor.rects = {}
 
   -- radial-ish navy field (two stacked fills; matches launcher atmosphere)
   col(PAL.bgBot)
-  love.graphics.rectangle("fill", 0, 0, ww, wh)
+  love.graphics.rectangle("fill", 0, 0, fullW, fullH)
   col(PAL.bgTop, 0.85)
-  love.graphics.circle("fill", ww * 0.5, wh * 0.15, math.max(ww, wh) * 0.55)
+  love.graphics.circle("fill", ox + ww * 0.5, oy + wh * 0.15, math.max(ww, wh) * 0.55)
 
   local pad = 18 * s
   local barH = 56 * s
   local btnH = 40 * s
   local btnW = 100 * s
 
-  -- top bar
+  -- top bar (inside the safe area so it clears the notch / status bar)
   col(PAL.card, 0.92)
-  love.graphics.rectangle("fill", 0, 0, ww, barH + pad)
+  love.graphics.rectangle("fill", 0, 0, fullW, oy + barH + pad)
   col(PAL.stroke, 0.35)
   love.graphics.setLineWidth(1)
-  love.graphics.line(0, barH + pad, ww, barH + pad)
+  love.graphics.line(0, oy + barH + pad, fullW, oy + barH + pad)
 
   love.graphics.setFont(Editor.fonts.title)
   col(PAL.white)
-  love.graphics.print("Touch Controls", pad, pad + 4 * s)
+  love.graphics.print("Touch Controls", ox + pad, oy + pad + 4 * s)
 
   -- Done / Reset
-  local done = { x = ww - pad - btnW, y = pad + (barH - btnH) / 2,
+  local done = { x = ox + ww - pad - btnW, y = oy + pad + (barH - btnH) / 2,
                  w = btnW, h = btnH }
   local reset = { x = done.x - 10 * s - btnW, y = done.y, w = btnW, h = btnH }
   Editor.rects.done, Editor.rects.reset = done, reset
@@ -156,9 +158,9 @@ function Editor.draw()
   chromeBtn(done, "Done", PAL.green)
 
   -- enable toggle card
-  local cardY = barH + pad + 14 * s
+  local cardY = oy + barH + pad + 14 * s
   local cardH = 64 * s
-  local cardX, cardW = pad, ww - 2 * pad
+  local cardX, cardW = ox + pad, ww - 2 * pad
   col(PAL.card, 0.88)
   roundRect("fill", cardX, cardY, cardW, cardH, 12 * s)
   col(PAL.stroke, 0.4)
@@ -190,7 +192,7 @@ function Editor.draw()
   local hint = on
     and "Drag each button to reposition. Layout is saved when you tap Done."
     or "Controls are hidden in-game. Enable them to show and edit the layout."
-  love.graphics.printf(hint, pad, cardY + cardH + 12 * s, ww - 2 * pad, "left")
+  love.graphics.printf(hint, ox + pad, cardY + cardH + 12 * s, ww - 2 * pad, "left")
 
   -- the overlay itself (preview mode; dimmed when disabled)
   TouchControls:draw()

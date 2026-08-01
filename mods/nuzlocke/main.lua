@@ -156,7 +156,7 @@ return function(mod)
           caughtAreas()[areaKey(self.game, self)] = "DUPES_LOST"
           mod.save:set("caught_areas", caughtAreas())
         end
-        Bag.add(self.game.save, ball, 1)
+        Bag.add(self.game.save, ball, 1, self.game.data)
         self:say(reason == "area" and "This area already\nhas a captured POKéMON!"
           or "You already have\nthis POKéMON family!")
         return

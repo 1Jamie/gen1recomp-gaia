@@ -96,9 +96,13 @@ local fired = false
 ri3.focus = function(self, f) if f then fired = true end end
 ri3:_pollPickedFiles(0.6)
 check(not fired, "an empty save dir consumes nothing")
-check(ri3.pickPending, "and stays armed while it is still within the timeout")
-ri3:_pollPickedFiles(200)
-check(not ri3.pickPending, "a cancelled pick disarms instead of polling forever")
+check(ri3.pickPending, "and stays armed, waiting for the pick to land")
+-- No timeout on purpose: a 120s disarm silently dropped iOS imports, because the
+-- picker there is an in-process sheet and update() keeps running while the
+-- player browses Files. Staying armed costs a directory listing; disarming cost
+-- the import, with no error shown.
+ri3:_pollPickedFiles(600)
+check(ri3.pickPending, "and is still armed after a long browse in the picker")
 
 -- 5. A pick that is still importing must not be double-started.
 saveDir = { ["picked_mod.zip"] = "PK\003\004" }
@@ -130,6 +134,21 @@ contract:choose("red")
 contract:choose("red")
 check(picks == 2,
   "choose() still reopens the picker per call (#420/#442 contract, got " .. picks .. ")")
+
+-- 7. iOS taps must survive the Android double-fire guard. love.touchpressed in
+--    main.lua returns early on iOS and never forwards, so the synthesized
+--    love.mousepressed is the ONLY event the launcher gets there. Filtering
+--    istouch on both platforms killed every tap on iOS. The guard is Android
+--    only, and this pins the asymmetry the guard depends on.
+local touchForwardsToImporter = {
+  Android = true,   -- love.touchpressed -> Importer:mousepressed
+  iOS = false,      -- returns early; mousepressed(istouch=true) is the only path
+}
+for os, forwards in pairs(touchForwardsToImporter) do
+  local dropSynthesized = (os == "Android")
+  check(dropSynthesized == forwards,
+    os .. ": the synthesized mouse press is dropped only where touch already forwarded")
+end
 
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile
