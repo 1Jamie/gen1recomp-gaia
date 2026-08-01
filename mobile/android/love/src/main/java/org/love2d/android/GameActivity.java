@@ -84,7 +84,15 @@ public class GameActivity extends SDLActivity {
     // instead of leaving the player on "No ROM imported" (issue #442).
     private static final String PICK_ERROR_FILENAME = "pick_error.flag";
     // Destination basename for the in-flight SAF pick (set by showFilePicker).
+    // Saved/restored across instance state: the picker is a separate activity
+    // and Android may destroy this one while it is up (memory pressure, or
+    // "Don't keep activities"). A recreated instance still receives
+    // onActivityResult, so without this a mod or save pick came back with the
+    // field reset and was filed as picked_rom.gb, which Lua then rejected as a
+    // bad ROM instead of installing it (#553).
     private String pendingPickFilename = PICKED_ROM_FILENAME;
+    private static final String STATE_PENDING_PICK = "pendingPickFilename";
+    private static final String STATE_PENDING_CREATE = "pendingCreateSuggestedName";
     // Suggested download name for the in-flight SAF create (set by showCreateDocument).
     private String pendingCreateSuggestedName = "export.sav";
     private static boolean immersiveActive = false;
@@ -149,6 +157,14 @@ public class GameActivity extends SDLActivity {
         }
 
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            // Restore the in-flight SAF destinations, so a pick that returns to
+            // a recreated activity still lands under the basename it asked for.
+            String pick = savedInstanceState.getString(STATE_PENDING_PICK);
+            if (pick != null) pendingPickFilename = pick;
+            String create = savedInstanceState.getString(STATE_PENDING_CREATE);
+            if (create != null) pendingCreateSuggestedName = create;
+        }
         metrics = getResources().getDisplayMetrics();
 
         // Set low-latency audio values
@@ -537,6 +553,13 @@ public class GameActivity extends SDLActivity {
             try { if (in != null) in.close(); } catch (IOException ignored) {}
             try { if (out != null) out.close(); } catch (IOException ignored) {}
         }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString(STATE_PENDING_PICK, pendingPickFilename);
+        outState.putString(STATE_PENDING_CREATE, pendingCreateSuggestedName);
     }
 
     @Override

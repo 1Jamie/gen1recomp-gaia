@@ -3340,6 +3340,7 @@ runSuites({ "tests/rom_importer_android_mod_pick_test.lua" })
 
 -- ---------------------------------------------- import with no picker (#482)
 runSuites({ "tests/rom_importer_no_picker_test.lua" })
+runSuites({ "tests/rom_importer_double_pick_test.lua" })
 -- ---------------------------------------------- parity workstream tests
 -- Each tests/parity_*.lua is a self-contained file (own bootstrap + check,
 -- error()s if any assertion fails).  Globbed, so dropping a new parity
