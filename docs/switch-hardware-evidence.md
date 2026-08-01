@@ -79,26 +79,18 @@ T19 hardware gate: **closed**. No stuck input, duplicate audio, or crash reporte
 
 ---
 
-## T24 — fused NRO — Red PASS; Blue Play FAIL (open)
+## T24 — fused NRO alone + NRO-only update — **pass**
 
 | Field | Value |
 | ----- | ----- |
-| Commit (first fused attempt) | `6fb5602` |
-| Artifact | `gen1recomp-6fb5602-switch.nro` |
-| SHA-256 | `b019e2e82c7fe6ec3cf4339e1bc71e8752c8140b6242028bb0b662fcf20daac2` |
+| First fused attempt | `6fb5602` (Blue Play failed — mount) |
+| Fix commits | `b1ad7c7` (logs/generated overlay), `ac6dfe7` (Blue/Yellow mount) |
 | Deploy | isolated folder, no adjacent `game.love` |
 | Boot fused | **pass** |
 | ROM import | **pass** |
-| Play **Red** (operator follow-up) | **pass** — same import flow as loose; fused not the differentiator |
-| Play **Blue** (operator follow-up) | **fail** — app closed on Play (was mis-attributed to fused-only) |
-| NRO-only replace / save survive | **not tested** |
+| Play **Red** | **pass** |
+| Play **Blue** (after `ac6dfe7`) | **pass** (operator 2026-08-01) |
+| NRO-only replace | **pass** — saves retained; app still boots/plays |
+| Touch required | no |
 
-### Revised root cause
-
-Blue/Yellow caches live under `blue/` / `yellow/`. `CacheFs.mountVersion` preferred absolute `PHYSFS_mount(save/blue)` (FFI), which fails on NX; the save-dir-relative `love.filesystem.mount("blue", …)` was only a fallback after that path assumed a usable `base`. Red (`cachePrefix == ""`) never needed that mount → Play OK.
-
-### Fix follow-up
-
-Mount save-dir-relative version folder first; always `mountGeneratedTrees(prefix)` for `blue/data/generated` → `data/generated`; set `CacheFs.prefix` in `bootGame`; Data:load reads version-prefixed cache on require miss.
-
-**T24**: fused Red OK is evidence for fused boot/import/play(Red). Full T24 (NRO-only update) + Blue Play still need re-verify.
+T24 hardware gate: **closed**.
