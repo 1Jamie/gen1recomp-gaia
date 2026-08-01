@@ -245,6 +245,8 @@ Community mods install from a **separate** MTP inbox (not mixed into the ROM `im
 
 Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.
 
+**MTP tip (Mac):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip`. Those are not real archives — the launcher ignores hidden `.*` names. If install still fails with “could not be opened” / “not a zip file”, delete any `._*.zip` under `imports/mods/` and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure).
+
 **Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable.
 
 ## Joy-Con display chords (Select + face)

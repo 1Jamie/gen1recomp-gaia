@@ -197,6 +197,19 @@ check(not removed["imports/mods/a-bad.zip"], "mixed: bad zip retained")
 check(not removed["imports/mods/b-good.zip"], "mixed: good zip retained")
 check(love.filesystem.read("imports/mods/a-bad.zip") ~= nil, "mixed bad still present")
 check(love.filesystem.read("imports/mods/b-good.zip") ~= nil, "mixed good still present")
+check(ri.modNotice and ri.modNotice.ok, "mixed prefers success notice over sibling fail")
+
+-- Mac MTP AppleDouble (._*.zip) must not be install candidates
+ri = freshImporter()
+installCalls = {}
+love.filesystem.write("imports/mods/._DRAMATIC_SHAPE-1.4.0.zip", "APPL")
+love.filesystem.write("imports/mods/DRAMATIC_SHAPE-1.4.0.zip", "GOOD")
+installBehavior["imports/mods/DRAMATIC_SHAPE-1.4.0.zip"] = { ok = true, id = "dramatic_shape" }
+ri:rescanModsAction()
+eq(#installCalls, 1, "AppleDouble ._*.zip is skipped")
+eq(installCalls[1], "imports/mods/DRAMATIC_SHAPE-1.4.0.zip",
+  "only the real zip is installed")
+check(ri.modNotice and ri.modNotice.ok, "AppleDouble skip still shows install success")
 
 -- NXMOD-05: chooseMod on NX routes to inbox rescan; no HostShell/chooseZip
 local hostShellCalls = 0

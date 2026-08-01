@@ -401,10 +401,14 @@ end
 local function listZipPaths(dir)
   local paths = {}
   for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
-    local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
-    if name:lower():match("%.zip$")
-        and love.filesystem.getInfo(path, "file") then
-      paths[#paths + 1] = path
+    -- Skip AppleDouble / hidden junk from Mac MTP (._foo.zip ends in .zip
+    -- but is not a PhysFS archive — mount fails with "could not be opened").
+    if name:sub(1, 1) ~= "." then
+      local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
+      if name:lower():match("%.zip$")
+          and love.filesystem.getInfo(path, "file") then
+        paths[#paths + 1] = path
+      end
     end
   end
   return paths
@@ -441,20 +445,23 @@ function RomImporter:rescanModsAction()
     return
   end
   local anyOk = false
+  local lastOk = nil
   local lastFail = nil
   for _, path in ipairs(candidates) do
     -- Reuse _installMod carefully: it must not remove the inbox source.
     self:_installMod(path)
     if self.modNotice and self.modNotice.ok then
       anyOk = true
+      lastOk = self.modNotice
     else
       lastFail = self.modNotice
     end
   end
-  if lastFail and not anyOk then
-    self.modNotice = lastFail
-  elseif lastFail and anyOk then
-    -- Mixed: keep failure visible after successes refreshed the list.
+  -- Prefer success when at least one zip installed (a leftover MTP
+  -- AppleDouble / corrupt sibling must not hide a good install).
+  if anyOk then
+    self.modNotice = lastOk
+  elseif lastFail then
     self.modNotice = lastFail
   end
 end
