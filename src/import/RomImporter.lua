@@ -429,6 +429,36 @@ function RomImporter:scanModsInbox()
   return listZipPaths(MODS_INBOX_DIR)
 end
 
+-- Rescan imports/mods/: install each .zip via _installMod / installZip.
+-- Never deletes inbox zips (success or failure). Empty inbox → MTP notice.
+function RomImporter:rescanModsAction()
+  if self.workState == "working" then return end
+  self.tab = "mods"
+  self:ensureModsInboxDir()
+  local candidates = self:scanModsInbox()
+  if #candidates == 0 then
+    self:_setNxModsInboxNotice()
+    return
+  end
+  local anyOk = false
+  local lastFail = nil
+  for _, path in ipairs(candidates) do
+    -- Reuse _installMod carefully: it must not remove the inbox source.
+    self:_installMod(path)
+    if self.modNotice and self.modNotice.ok then
+      anyOk = true
+    else
+      lastFail = self.modNotice
+    end
+  end
+  if lastFail and not anyOk then
+    self.modNotice = lastFail
+  elseif lastFail and anyOk then
+    -- Mixed: keep failure visible after successes refreshed the list.
+    self.modNotice = lastFail
+  end
+end
+
 function RomImporter:rescanAction(version)
   if self.workState == "working" then return end
   version = version or self.tab or "red"

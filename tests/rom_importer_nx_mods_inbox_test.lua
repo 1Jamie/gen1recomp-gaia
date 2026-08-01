@@ -68,6 +68,12 @@ local function freshImporter()
     _setNxModsInboxNotice = RomImporter._setNxModsInboxNotice,
     scanModsInbox = RomImporter.scanModsInbox,
     scanInbox = RomImporter.scanInbox,
+    rescanModsAction = RomImporter.rescanModsAction,
+    _installMod = RomImporter._installMod,
+    _refreshMods = function(self)
+      self._refreshed = (self._refreshed or 0) + 1
+      self.mods = self.mods or {}
+    end,
   }, RomImporter)
 end
 
@@ -112,10 +118,77 @@ for _, path in ipairs(roms) do
 end
 eq(#roms, 0, "ROM scanInbox finds no zip-only inbox entries")
 
+-- Stub LauncherMods.installZip for rescan tests (NXMOD-02..04)
+local installCalls = {}
+local installBehavior = {} -- path -> {ok=bool, id=string|err}
+package.loaded["src.mods.LauncherMods"] = {
+  installZip = function(source)
+    installCalls[#installCalls + 1] = source
+    local b = installBehavior[source]
+    if not b then return false, "unexpected source: " .. tostring(source) end
+    if b.ok then return true, b.id or "mod-id" end
+    return false, b.err or "bad zip"
+  end,
+}
+
+-- Empty inbox rescan → MTP notice, no install
+ri = freshImporter()
+installCalls = {}
+ri:rescanModsAction()
+eq(#installCalls, 0, "empty mods inbox does not call installZip")
+check(ri.modNotice ~= nil and ri.modNotice.text:find("imports/mods/", 1, true),
+  "empty rescan shows mods MTP notice")
+
+-- Success → refresh; zip retained (no remove)
+ri = freshImporter()
+installCalls = {}
+removed = {}
+love.filesystem.write("imports/mods/good.zip", "GOODZIP")
+installBehavior["imports/mods/good.zip"] = { ok = true, id = "good-mod" }
+ri:rescanModsAction()
+eq(#installCalls, 1, "success path calls installZip once")
+eq(installCalls[1], "imports/mods/good.zip", "installZip receives inbox path")
+check(ri._refreshed and ri._refreshed >= 1, "success refreshes mods list")
+check(ri.modNotice and ri.modNotice.ok, "success sets ok notice")
+check(not removed["imports/mods/good.zip"], "success retains inbox zip")
+check(love.filesystem.read("imports/mods/good.zip") == "GOODZIP",
+  "success leaves zip bytes in inbox")
+
+-- Failure → clear notice; zip retained
+ri = freshImporter()
+installCalls = {}
+removed = {}
+love.filesystem.write("imports/mods/bad.zip", "BADZIP")
+installBehavior["imports/mods/bad.zip"] = { ok = false, err = "missing manifest" }
+ri:rescanModsAction()
+eq(#installCalls, 1, "failure path still attempts installZip")
+check(ri.modNotice and not ri.modNotice.ok, "failure sets clear error notice")
+check(ri.modNotice.text:find("missing manifest", 1, true),
+  "failure notice includes installZip error")
+check(not removed["imports/mods/bad.zip"], "failure does not remove inbox zip")
+check(love.filesystem.read("imports/mods/bad.zip") == "BADZIP",
+  "failure leaves zip in inbox")
+
+-- Mixed valid/invalid: attempt each; no zip deleted
+ri = freshImporter()
+installCalls = {}
+removed = {}
+love.filesystem.write("imports/mods/a-bad.zip", "BAD")
+love.filesystem.write("imports/mods/b-good.zip", "GOOD")
+installBehavior["imports/mods/a-bad.zip"] = { ok = false, err = "no manifest" }
+installBehavior["imports/mods/b-good.zip"] = { ok = true, id = "b-mod" }
+ri:rescanModsAction()
+eq(#installCalls, 2, "mixed inbox attempts each zip")
+check(not removed["imports/mods/a-bad.zip"], "mixed: bad zip retained")
+check(not removed["imports/mods/b-good.zip"], "mixed: good zip retained")
+check(love.filesystem.read("imports/mods/a-bad.zip") ~= nil, "mixed bad still present")
+check(love.filesystem.read("imports/mods/b-good.zip") ~= nil, "mixed good still present")
+
 -- Cleanup + restore stubs
 clearModsInbox()
 love.filesystem.remove("imports/other.zip")
 love.filesystem.remove("imports/modpack.zip")
+package.loaded["src.mods.LauncherMods"] = nil
 love.system.getOS = saved.getOS
 love.filesystem.getSaveDirectory = saved.getSaveDirectory
 love.filesystem.createDirectory = saved.createDirectory
