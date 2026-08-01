@@ -406,6 +406,7 @@ end
 function love.focus(f)
   if editorMode or TouchEditor then return end
   if Importer then
+    require("src.core.Input"):reset()
     if Importer.focus then Importer:focus(f) end
     return
   end
@@ -415,7 +416,10 @@ end
 -- v is true when the window becomes visible again, false on minimize.
 function love.visible(v)
   if editorMode or TouchEditor then return end
-  if Importer then return end
+  if Importer then
+    require("src.core.Input"):reset()
+    return
+  end
   Game:visible(v)
 end
 
