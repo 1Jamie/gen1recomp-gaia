@@ -56,4 +56,18 @@ check(development:find("Non-macOS contributor MTP runbooks", 1, true) == nil,
 check(development:find("VoxelMod (and other community mods) OLED smoke still **pending**", 1, true) == nil,
   "development must not list VoxelMod smoke as pending")
 
+-- NXMOD-12 closed (XFER-07)
+local evidence = read("docs/switch-hardware-evidence.md")
+local nxStart = evidence:find("## NXMOD-12", 1, true)
+check(nxStart ~= nil, "NXMOD-12 section present")
+local nxmod = evidence:sub(nxStart)
+mustContain(nxmod, "**pass**", "NXMOD-12")
+mustContain(nxmod, "531", "NXMOD-12")
+mustContain(nxmod, "switch-oled-photos", "NXMOD-12")
+mustContain(nxmod, "IMG_1766.jpg", "NXMOD-12")
+mustContain(nxmod, "IMG_1771.jpg", "NXMOD-12")
+check(nxmod:find("Status | **pending**", 1, true) == nil
+  and nxmod:find("| **pending** |", 1, true) == nil,
+  "NXMOD-12 must not keep pending status/checklist")
+
 print("switch_transfer_docs_test: OK")
