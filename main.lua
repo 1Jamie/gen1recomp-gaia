@@ -177,7 +177,11 @@ local function bootGame(version)
   -- data, so data/generated + assets/generated resolve to that version's files.
   local GameVersion = require("src.core.GameVersion")
   GameVersion.set(version or os.getenv("POKEPORT_VERSION") or "red")
-  require("src.import.CacheFs").mountVersion(GameVersion.get())
+  local CacheFs = require("src.import.CacheFs")
+  -- Keep CacheFs.prefix aligned for any CacheFs.read fallback during Data:load
+  -- (Blue/Yellow caches live under blue/ / yellow/).
+  CacheFs.prefix = GameVersion.cachePrefix()
+  CacheFs.mountVersion(GameVersion.get())
   if love.window and love.window.setTitle then
     local Version = require("src.core.Version")
     love.window.setTitle(Version.title(

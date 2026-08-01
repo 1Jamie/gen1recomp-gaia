@@ -361,18 +361,15 @@ end
 
 -- Overlay the active version's extracted cache onto the un-prefixed read
 -- paths, so require("data.generated.*") and love.graphics.newImage(
--- "assets/generated/*") resolve to that version's files.  Red lives at the
--- cache root and needs nothing; non-Red versions (blue/, yellow/, …) are
--- *prepended* so they win over any Red copy at the root and over the game
--- source.  Called once at boot, before Game:load (main.lua).  Returns true
--- when nothing was needed or the mount succeeded.
+-- "assets/generated/*") resolve to that version's files.
 --
--- Fused builds also ship a `data/` tree (scripts, palettes) inside game.love.
--- PhysFS does not merge directories across archives: that `data/` can hide
--- `data/generated/` written to the save directory after ROM import.  Loose
--- play often still works (search order / mount layout differs); fused NX
--- Play-after-import then fails Data:load with a missing-module error.
--- Explicitly prepend-mount the generated subtrees so they win.
+-- Non-Red versions live under blue/ / yellow/ in the save directory.  On
+-- desktop fused+portable we PHYSFS_mount that folder by absolute path.  On
+-- NX (and any host without a working FFI mount) love.filesystem.mount of
+-- the save-dir-relative name must succeed, or Play boots with Red's paths
+-- and Data:load dies.  Always also prepend-mount the version's
+-- data/generated + assets/generated onto the un-prefixed paths so PhysFS
+-- directory non-merge (archive data/ vs save generated) cannot hide them.
 local function mountGeneratedTrees(prefix)
   prefix = prefix or ""
   if not (love and love.filesystem and love.filesystem.mount) then
@@ -396,30 +393,28 @@ end
 
 function CacheFs.mountVersion(version)
   local prefix = require("src.core.GameVersion").cachePrefix(version)
-  if prefix == "" then
-    mountGeneratedTrees("")
-    return true
+  local sub = prefix:gsub("/+$", "")
+
+  -- Save-dir relative mount first (NX / no-FFI). Prepend so blue|yellow win.
+  if sub ~= "" and love.filesystem.mount
+      and love.filesystem.getInfo(sub, "directory") then
+    love.filesystem.mount(sub, "", false)
   end
-  local sub = prefix:gsub("/+$", "")              -- "blue/" / "yellow/" -> bare dir
-  -- The cache root is the portable game folder when active, else LÖVE's OS
-  -- save directory (where love.filesystem wrote blue/... or yellow/...).
-  local base = CacheFs.root()
-  if not base and love.filesystem.getSaveDirectory then
-    base = love.filesystem.getSaveDirectory()
+
+  -- Portable / desktop fused: absolute PHYSFS_mount of the version folder.
+  if sub ~= "" then
+    local base = CacheFs.root()
+    if not base and love.filesystem.getSaveDirectory then
+      base = love.filesystem.getSaveDirectory()
+    end
+    if base then
+      mountReadable(base .. SEP .. sub, false)
+    end
   end
-  if not base then return false end
-  if mountReadable(base .. SEP .. sub, false) then
-    mountGeneratedTrees("")
-    return true
-  end
-  -- Fallback when FFI/PHYSFS_mount is unavailable: LÖVE can mount a folder
-  -- that lives in the save directory by name (prepended: appendToPath=false).
-  if love.filesystem.mount then
-    local ok = love.filesystem.mount(sub, "", false)
-    mountGeneratedTrees("")
-    return ok
-  end
-  return false
+
+  -- Version-scoped generated trees → un-prefixed paths (Red prefix is "").
+  mountGeneratedTrees(prefix)
+  return true
 end
 
 -- Undo mountVersion.  A process normally mounts exactly one version and then

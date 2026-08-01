@@ -160,6 +160,18 @@ stub.filesystem = {
     table.sort(items)
     return items
   end,
+  -- Record mounts for CacheFs.mountVersion tests (NX Blue/Yellow overlay).
+  _mounts = {},
+  mount = function(archive, mountpoint, appendToPath)
+    stub.filesystem._mounts[#stub.filesystem._mounts + 1] = {
+      archive = archive, mountpoint = mountpoint or "",
+      append = appendToPath and true or false,
+    }
+    return true
+  end,
+  unmount = function() return true end,
+  getSaveDirectory = function() return "/tmp/pokeport-stub-save" end,
+  isFused = function() return false end,
 }
 
 -- table-backed SoundData so ChipAudio's offline render seam

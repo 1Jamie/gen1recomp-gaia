@@ -198,11 +198,20 @@ local function loadModule(dir, name)
   end
   local ok, mod = pcall(require, "data.generated." .. name)
   if ok then return true, mod end
-  -- Fused PhysFS may hide save-dir data/generated behind the archive's
-  -- data/ tree even after mountVersion; load bytes explicitly as fallback.
+  -- Fused PhysFS / Blue|Yellow prefix: load bytes from the active version's
+  -- cache explicitly when require cannot see the mounted tree.
   local CacheFs = require("src.import.CacheFs")
-  local path = "data/generated/" .. name .. ".lua"
+  local GameVersion = require("src.core.GameVersion")
+  local prefix = GameVersion.cachePrefix()
+  local path = prefix .. "data/generated/" .. name .. ".lua"
+  local saved = CacheFs.prefix
+  CacheFs.prefix = ""
   local bytes = CacheFs.read(path)
+  CacheFs.prefix = saved
+  if type(bytes) ~= "string" then
+    -- Also try with CacheFs.prefix if the caller set it for this version.
+    bytes = CacheFs.read("data/generated/" .. name .. ".lua")
+  end
   if type(bytes) == "string" then
     local chunk, err = loadstring(bytes, "@" .. path)
     if not chunk then return false, err or mod end

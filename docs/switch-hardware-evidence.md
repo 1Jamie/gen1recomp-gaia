@@ -79,28 +79,26 @@ T19 hardware gate: **closed**. No stuck input, duplicate audio, or crash reporte
 
 ---
 
-## T24 — fused NRO alone + NRO-only update — PARTIAL / FAIL (Play)
+## T24 — fused NRO — Red PASS; Blue Play FAIL (open)
 
 | Field | Value |
 | ----- | ----- |
-| Commit tested | `6fb5602` |
-| Artifact | `dist/switch/gen1recomp-6fb5602-switch.nro` |
+| Commit (first fused attempt) | `6fb5602` |
+| Artifact | `gen1recomp-6fb5602-switch.nro` |
 | SHA-256 | `b019e2e82c7fe6ec3cf4339e1bc71e8752c8140b6242028bb0b662fcf20daac2` |
-| Deploy | isolated folder, **no** adjacent `game.love` |
-| MTP round-trip | skipped |
+| Deploy | isolated folder, no adjacent `game.love` |
 | Boot fused | **pass** |
-| ROM import (inbox) | **pass** |
-| Play after import | **fail** — app closed immediately |
+| ROM import | **pass** |
+| Play **Red** (operator follow-up) | **pass** — same import flow as loose; fused not the differentiator |
+| Play **Blue** (operator follow-up) | **fail** — app closed on Play (was mis-attributed to fused-only) |
 | NRO-only replace / save survive | **not tested** |
 
-### lua-error.log (operator)
+### Revised root cause
 
-Two events ~1 min apart; body was fully `<redacted>` because `redactString` treated newlines in stack traces as binary. Fix: allow TAB/LF/CR in diagnostics (`SwitchDiagnostics`).
+Blue/Yellow caches live under `blue/` / `yellow/`. `CacheFs.mountVersion` preferred absolute `PHYSFS_mount(save/blue)` (FFI), which fails on NX; the save-dir-relative `love.filesystem.mount("blue", …)` was only a fallback after that path assumed a usable `base`. Red (`cachePrefix == ""`) never needed that mount → Play OK.
 
-### Suspected root cause (fix in flight)
+### Fix follow-up
 
-Fused `game.love` contains a `data/` tree (scripts). PhysFS does not merge that with save-dir `data/generated/` after import → `Data:load` / `require("data.generated.*")` fails on Play while launcher `isReady` still sees CacheFs files. Loose mode search order differed enough that Play worked earlier.
+Mount save-dir-relative version folder first; always `mountGeneratedTrees(prefix)` for `blue/data/generated` → `data/generated`; set `CacheFs.prefix` in `bootGame`; Data:load reads version-prefixed cache on require miss.
 
-Mitigations: `CacheFs.mountVersion` prepend-mounts `data/generated` + `assets/generated`; `Data.loadModule` falls back to `CacheFs.read`+`loadstring`; Boot.run skips on NX (`networkValidated == false`).
-
-**T24 remains OPEN** until fused Play re-verify + NRO-only save test.
+**T24**: fused Red OK is evidence for fused boot/import/play(Red). Full T24 (NRO-only update) + Blue Play still need re-verify.
