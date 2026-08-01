@@ -64,7 +64,8 @@ mkdir -p "$CACHE" "$WORK" "$DIST/mac" "$DIST/win" "$DIST/linux"
 # love.filesystem's require path, so it has to live inside the archive.
 LOVE_FILE="$WORK/game.love"
 LOVE_LIST="$WORK/love-listing.txt"
-LOVE_FILE="$("$ROOT/scripts/pack_love.sh" --output "$LOVE_FILE" --listing "$LOVE_LIST")"
+# pack_love prints status on stdout; discard it and keep the known path.
+"$ROOT/scripts/pack_love.sh" --output "$LOVE_FILE" --listing "$LOVE_LIST" >/dev/null
 
 # ------------------------------------------------------- stamp release version
 # The working tree ships Version.lua with engine "0.0.0-dev"; the real release
