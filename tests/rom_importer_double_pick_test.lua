@@ -109,6 +109,28 @@ ri4.workState = "working"
 ri4:_pollPickedFiles(0.6)
 check(not fired4, "the poll stands down while an import is already running")
 
+-- 6. THE ACTUAL #553 CAUSE lives in main.lua, not here. On Android
+--    love.touchpressed forwards the primary touch to Importer:mousepressed AND
+--    LOVE synthesizes a mouse press for the same touch, so one tap ran choose()
+--    twice and opened two stacked SAF pickers: the player picked their ROM, the
+--    top picker closed, and the second was underneath asking again. main.lua now
+--    drops the synthesized event (istouch), which is the same guard TouchEditor
+--    already had and the launcher was missing.
+--
+--    Deliberately NOT deduped here: tests/engine/save_import_retry_bug420.lua
+--    and rom_pick_error_bug442.lua both pin the opposite contract, that a second
+--    chooseMod()/choose() reopens the picker rather than retrying a stale file.
+--    Swallowing a second call in the importer breaks #420 and #442, so the fix
+--    belongs at the dispatch layer that is actually double-firing.
+saveDir = {}
+local picks = 0
+love.system.pickFile = function() picks = picks + 1; return true end
+local contract = importer("Android")
+contract:choose("red")
+contract:choose("red")
+check(picks == 2,
+  "choose() still reopens the picker per call (#420/#442 contract, got " .. picks .. ")")
+
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile
 love.filesystem.getDirectoryItems = saved.getDirectoryItems

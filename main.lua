@@ -461,14 +461,27 @@ function love.wheelmoved(x, y)
   Game:wheelmoved(x, y)
 end
 
-function love.mousepressed(x, y, button)
+function love.mousepressed(x, y, button, istouch)
   if TouchEditor then
     -- Android primary touch already arrived via love.touchpressed; a second
     -- mouse path would double-fire Done / begin a second drag.
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousepressed(x, y, button)
   end
-  if Importer then return Importer:mousepressed(x, y, button) end
+  if Importer then
+    -- The same double-fire TouchEditor guards against, which the launcher was
+    -- missing: love.touchpressed above forwards the primary touch to the
+    -- Importer on Android, and LÖVE ALSO synthesizes a mouse press for that
+    -- same touch, so one tap ran every launcher button twice.  On Import that
+    -- meant two choose() calls and two stacked SAF picker activities: the
+    -- player picked their ROM, the top picker closed, and the second was still
+    -- underneath asking for it again, which is the "import the file twice"
+    -- in #553.  Filtering on istouch rather than on the OS keeps a real mouse
+    -- (DeX, a Chromebook, a USB mouse) working, which an Android-wide return
+    -- would have broken.
+    if istouch then return end
+    return Importer:mousepressed(x, y, button)
+  end
   if editorMode and EditorApp.mousepressed then
     return EditorApp.mousepressed(x, y, button)
   end
