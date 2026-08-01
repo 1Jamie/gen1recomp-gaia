@@ -3375,6 +3375,7 @@ runSuites({ "tests/platform_nx_shell_gate_test.lua" })
 runSuites({ "tests/platform_nx_network_gate_test.lua" })
 runSuites({ "tests/rom_importer_nx_flags_test.lua" })
 runSuites({ "tests/rom_importer_nx_inbox_test.lua" })
+runSuites({ "tests/rom_importer_nx_mods_inbox_test.lua" })
 -- ---------------------------------------------- parity workstream tests
 -- Each tests/parity_*.lua is a self-contained file (own bootstrap + check,
 -- error()s if any assertion fails).  Globbed, so dropping a new parity

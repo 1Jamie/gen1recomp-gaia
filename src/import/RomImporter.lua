@@ -330,6 +330,7 @@ local function commandOutput(command)
 end
 
 local IMPORTS_DIR = "imports"
+local MODS_INBOX_DIR = "imports/mods"
 local ROM_BYTES = 1024 * 1024
 
 -- Strip only a validated sdmc:/ prefix for OpenMTP/DBI relative paths.
@@ -349,6 +350,19 @@ function RomImporter:ensureImportsDir()
   return false
 end
 
+-- NX mod zip inbox (separate from ROM imports/). Parent imports/ first —
+-- love.filesystem.createDirectory does not create nested parents.
+function RomImporter:ensureModsInboxDir()
+  self:ensureImportsDir()
+  local info = love.filesystem.getInfo(MODS_INBOX_DIR)
+  if info and info.type == "directory" then return true end
+  if info then return false end
+  if love.filesystem.createDirectory then
+    return love.filesystem.createDirectory(MODS_INBOX_DIR)
+  end
+  return false
+end
+
 function RomImporter:_setNxInboxNotice(version)
   version = version or self.tab or "red"
   local saveDir = love.filesystem.getSaveDirectory()
@@ -358,6 +372,17 @@ function RomImporter:_setNxInboxNotice(version)
     version = version,
     status = Strings("Copy your .gb/.gbc into:"),
     detail = Strings("%s/imports/\nDBI MTP → 1: SD Card/%simports/", saveDir, rel),
+  }
+end
+
+function RomImporter:_setNxModsInboxNotice()
+  local saveDir = love.filesystem.getSaveDirectory()
+  local rel = RomImporter.mtpHintPath(saveDir)
+  if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+  self.modNotice = {
+    ok = true,
+    text = Strings("Copy your .zip into:\n%s/imports/mods/\nDBI MTP → 1: SD Card/%simports/mods/",
+      saveDir, rel),
   }
 end
 
