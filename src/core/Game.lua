@@ -634,6 +634,23 @@ function Game:applyOptions(opts)
   -- normalizes a nil/garbage cap to the 60 default, so old saves with no
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)
+  -- Scale the optional presentation extras to the device's performance
+  -- tier.  Every heavy feature was just applied from the stored options
+  -- above; here we clamp the *live* state down for a weaker device without
+  -- rewriting what the player saved, so raising the tier later restores
+  -- their exact TILT / GBC FX / ZOOM / MAX FPS choices.  A HIGH tier (the
+  -- default on a normal desktop, and every options.lua predating this
+  -- option) clamps nothing, so it is a no-op for the common case.
+  local caps = require("src.core.Performance").applyOptions(opts)
+  if not caps.tilt then require("src.render.Tilt").setLevel(0) end
+  if not caps.gbcfx then require("src.render.GBCFX").setLevel(0) end
+  local Zoom = require("src.render.Zoom")
+  Zoom.allowSurvey = caps.survey
+  if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
+  if caps.fpsMax then
+    local FrameCap = require("src.core.FrameCap")
+    if FrameCap.current > caps.fpsMax then FrameCap.apply(caps.fpsMax) end
+  end
   Input:applyBindings(opts.bindings)
   TouchControls:applyOptions(opts)
   -- heal soft-bricked APK installs that already saved gbcfx > 0 (#136)

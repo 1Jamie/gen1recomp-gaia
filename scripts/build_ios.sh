@@ -243,6 +243,7 @@ pack_game_love() {
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
+    tools/rom_manifest_yellow.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # NOTE: grep -q here would race pipefail — it exits on first match, unzip
@@ -252,8 +253,19 @@ pack_game_love() {
       | grep -E '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' >/dev/null; then
     fail "game.love unexpectedly contains generated ROM data"
   fi
-  unzip -Z1 "$LOVE_FILE" | grep -x 'tools/save-editor/App.lua' >/dev/null \
-    || fail "game.love is missing the save editor (Edit on a save row would crash)"
+  # Same required-file gate as scripts/build.sh and scripts/build_android.sh.
+  # iOS only checked App.lua, which is why the Yellow manifest shipped missing
+  # in 0.1.45 through 0.1.47: decodeManifest (src/import/RomImporter.lua) errors
+  # outright when a version's manifest is absent, so Import ROM on Yellow died
+  # in the built app while dev, which reads the source tree, stayed green.
+  archive_entries="$(unzip -Z1 "$LOVE_FILE")"
+  for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
+                  tools/save-editor/panels/Party.lua \
+                  tools/rom_manifest.json tools/rom_manifest_blue.json \
+                  tools/rom_manifest_yellow.json; do
+    printf '%s\n' "$archive_entries" | grep -qx "$required" \
+      || fail "game.love is missing $required"
+  done
   say "game.love: $(du -h "$LOVE_FILE" | cut -f1) -> $LOVE_FILE"
 }
 
@@ -348,6 +360,43 @@ PY
 }
 
 # --------------------------------------------------------------- xcodebuild
+# love.system.pickFile and createFile are a native bridge compiled in by
+# mobile/ios/patch_love_src.py, not part of LÖVE.  A build that skipped the
+# patch still links and still runs, then finds the field nil the moment anyone
+# taps Import ROM (#482).  #539 made that degrade to the copy-into-Files flow
+# rather than crash, which is the right floor, but a build with no picker at all
+# is a silent downgrade, so fail here instead of shipping one.
+#
+# Checked against the built binary rather than the source, because patching
+# love-src proves nothing about what Xcode actually compiled: the shipped
+# 0.1.45/0.1.46/0.1.47 IPAs all DO carry the bridge, so the reports that blamed
+# a missing patch step were self-built IPAs, exactly the case this catches.
+verify_native_bridge() {
+  local app="$1"
+  local exe bin missing=""
+  exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+         "$app/Info.plist" 2>/dev/null || true)"
+  bin="$app/${exe:-love}"
+  [ -f "$bin" ] || bin="$app/love"
+  if [ ! -f "$bin" ]; then
+    warn "no executable inside $(basename "$app"); skipping native bridge check"
+    return 0
+  fi
+  # grep -q here would race pipefail the same way pack_game_love documents:
+  # it exits on first match, strings dies of SIGPIPE, the pipeline "fails"
+  # nondeterministically.  >/dev/null keeps grep reading the whole stream.
+  for sym in pickFile createFile; do
+    strings -a "$bin" | grep -x "$sym" >/dev/null || missing="$missing $sym"
+  done
+  if [ -n "$missing" ]; then
+    fail "built app has no native bridge (missing:$missing).
+  Import ROM would fall back to copy-into-Files instead of opening the picker.
+  mobile/ios/patch_love_src.py did not take. Re-run:
+    scripts/build_ios.sh --fetch && scripts/build_ios.sh"
+  fi
+  say "native bridge present (pickFile, createFile)"
+}
+
 run_xcodebuild() {
   local config sdk destination
   if $RELEASE; then
@@ -454,6 +503,8 @@ run_xcodebuild() {
     say "fusing game.love into $(basename "$app")"
     cp "$LOVE_FILE" "$app/game.love"
   fi
+
+  verify_native_bridge "$app"
 
   local dist_dir="$DIST/${config}-${sdk}"
   rm -rf "$dist_dir"

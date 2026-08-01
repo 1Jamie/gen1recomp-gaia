@@ -5,6 +5,25 @@ local HostShell = require("src.core.HostShell")
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
+-- love.system.pickFile is a NATIVE BRIDGE, not part of LÖVE: it exists only on
+-- builds that compiled one (Android, and iOS builds patched by
+-- mobile/ios/patch_love_src.py). A build without it must fall back to the
+-- copy-it-into-the-save-folder flow that every caller below already has --
+-- calling the nil field instead took the whole app down the moment the player
+-- pressed Import ROM:
+--
+--   src/import/RomImporter.lua: attempt to call field 'pickFile' (a nil value)
+--
+-- love.system.createFile was already guarded this way at its one call site;
+-- these three were not. Every caller here treats `false` as "no picker
+-- available" and shows its own notice, so a missing bridge now degrades to
+-- exactly the path a picker-less Android device has always taken.
+local function pickFile(...)
+  local fn = love.system.pickFile
+  if not fn then return false end
+  return fn(...) and true or false
+end
+
 -- Cache generation tag; bump to force every imported version to re-extract.
 -- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
@@ -555,10 +574,16 @@ function RomImporter.new(onComplete, opts)
     onEditTouchControls = opts.onEditTouchControls,
     android = android,
     ios = mobileOS == "iOS",
-    -- One startup poll pass: files dropped through the Files app are swept
-    -- into the save dir before Lua boots (GRBootstrap), but no love.focus
-    -- event necessarily follows, so consume them via the first poll tick.
-    pickPending = mobileOS == "iOS" or nil,
+    -- One startup poll pass on both mobiles.  iOS: files dropped through the
+    -- Files app are swept into the save dir before Lua boots (GRBootstrap) with
+    -- no love.focus event necessarily following.  Android: the SAF picker is a
+    -- separate activity, and Android is free to destroy GameActivity while it
+    -- is up (memory pressure, or "Don't keep activities"), so the app RESTARTS
+    -- instead of resuming and the love.focus(true) that would have consumed the
+    -- pick never arrives.  The file is sitting in the save dir either way, so
+    -- boot armed and let the first poll tick consume it, rather than making the
+    -- player tap Import a second time to trigger the scan by hand (#553).
+    pickPending = android or nil,
     -- Android drag: the launcher is handed no move events at all (main.lua
     -- forwards neither touchmoved nor mousemoved while it is up), and its mouse
     -- emulation is what "no reliable pointer polling" below refers to.
@@ -986,12 +1011,13 @@ function RomImporter:chooseMod()
         self.modNotice and self.modNotice.ok)
       return
     end
-    if not love.system.pickFile("mod") then
+    if not pickFile("mod") then
       self.modNotice = { ok = false,
         text = "Could not open the file picker. Copy a mod .zip via USB." }
     else
       self.pickPending = true
       self.pickTimer = 0
+      self.pickElapsed = 0
     end
     return
   end
@@ -1049,13 +1075,14 @@ function RomImporter:chooseSaveImport(version)
       return
     end
     self.androidPendingVersion = version
-    if not love.system.pickFile("sav") then
+    if not pickFile("sav") then
       self.androidPendingVersion = nil
       self.saveNotice[version] = { ok = false,
         text = "Could not open the file picker. Copy a .sav via USB." }
     else
       self.pickPending = true
       self.pickTimer = 0
+      self.pickElapsed = 0
     end
     return
   end
@@ -1094,6 +1121,7 @@ function RomImporter:exportSave(version)
     if love.system.createFile and love.system.createFile(suggested) then
       self.pickPending = true
       self.pickTimer = 0
+      self.pickElapsed = 0
       self.saveNotice[version] = { ok = true,
         text = "Pick where to save " .. suggested .. "..." }
     else
@@ -1137,7 +1165,7 @@ function RomImporter:choose(version)
       self:startData(data, name)
     elseif consumePickedRomError(self) then
       return   -- a rejected pick explains itself instead of silently reopening
-    elseif not love.system.pickFile() then
+    elseif not pickFile() then
       -- Picker unavailable (API < 19, or no document-picker app installed):
       -- fall back to the USB folder-drop path as a friendly notice, not an
       -- error (which would read as a rejected file).
@@ -1149,6 +1177,7 @@ function RomImporter:choose(version)
     else
       self.pickPending = true
       self.pickTimer = 0
+      self.pickElapsed = 0
     end
     return
   end
@@ -1183,14 +1212,31 @@ function RomImporter:choose(version)
   end
 end
 
--- iOS: the document picker is an in-process modal sheet, so unlike Android's
--- separate SAF activity there is no love.focus(true) when it dismisses.
--- While a pick is outstanding, poll the save dir for the bridge's delivered
--- file (picked_rom.gb / picked_mod.zip / picked_save.sav / export_done.flag)
--- and run the same refocus import path Android uses.
+-- Poll the save dir for a delivered pick (picked_rom.gb / picked_mod.zip /
+-- picked_save.sav / export_done.flag) and run the same import path a refocus
+-- runs.  Both mobiles need this, for different reasons:
+--
+--   iOS     the document picker is an in-process modal sheet, so there is no
+--           love.focus(true) when it dismisses -- nothing else would consume it.
+--   Android the SAF picker IS a separate activity and normally does refocus,
+--           but Android may destroy GameActivity while it is up, in which case
+--           the app restarts and that focus event never comes.  Polling makes
+--           the outcome the same either way instead of leaving the pick on disk
+--           for the next tap to find, which is what made users import twice and
+--           what made it look random: it depends on memory pressure (#553).
+--
+-- Disarms after PICK_TIMEOUT so a cancelled picker (which delivers nothing,
+-- ever) does not leave this scanning the save directory for the whole session.
+local PICK_TIMEOUT = 120
+
 function RomImporter:_pollPickedFiles(dt)
-  if not (self.ios and self.pickPending) then return end
+  if not self.pickPending then return end
   if self.workState == "working" then return end
+  self.pickElapsed = (self.pickElapsed or 0) + dt
+  if self.pickElapsed > PICK_TIMEOUT then
+    self.pickPending, self.pickElapsed = nil, nil
+    return
+  end
   self.pickTimer = (self.pickTimer or 0) + dt
   if self.pickTimer < 0.5 then return end
   self.pickTimer = 0
@@ -1200,7 +1246,7 @@ function RomImporter:_pollPickedFiles(dt)
   local pickError = love.filesystem.read("pick_error.txt")
   if pickError then
     love.filesystem.remove("pick_error.txt")
-    self.pickPending = nil
+    self.pickPending, self.pickElapsed = nil, nil
     self.modNotice = { ok = false, text = pickError }
     self.notice = { version = self.chooseVersion or "red",
                     status = "File import failed:", detail = pickError }
@@ -1217,7 +1263,7 @@ function RomImporter:_pollPickedFiles(dt)
     end
   end
   if found then
-    self.pickPending = nil
+    self.pickPending, self.pickElapsed = nil, nil
     self:focus(true)
   end
 end
