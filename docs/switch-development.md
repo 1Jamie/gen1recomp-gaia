@@ -1,6 +1,80 @@
 # Nintendo Switch development (love-nx)
 
-Gen1Recomp on Nintendo Switch runs on a pinned [love-nx](https://github.com/retronx-team/love-nx) runtime. This document covers vendor layout, fetch instructions, and the Mac ↔ Switch transfer workflow.
+> **Status: work in progress — not a finished Switch release.**  
+> Tracks experimental support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531). Expect rough edges, manual steps, and host-specific contributor tooling. Do not treat this as a packaged product yet.
+
+Gen1Recomp on Nintendo Switch runs on a pinned [love-nx](https://github.com/retronx-team/love-nx) runtime. This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the current contributor transfer loop.
+
+## Current status (honest)
+
+| Area | State |
+| ---- | ----- |
+| Feature completeness | **In development** — playable P0 path on one console; not finished or release-gated |
+| Runtime | Pinned love-nx **`11.5-nx1`** |
+| Product artifact goal | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
+| Hardware validated | **Nintendo Switch OLED only** (title override / full memory). Original Switch, Lite, docked mode, and other hosts are **untested** |
+| Deploy / install | **Fully manual** today — build on a host, copy artifacts by hand; no CI Switch job, no one-click installer, no `nxlink`/netloader path |
+| Contributor host used | **macOS + OpenMTP + DBI MTP** (see below — temporary coupling) |
+| Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
+| Community help | Welcome — especially from people familiar with HOS / love-nx / Switch homebrew packaging |
+
+### What this branch already does
+
+- Detect `NX` via `src/core/Platform.lua` without reusing Android flags
+- Writable ROM inbox under `getSaveDirectory()/imports/` + “Procurar novamente”
+- Joy-Con / gamepad mapping shared by launcher and gameplay (Nintendo A/B UX on NX)
+- Focus loss / joystick reconnect recovery; opt-in `switch-debug.txt` diagnostics
+- Loose assemble + fused NRO build scripts (`scripts/build_switch.sh`, `scripts/switch/*`)
+- Payload gates so ROM / generated cache / saves never enter `game.love`
+- Community mod zip inbox at `imports/mods/` (rescan installs; FIND MODS stays network-gated)
+- Select+face display chords (COLORS / TILT / pipelines) on Joy-Con
+- Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
+
+### What is still unfinished / out of this draft
+
+- Official release packaging and automated Switch CI
+- Cross-host contributor docs (Linux/Windows MTP clients) and less Mac-centric language in player-facing UX
+- Docked vs handheld soak, long-play soak, non-OLED hardware
+- Pro Controller / third-party pad matrices beyond the OLED Joy-Con path already measured
+- VoxelMod (and other community mods) OLED smoke still **pending** in the evidence scaffold
+- Applet Mode remains unsupported by design (title override required)
+
+## Design references (Dusklight)
+
+This work borrowed method — not the native stack — from the [Dusklight Switch port](https://github.com/HayatoG/dusklight/tree/main/platforms/switch), especially [`LESSONS_AND_REUSE.md`](https://github.com/HayatoG/dusklight/blob/main/platforms/switch/LESSONS_AND_REUSE.md):
+
+| Dusklight lesson | How Gen1Recomp applied it |
+| ---------------- | ------------------------- |
+| Emulators hide Tegra failures | Gate milestones on **real OLED hardware**, not Ryujinx/Yuzu alone |
+| Prove the lower layer first | `tools/switch-probe` before full launcher |
+| Know which binary ran | Embedded `build-info.json` (commit / love-nx tag) |
+| Cap continuous logs | Opt-in diagnostics, ≤1 Hz flush; Lua error log rotation |
+| Crash symbolization needs the exact ELF | Keep pinned `love.elf` with the NRO under test |
+| Full memory matters | Title override; Applet Mode is not the validation path |
+| Do not treat SD FS like desktop POSIX | Lua stays on `love.filesystem`; inbox + MTP for user files |
+| Isolate platform code | Capability module instead of Android flag overload |
+| NVK / WSI / `audren` stacks | **Not** copied — love-nx already supplies video/audio/input/FS |
+
+Goal for a finished release is closer to Dusklight’s **single self-contained `.nro`**, not a permanent Mac-only contributor toolchain.
+
+## Known limitations (read before reviewing)
+
+1. **Mac + OpenMTP coupling is a current contributor workflow, not the final product contract.** Runtime only needs files under the LÖVE save directory / NRO install folder. Players on other OSes should eventually use any reliable MTP (or future) path that lands files in the same places. Today’s runbook documents the operator’s Mac loop because that is what was actually used and tested — do not freeze “macOS + OpenMTP only” into the shipped UX.
+2. **Deploy is manual.** There is no automated push to the console. Operators build locally, open DBI MTP, copy with a client, exit MTP, then title-override launch. That is intentional for this draft and should improve before a real Switch release.
+3. **OLED-only evidence.** All pass rows in the P0/P1 matrix were recorded on one Switch OLED. Treat other hardware as unknown until someone re-runs the checklist.
+4. **No ROM/save/mod zip bytes in git.** Legal dumps and third-party mods stay on the console (or local untracked folders).
+5. **AppleDouble sidecars** (`._*`) from macOS MTP clients can break zip/ROM scans — the launcher skips hidden `.*` names; still prefer clean copies.
+
+## How we tested
+
+| Layer | What | Where |
+| ----- | ---- | ----- |
+| Unit / headless | Platform NX flags, RomImporter inbox, dual-path input, mod zip inbox, display chords, payload/self-tests | `tests/*`, `scripts/test.sh` |
+| Probe on hardware | `getOS()==NX`, 1280×720, save path, Joy-Con events | `tools/switch-probe` → OLED |
+| Integration on hardware | MTP inbox ROM import, Play Red/Blue, naming A/B, quit/reopen save, suspend×10, reboot, fused NRO alone + NRO-only update | `docs/switch-hardware-evidence.md` |
+| Not done yet | Docked soak, ≥30 min long-play, non-OLED, automated deploy, VoxelMod smoke fill-in | Matrix deferred / pending rows |
+
+Operator evidence must stay in `docs/switch-hardware-evidence.md`. **Do not invent passes** for hardware not run.
 
 ## love-nx 11.5-nx1 (pinned)
 
@@ -50,24 +124,35 @@ scripts/build_switch.sh --loose
 
 (See `scripts/switch/assemble_loose.sh` for the underlying copy + checksum step.)
 
-## Transfer policy (mandatory)
+## Transfer & deploy (current contributor loop)
 
-Mac ↔ Switch file movement uses **USB/MTP only**:
+### Product intent vs today’s tooling
 
-- **Switch:** DBI → `Run MTP responder`
-- **Mac:** [OpenMTP](https://github.com/ganeshrvel/openmtp) (Apple Silicon build)
-- **Destination root:** `1: SD Card/switch/gen1recomp/`
+| Layer | Intent |
+| ----- | ------ |
+| **Runtime / players** | Put the NRO under `sdmc:/switch/gen1recomp/` (or equivalent) and land ROMs/mods under the save-dir inboxes. The game does not hard-depend on OpenMTP or macOS. |
+| **This draft’s operator loop** | Manual USB MTP via **DBI → `Run MTP responder`** on the Switch and **[OpenMTP](https://github.com/ganeshrvel/openmtp)** on the Mac used for development. Fully manual — no CI deploy, no scripted push. |
 
-**Forbidden for this project** (do not use as workarounds):
+Treat the Mac + OpenMTP steps below as **documented operator procedure for reproducing OLED evidence**, not as a permanent “Switch port requires macOS” product rule. Contributions that add Linux/Windows MTP notes or safer automated deploy (without smuggling ROMs into git) are welcome.
 
-- Removing the microSD card to mount it on the Mac (`/Volumes/…`, Finder copy)
-- FTP / Sphaira / any network file share to the Switch
-- `nxlink` / netloader deploy
-- DBI `MicroSD install`, `NAND install`, or other virtual install folders (NSP/NSZ/XCI paths)
+**Still avoided in this draft’s evidence workflow** (keeps SD in-console and avoids false POSIX `/Volumes` assumptions while iterating):
 
-If MTP fails, diagnose cable, USB port, DBI state, and OpenMTP exclusivity — do not silently fall back to forbidden methods.
+- Removing the microSD card to mount it on the host for routine deploys
+- Relying on FTP / Sphaira / ad-hoc network shares as the only verified path for this branch’s hashes
+- Treating `nxlink` / netloader as the release deploy story (not wired here yet)
+- DBI `MicroSD install` / `NAND install` / NSP-style virtual folders for the `.love`/`.nro` pair
 
-## OpenMTP + DBI transfer (loose build)
+If MTP fails on the Mac loop: check cable, USB port, DBI state, and that only one MTP client holds the device — then retry. Do not silently rewrite evidence using an untested path and claim parity with the recorded SHA-256 round-trips.
+
+### Manual deploy checklist (today)
+
+1. Build on the contributor host (`scripts/build_switch.sh --loose` or fused).
+2. Close Gen1Recomp on the Switch; open DBI → `Run MTP responder`.
+3. Copy artifacts with your MTP client into `1: SD Card/switch/gen1recomp/` (and ROMs/mods into the save-dir inboxes when needed).
+4. Wait for the transfer queue; refresh; optionally round-trip SHA-256 on first artifacts of a type.
+5. Exit MTP; launch via **title override** (hold **R** on a title → hbmenu, not Applet Mode).
+
+## OpenMTP + DBI transfer (loose build, Mac operator)
 
 ### On the Switch
 
@@ -159,7 +244,8 @@ Complete **in order** on OLED hardware. Operator fills evidence fields — leave
 | P0-1c | Title override → launcher reaches import screen | yes | |
 | P0-1d | Joy-Con: can navigate launcher (no touch-only) | yes | Full report: `docs/switch-hardware-evidence.md` |
 
-**Operator:** Andrew **Date:** 2026-08-01 **Console:** Switch OLED  
+**Operator:** Andrew **Date:** 2026-08-01 **Console:** Switch OLED only  
+**Deploy:** manual Mac + OpenMTP + DBI MTP (not automated)  
 **love-nx tag:** 11.5-nx1 **gen1recomp commit:** `df7cea4`
 
 ## Phase 0 test report template
@@ -245,7 +331,7 @@ Community mods install from a **separate** MTP inbox (not mixed into the ROM `im
 
 Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.
 
-**MTP tip (Mac):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb`. Those are not real archives or ROMs — the launcher ignores hidden `.*` names under both `imports/` and `imports/mods/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure).
+**MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb`. Those are not real archives or ROMs — the launcher ignores hidden `.*` names under both `imports/` and `imports/mods/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
 
 **Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable.
 
@@ -277,9 +363,9 @@ On any uncaught Lua error, Gen1Recomp appends a redacted trace to `lua-error.log
 
 ## Native crash triage (love-nx / Atmosphère)
 
-love-nx native faults land under the console’s `crash_reports/` folder on SD (reachable via the same MTP workflow as game deploys).
+love-nx native faults land under the console’s `crash_reports/` folder on SD (reachable via the same manual MTP workflow used for game deploys).
 
-1. **Collect** — DBI → `Run MTP responder`; copy `sdmc:/crash_reports/*.bin` (or the dated subfolder) to the Mac. Do **not** remove the microSD card.
+1. **Collect** — DBI → `Run MTP responder`; copy `sdmc:/crash_reports/*.bin` (or the dated subfolder) to the contributor host. Prefer keeping the microSD in-console for routine pulls during this draft.
 2. **Redact** — delete any attached screenshots or notes that mention ROM filenames, save paths, or private hashes before sharing logs publicly.
 3. **Symbolize** — use the **pinned** `love.elf` from `.bazinga/love-nx/11.5-nx1/` that matches `build-info.json` / `scripts/switch/love-nx-11.5-nx1.sha256`. Never use a “latest” download.
 
@@ -317,10 +403,15 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P1-03 | Long-play soak (≥30 min) | **deferred** | No soak session recorded |
 | P1-04 | Reboot persistence | **pass** | T19 |
 | P1-05 | Audio resume after suspend | **pass** | T19 (no dup audio reported) |
+| — | Non-OLED hardware (original / Lite) | **untested** | OLED-only evidence so far |
+| — | Automated / scripted deploy | **absent** | Manual MTP only in this draft |
+| — | Non-macOS contributor MTP runbooks | **absent** | Mac+OpenMTP documented as operator loop only |
 
-## Upstream contribution outline (ADR §11)
+## Upstream contribution outline
 
-Split the eventual upstream PR into three reviewable slices. Each PR must declare: **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed**, **Applet Mode unsupported**, **network/updater disabled on NX**.
+This draft PR may still be a single large review; maintainers can split later. Suggested review slices:
+
+Each slice should declare: **WIP / not finished**, **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed (OLED only so far)**, **Applet Mode unsupported**, **network/updater disabled on NX**, **deploy still manual**, **Mac+OpenMTP is contributor tooling not the final product contract**.
 
 ### PR 1 — Platform + import (`platform/import`)
 

@@ -1,11 +1,14 @@
 # Switch hardware evidence (Phase 0 + import + input)
 
+> **WIP evidence log.** All passes below were recorded on **one Nintendo Switch OLED** with a **manual** Mac → DBI MTP deploy loop. They do **not** claim support for original Switch, Lite, docked soak, or automated install. See `docs/switch-development.md` for status and limitations.
+
 **love-nx:** `11.5-nx1`  
-**Console:** Switch OLED  
+**Console:** Switch OLED **only** (no other hardware in this log)  
+**Deploy method:** manual OpenMTP + DBI `Run MTP responder` (no CI / no nxlink)  
 **Operator:** Andrew  
 **Date:** 2026-08-01  
 
-Do **not** commit ROM dumps or private dump hashes.
+Do **not** commit ROM dumps or private dump hashes. Do **not** mark a row **pass** without hardware notes for that row.
 
 ---
 

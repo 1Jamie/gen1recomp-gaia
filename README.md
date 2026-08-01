@@ -202,6 +202,23 @@ ships with every release as `gen1recomp-*-rg34xxsp-stockos64-mod.zip`.
 Install steps, controls, and troubleshooting live in
 [docs/anbernic-rg34xxsp.md](docs/anbernic-rg34xxsp.md).
 
+## Nintendo Switch (experimental)
+
+**Work in progress** toward issue
+[#531](https://github.com/bryanthaboi/gen1recomp/issues/531) — not a finished
+or officially packaged Switch release yet. Runtime target is pinned
+[love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`. Hardware
+evidence so far is **Switch OLED only**; build/deploy is still **manual**.
+The contributor loop used for that evidence is currently Mac + OpenMTP + DBI
+MTP — that host coupling is temporary tooling, not the intended final product
+contract.
+
+Start with [docs/switch-development.md](docs/switch-development.md) (status,
+Dusklight-derived method, limitations, how we tested) and
+[docs/switch-hardware-evidence.md](docs/switch-hardware-evidence.md) (OLED
+pass/fail log). Help from the community — especially people comfortable with
+HOS / love-nx packaging — is welcome.
+
 ## Modding
 
 The game ships a native mod platform: content registries, events and hooks,

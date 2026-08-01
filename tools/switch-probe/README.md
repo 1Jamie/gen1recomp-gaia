@@ -4,12 +4,14 @@
 
 ## Purpose
 
-Validate Phase 0 runtime facts on OLED hardware before running the full Gen1Recomp launcher:
+Validate Phase 0 runtime facts on real Switch hardware before running the full Gen1Recomp launcher:
 
 - `love.system.getOS()` (expect `NX` on Switch)
 - Window dimensions (`love.graphics.getDimensions()`)
 - Save directory path (`love.filesystem.getSaveDirectory()`)
 - Gamepad / joystick / touch event logging
+
+To date this probe has only been run on **Switch OLED** (see `docs/switch-hardware-evidence.md`); other models are untested. Deploy beside `gen1recomp.nro` remains **manual** (MTP); see `docs/switch-development.md`.
 
 ## Fields shown on screen
 
