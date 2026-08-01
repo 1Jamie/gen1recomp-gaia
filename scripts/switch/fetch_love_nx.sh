@@ -15,7 +15,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOVE_NX_TAG="11.5-nx1"
 LOVE_NX_DIR="$ROOT/.bazinga/love-nx/$LOVE_NX_TAG"
 MANIFEST="$ROOT/scripts/switch/love-nx-11.5-nx1.sha256"
-BASE_URL="https://github.com/retronx-team/love-nx/releases/download/${LOVE_NX_TAG}"
+# Override for offline selftests (never used in release/docs as the default).
+BASE_URL="${GEN1_LOVE_NX_BASE_URL:-https://github.com/retronx-team/love-nx/releases/download/${LOVE_NX_TAG}}"
+
+fail_download() {
+  local url="$1"
+  local detail="$2"
+  rm -f "${3:-}"
+  fail "download failed: $url
+  detail: $detail
+  retry: scripts/build_switch.sh --fetch
+  See docs/switch-build.md (mode --fetch)."
+}
 
 read_manifest_hash() {
   local name="$1"
@@ -29,15 +40,35 @@ read_manifest_hash() {
   printf '%s' "$hash"
 }
 
+# Downloads url → dest. On failure prints structured error (URL, tool status, retry).
 download_file() {
   local url="$1"
   local dest="$2"
+  local rc=0 http_code errf
+
   if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --retry-delay 1 -o "$dest" "$url"
+    errf="$(mktemp "${TMPDIR:-/tmp}/love-nx-curl.XXXXXX")"
+    http_code="$(curl -fL --retry 3 --retry-delay 1 -o "$dest" -w '%{http_code}' \
+      "$url" 2>"$errf")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      fail_download "$url" \
+        "curl exit $rc; HTTP status ${http_code:-unknown}; $(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')" \
+        "$dest"
+    fi
+    rm -f "$errf"
   elif command -v wget >/dev/null 2>&1; then
-    wget -O "$dest" "$url"
+    errf="$(mktemp "${TMPDIR:-/tmp}/love-nx-wget.XXXXXX")"
+    wget -O "$dest" "$url" 2>"$errf" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      fail_download "$url" \
+        "wget exit $rc; $(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')" \
+        "$dest"
+    fi
+    rm -f "$errf"
   else
-    fail "need curl or wget to download love-nx"
+    fail "need curl or wget to download love-nx
+  retry: scripts/build_switch.sh --fetch
+  See docs/switch-build.md (mode --fetch)."
   fi
 }
 
@@ -62,15 +93,14 @@ fetch_one() {
   mkdir -p "$LOVE_NX_DIR"
   tmp="$(mktemp "${TMPDIR:-/tmp}/love-nx-${name}.XXXXXX")"
   say "downloading $name"
-  if ! download_file "$url" "$tmp"; then
-    rm -f "$tmp"
-    fail "download failed: $url"
-  fi
+  # download_file fails the script with fail_download (URL + status + retry).
+  download_file "$url" "$tmp"
 
   actual="$(sha256_file "$tmp")"
   if [ "$actual" != "$expected" ]; then
     rm -f "$tmp"
-    fail "$name checksum mismatch (expected $expected, got $actual) — $url"
+    fail "$name checksum mismatch (expected $expected, got $actual) — $url
+  retry: scripts/build_switch.sh --fetch"
   fi
 
   mv "$tmp" "$dest"

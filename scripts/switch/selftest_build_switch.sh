@@ -51,8 +51,10 @@ MISSING=""
 printf '%s' "$HELP_LC" | grep -q 'fetch' || MISSING="${MISSING} fetch"
 printf '%s' "$HELP_LC" | grep -q 'loose' || MISSING="${MISSING} loose"
 printf '%s' "$HELP_LC" | grep -q 'fused' || MISSING="${MISSING} fused"
+printf '%s' "$HELP_LC" | grep -Eq 'auto-download|downloads' || MISSING="${MISSING} auto-download"
+printf '%s' "$HELP_LC" | grep -Eq 'non-goal|does not|never' || MISSING="${MISSING} non-goals"
 if [ -z "$MISSING" ]; then
-  ok "build_switch.sh --help mentions fetch, loose, fused"
+  ok "build_switch.sh --help mentions fetch, loose, fused (+ auto-download/non-goals)"
 else
   bad "build_switch.sh --help missing:$MISSING"
 fi
@@ -148,6 +150,33 @@ if [ -f "$PIN_DIR/love.nro" ] && [ -f "$PIN_DIR/love.elf" ]; then
   fi
 else
   ok "fetch idempotent skipped (no local pin binaries; offline)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5b2. Mid-fetch / network failure: URL + tool status + retry --fetch (SWBLD-05)
+# ---------------------------------------------------------------------------
+FETCH_FAIL_ERR="$STAGING/fetch-fail.err"
+FETCH_FAIL_OUT="$STAGING/fetch-fail.out"
+FETCH_FAIL_RC=0
+PIN_MOVED=""
+if [ -d "$PIN_DIR" ]; then
+  PIN_MOVED="$STAGING/pin-backup"
+  mv "$PIN_DIR" "$PIN_MOVED"
+fi
+# Closed port / unreachable host — no real network asset required.
+GEN1_LOVE_NX_BASE_URL="http://127.0.0.1:1" \
+  "$ROOT/scripts/switch/fetch_love_nx.sh" >"$FETCH_FAIL_OUT" 2>"$FETCH_FAIL_ERR" || FETCH_FAIL_RC=$?
+if [ -n "$PIN_MOVED" ]; then
+  rm -rf "$PIN_DIR"
+  mv "$PIN_MOVED" "$PIN_DIR"
+fi
+if [ "$FETCH_FAIL_RC" -ne 0 ] \
+  && grep -q 'download failed:' "$FETCH_FAIL_ERR" \
+  && grep -Eq 'curl exit|wget exit|HTTP status' "$FETCH_FAIL_ERR" \
+  && grep -q 'retry: scripts/build_switch.sh --fetch' "$FETCH_FAIL_ERR"; then
+  ok "fetch network failure cites URL status and retry --fetch"
+else
+  bad "fetch failure should cite status + retry --fetch (rc=$FETCH_FAIL_RC err=$(cat "$FETCH_FAIL_ERR"))"
 fi
 
 # ---------------------------------------------------------------------------
