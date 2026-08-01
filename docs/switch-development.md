@@ -258,3 +258,29 @@ love-nx native faults land under the console’s `crash_reports/` folder on SD (
 
 If `addr2line` cannot resolve an address, archive the crash `.bin` with the exact `love.elf` SHA-256 used for the build — addresses are only meaningful against that ELF.
 
+## P0 / P1 hardware matrix (ADR §9)
+
+Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent passes** for rows that require hardware not yet run.
+
+| ID | Requirement | Status | Evidence |
+| -- | ----------- | ------ | -------- |
+| P0-0a–f | love-nx pin, probe, MTP, title override | **pass** | Phase 0 checklist above; T4 |
+| P0-1a–d | Unpatched launcher boot + Joy-Con nav | **pass** | T4 / `docs/switch-hardware-evidence.md` |
+| P0-02 | MTP inbox import path shown | **pass** | T12 |
+| P0-03 | Rescan imports ROM | **pass** | T12 |
+| P0-04 | Canonical hash routes version | **pass** | T12 |
+| P0-05 | Source dump retained in inbox | **pass** | T12 |
+| P0-06 | Play reaches game after import | **pass** | T12 |
+| P0-07 | Joy-Con launcher navigation | **pass** | T16 @ `2699c9a` |
+| P0-08 | Joy-Con gameplay (incl. naming A/B) | **pass** | T16 @ `2699c9a` |
+| P0-09 | Save survives quit + reopen | **pass** | T19 |
+| P0-10 | ≥10 suspend cycles, no stuck input/dup audio | **pass** | T19 (operator 2026-08-01) |
+| P0-12 | Fused NRO boots without adjacent `game.love` | **deferred** | T24 blocked — operator hardware gate pending |
+| P0-14 | Fused NRO MTP round-trip SHA-256 | **deferred** | T24 blocked |
+| P0-15 | Replace NRO only; saves persist | **deferred** | T24 blocked |
+| P1-01 | Docked vs handheld spot-check | **deferred** | Not exercised on OLED dock yet |
+| P1-02 | Applet Mode documented unsupported | **pass** | Title override required; Album path not validated |
+| P1-03 | Long-play soak (≥30 min) | **deferred** | No soak session recorded |
+| P1-04 | Reboot persistence | **pass** | T19 |
+| P1-05 | Audio resume after suspend | **pass** | T19 (no dup audio reported) |
+
