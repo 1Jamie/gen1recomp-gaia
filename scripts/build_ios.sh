@@ -65,6 +65,10 @@ DEVICE=false
 RELEASE=false
 PACKAGE_ONLY=false
 INSTALL=false
+# Last resort for an incomplete source export, mirroring build_android.sh.
+MANIFEST_BASE_URL="${MANIFEST_BASE_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main}"
+MANIFESTS=""
+
 VERSION=""
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -229,6 +233,68 @@ apply_ios_branding() {
 }
 
 # --------------------------------------------------------------- game.love
+# Every version's import manifest has to ship or that game's ROM import fails in
+# the built app: decodeManifest (src/import/RomImporter.lua) errors outright when
+# one is absent, and dev reads them off the source tree, so the miss only ever
+# shows up in a build.  iOS shipped without the Yellow one in 0.1.45 to 0.1.47
+# for exactly that reason.
+#
+# The list is READ OUT OF src/core/GameVersion.lua rather than hand-kept here, so
+# a fourth version cannot silently ship without its manifest, and a missing file
+# is recovered from Git or the project repo the same way build_android.sh already
+# recovers Yellow's.  Recovery is a last resort for an incomplete source export:
+# a manifest carries extraction metadata only, never a ROM or game data.
+manifest_paths() {
+  python3 - "$ROOT/src/core/GameVersion.lua" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+print(" ".join(dict.fromkeys(re.findall(r'manifest\s*=\s*"([^"]+)"', src))))
+PY
+}
+
+manifest_is_valid() {
+  python3 - "$1" <<'PY'
+import json, pathlib, sys
+try:
+    m = json.loads(pathlib.Path(sys.argv[1]).read_text())
+except (OSError, ValueError):
+    raise SystemExit(1)
+sha = m.get("romSha1")
+raise SystemExit(0 if isinstance(sha, str) and len(sha) == 40 else 1)
+PY
+}
+
+ensure_manifests() {
+  MANIFESTS="$(manifest_paths)"
+  [ -n "$MANIFESTS" ] \
+    || fail "could not read any manifest path out of src/core/GameVersion.lua"
+  local rel staged
+  for rel in $MANIFESTS; do
+    if manifest_is_valid "$ROOT/$rel"; then continue; fi
+    warn "$rel is missing or invalid; recovering it before packaging"
+    staged="$(mktemp)"
+    if git -C "$ROOT" show "HEAD:$rel" > "$staged" 2>/dev/null \
+        && manifest_is_valid "$staged"; then
+      mkdir -p "$ROOT/$(dirname "$rel")"
+      mv "$staged" "$ROOT/$rel"
+      say "restored $rel from this checkout's Git data"
+      continue
+    fi
+    if command -v curl >/dev/null 2>&1 \
+        && curl --fail --location --retry 2 --connect-timeout 15 \
+            --output "$staged" "$MANIFEST_BASE_URL/$rel" \
+        && manifest_is_valid "$staged"; then
+      mkdir -p "$ROOT/$(dirname "$rel")"
+      mv "$staged" "$ROOT/$rel"
+      say "downloaded $rel from the project repository"
+      continue
+    fi
+    rm -f "$staged"
+    fail "$rel is unavailable: Git recovery failed and $MANIFEST_BASE_URL/$rel could not be downloaded"
+  done
+  say "import manifests: $MANIFESTS"
+}
+
 pack_game_love() {
   say "packing game.love for love-ios resources"
   mkdir -p "$RESOURCES_DIR"
@@ -240,10 +306,10 @@ pack_game_love() {
   # it reappears every launch.  Mods install as .zips at runtime instead
   # (launcher -> MODS -> Import mod .zip), the same lifecycle as every
   # other platform.
+  # shellcheck disable=SC2086  # MANIFESTS is a deliberate word list
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
     main.lua conf.lua src data assets tools/save-editor \
-    tools/rom_manifest.json tools/rom_manifest_blue.json \
-    tools/rom_manifest_yellow.json \
+    $MANIFESTS \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # NOTE: grep -q here would race pipefail — it exits on first match, unzip
@@ -259,10 +325,9 @@ pack_game_love() {
   # outright when a version's manifest is absent, so Import ROM on Yellow died
   # in the built app while dev, which reads the source tree, stayed green.
   archive_entries="$(unzip -Z1 "$LOVE_FILE")"
+  # shellcheck disable=SC2086  # MANIFESTS is a deliberate word list
   for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
-                  tools/save-editor/panels/Party.lua \
-                  tools/rom_manifest.json tools/rom_manifest_blue.json \
-                  tools/rom_manifest_yellow.json; do
+                  tools/save-editor/panels/Party.lua $MANIFESTS; do
     printf '%s\n' "$archive_entries" | grep -qx "$required" \
       || fail "game.love is missing $required"
   done
@@ -577,6 +642,7 @@ install_to_device() {
 apply_ios_branding
 say "applying iOS native bridge patches (picker/Files support)"
 python3 "$IOS_DIR/patch_love_src.py" || fail "patch_love_src.py failed"
+ensure_manifests
 pack_game_love
 ensure_game_love_in_xcode
 
