@@ -157,6 +157,13 @@ tradeoff vs. the relay). Headless tests drive the protocol over an
 in-memory loopback (`Net.loopbackPair`); under LÖVE the same test file
 also exercises real UDP pairing.
 
+Red, Blue, and Yellow copies link with each other, as the real cable
+does. The compatibility fingerprint hashes only data a link mode can
+actually read, so Yellow's Dragonair/Dragonite catch-rate retunes (the
+only R/B/Y link-surface difference) no longer read as different games
+(issue #511). Moving the fingerprint is a link parity change: builds
+from before this fix will refuse to pair with builds after it.
+
 ## Fair play in link and online matches
 
 A link session is decided by the battle and nothing else, so for its

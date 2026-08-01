@@ -411,7 +411,7 @@ function Ops.pcDrop(S, id)
   return Ops.mark(S, ("Dropped all %d %s from PC storage"):format(qty, id))
 end
 
--- Badges are boolean inventory flags, not stackable items, which is why the
+-- Badges are truthy inventory flags, not stackable items, which is why the
 -- design gives them toggle chips instead of quantity rows.
 function Ops.isBadgeId(id)
   return id:find("BADGE", 1, true) ~= nil
@@ -426,8 +426,13 @@ function Ops.badgeIds(S)
 end
 
 function Ops.toggleBadge(S, id)
-  local on = S.save.inventory[id] == true
-  S.save.inventory[id] = (not on) or nil
+  -- #515: badges are truthy inventory entries written as 1 by the in-game
+  -- grant (checkVictoryRewards, src/world/OverworldController.lua) and by
+  -- GenSave's .sav import; read and write that same shape here, or a badge
+  -- earned in game reads as unowned and an editor-written boolean blows up
+  -- Bag.add's `(inv[id] or 0) + qty` (src/inventory/Bag.lua).
+  local on = S.save.inventory[id] and true or false
+  S.save.inventory[id] = (not on) and 1 or nil
   return Ops.mark(S, ("%s %s"):format(id, on and "removed" or "earned"))
 end
 

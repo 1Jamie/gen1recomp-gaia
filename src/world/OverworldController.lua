@@ -360,6 +360,36 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   else
     self.player = Player.new(Game.data, x, y, facing)
   end
+  -- boot only: the original persists the surf state.  wWalkBikeSurfState
+  -- (ram/wram.asm) lives inside wMainDataStart..wMainDataEnd, which
+  -- engine/menus/save.asm block-copies into sMainData on save and back out
+  -- on load (sram.asm declares sMainData as `ds wMainDataEnd -
+  -- wMainDataStart`), and Continue never clears it -- the only `xor a /
+  -- ld [wWalkBikeSurfState], a` on that path is the cable club's.  Restore
+  -- it here, before Music.playMap reads it below and before
+  -- PikachuFollower.onMapEntered, matching LoadMapData calling
+  -- LoadPlayerSpriteGraphics ahead of PlayDefaultMusic (home/overworld.asm,
+  -- home/audio.asm).  Without this the player resumed on foot on a water
+  -- cell, which softlocks here: Collision.canMove (src/world/Collision.lua)
+  -- picks land tile-pairs whenever mover.surfing is falsy, and land
+  -- tile-pairs never permit stepping off a water cell (#536).  Same
+  -- boot-only shape as the refreshStandingOnWarp door-mat restore (#378).
+  if opts and opts.via == "boot" then
+    local ps = Game.save and Game.save.player
+    if ps and ps.surfing ~= nil then
+      self.player.surfing = ps.surfing and true or false
+    else
+      -- saves written before #536 carry no flag.  Map:isWaterCell alone is
+      -- not self-sufficient (see src/world/Map.lua: water and shore share
+      -- one lookup, and no tileset stamps waterTiles, so tile $14 -- a
+      -- walkable floor in HOUSE/GATE/LOBBY/MANSION/MUSEUM -- reads as
+      -- water), so gate it the way facingIsShoreOrWater does and require a
+      -- cell you could not be standing on upright.
+      self.player.surfing = self:tilesetHasWater()
+        and not self.map:isWalkableCell(x, y)
+        and self.map:isWaterCell(x, y)
+    end
+  end
   -- crossConnection re-arms this after setMap; clear so a warp/reload
   -- cannot leave a stale deferred PlayMapMusic pending
   self.pendingSeamMusic = nil
@@ -1058,19 +1088,38 @@ function OverworldState:handleInput()
   -- OverworldLoop (home/overworld.asm) gates ALL of JoypadOverworld on
   -- wWalkCounter == 0 ("if the player sprite has not yet completed the
   -- walking animation" it jumps straight to .moveAhead): A, START and
-  -- direction initiation are only ever looked at while the player stands
-  -- on a tile, and a button pressed mid-step is simply never seen.
-  -- Without this gate a mid-step A/START pushed its TextBox/StartMenu
-  -- right there and froze Red between tiles, mid-animation (#286).  Held
-  -- directions need no buffering -- isDown below picks them up on the
-  -- landing frame.
-  if self.player.moving then return end
+  -- direction initiation are only ever ACTED ON while the player stands on
+  -- a tile.  Without this gate a mid-step A/START pushed its TextBox/
+  -- StartMenu right there and froze Red between tiles, mid-animation
+  -- (#286).  Held directions need no buffering -- isDown below picks them
+  -- up on the landing frame.
+  --
+  -- The original defers the poll rather than discarding it, though.  Joypad
+  -- (engine/joypad.asm _Joypad) computes hJoyPressed against hJoyLast and
+  -- advances hJoyLast only when something calls it; the mid-step path never
+  -- does, and vblank's per-frame ReadJoypad refreshes hJoyInput alone.
+  -- hJoyLast is frozen for the whole animation, so a button pressed
+  -- mid-step and STILL HELD when the step lands reads as a fresh press at
+  -- the next poll -- one released before then is genuinely lost.  Dropping
+  -- the edge outright made START a coin flip on the Cycling Road roll,
+  -- where the pull below re-arms a step on the single idle frame in
+  -- bikeStepFrames (#525).
+  if self.player.moving then
+    local held = self.joyLatch
+    if not held then held = {}; self.joyLatch = held end
+    if input:wasPressed("a") then held.a = true end
+    if input:wasPressed("start") then held.start = true end
+    return
+  end
+  local latch = self.joyLatch
+  self.joyLatch = nil
 
-  if input:wasPressed("a") then
+  if input:wasPressed("a") or (latch and latch.a and input:isDown("a")) then
     self:interact()
     return
   end
-  if input:wasPressed("start") then
+  if input:wasPressed("start")
+     or (latch and latch.start and input:isDown("start")) then
     require("src.core.Sound").play(Game.data, "Start_Menu")
     Screens.push(Game, "StartMenu")
     return
@@ -4561,6 +4610,11 @@ function OverworldState:captureSave(save)
   save.player.x = self.player.cellX
   save.player.y = self.player.cellY
   save.player.facing = self.player.facing
+  -- wWalkBikeSurfState (ram/wram.asm) sits inside the wMainDataStart..
+  -- wMainDataEnd range engine/menus/save.asm block-copies into sMainData,
+  -- so the original saves and restores the surf state; setMap's boot path
+  -- reads this back (#536).
+  save.player.surfing = self.player.surfing and true or false
 end
 
 return OverworldState
