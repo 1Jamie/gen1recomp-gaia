@@ -206,7 +206,11 @@ function Loader:_discover()
       for _, name in ipairs(self.fs.getDirectoryItems(root)) do
         local path = root .. "/" .. name
         local info = self.fs.getInfo(path)
-        if info and info.type == "directory" then
+        -- a dev-linked mod dir (ln -s) reports type "symlink" even with
+        -- setSymlinksEnabled(true) -- PhysFS never resolves the symlink's
+        -- own getInfo, only traversal into it. readManifest below still
+        -- correctly no-ops on a symlink that isn't a directory.
+        if info and (info.type == "directory" or info.type == "symlink") then
           local manifest, err = readManifest(self.fs, path)
           if manifest then
             if self.mods[manifest.id] then

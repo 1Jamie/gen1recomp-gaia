@@ -433,6 +433,13 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     if battle then
       return "failed", { Strings("OAK: %s!\nThis isn't the\ntime to use that!", save.player.name) }
     end
+    -- FishingInit (engine/items/item_effects.asm): cp wWalkBikeSurfState, 2
+    -- (surfing) sets carry, and every ItemUseXRod does jp c, ItemUseNotTime
+    -- on that carry -- surfing refuses the rod with the same OAK text as
+    -- the mid-battle case above, no rod-specific message (#533)
+    if ow and ow.player and ow.player.surfing then
+      return "failed", { Strings("OAK: %s!\nThis isn't the\ntime to use that!", save.player.name) }
+    end
     return "fish", itemId
   end
 

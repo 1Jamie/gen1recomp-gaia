@@ -1,4 +1,9 @@
 function love.conf(t)
+  -- PhysFS ignores symlinks unless told otherwise, so a mod dev-linked into
+  -- mods/ (ln -s, matching the mklink /J workflow on Windows) is invisible
+  -- to love.filesystem.getDirectoryItems without this.
+  love.filesystem.setSymlinksEnabled(true)
+
   local editor = os.getenv("POKEPORT_EDITOR") == "1"
   local developer = os.getenv("POKEPORT_DEV") == "1"
   if arg then

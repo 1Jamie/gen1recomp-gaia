@@ -6,7 +6,9 @@ local RomImporter = {}
 RomImporter.__index = RomImporter
 
 -- Cache generation tag; bump to force every imported version to re-extract.
-local CACHE_FORMAT = "rom-cache-v8:"
+-- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
+-- carry Red's bank $1f header, wave-table, and CryData offsets.
+local CACHE_FORMAT = "rom-cache-v9:"
 -- The completion marker is written under each version's cache prefix
 -- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
 local MARKER_PATH = "rom-cache.complete"
