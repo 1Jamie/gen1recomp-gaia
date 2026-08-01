@@ -49,4 +49,11 @@ mustContain(install, "switch-transfer.md", "install")
 mustContain(build, "switch-transfer.md", "build")
 mustContain(build, "nxlink", "build")
 
+local development = read("docs/switch-development.md")
+mustContain(development, "switch-transfer.md", "development")
+check(development:find("Non-macOS contributor MTP runbooks", 1, true) == nil,
+  "development must not list Non-macOS runbooks as absent")
+check(development:find("VoxelMod (and other community mods) OLED smoke still **pending**", 1, true) == nil,
+  "development must not list VoxelMod smoke as pending")
+
 print("switch_transfer_docs_test: OK")

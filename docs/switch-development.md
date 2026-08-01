@@ -3,12 +3,13 @@
 > **Status: work in progress — experimental fused NRO on Releases.**  
 > Tracks experimental support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531). Expect rough edges, manual console copy, and host-specific contributor tooling.
 
-**Canonical install / build docs** (start here unless you need hardware depth):
+**Canonical install / build / transfer docs** (start here unless you need hardware depth):
 
 - Players → [switch-install.md](switch-install.md)
 - Builders → [switch-build.md](switch-build.md) (`scripts/build_switch.sh --fetch` downloads the pinned love-nx pair)
+- Transfer (MTP / SD / FTP on macOS, Linux, Windows) → [switch-transfer.md](switch-transfer.md)
 
-This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the current contributor transfer loop.
+This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the contributor transfer loop (detail lives in the transfer runbook).
 
 ## Current status (honest)
 
@@ -18,8 +19,8 @@ This document covers what landed so far, known limitations, how hardware was tes
 | Runtime | Pinned love-nx **`11.5-nx1`** |
 | Product artifact goal | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
 | Hardware validated | **Nintendo Switch OLED only** (title override / full memory). Original Switch, Lite, docked mode, and other hosts are **untested** |
-| Deploy / install | Releases publish fused NRO; **console copy is still manual** — no one-click installer, no `nxlink`/netloader path |
-| Contributor host used | **macOS + OpenMTP + DBI MTP** (see below — temporary coupling) |
+| Deploy / install | Releases publish fused NRO; **console copy is still manual** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
+| Contributor transfer | Documented for **macOS, Linux, and Windows**; OpenMTP on Mac is one example, not the only contract |
 | Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
 | Community help | Welcome — especially from people familiar with HOS / love-nx / Switch homebrew packaging |
 
@@ -37,11 +38,14 @@ This document covers what landed so far, known limitations, how hardware was tes
 
 ### What is still unfinished / out of this draft
 
-- Cross-host contributor MTP docs (Linux/Windows clients) and less Mac-centric language in player-facing UX
 - Docked vs handheld soak, long-play soak, non-OLED hardware
 - Pro Controller / third-party pad matrices beyond the OLED Joy-Con path already measured
-- VoxelMod (and other community mods) OLED smoke still **pending** in the evidence scaffold
 - Applet Mode remains unsupported by design (title override required)
+- `nxlink` / netloader contrib fast-loop (deferred — see [switch-transfer.md](switch-transfer.md))
+
+Transfer runbooks for Linux/Windows (and SD/FTP alternatives) are in
+[switch-transfer.md](switch-transfer.md). VoxelMod OLED smoke is **pass** —
+see NXMOD-12 in [switch-hardware-evidence.md](switch-hardware-evidence.md).
 
 ## Design references (Dusklight)
 
@@ -63,11 +67,11 @@ Goal for a finished release is closer to Dusklight’s **single self-contained `
 
 ## Known limitations (read before reviewing)
 
-1. **Mac + OpenMTP coupling is a current contributor workflow, not the final product contract.** Runtime only needs files under the LÖVE save directory / NRO install folder. Players on other OSes should eventually use any reliable MTP (or future) path that lands files in the same places. Today’s runbook documents the operator’s Mac loop because that is what was actually used and tested — do not freeze “macOS + OpenMTP only” into the shipped UX.
-2. **Deploy is manual.** There is no automated push to the console. Operators build locally, open DBI MTP, copy with a client, exit MTP, then title-override launch. That is intentional for this draft and should improve before a real Switch release.
+1. **Transfer is manual and multi-method.** Runtime only needs files under the LÖVE save directory / NRO install folder. Use MTP, direct SD, or FTP per [switch-transfer.md](switch-transfer.md). macOS + OpenMTP is a documented example for OLED evidence — not “Switch requires a Mac.”
+2. **Deploy is manual.** There is no automated push to the console and no `nxlink` path yet. Operators build locally, transfer files, then title-override launch.
 3. **OLED-only evidence.** All pass rows in the P0/P1 matrix were recorded on one Switch OLED. Treat other hardware as unknown until someone re-runs the checklist.
 4. **No ROM/save/mod zip bytes in git.** Legal dumps and third-party mods stay on the console (or local untracked folders).
-5. **AppleDouble sidecars** (`._*`) from macOS MTP clients can break zip/ROM scans — the launcher skips hidden `.*` names; still prefer clean copies.
+5. **AppleDouble sidecars** (`._*`) from some MTP clients can break zip/ROM scans — the launcher skips hidden `.*` names; still prefer clean copies.
 
 ## How we tested
 
@@ -76,7 +80,7 @@ Goal for a finished release is closer to Dusklight’s **single self-contained `
 | Unit / headless | Platform NX flags, RomImporter inbox, dual-path input, mod zip inbox, display chords, payload/self-tests | `tests/*`, `scripts/test.sh` |
 | Probe on hardware | `getOS()==NX`, 1280×720, save path, Joy-Con events | `tools/switch-probe` → OLED |
 | Integration on hardware | MTP inbox ROM import, Play Red/Blue, naming A/B, quit/reopen save, suspend×10, reboot, fused NRO alone + NRO-only update | `docs/switch-hardware-evidence.md` |
-| Not done yet | Docked soak, ≥30 min long-play, non-OLED, automated deploy, VoxelMod smoke fill-in | Matrix deferred / pending rows |
+| Not done yet | Docked soak, ≥30 min long-play, non-OLED, automated/`nxlink` deploy | Matrix deferred / absent rows |
 
 Operator evidence must stay in `docs/switch-hardware-evidence.md`. **Do not invent passes** for hardware not run.
 
@@ -140,23 +144,22 @@ scripts/build_switch.sh --loose
 
 ## Transfer & deploy (current contributor loop)
 
-### Product intent vs today’s tooling
+Detail for **macOS / Linux / Windows** and **MTP / SD / FTP** lives in
+[switch-transfer.md](switch-transfer.md). Summary:
 
 | Layer | Intent |
 | ----- | ------ |
-| **Runtime / players** | Put the NRO under `sdmc:/switch/gen1recomp/` (or equivalent) and land ROMs/mods under the save-dir inboxes. The game does not hard-depend on OpenMTP or macOS. |
-| **This draft’s operator loop** | Manual USB MTP via **DBI → `Run MTP responder`** on the Switch and **[OpenMTP](https://github.com/ganeshrvel/openmtp)** on the Mac used for development. Fully manual — no CI deploy, no scripted push. |
+| **Runtime / players** | Put the NRO under `sdmc:/switch/gen1recomp/` and land ROMs/mods under the save-dir inboxes. The game does not hard-depend on OpenMTP or macOS. |
+| **Contributor loop** | Manual copy via MTP (DBI responder), direct SD (Hekate UMS / reader), or FTP. Fully manual — no CI deploy, no `nxlink` yet. |
 
-Treat the Mac + OpenMTP steps below as **documented operator procedure for reproducing OLED evidence**, not as a permanent “Switch port requires macOS” product rule. Contributions that add Linux/Windows MTP notes or safer automated deploy (without smuggling ROMs into git) are welcome.
+The Mac + OpenMTP steps that remain below are the **OLED evidence reproduction** path; prefer the transfer runbook for day-to-day contrib on other hosts.
 
-**Still avoided in this draft’s evidence workflow** (keeps SD in-console and avoids false POSIX `/Volumes` assumptions while iterating):
+**Still avoided for routine evidence** (keeps SD handling honest):
 
-- Removing the microSD card to mount it on the host for routine deploys
-- Relying on FTP / Sphaira / ad-hoc network shares as the only verified path for this branch’s hashes
-- Treating `nxlink` / netloader as the release deploy story (not wired here yet)
+- Treating `nxlink` / netloader as the release deploy story (deferred)
 - DBI `MicroSD install` / `NAND install` / NSP-style virtual folders for the `.love`/`.nro` pair
 
-If MTP fails on the Mac loop: check cable, USB port, DBI state, and that only one MTP client holds the device — then retry. Do not silently rewrite evidence using an untested path and claim parity with the recorded SHA-256 round-trips.
+If MTP fails: check cable, USB port, DBI state, and that only one MTP client holds the device — then retry or switch to SD/FTP. Do not silently rewrite evidence using an untested path and claim parity with recorded SHA-256 round-trips.
 
 ### Manual deploy checklist (today)
 
@@ -166,7 +169,10 @@ If MTP fails on the Mac loop: check cable, USB port, DBI state, and that only on
 4. Wait for the transfer queue; refresh; optionally round-trip SHA-256 on first artifacts of a type.
 5. Exit MTP; launch via **title override** (hold **R** on a title → hbmenu, not Applet Mode).
 
-## OpenMTP + DBI transfer (loose build, Mac operator)
+## OpenMTP + DBI transfer (loose build, Mac evidence example)
+
+Full multi-OS / multi-method steps: [switch-transfer.md](switch-transfer.md).
+The numbered Mac loop below reproduces the OLED evidence path.
 
 ### On the Switch
 
@@ -418,14 +424,15 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P1-04 | Reboot persistence | **pass** | T19 |
 | P1-05 | Audio resume after suspend | **pass** | T19 (no dup audio reported) |
 | — | Non-OLED hardware (original / Lite) | **untested** | OLED-only evidence so far |
-| — | Automated / scripted deploy | **absent** | Manual MTP only in this draft |
-| — | Non-macOS contributor MTP runbooks | **absent** | Mac+OpenMTP documented as operator loop only |
+| — | Automated / `nxlink` deploy | **absent** | Manual MTP / SD / FTP only (AD-009) |
+| — | Multi-OS transfer runbooks | **pass** | [switch-transfer.md](switch-transfer.md) |
+| — | VoxelMod OLED smoke (NXMOD-12) | **pass** | `docs/switch-hardware-evidence.md` |
 
 ## Upstream contribution outline
 
 This draft PR may still be a single large review; maintainers can split later. Suggested review slices:
 
-Each slice should declare: **WIP / not finished**, **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed (OLED only so far)**, **Applet Mode unsupported**, **network/updater disabled on NX**, **deploy still manual**, **Mac+OpenMTP is contributor tooling not the final product contract**.
+Each slice should declare: **WIP / not finished**, **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed (OLED only so far)**, **Applet Mode unsupported**, **network/updater disabled on NX**, **deploy still manual** (MTP / SD / FTP; no nxlink yet), **OpenMTP is one example not the sole contract**.
 
 ### PR 1 — Platform + import (`platform/import`)
 
