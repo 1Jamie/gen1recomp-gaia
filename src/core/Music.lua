@@ -259,7 +259,8 @@ function Music.play(data, song, loop, ctx)
     pcall(loopSrc.setLooping, loopSrc, wantLoop)
     applyVolume(loopSrc)
     applyFilter(loopSrc)
-  else
+  elseif not isChip then
+    -- ChipAudio owns the loop policy for its queueable source.
     pcall(src.setLooping, src, wantLoop)
   end
   applyVolume(src)

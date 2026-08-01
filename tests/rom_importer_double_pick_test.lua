@@ -28,6 +28,8 @@ love.system = love.system or {}
 local saved = {
   getOS = love.system.getOS,
   pickFile = love.system.pickFile,
+  getPickedFile = love.system.getPickedFile,
+  getPickError = love.system.getPickError,
   getDirectoryItems = love.filesystem.getDirectoryItems,
   getInfo = love.filesystem.getInfo,
   read = love.filesystem.read,
@@ -135,6 +137,29 @@ contract:choose("red")
 check(picks == 2,
   "choose() still reopens the picker per call (#420/#442 contract, got " .. picks .. ")")
 
+-- 7. UWP consumes the absolute LocalState path returned by its native picker
+--    and removes the temporary copy only after a successful import.
+local removedPath
+local savedOsRemove = os.remove
+os.remove = function(path) removedPath = path; return true end
+love.system.getPickedFile = function()
+  love.system.getPickedFile = function() return nil end
+  return [[C:\LocalState\picked_mod.zip]]
+end
+love.system.getPickError = function() return nil end
+local uwp = importer("UWP")
+uwp.iosPendingKind = "mod"
+uwp._installMod = function(self, source)
+  self._installed = source
+  self.modNotice = { ok = true, text = "Installed test-mod" }
+end
+uwp:update(0)
+check(uwp._installed == [[C:\LocalState\picked_mod.zip]],
+  "UWP passes the picker path to the mod installer")
+check(removedPath == [[C:\LocalState\picked_mod.zip]],
+  "UWP removes the temporary picker copy after installation")
+os.remove = savedOsRemove
+
 local touchForwardsToImporter = {
   Android = true,
   iOS = true,
@@ -161,6 +186,8 @@ check(not touch._flex,
 
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile
+love.system.getPickedFile = saved.getPickedFile
+love.system.getPickError = saved.getPickError
 love.filesystem.getDirectoryItems = saved.getDirectoryItems
 love.filesystem.getInfo = saved.getInfo
 love.filesystem.read = saved.read

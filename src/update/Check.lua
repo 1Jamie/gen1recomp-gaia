@@ -99,6 +99,11 @@ local cache = { status = "idle" } -- newest snapshot from the worker
 
 local function ensureWorker()
   if workerReady ~= nil then return workerReady end
+  if love and love.system and love.system.getOS
+      and love.system.getOS() == "UWP" then
+    workerReady = false
+    return false
+  end
   if not (love and love.thread and love.thread.newThread) then
     workerReady = false
     return false

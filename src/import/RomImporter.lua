@@ -8,6 +8,11 @@ local SafeArea = require("src.core.SafeArea")
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
+local function isUWP()
+  return love and love.system and love.system.getOS
+    and love.system.getOS() == "UWP"
+end
+
 -- love.system.pickFile is a NATIVE BRIDGE, not part of LÖVE: it exists only on
 -- builds that compiled one (Android, and iOS builds patched by
 -- mobile/ios/patch_love_src.py). A build without it must fall back to the
@@ -990,6 +995,7 @@ end
 -- import-only run all skip the release check so headless and CI runs never spin
 -- up the background worker or reach out to the network.
 local function updaterAllowed()
+  if isUWP() then return false end
   if not Platform.networkValidated() then return false end
   if not (love.filesystem.isFused and love.filesystem.isFused()) then return false end
   if os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER") then return false end
@@ -1034,6 +1040,7 @@ function RomImporter.new(onComplete, opts)
     mobileFileBridge = mobileFileBridge,
     android = android,
     ios = mobileOS == "iOS",
+    nativePicker = romImportMode == "native-picker",
     -- One startup poll pass on both mobiles.  iOS: files dropped through the
     -- Files app are swept into the save dir before Lua boots (GRBootstrap) with
     -- no love.focus event necessarily following.  Android: the SAF picker is a
@@ -1493,7 +1500,7 @@ function RomImporter:chooseMod()
     self:rescanModsAction()
     return
   end
-  if self.ios and love.system.getPickedFile then
+  if self.nativePicker and love.system.getPickedFile then
     self.iosPendingKind = "mod"
     if not pickFile("mod") then
       self.iosPendingKind = nil
@@ -1569,7 +1576,7 @@ function RomImporter:chooseSaveImport(version)
     self:rescanSavesAction(version)
     return
   end
-  if self.ios and love.system.getPickedFile then
+  if self.nativePicker and love.system.getPickedFile then
     self.iosPendingKind = "sav"
     self.iosPendingVersion = version
     if not pickFile("sav") then
@@ -1687,7 +1694,7 @@ function RomImporter:choose(version)
     self:rescanAction(self.chooseVersion)
     return
   end
-  if self.ios and love.system.getPickedFile then
+  if self.nativePicker and love.system.getPickedFile then
     self.iosPendingKind = "rom"
     if not pickFile("rom") then
       self.iosPendingKind = nil
@@ -1889,7 +1896,7 @@ function RomImporter:update(dt)
       end)
     end
   end
-  if self.ios and love.system.getPickedFile and self.workState ~= "working" then
+  if self.nativePicker and love.system.getPickedFile and self.workState ~= "working" then
     local path = love.system.getPickedFile()
     if path then
       local kind = self.iosPendingKind or "rom"
@@ -1898,10 +1905,18 @@ function RomImporter:update(dt)
       self.iosPendingVersion = nil
       if kind == "mod" then
         self:_installMod(path)
+        if isUWP() and self.modNotice and self.modNotice.ok then
+          os.remove(path)
+        end
       elseif kind == "sav" then
-        self:_importSave(version or self:_savedropTarget(), path)
+        local target = version or self:_savedropTarget()
+        self:_importSave(target, path)
+        if isUWP() and self.saveNotice[target] and self.saveNotice[target].ok then
+          os.remove(path)
+        end
       else
         self:startPath(path)
+        if isUWP() then os.remove(path) end
       end
     elseif love.system.getPickError then
       local errorText = love.system.getPickError()

@@ -46,3 +46,6 @@ mobile/dist/
 
 # per-machine iOS bundle-id pin (see scripts/build_ios.sh)
 mobile/ios/bundle_id.local
+
+# Xbox UWP build output
+/ports/uwp/build/
