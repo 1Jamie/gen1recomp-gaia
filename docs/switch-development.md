@@ -211,3 +211,26 @@ scripts/build_switch.sh --loose
 shasum -a 256 .bazinga/work/game.love
 ```
 
+## Controller input mapping (NX)
+
+Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both `joystickpressed` and `gamepadpressed` fire for Joy-Con; prefer the gamepad path when `joystick:isGamepad()` is true.
+
+| Path | Control | Mapping |
+| ---- | ------- | ------- |
+| `gamepadpressed` | D-pad / left stick | move (via `GamepadMap.DEFAULT_GAMEPAD_BINDINGS`) |
+| `gamepadpressed` | `a` / `b` | GB A / B |
+| `gamepadpressed` | `start` / `back` | Start / Select |
+| `joystickpressed` (raw) | `#1` Nintendo B | GB A |
+| `joystickpressed` (raw) | `#2` Nintendo A | GB B |
+| `joystickpressed` (raw) | `#3` Y | GB B (measured) |
+| `joystickpressed` (raw) | `#4` X | GB A (measured) |
+| `joystickpressed` (raw) | `#9` / `#10` | Select / Start (− / +) |
+
+Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*` tables). Launcher (`RomImporter`) and gameplay (`Input`) share the same converter.
+
+**Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
+
+**Hardware re-test:** P0-07/08 Joy-Con launcher + naming screen — pending operator after T15 software (T16).
+
+**Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).
+

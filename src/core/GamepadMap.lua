@@ -16,16 +16,28 @@ GamepadMap.RAW_BUTTON_BINDINGS = {
   [7] = "select", [8] = "start", [9] = "select", [10] = "start",
 }
 
+-- Switch OLED probe 2026-08-01: love.joystickpressed indices (1-based).
+-- Gamepad path still preferred when isGamepad(); raw covers the rest.
+GamepadMap.NX_RAW_BUTTON_BINDINGS = {
+  [1] = "a", [2] = "b",
+  [3] = "b", [4] = "a",
+  [9] = "select", [10] = "start",
+}
+
 -- Raw index -> gamepad button name for RomImporter routing.
 GamepadMap.RAW_TO_GAMEPAD_BUTTON = {
   [1] = "a", [2] = "b",
   [7] = "back", [8] = "start", [9] = "back", [10] = "start",
 }
 
+GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON = {
+  [1] = "a", [2] = "b",
+  [3] = "y", [4] = "x",
+  [9] = "back", [10] = "start",
+}
+
 -- Test hook: force NX raw tables without stubbing love.
 GamepadMap._forceNXForTests = false
-GamepadMap.NX_RAW_BUTTON_BINDINGS = nil
-GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON = nil
 
 function GamepadMap._setForceNXForTests(v)
   GamepadMap._forceNXForTests = not not v
@@ -43,7 +55,7 @@ function GamepadMap.mapGamepadButton(button)
 end
 
 function GamepadMap.mapRawButton(index)
-  if nxActive() and GamepadMap.NX_RAW_BUTTON_BINDINGS then
+  if nxActive() then
     local nx = GamepadMap.NX_RAW_BUTTON_BINDINGS[index]
     if nx then return nx end
   end
@@ -51,7 +63,7 @@ function GamepadMap.mapRawButton(index)
 end
 
 function GamepadMap.mapRawToGamepadButton(index)
-  if nxActive() and GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON then
+  if nxActive() then
     local nx = GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON[index]
     if nx then return nx end
   end
