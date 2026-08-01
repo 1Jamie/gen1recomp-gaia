@@ -61,4 +61,13 @@ check(errLog:find("probe failure", 1, true) ~= nil, "lua-error.log records messa
 check(errLog:find("<redacted>", 1, true) ~= nil, "lua-error.log strips ROM bytes")
 check(not errLog:find(romErr, 1, true), "lua-error.log omits raw ROM bytes")
 
+-- Stack-trace style messages (newlines) must remain readable — not wholesale
+-- "<redacted>" (fused Play triage regression).
+SwitchDiagnostics.logLuaError("missing module 'data/generated/maps.lua'.\nImport again.\n(detail)")
+errLog = love.filesystem.read("lua-error.log") or ""
+check(errLog:find("missing module", 1, true) ~= nil,
+  "lua-error.log keeps printable multiline error text")
+check(errLog:find("Import again", 1, true) ~= nil,
+  "lua-error.log preserves lines after newline")
+
 T.finish()

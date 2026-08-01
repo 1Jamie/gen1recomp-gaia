@@ -23,10 +23,15 @@ end
 
 local function redactString(s)
   if type(s) ~= "string" then return s end
+  -- Keep printable ASCII + TAB/LF/CR so Lua stack traces remain readable.
+  -- Reject NULs and other C0 controls, and high bytes (ROM/binary dumps).
   for i = 1, #s do
     local b = s:byte(i)
-    if b < 32 or b > 126 then return "<redacted>" end
+    if b == 0 then return "<redacted>" end
+    if b < 32 and b ~= 9 and b ~= 10 and b ~= 13 then return "<redacted>" end
+    if b > 126 then return "<redacted>" end
   end
+  if #s > 8192 then return s:sub(1, 8192) .. "...<truncated>" end
   return s
 end
 

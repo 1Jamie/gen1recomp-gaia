@@ -196,7 +196,19 @@ local function loadModule(dir, name)
     if not chunk then return false, err end
     return pcall(chunk)
   end
-  return pcall(require, "data.generated." .. name)
+  local ok, mod = pcall(require, "data.generated." .. name)
+  if ok then return true, mod end
+  -- Fused PhysFS may hide save-dir data/generated behind the archive's
+  -- data/ tree even after mountVersion; load bytes explicitly as fallback.
+  local CacheFs = require("src.import.CacheFs")
+  local path = "data/generated/" .. name .. ".lua"
+  local bytes = CacheFs.read(path)
+  if type(bytes) == "string" then
+    local chunk, err = loadstring(bytes, "@" .. path)
+    if not chunk then return false, err or mod end
+    return pcall(chunk)
+  end
+  return false, mod
 end
 
 function Data:load()

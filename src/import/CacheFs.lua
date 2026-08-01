@@ -366,9 +366,40 @@ end
 -- *prepended* so they win over any Red copy at the root and over the game
 -- source.  Called once at boot, before Game:load (main.lua).  Returns true
 -- when nothing was needed or the mount succeeded.
+--
+-- Fused builds also ship a `data/` tree (scripts, palettes) inside game.love.
+-- PhysFS does not merge directories across archives: that `data/` can hide
+-- `data/generated/` written to the save directory after ROM import.  Loose
+-- play often still works (search order / mount layout differs); fused NX
+-- Play-after-import then fails Data:load with a missing-module error.
+-- Explicitly prepend-mount the generated subtrees so they win.
+local function mountGeneratedTrees(prefix)
+  prefix = prefix or ""
+  if not (love and love.filesystem and love.filesystem.mount) then
+    return false
+  end
+  local mounted = false
+  local pairs_ = {
+    { prefix .. "data/generated", "data/generated" },
+    { prefix .. "assets/generated", "assets/generated" },
+  }
+  for _, item in ipairs(pairs_) do
+    local src, dest = item[1], item[2]
+    if love.filesystem.getInfo(src, "directory") then
+      if love.filesystem.mount(src, dest, false) then
+        mounted = true
+      end
+    end
+  end
+  return mounted
+end
+
 function CacheFs.mountVersion(version)
   local prefix = require("src.core.GameVersion").cachePrefix(version)
-  if prefix == "" then return true end            -- Red: already at the root
+  if prefix == "" then
+    mountGeneratedTrees("")
+    return true
+  end
   local sub = prefix:gsub("/+$", "")              -- "blue/" / "yellow/" -> bare dir
   -- The cache root is the portable game folder when active, else LÖVE's OS
   -- save directory (where love.filesystem wrote blue/... or yellow/...).
@@ -377,11 +408,16 @@ function CacheFs.mountVersion(version)
     base = love.filesystem.getSaveDirectory()
   end
   if not base then return false end
-  if mountReadable(base .. SEP .. sub, false) then return true end
+  if mountReadable(base .. SEP .. sub, false) then
+    mountGeneratedTrees("")
+    return true
+  end
   -- Fallback when FFI/PHYSFS_mount is unavailable: LÖVE can mount a folder
   -- that lives in the save directory by name (prepended: appendToPath=false).
   if love.filesystem.mount then
-    return love.filesystem.mount(sub, "", false)
+    local ok = love.filesystem.mount(sub, "", false)
+    mountGeneratedTrees("")
+    return ok
   end
   return false
 end

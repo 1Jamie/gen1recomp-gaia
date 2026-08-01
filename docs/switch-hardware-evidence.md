@@ -76,3 +76,31 @@ T16 hardware gate: **closed**.
 | Full console reboot persistence | **pass** (operator 2026-08-01) |
 
 T19 hardware gate: **closed**. No stuck input, duplicate audio, or crash reported.
+
+---
+
+## T24 — fused NRO alone + NRO-only update — PARTIAL / FAIL (Play)
+
+| Field | Value |
+| ----- | ----- |
+| Commit tested | `6fb5602` |
+| Artifact | `dist/switch/gen1recomp-6fb5602-switch.nro` |
+| SHA-256 | `b019e2e82c7fe6ec3cf4339e1bc71e8752c8140b6242028bb0b662fcf20daac2` |
+| Deploy | isolated folder, **no** adjacent `game.love` |
+| MTP round-trip | skipped |
+| Boot fused | **pass** |
+| ROM import (inbox) | **pass** |
+| Play after import | **fail** — app closed immediately |
+| NRO-only replace / save survive | **not tested** |
+
+### lua-error.log (operator)
+
+Two events ~1 min apart; body was fully `<redacted>` because `redactString` treated newlines in stack traces as binary. Fix: allow TAB/LF/CR in diagnostics (`SwitchDiagnostics`).
+
+### Suspected root cause (fix in flight)
+
+Fused `game.love` contains a `data/` tree (scripts). PhysFS does not merge that with save-dir `data/generated/` after import → `Data:load` / `require("data.generated.*")` fails on Play while launcher `isReady` still sees CacheFs files. Loose mode search order differed enough that Play worked earlier.
+
+Mitigations: `CacheFs.mountVersion` prepend-mounts `data/generated` + `assets/generated`; `Data.loadModule` falls back to `CacheFs.read`+`loadstring`; Boot.run skips on NX (`networkValidated == false`).
+
+**T24 remains OPEN** until fused Play re-verify + NRO-only save test.
