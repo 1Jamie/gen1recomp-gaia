@@ -16,11 +16,13 @@ GamepadMap.RAW_BUTTON_BINDINGS = {
   [7] = "select", [8] = "start", [9] = "select", [10] = "start",
 }
 
--- Switch OLED probe 2026-08-01: love.joystickpressed indices (1-based).
--- Gamepad path still preferred when isGamepad(); raw covers the rest.
+-- Switch OLED: love.joystickpressed indices (1-based). Used only when the
+-- device is NOT a gamepad — love-nx also emits gamepadpressed for Joy-Con,
+-- and applying both face paths in one frame breaks NamingScreen (a+b).
+-- Y→a / X→b matches operator OLED naming diagnosis (2026-08-01).
 GamepadMap.NX_RAW_BUTTON_BINDINGS = {
   [1] = "a", [2] = "b",
-  [3] = "b", [4] = "a",
+  [3] = "a", [4] = "b",
   [9] = "select", [10] = "start",
 }
 
@@ -32,7 +34,7 @@ GamepadMap.RAW_TO_GAMEPAD_BUTTON = {
 
 GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON = {
   [1] = "a", [2] = "b",
-  [3] = "y", [4] = "x",
+  [3] = "a", [4] = "b",
   [9] = "back", [10] = "start",
 }
 
@@ -52,6 +54,16 @@ end
 
 function GamepadMap.mapGamepadButton(button)
   return GamepadMap.DEFAULT_GAMEPAD_BINDINGS[button]
+end
+
+-- love-nx / SDL: when isGamepad(), face+menu already arrive via gamepad*.
+-- Applying joystickpressed raw on top double-fires GB A/B in one frame.
+function GamepadMap.ignoreRawForJoystick(joystick)
+  if not joystick then return false end
+  local ok, isPad = pcall(function()
+    return joystick.isGamepad and joystick:isGamepad()
+  end)
+  return ok and isPad == true
 end
 
 function GamepadMap.mapRawButton(index)

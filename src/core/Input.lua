@@ -180,11 +180,13 @@ function Input:gamepadreleased(joystick, button)
 end
 
 function Input:joystickpressed(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   local btn = GamepadMap.mapRawButton(button)
   if btn then press(self, btn, "joy:" .. button) end
 end
 
 function Input:joystickreleased(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   local btn = GamepadMap.mapRawButton(button)
   if btn then release(self, btn, "joy:" .. button) end
 end

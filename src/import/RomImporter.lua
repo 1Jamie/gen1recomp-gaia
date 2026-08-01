@@ -1548,11 +1548,13 @@ function RomImporter:gamepadaxis(_, axis, value)
 end
 
 function RomImporter:joystickpressed(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   local padButton = GamepadMap.mapRawToGamepadButton(button)
   if padButton then self:gamepadpressed(joystick, padButton) end
 end
 
 function RomImporter:joystickreleased(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
   local padButton = GamepadMap.mapRawToGamepadButton(button)
   if padButton then self:gamepadreleased(joystick, padButton) end
 end
