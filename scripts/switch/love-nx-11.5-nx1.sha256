@@ -1,0 +1,13 @@
+# love-nx 11.5-nx1 — pinned runtime artifacts (RetronX team)
+# https://github.com/retronx-team/love-nx/releases/tag/11.5-nx1
+#
+# Download love.nro and love.elf from the release above and place them under:
+#   .bazinga/love-nx/11.5-nx1/
+#
+# These binaries are NOT committed. After fetching, fill in the SHA-256 fields
+# below (run: shasum -a 256 .bazinga/love-nx/11.5-nx1/<file>).
+#
+# TODO: replace TBD placeholders once binaries are fetched on a developer machine.
+
+love.nro  TBD_SHA256_LOVE_NRO
+love.elf  TBD_SHA256_LOVE_ELF
