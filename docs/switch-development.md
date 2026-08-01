@@ -284,3 +284,35 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P1-04 | Reboot persistence | **pass** | T19 |
 | P1-05 | Audio resume after suspend | **pass** | T19 (no dup audio reported) |
 
+## Upstream contribution outline (ADR §11)
+
+Split the eventual upstream PR into three reviewable slices. Each PR must declare: **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed**, **Applet Mode unsupported**, **network/updater disabled on NX**.
+
+### PR 1 — Platform + import (`platform/import`)
+
+- `src/core/Platform.lua`, `conf.lua` NX branch
+- `src/import/RomImporter.lua` (NX flags, inbox, scan, shell/updater gates)
+- Tests: `tests/platform_nx_*`, `tests/rom_importer_nx_*`
+- Docs: inbox/MTP import sections only
+
+### PR 2 — Input + lifecycle (`input/lifecycle`)
+
+- `src/core/GamepadMap.lua`, `Input.lua`, `main.lua` focus/joystick hooks
+- `src/debug/SwitchDiagnostics.lua` (opt-in probe + error log)
+- Tests: input/diagnostics suites
+- Docs: controller mapping, suspend/audio notes
+
+### PR 3 — Build + docs (`build/docs`)
+
+- `scripts/pack_love.sh`, `scripts/build_switch.sh`, `scripts/switch/*`
+- `assets/switch/icon.jpg`, `docs/switch-development.md`, hardware evidence templates
+- Gates: `pack_love.sh --dry-run`, `verify_payload.sh --self-test`, fused build script (devkitPro host)
+
+**Pre-merge checklist (all PRs):**
+
+- [ ] Manifest `scripts/switch/love-nx-11.5-nx1.sha256` filled; binaries not in git
+- [ ] `verify_payload.sh` rejects generated cache / ROM / `.sav` / `.bak`
+- [ ] P0 matrix rows marked pass only with linked hardware evidence
+- [ ] Fused NRO rows remain deferred until T24 evidence exists
+- [ ] Updater / remote mod download hidden on NX (`networkValidated == false`)
+
