@@ -3230,7 +3230,10 @@ function BattleState:onFaint(battler)
   end
 end
 
-function BattleState:enemyMonFainted()
+-- Exp for the defeated enemy, shared by the faint path (enemyMonFainted)
+-- and, when a mod's battle.catch_exp hook says so, the catch path
+-- (storeCaughtMon).
+function BattleState:awardExp()
   -- exp is split among the mons that fought this enemy
   -- (engine/battle/experience.asm); traded mons earn x1.5; each
   -- participant gets the full stat exp
@@ -3308,27 +3311,44 @@ function BattleState:enemyMonFainted()
       end
     end
   end
-  -- with EXP.ALL, participants split half the exp and the other half
-  -- is divided among the whole party (engine/battle/experience.asm)
-  local expAll = (self.game.save.inventory.EXP_ALL or 0) > 0
-  for _, mon in ipairs(alive) do
-    applyShare(mon, participants * (expAll and 2 or 1), true)
-  end
-  if expAll then
-    -- the second GainExperience pass sets the gain flags for the WHOLE
-    -- party, so DivideExpDataByNumMonsGainingExp divides the already
-    -- halved-and-participant-divided exp again by the party count, and
-    -- .partyMonLoop still skips fainted mons (core.asm:818-858 +
-    -- experience.asm:9-13); each mon gets its own GainedText with the
-    -- "with EXP.ALL," tail (wBoostExpByExpAll) -- pokered prints no
-    -- summary line
-    for _, mon in ipairs(self.game.save.party) do
-      if mon.hp > 0 then
-        applyShare(mon, math.max(1, participants) * #self.game.save.party * 2, "expAll")
+  -- battle.exp_award: the participant/EXP.ALL split, factored out so a
+  -- mod can replace it wholesale (e.g. a flat undivided share to every
+  -- non-fainted party mon) without re-deriving participants/alive.
+  -- ctx.applyShare(mon, split, announce) is the same helper vanilla uses.
+  local function vanillaExpAward(ctx)
+    -- with EXP.ALL, participants split half the exp and the other half
+    -- is divided among the whole party (engine/battle/experience.asm)
+    local expAll = (self.game.save.inventory.EXP_ALL or 0) > 0
+    for _, mon in ipairs(ctx.alive) do
+      ctx.applyShare(mon, ctx.participants * (expAll and 2 or 1), true)
+    end
+    if expAll then
+      -- the second GainExperience pass sets the gain flags for the WHOLE
+      -- party, so DivideExpDataByNumMonsGainingExp divides the already
+      -- halved-and-participant-divided exp again by the party count, and
+      -- .partyMonLoop still skips fainted mons (core.asm:818-858 +
+      -- experience.asm:9-13); each mon gets its own GainedText with the
+      -- "with EXP.ALL," tail (wBoostExpByExpAll) -- pokered prints no
+      -- summary line
+      for _, mon in ipairs(self.game.save.party) do
+        if mon.hp > 0 then
+          ctx.applyShare(mon, math.max(1, ctx.participants) * #self.game.save.party * 2, "expAll")
+        end
       end
     end
   end
+  local awardCtx = { battle = self, participants = participants, alive = alive,
+                      applyShare = applyShare }
+  if Runtime.wantsHook("battle.exp_award") then
+    Runtime.call("battle.exp_award", vanillaExpAward, awardCtx)
+  else
+    vanillaExpAward(awardCtx)
+  end
   self.participants = {}
+end
+
+function BattleState:enemyMonFainted()
+  self:awardExp()
 
   if self.kind == "trainer" then
     -- EnemySendOutFirstMon / AnyEnemyPokemonAliveCheck (core.asm): scan
@@ -3889,6 +3909,12 @@ function BattleState:storeCaughtMon()
   -- (item_effects.asm:472-501), regenerating its move list from the
   -- base data -- a Mimic'd slot never leaves the battle with it
   self:restoreMimicked(self.enemy)
+  -- battle.catch_exp: vanilla catches never grant exp; a mod can flip
+  -- this to true to pay out the same award a faint would have.
+  if Runtime.wantsHook("battle.catch_exp")
+     and Runtime.call("battle.catch_exp", function() return false end, { battle = self }) then
+    self:awardExp()
+  end
   local game = self.game
   local dex = game.save.pokedex
   local species = self.enemy.mon.species
