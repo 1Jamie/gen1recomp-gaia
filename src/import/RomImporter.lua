@@ -4327,12 +4327,40 @@ end
 -- `paged` behaves as it does on the game panel: no inner scroll region, the
 -- card list is drawn whole, and the returned natural height is what draw()
 -- measures the page against.
+function RomImporter:_modsImportButtonLabel()
+  if self.isNX then return "Procurar novamente" end
+  return "Import mod .zip"
+end
+
+function RomImporter:_modsDefaultHint()
+  if self.isNX then
+    local saveDir = love.filesystem.getSaveDirectory()
+    local rel = RomImporter.mtpHintPath(saveDir)
+    if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+    return Strings("Copy a .zip via MTP into %s/imports/mods/\n"
+      .. "DBI MTP → 1: SD Card/%simports/mods/", saveDir, rel)
+  end
+  if self.android then return "Or copy a mod .zip via USB." end
+  return Strings("Or drop a mod .zip onto the window.")
+end
+
+function RomImporter:_modsEmptyHint()
+  if self.isNX then
+    return Strings("No mods installed - copy a .zip into imports/mods/ "
+      .. "and tap Procurar novamente.")
+  end
+  if self.android then
+    return "No mods installed - tap Import mod .zip to add one."
+  end
+  return Strings("No mods installed - drop a mod .zip here to add one.")
+end
+
 function RomImporter:_drawModsPanel(x, y, w, h, paged)
   local s = self._s
   self:_ensureMods()
   local mods = self.mods or {}
 
-  -- header: "Mods" + "N of M enabled" (left) and "Import mod .zip" (right)
+  -- header: "Mods" + "N of M enabled" (left) and import/rescan (right)
   love.graphics.setFont(self.gameNameFont)
   col(PAL.white)
   printB("Mods", x, y)
@@ -4346,7 +4374,7 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
   love.graphics.print(Strings("%d of %d enabled", enabledCount, #mods),
     x + nameW + 14 * s, y + (headerH - self.hintFont:getHeight()) / 2)
 
-  local btnLabel = "Import mod .zip"
+  local btnLabel = self:_modsImportButtonLabel()
   local btnH = math.max(38 * s, self.saveBtnFont:getHeight() + 20 * s)
   local btnW = math.min(w * 0.5, self.saveBtnFont:getWidth(btnLabel) + 40 * s)
   local btnX = x + w - btnW
@@ -4363,8 +4391,7 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
     love.graphics.printf(self.modNotice.text, x, top, w, "left")
   else
     col(PAL.warning)
-    love.graphics.printf(self.android and "Or copy a mod .zip via USB."
-      or Strings("Or drop a mod .zip onto the window."), x, top, w, "left")
+    love.graphics.printf(self:_modsDefaultHint(), x, top, w, "left")
   end
   top = top + self.hintFont:getHeight() + 12 * s
 
@@ -4378,9 +4405,7 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
     dashedRoundRect(x, top, w, boxH, 14 * s, 7 * s, 5 * s)
     love.graphics.setFont(self.hintFont)
     col(PAL.warning)
-    local emptyHint = self.android
-      and "No mods installed - tap Import mod .zip to add one."
-      or Strings("No mods installed - drop a mod .zip here to add one.")
+    local emptyHint = self:_modsEmptyHint()
     love.graphics.printf(emptyHint,
       x + 16 * s, top + boxH / 2 - self.hintFont:getHeight() / 2, w - 32 * s, "center")
     self.modRects = {}

@@ -205,6 +205,33 @@ eq(installCalls[1], "imports/mods/from-choose.zip",
   "NX chooseMod installs from imports/mods/")
 check(ri.modNotice and ri.modNotice.ok, "NX chooseMod success notice")
 
+-- NXMOD-01 UI: NX MODS panel label + hints mention imports/mods/
+ri = freshImporter()
+eq(ri:_modsImportButtonLabel(), "Procurar novamente",
+  "NX MODS button label is Procurar novamente")
+local defaultHint = ri:_modsDefaultHint()
+check(defaultHint:find("imports/mods/", 1, true),
+  "NX default hint mentions imports/mods/")
+check(defaultHint:find("DBI MTP", 1, true),
+  "NX default hint mentions DBI MTP")
+local emptyHint = ri:_modsEmptyHint()
+check(emptyHint:find("imports/mods/", 1, true),
+  "NX empty-state hint mentions imports/mods/")
+check(emptyHint:find("Procurar novamente", 1, true),
+  "NX empty-state hint mentions Procurar novamente")
+
+-- Desktop keeps Import mod .zip (non-NX)
+local desk = setmetatable({
+  isNX = false, android = false,
+  _modsImportButtonLabel = RomImporter._modsImportButtonLabel,
+  _modsDefaultHint = RomImporter._modsDefaultHint,
+  _modsEmptyHint = RomImporter._modsEmptyHint,
+}, RomImporter)
+eq(desk:_modsImportButtonLabel(), "Import mod .zip",
+  "desktop MODS button stays Import mod .zip")
+check(desk:_modsDefaultHint():find("drop a mod", 1, true),
+  "desktop default hint stays drop-oriented")
+
 -- Cleanup + restore stubs
 clearModsInbox()
 love.filesystem.remove("imports/other.zip")
