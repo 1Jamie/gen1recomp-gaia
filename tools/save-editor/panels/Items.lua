@@ -1,4 +1,4 @@
--- Items panel: money, the shared item picker, badges, the 20-slot bag
+-- Items panel: money, the shared item picker, badges, the configurable bag
 -- (Bag.add/remove, ordered by Bag.order) and PC item storage (a plain
 -- S.save.pcItems dict with no slot cap).
 --
@@ -178,12 +178,13 @@ function M.draw(S, Kit, x, y, w, h)
 
   -- --------------------------------------------------------------- bag
   local order = Bag.order(S.save)
+  local capacity = Bag.capacity(S.data)
   Kit.card(bagX, y, listW, h)
   Kit.caption(bagX + pad, y + pad, "BAG")
-  Kit.textRight("mono", ("%d/%d slots"):format(Bag.slots(S.save), Bag.CAPACITY),
+  Kit.textRight("mono", ("%d/%d slots"):format(Bag.slots(S.save), capacity),
     bagX + listW - pad, y + pad, PAL.caption)
   local barY = y + pad + Kit.textHeight("caption") + 8 * s
-  local slotFrac = Bag.slots(S.save) / Bag.CAPACITY
+  local slotFrac = Bag.slots(S.save) / capacity
   Kit.meter(bagX + pad, barY, listW - 2 * pad, 5 * s, slotFrac * 100,
     slotFrac >= 1 and PAL.yellow or PAL.blue)
 

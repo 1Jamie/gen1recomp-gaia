@@ -14,12 +14,12 @@ local MODULES = {
 -- Optional for compatibility with developer and stale caches.
 local OPTIONAL = { "audio", "palettes", "icons" }
 
--- The rules the engine still carries as literals.  The constants registry
--- deep-merges over these, so a value has to exist before a mod can patch
--- it; each one is the number the engine hard-codes today, so seeding them
--- changes nothing on a mod-free boot.
+-- Vanilla defaults for rules exposed through the constants registry.  A
+-- value has to exist before a mod can patch it; each one matches the
+-- engine's no-mod behavior, so seeding them changes nothing on a vanilla
+-- boot.
 local CONSTANT_DEFAULTS = {
-  bagSize = 20,                 -- BAG_ITEM_CAPACITY (src/inventory/Bag.lua)
+  bagSize = 20,                 -- BAG_ITEM_CAPACITY (Bag.capacity fallback)
   partyMax = 6,                 -- PARTY_LENGTH (src/pokemon/Party.lua)
   boxCount = 12, boxSize = 20,  -- Bill's PC (src/pokemon/Boxes.lua)
   moveMax = 4,

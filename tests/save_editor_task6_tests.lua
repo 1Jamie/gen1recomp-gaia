@@ -181,12 +181,13 @@ end
 do
   -- the bag has a hard slot cap; the picker must refuse past it
   local S = newState()
+  local capacity = Bag.capacity(S.data)
   local added = 0
   for _, id in ipairs(S.cat.items) do
     if not Ops.isBadgeId(id) and Ops.addToBag(S, id) then added = added + 1 end
-    if added >= Bag.CAPACITY then break end
+    if added >= capacity then break end
   end
-  eq(Bag.slots(S.save), Bag.CAPACITY, "the bag filled to its cap")
+  eq(Bag.slots(S.save), capacity, "the bag filled to its cap")
   S.dirty = false
   local spare
   for _, id in ipairs(S.cat.items) do
