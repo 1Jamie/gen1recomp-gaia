@@ -1,9 +1,14 @@
 # Nintendo Switch development (love-nx)
 
-> **Status: work in progress — not a finished Switch release.**  
-> Tracks experimental support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531). Expect rough edges, manual steps, and host-specific contributor tooling. Do not treat this as a packaged product yet.
+> **Status: work in progress — experimental fused NRO on Releases.**  
+> Tracks experimental support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531). Expect rough edges, manual console copy, and host-specific contributor tooling.
 
-Gen1Recomp on Nintendo Switch runs on a pinned [love-nx](https://github.com/retronx-team/love-nx) runtime. This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the current contributor transfer loop.
+**Canonical install / build docs** (start here unless you need hardware depth):
+
+- Players → [switch-install.md](switch-install.md)
+- Builders → [switch-build.md](switch-build.md) (`scripts/build_switch.sh --fetch` downloads the pinned love-nx pair)
+
+This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the current contributor transfer loop.
 
 ## Current status (honest)
 
@@ -13,7 +18,7 @@ Gen1Recomp on Nintendo Switch runs on a pinned [love-nx](https://github.com/retr
 | Runtime | Pinned love-nx **`11.5-nx1`** |
 | Product artifact goal | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
 | Hardware validated | **Nintendo Switch OLED only** (title override / full memory). Original Switch, Lite, docked mode, and other hosts are **untested** |
-| Deploy / install | **Fully manual** today — build on a host, copy artifacts by hand; no CI Switch job, no one-click installer, no `nxlink`/netloader path |
+| Deploy / install | Releases publish fused NRO; **console copy is still manual** — no one-click installer, no `nxlink`/netloader path |
 | Contributor host used | **macOS + OpenMTP + DBI MTP** (see below — temporary coupling) |
 | Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
 | Community help | Welcome — especially from people familiar with HOS / love-nx / Switch homebrew packaging |
@@ -32,8 +37,7 @@ Gen1Recomp on Nintendo Switch runs on a pinned [love-nx](https://github.com/retr
 
 ### What is still unfinished / out of this draft
 
-- Official release packaging and automated Switch CI
-- Cross-host contributor docs (Linux/Windows MTP clients) and less Mac-centric language in player-facing UX
+- Cross-host contributor MTP docs (Linux/Windows clients) and less Mac-centric language in player-facing UX
 - Docked vs handheld soak, long-play soak, non-OLED hardware
 - Pro Controller / third-party pad matrices beyond the OLED Joy-Con path already measured
 - VoxelMod (and other community mods) OLED smoke still **pending** in the evidence scaffold
@@ -92,17 +96,27 @@ Operator evidence must stay in `docs/switch-hardware-evidence.md`. **Do not inve
 
 ### Fetch instructions
 
+Preferred (automated checksum verify):
+
+```bash
+scripts/build_switch.sh --fetch
+```
+
+That downloads pinned `love.nro` + `love.elf` into `.bazinga/love-nx/11.5-nx1/`
+and checks them against `scripts/switch/love-nx-11.5-nx1.sha256`. See
+[switch-build.md](switch-build.md) for the full mode glossary.
+
+Manual fallback:
+
 1. Open the [11.5-nx1 release](https://github.com/retronx-team/love-nx/releases/tag/11.5-nx1) and download `love.nro` and `love.elf`.
 2. Create the directory: `mkdir -p .bazinga/love-nx/11.5-nx1`
 3. Move both files into that directory.
-4. Record checksums and update the manifest:
+4. Confirm checksums match the manifest:
 
    ```bash
    shasum -a 256 .bazinga/love-nx/11.5-nx1/love.nro \
      .bazinga/love-nx/11.5-nx1/love.elf
    ```
-
-5. Replace the `TBD_*` lines in `scripts/switch/love-nx-11.5-nx1.sha256` with the real hashes.
 
 **Never commit** love-nx binaries, ROM dumps, or generated cache into git. The repo `.gitignore` excludes `.bazinga/` (vendor cache) and `/dist/` (build output).
 

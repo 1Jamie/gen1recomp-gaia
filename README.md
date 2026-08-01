@@ -204,20 +204,21 @@ Install steps, controls, and troubleshooting live in
 
 ## Nintendo Switch (experimental)
 
-**Work in progress** toward issue
-[#531](https://github.com/bryanthaboi/gen1recomp/issues/531) — not a finished
-or officially packaged Switch release yet. Runtime target is pinned
-[love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`. Hardware
-evidence so far is **Switch OLED only**; build/deploy is still **manual**.
-The contributor loop used for that evidence is currently Mac + OpenMTP + DBI
-MTP — that host coupling is temporary tooling, not the intended final product
-contract.
+Releases ship a fused `gen1recomp-*-switch.nro` (still **experimental** —
+issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Runtime
+target is pinned [love-nx](https://github.com/retronx-team/love-nx)
+`11.5-nx1`. Hardware evidence so far is **Switch OLED only**.
 
-Start with [docs/switch-development.md](docs/switch-development.md) (status,
-Dusklight-derived method, limitations, how we tested) and
-[docs/switch-hardware-evidence.md](docs/switch-hardware-evidence.md) (OLED
-pass/fail log). Help from the community — especially people comfortable with
-HOS / love-nx packaging — is welcome.
+- Players: [docs/switch-install.md](docs/switch-install.md) — download the
+  NRO, copy to the SD, title-override launch, import your own legal ROM.
+- Builders: [docs/switch-build.md](docs/switch-build.md) — `--fetch` /
+  `--loose` / `--fused`, toolchain, Docker fallback, runner notes.
+
+For WIP status, Dusklight-derived method, limitations, and how we tested,
+see [docs/switch-development.md](docs/switch-development.md) and
+[docs/switch-hardware-evidence.md](docs/switch-hardware-evidence.md). Help
+from the community — especially people comfortable with HOS / love-nx
+packaging — is welcome.
 
 ## Modding
 
