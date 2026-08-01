@@ -9,6 +9,7 @@ local Renderer = require("src.render.Renderer")
 local SaveData = require("src.core.SaveData")
 local StateStack = require("src.core.StateStack")
 local TouchControls = require("src.core.TouchControls")
+local GamepadMap = require("src.core.GamepadMap")
 local ModLoader = require("src.mods.Loader")
 local ModRuntime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
@@ -488,6 +489,23 @@ function Game:gamepadpressed(joystick, button)
   if top and top.onGamepadPressed then
     top:onGamepadPressed(button)
     return
+  end
+  -- Select+face display chords → same digit path as Game:keypressed
+  -- (COLORS/TILT/pipelines). Intercept before Input so face does not
+  -- also fire GB A/B. Dual-path: raw already ignored when isGamepad().
+  local selectHeld = Input:isDown("select")
+  if not selectHeld and joystick and joystick.isGamepadDown then
+    local ok, down = pcall(function()
+      return joystick:isGamepadDown("back")
+    end)
+    selectHeld = ok and down == true
+  end
+  if selectHeld then
+    local digit = GamepadMap.displayChordDigit(button)
+    if digit then
+      self:keypressed(digit)
+      return
+    end
   end
   Input:gamepadpressed(joystick, button)
 end
