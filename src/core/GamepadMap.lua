@@ -3,10 +3,19 @@
 
 local GamepadMap = {}
 
--- LÖVE SDL game-controller mapping (D-pad / face / menu).
+-- LÖVE SDL game-controller mapping (D-pad / face / menu) — desktop/mobile.
 GamepadMap.DEFAULT_GAMEPAD_BINDINGS = {
   dpup = "up", dpdown = "down", dpleft = "left", dpright = "right",
   a = "a", b = "b",
+  start = "start", back = "select",
+}
+
+-- Switch: LÖVE/SDL labels south as "a" and east as "b", but Nintendo UX is
+-- physical A (east) = confirm (GB A), physical B (south) = cancel (GB B).
+GamepadMap.NX_GAMEPAD_BINDINGS = {
+  dpup = "up", dpdown = "down", dpleft = "left", dpright = "right",
+  a = "b", -- SDL south = Nintendo B → GB B
+  b = "a", -- SDL east = Nintendo A → GB A
   start = "start", back = "select",
 }
 
@@ -16,29 +25,26 @@ GamepadMap.RAW_BUTTON_BINDINGS = {
   [7] = "select", [8] = "start", [9] = "select", [10] = "start",
 }
 
--- Switch OLED: love.joystickpressed indices (1-based). Used only when the
--- device is NOT a gamepad — love-nx also emits gamepadpressed for Joy-Con,
--- and applying both face paths in one frame breaks NamingScreen (a+b).
--- Y→a / X→b matches operator OLED naming diagnosis (2026-08-01).
+-- Switch OLED raw indices (1-based). Only when NOT isGamepad() — love-nx
+-- also emits gamepadpressed; dual-path face presses break NamingScreen.
+-- #1 = Nintendo B, #2 = Nintendo A (probe); Y/X left unmapped for naming.
 GamepadMap.NX_RAW_BUTTON_BINDINGS = {
-  [1] = "a", [2] = "b",
-  [3] = "a", [4] = "b",
+  [1] = "b", [2] = "a",
   [9] = "select", [10] = "start",
 }
 
--- Raw index -> gamepad button name for RomImporter routing.
+-- Raw index -> gamepad button *name* for RomImporter (then NX face swap applies).
 GamepadMap.RAW_TO_GAMEPAD_BUTTON = {
   [1] = "a", [2] = "b",
   [7] = "back", [8] = "start", [9] = "back", [10] = "start",
 }
 
 GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON = {
-  [1] = "a", [2] = "b",
-  [3] = "a", [4] = "b",
+  [1] = "a", [2] = "b", -- SDL south/east names; NX_GAMEPAD_BINDINGS swaps to GB
   [9] = "back", [10] = "start",
 }
 
--- Test hook: force NX raw tables without stubbing love.
+-- Test hook: force NX tables without stubbing love.
 GamepadMap._forceNXForTests = false
 
 function GamepadMap._setForceNXForTests(v)
@@ -52,8 +58,13 @@ local function nxActive()
   return false
 end
 
+function GamepadMap.gamepadBindings()
+  if nxActive() then return GamepadMap.NX_GAMEPAD_BINDINGS end
+  return GamepadMap.DEFAULT_GAMEPAD_BINDINGS
+end
+
 function GamepadMap.mapGamepadButton(button)
-  return GamepadMap.DEFAULT_GAMEPAD_BINDINGS[button]
+  return GamepadMap.gamepadBindings()[button]
 end
 
 -- love-nx / SDL: when isGamepad(), face+menu already arrive via gamepad*.

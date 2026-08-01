@@ -51,7 +51,7 @@ end
 function Input:applyBindings(overlay)
   local keys, pads = {}, {}
   for key, action in pairs(DEFAULT_BINDINGS) do keys[key] = action end
-  for button, action in pairs(GamepadMap.DEFAULT_GAMEPAD_BINDINGS) do
+  for button, action in pairs(GamepadMap.gamepadBindings()) do
     pads[button] = action
   end
   for actionId, binding in pairs(overlay or {}) do

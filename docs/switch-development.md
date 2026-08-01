@@ -217,13 +217,15 @@ Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both 
 
 | Path | Control | Mapping |
 | ---- | ------- | ------- |
-| `gamepadpressed` | D-pad / left stick | move (via `GamepadMap.DEFAULT_GAMEPAD_BINDINGS`) |
-| `gamepadpressed` | `a` / `b` (SDL) | GB A / B — physical **B** (south) confirms, physical **A** (east) cancels |
+| `gamepadpressed` | D-pad / left stick | move |
+| `gamepadpressed` | SDL `a` / `b` on **NX** | swapped via `NX_GAMEPAD_BINDINGS`: physical **A** (east) = GB A confirm, physical **B** (south) = GB B cancel |
+| `gamepadpressed` | SDL `a` / `b` on desktop | identity (SDL south = GB A) |
 | `gamepadpressed` | `start` / `back` | Start / Select |
 | `joystickpressed` (raw) | only if **not** `isGamepad()` | face/menu fallback |
-| `joystickpressed` (raw) | `#1` / `#2` | GB A / B |
-| `joystickpressed` (raw) | `#3` Y / `#4` X | GB A / B (OLED naming diagnosis) |
+| `joystickpressed` (raw) | `#1` / `#2` on NX | Nintendo B / A → GB B / A |
 | `joystickpressed` (raw) | `#9` / `#10` | Select / Start (− / +) |
+
+**Nintendo UX on Switch:** physical A confirms, physical B cancels (explicit NX remap of SDL face labels).
 
 **Dual-path rule:** love-nx emits both `gamepadpressed` and `joystickpressed` for Joy-Con. When `joystick:isGamepad()` is true, Input and RomImporter **ignore raw** face/menu so NamingScreen does not see A+B in one frame. `NamingScreen` also prefers A over B if both edges still fire.
 

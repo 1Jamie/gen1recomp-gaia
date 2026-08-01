@@ -1513,7 +1513,9 @@ end
 
 function RomImporter:gamepadpressed(_, button)
   self:_activatePadCursor()
-  if button == "a" then
+  -- Map through GamepadMap so NX swaps SDL face labels to Nintendo A/B.
+  local action = GamepadMap.mapGamepadButton(button)
+  if action == "a" then
     -- Instant click at the virtual pointer (same path as a mouse/touch tap).
     self:mousepressed(self._padCursor.x, self._padCursor.y, 1)
   elseif button == "leftshoulder" then
