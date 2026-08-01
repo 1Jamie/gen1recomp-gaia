@@ -41,7 +41,8 @@ FETCH=0
 GAME_LOVE=""
 VERSION="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)"
 
-say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+# Progress on stderr so command-substitution of pack_game_love stays a bare path.
+say()  { printf '\033[1;32m==>\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
