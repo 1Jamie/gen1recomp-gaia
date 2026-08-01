@@ -22,7 +22,7 @@ Player install (what to download, title override) stays in
 | Fused release NRO | `sdmc:/switch/gen1recomp/gen1recomp.nro` (or versioned name under that folder) |
 | Loose iteration pair | `sdmc:/switch/gen1recomp/gen1recomp.nro` **and** `game.love` beside it |
 | ROM inbox | LÖVE save dir → `imports/` (launcher shows the live `getSaveDirectory()` path; under MTP often `1: SD Card/<save identity>/imports/`) |
-| Mod zip inbox | Same save dir → `imports/mods/` then MODS → **Procurar novamente** |
+| Mod zip inbox | Same save dir → `imports/mods/` then MODS → **Scan again** |
 | Opt-in diagnostics | Empty `switch-debug.txt` in the save dir → `switch.log` |
 | Lua error log | `lua-error.log` in the save dir |
 
@@ -121,8 +121,8 @@ a single vendor tutorial.
 1. Exit MTP / unmount SD / stop FTP cleanly.
 2. Launch via **title override** (hold **R** on a title → hbmenu). **Applet
    Mode is not supported** (not enough memory).
-3. For ROMs: launcher → **Procurar novamente** if the file was added after
-   boot. For mods: MODS → **Procurar novamente** → enable → Play.
+3. For ROMs: launcher → **Scan again** if the file was added after
+   boot. For mods: MODS → **Scan again** → enable → Play.
    VoxelMod Joy-Con chords and Switch performance tips:
    [switch-install.md](switch-install.md#community-mods-voxelmod).
 

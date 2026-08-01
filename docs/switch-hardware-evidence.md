@@ -30,7 +30,7 @@ Do **not** commit ROM dumps or private dump hashes. Do **not** mark a row **pass
 
 ## T12 — Red import + Play — pass
 
-Inbox MTP → “Procurar novamente” → Play; Joy-Con launcher/gameplay (not touch-only).
+Inbox MTP → “Scan again” → Play; Joy-Con launcher/gameplay (not touch-only).
 
 ---
 
@@ -158,7 +158,7 @@ DramaticShape (or any) mod `.zip` bytes.
 | Step | Pass / fail / pending | Notes |
 | ---- | --------------------- | ----- |
 | MTP zip into save `imports/mods/` | **pass** | Photo evidence + prior inbox path |
-| MODS → Procurar novamente → mod listed | **pass** | IMG_1766 — Dramatic Shape Voxel Mod installed |
+| MODS → Scan again → mod listed | **pass** | IMG_1766 — Dramatic Shape Voxel Mod installed |
 | Enable mod + Play Red boots without crash | **pass** | Overworld / Pallet / Oak lab photos on #531 |
 | Overworld Select+A → visible colors/settings change | **pass** | Chords shipped; OLED session used display paths with VoxelMod |
 | Overworld Select+B → visible tilt/perspective change | **pass** | Same; VoxelMod 3D overworld visible (IMG_1771) |

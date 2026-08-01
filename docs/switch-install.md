@@ -54,7 +54,7 @@ This project ships **no** game data. On first launch:
 1. Put your own legally obtained Pokémon Red or Blue `.gb` into the ROM
    inbox under the game’s save directory (`imports/` — the launcher shows
    the live path).
-2. Use **Procurar novamente** / rescan on the Red/Blue tab if you add the
+2. Use **Scan again** on the Red/Blue tab if you add the
    file after the first open.
 
 Saves live in the LÖVE save directory and **persist across NRO updates** —
@@ -66,7 +66,7 @@ Mods install from a zip inbox (same transfer methods as ROMs):
 
 1. Copy a release `.zip` into the save-dir **`imports/mods/`** path the
    launcher shows (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)).
-2. In the launcher, open **MODS** → **Procurar novamente** → enable the mod →
+2. In the launcher, open **MODS** → **Scan again** → enable the mod →
    **Play**.
 
 Remote **FIND MODS** / GitHub download stays **off** on Switch. Do not put

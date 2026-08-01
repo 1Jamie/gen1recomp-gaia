@@ -3562,12 +3562,12 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     elseif erroring then
       romState = "Import failed"
       romDetail = self.detail or Strings("That ROM could not be imported.")
-      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnLabel = self.isNX and Strings("Scan again") or "Import ROM"
       romBtnEnabled = true
     elseif notice then
       romState = "No ROM imported"
       romDetail = trim((notice.status or "") .. " " .. (notice.detail or ""))
-      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnLabel = self.isNX and Strings("Scan again") or "Import ROM"
       romBtnEnabled = true
     elseif self.returning[version] then
       romState = "Update required"
@@ -3577,7 +3577,7 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     else
       romState = "No ROM imported"
       romDetail = "The ROM is verified before any files are created. " .. dropHint
-      romBtnLabel = self.isNX and "Procurar novamente" or "Import ROM"
+      romBtnLabel = self.isNX and Strings("Scan again") or "Import ROM"
       romBtnEnabled = true
     end
   end
@@ -4488,7 +4488,7 @@ end
 -- card list is drawn whole, and the returned natural height is what draw()
 -- measures the page against.
 function RomImporter:_modsImportButtonLabel()
-  if self.isNX then return "Procurar novamente" end
+  if self.isNX then return Strings("Scan again") end
   return "Import mod .zip"
 end
 
@@ -4507,7 +4507,7 @@ end
 function RomImporter:_modsEmptyHint()
   if self.isNX then
     return Strings("No mods installed - copy a .zip into imports/mods/ "
-      .. "and tap Procurar novamente.")
+      .. "and tap Scan again.")
   end
   if self.android then
     return "No mods installed - tap Import mod .zip to add one."

@@ -27,7 +27,7 @@ This document covers what landed so far, known limitations, how hardware was tes
 ### What this branch already does
 
 - Detect `NX` via `src/core/Platform.lua` without reusing Android flags
-- Writable ROM inbox under `getSaveDirectory()/imports/` + “Procurar novamente”
+- Writable ROM inbox under `getSaveDirectory()/imports/` + “Scan again”
 - Joy-Con / gamepad mapping shared by launcher and gameplay (Nintendo A/B UX on NX)
 - Focus loss / joystick reconnect recovery; opt-in `switch-debug.txt` diagnostics
 - Loose assemble + fused NRO build scripts (`scripts/build_switch.sh`, `scripts/switch/*`)
@@ -347,7 +347,7 @@ Community mods install from a **separate** MTP inbox (not mixed into the ROM `im
 | Save-relative path | `imports/mods/` |
 | MTP destination | `1: SD Card/<save identity>/imports/mods/` (see launcher notice for the live `getSaveDirectory()` path) |
 | Candidates | `*.zip` only |
-| Rescan | MODS tab → **Procurar novamente** (installs each zip via `LauncherMods.installZip`; source zips are retained on success and failure) |
+| Rescan | MODS tab → **Scan again** (installs each zip via `LauncherMods.installZip`; source zips are retained on success and failure) |
 | FIND MODS | Remains network-gated / hidden on NX (`networkValidated == false`) |
 
 Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.

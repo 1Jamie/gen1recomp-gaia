@@ -254,8 +254,8 @@ check(ri.modNotice and ri.modNotice.ok, "NX chooseMod success notice")
 
 -- NXMOD-01 UI: NX MODS panel label + hints mention imports/mods/
 ri = freshImporter()
-eq(ri:_modsImportButtonLabel(), "Procurar novamente",
-  "NX MODS button label is Procurar novamente")
+eq(ri:_modsImportButtonLabel(), "Scan again",
+  "NX MODS button label is Scan again")
 local defaultHint = ri:_modsDefaultHint()
 check(defaultHint:find("imports/mods/", 1, true),
   "NX default hint mentions imports/mods/")
@@ -264,8 +264,8 @@ check(defaultHint:find("DBI MTP", 1, true),
 local emptyHint = ri:_modsEmptyHint()
 check(emptyHint:find("imports/mods/", 1, true),
   "NX empty-state hint mentions imports/mods/")
-check(emptyHint:find("Procurar novamente", 1, true),
-  "NX empty-state hint mentions Procurar novamente")
+check(emptyHint:find("Scan again", 1, true),
+  "NX empty-state hint mentions Scan again")
 
 -- Desktop keeps Import mod .zip (non-NX)
 local desk = setmetatable({
