@@ -218,19 +218,20 @@ Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both 
 | Path | Control | Mapping |
 | ---- | ------- | ------- |
 | `gamepadpressed` | D-pad / left stick | move (via `GamepadMap.DEFAULT_GAMEPAD_BINDINGS`) |
-| `gamepadpressed` | `a` / `b` | GB A / B |
+| `gamepadpressed` | `a` / `b` (SDL) | GB A / B — physical **B** (south) confirms, physical **A** (east) cancels |
 | `gamepadpressed` | `start` / `back` | Start / Select |
-| `joystickpressed` (raw) | `#1` Nintendo B | GB A |
-| `joystickpressed` (raw) | `#2` Nintendo A | GB B |
-| `joystickpressed` (raw) | `#3` Y | GB B (measured) |
-| `joystickpressed` (raw) | `#4` X | GB A (measured) |
+| `joystickpressed` (raw) | only if **not** `isGamepad()` | face/menu fallback |
+| `joystickpressed` (raw) | `#1` / `#2` | GB A / B |
+| `joystickpressed` (raw) | `#3` Y / `#4` X | GB A / B (OLED naming diagnosis) |
 | `joystickpressed` (raw) | `#9` / `#10` | Select / Start (− / +) |
 
-Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*` tables). Launcher (`RomImporter`) and gameplay (`Input`) share the same converter.
+**Dual-path rule:** love-nx emits both `gamepadpressed` and `joystickpressed` for Joy-Con. When `joystick:isGamepad()` is true, Input and RomImporter **ignore raw** face/menu so NamingScreen does not see A+B in one frame. `NamingScreen` also prefers A over B if both edges still fire.
+
+Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`). Launcher and gameplay share the same converter.
 
 **Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
 
-**Hardware re-test:** P0-07/08 Joy-Con launcher + naming screen — pending operator after T15 software (T16).
+**Hardware re-test:** T16 launcher/overworld pass @ `7504753`; naming fail fixed in software — re-verify naming after redeploy. T19 quit/reopen save pass; suspend×10 still pending.
 
 **Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).
 
