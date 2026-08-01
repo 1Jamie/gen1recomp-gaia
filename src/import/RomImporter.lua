@@ -542,6 +542,7 @@ end
 -- import-only run all skip the release check so headless and CI runs never spin
 -- up the background worker or reach out to the network.
 local function updaterAllowed()
+  if not Platform.networkValidated() then return false end
   if not (love.filesystem.isFused and love.filesystem.isFused()) then return false end
   if os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER") then return false end
   if os.getenv("POKEPORT_IMPORT_ONLY") == "1" then return false end
@@ -3063,12 +3064,14 @@ function RomImporter:_drawTabBar(x, y, w, h, chip)
       under = PAL.gold,   label = Strings("YELLOW"), ink = PAL.chipInkGold },
     { id = "mods",   mods = true,  top = PAL.chipModTop,  bot = PAL.chipModBot,
       under = PAL.modDot, label = Strings("MODS") },
+  }
+  if Platform.networkValidated() then
     -- Browsing a community index sits beside the installed list rather than
     -- inside it: one answers "what do I have", the other "what is out there",
     -- and the second is empty until the player adds an index of their own.
-    { id = "find",   find = true,  top = PAL.chipModTop,  bot = PAL.chipModBot,
-      under = PAL.modDot, label = Strings("FIND MODS") },
-  }
+    tabs[#tabs + 1] = { id = "find",   find = true,  top = PAL.chipModTop,  bot = PAL.chipModBot,
+      under = PAL.modDot, label = Strings("FIND MODS") }
+  end
   local gap = 10 * s
   local r = 12 * s
   local chipY = y + (h - chip) / 2 - 2 * s
@@ -3952,6 +3955,11 @@ end
 -- Update button: when a newer release is known, confirm then install; when
 -- already current, force-refresh the 6h cache and report / offer update.
 function RomImporter:_modGithubAction(id, action)
+  if not Platform.networkValidated() then
+    self.modNotice = { ok = false,
+      text = "Remote mod download is unavailable on this platform." }
+    return
+  end
   local ran, err = pcall(function()
     local ModUpdate = require("src.mods.ModUpdate")
     local row
@@ -4189,7 +4197,7 @@ function RomImporter:_drawModsPanel(x, y, w, h, paged)
     local chipW = self.hintFont:getWidth(chipText) + 20 * s
     local delW = self.hintFont:getWidth("Delete") + 24 * s
     local verW = self.hintFont:getWidth("Versions") + 24 * s
-    local hasGh = m.github and m.github ~= ""
+    local hasGh = m.github and m.github ~= "" and Platform.networkValidated()
     local info = hasGh and self:_modUpdateInfo(m.id) or nil
     local updLabel = "Check for updates"
     local updateKind = "neutral"
@@ -4421,6 +4429,11 @@ end
 -- must not offer two.  Per-source failures are collected rather than fatal: an
 -- index that is down should cost its own rows, not everybody else's.
 function RomImporter:_refreshFind(force)
+  if not Platform.networkValidated() then
+    self.findLoaded = true
+    self.findIndex = { mods = {}, categories = {} }
+    return
+  end
   local ModIndex = require("src.mods.ModIndex")
   self:_refreshFindSources()
   local mods, seen, cats, catSeen, errs = {}, {}, {}, {}, {}
