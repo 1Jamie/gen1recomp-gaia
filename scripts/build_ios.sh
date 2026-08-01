@@ -543,11 +543,27 @@ run_xcodebuild() {
 
   say "xcodebuild love-ios ($config / $sdk)"
   set +e
-  (
-    cd "$XCODE_DIR"
-    xcodebuild "${args[@]}"
-  )
-  local xc_status=$?
+  local xc_status
+  if command -v xcbeautify >/dev/null 2>&1; then
+    (
+      cd "$XCODE_DIR"
+      xcodebuild "${args[@]}"
+    ) 2>&1 | xcbeautify
+    local pipeline_status=("${PIPESTATUS[@]}")
+    local xcode_status=${pipeline_status[0]}
+    local beautify_status=${pipeline_status[1]}
+    if [ "$xcode_status" -ne 0 ]; then
+      xc_status=$xcode_status
+    else
+      xc_status=$beautify_status
+    fi
+  else
+    (
+      cd "$XCODE_DIR"
+      xcodebuild "${args[@]}"
+    )
+    xc_status=$?
+  fi
   set -e
   if [ "$xc_status" -ne 0 ]; then
     fail "xcodebuild failed (exit $xc_status).
