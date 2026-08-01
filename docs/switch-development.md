@@ -148,19 +148,19 @@ Complete **in order** on OLED hardware. Operator fills evidence fields — leave
 
 | Step | Action | Pass | Evidence / notes |
 | ---- | ------ | ---- | ---------------- |
-| P0-0a | Fetch love-nx 11.5-nx1; record manifest SHA-256 | | |
-| P0-0b | Build `switch-probe.love` per `tools/switch-probe/README.md` | | |
-| P0-0c | Assemble loose probe (`game.love` = probe) to `dist/switch/loose/` | | |
-| P0-0d | MTP deploy to `1: SD Card/switch/gen1recomp/`; round-trip SHA-256 | | |
-| P0-0e | Title override → probe boots; `getOS()` shows `NX` | | |
-| P0-0f | Probe lists 1280×720 (or documented dims), save path, gamepad/touch log | | |
-| P0-1a | Replace `game.love` with unpatched Gen1Recomp build | | |
-| P0-1b | MTP replace `game.love` only; round-trip SHA-256 | | |
-| P0-1c | Title override → launcher reaches import screen | | |
-| P0-1d | Joy-Con: can navigate launcher (no touch-only) | | |
+| P0-0a | Fetch love-nx 11.5-nx1; record manifest SHA-256 | yes | See `scripts/switch/love-nx-11.5-nx1.sha256` |
+| P0-0b | Build `switch-probe.love` per `tools/switch-probe/README.md` | yes | |
+| P0-0c | Assemble loose probe (`game.love` = probe) to `dist/switch/loose/` | yes | |
+| P0-0d | MTP deploy to `1: SD Card/switch/gen1recomp/`; round-trip SHA-256 | yes | nro `8290ac15…5918f5`; love `9f198637…fa2e34f` |
+| P0-0e | Title override → probe boots; `getOS()` shows `NX` | yes | `getOS()`=`NX`, `love._os`=`NX` |
+| P0-0f | Probe lists 1280×720 (or documented dims), save path, gamepad/touch log | yes | save `sdmc:/switch/gen1recomp/switch-probe`; Joy-Con Y→#3 X→#4 |
+| P0-1a | Replace `game.love` with unpatched Gen1Recomp build | yes | feat/switch-nx inbox build |
+| P0-1b | MTP replace `game.love` only; round-trip SHA-256 | yes | |
+| P0-1c | Title override → launcher reaches import screen | yes | |
+| P0-1d | Joy-Con: can navigate launcher (no touch-only) | yes | Full report: `docs/switch-hardware-evidence.md` |
 
-**Operator:** ___________________ **Date:** __________ **Console:** Switch OLED  
-**love-nx tag:** 11.5-nx1 **gen1recomp commit:** ___________________
+**Operator:** Andrew **Date:** 2026-08-01 **Console:** Switch OLED  
+**love-nx tag:** 11.5-nx1 **gen1recomp commit:** `df7cea4`
 
 ## Phase 0 test report template
 
