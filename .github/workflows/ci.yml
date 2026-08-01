@@ -22,6 +22,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   ios-changes:
     name: detect iOS changes
@@ -52,6 +56,8 @@ jobs:
     needs: ios-changes
     if: needs.ios-changes.outputs.changed == 'true'
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
+    outputs:
+      ipa_url: ${{ steps.upload-ipa.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
       - name: install xcbeautify
@@ -65,6 +71,33 @@ jobs:
           else
             scripts/build_ios.sh --fetch --release
           fi
+      - name: upload iOS release artifact
+        id: upload-ipa
+        if: github.repository == 'bryanthaboi/gen1recomp'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gen1recomp-ios-ipa
+          path: dist/ios/gen1recomp.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+  ios-build-comment:
+    name: iOS artifact comment
+    needs: ios-build
+    if: github.event_name == 'pull_request' && github.repository == 'bryanthaboi/gen1recomp' && needs.ios-build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: comment iOS artifact
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            #### iOS Release IPA
+
+            - [Download gen1recomp.ipa](${{ needs.ios-build.outputs.ipa_url }})
+
+            <sub>Automatically generated. [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>
+          comment-tag: ios-build-result
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   headless:
     name: headless suites (no ROM)
