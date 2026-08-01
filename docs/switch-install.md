@@ -31,9 +31,10 @@ sdmc:/switch/gen1recomp/gen1recomp.nro
 (or keep the versioned name under `sdmc:/switch/gen1recomp/` — hbmenu will
 list it either way).
 
-Any method that lands the file on the SD is fine: **DBI → Run MTP responder**
-plus an MTP client, Hekate UMS, a card reader, etc. Exit MTP / unmount cleanly
-before launching.
+Any method that lands the file on the SD is fine: **MTP** (DBI → Run MTP
+responder + a client), **direct SD** (Hekate UMS or a card reader), or **FTP**.
+Exit MTP / unmount / stop FTP cleanly before launching. Step-by-step for
+macOS, Linux, and Windows: [switch-transfer.md](switch-transfer.md).
 
 ## 3. Launch with title override
 
@@ -62,5 +63,6 @@ you can replace only the `.nro` and keep your progress.
 ## Prefer building it yourself?
 
 Building the fused (or loose) NRO from source is covered in
-[switch-build.md](switch-build.md). Hardware evidence and contributor MTP
-loops: [switch-development.md](switch-development.md).
+[switch-build.md](switch-build.md). Copying artifacts and inbox files
+(MTP / SD / FTP on macOS, Linux, Windows): [switch-transfer.md](switch-transfer.md).
+Hardware evidence and WIP status: [switch-development.md](switch-development.md).

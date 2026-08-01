@@ -144,12 +144,14 @@ image/host provisioned per this guide.
 
 These scripts and this guide do **not**:
 
-- Push files to the console (no MTP / OpenMTP / DBI automation)
+- Push files to the console (no automated MTP / FTP / SD scripting)
 - Bundle or download any Pokémon ROM
 - Install `dkp-pacman` / `switch-dev` for you
-- Provide `nxlink` / netloader deploy
+- Provide `nxlink` / netloader deploy (deferred — see [switch-transfer.md](switch-transfer.md))
 - Validate **Applet Mode** — use title override (hold **R**) for full memory
 
 Player install steps: [switch-install.md](switch-install.md).  
+Manual transfer (MTP / SD / FTP, macOS / Linux / Windows):
+[switch-transfer.md](switch-transfer.md).  
 Hardware depth and evidence: [switch-development.md](switch-development.md),
 [switch-hardware-evidence.md](switch-hardware-evidence.md).

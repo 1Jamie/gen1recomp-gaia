@@ -42,4 +42,11 @@ mustContain(transfer, "card reader", "transfer")
 mustContain(transfer, "Canonical methods", "transfer")
 mustContain(transfer, "OpenMTP", "transfer")
 
+-- Cross-links from install / build (XFER rewire)
+local install = read("docs/switch-install.md")
+local build = read("docs/switch-build.md")
+mustContain(install, "switch-transfer.md", "install")
+mustContain(build, "switch-transfer.md", "build")
+mustContain(build, "nxlink", "build")
+
 print("switch_transfer_docs_test: OK")
