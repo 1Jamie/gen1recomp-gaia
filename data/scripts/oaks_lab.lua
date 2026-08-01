@@ -254,7 +254,12 @@ return {
        and y >= 6 then
       local rival = ow:npcByIndex(1)
       if not rival then return false end
+      -- OaksLabRivalChallengesPlayerScript swaps in the rival encounter
+      -- fanfare for the taunt/challenge exchange, same as the Yellow port
+      -- (oaks_lab_yellow.lua); it was silently dropped here (#596).
       local rows = {
+        { "stop_music" },
+        { "play_music", "Music_MeetRival" },
         { "show_text", "_OaksLabRivalIllTakeYouOnText" },         -- 1
       }
       -- the rival routes to a free cell beside the player
@@ -294,6 +299,8 @@ return {
       table.insert(rows, { "show_text", "_OaksLabRivalSmellYouLaterText" })
       table.insert(rows, { "move_npc_to", 1, 4, 11 })
       table.insert(rows, { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" })
+      -- restore the lab theme once he's walked out, same as the Yellow port
+      table.insert(rows, { "play_music", "Music_OaksLab" })
       ow.runner:run(rows, { npc = rival })
       return true
     end
