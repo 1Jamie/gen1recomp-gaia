@@ -98,11 +98,11 @@ g.getDimensions, g.getPixelDimensions = realDims, realPixelDims
 
 -- ------------------------------------------------------------- the row
 
+-- fixture data, not Data:load(): this tier runs ROM-free in CI, so a real
+-- load has no data/generated/ to read and takes the suite down with it
 local OptionsMenu = require("src.ui.OptionsMenu")
-local Font = require("src.render.Font")
-local Data = require("src.core.Data")
-if not (Data.maps and Data.maps.PALLET_TOWN) then Data:load() end
-Font.load(Data)
+local Data = T.fixtures.load()
+require("src.render.Font").load(Data)
 
 local game = { data = Data, save = SaveData.newGame(),
                stack = { states = {}, push = function() end,
