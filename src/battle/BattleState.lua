@@ -4542,11 +4542,15 @@ end
 -- pixels, so it scales with the pic's draw scale (the player's default 2x
 -- sinks 2x as fast to sink at the same visual rate); a mod scale composes
 -- the same way.  scale defaults to the vanilla side scale when unknown.
+-- SlideDownFaintedMonPic drops the pic one 8px row per 2-frame step, so
+-- the offset advances Timing.FAINT_SLIDE_STEP (4px) per frame at 1x --
+-- the full 56px PIC_HEIGHT slide over the 14-frame budget (#671: the
+-- old (30 - frames) math teleported the sprite 32px down on frame one).
 function BattleState:fxFaintOffset(battler, scale)
   local fx = self.fx
   if self:fxFaintActive(battler) then
     scale = scale or (battler.isPlayer and 2 or 1)
-    return (30 - fx.faint.frames) * 2 * scale
+    return (Timing.FAINT_SLIDE - fx.faint.frames) * Timing.FAINT_SLIDE_STEP * scale
   end
   return 0
 end
