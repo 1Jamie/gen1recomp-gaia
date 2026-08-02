@@ -56,6 +56,8 @@ local FALLBACKS = {
   _OakSpeechText3 = Strings.source("{PLAYER}!\fYour very own\nPOKéMON legend is\vabout to unfold!\fA world of dreams\nand adventures\vwith POKéMON\vawaits! Let's go!"),
   _IntroducePlayerText = Strings.source("First, what is\nyour name?"),
   _IntroduceRivalText = Strings.source("This is my grand-\nson. He's been\vyour rival since\vyou were a baby.\f...Erm, what is\nhis name again?"),
+  _YourNameIsText = Strings.source("Right! So your\nname is {PLAYER}!"),
+  _HisNameIsText = Strings.source("That's right! I\nremember now! His\vname is {RIVAL}!"),
 }
 
 local function textOr(game, key)
@@ -163,6 +165,14 @@ function OakSpeech.defaultSteps(speech)
       presetsFallback = { "RED", "ASH", "JACK" },
     },
     {
+      -- oak_speech.asm prints YourNameIsText right after the naming screen
+      -- returns ("Right! So your name is RED!"); the port went straight on
+      -- to the rival and dropped it, in every language.
+      id = "confirm_player_name",
+      kind = "say",
+      textKey = "_YourNameIsText",
+    },
+    {
       id = "ask_rival_name",
       kind = "say",
       textKey = "_IntroduceRivalText",
@@ -175,6 +185,12 @@ function OakSpeech.defaultSteps(speech)
       title = Strings("HIS NAME?"),
       presetsWho = "rival",
       presetsFallback = { "BLUE", "GARY", "JOHN" },
+    },
+    {
+      -- HisNameIsText, the rival's counterpart to the confirmation above
+      id = "confirm_rival_name",
+      kind = "say",
+      textKey = "_HisNameIsText",
     },
     {
       id = "legend",
