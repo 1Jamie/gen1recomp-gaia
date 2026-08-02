@@ -417,15 +417,33 @@ jobs:
           fi
           mv "$app_repo.tmp" "$app_repo"
 
+      # main is PR-only for everyone except deploy keys (the "main protection"
+      # ruleset's bypass actor), so this push must authenticate with the
+      # RELEASE_DEPLOY_KEY deploy key over SSH; the workflow's GITHUB_TOKEN
+      # would be rejected by the branch protection.
       - name: Commit iOS app repository
         if: github.repository == 'bryanthaboi/gen1recomp'
-        uses: EndBug/add-and-commit@v10
-        with:
-          add: mobile/ios/app-repo.json
-          default_author: github_actions
-          message: "chore(ios): update app-repo.json [skip ci]"
+        env:
+          DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          git add mobile/ios/app-repo.json
+          if git diff --cached --quiet; then
+            echo "app-repo.json unchanged; nothing to push"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/release-deploy-key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(ios): update app-repo.json [skip ci]"
+          git -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            push "git@github.com:${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
+          rm -f "$key"
 
       - name: Clean up signing keychain
         if: ${{ always() && github.repository == 'bryanthaboi/gen1recomp' }}
         run: |
           security delete-keychain "$RUNNER_TEMP/pokemon-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/release-deploy-key"
