@@ -674,16 +674,18 @@ M.SAFARI_ZONE_SECRET_HOUSE = {
 M.WARDENS_HOUSE = {
   talk = {
     TEXT_WARDENSHOUSE_WARDEN = {
+      -- Labelled rather than hand-numbered: the branches here have been
+      -- re-pointed twice now (#535, #645), and every insert used to mean
+      -- renumbering three jumps that had no way of announcing they were stale.
       { "face_player" },                                             -- 1
       { "check_flag", "EVENT_GOT_HM04" },                            -- 2
       -- #535: previously jumped to the same silent-end target as the
-      -- give-then-thank fallthrough (row 13), so the warden said nothing
-      -- on every visit after the trade. pokered's .got_item branch
-      -- (scripts/WardensHouse.asm) instead prints HM04ExplanationText,
-      -- so route here to the new row 17 that does the same.
-      { "jump_if_true", 17 },                                        -- 3
+      -- give-then-thank fallthrough, so the warden said nothing on every
+      -- visit after the trade. pokered's .got_item branch
+      -- (scripts/WardensHouse.asm) instead prints HM04ExplanationText.
+      { "jump_if_true", "got_hm04" },                                -- 3
       { "check_item", "GOLD_TEETH" },                                -- 4
-      { "jump_if_false", 15 },                                       -- 5
+      { "jump_if_false", "no_teeth" },                               -- 5
       { "show_text", "_WardensHouseWardenGaveTheGoldTeethText" },    -- 6
       { "take_item", "GOLD_TEETH", 1 },                              -- 7
       { "set_flag", "EVENT_GAVE_GOLD_TEETH" },                       -- 8
@@ -692,15 +694,27 @@ M.WARDENS_HOUSE = {
       { "give_item", "HM_STRENGTH", 1, false },                      -- 10
       { "show_text", "_WardensHouseWardenReceivedHM04Text" },        -- 11
       { "set_flag", "EVENT_GOT_HM04" },                              -- 12
-      { "jump", 18 },                                                -- 13 (already got it this convo; jp .done)
-      { "jump", 18 },                                                -- 14 (unused)
-      { "show_text", "_WardensHouseWardenGibberish1Text" },          -- 15
-      { "jump", 18 },                                                -- 16 (#535: skip the new explanation row below)
+      { "jump", "end" },                                             -- 13 (jp .done)
+
+      -- #645: WardensHouseWardenText prints Gibberish1, then YesNoChoice,
+      -- and the warden answers the same gibberish either way -- Gibberish2
+      -- on yes, Gibberish3 on no (scripts/WardensHouse.asm).  The port
+      -- printed the question and walked off before the answer.
+      { "label", "no_teeth" },                                       -- 14
+      { "ask", "_WardensHouseWardenGibberish1Text" },                -- 15
+      { "jump_if_true", "gibberish_yes" },                           -- 16
+      { "show_text", "_WardensHouseWardenGibberish3Text" },          -- 17
+      { "jump", "end" },                                             -- 18
+      { "label", "gibberish_yes" },                                  -- 19
+      { "show_text", "_WardensHouseWardenGibberish2Text" },          -- 20
+      { "jump", "end" },                                             -- 21
+
       -- #535: pokered .got_item branch (scripts/WardensHouse.asm) --
       -- printed on every subsequent talk once EVENT_GOT_HM04 is set.
       -- Text is _WardensHouseWardenHM04ExplanationText (text/WardensHouse.asm):
       -- HM04 teaches Strength, and hints at the Safari Zone secret house.
-      { "show_text", "_WardensHouseWardenHM04ExplanationText" },     -- 17
+      { "label", "got_hm04" },                                       -- 22
+      { "show_text", "_WardensHouseWardenHM04ExplanationText" },     -- 23
     },
   },
 }
