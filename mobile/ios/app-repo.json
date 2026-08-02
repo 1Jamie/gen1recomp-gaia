@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.60",
+          "date": "2026-08-02",
+          "size": 8337730,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.60/gen1recomp-0.1.60-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #596 No rival theme\n- #641 PP UP UI\n- #648 The revive item does not return the divided experience to fallen Pokemon that participated in battle.\n- #677 Gamespeed 3x\n- #683 Rival theme not playing in Oak's Lab\n- #689 Corrupted color on table in Celadon City using Advanced Colors preset\n- #694 Missing sound effect when falling from boulder holes\n- #695 Pressing B on the PC should bring you back to the previous screen, not turn it off\n\n## Contributors\n\n- @bryanthaboi\n- @castdrian\n- @ShaneMcGovernIE\n- @spiritsnails\n- Shane McGovern"
+        },
+        {
           "version": "0.1.59",
           "date": "2026-08-02",
           "size": 8334731,
