@@ -142,6 +142,13 @@ end
 function Renderer:uiScale()
   local S = self:fitScale()
   local off = Zoom.offset or 0
+  -- UI LAYOUT = CENTERED (uiCentered, set per frame by Game:draw): the UI is
+  -- a fixed letterbox at the fit scale and does not follow the survey zoom at
+  -- all, which is the whole point of the setting -- the screen furniture
+  -- stays put instead of resizing under the player.  DYNAMIC keeps the
+  -- step-down below.  BATTLE SIZE is unaffected either way: uiFill overrides
+  -- the scale in endFrame, after this.
+  if self.uiCentered then return S end
   -- Only follow the zoom when a world is actually behind the UI.  Survey zoom
   -- is an OVERWORLD control; the title screen, the intro and the credits show
   -- no world at all, and shrinking them to match a zoom level the player set
@@ -630,6 +637,14 @@ end
 -- pixels, and consumed by endFrame this frame only.
 --   anchor: "bottom" | "topright" | "topleft" | "bottomright"
 function Renderer:setUIAnchor(x, y, w, h, anchor)
+  -- UI LAYOUT = CENTERED (uiCentered, set per frame by Game:draw from
+  -- save.options.uiLayout): every element stays where it was drawn in the
+  -- 160x144 canvas and the letterbox centres the lot, which is how the port
+  -- behaved before edge docking existed.  This is the DEFAULT; DYNAMIC opts
+  -- back into docking.  Gating here rather than at each caller means one
+  -- switch covers the dialogue box, its YES/NO, the START menu and anything
+  -- added later, and none of them has to know the option exists.
+  if self.uiCentered then return end
   -- uiAnchorHold (Game:draw): a state that composes its own screen -- a
   -- battle -- keeps every element inside it, so the box blits where it was
   -- drawn in the canvas instead of being pulled to the window edge.
