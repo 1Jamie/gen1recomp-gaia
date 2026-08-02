@@ -149,9 +149,16 @@ function StartMenu.new(game)
   end
 
   -- inside the Safari Zone the start menu also shows remaining steps and
-  -- SAFARI BALLs (PrintSafariZoneSteps): a 9x5 border at the top-left with
-  -- "steps/500" and "BALL xx"
-  if game.save.safari then
+  -- SAFARI BALLs (PrintSafariZoneSteps, engine/overworld/player_state.asm:
+  -- 219-224): a 9x5 border at the top-left with "steps/500" and "BALL xx".
+  -- It opens with `cp SAFARI_ZONE_EAST / ret c`, so only the nine interior
+  -- maps ($D9..$E1) get it -- SAFARI_ZONE_GATE is $9C and falls under that
+  -- early out, and used to show "502/500" while the player was still
+  -- standing at the counter (#540).  Same map set as the step counter's
+  -- (FieldDefaults safari.stepMaps via OverworldState:inSafariStepZone).
+  local ow = game.overworld
+  if game.save.safari and ow and ow.map and ow.inSafariStepZone
+     and ow:inSafariStepZone() then
     local baseDraw = menu.draw
     menu.draw = function(self)
       baseDraw(self)

@@ -5221,11 +5221,12 @@ function BattleState:drawHUDs(slide)
     self:drawBallRow(self.enemyParty, 64, 16, -8)
   end
 
-  -- Safari shows only the ball count; the old man demo shows neither mon
-  if self.safari then
-    love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(("BALLx%2d"):format(self.safari.balls), 88, 72)
-  end
+  -- A safari / old-man battle has no player mon out, so no player HUD (see
+  -- hidePlayer below).  Nothing takes its place: PrintSafariZoneSteps -- the
+  -- "nnn/500 / BALLx nn" box -- is start-menu only and returns early off the
+  -- nine interior maps (engine/overworld/player_state.asm:219-224), so no
+  -- ball count belongs over the battlefield.  The count lives in the BALL
+  -- menu item instead (drawTextArea, #540).
   -- Party pokeball rows and the HUD chrome under them, for exactly the
   -- window DrawAllPokeballs owns (common_text.asm:27, with the intro text).
   -- SetupOwnPartyPokeballs runs in EVERY battle, so the player's row belongs
@@ -5330,6 +5331,11 @@ function BattleState:drawTextArea()
       Font.drawBox(0, 12, 20, 6)
       Font.draw(Strings("BALLx"), 16, 112); Font.draw(Strings("BAIT"), 112, 112)
       Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN"), 112, 128)
+      -- DisplayBattleMenu .safariLeftColumn / .safariRightColumn print
+      -- wNumSafariBalls at hlcoord 7,14 with `lb bc, 1, 2` -- one byte, two
+      -- digits, space padded -- right after the "BALLx" label at columns
+      -- 2..6 (engine/battle/core.asm:2074-2079, 2107-2112) (#540)
+      Font.draw(("%2d"):format(self.safari.balls), 56, 112)
       Font.drawCode(0xED, (col == 0 and 8 or 104), 112 + row * 16)
     else
       -- BATTLE_MENU_TEMPLATE: box (8,12)-(19,17), "FIGHT <PK><MN> /

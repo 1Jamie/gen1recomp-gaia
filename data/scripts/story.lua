@@ -188,7 +188,12 @@ M.BILLS_HOUSE = {
           end
           if ow.player.facing == "down" then
             -- the player is standing on his straight path: walk around
-            -- (.PokemonWalkAroundPlayerMovement)
+            -- (.PokemonWalkAroundPlayerMovement).  BillsHouseScript2 runs
+            -- BillsHousePikachuWatchPlayer first on this branch, so a
+            -- Pikachu that is still following steps clear of Bill's detour
+            -- and turns to watch the player (#455).
+            require("src.world.PikachuFollower")
+              .onBillWalksAroundPlayer(game, ow)
             ow:scriptMove(npc, "right", 1, function()
               ow:scriptMove(npc, "up", 2, function()
                 ow:scriptMove(npc, "left", 1, function()
@@ -600,12 +605,34 @@ local function snorlaxWake(mapId, objName, beatFlag, wokeUpText, calmedText)
   }
 end
 
+-- A beaten Snorlax is gone for good: Route12/Route16DefaultScript run
+-- HideObject in the same breath as the battle that sets
+-- EVENT_BEAT_ROUTEnn_SNORLAX, so "event set, object still on the map" is a
+-- state the asm cannot produce.  Here it can (a mod's world:toggleObject, a
+-- save edited or migrated from a build older than the flag), and it is a
+-- dead end: ItemEffects' adjacentSleepingSnorlax refuses to wake a Snorlax
+-- whose beat flag is set (ItemUsePokeFlute's CheckEvent, engine/items/
+-- item_effects.asm), so the sleeper sits in the road forever and Cycling
+-- Road is unreachable (#585).  Reconcile the toggle from the flag on every
+-- entry -- the mirror of SaveData.lua's toggle -> flag backfill, and the
+-- same repair shape the Silph Co. floors use below.
+local function hideBeatenSnorlax(mapId, objName, beatFlag)
+  return function(game, ow)
+    if not game.save.flags[beatFlag] then return end
+    local Commands = require("src.script.Commands")
+    Commands.hide_object({ game = game, save = game.save, overworld = ow },
+                         mapId, objName)
+  end
+end
+
 -- snorlaxWake is looked up by ItemEffects.lua/BagMenu.lua (via
 -- data/scripts/init.lua's M.get) and run when the flute wakes Snorlax;
 -- objName/beatFlag let ItemEffects find the NPC and check whether it's
 -- already been beaten before allowing the wake.
 M.ROUTE_12 = {
   talk = { TEXT_ROUTE12_SNORLAX = { { "show_text", "_Route12SnorlaxText" } } },
+  onEnter = hideBeatenSnorlax("ROUTE_12", "ROUTE12_SNORLAX",
+                              "EVENT_BEAT_ROUTE12_SNORLAX"),
   snorlaxWake = {
     objName = "ROUTE12_SNORLAX", beatFlag = "EVENT_BEAT_ROUTE12_SNORLAX",
     script = snorlaxWake("ROUTE_12", "ROUTE12_SNORLAX", "EVENT_BEAT_ROUTE12_SNORLAX",
@@ -614,6 +641,8 @@ M.ROUTE_12 = {
 }
 M.ROUTE_16 = {
   talk = { TEXT_ROUTE16_SNORLAX = { { "show_text", "_Route16Text7" } } },
+  onEnter = hideBeatenSnorlax("ROUTE_16", "ROUTE16_SNORLAX",
+                              "EVENT_BEAT_ROUTE16_SNORLAX"),
   snorlaxWake = {
     objName = "ROUTE16_SNORLAX", beatFlag = "EVENT_BEAT_ROUTE16_SNORLAX",
     script = snorlaxWake("ROUTE_16", "ROUTE16_SNORLAX", "EVENT_BEAT_ROUTE16_SNORLAX",

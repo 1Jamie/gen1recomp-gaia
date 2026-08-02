@@ -643,15 +643,38 @@ local function isAccelerometer(joystick)
   return name ~= nil and name:lower():find("accelerometer", 1, true) ~= nil
 end
 
+-- BindingsMenu's raw-stick capture rides the same top-state routing as the
+-- keyboard and gamepad paths (#632).  Only a stick SDL does not recognize
+-- as a gamepad reaches the capture: a recognized pad raises BOTH
+-- joystickpressed and gamepadpressed for one press, and the joystick half
+-- would otherwise beat its own gamepadpressed to the armed row and record
+-- "JOY1" for a button the player can plainly see is A.  Same predicate as
+-- Input's, kept local here so Game never reaches into Input's internals.
+local function isRawStick(joystick)
+  return not (joystick and joystick.isGamepad and joystick:isGamepad())
+end
+
 function Game:joystickpressed(joystick, button)
   if isAccelerometer(joystick) then return end
   TouchControls:noteGamepad()
+  local top = self.stack and self.stack:top()
+  if isRawStick(joystick) and top and top.onJoystickPressed then
+    top:onJoystickPressed(button)
+    return
+  end
   Input:joystickpressed(joystick, button)
 end
 
 function Game:joystickreleased(joystick, button)
   if isAccelerometer(joystick) then return end
+  -- same observe-after-Input contract as Game:keyreleased (#589): the
+  -- capture watches the release, it never owns it, so a held-state flag
+  -- Input saw go down before the capture armed cannot be stranded
   Input:joystickreleased(joystick, button)
+  local top = self.stack and self.stack:top()
+  if isRawStick(joystick) and top and top.onJoystickReleased then
+    top:onJoystickReleased(button)
+  end
 end
 
 function Game:joystickaxis(joystick, axis, value)
