@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.59",
+          "date": "2026-08-02",
+          "size": 8334731,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.59/gen1recomp-0.1.59-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #668 No Jingle playing when receiving first Pokemon from Oak\n- #671 faint animation error\n\n## Contributors\n\n- @bryanthaboi\n- @castdrian\n- @jherediagu\n- @spiritsnails\n- Shane McGovern"
+        },
+        {
           "version": "0.1.58",
           "date": "2026-08-02",
           "size": 8331163,
