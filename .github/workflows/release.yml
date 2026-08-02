@@ -397,12 +397,18 @@ jobs:
           date="$(date -u +"%Y-%m-%d")"
           size="$(wc -c < "$ipa" | tr -d '[:space:]')"
           download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${v}/gen1recomp-${v}-ios.ipa"
+          localized_description="Gen1Recomp - A native Lua / LÖVE2D recreation of Gen 1 Poke"
+          release_notes="$(GH_TOKEN="${{ github.token }}" gh release view "v${v}" --json body --jq '.body // ""' 2>/dev/null || true)"
+          if [ -n "$release_notes" ]; then
+            localized_description="$release_notes"
+          fi
           entry="$(jq -n \
             --arg version "$v" \
             --arg date "$date" \
             --arg download_url "$download_url" \
+            --arg localized_description "$localized_description" \
             --argjson size "$size" \
-            '{version: $version, date: $date, size: $size, downloadURL: $download_url, localizedDescription: "Gen1Recomp - A native Lua / LÖVE2D recreation of Gen 1 Poke"}')"
+            '{version: $version, date: $date, size: $size, downloadURL: $download_url, localizedDescription: $localized_description}')"
 
           if jq -e --arg version "$v" \
             'any(.apps[] | select(.bundleIdentifier == "com.theboisclub.gen1recomp").versions[]?; .version == $version)' \
