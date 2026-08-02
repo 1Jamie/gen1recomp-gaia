@@ -92,7 +92,7 @@ jobs:
       - name: upload iOS release artifact
         id: upload-ipa
         if: github.repository == 'bryanthaboi/gen1recomp'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gen1recomp-ios-ipa
           path: dist/ios/gen1recomp.ipa
