@@ -1476,12 +1476,21 @@ function BattleState:enter()
     table.insert(self.queue, { wait = 16 })
     self:act(function()
       self.showEnemyTrainer = false
+      -- the slot is EMPTY from here until AnimateSendingOutMon runs below:
+      -- the pic has walked off and the mon is still in its ball, so nothing
+      -- stands in the enemy slot while TrainerSentOutText prints.  Without
+      -- this the front sprite popped in full-size the instant the trainer
+      -- left, sat there through the whole text box, and the grow-in then
+      -- restarted it from nothing -- the mon appearing before it was sent
+      -- out.  Mirrors the flag the mid-battle replacement already sets.
+      self.enemySendingOut = true
       self:slidePic("foe")
     end)
     self:say(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
     self:act(function()
       -- EnemySendOutFirstMon (core.asm:1421-1434): after the text the
       -- pic grows out of the ball (AnimateSendingOutMon), then the cry
+      self.enemySendingOut = false
       self:startGrowIn(self.enemy)
     end)
     queueEnemyCry()
