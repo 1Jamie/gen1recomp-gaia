@@ -981,10 +981,15 @@ M.VICTORY_ROAD_3F = {
 local championsRoomRivalScript = {
   { "face_player" },                                        -- 1
   { "check_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },   -- 2
-  { "jump_if_true", 25 },                                   -- 3  past end
+  { "jump_if_true", 26 },                                   -- 3  past end
   { "show_text", "_ChampionsRoomRivalIntroText" },          -- 4
-  { "rival_battle", "OPP_RIVAL3", 1 },                      -- 5
-  { "jump_if_false", 25 },                                  -- 6  past end
+  -- ChampionsRoomRivalReadyToBattleScript plays MUSIC_FINAL_BATTLE after
+  -- the intro text, before the battle itself (#706); pushBattle's wipe-time
+  -- playBattle("final") then no-ops on the same song, so the theme stays
+  -- continuous into the fight
+  { "play_music", "Music_FinalBattle" },                    -- 5
+  { "rival_battle", "OPP_RIVAL3", 1 },                      -- 6
+  { "jump_if_false", 26 },                                  -- 6  past end
   { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL_THIS_RUN" },     -- 7
   { "set_flag", "EVENT_BEAT_CHAMPION_RIVAL" },              -- 8
   -- ChampionsRoomRivalDefeatedScript re-displays TEXT_CHAMPIONSROOM_RIVAL,
