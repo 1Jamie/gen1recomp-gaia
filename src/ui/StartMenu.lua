@@ -53,7 +53,6 @@ function StartMenu.new(game)
   -- (PrintSaveScreenText)
   table.insert(items, { label = Strings("SAVE"), onSelect = function()
     local TextBox = require("src.render.TextBox")
-    local ChoiceBox = require("src.ui.ChoiceBox")
     local badges = require("src.inventory.Badges").count(game.data, game.save)
     local owned = 0
     for _ in pairs(game.save.pokedex and game.save.pokedex.owned or {}) do
@@ -64,8 +63,8 @@ function StartMenu.new(game)
                           game.save.player.name or "RED", badges, owned,
                           math.floor(t / 3600), math.floor(t / 60) % 60)
     game.stack:push(TextBox.new(game,
-      panel .. Strings("\fWould you like to\nSAVE the game?"), function()
-      game.stack:push(ChoiceBox.new(game, function(yes)
+      panel .. Strings("\fWould you like to\nSAVE the game?"), nil, {
+      choice = function(yes)
         if not yes then return end
         -- "Now saving..." beat before the write (save.asm
         -- NowSavingString), then GameSavedText + SFX_SAVE
@@ -75,8 +74,8 @@ function StartMenu.new(game)
           game.stack:push(TextBox.new(game,
             Strings("%s saved\nthe game!", game.save.player.name or "RED")))
         end))
-      end))
-    end))
+      end,
+    }))
   end })
 
   table.insert(items, { label = Strings("OPTION"), onSelect = function()
@@ -105,12 +104,12 @@ function StartMenu.new(game)
   -- to the title after a confirm (defaultNo guards accidental quits)
   table.insert(items, { label = Strings("QUIT"), onSelect = function()
     local TextBox = require("src.render.TextBox")
-    local ChoiceBox = require("src.ui.ChoiceBox")
-    game.stack:push(TextBox.new(game, Strings("RETURN TO MAIN\nMENU?"), function()
-      game.stack:push(ChoiceBox.new(game, function(yes)
+    game.stack:push(TextBox.new(game, Strings("RETURN TO MAIN\nMENU?"), nil, {
+      defaultNo = true,
+      choice = function(yes)
         if yes then game:returnToTitle() end
-      end, { defaultNo = true }))
-    end))
+      end,
+    }))
   end })
 
   local hooked = Runtime.call("ui.start_menu.items", sameItems, game, items)

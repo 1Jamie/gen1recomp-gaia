@@ -39,6 +39,7 @@ function TextBox.new(game, text, onDone, opts)
   self.onDone = onDone
   self.choice = opts and opts.choice
   self.defaultNo = opts and opts.defaultNo
+  self.choiceNoSound = opts and opts.noSound
   self.auto = opts and opts.auto
   local box = Theme.textBox or {}
   self.boxTx = box.tx or BOX_TX
@@ -240,7 +241,7 @@ function TextBox:update(dt)
         self.game.stack:push(ChoiceBox.new(self.game, function(yes)
           self.game.stack:pop() -- this text box, under the choice
           self.choice(yes)
-        end, { defaultNo = self.defaultNo }))
+        end, { defaultNo = self.defaultNo, noSound = self.choiceNoSound }))
       end
       return
     end
