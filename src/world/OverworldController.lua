@@ -717,6 +717,11 @@ function OverworldState:pushBattle(battle)
   if battle.computeMusicKind then
     require("src.core.Music").playBattle(Game.data, battle:computeMusicKind())
   end
+
+  -- The fade back in from white on the way out is BattleState:finish()'s
+  -- job now -- the one choke point every battle passes through on exit,
+  -- guaranteed regardless of which caller pushed the battle -- so this
+  -- function only owns the entry wipe.
   Game.stack:push(BattleTransition.new(Game, function()
     Game.stack:push(battle)
   end, {

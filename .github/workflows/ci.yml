@@ -32,7 +32,7 @@ jobs:
     outputs:
       changed: ${{ steps.paths.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: paths
@@ -58,7 +58,7 @@ jobs:
     outputs:
       ipa_url: ${{ steps.upload-ipa.outputs.artifact-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: import signing certificate
         if: github.repository == 'bryanthaboi/gen1recomp'
         run: |
@@ -92,7 +92,7 @@ jobs:
       - name: upload iOS release artifact
         id: upload-ipa
         if: github.repository == 'bryanthaboi/gen1recomp'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gen1recomp-ios-ipa
           path: dist/ios/gen1recomp.ipa
@@ -106,7 +106,7 @@ jobs:
     name: headless suites (no ROM)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # LuaJIT, not lua5.4: LOVE 11.x embeds LuaJIT 2.1 and the engine is
       # written to Lua 5.1 semantics, so CI must run the interpreter the
@@ -124,7 +124,7 @@ jobs:
     name: fixture dataset integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y luajit
       - run: python3 -m pip install --upgrade pillow
 
@@ -166,7 +166,7 @@ jobs:
     name: screenshot differ (capture not yet wired)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 -m pip install --upgrade pillow
 
       # 21-testing-and-ci §"Testing & acceptance criteria": compare_shots
@@ -214,7 +214,7 @@ jobs:
     name: mod lint (no ROM-derived content)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # the MK305 dump check key-diffs shipped tables through luajit, and
       # modkit treats a missing interpreter as a fatal MK100 -- without
