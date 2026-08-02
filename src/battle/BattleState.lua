@@ -37,6 +37,16 @@ BattleState.isOpaque = true
 -- window reads as one continuous battle screen (no black bars).
 BattleState.letterboxWhite = true
 
+-- A battle is a self-contained SCREEN, not the window.  The overworld's
+-- dialogue box docks to the window edge on purpose (Renderer:setUIAnchor) --
+-- a box floating in the middle of a zoomed-out map reads as detached.  A
+-- battle is the opposite: pokered draws its text box and YES/NO in the same
+-- 160x144 tilemap as the HUD, and pulling them out to the window edge splits
+-- the composition in two -- the caught-mon nickname prompt lands a whole
+-- letterbox below the white field it is supposed to be printed on.  Anchors
+-- are held off for as long as a battle is in the stack.
+BattleState.holdsUIAnchors = true
+
 -- BATTLE LAYOUT: the classic 160x144 arrangement, or the widescreen one on
 -- a 304x144 surface (src/battle/WideBattle.lua).  Only the composition
 -- differs; every battler, queue and animation below is shared.  Menus and

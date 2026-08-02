@@ -241,7 +241,9 @@ function TextBox:update(dt)
         self.game.stack:push(ChoiceBox.new(self.game, function(yes)
           self.game.stack:pop() -- this text box, under the choice
           self.choice(yes)
-        end, { defaultNo = self.defaultNo, noSound = self.choiceNoSound }))
+        end, { defaultNo = self.defaultNo, noSound = self.choiceNoSound,
+               -- this box is anchored below it; the pair moves together
+               anchor = "bottom" }))
       end
       return
     end
