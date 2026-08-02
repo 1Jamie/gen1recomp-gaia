@@ -315,6 +315,15 @@ end
 -- everything else here: the text box and YES/NO a battle puts up are states
 -- of their own sitting above it, and they are exactly the elements that must
 -- stay inside the battle's composition rather than dock to the window.
+-- UI LAYOUT: is edge docking switched on?  Only the explicit "dynamic" turns
+-- it on, so a save written before the option existed -- and any caller with no
+-- save at all, which is most of the headless suites -- gets CENTERED, the
+-- behaviour the port shipped with.
+function Game.dynamicUI(save)
+  local options = save and save.options
+  return options ~= nil and options.uiLayout == "dynamic"
+end
+
 function Game.uiAnchorsHeldInStack(stack)
   for i = #(stack and stack.states or {}), 1, -1 do
     local state = stack.states[i]
@@ -415,6 +424,13 @@ function Game:draw()
   Renderer.uiWorldHold = Renderer.battleDim ~= nil
   -- ...and a battle keeps its dialogue box and YES/NO inside its own screen
   -- instead of letting them dock to the window edge.
+  -- UI LAYOUT: CENTERED (the default) is a fixed letterbox -- every element
+  -- stays inside the 160x144 canvas and the UI does not follow the survey
+  -- zoom, so the screen furniture never moves or resizes under the player.
+  -- That is the composition the port shipped with.  DYNAMIC opts into both
+  -- halves: the dialogue box docks to the window's bottom edge, the START
+  -- menu to its top right, and the whole UI steps down with the zoom.
+  Renderer.uiCentered = not Game.dynamicUI(self.save)
   Renderer.uiAnchorHold = Game.uiAnchorsHeldInStack(self.stack)
   Renderer:beginFrame(worldBelow)
   for i = drawFrom, #self.stack.states do
