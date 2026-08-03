@@ -13,7 +13,13 @@ local FORBIDDEN = {
   'love%.graphics%.newImage%(%s*"assets/generated',
   'love%.image%.newImageData%(%s*"assets/generated',
   'love%.audio%.newSource%(%s*"assets/generated',
+  'love%.sound%.newSoundData%(%s*"assets/generated',
+  'love%.graphics%.newFont%(%s*"assets/generated',
+  'love%.font%.newFontData%(%s*"assets/generated',
   'love%.filesystem%.read%(%s*"assets/generated',
+  'love%.filesystem%.load%(%s*"assets/generated',
+  'love%.filesystem%.lines%(%s*"assets/generated',
+  'love%.filesystem%.newFileData%(%s*"assets/generated',
   'love%.filesystem%.getInfo%(%s*"assets/generated',
 }
 

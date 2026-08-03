@@ -1,14 +1,18 @@
 -- NX-only asset overlay: fused love-nx cannot reliably mount
 -- blue|yellow/assets/generated onto the un-prefixed assets/generated, so
 -- instead of teaching every call site about versioned caches, this module
--- wraps the love loading entry points ONCE at boot: any string path under
--- assets/generated/ that does not resolve falls back to the active
--- version's prefixed copy (yellow|blue/assets/generated/...).
+-- wraps EVERY read-side love entry point that accepts a filesystem path
+-- once at boot: any string path under assets/generated/ that does not
+-- resolve falls back to the active version's prefixed copy
+-- (yellow|blue/assets/generated/...).  Covering the whole read surface --
+-- not just the loaders we happened to need -- is what keeps future states
+-- and mods inside the fallback without anyone updating this file.
 --
 -- main.lua installs it only when Platform.isNX(); desktop/Android/iOS never
 -- install it, so their mountVersion overlay stays the single mechanism and
--- their loaders keep stock behavior.  Writes are deliberately NOT wrapped:
--- the importer must keep targeting the versioned tree explicitly.
+-- their loaders keep stock behavior.  Write-side functions (write, remove,
+-- createDirectory, mount, ...) are deliberately NOT wrapped: the importer
+-- must keep targeting the versioned tree explicitly.
 --
 -- Two intentional exceptions stay outside this module:
 --   * the chip-audio worker (src/core/chip_worker.lua) is a separate Lua
@@ -48,6 +52,22 @@ local function wrapLoader(fn)
   end
 end
 
+-- Every read-side love function that can take an assets/generated path.
+-- getInfo is wrapped separately (it must return the versioned file's info,
+-- not just forward a rewritten argument list).
+local WRAP_SPEC = {
+  { "filesystem", "read" },
+  { "filesystem", "load" },
+  { "filesystem", "lines" },
+  { "filesystem", "newFileData" },
+  { "graphics", "newImage" },
+  { "graphics", "newFont" },
+  { "image", "newImageData" },
+  { "audio", "newSource" },
+  { "sound", "newSoundData" },
+  { "font", "newFontData" },
+}
+
 function NxAssetOverlay.isInstalled()
   return originals ~= nil
 end
@@ -55,40 +75,32 @@ end
 function NxAssetOverlay.install()
   if originals then return end
   if not (love and love.filesystem) then return end
-  originals = {
-    read = love.filesystem.read,
-    getInfo = love.filesystem.getInfo,
-    newImage = love.graphics and love.graphics.newImage,
-    newImageData = love.image and love.image.newImageData,
-    newSource = love.audio and love.audio.newSource,
-  }
-  love.filesystem.read = wrapLoader(originals.read)
+  originals = {}
+  for _, spec in ipairs(WRAP_SPEC) do
+    local ns, name = spec[1], spec[2]
+    local fn = love[ns] and love[ns][name]
+    if fn then
+      originals[ns .. "." .. name] = fn
+      love[ns][name] = wrapLoader(fn)
+    end
+  end
+  originals.getInfo = love.filesystem.getInfo
   love.filesystem.getInfo = function(path, ...)
     local alt = versioned(path)
     if alt then return originals.getInfo(alt, ...) end
     return originals.getInfo(path, ...)
-  end
-  if originals.newImage then
-    love.graphics.newImage = wrapLoader(originals.newImage)
-  end
-  if originals.newImageData then
-    love.image.newImageData = wrapLoader(originals.newImageData)
-  end
-  if originals.newSource then
-    love.audio.newSource = wrapLoader(originals.newSource)
   end
 end
 
 -- Tests restore the stock loaders between cases; the game never uninstalls.
 function NxAssetOverlay.uninstall()
   if not originals then return end
-  love.filesystem.read = originals.read
-  love.filesystem.getInfo = originals.getInfo
-  if originals.newImage then love.graphics.newImage = originals.newImage end
-  if originals.newImageData then
-    love.image.newImageData = originals.newImageData
+  for _, spec in ipairs(WRAP_SPEC) do
+    local ns, name = spec[1], spec[2]
+    local key = ns .. "." .. name
+    if originals[key] then love[ns][name] = originals[key] end
   end
-  if originals.newSource then love.audio.newSource = originals.newSource end
+  love.filesystem.getInfo = originals.getInfo
   originals = nil
 end
 

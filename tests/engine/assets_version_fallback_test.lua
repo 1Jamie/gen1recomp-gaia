@@ -39,8 +39,21 @@ eq(Assets.resolve(PNG), PNG,
   "resolve is the identity without a mod loader (overlay owns NX fallback)")
 
 -- --- Overlay installed: every loader falls back to the versioned path
+-- Write-side functions must NEVER be wrapped (the importer targets the
+-- versioned tree explicitly); capture references to prove identity.
+local rawWrite = love.filesystem.write
+local rawRemove = love.filesystem.remove
+local rawGetInfo = love.filesystem.getInfo
+seed_chunk = "assets/generated/boot_chunk.lua"
+love.filesystem.write("yellow/" .. seed_chunk, "return 42")
+
 Overlay.install()
 check(Overlay.isInstalled(), "overlay installs")
+check(love.filesystem.write == rawWrite,
+  "install leaves filesystem.write stock (writes never wrapped)")
+check(love.filesystem.remove == rawRemove,
+  "install leaves filesystem.remove stock")
+check(love.filesystem.getInfo ~= rawGetInfo, "install wraps getInfo")
 
 local img = love.graphics.newImage(PNG)
 eq(img.path, "yellow/" .. PNG, "wrapped newImage receives the yellow/ path")
@@ -53,6 +66,19 @@ eq(love.filesystem.read(PNG), "yellow-png-bytes",
 
 check(love.filesystem.getInfo(PNG) ~= nil,
   "wrapped getInfo sees the versioned file at the un-prefixed path")
+
+-- The whole read surface, not just image/audio loaders: a future state
+-- using any of these APIs with a generated path stays inside the fallback.
+local chunk = love.filesystem.load(seed_chunk)
+eq(type(chunk) == "function" and chunk() or nil, 42,
+  "wrapped filesystem.load resolves the versioned chunk")
+
+local sd = love.sound.newSoundData(PNG)
+eq(sd.samples, "yellow/" .. PNG,
+  "wrapped newSoundData receives the yellow/ path (widenMono's re-read)")
+
+local fnt = love.graphics.newFont(14)
+check(fnt ~= nil, "wrapped newFont ignores non-path arguments")
 
 -- Assets.image/imageData benefit transparently (no call-site changes)
 Assets.flush()
@@ -134,6 +160,7 @@ eq(slimDesktop.programPrefix, nil,
 
 clearPath("yellow/" .. PNG)
 clearPath("yellow/" .. PROG)
+clearPath("yellow/" .. seed_chunk)
 
 love.system = savedSystem
 Platform._resetForTests()
