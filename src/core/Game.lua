@@ -651,7 +651,7 @@ function Game:gamepadpressed(joystick, button)
   -- next screen touch (mobile only; a no-op elsewhere)
   TouchControls:noteGamepad()
   -- Select held? Needed both to suppress shoulder speed hotkeys (Select+L
-  -- is a display chord on NX / VoxelMod) and for the chord path below.
+  -- is a display chord on NX) and for the chord path below.
   local selectHeld = Input:isDown("select")
   if not selectHeld and joystick and joystick.isGamepadDown then
     local ok, down = pcall(function()

@@ -123,7 +123,7 @@ create `._*.sav` AppleDouble sidecars that are not real saves.
 | ------- | ------ |
 | Hold **R** on HOME, then open from hbmenu | Title override (full memory) |
 
-## Community mods (VoxelMod)
+## Community mods
 
 Mods install from a zip inbox (same transfer methods as ROMs):
 
@@ -133,40 +133,26 @@ Mods install from a zip inbox (same transfer methods as ROMs):
    **Play**.
 
 Remote **FIND MODS** / GitHub download stays **off** on Switch. Do not put
-mod zips into git.
-
-Example: [DramaticShape VoxelMod](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases).
+mod zips into git. Community mods ship their own OPTIONS / rebinds — this port
+does not document third-party control tables.
 
 ### Joy-Con shortcuts (Select + face)
 
 Hold **Select** (−) and press a face/shoulder button. Without Select, A/B stay
-normal gameplay confirm/cancel.
+normal gameplay confirm/cancel. These chords are the stock engine display
+hotkeys (`2`/`3`/`5` are claimed before any mod pipeline hotkey runs).
 
-| Chord | Same as PC key | Typical effect (stock / VoxelMod) |
-| ----- | -------------- | --------------------------------- |
+| Chord | Same as PC key | Stock engine effect |
+| ----- | -------------- | ------------------- |
 | Select + **A** | `2` | COLORS |
-| Select + **B** | `3` | TILT, or VoxelMod **VOXEL** pitch |
-| Select + **Y** | `5` | GBC FX, or VoxelMod **V-GRID** |
-| Select + **X** | `6` | VoxelMod **T-SHIFT** |
-| Select + **L** | `7` | VoxelMod **V-CURVE** |
+| Select + **B** | `3` | TILT |
+| Select + **Y** | `5` | GBC FX |
+| Select + **X** | `6` | Mod pipeline hotkey (if a mod registers `6`) |
+| Select + **L** | `7` | Mod pipeline hotkey (if a mod registers `7`) |
 
-**3D-BTL** (`8`) and **WATER** (`9`) have no Joy-Con chord — use **OPTIONS**.
-
-### VoxelMod: lighter settings on Switch
-
-VoxelMod is visual-only but expensive. If the Switch stutters, open **OPTIONS**
-and prefer:
-
-1. **WATER** → `OFF` (or `SKY`; avoid `FULL`)
-2. **3D-BTL** → `OFF`
-3. **T-SHIFT** / **V-CURVE** / **V-GRID** → `OFF`
-4. **DAYTIME** → `SYNC` (avoid `CYCLE`)
-5. Engine **PERFORMANCE** → `LOW` or `BALANCED`
-
-Full tables, chords vs Options rows, and contributor notes:
-[switch-development.md](switch-development.md#joy-con-display-chords-select--face)
-and
-[switch-development.md](switch-development.md#voxelmod-on-switch-options--performance).
+If the handheld stutters with extras on, try **OPTIONS → PERFORMANCE** →
+`LOW` or `BALANCED`. Full chord notes for contributors:
+[switch-development.md](switch-development.md#joy-con-display-chords-select--face).
 
 ## Prefer building it yourself?
 

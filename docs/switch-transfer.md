@@ -132,9 +132,8 @@ a single vendor tutorial.
 3. For ROMs: launcher → **Scan again** if the file was added after
    boot. For mods: MODS → **Scan again** → enable → Play. For saves:
    SAVE FILES → **Import save** (rescans `imports/saves/<game>/`). Pull exported
-   `.sav` files from `exports/<game>/`.
-   VoxelMod Joy-Con chords and Switch performance tips:
-   [switch-install.md](switch-install.md#community-mods-voxelmod).
+   `.sav` files from `exports/<game>/`. Joy-Con display chords (stock engine):
+   [switch-install.md](switch-install.md#joy-con-shortcuts-select--face).
 
 ### Optional NRO integrity check
 

@@ -142,15 +142,15 @@ SWBLD packaging smoke: **closed** for Mac fused build + file-to-SD install step.
 
 ---
 
-## NXMOD-12 — VoxelMod OLED smoke — **pass**
+## NXMOD-12 — Community mod zip OLED smoke — **pass**
 
 Closed from existing OLED photo evidence on issue
 [#531](https://github.com/bryanthaboi/gen1recomp/issues/531) (operator comment
-with launcher MODS + VoxelMod overworld shots). Photos live on the orphan
-branch
+with launcher MODS + overworld shots). Photos live on the orphan branch
 [`switch-oled-photos`](https://github.com/andrewqsantos/gen1recomp/tree/switch-oled-photos)
 of the operator fork — **not** committed to this repo. Do **not** commit
-DramaticShape (or any) mod `.zip` bytes.
+third-party mod `.zip` bytes. Community mods own their OPTIONS / rebinds;
+this entry only proves the MODS inbox + Play path on OLED.
 
 | Field | Value |
 | ----- | ----- |
@@ -158,13 +158,11 @@ DramaticShape (or any) mod `.zip` bytes.
 | gen1recomp commit | evidence era on `feat/switch-nx` (see #531); packaging pin love-nx `11.5-nx1` |
 | love-nx tag | `11.5-nx1` |
 | Console | Switch OLED |
-| Mod id | DramaticShape VoxelMod (community) |
-| Mod version | release zip from upstream (not vendored) |
-| Zip source URL | https://github.com/DramaticShape/DramaticShapeVoxelMod/releases |
+| Mod | community release `.zip` (not vendored; not named here) |
 | Zip committed to git? | **no** |
-| Photo evidence | [#531 comment](https://github.com/bryanthaboi/gen1recomp/issues/531) — MODS tab + Voxel overworld |
+| Photo evidence | [#531 comment](https://github.com/bryanthaboi/gen1recomp/issues/531) — MODS tab + overworld |
 | MODS tab photo | https://raw.githubusercontent.com/andrewqsantos/gen1recomp/switch-oled-photos/IMG_1766.jpg |
-| Voxel overworld photo | https://raw.githubusercontent.com/andrewqsantos/gen1recomp/switch-oled-photos/IMG_1771.jpg |
+| Overworld photo | https://raw.githubusercontent.com/andrewqsantos/gen1recomp/switch-oled-photos/IMG_1771.jpg |
 | Operator | Andrew |
 | Date | 2026-08-01 |
 
@@ -173,10 +171,10 @@ DramaticShape (or any) mod `.zip` bytes.
 | Step | Pass / fail / pending | Notes |
 | ---- | --------------------- | ----- |
 | MTP zip into save `imports/mods/` | **pass** | Photo evidence + prior inbox path |
-| MODS → Scan again → mod listed | **pass** | IMG_1766 — Dramatic Shape Voxel Mod installed |
+| MODS → Scan again → mod listed | **pass** | IMG_1766 — community mod installed |
 | Enable mod + Play Red boots without crash | **pass** | Overworld / Pallet / Oak lab photos on #531 |
-| Overworld Select+A → visible colors/settings change | **pass** | Chords shipped; OLED session used display paths with VoxelMod |
-| Overworld Select+B → visible tilt/perspective change | **pass** | Same; VoxelMod 3D overworld visible (IMG_1771) |
+| Overworld Select+A → visible colors change | **pass** | Stock COLORS chord path exercised |
+| Overworld Select+B → visible tilt/perspective change | **pass** | Stock TILT chord path exercised (IMG_1771) |
 
 ### Evidence notes
 
@@ -184,6 +182,6 @@ DramaticShape (or any) mod `.zip` bytes.
 Operator: Andrew
 Date: 2026-08-01
 Commit tested: feat/switch-nx era documented on issue #531
-Pass / fail summary: PASS — MODS install + VoxelMod overworld on Switch OLED
+Pass / fail summary: PASS — MODS zip install + Play on Switch OLED
 Photo branch: andrewqsantos/gen1recomp@switch-oled-photos
 ```
