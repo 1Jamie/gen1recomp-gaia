@@ -1482,11 +1482,23 @@ end
 -- affordance.  On Android, stage pending_export.sav and open the system
 -- create-document picker (love.system.createFile) so the player can save to
 -- Downloads / Drive / etc. -- the app-private exports/ path is not useful there.
+-- NX: surface exports path + MTP hint; do not rely on openURL / open-folder.
 function RomImporter:exportSave(version)
   if self.workState == "working" then return end
+  version = self:_resolveSaveVersion(version)
   local ok, res = require("src.import.SaveFileIO").exportActiveSlot(version)
   if not ok then
     self.saveNotice[version] = { ok = false, text = tostring(res) }
+    return
+  end
+  if self.isNX then
+    local saveDir = love.filesystem.getSaveDirectory()
+    local rel = RomImporter.mtpHintPath(saveDir)
+    if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+    self.saveNotice[version] = {
+      ok = true,
+      text = Strings("Exported to %s\nDBI MTP → 1: SD Card/%sexports/", res, rel),
+    }
     return
   end
   if self.android then

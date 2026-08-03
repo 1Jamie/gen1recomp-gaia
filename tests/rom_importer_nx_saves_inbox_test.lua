@@ -308,12 +308,60 @@ local desk = setmetatable({
 check(desk:_savesDefaultHint():find("new slot", 1, true),
   "desktop default save hint stays picker/drop-oriented")
 
+-- RES-09 / NXSAV-08/09: NX exportSave success notice + no openURL / no dir
+local exportCalls = {}
+local openURLCalls = 0
+love.system.openURL = function()
+  openURLCalls = openURLCalls + 1
+  error("openURL must not run on NX exportSave")
+end
+package.loaded["src.import.SaveFileIO"] = {
+  importToSlot = function(source, version)
+    importCalls[#importCalls + 1] = { source = source, version = version }
+    local b = importBehavior[source]
+    if not b then return false, "unexpected source: " .. tostring(source) end
+    if b.ok then return true, b.id or "slot-1" end
+    return false, b.err or "bad sav"
+  end,
+  exportActiveSlot = function(version)
+    exportCalls[#exportCalls + 1] = version
+    return true, "sdmc:/switch/gen1recomp/pokemon-love2d/exports/gen1recomp-red-slot-1.sav"
+  end,
+}
+ri = freshImporter()
+exportCalls = {}
+openURLCalls = 0
+ri:exportSave("red")
+eq(#exportCalls, 1, "NXSAV-08: exportSave calls exportActiveSlot")
+eq(exportCalls[1], "red", "exportSave passes panel version")
+check(ri.saveNotice.red and ri.saveNotice.red.ok, "NXSAV-09: export success sets ok notice")
+check(ri.saveNotice.red.text:find("exports", 1, true),
+  "RES-09: export notice mentions exports path")
+check(ri.saveNotice.red.text:find("DBI MTP", 1, true),
+  "RES-09: export notice mentions MTP hint")
+check(ri.saveNotice.red.dir == nil,
+  "RES-09: NX export does not set open-folder dir")
+eq(openURLCalls, 0, "RES-09: NX exportSave does not call openURL")
+
+-- Export failure still sets notice (not silent)
+package.loaded["src.import.SaveFileIO"] = {
+  importToSlot = function() return false, "unused" end,
+  exportActiveSlot = function() return false, "No save in the active slot." end,
+}
+ri = freshImporter()
+ri:exportSave("red")
+check(ri.saveNotice.red and not ri.saveNotice.red.ok,
+  "export failure sets clear error notice")
+check(ri.saveNotice.red.text:find("No save", 1, true),
+  "export failure notice includes reason")
+
 -- Cleanup + restore stubs
 clearSavesInbox()
 love.filesystem.remove("imports/other.sav")
 package.loaded["src.import.SaveFileIO"] = nil
 package.loaded["src.core.HostShell"] = nil
 love.system.getOS = saved.getOS
+love.system.openURL = nil
 love.filesystem.getSaveDirectory = saved.getSaveDirectory
 love.filesystem.createDirectory = saved.createDirectory
 love.filesystem.remove = saved.remove
