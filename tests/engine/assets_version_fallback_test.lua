@@ -95,6 +95,67 @@ local luaBytes = CacheFs.readActive("data/generated/maps.lua")
 check(type(luaBytes) == "string" and luaBytes:find("ok", 1, true),
   "readActive still finds yellow/data/generated when CacheFs.prefix is set")
 
+-- ChipSynth.loadBanks: NX prefers the versioned prefix; desktop untouched
+setOS("NX")
+GameVersion.set("yellow")
+local PROG = "assets/generated/audio/programs.bin"
+local PROG_BYTES = string.rep("\0", 0x4000 * 2)
+love.filesystem.write("yellow/" .. PROG, PROG_BYTES)
+clearPath(PROG)
+local ChipSynth = require("src.core.ChipSynth")
+ChipSynth.invalidateBanks()
+local progData = { audio = { programFile = PROG, bankOrder = { 1, 2 } } }
+local okB, banks = pcall(ChipSynth._loadBanksForTest, progData)
+check(okB and banks ~= nil, "NX loadBanks reads yellow/programs.bin")
+if okB and banks then
+  eq(banks[1], PROG_BYTES:sub(1, 0x4000), "loadBanks returns the bank 1 bytes")
+end
+
+-- Sound.playPikaCry: NX rewrites the pika-cry path before newSource
+setOS("NX")
+GameVersion.set("yellow")
+local Sound = require("src.core.Sound")
+local CRY = "assets/generated/audio/pika_cries/cry_01.wav"
+love.filesystem.write("yellow/" .. CRY, "RIFF\x24\x00\x00\x00WAVEfmt ")
+clearPath(CRY)
+local lastNewSource
+local savedAudio = love.audio
+love.audio = {
+  newSource = function(path, mode)
+    lastNewSource = path
+    return setmetatable({
+      stop = function() end,
+      play = function() end,
+      setVolume = function() end,
+    }, { __index = function() return function() end end })
+  end,
+}
+Sound.invalidate("pikacry:1")
+local cryData = { audio = { pikaCries = 1 } }
+local src = Sound.playPikaCry(cryData, 1)
+love.audio = savedAudio
+eq(lastNewSource, "yellow/" .. CRY, "NX playPikaCry loads yellow/pika_cries")
+
+-- TitleState/YellowIntro/IntroMovie use Assets.resolve (NX prefix); a static
+-- source check keeps them from regressing to raw newImage(path).
+local function srcHasResolve(path)
+  local f = io.open(path, "r")
+  if not f then return false end
+  local body = f:read("*a")
+  f:close()
+  return body:find("Assets%.resolve", 1, false) ~= nil
+    or body:find('require%("src%.render%.Assets"%)%.resolve', 1, false) ~= nil
+end
+check(srcHasResolve("src/ui/TitleState.lua"),
+  "TitleState loads art via Assets.resolve")
+check(srcHasResolve("src/ui/YellowIntro.lua"),
+  "YellowIntro loads art via Assets.resolve")
+check(srcHasResolve("src/ui/IntroMovie.lua"),
+  "IntroMovie loads art via Assets.resolve")
+
+clearPath("yellow/" .. PROG)
+clearPath("yellow/" .. CRY)
+
 love.system = savedSystem
 Platform._resetForTests()
 CacheFs.prefix = savedPrefix

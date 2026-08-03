@@ -123,7 +123,18 @@ local function loadBanks(data)
   if cachedProgramFile == audio.programFile and cachedBanks then
     return cachedBanks
   end
-  local raw, readError = love.filesystem.read(audio.programFile)
+  local raw, readError
+  -- NX-only: Blue/Yellow live under a versioned save-dir prefix; desktop
+  -- relies on mountVersion overlay. Read the prefixed path when present.
+  if require("src.core.Platform").isNX() then
+    local prefix = require("src.core.GameVersion").cachePrefix()
+    if prefix ~= "" then
+      raw, readError = love.filesystem.read(prefix .. audio.programFile)
+    end
+  end
+  if not raw then
+    raw, readError = love.filesystem.read(audio.programFile)
+  end
   if not raw then error("could not read sound programs: " .. tostring(readError)) end
   local banks = {}
   for index, bank in ipairs(audio.bankOrder) do
@@ -138,6 +149,11 @@ end
 -- module's state, so ChipAudio.invalidate must reach it via a worker message
 function ChipSynth.invalidateBanks()
   cachedProgramFile, cachedBanks = nil, nil
+end
+
+-- test-only: exercise loadBanks without building a full engine
+function ChipSynth._loadBanksForTest(data)
+  return loadBanks(data)
 end
 
 -- A def-local program (ChipAsm output) is mounted as pseudo-bank 0 next to

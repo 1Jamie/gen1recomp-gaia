@@ -220,7 +220,7 @@ local function bobOffset(phase)
 end
 
 local function tryImage(path)
-  local ok, img = pcall(love.graphics.newImage, path)
+  local ok, img = pcall(love.graphics.newImage, require("src.render.Assets").resolve(path))
   return ok and img or nil
 end
 
