@@ -768,13 +768,23 @@ end
 -- engine/battle/core.asm DisplayBattleMenu .oldManName branch): no
 -- player mon; the battle menu appears under the OLD MAN's name and a
 -- scripted cursor hovers FIGHT, hops to ITEM and forces the item menu
--- (one POKé BALL x50).  The throw always catches; nothing is kept.
+-- (one POKé BALL x50).  Nothing is kept.
 -- Yellow's Pallet intro (BATTLE_TYPE_PIKACHU) is the same simulated
 -- script under "PROF.OAK" (pokeyellow core.asm .profOakName), so the
 -- displayed thrower name is a parameter.
-function BattleState:makeOldManDemo(name)
+-- The throw catches everywhere except Yellow's FIRST Viridian training.
+-- ItemUseBall's .oldManBattle branch checks EVENT_INITIAL_CATCH_TRAINING
+-- and, when it is set, stores anim data $63 in place of the $43 capture
+-- value -- three shakes, then a breakout (pokeyellow
+-- engine/items/item_effects.asm).  Red/Blue's ItemUseBall has no such
+-- branch and jumps straight to .captured, and Yellow's repeat "Watch
+-- closely!" demo resets the event before its battle
+-- (ViridianCityOldManStartCatchTrainingScript), so only the initial
+-- tutorial passes failThrow -- it stands in for that event (#636).
+function BattleState:makeOldManDemo(name, failThrow)
   self.demo = true
   self.demoName = name or "OLD MAN"
+  self.demoFails = failThrow and true or false
   -- LoadPlayerBackPic and DisplayBattleMenu split on the same wBattleType:
   -- BATTLE_TYPE_OLD_MAN gets .oldManName + OldManPicBack, BATTLE_TYPE_PIKACHU
   -- gets .profOakName + ProfOakPicBack (pokeyellow core.asm).  The thrower
@@ -2061,7 +2071,10 @@ end
 -- skipped -- the old man branch jumps straight to .captured, $43 anim
 -- data = 3 shakes and caught (:155-164 + :193-200) -- and
 -- .oldManCaughtMon prints the caught text WITHOUT adding the mon to
--- the party or the dex (:568-570).  The "used" line reads OLD MAN
+-- the party or the dex (:568-570).  Yellow's initial training is the one
+-- exception (demoFails, #636): its .oldManBattle branch forces $63, so
+-- the same chain ends in a breakout and ItemUseBallText04 instead.
+-- The "used" line reads OLD MAN
 -- because DisplayBattleMenu swapped wPlayerName (core.asm:2024-2037);
 -- no ball is consumed (.done returns early, :576-578).
 function BattleState:oldManThrow()
@@ -2074,6 +2087,14 @@ function BattleState:oldManThrow()
     -- ItemUseBall's beat before the toss chain (like throwBall)
     self.nextInsert = (self.nextInsert or 0) + 1
     table.insert(self.queue, self.nextInsert, { wait = 20 })
+    if self.demoFails then
+      -- $63 instead of $43: the same three shakes, then POOF+SHOWPIC and
+      -- ItemUseBallText04.  No sound_caught_mon, and .captured is never
+      -- reached, so nothing touches the party or the dex either (#636).
+      self:ballChain("TOSS_ANIM", false, 3, "POKE_BALL")
+      self:sayNext(self:ballMissMessage(3))
+      return
+    end
     self:ballChain("TOSS_ANIM", true, 3, "POKE_BALL")
     self:actNext(function()
       require("src.core.Sound").play(self.data, "Caught_Mon")

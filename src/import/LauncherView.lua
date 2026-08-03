@@ -54,10 +54,11 @@ local function C(name, a)
   return rgba(c[1], c[2], c[3], a)
 end
 
--- Every element in this view refuses to flex-shrink: overflow is always a
--- scroll container's job here, and the engine otherwise compresses
+-- Non-scroll elements refuse to flex-shrink: the engine otherwise compresses
 -- auto-height children inside height-constrained columns until their text
--- overlaps (the portrait single-column layout was the visible case).
+-- overlaps (the portrait single-column layout was the visible case).  Scroll
+-- regions are the opposite — they MUST shrink to the viewport, or their
+-- height grows with content, maxScrollY stays 0, and drag/wheel do nothing.
 -- horizontal padding of a props table, for content-width bookkeeping
 local function propsPadH(p)
   local pad = p.padding
@@ -68,8 +69,18 @@ local function propsPadH(p)
   return 0
 end
 
+local function isScrollOverflow(props)
+  local o = props.overflowY or props.overflowX or props.overflow
+  return o == "scroll" or o == "auto"
+end
+
 local function mk(props)
-  if props.flexShrink == nil then props.flexShrink = 0 end
+  if props.flexShrink == nil then
+    props.flexShrink = isScrollOverflow(props) and 1 or 0
+  end
+  if isScrollOverflow(props) and props.minHeight == nil then
+    props.minHeight = 0
+  end
   -- Resolve "100%" here, against the parent's CONTENT width: the engine
   -- resolves a percentage against the parent's border box and ignores its
   -- padding, so every percent child of a padded container overflowed to the
@@ -785,11 +796,23 @@ local function buildSlotCard(imp, parent, m, version)
     math.ceil(textHeight(pillSize)) + 8)
   local metaH = math.ceil(textHeight(metaSize))
   local rowH = 10 + headH + 5 + metaH + 8 + btnH + 10
+  -- Fixed-height scroller so 40 slots actually overflow (page-level flex
+  -- scroll alone was growing with content, leaving nothing to drag).
+  local listParent = c
+  if n > 0 then
+    local listH = math.floor(clamp(m.h * (m.twoCol and 0.58 or 0.42), 200, 720))
+    listParent = mk({
+      parent = c, id = "slots-" .. version, width = "100%", height = listH,
+      overflowY = "scroll", hideScrollbars = true,
+      positioning = "flex", flexDirection = "vertical", gap = 10 * m.s,
+      padding = { right = 4 },
+    })
+  end
   for _, slot in ipairs(slots) do
     local selected = slot.id == active
     local rowKey = "slot-" .. version .. "-" .. slot.id
     local row = mk({
-      parent = c, width = "100%", height = rowH,
+      parent = listParent, width = "100%", height = rowH,
       backgroundColor = C("rowBg", imp._hot[rowKey] and 0.85 or 0.6),
       border = 1,
       borderColor = selected and C("green", 0.9) or C("border", 0.25),
@@ -1824,9 +1847,11 @@ function LauncherView.draw(imp)
 
   -- One scroll region per tab (stable id keeps its offset across frames and
   -- separate per tab), holding the panel, the updater banner and the footer.
+  -- flexShrink/minHeight keep this viewport-sized so overflowY can scroll.
   local page = mk({
     parent = root, id = "page-" .. imp.tab,
-    width = "100%", flex = 1, overflowY = "scroll", hideScrollbars = true,
+    width = "100%", flex = 1, flexShrink = 1, minHeight = 0,
+    overflowY = "scroll", hideScrollbars = true,
     positioning = "flex", flexDirection = "vertical",
     gap = 12 * m.s,
     padding = { left = m.pad, right = m.pad + m.gutter,

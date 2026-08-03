@@ -8,6 +8,7 @@ local Camera = require("src.render.Camera")
 local Collision = require("src.world.Collision")
 local Encounter = require("src.world.Encounter")
 local FieldDefaults = require("src.world.FieldDefaults")
+local GameVersion = require("src.core.GameVersion")
 local Logger = require("src.core.Logger")
 local Map = require("src.world.Map")
 local MapLoader = require("src.world.MapLoader")
@@ -224,6 +225,13 @@ function OverworldState:stampClosedDoors()
                                                "closedDoors")
   local floorDoors = self.map and closedDoors and closedDoors[self.map.id]
   if not floorDoors then return end
+  -- ...and floors the running version has no callback for: Yellow's B4F
+  -- lift gate stands open from the first visit, since Jessie & James take
+  -- the two guard slots there and set neither guard flag (#650)
+  local skipMaps = FieldDefaults.fieldValue(Game.data, "cardKeyDoors",
+                                            "skipMaps")
+  local skipped = skipMaps and skipMaps[GameVersion.get()]
+  if skipped and skipped[self.map.id] then return end
   local stamped, unlocked = false, false
   for _, door in ipairs(floorDoors) do
     local open
