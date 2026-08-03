@@ -1216,12 +1216,16 @@ function OverworldState:checkBoulderPush(dir)
   end
   local bx, by = Collision.target(fx, fy, dir)
   if not self.map:inBounds(bx, by) then self.boulderTried = nil return false end
+  -- CheckForCollisionWhenPushingBoulder uses the same walkable check as
+  -- player movement (CheckTilePassable walks the same wTilesetCollisionPtr
+  -- list) -- there is no hole/warp escape hatch in the original, so a
+  -- boulder can never be pushed onto a cell the player cannot walk onto.
+  -- The known push targets (CAVERN $22 holes, Victory Road switches) are
+  -- walkable tiles in their tileset's coll list already, so removing the
+  -- port's isWarpTileCell exception only stops wall pushes (#754).
   if not self.map:isWalkableCell(bx, by) then
-    -- boulders may be pushed into holes/switch spots that aren't walkable
-    if not self.map:isWarpTileCell(bx, by) then
-      self.boulderTried = nil
-      return false
-    end
+    self.boulderTried = nil
+    return false
   end
   if Collision.occupied(self.entities, bx, by, npc) then
     self.boulderTried = nil
