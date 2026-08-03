@@ -92,7 +92,7 @@ function SurfingMinigame.new(game, onDone)
   self.banner = nil       -- {quad, frames}: GOOD!/YEAH-/Oh no..
 
   local function sheet(path)
-    local ok, img = pcall(love.graphics.newImage, path)
+    local ok, img = pcall(love.graphics.newImage, require("src.render.Assets").resolve(path))
     return ok and img or nil
   end
   self.bg = sheet("assets/generated/minigame/surf_1a.png")

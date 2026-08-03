@@ -4511,7 +4511,7 @@ end
 local ballQuads
 function BattleState:drawBallRow(party, x, y, dx)
   if ballQuads == nil then
-    local ok, img = pcall(love.graphics.newImage, "assets/generated/battle/balls.png")
+    local ok, img = pcall(love.graphics.newImage, require("src.render.Assets").resolve("assets/generated/battle/balls.png"))
     if ok then
       ballQuads = { img = img }
       for i = 0, 3 do
@@ -4587,7 +4587,8 @@ local substDoll
 function BattleState:drawSubstituteDoll(battler)
   if substDoll == nil then
     local ok, img = pcall(love.graphics.newImage,
-                          "assets/generated/sprites/monster.png")
+                          require("src.render.Assets").resolve(
+                            "assets/generated/sprites/monster.png"))
     if ok then
       local w, h = img:getDimensions()
       substDoll = { img = img,
