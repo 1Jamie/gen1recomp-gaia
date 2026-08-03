@@ -1733,6 +1733,15 @@ function RomImporter:_switchTab(id)
   self:_disarmTextInput()
 end
 
+function RomImporter:_toggleFindSearchFocus()
+  self._findSearchFocus = not self._findSearchFocus
+  if self._findSearchFocus then
+    self:_armTextInput()
+  else
+    self:_disarmTextInput()
+  end
+end
+
 -- ------- settings gear (options.lua + enabled mods' option schemas)
 
 function RomImporter:_openSettings()
