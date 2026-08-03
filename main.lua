@@ -422,15 +422,9 @@ function love.touchpressed(id, x, y, dx, dy, pressure)
     return TouchEditor.touchpressed(id, x, y)
   end
   if Importer then
-    -- iOS: LÖVE already synthesizes a mousepressed for the primary touch,
-    -- and love.mousepressed below forwards that to the Importer, so
-    -- forwarding here too fires every launcher button twice per tap.  The
-    -- resulting double-present was fatal for the document picker: the
-    -- second sheet stole the first one's weakly-held delegate, so picking
-    -- a file silently did nothing.  Android keeps the forward for upstream
-    -- parity (its SAF picker is a separate activity and tolerates the
-    -- re-launch).
-    if love.system.getOS() == "iOS" then return end
+    if love.system.getOS() == "iOS" then
+      return Importer:touchpressed(id, x, y)
+    end
     return Importer:mousepressed(x, y, 1)
   end
   Game:touchpressed(id, x, y)
@@ -442,7 +436,12 @@ function love.touchmoved(id, x, y, dx, dy, pressure)
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchmoved(id, x, y)
   end
-  if Importer then return end
+  if Importer then
+    if love.system.getOS() == "iOS" then
+      return Importer:touchmoved(id, x, y)
+    end
+    return
+  end
   Game:touchmoved(id, x, y)
 end
 
@@ -452,7 +451,12 @@ function love.touchreleased(id, x, y, dx, dy, pressure)
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchreleased(id, x, y)
   end
-  if Importer then return end
+  if Importer then
+    if love.system.getOS() == "iOS" then
+      return Importer:touchreleased(id, x, y)
+    end
+    return
+  end
   Game:touchreleased(id, x, y)
 end
 
@@ -488,7 +492,8 @@ function love.mousepressed(x, y, button, istouch)
     -- returns early on iOS and never forwards, so there the synthesized mouse
     -- press is the ONLY event the launcher gets.  Filtering istouch on both
     -- killed every tap on iOS outright.
-    if istouch and love.system.getOS() == "Android" then return end
+    if istouch and (love.system.getOS() == "Android"
+        or love.system.getOS() == "iOS") then return end
     return Importer:mousepressed(x, y, button)
   end
   if editorMode and EditorApp.mousepressed then

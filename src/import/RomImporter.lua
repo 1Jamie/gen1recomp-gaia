@@ -768,6 +768,13 @@ end
 -- _pollPickedFiles must stay armed so it consumes the file when it lands
 -- moments later (it clears pickPending itself once something is found).
 function RomImporter:focus(f)
+  if not f then
+    self._activeTouch = nil
+    self._pagePress = nil
+    self._slotPress = nil
+    self._modPress = nil
+    return
+  end
   if not (f and self.android and self.workState ~= "working") then return end
   -- SAF create-document finished: GameActivity wrote export_done.flag.
   if love.filesystem.getInfo("export_done.flag", "file") then
@@ -2987,6 +2994,29 @@ function RomImporter:mousepressed(x, y, button)
   end
 end
 
+function RomImporter:touchpressed(id, x, y)
+  if self._activeTouch ~= nil and self._activeTouch ~= id then
+    self._pagePress = nil
+    self._slotPress = nil
+    self._modPress = nil
+    self._activeTouch = nil
+  end
+  if self._activeTouch ~= nil then return end
+  self._activeTouch = id
+  self:mousepressed(x, y, 1, id)
+end
+
+function RomImporter:touchmoved(id, _, y)
+  if self._activeTouch ~= id then return end
+  self:_updateDrag(true, y)
+end
+
+function RomImporter:touchreleased(id, _, y)
+  if self._activeTouch == nil then return end
+  self:_updateDrag(false, y)
+  self._activeTouch = nil
+end
+
 function RomImporter:keypressed(key)
   if self._rename then
     if key == "backspace" then
@@ -3688,9 +3718,7 @@ function RomImporter:_pointerHold()
   return true, ty
 end
 
-function RomImporter:_updateSlotDrag()
-  if self.android and not self.touchPollable then return end
-  local down, py = self:_pointerHold()
+function RomImporter:_updateDrag(down, py)
   py = py or self._my
   local maxPage = self._pageMax or 0
 
@@ -3746,6 +3774,12 @@ function RomImporter:_updateSlotDrag()
       self._modPress = nil
     end
   end
+end
+
+function RomImporter:_updateSlotDrag()
+  if self.ios or (self.android and not self.touchPollable) then return end
+  local down, py = self:_pointerHold()
+  self:_updateDrag(down, py)
 end
 
 -- Mouse wheel over a game tab scrolls its save-slot list (installed onto the
