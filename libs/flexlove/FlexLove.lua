@@ -189,6 +189,12 @@ flexlove._accumulatedDt = 0
 ---@type table<string, Element>
 flexlove._touchOwners = {}
 
+-- Touch-drag scroll tracking: survives immediate-mode element recreation.
+-- Maps touch ID -> { id, lastX, lastY }. Scroll position is persisted into
+-- StateManager on every move (same contract as wheelmoved).
+---@type table<string, {id: string, lastX: number, lastY: number}>
+flexlove._touchScroll = {}
+
 ---@type table<number, boolean>
 flexlove._mouseButtonStates = {}
 
@@ -1412,6 +1418,82 @@ function flexlove._getTouchElementAtPosition(x, y)
   return candidates[1]
 end
 
+local function elementIsTouchScrollable(element)
+  if not element or not element._scrollManager then
+    return false
+  end
+  local overflowX = element.overflowX or element.overflow
+  local overflowY = element.overflowY or element.overflow
+  return overflowX == "scroll"
+    or overflowX == "auto"
+    or overflowY == "scroll"
+    or overflowY == "auto"
+end
+
+-- Walk parents from a hit target so a finger on a button/row still scrolls
+-- the containing list. Falls back to the wheel path's scrollable lookup when
+-- the press lands on empty space inside a scroller.
+local function findTouchScrollTarget(x, y, startElement)
+  local el = startElement
+  while el do
+    if elementIsTouchScrollable(el) then
+      return el
+    end
+    el = el.parent
+  end
+  return Context.findScrollableAtPosition(x, y)
+end
+
+local function findElementByStateId(stateId)
+  if not stateId or stateId == "" then
+    return nil
+  end
+  local function walk(element)
+    if element.id == stateId or element._stateId == stateId then
+      return element
+    end
+    for _, child in ipairs(element.children or {}) do
+      local found = walk(child)
+      if found then
+        return found
+      end
+    end
+    return nil
+  end
+  for _, element in ipairs(flexlove.topElements or {}) do
+    local found = walk(element)
+    if found then
+      return found
+    end
+  end
+  for _, element in ipairs(flexlove._currentFrameElements or {}) do
+    local found = walk(element)
+    if found then
+      return found
+    end
+  end
+  return nil
+end
+
+local function persistTouchScroll(element)
+  if flexlove._immediateMode and element and element._stateId and element._scrollManager then
+    StateManager.updateState(element._stateId, {
+      scrollManager = element._scrollManager:getState(),
+    })
+  end
+end
+
+local function resolveTouchScrollElement(track)
+  if not track then
+    return nil
+  end
+  local element = findElementByStateId(track.id)
+  if elementIsTouchScrollable(element) then
+    return element
+  end
+  return nil
+end
+
 --- Handle touch press events from LÖVE's touch input system
 --- Routes touch to the topmost element at the touch position and assigns touch ownership
 --- Hook this to love.touchpressed() to enable touch interaction
@@ -1452,15 +1534,22 @@ function flexlove.touchpressed(id, x, y, dx, dy, pressure)
         end
       end
     end
+  end
 
-    -- Route to scroll manager for scrollable elements
-    if element._scrollManager then
-      local overflowX = element.overflowX or element.overflow
-      local overflowY = element.overflowY or element.overflow
-      if overflowX == "scroll" or overflowX == "auto" or overflowY == "scroll" or overflowY == "auto" then
-        element._scrollManager:handleTouchPress(touchX, touchY)
-      end
+  -- Scroll target is the nearest scrollable ancestor (or the scroller under
+  -- empty space). Tracked by stable id so immediate-mode recreation can resume.
+  local scrollEl = findTouchScrollTarget(touchX, touchY, element)
+  if scrollEl and scrollEl._scrollManager then
+    local scrollId = scrollEl._stateId or scrollEl.id
+    if scrollId and scrollId ~= "" then
+      flexlove._touchScroll[touchId] = {
+        id = scrollId,
+        lastX = touchX,
+        lastY = touchY,
+      }
     end
+    scrollEl._scrollManager:handleTouchPress(touchX, touchY)
+    persistTouchScroll(scrollEl)
   end
 end
 
@@ -1500,15 +1589,21 @@ function flexlove.touchmoved(id, x, y, dx, dy, pressure)
         end
       end
     end
+  end
 
-    -- Route to scroll manager for scrollable elements
-    if element._scrollManager then
-      local overflowX = element.overflowX or element.overflow
-      local overflowY = element.overflowY or element.overflow
-      if overflowX == "scroll" or overflowX == "auto" or overflowY == "scroll" or overflowY == "auto" then
-        element._scrollManager:handleTouchMove(touchX, touchY)
-      end
+  local track = flexlove._touchScroll[touchId]
+  local scrollEl = resolveTouchScrollElement(track)
+  if track and scrollEl then
+    local sm = scrollEl._scrollManager
+    -- Immediate mode recreates managers each frame; re-arm drag from the
+    -- last persisted touch point so a move after beginFrame still scrolls.
+    if not sm._touchScrolling then
+      sm:handleTouchPress(track.lastX, track.lastY)
     end
+    sm:handleTouchMove(touchX, touchY)
+    persistTouchScroll(scrollEl)
+    track.lastX = touchX
+    track.lastY = touchY
   end
 end
 
@@ -1548,19 +1643,23 @@ function flexlove.touchreleased(id, x, y, dx, dy, pressure)
         end
       end
     end
+  end
 
-    -- Route to scroll manager for scrollable elements
-    if element._scrollManager then
-      local overflowX = element.overflowX or element.overflow
-      local overflowY = element.overflowY or element.overflow
-      if overflowX == "scroll" or overflowX == "auto" or overflowY == "scroll" or overflowY == "auto" then
-        element._scrollManager:handleTouchRelease()
-      end
+  local track = flexlove._touchScroll[touchId]
+  local scrollEl = resolveTouchScrollElement(track)
+  if track and scrollEl then
+    local sm = scrollEl._scrollManager
+    if not sm._touchScrolling then
+      sm:handleTouchPress(track.lastX, track.lastY)
     end
+    sm:handleTouchMove(touchX, touchY)
+    sm:handleTouchRelease()
+    persistTouchScroll(scrollEl)
   end
 
   -- Clean up touch ownership (touch is complete)
   flexlove._touchOwners[touchId] = nil
+  flexlove._touchScroll[touchId] = nil
 end
 
 --- Get the number of currently active touches being tracked
@@ -1659,6 +1758,7 @@ function flexlove.destroy()
 
   -- Clean up touch state
   flexlove._touchOwners = {}
+  flexlove._touchScroll = {}
   flexlove._mouseButtonStates = {}
   if flexlove._gestureRecognizer then
     flexlove._gestureRecognizer:reset()
