@@ -548,7 +548,7 @@ local function appendImportedSavHash(version, hash)
   local path = savesImportedHashesPath(version)
   local prev = love.filesystem.read(path) or ""
   if prev:find(hash, 1, true) then return end
-  love.filesystem.write(path, prev .. hash .. "\n")
+  love.filesystem.write(path, prev .. hash .. string.char(10))
 end
 
 -- Keep bytes for the player (MTP recovery) but stop matching %.sav$ on rescan.
