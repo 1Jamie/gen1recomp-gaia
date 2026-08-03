@@ -59,10 +59,10 @@ do
   eq(w, 1920, "console/docked mode → 1920 wide")
   eq(h, 1080, "console/docked mode → 1080 tall")
   w, h = NxDisplay.desiredSize(nil)
-  eq(w, 1280, "nil mode falls back to handheld width")
-  eq(h, 720, "nil mode falls back to handheld height")
+  -- With no test hook and no real Switch FFI, operationMode is nil → no size.
+  check(w == nil and h == nil, "nil/unknown mode returns no size (do not force)")
   w, h = NxDisplay.desiredSize(99)
-  eq(w, 1280, "unknown mode falls back to handheld width")
+  check(w == nil and h == nil, "unknown mode returns no size")
 end
 
 -- Non-NX: sync is a no-op
@@ -73,14 +73,14 @@ withWindow({ os = "Linux", w = 1024, h = 768, fullscreen = false, resizable = tr
   eq(#setCalls, 0, "sync never calls setMode off NX")
 end)
 
--- NX handheld already correct: no setMode
+-- NX handheld already correct: no setMode (even if flags look "wrong")
 withWindow({
-  os = "NX", w = 1280, h = 720, fullscreen = false, resizable = true,
+  os = "NX", w = 1280, h = 720, fullscreen = true, resizable = false,
 }, function(setCalls)
   NxDisplay._forceNXForTests = true
   NxDisplay._operationModeForTests = 0
-  eq(NxDisplay.sync(), false, "sync skips setMode when already handheld")
-  eq(#setCalls, 0, "no setMode calls when size+flags match handheld")
+  eq(NxDisplay.sync(), false, "sync skips setMode when size already matches")
+  eq(#setCalls, 0, "no setMode when only flags differ (avoids flicker)")
 end)
 
 -- NX docked boot from 720p hint → 1080p
@@ -95,6 +95,9 @@ withWindow({
   eq(setCalls[1].h, 1080, "docked setMode height")
   eq(setCalls[1].flags.fullscreen, false, "docked setMode clears exclusive fullscreen")
   eq(setCalls[1].flags.resizable, true, "docked setMode enables resizable for SDL backup")
+  -- Second sync must not setMode again (flicker guard)
+  eq(NxDisplay.sync(), false, "second sync is no-op after size matches")
+  eq(#setCalls, 1, "still only one setMode after repeated sync")
 end)
 
 -- NX undock: 1080p → 720p
@@ -108,16 +111,20 @@ withWindow({
   eq(setCalls[1].h, 720, "undock setMode height")
 end)
 
--- Flags-only fix when size already matches
+-- Unknown mode: do not force a size (would fight SDL and flicker)
 withWindow({
-  os = "NX", w = 1280, h = 720, fullscreen = true, resizable = false,
+  os = "NX", w = 1920, h = 1080, fullscreen = false, resizable = true,
 }, function(setCalls)
   NxDisplay._forceNXForTests = true
-  NxDisplay._operationModeForTests = 0
-  eq(NxDisplay.sync(), true, "sync fixes fullscreen/resizable even if size matches")
-  eq(setCalls[1].w, 1280, "flags-only setMode keeps handheld width")
-  eq(setCalls[1].flags.fullscreen, false, "flags-only clears fullscreen")
-  eq(setCalls[1].flags.resizable, true, "flags-only sets resizable")
+  NxDisplay._operationModeForTests = nil
+  -- Force operationMode() to return nil by using a sentinel the API treats
+  -- as "use live" then stubbing via desiredSize path — set a mode that
+  -- desiredSize rejects by clearing the hook after setting force NX, and
+  -- monkey-patching operationMode through the test hook to a non-value:
+  -- _operationModeForTests = false is not nil, so use a dedicated unknown.
+  -- Actually nil hook means live FFI; in tests FFI has no symbol → nil mode.
+  eq(NxDisplay.sync(), false, "sync no-ops when mode unknown")
+  eq(#setCalls, 0, "unknown mode never calls setMode")
 end)
 
 T.finish("nx_display")

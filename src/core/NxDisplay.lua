@@ -1,7 +1,11 @@
 -- Switch-only display size: handheld 1280x720, docked (TV) 1920x1080.
 -- love-nx's SDL backend can auto-resize on dock/undock when the window is
--- resizable; this module also syncs on boot and every frame so a docked
--- launch is not stuck at the conf.lua 720p hint until the next mode change.
+-- resizable; this module also syncs on boot and when the operation mode
+-- changes so a docked launch is not stuck at the conf.lua 720p hint.
+--
+-- Important: only call love.window.setMode when width/height must change.
+-- Re-applying every frame (e.g. to "fix" fullscreen/resizable flags that
+-- love-nx reports differently) recreates the EGL surface and flickers the launcher.
 
 local Platform = require("src.core.Platform")
 
@@ -58,16 +62,21 @@ function NxDisplay.operationMode()
   return mode
 end
 
--- Map operation mode → framebuffer size. Unknown / nil → handheld 720p.
+-- Map operation mode → framebuffer size.
+-- Unknown / nil → nil,nil (do not fight SDL or force a wrong size).
 function NxDisplay.desiredSize(mode)
   if mode == nil then mode = NxDisplay.operationMode() end
   if mode == MODE_CONSOLE then
     return NxDisplay.DOCKED_W, NxDisplay.DOCKED_H
   end
-  return NxDisplay.HANDHELD_W, NxDisplay.HANDHELD_H
+  if mode == MODE_HANDHELD then
+    return NxDisplay.HANDHELD_W, NxDisplay.HANDHELD_H
+  end
+  return nil
 end
 
--- Apply handheld/dock size when on NX and the window differs. No-op elsewhere.
+-- Apply handheld/dock size when on NX and the window size differs.
+-- Never setMode just to tweak flags — that flickers on love-nx.
 -- Returns true when setMode ran.
 function NxDisplay.sync()
   if not isNX() then return false end
@@ -75,12 +84,12 @@ function NxDisplay.sync()
     return false
   end
   local wantW, wantH = NxDisplay.desiredSize()
+  if not wantW or not wantH then return false end
   local curW, curH, flags = love.window.getMode()
-  flags = flags or {}
-  if curW == wantW and curH == wantH
-     and flags.fullscreen == false and flags.resizable == true then
+  if curW == wantW and curH == wantH then
     return false
   end
+  flags = flags or {}
   flags.fullscreen = false
   flags.resizable = true
   love.window.setMode(wantW, wantH, flags)
