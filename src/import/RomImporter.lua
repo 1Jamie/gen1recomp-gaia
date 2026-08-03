@@ -1984,24 +1984,24 @@ end
 function RomImporter:_updatePadCursor(dt)
   if self.isNX then
     self:_ensureNxPointerBridge()
+    -- Cap dt so a hitch in the FlexLove immediate-mode frame does not fling
+    -- the cursor; desktop keeps raw dt (setPosition path already smooth there).
+    if dt > 1 / 30 then dt = 1 / 30 end
   end
 
   -- Real mouse motion yields the pad cursor so desktop users keep a normal
-  -- pointer after bumping a stick once. On NX the bridged getPosition returns
-  -- pad coords while active, so yield must sample the *real* mouse or an A
-  -- press after idle falsely drops the cursor (pad vs last real position).
-  local mx, my
-  if self.isNX and self._nxRealGetPosition then
-    mx, my = self._nxRealGetPosition()
-  else
-    mx, my = love.mouse.getPosition()
-  end
-  if self._lastMouseX and self._padCursorActive then
-    if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
-      self._padCursorActive = false
+  -- pointer after bumping a stick once. On NX this must stay off: love-nx /
+  -- SDL often drifts the system mouse with the stick (or touch), and axis
+  -- events are not every frame, so yield+reactivate flickers the overlay.
+  if not self.isNX then
+    local mx, my = love.mouse.getPosition()
+    if self._lastMouseX and self._padCursorActive then
+      if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
+        self._padCursorActive = false
+      end
     end
+    self._lastMouseX, self._lastMouseY = mx, my
   end
-  self._lastMouseX, self._lastMouseY = mx, my
 
   local ax = self._padAxis.leftx or 0
   local ay = self._padAxis.lefty or 0
@@ -2025,8 +2025,7 @@ function RomImporter:_updatePadCursor(dt)
     self._padCursor.x = math.max(ox, math.min(ox + w, nx))
     self._padCursor.y = math.max(oy, math.min(oy + h, ny))
     -- Desktop: FlexLove polls the real mouse, so warp it with the pad pointer.
-    -- NX: the getPosition bridge already returns pad coords — skip setPosition
-    -- and leave _lastMouse* on the real pointer baseline (yield above).
+    -- NX: the getPosition bridge already returns pad coords — skip setPosition.
     if not self.isNX and love.mouse.setPosition then
       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y

@@ -86,22 +86,52 @@ do
   mouseX, mouseY = 10, 20
   local imp = freshImporter(true)
   imp._padCursor.x, imp._padCursor.y = 400, 300
-  -- Idle frames pin _lastMouse* to the real pointer.
+  -- Idle frames (NX ignores mouse yield entirely).
   imp:_updatePadCursor(1 / 60)
-  eq(imp._lastMouseX, 10, "idle samples real mouse X")
-  eq(imp._lastMouseY, 20, "idle samples real mouse Y")
   -- A / activate without stick motion (clickAt path).
   imp:_activatePadCursor()
   imp:_updatePadCursor(1 / 60)
   check(imp._padCursorActive,
-    "NX A after idle keeps pad cursor (no false yield via bridged getPosition)")
+    "NX A after idle keeps pad cursor")
   local gx, gy = love.mouse.getPosition()
   eq(gx, 400, "bridged getPosition still reports pad X after A")
   eq(gy, 300, "bridged getPosition still reports pad Y after A")
-  -- Real USB-ish motion still yields.
+  -- System mouse drift must NOT yield on NX (SDL stick→mouse / touch noise).
   mouseX, mouseY = 80, 90
   imp:_updatePadCursor(1 / 60)
-  check(not imp._padCursorActive, "NX real mouse motion still yields pad cursor")
+  check(imp._padCursorActive, "NX ignores real mouse drift for yield")
+  imp:parkNxPointerForHost()
+end
+
+-- ------- NX: sparse stick + SDL mouse drift must not flicker the overlay
+
+do
+  mouseX, mouseY = 100, 100
+  local imp = freshImporter(true)
+  imp._padCursor.x, imp._padCursor.y = 100, 100
+  local flickers = 0
+  for i = 1, 60 do
+    mouseX = mouseX + 8 -- simulated SDL stick→mouse drift
+    if i % 2 == 1 then
+      imp._padAxis.leftx = 1
+    else
+      imp._padAxis.leftx = 0 -- axis events not every frame
+    end
+    local before = imp._padCursorActive
+    imp:_updatePadCursor(1 / 60)
+    if before and not imp._padCursorActive then
+      flickers = flickers + 1
+    end
+  end
+  eq(flickers, 0, "NX sparse stick + mouse drift causes zero pad flickers")
+  check(imp._padCursorActive, "NX pad stays active after sparse stick run")
+  -- dt clamp: a 0.2s hitch must not move more than a 1/30 step
+  local xBefore = imp._padCursor.x
+  imp._padAxis.leftx = 1
+  imp:_updatePadCursor(0.2)
+  local moved = imp._padCursor.x - xBefore
+  local maxStep = 560 * (1 / 30) + 0.01
+  check(moved <= maxStep, "NX pad cursor dt is clamped at 1/30")
   imp:parkNxPointerForHost()
 end
 
@@ -140,6 +170,11 @@ do
   eq(mouseX, imp._padCursor.x, "desktop setPosition tracks pad X")
   eq(mouseY, imp._padCursor.y, "desktop setPosition tracks pad Y")
   check(not imp._nxPointerBridge, "desktop never installs NX bridge")
+  -- Desktop yield still drops the pad when the real mouse moves (stick released).
+  imp._padAxis.leftx = 0
+  mouseX, mouseY = mouseX + 20, mouseY + 20
+  imp:_updatePadCursor(1 / 60)
+  check(not imp._padCursorActive, "desktop real mouse motion still yields pad")
 end
 
 -- ------- Metrics: setPosition counts + pad-update cost (NX vs desktop)
@@ -193,14 +228,21 @@ do
     "RomImporter owns NX getPosition bridge")
   check(impSrc:find("function RomImporter:parkNxPointerForHost", 1, true) ~= nil,
     "RomImporter exports parkNxPointerForHost")
-  check(impSrc:find("_nxRealGetPosition()", 1, true) ~= nil,
-    "NX yield samples real mouse, not bridged getPosition")
+  check(impSrc:find("if not self.isNX then", 1, true) ~= nil,
+    "NX skips desktop mouse-yield path")
   check(impSrc:find("if not self.isNX and love.mouse.setPosition", 1, true) ~= nil,
     "RomImporter skips setPosition on NX")
+  check(impSrc:find("dt > 1 / 30", 1, true) ~= nil,
+    "NX clamps pad cursor dt")
 
   local mainSrc = read("main.lua")
   check(mainSrc:find("parkNxPointerForHost", 1, true) ~= nil,
     "openEditor parks NX pointer before save editor")
+
+  check(view:find("math.floor(x + 0.5)", 1, true) ~= nil,
+    "NX pad cursor draw is pixel-snapped")
+  check(view:find('strategy = "periodic"', 1, true) ~= nil,
+    "NX softens FlexLove GC strategy")
 end
 
 T.finish("launcher_nx_pad_cursor")

@@ -109,6 +109,15 @@ function LauncherView.applyNxPerfGuards(imp)
   FlexLove._Performance.enabled = false
   local mp = FlexLove._Performance._memoryProfiler
   if mp then mp.enabled = false end
+  -- Immediate-mode rebuilds allocate a full tree every frame; the default
+  -- auto GC steps hitch the pad cursor on Switch. Less frequent steps, higher
+  -- threshold — desktop keeps FlexLove defaults.
+  if FlexLove._gcConfig then
+    FlexLove._gcConfig.strategy = "periodic"
+    FlexLove._gcConfig.interval = 90
+    FlexLove._gcConfig.stepSize = 40
+    FlexLove._gcConfig.memoryThreshold = 180
+  end
   return true
 end
 
@@ -1734,7 +1743,12 @@ end
 
 local function drawPadCursor(imp)
   if not imp._padCursorActive then return end
+  -- Pixel-snap on NX: subpixel polygon edges shimmer on the 720p Switch
+  -- framebuffer when the stick advances by fractional pixels each frame.
   local x, y = imp._padCursor.x, imp._padCursor.y
+  if imp.isNX then
+    x, y = math.floor(x + 0.5), math.floor(y + 0.5)
+  end
   love.graphics.push("all")
   love.graphics.origin()
   love.graphics.setLineWidth(1)
