@@ -70,4 +70,39 @@ check(errLog:find("missing module", 1, true) ~= nil,
 check(errLog:find("Import again", 1, true) ~= nil,
   "lua-error.log preserves lines after newline")
 
+-- NX asset probe: always writes nx-asset-probe.log on Play (Switch only).
+local Platform = require("src.core.Platform")
+local GameVersion = require("src.core.GameVersion")
+local savedSystem = love.system
+love.system = { getOS = function() return "NX" end }
+Platform._resetForTests()
+GameVersion.set("yellow")
+love.filesystem.write("yellow/assets/generated/fonts/font.png", "font-bytes")
+love.filesystem.write("yellow/assets/generated/tilesets/reds_house.png", "house-bytes")
+love.filesystem.write("yellow/assets/generated/sprites/red.png", "red-bytes")
+SwitchDiagnostics.probeAssets("yellow")
+local probe = love.filesystem.read("nx-asset-probe.log") or ""
+check(probe:find("probe=nx-asset", 1, true) ~= nil, "probe log writes header")
+check(probe:find("cachePrefix=yellow/", 1, true) ~= nil, "probe records yellow prefix")
+check(probe:find("resolve=yellow/assets/generated/fonts/font.png", 1, true) ~= nil
+  or probe:find("versioned=type=file", 1, true) ~= nil,
+  "probe records versioned font path visibility")
+check(not probe:find(string.char(0xEA, 0x9B), 1, true),
+  "probe log contains no ROM-like binary")
+
+love.system = { getOS = function() return "OS X" end }
+Platform._resetForTests()
+love.filesystem.remove("nx-asset-probe.log")
+SwitchDiagnostics.probeAssets("yellow")
+check(love.filesystem.read("nx-asset-probe.log") == nil,
+  "probe is a no-op off NX")
+
+love.system = savedSystem
+Platform._resetForTests()
+GameVersion.set("red")
+love.filesystem.remove("nx-asset-probe.log")
+love.filesystem.remove("yellow/assets/generated/fonts/font.png")
+love.filesystem.remove("yellow/assets/generated/tilesets/reds_house.png")
+love.filesystem.remove("yellow/assets/generated/sprites/red.png")
+
 T.finish()

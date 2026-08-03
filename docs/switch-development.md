@@ -432,6 +432,8 @@ Community mod zip install smoke (MODS inbox + Play): NXMOD-12 in [switch-hardwar
 
 **Opt-in diagnostics:** create an empty `switch-debug.txt` in the save directory; events flush to `switch.log` at ≤1 Hz with build identity (no ROM/save bytes).
 
+**NX asset probe (always on Play):** every Switch Play writes `nx-asset-probe.log` in the save directory (`pokemon-love2d/`). It lists whether `assets/generated/…` vs `yellow|blue/assets/generated/…` exist, what `Assets.resolve` returns, and whether `newImage` / `newImageData` open — for Yellow/Blue blank-sprite triage. No ROM bytes.
+
 **Hardware re-test:** T16 **pass** @ `2699c9a` (naming A=confirm / B=cancel). T19 **pass** (quit/reopen, suspend×10, reboot) — operator 2026-08-01.
 
 **Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).

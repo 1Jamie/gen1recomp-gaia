@@ -188,6 +188,11 @@ local function bootGame(version)
   -- (Blue/Yellow caches live under blue/ / yellow/).
   CacheFs.prefix = GameVersion.cachePrefix()
   CacheFs.mountVersion(GameVersion.get())
+  -- NX: always write nx-asset-probe.log so Yellow/Blue art failures are
+  -- diagnosable from the SD without enabling switch-debug.txt.
+  pcall(function()
+    require("src.debug.SwitchDiagnostics").probeAssets(GameVersion.get())
+  end)
   if love.window and love.window.setTitle then
     local Version = require("src.core.Version")
     love.window.setTitle(Version.title(

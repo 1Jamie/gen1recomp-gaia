@@ -171,4 +171,91 @@ function SwitchDiagnostics.maybeFlush(force, now)
   filesystem.write(LOG_FILE, table.concat(lines, "\n") .. "\n")
 end
 
+-- One-shot NX asset probe written on every Play. No ROM/save bytes — only
+-- paths, sizes, resolve results, and whether newImage/newImageData open.
+-- Pull sdmc:.../pokemon-love2d/nx-asset-probe.log after a Yellow boot.
+local PROBE_LOG = "nx-asset-probe.log"
+
+local function probeInfo(filesystem, path)
+  local info = filesystem.getInfo(path)
+  if not info then return "missing" end
+  local size = info.size
+  if size == nil then
+    local bytes = filesystem.read(path)
+    size = type(bytes) == "string" and #bytes or -1
+  end
+  return ("type=%s size=%s"):format(tostring(info.type), tostring(size))
+end
+
+local function probeOpen(kind, path)
+  if kind == "image" then
+    local ok, err = pcall(love.graphics.newImage, path)
+    return ok and "ok" or ("FAIL " .. tostring(err):gsub("%s+", " "):sub(1, 160))
+  end
+  if not (love.image and love.image.newImageData) then return "skip-no-imageData" end
+  local ok, err = pcall(love.image.newImageData, path)
+  return ok and "ok" or ("FAIL " .. tostring(err):gsub("%s+", " "):sub(1, 160))
+end
+
+function SwitchDiagnostics.probeAssets(version)
+  local Platform = require("src.core.Platform")
+  if not Platform.isNX() then return end
+  local filesystem = fs()
+  if not filesystem then return end
+
+  local GameVersion = require("src.core.GameVersion")
+  local Assets = require("src.render.Assets")
+  local prefix = GameVersion.cachePrefix(version or GameVersion.get())
+  local lines = {
+    SwitchDiagnostics.identityOverlay(),
+    "probe=nx-asset",
+    "version=" .. tostring(version or GameVersion.get()),
+    "cachePrefix=" .. tostring(prefix),
+    "isNX=" .. tostring(Platform.isNX()),
+    "saveDir=" .. tostring(filesystem.getSaveDirectory and filesystem.getSaveDirectory() or "?"),
+  }
+
+  local samples = {
+    "assets/generated/fonts/font.png",
+    "assets/generated/tilesets/reds_house.png",
+    "assets/generated/sprites/red.png",
+    "assets/generated/sprites/monster.png",
+  }
+  for _, path in ipairs(samples) do
+    local versioned = prefix ~= "" and (prefix .. path) or path
+    local resolved = Assets.resolve(path)
+    lines[#lines + 1] = ("--- %s"):format(path)
+    lines[#lines + 1] = "unprefixed=" .. probeInfo(filesystem, path)
+    if prefix ~= "" then
+      lines[#lines + 1] = "versioned=" .. probeInfo(filesystem, versioned)
+    end
+    lines[#lines + 1] = "resolve=" .. tostring(resolved)
+    lines[#lines + 1] = "newImage=" .. probeOpen("image", resolved)
+    lines[#lines + 1] = "newImageData=" .. probeOpen("imageData", resolved)
+    if prefix ~= "" and resolved ~= versioned then
+      lines[#lines + 1] = "newImage_versioned=" .. probeOpen("image", versioned)
+      lines[#lines + 1] = "newImageData_versioned=" .. probeOpen("imageData", versioned)
+    end
+  end
+
+  -- Shallow listing so we can see if the extract tree exists at all.
+  local roots = { "yellow", "blue", "assets", "yellow/assets/generated",
+    "yellow/assets/generated/sprites", "blue/assets/generated/sprites" }
+  for _, dir in ipairs(roots) do
+    local info = filesystem.getInfo(dir)
+    if info and info.type == "directory" and filesystem.getDirectoryItems then
+      local items = filesystem.getDirectoryItems(dir) or {}
+      local n = math.min(8, #items)
+      local head = {}
+      for i = 1, n do head[i] = items[i] end
+      lines[#lines + 1] = ("list %s count=%d head=%s"):format(
+        dir, #items, table.concat(head, ","))
+    else
+      lines[#lines + 1] = ("list %s %s"):format(dir, info and info.type or "missing")
+    end
+  end
+
+  filesystem.write(PROBE_LOG, table.concat(lines, "\n") .. "\n")
+end
+
 return SwitchDiagnostics
