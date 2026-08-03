@@ -2,7 +2,7 @@
 
 **Spec:** `.specs/features/switch-save-sav-inbox/spec.md`  
 **Context:** `.specs/features/switch-save-sav-inbox/context.md`  
-**Status:** Execute nearly complete — T1–T5 done; pending T6 gate + Verifier
+**Status:** Execute complete — T1–T6 done; pending Verifier
 
 ---
 
@@ -88,12 +88,13 @@
 
 ## Phase 4 — Gate
 
-### T6: Full gate + wire into test runner if needed
+### T6: Full gate + wire into test runner if needed ✅
 - **What**: Ensure new test is picked up by `scripts/test.sh` / `tests/run_tests.lua` the same way other `rom_importer_nx_*` tests are; run the new suite + a quick non-NX smoke if already wired.
 - **Done when**: CI-equivalent local command runs the new file green; no desktop/Android intentional breakage.
 - **Requires**: T1–T5  
 - **Reqs**: all NXSAV-*  
 - **Commit**: only if runner wiring needed; else verify-only (no empty commit)
+- **Status**: ✅ complete
 
 ---
 

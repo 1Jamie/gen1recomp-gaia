@@ -3,7 +3,7 @@
 **Related:** `.specs/features/switch-port-love-nx/` (ROM inbox), `.specs/features/switch-mod-zip-inbox/` (mod zip inbox)  
 **Context:** `.specs/features/switch-save-sav-inbox/context.md`  
 **Tasks:** `.specs/features/switch-save-sav-inbox/tasks.md`  
-**Status:** Execute nearly complete — T1–T5 done; pending T6 + Verifier
+**Status:** Execute complete — T1–T6 done; pending Verifier
 
 ## Problem Statement
 

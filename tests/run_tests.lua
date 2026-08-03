@@ -3382,6 +3382,7 @@ runSuites({ "tests/platform_nx_network_gate_test.lua" })
 runSuites({ "tests/rom_importer_nx_flags_test.lua" })
 runSuites({ "tests/rom_importer_nx_inbox_test.lua" })
 runSuites({ "tests/rom_importer_nx_mods_inbox_test.lua" })
+runSuites({ "tests/rom_importer_nx_saves_inbox_test.lua" })
 runSuites({ "tests/launcher_mods_install_zip_test.lua" })
 -- ---------------------------------------------- parity workstream tests
 -- Each tests/parity_*.lua is a self-contained file (own bootstrap + check,

@@ -101,10 +101,10 @@
 ## Handoff
 
 - **Feature**: switch-save-sav-inbox / `.specs/features/switch-save-sav-inbox`
-- **Phase / Task**: Execute nearly complete — pending Verifier
-- **Completed**: T1–T5 (inbox + Import/Export + docs + AD-012); T6 gate next or in flight
-- **In-progress**: T6 full gate / runner wiring
-- **Next step**: Verifier sub-agent after T6
+- **Phase / Task**: Execute complete — pending Verifier
+- **Completed**: T1–T6 (inbox + Import/Export + docs + AD-012 + runner wiring); saves inbox 59/59
+- **In-progress**: none
+- **Next step**: Verifier sub-agent
 - **Blockers**: none
 - **Branch**: `feat/switch-nx`
 - **Report**: pending
