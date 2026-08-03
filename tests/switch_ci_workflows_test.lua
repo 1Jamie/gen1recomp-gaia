@@ -172,4 +172,28 @@ do
   mustContain(block, "Hard-fail", "release Build Switch comment")
 end
 
+-- Release publishes SD-ready zip only (no bare .nro / .nro.sha256 assets)
+do
+  local start = release:find("- name: Stage release assets", 1, true)
+  check(start ~= nil, "release Stage release assets present")
+  local rest = release:sub(start)
+  local nextStep = rest:find("\n      - name:", 2)
+  local block = nextStep and rest:sub(1, nextStep - 1) or rest
+  mustContain(block, "gen1recomp-${v}-switch.zip", "release Stage Switch zip")
+  mustContain(block, "pack_sd_zip.sh", "release Stage cites pack_sd_zip")
+  mustNotContain(block, "gen1recomp-${v}-switch.nro", "release Stage no bare NRO")
+  mustNotContain(block, "switch.nro.sha256", "release Stage no NRO sha256 sidecar")
+end
+
+do
+  local start = release:find("- name: Publish GitHub Release", 1, true)
+  check(start ~= nil, "release Publish GitHub Release present")
+  local rest = release:sub(start)
+  local nextStep = rest:find("\n      - name:", 2)
+  local block = nextStep and rest:sub(1, nextStep - 1) or rest
+  mustContain(block, "gen1recomp-${v}-switch.zip", "release Publish Switch zip")
+  mustNotContain(block, "gen1recomp-${v}-switch.nro", "release Publish no bare NRO")
+  mustNotContain(block, "switch.nro.sha256", "release Publish no NRO sha256 sidecar")
+end
+
 T.finish("switch_ci_workflows_test")

@@ -19,7 +19,7 @@ Player install (what to download, title override) stays in
 
 | What | Where on the console |
 | ---- | -------------------- |
-| Fused release NRO | `sdmc:/switch/gen1recomp/gen1recomp.nro` (or versioned name under that folder) |
+| SD-ready release zip | Extract at microSD **root** → `sdmc:/switch/gen1recomp/gen1recomp.nro` plus `pokemon-love2d/` inbox folders. Install and update use the same merge; do **not** delete `pokemon-love2d/` |
 | Loose iteration pair | `sdmc:/switch/gen1recomp/gen1recomp.nro` **and** `game.love` beside it |
 | ROM inbox | LÖVE save dir → `imports/` (launcher shows the live `getSaveDirectory()` path; under MTP often `1: SD Card/<save identity>/imports/`) |
 | Mod zip inbox | Same save dir → `imports/mods/` then MODS → **Scan again** |
@@ -28,7 +28,8 @@ Player install (what to download, title override) stays in
 | Opt-in diagnostics | Empty `switch-debug.txt` in the save dir → `switch.log` |
 | Lua error log | `lua-error.log` in the save dir |
 
-Saves persist across **NRO-only** replacements. Never commit ROM dumps, `.sav`
+Saves persist across zip re-extract / NRO replacements as long as
+`pokemon-love2d/` is left in place. Never commit ROM dumps, `.sav`
 files, or third-party mod zips to git.
 
 ---
@@ -51,7 +52,8 @@ hardware evidence — **one contributor example**, not a Mac-only product rule.
 
 1. Quit other MTP clients.
 2. Open OpenMTP → select the DBI device → **`1: SD Card`**.
-3. Create `switch/gen1recomp/` if needed; copy NRO (and `game.love` for loose).
+3. Create `switch/gen1recomp/` if needed; extract the release zip at SD root
+   (or copy NRO / `game.love` for loose).
 4. For ROMs/mods/saves, open the save-dir `imports/`, `imports/mods/`,
    `imports/saves/<red|blue|yellow>/`, or `exports/<red|blue|yellow>/` path the
    launcher prints.
@@ -68,7 +70,8 @@ fails to open.
    desktops, or your distro’s KDE MTP stack).
 2. With DBI MTP active, open **Files** / **Dolphin** / **Thunar** and select
    the Switch / DBI device → **`1: SD Card`**.
-3. Copy into `switch/gen1recomp/` and the save-dir inboxes as above.
+3. Extract the release zip at SD root (merge), or copy into `switch/gen1recomp/`
+   and the save-dir inboxes as above.
 4. Use **only one** MTP accessor at a time. If `mtp-tools` / `mtpfs` reports
    “device is busy”, close the file manager’s MTP mount (or the CLI mount)
    and retry with a single client.
@@ -81,7 +84,7 @@ card reader) or **FTP** instead — same destinations in the table above.
 
 1. With DBI MTP active, open **This PC** / **File Explorer** and look under
    **Portable Devices** for the Switch / DBI MTP volume → **`1: SD Card`**.
-2. Copy files into `switch\gen1recomp\` and the save-dir inboxes.
+2. Copy / extract into `switch\gen1recomp\` and the save-dir inboxes.
 3. Optional: [OpenMTP](https://github.com/ganeshrvel/openmtp) on Windows if
    Explorer is flaky.
 4. If Windows does not show an MTP device: Device Manager → find DBI / Switch

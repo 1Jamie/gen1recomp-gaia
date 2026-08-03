@@ -4,8 +4,8 @@
 # Usage: scripts/switch/selftest_build_switch.sh
 #
 # Covers: sha256_file, --help glossary, XOR loose/fused, fail_need_fetch,
-# verify_love_nx mismatch, fail_fused_toolchain message. Does not download
-# love-nx or invoke nacptool/elf2nro/Docker.
+# verify_love_nx mismatch, fail_fused_toolchain message, pack_sd_zip layout.
+# Does not download love-nx or invoke nacptool/elf2nro/Docker.
 
 set -euo pipefail
 
@@ -207,6 +207,108 @@ if [ -z "$OS_MISSING" ]; then
   ok "fail_fused_toolchain mentions macOS/Linux/Windows/Docker"
 else
   bad "fail_fused_toolchain missing OS hints:$OS_MISSING"
+fi
+
+# ---------------------------------------------------------------------------
+# 6. pack_sd_zip.sh builds SD-ready tree (offline; fake NRO)
+# ---------------------------------------------------------------------------
+FAKE_NRO="$STAGING/fake.nro"
+printf 'fake-nro-bytes\n' > "$FAKE_NRO"
+FAKE_ZIP="$STAGING/gen1recomp-0.0.0-test-switch.zip"
+PACK_RC=0
+"$ROOT/scripts/switch/pack_sd_zip.sh" "$FAKE_NRO" "0.0.0-test" "$FAKE_ZIP" \
+  >"$STAGING/pack.out" 2>"$STAGING/pack.err" || PACK_RC=$?
+if [ "$PACK_RC" -eq 0 ] && [ -f "$FAKE_ZIP" ] && [ -s "$FAKE_ZIP" ]; then
+  ok "pack_sd_zip.sh writes a non-empty zip"
+else
+  bad "pack_sd_zip.sh failed (rc=$PACK_RC err=$(cat "$STAGING/pack.err"))"
+fi
+
+ZIP_LIST="$(unzip -Z1 "$FAKE_ZIP" 2>/dev/null || unzip -l "$FAKE_ZIP")"
+PACK_MISSING=""
+for rel in \
+  "switch/gen1recomp/gen1recomp.nro" \
+  "switch/gen1recomp/INSTALL.txt" \
+  "switch/gen1recomp/pokemon-love2d/imports/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/imports/mods/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/imports/saves/red/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/imports/saves/blue/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/imports/saves/yellow/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/exports/red/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/exports/blue/README.txt" \
+  "switch/gen1recomp/pokemon-love2d/exports/yellow/README.txt"
+do
+  printf '%s\n' "$ZIP_LIST" | grep -Fq "$rel" || PACK_MISSING="${PACK_MISSING} ${rel}"
+done
+if [ -z "$PACK_MISSING" ]; then
+  ok "pack_sd_zip.sh zip contains SD tree + inbox READMEs"
+else
+  bad "pack_sd_zip.sh zip missing:$PACK_MISSING"
+fi
+
+EXTRACT_DIR="$STAGING/extract-v1"
+rm -rf "$EXTRACT_DIR"
+mkdir -p "$EXTRACT_DIR"
+unzip -q "$FAKE_ZIP" -d "$EXTRACT_DIR"
+if cmp -s "$FAKE_NRO" "$EXTRACT_DIR/switch/gen1recomp/gen1recomp.nro"; then
+  ok "pack_sd_zip.sh NRO bytes match source"
+else
+  bad "pack_sd_zip.sh NRO inside zip differs from source"
+fi
+
+if [ -f "${FAKE_ZIP}.sha256" ]; then
+  ok "pack_sd_zip.sh writes .sha256 sidecar"
+else
+  bad "pack_sd_zip.sh should write ${FAKE_ZIP}.sha256"
+fi
+
+MISSING_NRO_RC=0
+"$ROOT/scripts/switch/pack_sd_zip.sh" "$STAGING/does-not-exist.nro" "0.0.0" \
+  "$STAGING/should-fail.zip" >/dev/null 2>&1 || MISSING_NRO_RC=$?
+if [ "$MISSING_NRO_RC" -ne 0 ]; then
+  ok "pack_sd_zip.sh fails when NRO is missing"
+else
+  bad "pack_sd_zip.sh should fail on missing NRO"
+fi
+
+# Relative OUT_ZIP must survive (absolutized before cd into staging)
+REL_DIR="$STAGING/rel-out"
+mkdir -p "$REL_DIR"
+REL_RC=0
+(
+  cd "$REL_DIR"
+  "$ROOT/scripts/switch/pack_sd_zip.sh" "$FAKE_NRO" "0.0.1" "relative.zip" \
+    >"$STAGING/rel.out" 2>"$STAGING/rel.err"
+) || REL_RC=$?
+if [ "$REL_RC" -eq 0 ] && [ -f "$REL_DIR/relative.zip" ] && [ -s "$REL_DIR/relative.zip" ]; then
+  ok "pack_sd_zip.sh accepts relative OUT_ZIP"
+else
+  bad "pack_sd_zip.sh relative OUT_ZIP failed (rc=$REL_RC err=$(cat "$STAGING/rel.err"))"
+fi
+
+# Merge-safe update: second extract replaces NRO, keeps user data
+printf 'KEEP-SAVE' > "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/slot.sav"
+printf 'KEEP-ROM' > "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/imports/red.gb"
+printf 'KEEP-MOD' > "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/imports/mods/mod.zip"
+printf 'KEEP-OPTS' > "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/options.lua"
+
+FAKE_NRO2="$STAGING/fake-v2.nro"
+printf 'fake-nro-bytes-v2\n' > "$FAKE_NRO2"
+FAKE_ZIP2="$STAGING/gen1recomp-0.0.1-test-switch.zip"
+"$ROOT/scripts/switch/pack_sd_zip.sh" "$FAKE_NRO2" "0.0.1-test" "$FAKE_ZIP2" \
+  >"$STAGING/pack2.out" 2>"$STAGING/pack2.err"
+unzip -qo "$FAKE_ZIP2" -d "$EXTRACT_DIR"
+
+MERGE_OK=1
+cmp -s "$FAKE_NRO2" "$EXTRACT_DIR/switch/gen1recomp/gen1recomp.nro" || MERGE_OK=0
+[ "$(cat "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/slot.sav")" = "KEEP-SAVE" ] || MERGE_OK=0
+[ "$(cat "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/imports/red.gb")" = "KEEP-ROM" ] || MERGE_OK=0
+[ "$(cat "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/imports/mods/mod.zip")" = "KEEP-MOD" ] || MERGE_OK=0
+[ "$(cat "$EXTRACT_DIR/switch/gen1recomp/pokemon-love2d/options.lua")" = "KEEP-OPTS" ] || MERGE_OK=0
+if [ "$MERGE_OK" -eq 1 ]; then
+  ok "pack_sd_zip.sh merge update preserves user data"
+else
+  bad "pack_sd_zip.sh merge update lost user data or failed to replace NRO"
 fi
 
 # ---------------------------------------------------------------------------

@@ -231,15 +231,15 @@ Install steps, controls, and troubleshooting live in
 
 ## Nintendo Switch
 
-Releases ship a fused `gen1recomp-*-switch.nro` (issue
+Releases ship an SD-ready `gen1recomp-*-switch.zip` (issue
 [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Runtime target
 is pinned [love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`.
 Requires a console that can run Switch homebrew. Hardware evidence: **OLED**
 (author) and **V1 / Erista** boot (community).
 
 - Players: [docs/switch-install.md](docs/switch-install.md) — download the
-  NRO, copy to the SD, title-override launch, import your own legal ROM,
-  Joy-Con controls and shortcuts.
+  zip, extract at the microSD root (install or update), title-override
+  launch, import your own legal ROM, Joy-Con controls and shortcuts.
 - Builders: [docs/switch-build.md](docs/switch-build.md) — `--fetch` /
   `--loose` / `--fused`, toolchain, Docker fallback, and **CI vs release**
   (path-gated ubuntu selftest, canonical fused PR artifact, release hard-fail).

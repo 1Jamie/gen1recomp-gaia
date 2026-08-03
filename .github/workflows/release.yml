@@ -1,7 +1,7 @@
 name: Release
 
 # Builds the macOS, Windows, and Linux desktop apps, an Android APK, an iOS
-# IPA, a Nintendo Switch fused NRO (experimental), and the Anbernic RG34XXSP
+# IPA, a Nintendo Switch SD-ready zip (experimental), and the Anbernic RG34XXSP
 # (Stock OS 64-bit MOD / PortMaster) port on the self-hosted Mac runner, and
 # publishes them as a GitHub Release.
 #
@@ -270,13 +270,11 @@ jobs:
           [ -f "$ipa" ] || { echo "::error::$ipa not found (expected from scripts/build_ios.sh --device)"; exit 1; }
           cp "$ipa" "$outdir/gen1recomp-${v}-ios.ipa"
 
-          nro="dist/switch/gen1recomp-${v}-switch.nro"
-          [ -f "$nro" ] || { echo "::error::$nro not found (expected from scripts/build_switch.sh --fused)"; exit 1; }
-          cp "$nro" "$outdir/gen1recomp-${v}-switch.nro"
-          # Sidecar written by build_fused.sh when the fused NRO succeeds.
-          if [ -f "${nro}.sha256" ]; then
-            cp "${nro}.sha256" "$outdir/gen1recomp-${v}-switch.nro.sha256"
-          fi
+          swzip="dist/switch/gen1recomp-${v}-switch.zip"
+          [ -f "$swzip" ] || { echo "::error::$swzip not found (expected from scripts/build_switch.sh --fused → pack_sd_zip.sh)"; exit 1; }
+          cp "$swzip" "$outdir/gen1recomp-${v}-switch.zip"
+          # Local fused .nro stays under dist/switch/ for PR CI / debug; release
+          # publishes the SD-ready zip only.
 
           # Anbernic handheld port (suffix names the CFW it targets, so a
           # future RG35XX/other-CFW pack can ship alongside it).
@@ -395,14 +393,11 @@ jobs:
             "dist/release/gen1recomp-${v}-linux.zip"
             "dist/release/gen1recomp-${v}-android.apk"
             "dist/release/gen1recomp-${v}-ios.ipa"
-            "dist/release/gen1recomp-${v}-switch.nro"
+            "dist/release/gen1recomp-${v}-switch.zip"
             "dist/release/gen1recomp-${v}-rg34xxsp-stockos64-mod.zip"
             "dist/release/gen1recomp-${v}.love"
             "dist/release/sha256sums.txt"
           )
-          if [ -f "dist/release/gen1recomp-${v}-switch.nro.sha256" ]; then
-            release_files+=("dist/release/gen1recomp-${v}-switch.nro.sha256")
-          fi
 
           gh release create "$tag" \
             --target "$GITHUB_SHA" \

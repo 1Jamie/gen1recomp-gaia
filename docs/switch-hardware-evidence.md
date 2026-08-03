@@ -127,7 +127,7 @@ Operator smoke for the switch-build-pipeline packaging CLI (closes matrix-deferr
 | love-nx | `11.5-nx1` (manifest checksums match) |
 | Artifact | `dist/switch/gen1recomp-0.0.0-test-switch.nro` |
 | NRO SHA-256 | `210efb884a8d27443dc1c64ed8f071b0f862d8d0c9b140ad8185093c4e4027db` |
-| Install doc | `docs/switch-install.md` — copy NRO under `sdmc:/switch/gen1recomp/` |
+| Install doc | `docs/switch-install.md` — at the time of this row: copy NRO under `sdmc:/switch/gen1recomp/` (releases now ship an SD-ready zip; same folder) |
 | Console | Switch OLED |
 | Operator | Andrew |
 | Date | 2026-08-01 |

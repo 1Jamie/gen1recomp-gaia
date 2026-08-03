@@ -1,8 +1,9 @@
 # Install Gen1Recomp on Nintendo Switch
 
-Every GitHub Release that includes Switch support ships a fused homebrew
-binary: `gen1recomp-*-switch.nro`. Copy it to your microSD, launch with
-**title override**, then import your own legal `.gb` ROM.
+Every GitHub Release that includes Switch support ships an SD-ready zip:
+`gen1recomp-*-switch.zip`. Extract it at the root of your microSD (install
+**or** update — same steps), launch with **title override**, then import your
+own legal `.gb` ROM.
 
 > You need a console that can run Switch homebrew (custom firmware / hbmenu).
 > This project does not help you set that up. Tracks issue
@@ -16,29 +17,35 @@ Prefer building from source? See [switch-build.md](switch-build.md).
 Port by [andrewqsantos](https://github.com/andrewqsantos). Community testing
 help from [booshankles](https://github.com/booshankles).
 
-## 1. Download the NRO
+## 1. Download the zip
 
 1. Open
    [Releases](https://github.com/bryanthaboi/gen1recomp/releases).
-2. Download `gen1recomp-*-switch.nro` for the version you want.
-   (Optional: the matching `*.nro.sha256` sidecar if you want to verify the
-   download.)
+2. Download `gen1recomp-*-switch.zip` for the version you want.
+   (Optional: verify against `sha256sums.txt` in the same release.)
 
-## 2. Copy it to the microSD
+## 2. Extract onto the microSD
 
-Put the file here on the SD card:
+Extract the zip at the **root** of the microSD so you get:
 
 ```text
 sdmc:/switch/gen1recomp/gen1recomp.nro
+sdmc:/switch/gen1recomp/pokemon-love2d/imports/
+sdmc:/switch/gen1recomp/pokemon-love2d/imports/mods/
+sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/...
 ```
 
-(or keep the versioned name under `sdmc:/switch/gen1recomp/` — hbmenu will
-list it either way).
-
-Any method that lands the file on the SD is fine: **MTP** (DBI → Run MTP
+Merge folders if your OS asks. Any method works: **MTP** (DBI → Run MTP
 responder + a client), **direct SD** (Hekate UMS or a card reader), or **FTP**.
 Exit MTP / unmount / stop FTP cleanly before launching. Step-by-step for
 macOS, Linux, and Windows: [switch-transfer.md](switch-transfer.md).
+
+### Updating
+
+Use the **same** extract/merge. It replaces `gen1recomp.nro` (and the small
+help `README.txt` / `INSTALL.txt` files). Saves, imported ROMs, mods, and
+options live under `pokemon-love2d/` — **do not delete that folder** when
+updating, or you will lose progress.
 
 ## 3. Launch with title override
 
@@ -55,14 +62,11 @@ Do **not** launch from the Album applet path for normal play.
 
 This project ships **no** game data. On first launch:
 
-1. Put your own legally obtained Pokémon Red or Blue `.gb` into the ROM
-   inbox under the game’s save directory (`imports/` — the launcher shows
-   the live path).
+1. Put your own legally obtained Pokémon Red or Blue `.gb` into
+   `switch/gen1recomp/pokemon-love2d/imports/` (the launcher also shows
+   the live save-dir path).
 2. Use **Scan again** on the Red/Blue tab if you add the
    file after the first open.
-
-Saves live in the LÖVE save directory and **persist across NRO updates** —
-you can replace only the `.nro` and keep your progress.
 
 ## 5. Import / Export a raw `.sav`
 
@@ -74,6 +78,8 @@ SD / FTP — same transfer methods as ROMs. Paths are **per game**:
 | Red | `imports/saves/red/` | `exports/red/` |
 | Blue | `imports/saves/blue/` | `exports/blue/` |
 | Yellow | `imports/saves/yellow/` | `exports/yellow/` |
+
+(Under the save dir `pokemon-love2d/` — the zip already creates these folders.)
 
 1. Copy a Gen1 `.sav` (32 KB) into that game’s inbox under the save dir
    ([switch-transfer.md](switch-transfer.md)).
@@ -164,7 +170,7 @@ and
 
 ## Prefer building it yourself?
 
-Building the fused (or loose) NRO from source is covered in
+Building the fused NRO (and SD-ready zip) from source is covered in
 [switch-build.md](switch-build.md). Copying artifacts and inbox files
 (MTP / SD / FTP on macOS, Linux, Windows): [switch-transfer.md](switch-transfer.md).
 Status, limitations, and how we tested: [switch-development.md](switch-development.md).

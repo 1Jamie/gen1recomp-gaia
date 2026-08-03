@@ -1,8 +1,9 @@
 # Nintendo Switch development (love-nx)
 
 > Fused NRO support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531).
-> Releases ship `gen1recomp-*-switch.nro`. Console copy is manual; title override
-> required. See [Known limitations](#known-limitations-read-before-reviewing).
+> Releases ship `gen1recomp-*-switch.zip` (SD-ready tree). Console copy is
+> extract/merge at microSD root; title override required. See
+> [Known limitations](#known-limitations-read-before-reviewing).
 
 **Canonical install / build / transfer docs** (start here unless you need hardware depth):
 
@@ -27,9 +28,9 @@ the transfer runbook).
 | ---- | ----- |
 | Feature | **Available** — playable fused NRO path (issue #531) |
 | Runtime | Pinned love-nx **`11.5-nx1`** |
-| Product artifact | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
+| Product artifact | Releases: SD-ready `gen1recomp-*-switch.zip`; local/PR: fused `.nro`; loose `nro`+`game.love` for iteration |
 | Hardware | **OLED** validated (author, title override); **V1 / Erista** boot confirmed (community). Lite, docked soak, and Pro Controller matrices welcome |
-| Deploy / install | Releases publish fused NRO; **console copy is manual** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
+| Deploy / install | Releases publish SD-ready zip; **extract/merge at microSD root** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
 | Contributor transfer | Documented for **macOS, Linux, and Windows**; OpenMTP on Mac is one example, not the only contract |
 | Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
 | Community help | Welcome — especially HOS / love-nx packaging and broader hardware coverage |
@@ -165,7 +166,7 @@ Detail for **macOS / Linux / Windows** and **MTP / SD / FTP** lives in
 
 | Layer | Intent |
 | ----- | ------ |
-| **Runtime / players** | Put the NRO under `sdmc:/switch/gen1recomp/` and land ROMs/mods under the save-dir inboxes. The game does not hard-depend on OpenMTP or macOS. |
+| **Runtime / players** | Extract the release zip at microSD root (`switch/gen1recomp/`) and land ROMs/mods under the save-dir inboxes. The game does not hard-depend on OpenMTP or macOS. |
 | **Contributor loop** | Manual copy via MTP (DBI responder), direct SD (Hekate UMS / reader), or FTP. Fully manual — no CI deploy, no `nxlink` yet. |
 
 The Mac + OpenMTP steps that remain below are the **OLED evidence reproduction** path; prefer the transfer runbook for day-to-day contrib on other hosts.

@@ -1,14 +1,14 @@
 # Build the Nintendo Switch NRO — contributor guide
 
-Want to play a release build instead? Download the fused NRO and copy it to
-your console — see [switch-install.md](switch-install.md).
+Want to play a release build instead? Download the SD-ready zip and extract it
+at your microSD root — see [switch-install.md](switch-install.md).
 
 This guide is for contributors who build Gen1Recomp for Switch from source.
 Hardware evidence, MTP operator loops, and deeper notes live in
 [switch-development.md](switch-development.md).
 
-> Releases ship a fused `gen1recomp-*-switch.nro` (issue
-> [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Hardware
+> Releases ship `gen1recomp-*-switch.zip` (SD tree under `switch/gen1recomp/`;
+> issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Hardware
 > evidence: **OLED** (author) and **V1 boot** (community). See
 > [switch-development.md](switch-development.md) for known limitations.
 
@@ -64,7 +64,7 @@ builds can fall back to the pinned image when native tools are missing.
 | ---- | ------------ |
 | `--fetch` | Downloads pinned **love.nro** + **love.elf** into `.bazinga/love-nx/11.5-nx1/` and verifies SHA-256 against `scripts/switch/love-nx-11.5-nx1.sha256`. |
 | `--loose` | Packs `game.love`, copies pinned `love.nro` → `dist/switch/loose/` as `gen1recomp.nro` + `game.love` side by side. Needs the pin. |
-| `--fused` | Builds a single `dist/switch/gen1recomp-<ver>-switch.nro` (game in romfs) via `nacptool` + `elf2nro`. Needs the pin + toolchain (native or Docker). |
+| `--fused` | Builds `dist/switch/gen1recomp-<ver>-switch.nro` (game in romfs) via `nacptool` + `elf2nro`, then packs `dist/switch/gen1recomp-<ver>-switch.zip` (SD-ready tree). Needs the pin + toolchain (native or Docker). GitHub Releases publish the **zip only**. |
 
 Rules:
 
@@ -109,12 +109,13 @@ scripts/build_switch.sh --fetch
 # Loose pair for iteration (fetch + assemble)
 scripts/build_switch.sh --fetch --loose
 
-# Single fused NRO for a release-like artifact
+# Single fused NRO + SD-ready zip for a release-like artifact
 scripts/build_switch.sh --fetch --fused --version 0.2.0
 ```
 
 Outputs land under `dist/switch/` (and `dist/switch/loose/` for loose mode).
-The fused path also writes `gen1recomp-<ver>-switch.nro.sha256`.
+The fused path also writes `gen1recomp-<ver>-switch.nro.sha256` and
+`gen1recomp-<ver>-switch.zip` (+ `.sha256` sidecar for the zip).
 
 Offline packaging smoke (no network, no nacptool required):
 
@@ -164,7 +165,9 @@ other platforms — this is a **hard gate** (no `continue-on-error`):
 scripts/build_switch.sh --fetch --fused --version "<release version>"
 ```
 
-A Switch packaging failure fails the entire release job.
+A Switch packaging failure fails the entire release job. The release asset is
+`gen1recomp-<ver>-switch.zip` (SD-ready); the versioned `.nro` stays under
+`dist/switch/` for the packer and for PR CI artifacts.
 
 ### Runner provisioning
 
