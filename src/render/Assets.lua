@@ -4,10 +4,9 @@
 -- its own file without editing a single record, and one flush() drops
 -- every downstream cache for dev-mode hot reload.
 --
--- No loader installed means resolve() is the identity on desktop/mobile.
--- On NX only, Blue/Yellow also rewrite assets/generated/* to the real
--- save-dir path (yellow|blue/assets/generated/...) because fused love-nx
--- often cannot mount that tree onto the unprefixed PhysFS path.
+-- No loader installed means resolve() is the identity.  The NX Blue/Yellow
+-- versioned-cache fallback lives in src/core/NxAssetOverlay.lua (installed
+-- once at boot on NX only), not here, so this module stays platform-free.
 
 local Assets = {}
 
@@ -47,14 +46,9 @@ function Assets.resolve(path)
     if derived then return derived end
   end
 
-  -- Switch-only: desktop/Android keep mountVersion as the sole overlay.
-  if require("src.core.Platform").isNX() then
-    local prefix = require("src.core.GameVersion").cachePrefix()
-    if prefix ~= "" then
-      local versioned = prefix .. path
-      if exists(versioned) then return versioned end
-    end
-  end
+  -- NX Blue/Yellow: no rewrite here -- NxAssetOverlay (installed once at
+  -- boot on NX only) covers every loader globally, so this module stays
+  -- the mod-override choke point it always was.
   return path
 end
 

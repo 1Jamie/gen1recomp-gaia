@@ -29,7 +29,7 @@ local DEFAULT_ART = {
 
 local function tryImage(path)
   if not path then return nil end
-  local ok, img = pcall(love.graphics.newImage, require("src.render.Assets").resolve(path))
+  local ok, img = pcall(love.graphics.newImage, path)
   return ok and img or nil
 end
 

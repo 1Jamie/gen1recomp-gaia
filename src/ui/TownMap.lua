@@ -104,7 +104,7 @@ local function loadBackground(game)
   local tm = (game.data.field or {}).townMap or {}
   local bg = tm.background
   if not (bg and bg.map and bg.tiles) then return nil end
-  local ok, img = pcall(love.graphics.newImage, require("src.render.Assets").resolve(bg.tiles.path))
+  local ok, img = pcall(love.graphics.newImage, bg.tiles.path)
   if not ok then return nil end
   local quads = {}
   local iw, ih = img:getDimensions()
@@ -115,7 +115,7 @@ local function loadBackground(game)
   end
   local cursor
   if bg.cursor then
-    local okc, c = pcall(love.graphics.newImage, require("src.render.Assets").resolve(bg.cursor.path))
+    local okc, c = pcall(love.graphics.newImage, bg.cursor.path)
     cursor = okc and c or nil
   end
   return { img = img, quads = quads, map = bg.map, cursor = cursor }
@@ -192,9 +192,8 @@ function TownMap.new(game, opts)
     -- field.townMap.nest lifts the icon path out of the engine
     local nest = ((game.data.field or {}).townMap or {}).nest
     local ok, img = pcall(love.graphics.newImage,
-                          require("src.render.Assets").resolve(
-                            (nest and nest.path)
-                            or "assets/generated/townmap/nest.png"))
+                          (nest and nest.path)
+                          or "assets/generated/townmap/nest.png")
     self.nestIcon = ok and img or nil
   end
   if opts.fly then

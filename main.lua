@@ -220,6 +220,13 @@ function love.load(args)
   -- of each flashing their own cmd.exe window (#606).  No-op elsewhere.
   require("src.core.HostShell").hideHostConsole()
 
+  -- NX fused mounts are unreliable for the blue|yellow cache overlay: wrap
+  -- the love loaders once so every generated-asset read falls back to the
+  -- versioned save-dir copy.  Never installed on desktop/Android/iOS.
+  if require("src.core.Platform").isNX() then
+    require("src.core.NxAssetOverlay").install()
+  end
+
   -- Self-updater boot shell: a fused build may mount and chainload a newer
   -- downloaded payload here.  True means it took over, so we must stop.  A
   -- dev / source checkout no-ops (see src/update/Boot.lua).

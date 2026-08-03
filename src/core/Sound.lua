@@ -269,13 +269,6 @@ function Sound.playPikaCry(data, n)
   if src == false then return nil end
   if not src then
     local path = ("assets/generated/audio/pika_cries/cry_%02d.wav"):format(n)
-    -- NX-only: Blue/Yellow live under a versioned save-dir prefix.
-    if require("src.core.Platform").isNX() then
-      local prefix = require("src.core.GameVersion").cachePrefix()
-      if prefix ~= "" and love.filesystem.getInfo(prefix .. path) then
-        path = prefix .. path
-      end
-    end
     local ok, s = pcall(love.audio.newSource, path, "static")
     if not ok or not s then
       cache[key] = false

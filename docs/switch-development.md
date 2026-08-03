@@ -434,6 +434,8 @@ Community mod zip install smoke (MODS inbox + Play): NXMOD-12 in [switch-hardwar
 
 **NX asset probe (always on Play):** every Switch Play writes `nx-asset-probe.log` in the save directory (`pokemon-love2d/`). It lists whether `assets/generated/…` vs `yellow|blue/assets/generated/…` exist, what `Assets.resolve` returns, and whether `newImage` / `newImageData` open — for Yellow/Blue blank-sprite triage. No ROM bytes.
 
+**Blue/Yellow cache overlay (NX):** fused love-nx cannot reliably mount `yellow|blue/assets/generated` onto the un-prefixed path, so `src/core/NxAssetOverlay.lua` wraps the love loaders (`newImage`, `newImageData`, `newSource`, `filesystem.read`, `filesystem.getInfo`) once at boot — only when `Platform.isNX()`. Any `assets/generated/*` read that misses falls back to the versioned `yellow|blue/` copy. Core code must NOT call love loaders on literal `assets/generated` paths (enforced by `tests/engine/nx_generated_guard_test.lua`); the chip-audio worker is a separate Lua state and gets the prefix explicitly via `audio.programPrefix` from `ChipAudio.slimAudio`.
+
 **Hardware re-test:** T16 **pass** @ `2699c9a` (naming A=confirm / B=cancel). T19 **pass** (quit/reopen, suspend×10, reboot) — operator 2026-08-01.
 
 **Suspend/resume audio:** after resume, chip music is stopped to avoid duplicate streams; confirm on hardware during P0-09/10 (T19).

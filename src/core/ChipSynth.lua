@@ -124,14 +124,11 @@ local function loadBanks(data)
     return cachedBanks
   end
   local raw, readError
-  -- NX-only: Blue/Yellow live under a versioned save-dir prefix. The main
-  -- thread resolves it before sending audio to the worker; the sync path
-  -- resolves it here so desktop keeps the mountVersion overlay behavior.
+  -- The chip worker runs in a separate Lua state without the NX overlay;
+  -- ChipAudio hands it the versioned cache prefix explicitly.  On the main
+  -- thread the NX overlay (or desktop mountVersion) makes the plain read
+  -- resolve, so no platform branching belongs here.
   local prefix = audio.programPrefix
-  if not prefix and require("src.core.Platform").isNX() then
-    local gv = require("src.core.GameVersion").cachePrefix()
-    if gv ~= "" then prefix = gv end
-  end
   if prefix and prefix ~= "" then
     raw, readError = love.filesystem.read(prefix .. audio.programFile)
   end
