@@ -111,6 +111,42 @@ if okB and banks then
   eq(banks[1], PROG_BYTES:sub(1, 0x4000), "loadBanks returns the bank 1 bytes")
 end
 
+-- ChipSynth honors an explicit programPrefix (worker path; worker has no
+-- GameVersion state, so the prefix must arrive via the audio payload)
+ChipSynth.invalidateBanks()
+local workerData = { audio = {
+  programFile = PROG,
+  programPrefix = "yellow/",
+  bankOrder = { 1, 2 },
+} }
+local okW, wbanks = pcall(ChipSynth._loadBanksForTest, workerData)
+check(okW and wbanks ~= nil, "loadBanks uses audio.programPrefix when set")
+if okW and wbanks then
+  eq(wbanks[1], PROG_BYTES:sub(1, 0x4000),
+    "programPrefix loads the same bank 1 bytes")
+end
+
+-- Blue gets the same treatment
+ChipSynth.invalidateBanks()
+GameVersion.set("blue")
+love.filesystem.write("blue/" .. PROG, PROG_BYTES)
+clearPath("yellow/" .. PROG)
+local okBl, bbanks = pcall(ChipSynth._loadBanksForTest, progData)
+check(okBl and bbanks ~= nil, "NX loadBanks reads blue/programs.bin")
+clearPath("blue/" .. PROG)
+GameVersion.set("yellow")
+love.filesystem.write("yellow/" .. PROG, PROG_BYTES)
+
+-- ChipAudio.slimAudio hands the NX prefix to the worker
+local ChipAudio = require("src.core.ChipAudio")
+local slim = ChipAudio._slimAudioForTest
+  and ChipAudio._slimAudioForTest(progData)
+  or nil
+if slim then
+  eq(slim.programPrefix, "yellow/",
+    "slimAudio passes the NX cache prefix to the worker")
+end
+
 -- Sound.playPikaCry: NX rewrites the pika-cry path before newSource
 setOS("NX")
 GameVersion.set("yellow")

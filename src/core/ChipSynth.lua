@@ -124,13 +124,16 @@ local function loadBanks(data)
     return cachedBanks
   end
   local raw, readError
-  -- NX-only: Blue/Yellow live under a versioned save-dir prefix; desktop
-  -- relies on mountVersion overlay. Read the prefixed path when present.
-  if require("src.core.Platform").isNX() then
-    local prefix = require("src.core.GameVersion").cachePrefix()
-    if prefix ~= "" then
-      raw, readError = love.filesystem.read(prefix .. audio.programFile)
-    end
+  -- NX-only: Blue/Yellow live under a versioned save-dir prefix. The main
+  -- thread resolves it before sending audio to the worker; the sync path
+  -- resolves it here so desktop keeps the mountVersion overlay behavior.
+  local prefix = audio.programPrefix
+  if not prefix and require("src.core.Platform").isNX() then
+    local gv = require("src.core.GameVersion").cachePrefix()
+    if gv ~= "" then prefix = gv end
+  end
+  if prefix and prefix ~= "" then
+    raw, readError = love.filesystem.read(prefix .. audio.programFile)
   end
   if not raw then
     raw, readError = love.filesystem.read(audio.programFile)
