@@ -114,15 +114,45 @@ Game:gamepadpressed(joySelectDown, "y")
 eq(digits[1], "5", "Select via isGamepadDown(back) + Y -> 5")
 eq(#padForwarded, 0, "isGamepadDown Select chord does not forward face")
 
--- Edge: every chord face without Select must not cycle (NXMOD-09)
+-- Edge: face chords without Select must not cycle digits (NXMOD-09).
+-- leftshoulder without Select is the GAME SPEED hotkey (upstream), so it
+-- does not reach Input — only face buttons do.
 GamepadMap._setForceNXForTests(false)
-for _, btn in ipairs({ "a", "b", "y", "x", "leftshoulder" }) do
+for _, btn in ipairs({ "a", "b", "y", "x" }) do
   Input:init()
   resetSpies()
   Game:gamepadpressed(joy, btn)
   eq(#digits, 0, "edge: no cycle without Select for " .. btn)
   eq(#padForwarded, 1, "edge: " .. btn .. " still reaches Input without Select")
   check(not wroteOptions, "edge: no options write without Select for " .. btn)
+end
+
+-- leftshoulder alone cycles speed (does not forward / does not digit).
+do
+  local sped = 0
+  local origCycle = Game._cycleSpeed
+  function Game:_cycleSpeed(dir) sped = sped + (dir or 0) end
+  Input:init()
+  resetSpies()
+  Game:gamepadpressed(joy, "leftshoulder")
+  eq(#digits, 0, "edge: L alone does not fire display digit")
+  eq(#padForwarded, 0, "edge: L alone does not forward to Input (speed hotkey)")
+  eq(sped, -1, "edge: L alone cycles GAME SPEED down")
+  Game._cycleSpeed = origCycle
+end
+
+-- Select+L still wins over the speed hotkey.
+holdSelect()
+resetSpies()
+do
+  local sped = 0
+  local origCycle = Game._cycleSpeed
+  function Game:_cycleSpeed(dir) sped = sped + (dir or 0) end
+  Game:gamepadpressed(joy, "leftshoulder")
+  eq(digits[1], "7", "Select+L still fires display digit 7")
+  eq(sped, 0, "Select+L does not cycle GAME SPEED")
+  eq(#padForwarded, 0, "Select+L does not forward L to Input")
+  Game._cycleSpeed = origCycle
 end
 
 -- Edge: Select alone (no face) does not synthesize a digit

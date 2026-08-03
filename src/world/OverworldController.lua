@@ -389,6 +389,10 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
         and not self.map:isWalkableCell(x, y)
         and self.map:isWaterCell(x, y)
     end
+    -- re-derive from the live party: a reloaded save with the SURF-Pikachu
+    -- since deposited should not render the Pikachu sheet.
+    -- ponytail: re-derived rather than persisted.
+    self:syncSurfingPikachu()
   end
   -- crossConnection re-arms this after setMap; clear so a warp/reload
   -- cannot leave a stale deferred PlayMapMusic pending
@@ -717,6 +721,11 @@ function OverworldState:pushBattle(battle)
   if battle.computeMusicKind then
     require("src.core.Music").playBattle(Game.data, battle:computeMusicKind())
   end
+
+  -- The fade back in from white on the way out is BattleState:finish()'s
+  -- job now -- the one choke point every battle passes through on exit,
+  -- guaranteed regardless of which caller pushed the battle -- so this
+  -- function only owns the entry wipe.
   Game.stack:push(BattleTransition.new(Game, function()
     Game.stack:push(battle)
   end, {
@@ -1484,6 +1493,21 @@ function OverworldState:partyKnows(moveId)
   return partyKnowsVanilla(moveId)
 end
 
+-- IsSurfingPikachuInParty (home/map_objects.asm): when the SURF-mon
+-- is a Pikachu, pose() renders the Pikachu surf sprite.  Called at
+-- every surf-state change so a reloaded save picks the right sheet
+-- after a party change.  No-op when not surfing.
+function OverworldState:syncSurfingPikachu()
+  local p = self.player
+  if not p then return end
+  if not p.surfing then
+    p.surfingPikachu = false
+    return
+  end
+  local mon = self:partyKnows("SURF")
+  p.surfingPikachu = mon ~= nil and mon.species == "PIKACHU" or false
+end
+
 -- The rejection loop shared by the Good and Super Rods
 -- (item_effects.asm ItemUseGoodRod .RandomLoop / ReadSuperRodData): an
 -- odd random byte is no bite; otherwise a 2-bit pick rerolls until it
@@ -1580,6 +1604,7 @@ function OverworldState:flyTo(mapId)
   Game.save.onBike = false
   Game.save.forcedBike = nil -- HandleFlyWarpOrDungeonWarp res BIT_ALWAYS_ON_BIKE
   self.player.surfing = false
+  self:syncSurfingPikachu()
   -- the bird carries the player off westward before the warp
   -- (engine/overworld/player_animations.asm LoadBirdSpriteGraphics)
   self.flyAnim = { frames = 48 }
@@ -1607,6 +1632,7 @@ function OverworldState:beginTeleportOut(onDone)
   end
   require("src.core.Sound").play(Game.data, "Teleport_Exit1")
   self.player.surfing = false
+  self:syncSurfingPikachu()
   self.player.inputLocked = true
   -- rising spin: the mirror of the arrival spin-drop set in startWarpTo, so
   -- spinRise lifts the sprite (Player:pose) while spinFrames counts down
@@ -2270,6 +2296,7 @@ function OverworldState:trySurf(fx, fy, onClose)
   Game.stack:push(TextBox.new(Game, text, function()
     if onClose then onClose() end
     p.surfing = true
+    self:syncSurfingPikachu()
     require("src.core.Music").setSurfing(Game.data, true)
     Game.stack:push(require("src.render.Transition").whiteFlash(Game, nil,
       function() self:stepForwardOrCrossEdge(p.facing) end))
@@ -2553,8 +2580,13 @@ function OverworldState:openPC(onDone)
   -- (engine/menus/pokemon_pc.asm gates on EVENT_MET_BILL; we reach that
   -- when Bill hands over the SS Ticket)
   local metBill = flags.EVENT_MET_BILL or flags.EVENT_GOT_SS_TICKET
+  -- keepOpen so B in the sub-PC returns here instead of exiting the
+  -- PC session (#695); the sub-PC screens (BoxMenu, PlayerPC) already
+  -- use keepOpen for their own rows, matching the original ROM's flow
+  -- where the main menu stays underneath.
   table.insert(items, {
     label = metBill and "BILL'S PC" or Strings("SOMEONE'S PC"),
+    keepOpen = true,
     onSelect = function()
       require("src.core.Sound").play(Game.data, "Enter_PC")
       Screens.push(Game, "BoxMenu")
@@ -2565,6 +2597,7 @@ function OverworldState:openPC(onDone)
   -- the player's item storage is always available
   table.insert(items, {
     label = (Game.save.player.name or "RED") .. "'s PC",
+    keepOpen = true,
     onSelect = function()
       Screens.push(Game, "PlayerPC")
       done()
@@ -2575,6 +2608,7 @@ function OverworldState:openPC(onDone)
   if flags.EVENT_GOT_POKEDEX then
     table.insert(items, {
       label = Strings("PROF.OAK's PC"),
+      keepOpen = true,
       onSelect = function()
         self:openOaksPC(done)
       end,
@@ -3191,6 +3225,7 @@ function OverworldState:onStepComplete()
   -- dismounting a surf: landing on a walkable cell ends it
   if p.surfing and self.map:isWalkableCell(p.cellX, p.cellY) then
     p.surfing = false
+    self:syncSurfingPikachu()
     require("src.core.Music").setSurfing(Game.data, false)
   end
 
@@ -3492,6 +3527,7 @@ function OverworldState:checkForcedMovement()
         end
       elseif tile.mode == "surf" then
         p.surfing = true
+        self:syncSurfingPikachu()
         require("src.core.Music").setSurfing(Game.data, true)
       end
       return false
@@ -3745,7 +3781,9 @@ function OverworldState:takeWarp(warpDef)
     self:startWarpTo(destMap, x, y, facing)
     return
   elseif pad == "hole" then
-    -- falling through a hole: no door SFX, no walk-out step
+    -- falling through a hole: Faint_Fall plays while the player drops,
+    -- matching the boulder-hole Faint_Thud at line 3618 (#694)
+    require("src.core.Sound").play(Game.data, "Faint_Fall")
     self:startWarpTo(destMap, x, y, facing)
     return
   end
@@ -3770,6 +3808,7 @@ end
 function OverworldState:warpToHealPoint(onDone, opts)
   local heal = self:healPoint()
   self.player.surfing = false
+  self:syncSurfingPikachu()
   -- HandleFlyWarpOrDungeonWarp + DisplayPlayerBlackedOutText both clear
   -- BIT_ALWAYS_ON_BIKE (home/overworld.asm / home/text_script.asm)
   Game.save.forcedBike = nil

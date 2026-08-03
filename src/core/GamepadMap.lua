@@ -20,6 +20,11 @@ GamepadMap.NX_GAMEPAD_BINDINGS = {
 }
 
 -- Generic SDL joysticks without a game-controller DB entry (Linux handhelds).
+-- Desktop XInput order only: raw numbering is per-driver, and SDL's iOS/MFi
+-- driver packs only the buttons a pad reports, which slides the D-pad onto
+-- 7..10 (#620). These are defaults; Input:applyBindings layers "joyN" pad
+-- rebinds over them (#632). Only sticks SDL does NOT recognize as gamepads
+-- are served from this table (see GamepadMap.ignoreRawForJoystick).
 GamepadMap.RAW_BUTTON_BINDINGS = {
   [1] = "a", [2] = "b",
   [7] = "select", [8] = "start", [9] = "select", [10] = "start",
@@ -61,6 +66,12 @@ end
 function GamepadMap.gamepadBindings()
   if nxActive() then return GamepadMap.NX_GAMEPAD_BINDINGS end
   return GamepadMap.DEFAULT_GAMEPAD_BINDINGS
+end
+
+-- Whole raw-index table for Input:applyBindings joyBindings seeding (#632).
+function GamepadMap.rawBindings()
+  if nxActive() then return GamepadMap.NX_RAW_BUTTON_BINDINGS end
+  return GamepadMap.RAW_BUTTON_BINDINGS
 end
 
 function GamepadMap.mapGamepadButton(button)
