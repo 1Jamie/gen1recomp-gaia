@@ -142,8 +142,11 @@ runs:
    `luajit tests/switch_ci_workflows_test.lua`.
 2. **Fused NRO build** only on the **canonical** repository
    (`bryanthaboi/gen1recomp`), on the self-hosted Mac runner
-   (`scripts/build_switch.sh --fetch --fused`). Forks skip the fused job —
-   they still get the ubuntu selftest.
+   (`scripts/build_switch.sh --fetch --fused`), and only when the workflow
+   head is that repo (same-repo push/PR). **Fork repository** CI never runs
+   fused. **Fork → canonical PRs** also skip Switch fused (offline selftest
+   still runs) so untrusted head code is not executed on the self-hosted Mac;
+   iOS device build eligibility is unchanged.
 3. On successful PR fused builds, a follow-up workflow posts a PR comment
    linking the Actions artifact named `gen1recomp-switch-nro`
    (comment tag `switch-build-result`; see

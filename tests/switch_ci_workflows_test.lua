@@ -83,10 +83,22 @@ do
   mustContain(block, "if-no-files-found: error", "switch-build")
   mustContain(block, "retention-days: 7", "switch-build")
   mustNotContain(block, "continue-on-error:", "switch-build")
-  -- Forks must not run fused: canonical repo guard is required on the job if
+  -- SWFIX-04: same-repo head only (skip fork→canonical PRs on self-hosted)
+  mustContain(block, "pull_request.head.repo.full_name", "switch-build fork-PR skip")
+  mustContain(block, "github.event_name != 'pull_request'", "switch-build non-PR allow")
   check(block:find("bryanthaboi/gen1recomp", 1, true) ~= nil
     and block:find("changed == 'true'", 1, true) ~= nil,
     "switch-build requires changed=true AND canonical repository")
+end
+
+-- SWFIX-04 / M7: iOS build must NOT gain the Switch fork-PR head.repo guard
+do
+  local start = ci:find("ios-build:", 1, true)
+  check(start ~= nil, "ios-build job present")
+  local rest = ci:sub(start)
+  local nextJob = rest:find("\n  [%w_-]+:", 2)
+  local block = nextJob and rest:sub(1, nextJob - 1) or rest
+  mustNotContain(block, "pull_request.head.repo.full_name", "ios-build")
 end
 
 -- --- SWCI-06 / SWCI-07 / SWFIX-01: PR artifact comment (no delete-all clobber) ---
@@ -128,7 +140,8 @@ mustContain(build_doc, "hard gate", "switch-build.md")
 mustContain(build_doc, "continue-on-error", "switch-build.md")
 mustContain(build_doc, "nacptool", "switch-build.md")
 mustContain(build_doc, "Docker", "switch-build.md")
-mustContain(build_doc, "Forks skip", "switch-build.md")
+mustContain(build_doc, "Fork → canonical", "switch-build.md")
+mustContain(build_doc, "skip Switch fused", "switch-build.md")
 
 mustContain(development, "Switch CI", "switch-development.md")
 mustContain(development, "selftest_build_switch.sh", "switch-development.md")
