@@ -78,8 +78,13 @@ local function mk(props)
   if props.flexShrink == nil then
     props.flexShrink = isScrollOverflow(props) and 1 or 0
   end
-  if isScrollOverflow(props) and props.minHeight == nil then
-    props.minHeight = 0
+  if isScrollOverflow(props) then
+    if props.minHeight == nil then props.minHeight = 0 end
+    -- Every launcher list scrolls like a native one: interpolated wheel
+    -- steps instead of hard 20px jumps, and a bigger per-notch distance so
+    -- long save/mod lists don't take dozens of notches to traverse.
+    if props.smoothScrollEnabled == nil then props.smoothScrollEnabled = true end
+    if props.scrollSpeed == nil then props.scrollSpeed = 60 end
   end
   -- Resolve "100%" here, against the parent's CONTENT width: the engine
   -- resolves a percentage against the parent's border box and ignores its
