@@ -23,6 +23,7 @@ local TextBox = require("src.render.TextBox")
 local Transition = require("src.render.Transition")
 local Warp = require("src.world.Warp")
 local Zoom = require("src.render.Zoom")
+local romText = require("src.core.RomText")
 local Strings = require("src.core.Strings")
 
 -- isOverworld marks the live world state for WorldAPI's stack scan
@@ -1570,7 +1571,7 @@ function OverworldState:goFishing(rod)
     -- PrintText and only clears it once the verdict box is done, so the rod
     -- must NOT vanish with the dots box (#321).
     if not enc then
-      Game.stack:push(TextBox.new(Game, Strings("Not even a nibble!"), function()
+      Game.stack:push(TextBox.new(Game, romText(Game.data, "_NoNibbleText", "Not even a nibble!"), function()
         -- the rod OAM goes out with the verdict box (res BIT_LEDGE_OR_FISHING
         -- straight after PrintText) but the player keeps the patched tiles
         -- until the overworld reloads them a few frames later
@@ -1581,7 +1582,7 @@ function OverworldState:goFishing(rod)
       end))
       return
     end
-    Game.stack:push(TextBox.new(Game, Strings("Oh!\nIt's a bite!"), function()
+    Game.stack:push(TextBox.new(Game, romText(Game.data, "_ItsABiteText", "Oh!\nIt's a bite!"), function()
       -- the bite goes straight into battle, which reloads the sprite tiles
       self.fishing = nil
       self.player.fishing = nil
@@ -1763,7 +1764,7 @@ function OverworldState:tryBookshelf(fx, fy)
     if self.map.def.tileset == "MANSION"
        and self.map:tileAt(fx * 2, fy * 2) == 0x38 then
       Game.stack:push(TextBox.new(Game, t._DiglettSculptureText
-        or Strings("It's a sculpture\nof DIGLETT.")))
+        or romText(Game.data, "_DiglettSculptureText", "It's a sculpture\nof DIGLETT.")))
       return true
     end
     Game.stack:push(TextBox.new(Game, t._PokemonBooksText
@@ -1780,7 +1781,7 @@ function OverworldState:tryBookshelf(fx, fy)
     local line = (self.player.cellX % 2 == 0) and t._IndigoPlateauStatuesText2
                  or t._IndigoPlateauStatuesText3
     Game.stack:push(TextBox.new(Game,
-      (t._IndigoPlateauStatuesText1 or Strings("INDIGO PLATEAU")) .. "\f"
+      (t._IndigoPlateauStatuesText1 or romText(Game.data, "_IndigoPlateauStatuesText1", "INDIGO PLATEAU")) .. "\f"
       .. (line or Strings("POKéMON LEAGUE HQ"))))
   end
   return true
@@ -1837,7 +1838,7 @@ function OverworldState:tryHiddenObject(fx, fy)
       save.hiddenTaken = save.hiddenTaken or {}
       if save.hiddenTaken[key] then return false end
       if not require("src.inventory.Bag").add(save, h.item, 1, Game.data) then
-        Game.stack:push(TextBox.new(Game, Strings("You can't carry\nany more items!")))
+        Game.stack:push(TextBox.new(Game, romText(Game.data, "_CantCarryMoreText", "You can't carry\nany more items!")))
         return true
       end
       save.hiddenTaken[key] = true
@@ -1871,20 +1872,20 @@ function OverworldState:tryHiddenObject(fx, fy)
     if h.x == fx and h.y == fy then
       if h.state == "out_of_order" then
         Game.stack:push(TextBox.new(Game, txt._GameCornerOutOfOrderText
-          or Strings("OUT OF ORDER\nThis is broken.")))
+          or romText(Game.data, "_GameCornerOutOfOrderText", "OUT OF ORDER\nThis is broken.")))
       elseif h.state == "out_to_lunch" then
         Game.stack:push(TextBox.new(Game, txt._GameCornerOutToLunchText
-          or Strings("OUT TO LUNCH\nThis is reserved.")))
+          or romText(Game.data, "_GameCornerOutToLunchText", "OUT TO LUNCH\nThis is reserved.")))
       elseif h.state == "keys" then
         Game.stack:push(TextBox.new(Game, txt._GameCornerSomeonesKeysText
-          or Strings("Someone's keys!\nThey'll be back.")))
+          or romText(Game.data, "_GameCornerSomeonesKeysText", "Someone's keys!\nThey'll be back.")))
       elseif not save.inventory.COIN_CASE then
         Game.stack:push(TextBox.new(Game, txt._GameCornerCoinCaseText
-          or Strings("A COIN CASE is\nrequired!")))
+          or romText(Game.data, "_GameCornerCoinCaseText", "A COIN CASE is\nrequired!")))
       elseif (save.coins or 0) == 0 then
         -- AbleToPlaySlotsCheck: a COIN CASE with no coins can't play
         Game.stack:push(TextBox.new(Game, txt._GameCornerNoCoinsText
-          or Strings("You don't have\nany coins!")))
+          or romText(Game.data, "_GameCornerNoCoinsText", "You don't have\nany coins!")))
       else
         -- one machine per visit is secretly lucky
         -- (wLuckySlotHiddenEventIndex, engine/slots/game_corner_slots.asm)
@@ -1968,7 +1969,7 @@ function OverworldState:tryHiddenObject(fx, fy)
   for _, h in ipairs(extras.printTrash and extras.printTrash[self.map.id] or {}) do
     if h.x == fx and h.y == fy then
       Game.stack:push(TextBox.new(Game, txt._VermilionGymTrashText
-        or Strings("Nope, there's\nonly trash here.")))
+        or romText(Game.data, "_VermilionGymTrashText", "Nope, there's\nonly trash here.")))
       return true
     end
   end
@@ -2010,7 +2011,7 @@ function OverworldState:tryCardKeyDoor(fx, fy)
   local t = Game.data.text
   if not Game.save.inventory.CARD_KEY then
     Game.stack:push(TextBox.new(Game,
-      t._CardKeyFailText or Strings("Darn! It needs a\nCARD KEY!")))
+      t._CardKeyFailText or romText(Game.data, "_CardKeyFailText", "Darn! It needs a\nCARD KEY!")))
     return true
   end
   require("src.core.Sound").play(Game.data, "Go_Inside")
@@ -2028,7 +2029,7 @@ function OverworldState:tryCardKeyDoor(fx, fy)
   end
   Game.stack:push(TextBox.new(Game,
     (t._CardKeySuccessText1 or Strings("Bingo!"))
-    .. (t._CardKeySuccessText2 or Strings("\nThe CARD KEY\nopened the door!"))))
+    .. (t._CardKeySuccessText2 or romText(Game.data, "_CardKeySuccessText2", "\nThe CARD KEY\nopened the door!"))))
   return true
 end
 
@@ -2045,7 +2046,7 @@ function OverworldState:trashCanSwitch(canIndex)
   local t = Game.data.text
   local save = Game.save
   local tc = Game.data.field.hiddenExtras.trashCans
-  local trashText = t._VermilionGymTrashText or Strings("Nope, there's\nonly trash here.")
+  local trashText = t._VermilionGymTrashText or romText(Game.data, "_VermilionGymTrashText", "Nope, there's\nonly trash here.")
   -- "Don't do the trash can puzzle if it's already been done."
   if save.flags.EVENT_2ND_LOCK_OPENED then
     Game.stack:push(TextBox.new(Game, trashText))
@@ -2144,7 +2145,7 @@ function OverworldState:billsHousePC()
   if flags.EVENT_USED_CELL_SEPARATOR_ON_BILL
      or not flags.EVENT_BILL_SAID_USE_CELL_SEPARATOR then
     Game.stack:push(TextBox.new(Game, t._BillsHouseMonitorText
-      or Strings("TELEPORTER is\ndisplayed on the\nPC monitor.")))
+      or romText(Game.data, "_BillsHouseMonitorText", "TELEPORTER is\ndisplayed on the\nPC monitor.")))
     return
   end
   require("src.core.Music").stop()
@@ -2469,7 +2470,7 @@ function OverworldState:talkTo(npc)
   -- the string "0" as truthy, so screen it out and fall through to text.
   if d.item and d.item ~= "0" and d.item ~= 0 then
     if not require("src.inventory.Bag").add(Game.save, d.item, 1, Game.data) then
-      Game.stack:push(TextBox.new(Game, Strings("You can't carry\nany more items!")))
+      Game.stack:push(TextBox.new(Game, romText(Game.data, "_CantCarryMoreText", "You can't carry\nany more items!")))
       return
     end
     Game.save.itemsTaken = Game.save.itemsTaken or {}
@@ -2537,7 +2538,7 @@ function OverworldState:talkTo(npc)
   if entry then
     if entry.mart then
       npc:facePlayer(self.player)
-      Game.stack:push(TextBox.new(Game, Strings("Hi there!\nMay I help you?"), function()
+      Game.stack:push(TextBox.new(Game, romText(Game.data, "_PokemartGreetingText", "Hi there!\nMay I help you?"), function()
         Screens.push(Game, "ShopMenu", entry.mart)
         unfreeze()
       end))
@@ -2732,7 +2733,7 @@ end
 -- POKéMON" and "fighting fit".
 function OverworldState:nurseHeal(onDone, npc)
   local t = Game.data.text
-  local bye = t._PokemonCenterFarewellText or Strings("We hope to see\nyou again!")
+  local bye = t._PokemonCenterFarewellText or romText(Game.data, "_PokemonCenterFarewellText", "We hope to see\nyou again!")
   local hello = t._PokemonCenterWelcomeText
                 or Strings("Welcome to our\nPOKéMON CENTER!")
   if not Game.save.usedPokecenter then
@@ -2807,21 +2808,21 @@ end
 -- for the original serial handshake; declining prints "Please come again!"
 function OverworldState:cableClubReceptionist(onDone)
   local t = Game.data.text
-  local welcome = t._CableClubNPCWelcomeText or Strings("Welcome to the\nCable Club!")
+  local welcome = t._CableClubNPCWelcomeText or romText(Game.data, "_CableClubNPCWelcomeText", "Welcome to the\nCable Club!")
   if not Game.save.flags.EVENT_GOT_POKEDEX then
     -- CableClubNPC .didNotConnect path before the pokedex
     Game.stack:push(TextBox.new(Game, welcome .. "\f"
       .. (t._CableClubNPCMakingPreparationsText
-          or Strings("We're making\npreparations.\vPlease wait.")), onDone))
+          or romText(Game.data, "_CableClubNPCMakingPreparationsText", "We're making\npreparations.\vPlease wait.")), onDone))
     return
   end
   local apply = t._CableClubNPCPleaseApplyHereHaveToSaveText
-    or Strings("Please apply here.\fBefore opening\nthe link, we have\vto save the game.")
+    or romText(Game.data, "_CableClubNPCPleaseApplyHereHaveToSaveText", "Please apply here.\fBefore opening\nthe link, we have\vto save the game.")
   Game.stack:push(TextBox.new(Game, welcome .. "\f" .. apply, nil,
     { choice = function(yes)
       if not yes then
         Game.stack:push(TextBox.new(Game,
-          t._CableClubNPCPleaseComeAgainText or Strings("Please come\nagain!"), onDone))
+          t._CableClubNPCPleaseComeAgainText or romText(Game.data, "_CableClubNPCPleaseComeAgainText", "Please come\nagain!"), onDone))
         return
       end
       Game:writeSave()
@@ -3303,7 +3304,7 @@ function OverworldState:onStepComplete()
     if Game.save.repelSteps == 0 then
       -- no encounter on the exact wear-off step (wild_encounters.asm
       -- .lastRepelStep returns CantEncounter)
-      Game.stack:push(TextBox.new(Game, Strings("REPEL's effect\nwore off.")))
+      Game.stack:push(TextBox.new(Game, romText(Game.data, "_RepelWoreOffText", "REPEL's effect\nwore off.")))
       return
     end
   end
@@ -3669,7 +3670,7 @@ function OverworldState:safariStep()
   if not st or not self:inSafariStepZone() then return false end
   st.steps = st.steps - 1
   if st.steps > 0 then return false end
-  self:safariGameOver(Strings("PA: Ding-dong!\nTime's up!"))
+  self:safariGameOver(romText(Game.data, "_TimesUpText", "PA: Ding-dong!\nTime's up!"))
   return true
 end
 
@@ -3678,7 +3679,7 @@ function OverworldState:safariGameOver(text)
   Game.save.safari = nil
   local t = Game.data.text
   Game.stack:push(TextBox.new(Game,
-    (text or "") .. "\f" .. (t._GameOverText or Strings("PA: Your SAFARI\nGAME is over!")),
+    (text or "") .. "\f" .. (t._GameOverText or romText(Game.data, "_GameOverText", "PA: Your SAFARI\nGAME is over!")),
     function()
       local exit_ = FieldDefaults.fieldValue(Game.data, "safari", "exitWarp")
       self:startWarpTo(exit_.map, exit_.x, exit_.y, exit_.facing or "down")
