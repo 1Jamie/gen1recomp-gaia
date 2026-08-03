@@ -218,7 +218,7 @@ apply_ios_branding() {
 }
 
 apply_ios_icon() {
-  local source="$ROOT/assets/logo/logo.png"
+  local source="$ROOT/assets/logo/gen1recomp_cover.png"
   local target="$XCODE_DIR/Images.xcassets/iOS AppIcon.appiconset"
   [ -f "$source" ] || fail "missing iOS icon source: $source"
   [ -d "$target" ] || fail "missing iOS app icon set: $target"
@@ -614,7 +614,6 @@ run_xcodebuild() {
     ONLY_ACTIVE_ARCH=NO
     DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES
   )
-
   if ! $DEVICE; then
     # Simulator: ad-hoc signing (no certificate needed). A plain unsigned
     # build would drop the entitlements file, and HealthKit refuses to run
@@ -624,9 +623,6 @@ run_xcodebuild() {
   else
     warn "device build: configure signing in Xcode or set DEVELOPMENT_TEAM / CODE_SIGN_IDENTITY"
     if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
-      # Automatic signing + provisioning updates lets xcodebuild register the
-      # bundle ID / create a development profile from the CLI, so a device
-      # build works without ever opening the project in Xcode.
       args+=(DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"
              CODE_SIGN_STYLE=Automatic
              -allowProvisioningUpdates)
@@ -680,8 +676,9 @@ run_xcodebuild() {
   if [ ! -d "$app" ]; then
     # PRODUCT_NAME override can still leave love.app on older projects
     if [ -d "$products/love.app" ]; then
-      app="$products/love.app"
-      warn "built app is love.app (PRODUCT_NAME override not applied); fusing game.love anyway"
+      app="$products/$APP_NAME.app"
+      mv "$products/love.app" "$app"
+      warn "renamed love.app to $APP_NAME.app"
     else
       warn "xcodebuild finished but no .app under $products"
       find "$BUILD_DIR/Build/Products" -name '*.app' 2>/dev/null | head -20 || true

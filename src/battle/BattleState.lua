@@ -27,70 +27,18 @@ local Timing = require("src.core.Timing")
 local TrainerAI = require("src.battle.TrainerAI")
 local TurnOrder = require("src.battle.TurnOrder")
 local TypeChart = require("src.battle.TypeChart")
+local RomText = require("src.core.RomText")
 local Strings = require("src.core.Strings")
 local WideBattle = require("src.battle.WideBattle")
+
+local romText = RomText
 
 local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
 
--- pokered prints the battle lines itself (engine/battle/core.asm and the
--- move-effect banks), and the importer extracts every one of them, so the
--- port paraphrasing them in Lua meant the screen showed a near-miss of the
--- game's own wording while the cache held the real line -- and on a
--- localized import it showed English over translated data.
---
--- fromRom prefers the extracted text and keeps the literal as the catalog
--- fallback, for a cache built before the label and for the pure-module
--- tests that run without a dataset.  The battle text's slots ({USER},
--- {TARGET}, the {RAM:...} buffers) are NOT in the token registry that
--- TextBox.substitute serves -- it only resolves {PLAYER}, {RIVAL} and
--- three string buffers -- so they are spliced here, in argument order,
--- before the box ever sees the string.  {PLAYER}/{RIVAL} are left alone
--- for that later pass.
--- {PLAYER}/{RIVAL} are the two slots TextBox.substitute can fill on its
--- own, so they are only consumed here when the caller clearly supplies
--- them: an argument count matching every slot.  Matching just the other
--- slots leaves those two for the later pass.  Anything else means the
--- extracted line cannot carry what the call has to say -- a few labels
--- stop at a dynamic marker the decoder does not follow, e.g.
--- _EnemysWeakText extracts as "The enemy's weak!\nGet'm! " with nowhere
--- to put the name -- so the engine's own wording stands in rather than
--- printing a sentence with a hole in it.
-local function fromRom(data, label, fallback, ...)
-  local text = data and data.text and data.text[label]
-  if not text then return Strings(fallback, ...) end
-  local args = { ... }
-  if #args == 0 then return text end
-
-  local slots, named = 0, 0
-  for token in text:gmatch("%b{}") do
-    slots = slots + 1
-    if token == "{PLAYER}" or token == "{RIVAL}" then named = named + 1 end
-  end
-  local fillNamed
-  if #args == slots then
-    fillNamed = true
-  elseif #args == slots - named then
-    fillNamed = false
-  else
-    return Strings(fallback, ...)
-  end
-
-  local index = 0
-  return (text:gsub("%b{}", function(token)
-    if not fillNamed and (token == "{PLAYER}" or token == "{RIVAL}") then
-      return token
-    end
-    index = index + 1
-    local value = args[index]
-    if value == nil then return token end
-    return tostring(value)
-  end))
-end
-
 function BattleState:romText(label, fallback, ...)
-  return fromRom(self.data, label, fallback, ...)
+  return romText(self.data, label, fallback, ...)
 end
 -- Letterbox voids around the 160x144 battle canvas fill white so the
 -- window reads as one continuous battle screen (no black bars).
@@ -3540,8 +3488,16 @@ function BattleState:onFaint(battler)
   self:actNext(function()
     battler.fainted = true
     local Sound = require("src.core.Sound")
-    Sound.playCry(self.data, battler.mon.species)
-    Sound.play(self.data, "Faint_Fall")
+    if battler.isPlayer then
+      -- RemoveFaintedPlayerMon (core.asm:1040-1042): the player mon's
+      -- faint plays its ordinary species cry -- no Faint_Fall
+      Sound.playCry(self.data, battler.mon.species)
+    elseif self.kind ~= "wild" then
+      -- FaintEnemyPokemon (core.asm:732-771): the enemy faint plays no
+      -- species cry; trainer battles get SFX_FAINT_FALL, then SFX_FAINT_THUD
+      -- once it finishes (wild battles skip straight to the victory music)
+      Sound.play(self.data, "Faint_Fall")
+    end
     self.fx = self.fx or {}
     -- SlideDownFaintedMonPic: PIC_HEIGHT (7) slide steps, each closing with
     -- DelayFrames 2 (core.asm:1186-1222).  The port held this one twice as
@@ -3550,6 +3506,13 @@ function BattleState:onFaint(battler)
   end)
   self.nextInsert = (self.nextInsert or 0) + 1
   table.insert(self.queue, self.nextInsert, { wait = Timing.FAINT_SLIDE })
+  if not battler.isPlayer and self.kind ~= "wild" then
+    -- FaintEnemyPokemon's SFX_FAINT_THUD lands as the slide does (after
+    -- Faint_Fall, before EnemyMonFaintedText)
+    self:actNext(function()
+      require("src.core.Sound").play(self.data, "Faint_Thud")
+    end)
+  end
   if not battler.isPlayer and self.kind == "wild" then
     -- FaintEnemyPokemon .wild_win (core.asm:792-795): beating a wild
     -- mon calls EndLowHealthAlarm and starts MUSIC_DEFEATED_WILD_MON

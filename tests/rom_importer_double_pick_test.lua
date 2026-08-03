@@ -135,20 +135,28 @@ contract:choose("red")
 check(picks == 2,
   "choose() still reopens the picker per call (#420/#442 contract, got " .. picks .. ")")
 
--- 7. iOS taps must survive the Android double-fire guard. love.touchpressed in
---    main.lua returns early on iOS and never forwards, so the synthesized
---    love.mousepressed is the ONLY event the launcher gets there. Filtering
---    istouch on both platforms killed every tap on iOS. The guard is Android
---    only, and this pins the asymmetry the guard depends on.
 local touchForwardsToImporter = {
-  Android = true,   -- love.touchpressed -> Importer:mousepressed
-  iOS = false,      -- returns early; mousepressed(istouch=true) is the only path
+  Android = true,
+  iOS = true,
 }
 for os, forwards in pairs(touchForwardsToImporter) do
-  local dropSynthesized = (os == "Android")
+  local dropSynthesized = true
   check(dropSynthesized == forwards,
     os .. ": the synthesized mouse press is dropped only where touch already forwarded")
 end
+
+-- The FlexLove view polls love.touch itself and dedupes a tap's synthesized
+-- mouse click in its action layer (LauncherView queueAction), so the
+-- host-forwarded touch events are inert stubs: they must accept any id
+-- without capturing state or throwing.
+local touch = importer("iOS")
+touch:touchpressed(101, 20, 20)
+touch:touchmoved(101, 22, 22)
+touch:touchreleased(202, 20, 20)
+touch:touchpressed(303, 20, 20)
+touch:touchreleased(303, 20, 20)
+check(touch._activeTouch == nil,
+  "touch events stay inert: the view's own polling owns touch input")
 
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile
