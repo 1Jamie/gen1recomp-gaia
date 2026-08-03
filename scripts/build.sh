@@ -83,6 +83,7 @@ fi
 # way once).
 for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
                 tools/save-editor/panels/Party.lua \
+                libs/flexlove/FlexLove.lua \
                 tools/rom_manifest.json tools/rom_manifest_blue.json \
                 tools/rom_manifest_yellow.json; do
   unzip -Z1 "$LOVE_FILE" | grep -qx "$required" \
