@@ -145,10 +145,9 @@ for os, forwards in pairs(touchForwardsToImporter) do
     os .. ": the synthesized mouse press is dropped only where touch already forwarded")
 end
 
--- The FlexLove view polls love.touch itself and dedupes a tap's synthesized
--- mouse click in its action layer (LauncherView queueAction), so the
--- host-forwarded touch events are inert stubs: they must accept any id
--- without capturing state or throwing.
+-- Before the FlexLove view attaches (_flex), touch handlers are no-ops: they
+-- must accept any id without capturing importer state or throwing. Once the
+-- view is up they forward into FlexLove.touch* for list drag-scroll.
 local touch = importer("iOS")
 touch:touchpressed(101, 20, 20)
 touch:touchmoved(101, 22, 22)
@@ -156,7 +155,9 @@ touch:touchreleased(202, 20, 20)
 touch:touchpressed(303, 20, 20)
 touch:touchreleased(303, 20, 20)
 check(touch._activeTouch == nil,
-  "touch events stay inert: the view's own polling owns touch input")
+  "touch events before the view attaches leave importer touch state alone")
+check(not touch._flex,
+  "and do not attach the FlexLove view on their own")
 
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile

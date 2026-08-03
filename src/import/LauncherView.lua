@@ -146,9 +146,46 @@ function LauncherView.update(imp, dt)
   end
 end
 
+-- One dedup window covers a touch release plus the mouse click SDL
+-- synthesizes for the same tap.
+local ACT_DEDUP = 0.35
+-- Finger travel past this (px) is a scroll drag, not a tap — so dragging a
+-- list row does not also fire that row's button.
+local TAP_SLOP2 = 16 * 16
+
 function LauncherView.wheelmoved(imp, dx, dy)
   if not imp._flex then return end
   pcall(FlexLove.wheelmoved, dx, dy)
+end
+
+-- Touch drag scroll: FlexLove's ScrollManager only moves when these are
+-- hooked. Clicks still come from EventHandler's love.touch / mouse polling;
+-- the view's action dedupe covers a tap that also synthesizes a mouse click,
+-- and a drag past TAP_SLOP suppresses the click that would otherwise fire
+-- on the row under the finger.
+function LauncherView.touchpressed(imp, id, x, y, dx, dy, pressure)
+  if not imp._flex then return end
+  imp._touchAt = imp._touchAt or {}
+  imp._touchAt[tostring(id)] = { x = x, y = y }
+  pcall(FlexLove.touchpressed, id, x, y, dx, dy, pressure)
+end
+
+function LauncherView.touchmoved(imp, id, x, y, dx, dy, pressure)
+  if not imp._flex then return end
+  local start = imp._touchAt and imp._touchAt[tostring(id)]
+  if start then
+    local ddx, ddy = x - start.x, y - start.y
+    if ddx * ddx + ddy * ddy > TAP_SLOP2 then
+      imp._suppressClickUntil = love.timer.getTime() + ACT_DEDUP
+    end
+  end
+  pcall(FlexLove.touchmoved, id, x, y, dx, dy, pressure)
+end
+
+function LauncherView.touchreleased(imp, id, x, y, dx, dy, pressure)
+  if not imp._flex then return end
+  if imp._touchAt then imp._touchAt[tostring(id)] = nil end
+  pcall(FlexLove.touchreleased, id, x, y, dx, dy, pressure)
 end
 
 -- Synthetic click for the gamepad virtual cursor: find the element under the
@@ -165,10 +202,6 @@ function LauncherView.clickAt(imp, x, y)
 end
 
 -- ------- shared widget helpers
-
--- One dedup window covers a touch release plus the mouse click SDL
--- synthesizes for the same tap.
-local ACT_DEDUP = 0.35
 
 local function queueAction(imp, key, fn, keepArm)
   local now = love.timer.getTime()
@@ -188,6 +221,15 @@ local function handler(imp, key, action, keepArm)
     elseif ev.type == "unhover" then
       imp._hot[key] = nil
     elseif action and (ev.type == "click" or ev.type == "touchrelease") then
+      if ev.type == "touchrelease" then
+        local dx, dy = ev.dx or 0, ev.dy or 0
+        if dx * dx + dy * dy > TAP_SLOP2 then
+          imp._suppressClickUntil = love.timer.getTime() + ACT_DEDUP
+          return
+        end
+      end
+      local untilT = imp._suppressClickUntil
+      if untilT and love.timer.getTime() < untilT then return end
       queueAction(imp, key, action, keepArm)
     end
   end
