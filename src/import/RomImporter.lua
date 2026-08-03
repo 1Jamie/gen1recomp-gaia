@@ -676,6 +676,13 @@ function RomImporter:rescanSavesAction(version)
   end
 end
 
+-- NX "Scan again" on a game tab: import only the dump whose SHA-1 matches
+-- that tab. A shared imports/ inbox often holds Red+Blue+Yellow at once;
+-- picking the first pending file would jump Yellow → Red (and switch the
+-- launcher tab via startData). Other known dumps stay for their own tabs.
+-- Junk (wrong size / unknown hash) still surfaces when nothing matches the
+-- tab and no other known dump is present — same feedback as before for a
+-- lone bad file.
 function RomImporter:rescanAction(version)
   if self.workState == "working" then return end
   version = version or self.tab or "red"
@@ -683,7 +690,9 @@ function RomImporter:rescanAction(version)
   self:ensureImportsDir()
   local ready = self.ready
   local candidates = self:scanInbox()
-  local sawReadyOnly = false
+  local targetReady = false
+  local sawOtherVersion = false
+  local junkData, junkName = nil, nil
   for _, path in ipairs(candidates) do
     local data = love.filesystem.read(path)
     local displayName = path:match("[^/\\]+$") or path
@@ -692,27 +701,42 @@ function RomImporter:rescanAction(version)
       return
     end
     if #data ~= ROM_BYTES then
-      self:startData(data, displayName)
-      return
-    end
-    local romVersion = GameVersion.forSha1(sha1(data))
-    if not romVersion then
-      self:startData(data, displayName)
-      return
-    end
-    if ready[romVersion] then
-      sawReadyOnly = true
+      if not junkData then junkData, junkName = data, displayName end
     else
-      self:startData(data, displayName)
-      return
+      local romVersion = GameVersion.forSha1(sha1(data))
+      if not romVersion then
+        if not junkData then junkData, junkName = data, displayName end
+      elseif romVersion ~= version then
+        sawOtherVersion = true
+      elseif ready[romVersion] then
+        targetReady = true
+      else
+        self:startData(data, displayName)
+        return
+      end
     end
   end
-  if sawReadyOnly and #candidates > 0 then
+  if targetReady then
     self.notice = {
       version = version,
       status = Strings("No new ROM found."),
       detail = Strings("Already-imported dumps are ignored. Add another version or "
         .. "delete the copy when finished."),
+    }
+    return
+  end
+  if junkData and not sawOtherVersion then
+    self:startData(junkData, junkName)
+    return
+  end
+  if #candidates > 0 then
+    local label = GameVersion.info(version).displayName
+    self.notice = {
+      version = version,
+      status = Strings("No matching ROM found."),
+      detail = Strings(
+        "%s is matched by SHA-1 on this tab. Other dumps in imports/ stay "
+          .. "for their own tabs — open that game and Scan again.", label),
     }
     return
   end

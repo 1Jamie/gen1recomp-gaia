@@ -62,11 +62,13 @@ Do **not** launch from the Album applet path for normal play.
 
 This project ships **no** game data. On first launch:
 
-1. Put your own legally obtained Pokémon Red or Blue `.gb` into
-   `switch/gen1recomp/pokemon-love2d/imports/` (the launcher also shows
-   the live save-dir path).
-2. Use **Scan again** on the Red/Blue tab if you add the
-   file after the first open.
+1. Put your own legally obtained Pokémon Red, Blue (`.gb`), or Yellow
+   (`.gbc`) dump into `switch/gen1recomp/pokemon-love2d/imports/` (the
+   launcher also shows the live save-dir path). All three can sit in the
+   same folder.
+2. Use **Scan again** on that game’s tab (Red / Blue / Yellow). Rescan
+   matches by ROM SHA-1 for the open tab only — a Red dump never imports
+   from the Yellow tab (and vice versa).
 
 ## 5. Import / Export a raw `.sav`
 

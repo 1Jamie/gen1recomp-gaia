@@ -194,6 +194,40 @@ love.filesystem.write("imports/pika.gbc", yellowData)
 ri:rescanAction("yellow")
 eq(ri._started.name, "pika.gbc", "valid Yellow stub imports")
 
+-- Tab Scan again matches by SHA: Yellow must not import a pending Red dump
+ri = freshImporter({ red = false, blue = false, yellow = false })
+love.filesystem.write("imports/pokemon red.gb", redData)
+ri:rescanAction("yellow")
+check(ri._started == nil, "Yellow Scan again does not import pending Red")
+check(ri.notice ~= nil, "Yellow Scan again with only Red sets notice")
+eq(ri.notice.version, "yellow", "notice stays on Yellow tab")
+check(ri.notice.status:find("matching", 1, true) or ri.notice.status:find("Matching", 1, true),
+  "notice reports no matching ROM for the tab")
+
+-- Mixed inbox: Red listed first, Yellow pending — Yellow tab still picks Yellow
+ri = freshImporter({ red = false, blue = false, yellow = false })
+love.filesystem.write("imports/aaa_red.gb", redData)
+love.filesystem.write("imports/zzz_yellow.gbc", yellowData)
+ri:rescanAction("yellow")
+eq(ri._started.name, "zzz_yellow.gbc",
+  "Yellow Scan again prefers Yellow SHA over earlier Red file")
+
+-- Blue tab ignores pending Red (same SHA filter as Yellow)
+ri = freshImporter({ red = false, blue = false, yellow = false })
+love.filesystem.write("imports/pokemon red.gb", redData)
+ri:rescanAction("blue")
+check(ri._started == nil, "Blue Scan again does not import pending Red")
+eq(ri.notice.version, "blue", "Blue-only-other-dump notice stays on Blue")
+
+-- Target already ready in a mixed inbox → No new ROM (not other-version import)
+ri = freshImporter({ red = false, blue = false, yellow = true })
+love.filesystem.write("imports/aaa_red.gb", redData)
+love.filesystem.write("imports/zzz_yellow.gbc", yellowData)
+ri:rescanAction("yellow")
+check(ri._started == nil, "ready Yellow + pending Red does not start import")
+check(ri.notice ~= nil and ri.notice.status:find("No new ROM", 1, true),
+  "ready Yellow dump yields No new ROM found")
+
 -- Cleanup + restore stubs shared with other suites
 love.filesystem.remove("imports/readme.txt")
 love.filesystem.remove("imports/small.gb")
@@ -202,6 +236,8 @@ love.filesystem.remove("imports/pokemon red.gb")
 love.filesystem.remove("imports/blue.gbc")
 love.filesystem.remove("imports/pokemon blue.gb")
 love.filesystem.remove("imports/pika.gbc")
+love.filesystem.remove("imports/aaa_red.gb")
+love.filesystem.remove("imports/zzz_yellow.gbc")
 love.filesystem.remove("red_root.gb")
 love.data.hash = saved.hash
 love.data.encode = saved.encode

@@ -129,10 +129,12 @@ a single vendor tutorial.
 1. Exit MTP / unmount SD / stop FTP cleanly.
 2. Launch via **title override** (hold **R** on a title → hbmenu). **Applet
    Mode is not supported** (not enough memory).
-3. For ROMs: launcher → **Scan again** if the file was added after
-   boot. For mods: MODS → **Scan again** → enable → Play. For saves:
-   SAVE FILES → **Import save** (rescans `imports/saves/<game>/`). Pull exported
-   `.sav` files from `exports/<game>/`. Joy-Con display chords (stock engine):
+3. For ROMs: open the matching game tab → **Scan again** if the file was
+   added after boot (SHA-1 must match that tab; other dumps in `imports/`
+   stay for their own tabs). For mods: MODS → **Scan again** → enable →
+   Play. For saves: SAVE FILES → **Import save** (rescans
+   `imports/saves/<game>/`). Pull exported `.sav` files from
+   `exports/<game>/`. Joy-Con display chords (stock engine):
    [switch-install.md](switch-install.md#joy-con-shortcuts-select--face).
 
 ### Optional NRO integrity check

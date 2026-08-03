@@ -38,7 +38,7 @@ the transfer runbook).
 ### What landed
 
 - Detect `NX` via `src/core/Platform.lua` without reusing Android flags
-- Writable ROM inbox under `getSaveDirectory()/imports/` + “Scan again”
+- Writable ROM inbox under `getSaveDirectory()/imports/` + per-tab “Scan again” (SHA-1 match for the open game)
 - Joy-Con / gamepad mapping shared by launcher and gameplay (Nintendo A/B UX on NX)
 - Launcher L/R tab switch; gameplay L/R game-speed cycle; Select+face display chords
 - Focus loss / joystick reconnect recovery; opt-in `switch-debug.txt` diagnostics
@@ -355,6 +355,20 @@ Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both 
 **Dual-path rule:** love-nx emits both `gamepadpressed` and `joystickpressed` for Joy-Con. When `joystick:isGamepad()` is true, Input and RomImporter **ignore raw** face/menu so NamingScreen does not see A+B in one frame. `NamingScreen` also prefers A over B if both edges still fire.
 
 Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`, `displayChordDigit`), `src/core/Game.lua` (shoulder speed), `src/import/RomImporter.lua` (launcher tabs). Launcher and gameplay share the same converter.
+
+## ROM inbox (NX)
+
+Legal dumps land in a shared MTP inbox; **Scan again** is tab-scoped:
+
+| Item | Value |
+| ---- | ----- |
+| Save-relative path | `imports/` (also accepts loose `.gb`/`.gbc` at the save-dir root) |
+| MTP destination | `1: SD Card/<save identity>/imports/` (see launcher notice for the live `getSaveDirectory()` path) |
+| Candidates | `*.gb` / `*.gbc` (hidden `.*` AppleDouble names skipped) |
+| Rescan | Game tab → **Scan again** — imports only the dump whose SHA-1 matches that tab (`GameVersion.forSha1`). Other known dumps stay for their own tabs |
+| Already ready | Same SHA already imported → “No new ROM found.” |
+
+Players may drop Red, Blue, and Yellow into the same folder. Opening Yellow and pressing **Scan again** must not start a Red import.
 
 ## Mod zip inbox (NX)
 

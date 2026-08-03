@@ -45,6 +45,9 @@ same system picker and install the chosen archive on return.
 draws one chip per game plus a MODS chip and rebuilds `self.tabRects` every
 frame so `mousepressed` can dispatch clicks; switching tabs mid-import is
 allowed (a dropped ROM still routes by SHA-1 regardless of which tab shows).
+On **NX**, **Scan again** is stricter: it only starts an import whose SHA-1
+matches the open game tab, so a shared `imports/` folder with Red+Yellow
+cannot jump Yellow → Red.
 
 - A game tab (`_drawGamePanel`) shows the ROM card, the SAVE FILES card, the
   Play button, and the SAVE SLOT card in a responsive two-column grid (see
