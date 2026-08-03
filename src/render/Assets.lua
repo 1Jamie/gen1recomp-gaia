@@ -4,11 +4,10 @@
 -- its own file without editing a single record, and one flush() drops
 -- every downstream cache for dev-mode hot reload.
 --
--- No loader installed means resolve() still applies the active game's
--- cache prefix (blue/ / yellow/) when that file exists -- desktop usually
--- gets the same via mountVersion, but NX fused often cannot overlay
--- unprefixed assets/generated, while yellow/assets/generated/... is a
--- normal save-dir path that love.graphics.newImage can open directly.
+-- No loader installed means resolve() is the identity on desktop/mobile.
+-- On NX only, Blue/Yellow also rewrite assets/generated/* to the real
+-- save-dir path (yellow|blue/assets/generated/...) because fused love-nx
+-- often cannot mount that tree onto the unprefixed PhysFS path.
 
 local Assets = {}
 
@@ -31,8 +30,8 @@ local function exists(path)
 end
 Assets.exists = exists
 
--- Mod overrides win, then the active version's prefixed cache (Blue/Yellow),
--- then the caller's unprefixed path (Red / already-mounted overlay).
+-- Mod overrides win; on NX, Blue/Yellow then use the prefixed save-dir file;
+-- otherwise the caller's unprefixed path (Red / mounted overlay).
 function Assets.resolve(path)
   if type(path) ~= "string" then return path end
   if path:sub(1, #GENERATED) ~= GENERATED then return path end
@@ -48,10 +47,13 @@ function Assets.resolve(path)
     if derived then return derived end
   end
 
-  local prefix = require("src.core.GameVersion").cachePrefix()
-  if prefix ~= "" then
-    local versioned = prefix .. path
-    if exists(versioned) then return versioned end
+  -- Switch-only: desktop/Android keep mountVersion as the sole overlay.
+  if require("src.core.Platform").isNX() then
+    local prefix = require("src.core.GameVersion").cachePrefix()
+    if prefix ~= "" then
+      local versioned = prefix .. path
+      if exists(versioned) then return versioned end
+    end
   end
   return path
 end
