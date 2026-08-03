@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.61",
+          "date": "2026-08-03",
+          "size": 9052744,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.61/gen1recomp-0.1.61-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #325 Launcher crashes importing a mod .zip with non-ASCII characters in the filename (Windows)\n- #646 Fuchsia City Pokemon not being added to Pokedex.\n- #651 Parasect trading NPC mute and deaf\n- #665 fix: file path sanitizing is needed\n- #706 Champion theme playing too late\n- #709 Fainted Pokemon plays its normal cry instead of the pitched-down, slower faint cry\n- #719 Silph C.O workers dialog bug.\n\n## Contributors\n\n- @bryanthaboi\n- @castdrian\n- @jherediagu\n- @johnjohto\n- @ShaneMcGovernIE\n- hernan"
+        },
+        {
           "version": "0.1.60",
           "date": "2026-08-02",
           "size": 8337730,
