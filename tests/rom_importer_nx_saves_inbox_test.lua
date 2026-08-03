@@ -83,6 +83,7 @@ local function freshImporter()
     exportSave = RomImporter.exportSave,
     _importSave = RomImporter._importSave,
     _savedropTarget = RomImporter._savedropTarget,
+    _savesDefaultHint = RomImporter._savesDefaultHint,
     _refreshSlots = function(self, version)
       self._refreshed = (self._refreshed or 0) + 1
       self._refreshVersion = version
@@ -267,6 +268,45 @@ ri = freshImporter()
 hostShellCalls = 0
 ri:chooseSaveImport("red")
 eq(hostShellCalls, 0, "RES-06: NX chooseSaveImport does not require HostShell")
+
+-- NXSAV-05: chooseSaveImport on NX rescans inbox
+ri = freshImporter()
+importCalls = {}
+hostShellCalls = 0
+love.filesystem.write("imports/saves/from-choose.sav", "CHOOSE")
+importBehavior["imports/saves/from-choose.sav"] = { ok = true, id = "slot-choose" }
+ri:chooseSaveImport("red")
+eq(hostShellCalls, 0, "NX chooseSaveImport does not use HostShell")
+eq(#importCalls, 1, "NX chooseSaveImport rescans and imports inbox .sav")
+eq(importCalls[1].source, "imports/saves/from-choose.sav",
+  "NX chooseSaveImport imports from imports/saves/")
+check(ri.saveNotice.red and ri.saveNotice.red.ok, "NX chooseSaveImport success notice")
+
+-- Empty chooseSaveImport still sets notice (RES-04 via Import save button)
+ri = freshImporter()
+importCalls = {}
+ri:chooseSaveImport("red")
+eq(#importCalls, 0, "empty NX chooseSaveImport does not import")
+check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/", 1, true),
+  "empty NX chooseSaveImport sets MTP notice")
+
+-- RES-11 / NXSAV-07: NX default SAVE FILES hint mentions imports/saves/
+ri = freshImporter()
+local defaultHint = ri:_savesDefaultHint()
+check(defaultHint:find("imports/saves/", 1, true),
+  "RES-11: NX default hint mentions imports/saves/")
+check(defaultHint:find("DBI MTP", 1, true),
+  "RES-11: NX default hint mentions DBI MTP")
+check(not defaultHint:find("system file picker", 1, true),
+  "RES-11: NX default hint is not desktop picker wording")
+
+-- Desktop keeps picker-oriented default hint (non-NX)
+local desk = setmetatable({
+  isNX = false, android = false,
+  _savesDefaultHint = RomImporter._savesDefaultHint,
+}, RomImporter)
+check(desk:_savesDefaultHint():find("new slot", 1, true),
+  "desktop default save hint stays picker/drop-oriented")
 
 -- Cleanup + restore stubs
 clearSavesInbox()

@@ -1434,8 +1434,15 @@ end
 
 -- "Import save" button: open a native .sav picker and import the pick.
 -- Android mirrors ROM / mod import via love.system.pickFile("sav").
+-- NX: no HostShell/desktop picker — rescan imports/saves/ inbox instead.
 function RomImporter:chooseSaveImport(version)
   if self.workState == "working" then return end
+  version = self:_resolveSaveVersion(version)
+  if self.isNX then
+    self:ensureSavesInboxDir()
+    self:rescanSavesAction(version)
+    return
+  end
   if self.ios and love.system.getPickedFile then
     self.iosPendingKind = "sav"
     self.iosPendingVersion = version
@@ -3749,6 +3756,8 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
     sfHintText, sfHintCol = sfNotice.text, (sfNotice.ok and PAL.green or PAL.red)
   elseif locked then
     sfHintText, sfHintCol = "Not available yet.", PAL.warning
+  elseif self.isNX then
+    sfHintText, sfHintCol = self:_savesDefaultHint(), PAL.warning
   elseif self.android then
     sfHintText, sfHintCol =
       "Import or export a .sav with the system file picker.", PAL.warning
@@ -4681,6 +4690,20 @@ function RomImporter:_modsDefaultHint()
   end
   if self.android then return "Or copy a mod .zip via USB." end
   return Strings("Or drop a mod .zip onto the window.")
+end
+
+function RomImporter:_savesDefaultHint()
+  if self.isNX then
+    local saveDir = love.filesystem.getSaveDirectory()
+    local rel = RomImporter.mtpHintPath(saveDir)
+    if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+    return Strings("Copy a .sav via MTP into %s/imports/saves/\n"
+      .. "DBI MTP → 1: SD Card/%simports/saves/", saveDir, rel)
+  end
+  if self.android then
+    return "Import or export a .sav with the system file picker."
+  end
+  return Strings("Import a .sav to a new slot, or export the active slot.")
 end
 
 function RomImporter:_modsEmptyHint()
