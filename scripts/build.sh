@@ -62,11 +62,34 @@ mkdir -p "$CACHE" "$WORK" "$DIST/mac" "$DIST/win" "$DIST/linux"
 # launcher's Edit button on a save row opens it in-process (main.lua), and
 # `--editor` / POKEPORT_EDITOR=1 opens it standalone.  It is required through
 # love.filesystem's require path, so it has to live inside the archive.
+say "packing game.love"
 LOVE_FILE="$WORK/game.love"
-LOVE_LIST="$WORK/love-listing.txt"
-# pack_love prints status on stdout; discard it and keep the known path.
-# Includes libs/ (FlexLove) for the launcher UI.
-"$ROOT/scripts/pack_love.sh" --output "$LOVE_FILE" --listing "$LOVE_LIST" >/dev/null
+rm -f "$LOVE_FILE"
+# libs/ carries the vendored FlexLove toolkit the launcher UI is built on
+# (src/import/LauncherView.lua); a build without it dies on the first frame.
+(cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
+  main.lua conf.lua src libs data assets tools/save-editor \
+  tools/rom_manifest.json tools/rom_manifest_blue.json \
+  tools/rom_manifest_yellow.json \
+  -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
+if unzip -Z1 "$LOVE_FILE" \
+    | grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/'; then
+  fail "game.love unexpectedly contains generated ROM data"
+fi
+# The editor is only reachable if its entry point and both module directories
+# made it in, and every version's import manifest has to ship or that game's
+# ROM import fails in the built app (dev reads them off the source tree, so
+# the miss only ever shows up in a build -- the Yellow manifest shipped this
+# way once).
+for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
+                tools/save-editor/panels/Party.lua \
+                libs/flexlove/FlexLove.lua \
+                tools/rom_manifest.json tools/rom_manifest_blue.json \
+                tools/rom_manifest_yellow.json; do
+  unzip -Z1 "$LOVE_FILE" | grep -qx "$required" \
+    || fail "game.love is missing $required"
+done
+say "game.love: $(du -h "$LOVE_FILE" | cut -f1)"
 
 # ------------------------------------------------------- stamp release version
 # The working tree ships Version.lua with engine "0.0.0-dev"; the real release
