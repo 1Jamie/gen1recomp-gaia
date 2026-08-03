@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.65",
+          "date": "2026-08-03",
+          "size": 9376618,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.65/gen1recomp-0.1.65-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #592 Screen Orientation\n- #702 FLY overworld animation incorrect/incomplete\n- #748 Launcher Menu has overlap\n- #754 Can push boulders with STRENGTH through walls\n- #758 PC to Mac Online Multiplayer Disconnects Shortly After Starting Match\n\n## Contributors\n\n- @andrewqsantos\n- @Bortlesboat\n- @bryanthaboi\n- @castdrian\n- @johnjohto\n- @ShaneMcGovernIE"
+        },
+        {
           "version": "0.1.64",
           "date": "2026-08-03",
           "size": 9317129,
