@@ -30,12 +30,18 @@ local importer = setmetatable({
   _padCursor = { x = 0, y = 0 }, _padCursorActive = false,
   _padAxis = { leftx = 0, lefty = 0, righty = 0 },
   _padDir = {}, _rawHatDirs = {}, _padInited = true,
+  -- FlexLove view marker: without it the pad A path is a no-op (headless).
+  _flex = true,
 }, RomImporter)
 local clicked = false
-function importer:mousepressed(_, _, button)
-  clicked = button == 1
-end
+local prevView = package.loaded["src.import.LauncherView"]
+package.loaded["src.import.LauncherView"] = {
+  clickAt = function(_, x, y)
+    clicked = (x == 0 and y == 0)
+  end,
+}
 importer:joystickpressed(nil, 1)
+package.loaded["src.import.LauncherView"] = prevView
 check(clicked, "RomImporter raw #1 clicks via shared map (not hardcoded-only)")
 
 importer:joystickpressed(nil, 2)

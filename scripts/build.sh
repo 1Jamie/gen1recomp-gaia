@@ -65,6 +65,7 @@ mkdir -p "$CACHE" "$WORK" "$DIST/mac" "$DIST/win" "$DIST/linux"
 LOVE_FILE="$WORK/game.love"
 LOVE_LIST="$WORK/love-listing.txt"
 # pack_love prints status on stdout; discard it and keep the known path.
+# Includes libs/ (FlexLove) for the launcher UI.
 "$ROOT/scripts/pack_love.sh" --output "$LOVE_FILE" --listing "$LOVE_LIST" >/dev/null
 
 # ------------------------------------------------------- stamp release version

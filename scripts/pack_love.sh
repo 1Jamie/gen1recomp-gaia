@@ -41,8 +41,10 @@ mkdir -p "$(dirname "$OUTPUT")" "$(dirname "$LISTING")"
 
 say "packing game.love"
 rm -f "$OUTPUT"
+# libs/ carries the vendored FlexLove toolkit the launcher UI is built on
+# (src/import/LauncherView.lua); a build without it dies on the first frame.
 (cd "$ROOT" && zip -q -9 -r "$OUTPUT" \
-  main.lua conf.lua src data assets tools/save-editor \
+  main.lua conf.lua src libs data assets tools/save-editor \
   tools/rom_manifest.json tools/rom_manifest_blue.json \
   tools/rom_manifest_yellow.json \
   -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
@@ -65,7 +67,9 @@ for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
                 tools/save-editor/PadInput.lua \
                 tools/save-editor/panels/Party.lua \
                 tools/rom_manifest.json tools/rom_manifest_blue.json \
-                tools/rom_manifest_yellow.json; do
+                tools/rom_manifest_yellow.json \
+                libs/flexlove/FlexLove.lua \
+                src/import/LauncherView.lua; do
   grep -qxF "$required" "$LISTING" \
     || fail "game.love is missing $required"
 done
