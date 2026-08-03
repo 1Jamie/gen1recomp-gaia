@@ -1040,12 +1040,9 @@ function RomImporter.new(onComplete, opts)
     -- boot armed and let the first poll tick consume it, rather than making the
     -- player tap Import a second time to trigger the scan by hand (#553).
     pickPending = mobileFileBridge or nil,
-    -- Android drag: the launcher is handed no move events at all (main.lua
-    -- forwards neither touchmoved nor mousemoved while it is up), and its mouse
-    -- emulation is what "no reliable pointer polling" below refers to.
-    -- love.touch IS pollable, so where it exists a touch drag can be resolved
-    -- inside draw the same way the desktop mouse is.  Where it does not, every
-    -- Android path stays exactly as it was: act on press, never arm.
+    -- Mobile drag-scroll goes through FlexLove.touch* (main.lua forwards the
+    -- full touch stream while the launcher is up). love.touch remains pollable
+    -- for click hit-testing inside EventHandler.
     touchPollable = mobileFileBridge and love.touch ~= nil
       and love.touch.getTouches ~= nil and love.touch.getPosition ~= nil,
     tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
@@ -2212,13 +2209,29 @@ function RomImporter:pressDelete(kind, id, version, commit)
   return false
 end
 
--- Pointer input is polled by the FlexLove view (mouse and touch alike), so
--- the host-forwarded press events are inert.  The methods stay because
--- main.lua forwards to them unconditionally while the launcher is up.
+-- Clicks are polled inside FlexLove (mouse + love.touch); host-forwarded
+-- mousepressed stays inert so Android's synthesized mouse path cannot
+-- double-fire a tap (#553).  Touch move/press/release must still reach
+-- FlexLove.touch* or scroll containers never drag on phones.
 function RomImporter:mousepressed() end
-function RomImporter:touchpressed() end
-function RomImporter:touchmoved() end
-function RomImporter:touchreleased() end
+
+function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
+  if not self._flex then return end
+  require("src.import.LauncherView").touchpressed(
+    self, id, x, y, dx, dy, pressure)
+end
+
+function RomImporter:touchmoved(id, x, y, dx, dy, pressure)
+  if not self._flex then return end
+  require("src.import.LauncherView").touchmoved(
+    self, id, x, y, dx, dy, pressure)
+end
+
+function RomImporter:touchreleased(id, x, y, dx, dy, pressure)
+  if not self._flex then return end
+  require("src.import.LauncherView").touchreleased(
+    self, id, x, y, dx, dy, pressure)
+end
 
 -- Switch the active tab (chips, shoulder buttons).  The find search caret and
 -- the soft keyboard drop with the panel they belonged to; each tab's scroll

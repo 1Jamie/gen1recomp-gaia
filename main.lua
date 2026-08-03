@@ -541,10 +541,10 @@ function love.touchpressed(id, x, y, dx, dy, pressure)
     return TouchEditor.touchpressed(id, x, y)
   end
   if Importer then
-    if love.system.getOS() == "iOS" then
-      return Importer:touchpressed(id, x, y)
-    end
-    return Importer:mousepressed(x, y, 1)
+    -- Both mobiles: FlexLove scroll needs the real touch stream. Clicks are
+    -- polled inside the view; the istouch filter on mousepressed still drops
+    -- Android's synthesized mouse twin so Import cannot double-fire (#553).
+    return Importer:touchpressed(id, x, y, dx, dy, pressure)
   end
   Game:touchpressed(id, x, y)
 end
@@ -556,10 +556,7 @@ function love.touchmoved(id, x, y, dx, dy, pressure)
     return TouchEditor.touchmoved(id, x, y)
   end
   if Importer then
-    if love.system.getOS() == "iOS" then
-      return Importer:touchmoved(id, x, y)
-    end
-    return
+    return Importer:touchmoved(id, x, y, dx, dy, pressure)
   end
   Game:touchmoved(id, x, y)
 end
@@ -571,10 +568,7 @@ function love.touchreleased(id, x, y, dx, dy, pressure)
     return TouchEditor.touchreleased(id, x, y)
   end
   if Importer then
-    if love.system.getOS() == "iOS" then
-      return Importer:touchreleased(id, x, y)
-    end
-    return
+    return Importer:touchreleased(id, x, y, dx, dy, pressure)
   end
   Game:touchreleased(id, x, y)
 end
@@ -597,20 +591,12 @@ function love.mousepressed(x, y, button, istouch)
     return TouchEditor.mousepressed(x, y, button)
   end
   if Importer then
-    -- The same double-fire TouchEditor guards against, which the launcher was
-    -- missing: love.touchpressed above forwards the primary touch to the
-    -- Importer on Android, and LÖVE ALSO synthesizes a mouse press for that
-    -- same touch, so one tap ran every launcher button twice.  On Import that
-    -- meant two choose() calls and two stacked SAF picker activities: the
-    -- player picked their ROM, the top picker closed, and the second was still
-    -- underneath asking for it again, which is the "import the file twice"
-    -- in #553.  Filtering on istouch keeps a real mouse (DeX, a Chromebook, a
-    -- USB mouse) working, which an Android-wide return would have broken.
-    --
-    -- ANDROID ONLY, and the OS test is load bearing: love.touchpressed above
-    -- returns early on iOS and never forwards, so there the synthesized mouse
-    -- press is the ONLY event the launcher gets.  Filtering istouch on both
-    -- killed every tap on iOS outright.
+    -- love.touchpressed already forwards the primary touch into FlexLove for
+    -- scroll. LÖVE ALSO synthesizes a mouse press for that same touch; if both
+    -- reached a press handler, one tap ran every launcher button twice and
+    -- stacked two SAF pickers (#553). Clicks are polled inside FlexLove from
+    -- love.touch / mouse.isDown, so dropping the synthesized istouch press is
+    -- safe. A real mouse (DeX, Chromebook, USB) still reaches mousepressed.
     if istouch and (love.system.getOS() == "Android"
         or love.system.getOS() == "iOS") then return end
     return Importer:mousepressed(x, y, button)

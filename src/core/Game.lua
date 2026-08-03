@@ -442,7 +442,14 @@ function Game:draw()
       if classicOffset ~= 0 and not wideState then
         love.graphics.push()
         love.graphics.translate(classicOffset, 0)
+        -- a classic state reports its trueColor rects in its own 160x144
+        -- coordinates, so they take the same shift its pixels just got --
+        -- centerClassicZones already does exactly this to its zone list,
+        -- and without the pair the unshaded re-blit misses the pic (#637)
+        local P = require("src.render.PaletteFX")
+        P.setMarkOffset(classicOffset)
         state:draw()
+        P.setMarkOffset(0)
         love.graphics.pop()
       else
         state:draw()
