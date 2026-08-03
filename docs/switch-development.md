@@ -1,7 +1,8 @@
 # Nintendo Switch development (love-nx)
 
-> **Status: work in progress — experimental fused NRO on Releases.**  
-> Tracks experimental support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531). Expect rough edges, manual console copy, and host-specific contributor tooling.
+> Fused NRO support for issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531).
+> Releases ship `gen1recomp-*-switch.nro`. Console copy is manual; title override
+> required. See [Known limitations](#known-limitations-read-before-reviewing).
 
 **Canonical install / build / transfer docs** (start here unless you need hardware depth):
 
@@ -9,38 +10,48 @@
 - Builders → [switch-build.md](switch-build.md) (`scripts/build_switch.sh --fetch` downloads the pinned love-nx pair)
 - Transfer (MTP / SD / FTP on macOS, Linux, Windows) → [switch-transfer.md](switch-transfer.md)
 
-This document covers what landed so far, known limitations, how hardware was tested, vendor layout, build/deploy, and the contributor transfer loop (detail lives in the transfer runbook).
+This document covers what landed, known limitations, how hardware was tested,
+vendor layout, build/deploy, and the contributor transfer loop (detail lives in
+the transfer runbook).
 
-## Current status (honest)
+## Acknowledgments
+
+- **Port / love-nx packaging:** [andrewqsantos](https://github.com/andrewqsantos)
+- **Community hardware testing** (Switch V1 / Erista boot): [booshankles](https://github.com/booshankles)
+- **Method guidance:** [Dusklight Switch port](https://github.com/HayatoG/dusklight/tree/main/platforms/switch) / love-nx
+- **Upstream project:** [bryanthaboi](https://github.com/bryanthaboi) / Gen1Recomp
+
+## Status
 
 | Area | State |
 | ---- | ----- |
-| Feature completeness | **In development** — playable P0 path on one console; not finished or release-gated |
+| Feature | **Available** — playable fused NRO path (issue #531) |
 | Runtime | Pinned love-nx **`11.5-nx1`** |
-| Product artifact goal | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
-| Hardware validated | **Nintendo Switch OLED only** (title override / full memory). Original Switch, Lite, docked mode, and other hosts are **untested** |
-| Deploy / install | Releases publish fused NRO; **console copy is still manual** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
+| Product artifact | Single fused `gen1recomp.nro` (game in romfs); loose `nro`+`game.love` for iteration |
+| Hardware | **OLED** validated (author, title override); **V1 / Erista** boot confirmed (community). Lite, docked soak, and Pro Controller matrices welcome |
+| Deploy / install | Releases publish fused NRO; **console copy is manual** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
 | Contributor transfer | Documented for **macOS, Linux, and Windows**; OpenMTP on Mac is one example, not the only contract |
 | Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
-| Community help | Welcome — especially from people familiar with HOS / love-nx / Switch homebrew packaging |
+| Community help | Welcome — especially HOS / love-nx packaging and broader hardware coverage |
 
-### What this branch already does
+### What landed
 
 - Detect `NX` via `src/core/Platform.lua` without reusing Android flags
 - Writable ROM inbox under `getSaveDirectory()/imports/` + “Scan again”
 - Joy-Con / gamepad mapping shared by launcher and gameplay (Nintendo A/B UX on NX)
+- Launcher L/R tab switch; gameplay L/R game-speed cycle; Select+face display chords
 - Focus loss / joystick reconnect recovery; opt-in `switch-debug.txt` diagnostics
 - Loose assemble + fused NRO build scripts (`scripts/build_switch.sh`, `scripts/switch/*`)
 - Payload gates so ROM / generated cache / saves never enter `game.love`
 - Community mod zip inbox at `imports/mods/` (rescan installs; FIND MODS stays network-gated)
-- Select+face display chords (COLORS / TILT / pipelines) on Joy-Con
 - VoxelMod OPTIONS + Switch performance tips documented (WATER / 3D-BTL / extras)
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
+- Path-gated CI selftest + canonical fused PR artifact; release Switch hard-fail
 
-### What is still unfinished / out of this draft
+### Known gaps / welcome contributions
 
-- Docked vs handheld soak, long-play soak, non-OLED hardware
-- Pro Controller / third-party pad matrices beyond the OLED Joy-Con path already measured
+- Docked vs handheld soak, long-play soak (≥30 min)
+- Switch Lite and fuller Pro Controller / third-party pad matrices
 - Applet Mode remains unsupported by design (title override required)
 - `nxlink` / netloader contrib fast-loop (deferred — see [switch-transfer.md](switch-transfer.md))
 
@@ -64,13 +75,13 @@ This work borrowed method — not the native stack — from the [Dusklight Switc
 | Isolate platform code | Capability module instead of Android flag overload |
 | NVK / WSI / `audren` stacks | **Not** copied — love-nx already supplies video/audio/input/FS |
 
-Goal for a finished release is closer to Dusklight’s **single self-contained `.nro`**, not a permanent Mac-only contributor toolchain.
+The packaging goal matches Dusklight’s **single self-contained `.nro`**; contributor transfer stays multi-host (not Mac-only).
 
 ## Known limitations (read before reviewing)
 
 1. **Transfer is manual and multi-method.** Runtime only needs files under the LÖVE save directory / NRO install folder. Use MTP, direct SD, or FTP per [switch-transfer.md](switch-transfer.md). macOS + OpenMTP is a documented example for OLED evidence — not “Switch requires a Mac.”
 2. **Deploy is manual.** There is no automated push to the console and no `nxlink` path yet. Operators build locally, transfer files, then title-override launch.
-3. **OLED-only evidence.** All pass rows in the P0/P1 matrix were recorded on one Switch OLED. Treat other hardware as unknown until someone re-runs the checklist.
+3. **Hardware coverage.** Author P0/P1 pass rows were recorded on one Switch OLED; Switch V1 boot was confirmed independently. Treat Lite, docked soak, and other hosts as unknown until someone re-runs the checklist.
 4. **No ROM/save/mod zip bytes in git.** Legal dumps and third-party mods stay on the console (or local untracked folders).
 5. **AppleDouble sidecars** (`._*`) from some MTP clients can break zip/ROM scans — the launcher skips hidden `.*` names; still prefer clean copies.
 
@@ -82,7 +93,8 @@ Goal for a finished release is closer to Dusklight’s **single self-contained `
 | Switch CI / packaging | Path-gated offline selftest (`selftest_build_switch.sh`, `verify_payload.sh --self-test`, `switch_ci_workflows_test.lua`); canonical fused PR artifact | `.github/workflows/ci.yml`, [switch-build.md](switch-build.md) § CI and release |
 | Probe on hardware | `getOS()==NX`, 1280×720, save path, Joy-Con events | `tools/switch-probe` → OLED |
 | Integration on hardware | MTP inbox ROM import, Play Red/Blue, naming A/B, quit/reopen save, suspend×10, reboot, fused NRO alone + NRO-only update | `docs/switch-hardware-evidence.md` |
-| Not done yet | Docked soak, ≥30 min long-play, non-OLED, automated/`nxlink` deploy | Matrix deferred / absent rows |
+| Community hardware | Switch V1 / Erista boot with prebuilt NRO | [booshankles](https://github.com/booshankles) — see evidence log |
+| Known gaps | Docked soak, ≥30 min long-play, Lite, automated/`nxlink` deploy | Matrix deferred / absent rows |
 
 Operator evidence must stay in `docs/switch-hardware-evidence.md`. **Do not invent passes** for hardware not run.
 
@@ -328,16 +340,19 @@ Measured on Switch OLED (`feat/switch-nx`, love-nx `11.5-nx1`, 1280×720). Both 
 | `gamepadpressed` | D-pad / left stick | move |
 | `gamepadpressed` | SDL `a` / `b` on **NX** | swapped via `NX_GAMEPAD_BINDINGS`: physical **A** (east) = GB A confirm, physical **B** (south) = GB B cancel |
 | `gamepadpressed` | SDL `a` / `b` on desktop | identity (SDL south = GB A) |
-| `gamepadpressed` | `start` / `back` | Start / Select |
+| `gamepadpressed` | `start` / `back` | Start / Select (+ / −) |
+| `gamepadpressed` | Right / left shoulder (no Select) | Cycle game speed up / down (same as PC hotkey `1` / speed-down path) |
 | `joystickpressed` (raw) | only if **not** `isGamepad()` | face/menu fallback |
 | `joystickpressed` (raw) | `#1` / `#2` on NX | Nintendo B / A → GB B / A |
 | `joystickpressed` (raw) | `#9` / `#10` | Select / Start (− / +) |
 
 **Nintendo UX on Switch:** physical A confirms, physical B cancels (explicit NX remap of SDL face labels).
 
+**Launcher extras** (`RomImporter`): physical **A** clicks at the virtual cursor; **L** / **R** switch tabs; **Start** / **Select** start Play when a ROM is ready (else open Choose ROM). D-pad / left stick move the virtual cursor.
+
 **Dual-path rule:** love-nx emits both `gamepadpressed` and `joystickpressed` for Joy-Con. When `joystick:isGamepad()` is true, Input and RomImporter **ignore raw** face/menu so NamingScreen does not see A+B in one frame. `NamingScreen` also prefers A over B if both edges still fire.
 
-Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`, `displayChordDigit`). Launcher and gameplay share the same converter.
+Implementation: `src/core/GamepadMap.lua` (`NX_RAW_*`, `ignoreRawForJoystick`, `displayChordDigit`), `src/core/Game.lua` (shoulder speed), `src/import/RomImporter.lua` (launcher tabs). Launcher and gameplay share the same converter.
 
 ## Mod zip inbox (NX)
 
@@ -430,7 +445,7 @@ On any uncaught Lua error, Gen1Recomp appends a redacted trace to `lua-error.log
 
 love-nx native faults land under the console’s `crash_reports/` folder on SD (reachable via the same manual MTP workflow used for game deploys).
 
-1. **Collect** — DBI → `Run MTP responder`; copy `sdmc:/crash_reports/*.bin` (or the dated subfolder) to the contributor host. Prefer keeping the microSD in-console for routine pulls during this draft.
+1. **Collect** — DBI → `Run MTP responder`; copy `sdmc:/crash_reports/*.bin` (or the dated subfolder) to the contributor host. Prefer keeping the microSD in-console for routine pulls.
 2. **Redact** — delete any attached screenshots or notes that mention ROM filenames, save paths, or private hashes before sharing logs publicly.
 3. **Symbolize** — use the **pinned** `love.elf` from `.bazinga/love-nx/11.5-nx1/` that matches `build-info.json` / `scripts/switch/love-nx-11.5-nx1.sha256`. Never use a “latest” download.
 
@@ -468,38 +483,39 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P1-03 | Long-play soak (≥30 min) | **deferred** | No soak session recorded |
 | P1-04 | Reboot persistence | **pass** | T19 |
 | P1-05 | Audio resume after suspend | **pass** | T19 (no dup audio reported) |
-| — | Non-OLED hardware (original / Lite) | **untested** | OLED-only evidence so far |
+| — | Switch V1 / Erista boot | **pass** (boot) | Community — [booshankles](https://github.com/booshankles); see evidence log |
+| — | Switch Lite / docked soak | **untested** / **deferred** | Welcome contributions |
 | — | Automated / `nxlink` deploy | **absent** | Manual MTP / SD / FTP only (AD-009) |
 | — | Multi-OS transfer runbooks | **pass** | [switch-transfer.md](switch-transfer.md) |
 | — | VoxelMod OLED smoke (NXMOD-12) | **pass** | `docs/switch-hardware-evidence.md` |
 
-## Upstream contribution outline
+## Review guidance
 
-This draft PR may still be a single large review; maintainers can split later. Suggested review slices:
+Maintainers may review as one PR or split later. Suggested slices (optional):
 
-Each slice should declare: **WIP / not finished**, **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed (OLED only so far)**, **Applet Mode unsupported**, **network/updater disabled on NX**, **deploy still manual** (MTP / SD / FTP; no nxlink yet), **OpenMTP is one example not the sole contract**.
+Each slice should declare: **no ROM/save bytes committed**, **love-nx pin with manifest checksums**, **hardware-tested rows listed with linked evidence**, **Applet Mode unsupported**, **network/updater disabled on NX**, **deploy still manual** (MTP / SD / FTP; no nxlink yet), **OpenMTP is one example not the sole contract**.
 
-### PR 1 — Platform + import (`platform/import`)
+### Slice 1 — Platform + import (`platform/import`)
 
 - `src/core/Platform.lua`, `conf.lua` NX branch
 - `src/import/RomImporter.lua` (NX flags, inbox, scan, shell/updater gates)
 - Tests: `tests/platform_nx_*`, `tests/rom_importer_nx_*`
 - Docs: inbox/MTP import sections only
 
-### PR 2 — Input + lifecycle (`input/lifecycle`)
+### Slice 2 — Input + lifecycle (`input/lifecycle`)
 
 - `src/core/GamepadMap.lua`, `Input.lua`, `main.lua` focus/joystick hooks
 - `src/debug/SwitchDiagnostics.lua` (opt-in probe + error log)
 - Tests: input/diagnostics suites
 - Docs: controller mapping, suspend/audio notes
 
-### PR 3 — Build + docs (`build/docs`)
+### Slice 3 — Build + docs (`build/docs`)
 
 - `scripts/pack_love.sh`, `scripts/build_switch.sh`, `scripts/switch/*`
 - `assets/switch/icon.jpg`, `docs/switch-development.md`, hardware evidence templates
 - Gates: `pack_love.sh --dry-run`, `verify_payload.sh --self-test`, fused build script (devkitPro host)
 
-**Pre-merge checklist (all PRs):**
+**Pre-merge checklist:**
 
 - [ ] Manifest `scripts/switch/love-nx-11.5-nx1.sha256` filled; binaries not in git
 - [ ] `verify_payload.sh` rejects generated cache / ROM / `.sav` / `.bak`

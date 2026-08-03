@@ -1,14 +1,29 @@
 # Switch hardware evidence (Phase 0 + import + input)
 
-> **WIP evidence log.** All passes below were recorded on **one Nintendo Switch OLED** with a **manual** Mac → DBI MTP deploy loop. They do **not** claim support for original Switch, Lite, docked soak, or automated install. See `docs/switch-development.md` for status and limitations.
+> **Hardware evidence log.** Author passes below were recorded on **one
+> Nintendo Switch OLED** with a **manual** Mac → DBI MTP deploy loop. A
+> separate community row records Switch V1 / Erista boot. These rows do
+> **not** claim Lite, docked soak, or automated install. See
+> `docs/switch-development.md` for status and limitations.
 
 **love-nx:** `11.5-nx1`  
-**Console:** Switch OLED **only** (no other hardware in this log)  
-**Deploy method:** manual OpenMTP + DBI `Run MTP responder` (no CI / no nxlink)  
-**Operator:** Andrew  
-**Date:** 2026-08-01  
+**Author console:** Switch OLED  
+**Deploy method (author):** manual OpenMTP + DBI `Run MTP responder` (no CI / no nxlink)  
+**Operator (author rows):** Andrew ([andrewqsantos](https://github.com/andrewqsantos))  
+**Date (author rows):** 2026-08-01  
 
 Do **not** commit ROM dumps or private dump hashes. Do **not** mark a row **pass** without hardware notes for that row.
+
+---
+
+## Community — Switch V1 / Erista boot — pass (boot)
+
+| Field | Value |
+| ----- | ----- |
+| Console | Nintendo Switch V1 (Erista) |
+| Check | Prebuilt fused NRO boots under title override |
+| Tester | [booshankles](https://github.com/booshankles) |
+| Notes | Community confirmation only — not a full P0/P1 matrix re-run on V1 |
 
 ---
 

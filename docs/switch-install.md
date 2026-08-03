@@ -4,13 +4,17 @@ Every GitHub Release that includes Switch support ships a fused homebrew
 binary: `gen1recomp-*-switch.nro`. Copy it to your microSD, launch with
 **title override**, then import your own legal `.gb` ROM.
 
-> **Experimental.** The Switch port is still WIP (issue
-> [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Hardware
-> evidence so far is **Switch OLED only** — other models are untested.
 > You need a console that can run Switch homebrew (custom firmware / hbmenu).
-> This project does not help you set that up.
+> This project does not help you set that up. Tracks issue
+> [#531](https://github.com/bryanthaboi/gen1recomp/issues/531).
+> Hardware: **OLED** validated by the porter; **V1 / Erista** boot confirmed
+> by the community. Lite and other setups welcome more reports.
+> See [switch-development.md](switch-development.md) for limitations.
 
 Prefer building from source? See [switch-build.md](switch-build.md).
+
+Port by [andrewqsantos](https://github.com/andrewqsantos). Community testing
+help from [booshankles](https://github.com/booshankles).
 
 ## 1. Download the NRO
 
@@ -59,6 +63,35 @@ This project ships **no** game data. On first launch:
 
 Saves live in the LÖVE save directory and **persist across NRO updates** —
 you can replace only the `.nro` and keep your progress.
+
+## Controls
+
+### Gameplay
+
+| Control | Action |
+| ------- | ------ |
+| D-pad / left stick | Move |
+| **A** | Confirm |
+| **B** | Cancel |
+| **+** (Start) | Start |
+| **−** (Select) | Select |
+| **R** (no Select held) | Cycle game speed up |
+| **L** (no Select held) | Cycle game speed down |
+
+### Launcher
+
+| Control | Action |
+| ------- | ------ |
+| D-pad / left stick | Move virtual cursor |
+| **A** | Click at cursor |
+| **L** / **R** | Previous / next tab |
+| **Start** / **Select** | Play if a ROM is ready; otherwise Choose ROM |
+
+### System
+
+| Control | Action |
+| ------- | ------ |
+| Hold **R** on HOME, then open from hbmenu | Title override (full memory) |
 
 ## Community mods (VoxelMod)
 
@@ -110,4 +143,4 @@ and
 Building the fused (or loose) NRO from source is covered in
 [switch-build.md](switch-build.md). Copying artifacts and inbox files
 (MTP / SD / FTP on macOS, Linux, Windows): [switch-transfer.md](switch-transfer.md).
-Hardware evidence and WIP status: [switch-development.md](switch-development.md).
+Status, limitations, and how we tested: [switch-development.md](switch-development.md).

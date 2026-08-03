@@ -153,5 +153,5 @@ Copy the file back from the SD and compare hashes. Round-trip must match.
 
 - Players: [switch-install.md](switch-install.md)
 - Builders: [switch-build.md](switch-build.md)
-- WIP status / hardware matrix: [switch-development.md](switch-development.md)
+- Status / hardware matrix: [switch-development.md](switch-development.md)
 - Evidence log: [switch-hardware-evidence.md](switch-hardware-evidence.md)

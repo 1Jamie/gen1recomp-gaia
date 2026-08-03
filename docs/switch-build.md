@@ -4,13 +4,13 @@ Want to play a release build instead? Download the fused NRO and copy it to
 your console — see [switch-install.md](switch-install.md).
 
 This guide is for contributors who build Gen1Recomp for Switch from source.
-Hardware evidence, MTP operator loops, and deeper WIP notes live in
+Hardware evidence, MTP operator loops, and deeper notes live in
 [switch-development.md](switch-development.md).
 
-> **Experimental.** Releases may ship a fused `gen1recomp-*-switch.nro`, but
-> the port is still WIP (issue
+> Releases ship a fused `gen1recomp-*-switch.nro` (issue
 > [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Hardware
-> evidence so far is **Switch OLED only**.
+> evidence: **OLED** (author) and **V1 boot** (community). See
+> [switch-development.md](switch-development.md) for known limitations.
 
 ---
 
