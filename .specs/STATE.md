@@ -101,10 +101,10 @@
 ## Handoff
 
 - **Feature**: switch-save-sav-inbox / `.specs/features/switch-save-sav-inbox`
-- **Phase / Task**: Execute complete — pending Verifier
-- **Completed**: T1–T6 (inbox + Import/Export + docs + AD-012 + runner wiring); saves inbox 59/59
+- **Phase / Task**: Execute **COMPLETE** — Verifier PASS ✅
+- **Completed**: T1–T6 + fix `fe4491a`; commits `3c62814` `5d1e7ff` `74f6b68` `4afb54c` `7e0c64c` `8120f11` `fe4491a` `62ef647`
 - **In-progress**: none
-- **Next step**: Verifier sub-agent
+- **Next step**: Push / include in Switch PR when ready; HW smoke optional (P2)
 - **Blockers**: none
 - **Branch**: `feat/switch-nx`
-- **Report**: pending
+- **Report**: `.specs/features/switch-save-sav-inbox/validation.md`
