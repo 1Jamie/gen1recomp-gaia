@@ -129,7 +129,10 @@ do
   local nextStep = rest:find("\n      - name:", 2)
   local block = nextStep and rest:sub(1, nextStep - 1) or rest
   mustContain(block, "scripts/build_switch.sh --fetch --fused", "release Build Switch")
-  mustNotContain(block, "continue-on-error", "release Build Switch")
+  -- YAML key must be absent (comment prose may discuss soft-fail policy)
+  mustNotContain(block, "continue-on-error:", "release Build Switch")
+  mustContain(block, "path-gated", "release Build Switch comment")
+  mustContain(block, "Hard-fail", "release Build Switch comment")
 end
 
 T.finish("switch_ci_workflows_test")

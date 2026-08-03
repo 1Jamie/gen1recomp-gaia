@@ -200,8 +200,11 @@ jobs:
       - name: Build Switch
         run: |
           set -euo pipefail
-          # Fused NRO; needs native switch-tools (nacptool/elf2nro) and/or
-          # Docker on the Mac self-hosted runner; see docs/switch-build.md.
+          # Hard-fail gate: Switch ships with every release (never soft-fail).
+          # PR CI is path-gated (ubuntu selftest + canonical fused); release
+          # always builds Switch regardless of which files changed.
+          # Needs native switch-tools (nacptool/elf2nro) and/or Docker on the
+          # Mac self-hosted runner; see docs/switch-build.md.
           scripts/build_switch.sh --fetch --fused \
             --version "${{ steps.ver.outputs.version }}"
 
