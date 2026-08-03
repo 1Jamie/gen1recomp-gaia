@@ -64,6 +64,21 @@ This project ships **no** game data. On first launch:
 Saves live in the LÖVE save directory and **persist across NRO updates** —
 you can replace only the `.nro` and keep your progress.
 
+## 5. Import / Export a raw `.sav`
+
+Continue a cart or PC battery save (or pull a slot off-console) via MTP /
+SD / FTP — same transfer methods as ROMs:
+
+1. Copy a Gen1 `.sav` (32 KB) into the save-dir **`imports/saves/`** path the
+   launcher shows ([switch-transfer.md](switch-transfer.md)).
+2. With the game’s ROM already imported, open **SAVE FILES** → **Import
+   save**. The launcher rescans the inbox and creates a new slot.
+3. To pull a slot off the console, use **Export save**, then copy the file
+   from **`exports/`** in the same save directory via MTP / SD / FTP.
+
+Do not put `.sav` files into git. Prefer clean copies — some MTP clients
+create `._*.sav` AppleDouble sidecars that are not real saves.
+
 ## Controls
 
 ### Gameplay

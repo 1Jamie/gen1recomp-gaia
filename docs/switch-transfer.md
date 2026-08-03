@@ -23,6 +23,8 @@ Player install (what to download, title override) stays in
 | Loose iteration pair | `sdmc:/switch/gen1recomp/gen1recomp.nro` **and** `game.love` beside it |
 | ROM inbox | LÖVE save dir → `imports/` (launcher shows the live `getSaveDirectory()` path; under MTP often `1: SD Card/<save identity>/imports/`) |
 | Mod zip inbox | Same save dir → `imports/mods/` then MODS → **Scan again** |
+| Save `.sav` inbox | Same save dir → `imports/saves/` then SAVE FILES → **Import save** |
+| Save exports | Same save dir → `exports/` (pull after **Export save**; MTP / SD / FTP) |
 | Opt-in diagnostics | Empty `switch-debug.txt` in the save dir → `switch.log` |
 | Lua error log | `lua-error.log` in the save dir |
 
@@ -50,13 +52,14 @@ hardware evidence — **one contributor example**, not a Mac-only product rule.
 1. Quit other MTP clients.
 2. Open OpenMTP → select the DBI device → **`1: SD Card`**.
 3. Create `switch/gen1recomp/` if needed; copy NRO (and `game.love` for loose).
-4. For ROMs/mods, open the save-dir `imports/` or `imports/mods/` path the
-   launcher prints.
+4. For ROMs/mods/saves, open the save-dir `imports/`, `imports/mods/`,
+   `imports/saves/`, or `exports/` path the launcher prints.
 5. Wait for the queue; refresh; exit MTP responder; title-override launch.
 
 macOS clients often create AppleDouble sidecars (`._Something.zip`,
-`._cart.gb`). Those are not real archives — the launcher skips hidden `.*`
-names. Delete `._*` junk if a zip/ROM fails to open.
+`._cart.gb`, `._foo.sav`). Those are not real archives or saves — the
+launcher skips hidden `.*` names. Delete `._*` junk if a zip/ROM/`.sav`
+fails to open.
 
 #### Linux
 
@@ -108,7 +111,8 @@ only; pick what your CFW setup already uses).
 
 1. Start the FTP server on the Switch; note IP/port/credentials from that app.
 2. From the host, connect with any FTP client and upload to the same
-   `switch/gen1recomp/`, `imports/`, and `imports/mods/` paths.
+   `switch/gen1recomp/`, `imports/`, `imports/mods/`, `imports/saves/`,
+   and `exports/` paths.
 3. Stop the FTP server cleanly before launching Gen1Recomp.
 
 If credentials or chroots differ by app, trust the **destination paths**, not
@@ -122,7 +126,9 @@ a single vendor tutorial.
 2. Launch via **title override** (hold **R** on a title → hbmenu). **Applet
    Mode is not supported** (not enough memory).
 3. For ROMs: launcher → **Scan again** if the file was added after
-   boot. For mods: MODS → **Scan again** → enable → Play.
+   boot. For mods: MODS → **Scan again** → enable → Play. For saves:
+   SAVE FILES → **Import save** (rescans `imports/saves/`). Pull exported
+   `.sav` files from `exports/`.
    VoxelMod Joy-Con chords and Switch performance tips:
    [switch-install.md](switch-install.md#community-mods-voxelmod).
 
@@ -143,7 +149,7 @@ Copy the file back from the SD and compare hashes. Round-trip must match.
 | Symptom | What to try |
 | ------- | ----------- |
 | Device busy / no MTP volume | One client only; different cable/port; Windows MTP USB Device driver; alternate method (SD or FTP) |
-| Zip/ROM “could not be opened” | Delete `._*` sidecars; confirm real zip starts with `PK` |
+| Zip/ROM/`.sav` “could not be opened” | Delete `._*` sidecars (including `._*.sav`); confirm real zip starts with `PK` |
 | Half-copied NRO / crash on boot | Re-copy; verify SHA-256; exit transfer mode before launch |
 | App opens in Applet Mode | Use title override (hold **R**), not Album |
 

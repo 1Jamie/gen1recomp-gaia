@@ -157,9 +157,14 @@ The SAVE FILES card wires a raw Gen1 `.sav` battery image to the save slots
 through `src/import/SaveFileIO.lua`, which sits on top of
 `src/save_convert/SaveConvert.lua` and the slot API in `SaveData`.
 
-- **Import save** is live once the game's ROM is imported (playable). It opens
-  a native `.sav` picker (`chooseSav` on desktop; on Android,
-  `love.system.pickFile("sav")` → `picked_save.sav`, same SAF path as ROMs).
+- **Import save** is live once the game's ROM is imported (playable).
+  On desktop it opens a native `.sav` picker (`chooseSav`); on Android,
+  `love.system.pickFile("sav")` → `picked_save.sav`, same SAF path as ROMs.
+  On **NX (Switch)** there is no picker: copy a `.sav` into
+  `getSaveDirectory()/imports/saves/` via MTP / SD / FTP, then press
+  **Import save** to ensure the inbox and rescan (same pattern as the ROM
+  `imports/` and mod `imports/mods/` inboxes). Hidden `._*.sav` AppleDouble
+  sidecars are skipped.
   `SaveFileIO.importToSlot` reads the bytes (an absolute path, a save-dir
   relative name, a dropped LOVE file, or raw bytes),
   guards the 32768-byte size, runs `SaveConvert.importSav` (which also rejects
@@ -167,7 +172,8 @@ through `src/import/SaveFileIO.lua`, which sits on top of
   writes it (`SaveData.writeSlot`), and makes it active (`SaveData.setActiveSlot`).
   The meta stamp is re-stamped off `gen1_import` to the current numeric format
   so `SaveData.load`'s migration pass accepts the slot. On success the SAVE SLOT
-  panel is refreshed with the new slot selected.
+  panel is refreshed with the new slot selected. Inbox `.sav` files are
+  retained after success or failure.
 - **Export save** is live only when the active slot actually holds a save
   (checked against `listSlots`). `SaveFileIO.exportActiveSlot` loads the active
   slot, encodes it back with `SaveConvert.exportSav` (a slot never keeps
@@ -180,6 +186,9 @@ through `src/import/SaveFileIO.lua`, which sits on top of
   `love.system.createFile(suggestedName)` opens `ACTION_CREATE_DOCUMENT` so the
   player can save to Downloads / Drive / etc.; on return `export_done.flag`
   makes focus show "Save exported."
+  On **NX**, export success sets a notice with the `exports/` path and an
+  MTP-oriented hint — no `openURL` / Open folder (pull the file via MTP /
+  SD / FTP instead).
 - **Drag-drop.** `filedropped` routes a `.sav` to the import path for the
   currently active game tab; when a non-game tab (mods, or the locked yellow
   placeholder) is showing it defaults to red, the always-present first game

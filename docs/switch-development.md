@@ -44,6 +44,7 @@ the transfer runbook).
 - Loose assemble + fused NRO build scripts (`scripts/build_switch.sh`, `scripts/switch/*`)
 - Payload gates so ROM / generated cache / saves never enter `game.love`
 - Community mod zip inbox at `imports/mods/` (rescan installs; FIND MODS stays network-gated)
+- Raw `.sav` inbox at `imports/saves/` (**Import save** rescan) + export pull path `exports/` (MTP hint; no openURL)
 - VoxelMod OPTIONS + Switch performance tips documented (WATER / 3D-BTL / extras)
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
 - Path-gated CI selftest + canonical fused PR artifact; release Switch hard-fail
@@ -84,13 +85,13 @@ The packaging goal matches Dusklight’s **single self-contained `.nro`**; contr
 2. **Deploy is manual.** There is no automated push to the console and no `nxlink` path yet. Operators build locally, transfer files, then title-override launch.
 3. **Hardware coverage.** Author P0/P1 pass rows were recorded on one Switch OLED; Switch V1 boot was confirmed independently. Treat Lite, docked soak, and other hosts as unknown until someone re-runs the checklist.
 4. **No ROM/save/mod zip bytes in git.** Legal dumps and third-party mods stay on the console (or local untracked folders).
-5. **AppleDouble sidecars** (`._*`) from some MTP clients can break zip/ROM scans — the launcher skips hidden `.*` names; still prefer clean copies.
+5. **AppleDouble sidecars** (`._*`) from some MTP clients can break zip/ROM/`.sav` scans — the launcher skips hidden `.*` names (including `._*.sav`); still prefer clean copies.
 
 ## How we tested
 
 | Layer | What | Where |
 | ----- | ---- | ----- |
-| Unit / headless | Platform NX flags, RomImporter inbox, dual-path input, mod zip inbox, display chords, payload/self-tests | `tests/*`, `scripts/test.sh` |
+| Unit / headless | Platform NX flags, RomImporter inbox, dual-path input, mod zip inbox, save `.sav` inbox, display chords, payload/self-tests | `tests/*`, `scripts/test.sh` |
 | Switch CI / packaging | Path-gated offline selftest (`selftest_build_switch.sh`, `verify_payload.sh --self-test`, `switch_ci_workflows_test.lua`); canonical fused PR artifact | `.github/workflows/ci.yml`, [switch-build.md](switch-build.md) § CI and release |
 | Probe on hardware | `getOS()==NX`, 1280×720, save path, Joy-Con events | `tools/switch-probe` → OLED |
 | Integration on hardware | MTP inbox ROM import, Play Red/Blue, naming A/B, quit/reopen save, suspend×10, reboot, fused NRO alone + NRO-only update | `docs/switch-hardware-evidence.md` |
@@ -369,9 +370,25 @@ Community mods install from a **separate** MTP inbox (not mixed into the ROM `im
 
 Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.
 
-**MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb`. Those are not real archives or ROMs — the launcher ignores hidden `.*` names under both `imports/` and `imports/mods/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
+**MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb` / `._foo.sav`. Those are not real archives, ROMs, or saves — the launcher ignores hidden `.*` names under `imports/`, `imports/mods/`, and `imports/saves/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
 
 **Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable. Player-facing install + performance tips: [switch-install.md](switch-install.md#community-mods-voxelmod).
+
+## Save `.sav` inbox (NX)
+
+Raw Gen1 battery images use a **separate** MTP inbox (not mixed into ROM `imports/` or mod `imports/mods/`):
+
+| Item | Value |
+| ---- | ----- |
+| Save-relative path | `imports/saves/` |
+| MTP destination | `1: SD Card/<save identity>/imports/saves/` (see launcher notice for the live `getSaveDirectory()` path) |
+| Candidates | non-hidden `*.sav` only |
+| Rescan | SAVE FILES → **Import save** (imports each valid `.sav` via `SaveFileIO.importToSlot`; source files are retained on success and failure) |
+| Exports | **Export save** writes under `exports/`; NX shows an MTP path notice (no `openURL` / Open folder) |
+
+Do **not** commit `.sav` bytes into git. Drop the file over MTP, press **Import save**, then play from the new slot. Pull exports from `exports/` the same way.
+
+**MTP tip:** the same AppleDouble `._*.sav` rule applies — see the mod inbox tip above.
 
 ## Joy-Con display chords (Select + face)
 
