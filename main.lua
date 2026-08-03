@@ -369,49 +369,91 @@ end
 
 function love.gamepadpressed(joystick, button)
   SwitchDiagnostics.onJoystickEvent("gamepadpressed", joystick, button)
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.gamepadpressed then
+      return EditorApp.gamepadpressed(joystick, button)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   Game:gamepadpressed(joystick, button)
 end
 
 function love.gamepadreleased(joystick, button)
   SwitchDiagnostics.onJoystickEvent("gamepadreleased", joystick, button)
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.gamepadreleased then
+      return EditorApp.gamepadreleased(joystick, button)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   Game:gamepadreleased(joystick, button)
 end
 
 function love.gamepadaxis(joystick, axis, value)
   SwitchDiagnostics.onJoystickEvent("gamepadaxis", joystick, axis, { value = value })
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.gamepadaxis then
+      return EditorApp.gamepadaxis(joystick, axis, value)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   Game:gamepadaxis(joystick, axis, value)
 end
 
 function love.joystickpressed(joystick, button)
   SwitchDiagnostics.onJoystickEvent("joystickpressed", joystick, button)
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.joystickpressed then
+      return EditorApp.joystickpressed(joystick, button)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:joystickpressed(joystick, button) end
   Game:joystickpressed(joystick, button)
 end
 
 function love.joystickreleased(joystick, button)
   SwitchDiagnostics.onJoystickEvent("joystickreleased", joystick, button)
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.joystickreleased then
+      return EditorApp.joystickreleased(joystick, button)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:joystickreleased(joystick, button) end
   Game:joystickreleased(joystick, button)
 end
 
 function love.joystickaxis(joystick, axis, value)
   SwitchDiagnostics.onJoystickEvent("joystickaxis", joystick, axis, { value = value })
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.joystickaxis then
+      return EditorApp.joystickaxis(joystick, axis, value)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:joystickaxis(joystick, axis, value) end
   Game:joystickaxis(joystick, axis, value)
 end
 
 function love.joystickhat(joystick, hat, direction)
   SwitchDiagnostics.onJoystickEvent("joystickhat", joystick, hat, { direction = direction })
-  if editorMode or TouchEditor then return end
+  if editorMode then
+    if EditorApp and EditorApp.joystickhat then
+      return EditorApp.joystickhat(joystick, hat, direction)
+    end
+    return
+  end
+  if TouchEditor then return end
   if Importer then return Importer:joystickhat(joystick, hat, direction) end
   Game:joystickhat(joystick, hat, direction)
 end
@@ -459,7 +501,16 @@ function love.lowmemory()
 end
 
 function love.touchpressed(id, x, y, dx, dy, pressure)
-  if editorMode then return end
+  if editorMode then
+    -- iOS synthesizes mousepressed for the primary touch; forwarding here
+    -- would double-fire.  Android / NX need the explicit touch → click path
+    -- (love-nx does not synthesize mouse for the editor the way desktop does).
+    if love.system.getOS() == "iOS" then return end
+    if EditorApp and EditorApp.mousepressed then
+      return EditorApp.mousepressed(x, y, 1)
+    end
+    return
+  end
   if TouchEditor then
     -- iOS synthesizes mousepressed for the primary touch (same as the
     -- launcher); Android drives the editor through love.touch directly.
@@ -537,6 +588,9 @@ function love.mousepressed(x, y, button, istouch)
     return Importer:mousepressed(x, y, button)
   end
   if editorMode and EditorApp.mousepressed then
+    -- Same Android double-fire guard: touchpressed already clicked for the
+    -- save editor; a synthesized mouse press must not fire again.
+    if istouch and love.system.getOS() == "Android" then return end
     return EditorApp.mousepressed(x, y, button)
   end
   if mouseTouch and Game and button == 1 then

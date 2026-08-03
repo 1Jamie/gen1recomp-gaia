@@ -125,6 +125,7 @@ if [ -f data/generated/maps.lua ]; then
     run_tier "T3 save editor: map browser" "$LUA" tests/save_editor_task8_tests.lua
     run_tier "T3 save editor: mod awareness" "$LUA" tests/save_editor_mod_tests.lua
     run_tier "T3 save editor: wheel scrolling" "$LUA" tests/save_editor_wheel_bug595_test.lua
+    run_tier "T3 save editor: pad / NX input" "$LUA" tests/save_editor_pad_input_test.lua
     run_tier "T5 link (loopback lockstep)" "$LUA" tests/run_link_tests.lua
   fi
 else

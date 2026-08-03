@@ -62,6 +62,7 @@ if grep -Eq '^(data|assets)/generated/[^/]+|^(data|assets)/generated/.+/' "$LIST
 fi
 
 for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
+                tools/save-editor/PadInput.lua \
                 tools/save-editor/panels/Party.lua \
                 tools/rom_manifest.json tools/rom_manifest_blue.json \
                 tools/rom_manifest_yellow.json; do

@@ -47,6 +47,7 @@ the transfer runbook).
 - VoxelMod OPTIONS + Switch performance tips documented (WATER / 3D-BTL / extras)
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
 - Path-gated CI selftest + canonical fused PR artifact; release Switch hard-fail
+- Save editor pad/touch input (virtual cursor, A click, B close) — see `tools/save-editor/README.md`
 
 ### Known gaps / welcome contributions
 
