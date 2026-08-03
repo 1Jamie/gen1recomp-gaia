@@ -3540,8 +3540,16 @@ function BattleState:onFaint(battler)
   self:actNext(function()
     battler.fainted = true
     local Sound = require("src.core.Sound")
-    Sound.playCry(self.data, battler.mon.species)
-    Sound.play(self.data, "Faint_Fall")
+    if battler.isPlayer then
+      -- RemoveFaintedPlayerMon (core.asm:1040-1042): the player mon's
+      -- faint plays its ordinary species cry -- no Faint_Fall
+      Sound.playCry(self.data, battler.mon.species)
+    elseif self.kind ~= "wild" then
+      -- FaintEnemyPokemon (core.asm:732-771): the enemy faint plays no
+      -- species cry; trainer battles get SFX_FAINT_FALL, then SFX_FAINT_THUD
+      -- once it finishes (wild battles skip straight to the victory music)
+      Sound.play(self.data, "Faint_Fall")
+    end
     self.fx = self.fx or {}
     -- SlideDownFaintedMonPic: PIC_HEIGHT (7) slide steps, each closing with
     -- DelayFrames 2 (core.asm:1186-1222).  The port held this one twice as
@@ -3550,6 +3558,13 @@ function BattleState:onFaint(battler)
   end)
   self.nextInsert = (self.nextInsert or 0) + 1
   table.insert(self.queue, self.nextInsert, { wait = Timing.FAINT_SLIDE })
+  if not battler.isPlayer and self.kind ~= "wild" then
+    -- FaintEnemyPokemon's SFX_FAINT_THUD lands as the slide does (after
+    -- Faint_Fall, before EnemyMonFaintedText)
+    self:actNext(function()
+      require("src.core.Sound").play(self.data, "Faint_Thud")
+    end)
+  end
   if not battler.isPlayer and self.kind == "wild" then
     -- FaintEnemyPokemon .wild_win (core.asm:792-795): beating a wild
     -- mon calls EndLowHealthAlarm and starts MUSIC_DEFEATED_WILD_MON
