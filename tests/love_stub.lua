@@ -40,8 +40,15 @@ local gstate = { shader = nil, canvas = nil, blend = "alpha",
 local gstack = {}
 
 stub.graphics = {
-  newImage = function(path)
-    local w, h = pngSize(path)
+  newImage = function(pathOrData)
+    local path = pathOrData
+    if type(pathOrData) == "table" and pathOrData._fileData then
+      path = pathOrData.name or "<filedata>"
+    elseif type(pathOrData) == "table" and pathOrData.path then
+      path = pathOrData.path
+    end
+    local w, h = 8, 8
+    if type(path) == "string" then w, h = pngSize(path) end
     return setmetatable({ w = w, h = h, path = path }, Image)
   end,
   newQuad = function(x, y, w, h) return { x = x, y = y, w = w, h = h } end,
@@ -120,12 +127,22 @@ stub.filesystem = {
   write = function(name, content) files[name] = content return true end,
   read = function(name) return files[name] end,
   remove = function(name) files[name] = nil return true end,
+  newFileData = function(contents, name)
+    return { _fileData = true, contents = contents, name = name or "" }
+  end,
+  createDirectory = function() return true end,
   -- directories are implied by key prefixes ("mods/x/manifest.json")
-  getInfo = function(name)
-    if files[name] then return { type = "file" } end
+  getInfo = function(name, filter)
+    if files[name] then
+      if filter and filter ~= "file" then return nil end
+      return { type = "file" }
+    end
     local prefix = name .. "/"
     for key in pairs(files) do
-      if key:sub(1, #prefix) == prefix then return { type = "directory" } end
+      if key:sub(1, #prefix) == prefix then
+        if filter and filter ~= "directory" then return nil end
+        return { type = "directory" }
+      end
     end
     return nil
   end,
@@ -214,6 +231,30 @@ stub.mouse = {
 }
 
 stub.timer = { getTime = function() return 0 end }
+
+-- Minimal image module so Assets.imageData can decode FileData fallbacks
+-- headless (full pixel stubs live in tests/mod_graphics_tests.lua).
+local ImageData = {}
+ImageData.__index = ImageData
+function ImageData:getWidth() return self.w end
+function ImageData:getHeight() return self.h end
+function ImageData:getDimensions() return self.w, self.h end
+function ImageData:getPixel() return 0, 0, 0, 1 end
+function ImageData:setPixel() end
+function ImageData:mapPixel() end
+function ImageData:encode() return { getString = function() return "" end } end
+
+stub.image = {
+  newImageData = function(a, b)
+    if type(a) == "table" and a._fileData then
+      return setmetatable({ w = 8, h = 8, path = a.name, source = a }, ImageData)
+    end
+    if type(a) == "string" then
+      return setmetatable({ w = 8, h = 8, path = a }, ImageData)
+    end
+    return setmetatable({ w = a or 8, h = b or 8 }, ImageData)
+  end,
+}
 
 -- Desktop / headless: full-window safe area (matches LÖVE's fallback).
 stub.window = {

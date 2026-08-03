@@ -294,6 +294,24 @@ function CacheFs.read(rel)
   return love.filesystem.read(rel)
 end
 
+-- Read cache-relative `rel` for the active GameVersion when PhysFS may hide
+-- prefixed Blue/Yellow trees (fused NX mount hole). Same order Data:load
+-- already used: active version prefix with CacheFs.prefix cleared, then
+-- `rel` under the caller's CacheFs.prefix. Returns the bytes or nil.
+function CacheFs.readActive(rel)
+  local GameVersion = require("src.core.GameVersion")
+  local prefix = GameVersion.cachePrefix()
+  local saved = CacheFs.prefix
+  CacheFs.prefix = ""
+  local bytes = CacheFs.read(prefix .. rel)
+  CacheFs.prefix = saved
+  if type(bytes) ~= "string" then
+    bytes = CacheFs.read(rel)
+  end
+  if type(bytes) == "string" then return bytes end
+  return nil
+end
+
 -- does cache-relative `rel` exist as a file?
 function CacheFs.exists(rel)
   rel = withPrefix(rel)

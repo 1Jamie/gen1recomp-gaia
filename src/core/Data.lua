@@ -209,18 +209,10 @@ local function loadModule(dir, name)
   -- cache explicitly when require cannot see the mounted tree.
   local CacheFs = require("src.import.CacheFs")
   local GameVersion = require("src.core.GameVersion")
-  local prefix = GameVersion.cachePrefix()
-  local path = prefix .. "data/generated/" .. name .. ".lua"
-  local saved = CacheFs.prefix
-  CacheFs.prefix = ""
-  local bytes = CacheFs.read(path)
-  CacheFs.prefix = saved
-  if type(bytes) ~= "string" then
-    -- Also try with CacheFs.prefix if the caller set it for this version.
-    bytes = CacheFs.read("data/generated/" .. name .. ".lua")
-  end
+  local path = "data/generated/" .. name .. ".lua"
+  local bytes = CacheFs.readActive(path)
   if type(bytes) == "string" then
-    local chunk, err = loadstring(bytes, "@" .. path)
+    local chunk, err = loadstring(bytes, "@" .. GameVersion.cachePrefix() .. path)
     if not chunk then return false, err or mod end
     return pcall(chunk)
   end

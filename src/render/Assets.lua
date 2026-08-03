@@ -43,11 +43,28 @@ function Assets.resolve(path)
   return loader:derivedPath(rel) or path
 end
 
+-- When PhysFS hides Blue/Yellow prefixed trees (fused NX), load generated
+-- asset bytes the same way Data:load does via CacheFs.readActive.
+local function generatedFileData(resolved)
+  if type(resolved) ~= "string" or resolved:sub(1, #GENERATED) ~= GENERATED then
+    return nil
+  end
+  if exists(resolved) then return nil end
+  local bytes = require("src.import.CacheFs").readActive(resolved)
+  if type(bytes) ~= "string" then return nil end
+  return love.filesystem.newFileData(bytes, resolved)
+end
+
 function Assets.image(path)
   local resolved = Assets.resolve(path)
   local image = cache[resolved]
   if not image then
-    image = love.graphics.newImage(resolved)
+    local fileData = generatedFileData(resolved)
+    if fileData then
+      image = love.graphics.newImage(fileData)
+    else
+      image = love.graphics.newImage(resolved)
+    end
     cache[resolved] = image
   end
   return image
@@ -56,7 +73,12 @@ end
 -- pixel-level reads (tile-shift variants, the spinner strip blit) resolve
 -- the same way but stay uncached: the caller keeps the derived product
 function Assets.imageData(path)
-  return love.image.newImageData(Assets.resolve(path))
+  local resolved = Assets.resolve(path)
+  local fileData = generatedFileData(resolved)
+  if fileData then
+    return love.image.newImageData(fileData)
+  end
+  return love.image.newImageData(resolved)
 end
 
 function Assets.register(invalidate)
