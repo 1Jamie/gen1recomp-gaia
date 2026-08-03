@@ -1,5 +1,6 @@
--- Yellow/Blue-only NX: PhysFS may hide prefixed assets/generated trees.
--- Assets must fall back through CacheFs.readActive like Data:load does.
+-- Blue/Yellow generated art lives under blue/ / yellow/. Desktop exposes it
+-- via mountVersion; NX fused often cannot. Assets.resolve must point
+-- newImage at the real save-dir path (yellow/assets/generated/...).
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -19,68 +20,54 @@ local function clearPath(path)
   love.filesystem.remove(path)
 end
 
--- --- readActive: Yellow-prefixed bytes without unprefixed PhysFS visibility
+-- --- resolve → yellow/<path> when that file exists
 GameVersion.set("yellow")
 CacheFs.prefix = ""
 love.filesystem.write("yellow/" .. PNG, "yellow-png-bytes")
 clearPath(PNG)
-eq(CacheFs.readActive(PNG), "yellow-png-bytes",
-  "readActive finds yellow/<rel> when unprefixed path is missing")
+eq(Assets.resolve(PNG), "yellow/" .. PNG,
+  "resolve maps generated path to yellow/ when unprefixed is missing")
 
--- --- Assets.image fallback (Yellow-only mount hole)
 Assets.flush()
 local img = Assets.image(PNG)
-check(img ~= nil, "Assets.image loads Yellow tileset via readActive fallback")
-eq(img.path, PNG, "fallback Image keeps the logical generated path name")
+check(img ~= nil, "Assets.image opens the yellow/ save-dir path")
+eq(img.path, "yellow/" .. PNG, "newImage receives the versioned path")
 
--- --- Assets.imageData fallback
 local id = Assets.imageData(PNG)
-check(id ~= nil, "Assets.imageData loads Yellow tileset via readActive fallback")
-eq(id.path, PNG, "fallback ImageData keeps the logical generated path name")
+check(id ~= nil, "Assets.imageData opens the yellow/ save-dir path")
+eq(id.path, "yellow/" .. PNG, "newImageData receives the versioned path")
 
--- --- Blue prefix
+-- --- Blue
 GameVersion.set("blue")
 Assets.flush()
 love.filesystem.write("blue/" .. PNG, "blue-png-bytes")
 clearPath(PNG)
 clearPath("yellow/" .. PNG)
-local blueImg = Assets.image(PNG)
-check(blueImg ~= nil, "Assets.image loads Blue tileset via readActive fallback")
+eq(Assets.resolve(PNG), "blue/" .. PNG,
+  "resolve maps generated path to blue/")
+check(Assets.image(PNG) ~= nil, "Assets.image opens the blue/ save-dir path")
 
--- --- Red primary path (unprefixed file visible → no fallback needed)
+-- --- Red stays unprefixed
 GameVersion.set("red")
 Assets.flush()
 love.filesystem.write(PNG, "red-png-bytes")
 clearPath("blue/" .. PNG)
-local redImg = Assets.image(PNG)
-check(redImg ~= nil, "Assets.image loads Red tileset from unprefixed path")
-eq(love.filesystem.read(PNG), "red-png-bytes",
-  "Red still stores generated assets at the save-dir root")
+eq(Assets.resolve(PNG), PNG, "Red resolve keeps the unprefixed path")
+check(Assets.image(PNG) ~= nil, "Assets.image loads Red from the save-dir root")
 
--- --- Stale unprefixed path must not win over Yellow bytes (NX mount lie)
+-- --- Prefer versioned file over a stale empty unprefixed stub
 GameVersion.set("yellow")
 Assets.flush()
-love.filesystem.write(PNG, "")  -- visible but empty → would bake blank sprites
+love.filesystem.write(PNG, "")
 love.filesystem.write("yellow/" .. PNG, "yellow-real-png")
-local staleImg = Assets.image(PNG)
-check(staleImg ~= nil, "Assets.image prefers Yellow bytes over empty unprefixed stub")
-eq(staleImg.path, PNG, "stale-path fallback still names the logical generated path")
+eq(Assets.resolve(PNG), "yellow/" .. PNG,
+  "resolve prefers yellow/ even when an empty unprefixed stub exists")
 
--- --- Missing generated file: no invented bytes
-GameVersion.set("yellow")
-Assets.flush()
-clearPath(PNG)
-clearPath("yellow/" .. PNG)
-clearPath("blue/" .. PNG)
-eq(CacheFs.readActive(PNG), nil,
-  "readActive returns nil when the file is absent in every tree")
+-- --- Non-generated paths untouched
+eq(Assets.resolve("assets/launcher/gear.png"), "assets/launcher/gear.png",
+  "resolve leaves non-generated paths alone")
 
--- --- Non-generated paths never hit the versioned asset tree
-love.filesystem.write("yellow/" .. PNG, "should-not-leak")
-eq(CacheFs.readActive("assets/launcher/missing_chip.png"), nil,
-  "readActive does not remap unrelated paths onto yellow generated assets")
-
--- --- readActive with CacheFs.prefix set (Data:load second try)
+-- --- readActive still works for Data:load
 GameVersion.set("yellow")
 CacheFs.prefix = "yellow/"
 love.filesystem.write("yellow/data/generated/maps.lua", "return { ok = true }")

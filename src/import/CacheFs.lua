@@ -409,32 +409,6 @@ local function mountGeneratedTrees(prefix)
   return mounted
 end
 
--- True when unprefixed generated cache is actually readable (not merely a
--- directory stub PhysFS can see). Used after Blue/Yellow mounts so NX cannot
--- silently boot with a broken overlay.
-local function generatedCacheVisible()
-  if not (love and love.filesystem) then return false end
-  local canaries = {
-    "assets/generated/fonts/font.png",
-    "data/generated/constants.lua",
-  }
-  for _, path in ipairs(canaries) do
-    local bytes = love.filesystem.read(path)
-    if type(bytes) == "string" and #bytes > 0 then return true end
-  end
-  return false
-end
-
-local function noteMountProbe(version, prefix, ok)
-  local okReq, Diag = pcall(require, "src.debug.SwitchDiagnostics")
-  if okReq and Diag and Diag.onEvent then
-    Diag.onEvent(ok and "mount_probe_ok" or "mount_probe_failed", {
-      version = tostring(version or ""),
-      prefix = tostring(prefix or ""),
-    })
-  end
-end
-
 function CacheFs.mountVersion(version)
   local prefix = require("src.core.GameVersion").cachePrefix(version)
   local sub = prefix:gsub("/+$", "")
@@ -458,27 +432,6 @@ function CacheFs.mountVersion(version)
 
   -- Version-scoped generated trees → un-prefixed paths (Red prefix is "").
   mountGeneratedTrees(prefix)
-
-  -- Blue/Yellow: verify the overlay actually exposes generated files. A failed
-  -- mount still returns true so Play can fall back through CacheFs.readActive,
-  -- but we retry once and leave a SwitchDiagnostics breadcrumb when enabled.
-  if sub ~= "" then
-    if not generatedCacheVisible() then
-      mountGeneratedTrees(prefix)
-    end
-    local ok = generatedCacheVisible()
-    noteMountProbe(version, prefix, ok)
-    if not ok then
-      -- Last resort: root mount alone sometimes leaves assets/ hidden behind
-      -- fused archive assets/; re-issue both mounts once more.
-      if love.filesystem.mount and love.filesystem.getInfo(sub, "directory") then
-        love.filesystem.mount(sub, "", false)
-      end
-      mountGeneratedTrees(prefix)
-      noteMountProbe(version, prefix, generatedCacheVisible())
-    end
-  end
-
   return true
 end
 

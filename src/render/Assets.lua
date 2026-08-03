@@ -4,9 +4,11 @@
 -- its own file without editing a single record, and one flush() drops
 -- every downstream cache for dev-mode hot reload.
 --
--- No loader installed means resolve() is the identity, which is what
--- keeps a mod-free boot (and every headless test) loading exactly the
--- paths it always did.
+-- No loader installed means resolve() still applies the active game's
+-- cache prefix (blue/ / yellow/) when that file exists -- desktop usually
+-- gets the same via mountVersion, but NX fused often cannot overlay
+-- unprefixed assets/generated, while yellow/assets/generated/... is a
+-- normal save-dir path that love.graphics.newImage can open directly.
 
 local Assets = {}
 
@@ -29,53 +31,36 @@ local function exists(path)
 end
 Assets.exists = exists
 
--- an override dir shadows the generated cache; a transform's derived
--- output is the fallback under it, so hand-authored art beats generated
+-- Mod overrides win, then the active version's prefixed cache (Blue/Yellow),
+-- then the caller's unprefixed path (Red / already-mounted overlay).
 function Assets.resolve(path)
-  local loader = Assets.loader
-  if not loader or type(path) ~= "string" then return path end
+  if type(path) ~= "string" then return path end
   if path:sub(1, #GENERATED) ~= GENERATED then return path end
-  local rel = path:sub(#GENERATED + 1)
-  for _, mod in ipairs(loader:overrideOrder()) do
-    local candidate = mod.path .. "/overrides/" .. rel
-    if exists(candidate) then return candidate end
-  end
-  return loader:derivedPath(rel) or path
-end
 
--- When PhysFS hides or mis-exposes Blue/Yellow prefixed trees (fused NX),
--- load generated asset bytes the same way Data:load does via CacheFs.readActive.
--- Blue/Yellow prefer versioned bytes whenever present: getInfo can succeed on a
--- broken overlay while sprites decode as blank (OBP keys white → transparent).
-local function generatedFileData(resolved)
-  if type(resolved) ~= "string" or resolved:sub(1, #GENERATED) ~= GENERATED then
-    return nil
+  local rel = path:sub(#GENERATED + 1)
+  local loader = Assets.loader
+  if loader then
+    for _, mod in ipairs(loader:overrideOrder()) do
+      local candidate = mod.path .. "/overrides/" .. rel
+      if exists(candidate) then return candidate end
+    end
+    local derived = loader:derivedPath(rel)
+    if derived then return derived end
   end
-  local CacheFs = require("src.import.CacheFs")
+
   local prefix = require("src.core.GameVersion").cachePrefix()
   if prefix ~= "" then
-    local bytes = CacheFs.readActive(resolved)
-    if type(bytes) == "string" and #bytes > 0 then
-      return love.filesystem.newFileData(bytes, resolved)
-    end
-    return nil
+    local versioned = prefix .. path
+    if exists(versioned) then return versioned end
   end
-  if exists(resolved) then return nil end
-  local bytes = CacheFs.readActive(resolved)
-  if type(bytes) ~= "string" or #bytes == 0 then return nil end
-  return love.filesystem.newFileData(bytes, resolved)
+  return path
 end
 
 function Assets.image(path)
   local resolved = Assets.resolve(path)
   local image = cache[resolved]
   if not image then
-    local fileData = generatedFileData(resolved)
-    if fileData then
-      image = love.graphics.newImage(fileData)
-    else
-      image = love.graphics.newImage(resolved)
-    end
+    image = love.graphics.newImage(resolved)
     cache[resolved] = image
   end
   return image
@@ -84,12 +69,7 @@ end
 -- pixel-level reads (tile-shift variants, the spinner strip blit) resolve
 -- the same way but stay uncached: the caller keeps the derived product
 function Assets.imageData(path)
-  local resolved = Assets.resolve(path)
-  local fileData = generatedFileData(resolved)
-  if fileData then
-    return love.image.newImageData(fileData)
-  end
-  return love.image.newImageData(resolved)
+  return love.image.newImageData(Assets.resolve(path))
 end
 
 function Assets.register(invalidate)
