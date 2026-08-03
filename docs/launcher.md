@@ -172,8 +172,11 @@ through `src/import/SaveFileIO.lua`, which sits on top of
   writes it (`SaveData.writeSlot`), and makes it active (`SaveData.setActiveSlot`).
   The meta stamp is re-stamped off `gen1_import` to the current numeric format
   so `SaveData.load`'s migration pass accepts the slot. On success the SAVE SLOT
-  panel is refreshed with the new slot selected. Inbox `.sav` files are
-  retained after success or failure.
+  panel is refreshed with the new slot selected. On **NX**, a successful inbox
+  import retires the file to `*.sav.imported` and records a content hash in
+  `imports/saves/.imported-sha1` so a second **Import save** (or the same bytes
+  under a new name) does not clone slots; failures leave the original `.sav`.
+  Imports always target the **active game tab** — use Red vs Blue accordingly.
 - **Export save** is live only when the active slot actually holds a save
   (checked against `listSlots`). `SaveFileIO.exportActiveSlot` loads the active
   slot, encodes it back with `SaveConvert.exportSav` (a slot never keeps

@@ -383,10 +383,11 @@ Raw Gen1 battery images use a **separate** MTP inbox (not mixed into ROM `import
 | Save-relative path | `imports/saves/` |
 | MTP destination | `1: SD Card/<save identity>/imports/saves/` (see launcher notice for the live `getSaveDirectory()` path) |
 | Candidates | non-hidden `*.sav` only |
-| Rescan | SAVE FILES → **Import save** (imports each valid `.sav` via `SaveFileIO.importToSlot`; source files are retained on success and failure) |
+| Rescan | SAVE FILES → **Import save** on the matching game tab (imports each *new* `.sav` via `SaveFileIO.importToSlot` into **that tab’s** slots) |
+| After success | Retire to `*.sav.imported` + append content hash to `imports/saves/.imported-sha1` (re-press / same bytes under a new name → skip, no clone slots). Failures leave the original `.sav` |
 | Exports | **Export save** writes under `exports/`; NX shows an MTP path notice (no `openURL` / Open folder) |
 
-Do **not** commit `.sav` bytes into git. Drop the file over MTP, press **Import save**, then play from the new slot. Pull exports from `exports/` the same way.
+Do **not** commit `.sav` bytes into git. Drop the file over MTP, press **Import save** on the correct game tab, then play from the new slot. Pull exports from `exports/` the same way.
 
 **MTP tip:** the same AppleDouble `._*.sav` rule applies — see the mod inbox tip above.
 

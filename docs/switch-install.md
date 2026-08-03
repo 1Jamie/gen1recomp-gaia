@@ -71,9 +71,13 @@ SD / FTP — same transfer methods as ROMs:
 
 1. Copy a Gen1 `.sav` (32 KB) into the save-dir **`imports/saves/`** path the
    launcher shows ([switch-transfer.md](switch-transfer.md)).
-2. With the game’s ROM already imported, open **SAVE FILES** → **Import
-   save**. The launcher rescans the inbox and creates a new slot.
-3. To pull a slot off the console, use **Export save**, then copy the file
+2. With the game’s ROM already imported, open that game’s tab → **SAVE FILES**
+   → **Import save**. The launcher rescans the inbox into **this tab’s**
+   slots (Red vs Blue matter — use the matching game tab).
+3. A successful import retires the file to `*.sav.imported` and records its
+   content hash so pressing **Import save** again does not clone slots.
+   Failed imports leave the original `.sav` in place.
+4. To pull a slot off the console, use **Export save**, then copy the file
    from **`exports/`** in the same save directory via MTP / SD / FTP.
 
 Do not put `.sav` files into git. Prefer clean copies — some MTP clients

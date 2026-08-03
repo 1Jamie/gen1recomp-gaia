@@ -1,5 +1,5 @@
--- NX saves .sav inbox: ensure imports/saves/, MTP hint, AppleDouble/retain
--- (NXSAV-01..10 + RES-01..08; RES-09/11 wired in later tasks).
+-- NX saves .sav inbox: ensure imports/saves/, MTP hint, AppleDouble/retain/
+-- retire-on-success + hash dedupe (NXSAV + RES harden).
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -9,15 +9,33 @@ local check = S.check
 
 local RomImporter = require("src.import.RomImporter")
 
+love.data = love.data or {}
 love.system = love.system or {}
 love.filesystem = love.filesystem or {}
 
 local saved = {
+  hash = love.data.hash,
+  encode = love.data.encode,
   getOS = love.system.getOS,
   getSaveDirectory = love.filesystem.getSaveDirectory,
   createDirectory = love.filesystem.createDirectory,
   remove = love.filesystem.remove,
 }
+
+-- Deterministic fake sha1 so content-hash dedupe is testable headless.
+love.data.hash = function(_, data)
+  return data
+end
+love.data.encode = function(_, _, digest)
+  local s = type(digest) == "string" and digest or tostring(digest)
+  local hex = {}
+  for i = 1, #s do
+    hex[#hex + 1] = string.format("%02x", s:byte(i))
+  end
+  local h = table.concat(hex)
+  if #h < 40 then h = h .. string.rep("0", 40 - #h) end
+  return h:sub(1, 40)
+end
 
 love.system.getOS = function() return "NX" end
 love.filesystem.getSaveDirectory = function()
@@ -50,6 +68,7 @@ local function clearSavesInbox()
   for _, name in ipairs(love.filesystem.getDirectoryItems("imports") or {}) do
     love.filesystem.remove("imports/" .. name)
   end
+  love.filesystem.remove("imports/saves/.imported-sha1")
 end
 
 local function freshImporter()
@@ -186,7 +205,7 @@ eq(#importCalls, 0, "RES-02: AppleDouble-only does not import")
 check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/", 1, true),
   "RES-02: AppleDouble-only shows MTP notice")
 
--- NXSAV-03 / RES-05: success → refresh; .sav retained (no remove)
+-- NXSAV-03 / RES-05: success → refresh; bytes kept as *.sav.imported (not re-scanned)
 ri = freshImporter()
 importCalls = {}
 removed = {}
@@ -198,11 +217,38 @@ eq(importCalls[1].source, "imports/saves/good.sav", "importToSlot receives inbox
 eq(importCalls[1].version, "red", "importToSlot uses panel version")
 check(ri._refreshed and ri._refreshed >= 1, "success refreshes slots")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "success sets ok notice")
-check(not removed["imports/saves/good.sav"], "RES-05: success retains inbox .sav")
-check(love.filesystem.read("imports/saves/good.sav") == "GOODSAV",
-  "RES-05: success leaves .sav bytes in inbox")
+check(ri.saveNotice.red.text:find("Pokemon Red", 1, true)
+    or ri.saveNotice.red.text:find("Red", 1, true),
+  "success notice names the game tab")
+check(love.filesystem.getInfo("imports/saves/good.sav") == nil,
+  "RES-05: success retires live .sav (no longer a candidate)")
+check(love.filesystem.read("imports/saves/good.sav.imported") == "GOODSAV",
+  "RES-05: success keeps bytes under .sav.imported")
+check(love.filesystem.getInfo("imports/saves/.imported-sha1") ~= nil,
+  "success records content hash ledger")
 
--- NXSAV-04 / RES-05: failure → clear notice; .sav retained
+-- Re-press Import save must not clone slots (hash ledger + retired file)
+ri = freshImporter()
+importCalls = {}
+love.filesystem.write("imports/saves/again.sav", "SAMEBYTES")
+importBehavior["imports/saves/again.sav"] = { ok = true, id = "slot-1" }
+ri:rescanSavesAction("red")
+eq(#importCalls, 1, "first import of again.sav")
+-- Put the same bytes back under a new name (player re-copied / renamed)
+love.filesystem.write("imports/saves/again-copy.sav", "SAMEBYTES")
+importBehavior["imports/saves/again-copy.sav"] = { ok = true, id = "slot-clone" }
+importCalls = {}
+ri:rescanSavesAction("red")
+eq(#importCalls, 0, "harden: same content hash is not imported again")
+check(ri.saveNotice.red and ri.saveNotice.red.ok,
+  "harden: already-imported skip sets ok notice")
+check(ri.saveNotice.red.text:find("Already imported", 1, true)
+    or ri.saveNotice.red.text:find("skipped", 1, true),
+  "harden: notice explains skip")
+check(love.filesystem.getInfo("imports/saves/again-copy.sav") == nil,
+  "harden: leftover duplicate .sav is retired without importing")
+
+-- NXSAV-04 / RES-05: failure → clear notice; .sav retained as-is
 ri = freshImporter()
 importCalls = {}
 removed = {}
@@ -217,7 +263,7 @@ check(not removed["imports/saves/bad.sav"], "RES-05: failure does not remove inb
 check(love.filesystem.read("imports/saves/bad.sav") == "BADSAV",
   "RES-05: failure leaves .sav in inbox")
 
--- Mixed valid/invalid: attempt each; no .sav deleted
+-- Mixed valid/invalid: attempt each; bad retained, good retired
 ri = freshImporter()
 importCalls = {}
 removed = {}
@@ -227,13 +273,32 @@ importBehavior["imports/saves/a-bad.sav"] = { ok = false, err = "bad checksum" }
 importBehavior["imports/saves/b-good.sav"] = { ok = true, id = "slot-b" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 2, "mixed inbox attempts each .sav")
-check(not removed["imports/saves/a-bad.sav"], "mixed: bad .sav retained")
-check(not removed["imports/saves/b-good.sav"], "mixed: good .sav retained")
+check(love.filesystem.read("imports/saves/a-bad.sav") == "BAD",
+  "mixed: bad .sav retained")
+check(love.filesystem.getInfo("imports/saves/b-good.sav") == nil,
+  "mixed: good .sav retired")
+check(love.filesystem.read("imports/saves/b-good.sav.imported") == "GOOD",
+  "mixed: good bytes kept as .imported")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "mixed keeps overall success when one imports")
 check(ri.saveNotice.red.text:find("failed", 1, true),
   "mixed success notice still surfaces sibling failure")
 check(ri.saveNotice.red.text:find("bad checksum", 1, true),
   "mixed success notice includes the failure reason")
+
+-- Multi-success notice names count + active slot (not only last ok line)
+ri = freshImporter()
+importCalls = {}
+love.filesystem.write("imports/saves/one.sav", "ONE")
+love.filesystem.write("imports/saves/two.sav", "TWO")
+importBehavior["imports/saves/one.sav"] = { ok = true, id = "slot-one" }
+importBehavior["imports/saves/two.sav"] = { ok = true, id = "slot-two" }
+ri:rescanSavesAction("red")
+eq(#importCalls, 2, "multi-success imports each distinct .sav")
+check(ri.saveNotice.red.text:find("Imported 2 saves", 1, true),
+  "multi-success notice reports count")
+check(ri.saveNotice.red.text:find("Active:", 1, true),
+  "multi-success notice reports active slot")
+eq(ri.activeSlot.red, "slot-two", "multi-success leaves last import active")
 
 -- RES-03: Mac MTP AppleDouble (._*.sav) must not be import candidates
 ri = freshImporter()
@@ -424,6 +489,8 @@ clearSavesInbox()
 love.filesystem.remove("imports/other.sav")
 package.loaded["src.import.SaveFileIO"] = nil
 package.loaded["src.core.HostShell"] = nil
+love.data.hash = saved.hash
+love.data.encode = saved.encode
 love.system.getOS = saved.getOS
 love.system.openURL = nil
 love.filesystem.getSaveDirectory = saved.getSaveDirectory

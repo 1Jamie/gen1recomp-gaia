@@ -91,12 +91,12 @@
 - **Status**: active
 
 ### AD-012
-- **Decision**: On NX, raw Gen1 `.sav` import uses a writable inbox at `love.filesystem.getSaveDirectory()/imports/saves/` with **Import save** ensuring the dir and rescanning; export success surfaces `exports/` via an MTP path notice (no `openURL` / Open folder). Resilience guards RES-01..11 in `.specs/features/switch-save-sav-inbox/spec.md` apply (nested ensure, AppleDouble skip, retain inbox bytes, `isNX`-only branching, inbox isolation, non-silent notices).
-- **Reason**: love-nx has no usable Horizon file picker (same scar as AD-003/AD-006); players need MTP/SD/FTP parity for continuing cart/PC saves and pulling slots off-console.
-- **Trade-off**: Users must copy `.sav` into the shown inbox and pull exports manually; desktop/Android picker paths stay unchanged.
+- **Decision**: On NX, raw Gen1 `.sav` import uses a writable inbox at `love.filesystem.getSaveDirectory()/imports/saves/` with **Import save** ensuring the dir and rescanning into the **active game tab**; export success surfaces `exports/` via an MTP path notice (no `openURL` / Open folder). Resilience guards RES-01..11 apply. After a successful import the live `.sav` is retired to `*.sav.imported` and its content hash is recorded in `imports/saves/.imported-sha1` so re-press / same-bytes-new-name cannot clone slots; failures leave the original file.
+- **Reason**: love-nx has no usable Horizon file picker (same scar as AD-003/AD-006); players need MTP/SD/FTP parity for continuing cart/PC saves and pulling slots off-console. Unlimited re-import of a retained `.sav` was a slot-clone footgun.
+- **Trade-off**: Users must copy `.sav` into the shown inbox and pull exports manually; desktop/Android picker paths stay unchanged; retired `.imported` files may accumulate until the player deletes them.
 - **Scope**: RomImporter SAVE FILES on Switch, Switch install/transfer/development/launcher docs, `tests/rom_importer_nx_saves_inbox_test.lua`
 - **Date**: 2026-08-03
-- **Status**: active
+- **Status**: active (amended 2026-08-03 — retire + hash dedupe)
 
 ## Handoff
 

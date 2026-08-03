@@ -343,6 +343,10 @@ end
 local IMPORTS_DIR = "imports"
 local MODS_INBOX_DIR = "imports/mods"
 local SAVES_INBOX_DIR = "imports/saves"
+-- Ledger of successfully imported .sav content hashes (hidden → skipped by
+-- listSavPaths). Prevents re-pressing Import save from cloning slots when the
+-- same bytes are still in the inbox under a new name.
+local SAVES_IMPORTED_HASHES = SAVES_INBOX_DIR .. "/.imported-sha1"
 local ROM_BYTES = 1024 * 1024
 
 -- Strip only a validated sdmc:/ prefix for OpenMTP/DBI relative paths.
@@ -503,6 +507,38 @@ function RomImporter:scanSavesInbox()
   return listSavPaths(SAVES_INBOX_DIR)
 end
 
+local function loadImportedSavHashes()
+  local set = {}
+  local raw = love.filesystem.read(SAVES_IMPORTED_HASHES)
+  if type(raw) ~= "string" then return set end
+  for line in raw:gmatch("[^\r\n]+") do
+    local h = line:match("^(%x+)$")
+    if h then set[h] = true end
+  end
+  return set
+end
+
+local function appendImportedSavHash(hash)
+  if type(hash) ~= "string" or hash == "" then return end
+  local prev = love.filesystem.read(SAVES_IMPORTED_HASHES) or ""
+  if prev:find(hash, 1, true) then return end
+  love.filesystem.write(SAVES_IMPORTED_HASHES, prev .. hash .. "\n")
+end
+
+-- Keep bytes for the player (MTP recovery) but stop matching %.sav$ on rescan.
+local function retireImportedSav(path)
+  if type(path) ~= "string" or path == "" then return false end
+  local data = love.filesystem.read(path)
+  if type(data) ~= "string" then return false end
+  local dest = path .. ".imported"
+  if love.filesystem.getInfo(dest) then
+    dest = path .. ".imported." .. tostring(os.time())
+  end
+  if not love.filesystem.write(dest, data) then return false end
+  love.filesystem.remove(path)
+  return true
+end
+
 -- Rescan imports/mods/: install each .zip via _installMod / installZip.
 -- Never deletes inbox zips (success or failure). Empty inbox → MTP notice.
 function RomImporter:rescanModsAction()
@@ -546,8 +582,11 @@ function RomImporter:rescanModsAction()
   end
 end
 
--- Rescan imports/saves/: import each .sav via _importSave. Never deletes
--- inbox .sav files (success or failure). Empty / AppleDouble-only → MTP notice.
+-- Rescan imports/saves/: import each new .sav via _importSave.
+-- Failure retains the original .sav. Success records a content hash and
+-- retires the file to `*.sav.imported` so a second Import save cannot clone
+-- slots (bytes stay in the inbox for MTP recovery). Already-hashed content
+-- is skipped even under a new filename. Empty / AppleDouble-only → MTP notice.
 function RomImporter:rescanSavesAction(version)
   if self.workState == "working" then return end
   version = self:_resolveSaveVersion(version)
@@ -557,32 +596,58 @@ function RomImporter:rescanSavesAction(version)
     self:_setNxSavesInboxNotice(version)
     return
   end
-  local anyOk = false
-  local lastOk = nil
-  local lastFail = nil
-  local failCount = 0
+  local seenHashes = loadImportedSavHashes()
+  local okCount, failCount, skipCount = 0, 0, 0
+  local lastOk, lastFail = nil, nil
+  local gameLabel = GameVersion.info(version).displayName
   for _, path in ipairs(candidates) do
-    self:_importSave(version, path)
-    local notice = self.saveNotice and self.saveNotice[version]
-    if notice and notice.ok then
-      anyOk = true
-      lastOk = notice
+    local data = love.filesystem.read(path)
+    local hash = (type(data) == "string" and data ~= "") and sha1(data) or nil
+    if hash and seenHashes[hash] then
+      skipCount = skipCount + 1
+      -- Leftover live .sav after a prior success: retire without re-importing.
+      retireImportedSav(path)
     else
-      failCount = failCount + 1
-      lastFail = notice
+      self:_importSave(version, path)
+      local notice = self.saveNotice and self.saveNotice[version]
+      if notice and notice.ok then
+        okCount = okCount + 1
+        lastOk = notice
+        if hash then
+          seenHashes[hash] = true
+          appendImportedSavHash(hash)
+        end
+        retireImportedSav(path)
+      else
+        failCount = failCount + 1
+        lastFail = notice
+      end
     end
   end
-  if anyOk and lastFail then
-    local okText = (lastOk and lastOk.text) or "Imported"
-    local failText = (lastFail and lastFail.text) or "unknown error"
+  if okCount > 0 then
+    local okText
+    if okCount == 1 and lastOk then
+      okText = Strings("%s (%s tab)", lastOk.text, gameLabel)
+    else
+      okText = Strings("Imported %d saves into %s. Active: %s.",
+        okCount, gameLabel, tostring(self.activeSlot[version]))
+    end
+    if failCount > 0 then
+      local failText = (lastFail and lastFail.text) or "unknown error"
+      okText = Strings("%s\n(%d failed: %s)", okText, failCount, failText)
+    end
+    if skipCount > 0 then
+      okText = Strings("%s\n(%d already imported, skipped)", okText, skipCount)
+    end
+    self.saveNotice[version] = { ok = true, text = okText }
+  elseif failCount > 0 then
+    self.saveNotice[version] = lastFail
+  elseif skipCount > 0 then
     self.saveNotice[version] = {
       ok = true,
-      text = Strings("%s\n(%d failed: %s)", okText, failCount, failText),
+      text = Strings("Already imported — %d file(s) skipped. Check SAVE SLOT.",
+        skipCount),
     }
-  elseif anyOk then
-    self.saveNotice[version] = lastOk
-  elseif lastFail then
-    self.saveNotice[version] = lastFail
   end
 end
 
