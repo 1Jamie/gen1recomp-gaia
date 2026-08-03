@@ -342,6 +342,7 @@ end
 
 local IMPORTS_DIR = "imports"
 local MODS_INBOX_DIR = "imports/mods"
+local SAVES_INBOX_DIR = "imports/saves"
 local ROM_BYTES = 1024 * 1024
 
 -- Strip only a validated sdmc:/ prefix for OpenMTP/DBI relative paths.
@@ -374,6 +375,19 @@ function RomImporter:ensureModsInboxDir()
   return false
 end
 
+-- NX raw .sav inbox (separate from ROM dumps + mod zips). Parent imports/
+-- first — love.filesystem.createDirectory does not create nested parents.
+function RomImporter:ensureSavesInboxDir()
+  self:ensureImportsDir()
+  local info = love.filesystem.getInfo(SAVES_INBOX_DIR)
+  if info and info.type == "directory" then return true end
+  if info then return false end
+  if love.filesystem.createDirectory then
+    return love.filesystem.createDirectory(SAVES_INBOX_DIR)
+  end
+  return false
+end
+
 function RomImporter:_setNxInboxNotice(version)
   version = version or self.tab or "red"
   local saveDir = love.filesystem.getSaveDirectory()
@@ -393,6 +407,25 @@ function RomImporter:_setNxModsInboxNotice()
   self.modNotice = {
     ok = true,
     text = Strings("Copy your .zip into:\n%s/imports/mods/\nDBI MTP → 1: SD Card/%simports/mods/",
+      saveDir, rel),
+  }
+end
+
+function RomImporter:_resolveSaveVersion(version)
+  version = version or self.panelVersion or self.tab
+  if GameVersion.VERSIONS[version] then return version end
+  return self:_savedropTarget()
+end
+
+function RomImporter:_setNxSavesInboxNotice(version)
+  version = self:_resolveSaveVersion(version)
+  local saveDir = love.filesystem.getSaveDirectory()
+  local rel = RomImporter.mtpHintPath(saveDir)
+  if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+  self.saveNotice = self.saveNotice or {}
+  self.saveNotice[version] = {
+    ok = true,
+    text = Strings("Copy your .sav into:\n%s/imports/saves/\nDBI MTP → 1: SD Card/%simports/saves/",
       saveDir, rel),
   }
 end
@@ -429,6 +462,22 @@ local function listZipPaths(dir)
   return paths
 end
 
+local function listSavPaths(dir)
+  local paths = {}
+  for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+    -- Skip AppleDouble / hidden junk from Mac MTP (._foo.sav ends in .sav
+    -- but is not a real battery save — import would fail and invent noise).
+    if name:sub(1, 1) ~= "." then
+      local path = (dir == "" or dir == "/") and name or (dir .. "/" .. name)
+      if name:lower():match("%.sav$")
+          and love.filesystem.getInfo(path, "file") then
+        paths[#paths + 1] = path
+      end
+    end
+  end
+  return paths
+end
+
 function RomImporter:scanInbox(ready)
   ready = ready or self.ready
   local paths = {}
@@ -446,6 +495,12 @@ end
 function RomImporter:scanModsInbox()
   self:ensureModsInboxDir()
   return listZipPaths(MODS_INBOX_DIR)
+end
+
+-- NX saves inbox: only non-hidden *.sav under imports/saves/.
+function RomImporter:scanSavesInbox()
+  self:ensureSavesInboxDir()
+  return listSavPaths(SAVES_INBOX_DIR)
 end
 
 -- Rescan imports/mods/: install each .zip via _installMod / installZip.
@@ -488,6 +543,46 @@ function RomImporter:rescanModsAction()
     self.modNotice = lastOk
   elseif lastFail then
     self.modNotice = lastFail
+  end
+end
+
+-- Rescan imports/saves/: import each .sav via _importSave. Never deletes
+-- inbox .sav files (success or failure). Empty / AppleDouble-only → MTP notice.
+function RomImporter:rescanSavesAction(version)
+  if self.workState == "working" then return end
+  version = self:_resolveSaveVersion(version)
+  self:ensureSavesInboxDir()
+  local candidates = self:scanSavesInbox()
+  if #candidates == 0 then
+    self:_setNxSavesInboxNotice(version)
+    return
+  end
+  local anyOk = false
+  local lastOk = nil
+  local lastFail = nil
+  local failCount = 0
+  for _, path in ipairs(candidates) do
+    self:_importSave(version, path)
+    local notice = self.saveNotice and self.saveNotice[version]
+    if notice and notice.ok then
+      anyOk = true
+      lastOk = notice
+    else
+      failCount = failCount + 1
+      lastFail = notice
+    end
+  end
+  if anyOk and lastFail then
+    local okText = (lastOk and lastOk.text) or "Imported"
+    local failText = (lastFail and lastFail.text) or "unknown error"
+    self.saveNotice[version] = {
+      ok = true,
+      text = Strings("%s\n(%d failed: %s)", okText, failCount, failText),
+    }
+  elseif anyOk then
+    self.saveNotice[version] = lastOk
+  elseif lastFail then
+    self.saveNotice[version] = lastFail
   end
 end
 
