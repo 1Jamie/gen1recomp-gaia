@@ -28,6 +28,7 @@ local SWITCH_PATH_REGEX =
 
 local ci = read(".github/workflows/ci.yml")
 local release = read(".github/workflows/release.yml")
+local comment_wf = read(".github/workflows/switch-artifact-comment.yml")
 
 -- --- SWCI-01: path detector ---
 mustContain(ci, "switch-changes:", "ci.yml")
@@ -83,6 +84,19 @@ do
     and block:find("changed == 'true'", 1, true) ~= nil,
     "switch-build requires changed=true AND canonical repository")
 end
+
+-- --- SWCI-06 / SWCI-07: PR artifact comment workflow ---
+mustContain(comment_wf, "workflows: [ci]", "switch-artifact-comment")
+mustContain(comment_wf, "gen1recomp-switch-nro", "switch-artifact-comment")
+mustContain(comment_wf, "comment-tag: switch-build-result", "switch-artifact-comment")
+mustContain(comment_wf, "pull_request", "switch-artifact-comment")
+mustContain(comment_wf, "conclusion == 'success'", "switch-artifact-comment")
+mustContain(comment_wf, 'exit 0', "switch-artifact-comment no-op")
+mustContain(comment_wf, "**Commit**:", "switch-artifact-comment")
+mustContain(comment_wf, "**Build Time**:", "switch-artifact-comment")
+mustContain(comment_wf, "View workflow run", "switch-artifact-comment")
+mustContain(comment_wf, "izhangzhihao/delete-comment@master", "switch-artifact-comment")
+mustContain(comment_wf, "thollander/actions-comment-pull-request@v3", "switch-artifact-comment")
 
 -- --- SWCI-08: release Switch hard-fail (no continue-on-error on build/stage) ---
 do
