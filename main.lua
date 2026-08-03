@@ -209,6 +209,13 @@ function love.load(args)
   end
   love.graphics.setDefaultFilter("nearest", "nearest")
 
+  -- Apply the persisted Android orientation lock (#592) before the launcher
+  -- shows: SDL created the window with no orientation hint, so without this
+  -- the launcher would rotate freely until Game:applyOptions runs at boot.
+  -- No-op on desktop / iOS / when options.lua does not exist yet.
+  require("src.core.Orientation").applyOptions(
+    require("src.core.SaveData").loadOptions())
+
   -- Standalone editor.  A bare `--editor` run has no launcher behind it, so
   -- Close quits; --save points it at a specific file, otherwise it opens the
   -- default save path for POKEPORT_VERSION (Red unless overridden), whose

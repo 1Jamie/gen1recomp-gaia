@@ -70,6 +70,10 @@ function love.conf(t)
     -- just work.  FULL_SENSOR ignores the device's rotation lock, so
     -- GameActivity.setOrientationBis remaps it to FULL_USER after SDL has
     -- run: same orientations allowed, but auto-rotate being off now wins.
+    -- A persisted ORIENTATION lock (#592) overrides all of this after boot:
+    -- src/core/Orientation.lua sets SDL_HINT_ORIENTATIONS over the FFI and
+    -- re-triggers the request, from main.lua for the launcher and from
+    -- Game:applyOptions in game.
     -- iOS follows the Info.plist orientations
     -- (see mobile/ios/overlays/love-ios.plist, now portrait + landscape).
     t.window.resizable = true
