@@ -120,10 +120,10 @@ local function openEditor(version, slotId)
   require("src.import.CacheFs").mountVersion(version)
   editorVersion = version
   editorHost = Importer
-  -- NX: drop the launcher getPosition shim so the save editor sees the real
-  -- pointer / its own pad cursor. Desktop has no shim — no-op.
-  if Importer and Importer.parkNxPointerForHost then
-    Importer:parkNxPointerForHost()
+  -- Drop launcher pad/FlexLove so the save editor owns input (NX shim +
+  -- virtual cursor + system hand cursor). Desktop park is a light no-op.
+  if Importer and Importer.prepareOverlayHandoff then
+    Importer:prepareOverlayHandoff()
   end
   Importer = nil
   editorMode = true
@@ -151,6 +151,9 @@ function closeEditor()
   restoreWindow()
   Importer = editorHost
   editorHost = nil
+  if Importer and Importer.resumeAfterOverlay then
+    Importer:resumeAfterOverlay()
+  end
   if Importer and version and Importer.savesChanged then
     Importer:savesChanged(version)
   end
@@ -164,6 +167,9 @@ local closeTouchControlsEditor  -- forward declaration
 
 local function openTouchControlsEditor()
   touchEditorHost = Importer
+  if Importer and Importer.prepareOverlayHandoff then
+    Importer:prepareOverlayHandoff()
+  end
   Importer = nil
   TouchEditor = require("src.ui.TouchControlsEditor")
   TouchEditor.load({ onClose = function() closeTouchControlsEditor() end })
@@ -174,6 +180,9 @@ function closeTouchControlsEditor()
   TouchEditor = nil
   Importer = touchEditorHost
   touchEditorHost = nil
+  if Importer and Importer.resumeAfterOverlay then
+    Importer:resumeAfterOverlay()
+  end
 end
 
 local function bootGame(version)
@@ -398,7 +407,12 @@ function love.gamepadpressed(joystick, button)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.gamepadpressed then
+      return TouchEditor.gamepadpressed(joystick, button)
+    end
+    return
+  end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   Game:gamepadpressed(joystick, button)
 end
@@ -411,7 +425,12 @@ function love.gamepadreleased(joystick, button)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.gamepadreleased then
+      return TouchEditor.gamepadreleased(joystick, button)
+    end
+    return
+  end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   Game:gamepadreleased(joystick, button)
 end
@@ -424,7 +443,12 @@ function love.gamepadaxis(joystick, axis, value)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.gamepadaxis then
+      return TouchEditor.gamepadaxis(joystick, axis, value)
+    end
+    return
+  end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   Game:gamepadaxis(joystick, axis, value)
 end
@@ -437,7 +461,12 @@ function love.joystickpressed(joystick, button)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.joystickpressed then
+      return TouchEditor.joystickpressed(joystick, button)
+    end
+    return
+  end
   if Importer then return Importer:joystickpressed(joystick, button) end
   Game:joystickpressed(joystick, button)
 end
@@ -450,7 +479,12 @@ function love.joystickreleased(joystick, button)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.joystickreleased then
+      return TouchEditor.joystickreleased(joystick, button)
+    end
+    return
+  end
   if Importer then return Importer:joystickreleased(joystick, button) end
   Game:joystickreleased(joystick, button)
 end
@@ -463,7 +497,12 @@ function love.joystickaxis(joystick, axis, value)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.joystickaxis then
+      return TouchEditor.joystickaxis(joystick, axis, value)
+    end
+    return
+  end
   if Importer then return Importer:joystickaxis(joystick, axis, value) end
   Game:joystickaxis(joystick, axis, value)
 end
@@ -476,7 +515,12 @@ function love.joystickhat(joystick, hat, direction)
     end
     return
   end
-  if TouchEditor then return end
+  if TouchEditor then
+    if TouchEditor.joystickhat then
+      return TouchEditor.joystickhat(joystick, hat, direction)
+    end
+    return
+  end
   if Importer then return Importer:joystickhat(joystick, hat, direction) end
   Game:joystickhat(joystick, hat, direction)
 end

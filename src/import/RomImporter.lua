@@ -1166,13 +1166,16 @@ function RomImporter.new(onComplete, opts)
     end
   end
 
-  -- On Linux handhelds a gamepad is usually already connected at boot; arm
-  -- the virtual cursor immediately so the player does not have to press a
-  -- button before seeing something move.
-  if self.launcher and love.system.getOS() == "Linux"
-      and love.joystick and love.joystick.getJoystickCount
+  -- On Linux handhelds / NX a gamepad is usually already connected at boot;
+  -- arm the virtual cursor immediately so the player does not have to press a
+  -- button before seeing something move.  Desktop keeps the cursor latent
+  -- until the first stick bump so a plugged DualSense does not steal the mouse.
+  if self.launcher and love.joystick and love.joystick.getJoystickCount
       and love.joystick.getJoystickCount() > 0 then
-    self:_activatePadCursor()
+    local osName = (love.system and love.system.getOS and love.system.getOS()) or ""
+    if osName == "Linux" or self.isNX then
+      self:_activatePadCursor()
+    end
   end
 
   return self
@@ -1967,6 +1970,36 @@ function RomImporter:parkNxPointerForHost()
   if not self.isNX then return end
   self._padCursorActive = false
   self:_restoreNxPointerBridge()
+end
+
+-- Temporary overlay handoff (Edit Save / Touch Controls): restore the system
+-- arrow cursor, hide the virtual pad pointer, tear down FlexLove when the
+-- view is already loaded, and drop the NX getPosition shim.  Play uses
+-- resetPointerCursor + detach directly because it never returns here.
+function RomImporter:prepareOverlayHandoff()
+  resetPointerCursor(self)
+  self._padCursorActive = false
+  -- Avoid requiring LauncherView from headless unit tests (no luautf8).  In
+  -- a real session draw() has already loaded it, so detach runs normally.
+  if self._flex and package.loaded["src.import.LauncherView"] then
+    require("src.import.LauncherView").detach(self)
+  else
+    self._flex = nil
+    self:parkNxPointerForHost()
+  end
+end
+
+-- After an overlay closes: re-arm the pad cursor when a stick is already
+-- connected so NX / handhelds are not stranded without a pointer until the
+-- next stick bump (same class of bug as opening Touch Controls).
+function RomImporter:resumeAfterOverlay()
+  if not self.launcher then return end
+  if not (love.joystick and love.joystick.getJoystickCount) then return end
+  if love.joystick.getJoystickCount() <= 0 then return end
+  local osName = (love.system and love.system.getOS and love.system.getOS()) or ""
+  if osName == "Linux" or self.isNX then
+    self:_activatePadCursor()
+  end
 end
 
 function RomImporter:_cycleTab(delta)

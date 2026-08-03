@@ -156,6 +156,41 @@ do
   check(desk._padCursorActive, "desktop parkNxPointerForHost is a no-op")
 end
 
+-- ------- Overlay handoff / resume (Edit Save + Touch Controls)
+
+do
+  mouseX, mouseY = 9, 10
+  local imp = freshImporter(true)
+  imp.launcher = true
+  stickRight(imp, 3)
+  check(imp._padCursorActive, "pad active before overlay handoff")
+  check(imp._nxPointerBridge, "bridge on before overlay handoff")
+  imp:prepareOverlayHandoff()
+  check(not imp._padCursorActive, "prepareOverlayHandoff clears pad")
+  check(not imp._nxPointerBridge, "prepareOverlayHandoff clears NX bridge")
+  check(imp._flex == nil, "prepareOverlayHandoff clears flex without FlexLove")
+  local gx, gy = love.mouse.getPosition()
+  eq(gx, 9, "after overlay handoff getPosition is real mouse X")
+  eq(gy, 10, "after overlay handoff getPosition is real mouse Y")
+
+  local prevCount = love.joystick and love.joystick.getJoystickCount
+  love.joystick = love.joystick or {}
+  love.joystick.getJoystickCount = function() return 1 end
+  imp:resumeAfterOverlay()
+  check(imp._padCursorActive, "NX resumeAfterOverlay re-arms pad with a stick")
+  love.joystick.getJoystickCount = function() return 0 end
+  imp._padCursorActive = false
+  imp:resumeAfterOverlay()
+  check(not imp._padCursorActive, "resumeAfterOverlay stays latent with no stick")
+  love.joystick.getJoystickCount = prevCount
+
+  local desk = freshImporter(false)
+  desk.launcher = true
+  desk._padCursorActive = true
+  desk:prepareOverlayHandoff()
+  check(not desk._padCursorActive, "desktop prepareOverlayHandoff clears pad too")
+end
+
 -- ------- Desktop: setPosition still warps (unchanged path)
 
 do
@@ -228,6 +263,10 @@ do
     "RomImporter owns NX getPosition bridge")
   check(impSrc:find("function RomImporter:parkNxPointerForHost", 1, true) ~= nil,
     "RomImporter exports parkNxPointerForHost")
+  check(impSrc:find("function RomImporter:prepareOverlayHandoff", 1, true) ~= nil,
+    "RomImporter exports prepareOverlayHandoff")
+  check(impSrc:find("function RomImporter:resumeAfterOverlay", 1, true) ~= nil,
+    "RomImporter exports resumeAfterOverlay")
   check(impSrc:find("if not self.isNX then", 1, true) ~= nil,
     "NX skips desktop mouse-yield path")
   check(impSrc:find("if not self.isNX and love.mouse.setPosition", 1, true) ~= nil,
@@ -236,8 +275,10 @@ do
     "NX clamps pad cursor dt")
 
   local mainSrc = read("main.lua")
-  check(mainSrc:find("parkNxPointerForHost", 1, true) ~= nil,
-    "openEditor parks NX pointer before save editor")
+  check(mainSrc:find("prepareOverlayHandoff", 1, true) ~= nil,
+    "openEditor / Touch Controls use prepareOverlayHandoff")
+  check(mainSrc:find("resumeAfterOverlay", 1, true) ~= nil,
+    "close paths resume the launcher pad cursor")
 
   check(view:find("math.floor(x + 0.5)", 1, true) ~= nil,
     "NX pad cursor draw is pixel-snapped")
