@@ -44,7 +44,7 @@ the transfer runbook).
 - Loose assemble + fused NRO build scripts (`scripts/build_switch.sh`, `scripts/switch/*`)
 - Payload gates so ROM / generated cache / saves never enter `game.love`
 - Community mod zip inbox at `imports/mods/` (rescan installs; FIND MODS stays network-gated)
-- Raw `.sav` inbox at `imports/saves/` (**Import save** rescan) + export pull path `exports/` (MTP hint; no openURL)
+- Raw `.sav` inbox at `imports/saves/{red,blue,yellow}/` (**Import save** rescan) + export pull path `exports/{red,blue,yellow}/` (MTP hint; no openURL)
 - VoxelMod OPTIONS + Switch performance tips documented (WATER / 3D-BTL / extras)
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
 - Path-gated CI selftest + canonical fused PR artifact; release Switch hard-fail
@@ -370,7 +370,7 @@ Community mods install from a **separate** MTP inbox (not mixed into the ROM `im
 
 Do **not** commit third-party mod zip bytes into git. Drop the zip over MTP, rescan, enable in MODS, then Play.
 
-**MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb` / `._foo.sav`. Those are not real archives, ROMs, or saves — the launcher ignores hidden `.*` names under `imports/`, `imports/mods/`, and `imports/saves/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
+**MTP tip (esp. macOS clients):** OpenMTP/Finder often creates AppleDouble sidecars named `._Something.zip` / `._cart.gb` / `._foo.sav`. Those are not real archives, ROMs, or saves — the launcher ignores hidden `.*` names under `imports/`, `imports/mods/`, and `imports/saves/<game>/`. If install still fails with “could not be opened” / “not a zip file”, delete any `._*` under the inbox and confirm the real zip starts with the `PK` magic (re-copy the release asset if unsure). This is a host-side annoyance of the current manual MTP loop, not something players should need forever.
 
 **Example zip source:** [DramaticShape VoxelMod releases](https://github.com/DramaticShape/DramaticShapeVoxelMod/releases) — download a release `.zip`, copy into `imports/mods/`, rescan, enable. Player-facing install + performance tips: [switch-install.md](switch-install.md#community-mods-voxelmod).
 
@@ -380,14 +380,14 @@ Raw Gen1 battery images use a **separate** MTP inbox (not mixed into ROM `import
 
 | Item | Value |
 | ---- | ----- |
-| Save-relative path | `imports/saves/` |
-| MTP destination | `1: SD Card/<save identity>/imports/saves/` (see launcher notice for the live `getSaveDirectory()` path) |
-| Candidates | non-hidden `*.sav` only |
-| Rescan | SAVE FILES → **Import save** on the matching game tab (imports each *new* `.sav` via `SaveFileIO.importToSlot` into **that tab’s** slots) |
-| After success | Retire to `*.sav.imported` + append content hash to `imports/saves/.imported-sha1` (re-press / same bytes under a new name → skip, no clone slots). Failures leave the original `.sav` |
-| Exports | **Export save** writes under `exports/`; NX shows an MTP path notice (no `openURL` / Open folder) |
+| Save-relative path | `imports/saves/red/`, `imports/saves/blue/`, `imports/saves/yellow/` |
+| MTP destination | `1: SD Card/<save identity>/imports/saves/<game>/` (see launcher notice for the live `getSaveDirectory()` path) |
+| Candidates | non-hidden `*.sav` only in **that game’s** folder |
+| Rescan | SAVE FILES → **Import save** on the matching game tab (scans only that folder) |
+| After success | Retire to `*.sav.imported` + append content hash to `imports/saves/<game>/.imported-sha1` |
+| Exports | **Export save** writes under `exports/<game>/gen1recomp-<game>-<slot>.sav`; NX shows an MTP path notice (no `openURL`) |
 
-Do **not** commit `.sav` bytes into git. Drop the file over MTP, press **Import save** on the correct game tab, then play from the new slot. Pull exports from `exports/` the same way.
+Do **not** commit `.sav` bytes into git. Drop the file into the matching game folder over MTP, press **Import save** on that tab, then play. Pull exports from `exports/<game>/`.
 
 **MTP tip:** the same AppleDouble `._*.sav` rule applies — see the mod inbox tip above.
 

@@ -67,18 +67,23 @@ you can replace only the `.nro` and keep your progress.
 ## 5. Import / Export a raw `.sav`
 
 Continue a cart or PC battery save (or pull a slot off-console) via MTP /
-SD / FTP — same transfer methods as ROMs:
+SD / FTP — same transfer methods as ROMs. Paths are **per game**:
 
-1. Copy a Gen1 `.sav` (32 KB) into the save-dir **`imports/saves/`** path the
-   launcher shows ([switch-transfer.md](switch-transfer.md)).
-2. With the game’s ROM already imported, open that game’s tab → **SAVE FILES**
-   → **Import save**. The launcher rescans the inbox into **this tab’s**
-   slots (Red vs Blue matter — use the matching game tab).
+| Game | Import inbox | Export folder |
+| ---- | ------------ | ------------- |
+| Red | `imports/saves/red/` | `exports/red/` |
+| Blue | `imports/saves/blue/` | `exports/blue/` |
+| Yellow | `imports/saves/yellow/` | `exports/yellow/` |
+
+1. Copy a Gen1 `.sav` (32 KB) into that game’s inbox under the save dir
+   ([switch-transfer.md](switch-transfer.md)).
+2. With the game’s ROM already imported, open **that game’s tab** →
+   **SAVE FILES** → **Import save**. Only that folder is scanned.
 3. A successful import retires the file to `*.sav.imported` and records its
    content hash so pressing **Import save** again does not clone slots.
    Failed imports leave the original `.sav` in place.
 4. To pull a slot off the console, use **Export save**, then copy the file
-   from **`exports/`** in the same save directory via MTP / SD / FTP.
+   from that game’s **`exports/<game>/`** folder via MTP / SD / FTP.
 
 Do not put `.sav` files into git. Prefer clean copies — some MTP clients
 create `._*.sav` AppleDouble sidecars that are not real saves.

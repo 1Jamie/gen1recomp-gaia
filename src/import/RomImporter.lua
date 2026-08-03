@@ -343,11 +343,19 @@ end
 local IMPORTS_DIR = "imports"
 local MODS_INBOX_DIR = "imports/mods"
 local SAVES_INBOX_DIR = "imports/saves"
--- Ledger of successfully imported .sav content hashes (hidden → skipped by
--- listSavPaths). Prevents re-pressing Import save from cloning slots when the
--- same bytes are still in the inbox under a new name.
-local SAVES_IMPORTED_HASHES = SAVES_INBOX_DIR .. "/.imported-sha1"
 local ROM_BYTES = 1024 * 1024
+
+local function savesInboxDir(version)
+  return SAVES_INBOX_DIR .. "/" .. tostring(version)
+end
+
+local function savesImportedHashesPath(version)
+  return savesInboxDir(version) .. "/.imported-sha1"
+end
+
+local function exportsDir(version)
+  return "exports/" .. tostring(version)
+end
 
 -- Strip only a validated sdmc:/ prefix for OpenMTP/DBI relative paths.
 function RomImporter.mtpHintPath(saveDir)
@@ -379,17 +387,31 @@ function RomImporter:ensureModsInboxDir()
   return false
 end
 
--- NX raw .sav inbox (separate from ROM dumps + mod zips). Parent imports/
--- first — love.filesystem.createDirectory does not create nested parents.
-function RomImporter:ensureSavesInboxDir()
+-- NX raw .sav inbox per game: imports/saves/{red,blue,yellow}/.
+-- Parent imports/ then imports/saves/ first — createDirectory is not nested.
+-- Creates all three version folders so MTP browsing shows where each game goes.
+function RomImporter:ensureSavesInboxDir(version)
   self:ensureImportsDir()
   local info = love.filesystem.getInfo(SAVES_INBOX_DIR)
-  if info and info.type == "directory" then return true end
-  if info then return false end
-  if love.filesystem.createDirectory then
-    return love.filesystem.createDirectory(SAVES_INBOX_DIR)
+  if info and info.type ~= "directory" then return false end
+  if not info then
+    if not (love.filesystem.createDirectory
+        and love.filesystem.createDirectory(SAVES_INBOX_DIR)) then
+      return false
+    end
   end
-  return false
+  for v in pairs(GameVersion.VERSIONS) do
+    local dir = savesInboxDir(v)
+    local vInfo = love.filesystem.getInfo(dir)
+    if vInfo and vInfo.type ~= "directory" then return false end
+    if not vInfo then
+      if not (love.filesystem.createDirectory
+          and love.filesystem.createDirectory(dir)) then
+        return false
+      end
+    end
+  end
+  return true
 end
 
 function RomImporter:_setNxInboxNotice(version)
@@ -423,14 +445,16 @@ end
 
 function RomImporter:_setNxSavesInboxNotice(version)
   version = self:_resolveSaveVersion(version)
+  local inbox = savesInboxDir(version)
   local saveDir = love.filesystem.getSaveDirectory()
   local rel = RomImporter.mtpHintPath(saveDir)
   if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+  local game = GameVersion.info(version).displayName
   self.saveNotice = self.saveNotice or {}
   self.saveNotice[version] = {
     ok = true,
-    text = Strings("Copy your .sav into:\n%s/imports/saves/\nDBI MTP → 1: SD Card/%simports/saves/",
-      saveDir, rel),
+    text = Strings("Copy your %s .sav into:\n%s/%s/\nDBI MTP → 1: SD Card/%s%s/",
+      game, saveDir, inbox, rel, inbox),
   }
 end
 
@@ -501,15 +525,16 @@ function RomImporter:scanModsInbox()
   return listZipPaths(MODS_INBOX_DIR)
 end
 
--- NX saves inbox: only non-hidden *.sav under imports/saves/.
-function RomImporter:scanSavesInbox()
-  self:ensureSavesInboxDir()
-  return listSavPaths(SAVES_INBOX_DIR)
+-- NX saves inbox: only non-hidden *.sav under imports/saves/<version>/.
+function RomImporter:scanSavesInbox(version)
+  version = self:_resolveSaveVersion(version)
+  self:ensureSavesInboxDir(version)
+  return listSavPaths(savesInboxDir(version))
 end
 
-local function loadImportedSavHashes()
+local function loadImportedSavHashes(version)
   local set = {}
-  local raw = love.filesystem.read(SAVES_IMPORTED_HASHES)
+  local raw = love.filesystem.read(savesImportedHashesPath(version))
   if type(raw) ~= "string" then return set end
   for line in raw:gmatch("[^\r\n]+") do
     local h = line:match("^(%x+)$")
@@ -518,11 +543,12 @@ local function loadImportedSavHashes()
   return set
 end
 
-local function appendImportedSavHash(hash)
+local function appendImportedSavHash(version, hash)
   if type(hash) ~= "string" or hash == "" then return end
-  local prev = love.filesystem.read(SAVES_IMPORTED_HASHES) or ""
+  local path = savesImportedHashesPath(version)
+  local prev = love.filesystem.read(path) or ""
   if prev:find(hash, 1, true) then return end
-  love.filesystem.write(SAVES_IMPORTED_HASHES, prev .. hash .. "\n")
+  love.filesystem.write(path, prev .. hash .. "\n")
 end
 
 -- Keep bytes for the player (MTP recovery) but stop matching %.sav$ on rescan.
@@ -582,21 +608,21 @@ function RomImporter:rescanModsAction()
   end
 end
 
--- Rescan imports/saves/: import each new .sav via _importSave.
--- Failure retains the original .sav. Success records a content hash and
--- retires the file to `*.sav.imported` so a second Import save cannot clone
+-- Rescan imports/saves/<version>/: import each new .sav via _importSave.
+-- Failure retains the original .sav. Success records a per-game content hash
+-- and retires the file to `*.sav.imported` so a second Import save cannot clone
 -- slots (bytes stay in the inbox for MTP recovery). Already-hashed content
 -- is skipped even under a new filename. Empty / AppleDouble-only → MTP notice.
 function RomImporter:rescanSavesAction(version)
   if self.workState == "working" then return end
   version = self:_resolveSaveVersion(version)
-  self:ensureSavesInboxDir()
-  local candidates = self:scanSavesInbox()
+  self:ensureSavesInboxDir(version)
+  local candidates = self:scanSavesInbox(version)
   if #candidates == 0 then
     self:_setNxSavesInboxNotice(version)
     return
   end
-  local seenHashes = loadImportedSavHashes()
+  local seenHashes = loadImportedSavHashes(version)
   local okCount, failCount, skipCount = 0, 0, 0
   local lastOk, lastFail = nil, nil
   local gameLabel = GameVersion.info(version).displayName
@@ -615,7 +641,7 @@ function RomImporter:rescanSavesAction(version)
         lastOk = notice
         if hash then
           seenHashes[hash] = true
-          appendImportedSavHash(hash)
+          appendImportedSavHash(version, hash)
         end
         retireImportedSav(path)
       else
@@ -1504,7 +1530,7 @@ function RomImporter:chooseSaveImport(version)
   if self.workState == "working" then return end
   version = self:_resolveSaveVersion(version)
   if self.isNX then
-    self:ensureSavesInboxDir()
+    self:ensureSavesInboxDir(version)
     self:rescanSavesAction(version)
     return
   end
@@ -1560,14 +1586,16 @@ function RomImporter:exportSave(version)
     local saveDir = love.filesystem.getSaveDirectory()
     local rel = RomImporter.mtpHintPath(saveDir)
     if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
+    local outDir = exportsDir(version)
     self.saveNotice[version] = {
       ok = true,
-      text = Strings("Exported to %s\nDBI MTP → 1: SD Card/%sexports/", res, rel),
+      text = Strings("Exported to %s\nDBI MTP → 1: SD Card/%s%s/", res, rel, outDir),
     }
     return
   end
   if self.android then
-    local rel = res:match("exports[/\\][^/\\]+$")
+    local rel = res:match("(exports[/\\].+%.[Ss][Aa][Vv])$")
+      or res:match("(exports[/\\].+)$")
     local data = rel and love.filesystem.read(rel)
     if not data then
       self.saveNotice[version] = { ok = false,
@@ -3834,7 +3862,7 @@ function RomImporter:_drawGamePanel(version, x, y, w, h, paged)
   elseif locked then
     sfHintText, sfHintCol = "Not available yet.", PAL.warning
   elseif self.isNX then
-    sfHintText, sfHintCol = self:_savesDefaultHint(), PAL.warning
+    sfHintText, sfHintCol = self:_savesDefaultHint(version), PAL.warning
   elseif self.android then
     sfHintText, sfHintCol =
       "Import or export a .sav with the system file picker.", PAL.warning
@@ -4769,13 +4797,16 @@ function RomImporter:_modsDefaultHint()
   return Strings("Or drop a mod .zip onto the window.")
 end
 
-function RomImporter:_savesDefaultHint()
+function RomImporter:_savesDefaultHint(version)
   if self.isNX then
+    version = self:_resolveSaveVersion(version)
+    local inbox = savesInboxDir(version)
     local saveDir = love.filesystem.getSaveDirectory()
     local rel = RomImporter.mtpHintPath(saveDir)
     if rel ~= "" and rel:sub(-1) ~= "/" then rel = rel .. "/" end
-    return Strings("Copy a .sav via MTP into %s/imports/saves/\n"
-      .. "DBI MTP → 1: SD Card/%simports/saves/", saveDir, rel)
+    local game = GameVersion.info(version).displayName
+    return Strings("Copy a %s .sav via MTP into %s/%s/\n"
+      .. "DBI MTP → 1: SD Card/%s%s/", game, saveDir, inbox, rel, inbox)
   end
   if self.android then
     return "Import or export a .sav with the system file picker."

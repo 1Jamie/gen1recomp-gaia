@@ -59,6 +59,13 @@ package.loaded["src.import.RomImporter"] = nil
 RomImporter = require("src.import.RomImporter")
 
 local function clearSavesInbox()
+  for _, ver in ipairs({ "red", "blue", "yellow" }) do
+    local dir = "imports/saves/" .. ver
+    for _, name in ipairs(love.filesystem.getDirectoryItems(dir) or {}) do
+      love.filesystem.remove(dir .. "/" .. name)
+    end
+    love.filesystem.remove(dir .. "/.imported-sha1")
+  end
   for _, name in ipairs(love.filesystem.getDirectoryItems("imports/saves") or {}) do
     love.filesystem.remove("imports/saves/" .. name)
   end
@@ -68,7 +75,6 @@ local function clearSavesInbox()
   for _, name in ipairs(love.filesystem.getDirectoryItems("imports") or {}) do
     love.filesystem.remove("imports/" .. name)
   end
-  love.filesystem.remove("imports/saves/.imported-sha1")
 end
 
 local function freshImporter()
@@ -115,42 +121,48 @@ local ri = freshImporter()
 eq(ri.isNX, true, "RES-07: fixture isNX=true")
 eq(ri.android, false, "RES-07: fixture android=false")
 
--- RES-01: ensureSavesInboxDir creates imports/ then imports/saves/
--- Parent must be ensured first (nested createDirectory fails without it on NX).
+-- RES-01: ensureSavesInboxDir creates imports/, imports/saves/, and per-game dirs
 createdDirs = {}
 ri = freshImporter()
-ri:ensureSavesInboxDir()
+ri:ensureSavesInboxDir("red")
 check(createdDirs.imports == true,
   "RES-01: ensureSavesInboxDir creates parent imports/")
 check(createdDirs["imports/saves"] == true,
   "RES-01: ensureSavesInboxDir creates imports/saves/")
+check(createdDirs["imports/saves/red"] == true,
+  "RES-01: ensureSavesInboxDir creates imports/saves/red/")
+check(createdDirs["imports/saves/blue"] == true,
+  "RES-01: ensureSavesInboxDir creates imports/saves/blue/")
+check(createdDirs["imports/saves/yellow"] == true,
+  "RES-01: ensureSavesInboxDir creates imports/saves/yellow/")
 
--- NXSAV-02: notice/hint includes save dir + relative imports/saves/ MTP path
+-- NXSAV-02: notice/hint includes save dir + per-game imports/saves/<version>/ MTP path
 ri = freshImporter()
 ri:_setNxSavesInboxNotice("red")
 check(ri.saveNotice.red ~= nil, "NX saves inbox notice is set")
-check(ri.saveNotice.red.text:find("sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/", 1, true),
-  "saves notice contains runtime save path + imports/saves/")
+check(ri.saveNotice.red.text:find("sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/red/", 1, true),
+  "saves notice contains runtime save path + imports/saves/red/")
 check(ri.saveNotice.red.text:find("DBI MTP", 1, true) ~= nil,
   "saves notice contains OpenMTP-oriented hint")
-check(ri.saveNotice.red.text:find("switch/gen1recomp/pokemon-love2d/imports/saves/", 1, true),
-  "hint uses sdmc-stripped relative imports/saves/ path")
+check(ri.saveNotice.red.text:find("imports/saves/red/", 1, true),
+  "hint uses per-game imports/saves/red/ path")
 
--- NXSAV-01 / RES-08: scanSavesInbox returns only *.sav under imports/saves/
+-- NXSAV-01 / RES-08: scanSavesInbox returns only *.sav under imports/saves/<version>/
 ri = freshImporter()
-love.filesystem.write("imports/saves/valid.sav", string.rep("S", 32))
-love.filesystem.write("imports/saves/readme.txt", "nope")
-love.filesystem.write("imports/saves/cart.gb", string.rep("R", 16))
-love.filesystem.write("imports/saves/pack.zip", "ZIP")
+love.filesystem.write("imports/saves/red/valid.sav", string.rep("S", 32))
+love.filesystem.write("imports/saves/red/readme.txt", "nope")
+love.filesystem.write("imports/saves/red/cart.gb", string.rep("R", 16))
+love.filesystem.write("imports/saves/red/pack.zip", "ZIP")
+love.filesystem.write("imports/saves/blue/other.sav", "WRONGGAME")
 love.filesystem.write("imports/other.sav", "WRONGDIR")
-local savs = ri:scanSavesInbox()
-eq(#savs, 1, "scanSavesInbox returns one .sav candidate")
-eq(savs[1], "imports/saves/valid.sav", "scanSavesInbox path is under imports/saves/")
+local savs = ri:scanSavesInbox("red")
+eq(#savs, 1, "scanSavesInbox returns one .sav candidate for red")
+eq(savs[1], "imports/saves/red/valid.sav", "scanSavesInbox path is under imports/saves/red/")
 
 -- RES-08: ROM scanInbox must not treat imports/saves/*.sav as ROM
 ri = freshImporter()
-love.filesystem.write("imports/saves/cart.sav", string.rep("S", 32))
-love.filesystem.write("imports/saves/dump.gb", string.rep("G", 16))
+love.filesystem.write("imports/saves/red/cart.sav", string.rep("S", 32))
+love.filesystem.write("imports/saves/red/dump.gb", string.rep("G", 16))
 local roms = ri:scanInbox(ri.ready)
 for _, path in ipairs(roms) do
   check(not path:lower():match("%.sav$"),
@@ -163,7 +175,7 @@ end
 ri = freshImporter()
 ri:ensureModsInboxDir()
 love.filesystem.write("imports/mods/mod.zip", "ZIP")
-love.filesystem.write("imports/saves/slot.sav", string.rep("S", 32))
+love.filesystem.write("imports/saves/red/slot.sav", string.rep("S", 32))
 local zips = ri:scanModsInbox()
 for _, path in ipairs(zips) do
   check(not path:lower():match("%.sav$"),
@@ -193,50 +205,50 @@ importCalls = {}
 ri:rescanSavesAction("red")
 eq(#importCalls, 0, "empty saves inbox does not call importToSlot")
 check(ri.saveNotice.red ~= nil, "RES-04: empty rescan sets saveNotice")
-check(ri.saveNotice.red.text:find("imports/saves/", 1, true),
+check(ri.saveNotice.red.text:find("imports/saves/red/", 1, true),
   "empty rescan shows saves MTP notice")
 
 -- RES-02: AppleDouble-only inbox ≡ empty
 ri = freshImporter()
 importCalls = {}
-love.filesystem.write("imports/saves/._foo.sav", "APPL")
+love.filesystem.write("imports/saves/red/._foo.sav", "APPL")
 ri:rescanSavesAction("red")
 eq(#importCalls, 0, "RES-02: AppleDouble-only does not import")
-check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/", 1, true),
+check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/red/", 1, true),
   "RES-02: AppleDouble-only shows MTP notice")
 
 -- NXSAV-03 / RES-05: success → refresh; bytes kept as *.sav.imported (not re-scanned)
 ri = freshImporter()
 importCalls = {}
 removed = {}
-love.filesystem.write("imports/saves/good.sav", "GOODSAV")
-importBehavior["imports/saves/good.sav"] = { ok = true, id = "slot-good" }
+love.filesystem.write("imports/saves/red/good.sav", "GOODSAV")
+importBehavior["imports/saves/red/good.sav"] = { ok = true, id = "slot-good" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 1, "success path calls importToSlot once")
-eq(importCalls[1].source, "imports/saves/good.sav", "importToSlot receives inbox path")
+eq(importCalls[1].source, "imports/saves/red/good.sav", "importToSlot receives inbox path")
 eq(importCalls[1].version, "red", "importToSlot uses panel version")
 check(ri._refreshed and ri._refreshed >= 1, "success refreshes slots")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "success sets ok notice")
 check(ri.saveNotice.red.text:find("Pokemon Red", 1, true)
     or ri.saveNotice.red.text:find("Red", 1, true),
   "success notice names the game tab")
-check(love.filesystem.getInfo("imports/saves/good.sav") == nil,
+check(love.filesystem.getInfo("imports/saves/red/good.sav") == nil,
   "RES-05: success retires live .sav (no longer a candidate)")
-check(love.filesystem.read("imports/saves/good.sav.imported") == "GOODSAV",
+check(love.filesystem.read("imports/saves/red/good.sav.imported") == "GOODSAV",
   "RES-05: success keeps bytes under .sav.imported")
-check(love.filesystem.getInfo("imports/saves/.imported-sha1") ~= nil,
+check(love.filesystem.getInfo("imports/saves/red/.imported-sha1") ~= nil,
   "success records content hash ledger")
 
 -- Re-press Import save must not clone slots (hash ledger + retired file)
 ri = freshImporter()
 importCalls = {}
-love.filesystem.write("imports/saves/again.sav", "SAMEBYTES")
-importBehavior["imports/saves/again.sav"] = { ok = true, id = "slot-1" }
+love.filesystem.write("imports/saves/red/again.sav", "SAMEBYTES")
+importBehavior["imports/saves/red/again.sav"] = { ok = true, id = "slot-1" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 1, "first import of again.sav")
 -- Put the same bytes back under a new name (player re-copied / renamed)
-love.filesystem.write("imports/saves/again-copy.sav", "SAMEBYTES")
-importBehavior["imports/saves/again-copy.sav"] = { ok = true, id = "slot-clone" }
+love.filesystem.write("imports/saves/red/again-copy.sav", "SAMEBYTES")
+importBehavior["imports/saves/red/again-copy.sav"] = { ok = true, id = "slot-clone" }
 importCalls = {}
 ri:rescanSavesAction("red")
 eq(#importCalls, 0, "harden: same content hash is not imported again")
@@ -245,39 +257,39 @@ check(ri.saveNotice.red and ri.saveNotice.red.ok,
 check(ri.saveNotice.red.text:find("Already imported", 1, true)
     or ri.saveNotice.red.text:find("skipped", 1, true),
   "harden: notice explains skip")
-check(love.filesystem.getInfo("imports/saves/again-copy.sav") == nil,
+check(love.filesystem.getInfo("imports/saves/red/again-copy.sav") == nil,
   "harden: leftover duplicate .sav is retired without importing")
 
 -- NXSAV-04 / RES-05: failure → clear notice; .sav retained as-is
 ri = freshImporter()
 importCalls = {}
 removed = {}
-love.filesystem.write("imports/saves/bad.sav", "BADSAV")
-importBehavior["imports/saves/bad.sav"] = { ok = false, err = "save file must be 32768 bytes" }
+love.filesystem.write("imports/saves/red/bad.sav", "BADSAV")
+importBehavior["imports/saves/red/bad.sav"] = { ok = false, err = "save file must be 32768 bytes" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 1, "failure path still attempts importToSlot")
 check(ri.saveNotice.red and not ri.saveNotice.red.ok, "failure sets clear error notice")
 check(ri.saveNotice.red.text:find("32768", 1, true),
   "failure notice includes import error")
-check(not removed["imports/saves/bad.sav"], "RES-05: failure does not remove inbox .sav")
-check(love.filesystem.read("imports/saves/bad.sav") == "BADSAV",
+check(not removed["imports/saves/red/bad.sav"], "RES-05: failure does not remove inbox .sav")
+check(love.filesystem.read("imports/saves/red/bad.sav") == "BADSAV",
   "RES-05: failure leaves .sav in inbox")
 
 -- Mixed valid/invalid: attempt each; bad retained, good retired
 ri = freshImporter()
 importCalls = {}
 removed = {}
-love.filesystem.write("imports/saves/a-bad.sav", "BAD")
-love.filesystem.write("imports/saves/b-good.sav", "GOOD")
-importBehavior["imports/saves/a-bad.sav"] = { ok = false, err = "bad checksum" }
-importBehavior["imports/saves/b-good.sav"] = { ok = true, id = "slot-b" }
+love.filesystem.write("imports/saves/red/a-bad.sav", "BAD")
+love.filesystem.write("imports/saves/red/b-good.sav", "GOOD")
+importBehavior["imports/saves/red/a-bad.sav"] = { ok = false, err = "bad checksum" }
+importBehavior["imports/saves/red/b-good.sav"] = { ok = true, id = "slot-b" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 2, "mixed inbox attempts each .sav")
-check(love.filesystem.read("imports/saves/a-bad.sav") == "BAD",
+check(love.filesystem.read("imports/saves/red/a-bad.sav") == "BAD",
   "mixed: bad .sav retained")
-check(love.filesystem.getInfo("imports/saves/b-good.sav") == nil,
+check(love.filesystem.getInfo("imports/saves/red/b-good.sav") == nil,
   "mixed: good .sav retired")
-check(love.filesystem.read("imports/saves/b-good.sav.imported") == "GOOD",
+check(love.filesystem.read("imports/saves/red/b-good.sav.imported") == "GOOD",
   "mixed: good bytes kept as .imported")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "mixed keeps overall success when one imports")
 check(ri.saveNotice.red.text:find("failed", 1, true),
@@ -288,10 +300,10 @@ check(ri.saveNotice.red.text:find("bad checksum", 1, true),
 -- Multi-success notice names count + active slot (not only last ok line)
 ri = freshImporter()
 importCalls = {}
-love.filesystem.write("imports/saves/one.sav", "ONE")
-love.filesystem.write("imports/saves/two.sav", "TWO")
-importBehavior["imports/saves/one.sav"] = { ok = true, id = "slot-one" }
-importBehavior["imports/saves/two.sav"] = { ok = true, id = "slot-two" }
+love.filesystem.write("imports/saves/red/one.sav", "ONE")
+love.filesystem.write("imports/saves/red/two.sav", "TWO")
+importBehavior["imports/saves/red/one.sav"] = { ok = true, id = "slot-one" }
+importBehavior["imports/saves/red/two.sav"] = { ok = true, id = "slot-two" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 2, "multi-success imports each distinct .sav")
 check(ri.saveNotice.red.text:find("Imported 2 saves", 1, true),
@@ -303,12 +315,12 @@ eq(ri.activeSlot.red, "slot-two", "multi-success leaves last import active")
 -- RES-03: Mac MTP AppleDouble (._*.sav) must not be import candidates
 ri = freshImporter()
 importCalls = {}
-love.filesystem.write("imports/saves/._cart.sav", "APPL")
-love.filesystem.write("imports/saves/cart.sav", "GOOD")
-importBehavior["imports/saves/cart.sav"] = { ok = true, id = "slot-cart" }
+love.filesystem.write("imports/saves/red/._cart.sav", "APPL")
+love.filesystem.write("imports/saves/red/cart.sav", "GOOD")
+importBehavior["imports/saves/red/cart.sav"] = { ok = true, id = "slot-cart" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 1, "RES-03: AppleDouble ._*.sav is skipped")
-eq(importCalls[1].source, "imports/saves/cart.sav",
+eq(importCalls[1].source, "imports/saves/red/cart.sav",
   "only the real .sav is imported")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "AppleDouble skip still shows import success")
 check(not (ri.saveNotice.red.text or ""):find("failed", 1, true),
@@ -339,13 +351,13 @@ eq(hostShellCalls, 0, "RES-06: NX chooseSaveImport does not require HostShell")
 ri = freshImporter()
 importCalls = {}
 hostShellCalls = 0
-love.filesystem.write("imports/saves/from-choose.sav", "CHOOSE")
-importBehavior["imports/saves/from-choose.sav"] = { ok = true, id = "slot-choose" }
+love.filesystem.write("imports/saves/red/from-choose.sav", "CHOOSE")
+importBehavior["imports/saves/red/from-choose.sav"] = { ok = true, id = "slot-choose" }
 ri:chooseSaveImport("red")
 eq(hostShellCalls, 0, "NX chooseSaveImport does not use HostShell")
 eq(#importCalls, 1, "NX chooseSaveImport rescans and imports inbox .sav")
-eq(importCalls[1].source, "imports/saves/from-choose.sav",
-  "NX chooseSaveImport imports from imports/saves/")
+eq(importCalls[1].source, "imports/saves/red/from-choose.sav",
+  "NX chooseSaveImport imports from imports/saves/red/")
 check(ri.saveNotice.red and ri.saveNotice.red.ok, "NX chooseSaveImport success notice")
 
 -- Empty chooseSaveImport still sets notice (RES-04 via Import save button)
@@ -353,7 +365,7 @@ ri = freshImporter()
 importCalls = {}
 ri:chooseSaveImport("red")
 eq(#importCalls, 0, "empty NX chooseSaveImport does not import")
-check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/", 1, true),
+check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/red/", 1, true),
   "empty NX chooseSaveImport sets MTP notice")
 
 -- Edge: ROM not ready → refuse with existing notice (no silent no-op)
@@ -361,24 +373,24 @@ ri = freshImporter()
 importCalls = {}
 removed = {}
 ri.ready.red = false
-love.filesystem.write("imports/saves/need-rom.sav", "NEEDROM")
-importBehavior["imports/saves/need-rom.sav"] = { ok = true, id = "should-not-import" }
+love.filesystem.write("imports/saves/red/need-rom.sav", "NEEDROM")
+importBehavior["imports/saves/red/need-rom.sav"] = { ok = true, id = "should-not-import" }
 ri:chooseSaveImport("red")
 eq(#importCalls, 0, "ROM-not-ready: chooseSaveImport does not call importToSlot")
 check(ri.saveNotice.red and not ri.saveNotice.red.ok,
   "ROM-not-ready: chooseSaveImport sets error notice")
 check(ri.saveNotice.red.text:find("Import the Pokemon Red ROM before importing a save", 1, true),
   "ROM-not-ready: notice tells player to import ROM first")
-check(not removed["imports/saves/need-rom.sav"],
+check(not removed["imports/saves/red/need-rom.sav"],
   "ROM-not-ready: retains inbox .sav")
-check(love.filesystem.read("imports/saves/need-rom.sav") == "NEEDROM",
+check(love.filesystem.read("imports/saves/red/need-rom.sav") == "NEEDROM",
   "ROM-not-ready: leaves .sav bytes in inbox")
 
 ri = freshImporter()
 importCalls = {}
 ri.ready.red = false
-love.filesystem.write("imports/saves/need-rom2.sav", "NEEDROM2")
-importBehavior["imports/saves/need-rom2.sav"] = { ok = true, id = "should-not" }
+love.filesystem.write("imports/saves/red/need-rom2.sav", "NEEDROM2")
+importBehavior["imports/saves/red/need-rom2.sav"] = { ok = true, id = "should-not" }
 ri:rescanSavesAction("red")
 eq(#importCalls, 0, "ROM-not-ready: rescan does not call importToSlot")
 check(ri.saveNotice.red and not ri.saveNotice.red.ok,
@@ -391,8 +403,8 @@ ri = freshImporter()
 importCalls = {}
 ri.saveNotice.red = { ok = true, text = "PRESERVE_ME" }
 ri.workState = "working"
-love.filesystem.write("imports/saves/busy.sav", "BUSY")
-importBehavior["imports/saves/busy.sav"] = { ok = true, id = "slot-busy" }
+love.filesystem.write("imports/saves/red/busy.sav", "BUSY")
+importBehavior["imports/saves/red/busy.sav"] = { ok = true, id = "slot-busy" }
 ri:chooseSaveImport("red")
 eq(#importCalls, 0, "workState working: chooseSaveImport does not import")
 eq(ri.saveNotice.red.text, "PRESERVE_ME",
@@ -402,11 +414,11 @@ eq(#importCalls, 0, "workState working: rescanSavesAction does not import")
 eq(ri.saveNotice.red.text, "PRESERVE_ME",
   "workState working: rescanSavesAction leaves saveNotice unchanged")
 
--- RES-11 / NXSAV-07: NX default SAVE FILES hint mentions imports/saves/
+-- RES-11 / NXSAV-07: NX default SAVE FILES hint mentions per-game inbox
 ri = freshImporter()
-local defaultHint = ri:_savesDefaultHint()
-check(defaultHint:find("imports/saves/", 1, true),
-  "RES-11: NX default hint mentions imports/saves/")
+local defaultHint = ri:_savesDefaultHint("red")
+check(defaultHint:find("imports/saves/red/", 1, true),
+  "RES-11: NX default hint mentions imports/saves/red/")
 check(defaultHint:find("DBI MTP", 1, true),
   "RES-11: NX default hint mentions DBI MTP")
 check(not defaultHint:find("system file picker", 1, true),
@@ -437,7 +449,7 @@ package.loaded["src.import.SaveFileIO"] = {
   end,
   exportActiveSlot = function(version)
     exportCalls[#exportCalls + 1] = version
-    return true, "sdmc:/switch/gen1recomp/pokemon-love2d/exports/gen1recomp-red-slot-1.sav"
+    return true, "sdmc:/switch/gen1recomp/pokemon-love2d/exports/red/gen1recomp-red-slot-1.sav"
   end,
 }
 ri = freshImporter()

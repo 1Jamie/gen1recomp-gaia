@@ -161,10 +161,10 @@ through `src/import/SaveFileIO.lua`, which sits on top of
   On desktop it opens a native `.sav` picker (`chooseSav`); on Android,
   `love.system.pickFile("sav")` → `picked_save.sav`, same SAF path as ROMs.
   On **NX (Switch)** there is no picker: copy a `.sav` into
-  `getSaveDirectory()/imports/saves/` via MTP / SD / FTP, then press
-  **Import save** to ensure the inbox and rescan (same pattern as the ROM
-  `imports/` and mod `imports/mods/` inboxes). Hidden `._*.sav` AppleDouble
-  sidecars are skipped.
+  `getSaveDirectory()/imports/saves/<red|blue|yellow>/` via MTP / SD / FTP
+  (one folder per game), then press **Import save** on that game’s tab to
+  ensure the inbox and rescan (same pattern as the ROM `imports/` and mod
+  `imports/mods/` inboxes). Hidden `._*.sav` AppleDouble sidecars are skipped.
   `SaveFileIO.importToSlot` reads the bytes (an absolute path, a save-dir
   relative name, a dropped LOVE file, or raw bytes),
   guards the 32768-byte size, runs `SaveConvert.importSav` (which also rejects
@@ -174,22 +174,23 @@ through `src/import/SaveFileIO.lua`, which sits on top of
   so `SaveData.load`'s migration pass accepts the slot. On success the SAVE SLOT
   panel is refreshed with the new slot selected. On **NX**, a successful inbox
   import retires the file to `*.sav.imported` and records a content hash in
-  `imports/saves/.imported-sha1` so a second **Import save** (or the same bytes
-  under a new name) does not clone slots; failures leave the original `.sav`.
-  Imports always target the **active game tab** — use Red vs Blue accordingly.
+  `imports/saves/<game>/.imported-sha1` so a second **Import save** (or the same
+  bytes under a new name) does not clone slots; failures leave the original
+  `.sav`. Only that game’s folder is scanned.
 - **Export save** is live only when the active slot actually holds a save
   (checked against `listSlots`). `SaveFileIO.exportActiveSlot` loads the active
   slot, encodes it back with `SaveConvert.exportSav` (a slot never keeps
   `rawImport`, so this is a zero-filled template export, which is valid), and
-  writes `exports/gen1recomp-<version>-<slotId>.sav` in the save directory
-  (`love.filesystem.createDirectory("exports")`). On desktop it returns the
-  absolute path (`love.filesystem.getSaveDirectory()`), which the notice line
-  shows with an "Open folder" affordance (`love.system.openURL("file://" .. dir)`).
+  writes `exports/<version>/gen1recomp-<version>-<slotId>.sav` in the save
+  directory (`exports/` and `exports/<version>/` are created as needed). On
+  desktop it returns the absolute path (`love.filesystem.getSaveDirectory()`),
+  which the notice line shows with an "Open folder" affordance
+  (`love.system.openURL("file://" .. dir)`).
   On Android the bytes are also staged as `pending_export.sav` and
   `love.system.createFile(suggestedName)` opens `ACTION_CREATE_DOCUMENT` so the
   player can save to Downloads / Drive / etc.; on return `export_done.flag`
   makes focus show "Save exported."
-  On **NX**, export success sets a notice with the `exports/` path and an
+  On **NX**, export success sets a notice with the `exports/<game>/` path and an
   MTP-oriented hint — no `openURL` / Open folder (pull the file via MTP /
   SD / FTP instead).
 - **Drag-drop.** `filedropped` routes a `.sav` to the import path for the
