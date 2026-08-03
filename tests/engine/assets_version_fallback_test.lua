@@ -74,8 +74,11 @@ eq(type(chunk) == "function" and chunk() or nil, 42,
   "wrapped filesystem.load resolves the versioned chunk")
 
 local sd = love.sound.newSoundData(PNG)
-eq(sd.samples, "yellow/" .. PNG,
+eq(sd.path, "yellow/" .. PNG,
   "wrapped newSoundData receives the yellow/ path (widenMono's re-read)")
+eq(sd:getChannelCount(), 1,
+  "path-form newSoundData stays mono so widenMono has work to do")
+eq(sd:getBitDepth(), 8, "path-form stub mimics the 8-bit pika-cry WAVs")
 
 local fnt = love.graphics.newFont(14)
 check(fnt ~= nil, "wrapped newFont ignores non-path arguments")

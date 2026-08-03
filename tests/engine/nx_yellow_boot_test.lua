@@ -92,15 +92,18 @@ function Source:play() self.playing = true end
 function Source:stop() self.playing = false end
 function Source:setVolume() end
 function Source:isPlaying() return self.playing end
--- Mono so Sound.widenMono actually reaches newSoundData (the stub's path
--- form then fails inside the pcall and widenMono keeps this Source --
--- enough to prove the overlay rewrote the re-read path).
-function Source:getChannelCount() return 1 end
+function Source:getChannelCount() return self.channels or 1 end
 
 love.audio = {
-  newSource = function(path, mode)
-    record("source", path)
-    return setmetatable({ path = path, mode = mode }, Source)
+  newSource = function(pathOrData, mode)
+    record("source", pathOrData)
+    local channels = 1
+    if type(pathOrData) == "table" and pathOrData.getChannelCount then
+      channels = pathOrData:getChannelCount()
+    end
+    return setmetatable({
+      path = pathOrData, mode = mode, channels = channels,
+    }, Source)
   end,
 }
 
@@ -227,20 +230,26 @@ eq(pre and pre.nidoFrames and pre.nidoFrames[3]
 
 -- Yellow's voiced Pikachu clip: a FORMATTED path (cry_%02d.wav), invisible
 -- to the static guard.  playPikaCry also runs widenMono, which re-reads the
--- same bare path via newSoundData -- that second hop is what the full-surface
--- overlay exists to cover.
+-- same bare path via newSoundData and must emit a 16-bit STEREO Source
+-- (#626) -- path rewrite alone is not enough on Switch audren.
 local cry = Sound.playPikaCry({ audio = { pikaCries = 1 } }, 1)
 check(cry ~= nil, "playPikaCry returns a source on NX Yellow")
-eq(cry and cry.path, "yellow/assets/generated/audio/pika_cries/cry_01.wav",
-  "the formatted pika-cry path resolves to the yellow/ copy")
+eq(cry and cry:getChannelCount(), 2,
+  "playPikaCry widens the mono PCM clip to stereo")
 local sawCrySoundData = false
+local sawCrySource = false
 for _, r in ipairs(recorded) do
   if r.kind == "sounddata"
       and r.path == "yellow/assets/generated/audio/pika_cries/cry_01.wav" then
     sawCrySoundData = true
-    break
+  end
+  if r.kind == "source"
+      and r.path == "yellow/assets/generated/audio/pika_cries/cry_01.wav" then
+    sawCrySource = true
   end
 end
+check(sawCrySource,
+  "newSource loaded the cry through the yellow/ prefix")
 check(sawCrySoundData,
   "widenMono re-read the cry via newSoundData with the yellow/ path")
 

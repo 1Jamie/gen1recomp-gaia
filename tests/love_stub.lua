@@ -278,6 +278,25 @@ function SoundData:getDuration() return self.samples / self.rate end
 
 stub.sound = {
   newSoundData = function(samples, rate, bits, channels)
+    -- Path form (love.sound.newSoundData(filename)): only succeed when the
+    -- stub FS has the file, matching real LÖVE.  Synthesize a short mono
+    -- 8-bit buffer so Sound.widenMono can run headless for seeded paths
+    -- (pika cries); missing files must error so widenMono keeps the
+    -- original Source (give_item_jingle identity checks, etc.).
+    if type(samples) == "string" then
+      if not stub.filesystem.getInfo(samples) then
+        error("Could not open file " .. samples .. ". Does not exist.")
+      end
+      local n = 32
+      local sd = setmetatable({
+        samples = n, rate = rate or 22050, bits = bits or 8,
+        channels = channels or 1, data = {}, path = samples,
+      }, SoundData)
+      for i = 0, n - 1 do
+        sd:setSample(i, (i % 2 == 0) and 0.5 or -0.5)
+      end
+      return sd
+    end
     return setmetatable({ samples = samples, rate = rate or 44100,
       bits = bits or 16, channels = channels or 1, data = {} }, SoundData)
   end,
