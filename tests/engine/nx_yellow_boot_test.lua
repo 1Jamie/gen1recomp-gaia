@@ -76,12 +76,26 @@ love.filesystem.read = function(path, ...)
   return rawRead(path, ...)
 end
 
+-- widenMono re-reads the caller's bare path via newSoundData; without this
+-- recorder the boot suite only saw newSource and could not catch a missing
+-- sound.newSoundData wrap (the silent hole that motivated the full-surface
+-- overlay).  Installed before Overlay.install so the overlay wraps us.
+local rawNewSoundData = love.sound.newSoundData
+love.sound.newSoundData = function(samples, ...)
+  record("sounddata", samples)
+  return rawNewSoundData(samples, ...)
+end
+
 local Source = {}
 Source.__index = Source
 function Source:play() self.playing = true end
 function Source:stop() self.playing = false end
 function Source:setVolume() end
 function Source:isPlaying() return self.playing end
+-- Mono so Sound.widenMono actually reaches newSoundData (the stub's path
+-- form then fails inside the pcall and widenMono keeps this Source --
+-- enough to prove the overlay rewrote the re-read path).
+function Source:getChannelCount() return 1 end
 
 love.audio = {
   newSource = function(path, mode)
@@ -212,11 +226,23 @@ eq(pre and pre.nidoFrames and pre.nidoFrames[3]
   "data-driven nidorino frame resolves to the yellow/ copy")
 
 -- Yellow's voiced Pikachu clip: a FORMATTED path (cry_%02d.wav), invisible
--- to the static guard
+-- to the static guard.  playPikaCry also runs widenMono, which re-reads the
+-- same bare path via newSoundData -- that second hop is what the full-surface
+-- overlay exists to cover.
 local cry = Sound.playPikaCry({ audio = { pikaCries = 1 } }, 1)
 check(cry ~= nil, "playPikaCry returns a source on NX Yellow")
 eq(cry and cry.path, "yellow/assets/generated/audio/pika_cries/cry_01.wav",
   "the formatted pika-cry path resolves to the yellow/ copy")
+local sawCrySoundData = false
+for _, r in ipairs(recorded) do
+  if r.kind == "sounddata"
+      and r.path == "yellow/assets/generated/audio/pika_cries/cry_01.wav" then
+    sawCrySoundData = true
+    break
+  end
+end
+check(sawCrySoundData,
+  "widenMono re-read the cry via newSoundData with the yellow/ path")
 
 check(countRecorded("yellow/assets/generated/") >= 20,
   "the boot pulled its generated art through the yellow/ prefix")
@@ -312,6 +338,7 @@ Overlay.uninstall()
 check(not Overlay.isInstalled(), "overlay uninstalls")
 love.graphics.newImage = rawNewImage
 love.filesystem.read = rawRead
+love.sound.newSoundData = rawNewSoundData
 love.audio = nil
 for _, path in ipairs(seeded) do
   love.filesystem.remove(path)

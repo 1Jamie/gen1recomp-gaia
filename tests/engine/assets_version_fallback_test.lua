@@ -44,7 +44,7 @@ eq(Assets.resolve(PNG), PNG,
 local rawWrite = love.filesystem.write
 local rawRemove = love.filesystem.remove
 local rawGetInfo = love.filesystem.getInfo
-seed_chunk = "assets/generated/boot_chunk.lua"
+local seed_chunk = "assets/generated/boot_chunk.lua"
 love.filesystem.write("yellow/" .. seed_chunk, "return 42")
 
 Overlay.install()
