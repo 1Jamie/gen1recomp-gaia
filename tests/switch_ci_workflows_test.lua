@@ -57,6 +57,7 @@ do
   mustContain(block, "selftest_build_switch.sh", "switch-selftest")
   mustContain(block, "verify_payload.sh --self-test", "switch-selftest")
   mustContain(block, "tests/switch_ci_workflows_test.lua", "switch-selftest")
+  mustNotContain(block, "continue-on-error:", "switch-selftest")
 end
 
 -- --- SWCI-04 / SWCI-05: canonical fused build + artifact ---
@@ -78,8 +79,10 @@ do
   mustContain(block, '["self-hosted", "macOS"]', "switch-build runner")
   mustContain(block, "gen1recomp-switch-nro", "switch-build artifact name")
   mustContain(block, "gen1recomp-${{ env.SWITCH_VER }}-switch.nro", "switch-build explicit fused path")
+  mustContain(block, "gen1recomp-${{ env.SWITCH_VER }}-switch.nro.sha256", "switch-build sha256 sidecar")
   mustContain(block, "if-no-files-found: error", "switch-build")
   mustContain(block, "retention-days: 7", "switch-build")
+  mustNotContain(block, "continue-on-error:", "switch-build")
   -- Forks must not run fused: canonical repo guard is required on the job if
   check(block:find("bryanthaboi/gen1recomp", 1, true) ~= nil
     and block:find("changed == 'true'", 1, true) ~= nil,
