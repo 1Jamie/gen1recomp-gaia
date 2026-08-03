@@ -78,8 +78,13 @@ local function mk(props)
   if props.flexShrink == nil then
     props.flexShrink = isScrollOverflow(props) and 1 or 0
   end
-  if isScrollOverflow(props) and props.minHeight == nil then
-    props.minHeight = 0
+  if isScrollOverflow(props) then
+    if props.minHeight == nil then props.minHeight = 0 end
+    -- Every launcher list scrolls like a native one: interpolated wheel
+    -- steps instead of hard 20px jumps, and a bigger per-notch distance so
+    -- long save/mod lists don't take dozens of notches to traverse.
+    if props.smoothScrollEnabled == nil then props.smoothScrollEnabled = true end
+    if props.scrollSpeed == nil then props.scrollSpeed = 60 end
   end
   -- Resolve "100%" here, against the parent's CONTENT width: the engine
   -- resolves a percentage against the parent's border box and ignores its
@@ -105,8 +110,62 @@ local COMMUNITY_URL = "https://bois.icu"
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 
+-- FlexLove's addChild auto-sizing only propagates one ancestor while this
+-- immediate-mode tree is assembled. Reconcile a completed nested container
+-- with the same height box model used by Element:resize.
+local function refreshAutoHeight(el)
+  if type(el) ~= "table" or type(el.autosizing) ~= "table"
+      or not el.autosizing.height
+      or type(el.calculateAutoHeight) ~= "function" then
+    return false
+  end
+  local ok, contentHeight = pcall(el.calculateAutoHeight, el)
+  if not ok or type(contentHeight) ~= "number"
+      or contentHeight ~= contentHeight
+      or contentHeight == math.huge or contentHeight == -math.huge then
+    return false
+  end
+  local padding = el.padding or {}
+  local top, bottom = padding.top or 0, padding.bottom or 0
+  local borderBoxHeight = clamp(contentHeight + top + bottom,
+    el.minHeight or -math.huge, el.maxHeight or math.huge)
+  el._borderBoxHeight = borderBoxHeight
+  el.height = clamp(math.max(0, borderBoxHeight - top - bottom),
+    el.minHeight or -math.huge, el.maxHeight or math.huge)
+  if type(el.invalidateLayout) == "function" then
+    el:invalidateLayout()
+  end
+  return borderBoxHeight
+end
+
+LauncherView._refreshAutoHeight = refreshAutoHeight
+
 
 -- ------- lifecycle
+
+-- NX-only: FlexLove's init maps `performanceMonitoring = false` to true
+-- (`false or true`), which leaves layout/render timers + memory sampling on
+-- every immediate-mode frame and makes the pad cursor feel lagged. Force
+-- them off after init. Desktop keeps the library default. Exported so the
+-- engine tier can assert the Switch guards without drawing the full tree.
+function LauncherView.applyNxPerfGuards(imp)
+  if not (imp and imp.isNX and FlexLove.isReady() and FlexLove._Performance) then
+    return false
+  end
+  FlexLove._Performance.enabled = false
+  local mp = FlexLove._Performance._memoryProfiler
+  if mp then mp.enabled = false end
+  -- Immediate-mode rebuilds allocate a full tree every frame; the default
+  -- auto GC steps hitch the pad cursor on Switch. Less frequent steps, higher
+  -- threshold — desktop keeps FlexLove defaults.
+  if FlexLove._gcConfig then
+    FlexLove._gcConfig.strategy = "periodic"
+    FlexLove._gcConfig.interval = 90
+    FlexLove._gcConfig.stepSize = 40
+    FlexLove._gcConfig.memoryThreshold = 180
+  end
+  return true
+end
 
 local function ensureFlex(imp)
   if not FlexLove.isReady() then
@@ -116,6 +175,9 @@ local function ensureFlex(imp)
       keyboardNavigation = false,
     })
   end
+  -- Re-apply on every ensure: FlexLove may already be ready from a prior
+  -- init (hot reload / editor round-trip). No-op when not NX.
+  LauncherView.applyNxPerfGuards(imp)
   if not imp._flex then
     imp._flex = true
     imp._hot = imp._hot or {}
@@ -134,7 +196,14 @@ end
 -- engine draws with raw love.graphics and must not share canvases or input
 -- polling with a live UI toolkit.
 function LauncherView.detach(imp)
-  if not imp._flex then return end
+  -- Restore the NX mouse shim even if _flex was never set (bridge can
+  -- install on the first update before the first draw).
+  if imp and imp.parkNxPointerForHost then
+    pcall(imp.parkNxPointerForHost, imp)
+  elseif imp and imp._restoreNxPointerBridge then
+    pcall(imp._restoreNxPointerBridge, imp)
+  end
+  if not imp or not imp._flex then return end
   imp._flex = nil
   if love.keyboard and love.keyboard.setKeyRepeat then
     pcall(love.keyboard.setKeyRepeat, false)
@@ -639,8 +708,10 @@ end
 -- ------- game panel
 
 local function buildRomCard(imp, parent, m, version, info, ready, locked)
-  local dropHint = imp.android and Strings("Copy the .gb/.gbc via USB.")
-    or Strings("Or drop the .gb/.gbc file here.")
+  local dropHint = imp.isNX and Strings("Copy the .gb/.gbc via MTP into imports/.")
+    or (imp.android and Strings("Copy the .gb/.gbc via USB.")
+      or Strings("Or drop the .gb/.gbc file here."))
+  local importLabel = imp.isNX and Strings("Scan again") or Strings("Import ROM")
   local romState, romDetail, romBtnLabel, romBtnEnabled, romProgress
   if locked then
     romState, romDetail = Strings("Not supported yet"),
@@ -661,12 +732,12 @@ local function buildRomCard(imp, parent, m, version, info, ready, locked)
     elseif erroring then
       romState = Strings("Import failed")
       romDetail = imp.detail or Strings("That ROM could not be imported.")
-      romBtnLabel, romBtnEnabled = Strings("Import ROM"), true
+      romBtnLabel, romBtnEnabled = importLabel, true
     elseif notice then
       romState = Strings("No ROM imported")
       romDetail = ((notice.status or "") .. " " .. (notice.detail or ""))
         :gsub("^%s+", ""):gsub("%s+$", "")
-      romBtnLabel, romBtnEnabled = Strings("Import ROM"), true
+      romBtnLabel, romBtnEnabled = importLabel, true
     elseif imp.returning[version] then
       romState = Strings("Update required")
       romDetail = Strings("This build needs a few more things from your ")
@@ -676,7 +747,7 @@ local function buildRomCard(imp, parent, m, version, info, ready, locked)
       romState = Strings("No ROM imported")
       romDetail = Strings("The ROM is verified before any files are created. ")
         .. dropHint
-      romBtnLabel, romBtnEnabled = Strings("Import ROM"), true
+      romBtnLabel, romBtnEnabled = importLabel, true
     end
   end
 
@@ -715,13 +786,11 @@ local function buildSaveFilesCard(imp, parent, m, version, ready, locked)
     hintText, hintCol = sfNotice.text, (sfNotice.ok and "green" or "danger")
   elseif locked then
     hintText, hintCol = Strings("Not available yet."), "warn"
-  elseif imp.android then
-    hintText = Strings("Import or export a .sav with the system file picker.")
-    hintCol = "warn"
   else
-    hintText = Strings("Import a .sav to a new slot, or export the active slot.")
+    hintText = imp:_savesDefaultHint(version)
     hintCol = "warn"
   end
+  local savImportLabel = imp.isNX and Strings("Scan again") or Strings("Import save")
 
   local c = card(parent, { padding = m.cardPad, gap = 8 * m.s })
   label(c, "SAVE FILES", 12 * m.s + 1, C("gray"))
@@ -730,7 +799,7 @@ local function buildSaveFilesCard(imp, parent, m, version, ready, locked)
   -- explicit halves rather than flex growth, which mis-distributed inside
   -- an auto-height card
   local halfW = math.floor((m.colW - 32 - 10 * m.s) / 2)
-  button(imp, row, "sav-import-" .. version, Strings("Import save"), {
+  button(imp, row, "sav-import-" .. version, savImportLabel, {
     w = halfW, h = m.btnH, size = 13 * m.s + 1,
     kind = sfImportEnabled and "neutral" or "disabled",
     action = sfImportEnabled and function()
@@ -902,9 +971,9 @@ local function buildGamePanel(imp, parent, m, version)
   -- mode adds the cards straight to the page instead of nesting columns:
   -- the engine under-measures a vertical column-of-columns' auto height,
   -- which pushed the footer up over the save-slot card on phone shapes.
-  local left, right
+  local grid, left, right
   if m.twoCol then
-    local grid = mk({ parent = parent, width = "100%",
+    grid = mk({ parent = parent, width = "100%",
       positioning = "flex", flexDirection = "horizontal",
       gap = m.colGap, alignItems = "flex-start" })
     left = mk({ parent = grid, width = m.colW,
@@ -934,6 +1003,9 @@ local function buildGamePanel(imp, parent, m, version)
   if not locked then
     buildSlotCard(imp, right, m, version)
   end
+  -- The right subtree may have grown after FlexLove last measured its
+  -- grandparent. Refresh only the desktop grid once both columns are complete.
+  if grid then refreshAutoHeight(grid) end
 end
 
 -- ------- mods panel
@@ -963,7 +1035,7 @@ local function buildModsPanel(imp, parent, m)
       action = function() imp:_setAllMods(false) end,
     })
   end
-  button(imp, head, "mods-import", Strings("Import mod .zip"), {
+  button(imp, head, "mods-import", imp:_modsImportButtonLabel(), {
     h = m.btnH, size = 13 * m.s + 1, kind = "neutral",
     action = function() imp:chooseMod() end,
   })
@@ -972,8 +1044,7 @@ local function buildModsPanel(imp, parent, m)
     label(parent, imp.modNotice.text, 12 * m.s + 2,
       C(imp.modNotice.ok and "green" or "danger"))
   else
-    label(parent, imp.android and Strings("Or copy a mod .zip via USB.")
-      or Strings("Or drop a mod .zip onto the window."), 12 * m.s + 2, C("warn"))
+    label(parent, imp:_modsDefaultHint(), 12 * m.s + 2, C("warn"))
   end
 
   if #mods == 0 then
@@ -984,9 +1055,7 @@ local function buildModsPanel(imp, parent, m)
       positioning = "flex", justifyContent = "center", alignItems = "center",
       padding = { horizontal = 16 },
     })
-    label(box, imp.android
-      and Strings("No mods installed - tap Import mod .zip to add one.")
-      or Strings("No mods installed - drop a mod .zip here to add one."),
+    label(box, imp:_modsEmptyHint(),
       math.floor(12 * m.s + 2.5), C("detail"), { textAlign = "center" })
     return
   end
@@ -1214,8 +1283,7 @@ local function buildFindPanel(imp, parent, m)
     imp.findQuery or "", Strings("Search mods"),
     imp._findSearchFocus == true,
     function()
-      imp._findSearchFocus = true
-      imp:_armTextInput()
+      imp:_toggleFindSearchFocus()
     end)
 
   local cats = (imp.findIndex and imp.findIndex.categories) or {}
@@ -1777,7 +1845,12 @@ end
 
 local function drawPadCursor(imp)
   if not imp._padCursorActive then return end
+  -- Pixel-snap on NX: subpixel polygon edges shimmer on the 720p Switch
+  -- framebuffer when the stick advances by fractional pixels each frame.
   local x, y = imp._padCursor.x, imp._padCursor.y
+  if imp.isNX then
+    x, y = math.floor(x + 0.5), math.floor(y + 0.5)
+  end
   love.graphics.push("all")
   love.graphics.origin()
   love.graphics.setLineWidth(1)

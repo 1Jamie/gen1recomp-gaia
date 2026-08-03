@@ -729,6 +729,15 @@ function ScrollManager:getState()
     _overflowY = self._overflowY,
     _contentWidth = self._contentWidth,
     _contentHeight = self._contentHeight,
+    -- Touch fling state: without these, immediate-mode recreation zeroes the
+    -- release velocity on the next frame and momentum scrolling never runs.
+    _touchScrolling = self._touchScrolling or false,
+    _momentumScrolling = self._momentumScrolling or false,
+    _scrollVelocityX = self._scrollVelocityX or 0,
+    _scrollVelocityY = self._scrollVelocityY or 0,
+    _lastTouchTime = self._lastTouchTime or 0,
+    _lastTouchX = self._lastTouchX or 0,
+    _lastTouchY = self._lastTouchY or 0,
   }
 end
 
@@ -833,6 +842,30 @@ function ScrollManager:setState(state)
 
   if state._targetScrollY ~= nil then
     self._targetScrollY = state._targetScrollY
+  end
+
+  -- Touch fling state (see getState): restore so momentum survives
+  -- immediate-mode element recreation between frames.
+  if state._touchScrolling ~= nil then
+    self._touchScrolling = state._touchScrolling
+  end
+  if state._momentumScrolling ~= nil then
+    self._momentumScrolling = state._momentumScrolling
+  end
+  if state._scrollVelocityX ~= nil then
+    self._scrollVelocityX = state._scrollVelocityX
+  end
+  if state._scrollVelocityY ~= nil then
+    self._scrollVelocityY = state._scrollVelocityY
+  end
+  if state._lastTouchTime ~= nil then
+    self._lastTouchTime = state._lastTouchTime
+  end
+  if state._lastTouchX ~= nil then
+    self._lastTouchX = state._lastTouchX
+  end
+  if state._lastTouchY ~= nil then
+    self._lastTouchY = state._lastTouchY
   end
 end
 
