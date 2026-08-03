@@ -2,7 +2,7 @@
 
 **Spec:** `.specs/features/switch-save-sav-inbox/spec.md`  
 **Context:** `.specs/features/switch-save-sav-inbox/context.md`  
-**Status:** Execute in progress — Batch 1 (T1–T3) complete; T4 docs complete; remaining T5–T6
+**Status:** Execute nearly complete — T1–T5 done; pending T6 gate + Verifier
 
 ---
 
@@ -76,12 +76,13 @@
 - **Commit**: `docs(nx): save .sav inbox and exports paths`
 - **Status**: ✅ complete
 
-### T5: AD-012 in STATE.md + handoff
+### T5: AD-012 in STATE.md + handoff ✅
 - **What**: Record AD-012 (inbox path, rescan on Import save, export MTP hint, RES guards); update Handoff for this feature.
 - **Done when**: STATE.md lists AD-012 active; Handoff points at this feature.
 - **Requires**: T4  
 - **Reqs**: NXSAV-12  
 - **Commit**: `docs(specs): AD-012 NX save .sav inbox`
+- **Status**: ✅ complete
 
 ---
 
