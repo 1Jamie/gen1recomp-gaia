@@ -79,6 +79,7 @@ Goal for a finished release is closer to Dusklight’s **single self-contained `
 | Layer | What | Where |
 | ----- | ---- | ----- |
 | Unit / headless | Platform NX flags, RomImporter inbox, dual-path input, mod zip inbox, display chords, payload/self-tests | `tests/*`, `scripts/test.sh` |
+| Switch CI / packaging | Path-gated offline selftest (`selftest_build_switch.sh`, `verify_payload.sh --self-test`, `switch_ci_workflows_test.lua`); canonical fused PR artifact | `.github/workflows/ci.yml`, [switch-build.md](switch-build.md) § CI and release |
 | Probe on hardware | `getOS()==NX`, 1280×720, save path, Joy-Con events | `tools/switch-probe` → OLED |
 | Integration on hardware | MTP inbox ROM import, Play Red/Blue, naming A/B, quit/reopen save, suspend×10, reboot, fused NRO alone + NRO-only update | `docs/switch-hardware-evidence.md` |
 | Not done yet | Docked soak, ≥30 min long-play, non-OLED, automated/`nxlink` deploy | Matrix deferred / absent rows |

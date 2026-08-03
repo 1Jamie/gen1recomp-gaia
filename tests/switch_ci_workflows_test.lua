@@ -98,6 +98,29 @@ mustContain(comment_wf, "View workflow run", "switch-artifact-comment")
 mustContain(comment_wf, "izhangzhihao/delete-comment@master", "switch-artifact-comment")
 mustContain(comment_wf, "thollander/actions-comment-pull-request@v3", "switch-artifact-comment")
 
+-- --- SWCI-08 / SWCI-09: docs CI vs release ---
+local build_doc = read("docs/switch-build.md")
+local development = read("docs/switch-development.md")
+local readme = read("README.md")
+
+mustContain(build_doc, "Path-gated", "switch-build.md")
+mustContain(build_doc, "ubuntu-latest", "switch-build.md")
+mustContain(build_doc, "selftest_build_switch.sh", "switch-build.md")
+mustContain(build_doc, "canonical", "switch-build.md")
+mustContain(build_doc, "gen1recomp-switch-nro", "switch-build.md")
+mustContain(build_doc, "switch-build-result", "switch-build.md")
+mustContain(build_doc, "hard gate", "switch-build.md")
+mustContain(build_doc, "continue-on-error", "switch-build.md")
+mustContain(build_doc, "nacptool", "switch-build.md")
+mustContain(build_doc, "Docker", "switch-build.md")
+mustContain(build_doc, "Forks skip", "switch-build.md")
+
+mustContain(development, "Switch CI", "switch-development.md")
+mustContain(development, "selftest_build_switch.sh", "switch-development.md")
+
+mustContain(readme, "CI vs release", "README.md")
+mustContain(readme, "switch-build.md", "README.md")
+
 -- --- SWCI-08: release Switch hard-fail (no continue-on-error on build/stage) ---
 do
   local start = release:find("- name: Build Switch", 1, true)

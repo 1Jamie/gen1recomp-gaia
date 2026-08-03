@@ -239,7 +239,8 @@ target is pinned [love-nx](https://github.com/retronx-team/love-nx)
 - Players: [docs/switch-install.md](docs/switch-install.md) — download the
   NRO, copy to the SD, title-override launch, import your own legal ROM.
 - Builders: [docs/switch-build.md](docs/switch-build.md) — `--fetch` /
-  `--loose` / `--fused`, toolchain, Docker fallback, runner notes.
+  `--loose` / `--fused`, toolchain, Docker fallback, and **CI vs release**
+  (path-gated ubuntu selftest, canonical fused PR artifact, release hard-fail).
 
 For WIP status, Dusklight-derived method, limitations, and how we tested,
 see [docs/switch-development.md](docs/switch-development.md) and

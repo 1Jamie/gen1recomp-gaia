@@ -125,18 +125,47 @@ bash scripts/switch/verify_payload.sh --self-test
 
 ---
 
-## Release Mac runner
+## CI and release
 
-GitHub Releases build the Switch artifact on the same self-hosted Mac runner
-as the other platforms (see `.github/workflows/release.yml`):
+Switch packaging has three automated surfaces (same policy as AD-010):
+
+### Path-gated PR / push CI (`.github/workflows/ci.yml`)
+
+When a change touches Switch packaging paths
+(`scripts/build_switch.sh`, `scripts/switch/**`, `docs/switch-build.md`, or the
+Switch-related workflow YAML), CI runs:
+
+1. **Offline selftest** on `ubuntu-latest` (forks **and** the canonical repo):
+   `scripts/switch/selftest_build_switch.sh`,
+   `scripts/switch/verify_payload.sh --self-test`, and
+   `luajit tests/switch_ci_workflows_test.lua`.
+2. **Fused NRO build** only on the **canonical** repository
+   (`bryanthaboi/gen1recomp`), on the self-hosted Mac runner
+   (`scripts/build_switch.sh --fetch --fused`). Forks skip the fused job —
+   they still get the ubuntu selftest.
+3. On successful PR fused builds, a follow-up workflow posts a PR comment
+   linking the Actions artifact named `gen1recomp-switch-nro`
+   (comment tag `switch-build-result`; see
+   `.github/workflows/switch-artifact-comment.yml`).
+
+Unrelated PRs do not burn the self-hosted Mac on Switch packaging.
+
+### Release hard-fail (`.github/workflows/release.yml`)
+
+GitHub Releases always build Switch on the same self-hosted Mac runner as the
+other platforms — this is a **hard gate** (no `continue-on-error`):
 
 ```sh
 scripts/build_switch.sh --fetch --fused --version "<release version>"
 ```
 
-The runner must have **native switch-tools** (`nacptool`/`elf2nro`) **and/or
-Docker** available. CI does not silently run `dkp-pacman -S`; keep the runner
-image/host provisioned per this guide.
+A Switch packaging failure fails the entire release job.
+
+### Runner provisioning
+
+The self-hosted Mac runner must have **native switch-tools** (`nacptool` /
+`elf2nro`) **and/or Docker** available. CI and release do not silently run
+`dkp-pacman -S`; keep the runner image/host provisioned per this guide.
 
 ---
 
