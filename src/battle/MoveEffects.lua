@@ -332,7 +332,7 @@ MoveEffects.primary = {
                                                 battle.data.moves[id].name) }
   end,
 
-  SPLASH_EFFECT = function()
+  SPLASH_EFFECT = function(battle)
     return { romText(battle.data, "_NoEffectText", "No effect!") }
   end,
 }
