@@ -132,8 +132,9 @@ Switch packaging has three automated surfaces (same policy as AD-010):
 ### Path-gated PR / push CI (`.github/workflows/ci.yml`)
 
 When a change touches Switch packaging paths
-(`scripts/build_switch.sh`, `scripts/switch/**`, `docs/switch-build.md`, or the
-Switch-related workflow YAML), CI runs:
+(`scripts/build_switch.sh`, `scripts/switch/**`, `docs/switch-build.md`,
+`tests/switch_ci_workflows_test.lua`, or the Switch-related workflow YAML), CI
+runs:
 
 1. **Offline selftest** on `ubuntu-latest` (forks **and** the canonical repo):
    `scripts/switch/selftest_build_switch.sh`,

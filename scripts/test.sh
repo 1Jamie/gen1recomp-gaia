@@ -65,6 +65,7 @@ run_tier() {
 
 # ------- ROM-free tiers: these are what CI runs
 
+run_tier "T0 switch CI workflow content gate" "$LUA" tests/switch_ci_workflows_test.lua
 run_tier "T1/T2 engine invariants + parity gates" "$LUA" tests/run_engine.lua
 run_tier "T4 mod-SDK" "$LUA" tests/run_modkit.lua
 
