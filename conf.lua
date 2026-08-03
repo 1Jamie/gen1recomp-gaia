@@ -60,11 +60,13 @@ function love.conf(t)
   local mobile = osName == "Android" or osName == "iOS"
   local nx = osName == "NX"
   if nx then
-    -- Switch (love-nx): docked/handheld 720p surface; no desktop resize hints.
+    -- Switch (love-nx): hint handheld 720p. SDL auto-switches portable↔dock
+    -- (720p↔1080p) only when the window is resizable and not exclusive
+    -- fullscreen; NxDisplay.sync also applies the size on boot and dock change.
     t.window.width = 1280
     t.window.height = 720
-    t.window.fullscreen = true
-    t.window.resizable = false
+    t.window.fullscreen = false
+    t.window.resizable = true
     t.window.highdpi = false
   elseif mobile then
     -- resizable is what unlocks orientation.  SDL's Android backend, given no

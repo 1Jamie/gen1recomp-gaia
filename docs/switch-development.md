@@ -49,10 +49,11 @@ the transfer runbook).
 - Hardware evidence for Phase 0 probe, ROM import, naming A/B, save/suspend, fused NRO — see `docs/switch-hardware-evidence.md`
 - Path-gated CI selftest + canonical fused PR artifact; release Switch hard-fail
 - Save editor pad/touch input (virtual cursor, A click, B close) — see `tools/save-editor/README.md`
+- Dynamic display size on NX only: handheld **1280×720**, docked/TV **1920×1080** (`src/core/NxDisplay.lua` + resizable conf so love-nx SDL can follow dock/undock at runtime)
 
 ### Known gaps / welcome contributions
 
-- Docked vs handheld soak, long-play soak (≥30 min)
+- Docked vs handheld soak (≥30 min) and Lite coverage — resolution switch is implemented; long soak still welcome
 - Switch Lite and fuller Pro Controller / third-party pad matrices
 - Applet Mode remains unsupported by design (title override required)
 - `nxlink` / netloader contrib fast-loop (deferred — see [switch-transfer.md](switch-transfer.md))
@@ -476,7 +477,7 @@ Operator evidence lives in `docs/switch-hardware-evidence.md`. **Do not invent p
 | P0-12 | Fused NRO boots without adjacent `game.love` | **pass** | T24 — `docs/switch-hardware-evidence.md` |
 | P0-14 | Fused NRO MTP round-trip SHA-256 | **pass** | T24 — first artifact `b019e2e8…` @ `6fb5602` (redeploy after Blue fix) |
 | P0-15 | Replace NRO only; saves persist | **pass** | T24 — operator NRO-only update keeps saves |
-| P1-01 | Docked vs handheld spot-check | **deferred** | Not exercised on OLED dock yet |
+| P1-01 | Docked vs handheld spot-check | **deferred** | Code: `NxDisplay` 720p↔1080p; OLED dock soak not recorded yet |
 | P1-02 | Applet Mode documented unsupported | **pass** | Title override required; Album path not validated |
 | P1-03 | Long-play soak (≥30 min) | **deferred** | No soak session recorded |
 | P1-04 | Reboot persistence | **pass** | T19 |

@@ -11,6 +11,7 @@
 local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
 
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+local NxDisplay = require("src.core.NxDisplay")
 
 -- Lua errors: persist a redacted trace in the save dir and surface a hint.
 do
@@ -233,6 +234,9 @@ function love.load(args)
     end
   end
   love.graphics.setDefaultFilter("nearest", "nearest")
+  -- NX: handheld 720p / docked 1080p. Runs for every boot path (launcher,
+  -- editor, scripted); no-op on desktop/mobile.
+  NxDisplay.sync()
 
   -- Standalone editor.  A bare `--editor` run has no launcher behind it, so
   -- Close quits; --save points it at a specific file, otherwise it opens the
@@ -299,6 +303,8 @@ end
 
 function love.update(dt)
   SwitchDiagnostics.maybeFlush(false)
+  -- NX only (no-op elsewhere): follow dock/undock without waiting for SDL.
+  NxDisplay.sync()
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
   if Importer then return Importer:update(dt) end
