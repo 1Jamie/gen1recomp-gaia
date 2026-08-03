@@ -153,6 +153,17 @@ before `Game:load`, so **it never loads a mod's entry chunk**; only
 - `LauncherMods.uninstall(id)` removes `mods/<id>/` and clears
   `options.mods[id]` so a later reinstall starts from the loader's default
   (enabled). The mods panel Delete control calls this and re-derives the list.
+- A mod that declares `github` shows its total GitHub downloads (every
+  release's summed asset `download_count`, from the same cached release
+  fetch the update check uses) as a highlighted body line like "12,345
+  downloads across all releases - Released 2024-05-31 - Updated 2026-07-01"
+  (first and latest `published_at`). Old cache entries written before the
+  counts existed show no line rather than a wrong zero; a manual check
+  refreshes them.
+- The MODS panel sorts its rows by Name, Popularity (downloads),
+  Release date (first release), or Last updated, chosen by chips under the
+  header and persisted in `options.modSort`. Mods without release data
+  (no `github` field, or a stale cache) sink to the bottom of data sorts.
 
 ## Import / Export save
 

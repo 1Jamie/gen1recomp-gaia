@@ -2593,6 +2593,8 @@ function RomImporter:_syncModUpdateInfo(force)
           latest = best and best.version or nil,
           best = best,
           releases = packed.releases,
+          downloads = ModUpdate.totalDownloads(packed.releases),
+          dates = ModUpdate.releaseDates(packed.releases),
           err = nil,
           checkedAt = packed.checkedAt or os.time(),
         }
@@ -2722,6 +2724,8 @@ function RomImporter:_modGithubAction(id, action)
       self.modUpdateInfo[row.id] = {
         status = status, latest = best and best.version, best = best,
         releases = releases,
+        downloads = ModUpdate.totalDownloads(releases),
+        dates = ModUpdate.releaseDates(releases),
       }
       self._modVersions = {
         id = row.id, name = row.name, current = row.version,
@@ -2765,6 +2769,8 @@ function RomImporter:_modGithubAction(id, action)
     self.modUpdateInfo[row.id] = {
       status = status, latest = best and best.version, best = best,
       releases = releases, checkedAt = os.time(),
+      downloads = ModUpdate.totalDownloads(releases),
+      dates = ModUpdate.releaseDates(releases),
     }
     if status == "available" and best then
       self.modNotice = { ok = true,

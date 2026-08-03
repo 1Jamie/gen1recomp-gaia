@@ -1012,6 +1012,7 @@ end
 
 local function buildModsPanel(imp, parent, m)
   imp:_ensureMods()
+  local ModUpdate = require("src.mods.ModUpdate")
   local mods = imp.mods or {}
   local enabledCount = 0
   for _, mod in ipairs(mods) do
@@ -1060,6 +1061,76 @@ local function buildModsPanel(imp, parent, m)
     return
   end
 
+  -- Sort row: Name / Popularity / Release date / Last updated.  The choice
+  -- persists in options.modSort; data-less mods (no github field, or a
+  -- cache that predates the feature) sink to the bottom of data sorts.
+  local sortKey = imp.modSort or "name"
+  if imp.modSort == nil then
+    local ok, opts = pcall(require("src.core.SaveData").loadOptions)
+    if ok and type(opts) == "table" and type(opts.modSort) == "string" then
+      sortKey = opts.modSort
+      imp.modSort = sortKey
+    end
+  end
+  local sortRow = mk({ parent = parent, width = "100%",
+    positioning = "flex", flexDirection = "horizontal",
+    flexWrap = "wrap", alignItems = "center", gap = 6 * m.s })
+  label(sortRow, Strings("Sort:"), 11 * m.s + 2, C("detail"), { textWrap = false })
+  local sorts = {
+    { key = "name", label = Strings("Name") },
+    { key = "popularity", label = Strings("Popularity") },
+    { key = "release", label = Strings("Release date") },
+    { key = "updated", label = Strings("Last updated") },
+  }
+  for _, s in ipairs(sorts) do
+    local active = sortKey == s.key
+    local key = "mod-sort-" .. s.key
+    mk({
+      parent = sortRow, text = s.label,
+      textColor = active and C("green")
+        or (imp._hot[key] and C("white") or C("detail")),
+      textSize = 11 * m.s + 2, textAlign = "center-center", autoScaleText = false,
+      backgroundColor = active and C("green", 0.18) or C("border", 0.10),
+      border = 1,
+      borderColor = active and C("green", 0.6) or C("border", 0.35),
+      cornerRadius = 999,
+      padding = { horizontal = 10, vertical = 4 },
+      onEvent = handler(imp, key, function()
+        imp.modSort = s.key
+        pcall(function()
+          local SaveData = require("src.core.SaveData")
+          local opts = SaveData.loadOptions()
+          opts.modSort = s.key
+          SaveData.saveOptions(opts)
+        end)
+      end),
+    })
+  end
+
+  local sorted = {}
+  for i, v in ipairs(mods) do sorted[i] = v end
+  table.sort(sorted, function(a, b)
+    local function value(mod)
+      if sortKey == "name" then return (mod.name or ""):lower() end
+      local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
+      if sortKey == "popularity" then
+        return info and info.downloads and info.downloads.total or -1
+      end
+      local date = info and info.dates
+      if sortKey == "release" then
+        return date and date.first or "0000-00-00"
+      end
+      return date and date.latest or "0000-00-00"
+    end
+    local va, vb = value(a), value(b)
+    if va ~= vb then
+      if sortKey == "name" then return va < vb end
+      return va > vb  -- data sorts newest / most popular first
+    end
+    return (a.name or ""):lower() < (b.name or ""):lower()
+  end)
+  mods = sorted
+
   -- Explicit column widths AND heights: a flex-grown container collapses
   -- its children's layout in this engine, and card auto-height came up
   -- short on some displays, dropping the bottom action row out of the card.
@@ -1091,6 +1162,19 @@ local function buildModsPanel(imp, parent, m)
     elseif mod.github and mod.github ~= "" then
       checkLine, checkCol = Strings("Not checked for updates yet"), "warn"
     end
+    -- Total downloads plus first/latest release dates, all from the same
+    -- cached release fetch.  Only shown once that data actually carries
+    -- counts, so a pre-downloads cache entry costs the line, not a wrong "0".
+    local dlLine
+    if info and info.downloads then
+      local formatted = ModUpdate.formatCount(info.downloads.total)
+      if info.dates then
+        dlLine = Strings("%s downloads across all releases  -  Released %s  -  Updated %s",
+          formatted, info.dates.first, info.dates.latest)
+      else
+        dlLine = Strings("%s downloads across all releases", formatted)
+      end
+    end
 
     -- measure the body: name (with the badge beside it only when it fits),
     -- version, check line, wrapped description
@@ -1103,6 +1187,9 @@ local function buildModsPanel(imp, parent, m)
     bodyH = bodyH + 4 + math.ceil(textHeight(smallSize))
     if checkLine then
       bodyH = bodyH + 4 + wrapHeight(smallSize, checkLine, bodyW)
+    end
+    if dlLine then
+      bodyH = bodyH + 4 + wrapHeight(smallSize, dlLine, bodyW)
     end
     if mod.description ~= "" then
       bodyH = bodyH + 4 + wrapHeight(smallSize, mod.description, bodyW)
@@ -1154,6 +1241,9 @@ local function buildModsPanel(imp, parent, m)
     label(body, "v" .. tostring(mod.version or "?"), smallSize, C("detail"))
     if checkLine then
       label(body, checkLine, smallSize, C(checkCol), { width = "100%" })
+    end
+    if dlLine then
+      label(body, dlLine, smallSize, C("gold"), { width = "100%" })
     end
     if mod.description ~= "" then
       label(body, mod.description, smallSize, C("detail"), { width = "100%" })
