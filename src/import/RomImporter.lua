@@ -506,8 +506,7 @@ local function listSavPaths(dir)
   return paths
 end
 
-function RomImporter:scanInbox(ready)
-  ready = ready or self.ready
+function RomImporter:scanInbox()
   local paths = {}
   for _, path in ipairs(listRomPaths(IMPORTS_DIR)) do
     paths[#paths + 1] = path
@@ -683,7 +682,7 @@ function RomImporter:rescanAction(version)
   self.chooseVersion = version
   self:ensureImportsDir()
   local ready = self.ready
-  local candidates = self:scanInbox(ready)
+  local candidates = self:scanInbox()
   local sawReadyOnly = false
   for _, path in ipairs(candidates) do
     local data = love.filesystem.read(path)
@@ -1660,7 +1659,7 @@ function RomImporter:choose(version)
     end
     return
   end
-  if self.mobileFileBridge or self.android then
+  if self.mobileFileBridge then
     -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
     -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
     -- was the #167 failure mode (second Choose just re-extracted Red).

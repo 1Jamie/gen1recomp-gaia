@@ -112,7 +112,7 @@ eq(zips[1], "imports/mods/valid.zip", "scanModsInbox path is under imports/mods/
 ri = freshImporter()
 love.filesystem.write("imports/modpack.zip", "ZIPROM")
 love.filesystem.write("imports/mods/also.zip", "ZIPMOD")
-local roms = ri:scanInbox(ri.ready)
+local roms = ri:scanInbox()
 for _, path in ipairs(roms) do
   check(not path:lower():match("%.zip$"),
     "ROM scanInbox ignores zip: " .. tostring(path))
@@ -123,7 +123,7 @@ eq(#roms, 0, "ROM scanInbox finds no zip-only inbox entries")
 ri = freshImporter()
 love.filesystem.write("imports/cart.gb", string.rep("G", 16))
 love.filesystem.write("imports/sidecar.zip", "NOTAROM")
-roms = ri:scanInbox(ri.ready)
+roms = ri:scanInbox()
 local sawGb, sawZip = false, false
 for _, path in ipairs(roms) do
   if path:lower():match("%.zip$") then sawZip = true end
@@ -221,7 +221,7 @@ check(not (ri.modNotice.text or ""):find("failed", 1, true),
 ri = freshImporter()
 love.filesystem.write("imports/._cart.gb", string.rep("X", 16))
 love.filesystem.write("imports/cart.gb", string.rep("G", 16))
-roms = ri:scanInbox(ri.ready)
+roms = ri:scanInbox()
 local sawHidden, sawReal = false, false
 for _, path in ipairs(roms) do
   if path:find("._cart", 1, true) then sawHidden = true end

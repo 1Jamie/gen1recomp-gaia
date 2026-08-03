@@ -163,7 +163,7 @@ eq(savs[1], "imports/saves/red/valid.sav", "scanSavesInbox path is under imports
 ri = freshImporter()
 love.filesystem.write("imports/saves/red/cart.sav", string.rep("S", 32))
 love.filesystem.write("imports/saves/red/dump.gb", string.rep("G", 16))
-local roms = ri:scanInbox(ri.ready)
+local roms = ri:scanInbox()
 for _, path in ipairs(roms) do
   check(not path:lower():match("%.sav$"),
     "ROM scanInbox ignores .sav: " .. tostring(path))
