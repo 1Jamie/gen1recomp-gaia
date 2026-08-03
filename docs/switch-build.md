@@ -132,15 +132,16 @@ Switch packaging has three automated surfaces (same policy as AD-010):
 
 ### Path-gated PR / push CI (`.github/workflows/ci.yml`)
 
-When a change touches Switch packaging paths
-(`scripts/build_switch.sh`, `scripts/switch/**`, `docs/switch-build.md`,
-`tests/switch_ci_workflows_test.lua`, or the Switch-related workflow YAML), CI
-runs:
+When a change touches Switch packaging / Switch docs paths
+(`scripts/build_switch.sh`, `scripts/switch/**`, `docs/switch-*.md`,
+`tests/switch_ci_workflows_test.lua`, `tests/switch_transfer_docs_test.lua`,
+or the Switch-related workflow YAML), CI runs:
 
 1. **Offline selftest** on `ubuntu-latest` (forks **and** the canonical repo):
    `scripts/switch/selftest_build_switch.sh`,
-   `scripts/switch/verify_payload.sh --self-test`, and
-   `luajit tests/switch_ci_workflows_test.lua`.
+   `scripts/switch/verify_payload.sh --self-test`,
+   `luajit tests/switch_ci_workflows_test.lua`, and
+   `luajit tests/switch_transfer_docs_test.lua`.
 2. **Fused NRO build** only on the **canonical** repository
    (`bryanthaboi/gen1recomp`), on the self-hosted Mac runner
    (`scripts/build_switch.sh --fetch --fused`), and only when the workflow

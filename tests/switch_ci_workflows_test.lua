@@ -24,7 +24,7 @@ end
 
 -- Exact path regex contract (SWCI-01 / 4A + SWFIX-03 test path).
 local SWITCH_PATH_REGEX =
-  [[^(scripts/build_switch\.sh$|scripts/switch/|docs/switch-build\.md$|tests/switch_ci_workflows_test\.lua$|\.github/workflows/(ci|release|switch-artifact-comment)\.yml$)]]
+  [[^(scripts/build_switch\.sh$|scripts/switch/|docs/switch-.*\.md$|tests/switch_ci_workflows_test\.lua$|tests/switch_transfer_docs_test\.lua$|\.github/workflows/(ci|release|switch-artifact-comment)\.yml$)]]
 
 local ci = read(".github/workflows/ci.yml")
 local release = read(".github/workflows/release.yml")
@@ -45,6 +45,7 @@ mustContain(ci, "needs.switch-changes.outputs.changed == 'true'", "ci.yml")
 mustContain(ci, "scripts/switch/selftest_build_switch.sh", "ci.yml")
 mustContain(ci, "scripts/switch/verify_payload.sh --self-test", "ci.yml")
 mustContain(ci, "luajit tests/switch_ci_workflows_test.lua", "ci.yml")
+mustContain(ci, "luajit tests/switch_transfer_docs_test.lua", "ci.yml")
 
 -- switch-selftest must be ubuntu-latest (fork-safe); pin via job block scan
 do
@@ -57,6 +58,7 @@ do
   mustContain(block, "selftest_build_switch.sh", "switch-selftest")
   mustContain(block, "verify_payload.sh --self-test", "switch-selftest")
   mustContain(block, "tests/switch_ci_workflows_test.lua", "switch-selftest")
+  mustContain(block, "tests/switch_transfer_docs_test.lua", "switch-selftest")
   mustNotContain(block, "continue-on-error:", "switch-selftest")
 end
 
@@ -152,11 +154,14 @@ mustContain(development, "selftest_build_switch.sh", "switch-development.md")
 mustContain(readme, "CI vs release", "README.md")
 mustContain(readme, "switch-build.md", "README.md")
 
--- --- SWFIX-03: headless suite also runs the content gate ---
+-- --- SWFIX-03: headless suite also runs the content gates ---
 local test_sh = read("scripts/test.sh")
 mustContain(test_sh, "tests/switch_ci_workflows_test.lua", "scripts/test.sh")
 mustContain(test_sh, "T0 switch CI workflow content gate", "scripts/test.sh")
+mustContain(test_sh, "tests/switch_transfer_docs_test.lua", "scripts/test.sh")
+mustContain(test_sh, "T0 switch transfer docs gate", "scripts/test.sh")
 mustContain(build_doc, "tests/switch_ci_workflows_test.lua", "switch-build.md path list")
+mustContain(build_doc, "tests/switch_transfer_docs_test.lua", "switch-build.md path list")
 
 -- --- SWCI-08: release Switch hard-fail (no continue-on-error on build/stage) ---
 do
