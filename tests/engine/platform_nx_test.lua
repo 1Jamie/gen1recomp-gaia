@@ -1,5 +1,5 @@
 -- NX / Android / desktop capability detection (SWNX-01).
--- Self-contained: luajit tests/platform_nx_test.lua
+-- Self-contained: luajit tests/engine/platform_nx_test.lua
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 

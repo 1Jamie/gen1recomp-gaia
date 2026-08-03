@@ -519,7 +519,7 @@ Each slice should declare: **no ROM/save bytes committed**, **love-nx pin with m
 
 - `src/core/Platform.lua`, `conf.lua` NX branch
 - `src/import/RomImporter.lua` (NX flags, inbox, scan, shell/updater gates)
-- Tests: `tests/platform_nx_*`, `tests/rom_importer_nx_*`
+- Tests: `tests/engine/platform_nx_*`, `tests/engine/rom_importer_nx_*` (ROM-free T2)
 - Docs: inbox/MTP import sections only
 
 ### Slice 2 — Input + lifecycle (`input/lifecycle`)
