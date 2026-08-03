@@ -29,6 +29,7 @@ local SWITCH_PATH_REGEX =
 local ci = read(".github/workflows/ci.yml")
 local release = read(".github/workflows/release.yml")
 local comment_wf = read(".github/workflows/switch-artifact-comment.yml")
+local ios_comment_wf = read(".github/workflows/ios-artifact-comment.yml")
 
 -- --- SWCI-01: path detector ---
 mustContain(ci, "switch-changes:", "ci.yml")
@@ -85,7 +86,7 @@ do
     "switch-build requires changed=true AND canonical repository")
 end
 
--- --- SWCI-06 / SWCI-07: PR artifact comment workflow ---
+-- --- SWCI-06 / SWCI-07 / SWFIX-01: PR artifact comment (no delete-all clobber) ---
 mustContain(comment_wf, "workflows: [ci]", "switch-artifact-comment")
 mustContain(comment_wf, "gen1recomp-switch-nro", "switch-artifact-comment")
 mustContain(comment_wf, "comment-tag: switch-build-result", "switch-artifact-comment")
@@ -95,8 +96,19 @@ mustContain(comment_wf, 'exit 0', "switch-artifact-comment no-op")
 mustContain(comment_wf, "**Commit**:", "switch-artifact-comment")
 mustContain(comment_wf, "**Build Time**:", "switch-artifact-comment")
 mustContain(comment_wf, "View workflow run", "switch-artifact-comment")
-mustContain(comment_wf, "izhangzhihao/delete-comment@master", "switch-artifact-comment")
 mustContain(comment_wf, "thollander/actions-comment-pull-request@v3", "switch-artifact-comment")
+mustNotContain(comment_wf, "delete-comment", "switch-artifact-comment")
+mustNotContain(comment_wf, "izhangzhihao/delete-comment", "switch-artifact-comment")
+
+mustContain(ios_comment_wf, "comment-tag: ios-build-result", "ios-artifact-comment")
+mustContain(ios_comment_wf, "thollander/actions-comment-pull-request@v3", "ios-artifact-comment")
+mustNotContain(ios_comment_wf, "delete-comment", "ios-artifact-comment")
+mustNotContain(ios_comment_wf, "izhangzhihao/delete-comment", "ios-artifact-comment")
+-- Distinct tags so both commenters can coexist on the same PR
+check(comment_wf:find("comment-tag: switch-build-result", 1, true)
+    and ios_comment_wf:find("comment-tag: ios-build-result", 1, true)
+    and comment_wf:find("comment-tag: ios-build-result", 1, true) == nil,
+  "iOS and Switch comment-tags must be distinct and present")
 
 -- --- SWCI-08 / SWCI-09: docs CI vs release ---
 local build_doc = read("docs/switch-build.md")
