@@ -142,6 +142,29 @@ jobs:
       - name: Switch CI workflow content gate
         run: luajit tests/switch_ci_workflows_test.lua
 
+  switch-build:
+    name: Switch fused build
+    needs: switch-changes
+    if: needs.switch-changes.outputs.changed == 'true' && github.repository == 'bryanthaboi/gen1recomp'
+    runs-on: ["self-hosted", "macOS"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Switch fused NRO
+        run: |
+          set -euo pipefail
+          VER="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          scripts/build_switch.sh --fetch --fused --version "$VER"
+          echo "SWITCH_VER=$VER" >> "$GITHUB_ENV"
+      - name: upload Switch NRO artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-switch-nro
+          path: |
+            dist/switch/gen1recomp-${{ env.SWITCH_VER }}-switch.nro
+            dist/switch/gen1recomp-${{ env.SWITCH_VER }}-switch.nro.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   headless:
     name: headless suites (no ROM)
     runs-on: ubuntu-latest

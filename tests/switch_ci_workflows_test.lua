@@ -57,6 +57,33 @@ do
   mustContain(block, "tests/switch_ci_workflows_test.lua", "switch-selftest")
 end
 
+-- --- SWCI-04 / SWCI-05: canonical fused build + artifact ---
+mustContain(ci, "switch-build:", "ci.yml")
+mustContain(ci, "gen1recomp-switch-nro", "ci.yml")
+mustContain(ci, "github.repository == 'bryanthaboi/gen1recomp'", "ci.yml canonical gate")
+mustContain(ci, 'runs-on: ["self-hosted", "macOS"]', "ci.yml switch-build runner")
+mustContain(ci, "scripts/build_switch.sh --fetch --fused", "ci.yml fused command")
+mustContain(ci, "if-no-files-found: error", "ci.yml artifact")
+mustContain(ci, "retention-days: 7", "ci.yml artifact retention")
+do
+  local start = ci:find("switch-build:", 1, true)
+  check(start ~= nil, "switch-build job present")
+  local rest = ci:sub(start)
+  local nextJob = rest:find("\n  [%w_-]+:", 2)
+  local block = nextJob and rest:sub(1, nextJob - 1) or rest
+  mustContain(block, "needs.switch-changes.outputs.changed == 'true'", "switch-build")
+  mustContain(block, "bryanthaboi/gen1recomp", "switch-build canonical")
+  mustContain(block, '["self-hosted", "macOS"]', "switch-build runner")
+  mustContain(block, "gen1recomp-switch-nro", "switch-build artifact name")
+  mustContain(block, "gen1recomp-${{ env.SWITCH_VER }}-switch.nro", "switch-build explicit fused path")
+  mustContain(block, "if-no-files-found: error", "switch-build")
+  mustContain(block, "retention-days: 7", "switch-build")
+  -- Forks must not run fused: canonical repo guard is required on the job if
+  check(block:find("bryanthaboi/gen1recomp", 1, true) ~= nil
+    and block:find("changed == 'true'", 1, true) ~= nil,
+    "switch-build requires changed=true AND canonical repository")
+end
+
 -- --- SWCI-08: release Switch hard-fail (no continue-on-error on build/stage) ---
 do
   local start = release:find("- name: Build Switch", 1, true)
