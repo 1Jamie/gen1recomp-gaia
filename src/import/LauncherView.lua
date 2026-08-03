@@ -105,6 +105,36 @@ local COMMUNITY_URL = "https://bois.icu"
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 
+-- FlexLove's addChild auto-sizing only propagates one ancestor while this
+-- immediate-mode tree is assembled. Reconcile a completed nested container
+-- with the same height box model used by Element:resize.
+local function refreshAutoHeight(el)
+  if type(el) ~= "table" or type(el.autosizing) ~= "table"
+      or not el.autosizing.height
+      or type(el.calculateAutoHeight) ~= "function" then
+    return false
+  end
+  local ok, contentHeight = pcall(el.calculateAutoHeight, el)
+  if not ok or type(contentHeight) ~= "number"
+      or contentHeight ~= contentHeight
+      or contentHeight == math.huge or contentHeight == -math.huge then
+    return false
+  end
+  local padding = el.padding or {}
+  local top, bottom = padding.top or 0, padding.bottom or 0
+  local borderBoxHeight = clamp(contentHeight + top + bottom,
+    el.minHeight or -math.huge, el.maxHeight or math.huge)
+  el._borderBoxHeight = borderBoxHeight
+  el.height = clamp(math.max(0, borderBoxHeight - top - bottom),
+    el.minHeight or -math.huge, el.maxHeight or math.huge)
+  if type(el.invalidateLayout) == "function" then
+    el:invalidateLayout()
+  end
+  return borderBoxHeight
+end
+
+LauncherView._refreshAutoHeight = refreshAutoHeight
+
 
 -- ------- lifecycle
 
@@ -902,9 +932,9 @@ local function buildGamePanel(imp, parent, m, version)
   -- mode adds the cards straight to the page instead of nesting columns:
   -- the engine under-measures a vertical column-of-columns' auto height,
   -- which pushed the footer up over the save-slot card on phone shapes.
-  local left, right
+  local grid, left, right
   if m.twoCol then
-    local grid = mk({ parent = parent, width = "100%",
+    grid = mk({ parent = parent, width = "100%",
       positioning = "flex", flexDirection = "horizontal",
       gap = m.colGap, alignItems = "flex-start" })
     left = mk({ parent = grid, width = m.colW,
@@ -934,6 +964,9 @@ local function buildGamePanel(imp, parent, m, version)
   if not locked then
     buildSlotCard(imp, right, m, version)
   end
+  -- The right subtree may have grown after FlexLove last measured its
+  -- grandparent. Refresh only the desktop grid once both columns are complete.
+  if grid then refreshAutoHeight(grid) end
 end
 
 -- ------- mods panel
