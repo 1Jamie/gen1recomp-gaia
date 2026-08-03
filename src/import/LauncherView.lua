@@ -97,6 +97,21 @@ local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 
 -- ------- lifecycle
 
+-- NX-only: FlexLove's init maps `performanceMonitoring = false` to true
+-- (`false or true`), which leaves layout/render timers + memory sampling on
+-- every immediate-mode frame and makes the pad cursor feel lagged. Force
+-- them off after init. Desktop keeps the library default. Exported so the
+-- engine tier can assert the Switch guards without drawing the full tree.
+function LauncherView.applyNxPerfGuards(imp)
+  if not (imp and imp.isNX and FlexLove.isReady() and FlexLove._Performance) then
+    return false
+  end
+  FlexLove._Performance.enabled = false
+  local mp = FlexLove._Performance._memoryProfiler
+  if mp then mp.enabled = false end
+  return true
+end
+
 local function ensureFlex(imp)
   if not FlexLove.isReady() then
     FlexLove.init({
@@ -105,6 +120,9 @@ local function ensureFlex(imp)
       keyboardNavigation = false,
     })
   end
+  -- Re-apply on every ensure: FlexLove may already be ready from a prior
+  -- init (hot reload / editor round-trip). No-op when not NX.
+  LauncherView.applyNxPerfGuards(imp)
   if not imp._flex then
     imp._flex = true
     imp._hot = imp._hot or {}
@@ -123,7 +141,14 @@ end
 -- engine draws with raw love.graphics and must not share canvases or input
 -- polling with a live UI toolkit.
 function LauncherView.detach(imp)
-  if not imp._flex then return end
+  -- Restore the NX mouse shim even if _flex was never set (bridge can
+  -- install on the first update before the first draw).
+  if imp and imp.parkNxPointerForHost then
+    pcall(imp.parkNxPointerForHost, imp)
+  elseif imp and imp._restoreNxPointerBridge then
+    pcall(imp._restoreNxPointerBridge, imp)
+  end
+  if not imp or not imp._flex then return end
   imp._flex = nil
   if love.keyboard and love.keyboard.setKeyRepeat then
     pcall(love.keyboard.setKeyRepeat, false)

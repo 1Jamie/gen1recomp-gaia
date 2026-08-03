@@ -119,6 +119,11 @@ local function openEditor(version, slotId)
   require("src.import.CacheFs").mountVersion(version)
   editorVersion = version
   editorHost = Importer
+  -- NX: drop the launcher getPosition shim so the save editor sees the real
+  -- pointer / its own pad cursor. Desktop has no shim — no-op.
+  if Importer and Importer.parkNxPointerForHost then
+    Importer:parkNxPointerForHost()
+  end
   Importer = nil
   editorMode = true
   resizeForEditor()

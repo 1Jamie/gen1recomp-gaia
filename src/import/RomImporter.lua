@@ -1937,6 +1937,41 @@ function RomImporter:_activatePadCursor()
   self._padCursorActive = true
 end
 
+-- NX: FlexLove hover/hit-test polls love.mouse.getPosition every interactive
+-- element. Warping via setPosition every stick frame is expensive on love-nx
+-- and makes the virtual cursor lag. Expose the pad pointer through a getPosition
+-- shim instead; desktop keeps the setPosition path unchanged.
+function RomImporter:_ensureNxPointerBridge()
+  if not self.isNX or self._nxPointerBridge then return end
+  if not (love and love.mouse and love.mouse.getPosition) then return end
+  self._nxRealGetPosition = love.mouse.getPosition
+  local importer = self
+  love.mouse.getPosition = function()
+    if importer._padCursorActive then
+      return importer._padCursor.x, importer._padCursor.y
+    end
+    return importer._nxRealGetPosition()
+  end
+  self._nxPointerBridge = true
+end
+
+function RomImporter:_restoreNxPointerBridge()
+  if not self._nxPointerBridge then return end
+  if love and love.mouse and self._nxRealGetPosition then
+    love.mouse.getPosition = self._nxRealGetPosition
+  end
+  self._nxPointerBridge = false
+  self._nxRealGetPosition = nil
+end
+
+-- NX only: drop the getPosition shim + hide the virtual cursor before a host
+-- takes over input (embedded save editor). Desktop is a no-op.
+function RomImporter:parkNxPointerForHost()
+  if not self.isNX then return end
+  self._padCursorActive = false
+  self:_restoreNxPointerBridge()
+end
+
 function RomImporter:_cycleTab(delta)
   local order = { "red", "blue", "yellow", "mods", "find" }
   local idx = 1
@@ -1947,9 +1982,20 @@ function RomImporter:_cycleTab(delta)
 end
 
 function RomImporter:_updatePadCursor(dt)
+  if self.isNX then
+    self:_ensureNxPointerBridge()
+  end
+
   -- Real mouse motion yields the pad cursor so desktop users keep a normal
-  -- pointer after bumping a stick once.
-  local mx, my = love.mouse.getPosition()
+  -- pointer after bumping a stick once. On NX the bridged getPosition returns
+  -- pad coords while active, so yield must sample the *real* mouse or an A
+  -- press after idle falsely drops the cursor (pad vs last real position).
+  local mx, my
+  if self.isNX and self._nxRealGetPosition then
+    mx, my = self._nxRealGetPosition()
+  else
+    mx, my = love.mouse.getPosition()
+  end
   if self._lastMouseX and self._padCursorActive then
     if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
       self._padCursorActive = false
@@ -1978,11 +2024,10 @@ function RomImporter:_updatePadCursor(dt)
     local ny = self._padCursor.y + dy * speed * dt
     self._padCursor.x = math.max(ox, math.min(ox + w, nx))
     self._padCursor.y = math.max(oy, math.min(oy + h, ny))
-    -- The FlexLove view polls the real mouse for hover and wheel targeting,
-    -- so the pad pointer warps it along.  The self-caused motion is recorded
-    -- as the last seen position, or the yield check above would read the warp
-    -- as real mouse movement and drop the pad cursor immediately.
-    if love.mouse.setPosition then
+    -- Desktop: FlexLove polls the real mouse, so warp it with the pad pointer.
+    -- NX: the getPosition bridge already returns pad coords — skip setPosition
+    -- and leave _lastMouse* on the real pointer baseline (yield above).
+    if not self.isNX and love.mouse.setPosition then
       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y
     end
