@@ -97,12 +97,13 @@ eq(ri.isNX, true, "RES-07: fixture isNX=true")
 eq(ri.android, false, "RES-07: fixture android=false")
 
 -- RES-01: ensureSavesInboxDir creates imports/ then imports/saves/
+-- Parent must be ensured first (nested createDirectory fails without it on NX).
 createdDirs = {}
 ri = freshImporter()
 ri:ensureSavesInboxDir()
-check(createdDirs.imports or createdDirs["imports/saves"],
-  "RES-01: ensureSavesInboxDir creates parent imports/ or nested path")
-check(createdDirs["imports/saves"],
+check(createdDirs.imports == true,
+  "RES-01: ensureSavesInboxDir creates parent imports/")
+check(createdDirs["imports/saves"] == true,
   "RES-01: ensureSavesInboxDir creates imports/saves/")
 
 -- NXSAV-02: notice/hint includes save dir + relative imports/saves/ MTP path
@@ -290,6 +291,52 @@ eq(#importCalls, 0, "empty NX chooseSaveImport does not import")
 check(ri.saveNotice.red ~= nil and ri.saveNotice.red.text:find("imports/saves/", 1, true),
   "empty NX chooseSaveImport sets MTP notice")
 
+-- Edge: ROM not ready → refuse with existing notice (no silent no-op)
+ri = freshImporter()
+importCalls = {}
+removed = {}
+ri.ready.red = false
+love.filesystem.write("imports/saves/need-rom.sav", "NEEDROM")
+importBehavior["imports/saves/need-rom.sav"] = { ok = true, id = "should-not-import" }
+ri:chooseSaveImport("red")
+eq(#importCalls, 0, "ROM-not-ready: chooseSaveImport does not call importToSlot")
+check(ri.saveNotice.red and not ri.saveNotice.red.ok,
+  "ROM-not-ready: chooseSaveImport sets error notice")
+check(ri.saveNotice.red.text:find("Import the Pokemon Red ROM before importing a save", 1, true),
+  "ROM-not-ready: notice tells player to import ROM first")
+check(not removed["imports/saves/need-rom.sav"],
+  "ROM-not-ready: retains inbox .sav")
+check(love.filesystem.read("imports/saves/need-rom.sav") == "NEEDROM",
+  "ROM-not-ready: leaves .sav bytes in inbox")
+
+ri = freshImporter()
+importCalls = {}
+ri.ready.red = false
+love.filesystem.write("imports/saves/need-rom2.sav", "NEEDROM2")
+importBehavior["imports/saves/need-rom2.sav"] = { ok = true, id = "should-not" }
+ri:rescanSavesAction("red")
+eq(#importCalls, 0, "ROM-not-ready: rescan does not call importToSlot")
+check(ri.saveNotice.red and not ri.saveNotice.red.ok,
+  "ROM-not-ready: rescan sets error notice")
+check(ri.saveNotice.red.text:find("Import the Pokemon Red ROM before importing a save", 1, true),
+  "ROM-not-ready: rescan surfaces ROM-first notice")
+
+-- Edge: workState == "working" → Import/rescan no-op without clearing notice
+ri = freshImporter()
+importCalls = {}
+ri.saveNotice.red = { ok = true, text = "PRESERVE_ME" }
+ri.workState = "working"
+love.filesystem.write("imports/saves/busy.sav", "BUSY")
+importBehavior["imports/saves/busy.sav"] = { ok = true, id = "slot-busy" }
+ri:chooseSaveImport("red")
+eq(#importCalls, 0, "workState working: chooseSaveImport does not import")
+eq(ri.saveNotice.red.text, "PRESERVE_ME",
+  "workState working: chooseSaveImport leaves saveNotice unchanged")
+ri:rescanSavesAction("red")
+eq(#importCalls, 0, "workState working: rescanSavesAction does not import")
+eq(ri.saveNotice.red.text, "PRESERVE_ME",
+  "workState working: rescanSavesAction leaves saveNotice unchanged")
+
 -- RES-11 / NXSAV-07: NX default SAVE FILES hint mentions imports/saves/
 ri = freshImporter()
 local defaultHint = ri:_savesDefaultHint()
@@ -354,6 +401,23 @@ check(ri.saveNotice.red and not ri.saveNotice.red.ok,
   "export failure sets clear error notice")
 check(ri.saveNotice.red.text:find("No save", 1, true),
   "export failure notice includes reason")
+
+-- Edge: workState == "working" → exportSave no-op without clearing notice
+package.loaded["src.import.SaveFileIO"] = {
+  importToSlot = function() return false, "unused" end,
+  exportActiveSlot = function(version)
+    exportCalls[#exportCalls + 1] = version
+    return true, "exports/should-not-export.sav"
+  end,
+}
+ri = freshImporter()
+exportCalls = {}
+ri.saveNotice.red = { ok = true, text = "PRESERVE_EXPORT" }
+ri.workState = "working"
+ri:exportSave("red")
+eq(#exportCalls, 0, "workState working: exportSave does not call exportActiveSlot")
+eq(ri.saveNotice.red.text, "PRESERVE_EXPORT",
+  "workState working: exportSave leaves saveNotice unchanged")
 
 -- Cleanup + restore stubs
 clearSavesInbox()
