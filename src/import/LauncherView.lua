@@ -1214,8 +1214,7 @@ local function buildFindPanel(imp, parent, m)
     imp.findQuery or "", Strings("Search mods"),
     imp._findSearchFocus == true,
     function()
-      imp._findSearchFocus = true
-      imp:_armTextInput()
+      imp:_toggleFindSearchFocus()
     end)
 
   local cats = (imp.findIndex and imp.findIndex.categories) or {}
