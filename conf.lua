@@ -58,7 +58,17 @@ function love.conf(t)
   -- engine before conf runs (LÖVE 11.x / 11.5).
   local osName = love._os
   local mobile = osName == "Android" or osName == "iOS"
-  if mobile then
+  local nx = osName == "NX"
+  if nx then
+    -- Switch (love-nx): hint handheld 720p. SDL auto-switches portable↔dock
+    -- (720p↔1080p) only when the window is resizable and not exclusive
+    -- fullscreen; NxDisplay.sync also applies the size on boot and dock change.
+    t.window.width = 1280
+    t.window.height = 720
+    t.window.fullscreen = false
+    t.window.resizable = true
+    t.window.highdpi = false
+  elseif mobile then
     -- resizable is what unlocks orientation.  SDL's Android backend, given no
     -- SDL_HINT_ORIENTATIONS (LÖVE sets none), calls setRequestedOrientation
     -- at window creation -- FULL_SENSOR when the window is resizable (rotates
