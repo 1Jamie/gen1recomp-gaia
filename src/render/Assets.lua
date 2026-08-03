@@ -43,15 +43,26 @@ function Assets.resolve(path)
   return loader:derivedPath(rel) or path
 end
 
--- When PhysFS hides Blue/Yellow prefixed trees (fused NX), load generated
--- asset bytes the same way Data:load does via CacheFs.readActive.
+-- When PhysFS hides or mis-exposes Blue/Yellow prefixed trees (fused NX),
+-- load generated asset bytes the same way Data:load does via CacheFs.readActive.
+-- Blue/Yellow prefer versioned bytes whenever present: getInfo can succeed on a
+-- broken overlay while sprites decode as blank (OBP keys white → transparent).
 local function generatedFileData(resolved)
   if type(resolved) ~= "string" or resolved:sub(1, #GENERATED) ~= GENERATED then
     return nil
   end
+  local CacheFs = require("src.import.CacheFs")
+  local prefix = require("src.core.GameVersion").cachePrefix()
+  if prefix ~= "" then
+    local bytes = CacheFs.readActive(resolved)
+    if type(bytes) == "string" and #bytes > 0 then
+      return love.filesystem.newFileData(bytes, resolved)
+    end
+    return nil
+  end
   if exists(resolved) then return nil end
-  local bytes = require("src.import.CacheFs").readActive(resolved)
-  if type(bytes) ~= "string" then return nil end
+  local bytes = CacheFs.readActive(resolved)
+  if type(bytes) ~= "string" or #bytes == 0 then return nil end
   return love.filesystem.newFileData(bytes, resolved)
 end
 

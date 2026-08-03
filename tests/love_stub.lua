@@ -125,58 +125,11 @@ stub.math = {
 
 stub.filesystem = {
   write = function(name, content) files[name] = content return true end,
-  read = function(name) return files[name] end,
   remove = function(name) files[name] = nil return true end,
   newFileData = function(contents, name)
     return { _fileData = true, contents = contents, name = name or "" }
   end,
   createDirectory = function() return true end,
-  -- directories are implied by key prefixes ("mods/x/manifest.json")
-  getInfo = function(name, filter)
-    if files[name] then
-      if filter and filter ~= "file" then return nil end
-      return { type = "file" }
-    end
-    local prefix = name .. "/"
-    for key in pairs(files) do
-      if key:sub(1, #prefix) == prefix then
-        if filter and filter ~= "directory" then return nil end
-        return { type = "directory" }
-      end
-    end
-    return nil
-  end,
-  load = function(name)
-    if not files[name] then return nil, "no file" end
-    return load(files[name], name)
-  end,
-  getDirectoryItems = function(name)
-    local seen, items = {}, {}
-    name = name or ""
-    -- "" / "/" = save-dir root (RomImporter Android ROM scan)
-    if name == "" or name == "/" then
-      for key in pairs(files) do
-        local child = key:match("^[^/]+")
-        if child and not seen[child] then
-          seen[child] = true
-          items[#items + 1] = child
-        end
-      end
-    else
-      local prefix = name .. "/"
-      for key in pairs(files) do
-        if key:sub(1, #prefix) == prefix then
-          local child = key:sub(#prefix + 1):match("^[^/]+")
-          if child and not seen[child] then
-            seen[child] = true
-            items[#items + 1] = child
-          end
-        end
-      end
-    end
-    table.sort(items)
-    return items
-  end,
   -- Record mounts for CacheFs.mountVersion tests (NX Blue/Yellow overlay).
   _mounts = {},
   mount = function(archive, mountpoint, appendToPath)
@@ -186,10 +139,116 @@ stub.filesystem = {
     }
     return true
   end,
-  unmount = function() return true end,
+  unmount = function(archive)
+    local mounts = stub.filesystem._mounts
+    for i = #mounts, 1, -1 do
+      if mounts[i].archive == archive then
+        table.remove(mounts, i)
+        return true
+      end
+    end
+    return false
+  end,
   getSaveDirectory = function() return "/tmp/pokeport-stub-save" end,
   isFused = function() return false end,
 }
+
+-- Resolve a PhysFS path through recorded mounts (prepend first, newest wins).
+local function resolveViaMounts(name)
+  local mounts = stub.filesystem._mounts
+  for i = #mounts, 1, -1 do
+    local m = mounts[i]
+    if not m.append then
+      local mp = m.mountpoint or ""
+      local key
+      if mp == "" then
+        key = m.archive .. "/" .. name
+      elseif name == mp then
+        key = m.archive
+      elseif name:sub(1, #mp + 1) == mp .. "/" then
+        local rel = name:sub(#mp + 2)
+        key = m.archive .. "/" .. rel
+      end
+      if key then
+        if files[key] then return key, "file" end
+        local prefix = key .. "/"
+        for k in pairs(files) do
+          if k:sub(1, #prefix) == prefix then return key, "directory" end
+        end
+      end
+    end
+  end
+  return nil
+end
+
+function stub.filesystem.read(name)
+  if files[name] then return files[name] end
+  local key = resolveViaMounts(name)
+  if key and files[key] then return files[key] end
+  return nil
+end
+
+function stub.filesystem.getInfo(name, filter)
+  if files[name] then
+    if filter and filter ~= "file" then return nil end
+    return { type = "file" }
+  end
+  local prefix = name .. "/"
+  for key in pairs(files) do
+    if key:sub(1, #prefix) == prefix then
+      if filter and filter ~= "directory" then return nil end
+      return { type = "directory" }
+    end
+  end
+  local key, kind = resolveViaMounts(name)
+  if key and kind then
+    if filter and filter ~= kind then return nil end
+    return { type = kind }
+  end
+  return nil
+end
+
+stub.filesystem.load = function(name)
+  local data = stub.filesystem.read(name)
+  if not data then return nil, "no file" end
+  return load(data, name)
+end
+
+stub.filesystem.getDirectoryItems = function(name)
+  local seen, items = {}, {}
+  name = name or ""
+  local function addChild(child)
+    if child and not seen[child] then
+      seen[child] = true
+      items[#items + 1] = child
+    end
+  end
+  -- "" / "/" = save-dir root (RomImporter Android ROM scan)
+  if name == "" or name == "/" then
+    for key in pairs(files) do
+      addChild(key:match("^[^/]+"))
+    end
+  else
+    local prefix = name .. "/"
+    for key in pairs(files) do
+      if key:sub(1, #prefix) == prefix then
+        addChild(key:sub(#prefix + 1):match("^[^/]+"))
+      end
+    end
+    -- Also surface children exposed via mounts.
+    local key = resolveViaMounts(name)
+    if key then
+      local mprefix = key .. "/"
+      for k in pairs(files) do
+        if k:sub(1, #mprefix) == mprefix then
+          addChild(k:sub(#mprefix + 1):match("^[^/]+"))
+        end
+      end
+    end
+  end
+  table.sort(items)
+  return items
+end
 
 -- table-backed SoundData so ChipAudio's offline render seam
 -- (_renderMusicForTest) runs headless; modkit bounce writes WAVs from it

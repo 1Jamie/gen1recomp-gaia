@@ -57,6 +57,15 @@ check(redImg ~= nil, "Assets.image loads Red tileset from unprefixed path")
 eq(love.filesystem.read(PNG), "red-png-bytes",
   "Red still stores generated assets at the save-dir root")
 
+-- --- Stale unprefixed path must not win over Yellow bytes (NX mount lie)
+GameVersion.set("yellow")
+Assets.flush()
+love.filesystem.write(PNG, "")  -- visible but empty → would bake blank sprites
+love.filesystem.write("yellow/" .. PNG, "yellow-real-png")
+local staleImg = Assets.image(PNG)
+check(staleImg ~= nil, "Assets.image prefers Yellow bytes over empty unprefixed stub")
+eq(staleImg.path, PNG, "stale-path fallback still names the logical generated path")
+
 -- --- Missing generated file: no invented bytes
 GameVersion.set("yellow")
 Assets.flush()
