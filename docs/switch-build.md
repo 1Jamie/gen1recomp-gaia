@@ -146,7 +146,8 @@ runs:
    head is that repo (same-repo push/PR). **Fork repository** CI never runs
    fused. **Fork → canonical PRs** also skip Switch fused (offline selftest
    still runs) so untrusted head code is not executed on the self-hosted Mac;
-   iOS device build eligibility is unchanged.
+   iOS device build eligibility is unchanged. Fused also waits for a successful
+   offline selftest before starting on the Mac runner.
 3. On successful PR fused builds, a follow-up workflow posts a PR comment
    linking the Actions artifact named `gen1recomp-switch-nro`
    (comment tag `switch-build-result`; see

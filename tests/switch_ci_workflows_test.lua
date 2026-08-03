@@ -74,6 +74,9 @@ do
   local rest = ci:sub(start)
   local nextJob = rest:find("\n  [%w_-]+:", 2)
   local block = nextJob and rest:sub(1, nextJob - 1) or rest
+  mustContain(block, "needs: [switch-changes, switch-selftest]", "switch-build needs")
+  mustContain(block, "needs.switch-selftest.result == 'success'", "switch-build waits for selftest")
+  mustContain(block, "always()", "switch-build always() for skipped deps")
   mustContain(block, "needs.switch-changes.outputs.changed == 'true'", "switch-build")
   mustContain(block, "bryanthaboi/gen1recomp", "switch-build canonical")
   mustContain(block, '["self-hosted", "macOS"]', "switch-build runner")

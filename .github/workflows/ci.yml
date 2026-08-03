@@ -144,9 +144,11 @@ jobs:
 
   switch-build:
     name: Switch fused build
-    needs: switch-changes
-    if: >-
-      needs.switch-changes.outputs.changed == 'true'
+    needs: [switch-changes, switch-selftest]
+    if: |
+      always()
+      && needs.switch-changes.outputs.changed == 'true'
+      && needs.switch-selftest.result == 'success'
       && github.repository == 'bryanthaboi/gen1recomp'
       && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository)
