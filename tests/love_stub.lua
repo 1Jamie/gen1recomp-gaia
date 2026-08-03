@@ -11,6 +11,9 @@ Image.__index = Image
 function Image:getDimensions() return self.w, self.h end
 function Image:getWidth() return self.w end
 function Image:getHeight() return self.h end
+-- IntroMovie sets the studio logo filter unconditionally on load
+function Image:setFilter(min, mag) self.minFilter, self.magFilter = min, mag end
+function Image:getFilter() return self.minFilter or "nearest", self.magFilter or "nearest" end
 
 -- read PNG dimensions from the file header (no decoder needed)
 local function pngSize(path)
