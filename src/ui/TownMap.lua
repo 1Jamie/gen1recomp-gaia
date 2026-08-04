@@ -221,8 +221,13 @@ function TownMap.new(game, opts)
   local mapId = game.overworld and game.overworld.map and game.overworld.map.id
   self.playerLoc = mapId and self.byMap[mapId] or nil
   self.sel = 1
-  for i, loc in ipairs(self.locs) do
-    if loc == self.playerLoc then self.sel = i break end
+  -- LoadTownMap_Fly always opens with hl on wFlyLocationsList[0], the FIRST
+  -- fly destination (PALLET_TOWN), never the player's current town (#795).
+  -- Only the plain viewer snaps the cursor to where the player stands.
+  if not self.fly then
+    for i, loc in ipairs(self.locs) do
+      if loc == self.playerLoc then self.sel = i break end
+    end
   end
   self.blink = 0
   return self
@@ -267,14 +272,17 @@ function TownMap:update(dt)
   if self.fly then
     -- LoadTownMap_Fly: Up/Down cycle the visited destinations, A flies there,
     -- B cancels (handled above).  moveList walks self.locs, now the fly list.
+    -- Up steps FORWARD through the towns (.pressedUp does inc hl: PALLET ->
+    -- VIRIDIAN -> PEWTER -> ...), Down steps back and wraps to the last
+    -- visited town from the top; the port had the two swapped (#795).
     if input:wasPressed("a") then
       Sound.play(self.game.data, "Press_AB")
       local mapId = self.flyMapIds[self.sel]
       self.game.stack:pop()
       if mapId and self.onFly then self.onFly(mapId) end
       return
-    elseif input:wasPressed("up") then self:moveList(-1)
-    elseif input:wasPressed("down") then self:moveList(1)
+    elseif input:wasPressed("up") then self:moveList(1)
+    elseif input:wasPressed("down") then self:moveList(-1)
     end
   elseif self.nestSpecies then
     if input:wasPressed("a") then
