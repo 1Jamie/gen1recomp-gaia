@@ -105,8 +105,23 @@ function LauncherView.update(imp, dt)
     down = love.mouse.isDown(1) and true or false
   end
   if down and not imp._prevMouseDown and not imp._padCursorActive then
-    local mx, my = love.mouse.getPosition()
-    imp._clickPt = { x = mx, y = my }
+    -- On touch platforms SDL synthesizes a mouse button from the finger, so
+    -- this rising edge fires at finger-DOWN while touchreleased dispatches
+    -- the same tap again at finger-UP: every control acted twice per tap
+    -- (the pager visibly jumped two pages).  While a touch is alive, or
+    -- inside the dedup window one just closed, the polled mouse IS that
+    -- finger and must not mint a second click.  A real desktop mouse has no
+    -- touches, so its press-down click is unchanged.
+    -- _suppressMouseUntil, NOT _suppressClickUntil: the latter is consulted
+    -- by queueAction and would swallow the tap's own action along with the
+    -- synthesized echo.
+    local now = love.timer.getTime()
+    local touching = imp._touchAt ~= nil and next(imp._touchAt) ~= nil
+    if not touching and now >= (imp._suppressMouseUntil or 0)
+        and now >= (imp._suppressClickUntil or 0) then
+      local mx, my = love.mouse.getPosition()
+      imp._clickPt = { x = mx, y = my }
+    end
   end
   imp._prevMouseDown = down
 
@@ -140,6 +155,12 @@ function LauncherView.touchmoved(imp, id, x, y)
     if ddx * ddx + ddy * ddy > TAP_SLOP2 then
       start.dragged = true
     end
+    -- Short-window mode: a vertical drag scrolls the page (draw() clamps).
+    if start.dragged and (imp._pageScrollMax or 0) > 0 then
+      local last = start.lastY or start.y
+      imp._pageScroll = (imp._pageScroll or 0) - (y - last)
+    end
+    start.lastY = y
   end
 end
 
@@ -153,6 +174,11 @@ function LauncherView.touchreleased(imp, id, x, y)
     imp._suppressClickUntil = love.timer.getTime() + ACT_DEDUP
     return
   end
+  -- The tap dispatches HERE, once: suppress update()'s rising-edge path for
+  -- the mouse press SDL synthesizes from this same gesture.  Mouse-only
+  -- suppression -- _suppressClickUntil would also make queueAction drop the
+  -- tap's own action.
+  imp._suppressMouseUntil = love.timer.getTime() + ACT_DEDUP
   imp._clickPt = { x = x, y = y }
 end
 
@@ -245,25 +271,6 @@ local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, ac
   end
 end
 
--- A filter/sort pill row that wraps.  Returns the height consumed.
-local function chipRow(imp, x, y, w, m, items)
-  local gap = math.floor(6 * m.s)
-  local h = math.max(Kit.tapMin(), math.floor(28 * m.s))
-  local cx, cy = x, y
-  for _, it in ipairs(items) do
-    local cw = Kit.textWidth("micro", it.label) + math.floor(20 * m.s)
-    if cx > x and cx + cw > x + w then
-      cx = x
-      cy = cy + h + gap
-    end
-    if Kit.chip(cx, cy, cw, h, it.label, it.active, it.color, it.key) then
-      queueAction(imp, it.key, it.action)
-    end
-    cx = cx + cw + gap
-  end
-  return (cy - y) + h
-end
-
 local function modStatusColor(status)
   if status == "ok" then return Strings("Ready"), PAL.green end
   if status == "conflict" then return Strings("Conflict"), PAL.red end
@@ -305,8 +312,10 @@ local function setPage(imp, key, v)
 end
 
 -- ------------------------------------------------------------- header
--- Rail, logo row (update + settings on the right), tab bar.
--- Returns the y at which content may start.
+-- Rail, logo row (settings on the right), tab bar.
+-- Returns the y at which content may start.  Its vertical arithmetic is
+-- mirrored by headerHeight() at the bottom of this file (the short-window
+-- scroll decision needs the height before anything draws) -- keep in sync.
 local function buildHeader(imp, m)
   local y = m.top
   Theme.versionRail(m.x, y, m.w, m.railH)
@@ -315,7 +324,6 @@ local function buildHeader(imp, m)
   -- logo row
   local rowH = m.logoH + math.floor(12 * m.s)
   local gear = m.chip
-  local gap = math.floor(8 * m.s)
 
   -- The logo is centred in the FULL row, then the right cluster is drawn over
   -- its own reserved space, so the wordmark never drifts as buttons appear.
@@ -357,20 +365,9 @@ local function buildHeader(imp, m)
     end
   end
 
-  -- In-app update, immediately left of the gear.  It GLOWS (a pulsing
-  -- outline, no extra draw calls -- see Kit.button) whenever there is
-  -- something to act on, which is the whole point of moving it out of the
-  -- old bottom-of-page banner: an update you never scrolled to was an update
-  -- you never saw.
-  local upStatus, upLabel, upAction, upGlow = LauncherView._updateControl(imp)
-  if upStatus then
-    local uw = Kit.textWidth("small", upLabel) + math.floor(24 * m.s)
-    rx = rx - gap - uw
-    btn(imp, rx, by, uw, gear, "updater", upLabel, {
-      kind = upGlow and "warn" or "ghost", font = "small",
-      glow = upGlow, action = upAction,
-    })
-  end
+  -- The self-update control lives in the FOOTER next to the BCG mark (small,
+  -- out of the wordmark's way -- it used to overlap the logo on a phone).  It
+  -- still GLOWS through Kit.button when there is something to act on.
   y = y + rowH
 
   -- tab bar
@@ -436,14 +433,6 @@ local function buildHeader(imp, m)
     tx = tx + w + math.floor(6 * m.s)
   end
 
-  -- "N of 3 ready", right-aligned on the tab line.
-  local ready = 0
-  for _, v in ipairs(GameVersion.ORDER) do
-    if imp.ready[v] then ready = ready + 1 end
-  end
-  Kit.textRight("small", Strings("%d of 3 ready", ready), m.x + m.w - m.pad,
-    ty + (tabH - Kit.textHeight("small")) / 2, PAL.muted)
-
   y = ty + tabH + math.floor(8 * m.s)
   Theme.fill(m.x, y, m.w, 1, PAL.line, Theme.A.hairline)
   return y + math.floor(10 * m.s)
@@ -478,7 +467,13 @@ end
 
 -- ------------------------------------------------------------ game panel
 
-local function buildRomCard(imp, x, y, w, m, version, info, ready, locked, maxH)
+-- One card of actions: Re-import ROM on top, the Import/Export save pair
+-- under it.  The old ROM card's caption/filename/"Verified." furniture and
+-- the SAVE FILES caption are gone -- a ready game shows only the buttons.
+-- The ROM import STATE lines survive (progress, "Import failed", the no-ROM
+-- drop hint): while there is no ROM they are the whole story of this card.
+local function buildActionsCard(imp, x, y, w, m, version, info, ready, locked,
+    maxH)
   local dropHint = imp.isNX and Strings("Copy the .gb/.gbc via MTP into imports/.")
     or (imp.android and Strings("Copy the .gb/.gbc via USB.")
       or Strings("Or drop the .gb/.gbc file here."))
@@ -497,8 +492,6 @@ local function buildRomCard(imp, x, y, w, m, version, info, ready, locked, maxH)
       romDetail = imp.detail or ""
       romProgress = imp.progress or 0
     elseif ready then
-      romState = imp.romName[version] or Strings("ROM imported")
-      romDetail = Strings("Verified.")
       romBtnLabel, romBtnEnabled = Strings("Re-import ROM"), true
     elseif erroring then
       romState = Strings("Import failed")
@@ -522,47 +515,6 @@ local function buildRomCard(imp, x, y, w, m, version, info, ready, locked, maxH)
     end
   end
 
-  local pad = math.floor(14 * m.s)
-  local iw = w - 2 * pad
-  -- The card's fixed furniture always fits; the DETAIL text is the elastic
-  -- part, so it takes however many lines are left over.  Without this the
-  -- card simply overflowed its budget and got clipped mid-button, which is
-  -- the failure a no-scroll layout has to design out rather than hope away.
-  local fixedH = pad + Kit.textHeight("caption") + math.floor(6 * m.s)
-    + Kit.textHeight("button") + math.floor(4 * m.s)
-    + math.floor(10 * m.s) + m.btnH + pad
-  local lineH = Kit.textHeight("small")
-  local maxLines = 3
-  if maxH then
-    maxLines = math.max(0, math.min(3, math.floor((maxH - fixedH) / lineH)))
-  end
-  local detailH = Kit.wrapHeight("small", romDetail, iw, maxLines)
-  local h = fixedH + detailH
-
-  Kit.card(x, y, w, h)
-  local cy = y + pad
-  cy = cy + Kit.caption(x + pad, cy, Strings("ROM")) + math.floor(6 * m.s)
-  Kit.text("button", Kit.ellipsize("button", romState, iw), x + pad, cy, PAL.heading)
-  cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
-  cy = cy + Kit.textWrapped("small", romDetail, x + pad, cy, iw, PAL.detail, maxLines)
-  cy = cy + math.floor(10 * m.s)
-  if romProgress ~= nil then
-    Kit.progress(x + pad, cy + (m.btnH - math.floor(10 * m.s)) / 2, iw,
-      math.floor(10 * m.s), romProgress)
-  else
-    btn(imp, x + pad, cy, iw, m.btnH, "rom-" .. version, romBtnLabel, {
-      kind = "accent",
-      enabled = romBtnEnabled,
-      action = romBtnEnabled and function()
-        if imp.ready[version] then imp:reimport(version)
-        else imp:choose(version) end
-      end or nil,
-    })
-  end
-  return h
-end
-
-local function buildSaveFilesCard(imp, x, y, w, m, version, ready, locked, maxH)
   local sfImportEnabled, sfExportEnabled = false, false
   if not locked then
     imp:_ensureSlots(version)
@@ -585,23 +537,55 @@ local function buildSaveFilesCard(imp, x, y, w, m, version, ready, locked, maxH)
 
   local pad = math.floor(14 * m.s)
   local iw = w - 2 * pad
-  -- Same elastic rule as the ROM card: the buttons and the caption are fixed,
-  -- the hint takes whatever lines remain (possibly none).
-  local folderRow = sfNotice and sfNotice.dir
-  local fixedH = pad + Kit.textHeight("caption") + math.floor(8 * m.s) + m.btnH
-    + math.floor(8 * m.s) + pad
-    + (folderRow and (math.floor(6 * m.s) + Kit.textHeight("small")) or 0)
   local lineH = Kit.textHeight("small")
-  local maxLines = 3
+  local folderRow = sfNotice and sfNotice.dir
+  -- The buttons and pads are fixed furniture that always fits; the two text
+  -- runs are the elastic part.  ROM detail lines come first (they only exist
+  -- while there is an import state to explain), the save hint takes whatever
+  -- lines remain.  Without this the card overflowed its budget and got
+  -- clipped mid-button -- the failure a no-scroll layout must design out.
+  local fixedH = pad + m.btnH + math.floor(10 * m.s) + m.btnH
+    + math.floor(8 * m.s) + pad
+    + (folderRow and (math.floor(6 * m.s) + lineH) or 0)
+  local stateHeadH = romState
+    and (Kit.textHeight("button") + math.floor(4 * m.s) + math.floor(10 * m.s))
+    or 0
+  local detailLines = romState and 3 or 0
+  local hintLines = 3
   if maxH then
-    maxLines = math.max(0, math.min(3, math.floor((maxH - fixedH) / lineH)))
+    local room = math.floor((maxH - fixedH - stateHeadH) / lineH)
+    detailLines = math.max(0, math.min(detailLines, room))
+    hintLines = math.max(0, math.min(hintLines, room - detailLines))
   end
-  local hintH = Kit.wrapHeight("small", hintText, iw, maxLines)
-  local h = fixedH + hintH
+  local detailH = romState
+    and Kit.wrapHeight("small", romDetail, iw, detailLines) or 0
+  local hintH = Kit.wrapHeight("small", hintText, iw, hintLines)
+  local h = fixedH + stateHeadH + detailH + hintH
 
   Kit.card(x, y, w, h)
   local cy = y + pad
-  cy = cy + Kit.caption(x + pad, cy, Strings("SAVE FILES")) + math.floor(8 * m.s)
+  if romState then
+    Kit.text("button", Kit.ellipsize("button", romState, iw), x + pad, cy,
+      PAL.heading)
+    cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
+    cy = cy + Kit.textWrapped("small", romDetail, x + pad, cy, iw, PAL.detail,
+      detailLines)
+    cy = cy + math.floor(10 * m.s)
+  end
+  if romProgress ~= nil then
+    Kit.progress(x + pad, cy + (m.btnH - math.floor(10 * m.s)) / 2, iw,
+      math.floor(10 * m.s), romProgress)
+  else
+    btn(imp, x + pad, cy, iw, m.btnH, "rom-" .. version, romBtnLabel, {
+      kind = "accent",
+      enabled = romBtnEnabled,
+      action = romBtnEnabled and function()
+        if imp.ready[version] then imp:reimport(version)
+        else imp:choose(version) end
+      end or nil,
+    })
+  end
+  cy = cy + m.btnH + math.floor(10 * m.s)
   local gap = math.floor(10 * m.s)
   local halfW = math.floor((iw - gap) / 2)
   btn(imp, x + pad, cy, halfW, m.btnH, "sav-import-" .. version, savImportLabel, {
@@ -614,7 +598,8 @@ local function buildSaveFilesCard(imp, x, y, w, m, version, ready, locked, maxH)
       action = sfExportEnabled and function() imp:exportSave(version) end or nil,
     })
   cy = cy + m.btnH + math.floor(8 * m.s)
-  cy = cy + Kit.textWrapped("small", hintText, x + pad, cy, iw, hintCol, maxLines)
+  cy = cy + Kit.textWrapped("small", hintText, x + pad, cy, iw, hintCol,
+    hintLines)
   if folderRow then
     cy = cy + math.floor(6 * m.s)
     local key = "sav-folder-" .. version
@@ -800,7 +785,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
   -- control-reset pair -- are PINNED to the bottom of the column and laid out
   -- upward; the informational cards fill downward from the top into whatever
   -- is left.  Without that pinning the column is a stack whose height depends
-  -- on how much text the ROM and save-file cards happen to carry, and at a
+  -- on how much text the actions card happens to carry, and at a
   -- large UI scale on a short window the Play button is what falls off the
   -- bottom -- the one thing that must never happen, and with no scrollbar to
   -- rescue it.
@@ -831,7 +816,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
     local armed = deleteArmed(imp, "rebinds", "all", nil)
     btn(imp, lx, py, lw, m.btnH, "reset-rebinds",
       armed and Strings("Sure? Reset all rebinds") or Strings("Reset rebinds"), {
-        kind = "danger", font = "small", keepArm = true,
+        kind = "danger", keepArm = true,
         action = function()
           imp:pressDelete("rebinds", "all", nil, function()
             imp:_resetRebinds()
@@ -847,23 +832,19 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
     })
   end
 
-  -- Cards fill the space above the pinned block, clipped so a long ROM error
-  -- message can never paint over the controls below it.
-  -- Split the leftover space between the two cards.  The ROM card gets what
-  -- it needs up to half, the save-file card takes the rest; each trims its own
-  -- elastic text to fit.  The clip is a backstop, not the mechanism.
+  -- The actions card fills the space above the pinned block, clipped so a
+  -- long ROM error message can never paint over the controls below it; it
+  -- trims its own elastic text to fit.  The clip is a backstop, not the
+  -- mechanism.
   local cardsH = py - gap - cy
   Kit.pushClip(lx, cy, lw, math.max(0, cardsH))
   local ly = cy
-  -- In one column the save-slot card shares this region, so the two info
-  -- cards get a bounded share of it rather than the whole thing.
+  -- In one column the save-slot card shares this region, so the actions
+  -- card gets a bounded share of it rather than the whole thing.
   local infoBudget = m.twoCol and cardsH or math.floor(cardsH * 0.42)
-  local romH = buildRomCard(imp, lx, ly, lw, m, version, info, ready, locked,
-    math.floor(infoBudget * 0.55))
-  ly = ly + romH + gap
-  local savH = buildSaveFilesCard(imp, lx, ly, lw, m, version, ready, locked,
-    infoBudget - romH - gap)
-  ly = ly + savH + gap
+  local actH = buildActionsCard(imp, lx, ly, lw, m, version, info, ready,
+    locked, infoBudget)
+  ly = ly + actH + gap
   Kit.popClip()
 
   -- Save slots.  Two columns put them beside the info cards; ONE column
@@ -885,59 +866,71 @@ end
 
 -- --------------------------------------------------------------- mods panel
 
--- The sort row both mod panels share, including its persisted choice.
-local function sortChips(imp, x, y, w, m, prefix)
-  local sortKey = imp.modSort or "name"
-  if imp.modSort == nil then
-    local ok, opts = pcall(require("src.core.SaveData").loadOptions)
-    if ok and type(opts) == "table" and type(opts.modSort) == "string" then
-      sortKey = opts.modSort
-      imp.modSort = sortKey
-    end
+-- One line of { text, color } segments, ellipsized as a whole: each segment
+-- gets whatever width the previous ones left, and the first segment that has
+-- to ellipsize ends the line.  Lets the download count sit green inside an
+-- otherwise muted stats line without two competing ellipsis passes.
+local function segLine(fontName, segs, x, y, maxW)
+  local sx = x
+  for _, seg in ipairs(segs) do
+    local text = seg[1]
+    local avail = maxW - (sx - x)
+    if avail <= 0 then break end
+    local shown = Kit.ellipsize(fontName, text, avail)
+    Kit.text(fontName, shown, sx, y, seg[2])
+    if shown ~= text then break end
+    sx = sx + Kit.textWidth(fontName, text)
   end
-  local defs = {
+end
+
+-- The persisted sort choice both mod panels share.  The chooser itself is a
+-- popup (buildSortModal); panels just read the current key and offer a
+-- "Sort" button, which is what freed the chip row's two lines of space.
+local function sortDefs()
+  return {
     { key = "name", label = Strings("Name") },
     { key = "popularity", label = Strings("Popularity") },
     { key = "release", label = Strings("Release date") },
     { key = "updated", label = Strings("Last updated") },
   }
-  local items = {}
-  for _, s in ipairs(defs) do
-    items[#items + 1] = {
-      label = s.label, active = sortKey == s.key, key = prefix .. s.key,
-      action = function()
-        imp.modSort = s.key
-        pcall(function()
-          local SaveData = require("src.core.SaveData")
-          local opts = SaveData.loadOptions()
-          opts.modSort = s.key
-          SaveData.saveOptions(opts)
-        end)
-      end,
-    }
+end
+
+local function currentSort(imp)
+  local sortKey = imp.modSort
+  if sortKey == nil then
+    local ok, opts = pcall(require("src.core.SaveData").loadOptions)
+    if ok and type(opts) == "table" and type(opts.modSort) == "string" then
+      sortKey = opts.modSort
+    end
+    sortKey = sortKey or "popularity"
+    imp.modSort = sortKey
   end
-  local labW = Kit.textWidth("small", Strings("Sort:")) + math.floor(8 * m.s)
-  Kit.text("small", Strings("Sort:"), x, y + math.floor(6 * m.s), PAL.detail)
-  return sortKey, chipRow(imp, x + labW, y, w - labW, m, items)
+  return sortKey
+end
+
+-- A hand-drawn check mark: the UI font has no guaranteed glyph for one, and
+-- a tofu box on the "you already have this" signal would be worse than none.
+local function drawCheck(x, y, size, color)
+  love.graphics.push("all")
+  love.graphics.setColor(color)
+  love.graphics.setLineWidth(math.max(2, size * 0.16))
+  love.graphics.setLineJoin("bevel")
+  love.graphics.line(
+    x, y + size * 0.55,
+    x + size * 0.35, y + size * 0.85,
+    x + size * 0.95, y + size * 0.15)
+  love.graphics.pop()
 end
 
 local function buildModsPanel(imp, x, y, w, availH, m)
   imp:_ensureMods()
   local ModUpdate = require("src.mods.ModUpdate")
   local mods = imp.mods or {}
-  local enabledCount = 0
-  for _, mod in ipairs(mods) do
-    if mod.enabled then enabledCount = enabledCount + 1 end
-  end
   local gap = m.gap
   local cy = y
 
-  -- header: title, count, actions
-  local titleH = Kit.textHeight("title")
-  Kit.text("title", Strings("Mods"), x, cy, PAL.heading)
-  Kit.text("small", Strings("%d of %d enabled", enabledCount, #mods),
-    x + Kit.textWidth("title", Strings("Mods")) + math.floor(12 * m.s),
-    cy + titleH - Kit.textHeight("small") - 2, PAL.muted)
+  -- header: just the action cluster, right-aligned.  No "Mods" headline (the
+  -- active tab already says it) and no enabled count (the toggles show it).
   local place = Layout.rightCluster(x, w, math.floor(6 * m.s))
   local bh = m.btnH
   local importLabel = imp:_modsImportButtonLabel()
@@ -954,8 +947,12 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     btn(imp, place(ew), cy, ew, bh, "mods-enable-all", Strings("Enable all"), {
       kind = "good", font = "small",
       action = function() imp:_setAllMods(true) end })
+    local sw = Kit.textWidth("small", Strings("Sort")) + math.floor(24 * m.s)
+    btn(imp, place(sw), cy, sw, bh, "mods-sort", Strings("Sort"), {
+      font = "small",
+      action = function() imp._sortPopup = true end })
   end
-  cy = cy + math.max(titleH, bh) + math.floor(8 * m.s)
+  cy = cy + bh + math.floor(8 * m.s)
 
   -- notice line
   local noticeText, noticeCol
@@ -973,11 +970,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     return
   end
 
-  local sortKey
-  sortKey, cy = (function()
-    local k, h = sortChips(imp, x, cy, w, m, "mod-sort-")
-    return k, cy + h + math.floor(8 * m.s)
-  end)()
+  local sortKey = currentSort(imp)
 
   -- Immediate mode paints this panel every frame; re-sorting the whole list
   -- per frame (with lowercased-string allocations in the comparator) fed the
@@ -1035,62 +1028,38 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   for i = first, last do
     local mod = mods[i]
     local ry = listTop + (i - first) * (rowH + gap)
-    local key = "mod-" .. mod.id
-    Kit.card(x, ry, w, rowH)
+    local rowKey = "mod-row-" .. mod.id
+    -- The whole row is the control: it opens the per-mod actions popup
+    -- (update / versions / delete moved there).  Only the enable toggle
+    -- stays inline, because flipping a mod on and off is the everyday act.
+    local focused = Kit.focusable(rowKey, x, ry, w, rowH)
+    local hot = focused or Kit.hover(x, ry, w, rowH)
+    Kit.card(x, ry, w, rowH, hot)
     local pad = math.floor(12 * m.s)
     local px, inner = x + pad, w - 2 * pad
     local ly = ry + math.floor(10 * m.s)
 
-    -- name + badge + enable toggle (right)
     local togW = math.floor(56 * m.s)
     local togH = math.floor(26 * m.s)
     local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
 
-    -- Right cluster first (toggle, then the action chips), all on one
-    -- vertically-centred line, so the text block knows the width it has left.
-    local chipY = ry + (rowH - chipH) / 2
-    local place2 = Layout.rightCluster(px, inner, math.floor(6 * m.s))
     local togKey = "mod-toggle-" .. mod.id
     -- The toggle reports its own new value, but the importer owns the state:
     -- queue the flip and let _toggleMod (which may raise an experimental-mod
     -- confirm) decide what actually happens.
-    local _, flipped = Kit.toggle(place2(togW),
+    local _, flipped = Kit.toggle(px + inner - togW,
       ry + (rowH - togH) / 2, togW, togH, mod.enabled, togKey)
     if flipped then
       queueAction(imp, togKey, function() imp:_toggleMod(mod.id) end)
     end
-    local chipsW = togW + math.floor(6 * m.s)
-
-    local armed = deleteArmed(imp, "mod", mod.id, nil)
-    local delW = math.max(Kit.textWidth("small", DELETE_LABEL(false)),
-      Kit.textWidth("small", DELETE_LABEL(true))) + math.floor(20 * m.s)
-    btn(imp, place2(delW), chipY, delW, chipH, "mod-del-" .. mod.id,
-      DELETE_LABEL(armed), {
-        kind = "danger", font = "small", keepArm = true,
-        action = function()
-          imp:pressDelete("mod", mod.id, nil, function()
-            imp:_deleteMod(mod.id)
-          end)
-        end,
-      })
-    chipsW = chipsW + delW + math.floor(6 * m.s)
-    if mod.github and mod.github ~= "" then
-      local vw = Kit.textWidth("small", Strings("Versions")) + math.floor(20 * m.s)
-      btn(imp, place2(vw), chipY, vw, chipH, "mod-ver-" .. mod.id,
-        Strings("Versions"), { kind = "accent", font = "small",
-          action = function() imp:_modGithubAction(mod.id, "versions") end })
-      local updLabel, updKind = Strings("Check for updates"), "ghost"
-      if info and info.status == "available" then
-        updLabel, updKind = Strings("Update"), "warn"
-      elseif info and info.status == "current" then
-        updLabel = Strings("Check again")
-      end
-      local uw = Kit.textWidth("small", updLabel) + math.floor(20 * m.s)
-      btn(imp, place2(uw), chipY, uw, chipH, "mod-upd-" .. mod.id, updLabel, {
-        kind = updKind, font = "small",
-        action = function() imp:_modGithubAction(mod.id, "update") end })
-      chipsW = chipsW + vw + uw + math.floor(12 * m.s)
+    -- The toggle sits inside the row's rect, so its press also passes the
+    -- row's hit test; `flipped` gates the row action to everywhere else.
+    if not flipped
+        and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
+      local id = mod.id
+      queueAction(imp, rowKey, function() imp._modActions = id end)
     end
+    local chipsW = togW + math.floor(6 * m.s)
     local textW = inner - chipsW - math.floor(12 * m.s)
 
     local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
@@ -1124,14 +1093,20 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
 
     -- one line of description, or the download stats when we have them
-    local sub = mod.description or ""
+    -- (download count in green so popularity reads at a glance)
     if info and info.downloads then
       local d = info.dates
-      sub = ModUpdate.statsLine(info.downloads.total, d and d.first,
-        d and d.latest)
-    end
-    if sub ~= "" then
-      Kit.text("small", Kit.ellipsize("small", sub, textW), px, ly, PAL.detail)
+      local dl = ModUpdate.downloadsLine(info.downloads.total)
+      local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
+      local segs = {}
+      if dl then segs[#segs + 1] = { dl, PAL.green } end
+      if dates then
+        segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
+      end
+      segLine("small", segs, px, ly, textW)
+    elseif (mod.description or "") ~= "" then
+      Kit.text("small", Kit.ellipsize("small", mod.description, textW),
+        px, ly, PAL.detail)
     end
   end
 
@@ -1153,100 +1128,56 @@ local function buildFindPanel(imp, x, y, w, availH, m)
   local gap = m.gap
   local cy = y
 
-  -- header
-  local titleH = Kit.textHeight("title")
-  Kit.text("title", Strings("Find Mods"), x, cy, PAL.heading)
-  if #sources > 0 then
-    local count = (#rows == total) and Strings("%d mods listed", total)
-      or Strings("%d of %d mods", #rows, total)
-    Kit.text("small", count,
-      x + Kit.textWidth("title", Strings("Find Mods")) + math.floor(12 * m.s),
-      cy + titleH - Kit.textHeight("small") - 2, PAL.muted)
-  end
-  local place = Layout.rightCluster(x, w, math.floor(6 * m.s))
-  local bh = m.btnH
-  local addLabel = (#sources == 0) and Strings("Add an index") or Strings("Add index")
-  local aw = Kit.textWidth("small", addLabel) + math.floor(24 * m.s)
-  btn(imp, place(aw), cy, aw, bh, "find-add", addLabel, {
-    kind = "accent", font = "small",
-    action = function() imp:_promptAddIndex() end })
-  if #sources > 0 then
-    local rw = Kit.textWidth("small", Strings("Refresh")) + math.floor(24 * m.s)
-    btn(imp, place(rw), cy, rw, bh, "find-refresh", Strings("Refresh"), {
-      kind = "accent", font = "small",
-      action = function()
-        imp._findSearchFocus = false
-        imp:_disarmTextInput()
-        imp:_refreshFind(true)
-      end })
-  end
-  cy = cy + math.max(titleH, bh) + math.floor(8 * m.s)
-
-  local noticeText, noticeCol
+  -- No headline, no disclaimer paragraph: the active tab already names this
+  -- panel, and the index list, the category filter and the sort choice all
+  -- moved into popups (Indexes / Filter / Sort) so the space goes to rows.
+  -- Only a live action-feedback notice (Installed X / errors) earns a line.
   if imp.findNotice then
-    noticeText = imp.findNotice.text
-    noticeCol = imp.findNotice.ok and PAL.green or PAL.red
-  else
-    noticeText = Strings(
-      "Mods here are listed, not reviewed - read the source and trust the author.")
-    noticeCol = PAL.muted
+    cy = cy + Kit.textWrapped("small", imp.findNotice.text, x, cy, w,
+      imp.findNotice.ok and PAL.green or PAL.red, 2) + math.floor(8 * m.s)
   end
-  cy = cy + Kit.textWrapped("small", noticeText, x, cy, w, noticeCol, 2)
-    + math.floor(8 * m.s)
 
   if #sources == 0 then
     local h = math.floor(140 * m.s)
     Kit.card(x, cy, w, h)
     Kit.textCenter("button", Strings("No mod index added"), x,
-      cy + math.floor(40 * m.s), w, PAL.heading)
+      cy + math.floor(24 * m.s), w, PAL.heading)
     Kit.textWrapped("small", Strings(
       "Add an index to browse mods. An index is a published list; paste its URL or its owner/repo."),
-      x + math.floor(24 * m.s), cy + math.floor(70 * m.s),
-      w - math.floor(48 * m.s), PAL.muted, 3)
+      x + math.floor(24 * m.s), cy + math.floor(54 * m.s),
+      w - math.floor(48 * m.s), PAL.muted, 2)
+    local aw = Kit.textWidth("small", Strings("Add an index"))
+      + math.floor(28 * m.s)
+    btn(imp, x + math.floor((w - aw) / 2), cy + h - m.btnH - math.floor(14 * m.s),
+      aw, m.btnH, "find-add", Strings("Add an index"), {
+        kind = "accent", font = "small",
+        action = function() imp._indexManage = true end })
     return
   end
 
-  -- source rows
-  for _, source in ipairs(sources) do
-    local h = math.max(Kit.tapMin(), math.floor(28 * m.s))
-    local rmW = Kit.textWidth("small", Strings("Remove")) + math.floor(20 * m.s)
-    Kit.text("small", Kit.ellipsize("small", source.label or source.feed,
-      w - rmW - math.floor(12 * m.s)), x, cy + (h - Kit.textHeight("small")) / 2,
-      PAL.detail)
-    local feed = source.feed
-    btn(imp, x + w - rmW, cy, rmW, h, "find-src-rm-" .. tostring(feed),
-      Strings("Remove"), { kind = "danger", font = "small",
-        action = function() imp:_removeIndex(feed) end })
-    cy = cy + h + math.floor(4 * m.s)
-  end
-  cy = cy + math.floor(4 * m.s)
-
-  -- search field
+  -- One row: the search field, then Filter / Sort / Indexes popup buttons.
   local fieldH = math.max(Kit.tapMin(), math.floor(36 * m.s))
-  textField(imp, x, cy, w, fieldH, "find-search", imp.findQuery or "",
+  local bgap = math.floor(6 * m.s)
+  local place = Layout.rightCluster(x, w, bgap)
+  local xw = Kit.textWidth("small", Strings("Indexes")) + math.floor(20 * m.s)
+  btn(imp, place(xw), cy, xw, fieldH, "find-indexes", Strings("Indexes"), {
+    font = "small",
+    action = function() imp._indexManage = true end })
+  local sw = Kit.textWidth("small", Strings("Sort")) + math.floor(20 * m.s)
+  btn(imp, place(sw), cy, sw, fieldH, "find-sort", Strings("Sort"), {
+    font = "small",
+    action = function() imp._sortPopup = true end })
+  -- The Filter button carries its state: blue while a category is active,
+  -- so a filtered-down list never reads as "the index shrank".
+  local fw = Kit.textWidth("small", Strings("Filter")) + math.floor(20 * m.s)
+  btn(imp, place(fw), cy, fw, fieldH, "find-filter", Strings("Filter"), {
+    kind = imp.findCategory and "accent" or "ghost", font = "small",
+    action = function() imp._filterPopup = true end })
+  local searchW = place(0) - x - bgap
+  textField(imp, x, cy, searchW, fieldH, "find-search", imp.findQuery or "",
     Strings("Search mods"), imp._findSearchFocus == true,
     function() imp:_toggleFindSearchFocus() end)
   cy = cy + fieldH + math.floor(8 * m.s)
-
-  -- category chips
-  local cats = (imp.findIndex and imp.findIndex.categories) or {}
-  if #cats > 0 then
-    local items = { {
-      label = Strings("All"), active = imp.findCategory == nil,
-      key = "find-cat-all", action = function() imp.findCategory = nil end,
-    } }
-    for _, cat in ipairs(cats) do
-      items[#items + 1] = {
-        label = cat, active = imp.findCategory == cat,
-        key = "find-cat-" .. cat,
-        action = function()
-          imp.findCategory = (imp.findCategory ~= cat) and cat or nil
-          setPage(imp, "find", 1)
-        end,
-      }
-    end
-    cy = cy + chipRow(imp, x, cy, w, m, items) + math.floor(8 * m.s)
-  end
 
   if #rows == 0 then
     Kit.emptyBox(x, cy, w, math.floor(110 * m.s),
@@ -1255,11 +1186,7 @@ local function buildFindPanel(imp, x, y, w, availH, m)
     return
   end
 
-  local sortKey
-  sortKey, cy = (function()
-    local k, h = sortChips(imp, x, cy, w, m, "find-sort-")
-    return k, cy + h + math.floor(8 * m.s)
-  end)()
+  local sortKey = currentSort(imp)
 
   -- Same caching rule as the MODS tab: the comparator allocates, so only
   -- re-sort when the inputs actually change.
@@ -1315,41 +1242,29 @@ local function buildFindPanel(imp, x, y, w, availH, m)
   for i = first, last do
     local entry = rows[i]
     local ry = listTop + (i - first) * (rowH + gap)
-    Kit.card(x, ry, w, rowH)
+    local rowKey = "find-row-" .. entry.id
+    -- The whole row is the control: it opens the per-mod popup where
+    -- Install / Details / Source moved.  The only inline signal left is a
+    -- green check when the mod is already installed.
+    local focused = Kit.focusable(rowKey, x, ry, w, rowH)
+    local hot = focused or Kit.hover(x, ry, w, rowH)
+    Kit.card(x, ry, w, rowH, hot)
     local pad = math.floor(12 * m.s)
     local px, inner = x + pad, w - 2 * pad
     local ly = ry + math.floor(8 * m.s)
 
-    -- Action chips are right-aligned on the SAME rows as the text, so the
-    -- card needs no separate button strip.  Reserve their width first.
-    local chipY = ry + (rowH - chipH) / 2
-    local place2 = Layout.rightCluster(px, inner, math.floor(6 * m.s))
-    local action, note = findActionFor(entry, installed[entry.id])
+    if Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey then
+      local e = entry
+      queueAction(imp, rowKey, function() imp._findEntry = e end)
+    end
+
+    local _, note = findActionFor(entry, installed[entry.id])
     local chipsW = 0
-    if action then
-      local iw4 = Kit.textWidth("small", action) + math.floor(20 * m.s)
-      btn(imp, place2(iw4), chipY, iw4, chipH, "find-inst-" .. entry.id, action, {
-        kind = "accent", font = "small",
-        action = function() imp:_findConfirmInstall(entry) end })
-      chipsW = chipsW + iw4 + math.floor(6 * m.s)
-    else
-      local uw = Kit.textWidth("micro", Strings("Unavailable")) + math.floor(16 * m.s)
-      Kit.tag(place2(uw), chipY, uw, chipH, Strings("Unavailable"), PAL.yellow)
-      chipsW = chipsW + uw + math.floor(6 * m.s)
+    if installed[entry.id] then
+      local ck = math.floor(20 * m.s)
+      drawCheck(px + inner - ck, ry + (rowH - ck) / 2, ck, PAL.green)
+      chipsW = ck + math.floor(6 * m.s)
     end
-    if entry.repo then
-      local sw = Kit.textWidth("small", Strings("Source")) + math.floor(20 * m.s)
-      local repo = entry.repo
-      btn(imp, place2(sw), chipY, sw, chipH, "find-repo-" .. entry.id,
-        Strings("Source"), { kind = "accent", font = "small",
-          action = function() love.system.openURL(repo) end })
-      chipsW = chipsW + sw + math.floor(6 * m.s)
-    end
-    local dw = Kit.textWidth("small", Strings("Details")) + math.floor(20 * m.s)
-    btn(imp, place2(dw), chipY, dw, chipH, "find-det-" .. entry.id,
-      Strings("Details"), { kind = "accent", font = "small",
-        action = function() imp:_findShowDetails(entry) end })
-    chipsW = chipsW + dw + math.floor(12 * m.s)
 
     -- thumbnail (or its placeholder while the async fetch is in flight)
     local image = imp:_findThumb(entry)
@@ -1369,23 +1284,32 @@ local function buildFindPanel(imp, x, y, w, availH, m)
     Kit.text("button", Kit.ellipsize("button", entry.title or entry.id, bw),
       bx, ly, PAL.heading)
     local by2 = ly + Kit.textHeight("button") + math.floor(4 * m.s)
-    local meta = "v" .. tostring(ModIndex.displayVersion(entry))
-    if entry.author then meta = meta .. "  -  " .. entry.author end
-    if entry.categories and entry.categories[1] then
-      meta = meta .. "  -  " .. entry.categories[1]
-    end
-    -- meta and stats on one line, stats first because they are what the
-    -- Popularity/date sorts are ordering by
+    -- meta and stats on one line, the download count first (and green)
+    -- because it is what the default Popularity sort is ordering by: a
+    -- narrow window ellipsizes the tail, and the count must survive that.
     local stats = imp:_findStats(entry)
-    local tail = entry.summary or ""
-    if stats and (stats.total ~= nil or stats.first or stats.latest) then
-      tail = ModUpdate.statsLine(stats.total, stats.first, stats.latest)
+    local baseCol = note and PAL.green or PAL.detail
+    local lead = "v" .. tostring(ModIndex.displayVersion(entry))
+    if note then lead = lead .. "  -  " .. note end
+    local dl = stats and ModUpdate.downloadsLine(stats.total) or nil
+    local dates = stats and ModUpdate.datesLine(stats.first, stats.latest)
+      or nil
+    local rest = {}
+    if entry.author then rest[#rest + 1] = entry.author end
+    if entry.categories and entry.categories[1] then
+      rest[#rest + 1] = entry.categories[1]
     end
-    if note then tail = note .. "  -  " .. tail end
-    local line2 = meta
-    if tail ~= "" then line2 = line2 .. "  -  " .. tail end
-    Kit.text("small", Kit.ellipsize("small", line2, bw), bx, by2,
-      note and PAL.green or PAL.detail)
+    if dates then
+      rest[#rest + 1] = dates
+    elseif not dl and (entry.summary or "") ~= "" then
+      rest[#rest + 1] = entry.summary
+    end
+    local segs = { { lead, baseCol } }
+    if dl then segs[#segs + 1] = { "  -  " .. dl, PAL.green } end
+    if #rest > 0 then
+      segs[#segs + 1] = { "  -  " .. table.concat(rest, "  -  "), baseCol }
+    end
+    segLine("small", segs, bx, by2, bw)
   end
 
   local pagerY = listTop + (last - first + 1) * (rowH + gap)
@@ -1405,8 +1329,15 @@ local TRUST_WARNING = "if you did not get this from bryanthaboi's github "
 -- competing with the panel for a short window's height, so the mark and the
 -- link share one line and the trust warning is capped at a single line.
 local function footerHeight(imp, m)
-  local bh = math.floor(22 * m.s)
-  return bh + math.floor(4 * m.s) + Kit.textHeight("micro")
+  -- Top pad + mark/update row + gap + the FULL wrapped trust message +
+  -- bottom pad.  The message wraps to as many lines as it needs: truncating
+  -- a trust warning defeats its purpose, and the bottom pad is not optional
+  -- either (without it the last line sits flush on the window edge and its
+  -- lower half clips off).  The row is tapMin tall because the small update
+  -- button rides beside the mark.
+  local rowH = math.max(math.floor(22 * m.s), Kit.tapMin())
+  return math.floor(8 * m.s) + rowH + math.floor(6 * m.s)
+    + Kit.wrapHeight("micro", TRUST_WARNING, m.contentW)
     + math.floor(8 * m.s)
 end
 
@@ -1423,29 +1354,65 @@ local function buildFooter(imp, m, y)
   local bw, bh = imp.bcg:getDimensions()
   local scale = math.min((130 * m.s) / bw, (22 * m.s) / bh)
   local dw, dh = bw * scale, bh * scale
-  -- Mark on the left of the line, link on the right, so the footer is one row
-  -- instead of three stacked ones.
-  local linkW = Kit.textWidth("small", COMMUNITY_URL)
-  local bx = m.contentX
-  local hot = Kit.hover(bx, cy, dw, dh)
+  local rowH = math.max(math.floor(22 * m.s), Kit.tapMin())
+  -- The mark and the small self-update control share the row, centred as a
+  -- group.  The updater moved down here from the header, where it overlapped
+  -- the wordmark on a phone; small on purpose, its glow still carries the
+  -- "act on me" signal.
+  local upStatus, upLabel, upAction, upGlow = LauncherView._updateControl(imp)
+  -- Kit.button insets its label 16*scale per side, so the width must budget
+  -- more than that or the label ellipsizes ("Check for updat...").
+  local uw = upStatus
+    and (Kit.textWidth("micro", upLabel) + math.floor(36 * m.s)) or 0
+  local groupW = dw + (upStatus and (math.floor(10 * m.s) + uw) or 0)
+  local bx = m.x + math.floor((m.w - groupW) / 2)
+  local my = cy + math.floor((rowH - dh) / 2)
+  local hot = Kit.hover(bx, my, dw, dh)
   love.graphics.setShader(imp.invertShader)
   love.graphics.setColor(1, 1, 1, hot and 1 or 0.85)
-  love.graphics.draw(imp.bcg, Theme.snap(bx), Theme.snap(cy), 0, scale, scale)
+  love.graphics.draw(imp.bcg, Theme.snap(bx), Theme.snap(my), 0, scale, scale)
   love.graphics.setShader()
   love.graphics.setColor(1, 1, 1, 1)
-  if Kit.press(bx, cy, dw, dh) then
+  if Kit.press(bx, my, dw, dh) then
     queueAction(imp, "bcg", function() love.system.openURL(COMMUNITY_URL) end)
   end
-  local lx = m.contentX + m.contentW - linkW
-  local lyy = cy + (dh - Kit.textHeight("small")) / 2
-  Kit.text("small", COMMUNITY_URL, lx, lyy, PAL.blue)
-  Theme.fill(lx, lyy + Kit.textHeight("small") - 1, linkW, 1, PAL.blue, 0.6)
-  if Kit.press(lx, lyy, linkW, Kit.textHeight("small")) then
-    queueAction(imp, "bois", function() love.system.openURL(COMMUNITY_URL) end)
+  if upStatus then
+    btn(imp, bx + dw + math.floor(10 * m.s), cy, uw, rowH, "updater",
+      upLabel, {
+        kind = upGlow and "warn" or "ghost", font = "micro",
+        glow = upGlow, action = upAction,
+      })
   end
-  cy = cy + dh + math.floor(4 * m.s)
-  Kit.text("micro", Kit.ellipsize("micro", TRUST_WARNING, m.contentW),
-    m.contentX, cy, PAL.muted)
+  cy = cy + rowH + math.floor(6 * m.s)
+  -- The trust message wraps in full, each line centred under the mark, and
+  -- the URL inside it IS the link -- no separate link floating elsewhere.
+  -- font:getWrap never splits an unspaced word, so the URL stays whole on
+  -- one line and a plain substring find locates it.
+  local lines = Kit.wrapLines("micro", TRUST_WARNING, m.contentW)
+  local lh = Kit.textHeight("micro")
+  for i, line in ipairs(lines or {}) do
+    local lw = Kit.textWidth("micro", line)
+    local lx = m.contentX + math.floor((m.contentW - lw) / 2)
+    local ly = cy + (i - 1) * lh
+    local s0, e0 = line:find(COMMUNITY_URL, 1, true)
+    if s0 then
+      local pre = line:sub(1, s0 - 1)
+      local url = line:sub(s0, e0)
+      Kit.text("micro", pre, lx, ly, PAL.muted)
+      local ux = lx + Kit.textWidth("micro", pre)
+      local uw = Kit.textWidth("micro", url)
+      Kit.text("micro", url, ux, ly, PAL.blue)
+      Theme.fill(ux, ly + lh - 1, uw, 1, PAL.blue, 0.6)
+      if Kit.press(ux, ly, uw, lh) then
+        queueAction(imp, "bois", function()
+          love.system.openURL(COMMUNITY_URL)
+        end)
+      end
+      Kit.text("micro", line:sub(e0 + 1), ux + uw, ly, PAL.muted)
+    else
+      Kit.text("micro", line, lx, ly, PAL.muted)
+    end
+  end
 end
 
 -- ------------------------------------------------------------------ modals
@@ -1666,6 +1633,265 @@ local function buildVersionsModal(imp, m)
       action = function() imp._modVersions = nil end })
 end
 
+-- Sort chooser, shared by the MODS and FIND MODS tabs (they share the
+-- persisted key, so one popup serves both).
+local function buildSortModal(imp, m)
+  local defs = sortDefs()
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(360 * m.s)
+  local gap = math.floor(8 * m.s)
+  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
+    + #defs * (m.btnH + gap) + m.btnH + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Sort by"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  local cur = currentSort(imp)
+  for _, s in ipairs(defs) do
+    local key = s.key
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "sortpop-" .. key, s.label, {
+      kind = (cur == key) and "primary" or "ghost", font = "small",
+      action = function()
+        imp.modSort = key
+        imp._sortPopup = nil
+        pcall(function()
+          local SaveData = require("src.core.SaveData")
+          local opts = SaveData.loadOptions()
+          opts.modSort = key
+          SaveData.saveOptions(opts)
+        end)
+      end })
+    cy = cy + m.btnH + gap
+  end
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "sortpop-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._sortPopup = nil end })
+end
+
+-- Category filter for FIND MODS.  Two columns, because an index can list
+-- enough categories to overflow a single stacked column on a short window.
+local function buildFilterModal(imp, m)
+  local cats = (imp.findIndex and imp.findIndex.categories) or {}
+  local items = { { key = nil, label = Strings("All") } }
+  for _, c in ipairs(cats) do items[#items + 1] = { key = c, label = c } end
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(440 * m.s)
+  local gap = math.floor(8 * m.s)
+  local nrows = math.ceil(#items / 2)
+  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
+    + nrows * (m.btnH + gap) + m.btnH + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Filter by category"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  local colW = math.floor((pw - 2 * pad - gap) / 2)
+  for i, it in ipairs(items) do
+    local bx = px + pad + ((i - 1) % 2) * (colW + gap)
+    local by = cy + math.floor((i - 1) / 2) * (m.btnH + gap)
+    local key = it.key
+    btn(imp, bx, by, colW, m.btnH, "filterpop-" .. (key or "all"), it.label, {
+      kind = (imp.findCategory == key) and "primary" or "ghost",
+      font = "small",
+      action = function()
+        imp.findCategory = key
+        setPage(imp, "find", 1)
+        imp._filterPopup = nil
+      end })
+  end
+  cy = cy + nrows * (m.btnH + gap)
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "filterpop-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._filterPopup = nil end })
+end
+
+-- Index manager: every source with its Remove, plus Add and Refresh all.
+-- This replaces both the old always-visible source rows above the search
+-- field and the lone "Add index" header button.
+local function buildIndexesModal(imp, m)
+  local sources = imp.findSources or {}
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(520 * m.s)
+  local gap = math.floor(6 * m.s)
+  local rowH = math.max(Kit.tapMin(), math.floor(34 * m.s))
+  local listH = (#sources > 0) and #sources * (rowH + gap)
+    or (Kit.textHeight("small") + gap)
+  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s) + listH
+    + math.floor(6 * m.s) + 3 * (m.btnH + math.floor(8 * m.s))
+    - math.floor(8 * m.s) + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Mod indexes"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  if #sources == 0 then
+    Kit.text("small", Strings("No index added yet."), px + pad, cy, PAL.muted)
+    cy = cy + Kit.textHeight("small") + gap
+  else
+    for _, source in ipairs(sources) do
+      local feed = source.feed
+      local rmW = Kit.textWidth("small", Strings("Remove"))
+        + math.floor(20 * m.s)
+      Kit.text("small", Kit.ellipsize("small", source.label or feed,
+        pw - 2 * pad - rmW - math.floor(12 * m.s)), px + pad,
+        cy + (rowH - Kit.textHeight("small")) / 2, PAL.detail)
+      btn(imp, px + pw - pad - rmW, cy, rmW, rowH,
+        "idx-rm-" .. tostring(feed), Strings("Remove"), {
+          kind = "danger", font = "small",
+          action = function() imp:_removeIndex(feed) end })
+      cy = cy + rowH + gap
+    end
+  end
+  cy = cy + math.floor(6 * m.s)
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "idx-add",
+    Strings("Add index"), { kind = "accent", font = "small",
+      action = function() imp:_promptAddIndex() end })
+  cy = cy + m.btnH + math.floor(8 * m.s)
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "idx-refresh",
+    Strings("Refresh all"), {
+      kind = "accent", font = "small", enabled = #sources > 0,
+      action = function()
+        imp._findSearchFocus = false
+        imp:_disarmTextInput()
+        imp:_refreshFind(true)
+      end })
+  cy = cy + m.btnH + math.floor(8 * m.s)
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "idx-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._indexManage = nil end })
+end
+
+-- Per-mod actions for the MODS tab: the row itself only carries the enable
+-- toggle, everything episodic (update check, versions, delete) lives here.
+local function buildModActionsModal(imp, m)
+  local mod
+  for _, mm in ipairs(imp.mods or {}) do
+    if mm.id == imp._modActions then mod = mm break end
+  end
+  if not mod then imp._modActions = nil return end
+  local hasGit = mod.github and mod.github ~= ""
+  local info = hasGit and imp:_modUpdateInfo(mod.id)
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(440 * m.s)
+  local gap = math.floor(8 * m.s)
+  local nBtns = (hasGit and 2 or 0) + 2
+  local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
+    + Kit.textHeight("small") + math.floor(12 * m.s)
+    + nBtns * (m.btnH + gap) - gap + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Kit.ellipsize("button", mod.name, pw - 2 * pad),
+    px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
+  local statusText, statusCol = modStatusColor(mod.status)
+  local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
+  if info and info.status == "available" then
+    line = line .. "   " .. Strings("v%s available", tostring(info.latest))
+  elseif info and info.status == "current" then
+    line = line .. "   " .. Strings("up to date")
+  end
+  Kit.text("small", Kit.ellipsize("small", line, pw - 2 * pad),
+    px + pad, cy, statusCol)
+  cy = cy + Kit.textHeight("small") + math.floor(12 * m.s)
+  local id = mod.id
+  if hasGit then
+    local updLabel, updKind = Strings("Check for updates"), "ghost"
+    if info and info.status == "available" then
+      updLabel, updKind = Strings("Update"), "warn"
+    elseif info and info.status == "current" then
+      updLabel = Strings("Check again")
+    end
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-upd", updLabel, {
+      kind = updKind, font = "small",
+      action = function() imp:_modGithubAction(id, "update") end })
+    cy = cy + m.btnH + gap
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-ver",
+      Strings("Versions"), { kind = "accent", font = "small",
+        action = function() imp:_modGithubAction(id, "versions") end })
+    cy = cy + m.btnH + gap
+  end
+  local armed = deleteArmed(imp, "mod", id, nil)
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-del",
+    DELETE_LABEL(armed), {
+      kind = "danger", font = "small", keepArm = true,
+      action = function()
+        imp:pressDelete("mod", id, nil, function()
+          imp:_deleteMod(id)
+          imp._modActions = nil
+        end)
+      end })
+  cy = cy + m.btnH + gap
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._modActions = nil end })
+end
+
+-- Per-mod popup for FIND MODS: the row is a plain click, and Install /
+-- Details / Source live here instead of crowding every row.
+local function buildFindEntryModal(imp, m)
+  local ModIndex = require("src.mods.ModIndex")
+  local ModUpdate = require("src.mods.ModUpdate")
+  local entry = imp._findEntry
+  local installed = imp:_findInstalledMap()
+  local action, note = findActionFor(entry, installed[entry.id])
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(460 * m.s)
+  local gap = math.floor(8 * m.s)
+  local nBtns = 3  -- install row, details/source row, close row
+  local noteH = note and (Kit.textHeight("small") + math.floor(4 * m.s)) or 0
+  local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
+    + Kit.textHeight("small") + noteH + math.floor(12 * m.s)
+    + nBtns * (m.btnH + gap) - gap + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Kit.ellipsize("button", entry.title or entry.id,
+    pw - 2 * pad), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
+  local stats = imp:_findStats(entry)
+  local lead = "v" .. tostring(ModIndex.displayVersion(entry))
+  if entry.author then lead = lead .. "  -  " .. entry.author end
+  if entry.categories and entry.categories[1] then
+    lead = lead .. "  -  " .. entry.categories[1]
+  end
+  local dl = stats and ModUpdate.downloadsLine(stats.total) or nil
+  local segs = { { lead, PAL.detail } }
+  if dl then segs[#segs + 1] = { "  -  " .. dl, PAL.green } end
+  segLine("small", segs, px + pad, cy, pw - 2 * pad)
+  cy = cy + Kit.textHeight("small")
+  if note then
+    cy = cy + math.floor(4 * m.s)
+    Kit.text("small", note, px + pad, cy, PAL.green)
+    cy = cy + Kit.textHeight("small")
+  end
+  cy = cy + math.floor(12 * m.s)
+  if action then
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "findpop-inst", action, {
+      kind = "primary", font = "small",
+      action = function()
+        imp._findEntry = nil
+        imp:_findConfirmInstall(entry)
+      end })
+  else
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "findpop-inst",
+      Strings("Not installable from this index"),
+      { font = "small", enabled = false })
+  end
+  cy = cy + m.btnH + gap
+  local half = entry.repo and math.floor((pw - 2 * pad - gap) / 2)
+    or (pw - 2 * pad)
+  btn(imp, px + pad, cy, half, m.btnH, "findpop-det", Strings("Details"), {
+    kind = "accent", font = "small",
+    action = function() imp:_findShowDetails(entry) end })
+  if entry.repo then
+    local repo = entry.repo
+    btn(imp, px + pad + half + gap, cy, half, m.btnH, "findpop-src",
+      Strings("Source"), { kind = "accent", font = "small",
+        action = function() love.system.openURL(repo) end })
+  end
+  cy = cy + m.btnH + gap
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "findpop-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._findEntry = nil end })
+end
+
 local function buildSettingsModal(imp, m)
   local model = imp._settings
   local pad = math.floor(18 * m.s)
@@ -1779,6 +2005,19 @@ local function buildSettingsModal(imp, m)
     Kit.pager(px + pad, cy, pw - 2 * pad, cur, n, perPage, "settings"))
 end
 
+-- Whether ANY modal will draw this frame.  draw() consults this BEFORE the
+-- panels build: immediate mode hit-tests each control as it draws, so the
+-- panels underneath a modal must run with Kit.blockClicks already raised or
+-- a click on the scrim lands on whatever button happens to be behind it.
+-- Keep this list in sync with buildModals below.
+local function modalUp(imp)
+  return (imp._settingsText or imp._settings or imp._rename
+    or imp._indexPrompt or imp._modConfirm or imp._modReleaseNotes
+    or imp._findDetails or imp._modVersions or imp._sortPopup
+    or imp._filterPopup or imp._indexManage or imp._modActions
+    or imp._findEntry) ~= nil
+end
+
 local function buildModals(imp, m)
   if imp._settingsText then
     local st = imp._settingsText
@@ -1844,6 +2083,15 @@ local function buildModals(imp, m)
     return true
   end
   if imp._modVersions then buildVersionsModal(imp, m) return true end
+  -- The lighter popups come after the deep ones on purpose: opening
+  -- Versions or Details from inside an actions popup draws the deeper modal
+  -- while the popup's own state stays set, so closing the deep one drops
+  -- you back where you were.
+  if imp._sortPopup then buildSortModal(imp, m) return true end
+  if imp._filterPopup then buildFilterModal(imp, m) return true end
+  if imp._indexManage then buildIndexesModal(imp, m) return true end
+  if imp._modActions then buildModActionsModal(imp, m) return true end
+  if imp._findEntry then buildFindEntryModal(imp, m) return true end
   return false
 end
 
@@ -1901,6 +2149,22 @@ end
 
 -- ------------------------------------------------------------ frame assembly
 
+-- Mirror of buildHeader's vertical arithmetic, so the frame can decide
+-- whether the window is tall enough BEFORE anything draws.  Keep in sync
+-- with buildHeader (rail, logo row, tab row, hairline pad).
+local function headerHeight(m)
+  return m.railH + m.logoH + math.floor(12 * m.s) + math.floor(6 * m.s)
+    + m.chip + math.floor(8 * m.s) + math.floor(10 * m.s)
+end
+
+-- The panel space a tab needs to lay out without crushing itself.  Below
+-- this the page SCROLLS (wheel / touch drag) instead of compressing: the
+-- pinned Play block used to walk up over the cards on a short window, which
+-- is unusable, and the footer simply lives below the fold until scrolled to.
+local function minPanelHeight(m)
+  return math.floor(460 * m.s)
+end
+
 function LauncherView.draw(imp)
   ensureState(imp)
   local m = Layout.metrics(1200)
@@ -1916,16 +2180,47 @@ function LauncherView.draw(imp)
   local click = imp._clickPt
   if click then mx, my = click.x, click.y end
 
+  -- SHORT-WINDOW SCROLL.  When the space between header and footer falls
+  -- under the panel minimum, the whole page (header included) scrolls by a
+  -- plain y offset: layout runs off a shifted m.top, so hit tests, focus
+  -- rects and drawing all agree with the real pointer and no transform is
+  -- involved.  Modals and the loader keep the REAL metrics and stay
+  -- centred in the window.
+  local footH = footerHeight(imp, m)
+  local naturalAvail = m.h - headerHeight(m) - footH - m.gap
+  local scrollMax = math.max(0, minPanelHeight(m) - naturalAvail)
+  local scroll = math.max(0, math.min(imp._pageScroll or 0, scrollMax))
+  if scrollMax > 0 and (imp._wheelY or 0) ~= 0 then
+    scroll = math.max(0, math.min(
+      scroll - imp._wheelY * math.floor(48 * m.s), scrollMax))
+    imp._wheelY = 0  -- the page consumed the wheel; lists page by tap here
+  end
+  imp._pageScroll, imp._pageScrollMax = scroll, scrollMax
+
   Kit.beginFrame(mx, my, click ~= nil, imp._wheelY or 0)
   imp._clickPt = nil
   imp._wheelY = 0
 
   Theme.field()
 
-  local contentY = buildHeader(imp, m)
-  local footH = footerHeight(imp, m)
-  local footY = m.top + m.h - footH
-  local availH = footY - contentY - m.gap
+  -- Everything from here to buildModals sits UNDER any open modal, so the
+  -- whole stage draws shielded (no clicks, no hover, no focus ring) while
+  -- one is up; buildModals lowers the shield for the modal's own controls.
+  Kit.blockClicks = modalUp(imp)
+
+  local ms = m
+  if scroll > 0 then
+    ms = setmetatable({ top = m.top - scroll }, { __index = m })
+  end
+  local contentY = buildHeader(imp, ms)
+  local footY, availH
+  if scrollMax > 0 then
+    availH = minPanelHeight(m)
+    footY = contentY + availH + m.gap
+  else
+    footY = m.top + m.h - footH
+    availH = footY - contentY - m.gap
+  end
 
   local x, w = m.contentX, m.contentW
   if imp.tab == "mods" then
@@ -1937,6 +2232,7 @@ function LauncherView.draw(imp)
   end
 
   buildFooter(imp, m, footY)
+  Kit.blockClicks = false
   buildModals(imp, m)
 
   -- The loader sits above everything, including modals: it is the one thing

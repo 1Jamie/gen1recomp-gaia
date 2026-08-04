@@ -368,7 +368,10 @@ Kit._navQueue = nil
 Kit._activateId = nil
 
 -- Register a focusable.  Returns true when it currently holds the ring.
+-- Shielded widgets do not register: while a modal owns the frame the ring
+-- must not wander through (or Enter-activate) the controls underneath it.
 function Kit.focusable(id, x, y, w, h)
+  if Kit.blockClicks then return false end
   local n = (Kit._navN or 0) + 1
   Kit._navN = n
   local slot = Kit._nav[n]
@@ -492,6 +495,9 @@ function Kit.hit(x, y, w, h)
 end
 
 function Kit.hover(x, y, w, h)
+  -- Shielded widgets (drawn while a modal owns the frame) must not glow
+  -- either: a hover highlight under the scrim reads as "still clickable".
+  if Kit.blockClicks then return false end
   return Kit.hit(x, y, w, h)
 end
 
@@ -640,7 +646,8 @@ function Kit.button(x, y, w, h, label, opts)
   end
   if not enabled then return false end
   return Kit.press(x, y, w, h)
-    or (opts.id ~= nil and Kit._activateId == opts.id)
+    or (not Kit.blockClicks and opts.id ~= nil
+      and Kit._activateId == opts.id)
 end
 
 -- A small square control: +/- steppers, arrow cyclers, the row X.

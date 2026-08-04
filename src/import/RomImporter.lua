@@ -3468,6 +3468,10 @@ function RomImporter:_pumpFindStats()
       end
       self._findStatsCache = self._findStatsCache or {}
       self._findStatsCache[id] = cached
+      -- The FIND list's sort cache is keyed on this revision; without the
+      -- bump a Popularity/date sort stays frozen in the order of the first
+      -- frame (no stats yet = name order) even after every fetch lands.
+      self._findStatsRev = (self._findStatsRev or 0) + 1
     end
   end
   if next(pending) == nil then self._findStatsPending = nil end

@@ -257,16 +257,21 @@ end
 -- across all releases  -  Released 2024-05-31  -  Updated 2026-07-01".
 -- Each part is optional; nil everywhere means nil, so a row with no data
 -- shows no line rather than a wrong "0".
+function ModUpdate.downloadsLine(total)
+  if total == nil then return nil end
+  return Strings("%s downloads across all releases",
+    ModUpdate.formatCount(total))
+end
+
+function ModUpdate.datesLine(first, latest)
+  if not (first or latest) then return nil end
+  return Strings("Released %s  -  Updated %s", first or "?", latest or "?")
+end
+
 function ModUpdate.statsLine(total, first, latest)
   local parts = {}
-  if total ~= nil then
-    parts[#parts + 1] = Strings("%s downloads across all releases",
-      ModUpdate.formatCount(total))
-  end
-  if first or latest then
-    parts[#parts + 1] = Strings("Released %s  -  Updated %s",
-      first or "?", latest or "?")
-  end
+  parts[#parts + 1] = ModUpdate.downloadsLine(total)
+  parts[#parts + 1] = ModUpdate.datesLine(first, latest)
   if #parts == 0 then return nil end
   return table.concat(parts, "  -  ")
 end
