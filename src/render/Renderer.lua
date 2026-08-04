@@ -941,9 +941,22 @@ function Renderer:endFrame(zones, worldZones)
   -- reads as the foreground instead of competing with a fully lit map.  Goes
   -- here rather than in the letterbox clear because with the world pass
   -- active there is no clear -- the world already covers the surface.
+  --
+  -- The veil covers the voids ONLY, never the battle's own letterbox: "world"
+  -- changes what surrounds the battle and leaves the battle screen alone
+  -- (BattleState:bgMode).  On hardware there is no "behind the battle" to dim
+  -- at all -- _InitBattleCommon calls ClearScreen (pokered home/copy2.asm),
+  -- which blanks the whole tilemap before the battle draws.  A whole-surface
+  -- fill was invisible only because the classic battle paints an opaque paper
+  -- field over it a few lines below; a render pipeline that stages the fight
+  -- on the map and keys that field out got the veil straight onto its
+  -- sprites, HP bars and HUD, which is the 55% whole-window dim of #777
+  -- (and its duplicate #772).
   if self.battleDim and self.battleDim > 0 then
     love.graphics.setColor(0, 0, 0, self.battleDim)
-    love.graphics.rectangle("fill", 0, 0, ww, wh)
+    for _, r in ipairs(subtractRect({ { 0, 0, ww, wh } }, uox, uoy, uvpw, uvph)) do
+      love.graphics.rectangle("fill", r[1], r[2], r[3], r[4])
+    end
     love.graphics.setColor(1, 1, 1, 1)
   end
 

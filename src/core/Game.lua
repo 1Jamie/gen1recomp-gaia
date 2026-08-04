@@ -279,6 +279,21 @@ function Game.worldBgBattleDim(stack)
   return nil
 end
 
+-- Is a BATTLE BG "world" battle composing itself over the live map right now?
+-- Same whole-stack walk as worldBgBattleDim, asked for a different reason: the
+-- dark-cave shade shift (wMapPalOffset) must not reach a frame a battle is
+-- drawing in.  InitBattleCommon (engine/battle/core.asm) pushes wMapPalOffset,
+-- InitBattleVariables (engine/battle/init_battle_variables.asm) writes 0 over
+-- it and core.asm pops it back when the battle ends, so a battle in an
+-- un-flashed Rock Tunnel is lit on hardware.  Every other BATTLE BG gets that
+-- for free -- no map draws beneath an opaque battle, so nothing re-arms the
+-- per-frame shade map -- but "world" keeps the overworld drawing underneath,
+-- and its arming then darkened the battle's own pics, HUD and text at colorize
+-- time (#773).
+function Game.worldBgBattleInStack(stack)
+  return Game.worldBgBattleDim(stack) ~= nil
+end
+
 -- Does anything on the stack want the surface scaled to FILL the window
 -- (aspect preserved, bars on the long axis) rather than sit at the fixed
 -- integer scale?

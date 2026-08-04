@@ -218,14 +218,13 @@ function LauncherView.update(imp, dt)
   if not imp._flex then return end
   FlexLove.update(dt)
   -- Drain the action queue OUTSIDE FlexLove's dispatch, so an action is free
-  -- to destroy the view (Play/Edit) or block in a native picker.
+  -- to destroy the view (Play/Edit) or block in a native picker.  The batch
+  -- is resolved by RomImporter:runActions so the drop/disarm rules are
+  -- testable without a live FlexLove tree (#780).
   local queue = imp._uiActions
   if queue and #queue > 0 then
     imp._uiActions = {}
-    for _, fn in ipairs(queue) do
-      local ok, err = pcall(fn)
-      if not ok then print("launcher action error: " .. tostring(err)) end
-    end
+    imp:runActions(queue)
   end
 end
 
@@ -292,9 +291,12 @@ local function queueAction(imp, key, fn, keepArm)
   if last and now - last < ACT_DEDUP then return end
   imp._actAt[key] = now
   -- Any press that is not a Delete's own second click disarms the pending
-  -- delete confirm (#433's rule, preserved from the hit-rect launcher).
-  if not keepArm then imp._confirmDelete = nil end
-  imp._uiActions[#imp._uiActions + 1] = fn
+  -- delete confirm (#433's rule, preserved from the hit-rect launcher).  The
+  -- disarm itself is applied by RomImporter:runActions when the batch drains,
+  -- not here: one touch lands on a row AND on the chip inside it, and
+  -- clearing the arm as the row queued left Delete stuck on its first press
+  -- (#780).
+  imp._uiActions[#imp._uiActions + 1] = { key = key, fn = fn, keepArm = keepArm }
 end
 
 local function handler(imp, key, action, keepArm)
