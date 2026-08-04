@@ -3025,6 +3025,44 @@ function RomImporter:_findThumb(entry)
   return ok and image or nil
 end
 
+-- Release stats for a FIND MODS row, resolved the same way the MODS tab
+-- does it: the mod's own GitHub releases through ModUpdate's cached fetch,
+-- so an installed mod's repo is instant and every result lands in
+-- options.modUpdateCache for six hours.  A feed that publishes stats wins
+-- outright (fresher, zero network); otherwise the repo is fetched, one
+-- entry per frame so opening the tab cannot stall for the whole listing.
+-- The result is memoized per id for the session; a repo with no releases
+-- or a failed fetch resolves to an empty table so it is tried once.
+function RomImporter:_findStats(entry)
+  self._findStats = self._findStats or {}
+  local cached = self._findStats[entry.id]
+  if cached then return cached end
+  if entry.downloads ~= nil or entry.first_release or entry.last_release then
+    cached = { total = entry.downloads, first = entry.first_release,
+               latest = entry.last_release, done = true }
+    self._findStats[entry.id] = cached
+    return cached
+  end
+  if self._findStatsFetched then return nil end   -- budget spent this frame
+  if not entry.github or entry.github == "" then
+    cached = { done = true }
+    self._findStats[entry.id] = cached
+    return cached
+  end
+  self._findStatsFetched = true
+  local ModUpdate = require("src.mods.ModUpdate")
+  local ok, releases = pcall(function()
+    local list, err = ModUpdate.fetchReleases(entry.github, entry.id, {})
+    if not list then error(tostring(err), 0) end
+    return list
+  end)
+  local stats = ok and ModUpdate.statsForReleases(releases) or nil
+  cached = { total = stats and stats.total, first = stats and stats.first,
+             latest = stats and stats.latest, done = true }
+  self._findStats[entry.id] = cached
+  return cached
+end
+
 -- Open the "add an index" text prompt.  Deliberately a typed URL rather than a
 -- picked-from-a-list affair: there is no blessed index, and presenting one
 -- would make the launcher's choice look like an endorsement.

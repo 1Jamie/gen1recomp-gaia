@@ -229,6 +229,20 @@ function ModUpdate.releaseDates(releases)
   return { first = first, latest = latest }
 end
 
+-- One resolver over a release list: { total, first, latest } or nil when
+-- the list carries neither counts nor dates.  The FIND MODS rows use this
+-- on the repo's fetched releases, the same source the MODS tab trusts.
+function ModUpdate.statsForReleases(releases)
+  local dl = ModUpdate.totalDownloads(releases)
+  local d = ModUpdate.releaseDates(releases)
+  if not dl and not d then return nil end
+  return {
+    total = dl and dl.total or nil,
+    first = d and d.first or nil,
+    latest = d and d.latest or nil,
+  }
+end
+
 -- Thousands-separated count for the launcher ("12,345"), plain for small
 -- numbers.  Never throws; garbage in, "0" out.
 function ModUpdate.formatCount(n)

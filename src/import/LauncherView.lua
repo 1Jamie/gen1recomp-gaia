@@ -1291,6 +1291,7 @@ end
 
 local function buildFindPanel(imp, parent, m)
   imp._findThumbFetched = false
+  imp._findStatsFetched = false
   imp:_ensureFind()
   imp:_ensureMods()
   local ModIndex = require("src.mods.ModIndex")
@@ -1437,12 +1438,13 @@ local function buildFindPanel(imp, parent, m)
   local btnH = math.ceil(textHeight(chipSize)) + 14
   for _, entry in ipairs(rows) do
     local action, note = findActionFor(entry, installed[entry.id])
-    -- Feed-published release stats (downloads, first/last release date) in
-    -- the same gold line the MODS tab uses; absent until a feed carries them.
+    -- Release stats for the row: feed-published when the feed carries
+    -- them, otherwise fetched from the mod's GitHub repo (one per frame,
+    -- cached six hours) exactly like the MODS tab does.
+    local stats = imp:_findStats(entry)
     local statsLine
-    if entry.downloads ~= nil or entry.first_release or entry.last_release then
-      statsLine = ModUpdate.statsLine(entry.downloads,
-        entry.first_release, entry.last_release)
+    if stats and (stats.total ~= nil or stats.first or stats.latest) then
+      statsLine = ModUpdate.statsLine(stats.total, stats.first, stats.latest)
     end
 
     local bodyH = math.ceil(textHeight(titleSize))

@@ -253,4 +253,23 @@ do
   HostShell.canFetch, HostShell.httpGet = realCanFetch, realHttpGet
 end
 
+-- statsForReleases: one resolver over a release list, the FIND MODS path
+do
+  local stats = ModUpdate.statsForReleases({
+    { version = "1.0.0", downloads = 41, published = "2024-05-31" },
+    { version = "1.1.0", downloads = 9, published = "2025-11-02" },
+  })
+  eq(stats.total, 50, "total downloads across releases")
+  eq(stats.first, "2024-05-31", "first release date")
+  eq(stats.latest, "2025-11-02", "latest release date")
+  check(ModUpdate.statsForReleases({ { version = "1.0.0" } }) == nil,
+    "a list with neither counts nor dates resolves to nil")
+  check(ModUpdate.statsForReleases(nil) == nil, "nil resolves to nil")
+  local datesOnly = ModUpdate.statsForReleases({
+    { version = "1.0.0", published = "2024-05-31" },
+  })
+  eq(datesOnly.total, nil, "dates without counts keep total nil")
+  eq(datesOnly.first, "2024-05-31", "but keep the date")
+end
+
 print("ok mod_update_tests")
