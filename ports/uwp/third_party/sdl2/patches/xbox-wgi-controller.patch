@@ -1,28 +1,19 @@
 diff --git a/src/joystick/SDL_gamecontroller.c b/src/joystick/SDL_gamecontroller.c
-index 035176b..04e1701 100644
+index 36e521e..4d1f171 100644
 --- a/src/joystick/SDL_gamecontroller.c
 +++ b/src/joystick/SDL_gamecontroller.c
-@@ -726,7 +726,12 @@ static ControllerMapping_t *SDL_CreateMappingForWGIController(SDL_JoystickGUID g
-     }
- 
-     SDL_strlcpy(mapping_string, "none,*,", sizeof(mapping_string));
+@@ -682,0 +683,4 @@ static ControllerMapping_t *SDL_CreateMappingForWGIController(SDL_JoystickGUID g
 +#ifdef __WINRT__
 +    /* Xbox WGI exposes the canonical SDL axis and hat layout. */
 +    SDL_strlcat(mapping_string, "a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,leftstick:b8,rightstick:b9,leftshoulder:b4,rightshoulder:b5,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,lefttrigger:a2,rightx:a3,righty:a4,righttrigger:a5,", sizeof(mapping_string));
 +#else
-     SDL_strlcat(mapping_string, "a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,leftstick:b8,rightstick:b9,leftshoulder:b4,rightshoulder:b5,dpup:b10,dpdown:b12,dpleft:b13,dpright:b11,leftx:a1,lefty:a0~,rightx:a3,righty:a2~,lefttrigger:a4,righttrigger:a5,", sizeof(mapping_string));
+@@ -683,0 +688 @@ static ControllerMapping_t *SDL_CreateMappingForWGIController(SDL_JoystickGUID g
 +#endif
- 
-     return SDL_PrivateAddMappingForGUID(guid, mapping_string, &existing, SDL_CONTROLLER_MAPPING_PRIORITY_DEFAULT);
- }
 diff --git a/src/joystick/windows/SDL_windows_gaming_input.c b/src/joystick/windows/SDL_windows_gaming_input.c
-index 6f01b4e..26b8811 100644
+index 9299ac5..9fce0a5 100644
 --- a/src/joystick/windows/SDL_windows_gaming_input.c
 +++ b/src/joystick/windows/SDL_windows_gaming_input.c
-@@ -731,10 +731,19 @@ static int WGI_JoystickOpen(SDL_Joystick *joystick, int device_index)
-         __x_ABI_CWindows_CGaming_CInput_CIGameController_get_IsWireless(hwdata->gamecontroller, &wireless);
-     }
- 
+@@ -793,4 +793,13 @@ static int WGI_JoystickOpen(SDL_Joystick *joystick, int device_index)
 -    /* Initialize the joystick capabilities */
 -    joystick->nbuttons = state->nbuttons;
 -    joystick->naxes = state->naxes;
@@ -40,13 +31,7 @@ index 6f01b4e..26b8811 100644
 +        joystick->naxes = state->naxes;
 +        joystick->nhats = state->nhats;
 +    }
-     joystick->epowerlevel = wireless ? SDL_JOYSTICK_POWER_UNKNOWN : SDL_JOYSTICK_POWER_WIRED;
- 
-     if (wireless && hwdata->battery) {
-@@ -872,6 +881,51 @@ static void WGI_JoystickUpdate(SDL_Joystick *joystick)
- {
-     struct joystick_hwdata *hwdata = joystick->hwdata;
-     HRESULT hr;
+@@ -933,0 +943,45 @@ static void WGI_JoystickUpdate(SDL_Joystick *joystick)
 +
 +#ifdef __WINRT__
 +    if (hwdata->gamepad) {
@@ -92,13 +77,7 @@ index 6f01b4e..26b8811 100644
 +    }
 +#endif
 +
-     UINT32 nbuttons = SDL_min(joystick->nbuttons, SDL_MAX_UINT8);
-     boolean *buttons = NULL;
-     UINT32 nhats = SDL_min(joystick->nhats, SDL_MAX_UINT8);
-@@ -994,7 +1048,38 @@ static void WGI_JoystickQuit(void)
- 
- static SDL_bool WGI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMapping *out)
- {
+@@ -1055,0 +1110,30 @@ static SDL_bool WGI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMappi
 +#ifdef __WINRT__
 +    WindowsGamingInputControllerState *state = &wgi.controllers[device_index];
 +
@@ -129,8 +108,5 @@ index 6f01b4e..26b8811 100644
 +    out->righttrigger = (SDL_InputMapping){ EMappingKind_Axis, 5 };
 +    return SDL_TRUE;
 +#else
-     return SDL_FALSE;
+@@ -1056,0 +1141 @@ static SDL_bool WGI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMappi
 +#endif
- }
- 
- SDL_JoystickDriver SDL_WGI_JoystickDriver = {

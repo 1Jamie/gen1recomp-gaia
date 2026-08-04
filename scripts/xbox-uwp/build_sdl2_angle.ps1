@@ -5,7 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$portRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$portRoot = Join-Path $repoRoot "ports\uwp"
 $sourceRoot = Join-Path $portRoot "third_party\sdl2\source"
 $buildRoot = Join-Path $portRoot "build\sdl2"
 $installRoot = Join-Path $portRoot "build\sdl2-install"

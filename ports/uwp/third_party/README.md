@@ -8,4 +8,4 @@ This directory contains the complete x64 UWP Release dependency bundle used by t
 - `runtime` contains the codec, font, compression, and audio DLLs used by LÖVE.
 - `licenses` contains the corresponding third party notices.
 
-`manifest.json` pins the source revisions and SHA-256 hashes. Run `../scripts/verify-dependencies.ps1` after updating any dependency.
+`manifest.json` pins the source revisions and SHA-256 hashes. Run `scripts/xbox-uwp/verify_dependencies.ps1` from the repository root after updating any dependency.

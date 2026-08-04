@@ -28,13 +28,9 @@
 -- ordinary love.filesystem/save-directory behaviour.
 
 local CacheFs = {}
+local Platform = require("src.core.Platform")
 
 local SEP = package.config:sub(1, 1)
-
-local function isUWP()
-  return love and love.system and love.system.getOS
-    and love.system.getOS() == "UWP"
-end
 
 -- Cache-relative paths are prefixed with this before every read/write, so a
 -- Blue/Yellow import lands under its GameVersion.cachePrefix (blue/, yellow/)
@@ -57,7 +53,7 @@ local mkdirFn = nil
 local function resolveMkdir()
   if mkdirFn ~= nil then return mkdirFn end
   mkdirFn = false
-  if isUWP() then return mkdirFn end
+  if Platform.isUWP() then return mkdirFn end
   local ok, ffi = pcall(require, "ffi")
   if not ok then return mkdirFn end
   if ffi.os == "Windows" then
@@ -89,7 +85,7 @@ local rmdirFn = nil
 local function resolveRmdir()
   if rmdirFn ~= nil then return rmdirFn end
   rmdirFn = false
-  if isUWP() then return rmdirFn end
+  if Platform.isUWP() then return rmdirFn end
   local ok, ffi = pcall(require, "ffi")
   if not ok then return rmdirFn end
   if ffi.os == "Windows" then

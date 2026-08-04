@@ -6,4 +6,4 @@ The bundled x64 UWP Release binaries use SDL 2.32.10 from the official `release-
 
 `SDL2.dll`, `SDL2.lib`, and the headers must be updated together.
 
-`ports/uwp/scripts/build-sdl2-angle.ps1` builds the source for x64 WindowsStore with GLES enabled and desktop OpenGL and Vulkan disabled. ANGLE supplies EGL and GLES at runtime.
+`scripts/xbox-uwp/build_sdl2_angle.ps1` builds the source for x64 WindowsStore with GLES enabled and desktop OpenGL and Vulkan disabled. ANGLE supplies EGL and GLES at runtime.

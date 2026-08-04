@@ -10,7 +10,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$portRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$portRoot = Join-Path $repoRoot "ports\uwp"
 $thirdPartyRoot = Join-Path $portRoot "third_party"
 $manifestPath = Join-Path $thirdPartyRoot "manifest.json"
 $metadata = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
@@ -61,7 +62,7 @@ function Ensure-GitSource {
         [Parameter(Mandatory)][string]$Repository,
         [Parameter(Mandatory)][string]$Revision,
         [Parameter(Mandatory)][string]$Path,
-        [string]$SnapshotRevision
+        [switch]$AllowTrackedChanges
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
@@ -74,28 +75,34 @@ function Ensure-GitSource {
     }
 
     $gitDirectory = Join-Path $Path ".git"
-    if (Test-Path -LiteralPath $gitDirectory) {
-        $actual = (& git -C $Path rev-parse HEAD).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            throw "Unable to inspect the $Name source checkout."
-        }
-        if ($actual -ne $Revision) {
-            throw "$Name source is at $actual; expected $Revision. Remove '$Path' to recreate it."
-        }
-        return
+    if (-not (Test-Path -LiteralPath $gitDirectory -PathType Container)) {
+        throw "$Name source has no Git metadata. Remove '$Path' to recreate the pinned checkout."
     }
 
-    if (-not $SnapshotRevision) {
-        throw "$Name source exists without Git metadata, so its revision cannot be verified."
+    $actual = (& git -C $Path rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to inspect the $Name source checkout."
     }
+    if ($actual -ne $Revision) {
+        throw "$Name source is at $actual; expected $Revision. Remove '$Path' to recreate it."
+    }
+    if (-not $AllowTrackedChanges) {
+        Assert-GitSourceClean -Name $Name -Path $Path
+    }
+}
 
-    $revisionFile = Join-Path $Path "REVISION.txt"
-    if (-not (Test-Path -LiteralPath $revisionFile -PathType Leaf)) {
-        throw "$Name source snapshot is missing REVISION.txt."
-    }
-    $actualSnapshot = (Get-Content -Raw -LiteralPath $revisionFile).Trim()
-    if ($actualSnapshot -ne $SnapshotRevision) {
-        throw "$Name source snapshot is '$actualSnapshot'; expected '$SnapshotRevision'."
+function Assert-GitSourceClean {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    & git -C $Path diff --quiet --ignore-submodules --
+    $worktreeDirty = $LASTEXITCODE -ne 0
+    & git -C $Path diff --cached --quiet --ignore-submodules --
+    $indexDirty = $LASTEXITCODE -ne 0
+    if ($worktreeDirty -or $indexDirty) {
+        throw "$Name source has local changes. Remove '$Path' to recreate the pinned checkout."
     }
 }
 
@@ -133,7 +140,22 @@ function Ensure-DepotToolsGit {
 }
 
 function Get-Sha256 {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$NormalizeLineEndings
+    )
+
+    if ($NormalizeLineEndings) {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n")
+        $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($text)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "")
+        } finally {
+            $sha256.Dispose()
+        }
+    }
 
     $stream = [System.IO.File]::OpenRead($Path)
     try {
@@ -163,15 +185,16 @@ function Update-Manifest {
         $path = Join-Path $thirdPartyRoot $relativeRoot
         Get-ChildItem -LiteralPath $path -File -Recurse | ForEach-Object {
             $relative = $_.FullName.Substring($thirdPartyRoot.Length + 1).Replace("\", "/")
+            $normalize = $relative.StartsWith("sdl2/include/", [System.StringComparison]::Ordinal)
             [ordered]@{
                 path = $relative
-                sha256 = Get-Sha256 $_.FullName
+                sha256 = Get-Sha256 -Path $_.FullName -NormalizeLineEndings:$normalize
             }
         }
     }
 
     $metadata.configuration = $Configuration
-    $metadata.files = @($files | Sort-Object path)
+    $metadata.files = @($files | Sort-Object { $_['path'] })
     $json = $metadata | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText($manifestPath, "$json`r`n", [System.Text.UTF8Encoding]::new($false))
 }
@@ -184,22 +207,30 @@ Ensure-GitSource `
     -Repository $metadata.sources.sdl2.repository `
     -Revision $metadata.sources.sdl2.commit `
     -Path $sdlSource `
-    -SnapshotRevision $metadata.sources.sdl2.revision
+    -AllowTrackedChanges
 
 $sdlPatch = Join-Path $thirdPartyRoot $metadata.sources.sdl2.patch
 Push-Location $sdlSource
 try {
-    & git apply --reverse --check $sdlPatch 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Invoke-Tool git apply --check $sdlPatch
-        Invoke-Tool git apply $sdlPatch
+    & git apply --unidiff-zero --reverse --check $sdlPatch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Invoke-Tool git apply --unidiff-zero --reverse $sdlPatch
+        try {
+            Assert-GitSourceClean -Name "SDL2" -Path $sdlSource
+        } finally {
+            Invoke-Tool git apply --unidiff-zero $sdlPatch
+        }
+    } else {
+        Assert-GitSourceClean -Name "SDL2" -Path $sdlSource
+        Invoke-Tool git apply --unidiff-zero --check $sdlPatch
+        Invoke-Tool git apply --unidiff-zero $sdlPatch
     }
 } finally {
     Pop-Location
 }
 
 Write-Host "Building SDL2..."
-& (Join-Path $PSScriptRoot "build-sdl2-angle.ps1") `
+& (Join-Path $PSScriptRoot "build_sdl2_angle.ps1") `
     -Configuration $Configuration `
     -WindowsSdkVersion $WindowsSdkVersion
 if ($LASTEXITCODE -ne 0) {
@@ -375,15 +406,31 @@ foreach ($license in $metadata.sources.vcpkg.licenses.PSObject.Properties) {
 
 Write-Host "Updating dependency hashes..."
 Update-Manifest
-& (Join-Path $PSScriptRoot "verify-dependencies.ps1") -Manifest $manifestPath
+& (Join-Path $PSScriptRoot "verify_dependencies.ps1") -Manifest $manifestPath
 if ($LASTEXITCODE -ne 0) {
     throw "Dependency verification failed with exit code $LASTEXITCODE."
 }
 
 if (-not $SkipPackage) {
     Write-Host "Building the Release package..."
-    Invoke-Tool cmake --preset uwp-release -S $portRoot
-    Invoke-Tool cmake --build --preset uwp-release
+    $gitRoot = Split-Path -Parent (Split-Path -Parent (Get-Command git).Source)
+    $bash = Join-Path $gitRoot "bin\bash.exe"
+    if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
+        throw "Git Bash was not found at $bash."
+    }
+
+    $buildScript = [System.IO.Path]::GetFullPath(
+        (Join-Path $portRoot "..\..\scripts\build_xbox_uwp.sh")
+    ).Replace("\", "/")
+    if ($buildScript -match "^([A-Za-z]):/(.*)$") {
+        $buildScript = "/$($Matches[1].ToLowerInvariant())/$($Matches[2])"
+    }
+    $packageConfiguration = if ($Configuration -eq "RelWithDebInfo") {
+        "--relwithdebinfo"
+    } else {
+        "--release"
+    }
+    Invoke-Tool $bash $buildScript $packageConfiguration
 }
 
 Write-Host "UWP dependencies rebuilt and staged successfully."

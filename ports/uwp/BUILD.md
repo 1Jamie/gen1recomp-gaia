@@ -19,7 +19,8 @@ The tested toolchain is:
 - C++ Universal Windows Platform tools
 - Windows 11 SDK `10.0.26100.0`
 - CMake 3.24 or newer
-- Git
+- Git for Windows
+- Info-ZIP `zip` and `unzip`
 
 Use Visual Studio Installer to add **Universal Windows Platform development**, the v143 C++ tools, CMake tools for Windows, and Windows SDK `10.0.26100.0`.
 
@@ -30,10 +31,10 @@ build.
 
 ## Rebuild the Dependencies
 
-Run the dependency rebuild from `ports/uwp`:
+Run the dependency rebuild from the repository root:
 
 ```powershell
-.\scripts\rebuild-dependencies.ps1
+.\scripts\xbox-uwp\rebuild_dependencies.ps1
 ```
 
 The script clones the pinned SDL2, LÖVE, LuaJIT, vcpkg, depot_tools, and ANGLE
@@ -46,24 +47,73 @@ The generated source checkouts are ignored by Git. A fresh ANGLE sync is about
 10 GB, so allow at least 20 GB of free disk space for all sources and build
 outputs. Use `-SkipAngle` to retain the existing pinned ANGLE runtime while
 rebuilding SDL2, LÖVE, LuaJIT, and the vcpkg libraries. Use `-SkipPackage` when
-only the dependency bundle needs to be refreshed.
+only the dependency bundle needs to be refreshed. The rebuild stops if a source
+checkout has local changes. Remove that generated `source` directory to restore
+the pinned revision.
 
 ## Build the MSIX
 
-Build the game package from `ports/uwp`:
+Run the Xbox build from Git Bash at the repository root:
 
-```powershell
-Set-Location "ports\uwp"
-cmake --preset uwp-release
-cmake --build --preset uwp-release
+```bash
+scripts/build_xbox_uwp.sh --release --version 1.2.3
 ```
 
-The build creates `gen1recomp.love`, links the UWP host, and stages LÖVE, LuaJIT, SDL2, ANGLE, and the vcpkg runtime DLLs.
+The build uses `scripts/pack_love.sh` to create and verify the same ROM-free
+`game.love` payload used by the other release targets. It then links the UWP
+host and stages LÖVE, LuaJIT, SDL2, ANGLE, and the vcpkg runtime DLLs.
+
+Use `--relwithdebinfo` for a package with symbols. To package a `.love` produced
+by another build or downloaded from CI, pass `--game-love path/to/game.love`.
+The upstream `X.Y.Z` release becomes `X.Y.Z.0` in the generated MSIX manifest.
+Neither the manifest template nor `src/core/Version.lua` is edited in place.
+
+The manifest publisher must match the signing certificate subject. Pass it
+when preparing a signed package:
+
+```bash
+scripts/build_xbox_uwp.sh --release --version 1.2.3 \
+  --publisher "CN=Gen1Recomp"
+```
+
+The normal build is unsigned. Release CI supplies the private PFX and password
+from `XBOX_UWP_SIGNING_CERTIFICATE` and `XBOX_UWP_SIGNING_PASSWORD`; neither may
+be committed. The public certificate is safe to include with the release.
+
+Run the offline packaging checks from Git Bash:
+
+```bash
+bash scripts/xbox-uwp/selftest_build_xbox_uwp.sh
+```
 
 ## Build Output
 
-The Release package lands under:
+Visual Studio package output lands under:
 
 ```text
 ports\uwp\build\release\AppPackages\Gen1RecompUWP
 ```
+
+The build also stages the distributable archive and checksum under:
+
+```text
+dist\xbox-uwp\gen1recomp-X.Y.Z-xbox-uwp.zip
+dist\xbox-uwp\gen1recomp-X.Y.Z-xbox-uwp.zip.sha256
+```
+
+The archive contains the MSIX, framework dependencies, build provenance and,
+for a signed release, the public certificate. The third-party notices are
+packaged inside the MSIX. Install the MSIX and dependency packages through
+Xbox Device Portal.
+
+## Runtime Data
+
+The package contains no ROM, generated cache, save or mod data. The Xbox file
+picker copies user-selected files into LocalState and the launcher imports them
+from there. Saves, ROM cache and installed mods remain under the LÖVE save
+directory in LocalState.
+
+LuaJIT requires the `codeGeneration` capability. `removableStorage` exposes
+external media to the Xbox picker. The network capabilities support relay play
+and direct hosting. The package does not request full trust or broad filesystem
+access.

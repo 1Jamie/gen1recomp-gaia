@@ -26,6 +26,5 @@ int runLove(int, char **)
 int CALLBACK WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     SDL_SetHint(SDL_HINT_WINRT_HANDLE_BACK_BUTTON, "1");
-    OutputDebugStringA("Gen1Recomp UWP startup\n");
     return SDL_WinRTRunApp(runLove, nullptr);
 }

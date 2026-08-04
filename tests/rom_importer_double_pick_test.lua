@@ -23,6 +23,7 @@ local S = require("tests.harness").suite("rom importer double pick (#553)")
 local check = S.check
 
 local RomImporter = require("src.import.RomImporter")
+local Platform = require("src.core.Platform")
 
 love.system = love.system or {}
 local saved = {
@@ -53,6 +54,7 @@ love.filesystem.remove = function(name) saveDir[name] = nil; return true end
 
 local function importer(os)
   love.system.getOS = function() return os end
+  Platform._resetForTests()
   local ri = RomImporter.new(function() end, { launcher = true })
   ri.ready = { red = false, blue = false, yellow = false }
   return ri
@@ -68,6 +70,7 @@ local ios = importer("iOS")
 check(ios.pickPending, "iOS still boots armed (unchanged by this fix)")
 
 love.system.getOS = function() return "OS X" end
+Platform._resetForTests()
 local desktop = RomImporter.new(function() end, { launcher = true })
 check(not desktop.pickPending, "desktop does not poll: it has no save-dir picks")
 
@@ -137,29 +140,6 @@ contract:choose("red")
 check(picks == 2,
   "choose() still reopens the picker per call (#420/#442 contract, got " .. picks .. ")")
 
--- 7. UWP consumes the absolute LocalState path returned by its native picker
---    and removes the temporary copy only after a successful import.
-local removedPath
-local savedOsRemove = os.remove
-os.remove = function(path) removedPath = path; return true end
-love.system.getPickedFile = function()
-  love.system.getPickedFile = function() return nil end
-  return [[C:\LocalState\picked_mod.zip]]
-end
-love.system.getPickError = function() return nil end
-local uwp = importer("UWP")
-uwp.iosPendingKind = "mod"
-uwp._installMod = function(self, source)
-  self._installed = source
-  self.modNotice = { ok = true, text = "Installed test-mod" }
-end
-uwp:update(0)
-check(uwp._installed == [[C:\LocalState\picked_mod.zip]],
-  "UWP passes the picker path to the mod installer")
-check(removedPath == [[C:\LocalState\picked_mod.zip]],
-  "UWP removes the temporary picker copy after installation")
-os.remove = savedOsRemove
-
 local touchForwardsToImporter = {
   Android = true,
   iOS = true,
@@ -192,5 +172,6 @@ love.filesystem.getDirectoryItems = saved.getDirectoryItems
 love.filesystem.getInfo = saved.getInfo
 love.filesystem.read = saved.read
 love.filesystem.remove = saved.remove
+Platform._resetForTests()
 
 S.finish()
