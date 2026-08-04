@@ -127,7 +127,8 @@ function ScrollManager.new(config, deps)
   self._scrollY = config._scrollY or 0
   self._targetScrollX = nil
   self._targetScrollY = nil
-  self._smoothScrollSpeed = 0.25 -- Interpolation speed (0-1, higher = faster)
+  self._smoothScrollSpeed = 0.25 -- Interpolation speed (0-1, higher = faster); legacy, superseded by _smoothScrollRate
+  self._smoothScrollRate = config.smoothScrollRate or 30 -- dt-based decay constant (1/s); ~90% converged in 2.3/rate s
   self.smoothScrollEnabled = config.smoothScrollEnabled or false -- Enable smooth wheel scrolling
   self._maxScrollX = 0
   self._maxScrollY = 0
@@ -990,12 +991,18 @@ end
 --- Update momentum scrolling (call every frame with dt)
 ---@param dt number Delta time in seconds
 function ScrollManager:update(dt)
-  -- Smooth scroll interpolation
+  -- Smooth scroll interpolation.  The blend factor is derived from dt
+  -- (exponential approach) rather than a fixed per-frame fraction, so the
+  -- animation converges in the same wall-clock time regardless of frame
+  -- rate; a fixed fraction made scrolling visibly slower whenever frame
+  -- time rose.  _smoothScrollRate is the decay constant in 1/seconds:
+  -- ~90% of the remaining distance is covered in 2.3/rate seconds.
   if self._targetScrollX or self._targetScrollY then
+    local alpha = 1 - math.exp(-(self._smoothScrollRate or 30) * (dt or 0.016))
     if self._targetScrollY then
       local diff = self._targetScrollY - self._scrollY
       if math.abs(diff) > 0.5 then
-        self._scrollY = self._scrollY + diff * self._smoothScrollSpeed
+        self._scrollY = self._scrollY + diff * alpha
       else
         self._scrollY = self._targetScrollY
         self._targetScrollY = nil
@@ -1005,7 +1012,7 @@ function ScrollManager:update(dt)
     if self._targetScrollX then
       local diff = self._targetScrollX - self._scrollX
       if math.abs(diff) > 0.5 then
-        self._scrollX = self._scrollX + diff * self._smoothScrollSpeed
+        self._scrollX = self._scrollX + diff * alpha
       else
         self._scrollX = self._targetScrollX
         self._targetScrollX = nil
