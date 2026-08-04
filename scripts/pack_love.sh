@@ -62,7 +62,7 @@ fi
 if [ -n "$VERSION" ]; then
   printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
     || fail "invalid version '$VERSION' (expected X.Y.Z)"
-  stamp_dir="$(mktemp -d "$WORK/stamp-love.XXXXXX")"
+  stamp_dir="$(mktemp -d "$(dirname "$OUTPUT")/stamp-love.XXXXXX")"
   output_abs="$(cd "$(dirname "$OUTPUT")" && pwd)/$(basename "$OUTPUT")"
   trap 'rm -rf "$stamp_dir"' EXIT
   mkdir -p "$stamp_dir/src/core"
