@@ -793,11 +793,13 @@ function Game:joystickhat(joystick, hat, direction)
 end
 
 -- Window focus/visibility flips: a release due while unfocused/hidden can
--- be swallowed by the OS. Reset on both edges -- gaining focus with a
--- physically held key won't re-fire keypressed, so trusting leftover
--- state is worse than asking the player to re-press.
+-- be swallowed by the OS. Reset on both edges; on the regain, reconcile
+-- re-arms only what is still physically held -- a held key won't re-fire
+-- keypressed by itself, and without the rebuild a spurious lifecycle event
+-- parked the player until every direction was re-pressed (#799).
 function Game:focus(f)
   Input:reset()
+  if f then Input:reconcile() end
   TouchControls:reset()
   self:cancelPointers()
 end
@@ -814,6 +816,7 @@ end
 
 function Game:onResume()
   Input:reset()
+  Input:reconcile()
   TouchControls:reset()
   self:cancelPointers()
   -- Chip music may survive NX suspend as a duplicate stream; stop it and let
@@ -830,6 +833,10 @@ end
 
 function Game:recoverInput(event, joystick)
   Input:reset()
+  -- A hotplug can arrive with no hotplug (macOS Bluetooth re-enumeration),
+  -- and the blanket reset above also drops unrelated keyboard holds; put
+  -- back whatever is still physically down (#799).
+  Input:reconcile()
   TouchControls:reset()
   -- reset just dropped every source, mod holds included: retire the mods'
   -- outstanding press tokens so nothing stale can be released later, and
