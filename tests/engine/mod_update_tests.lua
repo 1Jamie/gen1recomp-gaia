@@ -183,6 +183,22 @@ eq(ModUpdate.formatCount("12345"), "12,345", "numeric strings are accepted")
 eq(ModUpdate.formatCount(nil), "0", "nil formats as zero")
 eq(ModUpdate.formatCount("garbage"), "0", "garbage formats as zero")
 
+-- statsLine: the shared launcher row line, part by part
+eq(ModUpdate.statsLine(1234567, "2024-05-31", "2026-07-01"),
+  "1,234,567 downloads across all releases  -  Released 2024-05-31  -  Updated 2026-07-01",
+  "full stats line")
+eq(ModUpdate.statsLine(82, nil, nil),
+  "82 downloads across all releases",
+  "downloads alone")
+eq(ModUpdate.statsLine(nil, "2024-05-31", "2026-07-01"),
+  "Released 2024-05-31  -  Updated 2026-07-01",
+  "dates alone")
+eq(ModUpdate.statsLine(0, nil, nil),
+  "0 downloads across all releases",
+  "a real zero still shows")
+check(ModUpdate.statsLine(nil, nil, nil) == nil,
+  "no data at all means no line")
+
 -- cacheUsable: a cache entry from before downloads existed must not be
 -- trusted, everything current is
 do
