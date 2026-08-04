@@ -386,8 +386,17 @@ Vautour (Burpy Fresh), licensed under CC-BY 4.0 (5x11 base characters,
 the registry entry: `file` for a mod-shipped TTF, `size` (the font's
 design em; Plain Pixel rasterizes cleanly only at multiples of 15),
 `spacing` added to every advance, `yOffset` for vertical alignment
-against the 8px cell grid, and `bold`, which double-prints at a 1px
-offset for fonts whose strokes read too light.
+against the 8px cell grid, `bold`, which double-prints at a 1px
+offset for fonts whose strokes read too light, and `tiles`, the
+characters that keep their ROM tile instead of coming from the TTF.
+
+`tiles` matters for a CJK translation. Sizing the font so a kana fills
+the 8px cell leaves Latin narrower than the tile font it replaces, which
+pulls the numeric columns out of line: the party menu's `:L12` stops
+sitting over `34/ 34`. Naming `"0123456789/:"` keeps those on the
+vanilla tiles, so numbers render exactly as they do in English while
+kana still come from the font. It takes a string of characters, or a
+list when a multi-character charmap sequence is meant.
 
 See the wiki's Translations guide.
 
@@ -470,6 +479,16 @@ own repositories. No index ships with the launcher and none is ever added
 automatically, so the tab opens on an "Add an index" prompt until you name
 one; paste an index URL or its `owner/repo` and it is remembered in
 `options.lua`. More than one index can be added, and the listings merge.
+
+A feed author can publish per-mod release stats by adding three optional
+fields to an entry -- `downloads` (total across every release), and
+`first_release` / `last_release` (ISO days) -- which the listing shows in
+the same gold line the MODS tab uses. When a feed does not carry them,
+the row fetches the mod's own GitHub releases instead -- the same cached
+`ModUpdate` fetch the MODS tab uses, one entry per frame -- so the stats
+appear for any mod with a `github` field regardless of feed maintenance.
+The fields are additive: feeds that carry them stay readable by every
+build that predates them, and feeds that do not render exactly as before.
 
 ## Soft reset (all versions)
 

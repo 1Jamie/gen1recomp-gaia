@@ -57,6 +57,10 @@ local REQUIRED_FILES = {
   "assets/generated/battle/anims/move_anim_0.png",
   "assets/generated/battle/anims/move_anim_1.png",
   "assets/generated/audio/programs.bin",
+  -- The trade cinematic's Game Boy / cable art. Caches built before #750
+  -- carry none of it and fall back to plain rectangles, so listing one of
+  -- the files re-imports them without a CACHE_FORMAT bump.
+  "assets/generated/trade/game_boy.png",
 }
 
 -- Files only one version's cache carries.  A version that predates one of
@@ -1826,6 +1830,18 @@ function RomImporter:update(dt)
       end
       local tab = os.getenv("POKEPORT_LAUNCHER_TAB")
       if tab and tab ~= "" then self:_switchTab(tab) end
+      -- POKEPORT_LAUNCHER_CONFIRM=1 arms a representative install confirm so
+      -- a capture can see the modal (it is otherwise only reachable by click)
+      if os.getenv("POKEPORT_LAUNCHER_CONFIRM") == "1" then
+        self._modConfirm = {
+          kind = "update",
+          title = "Install mod",
+          yesLabel = "Install",
+          lines = { "JP GREEN - Poketto Monsuta Midori v0.4.4",
+                    "by bryanthaboi",
+                    "Mods are not reviewed - trust the author." },
+        }
+      end
       local query = os.getenv("POKEPORT_LAUNCHER_QUERY")
       if query and query ~= "" then
         self.findQuery = query
@@ -2240,6 +2256,39 @@ function RomImporter:pressDelete(kind, id, version, commit)
   self._confirmDelete = { kind = kind, id = id, version = version,
     t = love.timer.getTime() }
   return false
+end
+
+-- Drain one frame's queued launcher actions; LauncherView.update hands the
+-- batch straight over.  A touch tap fires on EVERY element whose bounds hold
+-- the finger, not only the topmost one: FlexLove gates its mouse path on
+-- Context.findInteractiveAtPosition (libs/flexlove/modules/behaviors/
+-- Clickable.lua) but polls touches per element with a bare bounds test
+-- (EventHandler:processTouchEvents), so a phone tap on a save row's Delete
+-- chip also lands on the row behind it.  Control keys inside a row are the
+-- row's key plus "-<what>", so a row's own action is dropped whenever a
+-- control inside that row queued in the same batch, and #433's disarm runs
+-- here instead of at queue time.  Without both halves an Android tap on
+-- Delete selected the slot and wiped the arm it had just set, so a secondary
+-- slot became the loaded one and could never be deleted (#780).
+function RomImporter:runActions(queue)
+  for i = 1, #queue do
+    local entry = queue[i]
+    local key = type(entry.key) == "string" and entry.key or ""
+    local superseded = false
+    for j = 1, #queue do
+      local other = queue[j]
+      if j ~= i and type(other.key) == "string"
+          and other.key:sub(1, #key + 1) == key .. "-" then
+        superseded = true
+        break
+      end
+    end
+    if not superseded then
+      if not entry.keepArm then self._confirmDelete = nil end
+      local ok, err = pcall(entry.fn)
+      if not ok then print("launcher action error: " .. tostring(err)) end
+    end
+  end
 end
 
 -- Clicks are polled inside FlexLove (mouse + love.touch); host-forwarded
@@ -2851,7 +2900,7 @@ end
 -- NX / desktop / Android labels and inbox hints for the FlexLove view.
 function RomImporter:_modsImportButtonLabel()
   if self.isNX then return Strings("Scan again") end
-  return "Import mod .zip"
+  return Strings("Import mod .zip")
 end
 
 function RomImporter:_modsDefaultHint()
@@ -2862,7 +2911,7 @@ function RomImporter:_modsDefaultHint()
     return Strings("Copy a .zip via MTP into %s/imports/mods/\n"
       .. "DBI MTP → 1: SD Card/%simports/mods/", saveDir, rel)
   end
-  if self.android then return "Or copy a mod .zip via USB." end
+  if self.android then return Strings("Or copy a mod .zip via USB.") end
   return Strings("Or drop a mod .zip onto the window.")
 end
 
@@ -2878,7 +2927,7 @@ function RomImporter:_savesDefaultHint(version)
       .. "DBI MTP → 1: SD Card/%s%s/", game, saveDir, inbox, rel, inbox)
   end
   if self.android then
-    return "Import or export a .sav with the system file picker."
+    return Strings("Import or export a .sav with the system file picker.")
   end
   return Strings("Import a .sav to a new slot, or export the active slot.")
 end
@@ -3036,6 +3085,56 @@ function RomImporter:_findThumb(entry)
   end)
   self._findThumbs[entry.id] = ok and image or false
   return ok and image or nil
+end
+
+-- Release stats for a FIND MODS row, resolved the same way the MODS tab
+-- does it: the mod's own GitHub releases through ModUpdate's cached fetch,
+-- so an installed mod's repo is instant and every result lands in
+-- options.modUpdateCache for six hours.  A feed that publishes stats wins
+-- outright (fresher, zero network); otherwise the repo is fetched, one
+-- entry per frame so opening the tab cannot stall for the whole listing.
+-- The result is memoized per id for the session; a repo with no releases
+-- or a failed fetch resolves to an empty table so it is tried once.
+function RomImporter:_findStats(entry)
+  self._findStatsCache = self._findStatsCache or {}
+  local cached = self._findStatsCache[entry.id]
+  if cached then
+    if cached.done or (cached.retryAt and os.time() < cached.retryAt) then
+      return cached
+    end
+    self._findStatsCache[entry.id] = nil  -- retry window open, refetch
+  end
+  if entry.downloads ~= nil or entry.first_release or entry.last_release then
+    cached = { total = entry.downloads, first = entry.first_release,
+               latest = entry.last_release, done = true }
+    self._findStatsCache[entry.id] = cached
+    return cached
+  end
+  if self._findStatsFetched then return nil end   -- budget spent this frame
+  if not entry.github or entry.github == "" then
+    cached = { done = true }
+    self._findStatsCache[entry.id] = cached
+    return cached
+  end
+  self._findStatsFetched = true
+  local ModUpdate = require("src.mods.ModUpdate")
+  local list, fetchErr
+  local ok = pcall(function()
+    list, fetchErr = ModUpdate.fetchReleases(entry.github, entry.id, {})
+  end)
+  local stats = list and ModUpdate.statsForReleases(list) or nil
+  if stats then
+    cached = { total = stats.total, first = stats.first,
+               latest = stats.latest, done = true }
+  else
+    -- A repo that does not exist is permanent; every other failure (the
+    -- hourly API rate limit, a hiccup) is retried in a minute so rows can
+    -- recover without restarting the launcher.
+    local permanent = tostring(fetchErr):find("Not Found", 1, true) ~= nil
+    cached = { done = permanent, retryAt = os.time() + 60 }
+  end
+  self._findStatsCache[entry.id] = cached
+  return cached
 end
 
 -- Open the "add an index" text prompt.  Deliberately a typed URL rather than a

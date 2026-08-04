@@ -53,6 +53,42 @@ T.eq(#Font.encode("'d"), 1, "and still consumes the whole sequence")
 T.eq(Font.encode("\227\129\130")[1], BASE + 0x3042,
   "kana with no charmap entry at all still gets a glyph")
 
+-- ------------------------------------------------- ttf.tiles opts back out
+
+-- A CJK translation sizes the font so a kana fills the 8px cell, which leaves
+-- Latin narrower than the tile font it replaces and pulls the numeric columns
+-- (the party menu's ":L12" over "34/ 34") out of line.  ttf.tiles names the
+-- characters that keep their ROM tile anyway, so numbers stay identical to the
+-- English build while kana still come from the font.
+Font.load({ font = { charmap = CHARMAP, ttf = { tiles = "A" } } })
+T.eq(Font.encode("A")[1], 0x80, "a character in ttf.tiles keeps its tile glyph")
+T.eq(Font.advanceOf(0x80), 8, "and its 8px monospace advance with it")
+T.eq(Font.encode("\195\169")[1], BASE + 0xE9,
+  "while everything else still routes to the TTF")
+
+-- a list form, for naming a multi-character sequence explicitly
+Font.load({ font = { charmap = CHARMAP, ttf = { tiles = { "\195\169" } } } })
+T.eq(Font.encode("\195\169")[1], 0xBA,
+  "the list form accepts a multi-byte character")
+T.eq(Font.encode("A")[1], BASE + 65, "and leaves the others on the TTF")
+
+Font.load({ font = { charmap = CHARMAP, ttf = {} } })
+T.eq(Font.encode("A")[1], BASE + 65, "no tiles list means the TTF takes it back")
+
+-- ------------------------------------------------- drawBox restores color
+
+-- drawBox fills its interior white and used to leave the color that way.
+-- Tile pages are black glyphs on transparent, so they draw black whatever the
+-- color is and the leak stayed invisible for as long as every glyph was a
+-- tile.  TTF text draws in the current color, so every label printed after a
+-- box came out white on white -- the summary screen lost ATTACK/DEFENSE/
+-- SPEED/SPECIAL and TYPE1/TYPE2 while the numbers beside them survived.
+love.graphics.setColor(0, 0, 0, 1)
+Font.drawBox(0, 0, 4, 4)
+local r, g, b, a = love.graphics.getColor()
+T.eq(("%s,%s,%s,%s"):format(r, g, b, a), "0,0,0,1",
+  "drawBox leaves the caller's color alone")
+
 -- metrics come straight from the font object (the stub: half the point
 -- size per codepoint, doubled from U+1000 up, mimicking Plain Pixel's
 -- single/double width split)
@@ -161,6 +197,13 @@ do
   T.check(select(1, Schemas.check(spec, "font", "ttf",
     { file = "mods/x/f.ttf", size = 11, spacing = 1, yOffset = -3 })) == true,
     "so is a fully tuned entry")
+  T.check(select(1, Schemas.check(spec, "font", "ttf",
+    { size = 10, tiles = "0123456789/:" })) == true,
+    "tiles takes a string of characters")
+  T.check(select(1, Schemas.check(spec, "font", "ttf",
+    { tiles = { "0", "<PK>" } })) == true, "or a list of charmap sequences")
+  T.check(Schemas.check(spec, "font", "ttf", { tiles = 10 }) == nil,
+    "but not a number")
   T.check(Schemas.check(spec, "font", "ttf", { image = "x.png", base = 0x100 })
     == nil, "a page payload under the ttf id is refused")
   T.check(Schemas.check(spec, "font", "page", {}) == nil,

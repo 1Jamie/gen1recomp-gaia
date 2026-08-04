@@ -218,14 +218,13 @@ function LauncherView.update(imp, dt)
   if not imp._flex then return end
   FlexLove.update(dt)
   -- Drain the action queue OUTSIDE FlexLove's dispatch, so an action is free
-  -- to destroy the view (Play/Edit) or block in a native picker.
+  -- to destroy the view (Play/Edit) or block in a native picker.  The batch
+  -- is resolved by RomImporter:runActions so the drop/disarm rules are
+  -- testable without a live FlexLove tree (#780).
   local queue = imp._uiActions
   if queue and #queue > 0 then
     imp._uiActions = {}
-    for _, fn in ipairs(queue) do
-      local ok, err = pcall(fn)
-      if not ok then print("launcher action error: " .. tostring(err)) end
-    end
+    imp:runActions(queue)
   end
 end
 
@@ -292,9 +291,12 @@ local function queueAction(imp, key, fn, keepArm)
   if last and now - last < ACT_DEDUP then return end
   imp._actAt[key] = now
   -- Any press that is not a Delete's own second click disarms the pending
-  -- delete confirm (#433's rule, preserved from the hit-rect launcher).
-  if not keepArm then imp._confirmDelete = nil end
-  imp._uiActions[#imp._uiActions + 1] = fn
+  -- delete confirm (#433's rule, preserved from the hit-rect launcher).  The
+  -- disarm itself is applied by RomImporter:runActions when the batch drains,
+  -- not here: one touch lands on a row AND on the chip inside it, and
+  -- clearing the arm as the row queued left Delete stuck on its first press
+  -- (#780).
+  imp._uiActions[#imp._uiActions + 1] = { key = key, fn = fn, keepArm = keepArm }
 end
 
 local function handler(imp, key, action, keepArm)
@@ -327,7 +329,9 @@ local function mfont(size)
   size = math.max(8, math.floor(size + 0.5))
   local f = measureFonts[size]
   if not f then
-    f = love.graphics.newFont(size)
+    -- same fallback the rendering faces get (FlexLove FontCache), or the
+    -- launcher measures Latin widths for text it draws with kana
+    f = require("src.render.UiFont").attach(love.graphics.newFont(size), size)
     measureFonts[size] = f
   end
   return f
@@ -805,7 +809,7 @@ local function buildRomCard(imp, parent, m, version, info, ready, locked)
 
   local accent = version == "yellow" and "gold" or version
   local c = card(parent, { padding = m.cardPad, gap = 8 * m.s })
-  label(c, "ROM", 12 * m.s + 1, C("gray"))
+  label(c, Strings("ROM"), 12 * m.s + 1, C("gray"))
   label(c, romState, 15 * m.s + 2, C("white"))
   label(c, romDetail, 12 * m.s + 2, C("detail"))
   if romProgress ~= nil then
@@ -845,7 +849,7 @@ local function buildSaveFilesCard(imp, parent, m, version, ready, locked)
   local savImportLabel = imp.isNX and Strings("Scan again") or Strings("Import save")
 
   local c = card(parent, { padding = m.cardPad, gap = 8 * m.s })
-  label(c, "SAVE FILES", 12 * m.s + 1, C("gray"))
+  label(c, Strings("SAVE FILES"), 12 * m.s + 1, C("gray"))
   local row = mk({ parent = c, width = "100%",
     positioning = "flex", flexDirection = "horizontal", gap = 10 * m.s })
   -- explicit halves rather than flex growth, which mis-distributed inside
@@ -887,7 +891,7 @@ local function buildSlotCard(imp, parent, m, version)
   local head = mk({ parent = c, width = "100%",
     positioning = "flex", flexDirection = "horizontal",
     justifyContent = "space-between", alignItems = "center" })
-  label(head, "SAVE SLOT", 12 * m.s + 1, C("gray"), { textWrap = false })
+  label(head, Strings("SAVE SLOT"), 12 * m.s + 1, C("gray"), { textWrap = false })
   label(head, n == 1 and Strings("1 slot") or Strings("%d slots", n),
     12 * m.s + 1, C("gray"), { textWrap = false })
 
@@ -981,10 +985,14 @@ local function buildSlotCard(imp, parent, m, version)
       })
     end
     local armed = deleteArmed(imp, "slot", slot.id, version)
-    -- width pinned to the unarmed label so arming to "Sure?" never reflows
-    -- the row under the pointer (#433)
+    -- width pinned so arming to "Sure?" never reflows the row under the
+    -- pointer (#433).  Pinned to the wider of the two captions, not to the
+    -- unarmed one: English "Delete" is the longer of the pair, but a
+    -- translation need not keep that order (Japanese さくじょ is shorter than
+    -- よろしい？), and pinning to the shorter one clips the other.
     button(imp, btnRow, rowKey .. "-del", DELETE_LABEL(armed), {
-      w = math.ceil(textWidth(chipSize, DELETE_LABEL(false))) + 26,
+      w = math.ceil(math.max(textWidth(chipSize, DELETE_LABEL(false)),
+                             textWidth(chipSize, DELETE_LABEL(true)))) + 26,
       size = chipSize, kind = armed and "dangerArmed" or "danger",
       keepArm = true,
       action = function()
@@ -1241,13 +1249,9 @@ local function buildModsPanel(imp, parent, m)
     -- counts, so a pre-downloads cache entry costs the line, not a wrong "0".
     local dlLine
     if info and info.downloads then
-      local formatted = ModUpdate.formatCount(info.downloads.total)
-      if info.dates then
-        dlLine = Strings("%s downloads across all releases  -  Released %s  -  Updated %s",
-          formatted, info.dates.first, info.dates.latest)
-      else
-        dlLine = Strings("%s downloads across all releases", formatted)
-      end
+      local d = info.dates
+      dlLine = ModUpdate.statsLine(info.downloads.total,
+        d and d.first, d and d.latest)
     end
 
     -- measure the body: name (with the badge beside it only when it fits),
@@ -1369,9 +1373,11 @@ end
 
 local function buildFindPanel(imp, parent, m)
   imp._findThumbFetched = false
+  imp._findStatsFetched = false
   imp:_ensureFind()
   imp:_ensureMods()
   local ModIndex = require("src.mods.ModIndex")
+  local ModUpdate = require("src.mods.ModUpdate")
   local sources = imp.findSources or {}
   local rows = imp:_findRows()
   local total = #((imp.findIndex and imp.findIndex.mods) or {})
@@ -1509,6 +1515,80 @@ local function buildFindPanel(imp, parent, m)
     return
   end
 
+  -- Sort row: Name / Popularity / Release date / Last updated, the same
+  -- options the MODS tab offers, sharing its persisted choice
+  -- (options.modSort).  Data comes from the same _findStats resolution the
+  -- cards use (feed-published, else the repo fetch); rows whose stats have
+  -- not resolved yet sink to the bottom of data sorts and rise as the
+  -- one-per-frame fetches complete.
+  local sortKey = imp.modSort or "name"
+  if imp.modSort == nil then
+    local ok, opts = pcall(require("src.core.SaveData").loadOptions)
+    if ok and type(opts) == "table" and type(opts.modSort) == "string" then
+      sortKey = opts.modSort
+      imp.modSort = sortKey
+    end
+  end
+  local sortRow = mk({ parent = parent, width = "100%",
+    positioning = "flex", flexDirection = "horizontal",
+    flexWrap = "wrap", alignItems = "center", gap = 6 * m.s })
+  label(sortRow, Strings("Sort:"), 11 * m.s + 2, C("detail"), { textWrap = false })
+  local sorts = {
+    { key = "name", label = Strings("Name") },
+    { key = "popularity", label = Strings("Popularity") },
+    { key = "release", label = Strings("Release date") },
+    { key = "updated", label = Strings("Last updated") },
+  }
+  for _, s in ipairs(sorts) do
+    local active = sortKey == s.key
+    local key = "find-sort-" .. s.key
+    mk({
+      parent = sortRow, text = s.label,
+      textColor = active and C("green")
+        or (imp._hot[key] and C("white") or C("detail")),
+      textSize = 11 * m.s + 2, textAlign = "center-center", autoScaleText = false,
+      backgroundColor = active and C("green", 0.18) or C("border", 0.10),
+      border = 1,
+      borderColor = active and C("green", 0.6) or C("border", 0.35),
+      cornerRadius = 999,
+      padding = { horizontal = 10, vertical = 4 },
+      onEvent = handler(imp, key, function()
+        imp.modSort = s.key
+        pcall(function()
+          local SaveData = require("src.core.SaveData")
+          local opts = SaveData.loadOptions()
+          opts.modSort = s.key
+          SaveData.saveOptions(opts)
+        end)
+      end),
+    })
+  end
+
+  local sorted = {}
+  for i, v in ipairs(rows) do sorted[i] = v end
+  table.sort(sorted, function(a, b)
+    local function value(entry)
+      if sortKey == "name" then
+        return (entry.title or entry.id or ""):lower()
+      end
+      local stats = imp:_findStats(entry)
+      if sortKey == "popularity" then
+        return stats and stats.total or -1
+      end
+      if sortKey == "release" then
+        return stats and stats.first or "0000-00-00"
+      end
+      return stats and stats.latest or "0000-00-00"
+    end
+    local va, vb = value(a), value(b)
+    if va ~= vb then
+      if sortKey == "name" then return va < vb end
+      return va > vb  -- data sorts newest / most popular first
+    end
+    return (a.title or a.id or ""):lower() < (b.title or b.id or ""):lower()
+  end)
+  rows = sorted
+
   local installed = imp:_findInstalledMap()
   local thumbW = 64 * m.s
   -- Explicit measured widths AND heights, same reasoning as the mods card:
@@ -1522,9 +1602,18 @@ local function buildFindPanel(imp, parent, m)
   local btnH = math.ceil(textHeight(chipSize)) + 14
   for _, entry in ipairs(rows) do
     local action, note = findActionFor(entry, installed[entry.id])
+    -- Release stats for the row: feed-published when the feed carries
+    -- them, otherwise fetched from the mod's GitHub repo (one per frame,
+    -- cached six hours) exactly like the MODS tab does.
+    local stats = imp:_findStats(entry)
+    local statsLine
+    if stats and (stats.total ~= nil or stats.first or stats.latest) then
+      statsLine = ModUpdate.statsLine(stats.total, stats.first, stats.latest)
+    end
 
     local bodyH = math.ceil(textHeight(titleSize))
       + 4 + math.ceil(textHeight(smallSize))
+    if statsLine then bodyH = bodyH + 4 + wrapHeight(smallSize, statsLine, bodyW) end
     if note then bodyH = bodyH + 4 + wrapHeight(smallSize, note, bodyW) end
     if entry.summary and entry.summary ~= "" then
       bodyH = bodyH + 4 + wrapHeight(smallSize, entry.summary, bodyW)
@@ -1569,6 +1658,9 @@ local function buildFindPanel(imp, parent, m)
     end
     label(body, meta, smallSize, C("detail"),
       { width = "100%", textWrap = false, textOverflow = "ellipsis" })
+    if statsLine then
+      label(body, statsLine, smallSize, C("gold"), { width = "100%" })
+    end
     if note then label(body, note, smallSize, C("green"), { width = "100%" }) end
     if entry.summary and entry.summary ~= "" then
       label(body, entry.summary, smallSize, C("detail"), { width = "100%" })
@@ -1753,12 +1845,18 @@ end
 local function buildConfirmModal(imp, m)
   local c = imp._modConfirm
   local overlay = modalOverlay(imp, m, "confirm-out")
-  local panel = modalPanel(overlay, m, 420 * m.s)
-  label(panel, c.title or Strings("Confirm"), 15 * m.s + 2, C("white"))
+  -- roomier than the shared 420 default: the install confirm carries the
+  -- compat issue list and the trust warning, and those lines need air
+  local panel = modalPanel(overlay, m, 520 * m.s, {
+    gap = 12 * m.s, padding = { horizontal = 22, vertical = 20 },
+  })
+  label(panel, c.title or Strings("Confirm"), 17 * m.s + 2, C("white"))
   for _, line in ipairs(c.lines or {}) do
-    label(panel, line, 12 * m.s + 1, C("detail"))
+    label(panel, line, 13 * m.s + 1, C("detail"))
   end
-  local btnRow = mk({ parent = panel, width = "100%",
+  -- explicit height: an auto-sized row measures short while the panel
+  -- auto-sizes, which clipped the buttons at the panel's bottom border
+  local btnRow = mk({ parent = panel, width = "100%", height = m.btnH,
     positioning = "flex", flexDirection = "horizontal", gap = 10 * m.s })
   button(imp, btnRow, "confirm-yes", c.yesLabel or Strings("OK"), {
     flex = 1, h = m.btnH, size = 13 * m.s + 1, kind = "primary",

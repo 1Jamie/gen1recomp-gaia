@@ -55,6 +55,34 @@ local function pagesOf(def)
   return pages
 end
 
+-- ttf.tiles as a lookup keyed by charmap sequence.  Accepts a plain string
+-- ("0123456789"), which is split into UTF-8 characters, or a list of
+-- sequences ({ "0", "1", "<PK>" }) when a multi-character macro is meant.
+local function tileSet(spec)
+  local set = {}
+  if type(spec) == "table" then
+    for _, seq in ipairs(spec) do set[tostring(seq)] = true end
+  elseif type(spec) == "string" then
+    -- split on UTF-8 lead bytes rather than utf8Decode, which this file
+    -- declares further down and would be nil here
+    local i, n = 1, #spec
+    while i <= n do
+      local last = i
+      if spec:byte(i) >= 0xC0 then
+        local k = i + 1
+        while k <= n do
+          local b = spec:byte(k)
+          if b < 0x80 or b > 0xBF then break end
+          last, k = k, k + 1
+        end
+      end
+      set[spec:sub(i, last)] = true
+      i = last + 1
+    end
+  end
+  return set
+end
+
 function Font.load(data)
   loadedFrom = data
   local def = data.font
@@ -128,6 +156,15 @@ function Font.load(data)
         -- caps line up and descenders hang below as the GB font's own do
         yOffset = def.ttf.yOffset or (obj.getBaseline
           and (GLYPH - 1 - obj:getBaseline()) or (GLYPH - obj:getHeight())),
+        -- Single characters that keep their ROM tile instead of coming from
+        -- the TTF.  A CJK translation sizes the font so a kana fills the 8px
+        -- cell, which leaves Latin narrower than the tile font it replaces:
+        -- the numbers in a right-aligned column (the party menu's ":L12" over
+        -- "34/ 34") then no longer land where the 8px-per-character layout put
+        -- them.  Naming "0123456789" here keeps digits on the vanilla tiles --
+        -- identical to the English build -- while kana still come from the
+        -- font.  Sequence keys, so "é" or a "<PK>" macro can be listed too.
+        tiles = tileSet(def.ttf.tiles),
         widths = {}, chars = {},
       }
     else
@@ -227,9 +264,10 @@ function Font.split(text)
       for _, entry in ipairs(candidates) do
         local len = #entry.seq
         if text:sub(i, i + len - 1) == entry.seq then
-          if ttf then
+          if ttf and not ttf.tiles[entry.seq] then
             -- single characters belong to the TTF; only multi-character
-            -- sequences (ligatures, <PK> macros) keep their tile mapping
+            -- sequences (ligatures, <PK> macros) keep their tile mapping,
+            -- plus anything the mod named in ttf.tiles (see Font.load)
             local cp, last = utf8Decode(entry.seq, 1)
             if cp and last == len then break end
           end
@@ -367,8 +405,18 @@ for key, code in pairs(Font.DEFAULT_BORDER) do Font.BORDER[key] = code end
 
 -- Draw a Game Boy style bordered box in tile coordinates.
 function Font.drawBox(tx, ty, tw, th)
+  -- The white interior is a fill, so it needs the color; everything after it
+  -- is a glyph and needs the caller's.  Restoring is not cosmetic: the tile
+  -- pages are black glyphs on transparent, so they come out black whatever
+  -- the color is, and leaking white here was invisible for as long as every
+  -- glyph was a tile.  TTF text is not immune -- it draws in the current
+  -- color -- so a leaked white left every label printed after a box white on
+  -- white.  On the summary screen that erased ATTACK/DEFENSE/SPEED/SPECIAL
+  -- and TYPE1/TYPE2 while the numbers beside them, still tiles, stayed put.
+  local r, g, b, a = love.graphics.getColor()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", tx * 8, ty * 8, tw * 8, th * 8)
+  love.graphics.setColor(r, g, b, a)
   local B = Font.BORDER
   Font.drawCode(B.tl, tx * 8, ty * 8)
   Font.drawCode(B.tr, (tx + tw - 1) * 8, ty * 8)
