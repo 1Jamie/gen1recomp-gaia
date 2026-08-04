@@ -8,6 +8,7 @@
 
 local Theme = require("Theme")
 local Ops = require("Ops")
+local MonEditor = require("MonEditor")
 local PAL = Theme.PAL
 
 local M = {}
@@ -140,9 +141,13 @@ function M.draw(S, Kit, x, y, w, h)
 
     Theme.row(rx, ry, colW, rowH, 9 * s, 0.6)
     local def = S.data.pokemon[id]
-    Kit.text("micro", ("%03d"):format(def and def.dex or 0), rx + 10 * s,
+    local dexText = ("%03d"):format(def and def.dex or 0)
+    Kit.text("micro", dexText, rx + 10 * s,
       ry + (rowH - Kit.textHeight("micro")) / 2, PAL.faint)
-    local nameX = rx + 44 * s
+    local spriteS = 24 * s
+    local spriteX = rx + 10 * s + Kit.textWidth("micro", dexText) + 8 * s
+    MonEditor.drawSprite(S, Kit, id, spriteX, ry + (rowH - spriteS) / 2, spriteS)
+    local nameX = spriteX + spriteS + 6 * s
     local nameW = colW - 10 * s - 2 * (chipW + 6 * s) - (nameX - rx)
     Kit.text("mono", Kit.ellipsize("mono", id, nameW), nameX,
       ry + (rowH - Kit.textHeight("mono")) / 2,
