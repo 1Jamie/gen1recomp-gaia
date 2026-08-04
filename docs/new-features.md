@@ -1,10 +1,10 @@
 # New features (deliberate additions beyond the original)
 
-Intentional enhancements this port adds on top of faithful Pokémon Red
-behavior. They have no Game Boy equivalent and are kept by design.
+Intentional enhancements this port adds on top of faithful Pokémon Red, Blue,
+and Yellow behavior. They have no Game Boy equivalent and are kept by design.
 Genuine divergences from the original (things still missing, wrong, or
-approximated) live in docs/known-differences.md; faithfully-ported
-behavior is in docs/behavior-porting-notes.md.
+approximated) live in docs/known-differences.md; faithfully-ported behavior is
+in docs/behavior-porting-notes.md.
 
 ## Survey zoom
 
