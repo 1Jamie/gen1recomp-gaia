@@ -1079,7 +1079,11 @@ R.font = {
     f.rec{ seq = f.str, code = f.int(0) },
     f.rec{ file = f.opt(f.path), size = f.opt(f.int(1)),
            spacing = f.opt(f.num), yOffset = f.opt(f.num),
-           bold = f.opt(f.bool) },
+           bold = f.opt(f.bool),
+           -- characters that keep their ROM tile instead of coming from the
+           -- TTF: a string of them, or a list when a multi-character charmap
+           -- sequence is meant (src/render/Font.lua)
+           tiles = f.opt(f.union{ f.str, f.list(f.str) }) },
   },
   extra = function(id, value)
     if fontIsCharmap(id) then
@@ -1092,7 +1096,7 @@ R.font = {
     elseif fontIsTtf(id) then
       -- every field optional: {} is "the bundled font at its native size"
       if value.image ~= nil or value.base ~= nil then
-        return 'the "ttf" entry takes file/size/spacing/yOffset/bold, not a page'
+        return 'the "ttf" entry takes file/size/spacing/yOffset/bold/tiles, not a page'
       end
     elseif value.image == nil or value.base == nil then
       return "a font page needs an image and a base"

@@ -1243,13 +1243,9 @@ local function buildModsPanel(imp, parent, m)
     -- counts, so a pre-downloads cache entry costs the line, not a wrong "0".
     local dlLine
     if info and info.downloads then
-      local formatted = ModUpdate.formatCount(info.downloads.total)
-      if info.dates then
-        dlLine = Strings("%s downloads across all releases  -  Released %s  -  Updated %s",
-          formatted, info.dates.first, info.dates.latest)
-      else
-        dlLine = Strings("%s downloads across all releases", formatted)
-      end
+      local d = info.dates
+      dlLine = ModUpdate.statsLine(info.downloads.total,
+        d and d.first, d and d.latest)
     end
 
     -- measure the body: name (with the badge beside it only when it fits),
@@ -1524,9 +1520,17 @@ local function buildFindPanel(imp, parent, m)
   local btnH = math.ceil(textHeight(chipSize)) + 14
   for _, entry in ipairs(rows) do
     local action, note = findActionFor(entry, installed[entry.id])
+    -- Feed-published release stats (downloads, first/last release date) in
+    -- the same gold line the MODS tab uses; absent until a feed carries them.
+    local statsLine
+    if entry.downloads ~= nil or entry.first_release or entry.last_release then
+      statsLine = ModUpdate.statsLine(entry.downloads,
+        entry.first_release, entry.last_release)
+    end
 
     local bodyH = math.ceil(textHeight(titleSize))
       + 4 + math.ceil(textHeight(smallSize))
+    if statsLine then bodyH = bodyH + 4 + wrapHeight(smallSize, statsLine, bodyW) end
     if note then bodyH = bodyH + 4 + wrapHeight(smallSize, note, bodyW) end
     if entry.summary and entry.summary ~= "" then
       bodyH = bodyH + 4 + wrapHeight(smallSize, entry.summary, bodyW)
@@ -1571,6 +1575,9 @@ local function buildFindPanel(imp, parent, m)
     end
     label(body, meta, smallSize, C("detail"),
       { width = "100%", textWrap = false, textOverflow = "ellipsis" })
+    if statsLine then
+      label(body, statsLine, smallSize, C("gold"), { width = "100%" })
+    end
     if note then label(body, note, smallSize, C("green"), { width = "100%" }) end
     if entry.summary and entry.summary ~= "" then
       label(body, entry.summary, smallSize, C("detail"), { width = "100%" })
