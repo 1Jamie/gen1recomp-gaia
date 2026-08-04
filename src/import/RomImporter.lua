@@ -3034,19 +3034,19 @@ end
 -- The result is memoized per id for the session; a repo with no releases
 -- or a failed fetch resolves to an empty table so it is tried once.
 function RomImporter:_findStats(entry)
-  self._findStats = self._findStats or {}
-  local cached = self._findStats[entry.id]
+  self._findStatsCache = self._findStatsCache or {}
+  local cached = self._findStatsCache[entry.id]
   if cached then return cached end
   if entry.downloads ~= nil or entry.first_release or entry.last_release then
     cached = { total = entry.downloads, first = entry.first_release,
                latest = entry.last_release, done = true }
-    self._findStats[entry.id] = cached
+    self._findStatsCache[entry.id] = cached
     return cached
   end
   if self._findStatsFetched then return nil end   -- budget spent this frame
   if not entry.github or entry.github == "" then
     cached = { done = true }
-    self._findStats[entry.id] = cached
+    self._findStatsCache[entry.id] = cached
     return cached
   end
   self._findStatsFetched = true
@@ -3059,7 +3059,7 @@ function RomImporter:_findStats(entry)
   local stats = ok and ModUpdate.statsForReleases(releases) or nil
   cached = { total = stats and stats.total, first = stats and stats.first,
              latest = stats and stats.latest, done = true }
-  self._findStats[entry.id] = cached
+  self._findStatsCache[entry.id] = cached
   return cached
 end
 
