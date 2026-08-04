@@ -5,41 +5,26 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
     message(FATAL_ERROR "Configure with a WindowsStore preset.")
 endif()
 
-foreach(required_env LOVE_UWP_ROOT UWP_SDL2_ANGLE_ROOT VCPKG_ROOT)
-    if(NOT DEFINED ENV{${required_env}} OR "$ENV{${required_env}}" STREQUAL "")
-        message(FATAL_ERROR "Set ${required_env} before configuring.")
-    endif()
-endforeach()
-
-file(TO_CMAKE_PATH "$ENV{LOVE_UWP_ROOT}" LOVE_UWP_ROOT)
-file(TO_CMAKE_PATH "$ENV{UWP_SDL2_ANGLE_ROOT}" UWP_SDL2_ANGLE_ROOT)
-file(TO_CMAKE_PATH "$ENV{VCPKG_ROOT}" VCPKG_ROOT)
 get_filename_component(GAME_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
-set(ANGLE_RUNTIME_ROOT "${CMAKE_CURRENT_LIST_DIR}/third_party/angle")
-
-set(LOVE_BUILD_ROOT "${LOVE_UWP_ROOT}/build/uwp-x64-angle" CACHE PATH "LÖVE UWP build directory")
-set(LOVE_CONFIG "RelWithDebInfo" CACHE STRING "Configuration used for the LÖVE UWP backend")
-set(LOVE_OUTPUT_ROOT "${LOVE_BUILD_ROOT}/${LOVE_CONFIG}")
-if(LOVE_CONFIG STREQUAL "Release" OR LOVE_CONFIG STREQUAL "Debug")
-    set(LOVE_LIBRARY "${LOVE_OUTPUT_ROOT}/liblove.lib")
-    set(LOVE_RUNTIME "${LOVE_OUTPUT_ROOT}/love.dll")
-else()
-    set(LOVE_LIBRARY "${LOVE_OUTPUT_ROOT}/libliblove.lib")
-    set(LOVE_RUNTIME "${LOVE_OUTPUT_ROOT}/liblove.dll")
-endif()
+set(THIRD_PARTY_ROOT "${CMAKE_CURRENT_LIST_DIR}/third_party")
+set(LOVE_ROOT "${THIRD_PARTY_ROOT}/love")
+set(SDL2_ROOT "${THIRD_PARTY_ROOT}/sdl2")
+set(ANGLE_ROOT "${THIRD_PARTY_ROOT}/angle")
+set(RUNTIME_ROOT "${THIRD_PARTY_ROOT}/runtime")
 
 set(REQUIRED_FILES
-    "${LOVE_OUTPUT_ROOT}/lovestatic.lib"
-    "${LOVE_LIBRARY}"
-    "${LOVE_RUNTIME}"
-    "${LOVE_OUTPUT_ROOT}/lua51.lib"
-    "${LOVE_OUTPUT_ROOT}/lua51.dll"
-    "${UWP_SDL2_ANGLE_ROOT}/include/SDL2/SDL.h"
-    "${UWP_SDL2_ANGLE_ROOT}/lib/SDL2.lib"
-    "${UWP_SDL2_ANGLE_ROOT}/bin/SDL2.dll"
-    "${ANGLE_RUNTIME_ROOT}/libEGL.dll"
-    "${ANGLE_RUNTIME_ROOT}/libGLESv2.dll"
-    "${ANGLE_RUNTIME_ROOT}/d3dcompiler_47.dll"
+    "${THIRD_PARTY_ROOT}/manifest.json"
+    "${LOVE_ROOT}/lib/lovestatic.lib"
+    "${LOVE_ROOT}/lib/liblove.lib"
+    "${LOVE_ROOT}/lib/lua51.lib"
+    "${LOVE_ROOT}/bin/love.dll"
+    "${LOVE_ROOT}/bin/lua51.dll"
+    "${SDL2_ROOT}/include/SDL2/SDL.h"
+    "${SDL2_ROOT}/lib/SDL2.lib"
+    "${SDL2_ROOT}/bin/SDL2.dll"
+    "${ANGLE_ROOT}/bin/libEGL.dll"
+    "${ANGLE_ROOT}/bin/libGLESv2.dll"
+    "${ANGLE_ROOT}/bin/d3dcompiler_47.dll"
 )
 foreach(path IN LISTS REQUIRED_FILES)
     if(NOT EXISTS "${path}")
@@ -57,39 +42,45 @@ add_custom_target(gen1recomp_love ALL
     VERBATIM
 )
 
+add_custom_target(verify_uwp_dependencies
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_LIST_DIR}/scripts/verify-dependencies.ps1"
+    VERBATIM
+)
+
 add_executable(${PROJECT_NAME} WIN32 "app/main.cpp")
-add_dependencies(${PROJECT_NAME} gen1recomp_love)
+add_dependencies(${PROJECT_NAME} gen1recomp_love verify_uwp_dependencies)
 set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     VS_SDK_REFERENCES "Microsoft.VCLibs, Version=14.0"
 )
-target_include_directories(${PROJECT_NAME} PRIVATE "${UWP_SDL2_ANGLE_ROOT}/include/SDL2")
+target_include_directories(${PROJECT_NAME} PRIVATE "${SDL2_ROOT}/include/SDL2")
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    "${LOVE_OUTPUT_ROOT}/lovestatic.lib"
-    "${LOVE_LIBRARY}"
-    "${UWP_SDL2_ANGLE_ROOT}/lib/SDL2.lib"
-    "${LOVE_OUTPUT_ROOT}/lua51.lib"
+    "${LOVE_ROOT}/lib/lovestatic.lib"
+    "${LOVE_ROOT}/lib/liblove.lib"
+    "${SDL2_ROOT}/lib/SDL2.lib"
+    "${LOVE_ROOT}/lib/lua51.lib"
     WindowsApp.lib
 )
 
 set(PACKAGE_ROOT_FILES
     "${CMAKE_CURRENT_LIST_DIR}/Package.appxmanifest"
     "${GAME_ARCHIVE}"
-    "${LOVE_RUNTIME}"
-    "${LOVE_OUTPUT_ROOT}/lua51.dll"
-    "${UWP_SDL2_ANGLE_ROOT}/bin/SDL2.dll"
-    "${ANGLE_RUNTIME_ROOT}/libEGL.dll"
-    "${ANGLE_RUNTIME_ROOT}/libGLESv2.dll"
-    "${ANGLE_RUNTIME_ROOT}/d3dcompiler_47.dll"
+    "${LOVE_ROOT}/bin/love.dll"
+    "${LOVE_ROOT}/bin/lua51.dll"
+    "${SDL2_ROOT}/bin/SDL2.dll"
+    "${ANGLE_ROOT}/bin/libEGL.dll"
+    "${ANGLE_ROOT}/bin/libGLESv2.dll"
+    "${ANGLE_ROOT}/bin/d3dcompiler_47.dll"
 )
 
-set(VCPKG_RUNTIME_NAMES
+set(RUNTIME_NAMES
     brotlicommon.dll brotlidec.dll bz2.dll fmt.dll freetype.dll libpng16.dll
     OpenAL32.dll theora.dll theoradec.dll vorbis.dll vorbisfile.dll ogg.dll z.dll
 )
-foreach(name IN LISTS VCPKG_RUNTIME_NAMES)
-    set(runtime "${VCPKG_ROOT}/installed/x64-uwp/bin/${name}")
+foreach(name IN LISTS RUNTIME_NAMES)
+    set(runtime "${RUNTIME_ROOT}/bin/${name}")
     if(NOT EXISTS "${runtime}")
         message(FATAL_ERROR "Missing UWP runtime DLL: ${name}")
     endif()

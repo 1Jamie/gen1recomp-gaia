@@ -726,12 +726,7 @@ static ControllerMapping_t *SDL_CreateMappingForWGIController(SDL_JoystickGUID g
     }
 
     SDL_strlcpy(mapping_string, "none,*,", sizeof(mapping_string));
-#ifdef __WINRT__
-    /* Xbox WGI exposes the canonical SDL axis and hat layout. */
-    SDL_strlcat(mapping_string, "a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,leftstick:b8,rightstick:b9,leftshoulder:b4,rightshoulder:b5,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,lefttrigger:a2,rightx:a3,righty:a4,righttrigger:a5,", sizeof(mapping_string));
-#else
     SDL_strlcat(mapping_string, "a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,leftstick:b8,rightstick:b9,leftshoulder:b4,rightshoulder:b5,dpup:b10,dpdown:b12,dpleft:b13,dpright:b11,leftx:a1,lefty:a0~,rightx:a3,righty:a2~,lefttrigger:a4,righttrigger:a5,", sizeof(mapping_string));
-#endif
 
     return SDL_PrivateAddMappingForGUID(guid, mapping_string, &existing, SDL_CONTROLLER_MAPPING_PRIORITY_DEFAULT);
 }

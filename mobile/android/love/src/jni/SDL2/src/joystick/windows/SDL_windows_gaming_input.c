@@ -731,19 +731,10 @@ static int WGI_JoystickOpen(SDL_Joystick *joystick, int device_index)
         __x_ABI_CWindows_CGaming_CInput_CIGameController_get_IsWireless(hwdata->gamecontroller, &wireless);
     }
 
-#ifdef __WINRT__
-    if (hwdata->gamepad) {
-        joystick->nbuttons = 10;
-        joystick->naxes = 6;
-        joystick->nhats = 1;
-    } else
-#endif
-    {
-        /* Initialize the joystick capabilities */
-        joystick->nbuttons = state->nbuttons;
-        joystick->naxes = state->naxes;
-        joystick->nhats = state->nhats;
-    }
+    /* Initialize the joystick capabilities */
+    joystick->nbuttons = state->nbuttons;
+    joystick->naxes = state->naxes;
+    joystick->nhats = state->nhats;
     joystick->epowerlevel = wireless ? SDL_JOYSTICK_POWER_UNKNOWN : SDL_JOYSTICK_POWER_WIRED;
 
     if (wireless && hwdata->battery) {
@@ -881,51 +872,6 @@ static void WGI_JoystickUpdate(SDL_Joystick *joystick)
 {
     struct joystick_hwdata *hwdata = joystick->hwdata;
     HRESULT hr;
-
-#ifdef __WINRT__
-    if (hwdata->gamepad) {
-        struct __x_ABI_CWindows_CGaming_CInput_CGamepadReading reading;
-        static const __x_ABI_CWindows_CGaming_CInput_CGamepadButtons button_masks[] = {
-            GamepadButtons_A, GamepadButtons_B, GamepadButtons_X, GamepadButtons_Y,
-            GamepadButtons_LeftShoulder, GamepadButtons_RightShoulder,
-            GamepadButtons_View, GamepadButtons_Menu,
-            GamepadButtons_LeftThumbstick, GamepadButtons_RightThumbstick
-        };
-        Uint8 hat = SDL_HAT_CENTERED;
-        Uint8 i;
-
-        hr = __x_ABI_CWindows_CGaming_CInput_CIGamepad_GetCurrentReading(hwdata->gamepad, &reading);
-        if (SUCCEEDED(hr) && (!reading.Timestamp || reading.Timestamp != hwdata->timestamp)) {
-            const DOUBLE left_x = SDL_max(-1.0, SDL_min(1.0, reading.LeftThumbstickX));
-            const DOUBLE left_y = SDL_max(-1.0, SDL_min(1.0, reading.LeftThumbstickY));
-            const DOUBLE right_x = SDL_max(-1.0, SDL_min(1.0, reading.RightThumbstickX));
-            const DOUBLE right_y = SDL_max(-1.0, SDL_min(1.0, reading.RightThumbstickY));
-            const DOUBLE left_trigger = SDL_max(0.0, SDL_min(1.0, reading.LeftTrigger));
-            const DOUBLE right_trigger = SDL_max(0.0, SDL_min(1.0, reading.RightTrigger));
-
-            SDL_PrivateJoystickAxis(joystick, 0, (Sint16)(left_x * 32767.0));
-            SDL_PrivateJoystickAxis(joystick, 1, (Sint16)(-left_y * 32767.0));
-            SDL_PrivateJoystickAxis(joystick, 2, (Sint16)(left_trigger * 65535.0 - 32768.0));
-            SDL_PrivateJoystickAxis(joystick, 3, (Sint16)(right_x * 32767.0));
-            SDL_PrivateJoystickAxis(joystick, 4, (Sint16)(-right_y * 32767.0));
-            SDL_PrivateJoystickAxis(joystick, 5, (Sint16)(right_trigger * 65535.0 - 32768.0));
-
-            for (i = 0; i < (Uint8)SDL_arraysize(button_masks); ++i) {
-                SDL_PrivateJoystickButton(joystick, i,
-                    (reading.Buttons & button_masks[i]) ? SDL_PRESSED : SDL_RELEASED);
-            }
-
-            if (reading.Buttons & GamepadButtons_DPadUp) hat |= SDL_HAT_UP;
-            if (reading.Buttons & GamepadButtons_DPadDown) hat |= SDL_HAT_DOWN;
-            if (reading.Buttons & GamepadButtons_DPadLeft) hat |= SDL_HAT_LEFT;
-            if (reading.Buttons & GamepadButtons_DPadRight) hat |= SDL_HAT_RIGHT;
-            SDL_PrivateJoystickHat(joystick, 0, hat);
-            hwdata->timestamp = reading.Timestamp;
-        }
-        return;
-    }
-#endif
-
     UINT32 nbuttons = SDL_min(joystick->nbuttons, SDL_MAX_UINT8);
     boolean *buttons = NULL;
     UINT32 nhats = SDL_min(joystick->nhats, SDL_MAX_UINT8);
@@ -1048,38 +994,7 @@ static void WGI_JoystickQuit(void)
 
 static SDL_bool WGI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMapping *out)
 {
-#ifdef __WINRT__
-    WindowsGamingInputControllerState *state = &wgi.controllers[device_index];
-
-    if (state->type != SDL_JOYSTICK_TYPE_GAMECONTROLLER) {
-        return SDL_FALSE;
-    }
-
-    SDL_zero(*out);
-    out->a = (SDL_InputMapping){ EMappingKind_Button, 0 };
-    out->b = (SDL_InputMapping){ EMappingKind_Button, 1 };
-    out->x = (SDL_InputMapping){ EMappingKind_Button, 2 };
-    out->y = (SDL_InputMapping){ EMappingKind_Button, 3 };
-    out->leftshoulder = (SDL_InputMapping){ EMappingKind_Button, 4 };
-    out->rightshoulder = (SDL_InputMapping){ EMappingKind_Button, 5 };
-    out->back = (SDL_InputMapping){ EMappingKind_Button, 6 };
-    out->start = (SDL_InputMapping){ EMappingKind_Button, 7 };
-    out->leftstick = (SDL_InputMapping){ EMappingKind_Button, 8 };
-    out->rightstick = (SDL_InputMapping){ EMappingKind_Button, 9 };
-    out->dpup = (SDL_InputMapping){ EMappingKind_Hat, SDL_HAT_UP };
-    out->dpdown = (SDL_InputMapping){ EMappingKind_Hat, SDL_HAT_DOWN };
-    out->dpleft = (SDL_InputMapping){ EMappingKind_Hat, SDL_HAT_LEFT };
-    out->dpright = (SDL_InputMapping){ EMappingKind_Hat, SDL_HAT_RIGHT };
-    out->leftx = (SDL_InputMapping){ EMappingKind_Axis, 0 };
-    out->lefty = (SDL_InputMapping){ EMappingKind_Axis, 1 };
-    out->lefttrigger = (SDL_InputMapping){ EMappingKind_Axis, 2 };
-    out->rightx = (SDL_InputMapping){ EMappingKind_Axis, 3 };
-    out->righty = (SDL_InputMapping){ EMappingKind_Axis, 4 };
-    out->righttrigger = (SDL_InputMapping){ EMappingKind_Axis, 5 };
-    return SDL_TRUE;
-#else
     return SDL_FALSE;
-#endif
 }
 
 SDL_JoystickDriver SDL_WGI_JoystickDriver = {

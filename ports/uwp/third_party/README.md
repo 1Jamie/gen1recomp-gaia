@@ -1,9 +1,11 @@
 # UWP dependencies
 
-The ANGLE UWP runtime is committed under `angle`. The package also uses:
+This directory contains the complete x64 UWP Release dependency bundle used by the package build:
 
-- `LOVE_UWP_ROOT`: [caorthann-celt/love-xbox-uwp](https://github.com/caorthann-celt/love-xbox-uwp) on the `gen1recomp` branch.
-- `UWP_SDL2_ANGLE_ROOT`: SDL2 built by `scripts/build-sdl2-angle.ps1`.
-- `VCPKG_ROOT`: the UWP codec, font, compression, and audio runtimes used by LÖVE.
+- `love` contains the LÖVE 11.5 and LuaJIT binaries.
+- `sdl2` contains the matching SDL headers, import library, and runtime.
+- `angle` contains the EGL and GLES runtime.
+- `runtime` contains the codec, font, compression, and audio DLLs used by LÖVE.
+- `licenses` contains the corresponding third party notices.
 
-SDL headers, import library, and DLL must come from the same build. Runtime DLLs stay inside the installed package.
+`manifest.json` pins the source revisions and SHA-256 hashes. Run `../scripts/verify-dependencies.ps1` after updating any dependency.
