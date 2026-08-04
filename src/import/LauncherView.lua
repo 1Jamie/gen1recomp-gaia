@@ -1295,6 +1295,7 @@ local function buildFindPanel(imp, parent, m)
   imp:_ensureFind()
   imp:_ensureMods()
   local ModIndex = require("src.mods.ModIndex")
+  local ModUpdate = require("src.mods.ModUpdate")
   local sources = imp.findSources or {}
   local rows = imp:_findRows()
   local total = #((imp.findIndex and imp.findIndex.mods) or {})
