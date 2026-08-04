@@ -3003,6 +3003,22 @@ function OverworldState:engageTrainer(npc, onDone)
   end))
 end
 
+-- Shared GiveItem step for the victory rewards (pokered home/give.asm):
+-- the item goes through the bag's capacity check, and only a successful
+-- add sets the reward's gotFlag (EVENT_GOT_TM*) and copies the item name
+-- into wStringBuffer for the "{RAM:wStringBuffer}" received texts.
+local function giveVictoryItem(reward)
+  if not require("src.inventory.Bag").add(Game.save, reward.item, 1, Game.data) then
+    return false
+  end
+  if reward.gotFlag then
+    Game.save.flags[reward.gotFlag] = true
+  end
+  local idef = Game.data.items[reward.item]
+  Game.stringBuffer = idef and idef.name or reward.item
+  return true
+end
+
 -- Badges/items awarded after specific battles (data/scripts/victories.lua).
 -- `deactivate` retires unfought gym/dojo trainers the way the originals'
 -- SetEvent / SetEventRange do after the leader victory.
@@ -3031,12 +3047,13 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
   if reward.badge then
     Game.save.inventory[reward.badge] = 1
   end
+  local tmGiven = false
   if reward.item then
-    local inv = Game.save.inventory
-    inv[reward.item] = (inv[reward.item] or 0) + 1
-    local idef = Game.data.items[reward.item]
-    -- GiveItem -> CopyToStringBuffer for "{RAM:wStringBuffer}" received texts
-    Game.stringBuffer = idef and idef.name or reward.item
+    -- pokered GiveItem (home/give.asm): AddItemToInventory first, and a
+    -- full bag (jr nc, .BagFull) skips the received lines for the "make
+    -- room" text, leaving EVENT_GOT_TM* unset so the leader's talk script
+    -- retries the hand-over later (offerGymTm via gyms.lua)
+    tmGiven = giveVictoryItem(reward)
   end
   local lines = {}
   if reward.dialogue then
@@ -3046,13 +3063,29 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
         table.insert(lines, text[label])
       end
     end
+    if reward.item then
+      for _, label in ipairs(reward.tmPre or {}) do
+        if text[label] and text[label] ~= "" then
+          table.insert(lines, text[label])
+        end
+      end
+      if tmGiven then
+        for _, label in ipairs(reward.tmDialogue or {}) do
+          if text[label] and text[label] ~= "" then
+            table.insert(lines, text[label])
+          end
+        end
+      elseif reward.noRoom and text[reward.noRoom] and text[reward.noRoom] ~= "" then
+        table.insert(lines, text[reward.noRoom])
+      end
+    end
   elseif reward.badge or reward.item then
     if reward.badge then
       local name = Game.data.items[reward.badge] and Game.data.items[reward.badge].name
                    or reward.badge
       table.insert(lines, Strings("%s received\nthe %s!", Game.save.player.name, name))
     end
-    if reward.item then
+    if tmGiven then
       local name = Game.stringBuffer or reward.item
       table.insert(lines, Strings("%s received\n%s!", Game.save.player.name, name))
     end
@@ -3061,6 +3094,33 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
     Game.stack:push(TextBox.new(Game, table.concat(lines, "\f")))
   end
   self:runVictoryHook()
+end
+
+-- A beaten leader re-running their ReceiveTM script when the bag was full
+-- at the victory (pokered's middle branch, e.g. PewterGymBrockText
+-- CheckEventReuseA EVENT_GOT_TM34 -> call PewterGymScriptReceiveTM34).
+-- The script's lead-in lines (tmPre: badge info / "Wait! Take this!")
+-- show again, then the same GiveItem check decides between the received
+-- lines and the "make room" text.
+function OverworldState:offerGymTm(reward, done)
+  local text = Game.data.text or {}
+  local lines = {}
+  local function addLine(label)
+    if label and text[label] and text[label] ~= "" then
+      table.insert(lines, text[label])
+    end
+  end
+  for _, label in ipairs(reward.tmPre or {}) do addLine(label) end
+  if giveVictoryItem(reward) then
+    for _, label in ipairs(reward.tmDialogue or {}) do addLine(label) end
+  else
+    addLine(reward.noRoom)
+  end
+  if #lines > 0 then
+    Game.stack:push(TextBox.new(Game, table.concat(lines, "\f"), done))
+  elseif done then
+    done()
+  end
 end
 
 -- pokered reloads the map after every battle, re-running the map
