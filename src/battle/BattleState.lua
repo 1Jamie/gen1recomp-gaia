@@ -380,18 +380,21 @@ local CHARGE_TEXT = {
 -- pokered's <USER>/<TARGET> text macros (home/text.asm
 -- PlaceMoveUsersName): battle texts naming the enemy mon print
 -- "Enemy " before the nickname; player-side mons never get it.
+-- Translatable as one "Enemy %s" template (#779) so languages that
+-- qualify after the name, or decline, can (e.g. "%s ennemi").
 local function displayName(b)
-  return b.isPlayer and b.name or ("Enemy " .. b.name)
+  return b.isPlayer and b.name or Strings("Enemy %s", b.name)
 end
 
--- Apply the "Enemy " prefix to a pre-built message from a module that
--- only knows the raw nickname (Status.beforeMove/residual,
--- TrainerAI.useItem): splice it in before the first name occurrence.
+-- Apply the enemy qualifier to a pre-built message from a module that
+-- only knows the raw nickname (Status.beforeMove/residual): replace the
+-- first name occurrence with the qualified form.
 local function prefixEnemy(msg, battler)
   if battler.isPlayer then return msg end
   local s = msg:find(battler.name, 1, true)
   if not s then return msg end
-  return msg:sub(1, s - 1) .. "Enemy " .. msg:sub(s)
+  return msg:sub(1, s - 1) .. Strings("Enemy %s", battler.name)
+      .. msg:sub(s + #battler.name)
 end
 
 -- Level-up stats window (PrintStatsBox .LevelUpStatsBox: box (9,2)
@@ -3044,8 +3047,11 @@ function BattleState:executeAction(user, target, action)
     -- trainer class AI actions (engine/battle/trainer_ai.asm)
     if action.special == "aiItem" then
       self.aiUses = (self.aiUses or 1) - 1
+      -- useItem's messages arrive final: its item line prints the raw
+      -- nickname on purpose (no "Enemy " in AIPrintItemUseText), so the
+      -- prefix splice must not touch them.
       for _, m in ipairs(TrainerAI.useItem(self, action.item)) do
-        self:sayNext(prefixEnemy(m, self.enemy))
+        self:sayNext(m)
       end
       self:drainNext()
       require("src.core.Sound").play(self.data, "Heal_Ailment")

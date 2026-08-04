@@ -2593,6 +2593,8 @@ function RomImporter:_syncModUpdateInfo(force)
           latest = best and best.version or nil,
           best = best,
           releases = packed.releases,
+          downloads = ModUpdate.totalDownloads(packed.releases),
+          dates = ModUpdate.releaseDates(packed.releases),
           err = nil,
           checkedAt = packed.checkedAt or os.time(),
         }
@@ -2609,6 +2611,9 @@ function RomImporter:_syncModUpdateInfo(force)
       self.modUpdateInfo[m.id] = nil
     end
   end
+  -- Bump so the view's sorted-list cache (keyed on this revision) rebuilds
+  -- when release/download data actually changes, not every frame.
+  self._modUpdateRev = (self._modUpdateRev or 0) + 1
 end
 
 function RomImporter:_modUpdateInfo(id)
@@ -2722,6 +2727,8 @@ function RomImporter:_modGithubAction(id, action)
       self.modUpdateInfo[row.id] = {
         status = status, latest = best and best.version, best = best,
         releases = releases,
+        downloads = ModUpdate.totalDownloads(releases),
+        dates = ModUpdate.releaseDates(releases),
       }
       self._modVersions = {
         id = row.id, name = row.name, current = row.version,
@@ -2765,6 +2772,8 @@ function RomImporter:_modGithubAction(id, action)
     self.modUpdateInfo[row.id] = {
       status = status, latest = best and best.version, best = best,
       releases = releases, checkedAt = os.time(),
+      downloads = ModUpdate.totalDownloads(releases),
+      dates = ModUpdate.releaseDates(releases),
     }
     if status == "available" and best then
       self.modNotice = { ok = true,
@@ -2980,12 +2989,22 @@ end
 -- The rows the filters leave, and the installed-mod context the compatibility
 -- warnings are judged against.
 function RomImporter:_findRows()
-  local ModIndex = require("src.mods.ModIndex")
   local all = (self.findIndex and self.findIndex.mods) or {}
-  return ModIndex.filter(all, {
+  -- The view asks every frame (immediate mode); only re-filter when the
+  -- index, query, or category actually changed.
+  local c = self._findRowsCache
+  if c and c.src == all and c.query == self.findQuery
+      and c.category == self.findCategory then
+    return c.rows
+  end
+  local ModIndex = require("src.mods.ModIndex")
+  local rows = ModIndex.filter(all, {
     query = self.findQuery,
     category = self.findCategory,
   })
+  self._findRowsCache = { src = all, query = self.findQuery,
+    category = self.findCategory, rows = rows }
+  return rows
 end
 
 function RomImporter:_findInstalledMap()

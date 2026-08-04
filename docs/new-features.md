@@ -1,10 +1,10 @@
 # New features (deliberate additions beyond the original)
 
-Intentional enhancements this port adds on top of faithful Pokémon Red
-behavior. They have no Game Boy equivalent and are kept by design.
+Intentional enhancements this port adds on top of faithful Pokémon Red, Blue,
+and Yellow behavior. They have no Game Boy equivalent and are kept by design.
 Genuine divergences from the original (things still missing, wrong, or
-approximated) live in docs/known-differences.md; faithfully-ported
-behavior is in docs/behavior-porting-notes.md.
+approximated) live in docs/known-differences.md; faithfully-ported behavior is
+in docs/behavior-porting-notes.md.
 
 ## Survey zoom
 
@@ -375,6 +375,19 @@ plus a glyph-page and charmap stub, a naming-grid stub, and a
 (deliberately outside the mod: extracted text is ROM content and must not
 be packed). `--refresh` re-harvests after an engine update, keeping
 existing translations and parking orphaned keys rather than dropping them.
+
+A translation can also skip glyph pages entirely: scaffolding with
+`--pixel-font` (or registering `mod.content.font:register("ttf", {})` in
+an existing mod) renders text through a bundled TTF covering Latin with
+diacritics, Cyrillic, kana and CJK, while box borders and `<PK>`-style
+macro glyphs keep their tiles. The font is "Plain Pixel Font" by Douglas
+Vautour (Burpy Fresh), licensed under CC-BY 4.0 (5x11 base characters,
+11x11 double-width; see `assets/fonts/plainpixel/README.md`). Options on
+the registry entry: `file` for a mod-shipped TTF, `size` (the font's
+design em; Plain Pixel rasterizes cleanly only at multiples of 15),
+`spacing` added to every advance, `yOffset` for vertical alignment
+against the 8px cell grid, and `bold`, which double-prints at a 1px
+offset for fonts whose strokes read too light.
 
 See the wiki's Translations guide.
 
