@@ -11,6 +11,7 @@
 local editorMode = os.getenv("POKEPORT_EDITOR") == "1" or POKEPORT_EDITOR_MODE == true
 
 local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
+local LaunchOptions = require("src.core.LaunchOptions")
 local NxDisplay = require("src.core.NxDisplay")
 
 -- Lua errors: persist a redacted trace in the save dir and surface a hint.
@@ -323,6 +324,26 @@ function love.load(args)
   do
     local preload = require("src.mods.LauncherMods").translationStrings()
     if preload then require("src.core.Strings").load({ strings = preload }) end
+  end
+
+  -- LAUNCH OPTIONS: skip the launcher and boot a game directly.
+  --   --game red|blue|yellow  (or POKEPORT_GAME / POKEPORT_LAUNCH)
+  --   --slot <id>             optional; picks the save slot to load
+  --   --launcher              force the launcher even if a game is set
+  -- This is what a desktop shortcut, a Steam entry, or a frontend like
+  -- EmulationStation needs: one click into the game the player wants, with no
+  -- menu in between.  A game that is not imported falls through to the
+  -- launcher on its tab rather than booting into nothing.
+  local launchGame, launchSlot = LaunchOptions.resolve(arg)
+  if launchGame and not LaunchOptions.forceLauncher(arg) then
+    if RomImporter.isReady(launchGame) then
+      if launchSlot then LaunchOptions.selectSlot(launchGame, launchSlot) end
+      bootGame(launchGame)
+      return
+    end
+    -- Not importable yet: open the launcher already showing that game, so the
+    -- shortcut still lands the player where they meant to go.
+    LaunchOptions.pendingTab = launchGame
   end
 
   -- Interactive: the launcher always runs.  Red, Blue, and Yellow are each
@@ -724,6 +745,12 @@ function love.quit()
   end
   if package.loaded["src.update.Check"] then
     pcall(package.loaded["src.update.Check"].shutdown)
+  end
+  -- The launcher's fetch pool is the same story: its workers idle in
+  -- Channel:demand(), which never returns on its own, so a launcher that ever
+  -- touched the network would hang the process on exit (#339's shape again).
+  if package.loaded["src.net.Fetch"] then
+    pcall(package.loaded["src.net.Fetch"].shutdown)
   end
 end
 
