@@ -1845,12 +1845,18 @@ end
 local function buildConfirmModal(imp, m)
   local c = imp._modConfirm
   local overlay = modalOverlay(imp, m, "confirm-out")
-  local panel = modalPanel(overlay, m, 420 * m.s)
-  label(panel, c.title or Strings("Confirm"), 15 * m.s + 2, C("white"))
+  -- roomier than the shared 420 default: the install confirm carries the
+  -- compat issue list and the trust warning, and those lines need air
+  local panel = modalPanel(overlay, m, 520 * m.s, {
+    gap = 12 * m.s, padding = { horizontal = 22, vertical = 20 },
+  })
+  label(panel, c.title or Strings("Confirm"), 17 * m.s + 2, C("white"))
   for _, line in ipairs(c.lines or {}) do
-    label(panel, line, 12 * m.s + 1, C("detail"))
+    label(panel, line, 13 * m.s + 1, C("detail"))
   end
-  local btnRow = mk({ parent = panel, width = "100%",
+  -- explicit height: an auto-sized row measures short while the panel
+  -- auto-sizes, which clipped the buttons at the panel's bottom border
+  local btnRow = mk({ parent = panel, width = "100%", height = m.btnH,
     positioning = "flex", flexDirection = "horizontal", gap = 10 * m.s })
   button(imp, btnRow, "confirm-yes", c.yesLabel or Strings("OK"), {
     flex = 1, h = m.btnH, size = 13 * m.s + 1, kind = "primary",

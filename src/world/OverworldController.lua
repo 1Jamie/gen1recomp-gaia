@@ -4009,7 +4009,7 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
   end, function()
     self.transitioning = false
     if onDone then onDone() end
-  end))
+  end, true))  -- warp shape: no fade back in (LoadGBPal restores in one write)
 end
 
 -- Re-read a map record after its data changed (WorldAPI:invalidateMap,

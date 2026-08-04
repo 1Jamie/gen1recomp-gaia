@@ -1830,6 +1830,18 @@ function RomImporter:update(dt)
       end
       local tab = os.getenv("POKEPORT_LAUNCHER_TAB")
       if tab and tab ~= "" then self:_switchTab(tab) end
+      -- POKEPORT_LAUNCHER_CONFIRM=1 arms a representative install confirm so
+      -- a capture can see the modal (it is otherwise only reachable by click)
+      if os.getenv("POKEPORT_LAUNCHER_CONFIRM") == "1" then
+        self._modConfirm = {
+          kind = "update",
+          title = "Install mod",
+          yesLabel = "Install",
+          lines = { "JP GREEN - Poketto Monsuta Midori v0.4.4",
+                    "by bryanthaboi",
+                    "Mods are not reviewed - trust the author." },
+        }
+      end
       local query = os.getenv("POKEPORT_LAUNCHER_QUERY")
       if query and query ~= "" then
         self.findQuery = query
