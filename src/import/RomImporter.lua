@@ -2220,16 +2220,7 @@ end
 -- renders it.  Required lazily so a headless test require of this module
 -- never loads the UI toolkit.
 function RomImporter:draw()
-  local ok, err = pcall(require("src.import.LauncherView").draw, self)
-  if not ok then
-    local f = io.open("/tmp/launcher-crash.log", "a")
-    if f then
-      f:write(os.date("%H:%M:%S") .. " " .. tostring(err) .. "\n")
-      f:write(debug.traceback("", 2) .. "\n")
-      f:close()
-    end
-    error(err, 0)
-  end
+  require("src.import.LauncherView").draw(self)
 end
 
 -- Nothing in the launcher can undo a delete, so every Delete control asks
