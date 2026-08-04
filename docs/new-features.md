@@ -386,8 +386,17 @@ Vautour (Burpy Fresh), licensed under CC-BY 4.0 (5x11 base characters,
 the registry entry: `file` for a mod-shipped TTF, `size` (the font's
 design em; Plain Pixel rasterizes cleanly only at multiples of 15),
 `spacing` added to every advance, `yOffset` for vertical alignment
-against the 8px cell grid, and `bold`, which double-prints at a 1px
-offset for fonts whose strokes read too light.
+against the 8px cell grid, `bold`, which double-prints at a 1px
+offset for fonts whose strokes read too light, and `tiles`, the
+characters that keep their ROM tile instead of coming from the TTF.
+
+`tiles` matters for a CJK translation. Sizing the font so a kana fills
+the 8px cell leaves Latin narrower than the tile font it replaces, which
+pulls the numeric columns out of line: the party menu's `:L12` stops
+sitting over `34/ 34`. Naming `"0123456789/:"` keeps those on the
+vanilla tiles, so numbers render exactly as they do in English while
+kana still come from the font. It takes a string of characters, or a
+list when a multi-character charmap sequence is meant.
 
 See the wiki's Translations guide.
 
