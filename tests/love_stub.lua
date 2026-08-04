@@ -348,6 +348,7 @@ function ImageData:getDimensions() return self.w, self.h end
 function ImageData:getPixel() return 0, 0, 0, 1 end
 function ImageData:setPixel() end
 function ImageData:mapPixel() end
+function ImageData:paste() end
 function ImageData:encode() return { getString = function() return "" end } end
 
 stub.image = {
@@ -360,6 +361,12 @@ stub.image = {
     end
     return setmetatable({ w = a or 8, h = b or 8 }, ImageData)
   end,
+}
+
+-- Headless runs report the desktop OS so platform gates (GamepadMap's NX
+-- check, the touch-overlay filter) take their desktop branch.
+stub.system = {
+  getOS = function() return "OS X" end,
 }
 
 -- Desktop / headless: full-window safe area (matches LÖVE's fallback).
