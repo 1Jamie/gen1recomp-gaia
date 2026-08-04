@@ -2220,7 +2220,16 @@ end
 -- renders it.  Required lazily so a headless test require of this module
 -- never loads the UI toolkit.
 function RomImporter:draw()
-  require("src.import.LauncherView").draw(self)
+  local ok, err = pcall(require("src.import.LauncherView").draw, self)
+  if not ok then
+    local f = io.open("/tmp/launcher-crash.log", "a")
+    if f then
+      f:write(os.date("%H:%M:%S") .. " " .. tostring(err) .. "\n")
+      f:write(debug.traceback("", 2) .. "\n")
+      f:close()
+    end
+    error(err, 0)
+  end
 end
 
 -- Nothing in the launcher can undo a delete, so every Delete control asks
@@ -3036,7 +3045,12 @@ end
 function RomImporter:_findStats(entry)
   self._findStatsCache = self._findStatsCache or {}
   local cached = self._findStatsCache[entry.id]
-  if cached then return cached end
+  if cached then
+    if cached.done or (cached.retryAt and os.time() < cached.retryAt) then
+      return cached
+    end
+    self._findStatsCache[entry.id] = nil  -- retry window open, refetch
+  end
   if entry.downloads ~= nil or entry.first_release or entry.last_release then
     cached = { total = entry.downloads, first = entry.first_release,
                latest = entry.last_release, done = true }
@@ -3051,14 +3065,21 @@ function RomImporter:_findStats(entry)
   end
   self._findStatsFetched = true
   local ModUpdate = require("src.mods.ModUpdate")
-  local ok, releases = pcall(function()
-    local list, err = ModUpdate.fetchReleases(entry.github, entry.id, {})
-    if not list then error(tostring(err), 0) end
-    return list
+  local list, fetchErr
+  local ok = pcall(function()
+    list, fetchErr = ModUpdate.fetchReleases(entry.github, entry.id, {})
   end)
-  local stats = ok and ModUpdate.statsForReleases(releases) or nil
-  cached = { total = stats and stats.total, first = stats and stats.first,
-             latest = stats and stats.latest, done = true }
+  local stats = list and ModUpdate.statsForReleases(list) or nil
+  if stats then
+    cached = { total = stats.total, first = stats.first,
+               latest = stats.latest, done = true }
+  else
+    -- A repo that does not exist is permanent; every other failure (the
+    -- hourly API rate limit, a hiccup) is retried in a minute so rows can
+    -- recover without restarting the launcher.
+    local permanent = tostring(fetchErr):find("Not Found", 1, true) ~= nil
+    cached = { done = permanent, retryAt = os.time() + 60 }
+  end
   self._findStatsCache[entry.id] = cached
   return cached
 end
