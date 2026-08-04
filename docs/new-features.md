@@ -471,6 +471,13 @@ automatically, so the tab opens on an "Add an index" prompt until you name
 one; paste an index URL or its `owner/repo` and it is remembered in
 `options.lua`. More than one index can be added, and the listings merge.
 
+A feed author can publish per-mod release stats by adding three optional
+fields to an entry -- `downloads` (total across every release), and
+`first_release` / `last_release` (ISO days) -- which the listing shows in
+the same gold line the MODS tab uses. The fields are additive: feeds that
+carry them stay readable by every build that predates them, and feeds that
+do not render exactly as before.
+
 ## Soft reset (all versions)
 
 Holding A, B, START and SELECT together restarts the game the way flicking
