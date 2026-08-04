@@ -1892,6 +1892,9 @@ function BattleState:update(dt)
         self:act(function()
           self:executeAction(self.enemy, self.player, self:enemyAction())
         end)
+        -- the scared turn still ticks the player's residual (PrintGhostText
+        -- -> ExecutePlayerMoveDone, core.asm:3056, 3275-3279)
+        self:queueResidual(self.player, self.enemy)
         self:act(function() self:endOfTurn() end)
       elseif choice == "fight" then
         -- After the menu: own trapping/Bide or foe Wrap skips the move
@@ -2361,6 +2364,48 @@ function BattleState:resolveSwitch(newMon)
   self:act(function() self:endOfTurn() end)
 end
 
+-- Gen 1 calls HandlePoisonBurnLeechSeed right after the acting side's
+-- move (core.asm:426-464), so the drain lands before the slower mon acts;
+-- the modern ruleset sweeps residuals at end of round instead (Gen 3+).
+local function residualAfterMove(battle)
+  local ruleset = battle.ruleset
+  return not ruleset or ruleset.residualAfterMove ~= false
+end
+
+-- HandlePoisonBurnLeechSeed for one side, run right after its action.
+-- Skipped when the action settled the battle (a Teleport escape rets
+-- before the call), when an AI switch swapped the side out mid-action, or
+-- when the move already knocked the opponent out (core.asm:423-425,
+-- 452-454) -- the same bypass the end-of-round sweep applies.
+function BattleState:residualFor(b, opp)
+  if self.result then return end
+  if self.player ~= b and self.enemy ~= b then return end
+  if b.mon.hp <= 0 or opp.mon.hp <= 0 then return end
+  local msgs = Status.residual(b, opp, self)
+  for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
+  if b.leechSeeded and b.mon.hp > 0 then
+    -- the drain plays the ABSORB animation from the healing side
+    -- (core.asm:506-517 flips hWhoseTurn before PlayMoveAnimation)
+    self:animNext("ABSORB", opp.isPlayer)
+  end
+  if #msgs > 0 then self:drainNext() end -- poison/burn/seed HP moved
+  self.sideToxic = self.sideToxic or {}
+  if b.toxicCounter then
+    self.sideToxic[b.isPlayer and "player" or "enemy"] = b.toxicCounter
+  end
+  if b.mon.hp <= 0 then
+    self:onFaint(b)
+  end
+end
+
+-- append one side's residual to the queue under Gen 1 timing; a no-op
+-- under the modern ruleset, whose sweep runs in endOfTurn instead
+function BattleState:queueResidual(b, opp)
+  if residualAfterMove(self) then
+    self:act(function() self:residualFor(b, opp) end)
+  end
+end
+
 function BattleState:endOfTurn()
   -- the same ret: a decided battle never reaches HandlePoisonBurnLeechSeed
   -- or CheckNumAttacksLeft (core.asm:417-421, 456-460), so the residual
@@ -2380,6 +2425,9 @@ function BattleState:endOfTurn()
   -- that sets the flag also zeroes the counter, so a stale value is
   -- unobservable (a switch or cure downgrades Toxic to plain poison).
   self.sideToxic = self.sideToxic or {}
+  -- Gen 1 timing already ran each side's residual right after its move
+  -- (see executeAction); the end-of-round sweep is the modern ruleset's
+  local sweep = not residualAfterMove(self)
   -- a battler whose opponent was already knocked out by a move this turn
   -- skips its own residual (HandlePoisonBurnLeechSeed is bypassed when the
   -- move faints the target); snapshot before residual so one side's
@@ -2389,7 +2437,7 @@ function BattleState:endOfTurn()
   for _, pair in ipairs({ { self.player, self.enemy, "player", enemyAlive },
                           { self.enemy, self.player, "enemy", playerAlive } }) do
     local b, opp, side, oppAlive = pair[1], pair[2], pair[3], pair[4]
-    if b.mon.hp > 0 and oppAlive then
+    if sweep and b.mon.hp > 0 and oppAlive then
       local msgs = Status.residual(b, opp, self)
       for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
       if #msgs > 0 then self:drainNext() end -- poison/burn/seed HP moved
@@ -2400,6 +2448,9 @@ function BattleState:endOfTurn()
         self:onFaint(b)
       end
     end
+    -- the Haze move-forfeit only covers the turn Haze was used; if the
+    -- cured mon had already moved, drop the flag before next turn
+    b.skipMove = nil
     -- CheckNumAttacksLeft (core.asm:683-697): a trapping counter that
     -- hit 0 this turn releases its bit only now, at the end of the turn
     if b.trappingTurns and b.trappingTurns <= 0 then
@@ -3184,6 +3235,12 @@ function BattleState:executeAction(user, target, action)
   run()
   -- after announce/anim/effect text (pokered DrawHUDsAndHPBars)
   self:actNext(function() self:syncShownStatus() end)
+  -- MainInBattleLoop calls HandlePoisonBurnLeechSeed right after each
+  -- Execute*Move (core.asm:426-464): the acting side's poison/burn/leech
+  -- seed ticks before the slower mon acts, not at end of round
+  if residualAfterMove(self) then
+    self:actNext(function() self:residualFor(user, target) end)
+  end
 end
 
 -- Sleep / confusion onomatopoeia from Check*StatusConditions
@@ -4248,6 +4305,9 @@ function BattleState:tryRun()
     self:act(function()
       self:executeAction(self.enemy, self.player, self:enemyAction())
     end)
+    -- a failed escape loses the turn (core.asm:1572): the player's
+    -- residual still ticks, same as an item turn
+    self:queueResidual(self.player, self.enemy)
     self:act(function() self:endOfTurn() end)
   end
 end
@@ -4270,6 +4330,11 @@ function BattleState:itemUsed(messages)
   self:act(function()
     self:executeAction(self.enemy, self.player, self:enemyAction())
   end)
+  -- the item spends the player's move, but its residual still ticks:
+  -- ExecutePlayerMove rets early on wActionResultOrTookBattleTurn and
+  -- MainInBattleLoop calls HandlePoisonBurnLeechSeed anyway
+  -- (core.asm:3086-3088, 3275-3279)
+  self:queueResidual(self.player, self.enemy)
   self:act(function() self:endOfTurn() end)
 end
 
@@ -4451,6 +4516,9 @@ function BattleState:throwBall(ball)
       self:act(function()
         self:executeAction(self.enemy, self.player, self:enemyAction())
       end)
+      -- a thrown ball spends the turn like an item: the player's residual
+      -- still ticks (core.asm:3275-3279)
+      self:queueResidual(self.player, self.enemy)
       self:act(function() self:endOfTurn() end)
       return
     end
@@ -4469,6 +4537,9 @@ function BattleState:throwBall(ball)
       self:act(function()
         self:executeAction(self.enemy, self.player, self:enemyAction())
       end)
+      -- a thrown ball spends the turn like an item: the player's residual
+      -- still ticks (core.asm:3275-3279)
+      self:queueResidual(self.player, self.enemy)
       self:act(function() self:endOfTurn() end)
       return
     end
@@ -4495,6 +4566,9 @@ function BattleState:throwBall(ball)
       self:act(function()
         self:executeAction(self.enemy, self.player, self:enemyAction())
       end)
+      -- a thrown ball spends the turn like an item: the player's residual
+      -- still ticks (core.asm:3275-3279)
+      self:queueResidual(self.player, self.enemy)
       self:act(function() self:endOfTurn() end)
     end
   end)
