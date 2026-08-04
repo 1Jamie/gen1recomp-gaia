@@ -186,6 +186,21 @@ function Input:overlayReleased(btn)
   release(self, btn, "touch:" .. btn)
 end
 
+-- Programmatic mod input (#807).  mod.input taps and holds land here under
+-- loader-issued "mod:<id>:<n>" source names, riding the same per-source
+-- bookkeeping as every physical path above, so releasing one can never
+-- clear a hold a key, stick, hat, the overlay, or another mod still owns.
+-- A tap is a sourcePress immediately followed by its sourceRelease: the
+-- queued edge survives into the next step, and the emptied source map
+-- keeps the hold from being revived (see Input:step's sources == {} rule).
+function Input:sourcePress(btn, source)
+  press(self, btn, source)
+end
+
+function Input:sourceRelease(btn, source)
+  release(self, btn, source)
+end
+
 function Input:gamepadpressed(joystick, button)
   local btn = self.padBindings[button]
   if btn then

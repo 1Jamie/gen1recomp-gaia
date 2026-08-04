@@ -418,8 +418,11 @@ function StatBox:draw()
   Font.drawBox(9, 2, 11, 10)
   love.graphics.setColor(0, 0, 0, 1)
   local s = self.mon.stats
-  local rows = { { "ATTACK", s.attack }, { "DEFENSE", s.defense },
-                 { "SPEED", s.speed }, { "SPECIAL", s.special } }
+  -- labels through Strings so a mod catalog translates them (#811)
+  local rows = { { Strings("ATTACK"), s.attack },
+                 { Strings("DEFENSE"), s.defense },
+                 { Strings("SPEED"), s.speed },
+                 { Strings("SPECIAL"), s.special } }
   for i, r in ipairs(rows) do
     Font.draw(r[1], 88, 24 + (i - 1) * 16)
     Font.draw(("%3d"):format(r[2]), 128, 32 + (i - 1) * 16)
@@ -793,7 +796,7 @@ end
 -- tutorial passes failThrow -- it stands in for that event (#636).
 function BattleState:makeOldManDemo(name, failThrow)
   self.demo = true
-  self.demoName = name or "OLD MAN"
+  self.demoName = name or Strings("OLD MAN")
   self.demoFails = failThrow and true or false
   -- LoadPlayerBackPic and DisplayBattleMenu split on the same wBattleType:
   -- BATTLE_TYPE_OLD_MAN gets .oldManName + OldManPicBack, BATTLE_TYPE_PIKACHU
@@ -1566,7 +1569,7 @@ function BattleState:enter()
     -- out of the ball after "X sent out Y!" (not the wild "already there"
     -- intro that LinkBattle previously inherited from newWild).
     self.enemySendingOut = true
-    self:say(Strings("%s sent\nout %s!", self.opponentName or "FOE",
+    self:say(Strings("%s sent\nout %s!", self.opponentName or Strings("FOE"),
                                           self.enemy.name))
     self:act(function()
       self.enemySendingOut = false
@@ -2147,7 +2150,7 @@ function BattleState:oldManThrow()
   self.phase = "messages"
   self.afterQueue = "finish"
   self.result = "run" -- nothing is kept; wBattleResult only ends the demo
-  self:sayAuto(Strings("%s used\nPOKé BALL!", self.demoName or "OLD MAN"))
+  self:sayAuto(Strings("%s used\nPOKé BALL!", self.demoName or Strings("OLD MAN")))
   self:act(function()
     require("src.core.Sound").play(self.data, "Ball_Toss")
     -- ItemUseBall's beat before the toss chain (like throwBall)
@@ -5509,8 +5512,13 @@ function BattleState:drawTextArea()
       local def = self.data.moves[mv.id]
       Font.draw(def and def.name or tostring(mv.id), 48, 96 + i * 8)
     end
-    Font.drawCode((self.moveSwapIndex == self.moveIndex) and 0xEC or 0xED,
-                  40, 96 + self.moveIndex * 8)
+    -- Swap cursor: SelectMenuItem parks the hollow arrow on the marked row
+    -- (core.asm:2600-2607), then HandleMenuInput's PlaceMenuCursor writes the
+    -- filled arrow into the tilemap over it whenever the cursor sits there
+    -- (home/window.asm:184-185), so the current row is always filled.  Only
+    -- one glyph may land per cell -- drawCode blits black-on-transparent, so
+    -- stacking 0xED over 0xEC would merge the two arrows (#814).
+    Font.drawCode(0xED, 40, 96 + self.moveIndex * 8)
     if self.moveSwapIndex and self.moveSwapIndex ~= self.moveIndex then
       Font.drawCode(0xEC, 40, 96 + self.moveSwapIndex * 8)
     end
