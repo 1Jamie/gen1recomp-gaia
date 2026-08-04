@@ -147,13 +147,14 @@ local function buildFlyList(game, byMap)
   for _, mapId in ipairs(field.flyOrder or {}) do
     local def = game.data.maps and game.data.maps[mapId]
     -- INDIGO_PLATEAU is a normal Fly spot (engine/menus/town_map.asm
-    -- LoadTownMap_Fly cycles it like any town), but its map uses tileset
-    -- "PLATEAU" not OVERWORLD, so Map.isOutdoor() alone dropped it from the
-    -- cursor even though it is visited and has a fly warp.  Allow PLATEAU here
-    -- while the CAVERN/FACILITY dungeon escape spots that share flyOrder still
-    -- fail the gate and stay out (#203).
+    -- LoadTownMap_Fly cycles it like any town): its map id sits inside
+    -- BuildFlyLocationsList's 0..NUM_CITY_MAPS-1 walk, which is what
+    -- Map.isFlyTown checks, so it passes even though its tileset is
+    -- "PLATEAU" not OVERWORLD (#203).  The ROUTE_4/ROUTE_10 Pokemon Centers
+    -- carry fly warps but are not towns, so they stay out (#788), as do the
+    -- CAVERN/FACILITY dungeon escape spots that share flyOrder.
     if not seen[mapId] and visited[mapId] and flyWarps[mapId]
-       and def and (Map.isOutdoor(def) or def.tileset == "PLATEAU") then
+       and def and Map.isFlyTown(def) then
       seen[mapId] = true
       local loc = byMap[mapId] or { name = mapId:gsub("_", " ") }
       table.insert(flyLocs, loc)
