@@ -24,7 +24,7 @@ function M.draw(S, Kit, x, y, w, h)
   local s = Kit.scale
   local pad = 20 * s
   local dex = Ops.dex(S)
-  local species = S.cat.species
+  local species = Ops.dexList(S)
   local seen, owned, total = Ops.dexCounts(S)
 
   Kit.card(x, y, w, h)
@@ -44,12 +44,20 @@ function M.draw(S, Kit, x, y, w, h)
   -- and FLOW, wrapping to further rows when even one is too narrow, so the
   -- cluster can never paint over the headline or over itself.
   local actH = 34 * s
+  -- The two sort chips are view-only (Ops.dexSort never dirties the save);
+  -- the active mode reads as the accent chip, the other as ghost.  They ride
+  -- the same wrap-aware cluster as the bulk actions so a narrow window flows
+  -- them to their own rows instead of painting over the headline (#715).
   local buttons = {
     { label = "Own party + boxes", kind = "ghost", fn = Ops.dexStamp },
     { label = "See all", kind = "accent", fn = Ops.dexSeeAll },
     { label = "Own all", kind = "good", fn = Ops.dexOwnAll },
     { label = Ops.armLabel(S, "dex-clear", "Wipe dex"), kind = "danger",
       fn = Ops.dexClear },
+    { label = "Dex #", kind = (S.dexSort ~= "name") and "accent" or "ghost",
+      fn = function(s) Ops.dexSort(s, "dex") end },
+    { label = "A-Z", kind = (S.dexSort == "name") and "accent" or "ghost",
+      fn = function(s) Ops.dexSort(s, "name") end },
   }
   local clusterW = -10 * s
   for _, b in ipairs(buttons) do
