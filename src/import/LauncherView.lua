@@ -1373,9 +1373,11 @@ end
 
 local function buildFindPanel(imp, parent, m)
   imp._findThumbFetched = false
+  imp._findStatsFetched = false
   imp:_ensureFind()
   imp:_ensureMods()
   local ModIndex = require("src.mods.ModIndex")
+  local ModUpdate = require("src.mods.ModUpdate")
   local sources = imp.findSources or {}
   local rows = imp:_findRows()
   local total = #((imp.findIndex and imp.findIndex.mods) or {})
@@ -1513,6 +1515,80 @@ local function buildFindPanel(imp, parent, m)
     return
   end
 
+  -- Sort row: Name / Popularity / Release date / Last updated, the same
+  -- options the MODS tab offers, sharing its persisted choice
+  -- (options.modSort).  Data comes from the same _findStats resolution the
+  -- cards use (feed-published, else the repo fetch); rows whose stats have
+  -- not resolved yet sink to the bottom of data sorts and rise as the
+  -- one-per-frame fetches complete.
+  local sortKey = imp.modSort or "name"
+  if imp.modSort == nil then
+    local ok, opts = pcall(require("src.core.SaveData").loadOptions)
+    if ok and type(opts) == "table" and type(opts.modSort) == "string" then
+      sortKey = opts.modSort
+      imp.modSort = sortKey
+    end
+  end
+  local sortRow = mk({ parent = parent, width = "100%",
+    positioning = "flex", flexDirection = "horizontal",
+    flexWrap = "wrap", alignItems = "center", gap = 6 * m.s })
+  label(sortRow, Strings("Sort:"), 11 * m.s + 2, C("detail"), { textWrap = false })
+  local sorts = {
+    { key = "name", label = Strings("Name") },
+    { key = "popularity", label = Strings("Popularity") },
+    { key = "release", label = Strings("Release date") },
+    { key = "updated", label = Strings("Last updated") },
+  }
+  for _, s in ipairs(sorts) do
+    local active = sortKey == s.key
+    local key = "find-sort-" .. s.key
+    mk({
+      parent = sortRow, text = s.label,
+      textColor = active and C("green")
+        or (imp._hot[key] and C("white") or C("detail")),
+      textSize = 11 * m.s + 2, textAlign = "center-center", autoScaleText = false,
+      backgroundColor = active and C("green", 0.18) or C("border", 0.10),
+      border = 1,
+      borderColor = active and C("green", 0.6) or C("border", 0.35),
+      cornerRadius = 999,
+      padding = { horizontal = 10, vertical = 4 },
+      onEvent = handler(imp, key, function()
+        imp.modSort = s.key
+        pcall(function()
+          local SaveData = require("src.core.SaveData")
+          local opts = SaveData.loadOptions()
+          opts.modSort = s.key
+          SaveData.saveOptions(opts)
+        end)
+      end),
+    })
+  end
+
+  local sorted = {}
+  for i, v in ipairs(rows) do sorted[i] = v end
+  table.sort(sorted, function(a, b)
+    local function value(entry)
+      if sortKey == "name" then
+        return (entry.title or entry.id or ""):lower()
+      end
+      local stats = imp:_findStats(entry)
+      if sortKey == "popularity" then
+        return stats and stats.total or -1
+      end
+      if sortKey == "release" then
+        return stats and stats.first or "0000-00-00"
+      end
+      return stats and stats.latest or "0000-00-00"
+    end
+    local va, vb = value(a), value(b)
+    if va ~= vb then
+      if sortKey == "name" then return va < vb end
+      return va > vb  -- data sorts newest / most popular first
+    end
+    return (a.title or a.id or ""):lower() < (b.title or b.id or ""):lower()
+  end)
+  rows = sorted
+
   local installed = imp:_findInstalledMap()
   local thumbW = 64 * m.s
   -- Explicit measured widths AND heights, same reasoning as the mods card:
@@ -1526,12 +1602,13 @@ local function buildFindPanel(imp, parent, m)
   local btnH = math.ceil(textHeight(chipSize)) + 14
   for _, entry in ipairs(rows) do
     local action, note = findActionFor(entry, installed[entry.id])
-    -- Feed-published release stats (downloads, first/last release date) in
-    -- the same gold line the MODS tab uses; absent until a feed carries them.
+    -- Release stats for the row: feed-published when the feed carries
+    -- them, otherwise fetched from the mod's GitHub repo (one per frame,
+    -- cached six hours) exactly like the MODS tab does.
+    local stats = imp:_findStats(entry)
     local statsLine
-    if entry.downloads ~= nil or entry.first_release or entry.last_release then
-      statsLine = ModUpdate.statsLine(entry.downloads,
-        entry.first_release, entry.last_release)
+    if stats and (stats.total ~= nil or stats.first or stats.latest) then
+      statsLine = ModUpdate.statsLine(stats.total, stats.first, stats.latest)
     end
 
     local bodyH = math.ceil(textHeight(titleSize))

@@ -483,9 +483,12 @@ one; paste an index URL or its `owner/repo` and it is remembered in
 A feed author can publish per-mod release stats by adding three optional
 fields to an entry -- `downloads` (total across every release), and
 `first_release` / `last_release` (ISO days) -- which the listing shows in
-the same gold line the MODS tab uses. The fields are additive: feeds that
-carry them stay readable by every build that predates them, and feeds that
-do not render exactly as before.
+the same gold line the MODS tab uses. When a feed does not carry them,
+the row fetches the mod's own GitHub releases instead -- the same cached
+`ModUpdate` fetch the MODS tab uses, one entry per frame -- so the stats
+appear for any mod with a `github` field regardless of feed maintenance.
+The fields are additive: feeds that carry them stay readable by every
+build that predates them, and feeds that do not render exactly as before.
 
 ## Soft reset (all versions)
 
