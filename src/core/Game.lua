@@ -41,6 +41,13 @@ function Game:load()
   -- render pipelines dispatch off the merged dataset; point them at the
   -- one the mods just merged into before anything can draw a frame
   require("src.render.Pipelines").install(Data)
+  -- Same reason, same moment: TypeChart caches the merged type records in an
+  -- upvalue, and until now only BattleState loaded it, on entering a battle.
+  -- Every non-battle reader of a type -- the summary screen's TYPE1/TYPE2
+  -- rows, the move-select TYPE/ box -- ran against an unloaded module and got
+  -- the raw id back instead of the display name, so a translation could not
+  -- reach them. Loading here means a type reads the same whoever asks first.
+  require("src.battle.TypeChart").load(Data)
 
   self.input = Input
   Input:init()

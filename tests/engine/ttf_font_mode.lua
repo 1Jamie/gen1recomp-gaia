@@ -75,6 +75,20 @@ T.eq(Font.encode("A")[1], BASE + 65, "and leaves the others on the TTF")
 Font.load({ font = { charmap = CHARMAP, ttf = {} } })
 T.eq(Font.encode("A")[1], BASE + 65, "no tiles list means the TTF takes it back")
 
+-- ------------------------------------------------- drawBox restores color
+
+-- drawBox fills its interior white and used to leave the color that way.
+-- Tile pages are black glyphs on transparent, so they draw black whatever the
+-- color is and the leak stayed invisible for as long as every glyph was a
+-- tile.  TTF text draws in the current color, so every label printed after a
+-- box came out white on white -- the summary screen lost ATTACK/DEFENSE/
+-- SPEED/SPECIAL and TYPE1/TYPE2 while the numbers beside them survived.
+love.graphics.setColor(0, 0, 0, 1)
+Font.drawBox(0, 0, 4, 4)
+local r, g, b, a = love.graphics.getColor()
+T.eq(("%s,%s,%s,%s"):format(r, g, b, a), "0,0,0,1",
+  "drawBox leaves the caller's color alone")
+
 -- metrics come straight from the font object (the stub: half the point
 -- size per codepoint, doubled from U+1000 up, mimicking Plain Pixel's
 -- single/double width split)

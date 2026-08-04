@@ -405,8 +405,18 @@ for key, code in pairs(Font.DEFAULT_BORDER) do Font.BORDER[key] = code end
 
 -- Draw a Game Boy style bordered box in tile coordinates.
 function Font.drawBox(tx, ty, tw, th)
+  -- The white interior is a fill, so it needs the color; everything after it
+  -- is a glyph and needs the caller's.  Restoring is not cosmetic: the tile
+  -- pages are black glyphs on transparent, so they come out black whatever
+  -- the color is, and leaking white here was invisible for as long as every
+  -- glyph was a tile.  TTF text is not immune -- it draws in the current
+  -- color -- so a leaked white left every label printed after a box white on
+  -- white.  On the summary screen that erased ATTACK/DEFENSE/SPEED/SPECIAL
+  -- and TYPE1/TYPE2 while the numbers beside them, still tiles, stayed put.
+  local r, g, b, a = love.graphics.getColor()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", tx * 8, ty * 8, tw * 8, th * 8)
+  love.graphics.setColor(r, g, b, a)
   local B = Font.BORDER
   Font.drawCode(B.tl, tx * 8, ty * 8)
   Font.drawCode(B.tr, (tx + tw - 1) * 8, ty * 8)
