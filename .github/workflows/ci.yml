@@ -330,10 +330,24 @@ jobs:
 
           # Every bundled object must resolve once AppRun's LD_LIBRARY_PATH is
           # applied; an unresolved soname here is a user-visible launch crash.
+          #
+          # This runs on a HEADLESS runner on purpose, and that is the point.
+          # The first version of this build bundled Debian's SDL2, which
+          # hard-links libpulse/libasound/libX11/libwayland, so it only ever
+          # started on a full desktop -- a bare runner is what exposed it.
           missing="$(LD_LIBRARY_PATH="$PWD/squashfs-root/lib" \
             ldd squashfs-root/bin/love squashfs-root/lib/*.so* 2>/dev/null \
             | grep 'not found' || true)"
           [ -z "$missing" ] || { echo "::error::unresolved deps:"; echo "$missing"; exit 1; }
+
+          # Nothing may hard-link a driver, session or audio-stack library:
+          # those must be reached through dlopen so the AppImage runs on a box
+          # with only ALSA, only Wayland, or only KMSDRM.
+          linked="$(for f in squashfs-root/bin/love squashfs-root/lib/*.so*; do
+            objdump -p "$f" 2>/dev/null | awk '/NEEDED/{print $2}'
+          done | sort -u | grep -E '^lib(pulse|asound|X11|wayland|GL|EGL|drm|gbm|xcb|cairo|sndio|dbus)' || true)"
+          [ -z "$linked" ] \
+            || { echo "::error::these must be dlopened, not linked:"; echo "$linked"; exit 1; }
 
           # The whole point of compiling on bullseye. If a future change moves
           # the builder to a newer base, the glibc floor silently rises and

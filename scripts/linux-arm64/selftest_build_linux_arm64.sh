@@ -43,7 +43,8 @@ printf '%s' "$guard_out" | grep -q 'aarch64 host' \
 say "checking pinned inputs"
 # Pins must be real digests, and the AppImage runtime must come from a dated
 # tag: "continuous" is a moving target and would make rebuilds unreproducible.
-for pin_name in LOVE_SRC_SHA256 APPIMAGE_RUNTIME_SHA256; do
+for pin_name in LOVE_SRC_SHA256 SDL2_SHA256 OPENAL_SHA256 THEORA_SHA256 \
+                OGG_SHA256 VORBIS_SHA256 MPG123_SHA256 APPIMAGE_RUNTIME_SHA256; do
   pin_value="${!pin_name}"
   printf '%s' "$pin_value" | grep -Eq '^[0-9a-f]{64}$' \
     || fail "$pin_name is not a sha256 digest: $pin_value"
@@ -111,6 +112,48 @@ for soname in libSDL2-2.0.so.0 libopenal.so.1 libfreetype.so.6 libmodplug.so.1 \
               libmpg123.so.0 libvorbisfile.so.3 libtheoradec.so.1; do
   grep -qF "$soname" "$SCRIPT_DIR/build_appimage.sh" \
     || fail "build_appimage.sh no longer asserts liblove links $soname"
+done
+
+say "checking the dlopen guarantees"
+# SDL2, OpenAL and libtheora are compiled from source for correctness, not for
+# a newer version number: Debian's builds hard-link libpulse/libasound/libX11/
+# libwayland (SDL2), libsndio (OpenAL) and libcairo (libtheora), each of which
+# turns an optional runtime capability into a mandatory startup dependency.
+# If a future edit drops the source build and reaches for the -dev package
+# again, the AppImage silently stops starting on lean systems.
+for forbidden_pkg in libsdl2-dev libtheora-dev libopenal-dev; do
+  if grep -qE "^ +.*\b$forbidden_pkg\b" "$SCRIPT_DIR/Dockerfile"; then
+    fail "Dockerfile installs $forbidden_pkg; that library is built from source on purpose"
+  fi
+done
+grep -qF -- '--enable-alsa-shared' "$SCRIPT_DIR/build_appimage.sh" \
+  || fail "SDL2 is no longer configured to dlopen its audio backends"
+grep -qF -- '--enable-x11-shared' "$SCRIPT_DIR/build_appimage.sh" \
+  || fail "SDL2 is no longer configured to dlopen its video backends"
+grep -qF 'ALSOFT_DLOPEN=ON' "$SCRIPT_DIR/build_appimage.sh" \
+  || fail "openal-soft is no longer configured to dlopen its backends"
+grep -qF -- '--disable-examples' "$SCRIPT_DIR/build_appimage.sh" \
+  || fail "libtheora is no longer built with --disable-examples (it regains the libcairo link)"
+
+say "checking the host dependency contract"
+# The shipped objects may require nothing from the host beyond glibc,
+# libstdc++ and the font stack. Everything driver-, session- or audio-related
+# has to be dlopened. This is the invariant a headless CI runner proved was
+# broken the first time round.
+HOST_ALLOWED_RE="$(
+  grep -m1 "^HOST_ALLOWED_RE=" "$SCRIPT_DIR/build_appimage.sh" \
+    | sed "s/^HOST_ALLOWED_RE='//; s/'\$//"
+)"
+[ -n "$HOST_ALLOWED_RE" ] || fail "could not read HOST_ALLOWED_RE out of build_appimage.sh"
+for soname in libpulse.so.0 libasound.so.2 libX11.so.6 libwayland-client.so.0 \
+              libGL.so.1 libcairo.so.2 libsndio.so.7.0 libdbus-1.so.3; do
+  if [[ "$soname" =~ $HOST_ALLOWED_RE ]]; then
+    fail "$soname is allowed as a hard host dependency; it must be dlopened"
+  fi
+done
+for soname in libc.so.6 libstdc++.so.6 libfreetype.so.6 libz.so.1; do
+  [[ "$soname" =~ $HOST_ALLOWED_RE ]] \
+    || fail "$soname must be allowed as a host dependency but the contract rejects it"
 done
 
 say "checking the shared game.love payload"

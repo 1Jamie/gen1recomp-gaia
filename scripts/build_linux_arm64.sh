@@ -104,6 +104,12 @@ cp "$GAME_LOVE" "$IN_DIR/game.love"
 # Fetched on the host and checksum-pinned here so the container never needs
 # network access and every input is verified in exactly one place.
 download_pinned "$LOVE_SRC_URL" "$CACHE/$LOVE_SRC_TARBALL" "$LOVE_SRC_SHA256"
+download_pinned "$SDL2_URL" "$CACHE/$SDL2_TARBALL" "$SDL2_SHA256"
+download_pinned "$OPENAL_URL" "$CACHE/$OPENAL_TARBALL" "$OPENAL_SHA256"
+download_pinned "$THEORA_URL" "$CACHE/$THEORA_TARBALL" "$THEORA_SHA256"
+download_pinned "$OGG_URL" "$CACHE/$OGG_TARBALL" "$OGG_SHA256"
+download_pinned "$VORBIS_URL" "$CACHE/$VORBIS_TARBALL" "$VORBIS_SHA256"
+download_pinned "$MPG123_URL" "$CACHE/$MPG123_TARBALL" "$MPG123_SHA256"
 download_pinned "$APPIMAGE_RUNTIME_URL" "$CACHE/$APPIMAGE_RUNTIME_NAME" \
   "$APPIMAGE_RUNTIME_SHA256"
 
@@ -129,6 +135,18 @@ fi
 say "compiling and packaging inside $BUILDER_BASE_IMAGE"
 "$RUNTIME" run --rm ${user_args[@]+"${user_args[@]}"} \
   -e LOVE_VERSION="$LOVE_VERSION" \
+  -e SDL2_VERSION="$SDL2_VERSION" \
+  -e SDL2_TARBALL="$SDL2_TARBALL" \
+  -e OPENAL_VERSION="$OPENAL_VERSION" \
+  -e OPENAL_TARBALL="$OPENAL_TARBALL" \
+  -e THEORA_VERSION="$THEORA_VERSION" \
+  -e THEORA_TARBALL="$THEORA_TARBALL" \
+  -e OGG_VERSION="$OGG_VERSION" \
+  -e OGG_TARBALL="$OGG_TARBALL" \
+  -e VORBIS_VERSION="$VORBIS_VERSION" \
+  -e VORBIS_TARBALL="$VORBIS_TARBALL" \
+  -e MPG123_VERSION="$MPG123_VERSION" \
+  -e MPG123_TARBALL="$MPG123_TARBALL" \
   -e APP_NAME="$APP_NAME" \
   -e VERSION="$VERSION" \
   -v "$CACHE:/cache" \

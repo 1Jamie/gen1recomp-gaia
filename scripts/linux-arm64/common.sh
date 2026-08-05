@@ -18,6 +18,78 @@ LOVE_SRC_TARBALL="love-$LOVE_VERSION-linux-src.tar.gz"
 LOVE_SRC_URL="https://github.com/love2d/love/releases/download/$LOVE_VERSION/$LOVE_SRC_TARBALL"
 LOVE_SRC_SHA256="066e0843f71aa9fd28b8eaf27d41abb74bfaef7556153ac2e3cf08eafc874c39"
 
+# SDL2 is built from source rather than taken from bullseye, and this is a
+# correctness requirement, not a version preference. Debian's libSDL2 lists
+# libpulse, libasound, libX11 and libwayland-client as DT_NEEDED -- hard links
+# resolved by the loader at startup -- so an AppImage bundling it refuses to
+# launch unless the host has ALL FOUR installed. That is wrong for an artifact
+# whose whole job is to run on arbitrary arm64 systems: an ALSA-only handheld
+# or a minimal Wayland box would die before main(). Built from source, SDL
+# defaults to dlopening every audio and video backend (--enable-*-shared), so
+# it loads whichever the host actually has and degrades gracefully.
+# The newer version is a bonus: 2.30 has a far better controller database and
+# real KMSDRM support, both of which matter on Pi-class and handheld hardware.
+SDL2_VERSION="2.30.12"
+SDL2_TARBALL="SDL2-$SDL2_VERSION.tar.gz"
+SDL2_URL="https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/$SDL2_TARBALL"
+SDL2_SHA256="ac356ea55e8b9dd0b2d1fa27da40ef7e238267ccf9324704850d5d47375b48ea"
+
+# libtheora likewise. Debian's libtheoradec.so.1 is linked against libcairo --
+# a packaging artifact, since a video decoder has no business drawing vector
+# graphics -- and cairo drags in libX11, libxcb, libfontconfig and libfreetype
+# as hard dependencies. LOVE needs theora for love.video, so that link would
+# put the entire X11 and font stack on the critical path at startup, and it is
+# what caused the FT_Get_Transform crash this build hit on a trixie host.
+# Upstream's tarball with --disable-examples produces a libtheoradec that
+# needs only libogg.
+THEORA_VERSION="1.1.1"
+THEORA_TARBALL="libtheora-$THEORA_VERSION.tar.bz2"
+THEORA_URL="https://downloads.xiph.org/releases/theora/$THEORA_TARBALL"
+THEORA_SHA256="b6ae1ee2fa3d42ac489287d3ec34c5885730b1296f0801ae577a35193d3affbc"
+
+# OpenAL for the same reason as SDL2, one level down. Debian's libopenal is
+# openal-soft built with the sndio backend enabled, so it hard-links
+# libsndio, which itself hard-links libasound -- reintroducing exactly the
+# mandatory-ALSA dependency the SDL2 source build exists to remove. Upstream
+# openal-soft dlopens its backends, so building it here leaves the shipped
+# library with no audio-stack dependency at all.
+OPENAL_VERSION="1.23.1"
+OPENAL_TARBALL="openal-soft-$OPENAL_VERSION.tar.gz"
+OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/$OPENAL_VERSION.tar.gz"
+OPENAL_SHA256="dfddf3a1f61059853c625b7bb03de8433b455f2f79f89548cbcbd5edca3d4a4a"
+
+# The audio codecs are built from source for a third, different reason: SONAME
+# collision with the host's audio stack.
+#
+# OpenAL dlopens ALSA, ALSA's config loads its PulseAudio hook plugin, and that
+# plugin pulls the HOST's libsndfile into our process. libsndfile links
+# libogg, libvorbis and libmpg123 -- the same three we bundle. The loader
+# resolves a SONAME once per process, so the host's libsndfile binds to OUR
+# copies, and a bullseye libmpg123 has no mpg123_info2 (added in 1.32):
+#
+#   openal -> libasound -> libasound_module_conf_pulse -> libsndfile (host)
+#                                                            `-> mpg123_info2 -> libmpg123 (ours, bullseye)
+#
+# which failed to relocate and left the game with no audio device at all.
+# Not bundling them instead would make libogg/libvorbis/libmpg123 mandatory
+# host packages; building them current means our copies satisfy the host's
+# libsndfile rather than starving it. libvorbisfile ships in the vorbis
+# tarball.
+OGG_VERSION="1.3.5"
+OGG_TARBALL="libogg-$OGG_VERSION.tar.gz"
+OGG_URL="https://downloads.xiph.org/releases/ogg/$OGG_TARBALL"
+OGG_SHA256="0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664"
+
+VORBIS_VERSION="1.3.7"
+VORBIS_TARBALL="libvorbis-$VORBIS_VERSION.tar.gz"
+VORBIS_URL="https://downloads.xiph.org/releases/vorbis/$VORBIS_TARBALL"
+VORBIS_SHA256="0e982409a9c3fc82ee06e08205b1355e5c6aa4c36bca58146ef399621b0ce5ab"
+
+MPG123_VERSION="1.32.10"
+MPG123_TARBALL="mpg123-$MPG123_VERSION.tar.bz2"
+MPG123_URL="https://www.mpg123.de/download/$MPG123_TARBALL"
+MPG123_SHA256="87b2c17fe0c979d3ef38eeceff6362b35b28ac8589fbf1854b5be75c9ab6557c"
+
 # AppImage type-2 runtime: the ~900 KB static-pie ELF that gets prepended to
 # the squashfs payload. Pinned to a dated tag, never "continuous", so a
 # rebuild months from now produces the same bytes.

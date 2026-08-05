@@ -31,17 +31,22 @@ install it (`sudo apt install libfuse2`) or run without it:
 
 ### What the host has to provide
 
-The AppImage bundles LÖVE, SDL2, OpenAL and the audio/video decoders. It
-deliberately does **not** bundle the graphics drivers, the audio server
-client libraries, or the font stack — those have to come from your system,
-because bundled copies would either bypass your GPU driver or disagree with
-libraries your desktop already has loaded (see
-[Why the font stack is not bundled](#why-the-font-stack-is-not-bundled)).
+Very little, and this is enforced by an assertion in the build rather than by
+good intentions. The only libraries the AppImage requires at startup are:
 
-In practice any arm64 system with a working desktop already satisfies this.
-The requirements are glibc 2.29 or newer, plus Mesa/GL, X11 or Wayland,
-ALSA or PulseAudio, and freetype/fontconfig — i.e. `libgl1`, `libfreetype6`,
-`libfontconfig1`, `libpng16-16`, `libx11-6`.
+```
+glibc 2.29+   libstdc++   libfreetype6   zlib
+```
+
+Everything else — OpenGL/Mesa, X11, Wayland, KMSDRM, ALSA, PulseAudio — is
+**dlopened**, so it is used when present and skipped when absent. That means
+one image runs on a full desktop, on a Wayland-only session, on a
+KMSDRM-only handheld with no X server, and on a box with ALSA but no
+PulseAudio, without a different build for each.
+
+That property does not come for free from Debian's packages, and getting it
+is most of what the build below is doing; see
+[Why five libraries are built from source](#why-five-libraries-are-built-from-source).
 
 ## For builders
 
@@ -64,8 +69,8 @@ downloads and the compiled LÖVE prefix.
 ### Requirements
 
 An **aarch64 host** with **docker or podman**. A Raspberry Pi 5 is the
-reference machine (a full build takes about 3.5 minutes on one; rebuilds
-reuse the cached LÖVE prefix and take seconds). Apple Silicon with Docker
+reference machine (a cold build takes about 10 minutes on one — six libraries
+plus the engine; rebuilds reuse the cached prefix and take seconds). Apple Silicon with Docker
 Desktop and GitHub's `ubuntu-24.04-arm` runner both work too.
 
 The script refuses to run on x86_64 rather than falling back to qemu-user
@@ -80,10 +85,10 @@ trick is not available here — **LÖVE publishes no aarch64 binary at all.** Th
 and that is the entire list.
 
 So this build compiles LÖVE 11.5 from the official `linux-src` tarball and
-assembles the AppImage from scratch. Both pinned inputs (the LÖVE source
-tarball and the AppImage type-2 runtime) are SHA-256 verified on the host
-before the container ever sees them, and the container itself runs with no
-network access.
+assembles the AppImage from scratch. Every pinned input — the LÖVE source, the
+five libraries built alongside it, and the AppImage type-2 runtime — is
+SHA-256 verified on the host before the container ever sees it, and the
+container itself runs with no network access.
 
 ### Why the build happens in a Debian bullseye container
 
@@ -103,41 +108,58 @@ floor and strand every user on an older one, with no symptom until they
 download it. CI enforces the floor: `linux-arm64-build` fails if the highest
 required glibc symbol version climbs above 2.31.
 
-### Why the font stack is not bundled
+### Why five libraries are built from source
 
-The dependency walker copies in what LÖVE needs and leaves everything else to
-the host. Three categories are excluded, and the third one is subtle enough
-to be worth writing down, because it is a real crash that shipped in an early
-version of this build:
+SDL2, OpenAL, libtheora, libogg/libvorbis and libmpg123 are compiled rather
+than installed from bullseye. In every case the reason is *correctness*, not
+a newer version number — Debian builds these for a system where every
+dependency is installed and co-versioned, which is the opposite of an
+AppImage's situation. Each one broke the build in a different way, and all
+three failure modes are now assertions that fail the build instead of
+shipping.
 
-1. **Driver and session coupled** — GL/EGL/gbm/drm, X11/xcb/Wayland, D-Bus,
-   PulseAudio, ALSA, systemd/udev. A bundled `libGL` would bypass Mesa's V3D
-   driver on the Pi; a bundled `libpulse` would fight the running sound server.
-2. **Loader coupled** — glibc's own pieces cannot be mixed with the host's
-   `ld.so`, and `libstdc++`/`libgcc_s` must be at least as new as the compiler
-   that built us (bullseye's gcc 10 is older than any supported host's, so the
-   host copy always satisfies us).
-3. **Shared with the host font stack** — freetype, fontconfig, libpng, brotli,
-   zlib.
+**1. Hard-linked backends (SDL2, OpenAL).** Debian's `libSDL2` lists
+`libpulse`, `libasound`, `libX11` and `libwayland-client` as `DT_NEEDED` —
+resolved by the loader at startup, not dlopened. An AppImage bundling it
+refuses to start unless the host has *all four*. It appeared to work in
+testing only because a desktop Pi has all four; a headless CI runner is what
+exposed it. Debian's OpenAL does the same via `libsndio`, which itself
+hard-links `libasound`. Built from source with `--enable-*-shared` and
+`ALSOFT_DLOPEN`, both dlopen their backends instead.
 
-That third one exists because Debian's `libtheoradec.so.1` is, oddly, linked
-against `libcairo.so.2`. LÖVE needs theora for `love.video`, so the host's
-cairo gets pulled into our process. The dynamic loader resolves one SONAME
-exactly once per process, so a host cairo then binds to whatever
-`libfreetype.so.6` *we* bundled:
+**2. A stray link (libtheora).** Debian's `libtheoradec.so.1` is linked
+against `libcairo.so.2` — a packaging artifact, since a video decoder has no
+business drawing vector graphics — and cairo drags in X11, xcb, fontconfig
+and freetype. `--disable-examples` produces a `libtheoradec` needing only
+`libogg`.
+
+**3. SONAME collision with the host (ogg, vorbis, mpg123).** The subtle one.
+OpenAL dlopens ALSA, ALSA's config loads its PulseAudio hook plugin, and that
+plugin pulls the *host's* `libsndfile` into our process. `libsndfile` links
+`libogg`, `libvorbis` and `libmpg123` — the same three we bundle. The loader
+resolves a SONAME exactly once per process, so the host's `libsndfile` binds
+to *our* copies:
 
 ```
-love -> liblove -> libtheoradec -> libcairo (host, new)
-                                      `-> FT_Get_Transform -> libfreetype (ours, bullseye 2.10.4)
+openal -> libasound -> libasound_module_conf_pulse -> libsndfile (host, new)
+                                                         `-> mpg123_info2 -> libmpg123 (ours, bullseye 1.26)
 ```
 
-`FT_Get_Transform` arrived in FreeType 2.11, so cairo 1.18 on a trixie host
-fails to relocate and the game dies at startup with a symbol lookup error.
-Bundling a *newer* freetype only moves the arms race one release along.
-Excluding the whole font/compression stack instead makes the process
-self-consistent: cairo, fontconfig and freetype all come from one host and
-agree with each other, while `liblove` — compiled against 2.10.4 — only ever
+`mpg123_info2` arrived in mpg123 1.32, so the plugin failed to relocate, ALSA
+config collapsed, and the game ran with **no audio device at all**. Not
+bundling these instead would make `libogg`/`libvorbis`/`libmpg123` mandatory
+host packages; building them current means our copies *satisfy* the host's
+`libsndfile` rather than starving it.
+
+The same collision is why the font stack — freetype, fontconfig, libpng,
+brotli, zlib — is left to the host entirely. Bundling a bullseye freetype
+2.10.4 meant a host `libcairo` could not find `FT_Get_Transform` (added in
+2.11) and the game died at startup. Leaving the whole stack to the host keeps
+it self-consistent, while `liblove` — compiled against 2.10.4 — only ever
 asks for symbols every supported host already has.
+
+The general rule this all reduces to: **never bundle a library the host's own
+stack may also load, unless yours is at least as new as theirs.**
 
 ### CI
 
@@ -165,11 +187,16 @@ it runs on fork PRs too.
 
 Both pins live in `scripts/linux-arm64/common.sh`:
 
-- `LOVE_VERSION` / `LOVE_SRC_SHA256` — bumping the LÖVE version invalidates
-  the cached prefix automatically (it is keyed by version). Check that
-  bullseye still has `-dev` packages new enough for the new release;
-  `build_appimage.sh` asserts every optional module actually linked, because
-  LÖVE's `configure` exits 0 and silently drops a module when one is missing.
+- `LOVE_VERSION` / `LOVE_SRC_SHA256` — bumping any version invalidates the
+  cached prefix automatically (its name is keyed by every source version at
+  once, so a partial rebuild cannot mix vintages). Check that bullseye still
+  has `-dev` packages new enough for the new release; `build_appimage.sh`
+  asserts every optional module actually linked, because LÖVE's `configure`
+  exits 0 and silently drops a module when one is missing.
+- `SDL2_*`, `OPENAL_*`, `THEORA_*`, `OGG_*`, `VORBIS_*`, `MPG123_*` — the
+  source-built libraries. Bumping these is usually safe and occasionally
+  necessary: `libmpg123` in particular must stay at least as new as what a
+  target host's `libsndfile` expects, which is asserted for `mpg123_info2`.
 - `APPIMAGE_RUNTIME_TAG` / `APPIMAGE_RUNTIME_SHA256` — always a dated tag
   from [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime/releases).
   The selftest fails the build if this ever points at `continuous`.
