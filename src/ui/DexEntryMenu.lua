@@ -2,13 +2,15 @@
 -- dex description (data/pokemon/dex_entries.asm + dex_text.asm).
 --
 -- `species` may be a species id string, or a table
--- `{ species = id, forceOwned = true, onClose = fn }`.  forceOwned mirrors
--- pret's StarterDex (engine/events/starter_dex.asm), which temporarily sets
--- the owned bit so Oak's lab ball previews show height/weight/description
--- without permanently marking the mon owned.  onClose fires once the page
--- is dismissed, for callers that push this screen from a plain callback
--- instead of a script runner (the push_screen command yields on the runner
--- instead, src/script/Commands.lua).
+-- `{ species = id, forceOwned = true }`.  forceOwned mirrors pret's
+-- StarterDex (engine/events/starter_dex.asm), which temporarily sets the
+-- owned bit so Oak's lab ball previews show height/weight/description
+-- without permanently marking the mon owned.
+--
+-- `onDone` (optional) runs right after the page pops itself, the way a
+-- TextBox onDone does; map scripts use it to continue once the player
+-- closes the entry (the Fighting Dojo prize balls chain their take-it
+-- prompt off it).
 
 local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
@@ -29,16 +31,15 @@ end
 local function resolveArgs(speciesOrOpts)
   if type(speciesOrOpts) == "table" then
     return speciesOrOpts.species or speciesOrOpts[1],
-           speciesOrOpts.forceOwned and true or false,
-           speciesOrOpts.onClose
+           speciesOrOpts.forceOwned and true or false
   end
-  return speciesOrOpts, false, nil
+  return speciesOrOpts, false
 end
 
-function DexEntryMenu.new(game, speciesOrOpts)
-  local species, forceOwned, onClose = resolveArgs(speciesOrOpts)
+function DexEntryMenu.new(game, speciesOrOpts, onDone)
+  local species, forceOwned = resolveArgs(speciesOrOpts)
   local self = setmetatable({ game = game, forceOwned = forceOwned,
-                              onClose = onClose }, DexEntryMenu)
+                              onDone = onDone }, DexEntryMenu)
   self.def = game.data.pokemon[species]
   local path, trueColor = require("src.pokemon.Sprites").path(
     game.data, species, "front", { kind = "dex" })
@@ -57,11 +58,7 @@ function DexEntryMenu:update(dt)
   local input = self.game.input
   if input:wasPressed("a") or input:wasPressed("b") then
     self.game.stack:pop()
-    -- onClose resumes a callback-style caller after the page closes: the
-    -- dojo prize balls print their offer only once DisplayPokedex returns
-    -- (data/scripts/story4.lua, #853).  Script rows do not need it, they
-    -- yield on push_screen's waitingCheck instead.
-    if self.onClose then self.onClose() end
+    if self.onDone then self.onDone() end
   end
 end
 
