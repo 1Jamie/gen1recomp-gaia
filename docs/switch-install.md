@@ -29,11 +29,16 @@ help from [booshankles](https://github.com/booshankles).
 Extract the zip at the **root** of the microSD so you get:
 
 ```text
-sdmc:/switch/gen1recomp/gen1recomp.nro
+sdmc:/switch/gen1recomp/gen1recomp.nro          # native OTA launcher (hbmenu entry)
+sdmc:/switch/gen1recomp/gen1recomp-game.nro     # fused LÖVE game (when OTA layout ships)
+sdmc:/switch/gen1recomp/version.txt
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/mods/
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/...
 ```
+
+Older single-NRO zips only had `gen1recomp.nro` (the fused game). New OTA-ready
+zips use the dual-NRO layout above — open `gen1recomp` in hbmenu (the launcher).
 
 Merge folders if your OS asks. Any method works: **MTP** (DBI → Run MTP
 responder + a client), **direct SD** (Hekate UMS or a card reader), or **FTP**.
@@ -42,10 +47,35 @@ macOS, Linux, and Windows: [switch-transfer.md](switch-transfer.md).
 
 ### Updating
 
-Use the **same** extract/merge. It replaces `gen1recomp.nro` (and the small
-help `README.txt` / `INSTALL.txt` files). Saves, imported ROMs, mods, and
-options live under `pokemon-love2d/` — **do not delete that folder** when
-updating, or you will lose progress.
+#### Native OTA launcher (in-console)
+
+On Switch, over-the-air updates are handled by the **native OTA launcher**
+(DEVKITPRO / libnx + curl), **not** by the LÖVE self-updater
+(`src/update/Check.lua`). The hbmenu entry is the launcher NRO
+(`gen1recomp.nro`). If a newer release exists it may download the same
+`gen1recomp-*-switch.zip` used for install, verify SHA-256 from
+`sha256sums.txt`, replace **both** `gen1recomp-game.nro` and
+`gen1recomp.nro` (so the NACP version matches the release for hbmenu /
+Sphaira), then hand off via `envSetNextLoad`. When you are already up to
+date (or offline), the launcher stays quiet and opens the game with no
+console flash. Saves under `pokemon-love2d/` are never touched. Protocol
+contract: `src/update/SwitchOta.lua`.
+
+The LÖVE self-updater stays **disabled** on NX (`networkValidated == false`).
+
+**Sphaira forwarder (HOME shortcut):** Sphaira copies name/version/icon into
+the installed forwarder at creation time. After an OTA (or zip) update, the
+`.nro` on the microSD already has the new version — but the HOME shortcut
+keeps the old badge until you **reinstall the forwarder once** in Sphaira
+(Install Forwarder again on `gen1recomp.nro`). Browsing the NRO in Sphaira /
+hbmenu always shows the live file version.
+
+#### Manual zip (fallback)
+
+Use the **same** extract/merge of `gen1recomp-*-switch.zip`. It replaces the
+NROs (and the small help `README.txt` / `INSTALL.txt` files). Saves,
+imported ROMs, mods, and options live under `pokemon-love2d/` — **do not
+delete that folder** when updating, or you will lose progress.
 
 ## 3. Launch with title override
 

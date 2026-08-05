@@ -32,7 +32,7 @@ the transfer runbook).
 | Hardware | **OLED** validated (author, title override); **V1 / Erista** boot confirmed (community). Lite, docked soak, and Pro Controller matrices welcome |
 | Deploy / install | Releases publish SD-ready zip; **extract/merge at microSD root** (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)); no `nxlink` path yet |
 | Contributor transfer | Documented for **macOS, Linux, and Windows**; OpenMTP on Mac is one example, not the only contract |
-| Network features on NX | Self-update / remote mod download **disabled** (`networkValidated == false`) |
+| Network features on NX | LÖVE self-update / remote mod download **disabled** (`networkValidated == false`). In-console OTA is the **native OTA launcher** only (see below) |
 | Community help | Welcome — especially HOS / love-nx packaging and broader hardware coverage |
 
 ### What landed
@@ -57,6 +57,14 @@ the transfer runbook).
 - Switch Lite and fuller Pro Controller / third-party pad matrices
 - Applet Mode remains unsupported by design (title override required)
 - `nxlink` / netloader contrib fast-loop (deferred — see [switch-transfer.md](switch-transfer.md))
+- **Native OTA launcher:** in-console updates use a DEVKITPRO
+  **native OTA launcher** (libnx + switch-curl) before the LÖVE game NRO —
+  **not** the LÖVE self-updater (`src/update/Check.lua`). Contract:
+  `src/update/SwitchOta.lua`; packaging gate:
+  `scripts/switch/ota_launcher.manifest`. The download asset is the same
+  `gen1recomp-*-switch.zip` as install. UI stays quiet unless an update
+  needs confirm. Player-facing flow: [switch-install.md](switch-install.md)
+  § Updating.
 
 Transfer runbooks for Linux/Windows (and SD/FTP alternatives) are in
 [switch-transfer.md](switch-transfer.md). Community mod zip install OLED smoke

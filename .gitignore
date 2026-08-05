@@ -37,6 +37,14 @@ mobile/ios/build/
 # Final packaged build artifacts (mac/win/web/android/ios/switch) — see scripts/build.sh
 /dist/
 
+# Native Switch OTA launcher build outputs
+native/switch-ota-launcher/build/
+native/switch-ota-launcher/build-host/
+native/switch-ota-launcher/*.nro
+native/switch-ota-launcher/*.nacp
+native/switch-ota-launcher/*.elf
+native/switch-ota-launcher/*.map
+
 # Legacy manual convenience-copy location (superseded by /dist/android/)
 mobile/dist/
 

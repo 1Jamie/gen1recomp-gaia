@@ -51,16 +51,17 @@ MISSING=""
 printf '%s' "$HELP_LC" | grep -q 'fetch' || MISSING="${MISSING} fetch"
 printf '%s' "$HELP_LC" | grep -q 'loose' || MISSING="${MISSING} loose"
 printf '%s' "$HELP_LC" | grep -q 'fused' || MISSING="${MISSING} fused"
+printf '%s' "$HELP_LC" | grep -q 'ota' || MISSING="${MISSING} ota"
 printf '%s' "$HELP_LC" | grep -Eq 'auto-download|downloads' || MISSING="${MISSING} auto-download"
 printf '%s' "$HELP_LC" | grep -Eq 'non-goal|does not|never' || MISSING="${MISSING} non-goals"
 if [ -z "$MISSING" ]; then
-  ok "build_switch.sh --help mentions fetch, loose, fused (+ auto-download/non-goals)"
+  ok "build_switch.sh --help mentions fetch, loose, fused, ota (+ auto-download/non-goals)"
 else
   bad "build_switch.sh --help missing:$MISSING"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. XOR --loose --fused exits non-zero
+# 3. XOR --loose --fused / --ota exits non-zero
 # ---------------------------------------------------------------------------
 XOR_RC=0
 "$ROOT/scripts/build_switch.sh" --loose --fused >/dev/null 2>&1 || XOR_RC=$?
@@ -68,6 +69,13 @@ if [ "$XOR_RC" -ne 0 ]; then
   ok "build_switch.sh --loose --fused exits non-zero ($XOR_RC)"
 else
   bad "build_switch.sh --loose --fused should exit non-zero"
+fi
+XOR_OTA_RC=0
+"$ROOT/scripts/build_switch.sh" --fused --ota >/dev/null 2>&1 || XOR_OTA_RC=$?
+if [ "$XOR_OTA_RC" -ne 0 ]; then
+  ok "build_switch.sh --fused --ota exits non-zero ($XOR_OTA_RC)"
+else
+  bad "build_switch.sh --fused --ota should exit non-zero"
 fi
 
 # ---------------------------------------------------------------------------
@@ -228,6 +236,7 @@ ZIP_LIST="$(unzip -Z1 "$FAKE_ZIP" 2>/dev/null || unzip -l "$FAKE_ZIP")"
 PACK_MISSING=""
 for rel in \
   "switch/gen1recomp/gen1recomp.nro" \
+  "switch/gen1recomp/version.txt" \
   "switch/gen1recomp/INSTALL.txt" \
   "switch/gen1recomp/pokemon-love2d/imports/README.txt" \
   "switch/gen1recomp/pokemon-love2d/imports/mods/README.txt" \
@@ -309,6 +318,88 @@ if [ "$MERGE_OK" -eq 1 ]; then
   ok "pack_sd_zip.sh merge update preserves user data"
 else
   bad "pack_sd_zip.sh merge update lost user data or failed to replace NRO"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Dual-NRO OTA layout (launcher + game) when 4th arg set
+# ---------------------------------------------------------------------------
+FAKE_LAUNCHER="$STAGING/fake-launcher.nro"
+FAKE_GAME="$STAGING/fake-game.nro"
+printf 'fake-launcher\n' > "$FAKE_LAUNCHER"
+printf 'fake-game\n' > "$FAKE_GAME"
+OTA_ZIP="$STAGING/gen1recomp-0.0.2-ota-layout-switch.zip"
+OTA_RC=0
+"$ROOT/scripts/switch/pack_sd_zip.sh" "$FAKE_GAME" "0.0.2" "$OTA_ZIP" "$FAKE_LAUNCHER" \
+  >"$STAGING/ota-pack.out" 2>"$STAGING/ota-pack.err" || OTA_RC=$?
+OTA_LIST="$(unzip -Z1 "$OTA_ZIP" 2>/dev/null || true)"
+if [ "$OTA_RC" -eq 0 ] \
+  && printf '%s\n' "$OTA_LIST" | grep -Fq 'switch/gen1recomp/gen1recomp.nro' \
+  && printf '%s\n' "$OTA_LIST" | grep -Fq 'switch/gen1recomp/gen1recomp-game.nro' \
+  && printf '%s\n' "$OTA_LIST" | grep -Fq 'switch/gen1recomp/version.txt'
+then
+  EXTRACT_OTA="$STAGING/extract-ota"
+  rm -rf "$EXTRACT_OTA"
+  mkdir -p "$EXTRACT_OTA"
+  unzip -q "$OTA_ZIP" -d "$EXTRACT_OTA"
+  DUAL_OK=1
+  cmp -s "$FAKE_LAUNCHER" "$EXTRACT_OTA/switch/gen1recomp/gen1recomp.nro" || DUAL_OK=0
+  cmp -s "$FAKE_GAME" "$EXTRACT_OTA/switch/gen1recomp/gen1recomp-game.nro" || DUAL_OK=0
+  [ "$(cat "$EXTRACT_OTA/switch/gen1recomp/version.txt")" = "0.0.2" ] || DUAL_OK=0
+  if [ "$DUAL_OK" -eq 1 ]; then
+    ok "pack_sd_zip.sh dual-NRO OTA layout (launcher + game + version.txt)"
+  else
+    bad "pack_sd_zip.sh dual-NRO bytes/version mismatch"
+  fi
+else
+  bad "pack_sd_zip.sh dual-NRO layout failed (rc=$OTA_RC err=$(cat "$STAGING/ota-pack.err"))"
+fi
+
+MANIFEST="$ROOT/scripts/switch/ota_launcher.manifest"
+if [ -f "$MANIFEST" ] && grep -q '^OTA_ENABLED=1$' "$MANIFEST" \
+  && grep -q 'ENTRY_NRO=switch/gen1recomp/gen1recomp.nro' "$MANIFEST" \
+  && grep -q 'GAME_NRO=switch/gen1recomp/gen1recomp-game.nro' "$MANIFEST"
+then
+  ok "ota_launcher.manifest requires dual-NRO when OTA_ENABLED=1"
+else
+  bad "ota_launcher.manifest missing OTA dual-NRO requirements"
+fi
+
+if [ -f "$ROOT/scripts/switch/build_ota_launcher.sh" ] \
+  && [ -f "$ROOT/native/switch-ota-launcher/Makefile" ]
+then
+  ok "native OTA launcher sources + build_ota_launcher.sh present"
+else
+  bad "missing native OTA launcher tree or build script"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Unified OTA asset = dual-NRO SD zip (no separate OTA-only archive)
+# ---------------------------------------------------------------------------
+LEGACY_OTA_PACKER="$ROOT/scripts/switch/pack_ota_zip.sh"
+if [ ! -f "$LEGACY_OTA_PACKER" ] \
+  && ! grep -Eq 'pack_ota_zip\.sh|switch-ota\.zip' "$ROOT/scripts/build_switch.sh" \
+  && grep -q 'OTA_ASSET_GLOB=gen1recomp-\*-switch.zip' "$MANIFEST"
+then
+  ok "unified OTA download is the same SD zip (legacy OTA-only packer gone)"
+else
+  bad "legacy separate OTA-only packer / asset still present"
+fi
+
+if grep -q 'Quiet by default\|stays quiet\|Quiet' "$ROOT/native/switch-ota-launcher/src/main.c" \
+  && grep -q 'ui_begin' "$ROOT/native/switch-ota-launcher/src/main.c"
+then
+  ok "launcher UI is quiet by default (console only when needed)"
+else
+  bad "launcher missing quiet-by-default UI gate"
+fi
+
+if [ -f "$ROOT/native/switch-ota-launcher/src/ota_unzip.c" ] \
+  && grep -q 'zzip/zzip.h' "$ROOT/native/switch-ota-launcher/src/ota_unzip.c" \
+  && grep -q 'ota_unzip_extract_file' "$ROOT/native/switch-ota-launcher/src/main.c"
+then
+  ok "launcher wires zziplib ota_unzip_extract_file"
+else
+  bad "launcher missing zziplib unzip wiring"
 fi
 
 # ---------------------------------------------------------------------------

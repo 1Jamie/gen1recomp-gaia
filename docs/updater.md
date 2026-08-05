@@ -124,3 +124,9 @@ bundled game, in that case.
   `love.filesystem.isFused()` is false, and a working tree's `engine` is the
   `"0.0.0-dev"` placeholder that always reports up to date, so a source
   checkout is always "the game" itself; updating it means pulling the repo.
+- **Nintendo Switch does not use this LÖVE self-updater.** On NX,
+  `Platform.networkValidated()` is `false`, so `Boot.run` / `Check` never
+  download `.love` payloads. In-console OTA is the **native OTA launcher**
+  (DEVKITPRO) documented in [switch-install.md](switch-install.md) and
+  [switch-development.md](switch-development.md); protocol contract
+  `src/update/SwitchOta.lua`. Manual zip install remains the fallback.

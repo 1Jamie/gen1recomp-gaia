@@ -34,6 +34,42 @@ WSL — not cmd.exe or PowerShell (AD-008).
 **Optional:** Install [Docker](https://docs.docker.com/get-docker/) so fused
 builds can fall back to the pinned image when native tools are missing.
 
+### Native OTA launcher (optional but required for in-console updates)
+
+In-console OTA uses a **separate DEVKITPRO NRO** (not LÖVE). Source:
+`native/switch-ota-launcher/`. Host protocol tests (no toolchain):
+
+```sh
+make -C native/switch-ota-launcher host-test
+# or
+scripts/switch/build_ota_launcher.sh   # host-test first; NRO needs DEVKITPRO/Docker
+```
+
+Extra packages beyond `switch-dev`:
+
+```sh
+sudo dkp-pacman -S --noconfirm --needed switch-curl switch-mbedtls switch-zlib switch-zziplib
+# or: bash scripts/switch/install_devkitpro_deps.sh
+```
+
+Packaging dual-NRO SD zip (launcher entry + fused game):
+
+```sh
+scripts/switch/pack_sd_zip.sh dist/switch/game.nro VERSION out.zip dist/switch/gen1recomp-launcher.nro
+```
+
+One-shot OTA release build (fused game + launcher + dual-NRO SD zip;
+the same `*-switch.zip` is the OTA download asset):
+
+```sh
+# once: bash scripts/switch/install_devkitpro_deps.sh
+export DEVKITPRO=/opt/devkitpro
+scripts/build_switch.sh --fetch --ota --version X.Y.Z
+```
+
+See `native/switch-ota-launcher/README.md` and
+`scripts/switch/ota_launcher.manifest`.
+
 ### Windows (Git Bash / MSYS2 / WSL)
 
 1. Use a bash environment:
