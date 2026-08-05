@@ -13,9 +13,18 @@ local function push(game, s, done)
   game.stack:push(TextBox.new(game, s, done))
 end
 
+-- The question stays on screen under the YES/NO menu.  The dojo prize
+-- balls are the clearest case: FightingDojoHitmonleePokeBallText
+-- (scripts/FightingDojo.asm) is `call PrintText` on a text_end string --
+-- no prompt, so no WaitForTextScrollButtonPress -- immediately followed
+-- by `call YesNoChoice`, and InitYesNoTextBoxParameters
+-- (engine/menus/text_box.asm) puts the menu above the dialogue box
+-- rather than replacing it.  Ride TextBox's opts.choice, the same as
+-- Commands.ask, instead of popping the box with an A press and leaving a
+-- bare ChoiceBox over the overworld (#854).
 local function ask(game, s, cb)
-  local ChoiceBox = require("src.ui.ChoiceBox")
-  push(game, s, function() game.stack:push(ChoiceBox.new(game, cb)) end)
+  local TextBox = require("src.render.TextBox")
+  game.stack:push(TextBox.new(game, s, nil, { choice = cb }))
 end
 
 -- fill the extracted text placeholders ({NUM:...}, {RAM:...}, {PLAYER})

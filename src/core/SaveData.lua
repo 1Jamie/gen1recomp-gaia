@@ -30,6 +30,15 @@ local SaveData = {}
 -- deliberately shared across versions (it holds global preferences and the
 -- mod enable-state, not per-playthrough data).
 local OPTIONS_FILENAME = "options.lua"
+-- #828: options.lua is rewritten whole on every write (see saveOptions), and
+-- unlike the progress files it had no staged copy, so a write interrupted
+-- between the truncate and the flush -- the process replaced by
+-- HostShell.restart on the way back to the launcher, an Android
+-- external-storage volume that never flushed -- left a truncated or empty
+-- file that loadOptions could only answer with defaults: every setting
+-- "reset" at once.  Same .bak/.tmp witness names the save files use.
+local OPTIONS_BACKUP_FILENAME = OPTIONS_FILENAME .. ".bak"
+local OPTIONS_TMP_FILENAME = OPTIONS_FILENAME .. ".tmp"
 
 -- Main / backup / staged-witness names for a version (defaults to the active
 -- one).  The backup is a rolling copy and .tmp is the staged-write witness;
@@ -305,6 +314,13 @@ function SaveData.defaultOptions()
     -- layout (#633).  Pre-#633 files stored one top-level positions table;
     -- TouchControls.normalizeConfig folds it into both orientations on load.
     touchControls = { enabled = true },
+    -- Haptic feedback level for on-screen pad presses (#806):
+    -- off | light | medium | heavy, mapped to a love.system.vibrate
+    -- duration in src/core/TouchControls.lua.  LIGHT by default, like the
+    -- overlay itself defaulting on, so an options.lua predating this key
+    -- gets the tick without going looking for the row.  Inert wherever the
+    -- overlay never appears (desktop) or LOVE has no vibrator.
+    haptics = "light",
   }
 end
 
@@ -369,7 +385,21 @@ function SaveData.saveOptions(opts, fs)
     opts.modOptions = merged
   end
   local encoded = SaveSerializer.encode(opts)
-  local ok, err = fs.write(OPTIONS_FILENAME, encoded)
+  -- Stage the new bytes and roll the last good file aside BEFORE the main
+  -- write truncates it, the same tmp/bak dance SaveData.save uses for
+  -- progress: whatever ends the process mid-write, one of the three copies
+  -- is complete and loadOptions promotes it instead of falling back to
+  -- defaults (#828).
+  local ok, err = fs.write(OPTIONS_TMP_FILENAME, encoded)
+  if not ok then
+    Logger.error("options save failed: %s", tostring(err))
+    return nil
+  end
+  local prev = fs.getInfo(OPTIONS_FILENAME) and fs.read(OPTIONS_FILENAME)
+  if type(prev) == "string" and prev ~= "" and prev ~= encoded then
+    fs.write(OPTIONS_BACKUP_FILENAME, prev)
+  end
+  ok, err = fs.write(OPTIONS_FILENAME, encoded)
   if not ok then
     Logger.error("options save failed: %s", tostring(err))
     return nil
@@ -387,6 +417,8 @@ function SaveData.saveOptions(opts, fs)
       #encoded, type(wrote) == "string" and tostring(#wrote) or "nothing")
     return nil
   end
+  -- the staged witness has served its purpose; the main file is verified
+  remove(fs, OPTIONS_TMP_FILENAME)
   return opts
 end
 
@@ -396,6 +428,26 @@ function SaveData.loadOptions(fs)
   if not data then
     if fs.getInfo(OPTIONS_FILENAME) then
       Logger.error("options load failed: %s", tostring(err))
+    end
+    -- #828: answering defaults here is what "closing the game reset all my
+    -- settings" looked like -- one interrupted whole-file rewrite and every
+    -- preference, the mod enable-state and the slot registry were gone.
+    -- Promote the staged copy, then the rolled-aside backup, exactly as
+    -- SaveData.load does for progress, and heal the main file from whichever
+    -- one parsed.
+    local recovered = readTable(fs, OPTIONS_TMP_FILENAME)
+    local from = "tmp"
+    if not recovered then
+      recovered = readTable(fs, OPTIONS_BACKUP_FILENAME)
+      from = "bak"
+    end
+    if recovered then
+      Logger.warn("options.lua %s; recovered from %s copy",
+        fs.getInfo(OPTIONS_FILENAME) and "corrupt" or "missing", from)
+      if fs.write then
+        fs.write(OPTIONS_FILENAME, SaveSerializer.encode(recovered))
+      end
+      return SaveData.mergeOptions(recovered)
     end
     return SaveData.defaultOptions()
   end

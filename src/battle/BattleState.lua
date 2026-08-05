@@ -3188,6 +3188,16 @@ function BattleState:executeAction(user, target, action)
     user.boundTurns = target.trappingTurns
                       and math.max(1, target.trappingTurns) or nil
 
+    -- wPlayerSelectedMove / wEnemySelectedMove as the status gauntlet
+    -- reads it: the locked specials keep continuing the move they
+    -- started, so they carry a move id too.  Resolved once here and
+    -- handed to every statusInterrupt below, which is where
+    -- .TriedToUseDisabledMoveCheck lives (#860).
+    local selectedId = action.id
+                       or (action.special == "trapping" and user.trapMove)
+                       or (action.special == "bide" and "BIDE")
+                       or nil
+
     -- trainer class AI actions (engine/battle/trainer_ai.asm)
     if action.special == "aiItem" then
       self.aiUses = (self.aiUses or 1) - 1
@@ -3245,17 +3255,17 @@ function BattleState:executeAction(user, target, action)
       return
     end
     if action.special == "trapping" then
-      if self:statusInterrupt(user, target) then return end
+      if self:statusInterrupt(user, target, selectedId) then return end
       self:continueTrapping(user, target)
       return
     end
     if action.special == "bide" then
-      if self:statusInterrupt(user, target) then return end
+      if self:statusInterrupt(user, target, selectedId) then return end
       self:continueBide(user, target)
       return
     end
 
-    if self:statusInterrupt(user, target) then return end
+    if self:statusInterrupt(user, target, selectedId) then return end
     self:performMove(user, target, action, false)
   end
   run()
@@ -3349,8 +3359,8 @@ end
 
 -- Runs Status.beforeMove plus the shared interruption bookkeeping;
 -- returns true when the user's action is interrupted.
-function BattleState:statusInterrupt(user, target)
-  local canMove, msgs, selfHit = Status.beforeMove(user, self.rng, self)
+function BattleState:statusInterrupt(user, target, selectedId)
+  local canMove, msgs, selfHit = Status.beforeMove(user, self.rng, self, selectedId)
   for _, m in ipairs(msgs) do self:sayStatusMsg(user, m) end
   if selfHit then
     -- confusion self-hit (core.asm:3428-3434): clears everything in

@@ -260,6 +260,26 @@ function Commands.take_item(ctx, itemId, count)
   if inv[itemId] == 0 then inv[itemId] = nil end
 end
 
+-- save_end_battle_text <TEXT_KEY>: SaveEndBattleTextPointers
+-- (home/trainers.asm, called from e.g. RocketHideoutB4FScript10 just before
+-- wCurOpponent is set).  The armed line is the trainer's OWN loss line and
+-- belongs on the battle screen: PrintEndBattleText (home/trainers.asm) runs
+-- from TrainerBattleVictory (engine/battle/core.asm) after
+-- TrainerDefeatedText and the pic scroll but BEFORE MoneyForWinningText, and
+-- TrainerEndBattleText prints _TrainerNameText first so the line opens with
+-- the "CLASS: " tag.  Scripts that printed it with a plain show_text after
+-- start_battle got it a box too late -- after the payout -- and untagged
+-- (#866).  Arms exactly one battle; start_battle consumes it.
+function Commands.save_end_battle_text(ctx, textId)
+  local text = ctx.game.data.text[textId]
+  if not text and ctx.overworld then
+    text = ctx.game.data:resolveText(ctx.overworld.map.def.label, textId)
+  end
+  -- BattleState takes finished text, so expand {PLAYER}/{RIVAL} here the
+  -- way OverworldState:engageTrainer does for the sight/talk path
+  ctx.endBattleText = TextBox.substitute(ctx.game, text or textId)
+end
+
 -- start_battle "wild" species level | start_battle "trainer" OPP_CLASS partyIndex
 function Commands.start_battle(ctx, kind, a, b)
   local BattleState = require("src.battle.BattleState")
@@ -270,6 +290,9 @@ function Commands.start_battle(ctx, kind, a, b)
   else
     battle = BattleState.newTrainer(ctx.game, a, b)
   end
+  -- one SaveEndBattleTextPointers arms one battle; leaving it set would leak
+  -- the line into the next scripted fight
+  battle.endBattleText, ctx.endBattleText = ctx.endBattleText, nil
   battle.onFinish = function(result)
     ctx.lastBattleResult = result
     ctx.lastCheck = result == "win"
