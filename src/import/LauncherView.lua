@@ -33,6 +33,7 @@ local Theme = require("src.ui.kit.Theme")
 local Layout = require("src.ui.kit.Layout")
 local Loader = require("src.ui.kit.Loader")
 local GameVersion = require("src.core.GameVersion")
+local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
 
 local PAL = Theme.PAL
@@ -339,6 +340,21 @@ local function buildHeader(imp, m)
 
   local rx = m.x + m.w - m.pad
   local by = y + (rowH - gear) / 2
+
+  -- Switch-only: show the running app version opposite the settings gear so
+  -- players can confirm which build is on the microSD (OTA / zip updates).
+  if imp.isNX then
+    local label = "v" .. tostring(Version.engine or "?")
+    local tw = Kit.textWidth("small", label)
+    local padX = math.floor(12 * m.s)
+    local chipW = math.max(tw + 2 * padX, gear)
+    local lx = m.x + m.pad
+    Theme.fill(lx, by, chipW, gear, PAL.bg, 1)
+    Theme.stroke(lx, by, chipW, gear, PAL.yellow, Theme.A.hover, 1)
+    local th = Kit.textHeight("small")
+    Kit.text("small", label, lx + math.floor((chipW - tw) / 2),
+      by + math.floor((gear - th) / 2), PAL.yellow)
+  end
 
   -- Settings gear, top-right corner.
   imp._gearIcon = imp._gearIcon
