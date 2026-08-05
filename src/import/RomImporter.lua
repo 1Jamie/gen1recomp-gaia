@@ -1584,7 +1584,7 @@ end
 -- the target tab forward so the notice (and, on success, the new active slot)
 -- is visible.  Requires the ROM to be imported first, since a save is only
 -- playable with its game's data present.
-function RomImporter:_importSave(version, source)
+function RomImporter:_importSave(version, source, force)
   if self.workState == "working" then return end
   if GameVersion.VERSIONS[self.tab] or self.tab == "mods" then
     self.tab = version
@@ -1594,15 +1594,35 @@ function RomImporter:_importSave(version, source)
       .. GameVersion.info(version).displayName .. " ROM before importing a save." }
     return
   end
-  local ok, res = require("src.import.SaveFileIO").importToSlot(source, version)
+  local ok, res, info = require("src.import.SaveFileIO").importToSlot(source, version, force)
   if ok then
     self:_refreshSlots(version)
     self.activeSlot[version] = res
     self.slotScroll[version] = math.huge   -- pin the new row on screen (clamped in draw)
     self.saveNotice[version] = { ok = true, text = "Imported save into " .. tostring(res) .. "." }
-  else
-    self.saveNotice[version] = { ok = false, text = tostring(res) }
+    return
   end
+  if res == nil and info and info.needsConfirm then
+    -- A .sav larger than 32 KB whose first 32768 bytes checksum: the surplus
+    -- is almost certainly an emulator RTC footer, so ask before truncating.
+    -- The yes arm re-enters with force=true; cancel leaves the file untouched.
+    self._modConfirm = {
+      kind = "importOversize",
+      version = version,
+      source = source,
+      title = "Oversized save file",
+      lines = {
+        ("This save is %d bytes; a cartridge save is exactly %d bytes (32 KB).")
+          :format(info.size, 32768),
+        "It may come from a ROM that saved the battery image with an emulator.",
+        "The extra bytes would be discarded.",
+        "Import it anyway?",
+      },
+      yesLabel = "Import anyway",
+    }
+    return
+  end
+  self.saveNotice[version] = { ok = false, text = tostring(res) }
 end
 
 -- "Import save" button: open a native .sav picker and import the pick.

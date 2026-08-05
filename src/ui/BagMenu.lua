@@ -255,36 +255,30 @@ local function useOn(game, battle, id, target, list, moveIndex, picker)
 
   if result == "consumed" then
     consume(game, id)
+    -- refresh counts in the list
+    for i, it in ipairs(list.items) do
+      if it.value == id then
+        local left = game.save.inventory[id]
+        if left then it.right = "x" .. left else table.remove(list.items, i) end
+        break
+      end
+    end
+    list.index = math.min(list.index, math.max(1, #list.items))
     if extra and extra.evolveTo then
       list:close()
       local Evolution = require("src.pokemon.Evolution")
       Evolution.evolve(game, target, extra.evolveTo)
       return
     end
-    -- refresh counts in the list.  Hoisted out of the tail below because the
-    -- RARE CANDY path returns early and still leaves the list on screen, so
-    -- both paths have to agree on what the row reads (#796).
-    local function refreshCounts()
-      for i, it in ipairs(list.items) do
-        if it.value == id then
-          local left = game.save.inventory[id]
-          if left then it.right = "x" .. left else table.remove(list.items, i) end
-          break
-        end
-      end
-      list.index = math.min(list.index, math.max(1, #list.items))
-    end
     -- RARE CANDY: after the level text, the stat window, any level-up
     -- moves and a level evolution follow (item_effects.asm .useRareCandy
     -- runs PrintStatsBox, LearnMoveFromLevelUp and TryEvolvingMon)
     if extra and extra.leveledTo and target then
-      -- .useItem_partyMenu re-enters StartMenu_Item after the stat box, it
-      -- does not CloseStartMenu, so out of battle the bag list stays up with
-      -- the decremented count showing.  In battle the item spends the turn
-      -- and the bag has to go (dead today: ItemUseVitamin refuses RARE CANDY
-      -- mid-battle, kept so the boundary stays explicit).  #796
-      refreshCounts()
-      if battle then list:close() end
+      -- ...but the bag stays open underneath it all: RARE_CANDY is in
+      -- pokered's UsableItems_PartyMenu (data/items/use_party.asm), and
+      -- .useItem_partyMenu jumps back to StartMenu_Item once UseItem
+      -- returns, cursor still on the candy (start_sub_menus.asm) -- so
+      -- mashing A burns through a stack of them (#796)
       showMessages(game, payload, function()
         local StatBox = require("src.battle.BattleState").StatBox
         game.stack:push(StatBox.new(game, target, function()
@@ -323,7 +317,6 @@ local function useOn(game, battle, id, target, list, moveIndex, picker)
       end)
       return
     end
-    refreshCounts()
     -- HP medicine: fill the bar in the still-open picker first, then print
     -- and close, the order item_effects.asm .doneHealing runs in
     -- (SFX_HEAL_HP -> UpdateHPBar2 -> RedrawPartyMenu prints the message).

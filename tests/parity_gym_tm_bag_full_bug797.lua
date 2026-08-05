@@ -13,9 +13,10 @@
 -- The port drives this through OverworldState:checkVictoryRewards over
 -- data/scripts/victories.lua (gym leaders are not def_trainers entries, so
 -- src/script/Commands.lua give_item -- which has always handled a full bag
--- -- is never on this path).  checkVictoryRewards used to write the TM
--- straight into save.inventory, bypassing Bag.add's BAG_ITEM_CAPACITY
--- check and producing a 21-of-20 bag while still printing "received TM".
+-- -- is never on this path).  Each gym entry splits the hand-over into
+-- tmPre (the lead-in), tmDialogue (GiveItem succeeded) and noRoom (the
+-- .BagFull line), with gotFlag (EVENT_GOT_TM*) set only on success so the
+-- leader's talk script can retry later (offerGymTm via gyms.lua).
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 local Data = require("src.core.Data")
@@ -34,17 +35,19 @@ do
   for key, entry in pairs(victories) do
     if entry.badge then
       n = n + 1
-      check(type(entry.itemDialogue) == "table" and #entry.itemDialogue > 0,
-        key .. " has an itemDialogue tail (the GiveItem-succeeded text)")
-      check(type(entry.bagFull) == "string",
-        key .. " names a bagFull text (.BagFull branch)")
-      local body = entry.bagFull and (Data.text or {})[entry.bagFull]
+      check(type(entry.tmDialogue) == "table" and #entry.tmDialogue > 0,
+        key .. " has a tmDialogue tail (the GiveItem-succeeded text)")
+      check(type(entry.noRoom) == "string",
+        key .. " names a noRoom text (.BagFull branch)")
+      local body = entry.noRoom and (Data.text or {})[entry.noRoom]
       check(type(body) == "string" and body ~= "",
-        key .. " bagFull label resolves to extracted text")
+        key .. " noRoom label resolves to extracted text")
+      check(type(entry.gotFlag) == "string" and entry.gotFlag:find("EVENT_GOT_"),
+        key .. " carries the EVENT_GOT_TM* retry flag")
       -- the received-TM tail must not still be baked into `dialogue`,
       -- or the full-bag path would print it anyway
       for _, label in ipairs(entry.dialogue or {}) do
-        for _, tail in ipairs(entry.itemDialogue or {}) do
+        for _, tail in ipairs(entry.tmDialogue or {}) do
           check(label ~= tail,
             key .. " dialogue no longer repeats " .. tostring(tail))
         end
@@ -115,6 +118,8 @@ check(fullText:find("BIDE", 1, true) == nil,
   "full bag: the TM34 explanation is skipped")
 check(fullText:find("FLASH", 1, true) ~= nil,
   "full bag: the BoulderBadge speech still runs")
+check(not Game.save.flags.EVENT_GOT_TM34,
+  "full bag: EVENT_GOT_TM34 stays unset so the talk script retries")
 
 -- --- empty bag: the success tail still appends and the TM lands ---
 freshSave()
@@ -129,7 +134,9 @@ local order = Bag.order(Game.save)
 check(order[1] == "TM_BIDE",
   "empty bag: Bag.add kept the wBagItems order (bagOrder) honest")
 check(okText:find("BIDE", 1, true) ~= nil,
-  "empty bag: itemDialogue (TM34 explanation) still appends")
+  "empty bag: tmDialogue (TM34 explanation) still appends")
+check(Game.save.flags.EVENT_GOT_TM34,
+  "empty bag: EVENT_GOT_TM34 is set on a successful give")
 check(okText:find("room for this", 1, true) == nil,
   "empty bag: the NoRoom line is not printed")
 
