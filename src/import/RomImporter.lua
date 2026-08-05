@@ -2459,6 +2459,13 @@ function RomImporter:_openSettings()
   if ok and model then self._settings = model end
 end
 
+-- Quit from the launcher's own X.  It goes through love.event.quit so main.lua's
+-- love.quit hook still runs: that is where the worker threads are shut down
+-- (#339) and where a launcher close is told apart from a running game's (#785).
+function RomImporter:_quitApp()
+  if love.event and love.event.quit then love.event.quit() end
+end
+
 function RomImporter:_closeSettings()
   if self._settings then self._settings.save() end
   self._settings = nil

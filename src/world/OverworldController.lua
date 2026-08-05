@@ -1259,8 +1259,14 @@ end
 function OverworldState:checkBoulderPush(dir)
   local p = self.player
   local fx, fy = Collision.target(p.cellX, p.cellY, dir)
-  local npc = self:npcAtCell(fx, fy)
-  if not npc or not Map.isPushable(npc.def) or npc.moving then
+  -- IsSpriteInFrontOfPlayer (home/overworld.asm) hands TryPushingBoulder
+  -- the LOWEST sprite index standing on the faced cell, so in the original a
+  -- second sprite parked on the boulder's cell hides the boulder from the
+  -- push path for the rest of the map visit.  Pick the pushable sprite out of
+  -- the cell instead: a scripted walk-up that lands a trainer on the boulder
+  -- must not brick it permanently (#809).
+  local npc = self:pushableAtCell(fx, fy)
+  if not npc or npc.moving then
     self.boulderTried = nil -- pokered resets when no boulder is in front
     return false
   end
@@ -1714,6 +1720,22 @@ function OverworldState:npcAtCell(cx, cy)
   for _, npc in ipairs(self.npcs) do
     if (npc.cellX == cx and npc.cellY == cy) or
        (npc.targetX == cx and npc.targetY == cy) then
+      return npc
+    end
+  end
+  return nil
+end
+
+-- The Strength boulder on a cell, ignoring anything else standing there.
+-- npcAtCell returns whichever object the map listed first, which is only
+-- well defined while at most one sprite occupies a cell; scripted walks
+-- (TrainerWalkUpToPlayer) can break that, and the push path must still find
+-- the boulder underneath (#809).
+function OverworldState:pushableAtCell(cx, cy)
+  for _, npc in ipairs(self.npcs) do
+    if ((npc.cellX == cx and npc.cellY == cy) or
+        (npc.targetX == cx and npc.targetY == cy))
+       and Map.isPushable(npc.def) then
       return npc
     end
   end
@@ -2962,7 +2984,7 @@ local function meetTrainerTheme(cls)
 end
 
 -- Run the pre-battle text -> battle -> won text -> flags sequence.
-function OverworldState:engageTrainer(npc, onDone)
+function OverworldState:engageTrainer(npc, onDone, endBattleText)
   local d = npc.def
   Runtime.emit("world.trainer_engaged", { npc = npc, trainerClass = d.trainerClass,
                                           partyIndex = d.trainerParty })
@@ -2972,7 +2994,15 @@ function OverworldState:engageTrainer(npc, onDone)
     battleText = select(1, Game.data:resolveText(self.map.def.label, d.text))
                  or Strings("I like shorts!\nThey're comfy and\neasy to wear!")
   end
-  local wonText = header and header.won and Game.data.text[header.won]
+  -- `endBattleText` is a caller-supplied stand-in for header.won: the
+  -- text_asm trainers that hand their loss line to the battle through
+  -- SaveEndBattleTextPointers (scripts/GameCorner.asm GameCornerRocketText
+  -- passes _GameCornerRocketBattleEndText, "Dang!") have no def_trainers
+  -- header for the extractor to read, so their script passes the finished
+  -- line here and it still lands where PrintEndBattleText puts it -- between
+  -- TrainerDefeatedText and MoneyForWinningText, on the battle screen (#862).
+  local wonText = endBattleText
+                  or (header and header.won and Game.data.text[header.won])
 
   local BattleState = require("src.battle.BattleState")
   Game.stack:push(TextBox.new(Game, battleText, function()
@@ -3241,8 +3271,26 @@ function OverworldState:startTrainerApproach(npc, dist)
   self.emote = {
     npc = npc, frames = 60,
     onDone = function()
-      if dist > 1 then
-        self:scriptMove(npc, npc.facing, dist - 1, fight)
+      -- TrainerWalkUpToPlayer (engine/overworld/trainer_sight.asm) writes
+      -- dist-1 NPC_MOVEMENT_* bytes and hands them to MoveSprite, and every
+      -- scripted step skips collision entirely (CanWalkOntoTile,
+      -- engine/overworld/movement.asm: "always allow walking if the
+      -- movement is scripted"), so the original marches the trainer straight
+      -- through a Strength boulder sitting on the sight line.  Stop one cell
+      -- short of the boulder instead: two sprites on one cell is a state the
+      -- push path cannot represent, and the walk-up is the one scripted move
+      -- the player can steer a boulder into (#809).
+      local steps = dist - 1
+      local cx, cy = npc.cellX, npc.cellY
+      for i = 1, steps do
+        cx, cy = Collision.target(cx, cy, npc.facing)
+        if self:pushableAtCell(cx, cy) then
+          steps = i - 1
+          break
+        end
+      end
+      if steps > 0 then
+        self:scriptMove(npc, npc.facing, steps, fight)
       else
         fight()
       end

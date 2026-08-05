@@ -3,7 +3,9 @@
 --   BUG1 gate       -- the master stops the player on the tile to his left
 --   BUG2 no speech  -- no won text + no prize dialogue after the win
 --   BUG3 wrong re-talk -- shows the pre-battle challenge, not the after line
---   BUG4 (verify)   -- the ball ask() is the Gen1 descriptor, not a dex entry
+--   BUG4 (verify)   -- the ball opens the prize's dex preview first
+--                      (FightingDojo.asm DisplayPokedex, #853) and then
+--                      asks with the Gen1 descriptor text
 --   BUG5 both balls -- the chosen ball AND the other one both vanish; the
 --                      other should stay and give the "greedy" refusal
 --   BUG6 poster     -- the north-wall posters ("Enemies on every side!") are
@@ -20,6 +22,7 @@ return function(game)
   local DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
   local TextBox = require("src.render.TextBox")
   local ChoiceBox = require("src.ui.ChoiceBox")
+  local DexEntryMenu = require("src.ui.DexEntryMenu")
   local OW = require("src.world.OverworldController")
   local Pokemon = require("src.pokemon.Pokemon")
   local Commands = require("src.script.Commands")
@@ -35,6 +38,7 @@ return function(game)
 
   local function topIsTextBox() return getmetatable(game.stack:top()) == TextBox end
   local function topIsChoice() return getmetatable(game.stack:top()) == ChoiceBox end
+  local function topIsDex() return getmetatable(game.stack:top()) == DexEntryMenu end
 
   local function currentPageText()
     local top = game.stack:top()
@@ -172,8 +176,14 @@ return function(game)
   check(leeBall ~= nil and chanBall ~= nil, "BUG5: both prize balls on the mat")
   if leeBall then
     ow:talkTo(leeBall)
+    -- DisplayPokedex runs before .Text and YesNoChoice in FightingDojo.asm,
+    -- so the dex page is the first thing the ball opens (#853)
+    U.wait(3)
+    check(topIsDex(), "BUG4: the ball opens the HITMONLEE dex entry first")
+    U.shot(game, DIR .. "/dojo_4_dexentry.png")
+    mashUntil(function() return not topIsDex() end, 20)
     check(sawText("hard kicking") or sawText("HITMONLEE"),
-      "BUG4: ball asks the Gen1 descriptor prompt (no dex entry)")
+      "BUG4: the dex page is followed by the Gen1 descriptor prompt")
     U.shot(game, DIR .. "/dojo_4_prompt.png")
     ------------------------------------------------------------------
     -- BUG5: choose YES -> only the chosen ball vanishes; the other stays
