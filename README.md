@@ -205,6 +205,24 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## Linux on arm64 (Raspberry Pi)
+
+Alongside the x86_64 `gen1recomp-*-linux.zip`, every release ships
+`gen1recomp-*-linux-arm64.AppImage` for 64-bit ARM desktop Linux — Raspberry
+Pi 4/5, Armbian and other SBC distros, and arm64 VMs on Apple Silicon:
+
+```sh
+chmod +x gen1recomp-*-linux-arm64.AppImage
+./gen1recomp-*-linux-arm64.AppImage
+```
+
+LÖVE publishes no aarch64 binary of any kind, so this artifact compiles the
+engine from source inside a Debian bullseye arm64 container; the result needs
+only glibc 2.29+, which covers Raspberry Pi OS bullseye through trixie and
+Ubuntu 20.04 onward. Build instructions, the host requirements, and why the
+font stack is deliberately left unbundled are in
+[docs/linux-arm64-build.md](docs/linux-arm64-build.md).
+
 ## iOS
 
 Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore
