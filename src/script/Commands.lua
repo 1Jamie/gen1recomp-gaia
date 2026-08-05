@@ -1075,9 +1075,13 @@ function Commands.march_in_place(ctx, objIndex, on)
 end
 
 -- play_music <songId> [opts]: switch map music now; opts.keep marks it
--- to survive the next warp (the story files' keepMusic idiom)
+-- to survive the next warp (the story files' keepMusic idiom).
+-- opts.tempo is the Music_*AlternateTempo override (audio/alternate_tempo.asm
+-- re-points channel 1 at a stub that only changes the song's `tempo`) (#847).
 function Commands.play_music(ctx, songId, opts)
-  require("src.core.Music").play(ctx.game.data, songId)
+  local tempo = opts and opts.tempo
+  require("src.core.Music").play(ctx.game.data, songId, nil,
+                                 tempo and { tempo = tempo } or nil)
   if opts and opts.keep and ctx.overworld then
     ctx.overworld.keepMusicOnce = true
   end
@@ -1085,6 +1089,15 @@ end
 
 function Commands.stop_music(ctx)
   require("src.core.Music").stop()
+end
+
+-- fade_music [control]: FadeOutAudio (home/fade_audio.asm) -- ramp the
+-- current song to silence over 7 * control frames and stop it, the way
+-- Music_Cities1AlternateTempo does before it restarts Cities1 (#847).
+-- Non-blocking, like the ROM's write to wAudioFadeOutControl: pair it with
+-- the `wait` that stands in for the following DelayFrames.
+function Commands.fade_music(ctx, control)
+  require("src.core.Music").fadeOut(control or 10)
 end
 
 -- play_default_music: PlayDefaultMusic -- resume the current map's own

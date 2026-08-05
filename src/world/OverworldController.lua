@@ -2362,8 +2362,21 @@ function OverworldState:trySurf(fx, fy, onClose)
   Game.stack:push(TextBox.new(Game, text, function()
     if onClose then onClose() end
     p.surfing = true
+    -- walking / biking / surfing is ONE state byte in the original:
+    -- ItemUseSurfboard (engine/items/item_effects.asm) writes 2 over
+    -- whatever wWalkBikeSurfState held, so mounting a surf ends the bike
+    -- outright -- no bike step cadence in Player:tryMove and no bike
+    -- theme on the water (#846).  Music.playMap re-picks the override
+    -- with BOTH flags, which setSurfing alone cannot do: effectiveMapSong
+    -- (src/core/Music.lua) prefers state.onBike over state.surfing.
+    Game.save.onBike = false
     self:syncSurfingPikachu()
-    require("src.core.Music").setSurfing(Game.data, true)
+    local Music = require("src.core.Music")
+    if self.map then
+      Music.playMap(Game.data, self.map.id, false, true)
+    else
+      Music.setSurfing(Game.data, true) -- headless harness with no map loaded
+    end
     Game.stack:push(require("src.render.Transition").whiteFlash(Game, nil,
       function() self:stepForwardOrCrossEdge(p.facing) end))
   end))
@@ -3680,9 +3693,13 @@ function OverworldState:checkForcedMovement()
           return true
         end
       elseif tile.mode == "surf" then
+        -- scripts/SeafoamIslandsB4F.asm writes wWalkBikeSurfState = 2 and
+        -- jp ForceBikeOrSurf, so a forced surf clears the bike state the
+        -- same way the party-menu mount does (#846)
         p.surfing = true
+        Game.save.onBike = false
         self:syncSurfingPikachu()
-        require("src.core.Music").setSurfing(Game.data, true)
+        require("src.core.Music").playMap(Game.data, self.map.id, false, true)
       end
       return false
     end
@@ -3973,25 +3990,47 @@ function OverworldState:warpToHealPoint(onDone, opts)
     -- Dig/Teleport/Escape Rope land OUTSIDE at the last Pokemon Center TOWN
     -- door, like Fly (#196) -- NOT the interior heal cell a blackout returns
     -- to.  pret routes escape-warp and blackout both through wLastBlackoutMap
-    -- (both appear inside in front of the nurse), but this port has decided
-    -- the escape-warp destination is the town PC door.  Prefer the canonical
-    -- Fly landing (field.flyWarps, one tile south of the PC door warp), else
-    -- the remembered outdoor door cell; fall back to the interior heal cell
-    -- only for an old save with no recorded outdoor.
-    local out = heal.outdoor
-    if out then
-      local fw = (Game.data.field.flyWarps or {})[out.id]
-      map = out.id
-      x = fw and fw.x or out.x
-      y = fw and fw.y or out.y
+    -- (LoadSpecialWarpData .usedFlyWarp, engine/overworld/special_warps.asm),
+    -- and that map is ALWAYS an outdoor one: SetLastBlackoutMap copies
+    -- wLastMap (engine/events/set_blackout_map.asm) and WarpFound2 only
+    -- writes wLastMap on outside maps (home/overworld.asm), with the landing
+    -- cell read from FlyWarpDataPtr.  Prefer the canonical Fly landing
+    -- (field.flyWarps, one tile south of the PC door warp), else the
+    -- remembered outdoor door cell.
+    --
+    -- A heal record naming no outdoor town, or naming a map that is not
+    -- outdoors at all, is never a legal escape-warp destination: a .sav
+    -- import stamps lastHeal from wherever the cartridge was saved
+    -- (SaveConvert mergeDefaults), so ESCAPE ROPE was dropping the player
+    -- into the dungeon that save sat in, whose LAST_MAP exits then still
+    -- pointed at the door they had walked in through (#805).  Vanilla's
+    -- zero-filled wLastBlackoutMap is map 0, so an unusable record falls
+    -- back to the boot heal town exactly as a never-healed game does.
+    local out = heal.outdoor or { id = heal.map, x = heal.x, y = heal.y }
+    local fw = (Game.data.field.flyWarps or {})[out.id]
+    local outX = fw and fw.x or out.x
+    local outY = fw and fw.y or out.y
+    local outDef = Game.data.maps[out.id]
+    if not (outDef and outX and outY
+            and Map.isOutside(outDef,
+                  FieldDefaults.field(Game.data, "outsideTilesets"))) then
+      local zeroFill = require("src.core.SaveData")
+                       .defaultHeal(Game.data.field.boot)
+      out, outX, outY = { id = zeroFill.map }, zeroFill.x, zeroFill.y
     end
+    map, x, y = out.id, outX, outY
   end
   self:startWarpTo(map, x, y, "down", onDone)
   -- Blackouts land at the interior heal cell, so re-point LAST_MAP exits at
-  -- the remembered town door.  The teleport branch already lands ON that
-  -- outdoor map, so startWarpTo remembers it on the next exit; re-pointing
-  -- here would wrongly steer exits away from where the player now stands.
-  if heal.outdoor and not teleport then
+  -- the remembered town door.  The teleport branch re-points at the town it
+  -- just landed on: PrepareForSpecialWarp (engine/overworld/special_warps.asm)
+  -- writes the special-warp destination straight back into wLastMap for every
+  -- fly/escape warp that is not a dungeon warp, so the next LAST_MAP exit
+  -- resolves against that town instead of the dungeon door the player walked
+  -- in through before using the rope (#805).
+  if teleport then
+    self:rememberOutdoor(map, x, y)
+  elseif heal.outdoor then
     self:rememberOutdoor(heal.outdoor.id, heal.outdoor.x, heal.outdoor.y)
   end
 end

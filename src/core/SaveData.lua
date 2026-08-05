@@ -368,11 +368,26 @@ function SaveData.saveOptions(opts, fs)
     end
     opts.modOptions = merged
   end
-  local ok, err = fs.write(OPTIONS_FILENAME, SaveSerializer.encode(opts))
+  local encoded = SaveSerializer.encode(opts)
+  local ok, err = fs.write(OPTIONS_FILENAME, encoded)
   if not ok then
     Logger.error("options save failed: %s", tostring(err))
+    return nil
   end
-  return ok and opts or nil
+  -- #828: settings "reset" on Android and Steam Deck with nothing in the log.
+  -- Every options write is a WHOLE-FILE rewrite, so a write that reports
+  -- success without the bytes landing (an external-storage volume that went
+  -- away mid-session, a read-only or full save dir) is indistinguishable from
+  -- "the launcher never saved".  Read the file back and fail loudly instead:
+  -- callers already treat nil as a failed write, and the log line is what the
+  -- next report from those platforms needs to carry.
+  local wrote = fs.getInfo(OPTIONS_FILENAME) and fs.read(OPTIONS_FILENAME)
+  if wrote ~= encoded then
+    Logger.error("options save did not land (%d bytes written, %s on disk)",
+      #encoded, type(wrote) == "string" and tostring(#wrote) or "nothing")
+    return nil
+  end
+  return opts
 end
 
 function SaveData.loadOptions(fs)
