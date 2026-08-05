@@ -47,7 +47,43 @@ function SwitchOta.versionFromOtaAsset(name)
   return name:match(SwitchOta.OTA_ASSET_PATTERN)
 end
 
--- Parse GitHub releases/latest JSON (minimal: tag_name + assets[].name/browser_download_url).
+local function findJsonObjectStart(jsonText, pos)
+  if type(jsonText) ~= "string" or not pos or pos < 1 then return nil end
+  local depth = 0
+  local p = pos
+  while p >= 1 do
+    local c = jsonText:sub(p, p)
+    if c == "}" then
+      depth = depth + 1
+    elseif c == "{" then
+      if depth == 0 then return p end
+      depth = depth - 1
+    end
+    p = p - 1
+  end
+  return nil
+end
+
+local function findJsonObjectEnd(jsonText, objectStart)
+  if type(jsonText) ~= "string" or not objectStart then return nil end
+  if jsonText:sub(objectStart, objectStart) ~= "{" then return nil end
+  local depth = 1
+  local p = objectStart + 1
+  local len = #jsonText
+  while p <= len do
+    local c = jsonText:sub(p, p)
+    if c == "{" then
+      depth = depth + 1
+    elseif c == "}" then
+      depth = depth - 1
+      if depth == 0 then return p + 1 end
+    end
+    p = p + 1
+  end
+  return nil
+end
+
+-- Parse GitHub releases/latest JSON (tag_name + assets[].name/browser_download_url).
 -- Returns { tag, version, assetName, downloadUrl } or nil + reason.
 function SwitchOta.parseRelease(jsonText)
   if type(jsonText) ~= "string" or jsonText == "" then
@@ -58,24 +94,31 @@ function SwitchOta.parseRelease(jsonText)
   local version = tag:match("^v?(%d+%.%d+%.%d+)$")
   if not version then return nil, "bad_tag" end
 
-  local assetName, downloadUrl
-  for block in jsonText:gmatch("%b{}") do
-    local name = block:match('"name"%s*:%s*"(.-)"')
+  local cursor = 1
+  while true do
+    local nameKeyPos = jsonText:find('"name"', cursor, true)
+    if not nameKeyPos then break end
+    local tail = jsonText:sub(nameKeyPos)
+    local name = tail:match('"name"%s*:%s*"(.-)"')
     if name and SwitchOta.isOtaAssetName(name) then
-      assetName = name
-      downloadUrl = block:match('"browser_download_url"%s*:%s*"(.-)"')
-      break
+      local assetStart = findJsonObjectStart(jsonText, nameKeyPos)
+      local assetEnd = assetStart and findJsonObjectEnd(jsonText, assetStart)
+      if assetStart and assetEnd and assetEnd > nameKeyPos then
+        local assetBlock = jsonText:sub(assetStart, assetEnd - 1)
+        local downloadUrl = assetBlock:match('"browser_download_url"%s*:%s*"(.-)"')
+        if downloadUrl and downloadUrl ~= "" then
+          return {
+            tag = tag,
+            version = version,
+            assetName = name,
+            downloadUrl = downloadUrl,
+          }
+        end
+      end
     end
+    cursor = nameKeyPos + 6
   end
-  if not assetName then return nil, "missing_ota_asset" end
-  if not downloadUrl or downloadUrl == "" then return nil, "missing_download_url" end
-
-  return {
-    tag = tag,
-    version = version,
-    assetName = assetName,
-    downloadUrl = downloadUrl,
-  }
+  return nil, "missing_ota_asset"
 end
 
 -- Decide check outcome given installed version and parsed release.

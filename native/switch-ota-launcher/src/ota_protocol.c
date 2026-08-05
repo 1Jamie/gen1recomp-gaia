@@ -95,6 +95,38 @@ static const char *find_json_string(const char *json, const char *key, char *out
   return out;
 }
 
+/* Opening { of the JSON object that contains pos (walk backward). */
+static const char *find_json_object_start(const char *pos, const char *json_start) {
+  if (!pos || !json_start || pos < json_start) return NULL;
+  int depth = 0;
+  const char *p = pos;
+  while (p >= json_start) {
+    if (*p == '}') depth++;
+    else if (*p == '{') {
+      if (depth == 0) return p;
+      depth--;
+    }
+    p--;
+  }
+  return NULL;
+}
+
+/* Pointer just past the closing } of the object that starts at object_start. */
+static const char *find_json_object_end(const char *object_start) {
+  if (!object_start || *object_start != '{') return NULL;
+  int depth = 1;
+  const char *p = object_start + 1;
+  while (*p) {
+    if (*p == '{') depth++;
+    else if (*p == '}') {
+      depth--;
+      if (depth == 0) return p + 1;
+    }
+    p++;
+  }
+  return NULL;
+}
+
 int ota_parse_release(const char *json_text, ota_release_t *out) {
   memset(out, 0, sizeof(*out));
   if (!json_text || !*json_text) {
@@ -112,7 +144,7 @@ int ota_parse_release(const char *json_text, ota_release_t *out) {
   }
   snprintf(out->version, sizeof(out->version), "%d.%d.%d", sv.major, sv.minor, sv.patch);
 
-  /* Scan for OTA asset name then its browser_download_url in the same object-ish window. */
+  /* Scan for OTA asset name then browser_download_url inside the same asset object. */
   const char *cursor = json_text;
   while ((cursor = strstr(cursor, "\"name\"")) != NULL) {
     char name[128];
@@ -120,31 +152,36 @@ int ota_parse_release(const char *json_text, ota_release_t *out) {
       cursor += 6;
       continue;
     }
-    if (ota_is_ota_asset_name(name)) {
-      snprintf(out->asset_name, sizeof(out->asset_name), "%s", name);
-      /* Prefer URL after this name key within a limited window. */
-      const char *window_end = cursor + 800;
-      if (window_end > json_text + strlen(json_text)) window_end = json_text + strlen(json_text);
-      char url[512];
-      const char *u = NULL;
-      const char *scan = cursor;
-      while (scan < window_end && (scan = strstr(scan, "\"browser_download_url\"")) != NULL &&
-             scan < window_end) {
-        if (find_json_string(scan, "browser_download_url", url, sizeof(url))) {
-          u = url;
-          break;
-        }
-        scan += 21;
-      }
-      if (!u || !*u) {
-        set_reason(out->reason, sizeof(out->reason), "missing_download_url");
-        return 0;
-      }
-      snprintf(out->download_url, sizeof(out->download_url), "%s", u);
-      out->ok = 1;
-      return 1;
+    if (!ota_is_ota_asset_name(name)) {
+      cursor += 6;
+      continue;
     }
-    cursor += 6;
+    const char *asset_start = find_json_object_start(cursor, json_text);
+    const char *asset_end =
+        asset_start ? find_json_object_end(asset_start) : NULL;
+    if (!asset_start || !asset_end || asset_end <= cursor) {
+      cursor += 6;
+      continue;
+    }
+    char url[512];
+    const char *u = NULL;
+    const char *scan = cursor;
+    while (scan < asset_end &&
+           (scan = strstr(scan, "\"browser_download_url\"")) != NULL && scan < asset_end) {
+      if (find_json_string(scan, "browser_download_url", url, sizeof(url))) {
+        u = url;
+        break;
+      }
+      scan += 21;
+    }
+    if (!u || !*u) {
+      cursor += 6;
+      continue;
+    }
+    snprintf(out->asset_name, sizeof(out->asset_name), "%s", name);
+    snprintf(out->download_url, sizeof(out->download_url), "%s", u);
+    out->ok = 1;
+    return 1;
   }
   set_reason(out->reason, sizeof(out->reason), "missing_ota_asset");
   return 0;

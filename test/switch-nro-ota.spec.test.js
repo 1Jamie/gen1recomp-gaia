@@ -50,28 +50,72 @@ function createSwitchOta() {
     return typeof name === 'string' && OTA_RE.test(name);
   }
 
+  function findJsonObjectStart(jsonText, pos) {
+    if (!jsonText || pos < 1) return null;
+    let depth = 0;
+    for (let p = pos; p >= 1; p--) {
+      const c = jsonText[p - 1];
+      if (c === '}') depth += 1;
+      else if (c === '{') {
+        if (depth === 0) return p;
+        depth -= 1;
+      }
+    }
+    return null;
+  }
+
+  function findJsonObjectEnd(jsonText, objectStart) {
+    if (!jsonText || objectStart < 1) return null;
+    if (jsonText[objectStart - 1] !== '{') return null;
+    let depth = 1;
+    for (let p = objectStart + 1; p <= jsonText.length; p++) {
+      const c = jsonText[p - 1];
+      if (c === '{') depth += 1;
+      else if (c === '}') {
+        depth -= 1;
+        if (depth === 0) return p + 1;
+      }
+    }
+    return null;
+  }
+
   function parseRelease(jsonText) {
     if (!jsonText) return { ok: false, reason: 'empty_json' };
-    let obj;
-    try {
-      obj = JSON.parse(jsonText);
-    } catch {
-      return { ok: false, reason: 'bad_json' };
+    const tagM = jsonText.match(/"tag_name"\s*:\s*"([^"]+)"/);
+    if (!tagM) return { ok: false, reason: 'missing_tag' };
+    const tag = tagM[1];
+    const versionM = tag.match(/^v?(\d+\.\d+\.\d+)$/);
+    if (!versionM) return { ok: false, reason: 'bad_tag' };
+    const version = versionM[1];
+
+    let cursor = 0;
+    while (true) {
+      const nameKeyPos = jsonText.indexOf('"name"', cursor);
+      if (nameKeyPos === -1) break;
+      const tail = jsonText.slice(nameKeyPos);
+      const nameM = tail.match(/"name"\s*:\s*"([^"]+)"/);
+      const name = nameM?.[1];
+      if (name && isOtaAssetName(name)) {
+        const assetStart = findJsonObjectStart(jsonText, nameKeyPos + 1);
+        const assetEnd = assetStart ? findJsonObjectEnd(jsonText, assetStart) : null;
+        if (assetStart && assetEnd && assetEnd > nameKeyPos + 1) {
+          const assetBlock = jsonText.slice(assetStart - 1, assetEnd - 1);
+          const urlM = assetBlock.match(/"browser_download_url"\s*:\s*"([^"]+)"/);
+          const downloadUrl = urlM?.[1];
+          if (downloadUrl) {
+            return {
+              ok: true,
+              tag,
+              version,
+              assetName: name,
+              downloadUrl,
+            };
+          }
+        }
+      }
+      cursor = nameKeyPos + 6;
     }
-    const tag = obj.tag_name;
-    if (!tag) return { ok: false, reason: 'missing_tag' };
-    const version = String(tag).match(/^v?(\d+\.\d+\.\d+)$/)?.[1];
-    if (!version) return { ok: false, reason: 'bad_tag' };
-    const asset = (obj.assets || []).find((a) => isOtaAssetName(a.name));
-    if (!asset) return { ok: false, reason: 'missing_ota_asset' };
-    if (!asset.browser_download_url) return { ok: false, reason: 'missing_download_url' };
-    return {
-      ok: true,
-      tag,
-      version,
-      assetName: asset.name,
-      downloadUrl: asset.browser_download_url,
-    };
+    return { ok: false, reason: 'missing_ota_asset' };
   }
 
   function decideUpdate(installed, release) {
@@ -168,6 +212,51 @@ function createSwitchOta() {
 
 const M = createSwitchOta();
 
+const GITHUB_UPLOADER =
+  '"login":"github-actions[bot]",' +
+  '"id":41898282,' +
+  '"node_id":"MDM6Qm90NDE4OTgyODI=",' +
+  '"avatar_url":"https://avatars.githubusercontent.com/in/15368?v=4",' +
+  '"gravatar_id":"",' +
+  '"url":"https://api.github.com/users/github-actions%5Bbot%5D",' +
+  '"html_url":"https://github.com/apps/github-actions",' +
+  '"followers_url":"https://api.github.com/users/github-actions%5Bbot%5D/followers",' +
+  '"following_url":"https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",' +
+  '"gists_url":"https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",' +
+  '"starred_url":"https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",' +
+  '"subscriptions_url":"https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",' +
+  '"organizations_url":"https://api.github.com/users/github-actions%5Bbot%5D/orgs",' +
+  '"repos_url":"https://api.github.com/users/github-actions%5Bbot%5D/repos",' +
+  '"events_url":"https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",' +
+  '"received_events_url":"https://api.github.com/users/github-actions%5Bbot%5D/received_events",' +
+  '"type":"Bot",' +
+  '"user_view_type":"public",' +
+  '"site_admin":false';
+
+function buildGithubReleaseJson() {
+  return (
+    '{' +
+    '"tag_name":"v0.1.70",' +
+    '"name":"0.1.70",' +
+    '"assets":[' +
+    '{' +
+    '"url":"https://api.github.com/repos/bryanthaboi/gen1recomp/releases/assets/502823880",' +
+    '"id":502823880,' +
+    '"name":"gen1recomp-0.1.70-switch.zip",' +
+    '"label":"",' +
+    '"uploader":{' +
+    GITHUB_UPLOADER +
+    '},' +
+    '"content_type":"application/zip",' +
+    '"state":"uploaded",' +
+    '"size":9000573,' +
+    '"browser_download_url":"https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.70/gen1recomp-0.1.70-switch.zip"' +
+    '}' +
+    ']' +
+    '}'
+  );
+}
+
 const sampleRelease = M.parseRelease(
   JSON.stringify({
     tag_name: 'v1.5.0',
@@ -197,6 +286,16 @@ test('AC-001: Launcher nativo verifica release no GitHub @spec:AC-001', () => {
   const missing = M.parseRelease(JSON.stringify({ tag_name: 'v1.5.0', assets: [] }));
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, 'missing_ota_asset');
+
+  const githubRelease = M.parseRelease(buildGithubReleaseJson());
+  assert.equal(githubRelease.ok, true);
+  assert.equal(githubRelease.version, '0.1.70');
+  assert.equal(githubRelease.assetName, 'gen1recomp-0.1.70-switch.zip');
+  assert.equal(
+    githubRelease.downloadUrl,
+    'https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.70/gen1recomp-0.1.70-switch.zip'
+  );
+  assert.equal(M.decideUpdate('0.1.69', githubRelease).status, 'available');
 });
 
 test('AC-002: Download com verificação SHA-256 @spec:AC-002', () => {

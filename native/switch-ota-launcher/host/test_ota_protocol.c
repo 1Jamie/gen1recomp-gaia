@@ -48,6 +48,56 @@ int main(void) {
          "missing ota asset");
   expect(strcmp(bad.reason, "missing_ota_asset") == 0, "missing_ota_asset reason");
 
+  /* GitHub releases/latest shape: release-level name + fat uploader before browser_download_url. */
+  const char *github_json =
+      "{"
+      "\"tag_name\":\"v0.1.70\","
+      "\"name\":\"0.1.70\","
+      "\"assets\":["
+      "{"
+      "\"url\":\"https://api.github.com/repos/bryanthaboi/gen1recomp/releases/assets/502823880\","
+      "\"id\":502823880,"
+      "\"name\":\"gen1recomp-0.1.70-switch.zip\","
+      "\"label\":\"\","
+      "\"uploader\":{"
+      "\"login\":\"github-actions[bot]\","
+      "\"id\":41898282,"
+      "\"node_id\":\"MDM6Qm90NDE4OTgyODI=\","
+      "\"avatar_url\":\"https://avatars.githubusercontent.com/in/15368?v=4\","
+      "\"gravatar_id\":\"\","
+      "\"url\":\"https://api.github.com/users/github-actions%5Bbot%5D\","
+      "\"html_url\":\"https://github.com/apps/github-actions\","
+      "\"followers_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/followers\","
+      "\"following_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}\","
+      "\"gists_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}\","
+      "\"starred_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}\","
+      "\"subscriptions_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/subscriptions\","
+      "\"organizations_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/orgs\","
+      "\"repos_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/repos\","
+      "\"events_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}\","
+      "\"received_events_url\":\"https://api.github.com/users/github-actions%5Bbot%5D/received_events\","
+      "\"type\":\"Bot\","
+      "\"user_view_type\":\"public\","
+      "\"site_admin\":false"
+      "},"
+      "\"content_type\":\"application/zip\","
+      "\"state\":\"uploaded\","
+      "\"size\":9000573,"
+      "\"browser_download_url\":\"https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.70/gen1recomp-0.1.70-switch.zip\""
+      "}"
+      "]"
+      "}";
+  ota_release_t gh;
+  expect(ota_parse_release(github_json, &gh) == 1, "parse github-shaped release");
+  expect(strcmp(gh.version, "0.1.70") == 0, "github release version");
+  expect(strcmp(gh.asset_name, "gen1recomp-0.1.70-switch.zip") == 0, "github release asset");
+  expect(strcmp(gh.download_url,
+                 "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.70/gen1recomp-0.1.70-switch.zip") ==
+             0,
+         "github release download url");
+  ota_decide_update("0.1.69", &gh, &d);
+  expect(strcmp(d.status, "available") == 0, "github release decide 0.1.69->0.1.70");
+
   const char *sums = "abc123  gen1recomp-1.5.0-switch.zip\n";
   ota_verify_t v;
   ota_verify_sha256("gen1recomp-1.5.0-switch.zip", "abc123", sums, &v);
