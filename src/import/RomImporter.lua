@@ -997,6 +997,25 @@ local function updaterAllowed()
   return true
 end
 
+-- #835: which column the launcher opens on.  `tab` starts at the --game
+-- shortcut's version (LaunchOptions.pendingTab) or Red; this then prefers the
+-- game play() last handed off, so relaunching lands on the game that was last
+-- played instead of always Red.  An explicit --game still wins, and a
+-- remembered version whose cache is gone or stale is ignored, since opening a
+-- column with no Play button would read as the launcher losing the import.
+-- Called from new() once self.ready is filled, which is what that check needs.
+function RomImporter:_applyLastVersionTab()
+  local okLO, LO = pcall(require, "src.core.LaunchOptions")
+  if okLO and LO.pendingTab then return end
+  local okOpt, opts = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  local last = okOpt and opts and opts.lastVersion
+  if last and GameVersion.VERSIONS[last] and self.ready[last] then
+    self.tab = last
+  end
+end
+
 -- The launcher runs each GameVersion as an independent tab.  Each dropped or
 -- chosen ROM is routed to its version by SHA-1, extracted into that version's
 -- own cache (Red at the root, Blue under blue/, Yellow under yellow/), so all
@@ -1128,6 +1147,7 @@ function RomImporter.new(onComplete, opts)
     self.romName[version] = "pokemon_" .. info.id
       .. (info.id == "yellow" and ".gbc" or ".gb")
   end
+  self:_applyLastVersionTab()
 
   -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
@@ -2220,6 +2240,17 @@ function RomImporter:play(version)
   if self.workState == "working" then return end
   if not self.ready[version] then return end
   self._handedOff = true
+  -- #835: remember the game being launched so the next launcher start opens on
+  -- its column (_applyLastVersionTab).  It rides options.lua rather than a file
+  -- of its own, so portable installs and POKEPORT_IDENTITY sandboxes keep it
+  -- with the rest of the launcher's persisted state.  A failed write only
+  -- costs the memory of the choice, so it must never block the boot.
+  pcall(function()
+    local SaveData = require("src.core.SaveData")
+    local opts = SaveData.loadOptions()
+    opts.lastVersion = version
+    SaveData.saveOptions(opts)
+  end)
   resetPointerCursor(self)
   -- The game draws with raw love.graphics from here on; drop the view's
   -- element tree and canvases before the handoff.

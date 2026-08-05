@@ -18,6 +18,12 @@
 -- script).  Leaders are not def_trainers entries, so engageTrainer has
 -- no header.won -- checkVictoryRewards shows this chain instead of a
 -- synthetic "received badge/TM" stub.
+--
+-- `itemDialogue` is the tail of that chain the original prints only after
+-- GiveItem succeeds; `bagFull` is the gym's *TM*NoRoomText it prints
+-- instead when the bag is at capacity (`jr nc, .BagFull` in
+-- PewterGymScriptReceiveTM34, scripts/PewterGym.asm, and its siblings).
+-- The badge lands either way -- .gymVictory runs from both paths (#797).
 
 local function range(prefix, first, last)
   local t = {}
@@ -42,71 +48,93 @@ return {
                         "_PewterGymBrockReceivedBoulderBadgeText",
                         "_PewterGymBrockBoulderBadgeInfoText",
                         "_PewterGymBrockWaitTakeThisText",
+                      },
+                      itemDialogue = {
                         "_PewterGymReceivedTM34Text",
                         "_TM34ExplanationText",
-                      } },
+                      },
+                      bagFull = "_PewterGymTM34NoRoomText" },
   ["OPP_MISTY#1"] = { badge = "CASCADEBADGE", flag = "EVENT_BEAT_MISTY",
                       item = "TM_BUBBLEBEAM",
                       deactivate = range("EVENT_BEAT_CERULEAN_GYM_TRAINER_", 0, 1),
                       dialogue = {
                         "_CeruleanGymMistyReceivedCascadeBadgeText",
                         "_CeruleanGymMistyCascadeBadgeInfoText",
-                        "_CeruleanGymMistyReceivedTM11Text",
-                      } },
+                      },
+                      itemDialogue = { "_CeruleanGymMistyReceivedTM11Text" },
+                      bagFull = "_CeruleanGymMistyTM11NoRoomText" },
   ["OPP_LT_SURGE#1"] = { badge = "THUNDERBADGE", flag = "EVENT_BEAT_LT_SURGE",
                          item = "TM_THUNDERBOLT",
                          deactivate = range("EVENT_BEAT_VERMILION_GYM_TRAINER_", 0, 2),
                          dialogue = {
                            "_VermilionGymLTSurgeReceivedThunderBadgeText",
                            "_VermilionGymLTSurgeThunderBadgeInfoText",
+                         },
+                         itemDialogue = {
                            "_VermilionGymLTSurgeReceivedTM24Text",
                            "_TM24ExplanationText",
-                         } },
+                         },
+                         bagFull = "_VermilionGymLTSurgeTM24NoRoomText" },
   ["OPP_ERIKA#1"] = { badge = "RAINBOWBADGE", flag = "EVENT_BEAT_ERIKA",
                       item = "TM_MEGA_DRAIN",
                       deactivate = range("EVENT_BEAT_CELADON_GYM_TRAINER_", 0, 6),
                       dialogue = {
                         "_CeladonGymErikaReceivedRainbowBadgeText",
                         "_CeladonGymRainbowBadgeInfoText",
+                      },
+                      itemDialogue = {
                         "_CeladonGymReceivedTM21Text",
                         "_TM21ExplanationText",
-                      } },
+                      },
+                      bagFull = "_CeladonGymTM21NoRoomText" },
   ["OPP_KOGA#1"] = { badge = "SOULBADGE", flag = "EVENT_BEAT_KOGA",
                      item = "TM_TOXIC",
                      deactivate = range("EVENT_BEAT_FUCHSIA_GYM_TRAINER_", 0, 5),
                      dialogue = {
                        "_FuchsiaGymKogaReceivedSoulBadgeText",
                        "_FuchsiaGymKogaSoulBadgeInfoText",
+                     },
+                     itemDialogue = {
                        "_FuchsiaGymKogaReceivedTM06Text",
                        "_FuchsiaGymKogaTM06ExplanationText",
-                     } },
+                     },
+                     bagFull = "_FuchsiaGymKogaTM06NoRoomText" },
   ["OPP_SABRINA#1"] = { badge = "MARSHBADGE", flag = "EVENT_BEAT_SABRINA",
                         item = "TM_PSYWAVE",
                         deactivate = range("EVENT_BEAT_SAFFRON_GYM_TRAINER_", 0, 6),
                         dialogue = {
                           "_SaffronGymSabrinaReceivedMarshBadgeText",
                           "_SaffronGymSabrinaMarshBadgeInfoText",
+                        },
+                        itemDialogue = {
                           "_SaffronGymSabrinaReceivedTM46Text",
                           "_TM46ExplanationText",
-                        } },
+                        },
+                        bagFull = "_SaffronGymSabrinaTM46NoRoomText" },
   ["OPP_BLAINE#1"] = { badge = "VOLCANOBADGE", flag = "EVENT_BEAT_BLAINE",
                        item = "TM_FIRE_BLAST",
                        deactivate = range("EVENT_BEAT_CINNABAR_GYM_TRAINER_", 0, 6),
                        dialogue = {
                          "_CinnabarGymBlaineReceivedVolcanoBadgeText",
                          "_CinnabarGymBlaineVolcanoBadgeInfoText",
+                       },
+                       itemDialogue = {
                          "_CinnabarGymBlaineReceivedTM38Text",
                          "_CinnabarGymBlaineTM38ExplanationText",
-                       } },
+                       },
+                       bagFull = "_CinnabarGymBlaineTM38NoRoomText" },
   ["OPP_GIOVANNI#3"] = { badge = "EARTHBADGE", flag = "EVENT_BEAT_GIOVANNI",
                          item = "TM_FISSURE",
                          deactivate = range("EVENT_BEAT_VIRIDIAN_GYM_TRAINER_", 0, 7),
                          dialogue = {
                            "_ViridianGymGiovanniReceivedEarthBadgeText",
                            "_ViridianGymGiovanniEarthBadgeInfoText",
+                         },
+                         itemDialogue = {
                            "_ViridianGymGiovanniReceivedTM27Text",
                            "_ViridianGymGiovanniTM27ExplanationText",
-                         } },
+                         },
+                         bagFull = "_ViridianGymGiovanniTM27NoRoomText" },
 
   -- Silph Co. Giovanni: unlocks the president's Master Ball gift.
   -- SilphCo11FGiovanniStartBattleScript (scripts/SilphCo11F.asm) hands the
