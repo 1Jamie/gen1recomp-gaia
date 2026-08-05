@@ -1,11 +1,12 @@
 # Native Switch OTA launcher
 
 In-console updates for Gen1Recomp on Nintendo Switch. This NRO is the **hbmenu
-entry** (`gen1recomp.nro`). It checks GitHub Releases quietly (no console flash
-when you are already up to date or offline). Only if a newer release exists
-does it prompt to download the same `gen1recomp-*-switch.zip` used for install,
-verify SHA-256 from `sha256sums.txt`, replace **both** `gen1recomp-game.nro`
-and `gen1recomp.nro` (matching NACP version for hbmenu/Sphaira), then hand off
+entry** (`gen1recomp.nro`). It checks GitHub Releases quietly (no UI when you
+are already up to date or offline). Only if a newer release exists does it show
+a **launcher-style screen** (black + RGB rail + project logo + flat A/B
+buttons), download the same `gen1recomp-*-switch.zip` used for install, verify
+SHA-256 from `sha256sums.txt`, replace **both** `gen1recomp-game.nro` and
+`gen1recomp.nro` (matching NACP version for hbmenu/Sphaira), then hand off
 with `envSetNextLoad`.
 
 The LÖVE self-updater (`src/update/Check.lua`) stays **disabled** on NX.

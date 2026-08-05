@@ -400,8 +400,12 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(main, /envSetNextLoad|ota_fs_handoff_to_game/);
   assert.match(main, /gen1recomp-game\.nro|OTA_GAME_NRO_NAME/);
   assert.match(main, /Quiet by default|stays quiet|LÖVE self-updater stays off|self-updater stays off/i);
-  assert.match(main, /consoleInit/, 'UI uses console only when needed');
-  assert.match(main, /ui_begin|g_ui/, 'UI is gated behind begin');
+  assert.match(main, /ota_ui_prompt_update|ota_ui_show_progress/);
+  assert.doesNotMatch(main, /consoleInit/, 'no terminal console UI');
+  assert.ok(fs.existsSync(path.join(root, 'native/switch-ota-launcher/src/ota_ui.c')));
+  assert.match(read('native/switch-ota-launcher/src/ota_ui.c'), /COL_RAIL_R|rail|FFD600|255,\s*214/);
+  assert.match(read('native/switch-ota-launcher/src/ota_ui.c'), /logo\.png|stb_image/);
+  assert.match(read('native/switch-ota-launcher/Makefile'), /^ROMFS\s*:=/m);
 
   const mk = read('native/switch-ota-launcher/Makefile');
   assert.match(mk, /libnx\/switch_rules|DEVKITPRO/);
@@ -452,7 +456,7 @@ test('AC-011: Empacotamento dual-NRO e selftest @spec:AC-011', () => {
   assert.match(selftest, /dual-NRO|gen1recomp-game\.nro/);
   assert.match(selftest, /ota_launcher\.manifest/);
   assert.match(selftest, /unified OTA|same SD zip|legacy OTA-only/i);
-  assert.match(selftest, /Quiet by default|quiet by default|ui_begin/);
+  assert.match(selftest, /ota_ui|branded framebuffer|Quiet by default|quiet by default/i);
 
   const manifest = read('scripts/switch/ota_launcher.manifest');
   assert.match(manifest, /^OTA_ENABLED=1$/m);

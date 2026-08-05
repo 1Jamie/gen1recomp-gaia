@@ -58,7 +58,9 @@ On Switch, over-the-air updates are handled by the **native OTA launcher**
 `gen1recomp.nro` (so the NACP version matches the release for hbmenu /
 Sphaira), then hand off via `envSetNextLoad`. When you are already up to
 date (or offline), the launcher stays quiet and opens the game with no
-console flash. Saves under `pokemon-love2d/` are never touched. Protocol
+UI. When an update is available it shows a short screen in the same visual
+language as the in-game launcher (black field, RGB rail, logo, A/B buttons).
+Saves under `pokemon-love2d/` are never touched. Protocol
 contract: `src/update/SwitchOta.lua`.
 
 The LÖVE self-updater stays **disabled** on NX (`networkValidated == false`).

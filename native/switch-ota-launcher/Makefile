@@ -37,6 +37,7 @@ BUILD		:=	build
 SOURCES		:=	src
 DATA		:=	data
 INCLUDES	:=	include
+ROMFS		:=	romfs
 
 APP_TITLE	:=	gen1recomp
 APP_AUTHOR	:=	bryanthaboi, port by andrewqsantos
@@ -45,6 +46,7 @@ APP_VERSION	?=	0.0.0
 
 # Prefer project Switch icon if present
 ICON		:=	$(TOPDIR)/../../assets/switch/icon.jpg
+LOGO_SRC	:=	$(TOPDIR)/../../assets/logo/logo.png
 
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
@@ -124,12 +126,20 @@ ifeq ($(strip $(NO_NACP)),)
 	export NROFLAGS += --nacp=$(CURDIR)/$(TARGET).nacp
 endif
 
-.PHONY: $(BUILD) clean all host-test
+ifneq ($(ROMFS),)
+	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
+endif
+
+.PHONY: $(BUILD) clean all host-test sync-romfs
 
 #---------------------------------------------------------------------------------
-all: $(BUILD)
+all: sync-romfs $(BUILD)
 
-$(BUILD):
+sync-romfs:
+	@mkdir -p $(CURDIR)/$(ROMFS)
+	@cp -f $(LOGO_SRC) $(CURDIR)/$(ROMFS)/logo.png
+
+$(BUILD): sync-romfs
 	@[ -d $@ ] || mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
@@ -137,6 +147,7 @@ $(BUILD):
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).lst build-host
+	@rm -f $(CURDIR)/$(ROMFS)/logo.png
 
 host-test:
 	@mkdir -p build-host

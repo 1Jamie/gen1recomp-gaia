@@ -385,12 +385,13 @@ else
   bad "legacy separate OTA-only packer / asset still present"
 fi
 
-if grep -q 'Quiet by default\|stays quiet\|Quiet' "$ROOT/native/switch-ota-launcher/src/main.c" \
-  && grep -q 'ui_begin' "$ROOT/native/switch-ota-launcher/src/main.c"
+if grep -q 'ota_ui_prompt_update' "$ROOT/native/switch-ota-launcher/src/main.c" \
+  && grep -q 'framebufferCreate\|COL_RAIL' "$ROOT/native/switch-ota-launcher/src/ota_ui.c" \
+  && grep -q '^ROMFS' "$ROOT/native/switch-ota-launcher/Makefile"
 then
-  ok "launcher UI is quiet by default (console only when needed)"
+  ok "launcher UI is branded framebuffer (quiet by default)"
 else
-  bad "launcher missing quiet-by-default UI gate"
+  bad "launcher missing branded ota_ui / ROMFS"
 fi
 
 if [ -f "$ROOT/native/switch-ota-launcher/src/ota_unzip.c" ] \

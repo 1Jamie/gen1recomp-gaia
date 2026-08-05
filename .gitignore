@@ -44,6 +44,7 @@ native/switch-ota-launcher/*.nro
 native/switch-ota-launcher/*.nacp
 native/switch-ota-launcher/*.elf
 native/switch-ota-launcher/*.map
+native/switch-ota-launcher/romfs/logo.png
 
 # Legacy manual convenience-copy location (superseded by /dist/android/)
 mobile/dist/
