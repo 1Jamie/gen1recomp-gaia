@@ -20,6 +20,10 @@ void ota_ui_show_progress(const char *title, const char *detail, float progress0
 /* Error / info + wait for B. */
 void ota_ui_alert(const char *title, const char *line1, const char *line2);
 
+/* User-friendly error with optional technical detail and installed-version footer. */
+void ota_ui_alert_error(const char *title, const char *friendly, const char *technical,
+                        const char *installed_version);
+
 /* Missing game install screen; wait for +. */
 void ota_ui_missing_game(void);
 

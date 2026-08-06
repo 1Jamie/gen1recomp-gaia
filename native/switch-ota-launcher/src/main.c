@@ -32,6 +32,27 @@
 #define GAME_MEMBER_IN_ZIP "switch/gen1recomp/" OTA_GAME_NRO_NAME
 #define LAUNCHER_MEMBER_IN_ZIP "switch/gen1recomp/" OTA_LAUNCHER_NRO_NAME
 
+typedef struct {
+  const char *detail;
+  float base;
+  float span;
+} download_progress_ctx_t;
+
+static void on_download_progress(void *userdata, double fraction) {
+  download_progress_ctx_t *ctx = (download_progress_ctx_t *)userdata;
+  if (!ctx) return;
+  float p = ctx->base;
+  if (fraction >= 0.0) p += ctx->span * (float)fraction;
+  else p += ctx->span * 0.1f;
+  if (p > ctx->base + ctx->span) p = ctx->base + ctx->span;
+  ota_ui_show_progress("Step 1/3: Downloading...", ctx->detail, p);
+}
+
+static void show_update_error(const char *title, const char *friendly, const char *technical,
+                              const char *installed) {
+  ota_ui_alert_error(title, friendly, technical, installed);
+}
+
 static int run_update_flow(const char *install_dir) {
   char installed[64] = "0.0.0";
   (void)ota_fs_read_installed_version(install_dir, installed, sizeof(installed));
@@ -75,27 +96,32 @@ static int run_update_flow(const char *install_dir) {
   mkdir(updates_dir, 0755);
 #endif
 
-  ota_ui_show_progress("Downloading…", "This may take a minute.", 0.15f);
-  if (ota_net_download_file(dec.download_url, zip_path, 180000L, err, sizeof(err)) != 0) {
-    ota_ui_alert("Download failed", "Playing the installed version.", NULL);
+  download_progress_ctx_t dl_ctx = {"This may take a minute.", 0.f, 0.5f};
+  ota_ui_show_progress("Step 1/3: Downloading...", dl_ctx.detail, dl_ctx.base);
+  if (ota_net_download_file(dec.download_url, zip_path, 180000L, err, sizeof(err),
+                              on_download_progress, &dl_ctx) != 0) {
+    show_update_error("Download failed",
+                      "Could not download the update. Check Wi-Fi and try again.", err, installed);
     return 0;
   }
 
-  ota_ui_show_progress("Checking update…", "Verifying file integrity.", 0.55f);
+  ota_ui_show_progress("Step 2/3: Verifying...", "Checking file integrity.", 0.55f);
   char sums_url[512];
   snprintf(sums_url, sizeof(sums_url),
            "https://github.com/bryanthaboi/gen1recomp/releases/download/%s/sha256sums.txt",
            rel.tag);
-  if (ota_net_download_file(sums_url, sums_path, CHECK_TIMEOUT_MS, err, sizeof(err)) != 0) {
+  if (ota_net_download_file(sums_url, sums_path, CHECK_TIMEOUT_MS, err, sizeof(err), NULL,
+                            NULL) != 0) {
     remove(zip_path);
-    ota_ui_alert("Could not verify", "Playing the installed version.", NULL);
+    show_update_error("Could not verify", "Downloaded file could not be checked.", err, installed);
     return 0;
   }
 
   FILE *sf = fopen(sums_path, "rb");
   if (!sf) {
     remove(zip_path);
-    ota_ui_shutdown();
+    show_update_error("Could not verify", "Could not read checksum file.", "fopen sums failed",
+                      installed);
     return 0;
   }
   fseek(sf, 0, SEEK_END);
@@ -104,18 +130,22 @@ static int run_update_flow(const char *install_dir) {
   char *sums = (char *)malloc((size_t)slen + 1);
   if (!sums) {
     fclose(sf);
-    ota_ui_shutdown();
+    remove(zip_path);
+    show_update_error("Could not verify", "Not enough memory to verify update.", "malloc failed",
+                      installed);
     return 0;
   }
   fread(sums, 1, (size_t)slen, sf);
   sums[slen] = '\0';
   fclose(sf);
 
+  ota_ui_show_progress("Step 2/3: Verifying...", "Computing checksum...", 0.65f);
   char hex[96];
   if (ota_fs_sha256_file(zip_path, hex, sizeof(hex)) != 0) {
     free(sums);
     remove(zip_path);
-    ota_ui_shutdown();
+    show_update_error("Could not verify", "Could not read downloaded update file.",
+                      "sha256 file read failed", installed);
     return 0;
   }
   ota_verify_t ver;
@@ -123,7 +153,8 @@ static int run_update_flow(const char *install_dir) {
   free(sums);
   if (!ver.ok) {
     remove(zip_path);
-    ota_ui_alert("Update check failed", "Playing the installed version.", NULL);
+    show_update_error("Update check failed",
+                      "Downloaded file did not match expected checksum.", ver.reason, installed);
     return 0;
   }
 
@@ -134,11 +165,12 @@ static int run_update_flow(const char *install_dir) {
            install_dir);
 
 #if defined(__SWITCH__)
-  ota_ui_show_progress("Installing…", "Keeping your saves safe.", 0.8f);
+  ota_ui_show_progress("Step 3/3: Installing...", "Keeping your saves safe.", 0.8f);
   if (ota_unzip_extract_file(zip_path, GAME_MEMBER_IN_ZIP, extracted, err, sizeof(err)) != 0) {
     if (ota_unzip_extract_file(zip_path, OTA_GAME_NRO_NAME, extracted, err, sizeof(err)) != 0) {
       remove(zip_path);
-      ota_ui_alert("Install failed", "Playing the installed version.", NULL);
+      show_update_error("Could not extract",
+                        "Update zip is missing game files or is corrupted.", err, installed);
       return 0;
     }
   }
@@ -146,7 +178,9 @@ static int run_update_flow(const char *install_dir) {
   if (ota_fs_atomic_replace_game(install_dir, extracted, err, sizeof(err)) != 0) {
     remove(extracted);
     remove(zip_path);
-    ota_ui_alert("Install failed", "Playing the installed version.", NULL);
+    show_update_error("Could not install",
+                      "Could not replace game on microSD. Free up space and try again.", err,
+                      installed);
     return 0;
   }
   remove(extracted);
@@ -168,7 +202,7 @@ static int run_update_flow(const char *install_dir) {
     fclose(vf);
   }
 
-  ota_ui_show_progress("Ready", "Starting the game…", 1.0f);
+  ota_ui_show_progress("Ready", "Starting the game...", 1.0f);
   svcSleepThread(600000000ULL);
 #else
   (void)extracted;

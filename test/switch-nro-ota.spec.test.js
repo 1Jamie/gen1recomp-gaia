@@ -500,10 +500,19 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(main, /gen1recomp-game\.nro|OTA_GAME_NRO_NAME/);
   assert.match(main, /Quiet by default|stays quiet|LÖVE self-updater stays off|self-updater stays off/i);
   assert.match(main, /ota_ui_prompt_update|ota_ui_show_progress/);
+  assert.match(main, /ota_ui_alert_error/);
+  assert.match(main, /Step 1\/3: Downloading/);
+  assert.doesNotMatch(main, /\u2026/, 'OTA UI strings must be ASCII (no Unicode ellipsis)');
+  assert.doesNotMatch(main, /ota_ui_alert\([^)]*Install failed/, 'generic install alert removed');
   assert.doesNotMatch(main, /consoleInit/, 'no terminal console UI');
   assert.ok(fs.existsSync(path.join(root, 'native/switch-ota-launcher/src/ota_ui.c')));
-  assert.match(read('native/switch-ota-launcher/src/ota_ui.c'), /COL_RAIL_R|rail|FFD600|255,\s*214/);
-  assert.match(read('native/switch-ota-launcher/src/ota_ui.c'), /logo\.png|stb_image/);
+  const otaUi = read('native/switch-ota-launcher/src/ota_ui.c');
+  assert.match(otaUi, /COL_RAIL_R|rail|FFD600|255,\s*214/);
+  assert.match(otaUi, /logo\.png|stb_image/);
+  assert.match(otaUi, /ota_ui_sanitize_ascii/);
+  assert.match(otaUi, /draw_text_wrapped_centered/);
+  assert.match(otaUi, /ota_ui_alert_error/);
+  assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /XFERINFOFUNCTION|xfer_progress/);
   assert.match(read('native/switch-ota-launcher/Makefile'), /^ROMFS\s*:=/m);
 
   const mk = read('native/switch-ota-launcher/Makefile');

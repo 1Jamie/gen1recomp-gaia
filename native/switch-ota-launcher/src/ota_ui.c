@@ -21,7 +21,13 @@
 #define FB_W 1280
 #define FB_H 720
 
-/* Theme.PAL (0–255) → RGBA8 */
+#define TITLE_Y 200
+#define LINE_TITLE 44
+#define LINE_BODY 36
+#define LINE_SMALL 28
+#define WRAP_MAX_PX 720
+
+/* Theme.PAL (0-255) -> RGBA8 */
 #define COL_BG RGBA8_MAXALPHA(0, 0, 0)
 #define COL_INK RGBA8_MAXALPHA(255, 255, 255)
 #define COL_DETAIL RGBA8_MAXALPHA(200, 200, 200)
@@ -60,9 +66,54 @@ static void fill_rect(u32 *fb, u32 stride_px, int x, int y, int w, int h, u32 co
   }
 }
 
+/* Normalize UTF-8 punctuation to ASCII; drop other non-ASCII bytes. */
+static size_t ota_ui_sanitize_ascii(const char *src, char *dst, size_t dst_len) {
+  if (!dst || dst_len == 0) return 0;
+  dst[0] = '\0';
+  if (!src) return 0;
+  size_t w = 0;
+  for (size_t i = 0; src[i] && w + 1 < dst_len;) {
+    unsigned char c = (unsigned char)src[i];
+    if (c < 0x80) {
+      dst[w++] = (char)c;
+      i++;
+      continue;
+    }
+    if (c == 0xE2 && src[i + 1] && src[i + 2]) {
+      unsigned char b2 = (unsigned char)src[i + 1];
+      unsigned char b3 = (unsigned char)src[i + 2];
+      if (b2 == 0x80 && b3 == 0xA6) {
+        if (w + 3 < dst_len) {
+          dst[w++] = '.';
+          dst[w++] = '.';
+          dst[w++] = '.';
+        }
+        i += 3;
+        continue;
+      }
+      if (b2 == 0x80 && (b3 == 0x94 || b3 == 0x93)) {
+        dst[w++] = '-';
+        i += 3;
+        continue;
+      }
+      if (b2 == 0x80 && (b3 == 0x98 || b3 == 0x99)) {
+        dst[w++] = '\'';
+        i += 3;
+        continue;
+      }
+    }
+    if ((c & 0xE0) == 0xC0) i += 2;
+    else if ((c & 0xF0) == 0xE0) i += 3;
+    else if ((c & 0xF8) == 0xF0) i += 4;
+    else i++;
+  }
+  dst[w] = '\0';
+  return w;
+}
+
 static void draw_glyph(u32 *fb, u32 stride_px, int x, int y, char ch, u32 color, int scale) {
   unsigned char c = (unsigned char)ch;
-  if (c > 127) c = '?';
+  if (c > 127) return;
   const char *bits = font8x8_basic[c];
   for (int row = 0; row < 8; row++) {
     unsigned char line = (unsigned char)bits[row];
@@ -81,21 +132,100 @@ static int text_width(const char *s, int scale) {
 
 static void draw_text(u32 *fb, u32 stride_px, int x, int y, const char *s, u32 color, int scale) {
   if (!s) return;
+  char buf[512];
+  ota_ui_sanitize_ascii(s, buf, sizeof(buf));
   int cx = x;
-  for (; *s; s++) {
-    if (*s == '\n') {
+  for (const char *p = buf; *p; p++) {
+    if (*p == '\n') {
       cx = x;
       y += 8 * scale + 4;
       continue;
     }
-    draw_glyph(fb, stride_px, cx, y, *s, color, scale);
+    draw_glyph(fb, stride_px, cx, y, *p, color, scale);
     cx += 8 * scale;
   }
 }
 
 static void draw_text_centered(u32 *fb, u32 stride_px, int y, const char *s, u32 color, int scale) {
-  int w = text_width(s, scale);
-  draw_text(fb, stride_px, (FB_W - w) / 2, y, s, color, scale);
+  char buf[512];
+  ota_ui_sanitize_ascii(s, buf, sizeof(buf));
+  int w = text_width(buf, scale);
+  draw_text(fb, stride_px, (FB_W - w) / 2, y, buf, color, scale);
+}
+
+static int draw_text_wrapped_centered(u32 *fb, u32 stride_px, int y, const char *s, u32 color,
+                                      int scale, int max_px) {
+  if (!s || !*s) return y;
+  char buf[512];
+  ota_ui_sanitize_ascii(s, buf, sizeof(buf));
+  int char_w = 8 * scale;
+  int max_chars = max_px / char_w;
+  if (max_chars < 8) max_chars = 8;
+
+  char line[128];
+  int line_len = 0;
+  const char *word = buf;
+  int lines = 0;
+
+  while (*word) {
+    while (*word == ' ') word++;
+    if (!*word) break;
+
+    const char *end = word;
+    while (*end && *end != ' ' && *end != '\n') end++;
+    int wlen = (int)(end - word);
+
+    if (line_len > 0 && line_len + 1 + wlen > max_chars) {
+      line[line_len] = '\0';
+      draw_text_centered(fb, stride_px, y, line, color, scale);
+      y += 8 * scale + 4;
+      lines++;
+      line_len = 0;
+    }
+
+    if (wlen > max_chars) {
+      if (line_len > 0) {
+        line[line_len] = '\0';
+        draw_text_centered(fb, stride_px, y, line, color, scale);
+        y += 8 * scale + 4;
+        lines++;
+        line_len = 0;
+      }
+      while (wlen > 0) {
+        int chunk = wlen > max_chars ? max_chars : wlen;
+        memcpy(line, word, (size_t)chunk);
+        line[chunk] = '\0';
+        draw_text_centered(fb, stride_px, y, line, color, scale);
+        y += 8 * scale + 4;
+        lines++;
+        word += chunk;
+        wlen -= chunk;
+      }
+      word = end;
+      continue;
+    }
+
+    if (line_len > 0) line[line_len++] = ' ';
+    memcpy(line + line_len, word, (size_t)wlen);
+    line_len += wlen;
+    line[line_len] = '\0';
+    word = (*end == '\n') ? end + 1 : end;
+    if (*(end - 1) == '\n' || *end == '\n') {
+      draw_text_centered(fb, stride_px, y, line, color, scale);
+      y += 8 * scale + 4;
+      lines++;
+      line_len = 0;
+      if (*end == '\n') word = end + 1;
+    }
+  }
+
+  if (line_len > 0) {
+    draw_text_centered(fb, stride_px, y, line, color, scale);
+    y += 8 * scale + 4;
+    lines++;
+  }
+  if (lines == 0) return y;
+  return y;
 }
 
 static void draw_rail(u32 *fb, u32 stride_px) {
@@ -145,7 +275,6 @@ static void load_logo(void) {
   }
   for (int i = 0; i < w * h; i++) {
     unsigned char *p = data + i * 4;
-    /* Premultiply-ish: keep RGB, store A in high byte for skip */
     g_logo[i] = RGBA8(p[0], p[1], p[2], p[3]);
   }
   g_logo_w = w;
@@ -178,7 +307,6 @@ static void draw_button(u32 *fb, u32 stride_px, int x, int y, int w, int h, u32 
                         const char *label, int focused) {
   fill_rect(fb, stride_px, x, y, w, h, fill);
   if (focused) {
-    /* 2px white focus ring (launcher focus outline) */
     fill_rect(fb, stride_px, x - 3, y - 3, w + 6, 2, COL_INK);
     fill_rect(fb, stride_px, x - 3, y + h + 1, w + 6, 2, COL_INK);
     fill_rect(fb, stride_px, x - 3, y - 3, 2, h + 6, COL_INK);
@@ -190,10 +318,17 @@ static void draw_button(u32 *fb, u32 stride_px, int x, int y, int w, int h, u32 
     fill_rect(fb, stride_px, x + w - 1, y, 1, h, COL_LINE);
   }
   int scale = 3;
-  int tw = text_width(label, scale);
+  char lbl[128];
+  ota_ui_sanitize_ascii(label, lbl, sizeof(lbl));
+  int max_tw = w - 24;
+  int tw = text_width(lbl, scale);
+  while (scale > 2 && tw > max_tw) {
+    scale--;
+    tw = text_width(lbl, scale);
+  }
   int tx = x + (w - tw) / 2;
   int ty = y + (h - 8 * scale) / 2;
-  draw_text(fb, stride_px, tx, ty, label, ink, scale);
+  draw_text(fb, stride_px, tx, ty, lbl, ink, scale);
 }
 
 static void draw_chrome(u32 *fb, u32 stride_px) {
@@ -231,25 +366,25 @@ static void paint_prompt(u32 *fb, u32 stride_px, void *ctx) {
   prompt_ctx_t *p = (prompt_ctx_t *)ctx;
   draw_chrome(fb, stride_px);
 
-  int y = 180;
+  int y = TITLE_Y - 20;
   draw_text_centered(fb, stride_px, y, "Update available", COL_INK, 3);
-  y += 48;
+  y += LINE_TITLE;
 
   char line[96];
-  snprintf(line, sizeof(line), "v%s  ->  v%s", p->installed ? p->installed : "?",
+  snprintf(line, sizeof(line), "v%s to v%s", p->installed ? p->installed : "?",
            p->latest ? p->latest : "?");
   draw_text_centered(fb, stride_px, y, line, COL_YELLOW, 3);
-  y += 56;
+  y += LINE_TITLE + 8;
 
   draw_text_centered(fb, stride_px, y, "Your saves stay on this console.", COL_MUTED, 2);
-  y += 64;
+  y += LINE_BODY + 28;
 
-  int bw = 420;
+  int bw = 600;
   int bh = 64;
   int bx = (FB_W - bw) / 2;
   draw_button(fb, stride_px, bx, y, bw, bh, COL_YELLOW, COL_INVERSE, "A  Update", p->focus == 0);
   y += bh + 24;
-  draw_button(fb, stride_px, bx, y, bw, bh, COL_INK, COL_INVERSE, "B  Play without updating",
+  draw_button(fb, stride_px, bx, y, bw, bh, COL_INK, COL_INVERSE, "B  Play without update",
               p->focus == 1);
 }
 
@@ -285,31 +420,32 @@ typedef struct {
   int show_bar;
 } status_ctx_t;
 
+static void paint_progress_bar(u32 *fb, u32 stride_px, int y, float t) {
+  int bw = 520;
+  int bh = 18;
+  int bx = (FB_W - bw) / 2;
+  if (t < 0.f) t = 0.f;
+  if (t > 1.f) t = 1.f;
+  fill_rect(fb, stride_px, bx, y, bw, bh, COL_RAISED);
+  fill_rect(fb, stride_px, bx, y, bw, 1, COL_LINE);
+  fill_rect(fb, stride_px, bx, y + bh - 1, bw, 1, COL_LINE);
+  fill_rect(fb, stride_px, bx, y, 1, bh, COL_LINE);
+  fill_rect(fb, stride_px, bx + bw - 1, y, 1, bh, COL_LINE);
+  int fw = (int)(bw * t);
+  if (fw > 0) fill_rect(fb, stride_px, bx, y, fw, bh, COL_GREEN);
+}
+
 static void paint_status(u32 *fb, u32 stride_px, void *ctx) {
   status_ctx_t *s = (status_ctx_t *)ctx;
   draw_chrome(fb, stride_px);
-  int y = 200;
+  int y = TITLE_Y;
   draw_text_centered(fb, stride_px, y, s->title ? s->title : "", COL_INK, 3);
-  y += 48;
+  y += LINE_TITLE;
   if (s->detail && s->detail[0]) {
-    draw_text_centered(fb, stride_px, y, s->detail, COL_DETAIL, 2);
-    y += 40;
+    y = draw_text_wrapped_centered(fb, stride_px, y, s->detail, COL_DETAIL, 2, WRAP_MAX_PX);
+    y += LINE_SMALL;
   }
-  if (s->show_bar) {
-    int bw = 520;
-    int bh = 18;
-    int bx = (FB_W - bw) / 2;
-    float t = s->progress;
-    if (t < 0.f) t = 0.f;
-    if (t > 1.f) t = 1.f;
-    fill_rect(fb, stride_px, bx, y, bw, bh, COL_RAISED);
-    fill_rect(fb, stride_px, bx, y, bw, 1, COL_LINE);
-    fill_rect(fb, stride_px, bx, y + bh - 1, bw, 1, COL_LINE);
-    fill_rect(fb, stride_px, bx, y, 1, bh, COL_LINE);
-    fill_rect(fb, stride_px, bx + bw - 1, y, 1, bh, COL_LINE);
-    int fw = (int)(bw * t);
-    if (fw > 0) fill_rect(fb, stride_px, bx, y, fw, bh, COL_GREEN);
-  }
+  if (s->show_bar) paint_progress_bar(fb, stride_px, y, s->progress);
 }
 
 void ota_ui_show_status(const char *title, const char *detail) {
@@ -326,18 +462,24 @@ typedef struct {
   const char *title;
   const char *line1;
   const char *line2;
+  const char *line3;
 } alert_ctx_t;
 
 static void paint_alert(u32 *fb, u32 stride_px, void *ctx) {
   alert_ctx_t *a = (alert_ctx_t *)ctx;
   draw_chrome(fb, stride_px);
-  int y = 200;
+  int y = TITLE_Y;
   draw_text_centered(fb, stride_px, y, a->title ? a->title : "", COL_YELLOW, 3);
-  y += 52;
-  if (a->line1) draw_text_centered(fb, stride_px, y, a->line1, COL_DETAIL, 2);
-  y += 36;
-  if (a->line2) draw_text_centered(fb, stride_px, y, a->line2, COL_MUTED, 2);
-  y += 64;
+  y += LINE_TITLE;
+  if (a->line1 && a->line1[0])
+    y = draw_text_wrapped_centered(fb, stride_px, y, a->line1, COL_DETAIL, 2, WRAP_MAX_PX);
+  y += LINE_SMALL;
+  if (a->line2 && a->line2[0])
+    y = draw_text_wrapped_centered(fb, stride_px, y, a->line2, COL_MUTED, 2, WRAP_MAX_PX);
+  y += LINE_SMALL;
+  if (a->line3 && a->line3[0])
+    y = draw_text_wrapped_centered(fb, stride_px, y, a->line3, COL_MUTED, 2, WRAP_MAX_PX);
+  y += LINE_BODY + 16;
   int bw = 360;
   int bh = 56;
   draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "B  Continue", 1);
@@ -345,7 +487,30 @@ static void paint_alert(u32 *fb, u32 stride_px, void *ctx) {
 
 void ota_ui_alert(const char *title, const char *line1, const char *line2) {
   if (!ui_ensure()) return;
-  alert_ctx_t a = {title, line1, line2};
+  alert_ctx_t a = {title, line1, line2, NULL};
+  while (appletMainLoop()) {
+    present(paint_alert, &a);
+    padUpdate(&g_pad);
+    if (padGetButtonsDown(&g_pad) & HidNpadButton_B) break;
+    svcSleepThread(16000000ULL);
+  }
+  ota_ui_shutdown();
+}
+
+void ota_ui_alert_error(const char *title, const char *friendly, const char *technical,
+                        const char *installed_version) {
+  if (!ui_ensure()) return;
+  char footer[96];
+  snprintf(footer, sizeof(footer), "Playing installed version (v%s).",
+           installed_version && installed_version[0] ? installed_version : "?");
+  char tech[256];
+  if (technical && technical[0]) {
+    ota_ui_sanitize_ascii(technical, tech, sizeof(tech));
+    if (strlen(tech) > 80) tech[80] = '\0';
+  } else {
+    tech[0] = '\0';
+  }
+  alert_ctx_t a = {title, friendly, tech[0] ? tech : NULL, footer};
   while (appletMainLoop()) {
     present(paint_alert, &a);
     padUpdate(&g_pad);
@@ -358,13 +523,13 @@ void ota_ui_alert(const char *title, const char *line1, const char *line2) {
 static void paint_missing(u32 *fb, u32 stride_px, void *ctx) {
   (void)ctx;
   draw_chrome(fb, stride_px);
-  int y = 190;
+  int y = TITLE_Y - 10;
   draw_text_centered(fb, stride_px, y, "Game files missing", COL_YELLOW, 3);
-  y += 52;
-  draw_text_centered(fb, stride_px, y, "Copy the Switch zip onto your microSD,", COL_DETAIL, 2);
-  y += 32;
-  draw_text_centered(fb, stride_px, y, "then open gen1recomp again.", COL_DETAIL, 2);
-  y += 64;
+  y += LINE_TITLE;
+  y = draw_text_wrapped_centered(fb, stride_px, y,
+                                 "Copy the Switch zip onto your microSD, then open gen1recomp again.",
+                                 COL_DETAIL, 2, WRAP_MAX_PX);
+  y += LINE_BODY + 16;
   int bw = 320;
   int bh = 56;
   draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "+  Exit", 1);
@@ -398,6 +563,12 @@ void ota_ui_show_progress(const char *title, const char *detail, float progress0
 void ota_ui_alert(const char *title, const char *line1, const char *line2) {
   fprintf(stderr, "[ota_ui] alert: %s / %s / %s\n", title ? title : "", line1 ? line1 : "",
           line2 ? line2 : "");
+}
+void ota_ui_alert_error(const char *title, const char *friendly, const char *technical,
+                        const char *installed_version) {
+  fprintf(stderr, "[ota_ui] error: %s / %s / %s / v%s\n", title ? title : "",
+          friendly ? friendly : "", technical ? technical : "",
+          installed_version ? installed_version : "?");
 }
 void ota_ui_missing_game(void) { fprintf(stderr, "[ota_ui] missing game\n"); }
 void ota_ui_shutdown(void) {}

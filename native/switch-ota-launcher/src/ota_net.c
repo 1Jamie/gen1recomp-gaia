@@ -15,6 +15,11 @@ struct mem_buf {
   size_t len;
 };
 
+struct file_progress {
+  ota_net_progress_fn fn;
+  void *userdata;
+};
+
 static size_t write_mem(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct mem_buf *m = (struct mem_buf *)userdata;
   size_t n = size * nmemb;
@@ -29,6 +34,23 @@ static size_t write_mem(char *ptr, size_t size, size_t nmemb, void *userdata) {
 
 static size_t write_file(char *ptr, size_t size, size_t nmemb, void *userdata) {
   return fwrite(ptr, size, nmemb, (FILE *)userdata);
+}
+
+static int xfer_progress(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal,
+                         curl_off_t ulnow) {
+  (void)ultotal;
+  (void)ulnow;
+  struct file_progress *fp = (struct file_progress *)clientp;
+  if (!fp || !fp->fn) return 0;
+  if (dltotal > 0) {
+    double frac = (double)dlnow / (double)dltotal;
+    if (frac < 0.0) frac = 0.0;
+    if (frac > 1.0) frac = 1.0;
+    fp->fn(fp->userdata, frac);
+  } else if (dlnow > 0) {
+    fp->fn(fp->userdata, -1.0);
+  }
+  return 0;
 }
 #endif
 
@@ -54,7 +76,6 @@ int ota_net_download_buffer(const char *url, long timeout_ms, char **out, size_t
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_mem);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
-  /* Atmosphere / homebrew CA store is limited; match common homebrew practice. */
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
   CURLcode rc = curl_easy_perform(curl);
@@ -76,7 +97,7 @@ int ota_net_download_buffer(const char *url, long timeout_ms, char **out, size_t
 }
 
 int ota_net_download_file(const char *url, const char *path, long timeout_ms, char *err,
-                          size_t err_len) {
+                          size_t err_len, ota_net_progress_fn progress, void *progress_ud) {
   if (!url || !path) {
     if (err && err_len) snprintf(err, err_len, "bad args");
     return -1;
@@ -93,6 +114,7 @@ int ota_net_download_file(const char *url, const char *path, long timeout_ms, ch
     if (err && err_len) snprintf(err, err_len, "curl_easy_init failed");
     return -1;
   }
+  struct file_progress fp_cb = {progress, progress_ud};
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_USERAGENT, "gen1recomp-switch-ota");
@@ -102,6 +124,11 @@ int ota_net_download_file(const char *url, const char *path, long timeout_ms, ch
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  if (progress) {
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xfer_progress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &fp_cb);
+  }
   CURLcode rc = curl_easy_perform(curl);
   curl_easy_cleanup(curl);
   fclose(fp);
@@ -109,9 +136,12 @@ int ota_net_download_file(const char *url, const char *path, long timeout_ms, ch
     if (err && err_len) snprintf(err, err_len, "%s", curl_easy_strerror(rc));
     return -1;
   }
+  if (progress) progress(progress_ud, 1.0);
   return 0;
 #else
   (void)timeout_ms;
+  (void)progress;
+  (void)progress_ud;
   if (err && err_len)
     snprintf(err, err_len, "ota_net_download_file only available on __SWITCH__");
   return -1;
