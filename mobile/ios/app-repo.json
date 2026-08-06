@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.75",
+          "date": "2026-08-06",
+          "size": 9574086,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.75/gen1recomp-0.1.75-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #826 \"Super effective\" and \"not very effective\" SFX are reversed\n- #848 Roms not showing up\n- #876 Remote mod download is unavailable on this platform\n- #899 Importing Pokémon red leads to the contents extracted without a folder called 'red'\n- #902 Audio is wrong!\n\n## Contributors\n\n- @andrewqsantos\n- @bryanthaboi\n- @caorthann-celt\n- @johnjohto\n- @ShaneMcGovernIE"
+        },
+        {
           "version": "0.1.74",
           "date": "2026-08-06",
           "size": 9588946,
