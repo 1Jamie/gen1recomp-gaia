@@ -512,7 +512,8 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(otaUi, /ota_ui_sanitize_ascii/);
   assert.match(otaUi, /draw_text_wrapped_centered/);
   assert.match(otaUi, /ota_ui_alert_error/);
-  assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /XFERINFOFUNCTION|xfer_progress/);
+  assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /ota_net_init/);
+  assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_net_init/);
   assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /CURLOPT_SSL_VERIFYPEER,\s*1L/);
   assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /romfs:\/cacert\.pem/);
   assert.doesNotMatch(read('native/switch-ota-launcher/src/ota_net.c'), /CURLOPT_SSL_VERIFYPEER,\s*0L/);

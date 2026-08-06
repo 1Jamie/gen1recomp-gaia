@@ -12,6 +12,31 @@
 #if defined(__SWITCH__)
 #define OTA_CA_BUNDLE "romfs:/cacert.pem"
 
+static int g_net_ready = 0;
+
+static int ota_ca_bundle_ready(void) {
+  FILE *f = fopen(OTA_CA_BUNDLE, "rb");
+  if (!f) return 0;
+  fclose(f);
+  return 1;
+}
+
+int ota_net_init(void) {
+  if (g_net_ready) return 0;
+  if (R_FAILED(romfsInit())) return -1;
+  if (!ota_ca_bundle_ready()) return -1;
+  if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return -1;
+  g_net_ready = 1;
+  return 0;
+}
+
+void ota_net_shutdown(void) {
+  if (!g_net_ready) return;
+  curl_global_cleanup();
+  romfsExit();
+  g_net_ready = 0;
+}
+
 static void ota_net_configure_tls(CURL *curl) {
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
@@ -60,6 +85,11 @@ static int xfer_progress(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cu
   }
   return 0;
 }
+#else
+
+int ota_net_init(void) { return 0; }
+void ota_net_shutdown(void) {}
+
 #endif
 
 int ota_net_download_buffer(const char *url, long timeout_ms, char **out, size_t *out_len,

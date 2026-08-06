@@ -69,6 +69,6 @@ Manifest: `scripts/switch/ota_launcher.manifest`.
 
 - Zip extraction uses `switch-zziplib` (`ota_unzip.c`) on device.
 - OTA replaces launcher + game from the install zip (NACP versions stay aligned).
-- HTTPS uses Mozilla CA bundle in romfs (`cacert.pem`, fetched at build time).
+- HTTPS uses Mozilla CA bundle in romfs (`cacert.pem`, fetched at build time). `ota_net_init()` mounts romfs before the quiet release check.
 - Sphaira HOME forwarders cache metadata until reinstalled (see docs/switch-install.md).
 - Release runner: `switch-dev` + (`install_devkitpro_deps.sh` **or** Docker)

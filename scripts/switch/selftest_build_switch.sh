@@ -416,8 +416,10 @@ else
 fi
 
 if grep -q 'ota_ui_prompt_update' "$ROOT/native/switch-ota-launcher/src/main.c" \
+  && grep -q 'ota_net_init' "$ROOT/native/switch-ota-launcher/src/main.c" \
   && grep -q 'framebufferCreate\|COL_RAIL' "$ROOT/native/switch-ota-launcher/src/ota_ui.c" \
-  && grep -q '^ROMFS' "$ROOT/native/switch-ota-launcher/Makefile"
+  && grep -q '^ROMFS' "$ROOT/native/switch-ota-launcher/Makefile" \
+  && grep -q 'cacert.pem' "$ROOT/native/switch-ota-launcher/Makefile"
 then
   ok "launcher UI uses framebuffer (no prompt when up to date)"
 else

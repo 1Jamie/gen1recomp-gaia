@@ -10,6 +10,10 @@ extern "C" {
 /* fraction is 0..1 when Content-Length is known, else -1 for indeterminate. */
 typedef void (*ota_net_progress_fn)(void *userdata, double fraction);
 
+/* Mount romfs (CA bundle) and init libcurl. Call before any HTTPS download. */
+int ota_net_init(void);
+void ota_net_shutdown(void);
+
 /* Download URL into memory buffer (caller frees *out). Returns 0 on success. */
 int ota_net_download_buffer(const char *url, long timeout_ms, char **out, size_t *out_len,
                             char *err, size_t err_len);

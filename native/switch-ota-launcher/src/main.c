@@ -232,13 +232,18 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
+  const char *install = SD_INSTALL_DIR;
+
 #if defined(__SWITCH__)
   socketInitializeDefault();
   padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-#endif
-
-  const char *install = SD_INSTALL_DIR;
+  if (ota_net_init() == 0) {
+    run_update_flow(install);
+    ota_net_shutdown();
+  }
+#else
   run_update_flow(install);
+#endif
 
   char game[192];
   snprintf(game, sizeof(game), "%s/%s", install, OTA_GAME_NRO_NAME);

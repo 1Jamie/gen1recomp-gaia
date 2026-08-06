@@ -261,7 +261,7 @@ static void blit_logo(u32 *fb, u32 stride_px, int dst_x, int dst_y, int max_w) {
 
 static void load_logo(void) {
   if (g_logo) return;
-  romfsInit();
+  /* romfs is mounted in ota_net_init() before the release check runs. */
   int w = 0, h = 0, n = 0;
   unsigned char *data = stbi_load("romfs:/logo.png", &w, &h, &n, 4);
   if (!data || w <= 0 || h <= 0) {
@@ -299,7 +299,6 @@ void ota_ui_shutdown(void) {
   free(g_logo);
   g_logo = NULL;
   g_logo_w = g_logo_h = 0;
-  romfsExit();
   g_ready = 0;
 }
 
