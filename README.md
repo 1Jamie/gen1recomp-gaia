@@ -205,6 +205,39 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## Launch Options
+
+By default the app opens the launcher so you can pick a game. Launch options
+skip it and start one game directly, which is what you want for a one-click
+entry: a desktop shortcut per game, a Steam entry, or a handheld frontend.
+
+| Option | Effect |
+| --- | --- |
+| `--game=red` | boot Red, skipping the launcher (`blue` and `yellow` too, or just `r` / `b` / `y`) |
+| `--slot=2` | load that save slot; takes a slot number or a slot id |
+| `--launcher` | open the launcher anyway, so you can edit a shortcut you already made |
+
+
+## Linux on arm64 (Raspberry Pi)
+
+Alongside the x86_64 `gen1recomp-*-linux.zip`, every release ships
+`gen1recomp-*-linux-arm64.AppImage` for 64-bit ARM desktop Linux — Raspberry
+Pi 4/5, Armbian and other SBC distros, and arm64 VMs on Apple Silicon:
+
+```sh
+chmod +x gen1recomp-*-linux-arm64.AppImage
+./gen1recomp-*-linux-arm64.AppImage
+```
+
+LÖVE publishes no aarch64 binary of any kind, so this artifact compiles the
+engine — and SDL2, OpenAL and the codecs — from source inside a Debian
+bullseye arm64 container. It needs only glibc 2.29+, libstdc++, freetype and
+zlib on the host; OpenGL, X11, Wayland, KMSDRM, ALSA and PulseAudio are all
+dlopened, so the same image runs on a full desktop, a Wayland-only session or
+a KMSDRM handheld with no X server. Build instructions and the reasoning are
+in [docs/linux-arm64-build.md](docs/linux-arm64-build.md).
+
+
 ## iOS
 
 Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore
