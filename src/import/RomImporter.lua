@@ -32,7 +32,7 @@ end
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
 local CACHE_FORMAT = "rom-cache-v9:"
 -- The completion marker is written under each version's cache prefix
--- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
+-- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
 
 -- The marker a finished import writes for a version: the generation tag plus
@@ -135,8 +135,8 @@ local PAL = {
 
 -- CacheFs.exists checks the game folder directly for a portable install,
 -- otherwise the save directory through love.filesystem.  It honors
--- CacheFs.prefix, so we point it at the version's cache subtree (Red at the
--- root, Blue under blue/).
+-- CacheFs.prefix, so we point it at the version's cache subtree (red/,
+-- blue/, yellow/).
 local function allRequiredFilesExist(version)
   local CacheFs = require("src.import.CacheFs")
   local saved = CacheFs.prefix
@@ -153,11 +153,15 @@ local function allRequiredFilesExist(version)
 end
 
 -- A developer checkout / Python build leaves Red's generated data in the
--- physfs SOURCE at the un-prefixed root; that is always current.  Only Red
--- ships this way (Blue is import-only), so this stays a Red-root check.
+-- physfs SOURCE at the un-prefixed root (the checked-out data/generated and
+-- assets/generated); it is always current and never moves into red/.  Only
+-- Red ships this way (Blue/Yellow are import-only).  The check goes through
+-- love.filesystem directly so the red/ cache prefix cannot hide the source
+-- tree, and the realDirectory test keeps a save-dir cache from counting.
 local function sourceTreeHasData()
-  if not allRequiredFilesExist("red") or not love.filesystem.getRealDirectory then
-    return false
+  if not love.filesystem.getRealDirectory then return false end
+  for _, path in ipairs(REQUIRED_FILES) do
+    if love.filesystem.getInfo(path, "file") == nil then return false end
   end
   local real = love.filesystem.getRealDirectory(REQUIRED_FILES[1])
   return real == love.filesystem.getSource()
@@ -214,8 +218,8 @@ local function purgeSaveDirCache()
     f:close()
     return true
   end
-  -- Purge each version's stale save-directory copy (Red at the root, Blue
-  -- under blue/) so it cannot shadow the portable game-folder cache.
+  -- Purge each version's stale save-directory copy (under its red/ / blue/
+  -- / yellow/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
     if saveDirHas(prefix .. MARKER_PATH) or saveDirHas(prefix .. REQUIRED_FILES[1]) then
@@ -1123,6 +1127,11 @@ function RomImporter.new(onComplete, opts)
     _rawHatDirs = {},
     _padInited = false,
   }, RomImporter)
+
+  -- Pre-#899 installs keep Red's extracted cache at the save-dir root; move
+  -- it under red/ before the readiness loop looks for red/ paths, or every
+  -- such install would read as "never imported" and demand the ROM again.
+  CacheFs.migrateLegacyRedCache()
 
   for _, version in ipairs(GameVersion.ORDER) do
     local info = GameVersion.info(version)
