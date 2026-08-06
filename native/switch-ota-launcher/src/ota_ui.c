@@ -12,11 +12,9 @@
 #if defined(__SWITCH__)
 #include <switch.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_NO_THREAD_LOCALS
-#include "../third_party/stb_image.h"
 #include "../third_party/font8x8_basic.h"
+
+#define OTA_LOGO_ROMFS "romfs:/logo.rgba"
 
 #define FB_W 1280
 #define FB_H 720
@@ -261,25 +259,47 @@ static void blit_logo(u32 *fb, u32 stride_px, int dst_x, int dst_y, int max_w) {
 
 static void load_logo(void) {
   if (g_logo) return;
-  /* romfs is mounted in ota_net_init() before the release check runs. */
-  int w = 0, h = 0, n = 0;
-  unsigned char *data = stbi_load("romfs:/logo.png", &w, &h, &n, 4);
-  if (!data || w <= 0 || h <= 0) {
-    if (data) stbi_image_free(data);
+  FILE *fp = fopen(OTA_LOGO_ROMFS, "rb");
+  if (!fp) return;
+
+  unsigned char header[8];
+  if (fread(header, 1, sizeof(header), fp) != sizeof(header)) {
+    fclose(fp);
     return;
   }
+
+  int w = (int)(header[0] | (header[1] << 8) | (header[2] << 16) | (header[3] << 24));
+  int h = (int)(header[4] | (header[5] << 8) | (header[6] << 16) | (header[7] << 24));
+  if (w <= 0 || h <= 0 || w > 2048 || h > 2048) {
+    fclose(fp);
+    return;
+  }
+
+  size_t nbytes = (size_t)w * (size_t)h * 4u;
+  unsigned char *data = (unsigned char *)malloc(nbytes);
+  if (!data) {
+    fclose(fp);
+    return;
+  }
+  if (fread(data, 1, nbytes, fp) != nbytes) {
+    free(data);
+    fclose(fp);
+    return;
+  }
+  fclose(fp);
+
   g_logo = (u32 *)malloc((size_t)w * (size_t)h * sizeof(u32));
   if (!g_logo) {
-    stbi_image_free(data);
+    free(data);
     return;
   }
   for (int i = 0; i < w * h; i++) {
-    unsigned char *p = data + i * 4;
+    unsigned char *p = data + (size_t)i * 4u;
     g_logo[i] = RGBA8(p[0], p[1], p[2], p[3]);
   }
+  free(data);
   g_logo_w = w;
   g_logo_h = h;
-  stbi_image_free(data);
 }
 
 static int ui_ensure(void) {

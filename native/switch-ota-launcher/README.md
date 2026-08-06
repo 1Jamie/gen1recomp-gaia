@@ -59,6 +59,18 @@ scripts/switch/build_ota_launcher.sh
 
 Docker fallback uses the same pin as fused builds (`scripts/switch/dkp-docker.image`).
 
+## OTA logo asset
+
+The launcher draws a pre-scaled logo from `romfs:/logo.rgba` (no PNG decoder in
+the NRO). The baked blob lives at `assets/logo.rgba` and is copied into romfs at
+build time. After changing `assets/logo/logo.png`, regenerate:
+
+```bash
+python3 scripts/switch/bake_ota_logo.py
+```
+
+Requires Pillow, or on macOS uses `sips` when Pillow is not installed.
+
 ## Packaging
 
 `scripts/switch/pack_sd_zip.sh GAME_NRO VERSION OUT_ZIP LAUNCHER_NRO` writes both

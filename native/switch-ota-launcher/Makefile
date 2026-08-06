@@ -46,7 +46,8 @@ APP_VERSION	?=	0.0.0
 
 # Prefer project Switch icon if present
 ICON		:=	$(TOPDIR)/../../assets/switch/icon.jpg
-LOGO_SRC	:=	$(TOPDIR)/../../assets/logo/logo.png
+LOGO_RGBA_SRC	:=	$(TOPDIR)/assets/logo.rgba
+LOGO_ROMFS	:=	$(CURDIR)/$(ROMFS)/logo.rgba
 
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
@@ -148,7 +149,8 @@ bootstrap-romfs:
 
 sync-romfs: bootstrap-romfs
 	@mkdir -p $(CURDIR)/$(ROMFS)
-	@cp -f $(LOGO_SRC) $(CURDIR)/$(ROMFS)/logo.png
+	@[ -f "$(LOGO_RGBA_SRC)" ] || (echo "missing $(LOGO_RGBA_SRC) — run: python3 scripts/switch/bake_ota_logo.py" && exit 1)
+	@cp -f "$(LOGO_RGBA_SRC)" "$(LOGO_ROMFS)"
 	@if ! curl -sfL --time-cond $(CACERT_ROMFS) -o $(CACERT_ROMFS) $(CACERT_URL); then \
 		[ -f $(CACERT_ROMFS) ] || (echo "sync-romfs: failed to fetch cacert.pem" && exit 1); \
 	fi
@@ -161,7 +163,7 @@ $(BUILD): sync-romfs
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).lst build-host
-	@rm -f $(CURDIR)/$(ROMFS)/logo.png
+	@rm -f $(CURDIR)/$(ROMFS)/logo.rgba $(CURDIR)/$(ROMFS)/logo.png
 
 host-test:
 	@mkdir -p build-host

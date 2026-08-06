@@ -508,7 +508,16 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.ok(fs.existsSync(path.join(root, 'native/switch-ota-launcher/src/ota_ui.c')));
   const otaUi = read('native/switch-ota-launcher/src/ota_ui.c');
   assert.match(otaUi, /COL_RAIL_R|rail|FFD600|255,\s*214/);
-  assert.match(otaUi, /logo\.png|stb_image/);
+  assert.match(otaUi, /logo\.rgba/);
+  assert.doesNotMatch(otaUi, /stb_image/);
+  assert.ok(
+    fs.existsSync(path.join(root, 'native/switch-ota-launcher/assets/logo.rgba')),
+    'pre-baked OTA logo asset'
+  );
+  assert.ok(
+    fs.existsSync(path.join(root, 'scripts/switch/bake_ota_logo.py')),
+    'logo bake script for regenerating logo.rgba'
+  );
   assert.match(otaUi, /ota_ui_sanitize_ascii/);
   assert.match(otaUi, /draw_text_wrapped_centered/);
   assert.match(otaUi, /ota_ui_alert_error/);
@@ -519,6 +528,7 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.doesNotMatch(read('native/switch-ota-launcher/src/ota_net.c'), /CURLOPT_SSL_VERIFYPEER,\s*0L/);
   assert.match(read('native/switch-ota-launcher/Makefile'), /^ROMFS\s*:=/m);
   assert.match(read('native/switch-ota-launcher/Makefile'), /cacert\.pem/);
+  assert.match(read('native/switch-ota-launcher/Makefile'), /logo\.rgba/);
 
   const mk = read('native/switch-ota-launcher/Makefile');
   assert.match(mk, /libnx\/switch_rules|DEVKITPRO/);
@@ -530,8 +540,9 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(read('native/switch-ota-launcher/src/ota_unzip.c'), /zzip\/zzip\.h/);
   assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_unzip_extract_file/);
   assert.match(read('native/switch-ota-launcher/src/main.c'), /GAME_MEMBER_IN_ZIP|switch\/gen1recomp\//);
-  assert.match(read('native/switch-ota-launcher/src/main.c'), /LAUNCHER_MEMBER_IN_ZIP|ota_fs_atomic_replace_nro/);
-  assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_fs_atomic_replace_nro\([\s\S]*\) != 0/);
+  assert.match(read('native/switch-ota-launcher/src/main.c'), /LAUNCHER_MEMBER_IN_ZIP|ota_fs_stage_launcher_bootstrap/);
+  assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_fs_stage_launcher_bootstrap\([\s\S]*\) != 0/);
+  assert.match(read('native/switch-ota-launcher/src/main.c'), /return 2.*bootstrap|bootstrap.*return 2/i);
   assert.match(read('native/switch-ota-launcher/src/ota_fs.c'), /ota_fs_atomic_replace_nro/);
   assert.match(read('native/switch-ota-launcher/src/ota_fs.c'), /remove\(dest\)/);
   assert.doesNotMatch(read('native/switch-ota-launcher/src/ota_fs.c'), /#ifdef _WIN32[\s\S]*remove\(dest\)/);

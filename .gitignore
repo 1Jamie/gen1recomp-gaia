@@ -44,6 +44,7 @@ native/switch-ota-launcher/*.nro
 native/switch-ota-launcher/*.nacp
 native/switch-ota-launcher/*.elf
 native/switch-ota-launcher/*.map
+native/switch-ota-launcher/romfs/logo.rgba
 native/switch-ota-launcher/romfs/logo.png
 native/switch-ota-launcher/romfs/cacert.pem
 native/switch-ota-launcher/romfs/ota-bootstrap.nro
