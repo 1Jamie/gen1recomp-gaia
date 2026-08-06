@@ -10,6 +10,14 @@
 #endif
 
 #if defined(__SWITCH__)
+#define OTA_CA_BUNDLE "romfs:/cacert.pem"
+
+static void ota_net_configure_tls(CURL *curl) {
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+  curl_easy_setopt(curl, CURLOPT_CAINFO, OTA_CA_BUNDLE);
+}
+
 struct mem_buf {
   char *data;
   size_t len;
@@ -76,8 +84,7 @@ int ota_net_download_buffer(const char *url, long timeout_ms, char **out, size_t
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_mem);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  ota_net_configure_tls(curl);
   CURLcode rc = curl_easy_perform(curl);
   curl_easy_cleanup(curl);
   if (rc != CURLE_OK) {
@@ -122,8 +129,7 @@ int ota_net_download_file(const char *url, const char *path, long timeout_ms, ch
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  ota_net_configure_tls(curl);
   if (progress) {
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xfer_progress);

@@ -135,9 +135,15 @@ endif
 #---------------------------------------------------------------------------------
 all: sync-romfs $(BUILD)
 
+CACERT_URL	:=	https://curl.se/ca/cacert.pem
+CACERT_ROMFS	:=	$(CURDIR)/$(ROMFS)/cacert.pem
+
 sync-romfs:
 	@mkdir -p $(CURDIR)/$(ROMFS)
 	@cp -f $(LOGO_SRC) $(CURDIR)/$(ROMFS)/logo.png
+	@if ! curl -sfL --time-cond $(CACERT_ROMFS) -o $(CACERT_ROMFS) $(CACERT_URL); then \
+		[ -f $(CACERT_ROMFS) ] || (echo "sync-romfs: failed to fetch cacert.pem" && exit 1); \
+	fi
 
 $(BUILD): sync-romfs
 	@[ -d $@ ] || mkdir -p $@

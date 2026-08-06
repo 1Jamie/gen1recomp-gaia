@@ -104,9 +104,8 @@ int ota_fs_atomic_replace_nro(const char *install_dir, const char *nro_name,
     if (err && err_len) snprintf(err, err_len, "copy to .part failed (%s)", nro_name);
     return -1;
   }
-#ifdef _WIN32
+  /* sdmc/FAT (Switch) and Windows do not replace an existing dest on rename. */
   remove(dest);
-#endif
   if (rename(part, dest) != 0) {
     if (err && err_len) snprintf(err, err_len, "rename .part -> %s failed", nro_name);
     remove(part);

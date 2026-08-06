@@ -513,7 +513,11 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(otaUi, /draw_text_wrapped_centered/);
   assert.match(otaUi, /ota_ui_alert_error/);
   assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /XFERINFOFUNCTION|xfer_progress/);
+  assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /CURLOPT_SSL_VERIFYPEER,\s*1L/);
+  assert.match(read('native/switch-ota-launcher/src/ota_net.c'), /romfs:\/cacert\.pem/);
+  assert.doesNotMatch(read('native/switch-ota-launcher/src/ota_net.c'), /CURLOPT_SSL_VERIFYPEER,\s*0L/);
   assert.match(read('native/switch-ota-launcher/Makefile'), /^ROMFS\s*:=/m);
+  assert.match(read('native/switch-ota-launcher/Makefile'), /cacert\.pem/);
 
   const mk = read('native/switch-ota-launcher/Makefile');
   assert.match(mk, /libnx\/switch_rules|DEVKITPRO/);
@@ -526,7 +530,10 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_unzip_extract_file/);
   assert.match(read('native/switch-ota-launcher/src/main.c'), /GAME_MEMBER_IN_ZIP|switch\/gen1recomp\//);
   assert.match(read('native/switch-ota-launcher/src/main.c'), /LAUNCHER_MEMBER_IN_ZIP|ota_fs_atomic_replace_nro/);
+  assert.match(read('native/switch-ota-launcher/src/main.c'), /ota_fs_atomic_replace_nro\([\s\S]*\) != 0/);
   assert.match(read('native/switch-ota-launcher/src/ota_fs.c'), /ota_fs_atomic_replace_nro/);
+  assert.match(read('native/switch-ota-launcher/src/ota_fs.c'), /remove\(dest\)/);
+  assert.doesNotMatch(read('native/switch-ota-launcher/src/ota_fs.c'), /#ifdef _WIN32[\s\S]*remove\(dest\)/);
   assert.doesNotMatch(read('scripts/switch/install_devkitpro_deps.sh'), /switch-minizip/);
   assert.match(read('scripts/switch/install_devkitpro_deps.sh'), /switch-zziplib/);
   assert.match(read('scripts/switch/install_devkitpro_deps.sh'), /switch-dev/);

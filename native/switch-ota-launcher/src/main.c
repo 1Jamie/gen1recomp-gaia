@@ -185,14 +185,29 @@ static int run_update_flow(const char *install_dir) {
   }
   remove(extracted);
 
+  int have_launcher = 0;
   if (ota_unzip_extract_file(zip_path, LAUNCHER_MEMBER_IN_ZIP, extracted_launcher, err,
                              sizeof(err)) == 0 ||
       ota_unzip_extract_file(zip_path, OTA_LAUNCHER_NRO_NAME, extracted_launcher, err,
                              sizeof(err)) == 0) {
-    (void)ota_fs_atomic_replace_nro(install_dir, OTA_LAUNCHER_NRO_NAME, extracted_launcher, err,
-                                    sizeof(err));
-    remove(extracted_launcher);
+    have_launcher = 1;
   }
+  if (!have_launcher) {
+    remove(zip_path);
+    show_update_error("Could not extract",
+                      "Update zip is missing launcher files.", err, installed);
+    return 0;
+  }
+  if (ota_fs_atomic_replace_nro(install_dir, OTA_LAUNCHER_NRO_NAME, extracted_launcher, err,
+                                sizeof(err)) != 0) {
+    remove(extracted_launcher);
+    remove(zip_path);
+    show_update_error("Could not install",
+                      "Game updated but launcher could not be replaced. Reinstall from the SD zip.",
+                      err, installed);
+    return 0;
+  }
+  remove(extracted_launcher);
 
   char vpath[192];
   snprintf(vpath, sizeof(vpath), "%s/version.txt", install_dir);
