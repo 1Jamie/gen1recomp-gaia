@@ -45,8 +45,8 @@ APP_AUTHOR	:=	bryanthaboi, port by andrewqsantos
 APP_VERSION	?=	0.0.0
 
 # Prefer project Switch icon if present
-ICON		:=	$(TOPDIR)/../../assets/switch/icon.jpg
-LOGO_RGBA_SRC	:=	$(TOPDIR)/assets/logo.rgba
+ICON		:=	$(TOPDIR)/../assets/icon.jpg
+LOGO_RGBA_SRC	:=	$(TOPDIR)/../assets/logo.rgba
 LOGO_ROMFS	:=	$(CURDIR)/$(ROMFS)/logo.rgba
 
 #---------------------------------------------------------------------------------
@@ -131,7 +131,7 @@ ifneq ($(ROMFS),)
 	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
-BOOTSTRAP_DIR	:=	$(TOPDIR)/../switch-ota-bootstrap
+BOOTSTRAP_DIR	:=	$(TOPDIR)/../ota-bootstrap
 BOOTSTRAP_ROMFS	:=	$(CURDIR)/$(ROMFS)/ota-bootstrap.nro
 
 .PHONY: $(BUILD) clean all host-test sync-romfs bootstrap-romfs

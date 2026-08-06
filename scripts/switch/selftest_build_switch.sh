@@ -395,7 +395,7 @@ if [ -f "$ROOT/scripts/switch/build_ota_launcher.sh" ] \
   && grep -q 'ota_launcher_deps_ready' "$ROOT/scripts/switch/build_ota_launcher.sh" \
   && grep -q 'fail_missing_devkitpro' "$ROOT/scripts/switch/build_ota_launcher.sh" \
   && grep -q 'preflight_fused_build' "$ROOT/scripts/build_switch.sh" \
-  && [ -f "$ROOT/native/switch-ota-launcher/Makefile" ]
+  && [ -f "$ROOT/ports/switch/ota-launcher/Makefile" ]
 then
   ok "native OTA launcher sources + build_ota_launcher.sh present"
 else
@@ -415,20 +415,20 @@ else
   bad "legacy separate OTA-only packer / asset still present"
 fi
 
-if grep -q 'ota_ui_prompt_update' "$ROOT/native/switch-ota-launcher/src/main.c" \
-  && grep -q 'ota_net_init' "$ROOT/native/switch-ota-launcher/src/main.c" \
-  && grep -q 'framebufferCreate\|COL_RAIL' "$ROOT/native/switch-ota-launcher/src/ota_ui.c" \
-  && grep -q '^ROMFS' "$ROOT/native/switch-ota-launcher/Makefile" \
-  && grep -q 'cacert.pem' "$ROOT/native/switch-ota-launcher/Makefile"
+if grep -q 'ota_ui_prompt_update' "$ROOT/ports/switch/ota-launcher/src/main.c" \
+  && grep -q 'ota_net_init' "$ROOT/ports/switch/ota-launcher/src/main.c" \
+  && grep -q 'framebufferCreate\|COL_RAIL' "$ROOT/ports/switch/ota-launcher/src/ota_ui.c" \
+  && grep -q '^ROMFS' "$ROOT/ports/switch/ota-launcher/Makefile" \
+  && grep -q 'cacert.pem' "$ROOT/ports/switch/ota-launcher/Makefile"
 then
   ok "launcher UI uses framebuffer (no prompt when up to date)"
 else
   bad "launcher missing branded ota_ui / ROMFS"
 fi
 
-if [ -f "$ROOT/native/switch-ota-launcher/src/ota_unzip.c" ] \
-  && grep -q 'zzip/zzip.h' "$ROOT/native/switch-ota-launcher/src/ota_unzip.c" \
-  && grep -q 'ota_unzip_extract_file' "$ROOT/native/switch-ota-launcher/src/main.c"
+if [ -f "$ROOT/ports/switch/ota-launcher/src/ota_unzip.c" ] \
+  && grep -q 'zzip/zzip.h' "$ROOT/ports/switch/ota-launcher/src/ota_unzip.c" \
+  && grep -q 'ota_unzip_extract_file' "$ROOT/ports/switch/ota-launcher/src/main.c"
 then
   ok "launcher wires zziplib ota_unzip_extract_file"
 else

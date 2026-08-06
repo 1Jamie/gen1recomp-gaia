@@ -11,7 +11,7 @@ with `envSetNextLoad`.
 
 The LÖVE self-updater (`src/update/Check.lua`) stays **disabled** on NX.
 Wire format (also in Lua): `src/update/SwitchOta.lua`.
-NACP icon: `assets/switch/icon.jpg`.
+NACP icon: `ports/switch/assets/icon.jpg`.
 
 ## Layout on microSD
 
@@ -25,7 +25,7 @@ sdmc:/switch/gen1recomp/pokemon-love2d/      <- saves (never touched by OTA)
 ## Host tests (no DEVKITPRO)
 
 ```bash
-cd native/switch-ota-launcher
+cd ports/switch/ota-launcher
 make host-test
 ```
 
@@ -40,7 +40,7 @@ Needs `DEVKITPRO` with packages roughly:
 
 ```bash
 export DEVKITPRO=/opt/devkitpro   # typical
-cd native/switch-ota-launcher
+cd ports/switch/ota-launcher
 make
 # -> gen1recomp.nro
 ```
@@ -62,7 +62,7 @@ Docker fallback uses the same pin as fused builds (`scripts/switch/dkp-docker.im
 ## OTA logo asset
 
 The launcher draws a pre-scaled logo from `romfs:/logo.rgba` (no PNG decoder in
-the NRO). The baked blob lives at `assets/logo.rgba` and is copied into romfs at
+the NRO). The baked blob lives at `../assets/logo.rgba` and is copied into romfs at
 build time. After changing `assets/logo/logo.png`, regenerate:
 
 ```bash

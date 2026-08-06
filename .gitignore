@@ -37,22 +37,22 @@ mobile/ios/build/
 # Final packaged build artifacts (mac/win/web/android/ios/switch) — see scripts/build.sh
 /dist/
 
-# Native Switch OTA launcher build outputs
-native/switch-ota-launcher/build/
-native/switch-ota-launcher/build-host/
-native/switch-ota-launcher/*.nro
-native/switch-ota-launcher/*.nacp
-native/switch-ota-launcher/*.elf
-native/switch-ota-launcher/*.map
-native/switch-ota-launcher/romfs/logo.rgba
-native/switch-ota-launcher/romfs/logo.png
-native/switch-ota-launcher/romfs/cacert.pem
-native/switch-ota-launcher/romfs/ota-bootstrap.nro
-native/switch-ota-bootstrap/build/
-native/switch-ota-bootstrap/*.nro
-native/switch-ota-bootstrap/*.nacp
-native/switch-ota-bootstrap/*.elf
-native/switch-ota-bootstrap/*.map
+# Switch OTA launcher build outputs
+ports/switch/ota-launcher/build/
+ports/switch/ota-launcher/build-host/
+ports/switch/ota-launcher/*.nro
+ports/switch/ota-launcher/*.nacp
+ports/switch/ota-launcher/*.elf
+ports/switch/ota-launcher/*.map
+ports/switch/ota-launcher/romfs/logo.rgba
+ports/switch/ota-launcher/romfs/logo.png
+ports/switch/ota-launcher/romfs/cacert.pem
+ports/switch/ota-launcher/romfs/ota-bootstrap.nro
+ports/switch/ota-bootstrap/build/
+ports/switch/ota-bootstrap/*.nro
+ports/switch/ota-bootstrap/*.nacp
+ports/switch/ota-bootstrap/*.elf
+ports/switch/ota-bootstrap/*.map
 
 # Legacy manual convenience-copy location (superseded by /dist/android/)
 mobile/dist/

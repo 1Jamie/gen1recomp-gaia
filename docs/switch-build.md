@@ -41,10 +41,10 @@ Fused game builds can also use Docker when native `nacptool`/`elf2nro` are absen
 
 In-console OTA uses a **separate DEVKITPRO NRO** (not LÖVE). The LÖVE
 self-updater (`Check.lua`) is disabled on NX. Source:
-`native/switch-ota-launcher/`. Host protocol tests (no toolchain):
+`ports/switch/ota-launcher/`. Host protocol tests (no toolchain):
 
 ```sh
-make -C native/switch-ota-launcher host-test
+make -C ports/switch/ota-launcher host-test
 # or
 scripts/switch/build_ota_launcher.sh   # host-test first; NRO needs DEVKITPRO/Docker
 ```
@@ -59,7 +59,7 @@ Release-like build from repo root:
 scripts/build_switch.sh --fetch --fused --version X.Y.Z
 ```
 
-See `native/switch-ota-launcher/README.md` and
+See `ports/switch/ota-launcher/README.md` and
 `scripts/switch/ota_launcher.manifest`.
 
 ### Windows (Git Bash / MSYS2 / WSL)

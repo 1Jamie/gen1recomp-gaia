@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-LAUNCHER_DIR="$ROOT/native/switch-ota-launcher"
+LAUNCHER_DIR="$ROOT/ports/switch/ota-launcher"
 OUT_NRO="${1:-$ROOT/dist/switch/gen1recomp-launcher.nro}"
 APP_VERSION="${2:-${GEN1_LAUNCHER_VERSION:-0.0.0}}"
 DKP_IMAGE_FILE="$ROOT/scripts/switch/dkp-docker.image"
@@ -59,7 +59,7 @@ if command -v docker >/dev/null 2>&1; then
   say "building launcher NRO via Docker ($image, NACP $APP_VERSION)"
   if ! docker run --rm \
     -v "$ROOT:/work" \
-    -w /work/native/switch-ota-launcher \
+    -w /work/ports/switch/ota-launcher \
     -e "APP_VERSION=$APP_VERSION" \
     "$image" \
     bash -lc 'pacman -Sy --noconfirm switch-curl switch-mbedtls switch-zlib switch-zziplib >/dev/null 2>&1 || true; make clean; make all APP_VERSION="$APP_VERSION"'; then

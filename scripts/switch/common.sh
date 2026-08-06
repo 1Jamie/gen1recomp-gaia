@@ -102,7 +102,7 @@ Pick one:
 
 Then re-run: scripts/build_switch.sh --fetch --fused
 
-See docs/switch-build.md and native/switch-ota-launcher/README.md.
+See docs/switch-build.md and ports/switch/ota-launcher/README.md.
 EOF
 )"
 }
@@ -121,7 +121,7 @@ Re-run with a clean tree:
 If packages look wrong, reinstall:
   bash scripts/switch/install_devkitpro_deps.sh
 
-See native/switch-ota-launcher/README.md.
+See ports/switch/ota-launcher/README.md.
 EOF
 )"
   fi

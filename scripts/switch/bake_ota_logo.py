@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SRC = ROOT / "assets/logo/logo.png"
-DEFAULT_OUT = ROOT / "native/switch-ota-launcher/assets/logo.rgba"
+DEFAULT_OUT = ROOT / "ports/switch/assets/logo.rgba"
 DEFAULT_MAX_W = 320
 DEFAULT_MAX_H = 90
 
