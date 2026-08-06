@@ -341,6 +341,7 @@ local function commandOutput(command)
 end
 
 local IMPORTS_DIR = "imports"
+local BASE_ROMS_DIR = "baseroms"
 local MODS_INBOX_DIR = "imports/mods"
 local SAVES_INBOX_DIR = "imports/saves"
 local ROM_BYTES = 1024 * 1024
@@ -472,6 +473,65 @@ local function listRomPaths(dir)
     end
   end
   return paths
+end
+
+local function baseRomScanSatisfied(self)
+  for _, version in ipairs(GameVersion.ORDER) do
+    if not self.ready[version] and not self.baseRoms[version] then
+      return false
+    end
+  end
+  return true
+end
+
+function RomImporter:_queueBaseRomScan()
+  if not self.baseRomDiscovery then return end
+  if baseRomScanSatisfied(self) then
+    self.baseRomScan = { state = "done" }
+    return
+  end
+  self.baseRomScan = { state = "queued", index = 1 }
+end
+
+function RomImporter:_stepBaseRomScan()
+  local scan = self.baseRomScan
+  if not scan or scan.state == "done" or self.workState == "working" then
+    return
+  end
+  if scan.state == "queued" then
+    local info = love.filesystem.getInfo(BASE_ROMS_DIR)
+    if not info and love.filesystem.createDirectory then
+      love.filesystem.createDirectory(BASE_ROMS_DIR)
+    end
+    scan.paths = listRomPaths(BASE_ROMS_DIR)
+    table.sort(scan.paths)
+    scan.state = "running"
+  end
+
+  local path = scan.paths[scan.index]
+  if not path then
+    scan.state = "done"
+    return
+  end
+  scan.index = scan.index + 1
+
+  local info = love.filesystem.getInfo(path, "file")
+  if info and info.size == ROM_BYTES then
+    local data = love.filesystem.read(path)
+    if type(data) == "string" and #data == ROM_BYTES then
+      local version = GameVersion.forSha1(sha1(data))
+      if version and not self.ready[version] and not self.baseRoms[version] then
+        self.baseRoms[version] = {
+          path = path,
+          name = path:match("[^/\\]+$") or path,
+        }
+      end
+    end
+  end
+
+  if baseRomScanSatisfied(self) or not scan.paths[scan.index] then
+    scan.state = "done"
+  end
 end
 
 local function listZipPaths(dir)
@@ -1050,6 +1110,9 @@ function RomImporter.new(onComplete, opts)
     android = android,
     ios = mobileOS == "iOS",
     nativePicker = romImportMode == "native-picker",
+    baseRomDiscovery = opts.launcher and Platform.isUWP(),
+    baseRoms = {},
+    baseRomScan = nil,
     -- One startup poll pass on both mobiles.  iOS: files dropped through the
     -- Files app are swept into the save dir before Lua boots (GRBootstrap) with
     -- no love.focus event necessarily following.  Android: the SAF picker is a
@@ -1149,6 +1212,7 @@ function RomImporter.new(onComplete, opts)
       .. (info.id == "yellow" and ".gbc" or ".gb")
   end
   self:_applyLastVersionTab()
+  self:_queueBaseRomScan()
 
   -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
@@ -1755,6 +1819,21 @@ function RomImporter:choose(version)
     self:rescanAction(self.chooseVersion)
     return
   end
+  local baseRom = self.baseRomDiscovery and self.baseRoms[self.chooseVersion]
+  if baseRom then
+    self.baseRoms[self.chooseVersion] = nil
+    local data = love.filesystem.read(baseRom.path)
+    if not data then
+      self.notice = {
+        version = self.chooseVersion,
+        status = "The detected ROM is no longer available.",
+        detail = "Choose Import ROM to select it another way.",
+      }
+      return
+    end
+    self:startData(data, baseRom.name)
+    return
+  end
   if self.nativePicker and love.system.getPickedFile then
     self.pickerPendingKind = "rom"
     if not pickFile("rom") then
@@ -1877,6 +1956,7 @@ end
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
   self:_updatePadCursor(dt)
+  self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
   -- flag is only set once draw() has built a tree, so headless runs and the
   -- test tier never touch the toolkit.
@@ -2293,6 +2373,10 @@ function RomImporter:reimport(version)
   self.ready[version] = false
   self.returning[version] = false
   self.chooseVersion = version
+  if self.baseRomDiscovery then
+    self.baseRoms[version] = nil
+    self:_queueBaseRomScan()
+  end
 end
 
 local function clamp(v, lo, hi)

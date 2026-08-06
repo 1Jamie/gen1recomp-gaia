@@ -541,11 +541,15 @@ local function romModel(imp, version, info, ready, locked)
       label = Strings("Import unavailable"), enabled = false }
   end
   local dropHint = imp.isNX and Strings("Copy the .gb/.gbc via MTP into imports/.")
-    or (imp.android and Strings("Copy the .gb/.gbc via USB.")
-      or Strings("Or drop the .gb/.gbc file here."))
+    or (imp.baseRomDiscovery and Strings("Or copy the .gb/.gbc into baseroms/.")
+      or (imp.android and Strings("Copy the .gb/.gbc via USB.")
+        or Strings("Or drop the .gb/.gbc file here.")))
   local importing = imp.importing == version
   local erroring = imp.workState == "error" and imp.errorVersion == version
   local notice = imp.notice and imp.notice.version == version and imp.notice
+  local baseRom = imp.baseRoms and imp.baseRoms[version]
+  local scanning = imp.baseRomDiscovery and imp.baseRomScan
+    and imp.baseRomScan.state ~= "done"
   if importing and (imp.workState == "working" or imp.workState == "complete") then
     return { state = imp.status or Strings("Importing"),
       detail = imp.detail or "", progress = imp.progress or 0 }
@@ -564,6 +568,14 @@ local function romModel(imp, version, info, ready, locked)
       detail = ((notice.status or "") .. " " .. (notice.detail or ""))
         :gsub("^%s+", ""):gsub("%s+$", ""),
       label = importLabel, enabled = true }
+  elseif baseRom then
+    return { state = Strings("Compatible ROM found"),
+      detail = Strings("Found in baseroms/: %s", baseRom.name),
+      label = Strings("Import detected ROM"), enabled = true }
+  elseif scanning then
+    return { state = Strings("Checking baseroms..."),
+      detail = Strings("Looking for compatible Red, Blue, and Yellow ROMs."),
+      label = Strings("Import ROM"), enabled = false }
   elseif imp.returning[version] then
     return { state = Strings("Update required"),
       detail = Strings("This build needs a few more things from your ")
@@ -922,6 +934,8 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
   Kit.text("title", Kit.ellipsize("title", gameName, w * 0.6), x, y, PAL.heading)
   local tagText, tagCol
   if ready then tagText, tagCol = Strings("GOOD TO GO"), PAL.green
+  elseif imp.baseRoms and imp.baseRoms[version] then
+    tagText, tagCol = Strings("ROM FOUND"), PAL.green
   elseif locked then tagText, tagCol = Strings("COMING SOON"), PAL.steel
   else tagText, tagCol = Strings("ROM REQUIRED"), PAL.yellow end
   local tagW = Kit.textWidth("micro", tagText) + math.floor(18 * m.s)
