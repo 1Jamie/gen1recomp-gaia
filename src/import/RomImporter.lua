@@ -152,14 +152,16 @@ local function allRequiredFilesExist(version)
   return ok
 end
 
--- A developer checkout / Python build leaves Red's generated data in the
--- physfs SOURCE at the un-prefixed root; that is always current.  Only Red
--- ships this way (Blue is import-only), so this stays a Red-root check.
-local function sourceTreeHasData()
-  if not allRequiredFilesExist("red") or not love.filesystem.getRealDirectory then
+-- A developer checkout / Python build leaves generated data in the physfs
+-- source: Red at the historical root, Blue/Yellow in their versioned trees.
+-- Source data is produced from the current manifest, so it needs no runtime
+-- import marker; still verify the whole version-specific required-file set.
+local function sourceTreeHasData(version)
+  if not allRequiredFilesExist(version) or not love.filesystem.getRealDirectory then
     return false
   end
-  local real = love.filesystem.getRealDirectory(REQUIRED_FILES[1])
+  local path = GameVersion.cachePrefix(version) .. REQUIRED_FILES[1]
+  local real = love.filesystem.getRealDirectory(path)
   return real == love.filesystem.getSource()
 end
 
@@ -236,10 +238,8 @@ function RomImporter.isReady(version)
     -- save-directory copy that would otherwise shadow it at runtime.
     purgeSaveDirCache()
   end
-  -- Red generated data in the physfs source (developer checkout / Python
-  -- build) is always current; Blue is import-only and falls through to the
-  -- version-marker gate.
-  if version == "red" and sourceTreeHasData() then return true end
+  -- Generated data in a developer checkout / Python build is always current.
+  if sourceTreeHasData(version) then return true end
   local saved = CacheFs.prefix
   CacheFs.prefix = GameVersion.cachePrefix(version)
   local marker = CacheFs.read(MARKER_PATH)
