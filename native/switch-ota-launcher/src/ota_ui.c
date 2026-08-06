@@ -381,9 +381,9 @@ static void paint_prompt(u32 *fb, u32 stride_px, void *ctx) {
   int bw = 600;
   int bh = 64;
   int bx = (FB_W - bw) / 2;
-  draw_button(fb, stride_px, bx, y, bw, bh, COL_YELLOW, COL_INVERSE, "A  Update", p->focus == 0);
+  draw_button(fb, stride_px, bx, y, bw, bh, COL_YELLOW, COL_INVERSE, "(A) Update", p->focus == 0);
   y += bh + 24;
-  draw_button(fb, stride_px, bx, y, bw, bh, COL_INK, COL_INVERSE, "B  Play without update",
+  draw_button(fb, stride_px, bx, y, bw, bh, COL_INK, COL_INVERSE, "(B) Play without update",
               p->focus == 1);
 }
 
@@ -481,7 +481,7 @@ static void paint_alert(u32 *fb, u32 stride_px, void *ctx) {
   y += LINE_BODY + 16;
   int bw = 360;
   int bh = 56;
-  draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "B  Continue", 1);
+  draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "(B) Continue", 1);
 }
 
 void ota_ui_alert(const char *title, const char *line1, const char *line2) {
@@ -531,7 +531,7 @@ static void paint_missing(u32 *fb, u32 stride_px, void *ctx) {
   y += LINE_BODY + 16;
   int bw = 320;
   int bh = 56;
-  draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "+  Exit", 1);
+  draw_button(fb, stride_px, (FB_W - bw) / 2, y, bw, bh, COL_INK, COL_INVERSE, "(+) Exit", 1);
 }
 
 void ota_ui_missing_game(void) {
