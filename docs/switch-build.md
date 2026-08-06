@@ -22,19 +22,25 @@ WSL — not cmd.exe or PowerShell (AD-008).
 ### macOS / Linux
 
 1. Install [devkitPro pacman](https://devkitpro.org/wiki/devkitPro_pacman).
-2. Install Switch tools:
+2. Install Switch tools (**required for `--fused`**):
 
    ```sh
    sudo dkp-pacman -S switch-dev
    ```
 
-3. Ensure `nacptool` and `elf2nro` are on `PATH` (or under
-   `$DEVKITPRO/tools/bin` — the fused script prepends that when set).
+3. OTA launcher toolchain — **native or Docker** (either is fine):
 
-**Optional:** Install [Docker](https://docs.docker.com/get-docker/) so fused
-builds can fall back to the pinned image when native tools are missing.
+   ```sh
+   bash scripts/switch/install_devkitpro_deps.sh   # native
+   # or install Docker (same pin as fused builds)
+   ```
 
-### Native OTA launcher (optional but required for in-console updates)
+4. Ensure `DEVKITPRO` is exported (typical macOS: `/opt/devkitpro`) and
+   `nacptool` / `elf2nro` are on `PATH` (or under `$DEVKITPRO/tools/bin`).
+
+Fused game builds can also use Docker when native `nacptool`/`elf2nro` are absent.
+
+### Native OTA launcher (included in `--fused`)
 
 In-console OTA uses a **separate DEVKITPRO NRO** (not LÖVE). Source:
 `native/switch-ota-launcher/`. Host protocol tests (no toolchain):
@@ -45,26 +51,14 @@ make -C native/switch-ota-launcher host-test
 scripts/switch/build_ota_launcher.sh   # host-test first; NRO needs DEVKITPRO/Docker
 ```
 
-Extra packages beyond `switch-dev`:
+`--fused` always builds the fused game, native OTA launcher, and dual-NRO SD
+zip. The same `*-switch.zip` is the OTA download asset. **DEVKITPRO is
+required.** OTA launcher: native packages **or** Docker — both are supported.
+
+Release-like build from repo root:
 
 ```sh
-sudo dkp-pacman -S --noconfirm --needed switch-curl switch-mbedtls switch-zlib switch-zziplib
-# or: bash scripts/switch/install_devkitpro_deps.sh
-```
-
-Packaging dual-NRO SD zip (launcher entry + fused game):
-
-```sh
-scripts/switch/pack_sd_zip.sh dist/switch/game.nro VERSION out.zip dist/switch/gen1recomp-launcher.nro
-```
-
-One-shot OTA release build (fused game + launcher + dual-NRO SD zip;
-the same `*-switch.zip` is the OTA download asset):
-
-```sh
-# once: bash scripts/switch/install_devkitpro_deps.sh
-export DEVKITPRO=/opt/devkitpro
-scripts/build_switch.sh --fetch --ota --version X.Y.Z
+scripts/build_switch.sh --fetch --fused --version X.Y.Z
 ```
 
 See `native/switch-ota-launcher/README.md` and
@@ -86,8 +80,7 @@ See `native/switch-ota-launcher/README.md` and
 | You install | Script does **not** install |
 | ----------- | --------------------------- |
 | bash, git, zip tooling the repo already expects | — |
-| `dkp-pacman` + `switch-dev` (native fused) | `dkp-pacman -S …` |
-| Docker (optional fused fallback) | Docker Engine |
+| `dkp-pacman` + `switch-dev` + OTA packages **or** Docker | `dkp-pacman -S …` |
 | A legal `.gb` ROM (to play) | Any ROM or game data |
 
 ---
@@ -100,7 +93,7 @@ See `native/switch-ota-launcher/README.md` and
 | ---- | ------------ |
 | `--fetch` | Downloads pinned **love.nro** + **love.elf** into `.bazinga/love-nx/11.5-nx1/` and verifies SHA-256 against `scripts/switch/love-nx-11.5-nx1.sha256`. |
 | `--loose` | Packs `game.love`, copies pinned `love.nro` → `dist/switch/loose/` as `gen1recomp.nro` + `game.love` side by side. Needs the pin. |
-| `--fused` | Builds `dist/switch/gen1recomp-<ver>-switch.nro` (game in romfs) via `nacptool` + `elf2nro`, then packs `dist/switch/gen1recomp-<ver>-switch.zip` (SD-ready tree). Needs the pin + toolchain (native or Docker). GitHub Releases publish the **zip only**. |
+| `--fused` | Builds fused game NRO, OTA launcher NRO, and dual-NRO SD zip. **Requires DEVKITPRO** + `switch-dev`. OTA launcher: native packages or Docker. GitHub Releases publish the **zip only**. |
 
 Rules:
 
@@ -145,13 +138,15 @@ scripts/build_switch.sh --fetch
 # Loose pair for iteration (fetch + assemble)
 scripts/build_switch.sh --fetch --loose
 
-# Single fused NRO + SD-ready zip for a release-like artifact
+# Fused game + OTA launcher + dual-NRO SD zip for a release-like artifact
 scripts/build_switch.sh --fetch --fused --version 0.2.0
 ```
 
 Outputs land under `dist/switch/` (and `dist/switch/loose/` for loose mode).
-The fused path also writes `gen1recomp-<ver>-switch.nro.sha256` and
-`gen1recomp-<ver>-switch.zip` (+ `.sha256` sidecar for the zip).
+The fused path also writes `gen1recomp-<ver>-switch.nro` (game),
+`gen1recomp-<ver>-launcher.nro`, `gen1recomp-<ver>-game.nro`,
+`gen1recomp-<ver>-switch.nro.sha256`, and `gen1recomp-<ver>-switch.zip`
+(+ `.sha256` sidecar for the zip).
 
 Offline packaging smoke (no network, no nacptool required):
 
@@ -217,9 +212,26 @@ A Switch packaging failure fails the entire release job. The release asset is
 
 ### Runner provisioning
 
-The self-hosted Mac runner must have **native switch-tools** (`nacptool` /
-`elf2nro`) **and/or Docker** available. CI and release do not silently run
-`dkp-pacman -S`; keep the runner image/host provisioned per this guide.
+The self-hosted Mac runner **must** have **DEVKITPRO** installed and exported.
+`--fused` preflight fails early with setup steps if it is missing.
+
+**One-time setup on the runner** (if not already present):
+
+```sh
+# devkitPro pacman installer from https://devkitpro.org/wiki/devkitPro_pacman
+sudo dkp-pacman -S switch-dev
+export DEVKITPRO=/opt/devkitpro
+export PATH="$DEVKITPRO/tools/bin:$PATH"
+
+# OTA launcher — pick one:
+bash scripts/switch/install_devkitpro_deps.sh   # native
+# or ensure Docker is installed (same pin as fused builds)
+```
+
+CI and release still run `scripts/build_switch.sh --fetch --fused`. Preflight
+requires DEVKITPRO and either native OTA packages or Docker. Without all of
+that, the job fails with the setup steps above. Scripts never auto-run
+`dkp-pacman -S` during CI.
 
 ---
 

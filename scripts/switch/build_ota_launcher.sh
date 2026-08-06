@@ -22,15 +22,21 @@ DKP_IMAGE_FILE="$ROOT/scripts/switch/dkp-docker.image"
 [ -d "$LAUNCHER_DIR" ] || fail "missing $LAUNCHER_DIR"
 [ -f "$LAUNCHER_DIR/Makefile" ] || fail "missing Makefile"
 
+if ! devkitpro_ready; then
+  fail_missing_devkitpro
+fi
+
 say "host-test ota_protocol (no DEVKITPRO required)"
 make -C "$LAUNCHER_DIR" host-test
 
 mkdir -p "$(dirname "$OUT_NRO")"
 
-if [ -n "${DEVKITPRO:-}" ] && [ -f "$DEVKITPRO/libnx/switch_rules" ]; then
+if ota_launcher_deps_ready; then
   say "building launcher NRO with native DEVKITPRO (NACP $APP_VERSION)"
   make -C "$LAUNCHER_DIR" clean || true
-  make -C "$LAUNCHER_DIR" all APP_VERSION="$APP_VERSION"
+  if ! make -C "$LAUNCHER_DIR" all APP_VERSION="$APP_VERSION"; then
+    fail_ota_launcher_toolchain
+  fi
   cp "$LAUNCHER_DIR/gen1recomp.nro" "$OUT_NRO"
   say "wrote $OUT_NRO"
   exit 0
@@ -51,24 +57,17 @@ resolve_dkp_image() {
 if command -v docker >/dev/null 2>&1; then
   image="$(resolve_dkp_image)"
   say "building launcher NRO via Docker ($image, NACP $APP_VERSION)"
-  docker run --rm \
+  if ! docker run --rm \
     -v "$ROOT:/work" \
     -w /work/native/switch-ota-launcher \
     -e "APP_VERSION=$APP_VERSION" \
     "$image" \
-    bash -lc 'pacman -Sy --noconfirm switch-curl switch-mbedtls switch-zlib switch-zziplib >/dev/null 2>&1 || true; make clean; make all APP_VERSION="$APP_VERSION"'
+    bash -lc 'pacman -Sy --noconfirm switch-curl switch-mbedtls switch-zlib switch-zziplib >/dev/null 2>&1 || true; make clean; make all APP_VERSION="$APP_VERSION"'; then
+    fail_ota_launcher_toolchain
+  fi
   cp "$LAUNCHER_DIR/gen1recomp.nro" "$OUT_NRO"
   say "wrote $OUT_NRO"
   exit 0
 fi
 
-fail "$(cat <<EOF
-Cannot build Switch OTA launcher NRO: DEVKITPRO unset and Docker unavailable.
-
-Host protocol tests already passed (make host-test).
-Install DEVKITPRO switch-dev + switch-curl, or Docker, then re-run:
-  scripts/switch/build_ota_launcher.sh
-
-See native/switch-ota-launcher/README.md and docs/switch-build.md.
-EOF
-)"
+fail_missing_ota_deps

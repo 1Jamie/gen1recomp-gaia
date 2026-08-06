@@ -5,10 +5,8 @@
 #   scripts/build_switch.sh --fetch
 #   scripts/build_switch.sh --loose [path/to/game.love]
 #   scripts/build_switch.sh --fused [--version X.Y.Z]
-#   scripts/build_switch.sh --ota [--version X.Y.Z]
 #   scripts/build_switch.sh --fetch --loose
 #   scripts/build_switch.sh --fetch --fused [--version X.Y.Z]
-#   scripts/build_switch.sh --fetch --ota [--version X.Y.Z]
 #
 # Modes:
 #   --fetch   Download pinned love.nro + love.elf into
@@ -21,22 +19,19 @@
 #             (gen1recomp.nro + game.love side by side). Requires the pin
 #             (run --fetch first, or combine --fetch --loose).
 #
-#   --fused   Build a single gen1recomp-<ver>-switch.nro via nacptool+elf2nro,
-#             then pack dist/switch/gen1recomp-<ver>-switch.zip (SD-ready
-#             tree under switch/gen1recomp/). Uses native tools (PATH or
-#             $DEVKITPRO/tools/bin) first; else Docker from
-#             scripts/switch/dkp-docker.image (override GEN1_DKP_IMAGE).
-#             Requires the pin (run --fetch or combine). GitHub Releases
-#             publish the zip only; the versioned .nro stays local / PR CI.
+#   --fused   Build fused gen1recomp-<ver>-switch.nro (game in romfs), native
+#             OTA launcher NRO, and dual-NRO SD zip (gen1recomp.nro launcher +
+#             gen1recomp-game.nro under switch/gen1recomp/). The same
+#             gen1recomp-<ver>-switch.zip is the OTA download asset.
+#             Requires DEVKITPRO + switch-dev; OTA launcher via native packages
+#             (install_devkitpro_deps.sh) or Docker.
+#             Uses native tools (PATH or $DEVKITPRO/tools/bin) first; else Docker
+#             from scripts/switch/dkp-docker.image (override GEN1_DKP_IMAGE).
+#             Requires the pin (run --fetch or combine). GitHub Releases publish
+#             the zip only; versioned .nro files stay local / PR CI.
 #
-#   --ota     Like --fused, plus native OTA launcher NRO and dual-NRO SD zip
-#             (gen1recomp.nro launcher + gen1recomp-game.nro). The same
-#             gen1recomp-<ver>-switch.zip is the OTA download asset. Needs
-#             DEVKITPRO switch-curl/mbedtls/zlib/zziplib — see
-#             scripts/switch/install_devkitpro_deps.sh.
-#
-# Combinable: --fetch alone, or --fetch with --loose / --fused / --ota.
-# XOR: --loose, --fused, and --ota cannot be combined with each other.
+# Combinable: --fetch alone, or --fetch with --loose / --fused.
+# XOR: --loose and --fused cannot be combined with each other.
 #
 # Non-goals (never done by this script):
 #   MTP push, ROM install, dkp-pacman auto-install (use install_devkitpro_deps.sh).
@@ -49,7 +44,6 @@ DIST="$ROOT/dist/switch"
 LOOSE=0
 FUSED=0
 FETCH=0
-OTA=0
 GAME_LOVE=""
 VERSION="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)"
 
@@ -58,14 +52,13 @@ say()  { printf '\033[1;32m==>\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --loose) LOOSE=1; shift ;;
     --fused) FUSED=1; shift ;;
-    --ota) OTA=1; shift ;;
     --fetch) FETCH=1; shift ;;
     --version) VERSION="$2"; shift 2 ;;
     -h|--help)
@@ -83,13 +76,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-MODE_COUNT=$((LOOSE + FUSED + OTA))
-if [ "$MODE_COUNT" -gt 1 ]; then
-  fail "choose one of --loose, --fused, or --ota (XOR)"
+if [ "$LOOSE" -eq 1 ] && [ "$FUSED" -eq 1 ]; then
+  fail "choose one of --loose or --fused (XOR)"
 fi
 
-if [ "$FETCH" -eq 0 ] && [ "$LOOSE" -eq 0 ] && [ "$FUSED" -eq 0 ] && [ "$OTA" -eq 0 ]; then
-  fail "specify --fetch, --loose, --fused, and/or --ota (see --help)"
+if [ "$FETCH" -eq 0 ] && [ "$LOOSE" -eq 0 ] && [ "$FUSED" -eq 0 ]; then
+  fail "specify --fetch, --loose, and/or --fused (see --help)"
 fi
 
 if [ "$FETCH" -eq 1 ]; then
@@ -139,22 +131,22 @@ if [ "$LOOSE" -eq 1 ]; then
   exec "$ROOT/scripts/switch/assemble_loose.sh" "$GAME_LOVE"
 fi
 
-if [ "$FUSED" -eq 1 ] || [ "$OTA" -eq 1 ]; then
+if [ "$FUSED" -eq 1 ]; then
+  # shellcheck source=scripts/switch/common.sh
+  . "$ROOT/scripts/switch/common.sh"
+  preflight_fused_build
+
   GAME_LOVE="$(pack_game_love)"
   OUT_NRO="$DIST/gen1recomp-${VERSION}-switch.nro"
   OUT_ZIP="$DIST/gen1recomp-${VERSION}-switch.zip"
   "$ROOT/scripts/switch/build_fused.sh" "$GAME_LOVE" "$VERSION" "$OUT_NRO"
 
-  if [ "$OTA" -eq 1 ]; then
-    LAUNCHER_NRO="$DIST/gen1recomp-${VERSION}-launcher.nro"
-    say "building native OTA launcher"
-    "$ROOT/scripts/switch/build_ota_launcher.sh" "$LAUNCHER_NRO" "$VERSION"
-    say "packing dual-NRO SD zip (also the OTA download asset)"
-    "$ROOT/scripts/switch/pack_sd_zip.sh" "$OUT_NRO" "$VERSION" "$OUT_ZIP" "$LAUNCHER_NRO"
-    cp "$OUT_NRO" "$DIST/gen1recomp-${VERSION}-game.nro"
-  else
-    "$ROOT/scripts/switch/pack_sd_zip.sh" "$OUT_NRO" "$VERSION" "$OUT_ZIP"
-  fi
+  LAUNCHER_NRO="$DIST/gen1recomp-${VERSION}-launcher.nro"
+  say "building native OTA launcher"
+  "$ROOT/scripts/switch/build_ota_launcher.sh" "$LAUNCHER_NRO" "$VERSION"
+  say "packing dual-NRO SD zip (also the OTA download asset)"
+  "$ROOT/scripts/switch/pack_sd_zip.sh" "$OUT_NRO" "$VERSION" "$OUT_ZIP" "$LAUNCHER_NRO"
+  cp "$OUT_NRO" "$DIST/gen1recomp-${VERSION}-game.nro"
 
   cp "$WORK/build-info.json" "$DIST/gen1recomp-${VERSION}-build-info.json"
   say "done. See $DIST/"
@@ -167,4 +159,4 @@ if [ "$FETCH" -eq 1 ]; then
   exit 0
 fi
 
-fail "specify --fetch, --loose, --fused, and/or --ota (see --help)"
+fail "specify --fetch, --loose, and/or --fused (see --help)"

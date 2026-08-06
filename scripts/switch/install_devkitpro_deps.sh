@@ -4,7 +4,14 @@
 #
 #   bash scripts/switch/install_devkitpro_deps.sh
 #
+# Optional: speeds up local native OTA launcher builds. CI/release can fall back
+# to Docker when these packages are not installed.
+#
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "==> re-running with sudo…"
@@ -25,14 +32,17 @@ if ! command -v dkp-pacman >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! dkp-pacman -Q switch-dev >/dev/null 2>&1; then
+  echo "error: switch-dev is not installed (needed for nacptool/elf2nro)." >&2
+  echo "  sudo dkp-pacman -S switch-dev" >&2
+  echo "Then re-run: bash scripts/switch/install_devkitpro_deps.sh" >&2
+  exit 1
+fi
+
 echo "==> DEVKITPRO=$DEVKITPRO"
 # Named packages only (avoid interactive switch-dev group member prompt).
 # ZIP reading uses switch-zziplib (dkp has no minizip port for Switch).
-dkp-pacman -Sy --noconfirm --needed \
-  switch-curl \
-  switch-mbedtls \
-  switch-zlib \
-  switch-zziplib
+dkp-pacman -Sy --noconfirm --needed "${OTA_LAUNCHER_PKGS[@]}"
 
 echo "==> installed packages:"
 dkp-pacman -Q | grep -E 'switch-(curl|mbedtls|zlib|zziplib|tools)|libnx|devkitA64' || true

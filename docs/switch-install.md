@@ -30,15 +30,15 @@ Extract the zip at the **root** of the microSD so you get:
 
 ```text
 sdmc:/switch/gen1recomp/gen1recomp.nro          # native OTA launcher (hbmenu entry)
-sdmc:/switch/gen1recomp/gen1recomp-game.nro     # fused LÖVE game (when OTA layout ships)
+sdmc:/switch/gen1recomp/gen1recomp-game.nro     # fused LÖVE game
 sdmc:/switch/gen1recomp/version.txt
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/mods/
 sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/...
 ```
 
-Older single-NRO zips only had `gen1recomp.nro` (the fused game). New OTA-ready
-zips use the dual-NRO layout above — open `gen1recomp` in hbmenu (the launcher).
+Older single-NRO zips only had `gen1recomp.nro` (the fused game). Current
+releases use the dual-NRO layout above — open `gen1recomp` in hbmenu (the launcher).
 
 Merge folders if your OS asks. Any method works: **MTP** (DBI → Run MTP
 responder + a client), **direct SD** (Hekate UMS or a card reader), or **FTP**.

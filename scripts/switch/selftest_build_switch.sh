@@ -51,17 +51,17 @@ MISSING=""
 printf '%s' "$HELP_LC" | grep -q 'fetch' || MISSING="${MISSING} fetch"
 printf '%s' "$HELP_LC" | grep -q 'loose' || MISSING="${MISSING} loose"
 printf '%s' "$HELP_LC" | grep -q 'fused' || MISSING="${MISSING} fused"
-printf '%s' "$HELP_LC" | grep -q 'ota' || MISSING="${MISSING} ota"
+printf '%s' "$HELP_LC" | grep -Eq 'devkitpro' || MISSING="${MISSING} DEVKITPRO"
 printf '%s' "$HELP_LC" | grep -Eq 'auto-download|downloads' || MISSING="${MISSING} auto-download"
 printf '%s' "$HELP_LC" | grep -Eq 'non-goal|does not|never' || MISSING="${MISSING} non-goals"
 if [ -z "$MISSING" ]; then
-  ok "build_switch.sh --help mentions fetch, loose, fused, ota (+ auto-download/non-goals)"
+  ok "build_switch.sh --help mentions fetch, loose, fused, DEVKITPRO (+ auto-download/non-goals)"
 else
   bad "build_switch.sh --help missing:$MISSING"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. XOR --loose --fused / --ota exits non-zero
+# 3. XOR --loose --fused exits non-zero
 # ---------------------------------------------------------------------------
 XOR_RC=0
 "$ROOT/scripts/build_switch.sh" --loose --fused >/dev/null 2>&1 || XOR_RC=$?
@@ -69,13 +69,6 @@ if [ "$XOR_RC" -ne 0 ]; then
   ok "build_switch.sh --loose --fused exits non-zero ($XOR_RC)"
 else
   bad "build_switch.sh --loose --fused should exit non-zero"
-fi
-XOR_OTA_RC=0
-"$ROOT/scripts/build_switch.sh" --fused --ota >/dev/null 2>&1 || XOR_OTA_RC=$?
-if [ "$XOR_OTA_RC" -ne 0 ]; then
-  ok "build_switch.sh --fused --ota exits non-zero ($XOR_OTA_RC)"
-else
-  bad "build_switch.sh --fused --ota should exit non-zero"
 fi
 
 # ---------------------------------------------------------------------------
@@ -188,7 +181,41 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5c. fail_fused_toolchain mentions docs/switch-build.md
+# 5c2. fail_missing_devkitpro cites install_devkitpro_deps.sh
+# ---------------------------------------------------------------------------
+MDK_ERR="$STAGING/missing-dkp.err"
+MDK_RC=0
+(
+  . "$SCRIPT_DIR/common.sh"
+  fail_missing_devkitpro
+) >"$STAGING/missing-dkp.out" 2>"$MDK_ERR" || MDK_RC=$?
+
+if [ "$MDK_RC" -ne 0 ] \
+  && grep -q 'install_devkitpro_deps.sh' "$MDK_ERR" \
+  && grep -q 'DEVKITPRO' "$MDK_ERR" \
+  && grep -q 'switch-dev' "$MDK_ERR"; then
+  ok "fail_missing_devkitpro cites DEVKITPRO + switch-dev + install_devkitpro_deps.sh"
+else
+  bad "fail_missing_devkitpro should cite setup steps (rc=$MDK_RC err=$(cat "$MDK_ERR"))"
+fi
+
+OTA_ERR="$STAGING/missing-ota.err"
+OTA_RC=0
+(
+  . "$SCRIPT_DIR/common.sh"
+  fail_missing_ota_deps
+) >"$STAGING/missing-ota.out" 2>"$OTA_ERR" || OTA_RC=$?
+
+if [ "$OTA_RC" -ne 0 ] \
+  && grep -q 'install_devkitpro_deps.sh' "$OTA_ERR" \
+  && grep -qi 'docker' "$OTA_ERR"; then
+  ok "fail_missing_ota_deps cites native or Docker options"
+else
+  bad "fail_missing_ota_deps should cite native + Docker (rc=$OTA_RC err=$(cat "$OTA_ERR"))"
+fi
+
+# ---------------------------------------------------------------------------
+# 5d. fail_fused_toolchain mentions docs/switch-build.md
 # ---------------------------------------------------------------------------
 FT_ERR="$STAGING/fused-toolchain.err"
 FT_RC=0
@@ -365,6 +392,9 @@ else
 fi
 
 if [ -f "$ROOT/scripts/switch/build_ota_launcher.sh" ] \
+  && grep -q 'ota_launcher_deps_ready' "$ROOT/scripts/switch/build_ota_launcher.sh" \
+  && grep -q 'fail_missing_devkitpro' "$ROOT/scripts/switch/build_ota_launcher.sh" \
+  && grep -q 'preflight_fused_build' "$ROOT/scripts/build_switch.sh" \
   && [ -f "$ROOT/native/switch-ota-launcher/Makefile" ]
 then
   ok "native OTA launcher sources + build_ota_launcher.sh present"

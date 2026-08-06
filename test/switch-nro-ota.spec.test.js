@@ -529,12 +529,15 @@ test('AC-010: Fonte do launcher e Makefile DEVKITPRO existem @spec:AC-010', () =
   assert.match(read('native/switch-ota-launcher/src/ota_fs.c'), /ota_fs_atomic_replace_nro/);
   assert.doesNotMatch(read('scripts/switch/install_devkitpro_deps.sh'), /switch-minizip/);
   assert.match(read('scripts/switch/install_devkitpro_deps.sh'), /switch-zziplib/);
+  assert.match(read('scripts/switch/install_devkitpro_deps.sh'), /switch-dev/);
 
   const buildDoc = read('docs/switch-build.md');
   assert.match(buildDoc, /native\/switch-ota-launcher|build_ota_launcher/);
-  assert.match(buildDoc, /switch-curl/);
-  assert.match(buildDoc, /--ota|install_devkitpro_deps/);
+  assert.match(buildDoc, /native packages.*or.*Docker|native or Docker/i);
+  assert.match(buildDoc, /--fused|install_devkitpro_deps/);
+  assert.match(buildDoc, /Requires DEVKITPRO|DEVKITPRO is[\s\S]*required/i);
   assert.doesNotMatch(buildDoc, /switch-ota\.zip/);
+  assert.doesNotMatch(buildDoc, /--ota\b/);
 
   const readme = read('native/switch-ota-launcher/README.md');
   assert.match(readme, /DEVKITPRO|devkitPro/i);
@@ -555,10 +558,15 @@ test('AC-011: Empacotamento dual-NRO e selftest @spec:AC-011', () => {
   );
 
   const buildSwitch = read('scripts/build_switch.sh');
-  assert.match(buildSwitch, /--ota/);
+  assert.doesNotMatch(buildSwitch, /--ota\b/);
   assert.doesNotMatch(buildSwitch, /pack_ota_zip\.sh/);
   assert.match(buildSwitch, /build_ota_launcher\.sh/);
   assert.match(buildSwitch, /dual-NRO SD zip|OTA download asset/i);
+
+  const buildOtaLauncher = read('scripts/switch/build_ota_launcher.sh');
+  assert.match(buildOtaLauncher, /ota_launcher_deps_ready/);
+  assert.match(buildOtaLauncher, /fail_missing_devkitpro/);
+  assert.match(buildSwitch, /preflight_fused_build/);
 
   const selftest = read('scripts/switch/selftest_build_switch.sh');
   assert.match(selftest, /dual-NRO|gen1recomp-game\.nro/);

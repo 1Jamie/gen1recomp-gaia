@@ -45,7 +45,13 @@ make
 # → gen1recomp.nro
 ```
 
-Or from repo root:
+Or from repo root (as part of `--fused`):
+
+```bash
+scripts/build_switch.sh --fetch --fused --version X.Y.Z
+```
+
+Standalone launcher build:
 
 ```bash
 scripts/switch/build_ota_launcher.sh
@@ -64,4 +70,4 @@ Manifest: `scripts/switch/ota_launcher.manifest`.
 - Zip extraction uses `switch-zziplib` (`ota_unzip.c`) on device.
 - OTA replaces launcher + game from the unified zip (NACP versions stay aligned).
 - Sphaira HOME forwarders cache metadata until reinstalled (see docs/switch-install.md).
-- Install toolchain deps once: `bash scripts/switch/install_devkitpro_deps.sh`
+- Release runner: `switch-dev` + (`install_devkitpro_deps.sh` **or** Docker)
