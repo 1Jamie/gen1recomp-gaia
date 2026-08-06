@@ -42,6 +42,13 @@ local function fakeTransport(options)
   return transport
 end
 
+local function readFile(path)
+  local handle = assert(io.open(path, "rb"))
+  local body = handle:read("*a")
+  handle:close()
+  return body
+end
+
 do
   local host, guest = sessionPair()
   T.eq(host:getRole(), "host", "host role is assigned locally")
@@ -297,6 +304,24 @@ do
   T.eq(transport.code, "ABCDEF", "valid relay controls stay transport-owned")
   transport:handleTCPLine(Json.encode({ type = "hello", name = "RED" }))
   T.eq(transport:poll()[1].name, "RED", "valid application packet stays intact")
+end
+
+do
+  local source = readFile("src/link/LinkState.lua")
+  T.check(source:find('require("src.link.Session")', 1, true) ~= nil,
+    "LinkState depends on the session boundary")
+  T.check(source:find('kind = "link"', 1, true) ~= nil,
+    "LinkState assigns the link session kind locally")
+  T.check(source:find("self.net.inbox", 1, true) == nil,
+    "LinkState never mutates a transport inbox")
+  T.check(source:find("self.net = Net.new()", 1, true) == nil,
+    "LinkState stores only successful session wrappers")
+  T.check(source:find(':take("hello")', 1, true) ~= nil,
+    "LinkState retrieves hello without draining unrelated packets")
+  T.check(source:find(':take("party")', 1, true) ~= nil,
+    "LinkState leaves battle handoff packets in session order")
+  T.check(source:find("getStatus()", 1, true) ~= nil,
+    "LinkState uses the session lifecycle instead of raw terminal flags")
 end
 
 T.finish("link_session")
