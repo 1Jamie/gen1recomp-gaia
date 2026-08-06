@@ -33,6 +33,7 @@ local Theme = require("src.ui.kit.Theme")
 local Layout = require("src.ui.kit.Layout")
 local Loader = require("src.ui.kit.Loader")
 local GameVersion = require("src.core.GameVersion")
+local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
 
 local PAL = Theme.PAL
@@ -398,6 +399,21 @@ local function buildHeader(imp, m)
   local rx = m.x + m.w - m.pad
   local by = y + (rowH - gear) / 2
 
+  -- Switch-only: show the running app version opposite the settings gear so
+  -- players can confirm which build is on the microSD (OTA / zip updates).
+  if imp.isNX then
+    local label = "v" .. tostring(Version.engine or "?")
+    local tw = Kit.textWidth("small", label)
+    local padX = math.floor(12 * m.s)
+    local chipW = math.max(tw + 2 * padX, gear)
+    local lx = m.x + m.pad
+    Theme.fill(lx, by, chipW, gear, PAL.bg, 1)
+    Theme.stroke(lx, by, chipW, gear, PAL.yellow, Theme.A.hover, 1)
+    local th = Kit.textHeight("small")
+    Kit.text("small", label, lx + math.floor((chipW - tw) / 2),
+      by + math.floor((gear - th) / 2), PAL.yellow)
+  end
+
   -- The right cluster is laid out right to left -- Quit outermost, the gear
   -- inboard of it -- but the two are REGISTERED gear first, because the first
   -- focusable of the first frame adopts the keyboard ring and that must not be
@@ -541,11 +557,15 @@ local function romModel(imp, version, info, ready, locked)
       label = Strings("Import unavailable"), enabled = false }
   end
   local dropHint = imp.isNX and Strings("Copy the .gb/.gbc via MTP into imports/.")
-    or (imp.android and Strings("Copy the .gb/.gbc via USB.")
-      or Strings("Or drop the .gb/.gbc file here."))
+    or (imp.baseRomDiscovery and Strings("Or copy the .gb/.gbc into baseroms/.")
+      or (imp.android and Strings("Copy the .gb/.gbc via USB.")
+        or Strings("Or drop the .gb/.gbc file here.")))
   local importing = imp.importing == version
   local erroring = imp.workState == "error" and imp.errorVersion == version
   local notice = imp.notice and imp.notice.version == version and imp.notice
+  local baseRom = imp.baseRoms and imp.baseRoms[version]
+  local scanning = imp.baseRomDiscovery and imp.baseRomScan
+    and imp.baseRomScan.state ~= "done"
   if importing and (imp.workState == "working" or imp.workState == "complete") then
     return { state = imp.status or Strings("Importing"),
       detail = imp.detail or "", progress = imp.progress or 0 }
@@ -564,6 +584,14 @@ local function romModel(imp, version, info, ready, locked)
       detail = ((notice.status or "") .. " " .. (notice.detail or ""))
         :gsub("^%s+", ""):gsub("%s+$", ""),
       label = importLabel, enabled = true }
+  elseif baseRom then
+    return { state = Strings("Compatible ROM found"),
+      detail = Strings("Found in baseroms/: %s", baseRom.name),
+      label = Strings("Import detected ROM"), enabled = true }
+  elseif scanning then
+    return { state = Strings("Checking baseroms..."),
+      detail = Strings("Looking for compatible Red, Blue, and Yellow ROMs."),
+      label = Strings("Import ROM"), enabled = false }
   elseif imp.returning[version] then
     return { state = Strings("Update required"),
       detail = Strings("This build needs a few more things from your ")
@@ -922,6 +950,8 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
   Kit.text("title", Kit.ellipsize("title", gameName, w * 0.6), x, y, PAL.heading)
   local tagText, tagCol
   if ready then tagText, tagCol = Strings("GOOD TO GO"), PAL.green
+  elseif imp.baseRoms and imp.baseRoms[version] then
+    tagText, tagCol = Strings("ROM FOUND"), PAL.green
   elseif locked then tagText, tagCol = Strings("COMING SOON"), PAL.steel
   else tagText, tagCol = Strings("ROM REQUIRED"), PAL.yellow end
   local tagW = Kit.textWidth("micro", tagText) + math.floor(18 * m.s)

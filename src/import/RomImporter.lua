@@ -36,7 +36,7 @@ end
 -- the same unbootable save as before.
 local CACHE_FORMAT = "rom-cache-v10:"
 -- The completion marker is written under each version's cache prefix
--- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
+-- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
 
 -- The marker a finished import writes for a version: the generation tag plus
@@ -139,8 +139,8 @@ local PAL = {
 
 -- CacheFs.exists checks the game folder directly for a portable install,
 -- otherwise the save directory through love.filesystem.  It honors
--- CacheFs.prefix, so we point it at the version's cache subtree (Red at the
--- root, Blue under blue/).
+-- CacheFs.prefix, so we point it at the version's cache subtree (red/,
+-- blue/, yellow/).
 local function allRequiredFilesExist(version)
   local CacheFs = require("src.import.CacheFs")
   local saved = CacheFs.prefix
@@ -157,11 +157,15 @@ local function allRequiredFilesExist(version)
 end
 
 -- A developer checkout / Python build leaves Red's generated data in the
--- physfs SOURCE at the un-prefixed root; that is always current.  Only Red
--- ships this way (Blue is import-only), so this stays a Red-root check.
+-- physfs SOURCE at the un-prefixed root (the checked-out data/generated and
+-- assets/generated); it is always current and never moves into red/.  Only
+-- Red ships this way (Blue/Yellow are import-only).  The check goes through
+-- love.filesystem directly so the red/ cache prefix cannot hide the source
+-- tree, and the realDirectory test keeps a save-dir cache from counting.
 local function sourceTreeHasData()
-  if not allRequiredFilesExist("red") or not love.filesystem.getRealDirectory then
-    return false
+  if not love.filesystem.getRealDirectory then return false end
+  for _, path in ipairs(REQUIRED_FILES) do
+    if love.filesystem.getInfo(path, "file") == nil then return false end
   end
   local real = love.filesystem.getRealDirectory(REQUIRED_FILES[1])
   return real == love.filesystem.getSource()
@@ -218,8 +222,8 @@ local function purgeSaveDirCache()
     f:close()
     return true
   end
-  -- Purge each version's stale save-directory copy (Red at the root, Blue
-  -- under blue/) so it cannot shadow the portable game-folder cache.
+  -- Purge each version's stale save-directory copy (under its red/ / blue/
+  -- / yellow/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
     if saveDirHas(prefix .. MARKER_PATH) or saveDirHas(prefix .. REQUIRED_FILES[1]) then
@@ -341,6 +345,7 @@ local function commandOutput(command)
 end
 
 local IMPORTS_DIR = "imports"
+local BASE_ROMS_DIR = "baseroms"
 local MODS_INBOX_DIR = "imports/mods"
 local SAVES_INBOX_DIR = "imports/saves"
 local ROM_BYTES = 1024 * 1024
@@ -472,6 +477,65 @@ local function listRomPaths(dir)
     end
   end
   return paths
+end
+
+local function baseRomScanSatisfied(self)
+  for _, version in ipairs(GameVersion.ORDER) do
+    if not self.ready[version] and not self.baseRoms[version] then
+      return false
+    end
+  end
+  return true
+end
+
+function RomImporter:_queueBaseRomScan()
+  if not self.baseRomDiscovery then return end
+  if baseRomScanSatisfied(self) then
+    self.baseRomScan = { state = "done" }
+    return
+  end
+  self.baseRomScan = { state = "queued", index = 1 }
+end
+
+function RomImporter:_stepBaseRomScan()
+  local scan = self.baseRomScan
+  if not scan or scan.state == "done" or self.workState == "working" then
+    return
+  end
+  if scan.state == "queued" then
+    local info = love.filesystem.getInfo(BASE_ROMS_DIR)
+    if not info and love.filesystem.createDirectory then
+      love.filesystem.createDirectory(BASE_ROMS_DIR)
+    end
+    scan.paths = listRomPaths(BASE_ROMS_DIR)
+    table.sort(scan.paths)
+    scan.state = "running"
+  end
+
+  local path = scan.paths[scan.index]
+  if not path then
+    scan.state = "done"
+    return
+  end
+  scan.index = scan.index + 1
+
+  local info = love.filesystem.getInfo(path, "file")
+  if info and info.size == ROM_BYTES then
+    local data = love.filesystem.read(path)
+    if type(data) == "string" and #data == ROM_BYTES then
+      local version = GameVersion.forSha1(sha1(data))
+      if version and not self.ready[version] and not self.baseRoms[version] then
+        self.baseRoms[version] = {
+          path = path,
+          name = path:match("[^/\\]+$") or path,
+        }
+      end
+    end
+  end
+
+  if baseRomScanSatisfied(self) or not scan.paths[scan.index] then
+    scan.state = "done"
+  end
 end
 
 local function listZipPaths(dir)
@@ -1050,6 +1114,9 @@ function RomImporter.new(onComplete, opts)
     android = android,
     ios = mobileOS == "iOS",
     nativePicker = romImportMode == "native-picker",
+    baseRomDiscovery = opts.launcher and Platform.isUWP(),
+    baseRoms = {},
+    baseRomScan = nil,
     -- One startup poll pass on both mobiles.  iOS: files dropped through the
     -- Files app are swept into the save dir before Lua boots (GRBootstrap) with
     -- no love.focus event necessarily following.  Android: the SAF picker is a
@@ -1128,6 +1195,11 @@ function RomImporter.new(onComplete, opts)
     _padInited = false,
   }, RomImporter)
 
+  -- Pre-#899 installs keep Red's extracted cache at the save-dir root; move
+  -- it under red/ before the readiness loop looks for red/ paths, or every
+  -- such install would read as "never imported" and demand the ROM again.
+  CacheFs.migrateLegacyRedCache()
+
   for _, version in ipairs(GameVersion.ORDER) do
     local info = GameVersion.info(version)
     local ready = RomImporter.isReady(version) and not self.forceImport
@@ -1144,6 +1216,7 @@ function RomImporter.new(onComplete, opts)
       .. (info.id == "yellow" and ".gbc" or ".gb")
   end
   self:_applyLastVersionTab()
+  self:_queueBaseRomScan()
 
   -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
@@ -1750,6 +1823,21 @@ function RomImporter:choose(version)
     self:rescanAction(self.chooseVersion)
     return
   end
+  local baseRom = self.baseRomDiscovery and self.baseRoms[self.chooseVersion]
+  if baseRom then
+    self.baseRoms[self.chooseVersion] = nil
+    local data = love.filesystem.read(baseRom.path)
+    if not data then
+      self.notice = {
+        version = self.chooseVersion,
+        status = "The detected ROM is no longer available.",
+        detail = "Choose Import ROM to select it another way.",
+      }
+      return
+    end
+    self:startData(data, baseRom.name)
+    return
+  end
   if self.nativePicker and love.system.getPickedFile then
     self.pickerPendingKind = "rom"
     if not pickFile("rom") then
@@ -1872,6 +1960,7 @@ end
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
   self:_updatePadCursor(dt)
+  self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
   -- flag is only set once draw() has built a tree, so headless runs and the
   -- test tier never touch the toolkit.
@@ -2288,6 +2377,10 @@ function RomImporter:reimport(version)
   self.ready[version] = false
   self.returning[version] = false
   self.chooseVersion = version
+  if self.baseRomDiscovery then
+    self.baseRoms[version] = nil
+    self:_queueBaseRomScan()
+  end
 end
 
 local function clamp(v, lo, hi)
