@@ -30,7 +30,11 @@ end
 -- Cache generation tag; bump to force every imported version to re-extract.
 -- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
-local CACHE_FORMAT = "rom-cache-v9:"
+-- v10: maps carry their raw map-header/connection/object bytes and tilesets
+-- their Tilesets row (#889), which a .sav export replays so a Continue on
+-- real hardware has a map to load; a v9 cache has none of them and exports
+-- the same unbootable save as before.
+local CACHE_FORMAT = "rom-cache-v10:"
 -- The completion marker is written under each version's cache prefix
 -- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
 local MARKER_PATH = "rom-cache.complete"
