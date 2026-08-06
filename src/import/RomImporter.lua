@@ -328,7 +328,10 @@ local function commandOutput(command)
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
-  pipe:close()
+  -- HostShell.pclose, never pipe:close(): closing a pipe outside the spawn
+  -- lock can free a FILE while a worker thread's popen is walking the stream
+  -- list, which deadlocks that thread for good (see HostShell).
+  HostShell.pclose(pipe)
   result = trim(result)
   return result ~= "" and result or nil
 end
@@ -1909,6 +1912,12 @@ function RomImporter:update(dt)
                     "Mods are not reviewed - trust the author." },
         }
       end
+      -- POKEPORT_LAUNCHER_SETTINGS=1 opens the gear panel, the other layout
+      -- a capture cannot otherwise reach without a click.  Pair it with
+      -- POKEPORT_LAUNCHER_SETTINGS_PAGE to land on a page past the first.
+      if os.getenv("POKEPORT_LAUNCHER_SETTINGS") == "1" then
+        self:_openSettings()
+      end
       local query = os.getenv("POKEPORT_LAUNCHER_QUERY")
       if query and query ~= "" then
         self.findQuery = query
@@ -2450,8 +2459,19 @@ end
 -- ------- settings gear (options.lua + enabled mods' option schemas)
 
 function RomImporter:_openSettings()
+  -- The touch-overlay editor is a host screen, so the model gets it as a
+  -- hook rather than reaching for main.lua's handler itself.  Closing the
+  -- settings panel FIRST persists the pending edits (_closeSettings saves)
+  -- and leaves no modal behind the editor to return to.
+  local hooks = {}
+  if self.onEditTouchControls then
+    hooks.editTouchControls = function()
+      self:_closeSettings()
+      self.onEditTouchControls()
+    end
+  end
   local ok, model = pcall(function()
-    return require("src.import.LauncherSettings").open()
+    return require("src.import.LauncherSettings").open(hooks)
   end)
   if ok and model then self._settings = model end
 end
@@ -3334,34 +3354,11 @@ function RomImporter:_pumpFindFetch()
   self:_clearBusy()
 end
 
--- Clear every input rebind and the dragged touch-overlay layout, restoring
--- the stock keyboard/gamepad bindings.  Rebinds are ADDITIVE
--- (src/core/Input.lua:applyBindings layers options.bindings over the
--- defaults instead of replacing them), so a player who has bound themselves
--- into a corner has no in-game way out; this is it.  The running game reads
--- bindings on its next start, which is the same contract every other
--- launcher setting has.
-function RomImporter:_resetRebinds()
-  local ok = pcall(function()
-    local SaveData = require("src.core.SaveData")
-    local opts = SaveData.loadOptions()
-    opts.bindings = nil
-    if type(opts.touchControls) == "table" then
-      opts.touchControls.layouts = nil
-    end
-    SaveData.saveOptions(opts)
-  end)
-  -- Its own notice slot: this button lives on the game panel, and borrowing
-  -- the mods or save notice would print the result on a tab the user is not
-  -- looking at.
-  if ok then
-    self.controlsNotice = { ok = true,
-      text = Strings("Controls reset to defaults. Applies on the next start.") }
-  else
-    self.controlsNotice = { ok = false,
-      text = Strings("Could not reset controls.") }
-  end
-end
+-- Clearing rebinds used to live here, behind a button on the game panel.  It
+-- is now the RESET REBINDS row of the settings model
+-- (src/import/LauncherSettings.lua), which edits the same options table the
+-- rest of that panel does and saves through the same save() -- one control
+-- for a setting that was never per-game in the first place.
 
 -- ------- busy state (drives the non-dismissable loader overlay)
 -- Anything that makes the user wait sets this; LauncherView renders it as a
@@ -3440,7 +3437,12 @@ function RomImporter:_findThumb(entry)
       :format(tostring(entry.id):gsub("[^%w%-_]", "_"), ext)
     local Fetch = require("src.net.Fetch")
     self._findThumbFetch[entry.id] = {
-      job = Fetch.download(url, name, { userAgent = "gen1recomp-mod-index" }),
+      -- A short ceiling on purpose: a page of these is queued at once, and
+      -- each one's ceiling is part of the worst case for closing the window
+      -- (Fetch.shutdown).  A thumbnail that has not arrived in 15s is not
+      -- worth holding the process open for -- the card shows its placeholder.
+      job = Fetch.download(url, name,
+        { userAgent = "gen1recomp-mod-index", maxSeconds = 15 }),
     }
   end
   return nil
