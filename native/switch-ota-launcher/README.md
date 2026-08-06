@@ -68,7 +68,10 @@ Manifest: `scripts/switch/ota_launcher.manifest`.
 ## Status / known gaps
 
 - Zip extraction uses `switch-zziplib` (`ota_unzip.c`) on device.
-- OTA replaces launcher + game from the install zip (NACP versions stay aligned).
+- OTA replaces game + launcher from the install zip (NACP versions stay aligned).
+  The running launcher cannot overwrite its own NRO on sdmc/FAT; a tiny
+  `ota-bootstrap.nro` (embedded in romfs) chainloads once to swap the staged
+  launcher, then loads the game.
 - HTTPS uses Mozilla CA bundle in romfs (`cacert.pem`, fetched at build time). `ota_net_init()` mounts romfs before the quiet release check.
 - Sphaira HOME forwarders cache metadata until reinstalled (see docs/switch-install.md).
 - Release runner: `switch-dev` + (`install_devkitpro_deps.sh` **or** Docker)

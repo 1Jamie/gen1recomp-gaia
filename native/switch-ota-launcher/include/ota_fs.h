@@ -22,6 +22,12 @@ int ota_fs_atomic_replace_game(const char *install_dir, const char *verified_gam
 int ota_fs_atomic_replace_nro(const char *install_dir, const char *nro_name,
                               const char *verified_nro, char *err, size_t err_len);
 
+/* Stage a new launcher + copy romfs bootstrap; chainload bootstrap_out next.
+ * The running launcher cannot replace its own NRO on sdmc/FAT. */
+int ota_fs_stage_launcher_bootstrap(const char *install_dir, const char *verified_launcher,
+                                    char *bootstrap_out, size_t bootstrap_out_len, char *err,
+                                    size_t err_len);
+
 /* Hand off to game NRO via envSetNextLoad (Switch) or no-op stub (host). */
 int ota_fs_handoff_to_game(const char *game_nro_path, char *err, size_t err_len);
 

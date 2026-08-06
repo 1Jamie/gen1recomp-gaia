@@ -198,12 +198,15 @@ static int run_update_flow(const char *install_dir) {
                       "Update zip is missing launcher files.", err, installed);
     return 0;
   }
-  if (ota_fs_atomic_replace_nro(install_dir, OTA_LAUNCHER_NRO_NAME, extracted_launcher, err,
-                                sizeof(err)) != 0) {
+
+  char bootstrap_path[256];
+  bootstrap_path[0] = '\0';
+  if (ota_fs_stage_launcher_bootstrap(install_dir, extracted_launcher, bootstrap_path,
+                                      sizeof(bootstrap_path), err, sizeof(err)) != 0) {
     remove(extracted_launcher);
     remove(zip_path);
     show_update_error("Could not install",
-                      "Game updated but launcher could not be replaced. Reinstall from the SD zip.",
+                      "Game updated but launcher could not be staged. Reinstall from the SD zip.",
                       err, installed);
     return 0;
   }
@@ -217,8 +220,16 @@ static int run_update_flow(const char *install_dir) {
     fclose(vf);
   }
 
-  ota_ui_show_progress("Ready", "Starting the game...", 1.0f);
+  ota_ui_show_progress("Ready", "Finishing update...", 1.0f);
   svcSleepThread(600000000ULL);
+  remove(zip_path);
+  ota_ui_shutdown();
+
+  if (ota_fs_handoff_to_game(bootstrap_path, err, sizeof(err)) != 0) {
+    show_update_error("Could not install", "Launcher bootstrap failed.", err, installed);
+    return 0;
+  }
+  return 2; /* chainload bootstrap; main must not hand off to game */
 #else
   (void)extracted;
   (void)extracted_launcher;
@@ -233,17 +244,25 @@ int main(int argc, char **argv) {
   (void)argv;
 
   const char *install = SD_INSTALL_DIR;
+  int update_rc = 0;
 
 #if defined(__SWITCH__)
   socketInitializeDefault();
   padConfigureInput(1, HidNpadStyleSet_NpadStandard);
   if (ota_net_init() == 0) {
-    run_update_flow(install);
+    update_rc = run_update_flow(install);
     ota_net_shutdown();
   }
 #else
-  run_update_flow(install);
+  update_rc = run_update_flow(install);
 #endif
+
+  if (update_rc == 2) {
+#if defined(__SWITCH__)
+    socketExit();
+#endif
+    return 0;
+  }
 
   char game[192];
   snprintf(game, sizeof(game), "%s/%s", install, OTA_GAME_NRO_NAME);

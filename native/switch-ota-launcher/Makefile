@@ -130,7 +130,10 @@ ifneq ($(ROMFS),)
 	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: $(BUILD) clean all host-test sync-romfs
+BOOTSTRAP_DIR	:=	$(TOPDIR)/../switch-ota-bootstrap
+BOOTSTRAP_ROMFS	:=	$(CURDIR)/$(ROMFS)/ota-bootstrap.nro
+
+.PHONY: $(BUILD) clean all host-test sync-romfs bootstrap-romfs
 
 #---------------------------------------------------------------------------------
 all: sync-romfs $(BUILD)
@@ -138,7 +141,12 @@ all: sync-romfs $(BUILD)
 CACERT_URL	:=	https://curl.se/ca/cacert.pem
 CACERT_ROMFS	:=	$(CURDIR)/$(ROMFS)/cacert.pem
 
-sync-romfs:
+bootstrap-romfs:
+	@$(MAKE) --no-print-directory -C $(BOOTSTRAP_DIR) all
+	@mkdir -p $(CURDIR)/$(ROMFS)
+	@cp -f $(BOOTSTRAP_DIR)/ota-bootstrap.nro $(BOOTSTRAP_ROMFS)
+
+sync-romfs: bootstrap-romfs
 	@mkdir -p $(CURDIR)/$(ROMFS)
 	@cp -f $(LOGO_SRC) $(CURDIR)/$(ROMFS)/logo.png
 	@if ! curl -sfL --time-cond $(CACERT_ROMFS) -o $(CACERT_ROMFS) $(CACERT_URL); then \

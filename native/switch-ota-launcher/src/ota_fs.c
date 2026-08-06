@@ -7,6 +7,7 @@
 #if defined(__SWITCH__)
 #include <switch.h>
 #include <mbedtls/sha256.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #else
 #include <unistd.h>
@@ -111,6 +112,47 @@ int ota_fs_atomic_replace_nro(const char *install_dir, const char *nro_name,
     remove(part);
     return -1;
   }
+  return 0;
+}
+
+int ota_fs_stage_launcher_bootstrap(const char *install_dir, const char *verified_launcher,
+                                    char *bootstrap_out, size_t bootstrap_out_len, char *err,
+                                    size_t err_len) {
+  if (!verified_launcher || !*verified_launcher) {
+    if (err && err_len) snprintf(err, err_len, "missing staged launcher path");
+    return -1;
+  }
+  if (!bootstrap_out || bootstrap_out_len == 0) {
+    if (err && err_len) snprintf(err, err_len, "missing bootstrap output buffer");
+    return -1;
+  }
+  bootstrap_out[0] = '\0';
+
+  const char *base = install_dir ? install_dir : OTA_INSTALL_DIR;
+  char staged[256];
+  char bootstrap[256];
+  char updates[192];
+  snprintf(staged, sizeof(staged), "%s/%s%s", base, OTA_LAUNCHER_NRO_NAME,
+           OTA_LAUNCHER_STAGED_SUFFIX);
+  snprintf(updates, sizeof(updates), "%s/updates", base);
+  snprintf(bootstrap, sizeof(bootstrap), "%s/updates/%s", base, OTA_BOOTSTRAP_SD_NAME);
+
+  remove(staged);
+  if (copy_file(verified_launcher, staged) != 0) {
+    if (err && err_len) snprintf(err, err_len, "stage launcher failed");
+    return -1;
+  }
+
+#if defined(__SWITCH__)
+  mkdir(updates, 0755);
+#endif
+  if (copy_file(OTA_BOOTSTRAP_ROMFS, bootstrap) != 0) {
+    remove(staged);
+    if (err && err_len) snprintf(err, err_len, "extract bootstrap failed");
+    return -1;
+  }
+
+  snprintf(bootstrap_out, bootstrap_out_len, "%s", bootstrap);
   return 0;
 }
 
