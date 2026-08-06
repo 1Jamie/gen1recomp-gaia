@@ -205,6 +205,25 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## Linux on arm64 (Raspberry Pi)
+
+Alongside the x86_64 `gen1recomp-*-linux.zip`, every release ships
+`gen1recomp-*-linux-arm64.AppImage` for 64-bit ARM desktop Linux — Raspberry
+Pi 4/5, Armbian and other SBC distros, and arm64 VMs on Apple Silicon:
+
+```sh
+chmod +x gen1recomp-*-linux-arm64.AppImage
+./gen1recomp-*-linux-arm64.AppImage
+```
+
+LÖVE publishes no aarch64 binary of any kind, so this artifact compiles the
+engine — and SDL2, OpenAL and the codecs — from source inside a Debian
+bullseye arm64 container. It needs only glibc 2.29+, libstdc++, freetype and
+zlib on the host; OpenGL, X11, Wayland, KMSDRM, ALSA and PulseAudio are all
+dlopened, so the same image runs on a full desktop, a Wayland-only session or
+a KMSDRM handheld with no X server. Build instructions and the reasoning are
+in [docs/linux-arm64-build.md](docs/linux-arm64-build.md).
+
 ## iOS
 
 Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore
