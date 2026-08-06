@@ -8,7 +8,8 @@ if [ -z "${ROOT:-}" ]; then
 fi
 export ROOT
 
-say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+# Progress on stderr so command-substitution (e.g. pack_game_love) stays a bare path.
+say()  { printf '\033[1;32m==>\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Print SHA-256 hex digest of PATH. Prefers shasum, falls back to sha256sum.
