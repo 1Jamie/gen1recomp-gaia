@@ -32,7 +32,7 @@ end
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
 local CACHE_FORMAT = "rom-cache-v9:"
 -- The completion marker is written under each version's cache prefix
--- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
+-- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
 
 -- The marker a finished import writes for a version: the generation tag plus
@@ -135,8 +135,8 @@ local PAL = {
 
 -- CacheFs.exists checks the game folder directly for a portable install,
 -- otherwise the save directory through love.filesystem.  It honors
--- CacheFs.prefix, so we point it at the version's cache subtree (Red at the
--- root, Blue under blue/).
+-- CacheFs.prefix, so we point it at the version's cache subtree (red/,
+-- blue/, yellow/).
 local function allRequiredFilesExist(version)
   local CacheFs = require("src.import.CacheFs")
   local saved = CacheFs.prefix
@@ -154,13 +154,19 @@ end
 
 -- A developer checkout / Python build leaves generated data in the physfs
 -- source: Red at the historical root, Blue/Yellow in their versioned trees.
--- Source data is produced from the current manifest, so it needs no runtime
--- import marker; still verify the whole version-specific required-file set.
+-- Imported Red caches still live under red/.  Check source paths directly so
+-- that cache prefix cannot hide Red's source tree, and keep save-dir caches
+-- from counting as current source data.
 local function sourceTreeHasData(version)
-  if not allRequiredFilesExist(version) or not love.filesystem.getRealDirectory then
-    return false
+  if not love.filesystem.getRealDirectory then return false end
+  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
+  for _, path in ipairs(REQUIRED_FILES) do
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
   end
-  local path = GameVersion.cachePrefix(version) .. REQUIRED_FILES[1]
+  for _, path in ipairs(VERSION_REQUIRED_FILES[version] or {}) do
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
+  end
+  local path = prefix .. REQUIRED_FILES[1]
   local real = love.filesystem.getRealDirectory(path)
   return real == love.filesystem.getSource()
 end
@@ -216,8 +222,8 @@ local function purgeSaveDirCache()
     f:close()
     return true
   end
-  -- Purge each version's stale save-directory copy (Red at the root, Blue
-  -- under blue/) so it cannot shadow the portable game-folder cache.
+  -- Purge each version's stale save-directory copy (under its red/ / blue/
+  -- / yellow/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
     if saveDirHas(prefix .. MARKER_PATH) or saveDirHas(prefix .. REQUIRED_FILES[1]) then
@@ -328,7 +334,10 @@ local function commandOutput(command)
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
-  pipe:close()
+  -- HostShell.pclose, never pipe:close(): closing a pipe outside the spawn
+  -- lock can free a FILE while a worker thread's popen is walking the stream
+  -- list, which deadlocks that thread for good (see HostShell).
+  HostShell.pclose(pipe)
   result = trim(result)
   return result ~= "" and result or nil
 end
@@ -1121,6 +1130,11 @@ function RomImporter.new(onComplete, opts)
     _padInited = false,
   }, RomImporter)
 
+  -- Pre-#899 installs keep Red's extracted cache at the save-dir root; move
+  -- it under red/ before the readiness loop looks for red/ paths, or every
+  -- such install would read as "never imported" and demand the ROM again.
+  CacheFs.migrateLegacyRedCache()
+
   for _, version in ipairs(GameVersion.ORDER) do
     local info = GameVersion.info(version)
     local ready = RomImporter.isReady(version) and not self.forceImport
@@ -1909,6 +1923,12 @@ function RomImporter:update(dt)
                     "Mods are not reviewed - trust the author." },
         }
       end
+      -- POKEPORT_LAUNCHER_SETTINGS=1 opens the gear panel, the other layout
+      -- a capture cannot otherwise reach without a click.  Pair it with
+      -- POKEPORT_LAUNCHER_SETTINGS_PAGE to land on a page past the first.
+      if os.getenv("POKEPORT_LAUNCHER_SETTINGS") == "1" then
+        self:_openSettings()
+      end
       local query = os.getenv("POKEPORT_LAUNCHER_QUERY")
       if query and query ~= "" then
         self.findQuery = query
@@ -2450,8 +2470,19 @@ end
 -- ------- settings gear (options.lua + enabled mods' option schemas)
 
 function RomImporter:_openSettings()
+  -- The touch-overlay editor is a host screen, so the model gets it as a
+  -- hook rather than reaching for main.lua's handler itself.  Closing the
+  -- settings panel FIRST persists the pending edits (_closeSettings saves)
+  -- and leaves no modal behind the editor to return to.
+  local hooks = {}
+  if self.onEditTouchControls then
+    hooks.editTouchControls = function()
+      self:_closeSettings()
+      self.onEditTouchControls()
+    end
+  end
   local ok, model = pcall(function()
-    return require("src.import.LauncherSettings").open()
+    return require("src.import.LauncherSettings").open(hooks)
   end)
   if ok and model then self._settings = model end
 end
@@ -3334,34 +3365,11 @@ function RomImporter:_pumpFindFetch()
   self:_clearBusy()
 end
 
--- Clear every input rebind and the dragged touch-overlay layout, restoring
--- the stock keyboard/gamepad bindings.  Rebinds are ADDITIVE
--- (src/core/Input.lua:applyBindings layers options.bindings over the
--- defaults instead of replacing them), so a player who has bound themselves
--- into a corner has no in-game way out; this is it.  The running game reads
--- bindings on its next start, which is the same contract every other
--- launcher setting has.
-function RomImporter:_resetRebinds()
-  local ok = pcall(function()
-    local SaveData = require("src.core.SaveData")
-    local opts = SaveData.loadOptions()
-    opts.bindings = nil
-    if type(opts.touchControls) == "table" then
-      opts.touchControls.layouts = nil
-    end
-    SaveData.saveOptions(opts)
-  end)
-  -- Its own notice slot: this button lives on the game panel, and borrowing
-  -- the mods or save notice would print the result on a tab the user is not
-  -- looking at.
-  if ok then
-    self.controlsNotice = { ok = true,
-      text = Strings("Controls reset to defaults. Applies on the next start.") }
-  else
-    self.controlsNotice = { ok = false,
-      text = Strings("Could not reset controls.") }
-  end
-end
+-- Clearing rebinds used to live here, behind a button on the game panel.  It
+-- is now the RESET REBINDS row of the settings model
+-- (src/import/LauncherSettings.lua), which edits the same options table the
+-- rest of that panel does and saves through the same save() -- one control
+-- for a setting that was never per-game in the first place.
 
 -- ------- busy state (drives the non-dismissable loader overlay)
 -- Anything that makes the user wait sets this; LauncherView renders it as a
@@ -3440,7 +3448,12 @@ function RomImporter:_findThumb(entry)
       :format(tostring(entry.id):gsub("[^%w%-_]", "_"), ext)
     local Fetch = require("src.net.Fetch")
     self._findThumbFetch[entry.id] = {
-      job = Fetch.download(url, name, { userAgent = "gen1recomp-mod-index" }),
+      -- A short ceiling on purpose: a page of these is queued at once, and
+      -- each one's ceiling is part of the worst case for closing the window
+      -- (Fetch.shutdown).  A thumbnail that has not arrived in 15s is not
+      -- worth holding the process open for -- the card shows its placeholder.
+      job = Fetch.download(url, name,
+        { userAgent = "gen1recomp-mod-index", maxSeconds = 15 }),
     }
   end
   return nil
