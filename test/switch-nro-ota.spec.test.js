@@ -571,8 +571,8 @@ test('AC-011: Empacotamento dual-NRO e selftest @spec:AC-011', () => {
   const selftest = read('scripts/switch/selftest_build_switch.sh');
   assert.match(selftest, /dual-NRO|gen1recomp-game\.nro/);
   assert.match(selftest, /ota_launcher\.manifest/);
-  assert.match(selftest, /unified OTA|same SD zip|legacy OTA-only/i);
-  assert.match(selftest, /ota_ui|branded framebuffer|Quiet by default|quiet by default/i);
+  assert.match(selftest, /OTA uses the same SD zip|same SD zip|legacy OTA-only/i);
+  assert.match(selftest, /ota_ui|framebuffer|no prompt when up to date/i);
 
   const manifest = read('scripts/switch/ota_launcher.manifest');
   assert.match(manifest, /^OTA_ENABLED=1$/m);

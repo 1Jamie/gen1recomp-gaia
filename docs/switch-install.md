@@ -2,7 +2,7 @@
 
 Every GitHub Release that includes Switch support ships an SD-ready zip:
 `gen1recomp-*-switch.zip`. Extract it at the root of your microSD (install
-**or** update — same steps), launch with **title override**, then import your
+or update, same steps), launch with **title override**, then import your
 own legal `.gb` ROM.
 
 > You need a console that can run Switch homebrew (custom firmware / hbmenu).
@@ -34,7 +34,8 @@ sdmc:/switch/gen1recomp/pokemon-love2d/imports/saves/...
 ```
 
 Older single-NRO zips only had `gen1recomp.nro` (the fused game). Current
-releases use the dual-NRO layout above — open `gen1recomp` in hbmenu (the launcher).
+releases use the dual-NRO layout above. Open `gen1recomp` in hbmenu (the
+launcher).
 
 Merge folders if your OS asks. Any method works: **MTP** (DBI → Run MTP
 responder + a client), **direct SD** (Hekate UMS or a card reader), or **FTP**.
@@ -45,25 +46,25 @@ macOS, Linux, and Windows: [switch-transfer.md](switch-transfer.md).
 
 #### Native OTA launcher (in-console)
 
-On Switch, over-the-air updates are handled by the **native OTA launcher**
-(DEVKITPRO / libnx + curl), **not** by the LÖVE self-updater
-(`src/update/Check.lua`). The hbmenu entry is the launcher NRO
-(`gen1recomp.nro`). If a newer release exists it may download the same
-`gen1recomp-*-switch.zip` used for install, verify SHA-256 from
-`sha256sums.txt`, replace **both** `gen1recomp-game.nro` and
-`gen1recomp.nro` (so the NACP version matches the release for hbmenu /
-Sphaira), then hand off via `envSetNextLoad`. When you are already up to
-date (or offline), the launcher stays quiet and opens the game with no
-UI. When an update is available it shows a short screen in the same visual
-language as the in-game launcher (black field, RGB rail, logo, A/B buttons).
-Saves under `pokemon-love2d/` are never touched. Protocol
-contract: `src/update/SwitchOta.lua`.
+Switch OTA runs in a separate **native launcher NRO** (libnx + curl), not the
+LÖVE self-updater (`src/update/Check.lua`). hbmenu opens `gen1recomp.nro`.
+
+When a newer release exists, the launcher downloads the same install zip
+(`gen1recomp-*-switch.zip`), checks SHA-256 against `sha256sums.txt`, replaces
+both `gen1recomp-game.nro` and `gen1recomp.nro` (keeps NACP version in sync
+for hbmenu and Sphaira), then loads the game with `envSetNextLoad`.
+
+If you are up to date or offline, it skips straight to the game with no
+prompt. If an update is available, you get a short prompt styled like the
+in-game launcher: black background, RGB rail, logo, A/B buttons. Saves under
+`pokemon-love2d/` are not touched. See `src/update/SwitchOta.lua` for the
+wire format.
 
 The LÖVE self-updater stays **disabled** on NX (`networkValidated == false`).
 
 **Sphaira forwarder (HOME shortcut):** Sphaira copies name/version/icon into
 the installed forwarder at creation time. After an OTA (or zip) update, the
-`.nro` on the microSD already has the new version — but the HOME shortcut
+`.nro` on the microSD already has the new version, but the HOME shortcut
 keeps the old badge until you **reinstall the forwarder once** in Sphaira
 (Install Forwarder again on `gen1recomp.nro`). Browsing the NRO in Sphaira /
 hbmenu always shows the live file version.
@@ -72,7 +73,7 @@ hbmenu always shows the live file version.
 
 Use the **same** extract/merge of `gen1recomp-*-switch.zip`. It replaces the
 NROs (and the small help `README.txt` / `INSTALL.txt` files). Saves,
-imported ROMs, mods, and options live under `pokemon-love2d/` — **do not
+imported ROMs, mods, and options live under `pokemon-love2d/`. **Do not
 delete that folder** when updating, or you will lose progress.
 
 ## 3. Launch with title override
@@ -80,7 +81,7 @@ delete that folder** when updating, or you will lose progress.
 **Applet Mode is not supported** for this game (not enough memory).
 
 1. On the Switch HOME menu, highlight any installed title.
-2. Hold **R** and launch that title — this opens hbmenu with full memory
+2. Hold **R** and launch that title. This opens hbmenu with full memory
    (title override).
 3. From hbmenu, open `gen1recomp`.
 
@@ -94,14 +95,14 @@ This project ships **no** game data. On first launch:
    (`.gbc`) dump into `switch/gen1recomp/pokemon-love2d/imports/` (the
    launcher also shows the live save-dir path). All three can sit in the
    same folder.
-2. Use **Scan again** on that game’s tab (Red / Blue / Yellow). Rescan
-   matches by ROM SHA-1 for the open tab only — a Red dump never imports
+2. Use **Scan again** on that game's tab (Red / Blue / Yellow). Rescan
+   matches by ROM SHA-1 for the open tab only. A Red dump never imports
    from the Yellow tab (and vice versa).
 
 ## 5. Import / Export a raw `.sav`
 
 Continue a cart or PC battery save (or pull a slot off-console) via MTP /
-SD / FTP — same transfer methods as ROMs. Paths are **per game**:
+SD / FTP, same transfer methods as ROMs. Paths are **per game**:
 
 | Game | Import inbox | Export folder |
 | ---- | ------------ | ------------- |
@@ -109,19 +110,19 @@ SD / FTP — same transfer methods as ROMs. Paths are **per game**:
 | Blue | `imports/saves/blue/` | `exports/blue/` |
 | Yellow | `imports/saves/yellow/` | `exports/yellow/` |
 
-(Under the save dir `pokemon-love2d/` — the zip already creates these folders.)
+(Under the save dir `pokemon-love2d/`. The zip already creates these folders.)
 
-1. Copy a Gen1 `.sav` (32 KB) into that game’s inbox under the save dir
+1. Copy a Gen1 `.sav` (32 KB) into that game's inbox under the save dir
    ([switch-transfer.md](switch-transfer.md)).
-2. With the game’s ROM already imported, open **that game’s tab** →
+2. With the game's ROM already imported, open **that game's tab** →
    **SAVE FILES** → **Import save**. Only that folder is scanned.
 3. A successful import retires the file to `*.sav.imported` and records its
    content hash so pressing **Import save** again does not clone slots.
    Failed imports leave the original `.sav` in place.
 4. To pull a slot off the console, use **Export save**, then copy the file
-   from that game’s **`exports/<game>/`** folder via MTP / SD / FTP.
+   from that game's **`exports/<game>/`** folder via MTP / SD / FTP.
 
-Do not put `.sav` files into git. Prefer clean copies — some MTP clients
+Do not put `.sav` files into git. Prefer clean copies. Some MTP clients
 create `._*.sav` AppleDouble sidecars that are not real saves.
 
 ## Controls
@@ -158,12 +159,12 @@ create `._*.sav` AppleDouble sidecars that are not real saves.
 Mods install from a zip inbox (same transfer methods as ROMs):
 
 1. Copy a release `.zip` into the save-dir **`imports/mods/`** path the
-   launcher shows (MTP / SD / FTP — [switch-transfer.md](switch-transfer.md)).
+   launcher shows (MTP / SD / FTP. See [switch-transfer.md](switch-transfer.md)).
 2. In the launcher, open **MODS** → **Scan again** → enable the mod →
    **Play**.
 
 Remote **FIND MODS** / GitHub download stays **off** on Switch. Do not put
-mod zips into git. Community mods ship their own OPTIONS / rebinds — this port
+mod zips into git. Community mods ship their own OPTIONS / rebinds. This port
 does not document third-party control tables.
 
 ### Joy-Con shortcuts (Select + face)
@@ -185,16 +186,16 @@ If the handheld stutters with extras on, try **OPTIONS → PERFORMANCE** →
 
 ## Limitations
 
-- **Homebrew required** — custom firmware and hbmenu; this project does not help
-  set that up.
-- **Title override required** — hold **R** when launching a title for full
-  memory. Applet Mode (Album) is not supported.
-- **Manual file transfer** — ROMs, mods, and saves are copied via MTP, direct
-  SD, or FTP; there is no automated deploy.
-- **No LÖVE self-updater** — in-console updates use the native OTA launcher
-  only. Remote **FIND MODS** / GitHub download stays off on Switch.
-- **Hardware** — tested on Switch OLED; Switch V1 / Erista boot confirmed by the
-  community. Other models may work but are less tested.
+- You need homebrew (custom firmware, hbmenu). This project does not set that
+  up.
+- Launch with title override (hold **R** on a title). Applet Mode (Album) is
+  not supported. The game needs full memory.
+- ROMs, mods, and saves are copied manually via MTP, direct SD, or FTP. There
+  is no automated deploy.
+- Updates use the native OTA launcher only. The LÖVE self-updater and remote
+  **FIND MODS** stay off on Switch.
+- Tested on Switch OLED. Switch V1 / Erista boot confirmed by the community.
+  Other models may work but are less tested.
 
 ## Prefer building it yourself?
 

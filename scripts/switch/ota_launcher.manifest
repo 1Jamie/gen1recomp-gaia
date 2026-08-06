@@ -4,7 +4,7 @@
 # entrypoint. The LÖVE fused game NRO is loaded via envSetNextLoad after the
 # update check. Self-update of the launcher itself is out of scope for v1.
 #
-# OTA download uses the same SD zip as install (unified asset).
+# OTA downloads the install zip.
 #
 # Paths relative to microSD root:
 

@@ -126,6 +126,6 @@ bundled game, in that case.
   checkout is always "the game" itself; updating it means pulling the repo.
 - **Nintendo Switch does not use this LÖVE self-updater.** On NX,
   `Platform.networkValidated()` is `false`, so `Boot.run` / `Check` never
-  download `.love` payloads. In-console OTA is the **native OTA launcher**
-  (DEVKITPRO) documented in [switch-install.md](switch-install.md); protocol contract
-  `src/update/SwitchOta.lua`. Manual zip install remains the fallback.
+  download `.love` payloads. In-console OTA uses the **native OTA launcher**
+  (DEVKITPRO), documented in [switch-install.md](switch-install.md). Wire
+  format: `src/update/SwitchOta.lua`. Manual zip install remains the fallback.

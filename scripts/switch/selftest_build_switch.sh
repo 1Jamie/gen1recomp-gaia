@@ -410,7 +410,7 @@ if [ ! -f "$LEGACY_OTA_PACKER" ] \
   && ! grep -Eq 'pack_ota_zip\.sh|switch-ota\.zip' "$ROOT/scripts/build_switch.sh" \
   && grep -q 'OTA_ASSET_GLOB=gen1recomp-\*-switch.zip' "$MANIFEST"
 then
-  ok "unified OTA download is the same SD zip (legacy OTA-only packer gone)"
+  ok "OTA uses the same SD zip as install (legacy OTA-only packer gone)"
 else
   bad "legacy separate OTA-only packer / asset still present"
 fi
@@ -419,7 +419,7 @@ if grep -q 'ota_ui_prompt_update' "$ROOT/native/switch-ota-launcher/src/main.c" 
   && grep -q 'framebufferCreate\|COL_RAIL' "$ROOT/native/switch-ota-launcher/src/ota_ui.c" \
   && grep -q '^ROMFS' "$ROOT/native/switch-ota-launcher/Makefile"
 then
-  ok "launcher UI is branded framebuffer (quiet by default)"
+  ok "launcher UI uses framebuffer (no prompt when up to date)"
 else
   bad "launcher missing branded ota_ui / ROMFS"
 fi

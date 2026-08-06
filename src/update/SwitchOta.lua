@@ -1,4 +1,4 @@
--- Switch OTA protocol contract (host-testable, no love.*).
+-- Switch OTA wire format (host-testable, no love.*).
 -- The native DEVKITPRO launcher (libnx + switch-curl) must implement the
 -- same decisions. LÖVE on NX never runs this path — Platform.networkValidated
 -- stays false and src/update/Check.lua remains gated off on NX.

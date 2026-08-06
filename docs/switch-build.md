@@ -1,7 +1,7 @@
-# Build the Nintendo Switch NRO — contributor guide
+# Build Gen1Recomp for Nintendo Switch
 
 Want to play a release build instead? Download the SD-ready zip and extract it
-at your microSD root — see [switch-install.md](switch-install.md).
+at your microSD root. See [switch-install.md](switch-install.md).
 
 This guide is for contributors who build Gen1Recomp for Switch from source.
 
@@ -14,7 +14,7 @@ This guide is for contributors who build Gen1Recomp for Switch from source.
 ## Prerequisites by OS
 
 All packaging entrypoints are **bash**. On Windows, use Git Bash, MSYS2, or
-WSL — not cmd.exe or PowerShell (AD-008).
+WSL, not cmd.exe or PowerShell (AD-008).
 
 ### macOS / Linux
 
@@ -25,7 +25,7 @@ WSL — not cmd.exe or PowerShell (AD-008).
    sudo dkp-pacman -S switch-dev
    ```
 
-3. OTA launcher toolchain — **native or Docker** (either is fine):
+3. OTA launcher toolchain, **native or Docker** (either is fine):
 
    ```sh
    bash scripts/switch/install_devkitpro_deps.sh   # native
@@ -51,7 +51,7 @@ scripts/switch/build_ota_launcher.sh   # host-test first; NRO needs DEVKITPRO/Do
 
 `--fused` always builds the fused game, native OTA launcher, and dual-NRO SD
 zip. The same `*-switch.zip` is the OTA download asset. **DEVKITPRO is
-required.** OTA launcher: native packages **or** Docker — both are supported.
+required.** OTA launcher: native packages **or** Docker. Both are supported.
 
 Release-like build from repo root:
 
@@ -70,14 +70,14 @@ See `native/switch-ota-launcher/README.md` and
    - **WSL** (Ubuntu/etc.) with the Linux pacman flow above, or
    - **Git Bash** for `--fetch` / `--loose`; for `--fused` prefer MSYS2 or
      WSL if Docker bind-mounts from Git Bash paths misbehave.
-2. Install `switch-dev` (or rely on Docker fallback — see below).
+2. Install `switch-dev` (or rely on Docker fallback; see below).
 3. Do **not** expect `scripts/build_switch.sh` to run under cmd/PowerShell.
 
 ### What you must install yourself
 
 | You install | Script does **not** install |
 | ----------- | --------------------------- |
-| bash, git, zip tooling the repo already expects | — |
+| bash, git, zip tooling the repo already expects | (none) |
 | `dkp-pacman` + `switch-dev` + OTA packages **or** Docker | `dkp-pacman -S …` |
 | A legal `.gb` ROM (to play) | Any ROM or game data |
 
@@ -96,7 +96,7 @@ See `native/switch-ota-launcher/README.md` and
 Rules:
 
 - `--fetch` alone is fine; combine as `--fetch --loose` or `--fetch --fused`.
-- `--loose` and `--fused` are **XOR** — pick one packaging path per run.
+- `--loose` and `--fused` are **XOR**. Pick one packaging path per run.
 - `--version X.Y.Z` sets the NACP / filename version (defaults to short git SHA).
 
 ### What `--fetch` downloads
@@ -172,7 +172,7 @@ the NX runtime modules `src/core/NxAssetOverlay.lua`, `src/core/Platform.lua`,
 `tests/engine/switch_diagnostics_test.lua`, `tests/engine/platform_nx_*`,
 or the Switch-related workflow YAML), CI runs:
 
-1. **Offline selftest** on `ubuntu-latest` (forks **and** the canonical repo):
+1. **Offline selftest** on `ubuntu-latest` (forks **and** the main repo):
    `scripts/switch/selftest_build_switch.sh`,
    `scripts/switch/verify_payload.sh --self-test`,
    `luajit tests/switch_ci_workflows_test.lua`,
@@ -180,14 +180,10 @@ or the Switch-related workflow YAML), CI runs:
    headlessly (`luajit tests/engine/assets_version_fallback_test.lua`,
    `luajit tests/engine/nx_generated_guard_test.lua`,
    `luajit tests/engine/nx_yellow_boot_test.lua`).
-2. **Fused NRO build** only on the **canonical** repository
+2. **Fused NRO build** only on the **main** repository
    (`bryanthaboi/gen1recomp`), on the self-hosted Mac runner
    (`scripts/build_switch.sh --fetch --fused`), and only when the workflow
-   head is that repo (same-repo push/PR). **Fork repository** CI never runs
-   fused. **Fork → canonical PRs** also skip Switch fused (offline selftest
-   still runs) so untrusted head code is not executed on the self-hosted Mac;
-   iOS device build eligibility is unchanged. Fused also waits for a successful
-   offline selftest before starting on the Mac runner.
+   head is that repo (same-repo push/PR). Fork CI never runs fused. Fork PRs into the main repo also skip Switch fused (offline selftest still runs) so untrusted head code is not executed on the self-hosted Mac; iOS device build eligibility is unchanged. Fused also waits for a successful offline selftest before starting on the Mac runner.
 3. On successful PR fused builds, a follow-up workflow posts a PR comment
    linking the Actions artifact named `gen1recomp-switch-nro`
    (comment tag `switch-build-result`; see
@@ -198,7 +194,7 @@ Unrelated PRs do not burn the self-hosted Mac on Switch packaging.
 ### Release hard-fail (`.github/workflows/release.yml`)
 
 GitHub Releases always build Switch on the same self-hosted Mac runner as the
-other platforms — this is a **hard gate** (no `continue-on-error`):
+other platforms. This is a **hard gate** (no `continue-on-error`):
 
 ```sh
 scripts/build_switch.sh --fetch --fused --version "<release version>"
@@ -221,7 +217,7 @@ sudo dkp-pacman -S switch-dev
 export DEVKITPRO=/opt/devkitpro
 export PATH="$DEVKITPRO/tools/bin:$PATH"
 
-# OTA launcher — pick one:
+# OTA launcher: pick one
 bash scripts/switch/install_devkitpro_deps.sh   # native
 # or ensure Docker is installed (same pin as fused builds)
 ```
@@ -240,8 +236,8 @@ These scripts and this guide do **not**:
 - Push files to the console (no automated MTP / FTP / SD scripting)
 - Bundle or download any Pokémon ROM
 - Install `dkp-pacman` / `switch-dev` for you
-- Provide `nxlink` / netloader deploy (deferred — see [switch-transfer.md](switch-transfer.md))
-- Validate **Applet Mode** — use title override (hold **R**) for full memory
+- Provide `nxlink` / netloader deploy (deferred; see [switch-transfer.md](switch-transfer.md))
+- Validate **Applet Mode**. Use title override (hold **R**) for full memory
 
 Player install steps: [switch-install.md](switch-install.md).  
 Manual transfer (MTP / SD / FTP, macOS / Linux / Windows):

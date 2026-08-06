@@ -235,12 +235,13 @@ Releases ship an SD-ready `gen1recomp-*-switch.zip`. Runtime target is pinned
 [love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`. Requires a
 console that can run Switch homebrew.
 
-- Players: [docs/switch-install.md](docs/switch-install.md) — download the
+- Players: [docs/switch-install.md](docs/switch-install.md). Download the
   zip, extract at the microSD root (install or update), title-override
   launch, import your own legal ROM, Joy-Con controls and shortcuts.
-- Builders: [docs/switch-build.md](docs/switch-build.md) — `--fetch` /
-  `--loose` / `--fused`, toolchain, Docker fallback, and **CI vs release**
-  (path-gated ubuntu selftest, canonical fused PR artifact, release hard-fail).
+- Builders: [docs/switch-build.md](docs/switch-build.md). `--fetch` /
+  `--loose` / `--fused`, toolchain, Docker fallback, and CI vs release
+  (path-gated ubuntu selftest, fused PR artifact on the main repo, release
+  hard-fail).
 - File transfer (MTP / SD / FTP): [docs/switch-transfer.md](docs/switch-transfer.md).
 
 ## Modding
