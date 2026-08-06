@@ -231,11 +231,9 @@ Install steps, controls, and troubleshooting live in
 
 ## Nintendo Switch
 
-Releases ship an SD-ready `gen1recomp-*-switch.zip` (issue
-[#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Runtime target
-is pinned [love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`.
-Requires a console that can run Switch homebrew. Hardware evidence: **OLED**
-(author) and **V1 / Erista** boot (community).
+Releases ship an SD-ready `gen1recomp-*-switch.zip`. Runtime target is pinned
+[love-nx](https://github.com/retronx-team/love-nx) `11.5-nx1`. Requires a
+console that can run Switch homebrew.
 
 - Players: [docs/switch-install.md](docs/switch-install.md) — download the
   zip, extract at the microSD root (install or update), title-override
@@ -243,12 +241,7 @@ Requires a console that can run Switch homebrew. Hardware evidence: **OLED**
 - Builders: [docs/switch-build.md](docs/switch-build.md) — `--fetch` /
   `--loose` / `--fused`, toolchain, Docker fallback, and **CI vs release**
   (path-gated ubuntu selftest, canonical fused PR artifact, release hard-fail).
-
-Limitations, Dusklight-derived method, and how we tested:
-[docs/switch-development.md](docs/switch-development.md) and
-[docs/switch-hardware-evidence.md](docs/switch-hardware-evidence.md). Community
-help — especially HOS / love-nx packaging and broader hardware coverage — is
-welcome.
+- File transfer (MTP / SD / FTP): [docs/switch-transfer.md](docs/switch-transfer.md).
 
 ## Modding
 

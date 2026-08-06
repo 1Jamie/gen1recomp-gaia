@@ -4,13 +4,10 @@ Want to play a release build instead? Download the SD-ready zip and extract it
 at your microSD root — see [switch-install.md](switch-install.md).
 
 This guide is for contributors who build Gen1Recomp for Switch from source.
-Hardware evidence, MTP operator loops, and deeper notes live in
-[switch-development.md](switch-development.md).
 
-> Releases ship `gen1recomp-*-switch.zip` (SD tree under `switch/gen1recomp/`;
-> issue [#531](https://github.com/bryanthaboi/gen1recomp/issues/531)). Hardware
-> evidence: **OLED** (author) and **V1 boot** (community). See
-> [switch-development.md](switch-development.md) for known limitations.
+> Releases ship `gen1recomp-*-switch.zip` (SD tree under `switch/gen1recomp/`).
+> Runtime target is pinned [love-nx](https://github.com/retronx-team/love-nx)
+> `11.5-nx1`. Player install and limitations: [switch-install.md](switch-install.md).
 
 ---
 
@@ -42,7 +39,8 @@ Fused game builds can also use Docker when native `nacptool`/`elf2nro` are absen
 
 ### Native OTA launcher (included in `--fused`)
 
-In-console OTA uses a **separate DEVKITPRO NRO** (not LÖVE). Source:
+In-console OTA uses a **separate DEVKITPRO NRO** (not LÖVE). The LÖVE
+self-updater (`Check.lua`) is disabled on NX. Source:
 `native/switch-ota-launcher/`. Host protocol tests (no toolchain):
 
 ```sh
@@ -247,6 +245,4 @@ These scripts and this guide do **not**:
 
 Player install steps: [switch-install.md](switch-install.md).  
 Manual transfer (MTP / SD / FTP, macOS / Linux / Windows):
-[switch-transfer.md](switch-transfer.md).  
-Hardware depth and evidence: [switch-development.md](switch-development.md),
-[switch-hardware-evidence.md](switch-hardware-evidence.md).
+[switch-transfer.md](switch-transfer.md).

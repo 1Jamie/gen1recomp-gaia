@@ -339,12 +339,12 @@ test('AC-004: Offline ou falha de rede não trava o jogo @spec:AC-004', () => {
 
 test('AC-005: Documentação Switch descreve o launcher OTA @spec:AC-005', () => {
   const install = read('docs/switch-install.md');
-  const development = read('docs/switch-development.md');
+  const build = read('docs/switch-build.md');
   const updater = read('docs/updater.md');
 
   for (const [name, text] of [
     ['switch-install', install],
-    ['switch-development', development],
+    ['switch-build', build],
     ['updater', updater],
   ]) {
     assert.match(text, /native OTA launcher|launcher nativo/i, `${name} mentions native OTA launcher`);
@@ -437,7 +437,7 @@ test('AC-008: Gates de regressão anti-“erro invisível” @spec:AC-008', () =
   const platform = read('src/core/Platform.lua');
   assert.match(platform, /networkValidated\s*=\s*not nx\s+and\s+not uwp/);
 
-  for (const rel of ['docs/switch-install.md', 'docs/switch-development.md', 'docs/updater.md']) {
+  for (const rel of ['docs/switch-install.md', 'docs/switch-build.md', 'docs/updater.md']) {
     const text = read(rel);
     assert.match(text, /native OTA launcher|launcher nativo/i, rel);
     assert.match(

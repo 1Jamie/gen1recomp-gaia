@@ -127,6 +127,5 @@ bundled game, in that case.
 - **Nintendo Switch does not use this LÖVE self-updater.** On NX,
   `Platform.networkValidated()` is `false`, so `Boot.run` / `Check` never
   download `.love` payloads. In-console OTA is the **native OTA launcher**
-  (DEVKITPRO) documented in [switch-install.md](switch-install.md) and
-  [switch-development.md](switch-development.md); protocol contract
+  (DEVKITPRO) documented in [switch-install.md](switch-install.md); protocol contract
   `src/update/SwitchOta.lua`. Manual zip install remains the fallback.

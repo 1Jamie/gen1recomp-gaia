@@ -6,8 +6,7 @@ Switch. **Any method is valid** if the bytes land in the destinations below.
 This is the home runbook for contributors on **macOS, Linux, and Windows**.
 Player install (what to download, title override) stays in
 [switch-install.md](switch-install.md). Packaging stays in
-[switch-build.md](switch-build.md). Hardware evidence lives in
-[switch-hardware-evidence.md](switch-hardware-evidence.md).
+[switch-build.md](switch-build.md).
 
 > **Not supported yet:** `nxlink` / hbmenu netloader automation. Useful later
 > for a fast contrib rebuild loop; deferred on purpose (AD-009). Do not treat
@@ -47,8 +46,8 @@ before launching.
 
 #### macOS (example: OpenMTP)
 
-[OpenMTP](https://github.com/ganeshrvel/openmtp) is the loop used for OLED
-hardware evidence — **one contributor example**, not a Mac-only product rule.
+[OpenMTP](https://github.com/ganeshrvel/openmtp) is a documented example for
+macOS — **one contributor workflow**, not a Mac-only product rule.
 
 1. Quit other MTP clients.
 2. Open OpenMTP → select the DBI device → **`1: SD Card`**.
@@ -164,5 +163,3 @@ Copy the file back from the SD and compare hashes. Round-trip must match.
 
 - Players: [switch-install.md](switch-install.md)
 - Builders: [switch-build.md](switch-build.md)
-- Status / hardware matrix: [switch-development.md](switch-development.md)
-- Evidence log: [switch-hardware-evidence.md](switch-hardware-evidence.md)

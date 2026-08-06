@@ -6,11 +6,7 @@ Every GitHub Release that includes Switch support ships an SD-ready zip:
 own legal `.gb` ROM.
 
 > You need a console that can run Switch homebrew (custom firmware / hbmenu).
-> This project does not help you set that up. Tracks issue
-> [#531](https://github.com/bryanthaboi/gen1recomp/issues/531).
-> Hardware: **OLED** validated by the porter; **V1 / Erista** boot confirmed
-> by the community. Lite and other setups welcome more reports.
-> See [switch-development.md](switch-development.md) for limitations.
+> This project does not help you set that up.
 
 Prefer building from source? See [switch-build.md](switch-build.md).
 
@@ -185,12 +181,23 @@ hotkeys (`2`/`3`/`5` are claimed before any mod pipeline hotkey runs).
 | Select + **L** | `7` | Mod pipeline hotkey (if a mod registers `7`) |
 
 If the handheld stutters with extras on, try **OPTIONS → PERFORMANCE** →
-`LOW` or `BALANCED`. Full chord notes for contributors:
-[switch-development.md](switch-development.md#joy-con-display-chords-select--face).
+`LOW` or `BALANCED`.
+
+## Limitations
+
+- **Homebrew required** — custom firmware and hbmenu; this project does not help
+  set that up.
+- **Title override required** — hold **R** when launching a title for full
+  memory. Applet Mode (Album) is not supported.
+- **Manual file transfer** — ROMs, mods, and saves are copied via MTP, direct
+  SD, or FTP; there is no automated deploy.
+- **No LÖVE self-updater** — in-console updates use the native OTA launcher
+  only. Remote **FIND MODS** / GitHub download stays off on Switch.
+- **Hardware** — tested on Switch OLED; Switch V1 / Erista boot confirmed by the
+  community. Other models may work but are less tested.
 
 ## Prefer building it yourself?
 
 Building the fused NRO (and SD-ready zip) from source is covered in
 [switch-build.md](switch-build.md). Copying artifacts and inbox files
 (MTP / SD / FTP on macOS, Linux, Windows): [switch-transfer.md](switch-transfer.md).
-Status, limitations, and how we tested: [switch-development.md](switch-development.md).
