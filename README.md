@@ -297,7 +297,4 @@ This project would not be possible without [pret](https://github.com/pret) >
 the pret band of decompiling maniacs > and their
 [pokered](https://github.com/pret/pokered) disassembly.
 
-Nintendo Switch port: [andrewqsantos](https://github.com/andrewqsantos).  
-Switch hardware testing (V1 boot): [booshankles](https://github.com/booshankles).
-
 <p align="center"><a href="https://boisclub.games"><img src="https://raw.githubusercontent.com/bryanthaboi/gen1recomp/refs/heads/dev/assets/logo/bcg.png"></a></p>
