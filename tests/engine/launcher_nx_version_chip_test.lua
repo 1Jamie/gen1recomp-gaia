@@ -16,9 +16,11 @@ assert(src:find('local Version = require%("src%.core%.Version"%)')
 
 assert(src:find("imp%.isNX", 1, false), "version chip must gate on isNX")
 
--- The chip is inside an isNX block and prints Version.engine
-local nxBlock = src:match("if imp%.isNX then(.-)end\n\n  %-%- Settings gear")
-assert(nxBlock, "expected Switch-only version chip before the settings gear")
+-- The chip is inside an isNX block and prints Version.engine (layout between
+-- the chip and the settings gear may change; anchor on the Switch-only comment).
+local nxBlock = src:match(
+  "Switch%-only: show the running app version.-if imp%.isNX then(.-)end")
+assert(nxBlock, "expected Switch-only version chip in the header row")
 assert(nxBlock:find("Version%.engine", 1, false), "chip must show Version.engine")
 assert(nxBlock:find('"v"', 1, true) or nxBlock:find('"v" %.%.', 1, false),
   "chip label should be a v-prefixed version")

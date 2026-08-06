@@ -162,6 +162,7 @@ $(BUILD): sync-romfs
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
+	@$(MAKE) --no-print-directory -C $(BOOTSTRAP_DIR) clean || true
 	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(TARGET).lst build-host
 	@rm -f $(CURDIR)/$(ROMFS)/logo.rgba $(CURDIR)/$(ROMFS)/logo.png
 
