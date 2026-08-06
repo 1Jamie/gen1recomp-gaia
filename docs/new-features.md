@@ -625,10 +625,12 @@ layout. Both ask twice.
 
 ## Launch options: boot straight into a game
 
-`love . --game red` skips the launcher and starts that game; `--slot <id or
+`love . --game=red` skips the launcher and starts that game; `--slot=<id or
 number>` picks the save slot to load, and `--launcher` forces the launcher
-anyway. `POKEPORT_GAME` / `POKEPORT_SLOT` do the same for shortcuts that can
-only pass environment variables. This is for one-click entries: a desktop
+anyway. Spell these with an `=`: LÖVE reads the command line first and takes a
+bare word as a path to a game, so `--game red` fails looking for a folder
+called `red`. `POKEPORT_GAME` / `POKEPORT_SLOT` do the same for shortcuts that
+can only pass environment variables. This is for one-click entries: a desktop
 shortcut per game, a Steam entry, or a handheld frontend. Asking for a game
 whose ROM has not been imported opens the launcher on that game's tab rather
 than failing.

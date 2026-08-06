@@ -205,6 +205,19 @@ even on a different computer, as long as the same folder comes along.
 already written to either location is touched automatically, so copy files
 over yourself if you want to carry existing progress across the switch.
 
+## Launch Options
+
+By default the app opens the launcher so you can pick a game. Launch options
+skip it and start one game directly, which is what you want for a one-click
+entry: a desktop shortcut per game, a Steam entry, or a handheld frontend.
+
+| Option | Effect |
+| --- | --- |
+| `--game=red` | boot Red, skipping the launcher (`blue` and `yellow` too, or just `r` / `b` / `y`) |
+| `--slot=2` | load that save slot; takes a slot number or a slot id |
+| `--launcher` | open the launcher anyway, so you can edit a shortcut you already made |
+
+
 ## iOS
 
 Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore

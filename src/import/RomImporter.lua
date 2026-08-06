@@ -315,27 +315,16 @@ end
 -- keyboard-navigates (keyboard focus is a separate grab) but ignores the
 -- mouse entirely -- issue #254 on Linux.  Whether it bites is a race with how
 -- long the click was held, which is why the same build picks one ROM fine and
--- then hangs the mouse on the next.  So pump until no button is held, letting
--- SDL see the release and let go first; bounded, so a stuck button costs a
--- moment and never the launcher.  pump() only drains OS events into LOVE's
--- queue -- it dispatches nothing -- so there is no reentry into mousepressed
--- and the release is still delivered normally on the next frame.
-local function releasePointerGrab()
-  if not (love.mouse and love.mouse.isDown and love.event and love.event.pump
-      and love.timer) then
-    return
-  end
-  local deadline = love.timer.getTime() + 1
-  while love.mouse.isDown(1, 2, 3) do
-    love.event.pump()
-    if love.timer.getTime() > deadline then break end
-    love.timer.sleep(0.005)
-  end
-end
+-- then hangs the mouse on the next.
+--
+-- The release itself now lives in HostShell.releasePointerGrab, called from
+-- HostShell.popen, so every host spawn inherits it and not just the three
+-- pickers here.  It stays a single release point on purpose: this file used
+-- to run its own copy first, and each copy carries its own one-second bound,
+-- so keeping both made a stuck button cost two seconds instead of one.
 
 local function commandOutput(command)
   if not Platform.canSpawnProcess() then return nil end
-  releasePointerGrab()
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
@@ -2917,9 +2906,14 @@ end
 -- Update button: when a newer release is known, confirm then install; when
 -- already current, force-refresh the 6h cache and report / offer update.
 function RomImporter:_modGithubAction(id, action)
-  if not Platform.networkValidated() then
+  -- canFetchRemote, not networkValidated: the self-updater's gate used to
+  -- stand in for this one, which cost Xbox the whole mod catalog rather than
+  -- just the self-update it actually cannot do (#876).  Say what still works
+  -- while we are here, since the native picker is live on every platform that
+  -- lands in this branch.
+  if not Platform.canFetchRemote() then
     self.modNotice = { ok = false,
-      text = "Remote mod download is unavailable on this platform." }
+      text = "Remote mod download is unavailable on this platform. Install a mod .zip from storage instead." }
     return
   end
   local ModUpdate = require("src.mods.ModUpdate")
@@ -3223,9 +3217,18 @@ end
 -- never ran.  The fetch now starts here and completes across later frames in
 -- _pumpFindFetch; the loader overlay is up for the whole flight.
 function RomImporter:_refreshFind(force)
-  if not Platform.networkValidated() then
+  -- The notice is the fix, not the gate (#876).  This branch used to return an
+  -- empty listing silently, and because the player had by then added a source,
+  -- the panel skipped its "No mod index added" card and rendered the merged
+  -- listing empty state instead: a valid feed reported as "This index lists no
+  -- mods yet."  Every other failure on this panel surfaces through findNotice,
+  -- and this one has to as well, or adding an index looks like it worked and
+  -- the index looks empty.
+  if not Platform.canFetchRemote() then
     self.findLoaded = true
     self.findIndex = { mods = {}, categories = {} }
+    self.findNotice = { ok = false,
+      text = "Mod indexes cannot be fetched on this platform. Install a mod .zip from storage instead." }
     return
   end
   local ModIndex = require("src.mods.ModIndex")
