@@ -283,6 +283,16 @@ do
   eq(ItemEffects.use(Data, save, "HM_SURF", pikachu, {}), "failed",
      "HM refuses mid-battle")
 end
+do
+  local rRepel, repelMsg = ItemEffects.use(Data, save, "MAX_REPEL", nil, {})
+  eq(rRepel, "failed", "Max Repel refuses mid-battle (#894)")
+  check(repelMsg and repelMsg[1] and repelMsg[1]:find("isn't the", 1, true),
+        "Max Repel mid-battle Oak text")
+  eq(ItemEffects.use(Data, save, "REPEL", nil, {}), "failed",
+     "Repel refuses mid-battle")
+  eq(ItemEffects.use(Data, save, "SUPER_REPEL", nil, {}), "failed",
+     "Super Repel refuses mid-battle")
+end
 local r5, _, extra = ItemEffects.use(Data, save, "THUNDER_STONE", pikachu)
 eq(r5, "consumed", "Thunder Stone works on Pikachu")
 eq(extra.evolveTo, "RAICHU", "Thunder Stone evolves Pikachu to Raichu")
@@ -3399,6 +3409,9 @@ runSuites({ "tests/input_hold_test.lua" })
 
 -- ---------------------------------------------- launcher cursor (#114)
 runSuites({ "tests/rom_importer_cursor_test.lua" })
+
+-- ---------------------------------------------- launcher last played tab (#835)
+runSuites({ "tests/rom_importer_last_version_test.lua" })
 
 -- ---------------------------------------------- Android second ROM pick (#167)
 runSuites({ "tests/rom_importer_android_pick_test.lua" })

@@ -30,6 +30,21 @@ end
 
 local Game, EditorApp, Importer, TouchEditor
 
+-- #887: quit-to-launcher state, shared by love.load and love.quit (both need
+-- it, so it is declared here rather than next to love.quit).
+--   * launchedIntoGame -- a --game / POKEPORT_GAME shortcut booted this
+--     session straight into a game, so there is no launcher behind it and a
+--     window close must exit.  Restarting instead re-read the same shortcut
+--     and came right back into the game, and the next close did it again:
+--     the app could not be closed at all (macOS feels this worst, where the
+--     red X, Cmd+Q and the Dock's Quit are all the same quit event).
+--   * RELAUNCH_MARKER -- written in the save dir just before the #785
+--     restart, so the fresh boot ignores any boot-straight-into-a-game
+--     option exactly once and keeps #785's promise of landing in the
+--     launcher, whatever put the game on screen this time.
+local launchedIntoGame = false
+local RELAUNCH_MARKER = "relaunch_to_launcher.txt"
+
 local autopilot -- optional scripted-input dev tool (tests/autopilot.lua)
 local driverCo  -- optional frame-driver (POKEPORT_DRIVER=file.lua): a
                 -- coroutine that receives `Game` and yields once per
@@ -334,10 +349,19 @@ function love.load(args)
   -- EmulationStation needs: one click into the game the player wants, with no
   -- menu in between.  A game that is not imported falls through to the
   -- launcher on its tab rather than booting into nothing.
+  -- A window close that restarted us into the launcher (#785) leaves the
+  -- marker behind: consume it and stay on the launcher, or the shortcut below
+  -- would boot the same game again and that close would restart again,
+  -- forever (#887).  Consumed on read, so the very next launch is normal.
+  local relaunched = love.filesystem.getInfo(RELAUNCH_MARKER) ~= nil
+  if relaunched then pcall(love.filesystem.remove, RELAUNCH_MARKER) end
+
   local launchGame, launchSlot = LaunchOptions.resolve(arg)
-  if launchGame and not LaunchOptions.forceLauncher(arg) then
+  if launchGame and not relaunched and not LaunchOptions.forceLauncher(arg) then
     if RomImporter.isReady(launchGame) then
       if launchSlot then LaunchOptions.selectSlot(launchGame, launchSlot) end
+      -- No launcher behind this session: love.quit must exit, not restart.
+      launchedIntoGame = true
       bootGame(launchGame)
       return
     end
@@ -667,7 +691,33 @@ function love.wheelmoved(x, y)
   Game:wheelmoved(x, y)
 end
 
+-- #781: Linux X11 multi-monitor with the primary display away from desktop
+-- (0,0): SDL's polled mouse state can come back in desktop-virtual
+-- coordinates while the event stream stays window-relative, which strands
+-- every polled consumer (launcher Kit rising-edge clicks, the pad-cursor
+-- motion yield, PadCursor) on coordinates no hit test can match.  Sanitize
+-- the poll once here: remember the last window-relative event coordinates
+-- and substitute them whenever the polled value falls outside the window.
+-- Linux only -- macOS / Windows / mobile keep the stock function, and the
+-- NX launcher shim still composes because it captures whatever
+-- love.mouse.getPosition is at bridge time (_ensureNxPointerBridge).
+local eventMouseX, eventMouseY
+if love.system and love.system.getOS() == "Linux"
+    and love.mouse and love.mouse.getPosition then
+  local polledGetPosition = love.mouse.getPosition
+  love.mouse.getPosition = function()
+    local x, y = polledGetPosition()
+    local w, h = love.graphics.getDimensions()
+    if x < 0 or y < 0 or x > w or y > h then
+      if eventMouseX then return eventMouseX, eventMouseY end
+      return math.max(0, math.min(x, w)), math.max(0, math.min(y, h))
+    end
+    return x, y
+  end
+end
+
 function love.mousepressed(x, y, button, istouch)
+  if not istouch then eventMouseX, eventMouseY = x, y end
   if TouchEditor then
     -- Android primary touch already arrived via love.touchpressed; a second
     -- mouse path would double-fire Done / begin a second drag.
@@ -720,6 +770,7 @@ function love.mousereleased(x, y, button, istouch)
 end
 
 function love.mousemoved(x, y, dx, dy, istouch)
+  if not istouch then eventMouseX, eventMouseY = x, y end
   if TouchEditor then
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousemoved(x, y)
@@ -748,7 +799,13 @@ local quitToLauncher = false
 
 function love.quit()
   if editorMode and EditorApp.quit then
-    return EditorApp.quit() -- return true to abort quit
+    -- true blocks the quit (unsaved-changes prompt).  A quit that proceeds
+    -- must fall through to the worker shutdowns below instead of returning:
+    -- the bundled editor opens from a live launcher whose update-check and
+    -- fetch-pool workers are still parked in Channel:demand(), and returning
+    -- here skipped their "quit" push, so the process outlived the closed
+    -- window and kept the install folder locked on Windows (#727).
+    if EditorApp.quit() then return true end
   end
   -- Closing the window of a running game returns to the launcher instead of
   -- exiting the app, so testing a mod does not need a relaunch every time
@@ -760,8 +817,15 @@ function love.quit()
   -- restart path must be no worse than that, not quietly better.
   local scripted = os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER")
     or os.getenv("POKEPORT_IMPORT_ONLY") == "1" or os.getenv("POKEPORT_IMPORT_ROM")
-  if Game and not Importer and not quitToLauncher and not scripted then
+  -- #887: a shortcut session (--game / POKEPORT_GAME) has no launcher to go
+  -- back to and the restart would re-read the shortcut, so it exits instead.
+  if Game and not Importer and not quitToLauncher and not scripted
+      and not launchedIntoGame then
     quitToLauncher = true
+    -- Tell the fresh boot to ignore any boot-straight-into-a-game option this
+    -- once, so the restart really does land in the launcher (#887).  A failed
+    -- write only costs that suppression, so it must never block the restart.
+    pcall(love.filesystem.write, RELAUNCH_MARKER, "1")
     require("src.core.HostShell").restart()
     return true -- abort this quit; the restart lands back in the launcher
   end

@@ -315,27 +315,16 @@ end
 -- keyboard-navigates (keyboard focus is a separate grab) but ignores the
 -- mouse entirely -- issue #254 on Linux.  Whether it bites is a race with how
 -- long the click was held, which is why the same build picks one ROM fine and
--- then hangs the mouse on the next.  So pump until no button is held, letting
--- SDL see the release and let go first; bounded, so a stuck button costs a
--- moment and never the launcher.  pump() only drains OS events into LOVE's
--- queue -- it dispatches nothing -- so there is no reentry into mousepressed
--- and the release is still delivered normally on the next frame.
-local function releasePointerGrab()
-  if not (love.mouse and love.mouse.isDown and love.event and love.event.pump
-      and love.timer) then
-    return
-  end
-  local deadline = love.timer.getTime() + 1
-  while love.mouse.isDown(1, 2, 3) do
-    love.event.pump()
-    if love.timer.getTime() > deadline then break end
-    love.timer.sleep(0.005)
-  end
-end
+-- then hangs the mouse on the next.
+--
+-- The release itself now lives in HostShell.releasePointerGrab, called from
+-- HostShell.popen, so every host spawn inherits it and not just the three
+-- pickers here.  It stays a single release point on purpose: this file used
+-- to run its own copy first, and each copy carries its own one-second bound,
+-- so keeping both made a stuck button cost two seconds instead of one.
 
 local function commandOutput(command)
   if not Platform.canSpawnProcess() then return nil end
-  releasePointerGrab()
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
@@ -997,6 +986,25 @@ local function updaterAllowed()
   return true
 end
 
+-- #835: which column the launcher opens on.  `tab` starts at the --game
+-- shortcut's version (LaunchOptions.pendingTab) or Red; this then prefers the
+-- game play() last handed off, so relaunching lands on the game that was last
+-- played instead of always Red.  An explicit --game still wins, and a
+-- remembered version whose cache is gone or stale is ignored, since opening a
+-- column with no Play button would read as the launcher losing the import.
+-- Called from new() once self.ready is filled, which is what that check needs.
+function RomImporter:_applyLastVersionTab()
+  local okLO, LO = pcall(require, "src.core.LaunchOptions")
+  if okLO and LO.pendingTab then return end
+  local okOpt, opts = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  local last = okOpt and opts and opts.lastVersion
+  if last and GameVersion.VERSIONS[last] and self.ready[last] then
+    self.tab = last
+  end
+end
+
 -- The launcher runs each GameVersion as an independent tab.  Each dropped or
 -- chosen ROM is routed to its version by SHA-1, extracted into that version's
 -- own cache (Red at the root, Blue under blue/, Yellow under yellow/), so all
@@ -1128,6 +1136,7 @@ function RomImporter.new(onComplete, opts)
     self.romName[version] = "pokemon_" .. info.id
       .. (info.id == "yellow" and ".gbc" or ".gb")
   end
+  self:_applyLastVersionTab()
 
   -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
@@ -2240,6 +2249,17 @@ function RomImporter:play(version)
   if self.workState == "working" then return end
   if not self.ready[version] then return end
   self._handedOff = true
+  -- #835: remember the game being launched so the next launcher start opens on
+  -- its column (_applyLastVersionTab).  It rides options.lua rather than a file
+  -- of its own, so portable installs and POKEPORT_IDENTITY sandboxes keep it
+  -- with the rest of the launcher's persisted state.  A failed write only
+  -- costs the memory of the choice, so it must never block the boot.
+  pcall(function()
+    local SaveData = require("src.core.SaveData")
+    local opts = SaveData.loadOptions()
+    opts.lastVersion = version
+    SaveData.saveOptions(opts)
+  end)
   resetPointerCursor(self)
   -- The game draws with raw love.graphics from here on; drop the view's
   -- element tree and canvases before the handoff.
@@ -2378,10 +2398,18 @@ function RomImporter:runActions(queue)
 end
 
 -- Clicks are polled inside FlexLove (mouse + love.touch); host-forwarded
--- mousepressed stays inert so Android's synthesized mouse path cannot
--- double-fire a tap (#553).  Touch move/press/release must still reach
+-- mousepressed mints no click, so Android's synthesized mouse path cannot
+-- double-fire a tap (#553).  It DOES hand the pointer back from the pad
+-- cursor (#781): a Linux boot with a joystick present arms it (see the
+-- getJoystickCount block in new()), and while it is active
+-- LauncherView.update refuses to mint mouse clicks, so a real press must
+-- win the pointer back even when the polled motion yield misses (X11
+-- multi-monitor coords).  Same contract as PadCursor.yieldToPointer for
+-- the overlay hosts.  Touch move/press/release must still reach
 -- FlexLove.touch* or scroll containers never drag on phones.
-function RomImporter:mousepressed() end
+function RomImporter:mousepressed()
+  self._padCursorActive = false
+end
 
 function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
   if not self._flex then return end
@@ -2426,6 +2454,13 @@ function RomImporter:_openSettings()
     return require("src.import.LauncherSettings").open()
   end)
   if ok and model then self._settings = model end
+end
+
+-- Quit from the launcher's own X.  It goes through love.event.quit so main.lua's
+-- love.quit hook still runs: that is where the worker threads are shut down
+-- (#339) and where a launcher close is told apart from a running game's (#785).
+function RomImporter:_quitApp()
+  if love.event and love.event.quit then love.event.quit() end
 end
 
 function RomImporter:_closeSettings()
@@ -2871,9 +2906,14 @@ end
 -- Update button: when a newer release is known, confirm then install; when
 -- already current, force-refresh the 6h cache and report / offer update.
 function RomImporter:_modGithubAction(id, action)
-  if not Platform.networkValidated() then
+  -- canFetchRemote, not networkValidated: the self-updater's gate used to
+  -- stand in for this one, which cost Xbox the whole mod catalog rather than
+  -- just the self-update it actually cannot do (#876).  Say what still works
+  -- while we are here, since the native picker is live on every platform that
+  -- lands in this branch.
+  if not Platform.canFetchRemote() then
     self.modNotice = { ok = false,
-      text = "Remote mod download is unavailable on this platform." }
+      text = "Remote mod download is unavailable on this platform. Install a mod .zip from storage instead." }
     return
   end
   local ModUpdate = require("src.mods.ModUpdate")
@@ -3177,9 +3217,18 @@ end
 -- never ran.  The fetch now starts here and completes across later frames in
 -- _pumpFindFetch; the loader overlay is up for the whole flight.
 function RomImporter:_refreshFind(force)
-  if not Platform.networkValidated() then
+  -- The notice is the fix, not the gate (#876).  This branch used to return an
+  -- empty listing silently, and because the player had by then added a source,
+  -- the panel skipped its "No mod index added" card and rendered the merged
+  -- listing empty state instead: a valid feed reported as "This index lists no
+  -- mods yet."  Every other failure on this panel surfaces through findNotice,
+  -- and this one has to as well, or adding an index looks like it worked and
+  -- the index looks empty.
+  if not Platform.canFetchRemote() then
     self.findLoaded = true
     self.findIndex = { mods = {}, categories = {} }
+    self.findNotice = { ok = false,
+      text = "Mod indexes cannot be fetched on this platform. Install a mod .zip from storage instead." }
     return
   end
   local ModIndex = require("src.mods.ModIndex")

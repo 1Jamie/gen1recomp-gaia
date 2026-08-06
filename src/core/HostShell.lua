@@ -62,8 +62,35 @@ function HostShell.hideHostConsole()
   return consoleHidden
 end
 
+-- #254 was fixed inside the launcher and nowhere else: a native dialog opened
+-- while a mouse button is still down blocks the whole loop in io.popen, so SDL
+-- never processes the button-up and never drops the pointer capture it took
+-- for the press (on X11 an XGrabPointer with owner_events).  The grab outlives
+-- the click, every pointer event over the child dialog is still routed to our
+-- window, and the dialog draws and keyboard-navigates but ignores the mouse.
+-- src/import/RomImporter.lua owns the launcher's copy; hoisting it here means
+-- every host spawn inherits it, including one a mod reaches through HostShell.
+-- Pump until nothing is held so SDL sees the release first; bounded, so a
+-- stuck button costs a moment and never the game.  pump() drains OS events
+-- into LOVE's queue and dispatches nothing, so there is no reentry.  Worker
+-- threads load neither love.mouse nor love.event, so the guard below makes
+-- this a no-op off the main thread.
+function HostShell.releasePointerGrab()
+  if not (love and love.mouse and love.mouse.isDown and love.event
+      and love.event.pump and love.timer) then
+    return
+  end
+  local deadline = love.timer.getTime() + 1
+  while love.mouse.isDown(1, 2, 3) do
+    love.event.pump()
+    if love.timer.getTime() > deadline then break end
+    love.timer.sleep(0.005)
+  end
+end
+
 -- Wraps io.popen with the AppImage env fix applied and lua errors swallowed
 function HostShell.popen(command, mode)
+  HostShell.releasePointerGrab()
   local ok, pipe = pcall(io.popen, HostShell.envPrefix() .. command, mode or "r")
   if not ok or not pipe then return nil end
   return pipe
@@ -154,8 +181,15 @@ local function haveBridge()
   if not (love and love.system and type(love.system.httpDownload) == "function") then
     return false
   end
+  -- The OS allowlist is deliberate: the bridge is a per-port native addition,
+  -- not part of LOVE, so a build that exports the name on a platform we never
+  -- wired one for is a name collision, not a transport.  UWP is listed because
+  -- Xbox has no curl and no way to spawn one (Platform.canSpawnProcess is
+  -- false there), so the bridge is its only possible transport (#876).  Its
+  -- LOVE backend does not export it today and this still returns false, but
+  -- the gate is no longer the thing in the way.
   local osName = love.system.getOS and love.system.getOS()
-  return osName == "Android" or osName == "iOS"
+  return osName == "Android" or osName == "iOS" or osName == "UWP"
 end
 
 -- Is any transport available at all?  Callers gate on this, never on curl.
