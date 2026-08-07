@@ -569,6 +569,8 @@ end
 function Loader:_api(mod)
   local loader = self
   local modId = mod.manifest.id
+  local Storage = engineRequire("src.mods.Storage")
+  local storage = Storage and Storage.new(modId, loader.fs)
   local api = {
     id = modId,
     version = mod.manifest.version,
@@ -657,6 +659,16 @@ function Loader:_api(mod)
         end
         bucket[key] = value
       end,
+    },
+    -- Data-only state independent of the vanilla progress checkpoint. The
+    -- engine binds version/playthrough/mod scope and portable persistence;
+    -- callers never receive paths or a raw filesystem handle.
+    storage = {
+      context = function(_, game) return storage:context(game) end,
+      write = function(_, game, key, value) return storage:write(game, key, value) end,
+      read = function(_, game, key) return storage:read(game, key) end,
+      list = function(_, game, prefix) return storage:list(game, prefix) end,
+      delete = function(_, game, key) return storage:delete(game, key) end,
     },
     options = {
       define = function(_, schema)

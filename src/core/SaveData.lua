@@ -216,6 +216,13 @@ local function persistFs(fs)
   return SaveData.portableFs() or fs or (love and love.filesystem)
 end
 
+-- Engine-owned persistence routing for subsystems that must follow the same
+-- standard/portable root as saves without exposing raw filesystem access to a
+-- mod. An explicitly injected headless filesystem still wins for tests.
+function SaveData.persistenceFs(fs)
+  return persistFs(fs)
+end
+
 -- Port + original Options menu defaults.  Missing keys on load are filled
 -- from this table so old options.lua files stay compatible.
 function SaveData.defaultOptions()
