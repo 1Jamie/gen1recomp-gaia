@@ -2,6 +2,7 @@
 -- methods; mods never receive controller or state-stack internals from here.
 
 local SaveSerializer = require("src.core.SaveSerializer")
+local SaveData = require("src.core.SaveData")
 
 local Checkpoint = {}
 
@@ -27,9 +28,7 @@ end
 
 function Checkpoint.inspect(game)
   local save = game and game.save
-  local identity = save and save.meta and save.meta.playthroughId
-  if type(save) ~= "table" or type(save.version) ~= "string"
-      or type(identity) ~= "string" or identity == "" then
+  if type(save) ~= "table" or type(save.version) ~= "string" then
     return refusal("unknown", "not_in_playthrough",
       "A checkpoint requires an identified active playthrough.")
   end
@@ -44,6 +43,14 @@ function Checkpoint.inspect(game)
   if top ~= ow then
     return refusal("overworld", "screen_busy",
       "Close the active menu or screen before creating a checkpoint.")
+  end
+  local identity = save.meta and save.meta.playthroughId
+  if type(identity) ~= "string" or identity == "" then
+    identity = SaveData.ensurePlaythroughId(save)
+  end
+  if type(identity) ~= "string" or identity == "" then
+    return refusal("overworld", "not_in_playthrough",
+      "The active playthrough could not be identified.")
   end
   if ow.transitioning then
     return refusal("overworld", "transition_busy",

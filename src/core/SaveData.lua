@@ -486,6 +486,10 @@ end
 -- working unchanged.
 local activeSlotCache = {}   -- version -> slotId in use, or false when none
 local slotsChecked = {}      -- version -> true once resolved this process
+-- At most one New Game can be the live candidate for a first public tool
+-- request. A single strong reference models that runtime fact without adding
+-- marker data to the save or retaining abandoned playthrough tables.
+local freshPlaythrough
 
 local function slotDir(version) return "saves/" .. version end
 
@@ -822,6 +826,7 @@ end
 function SaveData.resetSlotState()
   for k in pairs(activeSlotCache) do activeSlotCache[k] = nil end
   for k in pairs(slotsChecked) do slotsChecked[k] = nil end
+  freshPlaythrough = nil
 end
 
 -- ------- opaque playthrough identity
@@ -846,20 +851,20 @@ function SaveData.newPlaythroughId()
     word(os.time()), word(clock), word(addressLo), word(playthroughSeq))
 end
 
-local function playthroughScope(version)
+local function playthroughScope(version, injectedFs)
   version = version or GameVersion.get()
-  local fs = persistFs(nil)
+  local fs = persistFs(injectedFs)
   ensureVersionSlots(version, fs)
   return activeSlotCache[version] or "legacy"
 end
 
-local function rememberPlaythroughId(save, opts)
+local function rememberPlaythroughId(save, opts, injectedFs)
   local meta = type(save) == "table" and save.meta
   local id = type(meta) == "table" and meta.playthroughId
   if type(id) ~= "string" or id == "" then return opts, false end
   local version = save.version or GameVersion.get()
-  local scope = playthroughScope(version)
-  opts = opts or SaveData.loadOptions()
+  local scope = playthroughScope(version, injectedFs)
+  opts = opts or SaveData.loadOptions(injectedFs)
   opts.playthroughIds = opts.playthroughIds or {}
   opts.playthroughIds[version] = opts.playthroughIds[version] or {}
   local changed = opts.playthroughIds[version][scope] ~= id
@@ -870,23 +875,25 @@ end
 -- Return an existing save identity or give a pre-identity save a stable one.
 -- Legacy backfill lives in options.lua until the next normal SAVE stamps the id
 -- into progress, so installing a tool mod never rewrites the player's checkpoint.
-function SaveData.ensurePlaythroughId(save)
+function SaveData.ensurePlaythroughId(save, injectedFs)
   if type(save) ~= "table" then return nil end
   save.meta = type(save.meta) == "table" and save.meta or {}
   local id = save.meta.playthroughId
   if type(id) == "string" and id ~= "" then return id end
 
   local version = save.version or GameVersion.get()
-  local scope = playthroughScope(version)
-  local opts = SaveData.loadOptions()
+  local scope = playthroughScope(version, injectedFs)
+  local opts = SaveData.loadOptions(injectedFs)
+  local isFresh = save == freshPlaythrough
+  if isFresh then freshPlaythrough = nil end
   local byVersion = opts.playthroughIds and opts.playthroughIds[version]
-  id = byVersion and byVersion[scope]
+  id = not isFresh and byVersion and byVersion[scope] or nil
   if type(id) ~= "string" or id == "" then
     id = SaveData.newPlaythroughId()
     opts.playthroughIds = opts.playthroughIds or {}
     opts.playthroughIds[version] = opts.playthroughIds[version] or {}
     opts.playthroughIds[version][scope] = id
-    SaveData.saveOptions(opts)
+    SaveData.saveOptions(opts, injectedFs)
   end
   save.meta.playthroughId = id
   return id
@@ -1123,12 +1130,14 @@ function SaveData.save(data, mods)
   -- write to the file matching this save's own version, not just the active
   -- one, so Blue/Yellow playthroughs land in save_blue.lua / save_yellow.lua
   local FILENAME, BACKUP_FILENAME, TMP_FILENAME = saveNames(data.version)
-  SaveData.ensurePlaythroughId(data)
   if data.options then
-    local opts = rememberPlaythroughId(data, data.options)
+    local opts = data.options
+    if data.meta and data.meta.playthroughId then
+      opts = rememberPlaythroughId(data, data.options)
+    end
     data.options = opts
     SaveData.saveOptions(opts)
-  else
+  elseif data.meta and data.meta.playthroughId then
     local opts, changed = rememberPlaythroughId(data)
     if changed then SaveData.saveOptions(opts) end
   end
@@ -1199,7 +1208,6 @@ function SaveData.load(version)
     return nil
   end
   SaveData.runMigrations(data)
-  SaveData.ensurePlaythroughId(data)
   data.options = SaveData.loadOptions()
   Logger.info("loaded save")
   return data, recovered
@@ -1510,11 +1518,7 @@ function SaveData.newGame(boot)
   local x, y = boot.startX or 3, boot.startY or 6
   local heal = SaveData.defaultHeal(boot)
   local save = {
-    meta = {
-      format = Version.saveFormat,
-      mods = {},
-      playthroughId = SaveData.newPlaythroughId(),
-    },
+    meta = { format = Version.saveFormat, mods = {} },
     -- which game this playthrough is (Red vs Blue).  Only Red ships today;
     -- boot carries the choice once Blue support lands.
     version = boot.version or "red",
@@ -1557,8 +1561,12 @@ function SaveData.newGame(boot)
     options = SaveData.loadOptions(),
   }
   -- a total conversion reshapes the skeleton (spawn, party, money)
-  -- before anything reads it; unhooked this returns save unchanged
-  return Runtime.call("save.new_game", function(s) return s end, save)
+  -- before anything reads it; unhooked this returns save unchanged. Keep the
+  -- "fresh playthrough" marker outside the serialized table so a later tool
+  -- request can distinguish two unsaved New Games sharing one vanilla slot.
+  save = Runtime.call("save.new_game", function(s) return s end, save)
+  freshPlaythrough = save
+  return save
 end
 
 return SaveData

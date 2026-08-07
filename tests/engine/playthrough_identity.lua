@@ -61,23 +61,31 @@ local function legacy(version, name)
   }
 end
 
--- Removing playthroughId generation from New Game must fail these assertions.
+-- No-mod parity: creating/saving a vanilla playthrough allocates no tool scope.
 do
   fresh()
   local first = SaveData.newGame({ version = "red" })
   local second = SaveData.newGame({ version = "red" })
-  T.check(type(first.meta.playthroughId) == "string"
-      and first.meta.playthroughId ~= "",
-    "New Game receives an opaque playthrough id")
-  T.neq(second.meta.playthroughId, first.meta.playthroughId,
-    "separate New Games receive separate playthrough ids")
+  T.eq(first.meta.playthroughId, nil,
+    "New Game allocates no playthrough id before a public tool requests it")
+  T.check(SaveData.save(first), "unused identity fixture saves")
+  local untouched = SaveData.load("red")
+  T.eq(untouched.meta.playthroughId, nil,
+    "normal save/load stays identity-free when no tool uses the capability")
+
+  local firstId = SaveData.ensurePlaythroughId(first)
+  local secondId = SaveData.ensurePlaythroughId(second)
+  T.check(type(firstId) == "string" and firstId ~= "",
+    "the first tool request allocates an opaque playthrough id")
+  T.neq(secondId, firstId,
+    "separate New Games receive separate requested playthrough ids")
 end
 
 -- Dropping the id from buildMeta or save encoding must fail the roundtrip.
 do
   fresh()
   local save = SaveData.newGame({ version = "red" })
-  local expected = save.meta.playthroughId
+  local expected = SaveData.ensurePlaythroughId(save)
   T.check(SaveData.save(save), "identity fixture saves")
   local loaded = SaveData.load("red")
   T.eq(loaded and loaded.meta.playthroughId, expected,
@@ -92,9 +100,14 @@ do
   files["save.lua"] = SaveSerializer.encode(raw)
 
   local first = SaveData.load("red")
-  local id = first and first.meta.playthroughId
+  T.eq(first and first.meta.playthroughId, nil,
+    "loading a legacy save alone does not allocate tool identity")
+  local id = SaveData.ensurePlaythroughId(first)
   T.check(type(id) == "string" and id ~= "",
     "a legacy save receives a playthrough id")
+  local mappedOptions, mappedErr = SaveSerializer.decode(files["options.lua"] or "")
+  T.check(mappedOptions ~= nil,
+    "legacy identity mapping remains decodable: " .. tostring(mappedErr))
 
   local slotBytes = files["saves/red/slot1.lua"]
   local onDisk = slotBytes and SaveSerializer.decode(slotBytes)
@@ -103,7 +116,7 @@ do
 
   SaveData.resetSlotState()
   local second = SaveData.load("red")
-  T.eq(second and second.meta.playthroughId, id,
+  T.eq(SaveData.ensurePlaythroughId(second), id,
     "legacy backfill is stable across reload before normal SAVE")
 end
 
@@ -115,19 +128,19 @@ do
   SaveData.setActiveSlot("red", redA)
   T.check(SaveData.writeSlot("red", redA, legacy("red", "SAME")),
     "seed red slot A")
-  local idA = SaveData.load("red").meta.playthroughId
+  local idA = SaveData.ensurePlaythroughId(SaveData.load("red"))
 
   SaveData.setActiveSlot("red", redB)
   T.check(SaveData.writeSlot("red", redB, legacy("red", "SAME")),
     "seed red slot B")
-  local idB = SaveData.load("red").meta.playthroughId
+  local idB = SaveData.ensurePlaythroughId(SaveData.load("red"))
 
   GameVersion.set("blue")
   local blue = SaveData.createSlot("blue")
   SaveData.setActiveSlot("blue", blue)
   T.check(SaveData.writeSlot("blue", blue, legacy("blue", "SAME")),
     "seed blue slot")
-  local idBlue = SaveData.load("blue").meta.playthroughId
+  local idBlue = SaveData.ensurePlaythroughId(SaveData.load("blue"))
 
   T.neq(idA, idB, "two active slots do not share legacy identity")
   T.neq(idA, idBlue, "Red and Blue do not share legacy identity")

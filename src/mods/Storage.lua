@@ -57,10 +57,17 @@ function Storage:_scope(game)
   local save = game and game.save
   local meta = save and save.meta
   local version = save and save.version
-  local playthroughId = meta and meta.playthroughId
-  if not (save and validSegment(version) and validSegment(playthroughId)) then
+  if not (save and validSegment(version)) then
     return failure("not_in_playthrough",
       "Storage is available only inside an identified playthrough.")
+  end
+  local playthroughId = meta and meta.playthroughId
+  if not validSegment(playthroughId) then
+    playthroughId = SaveData.ensurePlaythroughId(save, self.injectedFs)
+  end
+  if not validSegment(playthroughId) then
+    return failure("not_in_playthrough",
+      "Storage could not identify the active playthrough.")
   end
   local fs = SaveData.persistenceFs(self.injectedFs)
   if not (fs and fs.read and fs.write and fs.getInfo) then
