@@ -4,6 +4,7 @@
 local SaveSerializer = require("src.core.SaveSerializer")
 local SaveData = require("src.core.SaveData")
 local Version = require("src.core.Version")
+local BattleState = require("src.battle.BattleState")
 
 local Checkpoint = {}
 
@@ -27,6 +28,61 @@ local function nonempty(value)
   return type(value) == "table" and next(value) ~= nil
 end
 
+local function scriptsBusy(ow)
+  return running(ow.runner) or nonempty(ow.parallelRunners)
+    or nonempty(ow.pendingScripts) or nonempty(ow.parallelQueue)
+    or nonempty(ow.scriptMoves)
+end
+
+local BATTLE_BUSY_FIELDS = {
+  "current", "afterQueue", "nextInsert", "pendingHit", "waitingUI",
+  "waitingSound", "waitFrames", "draining", "animPlaying", "growIn",
+  "introSlide", "ghostReveal", "mimicCtx", "mimicMoves", "result",
+}
+
+local function inspectBattle(ow, battle)
+  if battle.kind == "link" then
+    return refusal("battle", "link_battle_unsupported",
+      "Network battles cannot be checkpointed.")
+  end
+  if battle.safari or battle.ghost or battle.scopeReveal or battle.demo
+      or battle.noCatch then
+    return refusal("battle", "battle_variant_unsupported",
+      "This battle variant does not have a checkpoint contract.")
+  end
+  if battle.kind ~= "wild" and battle.kind ~= "trainer" then
+    return refusal("battle", "battle_variant_unsupported",
+      "This battle kind does not have a checkpoint contract.")
+  end
+  local origin = battle.checkpointOrigin
+  local expectedOrigin = battle.kind == "wild" and "wild_encounter"
+    or "trainer_encounter"
+  if type(origin) ~= "table" or origin.kind ~= expectedOrigin then
+    return refusal("battle", "battle_origin_unsupported",
+      "The battle completion path cannot be reconstructed safely.")
+  end
+  if scriptsBusy(ow) then
+    return refusal("battle", "script_busy",
+      "A suspended or queued script cannot be checkpointed.")
+  end
+  if battle.phase ~= "menu" or nonempty(battle.queue) then
+    return refusal("battle", "battle_phase_busy",
+      "Wait for the player command menu before creating a checkpoint.")
+  end
+  for _, field in ipairs(BATTLE_BUSY_FIELDS) do
+    if battle[field] ~= nil and battle[field] ~= false then
+      return refusal("battle", "battle_phase_busy",
+        "Wait for the current battle action to finish.")
+    end
+  end
+  if not battle.player or not battle.enemy or battle.player.mon.hp <= 0
+      or (battle.menuLockedAction and battle:menuLockedAction(battle.player)) then
+    return refusal("battle", "battle_phase_busy",
+      "Wait for an ordinary player decision before creating a checkpoint.")
+  end
+  return { canCapture = true, canRestore = true, kind = "battle" }
+end
+
 function Checkpoint.inspect(game)
   local save = game and game.save
   if type(save) ~= "table" or type(save.version) ~= "string" then
@@ -41,6 +97,9 @@ function Checkpoint.inspect(game)
       "Only a settled overworld can be checkpointed.")
   end
   local top = game.stack and game.stack.top and game.stack:top()
+  if getmetatable(top) == BattleState then
+    return inspectBattle(ow, top)
+  end
   if top ~= ow then
     return refusal("overworld", "screen_busy",
       "Close the active menu or screen before creating a checkpoint.")
@@ -57,9 +116,7 @@ function Checkpoint.inspect(game)
     return refusal("overworld", "transition_busy",
       "Wait for the map transition to finish.")
   end
-  if running(ow.runner) or nonempty(ow.parallelRunners)
-      or nonempty(ow.pendingScripts) or nonempty(ow.parallelQueue)
-      or nonempty(ow.scriptMoves) then
+  if scriptsBusy(ow) then
     return refusal("overworld", "script_busy",
       "Wait for the active or queued script to finish.")
   end
