@@ -140,6 +140,59 @@ default** (1x front, 2x back).
   ball-to-pic grow multiplies your scale through each stage, so a rescaled
   mon still grows into place from the ball, grounded the whole way.
 
+## Durable tool storage and runtime checkpoints
+
+`mod.save` remains the right place for state that should travel with the next
+normal Pokémon SAVE. Tools that need independently written, larger data-only
+records can use `mod.storage`; the engine scopes every logical key by game
+version, opaque playthrough identity, and mod id, and routes it through the same
+standard or portable persistence backend as saves:
+
+```lua
+local context, code, message = mod.storage:context(game)
+local ok, code, message = mod.storage:write(game, "history/quick/q0001", {
+  format = 1, createdAt = os.time(), payload = { money = 3000 },
+})
+local value, code, message = mod.storage:read(game, "history/quick/q0001")
+local keys, code, message = mod.storage:list(game, "history/quick")
+local deleted, code, message = mod.storage:delete(game, "history/quick/q0001")
+```
+
+`context` returns `{ engineVersion, gameVersion, playthroughId }`. The engine
+version is compatibility metadata; physical launcher-slot and path identity stays
+private.
+
+Values must be tables containing serializable data only. Keys are conservative
+slash-separated segments (letters, digits, `_`, `-`); paths and filesystem
+handles are never exposed. Writes are staged and decode-verified, reads recover
+from a valid staged/backup generation, and methods return structured errors for
+normal data or I/O failures. The playthrough identity is allocated lazily on the
+first storage/checkpoint call, so an unused API changes no save bytes.
+
+`mod.checkpoints` captures and reconstructs engine-owned semantic runtime state:
+
+```lua
+local capability = mod.checkpoints:inspect(game)
+if capability.canCapture then
+  local checkpoint, code, message = mod.checkpoints:capture(game)
+  -- Store the detached data-only checkpoint through mod.storage.
+end
+
+local ok, code, message = mod.checkpoints:restore(game, checkpoint)
+```
+
+Checkpoint format 1 supports settled overworld control only: the overworld must
+be topmost, the player stationary on a tile, and no transition, menu, script,
+queued script movement, or partial field animation may be active. Refusals carry
+a stable `reason` and readable `message`. Capture excludes global options and
+runtime objects. Restore validates format, game/playthrough identity, content,
+and coordinates before mutation; preserves current options; suppresses normal
+map-entry/save-load side effects; verifies a recapture; and rolls back in memory
+if reconstruction fails. Callers that need crash recovery should durably capture
+their own recovery checkpoint before restore.
+
+See RFC 0003 and RFC 0004 for exact contracts and error codes.
+
 ## Developer console
 
 Boot with developer mode on to unlock the in-game console and hot-reload
