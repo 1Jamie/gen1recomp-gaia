@@ -274,10 +274,11 @@ the finished `worldCanvas` and `uiCanvas` with their SGB `zones` / `worldZones`,
 `worldActive`, the frame metrics (`ww`, `wh`, `pw`, `ph`, `ox`, `oy`, `vpw`,
 `vph`, `scale`, `Sx`, `Sy`, `dpiX`, `dpiY`), `renderer:blitCanvas(...)` for a
 palette-correct blit of either canvas into an arbitrary screen rect, and the
-`secondScreen` bridge (`available()` / `push(imageData, w, h)` / `setEnabled`)
-for driving a second physical display. This is what lets a mod lay the two
-passes out as two stacked Game Boy screens, or push one onto a second screen,
-without the engine knowing the layout.
+`secondScreen` bridge (`available()` / `push(imageData, w, h)` / `pollTouch()` /
+`setEnabled`) for driving a second physical display. `pollTouch()` returns the
+oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
+This is what lets a mod lay the two passes out as two stacked Game Boy screens,
+or push one onto a second screen, without the engine knowing the layout.
 
 `screen.render_visible` receives `(next, state)` while the main screen is being
 composed. Return `false` to omit that state from drawing, opacity selection and
