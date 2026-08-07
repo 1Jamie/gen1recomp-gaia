@@ -817,6 +817,74 @@ function SaveData.resetSlotState()
   for k in pairs(slotsChecked) do slotsChecked[k] = nil end
 end
 
+-- ------- opaque playthrough identity
+
+-- An id must never perturb the engine's gameplay RNG: savestate tools need
+-- repeatable random outcomes, and allocating persistence scope is not gameplay.
+-- Combine wall/process time, a process-local sequence and a fresh table address
+-- into four hex words. This is an opaque collision-resistant identifier, not a
+-- secret or a player-visible value.
+local playthroughSeq = 0
+
+local function word(n)
+  return math.floor(tonumber(n) or 0) % 4294967296
+end
+
+function SaveData.newPlaythroughId()
+  playthroughSeq = playthroughSeq + 1
+  local address = tostring({}):match("0x(%x+)") or "0"
+  local addressLo = tonumber(address:sub(-8), 16) or 0
+  local clock = math.floor((os.clock() or 0) * 1000000)
+  return ("%08x%08x%08x%08x"):format(
+    word(os.time()), word(clock), word(addressLo), word(playthroughSeq))
+end
+
+local function playthroughScope(version)
+  version = version or GameVersion.get()
+  local fs = persistFs(nil)
+  ensureVersionSlots(version, fs)
+  return activeSlotCache[version] or "legacy"
+end
+
+local function rememberPlaythroughId(save, opts)
+  local meta = type(save) == "table" and save.meta
+  local id = type(meta) == "table" and meta.playthroughId
+  if type(id) ~= "string" or id == "" then return opts, false end
+  local version = save.version or GameVersion.get()
+  local scope = playthroughScope(version)
+  opts = opts or SaveData.loadOptions()
+  opts.playthroughIds = opts.playthroughIds or {}
+  opts.playthroughIds[version] = opts.playthroughIds[version] or {}
+  local changed = opts.playthroughIds[version][scope] ~= id
+  opts.playthroughIds[version][scope] = id
+  return opts, changed
+end
+
+-- Return an existing save identity or give a pre-identity save a stable one.
+-- Legacy backfill lives in options.lua until the next normal SAVE stamps the id
+-- into progress, so installing a tool mod never rewrites the player's checkpoint.
+function SaveData.ensurePlaythroughId(save)
+  if type(save) ~= "table" then return nil end
+  save.meta = type(save.meta) == "table" and save.meta or {}
+  local id = save.meta.playthroughId
+  if type(id) == "string" and id ~= "" then return id end
+
+  local version = save.version or GameVersion.get()
+  local scope = playthroughScope(version)
+  local opts = SaveData.loadOptions()
+  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
+  id = byVersion and byVersion[scope]
+  if type(id) ~= "string" or id == "" then
+    id = SaveData.newPlaythroughId()
+    opts.playthroughIds = opts.playthroughIds or {}
+    opts.playthroughIds[version] = opts.playthroughIds[version] or {}
+    opts.playthroughIds[version][scope] = id
+    SaveData.saveOptions(opts)
+  end
+  save.meta.playthroughId = id
+  return id
+end
+
 -- ------- meta
 
 -- the version/engine/mod-set stamp every v2 save carries; mods is the
@@ -838,6 +906,7 @@ function SaveData.buildMeta(mods, previous)
     format = Version.saveFormat,
     engine = Version.engine,
     savedAt = os.time(),
+    playthroughId = type(previous) == "table" and previous.playthroughId or nil,
     mods = list,
   }
 end
@@ -1047,8 +1116,14 @@ function SaveData.save(data, mods)
   -- write to the file matching this save's own version, not just the active
   -- one, so Blue/Yellow playthroughs land in save_blue.lua / save_yellow.lua
   local FILENAME, BACKUP_FILENAME, TMP_FILENAME = saveNames(data.version)
+  SaveData.ensurePlaythroughId(data)
   if data.options then
-    SaveData.saveOptions(data.options)
+    local opts = rememberPlaythroughId(data, data.options)
+    data.options = opts
+    SaveData.saveOptions(opts)
+  else
+    local opts, changed = rememberPlaythroughId(data)
+    if changed then SaveData.saveOptions(opts) end
   end
   if mods ~= nil or data.meta == nil then
     data.meta = SaveData.buildMeta(mods, data.meta)
@@ -1117,6 +1192,7 @@ function SaveData.load(version)
     return nil
   end
   SaveData.runMigrations(data)
+  SaveData.ensurePlaythroughId(data)
   data.options = SaveData.loadOptions()
   Logger.info("loaded save")
   return data, recovered
@@ -1427,7 +1503,11 @@ function SaveData.newGame(boot)
   local x, y = boot.startX or 3, boot.startY or 6
   local heal = SaveData.defaultHeal(boot)
   local save = {
-    meta = { format = Version.saveFormat, mods = {} },
+    meta = {
+      format = Version.saveFormat,
+      mods = {},
+      playthroughId = SaveData.newPlaythroughId(),
+    },
     -- which game this playthrough is (Red vs Blue).  Only Red ships today;
     -- boot carries the choice once Blue support lands.
     version = boot.version or "red",

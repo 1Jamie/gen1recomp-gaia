@@ -1079,6 +1079,7 @@ function Game:restoreSave(loaded, recovered)
   if ModRuntime.wants("save.loading") then
     ModRuntime.emit("save.loading", { raw = loaded })
   end
+  SaveData.ensurePlaythroughId(loaded)
   -- mod chains replay before validation so a mod repairs its own data
   -- instead of watching it get quarantined; core steps already ran in
   -- SaveData.load and skip on the format guard
