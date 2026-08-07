@@ -56,7 +56,9 @@ Returns a detached data-only format-1 checkpoint, or
 {
   format = 1,
   kind = "overworld",
-  identity = { gameVersion = "red", playthroughId = "..." },
+  identity = {
+    engineVersion = "...", gameVersion = "red", playthroughId = "...",
+  },
   save = { -- canonical dynamic progress, excluding global options },
   runtime = { overworld = {
     map = "PALLET_TOWN", x = 5, y = 6,
@@ -65,7 +67,8 @@ Returns a detached data-only format-1 checkpoint, or
 }
 ```
 
-Capture deep-copies through the restricted serializer before and after
+`engineVersion` is metadata for caller compatibility warnings; the engine does
+not reject patch/minor mismatches on restore. Capture deep-copies through the restricted serializer before and after
 `OverworldController:captureSave` synchronizes live map, tile, facing, and surf
 state. It excludes `save.options`, functions, userdata, threads, metatables as
 behavior, controller instances, and static content registries. Failure code

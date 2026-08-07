@@ -3,6 +3,7 @@
 
 local SaveSerializer = require("src.core.SaveSerializer")
 local SaveData = require("src.core.SaveData")
+local Version = require("src.core.Version")
 
 local Checkpoint = {}
 
@@ -119,6 +120,7 @@ function Checkpoint.capture(game)
     format = Checkpoint.FORMAT,
     kind = "overworld",
     identity = {
+      engineVersion = Version.engine,
       gameVersion = game.save.version,
       playthroughId = game.save.meta.playthroughId,
     },
@@ -154,7 +156,8 @@ local function validate(game, checkpoint)
   local identity = copy.identity
   local current = game and game.save
   local currentId = current and current.meta and current.meta.playthroughId
-  if type(identity) ~= "table" or type(identity.gameVersion) ~= "string"
+  if type(identity) ~= "table" or type(identity.engineVersion) ~= "string"
+      or type(identity.gameVersion) ~= "string"
       or type(identity.playthroughId) ~= "string" then
     return nil, "invalid_checkpoint", "Checkpoint identity is missing or corrupt."
   end

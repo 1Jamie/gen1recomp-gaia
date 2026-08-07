@@ -9,6 +9,7 @@ local Loader = require("src.mods.Loader")
 local Runtime = require("src.mods.Runtime")
 local GameMethods = require("src.core.Game")
 local StateStack = require("src.core.StateStack")
+local Version = require("src.core.Version")
 
 local savedEvents, savedHooks = Runtime.events, Runtime.hooks
 
@@ -204,7 +205,11 @@ local snapshot, code, message = checkpoints:capture(game)
 T.check(snapshot ~= nil, "stable overworld captures: " .. tostring(code or message))
 T.eq(snapshot.format, 1, "checkpoint format is explicit")
 T.eq(snapshot.kind, "overworld", "checkpoint runtime kind is explicit")
-T.same(snapshot.identity, { gameVersion = "red", playthroughId = "play-a" },
+T.same(snapshot.identity, {
+    engineVersion = Version.engine,
+    gameVersion = "red",
+    playthroughId = "play-a",
+  },
   "checkpoint carries compatibility identity")
 T.same(snapshot.runtime.overworld,
   { map = "ROUTE_1", x = 7, y = 8, facing = "left", surfing = true },
