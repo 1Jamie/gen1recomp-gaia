@@ -71,7 +71,14 @@ local function baseSave()
       moves = { "TACKLE" } } },
     flags = { GOT_STARTER = true },
     inventory = { POTION = 1 },
-    pcItems = {}, box = {}, boxes = {}, defeatedTrainers = {},
+    pcItems = { POTION = 2 },
+    box = { { species = "BULBASAUR", level = 4, hp = 16,
+      moves = { "TACKLE" } } },
+    boxes = { [2] = { { species = "BULBASAUR", level = 3, hp = 14,
+      moves = { "TACKLE" } } } },
+    defeatedTrainers = { PALLET_RIVAL = true },
+    objectToggles = { PALLET_TOWN = { OAK = false } },
+    itemsTaken = { PALLET_TOWN_POTION = true },
     pokedex = { seen = { BULBASAUR = true }, owned = { BULBASAUR = true } },
     modData = {},
     options = { volume = 4, bindings = {} },
@@ -253,6 +260,15 @@ local original = snapshot
 game.save.money = 999999
 game.save.flags.GOT_STARTER = nil
 game.save.party[1].hp = 1
+game.save.inventory.POTION = 99
+game.save.pcItems.POTION = nil
+game.save.box = {}
+game.save.boxes = {}
+game.save.defeatedTrainers.PALLET_RIVAL = nil
+game.save.objectToggles.PALLET_TOWN.OAK = true
+game.save.itemsTaken.PALLET_TOWN_POTION = nil
+game.save.pokedex.seen.BULBASAUR = nil
+game.save.pokedex.owned.BULBASAUR = nil
 game.save.options.volume = 9
 checkpointRngState = "overworld-rng-B"
 ow.map.id, ow.player.cellX, ow.player.cellY = "PALLET_TOWN", 2, 3
@@ -268,6 +284,17 @@ T.eq(game.save.options.volume, 9,
   "checkpoint restoration preserves current global settings")
 T.eq(checkpointRngState, "overworld-rng-A",
   "overworld checkpoint restores gameplay RNG")
+T.eq(game.save.inventory.POTION, 1, "inventory progress roundtrips")
+T.eq(game.save.pcItems.POTION, 2, "PC item progress roundtrips")
+T.eq(game.save.box[1].hp, 16, "current box Pokemon roundtrips")
+T.eq(game.save.boxes[2][1].hp, 14, "stored box collection roundtrips")
+T.eq(game.save.defeatedTrainers.PALLET_RIVAL, true,
+  "defeated trainer progress roundtrips")
+T.eq(game.save.objectToggles.PALLET_TOWN.OAK, false,
+  "map object toggle progress roundtrips")
+T.eq(game.save.itemsTaken.PALLET_TOWN_POTION, true,
+  "taken-object progress roundtrips")
+T.eq(game.save.pokedex.owned.BULBASAUR, true, "Pokedex progress roundtrips")
 T.check(game.lastEnterOpts and game.lastEnterOpts.checkpoint == true,
   "engine reconstruction is marked to suppress map-entry side effects")
 
