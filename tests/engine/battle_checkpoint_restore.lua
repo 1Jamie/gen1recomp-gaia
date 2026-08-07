@@ -212,6 +212,41 @@ if restored then
     "restored battle receives a reconstructed semantic continuation")
 end
 
+local partyGame, switchedOriginal = makeGame("wild")
+partyGame.save.party[1].hp = 0
+local activeMon = partyGame.save.party[2]
+activeMon.status = "PAR"
+activeMon.moves[1].pp = activeMon.moves[1].pp - 4
+switchedOriginal.player = BattleState.makeBattler(
+  Data, activeMon, true, partyGame.save)
+switchedOriginal.sides[1].battlers = { switchedOriginal.player }
+switchedOriginal.participants = {
+  [partyGame.save.party[1]] = true,
+  [partyGame.save.party[2]] = true,
+}
+local partyCheckpoint = assert(Checkpoint.capture(partyGame))
+settleOverworld(partyGame)
+partyGame.save.party[2].status = nil
+partyGame.save.party[2].moves[1].pp = 1
+restored, code, message = Checkpoint.restore(partyGame, partyCheckpoint)
+T.check(restored == true,
+  "switched/status/PP checkpoint restores: " .. tostring(message or code))
+local partyRebuilt = partyGame.stack:top()
+if restored then
+  T.eq(partyGame.save.party[1].hp, 0,
+    "fainted non-active party member roundtrips")
+  T.check(partyRebuilt.player.mon == partyGame.save.party[2],
+    "switched active Pokemon reconstructs against restored party identity")
+  T.eq(partyRebuilt.player.mon.status, "PAR", "active status roundtrips")
+  T.eq(partyRebuilt.player.mon.moves[1].pp,
+    partyCheckpoint.save.party[2].moves[1].pp, "reduced PP roundtrips")
+  T.check(partyRebuilt.participants[partyGame.save.party[1]] == true
+      and partyRebuilt.participants[partyGame.save.party[2]] == true,
+    "participant references rebuild against fainted and active party members")
+  T.same(Checkpoint.capture(partyGame), partyCheckpoint,
+    "switch, faint, status and PP differential recapture is exact")
+end
+
 local trainerGame, trainerOriginal = makeGame("trainer")
 trainerOriginal.turnCount = 6
 trainerOriginal.enemy.mon.hp = trainerOriginal.enemy.mon.hp - 3
