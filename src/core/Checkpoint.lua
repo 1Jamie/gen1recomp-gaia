@@ -5,6 +5,7 @@ local SaveSerializer = require("src.core.SaveSerializer")
 local SaveData = require("src.core.SaveData")
 local Version = require("src.core.Version")
 local BattleState = require("src.battle.BattleState")
+local BattleCheckpoint = require("src.core.BattleCheckpoint")
 
 local Checkpoint = {}
 
@@ -170,6 +171,25 @@ function Checkpoint.capture(game)
   if not progress then
     return nil, "capture_failed", "Synchronized progress is not data-only: "
       .. tostring(err)
+  end
+
+  if capability.kind == "battle" then
+    local battle = game.stack:top()
+    local runtime, rngOrCode, battleMessage =
+      BattleCheckpoint.capture(game, battle, progress, dataCopy)
+    if not runtime then return nil, rngOrCode, battleMessage end
+    return {
+      format = Checkpoint.FORMAT,
+      kind = "battle",
+      identity = {
+        engineVersion = Version.engine,
+        gameVersion = game.save.version,
+        playthroughId = game.save.meta.playthroughId,
+      },
+      save = progress,
+      runtime = runtime,
+      rng = rngOrCode,
+    }
   end
 
   local player = game.overworld.player
