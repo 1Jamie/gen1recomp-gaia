@@ -973,8 +973,14 @@ function OverworldState:update(dt)
         -- the bird carries the player in on landing, with its own
         -- SFX_FLY (EnterMapAnim .flyAnimation)
         self.arriveWarp = "fly"
+        -- keep the sprite hidden through the warp fade-out (#916): flyAnim
+        -- just went nil but flyArrive is not armed until startWarpTo's
+        -- midpoint, and the overworld keeps drawing beneath the veil, so
+        -- without this the trainer pops back in at the old cell for 32 frames
+        self.playerHidden = true
         self:startWarpTo(d.map, d.x, d.y, "down", nil, { via = "fly" })
       else
+        self.playerHidden = false
         self.player.inputLocked = false
       end
       return
@@ -1006,6 +1012,10 @@ function OverworldState:update(dt)
       self.player.spinFrames = nil
       self.player.spinRise = nil
       self.player.inputLocked = false
+      -- keep the sprite hidden through the warp fade-out (#916): the spin is
+      -- over but the arrival spin-drop is not armed until startWarpTo's
+      -- midpoint, so without this the standing trainer shows under the veil
+      self.playerHidden = true
       self:warpToHealPoint(onDone, { arrive = "teleport" })
       return
     end
@@ -4140,6 +4150,11 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
   self.arriveWarp = nil
   Game.stack:push(Transition.new(Game, function()
     self:setMap(mapId, x, y, facing or "down", opts)
+    -- the departure-side hide from flyAnim/teleportOut ends here, on the new
+    -- map; the arrival arms its own cover (flyArrive / spinDrop) a few lines
+    -- down, so the player is never drawable mid-fade nor standing bare on the
+    -- landing frame (#916)
+    self.playerHidden = false
     -- The warp we land ON stays inert for the completed-step check until we
     -- physically step off it, so a warp whose destination cell is itself a
     -- warp cannot bounce us straight back (elevator cars, stacked stair/door
@@ -4864,7 +4879,8 @@ function OverworldState:drawWorld()
       g.npc:draw(cam.x - g.ox, cam.y - g.oy)
     end
     for _, e in ipairs(self.entities) do
-      if not ((self.flyAnim or self.flyArrive) and e == self.player) then
+      if not ((self.flyAnim or self.flyArrive or self.playerHidden)
+              and e == self.player) then
         e:draw(cam.x, cam.y)
         -- tall grass overdraws the sprite's feet (GB sprite priority);
         -- the overdraw is BG tiles, so it rides the shake offset too
@@ -4915,7 +4931,8 @@ function OverworldState:drawWorld()
       items[#items + 1] = { y = g.npc.py + g.oy + 16, kind = "ghost", g = g }
     end
     for _, e in ipairs(self.entities) do
-      if not ((self.flyAnim or self.flyArrive) and e == self.player) then
+      if not ((self.flyAnim or self.flyArrive or self.playerHidden)
+              and e == self.player) then
         items[#items + 1] = { y = e.py + 16, kind = "entity", e = e }
       end
     end
