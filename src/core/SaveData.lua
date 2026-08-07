@@ -358,6 +358,22 @@ local function readTable(fs, name)
   return SaveSerializer.decode(body)
 end
 
+-- Deep-copy a value folded in from the on-disk decode so the returned
+-- options table never aliases the file's nested tables (SaveData must not
+-- depend on src/mods/Merge.lua for this).  Options data is plain tables of
+-- strings/numbers/booleans/tables, so a cycle guard is belt-and-braces.
+local function deepCopy(v, seen)
+  if type(v) ~= "table" then return v end
+  seen = seen or {}
+  if seen[v] then return seen[v] end
+  local copy = {}
+  seen[v] = copy
+  for k, val in pairs(v) do
+    copy[deepCopy(k, seen)] = deepCopy(val, seen)
+  end
+  return copy
+end
+
 -- the stub filesystem some headless harnesses inject has no remove; a
 -- lingering tmp/bak there is harmless
 local function remove(fs, name)
@@ -371,13 +387,48 @@ end
 -- options round-trip headless (no love global).
 function SaveData.saveOptions(opts, fs)
   fs = persistFs(fs)
+  -- #932: options.lua is a WHOLE-FILE rewrite, so a caller that hands over a
+  -- PARTIAL table (just the keys it changed) would silently drop every key it
+  -- does not mention -- launcher-only keys like lastVersion, and keys the
+  -- launcher set (battleBg, tilt...) all fall back to defaults.  Read the
+  -- on-disk file FIRST and fold caller-absent values underneath, so a delta
+  -- write changes only what it names.
+  --
+  -- A table holding EVERY defaultOptions key is a full snapshot
+  -- (loadOptions() results, game.save.options, the RESET REBINDS /
+  -- activeProfile-drop paths) and stays authoritative: its absent keys are
+  -- deliberate deletions, so nothing folds for it.  Partial tables get every
+  -- on-disk key they do not provide folded in (deep-copied so the caller's
+  -- table is never aliased).  This is the reconciling rule: bindings and
+  -- activeProfile -- not defaultOptions members -- can be deleted by their
+  -- sites precisely because those sites always write full tables.
+  local onDisk = readTable(fs, OPTIONS_FILENAME)
+  local isFull = type(opts) == "table"
+  if isFull then
+    for k in pairs(SaveData.defaultOptions()) do
+      if opts[k] == nil then isFull = false break end
+    end
+  end
+  if not isFull then
+    local merged = {}
+    if type(opts) == "table" then
+      for k, v in pairs(opts) do merged[k] = v end
+    end
+    if type(onDisk) == "table" then
+      for k, v in pairs(onDisk) do
+        if k ~= "modOptions" and merged[k] == nil then
+          merged[k] = deepCopy(v)
+        end
+      end
+    end
+    opts = merged
+  end
   opts = SaveData.mergeOptions(opts)
   -- modOptions is per-mod nested state: fold the on-disk sub-tree
   -- underneath (newest value winning per key) so one caller's partial
   -- write cannot clobber another mod's persisted keys.  Every other
   -- option stays on the shallow path.
-  local onDisk = readTable(fs, OPTIONS_FILENAME)
-  if onDisk and type(onDisk.modOptions) == "table" then
+  if type(onDisk) == "table" and type(onDisk.modOptions) == "table" then
     local merged = {}
     for modId, bucket in pairs(onDisk.modOptions) do
       merged[modId] = bucket
