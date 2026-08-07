@@ -46,7 +46,8 @@ local function makeGame(kind)
   if kind == "trainer" then
     battle = BattleState.newTrainer(game, "OPP_FIX_YOUNGSTER", 1)
     battle.checkpointOrigin = {
-      kind = "trainer_encounter", map = "FIX_TOWN", npc = "TRAINER_1",
+      kind = "trainer_encounter", map = "FIX_TOWN", npcId = "TRAINER_1",
+      trainerClass = "OPP_FIX_YOUNGSTER", partyIndex = 1,
       event = "EVENT_BEAT_TRAINER_1",
     }
   else

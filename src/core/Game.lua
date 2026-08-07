@@ -1143,4 +1143,15 @@ function Game:restoreCheckpointSave(loaded)
                   { via = "checkpoint", checkpoint = true })
 end
 
+-- Install a reconstructed battle without calling BattleState:enter(), whose
+-- transition, intro queues and battle-start side effects already happened in
+-- the checkpointed timeline.
+function Game:restoreCheckpointBattle(battle)
+  if self.stack:top() ~= self.overworld then
+    error("battle checkpoint requires a reconstructed overworld base", 0)
+  end
+  self.stack.states[#self.stack.states + 1] = battle
+  if battle.resumeCheckpoint then battle:resumeCheckpoint() end
+end
+
 return Game

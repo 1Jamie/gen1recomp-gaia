@@ -111,6 +111,12 @@ function BattleCheckpoint.validate(game, checkpoint)
     return nil, "battle_origin_unsupported",
       "Battle continuation data is unsupported or inconsistent."
   end
+  if model.kind == "trainer" and (type(model.origin.npcId) ~= "string"
+      or model.origin.trainerClass ~= model.oppClass
+      or model.origin.partyIndex ~= (model.partyIndex or 1)) then
+    return nil, "battle_origin_unsupported",
+      "Trainer continuation data is incomplete or inconsistent."
+  end
   local party = checkpoint.save.party
   if type(party) ~= "table" or not validateBattler(game.data, model.player, #party) then
     return nil, "invalid_content", "Player battle state is invalid."
@@ -150,7 +156,11 @@ end
 local function applyBattler(target, captured, copy)
   for _, field in ipairs(BATTLER_FIELDS) do
     if field ~= "curStats" and field ~= "curTypes" and field ~= "curMoves" then
-      target[field] = captured[field] ~= nil and clone(captured[field], copy) or nil
+      if captured[field] ~= nil then
+        target[field] = clone(captured[field], copy)
+      else
+        target[field] = nil
+      end
     end
   end
   target.curStats = captured.curStatsFromMon and target.mon.stats
@@ -192,7 +202,11 @@ function BattleCheckpoint.restore(game, checkpoint, copy)
   applyBattler(battle.enemy, model.enemy, copy)
 
   for _, field in ipairs(BATTLE_FIELDS) do
-    battle[field] = model[field] ~= nil and clone(model[field], copy) or nil
+    if model[field] ~= nil then
+      battle[field] = clone(model[field], copy)
+    else
+      battle[field] = nil
+    end
   end
   battle.kind = model.kind
   battle.checkpointOrigin = assert(copy(model.origin))

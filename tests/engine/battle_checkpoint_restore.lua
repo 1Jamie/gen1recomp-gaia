@@ -8,6 +8,8 @@ local T = require("tests.harness").suite("battle checkpoint restore")
 local Fixtures = require("tests.modkit").fixtures
 local BattleState = require("src.battle.BattleState")
 local Checkpoint = require("src.core.Checkpoint")
+local GameMethods = require("src.core.Game")
+local Music = require("src.core.Music")
 local Pokemon = require("src.pokemon.Pokemon")
 local SaveData = require("src.core.SaveData")
 local StateStack = require("src.core.StateStack")
@@ -15,6 +17,8 @@ local StateStack = require("src.core.StateStack")
 local Data = Fixtures.fresh()
 local oldRandom = love.math.random
 local oldGet, oldSet = love.math.getRandomState, love.math.setRandomState
+local oldPlayBattle = Music.playBattle
+Music.playBattle = function() end
 local rng = 12345
 love.math.getRandomState = function() return tostring(rng) end
 love.math.setRandomState = function(state) rng = assert(tonumber(state)) end
@@ -59,7 +63,9 @@ local function makeGame(kind)
     end
     return true
   end
-  local game = { data = Data, save = save, stack = stack, overworld = overworld }
+  local game = setmetatable(
+    { data = Data, save = save, stack = stack, overworld = overworld },
+    { __index = GameMethods })
   function game:restoreCheckpointSave(loaded)
     self.save = loaded
     self.overworld.map = { id = loaded.player.map }
@@ -73,15 +79,13 @@ local function makeGame(kind)
     self.overworld.parallelQueue, self.overworld.scriptMoves = {}, {}
     self.stack.states = { self.overworld }
   end
-  function game:restoreCheckpointBattle(battle)
-    self.stack.states[#self.stack.states + 1] = battle
-  end
   stack.states[1] = overworld
   local battle
   if kind == "trainer" then
     battle = BattleState.newTrainer(game, "OPP_FIX_YOUNGSTER", 1)
     battle.checkpointOrigin = {
-      kind = "trainer_encounter", map = "FIX_TOWN", npc = "TRAINER_1",
+      kind = "trainer_encounter", map = "FIX_TOWN", npcId = "TRAINER_1",
+      trainerClass = "OPP_FIX_YOUNGSTER", partyIndex = 1,
       event = "EVENT_BEAT_TRAINER_1",
     }
   else
@@ -89,6 +93,7 @@ local function makeGame(kind)
     battle.checkpointOrigin = { kind = "wild_encounter", map = "FIX_TOWN" }
   end
   battle.phase, battle.queue = "menu", {}
+  battle.musicKind = battle:computeMusicKind()
   battle.onFinish = function() end
   stack.states[2] = battle
   return game, battle
@@ -168,4 +173,5 @@ end
 
 love.math.random = oldRandom
 love.math.getRandomState, love.math.setRandomState = oldGet, oldSet
+Music.playBattle = oldPlayBattle
 T.finish()

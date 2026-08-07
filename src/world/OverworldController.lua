@@ -3059,6 +3059,14 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
       if theme then require("src.core.Music").play(Game.data, theme) end
     end
     local battle = BattleState.newTrainer(Game, d.trainerClass, d.trainerParty)
+    battle.checkpointOrigin = {
+      kind = "trainer_encounter",
+      map = self.map.id,
+      npcId = npc.id,
+      trainerClass = d.trainerClass,
+      partyIndex = d.trainerParty or 1,
+      event = header and header.event or nil,
+    }
     -- PrintEndBattleText (home/trainers.asm:341) is called from
     -- TrainerBattleVictory (engine/battle/core.asm:942), i.e. ON the battle
     -- screen once ScrollTrainerPicAfterBattle has brought the beaten trainer
@@ -3596,6 +3604,10 @@ function OverworldState:onStepComplete()
     end
     local BattleState = require("src.battle.BattleState")
     local battle = BattleState.newWild(Game, enc.species, enc.level)
+    battle.checkpointOrigin = {
+      kind = "wild_encounter",
+      map = self.map.id,
+    }
     -- map.ghostBattles: unidentifiable without the named item (the
     -- Pokemon Tower's Silph Scope)
     local ghost = Map.ghostBattles(self.map.def)
@@ -3998,6 +4010,39 @@ function OverworldState:afterBattle(result, battle)
     end
     evolutions()
   end
+end
+
+-- Rebind the data-only continuation attached to a supported battle checkpoint.
+-- The overworld was reconstructed first, so transient input/NPC freezes from
+-- the original encounter are intentionally not resumed.
+function OverworldState:restoreBattleContinuation(battle, origin)
+  local game = battle and battle.game
+  if not game or type(origin) ~= "table" or not self.map
+      or origin.map ~= self.map.id then
+    return false
+  end
+  if origin.kind == "wild_encounter" and battle.kind == "wild" then
+    battle.onFinish = function(result) self:afterBattle(result, battle) end
+    return true
+  end
+  if origin.kind ~= "trainer_encounter" or battle.kind ~= "trainer"
+      or origin.trainerClass ~= battle.oppClass
+      or origin.partyIndex ~= (battle.partyIndex or 1)
+      or type(origin.npcId) ~= "string" then
+    return false
+  end
+  battle.onFinish = function(result)
+    if result == "win" then
+      game.save.defeatedTrainers[origin.npcId] = true
+      if origin.event then game.save.flags[origin.event] = true end
+      self:checkVictoryRewards(battle.oppClass, battle.partyIndex)
+    end
+    self:afterBattle(result, battle)
+    self.engaging = false
+    local npc = self.npcPool and self.npcPool[origin.npcId]
+    if npc then npc.frozen = false end
+  end
+  return true
 end
 
 -- -------------------------------------------------------------------------
