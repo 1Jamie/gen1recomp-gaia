@@ -424,7 +424,7 @@ function StatBox:draw()
                  { Strings("SPEED"), s.speed },
                  { Strings("SPECIAL"), s.special } }
   for i, r in ipairs(rows) do
-    Font.draw(r[1], 88, 24 + (i - 1) * 16)
+    Font.draw(Strings(r[1]), 88, 24 + (i - 1) * 16)
     Font.draw(("%3d"):format(r[2]), 128, 32 + (i - 1) * 16)
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -5587,9 +5587,9 @@ function BattleState:drawTextArea()
     -- -- next to FIGHT (9,14) for the first 80 frames, then ITEM (9,16)
     Font.drawBox(8, 12, 12, 6)
     love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(Strings("FIGHT"), 80, 112)
+    Font.draw(Strings("FIGHT", "battle"), 80, 112)
     Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-    Font.draw(Strings("ITEM"), 80, 128); Font.draw(Strings("RUN"), 128, 128)
+    Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
     Font.drawCode(0xED, 72, (self.demoTimer or 0) <= 80 and 112 or 128)
   elseif self.phase == "menu" then
     local col = (self.menuIndex - 1) % 2
@@ -5599,7 +5599,7 @@ function BattleState:drawTextArea()
       -- THROW ROCK  RUN" from (2,14)
       Font.drawBox(0, 12, 20, 6)
       Font.draw(Strings("BALLx"), 16, 112); Font.draw(Strings("BAIT"), 112, 112)
-      Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN"), 112, 128)
+      Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN", "battle"), 112, 128)
       -- DisplayBattleMenu .safariLeftColumn / .safariRightColumn print
       -- wNumSafariBalls at hlcoord 7,14 with `lb bc, 1, 2` -- one byte, two
       -- digits, space padded -- right after the "BALLx" label at columns
@@ -5610,9 +5610,9 @@ function BattleState:drawTextArea()
       -- BATTLE_MENU_TEMPLATE: box (8,12)-(19,17), "FIGHT <PK><MN> /
       -- ITEM  RUN" from (10,14); cursor columns 9 / 15
       Font.drawBox(8, 12, 12, 6)
-      Font.draw(Strings("FIGHT"), 80, 112)
+      Font.draw(Strings("FIGHT", "battle"), 80, 112)
       Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-      Font.draw(Strings("ITEM"), 80, 128); Font.draw(Strings("RUN"), 128, 128)
+      Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
       Font.drawCode(0xED, (col == 0 and 72 or 120), 112 + row * 16)
     end
   elseif self.phase == "moveSelect" then
