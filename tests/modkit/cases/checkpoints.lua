@@ -56,7 +56,8 @@ local function baseSave()
       name = "RED", rival = "BLUE", id = 7,
     },
     money = 3000,
-    party = { { species = "BULBASAUR", hp = 19, moves = { "TACKLE" } } },
+    party = { { species = "BULBASAUR", level = 5, hp = 19,
+      moves = { "TACKLE" } } },
     flags = { GOT_STARTER = true },
     inventory = { POTION = 1 },
     pcItems = {}, box = {}, boxes = {}, defeatedTrainers = {},
@@ -99,11 +100,18 @@ local function makeGame()
   end
   game = setmetatable({
     save = baseSave(), stack = stack, overworld = ow,
-    data = { maps = {
-      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9 },
-      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 18 },
-      BROKEN = { id = "BROKEN", width = 10, height = 9 },
-    } },
+    data = {
+      pokemon = { BULBASAUR = { dex = 1 } },
+      moves = { TACKLE = { pp = 35 } },
+      items = { POTION = {} },
+      constants = { fallbackMove = "TACKLE" },
+      field = { boot = { startMap = "PALLET_TOWN", startX = 5, startY = 6 } },
+      maps = {
+        PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9 },
+        ROUTE_1 = { id = "ROUTE_1", width = 10, height = 18 },
+        BROKEN = { id = "BROKEN", width = 10, height = 9 },
+      },
+    },
   }, { __index = GameMethods })
   stack.states[1] = ow
   return game, ow
@@ -260,6 +268,15 @@ T.check(not restored and restoreCode == "invalid_map",
   "unknown content reference is rejected")
 T.same(checkpoints:capture(game), beforeRejected,
   "validation failures leave the live state unchanged")
+
+local invalidGame = makeGame()
+local badSpecies = checkpoints:capture(invalidGame)
+badSpecies.save.party[1].species = "MISSING_SPECIES"
+restored, restoreCode = checkpoints:restore(invalidGame, badSpecies)
+T.check(not restored and restoreCode == "invalid_content",
+  "unknown Pokemon content is rejected before reconstruction")
+T.eq(invalidGame.save.party[1].species, "BULBASAUR",
+  "invalid Pokemon content leaves the live party unchanged")
 
 -- A reconstruction exception rolls back to the exact pre-operation state.
 local target = checkpoints:capture(game)

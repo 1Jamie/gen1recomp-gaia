@@ -79,9 +79,13 @@ format, kind, internal identity consistency, current game/playthrough identity,
 map availability, integral in-bounds tile, facing, surfing, and synchronized save
 position.
 
-Validation codes are `invalid_checkpoint`, `unsupported_format`,
+Validation codes are `invalid_checkpoint`, `invalid_content`, `unsupported_format`,
 `unsupported_runtime_kind`, `wrong_game`, `wrong_playthrough`, `invalid_map`, and
 `invalid_position`, in addition to the capability refusal reasons.
+
+The canonical save validator runs against the detached record. Unlike ordinary
+CONTINUE, a checkpoint never accepts a quarantine, remap, reclaim, clamp, or
+repair: any such content change returns `invalid_content` before live mutation.
 
 The engine captures an in-memory rollback checkpoint, preserves current global
 options, then reconstructs semantic overworld state through

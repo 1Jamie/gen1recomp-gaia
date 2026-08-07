@@ -195,6 +195,19 @@ local function validate(game, checkpoint)
       or runtime.x >= width * 2 or runtime.y >= height * 2 then
     return nil, "invalid_position", "Checkpoint position is outside the map."
   end
+
+  -- A checkpoint is a strict restoration record, not an ordinary CONTINUE
+  -- migration. Reuse the canonical save validator on the detached copy, but
+  -- reject any quarantine, remap, reclaim, clamp, or content repair it would
+  -- perform instead of silently changing the state the caller selected.
+  local beforeContent = SaveSerializer.encode(copy.save)
+  local validOk, report = pcall(SaveData.validate, copy.save, game.data)
+  local afterOk, afterContent = pcall(SaveSerializer.encode, copy.save)
+  if not validOk or not afterOk or not SaveData.emptyReport(report)
+      or afterContent ~= beforeContent then
+    return nil, "invalid_content",
+      "Checkpoint references unavailable or invalid game content."
+  end
   return copy
 end
 
