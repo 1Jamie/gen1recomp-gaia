@@ -3,6 +3,7 @@
 
 local SaveData = require("src.core.SaveData")
 local SaveSerializer = require("src.core.SaveSerializer")
+local Version = require("src.core.Version")
 
 local Storage = {}
 Storage.__index = Storage
@@ -81,7 +82,11 @@ end
 function Storage:context(game)
   local scope, code, message = self:_scope(game)
   if not scope then return nil, code, message end
-  return { gameVersion = scope.gameVersion, playthroughId = scope.playthroughId }
+  return {
+    engineVersion = Version.engine,
+    gameVersion = scope.gameVersion,
+    playthroughId = scope.playthroughId,
+  }
 end
 
 function Storage:_names(game, key, allowEmpty)

@@ -7,6 +7,7 @@ love = love or require("tests.love_stub")
 local T = require("tests.harness").suite("mod storage")
 local Loader = require("src.mods.Loader")
 local Runtime = require("src.mods.Runtime")
+local Version = require("src.core.Version")
 
 local savedEvents, savedHooks = Runtime.events, Runtime.hooks
 
@@ -90,8 +91,11 @@ end
 
 -- Removing scope identity or exposing a mutable private slot id breaks this.
 local context = alpha:context(current)
-T.same(context, { gameVersion = "red", playthroughId = "play-a" },
-  "context exposes stable game/playthrough identity only")
+T.same(context, {
+  engineVersion = Version.engine,
+  gameVersion = "red",
+  playthroughId = "play-a",
+}, "context exposes stable engine/game/playthrough compatibility identity")
 
 -- Data-only write/read. The literal expected table is independent of storage.
 local payload = { format = 1, nested = { money = 1234 }, flags = { a = true } }

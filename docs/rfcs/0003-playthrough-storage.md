@@ -51,10 +51,11 @@ honors injected test filesystems; it is not exposed on the mod object.
 Returns:
 
 ```lua
-{ gameVersion = "red", playthroughId = "..." }
+{ engineVersion = "0.9.0", gameVersion = "red", playthroughId = "..." }
 ```
 
-or `nil, code, message`. It intentionally omits launcher slot ids and paths.
+or `nil, code, message`. `engineVersion` is warning-grade compatibility metadata;
+the context intentionally omits launcher slot ids and paths.
 
 ### `mod.storage:write(game, key, value)`
 

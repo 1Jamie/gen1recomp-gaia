@@ -158,6 +158,10 @@ local keys, code, message = mod.storage:list(game, "history/quick")
 local deleted, code, message = mod.storage:delete(game, "history/quick/q0001")
 ```
 
+`context` returns `{ engineVersion, gameVersion, playthroughId }`. The engine
+version is compatibility metadata; physical launcher-slot and path identity stays
+private.
+
 Values must be tables containing serializable data only. Keys are conservative
 slash-separated segments (letters, digits, `_`, `-`); paths and filesystem
 handles are never exposed. Writes are staged and decode-verified, reads recover
