@@ -14,6 +14,10 @@ local T = require("tests.harness").suite("mod checkpoints")
 local Loader = require("src.mods.Loader")
 local Runtime = require("src.mods.Runtime")
 local GameMethods = require("src.core.Game")
+local BattleState = require("src.battle.BattleState")
+local Fixtures = require("tests.modkit").fixtures
+local Pokemon = require("src.pokemon.Pokemon")
+local SaveData = require("src.core.SaveData")
 local StateStack = require("src.core.StateStack")
 local Version = require("src.core.Version")
 
@@ -319,6 +323,88 @@ T.check(not restored and restoreCode == "restore_failed",
   "reconstruction exception is returned as a structured failure")
 T.same(checkpoints:capture(game), beforeFailure,
   "failed reconstruction rolls back the complete pre-operation checkpoint")
+
+-- The same public facade must carry a real battle checkpoint end to end. The
+-- engine-side fixture is deliberately constructed outside the probe mod; the
+-- mod sees and calls only mod.checkpoints.
+local function makeBattleGame()
+  local data = Fixtures.fresh()
+  local save = SaveData.newGame()
+  save.meta.playthroughId = "public-battle-playthrough"
+  save.party = { Pokemon.new(data, "FIXMON_A", 20) }
+  -- The tiny fixture registry intentionally omits several full-game defaults.
+  -- Normalize those once, then place the save on its fixture map.
+  SaveData.validate(save, data)
+  save.player.map, save.player.x, save.player.y = "FIX_TOWN", 2, 3
+  save.player.facing, save.player.surfing = "left", false
+  local stack = setmetatable({ states = {} }, { __index = StateStack })
+  local battleGame
+  local battleOw = {
+    map = { id = "FIX_TOWN" },
+    player = { cellX = 2, cellY = 3, facing = "left", surfing = false },
+    runner = { isRunning = function() return false end },
+    parallelRunners = {}, pendingScripts = {}, parallelQueue = {}, scriptMoves = {},
+  }
+  function battleOw:captureSave(target)
+    target.player.map = self.map.id
+    target.player.x, target.player.y = self.player.cellX, self.player.cellY
+    target.player.facing = self.player.facing
+    target.player.surfing = self.player.surfing and true or false
+  end
+  function battleOw:enter(mapId, x, y, facing)
+    self.map = { id = mapId }
+    self.player = { cellX = x, cellY = y, facing = facing, surfing = false }
+  end
+  function battleOw:restoreBattleContinuation(restoredBattle, origin)
+    if origin.kind ~= "wild_encounter" or origin.map ~= self.map.id then
+      return false
+    end
+    restoredBattle.onFinish = function() end
+    return true
+  end
+  battleGame = setmetatable({
+    data = data, save = save, stack = stack, overworld = battleOw,
+  }, { __index = GameMethods })
+  stack.states[1] = battleOw
+  local battle = BattleState.newWild(battleGame, "FIXMON_B", 12)
+  battle.phase, battle.queue = "menu", {}
+  battle.checkpointOrigin = { kind = "wild_encounter", map = "FIX_TOWN" }
+  battle.musicKind = battle:computeMusicKind()
+  battle.onFinish = function() end
+  stack.states[2] = battle
+  return battleGame, battle
+end
+
+checkpointRngState = "public-battle-rng-A"
+local battleGame, liveBattle = makeBattleGame()
+T.same(checkpoints:inspect(battleGame), {
+  canCapture = true, canRestore = true, kind = "battle",
+}, "public mod.checkpoints reports a settled battle boundary")
+liveBattle.turnCount = 4
+liveBattle.player.stages.attack = 2
+local battleSnapshot, battleCaptureCode = checkpoints:capture(battleGame)
+T.check(battleSnapshot and battleSnapshot.kind == "battle",
+  "public mod.checkpoints captures a data-only battle: "
+    .. tostring(battleCaptureCode))
+if battleSnapshot then
+  battleGame.save.money = 1
+  liveBattle.turnCount = 99
+  checkpointRngState = "public-battle-rng-B"
+  local battleRestored, battleRestoreCode, battleRestoreMessage = checkpoints:restore(
+    battleGame, battleSnapshot)
+  T.check(battleRestored == true,
+    "public mod.checkpoints reconstructs a battle: "
+      .. tostring(battleRestoreCode) .. " / " .. tostring(battleRestoreMessage))
+  local restoredBattle = battleGame.stack:top()
+  T.eq(restoredBattle.turnCount, 4,
+    "public battle reconstruction restores the exact turn")
+  T.eq(restoredBattle.player.stages.attack, 2,
+    "public battle reconstruction restores battler stages")
+  T.eq(checkpointRngState, "public-battle-rng-A",
+    "public battle reconstruction restores gameplay RNG")
+  T.same(checkpoints:capture(battleGame), battleSnapshot,
+    "public battle capture/restore/capture is a normalized differential roundtrip")
+end
 
 Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
