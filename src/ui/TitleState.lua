@@ -176,7 +176,8 @@ function TitleState.new(game, opts)
   self.versionFull = imagePath(title.versionRibbon) ~= nil
   self.version = tryImage(imagePath(title.versionRibbon or title.version)
                           or "assets/generated/title/red_version.png")
-  self.player = tryImage("assets/generated/title/player.png")
+  self.player = tryImage(imagePath(title.player)
+                         or "assets/generated/title/player.png")
   self.blue = GameVersion.isBlue()
   self.yellow = GameVersion.isYellow()
     or title.layout == "yellow_pikachu"
