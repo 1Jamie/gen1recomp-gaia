@@ -4,6 +4,12 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 love = love or require("tests.love_stub")
 
+local oldGetRandomState = love.math.getRandomState
+local oldSetRandomState = love.math.setRandomState
+local checkpointRngState = "overworld-rng-A"
+love.math.getRandomState = function() return checkpointRngState end
+love.math.setRandomState = function(state) checkpointRngState = state end
+
 local T = require("tests.harness").suite("mod checkpoints")
 local Loader = require("src.mods.Loader")
 local Runtime = require("src.mods.Runtime")
@@ -217,6 +223,19 @@ T.same(snapshot.runtime.overworld,
 T.eq(snapshot.save.player.map, "ROUTE_1",
   "captured progress is synchronized from the live controller")
 T.eq(snapshot.save.options, nil, "global settings are excluded from progress rewind")
+T.same(snapshot.rng, { love = "overworld-rng-A" },
+  "overworld checkpoint carries deterministic gameplay RNG")
+
+local legacy = checkpoints:capture(game)
+legacy.rng = nil
+checkpointRngState = "legacy-runtime-rng"
+local legacyRestored, legacyCode = checkpoints:restore(game, legacy)
+T.check(legacyRestored == true,
+  "legacy format-1 overworld checkpoint without RNG remains loadable: "
+    .. tostring(legacyCode))
+T.eq(checkpointRngState, "legacy-runtime-rng",
+  "legacy checkpoint leaves the current RNG stream untouched")
+checkpointRngState = "overworld-rng-A"
 
 snapshot.save.money = 1
 snapshot.runtime.overworld.x = 1
@@ -231,6 +250,7 @@ game.save.money = 999999
 game.save.flags.GOT_STARTER = nil
 game.save.party[1].hp = 1
 game.save.options.volume = 9
+checkpointRngState = "overworld-rng-B"
 ow.map.id, ow.player.cellX, ow.player.cellY = "PALLET_TOWN", 2, 3
 ow.player.facing, ow.player.surfing = "up", false
 
@@ -242,6 +262,8 @@ T.same(recaptured, original,
   "capture A, mutate B, restore A, capture A2 yields normalized A == A2")
 T.eq(game.save.options.volume, 9,
   "checkpoint restoration preserves current global settings")
+T.eq(checkpointRngState, "overworld-rng-A",
+  "overworld checkpoint restores gameplay RNG")
 T.check(game.lastEnterOpts and game.lastEnterOpts.checkpoint == true,
   "engine reconstruction is marked to suppress map-entry side effects")
 
@@ -301,5 +323,7 @@ T.same(checkpoints:capture(game), beforeFailure,
 Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
 _G.MOD_CHECKPOINTS = nil
+love.math.getRandomState = oldGetRandomState
+love.math.setRandomState = oldSetRandomState
 
 T.finish()

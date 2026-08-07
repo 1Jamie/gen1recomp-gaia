@@ -156,6 +156,27 @@ local function dataCopy(value)
   return decoded
 end
 
+local function captureRng()
+  local getState = love and love.math and love.math.getRandomState
+  local setState = love and love.math and love.math.setRandomState
+  if type(getState) ~= "function" or type(setState) ~= "function" then return nil end
+  local ok, state = pcall(getState)
+  if ok and type(state) == "string" and state ~= "" then
+    return { love = state }
+  end
+  return nil
+end
+
+local function restoreRng(rng)
+  if rng == nil then return end -- legacy format-1 overworld checkpoint
+  local setState = love and love.math and love.math.setRandomState
+  if type(rng) ~= "table" or type(rng.love) ~= "string"
+      or type(setState) ~= "function" then
+    error("checkpoint RNG restore is unavailable", 0)
+  end
+  setState(rng.love)
+end
+
 function Checkpoint.capture(game)
   local capability = Checkpoint.inspect(game)
   if not capability.canCapture then
@@ -218,6 +239,7 @@ function Checkpoint.capture(game)
       facing = player.facing,
       surfing = player.surfing and true or false,
     } },
+    rng = captureRng(),
   }
 end
 
@@ -264,6 +286,10 @@ local function validate(game, checkpoint)
       or not save.meta or save.meta.playthroughId ~= identity.playthroughId then
     return nil, "invalid_checkpoint", "Checkpoint progress identity is inconsistent."
   end
+  if copy.rng ~= nil and (type(copy.rng) ~= "table"
+      or type(copy.rng.love) ~= "string" or copy.rng.love == "") then
+    return nil, "invalid_checkpoint", "Checkpoint RNG state is corrupt."
+  end
   if type(runtime.map) ~= "string" or type(runtime.x) ~= "number"
       or type(runtime.y) ~= "number" or runtime.x % 1 ~= 0 or runtime.y % 1 ~= 0
       or not FACINGS[runtime.facing] or type(runtime.surfing) ~= "boolean" then
@@ -300,7 +326,7 @@ local function validate(game, checkpoint)
   if copy.kind == "battle" then
     local battleOk, battleCode, battleMessage = BattleCheckpoint.validate(game, copy)
     if not battleOk then return nil, battleCode, battleMessage end
-  elseif copy.runtime.battle ~= nil or copy.rng ~= nil then
+  elseif copy.runtime.battle ~= nil then
     return nil, "invalid_checkpoint",
       "Overworld checkpoint contains unexpected battle state."
   end
@@ -323,6 +349,8 @@ local function apply(game, checkpoint, options)
   game:restoreCheckpointSave(save)
   if checkpoint.kind == "battle" then
     BattleCheckpoint.restore(game, checkpoint, dataCopy)
+  else
+    restoreRng(checkpoint.rng)
   end
 end
 
@@ -369,6 +397,7 @@ function Checkpoint.restore(game, checkpoint)
   local ok, err = pcall(apply, game, validated, options)
   if ok then
     local restored, verifyCode = Checkpoint.capture(game)
+    if restored and validated.rng == nil then restored.rng = nil end
     if restored and equalData(restored, validated) then return true end
     err = restored and ("restored state differed at "
       .. tostring(firstDifference(validated, restored) or "canonical encoding"))
