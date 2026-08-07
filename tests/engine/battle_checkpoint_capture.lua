@@ -67,9 +67,18 @@ battle.payDay = 45
 battle.player.stages.attack = 2
 battle.player.confusedTurns = 3
 battle.player.curTypes = { "FIRE", "FLYING" }
+local originalMoveId = battle.player.curMoves[1].id
+battle.player.curMoves[1].id = "FIX_CUT"
+battle.player.curMoves[1].mimic = true
+battle.mimicRestores = {
+  { battler = battle.player, entry = battle.player.curMoves[1], id = originalMoveId },
+}
 battle.enemy.mon.hp = battle.enemy.mon.hp - 4
 battle.enemy.shownHP = battle.enemy.mon.hp
 battle.enemy.stages.defense = -1
+battle.enemy.aiLayer2 = 1
+battle.enemy.thrashMove = battle.enemy.curMoves[1]
+battle.enemy.thrashTurns = 2
 battle.participants = { [game.save.party[1]] = true,
                         [game.save.party[2]] = true }
 battle.leveledUp = { [game.save.party[2]] = true }
@@ -89,6 +98,8 @@ if snapshot and snapshot.kind == "battle" then
     { kind = "wild_encounter", map = "FIX_TOWN" },
     "semantic continuation origin is data-only")
   T.eq(snapshot.runtime.battle.turnCount, 7, "turn count is captured")
+  T.eq(snapshot.runtime.battle.rulesetId, "gen1_faithful",
+    "battle mechanics ruleset identity is captured")
   T.eq(snapshot.runtime.battle.runAttempts, 2, "escape attempts are captured")
   T.eq(snapshot.runtime.battle.player.stages.attack, 2,
     "player stat stages are captured")
@@ -96,8 +107,17 @@ if snapshot and snapshot.kind == "battle" then
     "player volatile status is captured")
   T.same(snapshot.runtime.battle.player.curTypes, { "FIRE", "FLYING" },
     "transformed battle types are captured")
+  T.same(snapshot.runtime.battle.mimicRestores,
+    { { side = "player", slot = 1, id = originalMoveId } },
+    "Mimic restore pointers normalize to side and move slot")
   T.eq(snapshot.runtime.battle.enemy.stages.defense, -1,
     "enemy stat stages are captured")
+  T.eq(snapshot.runtime.battle.enemy.aiLayer2, 1,
+    "enemy AI selection layer is captured")
+  T.eq(snapshot.runtime.battle.enemy.thrashMoveSlot, 1,
+    "move-instance references normalize to move slots")
+  T.eq(snapshot.runtime.battle.enemy.thrashMove, nil,
+    "live move-instance references are not serialized as detached copies")
   T.same(snapshot.runtime.battle.participants, { 1, 2 },
     "Pokemon-keyed participants normalize to party indices")
   T.same(snapshot.runtime.battle.leveledUp, { 2 },

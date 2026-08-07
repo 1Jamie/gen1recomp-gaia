@@ -4,16 +4,37 @@
 
 local BattleCheckpoint = {}
 local BattleState = require("src.battle.BattleState")
+local BUILTIN_RULESETS = {
+  gen1_faithful = require("src.battle.rulesets.gen1_faithful"),
+  modern_clean = require("src.battle.rulesets.modern_clean"),
+}
+
+local function rulesets(game)
+  return game.data.rulesets or BUILTIN_RULESETS
+end
+
+local function rulesetId(game, record)
+  for id, candidate in pairs(rulesets(game)) do
+    if candidate == record then return id end
+  end
+end
 
 local BATTLER_FIELDS = {
   "shownHP", "shownStatus", "stages", "curStats", "curTypes", "curMoves",
   "sleepTurns", "confusedTurns", "disabledSlot", "disabledTurns",
   "toxicCounter", "substituteHP", "bideDamage", "bideTurns", "boundTurns",
-  "charging", "chargeReady", "invulnerable", "mustRecharge", "thrashMove",
-  "thrashTurns", "thrashAnnounced", "rageMove", "focusEnergy", "leechSeeded",
+  "chargeReady", "invulnerable", "mustRecharge",
+  "thrashTurns", "thrashAnnounced", "focusEnergy", "leechSeeded",
   "lightScreen", "reflect", "mist", "xAccuracy", "lastMove", "flinched",
   "skipMove", "hazeStatReset", "drainFloor", "drainHold", "trappingTurns",
   "trapMove", "trapDamage", "fainted",
+  "aiLayer2",
+}
+
+local MOVE_REFERENCE_FIELDS = {
+  charging = "chargingSlot",
+  thrashMove = "thrashMoveSlot",
+  rageMove = "rageMoveSlot",
 }
 
 local BATTLE_FIELDS = {
@@ -52,6 +73,15 @@ local function captureBattler(battler, index, copy)
   for _, field in ipairs(BATTLER_FIELDS) do
     if battler[field] ~= nil then out[field] = battler[field] end
   end
+  for field, slotField in pairs(MOVE_REFERENCE_FIELDS) do
+    local reference = battler[field]
+    if reference ~= nil then
+      for slot, move in ipairs(battler.curMoves or {}) do
+        if move == reference then out[slotField] = slot break end
+      end
+      if out[slotField] == nil then return nil end
+    end
+  end
   return copy(out)
 end
 
@@ -82,10 +112,17 @@ local function validateBattler(data, battler, maxIndex)
   if type(battler) ~= "table" or not integer(battler.index, 1, maxIndex) then
     return false
   end
+  if type(battler.curMoves) ~= "table" then return false end
   if battler.stages ~= nil then
     if type(battler.stages) ~= "table" then return false end
     for _, stage in pairs(battler.stages) do
       if not integer(stage, -6, 6) then return false end
+    end
+  end
+  for _, slotField in pairs(MOVE_REFERENCE_FIELDS) do
+    if battler[slotField] ~= nil
+        and not integer(battler[slotField], 1, #battler.curMoves) then
+      return false
     end
   end
   return validateMoveList(data, battler.curMoves)
@@ -95,6 +132,21 @@ end
 local function clone(value, copy)
   if type(value) ~= "table" then return value end
   return assert(copy(value))
+end
+
+local function captureMimicRestores(battle)
+  local out = {}
+  for _, restore in ipairs(battle.mimicRestores or {}) do
+    local side = restore.battler == battle.player and "player"
+      or restore.battler == battle.enemy and "enemy" or nil
+    local slot
+    for index, move in ipairs(restore.battler and restore.battler.curMoves or {}) do
+      if move == restore.entry then slot = index break end
+    end
+    if not side or not slot or type(restore.id) ~= "string" then return nil end
+    out[#out + 1] = { side = side, slot = slot, id = restore.id }
+  end
+  return out
 end
 
 function BattleCheckpoint.validate(game, checkpoint)
@@ -110,6 +162,10 @@ function BattleCheckpoint.validate(game, checkpoint)
       or model.origin.map ~= checkpoint.runtime.overworld.map then
     return nil, "battle_origin_unsupported",
       "Battle continuation data is unsupported or inconsistent."
+  end
+  if type(model.rulesetId) ~= "string"
+      or type(rulesets(game)[model.rulesetId]) ~= "table" then
+    return nil, "invalid_content", "Battle ruleset is unavailable."
   end
   if model.kind == "trainer" and (type(model.origin.npcId) ~= "string"
       or model.origin.trainerClass ~= model.oppClass
@@ -150,6 +206,18 @@ function BattleCheckpoint.validate(game, checkpoint)
       end
     end
   end
+  if type(model.mimicRestores) ~= "table" then
+    return nil, "invalid_checkpoint", "Mimic restore state is missing."
+  end
+  for _, restore in ipairs(model.mimicRestores) do
+    local battler = restore.side == "player" and model.player
+      or restore.side == "enemy" and model.enemy or nil
+    if not battler or not integer(restore.slot, 1, #battler.curMoves)
+        or type(restore.id) ~= "string"
+        or type(game.data.moves[restore.id]) ~= "table" then
+      return nil, "invalid_content", "Mimic restore state is invalid."
+    end
+  end
   return true
 end
 
@@ -169,6 +237,9 @@ local function applyBattler(target, captured, copy)
     or assert(copy(captured.curTypes))
   target.curMoves = captured.curMovesFromMon and target.mon.moves
     or assert(copy(captured.curMoves))
+  for field, slotField in pairs(MOVE_REFERENCE_FIELDS) do
+    target[field] = captured[slotField] and target.curMoves[captured[slotField]] or nil
+  end
   return target
 end
 
@@ -201,6 +272,17 @@ function BattleCheckpoint.restore(game, checkpoint, copy)
   battle.enemy = BattleState.makeBattler(game.data, enemyMon, false)
   applyBattler(battle.enemy, model.enemy, copy)
 
+  battle.mimicRestores = {}
+  for _, restore in ipairs(model.mimicRestores or {}) do
+    local battler = restore.side == "player" and battle.player or battle.enemy
+    battle.mimicRestores[#battle.mimicRestores + 1] = {
+      battler = battler,
+      entry = battler.curMoves[restore.slot],
+      id = restore.id,
+    }
+  end
+  if #battle.mimicRestores == 0 then battle.mimicRestores = nil end
+
   for _, field in ipairs(BATTLE_FIELDS) do
     if model[field] ~= nil then
       battle[field] = clone(model[field], copy)
@@ -209,6 +291,7 @@ function BattleCheckpoint.restore(game, checkpoint, copy)
     end
   end
   battle.kind = model.kind
+  battle.ruleset = rulesets(game)[model.rulesetId]
   battle.checkpointOrigin = assert(copy(model.origin))
   battle.participants = restoreIndexSet(model.participants, game.save.party)
   battle.leveledUp = restoreIndexSet(model.leveledUp, game.save.party)
@@ -299,19 +382,33 @@ function BattleCheckpoint.capture(game, battle, progress, copy)
 
   local model = {
     kind = battle.kind,
+    rulesetId = rulesetId(game, battle.ruleset),
     origin = origin,
     player = captureBattler(battle.player, playerIndex, copy),
     participants = indexSet(battle.participants, liveParty),
     leveledUp = indexSet(battle.leveledUp, liveParty),
     sides = sides,
     field = field,
+    mimicRestores = captureMimicRestores(battle),
   }
+  if not model.rulesetId then
+    return nil, "battle_state_invalid", "Battle ruleset identity is unavailable."
+  end
+  if not model.player then
+    return nil, "battle_state_invalid", "Player move references are inconsistent."
+  end
+  if not model.mimicRestores then
+    return nil, "battle_state_invalid", "Mimic restore state is inconsistent."
+  end
   if battle.kind == "trainer" then
     model.enemyParty = copy(battle.enemyParty)
     model.enemy = captureBattler(battle.enemy, battle.enemyIndex, copy)
   else
     model.enemyMon = copy(battle.enemy.mon)
     model.enemy = captureBattler(battle.enemy, 1, copy)
+  end
+  if not model.enemy then
+    return nil, "battle_state_invalid", "Enemy move references are inconsistent."
   end
   for _, fieldName in ipairs(BATTLE_FIELDS) do
     if battle[fieldName] ~= nil then model[fieldName] = battle[fieldName] end
