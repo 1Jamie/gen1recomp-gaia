@@ -81,6 +81,15 @@ local function inspectBattle(ow, battle)
     return refusal("battle", "battle_phase_busy",
       "Wait for an ordinary player decision before creating a checkpoint.")
   end
+  for _, battler in ipairs({ battle.player, battle.enemy }) do
+    if battler.shownHP ~= battler.mon.hp
+        or battler.shownStatus ~= battler.mon.status
+        or battler.drainFloor ~= nil or battler.drainHold ~= nil
+        or battler.faintQueued then
+      return refusal("battle", "battle_phase_busy",
+        "Wait for battle status and HP presentation to settle.")
+    end
+  end
   return { canCapture = true, canRestore = true, kind = "battle" }
 end
 
@@ -221,8 +230,8 @@ local function validate(game, checkpoint)
   if checkpoint.format ~= Checkpoint.FORMAT then
     return nil, "unsupported_format", "This checkpoint format is not supported."
   end
-  if checkpoint.kind ~= "overworld" then
-    return nil, "unsupported_runtime_kind", "Only overworld checkpoints are supported."
+  if checkpoint.kind ~= "overworld" and checkpoint.kind ~= "battle" then
+    return nil, "unsupported_runtime_kind", "This checkpoint runtime kind is not supported."
   end
 
   local copy, copyErr = dataCopy(checkpoint)
@@ -288,6 +297,13 @@ local function validate(game, checkpoint)
     return nil, "invalid_content",
       "Checkpoint references unavailable or invalid game content."
   end
+  if copy.kind == "battle" then
+    local battleOk, battleCode, battleMessage = BattleCheckpoint.validate(game, copy)
+    if not battleOk then return nil, battleCode, battleMessage end
+  elseif copy.runtime.battle ~= nil or copy.rng ~= nil then
+    return nil, "invalid_checkpoint",
+      "Overworld checkpoint contains unexpected battle state."
+  end
   return copy
 end
 
@@ -305,12 +321,37 @@ local function apply(game, checkpoint, options)
     error("game has no checkpoint reconstruction path", 0)
   end
   game:restoreCheckpointSave(save)
+  if checkpoint.kind == "battle" then
+    BattleCheckpoint.restore(game, checkpoint, dataCopy)
+  end
 end
 
 local function equalData(a, b)
   local okA, encodedA = pcall(SaveSerializer.encode, a)
   local okB, encodedB = pcall(SaveSerializer.encode, b)
   return okA and okB and encodedA == encodedB
+end
+
+local function firstDifference(a, b, path)
+  path = path or "$"
+  if type(a) ~= type(b) then return path .. " (type)" end
+  if type(a) ~= "table" then
+    if a ~= b then return path end
+    return nil
+  end
+  for key, value in pairs(a) do
+    if b[key] == nil and value ~= nil then
+      return path .. "." .. tostring(key) .. " (missing)"
+    end
+    local found = firstDifference(value, b[key], path .. "." .. tostring(key))
+    if found then return found end
+  end
+  for key, value in pairs(b) do
+    if a[key] == nil and value ~= nil then
+      return path .. "." .. tostring(key) .. " (unexpected)"
+    end
+  end
+  return nil
 end
 
 function Checkpoint.restore(game, checkpoint)
@@ -329,7 +370,9 @@ function Checkpoint.restore(game, checkpoint)
   if ok then
     local restored, verifyCode = Checkpoint.capture(game)
     if restored and equalData(restored, validated) then return true end
-    err = "restored state did not match checkpoint: " .. tostring(verifyCode)
+    err = restored and ("restored state differed at "
+      .. tostring(firstDifference(validated, restored) or "canonical encoding"))
+      or ("restored state could not be captured: " .. tostring(verifyCode))
   end
 
   local rolledBack, rollbackErr = pcall(apply, game, rollback, options)

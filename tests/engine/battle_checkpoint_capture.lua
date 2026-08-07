@@ -67,6 +67,7 @@ battle.player.stages.attack = 2
 battle.player.confusedTurns = 3
 battle.player.curTypes = { "FIRE", "FLYING" }
 battle.enemy.mon.hp = battle.enemy.mon.hp - 4
+battle.enemy.shownHP = battle.enemy.mon.hp
 battle.enemy.stages.defense = -1
 battle.participants = { [game.save.party[1]] = true,
                         [game.save.party[2]] = true }

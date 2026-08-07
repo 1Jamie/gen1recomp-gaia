@@ -59,6 +59,8 @@ refused(function(_, _, b) b.queue = { { text = "busy" } } end,
   "battle_phase_busy", "nonempty action queue is rejected")
 refused(function(_, _, b) b.waitFrames = 1 end,
   "battle_phase_busy", "partial wait is rejected")
+refused(function(_, _, b) b.enemy.mon.hp = b.enemy.mon.hp - 1 end,
+  "battle_phase_busy", "unfinished HP display synchronization is rejected")
 refused(function(_, _, b) b.player.mustRecharge = true end,
   "battle_phase_busy", "automatic locked action is rejected")
 refused(function(_, ow) ow.runner = { isRunning = function() return true end } end,
