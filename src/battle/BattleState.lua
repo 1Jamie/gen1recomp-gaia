@@ -1411,6 +1411,26 @@ function BattleState:computeMusicKind()
   return "wild"
 end
 
+-- a mod-set per-trainer battle theme (trainers.battleTheme, an audio.songs
+-- id); nil for vanilla trainers, so the kind default is untouched (#782)
+function BattleState:battleTheme()
+  local trainer = self.trainer
+  if trainer and trainer.battleTheme then return trainer.battleTheme end
+  return nil
+end
+
+-- the battle-theme cue for this battle: the mod-set trainer battleTheme
+-- when the class has one, else the kind default.  The single choke point
+-- both the transition-wipe start (OverworldController:pushBattle) and
+-- enter() route through, so a per-trainer override can't drift between
+-- them.  self.musicKind is set by enter(); pushBattle runs before that,
+-- so compute it here when absent.
+function BattleState:playBattleTheme()
+  require("src.core.Music").playBattle(self.data,
+    self.musicKind or self:computeMusicKind(),
+    self.trainer and self.trainer.id, self:battleTheme())
+end
+
 -- side tables mirror the singles battlers; called before every
 -- battler-switch notification so sides[i].battlers[1] stays honest
 function BattleState:syncSides()
@@ -1462,7 +1482,6 @@ function BattleState:enter()
       .. Strings("%s blacked\nout!", name), blackedOut))
     return
   end
-  local Music = require("src.core.Music")
   self.musicKind = self:computeMusicKind()
   if self.isGymLeader then
     require("src.world.PikachuFollower")
@@ -1472,7 +1491,7 @@ function BattleState:enter()
   -- (audio/play_battle_music.asm runs before the transition, and
   -- Music.play no-ops on the same song); this covers battles pushed
   -- without a transition (link battles, scripted pushes)
-  Music.playBattle(self.data, self.musicKind)
+  self:playBattleTheme()
   -- intro presentation (SlidePlayerAndEnemySilhouettesOnScreen): both
   -- sides slide in; the trainer pics stay up until the send-outs
   -- BATTLE BG "world" drops this battle's opacity so StateStack keeps drawing
