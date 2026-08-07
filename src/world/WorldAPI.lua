@@ -164,6 +164,28 @@ function WorldAPI:queueScript(rows, extra)
   return true
 end
 
+-- The supported way to start a wild encounter.  Hand-rolling this -- build a
+-- BattleState, push it -- silently costs evolutions and blackout-on-loss
+-- (both hang off onFinish -> afterBattle) plus the entry wipe and battle
+-- theme (both owned by pushBattle).  Nothing raises when they are missing.
+function WorldAPI:startWildBattle(species, level)
+  local ow = self:overworld()
+  if not ow then return nil, NO_OVERWORLD end
+  if not self.game.data.pokemon[species] then
+    return nil, "unknown species: " .. tostring(species)
+  end
+  level = tonumber(level)
+  if not level or level < 1 or level > 100 then
+    return nil, "level must be 1..100"
+  end
+  local battle = require("src.battle.BattleState")
+    .newWild(self.game, species, level)
+  if battle.dead then return nil, "no healthy party" end
+  battle.onFinish = function(result) ow:afterBattle(result, battle) end
+  ow:pushBattle(battle)
+  return true
+end
+
 -- drop a map's cached instance so the next load re-reads its record; when
 -- it is the active map the world reloads around the player in place
 function WorldAPI:invalidateMap(mapId)
