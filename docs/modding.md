@@ -181,17 +181,20 @@ end
 local ok, code, message = mod.checkpoints:restore(game, checkpoint)
 ```
 
-Checkpoint format 1 supports settled overworld control only: the overworld must
-be topmost, the player stationary on a tile, and no transition, menu, script,
-queued script movement, or partial field animation may be active. Refusals carry
-a stable `reason` and readable `message`. Capture excludes global options and
-runtime objects. Restore validates format, game/playthrough identity, content,
-and coordinates before mutation; preserves current options; suppresses normal
-map-entry/save-load side effects; verifies a recapture; and rolls back in memory
-if reconstruction fails. Callers that need crash recovery should durably capture
+Checkpoint format 1 supports settled overworld control and proven battle
+player-decision safe points. Battle checkpoints are limited to ordinary
+single-player wild/trainer origins with no suspended script; link, Safari,
+ghost, demo, scripted, animation, message, queue, and forced-action phases fail
+closed. New checkpoints preserve gameplay RNG, while legacy overworld records
+without RNG remain loadable. Capture excludes global options and runtime
+objects. Restore validates format, game/playthrough identity, content,
+coordinates, battle relationships, continuation, and RNG before mutation;
+preserves current options; suppresses normal map-entry/save-load/intro side
+effects; verifies a recapture; and rolls back runtime plus RNG in memory if
+reconstruction fails. Callers that need crash recovery should durably capture
 their own recovery checkpoint before restore.
 
-See RFC 0003 and RFC 0004 for exact contracts and error codes.
+See RFC 0003, RFC 0004, and RFC 0005 for exact contracts and error codes.
 
 ## Developer console
 

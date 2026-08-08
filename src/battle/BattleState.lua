@@ -98,6 +98,15 @@ function BattleState:bgMode()
   return "white"
 end
 
+-- Resume a semantic checkpoint directly at the command menu. Unlike enter(),
+-- this deliberately does not replay the battle transition, intro queues,
+-- cries, happiness changes, or battle-start events.
+function BattleState:resumeCheckpoint()
+  self.isOpaque = self:bgMode() ~= "world"
+  require("src.core.Music").playBattle(self.data,
+    self.musicKind or self:computeMusicKind())
+end
+
 -- How far to dim the overworld behind a "world" background, 0..1.  Enough
 -- that the battle reads as the foreground rather than competing with a fully
 -- lit map behind it.

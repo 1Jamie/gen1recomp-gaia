@@ -4,6 +4,8 @@
 local SaveSerializer = require("src.core.SaveSerializer")
 local SaveData = require("src.core.SaveData")
 local Version = require("src.core.Version")
+local BattleState = require("src.battle.BattleState")
+local BattleCheckpoint = require("src.core.BattleCheckpoint")
 
 local Checkpoint = {}
 
@@ -27,6 +29,70 @@ local function nonempty(value)
   return type(value) == "table" and next(value) ~= nil
 end
 
+local function scriptsBusy(ow)
+  return running(ow.runner) or nonempty(ow.parallelRunners)
+    or nonempty(ow.pendingScripts) or nonempty(ow.parallelQueue)
+    or nonempty(ow.scriptMoves)
+end
+
+local BATTLE_BUSY_FIELDS = {
+  "current", "afterQueue", "nextInsert", "pendingHit", "waitingUI",
+  "waitingSound", "waitFrames", "draining", "animPlaying", "growIn",
+  "introSlide", "ghostReveal", "mimicCtx", "mimicMoves", "result",
+}
+
+local function inspectBattle(ow, battle)
+  if battle.kind == "link" then
+    return refusal("battle", "link_battle_unsupported",
+      "Network battles cannot be checkpointed.")
+  end
+  if battle.safari or battle.ghost or battle.scopeReveal or battle.demo
+      or battle.noCatch then
+    return refusal("battle", "battle_variant_unsupported",
+      "This battle variant does not have a checkpoint contract.")
+  end
+  if battle.kind ~= "wild" and battle.kind ~= "trainer" then
+    return refusal("battle", "battle_variant_unsupported",
+      "This battle kind does not have a checkpoint contract.")
+  end
+  local origin = battle.checkpointOrigin
+  local expectedOrigin = battle.kind == "wild" and "wild_encounter"
+    or "trainer_encounter"
+  if type(origin) ~= "table" or origin.kind ~= expectedOrigin then
+    return refusal("battle", "battle_origin_unsupported",
+      "The battle completion path cannot be reconstructed safely.")
+  end
+  if scriptsBusy(ow) then
+    return refusal("battle", "script_busy",
+      "A suspended or queued script cannot be checkpointed.")
+  end
+  if battle.phase ~= "menu" or nonempty(battle.queue) then
+    return refusal("battle", "battle_phase_busy",
+      "Wait for the player command menu before creating a checkpoint.")
+  end
+  for _, field in ipairs(BATTLE_BUSY_FIELDS) do
+    if battle[field] ~= nil and battle[field] ~= false then
+      return refusal("battle", "battle_phase_busy",
+        "Wait for the current battle action to finish.")
+    end
+  end
+  if not battle.player or not battle.enemy or battle.player.mon.hp <= 0
+      or (battle.menuLockedAction and battle:menuLockedAction(battle.player)) then
+    return refusal("battle", "battle_phase_busy",
+      "Wait for an ordinary player decision before creating a checkpoint.")
+  end
+  for _, battler in ipairs({ battle.player, battle.enemy }) do
+    if battler.shownHP ~= battler.mon.hp
+        or battler.shownStatus ~= battler.mon.status
+        or battler.drainFloor ~= nil or battler.drainHold ~= nil
+        or battler.faintQueued then
+      return refusal("battle", "battle_phase_busy",
+        "Wait for battle status and HP presentation to settle.")
+    end
+  end
+  return { canCapture = true, canRestore = true, kind = "battle" }
+end
+
 function Checkpoint.inspect(game)
   local save = game and game.save
   if type(save) ~= "table" or type(save.version) ~= "string" then
@@ -41,6 +107,9 @@ function Checkpoint.inspect(game)
       "Only a settled overworld can be checkpointed.")
   end
   local top = game.stack and game.stack.top and game.stack:top()
+  if getmetatable(top) == BattleState then
+    return inspectBattle(ow, top)
+  end
   if top ~= ow then
     return refusal("overworld", "screen_busy",
       "Close the active menu or screen before creating a checkpoint.")
@@ -57,9 +126,7 @@ function Checkpoint.inspect(game)
     return refusal("overworld", "transition_busy",
       "Wait for the map transition to finish.")
   end
-  if running(ow.runner) or nonempty(ow.parallelRunners)
-      or nonempty(ow.pendingScripts) or nonempty(ow.parallelQueue)
-      or nonempty(ow.scriptMoves) then
+  if scriptsBusy(ow) then
     return refusal("overworld", "script_busy",
       "Wait for the active or queued script to finish.")
   end
@@ -89,6 +156,27 @@ local function dataCopy(value)
   return decoded
 end
 
+local function captureRng()
+  local getState = love and love.math and love.math.getRandomState
+  local setState = love and love.math and love.math.setRandomState
+  if type(getState) ~= "function" or type(setState) ~= "function" then return nil end
+  local ok, state = pcall(getState)
+  if ok and type(state) == "string" and state ~= "" then
+    return { love = state }
+  end
+  return nil
+end
+
+local function restoreRng(rng)
+  if rng == nil then return end -- legacy format-1 overworld checkpoint
+  local setState = love and love.math and love.math.setRandomState
+  if type(rng) ~= "table" or type(rng.love) ~= "string"
+      or type(setState) ~= "function" then
+    error("checkpoint RNG restore is unavailable", 0)
+  end
+  setState(rng.love)
+end
+
 function Checkpoint.capture(game)
   local capability = Checkpoint.inspect(game)
   if not capability.canCapture then
@@ -115,6 +203,25 @@ function Checkpoint.capture(game)
       .. tostring(err)
   end
 
+  if capability.kind == "battle" then
+    local battle = game.stack:top()
+    local runtime, rngOrCode, battleMessage =
+      BattleCheckpoint.capture(game, battle, progress, dataCopy)
+    if not runtime then return nil, rngOrCode, battleMessage end
+    return {
+      format = Checkpoint.FORMAT,
+      kind = "battle",
+      identity = {
+        engineVersion = Version.engine,
+        gameVersion = game.save.version,
+        playthroughId = game.save.meta.playthroughId,
+      },
+      save = progress,
+      runtime = runtime,
+      rng = rngOrCode,
+    }
+  end
+
   local player = game.overworld.player
   return {
     format = Checkpoint.FORMAT,
@@ -132,6 +239,7 @@ function Checkpoint.capture(game)
       facing = player.facing,
       surfing = player.surfing and true or false,
     } },
+    rng = captureRng(),
   }
 end
 
@@ -144,8 +252,8 @@ local function validate(game, checkpoint)
   if checkpoint.format ~= Checkpoint.FORMAT then
     return nil, "unsupported_format", "This checkpoint format is not supported."
   end
-  if checkpoint.kind ~= "overworld" then
-    return nil, "unsupported_runtime_kind", "Only overworld checkpoints are supported."
+  if checkpoint.kind ~= "overworld" and checkpoint.kind ~= "battle" then
+    return nil, "unsupported_runtime_kind", "This checkpoint runtime kind is not supported."
   end
 
   local copy, copyErr = dataCopy(checkpoint)
@@ -177,6 +285,10 @@ local function validate(game, checkpoint)
   if save.version ~= identity.gameVersion
       or not save.meta or save.meta.playthroughId ~= identity.playthroughId then
     return nil, "invalid_checkpoint", "Checkpoint progress identity is inconsistent."
+  end
+  if copy.rng ~= nil and (type(copy.rng) ~= "table"
+      or type(copy.rng.love) ~= "string" or copy.rng.love == "") then
+    return nil, "invalid_checkpoint", "Checkpoint RNG state is corrupt."
   end
   if type(runtime.map) ~= "string" or type(runtime.x) ~= "number"
       or type(runtime.y) ~= "number" or runtime.x % 1 ~= 0 or runtime.y % 1 ~= 0
@@ -211,6 +323,13 @@ local function validate(game, checkpoint)
     return nil, "invalid_content",
       "Checkpoint references unavailable or invalid game content."
   end
+  if copy.kind == "battle" then
+    local battleOk, battleCode, battleMessage = BattleCheckpoint.validate(game, copy)
+    if not battleOk then return nil, battleCode, battleMessage end
+  elseif copy.runtime.battle ~= nil then
+    return nil, "invalid_checkpoint",
+      "Overworld checkpoint contains unexpected battle state."
+  end
   return copy
 end
 
@@ -228,12 +347,39 @@ local function apply(game, checkpoint, options)
     error("game has no checkpoint reconstruction path", 0)
   end
   game:restoreCheckpointSave(save)
+  if checkpoint.kind == "battle" then
+    BattleCheckpoint.restore(game, checkpoint, dataCopy)
+  else
+    restoreRng(checkpoint.rng)
+  end
 end
 
 local function equalData(a, b)
   local okA, encodedA = pcall(SaveSerializer.encode, a)
   local okB, encodedB = pcall(SaveSerializer.encode, b)
   return okA and okB and encodedA == encodedB
+end
+
+local function firstDifference(a, b, path)
+  path = path or "$"
+  if type(a) ~= type(b) then return path .. " (type)" end
+  if type(a) ~= "table" then
+    if a ~= b then return path end
+    return nil
+  end
+  for key, value in pairs(a) do
+    if b[key] == nil and value ~= nil then
+      return path .. "." .. tostring(key) .. " (missing)"
+    end
+    local found = firstDifference(value, b[key], path .. "." .. tostring(key))
+    if found then return found end
+  end
+  for key, value in pairs(b) do
+    if a[key] == nil and value ~= nil then
+      return path .. "." .. tostring(key) .. " (unexpected)"
+    end
+  end
+  return nil
 end
 
 function Checkpoint.restore(game, checkpoint)
@@ -251,8 +397,11 @@ function Checkpoint.restore(game, checkpoint)
   local ok, err = pcall(apply, game, validated, options)
   if ok then
     local restored, verifyCode = Checkpoint.capture(game)
+    if restored and validated.rng == nil then restored.rng = nil end
     if restored and equalData(restored, validated) then return true end
-    err = "restored state did not match checkpoint: " .. tostring(verifyCode)
+    err = restored and ("restored state differed at "
+      .. tostring(firstDifference(validated, restored) or "canonical encoding"))
+      or ("restored state could not be captured: " .. tostring(verifyCode))
   end
 
   local rolledBack, rollbackErr = pcall(apply, game, rollback, options)

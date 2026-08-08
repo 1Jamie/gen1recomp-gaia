@@ -104,10 +104,11 @@ runtime exception, not process termination.
 
 ## Runtime boundary and future kinds
 
-Format 1 intentionally rejects battles, menus, transitions, animations, and
-suspended/queued scripts. Future battle or explicit script-checkpoint kinds must
-have separate inventories, validation, reconstruction, deterministic RNG, and
-differential tests; they are not implied by this RFC.
+This RFC's original Level A contract intentionally rejects battles, menus,
+transitions, animations, and suspended/queued scripts. RFC 0005 subsequently
+adds a separately inventoried `battle` kind with deterministic RNG and
+differential reconstruction tests; it does not broaden script or arbitrary-frame
+support implied here.
 
 ## Migration note for existing mods
 
