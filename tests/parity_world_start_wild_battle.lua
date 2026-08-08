@@ -51,62 +51,80 @@ local function freshWorld()
   return WorldAPI.new(Game, "testmod")
 end
 
--- ------- argument handling: every failure is a nil + reason, never a throw
+-- The assertions run under pcall so the Music patch is handed back even when
+-- one of them throws: run_tests.lua dofiles the later suites into this same
+-- process, and a Music left stubbed lets their own music checks pass.
+local function body()
+  -- ----- argument handling: every failure is a nil + reason, never a throw
 
-local world = WorldAPI.new({ data = Data }, "testmod")
-local ok, err = world:startWildBattle("PIDGEY", 5)
-check(ok == nil, "no overworld up refuses")
-check(err == "no overworld", "and says so")
+  local world = WorldAPI.new({ data = Data }, "testmod")
+  local ok, err = world:startWildBattle("PIDGEY", 5)
+  check(ok == nil, "no overworld up refuses")
+  check(err == "no overworld", "and says so")
 
-world = freshWorld()
-Game.save.party = { Pokemon.new(Data, "CATERPIE", 6) }
+  world = freshWorld()
+  Game.save.party = { Pokemon.new(Data, "CATERPIE", 6) }
 
-ok, err = world:startWildBattle("NOT_A_MON", 5)
-check(ok == nil, "an unknown species refuses")
-check(err and err:find("unknown species", 1, true), "and names the species")
+  ok, err = world:startWildBattle("NOT_A_MON", 5)
+  check(ok == nil, "an unknown species refuses")
+  check(err and err:find("unknown species", 1, true), "and names the species")
 
-for _, lv in ipairs({ 0, 101, "nope" }) do
-  check(world:startWildBattle("PIDGEY", lv) == nil,
-    "level " .. tostring(lv) .. " refuses")
-end
+  -- 5.5 too: Pokemon.new writes the level through into the stat calc and the
+  -- exp curve verbatim, so a fraction has to be refused, not rounded
+  for _, lv in ipairs({ 0, 101, "nope", 5.5 }) do
+    check(world:startWildBattle("PIDGEY", lv) == nil,
+      "level " .. tostring(lv) .. " refuses")
+  end
 
--- ------- the handoff: a level-up evolution is offered after the win
+  -- ----- the handoff: a level-up evolution is offered after the win
 
-world = freshWorld()
-local caterpie = Pokemon.new(Data, "CATERPIE", 6)
-Game.save.party = { caterpie }
+  world = freshWorld()
+  local caterpie = Pokemon.new(Data, "CATERPIE", 6)
+  Game.save.party = { caterpie }
 
-check(world:startWildBattle("PIDGEY", 25) == true, "a wild battle starts")
+  check(world:startWildBattle("PIDGEY", 25) == true, "a wild battle starts")
 
--- pushBattle pushes the transition, which pushes the battle from its callback
-local top = Game.stack:top()
-check(top ~= nil, "something was pushed")
-check(top.screenId ~= "BattleState", "the entry transition goes on first")
+  -- pushBattle pushes the transition, which pushes the battle from its
+  -- callback.  awardExp is the BattleState marker the drain loop below
+  -- identifies it by; screenId would NOT work here -- only Screens.push
+  -- stamps that, and pushBattle pushes the battle straight onto the stack,
+  -- so `screenId ~= "BattleState"` holds even with the transition skipped.
+  local top = Game.stack:top()
+  check(top ~= nil, "something was pushed")
+  check(top.awardExp == nil, "the entry transition goes on first")
 
-local battle
-for _ = 1, 400 do
-  local t = Game.stack:top()
-  if t and t.awardExp then battle = t break end
-  if t and t.update then t:update(1 / 60) else break end
-end
-check(battle ~= nil, "the transition hands off to the battle")
+  -- overworld() resolves the world from under the battle, so a second call
+  -- while one is up has to refuse rather than stack another
+  check(world:startWildBattle("PIDGEY", 5) == nil,
+    "a battle already running refuses")
 
-battle.participants = { [caterpie] = true }
-battle:awardExp()
-check(caterpie.level >= 7, "the mon levels past its evolution threshold")
-check(battle.leveledUp and battle.leveledUp[caterpie],
-  "awardExp records the level-up for EvolveAfterBattle")
+  local battle
+  for _ = 1, 400 do
+    local t = Game.stack:top()
+    if t and t.awardExp then battle = t break end
+    if t and t.update then t:update(1 / 60) else break end
+  end
+  check(battle ~= nil, "the transition hands off to the battle")
 
-Game.stack:pop()
-battle.onFinish("win")
-for _ = 1, 12 do
-  local t = Game.stack:top()
-  if not t or t.screenId == "EvolutionState" then break end
+  battle.participants = { [caterpie] = true }
+  battle:awardExp()
+  check(caterpie.level >= 7, "the mon levels past its evolution threshold")
+  check(battle.leveledUp and battle.leveledUp[caterpie],
+    "awardExp records the level-up for EvolveAfterBattle")
+
   Game.stack:pop()
-  if t.onDone then t.onDone() end
+  battle.onFinish("win")
+  for _ = 1, 12 do
+    local t = Game.stack:top()
+    if not t or t.screenId == "EvolutionState" then break end
+    Game.stack:pop()
+    if t.onDone then t.onDone() end
+  end
+  check(Game.stack:top() and Game.stack:top().screenId == "EvolutionState",
+    "the win reaches the evolution screen")
 end
-check(Game.stack:top() and Game.stack:top().screenId == "EvolutionState",
-  "the win reaches the evolution screen")
 
+local ran, runErr = pcall(body)
 restoreMusic()
+if not ran then error(runErr, 0) end
 S.finish()
