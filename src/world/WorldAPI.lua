@@ -43,6 +43,26 @@ function WorldAPI:current()
            facing = p and p.facing }
 end
 
+-- A compact, read-only view of the active map for minimaps and companion UIs.
+-- Rows use " " for blocked terrain, "." for walkable land, "~" for water
+-- and "+" for a door or warp.
+function WorldAPI:mapOverview()
+  local ow = self:overworld()
+  if not ow or not ow.map then return nil, NO_OVERWORLD end
+  local map, rows = ow.map, {}
+  for y = 0, map.heightCells - 1 do
+    local row = {}
+    for x = 0, map.widthCells - 1 do
+      row[#row + 1] = map:isWarpTileCell(x, y) and "+"
+        or map:isWaterCell(x, y) and "~"
+        or map:isWalkableCell(x, y) and "." or " "
+    end
+    rows[#rows + 1] = table.concat(row)
+  end
+  return { mapId = map.id, width = map.widthCells,
+           height = map.heightCells, rows = rows }
+end
+
 -- opts.arrive = "fly" | "teleport" picks the arrival FX; anything else
 -- lands the player without one, like a scripted warp.
 function WorldAPI:warpTo(mapId, x, y, facing, opts)
