@@ -81,8 +81,10 @@ local HEAL_FLASH_MAP = { [0] = 0, [1] = 2, [2] = 1, [3] = 3 }
 -- above (screen = tile*8 + pixel - 8/16), measured against the player
 -- sprite's fixed screen spot: ResetPlayerSpriteData parks it at $3c/$40
 -- (home/reset_player_sprite.asm), i.e. screen (64,60).  So what ports over
--- is the delta from the sprite's top-left, which SpriteRenderer:draw puts at
--- (px, py - 4).  `tile` indexes the three stacked 8x8 tiles of
+-- is the delta from the sprite's top-left, which the vanilla
+-- SpriteRenderer:draw puts at (px, py - 4); custom frame anchors move that
+-- origin while keeping these offsets frame-relative.  `tile` indexes the
+-- three stacked 8x8 tiles of
 -- assets/generated/fx/fishing_rod.png: FishingRodOAM only ever draws $fd
 -- (row 0, up/down) and $fe (row 1, left/right), and RIGHT is the LEFT tile
 -- x-flipped.  Blitting the whole 8x24 sheet is what drew the rod as a
@@ -4799,9 +4801,15 @@ function OverworldState:drawWorld()
           end
         end
         local quad = self.rodQuads[oam.tile]
-        -- the sprite's top-left is 4px above its cell (SpriteRenderer:draw)
-        local rx = p.px - cam.x + oam.dx
-        local ry = p.py - cam.y - 4 + oam.dy
+        -- Place the rod against the active sprite's anchored top-left.  The
+        -- vanilla result is still (px-cam, py-cam-4), while custom larger
+        -- sheets keep the rod attached to their feet.
+        -- Fishing always uses the on-foot player sheet; read its fields
+        -- directly so this FX pass does not advance pose-side animation.
+        local sprite, px, py = p.sprite, p.px, p.py
+        local sx, sy = sprite:getScreenOrigin(px, py, cam.x, cam.y)
+        local rx = sx + oam.dx
+        local ry = sy + oam.dy
         love.graphics.setColor(1, 1, 1, 1)
         if quad and oam.flip then
           love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)
