@@ -35,6 +35,16 @@ An edited vanilla map becomes a `mod.content.maps:patch` carrying only the
 fields that moved; a new map becomes a `:register`. See
 `docs/new-features.md` and the extension's own README.
 
+## Read-only map overviews
+
+`mod.world:mapOverview()` returns collision `rows` at map-cell resolution,
+optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
+4x resolution. Visual rows contain Game Boy shades from `"0"` (lightest) to
+`"3"` (darkest); their matching width and height fields describe the grid.
+`markers` contains active `{ kind, x, y }` points in map-cell coordinates for
+`warp`, visible `item`, and untaken `hidden` locations. All fields are
+read-only snapshots; mods choose which layers to render.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
