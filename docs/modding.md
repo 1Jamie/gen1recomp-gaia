@@ -290,5 +290,12 @@ update and input ownership, so a mod can mirror a native menu on another
 display without reimplementing it. The default is `true`. Treat the wrapper as
 a pure predicate: the renderer may ask it more than once per frame.
 
+`battle.bottom_ui_visible` and `battle.status_hud_visible` independently
+control the battle text/menu layer and the HP/status panels. Both receive
+`(next, state)` and default to `true`, so vanilla rendering is unchanged.
+Pushed text boxes also pass through `battle.bottom_ui_visible`; a wrapper that
+only owns battle presentation should return `false` only for its active battle
+or text-box state.
+
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
