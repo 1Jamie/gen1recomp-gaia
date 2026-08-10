@@ -446,16 +446,17 @@ check(misted2.stages.attack == nil
       and mistMsgs[1]:find("MIST", 1, true) ~= nil,
       "primary stat drop still blocked by MIST")
 
--- Substitute boundary: built at exactly 1/4 max HP, leaving 0 HP
--- (substitute.asm only fails on subtraction underflow)
+-- Substitute boundary: the move must fail when its quarter-HP cost would
+-- consume all current HP, preventing a zero-HP user with a live substitute.
 local subUser = { mon = { stats = { hp = 40 }, hp = 10 }, name = "SUBBY" }
-MoveEffects.primary.SUBSTITUTE_EFFECT(sideRng, subUser)
-check(subUser.substituteHP ~= nil and subUser.mon.hp == 0,
-      "substitute built at exactly 1/4 max HP leaves 0 HP")
-local subUser2 = { mon = { stats = { hp = 40 }, hp = 9 }, name = "SUBBY" }
-local subMsgs = MoveEffects.primary.SUBSTITUTE_EFFECT(sideRng, subUser2)
-check(subUser2.substituteHP == nil
+local subMsgs = MoveEffects.primary.SUBSTITUTE_EFFECT(sideRng, subUser)
+check(subUser.substituteHP == nil and subUser.mon.hp == 10
       and subMsgs[1]:find("weak", 1, true) ~= nil,
+      "substitute fails at exactly 1/4 max HP")
+local subUser2 = { mon = { stats = { hp = 40 }, hp = 9 }, name = "SUBBY" }
+local subMsgs2 = MoveEffects.primary.SUBSTITUTE_EFFECT(sideRng, subUser2)
+check(subUser2.substituteHP == nil and subUser2.mon.hp == 9
+      and subMsgs2[1]:find("weak", 1, true) ~= nil,
       "substitute fails below 1/4 max HP")
 
 -- Haze clears Disable/X ACCURACY on both sides and forfeits the turn of
