@@ -823,6 +823,29 @@ do
       and caught.enemy.mon.species == "TANGELA",
       "and it is the species the authored encounter table names")
 
+    -- Trainer battles do not arm the wild-encounter cooldown.
+    walker.wildEncounterGraceSteps = 0
+    walker:afterBattle("win", { kind = "trainer" })
+    check(walker.wildEncounterGraceSteps == 0,
+      "trainer battles do not start the wild encounter grace period")
+
+    -- pokered grants three completed steps after a wild battle before the
+    -- next random battle can start (end_of_battle.asm + home/overworld.asm).
+    local finishedWild = caught
+    walker:afterBattle("run", finishedWild)
+    caught = nil
+    withBuses(function(_, hooks)
+      hooks:wrap("encounter.roll", function()
+        return { species = "TANGELA", level = 5 }
+      end, 0, "grace-period")
+      for step = 1, 3 do
+        pcall(walker.onStepComplete, walker)
+        check(caught == nil, "wild encounter grace period blocks step " .. step)
+      end
+      pcall(walker.onStepComplete, walker)
+      check(caught ~= nil, "wild encounter is eligible on step 4")
+    end)
+
     -- the same walk with an encounter.roll wrapper never starts a battle
     withBuses(function(_, hooks)
       hooks:wrap("encounter.roll", function() return nil end, 0, "nuzlocke")
