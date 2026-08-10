@@ -18,6 +18,11 @@ local overviewShades = {}
 
 Assets.register(function() overviewShades = {} end)
 
+local function shadeDigit(sum, pixelCount)
+  return tostring(math.max(0, math.min(3,
+    math.floor((1 - sum / pixelCount) * 3 + 0.5))))
+end
+
 local function mapTileRows(map)
   local tileset = map.tileset
   if not (tileset and tileset.image and tileset.tilesPerRow) then return nil end
@@ -28,30 +33,39 @@ local function mapTileRows(map)
     cached = { pixels = pixels, shades = {} }
     overviewShades[tileset.image] = cached
   end
-  local rows, perRow = {}, tileset.tilesPerRow
+  local rows, detailRows, perRow = {}, {}, tileset.tilesPerRow
   for ty = 0, map.heightCells * 2 - 1 do
-    local row = {}
+    local row, detailTop, detailBottom = {}, {}, {}
     for tx = 0, map.widthCells * 2 - 1 do
       local tile = map:tileAt(tx, ty)
-      local shade = cached.shades[tile]
-      if shade == nil then
-        local sum = 0
+      local shades = cached.shades[tile]
+      if shades == nil then
+        local sums = { 0, 0, 0, 0 }
         local ox, oy = (tile % perRow) * 8, math.floor(tile / perRow) * 8
         for py = 0, 7 do
           for px = 0, 7 do
             local r, g, b = cached.pixels:getPixel(ox + px, oy + py)
-            sum = sum + r * 0.2126 + g * 0.7152 + b * 0.0722
+            local quadrant = math.floor(py / 4) * 2 + math.floor(px / 4) + 1
+            sums[quadrant] = sums[quadrant]
+              + r * 0.2126 + g * 0.7152 + b * 0.0722
           end
         end
-        shade = tostring(math.max(0, math.min(3,
-          math.floor((1 - sum / 64) * 3 + 0.5))))
-        cached.shades[tile] = shade
+        shades = {
+          shadeDigit(sums[1] + sums[2] + sums[3] + sums[4], 64),
+          shadeDigit(sums[1], 16), shadeDigit(sums[2], 16),
+          shadeDigit(sums[3], 16), shadeDigit(sums[4], 16),
+        }
+        cached.shades[tile] = shades
       end
-      row[#row + 1] = shade
+      row[#row + 1] = shades[1]
+      detailTop[#detailTop + 1] = shades[2] .. shades[3]
+      detailBottom[#detailBottom + 1] = shades[4] .. shades[5]
     end
     rows[#rows + 1] = table.concat(row)
+    detailRows[#detailRows + 1] = table.concat(detailTop)
+    detailRows[#detailRows + 1] = table.concat(detailBottom)
   end
-  return rows
+  return rows, detailRows
 end
 
 function WorldAPI.new(game, modId)
@@ -86,10 +100,12 @@ end
 -- A compact, read-only view of the active map for minimaps and companion UIs.
 -- `rows` describes collision terrain; optional `tileRows` reduces each real
 -- 8x8 map tile to its average Game Boy shade ("0" lightest, "3" darkest).
+-- `tileDetailRows` preserves one shade per 4x4 quadrant. Markers identify
+-- exits and item spots that are still active without exposing world internals.
 function WorldAPI:mapOverview()
   local ow = self:overworld()
   if not ow or not ow.map then return nil, NO_OVERWORLD end
-  local map, rows = ow.map, {}
+  local map, rows, markers = ow.map, {}, {}
   for y = 0, map.heightCells - 1 do
     local row = {}
     for x = 0, map.widthCells - 1 do
@@ -99,11 +115,33 @@ function WorldAPI:mapOverview()
     end
     rows[#rows + 1] = table.concat(row)
   end
-  local tileRows = mapTileRows(map)
+  local def = map.def or {}
+  for _, warp in ipairs(def.warps or {}) do
+    markers[#markers + 1] = { kind = "warp", x = warp.x, y = warp.y }
+  end
+  local game, save = self.game, self.game.save or {}
+  for _, obj in ipairs(def.objects or {}) do
+    if obj.item and obj.item ~= "0" and obj.item ~= 0
+        and ow.objectVisible(save, map.id, obj) then
+      markers[#markers + 1] = { kind = "item", x = obj.x, y = obj.y }
+    end
+  end
+  local hidden = game.data and game.data.field and game.data.field.hiddenItems
+  for _, item in ipairs(hidden and hidden[map.id] or {}) do
+    local key = map.id .. "_" .. item.x .. "_" .. item.y
+    if not (save.hiddenTaken and save.hiddenTaken[key]) then
+      markers[#markers + 1] = { kind = "hidden", x = item.x, y = item.y }
+    end
+  end
+  local tileRows, tileDetailRows = mapTileRows(map)
   return { mapId = map.id, width = map.widthCells,
-           height = map.heightCells, rows = rows, tileRows = tileRows,
+           height = map.heightCells, rows = rows, markers = markers,
+           tileRows = tileRows,
            tileWidth = tileRows and map.widthCells * 2,
-           tileHeight = tileRows and map.heightCells * 2 }
+           tileHeight = tileRows and map.heightCells * 2,
+           tileDetailRows = tileDetailRows,
+           tileDetailWidth = tileDetailRows and map.widthCells * 4,
+           tileDetailHeight = tileDetailRows and map.heightCells * 4 }
 end
 
 -- opts.arrive = "fly" | "teleport" picks the arrival FX; anything else
