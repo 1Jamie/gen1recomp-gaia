@@ -272,6 +272,16 @@ data.
 
 See RFC 0003, RFC 0004, and RFC 0005 for exact contracts and error codes.
 
+At that same settled ordinary wild/trainer decision boundary, a tool may claim
+START through `battle.menu_auxiliary`. It receives `(next, game, context)`, where
+`context` is the data-only `{ kind = "wild" }` or `{ kind = "trainer" }`; it
+never receives the live battle controller. Return `true` to consume START after
+opening source-owned UI, or call `next(game, context)` to allow lower-priority
+handlers. With no handler, START remains inert. The hook is never reached for
+link/Safari/ghost/demo/scripted battles, action queues, animation/messages,
+forced choices, or any phase that cannot safely be checkpointed. Exceptions are
+contained by normal hook isolation and fall through without advancing a turn.
+
 ## Developer console
 
 Boot with developer mode on to unlock the in-game console and hot-reload
