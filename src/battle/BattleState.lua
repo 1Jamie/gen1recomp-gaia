@@ -37,6 +37,12 @@ local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
 
+-- Category identity for per-category GAME SPEED (RFC 0007), the same
+-- style OverworldController.isOverworld already uses. Every battle --
+-- wild, trainer, link, safari, the old-man demo -- is this metatable, so
+-- Game.speedCategoryInStack needs no special-casing beyond this one flag.
+BattleState.isBattle = true
+
 function BattleState:romText(label, fallback, ...)
   return romText(self.data, label, fallback, ...)
 end
