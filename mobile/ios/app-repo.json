@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.77",
+          "date": "2026-08-10",
+          "size": 9611135,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.77/gen1recomp-0.1.77-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #960 Missing sounds for logging off & walking into NPCs\n- #961 Sound effects for entering/leaving a building & using stairs playing too late\n- #968 Caterpie not evolving?\n- #995 Nurse doesn't bow after healing\n- #1006 Minor bug: Prof Oak's aid can't do math\n- #1009 Pikachu follows player right away\n- #1013 Unable to nickname Pikachu in Yellow\n- #1021 Pikachu not moving in Prof. Oak's lab\n- #1031 Not evolving\n- #1044 Saving sound effect not playing when changing box at PC\n- #1045 Menuing sound effects missing in fights\n- #1049 No option to rename Lapras in Silph Co.\n- #1050 Pokemon Fan Club Chairman missing dialogue option.\n\n## Contributors\n\n- @AverageConsumer\n- @bryanthaboi\n- @castdrian\n- @ShaneMcGovernIE"
+        },
+        {
           "version": "0.1.76",
           "date": "2026-08-10",
           "size": 9610081,
