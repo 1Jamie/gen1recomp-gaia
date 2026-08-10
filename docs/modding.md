@@ -352,3 +352,36 @@ or text-box state.
 
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
+
+## Process-lifecycle hooks
+
+These exist so a platform-specific launcher integration (a native shell
+that embeds this engine and wraps its window in platform UI) can live
+entirely in a mod instead of hand-patching `main.lua`, which every other
+engine change also touches.
+
+`core.update` receives `(next, game, dt)` once per frame from
+`love.update`. Vanilla behavior is `game:update(dt)`, unconditionally. A
+mod may skip calling `next(game, dt)` to pause the simulation for that
+frame (e.g. while a native settings sheet is on top), and may run
+additional per-frame polling before or after that call regardless of
+whether it calls `next` -- useful for one-shot flags that must be observed
+every frame even while paused.
+
+`core.quit_to_launcher` receives `(next)` once from `love.quit()`. `next()`
+returns the engine's own decision for whether closing the window should
+return to the Lua launcher instead of exiting; a mod may return `false`
+outright, without ever calling `next`, to veto that and let the process
+really quit -- for a platform host that owns its own "return to launcher"
+UI and would otherwise get looped straight back into the game it just
+quit.
+
+A manifest may also declare `force_enable_env`, an environment variable
+name that re-enables the mod regardless of a saved disable in
+`options.mods` when that variable is set to `"1"`. This is for a mod that
+cannot function disabled on the one build where its env var is set (a
+platform-bridge mod bundled only with that build's launcher, for example).
+
+Neither hook needs a `Runtime.wantsHook` guard before calling it: `Hooks:call`
+already falls straight through to the vanilla function when no mod has
+wrapped the name, at negligible cost.
