@@ -110,6 +110,44 @@ Three rules worth knowing:
 Returning `nil` from `drawWorld` is a normal answer meaning "not this
 frame"; the engine draws the vanilla world instead.
 
+## Variable-size overworld sprites
+
+The `sprites` registry keeps the vanilla 16x16 grounded walker as its default,
+but a mod can describe any frame rectangle and anchor for player characters,
+NPCs, followers, mounts, vehicles, bosses, or other field actors:
+
+```lua
+mod.content.sprites:register("SPRITE_COMPANION", {
+  image = "mods/example/companion.png", -- one frame per row
+  frames = 6,
+  walker = true,
+  frameWidth = 32,
+  frameHeight = 32,
+  anchorX = 16, -- frame-relative bottom-center anchor
+  anchorY = 32,
+})
+```
+
+`frameWidth` and `frameHeight` are sheet pixels. `anchorX` and `anchorY` are
+measured from each frame's top-left; when omitted they default to the frame's
+horizontal center and bottom edge, so a larger sprite grows upward while its
+feet stay on the same world cell. Omitting all four fields is exactly the
+vanilla 16x16 placement. The normal player/NPC/follower draw paths consume
+these values automatically, including horizontal flips and the fishing pose.
+
+Custom render pipelines can use the same geometry without reproducing the
+pose rules:
+
+```lua
+local geometry = sprite:getPoseGeometry(facing, walkPhase, stepFlip)
+-- geometry.quad, .x/.y/.width/.height, .anchorX/.anchorY, .mirror
+local originX, originY = sprite:getScreenOrigin(px, py, camX, camY)
+```
+
+`getFrameGeometry(frame)` is the corresponding accessor for a specific
+zero-based sheet frame. Both accessors return fresh tables and share the
+renderer’s frame selection and mirror conventions.
+
 ## Battle sprite scaling
 
 The enemy's front pic draws at 1x and the player's back pic at 2x, the way
