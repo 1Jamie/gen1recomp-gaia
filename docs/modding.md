@@ -290,5 +290,18 @@ update and input ownership, so a mod can mirror a native menu on another
 display without reimplementing it. The default is `true`. Treat the wrapper as
 a pure predicate: the renderer may ask it more than once per frame.
 
+`core.logic_speed` receives `(next, game)` once per `Game:logicSpeed()` call
+(once per frame). Vanilla behavior resolves the per-category GAME SPEED
+option (`GameSpeed.CATEGORIES`: overworld/battle/menu) for whichever
+category `Game.speedCategoryInStack` says is active right now. A mod may
+call `next(game)` and return its result to pass that resolution through, or
+return a different number outright to override it for that frame (a bot mod
+forcing 1X for one route segment, say, regardless of the category or saved
+option). The result is clamped to the nearest valid `GameSpeed.LEVELS` entry
+regardless of what a subscriber returns, so a bad value (0, negative, `nil`)
+cannot destabilize the fixed-step accumulator. This hook runs *after* link
+play's 1X lock and the `--speed`/equivalent run-argument override, both of
+which stay unconditional and are never visible to a subscriber.
+
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
