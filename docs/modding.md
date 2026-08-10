@@ -343,6 +343,13 @@ lists fall back to their title; PC lists use stable, localization-independent
 identifiers: `pc_box_withdraw`, `pc_box_deposit`, `pc_box_release`,
 `pc_box_change`, `pc_item_withdraw`, `pc_item_deposit`, and `pc_item_toss`.
 
+`battle.bottom_ui_visible` and `battle.status_hud_visible` independently
+control the battle text/menu layer and the HP/status panels. Both receive
+`(next, state)` and default to `true`, so vanilla rendering is unchanged.
+Pushed text boxes also pass through `battle.bottom_ui_visible`; a wrapper that
+only owns battle presentation should return `false` only for its active battle
+or text-box state.
+
 `core.logic_speed` receives `(next, game)` once per `Game:logicSpeed()` call
 (once per frame). Vanilla behavior resolves the per-category GAME SPEED
 option (`GameSpeed.CATEGORIES`: overworld/battle/menu) for whichever
