@@ -37,6 +37,12 @@ local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
 
+-- Category identity for per-category GAME SPEED (RFC 0007), the same
+-- style OverworldController.isOverworld already uses. Every battle --
+-- wild, trainer, link, safari, the old-man demo -- is this metatable, so
+-- Game.speedCategoryInStack needs no special-casing beyond this one flag.
+BattleState.isBattle = true
+
 function BattleState:romText(label, fallback, ...)
   return romText(self.data, label, fallback, ...)
 end
@@ -98,6 +104,15 @@ function BattleState:bgMode()
   return "white"
 end
 
+-- Resume a semantic checkpoint directly at the command menu. Unlike enter(),
+-- this deliberately does not replay the battle transition, intro queues,
+-- cries, happiness changes, or battle-start events.
+function BattleState:resumeCheckpoint()
+  self.isOpaque = self:bgMode() ~= "world"
+  require("src.core.Music").playBattle(self.data,
+    self.musicKind or self:computeMusicKind())
+end
+
 -- How far to dim the overworld behind a "world" background, 0..1.  Enough
 -- that the battle reads as the foreground rather than competing with a fully
 -- lit map behind it.
@@ -116,6 +131,18 @@ end
 function BattleState:sgbPalettes()
   if self:wideLayout() then return WideBattle.zones() end
   return nil
+end
+
+function BattleState:bottomUIVisible()
+  if not Runtime.wantsHook("battle.bottom_ui_visible") then return true end
+  return Runtime.call("battle.bottom_ui_visible", function() return true end,
+                      self) ~= false
+end
+
+function BattleState:statusHUDVisible()
+  if not Runtime.wantsHook("battle.status_hud_visible") then return true end
+  return Runtime.call("battle.status_hud_visible", function() return true end,
+                      self) ~= false
 end
 
 local Rulesets = {
@@ -424,7 +451,7 @@ function StatBox:draw()
                  { Strings("SPEED"), s.speed },
                  { Strings("SPECIAL"), s.special } }
   for i, r in ipairs(rows) do
-    Font.draw(r[1], 88, 24 + (i - 1) * 16)
+    Font.draw(Strings(r[1]), 88, 24 + (i - 1) * 16)
     Font.draw(("%3d"):format(r[2]), 128, 32 + (i - 1) * 16)
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -1411,6 +1438,26 @@ function BattleState:computeMusicKind()
   return "wild"
 end
 
+-- a mod-set per-trainer battle theme (trainers.battleTheme, an audio.songs
+-- id); nil for vanilla trainers, so the kind default is untouched (#782)
+function BattleState:battleTheme()
+  local trainer = self.trainer
+  if trainer and trainer.battleTheme then return trainer.battleTheme end
+  return nil
+end
+
+-- the battle-theme cue for this battle: the mod-set trainer battleTheme
+-- when the class has one, else the kind default.  The single choke point
+-- both the transition-wipe start (OverworldController:pushBattle) and
+-- enter() route through, so a per-trainer override can't drift between
+-- them.  self.musicKind is set by enter(); pushBattle runs before that,
+-- so compute it here when absent.
+function BattleState:playBattleTheme()
+  require("src.core.Music").playBattle(self.data,
+    self.musicKind or self:computeMusicKind(),
+    self.trainer and self.trainer.id, self:battleTheme())
+end
+
 -- side tables mirror the singles battlers; called before every
 -- battler-switch notification so sides[i].battlers[1] stays honest
 function BattleState:syncSides()
@@ -1462,7 +1509,6 @@ function BattleState:enter()
       .. Strings("%s blacked\nout!", name), blackedOut))
     return
   end
-  local Music = require("src.core.Music")
   self.musicKind = self:computeMusicKind()
   if self.isGymLeader then
     require("src.world.PikachuFollower")
@@ -1472,7 +1518,7 @@ function BattleState:enter()
   -- (audio/play_battle_music.asm runs before the transition, and
   -- Music.play no-ops on the same song); this covers battles pushed
   -- without a transition (link battles, scripted pushes)
-  Music.playBattle(self.data, self.musicKind)
+  self:playBattleTheme()
   -- intro presentation (SlidePlayerAndEnemySilhouettesOnScreen): both
   -- sides slide in; the trainer pics stay up until the send-outs
   -- BATTLE BG "world" drops this battle's opacity so StateStack keeps drawing
@@ -1865,6 +1911,7 @@ function BattleState:update(dt)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       self:safariAction(({ "ball", "bait", "rock", "run" })[self.menuIndex])
     end
     return
@@ -1901,6 +1948,7 @@ function BattleState:update(dt)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       local choice = ({ "fight", "pkmn", "item", "run" })[self.menuIndex]
       if choice == "fight" and self.ghost then
         self:say(Strings("%s is too\nscared to move!", self.player.name))
@@ -1962,9 +2010,11 @@ function BattleState:update(dt)
         self.moveSwapIndex = self.moveIndex
       end
     elseif input:wasPressed("b") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       self.moveSwapIndex = nil
       self.phase = "menu"
     elseif input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       if self.moveSwapIndex then
         self:swapMoves(self.moveSwapIndex, self.moveIndex)
         self.moveSwapIndex = nil
@@ -2003,6 +2053,7 @@ function BattleState:update(dt)
     elseif input:wasPressed("down") then
       self.mimicIndex = self.mimicIndex < #moves and self.mimicIndex + 1 or 1
     elseif input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       local pick = moves[self.mimicIndex]
       local ctx = self.mimicCtx
       self.mimicMoves, self.mimicCtx = nil, nil
@@ -5319,7 +5370,7 @@ function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
   -- .mimicmenu) wipes rows 7+.  The port draws pics above the menu
   -- layer in the colorized pipeline, so clip them to the visible rows.
   local g = love.graphics
-  local clipY = not skipMenuClip
+  local clipY = not skipMenuClip and self:bottomUIVisible()
                 and (self.phase == "mimicSelect" and 56
                      or self.phase == "moveSelect" and 64)
                 or nil
@@ -5431,6 +5482,7 @@ function BattleState:drawHUDs(slide)
   -- per-pixel tint (grayFill) -- otherwise GREENBAR's red-channel-0 fill
   -- double-applies and the zone shade shader maps the whole bar to black (#229).
   local grayFill = self:colorMode()
+  local showStatus = self:statusHUDVisible()
   local barData = self.data
   local fx = self.fx
   local hudShake = (fx and fx.hudShakeX) or 0
@@ -5440,7 +5492,8 @@ function BattleState:drawHUDs(slide)
   -- DrawEnemyHUDAndHPBar is called from _InitBattleCommon (core.asm:6763)
   -- AFTER PrintBeginningBattleText returns, so "Wild X appeared!" shows the
   -- player's ball row with no enemy HUD beside it (#317)
-  if self.enemy and not self.showEnemyTrainer and not self.enemySendingOut
+  if showStatus and self.enemy and not self.showEnemyTrainer
+     and not self.enemySendingOut
      and not self:growInScale(self.enemy) and slide == 0
      and not self.introBalls and not self.enemy.fainted then
     -- enemy HUD (DrawEnemyHUDAndHPBar): name row 0, <LV>+level (4,1),
@@ -5527,7 +5580,7 @@ function BattleState:drawHUDs(slide)
     self:drawBallRow(self.playerParty or self.game.save.party, 88, 80, 8)
   end
   local hidePlayer = self.safari or self.demo
-  if self.player and not hidePlayer and not self.showPlayerBack
+  if showStatus and self.player and not hidePlayer and not self.showPlayerBack
      and slide == 0 then
     -- player HUD (DrawPlayerHUDAndHPBar): name (10,7), <LV>+level
     -- (14,8), HP bar (10,9), HP numbers row 10, underline row 11 with
@@ -5552,6 +5605,7 @@ function BattleState:drawHUDs(slide)
 end
 
 function BattleState:drawTextArea()
+  if not self:bottomUIVisible() then return end
   Font.drawBox(0, 12, 20, 6)
   love.graphics.setColor(0, 0, 0, 1)
   if self.phase == "messages"
@@ -5587,9 +5641,9 @@ function BattleState:drawTextArea()
     -- -- next to FIGHT (9,14) for the first 80 frames, then ITEM (9,16)
     Font.drawBox(8, 12, 12, 6)
     love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(Strings("FIGHT"), 80, 112)
+    Font.draw(Strings("FIGHT", "battle"), 80, 112)
     Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-    Font.draw(Strings("ITEM"), 80, 128); Font.draw(Strings("RUN"), 128, 128)
+    Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
     Font.drawCode(0xED, 72, (self.demoTimer or 0) <= 80 and 112 or 128)
   elseif self.phase == "menu" then
     local col = (self.menuIndex - 1) % 2
@@ -5599,7 +5653,7 @@ function BattleState:drawTextArea()
       -- THROW ROCK  RUN" from (2,14)
       Font.drawBox(0, 12, 20, 6)
       Font.draw(Strings("BALLx"), 16, 112); Font.draw(Strings("BAIT"), 112, 112)
-      Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN"), 112, 128)
+      Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN", "battle"), 112, 128)
       -- DisplayBattleMenu .safariLeftColumn / .safariRightColumn print
       -- wNumSafariBalls at hlcoord 7,14 with `lb bc, 1, 2` -- one byte, two
       -- digits, space padded -- right after the "BALLx" label at columns
@@ -5610,9 +5664,9 @@ function BattleState:drawTextArea()
       -- BATTLE_MENU_TEMPLATE: box (8,12)-(19,17), "FIGHT <PK><MN> /
       -- ITEM  RUN" from (10,14); cursor columns 9 / 15
       Font.drawBox(8, 12, 12, 6)
-      Font.draw(Strings("FIGHT"), 80, 112)
+      Font.draw(Strings("FIGHT", "battle"), 80, 112)
       Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-      Font.draw(Strings("ITEM"), 80, 128); Font.draw(Strings("RUN"), 128, 128)
+      Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
       Font.drawCode(0xED, (col == 0 and 72 or 120), 112 + row * 16)
     end
   elseif self.phase == "moveSelect" then

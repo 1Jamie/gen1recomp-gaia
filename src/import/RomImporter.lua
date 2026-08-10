@@ -30,7 +30,11 @@ end
 -- Cache generation tag; bump to force every imported version to re-extract.
 -- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
-local CACHE_FORMAT = "rom-cache-v9:"
+-- v10: maps carry their raw map-header/connection/object bytes and tilesets
+-- their Tilesets row (#889), which a .sav export replays so a Continue on
+-- real hardware has a map to load; a v9 cache has none of them and exports
+-- the same unbootable save as before.
+local CACHE_FORMAT = "rom-cache-v10:"
 -- The completion marker is written under each version's cache prefix
 -- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
@@ -152,18 +156,22 @@ local function allRequiredFilesExist(version)
   return ok
 end
 
--- A developer checkout / Python build leaves Red's generated data in the
--- physfs SOURCE at the un-prefixed root (the checked-out data/generated and
--- assets/generated); it is always current and never moves into red/.  Only
--- Red ships this way (Blue/Yellow are import-only).  The check goes through
--- love.filesystem directly so the red/ cache prefix cannot hide the source
--- tree, and the realDirectory test keeps a save-dir cache from counting.
-local function sourceTreeHasData()
+-- A developer checkout / Python build leaves generated data in the physfs
+-- source: Red at the historical root, Blue/Yellow in their versioned trees.
+-- Imported Red caches still live under red/.  Check source paths directly so
+-- that cache prefix cannot hide Red's source tree, and keep save-dir caches
+-- from counting as current source data.
+local function sourceTreeHasData(version)
   if not love.filesystem.getRealDirectory then return false end
+  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
   for _, path in ipairs(REQUIRED_FILES) do
-    if love.filesystem.getInfo(path, "file") == nil then return false end
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
   end
-  local real = love.filesystem.getRealDirectory(REQUIRED_FILES[1])
+  for _, path in ipairs(VERSION_REQUIRED_FILES[version] or {}) do
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
+  end
+  local path = prefix .. REQUIRED_FILES[1]
+  local real = love.filesystem.getRealDirectory(path)
   return real == love.filesystem.getSource()
 end
 
@@ -240,10 +248,8 @@ function RomImporter.isReady(version)
     -- save-directory copy that would otherwise shadow it at runtime.
     purgeSaveDirCache()
   end
-  -- Red generated data in the physfs source (developer checkout / Python
-  -- build) is always current; Blue is import-only and falls through to the
-  -- version-marker gate.
-  if version == "red" and sourceTreeHasData() then return true end
+  -- Generated data in a developer checkout / Python build is always current.
+  if sourceTreeHasData(version) then return true end
   local saved = CacheFs.prefix
   CacheFs.prefix = GameVersion.cachePrefix(version)
   local marker = CacheFs.read(MARKER_PATH)

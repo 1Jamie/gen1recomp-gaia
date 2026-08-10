@@ -716,7 +716,7 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None):
         driver_path = handle.name
     try:
         proc = subprocess.run([LUAJIT, driver_path], cwd=repo,
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
     except FileNotFoundError:
         findings.append(Finding("MK100", "error",
                                 f"cannot run {LUAJIT} (install luajit or "
@@ -1056,7 +1056,7 @@ def check_data_dump(repo, path, base, rel):
     driver = DUMP_DRIVER % (lua_quote(path), lua_quote(vanilla))
     try:
         proc = subprocess.run([LUAJIT, "-e", driver], cwd=repo,
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, encoding="utf-8", timeout=60)
     except FileNotFoundError:
         # the gate must fail closed: a missing interpreter is a broken
         # environment, not a clean mod
@@ -1084,6 +1084,20 @@ def cmd_lint(args, repo):
 
 
 # ---------------------------------------------------------------- pack
+
+def pack_timestamp():
+    raw = os.environ.get("SOURCE_DATE_EPOCH")
+    if raw is None:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None
+    try:
+        epoch = int(raw, 10)
+        if epoch < 0:
+            raise ValueError("negative epoch")
+        stamp = datetime.fromtimestamp(epoch, timezone.utc)
+    except (ValueError, OverflowError, OSError):
+        return None, "SOURCE_DATE_EPOCH must be a nonnegative Unix timestamp"
+    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ"), None
+
 
 def cmd_pack(args, repo):
     mod_dir = resolve_mod_dir(repo, args.mod)
@@ -1119,6 +1133,10 @@ def cmd_pack(args, repo):
     mod_id = manifest["id"]
     version = manifest.get("version", "0.0.0")
     out = args.output or f"{mod_id}-{version}.modpkg"
+    packed_at, timestamp_problem = pack_timestamp()
+    if timestamp_problem:
+        print(f"modkit: {timestamp_problem}")
+        return 2
     files = mod_files(mod_dir)
     records = []
     for rel in files:
@@ -1127,8 +1145,7 @@ def cmd_pack(args, repo):
                         "sha256": hashlib.sha256(body).hexdigest()})
     pack_meta = {
         "modkit": MODKIT_VERSION,
-        "packed_at": datetime.now(timezone.utc)
-        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "packed_at": packed_at,
         "id": mod_id,
         "version": version,
         "api": manifest.get("api", 1),
@@ -1399,7 +1416,7 @@ def dump_dataset(repo, base):
     handle.close()
     try:
         proc = subprocess.run([os.environ.get("LUA", "luajit"), handle.name],
-                              cwd=repo, capture_output=True, text=True)
+                              cwd=repo, capture_output=True, text=True, encoding="utf-8")
     finally:
         os.unlink(handle.name)
     if proc.returncode != 0:

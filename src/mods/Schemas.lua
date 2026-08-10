@@ -577,6 +577,9 @@ R.trainers = {
     aiMods = f.opt(f.any),
     aiClass = f.opt(f.id("ai_classes")),
     brain = f.opt(f.fn),
+    -- Per-trainer battle theme (an audio.songs id): overrides the
+    -- kind-based default (wild/trainer/gym/final) for this trainer's
+    -- battles.  The victory jingle stays kind-based.
     battleTheme = f.opt(f.id("music")),
   },
   example = 'mod.content.trainers:patch("OPP_BROCK", { baseMoney = 99 })',
@@ -589,6 +592,13 @@ R.sprites = {
     image = f.path,
     frames = f.int(1),
     walker = f.opt(f.bool),
+    -- Optional sheet geometry for mod actors.  Defaults match the vanilla
+    -- 16x16 grounded walker; anchors are measured from each frame's
+    -- top-left in pixels (default: bottom-center).
+    frameWidth = f.opt(f.int(1)),
+    frameHeight = f.opt(f.int(1)),
+    anchorX = f.opt(f.num),
+    anchorY = f.opt(f.num),
     trueColor = f.opt(f.bool),
     -- Mod art can opt into an existing ROM sprite's Advanced-mode OBJ
     -- palette assignment without claiming that the image itself came from
