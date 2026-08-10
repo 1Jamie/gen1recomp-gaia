@@ -433,12 +433,6 @@ local function isTitleSession(game)
   return false
 end
 
-local function emitRestored(game, checkpoint)
-  if ModRuntime.wants("checkpoint.restored") then
-    ModRuntime.emit("checkpoint.restored", { game = game, kind = checkpoint.kind })
-  end
-end
-
 local function rebuildTitle(game, savedTitle, rng)
   local save, err = dataCopy(savedTitle)
   if not save then error("title rollback decode failed: " .. tostring(err), 0) end
@@ -485,7 +479,6 @@ function Checkpoint.resume(game, checkpoint)
     local restored, verifyCode = Checkpoint.capture(game)
     if restored and validated.rng == nil then restored.rng = nil end
     if restored and equalData(restored, validated) then
-      emitRestored(game, validated)
       return true
     end
     err = restored and ("resumed state differed at "
