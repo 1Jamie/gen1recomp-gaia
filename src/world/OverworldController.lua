@@ -451,8 +451,10 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   local keepMusic = (opts and opts.keepMusic) or self.keepMusicOnce
   self.keepMusicOnce = nil
   if not keepMusic then
-    require("src.core.Music").playMap(Game.data, mapId, Game.save.onBike,
-                                      self.player.surfing)
+    -- ..(home/overworld.asm ln 2346)
+    local Music = require("src.core.Music")
+    Music.playMap(Game.data, mapId, Game.save.onBike, self.player.surfing,
+                  Music.MAP_FADE)
   end
 
   -- forced bike/surf tiles fire the moment the player is placed on the
@@ -1093,8 +1095,10 @@ function OverworldState:update(dt)
     local mapId = self.pendingSeamMusic
     self.pendingSeamMusic = nil
     if mapId == self.map.id then
-      require("src.core.Music").playMap(Game.data, mapId, Game.save.onBike,
-                                        self.player.surfing)
+      -- ..(home/overworld.asm ln 677)
+      local Music = require("src.core.Music")
+      Music.playMap(Game.data, mapId, Game.save.onBike, self.player.surfing,
+                    Music.MAP_FADE)
     end
   end
   if stepped and not scripted then

@@ -37,7 +37,7 @@ end
 
 local Y_TITLE = {
   "pikachu.png", "pika_bubble.png", "eyes_half.png", "eyes_closed.png",
-  "player.png", "copyright.png", "yellow_version.png",
+  "player.png", "copyright.png", "gamefreak_inc.png", "yellow_version.png",
 }
 for _, name in ipairs(Y_TITLE) do
   seed("yellow/assets/generated/title/" .. name)
@@ -266,6 +266,7 @@ GameVersion.set("blue")
 seed("blue/assets/generated/title/blue_version.png", "blue-version-bytes")
 seed("blue/assets/generated/title/player.png")
 seed("blue/assets/generated/title/copyright.png")
+seed("blue/assets/generated/title/gamefreak_inc.png")
 local B_INTRO = {
   "gf_logo.png", "gf_text.png", "big_star.png",
   "falling_star.png", "falling_star_blink.png", "studio_logo.png",

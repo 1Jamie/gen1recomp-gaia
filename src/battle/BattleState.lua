@@ -1893,6 +1893,7 @@ function BattleState:update(dt)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       self:safariAction(({ "ball", "bait", "rock", "run" })[self.menuIndex])
     end
     return
@@ -1929,6 +1930,7 @@ function BattleState:update(dt)
     end
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       local choice = ({ "fight", "pkmn", "item", "run" })[self.menuIndex]
       if choice == "fight" and self.ghost then
         self:say(Strings("%s is too\nscared to move!", self.player.name))
@@ -1990,9 +1992,11 @@ function BattleState:update(dt)
         self.moveSwapIndex = self.moveIndex
       end
     elseif input:wasPressed("b") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       self.moveSwapIndex = nil
       self.phase = "menu"
     elseif input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       if self.moveSwapIndex then
         self:swapMoves(self.moveSwapIndex, self.moveIndex)
         self.moveSwapIndex = nil
@@ -2031,6 +2035,7 @@ function BattleState:update(dt)
     elseif input:wasPressed("down") then
       self.mimicIndex = self.mimicIndex < #moves and self.mimicIndex + 1 or 1
     elseif input:wasPressed("a") then
+      require("src.core.Sound").play(self.data, "Press_AB")
       local pick = moves[self.mimicIndex]
       local ctx = self.mimicCtx
       self.mimicMoves, self.mimicCtx = nil, nil
