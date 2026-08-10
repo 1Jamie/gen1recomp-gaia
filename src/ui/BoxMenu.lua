@@ -207,6 +207,8 @@ local function changeBox(game)
           if not yes then return end
           game.save.currentBox = item.value
           if game.writeSave then game:writeSave() end
+          -- ChangeBox (engine/menus/save.asm) rings SFX_SAVE after SaveGameData (#1044)
+          require("src.core.Sound").play(game.data, "Save")
           list:close()
         end,
       }))

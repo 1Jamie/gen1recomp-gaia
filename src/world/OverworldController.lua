@@ -1230,7 +1230,7 @@ function OverworldState:handleInput()
         if self:checkLedgeHop(dir) then return end
         if self:checkBoulderPush(dir) then return end
       end
-      local result, why = self.player:tryMove(dir, self.map, self.entities)
+      local result = self.player:tryMove(dir, self.map, self.entities)
       -- a collision while standing on a warp square fires the warp when the
       -- extra check passes (CheckWarpsCollision: route-gate doorways, dock
       -- entrances, ...), and only while BIT_STANDING_ON_WARP is set (issue
@@ -1243,7 +1243,9 @@ function OverworldState:handleInput()
           return result
         end
       end
-      if result == "blocked" and why ~= "entity" then
+      -- CollisionCheckOnLand (home/overworld.asm): a sprite takes the same
+      -- .collision branch as an impassable tile (#960)
+      if result == "blocked" then
         if (self.bumpCooldown or 0) <= 0 then
           require("src.core.Sound").play(Game.data, "Collision")
           self.bumpCooldown = 16
@@ -2039,7 +2041,8 @@ function OverworldState:tryHiddenObject(fx, fy)
         -- SOMEONE'S/BILL'S PC main menu (DisplayPCMainMenu).  Every other
         -- pcTile is a Pokémon Center-style PC that shows the multi-PC menu. (#228)
         require("src.core.Sound").play(Game.data, "Turn_On_PC")
-        Screens.push(Game, "PlayerPC")
+        -- direct access: ExitPlayerPC rings SFX_TURN_OFF_PC (players_pc.asm, #960)
+        Screens.push(Game, "PlayerPC", { direct = true })
       else
         self:openPC()
       end
@@ -2745,6 +2748,8 @@ function OverworldState:openPC(onDone)
     label = (Game.save.player.name or "RED") .. "'s PC",
     keepOpen = true,
     onSelect = function()
+      -- pc.asm .playersPC plays SFX_ENTER_PC before the farcall (#960)
+      require("src.core.Sound").play(Game.data, "Enter_PC")
       Screens.push(Game, "PlayerPC")
       done()
     end,
@@ -2756,6 +2761,8 @@ function OverworldState:openPC(onDone)
       label = Strings("PROF.OAK's PC"),
       keepOpen = true,
       onSelect = function()
+        -- pc.asm OaksPC plays SFX_ENTER_PC before the farcall (#960)
+        require("src.core.Sound").play(Game.data, "Enter_PC")
         self:openOaksPC(done)
       end,
     })
@@ -2939,17 +2946,29 @@ function OverworldState:nurseHeal(onDone, npc)
           -- line: it comes back on the counter facing the player
           Follower.setVisible(self, true)
           if npc then npc:facePlayer(self.player) end
-          self:finishNurseHeal(bye, onDone)
+          self:finishNurseHeal(bye, onDone, npc)
         end
       end))
     end)
   end }))
 end
 
-function OverworldState:finishNurseHeal(bye, onDone)
+-- pokecenter.asm bows the nurse between the two PrintText calls (#995)
+function OverworldState:finishNurseHeal(bye, onDone, npc)
   local t = Game.data.text
   local fit = t._PokemonFightingFitText or Strings("Your POKéMON are\nfighting fit!")
-  Game.stack:push(TextBox.new(Game, fit .. "\f" .. bye, onDone))
+  Game.stack:push(TextBox.new(Game, fit, function()
+    local function farewell()
+      Game.stack:push(TextBox.new(Game, bye, function()
+        if npc then npc:facePlayer(self.player) end
+        if onDone then onDone() end
+      end))
+    end
+    if not npc then farewell() return end
+    npc.facing = "up"
+    -- bubble = false is the silent world hold, this port's DelayFrames
+    self.emote = { npc = npc, frames = 20, bubble = false, onDone = farewell }
+  end))
 end
 
 -- The Cable Club link receptionist (TX_SCRIPT_CABLE_CLUB_RECEPTIONIST ->
@@ -4215,6 +4234,14 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
   self.doorWarp = nil
   local arriveWarp = self.arriveWarp
   self.arriveWarp = nil
+  -- PlayMapChangeSound (home/overworld.asm) plays before the tail-called
+  -- GBFadeOutToBlack, so the SFX starts with the fade (#961)
+  if doorWarp then
+    local dest = Game.data.maps[mapId]
+    local outdoor = dest and Map.isOutdoor(dest)
+    require("src.core.Sound").play(Game.data,
+                                   outdoor and "Go_Outside" or "Go_Inside")
+  end
   Game.stack:push(Transition.new(Game, function()
     self:setMap(mapId, x, y, facing or "down", opts)
     -- the departure-side hide from flyAnim/teleportOut ends here, on the new
@@ -4251,9 +4278,6 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
       self.player.spinDrop = true
     end
     if doorWarp then
-      local outdoor = Map.isOutdoor(self.map.def)
-      require("src.core.Sound").play(Game.data,
-                                     outdoor and "Go_Outside" or "Go_Inside")
       -- PlayerStepOutFromDoor (engine/overworld/auto_movement.asm): any
       -- warp that lands on a door tile auto-steps south once, indoor or
       -- outdoor. Auto-walk leaves the mat, so the arrival disable
