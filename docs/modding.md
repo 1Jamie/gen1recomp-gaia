@@ -35,6 +35,16 @@ An edited vanilla map becomes a `mod.content.maps:patch` carrying only the
 fields that moved; a new map becomes a `:register`. See
 `docs/new-features.md` and the extension's own README.
 
+## Read-only map overviews
+
+`mod.world:mapOverview()` returns collision `rows` at map-cell resolution,
+optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
+4x resolution. Visual rows contain Game Boy shades from `"0"` (lightest) to
+`"3"` (darkest); their matching width and height fields describe the grid.
+`markers` contains active `{ kind, x, y }` points in map-cell coordinates for
+`warp`, visible `item`, and untaken `hidden` locations. All fields are
+read-only snapshots; mods choose which layers to render.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
@@ -99,6 +109,44 @@ Three rules worth knowing:
 
 Returning `nil` from `drawWorld` is a normal answer meaning "not this
 frame"; the engine draws the vanilla world instead.
+
+## Variable-size overworld sprites
+
+The `sprites` registry keeps the vanilla 16x16 grounded walker as its default,
+but a mod can describe any frame rectangle and anchor for player characters,
+NPCs, followers, mounts, vehicles, bosses, or other field actors:
+
+```lua
+mod.content.sprites:register("SPRITE_COMPANION", {
+  image = "mods/example/companion.png", -- one frame per row
+  frames = 6,
+  walker = true,
+  frameWidth = 32,
+  frameHeight = 32,
+  anchorX = 16, -- frame-relative bottom-center anchor
+  anchorY = 32,
+})
+```
+
+`frameWidth` and `frameHeight` are sheet pixels. `anchorX` and `anchorY` are
+measured from each frame's top-left; when omitted they default to the frame's
+horizontal center and bottom edge, so a larger sprite grows upward while its
+feet stay on the same world cell. Omitting all four fields is exactly the
+vanilla 16x16 placement. The normal player/NPC/follower draw paths consume
+these values automatically, including horizontal flips and the fishing pose.
+
+Custom render pipelines can use the same geometry without reproducing the
+pose rules:
+
+```lua
+local geometry = sprite:getPoseGeometry(facing, walkPhase, stepFlip)
+-- geometry.quad, .x/.y/.width/.height, .anchorX/.anchorY, .mirror
+local originX, originY = sprite:getScreenOrigin(px, py, camX, camY)
+```
+
+`getFrameGeometry(frame)` is the corresponding accessor for a specific
+zero-based sheet frame. Both accessors return fresh tables and share the
+renderer’s frame selection and mirror conventions.
 
 ## Battle sprite scaling
 
@@ -289,6 +337,11 @@ palette-zone ownership. The state remains on the stack and keeps its normal
 update and input ownership, so a mod can mirror a native menu on another
 display without reimplementing it. The default is `true`. Treat the wrapper as
 a pure predicate: the renderer may ask it more than once per frame.
+
+Scrollable list states expose `state.kind` for use with this hook. Generic
+lists fall back to their title; PC lists use stable, localization-independent
+identifiers: `pc_box_withdraw`, `pc_box_deposit`, `pc_box_release`,
+`pc_box_change`, `pc_item_withdraw`, `pc_item_deposit`, and `pc_item_toss`.
 
 `battle.bottom_ui_visible` and `battle.status_hud_visible` independently
 control the battle text/menu layer and the HP/status panels. Both receive
