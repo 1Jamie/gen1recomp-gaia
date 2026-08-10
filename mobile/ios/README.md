@@ -17,8 +17,10 @@
 >   for picker results (iOS pickers are in-process modals, so Android's
 >   refocus rescan never fires).
 >
-> The note below about a missing "UIDocumentPicker handoff" is
-> resolved by this bridge.
+> The LÖVE save directory is patched to the public `Documents` root, so the
+> Files app exposes installed mods, save slots, ROM caches, options, logs, and
+> other runtime data. Existing data from the old private Application Support
+> location is migrated on the next launch.
 
 macOS + Xcode only. Fetches the **LÖVE 12.0** source tree and matching Apple
 dependencies from the official [LÖVE source](https://github.com/love2d/love)
@@ -34,9 +36,9 @@ Pin file: [`LOVE_VERSION`](./LOVE_VERSION) → `12.0`.
 scripts/build_ios.sh --fetch
 ```
 
-The embedded `game.love` contains no ROM or generated game data. The current
-first-boot importer has desktop file pickers only, so a production iOS release
-still needs a UIDocumentPicker handoff that passes the selected ROM to LÖVE.
+The embedded `game.love` contains no ROM or generated game data. The native
+document picker delivers user-selected ROMs, mods, and saves into the public
+save directory.
 
 Default output: an unsigned Simulator `.app` under `mobile/ios/build/`
 (no Apple Developer account required). A convenience copy also lands under
@@ -78,7 +80,7 @@ Manual out-of-band steps:
 | Path | Role |
 |------|------|
 | `LOVE_VERSION` | Engine pin (`12.0`) |
-| `overlays/love-ios.plist` | Portrait-only Info.plist + display name **Pokemon Red** (copied over the upstream plist every build) |
+| `overlays/love-ios.plist` | Info.plist with public Documents sharing and display name **Pokemon Red** (copied over the upstream plist every build) |
 | `love-src/` | Downloaded LÖVE 12.0 source tree (**gitignored**, do not commit) |
 | `cache/` | Temporary source and dependency checkout data (**gitignored**) |
 | `build/` | `xcodebuild` derived data (**gitignored**) |
@@ -103,6 +105,7 @@ Re-run it if either dependency directory is absent.
 | Display name | Pokemon Red |
 | `PRODUCT_NAME` | PokemonRed |
 | Bundle ID | `com.theboisclub.pokemonred` |
+| Save directory | `Documents` |
 | Orientations | Portrait only (`UIInterfaceOrientationPortrait`) |
 
 Overrides are applied by the build script (`xcodebuild` settings + plist overlay)
