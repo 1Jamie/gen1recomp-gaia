@@ -208,7 +208,9 @@ local deleted, code, message = mod.storage:delete(game, "history/quick/q0001")
 
 `context` returns `{ engineVersion, gameVersion, playthroughId }`. The engine
 version is compatibility metadata; physical launcher-slot and path identity stays
-private.
+private. A title-selected context may additionally contain `normalSavedAt`, the
+validated matching ordinary-save chronology only; it never exposes normal-save
+progress or a slot/path handle.
 
 At the title screen only, `mod.storage:selected(game)` returns a bound storage
 facade for the launcher-selected existing playthrough, or `nil, code, message`.

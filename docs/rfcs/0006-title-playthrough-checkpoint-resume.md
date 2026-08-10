@@ -36,6 +36,9 @@ selected existing game-version/playthrough and the calling mod id. It neither
 accepts an arbitrary playthrough id nor reveals a slot id, filesystem path, or
 another mod namespace. Resolution is read-only; no selected mapping means
 `no_selected_playthrough`, and opening a title browser never mints an identity.
+Its detached context can include only `normalSavedAt` from a matching ordinary
+save, so title tools can apply their own resume policy without receiving the
+canonical normal-save record.
 
 ### `mod.checkpoints:resume(game, checkpoint)`
 

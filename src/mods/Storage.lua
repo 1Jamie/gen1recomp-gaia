@@ -116,12 +116,20 @@ function Storage:selected(game)
     gameVersion = version,
     playthroughId = playthroughId,
   }
+  local normal = SaveData.selectedNormalSaveInfo(save, self.injectedFs)
+  if type(normal) == "table" and normal.savedAt ~= nil then
+    context.normalSavedAt = normal.savedAt
+  end
   return {
-    context = function() return {
-      engineVersion = context.engineVersion,
-      gameVersion = context.gameVersion,
-      playthroughId = context.playthroughId,
-    } end,
+    context = function()
+      local copy = {
+        engineVersion = context.engineVersion,
+        gameVersion = context.gameVersion,
+        playthroughId = context.playthroughId,
+      }
+      if context.normalSavedAt ~= nil then copy.normalSavedAt = context.normalSavedAt end
+      return copy
+    end,
     read = function(_, key) return self:read(selectedGame, key) end,
     write = function(_, key, value) return self:write(selectedGame, key, value) end,
     list = function(_, prefix) return self:list(selectedGame, prefix) end,

@@ -13,6 +13,7 @@ local T = require("tests.harness").suite("mod title playthrough context")
 local Loader = require("src.mods.Loader")
 local Runtime = require("src.mods.Runtime")
 local SaveData = require("src.core.SaveData")
+local SaveSerializer = require("src.core.SaveSerializer")
 local Version = require("src.core.Version")
 local GameMethods = require("src.core.Game")
 local StateStack = require("src.core.StateStack")
@@ -226,6 +227,28 @@ if type(storage) == "table" then
     T.check(files["save.lua"] == nil,
       "failed title reconstruction never writes a normal Pokémon save")
   end
+
+  -- A title policy may compare its own durable checkpoint chronology with the
+  -- ordinary CONTINUE target, but it must never receive that save's contents,
+  -- slot path, or a way to open another playthrough. This fixture writes the
+  -- canonical normal save directly to model an already-completed vanilla SAVE.
+  active.save.meta.savedAt = 4321
+  fs.write("save.lua", SaveSerializer.encode(active.save))
+  SaveData.resetSlotState()
+  local titleWithNormalSave = {
+    save = SaveData.newGame({ version = "red" }),
+    stack = { states = { { screenId = "TitleState" } } },
+  }
+  local selectedWithNormal, normalCode, normalMessage = storage:selected(titleWithNormalSave)
+  T.check(type(selectedWithNormal) == "table",
+    "legacy-to-slot migration keeps the selected playthrough identity: "
+      .. tostring(normalCode or normalMessage))
+  if type(selectedWithNormal) == "table" then
+    T.eq(selectedWithNormal:context().normalSavedAt, 4321,
+      "title selected context exposes only matching normal-save chronology")
+  end
+  T.check(titleWithNormalSave.save.meta.playthroughId == nil,
+    "normal-save chronology lookup does not bind the fresh title skeleton")
 
   local explicitNewGame = SaveData.newGame({ version = "red" })
   local freshContext = storage:context({ save = explicitNewGame })
