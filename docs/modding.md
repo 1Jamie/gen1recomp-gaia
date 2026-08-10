@@ -300,5 +300,10 @@ update and input ownership, so a mod can mirror a native menu on another
 display without reimplementing it. The default is `true`. Treat the wrapper as
 a pure predicate: the renderer may ask it more than once per frame.
 
+Scrollable list states expose `state.kind` for use with this hook. Generic
+lists fall back to their title; PC lists use stable, localization-independent
+identifiers: `pc_box_withdraw`, `pc_box_deposit`, `pc_box_release`,
+`pc_box_change`, `pc_item_withdraw`, `pc_item_deposit`, and `pc_item_toss`.
+
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
