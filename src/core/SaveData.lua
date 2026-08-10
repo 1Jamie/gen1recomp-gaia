@@ -967,6 +967,33 @@ function SaveData.ensurePlaythroughId(save, injectedFs)
   return id
 end
 
+-- Resolve the already-selected playthrough without changing the supplied save
+-- or allocating a replacement id. Title tools use this before a normal SAVE:
+-- Game:load intentionally owns a fresh skeleton there, while the selected
+-- launcher slot's durable tool data remains bound by the engine-owned mapping.
+-- This does not make arbitrary identities addressable; callers still need a
+-- higher-level engine capability that decides when selected resolution is safe.
+function SaveData.selectedPlaythroughId(save, injectedFs)
+  if type(save) ~= "table" then
+    return nil, "not_in_playthrough", "No selected playthrough is available."
+  end
+  local version = save.version or GameVersion.get()
+  if not knownVersion(version) then
+    return nil, "unknown_game", "The selected game version is unavailable."
+  end
+  local id = save.meta and save.meta.playthroughId
+  if type(id) == "string" and id ~= "" then return id end
+
+  local opts = SaveData.loadOptions(injectedFs)
+  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
+  id = byVersion and byVersion[playthroughScope(version, injectedFs)] or nil
+  if type(id) ~= "string" or id == "" then
+    return nil, "no_selected_playthrough",
+      "The selected playthrough has no durable tool state."
+  end
+  return id
+end
+
 -- ------- meta
 
 -- the version/engine/mod-set stamp every v2 save carries; mods is the

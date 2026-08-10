@@ -210,6 +210,15 @@ local deleted, code, message = mod.storage:delete(game, "history/quick/q0001")
 version is compatibility metadata; physical launcher-slot and path identity stays
 private.
 
+At the title screen only, `mod.storage:selected(game)` returns a bound storage
+facade for the launcher-selected existing playthrough, or `nil, code, message`.
+Resolving this facade is read-only: it never allocates an identity, adopts a
+fresh New Game, or exposes a slot id/path. Its `context()`, `read(key)`,
+`write(key, value)`, `list(prefix)`, and `delete(key)` methods have the same
+data-only and transaction contract as `mod.storage`, but remain restricted to
+the calling mod's selected existing namespace. It is intended for title tools
+that need to browse or manage durable history before the first normal SAVE.
+
 Values must be tables containing serializable data only. Keys are conservative
 slash-separated segments (letters, digits, `_`, `-`); paths and filesystem
 handles are never exposed. Writes are staged and decode-verified, reads recover
@@ -270,7 +279,16 @@ private state. A mod that deliberately stores progress-coupled truth in
 cannot distinguish it safely from independent history, configuration, or cache
 data.
 
-See RFC 0003, RFC 0004, and RFC 0005 for exact contracts and error codes.
+`mod.checkpoints:resume(game, checkpoint)` is the title-session counterpart to
+live `restore`. It validates the same data-only checkpoint against the
+engine-selected existing playthrough, reconstructs only after all validation
+passes, preserves current options, and verifies by recapture. A title session
+has no live gameplay rollback state: if reconstruction or verification fails,
+the engine rebuilds a usable title session and returns `false, code, message`.
+It never writes a normal Pokémon save. It is unavailable outside title and does
+not broaden capture or arbitrary-frame support.
+See RFC 0003, RFC 0004, RFC 0005, and RFC 0006 for exact contracts and error
+codes.
 
 ## Developer console
 
