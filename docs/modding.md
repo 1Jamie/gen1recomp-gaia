@@ -45,6 +45,14 @@ optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
 `warp`, visible `item`, and untaken `hidden` locations. All fields are
 read-only snapshots; mods choose which layers to render.
 
+## Party ordering
+
+Companion UIs and alternate party screens can call
+`mod.world:canReorderParty()` before offering a reorder action, then
+`mod.world:reorderParty(fromSlot, toSlot)` with one-based party slots. The
+operation is accepted only during idle overworld play; menus, movement,
+scripts, battles, and transitions leave the party untouched.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
