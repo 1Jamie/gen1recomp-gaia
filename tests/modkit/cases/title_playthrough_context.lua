@@ -1,7 +1,7 @@
 -- A tool can persist a checkpoint before the first normal Pokémon save. After
 -- a restart the title runtime is deliberately a fresh save skeleton, so it
--- needs a read-only binding to the already-selected playthrough -- not a call
--- to the normal active-playthrough storage methods, which would mint an id.
+-- needs a non-allocating binding to the already-selected playthrough -- not a
+-- call to the normal active-playthrough storage methods, which would mint an id.
 --
 -- This is a public SDK contract test. The fixture never reaches into storage
 -- paths or launcher slot internals.
@@ -59,6 +59,10 @@ local files = {
 return function(mod)
   _G.MOD_TITLE_STORAGE = mod.storage
   _G.MOD_TITLE_CHECKPOINTS = mod.checkpoints
+  _G.MOD_TITLE_RESTORE_COUNT = 0
+  mod.events:on("checkpoint.restored", function()
+    _G.MOD_TITLE_RESTORE_COUNT = _G.MOD_TITLE_RESTORE_COUNT + 1
+  end)
 end
 ]],
 }
@@ -87,6 +91,9 @@ if type(storage) == "table" then
   local originalId = active.save.meta and active.save.meta.playthroughId
   T.check(type(originalId) == "string" and originalId ~= "",
     "first tool persistence allocates the opaque active playthrough identity")
+  local nonTitleSelected, nonTitleCode = storage:selected(active)
+  T.check(nonTitleSelected == nil and nonTitleCode == "not_at_title",
+    "selected-playthrough storage cannot be used from active gameplay")
 
   -- Simulate a fresh process/title session. The normal save was never written:
   -- only the engine-owned slot/playthrough mapping and this mod's durable data
@@ -117,6 +124,10 @@ if type(storage) == "table" then
       }, "selected binding reports the durable playthrough without exposing a slot path")
       T.same(selected:read("history/index"), { format = 1, newest = "q0001" },
         "title reads only this mod's selected-playthrough durable history")
+      T.check(selected:write("history/title-operation", { allowed = true }) == true,
+        "title binding supports safe same-namespace durable operations")
+      T.same(selected:read("history/title-operation"), { allowed = true },
+        "title durable operation remains scoped to the selected playthrough")
     end
     T.check(title.save.meta.playthroughId == nil,
       "opening title history never allocates or adopts a playthrough identity")
@@ -155,6 +166,11 @@ if type(storage) == "table" then
       },
     }, { __index = GameMethods })
     stack.states[1] = title and { screenId = "TitleState" } or overworld
+    if title then
+      -- The failure-injection path needs the same title recovery contract as a
+      -- real Game without constructing renderer-owned title content.
+      function game:makeTitleState() return { screenId = "TitleState" } end
+    end
     return game
   end
 
@@ -181,6 +197,34 @@ if type(storage) == "table" then
       "title bootstrap never creates a normal Pokémon save as a side effect")
     T.same(checkpoints:capture(titleRuntime), checkpoint,
       "bootstrapped overworld differentially recaptures the selected checkpoint")
+    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+      "a successful title bootstrap emits checkpoint.restored exactly once")
+
+    -- Force a failure after restoreCheckpointSave has already installed the
+    -- checkpoint's canonical save and overworld. Title has no live checkpoint
+    -- rollback, so it must rebuild a clean title session and must not publish
+    -- the success-only lifecycle event.
+    SaveData.resetSlotState()
+    local failingTitle = makeRuntime(SaveData.newGame({ version = "red" }), true)
+    failingTitle.save.options = { volume = 7, bindings = {} }
+    local restoreCheckpointSave = failingTitle.restoreCheckpointSave
+    function failingTitle:restoreCheckpointSave(loaded)
+      restoreCheckpointSave(self, loaded)
+      error("forced title reconstruction failure")
+    end
+    local failed, failureCode = checkpoints:resume(failingTitle, checkpoint)
+    T.check(failed == false and failureCode == "resume_failed",
+      "failed title reconstruction reports a recoverable bootstrap failure")
+    T.eq(failingTitle.stack:top().screenId, "TitleState",
+      "failed title reconstruction returns to a usable title session")
+    T.check(failingTitle.save.meta.playthroughId == nil,
+      "failed title reconstruction restores the unbound title skeleton")
+    T.eq(failingTitle.save.options.volume, 7,
+      "failed title reconstruction retains current title options")
+    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+      "failed title reconstruction never emits checkpoint.restored")
+    T.check(files["save.lua"] == nil,
+      "failed title reconstruction never writes a normal Pokémon save")
   end
 
   local explicitNewGame = SaveData.newGame({ version = "red" })
@@ -193,6 +237,7 @@ Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
 _G.MOD_TITLE_STORAGE = nil
 _G.MOD_TITLE_CHECKPOINTS = nil
+_G.MOD_TITLE_RESTORE_COUNT = nil
 SaveData.resetSlotState()
 SaveData.loadOptions = originalLoadOptions
 
