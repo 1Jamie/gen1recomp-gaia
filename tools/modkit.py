@@ -676,6 +676,77 @@ def classify_error(message, fallback="MK100"):
     return fallback
 
 
+def _generated_data_dir_ok(path):
+    # 'true' when path looks like rom-derived generated data
+    # pokemon.lua preserves the existing imported-dataset probe;
+    # data:load is authority for the rest, including optional namespaces e.g. audio
+    return bool(path) and os.path.isfile(os.path.join(path, "pokemon.lua"))
+
+
+def _love_user_data_root():
+    # get desktop save root
+    identity = os.environ.get("POKEPORT_IDENTITY") or "pokemon-love2d"
+
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        return os.path.join(appdata, "LOVE", identity) if appdata else None
+
+    if sys.platform == "darwin":
+        return os.path.join(
+            os.path.expanduser("~"),
+            "Library", "Application Support", "LOVE", identity)
+
+    if sys.platform.startswith(("linux", "freebsd")):
+        data_home = os.environ.get("XDG_DATA_HOME")
+        if not data_home:
+            data_home = os.path.join(os.path.expanduser("~"), ".local", "share")
+        return os.path.join(data_home, "love", identity)
+
+    return None
+
+
+def imported_data_dir(repo):
+    # locate datasets that would be used at runtime
+    # priority:
+    # 1 explicit POKEPORT_DATA_DIR
+    # 2 versioned portable/source-adjacent cache
+    # 3 versioned LOVE user cache
+    # 4 historical source-tree/generated dev dataset
+    # POKEPORT_VERSION defaults to red
+    explicit = os.environ.get("POKEPORT_DATA_DIR")
+    if explicit:
+        path = os.path.abspath(os.path.expanduser(explicit))
+        return path if _generated_data_dir_ok(path) else None
+
+    version = (os.environ.get("POKEPORT_VERSION") or "red").lower()
+    if version not in ("red", "blue", "yellow"):
+        version = "red"
+
+    candidates = [
+        os.path.join(repo, version, "data", "generated"),
+    ]
+
+    user_root = _love_user_data_root()
+    if user_root:
+        candidates.append(os.path.join(
+            user_root, version, "data", "generated"))
+
+    # preserve old source-tree developer data as final fallback
+    # we prefer the real versioned cache first
+    # because a checkout may have a partially generated dataset
+    candidates.append(os.path.join(repo, "data", "generated"))
+
+    seen = set()
+    for path in candidates:
+        path = os.path.abspath(path)
+        if path in seen:
+            continue
+        seen.add(path)
+        if _generated_data_dir_ok(path):
+            return path
+    return None
+
+
 FIXTURE_BASE = 'require("tests.fixture_data").load()'
 IMPORTED_BASE = ('(function() local D = require("src.core.Data") '
                  'D:load() return D end)()')
@@ -688,8 +759,7 @@ def resolve_base(repo, choice):
     is skipped instead of reported."""
     if choice != "auto":
         return choice
-    imported = os.path.join(repo, "data", "generated", "pokemon.lua")
-    return "imported" if os.path.isfile(imported) else "fixture"
+    return "imported" if imported_data_dir(repo) else "fixture"
 
 
 def run_loader(repo, mod_dir, findings, base="fixture", notes=None):
@@ -2082,6 +2152,17 @@ def main(argv):
               "(looked for tools/rom_manifest.json)")
         return 2
     repo = os.path.abspath(repo)
+
+    # Normal game boot mounts the selected version's private ROM cache before
+    # Data:load(). modkit runs outside LÖVE, so reproduce that dataset
+    # selection through Data.lua's existing POKEPORT_DATA_DIR override.
+    #
+    # Setting it once here means validate, pack, and translation all inherit
+    # the same imported dataset in their LuaJIT child processes.
+    if hasattr(args, "base") and resolve_base(repo, args.base) == "imported":
+        data_dir = imported_data_dir(repo)
+        if data_dir:
+            os.environ["POKEPORT_DATA_DIR"] = data_dir
 
     handler = {
         "scaffold": cmd_scaffold,
