@@ -60,6 +60,10 @@ local files = {
 return function(mod)
   _G.MOD_TITLE_STORAGE = mod.storage
   _G.MOD_TITLE_CHECKPOINTS = mod.checkpoints
+  mod.events:on("checkpoint.restored", function(ev)
+    _G.MOD_TITLE_RESTORE_COUNT = (_G.MOD_TITLE_RESTORE_COUNT or 0) + 1
+    _G.MOD_TITLE_RESTORE_KIND = ev.kind
+  end)
 end
 ]],
 }
@@ -194,6 +198,10 @@ if type(storage) == "table" then
       "title bootstrap never creates a normal Pokémon save as a side effect")
     T.same(checkpoints:capture(titleRuntime), checkpoint,
       "bootstrapped overworld differentially recaptures the selected checkpoint")
+    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+      "a successfully verified title resume emits checkpoint.restored exactly once")
+    T.eq(_G.MOD_TITLE_RESTORE_KIND, "overworld",
+      "title resume lifecycle reports the reconstructed checkpoint kind")
 
     -- Force a failure after restoreCheckpointSave has already installed the
     -- checkpoint's canonical save and overworld. Title has no live checkpoint
@@ -217,6 +225,8 @@ if type(storage) == "table" then
       "failed title reconstruction retains current title options")
     T.check(files["save.lua"] == nil,
       "failed title reconstruction never writes a normal Pokémon save")
+    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+      "failed title reconstruction emits no additional restored lifecycle event")
   end
 
   -- A title policy may compare its own durable checkpoint chronology with the
@@ -252,6 +262,7 @@ Runtime.currentMod = nil
 _G.MOD_TITLE_STORAGE = nil
 _G.MOD_TITLE_CHECKPOINTS = nil
 _G.MOD_TITLE_RESTORE_COUNT = nil
+_G.MOD_TITLE_RESTORE_KIND = nil
 SaveData.resetSlotState()
 SaveData.loadOptions = originalLoadOptions
 

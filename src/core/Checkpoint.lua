@@ -386,6 +386,8 @@ local function firstDifference(a, b, path)
   return nil
 end
 
+local emitRestored
+
 function Checkpoint.restore(game, checkpoint)
   local capability = Checkpoint.inspect(game)
   if not capability.canRestore then
@@ -403,12 +405,7 @@ function Checkpoint.restore(game, checkpoint)
     local restored, verifyCode = Checkpoint.capture(game)
     if restored and validated.rng == nil then restored.rng = nil end
     if restored and equalData(restored, validated) then
-      if ModRuntime.wants("checkpoint.restored") then
-        ModRuntime.emit("checkpoint.restored", {
-          game = game,
-          kind = validated.kind,
-        })
-      end
+      emitRestored(game, validated)
       return true
     end
     err = restored and ("restored state differed at "
@@ -422,6 +419,15 @@ function Checkpoint.restore(game, checkpoint)
       "Checkpoint restore and rollback both failed: " .. tostring(rollbackErr)
   end
   return false, "restore_failed", "Checkpoint restoration failed: " .. tostring(err)
+end
+
+emitRestored = function(game, checkpoint)
+  if ModRuntime.wants("checkpoint.restored") then
+    ModRuntime.emit("checkpoint.restored", {
+      game = game,
+      kind = checkpoint.kind,
+    })
+  end
 end
 
 local function isTitleSession(game)
@@ -479,6 +485,7 @@ function Checkpoint.resume(game, checkpoint)
     local restored, verifyCode = Checkpoint.capture(game)
     if restored and validated.rng == nil then restored.rng = nil end
     if restored and equalData(restored, validated) then
+      emitRestored(game, validated)
       return true
     end
     err = restored and ("resumed state differed at "
