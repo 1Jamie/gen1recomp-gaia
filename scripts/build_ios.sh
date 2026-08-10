@@ -598,6 +598,13 @@ verify_documents_configuration() {
   say "public Documents exposure present (file sharing + in-place access)"
 }
 
+verify_game_payload() {
+  local app="$1"
+  [ -s "$app/game.love" ] \
+    || fail "built iOS app is missing game.love: $app"
+  say "game.love present ($(du -h "$app/game.love" | cut -f1))"
+}
+
 run_xcodebuild() {
   local config sdk destination
   if $RELEASE; then
@@ -727,6 +734,7 @@ run_xcodebuild() {
     cp "$LOVE_FILE" "$app/game.love"
   fi
 
+  verify_game_payload "$app"
   verify_native_bridge "$app"
 
   local dist_dir="$DIST/${config}-${sdk}"
