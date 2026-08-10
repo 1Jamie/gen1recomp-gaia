@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.76",
+          "date": "2026-08-10",
+          "size": 9610081,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.76/gen1recomp-0.1.76-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #617 Old Man in Viridian\n- #889 Pokemon yellow can't export save file right\n- #915 wrong sprite used in opening\n- #916 Trainer sprite at end of fly animation\n- #931 Mod update checks fail\n- #932 Bugs reset settings\n- #933 Add TitleState override for player\n- #945 Cannot edit Trainer Class's Battle Theme\n- #969 Linux x86_64 AppImage Shows up as \"LOVE\" instead of \"gen1recomp\"\n- #1016 Mod API: support variable-size overworld sprites\n- #1039 Encounter rate grace period not working\n- #1040 Player sprite walks right through rival after defeating him at the end of the game\n\n## Contributors\n\n- @ArmstrongThomas\n- @AverageConsumer\n- @Bortlesboat\n- @bryanthaboi\n- @crusty\n- @dlloa\n- @jherediagu\n- @KikiManjaro\n- @martin2844\n- @MaxTomahawk\n- @ShaneMcGovernIE\n- @steve1337\n- @swuff-star\n- @thibautbus\n- @Yukitty\n- hernan"
+        },
+        {
           "version": "0.1.75",
           "date": "2026-08-06",
           "size": 9574086,
