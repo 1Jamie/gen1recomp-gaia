@@ -262,14 +262,27 @@ M.PALLET_TOWN = {
         function()
           -- Oak turns toward the horizontally adjacent grass (left exit
           -- looks right, right exit looks left -- the
-          -- EVENT_PLAYER_AT_RIGHT_EXIT_TO_PALLET_TOWN branch)
+          -- EVENT_PLAYER_AT_RIGHT_EXIT_TO_PALLET_TOWN branch).
+          -- PalletTownOakGreetsPlayerScript (the turn) and
+          -- PalletTownPikachuBattleScript (arming wCurOpponent) are
+          -- separate script ticks in pokeyellow, one main-loop iteration
+          -- apart: OverworldLoopLessDelay (home/overworld.asm) burns two
+          -- DelayFrame calls per iteration, calls RunMapScript (via
+          -- JoypadOverworld) first, and only then checks wCurOpponent to
+          -- jump into the battle -- so the turn from iteration A is on
+          -- screen for the two DelayFrame calls that open iteration B,
+          -- before that same iteration's RunMapScript arms wCurOpponent
+          -- and falls straight into the battle check. Two frames, not
+          -- zero and not a deliberate pause.
           if oak then oak.facing = x == 10 and "right" or "left" end
-          local battle = BattleState.newWild(game, "PIKACHU", 5)
-          battle:makeOldManDemo("PROF.OAK")
-          battle.onFinish = function()
-            afterPikaBattle()
-          end
-          game.stack:push(battle)
+          hold(2, nil, function()
+            local battle = BattleState.newWild(game, "PIKACHU", 5)
+            battle:makeOldManDemo("PROF.OAK")
+            battle.onFinish = function()
+              afterPikaBattle()
+            end
+            game.stack:push(battle)
+          end)
         end))
     end
 
