@@ -195,7 +195,7 @@ return function(game)
   ow:queueScript(slice, { npc = rival })
 
   local startY = ow.player.cellY
-  local minY, walkShot = startY, false
+  local minY, walkShot, sharedCell = startY, false, false
   local hof
   for i = 1, 5000 do
     local top = game.stack:top()
@@ -205,8 +205,9 @@ return function(game)
     end
     local w = game.overworld
     if w and w.map and w.map.id == "CHAMPIONS_ROOM" then
-      local y = w.player.cellY
+      local x, y = w.player.cellX, w.player.cellY
       if y < minY then minY = y end
+      if x == rival.cellX and y == rival.cellY then sharedCell = true end
       if y <= 2 and not walkShot then
         walkShot = U.shot(game, DIR .. "/hof704_follows_oak.png")
       end
@@ -215,6 +216,7 @@ return function(game)
   end
   check("the player walked out of the room before the warp (#704)",
         minY < startY)
+  check("the player routed around the rival", not sharedCell)
   check("walk-out screenshot", walkShot)
   check("the induction started", hof ~= nil)
   if not hof then
@@ -226,6 +228,18 @@ return function(game)
   -- ---------------------------------------------------------------
   -- mid scroll: .ScrollPic nudges hSCX 4px a frame, and the exemption has to
   -- travel with the pic instead of sitting at its resting column (#637)
+  -- #847: HoFShowMonOrPlayer sweeps the BACK pic across the screen (low, at
+  -- y=88) before the front pic scrolls in.  Catch it mid-sweep, wait the
+  -- sweep out, then catch the front pic partway through its own scroll.
+  for _ = 1, 300 do
+    if hof.phase ~= "back" or (hof.scrollX or 0) <= 56 then break end
+    U.wait(1)
+  end
+  check("back-pic sweep screenshot", U.shot(game, DIR .. "/hof847_back.png"))
+  for _ = 1, 300 do
+    if hof.phase ~= "back" then break end
+    U.wait(1)
+  end
   for _ = 1, 200 do
     if (hof.scrollX or PIC_X) > 8 then break end
     U.wait(1)

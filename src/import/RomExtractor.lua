@@ -198,6 +198,12 @@ function RomExtractor:extractTilesets()
     out[constName] = {
       id = constName,
       source = ("ROM:Tilesets[%d]"):format(index - 1),
+      -- The raw Tilesets row, verbatim.  A .sav export has to reproduce what
+      -- LoadTilesetHeader (engine/overworld/tilesets.asm) would have left in
+      -- wTilesetBank..wGrassTile, because a Continue never re-runs it -- see
+      -- src/save_convert/MapContext.lua (#889).  Byte 12 is the tile
+      -- animation id, which rides in sTileAnimations.
+      header = self.rom:bytes(headers.bank, rowAddress, 12),
       image = "assets/generated/tilesets/" .. base .. ".png",
       imageWidth = spec.imageWidth,
       imageHeight = spec.imageHeight,
@@ -268,6 +274,11 @@ function RomExtractor:extractMaps()
     assert(tilesetId < #tilesets, constName .. ": unknown tileset id")
     local blockPointer = self.rom:word(header.bank, address + 3)
     local connectionFlags = self.rom:byte(header.bank, address + 9)
+    -- wCurMapHeader verbatim (tileset, height, width, data/text/script
+    -- pointers, connection flags).  A save restores this window instead of
+    -- rebuilding it, so an export has to carry the real bytes (#889).
+    local headerBytes = self.rom:bytes(header.bank, address, 10)
+    local connectionStart = address + 10
     address = address + 10
 
     local connections = {}
@@ -289,6 +300,8 @@ function RomExtractor:extractMaps()
     end
     assert(bit.band(connectionFlags, 0xF0) == 0,
       constName .. ": unknown connection flags")
+    local connectionBytes = self.rom:bytes(
+      header.bank, connectionStart, address - connectionStart)
     local objectPointer = self.rom:word(header.bank, address)
     local objectAddress = objectPointer
     local borderBlock = self.rom:byte(header.bank, objectAddress)
@@ -376,6 +389,17 @@ function RomExtractor:extractMaps()
       width = width, height = height, blocks = blocks,
       borderBlock = borderBlock, connections = connections,
       warps = warps, signs = signs, objects = objects,
+      -- Raw ROM bytes a .sav export replays through LoadMapHeader's WRAM
+      -- writes (src/save_convert/MapContext.lua, #889).  Kept as the original
+      -- bytes rather than re-encoded from the decoded tables above: the
+      -- pointers in them (wCurMapDataPtr, the connection strip src/dest
+      -- addresses, sign text ids) have no equivalent in the port's own model.
+      sram = {
+        header = headerBytes,
+        connections = connectionBytes,
+        objects = self.rom:bytes(
+          header.bank, objectPointer, objectAddress - objectPointer),
+      },
     }
     self:tick("Maps", mapIndex, #keys)
   end
@@ -1639,9 +1663,100 @@ function RomExtractor:raw1bpp(label, width, height, relative, transparent)
   return image
 end
 
+-- Trading animation art: gfx/trade.asm TradingAnimationGraphics is one
+-- 49-tile atlas (game_boy.2bpp, built with --remove-duplicates, then
+-- link_cable.2bpp), and the Game Boy and open-cable plates are painted out
+-- of it through the tilemaps in data/tilemaps.asm (GameBoyTiles 6x8,
+-- LinkCableTiles 12x3), whose ids are absolute vChars2 ids starting at $31
+-- because trade.asm reaches them through
+-- CopyTileIDsFromList_ZeroBaseTileID.  Only the developer-only Python path
+-- ever wrote these files, so an imported cache had none of them and
+-- TradeAnim drew the whole cinematic as plain rectangles (#750).
+function RomExtractor:extractTradeArt()
+  local BASE, COUNT = 0x31, 49
+  local gfx = self:symbol("TradingAnimationGraphics")
+  local atlas = ImageWriter.decode2bpp(
+    self.rom:bytes(gfx.bank, gfx.address, COUNT * 16), COUNT * 8, 8)
+  local function tileX(id)
+    local index = id - BASE
+    assert(index >= 0 and index < COUNT,
+      ("trade tile $%02X is outside the animation atlas"):format(id))
+    return index * 8
+  end
+  local function plate(label, tilesWide, tilesHigh, relative, matte)
+    local map = self:symbol(label)
+    local ids = self.rom:bytes(map.bank, map.address, tilesWide * tilesHigh)
+    local image = ImageWriter.blank(tilesWide * 8, tilesHigh * 8, 1, 1, 1, 1)
+    for index, id in ipairs(ids) do
+      ImageWriter.blit(image, atlas,
+        (index - 1) % tilesWide * 8,
+        math.floor((index - 1) / tilesWide) * 8, tileX(id), 0, 8, 8)
+    end
+    if matte then image = ImageWriter.matteColor0(image) end
+    self:save(image, relative)
+  end
+  plate("GameBoyTiles", 6, 8, "trade/game_boy.png", true)
+  plate("LinkCableTiles", 12, 3, "trade/open_cable.png", false)
+  for _, spec in ipairs({
+    { 0x5D, "cable_conn" }, { 0x5E, "cable_seg" }, { 0x5F, "cable_corner" },
+    { 0x60, "cable_end" }, { 0x61, "cable_vert" },
+  }) do
+    local tile = ImageWriter.blank(8, 8, 1, 1, 1, 1)
+    ImageWriter.blit(tile, atlas, 0, 0, tileX(spec[1]), 0, 8, 8)
+    self:save(tile, "trade/" .. spec[2] .. ".png")
+  end
+  -- Trade_DrawCableAcrossScreen fills a whole 20-tile row with tile $5e.
+  local horizontal = ImageWriter.blank(160, 8, 1, 1, 1, 1)
+  for column = 0, 19 do
+    ImageWriter.blit(horizontal, atlas, column * 8, 0, tileX(0x5E), 0, 8, 8)
+  end
+  self:save(horizontal, "trade/cable_horiz.png")
+
+  -- Trade_BallInsideLinkCableOAMBlock draws one tile four times with the
+  -- X/Y flips, so each of the two frames -- $7e travelling, $7f bulging,
+  -- the bottom row of TradingAnimationGraphics2 -- makes a 16x16 ball.
+  local ball = self:symbol("TradingAnimationGraphics2")
+  local frames = ImageWriter.decode2bpp(
+    self.rom:bytes(ball.bank, ball.address, 64), 16, 16, true)
+  for index, name in ipairs({ "cable_ball", "cable_ball_alt" }) do
+    local image = ImageWriter.blank(16, 16, 1, 1, 1, 0)
+    for y = 0, 7 do
+      for x = 0, 7 do
+        local r, g, b, a = frames:getPixel((index - 1) * 8 + x, 8 + y)
+        image:setPixel(x, y, r, g, b, a)
+        image:setPixel(15 - x, y, r, g, b, a)
+        image:setPixel(x, 15 - y, r, g, b, a)
+        image:setPixel(15 - x, 15 - y, r, g, b, a)
+      end
+    end
+    self:save(image, "trade/" .. name .. ".png")
+  end
+  -- The ring around the travelling mon: one 16x16 quadrant per animation
+  -- frame (engine/gfx/mon_icons.asm TradeBubbleIconGFX), mirrored into a
+  -- 32x32 circle by the OAM attributes in Trade_CircleOAMBlocks.
+  local bubble = self:symbol("TradeBubbleIconGFX")
+  self:write2bpp(self.rom:bytes(bubble.bank, bubble.address, 128),
+    16, 32, "trade/bubble.png", true)
+
+  return {
+    gameBoy = "assets/generated/trade/game_boy.png",
+    openCable = "assets/generated/trade/open_cable.png",
+    cableHoriz = "assets/generated/trade/cable_horiz.png",
+    cableConn = "assets/generated/trade/cable_conn.png",
+    cableVert = "assets/generated/trade/cable_vert.png",
+    cableCorner = "assets/generated/trade/cable_corner.png",
+    cableEnd = "assets/generated/trade/cable_end.png",
+    cableBall = "assets/generated/trade/cable_ball.png",
+    cableBallAlt = "assets/generated/trade/cable_ball_alt.png",
+    bubble = "assets/generated/trade/bubble.png",
+    source = "ROM:TradingAnimationGraphics + ROM:TradeBubbleIconGFX"
+      .. " (engine/movie/trade.asm InternalClockTradeAnim)",
+  }
+end
+
 function RomExtractor:extractField()
   self:beginStage("Interface artwork")
-  local done, total = 0, 49
+  local done, total = 0, 51
   local function tick()
     done = done + 1
     self:tick("Interface artwork", math.min(done, total), total)
@@ -1657,6 +1772,16 @@ function RomExtractor:extractField()
     "title/copyright.png"); tick()
   self:raw2bpp("GameFreakLogoGraphics", 72, 8,
     "title/gamefreak_inc.png"); tick()
+
+  do
+    local gf = self.symbols["GameFreakLogoGraphics"]
+    local tb = self.symbols["TextBoxGraphics"]
+    if gf and tb and tb[2] == gf[2] + 9 * 16 + 16 then
+      local raw = self.rom:bytes(gf[1], gf[2] + 9 * 16, 16)
+      self:save(ImageWriter.decode2bpp(raw, 8, 8, false), "title/nine.png")
+    end
+  end
+  tick()
   -- Yellow fixed Pikachu title art (no-op on Red/Blue manifests).
   self:extractYellowTitleArt(); tick()
 
@@ -1832,6 +1957,8 @@ function RomExtractor:extractField()
   end
   self:save(emotes, "emotes.png"); tick()
 
+  local tradeArt = self:extractTradeArt(); tick()
+
   -- Yellow-only: the Surfing Pikachu minigame sheets
   -- (gfx/surfing_pikachu.asm) at pret's canvas widths, so
   -- src/ui/SurfingMinigame.lua's quads can be read off the source pngs.
@@ -1962,6 +2089,7 @@ function RomExtractor:extractField()
   local converted = {}
   for index, values in pairs(adjacency) do converted[tonumber(index)] = values end
   data.hiddenExtras.trashCans.adjacent = converted
+  data.tradeArt = tradeArt
   data.source = "canonical Pokemon Red ROM + bundled port metadata"
   self:write("field", data)
   self:tick("Interface artwork", total, total)

@@ -62,7 +62,7 @@ local FILTERS = { "OFF", "1X", "2X", "3X" }
 -- The core rows.  Helper modules are required lazily under pcall: they are
 -- pure label/cycle tables, but the launcher must never die because a render
 -- module grew a dependency on live game data.
-local function coreRows(opts)
+local function coreRows(opts, hooks)
   local rows = {}
   local function add(label, value, step)
     rows[#rows + 1] = { label = label, value = value, step = step }
@@ -214,10 +214,24 @@ local function coreRows(opts)
 
   local okSpd, GameSpeed = pcall(require, "src.core.GameSpeed")
   if okSpd then
-    add(Strings("GAME SPEED"),
-      function() return GameSpeed.levelLabel(opts.speed) end,
+    -- Per-category (RFC 0007): overworld/battle/menu each cycle their own
+    -- multiplier, mirroring OptionsMenu.lua's three rows.
+    add(Strings("OVERWORLD SPEED"),
+      function() return GameSpeed.levelLabel(opts.speedOverworld) end,
       function(dir)
-        opts.speed = GameSpeed.cycle(opts.speed, dir)
+        opts.speedOverworld = GameSpeed.cycle(opts.speedOverworld, dir)
+        return true
+      end)
+    add(Strings("BATTLE SPEED"),
+      function() return GameSpeed.levelLabel(opts.speedBattle) end,
+      function(dir)
+        opts.speedBattle = GameSpeed.cycle(opts.speedBattle, dir)
+        return true
+      end)
+    add(Strings("MENU SPEED"),
+      function() return GameSpeed.levelLabel(opts.speedMenu) end,
+      function(dir)
+        opts.speedMenu = GameSpeed.cycle(opts.speedMenu, dir)
         return true
       end)
   end
@@ -242,8 +256,60 @@ local function coreRows(opts)
           opts.touchControls = tc
           return true
         end)
+      -- VIBRATION sits with it (#806): same gate, same subsystem.  Stepping
+      -- the row buzzes once at the level being selected.
+      local okTC, TC = pcall(require, "src.core.TouchControls")
+      if okTC then
+        add(Strings("VIBRATION"),
+          function() return Strings(TC.hapticLabel(opts.haptics)) end,
+          function(dir)
+            opts.haptics = TC.cycleHaptics(opts.haptics, dir)
+            TC.buzz(opts.haptics)
+            return true
+          end)
+      end
     end
   end
+
+  -- TOUCH CONTROLS, the on-screen pad's layout editor.  It used to be a
+  -- button on the game panel, once per game -- but the overlay layout is
+  -- global (options.touchControls.layouts), so three tabs offered three
+  -- buttons that edited the same thing while crowding the column that has to
+  -- hold Play.  It belongs with the other control rows, behind the gear.
+  -- The host owns the editor screen, so the row only fires when a hook was
+  -- supplied (the standalone save editor opens this model with none).
+  if hooks and hooks.editTouchControls then
+    rows[#rows + 1] = {
+      label = Strings("TOUCH CONTROLS"),
+      actionLabel = Strings("Edit"),
+      action = function()
+        hooks.editTouchControls()
+        -- The editor replaces the whole screen: nothing left to persist here
+        -- beyond what the caller already saved on the way out.
+        return false
+      end,
+    }
+  end
+
+  -- RESET REBINDS, directly under the touch-pad row.  Rebinds are additive
+  -- (src/core/Input.lua:applyBindings layers options.bindings over the
+  -- defaults rather than replacing them), so a player who has bound
+  -- themselves into a corner has no in-game way back -- there is no "unbind"
+  -- gesture.  Clearing the table restores the stock keyboard and pad layout
+  -- on the next Input:applyBindings, which the game does on its next start.
+  -- The dragged touch-overlay layout goes with it: it is the same class of
+  -- customisation and the same class of getting stuck.
+  rows[#rows + 1] = {
+    label = Strings("RESET REBINDS"),
+    actionLabel = Strings("Reset"),
+    danger = true,
+    action = function()
+      opts.bindings = nil
+      local tc = opts.touchControls
+      if type(tc) == "table" then tc.layouts = nil end
+      return true
+    end,
+  }
 
   return rows
 end
@@ -385,10 +451,12 @@ end
 -- sections of rows, and a save() that persists it.  The caller keeps the
 -- model for as long as the panel is open; nothing else in the launcher
 -- writes options while a modal covers it, so the cached table stays true.
-function LauncherSettings.open()
+-- `hooks` carries the host actions a row cannot perform itself:
+--   editTouchControls()  -- hand the screen to the touch-overlay editor
+function LauncherSettings.open(hooks)
   local opts = SaveData.loadOptions()
   local sections = {
-    { title = Strings("OPTIONS"), rows = coreRows(opts) },
+    { title = Strings("OPTIONS"), rows = coreRows(opts, hooks) },
   }
   for _, mod in ipairs(discoverModSchemas(opts)) do
     local rows = modRows(opts, mod)

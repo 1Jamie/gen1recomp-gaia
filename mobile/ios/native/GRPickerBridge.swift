@@ -26,8 +26,6 @@ public final class GRPickerBridge: NSObject {
     // silently doing nothing.
     private static var liveDelegates: [PickerDelegate] = []
 
-    // conf.lua t.identity — where LÖVE puts the fused save directory on iOS
-    // (<sandbox>/Library/Application Support/<identity>).
     private static let loveIdentity = "pokemon-love2d"
 
     @objc(httpDownloadWithUrl:destination:userAgent:accept:)
@@ -85,11 +83,30 @@ public final class GRPickerBridge: NSObject {
             types = [.zip]
         case "sav":
             destName = "picked_save.sav"
-        default:
+        // A Nintendo 64 cartridge, for mods that build assets out of one --
+        // the voxel mod's Pokemon Stadium battle models are the caller this
+        // was added for. Its own filename on purpose: an N64 ROM landing on
+        // picked_rom.gb is swept up by the Game Boy importer, deleted, and
+        // reported to the player as a broken cartridge.
+        case "stadium":
+            destName = "picked_stadium.z64"
+            for ext in ["z64", "n64", "v64"] {
+                if let t = UTType(filenameExtension: ext) { types.append(t) }
+            }
+        case "rom", "":
             destName = "picked_rom.gb"
             for ext in ["gb", "gbc"] {
                 if let t = UTType(filenameExtension: ext) { types.append(t) }
             }
+        // An unknown kind is REFUSED rather than treated as a Game Boy ROM.
+        //
+        // It used to fall through to picked_rom.gb, so a caller asking for a
+        // kind this build had never heard of got its file deleted and
+        // reported as a broken cartridge -- the worst possible answer to
+        // "I do not know that one". Returning false lets the caller find out
+        // and offer its own fallback.
+        default:
+            return false
         }
         // .gb/.gbc/.sav resolve to dynamic UTTypes on most devices; offering
         // .data as well keeps every real file selectable. The importer
@@ -105,6 +122,20 @@ public final class GRPickerBridge: NSObject {
             copyItem(at: src, into: dir, named: destName)
         }
         return present(picker, with: delegate)
+    }
+
+    // Which kinds presentPicker understands, comma separated.
+    //
+    // So a CALLER can ask before it calls. A mod that wants a kind this build
+    // predates cannot otherwise tell "refused" from "the picker would not
+    // open", and guessing wrong used to cost the player their ROM (see the
+    // default case above). Asking first turns that into a fallback the caller
+    // chooses rather than a file it loses.
+    //
+    // Kept beside the switch it describes, because the two drifting apart is
+    // the only way this can lie.
+    @objc public static func supportedPickerKinds() -> NSString {
+        return "rom,mod,sav,stadium" as NSString
     }
 
     @objc(presentExportWithName:saveDir:)
@@ -144,10 +175,10 @@ public final class GRPickerBridge: NSObject {
     // UIApplicationDidBecomeActive (see GRBootstrap.m).
     @objc public static func sweepInbox() {
         let fm = FileManager.default
-        guard let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first,
-              let appSupport = fm.urls(for: .applicationSupportDirectory,
-                                       in: .userDomainMask).first else { return }
-        let saveDir = appSupport.appendingPathComponent(loveIdentity, isDirectory: true)
+        migrateLegacySaveDirectory()
+        guard let docs = documentsDirectory(),
+              let saveDir = publicSaveDirectory() else { return }
+        guard docs.standardizedFileURL != saveDir.standardizedFileURL else { return }
         let wanted: Set<String> = ["gb", "gbc", "zip", "sav"]
         guard let items = try? fm.contentsOfDirectory(at: docs,
                                                       includingPropertiesForKeys: nil) else { return }
@@ -164,15 +195,21 @@ public final class GRPickerBridge: NSObject {
         }
     }
 
+    @objc public static func preparePublicDocuments() {
+        migrateLegacySaveDirectory()
+        if let saveDir = publicSaveDirectory() {
+            ensureDirectory(saveDir)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func resolvedSaveDir(_ cstr: UnsafePointer<CChar>?) -> URL? {
         var dir = cstr.map { String(cString: $0) } ?? ""
         if dir.isEmpty {
-            guard let appSupport = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            else { return nil }
-            dir = appSupport.appendingPathComponent(loveIdentity).path
+            migrateLegacySaveDirectory()
+            guard let saveDir = publicSaveDirectory() else { return nil }
+            dir = saveDir.path
         }
         let url = URL(fileURLWithPath: dir, isDirectory: true)
         ensureDirectory(url)
@@ -182,6 +219,75 @@ public final class GRPickerBridge: NSObject {
     private static func ensureDirectory(_ url: URL) {
         try? FileManager.default.createDirectory(at: url,
                                                  withIntermediateDirectories: true)
+    }
+
+    private static func documentsDirectory() -> URL? {
+        FileManager.default.urls(for: .documentDirectory,
+                                 in: .userDomainMask).first
+    }
+
+    private static func publicSaveDirectory() -> URL? {
+        documentsDirectory()
+    }
+
+    private static func legacySaveDirectory() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory,
+                                 in: .userDomainMask).first?
+            .appendingPathComponent(loveIdentity, isDirectory: true)
+    }
+
+    private static func migrateLegacySaveDirectory() {
+        let fm = FileManager.default
+        guard let destination = publicSaveDirectory(),
+              let legacy = legacySaveDirectory(),
+              fm.fileExists(atPath: legacy.path) else {
+            return
+        }
+        ensureDirectory(destination)
+        mergeDirectory(from: legacy, to: destination)
+        try? fm.removeItem(at: legacy)
+    }
+
+    private static func mergeDirectory(from source: URL, to destination: URL) {
+        let fm = FileManager.default
+        ensureDirectory(destination)
+        guard let items = try? fm.contentsOfDirectory(at: source,
+                                                       includingPropertiesForKeys: nil)
+        else { return }
+        for item in items {
+            let target = destination.appendingPathComponent(item.lastPathComponent)
+            var sourceIsDirectory = ObjCBool(false)
+            fm.fileExists(atPath: item.path, isDirectory: &sourceIsDirectory)
+            var targetIsDirectory = ObjCBool(false)
+            let targetExists = fm.fileExists(atPath: target.path,
+                                              isDirectory: &targetIsDirectory)
+            if sourceIsDirectory.boolValue && targetExists && targetIsDirectory.boolValue {
+                mergeDirectory(from: item, to: target)
+                continue
+            }
+            if targetExists {
+                if !sourceIsDirectory.boolValue && !targetIsDirectory.boolValue &&
+                    fm.contentsEqual(atPath: item.path, andPath: target.path) {
+                    try? fm.removeItem(at: item)
+                } else {
+                    moveToLegacyName(item, in: destination)
+                }
+                continue
+            }
+            try? fm.moveItem(at: item, to: target)
+        }
+    }
+
+    private static func moveToLegacyName(_ item: URL, in destination: URL) {
+        let fm = FileManager.default
+        let base = item.lastPathComponent + ".legacy"
+        var target = destination.appendingPathComponent(base)
+        var suffix = 2
+        while fm.fileExists(atPath: target.path) {
+            target = destination.appendingPathComponent("\(base).\(suffix)")
+            suffix += 1
+        }
+        try? fm.moveItem(at: item, to: target)
     }
 
     private static func copyItem(at src: URL, into dir: URL, named name: String) {

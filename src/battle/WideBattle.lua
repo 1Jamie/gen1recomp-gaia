@@ -128,7 +128,8 @@ local function drawIntroBalls(battle)
 end
 
 local function drawHUDs(battle, slide)
-  if battle.enemy and not battle.showEnemyTrainer
+  local showStatus = battle:statusHUDVisible()
+  if showStatus and battle.enemy and not battle.showEnemyTrainer
       and not battle.enemySendingOut and not battle:growInScale(battle.enemy)
       and slide == 0 and not battle.introBalls and not battle.enemy.fainted then
     drawStatusPanel(battle, battle.enemy, 0, 0, false)
@@ -139,7 +140,7 @@ local function drawHUDs(battle, slide)
   -- item, not a HUD element (DisplayBattleMenu prints wNumSafariBalls inside
   -- the battle menu box, engine/battle/core.asm:2074-2079), so it rides in
   -- drawCommandMenu below like the classic layout's (#540).
-  if not battle.safari and battle.player and not battle.demo
+  if showStatus and not battle.safari and battle.player and not battle.demo
       and not battle.showPlayerBack and slide == 0 then
     drawStatusPanel(battle, battle.player, 184, 56, true)
   end
@@ -244,7 +245,10 @@ end
 
 local function drawMoveMenu(battle)
   drawMoveGrid(battle, battle.player.curMoves, battle.moveIndex)
-  if battle.moveSwapIndex then
+  -- The filled cursor replaces the hollow swap marker when they share a row
+  -- (PlaceMenuCursor's tilemap write, home/window.asm:184-185); drawCode blits
+  -- black-on-transparent, so skip the 0xEC instead of stacking glyphs (#814).
+  if battle.moveSwapIndex and battle.moveSwapIndex ~= battle.moveIndex then
     local col = (battle.moveSwapIndex - 1) % 2
     local row = math.floor((battle.moveSwapIndex - 1) / 2)
     Font.drawCode(0xEC, col == 0 and 8 or 112, 112 + row * 16)
@@ -252,6 +256,7 @@ local function drawMoveMenu(battle)
 end
 
 local function drawTextArea(battle)
+  if not battle:bottomUIVisible() then return end
   if battle.phase == "messages" and (battle.current or battle.animPlaying) then
     drawMessageBox(battle)
   elseif battle.phase == "menu" then

@@ -122,6 +122,13 @@ local function shouldSpawn(game, ow)
   if not GameVersion.isYellow() then return false end
   local save = game.save
   if not (save.flags and save.flags.EVENT_GOT_STARTER) then return false end
+  -- save.pikachuInBall mirrors DisablePikachuOverworldSpriteDrawing (pokeyellow
+  -- scripts/OaksLab.asm); nil falls back to the rival-fight flag (#1009)
+  if save.pikachuInBall == nil then
+    if not save.flags.EVENT_BATTLED_RIVAL_IN_OAKS_LAB then return false end
+  elseif save.pikachuInBall then
+    return false
+  end
   if save.onBike or (ow.player and ow.player.surfing) then return false end
   if not (game.data.sprites and game.data.sprites.SPRITE_PIKACHU) then
     return false
@@ -188,7 +195,7 @@ function PikachuFollower.current(ow)
   return npc
 end
 
-function PikachuFollower.onMapEntered(game, ow, opts)
+function PikachuFollower.onMapEntered(game, ow, opts, viaMapLoad)
   -- Bill's House owns a short scripted scene that deliberately keeps
   -- Pikachu off the normal trailing loop.  A new map instance ends it.
   ow.pikachuBillsScene = nil
@@ -200,7 +207,8 @@ function PikachuFollower.onMapEntered(game, ow, opts)
   -- takes .normal_spawn_state -- map coords rebased, sprite data and
   -- follow command buffer left alone.  Re-list the same instance and let
   -- rebase() shift its cell; a warp arrives without it and respawns
-  -- behind the player, the full spawn path of that same routine.
+  -- under the player, the full spawn path of that same routine (the
+  -- viaMapLoad spawn below, #863).
   local keep = opts and opts.keepPikachu
   if keep then
     table.insert(ow.npcs, keep)
@@ -208,6 +216,12 @@ function PikachuFollower.onMapEntered(game, ow, opts)
     return
   end
   local x, y = spawnCell(ow)
+  -- a fresh map entry (warp, boot) parks the follower ON the player's
+  -- cell instead: it stays hidden under him (the draw-sort tie-break in
+  -- OverworldController) and walks out of the warp behind him as the
+  -- trail opens up.  Mid-map respawns (bike dismount, revive) keep the
+  -- behind-the-facing cell (#863)
+  if viaMapLoad then x, y = ow.player.cellX, ow.player.cellY end
   local npc = makeFollower(game, ow, x, y, ow.player.facing)
   table.insert(ow.npcs, npc)
   -- entities is the draw list; passable keeps it out of collision
@@ -876,6 +890,28 @@ function PikachuFollower.onBillExitedMachine(game, ow)
   idleReset(npc)
   npc.facing = "left"
   billsHouseEmotion(game, ow, npc, "EXCLAMATION_BUBBLE")
+end
+
+-- OaksLabPikachuMovementScript (pokeyellow scripts/OaksLab_2.asm): the
+-- companion clears the cell the rival stops on (#1021)
+function PikachuFollower.oaksLabMakeWay(game, ow, done)
+  if not GameVersion.isYellow() then return false end
+  local npc = findFollower(ow)
+  if not npc or not ow.player then return false end
+  local p = ow.player
+  local steps, facing
+  if p.cellY == 3 then -- .movement2, b = SPRITE_FACING_LEFT
+    if not (npc.cellY == p.cellY and npc.cellX < p.cellX) then return false end
+    steps, facing = { { "down", 1 }, { "right", 1 } }, "up"
+  else -- OaksLabPikachuMovementData1, b = SPRITE_FACING_DOWN
+    if npc.cellY <= p.cellY then return false end
+    steps, facing = { { "left", 1 }, { "up", 1 } }, "right"
+  end
+  movePikachu(ow, npc, steps, function()
+    npc.facing = facing -- PIKAMOVEMENT_LOOK_UP / _LOOK_RIGHT ends each table
+    if done then done() end
+  end)
+  return true
 end
 
 -- ---------------------------------------------------------------------

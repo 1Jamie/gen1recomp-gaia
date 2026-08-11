@@ -9,8 +9,9 @@
 --   CRED_TEXT_MON       text appears at once, hold 110, mon wipe
 --   CRED_TEXT_FADE      fade in, hold 120, next screen replaces the text
 --   CRED_TEXT           text appears at once, hold 140
--- The mon wipe is DisplayCreditsMon: the middle band scrolls left 8px per
--- frame for 27 frames (ScrollCreditsMonLeft x7 then x20) while the next
+-- The mon wipe is DisplayCreditsMon: three CreditsCopyTileMapToVRAM copies
+-- (9 frames of Delay3, text still up), then the middle band scrolls left 8px
+-- per frame for 27 frames (ScrollCreditsMonLeft x7 then x20) while the next
 -- CreditsMons entry crosses right-to-left as a black silhouette
 -- (BGP %11111100), leaving the band blank; BGP is left at %11000000, which
 -- is why every post-wipe screen is a FADE variant.  CRED_COPYRIGHT
@@ -30,6 +31,7 @@
 -- to just THE END.
 
 local Font = require("src.render.Font")
+local GameVersion = require("src.core.GameVersion")
 local Music = require("src.core.Music")
 local Strings = require("src.core.Strings")
 
@@ -52,14 +54,23 @@ local HOLD_FADE = 120
 local HOLD_TEXT = 140
 
 local WIPE_FRAMES = 27 -- ScrollCreditsMonLeft: 7 + 20 calls, 8px/frame
+-- DisplayCreditsMon runs three CreditsCopyTileMapToVRAM calls (vBGMap0+$c,
+-- vBGMap0, vBGMap1) before the first scroll, and each one ends in `jp Delay3`
+-- (home/palettes.asm), so the credits text sits still for 9 more frames on
+-- every mon screen.  Dropping them ran the 15 mon screens 135 frames short and
+-- brought THE END up 2.2s early against a credits theme whose length is fixed
+-- by the ROM program (Music_Credits is 5880 frames and does not loop), which
+-- is what made the song look like it overran the roll (#703).
+local MON_PREP_FRAMES = 9
 
 -- LoadCopyrightTiles (engine/movie/title.asm CopyrightTextString): tile
 -- sequences into the extracted title/copyright.png strip (tiles $60-$72:
--- (c)'95.'96.'98 + Nintendo + Creatures inc.); the GAME FREAK inc. row is
--- the title/gamefreak_inc.png strip (GameFreakLogoGraphics, tiles
--- $73-$7B), with the intro's composed gamefreak_text.png as a fallback
--- for pre-regeneration data.
-local COPY_PREFIX = { 0, 1, 2, 1, 3, 1, 4 }               -- (c)'95.'96.'98
+-- Red/Blue (c)'95.'96.'98, Yellow (c)1995-1999 + NineTile) + Nintendo +
+-- Creatures inc.; the GAME FREAK inc. row is title/gamefreak_inc.png
+-- (GameFreakLogoGraphics, tiles $73-$7B), with the intro's composed
+-- gamefreak_text.png as a fallback for pre-regeneration data.
+local COPY_PREFIX_RB = { 0, 1, 2, 1, 3, 1, 4 }            -- (c)'95.'96.'98
+local COPY_PREFIX_YELLOW = { 0, 1, 2, 3, 1, 2 }           -- (c)1995-199
 local COPY_NINTENDO = { 5, 6, 7, 8, 9, 10 }               -- Nintendo
 local COPY_CREATURES = { 11, 12, 13, 14, 15, 16, 17, 18 } -- Creatures inc.
 
@@ -131,6 +142,12 @@ function Credits.new(game, onDone, onTheEnd)
                         and title.gamefreakInc.path)
              or tryImage(intro and intro.gamefreakText
                          and intro.gamefreakText.path)
+  self.yellowCopy = GameVersion.isYellow()
+    or (title and title.layout == "yellow_pikachu")
+  self.copyPrefix = self.yellowCopy and COPY_PREFIX_YELLOW or COPY_PREFIX_RB
+  self.nineImg = self.yellowCopy and tryImage(
+    title and title.nine and title.nine.path
+      or "assets/generated/title/nine.png") or nil
   return self
 end
 
@@ -204,12 +221,17 @@ function Credits:update(dt)
     self.timer = self.screen.mon and HOLD_FADE_MON or HOLD_FADE
   elseif self.phase == "hold" then
     if self.screen.mon then
-      self.phase = "wipe"
-      self.timer = WIPE_FRAMES
-      self.monImg, self.monTint = self:monSprite(self.screen.mon)
+      -- the text stays up through DisplayCreditsMon's VRAM copies; the
+      -- silhouette only starts moving once ScrollCreditsMonLeft does
+      self.phase = "mon_prep"
+      self.timer = MON_PREP_FRAMES
     else
       self:nextScreen()
     end
+  elseif self.phase == "mon_prep" then
+    self.phase = "wipe"
+    self.timer = WIPE_FRAMES
+    self.monImg, self.monTint = self:monSprite(self.screen.mon)
   elseif self.phase == "wipe" then
     self.monImg = nil
     self:nextScreen()
@@ -241,6 +263,17 @@ function Credits:drawPage(screen, xoff, shade)
   if screen.copyright then self:drawCopyright(xoff) end
 end
 
+function Credits:drawCopyPrefix(x, y)
+  local img = self.copyImg
+  for _, t in ipairs(self.copyPrefix) do
+    love.graphics.draw(img, self.copyQuads[t], x, y)
+    x = x + 8
+  end
+  if self.nineImg then
+    love.graphics.draw(self.nineImg, x, y)
+  end
+end
+
 function Credits:drawCopyright(xoff)
   local img = self.copyImg
   if img then
@@ -253,11 +286,11 @@ function Credits:drawCopyright(xoff)
       end
       return x
     end
-    row(COPY_PREFIX, xoff + 16, 56)
+    self:drawCopyPrefix(xoff + 16, 56)
     row(COPY_NINTENDO, xoff + 80, 56)
-    row(COPY_PREFIX, xoff + 16, 72)
+    self:drawCopyPrefix(xoff + 16, 72)
     row(COPY_CREATURES, xoff + 80, 72)
-    row(COPY_PREFIX, xoff + 16, 88)
+    self:drawCopyPrefix(xoff + 16, 88)
     if self.gfImg then
       love.graphics.draw(self.gfImg, xoff + 80, 88)
     else
@@ -313,7 +346,8 @@ function Credits:draw()
   love.graphics.rectangle("fill", 0, 0, 160, 32)
   love.graphics.rectangle("fill", 0, 112, 160, 32)
   love.graphics.setColor(1, 1, 1, 1)
-  if self.phase == "fade" or self.phase == "hold" then
+  if self.phase == "fade" or self.phase == "hold"
+      or self.phase == "mon_prep" then
     self:drawPage(self.screen, 0, self.shade)
   elseif self.phase == "wipe" then
     -- ScrollCreditsMonLeft: the middle band scrolls left 8px/frame while

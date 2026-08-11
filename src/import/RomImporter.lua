@@ -30,9 +30,13 @@ end
 -- Cache generation tag; bump to force every imported version to re-extract.
 -- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
 -- carry Red's bank $1f header, wave-table, and CryData offsets.
-local CACHE_FORMAT = "rom-cache-v9:"
+-- v10: maps carry their raw map-header/connection/object bytes and tilesets
+-- their Tilesets row (#889), which a .sav export replays so a Continue on
+-- real hardware has a map to load; a v9 cache has none of them and exports
+-- the same unbootable save as before.
+local CACHE_FORMAT = "rom-cache-v10:"
 -- The completion marker is written under each version's cache prefix
--- (rom-cache.complete for Red, blue/rom-cache.complete for Blue).
+-- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
 
 -- The marker a finished import writes for a version: the generation tag plus
@@ -57,6 +61,10 @@ local REQUIRED_FILES = {
   "assets/generated/battle/anims/move_anim_0.png",
   "assets/generated/battle/anims/move_anim_1.png",
   "assets/generated/audio/programs.bin",
+  -- The trade cinematic's Game Boy / cable art. Caches built before #750
+  -- carry none of it and fall back to plain rectangles, so listing one of
+  -- the files re-imports them without a CACHE_FORMAT bump.
+  "assets/generated/trade/game_boy.png",
 }
 
 -- Files only one version's cache carries.  A version that predates one of
@@ -131,8 +139,8 @@ local PAL = {
 
 -- CacheFs.exists checks the game folder directly for a portable install,
 -- otherwise the save directory through love.filesystem.  It honors
--- CacheFs.prefix, so we point it at the version's cache subtree (Red at the
--- root, Blue under blue/).
+-- CacheFs.prefix, so we point it at the version's cache subtree (red/,
+-- blue/, yellow/).
 local function allRequiredFilesExist(version)
   local CacheFs = require("src.import.CacheFs")
   local saved = CacheFs.prefix
@@ -148,14 +156,22 @@ local function allRequiredFilesExist(version)
   return ok
 end
 
--- A developer checkout / Python build leaves Red's generated data in the
--- physfs SOURCE at the un-prefixed root; that is always current.  Only Red
--- ships this way (Blue is import-only), so this stays a Red-root check.
-local function sourceTreeHasData()
-  if not allRequiredFilesExist("red") or not love.filesystem.getRealDirectory then
-    return false
+-- A developer checkout / Python build leaves generated data in the physfs
+-- source: Red at the historical root, Blue/Yellow in their versioned trees.
+-- Imported Red caches still live under red/.  Check source paths directly so
+-- that cache prefix cannot hide Red's source tree, and keep save-dir caches
+-- from counting as current source data.
+local function sourceTreeHasData(version)
+  if not love.filesystem.getRealDirectory then return false end
+  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
+  for _, path in ipairs(REQUIRED_FILES) do
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
   end
-  local real = love.filesystem.getRealDirectory(REQUIRED_FILES[1])
+  for _, path in ipairs(VERSION_REQUIRED_FILES[version] or {}) do
+    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
+  end
+  local path = prefix .. REQUIRED_FILES[1]
+  local real = love.filesystem.getRealDirectory(path)
   return real == love.filesystem.getSource()
 end
 
@@ -210,8 +226,8 @@ local function purgeSaveDirCache()
     f:close()
     return true
   end
-  -- Purge each version's stale save-directory copy (Red at the root, Blue
-  -- under blue/) so it cannot shadow the portable game-folder cache.
+  -- Purge each version's stale save-directory copy (under its red/ / blue/
+  -- / yellow/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
     if saveDirHas(prefix .. MARKER_PATH) or saveDirHas(prefix .. REQUIRED_FILES[1]) then
@@ -232,10 +248,8 @@ function RomImporter.isReady(version)
     -- save-directory copy that would otherwise shadow it at runtime.
     purgeSaveDirCache()
   end
-  -- Red generated data in the physfs source (developer checkout / Python
-  -- build) is always current; Blue is import-only and falls through to the
-  -- version-marker gate.
-  if version == "red" and sourceTreeHasData() then return true end
+  -- Generated data in a developer checkout / Python build is always current.
+  if sourceTreeHasData(version) then return true end
   local saved = CacheFs.prefix
   CacheFs.prefix = GameVersion.cachePrefix(version)
   local marker = CacheFs.read(MARKER_PATH)
@@ -311,36 +325,29 @@ end
 -- keyboard-navigates (keyboard focus is a separate grab) but ignores the
 -- mouse entirely -- issue #254 on Linux.  Whether it bites is a race with how
 -- long the click was held, which is why the same build picks one ROM fine and
--- then hangs the mouse on the next.  So pump until no button is held, letting
--- SDL see the release and let go first; bounded, so a stuck button costs a
--- moment and never the launcher.  pump() only drains OS events into LOVE's
--- queue -- it dispatches nothing -- so there is no reentry into mousepressed
--- and the release is still delivered normally on the next frame.
-local function releasePointerGrab()
-  if not (love.mouse and love.mouse.isDown and love.event and love.event.pump
-      and love.timer) then
-    return
-  end
-  local deadline = love.timer.getTime() + 1
-  while love.mouse.isDown(1, 2, 3) do
-    love.event.pump()
-    if love.timer.getTime() > deadline then break end
-    love.timer.sleep(0.005)
-  end
-end
+-- then hangs the mouse on the next.
+--
+-- The release itself now lives in HostShell.releasePointerGrab, called from
+-- HostShell.popen, so every host spawn inherits it and not just the three
+-- pickers here.  It stays a single release point on purpose: this file used
+-- to run its own copy first, and each copy carries its own one-second bound,
+-- so keeping both made a stuck button cost two seconds instead of one.
 
 local function commandOutput(command)
   if not Platform.canSpawnProcess() then return nil end
-  releasePointerGrab()
   local pipe = HostShell.popen(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
-  pipe:close()
+  -- HostShell.pclose, never pipe:close(): closing a pipe outside the spawn
+  -- lock can free a FILE while a worker thread's popen is walking the stream
+  -- list, which deadlocks that thread for good (see HostShell).
+  HostShell.pclose(pipe)
   result = trim(result)
   return result ~= "" and result or nil
 end
 
 local IMPORTS_DIR = "imports"
+local BASE_ROMS_DIR = "baseroms"
 local MODS_INBOX_DIR = "imports/mods"
 local SAVES_INBOX_DIR = "imports/saves"
 local ROM_BYTES = 1024 * 1024
@@ -472,6 +479,65 @@ local function listRomPaths(dir)
     end
   end
   return paths
+end
+
+local function baseRomScanSatisfied(self)
+  for _, version in ipairs(GameVersion.ORDER) do
+    if not self.ready[version] and not self.baseRoms[version] then
+      return false
+    end
+  end
+  return true
+end
+
+function RomImporter:_queueBaseRomScan()
+  if not self.baseRomDiscovery then return end
+  if baseRomScanSatisfied(self) then
+    self.baseRomScan = { state = "done" }
+    return
+  end
+  self.baseRomScan = { state = "queued", index = 1 }
+end
+
+function RomImporter:_stepBaseRomScan()
+  local scan = self.baseRomScan
+  if not scan or scan.state == "done" or self.workState == "working" then
+    return
+  end
+  if scan.state == "queued" then
+    local info = love.filesystem.getInfo(BASE_ROMS_DIR)
+    if not info and love.filesystem.createDirectory then
+      love.filesystem.createDirectory(BASE_ROMS_DIR)
+    end
+    scan.paths = listRomPaths(BASE_ROMS_DIR)
+    table.sort(scan.paths)
+    scan.state = "running"
+  end
+
+  local path = scan.paths[scan.index]
+  if not path then
+    scan.state = "done"
+    return
+  end
+  scan.index = scan.index + 1
+
+  local info = love.filesystem.getInfo(path, "file")
+  if info and info.size == ROM_BYTES then
+    local data = love.filesystem.read(path)
+    if type(data) == "string" and #data == ROM_BYTES then
+      local version = GameVersion.forSha1(sha1(data))
+      if version and not self.ready[version] and not self.baseRoms[version] then
+        self.baseRoms[version] = {
+          path = path,
+          name = path:match("[^/\\]+$") or path,
+        }
+      end
+    end
+  end
+
+  if baseRomScanSatisfied(self) or not scan.paths[scan.index] then
+    scan.state = "done"
+  end
 end
 
 local function listZipPaths(dir)
@@ -993,6 +1059,25 @@ local function updaterAllowed()
   return true
 end
 
+-- #835: which column the launcher opens on.  `tab` starts at the --game
+-- shortcut's version (LaunchOptions.pendingTab) or Red; this then prefers the
+-- game play() last handed off, so relaunching lands on the game that was last
+-- played instead of always Red.  An explicit --game still wins, and a
+-- remembered version whose cache is gone or stale is ignored, since opening a
+-- column with no Play button would read as the launcher losing the import.
+-- Called from new() once self.ready is filled, which is what that check needs.
+function RomImporter:_applyLastVersionTab()
+  local okLO, LO = pcall(require, "src.core.LaunchOptions")
+  if okLO and LO.pendingTab then return end
+  local okOpt, opts = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  local last = okOpt and opts and opts.lastVersion
+  if last and GameVersion.VERSIONS[last] and self.ready[last] then
+    self.tab = last
+  end
+end
+
 -- The launcher runs each GameVersion as an independent tab.  Each dropped or
 -- chosen ROM is routed to its version by SHA-1, extracted into that version's
 -- own cache (Red at the root, Blue under blue/, Yellow under yellow/), so all
@@ -1030,6 +1115,10 @@ function RomImporter.new(onComplete, opts)
     mobileFileBridge = mobileFileBridge,
     android = android,
     ios = mobileOS == "iOS",
+    nativePicker = romImportMode == "native-picker",
+    baseRomDiscovery = opts.launcher and Platform.isUWP(),
+    baseRoms = {},
+    baseRomScan = nil,
     -- One startup poll pass on both mobiles.  iOS: files dropped through the
     -- Files app are swept into the save dir before Lua boots (GRBootstrap) with
     -- no love.focus event necessarily following.  Android: the SAF picker is a
@@ -1045,7 +1134,13 @@ function RomImporter.new(onComplete, opts)
     -- for click hit-testing inside EventHandler.
     touchPollable = mobileFileBridge and love.touch ~= nil
       and love.touch.getTouches ~= nil and love.touch.getPosition ~= nil,
-    tab = "red",          -- active launcher tab: "red"/"blue"/"yellow"/"mods"
+    -- Active launcher tab: "red"/"blue"/"yellow"/"mods"/"find".  A --game
+    -- shortcut for a version that is not importable yet lands here, so the
+    -- player at least arrives on the tab they asked for (src/core/LaunchOptions).
+    tab = (function()
+      local okLO, LO = pcall(require, "src.core.LaunchOptions")
+      return (okLO and LO.pendingTab) or "red"
+    end)(),
     logo = love.graphics.newImage("assets/logo/logo.png"),
     bcg = love.graphics.newImage("assets/logo/bcg.png"),
     ready = {}, returning = {}, romName = {},
@@ -1089,8 +1184,8 @@ function RomImporter.new(onComplete, opts)
     -- Android SAF create-document: which game's SAVE FILES card should show
     -- "Save exported." when export_done.flag appears on focus.
     androidPendingExportVersion = nil,
-    iosPendingKind = nil,
-    iosPendingVersion = nil,
+    pickerPendingKind = nil,
+    pickerPendingVersion = nil,
     -- Virtual pointer for handhelds / gamepads (Anbernic stock OS has no
     -- mouse).  D-pad + left stick move it; A clicks; shoulders cycle tabs;
     -- right stick scrolls the save-slot / mods lists.
@@ -1101,6 +1196,11 @@ function RomImporter.new(onComplete, opts)
     _rawHatDirs = {},
     _padInited = false,
   }, RomImporter)
+
+  -- Pre-#899 installs keep Red's extracted cache at the save-dir root; move
+  -- it under red/ before the readiness loop looks for red/ paths, or every
+  -- such install would read as "never imported" and demand the ROM again.
+  CacheFs.migrateLegacyRedCache()
 
   for _, version in ipairs(GameVersion.ORDER) do
     local info = GameVersion.info(version)
@@ -1117,6 +1217,8 @@ function RomImporter.new(onComplete, opts)
     self.romName[version] = "pokemon_" .. info.id
       .. (info.id == "yellow" and ".gbc" or ".gb")
   end
+  self:_applyLastVersionTab()
+  self:_queueBaseRomScan()
 
   -- Android: import a save-dir .gb/.gbc that is not yet ready (USB drop or a
   -- leftover SAF pick), routed by SHA-1.  Already-imported carts are skipped
@@ -1155,15 +1257,35 @@ function RomImporter.new(onComplete, opts)
   end
 
   -- Self-updater: the interactive launcher on a real fused build kicks off one
-  -- async release check as it comes up; draw() polls Check.state() to render an
-  -- unobtrusive banner beneath the columns.  Held behind pcall so a broken or
-  -- absent updater can never take the launcher down with it.
+  -- async release check as it comes up; the top-right update control polls
+  -- Check.state() and glows when there is something to do.  Held behind pcall
+  -- so a broken or absent updater can never take the launcher down with it.
   if self.launcher and updaterAllowed() then
     local ok, Check = pcall(require, "src.update.Check")
     if ok and Check then
       self.Check = Check
       pcall(Check.start)
     end
+  end
+
+  -- PREWARM.  Start the mod-index fetch at boot rather than when the Find
+  -- Mods tab is first opened.  The work is identical either way, but doing it
+  -- now means it overlaps the time the user spends looking at the game tab,
+  -- so the tab is already populated when they reach it instead of greeting
+  -- them with a loader.  Nothing here blocks: the fetch pool is off-thread
+  -- and _pumpFindFetch collects the result whenever it lands.
+  --
+  -- Deliberately NOT behind the blocking overlay: the user did not ask for
+  -- this and must be able to use the launcher while it runs, so _busy is
+  -- cleared straight back out.  An explicit Refresh press still shows one.
+  if self.launcher then
+    pcall(function()
+      self:_refreshFindSources()
+      if #(self.findSources or {}) > 0 then
+        self:_refreshFind(false)
+        self:_clearBusy()
+      end
+    end)
   end
 
   -- On Linux handhelds / NX a gamepad is usually already connected at boot;
@@ -1489,10 +1611,10 @@ function RomImporter:chooseMod()
     self:rescanModsAction()
     return
   end
-  if self.ios and love.system.getPickedFile then
-    self.iosPendingKind = "mod"
+  if self.nativePicker and love.system.getPickedFile then
+    self.pickerPendingKind = "mod"
     if not pickFile("mod") then
-      self.iosPendingKind = nil
+      self.pickerPendingKind = nil
       self.modNotice = { ok = false, text = "Could not open the file picker." }
     end
     return
@@ -1533,7 +1655,7 @@ end
 -- the target tab forward so the notice (and, on success, the new active slot)
 -- is visible.  Requires the ROM to be imported first, since a save is only
 -- playable with its game's data present.
-function RomImporter:_importSave(version, source)
+function RomImporter:_importSave(version, source, force)
   if self.workState == "working" then return end
   if GameVersion.VERSIONS[self.tab] or self.tab == "mods" then
     self.tab = version
@@ -1543,15 +1665,35 @@ function RomImporter:_importSave(version, source)
       .. GameVersion.info(version).displayName .. " ROM before importing a save." }
     return
   end
-  local ok, res = require("src.import.SaveFileIO").importToSlot(source, version)
+  local ok, res, info = require("src.import.SaveFileIO").importToSlot(source, version, force)
   if ok then
     self:_refreshSlots(version)
     self.activeSlot[version] = res
     self.slotScroll[version] = math.huge   -- pin the new row on screen (clamped in draw)
     self.saveNotice[version] = { ok = true, text = "Imported save into " .. tostring(res) .. "." }
-  else
-    self.saveNotice[version] = { ok = false, text = tostring(res) }
+    return
   end
+  if res == nil and info and info.needsConfirm then
+    -- A .sav larger than 32 KB whose first 32768 bytes checksum: the surplus
+    -- is almost certainly an emulator RTC footer, so ask before truncating.
+    -- The yes arm re-enters with force=true; cancel leaves the file untouched.
+    self._modConfirm = {
+      kind = "importOversize",
+      version = version,
+      source = source,
+      title = "Oversized save file",
+      lines = {
+        ("This save is %d bytes; a cartridge save is exactly %d bytes (32 KB).")
+          :format(info.size, 32768),
+        "It may come from a ROM that saved the battery image with an emulator.",
+        "The extra bytes would be discarded.",
+        "Import it anyway?",
+      },
+      yesLabel = "Import anyway",
+    }
+    return
+  end
+  self.saveNotice[version] = { ok = false, text = tostring(res) }
 end
 
 -- "Import save" button: open a native .sav picker and import the pick.
@@ -1565,12 +1707,12 @@ function RomImporter:chooseSaveImport(version)
     self:rescanSavesAction(version)
     return
   end
-  if self.ios and love.system.getPickedFile then
-    self.iosPendingKind = "sav"
-    self.iosPendingVersion = version
+  if self.nativePicker and love.system.getPickedFile then
+    self.pickerPendingKind = "sav"
+    self.pickerPendingVersion = version
     if not pickFile("sav") then
-      self.iosPendingKind = nil
-      self.iosPendingVersion = nil
+      self.pickerPendingKind = nil
+      self.pickerPendingVersion = nil
       self.saveNotice[version] = { ok = false, text = "Could not open the file picker." }
     end
     return
@@ -1683,10 +1825,25 @@ function RomImporter:choose(version)
     self:rescanAction(self.chooseVersion)
     return
   end
-  if self.ios and love.system.getPickedFile then
-    self.iosPendingKind = "rom"
+  local baseRom = self.baseRomDiscovery and self.baseRoms[self.chooseVersion]
+  if baseRom then
+    self.baseRoms[self.chooseVersion] = nil
+    local data = love.filesystem.read(baseRom.path)
+    if not data then
+      self.notice = {
+        version = self.chooseVersion,
+        status = "The detected ROM is no longer available.",
+        detail = "Choose Import ROM to select it another way.",
+      }
+      return
+    end
+    self:startData(data, baseRom.name)
+    return
+  end
+  if self.nativePicker and love.system.getPickedFile then
+    self.pickerPendingKind = "rom"
     if not pickFile("rom") then
-      self.iosPendingKind = nil
+      self.pickerPendingKind = nil
       self:setError("Could not open the file picker.")
     end
     return
@@ -1805,12 +1962,24 @@ end
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
   self:_updatePadCursor(dt)
+  self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
   -- flag is only set once draw() has built a tree, so headless runs and the
   -- test tier never touch the toolkit.
   if self._flex then
     require("src.import.LauncherView").update(self, dt)
   end
+  -- Drive every in-flight async fetch.  These are the operations that used to
+  -- run synchronously inside draw and freeze the window; each pump is a
+  -- non-blocking channel poll, so a frame with nothing in flight costs
+  -- nothing.  They run whether or not the view is up, so a refresh started
+  -- before a tab switch still completes.
+  self:_pumpFindFetch()
+  self:_pumpModInfoFetch()
+  self:_pumpFindStats()
+  self:_pumpFindThumbs()
+  self:_pumpModCheck()
+  self:_pumpModInstall()
   -- Dev harness: POKEPORT_LAUNCHER_SHOT=/path.png resizes the window from
   -- POKEPORT_WIN=WxH, lets the view settle, then captures one frame and
   -- quits, so a scripted run can see the real launcher at any window shape
@@ -1826,6 +1995,24 @@ function RomImporter:update(dt)
       end
       local tab = os.getenv("POKEPORT_LAUNCHER_TAB")
       if tab and tab ~= "" then self:_switchTab(tab) end
+      -- POKEPORT_LAUNCHER_CONFIRM=1 arms a representative install confirm so
+      -- a capture can see the modal (it is otherwise only reachable by click)
+      if os.getenv("POKEPORT_LAUNCHER_CONFIRM") == "1" then
+        self._modConfirm = {
+          kind = "update",
+          title = "Install mod",
+          yesLabel = "Install",
+          lines = { "JP GREEN - Poketto Monsuta Midori v0.4.4",
+                    "by bryanthaboi",
+                    "Mods are not reviewed - trust the author." },
+        }
+      end
+      -- POKEPORT_LAUNCHER_SETTINGS=1 opens the gear panel, the other layout
+      -- a capture cannot otherwise reach without a click.  Pair it with
+      -- POKEPORT_LAUNCHER_SETTINGS_PAGE to land on a page past the first.
+      if os.getenv("POKEPORT_LAUNCHER_SETTINGS") == "1" then
+        self:_openSettings()
+      end
       local query = os.getenv("POKEPORT_LAUNCHER_QUERY")
       if query and query ~= "" then
         self.findQuery = query
@@ -1873,27 +2060,35 @@ function RomImporter:update(dt)
       end)
     end
   end
-  if self.ios and love.system.getPickedFile and self.workState ~= "working" then
+  if self.nativePicker and love.system.getPickedFile and self.workState ~= "working" then
     local path = love.system.getPickedFile()
     if path then
-      local kind = self.iosPendingKind or "rom"
-      local version = self.iosPendingVersion
-      self.iosPendingKind = nil
-      self.iosPendingVersion = nil
+      local kind = self.pickerPendingKind or "rom"
+      local version = self.pickerPendingVersion
+      self.pickerPendingKind = nil
+      self.pickerPendingVersion = nil
       if kind == "mod" then
         self:_installMod(path)
+        if Platform.isUWP() and self.modNotice and self.modNotice.ok then
+          os.remove(path)
+        end
       elseif kind == "sav" then
-        self:_importSave(version or self:_savedropTarget(), path)
+        local target = version or self:_savedropTarget()
+        self:_importSave(target, path)
+        if Platform.isUWP() and self.saveNotice[target] and self.saveNotice[target].ok then
+          os.remove(path)
+        end
       else
         self:startPath(path)
+        if Platform.isUWP() then os.remove(path) end
       end
     elseif love.system.getPickError then
       local errorText = love.system.getPickError()
       if errorText then
-        local kind = self.iosPendingKind or "rom"
-        local version = self.iosPendingVersion or self:_savedropTarget()
-        self.iosPendingKind = nil
-        self.iosPendingVersion = nil
+        local kind = self.pickerPendingKind or "rom"
+        local version = self.pickerPendingVersion or self:_savedropTarget()
+        self.pickerPendingKind = nil
+        self.pickerPendingVersion = nil
         if kind == "mod" then
           self.modNotice = { ok = false, text = errorText }
         elseif kind == "sav" then
@@ -2158,6 +2353,17 @@ function RomImporter:play(version)
   if self.workState == "working" then return end
   if not self.ready[version] then return end
   self._handedOff = true
+  -- #835: remember the game being launched so the next launcher start opens on
+  -- its column (_applyLastVersionTab).  It rides options.lua rather than a file
+  -- of its own, so portable installs and POKEPORT_IDENTITY sandboxes keep it
+  -- with the rest of the launcher's persisted state.  A failed write only
+  -- costs the memory of the choice, so it must never block the boot.
+  pcall(function()
+    local SaveData = require("src.core.SaveData")
+    local opts = SaveData.loadOptions()
+    opts.lastVersion = version
+    SaveData.saveOptions(opts)
+  end)
   resetPointerCursor(self)
   -- The game draws with raw love.graphics from here on; drop the view's
   -- element tree and canvases before the handoff.
@@ -2173,6 +2379,10 @@ function RomImporter:reimport(version)
   self.ready[version] = false
   self.returning[version] = false
   self.chooseVersion = version
+  if self.baseRomDiscovery then
+    self.baseRoms[version] = nil
+    self:_queueBaseRomScan()
+  end
 end
 
 local function clamp(v, lo, hi)
@@ -2219,8 +2429,28 @@ end
 -- it rebuilds the element tree from this importer's state every frame and
 -- renders it.  Required lazily so a headless test require of this module
 -- never loads the UI toolkit.
+-- Dev harness: POKEPORT_LAUNCHER_PROF=<frames> times the view's build+draw
+-- for that many frames, prints mean/median/p95/worst to stdout and quits.
+-- Pair with POKEPORT_LAUNCHER_TAB / POKEPORT_WIN to profile a specific panel.
+local profN, profSamples = tonumber(os.getenv("POKEPORT_LAUNCHER_PROF") or ""), {}
+
 function RomImporter:draw()
-  require("src.import.LauncherView").draw(self)
+  local View = require("src.import.LauncherView")
+  if not profN then return View.draw(self) end
+  local t0 = love.timer.getTime()
+  View.draw(self)
+  profSamples[#profSamples + 1] = (love.timer.getTime() - t0) * 1000
+  if #profSamples >= profN + 30 then
+    local s = {}
+    for i = 31, #profSamples do s[#s + 1] = profSamples[i] end -- drop warmup
+    table.sort(s)
+    local sum = 0
+    for _, v in ipairs(s) do sum = sum + v end
+    io.stderr:write(("PROF frames=%d mean=%.2fms median=%.2fms p95=%.2fms worst=%.2fms\n")
+      :format(#s, sum / #s, s[math.ceil(#s * 0.5)], s[math.ceil(#s * 0.95)], s[#s]))
+    io.stderr:flush()
+    love.event.quit()
+  end
 end
 
 -- Nothing in the launcher can undo a delete, so every Delete control asks
@@ -2242,11 +2472,52 @@ function RomImporter:pressDelete(kind, id, version, commit)
   return false
 end
 
+-- Drain one frame's queued launcher actions; LauncherView.update hands the
+-- batch straight over.  A touch tap fires on EVERY element whose bounds hold
+-- the finger, not only the topmost one: FlexLove gates its mouse path on
+-- Context.findInteractiveAtPosition (libs/flexlove/modules/behaviors/
+-- Clickable.lua) but polls touches per element with a bare bounds test
+-- (EventHandler:processTouchEvents), so a phone tap on a save row's Delete
+-- chip also lands on the row behind it.  Control keys inside a row are the
+-- row's key plus "-<what>", so a row's own action is dropped whenever a
+-- control inside that row queued in the same batch, and #433's disarm runs
+-- here instead of at queue time.  Without both halves an Android tap on
+-- Delete selected the slot and wiped the arm it had just set, so a secondary
+-- slot became the loaded one and could never be deleted (#780).
+function RomImporter:runActions(queue)
+  for i = 1, #queue do
+    local entry = queue[i]
+    local key = type(entry.key) == "string" and entry.key or ""
+    local superseded = false
+    for j = 1, #queue do
+      local other = queue[j]
+      if j ~= i and type(other.key) == "string"
+          and other.key:sub(1, #key + 1) == key .. "-" then
+        superseded = true
+        break
+      end
+    end
+    if not superseded then
+      if not entry.keepArm then self._confirmDelete = nil end
+      local ok, err = pcall(entry.fn)
+      if not ok then print("launcher action error: " .. tostring(err)) end
+    end
+  end
+end
+
 -- Clicks are polled inside FlexLove (mouse + love.touch); host-forwarded
--- mousepressed stays inert so Android's synthesized mouse path cannot
--- double-fire a tap (#553).  Touch move/press/release must still reach
+-- mousepressed mints no click, so Android's synthesized mouse path cannot
+-- double-fire a tap (#553).  It DOES hand the pointer back from the pad
+-- cursor (#781): a Linux boot with a joystick present arms it (see the
+-- getJoystickCount block in new()), and while it is active
+-- LauncherView.update refuses to mint mouse clicks, so a real press must
+-- win the pointer back even when the polled motion yield misses (X11
+-- multi-monitor coords).  Same contract as PadCursor.yieldToPointer for
+-- the overlay hosts.  Touch move/press/release must still reach
 -- FlexLove.touch* or scroll containers never drag on phones.
-function RomImporter:mousepressed() end
+function RomImporter:mousepressed()
+  self._padCursorActive = false
+end
 
 function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
   if not self._flex then return end
@@ -2287,10 +2558,28 @@ end
 -- ------- settings gear (options.lua + enabled mods' option schemas)
 
 function RomImporter:_openSettings()
+  -- The touch-overlay editor is a host screen, so the model gets it as a
+  -- hook rather than reaching for main.lua's handler itself.  Closing the
+  -- settings panel FIRST persists the pending edits (_closeSettings saves)
+  -- and leaves no modal behind the editor to return to.
+  local hooks = {}
+  if self.onEditTouchControls then
+    hooks.editTouchControls = function()
+      self:_closeSettings()
+      self.onEditTouchControls()
+    end
+  end
   local ok, model = pcall(function()
-    return require("src.import.LauncherSettings").open()
+    return require("src.import.LauncherSettings").open(hooks)
   end)
   if ok and model then self._settings = model end
+end
+
+-- Quit from the launcher's own X.  It goes through love.event.quit so main.lua's
+-- love.quit hook still runs: that is where the worker threads are shut down
+-- (#339) and where a launcher close is told apart from a running game's (#785).
+function RomImporter:_quitApp()
+  if love.event and love.event.quit then love.event.quit() end
 end
 
 function RomImporter:_closeSettings()
@@ -2381,6 +2670,12 @@ function RomImporter:keypressed(key)
     return
   end
   if self.workState == "working" then return end
+  -- Keyboard focus ring: arrows move it, Enter activates it -- but only once
+  -- the arrows have been used, so the long-standing "Enter plays the visible
+  -- game" shortcut below still works for anyone who never touches the ring.
+  if self._flex and require("src.import.LauncherView").keypressed(self, key) then
+    return
+  end
   if key == "return" or key == "space" or key == "kpenter" then
     -- Enter acts on the visible game tab: Play if its ROM is ready, otherwise
     -- open its picker.  The mods tab has no keyboard action.
@@ -2565,52 +2860,86 @@ end
 -- Resolve cached (or freshly fetched) GitHub status for every mod that
 -- declares a github field. force=true bypasses the 6h cache on every repo.
 -- Results live on self.modUpdateInfo[id] = { status, latest, best, releases }.
+-- ASYNC (was synchronous).  This runs on every _refreshMods -- boot, and any
+-- toggle or install -- and used to make one blocking curl call per mod with a
+-- github field, in a loop, on the render thread.  A handful of mods was a
+-- multi-second freeze of the whole launcher.  Now each mod gets a handle and
+-- they resolve together across later frames; a mod whose cache is still fresh
+-- resolves on the first pump with no network at all.
 function RomImporter:_syncModUpdateInfo(force)
   local ModUpdate = require("src.mods.ModUpdate")
   self.modUpdateInfo = self.modUpdateInfo or {}
+  local pending = {}
   for _, m in ipairs(self.mods or {}) do
     if m.github and m.github ~= "" then
-      local ok, packed = pcall(function()
-        local releases, err, meta = ModUpdate.fetchReleases(m.github, m.id, {
-          force = force == true,
-        })
-        local cached = ModUpdate.readCache(m.github)
-        return {
-          releases = releases,
-          err = err,
-          meta = meta,
-          checkedAt = (cached and cached.checkedAt) or os.time(),
-        }
-      end)
-      if not ok then
-        self.modUpdateInfo[m.id] = {
-          status = "error", err = tostring(packed),
-        }
-      elseif packed.releases then
-        local status, best = ModUpdate.statusFor(m.version, packed.releases)
-        self.modUpdateInfo[m.id] = {
-          status = status,
-          latest = best and best.version or nil,
-          best = best,
-          releases = packed.releases,
-          downloads = ModUpdate.totalDownloads(packed.releases),
-          dates = ModUpdate.releaseDates(packed.releases),
-          err = nil,
-          checkedAt = packed.checkedAt or os.time(),
-        }
-      else
-        self.modUpdateInfo[m.id] = {
-          status = "error",
-          latest = nil,
-          best = nil,
-          releases = nil,
-          err = tostring(packed.err),
-        }
-      end
+      pending[#pending + 1] = { mod = m,
+        h = ModUpdate.beginFetchReleases(m.github, m.id, { force = force == true }) }
     else
       self.modUpdateInfo[m.id] = nil
     end
   end
+  self._modInfoFetch = (#pending > 0) and pending or nil
+  -- Bump immediately so a mod that lost its github field (or a list that
+  -- shrank) is reflected without waiting on the network.
+  self._modUpdateRev = (self._modUpdateRev or 0) + 1
+end
+
+-- Drive in-flight release checks one frame at a time.  Called from update().
+-- Deliberately NOT behind the blocking overlay: this is background enrichment
+-- of rows that are already usable, so the list stays interactive while the
+-- download counts and update badges fill in.  Individual rows show their own
+-- inline spinner instead.
+function RomImporter:_pumpModInfoFetch()
+  local pending = self._modInfoFetch
+  if not pending then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  local remaining, changed = {}, false
+  for _, item in ipairs(pending) do
+    local m = item.mod
+    local ok, done, releases, err = pcall(ModUpdate.pumpFetchReleases, item.h)
+    if not ok then
+      self.modUpdateInfo[m.id] = { status = "error", err = tostring(done) }
+      changed = true
+    elseif done then
+      changed = true
+      if releases then
+        local status, best = ModUpdate.statusFor(m.version, releases)
+        local cached = ModUpdate.readCache(m.github)
+        self.modUpdateInfo[m.id] = {
+          status = status,
+          latest = best and best.version or nil,
+          best = best,
+          releases = releases,
+          downloads = ModUpdate.totalDownloads(releases),
+          dates = ModUpdate.releaseDates(releases),
+          err = nil,
+          checkedAt = (cached and cached.checkedAt) or os.time(),
+        }
+      else
+        self.modUpdateInfo[m.id] = {
+          status = "error", latest = nil, best = nil, releases = nil,
+          err = tostring(err),
+        }
+      end
+    else
+      remaining[#remaining + 1] = item
+    end
+  end
+  self._modInfoFetch = (#remaining > 0) and remaining or nil
+  if changed then
+    -- Bump so the view's sorted-list cache (keyed on this revision) rebuilds
+    -- when release/download data actually changes, not every frame.
+    self._modUpdateRev = (self._modUpdateRev or 0) + 1
+  end
+end
+
+-- True while any mod's release check is still in flight, so a row can show
+-- an inline spinner instead of "Not checked for updates yet".
+function RomImporter:_modInfoPending(id)
+  for _, item in ipairs(self._modInfoFetch or {}) do
+    if item.mod.id == id then return true end
+  end
+  return false
 end
 
 function RomImporter:_modUpdateInfo(id)
@@ -2696,46 +3025,29 @@ end
 -- Update button: when a newer release is known, confirm then install; when
 -- already current, force-refresh the 6h cache and report / offer update.
 function RomImporter:_modGithubAction(id, action)
-  if not Platform.networkValidated() then
+  -- canFetchRemote, not networkValidated: the self-updater's gate used to
+  -- stand in for this one, which cost Xbox the whole mod catalog rather than
+  -- just the self-update it actually cannot do (#876).  Say what still works
+  -- while we are here, since the native picker is live on every platform that
+  -- lands in this branch.
+  if not Platform.canFetchRemote() then
     self.modNotice = { ok = false,
-      text = "Remote mod download is unavailable on this platform." }
+      text = "Remote mod download is unavailable on this platform. Install a mod .zip from storage instead." }
     return
   end
-  local ran, err = pcall(function()
-    local ModUpdate = require("src.mods.ModUpdate")
-    local row
-    for _, m in ipairs(self.mods or {}) do
-      if m.id == id then row = m; break end
-    end
-    if not row or not row.github then
-      self.modNotice = { ok = false, text = "This mod has no github field" }
-      return
-    end
+  local ModUpdate = require("src.mods.ModUpdate")
+  local row
+  for _, m in ipairs(self.mods or {}) do
+    if m.id == id then row = m; break end
+  end
+  if not row or not row.github then
+    self.modNotice = { ok = false, text = "This mod has no github field" }
+    return
+  end
 
-    if action == "versions" then
-      self.modNotice = { ok = true, text = "Loading versions..." }
-      local releases, fetchErr = ModUpdate.fetchReleases(row.github, row.id, {})
-      if not releases then
-        self.modNotice = { ok = false, text = tostring(fetchErr) }
-        return
-      end
-      local status, best = ModUpdate.statusFor(row.version, releases)
-      self.modUpdateInfo = self.modUpdateInfo or {}
-      self.modUpdateInfo[row.id] = {
-        status = status, latest = best and best.version, best = best,
-        releases = releases,
-        downloads = ModUpdate.totalDownloads(releases),
-        dates = ModUpdate.releaseDates(releases),
-      }
-      self._modVersions = {
-        id = row.id, name = row.name, current = row.version,
-        releases = releases, scroll = 0,
-      }
-      self.modNotice = nil
-      return
-    end
-
-    -- update / check
+  -- Update, when we already know a newer release exists, needs no network:
+  -- confirm straight away off the cached info.
+  if action ~= "versions" then
     local info = self:_modUpdateInfo(id)
     if info and info.status == "available" and info.best then
       self._modConfirm = {
@@ -2750,51 +3062,177 @@ function RomImporter:_modGithubAction(id, action)
       }
       return
     end
+  end
 
-    -- Manual check (or first click when status is current/unknown/error)
-    self.modNotice = { ok = true, text = "Checking " .. row.github .. "..." }
-    local releases, fetchErr = ModUpdate.fetchReleases(row.github, row.id, {
-      force = true,
-    })
-    if not releases then
-      self.modNotice = { ok = false, text = tostring(fetchErr) }
-      return
-    end
-    if #releases == 0 then
-      self.modNotice = { ok = false, text = "No .zip releases found" }
-      return
-    end
-    local status, best = ModUpdate.statusFor(row.version, releases)
-    self.modUpdateInfo = self.modUpdateInfo or {}
-    self.modUpdateInfo[row.id] = {
-      status = status, latest = best and best.version, best = best,
-      releases = releases, checkedAt = os.time(),
-      downloads = ModUpdate.totalDownloads(releases),
-      dates = ModUpdate.releaseDates(releases),
-    }
-    if status == "available" and best then
-      self.modNotice = { ok = true,
-        text = row.name .. ": new version available (v" .. best.version .. ")" }
-      self._modConfirm = {
-        kind = "update", id = row.id, release = best,
-        title = "Update available",
-        yesLabel = "Update",
-        lines = {
-          "Update " .. row.name .. "?",
-          "Installed v" .. tostring(row.version),
-          "Latest v" .. tostring(best.version),
-        },
-      }
-    else
-      self.modNotice = { ok = true,
-        text = row.name .. " is up to date (v"
-          .. tostring(row.version) .. ")" }
-    end
-  end)
-  if not ran then
+  -- ASYNC (was a blocking fetch).  Both remaining paths -- listing versions
+  -- and a manual re-check -- hit the GitHub API, which is exactly the call
+  -- that used to freeze the launcher mid-click.  One job at a time.
+  if self._modCheck then return end
+  self._modCheck = {
+    id = row.id, name = row.name, github = row.github,
+    version = row.version, action = action,
+    h = ModUpdate.beginFetchReleases(row.github, row.id,
+      { force = action ~= "versions" }),
+  }
+  self:_setBusy(action == "versions" and Strings("Loading versions")
+    or Strings("Checking for updates"), row.name)
+end
+
+-- Drive the in-flight per-mod release check.  Called from _pumpModInfoFetch's
+-- neighbourhood in update(); kept separate because this one IS behind the
+-- blocking overlay (the user pressed a button and is waiting on the answer).
+function RomImporter:_pumpModCheck()
+  local job = self._modCheck
+  if not job then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  local ok, done, releases, err = pcall(ModUpdate.pumpFetchReleases, job.h)
+  if ok and not done then return end
+  self._modCheck = nil
+  self:_clearBusy()
+  if not ok then
     self._modVersions = nil
-    self.modNotice = { ok = false,
-      text = "Update failed: " .. tostring(err) }
+    self.modNotice = { ok = false, text = "Update failed: " .. tostring(done) }
+    return
+  end
+  if not releases then
+    self.modNotice = { ok = false, text = tostring(err) }
+    return
+  end
+  if #releases == 0 then
+    self.modNotice = { ok = false, text = "No .zip releases found" }
+    return
+  end
+
+  local status, best = ModUpdate.statusFor(job.version, releases)
+  self.modUpdateInfo = self.modUpdateInfo or {}
+  self.modUpdateInfo[job.id] = {
+    status = status, latest = best and best.version, best = best,
+    releases = releases, checkedAt = os.time(),
+    downloads = ModUpdate.totalDownloads(releases),
+    dates = ModUpdate.releaseDates(releases),
+  }
+  self._modUpdateRev = (self._modUpdateRev or 0) + 1
+
+  if job.action == "versions" then
+    self._modVersions = {
+      id = job.id, name = job.name, current = job.version,
+      releases = releases, page = 1,
+    }
+    self.modNotice = nil
+    return
+  end
+
+  if status == "available" and best then
+    self.modNotice = { ok = true,
+      text = job.name .. ": new version available (v" .. best.version .. ")" }
+    self._modConfirm = {
+      kind = "update", id = job.id, release = best,
+      title = "Update available",
+      yesLabel = "Update",
+      lines = {
+        "Update " .. job.name .. "?",
+        "Installed v" .. tostring(job.version),
+        "Latest v" .. tostring(best.version),
+      },
+    }
+  else
+    self.modNotice = { ok = true,
+      text = job.name .. " is up to date (v" .. tostring(job.version) .. ")" }
+  end
+end
+
+-- ------- mod install / update (async download, blocking unzip)
+--
+-- The download is the slow half and now runs on the fetch pool behind a
+-- non-dismissable loader; unzipping the finished archive is fast and stays
+-- on the main thread, where love.filesystem belongs.  All three entry points
+-- (update a mod, install a specific version, install from an index) funnel
+-- into one in-flight job, so two installs can never race for the same id.
+--
+-- `spec` = { modId, name, release, notice = "mod"|"find", verb, entry }
+function RomImporter:_beginModInstall(spec)
+  if self._modInstall then return end
+  local ModIndex = require("src.mods.ModIndex")
+  local release = spec.release
+  -- An index entry only tells us WHERE the zip is; resolving that is
+  -- ModIndex's job, exactly as in the synchronous path.
+  if not release and spec.entry then
+    local resolved, why = ModIndex.releaseFor(spec.entry)
+    if not resolved then
+      self:_modInstallFailed(spec, why or "this mod cannot be installed")
+      return
+    end
+    release = resolved
+  end
+  if type(release) ~= "table" or not release.zip or not release.zip.url then
+    self:_modInstallFailed(spec, "release has no downloadable .zip")
+    return
+  end
+  local version = release.version or os.time()
+  local tmpName = ("mod_update_%s_%s.zip"):format(tostring(spec.modId),
+    tostring(version))
+  local ModUpdate = require("src.mods.ModUpdate")
+  self._modInstall = {
+    spec = spec, release = release, version = release.version,
+    h = ModUpdate.beginDownloadZip(release.zip.url, tmpName,
+      release.zip.size),
+  }
+  self:_setBusy(Strings("Downloading %s", tostring(spec.name or spec.modId)),
+    "v" .. tostring(release.version or "?"))
+end
+
+function RomImporter:_modInstallFailed(spec, msg)
+  local notice = { ok = false, text = tostring(msg) }
+  if spec.notice == "find" then self.findNotice = notice
+  else self.modNotice = notice end
+  self:_clearBusy()
+end
+
+function RomImporter:_pumpModInstall()
+  local job = self._modInstall
+  if not job then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  local ok, done, path, err, progress = pcall(ModUpdate.pumpDownloadZip, job.h)
+  if ok and not done then
+    -- Feed real download progress into the overlay when the size is known.
+    if progress and self._busy then self._busy.progress = progress end
+    return
+  end
+  self._modInstall = nil
+  local spec = job.spec
+  if not ok then
+    self:_modInstallFailed(spec, "download failed: " .. tostring(done))
+    return
+  end
+  if not path then
+    self:_modInstallFailed(spec, err or "download failed")
+    return
+  end
+  -- Unzip + manifest check.  Fast, and it must run here: love.filesystem
+  -- writes are main-thread only.
+  self:_setBusy(Strings("Installing %s", tostring(spec.name or spec.modId)))
+  local LauncherMods = require("src.mods.LauncherMods")
+  local ran, res, resErr = pcall(LauncherMods.installDownloadedZip,
+    spec.modId, path, job.version)
+  self:_clearBusy()
+  if not ran then
+    self:_modInstallFailed(spec, "install failed: " .. tostring(res))
+    return
+  end
+  if not res then
+    self:_modInstallFailed(spec, resErr or "install failed")
+    return
+  end
+  -- The installed list is what the Install / Installed labels read, so it has
+  -- to be re-derived before the next paint or the card lies.
+  pcall(self._refreshMods, self)
+  local shown = tostring(resErr or job.version or "")
+  local text = ("%s %s %s"):format(spec.verb or "Installed",
+    tostring(spec.name or spec.modId), shown)
+  if spec.notice == "find" then
+    self.findNotice = { ok = true, text = text }
+  else
+    self.modNotice = { ok = true, text = text }
   end
 end
 
@@ -2803,52 +3241,26 @@ function RomImporter:_confirmModUpdate(modId, release)
   for _, m in ipairs(self.mods or {}) do
     if m.id == modId then row = m; break end
   end
-  local name = row and row.name or modId
-  self.modNotice = { ok = true,
-    text = "Downloading " .. tostring(release and release.version or "?") .. "..." }
-  local ran, err = pcall(function()
-    local LauncherMods = require("src.mods.LauncherMods")
-    local ok, res = LauncherMods.installFromRelease(modId, release)
-    if ok then
-      pcall(self._refreshMods, self)
-      self.modNotice = { ok = true,
-        text = "Updated " .. name .. " to " .. tostring(res) }
-    else
-      self.modNotice = { ok = false, text = tostring(res) }
-    end
-  end)
-  if not ran then
-    self.modNotice = { ok = false, text = "Update failed: " .. tostring(err) }
-  end
+  self:_beginModInstall({
+    modId = modId, name = row and row.name or modId,
+    release = release, verb = "Updated", notice = "mod",
+  })
 end
 
 function RomImporter:_installModVersion(modId, release)
   self._modVersions = nil
   self._modReleaseNotes = nil
-  local version = release and release.version or "?"
-  self.modNotice = { ok = true, text = "Downloading " .. tostring(version) .. "..." }
-  local ran, err = pcall(function()
-    local LauncherMods = require("src.mods.LauncherMods")
-    local ok, res = LauncherMods.installFromRelease(modId, release)
-    if ok then
-      pcall(self._refreshMods, self)
-      self.modNotice = { ok = true,
-        text = "Installed " .. tostring(modId) .. " " .. tostring(res) }
-    else
-      self.modNotice = { ok = false, text = tostring(res) }
-    end
-  end)
-  if not ran then
-    self.modNotice = { ok = false,
-      text = "Install failed: " .. tostring(err) }
-  end
+  self:_beginModInstall({
+    modId = modId, name = modId, release = release,
+    verb = "Installed", notice = "mod",
+  })
 end
 
 
 -- NX / desktop / Android labels and inbox hints for the FlexLove view.
 function RomImporter:_modsImportButtonLabel()
   if self.isNX then return Strings("Scan again") end
-  return "Import mod .zip"
+  return Strings("Import mod .zip")
 end
 
 function RomImporter:_modsDefaultHint()
@@ -2859,7 +3271,7 @@ function RomImporter:_modsDefaultHint()
     return Strings("Copy a .zip via MTP into %s/imports/mods/\n"
       .. "DBI MTP → 1: SD Card/%simports/mods/", saveDir, rel)
   end
-  if self.android then return "Or copy a mod .zip via USB." end
+  if self.android then return Strings("Or copy a mod .zip via USB.") end
   return Strings("Or drop a mod .zip onto the window.")
 end
 
@@ -2875,7 +3287,7 @@ function RomImporter:_savesDefaultHint(version)
       .. "DBI MTP → 1: SD Card/%s%s/", game, saveDir, inbox, rel, inbox)
   end
   if self.android then
-    return "Import or export a .sav with the system file picker."
+    return Strings("Import or export a .sav with the system file picker.")
   end
   return Strings("Import a .sav to a new slot, or export the active slot.")
 end
@@ -2917,56 +3329,145 @@ end
 -- there is one "nuzlocke" as far as the installer is concerned, so the panel
 -- must not offer two.  Per-source failures are collected rather than fatal: an
 -- index that is down should cost its own rows, not everybody else's.
+-- ASYNC (was synchronous).  Every source used to be fetched with a blocking
+-- curl call inside the draw path, so opening Find Mods froze the window for
+-- as long as the slowest index took -- measured at over two minutes on a
+-- cold open, with no spinner, because the frame that would have drawn one
+-- never ran.  The fetch now starts here and completes across later frames in
+-- _pumpFindFetch; the loader overlay is up for the whole flight.
 function RomImporter:_refreshFind(force)
-  if not Platform.networkValidated() then
+  -- The notice is the fix, not the gate (#876).  This branch used to return an
+  -- empty listing silently, and because the player had by then added a source,
+  -- the panel skipped its "No mod index added" card and rendered the merged
+  -- listing empty state instead: a valid feed reported as "This index lists no
+  -- mods yet."  Every other failure on this panel surfaces through findNotice,
+  -- and this one has to as well, or adding an index looks like it worked and
+  -- the index looks empty.
+  if not Platform.canFetchRemote() then
     self.findLoaded = true
     self.findIndex = { mods = {}, categories = {} }
+    self.findNotice = { ok = false,
+      text = "Mod indexes cannot be fetched on this platform. Install a mod .zip from storage instead." }
     return
   end
   local ModIndex = require("src.mods.ModIndex")
   self:_refreshFindSources()
-  local mods, seen, cats, catSeen, errs = {}, {}, {}, {}, {}
-  local stale, oldest = false, nil
-  for _, source in ipairs(self.findSources or {}) do
-    local ok, index, err, meta = pcall(function()
-      return ModIndex.fetch(source, { force = force == true })
-    end)
-    if not ok then
-      errs[#errs + 1] = (source.label or source.feed) .. ": " .. tostring(index)
-    elseif not index then
-      errs[#errs + 1] = (source.label or source.feed) .. ": " .. tostring(err)
-    else
-      if meta and meta.stale then stale = true end
-      if meta and meta.checkedAt then
-        oldest = math.min(oldest or meta.checkedAt, meta.checkedAt)
-      end
-      for _, entry in ipairs(index.mods or {}) do
-        if not seen[entry.id] then
-          seen[entry.id] = true
-          entry._source = source.label or source.feed
-          entry._base = source.base
-          mods[#mods + 1] = entry
+  local sources = self.findSources or {}
+  if #sources == 0 then
+    self.findIndex = { mods = {}, categories = {} }
+    self.findLoaded = true
+    return
+  end
+  -- One in-flight refresh at a time: a second Refresh press while the first
+  -- is running would double-count every row into the merge.
+  if self._findFetch then return end
+  local handles = {}
+  for i, source in ipairs(sources) do
+    handles[i] = { source = source,
+      h = ModIndex.beginFetch(source, { force = force == true }) }
+  end
+  self._findFetch = {
+    handles = handles, force = force == true,
+    mods = {}, seen = {}, cats = {}, catSeen = {}, errs = {},
+    stale = false, oldest = nil, at = 1,
+  }
+  self:_setBusy(Strings("Fetching mod index"),
+    #sources == 1 and (sources[1].label or sources[1].feed)
+      or Strings("%d indexes", #sources))
+end
+
+-- Drive the in-flight index fetch one frame at a time.  Called from update().
+function RomImporter:_pumpFindFetch()
+  local f = self._findFetch
+  if not f then return end
+  local ModIndex = require("src.mods.ModIndex")
+
+  -- Pump every handle each frame; they run concurrently on the fetch pool.
+  local allDone = true
+  for _, item in ipairs(f.handles) do
+    if not item.done then
+      local ok, done, index, err, meta = pcall(ModIndex.pumpFetch, item.h)
+      if not ok then
+        item.done = true
+        f.errs[#f.errs + 1] = (item.source.label or item.source.feed)
+          .. ": " .. tostring(done)
+      elseif done then
+        item.done = true
+        if not index then
+          f.errs[#f.errs + 1] = (item.source.label or item.source.feed)
+            .. ": " .. tostring(err)
+        else
+          item.index, item.meta = index, meta
         end
-      end
-      for _, c in ipairs(ModIndex.categoriesIn(index)) do
-        if not catSeen[c] then catSeen[c] = true; cats[#cats + 1] = c end
+      else
+        allDone = false
       end
     end
   end
-  self.findIndex = { mods = mods, categories = cats, stale = stale,
-                     checkedAt = oldest }
+  self._busyCount = nil
+  if not allDone then return end
+
+  -- Merge in SOURCE ORDER, not completion order: first source wins on a
+  -- duplicate id, matching how the mod loader resolves two mods with one id,
+  -- and that rule has to be stable regardless of which index answered first.
+  for _, item in ipairs(f.handles) do
+    local index, meta, source = item.index, item.meta, item.source
+    if index then
+      if meta and meta.stale then f.stale = true end
+      if meta and meta.checkedAt then
+        f.oldest = math.min(f.oldest or meta.checkedAt, meta.checkedAt)
+      end
+      for _, entry in ipairs(index.mods or {}) do
+        if not f.seen[entry.id] then
+          f.seen[entry.id] = true
+          entry._source = source.label or source.feed
+          entry._base = source.base
+          f.mods[#f.mods + 1] = entry
+        end
+      end
+      for _, c in ipairs(ModIndex.categoriesIn(index)) do
+        if not f.catSeen[c] then
+          f.catSeen[c] = true
+          f.cats[#f.cats + 1] = c
+        end
+      end
+    end
+  end
+
+  self.findIndex = { mods = f.mods, categories = f.cats, stale = f.stale,
+                     checkedAt = f.oldest }
   self.findLoaded = true
-  if #errs > 0 then
-    self.findNotice = { ok = false, text = table.concat(errs, "  -  ") }
-  elseif force then
+  if #f.errs > 0 then
+    self.findNotice = { ok = false, text = table.concat(f.errs, "  -  ") }
+  elseif f.force then
     self.findNotice = { ok = true,
-      text = Strings("Refreshed - %d mods listed", #mods) }
+      text = Strings("Refreshed - %d mods listed", #f.mods) }
   end
   -- A category that no longer exists after a refresh would filter everything
   -- away with no way back except guessing.
-  if self.findCategory and not catSeen[self.findCategory] then
+  if self.findCategory and not f.catSeen[self.findCategory] then
     self.findCategory = nil
   end
+  self.findPage = 1
+  self._findFetch = nil
+  self:_clearBusy()
+end
+
+-- Clearing rebinds used to live here, behind a button on the game panel.  It
+-- is now the RESET REBINDS row of the settings model
+-- (src/import/LauncherSettings.lua), which edits the same options table the
+-- rest of that panel does and saves through the same save() -- one control
+-- for a setting that was never per-game in the first place.
+
+-- ------- busy state (drives the non-dismissable loader overlay)
+-- Anything that makes the user wait sets this; LauncherView renders it as a
+-- blocking overlay so no operation can ever run invisibly.
+function RomImporter:_setBusy(title, detail, cancel)
+  self._busy = { title = title, detail = detail, cancel = cancel }
+end
+
+function RomImporter:_clearBusy()
+  self._busy = nil
 end
 
 function RomImporter:_ensureFind()
@@ -2986,12 +3487,22 @@ end
 -- The rows the filters leave, and the installed-mod context the compatibility
 -- warnings are judged against.
 function RomImporter:_findRows()
-  local ModIndex = require("src.mods.ModIndex")
   local all = (self.findIndex and self.findIndex.mods) or {}
-  return ModIndex.filter(all, {
+  -- The view asks every frame (immediate mode); only re-filter when the
+  -- index, query, or category actually changed.
+  local c = self._findRowsCache
+  if c and c.src == all and c.query == self.findQuery
+      and c.category == self.findCategory then
+    return c.rows
+  end
+  local ModIndex = require("src.mods.ModIndex")
+  local rows = ModIndex.filter(all, {
     query = self.findQuery,
     category = self.findCategory,
   })
+  self._findRowsCache = { src = all, query = self.findQuery,
+    category = self.findCategory, rows = rows }
+  return rows
 end
 
 function RomImporter:_findInstalledMap()
@@ -3008,21 +3519,55 @@ function RomImporter:_findThumb(entry)
   self._findThumbs = self._findThumbs or {}
   local cached = self._findThumbs[entry.id]
   if cached ~= nil then return cached or nil end
-  if self._findThumbFetched then return nil end   -- budget spent this frame
   local ModIndex = require("src.mods.ModIndex")
   local url = ModIndex.joinUrl(entry._base, entry.thumbnail)
   if not url then
     self._findThumbs[entry.id] = false
     return nil
   end
-  self._findThumbFetched = true
-  local ok, image = pcall(function()
-    local path, err = ModIndex.downloadThumbnail(url, entry.id)
-    if not path then error(err or "download failed", 0) end
-    return love.graphics.newImage(path)
-  end)
-  self._findThumbs[entry.id] = ok and image or false
-  return ok and image or nil
+  -- ASYNC (was one blocking download per frame).  Only rows on the current
+  -- page ever ask, so pagination already bounds this to a page's worth of
+  -- requests; the fetch pool runs them off-thread and the card shows its
+  -- placeholder until the image lands.
+  self._findThumbFetch = self._findThumbFetch or {}
+  if not self._findThumbFetch[entry.id] then
+    local ext = url:match("%.(%a%a%a?%a?)$") or "png"
+    local name = ("mod_thumb_%s.%s")
+      :format(tostring(entry.id):gsub("[^%w%-_]", "_"), ext)
+    local Fetch = require("src.net.Fetch")
+    self._findThumbFetch[entry.id] = {
+      -- A short ceiling on purpose: a page of these is queued at once, and
+      -- each one's ceiling is part of the worst case for closing the window
+      -- (Fetch.shutdown).  A thumbnail that has not arrived in 15s is not
+      -- worth holding the process open for -- the card shows its placeholder.
+      job = Fetch.download(url, name,
+        { userAgent = "gen1recomp-mod-index", maxSeconds = 15 }),
+    }
+  end
+  return nil
+end
+
+-- Turn finished thumbnail downloads into images.  Called from update(), so
+-- love.graphics.newImage runs on the render thread where it belongs.
+function RomImporter:_pumpFindThumbs()
+  local pending = self._findThumbFetch
+  if not pending then return end
+  local Fetch = require("src.net.Fetch")
+  for id, item in pairs(pending) do
+    local st = Fetch.poll(item.job)
+    if st.status ~= "pending" then
+      Fetch.release(item.job)
+      pending[id] = nil
+      local image
+      if st.status == "ok" and st.path then
+        local ok, img = pcall(love.graphics.newImage, st.path)
+        image = ok and img or nil
+      end
+      self._findThumbs = self._findThumbs or {}
+      self._findThumbs[id] = image or false
+    end
+  end
+  if next(pending) == nil then self._findThumbFetch = nil end
 end
 
 -- Release stats for a FIND MODS row, resolved the same way the MODS tab
@@ -3048,31 +3593,58 @@ function RomImporter:_findStats(entry)
     self._findStatsCache[entry.id] = cached
     return cached
   end
-  if self._findStatsFetched then return nil end   -- budget spent this frame
   if not entry.github or entry.github == "" then
     cached = { done = true }
     self._findStatsCache[entry.id] = cached
     return cached
   end
-  self._findStatsFetched = true
-  local ModUpdate = require("src.mods.ModUpdate")
-  local list, fetchErr
-  local ok = pcall(function()
-    list, fetchErr = ModUpdate.fetchReleases(entry.github, entry.id, {})
-  end)
-  local stats = list and ModUpdate.statsForReleases(list) or nil
-  if stats then
-    cached = { total = stats.total, first = stats.first,
-               latest = stats.latest, done = true }
-  else
-    -- A repo that does not exist is permanent; every other failure (the
-    -- hourly API rate limit, a hiccup) is retried in a minute so rows can
-    -- recover without restarting the launcher.
-    local permanent = tostring(fetchErr):find("Not Found", 1, true) ~= nil
-    cached = { done = permanent, retryAt = os.time() + 60 }
+  -- ASYNC (was a blocking fetch, one row per frame).  "One per frame" bounded
+  -- how many stalls happened at once, not how long each one lasted: every
+  -- frame that started a fetch blocked for the whole round trip, so scrolling
+  -- a listing juddered once per row.  Rows now queue a handle and fill in
+  -- when it lands; until then the row simply has no stats line.
+  self._findStatsPending = self._findStatsPending or {}
+  if not self._findStatsPending[entry.id] then
+    local ModUpdate = require("src.mods.ModUpdate")
+    self._findStatsPending[entry.id] = {
+      id = entry.id,
+      h = ModUpdate.beginFetchReleases(entry.github, entry.id, {}),
+    }
   end
-  self._findStatsCache[entry.id] = cached
-  return cached
+  return nil
+end
+
+-- Drive in-flight FIND MODS stats lookups.  Called from update().
+function RomImporter:_pumpFindStats()
+  local pending = self._findStatsPending
+  if not pending then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  for id, item in pairs(pending) do
+    local ok, done, releases, err = pcall(ModUpdate.pumpFetchReleases, item.h)
+    if not ok or done then
+      pending[id] = nil
+      local stats = (ok and releases) and ModUpdate.statsForReleases(releases) or nil
+      local cached
+      if stats then
+        cached = { total = stats.total, first = stats.first,
+                   latest = stats.latest, done = true }
+      else
+        -- A repo that does not exist is permanent; every other failure (the
+        -- hourly API rate limit, a hiccup) is retried in a minute so rows can
+        -- recover without restarting the launcher.
+        local permanent = tostring(ok and err or done)
+          :find("Not Found", 1, true) ~= nil
+        cached = { done = permanent, retryAt = os.time() + 60 }
+      end
+      self._findStatsCache = self._findStatsCache or {}
+      self._findStatsCache[id] = cached
+      -- The FIND list's sort cache is keyed on this revision; without the
+      -- bump a Popularity/date sort stays frozen in the order of the first
+      -- frame (no stats yet = name order) even after every fetch lands.
+      self._findStatsRev = (self._findStatsRev or 0) + 1
+    end
+  end
+  if next(pending) == nil then self._findStatsPending = nil end
 end
 
 -- Open the "add an index" text prompt.  Deliberately a typed URL rather than a
@@ -3169,24 +3741,10 @@ function RomImporter:_findConfirmInstall(entry)
 end
 
 function RomImporter:_findInstall(entry)
-  local name = entry.title or entry.id
-  self.findNotice = { ok = true, text = Strings("Downloading %s...", name) }
-  local ran, err = pcall(function()
-    local LauncherMods = require("src.mods.LauncherMods")
-    local ok, res = LauncherMods.installFromIndex(entry)
-    if ok then
-      -- The installed list is what the Install / Installed labels read, so it
-      -- has to be re-derived before the next paint or the card lies.
-      pcall(self._refreshMods, self)
-      self.findNotice = { ok = true,
-        text = Strings("Installed %s %s", name, tostring(res)) }
-    else
-      self.findNotice = { ok = false, text = tostring(res) }
-    end
-  end)
-  if not ran then
-    self.findNotice = { ok = false, text = "Install failed: " .. tostring(err) }
-  end
+  self:_beginModInstall({
+    modId = entry.id, name = entry.title or entry.id, entry = entry,
+    verb = "Installed", notice = "find",
+  })
 end
 
 return RomImporter

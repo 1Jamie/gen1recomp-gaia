@@ -392,14 +392,35 @@ local function buildRows(game)
         return true
       end },
     -- fast-forward the logic clock only; music and sfx keep their tempo
-    -- (src/core/GameSpeed.lua), so this is safe to leave on
-    { id = "speed", label = Strings("GAME SPEED"),
+    -- (src/core/GameSpeed.lua), so this is safe to leave on. Per-category
+    -- (RFC 0007): overworld walking, battle turns and menu navigation each
+    -- cycle their own multiplier -- GameSpeed.CATEGORIES is the single
+    -- source of truth for which three rows exist.
+    { id = "speedOverworld", label = Strings("OVERWORLD SPEED"),
       value = function(g)
-        return GameSpeed.levelLabel(g.save.options.speed)
+        return GameSpeed.levelLabel(g.save.options.speedOverworld)
       end,
       step = function(g, dir)
         local o = g.save.options
-        o.speed = GameSpeed.cycle(o.speed, dir)
+        o.speedOverworld = GameSpeed.cycle(o.speedOverworld, dir)
+        return true
+      end },
+    { id = "speedBattle", label = Strings("BATTLE SPEED"),
+      value = function(g)
+        return GameSpeed.levelLabel(g.save.options.speedBattle)
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.speedBattle = GameSpeed.cycle(o.speedBattle, dir)
+        return true
+      end },
+    { id = "speedMenu", label = Strings("MENU SPEED"),
+      value = function(g)
+        return GameSpeed.levelLabel(g.save.options.speedMenu)
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.speedMenu = GameSpeed.cycle(o.speedMenu, dir)
         return true
       end },
     -- the manager's discoverable home (18-mod-manager-ux); inert until
@@ -437,6 +458,25 @@ local function buildRows(game)
         require("src.core.TouchControls"):applyOptions(o)
         return true
       end },
+    -- Haptic feedback for on-screen pad presses (#806): OFF / LIGHT /
+    -- MEDIUM / HEAVY, where the intensity is a vibration duration --
+    -- love.system.vibrate takes nothing else.  Hidden with TOUCH PAD below,
+    -- since the only thing that buzzes is a virtual button press.
+    { id = "haptics", label = Strings("VIBRATION"),
+      value = function(g)
+        local TC = require("src.core.TouchControls")
+        return Strings(TC.hapticLabel(g.save.options.haptics))
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        local TC = require("src.core.TouchControls")
+        o.haptics = TC.cycleHaptics(o.haptics, dir)
+        TC:applyOptions(o)
+        -- sample the level being selected: stepping the row is the only way
+        -- to compare LIGHT against HEAVY without leaving the menu
+        TC.buzz(o.haptics)
+        return true
+      end },
   }
   -- issue #136: hide GBC FX on Android/iOS -- the present shader soft-bricks
   if not GBCFX.isSupported() then
@@ -454,8 +494,10 @@ local function buildRows(game)
     end
     rows = filtered
   end
-  -- TOUCH PAD only where the overlay can appear (mobile, or desktop with
-  -- POKEPORT_TOUCH=1).  POKEPORT_TOUCH=0 forces it off everywhere.
+  -- TOUCH PAD and VIBRATION only where the overlay can appear (mobile, or
+  -- desktop with POKEPORT_TOUCH=1).  POKEPORT_TOUCH=0 forces it off
+  -- everywhere.  VIBRATION rides the same gate: nothing else in the port
+  -- vibrates, and love.system.vibrate is a no-op on desktop anyway.
   do
     local env = os.getenv("POKEPORT_TOUCH")
     local osName = love.system and love.system.getOS and love.system.getOS()
@@ -464,7 +506,9 @@ local function buildRows(game)
     if not show then
       local filtered = {}
       for _, row in ipairs(rows) do
-        if row.id ~= "touchControls" then filtered[#filtered + 1] = row end
+        if row.id ~= "touchControls" and row.id ~= "haptics" then
+          filtered[#filtered + 1] = row
+        end
       end
       rows = filtered
     end
@@ -562,8 +606,14 @@ function OptionsMenu:update(dt)
 end
 
 function OptionsMenu:draw()
+  -- Through Strings, like every other label on this menu.  CANCEL is
+  -- appended AFTER the rows hook (see the header), which is what keeps a mod
+  -- from orphaning the exit -- but it also means a translation mod never sees
+  -- this string, and cannot: there is no row for it to rewrite.  So the one
+  -- word a Spanish player could not read on a fully translated OPTIONS menu
+  -- was the way out of it.
   OptionRows.draw(self.game, self.rows, self.index, self.scroll or 0,
-                  "CANCEL", #self.rows + 1)
+                  Strings("CANCEL"), #self.rows + 1)
 end
 
 return OptionsMenu

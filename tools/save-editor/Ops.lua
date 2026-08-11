@@ -16,12 +16,17 @@ local PartyMod = require("src.pokemon.Party")
 local BoxesMod = require("src.pokemon.Boxes")
 local Bag = require("src.inventory.Bag")
 local MonOps = require("MonOps")
+local Charmap = require("src.save_convert.data.charmap")
 
 local Ops = {}
 
 Ops.MONEY_MAX = 999999
 Ops.STACK_MAX = 99
 Ops.ARM_SECONDS = 2.5
+-- The in-game naming screen caps a nickname at 10 glyphs
+-- (BattleState:askNicknameUI / src/ui/NamingScreen.lua maxLen = 10); the
+-- editor mirrors that cap instead of inventing its own.
+Ops.NICKNAME_MAX = 10
 
 local function clamp(n, lo, hi)
   if n < lo then return lo end
@@ -266,6 +271,36 @@ function Ops.openSpeciesPicker(S, Kit)
   return true
 end
 
+-- The item catalog minus the badges, which are toggles on their own row and
+-- would otherwise be "addable" into the bag as ordinary items.
+function Ops.itemSearch(S, query)
+  query = tostring(query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  local out = {}
+  for _, id in ipairs(S.cat.items) do
+    if not Ops.isBadgeId(id)
+        and (query == "" or id:lower():find(query, 1, true)) then
+      out[#out + 1] = id
+    end
+  end
+  return out
+end
+
+-- `dest` is "bag" or "pc"; the picker can flip it while open.  `opened`
+-- marks the frame it went up, so the click that opened it is not also read
+-- as a tap outside (the same rule the species picker follows).
+function Ops.openItemPicker(S, Kit, dest)
+  S.itemPicker = { query = "", offset = 0, opened = true,
+    dest = dest or "bag" }
+  -- focus the field on open so the mobile soft keyboard rises with it (#529)
+  if Kit then Kit.focus = "item-picker" end
+  return true
+end
+
+function Ops.closeItemPicker(S, Kit)
+  S.itemPicker = nil
+  if Kit and Kit.blur then Kit.blur() end
+end
+
 function Ops.closeSpeciesPicker(S, Kit)
   S.speciesPicker = nil
   if Kit and Kit.blur then Kit.blur() end
@@ -368,6 +403,154 @@ function Ops.healMon(S, mon)
     if def then mv.pp = def.pp + ((mv.ppUps or 0) * math.floor(def.pp / 5)) end
   end
   return Ops.mark(S, ("Healed %s to %d/%d HP"):format(mon.species, mon.hp, mon.stats.hp))
+end
+
+-- ----------------------------------------------------------------- nicknames
+-- Gen1 has no "is nicknamed" bit: an un-nicknamed mon is mon.nickname == nil,
+-- and every display site reads `mon.nickname or def.name`
+-- (src/save_convert/GenSave.lua).  The editor edits that field directly.
+
+-- The byte length of the UTF-8 glyph starting at lead byte `b`.  Self-contained
+-- so this (and eachGlyph) also runs headless under luajit, which has no `utf8`
+-- standard library.
+local function glyphByteLen(b)
+  if b < 0x80 then return 1 end
+  if b < 0xE0 then return 2 end
+  if b < 0xF0 then return 3 end
+  return 4
+end
+
+-- Walk `name` one UTF-8 glyph at a time; fn(glyph) returning false stops the
+-- walk early and eachGlyph returns false.  Returns true when every glyph was
+-- visited.  The single place that walks a name, so the count / validate /
+-- sanitize paths cannot drift apart (a glyph is "é" or "♂", not one of its
+-- bytes, exactly as the naming screen counts its grid cells).
+local function eachGlyph(name, fn)
+  local i, n = 1, #name
+  while i <= n do
+    local b = name:byte(i)
+    local ch = name:sub(i, i + glyphByteLen(b) - 1)
+    if fn(ch) == false then return false end
+    i = i + #ch
+  end
+  return true
+end
+
+-- Glyph count, not byte count: "é" or "♂" is ONE game character, exactly as
+-- the naming screen counts its grid cells and GenSave.encodeName counts a
+-- charmap sequence.
+function Ops.nicknameLength(name)
+  local n = 0
+  eachGlyph(tostring(name or ""), function() n = n + 1 end)
+  return n
+end
+
+-- The set of glyphs a nickname may hold: present in BOTH the Gen1 text codec
+-- charmap (so the name round-trips through a .sav) and the game's font
+-- charmap (so it actually draws).  The codec alone is not enough: "@" is the
+-- string-terminator byte, and "#" plus the dakuten kana have codec entries
+-- but no font tile, so Font.encode (src/render/Font.lua) draws them as a
+-- space -- an invisible nickname.  Only single-codepoint entries qualify:
+-- multi-character macros ("<PK>", the 'd ligature) cannot be typed one
+-- character at a time, so they have no place in the input gate.
+-- Built once per loaded font table (a mod replacing the font rebuilds it);
+-- falls back to the codec-only set when no font data is loaded (headless
+-- suites that never call Data:load).
+local glyphCache, glyphCacheFont
+local function nameGlyphSet(S)
+  local font = S and S.data and S.data.font
+  if not (font and font.charmap) then return Charmap.byToken end
+  if glyphCache and glyphCacheFont == font then return glyphCache end
+  local set = {}
+  for _, e in ipairs(font.charmap) do
+    local s = e.seq
+    if type(s) == "string" and s ~= "" and Charmap.byToken[s]
+        and #s == glyphByteLen(s:byte(1)) then
+      set[s] = true
+    end
+  end
+  glyphCache, glyphCacheFont = set, font
+  return set
+end
+
+-- True when every glyph is a legal nickname glyph (see nameGlyphSet): the
+-- name can be stored in a .sav AND draws in the game.  Anything else either
+-- encodes as "?" (GenSave.encodeName) or renders as a space (Font.encode),
+-- which the user did not ask for, so it is refused rather than mangled.
+function Ops.nicknameUsable(S, name)
+  local set = nameGlyphSet(S)
+  return eachGlyph(tostring(name or ""), function(ch)
+    return set[ch] ~= nil
+  end)
+end
+
+-- The species' display name, what an un-nicknamed mon reads as.
+local function speciesName(S, species)
+  local def = species and S.data.pokemon[species]
+  return (def and def.name) or tostring(species or "")
+end
+
+-- The input gate for the inspector's nickname field.  Given the whole draft
+-- (existing text plus this frame's keystrokes and any paste), return the
+-- version the game can actually hold: every glyph kept draws in the game
+-- (see nameGlyphSet) and the result never exceeds the naming screen's
+-- 10-glyph cap.  Unrenderable glyphs are skipped, not used to abort the rest
+-- of the string, so a paste of "PIKA€CHU" lands as "PIKACHU".  The field runs
+-- this through Kit.textfield's opts.sanitize, so a blocked character never
+-- appears at all.
+function Ops.nicknameSanitize(S, name)
+  local set = nameGlyphSet(S)
+  local out, count = {}, 0
+  eachGlyph(tostring(name or ""), function(ch)
+    if count < Ops.NICKNAME_MAX and set[ch] then
+      out[#out + 1] = ch
+      count = count + 1
+    end
+  end)
+  return table.concat(out)
+end
+
+-- One verb for both writing and clearing.  An empty field means "no nickname",
+-- exactly like an empty confirm on the in-game naming screen (which falls
+-- through to the species' standard name).  A name that equals the species'
+-- standard name is the un-nicknamed state in this save format
+-- (importedNickname in GenSave.lua maps exactly that to nil), so it is
+-- normalized to nil rather than stored as a literal copy of the default.
+function Ops.setNickname(S, mon, name)
+  if not mon then return Ops.say(S, "Pick a slot first") end
+  name = tostring(name or "")
+  if name == "" then
+    return Ops.clearNickname(S, mon)
+  end
+  if name == mon.nickname then
+    return Ops.say(S, ("Already nicknamed %s"):format(name))
+  end
+  if name == speciesName(S, mon.species) then
+    if mon.nickname == nil then
+      return Ops.say(S, ("%s is already un-nicknamed"):format(mon.species))
+    end
+    mon.nickname = nil
+    return Ops.mark(S, ("%s matches its standard name;  nickname cleared")
+      :format(name))
+  end
+  if Ops.nicknameLength(name) > Ops.NICKNAME_MAX then
+    return Ops.say(S, ("Nicknames are capped at %d characters"):format(Ops.NICKNAME_MAX))
+  end
+  if not Ops.nicknameUsable(S, name) then
+    return Ops.say(S,
+      "That name has characters the game cannot render or export cleanly")
+  end
+  mon.nickname = name
+  return Ops.mark(S, ("Nicknamed %s \"%s\""):format(mon.species, name))
+end
+
+function Ops.clearNickname(S, mon)
+  if not mon then return Ops.say(S, "Pick a slot first") end
+  if mon.nickname == nil then
+    return Ops.say(S, ("%s has no nickname to clear"):format(mon.species))
+  end
+  mon.nickname = nil
+  return Ops.mark(S, ("Cleared %s's nickname"):format(mon.species))
 end
 
 -- ------------------------------------------------------------------ boxes
@@ -685,6 +868,58 @@ function Ops.dexClear(S)
   end
   S.save.pokedex = { seen = {}, owned = {} }
   return Ops.mark(S, "Pokedex wiped")
+end
+
+-- ------------------------------------------------------------------ dex sort
+-- The DEX grid's row order.  Sorting is view-only: it never touches the save,
+-- so the list itself is computed here (pure, testable) and the switch is
+-- narrated through Ops.say, never Ops.mark.
+--
+--   "dex"  -- by Pokedex number (1-151), the panel default
+--   "name" -- by display name, alphabetical (case-insensitive)
+--
+-- A species whose record lacks the sort key (a partial mod record) sorts
+-- last, ordered by its id, so the grid can never drop a row or crash.
+-- table.sort is not stable, so every sort carries the id as a tiebreak and
+-- the order is fully deterministic.
+local SORT_KEYS = {
+  dex = function(def, id)
+    return def and def.dex or math.huge
+  end,
+  name = function(def, id)
+    local name = def and def.name
+    return (name and tostring(name):lower()) or tostring(id):lower()
+  end,
+}
+
+function Ops.dexList(S)
+  local list = S and S.cat and S.cat.species
+  if not list then return {} end
+  local make = SORT_KEYS[S.dexSort == "name" and "name" or "dex"]
+  local data = S.data
+  local rows = {}
+  for _, id in ipairs(list) do
+    rows[#rows + 1] = { key = make(data and data.pokemon and data.pokemon[id], id),
+                        id = id }
+  end
+  table.sort(rows, function(a, b)
+    if a.key ~= b.key then return a.key < b.key end
+    return a.id < b.id
+  end)
+  local out = {}
+  for i, r in ipairs(rows) do out[i] = r.id end
+  return out
+end
+
+-- View-only verb: switching the DEX grid's order resets its scroll but never
+-- dirties the save or narrates in the status bar (the active chip carries
+-- the mode).  Returns true when the mode changed, false on a no-op.
+function Ops.dexSort(S, mode)
+  if mode ~= "name" and mode ~= "dex" then return false end
+  if S.dexSort == mode then return false end
+  S.dexSort = mode
+  S.dexOffset = 0
+  return true
 end
 
 -- -------------------------------------------------------------------- map

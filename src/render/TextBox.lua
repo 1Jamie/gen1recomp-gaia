@@ -7,11 +7,13 @@
 -- the text is exhausted and A is pressed, then calls onDone.
 
 local Font = require("src.render.Font")
+local Runtime = require("src.mods.Runtime")
 local Theme = require("src.ui.Theme")
 local Timing = require("src.core.Timing")
 
 local TextBox = {}
 TextBox.__index = TextBox
+TextBox.isTextBox = true
 
 -- theme-free fallbacks; geometry resolves against Theme.textBox at
 -- construction time, so an unthemed boot stays byte-identical
@@ -344,6 +346,11 @@ function TextBox:update(dt)
 end
 
 function TextBox:draw()
+  if Runtime.wantsHook("battle.bottom_ui_visible")
+      and Runtime.call("battle.bottom_ui_visible", function() return true end,
+                       self) == false then
+    return
+  end
   -- The dialogue box belongs against the bottom of the screen, not floating
   -- in the middle of a zoomed-out letterbox.  Declared per frame; the
   -- renderer blits this region to the screen edge and the rest of the UI
@@ -370,8 +377,12 @@ function TextBox:draw()
   local ys = { self.line1Y, self.line2Y }
   for i, line in ipairs(self.shown) do
     local y = (ys[i] or self.line2Y) + (i == 1 and off or 0)
-    for j, code in ipairs(line) do
-      Font.drawCode(code, self.textX + (j - 1) * 8, y)
+    -- the pen advances per glyph, matching the pixel budget paginate
+    -- measured with; every fixed-width page still lands on the 8px grid
+    local pen = self.textX
+    for _, code in ipairs(line) do
+      Font.drawCode(code, pen, y)
+      pen = pen + Font.advanceOf(code)
     end
   end
   if (self.waiting or (self.done and not self.choice and not self.auto

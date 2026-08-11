@@ -13,16 +13,30 @@ local function push(game, s, done)
   game.stack:push(TextBox.new(game, s, done))
 end
 
+-- The question stays on screen under the YES/NO menu.  The dojo prize
+-- balls are the clearest case: FightingDojoHitmonleePokeBallText
+-- (scripts/FightingDojo.asm) is `call PrintText` on a text_end string --
+-- no prompt, so no WaitForTextScrollButtonPress -- immediately followed
+-- by `call YesNoChoice`, and InitYesNoTextBoxParameters
+-- (engine/menus/text_box.asm) puts the menu above the dialogue box
+-- rather than replacing it.  Ride TextBox's opts.choice, the same as
+-- Commands.ask, instead of popping the box with an A press and leaving a
+-- bare ChoiceBox over the overworld (#854).
 local function ask(game, s, cb)
-  local ChoiceBox = require("src.ui.ChoiceBox")
-  push(game, s, function() game.stack:push(ChoiceBox.new(game, cb)) end)
+  local TextBox = require("src.render.TextBox")
+  game.stack:push(TextBox.new(game, s, nil, { choice = cb }))
 end
 
--- fill the extracted text placeholders ({NUM:...}, {RAM:...}, {PLAYER})
+-- fill text placeholders; key on the hram/wram symbol first, since one
+-- string can carry two different NUM slots (#1006)
 local function fill(s, subs)
   s = s:gsub("{PLAYER}", subs.player or "")
-  s = s:gsub("{NUM:[^}]*}", function() return tostring(subs.num or "") end)
-  s = s:gsub("{RAM:[^}]*}", function() return subs.ram or "" end)
+  s = s:gsub("{NUM:([%w_]*)[^}]*}", function(name)
+    return tostring(subs[name] or subs.num or "")
+  end)
+  s = s:gsub("{RAM:([%w_]*)[^}]*}", function(name)
+    return subs[name] or subs.ram or ""
+  end)
   return s
 end
 
@@ -73,9 +87,12 @@ local function oaksAide(threshold, itemId, repeatText)
                 { ram = itemName, player = game.save.player.name }), done)
             end)
         else
+          -- .notEnoughOwnedMons prints owned then requirement, two counts
           push(game, fill(t._OaksAideUhOhText or
             "You have only\ncaught {NUM:}!",
-            { num = owned, ram = itemName }), done)
+            { num = owned, ram = itemName,
+              hOaksAideNumMonsOwned = owned,
+              hOaksAideRequirement = threshold }), done)
         end
       end)
   end
@@ -155,19 +172,26 @@ local function dojoBall(species, ownBall, otherBall, askKey)
       push(game, "You'll have to\nbeat the master\nfirst!", done)
       return
     end
-    ask(game, t[askKey] or ("You want\n" .. species .. "?"), function(yes)
-      if not yes then done() return end
-      flags["EVENT_GOT_" .. species] = true
-      flags.EVENT_DEFEATED_FIGHTING_DOJO = true
-      local Commands = require("src.script.Commands")
-      local ctx = { save = game.save, game = game, overworld = ow }
-      Commands.give_pokemon(ctx, species, 30)
-      -- Hide ONLY the chosen ball; the other stays (FightingDojo.asm hides
-      -- just the picked object's index) and routes to the greedy line above
-      -- when talked to (#197).
-      Commands.hide_object(ctx, "FIGHTING_DOJO", ownBall)
-      push(game, ("%s got\n%s!"):format(game.save.player.name, species), done)
-    end)
+    -- Examining a ball shows that species' POKéDEX entry first
+    -- (DisplayPokedex in FightingDojo.asm, which also marks it seen),
+    -- then the yes/no take-it prompt (#853).
+    local Commands = require("src.script.Commands")
+    local ctx = { save = game.save, game = game, overworld = ow }
+    Commands.mark_seen(ctx, species)
+    local DexEntryMenu = require("src.ui.DexEntryMenu")
+    game.stack:push(DexEntryMenu.new(game, species, function()
+      ask(game, t[askKey] or ("You want\n" .. species .. "?"), function(yes)
+        if not yes then done() return end
+        flags["EVENT_GOT_" .. species] = true
+        flags.EVENT_DEFEATED_FIGHTING_DOJO = true
+        Commands.give_pokemon(ctx, species, 30)
+        -- Hide ONLY the chosen ball; the other stays (FightingDojo.asm hides
+        -- just the picked object's index) and routes to the greedy line above
+        -- when talked to (#197).
+        Commands.hide_object(ctx, "FIGHTING_DOJO", ownBall)
+        push(game, ("%s got\n%s!"):format(game.save.player.name, species), done)
+      end)
+    end))
   end
 end
 
@@ -229,27 +253,32 @@ M.FIGHTING_DOJO = {
 
 M.SILPH_CO_7F = {
   talk = {
-    TEXT_SILPHCO7F_SILPH_WORKER_M1 = function(game, ow, npc, done)
-      local t = text(game)
-      if game.save.flags.EVENT_GOT_LAPRAS then
-        push(game, t._SilphCo7FSilphWorkerM1LaprasDescriptionText
-          or "How is LAPRAS\ndoing?", done)
-        return
-      end
-      push(game, t._SilphCo7FSilphWorkerM1ThankYouText
-        or "Thank you for\nsaving us!\fI want you to\nhave this LAPRAS!",
-        function()
-          game.save.flags.EVENT_GOT_LAPRAS = true
-          local Commands = require("src.script.Commands")
-          Commands.give_pokemon({ save = game.save, game = game, overworld = ow },
-                                "LAPRAS", 15)
-          push(game, ("%s got\nLAPRAS!"):format(game.save.player.name),
-            function()
-              push(game, t._SilphCo7FSilphWorkerM1LaprasDescriptionText
-                or "It's a good\nswimmer!", done)
-            end)
-        end)
-    end,
+    -- command rows, not a Lua handler: give_pokemon needs a runner to AskName (#1049)
+    TEXT_SILPHCO7F_SILPH_WORKER_M1 = {
+      { "face_player" },
+      { "check_flag", "EVENT_GOT_LAPRAS" },
+      { "jump_if_true", "has_lapras" },
+      { "show_text", "_SilphCo7FSilphWorkerM1HaveThisPokemonText" },
+      { "give_pokemon", "LAPRAS", 15 },
+      { "jump_if_false", "box_full" },
+      -- flag ahead of the jingle, like the Celadon EEVEE (#426)
+      { "set_flag", "EVENT_GOT_LAPRAS" },
+      { "play_sound", "Get_Item1" },
+      { "show_text", "_GotMonText", { RAM = "LAPRAS" } },
+      { "show_text", "_SilphCo7FSilphWorkerM1LaprasDescriptionText" },
+      { "jump", "end" },
+      { "label", "box_full" },
+      { "show_text", "_BoxIsFullText" },
+      { "jump", "end" },
+      -- SilphCo7F.asm .saved_silph gates the thanks on Giovanni
+      { "label", "has_lapras" },
+      { "check_flag", "EVENT_BEAT_SILPH_CO_GIOVANNI" },
+      { "jump_if_true", "saved" },
+      { "show_text", "_SilphCo7FSilphWorkerM1IsOurPresidentOkText" },
+      { "jump", "end" },
+      { "label", "saved" },
+      { "show_text", "_SilphCo7FSilphWorkerM1SavedText" },
+    },
   },
 }
 

@@ -217,6 +217,14 @@ apply_ios_branding() {
   cp "$OVERLAY_PLIST" "$dest"
 }
 
+verify_documents_overlay() {
+  local sharing in_place
+  sharing="$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$OVERLAY_PLIST" 2>/dev/null || true)"
+  in_place="$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$OVERLAY_PLIST" 2>/dev/null || true)"
+  [ "$sharing" = "true" ] && [ "$in_place" = "true" ] \
+    || fail "iOS plist overlay must enable UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace"
+}
+
 apply_ios_icon() {
   local source="$ROOT/assets/logo/gen1recomp_cover.png"
   local target="$XCODE_DIR/Images.xcassets/iOS AppIcon.appiconset"
@@ -315,13 +323,11 @@ pack_game_love() {
   # it reappears every launch.  Mods install as .zips at runtime instead
   # (launcher -> MODS -> Import mod .zip), the same lifecycle as every
   # other platform.
-  # libs/ carries the vendored FlexLove toolkit the launcher UI is built on
-  # (src/import/LauncherView.lua requires it at the top level, and RomImporter
-  # calls into that view from both update and draw), so an archive without it
-  # dies on the first frame with nothing left to fall back to.
+  # The launcher UI kit lives at src/ui/kit (inside src/, packed wholesale);
+  # the vendored libs/flexlove tree it replaced is gone.
   # shellcheck disable=SC2086  # MANIFESTS is a deliberate word list
   (cd "$ROOT" && zip -q -9 -r "$LOVE_FILE" \
-    main.lua conf.lua src libs data assets tools/save-editor \
+    main.lua conf.lua src data assets tools/save-editor \
     $MANIFESTS \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
@@ -337,14 +343,15 @@ pack_game_love() {
   # in 0.1.45 through 0.1.47: decodeManifest (src/import/RomImporter.lua) errors
   # outright when a version's manifest is absent, so Import ROM on Yellow died
   # in the built app while dev, which reads the source tree, stayed green.
-  # libs/flexlove/FlexLove.lua is on the list for the same reason: it was added
-  # to build.sh's payload and to no other packager, so the mobile builds shipped
-  # a launcher that threw before drawing its first frame.
+  # src/ui/kit/Kit.lua is on the list for the same reason: the launcher's UI
+  # toolkit once lived outside src/ (libs/flexlove) and shipped missing from
+  # the mobile packagers, so the launcher threw before drawing its first
+  # frame.  The kit is inside src/ now; the gate stays to catch a repeat.
   archive_entries="$(unzip -Z1 "$LOVE_FILE")"
   # shellcheck disable=SC2086  # MANIFESTS is a deliberate word list
   for required in src/update/Boot.lua tools/save-editor/App.lua \
                   tools/save-editor/Kit.lua tools/save-editor/panels/Party.lua \
-                  libs/flexlove/FlexLove.lua \
+                  src/ui/kit/Kit.lua \
                   $MANIFESTS; do
     printf '%s\n' "$archive_entries" | grep -qx "$required" \
       || fail "game.love is missing $required"
@@ -579,6 +586,25 @@ verify_native_bridge() {
   say "native bridge present (pickFile, createFile)"
 }
 
+verify_documents_configuration() {
+  local app="$1"
+  local plist="$app/Info.plist"
+  local sharing in_place
+  [ -f "$plist" ] || fail "built iOS app is missing Info.plist: $plist"
+  sharing="$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$plist" 2>/dev/null || true)"
+  in_place="$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$plist" 2>/dev/null || true)"
+  [ "$sharing" = "true" ] && [ "$in_place" = "true" ] \
+    || fail "built iOS app does not expose its Documents folder in $(basename "$app")"
+  say "public Documents exposure present (file sharing + in-place access)"
+}
+
+verify_game_payload() {
+  local app="$1"
+  [ -s "$app/game.love" ] \
+    || fail "built iOS app is missing game.love: $app"
+  say "game.love present ($(du -h "$app/game.love" | cut -f1))"
+}
+
 run_xcodebuild() {
   local config sdk destination
   if $RELEASE; then
@@ -619,6 +645,8 @@ run_xcodebuild() {
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
     MARKETING_VERSION="$marketing_version"
     CURRENT_PROJECT_VERSION="$project_version"
+    INFOPLIST_KEY_UIFileSharingEnabled=YES
+    INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace=YES
     ONLY_ACTIVE_ARCH=NO
     DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES
   )
@@ -694,12 +722,19 @@ run_xcodebuild() {
     fi
   fi
 
+  verify_documents_configuration "$app"
+
   # Fuse even if the pbxproj wire-up failed,  LÖVE runs any bundled *.love.
-  if [ ! -f "$app/game.love" ]; then
+  # Byte-compare, never just existence: xcodebuild's incremental Copy Bundle
+  # Resources can leave a previous build's game.love in a surviving .app, and
+  # an existence check shipped that stale payload in the .ipa (today's Lua
+  # fixes present in ios/resources/ but absent from the installed app).
+  if ! cmp -s "$LOVE_FILE" "$app/game.love"; then
     say "fusing game.love into $(basename "$app")"
     cp "$LOVE_FILE" "$app/game.love"
   fi
 
+  verify_game_payload "$app"
   verify_native_bridge "$app"
 
   local dist_dir="$DIST/${config}-${sdk}"
@@ -771,6 +806,7 @@ install_to_device() {
 
 # --------------------------------------------------------------- main
 apply_ios_branding
+verify_documents_overlay
 apply_ios_icon
 say "applying iOS native bridge patches (picker/Files support)"
 python3 "$IOS_DIR/patch_love_src.py" || fail "patch_love_src.py failed"

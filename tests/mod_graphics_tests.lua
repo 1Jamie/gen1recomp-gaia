@@ -428,16 +428,42 @@ local spriteReg = Registry.new("sprites", Schemas.REGISTRIES.sprites)
 spriteReg:register("SPRITE_TITLE_LOGO",
                    { image = "mods/logo/logo.png", frames = 1,
                      trueColor = true }, "logo_mod")
+spriteReg:register("SPRITE_LARGE_ACTOR",
+                   { image = "mods/actor/actor.png", frames = 6,
+                     walker = true, frameWidth = 32, frameHeight = 24,
+                     anchorX = 16, anchorY = 24, trueColor = true },
+                   "actor_mod")
 local logoDef = spriteReg:get("SPRITE_TITLE_LOGO")
 check(Schemas.check(Schemas.REGISTRIES.sprites, "sprites", "SPRITE_TITLE_LOGO",
                     logoDef, "register"),
       "a trueColor sprites record validates against the catalog schema")
 check(logoDef.trueColor == true, "and keeps the flag through the merge")
+local largeDef = spriteReg:get("SPRITE_LARGE_ACTOR")
+check(Schemas.check(Schemas.REGISTRIES.sprites, "sprites", "SPRITE_LARGE_ACTOR",
+                    largeDef, "register"),
+      "a variable-size sprites record validates against the catalog schema")
 
 Renderer:init()
 local plainSprite = SpriteRenderer.new(
   { image = "assets/generated/sprites/red.png", frames = 1 })
 local litSprite = SpriteRenderer.new(logoDef)
+local largeSprite = SpriteRenderer.new(largeDef)
+check(plainSprite.frameWidth == 16 and plainSprite.frameHeight == 16
+      and plainSprite.anchorX == 8 and plainSprite.anchorY == 16,
+      "legacy sprite definitions keep the vanilla frame geometry")
+local frameGeometry = largeSprite:getFrameGeometry(5)
+check(frameGeometry.frame == 5 and frameGeometry.x == 0
+      and frameGeometry.y == 120 and frameGeometry.width == 32
+      and frameGeometry.height == 24 and frameGeometry.anchorX == 16
+      and frameGeometry.anchorY == 24,
+      "frame geometry exposes a larger sheet rectangle and anchor")
+local poseGeometry = largeSprite:getPoseGeometry("right", 1, true)
+check(poseGeometry.frame == 5 and poseGeometry.mirror == true
+      and poseGeometry.quad == largeSprite.frames[5],
+      "pose geometry follows walker frame selection and right mirroring")
+local originX, originY = largeSprite:getScreenOrigin(32, 32, 0, 0)
+check(originX == 24 and originY == 20,
+      "a custom anchor keeps a larger sprite grounded at its cell")
 
 Renderer:beginFrame(true)
 check(#PaletteFX.trueColorRects("ui") == 0
@@ -470,6 +496,27 @@ worldDrawn = canvasDraws(Renderer.worldCanvas)
 check(#worldDrawn == 2, "the reported zone joins the world list endFrame blits")
 check(worldDrawn[1].shader and worldDrawn[2].shader == false,
       "the colorized pass runs first, then the sprite's rect with no shader")
+
+-- Larger true-color frames claim their actual extent, and fishing's top-half
+-- path reserves only the bottom 8-pixel tile for the overlay.
+Renderer:beginFrame(true)
+Renderer:beginWorldPass()
+largeSprite:draw(32, 32, 0, 0, "down", 0, false)
+local largeRects = PaletteFX.trueColorRects("world")
+check(#largeRects == 1 and largeRects[1].x == 24 and largeRects[1].y == 20
+      and largeRects[1].w == 32 and largeRects[1].h == 24,
+      "a larger trueColor sprite reports its full anchored extent")
+Renderer:endWorldPass()
+
+Renderer:beginFrame(true)
+Renderer:beginWorldPass()
+largeSprite:draw(32, 32, 0, 0, "down", 0, false, true)
+local topRects = PaletteFX.trueColorRects("world")
+check(#topRects == 1 and topRects[1].h == 16
+      and largeSprite.halfFrames[0].y == 0
+      and largeSprite.halfFrames[0].h == 16,
+      "the fishing overlay keeps a larger frame's bottom tile clear")
+Renderer:endWorldPass()
 
 -- the same path on the UI canvas, which is where a full-color title logo
 -- or menu portrait lands
@@ -612,9 +659,13 @@ check(PaletteFX.usesGbcPack(), "redpp mode selects the gbc pack")
 local gbc = PaletteFX.gbcPack()
 check(gbc ~= nil and gbc.palettes.BULBASAUR ~= nil,
       "data/palettes_gbc.lua ships per-species pals")
-check(PaletteFX.monPalName({ palettes = nil }, "BULBASAUR") == "BULBASAUR",
+-- the pack's species map follows pokered-gbc's Gen 1 (non-GEN_2_GRAPHICS)
+-- palette assignments -- data/pokemon/palettes.asm ELSE branch -- so
+-- Bulbasaur wears GREENMON, not a per-species PAL_BULBASAUR authored for
+-- Gen 2 sprite art (see the pokemon table comment in data/palettes_gbc.lua)
+check(PaletteFX.monPalName({ palettes = nil }, "BULBASAUR") == "GREENMON",
       "RED++ monPalName resolves to the species palette id")
-check(PaletteFX.monPal({ palettes = nil }, "BULBASAUR") == gbc.palettes.BULBASAUR,
+check(PaletteFX.monPal({ palettes = nil }, "BULBASAUR") == gbc.palettes.GREENMON,
       "RED++ monPal reads the species colors without a ROM pack")
 check(PaletteFX.pal({ palettes = nil }, "ROUTE") == gbc.palettes.ROUTE,
       "RED++ still has ROUTE (aliased from VIRIDIAN)")
@@ -813,9 +864,9 @@ do
   Renderer:beginWorldPass()
   Renderer:endWorldPass()
   wipe:draw()
-  check(Renderer.battleCascadeProg ~= nil
-        and Renderer.battleCascadeProg > 0
-        and Renderer.battleCascadeProg < 1,
+  check(Renderer.battleWipe ~= nil
+        and Renderer.battleWipe.prog > 0
+        and Renderer.battleWipe.prog < 1,
         "battle wipe publishes mid-progress cascade to the renderer")
   rects = {}
   Renderer:endFrame(nil, fullWorldZones())
@@ -911,7 +962,8 @@ local vanilla = BattleTransition.new({ stack = stack }, nil,
                                      { trainer = true, stronger = true })
 check(vanilla.style == "spiralout",
       "the vanilla 3-bit select is the hook's default (trainer+stronger)")
-check(vanilla.wipeLen == 40, "the selected wipe brings its own length")
+check(vanilla.wipeLen == BattleTransition.STYLES.spiralout.frames,
+      "the selected wipe brings its own length")
 
 local savedRuntime = { events = Runtime.events, hooks = Runtime.hooks,
                        errors = Runtime.errors }
@@ -924,7 +976,8 @@ hooks:wrap("transition.style", function(nextLink, ctx)
 end, 0, "test")
 local hooked = BattleTransition.new({ stack = stack }, nil, { trainer = true })
 check(hooked.style == "hstripes", "a transition.style hook picks the wipe")
-check(hooked.wipeLen == 24, "the hooked style brings its own length")
+check(hooked.wipeLen == BattleTransition.STYLES.hstripes.frames,
+      "the hooked style brings its own length")
 check(seenCtx.trainer == true and seenCtx.stronger == nil,
       "the hook receives the selection bits as context")
 
