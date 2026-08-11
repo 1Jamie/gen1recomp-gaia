@@ -426,3 +426,23 @@ platform-bridge mod bundled only with that build's launcher, for example).
 Neither hook needs a `Runtime.wantsHook` guard before calling it: `Hooks:call`
 already falls straight through to the vanilla function when no mod has
 wrapped the name, at negligible cost.
+
+## Shared date and time presentation
+
+The global Options menu owns `DATE FORMAT` (`DEVICE`, `DD-MM-YYYY`,
+`MM-DD-YYYY`, `YYYY-MM-DD`) and `TIME FORMAT` (`DEVICE`, `24 HOUR`, `12 HOUR`).
+These preferences live in `options.lua`, so checkpoint restore never rewinds
+them. `DEVICE` uses the process time locale when the platform provides one;
+the portable fallback is `DD-MM-YYYY` plus 24-hour time.
+
+Mods format captured timestamps through the read-only public facade:
+
+```lua
+local date = mod.datetime:date(game, createdAt)
+local time = mod.datetime:time(game, createdAt)
+local both = mod.datetime:dateTime(game, createdAt)
+```
+
+The live `game` supplies only the current option context. Formatting never
+mutates the save, options, or timestamp, and invalid timestamps return
+`"----"`.
