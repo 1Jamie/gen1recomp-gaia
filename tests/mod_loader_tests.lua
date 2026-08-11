@@ -330,6 +330,16 @@ return function(mod)
   mod.options:define({ { key = "shh", type = "toggle", default = true } })
 end
 ]],
+    ["mods/legacy/manifest.json"] = [[
+{"id":"legacy","name":"legacy","version":"1.0.0","entry":"main.lua",
+ "options_schema":"options.lua"}
+]],
+    ["mods/legacy/main.lua"] = "return function(mod) end",
+    ["mods/legacy/options.lua"] = [[
+return {
+  { key = "legacy_toggle", type = "toggle", label = "Legacy", default = true },
+}
+]],
   }
   local writes = {}
   local fs = memfs(schemaFiles)
@@ -350,6 +360,9 @@ end
     "enabled mod schema is exported")
   check(decoded and decoded.mods and decoded.mods.quiet == nil,
     "disabled mod schema is not exported")
+  check(decoded and decoded.mods and decoded.mods.legacy
+    and decoded.mods.legacy[1].key == "legacy_toggle",
+    "manifest options_schema is exported")
   local rows = decoded and decoded.mods.loud or {}
   local byKey = {}
   for _, row in ipairs(rows) do byKey[row.key] = row end
@@ -385,6 +398,7 @@ end
     "a failed mod schema is not exported")
 
   loader:setEnabled("loud", false)
+  loader:setEnabled("legacy", false)
   loader:_writeOptionSchemas()
   local cleared = Json.decode(writes["mod_option_schemas.json"])
   check(cleared and cleared.schema_version == 1 and next(cleared.mods) == nil,

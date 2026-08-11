@@ -202,9 +202,23 @@ function Loader:_writeOptionSchemas()
   if not self.fs.write then return end
 
   local mods = {}
-  for id, schema in pairs(self.optionSchemas) do
-    if self.mods[id] and self.mods[id].enabled and not self.mods[id].failed then
-      mods[id] = schema
+  for id, mod in pairs(self.mods) do
+    if mod.enabled and not mod.failed then
+      local schema = self.optionSchemas[id]
+      -- Keep the legacy manifest options_schema path visible to native
+      -- consumers too. ManagerState loads this same data-only chunk on
+      -- demand; using it here means older mods do not need to migrate to
+      -- mod.options:define just to appear in a launcher settings screen.
+      if schema == nil and mod.manifest.options_schema and self.fs.load then
+        local chunk = self.fs.load(mod.path .. "/" .. mod.manifest.options_schema)
+        if chunk then
+          local ok, rows = pcall(chunk)
+          if ok and type(rows) == "table" then schema = rows end
+        end
+      end
+      if schema ~= nil then
+        mods[id] = schema
+      end
     end
   end
 
