@@ -244,6 +244,7 @@ function BattleState.new(game, opts)
   -- was extracted has no `dudeBack`, and falls back to the player's own.
   self.showPlayerTrainer = true
   self.playerBackImage = nil
+  self.playerBackTrueColor = false
   local hudGfx = data.gen2MenuGfx and data.gen2MenuGfx.battleHud
   local backPath = hudGfx and hudGfx.playerBack
   if self.tutorial and hudGfx and hudGfx.dudeBack then
@@ -251,7 +252,11 @@ function BattleState.new(game, opts)
   end
   -- player.sprite, the same hook and payload Gen 1 raises for its own back pic
   -- (src/pokemon/Sprites.lua): the Dude's stand-in is the `demo` flag there.
-  backPath = Sprites.playerPic(backPath, {
+  -- Both return values matter here -- a mod's trueColor answer has to survive
+  -- to drawPic, or GbcPalette treats the replacement art as a grayscale 2bpp
+  -- sheet and remaps it through a palette instead of leaving it alone.
+  local backTrueColor
+  backPath, backTrueColor = Sprites.playerPic(backPath, {
     side = "back", kind = "battle", demo = self.tutorial and true or false,
     battle = self.battle, data = data,
   })
@@ -262,6 +267,7 @@ function BattleState.new(game, opts)
       -- Kept so battle_sprite_scales can be looked up for this pic too: it is
       -- not a species' pic, so its asset path is the only key it has.
       self.playerBackPath = backPath
+      self.playerBackTrueColor = backTrueColor and true or false
     end
   end
 
@@ -547,7 +553,10 @@ function BattleState:drawPic(mon, back)
   -- Before SendOutPlayerMon the player's box holds ChrisBackpic instead, in
   -- the same 6x6 box at hlcoord 2, 6 that the mon's backpic uses.
   local trainerBack = back and self.showPlayerTrainer and self.playerBackImage
-  if trainerBack then image, path = trainerBack, self.playerBackPath end
+  if trainerBack then
+    image, path = trainerBack, self.playerBackPath
+    trueColor = self.playerBackTrueColor
+  end
   -- And the enemy's box holds the trainer's own frontpic until EnemySwitch
   -- slides it out (InitEnemyTrainer, engine/battle/core.asm:7848).
   local enemyTrainer = (not back) and self.showEnemyTrainer
