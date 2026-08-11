@@ -281,7 +281,12 @@ M.PALLET_TOWN = {
             battle.onFinish = function()
               afterPikaBattle()
             end
-            game.stack:push(battle)
+            -- InitWildBattle calls DoBattleTransitionAndInitBattleVariables
+            -- unconditionally (core.asm:6699) -- no BATTLE_TYPE_PIKACHU
+            -- special case -- so Oak's catch gets the flash + wipe like
+            -- any other wild battle (Commands.old_man_demo already does
+            -- this for the Viridian old man's tutorial catch).
+            Commands.pushBattle(ctx, battle)
           end)
         end))
     end

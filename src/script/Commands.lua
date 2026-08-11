@@ -280,6 +280,28 @@ function Commands.save_end_battle_text(ctx, textId)
   ctx.endBattleText = TextBox.substitute(ctx.game, text or textId)
 end
 
+-- Every battle enters through the transition wipe, script-driven ones
+-- included: BattleTransition (engine/battle/battle_transitions.asm:1) runs
+-- from DoBattleTransitionAndInitBattleVariables for all of them, and
+-- GetBattleTransitionID_WildOrTrainer picks the style from the battle
+-- kind. InitWildBattle calls DoBattleTransitionAndInitBattleVariables
+-- unconditionally (core.asm:6699) -- there is no BATTLE_TYPE_OLD_MAN or
+-- BATTLE_TYPE_PIKACHU special case -- so the old-man tutorial and Oak's
+-- Pikachu catch get the wipe like any other wild battle, same as every
+-- scripted trainer (gym leaders, the rival, Giovanni). ctx.overworld can
+-- be a test double without the full OverworldState metatable, so this
+-- falls back to a bare push; that fallback silently skips the wipe and
+-- the battle-theme start, so it's worth a log rather than a quiet
+-- behavior change.
+function Commands.pushBattle(ctx, battle)
+  if ctx.overworld and ctx.overworld.pushBattle then
+    ctx.overworld:pushBattle(battle)
+  else
+    Logger.warn("pushBattle: no overworld:pushBattle, skipping the transition wipe")
+    ctx.game.stack:push(battle)
+  end
+end
+
 -- start_battle "wild" species level | start_battle "trainer" OPP_CLASS partyIndex
 function Commands.start_battle(ctx, kind, a, b)
   local BattleState = require("src.battle.BattleState")
@@ -312,19 +334,11 @@ function Commands.start_battle(ctx, kind, a, b)
     end
     runner:resume()
   end
-  -- Every battle enters through the transition wipe, script-driven ones
-  -- included: BattleTransition (engine/battle/battle_transitions.asm:1) runs
-  -- from DoBattleTransitionAndInitBattleVariables for all of them, and
-  -- GetBattleTransitionID_WildOrTrainer picks the style from the battle kind.
   -- Pushing the BattleState straight onto the stack skipped the wipe
   -- entirely, so every scripted trainer -- gym leaders, the rival, Giovanni --
   -- and every scripted wild battle simply cut to the battle screen.  The
   -- trainer-sight path already went through pushBattle; this one did not.
-  if ctx.overworld and ctx.overworld.pushBattle then
-    ctx.overworld:pushBattle(battle)
-  else
-    ctx.game.stack:push(battle)
-  end
+  Commands.pushBattle(ctx, battle)
   runner:yield()
 end
 
@@ -818,15 +832,7 @@ function Commands.old_man_demo(ctx, outcome)
   local battle = BattleState.newWild(ctx.game, om.species, om.level)
   battle:makeOldManDemo(nil, outcome == "fail")
   battle.onFinish = function() runner:resume() end
-  -- InitWildBattle calls DoBattleTransitionAndInitBattleVariables
-  -- unconditionally (core.asm:6699) -- there is no BATTLE_TYPE_OLD_MAN
-  -- special case -- so the catch tutorial gets the wipe like any other
-  -- wild battle
-  if ctx.overworld and ctx.overworld.pushBattle then
-    ctx.overworld:pushBattle(battle)
-  else
-    ctx.game.stack:push(battle)
-  end
+  Commands.pushBattle(ctx, battle)
   runner:yield()
 end
 
