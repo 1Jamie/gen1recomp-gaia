@@ -284,6 +284,24 @@ end
 function Commands.start_battle(ctx, kind, a, b)
   local BattleState = require("src.battle.BattleState")
   local runner = ctx.runner
+  local resumed = ctx.resumeBattle
+  if resumed then
+    ctx.resumeBattle = nil
+    local result, restoredBattle = resumed.result, resumed.battle
+    ctx.lastBattleResult = result
+    ctx.lastCheck = result == "win"
+    if ctx.overworld then
+      if result == "win" then
+        ctx.afterScript = ctx.afterScript or {}
+        table.insert(ctx.afterScript, function()
+          ctx.overworld:afterBattle(result, restoredBattle)
+        end)
+      else
+        ctx.overworld:afterBattle(result, restoredBattle)
+      end
+    end
+    return
+  end
   local battle
   if kind == "wild" then
     battle = BattleState.newWild(ctx.game, a, b)
@@ -293,6 +311,10 @@ function Commands.start_battle(ctx, kind, a, b)
   -- one SaveEndBattleTextPointers arms one battle; leaving it set would leak
   -- the line into the next scripted fight
   battle.endBattleText, ctx.endBattleText = ctx.endBattleText, nil
+  if runner and runner.battleCheckpointOrigin then
+    battle.checkpointOrigin = runner:battleCheckpointOrigin(battle)
+    if battle.checkpointOrigin then runner.checkpointBattle = battle end
+  end
   battle.onFinish = function(result)
     ctx.lastBattleResult = result
     ctx.lastCheck = result == "win"
