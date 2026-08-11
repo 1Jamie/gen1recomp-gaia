@@ -27,6 +27,7 @@ local Timing = require("src.core.Timing")
 local TrainerAI = require("src.battle.TrainerAI")
 local TurnOrder = require("src.battle.TurnOrder")
 local TypeChart = require("src.battle.TypeChart")
+local UIVisibility = require("src.battle.UIVisibility")
 local RomText = require("src.core.RomText")
 local Strings = require("src.core.Strings")
 local WideBattle = require("src.battle.WideBattle")
@@ -134,9 +135,7 @@ function BattleState:sgbPalettes()
 end
 
 function BattleState:bottomUIVisible()
-  if not Runtime.wantsHook("battle.bottom_ui_visible") then return true end
-  return Runtime.call("battle.bottom_ui_visible", function() return true end,
-                      self) ~= false
+  return UIVisibility.bottomVisible(self, true)
 end
 
 function BattleState:statusHUDVisible()

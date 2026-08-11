@@ -374,9 +374,12 @@ identifiers: `pc_box_withdraw`, `pc_box_deposit`, `pc_box_release`,
 `battle.bottom_ui_visible` and `battle.status_hud_visible` independently
 control the battle text/menu layer and the HP/status panels. Both receive
 `(next, state)` and default to `true`, so vanilla rendering is unchanged.
-Pushed text boxes also pass through `battle.bottom_ui_visible`; a wrapper that
-only owns battle presentation should return `false` only for its active battle
-or text-box state.
+Text boxes and YES/NO prompts pushed above a battle inherit a `false` result
+for that battle, so hiding the bottom layer cannot leave their white backing
+behind under another overlay. Text boxes also pass through the hook as their
+own state, preserving selective control outside a battle; a wrapper that only
+owns battle presentation should return `false` only for its active battle or
+text-box state.
 
 `core.logic_speed` receives `(next, game)` once per `Game:logicSpeed()` call
 (once per frame). Vanilla behavior resolves the per-category GAME SPEED
