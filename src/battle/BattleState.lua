@@ -1871,9 +1871,18 @@ function BattleState:update(dt)
     -- its own has no slide to wait for.
     if (self.introSlide or 0) > 0 then return end
     if not self:updateQueue() then
-      if self.afterQueue == "menu" then
+      local destination = self.afterQueue
+      -- These fields are queue/presentation cursors, not durable battle
+      -- state. Once the queue has drained, keeping their terminal values
+      -- makes the real command menu look busy to BattleSafety even though
+      -- every message, wait and intro animation has settled.
+      self.afterQueue = nil
+      self.nextInsert = nil
+      self.waitFrames = nil
+      if destination == "menu" then
+        self.introSlide = nil
         self.phase = "menu"
-      elseif self.afterQueue == "finish" then
+      elseif destination == "finish" then
         self:finish()
       end
     end
