@@ -206,16 +206,10 @@ M.PALLET_TOWN = {
     end
 
     local function escortToLab(oak)
-      -- PalletMovementScript_OakMoveLeft (engine/overworld/auto_movement
-      -- .asm) is shared by Red and Yellow, but only Yellow's copy starts
-      -- MUSIC_MUSEUM_GUY there (the instant the movement script is
-      -- armed, before Oak or the player takes a single step); pokered's
-      -- copy only sets BIT_NO_MAP_MUSIC and leaves whatever was already
-      -- playing (MUSIC_MEET_PROF_OAK, started when Oak first appears)
-      -- running uninterrupted all the way into the lab. Until Yellow's
-      -- switch fires (including the Whew.../Come with me lines right
-      -- after the Pikachu battle) the map's default Pallet Town theme
-      -- plays, restored by the battle's own exit path.
+      -- PalletMovementScript_OakMoveLeft
+      -- (engine/overworld/auto_movement.asm) starts MUSIC_MUSEUM_GUY
+      -- when the escort begins in Yellow. Until then, Pallet Town plays
+      -- after the battle; Red/Blue leave MUSIC_MEET_PROF_OAK playing.
       if yellow then
         Music.play(game.data, "Music_MuseumGuy")
       end
@@ -263,17 +257,13 @@ M.PALLET_TOWN = {
           -- Oak turns toward the horizontally adjacent grass (left exit
           -- looks right, right exit looks left -- the
           -- EVENT_PLAYER_AT_RIGHT_EXIT_TO_PALLET_TOWN branch).
-          -- PalletTownOakGreetsPlayerScript (the turn) and
-          -- PalletTownPikachuBattleScript (arming wCurOpponent) are
-          -- separate script ticks in pokeyellow, one main-loop iteration
-          -- apart: OverworldLoopLessDelay (home/overworld.asm) burns two
-          -- DelayFrame calls per iteration, calls RunMapScript (via
-          -- JoypadOverworld) first, and only then checks wCurOpponent to
-          -- jump into the battle -- so the turn from iteration A is on
-          -- screen for the two DelayFrame calls that open iteration B,
-          -- before that same iteration's RunMapScript arms wCurOpponent
-          -- and falls straight into the battle check. Two frames, not
-          -- zero and not a deliberate pause.
+          -- In pokeyellow, PalletTownOakGreetsPlayerScript turns Oak and
+          -- PalletTownPikachuBattleScript arms the battle on the next
+          -- overworld iteration. OverworldLoopLessDelay
+          -- (home/overworld.asm) burns two DelayFrame calls at the top
+          -- of each iteration and calls RunMapScript before checking
+          -- wCurOpponent, so those two DelayFrame calls are what keep
+          -- Oak's turn on screen before the battle check fires.
           if oak then oak.facing = x == 10 and "right" or "left" end
           hold(2, nil, function()
             local battle = BattleState.newWild(game, "PIKACHU", 5)
@@ -281,11 +271,7 @@ M.PALLET_TOWN = {
             battle.onFinish = function()
               afterPikaBattle()
             end
-            -- InitWildBattle calls DoBattleTransitionAndInitBattleVariables
-            -- unconditionally (core.asm:6699) -- no BATTLE_TYPE_PIKACHU
-            -- special case -- so Oak's catch gets the flash + wipe like
-            -- any other wild battle (Commands.old_man_demo already does
-            -- this for the Viridian old man's tutorial catch).
+            -- Use the standard wild-battle entry transition.
             Commands.pushBattle(ctx, battle)
           end)
         end))

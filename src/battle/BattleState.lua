@@ -2194,11 +2194,10 @@ function BattleState:openOldManBag()
   self.afterQueue = "menu"
   self:ui(function()
     local list
-    -- The canned one-item bag (POKE_BALL, neither reading from the real
-    -- inventory) differs by version: pokered's OldManItemList (core.asm
-    -- :2212-2214) is quantity 50; pokeyellow's SimulatedInputBattleItemList
-    -- (core.asm:2316-2319), shared by both the Viridian old man's demo and
-    -- Oak's Pikachu catch, dropped that to quantity 1.
+    -- The canned bag (POKE_BALL, not read from the player's real
+    -- inventory) differs by version: pokered's OldManItemList has 50
+    -- POKé BALLs; pokeyellow's SimulatedInputBattleItemList, shared by
+    -- the Viridian tutorial and Oak's catch, has one.
     local qty = require("src.core.GameVersion").isYellow() and "x1" or "x50"
     list = ListMenu.new(game, "ITEMS", {
       { value = "POKE_BALL", label = Strings("POKé BALL"), right = qty },

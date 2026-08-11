@@ -280,19 +280,13 @@ function Commands.save_end_battle_text(ctx, textId)
   ctx.endBattleText = TextBox.substitute(ctx.game, text or textId)
 end
 
--- Every battle enters through the transition wipe, script-driven ones
--- included: BattleTransition (engine/battle/battle_transitions.asm:1) runs
--- from DoBattleTransitionAndInitBattleVariables for all of them, and
--- GetBattleTransitionID_WildOrTrainer picks the style from the battle
--- kind. InitWildBattle calls DoBattleTransitionAndInitBattleVariables
--- unconditionally (core.asm:6699) -- there is no BATTLE_TYPE_OLD_MAN or
--- BATTLE_TYPE_PIKACHU special case -- so the old-man tutorial and Oak's
--- Pikachu catch get the wipe like any other wild battle, same as every
--- scripted trainer (gym leaders, the rival, Giovanni). ctx.overworld can
--- be a test double without the full OverworldState metatable, so this
--- falls back to a bare push; that fallback silently skips the wipe and
--- the battle-theme start, so it's worth a log rather than a quiet
--- behavior change.
+-- Route scripted battles through the standard entry transition. In the
+-- originals, InitWildBattle (engine/battle/init_battle.asm) always calls
+-- DoBattleTransitionAndInitBattleVariables (engine/battle/core.asm), with
+-- no old-man or Pikachu-demo exception; BattleTransition then selects the
+-- wipe for the battle kind. Some tests provide only a partial overworld
+-- double, so retain a logged fallback even though it skips the transition
+-- and battle music.
 function Commands.pushBattle(ctx, battle)
   if ctx.overworld and ctx.overworld.pushBattle then
     ctx.overworld:pushBattle(battle)
@@ -334,10 +328,7 @@ function Commands.start_battle(ctx, kind, a, b)
     end
     runner:resume()
   end
-  -- Pushing the BattleState straight onto the stack skipped the wipe
-  -- entirely, so every scripted trainer -- gym leaders, the rival, Giovanni --
-  -- and every scripted wild battle simply cut to the battle screen.  The
-  -- trainer-sight path already went through pushBattle; this one did not.
+  -- A direct stack push would skip the battle-entry transition.
   Commands.pushBattle(ctx, battle)
   runner:yield()
 end
