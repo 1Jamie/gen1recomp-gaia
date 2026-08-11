@@ -5,6 +5,7 @@
 -- Right-facing frames are horizontal flips of the left frames.
 
 local Assets = require("src.render.Assets")
+local GbcPalette = require("src.render.GbcPalette")
 local PaletteFX = require("src.render.PaletteFX")
 
 local SpriteRenderer = {}
@@ -204,8 +205,38 @@ end
 -- pipeline that renders into its own canvas never runs through it.  For the
 -- same reason the OG-RED bake is returned unconditionally here rather than
 -- only during a redraw pass -- there is no later pass to restore it.
+-- Gen 2 hands its OBJ palette over explicitly.  Gold is a CGB-native game:
+-- every OW sprite already has a real 4-color OBJ palette (PAL_OW_* crossed
+-- with the time of day, engine/gfx/color.asm MapObjectPals), so there is
+-- nothing for the PaletteFX mode ladder below to infer -- src/world/gen2 just
+-- says what the colors are.  It rides the same getObpImage bake as RED++,
+-- which is also what keys OBJ color 0 to alpha; the sheets carry no real
+-- alpha of their own, so a raw blit would put a white box behind every
+-- character.
+--
+-- `group` must be distinct per palette or the bake cache collides -- callers
+-- pass something like "gen2:NITE:1".
+function SpriteRenderer:setObjPalette(colors, group)
+  self.objColors = colors
+  self.objGroup = group or "gen2"
+end
+
+-- The Gen 2 OBJ palette with the COLOR option applied.  Resolved on the way
+-- to the bake rather than where the world hands the colours over: the option
+-- can change between two frames of a standing map, and applyPalettes only
+-- runs on map entry and once a second.  The mode joins the cache group
+-- because the bake is per-palette -- without it, DMG would keep serving the
+-- colour bake it made first.
+function SpriteRenderer:gen2Obp()
+  return GbcPalette.resolve(self.objColors),
+    self.objGroup .. "|" .. tostring(GbcPalette.mode)
+end
+
 function SpriteRenderer:resolveImage()
   if self.def.trueColor then return self.image end
+  if self.objColors then
+    return getObpImage(self.def.image, self:gen2Obp())
+  end
   if PaletteFX.usesGbcPack() then
     local colors, group = PaletteFX.spriteObp(self.def, self.seed)
     if colors then return getObpImage(self.def.image, colors, group) end
@@ -244,7 +275,13 @@ end
 -- caller then draws itself through :drawTile (Player:draw, #384).  Vanilla
 -- frames therefore still draw 8 rows, while taller frames keep their larger
 -- body and reserve only the overlay row.
-function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip, topHalf)
+-- `forceFlip` is the caller asking for the X-flipped copy of the frame it
+-- already picked, for the facings whose OAM rows are the mirror of another
+-- row's: FacingWeirdTree3 is FacingWeirdTree1's four tiles with the columns
+-- swapped and OAM_XFLIP on each (data/sprites/facings.asm:192-197).  Optional
+-- and trailing, so every existing call site is unchanged.
+function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip,
+    topHalf, forceFlip)
   local x, y = self:getScreenOrigin(px, py, camX, camY)
   local image = self.image
   local redraw = false
@@ -252,6 +289,11 @@ function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip, to
   -- is recorded below once the final frame/height is known.
   if self.def.trueColor then
     image = self.image
+  elseif self.objColors then
+    -- Gen 2: the palette came from the caller (setObjPalette).  Like RED++
+    -- this bakes to a true-color, real-alpha image and there is no BG zone
+    -- shader over the Gen 2 world to exempt it from.
+    image = getObpImage(self.def.image, self:gen2Obp())
   elseif PaletteFX.usesGbcPack() then
     -- RED++: the world canvas is already true-color (TileRenderer bakes
     -- terrain, this bakes the sprite) and the world pass runs unshaded
@@ -287,6 +329,7 @@ function SpriteRenderer:draw(px, py, camX, camY, facing, walkPhase, stepFlip, to
   -- still 3-frame sprites turn to face (the nurse at her machine,
   -- facePlayer on STAY NPCs) but never show walk frames.
   local frame, flip = pose(self, facing, walkPhase, stepFlip)
+  if forceFlip then flip = true end
   local quad = self.frames[frame]
   local drawHeight = self.frameHeight
   if topHalf and self.frameCount > 1 then
