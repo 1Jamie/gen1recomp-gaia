@@ -941,7 +941,17 @@ local function rememberPlaythroughId(save, opts, injectedFs)
   if type(id) ~= "string" or id == "" then return opts, false end
   local version = save.version or GameVersion.get()
   local scope = playthroughScope(version, injectedFs)
-  opts = opts or SaveData.loadOptions(injectedFs)
+  local persisted = SaveData.loadOptions(injectedFs)
+  if opts then
+    -- Slot selection and opaque playthrough routing are engine-owned launcher
+    -- state. A live game may carry an options snapshot from before a legacy
+    -- save was promoted to slot1; writing that stale snapshot must not erase
+    -- the freshly persisted routing and strand tool storage on next boot.
+    opts.saveSlots = deepCopy(persisted.saveSlots)
+    opts.playthroughIds = deepCopy(persisted.playthroughIds)
+  else
+    opts = persisted
+  end
   opts.playthroughIds = opts.playthroughIds or {}
   opts.playthroughIds[version] = opts.playthroughIds[version] or {}
   local changed = opts.playthroughIds[version][scope] ~= id
@@ -1021,18 +1031,18 @@ function SaveData.selectedNormalSaveInfo(save, injectedFs)
     or readTable(fs, staged)
     or readTable(fs, backup)
   if type(normal) ~= "table" or normal.version ~= version then
-    return { savedAt = nil }
+    return { exists = false, savedAt = nil }
   end
   local normalId = normal.meta and normal.meta.playthroughId
   if type(normalId) == "string" and normalId ~= "" and normalId ~= playthroughId then
-    return { savedAt = nil }
+    return { exists = false, savedAt = nil }
   end
   local savedAt = normal.meta and normal.meta.savedAt
   if type(savedAt) ~= "number" or savedAt < 0 or savedAt ~= savedAt
       or savedAt == math.huge or savedAt == -math.huge then
     savedAt = nil
   end
-  return { savedAt = savedAt }
+  return { exists = true, savedAt = savedAt }
 end
 
 -- ------- meta

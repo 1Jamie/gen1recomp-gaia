@@ -238,6 +238,11 @@ if capability.canCapture then
 end
 
 local ok, code, message = mod.checkpoints:restore(game, checkpoint)
+
+-- After the tool has durably committed its first checkpoint, make a
+-- never-saved playthrough reachable through ordinary title boot exactly once.
+local anchored, anchorCode, anchorMessage =
+  mod.checkpoints:ensureNormalSave(game, checkpoint)
 ```
 
 Checkpoint format 1 supports settled overworld control and proven battle
@@ -287,8 +292,17 @@ engine-selected existing playthrough, reconstructs only after all validation
 passes, preserves current options, and verifies by recapture. A title session
 has no live gameplay rollback state: if reconstruction or verification fails,
 the engine rebuilds a usable title session and returns `false, code, message`.
-It never writes a normal Pokémon save. It is unavailable outside title and does
+It never rewrites a normal Pokémon save. It is unavailable outside title and does
 not broaden capture or arbitrary-frame support.
+
+`mod.checkpoints:ensureNormalSave(game, checkpoint)` is a separate live-runtime
+operation for durable checkpoint tools. It creates ordinary progress only when
+none exists, only after validating that the supplied checkpoint is the exact
+current safe runtime, and through the normal atomic save lifecycle. Once an
+ordinary save exists it returns `true, "already_exists"` without writing, so
+subsequent checkpoints and the player's later SAVE commands remain independent.
+Call it only after the tool's own checkpoint/index commit; treat an anchoring
+failure as a failed first checkpoint rather than claiming restart safety.
 See RFC 0003, RFC 0004, RFC 0005, and RFC 0006 for exact contracts and error
 codes.
 

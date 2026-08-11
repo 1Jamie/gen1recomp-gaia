@@ -388,6 +388,47 @@ end
 
 local emitRestored
 
+-- Persist the current verified checkpoint as the ordinary progress anchor only
+-- when this playthrough has never had one. This is intentionally idempotent:
+-- durable checkpoint tools can make a first session resumable without turning
+-- every later checkpoint into a hidden normal SAVE. The live runtime must still
+-- match the supplied checkpoint, and the ordinary save.write veto/lifecycle
+-- remains authoritative through Game:writeSave().
+function Checkpoint.ensureNormalSave(game, checkpoint, injectedFs)
+  local capability = Checkpoint.inspect(game)
+  if not capability.canCapture then
+    return false, capability.reason, capability.message
+  end
+  local validated, code, message = validate(game, checkpoint)
+  if not validated then return false, code, message end
+
+  local info, infoCode, infoMessage =
+    SaveData.selectedNormalSaveInfo(game.save, injectedFs)
+  if not info then return false, infoCode, infoMessage end
+  if info.exists then return true, "already_exists" end
+
+  local current, captureCode, captureMessage = Checkpoint.capture(game)
+  if not current then return false, captureCode, captureMessage end
+  if not equalData(current, validated) then
+    return false, "checkpoint_not_current",
+      "The active runtime changed after this checkpoint was captured."
+  end
+  if type(game.writeSave) ~= "function" then
+    return false, "save_unavailable",
+      "The active runtime cannot persist ordinary progress."
+  end
+  local ok, saved = pcall(game.writeSave, game)
+  if not ok or saved == false then
+    return false, "save_failed", "Could not create the first ordinary progress save."
+  end
+  local verified = SaveData.selectedNormalSaveInfo(game.save, injectedFs)
+  if type(verified) ~= "table" or not verified.exists then
+    return false, "save_verify_failed",
+      "The first ordinary progress save could not be verified."
+  end
+  return true
+end
+
 function Checkpoint.restore(game, checkpoint)
   local capability = Checkpoint.inspect(game)
   if not capability.canRestore then

@@ -683,6 +683,9 @@ function Loader:_api(mod)
       resume = function(_, game, checkpoint)
         return Checkpoint.resume(game, checkpoint)
       end,
+      ensureNormalSave = function(_, game, checkpoint)
+        return Checkpoint.ensureNormalSave(game, checkpoint, loader.fs)
+      end,
     },
     options = {
       define = function(_, schema)

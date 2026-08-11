@@ -19,6 +19,7 @@ local GameMethods = require("src.core.Game")
 local StateStack = require("src.core.StateStack")
 
 local savedEvents, savedHooks = Runtime.events, Runtime.hooks
+local realFs = love.filesystem
 
 local function memfs(files)
   return {
@@ -68,6 +69,7 @@ end
 ]],
 }
 local fs = memfs(files)
+love.filesystem = fs
 -- Production storage and checkpoint resume share the same engine persistence
 -- backend. Route the test's default SaveData lookup to this fixture backend so
 -- the restart path exercises that shared mapping rather than host test files.
@@ -181,6 +183,30 @@ if type(storage) == "table" then
   local checkpoint = checkpoints and checkpoints:capture(runtime)
   T.check(type(checkpoint) == "table",
     "a fresh playthrough can capture a stable overworld checkpoint")
+  T.check(type(checkpoints and checkpoints.ensureNormalSave) == "function",
+    "public checkpoints expose an idempotent first-save anchor")
+  local normalWrites = 0
+  local writeSave = runtime.writeSave
+  function runtime:writeSave()
+    normalWrites = normalWrites + 1
+    return writeSave(self)
+  end
+  local anchored, anchorCode, anchorMessage =
+    checkpoints:ensureNormalSave(runtime, checkpoint)
+  T.check(anchored == true,
+    "first persisted checkpoint can anchor normal progress: "
+      .. tostring(anchorCode or anchorMessage))
+  T.eq(normalWrites, 1,
+    "first checkpoint creates exactly one normal Pokemon save")
+  local anchoredAgain, againCode = checkpoints:ensureNormalSave(runtime, checkpoint)
+  T.check(anchoredAgain == true and againCode == "already_exists",
+    "later checkpoints leave the established normal save independent")
+  T.eq(normalWrites, 1,
+    "idempotent anchor never rewrites the established normal save")
+  local normalBytes = files["save.lua"]
+  T.check(type(normalBytes) == "string" and normalBytes ~= "",
+    "first checkpoint anchor is durably represented before restart")
+  local anchoredAt = SaveSerializer.decode(normalBytes).meta.savedAt
   SaveData.resetSlotState()
   local titleRuntime = makeRuntime(SaveData.newGame({ version = "red" }), true)
   titleRuntime.save.options = { volume = 9, bindings = {} }
@@ -194,8 +220,10 @@ if type(storage) == "table" then
       "title bootstrap retains the checkpoint's original playthrough identity")
     T.eq(titleRuntime.save.options.volume, 9,
       "title bootstrap preserves current options rather than rewinding them")
-    T.check(files["save.lua"] == nil,
-      "title bootstrap never creates a normal Pokémon save as a side effect")
+    T.eq(SaveData.selectedNormalSaveInfo({
+      version = "red", meta = { playthroughId = originalId },
+    }, fs).savedAt, anchoredAt,
+      "title bootstrap never rewrites the first normal save")
     T.same(checkpoints:capture(titleRuntime), checkpoint,
       "bootstrapped overworld differentially recaptures the selected checkpoint")
     T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
@@ -223,8 +251,10 @@ if type(storage) == "table" then
       "failed title reconstruction restores the unbound title skeleton")
     T.eq(failingTitle.save.options.volume, 7,
       "failed title reconstruction retains current title options")
-    T.check(files["save.lua"] == nil,
-      "failed title reconstruction never writes a normal Pokémon save")
+    T.eq(SaveData.selectedNormalSaveInfo({
+      version = "red", meta = { playthroughId = originalId },
+    }, fs).savedAt, anchoredAt,
+      "failed title reconstruction never rewrites the normal Pokémon save")
     T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
       "failed title reconstruction emits no additional restored lifecycle event")
   end
@@ -234,7 +264,8 @@ if type(storage) == "table" then
   -- slot path, or a way to open another playthrough. This fixture writes the
   -- canonical normal save directly to model an already-completed vanilla SAVE.
   active.save.meta.savedAt = 4321
-  fs.write("save.lua", SaveSerializer.encode(active.save))
+  T.check(SaveData.save(active.save) == true,
+    "fixture updates the selected normal save chronology")
   SaveData.resetSlotState()
   local titleWithNormalSave = {
     save = SaveData.newGame({ version = "red" }),
@@ -265,5 +296,6 @@ _G.MOD_TITLE_RESTORE_COUNT = nil
 _G.MOD_TITLE_RESTORE_KIND = nil
 SaveData.resetSlotState()
 SaveData.loadOptions = originalLoadOptions
+love.filesystem = realFs
 
 T.finish()
