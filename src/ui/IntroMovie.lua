@@ -53,6 +53,13 @@ local WAVE_FRAMES = 24        -- 8 substeps x 3 frames (splash.asm:186-209)
 local WAVES_END = WAVES_START + 6 * WAVE_FRAMES  -- 4 waves + 2 empty
 local SPLASH_FRAMES = WAVES_END + 40  -- ld c, 40 (intro.asm:329-331)
 
+-- After GBFadeOutToWhite, PlayIntro still DelayFrame's once (intro.asm:20)
+-- and DisplayTitleScreen keeps GBPalWhiteOut through two
+-- TitleScreenCopyTileMapToVRAM Delay3 waits (title.asm:136, 142) before
+-- GBPalNormal and the logo bounce.  Without this hold the title drops in
+-- the same breath as the fade.
+local POST_FADE_WHITE = 1 + 3 + 3
+
 -- ..(engine/movie/splash.asm ln 211)
 local LOGO_X, LOGO_Y = 72, 56
 local TEXT_X, TEXT_Y = 40, 80
@@ -185,12 +192,22 @@ function IntroMovie.new(game, onDone)
   return self
 end
 
+-- PlayIntro never StopAllSounds's: Music_IntroBattle outlasts the fade and
+-- keeps playing over the title logo drop until title.asm starts
+-- MUSIC_TITLE_SCREEN (same continuity Yellow got in #436).
 function IntroMovie:finish()
   if self.finished then return end
   self.finished = true
-  pcall(Music.stop)
   self.game.stack:pop()
   if self.onDone then self.onDone() end
+end
+
+-- Solid white beat before the title screen is pushed (see POST_FADE_WHITE).
+function IntroMovie:exitToTitle()
+  if self.finished or self.phase == 4 then return end
+  self.phase = 4
+  self.timer = 0
+  self.fade = 1
 end
 
 function IntroMovie:startPhase(phase)
@@ -248,7 +265,7 @@ function IntroMovie:fightStep()
     elseif op.fade then
       self.opTimer = self.opTimer + 1
       self.fade = self.opTimer / op.fade
-      if self.opTimer >= op.fade then self:finish() end
+      if self.opTimer >= op.fade then self:exitToTitle() end
       return
     end
     self.opIndex = self.opIndex + 1
@@ -261,10 +278,17 @@ function IntroMovie:update(dt)
     self:finish()
     return
   end
+  if self.phase == 4 then
+    self.timer = self.timer + 1
+    if self.timer >= POST_FADE_WHITE then self:finish() end
+    return
+  end
   local input = self.game.input
   if input:wasPressed("a") or input:wasPressed("b")
      or input:wasPressed("start") then
-    self:finish()
+    -- PlayIntro still GBFadeOutToWhite's after an interrupted scene; the
+    -- white hold stands in for that beat before the title is built.
+    self:exitToTitle()
     return
   end
   self.timer = self.timer + 1
@@ -416,7 +440,10 @@ end
 function IntroMovie:draw()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
-  if self.phase == 1 then
+  if self.phase == 4 then
+    -- GBPalWhiteOut hold (title.asm DisplayTitleScreen load-in)
+    return
+  elseif self.phase == 1 then
     self:drawCopyright()
   elseif self.phase == 2 then
     self:drawSplash()

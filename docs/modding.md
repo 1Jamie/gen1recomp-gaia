@@ -12,10 +12,33 @@ The modding book lives on the
 - [Registry reference](https://github.com/bryanthaboi/gen1recomp/wiki/Reference-Registries)
   — every registry, generated from `src/mods/Schemas.lua`.
 
-Regenerate the reference straight into a wiki checkout:
+Regenerate the reference. With no argument it writes in-repo, to
+`docs/modding/reference/registries.md`; name a wiki checkout to write the
+wiki's own page name into it instead:
 
 ```sh
+luajit tools/gen_registry_docs.lua
 luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
+```
+
+## Mods and Gold (Gen 2)
+
+The mod API is one API across both generations, but Gold runs its own battle
+engine, overworld, script VM and save format, so a mod says which games it is
+for and Gold serves a declared subset of the surface.
+
+- [`docs/preparing-your-mod-for-gen2.md`](preparing-your-mod-for-gen2.md)
+  the migration guide: what breaks, the `games` manifest key, the module
+  adapter, the patterns no adapter can fix, and a worked before/after.
+- [`docs/mod-api-gen2-compat.md`](mod-api-gen2-compat.md)
+  the reference: every registry, hook and event, whether Gold serves it, and
+  the record-shape differences where it does.
+
+Start with the checker, which reads your manifest and scans your Lua against
+the adapter's own coverage table:
+
+```sh
+python3 tools/modkit.py gen2check mods/my_mod
 ```
 
 ## Editing maps in Tiled

@@ -1124,4 +1124,68 @@ do
   check(merged.default == "ROUTE", "including the fallthrough")
 end
 
+-- ------- mod.world, the Gen 2 arm
+--
+-- src/world/gen2/WorldAPI.lua is the other half of the same facade name.  The
+-- three verbs tested here were reported as unsupported and are the ones a
+-- placement/encounter mod actually needs: spawn an actor, drive a wild battle,
+-- and get a NAMED refusal for anything the Gen 2 arm has no home for.
+do
+  local Gen2Api = require("src.world.gen2.WorldAPI")
+
+  -- a World stand-in: the fields the facade reads, nothing else
+  local maps = { NEW_BARK_TOWN = { id = "NEW_BARK_TOWN", objects = {
+    { index = 0, name = "ELM", sprite = "SPRITE_ELM", x = 1, y = 1 },
+  } } }
+  local rebuilt, battled = 0, nil
+  local world = {
+    map = { id = "NEW_BARK_TOWN", def = maps.NEW_BARK_TOWN },
+    maps = maps,
+    npcPool = {},
+    player = { cellX = 3, cellY = 4, facing = "down" },
+    -- the two tables src/battle/gen2/Mon.lua reads to build a wild mon
+    game = { save = { party = {} }, data = {
+      moves = {},
+      growthRates = {},
+      pokemon = { FIXMON = { name = "FIXMON", types = { "NORMAL" },
+        baseStats = { hp = 50, attack = 50, defense = 50, speed = 50,
+                      specialAttack = 50, specialDefense = 50 },
+        growthRate = "MEDIUM_FAST", learnset = {} } },
+    } },
+    rebuildPeople = function() rebuilt = rebuilt + 1 end,
+    startBattle = function(_, opts, onDone)
+      battled = opts
+      if onDone then onDone("win") end
+    end,
+  }
+  local World2 = require("src.world.gen2.World")
+  world.addRuntimeObject = World2.addRuntimeObject
+  world.removeRuntimeObject = World2.removeRuntimeObject
+  local api = Gen2Api.new({ world = world }, "tester")
+
+  local id = api:spawnNpc("NEW_BARK_TOWN", { sprite = "SPRITE_LASS", x = 5, y = 5 })
+  check(id == "NEW_BARK_TOWN_obj_1", "Gen 2 spawnNpc returns a handle id")
+  check(#maps.NEW_BARK_TOWN.objects == 2, "and the object joins the map def")
+  check(maps.NEW_BARK_TOWN.objects[2].runtime == true, "marked runtime")
+  check(maps.NEW_BARK_TOWN.objects[2].owner == "tester", "and attributed")
+  check(rebuilt == 1, "the active map's people are rebuilt around it")
+  check(api:removeNpc(id) == true, "Gen 2 removeNpc drops it again")
+  check(#maps.NEW_BARK_TOWN.objects == 1, "and the map def is back to vanilla")
+  local gone, why = Gen2Api.new({ world = world }, "intruder")
+    :removeNpc("NEW_BARK_TOWN_obj_9")
+  check(gone == nil and why ~= nil, "an unknown runtime object is refused")
+
+  -- queueScript: the wild-battle verb, which is how a spawn mod starts a fight
+  local ok = api:queueScript({ { "start_battle", "wild", "FIXMON", 7 } })
+  check(ok == true, "Gen 2 queueScript runs a start_battle row")
+  check(battled ~= nil and battled.wild ~= nil, "and Gold's own startBattle ran")
+  check(battled.wild.level == 7, "with the row's level")
+
+  -- and a verb with no Gen 2 home is refused BY NAME before anything runs
+  local refused, reason = api:queueScript({ { "text", "hi" }, { "wait", 30 } })
+  check(refused == nil, "a queue with an unsupported verb is refused whole")
+  check(reason ~= nil and reason:find("wait", 1, true) ~= nil,
+    "and the refusal names the verb")
+end
+
 S.finish()

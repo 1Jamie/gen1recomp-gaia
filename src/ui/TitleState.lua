@@ -324,7 +324,7 @@ function TitleState:updateSequence()
   elseif self.phase == "settle" then
     self.timer = self.timer + 1
     if self.timer >= SETTLE_FRAMES then
-      Sound.play(data, "Intro_Whoosh")
+      self.whooshSrc = Sound.play(data, "Intro_Whoosh")
       self.showBubble = true
       self.phase = self.yellowLayout and "bubble" or "ribbon"
       self.ribbonOffset = RIBBON_FRAMES[1]
@@ -336,7 +336,17 @@ function TitleState:updateSequence()
     if offset then
       self.ribbonOffset = offset
     else
+      -- title.asm: Delay3 then WaitForSoundToFinish before MUSIC_TITLE_SCREEN
       self.ribbonOffset = nil
+      self.phase = "preMusic"
+      self.timer = 0
+    end
+  elseif self.phase == "preMusic" then
+    self.timer = self.timer + 1
+    local playing = self.whooshSrc and self.whooshSrc.isPlaying
+      and self.whooshSrc:isPlaying()
+    if self.timer >= 3 and (not playing or self.timer > 180) then
+      self.whooshSrc = nil
       self:startMusic()
       self.phase = "loop"
       self.timer = 0
