@@ -206,6 +206,19 @@ M.PALLET_TOWN = {
     end
 
     local function escortToLab(oak)
+      -- PalletMovementScript_OakMoveLeft (engine/overworld/auto_movement
+      -- .asm) is shared by Red and Yellow, but only Yellow's copy starts
+      -- MUSIC_MUSEUM_GUY there (the instant the movement script is
+      -- armed, before Oak or the player takes a single step); pokered's
+      -- copy only sets BIT_NO_MAP_MUSIC and leaves whatever was already
+      -- playing (MUSIC_MEET_PROF_OAK, started when Oak first appears)
+      -- running uninterrupted all the way into the lab. Until Yellow's
+      -- switch fires (including the Whew.../Come with me lines right
+      -- after the Pikachu battle) the map's default Pallet Town theme
+      -- plays, restored by the battle's own exit path.
+      if yellow then
+        Music.play(game.data, "Music_MuseumGuy")
+      end
       local numSteps = x - 10
       if oak and numSteps > 0 then
         ow:scriptMove(oak, "left", numSteps, function()

@@ -453,9 +453,12 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   -- walks out of the warp, not beside him (#863)
   require("src.world.PikachuFollower").onMapEntered(Game, self, opts, true)
 
-  -- opts.keepMusic: the Oak-escort warp keeps MUSIC_MEET_PROF_OAK
-  -- playing into the lab (BIT_NO_MAP_MUSIC in wStatusFlags7);
-  -- keepMusicOnce is the play_music opts.keep one-shot of the same bit
+  -- opts.keepMusic: the Oak-escort warp keeps whatever cutscene song is
+  -- already playing going into the lab instead of cutting to it
+  -- (BIT_NO_MAP_MUSIC in wStatusFlags7) -- MUSIC_MUSEUM_GUY in Yellow
+  -- (started in escortToLab when Oak begins walking), MUSIC_MEET_PROF_OAK
+  -- in Red/Blue (pokered never switches songs for this walk); keepMusicOnce
+  -- is the play_music opts.keep one-shot of the same bit
   local keepMusic = (opts and opts.keepMusic) or self.keepMusicOnce
   self.keepMusicOnce = nil
   if not keepMusic then
