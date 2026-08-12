@@ -514,3 +514,17 @@ local both = mod.datetime:dateTime(game, createdAt)
 The live `game` supplies only the current option context. Formatting never
 mutates the save, options, or timestamp, and invalid timestamps return
 `"----"`.
+
+## Device power information
+
+Sandboxed mods can read the host's battery state without receiving the rest
+of `love.system`:
+
+```lua
+local state, percent = mod.device:powerInfo()
+```
+
+`state` follows LÖVE's values: `"unknown"`, `"battery"`, `"nobattery"`,
+`"charging"`, or `"charged"`. `percent` is `0` through `100`, or `nil` when
+the platform cannot report it. The facade is read-only and does not expose
+URL launching, clipboard access, or other system operations.

@@ -69,7 +69,7 @@ end
 -- value is the replacement to name in the error, or true when there is none
 local BLOCKED_LOVE = {
   filesystem = "mod.storage and mod:read", thread = true,
-  system = true, event = true,
+  system = "mod.device:powerInfo() for battery information", event = true,
 }
 
 local loveProxy
