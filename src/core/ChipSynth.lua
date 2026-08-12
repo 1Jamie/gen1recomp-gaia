@@ -29,6 +29,18 @@ ChipSynth.SAMPLE_RATE = SAMPLE_RATE
 ChipSynth.MUSIC_BUFFER_SAMPLES = MUSIC_BUFFER_SAMPLES
 ChipSynth.MUSIC_BUFFER_COUNT = MUSIC_BUFFER_COUNT
 
+-- Gen 2 SOUND option (MONO/STEREO): gates Music_StereoPanning's per-song
+-- panning byte (audio/engine.asm:1987 wOptions STEREO bit).
+local stereoEnabled = false
+
+function ChipSynth.setStereo(enabled)
+  stereoEnabled = not not enabled
+end
+
+function ChipSynth.getStereo()
+  return stereoEnabled
+end
+
 -- Runtime mix per hardware channel (1 pulse, 2 pulse, 3 wave, 4 noise).
 -- Volume: 1 = authentic GB, 0 = mute.  Pitch: 1 = authentic, 2 = +1 octave,
 -- 0.5 = -1 octave.  Applied at sample time so a live change reaches the next
@@ -97,6 +109,15 @@ end
 local PITCHES = {
   0xF82C, 0xF89D, 0xF907, 0xF96B, 0xF9CA, 0xFA23,
   0xFA77, 0xFAC7, 0xFB12, 0xFB58, 0xFB9B, 0xFBDA,
+}
+-- Gen 2 FrequencyTable (audio/notes.asm): index 0 = rest, then C_..B_ twice
+-- so transpose can walk into the next octave without an octave command.
+local GEN2_FREQUENCY = {
+  0x0000,
+  0xF82C, 0xF89D, 0xF907, 0xF96B, 0xF9CA, 0xFA23,
+  0xFA77, 0xFAC7, 0xFB12, 0xFB58, 0xFB9B, 0xFBDA,
+  0xFC16, 0xFC4E, 0xFC83, 0xFCB5, 0xFCE5, 0xFD11,
+  0xFD3B, 0xFD63, 0xFD89, 0xFDAC, 0xFDCD, 0xFDED,
 }
 -- LuaGB / DMG 8-step duty tables (index 0-3); stored on channels as that index
 local WAVE_PATTERN_TABLES = {
@@ -243,6 +264,9 @@ function Channel.new(engine, spec, options)
   options = options or {}
   local hardware = (spec.number - 1) % 4 + 1
   local isSfxChannel = spec.number > 4
+  -- Default LR tracks match pokegold MonoTracks / StereoTracks ($11/$22/…).
+  local trackBit = bit.lshift(1, hardware - 1)
+  local tracks = bit.bor(bit.lshift(trackBit, 4), trackBit)
   return setmetatable({
     engine = engine,
     bank = options.bank,
@@ -257,10 +281,18 @@ function Channel.new(engine, spec, options)
     frequencyOffset = options.frequencyOffset or 0,
     frameTicks = options.frameTicks or FRAME_TICKS,
     speed = 12,
+    noteLength = 1, -- Gen 2 CHANNEL_NOTE_LENGTH (note_type)
+    durationModifier = 0, -- Gen 2 fractional-frame carry
     volume = 12,
     fade = 0,
     duty = 2,
     octave = 4,
+    transposition = 0, -- Gen 2: hi=octaves, lo=pitches
+    pitchOffset = 0, -- Gen 2 pitch_offset (signed word add to freq)
+    noiseKit = 0,
+    noiseSampling = false, -- Gen 2 toggle_noise
+    condition = 0, -- Gen 2 set_condition / sound_jump_if
+    tracks = tracks, -- Gen 2 CHANNEL_TRACKS (NR51 bits for this channel)
     waveInstrument = 0,
     waveLevel = 1,
     perfectPitch = false,
@@ -299,11 +331,56 @@ function Channel:frequency(note, octave)
   return bit.band(register + self.frequencyOffset, 0x7FF)
 end
 
+-- pokegold GetFrequency: FrequencyTable[pitch+transpose] with asr while
+-- CHANNEL_OCTAVE (+ transpose hi) < 7, then optional pitch_offset.
+function Channel:frequencyGen2(note, octave)
+  local trans = self.transposition or 0
+  local pitch = note + bit.band(trans, 0x0F)
+  local oct = (octave or self.octave) + bit.rshift(trans, 4)
+  local tableVal = GEN2_FREQUENCY[pitch + 1] or 0
+  local signed = tableVal - 0x10000
+  local shifts = 0
+  while oct < 7 do
+    shifts = shifts + 1
+    oct = oct + 1
+  end
+  local register = bit.band(bit.arshift(signed, shifts), 0x7FF)
+  register = bit.band(register + (self.pitchOffset or 0), 0x7FF)
+  return bit.band(register + self.frequencyOffset, 0x7FF)
+end
+
 function Channel:durationTicks(length)
   local tempo = self.sfx and self.frameTicks or self.engine.tempo
   local speed = self.sfx and (self.executeMusic and self.speed or 1)
     or self.speed
   return length * speed * tempo
+end
+
+-- Gen 2 SetNoteDuration (audio/engine.asm).  Two eight-bit multiplies, and
+-- BOTH of them throw the overflow away -- which is the whole character of the
+-- routine and the reason it cannot be written as one product:
+--
+--   low     = LOW((length + 1) * NoteLength)     `ld a, l` after .Multiply
+--   product = tempo * low + DurationModifier     16-bit, wraps
+--   frames  = HIGH(product)                      `ld [hl], d`, one byte
+--   modifier= LOW(product)                       carries into the next note
+--
+-- Keeping the full product instead is what made a cry run for seconds: a cry
+-- sets CHANNEL_TEMPO to its length word (up to 576), so tempo * low routinely
+-- runs past 16 bits and the truncation is load bearing rather than incidental.
+--
+-- NoteLength defaults to 1 and tempo to $100 -- LoadChannel's own defaults --
+-- so a channel that never issues note_type or tempo still times correctly.
+-- After toggle_sfx (executeMusic), fanfares like Sfx_CaughtMon use the
+-- channel's tempo command, not the SFX frameTicks seed.
+function Channel:durationTicksGen2(length)
+  local tempo = (self.sfx and not self.executeMusic)
+    and self.frameTicks or self.engine.tempo
+  local low = bit.band((length + 1) * (self.noteLength or 1), 0xFF)
+  local product = bit.band(tempo * low + (self.durationModifier or 0), 0xFFFF)
+  self.durationModifier = bit.band(product, 0xFF)
+  local frames = math.floor(product / 256)
+  return frames * FRAME_TICKS
 end
 
 function Channel:timedEvent(event, ticks)
@@ -318,6 +395,11 @@ end
 
 function Channel:pan()
   local mask = bit.lshift(1, self.hardware - 1)
+  if self.engine.generation == 2 then
+    local tracks = self.tracks or 0xFF
+    return bit.band(bit.rshift(tracks, 4), mask) ~= 0,
+      bit.band(tracks, mask) ~= 0
+  end
   return bit.band(bit.rshift(self.engine.pan, 4), mask) ~= 0,
     bit.band(self.engine.pan, mask) ~= 0
 end
@@ -365,9 +447,15 @@ end
 
 function Channel:drumEvent(ticks, instrument)
   local panLeft, panRight = self:pan()
+  local drum
+  if self.engine.generation == 2 then
+    drum = self.engine:drumInstrumentGen2(self.noiseKit or 0, instrument)
+  else
+    drum = self.engine:noiseInstrument(instrument)
+  end
   return self:timedEvent({
     noise = true,
-    drum = self.engine:noiseInstrument(instrument),
+    drum = drum,
     panLeft = panLeft,
     panRight = panRight,
   }, ticks)
@@ -378,6 +466,9 @@ function Channel:silenceEvent(ticks)
 end
 
 function Channel:nextEvent()
+  if self.engine.generation == 2 then
+    return self:nextEventGen2()
+  end
   if self.ended then return nil end
   for _ = 1, 100000 do
     local commandAddress = self.address
@@ -517,6 +608,225 @@ function Channel:nextEvent()
         subtract = bit.band(packed, 8) ~= 0,
         shift = bit.band(packed, 7),
       }
+    else
+      self.ended = true
+      return nil
+    end
+  end
+  self.ended = true
+  return nil
+end
+
+-- Gen 2 music bytecode (pokegold macros/scripts/audio.asm, FIRST_MUSIC_CMD=$d0).
+-- Notes share the Gen 1 packing; rest is pitch 0.  Call/loop opcodes are
+-- swapped vs Gen 1 ($fe call, $fd loop) and $fc is sound_jump.
+function Channel:nextEventGen2()
+  if self.ended then return nil end
+  for _ = 1, 100000 do
+    local commandAddress = self.address
+    local command = self:byte()
+
+    if command < 0xD0 and self.sfx and not self.executeMusic then
+      -- ParseSFXOrCry.  On a channel carrying SOUND_SFX or SOUND_CRY a byte
+      -- under $d0 is not a packed note at all: it is a `square_note` /
+      -- `noise_note` row, and SetNoteDuration is handed the WHOLE byte rather
+      -- than its low nibble.  What follows is the volume envelope and then
+      -- the raw frequency register -- two bytes on a tone channel, one on
+      -- noise, where it is the polynomial counter instead.
+      --
+      -- Parsing these as music notes is what made every Gold cry and sound
+      -- effect wrong: the envelope byte was read as a second note and the
+      -- frequency low byte ($d8 for 1752, say) as a note_type command that
+      -- then ate the next two bytes.
+      local ticks = self:durationTicksGen2(command)
+      local packed = self:byte()
+      local volume = bit.rshift(packed, 4)
+      local fade = fadeValue(bit.band(packed, 0x0F))
+      if self.noise then
+        local parameter = bit.band(self:byte() + self.frequencyOffset, 0xFF)
+        return self:noiseEvent(ticks, volume, fade, parameter)
+      end
+      -- CHANNEL_PITCH_OFFSET is wCryPitch for a cry and the SFX pitch
+      -- modifier otherwise; both land in frequencyOffset.  The add is 16-bit
+      -- on hardware and only 11 bits reach the register, so a negative pitch
+      -- stored as its unsigned word still comes out right.
+      local register = bit.band(self:word() + self.frequencyOffset, 0x7FF)
+      return self:tone(ticks, register, volume, fade)
+    elseif command < 0xD0 then
+      local note = bit.rshift(command, 4)
+      local length = bit.band(command, 0x0F)
+      local ticks = self:durationTicksGen2(length)
+      if note == 0 then
+        return self:silenceEvent(ticks)
+      end
+      if self.noise and self.noiseSampling then
+        return self:drumEvent(ticks, note)
+      end
+      if self.noise then
+        return self:silenceEvent(ticks)
+      end
+      return self:tone(ticks, self:frequencyGen2(note))
+    elseif command >= 0xD0 and command <= 0xD7 then
+      -- octave 8 → $d0 (stored 0); octave 1 → $d7 (stored 7)
+      self.octave = bit.band(command, 7)
+    elseif command == 0xD8 then -- note_type / drum_speed
+      self.noteLength = self:byte()
+      if not self.noise then
+        local packed = self:byte()
+        if self.wave then
+          self.waveLevel = WAVE_LEVEL[bit.band(bit.rshift(packed, 4), 3)]
+          self.waveInstrument = bit.band(packed, 0x0F)
+        else
+          self.volume = bit.rshift(packed, 4)
+          self.fade = fadeValue(bit.band(packed, 0x0F))
+        end
+      end
+    elseif command == 0xD9 then -- transpose
+      self.transposition = self:byte()
+    elseif command == 0xDA then -- tempo (big-endian)
+      local high, low = self:byte(), self:byte()
+      if not self.engine.tempoLocked then
+        self.engine.tempo = high * 0x100 + low
+      end
+      self.durationModifier = 0
+    elseif command == 0xDB then -- duty_cycle
+      self.duty = bit.band(self:byte(), 3)
+    elseif command == 0xDC then -- volume_envelope
+      local packed = self:byte()
+      if self.wave then
+        self.waveLevel = WAVE_LEVEL[bit.band(bit.rshift(packed, 4), 3)]
+        self.waveInstrument = bit.band(packed, 0x0F)
+      else
+        self.volume = bit.rshift(packed, 4)
+        self.fade = fadeValue(bit.band(packed, 0x0F))
+      end
+    elseif command == 0xDD then -- pitch_sweep (SFX; keep for completeness)
+      local packed = self:byte()
+      self.sweep = {
+        pace = bit.band(bit.rshift(packed, 4), 7),
+        subtract = bit.band(packed, 8) ~= 0,
+        shift = bit.band(packed, 7),
+      }
+    elseif command == 0xDE then -- duty_cycle_pattern
+      local packed = self:byte()
+      self.duty = {
+        bit.band(bit.rshift(packed, 6), 3),
+        bit.band(bit.rshift(packed, 4), 3),
+        bit.band(bit.rshift(packed, 2), 3),
+        bit.band(packed, 3),
+      }
+    elseif command == 0xDF then -- toggle_sfx
+      self.executeMusic = not self.executeMusic
+    elseif command == 0xE0 then -- pitch_slide
+      local length, packed = self:byte(), self:byte()
+      local octave = bit.rshift(packed, 4)
+      self.pendingSlide = {
+        length = length,
+        target = self:frequencyGen2(bit.band(packed, 0x0F), octave),
+      }
+    elseif command == 0xE1 then -- vibrato
+      local delay, packed = self:byte(), self:byte()
+      local depth = bit.rshift(packed, 4)
+      if depth == 0 then
+        self.vibrato = nil
+      else
+        self.vibrato = {
+          delay = delay,
+          above = bit.rshift(depth, 1) + bit.band(depth, 1),
+          below = bit.rshift(depth, 1),
+          rate = bit.band(packed, 0x0F),
+        }
+      end
+    elseif command == 0xE2 then -- unknownmusic0xe2
+      self:byte()
+    elseif command == 0xE3 then -- toggle_noise
+      if self.noiseSampling then
+        self.noiseSampling = false
+      else
+        self.noiseSampling = true
+        self.noiseKit = self:byte()
+      end
+    elseif command == 0xE4 then -- force_stereo_panning
+      local packed = self:byte()
+      local mask = bit.lshift(1, self.hardware - 1)
+      local default = bit.bor(bit.lshift(mask, 4), mask)
+      self.tracks = bit.band(packed, default)
+    elseif command == 0xE5 then -- volume (global master; ignored for mix)
+      self:byte()
+    elseif command == 0xE6 then -- pitch_offset (big-endian)
+      local high, low = self:byte(), self:byte()
+      local value = high * 0x100 + low
+      if value >= 0x8000 then value = value - 0x10000 end
+      self.pitchOffset = value
+    elseif command == 0xE7 or command == 0xE8 then -- unused
+      self:byte()
+    elseif command == 0xE9 then -- tempo_relative
+      local adj = self:byte()
+      if adj >= 0x80 then adj = adj - 0x100 end
+      self.engine.tempo = bit.band(self.engine.tempo + adj, 0xFFFF)
+    elseif command == 0xEA then -- restart_channel
+      self.address = self:word()
+    elseif command == 0xEB then -- new_song (unused in music streams)
+      self:word()
+    elseif command == 0xEC or command == 0xED then -- sfx priority on/off
+      -- no-op for the PCM renderer
+    elseif command == 0xEE then -- unknownmusic0xee
+      self:word()
+    elseif command == 0xEF then
+      -- audio/engine.asm:1987 Music_StereoPanning: apply only when STEREO is on
+      local packed = self:byte()
+      if stereoEnabled then
+        local mask = bit.lshift(1, self.hardware - 1)
+        local default = bit.bor(bit.lshift(mask, 4), mask)
+        self.tracks = bit.band(packed, default)
+      end
+    elseif command == 0xF0 then -- sfx_toggle_noise
+      if self.noiseSampling then
+        self.noiseSampling = false
+      else
+        self.noiseSampling = true
+        self.noiseKit = self:byte()
+      end
+    elseif command >= 0xF1 and command <= 0xF9 then
+      -- music0xf1-f9 / unused: no params
+    elseif command == 0xFA then -- set_condition
+      self.condition = self:byte()
+    elseif command == 0xFB then -- sound_jump_if
+      local want, target = self:byte(), self:word()
+      if self.condition == want then self.address = target end
+    elseif command == 0xFC then -- sound_jump
+      self.address = self:word()
+    elseif command == 0xFD then -- sound_loop (Gen 2; Gen 1 used $fe)
+      local count, target = self:byte(), self:word()
+      if count == 0 then
+        if self.allowLoops then
+          self.address = target
+        else
+          self.ended = true
+          return nil
+        end
+      else
+        local remaining = self.loopCounts[commandAddress]
+        if remaining == nil then remaining = count end
+        remaining = remaining - 1
+        if remaining > 0 then
+          self.loopCounts[commandAddress] = remaining
+          self.address = target
+        else
+          self.loopCounts[commandAddress] = nil
+        end
+      end
+    elseif command == 0xFE then -- sound_call
+      self.callStack[#self.callStack + 1] = self.address + 2
+      self.address = self:word()
+    elseif command == 0xFF then -- sound_ret
+      local returnAddress = table.remove(self.callStack)
+      if returnAddress then
+        self.address = returnAddress
+      else
+        self.ended = true
+        return nil
+      end
     else
       self.ended = true
       return nil
@@ -778,6 +1088,41 @@ function Engine:noiseInstrument(number)
   return segments
 end
 
+-- Gen 2 Drumkits → kit pointer → instrument noise_note script (ReadNoiseSample).
+function Engine:drumInstrumentGen2(kit, pitch)
+  local key = kit * 256 + pitch
+  local cached = self.noiseInstruments[key]
+  if cached then return cached end
+  local segments = {}
+  local spec = self.drumkits
+  if spec and pitch and pitch > 0 then
+    local kitAddr = romWord(self.banks, spec.bank, spec.address + kit * 2)
+    local instrAddr = romWord(self.banks, spec.bank, kitAddr + pitch * 2)
+    local address = instrAddr
+    local ticks = 0
+    for _ = 1, 64 do
+      local command = romByte(self.banks, spec.bank, address)
+      address = address + 1
+      if command == 0xFF then break end
+      local packed = romByte(self.banks, spec.bank, address)
+      local parameter = romByte(self.banks, spec.bank, address + 1)
+      address = address + 2
+      -- ReadNoiseSample: delay = (length & $f) + 1 frames
+      local duration = (bit.band(command, 0x0F) + 1) * FRAME_TICKS
+      segments[#segments + 1] = {
+        startSample = snapTicks(ticks),
+        endSample = snapTicks(ticks + duration),
+        volume = bit.rshift(packed, 4),
+        fade = fadeValue(bit.band(packed, 0x0F)),
+        parameter = parameter,
+      }
+      ticks = ticks + duration
+    end
+  end
+  self.noiseInstruments[key] = segments
+  return segments
+end
+
 local function readWaves(banks, audio, engineNumber)
   local spec = audio.waveBanks[tostring(engineNumber)]
   local waves = {}
@@ -799,6 +1144,24 @@ local function readWaves(banks, audio, engineNumber)
     values[#values + 1] = (bit.band(packed, 0x0F) - 8) / 8
   end
   for _ = 1, 4 do waves[#waves + 1] = values end
+  return waves
+end
+
+-- Gen 2 WaveSamples: 10 patterns × 16 bytes (instruments 0-9).
+local function readWavesGen2(banks, audio)
+  local spec = audio.waveBanks and audio.waveBanks["1"]
+  if not spec then return {} end
+  local waves = {}
+  for wave = 0, 9 do
+    local values = {}
+    for byteIndex = 0, 15 do
+      local packed = romByte(
+        banks, spec.bank, spec.address + wave * 16 + byteIndex)
+      values[#values + 1] = (bit.rshift(packed, 4) - 8) / 8
+      values[#values + 1] = (bit.band(packed, 0x0F) - 8) / 8
+    end
+    waves[#waves + 1] = values
+  end
   return waves
 end
 
@@ -828,10 +1191,18 @@ function Engine.new(data, header, options)
   -- may supply its own waves/drums, falling back to a ROM engine's tables
   local chip = header.chip
   local banks = engineBanks(data, chip)
-  local engineNumber = chip and (chip.engine or 1) or header.engine
+  local generation = header.generation or audio.generation or 1
+  local engineNumber = chip and (chip.engine or 1) or header.engine or 1
   local waves
   if chip and chip.waves then
     waves = normalizeWaves(chip.waves)
+  elseif generation == 2 then
+    if chip then
+      local ok, romWaves = pcall(readWavesGen2, banks, audio)
+      waves = ok and romWaves or {}
+    else
+      waves = readWavesGen2(banks, audio)
+    end
   elseif chip then
     local ok, romWaves = pcall(readWaves, banks, audio, engineNumber)
     waves = ok and romWaves or {}
@@ -840,11 +1211,13 @@ function Engine.new(data, header, options)
   end
   local engine = setmetatable({
     banks = banks,
+    generation = generation,
     tempo = 0x100,
     pan = 0xFF,
     waves = waves,
     noiseHeaders = audio.noiseHeaders
       and audio.noiseHeaders[tostring(engineNumber)] or {},
+    drumkits = audio.drumkits,
     customDrums = chip and chip.drums or nil,
     noiseInstruments = {},
     channels = {},
@@ -864,7 +1237,13 @@ function Engine.new(data, header, options)
     if hardware == 4 then
       frameTicks = FRAME_TICKS
     elseif options.cryLength then
-      frameTicks = 0x80 + options.cryLength
+      -- Gen 1: Audio_SetSfxTempo builds a 9-bit tempo out of $80 plus the
+      -- cry's length BYTE.  Gen 2: _PlayCry writes wCryLength -- a full word,
+      -- and its own comment says "Tempo is effectively length" -- straight
+      -- into CHANNEL_TEMPO, with no $80 base.  Adding one anyway stretched
+      -- every Gold cry by a third on top of the parse bug above.
+      frameTicks = generation == 2 and options.cryLength
+        or (0x80 + options.cryLength)
     end
     engine.channels[#engine.channels + 1] = Channel.new(engine, spec, {
       bank = chip and 0 or header.bank,

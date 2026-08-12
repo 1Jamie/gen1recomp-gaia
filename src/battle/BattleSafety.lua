@@ -1,4 +1,4 @@
--- Shared settled ordinary-player-decision predicate.  Checkpoint capture and
+-- Shared settled supported player-decision predicate. Checkpoint capture and
 -- the public auxiliary action deliberately use this one engine-owned rule so
 -- a tool cannot open at a phase that it could not subsequently checkpoint.
 -- It exposes no controller; callers receive only the result/reason.
@@ -46,14 +46,26 @@ function BattleSafety.inspect(game, battle)
     return nil, "battle_variant_unsupported",
       "This battle kind does not have a checkpoint contract."
   end
-  local expectedOrigin = battle.kind == "wild" and "wild_encounter"
+  local origin = battle.checkpointOrigin
+  local ordinaryOrigin = battle.kind == "wild" and "wild_encounter"
     or "trainer_encounter"
-  if type(battle.checkpointOrigin) ~= "table"
-      or battle.checkpointOrigin.kind ~= expectedOrigin then
+  local scriptedOrigin = type(origin) == "table"
+    and origin.kind == "script_battle"
+  if type(origin) ~= "table"
+      or (origin.kind ~= ordinaryOrigin and not scriptedOrigin) then
     return nil, "battle_origin_unsupported",
       "The battle completion path cannot be reconstructed safely."
   end
-  if scriptsBusy(game.overworld) then
+  local overworld = game.overworld or {}
+  local scriptedRunner = scriptedOrigin and (battle.checkpointScriptContinuation
+    or (overworld.runner
+    and overworld.runner.isCheckpointBattle
+    and overworld.runner:isCheckpointBattle(battle)))
+  local otherScriptWork = nonempty(overworld.parallelRunners)
+    or nonempty(overworld.pendingScripts) or nonempty(overworld.parallelQueue)
+    or nonempty(overworld.scriptMoves)
+  if (scriptedOrigin and (not scriptedRunner or otherScriptWork))
+      or (not scriptedOrigin and scriptsBusy(overworld)) then
     return nil, "script_busy", "A suspended or queued script cannot be checkpointed."
   end
   if battle.phase ~= "menu" or nonempty(battle.queue) then
@@ -69,7 +81,7 @@ function BattleSafety.inspect(game, battle)
       or battle.player.mon.hp <= 0
       or (battle.menuLockedAction and battle:menuLockedAction(battle.player)) then
     return nil, "battle_phase_busy",
-      "Wait for an ordinary player decision before creating a checkpoint."
+      "Wait for a supported player decision before creating a checkpoint."
   end
   for _, battler in ipairs({ battle.player, battle.enemy }) do
     if not battler.mon or battler.shownHP ~= battler.mon.hp

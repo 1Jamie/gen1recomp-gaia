@@ -113,6 +113,8 @@ local function slimAudio(data)
     bankOrder = audio.bankOrder,
     waveBanks = audio.waveBanks,
     noiseHeaders = audio.noiseHeaders,
+    generation = audio.generation,
+    drumkits = audio.drumkits,
   }
 end
 
@@ -201,7 +203,8 @@ function ChipAudio.playMusic(data, header, allowLoops)
   cmdCh:push({ cmd = "play", gen = gen, header = header,
                allowLoops = allowLoops, audio = slimAudio(data),
                channelVolumes = ChipSynth.getChannelVolumes(),
-               channelPitches = ChipSynth.getChannelPitches() })
+               channelPitches = ChipSynth.getChannelPitches(),
+               stereo = ChipSynth.getStereo() })
   currentMusic = { source = source, gen = gen, threaded = true,
                    started = false, finished = false }
   -- playback starts in update() once the first buffer arrives (~1 frame)
@@ -212,7 +215,8 @@ local function pushChannelMix()
   if workerReady and cmdCh then
     cmdCh:push({ cmd = "channelMix",
                  volumes = ChipSynth.getChannelVolumes(),
-                 pitches = ChipSynth.getChannelPitches() })
+                 pitches = ChipSynth.getChannelPitches(),
+                 stereo = ChipSynth.getStereo() })
   end
 end
 
@@ -350,6 +354,15 @@ function ChipAudio.shutdown()
   workerReady = false
 end
 
+function ChipAudio.setStereo(enabled)
+  ChipSynth.setStereo(enabled)
+  pushChannelMix()
+end
+
+function ChipAudio.getStereo()
+  return ChipSynth.getStereo()
+end
+
 -- Runtime mix for one hardware channel (1..4).  Takes effect on the next
 -- synthesized buffer (live music) and on any SFX/cry rendered after the call.
 function ChipAudio.setChannelVolume(hw, scale)
@@ -435,13 +448,18 @@ end
 -- a mono Source is spatialized by OpenAL at the listener position and spreads
 -- over every output an interface has (#626).  The siren itself is unchanged,
 -- both channels carry the same sample.
+-- PlayDanger (audio/engine.asm:531) counts one frame per call and resets with
+-- `cp 30 / jr c, .noreset`, so the cycle is frames 0..29 and the buffer holds
+-- exactly two of them.  DangerSoundHigh goes in on the `and a / jr z, .begin`
+-- frame 0 and DangerSoundLow on the `cp 16 / jr z, .halfway` frame 16, so the
+-- high tone owns 0..15 and the low tone 16..29.
 function ChipAudio.newLowHealthAlarm()
-  local samples = math.floor(SAMPLE_RATE * 62 / 60)
+  local samples = math.floor(SAMPLE_RATE * 60 / 60)
   local data = love.sound.newSoundData(samples, SAMPLE_RATE, 16, 2)
   local phase = 0
   for index = 0, samples - 1 do
-    local frame = math.floor(index * 60 / SAMPLE_RATE) % 31
-    local register = frame < 11 and 0x750 or 0x6EE
+    local frame = math.floor(index * 60 / SAMPLE_RATE) % 30
+    local register = frame < 16 and 0x750 or 0x6EE
     local frequency = 131072 / (2048 - register)
     phase = (phase + frequency / SAMPLE_RATE) % 1
     local value = (phase < 0.5 and 1 or -1) * 0.25

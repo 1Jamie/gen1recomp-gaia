@@ -78,6 +78,23 @@ trainer:update(1 / 60)
 T.eq(trainerCalls, 1, "START reaches the public auxiliary action at a trainer decision")
 hooks:removeOwner("trainer_fixture")
 
+local scriptedGame, scripted = makeGame("trainer")
+scripted.checkpointOrigin = { kind = "script_battle", scriptId = "STORY_TEST", pc = 4 }
+scripted.checkpointScriptContinuation = { kind = "script_battle" }
+local scriptedCalls = 0
+hooks:wrap("battle.menu_auxiliary", function(_, liveGame, context)
+  scriptedCalls = scriptedCalls + 1
+  T.check(liveGame == scriptedGame,
+    "scripted action receives the live game without its runner")
+  T.same(context, { kind = "trainer" },
+    "supported scripted trainer context remains data-only")
+  return true
+end, 0, "scripted_fixture")
+scripted:update(1 / 60)
+T.eq(scriptedCalls, 1,
+  "START reaches the public auxiliary action at a supported scripted decision")
+hooks:removeOwner("scripted_fixture")
+
 local unsafeGame, unsafe = makeGame("wild")
 unsafe.phase = "messages"
 local unsafeCalls = 0

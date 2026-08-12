@@ -75,6 +75,15 @@ end
 local editorHost, editorVersion, editorWindow
 local closeEditor  -- forward declaration: openEditor hands it to the editor
 
+-- tools/save-editor/ models the Gen 1 save and nothing else: a Gen 2 party row
+-- carries fields its MonOps and panels have no idea about (dvs, statExp,
+-- happiness, pokerus, caughtLevel), and SaveIO.save writes the WHOLE table
+-- back, so a Gold slot opened here comes out in a shape src/core/gen2/Save.lua
+-- then has to quarantine on the next boot.  Refuse by name, the same way the
+-- .sav paths do (src/save_convert/SaveConvert.lua GEN2_SAV_UNSUPPORTED), so
+-- Red/Blue/Yellow slots are untouched.
+local GEN2_NO_EDITOR = { gold = "Pokemon Gold" }
+
 -- The editor's modules use flat names (require("Kit"), require("Party")), so
 -- their directories have to be on the require path.  It must be
 -- love.filesystem's path, not package.path: in a packaged build these files
@@ -122,14 +131,20 @@ end
 -- mounted before the editor's Data:load runs, or a Blue save would be edited
 -- against Red's species/item tables.
 local function openEditor(version, slotId)
+  local function refuse(text)
+    if not Importer then return end
+    Importer.saveNotice = Importer.saveNotice or {}
+    Importer.saveNotice[version] = { ok = false, text = text }
+  end
+  local gen2Name = GEN2_NO_EDITOR[version]
+  if gen2Name then
+    refuse(gen2Name .. " uses a Gen 2 save; the save editor does not read one yet.")
+    return
+  end
   local SaveData = require("src.core.SaveData")
   local path = SaveData.slotDiskPath(version, slotId)
   if not path then
-    if Importer then
-      Importer.saveNotice = Importer.saveNotice or {}
-      Importer.saveNotice[version] =
-        { ok = false, text = "Could not resolve that save slot on disk." }
-    end
+    refuse("Could not resolve that save slot on disk.")
     return
   end
   local GameVersion = require("src.core.GameVersion")
@@ -203,15 +218,16 @@ function closeTouchControlsEditor()
 end
 
 local function bootGame(version)
-  -- The launcher hands us the chosen game (Red / Blue / Yellow); scripted and
-  -- headless runs fall back to POKEPORT_VERSION, then Red.  Set the active
-  -- version and overlay its extracted cache BEFORE anything requires generated
-  -- data, so data/generated + assets/generated resolve to that version's files.
+  -- The launcher hands us the chosen game (Red / Blue / Yellow / Gold);
+  -- scripted and headless runs fall back to POKEPORT_VERSION, then Red.
+  -- Set the active version and overlay its extracted cache BEFORE anything
+  -- requires generated data, so data/generated + assets/generated resolve
+  -- to that version's files.
   local GameVersion = require("src.core.GameVersion")
   GameVersion.set(version or os.getenv("POKEPORT_VERSION") or "red")
   local CacheFs = require("src.import.CacheFs")
   -- Keep CacheFs.prefix aligned for any CacheFs.read fallback during Data:load
-  -- (Blue/Yellow caches live under blue/ / yellow/).
+  -- (Blue/Yellow/Gold caches live under blue/ / yellow/ / gold/).
   CacheFs.prefix = GameVersion.cachePrefix()
   CacheFs.mountVersion(GameVersion.get())
   -- NX: always write nx-asset-probe.log so Yellow/Blue art failures are
@@ -224,10 +240,19 @@ local function bootGame(version)
     love.window.setTitle(Version.title(
       GameVersion.info().displayName .. " (Gen 1 Recompilation Project)"))
   end
-  Game = require("src.core.Game")
-  Game:load()
-  if os.getenv("POKEPORT_AUTOPILOT") then
-    autopilot = require("tests.autopilot")
+  -- Gold: Gen 1 Game:load cannot consume a Gen 2 cache -- different generated
+  -- tables, save shape and screen registry -- so Gold boots its own service
+  -- owner, which mounts src/world/gen2 (walk / warps / connections) and the
+  -- Gen 2 screens instead of src/core/Game.lua's Gen 1 wiring.
+  if GameVersion.isGold() then
+    Game = require("src.core.Game2").new()
+    Game:load()
+  else
+    Game = require("src.core.Game")
+    Game:load()
+    if os.getenv("POKEPORT_AUTOPILOT") then
+      autopilot = require("tests.autopilot")
+    end
   end
   local driverPath = os.getenv("POKEPORT_DRIVER")
   if driverPath then
@@ -289,6 +314,14 @@ function love.load(args)
   -- cache has to be mounted before the editor's Data:load.
   if editorMode then
     local version = os.getenv("POKEPORT_VERSION") or "red"
+    local gen2Name = GEN2_NO_EDITOR[version]
+    if gen2Name then
+      -- No launcher behind this run to carry a notice, so say it and stop
+      -- rather than open a Gen 2 slot on Gen 1 panels.
+      print(gen2Name .. " uses a Gen 2 save; the save editor does not read one yet.")
+      love.event.quit(1)
+      return
+    end
     require("src.core.GameVersion").set(version)
     require("src.import.CacheFs").mountVersion(version)
     addEditorRequirePath()
@@ -300,9 +333,12 @@ function love.load(args)
   local RomImporter = require("src.import.RomImporter")
   local forceImport = os.getenv("POKEPORT_FORCE_IMPORT") == "1"
   local importPath = os.getenv("POKEPORT_IMPORT_ROM")
-  -- Scripted / headless runs pick their game from POKEPORT_VERSION (default
-  -- Red); the launcher's per-column choice does not apply to them.
-  local scriptedVersion = os.getenv("POKEPORT_VERSION") or "red"
+  -- Scripted / headless runs pick their game from POKEPORT_VERSION, then
+  -- POKEPORT_GAME / --game= (LaunchOptions), then Red.  Drivers for Gold
+  -- must honor POKEPORT_GAME=gold the same way a desktop shortcut does.
+  local scriptedVersion = os.getenv("POKEPORT_VERSION")
+    or LaunchOptions.resolve(arg)
+    or "red"
   local ready = RomImporter.isReady(scriptedVersion)
   -- Scripted / headless runs have to reach the game with no human pressing
   -- Play: an autopilot, a frame driver, an import-only build step, or an
@@ -343,7 +379,7 @@ function love.load(args)
   end
 
   -- LAUNCH OPTIONS: skip the launcher and boot a game directly.
-  --   --game red|blue|yellow  (or POKEPORT_GAME / POKEPORT_LAUNCH)
+  --   --game red|blue|yellow|gold  (or POKEPORT_GAME / POKEPORT_LAUNCH)
   --   --slot <id>             optional; picks the save slot to load
   --   --launcher              force the launcher even if a game is set
   -- This is what a desktop shortcut, a Steam entry, or a frontend like
@@ -371,11 +407,12 @@ function love.load(args)
     LaunchOptions.pendingTab = launchGame
   end
 
-  -- Interactive: the launcher always runs.  Red, Blue, and Yellow are each
-  -- live: a column shows Play when that game's ROM is already imported, or
-  -- Choose ROM / drag-drop when it is not.  Any dropped .gb is routed by its
-  -- SHA-1 (GameVersion.forSha1); pressing Play boots that game.  Edit on a
-  -- save row opens the bundled editor on that slot (openEditor).
+  -- Interactive: the launcher always runs.  Red, Blue, Yellow, and Gold are
+  -- each live: a column shows Play when that game's ROM is already imported,
+  -- or Choose ROM / drag-drop when it is not.  Any dropped .gb/.gbc is routed
+  -- by its SHA-1 (GameVersion.forSha1); pressing Play boots that game (Gold
+  -- goes to its own service owner, src/core/Game2.lua -- docs/gold-phase1.md).
+  -- Edit on a save row opens the bundled editor on that slot (openEditor).
   Importer = RomImporter.new(function(version)
     Importer = nil
     bootGame(version)
@@ -438,6 +475,7 @@ function love.draw()
   if editorMode then return EditorApp.draw() end
   if TouchEditor then return TouchEditor.draw() end
   if Importer then return Importer:draw() end
+  if not Game then return end
 
   Game:draw()
   -- frame capture requested by a driver
