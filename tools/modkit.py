@@ -649,7 +649,9 @@ for name, registry in pairs(loader.content) do
         end
       end
       if patcher and not defined then
-        row("ORPHAN", name, id, patcher)
+        local gen2Routed = Schemas.targetFor(name, registry.spec, 2)
+          ~= registry.spec.target
+        row("ORPHAN", name, id, patcher, tostring(gen2Routed))
       end
     end
   end
@@ -712,7 +714,8 @@ def resolve_base(repo, choice):
     return "imported" if os.path.isfile(imported) else "fixture"
 
 
-def run_loader(repo, mod_dir, findings, base="fixture", notes=None):
+def run_loader(repo, mod_dir, findings, base="fixture", notes=None,
+               manifest=None):
     """Drive the engine loader headlessly with the mod mounted; the base
     dataset is the ROM-free fixture, or the imported cache with
     --base imported (for mods that reference vanilla Red content).
@@ -775,8 +778,9 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None):
             if "unknown permission" in parts[1]:
                 continue
             add(Finding(classify_error(parts[1], "MK001"), "error", parts[1]))
-        elif kind == "ORPHAN" and len(parts) >= 4:
+        elif kind == "ORPHAN" and len(parts) >= 5:
             registry, target, owner = parts[1], parts[2], parts[3]
+            gen2_routed = parts[4] == "true"
             # only the imported dataset owns the real vanilla id space.  The
             # fixture stands in for three species, so "not in base data" there
             # is a fact about the fixture, not about the mod -- MK103 has no
@@ -784,6 +788,11 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None):
             # warning instead would still refuse the package, because pack and
             # --strict promote every warning to fatal.
             if base != "imported":
+                skipped.add("MK103")
+                continue
+            if gen2_routed and declares_gen2(repo, manifest):
+                # tools/build_data.py never writes a Gen 2 cache, so the
+                # imported dataset has no Gold/Crystal ground truth either.
                 skipped.add("MK103")
                 continue
             add(Finding(
@@ -834,7 +843,7 @@ def cmd_validate(args, repo):
         findings.extend(gh_findings)
         notes.extend(gh_notes)
         findings.extend(check_permissions(repo, manifest))
-        run_loader(repo, mod_dir, findings, args.base, notes)
+        run_loader(repo, mod_dir, findings, args.base, notes, manifest)
         findings.extend(check_requires(repo, mod_dir, manifest))
         findings.extend(lint_dir(repo, mod_dir, manifest))
     name = manifest.get("id") if manifest else os.path.basename(mod_dir)
@@ -1130,7 +1139,7 @@ def cmd_pack(args, repo):
         return 1
     findings = list(check_permissions(repo, manifest))
     notes = []
-    run_loader(repo, mod_dir, findings, args.base, notes)
+    run_loader(repo, mod_dir, findings, args.base, notes, manifest)
     findings.extend(check_requires(repo, mod_dir, manifest))
     findings.extend(lint_dir(repo, mod_dir, manifest))
     # pack runs validate --strict (20-developer-tooling.md 5), so a warning
