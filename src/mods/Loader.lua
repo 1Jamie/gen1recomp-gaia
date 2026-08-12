@@ -6,6 +6,7 @@ local GameVersion = require("src.core.GameVersion")
 local Version = require("src.core.Version")
 local Assets = require("src.render.Assets")
 local ModUI = require("src.ui.ModUI")
+local DateTime = require("src.core.DateTime")
 local AssetTransform = require("src.mods.AssetTransform")
 local Manifest = require("src.mods.Manifest")
 local Merge = require("src.mods.Merge")
@@ -917,6 +918,16 @@ function Loader:_api(mod)
     -- the widget toolkit facade (12 4.5) is one shared surface, not
     -- per-mod state; each widget inside it loads on first touch
     ui = ModUI,
+    -- Read-only shared timestamp presentation using current options.lua
+    -- preferences. The live game supplies only the current option context;
+    -- checkpoint/save data never changes as a side effect.
+    datetime = {
+      date = function(_, game, timestamp) return DateTime.date(game, timestamp) end,
+      time = function(_, game, timestamp) return DateTime.time(game, timestamp) end,
+      dateTime = function(_, game, timestamp)
+        return DateTime.dateTime(game, timestamp)
+      end,
+    },
     -- namespaced per mod; M11 backs these with save.modData /
     -- options.modOptions, the shape mods compile against is already final
     save = {

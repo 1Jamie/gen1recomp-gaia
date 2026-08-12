@@ -341,6 +341,12 @@ function SaveData.defaultOptions()
     -- gets the tick without going looking for the row.  Inert wherever the
     -- overlay never appears (desktop) or LOVE has no vibrator.
     haptics = "light",
+    -- Shared UI/mod timestamp presentation. DEVICE follows the process time
+    -- locale where the platform exposes one; otherwise DateTime falls back to
+    -- DD-MM-YYYY and 24-hour time. Kept in options.lua so checkpoints never
+    -- rewind presentation preferences.
+    dateFormat = "device", -- device | dmy | mdy | ymd
+    timeFormat = "device", -- device | 24h | 12h
   }
 end
 
