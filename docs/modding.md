@@ -495,6 +495,21 @@ Neither hook needs a `Runtime.wantsHook` guard before calling it: `Hooks:call`
 already falls straight through to the vanilla function when no mod has
 wrapped the name, at negligible cost.
 
+## Detached Pokémon icon presentation
+
+`mod.ui.PokemonIcon.draw(game, summary, x, y, opts)` draws the same party icon
+the native Party menu would resolve without exposing a live Pokémon record or
+the private Party menu. `summary` is the detached data-only shape
+`{ species = string, hp = integer, maxHp = integer }`; `opts.selected` and
+`opts.counter` optionally request the native selected-icon animation phase.
+
+The engine retains icon ownership. Content registered through
+`mod.content.icons`, species `icon` definitions, asset overrides, and the
+public `pokemon.icon` hook therefore continue to compose. Invalid summaries
+return `false, code, message` and draw nothing. The helper is presentation
+only: it does not expose moves, status, checkpoint payloads, or mutable party
+state.
+
 ## Shared date and time presentation
 
 The global Options menu owns `DATE FORMAT` (`DEVICE`, `DD-MM-YYYY`,
