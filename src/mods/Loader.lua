@@ -999,6 +999,16 @@ function Loader:_api(mod)
         return DateTime.dateTime(game, timestamp)
       end,
     },
+    -- The read-only part of love.system that device UIs legitimately need.
+    -- Do not expose the module: openURL and clipboard access stay sandboxed.
+    device = {
+      powerInfo = function()
+        local getPowerInfo = love and love.system and love.system.getPowerInfo
+        if not getPowerInfo then return "unknown", nil end
+        local state, percent = getPowerInfo()
+        return state, percent
+      end,
+    },
     -- namespaced per mod; M11 backs these with save.modData /
     -- options.modOptions, the shape mods compile against is already final
     save = {

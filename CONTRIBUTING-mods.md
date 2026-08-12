@@ -255,7 +255,8 @@ engine's globals. Every chunk you author gets it: `main.lua`, your
 | `package`, `dofile`, `loadfile`, `debug`, `getfenv`, `setfenv` | `require` for the supported engine modules |
 | `require("ffi")`, `require("love.*")` | the `love` table you are given |
 | `love.filesystem` | `mod.storage` (per-mod, per-playthrough) and `mod:read` |
-| `love.thread`, `love.system`, `love.event` | `mod.events`, `mod.hooks` |
+| `love.thread`, `love.event` | `mod.events`, `mod.hooks` |
+| `love.system` | `mod.device:powerInfo()` for battery information |
 
 The rest of `love` passes through unchanged, so graphics, audio, timers and
 input work as they always have.

@@ -125,7 +125,8 @@ T.eq(type(out.requireSemver), "table",
 T.check(out.loveFilesystem and out.loveFilesystem:find("mod.storage", 1, true),
   "love.filesystem is refused and names the replacement")
 T.check(out.loveThread ~= false, "love.thread is refused: it opens a full Lua state")
-T.check(out.loveSystem ~= false, "love.system is refused: openURL launches anything")
+T.check(out.loveSystem and out.loveSystem:find("mod.device:powerInfo()", 1, true),
+  "love.system is refused and names the scoped power replacement")
 T.eq(out.loveGraphics, "table", "the rest of love passes through")
 T.check(out.loveAssign ~= false, "a mod cannot assign into the love facade")
 
