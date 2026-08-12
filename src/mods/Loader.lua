@@ -951,6 +951,7 @@ function Loader:_api(mod)
     -- callers never receive paths or a raw filesystem handle.
     storage = {
       context = function(_, game) return storage:context(game) end,
+      selected = function(_, game) return storage:selected(game) end,
       write = function(_, game, key, value) return storage:write(game, key, value) end,
       read = function(_, game, key) return storage:read(game, key) end,
       list = function(_, game, prefix) return storage:list(game, prefix) end,
@@ -963,6 +964,12 @@ function Loader:_api(mod)
       capture = function(_, game) return Checkpoint.capture(game) end,
       restore = function(_, game, checkpoint)
         return Checkpoint.restore(game, checkpoint)
+      end,
+      resume = function(_, game, checkpoint)
+        return Checkpoint.resume(game, checkpoint)
+      end,
+      ensureNormalSave = function(_, game, checkpoint)
+        return Checkpoint.ensureNormalSave(game, checkpoint, loader.fs)
       end,
     },
     options = {
