@@ -5,6 +5,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.modkit")
 local Game = require("src.core.Game")
+local Game2 = require("src.core.Game2")
 local Runtime = require("src.mods.Runtime")
 local StateStack = require("src.core.StateStack")
 local Renderer = require("src.render.Renderer")
@@ -92,6 +93,43 @@ do
     "the hidden menu remains the active top state")
   game.stack:update(1 / 60)
   T.eq(menu.updates, 1, "the hidden menu keeps its update ownership")
+
+  -- Gold keeps the overworld outside its state stack. A companion-opened
+  -- screen can therefore be the stack's only state; visibleBase() still
+  -- returns index 1, but that hidden state must not become the direct base.
+  for _, boot in ipairs({ false, true }) do
+    local stack = setmetatable({}, { __index = StateStack })
+    stack:init()
+    local hidden = {
+      screenId = "BagMenu",
+      isOpaque = true,
+      draws = 0,
+      wideDraws = 0,
+      draw = function(self) self.draws = self.draws + 1 end,
+      drawsWidescreen = function() return true end,
+      drawWidescreen = function(self)
+        self.wideDraws = self.wideDraws + 1
+      end,
+    }
+    stack:push(hidden)
+    local world = {
+      map = {}, draws = 0,
+      draw = function(self) self.draws = self.draws + 1 end,
+      fitScale = function() return 1 end,
+    }
+    game = { stack = stack, world = world }
+    game.inFillBoot = function() return boot end
+    game.letterbox = function() end
+    setmetatable(game, { __index = Game2 })
+
+    game:drawScene(1280, 720)
+    T.eq(hidden.wideDraws, 0,
+      "Gold omits a hidden widescreen top (boot=" .. tostring(boot) .. ")")
+    T.eq(hidden.draws, 0,
+      "Gold omits its hidden GB canvas (boot=" .. tostring(boot) .. ")")
+    T.eq(world.draws, boot and 0 or 1,
+      "Gold reveals its external world (boot=" .. tostring(boot) .. ")")
+  end
   run.release()
 end
 
