@@ -413,11 +413,31 @@ function Music.oneShotPlaying()
   return state.pendingRestore == true
 end
 
+-- The label of the song that is current, or nil.  A read-only window on the
+-- state, for drivers and tests that need to assert what is playing.
+function Music.current()
+  return state.current
+end
+
+-- The remembered map song (wMapMusic), the same read-only window: what a
+-- battle's restore will replay.  setMapSong below is the write half.
+function Music.mapSong()
+  return state.mapSong
+end
+
 function Music.restoreMap(data)
   state.current = nil
   state.pendingRestore = nil
   local play = effectiveMapSong(data, state.mapSong)
   if play then Music.play(data, play, nil, { reason = "map" }) end
+end
+
+-- Overwrite the remembered map song without playing anything: the wMapMusic
+-- write in pokegold engine/pokegear/pokegear.asm RadioMusicRestartDE.  A radio
+-- station's song becomes the map music itself, so a battle's restoreMap brings
+-- the STATION back and only the next playMap (a map change) replaces it.
+function Music.setMapSong(song)
+  state.mapSong = song
 end
 
 -- 0-7 music volume (0 mutes), applied to the playing song and the
@@ -440,6 +460,8 @@ end
 function Music.applyOptions(opts)
   Music.setVolumeLevel(opts and opts.musicVol or 7)
   Music.setFilterLevel(opts and opts.musicFilter or 0)
+  -- engine/menus/options_menu.asm SOUND row (wOptions STEREO bit)
+  require("src.core.ChipAudio").setStereo(opts and opts.sound == "STEREO")
 end
 
 local function sourceStopped(src)

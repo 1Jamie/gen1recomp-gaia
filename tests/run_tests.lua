@@ -3383,10 +3383,61 @@ local function orderedGlob(pattern, preferred, skip)
   return ordered
 end
 
+-- Put the `love` stub back between suites.
+--
+-- Every one of these files fakes the parts of LOVE it needs, and several
+-- replace a whole subtable (`love.filesystem = {...}`) or a single probe
+-- (`love.system.getOS = function() return "Android" end`) and never put it
+-- back.  Nothing notices until a LATER file reads the leftover, and then the
+-- failure lands nowhere near its cause:
+--
+--   * the Android ROM-importer suites pin getOS to "Android", so
+--     GBCFX.isSupported() answers false for the rest of the run and
+--     parity_gbcfx fails "setLevel stores an in-range level (got 0, want 2)"
+--     -- while passing perfectly on its own;
+--   * suites that swap in a minimal love.filesystem drop
+--     getDirectoryItems, so three rom_importer suites then die on
+--     "attempt to call field 'getDirectoryItems' (a nil value)".
+--
+-- Snapshotting one level deep is enough: the leaks are whole-subtable
+-- assignments and single-function overwrites, both of which this restores.
+local function snapshotLove()
+  if type(love) ~= "table" then return nil end
+  local snap = { root = {}, subs = {} }
+  for k, v in pairs(love) do
+    snap.root[k] = v
+    if type(v) == "table" then
+      local sub = {}
+      for k2, v2 in pairs(v) do sub[k2] = v2 end
+      snap.subs[k] = sub
+    end
+  end
+  return snap
+end
+
+local function restoreLove(snap)
+  if not snap or type(love) ~= "table" then return end
+  for k in pairs(love) do
+    if snap.root[k] == nil then love[k] = nil end
+  end
+  for k, v in pairs(snap.root) do
+    love[k] = v
+    local sub = snap.subs[k]
+    if sub and type(v) == "table" then
+      for k2 in pairs(v) do
+        if sub[k2] == nil then v[k2] = nil end
+      end
+      for k2, v2 in pairs(sub) do v[k2] = v2 end
+    end
+  end
+end
+
 local function runSuites(paths)
   for _, path in ipairs(paths) do
     local label = path:match("([^/]+)%.lua$") or path
+    local snap = snapshotLove()
     local ok, err = pcall(dofile, path)
+    restoreLove(snap)
     check(ok, label .. (ok and " suite" or (": " .. tostring(err))))
   end
 end
@@ -3427,6 +3478,134 @@ runSuites({ "tests/rom_importer_cursor_test.lua" })
 
 -- ---------------------------------------------- launcher last played tab (#835)
 runSuites({ "tests/rom_importer_last_version_test.lua" })
+
+-- ---------------------------------------------- Gold (Gen 2)
+-- All ROM-free: each file carries its own fixtures shaped like the extractor's
+-- output, so they run without a Gold cache.
+runSuites({
+  "tests/rom_lz3_test.lua",
+  "tests/gen2_world_test.lua",
+  "tests/gen2_audio_test.lua",
+  "tests/gen2_oak_speech_test.lua",
+  "tests/gen2_vm_test.lua",
+  "tests/gen2_palettes_test.lua",
+  "tests/gen2_battle_test.lua",
+  "tests/gen2_menus_test.lua",
+  "tests/gen2_save_test.lua",
+  "tests/gen2_trainers_test.lua",
+  "tests/gen2_boxes_test.lua",
+  "tests/gen2_intro_test.lua",
+  "tests/gen2_battle_anims_test.lua",
+  -- The list had fallen behind the directory: these seven were written and
+  -- green when run file by file, but never ran here.
+  "tests/gen2_breeding_test.lua",
+  "tests/gen2_contest_test.lua",
+  "tests/gen2_evolution_test.lua",
+  "tests/gen2_gamecorner_test.lua",
+  "tests/gen2_halloffame_test.lua",
+  "tests/gen2_phone_test.lua",
+  "tests/gen2_summary_test.lua",
+  "tests/gen2_steps_test.lua",
+  "tests/gen2_cmdqueue_test.lua",
+  "tests/gen2_events_test.lua",
+  "tests/gen2_map_callbacks_test.lua",
+  "tests/gen2_roamers_test.lua",
+  "tests/gen2_border_test.lua",
+  "tests/gen2_hidden_items_test.lua",
+  "tests/gen2_object_event_test.lua",
+  "tests/gen2_autoinput_test.lua",
+  "tests/gen2_catch_tutorial_test.lua",
+  "tests/gen2_unown_test.lua",
+  "tests/gen2_unown_printer_test.lua",
+  "tests/gen2_decorations_test.lua",
+  "tests/gen2_pokerus_test.lua",
+  "tests/gen2_common_text_test.lua",
+  "tests/gen2_magnet_train_test.lua",
+  "tests/gen2_bank_of_mom_test.lua",
+  "tests/gen2_trainerhouse_test.lua",
+  "tests/gen2_mail_test.lua",
+  "tests/gen2_callasm_test.lua",
+  "tests/gen2_sprites_test.lua",
+  "tests/gen2_diploma_test.lua",
+  "tests/gen2_trade_gfx_test.lua",
+  "tests/gen2_prize_test.lua",
+  -- The four the Gold route bot found.  Every one of them needs a long play
+  -- session to reach, which is why no unit test caught them first and why they
+  -- are worth keeping in the list: struggle at 0 PP, the evolution screen's
+  -- lifecycle-hook collision, badges written to a store nothing read, and a
+  -- lost trainer battle running the winner's script.
+  "tests/gen2_struggle_test.lua",
+  "tests/gen2_evolution_anim_test.lua",
+  "tests/gen2_egg_hatch_anim_test.lua",
+  "tests/gen2_badges_test.lua",
+  "tests/gen2_battle_loss_test.lua",
+  "tests/gen2_variable_sprites_test.lua",
+  "tests/gen2_pokecenter_spawn_test.lua",
+  "tests/gen2_charge_lock_test.lua",
+  "tests/gen2_faint_once_test.lua",
+  "tests/gen2_nests_test.lua",
+  "tests/gen2_bg_events_test.lua",
+  "tests/gen2_ice_pathfind_test.lua",
+  "tests/gen2_party_menu_test.lua",
+  "tests/gen2_hof_continue_test.lua",
+  "tests/gen2_pokecenter_stairs_test.lua",
+  "tests/gen2_canlose_test.lua",
+  "tests/gen2_pc_screens_test.lua",
+  "tests/gen2_badge_boosts_test.lua",
+  "tests/gen2_held_items_test.lua",
+  "tests/gen2_exp_share_test.lua",
+  "tests/gen2_obedience_test.lua",
+  "tests/gen2_specialty_balls_test.lua",
+  "tests/gen2_x_items_test.lua",
+  "tests/gen2_move_effects_test.lua",
+  "tests/gen2_trap_escape_test.lua",
+  "tests/gen2_forceshiny_test.lua",
+  "tests/gen2_berry_juice_test.lua",
+  "tests/gen2_object_hours_test.lua",
+  "tests/gen2_temp_events_test.lua",
+  "tests/gen2_npc_interact_test.lua",
+  "tests/gen2_text_flow_test.lua",
+  "tests/gen2_field_items_test.lua",
+  "tests/gen2_phone_call_test.lua",
+  "tests/gen2_battle_items_test.lua",
+  "tests/gen2_battle_ui_test.lua",
+  "tests/gen2_dig_warp_test.lua",
+  "tests/gen2_repel_test.lua",
+  "tests/gen2_swarm_test.lua",
+  "tests/gen2_fishing_swarm_test.lua",
+  "tests/gen2_rock_smash_test.lua",
+  "tests/gen2_currents_test.lua",
+  "tests/gen2_big_object_test.lua",
+  "tests/gen2_prize_counter_test.lua",
+  -- Presentation: the blit scale every widescreen screen shares, the naming
+  -- bracket, the teleport / fly / fishing step types, the two clock screens,
+  -- FLY's town-map picker and the two script-ordering commands.
+  "tests/gen2_screen_layout_test.lua",
+  "tests/gen2_font_ui_test.lua",
+  "tests/gen2_field_anim_test.lua",
+  "tests/gen2_clock_test.lua",
+  "tests/gen2_time_routing_test.lua",
+  "tests/gen2_fly_map_test.lua",
+  "tests/gen2_script_order_test.lua",
+  -- Glue between the Gen 1 modules Gold still shares and the Gen 2 data: sfx
+  -- name resolution, and the .sav converter refusing a Gen 2 save table.
+  "tests/gen2_sound_alias_test.lua",
+  "tests/gen2_save_convert_cli_test.lua",
+  -- The wall radios (`special MapRadio`); the Pokegear-proper suites next to
+  -- it (gen2_pokegear_unlock_test, gen2_save_export_test) stay out of this
+  -- block because their headers ask for a GOLD_CACHE, which this tier cannot
+  -- assume.
+  "tests/gen2_map_radio_test.lua",
+  -- The two seams where a battle meets everything else: what ends a round and
+  -- a battle (and what a battle may not leave on the party), and BattlePack --
+  -- which shares its screen with the field PACK but none of its jumptable.
+  "tests/gen2_battle_end_test.lua",
+  "tests/gen2_battle_pack_test.lua",
+  -- Battle core internals: where DoWeatherModifiers sits in the damage chain,
+  -- which failures suppress the attack animation, and the Rollout /
+  -- EFFECT_RAMPAGE lock-ins.  ROM-free like the rest of this block.
+  "tests/gen2_battle_lockin_test.lua",
+})
 
 -- ---------------------------------------------- Android second ROM pick (#167)
 runSuites({ "tests/rom_importer_android_pick_test.lua" })
