@@ -37,8 +37,10 @@ local Prize = require("src.battle.gen2.Prize")
 --   * Gen 1's `user` / `target` / `battler` are battler wrappers around a mon
 --     ({ mon = , name = , isPlayer = }); Gen 2's engine works on the party mon
 --     table directly, so that is what these payloads carry.
---   * Gen 1's `rng` is love.math.random (1..n); Gen 2's injected `random` is
---     the cart's BattleRandom convention (0..n-1).  Both keys are present.
+--   * Gen 1's `rng` is love.math.random (rng(n) → 1..n, rng(lo,hi) → lo..hi).
+--     Gen 2's cart BattleRandom is random(n) → 0..n-1.  Both live on the
+--     battle: `random` / `roller()` are BattleRandom for damage, accuracy,
+--     Magnitude, etc.; `rng` is the Gen 1 / love-style view of the same stream.
 local Runtime = require("src.mods.Runtime")
 -- The two battle lines that carry the cart's own `line` break: a marker-bearing
 -- literal has to stay reachable from a translation mod (#186, #245), which is
@@ -86,6 +88,19 @@ local function rand(random, n)
     return love.math.random(n) - 1
   end
   return math.random(n) - 1
+end
+
+-- Gen 1 / love.math view of BattleRandom: rng(n) → 1..n, rng(lo,hi) → lo..hi.
+local function loveStyleRng(random)
+  return function(lo, hi)
+    if hi == nil then
+      local n = lo or 1
+      if n < 1 then n = 1 end
+      return (rand(random, n) or 0) + 1
+    end
+    if hi < lo then lo, hi = hi, lo end
+    return lo + (rand(random, hi - lo + 1) or 0)
+  end
 end
 
 -- data/trainers/leaders.asm.  The two lists are ONE array in the ROM: only
@@ -212,12 +227,15 @@ Battle.KANTO_BADGE_ORDER = {
 --             this wild battle is BATTLETYPE_ROAMING; the caller built `wild`
 --             through Roamers.beginBattle and reads Battle.roaming back to
 --             bank the beast's HP afterwards
---   random(n) 0..n-1, injected so a test is deterministic
+--   random(n) 0..n-1, injected so a test is deterministic (BattleRandom)
+--   rng(lo,hi) / rng(n) Gen 1 / love.math contract; defaults over `random`
 function Battle.new(opts)
   opts = opts or {}
   local self = setmetatable({}, Battle)
   self.data = opts.data or {}
   self.random = opts.random or function(n) return rand(nil, n) end
+  -- Same stream as `random`, Gen 1 / love.math calling convention.
+  self.rng = opts.rng or loveStyleRng(self.random)
   self.party = opts.party or {}
   self.trainer = opts.trainer
   self.save = opts.save
@@ -403,11 +421,8 @@ function Battle:endBattle(outcome)
   Runtime.emit("battle.ended", { battle = self, result = outcome })
 end
 
--- A never-nil 0..n-1 roller for the hook contexts.  `random` is optional on the
--- constructor (a headless test injects one, the game leaves it to love.math),
--- and a mod reaching for ctx.rng must not have to know that.  Note the
--- convention: this is the cart's BattleRandom byte (0..n-1), NOT Gen 1's
--- love.math.random (1..n).
+-- Never-nil BattleRandom (0..n-1) for call sites that want the cart byte.
+-- `battle.rng` is the Gen 1 / love.math view of the same stream.
 function Battle:roller()
   if not self.rollerFn then
     self.rollerFn = function(n) return rand(self.random, n) end
@@ -1604,10 +1619,26 @@ function Battle:useMove(attacker, defender, moveId)
     return
   end
 
-  -- Damage that skips the formula entirely.
-  local fixed = Effects.fixedDamage(def.effect, attacker, defender, self.random)
+  -- Damage that skips the formula entirely (constantdamage).
+  local fixed = Effects.fixedDamage(def.effect, attacker, defender, self.random, def)
   if fixed then
-    self:dealDamage(attacker, defender, fixed, { move = def, moveId = moveId })
+    -- StaticDamage's effect script runs resettypematchup after constantdamage
+    -- (data/moves/effects.asm): immunities still miss (Sonic Boom vs Ghost).
+    -- Flat damage is otherwise unscaled — no STAB / effectiveness multiply.
+    if def.effect == "EFFECT_STATIC_DAMAGE" then
+      local defTypes = (self:speciesDef(defender) or {}).types or defender.types
+      local matchups = self.data.type_chart and self.data.type_chart.matchups
+      local mult = Damage.typeMultiplier(def.type, defTypes, matchups)
+      if mult == 0 then
+        self:markMissed()
+        self:emit({ kind = "message",
+          text = "It doesn't affect " .. self:monName(defender) .. "..." })
+        return
+      end
+    end
+    self:dealDamage(attacker, defender, fixed, {
+      move = def, moveId = moveId, effectiveness = 10,
+    })
     return
   end
 

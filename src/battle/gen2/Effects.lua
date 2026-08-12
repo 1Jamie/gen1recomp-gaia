@@ -179,9 +179,10 @@ end
 
 -- --------------------------------------------------------------- fixed damage
 
--- BattleCommand_LevelDamage / SuperFang / Psywave, all of which skip the
--- damage formula entirely.
-function Effects.fixedDamage(effect, attacker, defender, random)
+-- BattleCommand_ConstantDamage / LevelDamage / SuperFang / Psywave /
+-- StaticDamage (Sonic Boom, Dragon Rage): skip the damage formula entirely.
+-- `move` is optional; EFFECT_STATIC_DAMAGE reads move.power (20 / 40).
+function Effects.fixedDamage(effect, attacker, defender, random, move)
   if effect == "EFFECT_LEVEL_DAMAGE" then
     return math.max(1, attacker.level or 1)
   end
@@ -192,6 +193,9 @@ function Effects.fixedDamage(effect, attacker, defender, random)
     -- 1..(level * 1.5), rerolled until it is in range; one roll is enough here.
     local ceiling = math.max(1, math.floor((attacker.level or 1) * 3 / 2))
     return math.max(1, (random and random(ceiling) or 0) + 1)
+  end
+  if effect == "EFFECT_STATIC_DAMAGE" then
+    return math.max(1, (move and move.power) or 1)
   end
   return nil
 end
@@ -257,8 +261,18 @@ Effects.MAGNITUDE_POWER = {
 -- is what damagecalc reads as the move's power -- data/moves/moves.asm stores
 -- MAGNITUDE at power 1 precisely because this overwrites it.  Returns the
 -- power and the magnitude number the text prints.
+--
+-- `random` is BattleRandom (0..n-1).  If none is supplied, roll via love.math
+-- / math.random — never hard-code 0 (that always yields Magnitude 4).
 function Effects.magnitudePower(random)
-  local roll = random and random(256) or 0
+  local roll
+  if type(random) == "function" then
+    roll = random(256) or 0
+  elseif love and love.math and love.math.random then
+    roll = love.math.random(256) - 1
+  else
+    roll = math.random(256) - 1
+  end
   for _, row in ipairs(Effects.MAGNITUDE_POWER) do
     if row[1] >= roll then return row[2], row[3] end
   end
