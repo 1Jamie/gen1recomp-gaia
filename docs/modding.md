@@ -253,10 +253,13 @@ local ok, code, message = mod.checkpoints:restore(game, checkpoint)
 ```
 
 Checkpoint format 1 supports settled overworld control and proven battle
-player-decision safe points. Battle checkpoints are limited to ordinary
-single-player wild/trainer origins with no suspended script; link, Safari,
-ghost, demo, scripted, animation, message, queue, and forced-action phases fail
-closed. New checkpoints preserve gameplay RNG, while legacy overworld records
+player-decision safe points. Ordinary single-player wild/trainer encounters are
+supported. Scripted story battles are also supported when the engine can detach
+their current built-in battle command and data-only row continuation, rebind any
+NPC by stable id, and resume the story through a fresh runner. The suspended Lua
+coroutine is never serialized. Link, Safari, ghost, demo, opaque callback,
+non-data-only script, animation, message, queue, concurrent-script, and
+forced-action phases fail closed. New checkpoints preserve gameplay RNG, while legacy overworld records
 without RNG remain loadable. Capture excludes global options and runtime
 objects. Restore validates format, game/playthrough identity, content,
 coordinates, battle relationships, continuation, and RNG before mutation;

@@ -57,13 +57,24 @@ local function inspectBattle(ow, battle)
       "This battle kind does not have a checkpoint contract.")
   end
   local origin = battle.checkpointOrigin
-  local expectedOrigin = battle.kind == "wild" and "wild_encounter"
+  local ordinaryOrigin = battle.kind == "wild" and "wild_encounter"
     or "trainer_encounter"
-  if type(origin) ~= "table" or origin.kind ~= expectedOrigin then
+  local scriptedOrigin = type(origin) == "table"
+    and origin.kind == "script_battle"
+  if type(origin) ~= "table"
+      or (origin.kind ~= ordinaryOrigin and not scriptedOrigin) then
     return refusal("battle", "battle_origin_unsupported",
       "The battle completion path cannot be reconstructed safely.")
   end
-  if scriptsBusy(ow) then
+  local scriptedRunner = scriptedOrigin and (battle.checkpointScriptContinuation
+    or (ow.runner
+    and ow.runner.isCheckpointBattle
+    and ow.runner:isCheckpointBattle(battle)))
+  local otherScriptWork = nonempty(ow.parallelRunners)
+    or nonempty(ow.pendingScripts) or nonempty(ow.parallelQueue)
+    or nonempty(ow.scriptMoves)
+  if (scriptedOrigin and (not scriptedRunner or otherScriptWork))
+      or (not scriptedOrigin and scriptsBusy(ow)) then
     return refusal("battle", "script_busy",
       "A suspended or queued script cannot be checkpointed.")
   end

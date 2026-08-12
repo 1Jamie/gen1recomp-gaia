@@ -113,7 +113,7 @@ refused(function(_, _, b) b.enemy.mon.hp = b.enemy.mon.hp - 1 end,
 refused(function(_, _, b) b.player.mustRecharge = true end,
   "battle_phase_busy", "automatic locked action is rejected")
 refused(function(_, ow) ow.runner = { isRunning = function() return true end } end,
-  "script_busy", "suspended script beneath battle is rejected")
+  "script_busy", "unknown suspended script beneath battle is rejected")
 refused(function(_, _, b) b.checkpointOrigin = nil end,
   "battle_origin_unsupported", "unknown completion closure is rejected")
 refused(function(_, _, b) b.safari = { balls = 30, steps = 10 } end,
