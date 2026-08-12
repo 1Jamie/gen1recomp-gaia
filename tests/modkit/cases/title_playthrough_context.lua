@@ -57,13 +57,16 @@ local files = {
   ["mods/probe/manifest.json"] =
     '{"id":"probe","name":"probe","version":"1.0.0",'
       .. '"entry":"main.lua","api":2,"profile":"content"}',
+  -- mod.exports, not _G: a mod's globals are its own (src/mods/Sandbox.lua)
   ["mods/probe/main.lua"] = [[
 return function(mod)
-  _G.MOD_TITLE_STORAGE = mod.storage
-  _G.MOD_TITLE_CHECKPOINTS = mod.checkpoints
+  local out = mod.exports
+  out.storage = mod.storage
+  out.checkpoints = mod.checkpoints
+  out.restoreCount = 0
   mod.events:on("checkpoint.restored", function(ev)
-    _G.MOD_TITLE_RESTORE_COUNT = (_G.MOD_TITLE_RESTORE_COUNT or 0) + 1
-    _G.MOD_TITLE_RESTORE_KIND = ev.kind
+    out.restoreCount = out.restoreCount + 1
+    out.restoreKind = ev.kind
   end)
 end
 ]],
@@ -82,7 +85,8 @@ local loader = Loader.new({ fs = fs })
 loader.game = active
 T.check(loader:load({}) == true, "title-context fixture mod loads")
 
-local storage = _G.MOD_TITLE_STORAGE
+local probe = loader.exports.probe or {}
+local storage = probe.storage
 T.check(type(storage) == "table", "loader exposes the public storage facade")
 if type(storage) == "table" then
   local written, writeCode, writeMessage = storage:write(active, "history/index", {
@@ -178,7 +182,7 @@ if type(storage) == "table" then
   end
 
   local runtime = makeRuntime(active.save, false)
-  local checkpoints = _G.MOD_TITLE_CHECKPOINTS
+  local checkpoints = probe.checkpoints
   T.check(type(checkpoints) == "table", "loader exposes the public checkpoint facade")
   local checkpoint = checkpoints and checkpoints:capture(runtime)
   T.check(type(checkpoint) == "table",
@@ -226,9 +230,9 @@ if type(storage) == "table" then
       "title bootstrap never rewrites the first normal save")
     T.same(checkpoints:capture(titleRuntime), checkpoint,
       "bootstrapped overworld differentially recaptures the selected checkpoint")
-    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+    T.eq(probe.restoreCount, 1,
       "a successfully verified title resume emits checkpoint.restored exactly once")
-    T.eq(_G.MOD_TITLE_RESTORE_KIND, "overworld",
+    T.eq(probe.restoreKind, "overworld",
       "title resume lifecycle reports the reconstructed checkpoint kind")
 
     -- Force a failure after restoreCheckpointSave has already installed the
@@ -255,7 +259,7 @@ if type(storage) == "table" then
       version = "red", meta = { playthroughId = originalId },
     }, fs).savedAt, anchoredAt,
       "failed title reconstruction never rewrites the normal Pokémon save")
-    T.eq(_G.MOD_TITLE_RESTORE_COUNT, 1,
+    T.eq(probe.restoreCount, 1,
       "failed title reconstruction emits no additional restored lifecycle event")
   end
 
@@ -290,10 +294,6 @@ end
 
 Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
-_G.MOD_TITLE_STORAGE = nil
-_G.MOD_TITLE_CHECKPOINTS = nil
-_G.MOD_TITLE_RESTORE_COUNT = nil
-_G.MOD_TITLE_RESTORE_KIND = nil
 SaveData.resetSlotState()
 SaveData.loadOptions = originalLoadOptions
 love.filesystem = realFs

@@ -1,0 +1,100 @@
+Discord announcement for mod authors: the mod sandbox.
+Paste each block below as its own message (Discord caps a message at 2000
+characters). Delete the ===== MESSAGE N ===== separator lines first.
+Discord does not render markdown tables, so the lists below are code blocks.
+
+
+===== MESSAGE 1 =====
+
+# Heads up for mod authors: mods now run in a sandbox
+
+**Short version:** if your mod uses `io`, `os.getenv`, `os.execute` or `love.filesystem`, it will stop loading in the next release. There is a replacement for every legitimate use, and it is usually one line.
+
+## What changed
+
+Until now, a mod's Lua code ran against the engine's own globals. That meant any installed mod had full read and write access to the player's entire filesystem: their documents, their photos, anything their user account could touch. The `permissions` field in `manifest.json` did not actually enforce anything.
+
+That was our design mistake, not yours. If your mod used `io`, it was using the API exactly as it was handed to you.
+
+Starting with the next release, mod code runs in a restricted environment. A mod can read its own folder and write its own storage. It cannot name a path outside the game, in any spelling.
+
+
+===== MESSAGE 2 =====
+
+## What is no longer available
+
+```
+GONE                                  USE INSTEAD
+io.*  and  require("io")              mod:read("file") for your own files
+                                      mod.storage to persist data
+os.getenv / execute / remove          nothing. os.time, os.date and
+   / rename / exit                    os.clock still work
+package, dofile, loadfile, debug,     require still resolves the
+   getfenv, setfenv                   supported engine modules
+require("ffi")                        the love table you already have
+require("love.filesystem")            the love table you already have
+love.filesystem                       mod.storage (scoped per mod and
+                                      per playthrough) and mod:read
+love.thread, love.system, love.event  mod.events, mod.hooks
+```
+
+Everything else in `love` is unchanged: graphics, audio, timers and input all work exactly as before. So does the whole standard library apart from the lines above.
+
+
+===== MESSAGE 3 =====
+
+## Three smaller changes in the same release
+
+**1. Your globals are your own.** `_G` inside a mod is now that mod's private table. If you were passing data to another mod through a global, put it on `mod.exports` and let them read it with `mod.find("your_id").exports`. That was always the intended channel, and unlike a global it survives load order and tells you the other mod's version.
+
+**2. Paths cannot climb out of your folder.** `mod:read`, `mod.assets:path` and `mod.assets:image` refuse `..`, absolute paths and drive letters, as do `entry` and `options_schema` in your manifest.
+
+**3. Ship source, not bytecode.** A precompiled `main.lua` is refused.
+
+
+===== MESSAGE 4 =====
+
+## Check your mod in one command
+
+```sh
+grep -rnE '\bio\.|os\.(getenv|execute|remove|rename|exit|tmpname)|love\.(filesystem|thread|system|event)|require\("(io|os|debug|package|ffi|love\.)' your_mod/
+```
+
+No output means you are fine and nothing about your mod changes.
+
+If you do get hits, the load-time errors name the replacement directly, so you can also just run your mod and read what it tells you:
+
+```sh
+python3 tools/modkit.py validate mods/your_mod --base imported
+```
+
+
+===== MESSAGE 5 =====
+
+## The most common case
+
+Nearly every real use of `io` in a mod was "save some state of my own", and that is what `mod.storage` is for. It is data-only, already scoped to your mod and the current playthrough, and it survives the player switching profiles.
+
+```lua
+-- before
+local f = io.open("my_settings.txt", "w")
+f:write(value)
+f:close()
+
+-- after
+mod.storage:write(game, "settings", { value = value })
+local saved = mod.storage:read(game, "settings")
+```
+
+
+===== MESSAGE 6 =====
+
+## About `permissions`
+
+There is no permission that grants raw filesystem access, and there will not be one. Nothing a mod legitimately does needs it, and a permission that can be requested is a permission that gets requested. `permissions` is still shown to the player in the mod manager, and `network` now genuinely gates the networking modules.
+
+## If you have a case this does not cover
+
+Please open an issue rather than working around it. If there is a real thing mods need to do that the sandbox blocks, that is a gap in the API and we want to fix it properly, with a scoped engine call rather than a hole.
+
+Thanks for building for this project, and sorry for the churn. This one was worth the disruption: it means a player installing your mod is trusting it with the game, and not with their whole machine.

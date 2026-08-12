@@ -139,20 +139,20 @@ local files = {
   ["mods/probe/manifest.json"] =
     '{"id":"probe","name":"probe","version":"1.0.0",'
       .. '"entry":"main.lua","api":2,"profile":"content"}',
+  -- mod.exports, not _G: a mod's globals are its own (src/mods/Sandbox.lua)
   ["mods/probe/main.lua"] = [[
-return function(mod) _G.MOD_CHECKPOINTS = mod.checkpoints end
+return function(mod) mod.exports.checkpoints = mod.checkpoints end
 ]],
 }
 local game, ow = makeGame()
 local loader = Loader.new({ fs = memfs(files) })
 loader.game = game
 T.check(loader:load({}) == true, "checkpoint fixture mod loads")
-local checkpoints = _G.MOD_CHECKPOINTS
+local checkpoints = (loader.exports.probe or {}).checkpoints
 T.check(type(checkpoints) == "table",
   "Loader exposes mod.checkpoints through the public mod object")
 if type(checkpoints) ~= "table" then
   Runtime.events, Runtime.hooks = savedEvents, savedHooks
-  _G.MOD_CHECKPOINTS = nil
   T.finish()
 end
 
@@ -435,7 +435,6 @@ end
 
 Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
-_G.MOD_CHECKPOINTS = nil
 love.math.getRandomState = oldGetRandomState
 love.math.setRandomState = oldSetRandomState
 

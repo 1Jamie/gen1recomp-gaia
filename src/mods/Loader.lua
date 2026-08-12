@@ -12,6 +12,8 @@ local Manifest = require("src.mods.Manifest")
 local Merge = require("src.mods.Merge")
 local ModTargets = require("src.mods.ModTargets")
 local Registry = require("src.mods.Registry")
+local SafePath = require("src.mods.SafePath")
+local Sandbox = require("src.mods.Sandbox")
 local Schemas = require("src.mods.Schemas")
 local Semver = require("src.mods.Semver")
 local Events = require("src.mods.Events")
@@ -72,10 +74,12 @@ local function orderedIds(mods, filter)
   return ids
 end
 
--- ------- dev-mode permissions tripwire
--- Attribution only: the shim delegates unconditionally and blocks nothing.
--- Installed once per process and only when the loader runs in dev mode, so a
--- player build has zero interposition.
+-- ------- the require gate
+-- Two jobs in one interposition.  The engine_internals/network scan is
+-- attribution only and stays dev-mode: it warns and delegates.  The
+-- Sandbox.moduleDenial check is not -- require("io") would hand back
+-- package.loaded.io and undo the whole mod environment -- so it is installed
+-- in player builds too, for any boot that has mods on it.
 
 local devShim = { installed = false, permissions = {}, warned = {}, depth = 0 }
 
@@ -135,7 +139,8 @@ end
 
 local function scanRequire(name)
   local modId = Runtime.currentMod
-  if not modId or type(name) ~= "string" then return end
+  if type(modId) ~= "string" then modId = Runtime.modRequire end
+  if type(modId) ~= "string" or type(name) ~= "string" then return end
   local granted = devShim.permissions[modId] or {}
   local function warnOnce(permission)
     local key = modId .. "|" .. permission .. "|" .. name
@@ -188,6 +193,7 @@ function Loader:_installDevShim()
   for id, mod in pairs(self.mods) do
     devShim.permissions[id] = mod.manifest.permissionSet
   end
+  devShim.dev = self.dev
   if devShim.installed then return end
   devShim.installed = true
   local delegate = require
@@ -195,12 +201,22 @@ function Loader:_installDevShim()
     -- only the mod's own call is the mod's doing; whatever that module
     -- requires in turn is the engine wiring itself up
     if devShim.depth == 0 then
-      scanRequire(name)
+      -- Backstop for the deny list Sandbox.envFor's require already applies:
+      -- an engine module requiring io is the engine wiring itself up, a mod
+      -- doing it is the hole this closes, and any future path that runs mod
+      -- code without a sandbox env still lands here.
+      local owner = Runtime.currentMod or Runtime.modRequire
+      if owner or callerIsMod(3) then
+        local id = type(owner) == "string" and owner or nil
+        local denial = Sandbox.moduleDenial(name, devShim.permissions[id])
+        if denial then error(("[%s] %s"):format(id or "mod", denial), 0) end
+      end
+      if devShim.dev or devShim.generation ~= 1 then scanRequire(name) end
       -- The Gen 1 name a mod asked for, answered by the Gen 2 arm behind it.
       -- Engine code keeps the real module: src/render/PaletteFX.lua:776
       -- requires src.core.Game on both generations and means it.
       if devShim.generation ~= 1 and Gen2Compat.serves(name)
-          and callerIsMod(3) then
+          and (owner or callerIsMod(3)) then
         local adapter = Gen2Compat.resolve(name, Runtime.currentMod)
         if adapter then
           local key = "adapter|" .. name
@@ -235,7 +251,7 @@ function Loader.new(opts)
     events = Events.new(), hooks = Hooks.new(), content = {}, assets = {},
     exports = {}, migrations = {}, order = {},
     modSave = {}, modOptions = {}, optionSchemas = {}, imageCache = {},
-    modInput = {},
+    modInput = {}, modEnv = {},
     fs = (opts and opts.fs) or (love and love.filesystem),
     dev = dev,
     -- Which generation this boot is (1 or 2).  Fixed at construction: the
@@ -358,11 +374,13 @@ function Loader:_writeOptionSchemas()
       -- demand; using it here means older mods do not need to migrate to
       -- mod.options:define just to appear in a launcher settings screen.
       if schema == nil and mod.manifest.options_schema and self.fs.load then
-        local chunk = self.fs.load(mod.path .. "/" .. mod.manifest.options_schema)
-        if chunk then
-          local ok, rows = pcall(chunk)
-          if ok and type(rows) == "table" then schema = rows end
-        end
+        local ok, rows = pcall(function()
+          local path = SafePath.join(mod.path, mod.manifest.options_schema,
+            "options_schema")
+          local chunk = Sandbox.loadFile(self.fs, path, self:_modEnv(mod))
+          return chunk and chunk()
+        end)
+        if ok and type(rows) == "table" then schema = rows end
       end
       if schema ~= nil then
         mods[id] = schema
@@ -1091,9 +1109,11 @@ function Loader:_api(mod)
   -- assets keeps the v1 alias to the content accessors and adds the file
   -- helpers on top, so mod.assets.pokemon and mod.assets:image both resolve
   api.assets = setmetatable({
-    path = function(_, relative) return mod.path .. "/" .. relative end,
+    path = function(_, relative)
+      return SafePath.join(mod.path, relative, "mod.assets:path")
+    end,
     image = function(_, relative)
-      local full = mod.path .. "/" .. relative
+      local full = SafePath.join(mod.path, relative, "mod.assets:image")
       local cached = loader.imageCache[full]
       if cached then return cached end
       assert(love and love.graphics,
@@ -1103,9 +1123,10 @@ function Loader:_api(mod)
       return image
     end,
   }, { __index = api.content })
+  -- the mod's own directory and nothing above it: PhysFS already refuses a
+  -- climb, but loader.fs is injectable and has no such floor
   function api:read(relative)
-    local path = self.path .. "/" .. relative
-    return loader.fs.read(path)
+    return loader.fs.read(SafePath.join(self.path, relative, "mod:read"))
   end
   -- mod.world materializes on first touch, like the image helper above: a
   -- headless load must not drag the world stack in, and the Game the facade
@@ -1149,9 +1170,21 @@ function Loader:_game()
   return engineRequire("src.core.Game")
 end
 
+-- The environment every chunk this mod authors runs in, built once per mod so
+-- its entry file and its options_schema share one globals table.
+function Loader:_modEnv(mod)
+  local id = mod.manifest.id
+  local env = self.modEnv[id]
+  if not env then
+    env = Sandbox.envFor({ modId = id, permissions = mod.manifest.permissionSet })
+    self.modEnv[id] = env
+  end
+  return env
+end
+
 function Loader:_loadMod(mod)
-  local path = mod.path .. "/" .. mod.manifest.entry
-  local chunk, err = self.fs.load(path)
+  local path = SafePath.join(mod.path, mod.manifest.entry, "manifest entry")
+  local chunk, err = Sandbox.loadFile(self.fs, path, self:_modEnv(mod))
   if not chunk then error(err or ("unable to load " .. path)) end
   local api = self:_api(mod)
   local result = chunk(api)
@@ -1349,10 +1382,12 @@ function Loader:load(data)
   -- every touch: a mod captures the facade at file scope, before Game2 has a
   -- save or a world (src/mods/Gen2Compat.lua).
   Gen2Compat.bind(function() return self:_game() end)
-  -- Dev mode wants the permissions tripwire; a Gold boot with mods on it wants
-  -- the Gen 1-only require report, which is the difference between "the mod
-  -- does nothing" and knowing why.  A Gold boot with no mods pays nothing.
-  if self.dev or (self.generation ~= 1 and next(self.mods) ~= nil) then
+  -- Any boot with mods on it needs the gate, because require("io") is how a
+  -- mod would walk out of Sandbox.envFor.  Dev mode adds the permissions
+  -- tripwire on top, and a Gold boot the Gen 1-only require report -- the
+  -- difference between "the mod does nothing" and knowing why.  A boot with no
+  -- mods pays nothing.
+  if self.dev or next(self.mods) ~= nil then
     self:_installDevShim()
   end
   for _, mod in ipairs(ordered) do
