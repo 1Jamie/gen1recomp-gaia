@@ -14,10 +14,9 @@
 -- height, and flex-shrink compressing text until it overlapped.
 --
 -- THE RULES THIS FILE FOLLOWS:
---   * NO SCROLLING.  Every list paginates (Kit.pager).  Rows per page come
---     from the real viewport height, so a tall window shows more and a phone
---     shows fewer -- but a page's row count is bounded either way, which is
---     what makes a 500-mod index cost the same as a 10-mod one.
+--   * Lists paginate (Kit.pager).  The installed-mod list also scrolls inside
+--     its viewport, so each of its pages can hold at least ten entries without
+--     requiring a tall window.  Pages still bound how many mod rows we visit.
 --   * Every click handler only QUEUES work (imp._uiActions); update() drains
 --     the queue, so an action that tears the view down (Play, Edit save)
 --     never runs inside the frame that dispatched it.
@@ -46,8 +45,16 @@ local COMMUNITY_URL = "https://bois.icu"
 local ACT_DEDUP = 0.35
 -- Finger travel past this (px) is a drag, not a tap.
 local TAP_SLOP2 = 16 * 16
+-- Installed mods should not turn into a one- or two-item pager on a compact
+-- display.  Keep a useful page size, then let the list viewport scroll.
+local MIN_MODS_PER_PAGE = 10
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+
+local function inRect(rect, x, y)
+  return rect ~= nil and x >= rect.x and x <= rect.x + rect.w
+    and y >= rect.y and y <= rect.y + rect.h
+end
 
 -- ------------------------------------------------------------- lifecycle
 
@@ -146,7 +153,10 @@ end
 function LauncherView.touchpressed(imp, id, x, y)
   if not imp._flex then return end
   imp._touchAt = imp._touchAt or {}
-  imp._touchAt[tostring(id)] = { x = x, y = y }
+  imp._touchAt[tostring(id)] = {
+    x = x, y = y,
+    modsList = (imp._modScrollMax or 0) > 0 and inRect(imp._modListRect, x, y),
+  }
 end
 
 function LauncherView.touchmoved(imp, id, x, y)
@@ -157,8 +167,14 @@ function LauncherView.touchmoved(imp, id, x, y)
     if ddx * ddx + ddy * ddy > TAP_SLOP2 then
       start.dragged = true
     end
-    -- Short-window mode: a vertical drag scrolls the page (draw() clamps).
-    if start.dragged and (imp._pageScrollMax or 0) > 0 then
+    -- A drag that began in the installed-mod viewport scrolls that page's
+    -- rows.  Its pager remains available for moving to the next ten-plus
+    -- entries; a drag elsewhere keeps the normal short-window page scroll.
+    if start.dragged and start.modsList then
+      local last = start.lastY or start.y
+      imp.modScroll = clamp((imp.modScroll or 0) - (y - last), 0,
+        imp._modScrollMax or 0)
+    elseif start.dragged and (imp._pageScrollMax or 0) > 0 then
       local last = start.lastY or start.y
       imp._pageScroll = (imp._pageScroll or 0) - (y - last)
     end
@@ -1441,6 +1457,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   cy = cy + buildModScopeRow(imp, x, cy, w, m)
 
   if #mods == 0 then
+    imp.modScroll, imp._modScrollMax, imp._modListRect = 0, 0, nil
     Kit.emptyBox(x, cy, w, math.floor(110 * m.s), imp:_modsEmptyHint())
     return
   end
@@ -1492,16 +1509,30 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     + math.floor(8 * m.s)
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local listH = availH - (cy - y) - pagerH - gap
-  local perPage = Kit.rowsThatFit(listH, rowH, gap, 1, 20)
+  local perPage = Kit.rowsThatFit(listH, rowH, gap, MIN_MODS_PER_PAGE, 20)
   local first, last, cur, pages = Kit.pageBounds(page(imp, "mods"), #mods, perPage)
   setPage(imp, "mods", cur)
   local listTop = cy
-  setPage(imp, "mods",
-    Kit.wheelPage(x, listTop, w, listH, cur, #mods, perPage))
+  local shown = math.max(0, last - first + 1)
+  local contentH = shown * rowH + math.max(0, shown - 1) * gap
+  local scrollMax = math.max(0, contentH - listH)
+  local scroll = clamp(imp.modScroll or 0, 0, scrollMax)
+  imp._modListRect = { x = x, y = listTop, w = w, h = listH }
+  imp._modScrollMax = scrollMax
+  if scrollMax > 0 and (Kit.wheelY or 0) ~= 0 and Kit.hit(x, listTop, w, listH) then
+    scroll = clamp(scroll - Kit.wheelY * math.floor(48 * m.s), 0, scrollMax)
+    Kit.wheelY = 0
+  elseif scrollMax == 0 then
+    local wheelPage = Kit.wheelPage(x, listTop, w, listH, cur, #mods, perPage)
+    if wheelPage ~= cur then imp.modScroll = 0 end
+    setPage(imp, "mods", wheelPage)
+  end
+  imp.modScroll = scroll
 
+  Kit.pushClip(x, listTop, w, listH)
   for i = first, last do
     local mod = mods[i]
-    local ry = listTop + (i - first) * (rowH + gap)
+    local ry = listTop + (i - first) * (rowH + gap) - scroll
     local rowKey = "mod-row-" .. mod.id
     -- The whole row is the control: it opens the per-mod actions popup
     -- (update / versions / delete moved there).  Only the enable toggle
@@ -1600,9 +1631,11 @@ local function buildModsPanel(imp, x, y, w, availH, m)
         px, ly, PAL.detail)
     end
   end
+  Kit.popClip()
 
-  local pagerY = listTop + (last - first + 1) * (rowH + gap)
+  local pagerY = listTop + listH + gap
   local newPage = Kit.pager(x, pagerY, w, cur, #mods, perPage, "mods")
+  if newPage ~= cur then imp.modScroll = 0 end
   setPage(imp, "mods", newPage)
 end
 
