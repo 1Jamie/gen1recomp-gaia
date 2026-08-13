@@ -20,6 +20,7 @@ local Events = require("src.mods.Events")
 local Gen2Compat = require("src.mods.Gen2Compat")
 local Hooks = require("src.mods.Hooks")
 local Runtime = require("src.mods.Runtime")
+local Steps = require("src.mods.Steps")
 
 local Loader = {}
 Loader.__index = Loader
@@ -251,7 +252,7 @@ function Loader.new(opts)
     events = Events.new(), hooks = Hooks.new(), content = {}, assets = {},
     exports = {}, migrations = {}, order = {},
     modSave = {}, modOptions = {}, optionSchemas = {}, imageCache = {},
-    modInput = {}, modEnv = {},
+    modInput = {}, modEnv = {}, stepsQueues = {},
     fs = (opts and opts.fs) or (love and love.filesystem),
     dev = dev,
     -- Which generation this boot is (1 or 2).  Fixed at construction: the
@@ -1009,6 +1010,30 @@ function Loader:_api(mod)
         return state, percent
       end,
     },
+    -- The native step bridge (#1186), behind the "steps" permission the
+    -- player sees in the mod manager: sync asks the platform to refresh
+    -- its count, poll hands this mod its copy of what the bridge
+    -- delivered.  The engine owns the pending file -- a mod never names a
+    -- path, it only receives { steps, from, to }.  available() answers
+    -- false without the permission (a probe stays quiet); the calls that
+    -- would do something name the missing permission instead, the way the
+    -- network gate does.
+    steps = (function()
+      if mod.manifest.permissionSet.steps then
+        loader.stepsQueues[modId] = loader.stepsQueues[modId] or {}
+        return {
+          available = function() return Steps.available() end,
+          sync = function() return Steps.sync() end,
+          poll = function() return Steps.poll(loader, modId) end,
+        }
+      end
+      local function refuse()
+        error(('[%s] mod.steps needs the "steps" permission in '
+          .. "manifest.json"):format(modId), 2)
+      end
+      return { available = function() return false end,
+               sync = refuse, poll = refuse }
+    end)(),
     -- namespaced per mod; M11 backs these with save.modData /
     -- options.modOptions, the shape mods compile against is already final
     save = {
@@ -1226,6 +1251,7 @@ function Loader:_rollback(modId)
   self.optionSchemas[modId] = nil
   self.migrations[modId] = nil
   self.modSave[modId] = nil
+  self.stepsQueues[modId] = nil
 end
 
 -- a mod that explicitly swears it stays link-compatible while writing into a
