@@ -58,6 +58,8 @@ local MATCHUPS = {
   { attacker = "NORMAL", defender = "ROCK", multiplier = 5 },
   { attacker = "NORMAL", defender = "STEEL", multiplier = 5 },
   { attacker = "ELECTRIC", defender = "GROUND", multiplier = 0 },
+  -- Sonic Boom is Normal; Gen 2 StaticDamage still respects Ghost immunity.
+  { attacker = "NORMAL", defender = "GHOST", multiplier = 0 },
 }
 
 local MOVES = {
@@ -142,6 +144,15 @@ local POKEMON = {
     types = { "ROCK", "GROUND" }, catchRate = 255, baseExp = 73,
     growthRate = "GROWTH_MEDIUM_SLOW", genderRatio = 31,
     levelMoves = { { level = 1, move = "TACKLE" } },
+    evolutions = {},
+  },
+  GASTLY = {
+    id = "GASTLY", index = 92, name = "GASTLY",
+    baseStats = { hp = 30, attack = 35, defense = 30, speed = 80,
+      specialAttack = 100, specialDefense = 35 },
+    types = { "GHOST", "POISON" }, catchRate = 190, baseExp = 62,
+    growthRate = "GROWTH_MEDIUM_SLOW", genderRatio = 127,
+    levelMoves = { { level = 1, move = "LICK" } },
     evolutions = {},
   },
 }
@@ -613,6 +624,21 @@ local battle, player, wild = newBattle()
 check("battle picks the first healthy mon", battle.player, player)
 check("wild battle flag", battle.wild, true)
 
+-- Gen 2 battles expose BattleRandom (`random` / :roller()) and the Gen 1 /
+-- love.math `rng` over the same stream.
+check("battle.rng is present", type(battle.rng), "function")
+check("battle.rng(lo,hi) respects bounds", battle.rng(10, 10), 10)
+check("battle.rng(lo,hi) another fixed point", battle.rng(50, 50), 50)
+do
+  local roll = battle.rng(0, 255)
+  check("battle.rng(0,255) is an integer", roll == math.floor(roll), true)
+  check("battle.rng(0,255) in range", roll >= 0 and roll <= 255, true)
+end
+-- zeroRandom always returns 0, so the love adapter maps:
+--   rng(n) → 0+1 = 1; rng(lo,hi) → lo + 0 = lo
+check("battle.rng(n) is 1..n over BattleRandom", battle.rng(7), 1)
+check("battle.rng(0,99) uses both args", battle.rng(0, 99), 0)
+
 -- A move spends PP and deals damage.
 local before = wild.hp
 battle:takeTurn({ kind = "move", move = "TACKLE" })
@@ -910,6 +936,16 @@ local EFFECT_MOVES = {
   SEISMIC_TOSS = { id = "SEISMIC_TOSS", name = "SEISMICTOSS", power = 1,
     type = "FIGHTING", accuracy = 100, pp = 20,
     effect = "EFFECT_LEVEL_DAMAGE" },
+  -- EFFECT_STATIC_DAMAGE: Sonic Boom (20) and Dragon Rage (40).
+  SONICBOOM = { id = "SONICBOOM", name = "SONICBOOM", power = 20,
+    type = "NORMAL", accuracy = 90, pp = 20,
+    effect = "EFFECT_STATIC_DAMAGE" },
+  DRAGON_RAGE = { id = "DRAGON_RAGE", name = "DRAGON RAGE", power = 40,
+    type = "DRAGON", accuracy = 100, pp = 10,
+    effect = "EFFECT_STATIC_DAMAGE" },
+  MAGNITUDE = { id = "MAGNITUDE", name = "MAGNITUDE", power = 1,
+    type = "GROUND", accuracy = 100, pp = 30,
+    effect = "EFFECT_MAGNITUDE" },
   LOCK_ON = { id = "LOCK_ON", name = "LOCK-ON", power = 0, type = "NORMAL",
     accuracy = 100, accuracyRaw = 0xff, pp = 5, effect = "EFFECT_LOCK_ON" },
   -- data/moves/moves.asm:169, :172, :151.
@@ -1077,6 +1113,83 @@ local tossBefore = tossWild.hp
 tossBattle:takeTurn({ kind = "move", move = "SEISMIC_TOSS" })
 check("seismic toss deals the level",
   tossBefore - tossWild.hp, tossPlayer.level)
+
+-- EFFECT_STATIC_DAMAGE: Sonic Boom (20) and Dragon Rage (40).
+-- Cart: constantdamage + resettypematchup (effects.asm StaticDamage).
+do
+  check("static damage uses move power",
+    Effects.fixedDamage("EFFECT_STATIC_DAMAGE", { level = 10 }, { hp = 50 }, nil,
+      40), 40)
+  check("sonic boom fixed damage is 20",
+    Effects.fixedDamage("EFFECT_STATIC_DAMAGE", { level = 10 }, { hp = 50 }, nil,
+      20), 20)
+
+  local boomBattle, _, boomWild = effectBattle({ "SONICBOOM" })
+  boomWild.hp = 100
+  boomWild.maxHp = 100
+  local boomBefore = boomWild.hp
+  boomBattle:takeTurn({ kind = "move", move = "SONICBOOM" })
+  check("sonic boom deals flat 20", boomBefore - boomWild.hp, 20)
+
+  -- Normal vs Ghost is 0x; StaticDamage's resettypematchup misses.
+  local ghostBattle, _, ghostWild = effectBattle({ "SONICBOOM" })
+  ghostWild.species = "GASTLY"
+  local ghostBefore = ghostWild.hp
+  ghostBattle:takeTurn({ kind = "move", move = "SONICBOOM" })
+  check("sonic boom misses Ghost in Gen 2", ghostWild.hp, ghostBefore)
+
+  local rageBattle, _, rageWild = effectBattle({ "DRAGON_RAGE" })
+  rageWild.hp = 100
+  rageWild.maxHp = 100
+  local rageBefore = rageWild.hp
+  rageBattle:takeTurn({ kind = "move", move = "DRAGON_RAGE" })
+  check("dragon rage deals flat 40", rageBefore - rageWild.hp, 40)
+end
+
+-- Magnitude: BattleRandom walks magnitude_power.asm.  Nil random must not
+-- collapse to roll 0 (always Magnitude 4); Battle.new always supplies a roller.
+do
+  local p4, n4 = Effects.magnitudePower(function() return 0 end)
+  check("magnitude roll 0 is power 10", p4, 10)
+  check("magnitude roll 0 is number 4", n4, 4)
+
+  local p8, n8 = Effects.magnitudePower(function() return 200 end)
+  check("magnitude roll 200 is power 90", p8, 90)
+  check("magnitude roll 200 is number 8", n8, 8)
+
+  local seen = {}
+  for roll = 0, 255 do
+    local _, number = Effects.magnitudePower(function() return roll end)
+    seen[number] = true
+  end
+  for want = 4, 10 do
+    check(("magnitude table reaches %d"):format(want), seen[want] == true, true)
+  end
+
+  -- Engine path: inject a mid-table roll and confirm the announce + damage.
+  local magBattle, magPlayer, magWild = newBattle({
+    random = function(n)
+      -- Pin the getmagnitude byte: return 200 whenever n == 256.
+      if n == 256 then return 200 end
+      return 0
+    end,
+  })
+  magPlayer.moves = { { id = "MAGNITUDE", pp = 30, maxPp = 30 } }
+  magWild.hp = 200
+  magWild.maxHp = 200
+  local magEvents = magBattle:takeTurn({ kind = "move", move = "MAGNITUDE" })
+  local announced
+  for _, ev in ipairs(magEvents) do
+    if ev.kind == "message" and type(ev.text) == "string"
+        and ev.text:match("^Magnitude %d+") then
+      announced = ev.text
+      break
+    end
+  end
+  check("magnitude announces rolled number", announced, "Magnitude 8!")
+  check("magnitude deals more than power-1 would",
+    magWild.hp < 200, true)
+end
 
 -- --------------------------------------------------------------- held items
 

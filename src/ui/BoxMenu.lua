@@ -119,6 +119,13 @@ local function deposit(game)
     onChoose = function(item, list)
       local mon = game.save.party[item.value]
       if not mon then return end
+      local Follower = require("src.world.PikachuFollower")
+      if Follower.isFollowingDisabled(game.overworld)
+          and Follower.isStarterPikachu(game.save, mon) then
+        game.stack:push(TextBox.new(game, t._SleepingPikachuText2
+          or Strings("There isn't any\nresponse...")))
+        return
+      end
       monSubmenu(game, "DEPOSIT", mon, function()
         if #game.save.party <= 1 then
           list.footer = Strings("You need at least\none POKéMON!")
@@ -167,6 +174,16 @@ local function release(game)
       local mon = box[list.index]
       if not mon then return end
       local name = monName(game, mon)
+      if require("src.core.GameVersion").isYellow()
+         and mon.species == "PIKACHU"
+         and mon.otId == game.save.player.id
+         and mon.ot == game.save.player.name then
+        require("src.core.Sound").playCry(game.data, mon.species)
+        game.stack:push(TextBox.new(game,
+          (t._PikachuUnhappyText or Strings("%s looks\nunhappy about it!", name))
+            :gsub("{RAM:wNameBuffer}", name)))
+        return
+      end
       game.stack:push(TextBox.new(game,
         Strings("Once released,\n%s is\ngone forever. OK?", name), nil, {
         defaultNo = true, noSound = true,

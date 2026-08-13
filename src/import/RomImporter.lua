@@ -2048,6 +2048,15 @@ end
 
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
+  if self._launchFade then
+    self._launchFade.elapsed = self._launchFade.elapsed + dt
+    if self._launchFade.elapsed >= self._launchFade.duration then
+      local version = self._launchFade.version
+      self._launchFade = nil
+      self:play(version)
+      return
+    end
+  end
   self:_updatePadCursor(dt)
   self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
@@ -2436,9 +2445,15 @@ function RomImporter:joystickhat(joystick, hat, direction)
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.
-function RomImporter:play(version)
+function RomImporter:play(version, fade)
   if self.workState == "working" then return end
   if not self.ready[version] then return end
+  if fade then
+    if not self._launchFade then
+      self._launchFade = { version = version, elapsed = 0, duration = 0.24 }
+    end
+    return
+  end
   self._handedOff = true
   -- #835: remember the game being launched so the next launcher start opens on
   -- its column (_applyLastVersionTab).  It rides options.lua rather than a file
@@ -3064,15 +3079,19 @@ function RomImporter:_modUpdateInfo(id)
   return self.modUpdateInfo and self.modUpdateInfo[id] or nil
 end
 
--- Flip a mod's enabled flag (persisted via LauncherMods.setEnabled) and relist
--- so the toggle, count, and every status chip reflect the new resolution.
--- Enabling an experimental mod arms a confirm first.
-function RomImporter:_toggleMod(id, confirmed)
+-- Flip one game's mod flag (persisted via LauncherMods.setEnabled) and relist
+-- so that game's checkbox and status chips reflect the new resolution.
+-- Enabling an experimental mod arms a confirmation for that same game.
+function RomImporter:_toggleMod(id, confirmed, version)
   local LauncherMods = require("src.mods.LauncherMods")
   local cur, experimental = false, false
   for _, m in ipairs(self.mods or {}) do
     if m.id == id then
-      cur = m.enabled
+      if version and m.enabledByVersion then
+        cur = m.enabledByVersion[version] == true
+      else
+        cur = m.enabled
+      end
       experimental = m.experimental == true
       break
     end
@@ -3080,7 +3099,7 @@ function RomImporter:_toggleMod(id, confirmed)
   local want = not cur
   if want and experimental and not confirmed then
     self._modConfirm = {
-      kind = "experimental", id = id,
+      kind = "experimental", id = id, version = version,
       title = "Experimental mod",
       yesLabel = "Enable",
       lines = {
@@ -3092,7 +3111,7 @@ function RomImporter:_toggleMod(id, confirmed)
     return
   end
   self._modConfirm = nil
-  LauncherMods.setEnabled(id, want, self.modScope)
+  LauncherMods.setEnabled(id, want, version or self.modScope)
   self:_refreshMods()
 end
 

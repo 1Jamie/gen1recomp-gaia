@@ -450,6 +450,20 @@ record("RARE_CANDY", "candy", function(ctx)
   return rareCandy(ctx.mon, ctx.data)
 end)
 
+for _, itemId in ipairs({ "SUN_STONE", "MOON_STONE", "FIRE_STONE",
+                          "THUNDERSTONE", "WATER_STONE", "LEAF_STONE" }) do
+  record(itemId, "stone", function(ctx)
+    if ctx.mon.item == "EVERSTONE" then
+      return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+    end
+    local Evolution = require("src.core.gen2.Evolution")
+    local entry = Evolution.checkMon(ctx.data, ctx.mon,
+      { force = true, item = ctx.item })
+    if not entry then return { used = false, text = ItemEffects.TEXT_NO_EFFECT } end
+    return { used = true, evolution = entry }
+  end)
+end
+
 for itemId in pairs(ItemEffects.REVIVE) do
   record(itemId, "revive", function(ctx) return revive(ctx.item, ctx.mon) end)
 end
