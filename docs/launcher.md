@@ -152,7 +152,12 @@ before `Game:load`, so **it never loads a mod's entry chunk**; only
   path string or a LOVE `DroppedFile`, staging a dropped file into a save-dir
   temp first (mount only reaches save-dir-relative paths), the same way
   `RomImporter` handles a dropped ROM. A failed copy rolls its partial tree
-  back, and every path unmounts and clears the staged temp file.
+  back, and every path unmounts and clears the staged temp file. After a
+  successful install or update, hard dependencies that declare `github` and
+  are missing or out of range are fetched from tagged GitHub releases (same
+  pipeline as mod self-updates; depth ≤ 3). String-only hard deps (no
+  `github`) are unchanged — install still succeeds and the Loader reports
+  them at boot. Optional dependencies are not auto-fetched.
 - `LauncherMods.uninstall(id)` removes `mods/<id>/` and clears
   `options.mods[id]` so a later reinstall starts from the loader's default
   (enabled). The mods panel Delete control calls this and re-derives the list.

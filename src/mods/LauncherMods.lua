@@ -643,7 +643,61 @@ function LauncherMods.strays() return scanStrays(false) end
 -- on the player's behalf is not this function's call to make.
 function LauncherMods.adoptStrays() return scanStrays(true) end
 
--- installZip(source [, opts]) -> true, id  |  nil, errString
+-- After a successful install/update of `manifest`, fetch any missing or
+-- out-of-range hard deps that declare `github` (depth ≤ 3, once per id).
+-- No-op when nothing opts in with `github` — string-only deps are unchanged
+-- and still validated by the Loader at boot.  Optional deps are ignored.
+-- Never called at boot — only from install paths.
+-- Returns true [, fetchedIds] | nil, errString.
+function LauncherMods.resolveHardDeps(manifest)
+  if type(manifest) ~= "table" then return true, {} end
+  local specs = manifest.dependencySpecs
+  if type(specs) ~= "table" then return true, {} end
+  local anyGithub = false
+  for _, dep in ipairs(specs) do
+    if type(dep) == "table" and type(dep.github) == "string" and dep.github ~= "" then
+      anyGithub = true
+      break
+    end
+  end
+  if not anyGithub then return true, {} end
+
+  local ModDepResolve = require("src.mods.ModDepResolve")
+  local ModUpdate = require("src.mods.ModUpdate")
+  local fetched = {}
+  local ok, err = ModDepResolve.resolve(manifest, {
+    depth = 0,
+    visited = {},
+    fetched = fetched,
+    findLocal = function(id)
+      for _, m in ipairs(discover()) do
+        if m.id == id then return m end
+      end
+      return nil
+    end,
+    fetchReleases = function(github, id)
+      return ModUpdate.fetchReleases(github, id)
+    end,
+    installRelease = function(id, release)
+      return LauncherMods.installFromRelease(id, release, {
+        skipDepResolve = true,
+      })
+    end,
+  })
+  if not ok then return nil, err end
+  return true, fetched
+end
+
+-- "Installed foo" or "Installed foo (+ bar, baz)" when deps were auto-fetched.
+function LauncherMods.formatInstallNotice(id, fetched)
+  local text = "Installed " .. tostring(id)
+  if type(fetched) == "table" and #fetched > 0 then
+    text = text .. " (+ " .. table.concat(fetched, ", ") .. ")"
+  end
+  return text
+end
+
+-- installZip(source [, opts]) -> true, id [, fetchedIds]  |  nil, errString
 -- source is an external path or a love DroppedFile.  The archive is validated
 -- BEFORE anything is copied; every path unmounts and clears the staged temp
 -- file, and a failed copy rolls its partial tree back.  A dropped file outside
@@ -651,10 +705,12 @@ function LauncherMods.adoptStrays() return scanStrays(true) end
 -- love.filesystem.mount only reaches a save-directory-relative path.
 -- opts.replace = true uninstalls an existing same-id mod first (updates /
 -- rollbacks).  opts.expectId, when set, refuses a zip whose manifest id differs.
+-- opts.skipDepResolve = true skips install-time hard-dep fetch (used when the
+-- caller is already resolving deps, to avoid nested resolve passes).
 function LauncherMods.installZip(source, opts)
-  local ok, result, err = pcall(LauncherMods._installZipInner, source, opts)
+  local ok, result, err, fetched = pcall(LauncherMods._installZipInner, source, opts)
   if not ok then return nil, "import failed: " .. tostring(result) end
-  return result, err
+  return result, err, fetched
 end
 
 function LauncherMods._installZipInner(source, opts)
@@ -764,14 +820,23 @@ function LauncherMods._installZipInner(source, opts)
     return nil, copyErr or "could not copy the mod files"
   end
   cleanup()
+  if not opts.skipDepResolve then
+    local resolved, resolveErrOrFetched = LauncherMods.resolveHardDeps(manifest)
+    if not resolved then
+      return nil, resolveErrOrFetched
+    end
+    return true, manifest.id, resolveErrOrFetched
+  end
   return true, manifest.id
 end
 
 -- Install (or replace) a mod from a GitHub release zip URL.
--- Returns true, version  |  nil, errString. Soft-fails: download / install /
--- cleanup errors never throw into the launcher UI.
-function LauncherMods.installFromRelease(modId, release)
-  local ok, result, err = pcall(function()
+-- Returns true, version [, fetchedIds]  |  nil, errString. Soft-fails: download /
+-- install / cleanup errors never throw into the launcher UI.
+-- opts.skipDepResolve is forwarded to installZip (nested dep installs).
+function LauncherMods.installFromRelease(modId, release, opts)
+  opts = opts or {}
+  local ok, result, err, fetched = pcall(function()
     if type(modId) ~= "string" or modId == "" then
       return nil, "missing mod id"
     end
@@ -783,39 +848,43 @@ function LauncherMods.installFromRelease(modId, release)
       tostring(modId), tostring(release.version or os.time()))
     local localPath, dlErr = ModUpdate.downloadZip(release.zip.url, tmpName)
     if not localPath then return nil, dlErr end
-    local installed, res = LauncherMods.installZip(localPath, {
+    local installed, res, depIds = LauncherMods.installZip(localPath, {
       replace = true, expectId = modId,
+      skipDepResolve = opts.skipDepResolve,
     })
     pcall(love.filesystem.remove, localPath)
     if not installed then return nil, res end
-    return true, release.version or res
+    return true, release.version or res, depIds
   end)
   if not ok then return nil, "install failed: " .. tostring(result) end
-  return result, err
+  return result, err, fetched
 end
 
 -- The install half of installFromRelease, split out so the launcher can run
 -- the DOWNLOAD half asynchronously (src/net/Fetch.lua) and still land in the
 -- same place.  `localPath` is a love.filesystem-relative path to an already
 -- downloaded zip; it is consumed (removed) either way.
--- Returns true, version | nil, errString.
-function LauncherMods.installDownloadedZip(modId, localPath, version)
-  local ok, result, err = pcall(function()
+-- Returns true, version [, fetchedIds] | nil, errString.
+-- opts.skipDepResolve is forwarded to installZip (nested dep installs).
+function LauncherMods.installDownloadedZip(modId, localPath, version, opts)
+  opts = opts or {}
+  local ok, result, err, fetched = pcall(function()
     if type(modId) ~= "string" or modId == "" then
       return nil, "missing mod id"
     end
     if type(localPath) ~= "string" or localPath == "" then
       return nil, "missing downloaded archive"
     end
-    local installed, res = LauncherMods.installZip(localPath, {
+    local installed, res, depIds = LauncherMods.installZip(localPath, {
       replace = true, expectId = modId,
+      skipDepResolve = opts.skipDepResolve,
     })
     pcall(love.filesystem.remove, localPath)
     if not installed then return nil, res end
-    return true, version or res
+    return true, version or res, depIds
   end)
   if not ok then return nil, "install failed: " .. tostring(result) end
-  return result, err
+  return result, err, fetched
 end
 
 -- Install a mod listed in a community index (src/mods/ModIndex.lua).
@@ -824,9 +893,9 @@ end
 -- seam between them and nothing about the archive is special-cased.  expectId
 -- comes from the listing, so a feed that points an entry at somebody else's
 -- zip fails the manifest check instead of installing the wrong mod.
--- Returns true, version | nil, errString.
+-- Returns true, version [, fetchedIds] | nil, errString.
 function LauncherMods.installFromIndex(entry)
-  local ok, result, err = pcall(function()
+  local ok, result, err, fetched = pcall(function()
     if type(entry) ~= "table" or type(entry.id) ~= "string" then
       return nil, "index entry has no mod id"
     end
@@ -838,7 +907,7 @@ function LauncherMods.installFromIndex(entry)
     return LauncherMods.installFromRelease(entry.id, release)
   end)
   if not ok then return nil, "install failed: " .. tostring(result) end
-  return result, err
+  return result, err, fetched
 end
 
 -- uninstall(id) -> true  |  nil, errString

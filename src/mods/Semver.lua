@@ -153,4 +153,24 @@ function Semver.validRange(range)
   return true
 end
 
+-- Newest version string among `versions` that satisfies `range` (nil/empty
+-- range accepts any parsable version).  Skips unparsable entries.  Returns
+-- nil when nothing matches.
+function Semver.latestSatisfying(versions, range)
+  if type(versions) ~= "table" then return nil end
+  local best, bestParsed = nil, nil
+  for _, ver in ipairs(versions) do
+    if type(ver) == "string" then
+      local ok = Semver.satisfies(ver, range)
+      if ok then
+        local parsed = Semver.parse(ver)
+        if parsed and (not bestParsed or Semver.compare(parsed, bestParsed) > 0) then
+          best, bestParsed = ver, parsed
+        end
+      end
+    end
+  end
+  return best
+end
+
 return Semver

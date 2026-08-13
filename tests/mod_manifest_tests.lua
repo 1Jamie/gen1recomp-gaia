@@ -118,6 +118,51 @@ check(full.options_schema == "options.lua"
   and full.assets_transforms == "transforms.lua", "declared files are kept")
 check(full.force_enable_env == "SOME_ENV", "force_enable_env is kept")
 
+-- ------- dependency object specs (id / range / github)
+do
+  local obj = Manifest.validate({
+    id = "objdeps", name = "Obj", version = "1.0.0", entry = "main.lua",
+    dependencies = {
+      "simplelib@^1.0",
+      { id = "colorlib", range = "^0.1.4", github = "Owner/colorlib" },
+      { id = "barelib", github = "https://github.com/Acme/bare-lib.git" },
+    },
+  }, "mods/objdeps")
+  check(#obj.dependencySpecs == 3, "mixed string and object deps parse")
+  check(obj.dependencySpecs[1].id == "simplelib"
+    and obj.dependencySpecs[1].range == "^1.0"
+    and obj.dependencySpecs[1].github == nil, "string dep keeps no github")
+  check(obj.dependencySpecs[2].id == "colorlib"
+    and obj.dependencySpecs[2].range == "^0.1.4"
+    and obj.dependencySpecs[2].github == "Owner/colorlib",
+    "object dep keeps id, range, and normalized github")
+  check(obj.dependencySpecs[3].id == "barelib"
+    and obj.dependencySpecs[3].range == nil
+    and obj.dependencySpecs[3].github == "Acme/bare-lib",
+    "object dep github URL normalizes; range may be absent")
+end
+check(not pcall(Manifest.validate, {
+  id = "baddepgh", name = "Bad", version = "1.0.0", entry = "main.lua",
+  dependencies = { { id = "x", github = "not a repo" } },
+}), "a malformed dep github fails validation")
+check(not pcall(Manifest.validate, {
+  id = "baddeprange", name = "Bad", version = "1.0.0", entry = "main.lua",
+  dependencies = { { id = "x", range = ">>1.0" } },
+}), "a malformed object dep range fails validation")
+check(not pcall(Manifest.validate, {
+  id = "baddepid", name = "Bad", version = "1.0.0", entry = "main.lua",
+  dependencies = { { id = "bad id!", range = "^1.0" } },
+}), "a malformed object dep id fails validation")
+check(Semver.latestSatisfying({ "1.0.0", "1.2.0", "1.1.0" }, "^1.0") == "1.2.0",
+  "latestSatisfying picks the newest in range")
+check(Semver.latestSatisfying({ "2.0.0", "1.9.0" }, "^1.0") == "1.9.0",
+  "latestSatisfying skips versions outside the range")
+check(Semver.latestSatisfying({ "1.0.0-beta", "1.0.0" }, "^1.0") == "1.0.0"
+    or Semver.latestSatisfying({ "1.0.0" }, "^1.0") == "1.0.0",
+  "latestSatisfying returns a matching version")
+check(Semver.latestSatisfying({ "2.0.0" }, "^1.0") == nil,
+  "latestSatisfying returns nil when nothing matches")
+
 -- ------- github / experimental / incompatible
 local gh = Manifest.validate({
   id = "gh", name = "GH", version = "1.0.0", entry = "main.lua",

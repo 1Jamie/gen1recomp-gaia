@@ -31,22 +31,46 @@ local function violation(strict, id, message)
   Logger.warn("[%s] %s", tostring(id), message)
 end
 
--- "id" or "id@<range>"; a malformed id or range fails for every api level
--- because there is no sane fallback reading for it
+-- "id", "id@<range>", or { id, range?, github? }.  A malformed id/range/github
+-- fails for every api level because there is no sane fallback reading for it.
+-- `github` is optional and only meaningful for hard/optional deps (install-time
+-- fetch); conflict entries may still be objects with id/range only.
 local function parseSpecs(list, field)
   local specs = {}
-  for _, entry in ipairs(list) do
-    assert(type(entry) == "string" and entry ~= "",
-      field .. " entries must be non-empty strings")
-    local id, range = entry:match("^([%w_%-]+)@(.+)$")
-    if not id then
-      id = entry:match("^([%w_%-]+)$")
-      assert(id, ("malformed %s entry %q"):format(field, entry))
-      range = nil
+  for i, entry in ipairs(list) do
+    local id, range, github
+    if type(entry) == "string" then
+      assert(entry ~= "", field .. " entries must be non-empty strings")
+      id, range = entry:match("^([%w_%-]+)@(.+)$")
+      if not id then
+        id = entry:match("^([%w_%-]+)$")
+        assert(id, ("malformed %s entry %q"):format(field, entry))
+        range = nil
+      end
+    elseif type(entry) == "table" then
+      assert(type(entry.id) == "string" and entry.id:match("^[%w_%-]+$"),
+        ("malformed %s[%d]: id must contain only letters, numbers, _ or -")
+          :format(field, i))
+      id = entry.id
+      range = entry.range
+      if range ~= nil then
+        assert(type(range) == "string",
+          ("malformed %s[%d]: range must be a string"):format(field, i))
+      end
+      if entry.github ~= nil and entry.github ~= "" then
+        local ok, result = pcall(Manifest.parseGithub, entry.github)
+        assert(ok, ("malformed %s[%d] github: %s"):format(
+          field, i, tostring(result)))
+        github = result
+      end
+    else
+      error(("%s entries must be strings or objects, got %s at [%d]")
+        :format(field, type(entry), i), 0)
     end
     local ok, err = Semver.validRange(range)
-    assert(ok, ("malformed %s range in %q: %s"):format(field, entry, tostring(err)))
-    specs[#specs + 1] = { id = id, range = range }
+    assert(ok, ("malformed %s range for %q: %s"):format(
+      field, id, tostring(err)))
+    specs[#specs + 1] = { id = id, range = range, github = github }
   end
   return specs
 end

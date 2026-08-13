@@ -1649,7 +1649,7 @@ end
 function RomImporter:_installMod(source)
   if self.workState == "working" then return end
   self.tab = "mods"
-  local ok, installed, res = pcall(function()
+  local ok, installed, res, fetched = pcall(function()
     local LauncherMods = require("src.mods.LauncherMods")
     return LauncherMods.installZip(source)
   end)
@@ -1660,7 +1660,11 @@ function RomImporter:_installMod(source)
   end
   if installed then
     pcall(self._refreshMods, self)
-    self.modNotice = { ok = true, text = "Installed " .. tostring(res) }
+    local LauncherMods = require("src.mods.LauncherMods")
+    self.modNotice = {
+      ok = true,
+      text = LauncherMods.formatInstallNotice(res, fetched),
+    }
   else
     self.modNotice = { ok = false, text = tostring(res) }
   end
@@ -3320,7 +3324,7 @@ function RomImporter:_pumpModInstall()
   -- writes are main-thread only.
   self:_setBusy(Strings("Installing %s", tostring(spec.name or spec.modId)))
   local LauncherMods = require("src.mods.LauncherMods")
-  local ran, res, resErr = pcall(LauncherMods.installDownloadedZip,
+  local ran, res, resErr, fetched = pcall(LauncherMods.installDownloadedZip,
     spec.modId, path, job.version)
   self:_clearBusy()
   if not ran then
@@ -3337,6 +3341,9 @@ function RomImporter:_pumpModInstall()
   local shown = tostring(resErr or job.version or "")
   local text = ("%s %s %s"):format(spec.verb or "Installed",
     tostring(spec.name or spec.modId), shown)
+  if type(fetched) == "table" and #fetched > 0 then
+    text = text .. " (+ " .. table.concat(fetched, ", ") .. ")"
+  end
   if spec.notice == "find" then
     self.findNotice = { ok = true, text = text }
   else

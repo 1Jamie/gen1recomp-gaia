@@ -9,6 +9,20 @@ ModUpdate.CACHE_TTL = 6 * 60 * 60  -- six hours
 
 local Strings = require("src.core.Strings")
 
+-- True when an error string from HostShell/curl is a GitHub API rate limit
+-- (distinct from "no releases" / parse failures).
+function ModUpdate.isRateLimitError(err)
+  if type(err) ~= "string" then return false end
+  local lower = err:lower()
+  if lower:find("rate limit", 1, true) then return true end
+  if lower:find("api rate limit exceeded", 1, true) then return true end
+  -- HostShell names the status: "... HTTP 403 ..." plus GitHub's body.
+  if lower:find("http 403", 1, true) and lower:find("github", 1, true) then
+    return true
+  end
+  return false
+end
+
 local function stripV(tag)
   return (tostring(tag):gsub("^[vV]", ""))
 end

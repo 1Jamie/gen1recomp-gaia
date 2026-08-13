@@ -21,6 +21,26 @@ luajit tools/gen_registry_docs.lua
 luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
 ```
 
+## Hard dependencies and GitHub
+
+A hard dependency may be a string (`"id"` / `"id@^1.0"`) or an object:
+
+```json
+"dependencies": [
+  "pokegear_cards@^1.0",
+  { "id": "pokegear_cards", "range": "^1.0.0", "github": "1jamie/pokegear_cards" }
+]
+```
+
+When a player **installs or updates** a mod, missing or out-of-range hard
+deps that include `github` (`owner/repo` or a github.com URL) are fetched
+automatically from **tagged SemVer releases** (non-prerelease). `github` is
+**optional** — existing string-only deps behave exactly as before (install
+succeeds; the Loader reports missing/out-of-range at boot). Publish a real
+GitHub Release with a SemVer tag (e.g. `v1.2.0`) and a `.zip` asset —
+default-branch archives are not used. Optional dependencies are never
+auto-fetched. There is no boot-time network for deps.
+
 ## Mods and Gold (Gen 2)
 
 The mod API is one API across both generations, but Gold runs its own battle
