@@ -75,3 +75,6 @@ mobile/ios/bundle_id.local
 /dist/native/
 /dist/win/
 /.bazinga/
+
+# Local options / preferences
+/options.lua*
