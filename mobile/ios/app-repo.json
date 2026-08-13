@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.81",
+          "date": "2026-08-13",
+          "size": 9886854,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.81/gen1recomp++-0.1.81-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1091 Encounter Rate is tied to Game Speed\n- #1097 Phase through walls exiting a cave\n- #1100 Allow for control edit and vibration toggle on gold\n- #1104 wrong warp\n- #1135 update for iphone - haptic vibrations\n- #1155 Magnitude always rolls a 4\n- #1157 Sonic Boom doesn't deal set damage\n- #1158 Unable to view opponent's next Pokemon\n- #1159 Dig animation is bugged\n- #1160 64x64 battle sprite followup for mods\n- #1167 [Gold] items in ilex forest missing\n- #1208 Gold Save game not showing properly in LAUNCHER after having multiple saves\n\n## Contributors\n\n- @bryanthaboi\n- @castdrian\n- @MaxTomahawk\n- @Yukitty\n- Codex Agent"
+        },
+        {
           "version": "0.1.80",
           "date": "2026-08-12",
           "size": 10964568,
