@@ -335,11 +335,11 @@ function SaveData.defaultOptions()
     -- TouchControls.normalizeConfig folds it into both orientations on load.
     touchControls = { enabled = true },
     -- Haptic feedback level for on-screen pad presses (#806):
-    -- off | light | medium | heavy, mapped to a love.system.vibrate
-    -- duration in src/core/TouchControls.lua.  LIGHT by default, like the
-    -- overlay itself defaulting on, so an options.lua predating this key
-    -- gets the tick without going looking for the row.  Inert wherever the
-    -- overlay never appears (desktop) or LOVE has no vibrator.
+    -- off | light | normal | strong, mapped to a love.system.vibrate duration
+    -- in src/core/TouchControls.lua.  LIGHT by default, so an options.lua
+    -- predating this key gets the tick without going looking for the row.
+    -- Inert wherever the overlay never appears (desktop) or LOVE has no
+    -- vibrator.
     haptics = "light",
     -- Shared UI/mod timestamp presentation. DEVICE follows the process time
     -- locale where the platform exposes one; otherwise DateTime falls back to
