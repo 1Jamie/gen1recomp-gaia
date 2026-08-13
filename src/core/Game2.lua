@@ -689,10 +689,26 @@ function Game2:usePartyItem(itemId)
       self:say(result.text)
       return
     end
-    self:consumeItem(itemId)
-    if action == "candy" then
+    if action == "stone" then
+      local party = (self.save and self.save.party) or {}
+      local index
+      for i, member in ipairs(party) do
+        if member == mon then index = i break end
+      end
+      Screens.push(self, "Gen2EvolutionAnim", {
+        mon = mon, entry = result.evolution, index = index,
+        party = party, save = self.save,
+        force = true,
+        onDone = function(evolution)
+          if evolution and evolution.evolved then self:consumeItem(itemId) end
+          self.stack:pop()
+        end,
+      })
+    elseif action == "candy" then
+      self:consumeItem(itemId)
       self:say(result.text, function() self:afterRareCandy(mon, result) end)
     else
+      self:consumeItem(itemId)
       self:say(result.text)
     end
   end

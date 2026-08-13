@@ -1834,6 +1834,8 @@ function SaveData.newGame(boot)
   boot = type(boot) == "table" and boot or {}
   local map = boot.startMap or "REDS_HOUSE_2F"
   local x, y = boot.startX or 3, boot.startY or 6
+  local facing = boot.startFacing or "down"
+  if map == "REDS_HOUSE_2F" and boot.version ~= "yellow" then facing = "up" end
   local heal = SaveData.defaultHeal(boot)
   local save = {
     meta = { format = Version.saveFormat, mods = {} },
@@ -1844,7 +1846,7 @@ function SaveData.newGame(boot)
       map = map,
       x = x,
       y = y,
-      facing = boot.startFacing or "down",
+      facing = facing,
       name = boot.playerName or "RED",
       rival = boot.rivalName or "BLUE",
       -- 16-bit trainer ID rolled at new game (wPlayerID, filled from

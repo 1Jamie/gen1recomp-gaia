@@ -272,9 +272,6 @@ function EvolutionAnim:commit()
     evolved.level, evolved)
 end
 
--- One LearnMove call per move the new species picks up at this level.  There
--- is no forget screen in the Gold port yet, so a full moveset reports the way
--- src/battle/gen2/Battle.lua's own level-up path does instead of prompting.
 function EvolutionAnim:nextLearn()
   self.learnIndex = (self.learnIndex or 0) + 1
   local moveId = self.pending and self.pending[self.learnIndex]
@@ -289,6 +286,17 @@ function EvolutionAnim:nextLearn()
     self.learned[#self.learned + 1] = moveId
     self.lines = { self.nick .. " learned", moveName .. "!" }
   elseif reason == "full" then
+    if self.game and self.game.learnMoveOn then
+      self.phase = "waitingLearn"
+      return self.game:learnMoveOn(self.evolved, moveId, function(learned)
+        if learned then
+          self.learned[#self.learned + 1] = moveId
+        else
+          self.full[#self.full + 1] = moveId
+        end
+        self:nextLearn()
+      end)
+    end
     self.full[#self.full + 1] = moveId
     self.lines = { self.nick .. " wants to", "learn " .. moveName .. "!" }
   else
