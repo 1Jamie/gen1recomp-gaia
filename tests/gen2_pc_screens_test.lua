@@ -94,6 +94,8 @@ local ITEMS = {
     canToss = false },
   HM_CUT = { id = "HM_CUT", name = "HM01", pocket = "TM_HM", index = 0xf3,
     canToss = false },
+  TM_HEADBUTT = { id = "TM_HEADBUTT", name = "TM02", pocket = "TM_HM",
+    index = 0xea, canToss = true, teaches = "HEADBUTT" },
 }
 
 local function newGame(save, items)
@@ -289,6 +291,23 @@ do
   press(pc, input, "a")            -- clear it
   press(pc, input, "b")            -- close the PACK
   eq(pc.phase, "menu", "B drops back to the item PC menu")
+end
+
+-- The same DepositSellPack chooser holds a TM: it must reach the quantity
+-- selector like everything tossable, never the teach party (issue #1243).
+do
+  local save = newSave(1)
+  local game, input = newGame(save)
+  Bag.add(save, "TM_HEADBUTT", 1, game.data)
+  local pc = ItemPcMenu.new(game, { save = save, items = ITEMS })
+  press(pc, input, "down", "a")                 -- DEPOSIT ITEM
+  press(pc, input, "right", "right", "right")  -- ITEM -> BALL -> KEY_ITEM -> TM_HM
+  press(pc, input, "a")                         -- choose the TM
+  check(pc.qtyState ~= nil, "a TM asks how many to deposit")
+  eq(#game.stack._items, 0, "with no teach screen pushed over the pack")
+  press(pc, input, "a")                         -- deposit x1
+  eq(save.pcItems.TM_HEADBUTT, 1, "the TM lands in the PC")
+  eq(save.inventory.TM_HEADBUTT, nil, "and leaves the bag")
 end
 
 -- .TryDepositItem's .no_toss: a KEY ITEM stays in the bag, silently.

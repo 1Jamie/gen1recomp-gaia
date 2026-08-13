@@ -354,20 +354,23 @@ function PackMenu:useSelected()
     end
     return
   end
-  -- engine/items/tmhm.asm:73
-  local def = self.items and self.items[row.id]
-  if def and def.teaches then
-    self:openTeachParty(row)
-    return
-  end
-  -- UseItem's jumptable runs off ITEMATTR's field-menu nibble, and the first
-  -- four entries are all .Oak -- an X ATTACK or a POKé DOLL used from the
-  -- field PACK prints OakThisIsntTheTimeText and goes nowhere.  Only the
-  -- FIELD pack owns that refusal: the battle pack returned above, and the
-  -- catch tutorial's DUDE pack carries a stub world with no useFieldItem at
-  -- all -- its POKE BALL is field-NOUSE and must still reach the throw.
+  -- UseItem's FIELD-pack tail (engine/items/tmhm.asm:73): a TM/HM row opens
+  -- the party to teach, and a field-NOUSE item -- an X ATTACK or a POKé DOLL
+  -- used from the field PACK -- prints OakThisIsntTheTimeText and goes
+  -- nowhere (UseItem's jumptable's first four entries are all .Oak).  Both
+  -- checks live behind `world.useFieldItem` on purpose: DepositSellPack (the
+  -- mart's SELL, the item PC's DEPOSIT) is a chooser whose jumptable is four
+  -- ScrollingMenus and never reaches tmhm.asm, so a TM picked there hands
+  -- its row to onChoose like every other item instead of opening the teach
+  -- party.  The battle pack returned above, and the catch tutorial's DUDE
+  -- pack carries a stub world with no useFieldItem at all -- its POKE BALL
+  -- is field-NOUSE and must still reach the throw.
   if world and world.useFieldItem then
     local def = self.items and self.items[row.id]
+    if def and def.teaches then
+      self:openTeachParty(row)
+      return
+    end
     if def and def.fieldMenu == "ITEMMENU_NOUSE" then
       self.message = OAK_THIS_ISNT_THE_TIME
       return
