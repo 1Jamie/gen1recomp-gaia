@@ -14,6 +14,7 @@ local SwitchDiagnostics = require("src.debug.SwitchDiagnostics")
 local LaunchOptions = require("src.core.LaunchOptions")
 local NxDisplay = require("src.core.NxDisplay")
 local PlatformHooks = require("src.core.PlatformHooks")
+local HostDisplay = require("src.core.HostDisplay")
 
 -- Lua errors: persist a redacted trace in the save dir and surface a hint.
 do
@@ -197,14 +198,19 @@ end
 local touchEditorHost
 local closeTouchControlsEditor  -- forward declaration
 
-local function openTouchControlsEditor()
+-- `version` is the launcher tab the gear was opened on, and it decides which
+-- option block the layout lands in (src/ui/TouchControlsEditor.lua persist).
+local function openTouchControlsEditor(version)
   touchEditorHost = Importer
   if Importer and Importer.prepareOverlayHandoff then
     Importer:prepareOverlayHandoff()
   end
   Importer = nil
   TouchEditor = require("src.ui.TouchControlsEditor")
-  TouchEditor.load({ onClose = function() closeTouchControlsEditor() end })
+  TouchEditor.load({
+    version = version,
+    onClose = function() closeTouchControlsEditor() end,
+  })
 end
 
 function closeTouchControlsEditor()
@@ -425,6 +431,7 @@ function love.load(args)
 end
 
 function love.update(dt)
+  HostDisplay.update(dt)
   SwitchDiagnostics.maybeFlush(false)
   -- NX only (no-op elsewhere): follow dock/undock without waiting for SDL.
   NxDisplay.sync()
@@ -472,11 +479,27 @@ function love.update(dt)
 end
 
 function love.draw()
-  if editorMode then return EditorApp.draw() end
-  if TouchEditor then return TouchEditor.draw() end
-  if Importer then return Importer:draw() end
+  if editorMode then
+    HostDisplay.beginFrame("editor", EditorApp)
+    local result = EditorApp.draw()
+    HostDisplay.endFrame("editor", EditorApp)
+    return result
+  end
+  if TouchEditor then
+    HostDisplay.beginFrame("touch_editor", TouchEditor)
+    local result = TouchEditor.draw()
+    HostDisplay.endFrame("touch_editor", TouchEditor)
+    return result
+  end
+  if Importer then
+    HostDisplay.beginFrame("launcher", Importer)
+    local result = Importer:draw()
+    HostDisplay.endFrame("launcher", Importer)
+    return result
+  end
   if not Game then return end
 
+  HostDisplay.beginFrame("game", Game)
   Game:draw()
   -- frame capture requested by a driver
   if Game.capturePath then
@@ -491,6 +514,7 @@ function love.draw()
       end
     end)
   end
+  HostDisplay.endFrame("game", Game)
 end
 
 function love.keypressed(key, scancode, isrepeat)
