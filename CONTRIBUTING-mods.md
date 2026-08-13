@@ -256,7 +256,7 @@ engine's globals. Every chunk you author gets it: `main.lua`, your
 | `require("ffi")`, `require("love.*")` | the `love` table you are given |
 | `love.filesystem` | `mod.storage` (per-mod, per-playthrough) and `mod:read` |
 | `love.thread`, `love.event` | `mod.events`, `mod.hooks` |
-| `love.system` | `mod.device:powerInfo()` for battery information |
+| `love.system` | `mod.device:powerInfo()` for battery information; `mod.steps` (with the `steps` permission) for the step bridge |
 
 The rest of `love` passes through unchanged, so graphics, audio, timers and
 input work as they always have.
