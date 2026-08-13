@@ -2048,6 +2048,15 @@ end
 
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
+  if self._launchFade then
+    self._launchFade.elapsed = self._launchFade.elapsed + dt
+    if self._launchFade.elapsed >= self._launchFade.duration then
+      local version = self._launchFade.version
+      self._launchFade = nil
+      self:play(version)
+      return
+    end
+  end
   self:_updatePadCursor(dt)
   self:_stepBaseRomScan()
   -- Pump the FlexLove view (input polling + the queued click actions).  The
@@ -2436,9 +2445,15 @@ function RomImporter:joystickhat(joystick, hat, direction)
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.
-function RomImporter:play(version)
+function RomImporter:play(version, fade)
   if self.workState == "working" then return end
   if not self.ready[version] then return end
+  if fade then
+    if not self._launchFade then
+      self._launchFade = { version = version, elapsed = 0, duration = 0.24 }
+    end
+    return
+  end
   self._handedOff = true
   -- #835: remember the game being launched so the next launcher start opens on
   -- its column (_applyLastVersionTab).  It rides options.lua rather than a file

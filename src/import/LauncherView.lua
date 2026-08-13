@@ -100,6 +100,7 @@ end
 -- other half of that guarantee.
 function LauncherView.update(imp, dt)
   if not imp._flex then return end
+  if imp._launchFade then return end
 
   local down = false
   if love.mouse and love.mouse.isDown then
@@ -310,6 +311,236 @@ local CART_COLOR = {
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
+end
+
+local CART_DRAG_SLOP = 8
+local TAU = math.pi * 2
+
+local function cartridgeState(imp, version)
+  imp._cartridge = imp._cartridge or {}
+  local state = imp._cartridge[version]
+  if not state then
+    state = { spin = 0, lastTime = Kit.time }
+    imp._cartridge[version] = state
+  end
+  return state
+end
+
+local function cartridgeLabel(imp, version)
+  imp._cartridgeLabels = imp._cartridgeLabels or {}
+  local label = imp._cartridgeLabels[version]
+  if label ~= nil then return label or nil end
+  local ok, image = pcall(love.graphics.newImage,
+    "assets/labels/" .. tostring(version) .. ".png")
+  if not ok then
+    imp._cartridgeLabels[version] = false
+    return nil
+  end
+  local iw, ih = image:getDimensions()
+  label = { image = image, width = iw, height = ih }
+  imp._cartridgeLabels[version] = label
+  return label
+end
+
+local function cartProject(cx, cy, yaw, pitch, x, y, z)
+  local cyaw, syaw = math.cos(yaw), math.sin(yaw)
+  local cpitch, spitch = math.cos(pitch), math.sin(pitch)
+  local rx = x * cyaw + z * syaw
+  local rz = -x * syaw + z * cyaw
+  local ry = y * cpitch - rz * spitch
+  rz = y * spitch + rz * cpitch
+  local perspective = 620 / (620 - rz)
+  return cx + rx * perspective, cy + ry * perspective
+end
+
+local function cartPolygon(points, color, alpha)
+  local flat = {}
+  for i = 1, #points do
+    flat[#flat + 1], flat[#flat + 2] = points[i][1], points[i][2]
+  end
+  Theme.col(color, alpha or 1)
+  love.graphics.polygon("fill", flat)
+end
+
+local function cartQuad(project, x, y, w, h, z)
+  return {
+    { project(x, y, z) }, { project(x + w, y, z) },
+    { project(x + w, y + h, z) }, { project(x, y + h, z) },
+  }
+end
+
+local function cartPill(project, x, y, w, h, z, color, alpha)
+  local points, radius = {}, h / 2
+  for i = 0, 10 do
+    local a = math.pi + math.pi * i / 10
+    points[#points + 1] = { project(x + radius + math.cos(a) * radius,
+      y + radius + math.sin(a) * radius, z) }
+  end
+  for i = 0, 10 do
+    local a = math.pi * i / 10
+    points[#points + 1] = { project(x + w - radius + math.cos(a) * radius,
+      y + radius + math.sin(a) * radius, z) }
+  end
+  cartPolygon(points, color, alpha)
+end
+
+local function cartLabelMesh(imp, version, label, points)
+  if not love.graphics.newMesh then return nil end
+  imp._cartridgeLabelMeshes = imp._cartridgeLabelMeshes or {}
+  local mesh = imp._cartridgeLabelMeshes[version]
+  if not mesh then
+    mesh = love.graphics.newMesh({
+      { 0, 0, 0, 0, 255, 255, 255, 255 },
+      { 0, 0, 1, 0, 255, 255, 255, 255 },
+      { 0, 0, 1, 1, 255, 255, 255, 255 },
+      { 0, 0, 0, 1, 255, 255, 255, 255 },
+    }, "fan", "dynamic")
+    mesh:setTexture(label.image)
+    imp._cartridgeLabelMeshes[version] = mesh
+  end
+  mesh:setVertices({
+    { points[1][1], points[1][2], 0, 0, 255, 255, 255, 255 },
+    { points[2][1], points[2][2], 1, 0, 255, 255, 255, 255 },
+    { points[3][1], points[3][2], 1, 1, 255, 255, 255, 255 },
+    { points[4][1], points[4][2], 0, 1, 255, 255, 255, 255 },
+  })
+  return mesh
+end
+
+local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
+  local state = cartridgeState(imp, version)
+  local focused = Kit.focusable(key, x, y, w, h)
+  local hot = Kit.hover(x, y, w, h)
+  local active = state.active
+  local cx, cy = x + w / 2, y + h / 2
+
+  if Kit.mouseClicked and Kit.hit(x, y, w, h) and not Kit.blockClicks then
+    if Kit.mouseDown then
+      state.active = true
+      state.startX, state.startY = Kit.mouseX, Kit.mouseY
+      state.lastDragX, state.lastDragY = Kit.mouseX, Kit.mouseY
+      state.dragged = false
+      active = true
+    else
+      queueAction(imp, key, action)
+    end
+  end
+
+  if state.active then
+    active = true
+    if Kit.mouseDown then
+      local movedX, movedY = Kit.mouseX - state.startX, Kit.mouseY - state.startY
+      if movedX * movedX + movedY * movedY > CART_DRAG_SLOP * CART_DRAG_SLOP then
+        state.dragged = true
+      end
+      if state.dragged then
+        local dragX = Kit.mouseX - (state.lastDragX or Kit.mouseX)
+        local dragY = Kit.mouseY - (state.lastDragY or Kit.mouseY)
+        state.spin = state.spin + dragX * 0.018
+        state.pitchDrag = clamp((state.pitchDrag or 0) + dragY * 0.010,
+          -1.20, 1.20)
+      end
+      state.lastDragX, state.lastDragY = Kit.mouseX, Kit.mouseY
+    else
+      if not state.dragged then queueAction(imp, key, action) end
+      state.active, active = nil, false
+      state.dragged = nil
+    end
+  end
+
+  local dt = math.min(0.08, math.max(0, Kit.time - (state.lastTime or Kit.time)))
+  state.lastTime = Kit.time
+  if not state.active then
+    local upright = math.floor(state.spin / TAU + 0.5) * TAU
+    state.spin = state.spin + (upright - state.spin) * math.min(1, dt * 4)
+    state.pitchDrag = (state.pitchDrag or 0)
+      * (1 - math.min(1, dt * 4))
+  end
+  local pointerX = clamp((Kit.mouseX - cx) / math.max(1, w / 2), -1, 1)
+  local pointerY = clamp((Kit.mouseY - cy) / math.max(1, h / 2), -1, 1)
+  local hoverTilt = hot and pointerX * 0.12 or math.sin(Kit.time * 0.75) * 0.035
+  local pressX = active and pointerX * w * 0.025 or 0
+  local pressY = active and pointerY * h * 0.018 or 0
+  local yaw = -0.42 + state.spin + hoverTilt
+  local pitch = 0.14 + (state.pitchDrag or 0)
+    + (hot and pointerY * 0.08 or math.sin(Kit.time * 0.6) * 0.018)
+  local pressedScale = active and 0.965 or 1
+
+  Kit._audit("control", x, y, w, h, key)
+  if focused then
+    Theme.strokeRounded(x - 3, y - 3, w + 6, h + 6, PAL.lineStrong,
+      Theme.A.focus, 2, Theme.cardRadius() + 2)
+  end
+
+  local halfW, halfH = w / 2, h / 2
+  local depth = math.max(8, w * 0.14)
+  local project = function(px, py, pz)
+    return cartProject(cx + pressX, cy + pressY, yaw, pitch,
+      px * pressedScale, py * pressedScale, pz * pressedScale)
+  end
+
+  local capH = h * 3 / 65
+  local mainTop = -halfH + capH
+  local capRight = halfW - w * 5 / 57
+  local mainFront = cartQuad(project, -halfW, mainTop, w, h - capH, depth)
+  local mainBack = cartQuad(project, -halfW, mainTop, w, h - capH, -depth)
+  local capFront = cartQuad(project, -halfW, -halfH,
+    capRight + halfW, capH, depth)
+  local capBack = cartQuad(project, -halfW, -halfH,
+    capRight + halfW, capH, -depth)
+  local shell = cartColor(version)
+  local side = { math.floor(shell[1] * 0.54), math.floor(shell[2] * 0.54),
+    math.floor(shell[3] * 0.54) }
+
+  cartPolygon(mainBack, side, 1)
+  cartPolygon(capBack, side, 1)
+  cartPolygon({ mainFront[2], mainFront[3], mainBack[3], mainBack[2] }, side, 1)
+  cartPolygon({ mainFront[3], mainFront[4], mainBack[4], mainBack[3] }, side, 1)
+  cartPolygon({ mainFront[1], mainFront[2], mainBack[2], mainBack[1] }, side, 1)
+  cartPolygon({ capFront[2], capFront[3], capBack[3], capBack[2] }, side, 1)
+  cartPolygon({ capFront[1], capFront[2], capBack[2], capBack[1] }, side, 1)
+  cartPolygon({ capFront[4], capFront[1], capBack[1], capBack[4] }, side, 1)
+  cartPolygon(mainFront, shell, 1)
+  cartPolygon(capFront, shell, 1)
+
+  local faceZ = depth + 0.8
+  for i = 0, 4 do
+    local ry = mainTop + 7 + i * h * 0.025
+    cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+    cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+  end
+  local recessX, recessY = -w * 0.32, mainTop + h * 0.023
+  local recessW, recessH = w * 0.64, h * 0.24
+  cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
+  cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
+    recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
+  cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
+    recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
+
+  local labelX, labelY = -w * 0.33, -h * 0.20
+  local labelW, labelH = w * 0.66, h * 0.55
+  local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
+  cartPolygon(plate, side, 0.95)
+  local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
+  local label = cartridgeLabel(imp, version)
+  local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
+  if mesh then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(mesh)
+  elseif label then
+    local artScale = math.min(labelW / label.width, labelH / label.height)
+    love.graphics.draw(label.image, labelPoints[1][1], labelPoints[1][2],
+      0, artScale, artScale)
+  end
+  cartPolygon({
+    { project(-w * 0.07, h * 0.37, faceZ + 1) },
+    { project(w * 0.07, h * 0.37, faceZ + 1) },
+    { project(0, h * 0.43, faceZ + 1) },
+  }, side, 0.70)
+
+  if not state.active and (Kit._activateId == key) then
+    queueAction(imp, key, action)
+  end
 end
 
 local function modStatusColor(status)
@@ -1011,8 +1242,16 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
   else tagText, tagCol = Strings("ROM REQUIRED"), PAL.yellow end
   local tagW = Kit.textWidth("micro", tagText) + math.floor(18 * m.s)
   local tagH = Kit.textHeight("micro") + math.floor(10 * m.s)
-  Kit.tag(x + Kit.textWidth("title", Kit.ellipsize("title", gameName, w * 0.6))
-    + math.floor(12 * m.s), y + (titleH - tagH) / 2, tagW, tagH, tagText, tagCol)
+  local tagX = x + Kit.textWidth("title", Kit.ellipsize("title", gameName, w * 0.6))
+    + math.floor(12 * m.s)
+  Kit.tag(tagX, y + (titleH - tagH) / 2, tagW, tagH, tagText, tagCol)
+  if ready then
+    local hint = Strings("(PRESS THE CART TO PLAY)")
+    local hintX = tagX + tagW + math.floor(10 * m.s)
+    local hintW = math.max(0, x + w - hintX)
+    Kit.text("micro", Kit.ellipsize("micro", hint, hintW), hintX,
+      y + (titleH - Kit.textHeight("micro")) / 2, PAL.heading)
+  end
   local cy = y + titleH + math.floor(12 * m.s)
   local remaining = availH - (titleH + math.floor(12 * m.s))
 
@@ -1038,25 +1277,20 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
   local ly = cy
 
   if ready then
-    -- Play IS the panel: it takes the space the ROM buttons used to hold, at
-    -- the top of the column where the eye lands, wearing this game's own
-    -- cartridge colour rather than a generic green.
-    -- Play grows into the room the column has: it is the one thing on this
-    -- screen the player came for, and the space freed by moving ROM and
-    -- control management out belongs to it rather than to a gap.  Clamped at
-    -- both ends so a short window still gets a real button and a tall one
-    -- does not get a billboard.
-    local playH = math.floor(clamp(remaining * 0.30, 64 * m.s, 132 * m.s))
-    local mgW = playH
+    -- The cartridge takes the Play button's former place.  Its portrait
+    -- ratio comes from a real Game Boy cart rather than stretching the old
+    -- horizontal control, and its body colour comes from the active game.
+    local playH = math.floor(clamp(remaining * 0.52, 112 * m.s, 260 * m.s))
+    local mgW = math.max(Kit.tapMin(), math.floor(34 * m.s))
     local bgap = math.floor(8 * m.s)
-    btn(imp, lx, ly, lw - mgW - bgap, playH, "play-" .. version,
-      Strings("Play ") .. gameName, {
-        fill = cartColor(version), ink = PAL.inverse, font = "stat",
-        action = function() imp:play(version) end,
-      })
+    local cartAreaW = lw - mgW - bgap
+    local cartW = math.min(cartAreaW, math.floor(playH * 0.88))
+    local cartX = lx + math.floor((cartAreaW - cartW) / 2)
+    cartridgeButton(imp, cartX, ly, cartW, playH, "play-" .. version,
+      version, gameName, function() imp:play(version, true) end)
     imp._gearIcon = imp._gearIcon
       or love.graphics.newImage("assets/launcher/gear.png")
-    iconButton(imp, "manage-" .. version, lx + lw - mgW, ly, playH,
+    iconButton(imp, "manage-" .. version, lx + lw - mgW, ly, mgW,
       imp._gearIcon, function() imp._gameManage = version end)
     ly = ly + playH + gap
   end
@@ -2635,6 +2869,11 @@ function LauncherView.draw(imp)
     if Loader.overlay(m, spec) and spec.onCancel then
       queueAction(imp, "loader-cancel", spec.onCancel)
     end
+  end
+
+  if imp._launchFade then
+    Theme.fill(0, 0, m.W, m.H, PAL.bg,
+      math.min(1, imp._launchFade.elapsed / imp._launchFade.duration))
   end
 
   Kit.endFrame()
