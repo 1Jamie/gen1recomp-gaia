@@ -3,6 +3,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local T = require("tests.harness")
 local Assets = require("src.render.Assets")
 local WorldAPI = require("src.world.WorldAPI")
+local WorldAPI2 = require("src.world.gen2.WorldAPI")
 
 Assets.imageData = function()
   return { getPixel = function(_, x, y)
@@ -16,6 +17,10 @@ local api = WorldAPI.new({ stack = { states = {} } }, "tester")
 local overview, err = api:mapOverview()
 T.eq(overview, nil, "map overview is unavailable outside the overworld")
 T.eq(err, "no overworld", "map overview reports why it is unavailable")
+
+local overview2, err2 = WorldAPI2.new({}, "tester"):mapOverview()
+T.eq(overview2, nil, "Gen 2 map overview is unavailable outside the overworld")
+T.eq(err2, "no overworld", "Gen 2 map overview reports why it is unavailable")
 
 local map = {
   id = "TEST_MAP", widthCells = 2, heightCells = 2,
@@ -63,6 +68,48 @@ overview = api:mapOverview()
 T.eq(#overview.markers, 1, "collected items disappear from the overview")
 T.eq(overview.markers[1].kind, "warp", "exits remain after collecting items")
 
+local ball = { x = 0, y = 1, itemball = { item = 15, quantity = 1 } }
+local gen2Map = {
+  id = "GEN2_MAP", widthCells = 2, heightCells = 2,
+  tileset = { image = "test.png", tilesPerRow = 2 },
+  def = {
+    warps = { { x = 1, y = 0 } },
+    objects = { ball },
+    bgEvents = { {
+      x = 1, y = 1, kind = 7,
+      hiddenItem = { item = 30, event = 123 },
+    } },
+  },
+}
+function gen2Map:isWarpTileCell(x, y) return x == 1 and y == 0 end
+function gen2Map:isWaterCell(x, y) return x == 0 and y == 1 end
+function gen2Map:isWalkableCell(x, y) return x == 0 and y == 0 end
+function gen2Map:tileAt(x) return x % 2 end
+local found = {}
+local gen2World = {
+  isOverworld = true,
+  map = gen2Map,
+  npcs = { {}, { def = ball } },
+  events = { get = function(_, event) return found[event] end },
+}
+api = WorldAPI2.new({ save = {}, data = {}, world = gen2World }, "tester")
+overview = api:mapOverview()
+T.eq(overview.rows[1], ".+", "Gen 2 uses the shared terrain contract")
+T.eq(overview.rows[2], "~ ", "Gen 2 water and blocked terrain are distinct")
+T.eq(overview.tileDetailRows[1], "03330333",
+  "Gen 2 exposes the same 4x4 tile shading detail")
+T.eq(#overview.markers, 3,
+  "Gen 2 exits, visible item balls, and hidden items are marked")
+T.eq(overview.markers[2].kind, "item", "Gen 2 item balls are semantic")
+T.eq(overview.markers[3].kind, "hidden", "Gen 2 hidden items are semantic")
+
+gen2World.npcs = {}
+found[123] = true
+overview = api:mapOverview()
+T.eq(#overview.markers, 1,
+  "collected Gen 2 items disappear from the overview")
+
+api = WorldAPI.new(game, "tester")
 map.tileset = { image = "test.png", tilesPerRow = 2 }
 overview = api:mapOverview()
 T.eq(overview.tileWidth, 4, "tile overview reports its width")

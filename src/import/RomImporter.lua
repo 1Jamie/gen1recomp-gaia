@@ -1228,8 +1228,8 @@ function RomImporter.new(onComplete, opts)
     saveNotice = {},
     -- MODS panel state (pass 3): mods is the cached LauncherMods.list() array
     -- (refreshed lazily on first draw and after any toggle/install/delete);
-    -- modScroll is the list scroll offset (px, clamped in draw); modNotice is
-    -- the last install/delete result { ok, text } shown as a line above the list.
+    -- modScroll is the current paged list's inner scroll offset (px, clamped
+    -- in draw); modNotice is the last install/delete result { ok, text }.
     mods = nil, modScroll = 0, modNotice = nil,
     -- Which game the MODS panel is answering for (a GameVersion id, nil =
     -- every game).  Rows resolve their enable-state and their "runs here"
