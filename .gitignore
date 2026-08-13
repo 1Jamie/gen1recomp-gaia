@@ -3,8 +3,9 @@
 data/generated/
 assets/generated/
 
-# LÖVE packages
+# LÖVE packages & archives
 *.love
+*.zip
 
 # Local saves (LÖVE writes to its save dir, but keep the repo clean anyway)
 save/

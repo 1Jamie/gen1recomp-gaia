@@ -258,6 +258,25 @@ row on the detail screen. The launcher's dependency verdict asks the same
 question of your dependencies: a mod whose hard dependency does not run on the
 selected game reads `Needs <id> (not for Gold)` rather than `Ready`.
 
+### Scoping dependencies per game / generation
+
+For mods targeting multiple generations (`"games": ["gen1", "gen2"]`), a hard
+dependency can be scoped to specific games so that it is only enforced when
+booting those games:
+
+```json
+"dependencies": [
+  { "id": "pokegear_cards", "games": ["gen2"], "range": "^1.0.0", "github": "1jamie/pokegear_cards" }
+]
+```
+
+When booting a Gen 1 game (Red, Blue, Yellow), the engine loader sees that
+`pokegear_cards` is scoped to `"gen2"` and will not skip or block the parent mod
+on Gen 1. When booting Gen 2 (Gold), `pokegear_cards` is strictly required.
+
+For conditional integrations where the dependency is optional across the board,
+`optional_dependencies` remains the standard pattern.
+
 ### One limit worth knowing
 
 **Enablement is per game.** The overlay

@@ -400,6 +400,9 @@ EOF
   grep -q '^FUSE_PATH="\$APPDIR/game.love"$' "$appdir/AppRun" \
     || fail "failed to enable FUSE_PATH in AppRun (upstream AppRun changed?)"
 
+  sed -i '' 's|^exec "\$APPDIR/bin/love"|if [ -n "$WAYLAND_DISPLAY" ] \&\& [ -z "$SDL_VIDEODRIVER" ]; then export SDL_VIDEODRIVER=x11; fi\
+exec "$APPDIR/bin/love"|' "$appdir/AppRun"
+
   # Match the upstream image's compression (gzip, 128K blocks) so the
   # bundled runtime can read it.
   local sfs_out="$WORK/game.squashfs"

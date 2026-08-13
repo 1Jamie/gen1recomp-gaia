@@ -21,6 +21,76 @@ luajit tools/gen_registry_docs.lua
 luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
 ```
 
+## Manifest specification (`manifest.json`)
+
+Every mod contains a root `manifest.json` defining its metadata, supported games, and dependencies for the engine loader.
+
+```json
+{
+  "id": "my_mod",
+  "name": "My Cool Mod",
+  "version": "1.0.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "GAMEPLAY",
+  "games": ["gen1", "gen2"],
+  "game_version": ">=0.0.0-dev <2.0.0",
+  "priority": 100,
+  "dependencies": [
+    "helper_lib@^1.0.0",
+    { "id": "pokegear_cards", "games": ["gen2"], "range": "^1.0.0", "github": "1jamie/pokegear_cards" }
+  ],
+  "optional_dependencies": [
+    "gen1_modern_ui"
+  ],
+  "conflicts": [],
+  "permissions": ["engine_internals"],
+  "description": "A brief description of the mod.",
+  "github": "author/my_mod"
+}
+```
+
+### Manifest Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Unique identifier (lowercase alphanumeric, underscores, hyphens). |
+| `name` | `string` | Human-readable title shown in launcher and manager. |
+| `version` | `string` | Semantic version string (e.g. `"1.0.0"`). |
+| `api` | `integer` | Mod API level (`2` for current standard, `1` for legacy). |
+| `entry` | `string` | Entry Lua file path relative to mod root (usually `"main.lua"`). |
+| `profile` | `string` | Mod profile: `"content"`, `"overhaul"`, or `"total_conversion"`. |
+| `category` | `string` | Categorization chip (e.g. `"GAMEPLAY"`, `"CONTENT"`, `"UI"`, `"AUDIO"`). |
+| `games` | `array` | Supported game versions: `["gen1"]`, `["gen2"]`, `["red"]`, `["blue"]`, `["yellow"]`, `["gold"]`, or `["all"]`. |
+| `game_version`| `string` | Semver range of required engine version (e.g. `">=0.0.0-dev <2.0.0"`). |
+| `priority` | `integer` | Load priority order (lower numbers load earlier; dependencies always precede dependents regardless of priority). |
+| `dependencies` | `array` | Hard required dependencies. A mod will not load if a required dependency is missing or disabled for the active game. |
+| `optional_dependencies` | `array` | Soft dependencies. Guarantees that if the target mod is present and active, it loads *before* this mod without blocking load if absent. |
+| `conflicts` / `incompatible` | `array` | List of mod IDs that cannot run concurrently with this mod. |
+| `permissions` | `array` | Requested privileges (e.g. `["engine_internals"]`, `["network"]`, `["filesystem"]`). |
+| `github` | `string` | GitHub repository (`"owner/repo"`) used for update checks and dependency download links. |
+
+### Declaring Dependencies & Scoping
+
+Dependencies in `dependencies` and `optional_dependencies` can be declared in several formats:
+
+1. **Simple string**: `"mod_id"`
+2. **Version-pinned string**: `"mod_id@^1.2.0"`
+3. **Repository-hinted string**: `"mod_id#owner/repo"` or `"mod_id@^1.2.0#owner/repo"`
+4. **Structured object**:
+   ```json
+   {
+     "id": "mod_id",
+     "range": "^1.2.0",
+     "games": ["gen2"],
+     "github": "owner/repo"
+   }
+   ```
+
+#### Version-Scoped Dependencies
+When a mod supports multiple games (`"games": ["gen1", "gen2"]`), a dependency can specify `"games": ["gen2"]` to indicate it is only required when booting Gen 2. When booting Gen 1, the engine will ignore the dependency, preventing unnecessary boot blocks on games that do not need it.
+
 ## Mods and Gold (Gen 2)
 
 The mod API is one API across both generations, but Gold runs its own battle

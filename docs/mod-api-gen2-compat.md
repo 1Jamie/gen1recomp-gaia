@@ -118,10 +118,11 @@ Gen 2 games no longer loads on Red, Blue or Yellow. Say `["all"]` or list both
 generations if you want both.
 
 Two riders. **A hard dependency that does not run here takes the dependent down
-with it**, as a skip rather than a failure and carrying the dependency's own
-wording (`depends on X, which does not run here (For Blue, not Red)`), so the
-whole chain has to cover the same games. And **the claim is yours, not the last
-word**: it is the manager's `TRY HERE ANYWAY` row that lets a player run a mod
+with it** (unless scoped to specific games, e.g.
+`dependencies: [{ id = "x", games = ["gen2"] }]`), as a skip rather than a
+failure and carrying the dependency's own wording (`depends on X, which does not
+run here (For Blue, not Red)`), so the whole chain has to cover the same games.
+And **the claim is yours, not the last word**: it is the manager's `TRY HERE ANYWAY` row that lets a player run a mod
 whose author never opted in, which is the only route for a mod written before
 the field existed. The override is per game -- `options.modsGen2[id]` is a
 `{ [version] = true }` table, so forcing a mod onto Red does not force it onto
