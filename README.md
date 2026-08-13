@@ -242,7 +242,7 @@ in [docs/linux-arm64-build.md](docs/linux-arm64-build.md).
 
 ## iOS
 
-Every release ships `gen1recomp-*-ios.ipa`. Sideload it with AltStore
+Every release ships `gen1recomp++-*-ios.ipa`. Sideload it with AltStore
 (Windows or Mac) — see [docs/ios-sideload.md](docs/ios-sideload.md). To
 build and install from source on a Mac instead, see
 [docs/ios-install.md](docs/ios-install.md).
