@@ -1397,14 +1397,16 @@ function OverworldState:checkLedgeHop(dir)
           return false
         end
         require("src.core.Sound").play(Game.data, "Ledge")
-        p.hopFrames, p.hopTotal = 32, 32 -- jump arc (cosmetic)
+        local hop = (p.stepFramesCur or p.stepFrames or 16) * 2
+        p.hopFrames, p.hopTotal = hop, hop -- jump arc (cosmetic)
         self:scriptMove(p, dir, 1, function() self:checkEdgeExit(dir) end)
         return true
       end
       if not Collision.occupied(self.entities, lx, ly, p)
          and self.map:isWalkableCell(lx, ly) then
         require("src.core.Sound").play(Game.data, "Ledge")
-        p.hopFrames, p.hopTotal = 32, 32 -- jump arc (cosmetic)
+        local hop = (p.stepFramesCur or p.stepFrames or 16) * 2
+        p.hopFrames, p.hopTotal = hop, hop -- jump arc (cosmetic)
         self:scriptMove(p, dir, 2)
         return true
       end
