@@ -474,6 +474,8 @@ Generation-agnostic; nothing to adapt.
 (`src/world/gen2/WorldAPI.lua`). Two differences show through and are
 documented on the module: Gold's world is not a stack state, and Gen 2 event
 flags are numeric ids into `wEventFlags` rather than string keys.
+`mapOverview` returns the same read-only terrain, tile-shading, and marker
+shape, using Gold's live object masks and event flags to omit collected items.
 `spawnNpc` / `removeNpc` append onto the map def's own object list, the way the
 Gen 1 arm does, so a spawned actor is pooled, drawn, walked and talked to like
 an extracted one and survives a map reload; it is not serialized, so a mod

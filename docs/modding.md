@@ -66,7 +66,8 @@ optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
 `"3"` (darkest); their matching width and height fields describe the grid.
 `markers` contains active `{ kind, x, y }` points in map-cell coordinates for
 `warp`, visible `item`, and untaken `hidden` locations. All fields are
-read-only snapshots; mods choose which layers to render.
+read-only snapshots; mods choose which layers to render. Red and Gold expose
+the same contract while applying their own object and event visibility rules.
 
 ## Party ordering
 
