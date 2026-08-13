@@ -143,15 +143,35 @@ public class GameActivity extends SDLActivity {
 
     private static native void nativeSetDefaultStreamValues(int sampleRate, int framesPerBurst);
 
+    /**
+     * Native libraries required by an optional Android host extension.
+     *
+     * Subclasses supplied by another product flavor may override this method.
+     * The libraries are loaded after LÖVE's dependencies and before liblove;
+     * liblove must remain last because SDL treats the final entry as the main
+     * shared object.
+     */
+    protected String[] getHostLibraries() {
+        return new String[0];
+    }
+
     @Override
     protected String[] getLibraries() {
-        return new String[] {
-            "c++_shared",
-            "mpg123",
-            "openal",
-            "love",
-        };
+        String[] hostLibraries = getHostLibraries();
+        String[] libraries = new String[hostLibraries.length + 4];
+        libraries[0] = "c++_shared";
+        libraries[1] = "mpg123";
+        libraries[2] = "openal";
+        System.arraycopy(hostLibraries, 0, libraries, 3, hostLibraries.length);
+        libraries[libraries.length - 1] = "love";
+        return libraries;
     }
+
+    protected void onHostCreateBeforeSDL(Bundle savedInstanceState) {}
+    protected void onHostCreateAfterSDL(Bundle savedInstanceState) {}
+    protected void onHostResume() {}
+    protected void onHostPause() {}
+    protected void onHostDestroy() {}
 
     @Override
     protected String getMainSharedObject() {
@@ -192,7 +212,9 @@ public class GameActivity extends SDLActivity {
             intent.setData(null);
         }
 
+        onHostCreateBeforeSDL(savedInstanceState);
         super.onCreate(savedInstanceState);
+        onHostCreateAfterSDL(savedInstanceState);
         if (savedInstanceState != null) {
             // Restore the in-flight SAF destinations, so a pick that returns to
             // a recreated activity still lands under the basename it asked for.
@@ -341,6 +363,7 @@ public class GameActivity extends SDLActivity {
             Log.d("GameActivity", "Cancelling vibration");
             vibrator.cancel();
         }
+        onHostDestroy();
         super.onDestroy();
     }
 
@@ -351,12 +374,14 @@ public class GameActivity extends SDLActivity {
             vibrator.cancel();
         }
         teardownSecondaryDisplay();
+        onHostPause();
         super.onPause();
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        onHostResume();
         setupSecondaryDisplay();
     }
 

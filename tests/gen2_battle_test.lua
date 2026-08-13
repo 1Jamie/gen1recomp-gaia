@@ -1119,10 +1119,10 @@ check("seismic toss deals the level",
 do
   check("static damage uses move power",
     Effects.fixedDamage("EFFECT_STATIC_DAMAGE", { level = 10 }, { hp = 50 }, nil,
-      { power = 40 }), 40)
+      40), 40)
   check("sonic boom fixed damage is 20",
     Effects.fixedDamage("EFFECT_STATIC_DAMAGE", { level = 10 }, { hp = 50 }, nil,
-      { power = 20 }), 20)
+      20), 20)
 
   local boomBattle, _, boomWild = effectBattle({ "SONICBOOM" })
   boomWild.hp = 100
