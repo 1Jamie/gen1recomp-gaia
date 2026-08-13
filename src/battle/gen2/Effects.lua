@@ -265,8 +265,18 @@ Effects.MAGNITUDE_POWER = {
 -- is what damagecalc reads as the move's power -- data/moves/moves.asm stores
 -- MAGNITUDE at power 1 precisely because this overwrites it.  Returns the
 -- power and the magnitude number the text prints.
+--
+-- `random` is BattleRandom (0..n-1).  If none is supplied, roll via love.math
+-- / math.random — never hard-code 0 (that always yields Magnitude 4).
 function Effects.magnitudePower(random)
-  local roll = random and random(256) or 0
+  local roll
+  if type(random) == "function" then
+    roll = random(256) or 0
+  elseif love and love.math and love.math.random then
+    roll = love.math.random(256) - 1
+  else
+    roll = math.random(256) - 1
+  end
   for _, row in ipairs(Effects.MAGNITUDE_POWER) do
     if row[1] >= roll then return row[2], row[3] end
   end
