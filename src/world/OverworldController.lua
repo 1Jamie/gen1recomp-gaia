@@ -2913,7 +2913,7 @@ function OverworldState:nurseHeal(onDone, npc)
   local t = Game.data.text
   if self.map.id == "PEWTER_POKECENTER" and self.pikachuPewterSleepScene then
     Game.stack:push(TextBox.new(Game,
-      t._LooksContentText or "PIKACHU looks\ncontent.", onDone))
+      t._LooksContentText or Strings("PIKACHU looks\ncontent."), onDone))
     return
   end
   local bye = t._PokemonCenterFarewellText or romText(Game.data, "_PokemonCenterFarewellText", "We hope to see\nyou again!")
@@ -3009,7 +3009,7 @@ function OverworldState:cableClubReceptionist(onDone)
   local t = Game.data.text
   if self.map.id == "PEWTER_POKECENTER" and self.pikachuPewterSleepScene then
     Game.stack:push(TextBox.new(Game,
-      t._LooksContentText or "PIKACHU looks\ncontent.", onDone))
+      t._LooksContentText or Strings("PIKACHU looks\ncontent."), onDone))
     return
   end
   local welcome = t._CableClubNPCWelcomeText or romText(Game.data, "_CableClubNPCWelcomeText", "Welcome to the\nCable Club!")
