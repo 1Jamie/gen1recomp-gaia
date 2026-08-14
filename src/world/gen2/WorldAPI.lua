@@ -27,11 +27,15 @@ local Movement = require("src.script.gen2.Movement")
 local Runtime = require("src.mods.Runtime")
 local HiddenItems = require("src.world.gen2.HiddenItems")
 local MapOverview = require("src.world.MapOverview")
+local Bike = require("src.world.gen2.Bike")
+local FieldMoves = require("src.world.gen2.FieldMoves")
+local Permissions = require("src.world.gen2.Permissions")
 
 local WorldAPI = {}
 WorldAPI.__index = WorldAPI
 
 local NO_OVERWORLD = "no overworld"
+local RODS = { "OLD_ROD", "GOOD_ROD", "SUPER_ROD" }
 
 function WorldAPI.new(game, modId)
   return setmetatable({ game = game, modId = modId }, WorldAPI)
@@ -50,6 +54,77 @@ function WorldAPI:current()
   local p = world.player
   return { mapId = world.map.id, x = p and p.cellX, y = p and p.cellY,
            facing = p and p.facing }
+end
+
+local function itemLabel(game, id)
+  local def = game and game.data and game.data.items
+    and game.data.items[id]
+  return (def and def.name) or id
+end
+
+-- The same field-item contract as Gen 1, resolved through Gold's own bike,
+-- collision and fishing rules.
+function WorldAPI:availableFieldActions()
+  local world, game, out = self:overworld(), self.game, {}
+  if not (world and game and game.save and world.map and world.player)
+      or not world:acceptsMenuInput() then return out end
+  local inventory = game.save.inventory or {}
+
+  if (inventory.BICYCLE or 0) > 0 then
+    local bike = Bike.tryBike({
+      state = world.playerState,
+      environment = world.map.def and world.map.def.environment,
+      collision = world:playerCollision(),
+      alwaysOnBike = world:alwaysOnBike(),
+    })
+    if bike == "mount" or bike == "dismount" then
+      out[#out + 1] = { id = "bicycle",
+        label = bike == "dismount" and "BIKE OFF" or "BICYCLE" }
+    end
+  end
+
+  local context = world:fieldContext()
+  if not FieldMoves.isSurfing(world.playerState)
+      and Permissions.isWater(context.facingColl) then
+    local rods = {}
+    for _, id in ipairs(RODS) do
+      if (inventory[id] or 0) > 0 then
+        rods[#rods + 1] = { id = id, label = itemLabel(game, id) }
+      end
+    end
+    if #rods > 0 then
+      out[#out + 1] = { id = "fish", label = "FISH", rods = rods }
+    end
+  end
+  return out
+end
+
+function WorldAPI:useFieldAction(id, opts)
+  local world = self:overworld()
+  if not world then return nil, NO_OVERWORLD end
+  if not world:acceptsMenuInput() then return nil, "world is busy" end
+  local found
+  for _, action in ipairs(self:availableFieldActions()) do
+    if action.id == id then found = action break end
+  end
+  if not found then return nil, "field action unavailable" end
+
+  if id == "bicycle" then
+    local outcome = world:useFieldItem("BICYCLE")
+    if outcome and outcome ~= "nowhere" then return true end
+  elseif id == "fish" then
+    local rod = opts and opts.rod
+    if not rod and #found.rods == 1 then rod = found.rods[1].id end
+    for _, choice in ipairs(found.rods) do
+      if choice.id == rod then
+        local outcome = world:useFieldItem(rod)
+        if outcome and outcome ~= "nowhere" then return true end
+        break
+      end
+    end
+    return nil, "fishing rod unavailable"
+  end
+  return nil, "field action unavailable"
 end
 
 -- The same read-only minimap contract as Gen 1, with Gold's object/event
