@@ -135,6 +135,17 @@ if type(storage) == "table" then
         "title binding supports safe same-namespace durable operations")
       T.same(selected:read("history/title-operation"), { allowed = true },
         "title durable operation remains scoped to the selected playthrough")
+      T.check(type(selected.writeBytes) == "function"
+          and type(selected.readBytes) == "function",
+        "selected storage exposes opaque byte methods")
+      if type(selected.writeBytes) == "function"
+          and type(selected.readBytes) == "function" then
+        local titleBytes = "TITLE\0\255-cache"
+        T.check(selected:writeBytes("history/title-bytes", titleBytes) == true,
+          "title binding writes opaque bytes in the selected namespace")
+        T.eq(selected:readBytes("history/title-bytes"), titleBytes,
+          "title binding reads opaque bytes in the selected namespace")
+      end
     end
     T.check(title.save.meta.playthroughId == nil,
       "opening title history never allocates or adopts a playthrough identity")
