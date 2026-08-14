@@ -1069,7 +1069,8 @@ function Loader:_api(mod)
         bucket[key] = value
       end,
     },
-    -- Data-only state independent of the vanilla progress checkpoint. The
+    -- Data-only and opaque-byte state independent of the vanilla progress
+    -- checkpoint. The
     -- engine binds version/playthrough/mod scope and portable persistence;
     -- callers never receive paths or a raw filesystem handle.
     storage = {
@@ -1077,6 +1078,10 @@ function Loader:_api(mod)
       selected = function(_, game) return storage:selected(game) end,
       write = function(_, game, key, value) return storage:write(game, key, value) end,
       read = function(_, game, key) return storage:read(game, key) end,
+      writeBytes = function(_, game, key, bytes)
+        return storage:writeBytes(game, key, bytes)
+      end,
+      readBytes = function(_, game, key) return storage:readBytes(game, key) end,
       list = function(_, game, prefix) return storage:list(game, prefix) end,
       delete = function(_, game, key) return storage:delete(game, key) end,
     },
