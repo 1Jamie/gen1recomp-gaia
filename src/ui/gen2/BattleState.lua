@@ -185,6 +185,19 @@ function BattleState:statusHUDVisible()
                       self) ~= false
 end
 
+-- Class frontpic for the battle intro.  A trainers-registry `pic` wins over
+-- the extracted menu_gfx sheet; `trueColor` skips the GBC 4-shade remap.
+-- Returns path, trueColor.
+function BattleState.trainerArt(data, classId)
+  if not classId then return nil, false end
+  local classes = data and data.gen2Trainers and data.gen2Trainers.classes
+  local classDef = classes and classes[classId]
+  local hud = data and data.gen2MenuGfx and data.gen2MenuGfx.battleHud
+  local path = (classDef and classDef.pic)
+    or (hud and hud.trainerPics and hud.trainerPics[classId])
+  return path, (classDef and classDef.trueColor) and true or false
+end
+
 -- opts: battle (a Battle), onDone(outcome), save
 function BattleState.new(game, opts)
   opts = opts or {}
@@ -308,6 +321,7 @@ function BattleState.new(game, opts)
   -- pic is a cache asset, so an import made before the extractor grew that
   -- stage has none and the mon stands in for the whole intro.
   self.showEnemyTrainer = false
+  self.enemyTrainerTrueColor = false
   -- The CLASS CONSTANT (BUG_CATCHER), which is what both tables this looks the
   -- pic up in are keyed by: menu_gfx's trainerPics is written out of
   -- constants.trainerClassOrder, and palettes.trainers out of the same names.
@@ -317,17 +331,19 @@ function BattleState.new(game, opts)
   -- no palette for every trainer the world starts, which is all of them.
   -- `classId` is the trainers.lua key, i.e. the constant; `className` is the
   -- DISPLAY name ("BUG CATCHER", with the space) and is not a key at all.
+  -- A class record's own `pic` / `trueColor` (the trainers registry) wins
+  -- over the extracted sheet, so a mod can drop in full-color art.
   local enemyTrainer = self.battle and self.battle.trainer
   self.enemyTrainerClass = enemyTrainer
     and (enemyTrainer.classId or enemyTrainer.class)
-  local trainerPics = hudGfx and hudGfx.trainerPics
-  local trainerPath = self.enemyTrainerClass and trainerPics
-    and trainerPics[self.enemyTrainerClass]
+  local trainerPath, trainerTrueColor =
+    BattleState.trainerArt(data, self.enemyTrainerClass)
   if trainerPath then
     local ok, image = pcall(Assets.image, trainerPath)
     if ok and image then
       self.enemyTrainerImage = image
       self.enemyTrainerPath = trainerPath
+      self.enemyTrainerTrueColor = trainerTrueColor and true or false
       self.showEnemyTrainer = true
     end
   end
@@ -588,7 +604,10 @@ function BattleState:drawPic(mon, back)
   -- slides it out (InitEnemyTrainer, engine/battle/core.asm:7848).
   local enemyTrainer = (not back) and self.showEnemyTrainer
     and self.enemyTrainerImage
-  if enemyTrainer then image, path = enemyTrainer, self.enemyTrainerPath end
+  if enemyTrainer then
+    image, path = enemyTrainer, self.enemyTrainerPath
+    trueColor = self.enemyTrainerTrueColor
+  end
   if not image then return end
   local side = back and "player" or "enemy"
   local anim = self:animPicState(side)

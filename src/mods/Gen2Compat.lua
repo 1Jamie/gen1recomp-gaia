@@ -737,7 +737,8 @@ COVERAGE["src.pokemon.Boxes"] = {
 COVERAGE["src.world.WorldAPI"] = {
   kind = "alias", target = "src.world.gen2.WorldAPI",
   backed = "new __index overworld current mapOverview warpTo toggleObject replaceBlock "
-    .. "spawnNpc removeNpc npc queueScript invalidateMap",
+    .. "spawnNpc removeNpc npc queueScript invalidateMap "
+    .. "availableFieldActions useFieldAction",
   warned = "setFlag getFlag",
   absent = "",
   notes = {
@@ -1797,7 +1798,8 @@ local function buildBattleState()
     "throwBall", "ballChain", "tossAnimFor", "ballFlicker", "ballMissMessage",
     "storeCaughtMon", "safariAction", "safariEnemyTurn", "drawBallRow",
     "drawClassic", "isWideBattleLayout", "wideLayout", "bgMode", "uiSize",
-    "sgbPalettes", "trainerPalette", "trainerPicPath", "invalidate",
+    "sgbPalettes", "trainerPalette", "trainerPicPath", "trainerTrueColor",
+    "trainerSprite", "invalidate",
     "imageBattleScale", "resolveBattleScale", "backPlacement",
     "frontPlacement", "StatBox", "enter", "exit",
   }) do
@@ -1884,7 +1886,8 @@ COVERAGE["src.battle.BattleState"] = {
   absent = "newWild newTrainer makeSafari makeGhost makeBattler resolveTurn "
     .. "computeDamage catchAttempt runRoll enter exit sgbPalettes "
     .. "isWideBattleLayout wideLayout bgMode uiSize letterboxWhite "
-    .. "holdsUIAnchors BG_WORLD_DIM trainerPalette trainerPicPath invalidate "
+    .. "holdsUIAnchors BG_WORLD_DIM trainerPalette trainerPicPath "
+    .. "trainerTrueColor trainerSprite invalidate "
     .. "backPlacement frontPlacement StatBox drawClassic drawBallRow "
     .. "safariAction safariEnemyTurn throwBall storeCaughtMon field ruleset "
     .. "rng oppClass partyIndex aiUses introText dead",

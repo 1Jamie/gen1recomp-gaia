@@ -240,7 +240,7 @@ resolves to the weaker claim:
 | `warned` | present, answers nil or degrades, and names itself once with the mod attributed |
 | `absent` | deliberately not served; a nil read is the honest failure |
 
-Today that is 288 backed, 32 warned and 161 absent across the fifteen modules.
+Today that is 291 backed, 32 warned and 161 absent across the fifteen modules.
 `notes` keys are documentation topics rather than a member list -- dotted paths
 (`save.money`), field names (`warpAt`), hook names (`hook ui.pc.items`) and
 bare topics (`identity`, `iteration`, `rawset`) all appear there. `members` is
@@ -486,6 +486,9 @@ has its own entry points for (`start_battle "wild" species level`, `warp`,
 **by name, before the first row runs**, so a mod never gets a half-run queue.
 `marchInPlace` still has no Gen 2 equivalent (the Gen 2 movement stream has no
 byte for it) and returns `nil, reason` rather than approximating one.
+`availableFieldActions` and `useFieldAction` expose the same contextual
+bicycle and fishing records in both games. Each engine keeps ownership of its
+inventory, terrain, surfing, bike, and fishing rules.
 
 **Hooks and events that fire on Gold.** Every name below is the Gen 1 name
 carrying the Gen 1 payload keys, because Gold's call sites reuse them rather
@@ -763,6 +766,11 @@ name and the existing payload, plus fields where Gen 2 genuinely carries more
 
 The list is much shorter than it was. What is outstanding, in descending value:
 
+- `trainer.before_battle`: Gold constructs and pushes its trainer battle in
+  `src/world/gen2/World.lua:startBattle`, which does not yet expose a deferred
+  preparation boundary or a battle-local player-party view. Gen 1 mods can use
+  the hook documented in `docs/modding.md`; do not claim Gold compatibility
+  when that selection is required.
 - `pokemon.before_give` / `pokemon.received`: Gold has no give-mon seam of its
   own yet.
 - `link.*` and `trade.completed`: a Gold boot offers no link menu at all. The

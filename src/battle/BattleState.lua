@@ -316,6 +316,27 @@ function BattleState.trainerPicPath(data, trainer, oppClass, partyIndex)
   return base and base.pic or nil
 end
 
+-- trueColor on the trainer record, or on the basePic it reuses when the
+-- subclass does not set the flag itself.  Explicit false stays false.
+function BattleState.trainerTrueColor(data, trainer)
+  if not trainer then return false end
+  if trainer.trueColor ~= nil then
+    return trainer.trueColor and true or false
+  end
+  local base = trainer.basePic and data and data.trainers
+    and data.trainers[trainer.basePic]
+  return (base and base.trueColor) and true or false
+end
+
+-- Load a trainer frontpic through getImage so a trueColor portrait skips
+-- the 4-shade quantize the same way a species pic does.
+function BattleState.trainerSprite(data, trainer, oppClass, partyIndex)
+  return getImage(
+    BattleState.trainerPicPath(data, trainer, oppClass, partyIndex),
+    BattleState.trainerPalette(data, trainer),
+    BattleState.trainerTrueColor(data, trainer))
+end
+
 -- The battle-BGP fade variant of a pic (AnimationFlashScreen and the
 -- SetAnimationBGPalette effects remap the four BG shades; on the SGB
 -- the colorizer then colors the REMAPPED shade, so a faded pic shows
@@ -617,6 +638,44 @@ local function newBattle(game)
   return self
 end
 
+local function scopedPlayerParty(game, indices)
+  if indices == nil then return nil, nil end
+  if type(indices) ~= "table" then
+    Logger.warn("trainer battle party scope is not a table; using full party")
+    return nil, nil
+  end
+  local count = #indices
+  local keyCount = 0
+  for key in pairs(indices) do
+    keyCount = keyCount + 1
+    if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+      Logger.warn("trainer battle party scope is malformed; using full party")
+      return nil, nil
+    end
+  end
+  if count == 0 or keyCount ~= count then
+    Logger.warn("trainer battle party scope is empty or sparse; using full party")
+    return nil, nil
+  end
+  local party, normalized, seen = {}, {}, {}
+  for i = 1, count do
+    local index = indices[i]
+    if type(index) ~= "number" or index % 1 ~= 0
+        or not game.save.party[index] or seen[index] then
+      Logger.warn("trainer battle party scope contains an invalid index; using full party")
+      return nil, nil
+    end
+    seen[index] = true
+    normalized[i] = index
+    party[i] = game.save.party[index]
+  end
+  return party, normalized
+end
+
+function BattleState:playerPartyView()
+  return self.playerParty or self.game.save.party
+end
+
 -- opts.hooked: rod encounter, announced with _HookedMonAttackedText
 function BattleState.newWild(game, species, level, opts)
   local self = newBattle(game)
@@ -692,13 +751,15 @@ local function applySpecialMoves(data, oppClass, partyIndex, party)
   end
 end
 
-function BattleState.newTrainer(game, oppClass, partyIndex)
+function BattleState.newTrainer(game, oppClass, partyIndex, opts)
   local self = newBattle(game)
   self.kind = "trainer"
   self.oppClass = oppClass
   -- the object_event trainer arg (roster index).  computeMusicKind keys
   -- data/scripts/victories.lua on class#party, so keep it on the battle (#782).
   self.partyIndex = partyIndex or 1
+  self.playerParty, self.playerPartyIndices = scopedPlayerParty(game,
+    type(opts) == "table" and opts.playerPartyIndices or nil)
   self.trainer = game.data.trainers[oppClass]
   assert(self.trainer, "unknown trainer class " .. tostring(oppClass))
   -- pret GetTrainerName_: RIVAL1/2/3 copy wRivalName into wTrainerName
@@ -742,7 +803,7 @@ function BattleState.newTrainer(game, oppClass, partyIndex)
     end
   end
   self.enemyIndex = 1
-  local playerMon = Party.firstHealthy(game.save.party)
+  local playerMon = Party.firstHealthy(self:playerPartyView())
   if not playerMon then
     Logger.warn("trainer battle with no healthy party; skipping")
     self.dead = true
@@ -756,9 +817,8 @@ function BattleState.newTrainer(game, oppClass, partyIndex)
   -- MonsterPalettes[0] = PAL_MEWMON -- InitBattleCommon zeroes
   -- wEnemyMonSpecies2 before the intro's SET_PAL_BATTLE
   -- (engine/battle/core.asm:6682, engine/gfx/palettes.asm SetPal_Battle)
-  self.trainerPic = getImage(
-    BattleState.trainerPicPath(game.data, self.trainer, oppClass, partyIndex),
-    BattleState.trainerPalette(game.data, self.trainer))
+  self.trainerPic = BattleState.trainerSprite(
+    game.data, self.trainer, oppClass, partyIndex)
   self.introText = Strings("%s wants\nto fight!", self.trainer.name)
   return self
 end
@@ -2002,7 +2062,7 @@ function BattleState:update(dt)
     -- loops the party menu until a healthy mon is picked, so B and
     -- fainted picks land back here and reopen it
     if self.player.mon.hp <= 0 then
-      if Party.firstHealthy(self.game.save.party) then
+      if Party.firstHealthy(self:playerPartyView()) then
         self:openReplacementMenu()
       end
       return
@@ -3890,7 +3950,8 @@ function BattleState:awardExp()
   -- (RemoveFaintedPlayerMon), so it drops out of the divisor and only
   -- the surviving participants are counted and paid
   local participants, alive = 0, {}
-  for _, mon in ipairs(self.game.save.party) do
+  local playerParty = self:playerPartyView()
+  for _, mon in ipairs(playerParty) do
     if self.participants and self.participants[mon] then
       participants = participants + 1
       if mon.hp > 0 then table.insert(alive, mon) end
@@ -3984,9 +4045,9 @@ function BattleState:awardExp()
       -- experience.asm:9-13); each mon gets its own GainedText with the
       -- "with EXP.ALL," tail (wBoostExpByExpAll) -- pokered prints no
       -- summary line
-      for _, mon in ipairs(self.game.save.party) do
+      for _, mon in ipairs(playerParty) do
         if mon.hp > 0 then
-          ctx.applyShare(mon, math.max(1, ctx.participants) * #self.game.save.party * 2, "expAll")
+          ctx.applyShare(mon, math.max(1, ctx.participants) * #playerParty * 2, "expAll")
         end
       end
     end
@@ -4027,7 +4088,7 @@ function BattleState:enemyMonFainted()
       local nextName = nextMon.nickname or self.data.pokemon[nextMon.species].name
       local style = tostring((self.game.save.options or {}).battleStyle or "shift")
         :lower()
-      local partyCount = #self.game.save.party
+      local partyCount = #self:playerPartyView()
       -- ReplaceFaintedEnemyMon (core.asm:892-896): DrawEnemyPokeballs puts the
       -- foe's party ball row -- and the HUD chrome PlaceEnemyHUDTiles lays
       -- down under it (draw_hud_pokeball_gfx.asm:9-11, 33-45, 134-141) -- into
@@ -4054,6 +4115,7 @@ function BattleState:enemyMonFainted()
             local game = self.game
             Screens.push(game, "PartyMenu", {
               battle = self,
+              party = self:playerPartyView(),
               forceSwitch = true,
               onSwitch = function(mon)
                 if mon ~= self.player.mon and mon.hp > 0 then
@@ -4226,7 +4288,7 @@ function BattleState.isOaksLabStarterRival(self)
 end
 
 function BattleState:playerMonFainted()
-  local nextMon = Party.firstHealthy(self.game.save.party)
+  local nextMon = Party.firstHealthy(self:playerPartyView())
   -- Being out of useable POKéMON blacks you out even when the battle was
   -- already decided in our favour.  A double faint -- our last mon dying
   -- to residual damage on the turn it lands the KO -- used to hit the
@@ -4299,6 +4361,7 @@ function BattleState:openReplacementMenu()
   self:ui(function()
     return self:buildScreen("PartyMenu", {
       battle = self,
+      party = self:playerPartyView(),
       -- ChooseNextMon: pick immediately (no SWITCH/STATS/CANCEL)
       forceSwitch = true,
       onSwitch = function(mon)
@@ -4779,6 +4842,7 @@ function BattleState:openParty()
   self:ui(function()
     return self:buildScreen("PartyMenu", {
       battle = self,
+      party = self:playerPartyView(),
       onSwitch = function(mon)
         if mon == self.player.mon then
           self:say(Strings("%s is\nalready out!", self.player.name))
@@ -4825,8 +4889,8 @@ function BattleState:finish()
   -- here it did not, so say so rather than silently papering over it.
   -- The old-man / PROF.OAK demo also skips it: the party never fought
   -- (Yellow's Pallet intro runs before the player owns a mon at all).
-  if self.result ~= "lose" and not self.demo
-     and not Party.firstHealthy(self.game.save.party) then
+  if self.kind ~= "link" and self.result ~= "lose" and not self.demo
+     and not Party.firstHealthy(self:playerPartyView()) then
     Logger.warn("battle finished %s with no healthy party; forcing blackout",
                 tostring(self.result))
     self.result = "lose"
@@ -5707,7 +5771,7 @@ function BattleState:drawHUDs(slide)
     for i = 10, 17 do hudTile(0x76, i * 8, 88) end
     hudTile(0x6F, 72, 88)
     love.graphics.setColor(1, 1, 1, 1)
-    self:drawBallRow(self.playerParty or self.game.save.party, 88, 80, 8)
+    self:drawBallRow(self:playerPartyView(), 88, 80, 8)
   end
   local hidePlayer = self.safari or self.demo
   if showStatus and self.player and not hidePlayer and not self.showPlayerBack
