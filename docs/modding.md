@@ -147,6 +147,20 @@ Companion UIs and alternate party screens can call
 operation is accepted only during idle overworld play; menus, movement,
 scripts, battles, and transitions leave the party untouched.
 
+## Contextual field items
+
+`mod.world:availableFieldActions()` returns the field items that can start at
+the player's current position. Red and Gold currently expose `bicycle` and
+`fish`; fishing rows include the owned rods that are valid choices. The list
+is empty while the world is busy, while riding states or terrain forbid an
+action, or when the required item is not owned.
+
+Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
+the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
+and chooses automatically when only one rod is available. Invalid, stale, and
+busy requests return `nil` plus a reason without changing game state. Mods do
+not need generation-specific bike, collision, or fishing logic.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
@@ -308,6 +322,25 @@ local keys, code, message = mod.storage:list(game, "history/quick")
 local deleted, code, message = mod.storage:delete(game, "history/quick/q0001")
 ```
 
+For independently generated binary data, use the opaque byte methods. They
+accept and return the exact Lua string of bytes, including NUL bytes and bytes
+that are not valid text:
+
+```lua
+local ok, code, message = mod.storage:writeBytes(
+  game, "cache/maps/pallet/terrain", encodedMesh)
+local encodedMesh, code, message = mod.storage:readBytes(
+  game, "cache/maps/pallet/terrain")
+```
+
+Opaque values are limited to 512 MiB per key. The engine stores them without
+decoding, compression, or an engine-defined file format, and never executes
+them. A consuming mod owns validation of its format, fingerprint, checksum,
+and compression metadata. Byte writes are staged and compared byte-for-byte
+before replacement, and reads can recover a valid backup after an interrupted
+write. Existing table values and opaque byte values use one shared logical key
+space; delete a key before changing its value from one type to the other.
+
 `context` returns `{ engineVersion, gameVersion, playthroughId }`. The engine
 version is compatibility metadata; physical launcher-slot and path identity stays
 private. A title-selected context may additionally contain `normalSavedAt`, the
@@ -316,19 +349,22 @@ progress or a slot/path handle.
 
 At the title screen only, `mod.storage:selected(game)` returns a bound storage
 facade for the launcher-selected existing playthrough, or `nil, code, message`.
-Resolving this facade is read-only: it never allocates an identity, adopts a
+Resolving this facade is non-allocating: it never allocates an identity, adopts a
 fresh New Game, or exposes a slot id/path. Its `context()`, `read(key)`,
-`write(key, value)`, `list(prefix)`, and `delete(key)` methods have the same
-data-only and transaction contract as `mod.storage`, but remain restricted to
-the calling mod's selected existing namespace. It is intended for title tools
-that need to browse or manage durable history before the first normal SAVE.
+`write(key, value)`, `readBytes(key)`, `writeBytes(key, bytes)`,
+`list(prefix)`, and `delete(key)` methods have the same scoped and
+transactional contract as `mod.storage`, but remain restricted to the calling
+mod's selected existing namespace. It is intended for title tools that need to
+browse or manage durable history before the first normal SAVE.
 
-Values must be tables containing serializable data only. Keys are conservative
-slash-separated segments (letters, digits, `_`, `-`); paths and filesystem
-handles are never exposed. Writes are staged and decode-verified, reads recover
-from a valid staged/backup generation, and methods return structured errors for
-normal data or I/O failures. The playthrough identity is allocated lazily on the
-first storage/checkpoint call, so an unused API changes no save bytes.
+Table values must contain serializable data only. Opaque values must be Lua
+strings. Keys are conservative slash-separated segments (letters, digits, `_`,
+`-`); paths and filesystem handles are never exposed. Table writes are staged
+and decode-verified; opaque writes are staged and byte-verified; reads recover
+from a valid staged/backup generation. Methods return structured errors for
+normal data, byte validation, and I/O failures. The playthrough identity is
+allocated lazily on the first storage/checkpoint call, so an unused API changes
+no save bytes.
 
 `mod.checkpoints` captures and reconstructs engine-owned semantic runtime state:
 
@@ -422,6 +458,43 @@ opaque scripts, link/Safari/ghost/demo battles, action queues,
 animation/messages, forced choices, and every phase that cannot safely be
 checkpointed remain excluded. Exceptions are contained by normal hook isolation
 and fall through without advancing a turn.
+
+Gen 1 trainer encounters also expose `trainer.before_battle` after the
+challenge text and immediately before battle construction. This lets a mod
+defer the encounter while it collects a player choice through a registered
+screen, then resume with a battle-local view of the save party:
+
+```lua
+mod.hooks:wrap("trainer.before_battle", function(next, game, context, continue)
+  -- context = { trainerClass, partyIndex, mapId, npcId }
+  mod.ui.push(game, "party_registration", {
+    onConfirm = function(indices)
+      continue({ playerPartyIndices = indices })
+    end,
+    onCancel = function()
+      continue({ cancel = true })
+    end,
+  })
+  return true
+end)
+```
+
+Return `true` only when retaining `continue` for a later callback. Calling
+`continue({ cancel = true })` ends the encounter without constructing a battle;
+the normal encounter completion callback returns control to the overworld and
+no trainer-defeated state is written. A cancelled sight encounter is suppressed
+at the current player cell so it cannot immediately reopen; moving one cell or
+talking to the trainer permits a new challenge. Calling `continue()` uses the
+full save party; passing
+`{ playerPartyIndices = { 2, 4, 5 } }` uses those ordered, one-based party
+members for initial send, switching and forced replacement, exhaustion,
+experience traversal, and battle party displays. The continuation is one-shot.
+An empty, duplicate, out-of-range, or otherwise malformed list safely falls
+back to the full party. The view references the original Pokemon records and
+never reorders or replaces `game.save.party`; trainer battle checkpoints retain
+the selected indices. Mods remain responsible for selection policy and should
+use only public `mod.ui`, hook, and save APIs. See RFC 0010 for the exact
+contract and compatibility guarantees.
 
 ## Developer console
 

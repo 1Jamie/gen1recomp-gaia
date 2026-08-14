@@ -2356,6 +2356,20 @@ function RomImporter:_updatePadCursor(dt)
     local ny = self._padCursor.y + dy * speed * dt
     self._padCursor.x = math.max(ox, math.min(ox + w, nx))
     self._padCursor.y = math.max(oy, math.min(oy + h, ny))
+    -- Pushing INTO the top/bottom edge scrolls the page instead of stalling.
+    -- The cursor is clamped to the safe area above, so on a short window the
+    -- rows below the fold are unreachable on a stickless handheld: no mouse
+    -- wheel, no touchscreen, and no right stick to feed the existing wheel
+    -- path.  Only the OVERSHOOT scrolls -- parking the cursor at the edge does
+    -- nothing, it has to be actively pushed -- and this block only runs on pad
+    -- input, so a real mouse is unaffected.  /48 matches the pixels-per-notch
+    -- LauncherView.draw multiplies back out.
+    local overY = 0
+    if ny > oy + h then overY = ny - (oy + h)
+    elseif ny < oy then overY = ny - oy end
+    if overY ~= 0 and self._flex then
+      require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
+    end
     -- Desktop: FlexLove polls the real mouse, so warp it with the pad pointer.
     -- NX: the getPosition bridge already returns pad coords — skip setPosition.
     if not self.isNX and love.mouse.setPosition then
