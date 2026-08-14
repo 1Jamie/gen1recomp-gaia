@@ -299,6 +299,11 @@ end
 
 local CART_DRAG_SLOP = 8
 local TAU = math.pi * 2
+-- The 3D mesh is inset inside the hit box so yaw/pitch and the 1.05 hover
+-- scale cannot climb into the title row (or the gear) on desktop, high-DPI,
+-- or a portrait phone.  Fraction of the shorter side, with a pixel floor.
+local CART_MESH_PAD = 0.07
+local CART_MESH_PAD_MIN = 8
 
 local function cartridgeState(imp, version)
   imp._cartridge = imp._cartridge or {}
@@ -543,8 +548,11 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
       Theme.A.focus, 2, Theme.cardRadius() + 2)
   end
 
-  local halfW, halfH = w / 2, h / 2
-  local depth = math.max(8, w * 0.14)
+  local meshPad = math.max(CART_MESH_PAD_MIN,
+    math.floor(math.min(w, h) * CART_MESH_PAD))
+  local halfW = math.max(1, w / 2 - meshPad)
+  local halfH = math.max(1, h / 2 - meshPad)
+  local depth = math.max(8, (halfW * 2) * 0.14)
   local project = function(px, py, pz)
     return cartProject(cx + pressX, cy + pressY, yaw, pitch,
       px * pressedScale, py * pressedScale, pz * pressedScale)
@@ -638,14 +646,8 @@ local function modStatusColor(status)
 end
 
 -- MODS panel scope row: which game the list is answering for, plus dedicated Profile control (cycle + gear).
-local function buildModScopeRow(imp, x, y, w, m)
+local function modScopeOptions(imp)
   local GameVersion = require("src.core.GameVersion")
-  local LauncherMods = require("src.mods.LauncherMods")
-  local h = math.max(Kit.tapMin(), math.floor(26 * m.s))
-  local gap = math.floor(6 * m.s)
-  local label = Strings("Show for:")
-  Kit.text("small", label, x, y + (h - Kit.textHeight("small")) / 2, PAL.muted)
-  local cx = x + Kit.textWidth("small", label) + math.floor(10 * m.s)
   local options = { { id = nil, label = Strings("All games") } }
   for _, version in ipairs(GameVersion.ORDER) do
     if imp.ready and imp.ready[version] then
@@ -653,6 +655,33 @@ local function buildModScopeRow(imp, x, y, w, m)
         { id = version, label = GameVersion.info(version).label }
     end
   end
+  return options
+end
+
+local function modScopeCurrentLabel(imp, options)
+  for _, opt in ipairs(options) do
+    if imp.modScope == opt.id then return opt.label end
+  end
+  return options[1] and options[1].label or Strings("All games")
+end
+
+local function modScopeChipsWidth(options, gap, m)
+  local need = 0
+  for i, opt in ipairs(options) do
+    need = need + Kit.textWidth("micro", opt.label) + math.floor(18 * m.s)
+    if i < #options then need = need + gap end
+  end
+  return need
+end
+
+local function buildModScopeRow(imp, x, y, w, m)
+  local LauncherMods = require("src.mods.LauncherMods")
+  local h = math.max(Kit.tapMin(), math.floor(26 * m.s))
+  local gap = math.floor(6 * m.s)
+  local label = Strings("Show for:")
+  Kit.text("small", label, x, y + (h - Kit.textHeight("small")) / 2, PAL.muted)
+  local cx = x + Kit.textWidth("small", label) + math.floor(10 * m.s)
+  local options = modScopeOptions(imp)
 
   -- Dedicated Profile control section (cycle button + gear icon button) on right side of Scope Bar
   local _, activeProf = LauncherMods.getProfiles()
@@ -690,9 +719,12 @@ local function buildModScopeRow(imp, x, y, w, m)
   })
 
   if #options >= 2 then
-    for _, opt in ipairs(options) do
-      local cw = Kit.textWidth("micro", opt.label) + math.floor(18 * m.s)
-      if cx + cw <= profX - gap then
+    local avail = profX - gap - cx
+    -- Chips stay when they all fit; otherwise they used to be skipped and
+    -- vanish off the portrait edge.  Collapse to one menu in that case only.
+    if modScopeChipsWidth(options, gap, m) <= avail then
+      for _, opt in ipairs(options) do
+        local cw = Kit.textWidth("micro", opt.label) + math.floor(18 * m.s)
         if Kit.chip(cx, y, cw, h, opt.label, imp.modScope == opt.id, PAL.lineStrong,
                     "mod-scope-" .. tostring(opt.id or "all")) then
           local want = opt.id
@@ -700,6 +732,15 @@ local function buildModScopeRow(imp, x, y, w, m)
             function() imp:_setModScope(want) end)
         end
         cx = cx + cw + gap
+      end
+    elseif avail > 0 then
+      local shown = Kit.ellipsize("micro", modScopeCurrentLabel(imp, options),
+        math.max(0, avail - math.floor(18 * m.s)))
+      local cw = math.min(avail,
+        Kit.textWidth("micro", shown) + math.floor(18 * m.s))
+      if Kit.chip(cx, y, cw, h, shown, true, PAL.lineStrong, "mod-scope-menu") then
+        queueAction(imp, "mod-scope-menu",
+          function() imp._modScopePopup = true end)
       end
     end
   end
@@ -740,8 +781,8 @@ local function setPage(imp, key, v)
   imp._pages[key] = v
 end
 
--- A hand-drawn X, for the same reason drawCheck exists below: the UI font has
--- no guaranteed glyph, and the launcher ships no icon asset for it.
+-- A hand-drawn X / check: the UI font has no guaranteed glyph for either,
+-- and the launcher ships no icon asset for them.
 local function drawCross(x, y, size, color)
   love.graphics.push("all")
   love.graphics.setColor(color)
@@ -749,6 +790,18 @@ local function drawCross(x, y, size, color)
   love.graphics.setLineJoin("bevel")
   love.graphics.line(x, y, x + size, y + size)
   love.graphics.line(x + size, y, x, y + size)
+  love.graphics.pop()
+end
+
+local function drawCheck(x, y, size, color)
+  love.graphics.push("all")
+  love.graphics.setColor(color)
+  love.graphics.setLineWidth(math.max(2.2, size * 0.17))
+  love.graphics.setLineJoin("bevel")
+  love.graphics.line(
+    x + size * 0.02, y + size * 0.52,
+    x + size * 0.38, y + size * 0.80,
+    x + size * 1.015, y + size * 0.18)
   love.graphics.pop()
 end
 
@@ -1316,20 +1369,32 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
     or tostring(version)
   local ready = (not locked) and imp.ready[version] or false
 
-  -- title + status tag
+  -- title + status tag.  Ready is a check chip (the font has no tick glyph);
+  -- missing ROM stays a yellow "ROM REQUIRED" tag so it still reads as an action.
   local titleH = Kit.textHeight("title")
   Kit.text("title", Kit.ellipsize("title", gameName, w * 0.6), x, y, PAL.heading)
-  local tagText, tagCol
-  if ready then tagText, tagCol = Strings("GOOD TO GO"), PAL.green
-  elseif imp.baseRoms and imp.baseRoms[version] then
-    tagText, tagCol = Strings("ROM FOUND"), PAL.green
-  elseif locked then tagText, tagCol = Strings("COMING SOON"), PAL.steel
-  else tagText, tagCol = Strings("ROM REQUIRED"), PAL.yellow end
-  local tagW = Kit.textWidth("micro", tagText) + math.floor(18 * m.s)
   local tagH = Kit.textHeight("micro") + math.floor(10 * m.s)
   local tagX = x + Kit.textWidth("title", Kit.ellipsize("title", gameName, w * 0.6))
     + math.floor(12 * m.s)
-  Kit.tag(tagX, y + (titleH - tagH) / 2, tagW, tagH, tagText, tagCol)
+  local tagY = y + (titleH - tagH) / 2
+  local tagW, tagCol
+  if ready then
+    tagCol = PAL.green
+    tagW = tagH
+    if love.graphics then
+      Theme.strokeRounded(tagX, tagY, tagW, tagH, tagCol, 0.7, 1)
+      local ck = math.floor(tagH * 0.55)
+      drawCheck(tagX + (tagW - ck) / 2, tagY + (tagH - ck) / 2, ck, tagCol)
+    end
+  else
+    local tagText
+    if imp.baseRoms and imp.baseRoms[version] then
+      tagText, tagCol = Strings("ROM FOUND"), PAL.green
+    elseif locked then tagText, tagCol = Strings("COMING SOON"), PAL.steel
+    else tagText, tagCol = Strings("ROM REQUIRED"), PAL.yellow end
+    tagW = Kit.textWidth("micro", tagText) + math.floor(18 * m.s)
+    Kit.tag(tagX, tagY, tagW, tagH, tagText, tagCol)
+  end
   if ready then
     local hint = Strings("(PRESS THE CART TO PLAY)")
     local hintX = tagX + tagW + math.floor(10 * m.s)
@@ -1337,8 +1402,11 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
     Kit.text("micro", Kit.ellipsize("micro", hint, hintW), hintX,
       y + (titleH - Kit.textHeight("micro")) / 2, PAL.heading)
   end
-  local cy = y + titleH + math.floor(12 * m.s)
-  local remaining = availH - (titleH + math.floor(12 * m.s))
+  -- Extra gap under the title when the cart is showing: 12px left the 3D
+  -- shell sitting on the hairline.  Scaled, and still small on a phone.
+  local afterTitle = math.floor((ready and 22 or 12) * m.s)
+  local cy = y + titleH + afterTitle
+  local remaining = availH - (titleH + afterTitle)
 
   local gap = m.gap
   local lx, lw, rx2, rw
@@ -1444,20 +1512,6 @@ local function currentSort(imp)
     imp.modSort = sortKey
   end
   return sortKey
-end
-
--- A hand-drawn check mark: the UI font has no guaranteed glyph for one, and
--- a tofu box on the "you already have this" signal would be worse than none.
-local function drawCheck(x, y, size, color)
-  love.graphics.push("all")
-  love.graphics.setColor(color)
-  love.graphics.setLineWidth(math.max(2.2, size * 0.17))
-  love.graphics.setLineJoin("bevel")
-  love.graphics.line(
-    x + size * 0.02, y + size * 0.52,
-    x + size * 0.38, y + size * 0.80,
-    x + size * 1.015, y + size * 0.18)
-  love.graphics.pop()
 end
 
 -- One compact coloured checkbox for each game.  The cartridge colour carries
@@ -1978,21 +2032,47 @@ local TRUST_WARNING = "if you did not get this from bryanthaboi's github "
   .. "it might have been tampered with. go to the discord to verify "
   .. COMMUNITY_URL .. " (or click the logo above)"
 
+-- Mark + optional updater + Patch notes.  Chips match the mark's 22px
+-- height so they do not read as bigger than the logo; the row can still
+-- be tapMin tall for spacing.  On a phone the notes chip drops onto a
+-- second row rather than overflowing the mark.
+local function footerLayout(imp, m, markW)
+  local markH = math.floor(22 * m.s)
+  local rowH = math.max(markH, Kit.tapMin())
+  local notesLabel = Strings("Patch notes")
+  -- Tight chip, still enough for Kit.button's labelInset so the words survive.
+  local chipPad = math.floor(24 * m.s)
+  local nw = Kit.textWidth("micro", notesLabel) + chipPad
+  local upStatus, upLabel, upAction, upGlow = LauncherView._updateControl(imp)
+  local uw = upStatus
+    and (Kit.textWidth("micro", upLabel) + chipPad) or 0
+  local gap = math.floor(10 * m.s)
+  local inner = m.w - 2 * m.pad
+  local topW = (markW or 0) + (upStatus and (gap + uw) or 0) + gap + nw
+  return {
+    rowH = rowH, chipH = markH, gap = gap,
+    notesLabel = notesLabel, nw = nw,
+    upStatus = upStatus, upLabel = upLabel, upAction = upAction, upGlow = upGlow,
+    uw = uw, wrap = topW > inner,
+  }
+end
+
 -- Pinned to the bottom of the window; returns the y it starts at, so the
 -- panels above know how much room they have.
 -- Deliberately compact: at a large UI scale the footer is pure overhead
 -- competing with the panel for a short window's height, so the mark and the
 -- link share one line and the trust warning is capped at a single line.
 local function footerHeight(imp, m)
-  -- Top pad + mark/update row + gap + the FULL wrapped trust message +
-  -- bottom pad.  The message wraps to as many lines as it needs: truncating
-  -- a trust warning defeats its purpose, and the bottom pad is not optional
-  -- either (without it the last line sits flush on the window edge and its
-  -- lower half clips off).  The row is tapMin tall because the small update
-  -- button rides beside the mark.
-  local rowH = math.max(math.floor(22 * m.s), Kit.tapMin())
-  return math.floor(8 * m.s) + rowH + math.floor(6 * m.s)
-    + Kit.wrapHeight("micro", TRUST_WARNING, m.contentW)
+  -- Top pad + mark/update row + optional notes wrap row + gap + the FULL
+  -- wrapped trust message + bottom pad.  The message wraps to as many lines
+  -- as it needs: truncating a trust warning defeats its purpose, and the
+  -- bottom pad is not optional either (without it the last line sits flush
+  -- on the window edge and its lower half clips off).  The row is tapMin
+  -- tall because the small update button rides beside the mark.
+  local f = footerLayout(imp, m, math.floor(130 * m.s))
+  local h = math.floor(8 * m.s) + f.rowH + math.floor(6 * m.s)
+  if f.wrap then h = h + f.chipH + math.floor(6 * m.s) end
+  return h + Kit.wrapHeight("micro", TRUST_WARNING, m.contentW)
     + math.floor(8 * m.s)
 end
 
@@ -2009,19 +2089,17 @@ local function buildFooter(imp, m, y)
   local bw, bh = imp.bcg:getDimensions()
   local scale = math.min((130 * m.s) / bw, (22 * m.s) / bh)
   local dw, dh = bw * scale, bh * scale
-  local rowH = math.max(math.floor(22 * m.s), Kit.tapMin())
-  -- The mark and the small self-update control share the row, centred as a
-  -- group.  The updater moved down here from the header, where it overlapped
-  -- the wordmark on a phone; small on purpose, its glow still carries the
-  -- "act on me" signal.
-  local upStatus, upLabel, upAction, upGlow = LauncherView._updateControl(imp)
-  -- Kit.button insets its label 16*scale per side, so the width must budget
-  -- more than that or the label ellipsizes ("Check for updat...").
-  local uw = upStatus
-    and (Kit.textWidth("micro", upLabel) + math.floor(36 * m.s)) or 0
-  local groupW = dw + (upStatus and (math.floor(10 * m.s) + uw) or 0)
-  local bx = m.x + math.floor((m.w - groupW) / 2)
+  local f = footerLayout(imp, m, dw)
+  local rowH, gap, chipH = f.rowH, f.gap, f.chipH
+  -- The mark, the small self-update control, and Patch notes share the row,
+  -- centred as a group.  The updater moved down here from the header, where
+  -- it overlapped the wordmark on a phone; small on purpose, its glow still
+  -- carries the "act on me" signal.  Notes wrap under the mark on a phone.
+  local topW = dw + (f.upStatus and (gap + f.uw) or 0)
+  if not f.wrap then topW = topW + gap + f.nw end
+  local bx = m.x + math.floor((m.w - topW) / 2)
   local my = cy + math.floor((rowH - dh) / 2)
+  local chipY = cy + math.floor((rowH - chipH) / 2)
   local hot = Kit.hover(bx, my, dw, dh)
   love.graphics.setShader(imp.invertShader)
   love.graphics.setColor(1, 1, 1, hot and 1 or 0.85)
@@ -2031,14 +2109,30 @@ local function buildFooter(imp, m, y)
   if Kit.press(bx, my, dw, dh) then
     queueAction(imp, "bcg", function() love.system.openURL(COMMUNITY_URL) end)
   end
-  if upStatus then
-    btn(imp, bx + dw + math.floor(10 * m.s), cy, uw, rowH, "updater",
-      upLabel, {
-        kind = upGlow and "warn" or "ghost", font = "micro",
-        glow = upGlow, action = upAction,
+  local cx = bx + dw
+  if f.upStatus then
+    cx = cx + gap
+    btn(imp, cx, chipY, f.uw, chipH, "updater",
+      f.upLabel, {
+        kind = f.upGlow and "warn" or "ghost", font = "micro",
+        glow = f.upGlow, action = f.upAction,
       })
+    cx = cx + f.uw
   end
-  cy = cy + rowH + math.floor(6 * m.s)
+  local function notesBtn(x, y)
+    btn(imp, x, y, f.nw, chipH, "patch-notes", f.notesLabel, {
+      kind = "ghost", font = "micro",
+      action = function() imp._appPatchNotes = true end,
+    })
+  end
+  if f.wrap then
+    cy = cy + rowH + gap
+    notesBtn(m.x + math.floor((m.w - f.nw) / 2), cy)
+    cy = cy + chipH + math.floor(6 * m.s)
+  else
+    notesBtn(cx + gap, chipY)
+    cy = cy + rowH + math.floor(6 * m.s)
+  end
   -- The trust message wraps in full, each line centred under the mark, and
   -- the URL inside it IS the link -- no separate link floating elsewhere.
   -- font:getWrap never splits an unspaced word, so the URL stays whole on
@@ -2541,6 +2635,34 @@ local function buildSortModal(imp, m)
   btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "sortpop-close",
     Strings("Close"), { font = "small",
       action = function() imp._sortPopup = nil end })
+end
+
+-- Game-scope chooser used when the Show-for chips cannot all fit on the
+-- mods toolbar (portrait phones).  Same options as the chip row.
+local function buildModScopeModal(imp, m)
+  local options = modScopeOptions(imp)
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(360 * m.s)
+  local gap = math.floor(8 * m.s)
+  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
+    + #options * (m.btnH + gap) + m.btnH + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Show for"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  for _, opt in ipairs(options) do
+    local key = tostring(opt.id or "all")
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "scopepop-" .. key, opt.label, {
+      kind = (imp.modScope == opt.id) and "primary" or "ghost", font = "small",
+      action = function()
+        imp:_setModScope(opt.id)
+        imp._modScopePopup = nil
+      end })
+    cy = cy + m.btnH + gap
+  end
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "scopepop-close",
+    Strings("Close"), { font = "small",
+      action = function() imp._modScopePopup = nil end })
 end
 
 -- Category filter for FIND MODS.  Two columns, because an index can list
@@ -3253,8 +3375,9 @@ end
 local function modalUp(imp)
   return (imp._settingsText or imp._settings or imp._rename
     or imp._indexPrompt or imp._modConfirm or imp._modReleaseNotes
+    or imp._appPatchNotes
     or imp._findDetails or imp._modVersions or imp._modDepResolver or imp._sortPopup
-    or imp._filterPopup or imp._indexManage or imp._modActions
+    or imp._filterPopup or imp._modScopePopup or imp._indexManage or imp._modActions
     or imp._modHeaderActionsPopup or imp._profilesPopup or imp._singleProfileActions or imp._profileSavePrompt
     or imp._profileRenamePrompt or imp._findEntry or imp._gameManage) ~= nil
 end
@@ -3351,6 +3474,20 @@ local function buildModals(imp, m)
     return true
   end
   if imp._modConfirm then buildConfirmModal(imp, m) return true end
+  if imp._appPatchNotes then
+    local PatchNotes = require("src.update.PatchNotes")
+    local ModUpdate = require("src.mods.ModUpdate")
+    local raw, ver = PatchNotes.body(imp.Check)
+    local body = ModUpdate.cleanBody(raw or "", 0)
+    if body == "" then body = Strings("(No patch notes.)") end
+    local title = Strings("Patch notes")
+    if ver and ver ~= "" then
+      title = title .. "  v" .. tostring(ver)
+    end
+    buildTextModal(imp, m, "patch-notes-modal", title, body,
+      function() imp._appPatchNotes = nil end)
+    return true
+  end
   if imp._modReleaseNotes then
     local ModUpdate = require("src.mods.ModUpdate")
     local n = imp._modReleaseNotes
@@ -3380,6 +3517,7 @@ local function buildModals(imp, m)
   if imp._profilesPopup then buildProfilesModal(imp, m) return true end
   if imp._modHeaderActionsPopup then buildModHeaderActionsModal(imp, m) return true end
   if imp._sortPopup then buildSortModal(imp, m) return true end
+  if imp._modScopePopup then buildModScopeModal(imp, m) return true end
   if imp._filterPopup then buildFilterModal(imp, m) return true end
   if imp._indexManage then buildIndexesModal(imp, m) return true end
   if imp._modActions then buildModActionsModal(imp, m) return true end

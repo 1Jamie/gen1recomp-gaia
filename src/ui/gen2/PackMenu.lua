@@ -630,7 +630,7 @@ function PackMenu:openTeachParty(row)
       if not allowed then
         if game.say then
           game:say(("%s can't learn %s!"):format(
-            mon.nickname or mon.species or "?", moveName))
+            require("src.battle.gen2.Mon").displayName(mon), moveName))
         end
         return
       end
@@ -638,7 +638,7 @@ function PackMenu:openTeachParty(row)
         if move.id == moveId then
           if game.say then
             game:say(("%s already knows %s!"):format(
-              mon.nickname or mon.species or "?", moveName))
+              require("src.battle.gen2.Mon").displayName(mon), moveName))
           end
           return
         end

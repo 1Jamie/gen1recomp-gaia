@@ -283,6 +283,9 @@ function Game2:continueGame(save)
   local modsDiff = SaveData.modsDiff(save, activeMods)
   self.save = save
   self:adoptSave(save)
+  -- Editor species swaps used to leave mon.name on the previous species.
+  -- CONTINUE rewrites party, boxes, and Day-Care copies from the live record.
+  require("src.battle.gen2.Mon").syncSaveIdentity(save, self.data)
   -- options.lua wins over anything a save file carries: options are a display
   -- preference that survives New Game and is edited from the launcher, so a
   -- save written before they moved out must not drag old values back in.
@@ -588,13 +591,13 @@ function Game2:useFieldItem(itemId)
       end
       if not allowed then
         self:say(("%s can't learn %s!"):format(
-          mon.nickname or mon.species or "?", moveName))
+          require("src.battle.gen2.Mon").displayName(mon), moveName))
         return
       end
       for _, move in ipairs(mon.moves or {}) do
         if move.id == moveId then
           self:say(("%s already knows %s!"):format(
-            mon.nickname or mon.species or "?", moveName))
+            require("src.battle.gen2.Mon").displayName(mon), moveName))
           return
         end
       end

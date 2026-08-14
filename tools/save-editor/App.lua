@@ -25,6 +25,7 @@ local State = require("State")
 local Kit = require("Kit")
 local Theme = require("Theme")
 local Ops = require("Ops")
+local Gen = require("Gen")
 local PadInput = require("PadInput")
 local PAL = Theme.PAL
 
@@ -87,56 +88,43 @@ local function applyLoaded(path, statusVerb)
   if save then
     S.save = save
     S.status = statusVerb .. " " .. path
-    S.mapId = save.player.map
     S.loadError = false
     S.allowSave = true
   elseif existed then
-    -- File is present but SaveIO.load couldn't decode it: treat it as a
-    -- real (corrupt) save, not a missing one. Editing a stub here is fine,
-    -- but Save must stay disabled so we never clobber the corrupt file
-    -- until the user fixes it and Reload succeeds.
-    S.save = require("src.core.SaveData").newGame()
+    S.save = Gen.newGame(S.version)
     S.status = "Corrupt save at " .. path .. " (" .. tostring(err) ..
       "),  Save disabled, use Reload after fixing the file"
-    S.mapId = S.save.player.map
     S.loadError = true
     S.allowSave = false
   else
-    S.save = require("src.core.SaveData").newGame()
+    S.save = Gen.newGame(S.version)
     S.status = "No save at " .. path .. " (" .. tostring(err) ..
       "),  editing new game stub"
-    S.mapId = S.save.player.map
     S.loadError = false
     S.allowSave = true
   end
+  local mapId = Gen.playerMap(S.save)
+  S.mapId = mapId
   S.dirty = false
   S._quitArmed = false
   S._openArmed = false
   S.editingMon = nil
   Ops.disarm(S)
-  local boxes = require("src.pokemon.Boxes").ensure(S.save)
-  -- Imported .sav box mons have no stat block (box_struct stops before
-  -- MON_STATS).  The game derives them in SaveData.validate; the editor
-  -- only validates a copy, so hydrate here for Boxes/Party/MonEditor.
-  local Stats = require("src.pokemon.Stats")
-  local function ensureStats(mon)
-    Stats.ensure(Data.pokemon and Data.pokemon[mon.species], mon)
-  end
-  for _, mon in ipairs(S.save.party or {}) do ensureStats(mon) end
-  for _, box in ipairs(boxes) do
-    for _, mon in ipairs(box) do ensureStats(mon) end
-  end
-  if S.save.daycare and S.save.daycare.mon then
-    ensureStats(S.save.daycare.mon)
-  end
-  -- what the running game would quarantine, computed on a copy so the
-  -- editor never mutates the file behind the user's back
-  local SaveData = require("src.core.SaveData")
+  Gen.ensureBoxes(S.save)
+  Gen.hydrateSave(Data, S.save)
   local probe = require("src.mods.Merge").deepCopy(S.save)
-  S.validation = SaveData.validate(probe, Data)
-  if not SaveData.emptyReport(S.validation) then
-    S.status = S.status .. string.format(",  game would quarantine: %d mons, %d items, %d maps",
-      #S.validation.lostMons, #S.validation.lostItems, #S.validation.remappedMaps)
+  S.validation = Gen.validate(probe, Data)
+  if not Gen.emptyReport(S.save, S.validation) then
+    if Gen.of(S.save, S.version) == 2 then
+      S.status = S.status .. string.format(
+        ",  game would quarantine: %d script bytes, %d mail, %d events",
+        #(S.validation.lostScriptMem or {}),
+        #(S.validation.lostMail or {}),
+        #(S.validation.lostEvents or {}))
+    else
+      S.status = S.status .. string.format(",  game would quarantine: %d mons, %d items, %d maps",
+        #S.validation.lostMons, #S.validation.lostItems, #S.validation.remappedMaps)
+    end
   end
 end
 
@@ -152,6 +140,9 @@ function App.load(pathOverride, opts)
   S.slotId = opts.slotId
   S.embedded = opts.embedded or false
   S.onClose = opts.onClose
+  if opts.version then
+    require("src.core.GameVersion").set(opts.version)
+  end
   -- the same mod set the game loads, merged into Data before the catalogs
   -- build, so modded species/items/moves are editable and MonOps stops
   -- asserting on them
@@ -163,6 +154,10 @@ function App.load(pathOverride, opts)
     -- loaded at least once, so it doubles as the "needs evicting" marker.
     if Data._pristineKeys then Data:unloadGenerated() end
     Data:load()
+    if Gen.of(nil, opts.version) == 2
+        or require("src.core.GameVersion").generation() == 2 then
+      Gen.bindGoldData(Data)
+    end
     local ModLoader = require("src.mods.Loader")
     mods = ModLoader.new()
     mods:load(Data)
@@ -174,9 +169,16 @@ function App.load(pathOverride, opts)
   for _, mod in ipairs(S.mods:status().loaded) do
     modRoots[#modRoots + 1] = mod.path
   end
-  S.events = Catalog.scrapeEvents("data/scripts", "data/generated/trainer_headers.lua",
-                                  nil, modRoots)
+  if Gen.of(nil, opts.version) == 2 or require("src.core.GameVersion").generation() == 2 then
+    S.events = Catalog.goldEventList(modRoots)
+  else
+    S.events = Catalog.scrapeEvents("data/scripts", "data/generated/trainer_headers.lua",
+                                    nil, modRoots)
+  end
   applyLoaded(pathOverride or SaveIO.defaultPath(), "Loaded")
+  if Gen.of(S.save, S.version) == 2 then
+    S.events = Catalog.goldEventList(modRoots)
+  end
 end
 
 -- Switch to another save file (Open button, drag-drop, or --save arg).
@@ -582,11 +584,9 @@ local function tabCount(id)
     return tostring(n)
   elseif id == "items" then
     local Bag = require("src.inventory.Bag")
-    return ("%d/%d"):format(Bag.slots(S.save), Bag.capacity(S.data))
+    return ("%d/%d"):format(Bag.slots(S.save, S.data), Bag.capacity(S.data))
   elseif id == "events" then
-    local n = 0
-    for _ in pairs(S.save.flags or {}) do n = n + 1 end
-    return tostring(n)
+    return tostring(Gen.flagCount(S.save))
   elseif id == "map" then
     -- map ids run long (REDS_HOUSE_2F); the rail is a summary, not a label
     return Kit.ellipsize("tiny", S.mapId or "", 110 * Kit.scale)
@@ -602,21 +602,28 @@ end
 -- something.  Returns what to draw plus the tab that owns the first problem,
 -- so the rail can reserve the pill's width before laying out the tiles.
 local function validationPill()
-  local SaveData = require("src.core.SaveData")
   local report = S.validation
-  if not report or SaveData.emptyReport(report) then
+  if not report or Gen.emptyReport(S.save, report) then
     return "Save validates clean", PAL.green, nil, true
   end
   local parts = {}
   local target
   local function add(n, singular, plural, tab)
+    n = n or 0
     if n <= 0 then return end
     parts[#parts + 1] = ("%d %s"):format(n, n == 1 and singular or plural)
     target = target or tab
   end
-  add(#report.lostMons, "mon", "mons", "party")
-  add(#report.lostItems, "item", "items", "items")
-  add(#report.remappedMaps, "map", "maps", "map")
+  if Gen.of(S.save, S.version) == 2 then
+    add(#(report.lostScriptMem or {}), "script byte", "script bytes", "events")
+    add(#(report.lostMail or {}), "mail", "mail", "party")
+    add(#(report.lostEvents or {}), "event", "events", "events")
+    add(#(report.lostMapScenes or {}), "map scene", "map scenes", "map")
+  else
+    add(#(report.lostMons or {}), "mon", "mons", "party")
+    add(#(report.lostItems or {}), "item", "items", "items")
+    add(#(report.remappedMaps or {}), "map", "maps", "map")
+  end
   return "Would quarantine " .. table.concat(parts, ", "), PAL.yellow, target, false
 end
 

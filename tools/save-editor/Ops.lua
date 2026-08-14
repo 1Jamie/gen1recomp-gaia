@@ -17,6 +17,7 @@ local BoxesMod = require("src.pokemon.Boxes")
 local Bag = require("src.inventory.Bag")
 local MonOps = require("MonOps")
 local Charmap = require("src.save_convert.data.charmap")
+local Gen = require("Gen")
 
 local Ops = {}
 
@@ -34,6 +35,62 @@ local function clamp(n, lo, hi)
   return n
 end
 Ops.clamp = clamp
+
+local function stampNewMon(S, mon)
+  if Gen.ofState(S) == 2 then
+    require("src.battle.gen2.Mon").stampOT(S.save, mon)
+  else
+    mon.ot = S.save.player.name
+    mon.otId = S.save.player.id
+  end
+  return mon
+end
+
+local function createMon(S, species, level)
+  local mon = MonOps.create(S.data, species, level, Gen.ofState(S))
+  return stampNewMon(S, mon)
+end
+
+local function partySlot(S, mon)
+  for i, member in ipairs(S.save.party or {}) do
+    if member == mon then return i end
+  end
+end
+
+-- Portrait mail (and CheckPokeMail) store species on the letter, not the mon.
+local function partyMailEntry(S, slot)
+  local Mail = require("src.core.gen2.Mail")
+  return Mail.state(S.save).party[slot]
+end
+
+local function syncPartyMailSpecies(S, mon)
+  if Gen.ofState(S) ~= 2 then return end
+  local slot = partySlot(S, mon)
+  if not slot then return end
+  local entry = partyMailEntry(S, slot)
+  if entry then entry.species = mon.species end
+end
+
+local function syncPartyMailHeldItem(S, mon, prevItem, newItem)
+  if Gen.ofState(S) ~= 2 then return end
+  local slot = partySlot(S, mon)
+  if not slot then return end
+  local Mail = require("src.core.gen2.Mail")
+  if Mail.isMail(newItem) then
+    local prev = partyMailEntry(S, slot)
+    local player = S.save.player or {}
+    Mail.set(S.save, slot, Mail.entry(
+      newItem,
+      prev and prev.message or "",
+      tostring(mon.otName or mon.ot or player.name or ""):sub(1, Mail.AUTHOR_LENGTH),
+      mon.otId or player.id or 0,
+      mon.species))
+    return
+  end
+  if Mail.isMail(prevItem) or partyMailEntry(S, slot) then
+    Mail.clear(S.save, slot)
+  end
+end
 
 local function now()
   if love and love.timer and love.timer.getTime then
@@ -111,9 +168,7 @@ function Ops.partyAdd(S)
     return Ops.say(S, ("Party is full (%d/%d)"):format(#S.save.party, PartyMod.MAX))
   end
   local species = S.cat.species[1]
-  local mon = MonOps.create(S.data, species, 5)
-  mon.ot = S.save.player.name
-  mon.otId = S.save.player.id
+  local mon = createMon(S, species, 5)
   table.insert(S.save.party, mon)
   S.selectedParty = #S.save.party
   S.editingMon = mon
@@ -129,6 +184,11 @@ function Ops.partyRemove(S)
     return false
   end
   table.remove(S.save.party, index)
+  -- sPartyMail is keyed by party slot, not by mon: dropping a member without
+  -- shifting letters hands the next mon someone else's mail.
+  if Gen.ofState(S) == 2 then
+    require("src.core.gen2.Mail").removeSlot(S.save, index)
+  end
   if S.editingMon == mon then S.editingMon = nil end
   S.selectedParty = clamp(index, 1, math.max(#S.save.party, 1))
   S.editingMon = S.save.party[S.selectedParty]
@@ -144,6 +204,9 @@ function Ops.partyMove(S, delta)
     return Ops.say(S, delta < 0 and "Already the lead mon" or "Already the last mon")
   end
   party[i], party[j] = party[j], party[i]
+  if Gen.ofState(S) == 2 then
+    require("src.core.gen2.Mail").swapSlots(S.save, i, j)
+  end
   S.selectedParty = j
   return Ops.mark(S, ("Moved %s to slot %d"):format(party[j].species, j))
 end
@@ -157,7 +220,7 @@ function Ops.setLevel(S, mon, level)
   if want == mon.level then
     return Ops.say(S, want == 1 and "Level is already 1" or "Level is already 100")
   end
-  MonOps.setLevel(S.data, mon, want)
+  MonOps.setLevel(S.data, mon, want, Gen.ofState(S))
   return Ops.mark(S, ("%s is now Lv%d"):format(mon.species, mon.level))
 end
 
@@ -172,15 +235,23 @@ end
 -- instead of trusting the list: without this, picking such a species walked
 -- Stats.calc into `speciesDef.baseStats[key]` on a nil and took the window
 -- down (#541).
-local BASE_STAT_KEYS = { "hp", "attack", "defense", "speed", "special" }
+local BASE_STAT_KEYS_G1 = { "hp", "attack", "defense", "speed", "special" }
+local BASE_STAT_KEYS_G2 = {
+  "hp", "attack", "defense", "speed", "specialAttack", "specialDefense",
+}
+
+local function baseStatsComplete(bs, keys)
+  for _, key in ipairs(keys) do
+    if type(bs[key]) ~= "number" then return false end
+  end
+  return true
+end
 
 function Ops.speciesUsable(S, id)
   local def = id and S.data.pokemon[id]
   if type(def) ~= "table" or type(def.baseStats) ~= "table" then return false end
-  for _, key in ipairs(BASE_STAT_KEYS) do
-    if type(def.baseStats[key]) ~= "number" then return false end
-  end
-  return true
+  return baseStatsComplete(def.baseStats, BASE_STAT_KEYS_G1)
+      or baseStatsComplete(def.baseStats, BASE_STAT_KEYS_G2)
 end
 
 -- The one funnel every species change goes through (the picker, the stepper,
@@ -199,14 +270,19 @@ function Ops.setSpecies(S, mon, id)
   end
   -- MonOps.recalc replaces mon.stats with a fresh table rather than editing
   -- it in place, so holding the old reference is a real rollback.
-  local wasSpecies, wasLevel, wasExp = mon.species, mon.level, mon.exp
-  local wasStats, wasHp = mon.stats, mon.hp
-  local ok, err = pcall(MonOps.setSpecies, S.data, mon, id)
+  local wasSpecies, wasLevel, wasExp, wasExperience = mon.species, mon.level, mon.exp, mon.experience
+  local wasStats, wasHp, wasName = mon.stats, mon.hp, mon.name
+  local wasTypes, wasGender, wasShiny, wasUnown, wasMaxHp =
+    mon.types, mon.gender, mon.shiny, mon.unownLetter, mon.maxHp
+  local ok, err = pcall(MonOps.setSpecies, S.data, mon, id, Gen.ofState(S))
   if not ok then
-    mon.species, mon.level, mon.exp = wasSpecies, wasLevel, wasExp
-    mon.stats, mon.hp = wasStats, wasHp
+    mon.species, mon.level, mon.exp, mon.experience = wasSpecies, wasLevel, wasExp, wasExperience
+    mon.stats, mon.hp, mon.name = wasStats, wasHp, wasName
+    mon.types, mon.gender, mon.shiny, mon.unownLetter, mon.maxHp =
+      wasTypes, wasGender, wasShiny, wasUnown, wasMaxHp
     return Ops.say(S, ("Could not set %s: %s"):format(tostring(id), tostring(err)))
   end
+  syncPartyMailSpecies(S, mon)
   return Ops.mark(S, ("Species set to %s"):format(id))
 end
 
@@ -313,9 +389,9 @@ end
 -- the target is the box, not a mon.
 function Ops.openBoxAddPicker(S, Kit)
   local box = Ops.boxes(S)[S.selectedBox]
-  if #box >= BoxesMod.CAPACITY then
+  if #box >= Ops.boxCapacity(S) then
     return Ops.say(S, ("Box %d is full (%d/%d)")
-      :format(S.selectedBox, #box, BoxesMod.CAPACITY))
+      :format(S.selectedBox, #box, Ops.boxCapacity(S)))
   end
   S.speciesPicker = { query = "", offset = 0, opened = true, mode = "box-add" }
   if Kit then Kit.focus = "species-picker" end  -- soft keyboard rises (#529)
@@ -327,17 +403,15 @@ end
 -- box mon and a party mon born in the editor are indistinguishable.
 function Ops.boxAddSpecies(S, id)
   local box = Ops.boxes(S)[S.selectedBox]
-  if #box >= BoxesMod.CAPACITY then
+  if #box >= Ops.boxCapacity(S) then
     return Ops.say(S, ("Box %d is full (%d/%d)")
-      :format(S.selectedBox, #box, BoxesMod.CAPACITY))
+      :format(S.selectedBox, #box, Ops.boxCapacity(S)))
   end
   if not Ops.speciesUsable(S, id) then
     return Ops.say(S, ("%s has no usable base stats,  cannot add it")
       :format(tostring(id)))
   end
-  local mon = MonOps.create(S.data, id, 5)
-  mon.ot = S.save.player.name
-  mon.otId = S.save.player.id
+  local mon = createMon(S, id, 5)
   table.insert(box, mon)
   S.selectedBoxSlot = #box
   S.editingMon = mon
@@ -351,7 +425,7 @@ function Ops.setDv(S, mon, key, value)
   if want == mon.dvs[key] then
     return Ops.say(S, ("%s DV is already %d"):format(key, want))
   end
-  MonOps.setDv(S.data, mon, key, want)
+  MonOps.setDv(S.data, mon, key, want, Gen.ofState(S))
   return Ops.mark(S, ("%s DV %d  (HP DV now %d)"):format(key, mon.dvs[key], mon.dvs.hp))
 end
 
@@ -382,7 +456,17 @@ end
 function Ops.resetMoves(S, mon)
   if not mon then return false end
   local def = S.data.pokemon[mon.species]
-  local learned = Pokemon.movesAtLevel(def, mon.level)
+  local gen = Gen.ofState(S)
+  local learned
+  if gen == 2 then
+    local Mon = require("src.battle.gen2.Mon")
+    learned = {}
+    for _, mv in ipairs(Mon.movesAtLevel(def, mon.level, S.data.moves)) do
+      learned[#learned + 1] = mv.id
+    end
+  else
+    learned = Pokemon.movesAtLevel(def, mon.level)
+  end
   mon.moves = {}
   for slot, id in ipairs(learned) do
     MonOps.setMove(S.data, mon, slot, id)
@@ -397,6 +481,7 @@ function Ops.healMon(S, mon)
     return Ops.say(S, ("%s is already at full HP"):format(mon.species))
   end
   mon.hp = mon.stats.hp
+  if mon.maxHp then mon.maxHp = mon.stats.hp end
   mon.status = nil
   for _, mv in ipairs(mon.moves or {}) do
     local def = S.data.moves[mv.id]
@@ -554,27 +639,35 @@ function Ops.clearNickname(S, mon)
 end
 
 -- ------------------------------------------------------------------ boxes
+function Ops.boxCount(S)
+  return Gen.boxCount(S.save)
+end
+
+function Ops.boxCapacity(S)
+  return Gen.boxCapacity(S.save)
+end
+
 function Ops.boxes(S)
-  return BoxesMod.ensure(S.save)
+  return Gen.ensureBoxes(S.save)
 end
 
 function Ops.selectBox(S, index)
-  S.selectedBox = clamp(index, 1, BoxesMod.COUNT)
+  S.selectedBox = clamp(index, 1, Ops.boxCount(S))
   S.selectedBoxSlot = 1
   S.save.currentBox = S.selectedBox
   local box = Ops.boxes(S)[S.selectedBox]
-  S.status = ("Box %d  (%d/%d)"):format(S.selectedBox, #box, BoxesMod.CAPACITY)
+  S.status = ("Box %d  (%d/%d)"):format(S.selectedBox, #box, Ops.boxCapacity(S))
   return true
 end
 
 function Ops.stepBox(S, delta)
-  local n = BoxesMod.COUNT
+  local n = Ops.boxCount(S)
   return Ops.selectBox(S, ((S.selectedBox - 1 + delta) % n) + 1)
 end
 
 function Ops.selectBoxSlot(S, index)
   local box = Ops.boxes(S)[S.selectedBox]
-  S.selectedBoxSlot = clamp(index, 1, BoxesMod.CAPACITY)
+  S.selectedBoxSlot = clamp(index, 1, Ops.boxCapacity(S))
   local mon = box[S.selectedBoxSlot]
   S.editingMon = mon
   S.status = mon
@@ -589,14 +682,12 @@ end
 -- chooses what lands in the box instead of always getting catalog entry #1.
 function Ops.boxAdd(S)
   local box = Ops.boxes(S)[S.selectedBox]
-  if #box >= BoxesMod.CAPACITY then
+  if #box >= Ops.boxCapacity(S) then
     return Ops.say(S, ("Box %d is full (%d/%d)")
-      :format(S.selectedBox, #box, BoxesMod.CAPACITY))
+      :format(S.selectedBox, #box, Ops.boxCapacity(S)))
   end
   local species = S.cat.species[1]
-  local mon = MonOps.create(S.data, species, 5)
-  mon.ot = S.save.player.name
-  mon.otId = S.save.player.id
+  local mon = createMon(S, species, 5)
   table.insert(box, mon)
   S.selectedBoxSlot = #box
   S.editingMon = mon
@@ -612,9 +703,16 @@ function Ops.withdraw(S)
     return Ops.say(S, ("Party is full (%d/%d), deposit one first")
       :format(#S.save.party, PartyMod.MAX))
   end
-  table.remove(box, S.selectedBoxSlot)
-  table.insert(S.save.party, mon)
-  S.selectedBoxSlot = clamp(S.selectedBoxSlot, 1, math.max(#box, 1))
+  if Gen.ofState(S) == 2 then
+    local Boxes2 = require("src.core.gen2.Boxes")
+    local ok, reason = Boxes2.canWithdraw(S.save, S.selectedBox, S.selectedBoxSlot)
+    if not ok then return Ops.say(S, reason) end
+    Boxes2.withdraw(S.save, S.selectedBox, S.selectedBoxSlot)
+  else
+    table.remove(box, S.selectedBoxSlot)
+    table.insert(S.save.party, mon)
+  end
+  S.selectedBoxSlot = clamp(S.selectedBoxSlot, 1, math.max(#Ops.boxes(S)[S.selectedBox], 1))
   S.selectedParty = #S.save.party
   return Ops.mark(S, ("Withdrew %s to party slot %d"):format(mon.species, #S.save.party))
 end
@@ -639,6 +737,17 @@ function Ops.deposit(S)
   local i = S.selectedParty
   local mon = S.save.party[i]
   if not mon then return Ops.say(S, "No party slot selected") end
+  if Gen.ofState(S) == 2 then
+    local Boxes2 = require("src.core.gen2.Boxes")
+    local boxIndex = S.selectedBox or S.save.currentBox or 1
+    local ok, reason = Boxes2.canDeposit(S.save, i, boxIndex)
+    if not ok then return Ops.say(S, reason) end
+    Boxes2.deposit(S.save, i, boxIndex)
+    S.selectedParty = clamp(i, 1, math.max(#S.save.party, 1))
+    S.selectedBox = boxIndex
+    if S.editingMon == mon then S.editingMon = nil end
+    return Ops.mark(S, ("Deposited %s into box %d"):format(mon.species, boxIndex))
+  end
   local boxNum = BoxesMod.deposit(S.save, mon)
   if not boxNum then
     return Ops.say(S, "Every box is full,  release something first")
@@ -652,12 +761,13 @@ end
 
 -- ------------------------------------------------------------------ items
 function Ops.addMoney(S, delta)
-  local want = clamp((S.save.money or 0) + delta, 0, Ops.MONEY_MAX)
-  if want == S.save.money then
+  local have = Gen.money(S.save)
+  local want = clamp(have + delta, 0, Ops.MONEY_MAX)
+  if want == have then
     return Ops.say(S, delta < 0 and "Money is already $0"
       or ("Money is already capped at $%d"):format(Ops.MONEY_MAX))
   end
-  S.save.money = want
+  Gen.setMoney(S.save, want)
   return Ops.mark(S, ("Money set to $%d"):format(want))
 end
 
@@ -665,15 +775,29 @@ function Ops.maxMoney(S)
   return Ops.addMoney(S, Ops.MONEY_MAX)
 end
 
+Ops.COIN_MAX = 9999
+
+function Ops.addCoins(S, delta)
+  local have = Gen.coins(S.save)
+  local want = clamp(have + delta, 0, Ops.COIN_MAX)
+  if want == have then
+    return Ops.say(S, delta < 0 and "Coins are already 0"
+      or ("Coins are already capped at %d"):format(Ops.COIN_MAX))
+  end
+  Gen.setCoins(S.save, want)
+  return Ops.mark(S, ("Coins set to %d"):format(want))
+end
+
 function Ops.addToBag(S, id)
   if not id then return Ops.say(S, "Pick an item first") end
-  local capacity = Bag.capacity(S.data)
+  local pocket = Bag.pocketOf(id, S.data)
+  local capacity = Bag.capacity(S.data, pocket)
   if Bag.add(S.save, id, 1, S.data) then
-    return Ops.mark(S, ("Added %s to the bag (%d/%d slots)")
-      :format(id, Bag.slots(S.save), capacity))
+    return Ops.mark(S, ("Added %s to the bag (%d/%d %s slots)")
+      :format(id, Bag.slots(S.save, S.data, pocket), capacity, pocket))
   end
-  return Ops.say(S, ("Bag is full (%d/%d slots)")
-    :format(Bag.slots(S.save), capacity))
+  return Ops.say(S, ("Bag is full (%d/%d %s slots)")
+    :format(Bag.slots(S.save, S.data, pocket), capacity, pocket))
 end
 
 function Ops.bagAdjust(S, id, delta)
@@ -715,6 +839,12 @@ end
 function Ops.addToPc(S, id)
   if not id then return Ops.say(S, "Pick an item first") end
   local pc = Ops.pcItems(S)
+  local n = 0
+  for _ in pairs(pc) do n = n + 1 end
+  if not pc[id] and Gen.ofState(S) == 2 and n >= 50 then
+    return Ops.say(S, "PC item storage is full (50 stacks)")
+  end
+  local pc = Ops.pcItems(S)
   pc[id] = math.min(Ops.STACK_MAX, (pc[id] or 0) + 1)
   return Ops.mark(S, ("%s x%d in PC storage"):format(id, pc[id]))
 end
@@ -749,27 +879,17 @@ function Ops.isBadgeId(id)
 end
 
 function Ops.badgeIds(S)
-  local ids = {}
-  for _, id in ipairs(S.cat.items) do
-    if Ops.isBadgeId(id) then ids[#ids + 1] = id end
-  end
-  return ids
+  return Gen.badgeIds(S.save, S.cat)
 end
 
 function Ops.toggleBadge(S, id)
-  -- #515: badges are truthy inventory entries written as 1 by the in-game
-  -- grant (checkVictoryRewards, src/world/OverworldController.lua) and by
-  -- GenSave's .sav import; read and write that same shape here, or a badge
-  -- earned in game reads as unowned and an editor-written boolean blows up
-  -- Bag.add's `(inv[id] or 0) + qty` (src/inventory/Bag.lua).
-  local on = S.save.inventory[id] and true or false
-  S.save.inventory[id] = (not on) and 1 or nil
-  return Ops.mark(S, ("%s %s"):format(id, on and "removed" or "earned"))
+  local nowOn = Gen.toggleBadge(S.save, id)
+  return Ops.mark(S, ("%s %s"):format(id, nowOn and "earned" or "removed"))
 end
 
 -- ----------------------------------------------------------------- events
 function Ops.setFlag(S, name, on)
-  S.save.flags[name] = on and true or nil
+  Gen.setFlag(S.save, name, on)
   return Ops.mark(S, ("%s = %s"):format(name, tostring(on and true or false)))
 end
 
@@ -801,17 +921,19 @@ end
 
 -- -------------------------------------------------------------------- dex
 function Ops.dex(S)
-  S.save.pokedex = S.save.pokedex or { seen = {}, owned = {} }
+  local key = Gen.dexOwnedKey(S.save)
+  S.save.pokedex = S.save.pokedex or { seen = {}, [key] = {} }
   S.save.pokedex.seen = S.save.pokedex.seen or {}
-  S.save.pokedex.owned = S.save.pokedex.owned or {}
+  S.save.pokedex[key] = S.save.pokedex[key] or {}
   return S.save.pokedex
 end
 
 function Ops.dexCounts(S)
   local dex = Ops.dex(S)
+  local key = Gen.dexOwnedKey(S.save)
   local seen, owned = 0, 0
   for _ in pairs(dex.seen) do seen = seen + 1 end
-  for _ in pairs(dex.owned) do owned = owned + 1 end
+  for _ in pairs(dex[key] or {}) do owned = owned + 1 end
   return seen, owned, #S.cat.species
 end
 
@@ -819,25 +941,28 @@ end
 -- the game's own rule, enforced here so a hand-edited dex stays legal.
 function Ops.dexSeen(S, species, on)
   local dex = Ops.dex(S)
+  local key = Gen.dexOwnedKey(S.save)
   dex.seen[species] = on and true or nil
-  if not on then dex.owned[species] = nil end
+  if not on then dex[key][species] = nil end
   return Ops.mark(S, ("%s %s"):format(species, on and "marked seen" or "cleared"))
 end
 
 function Ops.dexOwned(S, species, on)
   local dex = Ops.dex(S)
-  dex.owned[species] = on and true or nil
+  local key = Gen.dexOwnedKey(S.save)
+  dex[key][species] = on and true or nil
   if on then dex.seen[species] = true end
   return Ops.mark(S, ("%s %s"):format(species, on and "marked owned" or "un-owned"))
 end
 
 function Ops.dexStamp(S)
   local dex = Ops.dex(S)
+  local key = Gen.dexOwnedKey(S.save)
   local n = 0
   local function stamp(mon)
-    if not dex.owned[mon.species] then n = n + 1 end
+    if not dex[key][mon.species] then n = n + 1 end
     dex.seen[mon.species] = true
-    dex.owned[mon.species] = true
+    dex[key][mon.species] = true
   end
   for _, m in ipairs(S.save.party) do stamp(m) end
   for _, box in ipairs(S.save.boxes or {}) do
@@ -855,9 +980,10 @@ end
 
 function Ops.dexOwnAll(S)
   local dex = Ops.dex(S)
+  local key = Gen.dexOwnedKey(S.save)
   for _, species in ipairs(S.cat.species) do
     dex.seen[species] = true
-    dex.owned[species] = true
+    dex[key][species] = true
   end
   return Ops.mark(S, ("Marked all %d species owned"):format(#S.cat.species))
 end
@@ -866,7 +992,8 @@ function Ops.dexClear(S)
   if not Ops.arm(S, "dex-clear", "Wipe the whole Pokedex? Click again to confirm") then
     return false
   end
-  S.save.pokedex = { seen = {}, owned = {} }
+  local key = Gen.dexOwnedKey(S.save)
+  S.save.pokedex = { seen = {}, [key] = {} }
   return Ops.mark(S, "Pokedex wiped")
 end
 
@@ -927,6 +1054,11 @@ end
 -- OVERWORLD/PLATEAU tilesets, maps with connections, or fly spots the save
 -- has already visited.
 function Ops.isOutdoor(S, map)
+  if not map or not map.def then return false end
+  local Map2 = require("src.world.gen2.Map")
+  if Gen.ofState(S) == 2 and Map2.isOutdoor then
+    return Map2.isOutdoor(map.def) and true or false
+  end
   if map.def.tileset == "OVERWORLD" or map.def.tileset == "PLATEAU" then
     return true
   end
@@ -937,15 +1069,17 @@ end
 function Ops.setPlayerHere(S)
   local cell = S.mapClickCell
   if not cell then return Ops.say(S, "Click a cell first") end
-  S.save.player.map = S.mapId
-  S.save.player.x = cell.cx
-  S.save.player.y = cell.cy
+  Gen.setPlayerHere(S.save, S.mapId, cell.cx, cell.cy)
   return Ops.mark(S, ("Player set to %s (%d,%d)"):format(S.mapId, cell.cx, cell.cy))
 end
 
 function Ops.setLastOutdoor(S, map)
   local cell = S.mapClickCell
   if not cell then return Ops.say(S, "Click a cell first") end
+  if Gen.ofState(S) == 2 then
+    S.save.spawn = S.mapId
+    return Ops.mark(S, ("spawn set to %s"):format(S.mapId))
+  end
   if not Ops.isOutdoor(S, map) then
     return Ops.say(S, S.mapId .. " doesn't look outdoor (no connections, not visited)")
   end
@@ -956,8 +1090,50 @@ end
 function Ops.setLastHeal(S)
   local cell = S.mapClickCell
   if not cell then return Ops.say(S, "Click a cell first") end
+  if Gen.ofState(S) == 2 then
+    S.save.spawn = S.mapId
+    return Ops.mark(S, ("spawn set to %s"):format(S.mapId))
+  end
   S.save.lastHeal = { map = S.mapId, x = cell.cx, y = cell.cy }
   return Ops.mark(S, ("lastHeal set to %s (%d,%d)"):format(S.mapId, cell.cx, cell.cy))
+end
+
+function Ops.setHeldItem(S, mon, id)
+  if not mon then return false end
+  if id == "" or id == nil then
+    if not mon.item then return Ops.say(S, "No held item to clear") end
+    local was = mon.item
+    mon.item = nil
+    syncPartyMailHeldItem(S, mon, was, nil)
+    return Ops.mark(S, ("Cleared held item (%s)"):format(was))
+  end
+  if not S.data.items[id] then
+    return Ops.say(S, ("%s is not an item"):format(tostring(id)))
+  end
+  local was = mon.item
+  mon.item = id
+  syncPartyMailHeldItem(S, mon, was, id)
+  return Ops.mark(S, ("%s now holds %s"):format(mon.species, id))
+end
+
+function Ops.setHappiness(S, mon, value)
+  if not mon then return false end
+  local want = clamp(math.floor(value), 0, 255)
+  if want == (mon.happiness or 0) then
+    return Ops.say(S, ("Happiness is already %d"):format(want))
+  end
+  mon.happiness = want
+  return Ops.mark(S, ("%s happiness %d"):format(mon.species, want))
+end
+
+function Ops.setPokerus(S, mon, value)
+  if not mon then return false end
+  local want = clamp(math.floor(value), 0, 255)
+  if want == (mon.pokerus or 0) then
+    return Ops.say(S, ("Pokerus is already %d"):format(want))
+  end
+  mon.pokerus = want
+  return Ops.mark(S, ("%s pokerus byte %d"):format(mon.species, want))
 end
 
 return Ops

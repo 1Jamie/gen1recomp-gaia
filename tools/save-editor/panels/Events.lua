@@ -9,6 +9,7 @@
 
 local Theme = require("Theme")
 local Ops = require("Ops")
+local Gen = require("Gen")
 local PAL = Theme.PAL
 
 local M = {}
@@ -50,7 +51,7 @@ local function buildRows(S)
       if contains(name, filter) then
         rows[#rows + 1] = {
           label = name,
-          checked = S.save.flags[name] == true,
+          checked = Gen.getFlag(S.save, name),
           set = function(on) Ops.setFlag(S, name, on) end,
         }
       end
@@ -107,7 +108,12 @@ function M.draw(S, Kit, x, y, w, h)
   -- past the card edge.
   local pillH = 32 * s
   local px, py = cx, y + pad
-  for _, t in ipairs(SUB_TABS) do
+  local pills = SUB_TABS
+  if Gen.of(S.save) == 2 then
+    pills = { SUB_TABS[1] }
+    if S.eventsTab ~= "flags" then S.eventsTab = "flags" end
+  end
+  for _, t in ipairs(pills) do
     local pw = Kit.textWidth("small", t.label) + 32 * s
     if px > cx and px + pw > cx + inner then
       px = cx

@@ -154,7 +154,7 @@ function HallOfFame.monPlacements(mon, def)
     put(out, genderGlyph(mon.gender), 18, 13)
     -- (8,14) is a bare '/', so the nickname starts at (9,14).
     put(out, "/", 8, 14)
-    put(out, mon.nickname or mon.species, 9, 14)
+    put(out, mon.nickname or mon.name or mon.species, 9, 14)
     put(out, levelText(mon.level), 1, 16)
   end
   -- '<ID>' '№' '/' at (7,16), (8,16), (9,16), then five digits at (10,16).
