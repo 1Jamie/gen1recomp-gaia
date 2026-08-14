@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.86",
+          "date": "2026-08-14",
+          "size": 11306689,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.86/gen1recomp++-0.1.86-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1283 Intro broken and leading to softlock (R,B,Y currently unplayable without save file)\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.1.85",
           "date": "2026-08-14",
           "size": 11306462,
