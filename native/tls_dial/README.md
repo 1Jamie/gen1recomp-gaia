@@ -23,6 +23,10 @@ Ship `gen1tls.dll` (or `libgen1tls.so` / `libgen1tls.dylib`) **next to** the
 fused executable. Mods load it through LuaJIT FFI; no .NET runtime is
 required on the player's machine.
 
+Official Windows release zips get `gen1tls.dll` from CI: a `windows-2022`
+job publishes this project and `scripts/build.sh`'s Windows packaging copies
+it beside `gen1recomp.exe` (see `GEN1TLS_DLL` / `dist/native/win-x64`).
+
 ## Android
 
 On Android, the matching API is exposed as `love.system.tlsOpen` /
