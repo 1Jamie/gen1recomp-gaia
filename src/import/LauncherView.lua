@@ -370,6 +370,7 @@ local function cartProject(cx, cy, yaw, pitch, x, y, z)
 end
 
 local function cartPolygon(points, color, alpha)
+  if not love.graphics.polygon then return end
   local flat = {}
   for i = 1, #points do
     flat[#flat + 1], flat[#flat + 2] = points[i][1], points[i][2]
@@ -423,6 +424,55 @@ local function cartLabelMesh(imp, version, label, points)
   return mesh
 end
 
+local CART_HOVER_SHADER = [[
+extern vec2 mouse_screen_pos;
+extern float hovering;
+extern float screen_scale;
+
+#ifdef VERTEX
+vec4 position(mat4 transform_projection, vec4 vertex_position) {
+  if (hovering <= 0.) {
+    return transform_projection * vertex_position;
+  }
+  float mid_dist = length(vertex_position.xy - 0.5 * love_ScreenSize.xy)
+    / length(love_ScreenSize.xy);
+  vec2 mouse_offset = (vertex_position.xy - mouse_screen_pos.xy) / screen_scale;
+  float scale = 0.2 * (-0.03 - 0.3 * max(0., 0.3 - mid_dist))
+    * hovering * (length(mouse_offset) * length(mouse_offset)) / (2. - mid_dist);
+  return transform_projection * vertex_position + vec4(0.0, 0.0, 0.0, scale);
+}
+#endif
+
+#ifdef PIXEL
+vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
+  return Texel(tex, texture_coords) * color;
+}
+#endif
+]]
+
+local function cartHoverShader(imp)
+  if imp._cartHoverShader ~= nil then
+    return imp._cartHoverShader or nil
+  end
+  if not (love.graphics and love.graphics.newShader) then
+    imp._cartHoverShader = false
+    return nil
+  end
+  local ok, sh = pcall(love.graphics.newShader, CART_HOVER_SHADER)
+  imp._cartHoverShader = ok and sh or false
+  return imp._cartHoverShader or nil
+end
+
+local function cartSendHover(shader, mx, my, hovering, screenScale)
+  if not shader or not shader.send then return false end
+  local ok = pcall(function()
+    shader:send("mouse_screen_pos", { mx, my })
+    shader:send("hovering", hovering)
+    shader:send("screen_scale", screenScale)
+  end)
+  return ok
+end
+
 local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   local state = cartridgeState(imp, version)
   local focused = Kit.focusable(key, x, y, w, h)
@@ -474,13 +524,50 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   end
   local pointerX = clamp((Kit.mouseX - cx) / math.max(1, w / 2), -1, 1)
   local pointerY = clamp((Kit.mouseY - cy) / math.max(1, h / 2), -1, 1)
-  local hoverTilt = hot and pointerX * 0.12 or math.sin(Kit.time * 0.75) * 0.035
+  local hoverFx = hot or focused
+  if hoverFx and not state.wasHot then
+    state.juiceStart = Kit.time
+    state.juiceScaleAmt = 0.02
+    state.juiceRAmt = (math.random() > 0.5 and 1 or -1) * 0.012
+    state.visScale = 1 - 0.6 * 0.02
+  end
+  state.wasHot = hoverFx
+  local juiceScale, juiceR = 0, 0
+  if state.juiceStart then
+    local juiceT = Kit.time - state.juiceStart
+    if juiceT >= 0.4 then
+      state.juiceStart = nil
+    else
+      local remain = (0.4 - juiceT) / 0.4
+      juiceScale = state.juiceScaleAmt * math.sin(50.8 * juiceT) * remain ^ 3
+      juiceR = state.juiceRAmt * math.sin(40.8 * juiceT) * remain ^ 2
+    end
+  end
+  state.visScale = state.visScale or 1
+  local desScale = (hoverFx and 1.05 or 1) + juiceScale
+  local ease = math.exp(-60 * dt)
+  state.visScale = ease * state.visScale + (1 - ease) * desScale
+  if not state.animId then
+    local n, s = 0, tostring(version)
+    for i = 1, #s do n = n + s:byte(i) * i end
+    state.animId = n
+  end
+  local hoverMx, hoverMy
+  if hot then
+    hoverMx, hoverMy = Kit.mouseX, Kit.mouseY
+  elseif focused then
+    hoverMx, hoverMy = cx, cy
+  else
+    local tiltAngle = Kit.time * (1.56 + (state.animId / 1.14212) % 1)
+      + state.animId / 1.35122
+    hoverMx = x + (0.5 + 0.1 * math.cos(tiltAngle)) * w
+    hoverMy = y + (0.5 + 0.1 * math.sin(tiltAngle)) * h
+  end
   local pressX = active and pointerX * w * 0.025 or 0
   local pressY = active and pointerY * h * 0.018 or 0
-  local yaw = -0.42 + state.spin + hoverTilt
+  local yaw = -0.42 + state.spin
   local pitch = 0.14 + (state.pitchDrag or 0)
-    + (hot and pointerY * 0.08 or math.sin(Kit.time * 0.6) * 0.018)
-  local pressedScale = active and 0.965 or 1
+  local pressedScale = (active and 0.965 or 1) * state.visScale
 
   Kit._audit("control", x, y, w, h, key)
   if focused then
@@ -494,6 +581,19 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
     return cartProject(cx + pressX, cy + pressY, yaw, pitch,
       px * pressedScale, py * pressedScale, pz * pressedScale)
   end
+  local shader = cartHoverShader(imp)
+  local useHover = shader
+    and cartSendHover(shader, hoverMx, hoverMy, 1,
+      math.max(1, 0.4 * math.min(w, h)))
+  if not useHover then
+    yaw = yaw + (hoverMx - cx) / math.max(1, w / 2) * 0.08
+    pitch = pitch + (hoverMy - cy) / math.max(1, h / 2) * 0.05
+  end
+  love.graphics.push("all")
+  love.graphics.translate(cx, cy)
+  love.graphics.rotate(juiceR * 2)
+  love.graphics.translate(-cx, -cy)
+  if useHover then love.graphics.setShader(shader) end
 
   local capH = h * 3 / 65
   local mainTop = -halfH + capH
@@ -553,6 +653,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
     { project(w * 0.07, h * 0.37, faceZ + 1) },
     { project(0, h * 0.43, faceZ + 1) },
   }, side, 0.70)
+  love.graphics.pop()
 
   if not state.active and (Kit._activateId == key) then
     queueAction(imp, key, action)
