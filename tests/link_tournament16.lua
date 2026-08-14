@@ -181,6 +181,13 @@ local function playMatch(hostEntry, guestEntry, rnd, label)
   local function drive(side)
     local bt = side.bt
     if bt.result then return end
+    local top = side.game.stack:top()
+    if top and top.forceSwitch and top.party then
+      for i, mon in ipairs(top.party) do
+        if mon.hp > 0 then top.index = i break end
+      end
+      return
+    end
     if bt.phase ~= "menu" then side.menuFrames = 0 end
     if bt.phase == "moveSelect" then
       local usable = {}

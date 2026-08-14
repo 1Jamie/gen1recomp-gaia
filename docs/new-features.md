@@ -19,13 +19,14 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Soft reset button combination**
 * **Keyboard and controller rebinding**
 * **Mod profiles** with separate mod settings and save slots
+* **Sandboxed mods**: an installed mod can read only its own folder and write only its own storage, so it cannot reach the rest of your device
 * **Improved launcher and save editor UI**, including background downloads and update checks
 * **Direct-launch options** for shortcuts, Steam entries, and handheld frontends
 * **Custom boot branding**
 
 ## Pokémon Gold (Gen 2)
 
-A fourth game the launcher can import and play, built from pret/pokegold the same way Red/Blue/Yellow are built from pokered. Port extras beyond the cartridge:
+A fourth game the launcher can import and play, built from pret/pokegold the same way Red/Blue/Yellow are built from pokered (and pokeyellow). Port extras beyond the cartridge:
 
 * **COLOR, zoom, tilt, GBC FX, and quick save/load** 
 * **UI that stays fixed while the overworld zooms**

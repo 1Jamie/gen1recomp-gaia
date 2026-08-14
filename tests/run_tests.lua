@@ -2562,8 +2562,8 @@ do
   end
   eq(fanfares, 1, "one caught fanfare per capture")
   eq(tinks, 3, "three wobble tinks on a $43 capture")
-  check(fanfareAt and caughtAt and fanfareAt < caughtAt,
-        "Caught_Mon sounds with the caught text, not after its dismissal")
+  check(fanfareAt and caughtAt and caughtAt < fanfareAt,
+        "Caught_Mon sounds once the caught text is out, before its prompt")
   eq(cb4.result, "caught", "the capture resolved the battle")
   -- the nickname AskName that follows clears it (ClearSprites), so the
   -- assertion is sampled while the caught text is up

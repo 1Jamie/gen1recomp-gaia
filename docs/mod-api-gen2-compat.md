@@ -118,10 +118,11 @@ Gen 2 games no longer loads on Red, Blue or Yellow. Say `["all"]` or list both
 generations if you want both.
 
 Two riders. **A hard dependency that does not run here takes the dependent down
-with it**, as a skip rather than a failure and carrying the dependency's own
-wording (`depends on X, which does not run here (For Blue, not Red)`), so the
-whole chain has to cover the same games. And **the claim is yours, not the last
-word**: it is the manager's `TRY HERE ANYWAY` row that lets a player run a mod
+with it** (unless scoped to specific games, e.g.
+`dependencies: [{ id = "x", games = ["gen2"] }]`), as a skip rather than a
+failure and carrying the dependency's own wording (`depends on X, which does not
+run here (For Blue, not Red)`), so the whole chain has to cover the same games.
+And **the claim is yours, not the last word**: it is the manager's `TRY HERE ANYWAY` row that lets a player run a mod
 whose author never opted in, which is the only route for a mod written before
 the field existed. The override is per game -- `options.modsGen2[id]` is a
 `{ [version] = true }` table, so forcing a mod onto Red does not force it onto
@@ -533,8 +534,9 @@ gains a field instead of the name gaining a prefix.
   `pokemon.level_up`, `pokemon.move_learned`; hooks `battle.damage`,
   `battle.crit`, `battle.accuracy`, `battle.turn_order`,
   `battle.enemy_action`, `battle.run`, `battle.exp_award`, `exp.gain`,
-  `catch.rate`, `trainer.party`, `battle.overlay`, `battle.low_health_alarm`
-  and `battle.catch_exp`. One payload difference: Gen 1's vanilla
+  `catch.rate`, `trainer.party`, `battle.overlay`, `battle.low_health_alarm`,
+  `battle.catch_exp`, `battle.bottom_ui_visible` and
+  `battle.status_hud_visible`. One payload difference: Gen 1's vanilla
   `battle.low_health_alarm` link reads `ctx.battle.data`, and Gold's battle
   screen has no `.data` field, so the Gen 2 site **adds** `ctx.data` beside the
   Gen 1 keys. A mod that calls `nextFn` is unaffected; one that reaches through
@@ -546,11 +548,13 @@ gains a field instead of the name gaining a prefix.
   each row's decision in `evolution.check`. The hook passes `data` where Gen 1
   passes `game`; positions 2-4 (mon, row, trigger) match.
 - *The frame (`src/core/Game2.lua`):* hooks `input.step`, `input.pointer`,
-  `render.zones`, `render.compose`, `render.letterbox`, `render.hud`. Each sits
+  `render.zones`, `render.compose`, `render.output_enabled`, `render.output`,
+  `render.letterbox`, `render.hud`. Each sits
   at the same moment `src/core/Game.lua` and `src/render/Renderer.lua` raise it
   -- the logic tick before the pad is read, a pointer the touch overlay gets
   first refusal on, the palette zone list handed to the present pass, the
-  letterbox, and the finished playfield rect -- and carries the same payload.
+  composed frame before GBCFX, the letterbox, and the finished playfield rect
+  -- and carries the same payload.
   `render.hud`'s `gameX` / `gameY` really is where Gold's dialogue boxes and
   menus land, because `Chrome.fitScale` / `fitOrigin` and `World:fitScale`
   compute the same number. `render.zones` is handed `nil` in GBC mode (Gold

@@ -49,6 +49,14 @@ function Link.prepare(data)
   return Input
 end
 
+local function steerReplacement(game)
+  local top = game.stack:top()
+  if not (top and top.forceSwitch and top.party) then return end
+  for i, mon in ipairs(top.party) do
+    if mon.hp > 0 then top.index = i return end
+  end
+end
+
 -- run a full lockstep battle over a loopback pair, mashing A on both
 -- sides, and report whether any turn's hashes disagreed
 function Link.lockstep(gameA, gameB, opts)
@@ -80,7 +88,9 @@ function Link.lockstep(gameA, gameB, opts)
   while (resA == nil or resB == nil) and guard < limit do
     guard = guard + 1
     Input.pressed = { a = true }
+    steerReplacement(gameA)
     gameA.stack:update(1 / 60)
+    steerReplacement(gameB)
     gameB.stack:update(1 / 60)
   end
 

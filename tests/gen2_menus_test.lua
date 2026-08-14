@@ -1481,6 +1481,11 @@ local martItems = {
     price = 100, canToss = true },
   NUGGET = { id = "NUGGET", name = "NUGGET", pocket = "ITEM", index = 36,
     price = 10000, canToss = true },
+  -- A TM carries the move it teaches; the SELL pack must hand it to the
+  -- mart rather than opening the teach party (issue #1243).
+  TM_HEADBUTT = { id = "TM_HEADBUTT", name = "TM02", pocket = "TM_HM",
+    index = 234, price = 2000, canToss = true, teaches = "HEADBUTT",
+    tmNumber = 2 },
   -- Every KEY ITEM carries CANT_TOSS, which is the flag SellMenu's
   -- _CheckTossableItem actually refuses on.
   BICYCLE = { id = "BICYCLE", name = "BICYCLE", pocket = "KEY_ITEM", index = 7,
@@ -1731,6 +1736,35 @@ sellInput:press("a") sell:update(0) -- page 2
 sellInput:press("a") sell:update(0) -- YES
 check("the wallet clamps at MAX_MONEY", sellSave.player.money, 999999)
 check("and the nugget is gone", sellSave.inventory.NUGGET, nil)
+
+-- A TM is not a key item: DepositSellPack's jumptable is four ScrollingMenus
+-- and has no teach arm, so picking a TM from the SELL pack must ask "How
+-- many?" and price it at half of its ItemAttributes price -- never open the
+-- teach party (issue #1243).
+local tmSave = Save.newGame()
+tmSave.inventory = { TM_HEADBUTT = 1 }
+tmSave.player.money = 0
+local tm, tmInput = newMart(tmSave)
+tmInput:press("down") tm:update(0)
+tmInput:press("a") tm:update(0) -- SELL
+check("SELL builds the pack", tm.pack ~= nil, true)
+-- The PACK opens on the ITEM pocket; cross to TM/HM the way the player would.
+tm.pack.pocketIndex = 4
+tm.pack:rebuild()
+check("the TM is the TM pocket's row", tm.pack.rows[1].id, "TM_HEADBUTT")
+tmInput:press("a") tm:update(0)
+check("picking a TM asks how many", tm.phase, "sellQuantity")
+check("with no teach screen opened", #tm.game.stack._items, 0)
+check("and no pack refusal printed", tm.pack.message, nil)
+check("at the TM's own price", tm.qtyItem.price, 2000)
+check("and the ceiling is what you hold", tm.qtyMax, 1)
+tmInput:press("a") tm:update(0)
+check("the offer prices half of the TM", tm.confirm.pages[1][2],
+  "\xc2\xa51000.")
+tmInput:press("a") tm:update(0) -- page 2
+tmInput:press("a") tm:update(0) -- YES
+check("the TM leaves the bag", tmSave.inventory.TM_HEADBUTT, nil)
+check("and the money arrives", tmSave.player.money, 1000)
 
 -- ------------------------------------------------- PlayTransactionSound
 --

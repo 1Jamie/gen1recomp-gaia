@@ -2989,16 +2989,23 @@ def check_gen2_manifest(repo, mod_dir, manifest, named):
             "manifest.json"))
     deps = manifest.get("dependencies") or []
     for dep in deps if isinstance(deps, list) else []:
-        if not isinstance(dep, str):
+        dep_id = dep if isinstance(dep, str) else dep.get("id") if isinstance(dep, dict) else None
+        if not dep_id:
             continue
-        found = named.get(dep) or find_mod_by_id(repo, mod_dir, dep)
+        if isinstance(dep, dict) and "games" in dep:
+            g_list = dep.get("games")
+            if isinstance(g_list, str):
+                g_list = [g_list]
+            if isinstance(g_list, list) and not any(g in ["gen2", "gold", "silver", "crystal", "all"] for g in g_list):
+                continue
+        found = named.get(dep_id) or find_mod_by_id(repo, mod_dir, dep_id)
         if found is None:
             notes.append("unresolved: dependency %s is not installed beside "
-                         "this mod, so its games list could not be read" % dep)
+                         "this mod, so its games list could not be read" % dep_id)
         elif not declares_gen2(repo, found):
             findings.append(Finding(
                 "MK401", "error",
-                f"depends on {dep}, which claims no Gen 2 game; the "
+                f"depends on {dep_id}, which claims no Gen 2 game; the "
                 f"loader disables a mod whose dependency a Gen 2 boot skipped",
                 "manifest.json"))
     return findings, notes

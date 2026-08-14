@@ -405,6 +405,12 @@ if [ -z "\$LUA_CPATH" ]; then
 fi
 export LUA_CPATH="\$APPDIR/lib/lua/5.1/?.so;\$LUA_CPATH"
 
+# SDL2 on Wayland crashes during desktop drag-and-drop in certain compositors;
+# default to X11/XWayland when available to ensure rock-solid drag-drop stability.
+if [ -n "\$WAYLAND_DISPLAY" ] && [ -z "\$SDL_VIDEODRIVER" ]; then
+    export SDL_VIDEODRIVER=x11
+fi
+
 exec "\$APPDIR/bin/love" --fused "\$APPDIR/game.love" "\$@"
 EOF
 chmod +x "$APPDIR/AppRun"

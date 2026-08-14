@@ -100,6 +100,26 @@ function TextBox.new(game, text, onDone, opts)
   return self
 end
 
+-- soundOpts: a jingle carried at the end of the string as a trailing text
+-- command (sound_get_item_1 and friends -> home/text.asm TextCommand_SOUND),
+-- which runs PlaySound then WaitForSoundToFinish once the last page has
+-- typed, so the box holds until the fanfare is over.  Merges into a caller's
+-- opts table; auto.wait keeps the trailing button press the plain A/B path
+-- gives every other box.
+function TextBox.soundOpts(game, sound, opts)
+  opts = opts or {}
+  local auto = opts.auto
+  -- auto = true is the no-button-wait arming (text_opts); keep that choice
+  if auto == true then auto = { wait = false } end
+  auto = auto or {}
+  if auto.wait == nil then auto.wait = true end
+  auto.delay = auto.delay or 0
+  auto.sound = type(sound) == "function" and sound
+    or function() return require("src.core.Sound").play(game.data, sound) end
+  opts.auto = auto
+  return opts
+end
+
 -- The runtime tokens substitute() knows, as handlers the tokens registry
 -- serves.  Each is fn(game, arg) -> replacement, or nil to drop the token.
 -- RAM keeps pokered's stale-buffer semantics: give_item copies the item

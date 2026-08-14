@@ -92,7 +92,7 @@ return {
       { "set_flag", "EVENT_GOT_EEVEE" },                       -- 7
       { "hide_object", "CELADON_MANSION_ROOF_HOUSE",
         "CELADONMANSION_ROOF_HOUSE_EEVEE_POKEBALL" },          -- 8
-      { "play_sound", "Get_Item1" },                           -- 9 (GotMonText jingle)
+      { "text_sound", "Get_Item1" },                           -- 9 (GotMonText jingle)
       { "show_text", "_GotMonText", { RAM = "EEVEE" } },       -- 10
       { "jump", 13 },                                          -- 11
       { "show_text", "_BoxIsFullText" },                       -- 12

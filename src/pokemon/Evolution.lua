@@ -140,10 +140,12 @@ function Evolution.learnEvolutionMoves(game, mon, onDone)
     if #mon.moves < 4 then
       table.insert(mon.moves, { id = moveId, pp = mdef.pp })
       Runtime.emit("pokemon.move_learned", { mon = mon, moveId = moveId })
-      require("src.core.Sound").play(game.data, "Get_Item1")
+      -- LearnedMove1Text: text_far, sound_get_item_1, text_promptbutton
+      -- (learn_move.asm), so the jingle rides the box
       game.stack:push(TextBox.new(game,
         romText(game.data, "_LearnedMove1Text",
-          "%s learned\n%s!", name, mdef.name), nextStep))
+          "%s learned\n%s!", name, mdef.name), nextStep,
+        TextBox.soundOpts(game, "Get_Item1")))
     else
       -- LearnMoveFromLevelUp with a full moveset: the forget UI
       Screens.push(game, "MoveLearnMenu", mon, moveId, nextStep)

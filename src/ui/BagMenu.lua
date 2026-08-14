@@ -33,12 +33,12 @@ local function save_name(game)
   return game.save.player.name
 end
 
-local function showMessages(game, msgs, onDone)
+local function showMessages(game, msgs, onDone, opts)
   if not msgs or #msgs == 0 then
     if onDone then onDone() end
     return
   end
-  game.stack:push(TextBox.new(game, table.concat(msgs, "\f"), onDone))
+  game.stack:push(TextBox.new(game, table.concat(msgs, "\f"), onDone, opts))
 end
 
 -- run the use-flow for an item on a chosen target.  `picker` is the party
@@ -181,9 +181,11 @@ local function useOn(game, battle, id, target, list, moveIndex, picker)
       end
       if #target.moves < 4 then
         table.insert(target.moves, { id = moveId, pp = mdef.pp })
-        require("src.core.Sound").play(game.data, "Get_Item1")
+        -- LearnedMove1Text: text_far, sound_get_item_1, text_promptbutton
+        -- (learn_move.asm), so the jingle rides the box
         showMessages(game, { Strings("%s learned\n%s!", target.nickname or
-          game.data.pokemon[target.species].name, mdef.name) })
+          game.data.pokemon[target.species].name, mdef.name) }, nil,
+          TextBox.soundOpts(game, "Get_Item1"))
         if result == "learn" then consume(game, id) end
         list.items = buildItems(game)
         list.index = math.min(list.index, math.max(1, #list.items))
@@ -333,10 +335,9 @@ local function useOn(game, battle, id, target, list, moveIndex, picker)
             local mdef = game.data.moves[moveId]
             if #target.moves < 4 then
               table.insert(target.moves, { id = moveId, pp = mdef.pp })
-              require("src.core.Sound").play(game.data, "Get_Item1")
               local name = target.nickname or def.name
               showMessages(game, { Strings("%s learned\n%s!", name, mdef.name) },
-                           nextStep)
+                           nextStep, TextBox.soundOpts(game, "Get_Item1"))
             else
               require("src.ui.Screens").push(game, "MoveLearnMenu",
                                              target, moveId, nextStep)

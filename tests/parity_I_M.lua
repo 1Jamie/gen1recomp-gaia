@@ -176,7 +176,8 @@ check(not onStack(pmSurf), "party menu closes after a successful SURF")
 check(sawText("got on"), "_SurfingGotOnText shown on a successful SURF")
 
 -- ===========================================================================
--- I: list-time badge filter,  CUT/SURF/STRENGTH absent without the badge
+-- I: GetMonFieldMoves is badge-blind -- CUT/SURF/STRENGTH are listed with or
+-- without the badge, and .outOfBattleMovePointers refuses on selection (#1022)
 -- ===========================================================================
 Game.save.party = { mkMon("SQUIRTLE", "CUT", "SURF", "STRENGTH") }
 Game.save.inventory = {}
@@ -185,8 +186,8 @@ local pmNoBadge = PartyMenu.new(Game)
 Game.stack:push(pmNoBadge)
 frame({ "a" })
 local actsOff = submenuActions(pmNoBadge)
-check(not actsOff.cut and not actsOff.surf and not actsOff.strength,
-      "no CUT/SURF/STRENGTH submenu entries without the required badges")
+check(actsOff.cut and actsOff.surf and actsOff.strength,
+      "CUT/SURF/STRENGTH submenu entries listed without the badges (#1022)")
 popToOW()
 Game.save.inventory = { CASCADEBADGE = true, SOULBADGE = true, RAINBOWBADGE = true }
 local pmBadge = PartyMenu.new(Game)
@@ -194,7 +195,7 @@ Game.stack:push(pmBadge)
 frame({ "a" })
 local actsOn = submenuActions(pmBadge)
 check(actsOn.cut and actsOn.surf and actsOn.strength,
-      "CUT/SURF/STRENGTH submenu entries appear once the badges are held")
+      "CUT/SURF/STRENGTH submenu entries still there once the badges are held")
 
 -- ===========================================================================
 -- I: CUT from the party menu. The Cerulean tree BLOCK (50, at block 9,14)
@@ -471,8 +472,9 @@ local pmLobby = PartyMenu.new(Game)
 Game.stack:push(pmLobby)
 frame({ "a" })
 local actsLobby = submenuActions(pmLobby)
-check(not actsLobby.fly, "FLY omitted inside Indigo Plateau lobby")
-check(not actsLobby.escape, "TELEPORT omitted inside Indigo Plateau lobby")
+check(actsLobby.fly, "FLY still listed inside Indigo Plateau lobby (#1022)")
+check(actsLobby.escape,
+      "TELEPORT still listed inside Indigo Plateau lobby (#1022)")
 popToOW()
 
 -- restore fainted field-move mon for the STRENGTH/SURF cases below
@@ -486,8 +488,8 @@ Game.save.inventory = {
 ow = pushOW("SEAFOAM_ISLANDS_1F", 17, 10, "right")
 clearCaptured()
 local pmFaintStr = PartyMenu.new(Game)
--- Seafoam is not OVERWORLD, so FLY is omitted: CUT, STRENGTH, SURF, STATS, SWITCH
-selectSubItem(pmFaintStr, 2)
+-- move order on the mon: FLY, CUT, STRENGTH, SURF, then STATS, SWITCH
+selectSubItem(pmFaintStr, 3)
 eq(Game.overworld.strengthActive, true,
    "fainted mon can activate STRENGTH from the party menu")
 check(sawText("used") and sawText("STRENGTH"),

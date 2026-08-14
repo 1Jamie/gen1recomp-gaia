@@ -780,6 +780,11 @@ function MartMenu:offerToSell(itemId, count)
   end
   -- ScrollingMenu's .a_button copies the row's own quantity into
   -- wItemQuantity, so the selector's ceiling is how many you hold.
+  -- The unit price is the item's own ItemAttributes price: GetItemPrice is
+  -- what SelectQuantityToSell halves AND what the buy list's
+  -- GetMartItemPrice charges, so a TM sells for exactly half of what the
+  -- Goldenrod/Celadon TM shelves ask for it, and half of its hidden price
+  -- (usually ¥1,500) anywhere else (issue #1243).
   self.qtyItem = { id = itemId, name = def.name or itemId,
     price = def.price or 0 }
   self.qty = 1

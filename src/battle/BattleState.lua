@@ -501,6 +501,9 @@ local function makeBattler(data, mon, isPlayer, save)
     badgeBoosts = badgeBoosts,
     statuses = data.statuses,
     shownHP = mon.hp, -- the HP the bar displays (UpdateHPBar drain)
+    -- the bar's own length in GetHPBarLength pixels; it trails shownHP
+    -- because UpdateHPBar_AnimateHPBar slides it one pixel at a time
+    shownPx = Timing.hpBarPixels(mon.hp, math.max(1, mon.stats.hp)),
     -- HUD status label (DrawHUDsAndHPBars); mon.status can land mid-move
     -- while the tilemap still shows the prior condition until the next
     -- post-action HUD refresh (core.asm after Execute*Move)
@@ -563,10 +566,6 @@ local function markOwned(game, species)
   local dex = game.save.pokedex
   if dex then
     dex.seen[species] = true
-    if not dex.owned[species] then
-      -- new dex page registered (SFX_DEX_PAGE_ADDED)
-      require("src.core.Sound").play(game.data, "Dex_Page_Added")
-    end
     dex.owned[species] = true
   end
 end
@@ -935,6 +934,17 @@ function BattleState:sayNextWaitSfx(text, sfx)
   table.insert(self.queue, self.nextInsert, { text = text, waitForLearningSfx = sfx })
 end
 
+-- WaitForSoundToFinish for a sound an act() has already started: PlayCry
+-- ends in `jp WaitForSoundToFinish` (home/pokemon.asm), so every cry in
+-- Gen 1 holds whatever the ROM does next.  `src` is the audio source, or a
+-- getter the row calls at execution time when the source is only known then.
+function BattleState:waitSfxNext(src)
+  self.nextInsert = (self.nextInsert or 0) + 1
+  table.insert(self.queue, self.nextInsert,
+               { waitSound = type(src) == "function" and src
+                             or function() return src end })
+end
+
 -- sayNext for a page that ends in `text_end` (see sayAuto) (#765)
 function BattleState:sayNextAuto(text, delay)
   self.nextInsert = (self.nextInsert or 0) + 1
@@ -1022,22 +1032,39 @@ function BattleState:stepHPDrain()
          and b.shownHP >= b.drainFloor then
         goal = b.drainFloor
       end
+      local maxHP = math.max(1, b.mon.stats.hp)
+      local playerSide = (b == self.player)
+      local targetPx = Timing.hpBarPixels(b.shownHP, maxHP)
+      if not b.shownPx then b.shownPx = targetPx end
       if (b.drainHold or 0) > 0 then
         b.drainHold = b.drainHold - 1
         busy = true
+      elseif b.shownPx ~= targetPx then
+        -- .barAnimationLoop redraws the bar one pixel at a time, `ld c, 2 /
+        -- call DelayFrames` apiece (:141-148), so a single HP point that
+        -- spans several pixels still slides instead of jumping
+        b.shownPx = b.shownPx + ((b.shownPx > targetPx) and -1 or 1)
+        b.drainHold = Timing.HP_BAR_PIXEL_STEP - 1
+        busy = true
       elseif b.shownHP ~= goal then
-        local maxHP = math.max(1, b.mon.stats.hp)
-        local playerSide = (b == self.player)
-        local cost = 0
+        local spent = 0
         -- consume whole HP steps until this frame's budget is spent; on the
         -- enemy HUD several free steps can land in the same frame
-        while b.shownHP ~= goal and cost < 1 do
-          local nextHP = b.shownHP + ((b.shownHP > goal) and -1 or 1)
-          cost = cost + Timing.hpDrainStepFrames(b.shownHP, nextHP,
-                                                 maxHP, playerSide)
-          b.shownHP = nextHP
+        repeat
+          b.shownHP = b.shownHP + ((b.shownHP > goal) and -1 or 1)
+          spent = spent + (playerSide and Timing.HP_BAR_HP_STEP or 0)
+          targetPx = Timing.hpBarPixels(b.shownHP, maxHP)
+        until b.shownHP == goal or targetPx ~= b.shownPx or spent >= 1
+        if spent > 0 then
+          b.drainHold = spent - 1
+        elseif targetPx ~= b.shownPx then
+          -- the enemy HUD printed no number, so this frame is already the
+          -- first of the pixel step the crossing just asked for
+          b.shownPx = b.shownPx + ((b.shownPx > targetPx) and -1 or 1)
+          b.drainHold = Timing.HP_BAR_PIXEL_STEP - 1
+        else
+          b.drainHold = 0
         end
-        b.drainHold = math.max(0, cost - 1)
         b.draining = true
         busy = true
       elseif b.draining then
@@ -1431,7 +1458,7 @@ end
 function BattleState:playEntranceCry(battler)
   local mon = battler and battler.mon
   if not mon then return end
-  require("src.core.Sound").playCry(self.data, mon.species,
+  return require("src.core.Sound").playCry(self.data, mon.species,
     mon.status == "SLP" and 37 or 11)
 end
 
@@ -1555,7 +1582,23 @@ function BattleState:enter()
   -- default stays opaque for every other battle and for older saves.
   self.isOpaque = self:bgMode() ~= "world"
   self.introSlide = Timing.BATTLE_SLIDE_IN_FRAMES
-  self.showEnemyTrainer = self.kind == "trainer" and self.trainerPic ~= nil
+  -- GetTrainerInformation .linkBattle (home/trainers2.asm:26-31): the link
+  -- foe's pic is RedPicFront whatever either save looks like, and
+  -- InitBattleCommon loads and tilemaps it at hlcoord 12,0 for every
+  -- wIsInBattle == 2 battle (core.asm:6681-6688), the link one included.
+  -- wEnemyMonSpecies2 is zeroed under it, so the pic palette is PAL_MEWMON
+  -- exactly as it is for a trainer.
+  if self.kind == "link" and not self.trainerPic then
+    local frontPath, frontTrueColor =
+      require("src.pokemon.Sprites").playerPath(self.data, "front",
+        { kind = "battle", battle = self })
+    if frontPath and require("src.render.Assets").exists(frontPath) then
+      self.trainerPic = getImage(frontPath, namedPalette(self.data, "MEWMON"),
+                                 frontTrueColor)
+    end
+  end
+  self.showEnemyTrainer = (self.kind == "trainer" or self.kind == "link")
+                          and self.trainerPic ~= nil
   -- DrawAllPokeballs (common_text.asm:27) puts the party ball rows AND the
   -- HUD corner/underline tiles under them (PlacePlayerHUDTiles /
   -- PlaceEnemyHUDTiles, draw_hud_pokeball_gfx.asm:119-165) on screen with
@@ -1587,13 +1630,13 @@ function BattleState:enter()
   -- a different point in each battle kind, so queue it per branch
   local function queueEnemyCry()
     self:act(function()
-      self:playEntranceCry(self.enemy)
+      self:waitSfxNext(self:playEntranceCry(self.enemy))
     end)
   end
   -- PrintBeginningBattleText (engine/battle/common_text.asm:10-19): a wild
-  -- battle calls PlayCry BEFORE PrintText WildMonAppearedText, so the cry
-  -- sounds with the "Wild X appeared!" box instead of waiting on the A
-  -- press that clears its `prompt` (#303).  The Silph-Scope-less tower
+  -- battle calls PlayCry BEFORE PrintText WildMonAppearedText, and PlayCry
+  -- ends in WaitForSoundToFinish, so the cry runs to its end and only then
+  -- does the "Wild X appeared!" box open (#303).  The Silph-Scope-less tower
   -- ghost gets no cry at all (common_text.asm:43-48), and neither does the
   -- unveiled MAROWAK: .isMarowak never reaches PlayCry (#492).
   if self.kind ~= "trainer" and self.kind ~= "link"
@@ -1611,7 +1654,10 @@ function BattleState:enter()
   -- The sfx is extracted as "Trainer_Appeared" (tools/rom_manifest.json
   -- sfxHeaders, bank 8 / $42bb -- the same header pokered names
   -- SFX_Silph_Scope); nothing had ever played it.
-  if self.kind == "trainer" then
+  --
+  -- A link battle is wIsInBattle == 2, so PrintBeginningBattleText takes the
+  -- same .trainerBattle arm and owes the sfx too (common_text.asm:20-23).
+  if self.kind == "trainer" or self.kind == "link" then
     self:act(function()
       self.introSfx = require("src.core.Sound").play(self.data,
                                                      "Trainer_Appeared")
@@ -1629,13 +1675,17 @@ function BattleState:enter()
   -- battle -- not on a switch, and not when the beaten trainer's pic
   -- scrolls back in (#317, #282)
   self:act(function() self.introBalls = nil end)
-  if self.kind == "trainer" then
-    -- EnemySendOutFirstMon (core.asm:1308-1310): SlideTrainerPicOffScreen
-    -- walks the foe's pic off the RIGHT edge (hlcoord 18,0, a = 8 tiles,
-    -- one tile every 2 frames) BEFORE TrainerSentOutText -- the pic does
-    -- not blink out under the text (#317)
-    self:act(function() self:slidePic("foe", 0, 64, 4) end)
-    table.insert(self.queue, { wait = 16 })
+  if self.kind == "trainer" or self.kind == "link" then
+    local foeName = self.trainer and self.trainer.name
+                    or self.opponentName or Strings("FOE")
+    if self.showEnemyTrainer then
+      -- EnemySendOutFirstMon (core.asm:1308-1310): SlideTrainerPicOffScreen
+      -- walks the foe's pic off the RIGHT edge (hlcoord 18,0, a = 8 tiles,
+      -- one tile every 2 frames) BEFORE TrainerSentOutText -- the pic does
+      -- not blink out under the text (#317)
+      self:act(function() self:slidePic("foe", 0, 64, 4) end)
+      table.insert(self.queue, { wait = 16 })
+    end
     self:act(function()
       self.showEnemyTrainer = false
       -- the slot is EMPTY from here until AnimateSendingOutMon runs below:
@@ -1648,22 +1698,10 @@ function BattleState:enter()
       self.enemySendingOut = true
       self:slidePic("foe")
     end)
-    self:say(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+    self:say(Strings("%s sent\nout %s!", foeName, self.enemy.name))
     self:act(function()
       -- EnemySendOutFirstMon (core.asm:1421-1434): after the text the
       -- pic grows out of the ball (AnimateSendingOutMon), then the cry
-      self.enemySendingOut = false
-      self:startGrowIn(self.enemy)
-    end)
-    queueEnemyCry()
-  elseif self.kind == "link" then
-    -- Colosseum has no foe trainer pic, but the enemy mon still grows
-    -- out of the ball after "X sent out Y!" (not the wild "already there"
-    -- intro that LinkBattle previously inherited from newWild).
-    self.enemySendingOut = true
-    self:say(Strings("%s sent\nout %s!", self.opponentName or Strings("FOE"),
-                                          self.enemy.name))
-    self:act(function()
       self.enemySendingOut = false
       self:startGrowIn(self.enemy)
     end)
@@ -1698,7 +1736,7 @@ function BattleState:enter()
       -- SendOutMon (core.asm:1757-1762): after the poof the mon grows
       -- out of the ball (AnimateSendingOutMon at hlcoord 4,11)
       self:startGrowIn(self.player)
-      self:playEntranceCry(self.player)
+      self:waitSfxNext(self:playEntranceCry(self.player))
     end)
     self:markParticipant()
   end
@@ -1876,7 +1914,10 @@ function BattleState:update(dt)
   if self.phase == "menu" then
     for _, b in ipairs({ self.player, self.enemy }) do
       if b then
-        if b.shownHP then b.shownHP = b.mon.hp end
+        if b.shownHP then
+          b.shownHP = b.mon.hp
+          b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
+        end
         b.drainFloor = nil
         b.shownStatus = b.mon.status
       end
@@ -2294,10 +2335,10 @@ function BattleState:oldManThrow()
       return
     end
     self:ballChain("TOSS_ANIM", true, 3, "POKE_BALL")
-    self:actNext(function()
-      require("src.core.Sound").play(self.data, "Caught_Mon")
-    end)
-    self:sayNext(Strings("All right!\n%s was\ncaught!", self.enemy.name))
+    -- ItemUseBallText05: text_far, sound_caught_mon, text_promptbutton --
+    -- the fanfare follows the caught text and holds the prompt
+    self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+      function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
   end)
 end
 
@@ -2481,7 +2522,7 @@ function BattleState:resolveSwitch(newMon)
       self.sendingOut = false
       -- SendOutMon (core.asm:1757-1762): poof, then the grow-in
       self:startGrowIn(self.player)
-      self:playEntranceCry(self.player)
+      self:waitSfxNext(self:playEntranceCry(self.player))
     end)
   end)
   self:act(function()
@@ -3793,7 +3834,7 @@ function BattleState:onFaint(battler)
     if battler.isPlayer then
       -- RemoveFaintedPlayerMon (core.asm:1040-1042): the player mon's
       -- faint plays its ordinary species cry -- no Faint_Fall
-      Sound.playCry(self.data, battler.mon.species)
+      self.faintCry = Sound.playCry(self.data, battler.mon.species)
     elseif self.kind ~= "wild" then
       -- FaintEnemyPokemon (core.asm:732-771): the enemy faint plays no
       -- species cry; trainer battles get SFX_FAINT_FALL, then SFX_FAINT_THUD
@@ -3808,6 +3849,11 @@ function BattleState:onFaint(battler)
   end)
   self.nextInsert = (self.nextInsert or 0) + 1
   table.insert(self.queue, self.nextInsert, { wait = Timing.FAINT_SLIDE })
+  if battler.isPlayer then
+    -- RemoveFaintedPlayerMon ends `call PlayCry / jp PrintText`, and PlayCry
+    -- is `jp WaitForSoundToFinish`, so "X fainted!" waits out the cry
+    self:waitSfxNext(function() return self.faintCry end)
+  end
   if not battler.isPlayer and self.kind ~= "wild" then
     -- FaintEnemyPokemon's SFX_FAINT_THUD lands as the slide does (after
     -- Faint_Fall, before EnemyMonFaintedText)
@@ -3895,9 +3941,11 @@ function BattleState:awardExp()
       -- experience.asm:248 fires per grew-level text
       require("src.world.PikachuFollower")
         .modifyHappiness(game.save, "LEVELUP", mon)
-      self:sayNext(Strings("%s grew\nto level %d!", name, lv))
+      -- GrewLevelText: text_far, sound_level_up, text_end (experience.asm:
+      -- 369-372); PrintStatsBox only runs once PrintText has returned
+      self:sayNextWaitSfx(Strings("%s grew\nto level %d!", name, lv),
+        function() return require("src.core.Sound").play(game.data, "Level_Up") end)
       self:uiNext(function()
-        require("src.core.Sound").play(game.data, "Level_Up")
         return StatBox.new(game, mon)
       end)
       -- After PrintStatsBox, experience.asm reloads the active battler's
@@ -4042,7 +4090,7 @@ function BattleState:enemyMonFainted()
           self.enemySendingOut = false
           self:startGrowIn(self.enemy)
           self:actNext(function()
-            self:playEntranceCry(self.enemy)
+            self:waitSfxNext(self:playEntranceCry(self.enemy))
           end)
         end)
       end)
@@ -4081,7 +4129,7 @@ function BattleState:enemyMonFainted()
         self:actNext(function()
           self.sendingOut = false
           self:startGrowIn(self.player)
-          self:playEntranceCry(self.player)
+          self:waitSfxNext(self:playEntranceCry(self.player))
         end)
       end)
       return
@@ -4277,7 +4325,7 @@ function BattleState:openReplacementMenu()
           self.sendingOut = false
           -- SendOutMon (core.asm:1757-1762): poof, then the grow-in
           self:startGrowIn(self.player)
-          self:playEntranceCry(self.player)
+          self:waitSfxNext(self:playEntranceCry(self.player))
         end)
       end,
     })
@@ -4321,11 +4369,10 @@ function BattleState:safariAction(choice)
       -- above DoBallTossSpecialEffects's <= ULTRA_BALL check)
       self:ballChain(self:tossAnimFor("SAFARI_BALL"), caught, shakes, "SAFARI_BALL")
       if caught then
-        -- ItemUseBallText05's sound_caught_mon: fanfare with the text
-        self:actNext(function()
-          require("src.core.Sound").play(self.data, "Caught_Mon")
-        end)
-        self:sayNext(Strings("All right!\n%s was\ncaught!", self.enemy.name))
+        -- ItemUseBallText05: text_far, sound_caught_mon, text_promptbutton --
+        -- the fanfare follows the caught text and holds the prompt
+        self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+          function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
         -- same ItemUseBall .captured flow as a regular ball
         self:act(function() self:storeCaughtMon() end)
       else
@@ -4553,8 +4600,12 @@ function BattleState:storeCaughtMon()
   markOwned(game, species)
   stampOT(game.save, self.enemy.mon)
   if isNew then
-    -- _ItemUseBallText06 + ShowPokedexData
-    self:sayNext(Strings("New POKéDEX data\nwill be added for\n%s!", self.enemy.name))
+    -- _ItemUseBallText06 + ShowPokedexData: text_far, sound_dex_page_added,
+    -- text_promptbutton (item_effects.asm:624-629), so the fanfare follows
+    -- the box rather than firing when the dex bit is set
+    self:sayNextWaitSfx(
+      Strings("New POKéDEX data\nwill be added for\n%s!", self.enemy.name),
+      function() return require("src.core.Sound").play(self.data, "Dex_Page_Added") end)
     self:uiNext(function()
       return self:buildScreen("DexEntryMenu", species)
     end)
@@ -4704,12 +4755,10 @@ function BattleState:throwBall(ball)
     self:ballChain(self:tossAnimFor(ball), caught, shakes, ball)
     if caught then
       -- ItemUseBallText05 carries sound_caught_mon (item_effects.asm:
-      -- 608-614): the fanfare sounds with the caught message, before
-      -- the prompt, not after the text is dismissed
-      self:actNext(function()
-        require("src.core.Sound").play(self.data, "Caught_Mon")
-      end)
-      self:sayNext(Strings("All right!\n%s was\ncaught!", self.enemy.name))
+      -- 608-614): text_far, sound_caught_mon, text_promptbutton -- the
+      -- fanfare follows the caught message and holds the prompt
+      self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+        function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
       self:act(function() self:storeCaughtMon() end)
     else
       self:sayNext(self:ballMissMessage(shakes))
@@ -5196,7 +5245,8 @@ function BattleState:sgbBattlePals()
   local function bar(b)
     if not b then return pals.GREENBAR end
     local hp = b.shownHP or b.mon.hp
-    return pals[PaletteFX.barPalName(hp, b.mon.stats.hp)] or pals.GREENBAR
+    return pals[PaletteFX.barPalName(hp, b.mon.stats.hp, b.shownPx)]
+           or pals.GREENBAR
   end
   local function mon(b, placeholder)
     if placeholder or not b then return pals.MEWMON or pals.GREENBAR end
@@ -5594,7 +5644,7 @@ function BattleState:drawHUDs(slide)
     hudTile(0x73, 8, 16)
     drawHPBar(barData, 2, 2,
               { hp = shownHP(self.enemy), stats = self.enemy.mon.stats },
-              nil, grayFill)
+              nil, grayFill, nil, self.enemy.shownPx)
     hudTile(0x74, 8, 24)
     for i = 2, 9 do hudTile(0x76, i * 8, 24) end
     hudTile(0x78, 80, 24)
@@ -5675,7 +5725,7 @@ function BattleState:drawHUDs(slide)
     end
     drawHPBar(barData, 10, 9,
               { hp = shownHP(self.player), stats = self.player.mon.stats },
-              1, grayFill) -- wHPBarType 1: the $6D cap
+              1, grayFill, nil, self.player.shownPx) -- wHPBarType 1: the $6D cap
     Font.draw(("%3d/%3d"):format(shownHP(self.player), self.player.mon.stats.hp), 88, 80)
     hudTile(0x73, 144, 80)
     hudTile(0x77, 144, 88)

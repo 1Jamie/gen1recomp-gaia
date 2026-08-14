@@ -108,7 +108,7 @@ local function drawStatusPanel(battle, battler, x, y, player)
   HudTiles.drawHPBar(battle.data, tx + 1, ty + 2, {
     hp = shownHP(battler),
     stats = battler.mon.stats,
-  }, nil, monoMode(), tw - 5)
+  }, nil, monoMode(), tw - 5, battler.shownPx)
 
   if player then
     Font.draw(("%3d/%3d"):format(shownHP(battler), battler.mon.stats.hp),

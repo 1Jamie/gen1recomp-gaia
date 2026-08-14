@@ -16,6 +16,7 @@ local T = require("tests.modkit")
 local boxes = {}
 package.loaded["src.render.TextBox"] = {
   new = function(_, s, done) return { text = s, onDone = done } end,
+  soundOpts = function() return {} end,
 }
 package.loaded["src.core.Sound"] = { play = function() end }
 package.loaded["src.inventory.Bag"] = {

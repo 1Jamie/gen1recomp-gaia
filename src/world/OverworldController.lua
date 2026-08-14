@@ -384,12 +384,21 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   -- NPC instances persist across connection crossings in self.npcPool
   -- (keyed by NPC.id): a neighbor map's wandering ghosts ARE the
   -- objects that become the real NPCs when the player crosses the
-  -- seam, so nothing snaps back to its spawn point in view of the
-  -- survey zoom.  Warps rebuild from scratch, like the original's
-  -- per-entry sprite init (home/overworld.asm LoadMapHeader
-  -- .loadSpriteData).
+  -- seam, so a map the player is not entering keeps its ghosts alive
+  -- in view of the survey zoom.  The map being entered does not --
+  -- crossing a seam runs .loadNewMap -> LoadMapHeader, whose
+  -- .loadSpriteData zeroes the sprite state data and re-seeds every
+  -- SPRITESTATEDATA2_MAPY/MAPX from the map header's object data
+  -- (home/overworld.asm), so an NPC who walked up to the player stands
+  -- on her spawn cell again the next time that map loads (#1028).  Only
+  -- the save-side spawn flags survive, and those live in Game.save, not
+  -- here.  Warps rebuild the whole pool from scratch.
   if not (opts and opts.seamless and self.npcPool) then
     self.npcPool = {}
+  elseif fromMapId ~= mapId then
+    for _, obj in ipairs(self.map.def.objects or {}) do
+      self.npcPool[mapId .. "_obj_" .. obj.index] = nil
+    end
   end
   self.npcs = {}
   for _, obj in ipairs(self.map.def.objects or {}) do
@@ -1986,10 +1995,12 @@ function OverworldState:tryHiddenObject(fx, fy)
       end
       save.hiddenTaken[key] = true
       local name = Game.data.items[h.item] and Game.data.items[h.item].name or h.item
-      -- hidden items always play SFX_GET_ITEM_2 (hidden_items.asm)
-      require("src.core.Sound").play(Game.data, "Get_Item2")
+      -- hidden items always play SFX_GET_ITEM_2, and FoundHiddenItemText's
+      -- text_asm tail runs it as PlaySoundWaitForCurrent +
+      -- WaitForSoundToFinish once the box has printed (hidden_items.asm)
       Game.stack:push(TextBox.new(Game,
-        Strings("%s found\n%s!", save.player.name, name)))
+        Strings("%s found\n%s!", save.player.name, name),
+        nil, TextBox.soundOpts(Game, "Get_Item2")))
       return true
     end
   end
@@ -2001,9 +2012,9 @@ function OverworldState:tryHiddenObject(fx, fy)
       if not save.inventory.COIN_CASE then return false end
       save.hiddenTaken[key] = true
       save.coins = math.min(9999, (save.coins or 0) + h.coins)
-      require("src.core.Sound").play(Game.data, "Get_Item2")
       Game.stack:push(TextBox.new(Game,
-        Strings("%s found\n%d coins!", save.player.name, h.coins)))
+        Strings("%s found\n%d coins!", save.player.name, h.coins),
+        nil, TextBox.soundOpts(Game, "Get_Item2")))
       return true
     end
   end
@@ -2650,10 +2661,11 @@ function OverworldState:talkTo(npc)
     end
     local name = Game.data.items[d.item] and Game.data.items[d.item].name or d.item
     local ddef = Game.data.items[d.item]
-    require("src.core.Sound").play(Game.data,
-      (ddef and ddef.keyItem) and "Get_Key_Item" or "Get_Item1")
+    -- FoundItemText: text_far, sound_get_item_1, text_end (pick_up_item.asm)
     Game.stack:push(TextBox.new(Game,
-      Strings("%s found\n%s!", Game.save.player.name, name)))
+      Strings("%s found\n%s!", Game.save.player.name, name), nil,
+      TextBox.soundOpts(Game,
+        (ddef and ddef.keyItem) and "Get_Key_Item" or "Get_Item1")))
     return
   end
 
@@ -3182,6 +3194,58 @@ local function giveVictoryItem(reward)
   return true
 end
 
+-- A gym's reward text is not one box.  Every gym script carries a sound
+-- command right after the FIRST label of each reward group
+-- (scripts/PewterGym.asm PewterGymBrockReceivedBoulderBadgeText's
+-- sound_level_up, PewterGymReceivedTM34Text's sound_get_item_1, and the
+-- equivalents in the other seven), and home/text.asm TextCommand_SOUND
+-- plays it only once that page has typed out, then blocks on
+-- WaitForSoundToFinish before the next page prints.  So the pages
+-- accumulate and split into separate boxes at the sound points, each box
+-- chained off the previous one's button press.
+local function rewardChain()
+  local chain = { boxes = {}, pending = {} }
+  function chain.flush(sound)
+    if #chain.pending > 0 then
+      table.insert(chain.boxes,
+        { text = table.concat(chain.pending, "\f"), sound = sound })
+      chain.pending = {}
+    end
+  end
+  -- one reward group; `sound` rides its first page, where the scripts put it
+  function chain.add(labels, sound)
+    local text = Game.data.text or {}
+    local n = 0
+    for _, label in ipairs(labels or {}) do
+      if text[label] and text[label] ~= "" then
+        table.insert(chain.pending, text[label])
+        n = n + 1
+        if n == 1 and sound then chain.flush(sound) end
+      end
+    end
+  end
+  -- the synthetic stand-in line a reward with no `dialogue` shows
+  function chain.line(str, sound)
+    table.insert(chain.pending, str)
+    if sound then chain.flush(sound) end
+  end
+  function chain.push(done)
+    chain.flush()
+    local function step(i)
+      local box = chain.boxes[i]
+      if not box then
+        if done then done() end
+        return
+      end
+      local opts = box.sound and TextBox.soundOpts(Game, box.sound) or nil
+      Game.stack:push(TextBox.new(Game, box.text,
+        function() step(i + 1) end, opts))
+    end
+    step(1)
+  end
+  return chain
+end
+
 -- Badges/items awarded after specific battles (data/scripts/victories.lua).
 -- `deactivate` retires unfought gym/dojo trainers the way the originals'
 -- SetEvent / SetEventRange do after the leader victory.
@@ -3218,44 +3282,31 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
     -- retries the hand-over later (offerGymTm via gyms.lua)
     tmGiven = giveVictoryItem(reward)
   end
-  local lines = {}
+  local chain = rewardChain()
   if reward.dialogue then
-    local text = Game.data.text or {}
-    for _, label in ipairs(reward.dialogue) do
-      if text[label] and text[label] ~= "" then
-        table.insert(lines, text[label])
-      end
-    end
+    chain.add(reward.dialogue, reward.badgeSound)
     if reward.item then
-      for _, label in ipairs(reward.tmPre or {}) do
-        if text[label] and text[label] ~= "" then
-          table.insert(lines, text[label])
-        end
-      end
+      chain.add(reward.tmPre)
       if tmGiven then
-        for _, label in ipairs(reward.tmDialogue or {}) do
-          if text[label] and text[label] ~= "" then
-            table.insert(lines, text[label])
-          end
-        end
-      elseif reward.noRoom and text[reward.noRoom] and text[reward.noRoom] ~= "" then
-        table.insert(lines, text[reward.noRoom])
+        chain.add(reward.tmDialogue, reward.tmSound)
+      else
+        chain.add({ reward.noRoom })
       end
     end
   elseif reward.badge or reward.item then
     if reward.badge then
       local name = Game.data.items[reward.badge] and Game.data.items[reward.badge].name
                    or reward.badge
-      table.insert(lines, Strings("%s received\nthe %s!", Game.save.player.name, name))
+      chain.line(Strings("%s received\nthe %s!", Game.save.player.name, name),
+                 reward.badgeSound)
     end
     if tmGiven then
       local name = Game.stringBuffer or reward.item
-      table.insert(lines, Strings("%s received\n%s!", Game.save.player.name, name))
+      chain.line(Strings("%s received\n%s!", Game.save.player.name, name),
+                 reward.tmSound)
     end
   end
-  if #lines > 0 then
-    Game.stack:push(TextBox.new(Game, table.concat(lines, "\f")))
-  end
+  chain.push()
   self:runVictoryHook()
 end
 
@@ -3266,24 +3317,14 @@ end
 -- show again, then the same GiveItem check decides between the received
 -- lines and the "make room" text.
 function OverworldState:offerGymTm(reward, done)
-  local text = Game.data.text or {}
-  local lines = {}
-  local function addLine(label)
-    if label and text[label] and text[label] ~= "" then
-      table.insert(lines, text[label])
-    end
-  end
-  for _, label in ipairs(reward.tmPre or {}) do addLine(label) end
+  local chain = rewardChain()
+  chain.add(reward.tmPre)
   if giveVictoryItem(reward) then
-    for _, label in ipairs(reward.tmDialogue or {}) do addLine(label) end
+    chain.add(reward.tmDialogue, reward.tmSound)
   else
-    addLine(reward.noRoom)
+    chain.add({ reward.noRoom })
   end
-  if #lines > 0 then
-    Game.stack:push(TextBox.new(Game, table.concat(lines, "\f"), done))
-  elseif done then
-    done()
-  end
+  chain.push(done)
 end
 
 -- pokered reloads the map after every battle, re-running the map
@@ -3661,8 +3702,9 @@ function OverworldState:onStepComplete()
     end
   end
 
-  -- wild encounters in grass, on water while surfing, or -- on indoor
-  -- maps whose tileset is not FOREST -- on EVERY tile
+  -- wild encounters in grass, on water while surfing (at the map's water
+  -- rate, which is 0 on every indoor map), or -- on indoor maps whose
+  -- tileset is not FOREST -- on every other tile
   -- (wild_encounters.asm: caves, towers, the Mansion, Power Plant)
   -- The cooldown is checked after all other step processing so repel and
   -- movement systems continue to advance during the protected steps.
@@ -3670,10 +3712,10 @@ function OverworldState:onStepComplete()
   local encDef = Game.data.encounters[self.map.id]
   local enc
   local indoor = Game.data.field.indoorEncounters
-  if p.surfing and encDef and encDef.water and self.map:isWaterCell(p.cellX, p.cellY) then
-    enc = self:rollEncounter({ grass = encDef.water }, "water")
-  elseif self.map:isGrassCell(p.cellX, p.cellY) then
+  if self.map:isGrassCell(p.cellX, p.cellY) then
     enc = self:rollEncounter(encDef, "grass")
+  elseif p.surfing and self.map:isWaterCell(p.cellX, p.cellY) then
+    enc = self:rollEncounter({ grass = encDef and encDef.water }, "water")
   elseif indoor and self.map.def.index >= indoor.firstIndoorMap
          and self.map.def.tileset ~= indoor.excludedTileset then
     enc = self:rollEncounter(encDef, "indoor")
@@ -3794,10 +3836,10 @@ function OverworldState:checkBadgeGate()
         if Game.save.inventory[g.badge] then
           if not Game.save.flags[passedFlag] then
             Game.save.flags[passedFlag] = true
-            -- Route22GateGuardGoRightAheadText plays sound_get_item_1
-            require("src.core.Sound").play(Game.data, "Get_Item1")
+            -- Route22GateGuardGoRightAheadText carries sound_get_item_1
             Game.stack:push(TextBox.new(Game,
-              t["_" .. g.passText] or Strings("Go right ahead!")))
+              t["_" .. g.passText] or Strings("Go right ahead!"),
+              nil, TextBox.soundOpts(Game, "Get_Item1")))
           end
           return false
         end
@@ -3822,11 +3864,11 @@ function OverworldState:checkBadgeGate()
                           and Game.data.items[guard.badge].name or guard.badge
         if Game.save.inventory[guard.badge] then
           Game.save.flags[guard.event] = true
-          -- Route23OhThatIsTheBadgeText plays sound_get_item_1
-          require("src.core.Sound").play(Game.data, "Get_Item1")
+          -- Route23OhThatIsTheBadgeText carries sound_get_item_1
           local text = (t["_" .. g.passText] or
                         Strings("Oh! That is the\n{RAM}!")):gsub("{RAM:wNameBuffer}", badgeName)
-          Game.stack:push(TextBox.new(Game, text))
+          Game.stack:push(TextBox.new(Game, text,
+            nil, TextBox.soundOpts(Game, "Get_Item1")))
           return false
         end
         -- Route23YouDontHaveTheBadgeYetText plays SFX_DENIED
@@ -4470,7 +4512,7 @@ function OverworldState:scriptMove(entity, dir, tiles, onDone)
   })
 end
 
--- A step-in-place beat: the entity plays one walk-cycle animation (16
+-- A step-in-place beat: the entity plays one walk-cycle animation (32
 -- frames) without translating, keeping its current facing.  Ports the
 -- NPC_CHANGE_FACING movement byte (engine/overworld/movement.asm
 -- ChangeFacingDirection -> zero-delta TryWalking), used for Oak marching
@@ -4483,7 +4525,7 @@ end
 
 -- Advance scripted moves in two phases so a chained step (a new move
 -- queued by a completing move's onDone) begins the SAME frame the
--- previous one ends -- back-to-back 16-frame tiles like the GB's
+-- previous one ends -- back-to-back 32-frame tiles like the GB's
 -- simulated-joypad / NPC scripted movement, with no idle frame between
 -- tiles.  Phase 1 retires finished moves (which may chain new ones);
 -- phase 2 then starts every not-yet-moving move.

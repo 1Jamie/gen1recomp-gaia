@@ -66,12 +66,13 @@ end
 
 local files = {
   ["mods/alpha/manifest.json"] = manifest("alpha"),
+  -- mod.exports, not _G: a mod's globals are its own (src/mods/Sandbox.lua)
   ["mods/alpha/main.lua"] = [[
-return function(mod) _G.MOD_STORAGE_ALPHA = mod.storage end
+return function(mod) mod.exports.storage = mod.storage end
 ]],
   ["mods/beta/manifest.json"] = manifest("beta"),
   ["mods/beta/main.lua"] = [[
-return function(mod) _G.MOD_STORAGE_BETA = mod.storage end
+return function(mod) mod.exports.storage = mod.storage end
 ]],
 }
 local fs = memfs(files)
@@ -80,12 +81,12 @@ local current = game("red", "play-a")
 loader.game = current
 T.check(loader:load({}) == true, "storage fixture mods load")
 
-local alpha, beta = _G.MOD_STORAGE_ALPHA, _G.MOD_STORAGE_BETA
+local alpha = (loader.exports.alpha or {}).storage
+local beta = (loader.exports.beta or {}).storage
 T.check(type(alpha) == "table" and type(beta) == "table",
   "Loader exposes mod.storage through the public mod object")
 if type(alpha) ~= "table" or type(beta) ~= "table" then
   Runtime.events, Runtime.hooks = savedEvents, savedHooks
-  _G.MOD_STORAGE_ALPHA, _G.MOD_STORAGE_BETA = nil, nil
   T.finish()
 end
 
@@ -176,6 +177,5 @@ T.eq(next(emptyFiles), nil, "no-mod boot creates no storage paths or files")
 
 Runtime.events, Runtime.hooks = savedEvents, savedHooks
 Runtime.currentMod = nil
-_G.MOD_STORAGE_ALPHA, _G.MOD_STORAGE_BETA = nil, nil
 
 T.finish()

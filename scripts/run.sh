@@ -35,4 +35,10 @@ find_love() {
 LOVE_BIN="$(find_love)" \
   || fail "LÖVE not found,  run scripts/setup.sh (or install from https://love2d.org)"
 
+# SDL2 on Wayland crashes during desktop drag-and-drop in certain compositors;
+# default to X11/XWayland when available to ensure rock-solid drag-drop stability.
+if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${SDL_VIDEODRIVER:-}" ]; then
+  export SDL_VIDEODRIVER=x11
+fi
+
 exec "$LOVE_BIN" "$ROOT" "$@"

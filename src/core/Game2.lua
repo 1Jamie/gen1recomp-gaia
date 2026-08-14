@@ -73,7 +73,7 @@ end
 --
 -- Gold composites its own frame (Game2:draw / drawScene) and pumps its own pad
 -- (the FixedStep callback in Game2:load), so none of it goes through
--- src/render/Renderer.lua or src/core/Game.lua.  That explains why the six
+-- src/render/Renderer.lua or src/core/Game.lua.  That explains why the eight
 -- hooks below never used to fire here; it is not a reason they should not.  A
 -- hook is a contract about a MOMENT in the frame, and Gold has every one of
 -- these moments -- so each is raised under the Gen 1 NAME with the Gen 1
@@ -83,6 +83,7 @@ end
 --   input.pointer    uncaptured pointer events       (src/core/Game.lua:887)
 --   render.zones     the palette pass, pre-blit      (src/core/Game.lua:505)
 --   render.compose   the whole-window composite      (Renderer.lua:759)
+--   render.output*   the normal composed frame       (Renderer.lua:1063)
 --   render.letterbox the void around the 160x144 blit (Renderer.lua:840)
 --   render.hud       screen-space UI over the frame  (src/core/Game.lua:521)
 --
@@ -1382,12 +1383,14 @@ function Game2:draw()
   local zoned = type(zones) == "table" and zones[1] ~= nil
 
   -- A present canvas is paid for only when something reads it: the zone pass,
-  -- GBC FX, a mod post-process, or a render.compose subscriber about to be
-  -- handed the finished frame.  With none of them the frame draws straight to
-  -- the screen exactly as it always did.
+  -- GBC FX, a mod post-process, render.compose, or an enabled render.output
+  -- subscriber. With none of them the frame draws straight to the screen
+  -- exactly as it always did.
   local composing = ModRuntime.wantsHook("render.compose")
+  local hasOutputHook = ModRuntime.wantsHook("render.output")
+    and ModRuntime.call("render.output_enabled", function() return false end) == true
   local scene = nil
-  if zoned or fx or composing or Pipelines.wantsPresent() then
+  if zoned or fx or composing or Pipelines.wantsPresent() or hasOutputHook then
     scene = self:presentCanvas(1, w, h)
   end
   if not scene then
@@ -1419,7 +1422,7 @@ function Game2:draw()
   -- untinted one.  On its own the tint rides the final blit and no second
   -- canvas is paid for.
   local source = scene
-  local reread = fx or Pipelines.wantsPresent()
+  local reread = fx or Pipelines.wantsPresent() or hasOutputHook
   if zoned and reread then
     local tinted = self:presentCanvas(2, w, h)
     if tinted then
@@ -1439,15 +1442,25 @@ function Game2:draw()
     -- Post-process pipelines run over the finished composite and before GBC
     -- FX.  Each hands back a canvas; with none registered this returns `source`
     -- unchanged and the frame is byte-identical (Renderer.lua:1058).
-    local scale, _, _, dpi = self:frameFit(w, h)
+    local scale, ox, oy, dpi = self:frameFit(w, h)
     source = Pipelines.present(source, { width = w, height = h, scale = scale,
       dpi = dpi, dpiX = dpi, dpiY = dpi }) or source
-    if fx then
-      GBCFX.present(source, self:pixelScale(w, h))
-    else
-      G.setColor(1, 1, 1, 1)
-      G.draw(source, 0, 0)
-      G.setShader()
+    local outputHandled = hasOutputHook
+      and ModRuntime.call("render.output", function() return false end, {
+        canvas = source, width = w, height = h,
+        gameX = ox, gameY = oy,
+        gameWidth = 160 * scale, gameHeight = 144 * scale,
+        scale = scale, dpiX = dpi, dpiY = dpi,
+        generation = 2,
+      }) == true
+    if not outputHandled then
+      if fx then
+        GBCFX.present(source, self:pixelScale(w, h))
+      else
+        G.setColor(1, 1, 1, 1)
+        G.draw(source, 0, 0)
+        G.setShader()
+      end
     end
   end
   G.pop()

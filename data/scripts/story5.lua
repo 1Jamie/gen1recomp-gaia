@@ -4,9 +4,9 @@ local M = {}
 
 local function text(game) return game.data.text end
 
-local function push(game, s, done)
+local function push(game, s, done, opts)
   local TextBox = require("src.render.TextBox")
-  game.stack:push(TextBox.new(game, s, done))
+  game.stack:push(TextBox.new(game, s, done, opts))
 end
 
 -- fill the extracted text placeholders ({RAM:...}, {PLAYER})
@@ -25,8 +25,8 @@ local function gift(opts)
     local t = text(game)
     local itemName = game.data.items[opts.item].name
     local subs = { ram = itemName, player = game.save.player.name }
-    local function say(label, fallback, cb)
-      push(game, fill(t[label] or fallback, subs), cb)
+    local function say(label, fallback, cb, sopts)
+      push(game, fill(t[label] or fallback, subs), cb, sopts)
     end
     if game.save.flags[opts.flag] then
       say(opts.already or opts.explain, "It's a useful\nitem, isn't it?", done)
@@ -39,15 +39,16 @@ local function gift(opts)
       end
       game.save.flags[opts.flag] = true
       local idef = game.data.items[opts.item]
-      require("src.core.Sound").play(game.data,
-        (idef and idef.keyItem) and "Get_Key_Item" or "Get_Item1")
+      -- the received texts carry sound_get_item_1 / sound_get_key_item, so
+      -- the jingle only fires once that box has typed out
       say(opts.received, "{PLAYER} received\n{RAM:}!", function()
         if opts.explain then
           say(opts.explain, "", done)
         else
           done()
         end
-      end)
+      end, require("src.render.TextBox").soundOpts(game,
+        (idef and idef.keyItem) and "Get_Key_Item" or "Get_Item1"))
     end
     if opts.pre then say(opts.pre, opts.preFallback or "", give) else give() end
   end

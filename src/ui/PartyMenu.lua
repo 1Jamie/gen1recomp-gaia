@@ -87,6 +87,15 @@ local function refuseUnavailable(self)
     t._SleepingPikachuText1 or Strings("There isn't any\nresponse...")))
 end
 
+-- .newBadgeRequired (start_sub_menus.asm): every badge-gated arm of
+-- .outOfBattleMovePointers prints this and jumps back to the open submenu
+local function refuseBadge(self)
+  local TextBox = require("src.render.TextBox")
+  local t = self.game.data and self.game.data.text or {}
+  self.game.stack:push(TextBox.new(self.game,
+    t._NewBadgeRequiredText or Strings("No! A new BADGE\nis required.")))
+end
+
 -- where DIG escapes work: escape_rope_tilesets.asm (Agatha's room is
 -- excluded by map id in ItemUseEscapeRope)
 local DIG_TILESETS = { FOREST = true, CEMETERY = true, CAVERN = true,
@@ -411,6 +420,23 @@ function PartyMenu:update(dt)
         -- flyTo (OverworldController) validates the fly-warp + runs the
         -- departure/warp, so we just hand it the chosen mapId (#195).
         local ow = self.game.overworld
+        -- .fly checks THUNDERBADGE first, then CheckIfInOutsideMap
+        -- (OVERWORLD + PLATEAU -- Route 23 / Indigo Plateau outdoor -- not
+        -- OVERWORLD alone, #83); both refusals loop back to the submenu
+        if ow and not ow:partyKnows("FLY") then
+          refuseBadge(self)
+          return
+        end
+        if ow and not Map.isOutside(ow.map.def,
+             FieldDefaults.field(self.game.data, "outsideTilesets")) then
+          local TextBox = require("src.render.TextBox")
+          local def = self.game.data.pokemon[mon.species]
+          local txt = (self.game.data.text._CannotFlyHereText
+                       or Strings("{RAM:wNameBuffer} can't\nFLY here."))
+                      :gsub("{RAM:wNameBuffer}", mon.nickname or def.name)
+          self.game.stack:push(TextBox.new(self.game, txt))
+          return -- .loop: submenu stays open behind the message
+        end
         self.game.stack:pop() -- close the party menu
         Screens.push(self.game, "TownMap", { fly = true, onFly = function(mapId)
           if ow then ow:flyTo(mapId) end
@@ -423,9 +449,17 @@ function PartyMenu:update(dt)
         -- over the menu, and the cave is lit when the blink hands the
         -- screen back, never under the text (#385).
         local ow = self.game.overworld
+        if ow and not ow:partyKnows("FLASH") then
+          refuseBadge(self)
+          return
+        end
         local TextBox = require("src.render.TextBox")
         local Transition = require("src.render.Transition")
-        self.game.save.flashLit = true
+        -- .flash prints on any map, but the light it records is this map's:
+        -- home/overworld.asm re-arms wMapPalOffset on the next dark map, so
+        -- a FLASH used in daylight must not carry into Rock Tunnel
+        local wasDark = ow and ow.dark
+        if wasDark then self.game.save.flashLit = true end
         self.game.stack:push(TextBox.new(self.game,
           self.game.data.text._FlashLightsAreaText
           or Strings("A blinding FLASH\nlights the area!"), function()
@@ -440,13 +474,13 @@ function PartyMenu:update(dt)
             -- seconds of per-pixel atlas baking on a phone -- on screen as a
             -- solid white frame with nothing under it, which reads as a
             -- lockup (#610).
-            ow:setDark(false)
+            if wasDark then ow:setDark(false) end
             self.game.stack:push(Transition.whiteFlash(self.game))
           end))
         return
       elseif action == "surf" then
-        -- start_sub_menus.asm .surf: SOULBADGE-gated (checked at list time
-        -- above), then IsSurfingAllowed (the Cycling Road / Seafoam B4F
+        -- start_sub_menus.asm .surf: SOULBADGE-gated (useSurfFieldMove),
+        -- then IsSurfingAllowed (the Cycling Road / Seafoam B4F
         -- current refusals, both of which loop back to the submenu), then
         -- ItemUseSurfboard: while surfing it tries to dismount instead;
         -- otherwise it mounts only if the FACING tile is water, else
@@ -503,8 +537,8 @@ function PartyMenu:update(dt)
         return -- .loop: submenu stays open behind the message
       elseif action == "cut" then
         -- start_sub_menus.asm .cut -> predef UsedCut (engine/overworld/cut.asm):
-        -- CASCADEBADGE-gated (list time); _NothingToCutText loops back to the
-        -- submenu when the FACING tile isn't a cuttable tree.
+        -- CASCADEBADGE-gated (useCutFieldMove); _NothingToCutText loops back
+        -- to the submenu when the FACING tile isn't a cuttable tree.
         local ow = self.game.overworld
         local reason = ow:useCutFieldMove()
         if reason == "ok" then
@@ -522,7 +556,7 @@ function PartyMenu:update(dt)
         self.game.stack:push(TextBox.new(self.game, txt))
         return -- .loop: submenu stays open behind the message
       elseif action == "strength" then
-        -- start_sub_menus.asm .strength: RAINBOWBADGE-gated (list time);
+        -- start_sub_menus.asm .strength: RAINBOWBADGE-gated;
         -- predef PrintStrengthText (field_move_messages.asm) sets
         -- BIT_STRENGTH_ACTIVE of wStatusFlags1 -- the sole gate
         -- push_boulder.asm reads -- then prints _UsedStrengthText (no
@@ -532,6 +566,10 @@ function PartyMenu:update(dt)
         -- .strength, GBPalWhiteOutWithDelay3 blinks the screen white
         -- before CloseTextDisplay returns to the map.
         local ow = self.game.overworld
+        if ow and not ow:partyKnows("STRENGTH") then
+          refuseBadge(self)
+          return
+        end
         local TextBox = require("src.render.TextBox")
         local Transition = require("src.render.Transition")
         local def = self.game.data.pokemon[mon.species]
@@ -565,6 +603,33 @@ function PartyMenu:update(dt)
         -- centralizes the spin -> fade -> warp so BagMenu's ESCAPE ROPE shares
         -- the exact departure; the fade + warp fire when the spin ends.
         local ow = self.game.overworld
+        if entry.move == "TELEPORT" then
+          -- .teleport: TELEPORT works only OUTDOORS (CheckIfInOutsideMap --
+          -- OVERWORLD + PLATEAU, #83); dark maps don't block it
+          if ow and not Map.isOutside(ow.map.def,
+               FieldDefaults.field(self.game.data, "outsideTilesets")) then
+            local TextBox = require("src.render.TextBox")
+            local def = self.game.data.pokemon[mon.species]
+            local txt = (self.game.data.text._CannotUseTeleportNowText
+                         or Strings("{RAM:wNameBuffer} can't\nuse TELEPORT now."))
+                        :gsub("{RAM:wNameBuffer}", mon.nickname or def.name)
+            self.game.stack:push(TextBox.new(self.game, txt))
+            return -- .loop: submenu stays open behind the message
+          end
+        elseif ow and not (DIG_TILESETS[ow.map.def.tileset]
+                           and ow.map.id ~= "AGATHAS_ROOM") then
+          -- .dig runs ItemUseEscapeRope (it sets wCurItem = ESCAPE_ROPE):
+          -- usable in the dungeon tilesets of escape_rope_tilesets.asm minus
+          -- Agatha's room, even in the dark (Rock Tunnel); anywhere else
+          -- .notUsable -> ItemUseNotTime, the same line BagMenu prints for a
+          -- bagged ESCAPE ROPE
+          local TextBox = require("src.render.TextBox")
+          self.game.stack:push(TextBox.new(self.game,
+            self.game.data.text._ItemUseNotTimeText
+            or Strings("OAK: %s!\nThis isn't the\ntime to use that!",
+                       self.game.save.player.name)))
+          return -- .loop: submenu stays open behind the message
+        end
         self.game.stack:pop()
         if ow then ow:beginTeleportOut() end
         return
@@ -658,42 +723,30 @@ function PartyMenu:update(dt)
         -- Battle still excludes this list via `not self.battle`. Softboiled
         -- can appear for a fainted user; its heal transfer then no-ops.
         if not self.battle and ow then
-          -- FLY/TELEPORT: CheckIfInOutsideMap (OVERWORLD + PLATEAU --
-          -- Route 23 / Indigo Plateau outdoor), not OVERWORLD alone (#83)
-          local outside = Map.isOutside(ow.map.def,
-            FieldDefaults.field(self.game.data, "outsideTilesets"))
+          -- GetMonFieldMoves (engine/menus/text_box.asm) matches the mon's
+          -- four moves against FieldMoveDisplayData and nothing else -- no
+          -- badge, no map, no tileset test.  Every one of those lives in
+          -- .outOfBattleMovePointers, i.e. on selection, where the refusal
+          -- prints and .loop returns to this still-open submenu (#1022).
           for _, mv in ipairs(mon.moves) do
-            if mv.id == "FLY" and outside
-               and self.game.save.inventory.THUNDERBADGE then
+            if mv.id == "FLY" then
               table.insert(items, { label = Strings("FLY"), action = "fly" })
-            elseif mv.id == "FLASH" and ow.dark
-               and self.game.save.inventory.BOULDERBADGE then
+            elseif mv.id == "FLASH" then
               table.insert(items, { label = Strings("FLASH"), action = "flash" })
-            elseif mv.id == "CUT" and self.game.save.inventory.CASCADEBADGE then
-              -- CUT/SURF/STRENGTH are party-menu field moves too
-              -- (start_sub_menus.asm .outOfBattleMovePointers); listed here
-              -- with the same list-time badge filter this file already uses
-              -- for FLY/FLASH.  The facing-tile/activation check happens on
-              -- selection (useCutFieldMove/useSurfFieldMove).
+            elseif mv.id == "CUT" then
               table.insert(items, { label = Strings("CUT"), action = "cut" })
-            elseif mv.id == "SURF" and self.game.save.inventory.SOULBADGE then
+            elseif mv.id == "SURF" then
               table.insert(items, { label = Strings("SURF"), action = "surf" })
-            elseif mv.id == "STRENGTH" and self.game.save.inventory.RAINBOWBADGE then
+            elseif mv.id == "STRENGTH" then
               table.insert(items, { label = Strings("STRENGTH"), action = "strength" })
             elseif mv.id == "SOFTBOILED" then
               table.insert(items, { label = Strings("SOFTBOILED"), action = "softboiled" })
-            elseif mv.id == "TELEPORT" and outside then
-              -- TELEPORT works only OUTDOORS (start_sub_menus.asm
-              -- .teleport -> CheckIfInOutsideMap); dark maps don't
-              -- block it
-              table.insert(items, { label = Strings("TELEPORT"), action = "escape" })
-            elseif mv.id == "DIG" and DIG_TILESETS[ow.map.def.tileset]
-               and ow.map.id ~= "AGATHAS_ROOM" then
-              -- DIG runs ItemUseEscapeRope (.dig sets wCurItem =
-              -- ESCAPE_ROPE): usable in the dungeon tilesets of
-              -- escape_rope_tilesets.asm minus Agatha's room, even in
-              -- the dark (Rock Tunnel)
-              table.insert(items, { label = Strings("DIG"), action = "escape" })
+            elseif mv.id == "TELEPORT" then
+              table.insert(items, { label = Strings("TELEPORT"),
+                                    action = "escape", move = "TELEPORT" })
+            elseif mv.id == "DIG" then
+              table.insert(items, { label = Strings("DIG"),
+                                    action = "escape", move = "DIG" })
             end
           end
         end

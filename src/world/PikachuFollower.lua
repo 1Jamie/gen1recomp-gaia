@@ -821,11 +821,13 @@ end
 function PikachuFollower.onFanClubEntered(game, ow)
   if not (GameVersion.isYellow() and ow.map
       and ow.map.id == "POKEMON_FAN_CLUB") then return end
+  local active = game.save.pikachuMapScriptActive
+  game.save.pikachuMapScriptActive = true
+  if active then return end
   local starter = PikachuFollower.starterInParty(game.save)
   local npc = findFollower(ow)
   if not npc or (starter and starter.status) then return end
   ow.pikachuFanClubScene = true
-  ow.pikachuMapScriptActive = true
   ow.player.facing = "down"
   for _, other in ipairs(ow.npcs or {}) do
     if other.def and other.def.name == "POKEMONFANCLUB_SEEL" then
@@ -844,6 +846,13 @@ function PikachuFollower.onBillsHouseEnter(game, ow)
   if not (GameVersion.isYellow() and ow.map and ow.map.id == "BILLS_HOUSE") then
     return
   end
+  -- BillsHouse_CheckMetBill (scripts/BillsHouse.asm:22-40) sets
+  -- BIT_PIKACHU_MAP_SCRIPT_ACTIVE and rets nz before it looks at
+  -- EVENT_MET_BILL_2; the bit rides sMainData, so a reload inside the house
+  -- resumes at BillsHouseScript1's bare ret (#919).
+  local active = game.save.pikachuMapScriptActive
+  game.save.pikachuMapScriptActive = true
+  if active then return end
   if game.save.flags.EVENT_MET_BILL_2 then return end
   -- BillsHouseScript0 (scripts/BillsHouse.asm:41-47) only runs the confused
   -- walk while CheckPikachuStatusCondition comes back clear

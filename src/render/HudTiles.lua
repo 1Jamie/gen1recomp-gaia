@@ -141,13 +141,20 @@ end
 -- Tinting first would double-apply the color: GREENBAR's fill {0,189,0} has
 -- red channel 0, so the tint zeroes the whole bar's red and the zone's
 -- red-channel-keyed shade shader then maps every pixel to color 3 = black.
-function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill, segments)
+--
+-- pixels: an explicit 0..48 bar length on GetHPBarLength's scale, for a
+-- caller that is animating the bar between two HP values
+-- (UpdateHPBar_AnimateHPBar); it scales with `segments` like the color
+-- thresholds do.  Without it the length comes from mon.hp as before.
+function HudTiles.drawHPBar(data, tx, ty, mon, barType, grayFill, segments, pixels)
   local x, y = tx * 8, ty * 8
   segments = math.max(1, math.floor(segments or 6))
   HudTiles.tile(0x71, x, y)
   HudTiles.tile(0x62, x + 8, y)
   local px = 0
-  if mon.stats.hp > 0 and mon.hp > 0 then
+  if pixels then
+    px = math.max(0, math.floor(pixels * segments / 6))
+  elseif mon.stats.hp > 0 and mon.hp > 0 then
     px = math.max(1, math.floor(mon.hp * segments * 8 / mon.stats.hp))
   end
   local tint

@@ -22,8 +22,8 @@ return {
         local TextBox = require("src.render.TextBox")
         local Commands = require("src.script.Commands")
         local t = game.data.text
-        local function say(label, cb)
-          game.stack:push(TextBox.new(game, t[label] or label, cb))
+        local function say(label, cb, sopts)
+          game.stack:push(TextBox.new(game, t[label] or label, cb, sopts))
         end
 
         if game.save.flags.EVENT_GOT_OLD_AMBER then
@@ -39,8 +39,9 @@ return {
           game.save.flags.EVENT_GOT_OLD_AMBER = true
           Commands.hide_object({ save = game.save, overworld = ow, game = game },
                                 "MUSEUM_1F", "MUSEUM1F_OLD_AMBER")
-          require("src.core.Sound").play(game.data, "Get_Item1")
-          say("_Museum1FScientist2ReceivedOldAmberText", done)
+          -- .ReceivedOldAmberText carries sound_get_item_1
+          say("_Museum1FScientist2ReceivedOldAmberText", done,
+              TextBox.soundOpts(game, "Get_Item1"))
         end)
       end,
 

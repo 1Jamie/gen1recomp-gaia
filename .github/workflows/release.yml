@@ -252,8 +252,40 @@ jobs:
               Remove-Item $env:UWP_PFX -Force -ErrorAction SilentlyContinue
           }
 
+  # Windows Native AOT TLS dialer. The Mac release runner fuses the win64 zip
+  # from LÖVE's prebuilt binaries and cannot cross-compile this DLL, so build
+  # it here and inject it in the release job before scripts/build.sh win.
+  native-tls-win:
+    name: build Windows gen1tls.dll
+    needs: version
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish gen1tls (win-x64 Native AOT)
+        shell: pwsh
+        run: |
+          $out = "dist/native/win-x64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish native/tls_dial/Gen1Tls.csproj `
+            -c Release -r win-x64 -o $out
+          if (-not (Test-Path "$out/gen1tls.dll")) {
+            throw "gen1tls.dll missing after publish"
+          }
+          Get-Item "$out/gen1tls.dll" | Format-List Name, Length, LastWriteTime
+      - name: Upload gen1tls.dll
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1tls-win-x64
+          path: dist/native/win-x64/gen1tls.dll
+          if-no-files-found: error
+          retention-days: 1
+
   release:
-    needs: [version, xbox-uwp, linux-arm64]
+    needs: [version, xbox-uwp, linux-arm64, native-tls-win]
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
 
     steps:
@@ -268,6 +300,12 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Download Windows gen1tls dialer
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1tls-win-x64
+          path: dist/native/win-x64
 
       - name: Import signing certificate into a temporary keychain
         if: github.repository == 'bryanthaboi/gen1recomp'
@@ -307,13 +345,21 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Build macOS + Windows + Linux
+        env:
+          GEN1TLS_DLL: ${{ github.workspace }}/dist/native/win-x64/gen1tls.dll
         run: |
           set -euo pipefail
           # Sign in-build (identity auto-detected from the temp keychain);
           # notarize separately below so it uses secret credentials, not a
           # login-keychain profile. "all" also builds the Linux AppImage,
           # which needs no signing/notarization.
+          if [ ! -f "$GEN1TLS_DLL" ]; then
+            echo "::error::gen1tls.dll missing at $GEN1TLS_DLL (native-tls-win job)"
+            exit 1
+          fi
           scripts/build.sh all --version "${{ needs.version.outputs.version }}" --no-notarize
+          unzip -l dist/win/gen1recomp-win64.zip | grep -F gen1tls.dll \
+            || { echo "::error::Windows zip is missing gen1tls.dll"; exit 1; }
 
       - name: Build Android
         run: |

@@ -6,7 +6,7 @@
 -- LINK_STATE_TRADING) skip that poll and cannot be cancelled.
 --
 -- Case 1 (level path, cancelable): open EvolutionState directly, wait past
--- the 80-frame pre-animLoop delay (still well under FLASH_FRAMES=220),
+-- the 80-frame pre-animLoop delay (still well under FLASH_FRAMES=368),
 -- press B, and assert the mon stays CATERPIE with the "stopped evolving"
 -- text on screen.
 -- Case 1b: after cancel, checkParty with no level-ups must not re-offer;
@@ -81,7 +81,7 @@ return function(game)
   Evolution.evolve(game, mon, "METAPOD", function() done1 = true end)
 
   if not waitFor(evoTop, 300) then error("EvolutionState never opened (case1)") end
-  U.wait(100) -- past the 80-frame pre-animLoop delay, still under 220
+  U.wait(100) -- past the 80-frame pre-animLoop delay, still under 368
   U.log("case1 flash", "t=", top().t, "species=", mon.species)
   U.shot(game, DIR .. "/evo213_1_evolving.png")
 
@@ -133,8 +133,8 @@ return function(game)
   local done2 = false
   Evolution.evolve(game, mon2, "METAPOD", function() done2 = true end)
   if not waitFor(evoTop, 300) then error("EvolutionState never opened (case2)") end
-  -- let the full flash run (FLASH_FRAMES=220) without pressing B
-  waitFor(function() return not evoTop() end, 400)
+  -- let the full flash run (FLASH_FRAMES=368) without pressing B
+  waitFor(function() return not evoTop() end, 500)
   if not waitFor(function() return findText("evolved into") ~= nil end, 120) then
     error("Congratulations text not shown (case2)")
   end

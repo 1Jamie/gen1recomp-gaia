@@ -315,12 +315,19 @@ do
   local Renderer = require("src.render.Renderer")
   local SaveData = require("src.core.SaveData")
   local OW = require("src.world.OverworldController")
+  -- the reward text is a CHAIN of boxes split at each gym script's sound
+  -- command, so walk it: read a box's pages, close it, let its onDone push
+  -- the next one
   local function stackedDialogue()
-    local top = Game.stack:top()
-    if not (top and top.pages) then return "" end
     local parts = {}
-    for _, page in ipairs(top.pages) do
-      parts[#parts + 1] = table.concat(page, "\n")
+    local top = Game.stack:top()
+    while top and top.pages do
+      for _, page in ipairs(top.pages) do
+        parts[#parts + 1] = table.concat(page, "\n")
+      end
+      Game.stack:pop()
+      if top.onDone then top.onDone() end
+      top = Game.stack:top()
     end
     return table.concat(parts, "\n")
   end

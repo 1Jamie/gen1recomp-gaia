@@ -549,6 +549,27 @@ do
   dudePack:useSelected()
   eq(thrown, "POKE_BALL", "the tutorial pack still throws")
   eq(dudePack.message, nil, "with no Oak line in the way")
+
+  -- DepositSellPack passes the same empty world (the mart's SELL and the
+  -- item PC's DEPOSIT both do): a TM row must hand its id back rather than
+  -- open the teach party, which is issue #1243's "Teach which PKMN?" in
+  -- the middle of a sale.
+  local sellGame = { input = newInput(), save = {
+    player = { name = "GOLD" },
+    inventory = { TM01 = 1 },
+    options = {},
+  }, data = DATA, stack = newStack() }
+  local sold
+  local sellPack = PackMenu.new(sellGame, {
+    save = sellGame.save, items = DATA.items, world = {},
+    onChoose = function(id) sold = id end,
+  })
+  sellPack.pocketIndex = 4 -- TM_HM
+  sellPack:rebuild()
+  sellPack:useSelected()
+  eq(sold, "TM01", "a chooser pack hands a TM to its caller")
+  eq(sellPack.message, nil, "with no teach refusal in the way")
+  eq(#sellGame.stack._items, 0, "and nothing pushed over the pack")
 end
 
 -- ------------------------------------------------ say(): the teardown rule

@@ -604,7 +604,7 @@ do
     local game = uiGame({ mon })
     Bag.add(game.save, "RARE_CANDY", 1)
     game.stack:push(BagMenu.new(game))
-    for _ = 1, 600 do
+    for _ = 1, 800 do
       local top = game.stack:top()
       if not top then break end
       pressed = { a = true }

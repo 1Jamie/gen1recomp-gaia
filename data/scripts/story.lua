@@ -297,6 +297,7 @@ M.BILLS_HOUSE = {
 
 M.ROUTE_25 = {
   onEnter = function(game, ow)
+    game.save.pikachuMapScriptActive = nil
     local flags = game.save.flags
     if flags.EVENT_LEFT_BILLS_HOUSE_AFTER_HELPING then return end
     local Commands = require("src.script.Commands")
@@ -329,6 +330,7 @@ M.VERMILION_CITY = {
   -- only read while EVENT_1ST_LOCK_OPENED is unset (the gym is only
   -- reachable through this map, so a fresh visit always re-rolls).
   onEnter = function(game, ow)
+    game.save.pikachuMapScriptActive = nil
     local puz = game.save.trashPuzzle or {}
     game.save.trashPuzzle = puz
     puz.first = love.math.random(0, 7) * 2

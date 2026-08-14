@@ -420,6 +420,7 @@ local GEN2_HOOKS = {
   -- that a Gen 1 mod reaching through ctx.battle.data instead of calling
   -- nextFn gets nil there).
   "battle.catch_exp", "battle.low_health_alarm", "battle.overlay",
+  "battle.bottom_ui_visible", "battle.status_hud_visible",
   -- One pic path resolver for both games: the Gen 1 site is the SHARED
   -- src/pokemon/Sprites.lua and Gold's own battle screen calls the same hook
   -- with the Gen 1 ctx keys plus `letter` and `shiny`, which Red has no
@@ -434,7 +435,8 @@ local GEN2_HOOKS = {
   -- pointer with the touch overlay given first refusal, the palette zone list
   -- handed to the present pass, the letterbox and the HUD rect.
   "input.step", "input.pointer",
-  "render.zones", "render.compose", "render.letterbox", "render.hud",
+  "render.zones", "render.compose", "render.output_enabled", "render.output",
+  "render.letterbox", "render.hud",
 }
 
 local function assertShared(name, sites, kind)

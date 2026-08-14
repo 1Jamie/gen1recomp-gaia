@@ -9,15 +9,16 @@
 -- cable pull.
 --
 -- Cable rules: no experience, no money, no items; either side may RUN
--- (a draw); a fainted mon is auto-replaced by the next healthy party
--- member (the original prompts; documented divergence).  Badge stat
--- boosts don't apply on either side (divergence: Gen 1 famously kept
--- them in link battles).
+-- (a draw); a fainted mon is replaced from the party menu and the chosen
+-- slot rides the wire, the way ChooseNextMon hands it to
+-- LinkBattleExchangeData.  Badge stat boosts don't apply on either side
+-- (divergence: Gen 1 famously kept them in link battles).
 
 local Fingerprint = require("src.link.Fingerprint")
 local Font = require("src.render.Font")
 local Handshake = require("src.link.Handshake")
 local Logger = require("src.core.Logger")
+local Party = require("src.pokemon.Party")
 local Protocol = require("src.link.Protocol")
 local Runtime = require("src.mods.Runtime")
 local TurnOrder = require("src.battle.TurnOrder")
@@ -257,7 +258,9 @@ function LinkBattle.new(game, net, opts)
   self.enemyParty = theirParty
   self.playerParty = myParty -- intro ball row uses the clamped copies
   self.opponentName = theirName
-  self.introText = Strings("%s wants\nto battle!", theirName)
+  -- _TrainerWantsToFightText (data/text/text_2.asm:1257): wIsInBattle == 2
+  -- takes PrintBeginningBattleText's .trainerBattle arm, link included
+  self.introText = Strings("%s wants\nto fight!", theirName)
   self.remoteHashes = {}
   self.localHashes = {}
   self.remoteParts = {}
@@ -324,6 +327,68 @@ function LinkBattle.new(game, net, opts)
       s:actNext(function()
         require("src.core.Sound").playCry(s.data, s.enemy.mon.species)
       end)
+    end)
+  end
+
+  -- ChooseNextMon (engine/battle/core.asm:1086-1103): the replacement after
+  -- a faint is a free party-menu pick in a link battle too -- DisplayPartyMenu
+  -- runs first, a fainted pick or a cancel goes back to it
+  -- (.goBackToPartyMenu), and only the chosen slot rides
+  -- LinkBattleExchangeData.
+  local function chooseReplacement(s)
+    s.linkReplacement = nil
+    s:uiNext(function()
+      return s:buildScreen("PartyMenu", {
+        battle = s,
+        party = myParty,
+        forceSwitch = true,
+        onSwitch = function(mon)
+          if mon.hp > 0 then s.linkReplacement = mon end
+        end,
+      })
+    end)
+    s:actNext(function()
+      local mon = s.linkReplacement
+      s.linkReplacement = nil
+      if s.result then return end
+      if not mon then
+        chooseReplacement(s)
+        return
+      end
+      for i, m in ipairs(myParty) do
+        if m == mon then send({ type = "replace", index = i }) break end
+      end
+      sendOutPlayer(s, mon)
+    end)
+  end
+
+  -- ReplaceFaintedEnemyMon (core.asm:892-905) reads the peer's slot back out
+  -- of the exchange, and EnemySendOutFirstMon (core.asm:1315-1320) decodes it
+  -- as wSerialExchangeNybbleReceiveData - 4.  HandlePlayerMonFainted
+  -- (core.asm:989-996) always runs ChooseNextMon BEFORE that read, so on a
+  -- double faint both machines commit their own slot before they block on the
+  -- peer's; our queue can reach the enemy's handler first, so the wait
+  -- pre-empts itself with the local pick rather than deadlocking on a message
+  -- neither side is going to send.
+  local function awaitReplacement(s)
+    s:actNext(function()
+      if s.result then return end
+      if s.player.mon.hp <= 0 and not s.linkChoiceQueued
+         and Party.firstHealthy(myParty) then
+        s.linkChoiceQueued = true
+        chooseReplacement(s)
+        awaitReplacement(s)
+        return
+      end
+      local idx = s.remoteReplace
+      if not idx then
+        awaitReplacement(s)
+        return
+      end
+      s.remoteReplace = nil
+      local mon = theirParty[idx]
+      if not mon or mon.hp <= 0 then mon = Party.firstHealthy(theirParty) end
+      sendOutEnemy(s, mon)
     end)
   end
 
@@ -540,12 +605,17 @@ function LinkBattle.new(game, net, opts)
     submit(s, { type = "action", kind = "run" }, nil)
   end
 
-  -- fainted mons auto-replace with the next healthy teammate, in party
-  -- order, identically on both machines
+  -- linkChoiceQueued: awaitReplacement already pre-empted itself with this
+  -- side's ChooseNextMon and put the slot on the wire, so the handler the
+  -- faint queued has nothing left to do but drop the flag
   self.playerMonFainted = function(s)
+    if s.linkChoiceQueued then
+      s.linkChoiceQueued = nil
+      return
+    end
     for _, mon in ipairs(myParty) do
       if mon.hp > 0 then
-        s:act(function() sendOutPlayer(s, mon) end)
+        if not s.result then chooseReplacement(s) end
         return
       end
     end
@@ -558,7 +628,7 @@ function LinkBattle.new(game, net, opts)
   self.enemyMonFainted = function(s)
     for _, mon in ipairs(theirParty) do
       if mon.hp > 0 then
-        s:act(function() sendOutEnemy(s, mon) end)
+        if not s.result then awaitReplacement(s) end
         return
       end
     end
@@ -579,6 +649,9 @@ function LinkBattle.new(game, net, opts)
         s.remoteHashes[msg.turn or 0] = msg.value
         s.remoteParts[msg.turn or 0] = msg.parts
         checkHashes(s)
+      elseif msg.type == "replace" then
+        local idx = math.floor(tonumber(msg.index) or 1)
+        s.remoteReplace = math.max(1, math.min(#theirParty, idx))
       elseif msg.type == "bye" then
         -- only a draw if our own simulation hasn't already decided
         -- (the winner's bye can arrive while we're still animating)
@@ -770,6 +843,34 @@ function LinkBattle.newSpectator(game, net, opts)
     end)
   end
 
+  local function awaitHostReplacement(s)
+    s:actNext(function()
+      if s.result then return end
+      local idx = table.remove(s.hostReplace, 1)
+      if not idx then
+        awaitHostReplacement(s)
+        return
+      end
+      local mon = hostParty[idx]
+      if not mon or mon.hp <= 0 then mon = Party.firstHealthy(hostParty) end
+      sendOutHost(s, mon)
+    end)
+  end
+
+  local function awaitGuestReplacement(s)
+    s:actNext(function()
+      if s.result then return end
+      local idx = table.remove(s.guestReplace, 1)
+      if not idx then
+        awaitGuestReplacement(s)
+        return
+      end
+      local mon = guestParty[idx]
+      if not mon or mon.hp <= 0 then mon = Party.firstHealthy(guestParty) end
+      sendOutGuest(s, mon)
+    end)
+  end
+
   local function resolveSpecTurn(s, hostMsg, guestMsg)
     if hostMsg.kind == "run" or guestMsg.kind == "run" then
       endSpectate(s, "The match ended.")
@@ -840,7 +941,7 @@ function LinkBattle.newSpectator(game, net, opts)
   self.playerMonFainted = function(s)
     for _, mon in ipairs(hostParty) do
       if mon.hp > 0 then
-        s:act(function() sendOutHost(s, mon) end)
+        if not s.result then awaitHostReplacement(s) end
         return
       end
     end
@@ -852,7 +953,7 @@ function LinkBattle.newSpectator(game, net, opts)
   self.enemyMonFainted = function(s)
     for _, mon in ipairs(guestParty) do
       if mon.hp > 0 then
-        s:act(function() sendOutGuest(s, mon) end)
+        if not s.result then awaitGuestReplacement(s) end
         return
       end
     end
@@ -862,6 +963,7 @@ function LinkBattle.newSpectator(game, net, opts)
   end
 
   self.hostMsg, self.guestMsg = nil, nil
+  self.hostReplace, self.guestReplace = {}, {}
   local baseUpdate = self.update
   self.update = function(s, dt)
     net:update()
@@ -874,6 +976,13 @@ function LinkBattle.newSpectator(game, net, opts)
             local h, g = s.hostMsg, s.guestMsg
             s.hostMsg, s.guestMsg = nil, nil
             resolveSpecTurn(s, h, g)
+          end
+        elseif inner.type == "replace" then
+          local idx = math.floor(tonumber(inner.index) or 1)
+          if msg.side == "host" then
+            table.insert(s.hostReplace, math.max(1, math.min(#hostParty, idx)))
+          else
+            table.insert(s.guestReplace, math.max(1, math.min(#guestParty, idx)))
           end
         elseif inner.type == "bye" or inner.type == "forfeit" then
           if not s.result then endSpectate(s, "The match ended.") end

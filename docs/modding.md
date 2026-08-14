@@ -21,6 +21,76 @@ luajit tools/gen_registry_docs.lua
 luajit tools/gen_registry_docs.lua ../gen1recomp.wiki
 ```
 
+## Manifest specification (`manifest.json`)
+
+Every mod contains a root `manifest.json` defining its metadata, supported games, and dependencies for the engine loader.
+
+```json
+{
+  "id": "my_mod",
+  "name": "My Cool Mod",
+  "version": "1.0.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "GAMEPLAY",
+  "games": ["gen1", "gen2"],
+  "game_version": ">=0.0.0-dev <2.0.0",
+  "priority": 100,
+  "dependencies": [
+    "helper_lib@^1.0.0",
+    { "id": "pokegear_cards", "games": ["gen2"], "range": "^1.0.0", "github": "1jamie/pokegear_cards" }
+  ],
+  "optional_dependencies": [
+    "gen1_modern_ui"
+  ],
+  "conflicts": [],
+  "permissions": ["engine_internals"],
+  "description": "A brief description of the mod.",
+  "github": "author/my_mod"
+}
+```
+
+### Manifest Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Unique identifier (lowercase alphanumeric, underscores, hyphens). |
+| `name` | `string` | Human-readable title shown in launcher and manager. |
+| `version` | `string` | Semantic version string (e.g. `"1.0.0"`). |
+| `api` | `integer` | Mod API level (`2` for current standard, `1` for legacy). |
+| `entry` | `string` | Entry Lua file path relative to mod root (usually `"main.lua"`). |
+| `profile` | `string` | Mod profile: `"content"`, `"overhaul"`, or `"total_conversion"`. |
+| `category` | `string` | Categorization chip (e.g. `"GAMEPLAY"`, `"CONTENT"`, `"UI"`, `"AUDIO"`). |
+| `games` | `array` | Supported game versions: `["gen1"]`, `["gen2"]`, `["red"]`, `["blue"]`, `["yellow"]`, `["gold"]`, or `["all"]`. |
+| `game_version`| `string` | Semver range of required engine version (e.g. `">=0.0.0-dev <2.0.0"`). |
+| `priority` | `integer` | Load priority order (lower numbers load earlier; dependencies always precede dependents regardless of priority). |
+| `dependencies` | `array` | Hard required dependencies. A mod will not load if a required dependency is missing or disabled for the active game. |
+| `optional_dependencies` | `array` | Soft dependencies. Guarantees that if the target mod is present and active, it loads *before* this mod without blocking load if absent. |
+| `conflicts` / `incompatible` | `array` | List of mod IDs that cannot run concurrently with this mod. |
+| `permissions` | `array` | Requested privileges (e.g. `["engine_internals"]`, `["network"]`, `["filesystem"]`). |
+| `github` | `string` | GitHub repository (`"owner/repo"`) used for update checks and dependency download links. |
+
+### Declaring Dependencies & Scoping
+
+Dependencies in `dependencies` and `optional_dependencies` can be declared in several formats:
+
+1. **Simple string**: `"mod_id"`
+2. **Version-pinned string**: `"mod_id@^1.2.0"`
+3. **Repository-hinted string**: `"mod_id#owner/repo"` or `"mod_id@^1.2.0#owner/repo"`
+4. **Structured object**:
+   ```json
+   {
+     "id": "mod_id",
+     "range": "^1.2.0",
+     "games": ["gen2"],
+     "github": "owner/repo"
+   }
+   ```
+
+#### Version-Scoped Dependencies
+When a mod supports multiple games (`"games": ["gen1", "gen2"]`), a dependency can specify `"games": ["gen2"]` to indicate it is only required when booting Gen 2. When booting Gen 1, the engine will ignore the dependency, preventing unnecessary boot blocks on games that do not need it.
+
 ## Mods and Gold (Gen 2)
 
 The mod API is one API across both generations, but Gold runs its own battle
@@ -440,6 +510,20 @@ oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
 or push one onto a second screen, without the engine knowing the layout.
 
+`render.output_enabled` and `render.output` are the later, whole-window seam
+for mods that need the engine's normal composite rather than its separate
+layers. It runs after registered present pipelines and before GBCFX,
+`render.hud`, and touch controls. A mod wraps both hooks: the first returns
+`true` only while output ownership is needed, and the second receives
+`(next, ctx)` with `canvas`, `width`, `height`, `gameX`, `gameY`, `gameWidth`,
+`gameHeight`, `scale`, `dpiX`,
+`dpiY`, and `generation`. Returning `true` from `render.output` takes over the
+window; calling `next(ctx)` keeps the normal presentation. Both hooks default
+to `false`. Enabling the seam requires a full-window canvas for that frame.
+With no `render.output` subscriber, or while `render.output_enabled` is false,
+the existing presentation path is unchanged. `render.compose` takes precedence
+when it owns the frame.
+
 `screen.render_visible` receives `(next, state)` while the main screen is being
 composed. Return `false` to omit that state from drawing, opacity selection and
 palette-zone ownership. The state remains on the stack and keeps its normal
@@ -455,6 +539,7 @@ identifiers: `pc_box_withdraw`, `pc_box_deposit`, `pc_box_release`,
 `battle.bottom_ui_visible` and `battle.status_hud_visible` independently
 control the battle text/menu layer and the HP/status panels. Both receive
 `(next, state)` and default to `true`, so vanilla rendering is unchanged.
+Both hooks apply to Gen 1 and Gen 2 battles.
 Text boxes and YES/NO prompts pushed above a battle inherit a `false` result
 for that battle, so hiding the bottom layer cannot leave their white backing
 behind under another overlay. Text boxes also pass through the hook as their
@@ -545,3 +630,41 @@ local both = mod.datetime:dateTime(game, createdAt)
 The live `game` supplies only the current option context. Formatting never
 mutates the save, options, or timestamp, and invalid timestamps return
 `"----"`.
+
+## Device power information
+
+Sandboxed mods can read the host's battery state without receiving the rest
+of `love.system`:
+
+```lua
+local state, percent = mod.device:powerInfo()
+```
+
+`state` follows LÖVE's values: `"unknown"`, `"battery"`, `"nobattery"`,
+`"charging"`, or `"charged"`. `percent` is `0` through `100`, or `nil` when
+the platform cannot report it. The facade is read-only and does not expose
+URL launching, clipboard access, or other system operations.
+
+## Real-world steps
+
+On iOS and Android the game counts the player's real-world steps natively
+(HealthKit / the hardware step counter). A mod reaches that bridge through
+the `steps` permission in `manifest.json`, which the player sees in the
+mod manager like every other permission:
+
+```lua
+if mod.steps:available() then
+  mod.steps:sync()                -- async; OS consent sheet on first use
+end
+-- later, at a quiet moment:
+local walk = mod.steps:poll()     -- { steps = n, from = ?, to = ? } or nil
+```
+
+`available()` is `false` on builds without the bridge (desktop) and for
+mods without the permission, so a probe is always safe. `sync()` asks the
+platform to refresh its count and returns whether there was a bridge to
+ask. `poll()` returns the next delivery for this mod — the engine consumes
+the native side's pending file itself, each permissioned mod receives its
+own copy of a delivery, and steps are anchored natively so the same walk
+is never delivered twice. Without the permission, `sync` and `poll` raise
+an error naming it.
