@@ -28,6 +28,14 @@
 -- is full; `gotFlag` (pokered's EVENT_GOT_TM*) is set only on a
 -- successful give, which is what makes the leader's talk script retry
 -- later (gyms.lua).
+--
+-- `badgeSound` / `tmSound` are the text sound command each gym's reward
+-- text carries right after its FIRST label -- home/text.asm TextCommand_SOUND
+-- plays it once that page has typed out and then blocks on
+-- WaitForSoundToFinish, so the jingle sits between the pages rather than
+-- under them.  macros/scripts/text.asm defines sound_level_up as
+-- sound_get_item_1, so Pewter's and Viridian's badge lines are Get_Item1
+-- too.  Vermilion, Celadon and Fuchsia carry no sound on the badge text.
 
 local function range(prefix, first, last)
   local t = {}
@@ -50,6 +58,8 @@ return {
                         { "PEWTER_CITY", "PEWTERCITY_YOUNGSTER" },
                         { "ROUTE_22", "ROUTE22_RIVAL1" },
                       },
+                      badgeSound = "Get_Item1", -- sound_level_up
+                      tmSound = "Get_Item1",
                       dialogue = {
                         "_PewterGymBrockReceivedBoulderBadgeText",
                         "_PewterGymBrockBoulderBadgeInfoText",
@@ -64,6 +74,8 @@ return {
                       gotFlag = "EVENT_GOT_TM11",
                       noRoom = "_CeruleanGymMistyTM11NoRoomText",
                       deactivate = range("EVENT_BEAT_CERULEAN_GYM_TRAINER_", 0, 1),
+                      badgeSound = "Get_Key_Item",
+                      tmSound = "Get_Item1",
                       dialogue = {
                         "_CeruleanGymMistyReceivedCascadeBadgeText",
                       },
@@ -76,6 +88,7 @@ return {
                          gotFlag = "EVENT_GOT_TM24",
                          noRoom = "_VermilionGymLTSurgeTM24NoRoomText",
                          deactivate = range("EVENT_BEAT_VERMILION_GYM_TRAINER_", 0, 2),
+                         tmSound = "Get_Key_Item",
                          dialogue = {
                            "_VermilionGymLTSurgeReceivedThunderBadgeText",
                          },
@@ -89,6 +102,7 @@ return {
                       gotFlag = "EVENT_GOT_TM21",
                       noRoom = "_CeladonGymTM21NoRoomText",
                       deactivate = range("EVENT_BEAT_CELADON_GYM_TRAINER_", 0, 6),
+                      tmSound = "Get_Item1",
                       dialogue = {
                         "_CeladonGymErikaReceivedRainbowBadgeText",
                       },
@@ -102,6 +116,7 @@ return {
                      gotFlag = "EVENT_GOT_TM06",
                      noRoom = "_FuchsiaGymKogaTM06NoRoomText",
                      deactivate = range("EVENT_BEAT_FUCHSIA_GYM_TRAINER_", 0, 5),
+                     tmSound = "Get_Key_Item",
                      dialogue = {
                        "_FuchsiaGymKogaReceivedSoulBadgeText",
                      },
@@ -115,6 +130,8 @@ return {
                         gotFlag = "EVENT_GOT_TM46",
                         noRoom = "_SaffronGymSabrinaTM46NoRoomText",
                         deactivate = range("EVENT_BEAT_SAFFRON_GYM_TRAINER_", 0, 6),
+                        badgeSound = "Get_Key_Item",
+                        tmSound = "Get_Item1",
                         dialogue = {
                           "_SaffronGymSabrinaReceivedMarshBadgeText",
                         },
@@ -128,6 +145,8 @@ return {
                        gotFlag = "EVENT_GOT_TM38",
                        noRoom = "_CinnabarGymBlaineTM38NoRoomText",
                        deactivate = range("EVENT_BEAT_CINNABAR_GYM_TRAINER_", 0, 6),
+                       badgeSound = "Get_Key_Item",
+                       tmSound = "Get_Item1",
                        dialogue = {
                          "_CinnabarGymBlaineReceivedVolcanoBadgeText",
                        },
@@ -141,6 +160,8 @@ return {
                          gotFlag = "EVENT_GOT_TM27",
                          noRoom = "_ViridianGymGiovanniTM27NoRoomText",
                          deactivate = range("EVENT_BEAT_VIRIDIAN_GYM_TRAINER_", 0, 7),
+                         badgeSound = "Get_Item1", -- sound_level_up
+                         tmSound = "Get_Item1",
                          dialogue = {
                            "_ViridianGymGiovanniReceivedEarthBadgeText",
                          },

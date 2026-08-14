@@ -72,13 +72,19 @@ Game.input = Input; Input:init()
 Game.renderer = Renderer; Renderer:init()
 Game.stack = StateStack; StateStack:init()
 
--- concatenates the pages of the TextBox checkVictoryRewards pushed
+-- concatenates the pages of the box CHAIN checkVictoryRewards pushed: the
+-- reward text splits into a box per gym-script sound command, so close each
+-- one and let its onDone push the next
 local function stackedDialogue()
-  local top = Game.stack:top()
-  if not (top and top.pages) then return "" end
   local parts = {}
-  for _, page in ipairs(top.pages) do
-    parts[#parts + 1] = table.concat(page, "\n")
+  local top = Game.stack:top()
+  while top and top.pages do
+    for _, page in ipairs(top.pages) do
+      parts[#parts + 1] = table.concat(page, "\n")
+    end
+    Game.stack:pop()
+    if top.onDone then top.onDone() end
+    top = Game.stack:top()
   end
   return table.concat(parts, "\n")
 end

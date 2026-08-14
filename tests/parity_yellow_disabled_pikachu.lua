@@ -42,7 +42,7 @@ local ow = {
 
 Follower.onFanClubEntered({ save = save, data = Data }, ow)
 check(ow.pikachuFanClubScene, "Fan Club disables normal Pikachu following")
-check(ow.pikachuMapScriptActive, "Fan Club sets the map-script flag")
+check(save.pikachuMapScriptActive, "Fan Club sets the map-script flag")
 eq(ow.player.facing, "down", "Fan Club resets the player direction")
 eq(moves[1] and moves[1][1], "up", "Fan Club starts with slide-up displacement")
 eq(moves[1] and moves[1][2], 1, "Fan Club slide-up spans one tile")

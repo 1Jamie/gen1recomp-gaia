@@ -38,9 +38,9 @@ local function starterBall(askText, species, choseFlag, ownBall,
     -- inside give_pokemon).  Show the received text first so the
     -- nickname prompt follows "you got X", matching Gen1.
     -- The received text carries sound_get_key_item (OaksLab.asm
-    -- OaksLabReceivedMonText); the jingle plays as the box opens
-    -- (same beat as the Yellow port's starter, #668).
-    { "play_sound", "Get_Key_Item" },                              -- 8
+    -- OaksLabReceivedMonText), so the jingle fires once the box has
+    -- typed out and holds it (same beat as the Yellow port's starter, #668).
+    { "text_sound", "Get_Key_Item" },                              -- 8
     { "show_text", "_OaksLabReceivedMonText", { RAM = species } }, -- 9
     { "give_pokemon", species, 5 },               -- 10
     { "set_flag", "EVENT_GOT_STARTER" },          -- 11
@@ -54,7 +54,7 @@ local function starterBall(askText, species, choseFlag, ownBall,
     { "face_object", 1, "up" },                   -- 15
     { "show_text", "_OaksLabRivalIllTakeThisOneText" },            -- 16
     { "hide_object", "OAKS_LAB", rivalBall },     -- 17
-    { "play_sound", "Get_Key_Item" },             -- 18 (sound_get_key_item)
+    { "text_sound", "Get_Key_Item" },             -- 18 (sound_get_key_item)
     { "show_text", "_OaksLabRivalReceivedMonText",
       { RAM = rivalBall == "OAKSLAB_CHARMANDER_POKE_BALL" and "CHARMANDER"
               or rivalBall == "OAKSLAB_SQUIRTLE_POKE_BALL" and "SQUIRTLE"
@@ -106,8 +106,8 @@ return {
       { "check_item", "OAKS_PARCEL" },
       { "jump_if_false", "raise_young" },
       -- OaksLabOak1Text.got_parcel → RivalArrives + OakGivesPokedex
+      { "text_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOak1DeliverParcelText" },
-      { "play_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOak1ParcelThanksText" },
       { "take_item", "OAKS_PARCEL", 1 },
       { "stop_music" },
@@ -128,8 +128,8 @@ return {
       { "face_object", 1, "up" },
       { "face_object", 5, "down" },
       { "show_text", "_OaksLabOakMyInventionPokedexText" },
+      { "text_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOakGotPokedexText" },
-      { "play_sound", "Get_Key_Item" },
       { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX1" },
       { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX2" },
       { "face_object", 1, "up" },

@@ -334,6 +334,12 @@ function BattleCheckpoint.restore(game, checkpoint, copy)
     battle.player.mon.hp, battle.player.mon.status
   battle.enemy.shownHP, battle.enemy.shownStatus =
     battle.enemy.mon.hp, battle.enemy.mon.status
+  -- the bar's own pixel length is derived HUD state, not captured: it
+  -- settles with shownHP above (UpdateHPBar_AnimateHPBar's end position)
+  local Timing = require("src.core.Timing")
+  for _, b in ipairs({ battle.player, battle.enemy }) do
+    b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
+  end
 
   local ow = game.overworld
   if not ow or type(ow.restoreBattleContinuation) ~= "function"

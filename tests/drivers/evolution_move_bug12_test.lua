@@ -89,8 +89,8 @@ return function(game)
   Evolution.evolve(game, mon, "GYARADOS", function() done1 = true end)
 
   if not waitFor(evoTop, 300) then error("EvolutionState never opened (case1)") end
-  -- let the full flash run (FLASH_FRAMES=220) with no input, then apply
-  waitFor(function() return not evoTop() end, 400)
+  -- let the full flash run (FLASH_FRAMES=368) with no input, then apply
+  waitFor(function() return not evoTop() end, 500)
   if not waitFor(function() return findText("evolved into") ~= nil end, 120) then
     error("Congratulations text not shown (case1)")
   end
@@ -124,7 +124,7 @@ return function(game)
   local done2 = false
   Evolution.evolve(game, mon2, "GYARADOS", function() done2 = true end)
   if not waitFor(evoTop, 300) then error("EvolutionState never opened (case2)") end
-  waitFor(function() return not evoTop() end, 400)
+  waitFor(function() return not evoTop() end, 500)
   if not waitFor(function() return findText("evolved into") ~= nil end, 120) then
     error("Congratulations text not shown (case2)")
   end

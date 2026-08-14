@@ -6,6 +6,7 @@ local GameVersion = require("src.core.GameVersion")
 local Music = require("src.core.Music")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local Timing = require("src.core.Timing")
 
 local IntroMovie = {}
 IntroMovie.__index = IntroMovie
@@ -232,6 +233,10 @@ function IntroMovie:fightStep()
       self:finish()
       return
     end
+    -- an op that consumed frames ends ON its last frame; only the instant
+    -- ops (sfx / pose / frame, which are plain writes between DelayFrames
+    -- calls in PlayIntroScene) chain into the next op the same frame
+    local timed = false
     if op.sfx then
       Sound.play(self.game.data, op.sfx)
     elseif op.pose then
@@ -250,6 +255,7 @@ function IntroMovie:fightStep()
       end
       self.opTimer = self.opTimer + 1
       if self.opTimer < (op.px or math.abs(op.dx)) then return end
+      timed = true
     elseif op.anim then
       -- one {dy,dx} delta per 5 frames (AnimateIntroNidorino: DelayFrames 5)
       if self.opTimer % 5 == 0 then
@@ -259,9 +265,11 @@ function IntroMovie:fightStep()
       end
       self.opTimer = self.opTimer + 1
       if self.opTimer < #ANIM[op.anim] * 5 then return end
+      timed = true
     elseif op.wait then
       self.opTimer = self.opTimer + 1
       if self.opTimer < op.wait then return end
+      timed = true
     elseif op.fade then
       self.opTimer = self.opTimer + 1
       self.fade = self.opTimer / op.fade
@@ -270,6 +278,7 @@ function IntroMovie:fightStep()
     end
     self.opIndex = self.opIndex + 1
     self.opTimer = 0
+    if timed then return end
   end
 end
 
@@ -284,8 +293,9 @@ function IntroMovie:update(dt)
     return
   end
   local input = self.game.input
-  if input:wasPressed("a") or input:wasPressed("b")
-     or input:wasPressed("start") then
+  if input:wasPressed("a") or input:wasPressed("start") then
+    -- CheckForUserInterruption (home/overworld.asm:2395) returns carry only
+    -- on a fresh START or A -- B alone never skips the intro.
     -- PlayIntro still GBFadeOutToWhite's after an interrupted scene; the
     -- white hold stands in for that beat before the title is built.
     self:exitToTitle()
@@ -300,7 +310,10 @@ function IntroMovie:update(dt)
     end
     if self.timer >= SPLASH_FRAMES then self:startPhase(3) end
   else
-    self:fightStep()
+    -- PlayShootingStar ends `jp Delay3` once Music_IntroBattle is playing
+    -- (intro.asm:337), so PlayIntroScene's first op is not on the music's
+    -- own frame
+    if self.timer > Timing.DELAY3 then self:fightStep() end
   end
 end
 

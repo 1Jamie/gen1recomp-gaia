@@ -178,6 +178,7 @@ check(#moves == 0, "the parked Pikachu of the confused beat stays put")
 -- BillsHouseScript0 skips the whole entry beat for a statused starter
 -- (CheckPikachuStatusCondition, scripts/BillsHouse.asm:45-46)
 ow.pikachuBillsScene = nil
+yellowGame.save.pikachuMapScriptActive = nil
 moves = {}
 yellowGame.save.party = { { species = "PIKACHU", hp = 12, status = "PAR" } }
 PikachuFollower.onBillsHouseEnter(yellowGame, ow)

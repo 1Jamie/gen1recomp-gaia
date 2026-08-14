@@ -584,7 +584,9 @@ check(not fpm.submenu and forced == fgame.save.party[1],
 -- ------- issues #320/#385: the STRENGTH texts print over the party menu
 do
   local owStub = { strengthActive = false,
-                   map = { def = { tileset = "OVERWORLD" } }, dark = false }
+                   map = { def = { tileset = "OVERWORLD" } }, dark = false,
+                   partyKnows = function(self, id) return self.knows == id end,
+                   knows = "STRENGTH" }
   local sgame = partyGame()
   sgame.overworld = owStub
   sgame.data.text = {} -- the strength texts fall back to Strings sources

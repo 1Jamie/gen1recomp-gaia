@@ -38,8 +38,8 @@ return {
       { "jump_if_false", "raise_young" },
       -- .DeliverParcelText: parcel handover, then the Pokédex scene
       -- (OaksLabRivalArrivesAtOaksRequestScript -> OakGivesPokedexScript)
+      { "text_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOak1DeliverParcelText" },
-      { "play_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOak1ParcelThanksText" },
       { "take_item", "OAKS_PARCEL", 1 },
       { "stop_music" },
@@ -62,8 +62,8 @@ return {
       { "face_object", RIVAL, "up" },
       { "face_object", OAK1, "down" },
       { "show_text", "_OaksLabOakMyInventionPokedexText" },
+      { "text_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOakGotPokedexText" },
-      { "play_sound", "Get_Key_Item" },
       { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX1" },
       { "hide_object", "OAKS_LAB", "OAKSLAB_POKEDEX2" },
       { "face_object", RIVAL, "up" },
@@ -113,8 +113,8 @@ return {
       { "jump_if_true", "come_see" },
       { "set_flag", "EVENT_GOT_POKEBALLS_FROM_OAK" },
       { "give_item", "POKE_BALL", 5, false },
+      { "text_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabOak1ReceivedPokeballsText" },
-      { "play_sound", "Get_Key_Item" },
       { "show_text", "_OaksLabGivePokeballsExplanationText" },
       { "jump", "end" },
 
@@ -176,7 +176,7 @@ return {
       -- rival starter baseline (RIVAL_STARTER_JOLTEON) at snatch time
       rows[#rows + 1] = { "set_field", "rivalStarter", 1 }
       rows[#rows + 1] = { "show_text", "_OaksLabRivalTakesText1" }
-      rows[#rows + 1] = { "play_sound", "Get_Key_Item" }
+      rows[#rows + 1] = { "text_sound", "Get_Key_Item" }
       rows[#rows + 1] = { "show_text", "_OaksLabRivalTakesText2" }
       rows[#rows + 1] = { "show_text", "_OaksLabRivalTakesText3" }
       rows[#rows + 1] = { "show_text", "_OaksLabRivalTakesText4" }
@@ -196,7 +196,7 @@ return {
       rows[#rows + 1] = { "face_object", OAK1, "down" }
       -- OaksLabPlayerReceivedMonText clears wMonDataLocation, so AskName runs (#1013)
       rows[#rows + 1] = { "show_text", "_OaksLabOakGivesText" }
-      rows[#rows + 1] = { "play_sound", "Get_Key_Item" }
+      rows[#rows + 1] = { "text_sound", "Get_Key_Item" }
       rows[#rows + 1] = { "show_text", "_OaksLabReceivedText", { RAM = "PIKACHU" } }
       rows[#rows + 1] = { "give_pokemon", "PIKACHU", 5 }
       -- DisablePikachuOverworldSpriteDrawing keeps it in the ball (#1009)

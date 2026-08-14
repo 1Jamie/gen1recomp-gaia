@@ -10,10 +10,10 @@
 local function coinGiver(opts)
   return function(game, ow, npc, done)
     local TextBox = require("src.render.TextBox")
-    local Sound = require("src.core.Sound")
     local t = game.data.text
-    local function push(label, fallback, onDone)
-      game.stack:push(TextBox.new(game, t[label] or fallback, onDone or done))
+    local function push(label, fallback, onDone, popts)
+      game.stack:push(TextBox.new(game, t[label] or fallback, onDone or done,
+                                  popts))
     end
     if game.save.flags[opts.event] then
       push(opts.alreadyGotLabel, opts.alreadyGotFallback)
@@ -30,9 +30,10 @@ local function coinGiver(opts)
       end
       game.save.coins = math.min(9999, (game.save.coins or 0) + opts.amount)
       game.save.flags[opts.event] = true
-      Sound.play(game.data, "Get_Item1")
+      -- the ReceivedNCoinsText strings carry sound_get_item_1
       push(opts.receivedLabel,
-        ("{PLAYER} received\n%d coins!"):format(opts.amount))
+        ("{PLAYER} received\n%d coins!"):format(opts.amount), nil,
+        TextBox.soundOpts(game, "Get_Item1"))
     end)
   end
 end

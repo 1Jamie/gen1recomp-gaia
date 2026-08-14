@@ -592,6 +592,17 @@ function Commands.play_sound(ctx, soundId)
   require("src.core.Sound").play(ctx.game.data, soundId)
 end
 
+-- text_sound <soundId>: the jingle the ROM parks at the END of a string as
+-- a trailing text command (sound_get_item_1, sound_get_key_item ->
+-- home/text.asm TextCommand_SOUND).  It arms the NEXT show_text the same
+-- way play_cry arms ctx.pendingCry, so the fanfare fires once the last page
+-- has typed and the box holds on WaitForSoundToFinish before the button
+-- wait.  play_sound stays the bare PlaySound used for the non-blocking
+-- beats (Bill's teleporter, the S.S. Anne horn).
+function Commands.text_sound(ctx, soundId)
+  ctx.textOpts = TextBox.soundOpts(ctx.game, soundId, ctx.textOpts)
+end
+
 -- play_once <songId>: one-shot jingle (Music_PkmnHealed, etc.); blocks
 -- until it finishes so heal-rest scripts (Mom, captain text_asm) match
 -- Gen1's wait-on-channel loop.  The map theme resumes when it ends
@@ -1050,8 +1061,10 @@ function Commands.trade(ctx, tradeIndex, doneFlag)
     onDone = function() runner:resume() end,
   })
   runner:yield()
-  -- TradedForText (sound_get_key_item) then the dialogset's thanks
-  require("src.core.Sound").play(data, "Get_Key_Item")
+  -- TradedForText carries sound_get_key_item after the text, so the jingle
+  -- rides the box and blocks it (home/text.asm TextCommand_SOUND), then the
+  -- dialogset's thanks
+  Commands.text_sound(ctx, "Get_Key_Item")
   say(texts.tradedFor or "_TradedForText")
   say(texts.thanks or "_Thanks" .. dialogset .. "Text")
 end

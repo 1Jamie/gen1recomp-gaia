@@ -26,7 +26,7 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 
 ## Pokémon Gold (Gen 2)
 
-A fourth game the launcher can import and play, built from pret/pokegold the same way Red/Blue/Yellow are built from pokered. Port extras beyond the cartridge:
+A fourth game the launcher can import and play, built from pret/pokegold the same way Red/Blue/Yellow are built from pokered (and pokeyellow). Port extras beyond the cartridge:
 
 * **COLOR, zoom, tilt, GBC FX, and quick save/load** 
 * **UI that stays fixed while the overworld zooms**

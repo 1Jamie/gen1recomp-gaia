@@ -289,38 +289,6 @@ local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, ac
   end
 end
 
--- A square icon control: the header's gear and quit, and the game panel's
--- manage button.  Inverts to a solid white fill when hot, the same signal
--- every other control here uses, and rounds to the shared control radius.
--- `image` draws a texture; `drawFn(x, y, size, hot)` draws a hand-rolled
--- glyph (the quit X, which ships no asset).
-local function iconButton(imp, key, x, y, size, image, action, drawFn)
-  Kit._audit("control", x, y, size, size, key)
-  local focused = Kit.focusable(key, x, y, size, size)
-  local hot = focused or Kit.hover(x, y, size, size)
-  Theme.fillRounded(x, y, size, size, hot and PAL.ink or PAL.surface, 1)
-  Theme.strokeRounded(x, y, size, size, PAL.line,
-    hot and Theme.A.focus or Theme.A.hairline, 1)
-  if image then
-    local iw, ih = image:getDimensions()
-    local pad = math.floor(size * 0.24)
-    local s = math.min((size - 2 * pad) / iw, (size - 2 * pad) / ih)
-    if hot then love.graphics.setColor(0, 0, 0, 1)
-    else love.graphics.setColor(1, 1, 1, 0.85) end
-    love.graphics.draw(image, Theme.snap(x + (size - iw * s) / 2),
-      Theme.snap(y + (size - ih * s) / 2), 0, s, s)
-    love.graphics.setColor(1, 1, 1, 1)
-  elseif drawFn then
-    drawFn(x, y, size, hot)
-  end
-  if action and (Kit.press(x, y, size, size) or Kit._activateId == key) then
-    queueAction(imp, key, action)
-  end
-end
-
--- The cartridge colour for a game, matching its tab in the header.  Play
--- wears it, so "which game is this button going to boot" is answered before
--- the label is read.  Unknown versions fall back to the commit green.
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber,
@@ -687,7 +655,7 @@ local function buildModScopeRow(imp, x, y, w, m)
   end
 
   -- Dedicated Profile control section (cycle button + gear icon button) on right side of Scope Bar
-  local profiles, activeProf = LauncherMods.getProfiles()
+  local _, activeProf = LauncherMods.getProfiles()
   local isCompact = (w < math.floor(500 * m.s))
   local nameText = tostring(activeProf or "Default")
   local profLabel = isCompact and nameText or Strings("Profile: %s", nameText)
@@ -696,38 +664,30 @@ local function buildModScopeRow(imp, x, y, w, m)
   local gearX = x + w - gearW
   local profX = gearX - profW - math.floor(4 * m.s)
 
-  -- Tapping main profile button cycles to the next profile (styles match iconButton)
-  Kit._audit("control", profX, y, profW, h, "mod-scope-profile")
-  local focused = Kit.focusable("mod-scope-profile", profX, y, profW, h)
-  local hot = focused or Kit.hover(profX, y, profW, h)
-  Theme.fillRounded(profX, y, profW, h, hot and PAL.ink or PAL.surface, 1)
-  Theme.strokeRounded(profX, y, profW, h, PAL.line,
-    hot and Theme.A.focus or Theme.A.hairline, 1)
-  Kit.textCenterBold("micro", profLabel, profX,
-    y + (h - Kit.textHeight("micro")) / 2, profW,
-    hot and PAL.inverse or PAL.heading)
-  if Kit.press(profX, y, profW, h) or Kit._activateId == "mod-scope-profile" then
-    local nextIdx = 1
-    for i, p in ipairs(profiles) do
-      if p.name == activeProf then
-        nextIdx = (i % #profiles) + 1
-        break
+  btn(imp, profX, y, profW, h, "mod-scope-profile", profLabel, {
+    face = "invert", font = "micro",
+    action = function()
+      local list, cur = LauncherMods.getProfiles()
+      local nextIdx = 1
+      for i, p in ipairs(list) do
+        if p.name == cur then
+          nextIdx = (i % #list) + 1
+          break
+        end
       end
-    end
-    local nextProf = profiles[nextIdx] and profiles[nextIdx].name
-    if nextProf then
-      queueAction(imp, "mod-scope-profile", function()
+      local nextProf = list[nextIdx] and list[nextIdx].name
+      if nextProf then
         LauncherMods.applyProfile(nextProf)
         if imp._refreshMods then imp:_refreshMods() end
-      end)
-    end
-  end
+      end
+    end,
+  })
 
-  -- Tapping gear button opens the Profile Manager modal
   imp._gearIcon = imp._gearIcon or (love and love.graphics and love.graphics.newImage and love.graphics.newImage("assets/launcher/gear.png"))
-  iconButton(imp, "mod-profile-gear", gearX, y, gearW, imp._gearIcon, function()
-    imp._profilesPopup = true
-  end)
+  btn(imp, gearX, y, gearW, gearW, "mod-profile-gear", "", {
+    face = "invert", image = imp._gearIcon,
+    action = function() imp._profilesPopup = true end,
+  })
 
   if #options >= 2 then
     for _, opt in ipairs(options) do
@@ -836,8 +796,7 @@ local function buildHeader(imp, m)
     local padX = math.floor(12 * m.s)
     local chipW = math.max(tw + 2 * padX, gear)
     local lx = m.x + m.pad
-    Theme.fill(lx, by, chipW, gear, PAL.bg, 1)
-    Theme.stroke(lx, by, chipW, gear, PAL.yellow, Theme.A.hover, 1)
+    Kit.card(lx, by, chipW, gear, "badge")
     local th = Kit.textHeight("small")
     Kit.text("small", label, lx + math.floor((chipW - tw) / 2),
       by + math.floor((gear - th) / 2), PAL.yellow)
@@ -856,17 +815,20 @@ local function buildHeader(imp, m)
   imp._gearIcon = imp._gearIcon
     or love.graphics.newImage("assets/launcher/gear.png")
   rx = rx - gear
-  iconButton(imp, "gear", rx, by, gear, imp._gearIcon,
-    function() imp:_openSettings() end)
+  btn(imp, rx, by, gear, gear, "gear", "", {
+    face = "invert", image = imp._gearIcon,
+    action = function() imp:_openSettings() end,
+  })
 
-  -- Quit, top-right corner.
-  iconButton(imp, "quit", quitX, by, gear, nil,
-    function() imp:_quitApp() end,
-    function(x, y, size, hot)
-      local pad = math.floor(size * 0.32)
-      drawCross(x + pad, y + pad, size - 2 * pad,
+  btn(imp, quitX, by, gear, gear, "quit", "", {
+    face = "invert",
+    action = function() imp:_quitApp() end,
+    drawFn = function(x, y, w, h, hot)
+      local pad = math.floor(w * 0.32)
+      drawCross(x + pad, y + pad, w - 2 * pad,
         hot and { 0, 0, 0, 1 } or { 1, 1, 1, 0.85 })
-    end)
+    end,
+  })
 
   -- The self-update control lives in the FOOTER next to the BCG mark (small,
   -- out of the wordmark's way -- it used to overlap the logo on a phone).  It
@@ -885,22 +847,16 @@ local function buildHeader(imp, m)
   -- bright cart gold; Gold (Gen 2) uses the deeper amber so the two do not
   -- collide.
   local tabs = {
-    { id = "red",    letter = "R", label = Strings("RED"),    color = PAL.railRed },
-    { id = "blue",   letter = "B", label = Strings("BLUE"),   color = PAL.railBlue },
-    { id = "yellow", letter = "Y", label = Strings("YELLOW"), color = PAL.railGold },
-    { id = "gold",   letter = "G", label = Strings("GOLD"),   color = PAL.railAmber },
-    { id = "mods",   icon = imp._modsIcon, label = Strings("MODS") },
-    { id = "find",   icon = imp._findIcon, label = Strings("FIND MODS") },
+    { id = "red",    letter = "R", color = PAL.railRed },
+    { id = "blue",   letter = "B", color = PAL.railBlue },
+    { id = "yellow", letter = "Y", color = PAL.railGold },
+    { id = "gold",   letter = "G", color = PAL.railAmber },
+    { id = "mods",   icon = imp._modsIcon },
+    { id = "find",   icon = imp._findIcon },
   }
   local tabH = m.chip
   local tx = m.x + m.pad
   local ty = y + math.floor(6 * m.s)
-  -- Wrap the strip instead of running off the edge.
-  --
-  -- Six tabs used to escape a phone width when an active icon tab spelled its
-  -- name out (FIND MODS at 412x915).  Game tabs (R/B/Y/G) stay glyph-only even
-  -- when active; only MODS / FIND MODS expand.  Still wrap when the next tab
-  -- would not fit so the divider below moves with the row count.
   local tabLeft = tx
   local tabRight = m.x + m.w - m.pad
   local tabGap = math.floor(6 * m.s)
@@ -908,51 +864,16 @@ local function buildHeader(imp, m)
   for _, t in ipairs(tabs) do
     local active = imp.tab == t.id
     local key = "tab-" .. t.id
-    -- Cartridge tabs stay square (letter only).  Icon tabs still expand to
-    -- show MODS / FIND MODS when selected.
-    local expand = active and t.icon ~= nil
-    local labelW = expand and Kit.textWidth("tab", t.label) or 0
-    local w = expand and (tabH + math.floor(8 * m.s) + labelW + math.floor(12 * m.s))
-      or tabH
-    -- Never wrap the first tab of a row: if one tab alone is wider than the
-    -- panel there is nowhere better to put it, and wrapping would loop.
+    local w = tabH
     if tx > tabLeft and tx + w > tabRight then
       tx = tabLeft
       ty = ty + tabH + tabRowGap
     end
-    Kit._audit("control", tx, ty, w, tabH, key)
-    local focused = Kit.focusable(key, tx, ty, w, tabH)
-    local hot = focused or Kit.hover(tx, ty, w, tabH)
-    local invert = active or hot
-    local tint = t.color or PAL.ink
-    Theme.fillRounded(tx, ty, w, tabH, invert and tint or PAL.surface, 1)
-    if not invert then
-      Theme.strokeRounded(tx, ty, w, tabH, tint,
-        t.color and Theme.A.hover or Theme.A.hairline, 1)
-    end
-    -- Ink on a filled tab must contrast with THAT fill: black on the light
-    -- red/blue/gold cartridge colours, which are all high-luminance.
-    local ink = invert and PAL.inverse or (t.color or PAL.text)
-    if t.icon then
-      local iw, ih = t.icon:getDimensions()
-      local pad = math.floor(tabH * 0.24)
-      local s = math.min((tabH - 2 * pad) / iw, (tabH - 2 * pad) / ih)
-      if invert then love.graphics.setColor(0, 0, 0, 1)
-      else love.graphics.setColor(1, 1, 1, 0.9) end
-      love.graphics.draw(t.icon, Theme.snap(tx + (tabH - iw * s) / 2),
-        Theme.snap(ty + (tabH - ih * s) / 2), 0, s, s)
-      love.graphics.setColor(1, 1, 1, 1)
-    else
-      Kit.textCenter("tab", t.letter, tx,
-        ty + (tabH - Kit.textHeight("tab")) / 2, tabH, ink)
-    end
-    if expand then
-      Kit.text("tab", t.label, tx + tabH + math.floor(4 * m.s),
-        ty + (tabH - Kit.textHeight("tab")) / 2, ink)
-    end
-    if Kit.press(tx, ty, w, tabH) or Kit._activateId == key then
-      queueAction(imp, key, function() imp:_switchTab(t.id) end)
-    end
+    btn(imp, tx, ty, w, tabH, key, "", {
+      face = "tab", font = "tab", color = t.color, active = active,
+      image = t.icon, letter = t.letter,
+      action = function() imp:_switchTab(t.id) end,
+    })
     tx = tx + w + tabGap
   end
 
@@ -1454,8 +1375,10 @@ local function buildGamePanel(imp, x, y, w, availH, m, version)
       version, gameName, function() imp:play(version, true) end)
     imp._gearIcon = imp._gearIcon
       or love.graphics.newImage("assets/launcher/gear.png")
-    iconButton(imp, "manage-" .. version, lx + lw - mgW, ly, mgW,
-      imp._gearIcon, function() imp._gameManage = version end)
+    btn(imp, lx + lw - mgW, ly, mgW, mgW, "manage-" .. version, "", {
+      face = "invert", image = imp._gearIcon,
+      action = function() imp._gameManage = version end,
+    })
     ly = ly + playH + gap
   end
 
@@ -1743,8 +1666,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     local focused = Kit.focusable(rowKey, x, ry, w, rowH)
     local hot = focused or Kit.hover(x, ry, w, rowH)
     if isFullyDisabled then
-      Theme.fillRounded(x, ry, w, rowH, PAL.bg, 0.8, Theme.cardRadius())
-      Theme.strokeRounded(x, ry, w, rowH, PAL.muted, hot and Theme.A.hover or 0.25, 1, Theme.cardRadius())
+      Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
     else
       Kit.card(x, ry, w, rowH, hot)
     end
@@ -3020,8 +2942,7 @@ local function buildSettingsModal(imp, m)
     else
       local row = item.row
       local key = "set-" .. i
-      Theme.strokeRounded(px + pad, ry, pw - 2 * pad, rowH, PAL.line,
-        Theme.A.hairline, 1)
+      Kit.card(px + pad, ry, pw - 2 * pad, rowH, "hairline")
       local ix = px + pad + math.floor(12 * m.s)
       -- Where the label prints, and where the control band starts.  Stacked:
       -- label on its own full-width line, controls on the line below it.
@@ -3136,8 +3057,7 @@ local function buildDepResolverModal(imp, m)
   cy = cy + Kit.textHeight("small") + math.floor(10 * m.s)
 
   -- Security Disclaimer Banner Callout Card
-  Theme.fillRounded(px + pad, cy, pw - 2 * pad, warnH, PAL.rowBg, 1, Theme.radius())
-  Theme.strokeRounded(px + pad, cy, pw - 2 * pad, warnH, PAL.yellow, Theme.A.hover, 1, Theme.radius())
+  Kit.card(px + pad, cy, pw - 2 * pad, warnH, "warn")
   local warnMsg = Strings("Caution: Only pull dependencies from sources you trust.\nVerify source repositories before fetching.")
   Kit.text("micro", warnMsg, px + pad + math.floor(12 * m.s), cy + math.floor(5 * m.s), PAL.yellow)
   cy = cy + warnH + math.floor(12 * m.s)
@@ -3173,7 +3093,7 @@ local function buildDepResolverModal(imp, m)
     if ry + rowH >= cy and ry <= cy + listH then
       -- Item Card Fill & Stroke (matching launcher card interiors & radius)
       local hot = Kit.hover(px + pad, ry, pw - 2 * pad, rowH)
-      Theme.row(px + pad, ry, pw - 2 * pad, rowH, hot and "hover" or "normal")
+      Kit.card(px + pad, ry, pw - 2 * pad, rowH, hot and "rowHover" or "row")
 
       local ix = px + pad + math.floor(12 * m.s)
       local innerW = pw - 2 * pad - math.floor(24 * m.s)

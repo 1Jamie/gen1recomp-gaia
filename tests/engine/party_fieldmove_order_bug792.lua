@@ -20,7 +20,7 @@ local PartyMenu = require("src.ui.PartyMenu")
 
 -- minimal stack/input doubles matching the StateStack and Input surfaces,
 -- plus an overworld stub: PALLET_TOWN's OVERWORLD tileset passes
--- CheckIfInOutsideMap, and the badges cover the list-time HM gates
+-- CheckIfInOutsideMap
 local function newGame(moves, inventory)
   local game = {
     data = { pokemon = { LAPRAS = { name = "LAPRAS" },
@@ -87,14 +87,15 @@ openSubmenu(pm2)
 same(actions(pm2.subItems), { "stats", "switch" },
      "no field moves: the submenu is just STATS/SWITCH")
 
--- the badge gates still filter the list: the same Lapras without the
--- badges keeps its moves but shows none of them
+-- GetMonFieldMoves is badge-blind: the same Lapras without the badges
+-- still lists both HMs, and .outOfBattleMovePointers refuses on
+-- selection instead (#1022)
 local noBadges = newGame(
   { { id = "STRENGTH", pp = 15 }, { id = "SURF", pp = 15 } })
 local pm3 = PartyMenu.new(noBadges, {})
 noBadges.stack:push(pm3)
 openSubmenu(pm3)
-same(actions(pm3.subItems), { "stats", "switch" },
-     "ungated badges keep the HM moves out of the submenu")
+same(actions(pm3.subItems), { "strength", "surf", "stats", "switch" },
+     "the HM moves are listed without the badges (#1022)")
 
 T.finish("party_fieldmove_order_bug792")

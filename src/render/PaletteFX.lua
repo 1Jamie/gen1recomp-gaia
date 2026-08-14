@@ -691,10 +691,12 @@ function PaletteFX.spriteObp(spriteDef, seed)
   return PaletteFX.darkObp(w.spritePalettes[group], group)
 end
 
--- GetHealthBarColor (home/palettes.asm) on the standard 48px bar
-function PaletteFX.barPalName(hp, maxHp)
-  local px = maxHp > 0 and math.floor(hp * 48 / maxHp) or 0
-  if hp > 0 and px < 1 then px = 1 end
+-- GetHealthBarColor (home/palettes.asm) on the standard 48px bar.  It reads
+-- the bar's own length, so a caller mid-drain passes the animated `pixels`
+-- rather than let it be re-derived from hp.
+function PaletteFX.barPalName(hp, maxHp, pixels)
+  local px = pixels or (maxHp > 0 and math.floor(hp * 48 / maxHp) or 0)
+  if not pixels and hp > 0 and px < 1 then px = 1 end
   return px >= 27 and "GREENBAR" or px >= 10 and "YELLOWBAR" or "REDBAR"
 end
 

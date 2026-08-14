@@ -35,8 +35,8 @@ local PAL = {
   -- it in the same hue, so a card reads as a raised object rather than as an
   -- outline drawn on the page.  These are still flat fills -- the depth comes
   -- from the value step plus Theme.shadow, not from a gradient.
-  field       = { 16, 8, 10 },     -- the page BEHIND the cards
-  bg          = { 0, 0, 0 },       -- true black: button rests, field interiors
+  field       = { 20, 20, 20 },     -- the page BEHIND the cards
+  bg          = { 20, 20, 20 },       -- light black
   surface     = { 28, 21, 24 },    -- card interiors
   rowBg       = { 20, 14, 17 },    -- rows inside a card, one step below it
   raised      = { 44, 34, 38 },    -- hover feedback
@@ -82,6 +82,67 @@ Theme.A = {
   disabled = 0.30,
 }
 
+Theme.BUTTON = {
+  radius = 8,
+  ringPad = 2,
+  ringWidth = 2,
+  labelInset = 16,
+  labelPad = 10,
+  iconPad = 0.24,
+  letterGap = 4,
+  disabledA = 0.45,
+  embossHot = 1.3,
+  embossRest = 1,
+  embossDisabled = 0.4,
+  glowHz = 3,
+  glowBase = 0.25,
+  glowAmp = 0.75,
+  iconRestA = 0.85,
+}
+
+Theme.CARD = {
+  radius = 14,
+  shadow = true,
+  fill = PAL.surface,
+  fillA = 1,
+  stroke = PAL.line,
+  strokeA = Theme.A.hairline,
+}
+
+Theme.CARD_VARIANT = {
+  emphasis = { strokeA = Theme.A.focus },
+  muted = {
+    fill = PAL.bg, fillA = 0.8, stroke = PAL.muted, strokeA = 0.25, shadow = false,
+  },
+  mutedHot = {
+    fill = PAL.bg, fillA = 0.8, stroke = PAL.muted, strokeA = Theme.A.hover, shadow = false,
+  },
+  empty = { fillA = 0, strokeA = 0.22, shadow = false, radius = "ctl" },
+  warn = {
+    fill = PAL.rowBg, stroke = PAL.yellow, strokeA = Theme.A.hover,
+    shadow = false, radius = "ctl",
+  },
+  row = {
+    fill = PAL.rowBg, stroke = PAL.line, strokeA = Theme.A.hairline,
+    shadow = false, radius = "ctl",
+  },
+  rowHover = {
+    fill = PAL.raised, stroke = PAL.line, strokeA = Theme.A.hover,
+    shadow = false, radius = "ctl",
+  },
+  rowSelected = {
+    fill = PAL.ink, strokeA = 0, shadow = false, radius = "ctl",
+  },
+  hairline = {
+    fillA = 0, stroke = PAL.line, strokeA = Theme.A.hairline,
+    shadow = false, radius = "ctl",
+  },
+  badge = {
+    fill = PAL.bg, stroke = PAL.yellow, strokeA = Theme.A.hover,
+    shadow = false, radius = 0,
+  },
+}
+
 local G = love and love.graphics or nil
 
 local has = {}
@@ -123,11 +184,11 @@ end
 -- Controls get the smaller one, containers the larger, so a button never
 -- looks like a card and a card never looks like a button.
 function Theme.radius()
-  return 8
+  return Theme.BUTTON.radius
 end
 
 function Theme.cardRadius()
-  return 14
+  return Theme.CARD.radius
 end
 
 -- DROP SHADOW.  Three stacked rounded rects at low alpha, each one step wider
@@ -206,28 +267,42 @@ end
 -- The design's only container: a rounded surface a few values above the
 -- field, its own drop shadow, and a white hairline.  `emphasis` raises the
 -- outline to full white (used for the focused/active card).
-function Theme.card(x, y, w, h, emphasis)
-  local r = Theme.cardRadius()
-  Theme.shadow(x, y, w, h, r)
-  Theme.fillRounded(x, y, w, h, PAL.surface, 1, r)
-  Theme.strokeRounded(x, y, w, h, PAL.line,
-    emphasis and Theme.A.focus or Theme.A.hairline, 1, r)
+function Theme.card(x, y, w, h, variant)
+  local spec = Theme.CARD
+  local v
+  if variant == true then
+    v = Theme.CARD_VARIANT.emphasis
+  elseif type(variant) == "string" then
+    v = Theme.CARD_VARIANT[variant]
+  elseif type(variant) == "table" then
+    v = variant
+  end
+  local radius = (v and v.radius) or spec.radius
+  if radius == "ctl" then radius = Theme.BUTTON.radius end
+  local fill = (v and v.fill) or spec.fill
+  local fillA = spec.fillA
+  if v and v.fillA ~= nil then fillA = v.fillA end
+  local stroke = (v and v.stroke) or spec.stroke
+  local strokeA = spec.strokeA
+  if v and v.strokeA ~= nil then strokeA = v.strokeA end
+  local shadow = spec.shadow
+  if v and v.shadow ~= nil then shadow = v.shadow end
+  local strokeW = (v and v.strokeW) or 1
+  if fillA > 0 and fill then
+    if shadow then Theme.shadow(x, y, w, h, radius) end
+    Theme.fillRounded(x, y, w, h, fill, fillA, radius)
+  end
+  if strokeA > 0 and stroke then
+    Theme.strokeRounded(x, y, w, h, stroke, strokeA, strokeW, radius)
+  end
 end
 
--- A list row.  Three states, each one rect plus one outline:
---   normal    one value below the card it sits in, hairline
---   hover     lifted fill, brighter hairline
---   selected  WHITE fill (callers print ink = PAL.inverse over it)
 function Theme.row(x, y, w, h, state)
-  local r = Theme.radius()
   if state == "selected" then
-    Theme.fillRounded(x, y, w, h, PAL.ink, 1, r)
+    Theme.card(x, y, w, h, "rowSelected")
     return PAL.inverse
   end
-  Theme.fillRounded(x, y, w, h,
-    state == "hover" and PAL.raised or PAL.rowBg, 1, r)
-  Theme.strokeRounded(x, y, w, h, PAL.line,
-    state == "hover" and Theme.A.hover or Theme.A.hairline, 1, r)
+  Theme.card(x, y, w, h, state == "hover" and "rowHover" or "row")
   return PAL.text
 end
 

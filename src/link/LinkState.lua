@@ -19,6 +19,7 @@ LinkState.__index = LinkState
 LinkState.isOpaque = true
 
 local CURSOR = 0xED
+local CURSOR_HOLLOW = 0xEC
 local ANY = "ANY" -- sentinel: a leading nil array entry breaks ipairs under
                   -- LuaJIT even though # still reports the full size, so
                   -- the level picker cycles this string instead of nil,
@@ -114,6 +115,7 @@ end
 function LinkState:exitWith(message, reason)
   DiscordPresence.setJoinCode(nil)
   self.game.linkSession = nil -- back to the player's own GAME SPEED
+  if self.game.linkNet == self.net then self.game.linkNet = nil end
   Runtime.emit("link.ended", { reason = reason or (message and "error" or "bye") })
   if self.net then self.net:close() end
   self.game.stack:pop()
@@ -519,6 +521,9 @@ function LinkState:startMode(mode, isHost)
     })
     self.net:send(self.trade:opening())
     self.index = 1
+    self.theirIndex = 1
+    self.side = "mine"
+    self.pickChoice = nil
   else
     self.stage = "battleWait"
     -- the host deals the shared RNG seed for the lockstep simulation
@@ -536,7 +541,14 @@ end
 -- trade flow
 -- -------------------------------------------------------------------
 
+function LinkState:openStats(mon)
+  if not mon then return end
+  self.game.linkNet = self.net
+  Screens.push(self.game, "SummaryMenu", mon)
+end
+
 function LinkState:updateTrade(input)
+  if self.game.linkNet == self.net then self.game.linkNet = nil end
   for _, msg in ipairs(self.net:poll()) do
     local reply = self.trade:handle(msg)
     if reply then self.net:send(reply) end
@@ -591,10 +603,51 @@ function LinkState:updateTrade(input)
     return
   end
 
-  if t.stage == "picking" and input:wasPressed("up") then
-    self.index = math.max(1, self.index - 1)
+  -- pokered engine/link/cable_club.asm TradeCenter_SelectMon: A on one of
+  -- your own mons opens the "STATS     TRADE" row (.displayStatsTradeMenu)
+  -- and only TRADE commits the pick, while the enemy list carries its own
+  -- cursor whose A shows that mon's status pages (.displayEnemyMonStats).
+  -- The cart's enemy path sets hl but never wMonDataLocation, the way the
+  -- battle menu's STATS (engine/battle/core.asm) does, so LoadMonData_ reads
+  -- the player's party and it draws YOUR mon at that slot -- an omission,
+  -- not behaviour, so we show the peer's mon.
+  if t.stage == "picking" and self.pickChoice then
+    if input:wasPressed("left") then
+      self.pickChoice = 1
+    elseif input:wasPressed("right") then
+      self.pickChoice = 2
+    elseif input:wasPressed("b") then
+      self.pickChoice = nil -- .cancelPlayerMonChoice: back to the list, not
+                            -- out of the trade
+    elseif input:wasPressed("a") then
+      if self.pickChoice == 1 then
+        self.pickChoice = nil
+        self:openStats(self.game.save.party[self.index])
+      elseif t:canPick(self.index) then
+        self.pickChoice = nil
+        self.side = "mine"
+        self.net:send(t:pick(self.index))
+      end
+    end
+  elseif t.stage == "picking" and input:wasPressed("up") then
+    if self.side == "theirs" then
+      self.theirIndex = math.max(1, self.theirIndex - 1)
+    else
+      self.index = math.max(1, self.index - 1)
+    end
   elseif t.stage == "picking" and input:wasPressed("down") then
-    self.index = math.min(#self.game.save.party, self.index + 1)
+    if self.side == "theirs" then
+      self.theirIndex = math.min(#(t.theirParty or {}), self.theirIndex + 1)
+    else
+      self.index = math.min(#self.game.save.party, self.index + 1)
+    end
+  elseif t.stage == "picking" and input:wasPressed("right") then
+    if t.theirParty and #t.theirParty > 0 then
+      self.side = "theirs"
+      self.theirIndex = math.min(self.theirIndex, #t.theirParty)
+    end
+  elseif t.stage == "picking" and input:wasPressed("left") then
+    self.side = "mine"
   elseif self.confirmed == nil and input:wasPressed("b") then
     -- once confirm=true has been sent to the peer, backing out here
     -- would desync the two sides (the peer may already be committing
@@ -603,8 +656,10 @@ function LinkState:updateTrade(input)
     self.net:send({ type = "bye" })
     self:exitWith(Strings("The trade was\ncancelled."))
   elseif t.stage == "picking" and input:wasPressed("a") then
-    if t:canPick(self.index) then
-      self.net:send(t:pick(self.index))
+    if self.side == "theirs" then
+      self:openStats((t.theirParty or {})[self.theirIndex])
+    else
+      self.pickChoice = 1
     end
   elseif t.stage == "confirming" and self.confirmed == nil then
     if input:wasPressed("a") then
@@ -738,25 +793,40 @@ function LinkState:draw()
       local label = (mon.nickname or def.name):sub(1, 8)
       if not t:canPick(i) then label = label .. "X" end
       Font.draw(label, 16, 20 + i * 12)
-      if i == self.index then Font.drawCode(CURSOR, 8, 20 + i * 12) end
+      if i == self.index and self.side ~= "theirs" then
+        Font.drawCode(CURSOR, 8, 20 + i * 12)
+      end
     end
     Font.draw(Strings("THEIRS"), 84, 20)
     for i, mon in ipairs(t.theirParty or {}) do
       local def = self.game.data.pokemon[mon.species]
       Font.draw((mon.nickname or def.name):sub(1, 8), 92, 20 + i * 12)
-      if t.theirPick == i then Font.drawCode(CURSOR, 84, 20 + i * 12) end
+      if self.side == "theirs" and i == self.theirIndex then
+        Font.drawCode(CURSOR, 84, 20 + i * 12)
+      elseif t.theirPick == i then
+        Font.drawCode(CURSOR_HOLLOW, 84, 20 + i * 12)
+      end
     end
-    local hint
-    if t.stage == "waitRecords" then hint = "Comparing games..."
-    elseif t.stage == "waitParty" then hint = "Exchanging data..."
-    elseif t.stage == "picking" then
-      hint = t:canPick(self.index) and "Pick one to trade"
-             or Strings("X: not on theirs")
-    elseif t.stage == "waitPick" then hint = "Waiting for them..."
-    elseif t.stage == "confirming" then
-      hint = self.confirmed and "Waiting..." or Strings("A: trade  B: cancel")
+    if self.pickChoice then
+      Font.draw(Strings("STATS"), 16, 128)
+      Font.draw(Strings("TRADE"), 96, 128)
+      Font.drawCode(CURSOR, self.pickChoice == 1 and 8 or 88, 128)
+    else
+      local hint
+      if t.stage == "waitRecords" then hint = "Comparing games..."
+      elseif t.stage == "waitParty" then hint = "Exchanging data..."
+      elseif t.stage == "picking" then
+        if self.side == "theirs" then hint = Strings("A: stats")
+        else
+          hint = t:canPick(self.index) and "Pick one to trade"
+                 or Strings("X: not on theirs")
+        end
+      elseif t.stage == "waitPick" then hint = "Waiting for them..."
+      elseif t.stage == "confirming" then
+        hint = self.confirmed and "Waiting..." or Strings("A: trade  B: cancel")
+      end
+      Font.draw(hint or "", 8, 132)
     end
-    Font.draw(hint or "", 8, 132)
 
   elseif self.stage == "battleWait" or self.stage == "battleRunning" then
     drawTitle("LINK BATTLE")
