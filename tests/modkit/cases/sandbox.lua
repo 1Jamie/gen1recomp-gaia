@@ -69,6 +69,16 @@ local PROBE = [[
   out.readBackslash = attempt(function() return mod:read("..\\secret.txt") end)
   out.assetsEscape = attempt(function() return mod.assets:path("../../x.png") end)
   out.readOwn = mod:read("data/note.txt")
+  out.listAssets = mod:list("assets")
+  out.listSprites = mod:list("assets/sprites")
+  out.listRoot = mod:list()
+  out.assetsList = mod.assets:list("assets")
+  out.infoAssets = mod:info("assets")
+  out.infoNote = mod:info("data/note.txt")
+  out.infoMissing = mod:info("nope")
+  out.listMissing = mod:list("nope")
+  out.listEscape = attempt(function() return mod:list("../secret") end)
+  out.infoEscape = attempt(function() return mod:info("../../x") end)
 
   _G.SANDBOX_LEAK = "escaped"
   out.globalsAreOwn = _G ~= nil and _G.SANDBOX_LEAK == "escaped"
@@ -81,6 +91,8 @@ local FILES = {
   ["mods/fix_sandbox/manifest.json"] = manifest("fix_sandbox"),
   ["mods/fix_sandbox/main.lua"] = PROBE,
   ["mods/fix_sandbox/data/note.txt"] = "own file",
+  ["mods/fix_sandbox/assets/front.png"] = "png",
+  ["mods/fix_sandbox/assets/sprites/walk.png"] = "png",
 }
 
 local run = T.sdk.loadMods({ "mods/fix_sandbox" }, { fs = T.sdk.memfs(FILES) })
@@ -155,6 +167,24 @@ T.check(out.readAbsolute ~= false, "mod:read refuses an absolute path")
 T.check(out.readBackslash ~= false, "mod:read refuses a backslash climb")
 T.check(out.assetsEscape ~= false, "mod.assets:path refuses a climb")
 T.eq(out.readOwn, "own file", "and the mod's own files still read")
+T.same(out.listAssets, { "front.png", "sprites" },
+  "mod:list names the children of a directory inside the mod")
+T.same(out.listSprites, { "walk.png" },
+  "and a nested directory")
+T.check(out.listRoot and out.listRoot[1] ~= nil,
+  "mod:list() with no path lists the mod root")
+T.same(out.assetsList, out.listAssets,
+  "mod.assets:list is the same listing")
+T.eq(out.infoAssets and out.infoAssets.type, "directory",
+  "mod:info reports a directory")
+T.eq(out.infoNote and out.infoNote.type, "file",
+  "and a file")
+T.eq(out.infoMissing, nil, "mod:info is nil for a missing path")
+T.same(out.listMissing, {}, "mod:list of a missing path is empty, not an error")
+T.check(out.listEscape and out.listEscape:find("must stay inside", 1, true),
+  "mod:list cannot climb out of the mod directory: " .. tostring(out.listEscape))
+T.check(out.infoEscape and out.infoEscape:find("must stay inside", 1, true),
+  "mod:info cannot climb either")
 run.release()
 
 -- ------- the grammar itself

@@ -254,7 +254,7 @@ engine's globals. Every chunk you author gets it: `main.lua`, your
 | `os.getenv`, `os.execute`, `os.remove`, `os.rename`, `os.exit` | nothing; `os.time`/`os.date`/`os.clock` still work |
 | `package`, `dofile`, `loadfile`, `debug`, `getfenv`, `setfenv` | `require` for the supported engine modules |
 | `require("ffi")`, `require("love.*")` | the `love` table you are given |
-| `love.filesystem` | `mod.storage` (per-mod, per-playthrough) and `mod:read` |
+| `love.filesystem` | `mod.storage` (per-mod, per-playthrough), `mod:read` for a known file, `mod:list` / `mod:info` to iterate your own directory |
 | `love.thread`, `love.event` | `mod.events`, `mod.hooks` |
 | `love.system` | `mod.device:powerInfo()` for battery information; `mod.steps` (with the `steps` permission) for the step bridge |
 
@@ -269,9 +269,12 @@ Three consequences worth knowing before you write against it:
   `mod.find("your_id").exports` — the channel that was always the intended
   one. The same goes for the standard library: `string`, `table` and `math`
   are per-mod copies, so patching one is a local decision.
-- **Paths cannot climb.** `mod:read`, `mod.assets:path` and `mod.assets:image`
-  join to your own directory, and `..`, absolute paths and drive letters are
-  refused. So are `entry` and `options_schema` in your manifest.
+- **Paths cannot climb.** `mod:read`, `mod:list`, `mod:info`, `mod.assets:path`
+  and `mod.assets:image` join to your own directory, and `..`, absolute paths
+  and drive letters are refused. So are `entry` and `options_schema` in your
+  manifest. `mod:list("assets")` is the sandboxed `getDirectoryItems` for a
+  folder you shipped; `mod:info` tells file from directory so a walk can
+  recurse.
 - **Ship source, not bytecode.** A precompiled entry file is refused.
 
 `permissions` in the manifest is still a disclosure the manager shows the

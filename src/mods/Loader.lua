@@ -1163,6 +1163,39 @@ function Loader:_api(mod)
     api.content[alias] = self:_contentApi(mod, self.content[canonical],
       ("the %s registry is deprecated; use %s"):format(alias, canonical))
   end
+  -- A relative path inside this mod, or the mod root when relative is
+  -- omitted.  Empty is the one listing case SafePath.safe rejects on
+  -- purpose (it is not a file), so it is special-cased here.
+  local function ownPath(relative, what)
+    if relative == nil or relative == "" then return mod.path end
+    return SafePath.join(mod.path, relative, what)
+  end
+
+  -- Shallow directory listing, the sandboxed stand-in for
+  -- love.filesystem.getDirectoryItems.  Names only, sorted, never a host
+  -- path.  A missing directory is an empty list, not an error.
+  local function listOwn(_, relative)
+    local dir = ownPath(relative, "mod:list")
+    local fs = loader.fs
+    if not (fs and fs.getDirectoryItems) then return {} end
+    local items = fs.getDirectoryItems(dir) or {}
+    local out = {}
+    for i = 1, #items do out[i] = items[i] end
+    table.sort(out)
+    return out
+  end
+
+  -- love.filesystem.getInfo for a path inside this mod.  type is "file" or
+  -- "directory"; size is set for files.  nil when the path does not exist.
+  local function infoOwn(_, relative)
+    local path = ownPath(relative, "mod:info")
+    local fs = loader.fs
+    if not (fs and fs.getInfo) then return nil end
+    local info = fs.getInfo(path)
+    if not info then return nil end
+    return { type = info.type, size = info.size }
+  end
+
   -- assets keeps the v1 alias to the content accessors and adds the file
   -- helpers on top, so mod.assets.pokemon and mod.assets:image both resolve
   api.assets = setmetatable({
@@ -1179,12 +1212,16 @@ function Loader:_api(mod)
       loader.imageCache[full] = image
       return image
     end,
+    list = listOwn,
+    info = infoOwn,
   }, { __index = api.content })
   -- the mod's own directory and nothing above it: PhysFS already refuses a
   -- climb, but loader.fs is injectable and has no such floor
   function api:read(relative)
     return loader.fs.read(SafePath.join(self.path, relative, "mod:read"))
   end
+  api.list = listOwn
+  api.info = infoOwn
   -- mod.world materializes on first touch, like the image helper above: a
   -- headless load must not drag the world stack in, and the Game the facade
   -- acts on is still being wired when the entry chunk runs
