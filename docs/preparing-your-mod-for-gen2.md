@@ -325,7 +325,7 @@ This is not a dev-mode feature; it installs on any Gold boot that has mods.
 | `src.pokemon.Boxes` | facade | over `src/core/gen2/Boxes.lua` | 22 / 0 / 0 |
 | `src.battle.BattleState` | facade | over `src/ui/gen2/BattleState.lua` | 16 / 2 / 39 |
 | `src.ui.PartyMenu` | facade | over `src/ui/gen2/PartyMenu.lua` | 15 / 2 / 16 |
-| `src.world.WorldAPI` | alias | `src/world/gen2/WorldAPI.lua` | 12 / 2 / 0 |
+| `src.world.WorldAPI` | alias | `src/world/gen2/WorldAPI.lua` | 15 / 2 / 0 |
 | `src.world.PikachuFollower` | alias | `src/world/gen2/Follower.lua` | 10 / 0 / 11 |
 | `src.script.ScriptRunner` | facade | over `src/script/gen2/Vm.lua` | 10 / 7 / 1 |
 | `src.ui.OptionsMenu` | facade | over `src/ui/gen2/OptionsMenu.lua` | 8 / 0 / 1 |
@@ -774,7 +774,7 @@ profile to test in, and `POKEPORT_DEV=1` adds the console and `F5` hot reload.
 
 - **Coverage is partial and will stay partial.** 15 Gen 1 modules are served
   out of a much larger engine, and within those 15 the coverage table records
-  288 backed members against 32 warned and 161 absent. The absent ones are not
+  291 backed members against 32 warned and 161 absent. The absent ones are not
   a backlog; most are absent because there is no honest Gen 2 answer, and each
   one carries its reason. The counts move as the adapter learns something: a
   member that turns out to answer nil is demoted from backed to warned or
