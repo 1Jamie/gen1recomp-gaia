@@ -460,9 +460,14 @@ function LauncherMods.list(version)
   local ok, result = pcall(function()
     local options = SaveData.loadOptions()
     local manifests = discover()
-    -- A validated copy owned by another installed mod can satisfy the same
-    -- declared MD5 without asking the player to select the ROM twice.
-    local _, importState = RequiredImports.reconcile(manifests)
+    -- Imports are private player grants. Never scan or copy another mod's
+    -- baseroms: a matching public digest is not permission to share the file.
+    local importState = {}
+    for _, manifest in ipairs(manifests) do
+      local rows, missing, missingOptional = RequiredImports.inspect(manifest)
+      importState[manifest.id] = { rows = rows, missing = missing,
+        missingOptional = missingOptional }
+    end
     -- The first build containing game-specific switches turns the old shared
     -- state into one explicit answer per installed mod and game.  Saving here
     -- means users who only visit the launcher still receive the migration.
@@ -968,12 +973,16 @@ function LauncherMods._installZipInner(source, opts)
   end
 
   local dest = "mods/" .. manifest.id
+  local baseromRecovery = "imports/baseroms-recovery/" .. manifest.id
   local existing, installedSomewhere = sameIdTrees(fs, manifest.id)
   if installedSomewhere and not opts.replace then
     cleanup()
     return nil, "a mod named '" .. manifest.id .. "' is already installed"
   end
   local preservedBaseroms = {}
+  -- A previous failed update may have staged the user's files outside mods/ so
+  -- discovery cannot mistake recovery debris for an installed mod.
+  snapshotTree(baseromRecovery, preservedBaseroms)
   if #existing > 0 then
     for _, path in ipairs(existing) do
       snapshotTree(path .. "/baseroms", preservedBaseroms)
@@ -1012,13 +1021,16 @@ function LauncherMods._installZipInner(source, opts)
     end
   end
   if preserveErr then
-    -- Do not report a successful update that discarded user-owned input. Keep
-    -- a best-effort baseroms-only tree for the next retry instead.
+    -- Do not report a successful update that discarded user-owned input, and
+    -- do not leave a manifest-less baseroms tree that resembles an install.
     removeTree(dest)
+    removeTree(baseromRecovery)
     for rel, bytes in pairs(preservedBaseroms) do
-      if bytes ~= nil then CacheFs.write(dest .. "/baseroms/" .. rel, bytes) end
+      if bytes ~= nil then CacheFs.write(baseromRecovery .. "/" .. rel, bytes) end
     end
     copied, copyErr = nil, preserveErr
+  elseif copied then
+    removeTree(baseromRecovery)
   end
   CacheFs.prefix = savedPrefix
   if not copied then

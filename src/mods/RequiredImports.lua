@@ -23,6 +23,34 @@ local function isRequired(spec)
 end
 
 RequiredImports.specs = allSpecs
+RequiredImports.MAX_BYTES = 128 * 1024 * 1024
+
+local function sizeLabel(bytes)
+  return ("%.1f MiB"):format(bytes / (1024 * 1024))
+end
+
+-- Check size before a caller reads an external or stored file into one large
+-- Lua string. N64 sources may carry a 512-byte copier header, while stored
+-- files are always canonical and therefore must match the declared size.
+function RequiredImports.sizeError(spec, size, stored)
+  if type(size) ~= "number" then return nil end
+  if size > RequiredImports.MAX_BYTES then
+    return ("file is too large (%s; hard limit is %s)")
+      :format(sizeLabel(size), sizeLabel(RequiredImports.MAX_BYTES))
+  end
+  local headerAllowance = not stored and spec and spec.format == "n64" and 512 or 0
+  if spec and spec.size then
+    if size ~= spec.size and size ~= spec.size + headerAllowance then
+      return ("wrong file size (expected %d bytes%s, got %d)")
+        :format(spec.size, headerAllowance > 0 and " or a 512-byte header" or "", size)
+    end
+  end
+  if spec and spec.max_size and size > spec.max_size + headerAllowance then
+    return ("file is too large for this import (maximum %d bytes, got %d)")
+      :format(spec.max_size, size)
+  end
+  return nil
+end
 
 local N64_MAGIC = {
   ["\128\55\18\64"] = "z64", -- big endian / canonical
@@ -44,7 +72,9 @@ function RequiredImports.normalizeN64(data)
     kind = n64KindAt(data, 513)
     if kind then offset = 513 end
   end
-  if not kind then return nil, "not a recognized Nintendo 64 ROM" end
+  if not kind then
+    return nil, "expected an N64 ROM (.z64/.v64/.n64); file signature was not recognized"
+  end
   data = data:sub(offset)
   if kind == "z64" then return data end
 
@@ -89,20 +119,106 @@ function RequiredImports.path(manifest, spec)
 end
 
 local function removedMarker(manifest, spec)
-  return manifest.path .. "/baseroms/." .. spec.id .. ".removed"
+  return manifest.path .. "/baseroms/.required-import-" .. spec.id .. ".removed"
+end
+
+local function receiptPath(manifest, spec)
+  return manifest.path .. "/baseroms/.required-import-" .. spec.id .. ".validated"
+end
+
+RequiredImports.receiptPath = receiptPath
+
+local function parseReceipt(raw)
+  if type(raw) ~= "string" then return nil end
+  local digest, size, modtime = raw:match("^v1\n([%x]+)\n(%d+)\n([^\n]+)\n?$")
+  if not digest then return nil end
+  return digest:lower(), tonumber(size), tonumber(modtime)
+end
+
+local function cachedDigest(manifest, spec, fs, info)
+  -- A size alone cannot detect a same-length replacement. Require modtime as
+  -- well; filesystems that do not expose it simply take the safe hash path.
+  if not (fs and fs.read and info and info.size and info.modtime) then return nil end
+  local digest, size, modtime = parseReceipt(fs.read(receiptPath(manifest, spec)))
+  if digest and size == info.size and modtime == info.modtime
+      and accepts(spec, digest) then
+    return digest
+  end
+  return nil
+end
+
+local function writeReceipt(manifest, spec, digest, info, fs)
+  if not (digest and info and info.size and info.modtime) then return end
+  local path = receiptPath(manifest, spec)
+  local body = ("v1\n%s\n%d\n%s\n")
+    :format(digest, info.size, tostring(info.modtime))
+  if love and fs == love.filesystem then
+    local savedPrefix = CacheFs.prefix
+    CacheFs.prefix = ""
+    CacheFs.write(path, body)
+    CacheFs.prefix = savedPrefix
+  elseif fs and fs.write then
+    fs.write(path, body)
+  end
+end
+
+local function removeReceipt(manifest, spec, fs)
+  local path = receiptPath(manifest, spec)
+  if love and fs == love.filesystem then
+    local savedPrefix = CacheFs.prefix
+    CacheFs.prefix = ""
+    CacheFs.remove(path)
+    CacheFs.prefix = savedPrefix
+  elseif fs and fs.remove then
+    fs.remove(path)
+  end
 end
 
 -- Validate bytes against a declaration.  The returned data is canonicalized
 -- (notably for N64 byte order/header variants) and is what must be stored.
 function RequiredImports.validateData(spec, data, hashFn)
+  local sourceSizeErr = type(data) == "string"
+    and RequiredImports.sizeError(spec, #data, false)
+  if sourceSizeErr then return nil, sourceSizeErr end
   local normalized, normalizeErr = RequiredImports.normalize(spec, data)
   if not normalized then return nil, normalizeErr end
+  local storedSizeErr = RequiredImports.sizeError(spec, #normalized, true)
+  if storedSizeErr then return nil, storedSizeErr end
   local digest, hashErr = hexDigest(normalized, hashFn)
   if not digest then return nil, hashErr end
   if not accepts(spec, digest) then
     return nil, ("MD5 mismatch (got %s)"):format(digest)
   end
   return normalized, digest
+end
+
+-- Validate one installed import without reading it when the engine-authored
+-- receipt still matches the file's size and modification time.
+function RequiredImports.validateStored(manifest, spec, fs, hashFn)
+  fs = fs or (love and love.filesystem)
+  if not (fs and fs.getInfo) then return nil, "filesystem is unavailable" end
+  local path = RequiredImports.path(manifest, spec)
+  local info = fs.getInfo(path, "file")
+  if not info then
+    removeReceipt(manifest, spec, fs)
+    return nil, "file is missing"
+  end
+  local sizeErr = RequiredImports.sizeError(spec, info.size, true)
+  if sizeErr then
+    removeReceipt(manifest, spec, fs)
+    return nil, sizeErr
+  end
+  local cached = cachedDigest(manifest, spec, fs, info)
+  if cached then return true, cached, true end
+  removeReceipt(manifest, spec, fs)
+  if not fs.read then return nil, "file could not be read" end
+  local data = fs.read(path)
+  local normalized, detail = RequiredImports.validateStoredData(spec, data, hashFn)
+  if not normalized then return nil, detail end
+  info = fs.getInfo(path, "file") or info
+  info.size = info.size or #data
+  writeReceipt(manifest, spec, detail, info, fs)
+  return true, detail, false
 end
 
 function RequiredImports.validateStoredData(spec, data, hashFn)
@@ -121,15 +237,12 @@ function RequiredImports.inspect(manifest, fs, hashFn)
     local path = RequiredImports.path(manifest, spec)
     local suppressed = fs and fs.getInfo
       and fs.getInfo(removedMarker(manifest, spec), "file") ~= nil
-    local data = fs and fs.read and fs.read(path) or nil
-    local normalized, detail
-    if data then
-      normalized, detail = RequiredImports.validateStoredData(spec, data, hashFn)
-    end
+    local exists = fs and fs.getInfo and fs.getInfo(path, "file") ~= nil
+    local valid, detail = RequiredImports.validateStored(manifest, spec, fs, hashFn)
     local row = { id = spec.id, name = spec.name, file = spec.file,
-      format = spec.format, path = path, present = normalized ~= nil,
-      digest = normalized and detail or nil,
-      error = data and not normalized and detail or nil,
+      description = spec.description, format = spec.format, path = path,
+      present = valid == true, digest = valid and detail or nil,
+      error = exists and not valid and detail or nil,
       suppressed = suppressed, required = isRequired(spec), spec = spec }
     if not row.present then
       if row.required then missing = missing + 1
@@ -151,8 +264,13 @@ function RequiredImports.importData(manifest, importId, data, opts)
   if not normalized then return nil, digest end
   local savedPrefix = CacheFs.prefix
   CacheFs.prefix = ""
+  CacheFs.remove(receiptPath(manifest, spec))
   local ok, err = CacheFs.write(RequiredImports.path(manifest, spec), normalized)
   if ok then CacheFs.remove(removedMarker(manifest, spec)) end
+  if ok and love and love.filesystem and love.filesystem.getInfo then
+    local info = love.filesystem.getInfo(RequiredImports.path(manifest, spec), "file")
+    writeReceipt(manifest, spec, digest, info, love.filesystem)
+  end
   CacheFs.prefix = savedPrefix
   if not ok then return nil, "could not copy import: " .. tostring(err) end
   return true, digest
@@ -164,6 +282,7 @@ function RequiredImports.remove(manifest, importId)
       local savedPrefix = CacheFs.prefix
       CacheFs.prefix = ""
       CacheFs.remove(RequiredImports.path(manifest, spec))
+      CacheFs.remove(receiptPath(manifest, spec))
       local marked, markErr = CacheFs.write(removedMarker(manifest, spec), "removed\n")
       CacheFs.prefix = savedPrefix
       if not marked then return nil, "could not remember removal: " .. tostring(markErr) end
@@ -171,96 +290,6 @@ function RequiredImports.remove(manifest, importId)
     end
   end
   return nil, "unknown required import: " .. tostring(importId)
-end
-
--- Fill missing imports from another installed mod when its accepted canonical
--- MD5 overlaps.  The source remains inside the engine-owned mods tree, and a
--- fresh validation is performed before every copy.
-function RequiredImports.reconcile(manifests, fs, hashFn)
-  fs = fs or (love and love.filesystem)
-  if not (fs and fs.read) then return {}, {} end
-  local available, state, declaredPaths = {}, {}, {}
-  for _, manifest in ipairs(manifests or {}) do
-    local rows, missing, missingOptional = {}, 0, 0
-    for _, spec in ipairs(allSpecs(manifest)) do
-      local path = RequiredImports.path(manifest, spec)
-      declaredPaths[path] = true
-      local data = fs.read(path)
-      local suppressed = fs.getInfo
-        and fs.getInfo(removedMarker(manifest, spec), "file") ~= nil
-      local normalized, detail
-      if data then
-        normalized, detail = RequiredImports.validateStoredData(spec, data, hashFn)
-        if normalized then available[detail] = normalized end
-      end
-      local row = { id = spec.id, name = spec.name, file = spec.file,
-        format = spec.format, path = path, present = normalized ~= nil,
-        digest = normalized and detail or nil,
-        error = data and not normalized and detail or nil,
-        suppressed = suppressed, required = isRequired(spec), spec = spec }
-      if not row.present then
-        if row.required then missing = missing + 1
-        else missingOptional = missingOptional + 1 end
-      end
-      rows[#rows + 1] = row
-    end
-    state[manifest.id] = { rows = rows, missing = missing,
-      missingOptional = missingOptional }
-  end
-
-
-  -- Compatibility with mods that already maintained their own baseroms
-  -- folder before this manifest field existed: index every other file in an
-  -- installed mod's folder by both raw and (when recognizable) canonical N64
-  -- MD5. Nothing outside the engine-owned mods tree is searched.
-  if fs.getDirectoryItems and fs.getInfo then
-    for _, manifest in ipairs(manifests or {}) do
-      local dir = manifest.path .. "/baseroms"
-      if fs.getInfo(dir, "directory") then
-        for _, name in ipairs(fs.getDirectoryItems(dir) or {}) do
-          local path = dir .. "/" .. name
-          if name:sub(1, 1) ~= "." and not declaredPaths[path]
-              and fs.getInfo(path, "file") then
-            local data = fs.read(path)
-            if data then
-              local rawDigest = hexDigest(data, hashFn)
-              if rawDigest then available[rawDigest] = data end
-              local canonical = RequiredImports.normalizeN64(data)
-              if canonical then
-                local canonicalDigest = hexDigest(canonical, hashFn)
-                if canonicalDigest then available[canonicalDigest] = canonical end
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-
-  local copied = {}
-  for _, manifest in ipairs(manifests or {}) do
-    local entry = state[manifest.id]
-    for _, row in ipairs(entry.rows) do
-      if not row.present and not row.suppressed then
-        for _, digest in ipairs(row.spec.md5) do
-          local data = available[digest]
-          if data then
-            local ok = RequiredImports.importData(manifest, row.id, data,
-              { hash = hashFn })
-            if ok then
-              copied[#copied + 1] = { mod = manifest.id, import = row.id,
-                digest = digest }
-              row.present, row.digest, row.error = true, digest, nil
-              if row.required then entry.missing = entry.missing - 1
-              else entry.missingOptional = entry.missingOptional - 1 end
-            end
-            break
-          end
-        end
-      end
-    end
-  end
-  return copied, state
 end
 
 return RequiredImports

@@ -574,8 +574,8 @@ function Loader:_validate()
           reason = "required import missing: " .. import.name
           break
         end
-        local data = self.fs.read and self.fs.read(path)
-        local valid, importErr = RequiredImports.validateStoredData(import, data)
+        local valid, importErr = RequiredImports.validateStored(
+          manifest, import, self.fs)
         if not valid then
           reason = "required import invalid: " .. import.name
             .. " (" .. tostring(importErr) .. ")"

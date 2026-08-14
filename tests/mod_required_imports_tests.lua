@@ -17,13 +17,17 @@ local manifest = Manifest.validate({
   id = "stadium_fx", name = "Stadium FX", version = "1.0.0", entry = "main.lua",
   required_imports = {
     { id = "stadium2", name = "Stadium 2", file = "stadium2.z64",
-      format = "n64", md5 = { DIGEST, DIGEST:upper() } },
+      description = "USA dump", format = "n64", size = 8,
+      md5 = { DIGEST, DIGEST:upper() } },
   },
 }, "mods/stadium_fx")
 
 eq(#manifest.required_imports, 1, "required import parses")
 eq(#manifest.required_imports[1].md5, 1, "accepted MD5 values normalize and dedupe")
 eq(manifest.required_imports[1].md5[1], DIGEST, "MD5 is lowercase")
+eq(manifest.required_imports[1].description, "USA dump",
+  "import description is preserved for the picker UI")
+eq(manifest.required_imports[1].size, 8, "exact import size parses")
 
 local optionalManifest = Manifest.validate({
   id = "optional_fx", name = "Optional FX", version = "1.0.0", entry = "main.lua",
@@ -49,6 +53,15 @@ check(not pcall(Manifest.validate, {
   id = "bad", name = "Bad", version = "1", entry = "main.lua",
   required_imports = { { id = "rom", file = "rom.z64", md5 = "short" } },
 }), "malformed MD5 is refused")
+check(not pcall(Manifest.validate, {
+  id = "bad", name = "Bad", version = "1", entry = "main.lua",
+  required_imports = { { id = "rom", file = ".rom.removed", md5 = DIGEST } },
+}), "hidden import filenames cannot collide with engine metadata")
+check(not pcall(Manifest.validate, {
+  id = "bad", name = "Bad", version = "1", entry = "main.lua",
+  required_imports = { { id = "rom", file = "rom.bin", md5 = DIGEST,
+    max_size = RequiredImports.MAX_BYTES + 1 } },
+}), "manifest import sizes cannot exceed the hard limit")
 
 local canonical = "\128\55\18\64ABCD"
 local v64 = "\55\128\64\18BADC"
@@ -79,17 +92,14 @@ local target = Manifest.validate({
     { id = "same_rom", file = "source.z64", format = "n64", md5 = DIGEST },
   },
 }, "mods/other_fx")
-local copied = RequiredImports.reconcile({ manifest, target }, love.filesystem, fakeHash)
-eq(#copied, 1, "matching installed import is reused")
-eq(love.filesystem.read("mods/other_fx/baseroms/source.z64"), canonical,
-  "reuse creates a private per-mod copy")
+local targetRows, targetMissing = RequiredImports.inspect(target,
+  love.filesystem, fakeHash)
+eq(targetMissing, 1, "matching hashes do not silently share another mod's import")
+check(not targetRows[1].present,
+  "a mod needs its own explicit player-selected file")
 check(RequiredImports.remove(target, "same_rom"), "a required import can be removed")
 eq(love.filesystem.read("mods/other_fx/baseroms/source.z64"), nil,
   "remove deletes this mod's private copy")
-local copiedAfterRemove = RequiredImports.reconcile({ manifest, target },
-  love.filesystem, fakeHash)
-eq(#copiedAfterRemove, 0,
-  "an explicit removal is not immediately undone by automatic reuse")
 check(RequiredImports.importData(target, "same_rom", canonical, { hash = fakeHash }),
   "choosing the file again clears the removal decision")
 
@@ -103,16 +113,69 @@ local legacyTarget = Manifest.validate({
   },
 }, "mods/legacy_user")
 love.filesystem.write("mods/legacy/baseroms/manually-imported.v64", v64)
-local legacyCopied = RequiredImports.reconcile({ legacy, legacyTarget },
+local legacyRows, legacyMissing = RequiredImports.inspect(legacyTarget,
   love.filesystem, fakeHash)
-eq(#legacyCopied, 1, "an undeclared legacy baserom can satisfy a new declaration")
-eq(love.filesystem.read("mods/legacy_user/baseroms/legacy-source.z64"), canonical,
-  "legacy reuse still stores canonical bytes")
+eq(legacyMissing, 1, "undeclared files in another mod are never indexed")
+check(not legacyRows[1].present, "legacy baseroms remain private to their mod")
+
+local capped = Manifest.validate({
+  id = "capped", name = "Capped", version = "1.0.0", entry = "main.lua",
+  required_imports = {
+    { id = "small", file = "small.bin", md5 = DIGEST, max_size = 4 },
+  },
+}, "mods/capped")
+local tooLarge, sizeWhy = RequiredImports.validateData(
+  capped.required_imports[1], "12345", fakeHash)
+eq(tooLarge, nil, "per-import size cap rejects before hashing")
+check(tostring(sizeWhy):find("too large", 1, true) ~= nil,
+  "size rejection explains the limit")
+
+-- A successful validation writes an engine receipt. Matching size + modtime
+-- lets later launcher refreshes avoid reading and hashing the ROM again.
+local cacheFiles = {
+  ["mods/cache/baseroms/source.z64"] = canonical,
+}
+local dataReads = 0
+local cacheModtime = 123
+local cacheFs = {
+  getInfo = function(path, kind)
+    local data = cacheFiles[path]
+    if data then return { type = "file", size = #data, modtime = cacheModtime } end
+    return nil
+  end,
+  read = function(path)
+    if path == "mods/cache/baseroms/source.z64" then dataReads = dataReads + 1 end
+    return cacheFiles[path]
+  end,
+  write = function(path, data) cacheFiles[path] = data return true end,
+  remove = function(path) cacheFiles[path] = nil return true end,
+}
+local cacheManifest = Manifest.validate({
+  id = "cache", name = "Cache", version = "1.0.0", entry = "main.lua",
+  required_imports = {
+    { id = "source", file = "source.z64", format = "n64", size = 8,
+      md5 = DIGEST },
+  },
+}, "mods/cache")
+local cacheRows = RequiredImports.inspect(cacheManifest, cacheFs, fakeHash)
+check(cacheRows[1].present, "initial cached import validation succeeds")
+cacheRows = RequiredImports.inspect(cacheManifest, cacheFs, function()
+  error("unchanged cached import should not be hashed again")
+end)
+check(cacheRows[1].present, "validation receipt satisfies the next refresh")
+eq(dataReads, 1, "unchanged imported ROM is read only once")
+cacheFiles["mods/cache/baseroms/source.z64"] = "BADBYTES"
+cacheModtime = 124
+cacheRows = RequiredImports.inspect(cacheManifest, cacheFs, fakeHash)
+check(not cacheRows[1].present, "changed imported ROM bypasses a stale receipt")
+eq(dataReads, 2, "changed imported ROM is read again")
+eq(cacheFiles[RequiredImports.receiptPath(cacheManifest, cacheManifest.required_imports[1])],
+  nil, "stale validation receipt is removed")
 
 local rejected, why = RequiredImports.importData(target, "same_rom", "wrong",
   { hash = fakeHash })
 eq(rejected, nil, "mismatched selection is rejected")
-check(tostring(why):find("Nintendo 64", 1, true) ~= nil,
+check(tostring(why):find("N64 ROM (.z64/.v64/.n64)", 1, true) ~= nil,
   "normalization failure explains the selected format")
 
 love.filesystem.write("mods/launcher_needs/manifest.json", ([[{

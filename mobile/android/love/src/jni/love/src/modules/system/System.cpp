@@ -196,6 +196,8 @@ bool System::pickFile(const char *kind) const
 			dest = "picked_required_import.bin";
 		else if (strcmp(kind, "rom") == 0)
 			dest = "picked_rom.gb";
+		// Unknown kinds used to fall through to the ROM destination. Refuse them
+		// so a newer Lua caller cannot silently route an unrelated file as a ROM.
 		else
 			return false;
 	}

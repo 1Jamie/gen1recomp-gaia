@@ -157,6 +157,8 @@ local function parseImports(value, field, required)
     file = SafePath.require(file, field .. " file")
     assert(not file:find("/", 1, true),
       field .. " file must be a filename inside baseroms")
+    assert(file:sub(1, 1) ~= ".",
+      field .. " file must not use a hidden metadata filename")
     assert(not files[file], "duplicate " .. field .. " file: " .. file)
     files[file] = true
 
@@ -181,12 +183,33 @@ local function parseImports(value, field, required)
     local name = entry.name or id
     assert(type(name) == "string" and name ~= "",
       field .. " name must be a non-empty string")
+    local description = entry.description or entry.hint
+    if description ~= nil then
+      assert(type(description) == "string" and description ~= "",
+        field .. " description must be a non-empty string")
+    end
+    local size = entry.size
+    local maxSize = entry.max_size
+    local function validateSize(value, label)
+      if value == nil then return end
+      assert(type(value) == "number" and value > 0 and value % 1 == 0,
+        field .. " " .. label .. " must be a positive integer")
+      assert(value <= 128 * 1024 * 1024,
+        field .. " " .. label .. " exceeds the 128 MiB hard limit")
+    end
+    validateSize(size, "size")
+    validateSize(maxSize, "max_size")
+    assert(not (size and maxSize) or size <= maxSize,
+      field .. " size must not exceed max_size")
     out[#out + 1] = {
       id = id,
       name = scrubUtf8(name),
+      description = scrubUtf8(description),
       file = file,
       md5 = accepted,
       format = format,
+      size = size,
+      max_size = maxSize,
       required = required ~= false,
     }
   end

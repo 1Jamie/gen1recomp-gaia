@@ -2877,7 +2877,7 @@ local function buildRequiredImportsModal(imp, m)
   end
   local noticeW = w - 2 * pad
   local noticeH = noticeText and Kit.wrapHeight("small", noticeText, noticeW, 2) or 0
-  local rowH = math.max(math.floor(56 * m.s), m.btnH)
+  local rowH = math.max(math.floor(70 * m.s), m.btnH)
   local perPage = math.min(4, math.max(1, #imports))
   local pagerH = #imports > perPage and math.max(Kit.tapMin(), math.floor(30 * m.s)) or 0
   local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
@@ -2914,12 +2914,18 @@ local function buildRequiredImportsModal(imp, m)
     local textW = actionX - innerX - math.floor(8 * m.s)
     Kit.text("small", Kit.ellipsize("small", row.name, textW), innerX,
       cy + math.floor(8 * m.s), PAL.heading)
+    local stateY = cy + math.floor(8 * m.s) + Kit.textHeight("small")
+      + math.floor(3 * m.s)
+    if row.description and row.description ~= "" then
+      Kit.text("micro", Kit.ellipsize("micro", row.description, textW),
+        innerX, stateY, PAL.muted)
+      stateY = stateY + Kit.textHeight("micro") + math.floor(2 * m.s)
+    end
     local state = row.present and Strings("Ready - %s", row.file)
       or (row.error and Strings("Invalid file - choose again")
         or (row.required and Strings("Required - %s", row.file)
           or Strings("Optional - %s", row.file)))
-    Kit.text("micro", Kit.ellipsize("micro", state, textW), innerX,
-      cy + math.floor(8 * m.s) + Kit.textHeight("small") + math.floor(3 * m.s),
+    Kit.text("micro", Kit.ellipsize("micro", state, textW), innerX, stateY,
       row.present and PAL.green or (row.required and PAL.yellow or PAL.muted))
     btn(imp, actionX, cy + (rowH - m.btnH) / 2, actionW, m.btnH,
       "req-pick-" .. mod.id .. "-" .. importId,

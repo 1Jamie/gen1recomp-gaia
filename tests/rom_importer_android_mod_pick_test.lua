@@ -135,6 +135,24 @@ check(ri.requiredImportNotice.text:find("MD5 mismatch", 1, true) ~= nil,
 check(ri.modNotice == nil,
   "required import rejection is not hidden in the general Mods notice")
 
+-- Reported size is checked before the selected file is read into Lua.
+local savedGetInfo = love.filesystem.getInfo
+love.filesystem.getInfo = function(name, kind)
+  if name == "oversized_required.bin" then
+    return { type = "file", size = 10 }
+  end
+  return savedGetInfo(name, kind)
+end
+ri.mods[1].manifest.required_imports[1].max_size = 4
+ri._importRequiredSource = RomImporter._importRequiredSource
+ri._importRequiredData = function(self) self._oversizedWasRead = true end
+ri:_importRequiredSource("needs_source", "source", "oversized_required.bin")
+check(not ri._oversizedWasRead, "oversized required file is rejected before import")
+check(ri.requiredImportNotice.text:find("too large", 1, true) ~= nil,
+  "oversized required file reports its size error in the modal")
+ri.mods[1].manifest.required_imports[1].max_size = nil
+love.filesystem.getInfo = savedGetInfo
+
 ri.nativePicker = true
 ri._importRequiredSource = function(self, modId, importId, source)
   self._requiredImported = { modId = modId, importId = importId, source = source }

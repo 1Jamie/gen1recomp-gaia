@@ -344,6 +344,14 @@ local function readExternalPath(path)
   return data
 end
 
+local function externalFileSize(path)
+  local file = io.open(path, "rb")
+  if not file then return nil end
+  local size = file:seek("end")
+  file:close()
+  return size
+end
+
 local function readDroppedFile(file)
   local ok, openError = file:open("r")
   if not ok then return nil, openError end
@@ -1131,11 +1139,11 @@ local function chooseSav()
   return nil
 end
 
--- Generic user-supplied dependency picker.  Validation is manifest-driven,
--- so the dialog intentionally permits every file extension; a wrong choice
--- cannot reach the mod because its canonical MD5 must match first.
-local function chooseRequiredFile(label)
-  local prompt = shellSafe("Choose " .. tostring(label or "required file"))
+-- Generic user-supplied dependency picker. Keep the native prompt entirely
+-- engine-owned: manifest labels are untrusted and must never enter shell
+-- command templates. The LÖVE modal already shows the specific import name.
+local function chooseRequiredFile()
+  local prompt = shellSafe(Strings("Choose required mod file"))
   local platform = love.system.getOS()
   if platform == "OS X" then
     return commandOutput(
@@ -1819,6 +1827,13 @@ local function requiredManifest(self, modId)
   return nil
 end
 
+local function requiredSpec(manifest, importId)
+  for _, candidate in ipairs(require("src.mods.RequiredImports").specs(manifest)) do
+    if candidate.id == importId then return candidate end
+  end
+  return nil
+end
+
 local function requiredImportNotice(self, modId, importId, text)
   self.requiredImportNotice = {
     modId = modId,
@@ -1850,6 +1865,21 @@ function RomImporter:_importRequiredData(modId, importId, data)
 end
 
 function RomImporter:_importRequiredSource(modId, importId, source)
+  local manifest = requiredManifest(self, modId)
+  local spec = manifest and requiredSpec(manifest, importId)
+  if not spec then
+    requiredImportNotice(self, modId, importId, "Import declaration was not found.")
+    self.modNotice = nil
+    return nil
+  end
+  local info = love.filesystem.getInfo(source, "file")
+  local size = info and info.size or externalFileSize(source)
+  local sizeErr = require("src.mods.RequiredImports").sizeError(spec, size, false)
+  if sizeErr then
+    requiredImportNotice(self, modId, importId, sizeErr)
+    self.modNotice = nil
+    return nil
+  end
   local data = love.filesystem.read(source)
   if not data then data = readExternalPath(source) end
   if not data then
@@ -1881,24 +1911,31 @@ function RomImporter:chooseRequiredImport(modId, importId)
   if self.workState == "working" then return end
   local manifest = requiredManifest(self, modId)
   if not manifest then return end
-  local spec
-  for _, candidate in ipairs(require("src.mods.RequiredImports").specs(manifest)) do
-    if candidate.id == importId then spec = candidate break end
-  end
+  local spec = requiredSpec(manifest, importId)
   if not spec then return end
 
   if self.isNX then
     local inbox = "imports/baseroms"
     love.filesystem.createDirectory(inbox)
+    local lastError
     for _, name in ipairs(love.filesystem.getDirectoryItems(inbox) or {}) do
       if name:sub(1, 1) ~= "." then
         local path = inbox .. "/" .. name
-        local data = love.filesystem.read(path)
+        local info = love.filesystem.getInfo(path, "file")
+        local sizeErr = info and require("src.mods.RequiredImports")
+          .sizeError(spec, info.size, false)
+        local data = not sizeErr and love.filesystem.read(path) or nil
         if data and self:_importRequiredData(modId, importId, data) then return end
+        if sizeErr then lastError = sizeErr
+        elseif self.requiredImportNotice
+            and self.requiredImportNotice.modId == modId
+            and self.requiredImportNotice.importId == importId then
+          lastError = self.requiredImportNotice.text
+        end
       end
     end
-    requiredImportNotice(self, modId, importId,
-      "No matching file in imports/baseroms/. Copy it there over MTP, then try again.")
+    requiredImportNotice(self, modId, importId, lastError
+      or "No matching file in imports/baseroms/. Copy it there over MTP, then try again.")
     self.modNotice = nil
     return
   end
@@ -1925,7 +1962,7 @@ function RomImporter:chooseRequiredImport(modId, importId)
     return
   end
 
-  local path = chooseRequiredFile(spec.name)
+  local path = chooseRequiredFile()
   if path then self:_importRequiredSource(modId, importId, path) end
 end
 

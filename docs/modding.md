@@ -48,8 +48,10 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
     {
       "id": "stadium2",
       "name": "Pokemon Stadium 2 ROM",
+      "description": "Pokemon Stadium 2 (USA), any supported N64 byte order",
       "file": "stadium2.z64",
       "format": "n64",
+      "size": 67108864,
       "md5": ["00000000000000000000000000000000"]
     }
   ],
@@ -116,21 +118,35 @@ When a mod supports multiple games (`"games": ["gen1", "gen2"]`), a dependency c
 out of mod archives while giving every platform the same installation flow.
 Each object requires a stable `id`, a display `name`, a destination `file`
 (a filename, never a path), and one MD5 digest or an array of accepted MD5
-digests. `format` is either `"raw"` (the default) or `"n64"`.
+digests. `format` is either `"raw"` (the default) or `"n64"`. An optional
+`description` gives players dump or region guidance in the import panel.
+`size` declares the exact canonical byte length; `max_size` declares a smaller
+per-import ceiling when an exact size is not appropriate. Every import also
+has an engine-enforced 128 MiB ceiling and is rejected before hashing when its
+filesystem reports an invalid size.
 
 For `"n64"`, the launcher recognizes `.z64`, `.v64`, and `.n64` byte orders,
 strips a recognized 512-byte copier header, converts the bytes to canonical
 big-endian `.z64` order, and then checks MD5. The canonical bytes are written
-to `mods/<mod-id>/baseroms/<file>`. Another installed mod with an overlapping
-accepted MD5 automatically supplies a copy, so the player only selects a ROM
-once. Mods read the result with their existing scoped `mod:read` API, for
+to `mods/<mod-id>/baseroms/<file>`. Each selection is a private grant to that
+mod: the launcher never scans or copies another mod's imported files merely
+because its manifest names the same digest. Mods read the result with their existing scoped `mod:read` API, for
 example `mod:read("baseroms/stadium2.z64")`; no host path or new filesystem
 permission is exposed. Missing `required_imports` block the mod before its
 entry chunk runs; missing `optional_imports` remain visible in the same
 launcher panel but do not block loading.
 
-MD5 here identifies a known dump; it is not used as a security or authenticity
-guarantee. Mod archives must not include anything beneath `baseroms/`.
+MD5 here identifies a known dump because ROM databases commonly publish it;
+it is not a security or authenticity guarantee. Do not paste the SHA-1 used by
+Gen1Recomp's own game-ROM importer into an import's `md5` field. Mod archives
+must not include anything beneath `baseroms/`. The engine records a validation
+receipt keyed by file size and modification time so launcher refreshes and
+later boots do not repeatedly hash an unchanged imported ROM.
+
+New mobile code should call `love.system.pickFile("required_import")`. The
+older iOS-only `"stadium"` picker kind remains temporarily for compatibility.
+Android now returns `false` for unknown picker kinds instead of treating them
+as game-ROM picks.
 
 ## Mods and Gold (Gen 2)
 
