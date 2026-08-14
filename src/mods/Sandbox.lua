@@ -46,11 +46,11 @@ function Sandbox.moduleDenial(name, permissionSet)
   local reason = DENIED[root]
   if reason then
     return ("%s is not available to mods (it grants %s); use mod.storage, "
-      .. "mod:read and the engine API instead"):format(name, reason)
+      .. "mod:read, mod:list and the engine API instead"):format(name, reason)
   end
   if DENIED_PREFIX[root] and name ~= root then
-    return ("%s is not available to mods; use mod.storage, mod:read and the "
-      .. "engine API instead"):format(name)
+    return ("%s is not available to mods; use mod.storage, mod:read, mod:list "
+      .. "and the engine API instead"):format(name)
   end
   if NETWORK[root] and not (permissionSet or {}).network then
     return ("%s needs the \"network\" permission in manifest.json"):format(name)
@@ -68,7 +68,7 @@ end
 -- without an edit here.
 -- value is the replacement to name in the error, or true when there is none
 local BLOCKED_LOVE = {
-  filesystem = "mod.storage and mod:read", thread = true,
+  filesystem = "mod.storage, mod:read and mod:list", thread = true,
   system = "mod.device:powerInfo() for battery information, mod.steps for "
     .. "the step bridge", event = true,
 }
