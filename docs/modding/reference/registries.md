@@ -929,6 +929,10 @@ mod.content.sfx:register("SFX_MOD_CHIME", { file = "chime.ogg" })
 
 | field | type | required |
 |---|---|---|
+| `anchorX` | number | no |
+| `anchorY` | number | no |
+| `frameHeight` | integer >= 1 | no |
+| `frameWidth` | integer >= 1 | no |
 | `frames` | integer >= 1 | yes |
 | `id` | string | no |
 | `image` | file path | yes |
@@ -1100,6 +1104,7 @@ mod.content.tokens:register("CLOCK", function(game) return "12" end)
 | `paletteSource` | string | no |
 | `parties` | list of list of {level, species} | yes |
 | `pic` | file path | no |
+| `trueColor` | boolean | no |
 
 ```lua
 mod.content.trainers:patch("OPP_BROCK", { baseMoney = 99 })
@@ -1122,7 +1127,9 @@ do not.
 | `index` | integer 0..255 | no |
 | `items` | list of items id | no |
 | `name` | string | yes |
+| `pic` | file path | no |
 | `trainers` | list of {id?, index?, name, party, trainerType?} | yes |
+| `trueColor` | boolean | no |
 
 ```lua
 mod.content.trainers:patch("BEAUTY", { baseMoney = 99 })

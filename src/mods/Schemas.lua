@@ -1017,6 +1017,9 @@ R.trainers = {
     index = f.opt(f.int(0, 255)),
     -- unused vanilla classes ship without a pic, so it cannot be required
     pic = f.opt(f.path),
+    -- Full-color portrait: skip the 4-shade SGB/GBC remap, same flag pokemon
+    -- and sprites already carry.
+    trueColor = f.opt(f.bool),
     -- Optional Advanced-mode OBJ palette source for a custom trainer portrait.
     -- It follows the same ROM crosswalk form as sprites.paletteSource.
     paletteSource = f.opt(f.str),
@@ -1068,6 +1071,11 @@ R.trainers = {
   gen2Fields = {
     id = f.opt(f.str), name = f.str,
     index = f.opt(f.int(0, 255)),
+    -- class frontpic; when set, this wins over menu_gfx.battleHud.trainerPics
+    pic = f.opt(f.path),
+    -- Full-color portrait: skip the GBC 4-shade remap, same flag Gen 1
+    -- trainers and pokemon already carry.
+    trueColor = f.opt(f.bool),
     baseMoney = f.opt(f.int(0)),
     -- the class's battle theme; Gen 1 spells the same idea `battleTheme`,
     -- but this is the extractor's own key and a strict rename would reject
