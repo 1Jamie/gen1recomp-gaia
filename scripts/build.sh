@@ -261,6 +261,21 @@ build_win() {
   cp "$love_dir"/*.dll "$out_dir"/
   cp "$love_dir"/license.txt "$out_dir"/ 2>/dev/null || true
 
+  # Native AOT TLS dialer for outbound wss:// (e.g. Archipelago hosted rooms).
+  # Release CI builds this on windows-2022 (Native AOT can't cross-compile
+  # win-x64 from the Mac runner) and either exports GEN1TLS_DLL or drops the
+  # file at dist/native/win-x64/gen1tls.dll before calling build.sh.
+  local tls_dll="${GEN1TLS_DLL:-}"
+  if [ -z "$tls_dll" ] && [ -f "$DIST/native/win-x64/gen1tls.dll" ]; then
+    tls_dll="$DIST/native/win-x64/gen1tls.dll"
+  fi
+  if [ -n "$tls_dll" ] && [ -f "$tls_dll" ]; then
+    cp "$tls_dll" "$out_dir/gen1tls.dll"
+    say "bundled gen1tls.dll for Windows TLS (wss://)"
+  else
+    warn "gen1tls.dll not found — Windows zip will not support wss:// (set GEN1TLS_DLL or build native/tls_dial)"
+  fi
+
   # The exe's icon lives in love.exe's PE resources, so it must be patched
   # BEFORE the .love is appended: peresed rewrites the whole file and would
   # drop the fused bytes. peresed (pipx install pe_tools) has no .ico input,
