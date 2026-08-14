@@ -763,6 +763,11 @@ name and the existing payload, plus fields where Gen 2 genuinely carries more
 
 The list is much shorter than it was. What is outstanding, in descending value:
 
+- `trainer.before_battle`: Gold constructs and pushes its trainer battle in
+  `src/world/gen2/World.lua:startBattle`, which does not yet expose a deferred
+  preparation boundary or a battle-local player-party view. Gen 1 mods can use
+  the hook documented in `docs/modding.md`; do not claim Gold compatibility
+  when that selection is required.
 - `pokemon.before_give` / `pokemon.received`: Gold has no give-mon seam of its
   own yet.
 - `link.*` and `trade.completed`: a Gold boot offers no link menu at all. The

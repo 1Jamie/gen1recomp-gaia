@@ -423,6 +423,43 @@ animation/messages, forced choices, and every phase that cannot safely be
 checkpointed remain excluded. Exceptions are contained by normal hook isolation
 and fall through without advancing a turn.
 
+Gen 1 trainer encounters also expose `trainer.before_battle` after the
+challenge text and immediately before battle construction. This lets a mod
+defer the encounter while it collects a player choice through a registered
+screen, then resume with a battle-local view of the save party:
+
+```lua
+mod.hooks:wrap("trainer.before_battle", function(next, game, context, continue)
+  -- context = { trainerClass, partyIndex, mapId, npcId }
+  mod.ui.push(game, "party_registration", {
+    onConfirm = function(indices)
+      continue({ playerPartyIndices = indices })
+    end,
+    onCancel = function()
+      continue({ cancel = true })
+    end,
+  })
+  return true
+end)
+```
+
+Return `true` only when retaining `continue` for a later callback. Calling
+`continue({ cancel = true })` ends the encounter without constructing a battle;
+the normal encounter completion callback returns control to the overworld and
+no trainer-defeated state is written. A cancelled sight encounter is suppressed
+at the current player cell so it cannot immediately reopen; moving one cell or
+talking to the trainer permits a new challenge. Calling `continue()` uses the
+full save party; passing
+`{ playerPartyIndices = { 2, 4, 5 } }` uses those ordered, one-based party
+members for initial send, switching and forced replacement, exhaustion,
+experience traversal, and battle party displays. The continuation is one-shot.
+An empty, duplicate, out-of-range, or otherwise malformed list safely falls
+back to the full party. The view references the original Pokemon records and
+never reorders or replaces `game.save.party`; trainer battle checkpoints retain
+the selected indices. Mods remain responsible for selection policy and should
+use only public `mod.ui`, hook, and save APIs. See RFC 0010 for the exact
+contract and compatibility guarantees.
+
 ## Developer console
 
 Boot with developer mode on to unlock the in-game console and hot-reload
