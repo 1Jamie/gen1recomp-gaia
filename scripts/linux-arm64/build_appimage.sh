@@ -93,7 +93,8 @@ build_autotools mpg123 "$MPG123_VERSION" "$MPG123_TARBALL" libmpg123.so.0 \
 # The symbol that was missing when this was bullseye's copy. Assert it, so a
 # version bump that quietly regresses below the host's expectations fails the
 # build instead of silently killing audio again.
-objdump -T "$PREFIX/lib/libmpg123.so.0" | grep -q 'mpg123_info2' \
+mpg123_syms="$(objdump -T "$PREFIX/lib/libmpg123.so.0")"
+grep -q 'mpg123_info2' <<<"$mpg123_syms" \
   || fail "bundled libmpg123 lacks mpg123_info2; the host's libsndfile will fail to relocate"
 
 # ------------------------------------------------------------ compile SDL2
@@ -128,8 +129,9 @@ fi
 # the host having that exact stack -- which is the bug this replaced.
 sdl_lib="$PREFIX/lib/libSDL2-2.0.so.0"
 [ -f "$sdl_lib" ] || fail "SDL2 build produced no libSDL2-2.0.so.0"
+sdl_needed="$(objdump -p "$sdl_lib")"
 for forbidden in libpulse libasound libX11 libwayland libdrm libgbm libsndio; do
-  if objdump -p "$sdl_lib" | grep -q "NEEDED.*$forbidden"; then
+  if grep -q "NEEDED.*$forbidden" <<<"$sdl_needed"; then
     fail "SDL2 hard-links $forbidden; it must dlopen its backends (--enable-*-shared)"
   fi
 done
@@ -164,8 +166,9 @@ fi
 
 openal_lib="$PREFIX/lib/libopenal.so.1"
 [ -f "$openal_lib" ] || fail "openal-soft build produced no libopenal.so.1"
+openal_needed="$(objdump -p "$openal_lib")"
 for forbidden in libsndio libasound libpulse libjack; do
-  if objdump -p "$openal_lib" | grep -q "NEEDED.*$forbidden"; then
+  if grep -q "NEEDED.*$forbidden" <<<"$openal_needed"; then
     fail "openal hard-links $forbidden; backends must stay behind dlopen"
   fi
 done
@@ -196,7 +199,8 @@ fi
 
 theora_lib="$PREFIX/lib/libtheoradec.so.1"
 [ -f "$theora_lib" ] || fail "libtheora build produced no libtheoradec.so.1"
-if objdump -p "$theora_lib" | grep -q "NEEDED.*libcairo"; then
+theora_needed="$(objdump -p "$theora_lib")"
+if grep -q "NEEDED.*libcairo" <<<"$theora_needed"; then
   fail "libtheoradec still links libcairo (--disable-examples stopped working)"
 fi
 
@@ -231,16 +235,18 @@ love_bin="$PREFIX/bin/love"
 love_lib="$PREFIX/lib/liblove-$LOVE_VERSION.so"
 [ -x "$love_bin" ] || fail "LÖVE build produced no bin/love"
 [ -f "$love_lib" ] || fail "LÖVE build produced no lib/liblove-$LOVE_VERSION.so"
-file "$love_bin" | grep -q 'ARM aarch64' \
+love_file="$(file "$love_bin")"
+grep -q 'ARM aarch64' <<<"$love_file" \
   || fail "built love is not an aarch64 ELF (got: $(file -b "$love_bin"))"
 
 # A configure run that lost an optional dependency still exits 0 and still
 # builds -- the loss only shows up as a missing love module at runtime, i.e.
 # in a shipped artifact. Assert the decoder/font/video libs really linked.
+love_needed="$(objdump -p "$love_lib")"
 for soname in libSDL2-2.0.so.0 libopenal.so.1 libfreetype.so.6 \
               libmodplug.so.1 libmpg123.so.0 libvorbisfile.so.3 \
               libtheoradec.so.1 libluajit-5.1.so.2; do
-  objdump -p "$love_lib" | grep -q "NEEDED.*$soname" \
+  grep -q "NEEDED.*$soname" <<<"$love_needed" \
     || fail "liblove is not linked against $soname (a -dev package went missing)"
 done
 
