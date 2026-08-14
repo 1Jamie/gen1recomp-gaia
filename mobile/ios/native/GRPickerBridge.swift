@@ -5,7 +5,7 @@
 // without updating that patch (see mobile/ios/patch_love_src.py).
 //
 // Contract (mirrors love-android's GameActivity.showFilePicker):
-//   love.system.pickFile("rom"|"mod"|"sav") -> copies the user's pick into
+//   love.system.pickFile("rom"|"mod"|"sav"|"required_import") -> copies the user's pick into
 //   the LÖVE save directory as picked_rom.gb / picked_mod.zip /
 //   picked_save.sav; RomImporter's pending-file scan consumes it.
 //   love.system.createFile(name) -> exports save dir's pending_export.sav
@@ -83,6 +83,8 @@ public final class GRPickerBridge: NSObject {
             types = [.zip]
         case "sav":
             destName = "picked_save.sav"
+        case "required_import":
+            destName = "picked_required_import.bin"
         // A Nintendo 64 cartridge, for mods that build assets out of one --
         // the voxel mod's Pokemon Stadium battle models are the caller this
         // was added for. Its own filename on purpose: an N64 ROM landing on
@@ -135,7 +137,7 @@ public final class GRPickerBridge: NSObject {
     // Kept beside the switch it describes, because the two drifting apart is
     // the only way this can lie.
     @objc public static func supportedPickerKinds() -> NSString {
-        return "rom,mod,sav,stadium" as NSString
+        return "rom,mod,sav,stadium,required_import" as NSString
     }
 
     @objc(presentExportWithName:saveDir:)

@@ -638,6 +638,7 @@ end
 
 local function modStatusColor(status)
   if status == "ok" then return Strings("Ready"), PAL.green end
+  if status == "needs_import" then return Strings("Import required"), PAL.yellow end
   if status == "conflict" then return Strings("Conflict"), PAL.red end
   -- not a fault: the mod is intact, this is simply not a game it is for
   -- (src/mods/ModTargets.lua)
@@ -2767,11 +2768,14 @@ local function buildModActionsModal(imp, m)
   local hasGit = mod.github and mod.github ~= ""
   local depSpecs = mod.dependencySpecs or (mod.manifest and mod.manifest.dependencySpecs)
   local hasDeps = depSpecs and #depSpecs > 0
+  local imports = mod.imports or mod.requiredImports
+  local hasImports = imports and #imports > 0
   local info = hasGit and imp:_modUpdateInfo(mod.id)
   local pad = math.floor(18 * m.s)
   local w = math.floor(440 * m.s)
   local gap = math.floor(8 * m.s)
-  local nBtns = (hasGit and 2 or 0) + (hasDeps and 1 or 0) + 2
+  local nBtns = (hasGit and 2 or 0) + (hasDeps and 1 or 0)
+    + (hasImports and 1 or 0) + 2
   local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
     + Kit.textHeight("small") + math.floor(12 * m.s)
     + nBtns * (m.btnH + gap) - gap + pad
@@ -2821,6 +2825,19 @@ local function buildModActionsModal(imp, m)
         end })
     cy = cy + m.btnH + gap
   end
+  if hasImports then
+    local missing = tonumber(mod.missingRequiredImports) or 0
+    local label = missing > 0
+      and Strings("Imported files (%d required)", missing)
+      or Strings("Imported files")
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-imports",
+      label, { kind = missing > 0 and "warn" or "accent", font = "small",
+        action = function()
+          imp._modImports = id
+          imp._modActions = nil
+        end })
+    cy = cy + m.btnH + gap
+  end
   local armed = deleteArmed(imp, "mod", id, nil)
   btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-del",
     DELETE_LABEL(armed), {
@@ -2835,6 +2852,103 @@ local function buildModActionsModal(imp, m)
   btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modact-close",
     Strings("Close"), { font = "small",
       action = function() imp._modActions = nil end })
+end
+
+-- Imported files declared by one installed mod.  The engine picks, validates,
+-- canonicalizes and copies; this surface never exposes a host path to mod code.
+local function buildRequiredImportsModal(imp, m)
+  local mod
+  for _, candidate in ipairs(imp.mods or {}) do
+    if candidate.id == imp._modImports then mod = candidate break end
+  end
+  if not mod then imp._modImports = nil return end
+  local imports = mod.imports or mod.requiredImports or {}
+  local pad, gap = math.floor(18 * m.s), math.floor(8 * m.s)
+  local w = math.floor(540 * m.s)
+  local notice = imp.requiredImportNotice
+  if not notice or notice.modId ~= mod.id then notice = nil end
+  local noticeText
+  if notice then
+    local importName = notice.importId
+    for _, row in ipairs(imports) do
+      if row.id == notice.importId then importName = row.name break end
+    end
+    noticeText = Strings("%s rejected: %s", importName, notice.text)
+  end
+  local noticeW = w - 2 * pad
+  local noticeH = noticeText and Kit.wrapHeight("small", noticeText, noticeW, 2) or 0
+  local rowH = math.max(math.floor(56 * m.s), m.btnH)
+  local perPage = math.min(4, math.max(1, #imports))
+  local pagerH = #imports > perPage and math.max(Kit.tapMin(), math.floor(30 * m.s)) or 0
+  local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
+    + Kit.textHeight("small") + math.floor(12 * m.s)
+    + noticeH + (noticeH > 0 and gap or 0)
+    + perPage * rowH + math.max(0, perPage - 1) * gap
+    + (pagerH > 0 and (gap + pagerH) or 0) + gap + m.btnH + pad
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Kit.ellipsize("button", mod.name, pw - 2 * pad),
+    px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
+  Kit.text("small", Strings("User-supplied files are validated by MD5 and copied into this mod only."),
+    px + pad, cy, PAL.muted)
+  cy = cy + Kit.textHeight("small") + math.floor(12 * m.s)
+  if noticeText then
+    cy = cy + Kit.textWrapped("small", noticeText, px + pad, cy,
+      pw - 2 * pad, PAL.red, 2) + gap
+  end
+
+  local pageKey = "required-imports-" .. mod.id
+  local cur = page(imp, pageKey)
+  local first, last, bounded = Kit.pageBounds(cur, #imports, perPage)
+  setPage(imp, pageKey, bounded)
+  for i = first, last do
+    local row = imports[i]
+    local importId = row.id
+    Kit.card(px + pad, cy, pw - 2 * pad, rowH, row.present and "muted" or false)
+    local innerX = px + pad + math.floor(12 * m.s)
+    local actionW = math.floor(108 * m.s)
+    local removeW = row.present and math.floor(86 * m.s) or 0
+    local actionX = px + pw - pad - math.floor(10 * m.s) - actionW
+    if removeW > 0 then actionX = actionX - removeW - math.floor(6 * m.s) end
+    local textW = actionX - innerX - math.floor(8 * m.s)
+    Kit.text("small", Kit.ellipsize("small", row.name, textW), innerX,
+      cy + math.floor(8 * m.s), PAL.heading)
+    local state = row.present and Strings("Ready - %s", row.file)
+      or (row.error and Strings("Invalid file - choose again")
+        or (row.required and Strings("Required - %s", row.file)
+          or Strings("Optional - %s", row.file)))
+    Kit.text("micro", Kit.ellipsize("micro", state, textW), innerX,
+      cy + math.floor(8 * m.s) + Kit.textHeight("small") + math.floor(3 * m.s),
+      row.present and PAL.green or (row.required and PAL.yellow or PAL.muted))
+    btn(imp, actionX, cy + (rowH - m.btnH) / 2, actionW, m.btnH,
+      "req-pick-" .. mod.id .. "-" .. importId,
+      row.present and Strings("Replace") or Strings("Choose file"), {
+        kind = row.present and "ghost" or "accent", font = "small",
+        action = function() imp:chooseRequiredImport(mod.id, importId) end })
+    if row.present then
+      local deleteId = mod.id .. ":" .. importId
+      local armed = deleteArmed(imp, "required-import", deleteId, nil)
+      btn(imp, actionX + actionW + math.floor(6 * m.s),
+        cy + (rowH - m.btnH) / 2, removeW, m.btnH,
+        "req-remove-" .. mod.id .. "-" .. row.id, DELETE_LABEL(armed), {
+          kind = "danger", font = "small", keepArm = true,
+          action = function()
+            imp:pressDelete("required-import", deleteId, nil, function()
+              imp:_removeRequiredImport(mod.id, importId)
+            end)
+          end })
+    end
+    cy = cy + rowH + gap
+  end
+  if pagerH > 0 then
+    local newPage = Kit.pager(px + pad, cy, pw - 2 * pad, bounded,
+      #imports, perPage, pageKey)
+    setPage(imp, pageKey, newPage)
+    cy = cy + pagerH + gap
+  end
+  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "req-close", Strings("Close"), {
+    font = "small", action = function() imp._modImports = nil end })
 end
 
 -- Per-mod popup for FIND MODS: the row is a plain click, and Install /
@@ -3377,7 +3491,8 @@ local function modalUp(imp)
     or imp._indexPrompt or imp._modConfirm or imp._modReleaseNotes
     or imp._appPatchNotes
     or imp._findDetails or imp._modVersions or imp._modDepResolver or imp._sortPopup
-    or imp._filterPopup or imp._modScopePopup or imp._indexManage or imp._modActions
+    or imp._filterPopup or imp._modScopePopup or imp._indexManage
+    or imp._modActions or imp._modImports
     or imp._modHeaderActionsPopup or imp._profilesPopup or imp._singleProfileActions or imp._profileSavePrompt
     or imp._profileRenamePrompt or imp._findEntry or imp._gameManage) ~= nil
 end
@@ -3509,6 +3624,7 @@ local function buildModals(imp, m)
   end
   if imp._modVersions then buildVersionsModal(imp, m) return true end
   if imp._modDepResolver then buildDepResolverModal(imp, m) return true end
+  if imp._modImports then buildRequiredImportsModal(imp, m) return true end
   -- The lighter popups come after the deep ones on purpose: opening
   -- Versions or Details from inside an actions popup draws the deeper modal
   -- while the popup's own state stays set, so closing the deep one drops

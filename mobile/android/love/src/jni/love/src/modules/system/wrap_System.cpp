@@ -102,6 +102,12 @@ int w_pickFile(lua_State *L)
 	return 1;
 }
 
+int w_pickFileKinds(lua_State *L)
+{
+	luax_pushstring(L, instance()->pickFileKinds());
+	return 1;
+}
+
 int w_createFile(lua_State *L)
 {
 	const char *suggested = luaL_optstring(L, 1, nullptr);
@@ -222,6 +228,7 @@ static const luaL_Reg functions[] =
 	{ "openURL", w_openURL },
 	{ "vibrate", w_vibrate },
 	{ "pickFile", w_pickFile },
+	{ "pickFileKinds", w_pickFileKinds },
 	{ "createFile", w_createFile },
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "restartApp", w_restartApp },

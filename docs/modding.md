@@ -44,6 +44,23 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
   "optional_dependencies": [
     "gen1_modern_ui"
   ],
+  "required_imports": [
+    {
+      "id": "stadium2",
+      "name": "Pokemon Stadium 2 ROM",
+      "file": "stadium2.z64",
+      "format": "n64",
+      "md5": ["00000000000000000000000000000000"]
+    }
+  ],
+  "optional_imports": [
+    {
+      "id": "bonus_source",
+      "name": "Optional bonus source",
+      "file": "bonus.bin",
+      "md5": "00000000000000000000000000000000"
+    }
+  ],
   "conflicts": [],
   "permissions": ["engine_internals"],
   "description": "A brief description of the mod.",
@@ -67,6 +84,8 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
 | `priority` | `integer` | Load priority order (lower numbers load earlier; dependencies always precede dependents regardless of priority). |
 | `dependencies` | `array` | Hard required dependencies. A mod will not load if a required dependency is missing or disabled for the active game. |
 | `optional_dependencies` | `array` | Soft dependencies. Guarantees that if the target mod is present and active, it loads *before* this mod without blocking load if absent. |
+| `required_imports` | `array` | User-supplied files required by this mod. The launcher validates and copies each file into this mod's `baseroms/` directory; the mod does not load while one is missing. |
+| `optional_imports` | `array` | User-supplied files that unlock optional mod functionality. They use the same validation and private-copy flow but never block the mod from loading. |
 | `conflicts` / `incompatible` | `array` | List of mod IDs that cannot run concurrently with this mod. |
 | `permissions` | `array` | Requested privileges (e.g. `["engine_internals"]`, `["network"]`, `["filesystem"]`). |
 | `github` | `string` | GitHub repository (`"owner/repo"`) used for update checks and dependency download links. |
@@ -90,6 +109,28 @@ Dependencies in `dependencies` and `optional_dependencies` can be declared in se
 
 #### Version-Scoped Dependencies
 When a mod supports multiple games (`"games": ["gen1", "gen2"]`), a dependency can specify `"games": ["gen2"]` to indicate it is only required when booting Gen 2. When booting Gen 1, the engine will ignore the dependency, preventing unnecessary boot blocks on games that do not need it.
+
+### Required user-supplied files
+
+`required_imports` and `optional_imports` keep copyrighted or otherwise user-owned source material
+out of mod archives while giving every platform the same installation flow.
+Each object requires a stable `id`, a display `name`, a destination `file`
+(a filename, never a path), and one MD5 digest or an array of accepted MD5
+digests. `format` is either `"raw"` (the default) or `"n64"`.
+
+For `"n64"`, the launcher recognizes `.z64`, `.v64`, and `.n64` byte orders,
+strips a recognized 512-byte copier header, converts the bytes to canonical
+big-endian `.z64` order, and then checks MD5. The canonical bytes are written
+to `mods/<mod-id>/baseroms/<file>`. Another installed mod with an overlapping
+accepted MD5 automatically supplies a copy, so the player only selects a ROM
+once. Mods read the result with their existing scoped `mod:read` API, for
+example `mod:read("baseroms/stadium2.z64")`; no host path or new filesystem
+permission is exposed. Missing `required_imports` block the mod before its
+entry chunk runs; missing `optional_imports` remain visible in the same
+launcher panel but do not block loading.
+
+MD5 here identifies a known dump; it is not used as a security or authenticity
+guarantee. Mod archives must not include anything beneath `baseroms/`.
 
 ## Mods and Gold (Gen 2)
 

@@ -981,6 +981,25 @@ local function findPendingSav(preferAny, skip)
   return nil
 end
 
+local function pickerHasKind(kind)
+  local fn = love.system.pickFileKinds
+  if type(fn) ~= "function" then return false end
+  local ok, kinds = pcall(fn)
+  if not ok or type(kinds) ~= "string" then return false end
+  for token in kinds:gmatch("[^,%s]+") do
+    if token == kind then return true end
+  end
+  return false
+end
+
+local function findPendingRequiredImport()
+  local names = { "picked_required_import.bin", "picked_stadium.z64" }
+  for _, name in ipairs(names) do
+    if love.filesystem.getInfo(name, "file") then return name end
+  end
+  return nil
+end
+
 -- Retire an Android pick once it has been through the installer / importer,
 -- whether or not it worked: a pick left on disk wins the scans above forever,
 -- so the next tap re-runs the same failing file and the picker never reopens
@@ -1112,6 +1131,39 @@ local function chooseSav()
   return nil
 end
 
+-- Generic user-supplied dependency picker.  Validation is manifest-driven,
+-- so the dialog intentionally permits every file extension; a wrong choice
+-- cannot reach the mod because its canonical MD5 must match first.
+local function chooseRequiredFile(label)
+  local prompt = shellSafe("Choose " .. tostring(label or "required file"))
+  local platform = love.system.getOS()
+  if platform == "OS X" then
+    return commandOutput(
+      ([[osascript -e 'POSIX path of (choose file with prompt "%s")' 2>/dev/null]])
+        :format(prompt))
+  elseif platform == "Windows" then
+    local script = table.concat({
+      "Add-Type -AssemblyName System.Windows.Forms;",
+      "$d=New-Object System.Windows.Forms.OpenFileDialog;",
+      "$d.Title='" .. prompt .. "';",
+      "$d.Filter='All files (*.*)|*.*';",
+      "if($d.ShowDialog() -eq 'OK'){",
+      "$t=Join-Path $env:TEMP 'pokeport_required_import.bin';",
+      "Copy-Item -LiteralPath $d.FileName -Destination $t -Force;",
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
+      "[Console]::Write($t)}",
+    })
+    return commandOutput(
+      'powershell -NoProfile -STA -Command "' .. script .. '"')
+  elseif platform == "Linux" then
+    local path = commandOutput(
+      ([[zenity --file-selection --title="%s" 2>/dev/null]]):format(prompt))
+    if path then return path end
+    return commandOutput([[kdialog --getopenfilename "$HOME" 2>/dev/null]])
+  end
+  return nil
+end
+
 -- The self-updater only surfaces on the real distributed build: a fused,
 -- interactive launcher with no scripted-run override.  A dev / source checkout
 -- (unfused, where Boot.run already no-ops) or an autopilot / driver /
@@ -1230,7 +1282,9 @@ function RomImporter.new(onComplete, opts)
     -- (refreshed lazily on first draw and after any toggle/install/delete);
     -- modScroll is the current paged list's inner scroll offset (px, clamped
     -- in draw); modNotice is the last install/delete result { ok, text }.
-    mods = nil, modScroll = 0, modNotice = nil,
+    -- requiredImportNotice stays inside the imported-files modal so validation
+    -- failures are visible beside the file picker that caused them.
+    mods = nil, modScroll = 0, modNotice = nil, requiredImportNotice = nil,
     -- Which game the MODS panel is answering for (a GameVersion id, nil =
     -- every game).  Rows resolve their enable-state and their "runs here"
     -- verdict against it (src/mods/ModTargets.lua).
@@ -1420,7 +1474,13 @@ function RomImporter:focus(f)
     local text = "Could not read the picked file. Reopen the picker and choose "
       .. "it with the Files (Documents) app, or copy it into: "
       .. love.filesystem.getSaveDirectory()
-    if pickError:find("picked_mod", 1, true) then
+    if pickError:find("picked_required_import", 1, true)
+        or pickError:find("picked_stadium", 1, true) then
+      self.modNotice = { ok = false, text = text }
+      self.pickerPendingKind = nil
+      self.pickerPendingModId = nil
+      self.pickerPendingImportId = nil
+    elseif pickError:find("picked_mod", 1, true) then
       self.modNotice = { ok = false, text = text }
     elseif pickError:find("picked_save", 1, true) then
       local version = self.androidPendingVersion or self:_savedropTarget()
@@ -1428,6 +1488,20 @@ function RomImporter:focus(f)
       self.saveNotice[version] = { ok = false, text = text }
     else
       self:setError(text)
+    end
+    return
+  end
+  local requiredName = findPendingRequiredImport()
+  if requiredName then
+    local modId, importId = self.pickerPendingModId, self.pickerPendingImportId
+    self.pickerPendingKind = nil
+    self.pickerPendingModId, self.pickerPendingImportId = nil, nil
+    local imported = modId and importId
+      and self:_importRequiredSource(modId, importId, requiredName)
+    consumePick(self, requiredName, requiredName, imported)
+    if not modId or not importId then
+      self.modNotice = { ok = false,
+        text = "A picked dependency file had no pending mod request and was discarded." }
     end
     return
   end
@@ -1738,6 +1812,123 @@ function RomImporter:chooseMod()
   if path then self:_installMod(path) end
 end
 
+local function requiredManifest(self, modId)
+  for _, row in ipairs(self.mods or {}) do
+    if row.id == modId then return row.manifest, row end
+  end
+  return nil
+end
+
+local function requiredImportNotice(self, modId, importId, text)
+  self.requiredImportNotice = {
+    modId = modId,
+    importId = importId,
+    text = tostring(text),
+  }
+end
+
+function RomImporter:_importRequiredData(modId, importId, data)
+  local manifest = requiredManifest(self, modId)
+  if not manifest then
+    self.modNotice = { ok = false, text = "Required import failed: mod not found." }
+    return nil
+  end
+  local ok, result = require("src.mods.RequiredImports")
+    .importData(manifest, importId, data)
+  if ok then
+    self.requiredImportNotice = nil
+    self.modNotice = { ok = true, text = "Imported " .. tostring(importId)
+      .. " for " .. tostring(manifest.name or manifest.id) .. "." }
+    self:_refreshMods()
+    return true
+  end
+  -- Keep validation feedback on the imported-files page.  A general Mods-page
+  -- notice is hidden by this modal and made MD5 failures especially easy to miss.
+  requiredImportNotice(self, modId, importId, result)
+  self.modNotice = nil
+  return nil
+end
+
+function RomImporter:_importRequiredSource(modId, importId, source)
+  local data = love.filesystem.read(source)
+  if not data then data = readExternalPath(source) end
+  if not data then
+    requiredImportNotice(self, modId, importId, "Could not read the selected file.")
+    self.modNotice = nil
+    return nil
+  end
+  return self:_importRequiredData(modId, importId, data)
+end
+
+function RomImporter:_removeRequiredImport(modId, importId)
+  local manifest = requiredManifest(self, modId)
+  if not manifest then return end
+  local ok, err = require("src.mods.RequiredImports").remove(manifest, importId)
+  if ok then
+    self.requiredImportNotice = nil
+    self.modNotice = { ok = true, text = "Deleted " .. tostring(importId) .. "." }
+    self:_refreshMods()
+  else
+    requiredImportNotice(self, modId, importId, err)
+    self.modNotice = nil
+  end
+end
+
+-- Select and validate one manifest-declared file.  NX has no host picker, so
+-- its equivalent is an engine-owned imports/baseroms inbox that can be filled
+-- over MTP; every other native/mobile picker lands on the same validation path.
+function RomImporter:chooseRequiredImport(modId, importId)
+  if self.workState == "working" then return end
+  local manifest = requiredManifest(self, modId)
+  if not manifest then return end
+  local spec
+  for _, candidate in ipairs(require("src.mods.RequiredImports").specs(manifest)) do
+    if candidate.id == importId then spec = candidate break end
+  end
+  if not spec then return end
+
+  if self.isNX then
+    local inbox = "imports/baseroms"
+    love.filesystem.createDirectory(inbox)
+    for _, name in ipairs(love.filesystem.getDirectoryItems(inbox) or {}) do
+      if name:sub(1, 1) ~= "." then
+        local path = inbox .. "/" .. name
+        local data = love.filesystem.read(path)
+        if data and self:_importRequiredData(modId, importId, data) then return end
+      end
+    end
+    requiredImportNotice(self, modId, importId,
+      "No matching file in imports/baseroms/. Copy it there over MTP, then try again.")
+    self.modNotice = nil
+    return
+  end
+  if self.nativePicker then
+    if self.mobileFileBridge and not pickerHasKind("required_import") then
+      requiredImportNotice(self, modId, importId,
+        "This app build cannot pick required mod files yet. Update the app and try again.")
+      self.modNotice = nil
+      return
+    end
+    self.pickerPendingKind = "required_import"
+    self.pickerPendingModId = modId
+    self.pickerPendingImportId = importId
+    if not pickFile("required_import") then
+      self.pickerPendingKind = nil
+      self.pickerPendingModId = nil
+      self.pickerPendingImportId = nil
+      requiredImportNotice(self, modId, importId, "Could not open the file picker.")
+      self.modNotice = nil
+    elseif self.android then
+      self.pickPending = true
+      self.pickTimer = 0
+    end
+    return
+  end
+
+  local path = chooseRequiredFile(spec.name)
+  if path then self:_importRequiredSource(modId, importId, path) end
+end
+
 -- Which game a dropped .sav imports into: a .sav has no version signature of
 -- its own, so it lands on the active game tab.  When a non-game tab (mods) is
 -- showing, default to red -- the always-present first game -- rather than
@@ -2045,7 +2236,8 @@ function RomImporter:_pollPickedFiles(dt)
   if not found then
     for _, name in ipairs(love.filesystem.getDirectoryItems("")) do
       local n = name:lower()
-      if n:match("%.gbc?$") or n == "picked_mod.zip" or n == "picked_save.sav" then
+      if n:match("%.gbc?$") or n == "picked_mod.zip" or n == "picked_save.sav"
+          or n == "picked_required_import.bin" or n == "picked_stadium.z64" then
         found = true
         break
       end
@@ -2174,7 +2366,12 @@ function RomImporter:update(dt)
       local version = self.pickerPendingVersion
       self.pickerPendingKind = nil
       self.pickerPendingVersion = nil
-      if kind == "mod" then
+      if kind == "required_import" then
+        local modId, importId = self.pickerPendingModId, self.pickerPendingImportId
+        self.pickerPendingModId, self.pickerPendingImportId = nil, nil
+        if modId and importId then self:_importRequiredSource(modId, importId, path) end
+        if Platform.isUWP() then os.remove(path) end
+      elseif kind == "mod" then
         self:_installMod(path)
         if Platform.isUWP() and self.modNotice and self.modNotice.ok then
           os.remove(path)
@@ -2196,7 +2393,10 @@ function RomImporter:update(dt)
         local version = self.pickerPendingVersion or self:_savedropTarget()
         self.pickerPendingKind = nil
         self.pickerPendingVersion = nil
-        if kind == "mod" then
+        if kind == "required_import" then
+          self.modNotice = { ok = false, text = errorText }
+          self.pickerPendingModId, self.pickerPendingImportId = nil, nil
+        elseif kind == "mod" then
           self.modNotice = { ok = false, text = errorText }
         elseif kind == "sav" then
           self.saveNotice[version] = { ok = false, text = errorText }

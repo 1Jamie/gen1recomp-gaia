@@ -14,6 +14,7 @@ love.system = love.system or {}
 local saved = {
   getOS = love.system.getOS,
   pickFile = love.system.pickFile,
+  pickFileKinds = love.system.pickFileKinds,
 }
 
 local pickCalls = {}
@@ -22,6 +23,7 @@ love.system.pickFile = function(kind)
   pickCalls[#pickCalls + 1] = kind or "rom"
   return true
 end
+love.system.pickFileKinds = function() return "rom,mod,sav,required_import" end
 
 local function freshImporter(ready)
   return setmetatable({
@@ -94,11 +96,65 @@ eq(ri._imported.source, "picked_save.sav", "focus reads the SAF save filename")
 check(love.filesystem.getInfo("picked_save.sav") == nil,
   "successful focus import removes picked_save.sav")
 
+-- Required mod files use their own safe picker kind and pending filename.
+pickCalls = {}
+ri = freshImporter({ red = true, blue = true })
+ri.nativePicker = true
+ri.mobileFileBridge = true
+ri.mods = { {
+  id = "needs_source",
+  manifest = { id = "needs_source", name = "Needs Source",
+    required_imports = { { id = "source", name = "Source", file = "source.bin",
+      format = "raw", md5 = { "00000000000000000000000000000000" } } } },
+} }
+ri:chooseRequiredImport("needs_source", "source")
+eq(pickCalls[1], "required_import",
+  "required file asks for the dedicated picker kind")
+eq(ri.pickerPendingModId, "needs_source", "pending mod is remembered")
+eq(ri.pickerPendingImportId, "source", "pending import is remembered")
+
+-- A rejected selection stays on the imported-files page, where the player can
+-- see it before choosing another file, instead of behind the modal.
+ri.nativePicker = false
+ri._importRequiredData = RomImporter._importRequiredData
+local savedData = love.data
+love.data = {
+  hash = function() return "not accepted" end,
+  encode = function() return "ffffffffffffffffffffffffffffffff" end,
+}
+ri:_importRequiredData("needs_source", "source", "wrong source bytes")
+love.data = savedData
+check(ri.requiredImportNotice ~= nil,
+  "required import rejection creates an in-modal notice")
+eq(ri.requiredImportNotice.modId, "needs_source",
+  "required import notice identifies its mod")
+eq(ri.requiredImportNotice.importId, "source",
+  "required import notice identifies its file")
+check(ri.requiredImportNotice.text:find("MD5 mismatch", 1, true) ~= nil,
+  "required import notice includes the MD5 failure")
+check(ri.modNotice == nil,
+  "required import rejection is not hidden in the general Mods notice")
+
+ri.nativePicker = true
+ri._importRequiredSource = function(self, modId, importId, source)
+  self._requiredImported = { modId = modId, importId = importId, source = source }
+  return true
+end
+love.filesystem.write("picked_required_import.bin", "source bytes")
+ri:focus(true)
+check(ri._requiredImported ~= nil, "focus consumes a required-file SAF pick")
+eq(ri._requiredImported.modId, "needs_source", "focus routes to the pending mod")
+eq(ri._requiredImported.importId, "source", "focus routes to the pending declaration")
+check(love.filesystem.getInfo("picked_required_import.bin") == nil,
+  "focus removes the staged required-file pick")
+
 love.system.getOS = saved.getOS
 love.system.pickFile = saved.pickFile
+love.system.pickFileKinds = saved.pickFileKinds
 -- leftover cleanup if a failed assertion left files behind
 love.filesystem.remove("usb_mod.zip")
 love.filesystem.remove("picked_mod.zip")
 love.filesystem.remove("picked_save.sav")
+love.filesystem.remove("picked_required_import.bin")
 
 S.finish()
