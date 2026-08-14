@@ -440,6 +440,20 @@ oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
 or push one onto a second screen, without the engine knowing the layout.
 
+`render.output_enabled` and `render.output` are the later, whole-window seam
+for mods that need the engine's normal composite rather than its separate
+layers. It runs after registered present pipelines and before GBCFX,
+`render.hud`, and touch controls. A mod wraps both hooks: the first returns
+`true` only while output ownership is needed, and the second receives
+`(next, ctx)` with `canvas`, `width`, `height`, `gameX`, `gameY`, `gameWidth`,
+`gameHeight`, `scale`, `dpiX`,
+`dpiY`, and `generation`. Returning `true` from `render.output` takes over the
+window; calling `next(ctx)` keeps the normal presentation. Both hooks default
+to `false`. Enabling the seam requires a full-window canvas for that frame.
+With no `render.output` subscriber, or while `render.output_enabled` is false,
+the existing presentation path is unchanged. `render.compose` takes precedence
+when it owns the frame.
+
 `screen.render_visible` receives `(next, state)` while the main screen is being
 composed. Return `false` to omit that state from drawing, opacity selection and
 palette-zone ownership. The state remains on the stack and keeps its normal

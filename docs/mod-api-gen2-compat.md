@@ -547,11 +547,13 @@ gains a field instead of the name gaining a prefix.
   each row's decision in `evolution.check`. The hook passes `data` where Gen 1
   passes `game`; positions 2-4 (mon, row, trigger) match.
 - *The frame (`src/core/Game2.lua`):* hooks `input.step`, `input.pointer`,
-  `render.zones`, `render.compose`, `render.letterbox`, `render.hud`. Each sits
+  `render.zones`, `render.compose`, `render.output_enabled`, `render.output`,
+  `render.letterbox`, `render.hud`. Each sits
   at the same moment `src/core/Game.lua` and `src/render/Renderer.lua` raise it
   -- the logic tick before the pad is read, a pointer the touch overlay gets
   first refusal on, the palette zone list handed to the present pass, the
-  letterbox, and the finished playfield rect -- and carries the same payload.
+  composed frame before GBCFX, the letterbox, and the finished playfield rect
+  -- and carries the same payload.
   `render.hud`'s `gameX` / `gameY` really is where Gold's dialogue boxes and
   menus land, because `Chrome.fitScale` / `fitOrigin` and `World:fitScale`
   compute the same number. `render.zones` is handed `nil` in GBC mode (Gold
