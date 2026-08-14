@@ -630,3 +630,41 @@ local both = mod.datetime:dateTime(game, createdAt)
 The live `game` supplies only the current option context. Formatting never
 mutates the save, options, or timestamp, and invalid timestamps return
 `"----"`.
+
+## Device power information
+
+Sandboxed mods can read the host's battery state without receiving the rest
+of `love.system`:
+
+```lua
+local state, percent = mod.device:powerInfo()
+```
+
+`state` follows LÖVE's values: `"unknown"`, `"battery"`, `"nobattery"`,
+`"charging"`, or `"charged"`. `percent` is `0` through `100`, or `nil` when
+the platform cannot report it. The facade is read-only and does not expose
+URL launching, clipboard access, or other system operations.
+
+## Real-world steps
+
+On iOS and Android the game counts the player's real-world steps natively
+(HealthKit / the hardware step counter). A mod reaches that bridge through
+the `steps` permission in `manifest.json`, which the player sees in the
+mod manager like every other permission:
+
+```lua
+if mod.steps:available() then
+  mod.steps:sync()                -- async; OS consent sheet on first use
+end
+-- later, at a quiet moment:
+local walk = mod.steps:poll()     -- { steps = n, from = ?, to = ? } or nil
+```
+
+`available()` is `false` on builds without the bridge (desktop) and for
+mods without the permission, so a probe is always safe. `sync()` asks the
+platform to refresh its count and returns whether there was a bridge to
+ask. `poll()` returns the next delivery for this mod — the engine consumes
+the native side's pending file itself, each permissioned mod receives its
+own copy of a delivery, and steps are anchored natively so the same walk
+is never delivered twice. Without the permission, `sync` and `poll` raise
+an error naming it.
