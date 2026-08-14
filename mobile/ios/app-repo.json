@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.84",
+          "date": "2026-08-14",
+          "size": 11306462,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.84/gen1recomp++-0.1.84-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #919 Bills House game save moves strangely after reload\n- #982 Trading QOL aspect missing from OG.\n- #1003 Land Pokemon Encounters while Surfing in Cerulean Cave\n- #1012 Multiple issues with text speed, animations, and audio\n- #1022 Cannot interact with small trees\n- #1028 Trainers not resetting on route change.\n- #1033 Some issues with Link battles.\n- #1243 Can't sell TMs at Poké Marts\n\n## Contributors\n\n- @1Jamie\n- @AverageConsumer\n- @bryanthaboi\n- @TheRealSolidusSnake\n- Myles Resnick\n- ShaneMcGovernIE"
+        },
+        {
           "version": "0.1.83",
           "date": "2026-08-13",
           "size": 11282300,
