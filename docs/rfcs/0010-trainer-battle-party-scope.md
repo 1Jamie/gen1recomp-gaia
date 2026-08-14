@@ -36,6 +36,7 @@ Add the guarded hook:
 mod.hooks:wrap("trainer.before_battle", function(next, game, context, continue)
   -- context = { trainerClass, partyIndex, mapId, npcId }
   -- Return true only when the battle has been deferred.
+  -- continue({ cancel = true }) returns without constructing a battle.
   -- Call continue() for the full save party, or:
   -- continue({ playerPartyIndices = { 2, 4, 5 } })
 end)
@@ -56,6 +57,13 @@ send, all battle party menus and targets, voluntary and forced replacement,
 exhaustion/blackout checks, participant and EXP.ALL traversal, party counts,
 and party-ball presentation. Checkpoints preserve the index list and rebuild
 the same view before restoring battlers.
+
+`{ cancel = true }` ends a deferred encounter through its normal completion
+callback without constructing a battle or writing trainer-defeated state. A
+cancelled sight encounter is suppressed while the player remains on the same
+cell, preventing immediate reacquisition; moving or directly talking permits a
+new challenge. Cancellation is also one-shot; if supplied alongside a party
+index list, cancellation wins.
 
 The API sets no maximum, chooses no members, identifies no boss, and contains
 no scaling or challenge policy.
