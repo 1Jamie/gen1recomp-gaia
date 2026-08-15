@@ -463,6 +463,8 @@ return function(mod)
 end
 ]])
 write(bad .. "/hack.gb", "GBDATA")
+os.execute((mkdir .. " %q"):format(bad .. "/baseroms"))
+write(bad .. "/baseroms/stadium2.z64", "USER ROM")
 write(bad .. "/cachepath.lua",
   'return { pic = "assets/generated/battle/front/mew.png" }')
 
@@ -474,6 +476,8 @@ check(out:find("MK101", 1, true) ~= nil, "schema typo reported as MK101")
 check(out:find("base_stats", 1, true) ~= nil, "MK101 names the bad field")
 check(out:find("MK301", 1, true) ~= nil, "cache reference reported as MK301")
 check(out:find("MK303", 1, true) ~= nil, "ROM patch file reported as MK303")
+check(out:find("MK307", 1, true) ~= nil,
+  "a user-supplied baseroms file is refused explicitly")
 
 out, code = run(("%s tools/modkit.py pack %q -o %q --base fixture")
   :format(python, bad, root .. "/bad.modpkg"))

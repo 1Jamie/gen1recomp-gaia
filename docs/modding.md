@@ -44,6 +44,25 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
   "optional_dependencies": [
     "gen1_modern_ui"
   ],
+  "required_imports": [
+    {
+      "id": "stadium2",
+      "name": "Pokemon Stadium 2 ROM",
+      "description": "Pokemon Stadium 2 (USA), any supported N64 byte order",
+      "file": "stadium2.z64",
+      "format": "n64",
+      "size": 67108864,
+      "md5": ["00000000000000000000000000000000"]
+    }
+  ],
+  "optional_imports": [
+    {
+      "id": "bonus_source",
+      "name": "Optional bonus source",
+      "file": "bonus.bin",
+      "md5": "00000000000000000000000000000000"
+    }
+  ],
   "conflicts": [],
   "permissions": ["engine_internals"],
   "description": "A brief description of the mod.",
@@ -67,6 +86,8 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
 | `priority` | `integer` | Load priority order (lower numbers load earlier; dependencies always precede dependents regardless of priority). |
 | `dependencies` | `array` | Hard required dependencies. A mod will not load if a required dependency is missing or disabled for the active game. |
 | `optional_dependencies` | `array` | Soft dependencies. Guarantees that if the target mod is present and active, it loads *before* this mod without blocking load if absent. |
+| `required_imports` | `array` | User-supplied files required by this mod. The launcher validates and copies each file into this mod's `baseroms/` directory; the mod does not load while one is missing. |
+| `optional_imports` | `array` | User-supplied files that unlock optional mod functionality. They use the same validation and private-copy flow but never block the mod from loading. |
 | `conflicts` / `incompatible` | `array` | List of mod IDs that cannot run concurrently with this mod. |
 | `permissions` | `array` | Requested privileges (e.g. `["engine_internals"]`, `["network"]`, `["filesystem"]`). |
 | `github` | `string` | GitHub repository (`"owner/repo"`) used for update checks and dependency download links. |
@@ -90,6 +111,42 @@ Dependencies in `dependencies` and `optional_dependencies` can be declared in se
 
 #### Version-Scoped Dependencies
 When a mod supports multiple games (`"games": ["gen1", "gen2"]`), a dependency can specify `"games": ["gen2"]` to indicate it is only required when booting Gen 2. When booting Gen 1, the engine will ignore the dependency, preventing unnecessary boot blocks on games that do not need it.
+
+### Required user-supplied files
+
+`required_imports` and `optional_imports` keep copyrighted or otherwise user-owned source material
+out of mod archives while giving every platform the same installation flow.
+Each object requires a stable `id`, a display `name`, a destination `file`
+(a filename, never a path), and one MD5 digest or an array of accepted MD5
+digests. `format` is either `"raw"` (the default) or `"n64"`. An optional
+`description` gives players dump or region guidance in the import panel.
+`size` declares the exact canonical byte length; `max_size` declares a smaller
+per-import ceiling when an exact size is not appropriate. Every import also
+has an engine-enforced 128 MiB ceiling and is rejected before hashing when its
+filesystem reports an invalid size.
+
+For `"n64"`, the launcher recognizes `.z64`, `.v64`, and `.n64` byte orders,
+strips a recognized 512-byte copier header, converts the bytes to canonical
+big-endian `.z64` order, and then checks MD5. The canonical bytes are written
+to `mods/<mod-id>/baseroms/<file>`. Each selection is a private grant to that
+mod: the launcher never scans or copies another mod's imported files merely
+because its manifest names the same digest. Mods read the result with their existing scoped `mod:read` API, for
+example `mod:read("baseroms/stadium2.z64")`; no host path or new filesystem
+permission is exposed. Missing `required_imports` block the mod before its
+entry chunk runs; missing `optional_imports` remain visible in the same
+launcher panel but do not block loading.
+
+MD5 here identifies a known dump because ROM databases commonly publish it;
+it is not a security or authenticity guarantee. Do not paste the SHA-1 used by
+Gen1Recomp's own game-ROM importer into an import's `md5` field. Mod archives
+must not include anything beneath `baseroms/`. The engine records a validation
+receipt keyed by file size and modification time so launcher refreshes and
+later boots do not repeatedly hash an unchanged imported ROM.
+
+New mobile code should call `love.system.pickFile("required_import")`. The
+older iOS-only `"stadium"` picker kind remains temporarily for compatibility.
+Android now returns `false` for unknown picker kinds instead of treating them
+as game-ROM picks.
 
 ## Mods and Gold (Gen 2)
 

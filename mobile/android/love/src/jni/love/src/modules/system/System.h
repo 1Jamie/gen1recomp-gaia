@@ -112,10 +112,12 @@ public:
 	 * love::android::showFilePicker and src/import/RomImporter.lua.
 	 *
 	 * @param kind Optional pick kind: nullptr/"rom" -> picked_rom.gb,
-	 *             "mod" -> picked_mod.zip, "sav"/"save" -> picked_save.sav.
+	 *             "mod" -> picked_mod.zip, "sav"/"save" -> picked_save.sav,
+	 *             "required_import" -> picked_required_import.bin.
 	 * @return Whether the picker was shown.
 	 **/
 	virtual bool pickFile(const char *kind = nullptr) const;
+	virtual const char *pickFileKinds() const;
 
 	/**
 	 * Shows the platform's native "create / save a file" UI (Android SAF

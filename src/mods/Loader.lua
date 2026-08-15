@@ -4,6 +4,7 @@ local SaveData = require("src.core.SaveData")
 local Data = require("src.core.Data")
 local GameVersion = require("src.core.GameVersion")
 local Version = require("src.core.Version")
+local RequiredImports = require("src.mods.RequiredImports")
 local Assets = require("src.render.Assets")
 local ModUI = require("src.ui.ModUI")
 local DateTime = require("src.core.DateTime")
@@ -565,7 +566,24 @@ function Loader:_validate()
     elseif manifest.assets_transforms
         and not self:_exists(mod.path .. "/" .. manifest.assets_transforms) then
       reason = "assets_transforms file missing: " .. manifest.assets_transforms
-    elseif manifest.game_version and not devEngine() then
+    end
+    if not reason and #(manifest.required_imports or {}) > 0 then
+      for _, import in ipairs(manifest.required_imports) do
+        local path = mod.path .. "/baseroms/" .. import.file
+        if not self:_exists(path) then
+          reason = "required import missing: " .. import.name
+          break
+        end
+        local valid, importErr = RequiredImports.validateStored(
+          manifest, import, self.fs)
+        if not valid then
+          reason = "required import invalid: " .. import.name
+            .. " (" .. tostring(importErr) .. ")"
+          break
+        end
+      end
+    end
+    if not reason and manifest.game_version and not devEngine() then
       local ok, err = Semver.satisfies(Version.engine, manifest.game_version)
       if not ok then
         reason = ("needs game version %s, engine is %s")

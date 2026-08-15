@@ -89,7 +89,8 @@ int w_pickFile(lua_State *L)
 	return gr_callBridge(L, "GRPickerBridge", "presentPickerWithKind:saveDir:", kind);
 }
 
-// love.system.pickFileKinds() -> "rom,mod,sav,stadium", or nil off iOS.
+// love.system.pickFileKinds() -> the comma-separated kinds supported by the
+// Swift bridge (including required_import), or nil off iOS.
 //
 // So a caller can ask what this build's picker understands BEFORE opening it.
 // An unknown kind is refused (GRPickerBridge), and a refusal looks exactly

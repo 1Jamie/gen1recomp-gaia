@@ -192,13 +192,28 @@ bool System::pickFile(const char *kind) const
 			dest = "picked_mod.zip";
 		else if (strcmp(kind, "sav") == 0 || strcmp(kind, "save") == 0)
 			dest = "picked_save.sav";
+		else if (strcmp(kind, "required_import") == 0)
+			dest = "picked_required_import.bin";
 		else if (strcmp(kind, "rom") == 0)
 			dest = "picked_rom.gb";
+		// Unknown kinds used to fall through to the ROM destination. Refuse them
+		// so a newer Lua caller cannot silently route an unrelated file as a ROM.
+		else
+			return false;
 	}
 	return love::android::showFilePicker(dest);
 #else
 	LOVE_UNUSED(kind);
 	return false;
+#endif
+}
+
+const char *System::pickFileKinds() const
+{
+#ifdef LOVE_ANDROID
+	return "rom,mod,sav,required_import";
+#else
+	return "";
 #endif
 }
 
