@@ -204,19 +204,23 @@ Companion UIs and alternate party screens can call
 operation is accepted only during idle overworld play; menus, movement,
 scripts, battles, and transitions leave the party untouched.
 
-## Contextual field items
+## Contextual field actions
 
-`mod.world:availableFieldActions()` returns the field items that can start at
-the player's current position. Red and Gold currently expose `bicycle` and
-`fish`; fishing rows include the owned rods that are valid choices. The list
-is empty while the world is busy, while riding states or terrain forbid an
-action, or when the required item is not owned.
+`mod.world:availableFieldActions()` returns the field items and moves that can
+start at the player's current position. Both games expose `bicycle`, `fish`,
+`cut`, `surf`, `strength`, `flash`, `dig`, and `teleport`; Gold additionally
+exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
+contextual `squirtbottle` key item. Fishing rows include the owned rods that
+are valid choices. The list is empty while the world is busy, and omits an
+action whenever its item, move, badge, terrain, or engine state forbids it.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
 and chooses automatically when only one rod is available. Invalid, stale, and
 busy requests return `nil` plus a reason without changing game state. Mods do
-not need generation-specific bike, collision, or fishing logic.
+not need generation-specific badge, terrain, bike, fishing, or field-move
+logic. Action lists are extensible; callers should render the records they
+understand and ignore unknown ids rather than assuming a fixed list length.
 
 ## Rendering pipelines
 
