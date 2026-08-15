@@ -8,9 +8,9 @@
 --   "update_check_state" worker -> main: { status, latest, progress, error }
 --
 -- Nothing here ever blocks or throws into the game loop: when love.thread is
--- absent (the headless test stub) or the worker cannot run (no curl, Android),
--- state() simply reports "error" and the UI hides itself.  See the shared
--- contract in the task brief for the status vocabulary and the file layout.
+-- absent (the headless test stub) or the worker cannot run, state() reports
+-- "error" (or the worker reports "needs_full" when there is no transport).
+-- See the shared contract in the task brief for the status vocabulary.
 --
 -- The release-JSON extraction and the sums parsing are exported as pure
 -- functions (no love.* calls) so plain-Lua tests can cover them, and so the
