@@ -90,6 +90,9 @@ public class GameActivity extends SDLActivity {
     private static final String PICKED_ROM_FILENAME = "picked_rom.gb";
     private static final String PICKED_MOD_FILENAME = "picked_mod.zip";
     private static final String PICKED_SAVE_FILENAME = "picked_save.sav";
+    // Kept separate from the game-ROM destination so a dependency pick can
+    // never be mistaken for a game import when the picker returns on Android.
+    private static final String PICKED_REQUIRED_IMPORT_FILENAME = "picked_required_import.bin";
     private static final String PENDING_EXPORT_FILENAME = "pending_export.sav";
     private static final String EXPORT_DONE_FILENAME = "export_done.flag";
     // Written when a SAF pick cannot be read at all, with the destination
@@ -504,7 +507,8 @@ public class GameActivity extends SDLActivity {
      * picker-agnostic and unchanged.
      *
      * @param destFilename basename under the app save identity (e.g.
-     *                     picked_rom.gb, picked_mod.zip, picked_save.sav)
+     *                     picked_rom.gb, picked_mod.zip, picked_save.sav, or
+     *                     picked_required_import.bin)
      */
     /** Legacy single-argument entry; resolves the save dir itself. */
     @Keep
@@ -535,6 +539,11 @@ public class GameActivity extends SDLActivity {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
+            // The Storage Access Framework grants the returned content URI
+            // directly to this activity. Request the read grant explicitly as
+            // well: Android 13's scoped storage deliberately does not expose
+            // arbitrary paths or require broad media/storage permissions.
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             try {
                 self.startActivityForResult(intent, FILE_PICKER_REQUEST_CODE);
                 return true;
@@ -547,6 +556,7 @@ public class GameActivity extends SDLActivity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             self.startActivityForResult(
                 Intent.createChooser(intent, "Choose a file"),
@@ -574,6 +584,12 @@ public class GameActivity extends SDLActivity {
     @Keep
     public static boolean showSaveFilePicker() {
         return showFilePicker(PICKED_SAVE_FILENAME);
+    }
+
+    /** Required-mod-file wrapper used by love.system.pickFile("required_import"). */
+    @Keep
+    public static boolean showRequiredImportFilePicker() {
+        return showFilePicker(PICKED_REQUIRED_IMPORT_FILENAME);
     }
 
     /**
