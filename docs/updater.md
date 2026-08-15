@@ -126,11 +126,19 @@ bundled game, in that case.
   already driving the frame. A payload that must change `love.run` itself
   needs a `minShell` bump so an older shell refuses to chainload it rather
   than running with half its intended behavior.
-- **Android has no in-app download transport yet.** `check_worker.lua`
-  shells out to curl for both the release check and the download; curl is
-  absent on Android, so `Check` degrades to `status = "error"` there (the
-  launcher UI hides on that status) and the player is directed to the
-  releases page via `Check.releaseUrl()` instead.
+- **Android and iOS use the native download bridge, not curl.** Neither
+  platform ships curl, so the old `check_worker.lua` path (shell out to curl)
+  always landed on `error` and the launcher chip's "Check for updates" tap
+  was a no-op. The worker now talks through `HostShell`, the same transport
+  as the mod catalog: curl on desktop, `love.system.httpDownload` on mobile.
+  On Android that is the GameActivity JNI/`HttpsURLConnection` bridge; on
+  iOS it is `GRPickerBridge.httpDownload` (`URLSession`). A fused sideloaded
+  APK or IPA can therefore check GitHub and fetch the `.love` payload
+  in-app. If neither transport exists, the worker reports `needs_full` and
+  the launcher chip opens `Check.releaseUrl()`. Native package-only changes
+  still need a full reinstall (`minShell` / `payloadHost` gate →
+  `needs_full`). Applying a downloaded payload on Android relaunches via
+  `love.system.restartApp`; iOS still uses in-process `quit("restart")`.
 - **Dev/source runs never self-update.** `Boot.run` returns immediately when
   `love.filesystem.isFused()` is false, and a working tree's `engine` is the
   `"0.0.0-dev"` placeholder that always reports up to date, so a source
