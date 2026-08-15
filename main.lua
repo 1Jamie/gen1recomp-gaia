@@ -148,9 +148,44 @@ local function openEditor(version, slotId)
   editorMode = true
   resizeForEditor()
   addEditorRequirePath()
-  EditorApp = require("App")
-  EditorApp.load(path, { version = version, slotId = slotId, embedded = true,
-                         onClose = function() closeEditor() end })
+  local okReq, appOrErr = pcall(require, "App")
+  if not okReq then
+    editorMode = false
+    if version then
+      require("src.import.CacheFs").unmountVersion(version)
+    end
+    restoreWindow()
+    Importer = editorHost
+    editorHost = nil
+    editorVersion = nil
+    if Importer and Importer.resumeAfterOverlay then
+      Importer:resumeAfterOverlay()
+    end
+    refuse("Could not open the save editor (" .. tostring(appOrErr) .. ").")
+    return
+  end
+  EditorApp = appOrErr
+  local okLoad, loadErr = pcall(EditorApp.load, path, {
+    version = version, slotId = slotId, embedded = true,
+    onClose = function() closeEditor() end,
+  })
+  if not okLoad then
+    editorMode = false
+    if EditorApp.unload then pcall(EditorApp.unload) end
+    EditorApp = nil
+    if version then
+      require("src.import.CacheFs").unmountVersion(version)
+      require("src.core.Data"):unloadGenerated()
+    end
+    restoreWindow()
+    Importer = editorHost
+    editorHost = nil
+    editorVersion = nil
+    if Importer and Importer.resumeAfterOverlay then
+      Importer:resumeAfterOverlay()
+    end
+    refuse("Could not open the save editor (" .. tostring(loadErr) .. ").")
+  end
 end
 
 -- Back to the launcher.  Everything the editor mounted or cached has to come
@@ -165,6 +200,11 @@ function closeEditor()
   if version then
     require("src.import.CacheFs").unmountVersion(version)
     require("src.core.Data"):unloadGenerated()
+  end
+  for k in pairs(package.loaded) do
+    if type(k) == "string" and (k:find("save%-editor") or k == "App" or k == "Kit" or k == "State" or k == "Catalog" or k == "SaveIO" or k == "Ops" or k == "MonOps" or k == "ItemOps" or k == "PadInput" or k == "Gen" or k == "Theme") then
+      package.loaded[k] = nil
+    end
   end
   editorVersion = nil
   restoreWindow()
@@ -262,6 +302,11 @@ function love.load(args)
   -- claim one hidden console on Windows so those children inherit it instead
   -- of each flashing their own cmd.exe window (#606).  No-op elsewhere.
   require("src.core.HostShell").hideHostConsole()
+
+  -- Hang gen1tls on love.system before mods boot.  Android already has tls*
+  -- from JNI; this is the desktop half.  No DLL / no FFI is fine -- ws://
+  -- rooms still work, wss:// just won't.
+  pcall(function() require("src.net.Gen1Tls").install() end)
 
   -- NX fused mounts are unreliable for the blue|yellow cache overlay: wrap
   -- the love loaders once so every generated-asset read falls back to the
