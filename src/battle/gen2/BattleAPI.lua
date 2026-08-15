@@ -116,4 +116,57 @@ function BattleAPI:snapshot()
     items = {} }
 end
 
+local MENU_CHOICES = { fight = true, party = true, item = true, run = true }
+
+local function validSlot(slot)
+  return type(slot) == "number" and slot % 1 == 0 and slot >= 1
+end
+
+function BattleAPI:submit(intent)
+  if type(intent) ~= "table" then return nil, "intent must be a table" end
+  if type(intent.id) ~= "number" or intent.id % 1 ~= 0 or intent.id < 1 then
+    return nil, "intent id must be a positive integer"
+  end
+  if self.lastIntentId and intent.id <= self.lastIntentId then
+    return nil, "replayed intent"
+  end
+
+  local screen, top = activeBattle(self.game)
+  if not screen or not screen.battle then return nil, "no battle" end
+  if intent.revision ~= self:_revision(screen, top) then
+    return nil, "stale battle context"
+  end
+  if screen.tutorial then return nil, "battle kind is not controllable" end
+  if top ~= screen then return nil, "battle menu is covered" end
+
+  local battle = screen.battle
+  local ok, err
+  if intent.kind == "menu" then
+    if screen.phase ~= "menu" then return nil, "battle menu is not active" end
+    if not MENU_CHOICES[intent.choice] then
+      return nil, "unknown battle menu choice"
+    end
+    ok, err = screen:chooseMenu(intent.choice)
+  elseif intent.kind == "move" then
+    if screen.phase ~= "moves" then return nil, "move menu is not active" end
+    if screen.moveSwapIndex then return nil, "move reorder is active" end
+    local move = validSlot(intent.slot) and battle.player
+      and battle.player.moves and battle.player.moves[intent.slot]
+    if not move then return nil, "invalid move slot" end
+    if (move.pp or 0) <= 0 then return nil, "move has no PP" end
+    if battle:moveDisabled(battle.player, move.id) then
+      return nil, "move is disabled"
+    end
+    ok, err = screen:chooseMove(intent.slot)
+  elseif intent.kind == "back" then
+    ok, err = screen:cancelMove()
+  else
+    return nil, "unknown battle intent"
+  end
+  if not ok then return nil, err end
+  self.lastIntentId = intent.id
+  self.signature = nil
+  return true
+end
+
 return BattleAPI

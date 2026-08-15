@@ -4,7 +4,8 @@ love = love or require("tests.love_stub")
 local S = require("tests.harness").suite("mod battle snapshot")
 local check, eq = S.check, S.eq
 
-check(require("src.battle.BattleState").isBattleState == true,
+local Gen1BattleState = require("src.battle.BattleState")
+check(Gen1BattleState.isBattleState == true,
   "Gen 1 battle states carry the discovery marker")
 
 local TypeChart = require("src.battle.TypeChart")
@@ -50,6 +51,18 @@ local battle = {
 function battle:battleKind() return "wild" end
 function battle:effectRecord() return { accuracyChecked = true } end
 function battle:visibleText() return { "Wild TESTMON appeared!" } end
+function battle:menuLockedAction() return nil end
+function battle:chooseMenu(choice)
+  self.chosenMenu = choice
+  if choice == "fight" then self.phase = "moveSelect" end
+  return true
+end
+function battle:chooseMove(slot)
+  self.chosenMove = slot
+  self.phase = "messages"
+  return true
+end
+function battle:cancelMove() self.phase = "menu" return true end
 function battle:catchChance(ball)
   return require("src.battle.Catching").chance(ball, self.enemy.mon,
     game.data.pokemon[self.enemy.mon.species])
@@ -81,6 +94,35 @@ game.stack.states = {}
 check(api:snapshot() == nil, "Gen 1 returns nil outside a battle")
 game.stack.states = { battle }
 
+local menu = api:snapshot()
+local ok, err = api:submit({ id = 1, revision = menu.revision - 1,
+  kind = "menu", choice = "fight" })
+check(not ok and err == "stale battle context",
+  "Gen 1 rejects a stale intent")
+ok, err = api:submit({ id = 1, revision = menu.revision,
+  kind = "menu", choice = "missing" })
+check(not ok and err == "unknown battle menu choice",
+  "Gen 1 rejects an unknown menu choice")
+check(api:submit({ id = 1, revision = menu.revision,
+  kind = "menu", choice = "fight" }), "Gen 1 accepts a menu intent")
+eq(battle.chosenMenu, "fight", "Gen 1 uses the semantic menu path")
+ok, err = api:submit({ id = 1, revision = menu.revision,
+  kind = "menu", choice = "fight" })
+check(not ok and err == "replayed intent", "Gen 1 rejects a replayed intent")
+local moveMenu = api:snapshot()
+ok, err = api:submit({ id = 2, revision = moveMenu.revision,
+  kind = "move", slot = 9 })
+check(not ok and err == "invalid move slot",
+  "Gen 1 rejects an invalid move slot")
+check(api:submit({ id = 2, revision = moveMenu.revision,
+  kind = "move", slot = 1 }), "Gen 1 accepts a valid move")
+eq(battle.chosenMove, 1, "Gen 1 uses the semantic move path")
+battle.phase = "moveSelect"
+local back = api:snapshot()
+check(api:submit({ id = 3, revision = back.revision, kind = "back" }),
+  "Gen 1 accepts move-menu back")
+eq(battle.phase, "menu", "Gen 1 back restores the command menu")
+
 local player2 = { species = "CHIKORITA", level = 5, hp = 20,
   maxHp = 21, moves = { { id = "TACKLE", pp = 35, maxPp = 35 } } }
 local enemy2 = { species = "RATTATA", level = 3, hp = 12, maxHp = 12,
@@ -90,6 +132,17 @@ local battle2 = { player = player2, enemy = enemy2, party = { player2 },
 function battle2:moveDisabled() return false end
 local screen2 = { screenId = "Gen2BattleState", battle = battle2,
   phase = "menu", menuIndex = 1, moveIndex = 1 }
+function screen2:chooseMenu(choice)
+  self.chosenMenu = choice
+  if choice == "fight" then self.phase = "moves" end
+  return true
+end
+function screen2:chooseMove(slot)
+  self.chosenMove = slot
+  self.phase = "resolving"
+  return true
+end
+function screen2:cancelMove() self.phase = "menu" return true end
 local game2 = {
   data = {
     pokemon = { CHIKORITA = { name = "CHIKORITA" },
@@ -120,6 +173,60 @@ check(message2.revision > snapshot2.revision,
 game2.stack.states = {}
 check(api2:snapshot() == nil, "Gold returns nil outside a battle")
 game2.stack.states = { screen2 }
+
+screen2.message = nil
+screen2.phase = "menu"
+local menu2 = api2:snapshot()
+ok, err = api2:submit({ id = 1, revision = menu2.revision - 1,
+  kind = "menu", choice = "fight" })
+check(not ok and err == "stale battle context",
+  "Gold rejects a stale intent")
+ok, err = api2:submit({ id = 1, revision = menu2.revision,
+  kind = "menu", choice = "missing" })
+check(not ok and err == "unknown battle menu choice",
+  "Gold rejects an unknown menu choice")
+check(api2:submit({ id = 1, revision = menu2.revision,
+  kind = "menu", choice = "fight" }), "Gold accepts a menu intent")
+eq(screen2.chosenMenu, "fight", "Gold uses the semantic menu path")
+local moveMenu2 = api2:snapshot()
+ok, err = api2:submit({ id = 2, revision = moveMenu2.revision,
+  kind = "move", slot = 9 })
+check(not ok and err == "invalid move slot",
+  "Gold rejects an invalid move slot")
+check(api2:submit({ id = 2, revision = moveMenu2.revision,
+  kind = "move", slot = 1 }), "Gold accepts a valid move")
+eq(screen2.chosenMove, 1, "Gold uses the semantic move path")
+screen2.phase = "moves"
+local back2 = api2:snapshot()
+check(api2:submit({ id = 3, revision = back2.revision, kind = "back" }),
+  "Gold accepts move-menu back")
+eq(screen2.phase, "menu", "Gold back restores the command menu")
+
+do
+  local Data = require("tests.modkit").fixtures.fresh()
+  local Pokemon = require("src.pokemon.Pokemon")
+  local SaveData = require("src.core.SaveData")
+  local save = SaveData.newGame()
+  save.party = { Pokemon.new(Data, "FIXMON_A", 20) }
+  local pressed = {}
+  local game3 = { data = Data, save = save, input = {
+    wasPressed = function(_, key) return pressed[key] == true end,
+    isDown = function() return false end,
+  }, stack = { states = {} } }
+  function game3.stack:top() return self.states[#self.states] end
+  function game3.stack:push(state) self.states[#self.states + 1] = state end
+  local real = Gen1BattleState.newWild(game3, "FIXMON_B", 12)
+  real.phase, real.queue, real.introSlide = "menu", {}, nil
+  game3.stack.states = { real }
+  pressed.a = true
+  real:update(1 / 60)
+  pressed.a = nil
+  eq(real.phase, "moveSelect", "native Gen 1 FIGHT uses the semantic path")
+  pressed.b = true
+  real:update(1 / 60)
+  pressed.b = nil
+  eq(real.phase, "menu", "native Gen 1 move-menu back still works")
+end
 
 local Loader = require("src.mods.Loader")
 local fs = { read = function() end, getInfo = function() end,
