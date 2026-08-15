@@ -373,5 +373,25 @@ do
   check(main ~= nil, "saveFilename resolves for gold")
 end
 
+-- Gold's cache has no text_pointers / trainer_headers / field.  Data:load
+-- used to throw in seedDefaults (self.field.boot) after filling pokemon
+-- with provenance scalars.  That is the Android first-Edit CTD: the APK
+-- cannot fall back to Red's source-tree copies the way a desktop checkout
+-- can.
+do
+  GameVersion.set("gold")
+  local Data = require("src.core.Data")
+  Data.constants = {}
+  Data.pokemon = { generation = 2, CYNDAQUIL = { dex = 155 } }
+  Data.maps = {}
+  Data.field = nil
+  Data.trainer_headers = nil
+  local ok, err = pcall(function() Data:seedDefaults() end)
+  check(ok, "gold seedDefaults survives a Gold-shaped cache: " .. tostring(err))
+  check(type(Data.field) == "table", "seedDefaults creates field when Gold omitted it")
+  eq(Data.constants.dexSize, 155, "dexSize ignores pokemon.generation scalar")
+  GameVersion.set("red")
+end
+
 print(string.format("save editor gen2 tests: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
