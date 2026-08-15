@@ -316,18 +316,6 @@ function RomImporter.isReady(version)
 end
 
 -- Load the import manifest for a version and confirm it matches that ROM.
-local function decodeManifest(version)
-  local path = GameVersion.info(version).manifest
-  local raw, readError = love.filesystem.read(path)
-  if not raw then error("ROM import metadata is missing: " .. tostring(readError)) end
-  local Json = require("src.link.Json")
-  local manifest, decodeError = Json.decode(raw)
-  if not manifest then error("ROM import metadata is invalid: " .. tostring(decodeError)) end
-  assert(manifest.romSha1 == GameVersion.info(version).sha1,
-    "ROM import metadata version mismatch")
-  return manifest
-end
-
 local function sha1(data)
   local digest = love.data.hash("sha1", data)
   if type(digest) == "userdata" and digest.getString then
@@ -1552,6 +1540,8 @@ function RomImporter:setError(message, version)
   self.detail = tostring(message)
   self.progress = 0
   self.worker = nil
+  -- Dropping the job stops collection; the next import clears the channels.
+  self._extract = nil
   self.romData = nil
   -- A headless import has no launcher to read this off: POKEPORT_IMPORT_ONLY
   -- only ever quits from onComplete, so an import that fails here would sit in
@@ -1618,23 +1608,65 @@ function RomImporter:startData(data, displayName)
   self.detail = displayName or info.displayName
   self.progress = 0
   self.romData = data
-  self.worker = coroutine.create(function()
-    self.status = "Preparing private game data"
-    coroutine.yield()
-    -- Redirect every cache write to this version's subtree, then clear only
-    -- that version's previous cache from both homes (save directory and, for
-    -- a portable install, the game folder).  The other version is untouched.
-    local CacheFs = require("src.import.CacheFs")
-    local prefix = info.cachePrefix
-    CacheFs.prefix = prefix
+  self.status = "Preparing private game data"
+
+  -- Clear this version's previous cache from both homes before anything
+  -- writes.  Stays on the main thread so delete-then-fill-then-mark keeps one
+  -- owner; the prefix is restored at once because the worker sets its own.
+  local CacheFs = require("src.import.CacheFs")
+  local prefix = info.cachePrefix
+  local savedPrefix = CacheFs.prefix
+  CacheFs.prefix = prefix
+  local cleared, clearError = pcall(function()
     removeTree(prefix .. "data/generated")
     removeTree(prefix .. "assets/generated")
     love.filesystem.remove(prefix .. MARKER_PATH)
     CacheFs.removeTree("data/generated")
     CacheFs.removeTree("assets/generated")
     CacheFs.remove(MARKER_PATH)
+  end)
+  CacheFs.prefix = savedPrefix
+  if not cleared then
+    self:setError(tostring(clearError), version)
+    return
+  end
 
-    local manifest = decodeManifest(version)
+  if self:_startExtractThread(version, prefix, data, displayName) then return end
+  self:_startExtractCoroutine(version, info, prefix, displayName)
+end
+
+-- False when threads are unavailable, so the coroutine path still covers
+-- that host.  POKEPORT_NO_THREAD=1 forces it, which is the only way to
+-- exercise the fallback on a desktop.
+function RomImporter:_startExtractThread(version, prefix, data, displayName)
+  if os.getenv("POKEPORT_NO_THREAD") == "1" then return false end
+  if not (love.thread and love.thread.newThread) then return false end
+  local ok, thread = pcall(love.thread.newThread, "src/import/ExtractThread.lua")
+  if not ok or not thread then return false end
+  local progressName = "rom_import_progress"
+  local resultName = "rom_import_result"
+  love.thread.getChannel(progressName):clear()
+  love.thread.getChannel(resultName):clear()
+  local started = pcall(thread.start, thread, version, prefix, data,
+    progressName, resultName)
+  if not started then return false end
+  self._extract = {
+    thread = thread, version = version, prefix = prefix,
+    displayName = displayName,
+    progress = love.thread.getChannel(progressName),
+    result = love.thread.getChannel(resultName),
+  }
+  -- The worker owns the bytes now; drop ours so the 1-2 MiB string can go.
+  self.romData = nil
+  return true
+end
+
+function RomImporter:_startExtractCoroutine(version, info, prefix, displayName)
+  self.worker = coroutine.create(function()
+    coroutine.yield()
+    local CacheFs = require("src.import.CacheFs")
+    CacheFs.prefix = prefix
+    local manifest = require("src.import.RomManifest").decode(version)
     local RomExtractor = version == "gold"
       and require("src.import.RomExtractorGen2")
       or require("src.import.RomExtractor")
@@ -1647,45 +1679,91 @@ function RomImporter:startData(data, displayName)
         coroutine.yield()
       end)
     extractor:run()
+    CacheFs.prefix = ""   -- restore the default so later writes stay at the root
     self.romData = nil
     collectgarbage("collect")
-    -- Written last: the marker is what isReady() checks, so it must only
-    -- appear once every required file is in place.
-    local ok, writeError = CacheFs.write(MARKER_PATH, markerFor(version))
-    CacheFs.prefix = ""   -- restore the default so later writes stay at the root
-    if not ok then error("could not finish the private cache: " .. tostring(writeError)) end
-    self.ready[version] = true
-    self.returning[version] = false
-    self.romName[version] = (displayName
-      and (displayName:match("[^/\\]+$") or displayName)) or self.romName[version]
-    -- Android: drop the consumed save-dir .gb/.gbc (picked_rom.gb or a USB copy)
-    -- so the next Choose / focus cannot treat it as a fresh pending ROM.
-    if self.mobileFileBridge and type(displayName) == "string"
-        and not displayName:find("[/\\]") then
-      love.filesystem.remove(displayName)
-    end
-    self.importing = nil
-    self.workState = "complete"
-    self.completeVersion = version
-    self.status = "Ready"
-    -- NX launcher stays put: keep the imports/ cleanup hint instead of
-    -- overwriting it with a "Starting…" line that never boots from here.
-    if self.launcher and self.isNX and type(displayName) == "string" then
-      self.detail = Strings("%s imported. You may delete the copy from "
-        .. "imports/ when finished.", displayName)
-    else
-      self.detail = "Starting " .. info.displayName .. "..."
-    end
-    self.progress = 1
-    if self.launcher then
-      -- Stay on the launcher; the player presses Play to boot the new game.
-      return
-    end
-    self._handedOff = true
-    resetPointerCursor(self)
-    if self._flex then require("src.import.LauncherView").detach(self) end
-    if self.onComplete then self.onComplete(version) end
+    self:_completeImport(version, prefix, displayName)
   end)
+end
+
+-- Everything after the tree is filled, shared by both worker paths.  Raises
+-- on a failed marker write; the thread path calls it inside a pcall.
+function RomImporter:_completeImport(version, prefix, displayName)
+  local info = GameVersion.info(version)
+  local CacheFs = require("src.import.CacheFs")
+  -- Written last: the marker is what isReady() checks, so it must only
+  -- appear once every required file is in place.
+  local savedPrefix = CacheFs.prefix
+  CacheFs.prefix = prefix
+  local ok, writeError = CacheFs.write(MARKER_PATH, markerFor(version))
+  CacheFs.prefix = savedPrefix
+  if not ok then
+    error("could not finish the private cache: " .. tostring(writeError))
+  end
+  self.ready[version] = true
+  self.returning[version] = false
+  self.romName[version] = (displayName
+    and (displayName:match("[^/\\]+$") or displayName)) or self.romName[version]
+  -- Android: drop the consumed save-dir .gb/.gbc (picked_rom.gb or a USB copy)
+  -- so the next Choose / focus cannot treat it as a fresh pending ROM.
+  if self.mobileFileBridge and type(displayName) == "string"
+      and not displayName:find("[/\\]") then
+    love.filesystem.remove(displayName)
+  end
+  self.importing = nil
+  self.workState = "complete"
+  self.completeVersion = version
+  self.status = "Ready"
+  -- NX launcher stays put: keep the imports/ cleanup hint instead of
+  -- overwriting it with a "Starting…" line that never boots from here.
+  if self.launcher and self.isNX and type(displayName) == "string" then
+    self.detail = Strings("%s imported. You may delete the copy from "
+      .. "imports/ when finished.", displayName)
+  else
+    self.detail = "Starting " .. info.displayName .. "..."
+  end
+  self.progress = 1
+  if self.launcher then
+    -- Stay on the launcher; the player presses Play to boot the new game.
+    return
+  end
+  self._handedOff = true
+  resetPointerCursor(self)
+  if self._flex then require("src.import.LauncherView").detach(self) end
+  if self.onComplete then self.onComplete(version) end
+end
+
+-- Drain the worker's progress and finish when it reports done.  One
+-- non-blocking poll per frame, like the other _pump* collectors above.
+function RomImporter:_pumpExtract()
+  local job = self._extract
+  if not job then return end
+  local msg = job.progress:pop()
+  while msg do
+    self.status = msg.stage
+    self.progress = msg.progress / msg.total
+    self.stageCurrent = msg.current
+    self.stageTotal = msg.stageTotal
+    msg = job.progress:pop()
+  end
+  local res = job.result:pop()
+  if not res then
+    -- A thread that died before pushing a result would strand the loader.
+    local threadError = job.thread.getError and job.thread:getError()
+    if threadError then
+      self._extract = nil
+      self:setError(tostring(threadError), job.version)
+    end
+    return
+  end
+  self._extract = nil
+  if not res.ok then
+    self:setError(tostring(res.error), job.version)
+    return
+  end
+  local ok, err = pcall(self._completeImport, self, job.version, job.prefix,
+    job.displayName)
+  if not ok then self:setError(tostring(err), job.version) end
 end
 
 function RomImporter:startPath(path)
@@ -2316,6 +2394,7 @@ function RomImporter:update(dt)
   self:_pumpFindThumbs()
   self:_pumpModCheck()
   self:_pumpModInstall()
+  self:_pumpExtract()
   -- Dev harness: POKEPORT_LAUNCHER_SHOT=/path.png resizes the window from
   -- POKEPORT_WIN=WxH, lets the view settle, then captures one frame and
   -- quits, so a scripted run can see the real launcher at any window shape
@@ -4090,11 +4169,19 @@ end
 
 -- Turn finished thumbnail downloads into images.  Called from update(), so
 -- love.graphics.newImage runs on the render thread where it belongs.
+-- love.graphics.newImage decodes the PNG and uploads it, both on the render
+-- thread.  A page's worth of thumbnails landing in the same frame did that
+-- many times back to back and dropped the frame, so only this many are
+-- decoded per pass; the rest keep their spinner one frame longer.
+local THUMB_DECODES_PER_FRAME = 2
+
 function RomImporter:_pumpFindThumbs()
   local pending = self._findThumbFetch
   if not pending then return end
   local Fetch = require("src.net.Fetch")
+  local decoded = 0
   for id, item in pairs(pending) do
+    if decoded >= THUMB_DECODES_PER_FRAME then break end
     local st = Fetch.poll(item.job)
     if st.status ~= "pending" then
       Fetch.release(item.job)
@@ -4103,6 +4190,7 @@ function RomImporter:_pumpFindThumbs()
       if st.status == "ok" and st.path then
         local ok, img = pcall(love.graphics.newImage, st.path)
         image = ok and img or nil
+        decoded = decoded + 1
       end
       self._findThumbs = self._findThumbs or {}
       self._findThumbs[id] = image or false
@@ -4119,14 +4207,21 @@ end
 -- entry per frame so opening the tab cannot stall for the whole listing.
 -- The result is memoized per id for the session; a repo with no releases
 -- or a failed fetch resolves to an empty table so it is tried once.
-function RomImporter:_findStats(entry)
+-- PURE read: whatever is already known for a row, or nil.  Resolving a
+-- feed-published stat or a repo-less entry is memoization, not network, so it
+-- stays here; nothing in this function can start a fetch.  That matters
+-- because the sort comparator calls it for EVERY entry -- when queueing lived
+-- in here, sorting a 500-mod index by Popularity queued 500 GitHub requests
+-- on the first frame, blew the hourly rate limit, and the failures then
+-- re-queued together every 60s for as long as the tab was open.
+function RomImporter:_findStatsCached(entry)
   self._findStatsCache = self._findStatsCache or {}
   local cached = self._findStatsCache[entry.id]
   if cached then
     if cached.done or (cached.retryAt and os.time() < cached.retryAt) then
       return cached
     end
-    self._findStatsCache[entry.id] = nil  -- retry window open, refetch
+    return nil   -- retry window open; _requestFindStats decides what to do
   end
   if entry.downloads ~= nil or entry.first_release or entry.last_release then
     cached = { total = entry.downloads, first = entry.first_release,
@@ -4139,20 +4234,52 @@ function RomImporter:_findStats(entry)
     self._findStatsCache[entry.id] = cached
     return cached
   end
-  -- ASYNC (was a blocking fetch, one row per frame).  "One per frame" bounded
-  -- how many stalls happened at once, not how long each one lasted: every
-  -- frame that started a fetch blocked for the whole round trip, so scrolling
-  -- a listing juddered once per row.  Rows now queue a handle and fill in
-  -- when it lands; until then the row simply has no stats line.
-  self._findStatsPending = self._findStatsPending or {}
-  if not self._findStatsPending[entry.id] then
-    local ModUpdate = require("src.mods.ModUpdate")
-    self._findStatsPending[entry.id] = {
-      id = entry.id,
-      h = ModUpdate.beginFetchReleases(entry.github, entry.id, {}),
-    }
-  end
   return nil
+end
+
+-- Queue one row's release fetch.  Only rows actually on the page call this --
+-- the rule _findThumb already follows -- so the fan-out is a page, not the
+-- whole index.
+function RomImporter:_requestFindStats(entry)
+  if self:_findStatsCached(entry) then return end
+  if not entry.github or entry.github == "" then return end
+  local cached = self._findStatsCache[entry.id]
+  if cached then
+    if cached.retryAt and os.time() >= cached.retryAt then
+      self._findStatsCache[entry.id] = nil   -- retry window open, refetch
+    else
+      return
+    end
+  end
+  self._findStatsPending = self._findStatsPending or {}
+  if self._findStatsPending[entry.id] then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  self._findStatsPending[entry.id] = {
+    id = entry.id,
+    h = ModUpdate.beginFetchReleases(entry.github, entry.id, {}),
+  }
+end
+
+-- Request-and-read, for a row that is being drawn and for the detail modal.
+function RomImporter:_findStats(entry)
+  self:_requestFindStats(entry)
+  return self:_findStatsCached(entry)
+end
+
+-- How many rows are still waiting on a release check, for the panel's
+-- progress line.
+function RomImporter:_findStatsPendingCount()
+  local n = 0
+  for _ in pairs(self._findStatsPending or {}) do n = n + 1 end
+  return n
+end
+
+function RomImporter:_findStatsPendingFor(id)
+  return (self._findStatsPending and self._findStatsPending[id]) ~= nil
+end
+
+function RomImporter:_findThumbPending(id)
+  return (self._findThumbFetch and self._findThumbFetch[id]) ~= nil
 end
 
 -- Drive in-flight FIND MODS stats lookups.  Called from update().

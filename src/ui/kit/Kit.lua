@@ -132,9 +132,11 @@ local UI_SCALE = 1.3
 
 function Kit.layout(width, height)
   local s = Theme.clamp(math.min(width / 640, height / 768), 0.9, 1.6) * UI_SCALE
-  local key = ("%dx%d"):format(math.floor(width), math.floor(height))
-  if Kit._fontKey ~= key then
-    Kit._fontKey = key
+  -- Two numbers, not a formatted key: this runs once per frame and the
+  -- string:format allocated on every one of them.
+  local kw, kh = math.floor(width), math.floor(height)
+  if Kit._fontW ~= kw or Kit._fontH ~= kh then
+    Kit._fontW, Kit._fontH = kw, kh
     Kit.fonts = Theme.fonts(s)
     clearCaches()   -- every cached Text/width belongs to the old font set
   end
@@ -857,6 +859,8 @@ end
 -- never silently truncated.  This is the ONLY way the launcher moves through
 -- a long list: no scrollbars, no momentum, bounded row count per frame.
 -- Returns the new page (1-based) and the row height consumed.
+local pagerLabels = {}
+
 function Kit.pager(x, y, w, page, total, perPage, idPrefix)
   local h = math.max(Kit.tapMin(), 30 * Kit.scale)
   local bw = 74 * Kit.scale
@@ -876,7 +880,19 @@ function Kit.pager(x, y, w, page, total, perPage, idPrefix)
 
   local first = total > 0 and ((page - 1) * perPage + 1) or 0
   local last = math.min(total, page * perPage)
-  local label = ("%d-%d of %d   (page %d/%d)"):format(first, last, total, page, pages)
+  -- One memo per pager id.  The counts only change when the user pages or the
+  -- list does; formatting them every frame minted a new string that then
+  -- missed the width / ellipsis / Text caches by content.
+  local memo = pagerLabels[idPrefix]
+  if not memo then memo = {}; pagerLabels[idPrefix] = memo end
+  if memo.first ~= first or memo.last ~= last or memo.total ~= total
+      or memo.page ~= page or memo.pages ~= pages then
+    memo.first, memo.last, memo.total = first, last, total
+    memo.page, memo.pages = page, pages
+    memo.label = ("%d-%d of %d   (page %d/%d)")
+      :format(first, last, total, page, pages)
+  end
+  local label = memo.label
   local labelX = x + 2 * bw + 2 * gap + gap
   Kit.text("mono", Kit.ellipsize("mono", label, math.max(0, x + w - labelX)),
     labelX, y + (h - Kit.textHeight("mono")) / 2, PAL.caption)
@@ -942,7 +958,10 @@ end
 -- region can never unclip its parent.  The tracked rect also bounds Kit.hit,
 -- so a widget clipped out of view is inert instead of taking taps aimed at
 -- whatever is drawn where it left.
+-- The stack rects are pooled by depth and fully overwritten on every push,
+-- so a frame that clips a dozen lists allocates nothing.
 local clipStack = {}
+local clipPool = {}
 
 local function applyClip(rect)
   Kit._clipRect = rect
@@ -967,8 +986,12 @@ function Kit.pushClip(x, y, w, h)
     x2 = math.min(x2, prev.x + prev.w)
     y2 = math.min(y2, prev.y + prev.h)
   end
-  local rect = { x = x, y = y, w = math.max(0, x2 - x), h = math.max(0, y2 - y) }
-  clipStack[#clipStack + 1] = rect
+  local n = #clipStack + 1
+  local rect = clipPool[n]
+  if not rect then rect = {}; clipPool[n] = rect end
+  rect.x, rect.y = x, y
+  rect.w, rect.h = math.max(0, x2 - x), math.max(0, y2 - y)
+  clipStack[n] = rect
   applyClip(rect)
 end
 
