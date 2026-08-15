@@ -226,6 +226,8 @@ exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
 contextual `squirtbottle` key item. Fishing rows include the owned rods that
 are valid choices. The list is empty while the world is busy, and omits an
 action whenever its item, move, badge, terrain, or engine state forbids it.
+The optional second return is `"world is busy"` during transient input locks
+or `"no overworld"` before a playable world exists.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
