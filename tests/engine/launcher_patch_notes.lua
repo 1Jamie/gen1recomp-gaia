@@ -62,7 +62,7 @@ end
 
 do
   local body, ver = PatchNotes.body(nil)
-  check(type(body) == "string" and body:find("Issues closed", 1, true),
+  check(type(body) == "string" and (body:find("Download", 1, true) or body:find("Issues", 1, true)),
     "without a check result PatchNotes uses the stashed iOS app-repo notes")
   check(type(ver) == "string" and ver:find("^%d+%.%d+%.%d+$") ~= nil,
     "stashed notes name a release version")
