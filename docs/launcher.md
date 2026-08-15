@@ -16,6 +16,7 @@ save directory as:
 | nil / `"rom"` | `picked_rom.gb` (open) |
 | `"mod"` | `picked_mod.zip` (open) |
 | `"sav"` / `"save"` | `picked_save.sav` (open) |
+| `"required_import"` | `picked_required_import.bin` (open) |
 
 Export uses a separate API: `love.system.createFile(suggestedName)` →
 `GameActivity.showCreateDocument` (`ACTION_CREATE_DOCUMENT`), which copies
