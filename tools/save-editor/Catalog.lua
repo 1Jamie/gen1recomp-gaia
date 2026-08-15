@@ -91,7 +91,8 @@ function Catalog.scrapeEvents(scriptDir, headerPath, listFiles, extraDirs)
     end
   end
 
-  local dirs = { scriptDir }
+  local dirs = {}
+  if scriptDir then dirs[#dirs + 1] = scriptDir end
   for _, dir in ipairs(extraDirs or {}) do
     dirs[#dirs + 1] = dir
   end
@@ -108,6 +109,27 @@ function Catalog.scrapeEvents(scriptDir, headerPath, listFiles, extraDirs)
   end
 
   return sortedKeys(found)
+end
+
+function Catalog.goldEventList(extraDirs)
+  local names = {}
+  local ok, flags = pcall(require, "src.core.gen2.FlagNames")
+  if ok and flags and flags.events then
+    for name in pairs(flags.events) do
+      names[#names + 1] = name
+    end
+  end
+  table.sort(names)
+  local modFlags = Catalog.scrapeEvents(nil, nil, nil, extraDirs)
+  local seen = {}
+  for _, name in ipairs(names) do seen[name] = true end
+  for _, name in ipairs(modFlags) do
+    if not seen[name] then
+      names[#names + 1] = name
+      seen[name] = true
+    end
+  end
+  return names
 end
 
 return Catalog

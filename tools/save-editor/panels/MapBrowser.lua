@@ -14,11 +14,17 @@ local MapLoader = require("src.world.MapLoader")
 local Warp = require("src.world.Warp")
 local Theme = require("Theme")
 local Ops = require("Ops")
+local Gen = require("Gen")
 local PAL = Theme.PAL
 
 local MapBrowser = {}
 
 local CELL = 16   -- the walk grid; a cell is 16px of map art
+
+local function playerPos(S)
+  local map, x, y = Gen.playerMap(S.save)
+  return map, x or 0, y or 0
+end
 
 local function clampZoom(z)
   if z < 1 then return 1 end
@@ -38,7 +44,7 @@ MapBrowser.centerOn = centerOn
 
 local function sortedMapIds(data)
   local ids = {}
-  for id in pairs(data.maps) do ids[#ids + 1] = id end
+  for id in pairs(Gen.maps(data)) do ids[#ids + 1] = id end
   table.sort(ids)
   return ids
 end
@@ -52,7 +58,19 @@ local OUTSIDE_TILESETS = { OVERWORLD = true, PLATEAU = true }
 
 local function goToWarp(S, warp)
   local def = warp.def
-  local fromMap = S.data.maps[S.mapId]
+  if Gen.of(S.save) == 2 then
+    local dest = def.destMap or def.map
+    if dest then
+      S.mapId = dest
+      S.mapClickCell = nil
+      S._mapCenteredFor = dest
+      S.status = "Followed warp to " .. tostring(dest)
+    else
+      S.status = "Warp has no destination map"
+    end
+    return
+  end
+  local fromMap = Gen.maps(S.data)[S.mapId]
   if fromMap and OUTSIDE_TILESETS[fromMap.tileset]
      and def.destMap ~= "LAST_MAP" and def.destMap ~= S.mapId then
     S.save.lastOutdoor = { id = S.mapId, x = def.x, y = def.y }
@@ -125,22 +143,25 @@ local function drawOverlays(S, map)
     return cx * CELL - S.mapCamX, cy * CELL - S.mapCamY, CELL, CELL
   end
   love.graphics.setColor(0.27, 0.59, 1, 0.55)
-  for _, wdef in ipairs(map.def.warps) do
+  for _, wdef in ipairs(map.def.warps or {}) do
     love.graphics.rectangle("line", cellRect(wdef.x, wdef.y))
   end
-  if S.save.player.map == S.mapId then
+  local playerMap, px, py = playerPos(S)
+  if playerMap == S.mapId then
     love.graphics.setColor(1, 0.36, 0.4, 0.9)
-    love.graphics.rectangle("fill", cellRect(S.save.player.x, S.save.player.y))
+    love.graphics.rectangle("fill", cellRect(px, py))
   end
-  local heal = S.save.lastHeal
-  if heal and heal.map == S.mapId then
-    love.graphics.setColor(0.24, 0.88, 0.54, 0.9)
-    love.graphics.rectangle("line", cellRect(heal.x, heal.y))
-  end
-  local out = S.save.lastOutdoor
-  if out and out.id == S.mapId then
-    love.graphics.setColor(1, 0.8, 0.02, 0.9)
-    love.graphics.rectangle("line", cellRect(out.x, out.y))
+  if Gen.of(S.save) ~= 2 then
+    local heal = S.save.lastHeal
+    if heal and heal.map == S.mapId then
+      love.graphics.setColor(0.24, 0.88, 0.54, 0.9)
+      love.graphics.rectangle("line", cellRect(heal.x, heal.y))
+    end
+    local out = S.save.lastOutdoor
+    if out and out.id == S.mapId then
+      love.graphics.setColor(1, 0.8, 0.02, 0.9)
+      love.graphics.rectangle("line", cellRect(out.x, out.y))
+    end
   end
   if S.mapClickCell then
     love.graphics.setColor(1, 1, 0.35, 0.95)
@@ -239,9 +260,13 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
     #ids, perPage)
   if Kit.button(lr.x + pad, gotoY, listInner, gotoH, "Go to save location",
       { font = "small", radius = 9 * s }) then
-    MapBrowser.select(S, S.save.player.map)
-    Ops.say(S, ("Jumped to %s (%d,%d)"):format(S.save.player.map,
-      S.save.player.x, S.save.player.y))
+    local pmap, px, py = playerPos(S)
+    if pmap then
+      MapBrowser.select(S, pmap)
+      Ops.say(S, ("Jumped to %s (%d,%d)"):format(pmap, px, py))
+    else
+      Ops.say(S, "No player location on this save")
+    end
   end
 
   -- ---------------------------------------------------------- the viewport
@@ -253,7 +278,32 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
   Kit.text("monoBig", tostring(S.mapId), vx0,
     vr.y + vpad + (headH - Kit.textHeight("monoBig")) / 2, PAL.heading)
 
-  local ok, map = pcall(MapLoader.load, S.data, S.mapId)
+  local ok, map
+  if Gen.of(S.save) == 2 then
+    local def = Gen.maps(S.data)[S.mapId]
+    if def then
+      local Map2 = require("src.world.gen2.Map")
+      if type(def.width) ~= "number" or type(def.height) ~= "number" then
+        ok, map = false, "incomplete map record (missing width/height)"
+      else
+        local tileset = Gen.tilesets(S.data)[def.tileset]
+        ok, map = pcall(Map2.new, def, tileset or {})
+        if ok and map and not map.renderer then
+          local MapPreview = require("src.world.gen2.MapPreview")
+          S._g2MapBaker = S._g2MapBaker or MapPreview.baker({
+            tilesets = Gen.tilesets(S.data),
+            gen2Roofs = S.data.gen2Roofs, roofs = S.data.roofs,
+            gen2Palettes = S.data.gen2Palettes, palettes = S.data.palettes,
+          })
+          map.renderer = MapPreview.renderer(S._g2MapBaker, map)
+        end
+      end
+    else
+      ok, map = false, "unknown map"
+    end
+  else
+    ok, map = pcall(MapLoader.load, S.data, S.mapId)
+  end
   if not ok then
     Kit.text("mono", "Failed to load map: " .. tostring(map), vx0,
       vr.y + vpad + headH + 20 * s, PAL.red)
@@ -279,12 +329,13 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
   local zBtn = 32 * s
   local rightEdge = vx0 + vinner
   local zoomW = 2 * zBtn + 56 * s + 12 * s
+  local pmap, px, py = playerPos(S)
   local showCenter = vinner >= zoomW + 10 * s + centerW + 160 * s
   if showCenter then
     if Kit.button(rightEdge - centerW, vr.y + vpad, centerW, headH, "Center on player",
         { kind = "accent", font = "small", radius = 7 * s }) then
-      if S.save.player.map == S.mapId then
-        centerOn(S, S.save.player.x, S.save.player.y)
+      if pmap == S.mapId then
+        centerOn(S, px, py)
         Ops.say(S, "Centred on the player")
       else
         Ops.say(S, "Player isn't on this map")
@@ -312,10 +363,11 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
   -- the panel has laid itself out.
   if S._mapCenteredFor ~= S.mapId then
     S._mapCenteredFor = S.mapId
-    if S.save.player.map == S.mapId then
-      centerOn(S, S.save.player.x, S.save.player.y)
+    if pmap == S.mapId then
+      centerOn(S, px, py)
     else
-      centerOn(S, map.widthCells / 2, map.heightCells / 2)
+      centerOn(S, (map.widthCells or map.width or 10) / 2,
+        (map.heightCells or map.height or 10) / 2)
     end
   end
 
@@ -334,7 +386,24 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
     love.graphics.push()
     love.graphics.translate(vx0, vy0)
     love.graphics.scale(S.mapZoom, S.mapZoom)
-    map.renderer:draw(S.mapCamX, S.mapCamY)
+    if map.renderer and map.renderer.draw then
+      map.renderer:draw(S.mapCamX, S.mapCamY)
+    else
+      local wc = map.widthCells or ((map.width or 8) * 2)
+      local hc = map.heightCells or ((map.height or 8) * 2)
+      for cy = 0, hc - 1 do
+        for cx = 0, wc - 1 do
+          if (cx + cy) % 2 == 0 then
+            love.graphics.setColor(0.18, 0.22, 0.32, 1)
+          else
+            love.graphics.setColor(0.14, 0.17, 0.26, 1)
+          end
+          love.graphics.rectangle("fill",
+            cx * CELL - S.mapCamX, cy * CELL - S.mapCamY, CELL, CELL)
+        end
+      end
+      love.graphics.setColor(1, 1, 1, 1)
+    end
     drawOverlays(S, map)
     love.graphics.pop()
     love.graphics.setScissor()
@@ -402,20 +471,31 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
   Kit.caption(sx0 + pad, sr.y + pad, "SPAWN POINTS")
   local sTop = sr.y + pad + Kit.textHeight("caption") + 12 * s
   local sInner = sr.w - 2 * pad
-  local player = S.save.player
-  local out = S.save.lastOutdoor
-  local heal = S.save.lastHeal
-  local spawns = {
-    { key = "PLAYER", color = PAL.red,
-      value = ("%s (%d,%d)"):format(player.map, player.x, player.y),
-      set = function() Ops.setPlayerHere(S) end },
-    { key = "LAST HEAL", color = PAL.green,
-      value = heal and ("%s (%d,%d)"):format(heal.map, heal.x, heal.y) or "unset",
-      set = function() Ops.setLastHeal(S) end },
-    { key = "LAST OUTDOOR", color = PAL.yellow,
-      value = out and ("%s (%d,%d)"):format(out.id, out.x, out.y) or "unset",
-      set = function() Ops.setLastOutdoor(S, map) end },
-  }
+  local pmap2, px2, py2 = playerPos(S)
+  local playerValue = pmap2 and ("%s (%d,%d)"):format(pmap2, px2, py2) or "unset"
+  local spawns
+  if Gen.of(S.save) == 2 then
+    spawns = {
+      { key = "PLAYER", color = PAL.red, value = playerValue,
+        set = function() Ops.setPlayerHere(S) end },
+      { key = "SPAWN", color = PAL.green,
+        value = tostring(S.save.spawn or "SPAWN_HOME"),
+        set = function() Ops.setLastHeal(S) end },
+    }
+  else
+    local out = S.save.lastOutdoor
+    local heal = S.save.lastHeal
+    spawns = {
+      { key = "PLAYER", color = PAL.red, value = playerValue,
+        set = function() Ops.setPlayerHere(S) end },
+      { key = "LAST HEAL", color = PAL.green,
+        value = heal and ("%s (%d,%d)"):format(heal.map, heal.x, heal.y) or "unset",
+        set = function() Ops.setLastHeal(S) end },
+      { key = "LAST OUTDOOR", color = PAL.yellow,
+        value = out and ("%s (%d,%d)"):format(out.id, out.x, out.y) or "unset",
+        set = function() Ops.setLastOutdoor(S, map) end },
+    }
+  end
   local spawnH = 62 * s
   for i, sp in ipairs(spawns) do
     local ry = sTop + (i - 1) * (spawnH + 8 * s)
@@ -431,7 +511,7 @@ function MapBrowser.draw(S, Kit, x, y, w, h)
       sx0 + pad + 12 * s, ry + spawnH - 10 * s - Kit.textHeight("mono"), PAL.muted)
   end
 
-  local noteY = sTop + 3 * (spawnH + 8 * s) + 6 * s
+  local noteY = sTop + #spawns * (spawnH + 8 * s) + 6 * s
   Kit.textCenter("tiny",
     "Click a cell first. Warp cells follow the warp instead of selecting. " ..
     "Arrow keys / WASD pan, the wheel zooms.",

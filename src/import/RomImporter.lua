@@ -2820,7 +2820,7 @@ function RomImporter:keypressed(key)
     return
   end
   if self._modConfirm or self._modVersions or self._modReleaseNotes
-      or self._findDetails then
+      or self._findDetails or self._appPatchNotes then
     -- Focus navigation belongs to the visible modal as well as the launcher
     -- beneath it. Route arrows and an already-armed confirm before this guard
     -- returns; unarmed Enter still falls through to the modal guard. Keep this
@@ -2833,6 +2833,8 @@ function RomImporter:keypressed(key)
         self._findDetails = nil
       elseif self._modReleaseNotes then
         self._modReleaseNotes = nil
+      elseif self._appPatchNotes then
+        self._appPatchNotes = nil
       else
         self._modConfirm = nil
         self._modVersions = nil

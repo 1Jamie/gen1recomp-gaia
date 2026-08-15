@@ -145,7 +145,8 @@ function M.draw(S, Kit, x, y, w, h)
     local rx = cx + ci * (colW + colGap)
     local ry = gridTop + ri * (rowH + rowGap)
     local isSeen = dex.seen[id] == true
-    local isOwned = dex.owned[id] == true
+    local ownedKey = require("Gen").dexOwnedKey(S.save)
+    local isOwned = dex[ownedKey] and dex[ownedKey][id] == true
 
     Theme.row(rx, ry, colW, rowH, 9 * s, 0.6)
     local def = S.data.pokemon[id]

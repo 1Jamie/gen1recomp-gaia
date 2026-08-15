@@ -3475,6 +3475,8 @@ do
   local lua = (arg and arg[-1]) or "luajit"
   local status = os.execute(("%q tests/save_editor_mod_tests.lua"):format(lua))
   check(status == 0 or status == true, "save_editor_mod_tests suite")
+  status = os.execute(("%q tests/save_editor_gen2_tests.lua"):format(lua))
+  check(status == 0 or status == true, "save_editor_gen2_tests suite")
 end
 
 -- ---------------------------------------------- input hold regressions

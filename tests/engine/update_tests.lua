@@ -287,6 +287,7 @@ eq(rel.payload.url, "http://x/love", "parseRelease picks the payload asset url")
 eq(rel.payload.size, 12345, "parseRelease picks the payload asset size")
 eq(rel.sums.url, "http://x/sums", "parseRelease picks the sums asset url")
 eq(rel.sums.size, 99, "parseRelease picks the sums asset size")
+eq(rel.notes, "", "parseRelease treats a missing body as empty notes")
 
 -- a release with no .love yet still parses; payload/sums are nil so the worker
 -- routes to a full reinstall rather than an in-place update

@@ -98,10 +98,69 @@ function Mon.stats(baseStats, dvs, level, statExp)
   }
 end
 
+-- The species string is the source of truth.  `mon.name` is a copy of that
+-- species' display name (GetPokemonName), kept so menus can print without a
+-- Data lookup.  It is NOT the nickname: an un-nicknamed mon has nickname nil
+-- and prints this copy.  Changing species without rewriting it leaves the
+-- previous species' name on the party list and the SUMMARY's top line.
+function Mon.syncIdentity(mon, data)
+  if type(mon) ~= "table" then return mon end
+  local def = data and data.pokemon and data.pokemon[mon.species]
+  if not def then return mon end
+  mon.name = def.name or mon.species
+  if def.types then mon.types = def.types end
+  if mon.dvs then
+    mon.gender = Mon.gender(def, mon.dvs,
+      { species = mon.species, level = mon.level })
+    mon.shiny = Mon.isShiny(mon.dvs,
+      { species = mon.species, def = def, level = mon.level })
+    if mon.species == Unown.SPECIES then
+      mon.unownLetter = Unown.letterFromDVs(mon.dvs)
+    else
+      mon.unownLetter = nil
+    end
+  end
+  return mon
+end
+
+-- Every screen that prints a mon without a Data lookup should go through here:
+-- nickname if the player set one, otherwise the species display copy `name`.
+-- Skipping `name` and jumping to `species` is how a swapped mon can still
+-- read as ABRA on one menu and RAYQUAZA on another.
+function Mon.displayName(mon)
+  if type(mon) ~= "table" then return "?" end
+  return mon.nickname or mon.name or mon.species or "?"
+end
+
+-- Party, boxes, both Day-Care sides, and a pending egg.  Editor CONTINUE and
+-- hydrate have to walk the same set: leaving dayCare.man.mon on the old
+-- `name` is the ABRA bug in a second closet.
+function Mon.eachSaveMon(save, fn)
+  if type(save) ~= "table" or type(fn) ~= "function" then return end
+  for _, mon in ipairs(save.party or {}) do fn(mon) end
+  for _, box in pairs(save.boxes or {}) do
+    if type(box) == "table" then
+      for _, mon in ipairs(box) do fn(mon) end
+    end
+  end
+  local dc = save.dayCare
+  if type(dc) == "table" then
+    if dc.man and dc.man.mon then fn(dc.man.mon) end
+    if dc.lady and dc.lady.mon then fn(dc.lady.mon) end
+    if dc.egg then fn(dc.egg) end
+  end
+  if save.daycare and save.daycare.mon then fn(save.daycare.mon) end
+end
+
+function Mon.syncSaveIdentity(save, data)
+  Mon.eachSaveMon(save, function(mon) Mon.syncIdentity(mon, data) end)
+end
+
 function Mon.refreshStats(mon, data)
   if type(mon) ~= "table" then return mon end
   local def = data and data.pokemon and data.pokemon[mon.species]
   if not (def and def.baseStats) then return mon end
+  Mon.syncIdentity(mon, data)
   -- engine/pokemon/move_mon.asm:1402
   local stats = Mon.stats(def.baseStats, mon.dvs, mon.level or 1, mon.statExp)
   mon.stats = stats
