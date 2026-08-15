@@ -539,11 +539,18 @@ function PartyMenu:update(dt)
         -- .strength, GBPalWhiteOutWithDelay3 blinks the screen white
         -- before CloseTextDisplay returns to the map.
         local ow = self.game.overworld
-        if ow and not ow:partyKnows("STRENGTH") then
-          refuseBadge(self)
+        if ow and ow.useStrengthFieldMove then
+          if not ow:partyKnows("STRENGTH") then
+            refuseBadge(self)
+            return
+          end
+          ow:useStrengthFieldMove(mon, function() self:close() end)
+          return
+        elseif ow and ow.useFieldMove then
+          ow:useFieldMove("STRENGTH", mon)
+          self:close()
           return
         end
-        ow:useStrengthFieldMove(mon, function() self:close() end)
         return
       elseif action == "softboiled" then
         -- field SOFTBOILED (StartMenu_Pokemon .softboiled): transfer

@@ -348,5 +348,30 @@ do
     "MapPreview attaches a draw for a Gold map")
 end
 
+do
+  local memfs = {
+    files = {
+      ["saves/gold/slot1.lua"] = 'return { version = "gold", generation = 2, player = { name = "GOLD" } }',
+      ["options.lua"] = 'return { textSpeed = 3 }',
+    },
+    getInfo = function(self, path)
+      return self.files[path] and { type = "file" } or nil
+    end,
+    read = function(self, path)
+      return self.files[path]
+    end,
+    write = function(self, path, data)
+      self.files[path] = data
+      return true
+    end,
+    remove = function(self, path)
+      self.files[path] = nil
+      return true
+    end,
+  }
+  local main, _, _ = SaveData.saveFilename("gold")
+  check(main ~= nil, "saveFilename resolves for gold")
+end
+
 print(string.format("save editor gen2 tests: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
