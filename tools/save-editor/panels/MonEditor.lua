@@ -19,16 +19,25 @@
 local Theme = require("Theme")
 local Ops = require("Ops")
 local PAL = Theme.PAL
+local Gen = require("Gen")
 
 local MonEditor = {}
 
 local DV_KEYS = { "attack", "defense", "speed", "special" }
-local STAT_KEYS = {
+local STAT_KEYS_G1 = {
   { key = "HP", field = "hp" },
   { key = "ATK", field = "attack" },
   { key = "DEF", field = "defense" },
   { key = "SPD", field = "speed" },
   { key = "SPC", field = "special" },
+}
+local STAT_KEYS_G2 = {
+  { key = "HP", field = "hp" },
+  { key = "ATK", field = "attack" },
+  { key = "DEF", field = "defense" },
+  { key = "SPA", field = "specialAttack" },
+  { key = "SPD", field = "specialDefense" },
+  { key = "SPE", field = "speed" },
 }
 
 -- Front sprites are read straight off the generated cache.  One image per
@@ -96,7 +105,7 @@ local function drawLevelRow(S, Kit, mon, lx0, ly)
     end
     lx = lx + bw + 8 * s
   end
-  Kit.text("mono", ("EXP %d"):format(mon.exp or 0), lx + 6 * s,
+  Kit.text("mono", ("EXP %d"):format(Gen.exp(mon)), lx + 6 * s,
     ly + (lh - Kit.textHeight("mono")) / 2, PAL.muted)
   return lh
 end
@@ -106,7 +115,7 @@ end
 local function levelRowWidth(Kit, mon)
   local s = Kit.scale
   return 52 * s + 2 * (40 * s + 8 * s) + 58 * s + 8 * s + 2 * (40 * s + 8 * s)
-    + 6 * s + Kit.textWidth("mono", ("EXP %d"):format(mon.exp or 0))
+    + 6 * s + Kit.textWidth("mono", ("EXP %d"):format(Gen.exp(mon)))
 end
 
 local function drawDvRows(S, Kit, mon, cx, rowY, colW, rowH, rowGap)
@@ -179,7 +188,7 @@ function MonEditor.draw(S, Kit, x, y, w, h)
     local tw = math.min(w - 40 * s, 340 * s)
     Kit.textCenter("button",
       "Pick a slot on the left to inspect it. Every change here re-runs the " ..
-      "Gen1 stat formulas, so HP and stats stay legal.",
+      "stat formulas, so HP and stats stay legal.",
       x + (w - tw) / 2, y + h / 2 - Kit.textHeight("button"), tw, PAL.muted)
     return
   end
@@ -220,10 +229,13 @@ function MonEditor.draw(S, Kit, x, y, w, h)
   end
   -- the nickname section: a caption line (with the Clear button on it) plus
   -- the field + Set row
+  local extraH = 0
+  if Gen.ofState(S) == 2 then extraH = 88 * s end
   local nickFieldH = 30 * s
   local contentH = pad + headerH + 18 * s
     + capH + 10 * s + nickFieldH + 18 * s
     + capH + 10 * s + cellH + 18 * s
+    + extraH
     + colsH + pad
 
   -- Called before the widgets so this frame already draws at the updated
@@ -311,8 +323,9 @@ function MonEditor.draw(S, Kit, x, y, w, h)
   local statsY = nickY + capH + 10 * s + nickFieldH + 18 * s
   Kit.caption(cx, statsY, "STATS . recalculated from level + DVs")
   statsY = statsY + capH + 10 * s
+  local STAT_KEYS = Gen.ofState(S) == 2 and STAT_KEYS_G2 or STAT_KEYS_G1
   local gap = 12 * s
-  local cellW = (inner - gap * 4) / 5
+  local cellW = (inner - gap * (#STAT_KEYS - 1)) / #STAT_KEYS
   for i, st in ipairs(STAT_KEYS) do
     local bx = cx + (i - 1) * (cellW + gap)
     Theme.row(bx, statsY, cellW, cellH, 10 * s, 0.6)
@@ -326,6 +339,40 @@ function MonEditor.draw(S, Kit, x, y, w, h)
 
   -- --------------------------------------------------- DVs | moves split
   local colY = statsY + cellH + 18 * s
+  if Gen.ofState(S) == 2 then
+    local extraY = colY
+    Kit.caption(cx, extraY, "GOLD")
+    extraY = extraY + capH + 8 * s
+    local row = 28 * s
+    Kit.text("tiny", "HELD " .. tostring(mon.item or "none"), cx, extraY, PAL.text)
+    if Kit.button(cx + inner - 70 * s, extraY, 70 * s, row, "Clear item",
+        { kind = "danger", font = "tiny", radius = 6 * s }) then
+      Ops.setHeldItem(S, mon, nil)
+    end
+    extraY = extraY + row + 6 * s
+    Kit.text("tiny", ("HAPPINESS %d"):format(mon.happiness or 0), cx, extraY, PAL.text)
+    if Kit.stepper(cx + 140 * s, extraY, 28 * s, row, "-", { font = "small" }) then
+      Ops.setHappiness(S, mon, (mon.happiness or 0) - 10)
+    end
+    if Kit.stepper(cx + 174 * s, extraY, 28 * s, row, "+", { font = "small" }) then
+      Ops.setHappiness(S, mon, (mon.happiness or 0) + 10)
+    end
+    Kit.text("tiny", ("PKRS %d"):format(mon.pokerus or 0), cx + 220 * s, extraY, PAL.text)
+    if Kit.stepper(cx + 300 * s, extraY, 28 * s, row, "-", { font = "small" }) then
+      Ops.setPokerus(S, mon, (mon.pokerus or 0) - 1)
+    end
+    if Kit.stepper(cx + 334 * s, extraY, 28 * s, row, "+", { font = "small" }) then
+      Ops.setPokerus(S, mon, (mon.pokerus or 0) + 1)
+    end
+    extraY = extraY + row + 4 * s
+    local bits = {}
+    if mon.gender then bits[#bits + 1] = mon.gender end
+    if mon.shiny then bits[#bits + 1] = "shiny" end
+    if mon.unownLetter then bits[#bits + 1] = "Unown " .. tostring(mon.unownLetter) end
+    Kit.text("tiny", table.concat(bits, "  ") ~= "" and table.concat(bits, "  ")
+      or "gender/shiny follow DVs", cx, extraY, PAL.caption)
+    colY = extraY + 22 * s
+  end
   if narrow then
     -- stacked: DVs first, then moves, then the two actions side by side at
     -- full width (#715)

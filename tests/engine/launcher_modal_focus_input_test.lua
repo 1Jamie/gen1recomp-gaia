@@ -23,7 +23,7 @@ local function importer(field)
 end
 
 local modalFields = {
-  "_modConfirm", "_modVersions", "_modReleaseNotes", "_findDetails",
+  "_modConfirm", "_modVersions", "_modReleaseNotes", "_appPatchNotes", "_findDetails",
 }
 
 for _, field in ipairs(modalFields) do
@@ -76,6 +76,12 @@ do
   local imp = importer("_modReleaseNotes")
   imp:keypressed("escape")
   eq(imp._modReleaseNotes, nil, "Escape closes release notes")
+end
+do
+  resetFocus()
+  local imp = importer("_appPatchNotes")
+  imp:keypressed("escape")
+  eq(imp._appPatchNotes, nil, "Escape closes patch notes")
 end
 do
   resetFocus()

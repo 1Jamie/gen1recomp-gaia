@@ -45,7 +45,12 @@ local Boot    = loadModule("src/update/Boot.lua")
 local cmdCh   = love.thread.getChannel("update_check_cmd")
 local stateCh = love.thread.getChannel("update_check_state")
 
-local function post(t) stateCh:push(t) end
+local function post(t)
+  if pending and type(t) == "table" and t.notes == nil then
+    t.notes = pending.notes
+  end
+  stateCh:push(t)
+end
 
 local osName    = (love.system and love.system.getOS and love.system.getOS()) or ""
 local isWindows = osName == "Windows"

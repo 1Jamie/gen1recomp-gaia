@@ -132,13 +132,97 @@ local function mergeConflictLists(conflicts, incompatible)
   return out
 end
 
+local scrubUtf8 -- shared by required-import labels and top-level strings
+
+-- User-supplied files a mod needs beside its own source.  The launcher owns
+-- the picker and the copy; the mod only reads the resulting
+-- <mod>/baseroms/<file> through its existing scoped mod:read surface.  MD5 is
+-- deliberately the manifest vocabulary here: ROM preservation databases and
+-- the mods consuming these files commonly identify dumps by MD5, and the
+-- digest is an identity check rather than a security boundary.
+local function parseImports(value, field, required)
+  field = field or "required_imports"
+  local out, ids, files = {}, {}, {}
+  for _, entry in ipairs(array(value)) do
+    assert(type(entry) == "table", field .. " entries must be objects")
+    local id = entry.id
+    assert(type(id) == "string" and id:match("^[%w_%-]+$"),
+      field .. " id must contain only letters, numbers, _ or -")
+    assert(not ids[id], "duplicate " .. field .. " id: " .. id)
+    ids[id] = true
+
+    local file = entry.file
+    assert(type(file) == "string" and file ~= "",
+      field .. " file is required")
+    file = SafePath.require(file, field .. " file")
+    assert(not file:find("/", 1, true),
+      field .. " file must be a filename inside baseroms")
+    assert(file:sub(1, 1) ~= ".",
+      field .. " file must not use a hidden metadata filename")
+    assert(not files[file], "duplicate " .. field .. " file: " .. file)
+    files[file] = true
+
+    local hashes = entry.md5
+    if type(hashes) == "string" then hashes = { hashes } end
+    assert(type(hashes) == "table" and #hashes > 0,
+      field .. " md5 must be a hash or non-empty array")
+    local accepted, seen = {}, {}
+    for _, digest in ipairs(hashes) do
+      assert(type(digest) == "string" and digest:match("^[%x]+$")
+          and #digest == 32, field .. " md5 values must be 32 hex characters")
+      digest = digest:lower()
+      if not seen[digest] then
+        seen[digest] = true
+        accepted[#accepted + 1] = digest
+      end
+    end
+
+    local format = entry.format or "raw"
+    assert(format == "raw" or format == "n64",
+      field .. " format must be raw or n64")
+    local name = entry.name or id
+    assert(type(name) == "string" and name ~= "",
+      field .. " name must be a non-empty string")
+    local description = entry.description or entry.hint
+    if description ~= nil then
+      assert(type(description) == "string" and description ~= "",
+        field .. " description must be a non-empty string")
+    end
+    local size = entry.size
+    local maxSize = entry.max_size
+    local function validateSize(value, label)
+      if value == nil then return end
+      assert(type(value) == "number" and value > 0 and value % 1 == 0,
+        field .. " " .. label .. " must be a positive integer")
+      assert(value <= 128 * 1024 * 1024,
+        field .. " " .. label .. " exceeds the 128 MiB hard limit")
+    end
+    validateSize(size, "size")
+    validateSize(maxSize, "max_size")
+    assert(not (size and maxSize) or size <= maxSize,
+      field .. " size must not exceed max_size")
+    out[#out + 1] = {
+      id = id,
+      name = scrubUtf8(name),
+      description = scrubUtf8(description),
+      file = file,
+      md5 = accepted,
+      format = format,
+      size = size,
+      max_size = maxSize,
+      required = required ~= false,
+    }
+  end
+  return out
+end
+
 -- Drop bytes that are not valid UTF-8 (malformed sequences, overlongs,
 -- surrogates, > U+10FFFF) and a leading BOM.  LÖVE's text renderer raises
 -- "Invalid UTF-8" from love.graphics.print/printf, so any manifest string a
 -- panel may draw must be scrubbed here -- the one place every mod manifest
 -- passes through -- or a single mangled description crashes the whole MODS
 -- panel instead of misrendering one card.
-local function scrubUtf8(s)
+scrubUtf8 = function(s)
   if type(s) ~= "string" then return s end
   s = s:gsub("^\239\187\191", "")
   local out, i, n = {}, 1, #s
@@ -290,6 +374,19 @@ function Manifest.validate(raw, path)
 
   local conflicts = mergeConflictLists(raw.conflicts, raw.incompatible)
 
+  local requiredImports = parseImports(raw.required_imports,
+    "required_imports", true)
+  local optionalImports = parseImports(raw.optional_imports,
+    "optional_imports", false)
+  local importIds, importFiles = {}, {}
+  for _, list in ipairs({ requiredImports, optionalImports }) do
+    for _, import in ipairs(list) do
+      assert(not importIds[import.id], "duplicate import id: " .. import.id)
+      assert(not importFiles[import.file], "duplicate import file: " .. import.file)
+      importIds[import.id], importFiles[import.file] = true, true
+    end
+  end
+
   return {
     id = raw.id,
     name = raw.name,
@@ -318,6 +415,8 @@ function Manifest.validate(raw, path)
     permissionSet = permissionSet,
     options_schema = optionalFile(raw.options_schema, "options_schema"),
     assets_transforms = optionalFile(raw.assets_transforms, "assets_transforms"),
+    required_imports = requiredImports,
+    optional_imports = optionalImports,
     -- an env var name, not a path, so it keeps the plain string check
     force_enable_env = optionalString(raw.force_enable_env, "force_enable_env"),
     path = path,

@@ -18,6 +18,7 @@
 local Bag = require("src.inventory.Bag")
 local Theme = require("Theme")
 local Ops = require("Ops")
+local Gen = require("Gen")
 local PAL = Theme.PAL
 
 local M = {}
@@ -46,7 +47,11 @@ local function quantityRow(S, Kit, x, y, w, h, id, qty, selected, onMinus, onPlu
   local qtyW = Kit.textWidth("monoRow", qtyText)
   Kit.textRight("monoRow", qtyText, bx - 10 * s,
     y + (h - Kit.textHeight("monoRow")) / 2, PAL.heading)
-  Kit.text("mono", Kit.ellipsize("mono", id, bx - qtyW - 30 * s - (x + 10 * s)),
+  local label = id
+  if Gen.of(S.save) == 2 then
+    label = (Bag.pocketOf(id, S.data) or "ITEM") .. "  " .. id
+  end
+  Kit.text("mono", Kit.ellipsize("mono", label, bx - qtyW - 30 * s - (x + 10 * s)),
     x + 10 * s, y + (h - Kit.textHeight("mono")) / 2, PAL.text)
   return clicked
 end
@@ -55,9 +60,13 @@ end
 -- Each card is a function of its own rect so the wide (three column) and the
 -- stacked (#715) layouts are the same drawing code with different geometry.
 
-local function moneyHeight(Kit, s, pad)
-  return pad * 2 + Kit.textHeight("caption") + 8 * s
+local function moneyHeight(Kit, s, pad, S)
+  local h = pad * 2 + Kit.textHeight("caption") + 8 * s
     + Kit.textHeight("headline") + 10 * s + 30 * s
+  if S and Gen.of(S.save) == 2 then
+    h = h + 28 * s
+  end
+  return h
 end
 
 local function drawMoney(S, Kit, x, y, w, h)
@@ -68,11 +77,19 @@ local function drawMoney(S, Kit, x, y, w, h)
   local maxW = 74 * s
   if Kit.button(x + w - pad - maxW, y + pad - 4 * s, maxW, 26 * s, "Max out",
       { kind = "accent", font = "tiny", radius = 7 * s,
-        enabled = (S.save.money or 0) < Ops.MONEY_MAX }) then
+        enabled = Gen.money(S.save) < Ops.MONEY_MAX }) then
     Ops.maxMoney(S)
   end
-  Kit.text("headline", ("$%d"):format(S.save.money or 0), x + pad,
+  Kit.text("headline", ("$%d"):format(Gen.money(S.save)), x + pad,
     y + pad + Kit.textHeight("caption") + 8 * s, PAL.yellow)
+  if Gen.of(S.save) == 2 then
+    Kit.text("mono", ("COINS %d"):format(Gen.coins(S.save)), x + pad + 160 * s,
+      y + pad + Kit.textHeight("caption") + 8 * s, PAL.muted)
+    if Kit.button(x + w - pad - 74 * s, y + pad + 26 * s, 74 * s, 22 * s, "+100 coins",
+        { kind = "ghost", font = "tiny", radius = 6 * s }) then
+      Ops.addCoins(S, 100)
+    end
+  end
   local mbY = y + h - pad - 30 * s
   local mbW = (w - 2 * pad - 3 * 8 * s) / 4
   for i, delta in ipairs(MONEY_STEPS) do
@@ -99,10 +116,7 @@ local function drawBadges(S, Kit, x, y, w, h)
   Kit.card(x, y, w, h)
   local earned = 0
   for _, id in ipairs(badgeIds) do
-    -- #515: truthy check, not `== true` -- the in-game grant path stores a
-    -- number (see OverworldController.lua checkVictoryRewards), matching
-    -- src/inventory/Badges.lua's own truthy read.
-    if S.save.inventory[id] then earned = earned + 1 end
+    if Gen.hasBadge(S.save, id) then earned = earned + 1 end
   end
   Kit.caption(x + pad, y + pad, "BADGES")
   Kit.textRight("mono", ("%d/%d"):format(earned, #badgeIds), x + w - pad,
@@ -112,7 +126,7 @@ local function drawBadges(S, Kit, x, y, w, h)
   for i, id in ipairs(badgeIds) do
     local bc = (i - 1) % BADGE_COLS
     local br = math.floor((i - 1) / BADGE_COLS)
-    local on = S.save.inventory[id]
+    local on = Gen.hasBadge(S.save, id)
     local short = id:gsub("BADGE$", "")
     if Kit.chip(x + pad + bc * (bW + 7 * s), bTop + br * (28 * s + 7 * s),
         bW, 28 * s, Kit.ellipsize("micro", short, bW - 8 * s), on,
@@ -253,7 +267,7 @@ function M.draw(S, Kit, x, y, w, h)
     -- drag over their own bodies first.
     local off = Theme.clamp(S.itemsScroll or 0, 0,
       math.max(0, (S._itemsContentH or 0) - h))
-    local moneyH = moneyHeight(Kit, s, pad)
+    local moneyH = moneyHeight(Kit, s, pad, S)
     local badgeH = badgeHeight(S, Kit, s, pad)
     local pickH = 280 * s
     local listH = 300 * s
@@ -278,7 +292,7 @@ function M.draw(S, Kit, x, y, w, h)
   -- Money and badges are fixed-height so the picker gets every pixel left
   -- over: cycling through ~250 item ids in a two-row list was the thing that
   -- made the old panel unusable.
-  local moneyH = moneyHeight(Kit, s, pad)
+  local moneyH = moneyHeight(Kit, s, pad, S)
   local badgeH = badgeHeight(S, Kit, s, pad)
   drawMoney(S, Kit, x, y, leftW, moneyH)
   drawPicker(S, Kit, x, y + moneyH + gap, leftW, h - moneyH - badgeH - 2 * gap)

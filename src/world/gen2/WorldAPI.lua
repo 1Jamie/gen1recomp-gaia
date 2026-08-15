@@ -36,6 +36,18 @@ WorldAPI.__index = WorldAPI
 
 local NO_OVERWORLD = "no overworld"
 local RODS = { "OLD_ROD", "GOOD_ROD", "SUPER_ROD" }
+local FIELD_ACTIONS = {
+  { id = "cut", move = "CUT" },
+  { id = "surf", move = "SURF" },
+  { id = "strength", move = "STRENGTH" },
+  { id = "flash", move = "FLASH" },
+  { id = "headbutt", move = "HEADBUTT" },
+  { id = "whirlpool", move = "WHIRLPOOL" },
+  { id = "waterfall", move = "WATERFALL" },
+  { id = "sweet_scent", move = "SWEET_SCENT" },
+  { id = "dig", move = "DIG" },
+  { id = "teleport", move = "TELEPORT" },
+}
 
 function WorldAPI.new(game, modId)
   return setmetatable({ game = game, modId = modId }, WorldAPI)
@@ -96,6 +108,26 @@ function WorldAPI:availableFieldActions()
       out[#out + 1] = { id = "fish", label = "FISH", rods = rods }
     end
   end
+
+  for _, row in ipairs(FIELD_ACTIONS) do
+    if not (row.move == "STRENGTH" and world.strengthActive) then
+      local mon = FieldMoves.partyMoveUser(context.party, row.move, context)
+      if mon then
+        context.mon = mon
+        local result = FieldMoves.fromMenu(row.move, context)
+        if result.ok then
+          out[#out + 1] = { id = row.id,
+            label = row.move:gsub("_", " ") }
+        end
+      end
+    end
+  end
+
+  if (inventory.SQUIRTBOTTLE or 0) > 0
+      and world:squirtbottleTreeScript() then
+    out[#out + 1] = { id = "squirtbottle",
+      label = itemLabel(game, "SQUIRTBOTTLE") }
+  end
   return out
 end
 
@@ -123,6 +155,18 @@ function WorldAPI:useFieldAction(id, opts)
       end
     end
     return nil, "fishing rod unavailable"
+  elseif id == "squirtbottle" then
+    local outcome = world:useFieldItem("SQUIRTBOTTLE")
+    if outcome and outcome ~= "nowhere" then return true end
+  end
+  for _, row in ipairs(FIELD_ACTIONS) do
+    if row.id == id then
+      local context = world:fieldContext()
+      local mon = FieldMoves.partyMoveUser(context.party, row.move, context)
+      local result = mon and world:useFieldMove(row.move, mon)
+      if result and result.ok then return true end
+      return nil, "field action unavailable"
+    end
   end
   return nil, "field action unavailable"
 end

@@ -19,7 +19,6 @@
 -- in the selected box as a Lv5 mon built by the same MonOps path partyAdd
 -- uses, so its stats, exp and moves are consistent.
 
-local BoxesMod = require("src.pokemon.Boxes")
 local PartyMod = require("src.pokemon.Party")
 local Theme = require("Theme")
 local Ops = require("Ops")
@@ -33,12 +32,12 @@ local function drawStrip(S, Kit, boxes, x, y, stripW, h)
   local s = Kit.scale
   local pad = 16 * s
   Kit.card(x, y, stripW, h)
-  Kit.caption(x + pad, y + pad, ("BOXES . %d"):format(BoxesMod.COUNT))
+  Kit.caption(x + pad, y + pad, ("BOXES . %d"):format(Ops.boxCount(S)))
   local stripTop = y + pad + Kit.textHeight("caption") + 10 * s
   local stripInner = stripW - 2 * pad
   local bRowH = math.min(30 * s, math.max(22 * s,
-    (h - (stripTop - y) - pad - (BoxesMod.COUNT - 1) * 6 * s) / BoxesMod.COUNT))
-  for i = 1, BoxesMod.COUNT do
+    (h - (stripTop - y) - pad - (Ops.boxCount(S) - 1) * 6 * s) / Ops.boxCount(S)))
+  for i = 1, Ops.boxCount(S) do
     local ry = stripTop + (i - 1) * (bRowH + 6 * s)
     if ry + bRowH > y + h - pad then break end
     if Kit.row(x + pad, ry, stripInner, bRowH, i == S.selectedBox, PAL.blue, 9 * s) then
@@ -52,7 +51,7 @@ local function drawStrip(S, Kit, boxes, x, y, stripW, h)
       ry + (bRowH - Kit.textHeight("tiny")) / 2, PAL.caption)
     local mx = x + pad + stripInner - 10 * s - countW - 8 * s - 44 * s
     Kit.meter(mx, ry + (bRowH - 5 * s) / 2, 44 * s, 5 * s,
-      fill / BoxesMod.CAPACITY * 100, fill >= BoxesMod.CAPACITY and PAL.yellow or PAL.blue)
+      fill / Ops.boxCapacity(S) * 100, fill >= Ops.boxCapacity(S) and PAL.yellow or PAL.blue)
   end
 end
 
@@ -66,7 +65,7 @@ local function drawGrid(S, Kit, box, gridX, y, gridW, h)
   Kit.text("tab", ("Box %d"):format(S.selectedBox), gx,
     y + gpad + (headH - Kit.textHeight("tab")) / 2, PAL.heading)
   local titleW = Kit.textWidth("tab", ("Box %d"):format(S.selectedBox))
-  Kit.text("mono", ("%d/%d"):format(#box, BoxesMod.CAPACITY),
+  Kit.text("mono", ("%d/%d"):format(#box, Ops.boxCapacity(S)),
     gx + titleW + 14 * s, y + gpad + (headH - Kit.textHeight("mono")) / 2, PAL.caption)
   local navW = 34 * s
   if Kit.stepper(gx + ginner - 2 * navW - 8 * s, y + gpad, navW, headH, "<",
@@ -102,7 +101,7 @@ local function drawGrid(S, Kit, box, gridX, y, gridW, h)
   end
   if Kit.button(gx + wdW + 10 * s, actY, addW, actH, addLabel,
       { font = "small", radius = 9 * s,
-        enabled = #box < BoxesMod.CAPACITY }) then
+        enabled = #box < Ops.boxCapacity(S) }) then
     Ops.openBoxAddPicker(S, Kit)
   end
   if Kit.button(gx + ginner - relW, actY, relW, actH, relLabel,
@@ -119,7 +118,7 @@ local function drawGrid(S, Kit, box, gridX, y, gridW, h)
   -- of five slivers.
   local cols = math.max(2, math.min(COLS,
     math.floor((ginner + cellGap) / (86 * s + cellGap))))
-  local rows = math.ceil(BoxesMod.CAPACITY / cols)
+  local rows = math.ceil(Ops.boxCapacity(S) / cols)
   local cellW = math.max(0, (ginner - cellGap * (cols - 1)) / cols)
   -- floor at Kit's 26px tap target so a short window shrinks the cells but
   -- never inverts them (#715); overflow clips inside the grid body rather
@@ -128,7 +127,7 @@ local function drawGrid(S, Kit, box, gridX, y, gridW, h)
     math.min((gridH - cellGap * (rows - 1)) / rows, 110 * s))
 
   Kit.pushClip(gx, gridTop, ginner, gridH)
-  for i = 1, BoxesMod.CAPACITY do
+  for i = 1, Ops.boxCapacity(S) do
     local cc = (i - 1) % cols
     local cr = math.floor((i - 1) / cols)
     local bx = gx + cc * (cellW + cellGap)
@@ -220,7 +219,7 @@ function M.draw(S, Kit, x, y, w, h)
   local s = Kit.scale
   local gap = 20 * s
 
-  S.selectedBox = Ops.clamp(S.selectedBox or 1, 1, BoxesMod.COUNT)
+  S.selectedBox = Ops.clamp(S.selectedBox or 1, 1, Ops.boxCount(S))
   S.save.currentBox = S.selectedBox
   local boxes = Ops.boxes(S)
   local box = boxes[S.selectedBox]

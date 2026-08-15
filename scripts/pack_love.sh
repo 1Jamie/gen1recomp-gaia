@@ -51,6 +51,12 @@ rm -f "$OUTPUT"
   tools/rom_manifest.json tools/rom_manifest_blue.json \
   tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
   -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
+if [ -f "$ROOT/PATCH_NOTES.md" ]; then
+  (cd "$ROOT" && zip -q "$OUTPUT" PATCH_NOTES.md)
+fi
+if [ -f "$ROOT/mobile/ios/app-repo.json" ]; then
+  (cd "$ROOT" && zip -q "$OUTPUT" mobile/ios/app-repo.json)
+fi
 
 if [ -n "$BUILD_INFO" ]; then
   [ -f "$BUILD_INFO" ] || fail "missing build-info: $BUILD_INFO"

@@ -79,3 +79,9 @@ mobile/ios/bundle_id.local
 
 # Local options / preferences
 /options.lua*
+
+# User-owned ROMs imported for individual mods. Manifests declare the
+# destinations, but source checkouts and packaged mods never ship the files.
+/mods/*/baseroms/
+/imports/baseroms/
+/imports/baseroms-recovery/

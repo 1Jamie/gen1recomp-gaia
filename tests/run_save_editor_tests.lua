@@ -9,6 +9,7 @@
 --   tests/save_editor_task7_tests.lua
 --   tests/save_editor_task8_tests.lua
 --   tests/save_editor_mod_tests.lua
+--   tests/save_editor_gen2_tests.lua
 -- See tools/save-editor/README.md for the full list.
 --
 -- All of them drive tools/save-editor/Ops.lua rather than clicking pixel

@@ -12,7 +12,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local Flags = dofile("tools/goldwalk/flags.lua")
 
 local ROOT = arg[1] or "../pokegold"
-local OUT  = "tests/drivers/gold/flag_names.lua"
+local OUT  = "src/core/gen2/FlagNames.lua"
 
 local events, _  = Flags.parse(ROOT .. "/constants/event_flags.asm")
 local engine, _  = Flags.parse(ROOT .. "/constants/engine_flags.asm")

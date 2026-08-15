@@ -32,6 +32,15 @@ eq(rel.payloadName, "gen1recomp-1.4.2.love", "payload name derived from version"
 eq(rel.payload.url, "http://x/love", "payload asset url picked")
 eq(rel.payload.size, 12345, "payload asset size picked")
 eq(rel.sums.url, "http://x/sums", "sums asset url picked")
+eq(rel.notes, "", "missing release body becomes empty notes")
+
+local withNotes = Check.parseRelease(Json.encode({
+  tag_name = "v1.4.2",
+  body = "## Issues closed\n\n- #1 cart padding",
+  assets = {},
+}))
+eq(withNotes.notes, "## Issues closed\n\n- #1 cart padding",
+  "parseRelease keeps the GitHub release body")
 
 -- a newer release that ships no .love yet: parses, but the payload/sums are nil
 -- so the worker will route to needs_full rather than an in-place update

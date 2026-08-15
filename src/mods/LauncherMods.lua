@@ -38,6 +38,7 @@ local Version = require("src.core.Version")
 local SaveData = require("src.core.SaveData")
 local GameVersion = require("src.core.GameVersion")
 local CacheFs = require("src.import.CacheFs")
+local RequiredImports = require("src.mods.RequiredImports")
 
 local LauncherMods = {}
 
@@ -459,13 +460,38 @@ function LauncherMods.list(version)
   local ok, result = pcall(function()
     local options = SaveData.loadOptions()
     local manifests = discover()
+    -- Imports are private player grants. Never scan or copy another mod's
+    -- baseroms: a matching public digest is not permission to share the file.
+    local importState = {}
+    for _, manifest in ipairs(manifests) do
+      local rows, missing, missingOptional = RequiredImports.inspect(manifest)
+      importState[manifest.id] = { rows = rows, missing = missing,
+        missingOptional = missingOptional }
+    end
     -- The first build containing game-specific switches turns the old shared
     -- state into one explicit answer per installed mod and game.  Saving here
     -- means users who only visit the launcher still receive the migration.
     if SaveData.migrateModEnablement(options, manifests) then
       SaveData.saveOptions(options)
     end
-    return LauncherMods.deriveList(manifests, options, version)
+    local rows = LauncherMods.deriveList(manifests, options, version)
+    for _, row in ipairs(rows) do
+      local state = importState[row.id]
+        or { rows = {}, missing = 0, missingOptional = 0 }
+      local imports, missing = state.rows, state.missing
+      row.requiredImports, row.missingRequiredImports = imports, missing
+      row.imports = imports
+      row.missingOptionalImports = state.missingOptional or 0
+      if missing > 0 and row.status == "ok" then
+        row.status = "needs_import"
+        local first
+        for _, import in ipairs(imports) do
+          if not import.present then first = import break end
+        end
+        row.statusDetail = "Needs import: " .. (first and first.name or "required file")
+      end
+    end
+    return rows
   end)
   if not ok then
     -- a single bad options/mod file must not blank the launcher
@@ -675,6 +701,26 @@ local function copyTree(src, dst)
     end
   end
   return true
+end
+
+-- User-supplied baseroms are install state, not package content.  Snapshot
+-- them before replacing a mod tree so an update cannot make the player select
+-- the same cartridge again (or destroy their only reusable copy if the new
+-- archive later fails to copy).
+local function snapshotTree(path, into, relative)
+  local fs = love.filesystem
+  into, relative = into or {}, relative or ""
+  local info = fs.getInfo(path)
+  if not info then return into end
+  if info.type == "directory" then
+    for _, name in ipairs(fs.getDirectoryItems(path) or {}) do
+      local rel = relative == "" and name or (relative .. "/" .. name)
+      snapshotTree(path .. "/" .. name, into, rel)
+    end
+  elseif relative ~= "" and into[relative] == nil then
+    into[relative] = fs.read(path)
+  end
+  return into
 end
 
 -- Delete an installed mod subtree.  Enumeration stays on love.filesystem (the
@@ -919,14 +965,28 @@ function LauncherMods._installZipInner(source, opts)
     return nil, ("zip is for '%s', expected '%s'")
       :format(manifest.id, opts.expectId)
   end
+  local packagedBaseroms = root .. "/baseroms"
+  if fs.getInfo(packagedBaseroms, "directory")
+      and #(fs.getDirectoryItems(packagedBaseroms) or {}) > 0 then
+    cleanup()
+    return nil, "mod archives must not include user-supplied baseroms/ files"
+  end
 
   local dest = "mods/" .. manifest.id
+  local baseromRecovery = "imports/baseroms-recovery/" .. manifest.id
   local existing, installedSomewhere = sameIdTrees(fs, manifest.id)
   if installedSomewhere and not opts.replace then
     cleanup()
     return nil, "a mod named '" .. manifest.id .. "' is already installed"
   end
+  local preservedBaseroms = {}
+  -- A previous failed update may have staged the user's files outside mods/ so
+  -- discovery cannot mistake recovery debris for an installed mod.
+  snapshotTree(baseromRecovery, preservedBaseroms)
   if #existing > 0 then
+    for _, path in ipairs(existing) do
+      snapshotTree(path .. "/baseroms", preservedBaseroms)
+    end
     -- drop every old tree before copy -- mods/<id> and any same-id folder
     -- under another name, or the survivor keeps winning discover()'s
     -- first-id-wins race after the "successful" update (#801).  A tree with
@@ -950,6 +1010,28 @@ function LauncherMods._installZipInner(source, opts)
   CacheFs.prefix = ""
   local copied, copyErr = copyTree(root, dest)
   if not copied then removeTree(dest) end
+  local preserveErr
+  for rel, bytes in pairs(preservedBaseroms) do
+    if bytes ~= nil then
+      local restored, restoreErr = CacheFs.write(dest .. "/baseroms/" .. rel, bytes)
+      if not restored and not preserveErr then
+        preserveErr = "could not preserve baseroms/" .. rel .. ": "
+          .. tostring(restoreErr)
+      end
+    end
+  end
+  if preserveErr then
+    -- Do not report a successful update that discarded user-owned input, and
+    -- do not leave a manifest-less baseroms tree that resembles an install.
+    removeTree(dest)
+    removeTree(baseromRecovery)
+    for rel, bytes in pairs(preservedBaseroms) do
+      if bytes ~= nil then CacheFs.write(baseromRecovery .. "/" .. rel, bytes) end
+    end
+    copied, copyErr = nil, preserveErr
+  elseif copied then
+    removeTree(baseromRecovery)
+  end
   CacheFs.prefix = savedPrefix
   if not copied then
     cleanup()

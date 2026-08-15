@@ -76,15 +76,6 @@ end
 local editorHost, editorVersion, editorWindow
 local closeEditor  -- forward declaration: openEditor hands it to the editor
 
--- tools/save-editor/ models the Gen 1 save and nothing else: a Gen 2 party row
--- carries fields its MonOps and panels have no idea about (dvs, statExp,
--- happiness, pokerus, caughtLevel), and SaveIO.save writes the WHOLE table
--- back, so a Gold slot opened here comes out in a shape src/core/gen2/Save.lua
--- then has to quarantine on the next boot.  Refuse by name, the same way the
--- .sav paths do (src/save_convert/SaveConvert.lua GEN2_SAV_UNSUPPORTED), so
--- Red/Blue/Yellow slots are untouched.
-local GEN2_NO_EDITOR = { gold = "Pokemon Gold" }
-
 -- The editor's modules use flat names (require("Kit"), require("Party")), so
 -- their directories have to be on the require path.  It must be
 -- love.filesystem's path, not package.path: in a packaged build these files
@@ -136,11 +127,6 @@ local function openEditor(version, slotId)
     if not Importer then return end
     Importer.saveNotice = Importer.saveNotice or {}
     Importer.saveNotice[version] = { ok = false, text = text }
-  end
-  local gen2Name = GEN2_NO_EDITOR[version]
-  if gen2Name then
-    refuse(gen2Name .. " uses a Gen 2 save; the save editor does not read one yet.")
-    return
   end
   local SaveData = require("src.core.SaveData")
   local path = SaveData.slotDiskPath(version, slotId)
@@ -320,14 +306,6 @@ function love.load(args)
   -- cache has to be mounted before the editor's Data:load.
   if editorMode then
     local version = os.getenv("POKEPORT_VERSION") or "red"
-    local gen2Name = GEN2_NO_EDITOR[version]
-    if gen2Name then
-      -- No launcher behind this run to carry a notice, so say it and stop
-      -- rather than open a Gen 2 slot on Gen 1 panels.
-      print(gen2Name .. " uses a Gen 2 save; the save editor does not read one yet.")
-      love.event.quit(1)
-      return
-    end
     require("src.core.GameVersion").set(version)
     require("src.import.CacheFs").mountVersion(version)
     addEditorRequirePath()

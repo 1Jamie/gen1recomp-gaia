@@ -71,6 +71,9 @@ function Check.parseRelease(jsonText, Json)
     payloadName = payloadName,
     payload = Check.pickAsset(doc.assets, payloadName),
     sums = Check.pickAsset(doc.assets, "sha256sums.txt"),
+    -- GitHub release body: already fetched with the update check, shown by
+    -- the launcher's Patch notes footer button.
+    notes = type(doc.body) == "string" and doc.body or "",
   }
 end
 
@@ -135,6 +138,10 @@ local function drain()
   if stateCh then
     local msg = stateCh:pop()
     while msg do
+      if type(msg) == "table" and type(msg.notes) ~= "string"
+          and type(cache.notes) == "string" then
+        msg.notes = cache.notes
+      end
       cache = msg
       msg = stateCh:pop()
     end
@@ -158,11 +165,11 @@ function Check.start()
     return
   end
   requested = true
-  cache = { status = "checking" }
+  cache = { status = "checking", notes = cache.notes, latest = cache.latest }
   cmdCh:push({ cmd = "check" })
 end
 
--- Current snapshot: { status, latest, progress, error }.  status is one of
+-- Current snapshot: { status, latest, progress, error, notes }.  status is one of
 -- idle | checking | uptodate | available | downloading | ready | needs_full | error.
 function Check.state()
   drain()
@@ -171,6 +178,7 @@ function Check.state()
     latest = cache.latest,
     progress = cache.progress,
     error = cache.error,
+    notes = cache.notes,
   }
 end
 
@@ -180,7 +188,8 @@ function Check.download()
   drain()
   if not cmdCh then return end
   if cache.status ~= "available" then return end
-  cache = { status = "downloading", latest = cache.latest, progress = 0 }
+  cache = { status = "downloading", latest = cache.latest, progress = 0,
+    notes = cache.notes }
   cmdCh:push({ cmd = "download" })
 end
 

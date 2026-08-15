@@ -1045,6 +1045,14 @@ def lint_dir(repo, mod_dir, manifest):
     for rel in mod_files(mod_dir):
         path = os.path.join(mod_dir, rel)
         ext = os.path.splitext(rel)[1].lower()
+        # MK307: required_imports are user-owned installation state. Keeping
+        # baseroms in the walk without an explicit gate would let `pack`
+        # silently bundle exactly the ROM this feature exists not to ship.
+        if rel.startswith("baseroms/"):
+            findings.append(Finding(
+                "MK307", "error",
+                "user-supplied baseroms must not be distributed", rel))
+            continue
         # MK301: nothing may live in (or point into) the generated trees
         if rel.startswith(("data/generated/", "assets/generated/")):
             findings.append(Finding(
