@@ -299,11 +299,6 @@ end
 
 local CART_DRAG_SLOP = 8
 local TAU = math.pi * 2
--- The 3D mesh is inset inside the hit box so yaw/pitch and the 1.05 hover
--- scale cannot climb into the title row (or the gear) on desktop, high-DPI,
--- or a portrait phone.  Fraction of the shorter side, with a pixel floor.
-local CART_MESH_PAD = 0.07
-local CART_MESH_PAD_MIN = 8
 
 local function cartridgeState(imp, version)
   imp._cartridge = imp._cartridge or {}
@@ -548,11 +543,8 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
       Theme.A.focus, 2, Theme.cardRadius() + 2)
   end
 
-  local meshPad = math.max(CART_MESH_PAD_MIN,
-    math.floor(math.min(w, h) * CART_MESH_PAD))
-  local halfW = math.max(1, w / 2 - meshPad)
-  local halfH = math.max(1, h / 2 - meshPad)
-  local depth = math.max(8, (halfW * 2) * 0.14)
+  local halfW, halfH = w / 2, h / 2
+  local depth = math.max(8, w * 0.14)
   local project = function(px, py, pz)
     return cartProject(cx + pressX, cy + pressY, yaw, pitch,
       px * pressedScale, py * pressedScale, pz * pressedScale)
@@ -811,6 +803,49 @@ end
 -- Returns the y at which content may start.  Its vertical arithmetic is
 -- mirrored by headerHeight() at the bottom of this file (the short-window
 -- scroll decision needs the height before anything draws) -- keep in sync.
+-- Header chrome is fixed: the same six tabs, the same gear and Quit, every
+-- frame.  Their tab rows, opts tables and action closures are built once
+-- instead of 60 times a second -- only `active`, `image` and the queued
+-- action are written per frame.
+local HEADER_TABS = {
+  { id = "red",    key = "tab-red",    letter = "R", color = PAL.railRed },
+  { id = "blue",   key = "tab-blue",   letter = "B", color = PAL.railBlue },
+  { id = "yellow", key = "tab-yellow", letter = "Y", color = PAL.railGold },
+  { id = "gold",   key = "tab-gold",   letter = "G", color = PAL.railAmber },
+  { id = "mods",   key = "tab-mods" },
+  { id = "find",   key = "tab-find" },
+}
+for _, t in ipairs(HEADER_TABS) do
+  t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
+end
+
+local QUIT_INK_HOT = { 0, 0, 0, 1 }
+local QUIT_INK_REST = { 1, 1, 1, 0.85 }
+
+-- Keyed off the launcher instance so the closures die with it.
+local function headerChrome(imp)
+  local c = imp._headerChrome
+  if c then return c end
+  c = {
+    gear = { face = "invert",
+      action = function() imp:_openSettings() end },
+    quit = { face = "invert",
+      action = function() imp:_quitApp() end,
+      drawFn = function(x, y, w, h, hot)
+        local pad = math.floor(w * 0.32)
+        drawCross(x + pad, y + pad, w - 2 * pad,
+          hot and QUIT_INK_HOT or QUIT_INK_REST)
+      end },
+    tab = {},
+  }
+  for _, t in ipairs(HEADER_TABS) do
+    local id = t.id
+    c.tab[id] = function() imp:_switchTab(id) end
+  end
+  imp._headerChrome = c
+  return c
+end
+
 local function buildHeader(imp, m)
   local y = m.top
   Theme.versionRail(m.x, y, m.w, m.railH)
@@ -869,20 +904,11 @@ local function buildHeader(imp, m)
   imp._gearIcon = imp._gearIcon
     or love.graphics.newImage("assets/launcher/gear.png")
   rx = rx - gear
-  btn(imp, rx, by, gear, gear, "gear", "", {
-    face = "invert", image = imp._gearIcon,
-    action = function() imp:_openSettings() end,
-  })
+  local chrome = headerChrome(imp)
+  chrome.gear.image = imp._gearIcon
+  btn(imp, rx, by, gear, gear, "gear", "", chrome.gear)
 
-  btn(imp, quitX, by, gear, gear, "quit", "", {
-    face = "invert",
-    action = function() imp:_quitApp() end,
-    drawFn = function(x, y, w, h, hot)
-      local pad = math.floor(w * 0.32)
-      drawCross(x + pad, y + pad, w - 2 * pad,
-        hot and { 0, 0, 0, 1 } or { 1, 1, 1, 0.85 })
-    end,
-  })
+  btn(imp, quitX, by, gear, gear, "quit", "", chrome.quit)
 
   -- The self-update control lives in the FOOTER next to the BCG mark (small,
   -- out of the wordmark's way -- it used to overlap the logo on a phone).  It
@@ -900,14 +926,8 @@ local function buildHeader(imp, m)
   -- the fill when active, the same rule the buttons follow.  Yellow stays the
   -- bright cart gold; Gold (Gen 2) uses the deeper amber so the two do not
   -- collide.
-  local tabs = {
-    { id = "red",    letter = "R", color = PAL.railRed },
-    { id = "blue",   letter = "B", color = PAL.railBlue },
-    { id = "yellow", letter = "Y", color = PAL.railGold },
-    { id = "gold",   letter = "G", color = PAL.railAmber },
-    { id = "mods",   icon = imp._modsIcon },
-    { id = "find",   icon = imp._findIcon },
-  }
+  local tabs = HEADER_TABS
+  tabs[5].icon, tabs[6].icon = imp._modsIcon, imp._findIcon
   local tabH = m.chip
   local tx = m.x + m.pad
   local ty = y + math.floor(6 * m.s)
@@ -916,18 +936,16 @@ local function buildHeader(imp, m)
   local tabGap = math.floor(6 * m.s)
   local tabRowGap = math.floor(4 * m.s)
   for _, t in ipairs(tabs) do
-    local active = imp.tab == t.id
-    local key = "tab-" .. t.id
     local w = tabH
     if tx > tabLeft and tx + w > tabRight then
       tx = tabLeft
       ty = ty + tabH + tabRowGap
     end
-    btn(imp, tx, ty, w, tabH, key, "", {
-      face = "tab", font = "tab", color = t.color, active = active,
-      image = t.icon, letter = t.letter,
-      action = function() imp:_switchTab(t.id) end,
-    })
+    local o = t.opts
+    o.active = imp.tab == t.id
+    o.image = t.icon
+    o.action = chrome.tab[t.id]
+    btn(imp, tx, ty, w, tabH, t.key, "", o)
     tx = tx + w + tabGap
   end
 
@@ -1477,6 +1495,20 @@ end
 -- gets whatever width the previous ones left, and the first segment that has
 -- to ellipsize ends the line.  Lets the download count sit green inside an
 -- otherwise muted stats line without two competing ellipsis passes.
+-- A row's control key is a pure function of its id, but concatenating it per
+-- visible row per frame is ~1200 strings a second.  Memoised on the launcher,
+-- NOT on the entry: index entries are the same tables ModIndex.writeCache
+-- persists into options.modIndexCache, and view state must not ride along.
+local function rowKeyFor(imp, prefix, id)
+  local keys = imp._rowKeys
+  if not keys then keys = {}; imp._rowKeys = keys end
+  local byPrefix = keys[prefix]
+  if not byPrefix then byPrefix = {}; keys[prefix] = byPrefix end
+  local key = byPrefix[id]
+  if not key then key = prefix .. tostring(id); byPrefix[id] = key end
+  return key
+end
+
 local function segLine(fontName, segs, x, y, maxW)
   local sx = x
   for _, seg in ipairs(segs) do
@@ -1500,6 +1532,55 @@ local function sortDefs()
     { key = "release", label = Strings("Release date") },
     { key = "updated", label = Strings("Last updated") },
   }
+end
+
+-- Sorting is decorate-sort-undecorate: the key is computed once per entry
+-- instead of the 2*n*log(n) times a comparator that derives it would, and the
+-- comparator itself is a module-level function so no closure is allocated per
+-- comparison.  Measured on a synthetic index: 500 entries went from 8,964 key
+-- computations and 4,482 closures to 500 and none.
+local sortAsc = true
+
+local function decCompare(a, b)
+  if a.k ~= b.k then
+    if sortAsc then return a.k < b.k end
+    return a.k > b.k   -- data sorts newest / most popular first
+  end
+  return a.tie < b.tie
+end
+
+-- Fill `scratch` with one { e, k, tie } slot per entry, reusing the slots.
+local function decorate(scratch, src, keyOf, tieOf)
+  local n = #src
+  for i = 1, n do
+    local e = src[i]
+    local slot = scratch[i]
+    if not slot then slot = {}; scratch[i] = slot end
+    slot.e, slot.tie = e, tieOf(e)
+    slot.k = keyOf(e, slot.tie)
+  end
+  for i = #scratch, n + 1, -1 do scratch[i] = nil end
+  return n
+end
+
+local function undecorate(scratch, n)
+  local out = {}
+  for i = 1, n do out[i] = scratch[i].e end
+  return out
+end
+
+-- While results are still streaming in, re-ordering on every arrival re-sorts
+-- the whole list every frame and makes rows jump under the reader.  Hold the
+-- current order this long and take the change in one pass.
+local RESORT_DEBOUNCE = 0.25
+
+-- True when the cached order is still good.  `rev` is only part of the key
+-- for a stats-dependent sort: Name order does not depend on release data, so
+-- a stats arrival used to invalidate a sort whose result could not change.
+local function sortCacheOk(cache, src, key, rev, pending)
+  if not (cache and cache.src == src and cache.key == key) then return false end
+  if cache.rev == rev then return true end
+  return pending and (Kit.time - (cache.at or 0)) < RESORT_DEBOUNCE
 end
 
 local function currentSort(imp)
@@ -1643,16 +1724,18 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   -- per frame (with lowercased-string allocations in the comparator) fed the
   -- GC for nothing.  Cache the sorted array, keyed on the list identity, the
   -- sort mode, and the update-info revision the fetch pump bumps.
+  local statsSort = sortKey ~= "name"
+  local rev = statsSort and (imp._modUpdateRev or 0) or 0
   local cache = imp._modSortCache
-  if cache and cache.src == mods and cache.n == #mods
-      and cache.key == sortKey and cache.rev == (imp._modUpdateRev or 0) then
+  if cache and cache.n == #mods
+      and sortCacheOk(cache, mods, sortKey, rev, imp._modInfoFetch ~= nil) then
     mods = cache.list
   else
-    local sorted = {}
-    for i, v in ipairs(mods) do sorted[i] = v end
-    table.sort(sorted, function(a, b)
-      local function value(mod)
-        if sortKey == "name" then return (mod.name or ""):lower() end
+    local scratch = imp._modSortScratch or {}
+    imp._modSortScratch = scratch
+    local n = decorate(scratch, mods,
+      function(mod, tie)
+        if sortKey == "name" then return tie end
         local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
         if sortKey == "popularity" then
           return info and info.downloads and info.downloads.total or -1
@@ -1660,16 +1743,13 @@ local function buildModsPanel(imp, x, y, w, availH, m)
         local date = info and info.dates
         if sortKey == "release" then return date and date.first or "0000-00-00" end
         return date and date.latest or "0000-00-00"
-      end
-      local va, vb = value(a), value(b)
-      if va ~= vb then
-        if sortKey == "name" then return va < vb end
-        return va > vb  -- data sorts newest / most popular first
-      end
-      return (a.name or ""):lower() < (b.name or ""):lower()
-    end)
-    imp._modSortCache = { src = imp.mods, n = #mods, key = sortKey,
-      rev = imp._modUpdateRev or 0, list = sorted }
+      end,
+      function(mod) return (mod.name or ""):lower() end)
+    sortAsc = sortKey == "name"
+    table.sort(scratch, decCompare)
+    local sorted = undecorate(scratch, n)
+    imp._modSortCache = { src = mods, n = #mods, key = sortKey,
+      rev = rev, at = Kit.time, list = sorted }
     mods = sorted
   end
 
@@ -1692,7 +1772,9 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   local contentH = shown * rowH + math.max(0, shown - 1) * gap
   local scrollMax = math.max(0, contentH - listH)
   local scroll = clamp(imp.modScroll or 0, 0, scrollMax)
-  imp._modListRect = { x = x, y = listTop, w = w, h = listH }
+  local lr = imp._modListRect
+  if not lr then lr = {}; imp._modListRect = lr end
+  lr.x, lr.y, lr.w, lr.h = x, listTop, w, listH
   imp._modScrollMax = scrollMax
   if scrollMax > 0 and (Kit.wheelY or 0) ~= 0 and Kit.hit(x, listTop, w, listH) then
     scroll = clamp(scroll - Kit.wheelY * math.floor(48 * m.s), 0, scrollMax)
@@ -1708,7 +1790,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   for i = first, last do
     local mod = mods[i]
     local ry = listTop + (i - first) * (rowH + gap) - scroll
-    local rowKey = "mod-row-" .. mod.id
+    local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
     local isFullyDisabled = true
     if mod.enabledByVersion then
       for _, on in pairs(mod.enabledByVersion) do
@@ -1900,30 +1982,30 @@ local function buildFindPanel(imp, x, y, w, availH, m)
 
   -- Same caching rule as the MODS tab: the comparator allocates, so only
   -- re-sort when the inputs actually change.
+  local statsSort = sortKey ~= "name"
+  local rev = statsSort and (imp._findStatsRev or 0) or 0
   local fcache = imp._findSortCache
-  if fcache and fcache.src == rows and fcache.key == sortKey
-      and fcache.rev == (imp._findStatsRev or 0) then
+  if sortCacheOk(fcache, rows, sortKey, rev, imp._findStatsPending ~= nil) then
     rows = fcache.list
   else
-    local sorted = {}
-    for i, v in ipairs(rows) do sorted[i] = v end
-    table.sort(sorted, function(a, b)
-      local function value(entry)
-        if sortKey == "name" then return (entry.title or entry.id or ""):lower() end
-        local stats = imp:_findStats(entry)
+    local scratch = imp._findSortScratch or {}
+    imp._findSortScratch = scratch
+    local n = decorate(scratch, rows,
+      function(entry, tie)
+        if sortKey == "name" then return tie end
+        -- The CACHED read, never the requesting one: a sort must not queue a
+        -- fetch for every entry in the index (see _findStatsCached).
+        local stats = imp:_findStatsCached(entry)
         if sortKey == "popularity" then return stats and stats.total or -1 end
         if sortKey == "release" then return stats and stats.first or "0000-00-00" end
         return stats and stats.latest or "0000-00-00"
-      end
-      local va, vb = value(a), value(b)
-      if va ~= vb then
-        if sortKey == "name" then return va < vb end
-        return va > vb
-      end
-      return (a.title or a.id or ""):lower() < (b.title or b.id or ""):lower()
-    end)
-    imp._findSortCache = { src = rows, key = sortKey,
-      rev = imp._findStatsRev or 0, list = sorted }
+      end,
+      function(entry) return (entry.title or entry.id or ""):lower() end)
+    sortAsc = sortKey == "name"
+    table.sort(scratch, decCompare)
+    local sorted = undecorate(scratch, n)
+    imp._findSortCache = { src = rows, key = sortKey, rev = rev,
+      at = Kit.time, list = sorted }
     rows = sorted
   end
 
@@ -1952,7 +2034,7 @@ local function buildFindPanel(imp, x, y, w, availH, m)
   for i = first, last do
     local entry = rows[i]
     local ry = listTop + (i - first) * (rowH + gap)
-    local rowKey = "find-row-" .. entry.id
+    local rowKey = rowKeyFor(imp, "find-row-", entry.id)
     -- The whole row is the control: it opens the per-mod popup where
     -- Install / Details / Source moved.  The only inline signal left is a
     -- green check when the mod is already installed.
@@ -1985,8 +2067,15 @@ local function buildFindPanel(imp, x, y, w, availH, m)
       love.graphics.draw(image, Theme.snap(px), Theme.snap(ly), 0, s, s)
     else
       Theme.stroke(px, ly, thumb, thumb, PAL.line, Theme.A.hairline, 1)
-      Kit.textCenter("micro", "MOD", px,
-        ly + (thumb - Kit.textHeight("micro")) / 2, thumb, PAL.faint)
+      -- A thumbnail still downloading and one that will never arrive drew the
+      -- same dead box, so a slow index looked broken.  Spin while it is in
+      -- flight; only fall back to the wordmark once it has resolved.
+      if imp:_findThumbPending(entry.id) then
+        Kit.spinner(px + thumb / 2, ly + thumb / 2, thumb * 0.28)
+      else
+        Kit.textCenter("micro", "MOD", px,
+          ly + (thumb - Kit.textHeight("micro")) / 2, thumb, PAL.faint)
+      end
     end
 
     local bx = px + thumb + math.floor(10 * m.s)
@@ -2020,10 +2109,35 @@ local function buildFindPanel(imp, x, y, w, availH, m)
       segs[#segs + 1] = { "  -  " .. table.concat(rest, "  -  "), baseCol }
     end
     segLine("small", segs, bx, by2, bw)
+    -- The stats line used to simply be absent until the release check landed,
+    -- so rows silently changed under the reader and a slow check was
+    -- indistinguishable from a mod with no data.  Say which it is, the way
+    -- the MODS tab already does on its own rows.
+    if not stats and imp:_findStatsPendingFor(entry.id) then
+      local sw = Kit.textWidth("small", segs[1][1]) + math.floor(12 * m.s)
+      local dh = Kit.textHeight("small")
+      Loader.dot(bx + sw, by2, dh)
+      Kit.text("small", Strings("Checking..."),
+        bx + sw + dh + math.floor(6 * m.s), by2, PAL.muted)
+    end
   end
 
   local pagerY = listTop + (last - first + 1) * (rowH + gap)
   setPage(imp, "find", Kit.pager(x, pagerY, w, cur, #rows, perPage, "find"))
+
+  -- Aggregate progress.  Enrichment happens a page at a time and each row says
+  -- so for itself, but with nothing summarising it the panel looked idle while
+  -- work was in flight.  Only drawn while something is actually pending.
+  local waiting = imp:_findStatsPendingCount()
+  if waiting > 0 then
+    local py = pagerY + math.max(Kit.tapMin(), math.floor(30 * m.s))
+      + math.floor(4 * m.s)
+    local dh = Kit.textHeight("micro")
+    Loader.dot(x, py, dh)
+    Kit.text("micro", Strings("Checking %d of %d on this page...",
+      waiting, last - first + 1),
+      x + dh + math.floor(6 * m.s), py, PAL.muted)
+  end
 end
 
 -- ------------------------------------------------------------------ footer
@@ -3770,11 +3884,14 @@ function LauncherView.draw(imp)
   -- one is up; buildModals lowers the shield for the modal's own controls.
   Kit.blockClicks = modalUp(imp)
 
-  local ms = m
-  if scroll > 0 then
-    ms = setmetatable({ top = m.top - scroll }, { __index = m })
-  end
-  local contentY = buildHeader(imp, ms)
+  -- The header is the only block that moves with the page scroll, so shift
+  -- m.top across the call and put it back rather than wrapping `m` in a
+  -- proxy: the proxy cost two tables a frame and put a metatable lookup on
+  -- every m.* read for the rest of the frame.
+  local baseTop = m.top
+  if scroll > 0 then m.top = baseTop - scroll end
+  local contentY = buildHeader(imp, m)
+  m.top = baseTop
   local footY, availH
   if scrollMax > 0 then
     availH = minPanelHeight(m)

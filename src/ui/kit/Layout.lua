@@ -29,6 +29,15 @@ Layout.BP = {
 
 -- Build the frame's metrics.  `maxAppW` caps the content column on an
 -- ultrawide monitor so the UI stays a readable measure instead of stretching.
+-- One metrics table, reused.  Every field is a pure function of the window
+-- size, the safe area and maxAppW, so the table only has to be rebuilt when
+-- one of those changes; the launcher asked for a fresh one 60 times a second
+-- and threw all of them away.  Callers must treat `m` as read-only (nothing
+-- writes to it today) -- a caller that needs a shifted field should save,
+-- assign and restore it around the call, not wrap `m` in a proxy.
+local M = {}
+local lastW, lastH, lastOx, lastOy, lastSw, lastSh, lastMax
+
 function Layout.metrics(maxAppW)
   local W, H = 0, 0
   if love and love.graphics and love.graphics.getDimensions then
@@ -36,23 +45,28 @@ function Layout.metrics(maxAppW)
   end
   local ox, oy, sw, sh = SafeArea.rect()
   local s = Kit.layout(sw, sh)
+  if W == lastW and H == lastH and ox == lastOx and oy == lastOy
+      and sw == lastSw and sh == lastSh and maxAppW == lastMax then
+    return M
+  end
+  lastW, lastH, lastOx, lastOy = W, H, ox, oy
+  lastSw, lastSh, lastMax = sw, sh, maxAppW
 
   local appW = math.min(sw, (maxAppW or 1200) * s)
-  local m = {
-    W = W, H = H, s = s,
-    x = math.floor(ox + (sw - appW) / 2),
-    top = math.floor(oy),
-    w = math.floor(appW),
-    h = math.floor(sh),
-    pad = math.floor(Theme.clamp(appW * 0.03, 10, 24)),
-    gap = math.floor(12 * s),
-    colGap = math.floor(16 * s),
-    rowH = math.max(Kit.tapMin(), math.floor(44 * s)),
-    btnH = math.max(Kit.tapMin(), math.floor(38 * s)),
-    chip = math.max(Kit.tapMin(), math.floor(40 * s)),
-    railH = math.max(3, math.floor(4 * s)),
-    logoH = math.floor(Theme.clamp(sh * 0.10, 36, 84)),
-  }
+  local m = M
+  m.W, m.H, m.s = W, H, s
+  m.x = math.floor(ox + (sw - appW) / 2)
+  m.top = math.floor(oy)
+  m.w = math.floor(appW)
+  m.h = math.floor(sh)
+  m.pad = math.floor(Theme.clamp(appW * 0.03, 10, 24))
+  m.gap = math.floor(12 * s)
+  m.colGap = math.floor(16 * s)
+  m.rowH = math.max(Kit.tapMin(), math.floor(44 * s))
+  m.btnH = math.max(Kit.tapMin(), math.floor(38 * s))
+  m.chip = math.max(Kit.tapMin(), math.floor(40 * s))
+  m.railH = math.max(3, math.floor(4 * s))
+  m.logoH = math.floor(Theme.clamp(sh * 0.10, 36, 84))
   m.cols = (appW >= Layout.BP.threeCol * s and 3)
         or (appW >= Layout.BP.twoCol * s and 2)
         or 1
