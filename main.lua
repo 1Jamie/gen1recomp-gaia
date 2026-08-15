@@ -148,9 +148,44 @@ local function openEditor(version, slotId)
   editorMode = true
   resizeForEditor()
   addEditorRequirePath()
-  EditorApp = require("App")
-  EditorApp.load(path, { version = version, slotId = slotId, embedded = true,
-                         onClose = function() closeEditor() end })
+  local okReq, appOrErr = pcall(require, "App")
+  if not okReq then
+    editorMode = false
+    if version then
+      require("src.import.CacheFs").unmountVersion(version)
+    end
+    restoreWindow()
+    Importer = editorHost
+    editorHost = nil
+    editorVersion = nil
+    if Importer and Importer.resumeAfterOverlay then
+      Importer:resumeAfterOverlay()
+    end
+    refuse("Could not open the save editor (" .. tostring(appOrErr) .. ").")
+    return
+  end
+  EditorApp = appOrErr
+  local okLoad, loadErr = pcall(EditorApp.load, path, {
+    version = version, slotId = slotId, embedded = true,
+    onClose = function() closeEditor() end,
+  })
+  if not okLoad then
+    editorMode = false
+    if EditorApp.unload then pcall(EditorApp.unload) end
+    EditorApp = nil
+    if version then
+      require("src.import.CacheFs").unmountVersion(version)
+      require("src.core.Data"):unloadGenerated()
+    end
+    restoreWindow()
+    Importer = editorHost
+    editorHost = nil
+    editorVersion = nil
+    if Importer and Importer.resumeAfterOverlay then
+      Importer:resumeAfterOverlay()
+    end
+    refuse("Could not open the save editor (" .. tostring(loadErr) .. ").")
+  end
 end
 
 -- Back to the launcher.  Everything the editor mounted or cached has to come

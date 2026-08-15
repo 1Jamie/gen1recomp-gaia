@@ -78,15 +78,28 @@ function Gen.bindGoldData(data)
   if data.palettes and data.gen2Palettes == nil then
     data.gen2Palettes = data.palettes
   end
-  if data.gen2Roofs == nil and data.roofs == nil then
-    local ok, roofs = pcall(require, "data.generated.roofs")
-    if ok and type(roofs) == "table" then
-      data.roofs = roofs
-      data.gen2Roofs = roofs
+
+  local loadGen = function(rel)
+    local CacheFs = require("src.import.CacheFs")
+    local bytes = CacheFs.readActive("data/generated/" .. rel .. ".lua")
+    if type(bytes) == "string" then
+      local chunk = loadstring(bytes, "@gold/data/generated/" .. rel .. ".lua")
+      if chunk then
+        local ok, res = pcall(chunk)
+        if ok and type(res) == "table" then return res end
+      end
     end
-  elseif data.roofs and data.gen2Roofs == nil then
-    data.gen2Roofs = data.roofs
+    local ok, res = pcall(require, "data.generated." .. rel)
+    if ok and type(res) == "table" then return res end
+    return nil
   end
+
+  data.gen2Palettes = data.gen2Palettes or loadGen("palettes")
+  data.gen2Icons = data.gen2Icons or loadGen("icons")
+  data.gen2Pokedex = data.gen2Pokedex or loadGen("pokedex")
+  data.gen2Landmarks = data.gen2Landmarks or loadGen("landmarks")
+  data.gen2Roofs = data.gen2Roofs or loadGen("roofs") or data.roofs
+  data.gen2Sprites = data.gen2Sprites or loadGen("sprites")
   return data
 end
 
@@ -213,10 +226,15 @@ function Gen.playerMap(save)
   if Gen.of(save) == 2 then
     local p = save.position
     if p and p.map then return p.map, p.x or 0, p.y or 0, p.facing end
-    return save.spawn, 0, 0
+    if type(save.spawn) == "table" then
+      return save.spawn.map or "PLAYERS_HOUSE_2F", save.spawn.x or 0, save.spawn.y or 0, save.spawn.facing
+    elseif type(save.spawn) == "string" then
+      return save.spawn, 0, 0
+    end
+    return "PLAYERS_HOUSE_2F", 3, 3
   end
   local p = save.player or {}
-  return p.map, p.x or 0, p.y or 0
+  return p.map or "REDS_HOUSE_2F", p.x or 0, p.y or 0
 end
 
 function Gen.setPlayerHere(save, mapId, x, y, facing)
