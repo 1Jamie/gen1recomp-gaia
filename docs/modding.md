@@ -148,6 +148,18 @@ older iOS-only `"stadium"` picker kind remains temporarily for compatibility.
 Android now returns `false` for unknown picker kinds instead of treating them
 as game-ROM picks.
 
+### Platform import flow
+
+The same per-mod validation and private `mods/<mod-id>/baseroms/` destination
+applies on every supported platform. Windows, macOS, and Linux use the
+launcher file chooser. Android uses the Storage Access Framework, and iOS uses
+the Files document picker; both stage the choice as `picked_required_import.bin`
+before validation. Xbox/UWP uses its native picker and hands the launcher a
+temporary path. Switch/NX has no host picker, so the player copies a file to
+`imports/baseroms/` over MTP and chooses the import again. No platform grants
+the mod a host filesystem path or bypasses the manifest's size, format, and MD5
+checks.
+
 ## Mods and Gold (Gen 2)
 
 The mod API is one API across both generations, but Gold runs its own battle
