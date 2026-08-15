@@ -308,6 +308,24 @@ function Manifest.validate(raw, path)
 
   local github = Manifest.parseGithub(raw.github)
 
+  -- log_url: the mod's one-way crash-log reporting destination.  https-only,
+  -- declared in the manifest so the engine reviews the target at load instead
+  -- of trusting per-call URLs from gameplay code, and gated on the `network`
+  -- permission the mod must also declare.  api 1 mods never carry it: it is a
+  -- load violation, not a warning, because a postLog-capable mod that does not
+  -- opt in to networking is a bug in the manifest itself.
+  local logUrl = nil
+  if raw.log_url ~= nil then
+    if strict and not permissionSet.network then
+      violation(strict, raw.id, "log_url requires the network permission")
+    elseif strict and (type(raw.log_url) ~= "string"
+        or not raw.log_url:match("^https://")) then
+      violation(strict, raw.id, "log_url must be an https:// URL")
+    elseif strict then
+      logUrl = raw.log_url
+    end
+  end
+
   assert(raw.experimental == nil or type(raw.experimental) == "boolean",
     "experimental must be a boolean")
   local experimental = raw.experimental == true
@@ -414,6 +432,7 @@ function Manifest.validate(raw, path)
     affects_link = affectsLink,
     permissions = permissions,
     permissionSet = permissionSet,
+    log_url = logUrl,
     options_schema = optionalFile(raw.options_schema, "options_schema"),
     assets_transforms = optionalFile(raw.assets_transforms, "assets_transforms"),
     required_imports = requiredImports,
