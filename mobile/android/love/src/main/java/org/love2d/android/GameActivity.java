@@ -366,6 +366,7 @@ public class GameActivity extends SDLActivity {
             Log.d("GameActivity", "Cancelling vibration");
             vibrator.cancel();
         }
+        unregisterSecondaryDisplayListener();
         onHostDestroy();
         super.onDestroy();
     }
@@ -376,6 +377,7 @@ public class GameActivity extends SDLActivity {
             Log.d("GameActivity", "Cancelling vibration");
             vibrator.cancel();
         }
+        unregisterSecondaryDisplayListener();
         teardownSecondaryDisplay();
         onHostPause();
         super.onPause();
@@ -385,6 +387,7 @@ public class GameActivity extends SDLActivity {
     public void onResume() {
         super.onResume();
         onHostResume();
+        if (secondaryEnabled) registerSecondaryDisplayListener();
         setupSecondaryDisplay();
     }
 
@@ -1405,6 +1408,7 @@ public class GameActivity extends SDLActivity {
     // in src/jni/love/src/common/android.cpp.
     private static volatile SecondaryPresentation secondaryPresentation;
     private static volatile boolean secondaryEnabled = false;
+    private SecondaryDisplayMonitor secondaryDisplayMonitor;
     private static final int MAX_SECONDARY_TOUCHES = 32;
     private static final java.util.ArrayDeque<String> secondaryTouches =
         new java.util.ArrayDeque<>();
@@ -1416,9 +1420,42 @@ public class GameActivity extends SDLActivity {
         if (self == null) return;
         self.runOnUiThread(new Runnable() {
             @Override public void run() {
-                if (on) setupSecondaryDisplay(); else teardownSecondaryDisplay();
+                if (on) {
+                    self.registerSecondaryDisplayListener();
+                    setupSecondaryDisplay();
+                } else {
+                    self.unregisterSecondaryDisplayListener();
+                    teardownSecondaryDisplay();
+                }
             }
         });
+    }
+
+    private void registerSecondaryDisplayListener() {
+        if (secondaryDisplayMonitor != null || android.os.Build.VERSION.SDK_INT < 17) return;
+        SecondaryDisplayMonitor monitor = new SecondaryDisplayMonitor(this);
+        if (monitor.register()) secondaryDisplayMonitor = monitor;
+    }
+
+    private void unregisterSecondaryDisplayListener() {
+        SecondaryDisplayMonitor monitor = secondaryDisplayMonitor;
+        secondaryDisplayMonitor = null;
+        if (monitor != null) monitor.unregister();
+    }
+
+    private static void refreshSecondaryDisplay() {
+        GameActivity self = (GameActivity) mSingleton;
+        if (self == null || !secondaryEnabled) return;
+        SecondaryPresentation current = secondaryPresentation;
+        Display display = current == null ? null : current.getDisplay();
+        SecondaryDisplayMonitor monitor = self.secondaryDisplayMonitor;
+        if (current == null) {
+            setupSecondaryDisplay();
+        } else if (display == null || monitor == null
+            || !monitor.hasDisplay(display.getDisplayId())) {
+            teardownSecondaryDisplay();
+            setupSecondaryDisplay();
+        }
     }
 
     private static void setupSecondaryDisplay() {
@@ -1464,6 +1501,35 @@ public class GameActivity extends SDLActivity {
         if (p != null) {
             try { p.dismiss(); } catch (Throwable t) {}
         }
+    }
+
+    @android.annotation.TargetApi(17)
+    private static class SecondaryDisplayMonitor
+        implements android.hardware.display.DisplayManager.DisplayListener {
+        private final android.hardware.display.DisplayManager manager;
+
+        SecondaryDisplayMonitor(GameActivity activity) {
+            manager = (android.hardware.display.DisplayManager)
+                activity.getSystemService(Context.DISPLAY_SERVICE);
+        }
+
+        boolean register() {
+            if (manager == null) return false;
+            manager.registerDisplayListener(this, new Handler(Looper.getMainLooper()));
+            return true;
+        }
+
+        void unregister() {
+            manager.unregisterDisplayListener(this);
+        }
+
+        boolean hasDisplay(int displayId) {
+            return manager.getDisplay(displayId) != null;
+        }
+
+        @Override public void onDisplayAdded(int displayId) { refreshSecondaryDisplay(); }
+        @Override public void onDisplayRemoved(int displayId) { refreshSecondaryDisplay(); }
+        @Override public void onDisplayChanged(int displayId) { refreshSecondaryDisplay(); }
     }
 
     @Keep
