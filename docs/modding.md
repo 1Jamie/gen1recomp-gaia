@@ -733,9 +733,15 @@ the finished `worldCanvas` and `uiCanvas` with their SGB `zones` / `worldZones`,
 `worldActive`, the frame metrics (`ww`, `wh`, `pw`, `ph`, `ox`, `oy`, `vpw`,
 `vph`, `scale`, `Sx`, `Sy`, `dpiX`, `dpiY`), `renderer:blitCanvas(...)` for a
 palette-correct blit of either canvas into an arbitrary screen rect, and the
-`secondScreen` bridge (`available()` / `push(imageData, w, h)` / `pollTouch()` /
-`setEnabled`) for driving a second physical display. `pollTouch()` returns the
-oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
+`secondScreen` bridge (`available()` / `detected()` / `push(...)` /
+`pollTouch()` / `setEnabled`) for driving a second physical display.
+`detected()` reports a connected target even while its output is being created;
+`available()` means it can accept a frame now. `push(imageData, w, h)` retains
+the original contract. Its optional `background` (`0xRRGGBB`) and `preference`
+arguments request an extended presentation; a preference ending in `:cover`
+fills and crops the target, while other values preserve the whole frame.
+`pollTouch()` returns the oldest queued event as `"action,x,y"` in submitted-frame
+coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
 or push one onto a second screen, without the engine knowing the layout.
 On process-capable Windows, Linux and macOS hosts without a native display
