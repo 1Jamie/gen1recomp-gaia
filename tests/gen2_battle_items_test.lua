@@ -117,6 +117,27 @@ local DATA = {
       fieldMenu = "ITEMMENU_PARTY", battleMenu = "ITEMMENU_NOUSE" },
     OLD_ROD = { id = "OLD_ROD", pocket = "KEY", name = "OLD ROD",
       fieldMenu = "ITEMMENU_CURRENT", battleMenu = "ITEMMENU_NOUSE" },
+    -- a mod's own battle-pack item: its action lives only in
+    -- gen2ItemEffects below, which ItemEffects.RECORDS (the module's
+    -- built-in table) has never heard of (#8)
+    MOD_ITEM = item("MOD_ITEM"),
+  },
+  gen2ItemEffects = {
+    -- a status cure rather than an HP heal: HP is exposed to the wild
+    -- mon's own reply once the item spends the turn, which would make a
+    -- direct before/after HP check depend on incidental battle math this
+    -- fix has nothing to do with.  Status is not.
+    MOD_ITEM = {
+      action = "status", field = true, needsTarget = true,
+      use = function(ctx)
+        local mon = ctx.mon
+        if mon.status ~= "poison" then
+          return { used = false, text = "It won't have\nany effect." }
+        end
+        mon.status = nil
+        return { used = true, text = "MOD ITEM used!" }
+      end,
+    },
   },
 }
 
@@ -234,6 +255,33 @@ do
   eq(getmetatable(pushed[#pushed]), PackMenu,
     "cancelling the picker reopens the PACK (.SelectMon's carry path)")
   eq(save.inventory.ANTIDOTE, 1, "with the ANTIDOTE untouched")
+end
+
+-- ---- a mod's own battle-pack item (#8) -------------------------------------
+-- BattleState:useItem asked ItemEffects.partyAction for the item's family
+-- with no `data` argument, the same omission Game2:usePartyItem had for the
+-- field pack, so a mod item's action -- present only in the merged
+-- gen2ItemEffects table -- resolved to nil and the pack fell straight to
+-- "That isn't going to help here." instead of opening the party list.
+do
+  local sick = Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect })
+  sick.moves = { { id = "TACKLE", pp = 35, maxPp = 35 } }
+  sick.status = "poison"
+  local screen, _, _, save, pushed = newScreen({
+    player = sick, party = { sick }, inventory = { MOD_ITEM = 1 },
+  })
+  check(runToMenu(screen), "reached the menu")
+
+  screen:useItem("MOD_ITEM")
+  eq(screen.phase, "submenu",
+    "a mod's own gen2ItemEffects record opens UseItem_SelectMon")
+  local picker = pushed[#pushed]
+  eq(getmetatable(picker), PartyMenu, "and the pick is the party screen")
+  if picker and picker.onChoose then
+    picker.onChoose(1, sick)
+    eq(sick.status, nil, "the mod item's own use() ran through the real screens")
+    eq(save.inventory.MOD_ITEM, nil, "and the mod item was spent")
+  end
 end
 
 -- ---- IsItemUsedOnConfusedMon: the battle-only arm --------------------------
