@@ -122,6 +122,8 @@ local TEXT_ASK_FORGET_MOVE = Strings.source(
 -- Gen 1 uses.  The second label is the two-glyph <PK><MN> ligature (charmap
 -- $e1/$e2), which is what makes it fit a six-tile column.
 local MENU = { "FIGHT", "<PK><MN>", "PACK", "RUN" }
+local MENU_ACTION = { FIGHT = "fight", ["<PK><MN>"] = "party",
+  PACK = "item", RUN = "run" }
 local MENU_BOX_X = 8
 local MENU_COL_SPACING = 6
 
@@ -1682,6 +1684,64 @@ function BattleState:playerMoves()
   return (self.battle and self.battle.player and self.battle.player.moves) or {}
 end
 
+-- One semantic path for the native command menu and mod.battle intents.
+function BattleState:chooseMenu(choice)
+  if self.phase ~= "menu" then return nil, "battle menu is not active" end
+  if choice == "fight" then
+    -- CheckPlayerHasUsableMoves skips MoveSelectionScreen and uses Struggle.
+    local fighter = self.battle and self.battle.player
+    if fighter and #self:playerMoves() > 0
+        and not self.battle:hasUsableMoves(fighter) then
+      self:submit({ kind = "move", move = Battle.STRUGGLE })
+    else
+      self.phase = "moves"
+      -- MoveSelectionScreen reopens on the last used move, clamped if the
+      -- moveset shrank since then.
+      local moves = self:playerMoves()
+      self.moveIndex = math.max(1,
+        math.min(self.moveIndex or 1, math.max(1, #moves)))
+    end
+  elseif choice == "run" then
+    self:submit({ kind = "run" })
+  elseif choice == "item" then
+    if self.tutorial then
+      self:openTutorialPack()
+    elseif self.contest then
+      self:throwParkBall()
+    else
+      self:openPack()
+    end
+  elseif choice == "party" then
+    self:openParty()
+  else
+    return nil, "unknown battle menu choice"
+  end
+  return true
+end
+
+function BattleState:chooseMove(index)
+  if self.phase ~= "moves" then return nil, "move menu is not active" end
+  local move = self:playerMoves()[index]
+  if not move then return nil, "invalid move slot" end
+  self.moveIndex = index
+  self.moveSwapIndex = nil
+  if (move.pp or 0) <= 0 then
+    self:refuseMove(TEXT_NO_PP_LEFT)
+  elseif self.battle:moveDisabled(self.battle.player, move.id) then
+    self:refuseMove(TEXT_MOVE_DISABLED)
+  else
+    self:submit({ kind = "move", move = move.id })
+  end
+  return true
+end
+
+function BattleState:cancelMove()
+  if self.phase ~= "moves" then return nil, "move menu is not active" end
+  self.moveSwapIndex = nil
+  self.phase = "menu"
+  return true
+end
+
 -- MoveSelectionScreen's `.pressed_select` (engine/battle/core.asm:5320-5374).
 -- SELECT marks a slot, SELECT again swaps the marked slot with the one under
 -- the cursor, and A or B clears the mark without swapping (the A arm opens
@@ -1855,37 +1915,7 @@ function BattleState:update(_dt)
         or self.menuIndex - 2
     elseif input:wasPressed("a") then
       self:playSfx("Sfx_ReadText2")
-      local choice = MENU[self.menuIndex]
-      if choice == "FIGHT" then
-        -- `call .CheckPlayerHasUsableMoves / ret z` (engine/battle/core.asm
-        -- :5058-5059): a mon with nothing to spend never sees the list.
-        local fighter = self.battle and self.battle.player
-        if fighter and #self:playerMoves() > 0
-            and not self.battle:hasUsableMoves(fighter) then
-          return self:submit({ kind = "move", move = Battle.STRUGGLE })
-        end
-        self.phase = "moves"
-        -- MoveSelectionScreen seeds wMenuCursorY from wCurMoveNum + 1
-        -- (engine/battle/core.asm:5111) and the A-press writes the picked row
-        -- back, so the list reopens on the move used last turn; only
-        -- SendOutPlayerMon and CleanUpBattleRAM zero it.  Clamp rather than
-        -- reset, for a moveset that shrank (Mimic, a forgotten slot).
-        local moves = self:playerMoves()
-        self.moveIndex = math.max(1,
-          math.min(self.moveIndex or 1, math.max(1, #moves)))
-      elseif choice == "RUN" then
-        self:submit({ kind = "run" })
-      elseif choice == "PACK" then
-        if self.tutorial then
-          self:openTutorialPack()
-        elseif self.contest then
-          self:throwParkBall()
-        else
-          self:openPack()
-        end
-      else
-        self:openParty()
-      end
+      self:chooseMenu(MENU_ACTION[MENU[self.menuIndex]])
     end
     return
   end
@@ -1906,22 +1936,12 @@ function BattleState:update(_dt)
     elseif input:wasPressed("b") then
       -- B leaves the list, and a mark never survives it
       self:playSfx("Sfx_ReadText2")
-      self.moveSwapIndex = nil
-      self.phase = "menu"
+      self:cancelMove()
     elseif input:wasPressed("a") then
       -- `xor a / ld [wSwappingMove], a` opens the A arm: choosing a move
       -- cancels a pending swap rather than performing it
       self:playSfx("Sfx_ReadText2")
-      self.moveSwapIndex = nil
-      local move = moves[self.moveIndex]
-      if not move then return end
-      -- `.no_pp_left` and `.move_disabled` both end on `jp MoveSelectionScreen`
-      -- (engine/battle/core.asm:5213-5246): neither spends the turn.
-      if (move.pp or 0) <= 0 then return self:refuseMove(TEXT_NO_PP_LEFT) end
-      if self.battle:moveDisabled(self.battle.player, move.id) then
-        return self:refuseMove(TEXT_MOVE_DISABLED)
-      end
-      self:submit({ kind = "move", move = move.id })
+      self:chooseMove(self.moveIndex)
     end
     return
   end

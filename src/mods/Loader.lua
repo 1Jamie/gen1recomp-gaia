@@ -1094,6 +1094,23 @@ function Loader:_api(mod)
       return { available = function() return false end,
                get = refuse, poll = refuse, release = refuse, cancel = refuse }
     end)(),
+    -- One-way crash-log reporting to the https URL the manifest declares in
+    -- log_url.  The destination is reviewed at load, not chosen per call, so
+    -- a mod cannot aim this at arbitrary hosts; the response body is never
+    -- returned, and the worker pool bounds the transfer.  Same handle/poll/
+    -- release shape as mod.fetch, so mod.job's sibling patterns carry over.
+    postLog = (function()
+      if mod.manifest.permissionSet.network and mod.manifest.log_url then
+        return function(_, body, opts)
+          return Net.postLog(loader, modId, mod.manifest.log_url, body, opts)
+        end
+      end
+      local function refuse()
+        error(('[%s] mod.postLog needs the "network" permission and a '
+          .. "log_url in manifest.json"):format(modId), 2)
+      end
+      return refuse
+    end)(),
     -- Background compute, behind the "background" permission.  The worker
     -- rebuilds this mod's sandbox before loading the script, so a job is the
     -- one thing love.thread is not: off the main thread without a Lua state
@@ -1291,7 +1308,7 @@ function Loader:_api(mod)
   -- mod.world materializes on first touch, like the image helper above: a
   -- headless load must not drag the world stack in, and the Game the facade
   -- acts on is still being wired when the entry chunk runs
-  local world
+  local world, battle
   setmetatable(api, { __index = function(_, key)
     -- mod.game is the live service owner, resolved per generation the way
     -- mod.world is: src/core/Game.lua's singleton under Gen 1, the Game2
@@ -1300,9 +1317,17 @@ function Loader:_api(mod)
     -- entry chunk runs.  This is what a mod should hold instead of requiring
     -- src.core.Game, which under Gold hands back a table nothing instantiated.
     if key == "game" then return loader:_game() end
+    local game = loader:_game()
+    if key == "battle" then
+      if battle then return battle end
+      local module = game and engineRequire(loader.generation == 2
+        and "src.battle.gen2.BattleAPI" or "src.battle.BattleAPI")
+      if not module then return nil end
+      battle = module.new(game)
+      return battle
+    end
     if key ~= "world" then return nil end
     if world then return world end
-    local game = loader:_game()
     -- one facade name, one arm per generation: Gold's world is not a stack
     -- state and its flags are a bitfield, so the resolution differs even
     -- where the method set does not (src/world/gen2/WorldAPI.lua)

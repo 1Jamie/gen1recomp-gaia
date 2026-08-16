@@ -90,6 +90,7 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
 | `optional_imports` | `array` | User-supplied files that unlock optional mod functionality. They use the same validation and private-copy flow but never block the mod from loading. |
 | `conflicts` / `incompatible` | `array` | List of mod IDs that cannot run concurrently with this mod. |
 | `permissions` | `array` | Requested privileges (e.g. `["engine_internals"]`, `["network"]`, `["filesystem"]`). |
+| `log_url` | `string` | Optional https URL for `mod.postLog` log reporting (api 2; requires the `network` permission). |
 | `github` | `string` | GitHub repository (`"owner/repo"`) used for update checks and dependency download links. |
 
 ### Declaring Dependencies & Scoping
@@ -225,6 +226,8 @@ exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
 contextual `squirtbottle` key item. Fishing rows include the owned rods that
 are valid choices. The list is empty while the world is busy, and omits an
 action whenever its item, move, badge, terrain, or engine state forbids it.
+The optional second return is `"world is busy"` during transient input locks
+or `"no overworld"` before a playable world exists.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
@@ -233,6 +236,52 @@ busy requests return `nil` plus a reason without changing game state. Mods do
 not need generation-specific badge, terrain, bike, fishing, or field-move
 logic. Action lists are extensible; callers should render the records they
 understand and ignore unknown ids rather than assuming a fixed list length.
+
+## Read-only battle snapshots
+
+`mod.battle:snapshot()` returns `nil` outside a battle and a copied battle
+record while one is active. Gen 1 (Red, Blue, and Yellow) and Gold expose the
+same core fields:
+`revision`, `kind`, `catchable`, `prompt`, `message`, `turn`, `player`,
+`enemy`, `party`, `moves`, and `items`. Pokémon, moves, messages, and items in
+the result are detached records; changing them cannot change the battle.
+`revision` stays stable while the visible battle context is unchanged and
+advances when it changes, so a UI can skip rebuilding an identical view.
+
+Pokémon records contain `species`, `name`, `level`, `hp`, `maxHp`, `status`,
+and `active` (plus `slot` in `party`). Move records contain `slot`, `id`,
+`name`, `pp`, `maxPp`, `type`, `power`, `accuracy`, and `disabled`. Gen 1 also
+reports the actual ruleset-aware `displayPower`, `hitChance` percentage, and
+`effectiveness` multiplier (`10` neutral, `20` super-effective, `5`
+resisted). Item rows contain `id`, `name`, `count`, `ball`, `needsTarget`, and
+an optional stock `catchChance` percentage.
+
+`prompt` describes the currently visible choice (`menu`, `moves`, `party`,
+`advance`, `safari`, or `mimic`) and is `locked` when another screen or battle
+phase owns input. Generation-specific features remain optional: Gen 1 includes
+battle medicine, balls, catch previews, Safari balls, and Mimic choices;
+Gold currently returns an empty `items` list rather than guessing at its
+pocketed PACK flow. Callers should ignore unknown fields and tolerate absent
+optional ones.
+
+## Battle menu intents
+
+`mod.battle:submit(intent)` applies a validated choice to the snapshot the mod
+just read. Every intent needs a mod-owned, strictly increasing positive
+integer `id` and the latest snapshot `revision`. Stale, replayed, covered, or
+invalid choices return `nil` plus a reason without changing the battle.
+
+The shared Red, Blue, Yellow, and Gold intents are:
+
+- `{ kind = "menu", choice = "fight" }` (`party`, `item`, and `run` are the
+  other accepted choices)
+- `{ kind = "move", slot = 1..4 }`
+- `{ kind = "back" }` while the move menu is active
+
+Menu choices and moves use the same engine methods as the native controls;
+`party` and `item` open the native screens rather than exposing or duplicating
+their mutable logic. Tutorial, link, Safari, forced, stale, and covered battle
+states refuse these core intents. Use `mod.input` for ordinary text advance.
 
 ## Rendering pipelines
 
@@ -863,6 +912,39 @@ This is deliberately not `love.thread`. A LÖVE thread is a fresh Lua state
 with a full standard library that the sandbox cannot reach, so handing one
 to a mod would undo every other rule; `mod.fetch`'s workers run engine
 code, so a mod gets asynchrony without gaining any new reach.
+
+## Log reporting
+
+`mod.postLog(body, opts)` is the one-way exception to the rule that a mod
+decides where it talks. It reports a debug/crash log to the https URL the
+manifest declares in `log_url`, and it is the only API that may not be
+pointed at a caller-chosen address:
+
+```json
+{
+  "permissions": ["network"],
+  "log_url": "https://logs.example.com/receive"
+}
+```
+
+The URL is validated at load: it must be `https://`, and declaring it
+without the `network` permission is a load violation for api 2 mods. The
+destination is reviewed when the mod ships, not chosen per call, so a mod
+cannot aim this at arbitrary hosts or read back anything a server replies.
+
+```lua
+-- fire and forget; poll() never blocks, same shape as mod.fetch
+local job = mod:postLog("session crashed at 0x1f3a\n" .. logText)
+```
+
+`postLog(body, opts)` returns the same opaque handle as `mod.fetch:get`,
+polled and released through `mod.fetch:poll` / `mod.fetch:release`. `opts`
+is a closed list with one switch: `format`, either `"text"` (the default)
+or `"json"`. `json` wraps the body in an envelope of `{ ts, mod, format,
+body }` so a server can attribute and sort reports; any other key or value
+is refused before a job is submitted. The body is capped at 64 KB, the
+transfer is bounded by the same worker ceilings as `mod.fetch`, and the
+response body is never returned to the mod.
 
 ## Background jobs
 

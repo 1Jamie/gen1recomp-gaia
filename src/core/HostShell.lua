@@ -417,4 +417,88 @@ function HostShell.httpGet(url, userAgent, accept, maxTime)
   return body
 end
 
+-- POST returning success/failure.  Strictly one-way: the response body is
+-- discarded, only the HTTP status class is surfaced (postLog callers never
+-- trust the reply).  curl --data-binary reads the payload from a pipe, so a
+-- large body never lands in the command line; the Android bridge has no POST
+-- transport, and httpPost reports that instead of half-working through
+-- httpDownload (a GET round-trip to a POST endpoint would be a lie).
+function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
+  if type(url) ~= "string" or url == "" then return nil, "missing url" end
+  if type(body) ~= "string" then return nil, "missing body" end
+  userAgent = userAgent or "gen1recomp"
+  if HostShell.haveCurl() then
+    -- io.popen is one-way on Lua/LuaJIT: its mode is "r" or "w", never
+    -- "rw".  Stage the request body so the response can stay on a read
+    -- pipe.  The staging directory comes from the OS temp contract, never
+    -- tmpnam(): the CRT's tmpnam() can return a name relative to the process
+    -- working directory, and a game installed under Program Files has no
+    -- writable CWD -- io.open would fail before curl ever runs and postLog
+    -- would silently drop the send.  TEMP/TMP are per-user writable on
+    -- Windows; TMPDIR (with /tmp fallback) covers POSIX.  No love.filesystem:
+    -- the sandbox-era transport stays on plain io/os.
+    local function stagingPath()
+      local dir = os.getenv("TEMP") or os.getenv("TMP")
+      if not dir or dir == "" then dir = os.getenv("TMPDIR") or "/tmp" end
+      local sep = dir:find("\\") and "\\" or "/"
+      return dir .. sep .. ("gen1recomp-post-%d.tmp"):format(
+        (os.time() % 1000000) * 100 + math.random(0, 99))
+    end
+    local bodyPath = stagingPath()
+    local bodyFile, bodyOpenErr = io.open(bodyPath, "wb")
+    if not bodyFile then
+      pcall(os.remove, bodyPath)
+      return nil, "could not create request body: " .. tostring(bodyOpenErr)
+    end
+    local bodyOk, bodyErr = pcall(function()
+      assert(bodyFile:write(body))
+      assert(bodyFile:close())
+    end)
+    if not bodyOk then
+      pcall(function() bodyFile:close() end)
+      pcall(os.remove, bodyPath)
+      return nil, "could not write body: " .. tostring(bodyErr)
+    end
+
+    -- --data-binary @<file> keeps the payload out of argv (command-line length
+    -- limits on Windows) and preserves every byte including trailing
+    -- newlines.  The body is staged above because io.popen cannot be opened
+    -- for both writing and reading.  No -f, matching httpGet: the response
+    -- body is discarded anyway, and curl's stderr carries the diagnosis.
+    local cmd = ("curl -sSL --proto =http,https --proto-redir =http,https "
+      .. "--connect-timeout 10 --max-time %d ")
+      :format(tonumber(maxTime) or 40)
+      .. "-X POST "
+      .. "-H " .. HostShell.quote("User-Agent: " .. userAgent) .. " "
+    if contentType then
+      cmd = cmd .. "-H " .. HostShell.quote("Content-Type: " .. contentType) .. " "
+    end
+    cmd = cmd .. "-H " .. HostShell.quote("Content-Length: " .. tostring(#body)) .. " "
+      .. "--data-binary " .. HostShell.quote("@" .. bodyPath) .. " "
+      .. "-w " .. HostShell.quote(HTTP_MARK_FMT) .. " "
+      .. HostShell.quote(url) .. " 2>&1"
+    local pipe = HostShell.popen(cmd)
+    if not pipe then
+      pcall(os.remove, bodyPath)
+      return nil, "could not run curl"
+    end
+    local readOk, out = pcall(function() return pipe:read("*a") end)
+    HostShell.pclose(pipe)
+    pcall(os.remove, bodyPath)
+    if not readOk then
+      return nil, fetchError(url, nil, tostring(out))
+    end
+    local _, status, noise = splitCurlOutput(out)
+    if not status then return nil, fetchError(url, nil, noise) end
+    if status < 200 or status >= 300 then
+      return nil, fetchError(url, status, "log post rejected")
+    end
+    return true
+  end
+  if not haveBridge() then
+    return nil, "no network transport on this platform"
+  end
+  return nil, "no POST transport on this platform"
+end
+
 return HostShell
