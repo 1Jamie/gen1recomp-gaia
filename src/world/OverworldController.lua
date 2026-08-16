@@ -3090,9 +3090,12 @@ function OverworldState:finishNurseHeal(bye, onDone, npc)
       end))
     end
     if not npc then farewell() return end
-    npc.frameOverride = 3
+    -- engine/events/pokecenter.asm:36-39; Yellow's walk-down pose when the
+    -- sheet has it (pokeyellow engine/events/pokecenter.asm:82-88)
+    local yellow = GameVersion.isYellow()
+    npc.frameOverride = (yellow and npc.sprite.frames[3]) and 3 or 1
     -- bubble = false is the silent world hold, this port's DelayFrames
-    self.emote = { npc = npc, frames = 20, bubble = false, onDone = function()
+    self.emote = { npc = npc, frames = yellow and 40 or 20, bubble = false, onDone = function()
       npc.frameOverride = nil
       npc:facePlayer(self.player)
       farewell()

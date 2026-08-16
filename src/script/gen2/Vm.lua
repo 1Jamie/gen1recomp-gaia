@@ -544,7 +544,12 @@ local function runCmd(self, cmd, op)
     local level = cmd.level or (cmd.args and cmd.args[2]) or 5
     local item = cmd.item or (cmd.args and cmd.args[3]) or 0
     if self.givePokeFn then
-      self.givePokeFn(species, level, item)
+      local mon = self.givePokeFn(species, level, item)
+      -- engine/pokemon/move_mon.asm:1753-1757
+      local trainer = cmd.trainer or (cmd.args and cmd.args[4]) or 0
+      if mon and trainer == 0 then
+        Specials.askNickname(self, mon)
+      end
     end
   elseif op == "checkpoke" then
     -- Script_checkpoke: IsInArray over wPartySpecies.  Party only, so a boxed

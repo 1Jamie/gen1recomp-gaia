@@ -288,6 +288,7 @@ return {
       -- fanfare for the taunt/challenge exchange, same as the Yellow port
       -- (oaks_lab_yellow.lua); it was silently dropped here (#596).
       local rows = {
+        { "face_object", 1, "down" },  -- scripts/OaksLab.asm:347-351
         { "face_player_dir", "up" },
         { "stop_music" },
         { "play_music", "Music_MeetRival" },

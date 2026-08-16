@@ -220,6 +220,20 @@ function TownMap.new(game, opts)
   -- the player's current location (guard: overworld may not be running)
   local mapId = game.overworld and game.overworld.map and game.overworld.map.id
   self.playerLoc = mapId and self.byMap[mapId] or nil
+  -- engine/items/town_map.asm:347
+  do
+    local playerSprites = (game.data.field and game.data.field.playerSprites)
+                          or {}
+    local sprites = game.data.sprites or {}
+    local red = sprites[playerSprites.walk or "SPRITE_RED"]
+                or sprites.SPRITE_RED
+    local ok, img = pcall(love.graphics.newImage, red and red.image)
+    if ok and img then
+      self.playerSheet = img
+      self.playerQuad = love.graphics.newQuad(0, 0, 16, 16,
+                                              img:getDimensions())
+    end
+  end
   self.sel = 1
   -- LoadTownMap_Fly always opens with hl on wFlyLocationsList[0], the FIRST
   -- fly destination (PALLET_TOWN), never the player's current town (#795).
@@ -345,18 +359,16 @@ function TownMap:draw()
       love.graphics.setColor(1, 1, 1, 1)
       return
     end
-    -- the player's current location blinks (slow phase).  Paint it with a
-    -- palette-safe DARK shade (red 0), not red: this screen composites through
-    -- the TOWNMAP SGB shade-remap shader (PaletteFX.shader), which keys ONLY on
-    -- the red channel, and a red-0.75 dot lands in the c1 bucket = TOWNMAP
-    -- {165,214,255}, the exact light-blue used for the water and the town-square
-    -- fill, so the marker was drawn but recolored invisible (#152).  Red 0 -> c3
-    -- {25,16,16} = a solid dark "you are here" dot, visible on land and water.
+    -- engine/items/town_map.asm:347; fallback dot stays red 0 for PaletteFX (#152)
     if self.playerLoc and self.blink < 20 then
       local x, y = markerXY(self.playerLoc)
-      love.graphics.setColor(0, 0, 0, 1)
-      love.graphics.rectangle("fill", x + 2, y + 2, 4, 4)
-      love.graphics.setColor(1, 1, 1, 1)
+      if self.playerSheet then
+        love.graphics.draw(self.playerSheet, self.playerQuad, x - 4, y - 3)
+      else
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle("fill", x + 2, y + 2, 4, 4)
+        love.graphics.setColor(1, 1, 1, 1)
+      end
     end
     -- blinking cursor on the selected location.  markerXY is the 8x8 cell's
     -- top-left; the cursor asset is a 16x16 hollow frame centered on its own
@@ -389,11 +401,16 @@ function TownMap:draw()
       drawSquare(loc)
     end
     if self.playerLoc and self.blink < 20 then
-      -- palette-safe dark, same red-channel shade-remap reason as the primary
-      -- grid path above (#152); stale-asset builds hit this fallback square
-      love.graphics.setColor(0, 0, 0, 1)
-      love.graphics.rectangle("fill", self.playerLoc.x * 8 + 2,
-                              self.playerLoc.y * 8 + 2, 4, 4)
+      -- engine/items/town_map.asm:347; fallback dot stays red 0 for PaletteFX (#152)
+      if self.playerSheet then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(self.playerSheet, self.playerQuad,
+                           self.playerLoc.x * 8 - 4, self.playerLoc.y * 8 - 3)
+      else
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle("fill", self.playerLoc.x * 8 + 2,
+                                self.playerLoc.y * 8 + 2, 4, 4)
+      end
     end
     if selected and self.blink % 16 < 10 then
       love.graphics.setColor(0, 0, 0, 1)

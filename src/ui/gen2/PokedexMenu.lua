@@ -144,12 +144,7 @@ function PokedexMenu.new(game, opts)
   self.game = game
   self.save = opts.save or (game and game.save)
   local data = game and game.data or {}
-  -- Held, not just read into the fields below.  CRY resolves its sample
-  -- through data.audio.cries and AREA resolves nests and landmark names
-  -- through data.maps / data.landmarks, and every one of those reads
-  -- `self.data` -- which nothing assigned, so `cries` folded to nil, playCry
-  -- returned before it reached Sound, and the button did nothing at all.
-  -- Taken by reference so a mod's merged cry or landmark is the one used.
+  -- engine/pokedex/pokedex.asm:447
   self.data = data
   self.dex = opts.pokedex or data.gen2Pokedex
   self.pokemon = opts.pokemon or data.pokemon
@@ -866,15 +861,6 @@ function PokedexMenu:drawArea()
   self:text(region == "kanto" and "KANTO" or "JOHTO", 1, 1)
 
   local G = love.graphics
-  local table_ = self.data and self.data.landmarks
-  local byIndex = self.landmarkByIndex
-  if not byIndex then
-    byIndex = {}
-    for _, entry in pairs((table_ and table_.landmarks) or {}) do
-      if entry and entry.index then byIndex[entry.index] = entry end
-    end
-    self.landmarkByIndex = byIndex
-  end
 
   if #nests == 0 then
     -- A species with no grass, water or roamer entry in this region. The cart
@@ -883,11 +869,11 @@ function PokedexMenu:drawArea()
     return
   end
 
-  -- Blinking markers, the way the cart flashes its OBJs.
+  -- engine/pokegear/pokegear.asm:2427
   local on = ((self.areaBlink or 0) % 32) < 20
   if cells and on then
     for _, index in ipairs(nests) do
-      local mark = byIndex[index]
+      local mark = Nests.landmark(self.data, index)
       if mark and mark.x and mark.y then
         G.setColor(0, 0, 0, 1)
         G.rectangle("fill", mark.x - 2, mark.y - 2, 5, 5)
@@ -900,7 +886,7 @@ function PokedexMenu:drawArea()
   -- Name the first one in words as well as on the map: the flashing dot is
   -- unreadable at this size on a modern display, and the landmark name is what
   -- a player actually wants off this screen.
-  local first = byIndex[nests[1]]
+  local first = Nests.landmark(self.data, nests[1])
   if first and first.name then
     local name = tostring(first.name):gsub("\n", " ")
     self:text(name, 1, 16)

@@ -232,15 +232,15 @@ function EffectRegistry.runDamaging(battle, ctx, record)
     hitSfx = { sound = "Damage", pitch = 0x20 }
   end
   -- GetPlayerAnimationType / GetEnemyAnimationType (engine/battle/core.asm
-  -- :3159 / :5555): wAnimationType is 4 (blink the enemy pic) or 1 (shake
-  -- the screen vertically) for a damaging move with no added effect, and
-  -- 5 / 2 (a horizontal shake) as soon as the move HAS one -- which is why
-  -- Bubblebeam and Confusion shake instead of blinking (#354)
+  -- :3159 / :5555): 4 blinks the enemy pic, 1 shakes vertically, 5 / 2 once
+  -- the move has an added effect (#354)
   local added = move.effect ~= nil and move.effect ~= "NO_ADDITIONAL_EFFECT"
+  -- PlayApplyingAttackAnimation runs on both arms of the wOptions check
+  -- (engine/battle/animations.asm:424-437), so the blink is not gated (#1384)
   local hitFx = { sfx = hitSfx,
                   animType = user.isPlayer and (added and 5 or 4)
                              or (added and 2 or 1),
-                  blink = battle:animationsOn() and target or nil }
+                  blink = target }
 
   local totalDealt = 0
   local landed, brokeSub = 0, false
