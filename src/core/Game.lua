@@ -305,10 +305,30 @@ function Game.worldBgBattleDim(stack)
   for i = #(stack and stack.states or {}), 1, -1 do
     local state = stack.states[i]
     if state and state.bgMode and state:bgMode() == "world" then
+      -- The extended fixed HUD intentionally exposes the live world across
+      -- the whole physical window.  Keep this as a world-backed battle (zero
+      -- is non-nil, so scaling and overlay holds remain active), but do not
+      -- paint the standard dim veil around the native battle rectangle.
+      if state.extendedWorldHUD and state:extendedWorldHUD() then
+        return 0
+      end
       return state.BG_WORLD_DIM or 0.55
     end
   end
   return nil
+end
+
+-- Does the stack contain the opt-in fixed Extended WORLD battle?  Renderer
+-- uses this separately from battleDim: the world remains the surround, while
+-- the native-width battle field receives a paper backing from top to bottom.
+function Game.extendedWorldHUDInStack(stack)
+  for i = #(stack and stack.states or {}), 1, -1 do
+    local state = stack.states[i]
+    if state and state.extendedWorldHUD and state:extendedWorldHUD() then
+      return true
+    end
+  end
+  return false
 end
 
 -- Is a BATTLE BG "world" battle composing itself over the live map right now?
@@ -432,6 +452,14 @@ function Game.drawBaseInStack(stack, visibleBase)
   return visibleBase
 end
 
+-- A classic overlay above the approved world-backed extended HUD paints only
+-- its centred area. Keep the wider owner surface transparent so its margins
+-- continue to reveal the world instead of becoming an opaque white sheet.
+function Game.uiCanvasTransparent(worldBelow, worldDrawn, wideBattle)
+  return worldBelow or (worldDrawn and wideBattle ~= nil
+    and wideBattle.extendedHUD and wideBattle:extendedHUD())
+end
+
 -- Shift classic SGB zones to the centred UI. A full-width base zone extends
 -- into both margins, keeping the canvas' paper color continuous; narrower
 -- sprite and status zones move with the classic UI content.
@@ -485,6 +513,7 @@ function Game:draw()
   -- the stack for the same reason as uiFill above -- a prompt opened during
   -- the battle must not drop the dim for a frame.
   Renderer.battleDim = Game.worldBgBattleDim(self.stack)
+  Renderer.extendedWorldBand = Game.extendedWorldHUDInStack(self.stack)
   -- ...and for the same reason the UI's own scale has to know the world is
   -- still the backdrop while an opaque menu covers it.  Renderer:uiScale
   -- steps the UI down with the survey zoom only while a world is behind it,
@@ -502,7 +531,8 @@ function Game:draw()
   -- menu to its top right, and the whole UI steps down with the zoom.
   Renderer.uiCentered = not Game.dynamicUI(self.save)
   Renderer.uiAnchorHold = Game.uiAnchorsHeldInStack(self.stack)
-  Renderer:beginFrame(worldBelow)
+  Renderer:beginFrame(Game.uiCanvasTransparent(
+    worldBelow, worldDrawn, wideBattle))
   for i = drawFrom, #self.stack.states do
     local state = self.stack.states[i]
     local wideState = state and state.isWideBattleLayout
