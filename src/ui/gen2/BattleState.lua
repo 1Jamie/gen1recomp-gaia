@@ -767,6 +767,24 @@ function BattleState:substituteDoll(back)
   return self.subDoll.image, back and self.subDoll.up or self.subDoll.down
 end
 
+-- MonsterSpriteGFX (gfx/sprites.asm:82): the facing-DOWN 16x16 frame for the
+-- enemy's frontpic, facing-UP for the player's backpic.
+function BattleState:substituteDoll(back)
+  if self.subDoll == nil then
+    local ok, image = pcall(Assets.image, "assets/generated/sprites/monster.png")
+    if ok and image then
+      local w, h = image:getDimensions()
+      self.subDoll = { image = image,
+        down = love.graphics.newQuad(0, 0, 16, 16, w, h),
+        up = love.graphics.newQuad(0, 16, 16, 16, w, h) }
+    else
+      self.subDoll = false
+    end
+  end
+  if not self.subDoll then return nil end
+  return self.subDoll.image, back and self.subDoll.up or self.subDoll.down
+end
+
 -- The top `visible` rows of a pic, for the faint slide.  One quad, re-aimed,
 -- the way BattleAnimView keeps one blit quad rather than a new one per frame.
 function BattleState:cropQuad(image, visible)
