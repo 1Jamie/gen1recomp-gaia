@@ -377,11 +377,19 @@ function Schemas.crossValidate(loader, data)
             and loader.content[ref.registry]
           -- A registry with no home in this generation has no id space to
           -- check against: its base view resolves to nothing, so EVERY
-          -- reference into it would read as dangling.  Gold's species carry a
-          -- growthRate and an evolution method like Red's do; the ids are
-          -- fine, it is the Gen 1 `growth_rates` / `evolution_methods`
-          -- namespaces that are not there to confirm them.  Skipped for the
-          -- same reason an undeclared registry is: unknown, not wrong.
+          -- reference into it would read as dangling.  `transitions` is the
+          -- standing example -- Gold draws its own battle intro and never
+          -- reads the merged table, so a mod's transition id there is
+          -- unconfirmable, not wrong.  `growth_rates` and `evolution_methods`
+          -- used to sit in that category too, back when Gold had no id space
+          -- for either.  Both are routed now: `growth_rates` keeps its Gen 1
+          -- path and is seeded from data.pokemon.growthRates (the extractor's
+          -- Gold curves, src/battle/gen2/Mon.lua), and `evolution_methods`
+          -- routes to gen2EvolutionMethods (src/core/gen2/Evolution.lua's
+          -- literal EVOLVE_* ids, present with or without a ROM import).  A
+          -- Gold species' growthRate or evolution method is checked against
+          -- real ids exactly like a Red one's, so a genuine typo is still
+          -- caught here rather than waved through as "unknown, not wrong."
           if refRegistry and Schemas.gatedFor(ref.registry, loader.generation) then
             refRegistry = nil
           end
