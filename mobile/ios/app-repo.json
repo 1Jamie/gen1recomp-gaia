@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.97",
+          "date": "2026-08-16",
+          "size": 11376813,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.97/gen1recomp++-0.1.97-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1181 Poison seems to trigger twice during the poisoned pokemon's turn\n- #1212 the move payday does not grant money in gen 2\n- #1214 Title Screen with OG Red is the wrong color\n- #1224 Windowed and borderless toggle in Gold\n- #1230 Couple of sound effects missing\n- #1249 Cant use stat items IE HP UP PP UP PROTIEN\n- #1271 [Gold] substitute image broken/not shown\n- #1272 [Gold] swift still checks accuracy and/or evasion\n- #1273 S.S. Anne Issues\n- #1298 Gen1 sound tracks have a fade in period, if you enter a route and immediately exit it while this transition is going on it will land on the wrong music\n- #1305 Wrong Pikachu cry when getting defeated\n- #1307 Rival theme broken after initial fight in Yellow\n- #1318 Thunder Wave works on Ground-types\n- #1328 Message for turning on the PC missing\n- #1330 Message before looking at map missing\n- #1331 Messages in Oak's lab missing\n- #1333 E-mail in Oak's lab missing\n- #1334 Missing message after picking starter\n- #1335 No Money Box\n- #1340 Color palett doesn't affect attack animations\n- #1345 Wrong health color on OG palett\n- #1346 Health still black when viewing stats\n- #1360 No Surfing Music\n- #1362 Poison damage does not flash the screen\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.1.96",
           "date": "2026-08-16",
           "size": 11375356,
