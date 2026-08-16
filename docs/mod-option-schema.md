@@ -46,7 +46,11 @@ when the runtime schema is absent. The supported row types are `toggle`,
 `choice`, `number`, and `text`. Their optional fields retain the meanings
 established by the existing in-game option UI: choices are `[label, value]`
 pairs, numeric rows may provide `min`, `max`, and `step`, and text rows may
-provide `maxLen`.
+provide `maxLen`. A row may also use
+`visible_if = {key = "mode", equals = "compact"}` or replace `equals` with
+`not_equals`. This only hides the in-game menu row; the schema and stored value
+remain available, and consumers that do not implement conditions may ignore
+the field.
 
 Only mods that are enabled and successfully loaded in the current boot are
 included. A disabled or failed mod must not contribute rows. If an older
@@ -69,9 +73,10 @@ it may ignore an unknown row type or optional field.
 For compatibility with files produced by the original unversioned prototype,
 a missing `schema_version` means version 1. Consumers must ignore documents
 with a newer version rather than guessing at their shape. Producers must bump
-the version whenever they change the document shape or the meaning of an
-existing field. Version 1 is therefore the legacy unversioned format as well
-as the explicitly versioned format shown above.
+the version whenever they change the document envelope or the meaning of an
+existing field. New optional row fields that older consumers can safely ignore
+do not require a bump. Version 1 is therefore the legacy unversioned format as
+well as the explicitly versioned format shown above.
 
 ## Migration note
 
