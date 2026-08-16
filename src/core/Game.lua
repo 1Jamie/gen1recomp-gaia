@@ -423,13 +423,13 @@ function Game.uiAnchorsHeldInStack(stack)
 end
 
 -- Where Game:draw starts drawing this frame.  Normally the topmost opaque
--- state (StateStack:visibleBase) -- but BATTLE BG "world" composes the battle
--- over the LIVE map, and an opaque state pushed on top of it (the party menu,
--- the bag) becomes that base, cutting the overworld -- and with it the world
--- pass -- out of the frame entirely.  The backdrop the battle established
--- then collapses to endFrame's flat black clear for as long as the menu is
--- up.  So a world-bg battle keeps the frame starting from underneath itself
--- until it leaves the stack, the same hold uiFill and the dim already use.
+-- state (StateStack:visibleBase) -- but an opaque menu pushed over a WIDE
+-- battle must not prevent that battle from drawing.  Native WIDE battles own
+-- the 304x144 surround around a centred classic menu, while external arena
+-- providers establish their window-sized scene from BattleState:draw.  If the
+-- menu becomes the draw base, neither owner runs and the menu's white field
+-- replaces the whole presentation.  BATTLE BG "world" additionally needs the
+-- overworld below the battle, as before.
 --
 -- Only the START of the draw moves.  The clear stays keyed to the real
 -- visibleBase, so the menu still gets its opaque canvas and draws exactly as
@@ -440,9 +440,13 @@ function Game.drawBaseInStack(stack, visibleBase)
   local states = stack and stack.states or {}
   for i = visibleBase - 1, 1, -1 do
     local state = states[i]
-    if state and state.bgMode and state:bgMode() == "world" then
+    local worldBattle = state and state.bgMode and state:bgMode() == "world"
+    local wideBattle = state and state.isWideBattleLayout
+      and state:isWideBattleLayout()
+    if worldBattle or wideBattle then
       -- restart the search from under the battle: the highest opaque state at
-      -- or below it (the overworld), not the menu sitting over it
+      -- or below it (the battle itself for white/black WIDE, the overworld for
+      -- a non-opaque world-backed battle), not the menu sitting over it
       for j = i, 1, -1 do
         if states[j].isOpaque then return j end
       end
