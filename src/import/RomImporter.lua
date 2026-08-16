@@ -988,8 +988,18 @@ local function pickerHasKind(kind)
   return false
 end
 
-local function findPendingRequiredImport()
+local function findPendingRequiredImport(self)
   local names = { "picked_required_import.bin", "picked_stadium.z64" }
+  -- Builds released before required_import was added to the Android JNI bridge
+  -- only understand the long-standing "rom" picker kind.  While a required
+  -- import request is in flight, it is safe to treat its staging name as a
+  -- dependency file: the pending IDs below select the same validation/copy
+  -- path as a current bridge.  Never scan picked_rom.gb otherwise, since that
+  -- remains reserved for an ordinary game-ROM import.
+  if self and self.requiredImportLegacyRomPick
+      and self.pickerPendingKind == "required_import" then
+    names[#names + 1] = "picked_rom.gb"
+  end
   for _, name in ipairs(names) do
     if love.filesystem.getInfo(name, "file") then return name end
   end
@@ -1471,12 +1481,16 @@ function RomImporter:focus(f)
     local text = "Could not read the picked file. Reopen the picker and choose "
       .. "it with the Files (Documents) app, or copy it into: "
       .. love.filesystem.getSaveDirectory()
+    local legacyRequiredPick = self.requiredImportLegacyRomPick
+      and self.pickerPendingKind == "required_import"
     if pickError:find("picked_required_import", 1, true)
-        or pickError:find("picked_stadium", 1, true) then
+        or pickError:find("picked_stadium", 1, true)
+        or (legacyRequiredPick and pickError:find("picked_rom", 1, true)) then
       self.modNotice = { ok = false, text = text }
       self.pickerPendingKind = nil
       self.pickerPendingModId = nil
       self.pickerPendingImportId = nil
+      self.requiredImportLegacyRomPick = nil
     elseif pickError:find("picked_mod", 1, true) then
       self.modNotice = { ok = false, text = text }
     elseif pickError:find("picked_save", 1, true) then
@@ -1488,11 +1502,12 @@ function RomImporter:focus(f)
     end
     return
   end
-  local requiredName = findPendingRequiredImport()
+  local requiredName = findPendingRequiredImport(self)
   if requiredName then
     local modId, importId = self.pickerPendingModId, self.pickerPendingImportId
     self.pickerPendingKind = nil
     self.pickerPendingModId, self.pickerPendingImportId = nil, nil
+    self.requiredImportLegacyRomPick = nil
     local imported = modId and importId
       and self:_importRequiredSource(modId, importId, requiredName)
     consumePick(self, requiredName, requiredName, imported)
@@ -2024,7 +2039,17 @@ function RomImporter:chooseRequiredImport(modId, importId)
     return
   end
   if self.nativePicker then
-    if self.mobileFileBridge and not pickerHasKind("required_import") then
+    -- Android 13+ uses the Storage Access Framework for both paths.  Some
+    -- Android 15 installs carry the newer Lua launcher with an older native
+    -- bridge, however, so they do not advertise required_import yet.  Fall
+    -- back to that bridge's known "rom" picker and quarantine its result by
+    -- the pending required-import IDs. iOS has a different asynchronous
+    -- bridge and deliberately keeps the explicit capability requirement.
+    local legacyAndroidPicker = self.mobileFileBridge
+      and love.system.getOS() == "Android"
+      and not pickerHasKind("required_import")
+    if self.mobileFileBridge and not pickerHasKind("required_import")
+        and not legacyAndroidPicker then
       requiredImportNotice(self, modId, importId,
         "This app build cannot pick required mod files yet. Update the app and try again.")
       self.modNotice = nil
@@ -2033,10 +2058,12 @@ function RomImporter:chooseRequiredImport(modId, importId)
     self.pickerPendingKind = "required_import"
     self.pickerPendingModId = modId
     self.pickerPendingImportId = importId
-    if not pickFile("required_import") then
+    self.requiredImportLegacyRomPick = legacyAndroidPicker or nil
+    if not pickFile(legacyAndroidPicker and "rom" or "required_import") then
       self.pickerPendingKind = nil
       self.pickerPendingModId = nil
       self.pickerPendingImportId = nil
+      self.requiredImportLegacyRomPick = nil
       requiredImportNotice(self, modId, importId, "Could not open the file picker.")
       self.modNotice = nil
     elseif self.android then
