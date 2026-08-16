@@ -34,6 +34,9 @@ function redGame.stack:top() return self.states[#self.states] end
 
 local RedAPI = require("src.world.WorldAPI")
 local red = RedAPI.new(redGame, "fixture")
+local unavailable, reason = RedAPI.new({}, "fixture"):availableFieldActions()
+T.eq(#unavailable, 0, "Red lists no actions without an overworld")
+T.eq(reason, "no overworld", "Red reports a missing overworld")
 local RedWorld = require("src.world.OverworldController")
 T.check(type(RedWorld.useBicycle) == "function"
     and type(RedWorld.useFishingRod) == "function"
@@ -59,7 +62,9 @@ T.check(not ok and err == "fishing rod unavailable",
 T.eq(redWorld.rodUsed, used, "a rejected Red rod changes nothing")
 
 redWorld.player.moving = true
-T.eq(#red:availableFieldActions(), 0, "Red hides actions while moving")
+actions, err = red:availableFieldActions()
+T.eq(#actions, 0, "Red hides actions while moving")
+T.eq(err, "world is busy", "Red distinguishes a busy world from no actions")
 ok, err = red:useFieldAction("bicycle")
 T.check(not ok and err == "world is busy",
   "Red refuses a stale action while busy")
@@ -142,6 +147,9 @@ goldWorld.fieldContext = function(_, mon) return {
 
 local GoldAPI = require("src.world.gen2.WorldAPI")
 local gold = GoldAPI.new(goldGame, "fixture")
+unavailable, reason = GoldAPI.new({}, "fixture"):availableFieldActions()
+T.eq(#unavailable, 0, "Gold lists no actions without an overworld")
+T.eq(reason, "no overworld", "Gold reports a missing overworld")
 actions = gold:availableFieldActions()
 byId = {}
 for _, action in ipairs(actions) do byId[action.id] = action end
@@ -169,5 +177,10 @@ T.check(gold:useFieldAction("squirtbottle"),
   "Gold accepts the contextual SquirtBottle")
 T.eq(goldWorld.itemUsed, "SQUIRTBOTTLE",
   "Gold delegates the SquirtBottle to its field-item path")
+
+goldWorld.acceptsMenuInput = function() return false end
+actions, err = gold:availableFieldActions()
+T.eq(#actions, 0, "Gold hides actions while busy")
+T.eq(err, "world is busy", "Gold distinguishes a busy world from no actions")
 
 T.finish()
