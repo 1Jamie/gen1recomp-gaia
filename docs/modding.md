@@ -223,19 +223,28 @@ scripts, battles, and transitions leave the party untouched.
 start at the player's current position. Both games expose `bicycle`, `fish`,
 `cut`, `surf`, `strength`, `flash`, `dig`, and `teleport`; Gold additionally
 exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
-contextual `squirtbottle` key item. Fishing rows include the owned rods that
-are valid choices. The list is empty while the world is busy, and omits an
-action whenever its item, move, badge, terrain, or engine state forbids it.
+contextual `squirtbottle` key item. Red additionally exposes `softboiled` with
+eligible `sources`; each source contains its eligible `targets`. Fishing rows
+include the owned rods that are valid choices. The list is empty while the
+world is busy, and omits an action whenever its item, move, badge, terrain, or
+engine state forbids it.
 The optional second return is `"world is busy"` during transient input locks
 or `"no overworld"` before a playable world exists.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
-and chooses automatically when only one rod is available. Invalid, stale, and
-busy requests return `nil` plus a reason without changing game state. Mods do
-not need generation-specific badge, terrain, bike, fishing, or field-move
+and chooses automatically when only one rod is available. Red's `softboiled`
+accepts one-based `{ sourceSlot, targetSlot }` values copied from its action
+record. Invalid, stale, and busy requests return `nil` plus a reason without
+changing game state. Mods do not need generation-specific badge, terrain,
+bike, fishing, or field-move
 logic. Action lists are extensible; callers should render the records they
 understand and ignore unknown ids rather than assuming a fixed list length.
+
+Red exposes FLY separately because it requires a destination picker:
+`mod.world:canFly()` reports whether FLY is eligible at the current location,
+and `mod.world:flyTo(mapId)` accepts only a visited destination from the native
+Fly town list. Gold does not expose these two methods yet.
 
 ## Read-only battle snapshots
 

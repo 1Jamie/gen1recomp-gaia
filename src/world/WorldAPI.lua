@@ -37,6 +37,57 @@ local function validPartySlot(party, slot)
     and party[slot] ~= nil
 end
 
+local function outside(game, ow)
+  return Map.isOutside(ow.map.def,
+    FieldDefaults.field(game.data, "outsideTilesets"))
+end
+
+local function knows(mon, moveId)
+  for _, move in ipairs(mon.moves or {}) do
+    if move.id == moveId then return true end
+  end
+  return false
+end
+
+local function monInfo(game, mon, slot)
+  local def = game.data.pokemon[mon.species] or {}
+  return { slot = slot, species = mon.species,
+    name = mon.nickname or def.name or mon.species, level = mon.level,
+    hp = mon.hp, maxHp = mon.stats and mon.stats.hp or mon.hp }
+end
+
+local function softboiledSources(game)
+  local party, sources = game.save.party or {}, {}
+  for sourceSlot, source in ipairs(party) do
+    local heal = source.stats and math.floor(source.stats.hp / 5) or 0
+    if knows(source, "SOFTBOILED") and source.hp > heal then
+      local info = monInfo(game, source, sourceSlot)
+      info.targets = {}
+      for targetSlot, target in ipairs(party) do
+        if target ~= source and target.hp > 0 and target.stats
+            and target.hp < target.stats.hp then
+          info.targets[#info.targets + 1] = monInfo(game, target, targetSlot)
+        end
+      end
+      if #info.targets > 0 then sources[#sources + 1] = info end
+    end
+  end
+  return sources
+end
+
+local function flyDestinationAvailable(game, mapId)
+  local field, save = game.data.field or {}, game.save
+  for _, id in ipairs(field.flyOrder or {}) do
+    if id == mapId then
+      local def = game.data.maps and game.data.maps[id]
+      return not not (save.visited and save.visited[id]
+        and field.flyWarps and field.flyWarps[id]
+        and def and Map.isFlyTown(def))
+    end
+  end
+  return false
+end
+
 function WorldAPI.new(game, modId)
   return setmetatable({ game = game, modId = modId }, WorldAPI)
 end
@@ -141,9 +192,13 @@ function WorldAPI:availableFieldActions()
       and ow:partyKnows("DIG") then
     out[#out + 1] = { id = "dig", label = "DIG" }
   end
-  if ow:partyKnows("TELEPORT") and Map.isOutside(ow.map.def,
-      FieldDefaults.field(game.data, "outsideTilesets")) then
+  if ow:partyKnows("TELEPORT") and outside(game, ow) then
     out[#out + 1] = { id = "teleport", label = "TELEPORT" }
+  end
+  local sources = softboiledSources(game)
+  if #sources > 0 then
+    out[#out + 1] = { id = "softboiled", label = "SOFTBOILED",
+      sources = sources }
   end
   return out
 end
@@ -187,8 +242,42 @@ function WorldAPI:useFieldAction(id, opts)
   elseif id == "dig" or id == "teleport" then
     ow:beginTeleportOut()
     return true
+  elseif id == "softboiled" then
+    local sourceSlot = opts and tonumber(opts.sourceSlot)
+    local targetSlot = opts and tonumber(opts.targetSlot)
+    local allowed
+    for _, source in ipairs(found.sources or {}) do
+      if source.slot == sourceSlot then
+        for _, target in ipairs(source.targets or {}) do
+          if target.slot == targetSlot then allowed = true break end
+        end
+      end
+    end
+    if not allowed then return nil, "softboiled target unavailable" end
+    if ow:useSoftboiledFieldMove(game.save.party[sourceSlot],
+        game.save.party[targetSlot]) then return true end
   end
   return nil, "field action unavailable"
+end
+
+-- FLY needs a destination choice, so it is exposed separately from the
+-- immediate actions above. The request is still checked against the same
+-- visited-town list as the native Town Map picker before the world may warp.
+function WorldAPI:canFly()
+  local game, ow = self.game, self:overworld()
+  return not not (ow and ow.map and outside(game, ow) and ow:partyKnows("FLY"))
+end
+
+function WorldAPI:flyTo(mapId)
+  local game, ow = self.game, self:overworld()
+  if not ow then return nil, NO_OVERWORLD end
+  if not self:canFly() then return nil, "fly unavailable" end
+  if not acceptsMenuInput(game, ow) then return nil, "world is busy" end
+  if not flyDestinationAvailable(game, mapId) then
+    return nil, "destination unavailable"
+  end
+  ow:flyTo(mapId)
+  return true
 end
 
 -- A compact, read-only view of the active map for minimaps and companion UIs.
