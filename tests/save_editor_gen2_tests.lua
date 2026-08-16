@@ -324,6 +324,23 @@ do
   check(bound.gen2Tilesets == bound.tilesets, "bindGoldData aliases gen2Tilesets")
   check(Gen.tilesets({ gen2Tilesets = { TILESET_GYM = true } }).TILESET_GYM,
     "Gen.tilesets prefers gen2Tilesets")
+
+  -- bindGoldData bound gen2Palettes/gen2Icons/gen2Pokedex/gen2Landmarks/
+  -- gen2Roofs/gen2Sprites through loadGen but never gen2Constants, so any
+  -- mod reading mod.content.constants:get(...) under a save-editor Gold
+  -- bootstrap saw an empty table where it expected the cart's ordered name
+  -- lists.  loadGen falls back to require("data.generated.constants") when
+  -- the ROM cache has nothing active, which is what a checkout with no
+  -- ROM imported hits too -- stub that module the same way to prove the
+  -- wiring without needing a real Gold extraction.
+  package.loaded["data.generated.constants"] = { badges = { "ZEPHYR" } }
+  local withConstants = Gen.bindGoldData({})
+  package.loaded["data.generated.constants"] = nil
+  check(withConstants.gen2Constants ~= nil,
+    "bindGoldData populates gen2Constants")
+  check(withConstants.gen2Constants and withConstants.gen2Constants.badges
+    and withConstants.gen2Constants.badges[1] == "ZEPHYR",
+    "gen2Constants carries the extractor's own name lists")
 end
 
 do
