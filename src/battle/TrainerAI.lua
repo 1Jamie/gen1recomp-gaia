@@ -124,7 +124,7 @@ function TrainerAI.useItem(battle, item)
   elseif X_STAT[item] then
     local stat = X_STAT[item]
     enemy.stages[stat] = math.min(6, (enemy.stages[stat] or 0) + 1)
-    table.insert(msgs, Strings("%s's\n%s rose!", displayName(enemy), stat:upper()))
+    table.insert(msgs, Strings("%s's\n%s rose!", displayName(enemy), Strings(stat:upper())))
   elseif item == "GUARD_SPEC" then
     enemy.mist = true
     table.insert(msgs, Strings("%s's\nprotected against\nstat changes!", displayName(enemy)))
