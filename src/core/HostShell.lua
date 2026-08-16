@@ -428,10 +428,29 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   if type(body) ~= "string" then return nil, "missing body" end
   userAgent = userAgent or "gen1recomp"
   if HostShell.haveCurl() then
-    -- --data-binary @- keeps the payload out of argv (command-line length
+    -- io.popen is one-way on Lua/LuaJIT: its mode is "r" or "w", never
+    -- "rw".  Stage the request body so the response can stay on a read pipe.
+    local bodyPath = os.tmpname()
+    local bodyFile, bodyOpenErr = io.open(bodyPath, "wb")
+    if not bodyFile then
+      pcall(os.remove, bodyPath)
+      return nil, "could not create request body: " .. tostring(bodyOpenErr)
+    end
+    local bodyOk, bodyErr = pcall(function()
+      assert(bodyFile:write(body))
+      assert(bodyFile:close())
+    end)
+    if not bodyOk then
+      pcall(function() bodyFile:close() end)
+      pcall(os.remove, bodyPath)
+      return nil, "could not write body: " .. tostring(bodyErr)
+    end
+
+    -- --data-binary @<file> keeps the payload out of argv (command-line length
     -- limits on Windows) and preserves every byte including trailing
-    -- newlines.  No -f, matching httpGet: the response body is discarded
-    -- anyway, and curl's stderr carries the real diagnosis on failure.
+    -- newlines.  The body is staged above because io.popen cannot be opened
+    -- for both writing and reading.  No -f, matching httpGet: the response
+    -- body is discarded anyway, and curl's stderr carries the diagnosis.
     local cmd = ("curl -sSL --proto =http,https --proto-redir =http,https "
       .. "--connect-timeout 10 --max-time %d ")
       :format(tonumber(maxTime) or 40)
@@ -441,18 +460,17 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
       cmd = cmd .. "-H " .. HostShell.quote("Content-Type: " .. contentType) .. " "
     end
     cmd = cmd .. "-H " .. HostShell.quote("Content-Length: " .. tostring(#body)) .. " "
-      .. "--data-binary @- "
+      .. "--data-binary " .. HostShell.quote("@" .. bodyPath) .. " "
       .. "-w " .. HostShell.quote(HTTP_MARK_FMT) .. " "
       .. HostShell.quote(url) .. " 2>&1"
-    local pipe = HostShell.popen(cmd, "rw")
-    if not pipe then return nil, "could not run curl" end
-    local writeOk, werr = pcall(pipe.write, pipe, body)
-    if not writeOk then
-      HostShell.pclose(pipe)
-      return nil, "could not write body: " .. tostring(werr)
+    local pipe = HostShell.popen(cmd)
+    if not pipe then
+      pcall(os.remove, bodyPath)
+      return nil, "could not run curl"
     end
     local readOk, out = pcall(function() return pipe:read("*a") end)
     HostShell.pclose(pipe)
+    pcall(os.remove, bodyPath)
     if not readOk then
       return nil, fetchError(url, nil, tostring(out))
     end
