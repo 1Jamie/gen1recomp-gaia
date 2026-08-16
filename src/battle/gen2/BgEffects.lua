@@ -72,11 +72,11 @@ function Pool:reset()
   for row = 0, SCREEN_ROWS do self.lyBackup[row] = 0 end
   -- wBGP / wOBP0 / wOBP1, as DMG palette bytes.
   self.bgp, self.obp0, self.obp1 = NORMAL_PAL, NORMAL_PAL, NORMAL_PAL
-  -- Per-battler state the CGB paths write instead of touching wBGP: a DMG
-  -- shade byte the view remaps that battler's pic through, whether the pic is
-  -- hidden outright, and which of the six BG squares it is drawn at.
+  -- Per-battler state the CGB paths write instead of touching wBGP: shade
+  -- byte, hidden flag, lifted tile rows, and which BG square it is drawn at.
   self.monShade = { player = NORMAL_PAL, enemy = NORMAL_PAL }
   self.hidden = { player = false, enemy = false }
+  self.liftedRows = { player = nil, enemy = nil }
   self.picSize = { player = nil, enemy = nil }
   self.slide = { player = 0, enemy = 0 }
   -- wSurfWaveBGEffect: the $40-byte rolling wave Surf keeps beside the
@@ -488,6 +488,7 @@ local function runPicResize(self, st, script)
       self.picSize[side] = step
       self.hidden[side] = false
     end
+    self.liftedRows[side] = nil
     incJt(st)
   elseif jt >= 1 and jt <= 2 then
     incJt(st)
@@ -545,7 +546,7 @@ end
 
 -- The two battler-pic objects: the animation borrows the mon's own tiles as
 -- an OBJ so it can be moved without touching the tilemap.
-local function battlerObj(self, st, objectPlayer, objectEnemy, clearRows)
+local function battlerObj(self, st, objectPlayer, objectEnemy, rows)
   local jt = st.jt
   if jt == 0 then
     if self:flyDig(st) then
@@ -562,25 +563,26 @@ local function battlerObj(self, st, objectPlayer, objectEnemy, clearRows)
     }
   elseif jt == 1 then
     incJt(st)
-    -- The rows the OBJ now covers are cleared out of the tilemap so the mon
-    -- is not drawn twice.
-    self.hidden[self:sideKey(st)] = clearRows
+    -- engine/battle_anims/bg_effects.asm:448-465: the rows the OBJ now covers
+    -- come out of the tilemap, and .five never puts them back.
+    self.liftedRows[self:sideKey(st)] = rows[self:sideKey(st)]
   elseif jt >= 2 and jt <= 4 then
     incJt(st)
   elseif jt == 5 then
-    self.hidden[self:sideKey(st)] = false
     endEffect(st)
   end
 end
 
 E.BATTLE_BG_EFFECT_BATTLEROBJ_1ROW = function(self, st)
   battlerObj(self, st, "BATTLE_ANIM_OBJ_PLAYERHEAD_1ROW",
-    "BATTLE_ANIM_OBJ_ENEMYFEET_1ROW", true)
+    "BATTLE_ANIM_OBJ_ENEMYFEET_1ROW",
+    { player = { 0, 1 }, enemy = { 6, 1 } })
 end
 
 E.BATTLE_BG_EFFECT_BATTLEROBJ_2ROW = function(self, st)
   battlerObj(self, st, "BATTLE_ANIM_OBJ_PLAYERHEAD_2ROW",
-    "BATTLE_ANIM_OBJ_ENEMYFEET_2ROW", true)
+    "BATTLE_ANIM_OBJ_ENEMYFEET_2ROW",
+    { player = { 0, 2 }, enemy = { 5, 2 } })
 end
 
 -- BGEffect_RapidCyclePals.  On a CGB the palette is applied to ONE battler

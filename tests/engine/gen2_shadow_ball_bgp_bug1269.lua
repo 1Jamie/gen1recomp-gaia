@@ -44,4 +44,46 @@ do
     "the identity byte returns the palette untouched")
 end
 
+-- engine/battle_anims/anim_commands.asm:1293 BattleAnim_SetBGPals
+do
+  local BattleAnimView = require("src.ui.gen2.BattleAnimView")
+  local palettes = {
+    pokemon = {
+      [6] = { normal = { { 200, 100, 50 }, { 80, 40, 20 } } },
+      [25] = { normal = { { 230, 200, 40 }, { 150, 90, 20 } } },
+    },
+    hpBar = {
+      green = { { 100, 220, 100 }, { 30, 160, 30 } },
+      yellow = { { 230, 220, 90 }, { 180, 150, 20 } },
+      red = { { 230, 100, 90 }, { 180, 30, 20 } },
+    },
+    expBar = { { 120, 140, 230 }, { 40, 60, 160 } },
+  }
+  local view = BattleAnimView.new({}, palettes)
+  local battle = { player = { species = 6 }, enemy = { species = 25 } }
+  local list = view:panelPalettes(battle)
+  T.eq(#list, 7, "shades + two mons + three hp bars + exp bar")
+  local src, dst, count, ambiguous = GbcPalette.remapTable(list, 0x1b)
+  T.check(count > 0 and count <= GbcPalette.REMAP_MAX,
+    "the table fits the shader array")
+  T.eq(ambiguous, 0, "no colour maps two ways")
+  local function mapped(from)
+    for i = 1, count do
+      if src[i][1] == from[1] and src[i][2] == from[2]
+          and src[i][3] == from[3] then
+        return dst[i]
+      end
+    end
+  end
+  local black = mapped({ 255, 255, 255 })
+  T.check(black and black[1] == 0 and black[2] == 0 and black[3] == 0,
+    "white inverts to black")
+  local white = mapped({ 0, 0, 0 })
+  T.check(white and white[1] == 255 and white[2] == 255 and white[3] == 255,
+    "black inverts to white")
+  local mid = mapped({ 200, 100, 50 })
+  T.check(mid and mid[1] == 80 and mid[2] == 40 and mid[3] == 20,
+    "the mon's colour 1 shows its colour 2")
+end
+
 T.finish("gen2 shadow ball bgp bug 1269")

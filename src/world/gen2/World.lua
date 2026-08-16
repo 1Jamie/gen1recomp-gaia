@@ -47,6 +47,7 @@ local NPC = require("src.world.gen2.Npc")
 local Party = require("src.pokemon.Party")
 local Permissions = require("src.world.gen2.Permissions")
 local Pipelines = require("src.render.Pipelines")
+local PixelCanvas = require("src.render.PixelCanvas")
 local Player = require("src.world.gen2.Player")
 local Pokerus = require("src.core.gen2.Pokerus")
 local Roamers = require("src.core.gen2.Roamers")
@@ -7612,8 +7613,9 @@ function World:bakeMapImage(map, daytime, flicker)
   local blocks = tileset.blocks
   local tilesPerRow = tileset.tilesPerRow or 16
   local pw, ph = map.width * 32, map.height * 32
-  local canvas = love.graphics.newCanvas(pw, ph)
-  canvas:setFilter("nearest", "nearest")
+  -- Map pixels, not the screen's: a DPI-scaled canvas bakes them non-square
+  -- (#208, see src/render/PixelCanvas.lua).
+  local canvas = PixelCanvas.new(pw, ph, "nearest")
   local quads = {}
   local function quadFor(tile)
     local q = quads[tile]
@@ -8140,12 +8142,11 @@ function World:scrollStrip(mapDef, tileset, tile, scroll)
   local cached = self.scrollStrips[key]
   if cached ~= nil then return cached or nil end
   local atlas = self:atlasFor(mapDef)
-  local ok, canvas = pcall(love.graphics.newCanvas, 8, 8 * 8)
+  local ok, canvas = pcall(PixelCanvas.new, 8, 8 * 8, "nearest")
   if not (atlas and ok and canvas) then
     self.scrollStrips[key] = false
     return nil
   end
-  canvas:setFilter("nearest", "nearest")
   local perRow = tileset.tilesPerRow or 16
   local sx, sy = (tile % perRow) * 8, math.floor(tile / perRow) * 8
   local aw, ah = atlas:getDimensions()
@@ -9945,8 +9946,7 @@ function World:drawTilted(w, h, s, gw, gh)
     if self.tiltCanvas and self.tiltCanvas.release then
       self.tiltCanvas:release()
     end
-    self.tiltCanvas = G.newCanvas(gw, gh)
-    self.tiltCanvas:setFilter("linear", "linear")
+    self.tiltCanvas = PixelCanvas.new(gw, gh, "linear")
   end
 
   local previous = G.getCanvas()

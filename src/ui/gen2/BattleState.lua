@@ -661,7 +661,7 @@ function BattleState:drawPic(mon, back)
   -- the mon drawn at this frame.
   local scale = self:picScale(path, mon, back)
   if anim then
-    px = px + (anim.slide or 0)
+    if not self.liftedPass then px = px + (anim.slide or 0) end
     local resized = anim.size and PIC_RESIZE_TILES[anim.size]
     if resized then scale = scale * (resized / boxTiles) end
   end
@@ -714,11 +714,39 @@ function BattleState:drawPic(mon, back)
   -- A mod-supplied pic that says it is already coloured is drawn as it is:
   -- pokemon.sprite's ctx.trueColor, the same flag Gen 1's Sprites.path hands
   -- back to its own draw site.
-  if colors and not trueColor and GbcPalette.available() then
-    GbcPalette.with(colors, body)
-  else
-    body()
+  local function paint()
+    if colors and not trueColor and GbcPalette.available() then
+      GbcPalette.with(colors, body)
+    else
+      body()
+    end
   end
+  local lifted = anim and anim.lifted
+  if not lifted then
+    paint()
+    return
+  end
+  -- engine/battle_anims/bg_effects.asm:448-465: the ClearBoxed band is off the BG.
+  local bandY = (back and BattleState.PLAYER_PIC_TILE_Y
+    or BattleState.ENEMY_PIC_TILE_Y) * 8 + lifted[1] * 8
+  local bandH = lifted[2] * 8
+  local psx, psy, psw, psh
+  if G.getScissor then psx, psy, psw, psh = G.getScissor() end
+  if self.liftedPass then
+    G.setScissor(0, bandY, 160, bandH)
+    paint()
+  else
+    if bandY > 0 then
+      G.setScissor(0, 0, 160, bandY)
+      paint()
+    end
+    local below = 144 - bandY - bandH
+    if below > 0 then
+      G.setScissor(0, bandY + bandH, 160, below)
+      paint()
+    end
+  end
+  if psx then G.setScissor(psx, psy, psw, psh) else G.setScissor() end
 end
 
 -- MonsterSpriteGFX (gfx/sprites.asm:82): the facing-DOWN 16x16 frame for the
@@ -1137,6 +1165,7 @@ function BattleState:animPicState(side)
   local bg = self.anim.bg
   return {
     hidden = bg.hidden[side],
+    lifted = bg.liftedRows and bg.liftedRows[side] or nil,
     size = bg.picSize[side],
     slide = bg.slide[side] or 0,
     shade = bg.monShade[side],
@@ -3436,6 +3465,36 @@ function BattleState:drawScene()
   end
 end
 
+-- data/battle_anims/objects.asm:390-397: the lifted band rides at ABSOLUTE_X,
+-- outside the scanline blit, so the attacker's SCX never moves it.
+function BattleState:drawLiftedRows()
+  local battle = self.battle
+  if not battle then return end
+  local enemy = self:animPicState("enemy")
+  local player = self:animPicState("player")
+  local enemyLift = enemy and enemy.lifted
+  local playerLift = player and player.lifted
+  if not (enemyLift or playerLift) then return end
+  local G = love.graphics
+  if not self.liftCanvas then
+    self.liftCanvas = G.newCanvas(160, 144)
+    self.liftCanvas:setFilter("nearest", "nearest")
+  end
+  local previous = G.getCanvas()
+  G.setCanvas(self.liftCanvas)
+  G.clear(0, 0, 0, 0)
+  G.push()
+  G.origin()
+  self.liftedPass = true
+  if enemyLift then self:drawPic(battle.enemy, false) end
+  if playerLift then self:drawPic(battle.player, true) end
+  self.liftedPass = nil
+  G.pop()
+  G.setCanvas(previous)
+  G.setColor(1, 1, 1, 1)
+  G.draw(self.liftCanvas, 0, 0)
+end
+
 function BattleState:drawSceneBody()
   local panel = function() self:drawPanel() end
   if self.animView and self.slideFrame < BattleAnimView.SLIDE_FRAMES then
@@ -3456,7 +3515,8 @@ function BattleState:drawSceneBody()
     return
   end
   if self.anim and self.animView then
-    self.animView:present(self.anim, panel)
+    self.animView:present(self.anim, panel, self.battle)
+    self:drawLiftedRows()
     self.animView:drawObjects(self.anim, self.battle)
     return
   end
