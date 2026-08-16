@@ -32,9 +32,14 @@ local Net = {}
 Net.MAX_INFLIGHT = 4
 -- Clamp on the caller's timeout, so a mod cannot pin a worker indefinitely.
 Net.MAX_SECONDS = 30
--- A log body ceiling.  Debug logs are kilobytes, and a server operator has no
--- reason to accept a mod uploading arbitrary megabytes to its endpoint.
-Net.MAX_BODY = 65536
+-- A log body ceiling.  A diagnostic ring (boot evidence + recent lines +
+-- status) routinely exceeds 64 KiB on a long session, so the ceiling is
+-- 512 KiB: generous for real support logs, still far under the 5 MiB the
+-- reference loghook endpoint accepts, and small enough that a misbehaving
+-- mod cannot upload arbitrary megabytes.  The body is staged to a file and
+-- streamed by the transport, so the ceiling is a budget, not a memory
+-- spike; callers that stay under it never notice it.
+Net.MAX_BODY = 512 * 1024
 
 local function fetch()
   return require("src.net.Fetch")
