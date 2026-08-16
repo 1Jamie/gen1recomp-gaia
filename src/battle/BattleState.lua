@@ -38,6 +38,7 @@ local romText = RomText
 local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
+BattleState.isBattleState = true
 
 -- Category identity for per-category GAME SPEED (RFC 0007), the same
 -- style OverworldController.isOverworld already uses. Every battle --
@@ -154,6 +155,13 @@ function BattleState:caughtMarkerVisible()
   if not Runtime.wantsHook("battle.caught_marker_visible") then return false end
   return Runtime.call("battle.caught_marker_visible",
                       function() return false end, self) == true
+end
+
+function BattleState:catchChance(ball, rateOverride)
+  if Runtime.wantsHook("catch.rate") then return nil end
+  return Catching.chance(ball, self.enemy.mon, self.enemy.def, rateOverride,
+    { ballDef = self:ballDef(ball), statuses = self.data.statuses,
+      battle = self })
 end
 
 function BattleState:moveGridNavigation()
@@ -1166,7 +1174,7 @@ function BattleState:startMessage(item)
     local npos = text:find("[\n\v]", pos)
     local chunk = npos and text:sub(pos, npos - 1) or text:sub(pos)
     local codes = Font.encode(chunk)
-    self.lines[#self.lines + 1] = { codes = codes, cont = cont }
+    self.lines[#self.lines + 1] = { codes = codes, cont = cont, text = chunk }
     self.total = self.total + #codes
     if not npos then break end
     cont = text:sub(npos, npos) == "\v"
@@ -1197,6 +1205,18 @@ function BattleState:beginMsgLine()
     self.scrollPx = 8
   end
   self.shown[#self.shown + 1] = {}
+end
+
+function BattleState:visibleText()
+  if self.phase ~= "messages" or not (self.current or self.animPlaying) then
+    return nil
+  end
+  local out, count = {}, #(self.shown or {})
+  for i = math.max(1, self.lineIndex - count + 1), self.lineIndex do
+    local line = self.lines and self.lines[i]
+    if line then out[#out + 1] = line.text or "" end
+  end
+  return #out > 0 and out or nil
 end
 
 function BattleState:updateQueue()

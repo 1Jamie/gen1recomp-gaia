@@ -226,6 +226,8 @@ exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
 contextual `squirtbottle` key item. Fishing rows include the owned rods that
 are valid choices. The list is empty while the world is busy, and omits an
 action whenever its item, move, badge, terrain, or engine state forbids it.
+The optional second return is `"world is busy"` during transient input locks
+or `"no overworld"` before a playable world exists.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
@@ -234,6 +236,33 @@ busy requests return `nil` plus a reason without changing game state. Mods do
 not need generation-specific badge, terrain, bike, fishing, or field-move
 logic. Action lists are extensible; callers should render the records they
 understand and ignore unknown ids rather than assuming a fixed list length.
+
+## Read-only battle snapshots
+
+`mod.battle:snapshot()` returns `nil` outside a battle and a copied battle
+record while one is active. Gen 1 (Red, Blue, and Yellow) and Gold expose the
+same core fields:
+`revision`, `kind`, `catchable`, `prompt`, `message`, `turn`, `player`,
+`enemy`, `party`, `moves`, and `items`. Pokémon, moves, messages, and items in
+the result are detached records; changing them cannot change the battle.
+`revision` stays stable while the visible battle context is unchanged and
+advances when it changes, so a UI can skip rebuilding an identical view.
+
+Pokémon records contain `species`, `name`, `level`, `hp`, `maxHp`, `status`,
+and `active` (plus `slot` in `party`). Move records contain `slot`, `id`,
+`name`, `pp`, `maxPp`, `type`, `power`, `accuracy`, and `disabled`. Gen 1 also
+reports the actual ruleset-aware `displayPower`, `hitChance` percentage, and
+`effectiveness` multiplier (`10` neutral, `20` super-effective, `5`
+resisted). Item rows contain `id`, `name`, `count`, `ball`, `needsTarget`, and
+an optional stock `catchChance` percentage.
+
+`prompt` describes the currently visible choice (`menu`, `moves`, `party`,
+`advance`, `safari`, or `mimic`) and is `locked` when another screen or battle
+phase owns input. Generation-specific features remain optional: Gen 1 includes
+battle medicine, balls, catch previews, Safari balls, and Mimic choices;
+Gold currently returns an empty `items` list rather than guessing at its
+pocketed PACK flow. Callers should ignore unknown fields and tolerate absent
+optional ones.
 
 ## Rendering pipelines
 
