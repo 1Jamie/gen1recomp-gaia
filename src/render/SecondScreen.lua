@@ -1,11 +1,11 @@
--- Bridge to native secondary-display output (Android Presentation). The C
--- functions live in mobile/android/love/src/jni/love/src/common/android.cpp.
--- Everything is guarded: off Android, or if the symbols cannot be resolved,
--- this stays inert and the renderer keeps the in-window stacked layout.
+-- Shared secondary-display facade. Android uses its native Presentation
+-- bridge; process-capable desktop hosts fall back to a companion window.
+-- Everything is guarded, so unsupported hosts keep the in-window layout.
 
 local SecondScreen = {}
 local C = nil
 local ffi = nil
+local desktop = nil
 
 local function log(msg)
   pcall(function() require("src.core.Logger").info("SecondScreen: %s", msg) end)
@@ -37,17 +37,36 @@ do
   end
 end
 
+if not C then
+  local ok, backend = pcall(require, "src.render.DesktopScreen")
+  if ok and backend and backend.usable and backend.usable() then
+    desktop = backend
+    log("desktop companion backend ready")
+  end
+end
+
 function SecondScreen.usable()
-  return C ~= nil
+  return C ~= nil or desktop ~= nil
 end
 
 function SecondScreen.available()
+  if desktop then return desktop.available() end
   if not C then return false end
   local ok, r = pcall(C.love_android_secondary_ready)
   return ok and r ~= 0
 end
 
-function SecondScreen.push(imageData, w, h)
+-- A connected display is not necessarily the current Presentation yet. This
+-- distinction lets a companion retry its first frame after hotplug/re-target.
+function SecondScreen.detected()
+  if desktop then return desktop.detected() end
+  return SecondScreen.available()
+end
+
+function SecondScreen.push(imageData, w, h, background, preference)
+  if desktop then
+    return desktop.push(imageData, w, h, background, preference)
+  end
   if not C or not imageData then return false end
   return pcall(function()
     C.love_android_push_secondary(imageData:getFFIPointer(), w, h)
@@ -57,6 +76,7 @@ end
 -- Returns the oldest queued secondary-display event as "action,x,y", where
 -- coordinates are in the submitted frame's pixel space.
 function SecondScreen.pollTouch()
+  if desktop then return desktop.pollTouch() end
   if not C then return nil end
   local ok, event = pcall(function()
     return C.love_android_poll_secondary_touch()
@@ -66,6 +86,7 @@ function SecondScreen.pollTouch()
 end
 
 function SecondScreen.setEnabled(on)
+  if desktop then return desktop.setEnabled(on) end
   if not C then return end
   pcall(function() C.love_android_secondary_enable(on and 1 or 0) end)
 end

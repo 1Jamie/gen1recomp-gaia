@@ -738,6 +738,10 @@ palette-correct blit of either canvas into an arbitrary screen rect, and the
 oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
 or push one onto a second screen, without the engine knowing the layout.
+On process-capable Windows, Linux and macOS hosts without a native display
+bridge, enabling this facade opens a second resizable app window instead. It
+uses the same `available`, `detected`, `push`, `pollTouch` and `setEnabled`
+contract, so a mod does not need a desktop-specific rendering path.
 
 `render.output_enabled` and `render.output` are the later, whole-window seam
 for mods that need the engine's normal composite rather than its separate
