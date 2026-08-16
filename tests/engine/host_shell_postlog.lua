@@ -12,13 +12,13 @@ local check, eq = T.check, T.eq
 local HostShell = require("src.core.HostShell")
 
 local MARK = "\n__gen1recomp_http__"
-local BODY_PATH = "/tmp/gen1recomp-postlog-body-test"
+local STAGE_DIR = "/tmp/gen1recomp-postlog-stage"
 local URL = "https://logs.example.com/logs"
 local BODY = "debug log body\n"
 
 local realOpen = io.open
 local realPopen = io.popen
-local realTmpname = os.tmpname
+local realGetenv = os.getenv
 local realRemove = os.remove
 local realHaveCurl = HostShell.haveCurl
 
@@ -26,7 +26,12 @@ local openedPath, openedMode, writtenBody
 local popenCommand, popenMode, removedPath
 
 HostShell.haveCurl = function() return true end
-os.tmpname = function() return BODY_PATH end
+os.getenv = function(name)
+  if name == "TEMP" or name == "TMP" or name == "TMPDIR" then
+    return STAGE_DIR
+  end
+  return realGetenv(name)
+end
 os.remove = function(path)
   removedPath = path
   return true
@@ -55,21 +60,22 @@ local ok, err = HostShell.httpPost(URL, BODY, "text/plain", "gen1recomp-mod/test
 
 io.open = realOpen
 io.popen = realPopen
-os.tmpname = realTmpname
+os.getenv = realGetenv
 os.remove = realRemove
 HostShell.haveCurl = realHaveCurl
 
 eq(ok, true, "a desktop POST succeeds through the read-only response pipe: " .. tostring(err))
-eq(openedPath, BODY_PATH, "the request body is written to a temporary file")
+check(type(openedPath) == "string" and openedPath:find(STAGE_DIR .. "/gen1recomp-post-", 1, true) == 1, "the request body is staged under the OS temp dir")
+check(openedPath and openedPath:sub(-4) == ".tmp", "the staged body carries a .tmp name")
 eq(openedMode, "wb", "the temporary request body is opened for binary writing")
 eq(writtenBody, BODY, "the complete log body is staged")
 eq(popenMode, "r", "curl is opened in the supported read-only mode")
 check(popenCommand:find("--data-binary", 1, true) ~= nil,
   "curl reads the staged body with --data-binary")
-check(popenCommand:find(BODY_PATH, 1, true) ~= nil,
+check(openedPath and popenCommand:find(openedPath, 1, true) ~= nil,
   "curl receives the temporary body path")
 check(popenCommand:find(BODY, 1, true) == nil,
   "the log body is not placed directly in the command line")
-eq(removedPath, BODY_PATH, "the temporary request body is removed")
+eq(removedPath, openedPath, "the staged request body is removed")
 
 T.finish("host shell postlog")

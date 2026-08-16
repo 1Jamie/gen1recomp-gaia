@@ -49,6 +49,16 @@ check(position("onHostPause();") < position("super.onPause();"),
 check(position("onHostDestroy();") < position("super.onDestroy();"),
   "destroy hook runs before SDL destruction")
 
+check(source:find("DisplayManager.DisplayListener", 1, true)
+    and source:find("registerDisplayListener", 1, true)
+    and source:find("unregisterDisplayListener", 1, true),
+  "secondary displays are monitored while the activity is active")
+check(position("if (secondaryEnabled) registerSecondaryDisplayListener();") <
+      position("setupSecondaryDisplay();"),
+  "secondary display monitoring starts before initial discovery")
+check(source:find("!monitor.hasDisplay(display.getDisplayId())", 1, true),
+  "a disconnected active display is rebound without replacing a live one")
+
 check(not source:lower():find("openxr", 1, true),
   "generic Android activity must not require OpenXR")
 check(not source:find("QuestActivity", 1, true) and

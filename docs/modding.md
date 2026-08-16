@@ -264,6 +264,25 @@ Gold currently returns an empty `items` list rather than guessing at its
 pocketed PACK flow. Callers should ignore unknown fields and tolerate absent
 optional ones.
 
+## Battle menu intents
+
+`mod.battle:submit(intent)` applies a validated choice to the snapshot the mod
+just read. Every intent needs a mod-owned, strictly increasing positive
+integer `id` and the latest snapshot `revision`. Stale, replayed, covered, or
+invalid choices return `nil` plus a reason without changing the battle.
+
+The shared Red, Blue, Yellow, and Gold intents are:
+
+- `{ kind = "menu", choice = "fight" }` (`party`, `item`, and `run` are the
+  other accepted choices)
+- `{ kind = "move", slot = 1..4 }`
+- `{ kind = "back" }` while the move menu is active
+
+Menu choices and moves use the same engine methods as the native controls;
+`party` and `item` open the native screens rather than exposing or duplicating
+their mutable logic. Tutorial, link, Safari, forced, stale, and covered battle
+states refuse these core intents. Use `mod.input` for ordinary text advance.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
