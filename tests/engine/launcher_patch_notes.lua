@@ -69,6 +69,12 @@ do
 end
 
 do
+  local notes, ver = PatchNotes.fromRepo("999.999.999")
+  eq(notes, nil, "fromRepo returns nil when a specific engine version is missing")
+  eq(ver, nil, "fromRepo version is nil when missing")
+end
+
+do
   local f = assert(io.open("mobile/ios/app-repo.json", "rb"))
   local list = PatchNotes.parseRepo(f:read("*a"))
   f:close()
@@ -76,6 +82,15 @@ do
   local notes, ver = PatchNotes.fromRepo(list[2].version)
   eq(ver, list[2].version, "fromRepo can pick a specific stashed version")
   eq(notes, list[2].notes, "fromRepo returns that version's notes")
+end
+
+do
+  local oldVersion = package.loaded["src.core.Version"]
+  package.loaded["src.core.Version"] = { engine = "999.999.999" }
+  local body, ver = PatchNotes.body(nil)
+  eq(body, "Unable to fetch patch notes.", "returns Unable to fetch patch notes when version is uncached and unlisted")
+  eq(ver, "999.999.999", "returns the requested engine version")
+  package.loaded["src.core.Version"] = oldVersion
 end
 
 imp._appPatchNotes = true
