@@ -56,10 +56,6 @@ local CARDS = {
 -- card over.  One row, so `#self.cards` stays 1 and nothing pages.
 local FLY_MAP_CARD = { id = "map", label = "FLY" }
 
-local DAYS = {
-  "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY",
-}
-
 -- ---------------------------------------------------------------- the radio
 --
 -- engine/pokegear/radio.asm is not a text table: it is a jumptable of code.
@@ -1878,7 +1874,7 @@ function Pokegear:drawClock()
   -- Pokegear_UpdateClock: ClearBox(3,5) 5x14, the day at (6,6) and
   -- PrintHoursMins at (6,8) -- two digits, ':', two more, then AM/PM at
   -- column 12.
-  self:text(DAYS[weekday] or "", 6, 6)
+  self:text(Clock.weekdayName(weekday) or "", 6, 6)
   local display = hour % 12
   if display == 0 then display = 12 end
   self:text(Chrome.number(display, 2), 6, 8)
@@ -2203,13 +2199,13 @@ function Pokegear:drawPlain()
   if id == "clock" then
     local hour, minute, weekday = self:clockParts()
     Chrome.box(1, 5, 18, 7)
-    Chrome.print(DAYS[weekday] or "DAY", 3, 7)
+    Chrome.print(Clock.weekdayName(weekday) or "DAY", 3, 7)
     local display = hour % 12
     if display == 0 then display = 12 end
     Chrome.print(("%s:%s %s"):format(
       Chrome.number(display, 2), Chrome.number(minute, 2, true),
       hour < 12 and "AM" or "PM"), 5, 9)
-    Chrome.print(Palettes.clockDaytime(hour), 5, 11)
+    Chrome.print(Clock.daytimeLabel(hour), 5, 11)
   elseif id == "radio" then
     -- Without the gear sheet there is no dial art, so the frequencies go down
     -- the screen as a list.  A frequency whose test failed still gets a row:

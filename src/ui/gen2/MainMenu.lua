@@ -29,10 +29,11 @@ local MainMenu = {}
 MainMenu.__index = MainMenu
 MainMenu.isOpaque = true
 
--- MainMenu_PrintCurrentTimeAndDay's PrintDayOfWeek strings.
-local DAYS = {
-  "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY",
-}
+-- MainMenu_PrintCurrentTimeAndDay's PrintDayOfWeek strings.  Clock.DAY_NAMES
+-- / Clock.weekdayName is the single translated home for this table (see
+-- InitClock.lua's DAYS), so this screen's clock box cannot drift from the
+-- Pokegear's own.
+local DAYS = Clock.DAY_NAMES
 
 -- MUSIC_MAIN_MENU; resolved by name so a cache without it just stays quiet.
 local MENU_MUSIC = "Music_MainMenu"
@@ -164,7 +165,7 @@ function MainMenu:drawClockBox()
   -- Textbox at (0,12) with 4 interior rows and 13 interior columns.
   Chrome.textbox(0, 12, 13, 4)
   local hour, minute, weekday = self:clockParts()
-  Chrome.print(DAYS[weekday] or "DAY", 1, 14)
+  Chrome.print(Clock.weekdayName(weekday) or "DAY", 1, 14)
   -- PrintHour prints 1-12 with no leading zero, then ':' then two zero-padded
   -- minutes; the AM/PM half is drawn by PrintHour itself.
   local display = hour % 12
