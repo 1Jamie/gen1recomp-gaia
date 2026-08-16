@@ -1969,8 +1969,11 @@ function OverworldState:tryBookshelf(fx, fy)
     return true
   end
   if entry.screen then
-    -- Blue's house shelf opens the TOWN MAP (TownMapText)
-    pcall(Screens.push, Game, entry.screen)
+    -- engine/events/hidden_events/town_map.asm:1
+    Game.stack:push(TextBox.new(Game,
+      t[entry.text] or t._TownMapText
+      or romText(Game.data, "_TownMapText", "A TOWN MAP."),
+      function() pcall(Screens.push, Game, entry.screen) end))
     return true
   end
   local kind = entry.kind
@@ -2136,14 +2139,17 @@ function OverworldState:tryHiddenObject(fx, fy)
   for _, h in ipairs(extras.pcTiles[self.map.id] or {}) do
     if h.x == fx and h.y == fy and (not h.facing or h.facing == facing) then
       if self.map.id == "REDS_HOUSE_2F" then
-        -- The player's bedroom PC is the one location in Red/Blue whose PC
-        -- callback is OpenRedsPC (engine/events/hidden_objects/players_pc.asm),
-        -- which runs the PlayerPC predef directly -- item storage, no
-        -- SOMEONE'S/BILL'S PC main menu (DisplayPCMainMenu).  Every other
-        -- pcTile is a Pokémon Center-style PC that shows the multi-PC menu. (#228)
+        -- OpenRedsPC (engine/events/hidden_objects/players_pc.asm) runs the
+        -- PlayerPC predef directly, no DisplayPCMainMenu (#228)
         require("src.core.Sound").play(Game.data, "Turn_On_PC")
-        -- direct access: ExitPlayerPC rings SFX_TURN_OFF_PC (players_pc.asm, #960)
-        Screens.push(Game, "PlayerPC", { direct = true })
+        -- engine/menus/players_pc.asm:16
+        Game.stack:push(TextBox.new(Game,
+          (Game.data.text or {})._TurnedOnPC2Text
+          or romText(Game.data, "_TurnedOnPC2Text", "{PLAYER} turned on\nthe PC."),
+          function()
+            -- direct access: ExitPlayerPC rings SFX_TURN_OFF_PC (players_pc.asm, #960)
+            Screens.push(Game, "PlayerPC", { direct = true })
+          end, { instant = true }))
       else
         self:openPC()
       end
@@ -2892,13 +2898,16 @@ function OverworldState:openPC(onDone)
     done()
   end
   table.insert(items, { label = Strings("LOG OFF"), onSelect = logOff })
-  -- pokered sets BIT_NO_MENU_BUTTON_SOUND for the whole PC session
-  -- (engine/overworld/pokecenter_pc.asm / player_pc.asm); DisplayPCMainMenu
-  -- calls TextBoxBorder with c=14 (interior width, +2 for the border), so
-  -- tw here (total width) is 16
-  Game.stack:push(Menu.new(Game, items,
+  -- BIT_NO_MENU_BUTTON_SOUND for the whole PC session; DisplayPCMainMenu's
+  -- TextBoxBorder c=14 interior -> tw 16 (engine/overworld/pokecenter_pc.asm)
+  local menu = Menu.new(Game, items,
     { tx = 0, ty = 0, tw = 16, th = #items * 2 + 2, onCancel = logOff,
-      noSound = true }))
+      noSound = true })
+  -- engine/menus/pc.asm:5
+  Game.stack:push(TextBox.new(Game,
+    (Game.data.text or {})._TurnedOnPC1Text
+    or romText(Game.data, "_TurnedOnPC1Text", "{PLAYER} turned on\nthe PC."),
+    function() Game.stack:push(menu) end))
 end
 
 -- The PROF. OAK's PC session (engine/menus/oaks_pc.asm OpenOaksPC): the

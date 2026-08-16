@@ -2123,6 +2123,11 @@ function World:updateShake()
   shake.phase = (shake.left % 2 == 0) and shake.amplitude or -shake.amplitude
 end
 
+-- engine/events/poisonstep_pals.asm:9
+function World:poisonBGFlash()
+  self.poisonFlash = 4
+end
+
 -- Script_warp / Script_warpfacing: a raw destination CELL, distinct from the
 -- warp_events World:takeWarp follows.  `facing` is nil for `warp` and a
 -- Movement direction for `warpfacing` (PLAYERSPRITESETUP_CUSTOM_FACING).  A
@@ -2400,7 +2405,9 @@ end
 function World:playMapMusic()
   local data = self.game and self.game.data
   if data and data.audio and data.audio.runtime and self.map then
-    Music.playMap(data, self.map.id)
+    -- SpecialMapMusic (home/audio.asm:397)
+    Music.playMap(data, self.map.id, nil,
+                  FieldMoves.isSurfing(self.playerState))
   end
 end
 
@@ -3246,7 +3253,9 @@ function World:surfStartStep(mon)
   self:applyPlayerState(FieldMoves.surfType(mon))
   local audio = self.game and self.game.data and self.game.data.audio
   if audio and audio.runtime and self.map then
-    Music.playMap(self.game.data, self.map.id)
+    -- SpecialMapMusic (home/audio.asm:397)
+    Music.playMap(self.game.data, self.map.id, nil,
+                  FieldMoves.isSurfing(self.playerState))
   end
   if p.scriptStep then p:scriptStep(p.facing) end
   self.fieldMove = { phase = "step" }
@@ -5363,7 +5372,9 @@ function World:runSurf(result)
     self:applyPlayerState(result.state)
     local audio = self.game and self.game.data and self.game.data.audio
     if audio and audio.runtime and self.map then
-      Music.playMap(self.game.data, self.map.id)
+      -- SpecialMapMusic (home/audio.asm:397)
+      Music.playMap(self.game.data, self.map.id, nil,
+                    FieldMoves.isSurfing(self.playerState))
     end
     if self.player and self.player.scriptStep then
       self.player:scriptStep(self.player.facing)
@@ -8524,13 +8535,12 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- rebuildPeople may have pooled fresh NPCs; give them their colors too.
   self:applyPalettes()
   local audio = self.game and self.game.data and self.game.data.audio
-  -- PlayMapMusicBike (home/audio.asm), which is the mapsetup every load uses:
-  -- a player still on the bike keeps the bike theme across the warp instead of
-  -- hearing the new map's song.  Music.play dedupes the same label, so this is
-  -- safe on seamless edge crossings.
+  -- PlayMapMusicBike / SpecialMapMusic (home/audio.asm:335, :397): a biking
+  -- player keeps the bike theme; Music.play dedupes seamless edge crossings.
   if audio and audio.runtime then
     if not (FieldMoves.isBiking(self.playerState) and self:playBikeMusic()) then
-      Music.playMap(self.game.data, mapId)
+      Music.playMap(self.game.data, mapId, nil,
+                    FieldMoves.isSurfing(self.playerState))
     end
   end
   -- Fires with the map fully built and BEFORE the map's own scene script, so a
@@ -8912,14 +8922,13 @@ function World:movePlayer(dir)
     if result == "moved"
         and Permissions.surfable(map:cellCollision(p.targetX, p.targetY))
           == "land" then
-      -- .ExitWater: GetOutOfWater writes PLAYER_NORMAL and runs
-      -- UpdatePlayerSprite BEFORE .DoStep, so the player is already off the
-      -- Lapras for the step that puts them on the beach, and PlayMapMusic then
-      -- swaps the surfing theme back for the map's own.
+      -- .ExitWater: GetOutOfWater writes PLAYER_NORMAL before .DoStep, then
+      -- PlayMapMusic swaps the surf theme back (home/audio.asm:308)
       self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
       local audio = self.game and self.game.data and self.game.data.audio
       if audio and audio.runtime then
-        Music.playMap(self.game.data, map.id)
+        Music.playMap(self.game.data, map.id, nil,
+                      FieldMoves.isSurfing(self.playerState))
       end
     end
   end
@@ -9159,7 +9168,7 @@ function World:countStep()
   elseif event.kind == "poisonFaint" then
     self:poisonFaintScript(event)
   elseif event.kind == "poisonHurt" then
-    -- .PlayPoisonSFX alone: the sound and the two-frame red flash, no script.
+    -- .PlayPoisonSFX alone: the sound and the four-frame BG flash, no script.
     CallAsm.run(self, "PlayPoisonSFX")
   elseif event.kind == "repel" then
     self:repelWoreOff()
@@ -10028,6 +10037,18 @@ function World:draw()
       body()
     end
     G.pop()
+    G.setColor(1, 1, 1, 1)
+  end
+
+  -- engine/events/poisonstep_pals.asm:9-42
+  if self.poisonFlash and self.poisonFlash > 0 then
+    self.poisonFlash = self.poisonFlash - 1
+    if GbcPalette.mode == "gbc" then
+      G.setColor(28 / 31, 21 / 31, 1, 0.55)
+    else
+      G.setColor(0, 0, 0, 0.45)
+    end
+    G.rectangle("fill", 0, 0, w, h)
     G.setColor(1, 1, 1, 1)
   end
 

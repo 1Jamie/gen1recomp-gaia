@@ -283,6 +283,14 @@ function PartyMenu:finishSwitch()
   if self.save and self.save.party == party then
     Mail.swapSlots(self.save, from, to)
   end
+  -- engine/pokemon/switchpartymons.asm:38
+  local data = self.game and self.game.data
+  local ok, Sound = pcall(require, "src.core.Sound")
+  if not (ok and data and Sound and Sound.play) then return end
+  local sfx = data.audio and data.audio.sfx
+  if sfx and sfx[Sound.resolve(data, "Sfx_SwitchPokemon")] then
+    pcall(Sound.play, data, "Sfx_SwitchPokemon")
+  end
 end
 
 -- The reopened list: InitPartyMenuNoCancel caps the cursor at the last mon,

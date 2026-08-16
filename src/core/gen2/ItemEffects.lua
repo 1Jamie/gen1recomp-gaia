@@ -58,6 +58,12 @@ ItemEffects.RESTORE_PP = {
   MAX_ELIXER = { amount = "all", each = true },
 }
 
+-- engine/items/item_effects.asm:1245 StatExpItemPointerOffsets.
+ItemEffects.VITAMIN = {
+  HP_UP = "hp", PROTEIN = "attack", IRON = "defense",
+  CARBOS = "speed", CALCIUM = "special",
+}
+
 -- EnergypowderEnergyRootCommon / HealPowderEffect: the herb items charge
 -- happiness for tasting bitter on top of their heal.
 local BITTER = {
@@ -70,6 +76,9 @@ ItemEffects.TEXT_NO_EFFECT = "It won't have any\neffect."
 ItemEffects.TEXT_CANT_USE_ON_EGG = "That can't be used\non an EGG."
 -- _PPRestoredText (data/text/common_3.asm).
 ItemEffects.TEXT_PP_RESTORED = "PP was restored."
+-- _PPIsMaxedOutText / _PPsIncreasedText (data/text/common_3.asm).
+ItemEffects.TEXT_PP_MAXED = "%s's PP\nis maxed out."
+ItemEffects.TEXT_PP_INCREASED = "%s's PP\nincreased."
 
 -- PrintPartyMenuActionText's .MenuActionTexts (engine/pokemon/party_menu.asm),
 -- keyed by the class GetItemHealingAction resolves.  Each is the two rows the
@@ -235,6 +244,33 @@ local function rareCandy(mon, data)
   }
 end
 
+-- engine/items/item_effects.asm:1216 StatStrings.
+local VITAMIN_LABEL = {
+  hp = "HEALTH", attack = "ATTACK", defense = "DEFENSE",
+  speed = "SPEED", special = "SPECIAL",
+}
+
+-- engine/items/item_effects.asm:1149 VitaminEffect.
+local function vitamin(itemId, mon, data)
+  local stat = ItemEffects.VITAMIN[itemId]
+  mon.statExp = mon.statExp or Mon.newStatExp()
+  local cur = mon.statExp[stat] or 0
+  if cur >= 25600 then
+    return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+  end
+  mon.statExp[stat] = math.min(Mon.MAX_STAT_EXP, cur + 2560)
+  local def = data and data.pokemon and data.pokemon[mon.species]
+  if def and def.baseStats then
+    mon.stats = Mon.stats(def.baseStats, mon.dvs, mon.level, mon.statExp)
+    mon.maxHp = mon.stats.hp
+  end
+  Happiness.change(mon, "USEDITEM")
+  return {
+    used = true,
+    text = ("%s's\n%s rose."):format(monName(mon), VITAMIN_LABEL[stat]),
+  }
+end
+
 -- --------------------------------------------------------- held attributes
 --
 -- The `held_items` registry (src/mods/Schemas.lua), which is the last two
@@ -341,11 +377,8 @@ function ItemEffects.recordFor(itemId, data)
   return (merged and merged[itemId]) or ItemEffects.RECORDS[itemId]
 end
 
--- Which family a PACK item runs on a party mon, or nil for anything whose
--- ITEMMENU_PARTY behaviour is not ported (vitamins, PP UP, evolution stones).
--- FULL_RESTORE classifies as "heal"; its full-HP status arm lives inside the
--- record's own `use` the way FullRestoreEffect keeps both halves in one
--- routine.
+-- Which family a PACK item runs on a party mon, or nil for an id with no
+-- item_effects record (engine/items/pack.asm UseItem, ITEMMENU_PARTY arm).
 function ItemEffects.partyAction(itemId, data)
   local record = ItemEffects.recordFor(itemId, data)
   return record and record.action or nil
@@ -443,6 +476,36 @@ for itemId, row in pairs(ItemEffects.RESTORE_PP) do
       return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
     end
     return { used = true, text = ItemEffects.TEXT_PP_RESTORED }
+  end)
+end
+
+-- engine/items/item_effects.asm:2320 RestorePPEffect's PP_UP arm.
+record("PP_UP", "pp", function(ctx)
+  local move = (ctx.mon.moves or {})[ctx.slot]
+  if type(move) ~= "table" or not move.id then
+    return { used = false, text = ItemEffects.TEXT_NO_EFFECT }
+  end
+  local row = ((ctx.data and ctx.data.moves) or {})[move.id]
+  local name = (row and row.name) or move.id
+  -- constants/pokemon_data_constants.asm:216 PP_UP_MASK.
+  if move.id == "SKETCH" or (move.ppUps or 0) >= 3 then
+    return { used = false, text = ItemEffects.TEXT_PP_MAXED:format(name) }
+  end
+  local base = (row and row.pp) or move.maxPp
+  if not base then
+    return { used = false, text = ItemEffects.TEXT_PP_MAXED:format(name) }
+  end
+  -- engine/items/item_effects.asm:2736 ComputeMaxPP.
+  local bonus = math.min(math.floor(base / 5), 7)
+  move.ppUps = (move.ppUps or 0) + 1
+  move.maxPp = base + move.ppUps * bonus
+  move.pp = (move.pp or 0) + bonus
+  return { used = true, text = ItemEffects.TEXT_PP_INCREASED:format(name) }
+end)
+
+for itemId in pairs(ItemEffects.VITAMIN) do
+  record(itemId, "vitamin", function(ctx)
+    return vitamin(ctx.item, ctx.mon, ctx.data)
   end)
 end
 

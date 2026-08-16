@@ -1517,10 +1517,10 @@ function Battle:useMove(attacker, defender, moveId)
   -- read and cleared by the very next move aimed at it, and while it is up the
   -- accuracy roll does not happen at all.
   local locked = self:consumeLockOn(defender)
-  -- SUBSTATUS_X_ACCURACY (an X ACCURACY) grants the same roll bypass,
-  -- CheckHit's `.XAccuracy` arm, but is not consumed: it lasts until the
-  -- switch drops the volatile.
+  -- CheckHit's .XAccuracy and EFFECT_ALWAYS_HIT arms
+  -- (effect_commands.asm:1572-1579).
   local sureHit = locked or self:volatile(attacker).xAccuracy == true
+    or def.effect == "EFFECT_ALWAYS_HIT"
 
   -- .LockOn runs ahead of .FlyDigMoves and returns a HIT unless the target is
   -- flying and the move is one of the three (effect_commands.asm:1563-1567,
@@ -1723,9 +1723,14 @@ function Battle:useMove(attacker, defender, moveId)
         text = ("Hit %d time(s)!"):format(landed) })
     end
 
-    -- Recoil is a quarter of what was dealt; drain heals half of it.  Dream
-    -- Eater's sleep requirement is checkhit's, not this block's, so by the
-    -- time a drain is paid out the target is known to have been asleep.
+    -- move_effects/pay_day.asm:13
+    if def.effect == "EFFECT_PAY_DAY" and dealt > 0 then
+      self.payDay = (self.payDay or 0) + 2 * (attacker.level or 1)
+      self:emit({ kind = "message",
+        text = Strings("Coins scattered\neverywhere!") })
+    end
+
+    -- Recoil is a quarter of what was dealt; drain heals half of it.
     if def.effect == "EFFECT_RECOIL_HIT" and dealt > 0 then
       local recoil = Effects.recoilDamage(dealt)
       attacker.hp = math.max(0, (attacker.hp or 0) - recoil)
@@ -3012,6 +3017,14 @@ function Battle:resolveFaints()
           text = (self.trainer.name or "TRAINER") .. " was defeated!" })
         self:awardPrizeMoney()
       end
+      -- CheckPayDay, on the win arm only (engine/battle/core.asm:7971-7976,
+      -- :8014-8042).
+      local coins = Prize.payDay(self.save, self.payDay, self.amuletCoin)
+      if coins then
+        self:emit({ kind = "money", text = Prize.payDayMessage(coins,
+          self.save.player and self.save.player.name) })
+      end
+      self.payDay = nil
       self:endBattle("win")
       return true
     end

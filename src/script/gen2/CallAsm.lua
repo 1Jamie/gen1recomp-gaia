@@ -565,10 +565,11 @@ end
 
 -- ---- engine/events/poisonstep.asm -----------------------------------------
 
--- .PlayPoisonSFX: SFX_POISON, then LoadPoisonBGPals for two frames.  The port
--- plays the sound; the two-frame red flash is the renderer's business.
+-- .PlayPoisonSFX: SFX_POISON, then LoadPoisonBGPals for four frames.
+-- engine/events/poisonstep.asm:101
 function H.PlayPoisonSFX(ctx)
   call(ctx, "playSfxNamed", SFX_POISON[1], SFX_POISON[2])
+  call(ctx, "poisonBGFlash")
   return nil
 end
 

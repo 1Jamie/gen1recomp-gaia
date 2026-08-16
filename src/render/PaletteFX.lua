@@ -119,13 +119,9 @@ PaletteFX.GBC_OBJ_BLUE = {
   { 255, 255, 255 }, { 255, 132, 132 }, { 148, 58, 58 }, { 0, 0, 0 },
 }
 
--- The active game's OG boot-ROM background palette: blue for a Blue
--- playthrough, red for Red.  White (index 1) and black (index 4) are
--- identical across Red/Blue, so callers that only touch the endpoints
--- (e.g. BattleState's zone white/black snap) need no version branch there.
--- Yellow is CGB-enhanced (pokeyellow CGBBasePalettes): named zones go through
--- pal() / usesYellowCgb(), and ogBg() falls back to CGBBase PAL_ROUTE for any
--- remaining whole-screen callers -- never Blue's GBC_BG_BLUE.
+-- The active game's OG boot-ROM background palette: blue for Blue, red for Red.
+-- Yellow is CGB-enhanced (pokeyellow CGBBasePalettes), so ogBg() falls back to
+-- CGBBase PAL_ROUTE there, never Blue's GBC_BG_BLUE.
 function PaletteFX.ogBg()
   if GameVersion.isBlue() then return PaletteFX.GBC_BG_BLUE end
   if GameVersion.isYellow() then
@@ -354,23 +350,14 @@ function PaletteFX.usesSpriteObp(mode)
   return mode == "ogred" and not GameVersion.isYellow()
 end
 
--- ------- post-zone sprite redraw (OG RED)
---
--- In OG RED the world canvas still runs through the whole-screen zone
--- shade-remap shader, which would corrupt an OBP-baked sprite's true-color
--- pixels.  (SGB used to come through here too; it no longer bakes an object
--- palette at all, so its characters are colorized by the zone like the ground
--- they stand on and never queue a replay -- see usesSpriteObp, #301.)  So SpriteRenderer draws the baked sprite into the canvas (its
--- pixels come out zone-tinted there) AND records the draw here;
--- Renderer:endFrame replays the list on top of the finished zone pass,
--- scaled into screen space -- the GBC's OBJ-over-BG compositing, one draw
--- late.  Entries carrying `colors` are re-colorized draws (the tall-grass
--- feet overdraw, which must keep hiding sprite feet) issued through the
--- color-0-keyed shade-remap shader.  World pass only; cleared per frame.
+-- ------- post-zone sprite redraw (OG RED): OBP-baked draws recorded here and
+-- replayed by Renderer:endFrame on top of the zone pass (usesSpriteObp, #301)
 local spriteRedraws = {}
+local uiSpriteRedraws = {}
 
 function PaletteFX.clearSpriteRedraws()
   for i = #spriteRedraws, 1, -1 do spriteRedraws[i] = nil end
+  for i = #uiSpriteRedraws, 1, -1 do uiSpriteRedraws[i] = nil end
 end
 
 function PaletteFX.markSpriteRedraw(image, quad, x, y, sx, colors, keyed)
@@ -390,6 +377,16 @@ end
 
 function PaletteFX.spriteRedraws()
   return spriteRedraws
+end
+
+function PaletteFX.markUiSpriteRedraw(image, quad, x, y)
+  if currentPass ~= "ui" then return end
+  uiSpriteRedraws[#uiSpriteRedraws + 1] =
+    { image = image, quad = quad, x = x + markOffsetX, y = y }
+end
+
+function PaletteFX.uiSpriteRedraws()
+  return uiSpriteRedraws
 end
 
 -- Active named-palette table for COLORS: RED++ uses data/palettes_gbc.lua,

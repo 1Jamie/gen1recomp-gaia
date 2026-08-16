@@ -697,35 +697,37 @@ M.MT_MOON_B2F = {
   },
 }
 
--- The ticket clerk (scripts/Museum1F.asm Museum1FScientist1Text):
--- Y50, once.  Declining at the rope shoves the player one tile SOUTH back off
--- the exhibit rope they crossed heading north (#151); the museum floor has no
--- ledges, so a plain scriptMove("down",1) is the correct primitive.
+-- The ticket clerk (scripts/Museum1F.asm Museum1FScientist1Text): Y50, once.
+-- Declining at the rope shoves the player one tile south (#151)
 local function museumClerk(game, ow, done, onDecline)
   local TextBox = require("src.render.TextBox")
-  local ChoiceBox = require("src.ui.ChoiceBox")
+  local t = game.data.text or {}
   if game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET then
     game.stack:push(TextBox.new(game,
       "Take your time,\nand enjoy it all!", done))
     return
   end
+  -- scripts/Museum1F.asm:72
+  local money = function() return game.save.money end
   game.stack:push(TextBox.new(game,
-    "It's ¥50 for a\nchild's ticket.\fWould you like to\ncome in?", function()
-    game.stack:push(ChoiceBox.new(game, function(yes)
+    t._Museum1FScientist1WouldYouLikeToComeInText
+      or "It's ¥50 for a\nchild's ticket.\fWould you like to\ncome in?",
+    nil, { money = money, choice = function(yes)
       if yes and game.save.money >= 50 then
         game.save.money = game.save.money - 50
         game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET = true
+        -- scripts/Museum1F.asm:106
         game.stack:push(TextBox.new(game,
-          "Right, ¥50!\nThank you!", done))
+          t._Museum1FScientist1ThankYouText or "Right, ¥50!\nThank you!", done,
+          { money = money }))
       elseif yes then
         game.stack:push(TextBox.new(game,
-          "You don't have\nenough money.", onDecline or done))
+          "You don't have\nenough money.", onDecline or done, { money = money }))
       else
         game.stack:push(TextBox.new(game,
-          "Come again!", onDecline or done))
+          "Come again!", onDecline or done, { money = money }))
       end
-    end))
-  end))
+    end }))
 end
 
 M.MUSEUM_1F = {
