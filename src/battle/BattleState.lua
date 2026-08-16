@@ -364,21 +364,17 @@ local function grayImage(img)
   return getImage(meta.path) or img
 end
 
--- The blacked-out battle screen.  HandlePlayerBlackOut (core.asm:1151) runs
--- SET_PAL_BATTLE_BLACK, i.e. SetPal_BattleBlack sends PalPacket_Black --
--- PAL_BLACK in all four slots of BlkPacket_Battle (engine/gfx/palettes.asm:
--- 22-25).  The mon pics are drawn OVER the zone pass with their palette
--- already baked in, so darkening them means re-baking through PAL_BLACK the
--- way fadeImage re-bakes through a BGP permutation (#292).  Reads the palette
--- out of the active pack, exactly like sgbBattlePals, so the zone pass and
--- the pics can never disagree.  trueColor art has no DMG shades to remap.
+-- SET_PAL_BATTLE_BLACK re-bake of a pic (engine/battle/core.asm:1151,
+-- engine/gfx/palettes.asm:22-25); resolved like sgbBattlePals' blackout (#292).
 local function blackImage(data, img)
   local meta = imageMeta[img]
   if not meta or meta.trueColor then return img end
   local PaletteFX = require("src.render.PaletteFX")
   local pack = PaletteFX.pack(data)
-  local colors = pack and pack.palettes and pack.palettes.BLACK
-  if not colors then return img end
+  local pals = pack and pack.palettes
+  if not (pals and pals.BLACK) then return img end
+  local colors = PaletteFX.usesYellowCgb() and pals.BLACK
+                 or PaletteFX.pal(data, "BLACK") or pals.BLACK
   local name = PaletteFX.usesGbcPack() and "redpp:BLACK" or "BLACK"
   return getImage(meta.path, { name = name, colors = colors }) or img
 end
@@ -2608,6 +2604,9 @@ function BattleState:residualFor(b, opp)
   if self.result then return end
   if self.player ~= b and self.enemy ~= b then return end
   if b.mon.hp <= 0 or opp.mon.hp <= 0 then return end
+  -- engine/battle/core.asm:435-473
+  if b.residualDone then return end
+  b.residualDone = true
   local msgs = Status.residual(b, opp, self)
   for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
   if b.leechSeeded and b.mon.hp > 0 then
@@ -2664,7 +2663,8 @@ function BattleState:endOfTurn()
   for _, pair in ipairs({ { self.player, self.enemy, "player", enemyAlive },
                           { self.enemy, self.player, "enemy", playerAlive } }) do
     local b, opp, side, oppAlive = pair[1], pair[2], pair[3], pair[4]
-    if sweep and b.mon.hp > 0 and oppAlive then
+    if sweep and not b.residualDone and b.mon.hp > 0 and oppAlive then
+      b.residualDone = true
       local msgs = Status.residual(b, opp, self)
       for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
       if #msgs > 0 then self:drainNext() end -- poison/burn/seed HP moved
@@ -2678,6 +2678,7 @@ function BattleState:endOfTurn()
     -- the Haze move-forfeit only covers the turn Haze was used; if the
     -- cured mon had already moved, drop the flag before next turn
     b.skipMove = nil
+    b.residualDone = nil
     -- CheckNumAttacksLeft (core.asm:683-697): a trapping counter that
     -- hit 0 this turn releases its bit only now, at the end of the turn
     if b.trappingTurns and b.trappingTurns <= 0 then
@@ -3892,9 +3893,9 @@ function BattleState:onFaint(battler)
     battler.fainted = true
     local Sound = require("src.core.Sound")
     if battler.isPlayer then
-      -- RemoveFaintedPlayerMon (core.asm:1040-1042): the player mon's
-      -- faint plays its ordinary species cry -- no Faint_Fall
-      self.faintCry = Sound.playCry(self.data, battler.mon.species)
+      -- RemoveFaintedPlayerMon: the species cry (core.asm:1040-1042),
+      -- PikachuCry4 on Yellow (engine/battle/core.asm:1058)
+      self.faintCry = Sound.playCry(self.data, battler.mon.species, 4)
     elseif self.kind ~= "wild" then
       -- FaintEnemyPokemon (core.asm:732-771): the enemy faint plays no
       -- species cry; trainer battles get SFX_FAINT_FALL, then SFX_FAINT_THUD
@@ -5296,24 +5297,28 @@ function BattleState:sgbBattlePals()
   local pack = PaletteFX.pack(self.data)
   local pals = pack and pack.palettes
   if not pals then return nil end
-  -- HandlePlayerBlackOut (core.asm:1151) runs SET_PAL_BATTLE_BLACK:
-  -- SetPal_BattleBlack sends PalPacket_Black, PAL_BLACK in all four slots of
-  -- BlkPacket_Battle (engine/gfx/palettes.asm:22-25), so every zone of the
-  -- battle screen -- both HP bars and both mon regions -- goes dark behind
-  -- the blackout text.  picImage re-bakes the pics through the same palette,
-  -- since those draw over the zone pass rather than through it (#292).
+  -- HandlePlayerBlackOut (core.asm:1151) runs SET_PAL_BATTLE_BLACK
+  -- (engine/gfx/palettes.asm:22-25); picImage re-bakes through it (#292).
   if self.blackedOut and pals.BLACK then
-    local b = pals.BLACK
+    local b = PaletteFX.usesYellowCgb() and pals.BLACK
+              or PaletteFX.pal(self.data, "BLACK") or pals.BLACK
     return { [0] = b, [1] = b, [2] = b, [3] = b }
   end
+  -- home/palettes.asm:38
   local function bar(b)
-    if not b then return pals.GREENBAR end
+    if not b then
+      return PaletteFX.pal(self.data, "GREENBAR") or pals.GREENBAR
+    end
     local hp = b.shownHP or b.mon.hp
-    return pals[PaletteFX.barPalName(hp, b.mon.stats.hp, b.shownPx)]
+    return PaletteFX.pal(self.data,
+                         PaletteFX.barPalName(hp, b.mon.stats.hp, b.shownPx))
            or pals.GREENBAR
   end
   local function mon(b, placeholder)
-    if placeholder or not b then return pals.MEWMON or pals.GREENBAR end
+    if placeholder or not b then
+      if PaletteFX.usesYellowCgb() then return pals.MEWMON or pals.GREENBAR end
+      return PaletteFX.pal(self.data, "MEWMON") or pals.MEWMON or pals.GREENBAR
+    end
     return PaletteFX.monPal(self.data, b.mon.species) or pals.MEWMON
   end
   local out = {
@@ -5322,23 +5327,6 @@ function BattleState:sgbBattlePals()
     [2] = mon(self.player, self.showPlayerBack or self.safari or self.demo),
     [3] = mon(self.enemy, self.showEnemyTrainer),
   }
-  -- OG RED: the Game Boy Color drew the whole battle from one BG palette --
-  -- white paper, black ink -- so every zone shares the same background and
-  -- outline; only the two mid shades differ per element (green HP bar, red
-  -- mon pic).  The bar/base zones otherwise carry the SGB off-white
-  -- (255,239,255) as color 0 while the mon zones (monPal -> GBC_BG) carry a
-  -- true white, which is what drew a white box around each pic on the pink
-  -- field.  Snap every zone's color 0/3 to the global GBC white/black; the
-  -- mid shades (and the green bar the user prefers) stay untouched.
-  -- Boot-ROM OG only (Red/Blue): snap zone paper to the global GBC white/black.
-  -- OG YELLOW keeps each CGBBasePalettes endpoint (already near-white / near-black).
-  if PaletteFX.mode == "ogred" and not require("src.core.GameVersion").isYellow() then
-    local white, black = PaletteFX.GBC_BG[1], PaletteFX.GBC_BG[4]
-    for i = 0, 3 do
-      local c = out[i]
-      out[i] = { white, c[2], c[3], black }
-    end
-  end
   return out
 end
 
@@ -5432,23 +5420,29 @@ function BattleState:drawZonePass(src, sx, sy)
   love.graphics.setShader()
 end
 
--- colors for one anim-layer OAM sprite at screen pixel (px, py): the
--- zone palette under that pixel's 8x8 attribute cell (the SGB colors
--- the composited picture per cell, so AnimPlayer samples once per cell
--- the tile overlaps), through the OBJ palette the routine ran with
--- (SetAnimationPalette: wAnimPalette = $f0 on SGB, rOBP1 = $6c,
--- ambient rOBP0 = $e4)
+-- SetAnimationPalette (engine/battle/animations.asm:551): wAnimPalette = $f0
+-- on SGB, $e4 otherwise; rOBP1 = $6c either way
 local OBJ_SHADES = {
   f0 = { 0, 3, 3 },   -- color 1 -> shade 0, colors 2/3 -> shade 3
-  f0x = { 3, 0, 3 },  -- $f0 xor %00111100 = $cc: the Master/Ultra ball
-                      -- toss flicker (DoBallTossSpecialEffects)
+  f0x = { 3, 0, 3 },  -- $f0 xor %00111100 = $cc (DoBallTossSpecialEffects,
+                      -- engine/battle/animations.asm:685)
   e4 = { 1, 2, 3 },   -- identity
+  e4x = { 2, 1, 3 },  -- $e4 xor %00111100 = $d8
   obp1 = { 3, 2, 1 }, -- $6c
 }
 function BattleState:animSpriteColors(s, px, py)
-  local P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))
+  local PaletteFX = require("src.render.PaletteFX")
+  local key = s.obp or "f0"
+  local P
+  -- engine/battle/animations.asm:551 (.notSGB)
+  if PaletteFX.usesSpriteObp() then
+    P = PaletteFX.ogObj()
+    if key == "f0" then key = "e4" elseif key == "f0x" then key = "e4x" end
+  else
+    P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))
+  end
   if not P then return nil end
-  local m = OBJ_SHADES[s.obp or "f0"] or OBJ_SHADES.f0
+  local m = OBJ_SHADES[key] or OBJ_SHADES.f0
   local function c(shade)
     local col = P[shade + 1]
     return { col[1] / 255, col[2] / 255, col[3] / 255 }

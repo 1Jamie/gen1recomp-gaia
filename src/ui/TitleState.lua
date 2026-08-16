@@ -171,6 +171,27 @@ local function markVisibleTrueColor(x, y, w, h, cover)
   if ix2 < right then P.markTrueColor(ix2, iy1, right - ix2, iy2 - iy1) end
 end
 
+-- ..(engine/movie/title.asm ln 321)
+local function replayObjSprite(game, image, quad, x, y)
+  local P = require("src.render.PaletteFX")
+  if not P.usesSpriteObp() then return end
+  local top = game.stack and game.stack:top()
+  local box = top and top.titleUiBox
+  if box then
+    local w, h
+    if quad then
+      w, h = select(3, quad:getViewport())
+    else
+      w, h = image:getDimensions()
+    end
+    if x < (box[3] + 1) * 8 and x + w > box[1] * 8
+       and y < (box[4] + 1) * 8 and y + h > box[2] * 8 then
+      return
+    end
+  end
+  P.markUiSpriteRedraw(image, quad, x, y)
+end
+
 function TitleState.new(game, opts)
   opts = opts or {}
   local self = setmetatable({}, TitleState)
@@ -662,12 +683,11 @@ function TitleState:draw()
       local x = 40 + math.floor((56 - w) / 2) + self.monOffset
       local y = 136 - h
       love.graphics.draw(sprite, x, y)
-      -- a full-color mon keeps its own palette through the SGB pass, minus
-      -- the strip Red's OAM covers (#350).  Yellow never reaches here: its
-      -- layout has no cycling mon and no Red art (title_yellow.asm).
+      -- SGB: the mon keeps its palette minus the strip Red's OAM covers
+      -- (#350); Yellow never reaches here (title_yellow.asm)
       if spriteTrueColor then
         local cover
-        if playerImage then
+        if playerImage and not require("src.render.PaletteFX").usesSpriteObp() then
           local pw, ph = playerImage:getDimensions()
           cover = { 82, 80, pw, ph }
         end
@@ -678,10 +698,13 @@ function TitleState:draw()
     if self.playerQuads then
       for _, part in ipairs(self.playerQuads) do
         love.graphics.draw(playerImage, part[1], 82 + part[2], 80 + part[3])
+        replayObjSprite(self.game, playerImage, part[1], 82 + part[2], 80 + part[3])
       end
       love.graphics.draw(playerImage, self.ballQuad, 82, self.ballY)
+      replayObjSprite(self.game, playerImage, self.ballQuad, 82, self.ballY)
     elseif playerImage then
       love.graphics.draw(playerImage, 82, 80)
+      replayObjSprite(self.game, playerImage, nil, 82, 80)
     end
   end
   self:drawCopyright(136 + (preRibbon and 0 or scrollY))

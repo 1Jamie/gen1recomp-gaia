@@ -1017,6 +1017,20 @@ function Renderer:endFrame(zones, worldZones)
            p.dx - p.a.x * Ux, p.dy - p.a.y * Uy, p.dx, p.dy, p.dw, p.dh)
     end
   end
+  local uiRedraws = PaletteFX.uiSpriteRedraws()
+  if uiRedraws[1] then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setScissor(uox, uoy, uvpw, uvph)
+    for _, r in ipairs(uiRedraws) do
+      if r.quad then
+        love.graphics.draw(r.image, r.quad, uox + r.x * Ux, uoy + r.y * Uy,
+                           0, Ux, Uy)
+      else
+        love.graphics.draw(r.image, uox + r.x * Ux, uoy + r.y * Uy, 0, Ux, Uy)
+      end
+    end
+    love.graphics.setScissor()
+  end
 
   -- The battle wipe covers the whole surface, letterbox included, so it goes
   -- over the finished composite rather than under the UI blit.  On hardware

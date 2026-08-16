@@ -573,14 +573,15 @@ local function route22Scene(n, objIndex, objName, oppClass, baseParty, beatFlag,
     { "face_object", objIndex, rivalFacing },                  -- 3
     { "show_text", "_Route22RivalBeforeBattleText" .. n },     -- 4
     { "rival_battle", oppClass, baseParty },                   -- 5
-    { "jump_if_false", 12 },                                   -- 6
+    { "jump_if_false", 13 },                                   -- 6
     { "set_flag", beatFlag },                                  -- 7
     { "show_text", "_Route22Rival" .. n .. "DefeatedText" },   -- 8
     { "show_text", "_Route22RivalAfterBattleText" .. n },      -- 9
     { "play_music", "Music_MeetRival", { start = "rival",
-      tempo = n == 2 and 100 or nil } },
-    { "walk_npc", objIndex, route22ExitDirs(n, py) },          -- 10
-    { "hide_object", "ROUTE_22", objName },                    -- 11
+      tempo = n == 2 and 100 or nil } },                     -- 10
+    { "walk_npc", objIndex, route22ExitDirs(n, py) },          -- 11
+    { "play_default_music" },                    -- scripts/Route22.asm:230
+    { "hide_object", "ROUTE_22", objName },                    -- 13
   }
 end
 
@@ -627,13 +628,14 @@ local function ceruleanRivalScene(px, py)
     { "face_object", 1, "down" },                              -- 3
     { "show_text", "_CeruleanCityRivalPreBattleText" },        -- 4
     { "rival_battle", "OPP_RIVAL1", 7 },                       -- 5
-    { "jump_if_false", 12 },                                   -- 6
+    { "jump_if_false", 13 },                                   -- 6
     { "set_flag", "EVENT_BEAT_CERULEAN_RIVAL" },               -- 7
     { "show_text", "_CeruleanCityRivalDefeatedText" },         -- 8
     { "show_text", "_CeruleanCityRivalIWentToBillsText" },     -- 9
-    { "play_music", "Music_MeetRival", { start = "rival" } },
-    { "walk_npc", 1, ceruleanRivalExitDirs(px) },              -- 10
-    { "hide_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 11
+    { "play_music", "Music_MeetRival", { start = "rival" } }, -- 10
+    { "walk_npc", 1, ceruleanRivalExitDirs(px) },              -- 11
+    { "play_default_music" },                -- scripts/CeruleanCity.asm:230
+    { "hide_object", "CERULEAN_CITY", "CERULEANCITY_RIVAL" },  -- 13
   }
 end
 
@@ -880,13 +882,14 @@ M.SILPH_CO_7F = {
       { "face_object", 9, "up" },                              -- 4
       { "show_text", "_SilphCo7FRivalWaitedHereText" },        -- 5
       { "rival_battle", "OPP_RIVAL2", 7 },                     -- 6
-      { "jump_if_false", 13 },                                 -- 7
+      { "jump_if_false", 14 },                                 -- 7
       { "set_flag", "EVENT_BEAT_SILPH_CO_RIVAL" },             -- 8
       { "show_text", "_SilphCo7FRivalDefeatedText" },          -- 9
       { "show_text", "_SilphCo7FRivalGoodLuckToYouText" },     -- 10
-      { "play_music", "Music_MeetRival", { start = "rival" } },
-      { "move_npc_to", 9, 5, y + 1 },                          -- 11
-      { "hide_object", "SILPH_CO_7F", "SILPHCO7F_RIVAL" },     -- 12
+      { "play_music", "Music_MeetRival", { start = "rival" } }, -- 11
+      { "move_npc_to", 9, 5, y + 1 },                          -- 12
+      { "play_default_music" },                -- scripts/SilphCo7F.asm:261
+      { "hide_object", "SILPH_CO_7F", "SILPHCO7F_RIVAL" },     -- 14
     }, "down")
   end,
 }
@@ -916,13 +919,14 @@ M.SS_ANNE_2F = {
       { "face_object", 2, onLeft and "down" or "right" },      -- 3
       { "show_text", "_SSAnne2FRivalText" },                   -- 4
       { "rival_battle", "OPP_RIVAL2", 1 },                     -- 5
-      { "jump_if_false", 12 },                                 -- 6
+      { "jump_if_false", 13 },                                 -- 6
       { "set_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },              -- 7
       { "show_text", "_SSAnne2FRivalDefeatedText" },           -- 8
       { "show_text", "_SSAnne2FRivalCutMasterText" },          -- 9
-      { "play_music", "Music_MeetRival", { start = "rival" } },
-      { "walk_npc", 2, ssAnne2FRivalExitDirs(onLeft) },        -- 10
-      { "hide_object", "SS_ANNE_2F", "SSANNE2F_RIVAL" },       -- 11
+      { "play_music", "Music_MeetRival", { start = "rival" } }, -- 10
+      { "walk_npc", 2, ssAnne2FRivalExitDirs(onLeft) },        -- 11
+      { "play_default_music" },                 -- scripts/SSAnne2F.asm:175
+      { "hide_object", "SS_ANNE_2F", "SSANNE2F_RIVAL" },       -- 13
     }, onLeft and "up" or "left")
   end,
 }

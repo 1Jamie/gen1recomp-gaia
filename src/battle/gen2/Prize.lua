@@ -66,6 +66,8 @@ local SENT_SOME = Strings.source("%s got %s%d for winning! Sent some to MOM!")
 -- see because BankOfMom only ever writes MOM_SAVING_SOME_MONEY_F.
 local SENT_HALF = Strings.source("Sent half to MOM!")
 local SENT_ALL = Strings.source("Sent all to MOM!")
+-- BattleText_PlayerPickedUpPayDayMoney (data/text/battle.asm:3-8).
+local PICKED_UP = Strings.source("%s picked up %s%d!")
 
 -- charmap.asm: the currency glyph, the same one Chrome.money floats in front
 -- of a six-digit field.
@@ -218,6 +220,19 @@ function Prize.message(award, playerName)
     return Strings(SENT_SOME, name, YEN, total)
   end
   return Strings(GOT_MONEY, name, YEN, total)
+end
+
+-- CheckPayDay (engine/battle/core.asm:8014-8042): the Amulet Coin doubles the
+-- accumulated total once, and the wallet is written directly, no Mom split.
+function Prize.payDay(save, amount, amuletCoin)
+  if not (save and save.player) or (amount or 0) <= 0 then return nil end
+  if amuletCoin then amount = amount * 2 end
+  setPlayerMoney(save, addToAccount(playerMoney(save), amount))
+  return amount
+end
+
+function Prize.payDayMessage(amount, playerName)
+  return Strings(PICKED_UP, playerName or "PLAYER", YEN, amount or 0)
 end
 
 return Prize

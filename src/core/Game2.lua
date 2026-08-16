@@ -730,7 +730,7 @@ function Game2:usePartyItem(itemId)
       local row = ItemEffects.RESTORE_PP[itemId] or {}
       if row.each or mon.isEgg then
         self.stack:pop()
-        finish(ItemEffects.usePpItem(itemId, mon), mon)
+        finish(ItemEffects.usePpItem(itemId, mon, nil, self.data), mon)
         return
       end
       Screens.push(self, "Gen2MoveDeleter", {
@@ -740,7 +740,7 @@ function Game2:usePartyItem(itemId)
         onChoose = function(slot)
           self.stack:pop() -- the move list
           self.stack:pop() -- the party list
-          finish(ItemEffects.usePpItem(itemId, mon, slot), mon)
+          finish(ItemEffects.usePpItem(itemId, mon, slot, self.data), mon)
         end,
       })
     end,
@@ -888,6 +888,12 @@ function Game2:load()
   self.data.items = loadGenerated("data/generated/items.lua") or {}
   self.data.moves = loadGenerated("data/generated/moves.lua") or {}
   self.data.type_chart = loadGenerated("data/generated/type_chart.lua") or {}
+  -- data/types/type_matchups.asm:112-116: the rows after the `db -2` marker
+  -- apply by default; Foresight is what cuts the table short at it.
+  local chart = self.data.type_chart
+  for _, row in ipairs(chart.foresightMatchups or {}) do
+    chart.matchups[#chart.matchups + 1] = row
+  end
   -- The `held_items` registry's merge target: ItemAttributes' last two columns
   -- as their own table, so a mod can give an item a held behaviour without
   -- owning the whole item record.  Built BEFORE mods:load so the registry
@@ -1949,6 +1955,7 @@ function Game2:applyOptions()
     touchControls = options.touchControls,
     haptics = options.haptics,
   })
+  require("src.core.VideoMode").applyOptions(options)
   local GBCFX = require("src.render.GBCFX")
   if GBCFX.applyOptions(options) and self.save then
     -- applyOptions returns true when it had to clear an unsupported level.

@@ -78,7 +78,7 @@ function StepEvents.poisonStep(party)
     return { kind = "poisonFaint", fainted = fainted, hurt = hurt, blocks = true }
   end
   if #hurt > 0 then
-    -- .PlayPoisonSFX and the two-frame red flash, then `xor a`: no carry, so
+    -- .PlayPoisonSFX and the four-frame BG flash, then `xor a`: no carry, so
     -- the step still counts and the wild roll still happens.
     return { kind = "poisonHurt", hurt = hurt, blocks = false }
   end

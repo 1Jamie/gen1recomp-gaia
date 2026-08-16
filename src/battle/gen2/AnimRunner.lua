@@ -279,7 +279,7 @@ end
 
 C.dropsub = function(self)
   local side = self.env.battleTurn == 0 and "player" or "enemy"
-  self.picOverride[side] = nil
+  self.picOverride[side] = false
 end
 
 -- BattleAnimCmd_MinimizeOpp / GetMinimizePic: despite the name it shrinks the

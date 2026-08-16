@@ -76,6 +76,8 @@ for _, name in ipairs({ "openOaksPC", "dexRating" }) do
     ("Game upvalue on %s"):format(name))
 end
 T.check(setUpvalue(OW.openPC, "Game", fakeGame), "Game upvalue on openPC")
+T.check(setUpvalue(OW.openPC, "TextBox", textBoxStub),
+  "TextBox upvalue on openPC")
 
 local fakeSelf = setmetatable({}, { __index = OW })
 
@@ -111,8 +113,14 @@ end
 reset()
 local done = false
 fakeSelf:openPC(function() done = true end)
+-- engine/menus/pc.asm:5
+local pcOn = lastPush()
+T.eq(pcOn.kind, "text", "openPC opens with the turned-on text")
+T.check(tostring(pcOn.text):find("turned on", 1, true) ~= nil,
+  "the opening box is TurnedOnPC1Text")
+pcOn.onDone()
 local menu = lastPush()
-T.eq(menu.kind, "menu", "openPC pushes the PC menu")
+T.eq(menu.kind, "menu", "the PC menu follows the box")
 local oak
 for _, item in ipairs(menu.items) do
   if item.label == "PROF.OAK's PC" then oak = item end
@@ -121,16 +129,16 @@ T.check(oak ~= nil, "PROF.OAK's PC is offered once the Pokédex is had")
 oak.onSelect()
 -- drop the menu's Turn_On_PC and the row's Enter_PC
 plays = {}
-T.eq(pushed[2].kind, "text", "selection opens the access text")
-T.check(tostring(pushed[2].text):find("Accessed", 1, true) ~= nil,
+T.eq(pushed[3].kind, "text", "selection opens the access text")
+T.check(tostring(pushed[3].text):find("Accessed", 1, true) ~= nil,
   "first session box is the access text")
 runChain()
 T.check(done, "session completes")
-T.check(pushed[3].opts ~= nil and pushed[3].opts.choice ~= nil,
+T.check(pushed[4].opts ~= nil and pushed[4].opts.choice ~= nil,
   "the rated question carries the YES/NO choice")
-T.check(tostring(pushed[3].text):find("rated", 1, true) ~= nil,
+T.check(tostring(pushed[4].text):find("rated", 1, true) ~= nil,
   "second session box asks for the rating")
-local ratingBox = pushed[4]
+local ratingBox = pushed[5]
 T.check(ratingBox.opts and ratingBox.opts.auto ~= nil
   and ratingBox.opts.auto.wait ~= nil,
   "rating box sounds the jingle then waits for a button")
@@ -142,7 +150,7 @@ T.eq(#plays, 0, "no jingle while the evaluation is printing")
 ratingBox.opts.auto.sound()
 T.eq(#plays, 1, "jingle fires once the rating text is printed")
 T.eq(plays[1], "Pokedex_Rating", "jingle is the Pokedex_Rating fanfare")
-T.check(tostring(pushed[5].text):find("Closed link", 1, true) ~= nil,
+T.check(tostring(pushed[6].text):find("Closed link", 1, true) ~= nil,
   "the closing link prints at the end of the session")
 
 -- === declining the rating skips the evaluation but still closes the link

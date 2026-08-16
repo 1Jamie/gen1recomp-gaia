@@ -31,6 +31,7 @@ local ItemEffects = require("src.core.gen2.ItemEffects")
 local Mon = require("src.battle.gen2.Mon")
 local Palettes = require("src.world.gen2.Palettes")
 local Pokerus = require("src.core.gen2.Pokerus")
+local Prize = require("src.battle.gen2.Prize")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
@@ -621,6 +622,19 @@ function BattleState:drawPic(mon, back)
      and not (self.vanishAnim and self.vanishAnim == self.anim) then
     return
   end
+  -- GetSubstitutePic (engine/battle_anims/anim_commands.asm:905-960): the
+  -- doll sits in the mon's own pic box and takes its palette.
+  local doll, dollQuad
+  if not (trainerBack or enemyTrainer) then
+    local over = anim and anim.pic
+    local up
+    if over ~= nil then
+      up = over == "substitute"
+    else
+      up = mon and mon.volatile and (mon.volatile.substitute or 0) > 0
+    end
+    if up then doll, dollQuad = self:substituteDoll(back) end
+  end
   local G = love.graphics
   local w, h = image:getDimensions()
   local px, py
@@ -660,6 +674,10 @@ function BattleState:drawPic(mon, back)
     px = px + math.floor(w * (1 - scale) / 2)
     py = py + math.floor(h * (1 - scale))
   end
+  if doll then
+    px = (back and 32 or 112) + ((anim and anim.slide) or 0)
+    py = back and 80 or 40
+  end
   G.setColor(1, 1, 1, 1)
   -- No mon on this side at all in the catching tutorial, where the box holds
   -- the DUDE's back-pic and nothing else for the whole battle.
@@ -682,6 +700,10 @@ function BattleState:drawPic(mon, back)
   -- what is still inside the box rather than drawn over the HUD below it.
   local sunk = self:faintSink(side)
   local function body()
+    if doll then
+      G.draw(doll, dollQuad, px, py)
+      return
+    end
     if sunk > 0 then
       local visible = h - math.floor(sunk / scale)
       if visible <= 0 then return end
@@ -699,6 +721,24 @@ function BattleState:drawPic(mon, back)
   else
     body()
   end
+end
+
+-- MonsterSpriteGFX (gfx/sprites.asm:82): the facing-DOWN 16x16 frame for the
+-- enemy's frontpic, facing-UP for the player's backpic.
+function BattleState:substituteDoll(back)
+  if self.subDoll == nil then
+    local ok, image = pcall(Assets.image, "assets/generated/sprites/monster.png")
+    if ok and image then
+      local w, h = image:getDimensions()
+      self.subDoll = { image = image,
+        down = love.graphics.newQuad(0, 0, 16, 16, w, h),
+        up = love.graphics.newQuad(0, 16, 16, 16, w, h) }
+    else
+      self.subDoll = false
+    end
+  end
+  if not self.subDoll then return nil end
+  return self.subDoll.image, back and self.subDoll.up or self.subDoll.down
 end
 
 -- The top `visible` rows of a pic, for the faint slide.  One quad, re-aimed,
@@ -1072,16 +1112,8 @@ function BattleState:stepAnim(input)
   end
 end
 
--- NOTE on picHidden and the animation runtime.  An animation that ENDS with a
--- pic box cleared could latch it here, and the tilemap argument says it should:
--- BattleAnimRestoreHuds redraws the two HUDs and nothing else.  It deliberately
--- does not, because BATTLE_BG_EFFECT_REMOVE_MON and _RETURN_MON are also used
--- by moves whose user is still standing there afterwards -- SUBSTITUTE (the
--- doll takes the box over, and nothing in this port draws one yet), SKY_ATTACK,
--- BEAT_UP, BATON_PASS -- and a blanket latch would make those mons invisible
--- for the rest of the fight.  The two moments the cart really does leave the
--- box empty for good are latched explicitly instead: a catch (pushCaught) and
--- a faint (MonFaintedAnimation, in update).
+-- REMOVE_MON / RETURN_MON also serve SUBSTITUTE, SKY_ATTACK, BEAT_UP and
+-- BATON_PASS, so picHidden is only latched by a catch and a faint.
 
 -- Whatever Call_PlayBattleAnim was standing in front of: a send-out's cry and
 -- HUD update run the moment its animation is done, cut short or not.
@@ -1101,6 +1133,7 @@ function BattleState:animPicState(side)
     size = bg.picSize[side],
     slide = bg.slide[side] or 0,
     shade = bg.monShade[side],
+    pic = self.anim.picOverride[side],
   }
 end
 
@@ -1190,22 +1223,14 @@ function BattleState:advanceQueue()
   if event.kind == "level" and event.index then
     self.evolvable[event.index] = true
     -- GiveExperiencePoints' `.skip_active_mon_update` guard
-    -- (engine/battle/core.asm:6999-7003): only the mon that is OUT copies its
-    -- recalculated HP, max HP and level into the battle struct, and only then
-    -- does `callfar UpdatePlayerHUD` (:7034) redraw the bar.  That is a
-    -- REDRAW, not AnimateHPBar, so the shown HP snaps instead of chasing --
-    -- without it the bar kept the pre-level-up HP against the new maximum
-    -- until the next damage or heal event moved it.
+    -- (engine/battle/core.asm:6999-7003): the OUT mon's shown HP snaps.
     local battle = self.battle
     local mon = battle and battle.party and battle.party[event.index]
     -- pokegold engine/battle/core.asm:7057-7069: every mon that leveled
     -- gets the stats box, not just the mon currently on the field.
     self.pendingStatsMon = mon
-    -- engine/battle/core.asm:7044
+    -- engine/battle/core.asm:7284
     if mon and mon == battle.player then
-      event.text = nil
-      event.sfx = nil
-      event.waitSfx = nil
       if self.shownHp then
         self.shownHp.player = mon.hp or 0
         if self.hpAnim and self.hpAnim.side == "player" then
@@ -1213,9 +1238,6 @@ function BattleState:advanceQueue()
         end
       end
       -- `ld [wBattleMonLevel], a` in the same guarded block (:7018-7020).
-      -- AnimateExpBar has already walked the number up one level at a time by
-      -- the time this runs, so this only catches a level gained with no exp
-      -- crawl behind it.
       self.shownLevel = mon.level or self.shownLevel
     end
   end
@@ -2464,7 +2486,10 @@ function BattleState:pushCaught(enemy, itemId)
     self:push({ kind = "dex-entry", species = enemy.species })
   end
   if self.contest then
-    return self:contestCatch(enemy)
+    -- A contest catch still exits through the `.run` arm with result WIN
+    -- (engine/battle/core.asm:4780-4783), so CheckPayDay runs for it too.
+    self:contestCatch(enemy)
+    return self:pushPayDay()
   end
   save.party = save.party or {}
   local toPc = #save.party >= Boxes.PARTY_SIZE
@@ -2519,6 +2544,19 @@ function BattleState:pushCaught(enemy, itemId)
     -- (item_effects.asm:672).
     self:push({ kind = "message",
       text = self:name(enemy) .. " was sent to BILL's PC." })
+  end
+  self:pushPayDay()
+end
+
+-- CheckPayDay runs on a capture too: `and $f` keeps the win arm
+-- (engine/battle/core.asm:7971-7976, :8014-8042).
+function BattleState:pushPayDay()
+  local save = self.save
+  local coins = Prize.payDay(save, self.battle.payDay, self.battle.amuletCoin)
+  self.battle.payDay = nil
+  if coins then
+    self:push({ kind = "message",
+      text = Prize.payDayMessage(coins, save.player and save.player.name) })
   end
 end
 
@@ -3029,7 +3067,7 @@ function BattleState:applyPartyItem(itemId, action, mon, slot)
   local before = (mon and mon.hp) or 0
   local result
   if action == "pp" then
-    result = ItemEffects.usePpItem(itemId, mon, slot)
+    result = ItemEffects.usePpItem(itemId, mon, slot, data)
   else
     result = ItemEffects.useOnMon(itemId, mon, data)
   end

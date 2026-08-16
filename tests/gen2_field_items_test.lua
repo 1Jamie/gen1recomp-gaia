@@ -270,6 +270,60 @@ do
     "MAX_LEVEL refuses (cp MAX_LEVEL / jp nc, NoEffectMessage)")
 end
 
+-- ------------------------------------------------- ItemEffects: partyAction
+
+do
+  for _, itemId in ipairs({ "HP_UP", "PROTEIN", "IRON", "CARBOS", "CALCIUM",
+                            "PP_UP" }) do
+    check(ItemEffects.partyAction(itemId, DATA) ~= nil,
+      itemId .. " resolves a party action (#1249)")
+  end
+  eq(ItemEffects.partyAction("ZINC", DATA), nil,
+    "ZINC does not exist in Gen 1 or Gen 2")
+end
+
+-- ------------------------------------------------- ItemEffects: VITAMIN
+
+do
+  local mon = fixtureMon(12)
+  local before = { hp = mon.hp, maxHp = mon.maxHp }
+  local result = ItemEffects.useOnMon("HP_UP", mon, DATA)
+  eq(result.used, true, "an HP UP under the ceiling is spent")
+  eq(mon.statExp.hp, 2560, "StatExpItemPointerOffsets' +10 high-byte add")
+  check(mon.maxHp > before.maxHp, "UpdateStatsAfterItem recomputes max HP")
+  eq(mon.stats.hp, mon.maxHp, "the recomputed hp stat lands on stats too")
+  eq(mon.hp, before.hp, "current HP is UNCHANGED by HP UP")
+  eq(result.text, "CYNDAQUIL's\nHEALTH rose.", "with the cart's stat line")
+
+  local ceiling = fixtureMon(12, { statExp = {
+    hp = 25600, attack = 0, defense = 0, speed = 0, special = 0 } })
+  local refused = ItemEffects.useOnMon("HP_UP", ceiling, DATA)
+  eq(refused.used, false, "25600 stat exp refuses (cp 100 / jr nc)")
+  eq(ceiling.statExp.hp, 25600, "and leaves the word untouched")
+  eq(refused.text, ItemEffects.TEXT_NO_EFFECT, "with NoEffectMessage")
+
+  local edge = fixtureMon(12, { statExp = {
+    hp = 25599, attack = 0, defense = 0, speed = 0, special = 0 } })
+  local accepted = ItemEffects.useOnMon("HP_UP", edge, DATA)
+  eq(accepted.used, true, "25599 is still under the ceiling")
+  eq(edge.statExp.hp, 28159, "landing on 25599 + 2560")
+
+  local labels = {
+    HP_UP = { stat = "hp", label = "HEALTH" },
+    PROTEIN = { stat = "attack", label = "ATTACK" },
+    IRON = { stat = "defense", label = "DEFENSE" },
+    CARBOS = { stat = "speed", label = "SPEED" },
+    CALCIUM = { stat = "special", label = "SPECIAL" },
+  }
+  for itemId, row in pairs(labels) do
+    local target = fixtureMon(12)
+    local outcome = ItemEffects.useOnMon(itemId, target, DATA)
+    eq(target.statExp[row.stat], 2560, itemId .. " raises its own stat exp")
+    eq(outcome.text, ("CYNDAQUIL's\n%s rose."):format(row.label),
+      itemId .. " prints " .. row.label)
+  end
+end
+
 -- ------------------------------------------------- ItemEffects: PP family
 
 do
@@ -303,6 +357,41 @@ do
   fullMon.moves[1].pp = 35
   eq(ItemEffects.usePpItem("MAX_ELIXER", fullMon).used, false,
     "a party mon with every slot full refuses the ELIXER family")
+end
+
+-- ------------------------------------------------- ItemEffects: PP UP
+
+do
+  local mon = fixtureMon(12)
+  for use = 1, 3 do
+    local result = ItemEffects.usePpItem("PP_UP", mon, 1, DATA)
+    eq(result.used, true, "PP UP use " .. use .. " of 3 is spent")
+    eq(mon.moves[1].ppUps, use, "PP_UP_ONE ticks the top two bits")
+    eq(mon.moves[1].maxPp, 35 + use * 7,
+      "min(floor(basePP / 5), 7) added per use")
+    eq(mon.moves[1].pp, 30 + use * 7, "current PP rises by the same amount")
+  end
+  local capped = ItemEffects.usePpItem("PP_UP", mon, 1, DATA)
+  eq(capped.used, false, "a 4th PP UP refuses (PP_UP_MASK's 3-use cap)")
+  eq(mon.moves[1].maxPp, 56, "and leaves max PP where it was")
+  eq(capped.text, "TACKLE's PP\nis maxed out.", "with PPIsMaxedOutText")
+
+  local sketch = fixtureMon(12)
+  sketch.moves[1] = { id = "SKETCH", pp = 1, maxPp = 1 }
+  local sketchResult = ItemEffects.usePpItem("PP_UP", sketch, 1, DATA)
+  eq(sketchResult.used, false, "SKETCH refuses a PP UP")
+  eq(sketchResult.text, "SKETCH's PP\nis maxed out.",
+    "with the same maxed-out line")
+
+  local modMon = fixtureMon(12)
+  modMon.moves[1] = { id = "MOD_MOVE", pp = 5 }
+  local unknown = ItemEffects.usePpItem("PP_UP", modMon, 1, DATA)
+  eq(unknown.used, false,
+    "an id absent from data.moves with no maxPp refuses (base PP unknown)")
+  eq(modMon.moves[1].ppUps, nil, "and is not consumed")
+  eq(modMon.moves[1].pp, 5, "with current PP untouched")
+  eq(unknown.text, "MOD_MOVE's PP\nis maxed out.",
+    "printing the same maxed-out line rather than PP 0")
 end
 
 -- ------------------------------------------------ Game2: the .Party wiring
@@ -358,6 +447,29 @@ do
   eq(host.save.inventory.POTION, 2, "a refused heal costs nothing")
   local box = host.stack:top()
   check(box ~= nil and box.pages ~= nil, "and prints the no-effect line")
+end
+
+do
+  local mon = fixtureMon(12)
+  local host = newHost({ HP_UP = 1 }, { mon })
+  host:useFieldItem("HP_UP")
+  local party = host.stack:top()
+  check(party ~= nil and party.prompt ~= nil,
+    "USE pushes the party list (partyAction is no longer nil)")
+  drive(host, function() return host.stack:top() ~= party end)
+  eq(mon.statExp.hp, 2560, "the vitamin ran through the real menu")
+  eq(host.save.inventory.HP_UP, nil, "and the HP UP was spent")
+end
+
+do
+  local mon = fixtureMon(12, { statExp = {
+    hp = 25600, attack = 0, defense = 0, speed = 0, special = 0 } })
+  local host = newHost({ HP_UP = 2 }, { mon })
+  host:useFieldItem("HP_UP")
+  local party = host.stack:top()
+  drive(host, function() return host.stack:top() ~= party end)
+  eq(host.save.inventory.HP_UP, 2, "a refused HP UP costs nothing")
+  eq(mon.statExp.hp, 25600, "and leaves the stat exp word untouched")
 end
 
 do
