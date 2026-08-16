@@ -429,8 +429,22 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   userAgent = userAgent or "gen1recomp"
   if HostShell.haveCurl() then
     -- io.popen is one-way on Lua/LuaJIT: its mode is "r" or "w", never
-    -- "rw".  Stage the request body so the response can stay on a read pipe.
-    local bodyPath = os.tmpname()
+    -- "rw".  Stage the request body so the response can stay on a read
+    -- pipe.  The staging directory comes from the OS temp contract, never
+    -- tmpnam(): the CRT's tmpnam() can return a name relative to the process
+    -- working directory, and a game installed under Program Files has no
+    -- writable CWD -- io.open would fail before curl ever runs and postLog
+    -- would silently drop the send.  TEMP/TMP are per-user writable on
+    -- Windows; TMPDIR (with /tmp fallback) covers POSIX.  No love.filesystem:
+    -- the sandbox-era transport stays on plain io/os.
+    local function stagingPath()
+      local dir = os.getenv("TEMP") or os.getenv("TMP")
+      if not dir or dir == "" then dir = os.getenv("TMPDIR") or "/tmp" end
+      local sep = dir:find("\\") and "\\" or "/"
+      return dir .. sep .. ("gen1recomp-post-%d.tmp"):format(
+        (os.time() % 1000000) * 100 + math.random(0, 99))
+    end
+    local bodyPath = stagingPath()
     local bodyFile, bodyOpenErr = io.open(bodyPath, "wb")
     if not bodyFile then
       pcall(os.remove, bodyPath)
