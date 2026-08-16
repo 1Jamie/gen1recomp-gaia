@@ -1074,11 +1074,12 @@ function World:load()
         save.pokedex = save.pokedex or { seen = {}, caught = {} }
         save.pokedex.seen[mon.species] = true
         save.pokedex.caught[mon.species] = true
-        -- AddPartyMon's `.registerunowndex` runs on the same path, so a gifted
-        -- Unown lands in the form list too (nothing in Gold gives one, but the
-        -- cart's check is on the species, not on where it came from).
+        -- AddPartyMon's `.registerunowndex` runs on the same path, so a
+        -- gifted Unown lands in the form list too (move_mon.asm:347).
         Unown.registerCatch(save, mon)
       end
+      -- engine/pokemon/move_mon.asm:1632-1645
+      return mon
     end,
     giveItem = function(itemIndex, qty)
       local data = self.game and self.game.data
@@ -2402,12 +2403,43 @@ function World:rollWild()
   return { species = def.index, level = roll.level }
 end
 
+-- GetMapMusic (home/map.asm:2550)
+function World.mapMusicLabel(audio, musicByte, rocketsMahogany, rocketsRadioTower)
+  if type(musicByte) ~= "number" then return nil end
+  local MUSIC_MAHOGANY_MART = 100 -- constants/music_constants.asm:100
+  local RADIO_TOWER_MUSIC = 0x80 -- constants/music_constants.asm:109
+  local order = audio and audio.musicOrder
+  local songs = audio and audio.songs
+  local label
+  if musicByte == MUSIC_MAHOGANY_MART then
+    label = rocketsMahogany and "Music_RocketHideout" or "Music_CherrygroveCity"
+  elseif musicByte >= RADIO_TOWER_MUSIC then
+    label = rocketsRadioTower and "Music_RocketTheme"
+      or (order and order[(musicByte - RADIO_TOWER_MUSIC) + 1])
+  else
+    return nil
+  end
+  if label and label ~= "Music_Nothing" and songs and songs[label] then
+    return label
+  end
+  return nil
+end
+
+function World:mapMusicSong(mapId)
+  local audio = self.game and self.game.data and self.game.data.audio
+  local def = self.maps and self.maps[mapId]
+  -- ENGINE_ROCKETS_IN_MAHOGANY / _RADIO_TOWER (data/events/engine_flags.asm:40,:36)
+  return World.mapMusicLabel(audio, def and def.music,
+    self:engineFlag(22), self:engineFlag(18))
+end
+
 function World:playMapMusic()
   local data = self.game and self.game.data
   if data and data.audio and data.audio.runtime and self.map then
     -- SpecialMapMusic (home/audio.asm:397)
     Music.playMap(data, self.map.id, nil,
-                  FieldMoves.isSurfing(self.playerState))
+                  FieldMoves.isSurfing(self.playerState), nil,
+                  self:mapMusicSong(self.map.id))
   end
 end
 
@@ -3255,7 +3287,8 @@ function World:surfStartStep(mon)
   if audio and audio.runtime and self.map then
     -- SpecialMapMusic (home/audio.asm:397)
     Music.playMap(self.game.data, self.map.id, nil,
-                  FieldMoves.isSurfing(self.playerState))
+                  FieldMoves.isSurfing(self.playerState), nil,
+                  self:mapMusicSong(self.map.id))
   end
   if p.scriptStep then p:scriptStep(p.facing) end
   self.fieldMove = { phase = "step" }
@@ -3565,7 +3598,7 @@ function World:rareWildMon()
   local entry = self.encounters and self.encounters.grass
     and map and self.encounters.grass[map.id]
   if not entry or not entry.slots then return nil end
-  local key = (self.daytime == "DARK") and "NITE" or (self.daytime or "DAY")
+  local key = self.tod or "DAY"
   local slots = entry.slots[key] or entry.slots.DAY
   if not slots then return nil end
   local rare = slots[4 + math.random(3)]
@@ -3958,7 +3991,7 @@ function World:rollEncounter(kind, terrain, tables, vanilla)
     -- Same guard World:rockRandom uses: a headless suite has no love global.
     rng = (love and love.math and love.math.random) or math.random,
     kind = kind,
-    daytime = self.daytime,
+    daytime = self.tod,
     environment = map and map.def and map.def.environment,
     tables = tables,
     data = self.game and self.game.data,
@@ -4021,7 +4054,8 @@ function World:tryWildEncounter()
   if onWater then
     rate = Encounter.waterRate(tables, map.id)
   else
-    rate = Encounter.grassRate(tables, map.id, self.daytime)
+    -- engine/overworld/wildmons.asm:283
+    rate = Encounter.grassRate(tables, map.id, self.tod)
   end
   -- ApplyMusicEffectOnEncounterRate runs first (wildmons.asm:213-215).
   rate = World.musicEncounterRate(rate, Music.mapSong())
@@ -4315,6 +4349,14 @@ function World:rollFishing(rod)
   -- the flag and nothing about the map changes.  Roamers.Swarm.fishing is the
   -- same store CheckSwarmFlag clears when the swarm expires.
   local swarm = Roamers.Swarm.fishing(game.save)
+  -- engine/events/fish.asm:24-30
+  local groupRow = self.encounters.fishGroups
+    and self.encounters.fishGroups[
+      Encounter.fishGroupFor(self.encounters, group, swarm)]
+  if groupRow and groupRow.chance
+      and not Encounter.triggers(groupRow.chance, nil) then
+    return "nibble"
+  end
   local roll
   if Runtime.wantsHook("encounter.fishing") then
     -- Gen 1's three arguments, in Gen 1's order: the rod, the map, and the
@@ -5100,7 +5142,7 @@ function World:sweetScentEncounter()
   local tables = self:wildTables()
   local onWater = FieldMoves.encounterTable(collision) == "water"
   local rate = onWater and Encounter.waterRate(tables, map.id)
-    or Encounter.grassRate(tables, map.id, self.daytime)
+    or Encounter.grassRate(tables, map.id, self.tod)
   if not (rate and rate > 0) then return false end
   -- CheckEncounterRoamMon, the first thing ChooseWildEncounter itself does:
   -- a beast REPLACES the map's own slot rather than adding to it.
@@ -5374,7 +5416,8 @@ function World:runSurf(result)
     if audio and audio.runtime and self.map then
       -- SpecialMapMusic (home/audio.asm:397)
       Music.playMap(self.game.data, self.map.id, nil,
-                    FieldMoves.isSurfing(self.playerState))
+                    FieldMoves.isSurfing(self.playerState), nil,
+                    self:mapMusicSong(self.map.id))
     end
     if self.player and self.player.scriptStep then
       self.player:scriptStep(self.player.facing)
@@ -5886,6 +5929,8 @@ function World:startBattle(opts, onDone)
       -- World:startCatchTutorial sets it.
       tutorial = opts.tutorial,
       onDone = function(outcome)
+        -- WildBattleScript's reloadmapafterbattle (engine/overworld/events.asm:1158-1162)
+        self.wildCooldown = 5
         self.battleActive = nil
         game.stack:pop()
         -- wBattleResult (constants/battle_constants.asm): WIN 0, LOSE 1, DRAW 2.
@@ -8540,7 +8585,8 @@ function World:setMap(mapId, cx, cy, facing, opts)
   if audio and audio.runtime then
     if not (FieldMoves.isBiking(self.playerState) and self:playBikeMusic()) then
       Music.playMap(self.game.data, mapId, nil,
-                    FieldMoves.isSurfing(self.playerState))
+                    FieldMoves.isSurfing(self.playerState), nil,
+                    self:mapMusicSong(mapId))
     end
   end
   -- Fires with the map fully built and BEFORE the map's own scene script, so a
@@ -8928,7 +8974,8 @@ function World:movePlayer(dir)
       local audio = self.game and self.game.data and self.game.data.audio
       if audio and audio.runtime then
         Music.playMap(self.game.data, map.id, nil,
-                      FieldMoves.isSurfing(self.playerState))
+                      FieldMoves.isSurfing(self.playerState), nil,
+                      self:mapMusicSong(map.id))
       end
     end
   end

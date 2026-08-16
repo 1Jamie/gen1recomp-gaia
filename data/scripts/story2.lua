@@ -87,6 +87,18 @@ end
 M.PALLET_TOWN = {
   talk = require("data.scripts.pallet_town").talk,
   escort = escort,
+  -- scripts/PalletTown.asm:133-144
+  onEnter = function(game, ow)
+    local f = game.save.flags
+    if f.EVENT_GOT_TOWN_MAP and f.EVENT_ENTERED_BLUES_HOUSE
+       and not f.EVENT_DAISY_WALKING then
+      f.EVENT_DAISY_WALKING = true
+      local Commands = require("src.script.Commands")
+      local ctx = { save = game.save, game = game, overworld = ow }
+      Commands.hide_object(ctx, "BLUES_HOUSE", "BLUESHOUSE_DAISY1")
+      Commands.show_object(ctx, "BLUES_HOUSE", "BLUESHOUSE_DAISY2")
+    end
+  end,
   -- Red: stop at y==1 from (8,5).  Yellow: stop at y==0 from (10,4),
   -- then a wild Pikachu battle before the lab escort (pokeyellow
   -- PalletTownPikachuBattleScript).

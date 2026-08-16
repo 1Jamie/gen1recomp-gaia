@@ -3559,6 +3559,7 @@ runSuites({
   "tests/gen2_hof_continue_test.lua",
   "tests/gen2_pokecenter_stairs_test.lua",
   "tests/gen2_canlose_test.lua",
+  "tests/gen2_wild_cooldown_bug1229_test.lua",
   "tests/gen2_pc_screens_test.lua",
   "tests/gen2_badge_boosts_test.lua",
   "tests/gen2_held_items_test.lua",

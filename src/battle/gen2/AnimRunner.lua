@@ -192,14 +192,8 @@ function Runner:loadGfx(names)
   end
 end
 
--- BattleAnimCmd_BattlerGFX_1Row / _2Row.  The battlers' pic tiles are
--- APPENDED after whatever the script already loaded rather than replacing it,
--- and they always land on the same two fixed tile ids.
---
--- (pokegold's jumptable has these two labels the other way round from the
--- macro names -- $d9 dispatches to BattleAnimCmd_BattlerGFX_1Row while
--- anim_battlergfx_2row is $d9 -- so the names below follow the MACRO, which
--- is what a script actually writes.)
+-- engine/battle_anims/anim_commands.asm:755.  The jumptable crosses the macro
+-- names: $d9 (anim_battlergfx_2row) dispatches to _1Row (#1401)
 function Runner:loadBattlerGfx(rows)
   local tiles = rows == 2 and BATTLER_TILES.twoRow or BATTLER_TILES.oneRow
   local slot = 1
@@ -210,11 +204,11 @@ function Runner:loadBattlerGfx(rows)
   self.tileDict[slot] = { gfx = "BATTLE_ANIM_GFX_PLAYERHEAD", tile = tiles.player }
   self.tileDict[slot + 1] = { gfx = "BATTLE_ANIM_GFX_ENEMYFEET", tile = tiles.enemy }
   self.loaded[#self.loaded + 1] =
-    { gfx = "BATTLE_ANIM_GFX_PLAYERHEAD", tile = tiles.player, tiles = rows * 6,
-      battler = "player", rows = rows }
-  self.loaded[#self.loaded + 1] =
-    { gfx = "BATTLE_ANIM_GFX_ENEMYFEET", tile = tiles.enemy, tiles = rows * 7,
+    { gfx = "BATTLE_ANIM_GFX_PLAYERHEAD", tile = tiles.player, tiles = rows * 7,
       battler = "enemy", rows = rows }
+  self.loaded[#self.loaded + 1] =
+    { gfx = "BATTLE_ANIM_GFX_ENEMYFEET", tile = tiles.enemy, tiles = rows * 6,
+      battler = "player", rows = rows }
 end
 
 --------------------------------------------------------------------------

@@ -387,9 +387,9 @@ end
 
 -- overworld map theme; onBike/surfing override outdoor themes with the
 -- bike/surf songs and restore the map theme when they end
-function Music.playMap(data, mapId, onBike, surfing, fade)
-  local song = data and data.audio and data.audio.mapSongs
-    and mapId and data.audio.mapSongs[mapId] or nil
+function Music.playMap(data, mapId, onBike, surfing, fade, song)
+  song = song or (data and data.audio and data.audio.mapSongs
+    and mapId and data.audio.mapSongs[mapId]) or nil
   state.mapSong = song
   state.onBike = not not onBike
   state.surfing = not not surfing

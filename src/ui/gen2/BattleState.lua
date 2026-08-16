@@ -49,6 +49,9 @@ BattleState.isOpaque = true
 -- the victory jingle can keep looping through the post-win prompts.
 local MESSAGE_FRAMES = 48
 
+-- engine/battle/effect_commands.asm:6661
+local MOVE_DELAY_FRAMES = 40
+
 -- home/hm_moves.asm:17-25 IsHMMove's .HMMoves.
 local HM_MOVES = {
   CUT = true, FLY = true, SURF = true, STRENGTH = true, FLASH = true,
@@ -239,15 +242,8 @@ function BattleState.new(game, opts)
   self.menuIndex = 1
   self.moveIndex = 1
   self.picCache = {}
-  -- Which side's pic box the tilemap has been left EMPTY in.  BattleBGEffect_
-  -- ReturnMon's last row (what swallows a mon into a thrown ball) and
-  -- MonFaintedAnimation both clear the box and neither puts anything back: it
-  -- stays blank until something DRAWS a pic into it, which on the cart is only
-  -- ever a send-out (ShowSetEnemyMonAndSendOutAnimation / SendOutPlayerMon).
-  -- Without this latch the pic came back the instant the animation let go of
-  -- the screen, so a caught mon stood there through "Gotcha!" and a fainted one
-  -- popped back up for its own faint line.  See stepAnim for why it is latched
-  -- at those two moments rather than off the runner's own last frame.
+  -- Which side's pic box stays EMPTY until a send-out redraws it: a catch
+  -- latches from stepAnim (data/moves/animations.asm:379), a faint from the slide.
   self.picHidden = { player = false, enemy = false }
   -- engine/battle/sliding_intro.asm: 72 frames of the two halves sliding in
   -- from opposite sides before the first message.
@@ -1050,10 +1046,10 @@ function BattleState:afterAnimFor(side)
   return "ANIM_PLAYER_DAMAGE"
 end
 
-function BattleState:animForMove(moveId, side)
+function BattleState:animForMove(moveId, side, param)
   local key = self.anims and self.anims.moves and self.anims.moves[moveId]
   local started = self:startAnim(key, {
-    turn = self:turnFor(side), animId = moveId, isMove = true,
+    turn = self:turnFor(side), animId = moveId, isMove = true, param = param,
   })
   if started then
     -- BattleAnimRunScript (anim_commands.asm:55-72): after the move script
@@ -1091,14 +1087,22 @@ function BattleState:animForId(idName, side, param)
   })
 end
 
+-- data/moves/animations.asm:379
+function BattleState:latchCaughtPic()
+  local anim = self.anim
+  if anim and anim.animId == "ANIM_THROW_POKE_BALL"
+      and self.ballThrow and self.ballThrow.caught then
+    self.picHidden.enemy = true
+  end
+end
+
 -- One logic frame of a running animation.  B cuts it short, the way holding B
 -- pages a text box.
 function BattleState:stepAnim(input)
   if not self.anim then return end
   if input and (input:wasPressed("b") or input:wasPressed("start")) then
-    -- Cut short: the BG effects never reached their own last step, so the
-    -- tilemap is whatever they had got to and nothing is latched -- the
-    -- explicit latches (a catch) are the only ones that survive a skip.
+    -- Cut short: only the explicit latches (a caught mon) survive a skip.
+    self:latchCaughtPic()
     self.anim = nil
     -- Cart still reaches the after-anim arm after a move script ends; a skip
     -- of the move should not drop the hit shake that follows it.
@@ -1106,6 +1110,7 @@ function BattleState:stepAnim(input)
     return self:endSendOutAnim()
   end
   if not self.anim:step() then
+    self:latchCaughtPic()
     -- pokegold data/moves/animations.asm .Click: anim_keepsprites means
     -- the OAM outlives the script, so keep the runner for drawing too.
     if not self.anim.keepSprites then self.anim = nil end
@@ -1391,16 +1396,14 @@ function BattleState:advanceQueue()
   end
   if event.text then
     self.message = event.text
-    -- Lines that must not hold the queue for A/B:
-    --   move   UsedMoveText -> text_end, then moveanim
-    --   level  GrewToLevel is text_end (battle.asm:336-343), then the stats
-    --          box's WaitPressAorB is the real hold
-    -- experience keeps the wait: _ExpPointsText ends in `prompt`
-    -- (common_1.asm:1660-1665).  update() runs stepExpAnim before that wait,
-    -- so the bar crawls under the line and A dismisses it before the battle
-    -- can end.
+    -- move/level lines do not hold for A/B (battle.asm:336-343); experience
+    -- keeps the wait (common_1.asm:1660-1665).
     if event.kind == "move" or event.kind == "level" then
       self.messageTimer = 0
+      -- engine/battle/effect_commands.asm:1958-1961
+      if event.kind == "move" and event.missed then
+        self.messageDelay = MOVE_DELAY_FRAMES
+      end
     else
       self.messageTimer = MESSAGE_FRAMES
     end
@@ -1422,17 +1425,12 @@ function BattleState:advanceQueue()
       if event.waitSfx then self.waitSfx = event.sfx end
     end
   end
-  -- The move's own animation plays over its "used X!" line, which is where
-  -- PlayBattleAnim sits in the effect command list.  Its after-anim (the hit
-  -- shake) is chained by animForMove / stepAnim, matching BattleAnimRunScript.
-  -- BattleCommand_MoveAnimNoSub (engine/battle/effect_commands.asm:1958) opens
-  -- with `ld a, [wAttackMissed] / and a / jp nz, BattleCommand_MoveDelay`: a
-  -- move that missed burns the delay and plays nothing.  Battle:markMissed sets
-  -- event.missed on every wAttackMissed path.
+  -- engine/battle/effect_commands.asm:1958: a missed move burns the delay
+  -- and plays nothing; the after-anim chain is animForMove / stepAnim's.
   if event.kind == "move" and not event.missed then
     self.afterAnimPlayed = nil
     self.pendingAfterAnim = nil
-    if not self:animForMove(event.move, event.side) then
+    if not self:animForMove(event.move, event.side, event.animParam) then
       -- BATTLE SCENE off skips the move script but still runs wBattleAfterAnim
       -- (anim_commands.asm:55-72 .disabled fallthrough).
       local options = self.game and self.game.options
@@ -1854,6 +1852,11 @@ function BattleState:update(_dt)
     -- (core.asm:6881-6888), with that line still on screen.  Run the crawl
     -- before any PromptButton wait so the bar does not sit frozen until A.
     if self:stepExpAnim() then return end
+    -- engine/battle/effect_commands.asm:6661
+    if (self.messageDelay or 0) > 0 then
+      self.messageDelay = self.messageDelay - 1
+      return
+    end
     if self.messageTimer > 0 then
       if self.tutorial then
         -- PromptButton waits for the button; the tutorial cannot press it, so
@@ -2463,14 +2466,6 @@ function BattleState:pushCaught(enemy, itemId)
   local save = self.save
   self.battle.over = true
   self.battle.outcome = "caught"
-  -- The mon is INSIDE the ball from here on.  BattleAnim_ThrowPokeBall's caught
-  -- arm ends on the return-mon BG effect, which leaves the enemy pic box
-  -- cleared, and PokeBallEffect never draws a frontpic again -- there is no
-  -- send-out left in a battle that is already over.  Latched here as well as
-  -- from the animation's own last step so that a throw the player skipped with
-  -- B (BattleAnimRunScript has no such skip; this port does) cannot put the
-  -- caught mon back on the field for the "Gotcha!" line.
-  self.picHidden.enemy = true
   -- PokeBallEffect's FRIEND_BALL arm: the caught mon's happiness is set to
   -- FRIEND_BALL_HAPPINESS (200) instead of the base 70.  That is the ball's
   -- whole effect; its catch rate is a plain ball's.  It applies on the box
@@ -2932,6 +2927,7 @@ function BattleState:useItem(itemId)
     -- wThrownBallWobbleCount 0, then `predef PlayBattleAnim`.  Everything
     -- pushed above is drained only once the ball has finished wobbling.
     self:startBallAnim(self:ballAnimParam(itemId), itemId)
+    if caught and not self.anim then self.picHidden.enemy = true end
     self.message = nil
     self.messageTimer = 0
     self.phase = "resolving"
