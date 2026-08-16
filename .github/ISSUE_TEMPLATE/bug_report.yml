@@ -37,12 +37,16 @@ body:
     id: os
     attributes:
       label: Which build are you running
+      description: Official release targets. Pick Multiple platforms if you saw it on more than one.
       options:
         - macOS
         - Windows
         - Linux
         - Android
         - iOS
+        - Nintendo Switch
+        - Xbox
+        - Anbernic RG34XXSP
         - Multiple platforms
     validations:
       required: true
