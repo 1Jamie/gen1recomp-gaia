@@ -742,6 +742,76 @@ public class GameActivity extends SDLActivity {
     }
 
     /**
+     * Blocking HTTPS POST, exposed as love.system.httpPost and used by
+     * src/core/HostShell.lua for mod.postLog. The GET bridge above covers
+     * downloads; log sends need POST, and Android ships no curl, so this is
+     * the only POST transport the platform has. Strictly one-way, matching
+     * the curl branch it mirrors: the response body is drained and
+     * discarded, and only the 2xx verdict comes back.
+     *
+     * Same rules as httpDownload: https only, redirects followed by hand
+     * (re-POSTing the body on each hop, the way curl -X POST behaves), and
+     * the call is blocking on the Lua/worker thread -- never the UI thread.
+     * The body arrives as raw bytes (a jbyteArray across the JNI) because a
+     * log ring can carry arbitrary UTF-8; a String would risk modified-UTF-8
+     * corruption on characters outside the BMP.
+     */
+    @Keep
+    public static boolean httpPost(String url, byte[] body, String contentType, String userAgent) {
+        if (url == null || body == null) return false;
+        HttpURLConnection conn = null;
+        try {
+            String current = url;
+            for (int hop = 0; hop < 5; hop++) {
+                URL parsed = new URL(current);
+                if (!"https".equalsIgnoreCase(parsed.getProtocol())) return false;
+                conn = (HttpURLConnection) parsed.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("User-Agent",
+                    userAgent == null ? "gen1recomp" : userAgent);
+                conn.setRequestProperty("Content-Type",
+                    contentType == null ? "text/plain" : contentType);
+                OutputStream out = new BufferedOutputStream(conn.getOutputStream());
+                try {
+                    out.write(body);
+                } finally {
+                    try { out.close(); } catch (IOException ignored) {}
+                }
+                int code = conn.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                    String next = conn.getHeaderField("Location");
+                    conn.disconnect();
+                    conn = null;
+                    if (next == null) return false;
+                    current = new URL(parsed, next).toString();
+                    continue;
+                }
+                if (code < 200 || code > 299) return false;
+                // drain and discard, so a slow server cannot wedge the
+                // worker on a full socket buffer
+                InputStream in = new BufferedInputStream(conn.getInputStream());
+                try {
+                    byte[] buf = new byte[16384];
+                    while (in.read(buf) > 0) {}
+                } finally {
+                    try { in.close(); } catch (IOException ignored) {}
+                }
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            Log.d("GameActivity", "httpPost failed: " + e.getMessage());
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    /**
      * Shows ACTION_CREATE_DOCUMENT so the player can save a staged export
      * (pending_export.sav in the app save identity) to Downloads / Drive /
      * etc. Suggested name is the dialog's default filename.

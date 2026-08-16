@@ -99,6 +99,14 @@ bool restartApp();
 bool httpDownload(const char *url, const char *destPath, const char *userAgent, const char *accept);
 
 /**
+ * Blocking HTTPS POST of a raw byte body (GameActivity.httpPost). The
+ * mirror of httpDownload for mod.postLog log sends, which need POST and
+ * have no curl on Android. contentType / userAgent may be null. Returns
+ * whether the server accepted the send (2xx).
+ **/
+bool httpPost(const char *url, const char *body, int bodyLen, const char *contentType, const char *userAgent);
+
+/**
  * TLS client sockets (GameActivity.tls*, implemented by TlsSocket.java).
  * LuaSocket, which is what LOVE ships, does TCP only, so wss:// is otherwise
  * unreachable -- and an Archipelago room hosted on archipelago.gg accepts a
