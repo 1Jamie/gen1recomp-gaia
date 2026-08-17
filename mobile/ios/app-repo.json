@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.1.99",
+          "date": "2026-08-17",
+          "size": 11391467,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.1.99/gen1recomp++-0.1.99-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #597 Pulling mod index fails on Android\n- #1403 Save editor not allowing moves to go past ZAP_CANNON\n\n## Contributors\n\n- @1Jamie\n- @AverageConsumer\n- @bryanthaboi\n- @emre155\n- @sanjinpepic\n- @ShaneMcGovernIE\n- @syybott\n- @thibautbus"
+        },
+        {
           "version": "0.1.98",
           "date": "2026-08-16",
           "size": 11380117,
