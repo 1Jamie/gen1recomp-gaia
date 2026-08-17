@@ -44,6 +44,12 @@ local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
 
+function BattleState:moveGridNavigation()
+  if not Runtime.wantsHook("battle.move_grid_navigation") then return false end
+  return Runtime.call("battle.move_grid_navigation", function() return false end,
+                      self) == true
+end
+
 -- Armed while a battle line waits for PromptButton (home/text.asm).  Any
 -- positive value means "hold until A/B"; the cart never times these out, so
 -- the victory jingle can keep looping through the post-win prompts.
@@ -2043,7 +2049,22 @@ function BattleState:update(_dt)
 
   if self.phase == "moves" then
     local moves = self:playerMoves()
-    if input:wasPressed("up") then
+    local grid
+    if self:moveGridNavigation() then
+      local index, count = self.moveIndex, #moves
+      if input:wasPressed("left") or input:wasPressed("right") then
+        local other = math.floor((index - 1) / 2) * 2
+          + (1 - (index - 1) % 2) + 1
+        grid = other <= count and other or index
+      elseif input:wasPressed("up") or input:wasPressed("down") then
+        local other = (1 - math.floor((index - 1) / 2)) * 2
+          + (index - 1) % 2 + 1
+        grid = other <= count and other or index
+      end
+    end
+    if grid then
+      self.moveIndex = grid
+    elseif input:wasPressed("up") then
       self.moveIndex = self.moveIndex > 1 and self.moveIndex - 1 or #moves
     elseif input:wasPressed("down") then
       self.moveIndex = self.moveIndex < #moves and self.moveIndex + 1 or 1
