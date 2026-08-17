@@ -421,6 +421,7 @@ local GEN2_HOOKS = {
   -- nextFn gets nil there).
   "battle.catch_exp", "battle.low_health_alarm", "battle.overlay",
   "battle.bottom_ui_visible", "battle.status_hud_visible",
+  "battle.move_grid_navigation",
   -- One pic path resolver for both games: the Gen 1 site is the SHARED
   -- src/pokemon/Sprites.lua and Gold's own battle screen calls the same hook
   -- with the Gen 1 ctx keys plus `letter` and `shiny`, which Red has no

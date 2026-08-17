@@ -540,8 +540,9 @@ gains a field instead of the name gaining a prefix.
   `battle.crit`, `battle.accuracy`, `battle.turn_order`,
   `battle.enemy_action`, `battle.run`, `battle.exp_award`, `exp.gain`,
   `catch.rate`, `trainer.party`, `battle.overlay`, `battle.low_health_alarm`,
-  `battle.catch_exp`, `battle.bottom_ui_visible` and
-  `battle.status_hud_visible`. One payload difference: Gen 1's vanilla
+  `battle.catch_exp`, `battle.bottom_ui_visible`,
+  `battle.status_hud_visible` and `battle.move_grid_navigation`. One payload
+  difference: Gen 1's vanilla
   `battle.low_health_alarm` link reads `ctx.battle.data`, and Gold's battle
   screen has no `.data` field, so the Gen 2 site **adds** `ctx.data` beside the
   Gen 1 keys. A mod that calls `nextFn` is unaffected; one that reaches through
