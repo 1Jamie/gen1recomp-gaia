@@ -2945,6 +2945,37 @@ function BattleState:openDexEntry(species)
   })
 end
 
+function BattleState:catchOptions(itemId)
+  local data = self.game and self.game.data or {}
+  local battle = self.battle
+  local enemy = battle and battle.enemy
+  if not enemy then return nil end
+  local enemyDef = data.pokemon and data.pokemon[enemy.species]
+  local dexEntry = data.gen2Pokedex and data.gen2Pokedex[enemy.species]
+  local evolveItem
+  for _, entry in ipairs((enemyDef and enemyDef.evolutions) or {}) do
+    if entry.method == "EVOLVE_ITEM" then evolveItem = entry.item end
+  end
+  local player = battle.player
+  return {
+    battle = battle, mon = enemy, def = enemyDef,
+    maxHp = enemy.maxHp or (enemy.stats and enemy.stats.hp), hp = enemy.hp,
+    catchRate = enemyDef and enemyDef.catchRate or 45, ball = itemId,
+    status = enemy.status, random = battle.random,
+    weight = dexEntry and dexEntry.weight, level = enemy.level,
+    playerLevel = player and player.level,
+    fishing = battle.battleType == "fish", species = enemy.species,
+    gender = enemy.gender, playerSpecies = player and player.species,
+    playerGender = player and player.gender, evolveItem = evolveItem,
+  }
+end
+
+function BattleState:catchChance(itemId)
+  if self.tutorial then return 100 end
+  local opts = self:catchOptions(itemId)
+  return opts and Catching.chance(opts) or nil
+end
+
 -- Items in battle: balls try a catch, the stat items apply their stage, and
 -- everything with a ported party effect runs the same item_effects.asm routine
 -- the field pack runs.  Anything else reports that it cannot be used, which is
@@ -2974,7 +3005,6 @@ function BattleState:useItem(itemId)
       return
     end
     local enemy = self.battle.enemy
-    local enemyDef = data.pokemon and data.pokemon[enemy.species]
     local caught, rate
     if self.tutorial then
       -- `ld a, [wBattleType] / cp BATTLETYPE_TUTORIAL /
@@ -2988,35 +3018,8 @@ function BattleState:useItem(itemId)
       caught, rate = true, 255
     else
       -- The specialty-ball conditions (BallMultiplierFunctionTable): each one
-      -- is something this screen already knows.  Heavy Ball reads the dex
-      -- weight, Moon Ball the species' stone row, Love Ball both genders,
-      -- Level Ball the two levels, Lure Ball wBattleType.
-      local dexEntry = data.gen2Pokedex and data.gen2Pokedex[enemy.species]
-      local evolveItem
-      for _, entry in ipairs((enemyDef and enemyDef.evolutions) or {}) do
-        if entry.method == "EVOLVE_ITEM" then evolveItem = entry.item end
-      end
-      local player = self.battle.player
-      caught, rate = Catching.attempt({
-        battle = self.battle,
-        mon = enemy,
-        def = enemyDef,
-        maxHp = enemy.maxHp or (enemy.stats and enemy.stats.hp),
-        hp = enemy.hp,
-        catchRate = enemyDef and enemyDef.catchRate or 45,
-        ball = itemId,
-        status = enemy.status,
-        random = self.battle.random,
-        weight = dexEntry and dexEntry.weight,
-        level = enemy.level,
-        playerLevel = player and player.level,
-        fishing = self.battle.battleType == "fish",
-        species = enemy.species,
-        gender = enemy.gender,
-        playerSpecies = player and player.species,
-        playerGender = player and player.gender,
-        evolveItem = evolveItem,
-      })
+      -- is also used by the read-only preview, so both paths stay exact.
+      caught, rate = Catching.attempt(self:catchOptions(itemId))
     end
     -- wWildMon carries the answer through the animation, and
     -- wThrownBallWobbleCount is the counter GetPokeBallWobble bumps once per
