@@ -85,13 +85,25 @@ local BLOCKED_LOVE = {
 
 -- Per-mod, because the compat overrides (src/mods/LegacyCompat.lua) are backed
 -- by that mod's own overlay and must not be shared.
-local function loveFacade(compat)
+local function loveFacade(compat, permissions)
   if not _G.love then return nil end
   local overrides = compat and compat.love
   return setmetatable({}, {
     __index = function(_, key)
       local override = overrides and overrides[key]
       if override ~= nil then return override end
+      if key == "thread" then
+        -- Threads open a fresh Lua state with a full standard library, so
+        -- they stay blocked unless the mod declares the `compute`
+        -- permission (the mod's own source runs in the worker, and the
+        -- worker ships source-only like every other mod file). The mod
+        -- must never receive arbitrary code from elsewhere: channels
+        -- carry data only.
+        if not (permissions or {}).compute then
+          error('love.thread needs the "compute" permission in manifest.json', 2)
+        end
+        return _G.love.thread
+      end
       local hint = BLOCKED_LOVE[key]
       if hint then
         error(("love.%s is not available to mods%s"):format(key,
@@ -221,7 +233,7 @@ function Sandbox.envFor(opts)
   opts = opts or {}
   local compat = opts.compat
   local env = baseGlobals()
-  env.love = loveFacade(compat)
+  env.love = loveFacade(compat, opts.permissions)
   env.require = sandboxedRequire(opts.modId, opts.permissions, compat)
   local loader = sandboxedLoad(env)
   env.load = loader
