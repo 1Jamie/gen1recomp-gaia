@@ -34,6 +34,7 @@ local Font = require("src.render.Font")
 -- a mod has taken a facade (src/mods/Gen2Compat.lua).
 local Gen1Facade = require("src.mods.Gen2Compat")
 local GbcPalette = require("src.render.GbcPalette")
+local GameViewport = require("src.render.GameViewport")
 local Gen2Save = require("src.core.gen2.Save")
 local HallOfFame = require("src.core.gen2.HallOfFame")
 local HiddenItems = require("src.world.gen2.HiddenItems")
@@ -65,49 +66,25 @@ local Vm = require("src.script.gen2.Vm")
 local Zoom = require("src.render.Zoom")
 
 -- SFX_* indices from audio/sfx_pointers.asm (constants.sfxOrder).
-local SFX_ITEM = 1
--- Script_specialsound (engine/overworld/scripting.asm:476) is not a fixed cue:
--- it farcalls CheckItemPocket over wCurItem and rings SFX_GET_TM for the TM/HM
--- pocket, SFX_ITEM for every other one.  That is the sound inside GiveItemScript,
--- so it is what every `verbosegiveitem` plays.
-local SFX_GET_TM = 0x9b
--- SFX_READ_TEXT_2, the blip PlayTalkObject opens every bg event read on
--- (engine/overworld/events.asm).
-local SFX_READ_TEXT_2 = 8
--- SFX_SECOND_PART_OF_ITEMFINDER, the ding the heal machine rings as each
--- ball lands on it (engine/events/heal_machine_anim.asm .party_loop).  Gen 2
--- has no SFX_HEAL_MACHINE: the rising chime over the flashing is MUSIC_HEAL,
--- a song, not an sfx.
-local SFX_SECOND_PART_OF_ITEMFINDER = 0x12
--- .HOF_PlaySFX's pair: the Game Freak chime over the Hall of Fame machine's
--- flashing, then SFX_BOOT_PC as it settles.
-local SFX_GAME_FREAK_LOGO_GS = 0xaa
-local SFX_BOOT_PC = 0x0d
--- SFX_SANDSTORM, the rattle ShakeHeadbuttTree plays over a shaking tree
--- (engine/events/field_moves.asm, right after its WaitSFX).
-local SFX_SANDSTORM = 0x6d
--- The field moves' own sounds, by their index in sfxOrder:
---   SFX_STRENGTH               MovementFunction_Strength, as the boulder goes
---   SFX_PLACE_PUZZLE_PIECE_DOWN OWCutAnimation, the snip
---   SFX_SURF                   PlayWhirlpoolSound, which is a bare SFX_SURF
---   SFX_BUBBLEBEAM             Script_UsedWaterfall's playsound
---   SFX_FLASH                  UseFlashTextScript's text_asm
-local SFX_STRENGTH = 27
-local SFX_PLACE_PUZZLE_PIECE_DOWN = 30
-local SFX_BUBBLEBEAM = 81
-local SFX_SURF = 83
-local SFX_FLASH = 169
--- EMOTE_SHOCK, emote 0 in constants/script_constants.asm.  Script_FishCastRod
--- loads it over EMOTE_ROD, so the bubble that pops on a bite is the shock one.
+local SFX = {
+  ITEM = 1,
+  GET_TM = 0x9b,
+  READ_TEXT_2 = 8,
+  SECOND_PART_OF_ITEMFINDER = 0x12,
+  GAME_FREAK_LOGO_GS = 0xaa,
+  BOOT_PC = 0x0d,
+  SANDSTORM = 0x6d,
+  STRENGTH = 27,
+  PLACE_PUZZLE_PIECE_DOWN = 30,
+  BUBBLEBEAM = 81,
+  SURF = 83,
+  FLASH = 169,
+  ENTER_DOOR = 31,
+  WARP_TO = 19,
+  EXIT_BUILDING = 35,
+  JUMP_OVER_LEDGE = 0x16,
+}
 local EMOTE_SHOCK = 0
--- GetWarpSFX (home/map.asm) picks one of three by the tile the player is
--- standing on when the warp is taken; these are their sfxOrder indices in this
--- cache (Sfx_EnterDoor, Sfx_WarpTo, Sfx_ExitBuilding), resolved by NAME at the
--- call site so a cache with a different table still finds them.
-local SFX_ENTER_DOOR = 31
-local SFX_WARP_TO = 19
-local SFX_EXIT_BUILDING = 35
-local SFX_JUMP_OVER_LEDGE = 0x16
 
 local World = {}
 World.__index = World
@@ -116,134 +93,81 @@ World.__index = World
 local DIR_CONN = { up = "north", down = "south", left = "west", right = "east" }
 local FACING_ID = { down = 0, up = 1, left = 2, right = 3 }
 local NEIGHBOR_HOPS = 2
--- constants/script_constants.asm
-local VAR_FACING = 0x09
--- VAR_WEEKDAY, whose .DayOfWeek arm is `call GetWeekday` -> wCurDay.  39 of the
--- 40 `readvar` sites reachable from a map callback are this one: it is what
--- decides which of the seven travelling siblings is standing on their route,
--- which haircut brother is in, and which day the Goldenrod underground
--- MAPCALLBACK_OBJECTS lets through.
-local VAR_WEEKDAY = 0x0b
--- VAR_BATTLETYPE, the one VAR_* slot a script writes that anything reads back:
--- `writevar VAR_BATTLETYPE / loadvar BATTLETYPE_FORCEITEM` is what makes Lugia,
--- Ho-Oh and the Red Gyarados hold their item, FORCESHINY what makes the
--- Gyarados red, and CANLOSE what lets the Cherrygrove rival beat you.
-local VAR_BATTLETYPE = 0x03
--- constants/battle_constants.asm BATTLETYPE_FORCEITEM: InitEnemyMon's
--- `.WildItem` reads wBaseItem1 unconditionally for this type instead of
--- rolling the ordinary 25%/8% chance, which is how Ho-Oh's SACRED_ASH (and
--- Lugia's, and the Red Gyarados' held item) is guaranteed rather than random.
-local BATTLETYPE_FORCEITEM = 10
--- constants/battle_constants.asm BATTLETYPE_FORCESHINY: the Lake of Rage
--- Gyarados.  InitEnemyMon's `.NotRoaming` arm (engine/battle/core.asm:5876)
--- swaps the rolled DVs for ATKDEFDV_SHINY $EA / SPDSPCDV_SHINY $AA, and
--- TryToRunAwayFromBattle refuses to run for this type, which the battle
--- reads off opts.battleType.
-local BATTLETYPE_FORCESHINY = 7
--- constants/battle_constants.asm BATTLETYPE_CANLOSE: the Cherrygrove rival's
--- three arms are the only `loadvar VAR_BATTLETYPE, BATTLETYPE_CANLOSE` in the
--- game.  LostBattle (engine/battle/core.asm) answers this type by sliding the
--- winner's pic in and printing the loss text, then RETURNS -- no grayscale, no
--- whiteout -- and the script that armed it follows `startbattle` with a bare
--- `reloadmap`, never `reloadmapafterbattle`, so Script_BattleWhiteout is
--- unreachable from this battle on either path.
-local BATTLETYPE_CANLOSE = 1
-local VAR_PARTYCOUNT = 0x01
-local VAR_BATTLERESULT = 0x02
-local VAR_TIMEOFDAY = 0x04
-local VAR_DEXCAUGHT = 0x05
-local VAR_DEXSEEN = 0x06
-local VAR_BADGES = 0x07
-local VAR_MOVEMENT = 0x08
-local VAR_HOUR = 0x0a
-local VAR_MAPGROUP = 0x0c
-local VAR_MAPNUMBER = 0x0d
-local VAR_UNOWNCOUNT = 0x0e
-local VAR_ENVIRONMENT = 0x0f
-local VAR_BOXSPACE = 0x10
-local VAR_CONTESTMINUTES = 0x11
-local VAR_XCOORD = 0x12
-local VAR_YCOORD = 0x13
-local VAR_SPECIALPHONECALL = 0x14
 
--- wPlayerState (constants/ram_constants.asm) as VAR_MOVEMENT reads it raw:
--- NORMAL 0, BIKE 1, SKATE 2, SURF 4, SURF_PIKA 8.  FieldMoves only models the
--- four states the port can actually enter; PLAYER_SKATE is written by nothing
--- in Gold.
-local PLAYER_STATE_ID = {
-  [FieldMoves.PLAYER_NORMAL] = 0,
-  [FieldMoves.PLAYER_BIKE] = 1,
-  [FieldMoves.PLAYER_SURF] = 4,
-  [FieldMoves.PLAYER_SURF_PIKA] = 8,
+local VAR = {
+  PARTYCOUNT = 0x01,
+  BATTLERESULT = 0x02,
+  BATTLETYPE = 0x03,
+  TIMEOFDAY = 0x04,
+  DEXCAUGHT = 0x05,
+  DEXSEEN = 0x06,
+  BADGES = 0x07,
+  MOVEMENT = 0x08,
+  FACING = 0x09,
+  HOUR = 0x0a,
+  WEEKDAY = 0x0b,
+  MAPGROUP = 0x0c,
+  MAPNUMBER = 0x0d,
+  UNOWNCOUNT = 0x0e,
+  ENVIRONMENT = 0x0f,
+  BOXSPACE = 0x10,
+  CONTESTMINUTES = 0x11,
+  XCOORD = 0x12,
+  YCOORD = 0x13,
+  SPECIALPHONECALL = 0x14,
 }
 
--- The same table backwards, for `loadvar VAR_MOVEMENT, PLAYER_BIKE`: the mount
--- and the dismount are a variable write on the cart, so writeVar has to be
--- able to turn one back into a state name.
-local PLAYER_STATE_BY_ID = {}
-for state, id in pairs(PLAYER_STATE_ID) do PLAYER_STATE_BY_ID[id] = state end
+local BATTLETYPE = {
+  CANLOSE = 1,
+  FORCESHINY = 7,
+  FORCEITEM = 10,
+}
 
 -- constants/collision_constants.asm, for GetWarpSFX below.
-local COLL_DOOR = 0x71
-local COLL_WARP_PANEL = 0x7c
+local COLL = {
+  DOOR = 0x71,
+  WARP_PANEL = 0x7c,
+}
 
--- constants/sprite_constants.asm: wVariableSprites is indexed from SPRITE_VARS,
--- so an object whose `sprite` is one of $f0..$fc names a SLOT rather than a
--- sheet and only `variablesprite` can say what stands there.
-local SPRITE_VARS = 0xf0
+local SPRITE = {
+  VARS = 0xf0,
+  DAY_CARE_MON_1 = 0xe0,
+  DAY_CARE_MON_2 = 0xe1,
+}
 
--- constants/sprite_constants.asm:143-145.  Neither byte names a sheet: GetMonSprite
--- (engine/overworld/overworld.asm:279-305) tests them BEFORE the SPRITE_VARS
--- range and answers with LoadOverworldMonIcon of wBreedMon1Species /
--- wBreedMon2Species, i.e. the deposited mon's own party-menu icon.  Route 34's
--- two yard objects carry them.
-local SPRITE_DAY_CARE_MON_1 = 0xe0
-local SPRITE_DAY_CARE_MON_2 = 0xe1
+local ENGINE = {
+  DAY_CARE_MAN_HAS_EGG = 5,
+  DAY_CARE_MAN_HAS_MON = 6,
+  DAY_CARE_LADY_HAS_MON = 7,
+}
 
--- constants/engine_flags.asm, const_def, with the five-wide pokegear block
--- first.  These three are bits of wDayCareMan / wDayCareLady rather than slots
--- of their own (data/events/engine_flags.asm:18-20), so World:engineFlag reads
--- them straight out of save.dayCare.
-local ENGINE_DAY_CARE_MAN_HAS_EGG = 5
-local ENGINE_DAY_CARE_MAN_HAS_MON = 6
-local ENGINE_DAY_CARE_LADY_HAS_MON = 7
+local MAPSETUP = {
+  WARP = 0xf1,
+  CONTINUE = 0xf2,
+  RELOADMAP = 0xf3,
+  TELEPORT = 0xf4,
+  DOOR = 0xf5,
+  FALL = 0xf6,
+  CONNECTION = 0xf7,
+  LINKRETURN = 0xf8,
+  TRAIN = 0xf9,
+  SUBMENU = 0xfa,
+  BADWARP = 0xfb,
+}
 
--- constants/map_setup_constants.asm (const_def $f1).  The byte picks a row of
--- MapSetupScripts (data/maps/setup_scripts.asm); the port has one map load, so
--- what survives of each script is which fades it is bracketed by.
-local MAPSETUP_WARP = 0xf1
-local MAPSETUP_CONTINUE = 0xf2
-local MAPSETUP_RELOADMAP = 0xf3
-local MAPSETUP_TELEPORT = 0xf4
-local MAPSETUP_DOOR = 0xf5
-local MAPSETUP_FALL = 0xf6
-local MAPSETUP_CONNECTION = 0xf7
-local MAPSETUP_LINKRETURN = 0xf8
-local MAPSETUP_TRAIN = 0xf9
-local MAPSETUP_SUBMENU = 0xfa
-local MAPSETUP_BADWARP = 0xfb
-
--- Which of the eleven setup scripts fades, read off data/maps/setup_scripts.asm
--- with its FALLTHROUGHS honoured -- MapSetupScript_Fall drops into _Door, which
--- drops into _Train, and _Teleport drops into _Warp, so FALL fades out because
--- DOOR's FadeOutToWhite is the next command and not because FALL names one.
---
---   fade out then in : DOOR, FALL, TELEPORT   (a FadeOutToWhite opens the list)
---   fade in only     : WARP, BADWARP, TRAIN, LINKRETURN, CONTINUE, RELOADMAP
---   neither          : CONNECTION, SUBMENU    (an edge cross must not hitch)
 local MAPSETUP_FADE_OUT = {
-  [MAPSETUP_DOOR] = true, [MAPSETUP_FALL] = true, [MAPSETUP_TELEPORT] = true,
+  [MAPSETUP.DOOR] = true, [MAPSETUP.FALL] = true, [MAPSETUP.TELEPORT] = true,
 }
 local MAPSETUP_FADE_IN = {
-  [MAPSETUP_DOOR] = true, [MAPSETUP_FALL] = true, [MAPSETUP_TELEPORT] = true,
-  [MAPSETUP_WARP] = true, [MAPSETUP_BADWARP] = true, [MAPSETUP_TRAIN] = true,
-  [MAPSETUP_LINKRETURN] = true, [MAPSETUP_CONTINUE] = true,
-  [MAPSETUP_RELOADMAP] = true,
+  [MAPSETUP.DOOR] = true, [MAPSETUP.FALL] = true, [MAPSETUP.TELEPORT] = true,
+  [MAPSETUP.WARP] = true, [MAPSETUP.BADWARP] = true, [MAPSETUP.TRAIN] = true,
+  [MAPSETUP.LINKRETURN] = true, [MAPSETUP.CONTINUE] = true,
+  [MAPSETUP.RELOADMAP] = true,
 }
 -- MapSetupScript_Connection and _Submenu are the two with no FadeInFromWhite;
 -- naming them keeps the table above readable as the whole eleven-row set.
 local MAPSETUP_NO_FADE = {
-  [MAPSETUP_CONNECTION] = true, [MAPSETUP_SUBMENU] = true,
+  [MAPSETUP.CONNECTION] = true, [MAPSETUP.SUBMENU] = true,
 }
 
 -- MapSetupCommands $26 UpdateRoamMons and $27 JumpRoamMons, read off the same
@@ -261,13 +185,13 @@ local MAPSETUP_NO_FADE = {
 --   every beast to a random roam map.  Flying across Johto shuffles them;
 --   walking through a door does not.
 --
--- A plain MAPSETUP_WARP names neither, which is why warping between two floors
+-- A plain MAPSETUP.WARP names neither, which is why warping between two floors
 -- of a building leaves them where they were.
 local MAPSETUP_ROAM_UPDATE = {
-  [MAPSETUP_CONNECTION] = true, [MAPSETUP_DOOR] = true,
-  [MAPSETUP_FALL] = true, [MAPSETUP_TRAIN] = true,
+  [MAPSETUP.CONNECTION] = true, [MAPSETUP.DOOR] = true,
+  [MAPSETUP.FALL] = true, [MAPSETUP.TRAIN] = true,
 }
-local MAPSETUP_ROAM_JUMP = { [MAPSETUP_TELEPORT] = true }
+local MAPSETUP_ROAM_JUMP = { [MAPSETUP.TELEPORT] = true }
 
 -- FadeOutToWhite / FadeInFromWhite (engine/tilesets/timeofday_pals.asm) are
 -- `ld b, $4` steps of ConvertTimePalsIncHL / .DecHL, each followed by
@@ -435,8 +359,8 @@ local function itemByIndex(items, index)
   return nil
 end
 
--- CountSetBits over a { key = true } flag table: VAR_DEXCAUGHT, VAR_DEXSEEN
--- and VAR_BADGES are all "how many of these are set" reads off one.
+-- CountSetBits over a { key = true } flag table: VAR.DEXCAUGHT, VAR.DEXSEEN
+-- and VAR.BADGES are all "how many of these are set" reads off one.
 local function countFlags(flags)
   if not flags then return 0 end
   local n = 0
@@ -594,7 +518,7 @@ function World.new(game)
     -- GBC color state (engine/gfx/color.asm).  `daytime` is the resolved
     -- MORN/DAY/NITE/DARK the map is currently lit by; clockHour overrides
     -- World:hour for drivers and tests, so the palette, the hour windows and
-    -- VAR_HOUR all move together; flashUsed lifts PALETTE_DARK maps.
+    -- VAR.HOUR all move together; flashUsed lifts PALETTE_DARK maps.
     palettes = nil,
     daytime = nil,
     clockHour = nil,
@@ -627,12 +551,12 @@ function World.new(game)
     -- A field move that is mid-flow (the used-X text, then its effect).
     fieldMove = nil,
     -- ---- state the script VM owns ------------------------------------------
-    -- wVariableSprites (ram/wram.asm), indexed from SPRITE_VARS: slot -> plain
+    -- wVariableSprites (ram/wram.asm), indexed from SPRITE.VARS: slot -> plain
     -- OverworldSprites byte.  Cleared on a map load the way the cart's copy is
     -- not -- it is real WRAM that survives -- so this one survives too, and
     -- every map that needs a slot filled sets it from its own scene script.
     variableSprites = {},
-    -- The VAR_* slots `writevar` / `loadvar` write.  Only VAR_BATTLETYPE is
+    -- The VAR_* slots `writevar` / `loadvar` write.  Only VAR.BATTLETYPE is
     -- read back today, by the next startbattle.
     scriptVars = {},
     -- WarpCheck's find.  A script that ends standing on a warp tile must not
@@ -1410,8 +1334,8 @@ function World:load()
   -- Continue (engine/menus/intro_menu.asm): `ld a, [wSpawnAfterChampion]` is
   -- read BEFORE the saved position is honoured, and a pending value replaces
   -- it outright -- .SpawnAfterE4 / SpawnAfterRed write wDefaultSpawnpoint and
-  -- enter through PostCreditsSpawn's MAPSETUP_WARP instead of
-  -- MAPSETUP_CONTINUE.  So the champion whose induction saved them standing
+  -- enter through PostCreditsSpawn's MAPSETUP.WARP instead of
+  -- MAPSETUP.CONTINUE.  So the champion whose induction saved them standing
   -- in the Hall of Fame continues in New Bark Town, not in a room whose only
   -- exit is sealed.
   local post = self:consumePostGameSpawn()
@@ -1541,7 +1465,7 @@ function World:weekday()
   return Clock.weekday(self.game and self.game.save)
 end
 
--- hHours, which VAR_HOUR reads straight off: RTC hour 0..23.  `clockHour`
+-- hHours, which VAR.HOUR reads straight off: RTC hour 0..23.  `clockHour`
 -- overrides the host clock the same way it does for the daytime palette.
 function World:hour()
   if self.clockHour then return math.floor(self.clockHour) % 24 end
@@ -1559,73 +1483,73 @@ end
 
 -- engine/overworld/variables.asm .VarActionTable, walked in order.  readVar
 -- and writevar/loadvar share the id space (GetVarAction resolves both), but
--- only the handful of ADDR_DE rows (VAR_BATTLETYPE, VAR_MOVEMENT) are ever
+-- only the handful of ADDR_DE rows (VAR.BATTLETYPE, VAR.MOVEMENT) are ever
 -- written back through writeVar/self.scriptVars; the rest are RETVAR_EXECUTE
 -- or RETVAR_STRBUF2 rows that just read state the engine already owns.
 function World:readVar(varId)
-  if varId == VAR_FACING and self.player then
+  if varId == VAR.FACING and self.player then
     return FACING_ID[self.player.facing] or 0
   end
-  if varId == VAR_WEEKDAY then return self:weekday() end
-  if varId == VAR_BATTLETYPE then return self.scriptVars[VAR_BATTLETYPE] or 0 end
+  if varId == VAR.WEEKDAY then return self:weekday() end
+  if varId == VAR.BATTLETYPE then return self.scriptVars[VAR.BATTLETYPE] or 0 end
   local save = self.game and self.game.save
-  if varId == VAR_PARTYCOUNT then
+  if varId == VAR.PARTYCOUNT then
     return save and #(save.party or {}) or 0
   end
-  if varId == VAR_BATTLERESULT then
+  if varId == VAR.BATTLERESULT then
     -- wBattleResult masked with ~BATTLERESULT_BITMASK (the box-full flag);
     -- the port never sets that bit, so the stored value already matches.
     return self.lastBattleResult or 0
   end
-  if varId == VAR_TIMEOFDAY then return self:timeOfDayId() end
-  if varId == VAR_DEXCAUGHT then
+  if varId == VAR.TIMEOFDAY then return self:timeOfDayId() end
+  if varId == VAR.DEXCAUGHT then
     return countFlags(save and save.pokedex and save.pokedex.caught)
   end
-  if varId == VAR_DEXSEEN then
+  if varId == VAR.DEXSEEN then
     return countFlags(save and save.pokedex and save.pokedex.seen)
   end
-  if varId == VAR_BADGES then
+  if varId == VAR.BADGES then
     -- wBadges is TWO bytes (Johto then Kanto); CountSetBits walks both.
     local player = save and save.player
     return countFlags(player and player.badges)
       + countFlags(player and player.kantoBadges)
   end
-  if varId == VAR_MOVEMENT then
+  if varId == VAR.MOVEMENT then
     return PLAYER_STATE_ID[self.playerState] or 0
   end
-  if varId == VAR_HOUR then return self:hour() end
-  if varId == VAR_MAPGROUP then
+  if varId == VAR.HOUR then return self:hour() end
+  if varId == VAR.MAPGROUP then
     return (self.map and self.map.def and self.map.def.group) or 0
   end
-  if varId == VAR_MAPNUMBER then
+  if varId == VAR.MAPNUMBER then
     return (self.map and self.map.def and self.map.def.map) or 0
   end
-  if varId == VAR_UNOWNCOUNT then
+  if varId == VAR.UNOWNCOUNT then
     -- CountUnown walks wUnownDex, a list of the distinct Unown FORMS caught in
     -- catching order.  save.pokedex still only knows the SPECIES; the form list
     -- is its own record (save.unownDex, src/core/gen2/Unown.lua), written by
     -- the same two events the cart writes it on.
     return Unown.count(save)
   end
-  if varId == VAR_ENVIRONMENT then
+  if varId == VAR.ENVIRONMENT then
     return (self.map and self.map.def and self.map.def.environmentId) or 0
   end
-  if varId == VAR_BOXSPACE then
+  if varId == VAR.BOXSPACE then
     if not save then return 0 end
     return Boxes.MONS_PER_BOX - Boxes.count(save, save.currentBox)
   end
-  if varId == VAR_CONTESTMINUTES then
+  if varId == VAR.CONTESTMINUTES then
     if not save then return 0 end
     local minutes = BugContest.timeLeft(save)
     return minutes
   end
-  if varId == VAR_XCOORD then
+  if varId == VAR.XCOORD then
     return (self.player and self.player.cellX) or 0
   end
-  if varId == VAR_YCOORD then
+  if varId == VAR.YCOORD then
     return (self.player and self.player.cellY) or 0
   end
-  if varId == VAR_SPECIALPHONECALL then
+  if varId == VAR.SPECIALPHONECALL then
     return self:specialCall()
   end
   return 0
@@ -1669,7 +1593,7 @@ function World:engineFlag(flag)
   end
   -- Badges live in save.player.badges, not in the flag table: on the cart the
   -- ENGINE_*BADGE ids ARE the bits of wJohtoBadges/wKantoBadges, so there is
-  -- only one store and everything that asks (field moves, VAR_BADGES, the
+  -- only one store and everything that asks (field moves, VAR.BADGES, the
   -- trainer card) has to see the same answer.  See FieldMoves.BADGE_FLAG.
   local badge = FieldMoves.BADGE_FLAG[flag]
   if badge and save then
@@ -1686,11 +1610,11 @@ function World:engineFlag(flag)
   -- two day-care mon objects; a second copy in save.engineFlags is exactly how
   -- the yard stayed empty forever.
   if save then
-    if flag == ENGINE_DAY_CARE_MAN_HAS_EGG then
+    if flag == ENGINE.DAY_CARE_MAN_HAS_EGG then
       return Breeding.dayCare(save).hasEgg == true
-    elseif flag == ENGINE_DAY_CARE_MAN_HAS_MON then
+    elseif flag == ENGINE.DAY_CARE_MAN_HAS_MON then
       return (Breeding.side(save, "man") or {}).mon ~= nil
-    elseif flag == ENGINE_DAY_CARE_LADY_HAS_MON then
+    elseif flag == ENGINE.DAY_CARE_LADY_HAS_MON then
       return (Breeding.side(save, "lady") or {}).mon ~= nil
     end
   end
@@ -1717,18 +1641,18 @@ function World:setEngineFlag(flag, value)
     return
   end
   -- The write half of the day-care aliases.  DayCareManScript_Outside's
-  -- `clearflag ENGINE_DAY_CARE_MAN_HAS_EGG` (maps/Route34.asm) is the ONLY cart
+  -- `clearflag ENGINE.DAY_CARE_MAN_HAS_EGG` (maps/Route34.asm) is the ONLY cart
   -- script that writes any of the three, and it is idempotent because
   -- DayCareManOutside already did `res DAYCAREMAN_HAS_EGG_F, [hl]`
   -- (engine/events/daycare.asm:393), which is Breeding.collectEgg here.  The
   -- two HAS_MON bits belong to the deposit/withdraw routines, so a script
   -- write to them would be a second store: swallow it.
   if save then
-    if flag == ENGINE_DAY_CARE_MAN_HAS_EGG then
+    if flag == ENGINE.DAY_CARE_MAN_HAS_EGG then
       Breeding.dayCare(save).hasEgg = value and true or false
       return
-    elseif flag == ENGINE_DAY_CARE_MAN_HAS_MON
-        or flag == ENGINE_DAY_CARE_LADY_HAS_MON then
+    elseif flag == ENGINE.DAY_CARE_MAN_HAS_MON
+        or flag == ENGINE.DAY_CARE_LADY_HAS_MON then
       return
     end
   end
@@ -1736,26 +1660,26 @@ function World:setEngineFlag(flag, value)
   flags[flag] = value and true or nil
 end
 
--- Script_writevar / Script_loadvar.  VAR_BATTLETYPE is the only slot anything
+-- Script_writevar / Script_loadvar.  VAR.BATTLETYPE is the only slot anything
 -- reads BACK out of scriptVars today, and startScriptedBattle is where it is
 -- consumed.
 --
--- VAR_MOVEMENT is the exception, and it is not a stored value at all: its row
--- in .VarActionTable is the ADDRESS of wPlayerState, so `loadvar VAR_MOVEMENT,
+-- VAR.MOVEMENT is the exception, and it is not a stored value at all: its row
+-- in .VarActionTable is the ADDRESS of wPlayerState, so `loadvar VAR.MOVEMENT,
 -- PLAYER_BIKE` changes the player's state outright.  That is the whole of
 -- Script_GetOnBike -- the `special UpdatePlayerSprite` after it only reloads
 -- the sheet applyPlayerState has already picked.
 function World:writeVar(varId, value)
   if varId == nil then return end
   self.scriptVars[varId] = value or 0
-  if varId == VAR_MOVEMENT then
+  if varId == VAR.MOVEMENT then
     local state = PLAYER_STATE_BY_ID[value or 0]
     if state then self:applyPlayerState(state) end
   end
 end
 
 function World:battleType()
-  return self.scriptVars[VAR_BATTLETYPE] or 0
+  return self.scriptVars[VAR.BATTLETYPE] or 0
 end
 
 -- Script_callasm / Script_memcallasm: a bank:address into raw GB code.  The
@@ -1850,7 +1774,7 @@ function World:moveObject(objectId, cellX, cellY)
   end
 end
 
--- Every POOLED object whose `sprite` is the SPRITE_VARS byte for `slot`, handed
+-- Every POOLED object whose `sprite` is the SPRITE.VARS byte for `slot`, handed
 -- the sheet the slot now names -- `special LoadUsedSpritesGFX`, which is the
 -- command that sits beside `variablesprite` at every one of its four call sites
 -- (maps/Route36.asm:71, FuchsiaGym.asm:36 and :66, CopycatsHouse2F.asm:24).
@@ -1883,7 +1807,7 @@ end
 -- off the map until the slot is filled again.
 function World:repaintVariableSpritePool(slot)
   if not self.npcPool then return end
-  local byte = SPRITE_VARS + slot
+  local byte = SPRITE.VARS + slot
   for key, npc in pairs(self.npcPool) do
     if npc.def and npc.def.sprite == byte then
       local name = self:resolveSprite(byte)
@@ -1916,7 +1840,7 @@ function World:setVariableSprite(slot, spriteIndex)
   self:rebuildPeople({ seamless = true })
 end
 
--- The other half of the above: an object whose `sprite` is a SPRITE_VARS byte
+-- The other half of the above: an object whose `sprite` is a SPRITE.VARS byte
 -- resolves through the slot table and constants.spriteOrder (1-based, because
 -- sprite_constants.asm's block is `const_def 1`).  An unfilled slot answers nil
 -- and the object simply does not spawn, which is the cart's behaviour too.
@@ -2000,20 +1924,20 @@ end
 
 function World:resolveSprite(sprite)
   if type(sprite) ~= "number" then return sprite end
-  -- GetMonSprite tests the two day-care bytes ABOVE the SPRITE_VARS range, so
+  -- GetMonSprite tests the two day-care bytes ABOVE the SPRITE.VARS range, so
   -- they must never reach the wVariableSprites arm.  .NoBreedmon answers sprite
   -- 1 for an empty slot; nil is the honest port, because an empty slot leaves
   -- the object's own event flag (EVENT_DAY_CARE_MON_1/2) set and
   -- Route34EggCheckCallback only clears it once checkflag says a mon is there.
-  if sprite == SPRITE_DAY_CARE_MON_1 or sprite == SPRITE_DAY_CARE_MON_2 then
+  if sprite == SPRITE.DAY_CARE_MON_1 or sprite == SPRITE.DAY_CARE_MON_2 then
     local save = self.game and self.game.save
     local slot = save and Breeding.side(save,
-      sprite == SPRITE_DAY_CARE_MON_1 and "man" or "lady")
+      sprite == SPRITE.DAY_CARE_MON_1 and "man" or "lady")
     local mon = slot and slot.mon
     return mon and self:breedmonSpriteDef(mon.species) or nil
   end
-  if sprite < SPRITE_VARS then return nil end
-  local byte = self.variableSprites[sprite - SPRITE_VARS]
+  if sprite < SPRITE.VARS then return nil end
+  local byte = self.variableSprites[sprite - SPRITE.VARS]
   if not byte or byte == 0 then return nil end
   local order = self.constants and self.constants.spriteOrder
   return order and order[byte] or nil
@@ -2136,7 +2060,7 @@ end
 -- group/map pair this cache cannot resolve is a silent no-op rather than a
 -- crash, the same way Script_warp's own group-0 arm goes nowhere.
 --
--- Script_warp's own entry method is MAPSETUP_WARP, whose script opens on
+-- Script_warp's own entry method is MAPSETUP.WARP, whose script opens on
 -- DisableLCD rather than on a FadeOutToWhite: the screen goes at once and only
 -- the way back in is a fade.  A `warpfacing` byte is PLAYERSPRITESETUP_CUSTOM_
 -- FACING, which SpawnInCustomFacing applies INSTEAD of SpawnInFacingDown, so a
@@ -2153,7 +2077,7 @@ end
 -- run one body and a warp from a mod is indistinguishable from a scripted one.
 function World:warpToMapId(mapId, cellX, cellY, facing)
   if not (mapId and cellX and cellY) then return false end
-  return self:runMapSetup(MAPSETUP_WARP, function()
+  return self:runMapSetup(MAPSETUP.WARP, function()
     local ok = self:setMap(mapId, cellX, cellY,
       facing or (self.player and self.player.facing) or "down")
     if ok and not facing then self:spawnFacing() end
@@ -2163,7 +2087,7 @@ end
 
 -- Script_warp's group-0 arm: `warp NONE, 0, 0`.  wDefaultSpawnpoint is
 -- SPAWN_N_A, and EnterMapSpawnPoint leaves the map and the coordinates alone
--- when it reads that, so MAPSETUP_BADWARP is a full load of the map the player
+-- when it reads that, so MAPSETUP.BADWARP is a full load of the map the player
 -- is already standing on -- HandleNewMap, LoadBlockData and LoadMapObjects
 -- included.  That is what PlayersHousePCScript's `.Warp` is for: the bedroom's
 -- decorations only move when the map is loaded again.
@@ -2178,7 +2102,7 @@ function World:reloadMapBadWarp(reason)
   if not (map and p) then return false end
   local mapId = map.id
   local cx, cy, facing = p.cellX, p.cellY, p.facing
-  local ok = self:runMapSetup(MAPSETUP_BADWARP, function()
+  local ok = self:runMapSetup(MAPSETUP.BADWARP, function()
     return self:setMap(mapId, cx, cy, facing)
   end)
   if ok and reason then
@@ -2215,9 +2139,9 @@ end
 -- destination.  Looked up by name so a cache whose sfx table sits at other
 -- indices still finds them.
 local WARP_SFX_NAME = {
-  [SFX_ENTER_DOOR] = "Sfx_EnterDoor",
-  [SFX_WARP_TO] = "Sfx_WarpTo",
-  [SFX_EXIT_BUILDING] = "Sfx_ExitBuilding",
+  [SFX.ENTER_DOOR] = "Sfx_EnterDoor",
+  [SFX.WARP_TO] = "Sfx_WarpTo",
+  [SFX.EXIT_BUILDING] = "Sfx_ExitBuilding",
 }
 
 -- Play an sfx by its pokegold LABEL, falling back to the index this cache
@@ -2241,20 +2165,20 @@ end
 
 -- Script_specialsound (engine/overworld/scripting.asm:476) is not a fixed cue:
 -- it farcalls CheckItemPocket (engine/items/items.asm:512), which writes
--- wCurItem's pocket into wItemAttributeValue, and rings SFX_GET_TM for the
--- TM/HM pocket, SFX_ITEM for every other one.  It is the sound inside
+-- wCurItem's pocket into wItemAttributeValue, and rings SFX.GET_TM for the
+-- TM/HM pocket, SFX.ITEM for every other one.  It is the sound inside
 -- GiveItemScript, so every `verbosegiveitem` runs through it -- Sage Li's
 -- `verbosegiveitem HM_FLASH` and every gym leader's TM included, all of which
 -- rang the ordinary item jingle while the item argument was thrown away.  An
--- item the cache cannot name takes the `cp TM_HM / jr z` fall-through, SFX_ITEM.
+-- item the cache cannot name takes the `cp TM_HM / jr z` fall-through, SFX.ITEM.
 function World:specialSound(itemIndex)
   local id = itemIndex and self:itemIdByIndex(itemIndex)
   local items = self.game and self.game.data and self.game.data.items
   local def = id and items and items[id]
   if def and def.pocket == "TM_HM" then
-    self:playSfxNamed("Sfx_GetTm", SFX_GET_TM)
+    self:playSfxNamed("Sfx_GetTm", SFX.GET_TM)
   else
-    self:playSfxNamed("Sfx_Item", SFX_ITEM)
+    self:playSfxNamed("Sfx_Item", SFX.ITEM)
   end
 end
 
@@ -2262,11 +2186,11 @@ function World:warpSound()
   local p = self.player
   if not (self.map and p) then return end
   local coll = self.map:cellCollision(p.cellX, p.cellY)
-  local id = SFX_EXIT_BUILDING
-  if coll == COLL_DOOR then
-    id = SFX_ENTER_DOOR
-  elseif coll == COLL_WARP_PANEL then
-    id = SFX_WARP_TO
+  local id = SFX.EXIT_BUILDING
+  if coll == COLL.DOOR then
+    id = SFX.ENTER_DOOR
+  elseif coll == COLL.WARP_PANEL then
+    id = SFX.WARP_TO
   end
   self:playSfxNamed(WARP_SFX_NAME[id], id)
 end
@@ -2981,7 +2905,7 @@ end
 -- -- it READS the one the officer's `setval` left there -- so `onDone` takes
 -- no argument and is only the "the cutscene reached JUMPTABLE_EXIT" signal the
 -- coroutine in Specials.block is parked on.  The `warpcheck` and the
--- `newloadmap MAPSETUP_TRAIN` that follow it are the script's, not this.
+-- `newloadmap MAPSETUP.TRAIN` that follow it are the script's, not this.
 function World:magnetTrain(toGoldenrod, onDone)
   local game = self.game
   if not (game and game.stack) then
@@ -3190,11 +3114,11 @@ function World:credits(onDone)
     -- SPAWN_RED is the one wSpawnAfterChampion value that does not `jp
     -- Reset`.  SpawnAfterRed writes wDefaultSpawnpoint = SPAWN_MT_SILVER,
     -- PostCreditsSpawn clears the byte, and the loop re-enters the overworld
-    -- through MAPSETUP_WARP -- play resumes outside Silver Cave, in session,
+    -- through MAPSETUP.WARP -- play resumes outside Silver Cave, in session,
     -- with no trip through the title screen.
     local spawn = self:consumePostGameSpawn()
     if spawn then
-      self:runMapSetup(MAPSETUP_WARP, function()
+      self:runMapSetup(MAPSETUP.WARP, function()
         return self:setMap(spawn.map, spawn.x, spawn.y, "down")
       end)
     end
@@ -3336,7 +3260,7 @@ function World:runMapSetup(method, load)
   end
   if MAPSETUP_NO_FADE[method] then return wrapped() end
   if not MAPSETUP_FADE_OUT[method] then
-    -- MAPSETUP_WARP and friends open on DisableLCD: the screen simply goes, and
+    -- MAPSETUP.WARP and friends open on DisableLCD: the screen simply goes, and
     -- only the way back in is a fade.
     local ok = wrapped()
     self.fade, self.fadeLevel = "white", 1
@@ -4224,7 +4148,7 @@ end
 -- caller) is src/core/gen2/Phone.lua's tryRandomCall, and its carry is
 -- Script_ReceivePhoneCall, so a landed call answers true the same way the
 -- contest's over-script does.  What belongs here is only what the gate reads
--- off the world: CheckStandingOnEntrance (home/map_objects.asm) is COLL_DOOR
+-- off the world: CheckStandingOnEntrance (home/map_objects.asm) is COLL.DOOR
 -- / COLL_DOOR_79 / COLL_STAIRCASE / COLL_CAVE under the player's feet.
 function World:checkTimeEvents()
   local save = self.game and self.game.save
@@ -4456,16 +4380,16 @@ function World:escapeRopeTarget()
   return backup.map, destWarp
 end
 
--- The shared tail of .UsedEscapeRopeScript / .UsedDigScript: SFX_WARP_TO,
--- `loadvar VAR_MOVEMENT, PLAYER_NORMAL`, then `newloadmap MAPSETUP_DOOR` with
+-- The shared tail of .UsedEscapeRopeScript / .UsedDigScript: SFX.WARP_TO,
+-- `loadvar VAR.MOVEMENT, PLAYER_NORMAL`, then `newloadmap MAPSETUP.DOOR` with
 -- the triple already in wNextWarp -- EnterMapWarp and GetWarpDestCoords land
 -- the player on the destination warp's own tile.  The dig-spin sprite work is
 -- not ported, the same standing decision World:flyTo records for the two fly
 -- animations.
 function World:runEscapeWarp(destMapId, destWarp)
-  self:playSfxNamed("Sfx_WarpTo", SFX_WARP_TO)
+  self:playSfxNamed("Sfx_WarpTo", SFX.WARP_TO)
   self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
-  return self:runMapSetup(MAPSETUP_DOOR, function()
+  return self:runMapSetup(MAPSETUP.DOOR, function()
     local ok = self:setMap(destMapId, destWarp.x, destWarp.y, "down")
     if ok then self:spawnFacing() end
     return ok
@@ -4809,7 +4733,7 @@ function World:useSacredAsh()
   local script = {
     { op = "special", id = self:specialIdNamed("HealParty") },
     { op = "refreshmap" },
-    { op = "playsound", id = self:sfxIdNamed("Sfx_WarpTo", SFX_WARP_TO) },
+    { op = "playsound", id = self:sfxIdNamed("Sfx_WarpTo", SFX.WARP_TO) },
   }
   for _ = 1, 3 do
     script[#script + 1] = { op = "special", id = self:specialIdNamed("FadeOutToWhite") }
@@ -4971,7 +4895,7 @@ function World:runHeadbutt(cx, cy, mon)
     -- canvas), so the wobble is the frame's, on the same clock and for the
     -- same 32 frames as the SFX that goes with it.
     self:earthquake(0x40, HEADBUTT_SHAKE_FRAMES)
-    self:playSfx(SFX_SANDSTORM)
+    self:playSfx(SFX.SANDSTORM)
   end)
 end
 
@@ -5378,27 +5302,27 @@ function World:runCut(result)
   self:setNickname(result.mon)
   self:showText(Strings(result.text), function()
     self:replaceBlock(result.blockIndex, result.replacement)
-    self:playSfx(SFX_PLACE_PUZZLE_PIECE_DOWN)
+    self:playSfx(SFX.PLACE_PUZZLE_PIECE_DOWN)
   end)
 end
 
 -- Script_UsedWhirlpool, which is Script_Cut with DisappearWhirlpool and
--- PlayWhirlpoolSound (a bare SFX_SURF) in place of the snip.
+-- PlayWhirlpoolSound (a bare SFX.SURF) in place of the snip.
 function World:runWhirlpool(result)
   self:setNickname(result.mon)
   self:showText(Strings(result.text), function()
     self:replaceBlock(result.blockIndex, result.replacement)
-    self:playSfx(SFX_SURF)
+    self:playSfx(SFX.SURF)
   end)
 end
 
--- Script_UseFlash: the text plays SFX_FLASH from inside itself
+-- Script_UseFlash: the text plays SFX.FLASH from inside itself
 -- (UseFlashTextScript's text_asm), and BlindingFlash then sets
 -- STATUSFLAGS_FLASH_F and reloads the palettes.  Setting the flag is all there
 -- is to it: Palettes.daytimeFor already turns a flashed PALETTE_DARK map into
 -- a NITE one, which is the cart's own .UsedFlash arm.
 function World:runFlash(result)
-  self:playSfx(SFX_FLASH)
+  self:playSfx(SFX.FLASH)
   self:showText(Strings(result.text), function()
     self.flashUsed = true
     if self:applyPalettes() then self:refreshMapImages() end
@@ -5442,7 +5366,7 @@ function World:runStrength(result)
   end)
 end
 
--- Script_UsedWaterfall: the line, SFX_BUBBLEBEAM, and then a loop of one
+-- Script_UsedWaterfall: the line, SFX.BUBBLEBEAM, and then a loop of one
 -- turn_waterfall UP step at a time.
 --
 -- .CheckContinueWaterfall writes wScriptVar = 0 while the player is STILL on a
@@ -5452,7 +5376,7 @@ end
 function World:runWaterfall(result)
   self:setNickname(result.mon)
   self:showText(Strings(result.text), function()
-    self:playSfx(SFX_BUBBLEBEAM)
+    self:playSfx(SFX.BUBBLEBEAM)
     self.fieldMove = { phase = "waterfall" }
     self:waterfallStep()
   end)
@@ -5512,7 +5436,7 @@ function World:tryPushBoulder(dir, cx, cy)
     if e ~= npc and e.cellX == tx and e.cellY == ty then return false end
   end
   npc:scriptStep(dir)
-  self:playSfx(SFX_STRENGTH)
+  self:playSfx(SFX.STRENGTH)
   -- Gen 1's four payload keys.  Divergence, deliberate: Gen 1 emits from the
   -- scriptMove completion callback, once the boulder has settled; Gold's
   -- MovementFunction_Strength has no such callback, so this fires as the push
@@ -5576,17 +5500,17 @@ function World:runDigEscape(result)
 end
 
 -- TeleportFunction's .TeleportScript: the return line, then WarpToSpawnPoint
--- with `newloadmap MAPSETUP_TELEPORT` -- the same landing a whiteout takes,
+-- with `newloadmap MAPSETUP.TELEPORT` -- the same landing a whiteout takes,
 -- which is exactly what World:warpToSpawn resolves (blackoutmod override
 -- first, then the SPAWN_* table).  PLAYER_NORMAL first, so a teleport off a
--- bike arrives on foot the way `loadvar VAR_MOVEMENT, PLAYER_NORMAL` leaves
+-- bike arrives on foot the way `loadvar VAR.MOVEMENT, PLAYER_NORMAL` leaves
 -- it.  The teleport spin, like the dig spin, is sprite work and not ported.
 function World:runTeleport(result)
   self:setNickname(result.mon)
   self:showText(Strings(result.text), function()
-    self:playSfxNamed("Sfx_WarpTo", SFX_WARP_TO)
+    self:playSfxNamed("Sfx_WarpTo", SFX.WARP_TO)
     self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
-    self:runMapSetup(MAPSETUP_TELEPORT, function()
+    self:runMapSetup(MAPSETUP.TELEPORT, function()
       self:warpToSpawn()
       return true
     end)
@@ -5728,7 +5652,7 @@ function World:flyPoints()
     self.game and self.game.save, self.landmarks, self:region())
 end
 
--- .FlyScript: WarpToSpawnPoint, then `newloadmap MAPSETUP_TELEPORT` brings the
+-- .FlyScript: WarpToSpawnPoint, then `newloadmap MAPSETUP.TELEPORT` brings the
 -- map up with the player back in PLAYER_NORMAL.  MapSetupScript_Teleport opens
 -- on FadeOutToWhite and falls through into _Warp, so flying is bracketed by the
 -- same pair of fades a door is, which is where the two fly animations ride:
@@ -5740,7 +5664,7 @@ function World:flyTo(spawnId)
     return false
   end
   self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
-  local ok = self:runMapSetup(MAPSETUP_TELEPORT, function()
+  local ok = self:runMapSetup(MAPSETUP.TELEPORT, function()
     return self:setMap(spawn.map, spawn.x, spawn.y, "down")
   end)
   -- FlyFromAnim / FlyToAnim ride the setup script's own two fades: the take-off
@@ -5936,7 +5860,7 @@ function World:startBattle(opts, onDone)
         game.stack:pop()
         -- wBattleResult (constants/battle_constants.asm): WIN 0, LOSE 1, DRAW 2.
         -- The port never forfeits or draws a battle, so "lose" is the only
-        -- other outcome startBattle's onDone hands back; VAR_BATTLERESULT
+        -- other outcome startBattle's onDone hands back; VAR.BATTLERESULT
         -- reads this back masked with ~BATTLERESULT_BITMASK, same as the cart.
         self.lastBattleResult = (outcome == "lose") and 1 or 0
         -- BattleEnd_HandleRoamMons, which runs on the way out of EVERY wild
@@ -5986,7 +5910,7 @@ function World:startBattle(opts, onDone)
         -- (`checkflag ENGINE_BUG_CONTEST_TIMER / iftrue .bug_contest` skips
         -- both callasms), so a wipe in the park costs nothing.
         --
-        -- BATTLETYPE_CANLOSE is the other exception, and it is the battle
+        -- BATTLETYPE.CANLOSE is the other exception, and it is the battle
         -- engine's own: LostBattle (engine/battle/core.asm) prints the loss
         -- text for this type and returns with the player exactly where they
         -- fought, and maps/CherrygroveCity.asm follows the battle with
@@ -5995,7 +5919,7 @@ function World:startBattle(opts, onDone)
         -- .FinishRival is what heals the party, not a whiteout.  Warping here
         -- moved the loser to the spawn point and then ran that walk-off over
         -- whatever stood there.
-        if outcome == "lose" and opts.battleType ~= BATTLETYPE_CANLOSE then
+        if outcome == "lose" and opts.battleType ~= BATTLETYPE.CANLOSE then
           self:healParty()
           if not BugContest.isActive(game.save) then
             CallAsm.run(self, "HalveMoney")
@@ -6104,22 +6028,22 @@ function World:startScriptedBattle(record, wild, onDone)
     }
   elseif wild and wild.species then
     local id, def = speciesByIndex(data and data.pokemon, wild.species)
-    -- InitEnemyMon `.NotRoaming` / BATTLETYPE_FORCESHINY: the DV pair is
+    -- InitEnemyMon `.NotRoaming` / BATTLETYPE.FORCESHINY: the DV pair is
     -- forced to ATKDEFDV_SHINY $EA / SPDSPCDV_SHINY $AA (Attack 14, the
     -- rest 10) before stats are built, which is the whole of what makes the
     -- Red Gyarados red -- and caught, it keeps the DVs and stays shiny.
     local monOpts
-    if self:battleType() == BATTLETYPE_FORCESHINY then
+    if self:battleType() == BATTLETYPE.FORCESHINY then
       monOpts = { dvs = { attack = 14, defense = 10, speed = 10,
         special = 10 } }
     end
     opts.wild = id and Mon.new(data, id, wild.level or 5, monOpts) or nil
-    -- InitEnemyMon's `.WildItem` / BATTLETYPE_FORCEITEM: Item1 is handed over
+    -- InitEnemyMon's `.WildItem` / BATTLETYPE.FORCEITEM: Item1 is handed over
     -- unconditionally, no roll, which is the only wild-item path modeled --
     -- see Mon.new's own note on why the general 25%/8% roll is not.  Read
-    -- here rather than after startBattle, because scriptVars[VAR_BATTLETYPE]
+    -- here rather than after startBattle, because scriptVars[VAR.BATTLETYPE]
     -- is cleared the moment this function hands off to it.
-    if opts.wild and self:battleType() == BATTLETYPE_FORCEITEM then
+    if opts.wild and self:battleType() == BATTLETYPE.FORCEITEM then
       local given = def and def.items and def.items[1]
       if given then opts.wild.item = given end
     end
@@ -6128,14 +6052,14 @@ function World:startScriptedBattle(record, wild, onDone)
     if onDone then onDone("win") end
     return false
   end
-  -- wBattleType, which `writevar VAR_BATTLETYPE / loadvar BATTLETYPE_*` armed:
+  -- wBattleType, which `writevar VAR.BATTLETYPE / loadvar BATTLETYPE_*` armed:
   -- FORCEITEM 10 (Lugia, Ho-Oh, the Red Gyarados), FORCESHINY 7 (Lake of Rage),
   -- TRAP 9 (the Rocket base), CANLOSE 1 (the Cherrygrove rival).  It is a
   -- ONE-SHOT on the cart -- BattleStart_TrainerBattle / StartWildBattle reset
   -- it -- so the value is taken and cleared here and handed to the battle,
   -- which is the half that still has to act on each case.
   opts.battleType = self:battleType()
-  self.scriptVars[VAR_BATTLETYPE] = nil
+  self.scriptVars[VAR.BATTLETYPE] = nil
   return self:startBattle(opts, onDone)
 end
 
@@ -6342,10 +6266,10 @@ function World:startHealMachineAnim(animType, onDone)
 end
 
 -- One frame of the machine, on the cart's own timeline: each party member's
--- ball lands with SFX_SECOND_PART_OF_ITEMFINDER then DelayFrames 30, then
+-- ball lands with SFX.SECOND_PART_OF_ITEMFINDER then DelayFrames 30, then
 -- MUSIC_HEAL plays over .FlashPalettes8Times -- eight rotations of the OBJ
 -- palette ten frames apart.  The Hall of Fame arm swaps the jingle for
--- SFX_GAME_FREAK_LOGO_GS and rings SFX_BOOT_PC once the flashing stops.
+-- SFX.GAME_FREAK_LOGO_GS and rings SFX.BOOT_PC once the flashing stops.
 -- The special returns after the last flash's delay, which is when the balls
 -- clear -- the cart leaves its OAM to the overworld redraw the ended script
 -- allows, and this is that same moment.
@@ -6359,11 +6283,11 @@ function World:stepHealAnim()
       if ha.lit < ha.balls then
         ha.lit = ha.lit + 1
         self:playSfxNamed("Sfx_SecondPartOfItemfinder",
-          SFX_SECOND_PART_OF_ITEMFINDER)
+          SFX.SECOND_PART_OF_ITEMFINDER)
       else
         ha.phase = "flash"
         if ha.hof then
-          self:playSfxNamed("Sfx_GameFreakLogoGs", SFX_GAME_FREAK_LOGO_GS)
+          self:playSfxNamed("Sfx_GameFreakLogoGs", SFX.GAME_FREAK_LOGO_GS)
         else
           -- .PlayHealMusic.  playOnce hands the map its theme back when the
           -- jingle ends; the script's own `pause 30` + RestartMapMusic
@@ -6379,7 +6303,7 @@ function World:stepHealAnim()
       ha.timer = 0
       if ha.flashes >= 8 then
         if ha.hof then
-          self:playSfxNamed("Sfx_BootPc", SFX_BOOT_PC)
+          self:playSfxNamed("Sfx_BootPc", SFX.BOOT_PC)
         end
         local done = ha.onDone
         self.healAnim = nil
@@ -6863,7 +6787,7 @@ end
 --
 -- `hold` is the cart's `pause` when that pause sits INSIDE the box rather than
 -- after it: FindItemInBallScript is `writetext .FoundItemText / playsound
--- SFX_ITEM / pause 60 / itemnotify` (engine/events/misc_scripts.asm:13-17) and
+-- SFX.ITEM / pause 60 / itemnotify` (engine/events/misc_scripts.asm:13-17) and
 -- none of those commands takes the box down.  It cannot be run as a VM `pause`
 -- here, because Game2:update stops at the top state -- while ANY box is on the
 -- stack the overworld and the VM under it do not tick at all -- so the wait has
@@ -7494,7 +7418,7 @@ function World:interactBody()
   if hidden then
     self.talkNpc = nil
     -- PlayTalkObject, the SFX every read of a bg event opens on.
-    self:playSfxNamed("Sfx_ReadText2", SFX_READ_TEXT_2)
+    self:playSfxNamed("Sfx_ReadText2", SFX.READ_TEXT_2)
     interacted(self, fx, fy, "hidden", hidden)
     return self.vm:start(HiddenItems.pickupScript(hidden.item, hidden.event))
   end
@@ -7548,7 +7472,7 @@ function World:interactBody()
 end
 
 function World:fitScale()
-  local w, h = require("src.render.GameViewport").dimensions()
+  local w, h = GameViewport.dimensions()
   return math.max(1, math.floor(math.min(w / 160, h / 144)))
 end
 
@@ -8289,7 +8213,7 @@ local function samePalette(name) return name end
 -- OverworldState:timeOfDay wraps, and the same job: answer what time of day
 -- the WORLD is in.  It carries more here because Gold has a real clock behind
 -- it (src/core/gen2/Clock.lua), so this is the one write everything downstream
--- reads -- World:timeOfDayId's VAR_TIMEOFDAY, the encounter slots, the object
+-- reads -- World:timeOfDayId's VAR.TIMEOFDAY, the encounter slots, the object
 -- hour windows and the palette bake all follow whatever comes back.
 --
 -- Gen 1's ctx keys (map, mapId, x, y, steps) are kept verbatim; `hour` and
@@ -8320,7 +8244,7 @@ function World:applyPalettes()
   local previousTod = self.tod
   -- GetTimeOfDay reads hHours, the one clock UpdateTime writes (home/time.asm):
   -- the palette, the object hour windows (World:objectTimeVisible), the
-  -- day/night encounter slots and VAR_HOUR are all the same read, so this goes
+  -- day/night encounter slots and VAR.HOUR are all the same read, so this goes
   -- through World:hour rather than round-tripping the host clock inside
   -- Palettes.clockDaytime.
   local hour = self:hour()
@@ -8375,7 +8299,7 @@ function World:rebuildNeighbors()
   self.neighbors = {}
   if not self.map then return end
   local s = self:zoomScale()
-  local ww, wh = require("src.render.GameViewport").dimensions()
+  local ww, wh = GameViewport.dimensions()
   local vw = math.ceil(ww / s)
   local vh = math.ceil(wh / s)
   if vw % 2 ~= 0 then vw = vw + 1 end
@@ -8431,7 +8355,7 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- that exemption, saving inside Kurt's house and continuing re-arms the
   -- latch and he repeats the branch the player already saw.  The post-credits
   -- spawn is not a continue: SpawnAfterE4 / PostCreditsSpawn set
-  -- MAPSETUP_WARP, so it takes the reset (engine/menus/intro_menu.asm).
+  -- MAPSETUP.WARP, so it takes the reset (engine/menus/intro_menu.asm).
   if not opts.continue then
     self.events:resetMapBuffer()
   end
@@ -8641,12 +8565,12 @@ end
 --
 --   WarpToNewMapScript:
 --       warpsound
---       newloadmap MAPSETUP_DOOR
+--       newloadmap MAPSETUP.DOOR
 --       end
 --
 -- so a warp taken by walking onto the tile is two things, in that order: the
 -- sound GetWarpSFX picks off the tile the player is STANDING on (which is why
--- it has to be read before the load), and the MAPSETUP_DOOR setup script with
+-- it has to be read before the load), and the MAPSETUP.DOOR setup script with
 -- the map load inside it.  This used to be five lines that called setMap
 -- directly, which is why doors were silent and instant.
 -- home/map.asm GetDestinationWarpNumber: a `warp_event` whose destination warp
@@ -8767,7 +8691,7 @@ function World:takeWarp(warpDef)
   Runtime.emit("player.warped", { fromMap = prevMapId, toMap = destMapId,
                                   x = destX, y = destY, warp = warpDef,
                                   toWarp = destWarpNumber })
-  return self:runMapSetup(MAPSETUP_DOOR, function()
+  return self:runMapSetup(MAPSETUP.DOOR, function()
     local ok = self:setMap(destMapId, destX, destY,
       (self.player and self.player.facing) or "down")
     if ok then
@@ -8783,7 +8707,7 @@ end
 -- the tile they ARRIVE on, then `call c, SpawnInFacingDown`.  A tile that is
 -- not in that array keeps the facing they walked in with -- so you enter a
 -- building still facing up (the mat inside is a COLL_WARP_CARPET_*) and step
--- out of one facing the street (the doorway outside is COLL_DOOR).
+-- out of one facing the street (the doorway outside is COLL.DOOR).
 --
 -- It runs AFTER the load for the same reason the cart's does: the array is
 -- indexed by wPlayerTileCollision, which is the DESTINATION map's tile.
@@ -8900,7 +8824,7 @@ function World:tryLedgeJump(dir)
   p.progress = 0
   -- engine/overworld/map_objects.asm:1163
   p.stepFrames = Player.STEP_FRAMES * 2
-  self:playSfxNamed("Sfx_JumpOverLedge", SFX_JUMP_OVER_LEDGE)
+  self:playSfxNamed("Sfx_JumpOverLedge", SFX.JUMP_OVER_LEDGE)
   return true
 end
 
@@ -9742,7 +9666,7 @@ function World:drawGround(s)
     if canvas then
       bw, bh = canvas:getDimensions()
     else
-      bw, bh = require("src.render.GameViewport").dimensions()
+      bw, bh = GameViewport.dimensions()
     end
     BorderFill.draw(self, self:borderImageFor(self.map.id),
       cam.x, cam.y, bw, bh, s, self.map.id)
@@ -10002,7 +9926,7 @@ end
 
 function World:draw()
   local G = love.graphics
-  local w, h = require("src.render.GameViewport").dimensions()
+  local w, h = GameViewport.dimensions()
   self:refreshColorMode()
   G.clear(0.07, 0.05, 0.02, 1)
 

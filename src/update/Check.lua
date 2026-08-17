@@ -155,11 +155,12 @@ local function drain()
 end
 
 -- Begin (or, on a prior error, retry) an async check.  Safe to call every frame:
--- once a check is in flight or has reached a terminal state it is a no-op.
-function Check.start()
+-- once a check is in flight or has reached a terminal state it is a no-op unless
+-- force=true is passed (e.g. from an explicit button press).
+function Check.start(force)
   drain()
   if cache.status == "checking" or cache.status == "downloading" then return end
-  if requested and cache.status ~= "error" and cache.status ~= "idle" then return end
+  if not force and requested and cache.status ~= "error" and cache.status ~= "idle" then return end
   if not ensureWorker() then
     cache = { status = "error", error = "background threads unavailable" }
     return

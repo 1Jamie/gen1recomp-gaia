@@ -979,7 +979,7 @@ function LauncherView._updateControl(imp)
   end
   -- idle / uptodate / error: offer a manual check, with no glow.
   return status, Strings("Check for updates"),
-    function() pcall(imp.Check.start) end, false
+    function() pcall(imp.Check.start, true) end, false
 end
 
 -- ------------------------------------------------------------ game panel

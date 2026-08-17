@@ -16,6 +16,10 @@ PatchNotes.FILES = {
   "assets/PATCH_NOTES.md",
 }
 
+PatchNotes.CACHE_FILES = {
+  "updates/notes_cache.json",
+}
+
 PatchNotes.REPO_FILES = {
   "mobile/ios/app-repo.json",
 }
@@ -46,6 +50,29 @@ local function readPath(path)
   local text = f:read("*a")
   f:close()
   return nonempty(text) and text or nil
+end
+
+function PatchNotes.fromCache(engine)
+  for _, path in ipairs(PatchNotes.CACHE_FILES) do
+    local text = readPath(path)
+    if text then
+      local ok, doc = pcall(Json.decode, text)
+      if ok and type(doc) == "table" then
+        if engine and engine ~= "0.0.0-dev" then
+          if doc[engine] and nonempty(doc[engine]) then
+            return doc[engine], engine
+          end
+        else
+          for ver, notes in pairs(doc) do
+            if nonempty(notes) then
+              return notes, ver
+            end
+          end
+        end
+      end
+    end
+  end
+  return nil, nil
 end
 
 function PatchNotes.fromFile()
@@ -88,6 +115,7 @@ function PatchNotes.fromRepo(engine)
             return row.notes, row.version
           end
         end
+        return nil, nil
       end
       return list[1].notes, list[1].version
     end
@@ -96,17 +124,24 @@ function PatchNotes.fromRepo(engine)
 end
 
 function PatchNotes.body(Check)
-  local notes, ver = PatchNotes.fromCheck(Check)
-  if notes then return notes, ver end
-  notes = PatchNotes.fromFile()
-  if notes then return notes, ver end
   local Version = require("src.core.Version")
   local engine = (Version and Version.engine) or "?"
+
+  local notes, ver = PatchNotes.fromCheck(Check)
+  if notes and (engine == "0.0.0-dev" or ver == engine or ver == nil) then
+    return notes, ver or engine
+  end
+
+  notes, ver = PatchNotes.fromCache(engine)
+  if notes then return notes, ver end
+
+  notes = PatchNotes.fromFile()
+  if notes then return notes, engine end
+
   notes, ver = PatchNotes.fromRepo(engine)
   if notes then return notes, ver end
-  return "No patch notes loaded yet for gen1recomp v" .. engine .. ".\n\n"
-    .. "They appear here after the launcher checks GitHub for the latest "
-    .. "release.", engine
+
+  return "Unable to fetch patch notes.", engine
 end
 
 return PatchNotes
