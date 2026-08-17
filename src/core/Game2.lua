@@ -939,6 +939,8 @@ function Game2:load()
   self.data.gen2Maps = loadGenerated("data/generated/maps.lua")
   self.data.gen2Tilesets = loadGenerated("data/generated/tilesets.lua")
   self.data.gen2Roofs = loadGenerated("data/generated/roofs.lua")
+  -- engine/events/magnet_train.asm:165 DrawMagnetTrain
+  self.data.gen2Field = loadGenerated("data/generated/field.lua")
   self.data.gen2Marts = loadGenerated("data/generated/marts.lua")
   self.data.gen2Scripts = loadGenerated("data/generated/scripts.lua")
   self.data.gen2StdScripts = loadGenerated("data/generated/std_scripts.lua")
@@ -1965,6 +1967,7 @@ function Game2:applyOptions()
     haptics = options.haptics,
   })
   require("src.core.VideoMode").applyOptions(options)
+  require("src.core.FrameCap").applyOptions(options)
   local GBCFX = require("src.render.GBCFX")
   if GBCFX.applyOptions(options) and self.save then
     -- applyOptions returns true when it had to clear an unsupported level.

@@ -347,14 +347,13 @@ function Catching.attempt(opts)
     -- that edits o.catchRate or o.status changes the roll exactly as it does
     -- on Red, and one that returns `caught, rate` replaces it outright.
     --
-    -- `mon` and `def` are whatever the catch site supplied.  Gold's battle
-    -- screen (src/ui/gen2/BattleState.lua) hands this module a FLAT opts table
-    -- -- hp, maxHp, catchRate, status, species -- rather than the mon and its
-    -- record, so both are nil there until it passes them; nil, not a stand-in
-    -- a mod would read as the real mon.  Passing `battle = self.battle` and
-    -- `mon = enemy` with them is what puts the capture tail below on the real
-    -- catch: the Transform reload and the battle.catch_exp hook both hang off
-    -- the battle, and neither can be reached from a flat table.
+    -- `mon` and `def` are whatever the catch site supplied, and nil rather
+    -- than a stand-in a mod would read as the real mon when it supplied
+    -- neither.  Gold's battle screen (src/ui/gen2/BattleState.lua) passes them
+    -- with `battle` alongside the flat hp/maxHp/catchRate/status fields, which
+    -- is what puts the capture tail below on the real catch: the Transform
+    -- reload and the battle.catch_exp hook both hang off the battle, and
+    -- neither can be reached from a flat table.
     caught, rate = Runtime.call("catch.rate", function(_, _, _, o)
       return Catching.vanillaAttempt(o)
     end, opts.ball or "POKE_BALL", opts.mon, opts.def, opts)

@@ -211,6 +211,15 @@ local ROWS = {
       TC.buzz(options.haptics)
       if game and game.persistOptions then game:persistOptions() end
     end },
+  { label = "MAX FPS", key = "fpsCap", port = true,
+    cycle = function(options, delta)
+      local FrameCap = require("src.core.FrameCap")
+      options.fpsCap = FrameCap.cycle(options.fpsCap, delta)
+      FrameCap.apply(options.fpsCap)
+    end,
+    text = function(options)
+      return require("src.core.FrameCap").label(options.fpsCap)
+    end },
   { label = "CANCEL", cancel = true },
 }
 
