@@ -1230,6 +1230,54 @@ void love_android_secondary_enable(int on)
 }
 
 extern "C" __attribute__((visibility("default")))
+int love_android_secondary_detected()
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity,
+		"hasSecondaryDisplayCandidate", "()Z");
+	jboolean detected = JNI_FALSE;
+	if (method)
+		detected = env->CallStaticBooleanMethod(activity, method);
+	else
+		env->ExceptionClear();
+	env->DeleteLocalRef(activity);
+	return detected ? 1 : 0;
+}
+
+extern "C" __attribute__((visibility("default")))
+int love_android_present_secondary(const void *rgba, int width, int height,
+	unsigned int background, int cover)
+{
+	if (!rgba || width <= 0 || height <= 0)
+		return 0;
+	jlong size = (jlong) width * (jlong) height * 4;
+	if (size <= 0)
+		return 0;
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity, "presentSecondaryFrame",
+		"(Ljava/nio/ByteBuffer;IIIZ)Z");
+	if (!method)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return 0;
+	}
+	jobject frame = env->NewDirectByteBuffer((void *) rgba, size);
+	if (!frame)
+	{
+		env->DeleteLocalRef(activity);
+		return 0;
+	}
+	jboolean shown = env->CallStaticBooleanMethod(activity, method, frame,
+		width, height, (jint) background, cover ? JNI_TRUE : JNI_FALSE);
+	env->DeleteLocalRef(frame);
+	env->DeleteLocalRef(activity);
+	return shown ? 1 : 0;
+}
+
+extern "C" __attribute__((visibility("default")))
 const char *love_android_poll_secondary_touch()
 {
 	static thread_local std::string event;

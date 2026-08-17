@@ -1478,6 +1478,14 @@ public class GameActivity extends SDLActivity {
     // in src/jni/love/src/common/android.cpp.
     private static volatile SecondaryPresentation secondaryPresentation;
     private static volatile boolean secondaryEnabled = false;
+    private static volatile byte[] secondaryFrame;
+    private static volatile int secondaryFrameWidth;
+    private static volatile int secondaryFrameHeight;
+    private static volatile int secondaryBackground;
+    private static volatile boolean secondaryFrameCover;
+    private static final Object secondaryFrameLock = new Object();
+    private static volatile long secondaryDetectionAt;
+    private static volatile boolean secondaryDetected;
     private SecondaryDisplayMonitor secondaryDisplayMonitor;
     private static final int MAX_SECONDARY_TOUCHES = 32;
     private static final java.util.ArrayDeque<String> secondaryTouches =
@@ -1496,6 +1504,7 @@ public class GameActivity extends SDLActivity {
                 } else {
                     self.unregisterSecondaryDisplayListener();
                     teardownSecondaryDisplay();
+                    synchronized (secondaryFrameLock) { secondaryFrame = null; }
                 }
             }
         });
@@ -1532,24 +1541,7 @@ public class GameActivity extends SDLActivity {
         GameActivity self = (GameActivity) mSingleton;
         if (self == null || !secondaryEnabled || secondaryPresentation != null) return;
         try {
-            android.hardware.display.DisplayManager dm =
-                (android.hardware.display.DisplayManager) self.getSystemService(Context.DISPLAY_SERVICE);
-            if (dm == null) return;
-            Display chosen = null;
-            for (Display d : dm.getDisplays()) {
-                android.graphics.Point size = new android.graphics.Point();
-                d.getRealSize(size);
-                Log.d("GameActivity", "display id=" + d.getDisplayId() + " name=" + d.getName()
-                    + " size=" + size.x + "x" + size.y);
-                if (chosen == null && d.getDisplayId() != Display.DEFAULT_DISPLAY) {
-                    chosen = d;
-                }
-            }
-            if (chosen == null) {
-                Display[] pres =
-                    dm.getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
-                if (pres != null && pres.length > 0) chosen = pres[0];
-            }
+            Display chosen = findSecondaryDisplay(self, true);
             if (chosen == null) {
                 Log.d("GameActivity", "no secondary display found");
                 return;
@@ -1557,11 +1549,40 @@ public class GameActivity extends SDLActivity {
             SecondaryPresentation p = new SecondaryPresentation(self, chosen);
             p.show();
             secondaryPresentation = p;
+            synchronized (secondaryFrameLock) {
+                if (secondaryFrame != null) {
+                    p.setBackground(secondaryBackground);
+                    p.updateFrame(java.nio.ByteBuffer.wrap(secondaryFrame),
+                        secondaryFrameWidth, secondaryFrameHeight, secondaryFrameCover);
+                }
+            }
             Log.d("GameActivity", "secondary display presentation started on id=" + chosen.getDisplayId());
         } catch (Throwable t) {
             Log.d("GameActivity", "secondary display setup failed: " + t);
             secondaryPresentation = null;
         }
+    }
+
+    private static Display findSecondaryDisplay(GameActivity self, boolean logDisplays) {
+        android.hardware.display.DisplayManager dm =
+            (android.hardware.display.DisplayManager) self.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm == null) return null;
+        Display chosen = null;
+        for (Display d : dm.getDisplays()) {
+            if (logDisplays) {
+                android.graphics.Point size = new android.graphics.Point();
+                d.getRealSize(size);
+                Log.d("GameActivity", "display id=" + d.getDisplayId()
+                    + " name=" + d.getName() + " size=" + size.x + "x" + size.y);
+            }
+            if (chosen == null && d.getDisplayId() != Display.DEFAULT_DISPLAY) chosen = d;
+        }
+        if (chosen == null) {
+            Display[] presentations =
+                dm.getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+            if (presentations != null && presentations.length > 0) chosen = presentations[0];
+        }
+        return chosen;
     }
 
     private static void teardownSecondaryDisplay() {
@@ -1597,14 +1618,69 @@ public class GameActivity extends SDLActivity {
             return manager.getDisplay(displayId) != null;
         }
 
-        @Override public void onDisplayAdded(int displayId) { refreshSecondaryDisplay(); }
-        @Override public void onDisplayRemoved(int displayId) { refreshSecondaryDisplay(); }
-        @Override public void onDisplayChanged(int displayId) { refreshSecondaryDisplay(); }
+        private void changed() {
+            secondaryDetectionAt = 0;
+            refreshSecondaryDisplay();
+        }
+
+        @Override public void onDisplayAdded(int displayId) { changed(); }
+        @Override public void onDisplayRemoved(int displayId) { changed(); }
+        @Override public void onDisplayChanged(int displayId) { changed(); }
     }
 
     @Keep
     public static boolean hasSecondaryDisplay() {
         return secondaryPresentation != null;
+    }
+
+    @Keep
+    public static boolean hasSecondaryDisplayCandidate() {
+        GameActivity self = (GameActivity) mSingleton;
+        if (self == null) return false;
+        if (secondaryPresentation != null) return true;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (secondaryDetectionAt != 0 && now - secondaryDetectionAt < 500) {
+            return secondaryDetected;
+        }
+        secondaryDetected = findSecondaryDisplay(self, false) != null;
+        secondaryDetectionAt = now;
+        return secondaryDetected;
+    }
+
+    @Keep
+    public static boolean presentSecondaryFrame(
+            java.nio.ByteBuffer rgba, int width, int height,
+            int backgroundColor, boolean cover) {
+        long bytes = (long) width * height * 4;
+        if (rgba == null || width <= 0 || height <= 0
+                || bytes <= 0 || bytes > Integer.MAX_VALUE
+                || rgba.capacity() < bytes) return false;
+        synchronized (secondaryFrameLock) {
+            if (secondaryFrame == null || secondaryFrame.length != (int) bytes) {
+                secondaryFrame = new byte[(int) bytes];
+            }
+            rgba.rewind();
+            rgba.get(secondaryFrame, 0, (int) bytes);
+            rgba.rewind();
+            secondaryFrameWidth = width;
+            secondaryFrameHeight = height;
+            secondaryBackground = backgroundColor;
+            secondaryFrameCover = cover;
+            SecondaryPresentation p = secondaryPresentation;
+            if (p == null) return false;
+            try {
+                p.setBackground(backgroundColor);
+                p.updateFrame(rgba, width, height, cover);
+                return true;
+            } catch (Throwable t) {
+                GameActivity self = (GameActivity) mSingleton;
+                if (self != null) self.runOnUiThread(() -> {
+                    teardownSecondaryDisplay();
+                    setupSecondaryDisplay();
+                });
+                return false;
+            }
+        }
     }
 
     @Keep
@@ -1680,6 +1756,14 @@ public class GameActivity extends SDLActivity {
         void updateFrame(java.nio.ByteBuffer buf, int w, int h) {
             frameView.updateFrame(buf, w, h);
         }
+
+        void updateFrame(java.nio.ByteBuffer buf, int w, int h, boolean cover) {
+            frameView.updateFrame(buf, w, h, cover);
+        }
+
+        void setBackground(int color) {
+            frameView.setFrameBackground(color);
+        }
     }
 
     private static class FrameView extends View {
@@ -1688,7 +1772,9 @@ public class GameActivity extends SDLActivity {
         private final android.graphics.Paint paint = new android.graphics.Paint();
         private final Object lock = new Object();
         private int fw, fh;
+        private int backgroundColor = 0xFF000000;
         private int activePointer = -1;
+        private boolean cover;
 
         FrameView(Context context) {
             super(context);
@@ -1698,7 +1784,12 @@ public class GameActivity extends SDLActivity {
         }
 
         void updateFrame(java.nio.ByteBuffer buf, int w, int h) {
+            updateFrame(buf, w, h, false);
+        }
+
+        void updateFrame(java.nio.ByteBuffer buf, int w, int h, boolean cover) {
             synchronized (lock) {
+                this.cover = cover;
                 if (bitmap == null || fw != w || fh != h) {
                     if (bitmap != null) bitmap.recycle();
                     bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
@@ -1706,6 +1797,13 @@ public class GameActivity extends SDLActivity {
                 }
                 buf.rewind();
                 bitmap.copyPixelsFromBuffer(buf);
+            }
+            postInvalidate();
+        }
+
+        void setFrameBackground(int color) {
+            synchronized (lock) {
+                backgroundColor = 0xFF000000 | (color & 0x00FFFFFF);
             }
             postInvalidate();
         }
@@ -1761,12 +1859,15 @@ public class GameActivity extends SDLActivity {
             synchronized (lock) {
                 if (bitmap == null || fw == 0 || fh == 0) return;
                 int vw = getWidth(), vh = getHeight();
-                int s = Math.min(vw / fw, vh / fh);
-                if (s < 1) s = 1;
-                int dw = fw * s, dh = fh * s;
+                float fit = Math.min((float) vw / fw, (float) vh / fh);
+                if (fit <= 0) return;
+                float scale = cover
+                    ? Math.max((float) vw / fw, (float) vh / fh)
+                    : fit >= 2f ? (float) Math.floor(fit) : fit;
+                int dw = Math.round(fw * scale), dh = Math.round(fh * scale);
                 int dx = (vw - dw) / 2, dy = (vh - dh) / 2;
                 dst.set(dx, dy, dx + dw, dy + dh);
-                canvas.drawColor(0xFF000000);
+                canvas.drawColor(backgroundColor);
                 canvas.drawBitmap(bitmap, null, dst, paint);
             }
         }

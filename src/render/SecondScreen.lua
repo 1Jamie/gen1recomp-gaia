@@ -6,6 +6,7 @@ local SecondScreen = {}
 local C = nil
 local ffi = nil
 local desktop = nil
+local nativePresent = false
 
 local function log(msg)
   pcall(function() require("src.core.Logger").info("SecondScreen: %s", msg) end)
@@ -21,6 +22,9 @@ do
       int love_android_secondary_ready();
       void love_android_push_secondary(const void *rgba, int w, int h);
       void love_android_secondary_enable(int on);
+      int love_android_secondary_detected();
+      int love_android_present_secondary(const void *rgba, int w, int h,
+        unsigned int background, int cover);
       const char *love_android_poll_secondary_touch();
     ]])
     local okLib, lib = pcall(ffi.load, "love")
@@ -33,6 +37,16 @@ do
     else
       log(("bridge symbols not found (ffi.load ok=%s); second display disabled")
         :format(tostring(okLib)))
+    end
+    if C then
+      local okDetected, detected = pcall(function()
+        return C.love_android_secondary_detected
+      end)
+      local okPresent, present = pcall(function()
+        return C.love_android_present_secondary
+      end)
+      nativePresent = okDetected and detected ~= nil
+        and okPresent and present ~= nil
     end
   end
 end
@@ -60,6 +74,10 @@ end
 -- distinction lets a companion retry its first frame after hotplug/re-target.
 function SecondScreen.detected()
   if desktop then return desktop.detected() end
+  if nativePresent then
+    local ok, r = pcall(C.love_android_secondary_detected)
+    return ok and r ~= 0
+  end
   return SecondScreen.available()
 end
 
@@ -68,6 +86,13 @@ function SecondScreen.push(imageData, w, h, background, preference)
     return desktop.push(imageData, w, h, background, preference)
   end
   if not C or not imageData then return false end
+  if nativePresent and (background ~= nil or preference ~= nil) then
+    local cover = type(preference) == "string"
+      and preference:sub(-6) == ":cover"
+    local ok, shown = pcall(C.love_android_present_secondary,
+      imageData:getFFIPointer(), w, h, background or 0, cover and 1 or 0)
+    return ok and shown ~= 0
+  end
   return pcall(function()
     C.love_android_push_secondary(imageData:getFFIPointer(), w, h)
   end)
