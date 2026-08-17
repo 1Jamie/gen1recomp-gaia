@@ -102,6 +102,24 @@ local DATA = {
     TM01 = { id = "TM01", name = "TM01", pocket = "TM_HM", index = 191,
       fieldMenu = "ITEMMENU_PARTY", battleMenu = "ITEMMENU_NOUSE",
       teaches = "SWIFT" },
+    -- a mod's own field item, whose action lives only in gen2ItemEffects
+    -- below -- ItemEffects.RECORDS (the module's built-in table) has never
+    -- heard of it, so resolving it at all requires the merged dataset (#8)
+    MOD_ITEM = { id = "MOD_ITEM", name = "MOD ITEM", pocket = "ITEM",
+      index = 250, fieldMenu = "ITEMMENU_PARTY", battleMenu = "ITEMMENU_PARTY" },
+  },
+  gen2ItemEffects = {
+    MOD_ITEM = {
+      action = "heal", field = true, needsTarget = true,
+      use = function(ctx)
+        local mon = ctx.mon
+        if mon.hp >= mon.maxHp then
+          return { used = false, text = "It won't have\nany effect." }
+        end
+        mon.hp = math.min(mon.maxHp, mon.hp + 5)
+        return { used = true, text = "MOD ITEM used!" }
+      end,
+    },
   },
   gen2MenuGfx = {},
   gen2Icons = {
@@ -459,6 +477,24 @@ do
   drive(host, function() return host.stack:top() ~= party end)
   eq(mon.statExp.hp, 2560, "the vitamin ran through the real menu")
   eq(host.save.inventory.HP_UP, nil, "and the HP UP was spent")
+end
+
+do
+  -- #8 regression: Game2:usePartyItem asked ItemEffects.partyAction for the
+  -- item's family with no `data` argument, so it could only ever see
+  -- RECORDS -- the module's own built-ins.  A mod's field item, whose
+  -- action exists only in the merged gen2ItemEffects table, resolved to a
+  -- nil action and fell straight through to the "isn't going to help here"
+  -- refusal instead of opening the party list at all.
+  local mon = fixtureMon(12, { hp = 10 })
+  local host = newHost({ MOD_ITEM = 1 }, { mon })
+  host:useFieldItem("MOD_ITEM")
+  local party = host.stack:top()
+  check(party ~= nil and party.prompt ~= nil,
+    "a mod's own gen2ItemEffects record opens the party list")
+  drive(host, function() return host.stack:top() ~= party end)
+  eq(mon.hp, 15, "the mod item's own use() ran through the real menu")
+  eq(host.save.inventory.MOD_ITEM, nil, "and the mod item was spent")
 end
 
 do

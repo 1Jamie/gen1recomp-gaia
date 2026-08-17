@@ -1103,6 +1103,15 @@ function BattleState:stepHPDrain()
       if not b.shownPx then b.shownPx = targetPx end
       if (b.drainHold or 0) > 0 then
         b.drainHold = b.drainHold - 1
+        -- Once the count runs out with nothing left pending (bar and
+        -- number already on the final total), the drain is over, not just
+        -- between steps: leave the field at 0 and BattleSafety.inspect
+        -- reads it as still mid-animation for the rest of the battle,
+        -- since drainHold ~= nil is its settled-presentation gate.
+        if b.drainHold <= 0 and b.shownPx == targetPx and b.shownHP == goal
+            and not b.draining then
+          b.drainHold = nil
+        end
         busy = true
       elseif b.shownPx ~= targetPx then
         -- .barAnimationLoop redraws the bar one pixel at a time, `ld c, 2 /

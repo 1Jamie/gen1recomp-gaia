@@ -683,7 +683,10 @@ end
 -- .SelectMon / PPRestoreItem_Cancel carry path: nothing spent.
 function Game2:usePartyItem(itemId)
   local ItemEffects = require("src.core.gen2.ItemEffects")
-  local action = ItemEffects.partyAction(itemId)
+  -- without the merged dataset this can only ever see RECORDS, the
+  -- module's own built-ins, so a mod's field item resolves to no action
+  -- at all and never gets past the .Oak refusal below
+  local action = ItemEffects.partyAction(itemId, self.data)
   if not action then return end
   local party = (self.save and self.save.party) or {}
   if #party == 0 then

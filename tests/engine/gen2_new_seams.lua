@@ -468,6 +468,32 @@ do
     T.eq(forced.shiny, true, "opts.shiny still wins over shiny.roll")
   end)
 
+  -- Mon.syncIdentity (wired into refreshStats, which SummaryMenu.new calls
+  -- on every menu open) used to recompute mon.shiny from DVs unconditionally,
+  -- so opening the summary screen on a forced shiny -- one whose DVs do not
+  -- happen to match the natural pattern -- un-shinied it the moment the menu
+  -- opened.  shiny is monotonic once true: a natural roll or a forced one
+  -- both stay shiny through any later refresh, the way opts.shiny already
+  -- wins at construction.
+  do
+    local forced = Mon.new(DATA, "SEEDMON", 5, { dvs = plainDvs, shiny = true })
+    T.eq(forced.shiny, true, "still shiny straight out of Mon.new")
+    Mon.syncIdentity(forced, DATA)
+    T.eq(forced.shiny, true, "syncIdentity does not clobber a forced shiny")
+    Mon.refreshStats(forced, DATA)
+    T.eq(forced.shiny, true,
+      "refreshStats (SummaryMenu.new's call) does not either")
+
+    -- the natural cases are unaffected: DVs that read shiny stay shiny,
+    -- DVs that do not stay plain
+    local natural = Mon.new(DATA, "SEEDMON", 5, { dvs = shinyDvs })
+    Mon.syncIdentity(natural, DATA)
+    T.eq(natural.shiny, true, "a naturally shiny mon still reads shiny")
+    local plain = Mon.new(DATA, "SEEDMON", 5, { dvs = plainDvs })
+    Mon.syncIdentity(plain, DATA)
+    T.eq(plain.shiny, false, "a plain mon is not promoted to shiny")
+  end
+
   local genderCtx
   withHook("gender.roll", function(nextFn, ctx)
     genderCtx = ctx

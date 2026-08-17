@@ -28,8 +28,14 @@ local DENIED = {
 }
 
 -- Same idea one level up: love.filesystem is reachable by name, and
--- love.thread starts a Lua state this sandbox has no say over.
-local DENIED_PREFIX = { ["love"] = true, ["ffi"] = true }
+-- love.thread starts a Lua state this sandbox has no say over.  jit.util
+-- is the LuaJIT-specific equal of the debug library above -- funcbc,
+-- funck and friends read the bytecode and constants of any function a
+-- chunk can reach, which is enough to walk back to upvalues (the real
+-- _G, love, io) the rest of this file exists to keep out of reach.  The
+-- bare `jit` table stays -- env.jit above hands it over directly for
+-- jit.on/off/flush -- so only the submodule require is denied.
+local DENIED_PREFIX = { ["love"] = true, ["ffi"] = true, ["jit"] = true }
 
 -- The wire, which is what the network permission governs.
 local NETWORK = { socket = true, enet = true, http = true, https = true,
