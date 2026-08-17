@@ -666,11 +666,10 @@ function SaveData.setModEnabled(options, id, enabled, version)
   options.modsByVersion = options.modsByVersion or {}
   local bucket = options.modsByVersion[version] or {}
   options.modsByVersion[version] = bucket
-  -- no shared flag reads as enabled, the same default the loader applies to a
-  -- missing entry, so a fresh install never fills the overlay with agreement
+  -- with no shared flag the default is the caller's (experimental mods read as
+  -- disabled), so the answer is stored outright rather than judged against one
   local shared = options.mods and options.mods[id]
-  if type(shared) ~= "boolean" then shared = true end
-  if shared == enabled then
+  if type(shared) == "boolean" and shared == enabled then
     bucket[id] = nil
   else
     bucket[id] = enabled

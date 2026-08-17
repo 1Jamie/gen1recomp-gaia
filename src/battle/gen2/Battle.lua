@@ -3363,25 +3363,33 @@ function Battle:awardExperience(loser)
   -- has no EXP.ALL (the EXP.SHARE pass below is its replacement), so it is
   -- accepted and ignored rather than changing what is printed.  `recipients`,
   -- `holders` and `halved` are the Gen 2 additions.
-  if not Runtime.wantsHook("battle.exp_award") then return vanillaAward() end
-  local alive = {}
-  for _, index in ipairs(participants) do
-    local mon = self.party[index]
-    if mon and (mon.hp or 0) > 0 then alive[#alive + 1] = mon end
-  end
-  local function applyShare(mon, split)
-    for index, candidate in ipairs(self.party) do
-      if candidate == mon then
-        return self:giveExperiencePass(loser, def, { index },
-          math.max(1, split or 1), halved)
+  if Runtime.wantsHook("battle.exp_award") then
+    local alive = {}
+    for _, index in ipairs(participants) do
+      local mon = self.party[index]
+      if mon and (mon.hp or 0) > 0 then alive[#alive + 1] = mon end
+    end
+    local function applyShare(mon, split)
+      for index, candidate in ipairs(self.party) do
+        if candidate == mon then
+          return self:giveExperiencePass(loser, def, { index },
+            math.max(1, split or 1), halved)
+        end
       end
     end
+    Runtime.call("battle.exp_award", vanillaAward, {
+      battle = self, participants = #participants, alive = alive,
+      applyShare = applyShare, recipients = participants, holders = holders,
+      halved = halved, loser = loser,
+    })
+  else
+    vanillaAward()
   end
-  Runtime.call("battle.exp_award", vanillaAward, {
-    battle = self, participants = #participants, alive = alive,
-    applyShare = applyShare, recipients = participants, holders = holders,
-    halved = halved, loser = loser,
-  })
+
+  -- GiveExperiencePoints .done falls through ResetBattleParticipants into
+  -- AddBattleParticipant (engine/battle/core.asm:7116 and :3033).
+  self.participants = {}
+  if self.playerIndex then self.participants[self.playerIndex] = true end
 end
 
 -- The answer to a `choose-forget`: drop the move in `slot` and put the

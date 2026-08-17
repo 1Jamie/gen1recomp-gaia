@@ -3594,7 +3594,17 @@ function RomImporter:_setAllMods(want, confirmed)
   local LauncherMods = require("src.mods.LauncherMods")
   local ids, experimental = {}, false
   for _, m in ipairs(self.mods or {}) do
-    if m.enabled ~= want then
+    local mismatched = m.enabled ~= want
+    if not self.modScope and type(m.enabledByVersion) == "table" then
+      mismatched = false
+      for _, game in ipairs(GameVersion.ORDER) do
+        if m.enabledByVersion[game] ~= want then
+          mismatched = true
+          break
+        end
+      end
+    end
+    if mismatched then
       ids[#ids + 1] = m.id
       if want and m.experimental then experimental = true end
     end

@@ -117,6 +117,15 @@ local VAR = {
   SPECIALPHONECALL = 0x14,
 }
 
+-- constants/ram_constants.asm:293 wPlayerState.  PLAYER_SKATE (2) has no row:
+-- nothing writes it, and FieldMoves has no string for it either.
+local PLAYER_STATE_BY_ID = {
+  [0] = FieldMoves.PLAYER_NORMAL,
+  [1] = FieldMoves.PLAYER_BIKE,
+  [4] = FieldMoves.PLAYER_SURF,
+  [8] = FieldMoves.PLAYER_SURF_PIKA,
+}
+
 local BATTLETYPE = {
   CANLOSE = 1,
   FORCESHINY = 7,
@@ -5207,6 +5216,7 @@ function World:dropMapImages(mapId)
       if key:sub(1, #prefix) == prefix then store[key] = nil end
     end
   end
+  if self.connectionMaps then self.connectionMaps[mapId] = nil end
 end
 
 -- LoadMapAttributes' refill, for every map the session has edited.  Neighbour
@@ -7480,13 +7490,10 @@ function World:zoomScale()
   return Zoom.scale(self:fitScale())
 end
 
--- Outdoor Johto/Kanto town tilesets are the only ones that swap in roof
--- tiles $0a-$12 (mapgroup_roofs.asm).  Applying roofs to indoor tilesets
--- in the same map group (lab, houses) corrupts their GFX.
+-- home/map.asm:1739 LoadTilesetGFX
 local ROOF_TILESETS = {
   TILESET_JOHTO = true,
   TILESET_JOHTO_MODERN = true,
-  TILESET_KANTO = true,
 }
 
 function World:atlasFor(mapDef)
@@ -8724,6 +8731,44 @@ function World:spawnFacing()
   end
 end
 
+-- A neighbour map, built once and kept for its collision alone: the seam
+-- queries below run on the per-step path.
+function World:connectionMap(mapId)
+  self.connectionMaps = self.connectionMaps or {}
+  local cached = self.connectionMaps[mapId]
+  if cached ~= nil then return cached or nil end
+  local def = self.maps[mapId]
+  local tileset = def and self.tilesets[def.tileset]
+  local map = (def and tileset) and Map.new(def, tileset) or false
+  self.connectionMaps[mapId] = map
+  return map or nil
+end
+
+-- home/map.asm:1908 GetMovementPermissions
+function World:cellCollisionAcross(map, cx, cy)
+  if map:inBounds(cx, cy) then return map:cellCollision(cx, cy) end
+  local dir
+  if cy < 0 then dir = "up"
+  elseif cy >= map.heightCells then dir = "down"
+  elseif cx < 0 then dir = "left"
+  elseif cx >= map.widthCells then dir = "right"
+  end
+  local conn = dir and map:connection(DIR_CONN[dir])
+  local dest = conn and conn.mapId and self.maps[conn.mapId]
+  local destMap = dest and self:connectionMap(conn.mapId)
+  if destMap then
+    local x, y = Map.connectionLanding(dest, conn, dir, cx, cy)
+    local vertical = dir == "up" or dir == "down"
+    local want = (vertical and cx or cy) - (conn.offset or 0) * 2
+    -- connectionLanding clamps into the destination; past the end of the strip
+    -- the buffer still holds this map's own border block
+    if x and (vertical and x or y) == want then
+      return destMap:cellCollision(x, y)
+    end
+  end
+  return map:cellCollision(cx, cy)
+end
+
 -- Seamless edge cross: swap map data, park the player one cell before the
 -- landing (same world pixels the neighbor strip already showed), and keep
 -- the step running so the seam does not hitch.
@@ -8736,7 +8781,13 @@ function World:tryConnection(dir)
   local x, y = Map.connectionLanding(
     dest, conn, dir, self.player.cellX, self.player.cellY)
   if not x then return false end
-  local destMap = Map.new(dest, self.tilesets[dest.tileset])
+  local destMap = self:connectionMap(conn.mapId)
+  if not destMap then return false end
+  -- home/map.asm:1946 GetMovementPermissions side-wall arm
+  if dir == "down"
+     and Permissions.neighborBlocksDown(dir, destMap:cellCollision(x, y)) then
+    return false
+  end
   -- A surfing crossing lands on water, which isWalkable refuses; the arm the
   -- step would have taken is what decides, the same as it does inside the map.
   local landable
@@ -8869,7 +8920,8 @@ function World:movePlayer(dir)
   -- .CheckLandPerms and .CheckSurfPerms read the same wTilePermissions, so the
   -- veto applies to walking and surfing alike.
   local permitted = Permissions.stepPermitted(
-    function(x, y) return map:cellCollision(x, y) end, p.cellX, p.cellY, dir)
+    function(x, y) return self:cellCollisionAcross(map, x, y) end,
+    p.cellX, p.cellY, dir)
   -- `.CheckNPC`'s IsNPCAtCoord answers for a BIG_OBJECT's whole 2x2 blob, and
   -- Player:tryMove's entity scan only ever compares the one cell an object
   -- stands on -- so the three cells the Vermilion Snorlax overhangs are vetoed

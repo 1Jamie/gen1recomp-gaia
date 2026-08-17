@@ -357,8 +357,8 @@ local options = OptionsMenu.new(optionsGame, {
   options = Save.defaultOptions(),
 })
 -- The cart's seven rows, then the port's: CONTROLS, audio, speed, display,
--- video mode, the mobile-gated touch three (buildRows) and CANCEL.
-check("twenty-one rows", #OptionsMenu.ROWS, 21)
+-- video mode, the mobile-gated touch three (buildRows), MAX FPS and CANCEL.
+check("twenty-two rows", #OptionsMenu.ROWS, 22)
 check("the cart's rows come first", OptionsMenu.ROWS[7].key, "frame")
 check("then the rebind screen", OptionsMenu.ROWS[8].id, "controls")
 check("then the port's audio group", OptionsMenu.ROWS[9].key, "musicVol")

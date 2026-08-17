@@ -20,6 +20,7 @@ local Player = require("src.world.Player")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local ScriptRunner = require("src.script.ScriptRunner")
+local Theme = require("src.ui.Theme")
 local Tilt = require("src.render.Tilt")
 local TextBox = require("src.render.TextBox")
 local Transition = require("src.render.Transition")
@@ -1109,6 +1110,13 @@ function OverworldState:update(dt)
     end
   end
 
+  -- EnterMapAnim's .done tail re-enables the companion once the swoop or the
+  -- spin-down has landed (player_animations.asm:40)
+  if self.pikachuWarpHidden and not (self.flyAnim or self.flyArrive
+      or self.teleportOut or self.transitioning or self.player.spinning) then
+    self:showPikachuAfterWarp()
+  end
+
   -- Dig/Teleport/Escape-Rope departure spin (beginTeleportOut).  The sprite
   -- spins UP out of the map before the fade (player_animations.asm
   -- _LeaveMapAnim -> PlayerSpinWhileMovingUp + SFX_TELEPORT_EXIT_1), the
@@ -1190,7 +1198,9 @@ function OverworldState:update(dt)
                or self.engaging or self.emote or self.teleportOut
                or self.flyAnim or self.flyArrive
   end
-  if not scripted and not self.transitioning then
+  -- a scriptMove's onDone can push a text box on the frame it retires, and
+  -- DisplayTextID owns the loop from there (home/text_script.asm:3)
+  if not scripted and not self.transitioning and Game.stack:top() == self then
     self:handleInput()
   end
 
@@ -1716,6 +1726,28 @@ function OverworldState:syncSurfingPikachu()
   p.surfingPikachu = mon ~= nil and mon.species == "PIKACHU" or false
 end
 
+-- _LeaveMapAnim drops the companion's sprite before the animation starts and
+-- EnterMapAnim only puts it back once landed -- home/pikachu.asm:1, :10
+function OverworldState:hidePikachuForWarp()
+  self.pikachuWarpHidden = true
+  require("src.world.PikachuFollower").setVisible(self, false)
+end
+
+function OverworldState:showPikachuAfterWarp()
+  self.pikachuWarpHidden = nil
+  self.pikachuTrail = { x = self.player.cellX, y = self.player.cellY }
+  local Follower = require("src.world.PikachuFollower")
+  local npc = Follower.current(self)
+  if npc then
+    npc.cellX, npc.cellY = self.player.cellX, self.player.cellY
+    npc.px, npc.py = npc.cellX * 16, npc.cellY * 16
+    npc.targetX, npc.targetY = nil, nil
+    npc.goalX, npc.goalY = nil, nil
+    npc.moving = false
+  end
+  Follower.setVisible(self, true)
+end
+
 -- The rejection loop shared by the Good and Super Rods
 -- (item_effects.asm ItemUseGoodRod .RandomLoop / ReadSuperRodData): an
 -- odd random byte is no bite; otherwise a 2-bit pick rerolls until it
@@ -1822,6 +1854,7 @@ function OverworldState:flyTo(mapId)
   Game.save.forcedBike = nil -- HandleFlyWarpOrDungeonWarp res BIT_ALWAYS_ON_BIKE
   self.player.surfing = false
   self:syncSurfingPikachu()
+  self:hidePikachuForWarp()
   -- _LeaveMapAnim .flyAnimation: the bird flaps in place (8 x Delay3),
   -- then SFX_FLY and the up-right path, a 40-frame beat off screen, and
   -- the exit over the top-left -- the warp fades only once the bird is
@@ -1852,6 +1885,7 @@ function OverworldState:beginTeleportOut(onDone)
   require("src.core.Sound").play(Game.data, "Teleport_Exit1")
   self.player.surfing = false
   self:syncSurfingPikachu()
+  self:hidePikachuForWarp()
   self.player.inputLocked = true
   -- rising spin: the mirror of the arrival spin-drop set in startWarpTo, so
   -- spinRise lifts the sprite (Player:pose) while spinFrames counts down
@@ -3045,6 +3079,7 @@ function OverworldState:nurseHeal(onDone, npc)
   end
   -- Yellow's companion has its own beat threaded through this sequence
   local Follower = require("src.world.PikachuFollower")
+  -- YesNoChoicePokeCenter draws HEAL/CANCEL, not YES/NO (home/yes_no.asm:21)
   Game.stack:push(TextBox.new(Game, hello, nil, { choice = function(yes)
     if not yes then
       Game.stack:push(TextBox.new(Game, bye, onDone))
@@ -3093,7 +3128,7 @@ function OverworldState:nurseHeal(onDone, npc)
         end
       end))
     end)
-  end }))
+  end, choiceLabels = { "HEAL", "CANCEL" }, choiceBox = Theme.healCancelBox }))
 end
 
 -- pokecenter.asm bows the nurse between the two PrintText calls (#995)
@@ -4526,6 +4561,11 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
     -- down, so the player is never drawable mid-fade nor standing bare on the
     -- landing frame (#916)
     self.playerHidden = false
+    -- setMap respawned a follower under the player; _LeaveMapAnim's Func_1510
+    -- suppression runs until EnterMapAnim lands (home/pikachu.asm:1)
+    if self.pikachuWarpHidden then
+      require("src.world.PikachuFollower").setVisible(self, false)
+    end
     -- The warp we land ON stays inert for the completed-step check until we
     -- physically step off it, so a warp whose destination cell is itself a
     -- warp cannot bounce us straight back (elevator cars, stacked stair/door

@@ -273,6 +273,7 @@ Save.DEFAULT_OPTIONS = {
   -- means something different, hence the different name.
   color = "gbc",
   videoMode = "windowed",
+  fpsCap = 60,
   musicVol = 7,             -- 0-7, like the GB's NR50 master volume
   sfxVol = 7,               -- 0-7
   musicFilter = 0,          -- low-pass steps, 0 = off

@@ -638,6 +638,16 @@ local function gen2Rows(opts, hooks)
       end)
   end
 
+  local okCap, FrameCap = pcall(require, "src.core.FrameCap")
+  if okCap then
+    add(Strings("MAX FPS"),
+      function() return FrameCap.label(opts.fpsCap) end,
+      function(dir)
+        opts.fpsCap = FrameCap.cycle(opts.fpsCap, dir)
+        return true
+      end)
+  end
+
   addTouchRows(rows, add, opts, hooks)
 
   return rows
