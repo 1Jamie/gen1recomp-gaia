@@ -30,7 +30,8 @@ check(java:find("Math.max((float) vw / fw, (float) vh / fh)", 1, true)
   "FrameView supports cover and pixel-friendly contain fits")
 check(cpp:find("love_android_secondary_detected", 1, true)
     and cpp:find("love_android_present_secondary", 1, true)
+    and cpp:find("love_android_secondary_target", 1, true)
     and cpp:find('"(Ljava/nio/ByteBuffer;IIIZ)Z"', 1, true),
-  "JNI exports the optional detected and presentation calls")
+  "JNI exports the optional detected, routing, and presentation calls")
 
 print("android secondary presentation: ok")

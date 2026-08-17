@@ -1230,6 +1230,20 @@ void love_android_secondary_enable(int on)
 }
 
 extern "C" __attribute__((visibility("default")))
+void love_android_secondary_target(int target)
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity,
+		"setSecondaryDisplayTarget", "(I)V");
+	if (method)
+		env->CallStaticVoidMethod(activity, method, target);
+	else
+		env->ExceptionClear();
+	env->DeleteLocalRef(activity);
+}
+
+extern "C" __attribute__((visibility("default")))
 int love_android_secondary_detected()
 {
 	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();

@@ -14,6 +14,7 @@ local C = {
     calls.push = { ptr, w, h }
   end,
   love_android_secondary_enable = function(on) calls.enabled = on end,
+  love_android_secondary_target = function(target) calls.target = target end,
   love_android_secondary_detected = function() return 1 end,
   love_android_present_secondary = function(ptr, w, h, background, cover)
     calls.present = { ptr, w, h, background, cover }
@@ -44,6 +45,10 @@ T.eq(SecondScreen.push(image, 160, 144, 0x112233, "secondary:cover"), true,
   "extended Android presentation accepts frame metadata")
 T.same(calls.present, { "pixels", 160, 144, 0x112233, 1 },
   "cover and RGB background reach the native bridge")
+T.eq(calls.target, 2, "secondary routing reaches the optional native bridge")
+T.eq(SecondScreen.push(image, 160, 144, 0x112233, "handheld"), true,
+  "handheld routing remains a contain presentation")
+T.eq(calls.target, 1, "handheld routing reaches the optional native bridge")
 T.eq(SecondScreen.push(image, 160, 144, 0x112233, "secondary"), true,
   "contain presentation remains available")
 T.same(calls.present, { "pixels", 160, 144, 0x112233, 0 },
@@ -52,6 +57,7 @@ T.eq(SecondScreen.push(image, 160, 144, nil, "secondary:cover"), true,
   "a fit preference can request extended presentation by itself")
 T.same(calls.present, { "pixels", 160, 144, 0, 1 },
   "preference-only presentation defaults to a black background")
+T.eq(calls.target, 2, "a suffixed route keeps its target")
 T.eq(SecondScreen.push(image, 160, 144), true,
   "the original push ABI remains available")
 T.same(calls.push, { "pixels", 160, 144 },

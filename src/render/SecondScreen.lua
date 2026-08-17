@@ -7,6 +7,7 @@ local C = nil
 local ffi = nil
 local desktop = nil
 local nativePresent = false
+local nativeTarget = false
 
 local function log(msg)
   pcall(function() require("src.core.Logger").info("SecondScreen: %s", msg) end)
@@ -25,6 +26,7 @@ do
       int love_android_secondary_detected();
       int love_android_present_secondary(const void *rgba, int w, int h,
         unsigned int background, int cover);
+      void love_android_secondary_target(int target);
       const char *love_android_poll_secondary_touch();
     ]])
     local okLib, lib = pcall(ffi.load, "love")
@@ -45,8 +47,12 @@ do
       local okPresent, present = pcall(function()
         return C.love_android_present_secondary
       end)
+      local okTarget, target = pcall(function()
+        return C.love_android_secondary_target
+      end)
       nativePresent = okDetected and detected ~= nil
         and okPresent and present ~= nil
+      nativeTarget = okTarget and target ~= nil
     end
   end
 end
@@ -87,6 +93,15 @@ function SecondScreen.push(imageData, w, h, background, preference)
   end
   if not C or not imageData then return false end
   if nativePresent and (background ~= nil or preference ~= nil) then
+    if nativeTarget then
+      local target = 0
+      if preference == "handheld" or preference == "handheld:cover" then
+        target = 1
+      elseif preference == "secondary" or preference == "secondary:cover" then
+        target = 2
+      end
+      pcall(C.love_android_secondary_target, target)
+    end
     local cover = type(preference) == "string"
       and preference:sub(-6) == ":cover"
     local ok, shown = pcall(C.love_android_present_secondary,
