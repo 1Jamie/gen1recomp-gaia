@@ -150,6 +150,10 @@ end
 -- animation (most of them) skips the canvas entirely.
 local function needsCanvas(runner)
   local bg = runner.bg
+  -- engine/battle_anims/bg_effects.asm:448-465: a lifted battler row stays
+  -- out of the BG until the next pic redraw, so those frames stay baked too.
+  local lifted = bg.liftedRows
+  if lifted and (lifted.player or lifted.enemy) then return true end
   if bg.scx ~= 0 or bg.scy ~= 0 then return true end
   if not bg.lcdc then return false end
   if bg.lyEnd <= bg.lyStart then return false end
@@ -229,13 +233,12 @@ end
 -- times, and the grouping is by VALUE so a table that happens to repeat costs
 -- nothing extra.
 local function bgpBands(bg)
+  local base = bg.bgp or GbcPalette.BGP_IDENTITY
   local order, bands = {}, {}
   for row = 0, SCREEN_H - 1 do
     local inWindow = row >= bg.lyStart and row < bg.lyEnd
-    -- Outside the window the register still reads whatever wBGP holds, which
-    -- for every effect that aims hLCDCPointer at rBGP is the identity.
-    local byte = inWindow and (bg.lyBackup[row] or GbcPalette.BGP_IDENTITY)
-      or GbcPalette.BGP_IDENTITY
+    -- Outside the window the register still reads whatever wBGP holds.
+    local byte = inWindow and (bg.lyBackup[row] or base) or base
     local band = bands[byte]
     if not band then
       band = { byte = byte, rows = {} }
@@ -244,24 +247,56 @@ local function bgpBands(bg)
     end
     band.rows[#band.rows + 1] = row
   end
-  -- Identity first so the fillBackground below it happens before any blit and
-  -- the common band is the one drawn from the first bake.
+  -- The base band first so the fillBackground below it happens before any blit
+  -- and the common band is the one drawn from the first bake.
   table.sort(order, function(a, b)
     if a.byte == b.byte then return false end
-    if a.byte == GbcPalette.BGP_IDENTITY then return true end
-    if b.byte == GbcPalette.BGP_IDENTITY then return false end
+    if a.byte == base then return true end
+    if b.byte == base then return false end
     return a.rows[1] < b.rows[1]
   end)
   return order
 end
 
--- Runs `drawBg` (the battle panel) and then puts it on screen through the
--- animation's BG registers.  Returns without a canvas when nothing is
--- displacing anything, which is the common case and costs nothing.
-function BattleAnimView:present(runner, drawBg)
+-- engine/battle_anims/anim_commands.asm:1293 BattleAnim_SetBGPals
+function BattleAnimView:panelPalettes(battle)
+  local list = {}
+  local shades = {}
+  for index = 1, 4 do shades[index] = GbcPalette.color(nil, index) end
+  list[#list + 1] = shades
+  local function bracket(pair)
+    if not (pair and pair[1] and pair[2]) then return end
+    list[#list + 1] = {
+      { 255, 255, 255 },
+      { pair[1][1], pair[1][2], pair[1][3] },
+      { pair[2][1], pair[2][2], pair[2][3] },
+      { 0, 0, 0 },
+    }
+  end
+  for _, side in ipairs({ "player", "enemy" }) do
+    local mon = battle and battle[side]
+    local colors = mon
+      and Palettes.monColors(self.palettes, mon.species, mon.shiny)
+    if colors then list[#list + 1] = colors end
+  end
+  local hpBar = self.palettes and self.palettes.hpBar
+  if hpBar then
+    bracket(hpBar.green)
+    bracket(hpBar.yellow)
+    bracket(hpBar.red)
+  end
+  bracket(self.palettes and self.palettes.expBar)
+  return list
+end
+
+-- Runs `drawBg` (the battle panel) and puts it on screen through the
+-- animation's BG registers; skips the canvas when nothing needs one.
+function BattleAnimView:present(runner, drawBg, battle)
   if not (love and love.graphics) then return end
   local bg = runner.bg
-  if not needsCanvas(runner) then
+  local invert = bg.bgp and bg.bgp ~= GbcPalette.BGP_IDENTITY
+    and bg.lcdc ~= "BGP" and GbcPalette.remapShader() ~= nil
+  if not invert and not needsCanvas(runner) then
     drawBg()
     return
   end
@@ -292,9 +327,10 @@ function BattleAnimView:present(runner, drawBg)
 
   self:bake(drawBg, nil)
 
-  -- A shifted scanline exposes whatever the BG map holds beside the pic, which
-  -- outside the two pic boxes is the blank tile.  Without this the exposed
-  -- strip is the canvas's own transparency and every shake shows a seam.
+  local remapped = invert
+    and GbcPalette.useRemap(self:panelPalettes(battle), bg.bgp)
+  -- A shifted scanline exposes the blank tile beside the pic boxes; without
+  -- this the exposed strip is the canvas's own transparency.
   self:fillBackground()
   G.setColor(1, 1, 1, 1)
   -- hSCX / hSCY move the whole background; the per-scanline overrides only
@@ -314,6 +350,7 @@ function BattleAnimView:present(runner, drawBg)
       self:blitRow(row, dx, dy)
     end
   end
+  if remapped then GbcPalette.clear() end
   -- Shaderless boot: the panel is raw grayscale, so there are no palettes to
   -- permute and the entry's BRIGHTNESS is the only thing left to reproduce.
   if bg.lcdc == "BGP" then
@@ -417,5 +454,6 @@ end
 
 BattleAnimView.SCREEN_W = SCREEN_W
 BattleAnimView.SCREEN_H = SCREEN_H
+BattleAnimView.needsCanvas = needsCanvas
 
 return BattleAnimView

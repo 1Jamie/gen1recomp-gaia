@@ -172,6 +172,17 @@ local ROWS = {
     text = function(options)
       return require("src.render.GBCFX").levelLabel(options.gbcfx or 0)
     end },
+  { label = "VIDEO MODE", key = "videoMode", port = true,
+    cycle = function(options, delta)
+      local VideoMode = require("src.core.VideoMode")
+      options.videoMode = VideoMode.cycle(options.videoMode, delta)
+      VideoMode.apply(options.videoMode)
+    end,
+    text = function(options)
+      local VideoMode = require("src.core.VideoMode")
+      return VideoMode.normalize(options.videoMode) == "borderless"
+        and "FULL" or "WINDOWED"
+    end },
   { id = "touchControls", label = "TOUCH PAD", port = true,
     text = function(options)
       local tc = options.touchControls

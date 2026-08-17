@@ -178,8 +178,8 @@ do
   end
   check(sawSurf, "departure plays Music_Surfing")
   check(ow._queued ~= nil, "departure queues the sail-away script")
-  -- #360: the surf override must NOT ride into Vermilion City, she has to
-  -- sail west block by block, and the block under the player stays dry
+  -- #360: the surf override must NOT ride into Vermilion City, and she
+  -- sails west block by block
   local kept, horns, slid, underPlayer = false, 0, 0, false
   for _, row in ipairs(ow._queued or {}) do
     if row[1] == "play_music" and row[3] and row[3].keep then kept = true end
@@ -194,7 +194,8 @@ do
   eq(kept, false, "departure lets VERMILION_CITY's own theme take the warp")
   eq(horns, 2, "the horn blows before and after she sails")
   check(slid > 8, "she sails west block by block instead of vanishing")
-  eq(underPlayer, false, "the block under the player is never watered over")
+  -- scripts/VermilionDock.asm:182-203 (#1211)
+  eq(underPlayer, true, "the gangway block under the player is erased too")
 end
 
 -- Captain rub jingle: play_once Music_PkmnHealed sits after the rub text.

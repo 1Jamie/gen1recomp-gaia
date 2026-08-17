@@ -80,6 +80,7 @@ Battle.SECONDARY_EFFECTS = {
   EFFECT_PARALYZE_HIT = "paralyze",
   EFFECT_SLEEP_HIT = "sleep",
   EFFECT_CONFUSE_HIT = "confuse",
+  EFFECT_SACRED_FIRE = "burn", -- data/moves/effects.asm:1696
 }
 
 local function rand(random, n)
@@ -1320,6 +1321,18 @@ function Battle:markMissed()
   if self.moveEvent then self.moveEvent.missed = true end
 end
 
+-- engine/battle/effect_commands.asm:3615
+Battle.AI_FAIL_STATUSES = {
+  sleep = true, poison = true, toxic = true, paralyze = true,
+}
+
+-- engine/battle/effect_commands.asm:3615
+function Battle:aiRandomFail(attacker, defender)
+  if self:sideOf(attacker) ~= "enemy" then return false end
+  if self:volatile(defender).lockOn then return false end
+  return rand(self.random, 256) < 64
+end
+
 -- One attack, start to finish.
 function Battle:useMove(attacker, defender, moveId)
   local move = self:findMove(attacker, moveId)
@@ -1478,10 +1491,10 @@ function Battle:useMove(attacker, defender, moveId)
   if charge and not charging then
     state.chargeMove = moveId
     state.vanished = charge.vanish or nil
-    -- DIG and FLY are the same effect in Gen 2 (both EFFECT_FLY), so the table
-    -- keyed by effect cannot tell them apart and DIG announced itself with
-    -- "flew up high!".  BattleCommand_Fly picks the line off the MOVE, not the
-    -- effect: `cp DIG` and then the burrow text.
+    -- engine/battle/effect_commands.asm:5458
+    if self.moveEvent then self.moveEvent.animParam = 1 end
+    -- BattleCommand_Charge picks the line off the MOVE, not the shared
+    -- EFFECT_FLY (`cp DIG`, effect_commands.asm:5464).
     local text = charge.text
     if moveId == "DIG" then text = "%s dug a hole!" end
     self:emit({ kind = "message", text = text:format(name) })
@@ -1517,10 +1530,10 @@ function Battle:useMove(attacker, defender, moveId)
   -- read and cleared by the very next move aimed at it, and while it is up the
   -- accuracy roll does not happen at all.
   local locked = self:consumeLockOn(defender)
-  -- SUBSTATUS_X_ACCURACY (an X ACCURACY) grants the same roll bypass,
-  -- CheckHit's `.XAccuracy` arm, but is not consumed: it lasts until the
-  -- switch drops the volatile.
+  -- CheckHit's .XAccuracy and EFFECT_ALWAYS_HIT arms
+  -- (effect_commands.asm:1572-1579).
   local sureHit = locked or self:volatile(attacker).xAccuracy == true
+    or def.effect == "EFFECT_ALWAYS_HIT"
 
   -- .LockOn runs ahead of .FlyDigMoves and returns a HIT unless the target is
   -- flying and the move is one of the three (effect_commands.asm:1563-1567,
@@ -1723,9 +1736,14 @@ function Battle:useMove(attacker, defender, moveId)
         text = ("Hit %d time(s)!"):format(landed) })
     end
 
-    -- Recoil is a quarter of what was dealt; drain heals half of it.  Dream
-    -- Eater's sleep requirement is checkhit's, not this block's, so by the
-    -- time a drain is paid out the target is known to have been asleep.
+    -- move_effects/pay_day.asm:13
+    if def.effect == "EFFECT_PAY_DAY" and dealt > 0 then
+      self.payDay = (self.payDay or 0) + 2 * (attacker.level or 1)
+      self:emit({ kind = "message",
+        text = Strings("Coins scattered\neverywhere!") })
+    end
+
+    -- Recoil is a quarter of what was dealt; drain heals half of it.
     if def.effect == "EFFECT_RECOIL_HIT" and dealt > 0 then
       local recoil = Effects.recoilDamage(dealt)
       attacker.hp = math.max(0, (attacker.hp or 0) - recoil)
@@ -1806,20 +1824,20 @@ function Battle:useMove(attacker, defender, moveId)
   -- Defense Curl arms Rollout as well as raising Defense.
   if def.effect == "EFFECT_DEFENSE_CURL" then state.curled = true end
 
-  -- Stat changes: the primary ones always land, the *_HIT ones roll the
-  -- move's effect chance after a hit that connected.
-  --
-  -- A refused primary change is a failure the cart detects BEFORE its anim
-  -- command: RaiseStat's `.cant_raise_stat` and StatDown's `.CantLower` /
-  -- `.Mist` all write wAttackMissed (effect_commands.asm:4191, :4380-4400),
-  -- and `statupanim` / `statdownanim` read it (:2022) from a slot AFTER
-  -- `attackup` / `attackdown` in the effect list (data/moves/effects.asm,
-  -- AttackUp).  The *_HIT twins must NOT be marked: their `attackdown` runs
-  -- after `moveanim` (AttackDownHit), so the animation has already played.
+  -- A refused primary change writes wAttackMissed (effect_commands.asm:4191,
+  -- :4380-4400); the *_HIT twins animate first and must stay unmarked.
   local change = Effects.STAT_CHANGES[def.effect]
   if change then
     local target = change[3] == "self" and attacker or defender
-    if not self:changeStageAgainstMist(attacker, target, change[1], change[2])
+    -- CheckMist first (effect_commands.asm:4290), then .ComputerMiss (:4318)
+    local misted = target ~= attacker and (change[2] or 0) < 0
+      and self:volatile(target).mist
+    if not misted and change[3] == "foe"
+        and def.effect ~= "EFFECT_ACCURACY_DOWN_HIT"
+        and self:aiRandomFail(attacker, target) then
+      self:markMissed()
+      self:emit({ kind = "message", text = "But it failed!" })
+    elseif not self:changeStageAgainstMist(attacker, target, change[1], change[2])
     then
       self:markMissed()
     end
@@ -1848,19 +1866,21 @@ function Battle:useMove(attacker, defender, moveId)
   local record = Battle.moveEffectRecordFor(self.data, def.effect)
   local status = record and record.kind == "primary" and record.status or nil
   if status and (def.power or 0) == 0 then
-    -- Every status command's already-statused / immune arm ends on
-    -- AnimateFailedMove (BattleCommand_Poison's `.failed`,
-    -- effect_commands.asm:3748-3750, and :6656-6659): LowerSub, MoveDelay,
-    -- RaiseSub and no LoadMoveAnim.  AnimateCurrentMove only runs on the
-    -- success path (:3752), and the effect scripts carry no moveanim of their
-    -- own (data/moves/effects.asm, Toxic / DoPoison).  The SECONDARY_EFFECTS
-    -- branch below is the opposite case: that move already hit and already
-    -- animated, so a refused secondary must leave the event unmarked.
-    if not self:applyStatus(defender, status, attacker) then self:markMissed() end
+    -- A refused primary status is a failed move (effect_commands.asm:3748,
+    -- :6656); a refused secondary already animated and stays unmarked (:3752).
+    if Battle.AI_FAIL_STATUSES[status]
+        and self:aiRandomFail(attacker, defender) then
+      self:markMissed()
+      self:emit({ kind = "message", text = "But it failed!" })
+    elseif not self:applyStatus(defender, status, attacker) then
+      self:markMissed()
+    end
   else
     local secondary = record and record.kind == "secondary"
       and record.status or nil
-    if secondary and (defender.hp or 0) > 0 then
+    -- engine/battle/effect_commands.asm:6325
+    if secondary and (defender.hp or 0) > 0
+        and not self:safeguarded(defender) then
       local chance = def.effectChance or 0
       if chance > 0 and rand(self.random, 100) < chance then
         self:applyStatus(defender, secondary, attacker)
@@ -2420,6 +2440,15 @@ Battle.MOVE_EFFECTS.EFFECT_REFLECT = function(self, attacker)
     text = self:monName(attacker) .. "'s DEFENSE rose!" })
 end
 
+-- engine/battle/move_effects/safeguard.asm:1
+Battle.MOVE_EFFECTS.EFFECT_SAFEGUARD = function(self, attacker)
+  local side = self.screens[self:sideOf(attacker)]
+  if (side.safeguard or 0) > 0 then return fail(self) end
+  side.safeguard = Battle.SCREEN_TURNS
+  self:emit({ kind = "message",
+    text = self:monName(attacker) .. "'s covered by a veil!" })
+end
+
 -- BattleCommand_Curse (engine/battle/move_effects/curse.asm): two moves in
 -- one body.  A non-Ghost user trades a stage of Speed for one each of Attack
 -- and Defense, refused only when BOTH raises are already capped; a Ghost
@@ -2905,6 +2934,11 @@ function Battle.statusPenaltyFor(data, mon, stat, value)
   return math.max(1, math.floor(value / math.max(1, penalty.div or 1)))
 end
 
+-- engine/battle/effect_commands.asm:6325
+function Battle:safeguarded(mon)
+  return (self.screens[self:sideOf(mon)].safeguard or 0) > 0
+end
+
 -- `source` is the battler that inflicted it, carried only so
 -- battle.status_inflicted can name it the way Gen 1's does.
 function Battle:applyStatus(mon, status, source)
@@ -2912,7 +2946,14 @@ function Battle:applyStatus(mon, status, source)
   -- Confusion is SUBSTATUS_CONFUSED on the cart, not a status byte: it lives
   -- in the volatile beside the major status, so a confused mon can still be
   -- burned and a switch shakes the confusion off.
-  if status == "confuse" then return self:applyConfusion(mon) end
+  if status == "confuse" then return self:applyConfusion(mon, nil, source) end
+  -- engine/battle/effect_commands.asm:6338
+  if source and self:sideOf(source) ~= self:sideOf(mon)
+      and self:safeguarded(mon) then
+    self:emit({ kind = "message",
+      text = self:monName(mon) .. " is protected by SAFEGUARD!" })
+    return false
+  end
   -- One major status at a time.
   if mon.status then
     self:emit({ kind = "message",
@@ -2948,8 +2989,15 @@ end
 -- as 256 turns.  HELD_PREVENT_CONFUSE on the target blocks it outright.
 Battle.BERSERK_GENE_CONFUSE_TURNS = 256
 
-function Battle:applyConfusion(mon, turns)
+function Battle:applyConfusion(mon, turns, source)
   if (mon.hp or 0) <= 0 then return false end
+  -- engine/battle/effect_commands.asm:6338
+  if source and self:sideOf(source) ~= self:sideOf(mon)
+      and self:safeguarded(mon) then
+    self:emit({ kind = "message",
+      text = self:monName(mon) .. " is protected by SAFEGUARD!" })
+    return false
+  end
   local state = self:volatile(mon)
   if (state.substitute or 0) > 0 then return false end
   local held = self:heldEffect(mon, "confuse")
@@ -3012,6 +3060,14 @@ function Battle:resolveFaints()
           text = (self.trainer.name or "TRAINER") .. " was defeated!" })
         self:awardPrizeMoney()
       end
+      -- CheckPayDay, on the win arm only (engine/battle/core.asm:7971-7976,
+      -- :8014-8042).
+      local coins = Prize.payDay(self.save, self.payDay, self.amuletCoin)
+      if coins then
+        self:emit({ kind = "money", text = Prize.payDayMessage(coins,
+          self.save.player and self.save.player.name) })
+      end
+      self.payDay = nil
       self:endBattle("win")
       return true
     end
@@ -4421,14 +4477,20 @@ Battle.SCREEN_FALL_TEXT = {
 function Battle:tickScreens()
   for _, side in ipairs({ "player", "enemy" }) do
     local screens = self.screens[side]
-    for _, field in ipairs({ "lightScreen", "reflect" }) do
+    for _, field in ipairs({ "lightScreen", "reflect", "safeguard" }) do
       if (screens[field] or 0) > 0 then
         screens[field] = screens[field] - 1
         if screens[field] <= 0 then
           screens[field] = nil
-          self:emit({ kind = "message",
-            text = Battle.SCREEN_SIDE_LABEL[side]
-              .. Battle.SCREEN_FALL_TEXT[field] })
+          if field == "safeguard" then
+            -- engine/battle/core.asm:1527
+            self:emit({ kind = "message",
+              text = self:monName(self[side]) .. "'s SAFEGUARD faded!" })
+          else
+            self:emit({ kind = "message",
+              text = Battle.SCREEN_SIDE_LABEL[side]
+                .. Battle.SCREEN_FALL_TEXT[field] })
+          end
         end
       end
     end

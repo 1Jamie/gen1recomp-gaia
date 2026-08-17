@@ -24,7 +24,11 @@ local redWorld = {
 }
 local redGame = {
   data = { field = { outsideTilesets = { "OVERWORLD" } },
-    items = { OLD_ROD = { name = "OLD ROD" } } },
+    items = { OLD_ROD = { name = "OLD ROD" } },
+    maps = { PALLET_TOWN = { index = 0, tileset = "OVERWORLD" },
+      ROUTE_4 = { index = 11, tileset = "OVERWORLD" } },
+    pokemon = { CHANSEY = { name = "CHANSEY" },
+      PIKACHU = { name = "PIKACHU" } } },
   save = { player = { name = "RED" }, party = {},
     inventory = { BICYCLE = 1, OLD_ROD = 1 } },
   stack = { states = { redWorld } },
@@ -34,11 +38,15 @@ function redGame.stack:top() return self.states[#self.states] end
 
 local RedAPI = require("src.world.WorldAPI")
 local red = RedAPI.new(redGame, "fixture")
+local unavailable, reason = RedAPI.new({}, "fixture"):availableFieldActions()
+T.eq(#unavailable, 0, "Red lists no actions without an overworld")
+T.eq(reason, "no overworld", "Red reports a missing overworld")
 local RedWorld = require("src.world.OverworldController")
 T.check(type(RedWorld.useBicycle) == "function"
     and type(RedWorld.useFishingRod) == "function"
     and type(RedWorld.useFlashFieldMove) == "function"
     and type(RedWorld.useStrengthFieldMove) == "function"
+    and type(RedWorld.useSoftboiledFieldMove) == "function"
     and type(RedWorld.stopSurfing) == "function",
   "Red keeps field-action execution in its world")
 local actions = red:availableFieldActions()
@@ -59,7 +67,9 @@ T.check(not ok and err == "fishing rod unavailable",
 T.eq(redWorld.rodUsed, used, "a rejected Red rod changes nothing")
 
 redWorld.player.moving = true
-T.eq(#red:availableFieldActions(), 0, "Red hides actions while moving")
+actions, err = red:availableFieldActions()
+T.eq(#actions, 0, "Red hides actions while moving")
+T.eq(err, "world is busy", "Red distinguishes a busy world from no actions")
 ok, err = red:useFieldAction("bicycle")
 T.check(not ok and err == "world is busy",
   "Red refuses a stale action while busy")
@@ -87,6 +97,40 @@ end
 T.check(redWorld.cutUsed and redWorld.surfUsed and redWorld.strengthUsed
     and redWorld.flashUsed and redWorld.teleportUsed,
   "Red delegates every move to its overworld path")
+
+local source = { species = "CHANSEY", level = 30, hp = 80,
+  stats = { hp = 100 }, moves = { { id = "SOFTBOILED" } } }
+local target = { species = "PIKACHU", level = 20, hp = 10,
+  stats = { hp = 50 }, moves = {} }
+redGame.save.party = { source, target }
+redWorld.useSoftboiledFieldMove = function(self, user, recipient)
+  self.softboiled = { user, recipient }
+  return true
+end
+byId = {}
+for _, action in ipairs(red:availableFieldActions()) do byId[action.id] = action end
+T.check(byId.softboiled and byId.softboiled.sources[1].targets[1].slot == 2,
+  "Red lists only valid SOFTBOILED targets")
+T.check(red:useFieldAction("softboiled", { sourceSlot = 1, targetSlot = 2 }),
+  "Red accepts a listed SOFTBOILED transfer")
+T.check(redWorld.softboiled[1] == source and redWorld.softboiled[2] == target,
+  "Red delegates SOFTBOILED to its overworld path")
+ok, err = red:useFieldAction("softboiled", { sourceSlot = 2, targetSlot = 1 })
+T.check(not ok and err == "softboiled target unavailable",
+  "Red rejects an invalid SOFTBOILED source")
+
+redGame.save.inventory.THUNDERBADGE = 1
+redGame.save.visited = { PALLET_TOWN = true, ROUTE_4 = true }
+redGame.data.field.flyOrder = { "PALLET_TOWN", "ROUTE_4" }
+redGame.data.field.flyWarps = { PALLET_TOWN = true, ROUTE_4 = true }
+redMoves.FLY = source
+redWorld.flyTo = function(self, mapId) self.flewTo = mapId end
+T.check(red:canFly(), "Red exposes FLY only in a valid outdoor context")
+T.check(red:flyTo("PALLET_TOWN") and redWorld.flewTo == "PALLET_TOWN",
+  "Red validates and delegates a visited FLY destination")
+ok, err = red:flyTo("ROUTE_4")
+T.check(not ok and err == "destination unavailable",
+  "Red rejects a fly warp that is not a native town destination")
 
 redSurf = "dismount"
 redWorld.player.surfing = true
@@ -142,6 +186,9 @@ goldWorld.fieldContext = function(_, mon) return {
 
 local GoldAPI = require("src.world.gen2.WorldAPI")
 local gold = GoldAPI.new(goldGame, "fixture")
+unavailable, reason = GoldAPI.new({}, "fixture"):availableFieldActions()
+T.eq(#unavailable, 0, "Gold lists no actions without an overworld")
+T.eq(reason, "no overworld", "Gold reports a missing overworld")
 actions = gold:availableFieldActions()
 byId = {}
 for _, action in ipairs(actions) do byId[action.id] = action end
@@ -169,5 +216,10 @@ T.check(gold:useFieldAction("squirtbottle"),
   "Gold accepts the contextual SquirtBottle")
 T.eq(goldWorld.itemUsed, "SQUIRTBOTTLE",
   "Gold delegates the SquirtBottle to its field-item path")
+
+goldWorld.acceptsMenuInput = function() return false end
+actions, err = gold:availableFieldActions()
+T.eq(#actions, 0, "Gold hides actions while busy")
+T.eq(err, "world is busy", "Gold distinguishes a busy world from no actions")
 
 T.finish()

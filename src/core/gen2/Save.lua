@@ -272,6 +272,7 @@ Save.DEFAULT_OPTIONS = {
   -- Game Boy.  The Gen 1 save's equivalent key is `colors` (SGB packs), which
   -- means something different, hence the different name.
   color = "gbc",
+  videoMode = "windowed",
   musicVol = 7,             -- 0-7, like the GB's NR50 master volume
   sfxVol = 7,               -- 0-7
   musicFilter = 0,          -- low-pass steps, 0 = off

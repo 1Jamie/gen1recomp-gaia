@@ -33,6 +33,7 @@ function NPC.new(data, mapId, objDef)
   self.facing = FACING_FROM_RANGE[objDef.range] or "down"
   self.moving = false
   self.progress = 0
+  self.animClock = 0
   self.stepFlip = false
   self.frozen = false -- scripts freeze NPCs while talking
   self.wanders = objDef.movement == "WALK"
@@ -52,31 +53,15 @@ function NPC:facePlayer(player)
 end
 
 function NPC:update(map, entities)
-  -- An NPC tile is 32 frames, half the player's rate: TryWalking loads
-  -- WALKANIMATIONCOUNTER with $10 and UpdateSpriteInWalkingAnimation adds
-  -- the 1px step vector once per call (engine/overworld/movement.asm), but
-  -- UpdateSprites runs once per OverworldLoop pass and every pass opens
-  -- with two DelayFrame calls (home/overworld.asm) -- so those 16 ticks
-  -- cost 32 frames for one 16px cell, against AdvancePlayerSprite's 8
-  -- ticks of 2px.  That halving is why pokeyellow's NormalPikachuFollow
-  -- needs TryDoubleAddPikachuStepVectorToScreenPixelCoords to keep up.
-  --
-  -- self.stepFrames overrides the shared walk for an object whose
-  -- step has to stay in phase with something else: Yellow's follower
-  -- Pikachu takes the player's own step length, halved while it is more
-  -- than a cell behind (FastPikachuFollow, engine/pikachu/
-  -- pikachu_follow.asm).  self.hopStep is the same file's $5-$8 hop
-  -- command: two cells of travel inside one step's frames
-  -- (DoubleAddPikachuStepVectorToScreenPixelCoords), which is why the
-  -- pixel span doubles while the frame count does not.  Nothing else sets
-  -- either field, so every other object keeps the constant (#410, #409).
+  -- engine/overworld/movement.asm:301, 32 frames per NPC cell; stepFrames is
+  -- the follower's own step length (#410, #409).
   local stepLen = self.stepFrames or STEP_FRAMES
   local span = self.hopStep and 2 or 1
   if self.moving then
     self.progress = self.progress + 1
-    -- NPC_CHANGE_FACING: animate the walk cycle in place, no translation
-    -- (movement.asm ChangeFacingDirection zeroes the delta); px/py stay
-    -- pinned to the current cell while walkPhase() cycles.
+    self.animClock = (self.animClock or 0) + 1
+    -- NPC_CHANGE_FACING (movement.asm ChangeFacingDirection): walk cycle in
+    -- place, no translation.
     if self.marching then
       if self.progress >= stepLen then
         self.progress = 0
@@ -122,18 +107,20 @@ end
 
 function NPC:walkPhase()
   if not self.moving then return 0 end
-  local stepLen = self.stepFrames or STEP_FRAMES
-  local p = self.progress % stepLen
-  return (p >= stepLen / 4 and p < stepLen * 3 / 4) and 1 or 0
+  -- engine/overworld/movement.asm:301
+  local p = (self.animClock or 0) % 16
+  return (p >= 4 and p < 12) and 1 or 0
 end
 
--- Same contract as Player:pose -- the sheet, position, facing and step
--- phase this frame renders to -- so a render pipeline can pose an NPC
--- without caring which kind of entity it is.  An NPC never hops, so the
--- trailing hop flag is always false.
+-- Same contract as Player:pose; an NPC never hops, so the trailing hop
+-- flag is always false.
 function NPC:pose()
+  local flip = self.stepFlip
+  if self.moving then
+    flip = math.floor((self.animClock or 0) / 16) % 2 == 1
+  end
   return self.sprite, self.px, self.py, self.facing,
-         self:walkPhase(), self.stepFlip, false
+         self:walkPhase(), flip, false
 end
 
 function NPC:draw(camX, camY)

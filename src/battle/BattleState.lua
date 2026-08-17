@@ -38,6 +38,7 @@ local romText = RomText
 local BattleState = {}
 BattleState.__index = BattleState
 BattleState.isOpaque = true
+BattleState.isBattleState = true
 
 -- Category identity for per-category GAME SPEED (RFC 0007), the same
 -- style OverworldController.isOverworld already uses. Every battle --
@@ -181,6 +182,13 @@ function BattleState:caughtMarkerVisible()
   if not Runtime.wantsHook("battle.caught_marker_visible") then return false end
   return Runtime.call("battle.caught_marker_visible",
                       function() return false end, self) == true
+end
+
+function BattleState:catchChance(ball, rateOverride)
+  if Runtime.wantsHook("catch.rate") then return nil end
+  return Catching.chance(ball, self.enemy.mon, self.enemy.def, rateOverride,
+    { ballDef = self:ballDef(ball), statuses = self.data.statuses,
+      battle = self })
 end
 
 function BattleState:moveGridNavigation()
@@ -391,21 +399,17 @@ local function grayImage(img)
   return getImage(meta.path) or img
 end
 
--- The blacked-out battle screen.  HandlePlayerBlackOut (core.asm:1151) runs
--- SET_PAL_BATTLE_BLACK, i.e. SetPal_BattleBlack sends PalPacket_Black --
--- PAL_BLACK in all four slots of BlkPacket_Battle (engine/gfx/palettes.asm:
--- 22-25).  The mon pics are drawn OVER the zone pass with their palette
--- already baked in, so darkening them means re-baking through PAL_BLACK the
--- way fadeImage re-bakes through a BGP permutation (#292).  Reads the palette
--- out of the active pack, exactly like sgbBattlePals, so the zone pass and
--- the pics can never disagree.  trueColor art has no DMG shades to remap.
+-- SET_PAL_BATTLE_BLACK re-bake of a pic (engine/battle/core.asm:1151,
+-- engine/gfx/palettes.asm:22-25); resolved like sgbBattlePals' blackout (#292).
 local function blackImage(data, img)
   local meta = imageMeta[img]
   if not meta or meta.trueColor then return img end
   local PaletteFX = require("src.render.PaletteFX")
   local pack = PaletteFX.pack(data)
-  local colors = pack and pack.palettes and pack.palettes.BLACK
-  if not colors then return img end
+  local pals = pack and pack.palettes
+  if not (pals and pals.BLACK) then return img end
+  local colors = PaletteFX.usesYellowCgb() and pals.BLACK
+                 or PaletteFX.pal(data, "BLACK") or pals.BLACK
   local name = PaletteFX.usesGbcPack() and "redpp:BLACK" or "BLACK"
   return getImage(meta.path, { name = name, colors = colors }) or img
 end
@@ -606,7 +610,8 @@ end
 local function stampOT(save, mon)
   save.player.id = save.player.id or math.random(0, 65535)
   mon.ot = mon.ot or save.player.name
-  mon.otId = mon.otId or save.player.id
+  -- engine/battle/experience.asm:69
+  if not mon.traded then mon.otId = mon.otId or save.player.id end
 end
 BattleState.stampOT = stampOT
 
@@ -1193,7 +1198,7 @@ function BattleState:startMessage(item)
     local npos = text:find("[\n\v]", pos)
     local chunk = npos and text:sub(pos, npos - 1) or text:sub(pos)
     local codes = Font.encode(chunk)
-    self.lines[#self.lines + 1] = { codes = codes, cont = cont }
+    self.lines[#self.lines + 1] = { codes = codes, cont = cont, text = chunk }
     self.total = self.total + #codes
     if not npos then break end
     cont = text:sub(npos, npos) == "\v"
@@ -1224,6 +1229,18 @@ function BattleState:beginMsgLine()
     self.scrollPx = 8
   end
   self.shown[#self.shown + 1] = {}
+end
+
+function BattleState:visibleText()
+  if self.phase ~= "messages" or not (self.current or self.animPlaying) then
+    return nil
+  end
+  local out, count = {}, #(self.shown or {})
+  for i = math.max(1, self.lineIndex - count + 1), self.lineIndex do
+    local line = self.lines and self.lines[i]
+    if line then out[#out + 1] = line.text or "" end
+  end
+  return #out > 0 and out or nil
 end
 
 function BattleState:updateQueue()
@@ -1958,6 +1975,109 @@ function BattleState:playerHasPP()
   return false
 end
 
+-- One semantic path for the native command menu and mod.battle intents.
+function BattleState:chooseMenu(choice)
+  if self.phase ~= "menu" then return nil, "battle menu is not active" end
+  if not self.player or not self.player.mon or self.player.mon.hp <= 0
+      or self:menuLockedAction(self.player) then
+    return nil, "battle menu is not ready"
+  end
+  self:clearTurnFlinches()
+  if choice == "fight" and self.ghost then
+    self:say(Strings("%s is too\nscared to move!", self.player.name))
+    self.phase = "messages"
+    self.afterQueue = "menu"
+    self:act(function()
+      self:executeAction(self.enemy, self.player, self:enemyAction())
+    end)
+    -- A scared turn still ticks the player's residual effects.
+    self:queueResidual(self.player, self.enemy)
+    self:act(function() self:endOfTurn() end)
+  elseif choice == "fight" then
+    -- Trapping, Bide, and similar locks skip the move list.
+    local fightLock = self:fightLockedAction(self.player)
+    if fightLock then
+      self:resolveTurn(fightLock)
+    elseif not self:playerHasPP() then
+      -- No usable PP goes straight to Struggle.
+      self:say(Strings("%s has no\nmoves left!", self.player.name))
+      self:resolveTurn({ id = "STRUGGLE", pp = 1, struggle = true })
+    else
+      self.phase = "moveSelect"
+      self.moveIndex = math.min(self.moveIndex, #self.player.curMoves)
+      self.moveSwapIndex = nil
+    end
+  elseif choice == "run" then
+    self:tryRun()
+  elseif choice == "item" then
+    self:openItems()
+  elseif choice == "party" then
+    self:openParty()
+  else
+    return nil, "unknown battle menu choice"
+  end
+  return true
+end
+
+function BattleState:chooseMove(index)
+  if self.phase ~= "moveSelect" then return nil, "move menu is not active" end
+  local move = self.player.curMoves[index]
+  if not move then return nil, "invalid move slot" end
+  self.moveIndex = index
+  if self.player.disabledSlot == index then
+    self:say(self:romText("_MoveDisabledText", "The move is\ndisabled!"))
+    self.phase = "messages"
+    self.afterQueue = "menu"
+  elseif move.pp <= 0 then
+    self:say(self:romText("_MoveNoPPText", "No PP left for\nthis move!"))
+    self.phase = "messages"
+    self.afterQueue = "menu"
+  else
+    self.playerMoveListIndex = index
+    self:resolveTurn(move)
+  end
+  return true
+end
+
+function BattleState:cancelMove()
+  if self.phase ~= "moveSelect" then return nil, "move menu is not active" end
+  self.moveSwapIndex = nil
+  self.phase = "menu"
+  return true
+end
+
+local SAFARI_ACTION_INDEX = { ball = 1, bait = 2, rock = 3, run = 4 }
+
+function BattleState:chooseSafari(action)
+  if self.phase ~= "menu" or not self.safari then
+    return nil, "safari menu is not active"
+  end
+  if self.safari.balls <= 0 then return nil, "no safari balls remain" end
+  local index = SAFARI_ACTION_INDEX[action]
+  if not index then return nil, "invalid safari action" end
+  self.menuIndex = index
+  self:safariAction(action)
+  return true
+end
+
+function BattleState:chooseMimic(index)
+  if self.phase ~= "mimicSelect" then
+    return nil, "mimic menu is not active"
+  end
+  if type(index) ~= "number" or index % 1 ~= 0 then
+    return nil, "invalid mimic slot"
+  end
+  local pick = self.mimicMoves and self.mimicMoves[index]
+  local ctx = self.mimicCtx
+  if not pick or not ctx then return nil, "invalid mimic slot" end
+  self.mimicIndex = index
+  self.mimicMoves, self.mimicCtx = nil, nil
+  self.phase = "messages"
+  self.nextInsert = 0 -- the copy's anim + text go to the queue head
+  self:applyMimic(ctx.user, ctx.target, ctx.moveInst, pick.slot)
+  return true
+end
+
 function BattleState:swapMoves(i, j)
   if i == j then return end
   local moves = self.player.curMoves
@@ -2079,7 +2199,7 @@ function BattleState:update(dt)
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
       require("src.core.Sound").play(self.data, "Press_AB")
-      self:safariAction(({ "ball", "bait", "rock", "run" })[self.menuIndex])
+      self:chooseSafari(({ "ball", "bait", "rock", "run" })[self.menuIndex])
     end
     return
   end
@@ -2127,42 +2247,7 @@ function BattleState:update(dt)
     self.menuIndex = row * 2 + col + 1
     if input:wasPressed("a") then
       require("src.core.Sound").play(self.data, "Press_AB")
-      local choice = ({ "fight", "pkmn", "item", "run" })[self.menuIndex]
-      if choice == "fight" and self.ghost then
-        self:say(Strings("%s is too\nscared to move!", self.player.name))
-        self.phase = "messages"
-        self.afterQueue = "menu"
-        self:act(function()
-          self:executeAction(self.enemy, self.player, self:enemyAction())
-        end)
-        -- the scared turn still ticks the player's residual (PrintGhostText
-        -- -> ExecutePlayerMoveDone, core.asm:3056, 3275-3279)
-        self:queueResidual(self.player, self.enemy)
-        self:act(function() self:endOfTurn() end)
-      elseif choice == "fight" then
-        -- After the menu: own trapping/Bide or foe Wrap skips the move
-        -- list and forces the locked action (core.asm:320-329)
-        local fightLock = self:fightLockedAction(self.player)
-        if fightLock then
-          self:resolveTurn(fightLock)
-          return
-        end
-        if not self:playerHasPP() then
-          -- _NoMovesLeftText, then Struggle engages
-          self:say(Strings("%s has no\nmoves left!", self.player.name))
-          self:resolveTurn({ id = "STRUGGLE", pp = 1, struggle = true })
-          return
-        end
-        self.phase = "moveSelect"
-        self.moveIndex = math.min(self.moveIndex, #self.player.curMoves)
-        self.moveSwapIndex = nil
-      elseif choice == "run" then
-        self:tryRun()
-      elseif choice == "item" then
-        self:openItems()
-      else
-        self:openParty()
-      end
+      self:chooseMenu(({ "fight", "party", "item", "run" })[self.menuIndex])
     end
     return
   end
@@ -2191,8 +2276,7 @@ function BattleState:update(dt)
       end
     elseif input:wasPressed("b") then
       require("src.core.Sound").play(self.data, "Press_AB")
-      self.moveSwapIndex = nil
-      self.phase = "menu"
+      self:cancelMove()
     elseif input:wasPressed("a") then
       require("src.core.Sound").play(self.data, "Press_AB")
       if self.moveSwapIndex then
@@ -2200,19 +2284,7 @@ function BattleState:update(dt)
         self.moveSwapIndex = nil
         return
       end
-      local mv = moves[self.moveIndex]
-      if self.player.disabledSlot == self.moveIndex then
-        self:say(self:romText("_MoveDisabledText", "The move is\ndisabled!"))
-        self.phase = "messages"
-        self.afterQueue = "menu"
-      elseif mv.pp <= 0 then
-        self:say(self:romText("_MoveNoPPText", "No PP left for\nthis move!"))
-        self.phase = "messages"
-        self.afterQueue = "menu"
-      else
-        self.playerMoveListIndex = self.moveIndex
-        self:resolveTurn(mv)
-      end
+      self:chooseMove(self.moveIndex)
     end
     return
   end
@@ -2235,12 +2307,7 @@ function BattleState:update(dt)
       self.mimicIndex = self.mimicIndex < #moves and self.mimicIndex + 1 or 1
     elseif input:wasPressed("a") then
       require("src.core.Sound").play(self.data, "Press_AB")
-      local pick = moves[self.mimicIndex]
-      local ctx = self.mimicCtx
-      self.mimicMoves, self.mimicCtx = nil, nil
-      self.phase = "messages"
-      self.nextInsert = 0 -- the copy's anim + text go to the queue head
-      self:applyMimic(ctx.user, ctx.target, ctx.moveInst, pick.slot)
+      self:chooseMimic(self.mimicIndex)
     end
     return
   end
@@ -2635,6 +2702,9 @@ function BattleState:residualFor(b, opp)
   if self.result then return end
   if self.player ~= b and self.enemy ~= b then return end
   if b.mon.hp <= 0 or opp.mon.hp <= 0 then return end
+  -- engine/battle/core.asm:435-473
+  if b.residualDone then return end
+  b.residualDone = true
   local msgs = Status.residual(b, opp, self)
   for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
   if b.leechSeeded and b.mon.hp > 0 then
@@ -2691,7 +2761,8 @@ function BattleState:endOfTurn()
   for _, pair in ipairs({ { self.player, self.enemy, "player", enemyAlive },
                           { self.enemy, self.player, "enemy", playerAlive } }) do
     local b, opp, side, oppAlive = pair[1], pair[2], pair[3], pair[4]
-    if sweep and b.mon.hp > 0 and oppAlive then
+    if sweep and not b.residualDone and b.mon.hp > 0 and oppAlive then
+      b.residualDone = true
       local msgs = Status.residual(b, opp, self)
       for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
       if #msgs > 0 then self:drainNext() end -- poison/burn/seed HP moved
@@ -2705,6 +2776,7 @@ function BattleState:endOfTurn()
     -- the Haze move-forfeit only covers the turn Haze was used; if the
     -- cured mon had already moved, drop the flag before next turn
     b.skipMove = nil
+    b.residualDone = nil
     -- CheckNumAttacksLeft (core.asm:683-697): a trapping counter that
     -- hit 0 this turn releases its bit only now, at the end of the turn
     if b.trappingTurns and b.trappingTurns <= 0 then
@@ -3919,9 +3991,9 @@ function BattleState:onFaint(battler)
     battler.fainted = true
     local Sound = require("src.core.Sound")
     if battler.isPlayer then
-      -- RemoveFaintedPlayerMon (core.asm:1040-1042): the player mon's
-      -- faint plays its ordinary species cry -- no Faint_Fall
-      self.faintCry = Sound.playCry(self.data, battler.mon.species)
+      -- RemoveFaintedPlayerMon: the species cry (core.asm:1040-1042),
+      -- PikachuCry4 on Yellow (engine/battle/core.asm:1058)
+      self.faintCry = Sound.playCry(self.data, battler.mon.species, 4)
     elseif self.kind ~= "wild" then
       -- FaintEnemyPokemon (core.asm:732-771): the enemy faint plays no
       -- species cry; trainer battles get SFX_FAINT_FALL, then SFX_FAINT_THUD
@@ -5323,24 +5395,28 @@ function BattleState:sgbBattlePals()
   local pack = PaletteFX.pack(self.data)
   local pals = pack and pack.palettes
   if not pals then return nil end
-  -- HandlePlayerBlackOut (core.asm:1151) runs SET_PAL_BATTLE_BLACK:
-  -- SetPal_BattleBlack sends PalPacket_Black, PAL_BLACK in all four slots of
-  -- BlkPacket_Battle (engine/gfx/palettes.asm:22-25), so every zone of the
-  -- battle screen -- both HP bars and both mon regions -- goes dark behind
-  -- the blackout text.  picImage re-bakes the pics through the same palette,
-  -- since those draw over the zone pass rather than through it (#292).
+  -- HandlePlayerBlackOut (core.asm:1151) runs SET_PAL_BATTLE_BLACK
+  -- (engine/gfx/palettes.asm:22-25); picImage re-bakes through it (#292).
   if self.blackedOut and pals.BLACK then
-    local b = pals.BLACK
+    local b = PaletteFX.usesYellowCgb() and pals.BLACK
+              or PaletteFX.pal(self.data, "BLACK") or pals.BLACK
     return { [0] = b, [1] = b, [2] = b, [3] = b }
   end
+  -- home/palettes.asm:38
   local function bar(b)
-    if not b then return pals.GREENBAR end
+    if not b then
+      return PaletteFX.pal(self.data, "GREENBAR") or pals.GREENBAR
+    end
     local hp = b.shownHP or b.mon.hp
-    return pals[PaletteFX.barPalName(hp, b.mon.stats.hp, b.shownPx)]
+    return PaletteFX.pal(self.data,
+                         PaletteFX.barPalName(hp, b.mon.stats.hp, b.shownPx))
            or pals.GREENBAR
   end
   local function mon(b, placeholder)
-    if placeholder or not b then return pals.MEWMON or pals.GREENBAR end
+    if placeholder or not b then
+      if PaletteFX.usesYellowCgb() then return pals.MEWMON or pals.GREENBAR end
+      return PaletteFX.pal(self.data, "MEWMON") or pals.MEWMON or pals.GREENBAR
+    end
     return PaletteFX.monPal(self.data, b.mon.species) or pals.MEWMON
   end
   local out = {
@@ -5349,23 +5425,6 @@ function BattleState:sgbBattlePals()
     [2] = mon(self.player, self.showPlayerBack or self.safari or self.demo),
     [3] = mon(self.enemy, self.showEnemyTrainer),
   }
-  -- OG RED: the Game Boy Color drew the whole battle from one BG palette --
-  -- white paper, black ink -- so every zone shares the same background and
-  -- outline; only the two mid shades differ per element (green HP bar, red
-  -- mon pic).  The bar/base zones otherwise carry the SGB off-white
-  -- (255,239,255) as color 0 while the mon zones (monPal -> GBC_BG) carry a
-  -- true white, which is what drew a white box around each pic on the pink
-  -- field.  Snap every zone's color 0/3 to the global GBC white/black; the
-  -- mid shades (and the green bar the user prefers) stay untouched.
-  -- Boot-ROM OG only (Red/Blue): snap zone paper to the global GBC white/black.
-  -- OG YELLOW keeps each CGBBasePalettes endpoint (already near-white / near-black).
-  if PaletteFX.mode == "ogred" and not require("src.core.GameVersion").isYellow() then
-    local white, black = PaletteFX.GBC_BG[1], PaletteFX.GBC_BG[4]
-    for i = 0, 3 do
-      local c = out[i]
-      out[i] = { white, c[2], c[3], black }
-    end
-  end
   return out
 end
 
@@ -5459,23 +5518,29 @@ function BattleState:drawZonePass(src, sx, sy)
   love.graphics.setShader()
 end
 
--- colors for one anim-layer OAM sprite at screen pixel (px, py): the
--- zone palette under that pixel's 8x8 attribute cell (the SGB colors
--- the composited picture per cell, so AnimPlayer samples once per cell
--- the tile overlaps), through the OBJ palette the routine ran with
--- (SetAnimationPalette: wAnimPalette = $f0 on SGB, rOBP1 = $6c,
--- ambient rOBP0 = $e4)
+-- SetAnimationPalette (engine/battle/animations.asm:551): wAnimPalette = $f0
+-- on SGB, $e4 otherwise; rOBP1 = $6c either way
 local OBJ_SHADES = {
   f0 = { 0, 3, 3 },   -- color 1 -> shade 0, colors 2/3 -> shade 3
-  f0x = { 3, 0, 3 },  -- $f0 xor %00111100 = $cc: the Master/Ultra ball
-                      -- toss flicker (DoBallTossSpecialEffects)
+  f0x = { 3, 0, 3 },  -- $f0 xor %00111100 = $cc (DoBallTossSpecialEffects,
+                      -- engine/battle/animations.asm:685)
   e4 = { 1, 2, 3 },   -- identity
+  e4x = { 2, 1, 3 },  -- $e4 xor %00111100 = $d8
   obp1 = { 3, 2, 1 }, -- $6c
 }
 function BattleState:animSpriteColors(s, px, py)
-  local P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))
+  local PaletteFX = require("src.render.PaletteFX")
+  local key = s.obp or "f0"
+  local P
+  -- engine/battle/animations.asm:551 (.notSGB)
+  if PaletteFX.usesSpriteObp() then
+    P = PaletteFX.ogObj()
+    if key == "f0" then key = "e4" elseif key == "f0x" then key = "e4x" end
+  else
+    P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))
+  end
   if not P then return nil end
-  local m = OBJ_SHADES[s.obp or "f0"] or OBJ_SHADES.f0
+  local m = OBJ_SHADES[key] or OBJ_SHADES.f0
   local function c(shade)
     local col = P[shade + 1]
     return { col[1] / 255, col[2] / 255, col[3] / 255 }
@@ -5913,10 +5978,16 @@ function BattleState:drawTextArea()
     Font.drawCode(Font.BORDER.h, 32, 96)
     Font.drawCode(Font.BORDER.br, 80, 96)
     love.graphics.setColor(0, 0, 0, 1)
-    for i, mv in ipairs(self.player.curMoves) do
-      -- unknown ids (mod-injected moves) print raw instead of crashing
-      local def = self.data.moves[mv.id]
-      Font.draw(def and def.name or tostring(mv.id), 48, 96 + i * 8)
+    -- engine/battle/misc.asm:37
+    for i = 1, 4 do
+      local mv = self.player.curMoves[i]
+      if mv then
+        -- unknown ids (mod-injected moves) print raw instead of crashing
+        local def = self.data.moves[mv.id]
+        Font.draw(def and def.name or tostring(mv.id), 48, 96 + i * 8)
+      else
+        Font.draw("-", 48, 96 + i * 8)
+      end
     end
     -- Swap cursor: SelectMenuItem parks the hollow arrow on the marked row
     -- (core.asm:2600-2607), then HandleMenuInput's PlaceMenuCursor writes the
@@ -5943,13 +6014,16 @@ function BattleState:drawTextArea()
       end
     end
   elseif self.phase == "mimicSelect" then
-    -- Mimic's copy menu (MoveSelectionMenu .mimicmenu, core.asm:
-    -- 2506-2517): the enemy's move list in a 16x6 box at (0,7), names
-    -- single-spaced from (2,8), cursor at column 1
+    -- Mimic's copy menu (MoveSelectionMenu .mimicmenu, core.asm:2506-2517):
+    -- 16x6 box at (0,7), names from (2,8), cursor at column 1
     Font.drawBox(0, 7, 16, 6)
     love.graphics.setColor(0, 0, 0, 1)
-    for i, m in ipairs(self.mimicMoves) do
-      Font.draw(self.data.moves[m.id].name, 16, (7 + i) * 8)
+    -- engine/battle/misc.asm:37
+    for i = 1, 4 do
+      local m = self.mimicMoves[i]
+      local def = m and self.data.moves[m.id]
+      Font.draw(m and (def and def.name or tostring(m.id)) or "-",
+        16, (7 + i) * 8)
     end
     Font.drawCode(0xED, 8, (7 + self.mimicIndex) * 8)
     Font.draw(Strings("WHICH TECHNIQUE?"), 8, 112)

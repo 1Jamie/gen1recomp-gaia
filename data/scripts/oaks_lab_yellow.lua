@@ -263,6 +263,7 @@ return {
       local rival = ow:npcByIndex(RIVAL)
       if not rival then return false end
       local rows = {
+        { "face_object", RIVAL, "down" },  -- pokeyellow scripts/OaksLab.asm:311-315
         { "face_player_dir", "up" },
         { "stop_music" },
         { "play_music", "Music_MeetRival" },

@@ -628,22 +628,8 @@ function PartyMenu:update(dt)
     end
     if self.softboiledFrom then
       local user = party[self.softboiledFrom]
-      local heal = math.floor(user.stats.hp / 5)
-      if mon == user or mon.hp <= 0 or mon.hp >= mon.stats.hp
-         or user.hp <= heal then
-        self.softboiledFrom = nil
-        local TextBox = require("src.render.TextBox")
-        self.game.stack:push(TextBox.new(self.game, Strings("It won't have\nany effect.")))
-      else
-        user.hp = user.hp - heal
-        mon.hp = math.min(mon.stats.hp, mon.hp + heal)
-        self.softboiledFrom = nil
-        require("src.core.Sound").play(self.game.data, "Heal_HP")
-        local def = self.game.data.pokemon[mon.species]
-        local TextBox = require("src.render.TextBox")
-        self.game.stack:push(TextBox.new(self.game,
-          Strings("%s's HP\nwas restored!", mon.nickname or def.name)))
-      end
+      self.softboiledFrom = nil
+      self.game.overworld:useSoftboiledFieldMove(user, mon)
     elseif self.swapFrom then
       if self.swapFrom ~= self.index then
         party[self.swapFrom], party[self.index] = party[self.index], party[self.swapFrom]

@@ -272,6 +272,38 @@ function HostShell.quote(s)
   return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
+-- Launch another instance of this packaged app without waiting for it.  The
+-- same path works on all process-capable desktop hosts; only the shell's
+-- background spelling differs.  Source checkouts include their game folder,
+-- while fused releases and AppImages already carry it in the executable.
+function HostShell.spawnSelfDetached(args)
+  if not require("src.core.Platform").canSpawnProcess() then return false end
+  local fs = love and love.filesystem
+  if not (fs and fs.getExecutablePath) then return false end
+  local executable = os.getenv("APPIMAGE") or fs.getExecutablePath()
+  if type(executable) ~= "string" or executable == "" then return false end
+
+  local argv = {}
+  local fused = fs.isFused and fs.isFused()
+  if not os.getenv("APPIMAGE") and not fused and fs.getSource then
+    argv[#argv + 1] = fs.getSource()
+  end
+  for _, value in ipairs(args or {}) do argv[#argv + 1] = tostring(value) end
+
+  local command = HostShell.quote(executable)
+  for _, value in ipairs(argv) do
+    command = command .. " " .. HostShell.quote(value)
+  end
+  local osName = love.system and love.system.getOS and love.system.getOS()
+  if osName == "Windows" then
+    command = 'start "" /b ' .. command .. " >NUL 2>&1"
+  else
+    command = HostShell.envPrefix() .. command .. " >/dev/null 2>&1 &"
+  end
+  local ok, _, code = os.execute(command)
+  return ok == true or ok == 0 or code == 0
+end
+
 -- MEMOISED per Lua state (so once per thread).  This used to spawn a whole
 -- `curl --version` process on every single fetch -- twice for a GET through
 -- the Android-bridge fallback -- which doubled the number of spawns the lock
@@ -428,10 +460,43 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   if type(body) ~= "string" then return nil, "missing body" end
   userAgent = userAgent or "gen1recomp"
   if HostShell.haveCurl() then
-    -- --data-binary @- keeps the payload out of argv (command-line length
+    -- io.popen is one-way on Lua/LuaJIT: its mode is "r" or "w", never
+    -- "rw".  Stage the request body so the response can stay on a read
+    -- pipe.  The staging directory comes from the OS temp contract, never
+    -- tmpnam(): the CRT's tmpnam() can return a name relative to the process
+    -- working directory, and a game installed under Program Files has no
+    -- writable CWD -- io.open would fail before curl ever runs and postLog
+    -- would silently drop the send.  TEMP/TMP are per-user writable on
+    -- Windows; TMPDIR (with /tmp fallback) covers POSIX.  No love.filesystem:
+    -- the sandbox-era transport stays on plain io/os.
+    local function stagingPath()
+      local dir = os.getenv("TEMP") or os.getenv("TMP")
+      if not dir or dir == "" then dir = os.getenv("TMPDIR") or "/tmp" end
+      local sep = dir:find("\\") and "\\" or "/"
+      return dir .. sep .. ("gen1recomp-post-%d.tmp"):format(
+        (os.time() % 1000000) * 100 + math.random(0, 99))
+    end
+    local bodyPath = stagingPath()
+    local bodyFile, bodyOpenErr = io.open(bodyPath, "wb")
+    if not bodyFile then
+      pcall(os.remove, bodyPath)
+      return nil, "could not create request body: " .. tostring(bodyOpenErr)
+    end
+    local bodyOk, bodyErr = pcall(function()
+      assert(bodyFile:write(body))
+      assert(bodyFile:close())
+    end)
+    if not bodyOk then
+      pcall(function() bodyFile:close() end)
+      pcall(os.remove, bodyPath)
+      return nil, "could not write body: " .. tostring(bodyErr)
+    end
+
+    -- --data-binary @<file> keeps the payload out of argv (command-line length
     -- limits on Windows) and preserves every byte including trailing
-    -- newlines.  No -f, matching httpGet: the response body is discarded
-    -- anyway, and curl's stderr carries the real diagnosis on failure.
+    -- newlines.  The body is staged above because io.popen cannot be opened
+    -- for both writing and reading.  No -f, matching httpGet: the response
+    -- body is discarded anyway, and curl's stderr carries the diagnosis.
     local cmd = ("curl -sSL --proto =http,https --proto-redir =http,https "
       .. "--connect-timeout 10 --max-time %d ")
       :format(tonumber(maxTime) or 40)
@@ -441,18 +506,17 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
       cmd = cmd .. "-H " .. HostShell.quote("Content-Type: " .. contentType) .. " "
     end
     cmd = cmd .. "-H " .. HostShell.quote("Content-Length: " .. tostring(#body)) .. " "
-      .. "--data-binary @- "
+      .. "--data-binary " .. HostShell.quote("@" .. bodyPath) .. " "
       .. "-w " .. HostShell.quote(HTTP_MARK_FMT) .. " "
       .. HostShell.quote(url) .. " 2>&1"
-    local pipe = HostShell.popen(cmd, "rw")
-    if not pipe then return nil, "could not run curl" end
-    local writeOk, werr = pcall(pipe.write, pipe, body)
-    if not writeOk then
-      HostShell.pclose(pipe)
-      return nil, "could not write body: " .. tostring(werr)
+    local pipe = HostShell.popen(cmd)
+    if not pipe then
+      pcall(os.remove, bodyPath)
+      return nil, "could not run curl"
     end
     local readOk, out = pcall(function() return pipe:read("*a") end)
     HostShell.pclose(pipe)
+    pcall(os.remove, bodyPath)
     if not readOk then
       return nil, fetchError(url, nil, tostring(out))
     end

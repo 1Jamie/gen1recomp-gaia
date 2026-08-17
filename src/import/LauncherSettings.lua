@@ -617,6 +617,16 @@ local function gen2Rows(opts, hooks)
       end)
   end
 
+  local okVm, VideoMode = pcall(require, "src.core.VideoMode")
+  if okVm then
+    add(Strings("VIDEO MODE"),
+      function() return VideoMode.modeLabel(opts.videoMode) end,
+      function(dir)
+        opts.videoMode = VideoMode.cycle(opts.videoMode, dir)
+        return true
+      end)
+  end
+
   addTouchRows(rows, add, opts, hooks)
 
   return rows

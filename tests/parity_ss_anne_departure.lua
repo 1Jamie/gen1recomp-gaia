@@ -183,32 +183,24 @@ do
     end
   end
   check(dirsEqual(bow, { 4, 3, 2, 1 }), "the bow sails west a column a step")
-  -- 7 is missing because that is the block the player is stood on
-  check(dirsEqual(wake, { 8, 6, 5, 4, 3, 2, 1 }),
+  check(dirsEqual(wake, { 8, 7, 6, 5, 4, 3, 2, 1 }),
         "water closes in astern, stern column first")
 
-  -- EraseSSAnne leaves the player's own block alone ("south of the player
-  -- and won't be redrawn"), so he never stands on water on the way out
-  local pbx, pby = 7, 1
   for _, r in ipairs(rowsOfKind(rows, "replace_block")) do
-    check(not (r[2] == pbx and r[3] == pby),
-          "the block under the player is never rewritten")
     check(r[2] >= 1 and r[2] <= DOCK_HULL.x1,
           "the slide stays inside the dock's water, off the pier column 0")
   end
 
-  -- she has to end up gone: every hull block bar the player's is water by
-  -- the last edit that touches it
+  -- scripts/VermilionDock.asm:182-203: the tile fill covers the whole ship,
+  -- the gangway block under the player included (#1211)
   local final = {}
   for _, r in ipairs(rowsOfKind(rows, "replace_block")) do
     final[r[2] .. "," .. r[3]] = r[4]
   end
   for bx = DOCK_HULL.x0, DOCK_HULL.x1 do
     for by = DOCK_HULL.y0, DOCK_HULL.y1 do
-      if not (bx == pbx and by == pby) then
-        check(WATER[final[bx .. "," .. by]],
-              ("hull block (%d,%d) ends as open water"):format(bx, by))
-      end
+      check(WATER[final[bx .. "," .. by]],
+            ("hull block (%d,%d) ends as open water"):format(bx, by))
     end
   end
 

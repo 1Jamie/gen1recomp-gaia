@@ -257,6 +257,30 @@ do
   eq(set[173], true, "the hidden item's flag is set by number")
 end
 
+-- engine/events/poisonstep.asm .PlayPoisonSFX: SFX_POISON then
+-- LoadPoisonBGPals, four frames (#1362)
+do
+  local World = require("src.world.gen2.World")
+  local ctx = { poisonBGFlash = World.poisonBGFlash,
+    playSfxNamed = function() end }
+  eq(CallAsm.run(ctx, "PlayPoisonSFX"), nil, "PlayPoisonSFX writes no wScriptVar")
+  eq(ctx.poisonFlash, 4, "and sets the flash to exactly four frames")
+
+  local hurt = { game = { save = { party = { { hp = 5, status = "psn" } },
+      poisonStepCount = 3 } },
+    poisonBGFlash = World.poisonBGFlash, playSfxNamed = function() end,
+    stepContext = function() return { linkMode = false } end }
+  World.countStep(hurt)
+  eq(hurt.poisonFlash, 4, "the hurt arm reaches it too")
+
+  local faint = { poisonBGFlash = World.poisonBGFlash, playSfxNamed = function() end }
+  World.poisonFaintScript(faint, { fainted = {}, whiteout = false })
+  eq(faint.poisonFlash, 4, "and so does the faint arm")
+
+  local ok = pcall(CallAsm.run, {}, "PlayPoisonSFX")
+  check(ok, "a ctx with no poisonBGFlash does not error")
+end
+
 -- engine/events/poisonstep.asm .CheckWhitedOut ends on
 -- CheckPlayerPartyForFitMon, whose answer is 1 when something can still fight;
 -- the `iffalse .whiteout` after it is reading "no fit mon".

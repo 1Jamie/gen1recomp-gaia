@@ -937,15 +937,10 @@ M.VERMILION_DOCK = {
         ow:startDustAnim(cx, 1, function() puff(n - 1, cx + 2) end)
       end
       puff(3, 15)
-      -- VermilionDock_EraseSSAnne deliberately leaves the blocks under the
-      -- player alone ("south of the player and won't be redrawn"), so skip
-      -- his own block: he must not spend the walk-out standing on water
-      local pbx = math.floor(ow.player.cellX / 2)
-      local pby = math.floor(ow.player.cellY / 2)
+      -- scripts/VermilionDock.asm:182-203
       local rows = {}
       local function setBlock(bx, by, block)
         if bx < 1 or bx > 8 then return end
-        if bx == pbx and by == pby then return end
         rows[#rows + 1] = { "replace_block", bx, by, block }
       end
       rows[#rows + 1] = { "wait", 120 }

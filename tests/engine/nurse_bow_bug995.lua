@@ -65,7 +65,7 @@ T.check(pushed[1].text:find(BYE, 1, true) == nil,
 
 pushed[1].onDone()
 T.eq(#pushed, 1, "the farewell waits for the bow")
-T.eq(nurse.frameOverride, 3, "image index $1: the nurse bows")
+T.eq(nurse.frameOverride, 1, "image index $14: the nurse bows")
 T.check(fakeSelf.emote ~= nil, "the bow is a world hold, not a text pause")
 local hold = fakeSelf.emote or {}
 T.eq(hold.npc, nurse, "the hold is anchored on the nurse")

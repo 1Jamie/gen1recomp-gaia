@@ -14,6 +14,7 @@
 
 local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
+local Theme = require("src.ui.Theme")
 
 local DexEntryMenu = {}
 DexEntryMenu.__index = DexEntryMenu
@@ -36,6 +37,62 @@ local function resolveArgs(speciesOrOpts)
   return speciesOrOpts, false
 end
 
+local function ownedFor(game, def, forceOwned)
+  return forceOwned
+    or (game.save.pokedex and game.save.pokedex.owned[def.id]) or false
+end
+
+-- home/text.asm:245 (<PAGE>), home/text.asm:204 (<DEXEND>)
+local function descPages(game, def, forceOwned)
+  local e = def.dexEntry or {}
+  local owned = ownedFor(game, def, forceOwned)
+  local text = owned and e.text and game.data.text[e.text] or nil
+  if not text then return nil end
+  local pages = {}
+  for chunk in (text .. "\f"):gmatch("(.-)\f") do
+    local lines = {}
+    for line in (chunk:gsub("\v", "\n") .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = line
+    end
+    while #lines > 0 and lines[#lines] == "" do table.remove(lines) end
+    if #lines > 0 then pages[#pages + 1] = lines end
+  end
+  if #pages == 0 then return nil end
+  local last = pages[#pages]
+  last[#last] = last[#last] .. "."
+  return pages
+end
+
+-- engine/gfx/load_pokedex_tiles.asm: gfx/pokedex/pokedex.png, codes $60..$71
+local frameCache = {}
+local function frameSheet(game)
+  local fx = game.data.field and game.data.field.overworldFx
+  local def = fx and fx.pokedexFrame
+  local path = def and def.path
+  if not path then return nil end
+  local hit = frameCache[path]
+  if hit ~= nil then return hit or nil end
+  local ok, img = pcall(love.graphics.newImage, path)
+  if not ok or not img then
+    frameCache[path] = false
+    return nil
+  end
+  local iw, ih = img:getDimensions()
+  local quads = {}
+  for i = 0, 17 do
+    quads[i] = love.graphics.newQuad((i % 3) * 8,
+                                     math.floor(i / 3) * 8, 8, 8, iw, ih)
+  end
+  frameCache[path] = { img = img, quads = quads }
+  return frameCache[path]
+end
+
+-- engine/menus/pokedex.asm:601
+local DIVIDER = {
+  0x68, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x6B,
+  0x6B, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6A,
+}
+
 function DexEntryMenu.new(game, speciesOrOpts, onDone)
   local species, forceOwned = resolveArgs(speciesOrOpts)
   local self = setmetatable({ game = game, forceOwned = forceOwned,
@@ -43,13 +100,14 @@ function DexEntryMenu.new(game, speciesOrOpts, onDone)
   self.def = game.data.pokemon[species]
   local path, trueColor = require("src.pokemon.Sprites").path(
     game.data, species, "front", { kind = "dex" })
-  -- `path and pcall(...)` truncates to one value, so img was always nil and
-  -- every dex page drew without its pic (#307); the guard has to be a
-  -- statement for pcall's second return to survive.
+  -- pcall's second return has to survive the guard (#307)
   local ok, img = false, nil
   if path then ok, img = pcall(love.graphics.newImage, path) end
   self.sprite = ok and img or nil
   self.spriteTrueColor = self.sprite and trueColor or false
+  self.page = 1
+  local pages = descPages(game, self.def, forceOwned)
+  self.pageCount = pages and #pages or 1
   require("src.core.Sound").playCry(game.data, species)
   return self
 end
@@ -57,6 +115,11 @@ end
 function DexEntryMenu:update(dt)
   local input = self.game.input
   if input:wasPressed("a") or input:wasPressed("b") then
+    -- home/text.asm:245
+    if self.page < (self.pageCount or 1) then
+      self.page = self.page + 1
+      return
+    end
     self.game.stack:pop()
     if self.onDone then self.onDone() end
   end
@@ -64,64 +127,87 @@ end
 
 function DexEntryMenu:draw()
   DexEntryMenu.render(self.game, self.def, self.sprite, self.forceOwned,
-                      self.spriteTrueColor)
+                      self.spriteTrueColor, self.page)
 end
 
 -- Static entry-page renderer, shared with the printer stand-in
 -- (src/core/Printer.lua renders the same page into a PNG the way
 -- PrintPokedexEntry rendered it to the Game Boy Printer).
-function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor)
+-- engine/menus/pokedex.asm:399
+function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor, page)
+  page = page or 1
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
+  local frame = frameSheet(game)
+  if frame then
+    local function tile(code, tx, ty)
+      love.graphics.draw(frame.img, frame.quads[code - 0x60], tx * 8, ty * 8)
+    end
+    -- engine/menus/pokedex.asm:418
+    for tx = 1, 18 do
+      tile(0x64, tx, 0)
+      tile(0x6f, tx, 17)
+    end
+    for ty = 1, 16 do
+      tile(0x66, 0, ty)
+      tile(0x67, 19, ty)
+    end
+    tile(0x63, 0, 0)
+    tile(0x65, 19, 0)
+    tile(0x6c, 0, 17)
+    tile(0x6e, 19, 17)
+    -- engine/menus/pokedex.asm:445
+    for tx = 0, 19 do
+      tile(DIVIDER[tx + 1], tx, 9)
+    end
+  end
   if sprite then
-    local y = math.max(0, 60 - sprite:getHeight())
-    love.graphics.draw(sprite, 8, y)
-    -- a full-color pic has to sit out the SGB recolor, so mark its bounds
-    -- for the unshaded pass (#350).  The printer path leaves trueColor nil:
-    -- it renders to its own PNG canvas, and a mark left behind there would
-    -- bleed into the next real frame.
+    -- engine/menus/pokedex.asm:503, home/pokemon.asm:96 (flipped)
+    local w, h = sprite:getDimensions()
+    local x = 8 + math.floor((8 - w / 8) / 2) * 8
+    local y = 8 + (7 - h / 8) * 8
+    love.graphics.draw(sprite, x + w, y, 0, -1, 1)
+    -- the unshaded pass needs the pic bounds (#350)
     if trueColor then
-      require("src.render.PaletteFX").markTrueColor(8, y, sprite:getDimensions())
+      require("src.render.PaletteFX").markTrueColor(x, y, w, h)
     end
   end
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw(def.name, 72, 8)
+  -- engine/menus/pokedex.asm:454
+  Font.draw(def.name, 72, 16)
   local e = def.dexEntry or {}
-  -- English R/B prints only the kind string (hlcoord 9,4 PlaceString).
-  -- PokeText ("#"/POKéMON) is an unreferenced JPN leftover in pokedex.asm;
-  -- appending " POKéMON" here clipped longer kinds ("LIZARD POKé").
-  Font.draw(e.kind or "?", 72, 20)
+  -- engine/menus/pokedex.asm:468, kind string only (PokeText is unreferenced)
+  Font.draw(e.kind or "?", 72, 32)
   -- same number width as the list (constants.dexDigits), so a dex past 999
   -- prints the extra digit everywhere at once
   local digits = (game.data.constants or {}).dexDigits or 3
-  Font.draw(Strings("No.") .. ("%0" .. digits .. "d"):format(def.dex or 0), 72, 32)
-  local owned = forceOwned
-    or (game.save.pokedex and game.save.pokedex.owned[def.id])
-  -- height/weight print only once owned, like the description
-  -- (pokedex.asm: "if the pokemon has not been owned, don't print the
-  -- height, weight, or description")
+  -- engine/menus/pokedex.asm:478
+  Font.draw(Strings("No.") .. ("%0" .. digits .. "d"):format(def.dex or 0),
+            16, 64)
+  local owned = ownedFor(game, def, forceOwned)
+  -- engine/menus/pokedex.asm:449, numbers only once owned
   if owned and e.heightFt then
-    -- feet/inches use the dex screen's ′/″ glyphs ("HT  ?′??″" in
-    -- pokedex.asm; the tiles come from gfx/pokedex/pokedex.png via
-    -- engine/gfx/load_pokedex_tiles.asm)
     if e.heightM then
-      Font.draw((Strings("GR. %.1fm", e.heightM):gsub("(%d)%.(%d)", "%1,%2")), 72, 44)
-      Font.draw((Strings("GEW. %.1fkg", e.weightKg or 0):gsub("(%d)%.(%d)", "%1,%2")), 72, 54)
+      Font.draw((Strings("GR. %.1fm", e.heightM):gsub("(%d)%.(%d)", "%1,%2")), 72, 48)
+      Font.draw((Strings("GEW. %.1fkg", e.weightKg or 0):gsub("(%d)%.(%d)", "%1,%2")), 72, 64)
     else
-      Font.draw(Strings("HT %d′%02d″", e.heightFt, e.heightIn or 0), 72, 44)
-      Font.draw(Strings("WT %.1flb", (e.weight or 0) / 10), 72, 54)
+      Font.draw(Strings("HT %d′%02d″", e.heightFt, e.heightIn or 0), 72, 48)
+      Font.draw(Strings("WT %.1flb", (e.weight or 0) / 10), 72, 64)
     end
   end
-  local text = owned and e.text and game.data.text[e.text] or nil
-  local y = 72
-  if text then
-    for line in (text:gsub("\v", "\n"):gsub("\f", "\n") .. "\n"):gmatch("(.-)\n") do
-      if y > 132 then break end
-      Font.draw(line, 8, y)
-      y = y + 10
+  local pages = descPages(game, def, forceOwned)
+  if pages then
+    -- engine/menus/pokedex.asm:568
+    local lines = pages[page] or pages[#pages]
+    for i, line in ipairs(lines) do
+      Font.draw(line, 8, 72 + i * 16)
+    end
+    -- home/text.asm:245
+    if page < #pages then
+      Font.drawCode(Theme.moreArrow, 144, 128)
     end
   else
-    Font.draw(Strings("Data unknown."), 8, y)
+    Font.draw(Strings("Data unknown."), 8, 88)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

@@ -356,11 +356,9 @@ local optionsGame, optionsInput = newGame(Save.newGame())
 local options = OptionsMenu.new(optionsGame, {
   options = Save.defaultOptions(),
 })
--- The cart's seven value rows, then CONTROLS, the port's audio, speed and
--- display rows, the three touch rows and CANCEL -- which is what makes this
--- screen scroll.  The touch three are gated to mobile by buildRows; ROWS
--- itself carries every descriptor.
-check("twenty rows", #OptionsMenu.ROWS, 20)
+-- The cart's seven rows, then the port's: CONTROLS, audio, speed, display,
+-- video mode, the mobile-gated touch three (buildRows) and CANCEL.
+check("twenty-one rows", #OptionsMenu.ROWS, 21)
 check("the cart's rows come first", OptionsMenu.ROWS[7].key, "frame")
 check("then the rebind screen", OptionsMenu.ROWS[8].id, "controls")
 check("then the port's audio group", OptionsMenu.ROWS[9].key, "musicVol")
@@ -862,6 +860,52 @@ check("GBC leaves a palette alone",
   GbcPalette.color({ { 1, 2, 3 }, { 4, 5, 6 }, { 7, 8, 9 }, { 10, 11, 12 } },
     1)[1], 1)
 check("and has no present pass", GbcPalette.presentColors(), nil)
+
+local gbcfxIndex
+for i, row in ipairs(OptionsMenu.ROWS) do
+  if row.label == "GBC FX" then gbcfxIndex = i end
+end
+check("VIDEO MODE follows GBC FX", OptionsMenu.ROWS[gbcfxIndex + 1].label,
+  "VIDEO MODE")
+check("and TOUCH PAD follows it", OptionsMenu.ROWS[gbcfxIndex + 2].label,
+  "TOUCH PAD")
+
+local videoRow = select(2, rowNamed("VIDEO MODE"))
+check("VIDEO MODE is a row", videoRow ~= nil, true)
+
+local videoBuilt
+for _, row in ipairs(scrollOptions.rows) do
+  if row.key == "videoMode" then videoBuilt = row end
+end
+check("buildRows gives it id videoMode", videoBuilt and videoBuilt.id,
+  "videoMode")
+
+check("default video mode is windowed", Save.DEFAULT_OPTIONS.videoMode,
+  "windowed")
+
+scrollOptions.options.videoMode = "windowed"
+scrollOptions:cycle(videoRow, 1)
+check("right stores borderless, not the display string",
+  scrollOptions.options.videoMode, "borderless")
+scrollOptions:cycle(videoRow, 1)
+check("right again stores windowed",
+  scrollOptions.options.videoMode, "windowed")
+scrollOptions:cycle(videoRow, -1)
+check("left also toggles, stored as borderless",
+  scrollOptions.options.videoMode, "borderless")
+scrollOptions:cycle(videoRow, -1)
+check("left toggles back to windowed",
+  scrollOptions.options.videoMode, "windowed")
+
+check("text reads WINDOWED", videoRow.text(scrollOptions.options), "WINDOWED")
+scrollOptions.options.videoMode = "borderless"
+check("text reads FULL, not BORDERLESS", videoRow.text(scrollOptions.options),
+  "FULL")
+for _, mode in ipairs({ "windowed", "borderless" }) do
+  scrollOptions.options.videoMode = mode
+  local text = videoRow.text(scrollOptions.options)
+  check("value fits the 8-char column: " .. mode, #text <= 8, true)
+end
 
 -- ------------------------------------------------------------- name picker
 --

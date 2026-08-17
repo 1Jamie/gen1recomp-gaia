@@ -12,6 +12,7 @@ local PaletteFX = require("src.render.PaletteFX")
 local Pipelines = require("src.render.Pipelines")
 local PixelCanvas = require("src.render.PixelCanvas")
 local Runtime = require("src.mods.Runtime")
+local GameViewport = require("src.render.GameViewport")
 -- leaf module (no renderer dependency), so requiring it here cannot cycle
 local FaithfulRes = require("src.core.FaithfulRes")
 
@@ -69,11 +70,9 @@ Renderer.UPRIGHT_MARGIN = 160
 -- Keep separate dpiX/dpiY so each GB pixel covers fitScale() physical pixels
 -- on BOTH axes (square).
 local function displayMetrics()
-  local ww, wh = love.graphics.getDimensions()
+  local ww, wh = GameViewport.dimensions()
   local pw, ph = ww, wh
-  if love.graphics.getPixelDimensions then
-    pw, ph = love.graphics.getPixelDimensions()
-  end
+  pw, ph = GameViewport.pixelDimensions()
   local dpiX, dpiY = 1, 1
   if ww > 0 and pw > 0 then dpiX = pw / ww end
   if wh > 0 and ph > 0 then dpiY = ph / wh end
@@ -745,7 +744,7 @@ end
 -- When GBC FX is active the composite is drawn into presentCanvas and
 -- presented through the GBC FX shader as a final pass.
 function Renderer:endFrame(zones, worldZones)
-  love.graphics.setCanvas()
+  GameViewport.setTarget()
   local ww, wh, pw, ph, dpiX, dpiY = displayMetrics()
   -- Sp = integer framebuffer pixels per GB pixel;
   -- Sx/Sy = LOVE-unit draw scales (may differ when dpiX ≠ dpiY).
@@ -1103,6 +1102,20 @@ function Renderer:endFrame(zones, worldZones)
            p.dx - p.a.x * Ux, p.dy - p.a.y * Uy, p.dx, p.dy, p.dw, p.dh)
     end
   end
+  local uiRedraws = PaletteFX.uiSpriteRedraws()
+  if uiRedraws[1] then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setScissor(uox, uoy, uvpw, uvph)
+    for _, r in ipairs(uiRedraws) do
+      if r.quad then
+        love.graphics.draw(r.image, r.quad, uox + r.x * Ux, uoy + r.y * Uy,
+                           0, Ux, Uy)
+      else
+        love.graphics.draw(r.image, uox + r.x * Ux, uoy + r.y * Uy, 0, Ux, Uy)
+      end
+    end
+    love.graphics.setScissor()
+  end
 
   -- The battle wipe covers the whole surface, letterbox included, so it goes
   -- over the finished composite rather than under the UI blit.  On hardware
@@ -1136,7 +1149,7 @@ function Renderer:endFrame(zones, worldZones)
   end
 
   if present then
-    love.graphics.setCanvas()
+    GameViewport.setTarget()
     -- Post-process pipelines run over the finished composite -- world, UI
     -- and all -- and before GBC FX, so a blur or colour grade is what the
     -- LCD grid is then drawn over rather than something that smears the

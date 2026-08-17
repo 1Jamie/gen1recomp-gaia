@@ -6,6 +6,7 @@ local Assets = require("src.render.Assets")
 local BorderFill = require("src.world.gen2.BorderFill")
 local GbcPalette = require("src.render.GbcPalette")
 local Palettes = require("src.world.gen2.Palettes")
+local PixelCanvas = require("src.render.PixelCanvas")
 
 local MapPreview = {}
 
@@ -96,9 +97,8 @@ function MapPreview.bake(baker, map, daytime)
   local blocks = tileset.blocks
   local tilesPerRow = tileset.tilesPerRow or 16
   local pw, ph = map.width * 32, map.height * 32
-  local okCanvas, canvas = pcall(love.graphics.newCanvas, pw, ph)
+  local okCanvas, canvas = pcall(PixelCanvas.new, pw, ph, "nearest")
   if not okCanvas or not canvas then return nil end
-  if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
   local quads = {}
   local function quadFor(tile)
     local q = quads[tile]

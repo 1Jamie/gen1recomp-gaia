@@ -140,6 +140,10 @@ M.VIRIDIAN_CITY = {
 -- Daisy hands over the TOWN MAP once Oak's errand is under way
 -- (scripts/BluesHouse.asm BluesHouseDaisySittingText)
 M.BLUES_HOUSE = {
+  -- scripts/BluesHouse.asm:12-16
+  onEnter = function(game, ow)
+    game.save.flags.EVENT_ENTERED_BLUES_HOUSE = true
+  end,
   talk = {
     TEXT_BLUESHOUSE_DAISY_SITTING = {
       { "face_player" },

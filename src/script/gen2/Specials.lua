@@ -358,42 +358,33 @@ end
 -- is the three-way answer BugContestResults_DidNotLeaveMons branches on:
 -- BUGCONTEST_CAUGHT_MON 0, BUGCONTEST_BOXED_MON 1, BUGCONTEST_NO_CATCH 2
 -- (constants/script_constants.asm).
--- _CaughtAskNicknameText (data/text/common_2.asm:717).  Not extracted: the
--- routine that prints it is engine code and no script bytecode points at the
--- string, so the extractor never reaches it.
+-- _CaughtAskNicknameText (data/text/common_2.asm:717), engine-printed so
+-- the extractor never reaches it.
 local CONTEST_NICKNAME_PROMPT =
   Strings.source("Give a nickname to\nthe {STRBUF} you\nreceived?")
+
+-- GiveANickname_YesNo (engine/pokemon/caught_nickname.asm:123)
+function Specials.askNickname(vm, mon)
+  nameMon(vm, mon.species)
+  showRawHeld(vm, Strings(CONTEST_NICKNAME_PROMPT))
+  if coroutine.yield({ kind = "yesorno" }) then
+    -- InitNickname (engine/pokemon/move_mon.asm:1787)
+    local h = hooks(vm)
+    local name = h.renameMon and Specials.block(vm, function(done)
+      h.renameMon(mon, done, { blank = true })
+    end)
+    -- _InitString's blank test (home/string.asm:6-30)
+    if name and name:gsub(" ", "") ~= "" then mon.nickname = name end
+  end
+end
 
 H.CheckPartyFullAfterContest = function(vm)
   local Breeding = require("src.core.gen2.Breeding")
   local result, mon =
     BugContest.collectCaughtMon(contestSave(vm), Breeding.PARTY_SIZE)
-  -- GiveANickname_YesNo sits on BOTH arms of CheckPartyFullAfterContest -- the
-  -- mon that joined the party and the one that went to the box -- and nowhere
-  -- else in the contest: BugContest_SetCaughtContestMon merely holds the catch
-  -- in wContestMon, so this is the only place the player is ever asked.
-  -- GetPokemonName runs first, which is what {STRBUF} reads.
+  -- GiveANickname_YesNo runs on both contest arms, party and box
   if mon and result ~= BugContest.NO_CATCH then
-    nameMon(vm, mon.species)
-    -- GiveANickname_YesNo (engine/pokemon/caught_nickname.asm:123) is
-    -- `PrintText / jp YesNoBox`, so the prompt goes up over the box this page
-    -- left standing.
-    showRawHeld(vm, Strings(CONTEST_NICKNAME_PROMPT))
-    if coroutine.yield({ kind = "yesorno" }) then
-      -- `ld b, NAME_MON / callfar InitNickname`: the keyboard opens EMPTY on a
-      -- fresh catch (the Name Rater is the one that pre-fills), and InitNickname
-      -- copies the species name back over an empty entry -- so a cancelled
-      -- keyboard is the same as answering NO.
-      local h = hooks(vm)
-      local name = h.renameMon and Specials.block(vm, function(done)
-        h.renameMon(mon, done, { blank = true })
-      end)
-      -- _InitString's own blank test (home/string.asm:6-30): "zero or more
-      -- spaces followed by a null".  The keyboard's blank cells are real
-      -- typeable characters, so an all-space entry has to be discarded the
-      -- same way an empty one is, not stored as a name of spaces.
-      if name and name:gsub(" ", "") ~= "" then mon.nickname = name end
-    end
+    Specials.askNickname(vm, mon)
   end
   answer(vm, result)
 end
@@ -1005,7 +996,7 @@ end
 -- check is transcribed here rather than left to the screen, because its two
 -- refusals are TEXT and the script has to see them before the machine opens:
 -- no coins at all, or no COIN_CASE to hold them.
-local COIN_CASE = 0x47 -- constants/item_constants.asm
+local COIN_CASE = 0x36 -- constants/item_constants.asm:62
 
 -- _NoCoinsText / _NoCoinCaseText, data/text/common_1.asm.
 local NO_COINS_TEXT = "You have no coins."
@@ -2409,7 +2400,9 @@ local STUB_ROWS = {
   { "WaitForOtherPlayerToExit", nil, "link cable: nobody to wait for" },
   { "SetBitsForBattleRequest", nil, "link cable: no Gen 2 cable club" },
   { "SetBitsForTimeCapsuleRequest", nil, "link cable: no Time Capsule" },
-  { "CheckTimeCapsuleCompatibility", 2, "link cable: no Gen 1 partner" },
+  -- maps/PokeCenter2F.asm:200-203: 2 is .MonMoveTooNew; 0 falls through to
+  -- WaitForLinkedFriend and lands on .FriendNotReady
+  { "CheckTimeCapsuleCompatibility", 0, "link cable: no Gen 1 partner" },
   { "EnterTimeCapsule", nil, "link cable: no Time Capsule" },
   { "TradeCenter", nil, "link cable: no trade room" },
   { "Colosseum", nil, "link cable: no battle room" },

@@ -130,12 +130,23 @@ local SPECIAL = {
   evolution = "Music_SafariZone",
 }
 
+-- SpecialMapMusic (pokegold home/audio.asm:397)
+local SPECIAL_GEN2 = {
+  surf = "Music_Surf",
+  bike = "Music_Bicycle",
+  evolution = "Music_Evolution",
+}
+
 -- the label a scene role resolves to; call sites keep their own presence
 -- guard on the resolved label
 function Music.special(data, key)
   local special = data and data.audio and data.audio.special
   local label = special and special[key]
   if label ~= nil then return label end
+  if data and data.audio and data.audio.generation == 2
+     and SPECIAL_GEN2[key] ~= nil then
+    return SPECIAL_GEN2[key]
+  end
   return SPECIAL[key]
 end
 
@@ -192,6 +203,12 @@ local function startSong(data, def, wantLoop)
   return nil, nil, nil, "no chip program and no file"
 end
 
+-- Music_MeetRival_Ch{1,2,3}_AlternateStart (audio/alternate_tempo.asm:7)
+local RIVAL_ALT_START = {
+  redblue = { 0x71a2, 0x721d, 0x72b5 },
+  yellow = { 0x7075, 0x70f0, 0x7188 },
+}
+
 -- the single choke point every song choice passes through, so one hook
 -- covers map themes, battle themes, jingles and scene music
 local function selectSong(song, ctx)
@@ -219,8 +236,17 @@ function Music.play(data, song, loop, ctx)
   local start = ctx and ctx.start or nil
   -- a hook may silence the cue outright, or swap in a label the dedupe
   -- below has to compare against
-  if not song or (song == state.current and tempo == state.tempo
-      and start == state.start) then return end
+  if not song then return end
+  if song == state.current and tempo == state.tempo
+      and start == state.start then
+    -- ..(home/audio.asm ln 65)
+    if state.fade and state.fade.pending then
+      state.fade = nil
+      applyVolume(state.source)
+      applyVolume(state.loopSource)
+    end
+    return
+  end
   local def = songDef(data, song)
   if not def or state.failed[song] then return end
 
@@ -247,10 +273,12 @@ function Music.play(data, song, loop, ctx)
      and def.bank == 2 and def.address == 17050 then
     local started = {}
     for key, value in pairs(def) do started[key] = value end
+    local alt = require("src.core.GameVersion").isYellow()
+      and RIVAL_ALT_START.yellow or RIVAL_ALT_START.redblue
     started.startChannels = {
-      { number = 1, address = 0x71a2 },
-      { number = 2, address = 0x721d },
-      { number = 3, address = 0x72b5 },
+      { number = 1, address = alt[1] },
+      { number = 2, address = alt[2] },
+      { number = 3, address = alt[3] },
     }
     def = started
   end
@@ -340,9 +368,12 @@ end
 
 Music.MAP_FADE = 10
 
--- the song a map should currently play, honoring the bike/surf overrides
+-- the song a map should currently play, honoring the bike/surf overrides;
+-- Gen 2 has no outdoor gate (pokegold home/audio.asm:437)
 local function effectiveMapSong(data, song)
-  if not song or not outdoorSongs(data)[song] then return song end
+  if not song then return song end
+  local gen2 = data and data.audio and data.audio.generation == 2
+  if not gen2 and not outdoorSongs(data)[song] then return song end
   if state.onBike then
     local bike = Music.special(data, "bike")
     if bike and songDef(data, bike) then return bike end
@@ -356,9 +387,9 @@ end
 
 -- overworld map theme; onBike/surfing override outdoor themes with the
 -- bike/surf songs and restore the map theme when they end
-function Music.playMap(data, mapId, onBike, surfing, fade)
-  local song = data and data.audio and data.audio.mapSongs
-    and mapId and data.audio.mapSongs[mapId] or nil
+function Music.playMap(data, mapId, onBike, surfing, fade, song)
+  song = song or (data and data.audio and data.audio.mapSongs
+    and mapId and data.audio.mapSongs[mapId]) or nil
   state.mapSong = song
   state.onBike = not not onBike
   state.surfing = not not surfing

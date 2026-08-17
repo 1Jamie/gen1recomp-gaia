@@ -47,6 +47,7 @@ local NPC = require("src.world.gen2.Npc")
 local Party = require("src.pokemon.Party")
 local Permissions = require("src.world.gen2.Permissions")
 local Pipelines = require("src.render.Pipelines")
+local PixelCanvas = require("src.render.PixelCanvas")
 local Player = require("src.world.gen2.Player")
 local Pokerus = require("src.core.gen2.Pokerus")
 local Roamers = require("src.core.gen2.Roamers")
@@ -1074,11 +1075,12 @@ function World:load()
         save.pokedex = save.pokedex or { seen = {}, caught = {} }
         save.pokedex.seen[mon.species] = true
         save.pokedex.caught[mon.species] = true
-        -- AddPartyMon's `.registerunowndex` runs on the same path, so a gifted
-        -- Unown lands in the form list too (nothing in Gold gives one, but the
-        -- cart's check is on the species, not on where it came from).
+        -- AddPartyMon's `.registerunowndex` runs on the same path, so a
+        -- gifted Unown lands in the form list too (move_mon.asm:347).
         Unown.registerCatch(save, mon)
       end
+      -- engine/pokemon/move_mon.asm:1632-1645
+      return mon
     end,
     giveItem = function(itemIndex, qty)
       local data = self.game and self.game.data
@@ -2123,6 +2125,11 @@ function World:updateShake()
   shake.phase = (shake.left % 2 == 0) and shake.amplitude or -shake.amplitude
 end
 
+-- engine/events/poisonstep_pals.asm:9
+function World:poisonBGFlash()
+  self.poisonFlash = 4
+end
+
 -- Script_warp / Script_warpfacing: a raw destination CELL, distinct from the
 -- warp_events World:takeWarp follows.  `facing` is nil for `warp` and a
 -- Movement direction for `warpfacing` (PLAYERSPRITESETUP_CUSTOM_FACING).  A
@@ -2397,10 +2404,43 @@ function World:rollWild()
   return { species = def.index, level = roll.level }
 end
 
+-- GetMapMusic (home/map.asm:2550)
+function World.mapMusicLabel(audio, musicByte, rocketsMahogany, rocketsRadioTower)
+  if type(musicByte) ~= "number" then return nil end
+  local MUSIC_MAHOGANY_MART = 100 -- constants/music_constants.asm:100
+  local RADIO_TOWER_MUSIC = 0x80 -- constants/music_constants.asm:109
+  local order = audio and audio.musicOrder
+  local songs = audio and audio.songs
+  local label
+  if musicByte == MUSIC_MAHOGANY_MART then
+    label = rocketsMahogany and "Music_RocketHideout" or "Music_CherrygroveCity"
+  elseif musicByte >= RADIO_TOWER_MUSIC then
+    label = rocketsRadioTower and "Music_RocketTheme"
+      or (order and order[(musicByte - RADIO_TOWER_MUSIC) + 1])
+  else
+    return nil
+  end
+  if label and label ~= "Music_Nothing" and songs and songs[label] then
+    return label
+  end
+  return nil
+end
+
+function World:mapMusicSong(mapId)
+  local audio = self.game and self.game.data and self.game.data.audio
+  local def = self.maps and self.maps[mapId]
+  -- ENGINE_ROCKETS_IN_MAHOGANY / _RADIO_TOWER (data/events/engine_flags.asm:40,:36)
+  return World.mapMusicLabel(audio, def and def.music,
+    self:engineFlag(22), self:engineFlag(18))
+end
+
 function World:playMapMusic()
   local data = self.game and self.game.data
   if data and data.audio and data.audio.runtime and self.map then
-    Music.playMap(data, self.map.id)
+    -- SpecialMapMusic (home/audio.asm:397)
+    Music.playMap(data, self.map.id, nil,
+                  FieldMoves.isSurfing(self.playerState), nil,
+                  self:mapMusicSong(self.map.id))
   end
 end
 
@@ -3246,7 +3286,10 @@ function World:surfStartStep(mon)
   self:applyPlayerState(FieldMoves.surfType(mon))
   local audio = self.game and self.game.data and self.game.data.audio
   if audio and audio.runtime and self.map then
-    Music.playMap(self.game.data, self.map.id)
+    -- SpecialMapMusic (home/audio.asm:397)
+    Music.playMap(self.game.data, self.map.id, nil,
+                  FieldMoves.isSurfing(self.playerState), nil,
+                  self:mapMusicSong(self.map.id))
   end
   if p.scriptStep then p:scriptStep(p.facing) end
   self.fieldMove = { phase = "step" }
@@ -3556,7 +3599,7 @@ function World:rareWildMon()
   local entry = self.encounters and self.encounters.grass
     and map and self.encounters.grass[map.id]
   if not entry or not entry.slots then return nil end
-  local key = (self.daytime == "DARK") and "NITE" or (self.daytime or "DAY")
+  local key = self.tod or "DAY"
   local slots = entry.slots[key] or entry.slots.DAY
   if not slots then return nil end
   local rare = slots[4 + math.random(3)]
@@ -3949,7 +3992,7 @@ function World:rollEncounter(kind, terrain, tables, vanilla)
     -- Same guard World:rockRandom uses: a headless suite has no love global.
     rng = (love and love.math and love.math.random) or math.random,
     kind = kind,
-    daytime = self.daytime,
+    daytime = self.tod,
     environment = map and map.def and map.def.environment,
     tables = tables,
     data = self.game and self.game.data,
@@ -4012,7 +4055,8 @@ function World:tryWildEncounter()
   if onWater then
     rate = Encounter.waterRate(tables, map.id)
   else
-    rate = Encounter.grassRate(tables, map.id, self.daytime)
+    -- engine/overworld/wildmons.asm:283
+    rate = Encounter.grassRate(tables, map.id, self.tod)
   end
   -- ApplyMusicEffectOnEncounterRate runs first (wildmons.asm:213-215).
   rate = World.musicEncounterRate(rate, Music.mapSong())
@@ -4306,6 +4350,14 @@ function World:rollFishing(rod)
   -- the flag and nothing about the map changes.  Roamers.Swarm.fishing is the
   -- same store CheckSwarmFlag clears when the swarm expires.
   local swarm = Roamers.Swarm.fishing(game.save)
+  -- engine/events/fish.asm:24-30
+  local groupRow = self.encounters.fishGroups
+    and self.encounters.fishGroups[
+      Encounter.fishGroupFor(self.encounters, group, swarm)]
+  if groupRow and groupRow.chance
+      and not Encounter.triggers(groupRow.chance, nil) then
+    return "nibble"
+  end
   local roll
   if Runtime.wantsHook("encounter.fishing") then
     -- Gen 1's three arguments, in Gen 1's order: the rod, the map, and the
@@ -5091,7 +5143,7 @@ function World:sweetScentEncounter()
   local tables = self:wildTables()
   local onWater = FieldMoves.encounterTable(collision) == "water"
   local rate = onWater and Encounter.waterRate(tables, map.id)
-    or Encounter.grassRate(tables, map.id, self.daytime)
+    or Encounter.grassRate(tables, map.id, self.tod)
   if not (rate and rate > 0) then return false end
   -- CheckEncounterRoamMon, the first thing ChooseWildEncounter itself does:
   -- a beast REPLACES the map's own slot rather than adding to it.
@@ -5363,7 +5415,10 @@ function World:runSurf(result)
     self:applyPlayerState(result.state)
     local audio = self.game and self.game.data and self.game.data.audio
     if audio and audio.runtime and self.map then
-      Music.playMap(self.game.data, self.map.id)
+      -- SpecialMapMusic (home/audio.asm:397)
+      Music.playMap(self.game.data, self.map.id, nil,
+                    FieldMoves.isSurfing(self.playerState), nil,
+                    self:mapMusicSong(self.map.id))
     end
     if self.player and self.player.scriptStep then
       self.player:scriptStep(self.player.facing)
@@ -5875,6 +5930,8 @@ function World:startBattle(opts, onDone)
       -- World:startCatchTutorial sets it.
       tutorial = opts.tutorial,
       onDone = function(outcome)
+        -- WildBattleScript's reloadmapafterbattle (engine/overworld/events.asm:1158-1162)
+        self.wildCooldown = 5
         self.battleActive = nil
         game.stack:pop()
         -- wBattleResult (constants/battle_constants.asm): WIN 0, LOSE 1, DRAW 2.
@@ -7491,7 +7548,7 @@ function World:interactBody()
 end
 
 function World:fitScale()
-  local w, h = love.graphics.getDimensions()
+  local w, h = require("src.render.GameViewport").dimensions()
   return math.max(1, math.floor(math.min(w / 160, h / 144)))
 end
 
@@ -7556,8 +7613,9 @@ function World:bakeMapImage(map, daytime, flicker)
   local blocks = tileset.blocks
   local tilesPerRow = tileset.tilesPerRow or 16
   local pw, ph = map.width * 32, map.height * 32
-  local canvas = love.graphics.newCanvas(pw, ph)
-  canvas:setFilter("nearest", "nearest")
+  -- Map pixels, not the screen's: a DPI-scaled canvas bakes them non-square
+  -- (#208, see src/render/PixelCanvas.lua).
+  local canvas = PixelCanvas.new(pw, ph, "nearest")
   local quads = {}
   local function quadFor(tile)
     local q = quads[tile]
@@ -8084,12 +8142,11 @@ function World:scrollStrip(mapDef, tileset, tile, scroll)
   local cached = self.scrollStrips[key]
   if cached ~= nil then return cached or nil end
   local atlas = self:atlasFor(mapDef)
-  local ok, canvas = pcall(love.graphics.newCanvas, 8, 8 * 8)
+  local ok, canvas = pcall(PixelCanvas.new, 8, 8 * 8, "nearest")
   if not (atlas and ok and canvas) then
     self.scrollStrips[key] = false
     return nil
   end
-  canvas:setFilter("nearest", "nearest")
   local perRow = tileset.tilesPerRow or 16
   local sx, sy = (tile % perRow) * 8, math.floor(tile / perRow) * 8
   local aw, ah = atlas:getDimensions()
@@ -8318,7 +8375,7 @@ function World:rebuildNeighbors()
   self.neighbors = {}
   if not self.map then return end
   local s = self:zoomScale()
-  local ww, wh = love.graphics.getDimensions()
+  local ww, wh = require("src.render.GameViewport").dimensions()
   local vw = math.ceil(ww / s)
   local vh = math.ceil(wh / s)
   if vw % 2 ~= 0 then vw = vw + 1 end
@@ -8524,13 +8581,13 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- rebuildPeople may have pooled fresh NPCs; give them their colors too.
   self:applyPalettes()
   local audio = self.game and self.game.data and self.game.data.audio
-  -- PlayMapMusicBike (home/audio.asm), which is the mapsetup every load uses:
-  -- a player still on the bike keeps the bike theme across the warp instead of
-  -- hearing the new map's song.  Music.play dedupes the same label, so this is
-  -- safe on seamless edge crossings.
+  -- PlayMapMusicBike / SpecialMapMusic (home/audio.asm:335, :397): a biking
+  -- player keeps the bike theme; Music.play dedupes seamless edge crossings.
   if audio and audio.runtime then
     if not (FieldMoves.isBiking(self.playerState) and self:playBikeMusic()) then
-      Music.playMap(self.game.data, mapId)
+      Music.playMap(self.game.data, mapId, nil,
+                    FieldMoves.isSurfing(self.playerState), nil,
+                    self:mapMusicSong(mapId))
     end
   end
   -- Fires with the map fully built and BEFORE the map's own scene script, so a
@@ -8912,14 +8969,14 @@ function World:movePlayer(dir)
     if result == "moved"
         and Permissions.surfable(map:cellCollision(p.targetX, p.targetY))
           == "land" then
-      -- .ExitWater: GetOutOfWater writes PLAYER_NORMAL and runs
-      -- UpdatePlayerSprite BEFORE .DoStep, so the player is already off the
-      -- Lapras for the step that puts them on the beach, and PlayMapMusic then
-      -- swaps the surfing theme back for the map's own.
+      -- .ExitWater: GetOutOfWater writes PLAYER_NORMAL before .DoStep, then
+      -- PlayMapMusic swaps the surf theme back (home/audio.asm:308)
       self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
       local audio = self.game and self.game.data and self.game.data.audio
       if audio and audio.runtime then
-        Music.playMap(self.game.data, map.id)
+        Music.playMap(self.game.data, map.id, nil,
+                      FieldMoves.isSurfing(self.playerState), nil,
+                      self:mapMusicSong(map.id))
       end
     end
   end
@@ -9159,7 +9216,7 @@ function World:countStep()
   elseif event.kind == "poisonFaint" then
     self:poisonFaintScript(event)
   elseif event.kind == "poisonHurt" then
-    -- .PlayPoisonSFX alone: the sound and the two-frame red flash, no script.
+    -- .PlayPoisonSFX alone: the sound and the four-frame BG flash, no script.
     CallAsm.run(self, "PlayPoisonSFX")
   elseif event.kind == "repel" then
     self:repelWoreOff()
@@ -9685,7 +9742,7 @@ function World:drawGround(s)
     if canvas then
       bw, bh = canvas:getDimensions()
     else
-      bw, bh = G.getDimensions()
+      bw, bh = require("src.render.GameViewport").dimensions()
     end
     BorderFill.draw(self, self:borderImageFor(self.map.id),
       cam.x, cam.y, bw, bh, s, self.map.id)
@@ -9889,8 +9946,7 @@ function World:drawTilted(w, h, s, gw, gh)
     if self.tiltCanvas and self.tiltCanvas.release then
       self.tiltCanvas:release()
     end
-    self.tiltCanvas = G.newCanvas(gw, gh)
-    self.tiltCanvas:setFilter("linear", "linear")
+    self.tiltCanvas = PixelCanvas.new(gw, gh, "linear")
   end
 
   local previous = G.getCanvas()
@@ -9946,7 +10002,7 @@ end
 
 function World:draw()
   local G = love.graphics
-  local w, h = G.getDimensions()
+  local w, h = require("src.render.GameViewport").dimensions()
   self:refreshColorMode()
   G.clear(0.07, 0.05, 0.02, 1)
 
@@ -10028,6 +10084,18 @@ function World:draw()
       body()
     end
     G.pop()
+    G.setColor(1, 1, 1, 1)
+  end
+
+  -- engine/events/poisonstep_pals.asm:9-42
+  if self.poisonFlash and self.poisonFlash > 0 then
+    self.poisonFlash = self.poisonFlash - 1
+    if GbcPalette.mode == "gbc" then
+      G.setColor(28 / 31, 21 / 31, 1, 0.55)
+    else
+      G.setColor(0, 0, 0, 0.45)
+    end
+    G.rectangle("fill", 0, 0, w, h)
     G.setColor(1, 1, 1, 1)
   end
 

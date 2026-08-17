@@ -79,7 +79,16 @@ end
 function NamingScreen:enter()
   if self.presets and #self.presets > 0 then
     local Menu = require("src.ui.Menu")
-    local items = { { label = Strings("NEW NAME") } }
+    -- engine/movie/oak_speech/oak_speech2.asm:1
+    self.choosing = true
+    self.isOpaque = false
+    local items = { {
+      label = Strings("NEW NAME"),
+      onSelect = function()
+        self.choosing = nil
+        self.isOpaque = nil
+      end,
+    } }
     for _, preset in ipairs(self.presets) do
       table.insert(items, {
         label = preset,
@@ -193,6 +202,7 @@ function NamingScreen:update(dt)
 end
 
 function NamingScreen:draw()
+  if self.choosing then return end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
   love.graphics.setColor(0, 0, 0, 1)
