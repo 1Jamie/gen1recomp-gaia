@@ -740,6 +740,9 @@ palette-correct blit of either canvas into an arbitrary screen rect, and the
 the original contract. Its optional `background` (`0xRRGGBB`) and `preference`
 arguments request an extended presentation; a preference ending in `:cover`
 fills and crops the target, while other values preserve the whole frame.
+Android also accepts `handheld` or `secondary` (with an optional `:cover`
+suffix) as routing hints; unsupported or unavailable targets fall back to the
+other connected display.
 `pollTouch()` returns the oldest queued event as `"action,x,y"` in submitted-frame
 coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
