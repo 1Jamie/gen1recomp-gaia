@@ -152,6 +152,14 @@ public:
 		const char *userAgent = nullptr, const char *accept = nullptr) const;
 
 	/**
+	 * Blocking HTTPS POST of a raw byte body (Android only; false
+	 * elsewhere). The mirror of httpDownload for mod.postLog log sends,
+	 * which need POST and have no curl on Android (#597).
+	 **/
+	virtual bool httpPost(const char *url, const char *body, int bodyLen,
+		const char *contentType = nullptr, const char *userAgent = nullptr) const;
+
+	/**
 	 * TLS client sockets (Android only; every call fails elsewhere, where
 	 * LuaSec or another provider is the answer). Non-blocking by contract:
 	 * tlsOpen returns a handle and connects on its own thread, tlsStatus

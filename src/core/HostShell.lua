@@ -452,9 +452,11 @@ end
 -- POST returning success/failure.  Strictly one-way: the response body is
 -- discarded, only the HTTP status class is surfaced (postLog callers never
 -- trust the reply).  curl --data-binary reads the payload from a pipe, so a
--- large body never lands in the command line; the Android bridge has no POST
--- transport, and httpPost reports that instead of half-working through
--- httpDownload (a GET round-trip to a POST endpoint would be a lie).
+-- large body never lands in the command line; where curl is absent (Android
+-- and the other bridge-only platforms) the POST rides the JNI bridge --
+-- love.system.httpPost, the dedicated POST arm added beside httpDownload --
+-- instead of half-working through httpDownload (a GET round-trip to a POST
+-- endpoint would be a lie).
 function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   if type(url) ~= "string" or url == "" then return nil, "missing url" end
   if type(body) ~= "string" then return nil, "missing body" end
@@ -529,6 +531,16 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   end
   if not haveBridge() then
     return nil, "no network transport on this platform"
+  end
+  -- The GET bridge has no POST; the dedicated love.system.httpPost arm
+  -- (GameActivity.httpPost) is the transport where curl is missing. A
+  -- build without it reports the same "no POST transport" a missing curl
+  -- would -- the old-APK skew path in the JNI bridge returns false.
+  if love.system and type(love.system.httpPost) == "function" then
+    local ok, sent = pcall(love.system.httpPost, url, body, contentType,
+                           userAgent)
+    if ok and sent then return true end
+    return nil, "log post rejected"
   end
   return nil, "no POST transport on this platform"
 end

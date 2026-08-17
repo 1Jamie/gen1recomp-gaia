@@ -259,6 +259,21 @@ bool System::httpDownload(const char *url, const char *destPath,
 #endif
 }
 
+bool System::httpPost(const char *url, const char *body, int bodyLen,
+	const char *contentType, const char *userAgent) const
+{
+#ifdef LOVE_ANDROID
+	return love::android::httpPost(url, body, bodyLen, contentType, userAgent);
+#else
+	LOVE_UNUSED(url);
+	LOVE_UNUSED(body);
+	LOVE_UNUSED(bodyLen);
+	LOVE_UNUSED(contentType);
+	LOVE_UNUSED(userAgent);
+	return false;
+#endif
+}
+
 int System::tlsOpen(const char *host, int port) const
 {
 #ifdef LOVE_ANDROID

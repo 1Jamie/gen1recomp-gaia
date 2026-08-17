@@ -139,6 +139,17 @@ int w_httpDownload(lua_State *L)
 	return 1;
 }
 
+int w_httpPost(lua_State *L)
+{
+	const char *url = luaL_checkstring(L, 1);
+	size_t bodyLen = 0;
+	const char *body = luaL_checklstring(L, 2, &bodyLen);
+	const char *ct = luaL_optstring(L, 3, nullptr);
+	const char *ua = luaL_optstring(L, 4, nullptr);
+	luax_pushboolean(L, instance()->httpPost(url, body, (int) bodyLen, ct, ua));
+	return 1;
+}
+
 int w_hasBackgroundMusic(lua_State *L)
 {
 	lua_pushboolean(L, instance()->hasBackgroundMusic());
@@ -233,6 +244,7 @@ static const luaL_Reg functions[] =
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "restartApp", w_restartApp },
 	{ "httpDownload", w_httpDownload },
+	{ "httpPost", w_httpPost },
 	{ "tlsOpen", w_tlsOpen },
 	{ "tlsStatus", w_tlsStatus },
 	{ "tlsSend", w_tlsSend },

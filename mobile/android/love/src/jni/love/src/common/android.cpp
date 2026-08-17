@@ -325,6 +325,55 @@ bool httpDownload(const char *url, const char *destPath, const char *userAgent, 
 	return result;
 }
 
+bool httpPost(const char *url, const char *body, int bodyLen, const char *contentType, const char *userAgent)
+{
+	if (url == nullptr || body == nullptr || bodyLen < 0)
+		return false;
+
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	// Same resolution rule as httpDownload: the activity's own class via
+	// SDL_AndroidGetActivity, never FindClass -- this bridge is called off
+	// the main thread (love.thread workers), whose class loader cannot see
+	// app classes.
+	jobject activityObj = (jobject) SDL_AndroidGetActivity();
+	if (activityObj == nullptr)
+		return false;
+	jclass activity = env->GetObjectClass(activityObj);
+	env->DeleteLocalRef(activityObj);
+
+	// Old APK / new liblove skew: report "no transport" the same way a
+	// missing curl does, instead of aborting on a missing method (#597).
+	jmethodID method = env->GetStaticMethodID(activity, "httpPost",
+		"(Ljava/lang/String;[BLjava/lang/String;Ljava/lang/String;)Z");
+	if (method == nullptr)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return false;
+	}
+
+	jstring jurl = env->NewStringUTF(url);
+	// raw bytes across the bridge: a log ring can carry arbitrary UTF-8,
+	// and a jstring would run it through modified UTF-8
+	jbyteArray jbody = env->NewByteArray(bodyLen);
+	if (jbody != nullptr)
+		env->SetByteArrayRegion(jbody, 0, bodyLen, (const jbyte*) body);
+	jstring jct = contentType != nullptr ? env->NewStringUTF(contentType) : nullptr;
+	jstring jua = userAgent != nullptr ? env->NewStringUTF(userAgent) : nullptr;
+
+	jboolean result = env->CallStaticBooleanMethod(activity, method, jurl, jbody, jct, jua);
+
+	env->DeleteLocalRef(jurl);
+	if (jbody != nullptr)
+		env->DeleteLocalRef(jbody);
+	if (jct != nullptr)
+		env->DeleteLocalRef(jct);
+	if (jua != nullptr)
+		env->DeleteLocalRef(jua);
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
 /*
  * TLS sockets. Same resolution rule as httpDownload above -- the activity's
  * own class, never FindClass -- and the same tolerance for an old APK: a
