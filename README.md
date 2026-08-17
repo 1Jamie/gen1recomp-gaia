@@ -4,6 +4,10 @@ A native LÖVE2D recreation of Poke Red, Blue and Yellow. The engine and map
 behavior are hand-written Lua; game data and graphics are decoded from a ROM
 supplied by the player.
 
+And before you say, "that's not a recomp", you're wrong. Recomp is an acronym. ***Reverse Engineering Causes Obsessive Mental Problems***
+
+[Click Here for the AI Use Disclosure!](AIDisclosure.md)
+
 > [!CAUTION]
 > **We are NOT affiliated with the website `gen1recomp[.]com`** That website is not run by this project, was not authorized by us, and we have no idea who operates it. It is impersonating this project; do not download anything from it, and treat anything it hosts or claims as untrustworthy. Even if the site currently links back to this repository, the people behind it can change its content at any time, so nothing on it should ever be trusted. This GitHub repository and the Discord linked below are the only official sources for this project.
 
