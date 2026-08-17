@@ -3850,6 +3850,7 @@ local function modalUp(imp)
     or imp._appPatchNotes
     or imp._findDetails or imp._modVersions or imp._modDepResolver or imp._sortPopup
     or imp._filterPopup or imp._modScopePopup or imp._indexManage
+    or imp._gamePopup
     or imp._modActions or imp._modImports
     or imp._modHeaderActionsPopup or imp._profilesPopup or imp._singleProfileActions or imp._profileSavePrompt
     or imp._profileRenamePrompt or imp._findEntry or imp._gameManage) ~= nil
