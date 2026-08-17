@@ -122,6 +122,17 @@ local function addTouchRows(rows, add, opts, hooks)
       end,
     }
   end
+
+  if hooks and hooks.openSkinStudio then
+    rows[#rows + 1] = {
+      label = Strings("SKIN STUDIO"),
+      actionLabel = Strings("Open"),
+      action = function()
+        hooks.openSkinStudio()
+        return false
+      end,
+    }
+  end
 end
 
 local function coreRows(opts, hooks)
@@ -638,6 +649,7 @@ end
 -- writes options while a modal covers it, so the cached table stays true.
 -- `hooks` carries the host actions a row cannot perform itself:
 --   editTouchControls()  -- hand the screen to the touch-overlay editor
+--   openSkinStudio()     -- hand the screen to the desktop skin studio
 --
 -- `version` is the game the gear was opened on.  It picks the row set, and
 -- for Gold it also picks WHICH table the rows edit: the `gold` block inside
