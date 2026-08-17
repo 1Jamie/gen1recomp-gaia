@@ -4111,8 +4111,8 @@ function BattleState:awardExp()
   end
   local function applyShare(mon, split, announce)
     local playerId = self.game.save.player and self.game.save.player.id
-    local traded = mon.otId ~= nil and playerId ~= nil
-      and mon.otId ~= playerId or mon.traded == true and mon.otId == nil
+    local traded = mon.traded == true
+      or (mon.otId ~= nil and playerId ~= nil and mon.otId ~= playerId)
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, traded)

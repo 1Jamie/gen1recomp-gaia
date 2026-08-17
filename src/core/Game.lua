@@ -1233,6 +1233,7 @@ function Game:restoreSave(loaded, recovered, opts)
   self:applyOptions(loaded.options)
   -- saves from before OT/ID stamping: backfill with the player's (after
   -- the scrub, so every mon the stamp loop sees is known)
+  SaveData.repairTradedOtIds(loaded)
   local stamp = require("src.battle.BattleState").stampOT
   for _, mon in ipairs(loaded.party or {}) do stamp(loaded, mon) end
   for _, box in ipairs(loaded.boxes or {}) do

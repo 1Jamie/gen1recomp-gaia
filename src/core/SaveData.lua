@@ -1923,6 +1923,26 @@ function SaveData.applyPostGameHome(save, boot)
   return heal
 end
 
+-- 0.1.82-0.1.9x loads stamped the player's own id onto traded mons and saved
+-- it, which reads back as home-caught.  A caught mon can never carry
+-- traded=true, so clearing that pair is safe on every load.  #1461
+function SaveData.repairTradedOtIds(save)
+  local playerId = save and save.player and save.player.id
+  if playerId == nil then return 0 end
+  local fixed = 0
+  local function scrub(mon)
+    if mon and mon.traded == true and mon.otId == playerId then
+      mon.otId = nil
+      fixed = fixed + 1
+    end
+  end
+  for _, mon in ipairs(save.party or {}) do scrub(mon) end
+  for _, box in ipairs(save.boxes or {}) do
+    for _, mon in ipairs(box) do scrub(mon) end
+  end
+  return fixed
+end
+
 -- Softlocked 0.1.11 saves: still standing in HALL_OF_FAME after credits,
 -- with lastOutdoor on Indigo.  One-shot rescue on CONTINUE.
 function SaveData.needsPostGameRescue(save)

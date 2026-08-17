@@ -1868,7 +1868,11 @@ function Battle:useMove(attacker, defender, moveId)
   if status and (def.power or 0) == 0 then
     -- A refused primary status is a failed move (effect_commands.asm:3748,
     -- :6656); a refused secondary already animated and stays unmarked (:3752).
-    if Battle.AI_FAIL_STATUSES[status]
+    if self:statusRefusedByType(defender, def.type, status) then
+      self:markMissed()
+      self:emit({ kind = "message",
+        text = "It doesn't affect " .. self:monName(defender) .. "..." })
+    elseif Battle.AI_FAIL_STATUSES[status]
         and self:aiRandomFail(attacker, defender) then
       self:markMissed()
       self:emit({ kind = "message", text = "But it failed!" })
@@ -1880,7 +1884,8 @@ function Battle:useMove(attacker, defender, moveId)
       and record.status or nil
     -- engine/battle/effect_commands.asm:6325
     if secondary and (defender.hp or 0) > 0
-        and not self:safeguarded(defender) then
+        and not self:safeguarded(defender)
+        and not self:statusRefusedByType(defender, def.type, secondary) then
       local chance = def.effectChance or 0
       if chance > 0 and rand(self.random, 100) < chance then
         self:applyStatus(defender, secondary, attacker)
@@ -2941,6 +2946,27 @@ end
 
 -- `source` is the battler that inflicted it, carried only so
 -- battle.status_inflicted can name it the way Gen 1's does.
+-- BattleCommand_Paralyze and BattleCommand_Poison refuse on a zero matchup,
+-- and the poison pair also refuses a POISON-type target: effect_commands.asm
+-- :5788 (paralyze), :3671 (poison), :3646 / :4019 (the secondary arms).
+-- Sleep, confusion and stat changes are deliberately not gated.
+function Battle:statusRefusedByType(defender, moveType, status)
+  if not (status == "paralyze" or status == "poison" or status == "toxic") then
+    return false
+  end
+  local types = (self:speciesDef(defender) or {}).types or defender.types or {}
+  if moveType then
+    local matchups = self.data.type_chart and self.data.type_chart.matchups
+    if Damage.typeMultiplier(moveType, types, matchups) == 0 then return true end
+  end
+  if status == "poison" or status == "toxic" then
+    for _, t in ipairs(types) do
+      if t == "POISON" then return true end
+    end
+  end
+  return false
+end
+
 function Battle:applyStatus(mon, status, source)
   if (mon.hp or 0) <= 0 then return false end
   -- Confusion is SUBSTATUS_CONFUSED on the cart, not a status byte: it lives
@@ -3202,6 +3228,7 @@ end
 -- player's own.
 function Battle:isOutsider(mon)
   local playerId = self.save and self.save.player and self.save.player.id
+  if mon.traded == true then return true end
   if mon.otId == nil or playerId == nil then return false end
   return mon.otId ~= playerId
 end
