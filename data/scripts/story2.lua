@@ -733,7 +733,8 @@ local function museumClerk(game, ow, done, onDecline)
   local t = game.data.text or {}
   if game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET then
     game.stack:push(TextBox.new(game,
-      "Take your time,\nand enjoy it all!", done))
+      t._Museum1FScientist1TakePlentyOfTimeText
+        or "Take your time,\nand enjoy it all!", done))
     return
   end
   -- scripts/Museum1F.asm:72
@@ -751,10 +752,12 @@ local function museumClerk(game, ow, done, onDecline)
           { money = money }))
       elseif yes then
         game.stack:push(TextBox.new(game,
-          "You don't have\nenough money.", onDecline or done, { money = money }))
+          t._Museum1FScientist1DontHaveEnoughMoneyText
+            or "You don't have\nenough money.", onDecline or done, { money = money }))
       else
         game.stack:push(TextBox.new(game,
-          "Come again!", onDecline or done, { money = money }))
+          t._Museum1FScientist1ComeAgainText
+            or "Come again!", onDecline or done, { money = money }))
       end
     end }))
 end
