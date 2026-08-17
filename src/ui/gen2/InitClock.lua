@@ -60,10 +60,11 @@ InitClock.TEXT = TEXT
 -- same three and has always had them right.
 local MORN_HOUR, DAY_HOUR, NITE_HOUR = 4, 10, 18
 
--- data/text/day_of_week.asm order, which is wCurDay's own: SUNDAY is 0.
-local DAYS = {
-  "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY",
-}
+-- Clock.DAY_NAMES / Clock.weekdayName is the single translated home for this
+-- table: MainMenu's clock box and the Pokegear's clock card read the same
+-- weekday off the same save and must never disagree about what it is
+-- called.
+local DAYS = Clock.DAY_NAMES
 InitClock.DAYS = DAYS
 
 function InitClock:wantsFillScale() return true end
@@ -88,12 +89,15 @@ function InitClock.hourString(hour)
   local h = math.floor(hour or 0) % 24
   local display = h % 12
   if display == 0 then display = 12 end
-  local word = require("src.world.gen2.Palettes").clockDaytime(h)
+  -- Clock.daytimeLabel, not Palettes.clockDaytime: the printed word,
+  -- translated -- this string reaches the player as-is, unlike the internal
+  -- MORN/DAY/NITE key other palette code compares against.
+  local word = Clock.daytimeLabel(h)
   return ("%s %d"):format(word, display)
 end
 
 function InitClock.oclockString(hour)
-  return InitClock.hourString(hour) .. " o'clock"
+  return Strings("%s o'clock", InitClock.hourString(hour))
 end
 
 function InitClock.timeString(hour, minute)
@@ -187,7 +191,7 @@ function InitClock:question()
     return Strings(TEXT.whoaMinutes, self.minute)
   end
   if self.phase == "confirm-day" then
-    return Strings(TEXT.confirmDay, DAYS[self.day + 1] or "?")
+    return Strings(TEXT.confirmDay, Clock.weekdayName(self.day + 1) or "?")
   end
   if self.phase == "response" then
     return Strings(TEXT[InitClock.responseKey(self.hour)],
@@ -196,11 +200,15 @@ function InitClock:question()
   return ""
 end
 
+-- data/text/common_1.asm's "@MIN." suffix (DisplayMinutesWithMinString),
+-- separate from TEXT.whoaMinutes' own "%d min.?" confirmation line above.
+local MINUTES = Strings.source("%d min.")
+
 -- The value the picker box shows, or nil while a page is up with no picker.
 function InitClock:display()
   if self.phase == "hour" then return InitClock.oclockString(self.hour) end
-  if self.phase == "minute" then return ("%d min."):format(self.minute) end
-  if self.phase == "day" then return DAYS[self.day + 1] or "?" end
+  if self.phase == "minute" then return Strings(MINUTES, self.minute) end
+  if self.phase == "day" then return Clock.weekdayName(self.day + 1) or "?" end
   return nil
 end
 

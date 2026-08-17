@@ -223,19 +223,28 @@ scripts, battles, and transitions leave the party untouched.
 start at the player's current position. Both games expose `bicycle`, `fish`,
 `cut`, `surf`, `strength`, `flash`, `dig`, and `teleport`; Gold additionally
 exposes `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and the
-contextual `squirtbottle` key item. Fishing rows include the owned rods that
-are valid choices. The list is empty while the world is busy, and omits an
-action whenever its item, move, badge, terrain, or engine state forbids it.
+contextual `squirtbottle` key item. Red additionally exposes `softboiled` with
+eligible `sources`; each source contains its eligible `targets`. Fishing rows
+include the owned rods that are valid choices. The list is empty while the
+world is busy, and omits an action whenever its item, move, badge, terrain, or
+engine state forbids it.
 The optional second return is `"world is busy"` during transient input locks
 or `"no overworld"` before a playable world exists.
 
 Call `mod.world:useFieldAction(id, opts)` to perform a listed action through
 the active game's own field-item path. Fishing accepts `{ rod = "OLD_ROD" }`
-and chooses automatically when only one rod is available. Invalid, stale, and
-busy requests return `nil` plus a reason without changing game state. Mods do
-not need generation-specific badge, terrain, bike, fishing, or field-move
+and chooses automatically when only one rod is available. Red's `softboiled`
+accepts one-based `{ sourceSlot, targetSlot }` values copied from its action
+record. Invalid, stale, and busy requests return `nil` plus a reason without
+changing game state. Mods do not need generation-specific badge, terrain,
+bike, fishing, or field-move
 logic. Action lists are extensible; callers should render the records they
 understand and ignore unknown ids rather than assuming a fixed list length.
+
+Red exposes FLY separately because it requires a destination picker:
+`mod.world:canFly()` reports whether FLY is eligible at the current location,
+and `mod.world:flyTo(mapId)` accepts only a visited destination from the native
+Fly town list. Gold does not expose these two methods yet.
 
 ## Read-only battle snapshots
 
@@ -278,10 +287,16 @@ The shared Red, Blue, Yellow, and Gold intents are:
 - `{ kind = "move", slot = 1..4 }`
 - `{ kind = "back" }` while the move menu is active
 
+Red, Blue, and Yellow also expose their generation-specific choices:
+
+- `{ kind = "safari", action = "ball" }` (`bait`, `rock`, and `run` are the
+  other accepted actions)
+- `{ kind = "mimic", index = 1 }` using an entry's snapshot `index`
+
 Menu choices and moves use the same engine methods as the native controls;
 `party` and `item` open the native screens rather than exposing or duplicating
-their mutable logic. Tutorial, link, Safari, forced, stale, and covered battle
-states refuse these core intents. Use `mod.input` for ordinary text advance.
+their mutable logic. Tutorial, link, forced, stale, and covered battle states
+refuse core intents. Use `mod.input` for ordinary text advance.
 
 ## Rendering pipelines
 
@@ -654,11 +669,14 @@ the wrapper is visible during that same fixed step. The callback receives
 
 `input.pointer` delivers uncaptured gameplay pointer events -- touches and
 real mouse input alike. The callback receives `(next, game, ev)` where `ev`
-is `{ phase, source, id, x, y, dx, dy, pressure, button }`: `phase` is
+is `{ phase, source, id, x, y, gameX, gameY, insideGame, dx, dy, pressure,
+button }`: `phase` is
 `"pressed"`, `"moved"`, `"released"` or `"cancelled"`; `source` is `"touch"`
 or `"mouse"`; `id` is the LÖVE touch id or `"mouse"`; and the coordinates
-are LOVE window units, the same space `render.hud`'s viewport and the touch
-overlay lay out in. The on-screen touch controls keep first refusal: a
+`x` / `y` are LOVE window units, while `gameX` / `gameY` are local to the
+active game viewport and `insideGame` says whether the pointer is inside it.
+Without a custom viewport both coordinate pairs are identical. The on-screen
+touch controls keep first refusal: a
 pointer that begins on a virtual control belongs to the pad for its whole
 lifecycle and never reaches the hook, while one that begins outside stays
 visible even if it later crosses a control. A real mouse reaches the hook
@@ -691,6 +709,22 @@ composited and before touch controls draw. The window-space viewport contains
 and `dpiY`, so a tool can use the letterbox margins without drawing over the
 playfield or pushing an updating game state.
 
+`render.viewport` lets a layout mod reserve the window-space rectangle in which
+the game renders. It receives `(next, ctx)` with the full window's `width`,
+`height`, `pixelWidth`, `pixelHeight`, `dpiX`, `dpiY`, and `generation`, and
+returns `{ x, y, width, height }`. The engine clamps that rectangle to the
+window and makes game layout, safe-area calculations, and rendering use it as
+their display. Set `capture = true` to request a composition canvas even when
+the rectangle fills the window. With no subscriber, no canvas is allocated and
+the normal presentation path is unchanged.
+
+When a viewport is active, `render.window` receives `(next, game, ctx)` after
+the game frame has been captured. `ctx` contains its `canvas`, `x`, `y`,
+`width`, `height`, the full `windowWidth` / `windowHeight`, `dpiX`, `dpiY`, and
+`generation`. Calling `next(game, ctx)` draws the game at the requested origin;
+a wrapper may instead compose that canvas with its own UI. Touch controls remain
+full-size OS-window chrome and draw after this hook.
+
 `render.compose` wraps the whole-window composite in `Renderer:endFrame`. It
 receives `(next, renderer, ctx)`; returning `true` without calling `next` hands
 the mod full control of the window, while calling `next` runs the engine's
@@ -699,11 +733,24 @@ the finished `worldCanvas` and `uiCanvas` with their SGB `zones` / `worldZones`,
 `worldActive`, the frame metrics (`ww`, `wh`, `pw`, `ph`, `ox`, `oy`, `vpw`,
 `vph`, `scale`, `Sx`, `Sy`, `dpiX`, `dpiY`), `renderer:blitCanvas(...)` for a
 palette-correct blit of either canvas into an arbitrary screen rect, and the
-`secondScreen` bridge (`available()` / `push(imageData, w, h)` / `pollTouch()` /
-`setEnabled`) for driving a second physical display. `pollTouch()` returns the
-oldest queued event as `"action,x,y"` in submitted-frame coordinates, or `nil`.
+`secondScreen` bridge (`available()` / `detected()` / `push(...)` /
+`pollTouch()` / `setEnabled`) for driving a second physical display.
+`detected()` reports a connected target even while its output is being created;
+`available()` means it can accept a frame now. `push(imageData, w, h)` retains
+the original contract. Its optional `background` (`0xRRGGBB`) and `preference`
+arguments request an extended presentation; a preference ending in `:cover`
+fills and crops the target, while other values preserve the whole frame.
+Android also accepts `handheld` or `secondary` (with an optional `:cover`
+suffix) as routing hints; unsupported or unavailable targets fall back to the
+other connected display.
+`pollTouch()` returns the oldest queued event as `"action,x,y"` in submitted-frame
+coordinates, or `nil`.
 This is what lets a mod lay the two passes out as two stacked Game Boy screens,
 or push one onto a second screen, without the engine knowing the layout.
+On process-capable Windows, Linux and macOS hosts without a native display
+bridge, enabling this facade opens a second resizable app window instead. It
+uses the same `available`, `detected`, `push`, `pollTouch` and `setEnabled`
+contract, so a mod does not need a desktop-specific rendering path.
 
 `render.output_enabled` and `render.output` are the later, whole-window seam
 for mods that need the engine's normal composite rather than its separate

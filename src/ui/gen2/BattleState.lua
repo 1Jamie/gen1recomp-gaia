@@ -3024,8 +3024,10 @@ function BattleState:useItem(itemId)
     -- Everything else the pack can spend on a party mon runs the same
     -- item_effects.asm routine the field pack runs: the potion line and the
     -- drinks, the status cures and their berries, REVIVE / MAX REVIVE, and
-    -- the ETHER / ELIXER family.
-    local action = ItemEffects.partyAction(itemId)
+    -- the ETHER / ELIXER family.  Without the merged dataset this can only
+    -- ever see RECORDS, the module's own built-ins, the same gap
+    -- Game2:usePartyItem had for the field pack.
+    local action = ItemEffects.partyAction(itemId, self.game and self.game.data)
     if action then
       return self:useOnPartyMon(itemId, action)
     end

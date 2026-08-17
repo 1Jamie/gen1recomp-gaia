@@ -554,7 +554,7 @@ gains a field instead of the name gaining a prefix.
   passes `game`; positions 2-4 (mon, row, trigger) match.
 - *The frame (`src/core/Game2.lua`):* hooks `input.step`, `input.pointer`,
   `render.zones`, `render.compose`, `render.output_enabled`, `render.output`,
-  `render.letterbox`, `render.hud`. Each sits
+  `render.letterbox`, `render.hud`, `render.viewport`, `render.window`. Each sits
   at the same moment `src/core/Game.lua` and `src/render/Renderer.lua` raise it
   -- the logic tick before the pad is read, a pointer the touch overlay gets
   first refusal on, the palette zone list handed to the present pass, the

@@ -18,6 +18,7 @@ require("src.core.Logger").warn = function() end
 
 local Clock = require("src.core.gen2.Clock")
 local InitClock = require("src.ui.gen2.InitClock")
+local Strings = require("src.core.Strings")
 
 -- A stub input the screen drives off, the same shape Input:wasPressed has.
 local function fakeInput()
@@ -252,6 +253,68 @@ do
     local ok, err = pcall(function() screen:drawPanel() end)
     check(ok, ("phase %s draws (%s)"):format(phase, tostring(err)))
   end
+end
+
+-- Clock.DAY_NAMES / Clock.weekdayName / Clock.daytimeLabel: the single home
+-- InitClock, MainMenu and the Pokegear clock card all share, so a weekday
+-- cannot be named one way on one screen and another way on the next.
+do
+  eq(Clock.weekdayName(1), "SUNDAY", "1-based, SUNDAY first")
+  eq(Clock.weekdayName(6), "FRIDAY", "and the rest in wCurDay's order")
+  check(Clock.weekdayName(0) == nil, "day 0 is out of range")
+  check(Clock.weekdayName(8) == nil, "and so is day 8")
+
+  eq(Clock.daytimeLabel(4), "MORN", "daytimeLabel matches clockDaytime's word")
+  eq(Clock.daytimeLabel(10), "DAY", "for every hour band")
+  eq(Clock.daytimeLabel(20), "NITE", "including the wrap back to NITE")
+
+  local MainMenu = require("src.ui.gen2.MainMenu")
+  check(MainMenu.DAYS == Clock.DAY_NAMES,
+    "MainMenu reuses the same table InitClock and the Pokegear do")
+end
+
+-- ------------------------------------------------- a translation mod's turn
+--
+-- DAYS, the clockDaytime word and the "o'clock"/"min." suffixes used to
+-- bypass Strings entirely, so a translation mod's `strings` registry had no
+-- seam to catch them: the picker kept printing the English day name and
+-- "o'clock" no matter the catalog (reported from a real Gold build).
+do
+  Strings.load({
+    strings = {
+      SUNDAY = "DIMANCHE",
+      MORN = "MATIN",
+      ["%s o'clock"] = "%s heures",
+      ["%d min."] = "%d min",
+    },
+  })
+
+  local wheel = InitClock.new({ input = fakeInput() }, { mode = "day", save = {} })
+  eq(wheel:display(), "DIMANCHE", "a translated catalog reaches the day wheel")
+
+  eq(InitClock.hourString(4), "MATIN 4",
+    "and the clockDaytime word, through Clock.daytimeLabel")
+  eq(InitClock.oclockString(4), "MATIN 4 heures",
+    "and the o'clock suffix, template and all")
+
+  local minutePicker = InitClock.new({ input = fakeInput() }, { save = {} })
+  minutePicker.phase = "minute"
+  minutePicker.minute = 30
+  eq(minutePicker:display(), "30 min", "and the minutes picker's own suffix")
+
+  -- Palettes.clockDaytime itself must stay untranslated even with a catalog
+  -- loaded: FORCED_DAYTIME and the rest of Palettes.lua's own lookups
+  -- compare against its return value as an internal key, not display text.
+  local Palettes = require("src.world.gen2.Palettes")
+  eq(Palettes.clockDaytime(4), "MORN",
+    "the internal palette key is untouched by the loaded catalog")
+
+  -- Module state is process-global and tests/run_tests.lua runs every suite
+  -- in one process (see tests/mod_strings_tests.lua's own note): leaving the
+  -- catalog loaded would translate the day/hour of every suite after this
+  -- one.
+  Strings.load({})
+  check(not Strings.active(), "the catalog is unloaded for the suites after this one")
 end
 
 S.finish()

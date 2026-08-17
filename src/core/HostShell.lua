@@ -272,6 +272,38 @@ function HostShell.quote(s)
   return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
+-- Launch another instance of this packaged app without waiting for it.  The
+-- same path works on all process-capable desktop hosts; only the shell's
+-- background spelling differs.  Source checkouts include their game folder,
+-- while fused releases and AppImages already carry it in the executable.
+function HostShell.spawnSelfDetached(args)
+  if not require("src.core.Platform").canSpawnProcess() then return false end
+  local fs = love and love.filesystem
+  if not (fs and fs.getExecutablePath) then return false end
+  local executable = os.getenv("APPIMAGE") or fs.getExecutablePath()
+  if type(executable) ~= "string" or executable == "" then return false end
+
+  local argv = {}
+  local fused = fs.isFused and fs.isFused()
+  if not os.getenv("APPIMAGE") and not fused and fs.getSource then
+    argv[#argv + 1] = fs.getSource()
+  end
+  for _, value in ipairs(args or {}) do argv[#argv + 1] = tostring(value) end
+
+  local command = HostShell.quote(executable)
+  for _, value in ipairs(argv) do
+    command = command .. " " .. HostShell.quote(value)
+  end
+  local osName = love.system and love.system.getOS and love.system.getOS()
+  if osName == "Windows" then
+    command = 'start "" /b ' .. command .. " >NUL 2>&1"
+  else
+    command = HostShell.envPrefix() .. command .. " >/dev/null 2>&1 &"
+  end
+  local ok, _, code = os.execute(command)
+  return ok == true or ok == 0 or code == 0
+end
+
 -- MEMOISED per Lua state (so once per thread).  This used to spawn a whole
 -- `curl --version` process on every single fetch -- twice for a GET through
 -- the Android-bridge fallback -- which doubled the number of spawns the lock
@@ -420,9 +452,11 @@ end
 -- POST returning success/failure.  Strictly one-way: the response body is
 -- discarded, only the HTTP status class is surfaced (postLog callers never
 -- trust the reply).  curl --data-binary reads the payload from a pipe, so a
--- large body never lands in the command line; the Android bridge has no POST
--- transport, and httpPost reports that instead of half-working through
--- httpDownload (a GET round-trip to a POST endpoint would be a lie).
+-- large body never lands in the command line; where curl is absent (Android
+-- and the other bridge-only platforms) the POST rides the JNI bridge --
+-- love.system.httpPost, the dedicated POST arm added beside httpDownload --
+-- instead of half-working through httpDownload (a GET round-trip to a POST
+-- endpoint would be a lie).
 function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   if type(url) ~= "string" or url == "" then return nil, "missing url" end
   if type(body) ~= "string" then return nil, "missing body" end
@@ -497,6 +531,16 @@ function HostShell.httpPost(url, body, contentType, userAgent, maxTime)
   end
   if not haveBridge() then
     return nil, "no network transport on this platform"
+  end
+  -- The GET bridge has no POST; the dedicated love.system.httpPost arm
+  -- (GameActivity.httpPost) is the transport where curl is missing. A
+  -- build without it reports the same "no POST transport" a missing curl
+  -- would -- the old-APK skew path in the JNI bridge returns false.
+  if love.system and type(love.system.httpPost) == "function" then
+    local ok, sent = pcall(love.system.httpPost, url, body, contentType,
+                           userAgent)
+    if ok and sent then return true end
+    return nil, "log post rejected"
   end
   return nil, "no POST transport on this platform"
 end

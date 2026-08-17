@@ -95,6 +95,12 @@ function Gen.bindGoldData(data)
   end
 
   data.gen2Palettes = data.gen2Palettes or loadGen("palettes")
+  -- Namespaced AND differently shaped in Schemas.GEN2 (the cart's ordered
+  -- name lists, not Gen 1's rule table), same as palettes/icons below --
+  -- omitting it left mod.content.constants:get(...) reading an empty table
+  -- under a Gold save-editor boot, which is what misreads "generation" and
+  -- rejects every record a mod shapes off it.
+  data.gen2Constants = data.gen2Constants or loadGen("constants")
   data.gen2Icons = data.gen2Icons or loadGen("icons")
   data.gen2Pokedex = data.gen2Pokedex or loadGen("pokedex")
   data.gen2Landmarks = data.gen2Landmarks or loadGen("landmarks")

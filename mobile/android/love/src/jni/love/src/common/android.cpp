@@ -325,6 +325,55 @@ bool httpDownload(const char *url, const char *destPath, const char *userAgent, 
 	return result;
 }
 
+bool httpPost(const char *url, const char *body, int bodyLen, const char *contentType, const char *userAgent)
+{
+	if (url == nullptr || body == nullptr || bodyLen < 0)
+		return false;
+
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	// Same resolution rule as httpDownload: the activity's own class via
+	// SDL_AndroidGetActivity, never FindClass -- this bridge is called off
+	// the main thread (love.thread workers), whose class loader cannot see
+	// app classes.
+	jobject activityObj = (jobject) SDL_AndroidGetActivity();
+	if (activityObj == nullptr)
+		return false;
+	jclass activity = env->GetObjectClass(activityObj);
+	env->DeleteLocalRef(activityObj);
+
+	// Old APK / new liblove skew: report "no transport" the same way a
+	// missing curl does, instead of aborting on a missing method (#597).
+	jmethodID method = env->GetStaticMethodID(activity, "httpPost",
+		"(Ljava/lang/String;[BLjava/lang/String;Ljava/lang/String;)Z");
+	if (method == nullptr)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return false;
+	}
+
+	jstring jurl = env->NewStringUTF(url);
+	// raw bytes across the bridge: a log ring can carry arbitrary UTF-8,
+	// and a jstring would run it through modified UTF-8
+	jbyteArray jbody = env->NewByteArray(bodyLen);
+	if (jbody != nullptr)
+		env->SetByteArrayRegion(jbody, 0, bodyLen, (const jbyte*) body);
+	jstring jct = contentType != nullptr ? env->NewStringUTF(contentType) : nullptr;
+	jstring jua = userAgent != nullptr ? env->NewStringUTF(userAgent) : nullptr;
+
+	jboolean result = env->CallStaticBooleanMethod(activity, method, jurl, jbody, jct, jua);
+
+	env->DeleteLocalRef(jurl);
+	if (jbody != nullptr)
+		env->DeleteLocalRef(jbody);
+	if (jct != nullptr)
+		env->DeleteLocalRef(jct);
+	if (jua != nullptr)
+		env->DeleteLocalRef(jua);
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
 /*
  * TLS sockets. Same resolution rule as httpDownload above -- the activity's
  * own class, never FindClass -- and the same tolerance for an old APK: a
@@ -1178,6 +1227,68 @@ void love_android_secondary_enable(int on)
 	else
 		env->ExceptionClear();
 	env->DeleteLocalRef(activity);
+}
+
+extern "C" __attribute__((visibility("default")))
+void love_android_secondary_target(int target)
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity,
+		"setSecondaryDisplayTarget", "(I)V");
+	if (method)
+		env->CallStaticVoidMethod(activity, method, target);
+	else
+		env->ExceptionClear();
+	env->DeleteLocalRef(activity);
+}
+
+extern "C" __attribute__((visibility("default")))
+int love_android_secondary_detected()
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity,
+		"hasSecondaryDisplayCandidate", "()Z");
+	jboolean detected = JNI_FALSE;
+	if (method)
+		detected = env->CallStaticBooleanMethod(activity, method);
+	else
+		env->ExceptionClear();
+	env->DeleteLocalRef(activity);
+	return detected ? 1 : 0;
+}
+
+extern "C" __attribute__((visibility("default")))
+int love_android_present_secondary(const void *rgba, int width, int height,
+	unsigned int background, int cover)
+{
+	if (!rgba || width <= 0 || height <= 0)
+		return 0;
+	jlong size = (jlong) width * (jlong) height * 4;
+	if (size <= 0)
+		return 0;
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	jmethodID method = env->GetStaticMethodID(activity, "presentSecondaryFrame",
+		"(Ljava/nio/ByteBuffer;IIIZ)Z");
+	if (!method)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return 0;
+	}
+	jobject frame = env->NewDirectByteBuffer((void *) rgba, size);
+	if (!frame)
+	{
+		env->DeleteLocalRef(activity);
+		return 0;
+	}
+	jboolean shown = env->CallStaticBooleanMethod(activity, method, frame,
+		width, height, (jint) background, cover ? JNI_TRUE : JNI_FALSE);
+	env->DeleteLocalRef(frame);
+	env->DeleteLocalRef(activity);
+	return shown ? 1 : 0;
 }
 
 extern "C" __attribute__((visibility("default")))

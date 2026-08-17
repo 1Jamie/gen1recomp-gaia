@@ -9,6 +9,7 @@ local Collision = require("src.world.Collision")
 local Encounter = require("src.world.Encounter")
 local FieldDefaults = require("src.world.FieldDefaults")
 local GameVersion = require("src.core.GameVersion")
+local GameViewport = require("src.render.GameViewport")
 local Logger = require("src.core.Logger")
 local Map = require("src.world.Map")
 local MapLoader = require("src.world.MapLoader")
@@ -824,6 +825,23 @@ function OverworldState:useStrengthFieldMove(mon, onClose)
   end, { auto = { sound = function()
     return require("src.core.Sound").playCry(Game.data, mon.species)
   end } }))
+  return true
+end
+
+function OverworldState:useSoftboiledFieldMove(user, target)
+  local heal = user and user.stats and math.floor(user.stats.hp / 5) or 0
+  if not user or not user.stats or not target or not target.stats
+      or target == user or target.hp <= 0
+      or target.hp >= target.stats.hp or user.hp <= heal then
+    Game.stack:push(TextBox.new(Game, Strings("It won't have\nany effect.")))
+    return false
+  end
+  user.hp = user.hp - heal
+  target.hp = math.min(target.stats.hp, target.hp + heal)
+  require("src.core.Sound").play(Game.data, "Heal_HP")
+  local def = Game.data.pokemon[target.species]
+  Game.stack:push(TextBox.new(Game,
+    Strings("%s's HP\nwas restored!", target.nickname or def.name)))
   return true
 end
 
@@ -5131,7 +5149,7 @@ function OverworldState:drawWorld()
     -- point projects under the pipeline's own camera.  That is the direct
     -- analogue of what :billboard does for tilt, and it keeps exactly one
     -- copy of every effect: the closures above are the ones that run.
-    local pw, ph = love.graphics.getDimensions()
+    local pw, ph = GameViewport.dimensions()
     local pscale = Zoom.scale(Game.renderer:fitScale())
     local ctx = {
       state = self, cam = cam, vw = vw, vh = vh, bgY = bgY,

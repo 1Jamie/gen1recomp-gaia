@@ -2429,7 +2429,7 @@ Battle.MOVE_EFFECTS.EFFECT_LIGHT_SCREEN = function(self, attacker)
   if (side.lightScreen or 0) > 0 then return fail(self) end
   side.lightScreen = Battle.SCREEN_TURNS
   self:emit({ kind = "message",
-    text = self:monName(attacker) .. "'s SPCL.DEF rose!" })
+    text = Strings("%s's SPCL.DEF rose!", self:monName(attacker)) })
 end
 
 Battle.MOVE_EFFECTS.EFFECT_REFLECT = function(self, attacker)
@@ -2437,7 +2437,7 @@ Battle.MOVE_EFFECTS.EFFECT_REFLECT = function(self, attacker)
   if (side.reflect or 0) > 0 then return fail(self) end
   side.reflect = Battle.SCREEN_TURNS
   self:emit({ kind = "message",
-    text = self:monName(attacker) .. "'s DEFENSE rose!" })
+    text = Strings("%s's DEFENSE rose!", self:monName(attacker)) })
 end
 
 -- engine/battle/move_effects/safeguard.asm:1

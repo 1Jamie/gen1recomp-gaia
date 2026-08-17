@@ -112,7 +112,13 @@ function Mon.syncIdentity(mon, data)
   if mon.dvs then
     mon.gender = Mon.gender(def, mon.dvs,
       { species = mon.species, level = mon.level })
-    mon.shiny = Mon.isShiny(mon.dvs,
+    -- shiny is monotonic once true, the same as opts.shiny winning over
+    -- shiny.roll at Mon.new: a forced shiny (the scripted-shiny path, DVs
+    -- that do not themselves read as shiny) must not un-shiny the moment
+    -- this runs again, and it runs on every SummaryMenu open via
+    -- refreshStats.  A mon not already shiny still promotes normally if
+    -- its DVs justify it, e.g. after an edit.
+    mon.shiny = mon.shiny or Mon.isShiny(mon.dvs,
       { species = mon.species, def = def, level = mon.level })
     if mon.species == Unown.SPECIES then
       mon.unownLetter = Unown.letterFromDVs(mon.dvs)

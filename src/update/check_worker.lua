@@ -151,6 +151,28 @@ local function gatePasses(rel)
   return not (info.minShell and info.minShell > shell)
 end
 
+local function cacheNotes(ver, notes)
+  if not (ver and type(notes) == "string" and notes ~= "" and Json) then return end
+  if not (love and love.filesystem) then return end
+  pcall(function()
+    love.filesystem.createDirectory("updates")
+    local cachePath = "updates/notes_cache.json"
+    local existing = {}
+    if love.filesystem.getInfo and love.filesystem.getInfo(cachePath) then
+      local text = love.filesystem.read(cachePath)
+      if text then
+        local ok, doc = pcall(Json.decode, text)
+        if ok and type(doc) == "table" then existing = doc end
+      end
+    end
+    existing[ver] = notes
+    local ok, encoded = pcall(Json.encode, existing)
+    if ok and encoded then
+      love.filesystem.write(cachePath, encoded)
+    end
+  end)
+end
+
 -- ---------------------------------------------------------------------------
 -- check
 -- ---------------------------------------------------------------------------
@@ -177,6 +199,9 @@ local function doCheck()
     return
   end
   pending = rel
+  if rel.version and type(rel.notes) == "string" and rel.notes ~= "" then
+    cacheNotes(rel.version, rel.notes)
+  end
 
   -- Unstamped dev build: the working tree always looks "newer", so never
   -- pester the developer with an update (contract item, Check design).
