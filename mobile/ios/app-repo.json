@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.7",
+          "date": "2026-08-18",
+          "size": 13597177,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.7/gen1recomp++-0.2.7-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1005 (Android) Screen record mutes the game\n- #1291 Audio Crash\n- #1310 Incoming call crashes G1R\n- #1471 [Gold] #1117 still not fixed\n- #1528 Surfing Minigame doesn't play as intended\n- #1537 Shellder and Corsola missing from Rod encounter tables\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @castdrian"
+        },
+        {
           "version": "0.2.6",
           "date": "2026-08-18",
           "size": 13589036,
