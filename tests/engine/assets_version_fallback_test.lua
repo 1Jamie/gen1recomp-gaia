@@ -110,6 +110,18 @@ clearPath("yellow/" .. PNG)
 eq(love.filesystem.read(PNG), "blue-png-bytes",
   "overlay maps generated reads to blue/ for Blue")
 
+-- Gold data/generated: fused NX hides gold/maps.lua at the unprefixed path,
+-- which is the "Gold cache incomplete / maps.lua Does not exist" crash.
+GameVersion.set("gold")
+local MAPS = "data/generated/maps.lua"
+love.filesystem.write("gold/" .. MAPS, "return { NEW_BARK_TOWN = true }")
+local mapsChunk = love.filesystem.load(MAPS)
+eq(type(mapsChunk) == "function" and mapsChunk().NEW_BARK_TOWN or nil, true,
+  "wrapped filesystem.load resolves gold/data/generated/maps.lua")
+eq(love.filesystem.read(MAPS), "return { NEW_BARK_TOWN = true }",
+  "wrapped filesystem.read returns gold maps.lua bytes")
+clearPath("gold/" .. MAPS)
+
 -- Red has no prefix: nothing is rewritten
 GameVersion.set("red")
 clearPath("blue/" .. PNG)

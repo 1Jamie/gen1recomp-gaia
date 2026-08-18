@@ -120,11 +120,11 @@ local function visibleBaseState(stack)
 end
 
 local function loadGenerated(path)
-  local chunk = love.filesystem.load(path)
-  if not chunk then return nil end
-  local ok, data = pcall(chunk)
-  if ok then return data end
-  return nil
+  -- CacheFs.loadActive, not love.filesystem.load: Gold's cache lives under
+  -- gold/ and fused NX often cannot mount that tree onto data/generated/.
+  local CacheFs = require("src.import.CacheFs")
+  local data = CacheFs.loadActive(path)
+  return data
 end
 
 -- NewGame (engine/menus/intro_menu.asm) calls OakSpeech, and OakSpeech's first
