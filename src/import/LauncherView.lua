@@ -2017,6 +2017,23 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
   local gap = m.gap
   local cy = y
 
+  local title = Strings("Skins/Borders")
+  local bh = m.btnH
+  local importLabel = imp:_skinsImportButtonLabel()
+  local importW = Kit.textWidth("small", importLabel) + math.floor(24 * m.s)
+  if Kit.textWidth("button", title) + importW + math.floor(24 * m.s) > w then
+    importLabel = Strings("Import")
+    importW = Kit.textWidth("small", importLabel) + math.floor(20 * m.s)
+  end
+  local place = Layout.rightCluster(x, w, math.floor(6 * m.s))
+  btn(imp, place(importW), cy, importW, bh, "skins-import", importLabel, {
+    kind = "accent", font = "small",
+    action = function() imp:chooseSkin() end })
+  Kit.text("button", Kit.ellipsize("button", title,
+    math.max(0, w - importW - math.floor(12 * m.s))), x,
+    cy + math.floor((bh - Kit.textHeight("button")) / 2), PAL.heading)
+  cy = cy + bh + math.floor(8 * m.s)
+
   if imp._skinNotice then
     cy = cy + Kit.textWrapped("small", imp._skinNotice.text, x, cy, w,
       imp._skinNotice.ok and PAL.green or PAL.red, 2) + math.floor(8 * m.s)
@@ -2075,30 +2092,57 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
     cy = cy + rowH + math.floor(4 * m.s)
   end
 
-  skinRow("skin-none", nil, Strings("Built-in pad"),
-    Strings("The default on-screen buttons."), active == nil,
-    imp.onEditTouchControls and function()
-      imp.onEditTouchControls(imp.modScope or "red")
-    end or nil)
+  local entries = { false }
+  for _, entry in ipairs(skins) do entries[#entries + 1] = entry end
 
-  for _, entry in ipairs(skins) do
-    local bits = {}
-    bits[#bits + 1] = entry.source == "user" and Strings("installed")
-      or Strings("bundled")
-    if entry.controls > 0 then
-      bits[#bits + 1] = entry.controls .. " " .. Strings("buttons")
+  local TouchSkin = require("src.core.TouchSkin")
+  local hint = Strings(
+    "You can also drop a skin .zip on this window, or put a folder in %s/ of your save directory. RetroArch overlay .cfg files work as-is.",
+    TouchSkin.USER_ROOT)
+  local hintH = Kit.wrapHeight("small", hint, w, 3)
+  local importH = math.floor(10 * m.s) + hintH
+
+  local rowGap = math.floor(4 * m.s)
+  local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
+  local listTop = cy
+  local listH = availH - (cy - y) - importH
+  local perPage = Kit.rowsThatFit(listH, rowH, rowGap, 1, 20)
+  if #entries > perPage then
+    perPage = Kit.rowsThatFit(listH - pagerH - gap, rowH, rowGap, 1, 20)
+  end
+  local first, last, cur, pages = Kit.pageBounds(page(imp, "skins"),
+    #entries, perPage)
+  setPage(imp, "skins", cur)
+  setPage(imp, "skins",
+    Kit.wheelPage(x, listTop, w, listH, cur, #entries, perPage))
+
+  for i = first, last do
+    local entry = entries[i]
+    if not entry then
+      skinRow("skin-none", nil, Strings("Built-in pad"),
+        Strings("The default on-screen buttons."), active == nil,
+        imp.onEditTouchControls and function()
+          imp.onEditTouchControls(imp.modScope or "red")
+        end or nil)
     else
-      bits[#bits + 1] = Strings("bezel only")
+      local bits = {}
+      bits[#bits + 1] = entry.source == "user" and Strings("installed")
+        or Strings("bundled")
+      if entry.controls > 0 then
+        bits[#bits + 1] = entry.controls .. " " .. Strings("buttons")
+      else
+        bits[#bits + 1] = Strings("bezel only")
+      end
+      if entry.pages > 1 then
+        bits[#bits + 1] = entry.pages .. " " .. Strings("pages")
+      end
+      if entry.screen then bits[#bits + 1] = Strings("screen cutout") end
+      local configure = imp.onOpenSkinStudio and function()
+        imp.onOpenSkinStudio(imp.modScope or "red", entry.id)
+      end or nil
+      skinRow("skin-" .. entry.id, entry.id, entry.id,
+        table.concat(bits, "  \194\183  "), active == entry.id, configure)
     end
-    if entry.pages > 1 then
-      bits[#bits + 1] = entry.pages .. " " .. Strings("pages")
-    end
-    if entry.screen then bits[#bits + 1] = Strings("screen cutout") end
-    local configure = imp.onOpenSkinStudio and function()
-      imp.onOpenSkinStudio(imp.modScope or "red", entry.id)
-    end or nil
-    skinRow("skin-" .. entry.id, entry.id, entry.id,
-      table.concat(bits, "  \194\183  "), active == entry.id, configure)
   end
 
   if #skins == 0 then
@@ -2107,18 +2151,14 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
     cy = cy + math.floor(72 * m.s) + gap
   end
 
-  cy = cy + math.floor(6 * m.s)
-  local TouchSkin = require("src.core.TouchSkin")
-  Kit.caption(x, cy, Strings("IMPORT"))
-  cy = cy + Kit.textHeight("small") + math.floor(6 * m.s)
-  local boxH = math.floor(76 * m.s)
-  Kit.card(x, cy, w, boxH, "muted")
-  Kit.textWrapped("small", Strings(
-    "Drop a skin .zip on this window to install it, or put a folder in the skins folder of your save directory. RetroArch overlay .cfg files work as-is."),
-    x + math.floor(14 * m.s), cy + math.floor(12 * m.s),
-    w - math.floor(28 * m.s), PAL.muted, 3)
-  Kit.text("small", TouchSkin.USER_ROOT .. "/", x + math.floor(14 * m.s),
-    cy + boxH - Kit.textHeight("small") - math.floor(10 * m.s), PAL.faint)
+  if pages > 1 then
+    setPage(imp, "skins",
+      Kit.pager(x, cy, w, cur, #entries, perPage, "skins"))
+    cy = cy + pagerH + gap
+  end
+
+  cy = cy + math.floor(10 * m.s)
+  Kit.textWrapped("small", hint, x, cy, w, PAL.muted, 3)
 end
 
 local function buildFindPanel(imp, x, y, w, availH, m)

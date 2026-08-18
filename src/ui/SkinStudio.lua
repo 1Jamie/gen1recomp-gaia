@@ -4,6 +4,7 @@ local PAL = Theme.PAL
 local TouchSkin = require("src.core.TouchSkin")
 local TouchControls = require("src.core.TouchControls")
 local SaveData = require("src.core.SaveData")
+local FilePicker = require("src.core.FilePicker")
 
 local Studio = {}
 
@@ -214,12 +215,19 @@ function Studio.cycleImage(dir)
   markDirty()
 end
 
+function Studio.imageTargetLabel()
+  local target = Studio.imageTarget
+  if target == "bezel" or not Studio.selectedControl() then return "bezel" end
+  return target == "pressed" and "pressed art" or "idle art"
+end
+
 function Studio.assignImage(rel)
   local page, ctl = Studio.page(), Studio.selectedControl()
   local img = TouchSkin.resolveImage(Studio.skin.root, rel)
-  if ctl and Studio.imageTarget == "pressed" then
+  local target = Studio.imageTarget
+  if ctl and target == "pressed" then
     ctl.pressedImagePath, ctl.pressedImage = rel, img
-  elseif ctl and Studio.imageTarget == "idle" then
+  elseif ctl and target == "idle" then
     ctl.imagePath, ctl.image = rel, img
   elseif page then
     page.imagePath, page.image = rel, img
@@ -228,11 +236,69 @@ function Studio.assignImage(rel)
   Studio.dirty = true
 end
 
+local function commitSkinId()
+  local skin = Studio.skin
+  if not skin then return end
+  local id = (Studio.skinIdField or ""):gsub("[^%w_%-]", "")
+  if id == "" or id == skin.id then return end
+  TouchSkin.saveTo(skin, id)
+  Studio.available = TouchSkin.list()
+end
+
+function Studio.adoptImage(name, data, target)
+  if not Studio.skin then return false end
+  if target then Studio.imageTarget = target end
+  if not FilePicker.matches(name, FilePicker.IMAGE) then
+    Studio.status = "Pick a PNG or JPG."
+    return false
+  end
+  commitSkinId()
+  local rel, err = TouchSkin.importImage(Studio.skin, name, data)
+  if not rel then
+    Studio.status = "Import failed: " .. tostring(err)
+    return false
+  end
+  local where = Studio.imageTargetLabel()
+  Studio.assignImage(rel)
+  Studio.skinIdField = Studio.skin.id
+  Studio.status = "Imported " .. rel .. " as " .. where
+  if where == "bezel" and not Studio.canvas().lockViewport then
+    Studio.status = Studio.status
+      .. " -- use Detect screen from bezel to place the screen"
+  end
+  return true
+end
+
+function Studio.importImageFile(target)
+  if not Studio.skin then return end
+  target = target or Studio.imageTarget
+  Studio.imageTarget = target
+  if target ~= "bezel" and not Studio.selectedControl() then
+    Studio.status = "Select a control first, or import a bezel image."
+    return
+  end
+  if not FilePicker.available() then
+    Studio.status = "No file picker here -- drag a PNG onto the window instead."
+    return
+  end
+  local prompt = (target == "bezel") and "Choose a bezel image"
+    or "Choose a button image"
+  local path = FilePicker.open(prompt, FilePicker.IMAGE)
+  if not path then return end
+  local base = FilePicker.basename(path)
+  local data, err = FilePicker.read(path)
+  if not data then
+    Studio.status = "Could not read " .. base .. ": " .. tostring(err)
+    return
+  end
+  Studio.adoptImage(base, data, target)
+end
+
 function Studio.filedropped(file)
   if not Studio.skin then return end
   local path = (file.getFilename and file:getFilename()) or ""
-  local base = path:match("([^/\\]+)$") or path
-  if not base:lower():match("%.png$") and not base:lower():match("%.jpe?g$") then
+  local base = FilePicker.basename(path)
+  if not FilePicker.matches(base, FilePicker.IMAGE) then
     Studio.status = "Drop a PNG or JPG to use it as art."
     return
   end
@@ -246,17 +312,7 @@ function Studio.filedropped(file)
     Studio.status = "Could not read " .. base
     return
   end
-  local rel, err = TouchSkin.importImage(Studio.skin, base, data)
-  if not rel then
-    Studio.status = "Import failed: " .. tostring(err)
-    return
-  end
-  Studio.assignImage(rel)
-  local where = Studio.selectedControl()
-    and (Studio.imageTarget == "pressed" and "pressed art" or "idle art")
-    or "bezel"
-  Studio.status = "Imported " .. rel .. " as " .. where
-  Studio.skinIdField = Studio.skin.id
+  Studio.adoptImage(base, data)
 end
 
 function Studio.detectViewport()
@@ -617,9 +673,15 @@ local function inspectorBody(x, y, w)
 
   if page then
     local bezel = page.imagePath or "(none)"
-    if Kit.button(x, cy, w, rowH, "Bezel: " .. bezel, { id = "bezel" }) then
+    local pickW = 82 * Kit.scale
+    local cycleW = w - pickW - gap
+    if Kit.button(x, cy, cycleW, rowH, "Bezel: " .. bezel, { id = "bezel" }) then
       Studio.imageTarget = "bezel"
       Studio.cycleImage(1)
+    end
+    if Kit.button(x + cycleW + gap, cy, pickW, rowH, "Import",
+                  { id = "bezelpick" }) then
+      Studio.importImageFile("bezel")
     end
     cy = cy + rowH + gap
     local vpLabel = page.viewport and "Screen cutout: ON" or "Screen cutout: OFF"
@@ -701,16 +763,24 @@ local function inspectorBody(x, y, w)
   Kit.text("small", ("canvas %dx%d px"):format(canvas.w, canvas.h), x, cy, PAL.faint)
   cy = cy + Kit.textHeight("small") + gap
 
+  local pickW = 82 * Kit.scale
+  local artW = w - pickW - gap
   local idle = ctl.imagePath or "(none)"
-  if Kit.button(x, cy, w, rowH, "Idle art: " .. idle, { id = "img" }) then
+  if Kit.button(x, cy, artW, rowH, "Idle art: " .. idle, { id = "img" }) then
     Studio.imageTarget = "idle"
     Studio.cycleImage(1)
   end
+  if Kit.button(x + artW + gap, cy, pickW, rowH, "Import", { id = "imgpick" }) then
+    Studio.importImageFile("idle")
+  end
   cy = cy + rowH + gap
   local pressed = ctl.pressedImagePath or "(none)"
-  if Kit.button(x, cy, w, rowH, "Pressed art: " .. pressed, { id = "imgp" }) then
+  if Kit.button(x, cy, artW, rowH, "Pressed art: " .. pressed, { id = "imgp" }) then
     Studio.imageTarget = "pressed"
     Studio.cycleImage(1)
+  end
+  if Kit.button(x + artW + gap, cy, pickW, rowH, "Import", { id = "imgppick" }) then
+    Studio.importImageFile("pressed")
   end
   return cy + rowH
 end
@@ -883,6 +953,16 @@ end
 
 function Studio.wheelmoved(_, dy)
   Studio.wheel = dy
+end
+
+function Studio.focus()
+  Studio.drag = nil
+  Studio.clicked = false
+  if Studio.testing then TouchControls:reset() end
+end
+
+function Studio.visible()
+  Studio.focus()
 end
 
 function Studio.textinput(text)
