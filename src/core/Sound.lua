@@ -550,7 +550,9 @@ function Sound.playMove(data, anim)
   end
   -- audio/engine_2.asm:1537
   if superseded then
-    for old in pairs(superseded) do pcall(old.stop, old) end
+    for old in pairs(superseded) do
+      if old ~= src then pcall(old.stop, old) end
+    end
   end
   if src then
     played("move", name)
