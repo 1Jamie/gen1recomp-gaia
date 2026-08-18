@@ -354,7 +354,8 @@ request with real detail is one that can actually get built.
 - [Save editor](https://github.com/bryanthaboi/gen1recomp/wiki/Guide-Save-Editor)
 — edit party, boxes, items, events, and Pokédex flags outside the game.
 - `docs/architecture.md` — runtime details;
-`docs/behavior-porting-notes.md` — formula provenance.
+`docs/behavior-porting-notes.md` — formula provenance;
+`docs/link-security.md` — what link play defends against, and what it doesn't.
 
 
 
