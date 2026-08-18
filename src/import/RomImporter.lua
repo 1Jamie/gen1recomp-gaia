@@ -1089,6 +1089,39 @@ local function chooseZip()
   return nil
 end
 
+local function chooseSkinZip()
+  local prompt = shellSafe(Strings("Choose a skin .zip"))
+  local platform = love.system.getOS()
+  if platform == "OS X" then
+    return commandOutput(
+      ([[osascript -e 'POSIX path of (choose file with prompt "%s" of type {"zip"})' 2>/dev/null]])
+        :format(prompt))
+  elseif platform == "Windows" then
+    local script = table.concat({
+      "Add-Type -AssemblyName System.Windows.Forms;",
+      "$d=New-Object System.Windows.Forms.OpenFileDialog;",
+      "$d.Title='" .. prompt .. "';",
+      "$d.Filter='Skin archive (*.zip)|*.zip|All files (*.*)|*.*';",
+      "if($d.ShowDialog() -eq 'OK'){",
+      "$n=[IO.Path]::GetFileName($d.FileName) -replace '[^\\x20-\\x7E]','_';",
+      "$t=Join-Path $env:TEMP $n;",
+      "Copy-Item -LiteralPath $d.FileName -Destination $t -Force;",
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
+      "[Console]::Write($t)}",
+    })
+    return commandOutput(
+      'powershell -NoProfile -STA -Command "' .. script .. '"')
+  elseif platform == "Linux" then
+    local path = commandOutput(
+      ([[zenity --file-selection --title="%s" --file-filter="Skin archive | *.zip" 2>/dev/null]])
+        :format(prompt))
+    if path then return path end
+    return commandOutput(
+      [[kdialog --getopenfilename "$HOME" "*.zip|Skin archive" 2>/dev/null]])
+  end
+  return nil
+end
+
 -- Open a native picker for a raw .sav battery save (mirrors chooseZip's per-OS
 -- dialogs).  Returns the chosen absolute path or nil.  Android uses
 -- love.system.pickFile("sav") instead -- see RomImporter:chooseSaveImport.
@@ -1478,7 +1511,12 @@ function RomImporter:focus(f)
       self.pickerPendingModId = nil
       self.pickerPendingImportId = nil
     elseif pickError:find("picked_mod", 1, true) then
-      self.modNotice = { ok = false, text = text }
+      if self.pickerPendingKind == "skin" then
+        self.pickerPendingKind = nil
+        self._skinNotice = { ok = false, text = text }
+      else
+        self.modNotice = { ok = false, text = text }
+      end
     elseif pickError:find("picked_save", 1, true) then
       local version = self.androidPendingVersion or self:_savedropTarget()
       self.androidPendingVersion = nil
@@ -1504,6 +1542,13 @@ function RomImporter:focus(f)
   end
   local modName = findPendingMod(false, self.pickSkip)
   if modName then
+    if self.pickerPendingKind == "skin" then
+      self.pickerPendingKind = nil
+      self:_installSkinZip(modName)
+      consumePick(self, modName, "picked_mod.zip",
+        self._skinNotice and self._skinNotice.ok)
+      return
+    end
     self:_installMod(modName)
     consumePick(self, modName, "picked_mod.zip",
       self.modNotice and self.modNotice.ok)
@@ -2498,6 +2543,11 @@ function RomImporter:update(dt)
         if Platform.isUWP() and self.modNotice and self.modNotice.ok then
           os.remove(path)
         end
+      elseif kind == "skin" then
+        self:_installSkinZip(path)
+        if Platform.isUWP() and self._skinNotice and self._skinNotice.ok then
+          os.remove(path)
+        end
       elseif kind == "sav" then
         local target = version or self:_savedropTarget()
         self:_importSave(target, path)
@@ -2520,6 +2570,8 @@ function RomImporter:update(dt)
           self.pickerPendingModId, self.pickerPendingImportId = nil, nil
         elseif kind == "mod" then
           self.modNotice = { ok = false, text = errorText }
+        elseif kind == "skin" then
+          self._skinNotice = { ok = false, text = errorText }
         elseif kind == "sav" then
           self.saveNotice[version] = { ok = false, text = errorText }
         else
@@ -3047,13 +3099,27 @@ function RomImporter:_useSkin(id)
   }
 end
 
-function RomImporter:_installSkinZip(file)
+function RomImporter:_installSkinZip(source)
+  if self.workState == "working" then return end
+  self.tab = "skins"
   local TouchSkin = require("src.core.TouchSkin")
-  local name = file:getFilename() or ""
-  local data, readError = readDroppedFile(file)
+  local name, data, readError
+  if type(source) == "string" then
+    name = source
+    if not source:match("^/") and not source:match("^%a:[/\\]")
+        and not source:match("^[Ss][Dd][Mm][Cc]:") then
+      data = love.filesystem.read(source)
+    end
+    if not data then data, readError = readExternalPath(source) end
+    if not data then data = love.filesystem.read(source) end
+  else
+    name = source:getFilename() or ""
+    data, readError = readDroppedFile(source)
+  end
   if not data then
     self._skinNotice = { ok = false,
-      text = "Could not read the dropped file: " .. tostring(readError) }
+      text = "Could not read the skin archive: "
+        .. tostring(readError or name) }
     return
   end
   local id, err = TouchSkin.installArchive(name, data)
@@ -3063,6 +3129,51 @@ function RomImporter:_installSkinZip(file)
     return
   end
   self._skinNotice = { ok = true, text = "Imported " .. id }
+end
+
+function RomImporter:_skinsImportButtonLabel()
+  if self.isNX then return Strings("Scan again") end
+  return Strings("Import skin .zip")
+end
+
+function RomImporter:chooseSkin()
+  if self.workState == "working" then return end
+  if self.isNX then
+    local found = #self:_ensureSkins(true)
+    self._skinNotice = { ok = true, text = Strings(
+      "%d skins found. Copy a skin .zip into %s/ over MTP, then scan again.",
+      found, require("src.core.TouchSkin").USER_ROOT) }
+    return
+  end
+  if self.nativePicker and love.system.getPickedFile then
+    self.pickerPendingKind = "skin"
+    if not pickFile("mod") then
+      self.pickerPendingKind = nil
+      self._skinNotice = { ok = false, text = "Could not open the file picker." }
+    end
+    return
+  end
+  if self.android then
+    local name = findPendingMod(true, self.pickSkip)
+    if name then
+      self:_installSkinZip(name)
+      consumePick(self, name, "picked_mod.zip",
+        self._skinNotice and self._skinNotice.ok)
+      return
+    end
+    self.pickerPendingKind = "skin"
+    if not pickFile("mod") then
+      self.pickerPendingKind = nil
+      self._skinNotice = { ok = false,
+        text = "Could not open the file picker. Copy a skin .zip via USB." }
+    else
+      self.pickPending = true
+      self.pickTimer = 0
+    end
+    return
+  end
+  local path = chooseSkinZip()
+  if path then self:_installSkinZip(path) end
 end
 
 function RomImporter:_toggleFindSearchFocus()
