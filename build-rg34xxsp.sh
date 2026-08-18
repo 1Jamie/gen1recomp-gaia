@@ -193,6 +193,26 @@ get_controls
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
 GAMEDIR="$SHDIR/gen1recomp"
+# Anbernic stock keeps the launcher and the game folder side by side, so the
+# SHDIR-relative path above is correct there and is tried first.
+#
+# Other firmwares (muOS, and PortMaster's layout on several devices) keep
+# launcher scripts and port data in SEPARATE trees -- scripts under roms/ports,
+# data under ports -- so the sibling folder holds no game.
+#
+# Probe for the BINARY, not the directory: on a split layout this script has
+# usually already created "$SHDIR/gen1recomp/conf" and log.txt on an earlier
+# failed run (see mkdir/tee below), so an existence test matches a decoy of our
+# own making. Stock is unaffected -- its sibling holds the real binary and wins
+# on the first test.
+if [ ! -f "$GAMEDIR/bin/love.aarch64" ]; then
+  for candidate in "/$directory/ports/gen1recomp" \
+                   "/mnt/sdcard/ports/gen1recomp" \
+                   "/mnt/mmc/ports/gen1recomp" \
+                   "/roms/ports/gen1recomp"; do
+    if [ -f "$candidate/bin/love.aarch64" ]; then GAMEDIR="$candidate"; break; fi
+  done
+fi
 CONFDIR="$GAMEDIR/conf"
 mkdir -p "$CONFDIR"
 
