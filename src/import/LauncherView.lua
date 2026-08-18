@@ -630,6 +630,7 @@ end
 
 local function modStatusColor(status)
   if status == "ok" then return Strings("Ready"), PAL.green end
+  if status == "safe_mode" then return Strings("Safe mode"), PAL.yellow end
   if status == "needs_import" then return Strings("Import required"), PAL.yellow end
   if status == "conflict" then return Strings("Conflict"), PAL.red end
   -- not a fault: the mod is intact, this is simply not a game it is for
@@ -1704,10 +1705,11 @@ end
 
 -- One compact coloured checkbox for each game.  The cartridge colour carries
 -- the game identity even when the row is narrow.
-local function modGameCheckbox(x, y, size, checked, game, id)
-  local color = cartColor(game)
-  local focused = Kit.focusable(id, x, y, size, size)
-  local hot = focused or Kit.hover(x, y, size, size)
+local function modGameCheckbox(x, y, size, checked, game, id, enabled)
+  enabled = enabled ~= false
+  local color = enabled and cartColor(game) or PAL.steel
+  local focused = enabled and Kit.focusable(id, x, y, size, size)
+  local hot = enabled and (focused or Kit.hover(x, y, size, size))
   if love.graphics then
     Theme.fillRounded(x, y, size, size, PAL.bg, 1)
     if checked then
@@ -1719,12 +1721,13 @@ local function modGameCheckbox(x, y, size, checked, game, id)
         hot and Theme.A.focus or Theme.A.hairline, 1)
     end
   end
-  return Kit.press(x, y, size, size) or Kit._activateId == id
+  return enabled and (Kit.press(x, y, size, size) or Kit._activateId == id)
 end
 
 local function buildModsPanel(imp, x, y, w, availH, m)
   imp:_ensureMods()
   local ModUpdate = require("src.mods.ModUpdate")
+  local safeMode = imp.safeMode == true
   local mods = imp.mods or {}
   local gap = m.gap
   local cy = y
@@ -1756,9 +1759,11 @@ local function buildModsPanel(imp, x, y, w, availH, m)
         action = function() imp:chooseMod() end })
       btn(imp, place(disableW), cy, disableW, bh, "mods-disable-all", Strings("Disable all"), {
         kind = "warn", font = "small",
+        enabled = not safeMode,
         action = function() imp:_setAllMods(false) end })
       btn(imp, place(enableW), cy, enableW, bh, "mods-enable-all", Strings("Enable all"), {
         kind = "good", font = "small",
+        enabled = not safeMode,
         action = function() imp:_setAllMods(true) end })
       btn(imp, place(checkFullW), cy, checkFullW, bh, "mods-check-updates", Strings("Check for updates"), {
         font = "small",
@@ -1807,7 +1812,9 @@ local function buildModsPanel(imp, x, y, w, availH, m)
 
   -- notice line
   local noticeText, noticeCol
-  if imp.modNotice then
+  if safeMode then
+    noticeText, noticeCol = "Safe mode is on. All mods are disabled. Turn it off in Settings to change mod toggles.", PAL.yellow
+  elseif imp.modNotice then
     noticeText = imp.modNotice.text
     noticeCol = imp.modNotice.ok and PAL.green or PAL.red
   else
@@ -1932,7 +1939,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
       local togKey = "mod-toggle-" .. mod.id .. "-" .. game
       if modGameCheckbox(tx, gamesY, togH,
           mod.enabledByVersion and mod.enabledByVersion[game] == true,
-          game, togKey) then
+          game, togKey, not safeMode) then
         local version = game
         queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
         flipped = true
@@ -2925,6 +2932,7 @@ local function buildProfilesModal(imp, m)
         btn(imp, place(swBtnW), ry + math.floor(4 * m.s), swBtnW, rowH - math.floor(8 * m.s), "prof-sw-" .. i,
           Strings("Switch"), {
             kind = "good", font = "micro",
+            enabled = not imp.safeMode,
             action = function()
               LauncherMods.applyProfile(p.name, options)
               if imp._refreshMods then imp:_refreshMods() end
@@ -2951,8 +2959,10 @@ local function buildModHeaderActionsModal(imp, m)
   local btns = {
     { label = Strings("Mod profiles..."), action = function() imp._profilesPopup = true end },
     { label = Strings("Check for updates"), action = function() imp:_syncModUpdateInfo(true) end },
-    { label = Strings("Enable all mods"), kind = "good", action = function() imp:_setAllMods(true) end },
-    { label = Strings("Disable all mods"), kind = "warn", action = function() imp:_setAllMods(false) end },
+    { label = Strings("Enable all mods"), kind = "good", enabled = not imp.safeMode,
+      action = function() imp:_setAllMods(true) end },
+    { label = Strings("Disable all mods"), kind = "warn", enabled = not imp.safeMode,
+      action = function() imp:_setAllMods(false) end },
     { label = Strings("Sort mods..."), action = function() imp._sortPopup = "mods" end },
   }
   local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
@@ -2965,6 +2975,7 @@ local function buildModHeaderActionsModal(imp, m)
   for i, b in ipairs(btns) do
     btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modheadact-" .. i, b.label, {
       kind = b.kind or "ghost", font = "small",
+      enabled = b.enabled,
       action = function()
         imp._modHeaderActionsPopup = nil
         b.action()
@@ -3514,6 +3525,7 @@ end
 
 local function buildSettingsModal(imp, m)
   local model = imp._settings
+  local SaveData = require("src.core.SaveData")
   local pad = math.floor(18 * m.s)
   local w = math.floor(640 * m.s)
   local h = math.floor(math.min(m.H - 2 * m.pad, m.H * 0.9))
@@ -3603,6 +3615,8 @@ local function buildSettingsModal(imp, m)
         item.header)
     else
       local row = item.row
+      local rowEnabled = not row.safeModeBlocked
+        or not SaveData.isSafeMode(model.opts)
       local key = "set-" .. i
       Kit.card(px + pad, ry, pw - 2 * pad, rowH, "hairline")
       local ix = px + pad + math.floor(12 * m.s)
@@ -3632,6 +3646,7 @@ local function buildSettingsModal(imp, m)
           ctlY + (m.btnH - Kit.textHeight("small")) / 2, PAL.detail)
         btn(imp, rx - ew, ctlY, ew, m.btnH,
           key .. "-edit", Strings("Edit"), { kind = "accent", font = "small",
+            enabled = rowEnabled,
             action = function()
               imp._settingsText = { row = row, text = tostring(row.value() or ""),
                 maxLen = row.editText.maxLen }
@@ -3640,12 +3655,14 @@ local function buildSettingsModal(imp, m)
       elseif row.action then
         -- A plain action row (Reset rebinds, Touch controls): the whole right
         -- side is one button rather than a value ladder.
-        local aw = Kit.textWidth("small", row.actionLabel or Strings("Run"))
+        local actionLabel = type(row.actionLabel) == "function"
+          and row.actionLabel() or row.actionLabel or Strings("Run")
+        local aw = Kit.textWidth("small", actionLabel)
           + math.floor(24 * m.s)
         Kit.text("small", Kit.ellipsize("small", row.label,
           labelW or (inner - aw - math.floor(12 * m.s))), ix, labelY, PAL.text)
         btn(imp, rx - aw, ctlY, aw, m.btnH,
-          key .. "-act", row.actionLabel or Strings("Run"), {
+          key .. "-act", actionLabel, {
             kind = row.danger and "danger" or "ghost", font = "small",
             action = function()
               if row.action() ~= false then model.save() end
@@ -3661,12 +3678,14 @@ local function buildSettingsModal(imp, m)
           or valW
         btn(imp, rx - stepW, ctlY, stepW, m.btnH,
           key .. "-next", ">", { font = "small",
+            enabled = rowEnabled,
             action = function() if row.step and row.step(1) then model.save() end end })
         Kit.textCenter("small", Kit.ellipsize("small", tostring(row.value()), vw),
           rx - stepW - vw, ctlY + (m.btnH - Kit.textHeight("small")) / 2, vw,
           PAL.heading)
         btn(imp, rx - stepW - vw - stepW, ctlY, stepW,
           m.btnH, key .. "-prev", "<", { font = "small",
+            enabled = rowEnabled,
             action = function() if row.step and row.step(-1) then model.save() end end })
       end
     end
@@ -3823,6 +3842,7 @@ local function buildDepResolverModal(imp, m)
         local bw = Kit.textWidth("small", btnLabel) + math.floor(20 * m.s)
         btn(imp, place(bw), ly, bw, chipH, "dep-dis-" .. i, btnLabel, {
           kind = "warn", font = "small",
+          enabled = not imp.safeMode,
           action = function()
             local LauncherMods = require("src.mods.LauncherMods")
             LauncherMods.setEnabled(dep.id, false, imp.modScope)
