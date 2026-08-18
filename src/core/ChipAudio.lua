@@ -179,7 +179,7 @@ local function playMusicSync(data, header, allowLoops)
   currentMusic = { source = source, engine = engine, threaded = false,
                    started = true, finished = false }
   fillSync(MUSIC_FILL_INITIAL)
-  if not musicHeld then source:play() end
+  if not musicHeld then pcall(source.play, source) end
   return source
 end
 

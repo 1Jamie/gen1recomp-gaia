@@ -165,7 +165,7 @@ local function playPath(data, key, def, pitch, tempo, plain)
       reportBadDef("sfx", key, owner(data, "sfx", key), err)
       return nil
     end
-    s:setVolume(volumeFor(key))
+    pcall(s.setVolume, s, volumeFor(key))
     cache[key] = s
     src = s
   end
@@ -619,12 +619,12 @@ function Sound.playPikaCry(data, n)
     -- extractPikachuCries); widenMono re-decodes to 16-bit stereo so they
     -- stay off surround outputs (#626).  Fresh extracts are already stereo.
     s = widenMono(s, path)
-    s:setVolume(volumeFor(key))
+    pcall(s.setVolume, s, volumeFor(key))
     cache[key] = s
     src = s
   end
-  src:stop()
-  src:play()
+  pcall(src.stop, src)
+  pcall(src.play, src)
   played("cry", "PIKACHU_PCM_" .. n, "PIKACHU")
   return src
 end
@@ -659,12 +659,12 @@ function Sound.playCry(data, species, pikaClip)
         owner(data, "cries", species), err)
       return nil
     end
-    s:setVolume(volumeFor(key))
+    pcall(s.setVolume, s, volumeFor(key))
     cache[key] = s
     src = s
   end
-  src:stop()
-  src:play()
+  pcall(src.stop, src)
+  pcall(src.play, src)
   played("cry", species, species)
   return src
 end
@@ -734,12 +734,12 @@ function Sound.startLoop(data, name)
       reportBadDef("sfx", name, owner(data, "sfx", name), err or "no source")
       return
     end
-    s:setLooping(true)
-    s:setVolume(volumeFor(name))
+    pcall(s.setLooping, s, true)
+    pcall(s.setVolume, s, volumeFor(name))
     loopCache[name] = s
     src = s
   end
-  src:play()
+  pcall(src.play, src)
   looping[name] = src
 end
 
