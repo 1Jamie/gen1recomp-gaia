@@ -34,7 +34,7 @@ local SEP = package.config:sub(1, 1)
 
 -- Cache-relative paths are prefixed with this before every read/write, so a
 -- version's import lands under its GameVersion.cachePrefix (red/, blue/,
--- yellow/).  The launcher sets it per import / per readiness check; it stays
+-- yellow/, gold/).  The launcher sets it per import / per readiness check; it stays
 -- "" outside those flows.  Runtime *reads* (require / newImage) do NOT go
 -- through here -- CacheFs.mountVersion overlays the active version's subtree
 -- onto the un-prefixed paths instead.

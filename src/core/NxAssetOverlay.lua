@@ -3,8 +3,9 @@
 -- instead of teaching every call site about versioned caches, this module
 -- wraps EVERY read-side love entry point that accepts a filesystem path
 -- once at boot: any string path under assets/generated/ or data/generated/
--- that does not resolve falls back to the active version's prefixed copy
--- (yellow|blue|gold/... ).  Covering the whole read surface --
+-- prefers the active version's prefixed copy (yellow|blue|gold/...) when
+-- that file exists, so leftover unprefixed Red cache cannot shadow it.
+-- Covering the whole read surface --
 -- not just the loaders we happened to need -- is what keeps future states
 -- and mods inside the fallback without anyone updating this file.
 --
@@ -35,10 +36,13 @@ local NxAssetOverlay = {}
 
 local originals -- raw love functions, non-nil while installed
 
--- Resolve `path` to the versioned copy when the un-prefixed file is missing
--- and the active version (Blue/Yellow/Gold) carries it.  Returns nil when the
--- caller's path should be used untouched (non-generated path, the real
--- file exists, or no versioned copy).
+-- Resolve `path` to the active version's prefixed copy when that file
+-- exists (gold|yellow|blue|red/{assets,data}/generated/...).  The versioned
+-- tree wins over a leftover un-prefixed file so a pre-#899 Red root cache
+-- (assets/generated/font.png in the save dir) cannot shadow Gold/Blue/
+-- Yellow art that shares a name.  Returns nil when the caller's path
+-- should be used untouched (non-generated path, empty prefix, or no
+-- versioned copy).
 local function versioned(path)
   if type(path) ~= "string" then return nil end
   local generated = false
@@ -52,7 +56,6 @@ local function versioned(path)
   if not generated then return nil end
   local prefix = GameVersion.cachePrefix()
   if prefix == "" then return nil end
-  if originals.getInfo(path) then return nil end
   local candidate = prefix .. path
   if originals.getInfo(candidate) then return candidate end
   return nil
