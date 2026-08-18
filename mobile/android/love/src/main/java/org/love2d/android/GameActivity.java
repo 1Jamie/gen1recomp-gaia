@@ -53,6 +53,10 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.AudioAttributes;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -146,6 +150,18 @@ public class GameActivity extends SDLActivity {
     public int safeAreaRight = 0;
 
     private static native void nativeSetDefaultStreamValues(int sampleRate, int framesPerBurst);
+
+    private static native void nativeAudioFocusLost();
+
+    private static native void nativeAudioFocusGained();
+
+    private static native void nativeAudioDeviceChanged();
+
+    private AudioManager.OnAudioFocusChangeListener audioFocusListener = null;
+    private Object audioFocusRequest = null;
+    private Object audioDeviceCallback = null;
+    private boolean audioFocusHeld = false;
+    private boolean audioDeviceCallbackPrimed = false;
 
     /**
      * Native libraries required by an optional Android host extension.
@@ -368,6 +384,8 @@ public class GameActivity extends SDLActivity {
             vibrator.cancel();
         }
         unregisterSecondaryDisplayListener();
+        unregisterAudioDeviceCallback();
+        abandonAudioFocus();
         onHostDestroy();
         super.onDestroy();
     }
@@ -380,6 +398,8 @@ public class GameActivity extends SDLActivity {
         }
         unregisterSecondaryDisplayListener();
         teardownSecondaryDisplay();
+        unregisterAudioDeviceCallback();
+        abandonAudioFocus();
         onHostPause();
         super.onPause();
     }
@@ -388,6 +408,8 @@ public class GameActivity extends SDLActivity {
     public void onResume() {
         super.onResume();
         onHostResume();
+        requestGameAudioFocus();
+        registerAudioDeviceCallback();
         refreshDualScreenDisplayMode();
         if (secondaryEnabled) registerSecondaryDisplayListener();
         setupSecondaryDisplay();
@@ -1452,6 +1474,163 @@ public class GameActivity extends SDLActivity {
         }
 
         return freq;
+    }
+
+    private void requestGameAudioFocus() {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if (audioManager == null) {
+            return;
+        }
+
+        if (audioFocusListener == null) {
+            audioFocusListener = new AudioManager.OnAudioFocusChangeListener() {
+                @Override
+                public void onAudioFocusChange(int focusChange) {
+                    handleAudioFocusChange(focusChange);
+                }
+            };
+        }
+
+        int result;
+
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            result = requestGameAudioFocusModern(audioManager);
+        } else {
+            result = audioManager.requestAudioFocus(audioFocusListener,
+                AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+
+        audioFocusHeld = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+
+        if (!audioFocusHeld) {
+            Log.d("GameActivity", "audio focus request was not granted: " + result);
+        }
+    }
+
+    private int requestGameAudioFocusModern(AudioManager audioManager) {
+        if (audioFocusRequest == null) {
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attributes)
+                .setWillPauseWhenDucked(true)
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .build();
+        }
+
+        return audioManager.requestAudioFocus((AudioFocusRequest) audioFocusRequest);
+    }
+
+    private void abandonAudioFocus() {
+        if (!audioFocusHeld) {
+            return;
+        }
+
+        audioFocusHeld = false;
+
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if (audioManager == null) {
+            return;
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= 26 && audioFocusRequest != null) {
+            abandonAudioFocusModern(audioManager);
+        } else if (audioFocusListener != null) {
+            audioManager.abandonAudioFocus(audioFocusListener);
+        }
+    }
+
+    private void abandonAudioFocusModern(AudioManager audioManager) {
+        audioManager.abandonAudioFocusRequest((AudioFocusRequest) audioFocusRequest);
+    }
+
+    private void handleAudioFocusChange(int focusChange) {
+        try {
+            switch (focusChange) {
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    audioFocusHeld = false;
+                    nativeAudioFocusLost();
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                    nativeAudioFocusLost();
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:
+                case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:
+                    audioFocusHeld = true;
+                    nativeAudioFocusGained();
+                    break;
+                default:
+                    break;
+            }
+        } catch (UnsatisfiedLinkError e) {
+            Log.d("GameActivity", "audio focus change before liblove was ready", e);
+        }
+    }
+
+    private void registerAudioDeviceCallback() {
+        if (android.os.Build.VERSION.SDK_INT < 23 || audioDeviceCallback != null) {
+            return;
+        }
+
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if (audioManager == null) {
+            return;
+        }
+
+        audioDeviceCallbackPrimed = false;
+        audioDeviceCallback = createAudioDeviceCallback(audioManager);
+    }
+
+    private Object createAudioDeviceCallback(AudioManager audioManager) {
+        AudioDeviceCallback callback = new AudioDeviceCallback() {
+            @Override
+            public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+                if (!audioDeviceCallbackPrimed) {
+                    audioDeviceCallbackPrimed = true;
+                    return;
+                }
+                notifyAudioDeviceChanged();
+            }
+
+            @Override
+            public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+                audioDeviceCallbackPrimed = true;
+                notifyAudioDeviceChanged();
+            }
+        };
+
+        audioManager.registerAudioDeviceCallback(callback, new Handler(Looper.getMainLooper()));
+        return callback;
+    }
+
+    private void unregisterAudioDeviceCallback() {
+        if (android.os.Build.VERSION.SDK_INT < 23 || audioDeviceCallback == null) {
+            return;
+        }
+
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if (audioManager != null) {
+            audioManager.unregisterAudioDeviceCallback((AudioDeviceCallback) audioDeviceCallback);
+        }
+
+        audioDeviceCallback = null;
+        audioDeviceCallbackPrimed = false;
+    }
+
+    private void notifyAudioDeviceChanged() {
+        try {
+            nativeAudioDeviceChanged();
+        } catch (UnsatisfiedLinkError e) {
+            Log.d("GameActivity", "audio device change before liblove was ready", e);
+        }
     }
 
     public boolean isNativeLibsExtracted() {

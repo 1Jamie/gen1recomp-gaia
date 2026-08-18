@@ -808,6 +808,25 @@ function love.lowmemory()
   if Game then Game:onResume() end
 end
 
+love.handlers = love.handlers or {}
+
+function love.handlers.audiosuspend()
+  local ChipAudio = package.loaded["src.core.ChipAudio"]
+  if ChipAudio then pcall(ChipAudio.setSuspended, true) end
+end
+
+function love.handlers.audioreset()
+  local ChipAudio = package.loaded["src.core.ChipAudio"]
+  if ChipAudio then
+    pcall(ChipAudio.setSuspended, false)
+    pcall(ChipAudio.rebuildPlayback)
+  end
+  local Music = package.loaded["src.core.Music"]
+  if Music then pcall(Music.onDeviceReset) end
+  local Sound = package.loaded["src.core.Sound"]
+  if Sound then pcall(Sound.onDeviceReset) end
+end
+
 function love.touchpressed(id, x, y, dx, dy, pressure)
   if editorMode then
     -- iOS synthesizes mousepressed for the primary touch; forwarding here

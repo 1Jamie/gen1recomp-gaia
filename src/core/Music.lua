@@ -65,6 +65,8 @@ state = {
   fade = nil,         -- active volume-ramp fade-out (see Music.fadeOut)
   tempo = nil,        -- alternate-tempo override in force for `current`
   start = nil,
+  data = nil,
+  loop = nil,
   failed = {},        -- labels whose def could not be started; logged once
 }
 
@@ -319,6 +321,8 @@ function Music.play(data, song, loop, ctx)
   state.current = song
   state.tempo = tempo
   state.start = start
+  state.data = data
+  state.loop = loop
   if Runtime.wants("music.started") then
     Runtime.emit("music.started", {
       song = song, previous = previous, chip = isChip,
@@ -334,6 +338,7 @@ function Music.stop()
   require("src.core.ChipAudio").stopMusic()
   state.current, state.source, state.loopSource, state.fade = nil, nil, nil, nil
   state.tempo, state.start = nil, nil
+  state.data, state.loop = nil, nil
   state.chip = false
   state.pendingRestore = nil
   if previous and Runtime.wants("music.stopped") then
@@ -519,6 +524,24 @@ function Music.applyOptions(opts)
       applyFilter(src)
     end
   end
+end
+
+function Music.onDeviceReset()
+  if not love.audio then return end
+  if state.chip then
+    local src = require("src.core.ChipAudio").currentSource()
+    if not src then return end
+    state.source = src
+    applyVolume(src)
+    applyFilter(src)
+    return
+  end
+  local data, song = state.data, state.current
+  if not (data and song) then return end
+  local loop, tempo, start = state.loop, state.tempo, state.start
+  state.current = nil
+  Music.play(data, song, loop, { reason = "devicereset", selected = true,
+                                 tempo = tempo, start = start })
 end
 
 local function sourceStopped(src)

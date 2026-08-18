@@ -169,8 +169,8 @@ local function playPath(data, key, def, pitch, tempo, plain)
     cache[key] = s
     src = s
   end
-  src:stop()
-  src:play()
+  pcall(src.stop, src)
+  pcall(src.play, src)
   return src
 end
 
@@ -816,6 +816,10 @@ end
 -- the flush fan-out calls with no key, dropping everything, so an edited
 -- def is re-resolved on the next play (20 §2 cache contract, audio row)
 Assets.register(Sound.invalidate)
+
+function Sound.onDeviceReset()
+  Sound.invalidate()
+end
 
 -- re-apply persisted audio options (Game calls this on boot and after
 -- loading a save)
