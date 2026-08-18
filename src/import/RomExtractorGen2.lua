@@ -1927,7 +1927,9 @@ function RomExtractorGen2:extractTitle()
     trail = "assets/generated/title/trail.png",
     copyright = "assets/generated/title/copyright.png",
     copyrightSplash = "assets/generated/title/copyright_splash.png",
-    -- ScrollTitleScreenClouds: 1px left every 8 frames (Gold).
+    -- ScrollTitleScreenClouds: Gold decrements the cloud-band SCX every
+    -- 8 vblanks, so the strip slides 1px right.  Silver does the same
+    -- decrement every frame.
     cloudScrollEvery = 8,
     cloudY = 88,
   }
