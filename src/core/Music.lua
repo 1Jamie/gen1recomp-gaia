@@ -506,6 +506,12 @@ function Music.setFilterLevel(level)
   applyFilter(state.loopSource)
 end
 
+function Music.setPitch(pitch)
+  pitch = pitch or 1.0
+  if state.source then pcall(state.source.setPitch, state.source, pitch) end
+  if state.loopSource then pcall(state.loopSource.setPitch, state.loopSource, pitch) end
+end
+
 -- re-apply persisted audio options (Game calls this on boot and after
 -- loading a save)
 function Music.applyOptions(opts)
