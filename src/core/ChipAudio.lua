@@ -183,6 +183,9 @@ end
 -- ---------------------------------------------------------------------------
 
 local musicGen = 0
+-- bumps when SOUND flips so already-queued PCM (old pan) is dropped rather
+-- than playing out the ~6s stall-tolerance queue (#1471)
+local stereoEpoch = 0
 
 function ChipAudio.playMusic(data, header, allowLoops)
   if not ensureWorker() then
@@ -204,9 +207,11 @@ function ChipAudio.playMusic(data, header, allowLoops)
                allowLoops = allowLoops, audio = slimAudio(data),
                channelVolumes = ChipSynth.getChannelVolumes(),
                channelPitches = ChipSynth.getChannelPitches(),
-               stereo = ChipSynth.getStereo() })
+               stereo = ChipSynth.getStereo(),
+               stereoEpoch = stereoEpoch })
   currentMusic = { source = source, gen = gen, threaded = true,
-                   started = false, finished = false }
+                   started = false, finished = false,
+                   stereoEpoch = stereoEpoch }
   -- playback starts in update() once the first buffer arrives (~1 frame)
   return source
 end
@@ -236,6 +241,9 @@ local function updateThreaded()
     if not buf then break end
     if buf.gen ~= m.gen then
       -- stale buffer from a superseded song: drop it
+    elseif buf.stereoEpoch ~= nil and m.stereoEpoch ~= nil
+        and buf.stereoEpoch ~= m.stereoEpoch then
+      -- stale pan mix from before a live SOUND toggle (#1471)
     elseif buf.done then
       m.finished = true
     elseif buf.error then
@@ -354,9 +362,45 @@ function ChipAudio.shutdown()
   workerReady = false
 end
 
+function ChipAudio.currentSource()
+  return currentMusic and currentMusic.source
+end
+
 function ChipAudio.setStereo(enabled)
+  enabled = not not enabled
+  if ChipSynth.getStereo() == enabled then return end
   ChipSynth.setStereo(enabled)
-  pushChannelMix()
+  stereoEpoch = stereoEpoch + 1
+  local m = currentMusic
+  if m and m.engine then
+    ChipSynth.applyStereo(m.engine)
+  end
+  if workerReady and cmdCh then
+    cmdCh:push({ cmd = "channelMix",
+                 volumes = ChipSynth.getChannelVolumes(),
+                 pitches = ChipSynth.getChannelPitches(),
+                 stereo = enabled,
+                 stereoEpoch = stereoEpoch })
+  end
+  if not m then return end
+  pendingBuf = nil
+  if outCh then outCh:clear() end
+  m.stereoEpoch = stereoEpoch
+  -- QueueableSource cannot unqueue; swap so the ~6s stall-tolerance buffers
+  -- (mixed under the previous pan) do not have to play out first (#1471)
+  if not love.audio then return end
+  local ok, source = pcall(
+    love.audio.newQueueableSource, SAMPLE_RATE, 16, 2, MUSIC_BUFFER_COUNT)
+  if not ok or not source then return end
+  local old = m.source
+  m.source = source
+  m.started = false
+  if old then pcall(old.stop, old) end
+  if not m.threaded then
+    fillSync(MUSIC_FILL_INITIAL)
+    if not musicHeld then pcall(source.play, source) end
+    m.started = true
+  end
 end
 
 function ChipAudio.getStereo()

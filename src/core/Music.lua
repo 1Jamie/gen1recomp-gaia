@@ -507,7 +507,18 @@ function Music.applyOptions(opts)
   Music.setVolumeLevel(opts and opts.musicVol or 7)
   Music.setFilterLevel(opts and opts.musicFilter or 0)
   -- engine/menus/options_menu.asm SOUND row (wOptions STEREO bit)
-  require("src.core.ChipAudio").setStereo(opts and opts.sound == "STEREO")
+  local ChipAudio = require("src.core.ChipAudio")
+  ChipAudio.setStereo(opts and opts.sound == "STEREO")
+  -- setStereo may swap the queueable source so the new pan is not sitting
+  -- behind already-mixed buffers; re-bind so volume/filter follow (#1471)
+  if state.chip then
+    local src = ChipAudio.currentSource()
+    if src then
+      state.source = src
+      applyVolume(src)
+      applyFilter(src)
+    end
+  end
 end
 
 local function sourceStopped(src)
