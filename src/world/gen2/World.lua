@@ -396,11 +396,10 @@ local function givePokeMon(data, speciesIndex, level, itemIndex)
 end
 
 local function loadGenerated(path)
-  local chunk, err = love.filesystem.load(path)
-  if not chunk then return nil, err end
-  local ok, value = pcall(chunk)
-  if not ok then return nil, value end
-  return value
+  -- Same NX gold/ fallback Game2 uses. World:load is what surfaces
+  -- "Gold cache incomplete" when maps.lua is invisible at the unprefixed path.
+  local CacheFs = require("src.import.CacheFs")
+  return CacheFs.loadActive(path)
 end
 
 -- Paste the 9-tile roof sheet over atlas tiles $0a-$12.
