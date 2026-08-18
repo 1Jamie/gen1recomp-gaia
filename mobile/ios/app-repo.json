@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.4",
+          "date": "2026-08-18",
+          "size": 13582747,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.4/gen1recomp++-0.2.4-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1496 Investigate Security according to https://hdbreaker.github.io/blog/pokemon-gen1recomp-hate-cheat/\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.3",
           "date": "2026-08-18",
           "size": 13579254,
