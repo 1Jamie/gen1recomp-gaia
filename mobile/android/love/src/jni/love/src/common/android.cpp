@@ -45,6 +45,10 @@
 // own, which can name a different volume on merged / adopted-SD storage.
 #include "filesystem/Filesystem.h"
 
+#include "common/Module.h"
+#include "audio/Audio.h"
+#include "audio/openal/Audio.h"
+
 namespace love
 {
 namespace android
@@ -1318,6 +1322,72 @@ const char *love_android_poll_secondary_touch()
 	}
 	env->DeleteLocalRef(activity);
 	return event.empty() ? nullptr : event.c_str();
+}
+
+static love::audio::openal::Audio *love_android_openal_audio()
+{
+	love::audio::Audio *audio = love::Module::getInstance<love::audio::Audio>(love::Module::M_AUDIO);
+
+	if (audio == nullptr)
+		return nullptr;
+
+	const char *name = audio->getName();
+
+	if (name == nullptr || strcmp(name, "love.audio.openal") != 0)
+		return nullptr;
+
+	return (love::audio::openal::Audio *) audio;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_love2d_android_GameActivity_nativeAudioFocusLost(JNIEnv *env, jclass cls)
+{
+	(void) env;
+	(void) cls;
+
+	love::audio::openal::pushAudioSuspendEvent();
+
+	love::audio::openal::Audio *audio = love_android_openal_audio();
+
+	if (audio != nullptr)
+		audio->pauseContext();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_love2d_android_GameActivity_nativeAudioFocusGained(JNIEnv *env, jclass cls)
+{
+	(void) env;
+	(void) cls;
+
+	love::audio::openal::Audio *audio = love_android_openal_audio();
+
+	if (audio == nullptr)
+		return;
+
+	audio->resumeContext();
+
+	if (!audio->isDeviceConnected())
+		audio->reopenDevice();
+
+	love::audio::openal::pushAudioResetEvent();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_love2d_android_GameActivity_nativeAudioDeviceChanged(JNIEnv *env, jclass cls)
+{
+	(void) env;
+	(void) cls;
+
+	love::audio::openal::Audio *audio = love_android_openal_audio();
+
+	if (audio == nullptr)
+		return;
+
+	audio->pauseContext();
+	audio->reopenDevice();
+	audio->resumeContext();
+
+	love::audio::openal::pushAudioResetEvent();
 }
 
 #endif // LOVE_ANDROID

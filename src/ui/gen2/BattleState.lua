@@ -746,7 +746,8 @@ function BattleState:drawPic(mon, back)
   -- pokemon.sprite's ctx.trueColor, the same flag Gen 1's Sprites.path hands
   -- back to its own draw site.
   local function paint()
-    if colors and not trueColor and GbcPalette.available() then
+    if colors and not (trueColor and GbcPalette.mode == "gbc")
+       and GbcPalette.available() then
       GbcPalette.with(colors, body)
     else
       body()
