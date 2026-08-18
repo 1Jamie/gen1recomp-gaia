@@ -7900,8 +7900,10 @@ function World:borderWaterFrame(def, tileset)
     end
   end
   if not tile then return nil end
+  local fill = BorderFill.fillBlock(def)
+  if fill == false then return nil end
   local block = tileset.blocks
-    and tileset.blocks[BorderFill.blockFor(0, def.borderBlock) + 1]
+    and tileset.blocks[BorderFill.blockFor(0, fill) + 1]
   if not block then return nil end
   local found = false
   for i = 1, 16 do
@@ -7933,11 +7935,19 @@ function World:borderImageFor(mapId)
   if not def then return nil end
   local tileset = self.tilesets and self.tilesets[def.tileset]
   if not tileset then return nil end
+  -- VOID FILL black skips the tiled bake; drawGround paints a flat void.
+  local fill = BorderFill.fillBlock(def)
+  if fill == false then return nil end
+  local blockId = BorderFill.blockFor(0, fill)
   -- A border block made of water animates with the rest of the map, so this
-  -- frame's row joins the key: four bakes per map instead of one.
+  -- frame's row joins the key: four bakes per map instead of one.  The VOID
+  -- FILL mode is in the key so switching FADE/WATER/TREES does not keep a
+  -- stale bake (#1418).
   local waterFrame = self:borderWaterFrame(def, tileset)
   local cacheKey = BorderFill.cacheKey(mapId .. "|" .. tostring(daytime)
     .. "|" .. tostring(GbcPalette.mode) .. "|" .. tostring(flicker)
+    .. "|" .. tostring(BorderFill.voidFill or "fade")
+    .. "|" .. tostring(blockId)
     .. "|" .. tostring(waterFrame and waterFrame.row or 0))
   local cached = self.mapImages[cacheKey]
   if cached ~= nil then return cached or nil end
@@ -7949,7 +7959,7 @@ function World:borderImageFor(mapId)
     bgSet = Palettes.withCaveFlicker(bgSet, flicker or 1)
   end
   local ok, img = pcall(BorderFill.bake, atlas, tileset,
-    BorderFill.blockFor(0, def.borderBlock), bgSet, waterFrame)
+    blockId, bgSet, waterFrame)
   -- `false` rather than nil: a bake that cannot be made (a headless run with
   -- no canvas support) must not be retried once per frame forever.
   self.mapImages[cacheKey] = (ok and img) or false
@@ -9719,8 +9729,16 @@ function World:drawGround(s)
     else
       bw, bh = GameViewport.dimensions()
     end
-    BorderFill.draw(self, self:borderImageFor(self.map.id),
-      cam.x, cam.y, bw, bh, s, self.map.id)
+    if BorderFill.fillBlock(self.map.def) == false then
+      -- BLACK: World:draw clears to a brown letterbox, so the void itself
+      -- has to be an actual black sheet or the map sits on that colour.
+      G.setColor(0, 0, 0, 1)
+      G.rectangle("fill", 0, 0, bw, bh)
+      G.setColor(1, 1, 1, 1)
+    else
+      BorderFill.draw(self, self:borderImageFor(self.map.id),
+        cam.x, cam.y, bw, bh, s, BorderFill.fillKey(self.map.def))
+    end
   end
   for _, nb in ipairs(self.neighbors) do
     G.draw(nb.image,

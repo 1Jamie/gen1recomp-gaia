@@ -529,9 +529,9 @@ end
 -- Gold reads NONE of the rows above.  Its OPTION screen writes a different
 -- set of names, several of which collide with Gen 1's at a different TYPE
 -- (battleStyle "SHIFT" vs "shift", textSpeed a label vs a frame delay), and
--- its renderer has no battle layout, no SGB palette packs and no void fill --
--- so a gear opened on the Gold tab used to offer a dozen controls that did
--- nothing and hide the seven that the cart itself has.
+-- its renderer has no battle layout and no SGB palette packs -- so a gear
+-- opened on the Gold tab used to offer a dozen controls that did nothing
+-- and hide the seven that the cart itself has.
 --
 -- The block lives in options.lua under `gold`, which is exactly where
 -- src/core/gen2/Save.lua loadOptions reads it, so an edit here is live on the
@@ -613,6 +613,21 @@ local function gen2Rows(opts, hooks)
       function() return Tilt.levelLabel(opts.tilt or 0) end,
       function(dir)
         opts.tilt = wrapIndex((opts.tilt or 0) + dir, 4)
+        return true
+      end)
+  end
+
+  local okFill, BorderFill = pcall(require, "src.world.gen2.BorderFill")
+  if okFill and BorderFill.VOID_FILLS then
+    add(Strings("VOID FILL"),
+      function() return BorderFill.voidFillLabel(opts.voidFill) end,
+      function(dir)
+        local modes = BorderFill.VOID_FILLS
+        local cur, idx = opts.voidFill or "fade", 1
+        for i, m in ipairs(modes) do
+          if m == cur then idx = i break end
+        end
+        opts.voidFill = modes[wrapIndex(idx - 1 + dir, #modes) + 1]
         return true
       end)
   end

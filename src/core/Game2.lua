@@ -1968,6 +1968,7 @@ function Game2:applyOptions()
   })
   require("src.core.VideoMode").applyOptions(options)
   require("src.core.FrameCap").applyOptions(options)
+  require("src.world.gen2.BorderFill").applyOptions(options)
   local GBCFX = require("src.render.GBCFX")
   if GBCFX.applyOptions(options) and self.save then
     -- applyOptions returns true when it had to clear an unsupported level.
