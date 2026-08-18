@@ -136,6 +136,9 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- costs nothing on a current cache and is the difference between every
     -- trainer battle opening with a picture and opening with none.
     "assets/generated/battle/trainers/falkner.png",
+    -- BattleStart_TrainerHuds cannot draw its party rows from a cache made
+    -- before the four ball tiles were extracted (#1502).
+    "assets/generated/battle/hud/balls.png",
     "assets/generated/audio/programs.bin",
   },
 }
