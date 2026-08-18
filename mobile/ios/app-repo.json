@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.3",
+          "date": "2026-08-18",
+          "size": 13579254,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.3/gen1recomp++-0.2.3-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1497 skin studio needs a import file picker babyyyyyy\n\n## Contributors\n\n- @anxiousintrovert\n- @AverageConsumer\n- @bryanthaboi\n- @thibautbus"
+        },
+        {
           "version": "0.2.2",
           "date": "2026-08-18",
           "size": 13575387,
