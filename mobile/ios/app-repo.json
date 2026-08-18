@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.5",
+          "date": "2026-08-18",
+          "size": 13586158,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.5/gen1recomp++-0.2.5-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1390 switch and gold\n- #1503 Retroarch Skin Problem\n- #1508 Please check #1412 & #1414 again, we had a misunderstanding\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.4",
           "date": "2026-08-18",
           "size": 13582747,
