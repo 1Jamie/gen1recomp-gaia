@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.6",
+          "date": "2026-08-18",
+          "size": 13589036,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.6/gen1recomp++-0.2.6-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1393 [Launcher -> Mods] Only the pages that you manually clicked to are used for sorting\n- #1418 (Pokémon Gold) Framerate and void fill options missing\n- #1430 [Gold] Shop ui off because of a border\n- #1519 Poison damage after battle inconsistent\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.5",
           "date": "2026-08-18",
           "size": 13586158,
