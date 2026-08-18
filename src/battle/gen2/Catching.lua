@@ -305,6 +305,15 @@ function Catching.rate(opts)
   return math.min(255, rate), false
 end
 
+-- Exact stock catch probability for read-only previews.  A catch.rate hook
+-- may replace the roll entirely, so nil is safer than presenting a guess.
+function Catching.chance(opts)
+  if Runtime.wantsHook("catch.rate") then return nil end
+  local rate, guaranteed = Catching.rate(opts)
+  if guaranteed or rate >= 255 then return 100 end
+  return rate * 100 / 256
+end
+
 -- The status half of the rate, off the merged `statuses` record the same way
 -- src/battle/Catching.lua reads record.catchBonus on Gen 1.  Gold's records
 -- live on src/battle/gen2/Battle.lua (Battle.STATUSES) and carry BOTH numbers:
