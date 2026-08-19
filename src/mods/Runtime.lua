@@ -33,6 +33,8 @@ Runtime.currentMod = nil
 -- currentMod went back to nil (src/mods/Sandbox.lua)
 Runtime.modRequire = nil
 
+Runtime.safeMode = false
+
 function Runtime.install(events, hooks, errors)
   Runtime.events, Runtime.hooks = events, hooks
   Runtime.errors = errors

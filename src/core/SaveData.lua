@@ -300,6 +300,7 @@ function SaveData.defaultOptions()
     -- Native mod enablement is an installation option, not save-slot data.
     -- Missing entries mean enabled so newly installed mods work by default.
     mods = {},
+    safeMode = false,
     -- Mods the player forced past the target gate (Loader:_gateGeneration).
     -- modsGen2[id][version] = true, one answer per game; a bare `true` is the
     -- pre-per-game shape and means the Gen 2 games only (see modForced).
@@ -384,6 +385,16 @@ function SaveData.mergeOptions(loaded)
     opts.speed = nil
   end
   return opts
+end
+
+function SaveData.isSafeMode(options)
+  return type(options) == "table" and options.safeMode == true
+end
+
+function SaveData.setSafeMode(options, enabled)
+  if type(options) ~= "table" then return false end
+  options.safeMode = enabled == true
+  return options.safeMode
 end
 
 function SaveData.encode(data)

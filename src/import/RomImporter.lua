@@ -3625,6 +3625,10 @@ function RomImporter:_openSettings()
   -- The tab rides along: the editor persists the layout into that game's own
   -- option block, and Gold's is not the flat Gen 1 one (#1100).
   local hooks = {}
+  local version = self.tab
+  hooks.reportIssue = function(opts)
+    return self:_reportIssue(opts, version)
+  end
   if self.onEditTouchControls then
     local version = self.tab
     hooks.editTouchControls = function()
@@ -3642,11 +3646,13 @@ function RomImporter:_openSettings()
   -- The tab the gear was opened on decides the row set: Gold reads a
   -- different option block entirely, and offering it Gen 1's rows meant a
   -- dozen controls that changed nothing (see LauncherSettings.gen2Rows).
-  local version = self.tab
   local ok, model = pcall(function()
     return require("src.import.LauncherSettings").open(hooks, version)
   end)
-  if ok and model then self._settings = model end
+  if ok and model then
+    self._settings = model
+    self._settingsSafeModeAtOpen = require("src.core.SaveData").isSafeMode(model.opts)
+  end
 end
 
 -- Quit from the launcher's own X.  It goes through love.event.quit so main.lua's
@@ -3657,8 +3663,38 @@ function RomImporter:_quitApp()
 end
 
 function RomImporter:_closeSettings()
-  if self._settings then self._settings.save() end
+  local model = self._settings
+  if model then
+    model.save()
+    local safeMode = require("src.core.SaveData").isSafeMode(model.opts)
+    if safeMode ~= self._settingsSafeModeAtOpen then
+      self.mods = nil
+      self.safeMode = safeMode
+      self._modSortCache = nil
+      self._modInfoFetch = nil
+    end
+  end
   self._settings = nil
+  self._settingsSafeModeAtOpen = nil
+end
+
+function RomImporter:_reportIssue(options, version)
+  local ok, IssueReport = pcall(require, "src.core.IssueReport")
+  if not ok then
+    self.modNotice = { ok = false, text = "Could not prepare the issue report." }
+    return false
+  end
+  local opened, url, reason = IssueReport.open(options, {
+    version = version,
+    mods = self.mods,
+  })
+  if not opened then
+    self.modNotice = { ok = false, text = reason or "Could not open the issue report." }
+    return false
+  end
+  self._lastIssueReportURL = url
+  if reason then self.modNotice = { ok = true, text = reason } end
+  return true
 end
 
 function RomImporter:_commitSettingsText()
@@ -3998,6 +4034,8 @@ end
 -- so a still list costs nothing after the first paint.
 function RomImporter:_refreshMods()
   local LauncherMods = require("src.mods.LauncherMods")
+  local SaveData = require("src.core.SaveData")
+  self.safeMode = SaveData.isSafeMode(SaveData.loadOptions())
   -- Once per session, ahead of the first listing: pull in any mod the player
   -- unzipped beside the executable, which an ordinary (non-portable) install
   -- has no way to read.  It happens here rather than behind a button because
@@ -4137,6 +4175,10 @@ end
 -- so that game's checkbox and status chips reflect the new resolution.
 -- Enabling an experimental mod arms a confirmation for that same game.
 function RomImporter:_toggleMod(id, confirmed, version)
+  if self.safeMode then
+    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in Settings to change mods." }
+    return
+  end
   local LauncherMods = require("src.mods.LauncherMods")
   local cur, experimental = false, false
   for _, m in ipairs(self.mods or {}) do
@@ -4177,6 +4219,10 @@ end
 -- must not be the way around it.  Disabling needs no confirm -- it is the
 -- recovery action, and Delete is the only destructive one on this panel.
 function RomImporter:_setAllMods(want, confirmed)
+  if self.safeMode then
+    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in Settings to change mods." }
+    return
+  end
   local LauncherMods = require("src.mods.LauncherMods")
   local ids, experimental = {}, false
   for _, m in ipairs(self.mods or {}) do
