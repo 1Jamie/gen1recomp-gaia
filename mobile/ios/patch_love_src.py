@@ -515,6 +515,8 @@ def patch_audio_pool_gate():
         "\n"
         "\tprivate:\n"
         "\t\tstd::atomic<bool> poolPaused;\n"
+        "\t\tbool poolUpdating;\n"
+        "\t\tlove::thread::ConditionalRef poolCondition;\n"
         "\t};\n"
     )
     if header_original not in header:
@@ -534,6 +536,7 @@ def patch_audio_pool_gate():
         "\t: pool(pool)\n"
         "\t, finish(false)\n"
         "\t, poolPaused(false)\n"
+        "\t, poolUpdating(false)\n"
         "{\n"
     )
     if ctor_original not in text:
@@ -542,8 +545,24 @@ def patch_audio_pool_gate():
 
     loop_original = "\t\tpool->update();\n\t\tsleep(5);\n"
     loop_replacement = (
-        "\t\tif (!poolPaused.load(std::memory_order_acquire))\n"
+        "\t\tbool updatePool = false;\n"
+        "\t\t{\n"
+        "\t\t\tthread::Lock lock(mutex);\n"
+        "\t\t\tif (!poolPaused.load(std::memory_order_acquire))\n"
+        "\t\t\t{\n"
+        "\t\t\t\tpoolUpdating = true;\n"
+        "\t\t\t\tupdatePool = true;\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\n"
+        "\t\tif (updatePool)\n"
+        "\t\t{\n"
         "\t\t\tpool->update();\n"
+        "\n"
+        "\t\t\tthread::Lock lock(mutex);\n"
+        "\t\t\tpoolUpdating = false;\n"
+        "\t\t\tpoolCondition->broadcast();\n"
+        "\t\t}\n"
         "\n"
         "\t\tsleep(5);\n"
     )
@@ -567,7 +586,13 @@ def patch_audio_pool_gate():
         "\n"
         "void Audio::PoolThread::setPoolPaused(bool paused)\n"
         "{\n"
+        "\tthread::Lock lock(mutex);\n"
         "\tpoolPaused.store(paused, std::memory_order_release);\n"
+        "\tif (paused)\n"
+        "\t{\n"
+        "\t\twhile (poolUpdating)\n"
+        "\t\t\tpoolCondition->wait(mutex);\n"
+        "\t}\n"
         "}\n"
     )
     if finish_original not in text:
@@ -629,9 +654,44 @@ IOS_AUDIO_EVENT_HELPER = """static void gr_pushAudioEvent(const char *name)
 	msg->release();
 }
 
+static bool gr_routeRecoveryPending = false;
+static unsigned int gr_routeRecoveryAttempts = 0;
+
 """
 
 IOS_ROUTE_CHANGE_METHOD = """
+- (void)finishAudioRouteChange
+{
+	@synchronized (self)
+	{
+		NSError *err = nil;
+		if (![[AVAudioSession sharedInstance] setActive:YES error:&err])
+		{
+			NSLog(@"Error reactivating AVAudioSession: %@", [err localizedDescription]);
+			if (++gr_routeRecoveryAttempts < 8)
+			{
+				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+				               dispatch_get_main_queue(), ^{
+					[self finishAudioRouteChange];
+				});
+			}
+			else
+			{
+				gr_routeRecoveryPending = false;
+			}
+			return;
+		}
+
+		gr_routeRecoveryPending = false;
+		gr_routeRecoveryAttempts = 0;
+		auto resumed = love::Module::getInstance<love::audio::Audio>(love::Module::M_AUDIO);
+		if (!resumed)
+			return;
+		resumed->resumeContext();
+		gr_pushAudioEvent("audioreset");
+	}
+}
+
 - (void)audioSessionRouteChange:(NSNotification *)note
 {
 	@synchronized (self)
@@ -649,22 +709,24 @@ IOS_ROUTE_CHANGE_METHOD = """
 			return;
 		}
 
-		gr_pushAudioEvent("audiosuspend");
-		audio->pauseContext();
+		if (gr_routeRecoveryPending)
+			return;
+		gr_routeRecoveryPending = true;
+		gr_routeRecoveryAttempts = 0;
 
 		dispatch_async(dispatch_get_main_queue(), ^{
 			@synchronized (self)
 			{
-				NSError *err = nil;
-				if (![[AVAudioSession sharedInstance] setActive:YES error:&err])
-					NSLog(@"Error reactivating AVAudioSession: %@", [err localizedDescription]);
-
-				auto resumed = love::Module::getInstance<love::audio::Audio>(love::Module::M_AUDIO);
-				if (resumed)
-					resumed->resumeContext();
-
-				gr_pushAudioEvent("audioreset");
+				auto suspended = love::Module::getInstance<love::audio::Audio>(love::Module::M_AUDIO);
+				if (!suspended)
+				{
+					gr_routeRecoveryPending = false;
+					return;
+				}
+				gr_pushAudioEvent("audiosuspend");
+				suspended->pauseContext();
 			}
+			[self finishAudioRouteChange];
 		});
 	}
 }
@@ -693,8 +755,13 @@ def patch_ios_audio_route():
     listener_anchor = "@interface LoveAudioInterruptionListener : NSObject\n"
     if listener_anchor not in text:
         fail(f"audio listener interface not found in {IOS_MM}")
-    text = text.replace(listener_anchor,
-                        IOS_AUDIO_EVENT_HELPER + listener_anchor, 1)
+    listener_replacement = (
+        IOS_AUDIO_EVENT_HELPER
+        + listener_anchor
+        + "- (void)finishAudioRouteChange;\n"
+        + "@end\n"
+    )
+    text = text.replace(listener_anchor + "@end\n", listener_replacement, 1)
 
     interruption_original = (
         "\t\tNSNumber *type = note.userInfo[AVAudioSessionInterruptionTypeKey];\n"
