@@ -516,7 +516,17 @@ M.ROUTE_24 = {
           push(game, text(game)._Route24CooltrainerM1YouCouldBecomeATopLeaderText,
             done)
         else
-          ow:engageTrainer(npc, done)
+          -- scripts/Route24.asm:125
+          ow:engageTrainer(npc, function()
+            if ow:trainerDefeated(npc) then
+              -- scripts/Route24.asm:62
+              push(game,
+                text(game)._Route24CooltrainerM1YouCouldBecomeATopLeaderText,
+                done)
+            else
+              done()
+            end
+          end, text(game)._Route24CooltrainerM1DefeatedText, true)
         end
       end
       if not flags.EVENT_GOT_NUGGET then

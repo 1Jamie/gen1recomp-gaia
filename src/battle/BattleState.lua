@@ -1008,9 +1008,23 @@ end
 -- flickers the OBJ palette, DoBallTossSpecialEffects)
 function BattleState:animNext(name, isPlayer, shakes, ball)
   self.nextInsert = (self.nextInsert or 0) + 1
-  table.insert(self.queue, self.nextInsert,
-               { anim = name, attackerIsPlayer = isPlayer, shakes = shakes,
-                 ball = ball })
+  local row = { anim = name, attackerIsPlayer = isPlayer, shakes = shakes,
+                ball = ball }
+  table.insert(self.queue, self.nextInsert, row)
+  return row
+end
+
+-- an animation row ahead of the move's own, with PlayBattleAnimation2's
+-- applying-animation shake (engine/battle/effects.asm:1461-1471)
+function BattleState:animBeforeMove(name, isPlayer)
+  local at
+  for i, item in ipairs(self.queue) do
+    if item == self.moveAnimRow then at = i break end
+  end
+  self.nextInsert = (self.nextInsert or 0) + 1
+  table.insert(self.queue, at or self.nextInsert,
+               { anim = name, attackerIsPlayer = isPlayer, animDelayed = true,
+                 hit = { animType = isPlayer and 6 or 3 } })
 end
 
 -- insert an act right after the current queue item
@@ -1554,13 +1568,39 @@ end
 function BattleState:sendOutText(name)
   local e = self.enemy and self.enemy.mon
   local pct = 100
-  if e and e.hp > 0 and math.floor(e.stats.hp / 4) > 0 then
-    pct = math.floor(e.hp * 25 / math.floor(e.stats.hp / 4))
+  if e and e.hp > 0 then
+    -- the same routine stamps wLastSwitchInEnemyMonHP
+    -- (engine/battle/common_text.asm:105-110)
+    self.lastSwitchInEnemyHP = e.hp
+    if math.floor(e.stats.hp / 4) > 0 then
+      pct = math.floor(e.hp * 25 / math.floor(e.stats.hp / 4))
+    end
   end
   if pct >= 70 then return Strings("Go! %s!", name) end
   if pct >= 40 then return Strings("Do it! %s!", name) end
   if pct >= 10 then return Strings("Get'm! %s!", name) end
   return self:romText("_EnemysWeakText", "The enemy's weak!\nGet'm! %s!", name)
+end
+
+-- RetreatMon / PlayerMon2Text (engine/battle/common_text.asm:167-243): the
+-- adjective reads the enemy HP lost since this mon switched in
+function BattleState:withdrawText(name)
+  local e = self.enemy and self.enemy.mon
+  local drop = 0
+  if e and self.lastSwitchInEnemyHP and math.floor(e.stats.hp / 4) > 0 then
+    drop = math.floor((self.lastSwitchInEnemyHP - e.hp) * 25
+                      / math.floor(e.stats.hp / 4))
+  end
+  local word = ""
+  if drop <= 0 then
+    word = self:romText("_EnoughText", "enough!")
+  elseif drop >= 70 then
+    word = self:romText("_GoodText", "good!")
+  elseif drop >= 30 then
+    word = self:romText("_OKExclamationText", "OK!")
+  end
+  return self:romText("_PlayerMon2Text", "%s ", name) .. word
+         .. self:romText("_ComeBackText", "\nCome back!")
 end
 
 -- The cry a mon makes as it takes the field.  Yellow does not run its
@@ -1816,7 +1856,8 @@ function BattleState:enter()
       self.enemySendingOut = true
       self:slidePic("foe")
     end)
-    self:say(Strings("%s sent\nout %s!", foeName, self.enemy.name))
+    -- _TrainerSentOutText ends `done`, not `prompt` (data/text/text_2.asm:923)
+    self:sayAuto(Strings("%s sent\nout %s!", foeName, self.enemy.name))
     self:act(function()
       -- EnemySendOutFirstMon (core.asm:1421-1434): after the text the
       -- pic grows out of the ball (AnimateSendingOutMon), then the cry
@@ -1845,7 +1886,8 @@ function BattleState:enter()
       self.sendingOut = true
       self:slidePic("back")
     end)
-    self:say(self:sendOutText(self.player.name))
+    -- _GoText.._PlayerMon1Text carry no prompt (data/text/text_2.asm:1274-1294)
+    self:sayAuto(self:sendOutText(self.player.name))
     -- then the POOF plays and the mon appears with its cry
     -- (SendOutMon: message -> AnimateSendingOutMon -> PlayCry)
     self:queueSendOutAnim(true)
@@ -2659,22 +2701,28 @@ function BattleState:resolveSwitch(newMon)
   self.phase = "messages"
   self.afterQueue = "menu"
   self:act(function()
-    self:restoreMimicked(self.player) -- the battle copy leaves with it
-    local previous = self.player
-    self.player = makeBattler(self.data, newMon, true, self.game.save)
-    -- SendOutMon (core.asm:1761-1762): player's send-out clears the
-    -- foe's USING_TRAPPING_MOVE -- Wrap/Bind/etc. ends on any switch
-    clearTrapping(self.enemy)
-    self:syncSides()
-    Runtime.emit("battle.battler_switched", {
-      battle = self, side = self.sides[1], battler = self.player,
-      previous = previous,
-    })
-    self:markParticipant()
-    sendOutMonCursors(self)
-    self.sendingOut = true
-    self:sayNext(self:sendOutText(self.player.name))
-    self:queueSendOutAnim(false)
+    -- SwitchPlayerMon (core.asm:2419-2423): RetreatMon prints over the
+    -- outgoing pic and holds 50 frames before the mon is recalled
+    self:sayNextAuto(self:withdrawText(self.player.name),
+                     Timing.SWITCH_PLAYER_MON)
+    self:actNext(function()
+      self:restoreMimicked(self.player) -- the battle copy leaves with it
+      local previous = self.player
+      self.player = makeBattler(self.data, newMon, true, self.game.save)
+      -- SendOutMon (core.asm:1761-1762): player's send-out clears the
+      -- foe's USING_TRAPPING_MOVE -- Wrap/Bind/etc. ends on any switch
+      clearTrapping(self.enemy)
+      self:syncSides()
+      Runtime.emit("battle.battler_switched", {
+        battle = self, side = self.sides[1], battler = self.player,
+        previous = previous,
+      })
+      self:markParticipant()
+      sendOutMonCursors(self)
+      self.sendingOut = true
+      self:sayNextAuto(self:sendOutText(self.player.name))
+      self:queueSendOutAnim(false)
+    end)
   end)
   self:act(function()
     self:executeAction(self.enemy, self.player, self:enemyAction())
@@ -2703,7 +2751,12 @@ function BattleState:residualFor(b, opp)
   if b.residualDone then return end
   b.residualDone = true
   local msgs = Status.residual(b, opp, self)
+  local rec = Status.recordFor(self.data and self.data.statuses, b.mon.status)
   for _, m in ipairs(msgs) do self:sayNext(prefixEnemy(m, b)) end
+  -- engine/battle/core.asm:490-493
+  if rec and rec.residual then
+    self:animNext("BURN_PSN_ANIM", b.isPlayer)
+  end
   if b.leechSeeded and b.mon.hp > 0 then
     -- the drain plays the ABSORB animation from the healing side
     -- (core.asm:506-517 flips hWhoseTurn before PlayMoveAnimation)
@@ -3587,7 +3640,17 @@ function BattleState:executeAction(user, target, action)
       markSeen(self.game, self.enemy.mon.species)
       -- _AIBattleWithdrawText: "X with-/drew Y!"
       self:sayNext(Strings("%s with-\ndrew %s!", self.trainer.name, oldName))
-      self:sayNext(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+      -- EnemySendOut falls into EnemySendOutFirstMon: TrainerSentOutText,
+      -- then AnimateSendingOutMon and PlayCry (core.asm:1276-1434)
+      self.enemySendingOut = true
+      self:sayNextAuto(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+      self:actNext(function()
+        self.enemySendingOut = false
+        self:startGrowIn(self.enemy)
+        self:actNext(function()
+          self:waitSfxNext(self:playEntranceCry(self.enemy))
+        end)
+      end)
       return
     end
 
@@ -4277,6 +4340,9 @@ function BattleState:enemyMonFainted()
       self:act(function()
         local previous = self.enemy
         self.enemy = makeBattler(self.data, self.enemyParty[self.enemyIndex], false)
+        -- EnemySendOutFirstMon (core.asm:1359-1363): the fresh foe's HP is the
+        -- new wLastSwitchInEnemyMonHP baseline RetreatMon measures from
+        self.lastSwitchInEnemyHP = self.enemy.mon.hp
         -- EnemySendOutFirstMon (core.asm:1314-1315): clears player's trap
         clearTrapping(self.player)
         self:syncSides()
@@ -4296,7 +4362,7 @@ function BattleState:enemyMonFainted()
         -- (AnimateSendingOutMon) with the cry; no POOF -- that animation
         -- belongs to the player-side SendOutMon (core.asm:1757-1762)
         self.enemySendingOut = true
-        self:sayNext(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+        self:sayNextAuto(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
         self:actNext(function()
           self.enemySendingOut = false
           self:startGrowIn(self.enemy)
@@ -4309,34 +4375,41 @@ function BattleState:enemyMonFainted()
       self:act(function()
         local mon = shiftSwitchMon
         if not mon then return end
-        local previous = self.player
-        self.player = makeBattler(self.data, mon, true, self.game.save)
-        clearTrapping(self.enemy)
-        self:syncSides()
-        Runtime.emit("battle.battler_switched", {
-          battle = self, side = self.sides[1],
-          battler = self.player, previous = previous,
-        })
-        -- Taking the SHIFT offer ZEROES wPartyGainExpFlags and
-        -- wPartyFoughtCurrentEnemyFlags before jumping to SwitchPlayerMon
-        -- (EnemySendOutFirstMon tail, core.asm:1436-1443), and SwitchPlayerMon
-        -- then FLAG_SETs only the mon coming in (core.asm:2424-2433).  Without
-        -- the reset the mon that was out when the enemy fainted -- marked by
-        -- the send-out act above, which mirrors EnemySendOut's own re-flag
-        -- (core.asm:1276-1289) -- stayed a participant, so the exp divisor in
-        -- enemyMonFainted counted two mons and the switch-in earned half the
-        -- next KO (#275).  Voluntary switches (resolveSwitch) and post-faint
-        -- replacements (openReplacementMenu) must NOT do this: pokered's
-        -- party-menu SwitchPlayerMon keeps the outgoing mon flagged, which is
-        -- the deliberate exp-share, and a fainted mon is already dropped by
-        -- onFaint mirroring RemoveFaintedPlayerMon (core.asm:1002-1007).
-        self.participants = {}
-        self:markParticipant()
+        -- SwitchPlayerMon (core.asm:2419-2423): RetreatMon, the 50-frame
+        -- hold, then the recall and the send-out
         self.nextInsert = 0
-        sendOutMonCursors(self)
-        self.sendingOut = true
-        self:sayNext(self:sendOutText(self.player.name))
-        self:queueSendOutAnim(false)
+        self:sayNextAuto(self:withdrawText(self.player.name),
+                         Timing.SWITCH_PLAYER_MON)
+        self:actNext(function()
+          local previous = self.player
+          self.player = makeBattler(self.data, mon, true, self.game.save)
+          clearTrapping(self.enemy)
+          self:syncSides()
+          Runtime.emit("battle.battler_switched", {
+            battle = self, side = self.sides[1],
+            battler = self.player, previous = previous,
+          })
+          -- Taking the SHIFT offer ZEROES wPartyGainExpFlags and
+          -- wPartyFoughtCurrentEnemyFlags before jumping to SwitchPlayerMon
+          -- (EnemySendOutFirstMon tail, core.asm:1436-1443), and SwitchPlayerMon
+          -- then FLAG_SETs only the mon coming in (core.asm:2424-2433).  Without
+          -- the reset the mon that was out when the enemy fainted -- marked by
+          -- the send-out act above, which mirrors EnemySendOut's own re-flag
+          -- (core.asm:1276-1289) -- stayed a participant, so the exp divisor in
+          -- enemyMonFainted counted two mons and the switch-in earned half the
+          -- next KO (#275).  Voluntary switches (resolveSwitch) and post-faint
+          -- replacements (openReplacementMenu) must NOT do this: pokered's
+          -- party-menu SwitchPlayerMon keeps the outgoing mon flagged, which is
+          -- the deliberate exp-share, and a fainted mon is already dropped by
+          -- onFaint mirroring RemoveFaintedPlayerMon (core.asm:1002-1007).
+          self.participants = {}
+          self:markParticipant()
+          self.nextInsert = 0
+          sendOutMonCursors(self)
+          self.sendingOut = true
+          self:sayNextAuto(self:sendOutText(self.player.name))
+          self:queueSendOutAnim(false)
+        end)
       end)
       return
     end
@@ -4526,7 +4599,7 @@ function BattleState:openReplacementMenu()
         self.nextInsert = 0
         sendOutMonCursors(self)
         self.sendingOut = true
-        self:sayNext(self:sendOutText(self.player.name))
+        self:sayNextAuto(self:sendOutText(self.player.name))
         self:queueSendOutAnim(false)
       end,
     })

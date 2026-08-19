@@ -406,6 +406,15 @@ local function cartQuad(project, x, y, w, h, z)
   }
 end
 
+local function cartFacing(points)
+  local area = 0
+  for i = 1, #points do
+    local a, b = points[i], points[i % #points + 1]
+    area = area + a[1] * b[2] - b[1] * a[2]
+  end
+  return area > 0
+end
+
 local function cartPill(project, x, y, w, h, z, color, alpha)
   local points, radius = {}, h / 2
   for i = 0, 10 do
@@ -628,51 +637,64 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   local side = { math.floor(shell[1] * 0.54), math.floor(shell[2] * 0.54),
     math.floor(shell[3] * 0.54) }
 
-  cartPolygon(mainBack, side, 1)
-  cartPolygon(capBack, side, 1)
+  local frontFacing = cartFacing(mainFront)
+  if frontFacing then
+    cartPolygon(mainBack, side, 1)
+    cartPolygon(capBack, side, 1)
+  else
+    cartPolygon(mainFront, shell, 1)
+    cartPolygon(capFront, shell, 1)
+  end
   cartPolygon({ mainFront[2], mainFront[3], mainBack[3], mainBack[2] }, side, 1)
   cartPolygon({ mainFront[3], mainFront[4], mainBack[4], mainBack[3] }, side, 1)
   cartPolygon({ mainFront[1], mainFront[2], mainBack[2], mainBack[1] }, side, 1)
   cartPolygon({ capFront[2], capFront[3], capBack[3], capBack[2] }, side, 1)
   cartPolygon({ capFront[1], capFront[2], capBack[2], capBack[1] }, side, 1)
   cartPolygon({ capFront[4], capFront[1], capBack[1], capBack[4] }, side, 1)
-  cartPolygon(mainFront, shell, 1)
-  cartPolygon(capFront, shell, 1)
-
-  local faceZ = depth + 0.8
-  for i = 0, 4 do
-    local ry = mainTop + 7 + i * h * 0.025
-    cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
-    cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+  if frontFacing then
+    cartPolygon(mainFront, shell, 1)
+    cartPolygon(capFront, shell, 1)
+  else
+    cartPolygon(mainBack, side, 1)
+    cartPolygon(capBack, side, 1)
   end
-  local recessX, recessY = -w * 0.32, mainTop + h * 0.023
-  local recessW, recessH = w * 0.64, h * 0.24
-  cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
-  cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
-    recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
-  cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
-    recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
 
-  local labelX, labelY = -w * 0.33, -h * 0.20
-  local labelW, labelH = w * 0.66, h * 0.55
-  local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
-  cartPolygon(plate, side, 0.95)
-  local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
-  local label = cartridgeLabel(imp, version)
-  local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
-  if mesh then
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(mesh)
-  elseif label then
-    local artScale = math.min(labelW / label.width, labelH / label.height)
-    love.graphics.draw(label.image, labelPoints[1][1], labelPoints[1][2],
-      0, artScale, artScale)
+  if frontFacing then
+    local faceZ = depth + 0.8
+    for i = 0, 4 do
+      local ry = mainTop + 7 + i * h * 0.025
+      cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+      cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+    end
+    local recessX, recessY = -w * 0.32, mainTop + h * 0.023
+    local recessW, recessH = w * 0.64, h * 0.24
+    cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
+    cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
+      recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
+    cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
+      recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
+
+    local labelX, labelY = -w * 0.33, -h * 0.20
+    local labelW, labelH = w * 0.66, h * 0.55
+    local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
+    cartPolygon(plate, side, 0.95)
+    local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
+    local label = cartridgeLabel(imp, version)
+    local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
+    if mesh then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(mesh)
+    elseif label then
+      local artScale = math.min(labelW / label.width, labelH / label.height)
+      love.graphics.draw(label.image, labelPoints[1][1], labelPoints[1][2],
+        0, artScale, artScale)
+    end
+    cartPolygon({
+      { project(-w * 0.07, h * 0.37, faceZ + 1) },
+      { project(w * 0.07, h * 0.37, faceZ + 1) },
+      { project(0, h * 0.43, faceZ + 1) },
+    }, side, 0.70)
   end
-  cartPolygon({
-    { project(-w * 0.07, h * 0.37, faceZ + 1) },
-    { project(w * 0.07, h * 0.37, faceZ + 1) },
-    { project(0, h * 0.43, faceZ + 1) },
-  }, side, 0.70)
   love.graphics.pop()
 
   if not state.active and (Kit._activateId == key) then

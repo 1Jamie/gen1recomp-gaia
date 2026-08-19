@@ -581,6 +581,15 @@ MoveEffects.full = {
     end,
   },
   THRASH_PETAL_DANCE_EFFECT = {
+    -- ThrashPetalDanceEffect (effects.asm:791-808) runs before damage
+    -- (data/battle/special_effects.asm:22) and animates the setup turn
+    beforeAccuracy = function(ctx)
+      local user = ctx.user
+      if not user.thrashTurns then
+        ctx.battle:animBeforeMove(
+          user.isPlayer and "SHRINKING_SQUARE_ANIM" or "ANIM_B1", user.isPlayer)
+      end
+    end,
     afterDamage = function(ctx)
       local user = ctx.user
       if not user.thrashTurns then

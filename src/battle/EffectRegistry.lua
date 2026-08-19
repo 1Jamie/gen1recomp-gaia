@@ -92,6 +92,20 @@ local function hitCount(ctx, record)
   return dist[r + 1]
 end
 
+-- engine/battle/effects.asm:119-151 (poison), :194-255 (burn/freeze/paralyze)
+local FBP_SIDE_STATUS = { BRN = true, FRZ = true, PAR = true }
+
+local function secondaryStatusFx(battle, user, status)
+  if status == "PSN" then
+    local row = battle:animNext(user.isPlayer and "ENEMY_HUD_SHAKE_ANIM"
+                                or "SHAKE_SCREEN_ANIM", user.isPlayer)
+    row.animDelayed = true
+    row.hit = { animType = user.isPlayer and 6 or 3 }
+  elseif FBP_SIDE_STATUS[status] and user.isPlayer then
+    battle:animNext("ENEMY_HUD_SHAKE_ANIM", true).animDelayed = true
+  end
+end
+
 -- The damaging pipeline, extracted from the performMove monolith: every
 -- stage keeps the original's exact check order and rng consumption
 -- (invulnerability -> gate -> hit count -> pre-accuracy -> accuracy ->
@@ -318,7 +332,12 @@ function EffectRegistry.runDamaging(battle, ctx, record)
   -- secondary side effects (blocked by fainting)
   if record and record.run and record.kind ~= "primary"
      and target.mon.hp > 0 and totalDealt > 0 then
-    for _, m in ipairs(record.run(ctx)) do
+    local hadStatus = target.mon.status
+    local msgs = record.run(ctx)
+    if target.mon.status and target.mon.status ~= hadStatus then
+      secondaryStatusFx(battle, user, target.mon.status)
+    end
+    for _, m in ipairs(msgs) do
       battle:sayNext(m)
     end
   end

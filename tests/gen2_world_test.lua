@@ -2876,8 +2876,9 @@ check(selGame.save.registeredItem == nil,
 eq(selWorld:useSelectItem(), "not_registered",
   "SELECT with nothing registered answers not_registered")
 
--- The PACK side: SELECT on a highlighted row is RegisterItem, the one PACK
--- button this port left unbound.
+-- The PACK side: the item submenu's SEL row is RegisterItem's only door --
+-- the cart's SELECT is the bag's own item shuffle
+-- (engine/items/pack.asm:1290 Pack_InterpretJoypad .select).
 selGame.save.inventory.POTION = 3
 selGame.input = stubInput()
 local selPack = PackMenu.new(selGame, { pocket = "ITEM" })
@@ -2885,7 +2886,18 @@ selPack.index = 1
 check(selPack.rows[1].id == "POTION", "the ITEM pocket row under test")
 selGame.input:press("select")
 selPack:update(0)
-check(selPack.message ~= nil, "SELECT on a row opens RegisteredItemText")
+eq(selPack.switching, 1, "SELECT on a row arms the item shuffle")
+check(selGame.save.registeredItem == nil, "and registers nothing")
+selGame.input:press("b")
+selPack:update(0)
+check(selPack.switching == nil and selPack.message == nil,
+  "B backs out of the shuffle")
+selPack:openSubmenu()
+check(table.concat(selPack.submenu.rows, ","):find("sel", 1, true) ~= nil,
+  "the POTION submenu offers the SEL row")
+selPack:closeSubmenu()
+selPack:registerSelected()
+check(selPack.message ~= nil, "SEL opens RegisteredItemText")
 eq(selGame.save.registeredItem.id, "POTION",
   "and World:registerItem actually ran")
 selGame.input:press("a")
@@ -2897,7 +2909,9 @@ selPack.index = selPack:total()
 selGame.save.registeredItem = nil
 selGame.input:press("select")
 selPack:update(0)
-check(selPack.message == nil, "SELECT on CANCEL registers nothing")
+check(selPack.switching == nil and selPack.message == nil,
+  "SELECT on CANCEL arms nothing")
+selPack:registerSelected()
 check(selGame.save.registeredItem == nil, "and the slot stays empty")
 
 -- CantRegisterText: a TM/HM row refuses from the PACK too.
@@ -2906,9 +2920,8 @@ selPack:rebuild()
 local tmPack = PackMenu.new(selGame, { pocket = "TM_HM" })
 tmPack.index = 1
 check(tmPack.rows[1].id == "HM_CUT", "the TM/HM pocket row under test")
-selGame.input:press("select")
-tmPack:update(0)
-check(tmPack.message ~= nil, "SELECT on the HM still opens a message")
+tmPack:registerSelected()
+check(tmPack.message ~= nil, "SEL on the HM still opens a message")
 check(selGame.save.registeredItem == nil,
   "CantRegisterText: the HM never becomes the registered item")
 end
