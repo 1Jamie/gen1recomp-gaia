@@ -364,6 +364,31 @@ eq(bx, 0, "delta page box x") eq(by, 0, "delta page box y")
 eq(bw, 1000, "delta page box fills the width")
 eq(bh, 500, "delta page box fills the height")
 
+local DECK_JSON = [[
+{ "name": "Deck", "gameTypeIdentifier": "com.rileytestut.delta.game.gbc",
+  "representations": { "iphone": { "standard": { "portrait": {
+    "assets": { "large": "deck.png" },
+    "mappingSize": {"width":320,"height":240},
+    "items": [ { "inputs": ["a"], "frame": {"x":240,"y":60,"width":64,"height":64} } ]
+  } } } } }
+]]
+local deck = assert(DeltaSkin.parse(DECK_JSON))
+local deckPage = deck.pages[1]
+check(deckPage.aspectFromCfg, "a portrait deck without screens keeps mapping aspect")
+eq(deckPage.anchor, "bottom", "and sits at the bottom of the window")
+eq(deckPage.screenFit, "remainder", "with the leftover given to the GB picture")
+eq(deckPage.viewport, nil, "no screens[] means no baked cutout")
+local dbx, dby, dbw, dbh = TouchSkin.pageBox(deckPage, 1080, 1920)
+eq(dbx, 0, "deck overlay is full width")
+eq(dbw, 1080, "deck overlay width")
+near(dbh, 1080 * 240 / 320, "deck overlay height is mapping aspect")
+near(dby, 1920 - dbh, "pinned to the bottom, not stretched")
+local vx, vy, vw, vh = TouchSkin.pageViewport(deckPage, 1080, 1920)
+eq(vx, 0, "screen leftover x") eq(vy, 0, "screen leftover y")
+eq(vw, 1080, "screen leftover is full width")
+near(vh, dby, "and fills everything above the overlay")
+check(vh > dbh, "there is more room for the picture than for the pad")
+
 local LEGACY_SCREEN = [[
 { "gameTypeIdentifier": "public.aoshuang.game.gbc",
   "representations": { "iphone": { "standard": { "landscape": {
@@ -419,6 +444,8 @@ local PDF_JSON = [[
 ]]
 local pdf = assert(DeltaSkin.parse(PDF_JSON))
 eq(pdf.pages[1].imagePath, nil, "a PDF asset is not pretended to be art")
+eq(pdf.pages[1].pdfPath, "iphone_portrait.pdf",
+   "but the PDF path is kept so load can extract a JPEG from it")
 local convert = DeltaSkin.needsConversion(pdf)
 check(convert ~= nil, "PDF-only skins report that they need conversion")
 if convert then
@@ -470,6 +497,55 @@ check(tostring(vectorErr):find("PDF artwork", 1, true) ~= nil,
       "with the message that asks for a PNG version")
 eq(love.filesystem.read("skins/vector.deltaskin"), nil,
    "and the refused archive is not left behind")
+
+local PdfImage = require("src.core.PdfImage")
+local function unhex(s)
+  return (s:gsub("..", function(cc)
+    return string.char(tonumber(cc, 16))
+  end))
+end
+-- 1x1 JFIF JPEG, so extract tests do not need a file on disk.
+local TINY_JPEG = unhex(
+  "ffd8ffe000104a46494600010100000100010000ffdb0043000806060706050807070709" ..
+  "09080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c283729" ..
+  "2c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc400140001" ..
+  "0000000000000000000000000000000008ffc40014100100000000000000000000000000" ..
+  "00000000ffda0008010100003f007f3fffd9")
+local function jpegPdf(jpeg, w, h)
+  return "%PDF-1.7\n3 0 obj\n<< /Type /XObject /Subtype /Image /Width "
+    .. tostring(w) .. " /Height " .. tostring(h)
+    .. " /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /DCTDecode /Length "
+    .. tostring(#jpeg) .. " >>\nstream\n" .. jpeg .. "\nendstream\nendobj\n%%EOF\n"
+end
+local extracted = assert(PdfImage.extract(jpegPdf(TINY_JPEG, 1, 1)))
+eq(extracted.ext, "jpg", "a JPEG-in-PDF yields a jpg")
+eq(extracted.data, TINY_JPEG, "and the JPEG body is recovered byte for byte")
+eq(extracted.width, 1, "width comes from the Image XObject")
+eq(extracted.height, 1, "and so does height")
+
+local indirect = "%PDF-1.7\n3 0 obj\n<< /Type /XObject /Subtype /Image /Width 1"
+  .. " /Height 1 /Filter /DCTDecode /Length 5 0 R >>\nstream\n" .. TINY_JPEG
+  .. "\nendstream\nendobj\n5 0 obj\n" .. tostring(#TINY_JPEG) .. "\nendobj\n%%EOF\n"
+local fromRef = assert(PdfImage.extract(indirect))
+eq(fromRef.data, TINY_JPEG,
+   "an indirect /Length (the 3-Heights Image-to-PDF layout) still extracts")
+
+eq(select(1, PdfImage.extract("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n")),
+   nil, "a vector PDF with no image is not pretended to be art")
+eq(select(1, PdfImage.extract("not a pdf")), nil, "and neither is garbage")
+
+love.filesystem.write("skins/pikapdf.deltaskin/info.json", PDF_JSON)
+love.filesystem.write("skins/pikapdf.deltaskin/iphone_portrait.pdf",
+                      jpegPdf(TINY_JPEG, 1, 1))
+local pikaId, pikaErr = TouchSkin.installArchive("pikapdf.deltaskin", "PK\3\4stub")
+eq(pikaId, "pikapdf", "a Delta skin whose PDF wraps a JPEG installs: "
+  .. tostring(pikaErr))
+local pika = assert(TouchSkin.load("skins/_mounted/pikapdf", "pikapdf"))
+check(pika.pages[1].rasterData == TINY_JPEG,
+      "load recovers the JPEG from the PDF")
+check(pika.pages[1].image ~= nil, "and LOVE gets an image from those bytes")
+eq(DeltaSkin.needsConversion(pika), nil,
+   "so the skin no longer reports that it needs conversion")
 
 eq(select(1, TouchSkin.installArchive("skin.gbcskin", "PK\3\4stub")), nil,
    "a GBA4iOS .gbcskin is refused at the door")

@@ -3119,7 +3119,8 @@ function RomImporter:_ensureSkins(force)
       format = skin and skin.format or nil,
       pages = skin and #skin.pages or 0,
       controls = controls,
-      screen = page ~= nil and page.viewport ~= nil,
+      screen = page ~= nil
+        and (page.viewport ~= nil or page.screenFit == "remainder"),
       ok = skin ~= nil,
     }
   end
