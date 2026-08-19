@@ -9,7 +9,8 @@ What it does:
   1. Copies mobile/ios/native/ (GRPickerBridge.swift, GRHealthBridge.swift,
      GRBootstrap.m) and the HealthKit entitlements into the LÖVE tree.
   2. Patches liblove's wrap_System.cpp to expose love.system.pickFile,
-     love.system.createFile, and love.system.syncHealthSteps on iOS (each
+     love.system.createFile, love.system.syncHealthSteps,
+     love.system.httpDownload and love.system.httpRequest on iOS (each
      calls a GR*Bridge Swift class through the Objective-C runtime, so
      liblove never links against Swift directly).
   3. Patches love.xcodeproj so the love-ios app target compiles the native
@@ -50,6 +51,7 @@ WRAP_INCLUDES = """
 #include <objc/runtime.h>
 #include <objc/message.h>
 #include <string>
+#include <vector>
 #include "filesystem/Filesystem.h"
 #endif
 """ % MARKER
@@ -159,6 +161,7 @@ WRAP_REGISTRATION = """#ifdef LOVE_IOS
 	{ "createFile", w_createFile },
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "httpDownload", w_httpDownload },
+	{ "httpRequest", w_httpRequest },
 #endif
 """
 
@@ -201,6 +204,7 @@ int w_syncHealthSteps(lua_State *L)
 WRAP_SYNC_REGISTRATION = """#ifdef LOVE_IOS
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "httpDownload", w_httpDownload },
+	{ "httpRequest", w_httpRequest },
 #endif
 """
 
@@ -224,6 +228,80 @@ int w_httpDownload(lua_State *L)
 		cls, sel_registerName("httpDownloadWithUrl:destination:userAgent:accept:"),
 		url, destination, userAgent, accept);
 	lua_pushboolean(L, ok != 0);
+	return 1;
+}
+
+// love.system.httpRequest(url, method, headers, body, userAgent) -> envelope
+//
+// The transport save sync needs: a chosen method, per-request auth headers,
+// and the response body of a 4xx as well as a 2xx. `headers` is a flat array
+// of alternating name and value strings, joined into "name: value" lines here
+// because the Swift bridge takes C strings and no Foundation type may be
+// NAMED in this translation unit (see w_pickFileKinds above).
+//
+// The single return is the response envelope -- a head line of
+// "STATUS <code>" or "ERROR <text>", a newline, then the raw body -- or nil
+// where the build carries no bridge at all, which src/core/HostShell.lua
+// turns into an "update the app" notice rather than a failed request.
+int w_httpRequest(lua_State *L)
+{
+	const char *url = luaL_checkstring(L, 1);
+	const char *method = luaL_optstring(L, 2, "GET");
+
+	std::string headerBlob;
+	if (!lua_isnoneornil(L, 3))
+	{
+		luaL_checktype(L, 3, LUA_TTABLE);
+		std::vector<std::string> fields;
+		size_t count = luax_objlen(L, 3);
+		for (size_t i = 1; i <= count; i++)
+		{
+			lua_rawgeti(L, 3, (int) i);
+			const char *field = lua_tostring(L, -1);
+			fields.push_back(field != nullptr ? field : "");
+			lua_pop(L, 1);
+		}
+		for (size_t i = 0; i + 1 < fields.size(); i += 2)
+			headerBlob += fields[i] + ": " + fields[i + 1] + "\\n";
+	}
+
+	size_t bodyLen = 0;
+	const char *body = nullptr;
+	if (!lua_isnoneornil(L, 4))
+		body = luaL_checklstring(L, 4, &bodyLen);
+	const char *ua = luaL_optstring(L, 5, "gen1recomp");
+
+	Class cls = objc_getClass("GRPickerBridge");
+	if (cls == nullptr)
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	typedef id (*GRRequest)(Class, SEL, const char *, const char *,
+	                        const char *, const unsigned char *, int,
+	                        const char *);
+	id reply = ((GRRequest)objc_msgSend)(
+		cls,
+		sel_registerName("httpRequestWithUrl:method:headers:body:bodyLength:userAgent:"),
+		url, method, headerBlob.c_str(), (const unsigned char *) body,
+		(int) bodyLen, ua);
+	if (reply == nullptr)
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	// NSData read through the runtime, for the same reason as above: the
+	// bytes are copied out immediately, before any autorelease pool drains.
+	typedef const void *(*GRBytes)(id, SEL);
+	typedef unsigned long (*GRLength)(id, SEL);
+	const void *bytes = ((GRBytes)objc_msgSend)(reply, sel_registerName("bytes"));
+	unsigned long length = ((GRLength)objc_msgSend)(reply, sel_registerName("length"));
+	if (bytes == nullptr || length == 0)
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushlstring(L, (const char *) bytes, (size_t) length);
 	return 1;
 }
 #endif
@@ -308,7 +386,7 @@ def patch_wrap_system():
     text = text.replace(reg_anchor, reg_anchor + registration, 1)
     WRAP_SYSTEM.write_text(text)
     print("patch_love_src: wrap_System.cpp patched "
-          "(pickFile/createFile/syncHealthSteps/httpDownload)")
+          "(pickFile/createFile/syncHealthSteps/httpDownload/httpRequest)")
 
 
 def patch_public_documents():

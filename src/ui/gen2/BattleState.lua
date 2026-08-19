@@ -2311,6 +2311,7 @@ function BattleState:openParty(forced)
     -- :2702; engine/pokemon/party_menu.asm:660-679).  Only the voluntary list
     -- carries BattleMonMenu; PickPartyMonInBattle has no submenu.
     prompt = forced and "which" or "choose",
+    battle = true,
     battleSubmenu = not forced,
     onCancel = function()
       stack:pop()
@@ -2783,6 +2784,7 @@ function BattleState:openShiftParty()
   self.phase = "submenu"
   Screens.push(self.game, "Gen2PartyMenu", {
     prompt = "which",
+    battle = true,
     onCancel = function()
       stack:pop()
       self.phase = "resolving"
@@ -3156,6 +3158,7 @@ function BattleState:useOnPartyMon(itemId, action)
   self.phase = "submenu"
   Screens.push(self.game, "Gen2PartyMenu", {
     prompt = "useItem",
+    battle = true,
     party = self.battle.party or (self.save and self.save.party),
     onCancel = function()
       stack:pop()
