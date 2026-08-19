@@ -454,7 +454,7 @@ function love.load(args)
 
   -- Apply the persisted Android orientation lock (#592) before the launcher
   -- shows: SDL created the window with no orientation hint, so without this
-  -- the launcher would rotate freely until Game:applyOptions runs at boot.
+  -- the launcher would rotate freely until options are applied at boot.
   -- No-op on desktop / iOS / when options.lua does not exist yet.
   require("src.core.Orientation").applyOptions(
     require("src.core.SaveData").loadOptions())
@@ -514,8 +514,8 @@ function love.load(args)
   -- (#767) only pays off if something fills that catalog this early, and no
   -- restart could: the ordering is the same on every launch.  Read the
   -- enabled mods' string catalogs -- data only, no entry chunk -- so a
-  -- translation reaches the launcher too.  Game:load replaces this with the
-  -- real merged catalog once a version boots.
+  -- translation reaches the launcher too.  The active game's loader replaces
+  -- this with the real merged catalog once a version boots.
   do
     local preload = require("src.mods.LauncherMods").translationStrings()
     if preload then require("src.core.Strings").load({ strings = preload }) end
