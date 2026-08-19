@@ -948,10 +948,13 @@ local HEADER_TABS = {
   { id = "mods",   key = "tab-mods" },
   { id = "find",   key = "tab-find" },
   { id = "skins",  key = "tab-skins", glyph = true },
+  { id = "bug",    key = "tab-bug" },
 }
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
-  if t.glyph then t.opts.drawFn = drawSkinGlyph end
+  if t.glyph then
+    t.opts.drawFn = drawSkinGlyph
+  end
 end
 
 -- Which cartridge the dropdown is showing: the open game tab, else the last
@@ -1089,6 +1092,8 @@ local function buildHeader(imp, m)
     or love.graphics.newImage("assets/launcher/mods.png")
   imp._findIcon = imp._findIcon
     or love.graphics.newImage("assets/launcher/find.png")
+  imp._bugIcon = imp._bugIcon
+    or love.graphics.newImage("assets/launcher/bug.png")
   -- Game tabs keep their cartridge colours -- that is the one piece of brand
   -- identity in the launcher, and "the red one" is how people actually refer
   -- to these.  The colour rides the outline and the glyph at rest and becomes
@@ -1099,6 +1104,7 @@ local function buildHeader(imp, m)
   for _, t in ipairs(tabs) do
     if t.id == "mods" then t.icon = imp._modsIcon end
     if t.id == "find" then t.icon = imp._findIcon end
+    if t.id == "bug" then t.icon = imp._bugIcon end
   end
   local tabH = m.chip
   local tx = m.x + m.pad
@@ -1945,7 +1951,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   -- notice line
   local noticeText, noticeCol
   if safeMode then
-    noticeText, noticeCol = "Safe mode is on. All mods are disabled. Turn it off in Settings to change mod toggles.", PAL.yellow
+    noticeText, noticeCol = "Safe mode is on. All mods are disabled. Turn it off in the Bug tab to change mod toggles.", PAL.yellow
   elseif imp.modNotice then
     noticeText = imp.modNotice.text
     noticeCol = imp.modNotice.ok and PAL.green or PAL.red
@@ -2342,6 +2348,69 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
   cy = cy + math.floor(10 * m.s)
   Kit.textWrapped("small", hint, x, cy, w, PAL.muted, 3)
   return cy + hintH - y
+end
+
+local function buildBugPanel(imp, x, y, w, availH, m)
+  local SaveData = require("src.core.SaveData")
+  local gap = m.gap
+  local pad = math.floor(16 * m.s)
+  local cy = y
+  local safeMode = imp:_safeModeEnabled()
+
+  Kit.text("button", Strings("Troubleshooting"), x, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + gap
+
+  if imp.issueNotice then
+    cy = cy + Kit.textWrapped("small", imp.issueNotice.text, x, cy, w,
+      imp.issueNotice.ok and PAL.green or PAL.red, 2) + gap
+  end
+
+  local switchW = math.floor(92 * m.s)
+  local switchH = math.max(m.btnH, Kit.tapMin())
+  local detail = safeMode
+    and Strings("All mods are disabled and their toggles are locked until safe mode is turned off.")
+    or Strings("Temporarily disable every mod while you reproduce a bug.")
+  local textW = math.max(0, w - 2 * pad - switchW - gap)
+  local detailH = Kit.wrapHeight("small", detail, textW, 3)
+  local safeH = math.max(switchH, Kit.textHeight("small") + math.floor(4 * m.s) + detailH)
+    + 2 * pad
+  Kit.card(x, cy, w, safeH)
+  local textX = x + pad
+  local textY = cy + pad
+  Kit.text("small", Strings("Safe mode"), textX, textY, PAL.heading)
+  Kit.textWrapped("small", detail, textX,
+    textY + Kit.textHeight("small") + math.floor(4 * m.s), textW,
+    PAL.muted, 3)
+  local toggleX = x + w - pad - switchW
+  local toggleY = cy + math.floor((safeH - switchH) / 2)
+  local _, changed = Kit.toggle(toggleX, toggleY, switchW, switchH, safeMode,
+    "bug-safe-mode")
+  if changed then
+    queueAction(imp, "bug-safe-mode", function() imp:_toggleSafeMode() end)
+  end
+  cy = cy + safeH + gap
+
+  local reportLabel = Strings("Report a bug")
+  local reportW = math.min(w - 2 * pad,
+    Kit.textWidth("small", reportLabel) + math.floor(32 * m.s))
+  local reportDetail = Strings("Fill out the GitHub form with the available system information.")
+  local reportTextW = math.max(0, w - 2 * pad - reportW - gap)
+  local reportDetailH = Kit.wrapHeight("small", reportDetail, reportTextW, 3)
+  local reportH = math.max(m.btnH, Kit.textHeight("small") + math.floor(4 * m.s) + reportDetailH)
+    + 2 * pad
+  Kit.card(x, cy, w, reportH)
+  Kit.text("small", Strings("Something not working?"), textX, cy + pad, PAL.heading)
+  Kit.textWrapped("small", reportDetail, textX,
+    cy + pad + Kit.textHeight("small") + math.floor(4 * m.s), reportTextW,
+    PAL.muted, 3)
+  btn(imp, x + w - pad - reportW,
+    cy + math.floor((reportH - m.btnH) / 2), reportW, m.btnH,
+    "bug-report", reportLabel, {
+      kind = "accent", font = "small",
+      action = function()
+        imp:_ensureMods()
+        imp:_reportIssue(SaveData.loadOptions(), nil)
+      end })
 end
 
 local function buildFindPanel(imp, x, y, w, availH, m)
@@ -4844,6 +4913,8 @@ function LauncherView.draw(imp)
     contentH = buildFindPanel(imp, x, py, panelW, budgetH, m)
   elseif imp.tab == "skins" then
     contentH = buildSkinsPanel(imp, x, py, panelW, budgetH, m)
+  elseif imp.tab == "bug" then
+    contentH = buildBugPanel(imp, x, py, panelW, budgetH, m)
   else
     contentH = buildGamePanel(imp, x, py, panelW, availH, m, imp.tab, budgetH)
   end

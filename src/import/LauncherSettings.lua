@@ -541,29 +541,6 @@ local function modRows(opts, mod)
   return rows
 end
 
-local function troubleshootingRows(opts, hooks)
-  return {
-    {
-      label = Strings("SAFE MODE"),
-      actionLabel = function()
-        return SaveData.isSafeMode(opts) and Strings("Turn off") or Strings("Turn on")
-      end,
-      action = function()
-        SaveData.setSafeMode(opts, not SaveData.isSafeMode(opts))
-        return true
-      end,
-    },
-    {
-      label = Strings("REPORT ISSUE"),
-      actionLabel = Strings("Report bug"),
-      action = function()
-        if hooks and hooks.reportIssue then hooks.reportIssue(opts) end
-        return false
-      end,
-    },
-  }
-end
-
 -- ------- Gen 2 (Gold)
 --
 -- Gold reads NONE of the rows above.  Its OPTION screen writes a different
@@ -744,10 +721,6 @@ function LauncherSettings.open(hooks, version)
       sections[#sections + 1] = { title = mod.name, rows = rows }
     end
   end
-  sections[#sections + 1] = {
-    title = Strings("TROUBLESHOOTING"),
-    rows = troubleshootingRows(opts, hooks),
-  }
   return {
     opts = opts,
     version = version,

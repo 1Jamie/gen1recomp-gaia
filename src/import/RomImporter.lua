@@ -1266,6 +1266,7 @@ end
 function RomImporter:_applyLastVersionTab()
   local okLO, LO = pcall(require, "src.core.LaunchOptions")
   if okLO and LO.pendingTab then return end
+  if os.getenv("POKEPORT_LAUNCHER_TAB") then return end
   local okOpt, opts = pcall(function()
     return require("src.core.SaveData").loadOptions()
   end)
@@ -1337,7 +1338,7 @@ function RomImporter.new(onComplete, opts)
     -- player at least arrives on the tab they asked for (src/core/LaunchOptions).
     tab = (function()
       local okLO, LO = pcall(require, "src.core.LaunchOptions")
-      return (okLO and LO.pendingTab) or "red"
+      return (okLO and LO.pendingTab) or os.getenv("POKEPORT_LAUNCHER_TAB") or "red"
     end)(),
     logo = love.graphics.newImage("assets/logo/logo.png"),
     bcg = love.graphics.newImage("assets/logo/bcg.png"),
@@ -1364,7 +1365,8 @@ function RomImporter.new(onComplete, opts)
     -- in draw); modNotice is the last install/delete result { ok, text }.
     -- requiredImportNotice stays inside the imported-files modal so validation
     -- failures are visible beside the file picker that caused them.
-    mods = nil, modScroll = 0, modNotice = nil, requiredImportNotice = nil,
+    mods = nil, modScroll = 0, modNotice = nil, issueNotice = nil,
+    requiredImportNotice = nil,
     -- Which game the MODS panel is answering for (a GameVersion id, nil =
     -- every game).  Rows resolve their enable-state and their "runs here"
     -- verdict against it (src/mods/ModTargets.lua).
@@ -2755,7 +2757,7 @@ function RomImporter:resumeAfterOverlay()
 end
 
 function RomImporter:_cycleTab(delta)
-  local order = { "red", "blue", "yellow", "gold", "mods", "find", "skins" }
+  local order = { "red", "blue", "yellow", "gold", "mods", "find", "skins", "bug" }
   local idx = 1
   for i, id in ipairs(order) do
     if id == self.tab then idx = i; break end
@@ -3630,9 +3632,6 @@ function RomImporter:_openSettings()
   -- option block, and Gold's is not the flat Gen 1 one (#1100).
   local hooks = {}
   local version = self.tab
-  hooks.reportIssue = function(opts)
-    return self:_reportIssue(opts, version)
-  end
   if self.onEditTouchControls then
     local version = self.tab
     hooks.editTouchControls = function()
@@ -3655,7 +3654,6 @@ function RomImporter:_openSettings()
   end)
   if ok and model then
     self._settings = model
-    self._settingsSafeModeAtOpen = require("src.core.SaveData").isSafeMode(model.opts)
   end
 end
 
@@ -3670,22 +3668,36 @@ function RomImporter:_closeSettings()
   local model = self._settings
   if model then
     model.save()
-    local safeMode = require("src.core.SaveData").isSafeMode(model.opts)
-    if safeMode ~= self._settingsSafeModeAtOpen then
-      self.mods = nil
-      self.safeMode = safeMode
-      self._modSortCache = nil
-      self._modInfoFetch = nil
-    end
   end
   self._settings = nil
-  self._settingsSafeModeAtOpen = nil
+end
+
+function RomImporter:_safeModeEnabled()
+  if self.safeMode == nil then
+    local SaveData = require("src.core.SaveData")
+    self.safeMode = SaveData.isSafeMode(SaveData.loadOptions())
+  end
+  return self.safeMode == true
+end
+
+function RomImporter:_toggleSafeMode()
+  local SaveData = require("src.core.SaveData")
+  local options = SaveData.loadOptions()
+  local enabled = not SaveData.isSafeMode(options)
+  SaveData.setSafeMode(options, enabled)
+  SaveData.saveOptions(options)
+  self.safeMode = enabled
+  self.mods = nil
+  self._modSortCache = nil
+  self._modInfoFetch = nil
+  self.modNotice = nil
 end
 
 function RomImporter:_reportIssue(options, version)
+  self.issueNotice = nil
   local ok, IssueReport = pcall(require, "src.core.IssueReport")
   if not ok then
-    self.modNotice = { ok = false, text = "Could not prepare the issue report." }
+    self.issueNotice = { ok = false, text = "Could not prepare the issue report." }
     return false
   end
   local opened, url, reason = IssueReport.open(options, {
@@ -3693,11 +3705,11 @@ function RomImporter:_reportIssue(options, version)
     mods = self.mods,
   })
   if not opened then
-    self.modNotice = { ok = false, text = reason or "Could not open the issue report." }
+    self.issueNotice = { ok = false, text = reason or "Could not open the issue report." }
     return false
   end
   self._lastIssueReportURL = url
-  if reason then self.modNotice = { ok = true, text = reason } end
+  if reason then self.issueNotice = { ok = true, text = reason } end
   return true
 end
 
@@ -4180,7 +4192,7 @@ end
 -- Enabling an experimental mod arms a confirmation for that same game.
 function RomImporter:_toggleMod(id, confirmed, version)
   if self.safeMode then
-    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in Settings to change mods." }
+    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in the Bug tab to change mods." }
     return
   end
   local LauncherMods = require("src.mods.LauncherMods")
@@ -4224,7 +4236,7 @@ end
 -- recovery action, and Delete is the only destructive one on this panel.
 function RomImporter:_setAllMods(want, confirmed)
   if self.safeMode then
-    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in Settings to change mods." }
+    self.modNotice = { ok = false, text = "Safe mode is active. Turn it off in the Bug tab to change mods." }
     return
   end
   local LauncherMods = require("src.mods.LauncherMods")
