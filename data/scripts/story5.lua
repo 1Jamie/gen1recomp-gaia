@@ -122,9 +122,8 @@ M.CINNABAR_LAB_METRONOME_ROOM = {
 -- TM42 Dream Eater (scripts/ViridianCity.asm, the fisher).  The fisher's
 -- YouCanHaveThisText prints before GiveItem, so this gift needs a pre
 -- text (#775).  Like the SilphCo2F worker (#393) that label carries no
--- leading underscore, and on Red it sits outside the extractor's symbol
--- set, so the literal from text/ViridianCity.asm rides along as the
--- fallback; Yellow resolves the ROM string instead.
+-- leading underscore; tools/extract/text.py now collects it regardless,
+-- so preFallback below is just the safety net for a catalog without it.
 M.VIRIDIAN_CITY = {
   talk = {
     TEXT_VIRIDIANCITY_FISHER = gift({
@@ -146,9 +145,11 @@ M.SILPH_CO_2F = {
   talk = {
     TEXT_SILPHCO2F_SILPH_WORKER_F = gift({
       flag = "EVENT_GOT_TM36", item = "TM_SELFDESTRUCT",
-      -- the label carries no leading underscore: pokered keeps this one in
-      -- the script bank, not the far-text bank (#393)
+      -- the label carries no leading underscore (#393); collected like any
+      -- other text/*.asm label now, preFallback is just the safety net
       pre = "SilphCo2FSilphWorkerFPleaseTakeThisText",
+      preFallback = "Eeek!\nNo! Stop! Help!\fOh, you're not\nwith TEAM ROCKET."
+        .. "\vI thought...\vI'm sorry. Here,\vplease take this!",
       received = "_SilphCo2FSilphWorkerFReceivedTM36Text",
       explain = "_SilphCo2FSilphWorkerFTM36ExplanationText",
       noRoom = "_SilphCo2FSilphWorkerFTM36NoRoomText",
