@@ -2377,7 +2377,7 @@ local function buildBugPanel(imp, x, y, w, availH, m)
   local reportH = math.max(m.btnH, Kit.textHeight("small") + math.floor(4 * m.s) + reportDetailH)
     + 2 * pad
   Kit.card(x, cy, w, reportH)
-  Kit.text("small", Strings("GitHub bug form"), textX, cy + pad, PAL.heading)
+  Kit.text("small", Strings("Something not working?"), textX, cy + pad, PAL.heading)
   Kit.textWrapped("small", reportDetail, textX,
     cy + pad + Kit.textHeight("small") + math.floor(4 * m.s), reportTextW,
     PAL.muted, 3)
