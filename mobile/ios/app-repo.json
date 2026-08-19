@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.8",
+          "date": "2026-08-19",
+          "size": 13653911,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.8/gen1recomp++-0.2.8-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1502 Gold doesn't show trainer balls\n- #1533 Retroarch Skin Problem 2 (#1503)\n\n## Contributors\n\n- @1Jamie\n- @AverageConsumer\n- @bryanthaboi\n- @castdrian\n- @thibautbus"
+        },
+        {
           "version": "0.2.7",
           "date": "2026-08-18",
           "size": 13597177,
