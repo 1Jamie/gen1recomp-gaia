@@ -229,6 +229,34 @@ int w_tlsClose(lua_State *L)
 	return 0;
 }
 
+int w_updateShortcuts(lua_State *L)
+{
+	if (!lua_istable(L, 1))
+		return luaL_error(L, "Expected table of game version strings");
+
+	std::vector<std::string> versions;
+	int len = (int) luax_objlen(L, 1);
+	for (int i = 1; i <= len; ++i)
+	{
+		lua_rawgeti(L, 1, i);
+		if (lua_isstring(L, -1))
+			versions.push_back(lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+	luax_pushboolean(L, instance()->updateShortcuts(versions));
+	return 1;
+}
+
+int w_getLaunchGame(lua_State *L)
+{
+	std::string game = instance()->getLaunchGame();
+	if (game.empty())
+		lua_pushnil(L);
+	else
+		luax_pushstring(L, game);
+	return 1;
+}
+
 static const luaL_Reg functions[] =
 {
 	{ "getOS", w_getOS },
@@ -243,6 +271,8 @@ static const luaL_Reg functions[] =
 	{ "createFile", w_createFile },
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "restartApp", w_restartApp },
+	{ "updateShortcuts", w_updateShortcuts },
+	{ "getLaunchGame", w_getLaunchGame },
 	{ "httpDownload", w_httpDownload },
 	{ "httpPost", w_httpPost },
 	{ "tlsOpen", w_tlsOpen },

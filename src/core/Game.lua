@@ -174,6 +174,7 @@ function Game:makeTitleState()
         self:restoreSave(loaded, recovered, { freshBoot = true })
       end
     end,
+    onExit = self.onExit,
   })
   title.screenId = title.screenId or "TitleState"
   return title

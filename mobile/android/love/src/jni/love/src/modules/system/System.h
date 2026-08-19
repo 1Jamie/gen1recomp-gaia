@@ -143,6 +143,9 @@ public:
 	 **/
 	virtual bool restartApp() const;
 
+	virtual bool updateShortcuts(const std::vector<std::string> &versions) const;
+	virtual std::string getLaunchGame() const;
+
 	/**
 	 * Blocking HTTPS GET into an absolute host path (Android only; false
 	 * elsewhere). Android has no curl, which is what every other platform

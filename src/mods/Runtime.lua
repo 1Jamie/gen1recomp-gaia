@@ -38,6 +38,14 @@ function Runtime.install(events, hooks, errors)
   Runtime.errors = errors
 end
 
+function Runtime.reset()
+  Runtime.events = NullEvents
+  Runtime.hooks = NullHooks
+  Runtime.errors = nil
+  Runtime.currentMod = nil
+  Runtime.modRequire = nil
+end
+
 -- attribute a runtime failure to the mod that owns the offending record.
 -- "base" is the engine's own owner id: a vanilla record that fails is a
 -- console line, not something the manager can ask the player to disable.

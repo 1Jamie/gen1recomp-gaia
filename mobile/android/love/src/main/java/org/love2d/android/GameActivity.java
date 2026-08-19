@@ -67,8 +67,11 @@ import android.os.Vibrator;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.DisplayMetrics;
-import android.view.*;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Icon;
+import android.view.*;
 
 import androidx.annotation.Keep;
 import androidx.core.app.ActivityCompat;
@@ -157,6 +160,10 @@ public class GameActivity extends SDLActivity {
 
     private static native void nativeAudioDeviceChanged();
 
+    private static native void nativeOnGameIntent(String game);
+
+    private static String initialGame = "";
+
     private AudioManager.OnAudioFocusChangeListener audioFocusListener = null;
     private Object audioFocusRequest = null;
     private Object audioDeviceCallback = null;
@@ -226,6 +233,10 @@ public class GameActivity extends SDLActivity {
         embed = getResources().getBoolean(R.bool.embed);
         needToCopyGameInArchive = embed;
 
+        Intent startIntent = getIntent();
+        if (startIntent != null && startIntent.hasExtra("game")) {
+            initialGame = startIntent.getStringExtra("game");
+        }
         if (!embed) {
             Intent intent = getIntent();
             handleIntent(intent);
@@ -259,6 +270,12 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         Log.d("GameActivity", "onNewIntent() with " + intent);
+        if (intent != null && intent.hasExtra("game")) {
+            String game = intent.getStringExtra("game");
+            if (game != null && !game.isEmpty()) {
+                nativeOnGameIntent(game);
+            }
+        }
         if (!embed) {
             handleIntent(intent);
             resetNative();
@@ -669,6 +686,95 @@ public class GameActivity extends SDLActivity {
         }
         Runtime.getRuntime().exit(0);
         return true; // unreachable, but keeps the JNI signature honest
+    }
+
+    @Keep
+    public static String getLaunchGame() {
+        return initialGame != null ? initialGame : "";
+    }
+
+    @Keep
+    public static boolean updateAppShortcuts(String[] readyVersions) {
+        GameActivity self = (GameActivity) mSingleton;
+        if (self == null) return false;
+        if (android.os.Build.VERSION.SDK_INT < 25) return false;
+        try {
+            Context context = self.getApplicationContext();
+            ShortcutManager shortcutManager = context.getSystemService(ShortcutManager.class);
+            if (shortcutManager == null) return false;
+
+            if (readyVersions == null || readyVersions.length == 0) {
+                shortcutManager.removeAllDynamicShortcuts();
+                return true;
+            }
+
+            List<ShortcutInfo> shortcuts = new ArrayList<>();
+            int maxShortcuts = Math.min(readyVersions.length, 4);
+
+            for (int i = 0; i < maxShortcuts; i++) {
+                String ver = readyVersions[i];
+                if (ver == null || ver.isEmpty()) continue;
+                String lower = ver.toLowerCase();
+                String shortLabel;
+                String longLabel;
+                int iconResId;
+
+                switch (lower) {
+                    case "red":
+                        shortLabel = "Play Red";
+                        longLabel = "Play Red";
+                        iconResId = context.getResources().getIdentifier("ic_shortcut_red", "drawable", context.getPackageName());
+                        break;
+                    case "blue":
+                        shortLabel = "Play Blue";
+                        longLabel = "Play Blue";
+                        iconResId = context.getResources().getIdentifier("ic_shortcut_blue", "drawable", context.getPackageName());
+                        break;
+                    case "yellow":
+                        shortLabel = "Play Yellow";
+                        longLabel = "Play Yellow";
+                        iconResId = context.getResources().getIdentifier("ic_shortcut_yellow", "drawable", context.getPackageName());
+                        break;
+                    case "gold":
+                        shortLabel = "Play Gold";
+                        longLabel = "Play Gold";
+                        iconResId = context.getResources().getIdentifier("ic_shortcut_gold", "drawable", context.getPackageName());
+                        break;
+                    default:
+                        String capitalized = lower.substring(0, 1).toUpperCase() + lower.substring(1);
+                        shortLabel = "Play " + capitalized;
+                        longLabel = "Play " + capitalized;
+                        iconResId = context.getResources().getIdentifier("ic_shortcut_" + lower, "drawable", context.getPackageName());
+                        break;
+                }
+
+                if (iconResId == 0) {
+                    iconResId = context.getResources().getIdentifier("ic_launcher_foreground", "drawable", context.getPackageName());
+                }
+
+                Intent intent = new Intent(context, GameActivity.class);
+                intent.setAction(Intent.ACTION_VIEW);
+                intent.putExtra("game", lower);
+                intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+                ShortcutInfo.Builder builder = new ShortcutInfo.Builder(context, "shortcut_" + lower)
+                    .setShortLabel(shortLabel)
+                    .setLongLabel(longLabel)
+                    .setIntent(intent);
+
+                if (iconResId != 0) {
+                    builder.setIcon(Icon.createWithResource(context, iconResId));
+                }
+
+                shortcuts.add(builder.build());
+            }
+
+            shortcutManager.setDynamicShortcuts(shortcuts);
+            return true;
+        } catch (Exception e) {
+            Log.d("GameActivity", "could not update shortcuts: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

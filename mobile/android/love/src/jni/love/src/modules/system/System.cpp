@@ -245,6 +245,25 @@ bool System::restartApp() const
 #endif
 }
 
+bool System::updateShortcuts(const std::vector<std::string> &versions) const
+{
+#ifdef LOVE_ANDROID
+	return love::android::updateAppShortcuts(versions);
+#else
+	LOVE_UNUSED(versions);
+	return false;
+#endif
+}
+
+std::string System::getLaunchGame() const
+{
+#ifdef LOVE_ANDROID
+	return love::android::getLaunchGame();
+#else
+	return "";
+#endif
+}
+
 bool System::httpDownload(const char *url, const char *destPath,
 	const char *userAgent, const char *accept) const
 {

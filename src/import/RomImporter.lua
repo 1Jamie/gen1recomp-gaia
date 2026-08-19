@@ -326,6 +326,32 @@ function RomImporter.isReady(version)
   return marker == markerFor(version) and allRequiredFilesExist(version)
 end
 
+function RomImporter.syncAndroidShortcuts(activeVersion)
+  if not (love.system and love.system.getOS and love.system.getOS() == "Android"
+      and love.system.updateShortcuts) then
+    return false
+  end
+
+  local allVersions = { "red", "blue", "yellow", "gold" }
+  local ready = {}
+  local seen = {}
+
+  if activeVersion and RomImporter.isReady(activeVersion) then
+    table.insert(ready, activeVersion)
+    seen[activeVersion] = true
+  end
+
+  for _, v in ipairs(allVersions) do
+    if not seen[v] and RomImporter.isReady(v) then
+      table.insert(ready, v)
+      seen[v] = true
+      if #ready >= 4 then break end
+    end
+  end
+
+  return love.system.updateShortcuts(ready)
+end
+
 -- Load the import manifest for a version and confirm it matches that ROM.
 local function sha1(data)
   local digest = love.data.hash("sha1", data)
@@ -1392,6 +1418,7 @@ function RomImporter.new(onComplete, opts)
     self.romName[version] = "pokemon_" .. info.id
       .. ((info.id == "yellow" or info.id == "gold") and ".gbc" or ".gb")
   end
+  RomImporter.syncAndroidShortcuts()
   self:_applyLastVersionTab()
   self:_queueBaseRomScan()
 
@@ -1786,6 +1813,7 @@ function RomImporter:_completeImport(version, prefix, displayName)
   self.workState = "complete"
   self.completeVersion = version
   self.status = "Ready"
+  RomImporter.syncAndroidShortcuts(version)
   -- NX launcher stays put: keep the imports/ cleanup hint instead of
   -- overwriting it with a "Starting…" line that never boots from here.
   if self.launcher and self.isNX and type(displayName) == "string" then

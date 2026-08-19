@@ -48,6 +48,7 @@
 #include "common/Module.h"
 #include "audio/Audio.h"
 #include "audio/openal/Audio.h"
+#include "event/Event.h"
 
 namespace love
 {
@@ -278,6 +279,70 @@ bool restartApp()
 	// Does not return on success: the Java side exits the process.
 	jboolean result = env->CallStaticBooleanMethod(activity, method);
 
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
+bool updateAppShortcuts(const std::vector<std::string> &versions)
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	if (activity == nullptr)
+		return false;
+
+	jmethodID method = env->GetStaticMethodID(activity, "updateAppShortcuts", "([Ljava/lang/String;)Z");
+	if (method == nullptr)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return false;
+	}
+
+	jclass stringClass = env->FindClass("java/lang/String");
+	jobjectArray array = env->NewObjectArray((jsize) versions.size(), stringClass, nullptr);
+	for (size_t i = 0; i < versions.size(); ++i)
+	{
+		jstring jstr = env->NewStringUTF(versions[i].c_str());
+		env->SetObjectArrayElement(array, (jsize) i, jstr);
+		env->DeleteLocalRef(jstr);
+	}
+
+	jboolean result = env->CallStaticBooleanMethod(activity, method, array);
+
+	env->DeleteLocalRef(array);
+	env->DeleteLocalRef(stringClass);
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
+std::string getLaunchGame()
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	if (activity == nullptr)
+		return "";
+
+	jmethodID method = env->GetStaticMethodID(activity, "getLaunchGame", "()Ljava/lang/String;");
+	if (method == nullptr)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return "";
+	}
+
+	jstring jgame = (jstring) env->CallStaticObjectMethod(activity, method);
+	if (jgame == nullptr)
+	{
+		env->DeleteLocalRef(activity);
+		return "";
+	}
+
+	const char *str = env->GetStringUTFChars(jgame, nullptr);
+	std::string result = (str != nullptr) ? str : "";
+	if (str != nullptr)
+		env->ReleaseStringUTFChars(jgame, str);
+
+	env->DeleteLocalRef(jgame);
 	env->DeleteLocalRef(activity);
 	return result;
 }
@@ -1388,6 +1453,34 @@ Java_org_love2d_android_GameActivity_nativeAudioDeviceChanged(JNIEnv *env, jclas
 	audio->resumeContext();
 
 	love::audio::openal::pushAudioResetEvent();
+}
+
+static void pushGameIntentEvent(const char *game)
+{
+	auto eventmodule = love::Module::getInstance<love::event::Event>(love::Module::M_EVENT);
+	if (eventmodule == nullptr || game == nullptr)
+		return;
+
+	std::vector<love::Variant> args;
+	args.push_back(love::Variant(std::string(game)));
+
+	love::event::Message *msg = new love::event::Message("intent_game", args);
+	eventmodule->push(msg);
+	msg->release();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_love2d_android_GameActivity_nativeOnGameIntent(JNIEnv *env, jclass cls, jstring game)
+{
+	(void) cls;
+	if (game == nullptr)
+		return;
+	const char *str = env->GetStringUTFChars(game, nullptr);
+	if (str != nullptr)
+	{
+		pushGameIntentEvent(str);
+		env->ReleaseStringUTFChars(game, str);
+	}
 }
 
 #endif // LOVE_ANDROID
