@@ -320,6 +320,7 @@ function Game2:showMainMenu()
     onNewGame = function() self:newGame() end,
     onContinue = function(save) self:continueGame(save) end,
     onOption = function() self:showOptions(function() self:showMainMenu() end) end,
+    onExit = self.onExit,
   })
 end
 

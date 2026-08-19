@@ -91,6 +91,16 @@ bool syncHealthSteps();
 bool restartApp();
 
 /**
+ * Dynamic App Shortcuts: updates Android ShortcutManager with ready game versions.
+ **/
+bool updateAppShortcuts(const std::vector<std::string> &versions);
+
+/**
+ * Returns the game version requested via initial launch Intent (if any).
+ **/
+std::string getLaunchGame();
+
+/**
  * Blocking HTTPS GET into destPath (GameActivity.httpDownload). Android has
  * no curl binary, so this is the transport src/core/HostShell.lua uses there
  * for the mod index and mod updates (#597). userAgent / accept may be null.
