@@ -126,6 +126,10 @@ local PLAYER_STATE_BY_ID = {
   [8] = FieldMoves.PLAYER_SURF_PIKA,
 }
 
+-- engine/overworld/variables.asm:49 VAR_MOVEMENT reads wPlayerState back
+local PLAYER_STATE_ID = {}
+for id, state in pairs(PLAYER_STATE_BY_ID) do PLAYER_STATE_ID[state] = id end
+
 local BATTLETYPE = {
   CANLOSE = 1,
   FORCESHINY = 7,

@@ -226,6 +226,10 @@ return { spawns = { SPAWN_NEW_BARK = { map = "TEST_MAP", x = 1, y = 1 } } }
     spawnAfterChampion = "SPAWN_LANCE",
     position = { map = "PLAYERS_HOUSE_2F", x = 1, y = 1, facing = "down" } }),
     "and the post-credits spawn is a warp even though a position exists")
+
+  love.filesystem.remove("data/generated/maps.lua")
+  love.filesystem.remove("data/generated/tilesets.lua")
+  love.filesystem.remove("data/generated/landmarks.lua")
 end
 
 -- ---- the two clock faces ----------------------------------------------------

@@ -406,6 +406,15 @@ local function cartQuad(project, x, y, w, h, z)
   }
 end
 
+local function cartFacing(points)
+  local area = 0
+  for i = 1, #points do
+    local a, b = points[i], points[i % #points + 1]
+    area = area + a[1] * b[2] - b[1] * a[2]
+  end
+  return area > 0
+end
+
 local function cartPill(project, x, y, w, h, z, color, alpha)
   local points, radius = {}, h / 2
   for i = 0, 10 do
@@ -628,51 +637,64 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   local side = { math.floor(shell[1] * 0.54), math.floor(shell[2] * 0.54),
     math.floor(shell[3] * 0.54) }
 
-  cartPolygon(mainBack, side, 1)
-  cartPolygon(capBack, side, 1)
+  local frontFacing = cartFacing(mainFront)
+  if frontFacing then
+    cartPolygon(mainBack, side, 1)
+    cartPolygon(capBack, side, 1)
+  else
+    cartPolygon(mainFront, shell, 1)
+    cartPolygon(capFront, shell, 1)
+  end
   cartPolygon({ mainFront[2], mainFront[3], mainBack[3], mainBack[2] }, side, 1)
   cartPolygon({ mainFront[3], mainFront[4], mainBack[4], mainBack[3] }, side, 1)
   cartPolygon({ mainFront[1], mainFront[2], mainBack[2], mainBack[1] }, side, 1)
   cartPolygon({ capFront[2], capFront[3], capBack[3], capBack[2] }, side, 1)
   cartPolygon({ capFront[1], capFront[2], capBack[2], capBack[1] }, side, 1)
   cartPolygon({ capFront[4], capFront[1], capBack[1], capBack[4] }, side, 1)
-  cartPolygon(mainFront, shell, 1)
-  cartPolygon(capFront, shell, 1)
-
-  local faceZ = depth + 0.8
-  for i = 0, 4 do
-    local ry = mainTop + 7 + i * h * 0.025
-    cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
-    cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+  if frontFacing then
+    cartPolygon(mainFront, shell, 1)
+    cartPolygon(capFront, shell, 1)
+  else
+    cartPolygon(mainBack, side, 1)
+    cartPolygon(capBack, side, 1)
   end
-  local recessX, recessY = -w * 0.32, mainTop + h * 0.023
-  local recessW, recessH = w * 0.64, h * 0.24
-  cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
-  cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
-    recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
-  cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
-    recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
 
-  local labelX, labelY = -w * 0.33, -h * 0.20
-  local labelW, labelH = w * 0.66, h * 0.55
-  local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
-  cartPolygon(plate, side, 0.95)
-  local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
-  local label = cartridgeLabel(imp, version)
-  local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
-  if mesh then
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(mesh)
-  elseif label then
-    local artScale = math.min(labelW / label.width, labelH / label.height)
-    love.graphics.draw(label.image, labelPoints[1][1], labelPoints[1][2],
-      0, artScale, artScale)
+  if frontFacing then
+    local faceZ = depth + 0.8
+    for i = 0, 4 do
+      local ry = mainTop + 7 + i * h * 0.025
+      cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+      cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+    end
+    local recessX, recessY = -w * 0.32, mainTop + h * 0.023
+    local recessW, recessH = w * 0.64, h * 0.24
+    cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
+    cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
+      recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
+    cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
+      recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
+
+    local labelX, labelY = -w * 0.33, -h * 0.20
+    local labelW, labelH = w * 0.66, h * 0.55
+    local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
+    cartPolygon(plate, side, 0.95)
+    local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
+    local label = cartridgeLabel(imp, version)
+    local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
+    if mesh then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(mesh)
+    elseif label then
+      local artScale = math.min(labelW / label.width, labelH / label.height)
+      love.graphics.draw(label.image, labelPoints[1][1], labelPoints[1][2],
+        0, artScale, artScale)
+    end
+    cartPolygon({
+      { project(-w * 0.07, h * 0.37, faceZ + 1) },
+      { project(w * 0.07, h * 0.37, faceZ + 1) },
+      { project(0, h * 0.43, faceZ + 1) },
+    }, side, 0.70)
   end
-  cartPolygon({
-    { project(-w * 0.07, h * 0.37, faceZ + 1) },
-    { project(w * 0.07, h * 0.37, faceZ + 1) },
-    { project(0, h * 0.43, faceZ + 1) },
-  }, side, 0.70)
   love.graphics.pop()
 
   if not state.active and (Kit._activateId == key) then
@@ -926,10 +948,13 @@ local HEADER_TABS = {
   { id = "mods",   key = "tab-mods" },
   { id = "find",   key = "tab-find" },
   { id = "skins",  key = "tab-skins", glyph = true },
+  { id = "bug",    key = "tab-bug" },
 }
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
-  if t.glyph then t.opts.drawFn = drawSkinGlyph end
+  if t.glyph then
+    t.opts.drawFn = drawSkinGlyph
+  end
 end
 
 -- Which cartridge the dropdown is showing: the open game tab, else the last
@@ -1067,6 +1092,8 @@ local function buildHeader(imp, m)
     or love.graphics.newImage("assets/launcher/mods.png")
   imp._findIcon = imp._findIcon
     or love.graphics.newImage("assets/launcher/find.png")
+  imp._bugIcon = imp._bugIcon
+    or love.graphics.newImage("assets/launcher/bug.png")
   -- Game tabs keep their cartridge colours -- that is the one piece of brand
   -- identity in the launcher, and "the red one" is how people actually refer
   -- to these.  The colour rides the outline and the glyph at rest and becomes
@@ -1077,6 +1104,7 @@ local function buildHeader(imp, m)
   for _, t in ipairs(tabs) do
     if t.id == "mods" then t.icon = imp._modsIcon end
     if t.id == "find" then t.icon = imp._findIcon end
+    if t.id == "bug" then t.icon = imp._bugIcon end
   end
   local tabH = m.chip
   local tx = m.x + m.pad
@@ -1923,7 +1951,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   -- notice line
   local noticeText, noticeCol
   if safeMode then
-    noticeText, noticeCol = "Safe mode is on. All mods are disabled. Turn it off in Settings to change mod toggles.", PAL.yellow
+    noticeText, noticeCol = "Safe mode is on. All mods are disabled. Turn it off in the Bug tab to change mod toggles.", PAL.yellow
   elseif imp.modNotice then
     noticeText = imp.modNotice.text
     noticeCol = imp.modNotice.ok and PAL.green or PAL.red
@@ -2320,6 +2348,69 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
   cy = cy + math.floor(10 * m.s)
   Kit.textWrapped("small", hint, x, cy, w, PAL.muted, 3)
   return cy + hintH - y
+end
+
+local function buildBugPanel(imp, x, y, w, availH, m)
+  local SaveData = require("src.core.SaveData")
+  local gap = m.gap
+  local pad = math.floor(16 * m.s)
+  local cy = y
+  local safeMode = imp:_safeModeEnabled()
+
+  Kit.text("button", Strings("Troubleshooting"), x, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + gap
+
+  if imp.issueNotice then
+    cy = cy + Kit.textWrapped("small", imp.issueNotice.text, x, cy, w,
+      imp.issueNotice.ok and PAL.green or PAL.red, 2) + gap
+  end
+
+  local switchW = math.floor(92 * m.s)
+  local switchH = math.max(m.btnH, Kit.tapMin())
+  local detail = safeMode
+    and Strings("All mods are disabled and their toggles are locked until safe mode is turned off.")
+    or Strings("Temporarily disable every mod while you reproduce a bug.")
+  local textW = math.max(0, w - 2 * pad - switchW - gap)
+  local detailH = Kit.wrapHeight("small", detail, textW, 3)
+  local safeH = math.max(switchH, Kit.textHeight("small") + math.floor(4 * m.s) + detailH)
+    + 2 * pad
+  Kit.card(x, cy, w, safeH)
+  local textX = x + pad
+  local textY = cy + pad
+  Kit.text("small", Strings("Safe mode"), textX, textY, PAL.heading)
+  Kit.textWrapped("small", detail, textX,
+    textY + Kit.textHeight("small") + math.floor(4 * m.s), textW,
+    PAL.muted, 3)
+  local toggleX = x + w - pad - switchW
+  local toggleY = cy + math.floor((safeH - switchH) / 2)
+  local _, changed = Kit.toggle(toggleX, toggleY, switchW, switchH, safeMode,
+    "bug-safe-mode")
+  if changed then
+    queueAction(imp, "bug-safe-mode", function() imp:_toggleSafeMode() end)
+  end
+  cy = cy + safeH + gap
+
+  local reportLabel = Strings("Report a bug")
+  local reportW = math.min(w - 2 * pad,
+    Kit.textWidth("small", reportLabel) + math.floor(32 * m.s))
+  local reportDetail = Strings("Fill out the GitHub form with the available system information.")
+  local reportTextW = math.max(0, w - 2 * pad - reportW - gap)
+  local reportDetailH = Kit.wrapHeight("small", reportDetail, reportTextW, 3)
+  local reportH = math.max(m.btnH, Kit.textHeight("small") + math.floor(4 * m.s) + reportDetailH)
+    + 2 * pad
+  Kit.card(x, cy, w, reportH)
+  Kit.text("small", Strings("Something not working?"), textX, cy + pad, PAL.heading)
+  Kit.textWrapped("small", reportDetail, textX,
+    cy + pad + Kit.textHeight("small") + math.floor(4 * m.s), reportTextW,
+    PAL.muted, 3)
+  btn(imp, x + w - pad - reportW,
+    cy + math.floor((reportH - m.btnH) / 2), reportW, m.btnH,
+    "bug-report", reportLabel, {
+      kind = "accent", font = "small",
+      action = function()
+        imp:_ensureMods()
+        imp:_reportIssue(SaveData.loadOptions(), nil)
+      end })
 end
 
 local function buildFindPanel(imp, x, y, w, availH, m)
@@ -4822,6 +4913,8 @@ function LauncherView.draw(imp)
     contentH = buildFindPanel(imp, x, py, panelW, budgetH, m)
   elseif imp.tab == "skins" then
     contentH = buildSkinsPanel(imp, x, py, panelW, budgetH, m)
+  elseif imp.tab == "bug" then
+    contentH = buildBugPanel(imp, x, py, panelW, budgetH, m)
   else
     contentH = buildGamePanel(imp, x, py, panelW, availH, m, imp.tab, budgetH)
   end

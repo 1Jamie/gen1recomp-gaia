@@ -57,6 +57,8 @@ function TextBox.new(game, text, onDone, opts)
   self.money = opts and opts.money
   self.auto = opts and opts.auto
   self.stay = opts and opts.stay
+  -- engine/events/hidden_events/cinnabar_gym_quiz.asm:119
+  self.preSound = opts and opts.preSound
   -- opts.instant: put the LAST page up already typed, with no typewriter and
   -- no page waits.  A `yesorno` follows a `writetext` that has already been
   -- read, so re-typing the line under the YES/NO box would be wrong -- the
@@ -270,6 +272,17 @@ end
 function TextBox:update(dt)
   local input = self.game.input
   self.blink = (self.blink + 1) % 60
+  -- home/text.asm:506
+  if self.preSound then
+    if not self.preStarted then
+      self.preStarted = true
+      self.preSrc = self.preSound()
+    end
+    if self.preSrc and self.preSrc.isPlaying and self.preSrc:isPlaying() then
+      return
+    end
+    self.preSound, self.preSrc = nil, nil
+  end
   -- A page or CONT advance blocks the whole box while the original's scroll
   -- and clear run (src/core/Timing.lua TEXT_SCROLL_PAIR / TEXT_PAGE_CLEAR).
   -- Nothing types and no input is read until it drains.
