@@ -160,6 +160,18 @@ public:
 		const char *contentType = nullptr, const char *userAgent = nullptr) const;
 
 	/**
+	 * Blocking HTTPS request with a method, headers and a byte body (Android
+	 * only; false elsewhere). Save sync needs PUT, auth headers and the body
+	 * of a 4xx, none of which the two bridges above can express. headerPairs
+	 * is a flat name, value array; `out` receives the response envelope
+	 * ("STATUS <code>" or "ERROR <text>", a newline, then the raw body).
+	 **/
+	virtual bool httpRequest(const char *url, const char *method,
+		const char *const *headerPairs, int headerPairCount,
+		const char *body, int bodyLen, const char *userAgent,
+		std::string &out) const;
+
+	/**
 	 * TLS client sockets (Android only; every call fails elsewhere, where
 	 * LuaSec or another provider is the answer). Non-blocking by contract:
 	 * tlsOpen returns a handle and connects on its own thread, tlsStatus

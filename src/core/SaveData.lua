@@ -356,6 +356,8 @@ function SaveData.defaultOptions()
     -- rewind presentation preferences.
     dateFormat = "device", -- device | dmy | mdy | ymd
     timeFormat = "device", -- device | 24h | 12h
+    saveSync = { enabled = false, lastSyncAt = 0, revs = {}, stamps = {},
+                 pendingConflicts = {} },
   }
 end
 
@@ -1013,6 +1015,22 @@ function SaveData.listSlots(version)
   return out
 end
 
+function SaveData.readSlotSource(version, slotId, injectedFs)
+  version = version or GameVersion.get()
+  if not knownVersion(version) or type(slotId) ~= "string" then return nil end
+  local fs = persistFs(injectedFs)
+  local main, bak, tmp = slotNames(version, slotId)
+  for _, name in ipairs({ main, tmp, bak }) do
+    if fs.getInfo(name) then
+      local body = fs.read(name)
+      if type(body) == "string" and body ~= "" then
+        if SaveSerializer.decode(body) then return body end
+      end
+    end
+  end
+  return nil
+end
+
 -- Give a registered slot a custom label (#205: "a way to name save slots so
 -- you can see that in the launcher").  The label lives in the options
 -- registry next to list/active, never in the save file itself, so renaming
@@ -1327,7 +1345,7 @@ end
 -- loaded list sorted by id and is the ground truth for the load-time
 -- mod-set diff.  A nil mods list keeps the previous stamp's set so a
 -- headless writer (the save editor) never wipes it.
-function SaveData.buildMeta(mods, previous)
+function SaveData.buildMeta(mods, previous, sessionStart)
   local list
   if mods ~= nil then
     list = {}
@@ -1338,10 +1356,18 @@ function SaveData.buildMeta(mods, previous)
   else
     list = (type(previous) == "table" and previous.mods) or {}
   end
+  local started = tonumber(sessionStart)
+  if not started or started ~= started or started <= 0
+      or started == math.huge then
+    started = type(previous) == "table" and tonumber(previous.sessionStart) or nil
+  end
+  local savedAt = os.time()
+  if started and started > savedAt then started = savedAt end
   return {
     format = Version.saveFormat,
     engine = Version.engine,
-    savedAt = os.time(),
+    savedAt = savedAt,
+    sessionStart = started,
     playthroughId = type(previous) == "table" and previous.playthroughId or nil,
     mods = list,
   }

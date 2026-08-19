@@ -24,6 +24,7 @@ import org.libsdl.app.SDLActivity;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -36,6 +37,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import android.Manifest;
@@ -842,6 +844,149 @@ public class GameActivity extends SDLActivity {
         } catch (Exception e) {
             Log.d("GameActivity", "httpPost failed: " + e.getMessage());
             return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    /** Response ceiling for httpRequest; anything larger is refused, not buffered. */
+    private static final int HTTP_REQUEST_MAX_RESPONSE = 4 * 1024 * 1024;
+
+    /** Builds an httpRequest envelope: one head line, a newline, then the body. */
+    private static byte[] httpEnvelope(String head, byte[] payload) {
+        byte[] prefix;
+        try {
+            prefix = (head + "\n").getBytes("UTF-8");
+        } catch (Exception e) {
+            prefix = (head + "\n").getBytes();
+        }
+        if (payload == null || payload.length == 0) return prefix;
+        byte[] out = new byte[prefix.length + payload.length];
+        System.arraycopy(prefix, 0, out, 0, prefix.length);
+        System.arraycopy(payload, 0, out, prefix.length, payload.length);
+        return out;
+    }
+
+    /** One-line, CR/LF-free failure text, so an envelope head stays one line. */
+    private static String httpErrorText(Exception e) {
+        String text = e.getMessage();
+        if (text == null || text.length() == 0) text = e.getClass().getSimpleName();
+        text = text.replace('\r', ' ').replace('\n', ' ');
+        if (text.length() > 160) text = text.substring(0, 160);
+        return text;
+    }
+
+    /**
+     * Blocking HTTPS request with a chosen method, headers and byte body,
+     * exposed as love.system.httpRequest and used by src/core/HostShell.lua
+     * for save sync. Sync needs PUT, per-request auth headers and the response
+     * body of a 4xx as well as a 2xx (a conflict answers 409 with the save
+     * that won), none of which httpDownload or httpPost above can express.
+     *
+     * Same rules as those two: https only, redirects followed by hand
+     * (re-sending method and body on each hop), 15s connect / 60s read, and
+     * blocking on the Lua/worker thread -- never the UI thread. Headers arrive
+     * as a flat name, value array; a field carrying CR or LF is refused rather
+     * than sent, so a header value can never inject a second header.
+     *
+     * The reply is an envelope: a head line of "STATUS &lt;code&gt;" or
+     * "ERROR &lt;text&gt;", a newline, then the raw response bytes.
+     */
+    @Keep
+    public static byte[] httpRequest(String url, String method, String[] headerPairs,
+                                     byte[] body, String userAgent) {
+        if (url == null) return httpEnvelope("ERROR missing url", null);
+        String verb = method == null ? "GET" : method.toUpperCase(Locale.US);
+        if (!"GET".equals(verb) && !"POST".equals(verb)
+                && !"PUT".equals(verb) && !"DELETE".equals(verb)) {
+            return httpEnvelope("ERROR unsupported request method", null);
+        }
+        if (headerPairs != null) {
+            if ((headerPairs.length % 2) != 0) {
+                return httpEnvelope("ERROR bad request header", null);
+            }
+            for (int i = 0; i < headerPairs.length; i++) {
+                String field = headerPairs[i];
+                if (field == null) return httpEnvelope("ERROR bad request header", null);
+                if (field.indexOf('\r') >= 0 || field.indexOf('\n') >= 0) {
+                    return httpEnvelope("ERROR bad request header", null);
+                }
+                if ((i % 2) == 0 && field.length() == 0) {
+                    return httpEnvelope("ERROR bad request header", null);
+                }
+            }
+        }
+        HttpURLConnection conn = null;
+        try {
+            String current = url;
+            for (int hop = 0; hop < 5; hop++) {
+                URL parsed = new URL(current);
+                if (!"https".equalsIgnoreCase(parsed.getProtocol())) {
+                    return httpEnvelope("ERROR https only", null);
+                }
+                conn = (HttpURLConnection) parsed.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);
+                conn.setRequestMethod(verb);
+                conn.setRequestProperty("User-Agent",
+                    userAgent == null ? "gen1recomp" : userAgent);
+                if (headerPairs != null) {
+                    for (int i = 0; i + 1 < headerPairs.length; i += 2) {
+                        conn.setRequestProperty(headerPairs[i], headerPairs[i + 1]);
+                    }
+                }
+                if (body != null && !"GET".equals(verb)) {
+                    conn.setDoOutput(true);
+                    conn.setFixedLengthStreamingMode(body.length);
+                    OutputStream out = new BufferedOutputStream(conn.getOutputStream());
+                    try {
+                        out.write(body);
+                    } finally {
+                        try { out.close(); } catch (IOException ignored) {}
+                    }
+                }
+                int code = conn.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                    String next = conn.getHeaderField("Location");
+                    conn.disconnect();
+                    conn = null;
+                    if (next == null) {
+                        return httpEnvelope("ERROR redirect without a location", null);
+                    }
+                    current = new URL(parsed, next).toString();
+                    continue;
+                }
+                // A rejection's body is the diagnosis the caller wants, so 4xx
+                // and 5xx are read through getErrorStream rather than dropped.
+                InputStream in;
+                try {
+                    in = conn.getInputStream();
+                } catch (IOException e) {
+                    in = conn.getErrorStream();
+                }
+                ByteArrayOutputStream sink = new ByteArrayOutputStream();
+                if (in != null) {
+                    InputStream reader = new BufferedInputStream(in);
+                    try {
+                        byte[] buf = new byte[16384];
+                        int n;
+                        while ((n = reader.read(buf)) > 0) {
+                            if (sink.size() + n > HTTP_REQUEST_MAX_RESPONSE) {
+                                return httpEnvelope("ERROR the reply was too large", null);
+                            }
+                            sink.write(buf, 0, n);
+                        }
+                    } finally {
+                        try { reader.close(); } catch (IOException ignored) {}
+                    }
+                }
+                return httpEnvelope("STATUS " + code, sink.toByteArray());
+            }
+            return httpEnvelope("ERROR too many redirects", null);
+        } catch (Exception e) {
+            Log.d("GameActivity", "httpRequest failed: " + e.getMessage());
+            return httpEnvelope("ERROR " + httpErrorText(e), null);
         } finally {
             if (conn != null) conn.disconnect();
         }

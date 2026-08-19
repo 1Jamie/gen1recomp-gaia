@@ -274,6 +274,27 @@ bool System::httpPost(const char *url, const char *body, int bodyLen,
 #endif
 }
 
+bool System::httpRequest(const char *url, const char *method,
+	const char *const *headerPairs, int headerPairCount,
+	const char *body, int bodyLen, const char *userAgent,
+	std::string &out) const
+{
+#ifdef LOVE_ANDROID
+	return love::android::httpRequest(url, method, headerPairs, headerPairCount,
+		body, bodyLen, userAgent, out);
+#else
+	LOVE_UNUSED(url);
+	LOVE_UNUSED(method);
+	LOVE_UNUSED(headerPairs);
+	LOVE_UNUSED(headerPairCount);
+	LOVE_UNUSED(body);
+	LOVE_UNUSED(bodyLen);
+	LOVE_UNUSED(userAgent);
+	out.clear();
+	return false;
+#endif
+}
+
 int System::tlsOpen(const char *host, int port) const
 {
 #ifdef LOVE_ANDROID
