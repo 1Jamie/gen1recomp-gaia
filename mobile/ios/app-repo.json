@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.10",
+          "date": "2026-08-19",
+          "size": 13662645,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.10/gen1recomp++-0.2.10-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #998 Jingles not finishing before game proceeds\n- #1472 Message for sending out Pokemon not closing automatically\n- #1526 No screen shake when getting poisoned\n- #1529 Messages missing when interacting with PC\n- #1530 No message for interacting with bikes in the bike shop\n- #1532 Thrash animation incomplete\n- #1534 Dialogue missing when switching out Pokemon\n- #1547 Save states can be used to bypass certain NPCs\n- #1549 Menu Cartridge 3D model has visual issues\n- #1550 Nugget Bridge Rocket repeating dialogue\n- #1551 No scripted dialogue after beating Nugget Bridge Rocket\n\n## Contributors\n\n- @bryanthaboi\n- @castdrian"
+        },
+        {
           "version": "0.2.9",
           "date": "2026-08-19",
           "size": 13656293,
