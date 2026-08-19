@@ -851,6 +851,7 @@ function Studio.detectViewport()
   end
   Studio.pushUndo()
   page.viewport = rect
+  page.screenFit = nil
   setStatus(("Screen detected: %dx%d px in the bezel art"):format(pw, ph))
   Studio.dirty = true
 end
@@ -860,8 +861,9 @@ function Studio.toggleViewport()
   if not page then return end
   if Studio.canvas().lockViewport then return end
   Studio.pushUndo()
-  if page.viewport then
+  if page.viewport or page.screenFit == "remainder" then
     page.viewport = nil
+    page.screenFit = nil
   else
     page.viewport = { x = 0.1, y = 0.05, w = 0.8, h = 0.45 }
   end
@@ -892,7 +894,7 @@ function Studio.pageLabel(index)
   local orient = TouchSkin.pageOrient(page)
   local bits = { #(page.controls or {}) .. " controls" }
   if orient then bits[#bits + 1] = orient end
-  if page.viewport then bits[#bits + 1] = "screen" end
+  if page.viewport or page.screenFit == "remainder" then bits[#bits + 1] = "screen" end
   return name, table.concat(bits, "  \194\183  ")
 end
 
@@ -1092,10 +1094,9 @@ function Studio.snapLines(page, r, skipIndex)
 end
 
 local function viewportRect(page, r)
-  local v = page.viewport
-  if not v then return nil end
-  local bx, by, bw, bh = TouchSkin.pageBox(page, r.w, r.h, r.x, r.y)
-  return bx + v.x * bw, by + v.y * bh, v.w * bw, v.h * bh
+  local x, y, w, h = TouchSkin.pageViewport(page, r.w, r.h, r.x, r.y)
+  if not x then return nil end
+  return x, y, w, h
 end
 
 local function handleRects(bx, by, bw, bh)
@@ -1138,7 +1139,7 @@ function Studio.beginCanvasDrag(mx, my, r)
   end
 
   local vx, vy, vw, vh = viewportRect(page, r)
-  if vx and not Studio.canvas().lockViewport then
+  if vx and not Studio.canvas().lockViewport and page.screenFit ~= "remainder" then
     for _, h in ipairs(handleRects(vx, vy, vw, vh)) do
       if mx >= h.x and mx <= h.x + h.w and my >= h.y and my <= h.y + h.h then
         Studio.pushUndo()
@@ -1162,7 +1163,7 @@ function Studio.beginCanvasDrag(mx, my, r)
     end
   end
 
-  if vx and not Studio.canvas().lockViewport
+  if vx and not Studio.canvas().lockViewport and page.screenFit ~= "remainder"
      and mx >= vx and mx <= vx + vw and my >= vy and my <= vy + vh then
     Studio.selected = nil
     Studio.pushUndo()
@@ -1270,7 +1271,7 @@ local function drawCanvas(x, y, w, h)
   if vx then
     Theme.strokeRounded(vx, vy, vw, vh, PAL.blue, 0.9, 2, 2)
     Kit.text("small", "SCREEN", vx + 4 * Kit.scale, vy + 4 * Kit.scale, PAL.blue)
-    if not Studio.canvas().lockViewport then
+    if not Studio.canvas().lockViewport and page.screenFit ~= "remainder" then
       local a = Studio.selectedControl() and 0.45 or 1
       for _, hd in ipairs(handleRects(vx, vy, vw, vh)) do
         Theme.fill(hd.x, hd.y, hd.w, hd.h, PAL.blue, a)
@@ -1374,7 +1375,7 @@ local function inspectorBody(x, y, w)
   cy = cy + rowH + gap
 
   if page then
-    local bezel = page.imagePath or "(none)"
+    local bezel = page.imagePath or page.rasterName or "(none)"
     local pickW = 82 * Kit.scale
     local cycleW = w - pickW - gap
     if Kit.button(x, cy, cycleW, rowH, "Bezel: " .. bezel, { id = "bezel" }) then
@@ -1385,7 +1386,8 @@ local function inspectorBody(x, y, w)
       Studio.importImageFile("bezel")
     end
     cy = cy + rowH + gap
-    local vpLabel = page.viewport and "Screen cutout: ON" or "Screen cutout: OFF"
+    local vpLabel = (page.viewport or page.screenFit == "remainder")
+      and "Screen cutout: ON" or "Screen cutout: OFF"
     if Kit.button(x, cy, half, rowH, vpLabel, { id = "vp",
         enabled = not Studio.canvas().lockViewport }) then
       Studio.toggleViewport()

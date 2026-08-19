@@ -432,6 +432,10 @@ function TouchSkin.parseNative(text)
       aspectFromCfg = raw.fitAspect == true,
       orient = (raw.orient == "portrait" or raw.orient == "landscape"
                 or raw.orient == "any") and raw.orient or nil,
+      screenFit = raw.screenFit == "remainder" and "remainder" or nil,
+      anchor = (raw.anchor == "top" or raw.anchor == "bottom"
+                or raw.anchor == "left" or raw.anchor == "right")
+                and raw.anchor or nil,
       rect = { x = 0, y = 0, w = 1, h = 1 },
       controls = {},
     }
@@ -507,6 +511,8 @@ function TouchSkin.toNative(skin)
       alphaMod = page.alphaMod,
       aspect = page.aspect,
       fitAspect = page.aspectFromCfg or nil,
+      screenFit = page.screenFit == "remainder" and "remainder" or nil,
+      anchor = page.anchor,
       orient = (page.orient == "portrait" or page.orient == "landscape"
                 or page.orient == "any") and page.orient or nil,
       controls = {},
@@ -570,6 +576,40 @@ local function loadImage(path)
   return img
 end
 
+-- FileData so LOVE sniffs JPEG/PNG from the name, not a path inside the zip.
+local function loadImageFromBytes(bytes, name)
+  if not bytes or bytes == "" then return nil end
+  if not (love and love.graphics and love.graphics.newImage) then return nil end
+  if not (love.filesystem and love.filesystem.newFileData) then return nil end
+  local key = "bytes:" .. tostring(name) .. ":" .. tostring(#bytes)
+  local cached = imageCache[key]
+  if cached then return cached end
+  local okFd, fd = pcall(love.filesystem.newFileData, bytes, name or "bezel.jpg")
+  if not okFd or not fd then return nil end
+  local ok, img = pcall(love.graphics.newImage, fd)
+  if not ok or not img then
+    if love.image and love.image.newImageData then
+      local okData, data = pcall(love.image.newImageData, fd)
+      if okData and data then ok, img = pcall(love.graphics.newImage, data) end
+    end
+  end
+  if not ok or not img then return nil end
+  if img.setFilter then img:setFilter("linear", "linear") end
+  imageCache[key] = img
+  return img
+end
+
+local function rasterizePdfPage(page, root)
+  if not page or page.image or not page.pdfPath then return end
+  local pdf = readFile(joinPath(root, page.pdfPath))
+  local raster = require("src.core.PdfImage").extract(pdf)
+  if not raster then return end
+  local name = tostring(page.pdfPath):gsub("%.[Pp][Dd][Ff]$", "") .. "." .. raster.ext
+  page.rasterData = raster.data
+  page.rasterName = name:match("([^/]+)$") or name
+  page.image = loadImageFromBytes(raster.data, page.rasterName)
+end
+
 local function pixelScalePending(page)
   if page.pixelCoords then return true end
   for _, ctl in ipairs(page.controls or {}) do
@@ -622,6 +662,8 @@ function TouchSkin.load(root, id)
   for _, page in ipairs(skin.pages) do
     if page.imagePath then
       page.image = loadImage(joinPath(root, page.imagePath))
+    elseif page.pdfPath then
+      rasterizePdfPage(page, root)
     end
     if not applyPixelScale(page) then
       return nil, "could not read " .. tostring(page.imagePath)
@@ -646,7 +688,7 @@ end
 TouchSkin.ARCHIVE_EXTS = { zip = true, deltaskin = true }
 TouchSkin.LEGACY_EXTS = { gbcskin = true, gbaskin = true, gbskin = true }
 TouchSkin.PDF_ONLY_MESSAGE =
-  "This skin uses PDF artwork, which cannot be imported yet. "
+  "This skin uses PDF artwork with no extractable image. "
   .. "Ask the author for a PNG version."
 
 function TouchSkin.archiveId(name)
@@ -1246,12 +1288,27 @@ function TouchSkin.pageBox(page, w, h, ox, oy)
     and page.aspect and page.aspect > 0 and h > 0
   if fit then
     local displayAspect = w / h
+    local anchor = page.anchor
     if displayAspect > page.aspect then
       bw = h * page.aspect
-      bx = ox + (w - bw) * 0.5
+      local extra = w - bw
+      if anchor == "right" then
+        bx = ox + extra
+      elseif anchor == "left" then
+        bx = ox
+      else
+        bx = ox + extra * 0.5
+      end
     else
       bh = w / page.aspect
-      by = oy + (h - bh) * 0.5
+      local extra = h - bh
+      if anchor == "bottom" then
+        by = oy + extra
+      elseif anchor == "top" then
+        by = oy
+      else
+        by = oy + extra * 0.5
+      end
     end
   end
   local r = page.rect
@@ -1308,18 +1365,55 @@ end
 
 function TouchSkin.hasViewport()
   local page = TouchSkin.page()
-  return page ~= nil and page.viewport ~= nil and TouchSkin.drawable()
+  if not page or not TouchSkin.drawable() then return false end
+  return page.viewport ~= nil or page.screenFit == "remainder"
+end
+
+-- Largest strip of (ox,oy,w,h) that does not overlap the overlay box.
+local function remainderBox(ox, oy, w, h, bx, by, bw, bh)
+  local right, bottom = ox + w, oy + h
+  local cand = {
+    { ox, oy, w, by - oy },
+    { ox, by + bh, w, bottom - (by + bh) },
+    { ox, oy, bx - ox, h },
+    { bx + bw, oy, right - (bx + bw), h },
+  }
+  local best, bestArea
+  for _, r in ipairs(cand) do
+    if r[3] > 1 and r[4] > 1 then
+      local area = r[3] * r[4]
+      if not best or area > bestArea then
+        best, bestArea = r, area
+      end
+    end
+  end
+  if not best then return nil end
+  return best[1], best[2], best[3], best[4]
+end
+
+function TouchSkin.pageViewport(page, w, h, ox, oy)
+  if not page then return nil end
+  ox, oy = ox or 0, oy or 0
+  local bx, by, bw, bh = TouchSkin.pageBox(page, w, h, ox, oy)
+  if page.viewport then
+    local v = page.viewport
+    local x, y = bx + v.x * bw, by + v.y * bh
+    local vw, vh = v.w * bw, v.h * bh
+    if vw <= 0 or vh <= 0 then return nil end
+    return x, y, vw, vh, page.viewportFill == true, page.viewportExpand == true
+  end
+  if page.screenFit == "remainder" then
+    local x, y, vw, vh = remainderBox(ox, oy, w, h, bx, by, bw, bh)
+    if not x then return nil end
+    return x, y, vw, vh, false, false
+  end
+  return nil
 end
 
 function TouchSkin.viewport(w, h, ox, oy)
   local page = TouchSkin.page()
-  if not page or not page.viewport or not TouchSkin.drawable() then return nil end
-  local v = page.viewport
-  local bx, by, bw, bh = TouchSkin.pageBox(page, w, h, ox, oy)
-  local x, y = bx + v.x * bw, by + v.y * bh
-  local vw, vh = v.w * bw, v.h * bh
-  if vw <= 0 or vh <= 0 then return nil end
-  return x, y, vw, vh, page.viewportFill == true, page.viewportExpand == true
+  if not page or not TouchSkin.drawable() then return nil end
+  return TouchSkin.pageViewport(page, w, h, ox, oy)
 end
 
 return TouchSkin

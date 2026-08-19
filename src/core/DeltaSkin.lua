@@ -116,11 +116,13 @@ function DeltaSkin.pickAsset(assets, opts, pdfFiles)
   if type(assets) ~= "table" then return nil end
   pdfFiles = pdfFiles or {}
   local raster = {}
+  local pdfName
   for _, key in ipairs(DeltaSkin.ASSET_LADDER) do
     local name = pick(assets, key)
     if key == "medium" and type(name) ~= "string" then name = pick(assets, "normal") end
     if type(name) == "string" and name ~= "" then
       if name:lower():match("%.pdf$") then
+        pdfName = name
         pdfFiles[#pdfFiles + 1] = name
       else
         raster[#raster + 1] = { key = key, name = name }
@@ -130,12 +132,14 @@ function DeltaSkin.pickAsset(assets, opts, pdfFiles)
   local resizable = pick(assets, "resizable")
   if type(resizable) == "string" and resizable ~= "" then
     if resizable:lower():match("%.pdf$") then
+      pdfName = resizable
       pdfFiles[#pdfFiles + 1] = resizable
     else
       raster[#raster + 1] = { key = "large", name = resizable }
     end
   end
-  if #raster == 0 then return nil end
+  local pdfPath = pdfName and DeltaSkin.resolveName(pdfName, opts) or nil
+  if #raster == 0 then return nil, pdfPath end
 
   local target = numOr(opts and opts.targetWidth, DeltaSkin.DEFAULT_TARGET_WIDTH)
   local chosen
@@ -145,7 +149,7 @@ function DeltaSkin.pickAsset(assets, opts, pdfFiles)
     end
   end
   if not chosen then chosen = raster[#raster].name end
-  return DeltaSkin.resolveName(chosen, opts)
+  return DeltaSkin.resolveName(chosen, opts), nil
 end
 
 function DeltaSkin.mergeEdges(base, item)
@@ -288,10 +292,12 @@ function DeltaSkin.buildPage(obj, orient, opts, warnings, pdfFiles)
     addWarning(warnings, orient .. " has no mappingSize; assuming 320x240")
   end
 
+  local imagePath, pdfPath = DeltaSkin.pickAsset(pick(obj, "assets"), opts, pdfFiles)
   local page = {
     name = orient,
     orient = orient,
-    imagePath = DeltaSkin.pickAsset(pick(obj, "assets"), opts, pdfFiles),
+    imagePath = imagePath,
+    pdfPath = pdfPath,
     fullScreen = true,
     normalized = true,
     pixelCoords = false,
@@ -309,6 +315,14 @@ function DeltaSkin.buildPage(obj, orient, opts, warnings, pdfFiles)
   if screen then
     page.viewport = screen
     page.viewportFill = false
+  else
+    -- mappingSize is the overlay, not the device.  Portrait controller
+    -- skins (GBA4iOS-era 320x240 decks, this Pikachu skin, etc.) keep
+    -- that aspect, sit at the bottom, and leave the leftover for the
+    -- Game Boy picture.  A screens/gameScreenFrame rect still fills.
+    page.aspectFromCfg = true
+    page.screenFit = "remainder"
+    if orient == "portrait" then page.anchor = "bottom" end
   end
 
   local baseEdges = pick(obj, "extendedEdges")
@@ -368,9 +382,6 @@ function DeltaSkin.parse(text, opts)
     end
   end
   if #pages == 0 then return nil, "info.json has no usable representation" end
-  if #pdfFiles > 0 then
-    addWarning(warnings, "PDF artwork cannot be imported yet")
-  end
 
   return {
     pages = pages,
@@ -390,6 +401,10 @@ function DeltaSkin.needsConversion(skin)
   local files = skin.pdfFiles
   if type(files) ~= "table" or #files == 0 then return nil end
   for _, page in ipairs(skin.pages or {}) do
+    -- A raster asset, or a JPEG recovered from the PDF at load, means the
+    -- skin can draw.  Parse-only callers still see pdfOnly because they
+    -- have not run extract yet.
+    if page.rasterData then return nil end
     if page.imagePath then return nil end
   end
   return { pdfOnly = true, files = files }

@@ -95,18 +95,22 @@ auto-rotates like a RetroArch one. Item `frame` rects are top-left plus size in
 `extendedEdges` merge per key into the reach fields; `mask: "circle"` becomes a
 radial hitbox. A `dpad` or `thumbstick` item expands into the 3x3 grid, so the
 corners fire two directions. `screens[1].outputFrame` (or the legacy
-`gameScreenFrame`) becomes the screen cutout, and the skin stretches to the
-window the way Delta does rather than letterboxing. Host functions map to
+`gameScreenFrame`) becomes the screen cutout. A portrait page with neither
+keeps `mappingSize` as the overlay aspect, sits at the bottom of the
+window, and puts the Game Boy picture in the leftover space above -- the
+usual GBA4iOS controller-deck layout. Pages that name a screen rect still
+stretch to the window the way Delta does. Host functions map to
 engine hotkeys: `menu` to `menu_toggle`, `fastForward` to
 `hold_fast_forward`, `toggleFastForward` to `toggle_fast_forward`;
 `quickSave` and `quickLoad` have nothing to bind to and drop to decoration.
 Both `com.rileytestut.delta.game.*` and Manic's `public.aoshuang.game.*`
 identifiers are accepted, and a non Game Boy system warns instead of failing.
 
-PDF artwork is the one thing that does not come across: Delta's own templates
-are all-PDF and this engine has no rasterizer, so such a skin is refused with
-the message asking for a PNG version. GBA4iOS `.gbcskin` / `.gbaskin` files are
-an older, incompatible schema and are refused by name.
+PDF artwork is usually a JPEG wrapped so iOS can scale it (Delta's
+Image-to-PDF skins, Preview exports, and the like). Import extracts that
+JPEG and draws it; a true vector PDF with no embedded image is still refused,
+with a message asking for a PNG version. GBA4iOS `.gbcskin` / `.gbaskin` files
+are an older, incompatible schema and are refused by name.
 
 ## Bindable actions
 
@@ -268,6 +272,7 @@ exported file** opens that folder.
 
 ## Not implemented
 
-Delta skins whose art is PDF only. Rasterizing them needs a PDF renderer this
-engine does not carry, so they are refused with a message rather than imported
-half-drawn.
+True vector Delta skins (PDF artwork with no embedded JPEG). Those still need
+a PDF renderer this engine does not carry, so they are refused with a message
+rather than imported half-drawn. PDF files that wrap a JPEG, the usual Delta
+skin case, extract on import.
