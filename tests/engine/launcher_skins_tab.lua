@@ -54,8 +54,8 @@ check(view:find('id = "bug"', 1, true) ~= nil,
       "LauncherView registers a bug tab")
 check(view:find("drawSkinGlyph", 1, true) ~= nil,
       "the skins tab draws its own glyph rather than shipping an asset")
-check(view:find("drawBugGlyph", 1, true) ~= nil,
-      "the bug tab draws its own glyph rather than shipping an asset")
+check(view:find('assets/launcher/bug.png', 1, true) ~= nil,
+      "the bug tab uses the standard bug report asset")
 -- the tab has to be next to Find, which is what the request was
 local order = view:match("local HEADER_TABS = %{(.-)%}\n")
 check(order ~= nil, "HEADER_TABS found")

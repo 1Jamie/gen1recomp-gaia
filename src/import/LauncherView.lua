@@ -875,35 +875,6 @@ local function drawSyncGlyph(x, y, w, h, hot)
       byy + head)
     love.graphics.pop()
   end
-
-local function drawBugGlyph(x, y, w, h, hot)
-  local box = math.min(w, h)
-  local bx = x + (w - box) / 2
-  local by = y + (h - box) / 2
-  local ink = hot and PAL.inverse or PAL.ink
-  local bodyW = box * 0.28
-  local bodyH = box * 0.46
-  local bodyX = bx + (box - bodyW) / 2
-  local bodyY = by + box * 0.30
-  local radius = math.max(1, box * 0.12)
-  Theme.fillRounded(bodyX, bodyY, bodyW, bodyH, ink, 1, radius)
-  Theme.fillRounded(bx + box * 0.38, by + box * 0.17,
-    box * 0.24, box * 0.24, ink, 1, box * 0.12)
-  love.graphics.push("all")
-  love.graphics.setColor(ink)
-  love.graphics.setLineWidth(math.max(1, box * 0.07))
-  love.graphics.setLineJoin("bevel")
-  for _, offset in ipairs({ 0.35, 0.50, 0.65 }) do
-    love.graphics.line(bodyX, by + box * offset,
-      bx + box * 0.12, by + box * (offset - 0.07))
-    love.graphics.line(bodyX + bodyW, by + box * offset,
-      bx + box * 0.88, by + box * (offset - 0.07))
-  end
-  love.graphics.line(bx + box * 0.44, by + box * 0.18,
-    bx + box * 0.30, by + box * 0.08)
-  love.graphics.line(bx + box * 0.56, by + box * 0.18,
-    bx + box * 0.70, by + box * 0.08)
-  love.graphics.pop()
 end
 
 local function drawCross(x, y, size, color)
@@ -955,12 +926,12 @@ local HEADER_TABS = {
   { id = "mods",   key = "tab-mods" },
   { id = "find",   key = "tab-find" },
   { id = "skins",  key = "tab-skins", glyph = true },
-  { id = "bug",    key = "tab-bug", glyph = true },
+  { id = "bug",    key = "tab-bug" },
 }
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
   if t.glyph then
-    t.opts.drawFn = t.id == "bug" and drawBugGlyph or drawSkinGlyph
+    t.opts.drawFn = drawSkinGlyph
   end
 end
 
@@ -1099,6 +1070,8 @@ local function buildHeader(imp, m)
     or love.graphics.newImage("assets/launcher/mods.png")
   imp._findIcon = imp._findIcon
     or love.graphics.newImage("assets/launcher/find.png")
+  imp._bugIcon = imp._bugIcon
+    or love.graphics.newImage("assets/launcher/bug.png")
   -- Game tabs keep their cartridge colours -- that is the one piece of brand
   -- identity in the launcher, and "the red one" is how people actually refer
   -- to these.  The colour rides the outline and the glyph at rest and becomes
@@ -1109,6 +1082,7 @@ local function buildHeader(imp, m)
   for _, t in ipairs(tabs) do
     if t.id == "mods" then t.icon = imp._modsIcon end
     if t.id == "find" then t.icon = imp._findIcon end
+    if t.id == "bug" then t.icon = imp._bugIcon end
   end
   local tabH = m.chip
   local tx = m.x + m.pad
@@ -2361,7 +2335,7 @@ local function buildBugPanel(imp, x, y, w, availH, m)
   local cy = y
   local safeMode = imp:_safeModeEnabled()
 
-  Kit.text("button", Strings("Bug reports"), x, cy, PAL.heading)
+  Kit.text("button", Strings("Troubleshooting"), x, cy, PAL.heading)
   cy = cy + Kit.textHeight("button") + gap
 
   if imp.issueNotice then
@@ -2397,13 +2371,13 @@ local function buildBugPanel(imp, x, y, w, availH, m)
   local reportLabel = Strings("Report a bug")
   local reportW = math.min(w - 2 * pad,
     Kit.textWidth("small", reportLabel) + math.floor(32 * m.s))
-  local reportDetail = Strings("Open GitHub with the bug form and the available system information filled in.")
+  local reportDetail = Strings("Fill out the GitHub form with the available system information.")
   local reportTextW = math.max(0, w - 2 * pad - reportW - gap)
   local reportDetailH = Kit.wrapHeight("small", reportDetail, reportTextW, 3)
   local reportH = math.max(m.btnH, Kit.textHeight("small") + math.floor(4 * m.s) + reportDetailH)
     + 2 * pad
   Kit.card(x, cy, w, reportH)
-  Kit.text("small", Strings("Report an issue"), textX, cy + pad, PAL.heading)
+  Kit.text("small", Strings("GitHub bug form"), textX, cy + pad, PAL.heading)
   Kit.textWrapped("small", reportDetail, textX,
     cy + pad + Kit.textHeight("small") + math.floor(4 * m.s), reportTextW,
     PAL.muted, 3)
