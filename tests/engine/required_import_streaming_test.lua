@@ -1,0 +1,97 @@
+-- Regression for large raw required imports: direct source -> engine-owned
+-- baseroms destination, incremental MD5, no whole-file staging requirement.
+package.path = "./?.lua;./?/init.lua;" .. package.path
+if not _G.love then _G.love = require("tests.love_stub") end
+
+local T = require("tests.modkit")
+local RomImporter = require("src.import.RomImporter")
+local RequiredImports = require("src.mods.RequiredImports")
+
+-- The stock headless filesystem intentionally omits love.filesystem.newFile.
+-- Add the smallest streaming-file facade this transport path needs so the
+-- regression drives the same seek/read/write API production LÖVE provides.
+local oldNewFile = love.filesystem.newFile
+local oldGetInfo = love.filesystem.getInfo
+love.filesystem.newFile = function(path)
+  local body, pos, mode = love.filesystem.read(path) or "", 1, nil
+  local file = {}
+  function file:open(m)
+    mode = m
+    if m == "w" then body, pos = "", 1 else pos = 1 end
+    return true
+  end
+  function file:read(n)
+    local out = body:sub(pos, pos + n - 1)
+    pos = pos + #out
+    if out == "" then return nil end
+    return out
+  end
+  function file:write(bytes)
+    if mode ~= "w" then return nil, "not open for write" end
+    body = body:sub(1, pos - 1) .. bytes .. body:sub(pos + #bytes)
+    pos = pos + #bytes
+    love.filesystem.write(path, body)
+    return true
+  end
+  function file:seek(offset) pos = offset + 1 return offset end
+  function file:getSize() return #body end
+  function file:close()
+    if mode == "w" then love.filesystem.write(path, body) end
+    mode = nil
+    return true
+  end
+  return file
+end
+love.filesystem.getInfo = function(path, filter)
+  local info = oldGetInfo(path, filter)
+  if info and info.type == "file" then
+    local bytes = love.filesystem.read(path) or ""
+    return { type = "file", size = #bytes, modtime = 1 }
+  end
+  return info
+end
+
+local source = "required_import_streaming_source.tmp"
+local f = assert(io.open(source, "wb"))
+f:write("abc")
+f:close()
+
+local manifest = {
+  id = "stream_probe",
+  name = "Stream Probe",
+  path = "mods/stream_probe",
+  required_imports = {
+    { id = "source", name = "Source", file = "source.bin", format = "raw",
+      size = 3, md5 = { "900150983cd24fb0d6963f7d28e17f72" } },
+  },
+  optional_imports = {},
+}
+
+local importer = setmetatable({
+  mods = { { id = "stream_probe", manifest = manifest } },
+  requiredImportNotice = nil,
+  modNotice = nil,
+  _refreshMods = function(self) self._refreshed = true end,
+}, RomImporter)
+
+-- Exercise the exact large-file branch with tiny fixture bytes by lowering the
+-- threshold for this test. Production keeps the 128 MiB confirmation/streaming
+-- threshold; the copy/hash algorithm is identical.
+local oldWarn = RequiredImports.LARGE_WARN_BYTES
+RequiredImports.LARGE_WARN_BYTES = 2
+local ok = importer:_importRequiredSource("stream_probe", "source", source, true)
+RequiredImports.LARGE_WARN_BYTES = oldWarn
+
+T.eq(ok, true, "large raw required import streams successfully")
+T.eq(love.filesystem.read("mods/stream_probe/baseroms/source.bin"), "abc",
+  "streamed destination preserves exact source bytes")
+T.eq(importer.requiredImportNotice, nil, "successful stream leaves no import error")
+T.eq(importer._refreshed, true, "successful stream refreshes the mod list")
+
+love.filesystem.remove("mods/stream_probe/baseroms/source.bin")
+love.filesystem.remove("mods/stream_probe/baseroms/source.iso")
+os.remove(source)
+love.filesystem.newFile = oldNewFile
+love.filesystem.getInfo = oldGetInfo
+
+T.finish("required_import_streaming")
