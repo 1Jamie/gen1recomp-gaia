@@ -892,10 +892,12 @@ Battle.PRIORITY = {
   EFFECT_ENDURE = 3,
   EFFECT_COUNTER = -1,
   EFFECT_MIRROR_COAT = -1,
+  EFFECT_FORCE_SWITCH = -1,  -- Whirlwind, Roar: priority 0, below BASE
 }
 
 function Battle:movePriority(moveId)
-  -- engine/battle/core.asm:786 GetMovePriority, `cp VITAL_THROW / ld a, 0`.
+  -- GetMovePriority `cp VITAL_THROW / ld a, 0 / ret z`
+  -- (engine/battle/core.asm:787-789).
   if moveId == "VITAL_THROW" then return -1 end
   local def = self:moveDef(moveId)
   return (def and Battle.PRIORITY[def.effect]) or 0
@@ -2410,6 +2412,7 @@ Battle.MOVE_EFFECTS.EFFECT_BATON_PASS = function(self, attacker)
   local sent = side == "player" and self.player or self.enemy
   self:emit({ kind = "send", side = side, mon = sent,
     hp = sent.hp or 0, status = sent.status or false,
+    level = sent.level, experience = sent.experience,
     text = "Go! " .. self:monName(sent) .. "!" })
 end
 
@@ -2670,6 +2673,7 @@ Battle.MOVE_EFFECTS.EFFECT_FORCE_SWITCH = function(self, attacker, defender,
   end
   self:emit({ kind = "send", side = self:sideOf(incoming), mon = incoming,
     hp = incoming.hp or 0, status = incoming.status or false,
+    level = incoming.level, experience = incoming.experience,
     text = self:monName(incoming) .. " was dragged out!" })
   self:breakTrapsOnSend(incoming)
   self:spikesDamage(incoming)
@@ -3117,6 +3121,7 @@ function Battle:resolveFaints()
     self:emit({ kind = "send", side = "enemy", mon = self.enemy,
       replacement = true,
       hp = self.enemy.hp or 0, status = self.enemy.status or false,
+      level = self.enemy.level, experience = self.enemy.experience,
       text = (self.trainer and self.trainer.name or "Foe") .. " sent out "
         .. self:monName(self.enemy) .. "!" })
     Runtime.emit("battle.battler_switched", {
@@ -3196,11 +3201,12 @@ function Battle:printWinLossText(result)
   if not trainer then return end
   -- The DEBUG_BATTLE_F skip sits in front of PrintWinLossText alone, behind
   -- the slide (engine/battle/core.asm:2310, :2320-2323).
-  self:emit({ kind = "trainer-return" })
+  -- The CANLOSE loss arm runs ClearBox first (:2770-2773).
+  self:emit({ kind = "trainer-return", cleared = result == "lose" or nil })
   local text = (result == "lose") and trainer.lossText or trainer.winText
   if type(text) ~= "string" or text == "" then return end
-  -- FarPrintText prints the pointer alone: no trainer-name tag in front of it,
-  -- unlike Gen 1's TrainerEndBattleText (pokered home/trainers.asm:341).
+  -- FarPrintText prints the pointer alone: no trainer-name tag in front of
+  -- it, unlike Gen 1's TrainerEndBattleText (pokered home/trainers.asm:355).
   self:emit({ kind = "win-text", text = text })
 end
 
@@ -3526,6 +3532,7 @@ function Battle:switch(index)
   self.stages.player = Battle.newStages()
   self:emit({ kind = "send", side = "player", mon = mon,
     hp = mon.hp or 0, status = mon.status or false,
+    level = mon.level, experience = mon.experience,
     text = "Go! " .. self:monName(mon) .. "!" })
   -- battle.battler_switched, the payload BattleState:resolveSwitch emits on
   -- Gen 1: the side record, whoever walked in, and whoever walked out.
@@ -3991,6 +3998,7 @@ function Battle:enemyTrySwitchOrItem()
     self.stages.enemy = Battle.newStages()
     self:emit({ kind = "send", side = "enemy", mon = self.enemy,
       hp = self.enemy.hp or 0, status = self.enemy.status or false,
+      level = self.enemy.level, experience = self.enemy.experience,
       text = (self.trainer.name or "TRAINER") .. " sent out "
         .. self:monName(self.enemy) .. "!" })
     Runtime.emit("battle.battler_switched", {

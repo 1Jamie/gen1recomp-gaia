@@ -119,8 +119,14 @@ function Menu:draw()
                   self.tw * 8, self.th * 8, self.anchor)
   end
   Font.drawBox(self.tx, self.ty, self.tw, self.th)
+  -- PlaceString at hlcoord 3,0 writes over the border row it was just
+  -- drawn on (oak_speech2.asm:162-170)
+  if self.title then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", (self.tx + 3) * 8, self.ty * 8,
+      #Font.split(self.title) * 8, 8)
+  end
   love.graphics.setColor(0, 0, 0, 1)
-  -- PlaceString at hlcoord 3,0 writes over the border row it was just drawn on
   if self.title then
     Font.draw(self.title, (self.tx + 3) * 8, self.ty * 8)
   end

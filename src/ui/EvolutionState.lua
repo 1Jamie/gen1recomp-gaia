@@ -13,9 +13,10 @@
 local Music = require("src.core.Music")
 local romText = require("src.core.RomText")
 
+-- Not opaque: ClearScreenArea wipes rows 0-11 only (evos_moves.asm:126-128),
+-- so the "is evolving!" box beneath stays visible through the flash (#1596).
 local EvolutionState = {}
 EvolutionState.__index = EvolutionState
-EvolutionState.isOpaque = true
 
 -- SGB: SetPal_PokemonWholeScreen for the mon on display
 function EvolutionState:sgbPalettes(game)
@@ -147,7 +148,8 @@ end
 
 function EvolutionState:draw()
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.rectangle("fill", 0, 0, 160, 144)
+  -- rows 0-11 only (hlcoord 0,0 / lb bc, 12, 20, evos_moves.asm:126-128)
+  love.graphics.rectangle("fill", 0, 0, 160, 96)
 
   -- accelerating flash between the two forms
   local sprite, spriteTrueColor
@@ -172,7 +174,6 @@ function EvolutionState:draw()
       require("src.render.PaletteFX").markTrueColor(x, y, sprite:getDimensions())
     end
   end
-  love.graphics.setColor(1, 1, 1, 1)
 end
 
 return EvolutionState

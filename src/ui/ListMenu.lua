@@ -94,7 +94,15 @@ function ListMenu.new(game, title, items, opts)
   -- the bag's item list: a partial box the map stays visible around, not a
   -- screen of its own (home/list_menu.asm:29-31)
   self.itemBox = opts.itemBox or false
-  if self.itemBox then self.isOpaque = false end
+  if self.itemBox then
+    self.isOpaque = false
+    -- keep RunDefaultPaletteCommand's last palette: ItemMenuLoop never sets
+    -- its own (engine/menus/start_sub_menus.asm:300)
+    self.sgbPalettes = false
+    -- wMaxMenuItem is 2 for item lists; the fourth printed row is a
+    -- look-ahead the cursor cannot reach (home/list_menu.asm:46-48)
+    self.cursorRows = 3
+  end
   self.rows = opts.rows or (self.itemBox and ITEM_ROWS)
     or ((opts.dialogue or opts.messageBox) and 4 or ROWS)
   return self
@@ -113,8 +121,9 @@ local function moveIndex(self, delta)
 end
 
 local function syncScroll(self)
-  if self.index - self.scroll > self.rows then
-    self.scroll = self.index - self.rows
+  local maxRow = self.cursorRows or self.rows
+  if self.index - self.scroll > maxRow then
+    self.scroll = self.index - maxRow
   end
   if self.index - self.scroll < 1 then self.scroll = self.index - 1 end
 end

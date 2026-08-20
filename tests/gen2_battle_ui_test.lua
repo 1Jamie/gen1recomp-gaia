@@ -1307,7 +1307,7 @@ do
 end
 
 -- ---- GetMovePriority's Vital Throw carve-out (#1475) ----------------------
--- engine/battle/core.asm:786
+-- engine/battle/core.asm:787-789
 do
   local screen = newScreen()
   check(runToMenu(screen), "reached the menu")
@@ -1323,11 +1323,20 @@ do
   eq(battle:movePriority("SWIFT"), 0,
     "while SWIFT, which shares its effect, keeps BASE_PRIORITY")
   eq(battle:movePriority("QUICK_ATTACK"), 1, "and the table still reads")
+  moves.ROAR_FIX = { id = "ROAR_FIX", name = "ROAR", power = 0,
+    type = "NORMAL", accuracy = 100, pp = 20, effect = "EFFECT_FORCE_SWITCH" }
+  -- MoveEffectPriorities: EFFECT_FORCE_SWITCH is 0, below BASE_PRIORITY
+  -- (data/moves/effects_priorities.asm:5)
+  eq(battle:movePriority("ROAR_FIX"), -1,
+    "Whirlwind and Roar sit below BASE_PRIORITY")
+  eq(battle:orderOf("VITAL_THROW", "ROAR_FIX"), "player",
+    "VITAL_THROW ties a force-switch move (0 vs 0), so Speed decides")
   eq(battle:orderOf("TACKLE", "TACKLE"), "player",
     "the faster mon leads on equal priority")
   eq(battle:orderOf("VITAL_THROW", "TACKLE"), "enemy",
     "but VITAL_THROW loses to a normal move whatever the Speed")
   moves.VITAL_THROW, moves.SWIFT, moves.QUICK_ATTACK = nil, nil, nil
+  moves.ROAR_FIX = nil
 end
 
 -- ---- a send-out snapshots HP at send time (#1514) -------------------------
@@ -1350,6 +1359,29 @@ do
   screen:advanceQueue()
   eq(screen.shownHp.player, send.hp,
     "and the HUD opens on the snapshot, not on the post-hit value")
+end
+
+-- ---- the send-out snapshots level and exp the same way (#1514) ------------
+-- SendOutPlayerMon reloads wBattleMon* from the party slot (core.asm:3796-3838)
+do
+  local lead = Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect })
+  local bench = Mon.new(DATA, "TOTODILE", 10, { dvs = perfect })
+  local screen, battle = newScreen({ player = lead, party = { lead, bench } })
+  check(runToMenu(screen), "reached the menu")
+  battle:takeEvents()
+  check(battle:switch(2), "the bench mon comes in")
+  local send = battle:takeEvents()[1]
+  eq(send.level, bench.level, "the send carries a level snapshot")
+  eq(send.experience, bench.experience, "and an experience snapshot")
+  -- awardExperience mutates the live table before the UI dequeues the send
+  bench.level = bench.level + 3
+  bench.experience = (bench.experience or 0) + 5000
+  screen:push(send)
+  screen:advanceQueue()
+  eq(screen.shownLevel, send.level,
+    "the HUD opens on the send-time level, not the post-award one")
+  eq(screen.shownExp, screen:expPixels(bench, send.level, send.experience),
+    "and the exp bar fills from the send-time experience")
 end
 
 -- ---- LearnMove finishes before the queued send-out (#1516) ----------------
@@ -1404,8 +1436,15 @@ do
   local drawn = table.concat(boxes, " ")
   check(drawn:find("0,8,11,5", 1, true) ~= nil, "the TYPE/PP box is drawn")
   check(drawn:find("4,12,16,6", 1, true) ~= nil, "over the narrow list box")
-  check(drawn:find("0,12,20,6", 1, true) == nil,
-    "and the full-width message box is not")
+  -- SafeLoadTempTilemapToTilemap keeps the full battle textbox under the
+  -- move list (core.asm:4689); Textbox then MoveInfoBox over it (:5084, :5157).
+  check(drawn:find("0,12,20,6", 1, true) ~= nil,
+    "over the restored full-width message box")
+  local base = drawn:find("0,12,20,6", 1, true)
+  local list = drawn:find("4,12,16,6", 1, true)
+  local info = drawn:find("0,8,11,5", 1, true)
+  check(base < list and list < info,
+    "painted base box, then list box, then info box")
   local text = table.concat(prints, " ")
   check(text:find("TACKLE@6,13", 1, true) ~= nil, "names sit at column 6")
   check(text:find("cursor@5,13", 1, true) ~= nil, "with the cursor at 5")

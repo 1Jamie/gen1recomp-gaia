@@ -1118,7 +1118,9 @@ local function runCmd(self, cmd, op)
     -- really does run here.
     if self.reloadMapFn then self.reloadMapFn(true) end
   elseif op == "winlosstext" then
-    -- Overrides the struct's win/loss text for this battle only.
+    -- Overrides the struct's win/loss text for this battle only; a 0
+    -- argument zeroes that pointer (engine/overworld/scripting.asm:651)
+    self.winLossArmed = true
     self.winTextOverride = cmd.winText
     self.lossTextOverride = cmd.lossText
   elseif op == "trainertext" then
@@ -1126,9 +1128,11 @@ local function runCmd(self, cmd, op)
     local obj = self.trainerObject or {}
     local key
     if which == 1 then
-      key = self.winTextOverride or obj.winText
+      key = self.winLossArmed and self.winTextOverride
+        or (not self.winLossArmed and obj.winText or nil)
     elseif which == 2 then
-      key = self.lossTextOverride or obj.lossText
+      key = self.winLossArmed and self.lossTextOverride
+        or (not self.winLossArmed and obj.lossText or nil)
     else
       key = obj.seenText
     end
@@ -2429,6 +2433,7 @@ function Vm:start(scriptKey)
   self.battleOutcome = nil
   self.winTextOverride = nil
   self.lossTextOverride = nil
+  self.winLossArmed = nil
   -- The whiteout abort is per-run too: a script that ended because the player
   -- was wiped must not stop the next one before it starts.
   self.aborted = false

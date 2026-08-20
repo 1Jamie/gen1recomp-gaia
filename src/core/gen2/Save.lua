@@ -220,6 +220,9 @@ function Save.newGame(opts)
     phoneContacts = {},
     tradeFlags = {},
     pokedex = { seen = {}, caught = {} },
+    -- wLastDexMode (engine/pokedex/pokedex.asm:59-61): the sort mode the
+    -- #DEX reopens in.  NEW_MODE is the cart's zero byte.
+    lastDexMode = "NEW",
     -- wUnownDex: the distinct Unown FORMS caught, in catching order.  A second
     -- record beside the #DEX because the #DEX knows only the species
     -- (src/core/gen2/Unown.lua).
@@ -685,6 +688,12 @@ function Save.validate(save)
   scrubEvents(save, report)
   scrubMapScenes(save, report)
   scrubPlayerState(save, report)
+  -- wLastDexMode: only the three modes the #DEX has (PokedexMenu MODES);
+  -- a hand-edited value falls back to NEW_MODE, the cart's zero byte
+  if save.lastDexMode ~= "NEW" and save.lastDexMode ~= "OLD"
+     and save.lastDexMode ~= "A-Z" then
+    save.lastDexMode = "NEW"
+  end
   -- The `mailmsg` structs get the same treatment for the same reason: their
   -- `type` byte is an item id nothing else in the save vouches for, and a
   -- party key outside 1..6 or a MAILBOX past MAILBOX_CAPACITY is a region the

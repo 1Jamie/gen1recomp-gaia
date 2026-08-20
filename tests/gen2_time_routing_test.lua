@@ -137,6 +137,27 @@ do
   end
   eq(checktime(4), 1, "checktime NITE is TRUE inside the PALETTE_DAY room")
   eq(checktime(2), 0, "and checktime DAY is FALSE there")
+
+  -- the two out-of-World consumers read wTimeOfDay too (#1557)
+  local Pokegear = require("src.ui.gen2.Pokegear")
+  eq(Pokegear.timeOfDayIndex({ game = { world = world } }), 2,
+    "the radio's program pick answers NITE, not the pin (pokegear.asm:1456)")
+  local Specials = require("src.script.gen2.Specials")
+  local buffer
+  local pvm = { curPhoneCaller = 1,
+    setStringBuffer = function(_, name) buffer = name end,
+    specials = { world = {
+      tod = world.tod, daytime = world.daytime,
+      encounters = { grass = { PLAYERS_HOUSE_1F = { slots = {
+        NITE = { { species = "NITEMON" }, { species = "NITEMON" },
+                 { species = "NITEMON" }, { species = "NITEMON" } },
+        DAY = { { species = "DAYMON" }, { species = "DAYMON" },
+                { species = "DAYMON" }, { species = "DAYMON" } },
+      } } } },
+    } } }
+  Specials.ALL.RandomPhoneWildMon(pvm)
+  eq(buffer, "NITEMON",
+    "RandomPhoneWildMon reads the NITE column (wildmons.asm:861)")
 end
 
 -- ---- the hour-window respawn is not eaten by a busy frame -------------------

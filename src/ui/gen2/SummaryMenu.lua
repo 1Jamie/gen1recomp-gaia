@@ -886,7 +886,8 @@ function SummaryMenu:drawPageSquare(tx, ty, large, colors)
   local first = large and TILE_SQUARE_LARGE or TILE_SQUARE_SMALL
   local sheet = self:statsTiles()
   if sheet and sheet.quads[first] then
-    -- [hli] / [hld], a row down, [hli] / [hl]: the four tiles in that order.
+    -- [hli] / [hld], a row down, [hli] / [hl]: the four tiles in that
+    -- order (engine/pokemon/stats_screen.asm:841-853).
     local function body()
       G.setColor(1, 1, 1, 1)
       G.draw(sheet.image, sheet.quads[first], px, py)
@@ -1184,6 +1185,7 @@ end
 SummaryMenu.STAT_LABELS = STAT_LABELS
 SummaryMenu.STAT_KEYS = STAT_KEYS
 SummaryMenu.TYPE_NAMES = TYPE_NAMES
+SummaryMenu.PAGE_PALETTES = PAGE_PALETTES
 SummaryMenu.levelText = levelText
 
 return SummaryMenu

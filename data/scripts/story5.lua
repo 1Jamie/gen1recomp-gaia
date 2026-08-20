@@ -651,7 +651,7 @@ local rocketRows = {
   { "check_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },        -- 4
   { "jump_if_true", 10 },                                      -- 5
   { "show_text", "_CeruleanCityRocketText" },                  -- 6
-  -- scripts/CeruleanCity.asm:295 SaveEndBattleTextPointers
+  -- scripts/CeruleanCity.asm:297 SaveEndBattleTextPointers
   { "save_end_battle_text", "_CeruleanCityRocketIGiveUpText" }, -- 7
   { "start_battle", "trainer", "OPP_ROCKET", 5 },              -- 8
   { "jump_if_false", "end" },                                  -- 9

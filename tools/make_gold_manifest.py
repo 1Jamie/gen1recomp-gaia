@@ -735,6 +735,9 @@ REQUIRED_SYMBOLS = {
     # nine fill cells.  "HP:" and the ten HP-bar cells come from
     # FontBattleExtra, which is already extracted.
     "EnemyHPBarBorderGFX", "HPExpBarBorderGFX", "ExpBarGFX",
+    # gfx/stats/stats_tiles.png + gfx/stats/pages.pal, StatsScreen_LoadFont
+    # and _CGB_StatsScreenHPPals (#1558)
+    "StatsScreenPageTilesGFX", "StatsScreenPagePals",
     # The player's own battle back-pic (gfx/player/chris_back.2bpp.lz).  It is
     # what stands in the player's pic box for the whole battle intro, before
     # SendOutPlayerMon swaps in the mon's backpic.

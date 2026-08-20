@@ -35,13 +35,15 @@ end
 
 local fakeGame = { data = { text = text }, save = { flags = {} } }
 
-local armed
+local armed, armedSound
 local fakeOw = {
-  engageTrainer = function(_, _, _, endBattleText) armed = endBattleText end,
+  engageTrainer = function(_, _, _, endBattleText, _, endBattleSound)
+    armed, armedSound = endBattleText, endBattleSound
+  end,
 }
 
 local function armedFor(mapId, textId, victoryKey)
-  armed = nil
+  armed, armedSound = nil, nil
   gyms[mapId].talk[textId](fakeGame, fakeOw, { id = "npc#1" }, function() end)
   local labels = victories[victoryKey].dialogue
   local want = {}
@@ -63,6 +65,10 @@ local leaders = {
 for _, entry in ipairs(leaders) do
   local got, want = armedFor(entry[1], entry[2], entry[3])
   T.eq(got, want, entry[3] .. " arms its badge line for the battle screen")
+  -- the dialogue's sound command rides the armed line onto the battle
+  -- screen too (sound_get_item_1 / sound_get_key_item) (#1606)
+  T.eq(armedSound, victories[entry[3]].badgeSound,
+    entry[3] .. " arms its badge jingle beside the line")
 end
 
 -- Brock's armed label is one text chain of two text_far pages
@@ -137,3 +143,5 @@ T.check(afterBattleScreen:find(text["_CeruleanGymMistyCascadeBadgeInfoText"],
                                1, true) ~= nil,
   "the TM hand-over still runs on the map")
 T.check(rewardGame.save.inventory.CASCADEBADGE == 1, "the badge is still given")
+
+T.finish("gym end battle text (#1606)")

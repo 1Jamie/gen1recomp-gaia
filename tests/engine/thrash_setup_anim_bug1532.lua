@@ -80,10 +80,11 @@ do
   battle:performMove(battle.player, battle.enemy, slot)
   T.check(indexOf(animRows(battle), "SHRINKING_SQUARE_ANIM") == nil,
     "a locked-in Thrash queues no setup animation")
-  -- .ThrashingAboutCheck falls into PlayerCalcMoveDamage, the same
-  -- animation pipeline every other move uses (core.asm:3540) (#1577)
-  T.check(indexOf(animRows(battle), "FIX_THRASH") ~= nil,
-    "but the move's own animation still plays on a continuation turn")
+  -- .ThrashingAboutCheck (core.asm:3534-3535, enemy mirror :5909-5910) (#1577)
+  T.check(indexOf(animRows(battle), "THRASH") ~= nil,
+    "a continuation turn animates THRASH, not the locked move's own id")
+  T.check(indexOf(animRows(battle), "FIX_THRASH") == nil,
+    "so the locked move's own animation does not play")
   T.check(hasText(battle, "thrashing about"),
     "ThrashingAboutText prints in place of the used-move line")
   T.check(not hasText(battle, "used FIX THRASH"),
@@ -126,6 +127,22 @@ do
   T.eq(battle.player.thrashTurns, 2, "the miss still rolls wPlayerNumAttacksLeft")
   T.check(battle:menuLockedAction(battle.player) ~= nil,
     "and the user is locked into Thrash next turn")
+end
+
+-- ---------------------------------------------------------------------
+-- JumpMoveEffect (core.asm:3129-3133) before MoveHitTest INVULNERABLE (:3150) (#1565)
+do
+  local battle = newBattle()
+  battle.queue, battle.nextInsert = {}, 0
+  battle.enemy.invulnerable = true
+  battle:performMove(battle.player, battle.enemy, { id = "FIX_THRASH", pp = 20 })
+  T.check(indexOf(animRows(battle), "SHRINKING_SQUARE_ANIM") ~= nil,
+    "the setup animation plays against a mid-Fly/Dig target")
+  T.eq(battle.player.thrashTurns, 2,
+    "the 2-3 roll commits against a mid-Fly/Dig target")
+  T.check(battle:menuLockedAction(battle.player) ~= nil,
+    "and the user is locked into Thrash next turn")
+  T.check(hasText(battle, "attack missed"), "while the attack itself misses")
 end
 
 T.finish("thrash setup animation (#1532)")

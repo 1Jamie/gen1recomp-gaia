@@ -339,9 +339,11 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
                                                      { kind = "levelup" })
               -- the party menu stays up through TryEvolvingMon and only
               -- comes down at RemoveUsedItem (item_effects.asm:1392-1418)
-              closePicker()
               if evoTo then
-                Evolution.evolve(game, target, evoTo, nil, evo and evo.method)
+                Evolution.evolve(game, target, evoTo, closePicker,
+                                 evo and evo.method)
+              else
+                closePicker()
               end
               return
             end

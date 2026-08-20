@@ -1709,14 +1709,21 @@ check(hw:mapSceneOf(3, 4) == nil,
   "a map with NO scene_var row answers nil, which the VM turns into $ff")
 check(hw:mapSceneOf(9, 9) == nil, "and an unresolvable pair is nil too")
 
+-- hw.tod is the production read (the unpinned wTimeOfDay split, #1557);
+-- hw.daytime is the palette pin it must NOT follow
+hw.tod = "DAY"
 eq(hw:timeOfDayId(), 1, "DAY is wTimeOfDay 1")
-hw.daytime = "MORN"
+hw.tod = "MORN"
 eq(hw:timeOfDayId(), 0, "MORN is 0")
-hw.daytime = "NITE"
+hw.tod = "NITE"
 eq(hw:timeOfDayId(), 2, "NITE is 2")
+hw.tod = "NITE"
 hw.daytime = "DARK"
-eq(hw:timeOfDayId(), 3, "DARKNESS is 3")
-hw.daytime = "DAY"
+eq(hw:timeOfDayId(), 2, "a PALETTE_DARK pin does not leak into wTimeOfDay")
+hw.tod = nil
+hw.daytime = "DARK"
+eq(hw:timeOfDayId(), 3, "DARKNESS is 3 only on the tod-less fallback arm")
+hw.tod, hw.daytime = nil, "DAY"
 eq(hw:gsVersion(), 0, "checkver: a Gold save is 0")
 eq(hookWorld({ version = "silver" }):gsVersion(), 1, "and a Silver save is 1")
 

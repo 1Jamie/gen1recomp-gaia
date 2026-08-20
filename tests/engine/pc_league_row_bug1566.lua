@@ -87,9 +87,12 @@ T.eq(box.text, fakeGame.data.text._AccessedHoFPCText,
 box.onDone()
 T.same(opened, { "LeaguePC" }, "the Hall of Fame roster screen opens")
 
--- without the Pokedex the league row still shows (bills_pc.asm checks
--- wNumHoFTeams before EVENT_GOT_POKEDEX)
+-- without the Pokedex, .noOaksPC2 skips Oak's PC and the league row alike
+-- (bills_pc.asm:48-49, :68-72); only the box height ignores it (:5-7)
 fakeGame.save.flags.EVENT_GOT_POKEDEX = nil
 local noDex = labels()
-T.check(indexOf(noDex, "<PK><MN>LEAGUE"),
-  "the league row does not depend on EVENT_GOT_POKEDEX")
+T.eq(indexOf(noDex, "<PK><MN>LEAGUE"), nil,
+  "no dex, no PKMN LEAGUE row, HoF teams or not")
+T.eq(indexOf(noDex, "PROF.OAK's PC"), nil, "and no PROF.OAK's PC either")
+
+T.finish("pc league row (#1566)")

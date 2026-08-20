@@ -2495,9 +2495,12 @@ function BattleState:openOldManBag()
     -- POKé BALLs; pokeyellow's SimulatedInputBattleItemList, shared by
     -- the Viridian tutorial and Oak's catch, has one.
     local qty = require("src.core.GameVersion").isYellow() and "x1" or "x50"
+    -- the tutorial bag rides DisplayBagMenu's LIST_MENU_BOX over the battle
+    -- screen (engine/battle/core.asm:2210)
     list = ListMenu.new(game, "ITEMS", {
       { value = "POKE_BALL", label = Strings("POKé BALL"), right = qty },
     }, {
+      itemBox = true,
       script = function(l)
         l.scriptTimer = (l.scriptTimer or 0) + 1
         if l.scriptTimer == 81 then
@@ -3329,15 +3332,18 @@ end
 function BattleState:queueRetreatAnim()
   if self:starterPikachuSendOut() then
     self:actNext(function() self:slidePic("playerMon", 0, -64, 8, 3) end)
-    self.nextInsert = (self.nextInsert or 0) + 1
-    table.insert(self.queue, self.nextInsert, { wait = 24 })
-    self:actNext(function() self:slidePic("playerMon") end)
+    self:waitNext(24)
+    self:actNext(function()
+      -- .clearScreenArea keeps the 7x7 area blank until the swap
+      -- (pokeyellow core.asm:1867-1871) (#1545)
+      self.sendingOut = true
+      self:slidePic("playerMon")
+    end)
   else
     self:actNext(function()
       self.shrinkOut = { battler = self.player, frame = 0 }
     end)
-    self.nextInsert = (self.nextInsert or 0) + 1
-    table.insert(self.queue, self.nextInsert, { wait = 7 })
+    self:waitNext(7)
   end
 end
 
@@ -3558,10 +3564,10 @@ function BattleState:updateFx()
     if self.growIn.frame >= 12 then self.growIn = nil end
   end
   -- the retreat shrink (AnimateRetreatingPlayerMon): 4+3 frames, then the
-  -- 7x7 area is cleared for good
+  -- 7x7 area holds cleared (scale 0) until the swap replaces the battler
   if self.shrinkOut then
     self.shrinkOut.frame = self.shrinkOut.frame + 1
-    if self.shrinkOut.frame >= 7 then self.shrinkOut = nil end
+    if self.shrinkOut.battler ~= self.player then self.shrinkOut = nil end
   end
   -- low-HP alarm (audio/low_health_alarm.asm): the two-tone siren
   -- loops while the player's bar is red; see lowHealthAlarmActive
@@ -3939,7 +3945,9 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   -- = false) queues it from applyMimic after a successful copy
   if not (record and record.announceAnim == false) then
     self.nextInsert = (self.nextInsert or 0) + 1
-    self.moveAnimRow = { anim = move.id, attackerIsPlayer = user.isPlayer }
+    -- ld a, THRASH / ld [wPlayerMoveNum] (core.asm:3534-3535, :5909-5910) #1577
+    self.moveAnimRow = { anim = thrashing and "THRASH" or move.id,
+                         attackerIsPlayer = user.isPlayer }
     table.insert(self.queue, self.nextInsert, self.moveAnimRow)
   end
   Runtime.emit("battle.move_used", {
@@ -4225,7 +4233,9 @@ function BattleState:awardExp()
     local playerId = self.game.save.player and self.game.save.player.id
     -- GainExperience (engine/battle/experience.asm:69-88) compares the
     -- stored MON_OTID against wPlayerID every award; no persistent flag
-    local traded = mon.otId ~= nil and playerId ~= nil and mon.otId ~= playerId
+    -- mon.traded covers otId-less mons (repairTradedOtIds, old link peers) #1488
+    local traded = playerId ~= nil and ((mon.otId ~= nil and mon.otId ~= playerId)
+      or (mon.otId == nil and mon.traded == true))
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, traded)
@@ -4397,7 +4407,8 @@ function BattleState:enemyMonFainted()
               forceSwitch = true,
               onSwitch = function(mon)
                 if mon == self.player.mon then
-                  reopenShift(Strings("%s is\nalready out!", self.player.name))
+                  reopenShift(self:romText("_AlreadyOutText",
+                    "%s is\nalready out!", self.player.name))
                 elseif mon.hp <= 0 then
                   reopenShift(self:romText("_NoWillText", "There's no will\nto fight!"))
                 else
@@ -4524,9 +4535,22 @@ function BattleState:enemyMonFainted()
       -- TrainerNamePointers aims those entries at wTrainerName).  The tag
       -- prints once, so a `para` page carries no second copy (#566).
       local tag = self.trainer and self.trainer.name
+      -- the badge jingle (sound_get_item_1 and friends) rides the armed
+      -- line's first page, as the script's text command would (#1606)
+      local sfx = self.endBattleSound
+      local data = self.data
       for page in (self.endBattleText .. "\f"):gmatch("(.-)\f") do
         if page ~= "" then
-          self:sayNext(tag and (tag .. ": " .. page) or page)
+          local line = tag and (tag .. ": " .. page) or page
+          if sfx then
+            local id = sfx
+            self:sayNextWaitSfx(line, function()
+              return require("src.core.Sound").play(data, id)
+            end)
+            sfx = nil
+          else
+            self:sayNext(line)
+          end
           tag = nil
         end
       end
@@ -5144,7 +5168,8 @@ function BattleState:openParty()
       onSwitch = function(mon)
         -- PartyMenuOrRockOrRun's SWITCH .partyMonDeselected (core.asm:2396-2408)
         if mon == self.player.mon then
-          self:say(Strings("%s is\nalready out!", self.player.name))
+          self:say(self:romText("_AlreadyOutText",
+            "%s is\nalready out!", self.player.name))
           self:act(function() self:openParty() end)
         elseif mon.hp <= 0 then
           self:say(self:romText("_NoWillText", "There's no will\nto fight!"))
@@ -5297,7 +5322,9 @@ end
 function BattleState:shrinkOutScale(battler)
   local shrink = self.shrinkOut
   if not shrink or shrink.battler ~= battler then return nil end
-  return shrink.frame < 4 and 5 / 7 or 3 / 7
+  -- scale 0 past Delay3: the area stays cleared until the swap
+  -- (core.asm:1790-1796) (#1563)
+  return shrink.frame < 4 and 5 / 7 or shrink.frame < 7 and 3 / 7 or 0
 end
 
 -- battler hidden this frame? (damage blink)
@@ -5942,8 +5969,12 @@ function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
       -- the AnimateRetreatingPlayerMon shrink (core.asm:1769-1796)
       local eff = s * gs
       if eff > 0 then
+        -- the retreat stages sit one tile right of the grow-in's
+        -- (hlcoord 3,7 / 4,9 vs 2,7 / 3,9, core.asm:1770-1788) (#1563)
+        local shrinkX = self.shrinkOut
+          and self.shrinkOut.battler == self.player and 8 or 0
         love.graphics.draw(img,
-          8 - padL * s + img:getWidth() * s * (1 - gs) / 2 + sx,
+          8 + shrinkX - padL * s + img:getWidth() * s * (1 - gs) / 2 + sx,
           96 - (img:getHeight() - pad) * eff + sy, 0, eff, eff)
       end
     else

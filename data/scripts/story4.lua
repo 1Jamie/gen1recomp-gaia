@@ -216,7 +216,10 @@ local function dojoMasterGate(game, ow, x, y)
   if not master or ow:trainerDefeated(master) then return false end
   ow.player.facing = "right"
   master:facePlayer(ow.player)
-  ow:engageTrainer(master)
+  -- scripts/FightingDojo.asm:117-119 SaveEndBattleTextPointers (#1606)
+  ow:engageTrainer(master, nil,
+    ((game.data or {}).text or {})._FightingDojoKarateMasterDefeatedText,
+    nil, nil, false)
   return true
 end
 

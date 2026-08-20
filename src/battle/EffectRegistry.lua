@@ -108,12 +108,16 @@ end
 
 -- The damaging pipeline, extracted from the performMove monolith: every
 -- stage keeps the original's exact check order and rng consumption
--- (invulnerability -> gate -> hit count -> pre-accuracy -> accuracy ->
+-- (pre-accuracy -> invulnerability -> gate -> hit count -> accuracy ->
 -- damage choice -> hits -> messages -> after-damage -> secondary run).
 function EffectRegistry.runDamaging(battle, ctx, record)
   local user, target = ctx.user, ctx.target
   local move, moveInst = ctx.move, ctx.moveInst
   local neverMiss = record and record.neverMiss
+
+  -- SpecialEffectsCont's JumpMoveEffect (core.asm:3129-3133) runs before
+  -- MoveHitTest's INVULNERABLE test (:3150), mid-Fly/Dig included (#1565)
+  if record and record.beforeAccuracy then record.beforeAccuracy(ctx) end
 
   -- Swift ignores semi-invulnerability (MoveHitTest returns hit for
   -- SWIFT_EFFECT before the INVULNERABLE check)
@@ -142,8 +146,6 @@ function EffectRegistry.runDamaging(battle, ctx, record)
   end
 
   local hits = hitCount(ctx, record)
-
-  if record and record.beforeAccuracy then record.beforeAccuracy(ctx) end
 
   if not neverMiss then
     if not battle:accuracyRoll(move, user, target) then

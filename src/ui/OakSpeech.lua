@@ -43,6 +43,12 @@ local PicSlide = {}
 PicSlide.__index = PicSlide
 
 function PicSlide:update(dt)
+  -- OakSpeechSlidePicLeft: ClearScreenArea, ld c, 10 / DelayFrames, Delay3
+  -- before the first slide step (oak_speech2.asm:69-78)
+  if (self.delay or 0) > 0 then
+    self.delay = self.delay - 1
+    return
+  end
   self.t = self.t + 1
   local tiles = math.min(SLIDE_TILES, math.floor(self.t / SLIDE_FRAMES))
   self.speech.picSlide = (self.dir > 0 and tiles or (SLIDE_TILES - tiles)) * 8
@@ -172,8 +178,8 @@ function OakSpeech.defaultSteps(speech)
       kind = "say",
       textKey = "_IntroducePlayerText",
       pic = "player",
-      -- oak_speech.asm:89-92: MovePicLeft, then IntroducePlayerText ends in
-      -- text_end, so PrintText returns with the box still up under the names
+      -- oak_speech.asm:89-92: MovePicLeft, then IntroducePlayerText's
+      -- `prompt` (text_2.asm:1730) waits for A and leaves the box up
       reveal = "wipe",
       stay = true,
     },
@@ -192,6 +198,9 @@ function OakSpeech.defaultSteps(speech)
       id = "confirm_player_name",
       kind = "say",
       textKey = "_YourNameIsText",
+      -- _YourNameIsText's `prompt` (text_2.asm:1766), then GBFadeOutToWhite
+      -- / ClearScreen with the box still up (oak_speech.asm:93-94)
+      fadeOut = true,
     },
     {
       id = "ask_rival_name",
@@ -199,7 +208,7 @@ function OakSpeech.defaultSteps(speech)
       textKey = "_IntroduceRivalText",
       pic = "rival",
       -- oak_speech.asm:98-101: FadeInIntroPic, then IntroduceRivalText's
-      -- text_end leaves the box up for ChooseRivalName
+      -- `prompt` (text_2.asm:1740) leaves the box up for ChooseRivalName
       reveal = "fade",
       stay = true,
     },
@@ -216,6 +225,9 @@ function OakSpeech.defaultSteps(speech)
       id = "confirm_rival_name",
       kind = "say",
       textKey = "_HisNameIsText",
+      -- _HisNameIsText's `prompt` (text_2.asm:1772) then the .skipSpeech
+      -- fade with the box up (oak_speech.asm:103-104)
+      fadeOut = true,
     },
     {
       id = "legend",
@@ -403,9 +415,20 @@ function OakSpeech:runStep(step)
     self:applyPic(step)
     self:afterReveal(step, function()
       self:runCry(step)
-      if step.stay then
+      if step.stay or step.fadeOut then
         local box = TextBox.new(self.game, self:stepText(step), nil,
-          { stay = { onShown = function() self:advance() end } })
+          { stay = { prompt = true, onShown = function()
+            if step.fadeOut then
+              -- GBFadeOutToWhite / ClearScreen (oak_speech.asm:93-94)
+              self.game.stack:push(require("src.render.Transition")
+                .whiteFlash(self.game, nil, function()
+                  self:closeHoldBox()
+                  self:advance()
+                end))
+            else
+              self:advance()
+            end
+          end } })
         self.holdBox = box
         self.game.stack:push(box)
       else
@@ -432,16 +455,26 @@ function OakSpeech:runStep(step)
         presets = presets,
         introBox = true,
         maxLen = step.maxLen or self.nameLen,
-        onDone = function(name)
+        onDone = function(name, custom)
           if who == "rival" then
             self.game.save.player.rival = name
           else
             self.game.save.player.name = name
           end
           self:recordAnswer(step, 1, name, name)
-          -- YourNameIsText/HisNameIsText print into the box this one held
+          -- YourNameIsText / HisNameIsText print into the box this one
+          -- held (oak_speech2.asm:26-28, :59-61)
           self:closeHoldBox()
-          self:slidePic(-1, function() self:advance() end)
+          if custom then
+            -- .customName: ClearScreen / Delay3 / pic recentered, no
+            -- slide-back (oak_speech2.asm:21-25)
+            self.picSlide = 0
+            self:advance()
+          else
+            -- OakSpeechSlidePicLeft's 13-frame pre-slide beat
+            -- (oak_speech2.asm:69-78)
+            self:slidePic(-1, function() self:advance() end, 13)
+          end
         end,
       })
     end
@@ -557,10 +590,11 @@ function OakSpeech:revealPic(kind, next)
 end
 
 -- ..(engine/movie/oak_speech/oak_speech2.asm ln 67)
-function OakSpeech:slidePic(dir, onDone)
+function OakSpeech:slidePic(dir, onDone, delay)
   self.picSlide = (dir > 0 and 0 or SLIDE_TILES * 8)
   self.game.stack:push(setmetatable({
     game = self.game, speech = self, dir = dir, t = 0, onDone = onDone,
+    delay = delay,
   }, PicSlide))
 end
 

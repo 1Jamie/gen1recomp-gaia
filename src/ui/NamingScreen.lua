@@ -96,15 +96,17 @@ function NamingScreen:enter()
         onSelect = function()
           -- the menu already popped itself; pop the naming screen too
           self.game.stack:pop()
-          if self.onDone then self.onDone(preset) end
+          if self.onDone then self.onDone(preset, false) end
         end,
       })
     end
     if self.introBox then
       -- DisplayIntroNameTextBox (oak_speech2.asm:162): TextBoxBorder at
       -- hlcoord 0,0 with b=$a c=$9, "NAME" at hlcoord 3,0, list at hlcoord 2,2
+      -- TextBoxBorder's b = $a is a fixed 12-row box, whatever the preset
+      -- list's length (oak_speech2.asm:163-166)
       self.game.stack:push(Menu.new(self.game, items, {
-        tx = 0, ty = 0, tw = 11, th = #items * 2 + 4,
+        tx = 0, ty = 0, tw = 11, th = 12,
         itemY = 2, title = Strings("NAME"), cancelable = false,
       }))
     else
@@ -135,7 +137,7 @@ function NamingScreen:confirm()
   end
   Sound.play(self.game.data, "Press_AB")
   self.game.stack:pop()
-  if self.onDone then self.onDone(name) end
+  if self.onDone then self.onDone(name, true) end
 end
 
 function NamingScreen:grid()

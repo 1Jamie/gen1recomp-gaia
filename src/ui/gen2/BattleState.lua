@@ -38,6 +38,7 @@ local Sound = require("src.core.Sound")
 -- Only for playerPic: the player.sprite raiser both generations share.
 local Sprites = require("src.pokemon.Sprites")
 local Strings = require("src.core.Strings")
+local SummaryMenu = require("src.ui.gen2.SummaryMenu")
 -- Only for TextBox.substitute: the {PLAYER} / {RIVAL} markers a map text
 -- carries into the battle box (PrintWinLossText, home/trainers.asm:230).
 local TextBox = require("src.render.TextBox")
@@ -161,7 +162,7 @@ local CONTEST_MENU_COL_SPACING = 12
 
 -- PrintMoveType prints the type table's own names; only these two differ from
 -- the constant (data/types/names.asm).
-local TYPE_NAMES = { PSYCHIC_TYPE = "PSYCHIC", CURSE_TYPE = "???" }
+local TYPE_NAMES = SummaryMenu.TYPE_NAMES
 -- charmap.asm's quantity glyph, spelled the way MartMenu spells it.
 local CONTEST_BALL_LABEL = "PARKBALL\xc3\x97"
 
@@ -1451,12 +1452,12 @@ function BattleState:advanceQueue()
       -- inside SendOutPlayerMon and nothing on the enemy's path touches them.
       self.menuIndex = 1
       self.moveIndex = 1
-      -- The incoming mon's own level and exp bar: SendOutPlayerMon reloads
-      -- wBattleMon* from the party slot and UpdatePlayerHUD draws them at its
-      -- tail (:3838), so both snap here the way shownHp does above.
-      self.shownLevel = event.mon.level or 1
-      self.shownExp = self:expPixels(event.mon, event.mon.level,
-        event.mon.experience)
+      -- SendOutPlayerMon reloads wBattleMon* from the party slot (:3838):
+      -- snap from the emit-time snapshot, not the live table (#1514).
+      local level = event.level or event.mon.level or 1
+      self.shownLevel = level
+      self.shownExp = self:expPixels(event.mon, level,
+        event.experience or event.mon.experience)
       self.expAnim = nil
     end
   end
@@ -1470,6 +1471,12 @@ function BattleState:advanceQueue()
   -- BattleWinSlideInEnemyTrainerFrontpic and the DelayFrames 40 behind it
   -- (engine/battle/core.asm:2310-2312)
   if event.kind == "trainer-return" then
+    -- LostBattle's ClearBox wipes the live foe pic and HUD before the slide
+    -- (engine/battle/core.asm:2770-2773)
+    if event.cleared then
+      self.showEnemyHud = false
+      self.ballRows.enemy = false
+    end
     if not self.enemyTrainerImage then return self:advanceQueue() end
     self.showEnemyTrainer = true
     self.picHidden.enemy = false
@@ -3577,11 +3584,11 @@ function BattleState:drawPanel()
   -- MoveSelectionScreen type 0 is two boxes: the name-only list
   -- (engine/battle/core.asm:5074-5084) and MoveInfoBox's (:5407-5410).
   local moveMenu = self.phase == "moves"
+  Chrome.box(0, 12, 20, 6)
   if moveMenu then
-    Chrome.box(0, 8, 11, 5)
+    -- List box first (core.asm:5074-5084), MoveInfoBox on top (:5157).
     Chrome.box(4, 12, 16, 6)
-  else
-    Chrome.box(0, 12, 20, 6)
+    Chrome.box(0, 8, 11, 5)
   end
   if self.phase == "menu" then
     self:printMessage()

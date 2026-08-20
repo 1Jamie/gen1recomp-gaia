@@ -40,6 +40,11 @@ do
   T.eq(battle:shrinkOutScale(battle.player), 3 / 7, "wDownscaledMonSize 1 -> 3x3")
   battle.shrinkOut.frame = 6
   T.eq(battle:shrinkOutScale(battle.player), 3 / 7, "through Delay3")
+  battle.shrinkOut.frame = 7
+  T.eq(battle:shrinkOutScale(battle.player), 0,
+    "then the 7x7 area holds cleared: no full-size flash before the swap")
+  T.check(battle:shrinkOutScale({}) == nil,
+    "the swapped-in battler draws normally")
   T.check(battle:shrinkOutScale(battle.enemy) == nil,
     "AnimateRetreatingPlayerMon is player-side only")
 end
@@ -62,6 +67,8 @@ do
   T.check(battle:shrinkOutScale(battle.player) == nil, "and no downscale stage")
   battle.queue[3].fn()
   T.check((battle.picOff or {}).playerMon == nil, "the slot clears afterwards")
+  T.eq(battle.sendingOut, true,
+    "and stays hidden until the swap's send-out (#1545)")
 end
 
 -- ---------------------------------------------------------------------
@@ -107,6 +114,64 @@ do
           and battle.queue[1].text:find("already out", 1, true) ~= nil,
     "AlreadyOutText for the mon that is already out")
   T.check(battle.queue[2] and battle.queue[2].fn ~= nil, "which also reprompts")
+end
+
+-- ---------------------------------------------------------------------
+-- the SHIFT prompt's picker reprompts on a dead or already-out pick too
+-- (HasMonFainted's NoWillText, core.asm:1473-1488) (#1608)
+-- ---------------------------------------------------------------------
+do
+  local save = SaveData.newGame()
+  save.player.name = "RED"
+  save.party = { Pokemon.new(Data, "FIXMON_A", 30),
+                 Pokemon.new(Data, "FIXMON_B", 30) }
+  save.options = { battleStyle = "shift" }
+  local game = { data = Data, save = save,
+                 stack = { top = function() return nil end,
+                           push = function() end, pop = function() end } }
+  local battle = BattleState.newTrainer(game, "OPP_FIX_YOUNGSTER", 1)
+  battle.participants = {}
+  battle.buildScreen = function(_, _, opts) return opts end
+  -- capture the picker opts the SHIFT branch pushes
+  local captured
+  Data.screens = Data.screens or {}
+  Data.screens.PartyMenu = function(_, opts) captured = opts; return {} end
+  require("src.ui.Screens").invalidate()
+  battle.enemyParty[1].hp = 0
+  battle.enemy.mon = battle.enemyParty[1]
+  battle:enemyMonFainted()
+  local choiceRow
+  for _, row in ipairs(battle.queue) do
+    if row.choice then choiceRow = row end
+  end
+  T.check(choiceRow ~= nil, "SHIFT queues the change-POKeMON choice")
+  choiceRow.choice(true)
+  T.check(captured ~= nil and captured.forceSwitch == true,
+    "YES opens the forced party picker")
+
+  battle.queue, battle.nextInsert = {}, 0
+  save.party[2].hp = 0
+  captured.onSwitch(save.party[2])
+  T.check(battle.queue[1] and battle.queue[1].text
+          and battle.queue[1].text:find("no will", 1, true) ~= nil,
+    "a fainted SHIFT pick prints NoWillText first")
+  T.check(battle.queue[2] and battle.queue[2].ui ~= nil,
+    "then the picker goes straight back up, ahead of the send-out")
+  T.eq(battle.queue[2].ui(), captured, "with the same forced opts")
+
+  battle.queue, battle.nextInsert = {}, 0
+  captured.onSwitch(battle.player.mon)
+  T.check(battle.queue[1] and battle.queue[1].text
+          and battle.queue[1].text:find("already out", 1, true) ~= nil,
+    "an already-out SHIFT pick prints AlreadyOutText")
+  T.check(battle.queue[2] and battle.queue[2].ui ~= nil, "and reprompts too")
+
+  battle.queue, battle.nextInsert = {}, 0
+  save.party[2].hp = 10
+  captured.onSwitch(save.party[2])
+  T.eq(#battle.queue, 0, "a healthy pick queues no reprompt rows")
+  Data.screens.PartyMenu = nil
+  require("src.ui.Screens").invalidate()
 end
 
 T.finish("retreat animation and switch reprompt (#1563, #1545, #1608)")

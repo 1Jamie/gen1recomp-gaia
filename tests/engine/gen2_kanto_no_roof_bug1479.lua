@@ -34,4 +34,28 @@ T.check(not keys["TILESET_KANTO|ROOF_SILVER"],
 T.check(keys["TILESET_JOHTO|ROOF_SILVER"],
   "while TILESET_JOHTO still takes its group's roof")
 
-print("gen2 Kanto roof gate (#1479): ok")
+-- World:atlasFor is the copy the bug was filed against; it has its own
+-- ROOF_TILESETS gate, so pin it separately from MapPreview's
+local realAssets = package.loaded["src.render.Assets"]
+package.loaded["src.render.Assets"] = setmetatable({
+  image = function() return { setFilter = function() end } end,
+  resolve = function(path) return path end,
+}, { __index = realAssets or { register = function() end } })
+package.loaded["src.world.gen2.World"] = nil
+local World = require("src.world.gen2.World")
+local world = setmetatable({
+  tilesets = baker.tilesets,
+  roofs = baker.roofs,
+  atlasCache = {},
+}, { __index = World })
+world:atlasFor({ tileset = "TILESET_KANTO", group = 19 })
+world:atlasFor({ tileset = "TILESET_JOHTO", group = 19 })
+T.check(world.atlasCache["TILESET_KANTO"] ~= nil
+        and world.atlasCache["TILESET_KANTO|ROOF_SILVER"] == nil,
+  "World:atlasFor bakes Kanto with no map-group roof (home/map.asm:1738-1749)")
+T.check(world.atlasCache["TILESET_JOHTO|ROOF_SILVER"] ~= nil,
+  "and still roofs TILESET_JOHTO by group")
+package.loaded["src.render.Assets"] = realAssets
+package.loaded["src.world.gen2.World"] = nil
+
+T.finish("gen2 Kanto roof gate (#1479)")

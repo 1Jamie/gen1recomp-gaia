@@ -116,9 +116,9 @@ do
 end
 
 -- Every other givepoke in the game is the flag-FALSE form: no names, and the
--- nickname prompt still runs.
+-- nickname prompt still runs (engine/pokemon/move_mon.asm:1753-1757).
 do
-  local given = nil
+  local given, asked = nil, false
   local plainVm = Vm.new({ generation = 2,
     ["s:eevee"] = {
       { op = "givepoke", species = 133, level = 20, item = 0, trainer = 0 },
@@ -127,13 +127,20 @@ do
   }, {}, Events.new(), {
     givePoke = function(species, level, item, opts)
       given = { opts = opts }
-      return nil
+      return { species = "EEVEE" }
+    end,
+    showText = function(_, onDone) onDone() end,
+    -- GiveANickname_YesNo (move_mon.asm:1753-1757): the prompt's yes/no
+    yesorno = function(onChoose)
+      asked = true
+      onChoose(false)
     end,
   })
   plainVm:start("s:eevee")
   for _ = 1, 10 do plainVm:update() end
   check(given ~= nil and given.opts == nil,
     "the flag-FALSE form hands givePoke no names")
+  check(asked, "and the nickname prompt still runs on it")
 end
 
 -- Phone + verbosegiveitem (Elm directions / aide potion)

@@ -35,6 +35,10 @@ end
 T.check(save ~= nil, "the start menu lists SAVE")
 
 save.onSelect()
+-- PrintSaveScreenText ends `ld c, 30 / jp DelayFrames`: the bare panel
+-- holds 30 frames before the prompt (main_menu.asm:404-405)
+T.eq(#game.stack.states, 1, "the panel shows alone first")
+for _ = 1, 30 do game.stack:top().update() end
 T.eq(#game.stack.states, 2, "the panel and the prompt are two separate states")
 local panel, prompt = game.stack.states[1], game.stack.states[2]
 T.check(type(panel.draw) == "function" and not panel.isTextBox,
@@ -44,9 +48,11 @@ T.eq(#prompt.pages, 1, "the prompt is one page: no \\f-merged info panel")
 T.check(prompt.pages[1][1]:find("Would you like to"),
         "the prompt page is WouldYouLikeToSaveText")
 
--- save.asm:187 hlcoord 0, 7
+-- save.asm:188 hlcoord 0, 7
 T.eq(prompt.choiceBox.tx, 0, "the save Yes/No box sits at column 0 (left)")
 T.eq(prompt.choiceBox.ty, 7, "the save Yes/No box sits at row 7")
+T.eq(prompt.choiceBox, require("src.ui.Theme").saveBox,
+     "the geometry routes through Theme so field.theme can restyle it")
 local choice = ChoiceBox.new(game, function() end, { box = prompt.choiceBox })
 T.eq(choice.tx, 0, "ChoiceBox honours the save-specific left placement")
 

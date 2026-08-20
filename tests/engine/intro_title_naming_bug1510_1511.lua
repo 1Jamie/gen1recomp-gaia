@@ -75,6 +75,25 @@ T.eq(title.menuOpen, true, "the title art stays down until the blink ends")
 run(back, 60)
 T.eq(title.menuOpen, false, "and comes back once the blink is over")
 T.eq(game.stack:top(), title, "leaving the menu lands back on the title")
+-- main_menu.asm:70 jumps back to DisplayTitleScreen: the whole cinematic reruns
+T.eq(title.phase, "drop", "cancel reruns the boot cinematic from the logo drop")
+
+-- a stranded menuOpen (an onSelect that handed control straight back) may
+-- not leave a blank white title behind
+title.menuOpen = true
+title:update(1 / 60)
+T.eq(title.menuOpen, false, "a stranded menuOpen clears on the next update")
+
+-- .finishedWaiting: PlayCry then WaitForSoundToFinish before the white-out
+-- (engine/movie/title.asm:241-243)
+while title.phase ~= "loop" do title:updateSequence() end
+game.input.wasPressed = function(_, b) return b == "start" end
+title:update(1 / 60)
+game.input.wasPressed = function() return false end
+T.eq(title.phase, "exitCry", "START waits out the cry before the white-out")
+T.eq(game.stack:top(), title, "no flash is pushed on the cry frame")
+run(title, 10)
+T.check(game.stack:top() ~= title, "the flash follows once the cry is done")
 
 -- ------------------------------------------- #1511: the intro NAME box
 
@@ -144,11 +163,20 @@ local function pump(frames)
   end
 end
 pump(400)
-T.check(getmetatable(fgame.stack:top()) == Menu, "the preset list opens")
+-- _IntroducePlayerText ends in `prompt` (text_2.asm:1730): arrowed A wait
+T.check(getmetatable(fgame.stack:top()) ~= Menu,
+        "the question box waits for A before the name list")
+T.check(fgame.stack:top() == flow.holdBox and flow.holdBox.done,
+        "the typed-out question box is on top, waiting for the press")
+fgame.input.wasPressed = function(_, b) return b == "a" end
+fgame.stack:top():update(1 / 60)
+fgame.input.wasPressed = function() return false end
+pump(400)
+T.check(getmetatable(fgame.stack:top()) == Menu, "A opens the preset list")
 T.eq(fgame.stack.states[2], flow.holdBox,
      "IntroducePlayerText's box is still on the stack under the name list")
-T.check(flow.holdBox.done and flow.holdBox.stay,
-        "it is a `stay` box: text_end returns from PrintText without a wait")
+T.check(flow.holdBox.stayShown == true,
+        "prompt-then-hold: the box stays up after the press (home/text.asm:434)")
 
 local preset = fgame.stack:top()
 preset.index = 2
@@ -157,7 +185,9 @@ preset:update(1 / 60)
 fgame.input.wasPressed = function() return false end
 T.eq(fgame.save.player.name, "RED", "picking a preset names the player")
 T.eq(flow.holdBox, nil, "and takes the question box down with the list")
-run(fgame.stack:top(), 6 * 3)
+-- 13-frame ClearScreenArea / DelayFrames beat, then six tiles of slide
+-- (oak_speech2.asm:69-78)
+run(fgame.stack:top(), 13 + 6 * 3)
 T.eq(flow.picSlide, 0, "OakSpeechSlidePicLeft puts the pic back")
 
 T.finish("intro_title_naming_bug1510_1511")

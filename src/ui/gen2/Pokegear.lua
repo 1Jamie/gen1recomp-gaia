@@ -1382,7 +1382,8 @@ end
 -- wTimeOfDay, as the cart numbers it: MORN 0, DAY 1, NITE 2, DARK 3.
 function Pokegear:timeOfDayIndex()
   local world = self.game and self.game.world
-  local daytime = (world and world.daytime)
+  -- the unpinned clock split, not the palette pin (pokegear.asm:1456, :1957)
+  local daytime = (world and (world.tod or world.daytime))
     or Palettes.clockDaytime(self.clock and self.clock.hour or nil)
   return (Palettes.DAYTIME_ID[daytime] or 2) - 1
 end

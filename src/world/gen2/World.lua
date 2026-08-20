@@ -6017,8 +6017,14 @@ function World:trainerWinLossText()
   if not vm then return nil, nil end
   local obj = vm.trainerObject or {}
   local text = self.text or {}
-  local winKey = vm.winTextOverride or obj.winText
-  local lossKey = vm.lossTextOverride or obj.lossText
+  -- `winlosstext` writes BOTH pointers; a 0 argument destroys the struct
+  -- value rather than falling back to it (engine/overworld/scripting.asm:651)
+  local winKey, lossKey
+  if vm.winLossArmed then
+    winKey, lossKey = vm.winTextOverride, vm.lossTextOverride
+  else
+    winKey, lossKey = obj.winText, obj.lossText
+  end
   return winKey and text[winKey] or nil, lossKey and text[lossKey] or nil
 end
 

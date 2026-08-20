@@ -36,5 +36,10 @@ T.eq(boostedText(function(mon, save)
   mon.traded = true
   mon.otId = save.player.id
 end), false, "and a mon traded back to its original trainer loses it (#1488)")
+T.eq(boostedText(function(mon)
+  -- repairTradedOtIds leaves traded mons with otId nil (#1265, #1461)
+  mon.traded = true
+  mon.otId = nil
+end), true, "a traded mon with no stored OTID keeps the boost (#1488)")
 
 T.finish("traded exp boost is an OTID comparison (#1488)")

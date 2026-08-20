@@ -1,5 +1,6 @@
 -- The evolution dialogue is the cart's, in the cart's order (#1596):
--- engine/pokemon/evos_moves.asm:120-128, :136-150, :151-153
+-- engine/pokemon/evos_moves.asm:120-134 (the clear is rows 0-11 only),
+-- :136-150, :151-153
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -65,10 +66,9 @@ do
            "_IsEvolvingText goes up in a real bordered text box first") then
     check(textOf(intro):find("is evolving"),
           "and it is the cart's line: " .. textOf(intro))
-    check(intro.auto ~= nil and not intro.auto.wait,
-          "which waits for no button (IsEvolvingText ends in `done`)")
-    eq(intro.auto.delay, 50,
-       "and holds DelayFrames 50 before it clears (evos_moves.asm:122)")
+    check(intro.stay ~= nil and not intro.stay.prompt,
+          "which waits for no button (IsEvolvingText ends in `done`) "
+          .. "and stays up under whatever follows")
   end
   -- it hands off to the movie on its own, with no input at all
   local top
@@ -78,7 +78,15 @@ do
     step(game)
   end
   check(getmetatable(top) == EvolutionState,
-        "the flash movie opens once that box has cleared itself")
+        "the flash movie opens once the DelayFrames 50 hold has passed")
+  local underneath = false
+  for _, s in ipairs(game.stack.states or {}) do
+    if s == intro then underneath = true end
+  end
+  check(underneath, "the 'is evolving!' box is still on the stack under the "
+        .. "flash (ClearScreenArea wipes rows 0-11 only, evos_moves.asm:126-128)")
+  check(not EvolutionState.isOpaque,
+        "and the flash screen is not opaque, so the box beneath draws")
   eq(mon.species, "FIXMON_A",
      "and nothing has evolved yet while the box was up")
 end
@@ -120,14 +128,6 @@ do
     end
     check(heard, "SFX_GET_ITEM_2 plays on that box (evos_moves.asm:151)")
   end
-end
-
--- The flash itself carries no text: EvolutionState draws sprites only.
-do
-  local source = assert(io.open("src/ui/EvolutionState.lua")):read("*a")
-  check(not source:find("Font%.draw"),
-        "EvolutionState draws no bare text over the flash "
-        .. "(ClearScreenArea ran before EvolveMon, evos_moves.asm:128)")
 end
 
 T.finish()

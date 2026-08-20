@@ -392,6 +392,17 @@ function TitleState:updateSequence()
       self.phase = "loop"
       self.blinkTimer = 0
     end
+  elseif self.phase == "exitCry" then
+    -- .finishedWaiting: PlayCry then WaitForSoundToFinish before the
+    -- white-out (engine/movie/title.asm:241-243)
+    self.timer = self.timer + 1
+    local playing = self.exitCrySrc and self.exitCrySrc.isPlaying
+      and self.exitCrySrc:isPlaying()
+    if self.timer >= 3 and (not playing or self.timer > 180) then
+      self.exitCrySrc = nil
+      self.phase = "loop"
+      self:toMenu()
+    end
   end
 end
 
@@ -460,8 +471,8 @@ function ContinueInfo:update(dt)
     self.game.stack:pop()
     if self.title.onContinue then self.title.onContinue() end
   elseif input:wasPressed("b") then
+    -- the CONTINUE / NEW GAME menu is still open underneath (main_menu.asm:91-92)
     self.game.stack:pop()
-    self.title:openMenu()
   end
 end
 
@@ -497,7 +508,10 @@ function TitleState:openMenu()
   local game = self.game
   local items = {}
   if hasSave() then
-    table.insert(items, { label = Strings("CONTINUE"), onSelect = function()
+    -- DisplayContinueGameInfo leaves the menu box up behind the info window
+    -- (engine/menus/main_menu.asm:36-39, :91-92)
+    table.insert(items, { label = Strings("CONTINUE"), keepOpen = true,
+      onSelect = function()
       -- peek at the save for the info window; fall through if the
       -- file can't be read
       local ok, loaded = pcall(require("src.core.SaveData").load)
@@ -513,8 +527,11 @@ function TitleState:openMenu()
   end })
   -- DisplayOptionMenu returns to .mainMenuLoop, which redraws the box
   -- (engine/menus/main_menu.asm ln 87-90)
+  local menu
   table.insert(items, { label = Strings("OPTION"), keepOpen = true,
     onSelect = function()
+      -- .mainMenuLoop re-zeroes wCurrentMenuItem on re-entry (main_menu.asm:56-57)
+      if menu then menu.index = 1 end
       require("src.ui.Screens").push(game, "OptionsMenu")
     end })
   table.insert(items, { label = Strings("EXIT GAME"), onSelect = function()
@@ -532,18 +549,40 @@ function TitleState:openMenu()
                  type(hooked))
   end
   local th = #items * 2 + 2
-  local menu = Menu.new(game, items, { tx = 0, ty = 0, tw = 13, th = th })
+  menu = Menu.new(game, items, { tx = 0, ty = 0, tw = 13, th = th })
   -- .mainMenuLoop's B branch jumps back to DisplayTitleScreen, which opens
-  -- with GBPalWhiteOut (engine/menus/main_menu.asm:69, title.asm:29)
+  -- with GBPalWhiteOut and reruns the whole boot cinematic
+  -- (engine/menus/main_menu.asm:69-70, title.asm:29)
   menu.onCancel = function()
     game.stack:push(require("src.render.Transition").whiteFlash(game, nil,
-      function() self.menuOpen = false end))
+      function() self:restartSequence() end))
   end
   -- full-width title LOGO zones would recolor this box; see sgbPalettes.
   -- Menu.new may have grown tw for longer (e.g. localized) labels, so the
   -- recolor zone follows the box's real width instead of the vanilla 13.
   menu.titleUiBox = { 0, 0, menu.tw - 1, th - 1 }
   game.stack:push(menu)
+end
+
+-- .mainMenuLoop's B branch: DisplayTitleScreen from the top
+-- (main_menu.asm:70, title.asm:39-222)
+function TitleState:restartSequence()
+  self.menuOpen = false
+  pcall(Music.stop)
+  self.scy = 0x40
+  self.phase = "drop"
+  self.dropStep, self.dropLeft = 1, nil
+  self.showBubble = not self.yellowLayout
+  self.timer = 0
+  self.blinkTimer = 0
+  self.blinkAt = nil
+  self.cycleIndex = 1
+  self.scrollPhase = "hold"
+  self.scrollFrame = 1
+  self.monOffset = 0
+  self.ballY = BALL_REST
+  self.ribbonOffset = nil
+  self.whooshSrc, self.crySrc, self.exitCrySrc = nil, nil, nil
 end
 
 -- .finishedWaiting: GBPalWhiteOutWithDelay3 then ClearScreen before MainMenu,
@@ -609,6 +648,11 @@ function TitleState:updateCycle()
 end
 
 function TitleState:update(dt)
+  -- an onSelect that handed control back without a new state (a failed
+  -- CONTINUE load, a mod row) re-runs DisplayTitleScreen (main_menu.asm:70)
+  if self.menuOpen and self.game.stack:top() == self then
+    self:restartSequence()
+  end
   if self.phase ~= "loop" then
     self:updateSequence()
     return
@@ -619,10 +663,10 @@ function TitleState:update(dt)
     if input:wasPressed("start") or input:wasPressed("a") then
       -- .go_to_main_menu voices PikachuCry11 on the way out
       local Sound = require("src.core.Sound")
-      if not Sound.playPikaCry(self.game.data, 11) then
-        Sound.playCry(self.game.data, "PIKACHU")
-      end
-      self:toMenu()
+      self.exitCrySrc = Sound.playPikaCry(self.game.data, 11)
+        or Sound.playCry(self.game.data, "PIKACHU")
+      self.phase = "exitCry"
+      self.timer = 0
     end
     return
   end
@@ -633,10 +677,11 @@ function TitleState:update(dt)
   if input:wasPressed("start") or input:wasPressed("a") then
     -- the title mon cries when you leave the title (.finishedWaiting);
     -- Yellow's fixed Pikachu title always cries Pikachu.
-    require("src.core.Sound").playCry(self.game.data,
+    self.exitCrySrc = require("src.core.Sound").playCry(self.game.data,
       self.yellowLayout and "PIKACHU"
       or self.cycleSpecies[self.cycleIndex])
-    self:toMenu()
+    self.phase = "exitCry"
+    self.timer = 0
   end
 end
 

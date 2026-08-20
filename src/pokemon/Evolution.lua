@@ -161,16 +161,34 @@ end
 -- Headless (no real graphics) falls back to the plain text flow.
 function Evolution.evolve(game, mon, newSpecies, onDone, via)
   local oldName = mon.nickname or game.data.pokemon[mon.species].name
-  -- IsEvolvingText, DelayFrames 50, then ClearScreenArea before EvolveMon
-  -- (engine/pokemon/evos_moves.asm:120-134)
+  -- IsEvolvingText, DelayFrames 50; ClearScreenArea then wipes rows 0-11
+  -- ONLY, so the box rides through EvolveMon (evos_moves.asm:120-134)
   local isEvolving = romText(game.data, "_IsEvolvingText",
     "What?\n%s is\nevolving!", oldName)
   if love.image and love.image.newImageData then
-    game.stack:push(TextBox.new(game, isEvolving, function()
-      -- forward `via` so EvolutionState can keep trade evolutions
-      -- non-cancelable (LINK_STATE_TRADING) while others accept B (#213)
-      Screens.push(game, "EvolutionState", mon, newSpecies, onDone, via)
-    end, { auto = { delay = EVOLVING_TEXT_FRAMES } }))
+    local intro
+    intro = TextBox.new(game, isEvolving, nil, { stay = {
+      onShown = function()
+        -- DelayFrames 50 with the box and the old screen still up
+        -- (evos_moves.asm:122-123)
+        local hold = { t = 0 }
+        hold.update = function()
+          hold.t = hold.t + 1
+          if hold.t < EVOLVING_TEXT_FRAMES then return end
+          game.stack:pop() -- this hold
+          -- forward `via` so trade evolutions stay non-cancelable while
+          -- others accept B (evos_moves.asm:72-75) (#213)
+          Screens.push(game, "EvolutionState", mon, newSpecies, function()
+            -- the result/cancel box owns the intro box's pop (#1596)
+            if game.stack:top() == intro then game.stack:pop() end
+            if onDone then onDone() end
+          end, via)
+        end
+        hold.draw = function() end
+        game.stack:push(hold)
+      end,
+    } })
+    game.stack:push(intro)
     return
   end
   Music.play(game.data, Music.special(game.data, "evolution"))

@@ -93,7 +93,7 @@ do
   local money = indexOf(events, "money")
   T.check(ret and win and money, "all three win rows are queued: " ..
     kinds(events))
-  T.check(defeated < ret, "BattleText_EnemyWasDefeated comes first")
+  T.check(defeated < ret, "the last faint event precedes the pic's return")
   T.check(ret < win, "the frontpic slides back in before the line")
   T.check(win < money, "and PrintWinLossText runs before the payout")
   T.eq(winEvent.text, "Th-Thank you!", "the struct's win text is printed")
@@ -153,12 +153,17 @@ do
   T.eq(win, "Th-Thank you!", "the struct's win text is decoded")
   T.eq(loss, "...Too weak...", "and its loss text with it")
 
+  world.vm.winLossArmed = true
   world.vm.winTextOverride = "3:4200"
-  win = World.trainerWinLossText(world)
+  win, loss = World.trainerWinLossText(world)
   T.eq(win, "Scripted win.", "`winlosstext` overwrites the pointer")
+  -- winlosstext writes BOTH pointers; its 0 loss argument destroyed the
+  -- struct's value (engine/overworld/scripting.asm:651)
+  T.eq(loss, nil, "and a 0 loss argument zeroes the loss pointer with it")
 
   world.vm.trainerObject = nil
   world.vm.winTextOverride = nil
+  world.vm.winLossArmed = nil
   win, loss = World.trainerWinLossText(world)
   T.eq(win, nil, "a battle with no trainer object has no line")
   T.eq(loss, nil, "on either side")

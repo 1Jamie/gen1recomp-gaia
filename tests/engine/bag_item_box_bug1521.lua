@@ -87,6 +87,22 @@ do
         "and no title row: the box carries no header text")
 end
 
+-- the box keeps the palette beneath and caps the cursor at wMaxMenuItem
+do
+  local list = newList(6)
+  eq(list.sgbPalettes, false,
+     "no SET_PAL_GENERIC: ItemMenuLoop keeps RunDefaultPaletteCommand's "
+     .. "palette (start_sub_menus.asm:300)")
+  eq(list.cursorRows, 3,
+     "wMaxMenuItem 2: three cursor rows (home/list_menu.asm:46-48)")
+  list.game = { input = { wasPressed = function(_, b) return b == "down" end,
+                          isDown = function() return false end } }
+  for _ = 1, 3 do list:update(1 / 60) end
+  eq(list.index, 4, "three downs reach the fourth item")
+  eq(list.index - list.scroll, 3,
+     "scrolling instead of dropping the cursor onto the look-ahead row")
+end
+
 -- a short list stops at its last name, and the terminator's CANCEL row is
 -- what would follow -- never the '▼'
 do

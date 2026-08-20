@@ -35,4 +35,17 @@ local menu = PokedexMenu.new(game, { onClose = function() closed = true end })
 menu:close()
 check(closed, "close still runs the caller's onClose")
 
+-- Save.newGame seeds the key and Save.validate clamps a hand-edited value
+local Save = require("src.core.gen2.Save")
+eq(Save.newGame().lastDexMode, "NEW",
+   "a brand-new save carries the key from the start (wLastDexMode's zero)")
+local edited = Save.newGame()
+edited.lastDexMode = "SPICY"
+Save.validate(edited)
+eq(edited.lastDexMode, "NEW", "validate clamps an out-of-range mode to NEW")
+local kept = Save.newGame()
+kept.lastDexMode = "A-Z"
+Save.validate(kept)
+eq(kept.lastDexMode, "A-Z", "and keeps a legal one")
+
 T.finish("gen2 pokedex mode persistence bug 1474")
