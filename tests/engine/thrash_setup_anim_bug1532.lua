@@ -49,6 +49,13 @@ local function indexOf(rows, name)
   return nil
 end
 
+local function hasText(battle, needle)
+  for _, item in ipairs(battle.queue) do
+    if item.text and item.text:find(needle, 1, true) then return true end
+  end
+  return false
+end
+
 -- ---------------------------------------------------------------------
 -- the player's setup turn: the effect animation precedes the move's own
 -- ---------------------------------------------------------------------
@@ -73,6 +80,17 @@ do
   battle:performMove(battle.player, battle.enemy, slot)
   T.check(indexOf(animRows(battle), "SHRINKING_SQUARE_ANIM") == nil,
     "a locked-in Thrash queues no setup animation")
+  -- .ThrashingAboutCheck (core.asm:3534-3535, enemy mirror :5909-5910) (#1577)
+  T.check(indexOf(animRows(battle), "THRASH") ~= nil,
+    "a continuation turn animates THRASH, not the locked move's own id")
+  T.check(indexOf(animRows(battle), "FIX_THRASH") == nil,
+    "so the locked move's own animation does not play")
+  T.check(hasText(battle, "thrashing about"),
+    "ThrashingAboutText prints in place of the used-move line")
+  T.check(not hasText(battle, "used FIX THRASH"),
+    "and the used-move line does not")
+  T.eq(battle.player.thrashTurns, 1,
+    "the continuation turn runs wPlayerNumAttacksLeft down")
 end
 
 -- ---------------------------------------------------------------------
@@ -104,6 +122,27 @@ do
   T.check(indexOf(rows, "SHRINKING_SQUARE_ANIM") ~= nil,
     "the setup animation survives a miss")
   T.check(indexOf(rows, "FIX_THRASH") == nil, "while the move's own anim is cancelled")
+  -- ThrashPetalDanceEffect commits before MoveHitTest
+  -- (core.asm:3129-3133, effects.asm:791-808) (#1565)
+  T.eq(battle.player.thrashTurns, 2, "the miss still rolls wPlayerNumAttacksLeft")
+  T.check(battle:menuLockedAction(battle.player) ~= nil,
+    "and the user is locked into Thrash next turn")
+end
+
+-- ---------------------------------------------------------------------
+-- JumpMoveEffect (core.asm:3129-3133) before MoveHitTest INVULNERABLE (:3150) (#1565)
+do
+  local battle = newBattle()
+  battle.queue, battle.nextInsert = {}, 0
+  battle.enemy.invulnerable = true
+  battle:performMove(battle.player, battle.enemy, { id = "FIX_THRASH", pp = 20 })
+  T.check(indexOf(animRows(battle), "SHRINKING_SQUARE_ANIM") ~= nil,
+    "the setup animation plays against a mid-Fly/Dig target")
+  T.eq(battle.player.thrashTurns, 2,
+    "the 2-3 roll commits against a mid-Fly/Dig target")
+  T.check(battle:menuLockedAction(battle.player) ~= nil,
+    "and the user is locked into Thrash next turn")
+  T.check(hasText(battle, "attack missed"), "while the attack itself misses")
 end
 
 T.finish("thrash setup animation (#1532)")

@@ -44,7 +44,8 @@ local NAME_DELAYS = { FAST = 1, MID = 3, SLOW = 5 }
 -- waits for nothing, shows no blinking arrow, and never pops itself --
 -- whoever pushed it owns the pop.  stay.onShown fires once, on the frame
 -- the last page finishes typing, which is where the caller pushes whatever
--- goes on top of it (#591).
+-- goes on top of it (#591).  stay.prompt waits out one arrowed A/B press
+-- first (TextCommand_PROMPT_BUTTON, home/text.asm:434-444) (#1511).
 function TextBox.new(game, text, onDone, opts)
   local self = setmetatable({}, TextBox)
   self.game = game
@@ -296,6 +297,15 @@ function TextBox:update(dt)
     -- exactly once (#591)
     if self.stay then
       if not self.stayShown then
+        -- stay.prompt: arrowed A/B wait, then the box stays up
+        -- (TextCommand_PROMPT_BUTTON, home/text.asm:434-444)
+        if self.stay.prompt
+           and not (input:wasPressed("a") or input:wasPressed("b")) then
+          return
+        end
+        if self.stay.prompt then
+          require("src.core.Sound").play(self.game.data, "Press_AB")
+        end
         self.stayShown = true
         if self.stay.onShown then self.stay.onShown() end
       end
@@ -494,7 +504,8 @@ function TextBox:draw()
     Font.draw(money, 152 - Font.width(money), 8)
   end
   if (self.waiting or (self.done and not self.choice and not self.auto
-                       and not self.stay))
+                       and (not self.stay
+                            or (self.stay.prompt and not self.stayShown))))
      and self.blink < 30 then
     -- page-advance cursor: glyph $EE by default, the blinking down arrow
     -- the original prints via `ld a, "▼"` (home/text.asm)

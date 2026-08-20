@@ -1258,7 +1258,9 @@ do
         "_GainedText + _ExpPointsText show the amount")
 
   Game.save.party = { Pokemon.new(Data, "BULBASAUR", 30) }
+  -- GainExperience: MON_OTID vs wPlayerID (experience.asm:69-88) (#1488)
   Game.save.party[1].traded = true
+  Game.save.party[1].otId = (Game.save.player.id or 0) + 1
   local eb2 = BattleState.newWild(Game, "RATTATA", 10)
   eb2.participants = { [Game.save.party[1]] = true }
   eb2:enemyMonFainted()

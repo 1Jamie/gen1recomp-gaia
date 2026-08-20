@@ -391,14 +391,18 @@ end
 -- Gen 2 moveset lives in `levelMoves` (EvosAttacks).  So every scripted gift,
 -- the STARTER included, arrived knowing nothing: FIGHT listed no moves and the
 -- battle had no legal action left in it.
-local function givePokeMon(data, speciesIndex, level, itemIndex)
+local function givePokeMon(data, speciesIndex, level, itemIndex, opts)
   local id = speciesByIndex(data.pokemon, speciesIndex)
   if not id then return nil end
   return Mon.new(data, id, level or 5, {
     item = itemIndex and itemIndex ~= 0
       and itemByIndex(data.items, itemIndex) or nil,
+    nickname = opts and opts.nickname or nil,
   })
 end
+
+-- GivePoke's trainer arm (engine/pokemon/move_mon.asm:1698-1736)
+local RANDY_OT_ID = 1001
 
 local function loadGenerated(path)
   -- Same NX gold/ fallback Game2 uses. World:load is what surfaces
@@ -997,13 +1001,18 @@ function World:load()
     setStringBuffer = function(value)
       if self.game then self.game.stringBuffer = value end
     end,
-    givePoke = function(speciesIndex, level, item)
+    givePoke = function(speciesIndex, level, item, opts)
       local data = self.game and self.game.data
       local save = self.game and self.game.save
       if not (data and save) then return end
       save.party = save.party or {}
-      local mon = givePokeMon(data, speciesIndex, level, item)
+      local mon = givePokeMon(data, speciesIndex, level, item, opts)
       if mon then
+        if opts and opts.otName then
+          mon.ot = opts.otName
+          mon.otName = opts.otName
+          mon.otId = RANDY_OT_ID
+        end
         -- GivePoke -> TryAddMonToParty -> AddPartyMon (move_mon.asm:44-56, :143-149).
         Mon.stampOT(save, mon)
         Party.add(save.party, mon)
@@ -1458,13 +1467,11 @@ function World:mapSceneOf(group, mapNum)
 end
 
 -- wTimeOfDay (constants/ram_constants.asm): MORN_F 0, DAY_F 1, NITE_F 2,
--- DARKNESS_F 3.  Palettes.daytimeFor has already resolved the clock and the
--- map's own PALETTE_* override into one of four names, so this is a rename
--- rather than a second clock.
+-- DARKNESS_F 3, off the RTC hour (engine/tilesets/timeofday_pals.asm:5-11)
 local TIME_OF_DAY_ID = { MORN = 0, DAY = 1, NITE = 2, DARK = 3 }
 
 function World:timeOfDayId()
-  return TIME_OF_DAY_ID[self.daytime or "DAY"] or 1
+  return TIME_OF_DAY_ID[self.tod or self.daytime or "DAY"] or 1
 end
 
 -- GetWeekday -> wCurDay, which the RTC counts SUNDAY 0 .. SATURDAY 6 -- the
@@ -4369,6 +4376,8 @@ function World:useFieldItem(itemId)
   if itemId == "SACRED_ASH" then return self:useSacredAsh() end
   if itemId == "ESCAPE_ROPE" then return self:useEscapeRope(itemId) end
   if itemId == "SQUIRTBOTTLE" then return self:useSquirtbottle() end
+  -- CoinCaseEffect (engine/items/item_effects.asm:2243).
+  if itemId == "COIN_CASE" then return "coin_case", self:coins() end
   if REPEL_STEPS[itemId] then return self:useRepel(itemId) end
   if TROPHY_BOXES[itemId] then return self:openTrophyBox(itemId) end
   if not World.isRod(itemId, items) then return nil end
@@ -5802,7 +5811,9 @@ function World:battleMusicContext(opts)
     members = trainer and trainer.classId and members
       and members[trainer.classId] or nil,
     landmark = self.map and self.map.def and self.map.def.landmark,
-    daytime = self.daytime,
+    -- PlayBattleMusic reads wTimeOfDay (engine/battle/start_battle.asm:24),
+    -- not the map's pinned palette set.
+    daytime = self.tod,
   }
 end
 
@@ -5999,6 +6010,24 @@ function World:startBattle(opts, onDone)
   return true
 end
 
+-- wWinTextPointer / wLossTextPointer (home/trainers.asm:120), overwritten by
+-- `winlosstext` (engine/overworld/scripting.asm:651)
+function World:trainerWinLossText()
+  local vm = self.vm
+  if not vm then return nil, nil end
+  local obj = vm.trainerObject or {}
+  local text = self.text or {}
+  -- `winlosstext` writes BOTH pointers; a 0 argument destroys the struct
+  -- value rather than falling back to it (engine/overworld/scripting.asm:651)
+  local winKey, lossKey
+  if vm.winLossArmed then
+    winKey, lossKey = vm.winTextOverride, vm.lossTextOverride
+  else
+    winKey, lossKey = obj.winText, obj.lossText
+  end
+  return winKey and text[winKey] or nil, lossKey and text[lossKey] or nil
+end
+
 -- `startbattle` from a script: a trainer record (class + member) or a
 -- loadwildmon pair.  The VM is parked on the yield until onDone fires, so the
 -- rest of the trainer script (flag set, after-battle text) runs on return.
@@ -6057,6 +6086,9 @@ function World:startScriptedBattle(record, wild, onDone)
       attributes = record.attributes,
       items = record.items,
     }
+    -- wWinTextPointer / wLossTextPointer, read by PrintWinLossText on the
+    -- battle screen (home/trainers.asm:230) (#1512)
+    opts.trainer.winText, opts.trainer.lossText = self:trainerWinLossText()
   elseif wild and wild.species then
     local id, def = speciesByIndex(data and data.pokemon, wild.species)
     -- InitEnemyMon `.NotRoaming` / BATTLETYPE.FORCESHINY: the DV pair is
@@ -9194,8 +9226,10 @@ function World:stepContext()
   local def = self.map and self.map.def
   return {
     data = self.game and self.game.data,
+    -- CheckTime reads wTimeOfDay (engine/events/checktime.asm:2), so the
+    -- caller windows follow the clock even inside a pinned-palette room.
     phone = {
-      map = def, maps = self.maps, daytime = self.daytime,
+      map = def, maps = self.maps, daytime = self.tod,
       clock = self.game and self.game.clock,
     },
     -- GetMapPhoneService: zero means the map HAS service, which maps.lua has

@@ -1316,15 +1316,27 @@ function LauncherView._updateControl(imp)
   elseif status == "downloading" then
     local pct = st.progress and math.floor(st.progress * 100) or 0
     return status, Strings("Updating %d%%", pct), nil, false
+  elseif status == "full_downloading" then
+    local pct = st.progress and math.floor(st.progress * 100) or 0
+    return status, Strings("Downloading app %d%%", pct), nil, false
   elseif status == "available" then
     return status, st.latest and (Strings("Update v") .. st.latest)
       or Strings("Update"), function() pcall(imp.Check.download) end, true
   elseif status == "ready" then
     return status, Strings("Restart to update"),
       function() require("src.core.HostShell").restart() end, true
-  elseif status == "needs_full" then
-    return status, Strings("Open releases"),
-      function() love.system.openURL(imp.Check.releaseUrl()) end, true
+  elseif status == "needs_full" or status == "full_ready" then
+    local action = imp.Check.fullUpdateAction and imp.Check.fullUpdateAction()
+    local label = action and action.label or "Open releases"
+    local url = action and action.url or imp.Check.releaseUrl()
+    return status, Strings(label),
+      function()
+        if action and action.kind and imp.Check.performFullUpdate then
+          pcall(imp.Check.performFullUpdate)
+        else
+          love.system.openURL(url)
+        end
+      end, true
   end
   -- idle / uptodate / error: offer a manual check, with no glow.
   return status, Strings("Check for updates"),

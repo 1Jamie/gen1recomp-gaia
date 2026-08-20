@@ -609,9 +609,10 @@ function Game:draw()
   -- ...and for the same reason the UI's own scale has to know the world is
   -- still the backdrop while an opaque menu covers it.  Renderer:uiScale
   -- steps the UI down with the survey zoom only while a world is behind it,
-  -- gated on this frame's world pass -- which the party menu and the bag end
-  -- by being opaque.  Without this hold they lose the step-down and blit at
-  -- full fit scale over a battle drawn at the zoomed-out one.
+  -- gated on this frame's world pass -- which the party menu ends by being
+  -- opaque (the bag's item box shows the map around it, #1521).  Without
+  -- this hold it loses the step-down and blits at full fit scale over a
+  -- battle drawn at the zoomed-out one.
   Renderer.uiWorldHold = Renderer.battleDim ~= nil
   -- ...and a battle keeps its dialogue box and YES/NO inside its own screen
   -- instead of letting them dock to the window edge.

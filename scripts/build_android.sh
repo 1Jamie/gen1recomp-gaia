@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Packages the LÖVE2D Pokémon Red port into an Android APK via love-android 11.5a.
 #
-# Usage: scripts/build_android.sh [--version X.Y.Z] [--package-only]
+# Usage: scripts/build_android.sh [--version X.Y.Z] [--release] [--package-only]
 #
 #   --version X.Y.Z  set app.version_name / app.version_code (else left as-is)
+#   --release        build the production-signed release APK (requires the
+#                    GEN1RECOMP_ANDROID_* signing environment variables)
 #   --package-only   zip game.love + apply branding; skip gradle
 #
 # Prerequisites:
 #   - mobile/android vendored love-android tree at tag 11.5a (in-repo; see mobile/ANDROID.md)
-#   - Android SDK + NDK (SDK API 34, NDK 25.2.9519653)
+#   - Android SDK + NDK (SDK API 36, NDK 25.2.9519653)
 #   - JDK 17
 #
 # Output (after gradle):
-#   dist/android/debug/*.apk (convenience copy)
-#   mobile/android/app/build/outputs/apk/embedNoRecord/debug/*.apk
+#   dist/android/debug/*.apk (normal local build) or dist/android/release/*.apk
 
 set -euo pipefail
 
@@ -26,6 +27,7 @@ APP_NAME="gen1recomp"
 APPLICATION_ID="com.theboisclub.pokemonred"
 LOVE_ANDROID_VERSION="11.5a"
 NDK_VERSION="25.2.9519653"
+ANDROID_API="36"
 YELLOW_MANIFEST_RELATIVE="tools/rom_manifest_yellow.json"
 YELLOW_MANIFEST_URL="${YELLOW_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_yellow.json}"
 GOLD_MANIFEST_RELATIVE="tools/rom_manifest_gold.json"
@@ -35,6 +37,7 @@ SILVER_MANIFEST_URL="${SILVER_MANIFEST_URL:-https://raw.githubusercontent.com/br
 
 VERSION=""
 PACKAGE_ONLY=false
+RELEASE=false
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -44,11 +47,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION="$2"; shift ;;
     --package-only) PACKAGE_ONLY=true ;;
+    --release) RELEASE=true ;;
     -h|--help)
       sed -n '2,20p' "$0"
       exit 0
       ;;
-    *) fail "unknown argument: $1 (try --version X.Y.Z or --package-only)" ;;
+    *) fail "unknown argument: $1 (try --version X.Y.Z, --release, or --package-only)" ;;
   esac
   shift
 done
@@ -62,7 +66,22 @@ if [ -n "$VERSION" ]; then
   rest="${VERSION#*.}"
   minor="${rest%%.*}"
   patch="${rest##*.}"
-  VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+  # Reserve three digits for each lower component. This stays monotonic across
+  # 1.0.100 -> 1.1.0, unlike the old two-digit encoding, and remains inside
+  # Android's signed 32-bit versionCode range for normal release versions.
+  if [ "$minor" -gt 999 ] || [ "$patch" -gt 999 ] || [ "$major" -gt 2099 ]; then
+    fail "--version components exceed Android versionCode limits"
+  fi
+  VERSION_CODE=$((major * 1000000 + minor * 1000 + patch))
+fi
+
+if $RELEASE; then
+  for var in GEN1RECOMP_ANDROID_KEYSTORE GEN1RECOMP_ANDROID_KEYSTORE_PASSWORD \
+    GEN1RECOMP_ANDROID_KEY_ALIAS GEN1RECOMP_ANDROID_KEY_PASSWORD; do
+    [ -n "${!var:-}" ] || fail "--release requires $var"
+  done
+  [ -f "$GEN1RECOMP_ANDROID_KEYSTORE" ] \
+    || fail "Android signing keystore does not exist: $GEN1RECOMP_ANDROID_KEYSTORE"
 fi
 
 # --------------------------------------------------------------- preconditions
@@ -389,12 +408,17 @@ require_android_sdk() {
     export ANDROID_SDK_ROOT=\$HOME/Library/Android/sdk
   or create mobile/android/local.properties with:
     sdk.dir=/path/to/Android/sdk
-  love-android $LOVE_ANDROID_VERSION expects SDK API 34 and NDK $NDK_VERSION
+  love-android $LOVE_ANDROID_VERSION expects SDK API $ANDROID_API and NDK $NDK_VERSION
   (see mobile/ANDROID.md)."
   fi
 
   export ANDROID_SDK_ROOT="$sdk"
   export ANDROID_HOME="$sdk"
+
+  if [ ! -d "$sdk/platforms/android-$ANDROID_API" ]; then
+    fail "Android SDK platform android-$ANDROID_API is not installed.
+  Install Android $ANDROID_API (and the latest 36.x Build-Tools) in SDK Manager."
+  fi
 
   local props="$ANDROID_DIR/local.properties"
   # Always rewrite so a leftover Docker sdk.dir=/opt/android-sdk cannot stick.
@@ -412,7 +436,12 @@ require_android_sdk() {
 
 # --------------------------------------------------------------- gradle
 run_gradle() {
-  local task="assembleEmbedNoRecordDebug"
+  local variant="debug"
+  $RELEASE && variant="release"
+  # Keep this compatible with macOS's bundled Bash 3.2 (no ${var^}).
+  local variant_title="Debug"
+  $RELEASE && variant_title="Release"
+  local task="assembleEmbedNoRecord$variant_title"
   local build_dir="$ANDROID_DIR"
 
   # ndk-build is GNU make underneath and cannot cope with spaces anywhere in
@@ -447,12 +476,12 @@ run_gradle() {
   You can still iterate on the .love payload with: scripts/build_android.sh --package-only"
   fi
 
-  local out_dir="$build_dir/app/build/outputs/apk/embedNoRecord/debug"
+  local out_dir="$build_dir/app/build/outputs/apk/embedNoRecord/$variant"
   if [ -d "$out_dir" ]; then
     say "APK output:"
     find "$out_dir" -name '*.apk' -exec ls -lh {} \;
 
-    local dist_dir="$DIST/debug"
+    local dist_dir="$DIST/$variant"
     rm -rf "$dist_dir"
     mkdir -p "$dist_dir"
     find "$out_dir" -name '*.apk' -exec cp {} "$dist_dir/" \;
