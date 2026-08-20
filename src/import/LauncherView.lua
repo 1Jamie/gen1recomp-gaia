@@ -4554,7 +4554,7 @@ local function buildSyncHome(imp, m, eng)
   local linked = eng:linked()
   local codes = eng.codes
   local body = linked
-    and Strings("This device is linked. Saves and the mod list sync when the launcher opens and a few seconds after each save.")
+    and Strings("This device is linked. Saves sync when the launcher opens, a few seconds after each save, and every few minutes while the app is running.")
     or Strings(SYNC_HINT)
   local innerW = w - 2 * pad
   local hintH = Kit.wrapHeight("small", body, innerW, 5)

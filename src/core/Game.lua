@@ -982,7 +982,11 @@ end
 -- parked the player until every direction was re-pressed (#799).
 function Game:focus(f)
   Input:reset()
-  if f then Input:reconcile() end
+  if f then
+    Input:reconcile()
+    local eng = self:syncEngine()
+    if eng then pcall(eng.noteResumed, eng) end
+  end
   TouchControls:reset()
   self:cancelPointers()
 end
@@ -1002,6 +1006,8 @@ function Game:onResume()
   Input:reconcile()
   TouchControls:reset()
   self:cancelPointers()
+  local eng = self:syncEngine()
+  if eng then pcall(eng.noteResumed, eng) end
   -- Chip music may survive NX suspend as a duplicate stream; stop it and let
   -- the active screen re-cue on the next frame (hardware audio check: T19).
   -- Desktop/mobile window-visible flips must not kill overworld music.
@@ -1209,18 +1215,26 @@ end
 
 function Game:syncEngine()
   if self._syncOff then return nil end
-  if self._syncEngineRef then return self._syncEngineRef end
-  local ok, SyncEngine = pcall(require, "src.sync.SyncEngine")
-  if not ok or type(SyncEngine) ~= "table" then
-    self._syncOff = true
-    return nil
-  end
-  local eng = SyncEngine.shared()
+  local eng = self._syncEngineRef
   if not eng then
-    self._syncOff = true
-    return nil
+    local ok, SyncEngine = pcall(require, "src.sync.SyncEngine")
+    if not ok or type(SyncEngine) ~= "table" then
+      self._syncOff = true
+      return nil
+    end
+    eng = SyncEngine.shared()
+    if not eng then
+      self._syncOff = true
+      return nil
+    end
+    self._syncEngineRef = eng
   end
-  self._syncEngineRef = eng
+  if type(eng.protectPlaythrough) == "function" then
+    local meta = self.save and self.save.meta
+    eng:protectPlaythrough(
+      (self.save and self.save.version) or require("src.core.GameVersion").get(),
+      type(meta) == "table" and meta.playthroughId or nil)
+  end
   return eng
 end
 
