@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.12",
+          "date": "2026-08-20",
+          "size": 13737259,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.12/gen1recomp++-0.2.12-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1582 Sync not working between steamdeck and windows\n- #1583 Can’t sync between iOS and windows\n\n## Contributors\n\n- @AverageConsumer\n- @bryanthaboi\n- @thibautbus"
+        },
+        {
           "version": "0.2.11",
           "date": "2026-08-20",
           "size": 13735190,
