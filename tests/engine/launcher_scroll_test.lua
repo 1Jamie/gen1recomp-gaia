@@ -155,28 +155,34 @@ modImp.mods = mods
 modImp._ensureMods = function() return mods end
 LauncherView.draw(modImp)
 LauncherView.draw(modImp)
-check((modImp._modScrollMax or 0) > 0,
-  "60 mods overflow the list viewport inside the panel")
-local list = modImp._modListRect
-check(list.x + list.w
-    <= modImp._tabRegionRect.x + modImp._tabRegionRect.w - Kit.scrollBarW(),
-  "the rows stop short of the region's scrollbar gutter")
-pointer(list.x + 10, list.y + 10)
+local reg = modImp._tabRegionRect
+check((modImp._tabScrollMax.mods or 0) > reg.h,
+  "60 installed mods are ONE continuous list: the region's travel spans "
+  .. "the whole list, not one page of it")
+eq(modImp._pages.mods, nil, "and no page state is ever minted for it")
+pointer(reg.x + 10, reg.y + 40)
 modImp._wheelY = -1
 LauncherView.draw(modImp)
-check((modImp.modScroll or 0) > 0, "a notch over the mod list scrolls the list")
-eq(modImp._tabScroll.mods or 0, 0, "not the panel region around it")
-eq(modImp._pageScroll, 0, "and not the page behind that")
+check((modImp._tabScroll.mods or 0) > 0,
+  "a notch over the region scrolls the list like any other tab")
+eq(modImp._pageScroll, 0, "without reaching the page behind it")
+
+modImp._tabScroll.mods = modImp._tabScrollMax.mods
+LauncherView.draw(modImp)
+pointer(reg.x + 10, reg.y + reg.h * 0.5)
+modImp._wheelY = -1
+LauncherView.draw(modImp)
+eq(modImp._pages.mods, nil,
+  "bottoming the list out never auto-advances any pager")
+eq(modImp._tabScroll.mods, modImp._tabScrollMax.mods,
+  "the list just rests at its end")
 
 modImp._modActions = "mod1"
-local shielded = modImp.modScroll
-local shieldedPage = modImp._pageScroll
-pointer(list.x + 10, list.y + 10)
+local shieldedAt = modImp._tabScroll.mods
 modImp._wheelY = -1
 LauncherView.draw(modImp)
-eq(modImp.modScroll, shielded, "a shielded mod list ignores the notch")
-eq(modImp._tabScroll.mods or 0, 0, "and so does the region under the scrim")
-eq(modImp._pageScroll, shieldedPage, "and the page behind that")
+eq(modImp._tabScroll.mods, shieldedAt,
+  "a shielded mod list ignores the notch under the scrim")
 modImp._modActions = nil
 modImp._wheelY = 0
 LauncherView.draw(modImp)
@@ -225,32 +231,27 @@ dragMods.mods = mods
 dragMods._ensureMods = function() return mods end
 LauncherView.draw(dragMods)
 LauncherView.draw(dragMods)
-local dlist = dragMods._modListRect
-local dListMax = dragMods._modScrollMax
+local dreg = dragMods._tabRegionRect
 local dRegionMax = dragMods._tabScrollMax.mods
-check(dListMax > 0 and dRegionMax > 0,
-  "the mods tab has both an inner list and a region to scroll")
-LauncherView.touchpressed(dragMods, 7, dlist.x + 20, dlist.y + 30)
-LauncherView.touchmoved(dragMods, 7, dlist.x + 20, dlist.y + 30 - 60)
-eq(dragMods.modScroll, math.min(60, dListMax),
-  "the first pixels of the drag move the list")
-eq(dragMods._tabScroll.mods or 0, 0, "and nothing else")
-LauncherView.touchmoved(dragMods, 7, dlist.x + 20,
-  dlist.y + 30 - 60 - dListMax - dRegionMax * 2)
-eq(dragMods.modScroll, dListMax, "carrying on saturates the list")
-eq(dragMods._tabScroll.mods, dRegionMax,
-  "then the same gesture walks the region to its bottom")
+check(dRegionMax > 0, "the mods region scrolls its overscan like any tab")
+LauncherView.touchpressed(dragMods, 7, dreg.x + 20, dreg.y + 30)
+LauncherView.touchmoved(dragMods, 7, dreg.x + 20, dreg.y + 30 - 60)
+eq(dragMods._tabScroll.mods, math.min(60, dRegionMax),
+  "a drag moves the region by the finger's travel")
+LauncherView.touchmoved(dragMods, 7, dreg.x + 20,
+  dreg.y + 30 - 60 - dRegionMax * 2)
+eq(dragMods._tabScroll.mods, dRegionMax, "carrying on saturates the region")
 check((dragMods._pageScroll or 0) > 0, "and only then reaches the page")
-LauncherView.touchreleased(dragMods, 7, dlist.x + 20, dlist.y - 900)
+LauncherView.touchreleased(dragMods, 7, dreg.x + 20, dreg.y - 900)
 
 dragMods._skins = { { id = "s1", source = "user", controls = 8, pages = 1 } }
 for i = 2, 12 do
   dragMods._skins[i] = { id = "s" .. i, source = "user", controls = 8, pages = 1 }
 end
 dragMods._ensureSkins = function() return dragMods._skins end
-dragMods.modScroll = 0
-local heldModScroll = dragMods.modScroll
-local overList = dlist.y + 30
+local heldModsPage = dragMods._pages.mods or 1
+local heldModsAt = dragMods._tabScroll.mods
+local overList = dreg.y + 60
 dragMods:_switchTab("skins")
 LauncherView.draw(dragMods)
 LauncherView.draw(dragMods)
@@ -260,8 +261,10 @@ LauncherView.touchpressed(dragMods, 9, sreg.x + 20, overList)
 LauncherView.touchmoved(dragMods, 9, sreg.x + 20, overList - 200)
 check((dragMods._tabScroll.skins or 0) > 0,
   "a drag on the skins tab scrolls the skins tab")
-eq(dragMods.modScroll, heldModScroll,
-  "and leaves the mod list where the player parked it")
+eq(dragMods._pages.mods or 1, heldModsPage,
+  "and leaves the mod list on the page the player parked it")
+eq(dragMods._tabScroll.mods, heldModsAt,
+  "with its region offset held for the return trip")
 LauncherView.touchreleased(dragMods, 9, sreg.x + 20, sreg.y - 400)
 
 love.graphics.polygon = love.graphics.polygon or function() end
@@ -308,8 +311,8 @@ local view = read("src/import/LauncherView.lua")
 check(view:find("Kit.scrollBegin(", 1, true) ~= nil,
   "the panel dispatch opens a scroll region")
 check(view:find("Kit.scrollEnd(", 1, true) ~= nil, "and closes it")
-check(view:find("modListWantsWheel", 1, true) ~= nil,
-  "the nested mod list is asked before the region takes a notch")
+check(view:find("modListWantsWheel", 1, true) == nil,
+  "no nested list steals the wheel from the region any more")
 check(view:find("start.region", 1, true) ~= nil,
   "a touch drag that began in the region scrolls the region")
 check(view:find("Kit.scrollGutter(", 1, true) ~= nil,

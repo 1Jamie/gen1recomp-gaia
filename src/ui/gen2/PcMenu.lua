@@ -181,7 +181,7 @@ function PcMenu:beginChangeBox(index)
   self.saveTimer = 0
   self.saved = nil
   local existed = self.saveExists
-  if existed == nil then existed = Save.exists("gold") end
+  if existed == nil then existed = Save.exists() end
   self.existed = existed
 end
 

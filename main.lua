@@ -386,11 +386,12 @@ function bootGame(version)
     love.window.setTitle(Version.title(
       GameVersion.info().displayName .. " (Gen 1 Recompilation Project)"))
   end
-  -- Gold: Gen 1 Game:load cannot consume a Gen 2 cache -- different generated
-  -- tables, save shape and screen registry -- so Gold boots its own service
-  -- owner, which mounts src/world/gen2 (walk / warps / connections) and the
-  -- Gen 2 screens instead of src/core/Game.lua's Gen 1 wiring.
-  if GameVersion.isGold() then
+  -- Gen 2: Gen 1 Game:load cannot consume a Gen 2 cache -- different generated
+  -- tables, save shape and screen registry -- so Gold and Silver boot their
+  -- own service owner, which mounts src/world/gen2 (walk / warps /
+  -- connections) and the Gen 2 screens instead of src/core/Game.lua's Gen 1
+  -- wiring.
+  if GameVersion.generation() == 2 then
     Game = require("src.core.Game2").new()
     Game:load()
   else

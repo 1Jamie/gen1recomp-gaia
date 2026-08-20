@@ -161,6 +161,8 @@ jobs:
           scripts/build_linux_arm64.sh \
             --version "${{ needs.version.outputs.version }}" \
             --game-love .bazinga/work/game.love
+      - name: Verify the AppImage is self-contained and bullseye-compatible
+        run: bash scripts/linux-arm64/verify_appimage.sh "dist/linux-arm64/gen1recomp-${{ needs.version.outputs.version }}-linux-arm64.AppImage"
       - name: Upload Linux arm64 release
         uses: actions/upload-artifact@v7
         with:
@@ -285,7 +287,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [version, xbox-uwp, linux-arm64, native-tls-win]
+    needs: [version, love-payload, xbox-uwp, linux-arm64, native-tls-win]
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
 
     steps:
@@ -306,6 +308,15 @@ jobs:
         with:
           name: gen1tls-win-x64
           path: dist/native/win-x64
+
+      # The same game.love the arm64 AppImage and Xbox UWP builds fused, so
+      # every release asset ships one identical payload (build.sh's own pack
+      # would omit PATCH_NOTES.md and mobile/ios/app-repo.json).
+      - name: Download shared payload
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1recomp-release-love
+          path: dist/payload
 
       - name: Import signing certificate into a temporary keychain
         if: github.repository == 'bryanthaboi/gen1recomp'
@@ -357,7 +368,8 @@ jobs:
             echo "::error::gen1tls.dll missing at $GEN1TLS_DLL (native-tls-win job)"
             exit 1
           fi
-          scripts/build.sh all --version "${{ needs.version.outputs.version }}" --no-notarize
+          scripts/build.sh all --version "${{ needs.version.outputs.version }}" --no-notarize \
+            --game-love dist/payload/game.love
           unzip -l dist/win/gen1recomp-win64.zip | grep -F gen1tls.dll \
             || { echo "::error::Windows zip is missing gen1tls.dll"; exit 1; }
 

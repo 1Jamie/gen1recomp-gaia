@@ -326,6 +326,9 @@ function Game:logicSpeed()
   if self.linkSession or (self.linkNet and not self.linkNet.closed) then
     return 1
   end
+  if Game.isFixedSpeedInStack and Game.isFixedSpeedInStack(self.stack) then
+    return 1
+  end
   if self.speedOverride then return GameSpeed.clamp(self.speedOverride) end
   -- Clamp here too, not just in _resolveLogicSpeed's vanilla path: a mod's
   -- core.logic_speed hook can return anything (0, negative, nil, NaN) and
@@ -473,6 +476,15 @@ function Game.speedCategoryInStack(stack)
     if state and state.isOverworld then return "overworld" end
   end
   return "menu"
+end
+
+function Game.isFixedSpeedInStack(stack)
+  local states = stack and stack.states
+  for i = #(states or {}), 1, -1 do
+    local state = states[i]
+    if state and (state.isFixedSpeed or state.isMinigame) then return true end
+  end
+  return false
 end
 
 -- Whether a state on the stack composes its own screen and so wants the
@@ -1248,6 +1260,7 @@ function Game:applyOptions(opts)
   -- after VideoMode: a faithful-resolution lock is an exact window size, so
   -- it has to be the last word on the window (it drops fullscreen to hold)
   require("src.core.FaithfulRes").applyOptions(opts)
+  require("src.core.ScreenPosition").applyOptions(opts)
   -- normalizes a nil/garbage cap to the 60 default, so old saves with no
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)

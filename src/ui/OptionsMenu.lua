@@ -21,6 +21,7 @@ local GameVersion = require("src.core.GameVersion")
 local VideoMode = require("src.core.VideoMode")
 local Orientation = require("src.core.Orientation")
 local FaithfulRes = require("src.core.FaithfulRes")
+local ScreenPosition = require("src.core.ScreenPosition")
 local FrameCap = require("src.core.FrameCap")
 local Performance = require("src.core.Performance")
 local Logger = require("src.core.Logger")
@@ -441,6 +442,16 @@ local function buildRows(game)
         local o = g.save.options
         o.faithfulRes = FaithfulRes.cycle(o.faithfulRes, dir)
         FaithfulRes.apply(o.faithfulRes)
+        return true
+      end },
+    { id = "screenPos", label = Strings("SCREEN POS"),
+      value = function(g)
+        return Strings(ScreenPosition.label(g.save.options.screenPos))
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.screenPos = ScreenPosition.cycle(o.screenPos, dir)
+        ScreenPosition.setMode(o.screenPos)
         return true
       end },
     -- hard render cap (issue #88): bounds the present rate so a

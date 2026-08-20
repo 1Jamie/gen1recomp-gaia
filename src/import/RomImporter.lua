@@ -142,6 +142,8 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/audio/programs.bin",
   },
 }
+-- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
+VERSION_REQUIRED_FILES_OVERRIDE.silver = VERSION_REQUIRED_FILES_OVERRIDE.gold
 
 -- "Split-screen ROM selector" first-run palette (matches the FirstRun mockup):
 -- a dark neon arcade panel, one column per game.
@@ -335,7 +337,7 @@ function RomImporter.syncAndroidShortcuts(activeVersion)
     return false
   end
 
-  local allVersions = { "red", "blue", "yellow", "gold" }
+  local allVersions = GameVersion.ORDER
   local ready = {}
   local seen = {}
 
@@ -1361,11 +1363,10 @@ function RomImporter.new(onComplete, opts)
     saveNotice = {},
     -- MODS panel state (pass 3): mods is the cached LauncherMods.list() array
     -- (refreshed lazily on first draw and after any toggle/install/delete);
-    -- modScroll is the current paged list's inner scroll offset (px, clamped
-    -- in draw); modNotice is the last install/delete result { ok, text }.
+    -- modNotice is the last install/delete result { ok, text }.
     -- requiredImportNotice stays inside the imported-files modal so validation
     -- failures are visible beside the file picker that caused them.
-    mods = nil, modScroll = 0, modNotice = nil, issueNotice = nil,
+    mods = nil, modNotice = nil, issueNotice = nil,
     requiredImportNotice = nil,
     -- Which game the MODS panel is answering for (a GameVersion id, nil =
     -- every game).  Rows resolve their enable-state and their "runs here"
@@ -1422,7 +1423,8 @@ function RomImporter.new(onComplete, opts)
     self.returning[version] =
       (not ready) and marker ~= nil and marker ~= markerFor(version)
     self.romName[version] = "pokemon_" .. info.id
-      .. ((info.id == "yellow" or info.id == "gold") and ".gbc" or ".gb")
+      .. ((info.id == "yellow" or GameVersion.generation(version) == 2)
+        and ".gbc" or ".gb")
   end
   RomImporter.syncAndroidShortcuts()
   self:_applyLastVersionTab()
@@ -1687,7 +1689,7 @@ function RomImporter:startData(data, displayName)
   end
   if not isAcceptedRomSize(#data) then
     self:setError(("Expected a 1 MiB Game Boy ROM (Red/Blue/Yellow) or a "
-      .. "2 MiB Game Boy Color ROM (Gold); this file is %.2f MiB.")
+      .. "2 MiB Game Boy Color ROM (Gold/Silver); this file is %.2f MiB.")
       :format(#data / 1024 / 1024))
     return
   end
@@ -1695,7 +1697,8 @@ function RomImporter:startData(data, displayName)
   local version = GameVersion.forSha1(actualHash)
   if not version then
     self:setError(("Unsupported ROM (SHA-1 %s). This needs a clean US Pokemon "
-      .. "Red, Blue, Yellow, or Gold dump; patched, trimmed or \"fixed\" dumps "
+      .. "Red, Blue, Yellow, Gold, or Silver dump; patched, trimmed or "
+      .. "\"fixed\" dumps "
       .. "(tagged [b] or [BF]) never verify."):format(actualHash))
     return
   end
@@ -1772,7 +1775,7 @@ function RomImporter:_startExtractCoroutine(version, info, prefix, displayName)
     local CacheFs = require("src.import.CacheFs")
     CacheFs.prefix = prefix
     local manifest = require("src.import.RomManifest").decode(version)
-    local RomExtractor = version == "gold"
+    local RomExtractor = GameVersion.generation(version) == 2
       and require("src.import.RomExtractorGen2")
       or require("src.import.RomExtractor")
     local extractor = RomExtractor.new(self.romData, manifest,
@@ -2057,7 +2060,7 @@ function RomImporter:_importRequiredData(modId, importId, data)
   return nil
 end
 
-function RomImporter:_importRequiredSource(modId, importId, source)
+function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
   local manifest = requiredManifest(self, modId)
   local spec = manifest and requiredSpec(manifest, importId)
   if not spec then
@@ -2065,12 +2068,29 @@ function RomImporter:_importRequiredSource(modId, importId, source)
     self.modNotice = nil
     return nil
   end
+  local RequiredImports = require("src.mods.RequiredImports")
   local info = love.filesystem.getInfo(source, "file")
   local size = info and info.size or externalFileSize(source)
-  local sizeErr = require("src.mods.RequiredImports").sizeError(spec, size, false)
+  local sizeErr = RequiredImports.sizeError(spec, size, false)
   if sizeErr then
     requiredImportNotice(self, modId, importId, sizeErr)
     self.modNotice = nil
+    return nil
+  end
+  if not confirmed and type(size) == "number"
+      and size > RequiredImports.LARGE_WARN_BYTES then
+    self._modConfirm = {
+      kind = "largeImport",
+      modId = modId, importId = importId, source = source,
+      title = Strings("Large import"),
+      lines = {
+        Strings("This is a large import (%s).",
+          RequiredImports.sizeLabel(size)),
+        Strings("Please ensure you have enough space on your"),
+        Strings("device before doing this."),
+      },
+      yesLabel = Strings("I understand"),
+    }
     return nil
   end
   local data = love.filesystem.read(source)
@@ -2115,8 +2135,13 @@ function RomImporter:chooseRequiredImport(modId, importId)
       if name:sub(1, 1) ~= "." then
         local path = inbox .. "/" .. name
         local info = love.filesystem.getInfo(path, "file")
-        local sizeErr = info and require("src.mods.RequiredImports")
-          .sizeError(spec, info.size, false)
+        local RequiredImports = require("src.mods.RequiredImports")
+        local sizeErr = info
+          and RequiredImports.sizeError(spec, info.size, false)
+        if info and not sizeErr
+            and info.size > RequiredImports.LARGE_WARN_BYTES then
+          return self:_importRequiredSource(modId, importId, path)
+        end
         local data = not sizeErr and love.filesystem.read(path) or nil
         if data and self:_importRequiredData(modId, importId, data) then return end
         if sizeErr then lastError = sizeErr
@@ -2757,7 +2782,8 @@ function RomImporter:resumeAfterOverlay()
 end
 
 function RomImporter:_cycleTab(delta)
-  local order = { "red", "blue", "yellow", "gold", "mods", "find", "skins", "bug" }
+  local order = { "red", "blue", "yellow", "gold", "silver",
+    "mods", "find", "skins", "bug" }
   local idx = 1
   for i, id in ipairs(order) do
     if id == self.tab then idx = i; break end
@@ -3094,8 +3120,10 @@ end
 -- multi-monitor coords).  Same contract as PadCursor.yieldToPointer for
 -- the overlay hosts.  Touch move/press/release must still reach
 -- FlexLove.touch* or scroll containers never drag on phones.
-function RomImporter:mousepressed()
+function RomImporter:mousepressed(x, y, button)
   self._padCursorActive = false
+  if button ~= 1 or not self._flex then return end
+  require("src.import.LauncherView").mousepressed(self, x, y)
 end
 
 function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
@@ -3123,7 +3151,6 @@ function RomImporter:_switchTab(id)
   self.tab = id
   self._findSearchFocus = false
   self._skinUrlFocus = false
-  self._modScrollMax, self._modListRect = 0, nil
   self:_disarmTextInput()
   -- the skins list is cheap and can change behind the launcher's back
   -- (an export, a hand-dropped folder), so re-read it on every visit

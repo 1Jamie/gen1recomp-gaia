@@ -23,11 +23,17 @@ local function isRequired(spec)
 end
 
 RequiredImports.specs = allSpecs
-RequiredImports.MAX_BYTES = 128 * 1024 * 1024
+RequiredImports.MAX_BYTES = 2 * 1024 * 1024 * 1024
+-- Past this, the launcher interposes a free-space warning before importing.
+RequiredImports.LARGE_WARN_BYTES = 128 * 1024 * 1024
 
 local function sizeLabel(bytes)
+  if bytes >= 1024 * 1024 * 1024 then
+    return ("%.1f GiB"):format(bytes / (1024 * 1024 * 1024))
+  end
   return ("%.1f MiB"):format(bytes / (1024 * 1024))
 end
+RequiredImports.sizeLabel = sizeLabel
 
 -- Check size before a caller reads an external or stored file into one large
 -- Lua string. N64 sources may carry a 512-byte copier header, while stored

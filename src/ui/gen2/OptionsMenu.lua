@@ -196,6 +196,15 @@ local ROWS = {
       return VideoMode.normalize(options.videoMode) == "borderless"
         and "FULL" or "WINDOWED"
     end },
+  { label = "SCREEN POS", key = "screenPos", port = true,
+    cycle = function(options, delta)
+      local ScreenPosition = require("src.core.ScreenPosition")
+      options.screenPos = ScreenPosition.cycle(options.screenPos, delta)
+      ScreenPosition.setMode(options.screenPos)
+    end,
+    text = function(options)
+      return require("src.core.ScreenPosition").label(options.screenPos)
+    end },
   { id = "touchControls", label = "TOUCH PAD", port = true,
     text = function(options)
       local tc = options.touchControls

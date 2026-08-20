@@ -56,7 +56,7 @@ function MainMenu.new(game, opts)
 
   self.save = opts.save
   if self.save == nil and opts.hasSave ~= false then
-    local loaded = Save.load("gold")
+    local loaded = Save.load()
     self.save = loaded
   end
   self.hasSave = opts.hasSave

@@ -14,9 +14,9 @@
 -- height, and flex-shrink compressing text until it overlapped.
 --
 -- THE RULES THIS FILE FOLLOWS:
---   * Lists paginate (Kit.pager).  The installed-mod list also scrolls inside
---     its viewport, so each of its pages can hold at least ten entries without
---     requiring a tall window.  Pages still bound how many mod rows we visit.
+--   * Short lists paginate (Kit.pager, perPage from Kit.rowsThatFit); the
+--     installed-mod list is one continuous scroll instead, drawing only the
+--     rows inside the region viewport so the window bounds the frame cost.
 --   * Every click handler only QUEUES work (imp._uiActions); update() drains
 --     the queue, so an action that tears the view down (Play, Edit save)
 --     never runs inside the frame that dispatched it.
@@ -45,9 +45,6 @@ local COMMUNITY_URL = "https://bois.icu"
 local ACT_DEDUP = 0.35
 -- Finger travel past this (px) is a drag, not a tap.
 local TAP_SLOP2 = 16 * 16
--- Installed mods should not turn into a one- or two-item pager on a compact
--- display.  Keep a useful page size, then let the list viewport scroll.
-local MIN_MODS_PER_PAGE = 10
 local MIN_SKIN_ROWS = 4
 local SKIN_FORMAT_LABEL = {
   native = "GEN1",
@@ -79,15 +76,6 @@ end
 local function setTabScroll(imp, value)
   imp._tabScroll = imp._tabScroll or {}
   imp._tabScroll[tabKeyOf(imp)] = clamp(value, 0, tabScrollMax(imp))
-end
-
-local function modListWantsWheel(imp, wheel)
-  if imp.tab ~= "mods" or (imp._modScrollMax or 0) <= 0 then return false end
-  if not inRect(imp._modListRect, Kit.mouseX, Kit.mouseY) then return false end
-  if not inRect(imp._tabRegionRect, Kit.mouseX, Kit.mouseY) then return false end
-  local at = clamp(imp.modScroll or 0, 0, imp._modScrollMax)
-  if wheel < 0 then return at < imp._modScrollMax end
-  return at > 0
 end
 
 -- ------------------------------------------------------------- lifecycle
@@ -192,9 +180,6 @@ function LauncherView.touchpressed(imp, id, x, y)
   imp._touchAt = imp._touchAt or {}
   imp._touchAt[tostring(id)] = {
     x = x, y = y,
-    modsList = imp.tab == "mods" and (imp._modScrollMax or 0) > 0
-      and inRect(imp._modListRect, x, y)
-      and inRect(imp._tabRegionRect, x, y),
     region = tabScrollMax(imp) > 0 and inRect(imp._tabRegionRect, x, y),
   }
 end
@@ -207,19 +192,9 @@ function LauncherView.touchmoved(imp, id, x, y)
     if ddx * ddx + ddy * ddy > TAP_SLOP2 then
       start.dragged = true
     end
-    -- A drag that began in the installed-mod viewport scrolls that page's
-    -- rows.  Its pager remains available for moving to the next ten-plus
-    -- entries; a drag elsewhere keeps the normal short-window page scroll.
     if start.dragged then
       local last = start.lastY or start.y
       local move = -(y - last)
-      if start.modsList then
-        local listMax = imp._modScrollMax or 0
-        local at, leftover = Kit.scrollHandoff(
-          clamp(imp.modScroll or 0, 0, listMax), listMax, move)
-        imp.modScroll = at
-        move = leftover
-      end
       if move ~= 0 and start.region then
         local at, leftover = Kit.scrollHandoff(tabScrollAt(imp),
           tabScrollMax(imp), move)
@@ -256,6 +231,22 @@ end
 function LauncherView.clickAt(imp, x, y)
   if not imp._flex then return end
   imp._clickPt = { x = x, y = y }
+end
+
+-- Event-driven click: a macOS trackpad tap delivers press+release inside one
+-- frame, so update()'s love.mouse.isDown poll never sees it.  Mint the click
+-- from the press event under the poll's own suppression rules, and mark the
+-- press seen so the poll cannot mint a second one when isDown does catch it.
+function LauncherView.mousepressed(imp, x, y)
+  if not imp._flex then return end
+  local now = love.timer.getTime()
+  local touching = imp._touchAt ~= nil and next(imp._touchAt) ~= nil
+  if touching or now < (imp._suppressMouseUntil or 0)
+      or now < (imp._suppressClickUntil or 0) then
+    return
+  end
+  imp._clickPt = { x = x, y = y }
+  imp._prevMouseDown = true
 end
 
 -- Keyboard focus ring.  Returns true when the key was consumed.  Arrows arm
@@ -343,7 +334,7 @@ end
 
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
-  gold = PAL.railAmber,
+  gold = PAL.railAmber, silver = PAL.railSilver,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -418,13 +409,13 @@ end
 local function cartPill(project, x, y, w, h, z, color, alpha)
   local points, radius = {}, h / 2
   for i = 0, 10 do
-    local a = math.pi + math.pi * i / 10
-    points[#points + 1] = { project(x + radius + math.cos(a) * radius,
+    local a = -math.pi / 2 + math.pi * i / 10
+    points[#points + 1] = { project(x + w - radius + math.cos(a) * radius,
       y + radius + math.sin(a) * radius, z) }
   end
   for i = 0, 10 do
-    local a = math.pi * i / 10
-    points[#points + 1] = { project(x + w - radius + math.cos(a) * radius,
+    local a = math.pi / 2 + math.pi * i / 10
+    points[#points + 1] = { project(x + radius + math.cos(a) * radius,
       y + radius + math.sin(a) * radius, z) }
   end
   cartPolygon(points, color, alpha)
@@ -605,7 +596,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   end
 
   local halfW, halfH = w / 2, h / 2
-  local depth = math.max(8, w * 0.14)
+  local depth = math.max(6, w * 0.10)
   local project = function(px, py, pz)
     return cartProject(cx + pressX, cy + pressY, yaw, pitch,
       px * pressedScale, py * pressedScale, pz * pressedScale)
@@ -648,6 +639,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   cartPolygon({ mainFront[2], mainFront[3], mainBack[3], mainBack[2] }, side, 1)
   cartPolygon({ mainFront[3], mainFront[4], mainBack[4], mainBack[3] }, side, 1)
   cartPolygon({ mainFront[1], mainFront[2], mainBack[2], mainBack[1] }, side, 1)
+  cartPolygon({ mainFront[4], mainFront[1], mainBack[1], mainBack[4] }, side, 1)
   cartPolygon({ capFront[2], capFront[3], capBack[3], capBack[2] }, side, 1)
   cartPolygon({ capFront[1], capFront[2], capBack[2], capBack[1] }, side, 1)
   cartPolygon({ capFront[4], capFront[1], capBack[1], capBack[4] }, side, 1)
@@ -657,22 +649,72 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   else
     cartPolygon(mainBack, side, 1)
     cartPolygon(capBack, side, 1)
+    -- The tri-wing security screw: a domed brass head with three teardrop
+    -- recesses pinwheeled at 120 degrees.
+    local backZ = -(depth + 0.8)
+    local sd = math.min(w, h) * 0.11
+    cartPill(project, -sd * 0.62, -sd * 0.62, sd * 1.24, sd * 1.24, backZ,
+      { math.floor(shell[1] * 0.4), math.floor(shell[2] * 0.4),
+        math.floor(shell[3] * 0.4) }, 0.9)
+    cartPill(project, -sd / 2, -sd / 2, sd, sd, backZ - 0.4,
+      { 196, 186, 148 }, 1)
+    cartPill(project, -sd * 0.32, -sd * 0.32, sd * 0.64, sd * 0.64,
+      backZ - 0.6, { 220, 212, 178 }, 0.8)
+    local r = sd / 2
+    for k = 0, 2 do
+      local a = -math.pi / 2 + k * (2 * math.pi / 3)
+      local ux, uy = math.cos(a), math.sin(a)
+      local vx, vy = -uy, ux
+      local r0, r1 = r * 0.16, r * 0.82
+      local w0, w1 = r * 0.13, r * 0.3
+      cartPolygon({
+        { project(ux * r0 + vx * w0, uy * r0 + vy * w0, backZ - 0.8) },
+        { project(ux * r0 - vx * w0, uy * r0 - vy * w0, backZ - 0.8) },
+        { project(ux * r1 - vx * w1, uy * r1 - vy * w1, backZ - 0.8) },
+        { project(ux * r1 + vx * w1, uy * r1 + vy * w1, backZ - 0.8) },
+      }, { 112, 104, 76 }, 1)
+    end
   end
 
   if frontFacing then
     local faceZ = depth + 0.8
-    for i = 0, 4 do
-      local ry = mainTop + 7 + i * h * 0.025
-      cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
-      cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+    -- The shell's grip grooves: a stack beside the label recess on the left,
+    -- and one below the top-right corner notch, like the DMG cart.
+    local grooveW = w * 0.115
+    local grooveH = math.max(1, h * 0.009)
+    for i = 0, 5 do
+      local ry = mainTop + h * 0.014 + i * h * 0.021
+      cartPolygon(cartQuad(project, -halfW + w * 0.02, ry,
+        grooveW, grooveH, faceZ), side, 0.7)
+      cartPolygon(cartQuad(project, halfW - grooveW - w * 0.02, ry,
+        grooveW, grooveH, faceZ), side, 0.7)
     end
-    local recessX, recessY = -w * 0.32, mainTop + h * 0.023
-    local recessW, recessH = w * 0.64, h * 0.24
-    cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
-    cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
-      recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
-    cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
-      recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
+    -- The thin diagonal mold ridge cut into each long side a little below
+    -- the grip grooves, mirrored left/right.
+    local function diagonal(x0, y0, x1, y1)
+      local dx, dy = x1 - x0, y1 - y0
+      local len = math.sqrt(dx * dx + dy * dy)
+      local nx, ny = -dy / len, dx / len
+      local t = math.max(0.6, h * 0.004)
+      cartPolygon({
+        { project(x0 + nx * t, y0 + ny * t, faceZ) },
+        { project(x0 - nx * t, y0 - ny * t, faceZ) },
+        { project(x1 - nx * t, y1 - ny * t, faceZ) },
+        { project(x1 + nx * t, y1 + ny * t, faceZ) },
+      }, side, 0.7)
+    end
+    local dgY = mainTop + h * 0.20
+    diagonal(-halfW + w * 0.006, dgY, -halfW + w * 0.085, dgY + h * 0.038)
+    diagonal(halfW - w * 0.006, dgY, halfW - w * 0.085, dgY + h * 0.038)
+    -- The Nintendo GAME BOY recess: one stadium pill sunk into the shell.
+    local pillX, pillW = -halfW + w * 0.17, w * 0.62
+    local pillY, pillH = mainTop + h * 0.024, h * 0.115
+    cartPill(project, pillX, pillY, pillW, pillH, faceZ + 0.5, side, 0.55)
+    local inX, inY = w * 0.008, h * 0.008
+    cartPill(project, pillX + inX, pillY + inY,
+      pillW - 2 * inX, pillH - 2 * inY, faceZ + 0.8,
+      { math.floor(shell[1] * 0.92), math.floor(shell[2] * 0.92),
+        math.floor(shell[3] * 0.92) }, 1)
 
     local labelX, labelY = -w * 0.33, -h * 0.20
     local labelW, labelH = w * 0.66, h * 0.55
@@ -942,6 +984,8 @@ local GAME_TABS = {
     label = "Yellow" },
   { id = "gold",   key = "tab-gold",   letter = "G", color = PAL.railAmber,
     label = "Gold" },
+  { id = "silver", key = "tab-silver", letter = "S", color = PAL.railSilver,
+    label = "Silver" },
 }
 
 local HEADER_TABS = {
@@ -1114,16 +1158,11 @@ local function buildHeader(imp, m)
   local tabGap = math.floor(6 * m.s)
   local tabRowGap = math.floor(4 * m.s)
 
-  -- the cartridge dropdown, sized to its longest label so switching games
-  -- never reflows the row
+  -- the cartridge dropdown: just the game's initial and the caret; the
+  -- popup list carries the full names
   local chrome0 = headerChrome(imp)
   local game = currentGame(imp)
-  local labelW = 0
-  for _, g in ipairs(GAME_TABS) do
-    labelW = math.max(labelW, Kit.textWidth("tab", Strings(g.label)))
-  end
-  local dropW = math.min(tabRight - tabLeft,
-    tabH + labelW + math.floor(34 * m.s))
+  local dropW = math.min(tabRight - tabLeft, tabH + math.floor(24 * m.s))
   chrome0.game.color = game.color
   chrome0.game.letter = game.letter
   chrome0.game.active = imp.tab == game.id
@@ -1133,7 +1172,7 @@ local function buildHeader(imp, m)
   -- flip with it or it vanishes into the cartridge colour
   local gameInvert = chrome0.game.active or gameHot
   chrome0.game.ring = gameHot and not chrome0.game.active or nil
-  btn(imp, tx, ty, dropW, tabH, "tab-game", Strings(game.label), chrome0.game)
+  btn(imp, tx, ty, dropW, tabH, "tab-game", "", chrome0.game)
   do
     local cw = math.floor(7 * m.s)
     local ccx = tx + dropW - math.floor(14 * m.s)
@@ -1147,7 +1186,7 @@ local function buildHeader(imp, m)
   end
   tx = tx + dropW + tabGap
 
-  for _, t in ipairs(tabs) do
+  local function headerTab(t)
     local w = tabH
     if tx > tabLeft and tx + w > tabRight then
       tx = tabLeft
@@ -1159,6 +1198,11 @@ local function buildHeader(imp, m)
     o.action = chrome.tab[t.id]
     btn(imp, tx, ty, w, tabH, t.key, "", o)
     tx = tx + w + tabGap
+  end
+  -- The bug-report chip sits LAST, past the sync chip.
+  local bugTab
+  for _, t in ipairs(tabs) do
+    if t.id == "bug" then bugTab = t else headerTab(t) end
   end
 
   do
@@ -1181,6 +1225,7 @@ local function buildHeader(imp, m)
     end
     tx = tx + w + tabGap
   end
+  if bugTab then headerTab(bugTab) end
 
   -- `ty` has walked down with the wraps, so this stays correct at one row too.
   y = ty + tabH + math.floor(8 * m.s)
@@ -1964,7 +2009,6 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   cy = cy + buildModScopeRow(imp, x, cy, w, m)
 
   if #mods == 0 then
-    imp.modScroll, imp._modScrollMax, imp._modListRect = 0, 0, nil
     Kit.emptyBox(x, cy, w, math.floor(110 * m.s), imp:_modsEmptyHint())
     return (cy - y) + math.floor(110 * m.s)
   end
@@ -2005,159 +2049,139 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   end
 
   -- A mod row is a fixed height: its details first, then a dedicated second
-  -- line of per-game checkboxes.  Fixed because a page of uniform rows is
-  -- what lets perPage come from the viewport.
+  -- line of per-game checkboxes.  Fixed row heights are what make the
+  -- cull below plain arithmetic.
   local togH = math.floor(26 * m.s)
   local gamesLabel = Strings("Enable for:")
   local textH = Kit.textHeight("button") + math.floor(4 * m.s)
     + Kit.textHeight("small") + math.floor(2 * m.s) + Kit.textHeight("small")
   local rowH = math.floor(8 * m.s) + textH + math.floor(8 * m.s) + togH
     + math.floor(8 * m.s)
-  local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
-  local listH = availH - (cy - y) - pagerH - gap
-  local perPage = Kit.rowsThatFit(listH, rowH, gap, MIN_MODS_PER_PAGE, 20)
-  local first, last, cur, pages = Kit.pageBounds(page(imp, "mods"), #mods, perPage)
-  setPage(imp, "mods", cur)
   local listTop = cy
-  local shown = math.max(0, last - first + 1)
-  local contentH = shown * rowH + math.max(0, shown - 1) * gap
-  local scrollMax = math.max(0, contentH - listH)
-  local scroll = clamp(imp.modScroll or 0, 0, scrollMax)
-  local lr = imp._modListRect
-  if not lr then lr = {}; imp._modListRect = lr end
-  lr.x, lr.y, lr.w, lr.h = x, listTop, w, listH
-  imp._modScrollMax = scrollMax
-  if scrollMax > 0 and (Kit.wheelY or 0) ~= 0 and not Kit.blockClicks
-      and Kit.hit(x, listTop, w, listH) then
-    scroll = clamp(scroll - Kit.wheelY * math.floor(48 * m.s), 0, scrollMax)
-    Kit.wheelY = 0
-  elseif scrollMax == 0 then
-    local wheelPage = Kit.wheelPage(x, listTop, w, listH, cur, #mods, perPage)
-    if wheelPage ~= cur then imp.modScroll = 0 end
-    setPage(imp, "mods", wheelPage)
-  end
-  imp.modScroll = scroll
 
-  Kit.pushClip(x, listTop, w, listH)
-  for i = first, last do
+  -- One continuous list: every row is laid out, the region scroll moves
+  -- through all of it, and only rows inside the region's viewport draw --
+  -- so the per-frame cost stays bounded by the window, not the list.
+  local view = imp._tabRegionRect
+  local viewTop = view and view.y or listTop
+  local viewBot = view and (view.y + view.h) or (listTop + availH)
+  for i = 1, #mods do
     local mod = mods[i]
-    local ry = listTop + (i - first) * (rowH + gap) - scroll
-    local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
-    local isFullyDisabled = true
-    if mod.enabledByVersion then
-      for _, on in pairs(mod.enabledByVersion) do
-        if on then isFullyDisabled = false; break end
+    local ry = listTop + (i - 1) * (rowH + gap)
+    if ry + rowH >= viewTop and ry <= viewBot then
+      local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
+      local isFullyDisabled = true
+      if mod.enabledByVersion then
+        for _, on in pairs(mod.enabledByVersion) do
+          if on then isFullyDisabled = false; break end
+        end
+      else
+        isFullyDisabled = not mod.enabled
       end
-    else
-      isFullyDisabled = not mod.enabled
-    end
 
-    local focused = Kit.focusable(rowKey, x, ry, w, rowH)
-    local hot = focused or Kit.hover(x, ry, w, rowH)
-    if isFullyDisabled then
-      Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
-    else
-      Kit.card(x, ry, w, rowH, hot)
-    end
-    local pad = math.floor(12 * m.s)
-    local px, inner = x + pad, w - 2 * pad
-    local ly = ry + math.floor(10 * m.s)
-
-    local togGap = math.floor(5 * m.s) + 1
-    local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
-
-    -- These answer separate games, not a single shared install flag.  The
-    -- importer receives the game id so an experimental confirmation also
-    -- applies only to the checkbox the player pressed.
-    local flipped = false
-    local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
-    Kit.text("micro", gamesLabel, px,
-      gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
-    local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
-    for _, game in ipairs(GameVersion.ORDER) do
-      local togKey = "mod-toggle-" .. mod.id .. "-" .. game
-      if modGameCheckbox(tx, gamesY, togH,
-          mod.enabledByVersion and mod.enabledByVersion[game] == true,
-          game, togKey, not safeMode) then
-        local version = game
-        queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
-        flipped = true
+      local focused = Kit.focusable(rowKey, x, ry, w, rowH)
+      local hot = focused or Kit.hover(x, ry, w, rowH)
+      if isFullyDisabled then
+        Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
+      else
+        Kit.card(x, ry, w, rowH, hot)
       end
-      tx = tx + togH + togGap
-    end
-    -- The checkboxes sit inside the row's rect, so their press also passes the
-    -- row hit test; `flipped` gates the row action to everywhere else.
-    if not flipped
-        and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
-      local id = mod.id
-      queueAction(imp, rowKey, function() imp._modActions = id end)
-    end
-    local textW = inner
+      local pad = math.floor(12 * m.s)
+      local px, inner = x + pad, w - 2 * pad
+      local ly = ry + math.floor(10 * m.s)
 
-    local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
-    -- the games the mod is for, beside its category: the same chip the
-    -- in-game manager shows (src/mods/ModTargets.lua)
-    local gamesW = mod.targets
-      and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
-    local nameShown = Kit.ellipsize("button", mod.name,
-      textW - badgeW - gamesW - math.floor(12 * m.s))
-    local headingCol = isFullyDisabled and PAL.muted or PAL.heading
-    Kit.text("button", nameShown, px, ly, headingCol)
-    local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
-    Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
-      mod.experimental and PAL.yellow or PAL.muted)
-    if mod.targets then
-      Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
-        Kit.textHeight("button"), mod.targets,
-        mod.targetsHere == false and PAL.steel or PAL.blue)
-    end
-    ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
+      local togGap = math.floor(5 * m.s) + 1
+      local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
 
-    -- version + status + update state
-    local statusText, statusCol = modStatusColor(mod.status)
-    local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
-    Kit.text("small", line, px, ly, statusCol)
-    local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
-    if imp:_modInfoPending(mod.id) then
-      -- An inline spinner, because this row's release check is genuinely in
-      -- flight -- the list stays usable while it resolves.
-      Loader.dot(lx, ly, Kit.textHeight("small"))
-      Kit.text("small", Strings("Checking..."),
-        lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
-    elseif info and info.status == "available" then
-      Kit.text("small", Strings("v%s available", tostring(info.latest)),
-        lx, ly, PAL.yellow)
-    elseif info and info.status == "current" then
-      Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
-    elseif info and info.status == "error" then
-      Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
-    end
-    ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
-
-    -- one line of description, or the download stats when we have them
-    -- (download count in green so popularity reads at a glance)
-    if info and info.downloads then
-      local d = info.dates
-      local dl = ModUpdate.downloadsLine(info.downloads.total)
-      local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
-      local segs = {}
-      if dl then segs[#segs + 1] = { dl, PAL.green } end
-      if dates then
-        segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
+      -- These answer separate games, not a single shared install flag.  The
+      -- importer receives the game id so an experimental confirmation also
+      -- applies only to the checkbox the player pressed.
+      local flipped = false
+      local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
+      Kit.text("micro", gamesLabel, px,
+        gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
+      local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
+      for _, game in ipairs(GameVersion.ORDER) do
+        local togKey = "mod-toggle-" .. mod.id .. "-" .. game
+        if modGameCheckbox(tx, gamesY, togH,
+            mod.enabledByVersion and mod.enabledByVersion[game] == true,
+            game, togKey, not safeMode) then
+          local version = game
+          queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
+          flipped = true
+        end
+        tx = tx + togH + togGap
       end
-      segLine("small", segs, px, ly, textW)
-    elseif (mod.description or "") ~= "" then
-      Kit.text("small", Kit.ellipsize("small", mod.description, textW),
-        px, ly, PAL.detail)
+      -- The checkboxes sit inside the row's rect, so their press also passes the
+      -- row hit test; `flipped` gates the row action to everywhere else.
+      if not flipped
+          and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
+        local id = mod.id
+        queueAction(imp, rowKey, function() imp._modActions = id end)
+      end
+      local textW = inner
+
+      local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
+      -- the games the mod is for, beside its category: the same chip the
+      -- in-game manager shows (src/mods/ModTargets.lua)
+      local gamesW = mod.targets
+        and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
+      local nameShown = Kit.ellipsize("button", mod.name,
+        textW - badgeW - gamesW - math.floor(12 * m.s))
+      local headingCol = isFullyDisabled and PAL.muted or PAL.heading
+      Kit.text("button", nameShown, px, ly, headingCol)
+      local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
+      Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
+        mod.experimental and PAL.yellow or PAL.muted)
+      if mod.targets then
+        Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
+          Kit.textHeight("button"), mod.targets,
+          mod.targetsHere == false and PAL.steel or PAL.blue)
+      end
+      ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
+
+      -- version + status + update state
+      local statusText, statusCol = modStatusColor(mod.status)
+      local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
+      Kit.text("small", line, px, ly, statusCol)
+      local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
+      if imp:_modInfoPending(mod.id) then
+        -- An inline spinner, because this row's release check is genuinely in
+        -- flight -- the list stays usable while it resolves.
+        Loader.dot(lx, ly, Kit.textHeight("small"))
+        Kit.text("small", Strings("Checking..."),
+          lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
+      elseif info and info.status == "available" then
+        Kit.text("small", Strings("v%s available", tostring(info.latest)),
+          lx, ly, PAL.yellow)
+      elseif info and info.status == "current" then
+        Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
+      elseif info and info.status == "error" then
+        Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
+      end
+      ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
+
+      -- one line of description, or the download stats when we have them
+      -- (download count in green so popularity reads at a glance)
+      if info and info.downloads then
+        local d = info.dates
+        local dl = ModUpdate.downloadsLine(info.downloads.total)
+        local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
+        local segs = {}
+        if dl then segs[#segs + 1] = { dl, PAL.green } end
+        if dates then
+          segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
+        end
+        segLine("small", segs, px, ly, textW)
+      elseif (mod.description or "") ~= "" then
+        Kit.text("small", Kit.ellipsize("small", mod.description, textW),
+          px, ly, PAL.detail)
+      end
     end
   end
-  Kit.popClip()
 
-  local pagerY = listTop + listH + gap
-  local newPage, newPagerH = Kit.pager(x, pagerY, w, cur, #mods, perPage, "mods")
-  if newPage ~= cur then imp.modScroll = 0 end
-  setPage(imp, "mods", newPage)
-  return pagerY + newPagerH - y
+  local contentH = #mods * rowH + (#mods - 1) * gap
+  return (listTop + contentH + gap) - y
 end
 
 -- ---------------------------------------------------------- find mods panel
@@ -2889,6 +2913,8 @@ local function buildConfirmModal(imp, m)
           imp:_setAllMods(true, true)
         elseif c.kind == "importOversize" then
           imp:_importSave(c.version, c.source, true)
+        elseif c.kind == "largeImport" then
+          imp:_importRequiredSource(c.modId, c.importId, c.source, true)
         else
           imp:_toggleMod(c.id, true, c.version)
         end
@@ -4851,8 +4877,7 @@ function LauncherView.draw(imp)
   Kit.blockClicks = modalUp(imp)
 
   local step = Kit.scrollStep(m.s)
-  local nested = modListWantsWheel(imp, Kit.wheelY or 0)
-  if not nested then
+  do
     local rect = imp._tabRegionRect
     if rect then
       setTabScroll(imp, (Kit.scrollWheel(tabScrollAt(imp), tabScrollMax(imp),
@@ -4860,8 +4885,7 @@ function LauncherView.draw(imp)
     end
   end
   local scroll = math.max(0, math.min(imp._pageScroll or 0, scrollMax))
-  if scrollMax > 0 and (Kit.wheelY or 0) ~= 0 and not nested
-      and not Kit.blockClicks then
+  if scrollMax > 0 and (Kit.wheelY or 0) ~= 0 and not Kit.blockClicks then
     local moved = math.max(0, math.min(scroll - Kit.wheelY * step, scrollMax))
     if moved ~= scroll then
       scroll = moved
@@ -4869,7 +4893,7 @@ function LauncherView.draw(imp)
     end
   end
   imp._pageScroll, imp._pageScrollMax = scroll, scrollMax
-  if (Kit.wheelY or 0) ~= 0 and not nested and not Kit.blockClicks
+  if (Kit.wheelY or 0) ~= 0 and not Kit.blockClicks
       and tabScrollMax(imp) > 0 then
     local was = tabScrollAt(imp)
     local to = Kit.scrollClamp(was - Kit.wheelY * step, tabScrollMax(imp))

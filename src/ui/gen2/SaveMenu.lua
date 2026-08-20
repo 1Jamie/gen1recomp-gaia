@@ -71,7 +71,7 @@ function SaveMenu.new(game, opts)
   self.onDone = opts.onDone
   self.writer = opts.writer or Save.save
   local existed = opts.existed
-  if existed == nil then existed = Save.exists("gold") end
+  if existed == nil then existed = Save.exists() end
   self.existed = existed
   -- confirm -> overwrite (only when a file exists) -> saving -> done
   self.phase = "confirm"
