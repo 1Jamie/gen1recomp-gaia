@@ -382,6 +382,102 @@ local function externalFileSize(path)
   return size
 end
 
+local function openImportSource(path)
+  -- Desktop picker paths live outside LÖVE's virtual filesystem. Prefer the
+  -- native file handle so a 1.46 GiB disc is never copied to a temp file or
+  -- read into one Lua string before validation.
+  local native = io.open(path, "rb")
+  if native then
+    local size = native:seek("end")
+    if size then native:seek("set", 0) end
+    return {
+      size = size,
+      read = function(_, n) return native:read(n) end,
+      close = function() native:close() end,
+    }
+  end
+  if love and love.filesystem and love.filesystem.newFile then
+    local file, makeErr = love.filesystem.newFile(path)
+    if not file then return nil, makeErr or "could not open source file" end
+    local ok, openErr = file:open("r")
+    if not ok then return nil, openErr or "could not open source file" end
+    local size = file.getSize and file:getSize() or nil
+    return {
+      size = size,
+      read = function(_, n) return file:read(n) end,
+      close = function() file:close() end,
+    }
+  end
+  return nil, "streaming source access is unavailable"
+end
+
+local function streamRequiredImport(manifest, importId, source)
+  local RequiredImports = require("src.mods.RequiredImports")
+  local spec = RequiredImports.spec(manifest, importId)
+  if not spec then return nil, "Import declaration was not found." end
+  if spec.format == "n64" then
+    return nil, "streaming canonicalization is unavailable for N64 imports"
+  end
+  local input, openErr = openImportSource(source)
+  if not input then return nil, openErr end
+  local sizeErr = RequiredImports.sizeError(spec, input.size, false)
+  if sizeErr then input:close(); return nil, sizeErr end
+
+  local CacheFs = require("src.import.CacheFs")
+  local destination = RequiredImports.path(manifest, spec)
+  local savedPrefix = CacheFs.prefix
+  CacheFs.prefix = ""
+  CacheFs.remove(RequiredImports.receiptPath(manifest, spec))
+  CacheFs.remove(destination)
+  local output, makeErr = CacheFs.openWrite(destination)
+  if not output then
+    CacheFs.prefix = savedPrefix
+    input:close()
+    return nil, makeErr or "could not create imported file"
+  end
+
+  local function cleanupDestination()
+    CacheFs.remove(destination)
+    CacheFs.prefix = savedPrefix
+  end
+
+  local MD5 = require("src.mods.StreamMD5")
+  local md5 = MD5.new()
+  local total, chunkBytes = 0, 4 * 1024 * 1024
+  while true do
+    local chunk = input:read(chunkBytes)
+    if not chunk or #chunk == 0 then break end
+    md5:update(chunk)
+    local wrote, writeErr = output:write(chunk)
+    if wrote == false or wrote == nil then
+      input:close(); output:close(); cleanupDestination()
+      return nil, "could not copy import: " .. tostring(writeErr or "write failed")
+    end
+    total = total + #chunk
+    if #chunk < chunkBytes then break end
+  end
+  input:close()
+  output:close()
+
+  if input.size and total ~= input.size then
+    cleanupDestination()
+    return nil, ("source read ended early (expected %d bytes, copied %d)"):format(input.size, total)
+  end
+  local storedSizeErr = RequiredImports.sizeError(spec, total, true)
+  if storedSizeErr then cleanupDestination(); return nil, storedSizeErr end
+  local digest = md5:final()
+  CacheFs.prefix = savedPrefix
+  local accepted, detail = RequiredImports.acceptStoredDigest(
+    manifest, importId, digest, love.filesystem)
+  if not accepted then
+    CacheFs.prefix = ""
+    CacheFs.remove(destination)
+    CacheFs.prefix = savedPrefix
+    return nil, detail
+  end
+  return true, detail
+end
+
 local function readDroppedFile(file)
   local ok, openError = file:open("r")
   if not ok then return nil, openError end
@@ -1228,11 +1324,13 @@ local function chooseRequiredFile()
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
       "$d.Filter='All files (*.*)|*.*';",
+      -- Required imports can be multi-gigabyte optical-disc images. Do NOT
+      -- stage them through %TEMP%: that doubles free-space requirements and a
+      -- failed Copy-Item can leave a plausible-looking truncated temp file.
+      -- Stream the selected source directly into the mod-owned destination.
       "if($d.ShowDialog() -eq 'OK'){",
-      "$t=Join-Path $env:TEMP 'pokeport_required_import.bin';",
-      "Copy-Item -LiteralPath $d.FileName -Destination $t -Force;",
       "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
-      "[Console]::Write($t)}",
+      "[Console]::Write($d.FileName)}",
     })
     return commandOutput(
       'powershell -NoProfile -STA -Command "' .. script .. '"')
@@ -2072,8 +2170,13 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
     return nil
   end
   local RequiredImports = require("src.mods.RequiredImports")
-  local info = love.filesystem.getInfo(source, "file")
-  local size = info and info.size or externalFileSize(source)
+  -- A desktop picker returns a host path. Ask the host file handle first;
+  -- love.filesystem.getInfo is only authoritative for virtual/save paths.
+  local size = externalFileSize(source)
+  if not size then
+    local info = love.filesystem.getInfo(source, "file")
+    size = info and info.size or nil
+  end
   local sizeErr = RequiredImports.sizeError(spec, size, false)
   if sizeErr then
     requiredImportNotice(self, modId, importId, sizeErr)
@@ -2094,6 +2197,20 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
       },
       yesLabel = Strings("I understand"),
     }
+    return nil
+  end
+  if type(size) == "number" and size > RequiredImports.LARGE_WARN_BYTES
+      and spec.format ~= "n64" then
+    local ok, result = streamRequiredImport(manifest, importId, source)
+    if ok then
+      self.requiredImportNotice = nil
+      self.modNotice = { ok = true, text = "Imported " .. tostring(importId)
+        .. " for " .. tostring(manifest.name or manifest.id) .. "." }
+      self:_refreshMods()
+      return true
+    end
+    requiredImportNotice(self, modId, importId, result)
+    self.modNotice = nil
     return nil
   end
   local data = love.filesystem.read(source)
