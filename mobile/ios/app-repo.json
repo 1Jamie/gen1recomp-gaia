@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.13",
+          "date": "2026-08-20",
+          "size": 13749377,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.13/gen1recomp++-0.2.13-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1474 (Pokémon Gold) Pokédex mode not being saved\n- #1475 (Pokémon Gold) Vital Throw attacking before the opponent\n- #1477 (Pokémon Gold) Map when using fly keeps the arrow from the pokégear\n- #1478 (Pokémon Gold) Wrong move layout in battles\n- #1479 [Gold] tiles broken at Route 28 and Mt Silver\n- #1482 (Pokémon Gold) Nothing happens when trying to use Coin Case\n- #1488 Pokemon EXP calculation after trading went back to issue #984\n- #1510 Title Screen Transition is Missing\n- #1511 Broken Trainer Rival Name Layout\n- #1512 Gen 2 Post battle interactions don't exist\n- #1514 Health damage timing\n- #1516 Move learning timing\n- #1521 Different Item Menu\n- #1522 Wrong Save Game Layout\n- #1545 Pikachu not sliding out when switching Pokemon.\n- #1557 (Gold) Impossible to get TM 03 in Celadon Mansion at night\n- #1558 (Gold) Missing colors and symbol in stats screen\n- #1563 Player mon pic cuts away instead of shrinking when recalled\n- #1565 Thrash doesn't lock in when the first use misses\n- #1566 Center PC missing the PKMN LEAGUE entry after the Hall of Fame\n- #1569 Goldenrod Gift Spearow Bugged\n- #1577 Thrash has no animation past the first turn\n- #1578 Hitting yourself in confusion animation missing\n- #1579 Missing dialogue for Cerulean City Rocket\n- #1594 Pokemon menu closing too soon when using rare candy\n- #1596 Evolution dialogue & missing jingle\n- #1606 Misty dialogue issue\n- #1608 \"There's no will to fight!\" message issues\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.12",
           "date": "2026-08-20",
           "size": 13737259,
