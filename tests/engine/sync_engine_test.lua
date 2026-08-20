@@ -94,20 +94,26 @@ do
   local eng, transport = engine({
     ["POST /sync/create"] = { code = 200, body =
       '{"account":"aa11","code1":"11112222","code2":"33334444","deviceToken":"tok"}' },
-  }, {}, SyncState.defaults())
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{}}' },
+    ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":1}' },
+  }, { saveEntry("red", "abc", 500, 400) }, SyncState.defaults())
 
   T.eq(eng:linked(), false, "a fresh engine is not linked")
   T.eq(eng.status, "Not set up", "and says so")
 
   eng:createAccount("laptop")
-  pump(eng, 3)
+  pump(eng)
   T.eq(eng:linked(), true, "creating an account links this device")
   T.eq(eng.state.account, "aa11", "and stores the account id")
   T.eq(eng.codes.code1, "1111-2222", "the first code is shown grouped")
   T.eq(eng.codes.code2, "3333-4444", "and so is the second")
   T.eq(eng.state.code1, nil, "codes never enter the persisted state")
+  T.eq(transport.sent[2].url, "http://sync.test/sync/state",
+    "creating the account starts a sync straight away")
+  T.eq(transport.sent[3].method, "PUT",
+    "so the saves that existed before setup are uploaded")
+  T.eq(SyncState.rev(eng.state, "red/abc"), 1, "and the served rev is remembered")
   T.eq(eng.phase, "idle", "and the engine settles")
-  T.eq(#transport.sent, 1, "one request was made")
 end
 
 do
@@ -294,13 +300,104 @@ do
 end
 
 do
+  local eng, transport = engine({
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{}}' },
+  }, {})
+  eng:update(SyncEngine.AUTO_INTERVAL - 1)
+  T.eq(#transport.sent, 0, "an idle linked engine does not poll early")
+  eng:update(1)
+  T.eq(#transport.sent, 1, "after the auto interval it checks the server")
+  pump(eng)
+  T.eq(eng.phase, "idle", "and settles")
+  eng:update(SyncEngine.AUTO_INTERVAL - 10)
+  T.eq(#transport.sent, 1, "the next poll waits a whole interval again")
+  eng:update(10)
+  T.eq(#transport.sent, 2, "then fires")
+end
+
+do
+  local eng, transport = engine({
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{}}' },
+  }, {}, SyncState.defaults())
+  eng:update(SyncEngine.AUTO_INTERVAL * 2)
+  T.eq(#transport.sent, 0, "an unlinked engine never polls on its own")
+end
+
+do
+  local calls = 0
+  local eng = engine({
+    ["GET /sync/state"] = function()
+      calls = calls + 1
+      if calls == 1 then return { code = 500, body = '{"error":"down"}' } end
+      return { code = 200, body = '{"saves":{}}' }
+    end,
+  }, {})
+  eng:syncNow()
+  pump(eng, 3)
+  T.eq(eng.phase, "error", "the first sync fails")
+  eng:update(SyncEngine.AUTO_INTERVAL)
+  pump(eng, 3)
+  T.eq(eng.phase, "idle", "the auto interval retries and recovers")
+end
+
+do
+  local eng, transport = conflictEngine()
+  eng:syncNow()
+  pump(eng)
+  local sent = #transport.sent
+  eng:update(SyncEngine.AUTO_INTERVAL * 2)
+  T.eq(#transport.sent, sent, "a waiting conflict is never auto-synced over")
+  T.eq(eng.phase, "conflict", "the player still decides")
+end
+
+do
+  local eng, transport = engine({
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{}}' },
+  }, {})
+  eng:noteResumed()
+  T.eq(#transport.sent, 1, "regaining the app checks the server")
+  pump(eng)
+  eng:noteResumed()
+  T.eq(#transport.sent, 1, "but not twice in quick succession")
+end
+
+do
+  local eng, transport = engine({}, {}, SyncState.defaults())
+  eng:noteResumed()
+  T.eq(#transport.sent, 0, "an unlinked engine ignores a resume")
+end
+
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 2, 500)
+  local eng, transport, saves = engine({
+    ["GET /sync/state"] = { code = 200,
+      body = '{"saves":{"red/abc":{"rev":4,"meta":{"savedAt":900}},' ..
+             '"gold/xyz":{"rev":1,"meta":{"savedAt":900}}}}' },
+    ["GET /sync/save"] = { code = 200,
+      body = '{"rev":1,"meta":{"savedAt":900},"blob":"return { player = {} }"}' },
+  }, { saveEntry("red", "abc", 500, 400) }, state)
+  eng:protectPlaythrough("red", "abc")
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.writes, 1, "only the save that is not being played downloads")
+  T.eq(saves.writes[1].version, "gold", "the other playthrough still arrives")
+  T.eq(SyncState.rev(eng.state, "red/abc"), 2,
+    "the live playthrough keeps its rev so the launcher can fetch it later")
+  T.eq(eng.phase, "idle", "and the sync settles")
+  eng:protectPlaythrough("red", nil)
+  T.eq(eng.protectedKey, nil, "no live playthrough means no protection")
+end
+
+do
   local eng = engine({
     ["POST /sync/create"] = { code = 200, body =
       '{"account":"aa11","code1":"11112222","code2":"33334444",' ..
       '"deviceToken":"tok","device":"0a1b2c3d"}' },
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{}}' },
   }, {}, SyncState.defaults())
   eng:createAccount("laptop")
-  pump(eng, 3)
+  pump(eng)
   T.eq(eng.state.deviceId, "0a1b2c3d",
     "creating an account records the id the server gave this device")
   T.eq(SyncState.sanitize(eng.state).deviceId, "0a1b2c3d",

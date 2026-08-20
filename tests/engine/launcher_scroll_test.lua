@@ -300,6 +300,88 @@ LauncherView.draw(edgeImp)
 check((edgeImp._tabScroll.skins or 0) > 0,
   "which reaches the tab region even though the cursor is below it")
 
+Kit.blockClicks = false
+Kit._clipRect = nil
+Kit.wheelY = 0
+Kit.mouseX, Kit.mouseY = 400, 400
+Kit.dragBegin(50, 50)
+Kit.dragAdd(120)
+local pg = Kit.wheelPage(0, 0, 100, 100, 1, 100, 10)
+eq(pg, 3, "a drag that crossed two half-heights turns two pages")
+eq(Kit.dragAccum, 20, "and keeps the remainder for the next flip")
+Kit.dragAdd(-140)
+pg = Kit.wheelPage(0, 0, 100, 100, pg, 100, 10)
+eq(pg, 1, "dragging back down returns those pages")
+eq(Kit.dragAccum, -20, "with the remainder's sign preserved")
+Kit.dragAdd(-80)
+pg = Kit.wheelPage(0, 0, 100, 100, pg, 100, 10)
+eq(pg, 1, "a drag past the first page clamps to it")
+eq(Kit.dragAccum, 0, "and drops the pile-up so reversing is instant")
+Kit.dragAdd(200)
+pg = Kit.wheelPage(200, 200, 100, 100, pg, 100, 10)
+eq(pg, 1, "a drag that began outside the list is not the list's")
+eq(Kit.dragAccum, 200, "and its travel stays queued")
+Kit.dragEnd()
+eq(Kit.dragAccum, 0, "releasing the button retires the gesture")
+
+window(360, 780)
+local mouseImp = skinLauncher(12)
+LauncherView.draw(mouseImp)
+LauncherView.draw(mouseImp)
+local mreg = mouseImp._tabRegionRect
+local mmax = mouseImp._tabScrollMax.skins
+check(mmax > 0, "the mouse-dragged panel has travel")
+local mdown = false
+love.mouse.isDown = function() return mdown end
+
+pointer(mreg.x + 20, mreg.y + 40)
+mdown = true
+LauncherView.update(mouseImp, 0.016)
+check(mouseImp._clickPt == nil,
+  "a press over a scrollable region mints no click")
+check(mouseImp._mouseAt ~= nil, "it arms a drag instead")
+pointer(mreg.x + 20, mreg.y + 40 - 200)
+LauncherView.update(mouseImp, 0.016)
+eq(mouseImp._tabScroll.skins, math.min(200, mmax),
+  "dragging the held mouse scrolls the panel by its travel")
+eq(mouseImp._pageScroll or 0, 0,
+  "while the panel still has travel, the page waits")
+pointer(mreg.x + 20, mreg.y + 40 - 200 - mmax * 2)
+LauncherView.update(mouseImp, 0.016)
+eq(mouseImp._tabScroll.skins, mmax,
+  "a longer mouse drag reaches the panel's bottom")
+check((mouseImp._pageScroll or 0) > 0, "and spills into the page from there")
+mdown = false
+LauncherView.update(mouseImp, 0.016)
+check(mouseImp._clickPt == nil, "a released drag is not a click")
+check(mouseImp._mouseAt == nil, "and the gesture is retired")
+
+pointer(mreg.x + 20, mreg.y + 40)
+mdown = true
+LauncherView.update(mouseImp, 0.016)
+check(mouseImp._clickPt == nil, "a fresh press still holds its click back")
+mdown = false
+LauncherView.update(mouseImp, 0.016)
+check(mouseImp._clickPt ~= nil,
+  "press and release without travel is still a tap, on release")
+mouseImp._clickPt = nil
+
+LauncherView.draw(gameImp)
+LauncherView.draw(gameImp)
+check((gameImp._noDragN or 0) > 0, "the game tab publishes its cartridge rect")
+local cart = gameImp._noDragRects[1]
+pointer(cart.x + cart.w / 2, cart.y + cart.h / 2)
+mdown = true
+LauncherView.update(gameImp, 0.016)
+check(gameImp._clickPt ~= nil,
+  "a press on the cartridge clicks at once so its own spin-drag still owns "
+    .. "the gesture")
+check(gameImp._mouseAt == nil, "and never arms the scroll drag")
+gameImp._clickPt = nil
+mdown = false
+LauncherView.update(gameImp, 0.016)
+love.mouse.isDown = nil
+
 local function read(path)
   local f = assert(io.open(path, "r"))
   local src = f:read("*a")

@@ -1537,6 +1537,9 @@ function RomImporter:focus(f)
     self._modPress = nil
     return
   end
+  if type(self._sync) == "table" then
+    pcall(self._sync.noteResumed, self._sync)
+  end
   if not (f and self.android and self.workState ~= "working") then return end
   -- SAF create-document finished: GameActivity wrote export_done.flag.
   if love.filesystem.getInfo("export_done.flag", "file") then

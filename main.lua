@@ -327,6 +327,7 @@ local function returnToLauncher()
   if love.audio and love.audio.stop then
     pcall(love.audio.stop)
   end
+  pcall(function() require("src.render.SecondScreen").setEnabled(false) end)
 
   local GameVersion = require("src.core.GameVersion")
   local currentVersion = GameVersion.get()

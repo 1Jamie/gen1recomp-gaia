@@ -7,6 +7,7 @@ SyncEngine.__index = SyncEngine
 
 SyncEngine.UPLOAD_DEBOUNCE = 5
 SyncEngine.AUTO_INTERVAL = 300
+SyncEngine.RESUME_MIN_GAP = 60
 SyncEngine.MAX_STEPS_PER_UPDATE = 8
 
 local IDLE_STATUS = "Ready"
@@ -133,6 +134,7 @@ function SyncEngine.new(opts)
   eng.modPlan = nil
   eng.shareCode = nil
   eng.clock = 0
+  eng.autoAt = SyncEngine.AUTO_INTERVAL
   eng.queue = {}
   eng.pending = nil
   eng.uploadAt = nil
@@ -258,6 +260,11 @@ function SyncEngine:update(dt)
     self.uploadAt = nil
     if self.state.enabled and self:linked() then self:syncNow() end
   end
+  if self.clock >= self.autoAt and not self:busy()
+      and (self.phase == "idle" or self.phase == "error")
+      and self.state.enabled and self:linked() then
+    self:syncNow()
+  end
   local steps = 0
   while not self.pending and #self.queue > 0
       and steps < SyncEngine.MAX_STEPS_PER_UPDATE do
@@ -296,6 +303,7 @@ function SyncEngine:createAccount(label)
     eng.phase = "idle"
     eng.status = "Sync account created"
     eng:_persist()
+    eng:syncNow()
   end)
 end
 
@@ -385,9 +393,24 @@ function SyncEngine:setEnabled(enabled)
   return self.state.enabled
 end
 
+function SyncEngine:protectPlaythrough(version, playthroughId)
+  self.protectedKey = SyncState.key(version, playthroughId)
+end
+
+function SyncEngine:noteResumed()
+  if not (self.state.enabled and self:linked()) then return end
+  if self:busy() or self.phase == "conflict" then return end
+  if self.now() - (tonumber(self.state.lastSyncAt) or 0)
+      < SyncEngine.RESUME_MIN_GAP then
+    return
+  end
+  self:syncNow()
+end
+
 function SyncEngine:syncNow()
   if not self:linked() then return false, "this device is not linked" end
   if self.pending then return false, "sync is busy" end
+  self.autoAt = self.clock + SyncEngine.AUTO_INTERVAL
   self.queue = {}
   self.conflicts = {}
   self.state.pendingConflicts = {}
@@ -437,13 +460,13 @@ function SyncEngine:_planFrom(remoteState)
         self:_addConflict(entry, key, row)
       elseif localChanged then
         self:_queueUpload(entry, key, false)
-      elseif remoteChanged then
+      elseif remoteChanged and key ~= self.protectedKey then
         self:_queueDownload(key, entry.version, entry.playthroughId, "replace")
       end
     end
   end
   for key, row in pairs(remote) do
-    if not seen[key] then
+    if not seen[key] and key ~= self.protectedKey then
       local version, id = SyncState.splitKey(key)
       if version and id then
         self:_queueDownload(key, version, id, "replace", tonumber(row.rev))
