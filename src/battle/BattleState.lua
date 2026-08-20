@@ -1718,9 +1718,14 @@ function BattleState:enter()
     -- _PlayerBlackedOutText2 (data/text/text_2.asm:896): the two paragraphs
     -- playerMonFainted queues on the battle screen; there is no battle
     -- screen to queue them on here, so they print over the map.
+    -- _PlayerBlackedOutText (no "2") extracts to the identical wording from
+    -- a different ROM address and is unused anywhere in this engine -- not
+    -- a fallback for this one, just pokered printing the same paragraph
+    -- from a second call site elsewhere.
     self.game.stack:push(require("src.render.TextBox").new(self.game,
-      Strings("%s is out of\nuseable POKéMON!", name) .. "\f"
-      .. Strings("%s blacked\nout!", name), blackedOut))
+      self:romText("_PlayerBlackedOutText2",
+        "%s is out of\nuseable POKéMON!\f%s blacked\nout!", name, name),
+      blackedOut))
     return
   end
   self.musicKind = self:computeMusicKind()
@@ -1857,7 +1862,8 @@ function BattleState:enter()
       self:slidePic("foe")
     end)
     -- _TrainerSentOutText ends `done`, not `prompt` (data/text/text_2.asm:923)
-    self:sayAuto(Strings("%s sent\nout %s!", foeName, self.enemy.name))
+    self:sayAuto(self:romText("_TrainerSentOutText", "%s sent\nout %s!",
+      foeName, self.enemy.name))
     self:act(function()
       -- EnemySendOutFirstMon (core.asm:1421-1434): after the text the
       -- pic grows out of the ball (AnimateSendingOutMon), then the cry
@@ -3638,12 +3644,13 @@ function BattleState:executeAction(user, target, action)
       })
       self.aiUses = self:aiUsesFor()
       markSeen(self.game, self.enemy.mon.species)
-      -- _AIBattleWithdrawText: "X with-/drew Y!"
-      self:sayNext(Strings("%s with-\ndrew %s!", self.trainer.name, oldName))
+      self:sayNext(self:romText("_AIBattleWithdrawText", "%s with-\ndrew %s!",
+        self.trainer.name, oldName))
       -- EnemySendOut falls into EnemySendOutFirstMon: TrainerSentOutText,
       -- then AnimateSendingOutMon and PlayCry (core.asm:1276-1434)
       self.enemySendingOut = true
-      self:sayNextAuto(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+      self:sayNextAuto(self:romText("_TrainerSentOutText", "%s sent\nout %s!",
+        self.trainer.name, self.enemy.name))
       self:actNext(function()
         self.enemySendingOut = false
         self:startGrowIn(self.enemy)
@@ -4142,8 +4149,12 @@ function BattleState:onFaint(battler)
     -- acknowledged core.asm:797-798 bug.)
     self:actNext(function() self:playVictoryMusic() end)
   end
-  -- _EnemyMonFaintedText "Enemy X fainted!" / _PlayerMonFaintedText
-  self:sayNext(Strings("%s\nfainted!", displayName(battler)))
+  -- _EnemyMonFaintedText already carries its own "Enemy" wording, so this
+  -- passes the raw name -- displayName's separate Strings("Enemy %s", ...)
+  -- would double it up
+  self:sayNext(battler.isPlayer
+    and self:romText("_PlayerMonFaintedText", "%s\nfainted!", battler.name)
+    or self:romText("_EnemyMonFaintedText", "Enemy %s\nfainted!", battler.name))
   if battler.isPlayer then
     self:act(function() self:playerMonFainted() end)
   else
@@ -4319,6 +4330,13 @@ function BattleState:enemyMonFainted()
         -- "X is" off so "about to use" stays above the name, instead of the
         -- page ending on a bare nick (#565).  Then para "Will PLAYER" /
         -- "change POKéMON?" with YES/NO.
+        --
+        -- _TrainerAboutToUseText combines both \f-paged, but unlike
+        -- _ItemUseBallText00's say()+say() merge above, this is say()+
+        -- sayChoice(): tried merging into one romText/sayChoice call and
+        -- confirmed via tests/engine/trainer_shift_prompt_bug565.lua that
+        -- the battle queue's own \f handling (not TextBox.lua's) does not
+        -- page a sayChoice string the same way -- left as two calls.
         self:say(Strings("%s is\nabout to use\v%s!", self.trainer.name, nextName))
         self:sayChoice(
           Strings("Will %s\nchange POKéMON?", self.game.save.player.name),
@@ -4362,7 +4380,8 @@ function BattleState:enemyMonFainted()
         -- (AnimateSendingOutMon) with the cry; no POOF -- that animation
         -- belongs to the player-side SendOutMon (core.asm:1757-1762)
         self.enemySendingOut = true
-        self:sayNextAuto(Strings("%s sent\nout %s!", self.trainer.name, self.enemy.name))
+        self:sayNextAuto(self:romText("_TrainerSentOutText", "%s sent\nout %s!",
+          self.trainer.name, self.enemy.name))
         self:actNext(function()
           self.enemySendingOut = false
           self:startGrowIn(self.enemy)
@@ -4878,7 +4897,8 @@ function BattleState:storeCaughtMon()
     -- text_promptbutton (item_effects.asm:624-629), so the fanfare follows
     -- the box rather than firing when the dex bit is set
     self:sayNextWaitSfx(
-      Strings("New POKéDEX data\nwill be added for\n%s!", self.enemy.name),
+      self:romText("_ItemUseBallText06",
+        "New POKéDEX data\nwill be added for\n%s!", self.enemy.name),
       function() return require("src.core.Sound").play(self.data, "Dex_Page_Added") end)
     self:uiNext(function()
       return self:buildScreen("DexEntryMenu", species)
@@ -4899,9 +4919,12 @@ function BattleState:storeCaughtMon()
     if boxNum then
       askCaughtNickname()
       -- _ItemUseBallText07/08 keyed on EVENT_MET_BILL
-      local pc = (game.save.flags and game.save.flags.EVENT_MET_BILL)
-                 and "BILL's PC" or Strings("someone's PC")
-      self:sayNext(Strings("%s was\ntransferred to\n%s!", self.enemy.name, pc))
+      local metBill = game.save.flags and game.save.flags.EVENT_MET_BILL
+      self:sayNext(self:romText(
+        metBill and "_ItemUseBallText07" or "_ItemUseBallText08",
+        metBill and "%s was\ntransferred to\nBILL's PC!"
+                or "%s was\ntransferred to\nsomeone's PC!",
+        self.enemy.name))
     else
       self:sayNext(Strings("But every BOX\nis full!"))
     end
@@ -5007,8 +5030,18 @@ function BattleState:throwBall(ball)
       -- RESTLESS SOUL dodges balls even once the scope has revealed it,
       -- so it is not a ghost battle any more (#444)
       self:animNext(self:tossAnimFor(ball), true, nil, ball)
-      self:sayNext(Strings("It dodged the\nthrown BALL!"))
-      self:sayNext(Strings("This POKéMON\ncan't be caught!"))
+      -- _ItemUseBallText00 is one label for both lines, \f-paged.  Unlike
+      -- TextBox.new() (which splits \f itself), the battle queue's own
+      -- startMessage() only splits on \n/\v -- confirmed live: the \f
+      -- landed mid-line and the second sentence overflowed off the box
+      -- instead of starting a fresh page.  Resolve the label once, then
+      -- split it the same way TextBox.lua does and queue one sayNext per
+      -- page, so the two ROM sentences still render as two pages.
+      local dodgeText = self:romText("_ItemUseBallText00",
+        "It dodged the\nthrown BALL!\fThis POKéMON\ncan't be caught!")
+      for page in (dodgeText .. "\f"):gmatch("(.-)\f") do
+        self:sayNext(page)
+      end
       self:act(function()
         self:executeAction(self.enemy, self.player, self:enemyAction())
       end)
