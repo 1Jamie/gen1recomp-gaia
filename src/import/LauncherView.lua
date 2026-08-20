@@ -409,13 +409,13 @@ end
 local function cartPill(project, x, y, w, h, z, color, alpha)
   local points, radius = {}, h / 2
   for i = 0, 10 do
-    local a = math.pi + math.pi * i / 10
-    points[#points + 1] = { project(x + radius + math.cos(a) * radius,
+    local a = -math.pi / 2 + math.pi * i / 10
+    points[#points + 1] = { project(x + w - radius + math.cos(a) * radius,
       y + radius + math.sin(a) * radius, z) }
   end
   for i = 0, 10 do
-    local a = math.pi * i / 10
-    points[#points + 1] = { project(x + w - radius + math.cos(a) * radius,
+    local a = math.pi / 2 + math.pi * i / 10
+    points[#points + 1] = { project(x + radius + math.cos(a) * radius,
       y + radius + math.sin(a) * radius, z) }
   end
   cartPolygon(points, color, alpha)
@@ -678,18 +678,43 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
 
   if frontFacing then
     local faceZ = depth + 0.8
-    for i = 0, 4 do
-      local ry = mainTop + 7 + i * h * 0.025
-      cartPolygon(cartQuad(project, -halfW + 2, ry, w * 0.13, 2, faceZ), side, 0.7)
-      cartPolygon(cartQuad(project, halfW - w * 0.13 - 2, ry, w * 0.13, 2, faceZ), side, 0.7)
+    -- The shell's grip grooves: a stack beside the label recess on the left,
+    -- and one below the top-right corner notch, like the DMG cart.
+    local grooveW = w * 0.115
+    local grooveH = math.max(1, h * 0.009)
+    for i = 0, 5 do
+      local ry = mainTop + h * 0.014 + i * h * 0.021
+      cartPolygon(cartQuad(project, -halfW + w * 0.02, ry,
+        grooveW, grooveH, faceZ), side, 0.7)
+      cartPolygon(cartQuad(project, halfW - grooveW - w * 0.02, ry,
+        grooveW, grooveH, faceZ), side, 0.7)
     end
-    local recessX, recessY = -w * 0.32, mainTop + h * 0.023
-    local recessW, recessH = w * 0.64, h * 0.24
-    cartPolygon(cartQuad(project, recessX, recessY, recessW, recessH, faceZ), shell, 0.88)
-    cartPill(project, recessX + w * 0.025, recessY + h * 0.025,
-      recessW - w * 0.05, h * 0.12, faceZ + 0.5, shell, 0.7)
-    cartPill(project, recessX + w * 0.045, recessY + h * 0.043,
-      recessW - w * 0.09, h * 0.083, faceZ + 0.8, side, 0.42)
+    -- The thin diagonal mold ridge cut into each long side a little below
+    -- the grip grooves, mirrored left/right.
+    local function diagonal(x0, y0, x1, y1)
+      local dx, dy = x1 - x0, y1 - y0
+      local len = math.sqrt(dx * dx + dy * dy)
+      local nx, ny = -dy / len, dx / len
+      local t = math.max(0.6, h * 0.004)
+      cartPolygon({
+        { project(x0 + nx * t, y0 + ny * t, faceZ) },
+        { project(x0 - nx * t, y0 - ny * t, faceZ) },
+        { project(x1 - nx * t, y1 - ny * t, faceZ) },
+        { project(x1 + nx * t, y1 + ny * t, faceZ) },
+      }, side, 0.7)
+    end
+    local dgY = mainTop + h * 0.20
+    diagonal(-halfW + w * 0.006, dgY, -halfW + w * 0.085, dgY + h * 0.038)
+    diagonal(halfW - w * 0.006, dgY, halfW - w * 0.085, dgY + h * 0.038)
+    -- The Nintendo GAME BOY recess: one stadium pill sunk into the shell.
+    local pillX, pillW = -halfW + w * 0.17, w * 0.62
+    local pillY, pillH = mainTop + h * 0.024, h * 0.115
+    cartPill(project, pillX, pillY, pillW, pillH, faceZ + 0.5, side, 0.55)
+    local inX, inY = w * 0.008, h * 0.008
+    cartPill(project, pillX + inX, pillY + inY,
+      pillW - 2 * inX, pillH - 2 * inY, faceZ + 0.8,
+      { math.floor(shell[1] * 0.92), math.floor(shell[2] * 0.92),
+        math.floor(shell[3] * 0.92) }, 1)
 
     local labelX, labelY = -w * 0.33, -h * 0.20
     local labelW, labelH = w * 0.66, h * 0.55
