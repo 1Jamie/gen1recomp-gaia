@@ -233,6 +233,22 @@ function LauncherView.clickAt(imp, x, y)
   imp._clickPt = { x = x, y = y }
 end
 
+-- Event-driven click: a macOS trackpad tap delivers press+release inside one
+-- frame, so update()'s love.mouse.isDown poll never sees it.  Mint the click
+-- from the press event under the poll's own suppression rules, and mark the
+-- press seen so the poll cannot mint a second one when isDown does catch it.
+function LauncherView.mousepressed(imp, x, y)
+  if not imp._flex then return end
+  local now = love.timer.getTime()
+  local touching = imp._touchAt ~= nil and next(imp._touchAt) ~= nil
+  if touching or now < (imp._suppressMouseUntil or 0)
+      or now < (imp._suppressClickUntil or 0) then
+    return
+  end
+  imp._clickPt = { x = x, y = y }
+  imp._prevMouseDown = true
+end
+
 -- Keyboard focus ring.  Returns true when the key was consumed.  Arrows arm
 -- the ring; Enter only activates a focused control once the user has actually
 -- used the arrows this session, so the long-standing "Enter plays the visible
@@ -580,7 +596,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   end
 
   local halfW, halfH = w / 2, h / 2
-  local depth = math.max(8, w * 0.14)
+  local depth = math.max(6, w * 0.10)
   local project = function(px, py, pz)
     return cartProject(cx + pressX, cy + pressY, yaw, pitch,
       px * pressedScale, py * pressedScale, pz * pressedScale)
@@ -623,6 +639,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   cartPolygon({ mainFront[2], mainFront[3], mainBack[3], mainBack[2] }, side, 1)
   cartPolygon({ mainFront[3], mainFront[4], mainBack[4], mainBack[3] }, side, 1)
   cartPolygon({ mainFront[1], mainFront[2], mainBack[2], mainBack[1] }, side, 1)
+  cartPolygon({ mainFront[4], mainFront[1], mainBack[1], mainBack[4] }, side, 1)
   cartPolygon({ capFront[2], capFront[3], capBack[3], capBack[2] }, side, 1)
   cartPolygon({ capFront[1], capFront[2], capBack[2], capBack[1] }, side, 1)
   cartPolygon({ capFront[4], capFront[1], capBack[1], capBack[4] }, side, 1)
@@ -632,6 +649,31 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   else
     cartPolygon(mainBack, side, 1)
     cartPolygon(capBack, side, 1)
+    -- The tri-wing security screw: a domed brass head with three teardrop
+    -- recesses pinwheeled at 120 degrees.
+    local backZ = -(depth + 0.8)
+    local sd = math.min(w, h) * 0.11
+    cartPill(project, -sd * 0.62, -sd * 0.62, sd * 1.24, sd * 1.24, backZ,
+      { math.floor(shell[1] * 0.4), math.floor(shell[2] * 0.4),
+        math.floor(shell[3] * 0.4) }, 0.9)
+    cartPill(project, -sd / 2, -sd / 2, sd, sd, backZ - 0.4,
+      { 196, 186, 148 }, 1)
+    cartPill(project, -sd * 0.32, -sd * 0.32, sd * 0.64, sd * 0.64,
+      backZ - 0.6, { 220, 212, 178 }, 0.8)
+    local r = sd / 2
+    for k = 0, 2 do
+      local a = -math.pi / 2 + k * (2 * math.pi / 3)
+      local ux, uy = math.cos(a), math.sin(a)
+      local vx, vy = -uy, ux
+      local r0, r1 = r * 0.16, r * 0.82
+      local w0, w1 = r * 0.13, r * 0.3
+      cartPolygon({
+        { project(ux * r0 + vx * w0, uy * r0 + vy * w0, backZ - 0.8) },
+        { project(ux * r0 - vx * w0, uy * r0 - vy * w0, backZ - 0.8) },
+        { project(ux * r1 - vx * w1, uy * r1 - vy * w1, backZ - 0.8) },
+        { project(ux * r1 + vx * w1, uy * r1 + vy * w1, backZ - 0.8) },
+      }, { 112, 104, 76 }, 1)
+    end
   end
 
   if frontFacing then
@@ -1119,7 +1161,7 @@ local function buildHeader(imp, m)
   end
   tx = tx + dropW + tabGap
 
-  for _, t in ipairs(tabs) do
+  local function headerTab(t)
     local w = tabH
     if tx > tabLeft and tx + w > tabRight then
       tx = tabLeft
@@ -1131,6 +1173,11 @@ local function buildHeader(imp, m)
     o.action = chrome.tab[t.id]
     btn(imp, tx, ty, w, tabH, t.key, "", o)
     tx = tx + w + tabGap
+  end
+  -- The bug-report chip sits LAST, past the sync chip.
+  local bugTab
+  for _, t in ipairs(tabs) do
+    if t.id == "bug" then bugTab = t else headerTab(t) end
   end
 
   do
@@ -1153,6 +1200,7 @@ local function buildHeader(imp, m)
     end
     tx = tx + w + tabGap
   end
+  if bugTab then headerTab(bugTab) end
 
   -- `ty` has walked down with the wraps, so this stays correct at one row too.
   y = ty + tabH + math.floor(8 * m.s)
@@ -2840,6 +2888,8 @@ local function buildConfirmModal(imp, m)
           imp:_setAllMods(true, true)
         elseif c.kind == "importOversize" then
           imp:_importSave(c.version, c.source, true)
+        elseif c.kind == "largeImport" then
+          imp:_importRequiredSource(c.modId, c.importId, c.source, true)
         else
           imp:_toggleMod(c.id, true, c.version)
         end

@@ -2060,7 +2060,7 @@ function RomImporter:_importRequiredData(modId, importId, data)
   return nil
 end
 
-function RomImporter:_importRequiredSource(modId, importId, source)
+function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
   local manifest = requiredManifest(self, modId)
   local spec = manifest and requiredSpec(manifest, importId)
   if not spec then
@@ -2068,12 +2068,29 @@ function RomImporter:_importRequiredSource(modId, importId, source)
     self.modNotice = nil
     return nil
   end
+  local RequiredImports = require("src.mods.RequiredImports")
   local info = love.filesystem.getInfo(source, "file")
   local size = info and info.size or externalFileSize(source)
-  local sizeErr = require("src.mods.RequiredImports").sizeError(spec, size, false)
+  local sizeErr = RequiredImports.sizeError(spec, size, false)
   if sizeErr then
     requiredImportNotice(self, modId, importId, sizeErr)
     self.modNotice = nil
+    return nil
+  end
+  if not confirmed and type(size) == "number"
+      and size > RequiredImports.LARGE_WARN_BYTES then
+    self._modConfirm = {
+      kind = "largeImport",
+      modId = modId, importId = importId, source = source,
+      title = Strings("Large import"),
+      lines = {
+        Strings("This is a large import (%s).",
+          RequiredImports.sizeLabel(size)),
+        Strings("Please ensure you have enough space on your"),
+        Strings("device before doing this."),
+      },
+      yesLabel = Strings("I understand"),
+    }
     return nil
   end
   local data = love.filesystem.read(source)
@@ -2118,8 +2135,13 @@ function RomImporter:chooseRequiredImport(modId, importId)
       if name:sub(1, 1) ~= "." then
         local path = inbox .. "/" .. name
         local info = love.filesystem.getInfo(path, "file")
-        local sizeErr = info and require("src.mods.RequiredImports")
-          .sizeError(spec, info.size, false)
+        local RequiredImports = require("src.mods.RequiredImports")
+        local sizeErr = info
+          and RequiredImports.sizeError(spec, info.size, false)
+        if info and not sizeErr
+            and info.size > RequiredImports.LARGE_WARN_BYTES then
+          return self:_importRequiredSource(modId, importId, path)
+        end
         local data = not sizeErr and love.filesystem.read(path) or nil
         if data and self:_importRequiredData(modId, importId, data) then return end
         if sizeErr then lastError = sizeErr
@@ -3098,8 +3120,10 @@ end
 -- multi-monitor coords).  Same contract as PadCursor.yieldToPointer for
 -- the overlay hosts.  Touch move/press/release must still reach
 -- FlexLove.touch* or scroll containers never drag on phones.
-function RomImporter:mousepressed()
+function RomImporter:mousepressed(x, y, button)
   self._padCursorActive = false
+  if button ~= 1 or not self._flex then return end
+  require("src.import.LauncherView").mousepressed(self, x, y)
 end
 
 function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
