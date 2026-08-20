@@ -1364,7 +1364,7 @@ function BattleState:updateQueue()
     -- subanimation (or just the coarse fx when animations are off).
     -- item.hit carries the target's blink + damage sound, applied when
     -- the animation ends (hitRow rows carry a hit with no animation --
-    -- thrash/rage continuation turns that skip the announcement).
+    -- Mimic, whose animation waits on a successful copy).
     if item.anim or item.hitRow then
       -- PlayMoveAnimation writes wAnimationID, calls Delay3, and only then
       -- jumps to MoveAnimation (core.asm:6635-6640), so three frames pass
@@ -2708,9 +2708,11 @@ function BattleState:resolveSwitch(newMon)
   self.afterQueue = "menu"
   self:act(function()
     -- SwitchPlayerMon (core.asm:2419-2423): RetreatMon prints over the
-    -- outgoing pic and holds 50 frames before the mon is recalled
+    -- outgoing pic and holds 50 frames, then AnimateRetreatingPlayerMon
+    -- runs before the mon is recalled
     self:sayNextAuto(self:withdrawText(self.player.name),
                      Timing.SWITCH_PLAYER_MON)
+    self:queueRetreatAnim()
     self:actNext(function()
       self:restoreMimicked(self.player) -- the battle copy leaves with it
       local previous = self.player
@@ -3322,6 +3324,23 @@ function BattleState:queueSendOutAnim(append)
   if append then self:act(fn) else self:actNext(fn) end
 end
 
+-- AnimateRetreatingPlayerMon (core.asm:1769-1796); the Yellow starter Pikachu
+-- slides off instead (pokeyellow core.asm:1862-1866, animations.asm:1259)
+function BattleState:queueRetreatAnim()
+  if self:starterPikachuSendOut() then
+    self:actNext(function() self:slidePic("playerMon", 0, -64, 8, 3) end)
+    self.nextInsert = (self.nextInsert or 0) + 1
+    table.insert(self.queue, self.nextInsert, { wait = 24 })
+    self:actNext(function() self:slidePic("playerMon") end)
+  else
+    self:actNext(function()
+      self.shrinkOut = { battler = self.player, frame = 0 }
+    end)
+    self.nextInsert = (self.nextInsert or 0) + 1
+    table.insert(self.queue, self.nextInsert, { wait = 7 })
+  end
+end
+
 -- Should the low-health alarm sound this frame?  pokered keys it off
 -- the drawn bar color: DrawPlayerHUDAndHPBar (core.asm:1846-1875) sets
 -- wLowHealthAlarm bit 7 when GetHealthBarColor says the player bar is
@@ -3537,6 +3556,12 @@ function BattleState:updateFx()
   if self.growIn then
     self.growIn.frame = self.growIn.frame + 1
     if self.growIn.frame >= 12 then self.growIn = nil end
+  end
+  -- the retreat shrink (AnimateRetreatingPlayerMon): 4+3 frames, then the
+  -- 7x7 area is cleared for good
+  if self.shrinkOut then
+    self.shrinkOut.frame = self.shrinkOut.frame + 1
+    if self.shrinkOut.frame >= 7 then self.shrinkOut = nil end
   end
   -- low-HP alarm (audio/low_health_alarm.asm): the two-tone siren
   -- loops while the player's bar is red; see lowHealthAlarmActive
@@ -3802,6 +3827,8 @@ function BattleState:statusInterrupt(user, target, selectedId)
                                    { rng = self.rng, forceCrit = false, typeless = true,
                                      screens = target })
     self:sayNext(self:romText("_HurtItselfText", "It hurt itself in\nits confusion!"))
+    -- HandleSelfConfusionDamage (core.asm:3706-3714, enemy side :5807-5811)
+    self:animNext("POUND", not user.isPlayer)
     self:clearVolatiles(user, true)
     self:applyDamage(user, dmg)
     if user.mon.hp <= 0 then self:onFaint(user) end
@@ -3894,18 +3921,26 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   end
 
   self.moveAnimRow = nil
-  if not (user.thrashTurns and moveInst == user.thrashMove and user.thrashAnnounced) then
-    self:sayNextAuto(self:romText("_ItemUseText001", "%s\nused %s!", displayName(user), move.name))
-    -- the move's animation plays right after the announcement; the
-    -- damage path attaches the target's hit blink to this row so the
-    -- blink follows the animation (pokered's order).  Mimic is the
-    -- exception (announceAnim = false): PlayCurrentMoveAnimation runs
-    -- only after a successful copy, never on a miss -- applyMimic queues it
-    if not (record and record.announceAnim == false) then
-      self.nextInsert = (self.nextInsert or 0) + 1
-      self.moveAnimRow = { anim = move.id, attackerIsPlayer = user.isPlayer }
-      table.insert(self.queue, self.nextInsert, self.moveAnimRow)
+  local thrashing = user.thrashTurns and moveInst == user.thrashMove
+    and user.thrashAnnounced or false
+  if thrashing then
+    -- .ThrashingAboutCheck (core.asm:3531-3552)
+    self:sayNextAuto(self:romText("_ThrashingAboutText", "%s's\nthrashing about!",
+                                  displayName(user)))
+    user.thrashTurns = user.thrashTurns - 1
+    if user.thrashTurns <= 0 then
+      user.thrashTurns, user.thrashMove, user.thrashAnnounced = nil, nil, nil
+      if not user.confusedTurns then user.confusedTurns = self.rng(2, 5) end
     end
+  else
+    self:sayNextAuto(self:romText("_ItemUseText001", "%s\nused %s!", displayName(user), move.name))
+  end
+  -- PlayCurrentMoveAnimation follows the announcement; Mimic (announceAnim
+  -- = false) queues it from applyMimic after a successful copy
+  if not (record and record.announceAnim == false) then
+    self.nextInsert = (self.nextInsert or 0) + 1
+    self.moveAnimRow = { anim = move.id, attackerIsPlayer = user.isPlayer }
+    table.insert(self.queue, self.nextInsert, self.moveAnimRow)
   end
   Runtime.emit("battle.move_used", {
     battle = self, user = user, target = target, move = move,
@@ -3913,6 +3948,9 @@ function BattleState:performMove(user, target, moveInst, isCalled)
   })
 
   local ctx = EffectRegistry.makeCtx(self, user, target, move, moveInst, isCalled)
+  -- .ThrashingAboutCheck jumps past JumpMoveEffect into PlayerCalcMoveDamage
+  -- (core.asm:3540), so SpecialEffectsCont never re-runs on a locked turn
+  ctx.thrashing = thrashing
 
   -- Metronome / Mirror Move re-entry; a nil pick means the record
   -- already said its failure text
@@ -4185,8 +4223,9 @@ function BattleState:awardExp()
   end
   local function applyShare(mon, split, announce)
     local playerId = self.game.save.player and self.game.save.player.id
-    local traded = mon.traded == true
-      or (mon.otId ~= nil and playerId ~= nil and mon.otId ~= playerId)
+    -- GainExperience (engine/battle/experience.asm:69-88) compares the
+    -- stored MON_OTID against wPlayerID every award; no persistent flag
+    local traded = mon.otId ~= nil and playerId ~= nil and mon.otId ~= playerId
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, traded)
@@ -4338,21 +4377,35 @@ function BattleState:enemyMonFainted()
         -- the battle queue's own \f handling (not TextBox.lua's) does not
         -- page a sayChoice string the same way -- left as two calls.
         self:say(Strings("%s is\nabout to use\v%s!", self.trainer.name, nextName))
+        -- EnemySendOutFirstMon .next9/.next8 (core.asm:1390-1409) and
+        -- HasMonFainted's NoWillText (core.asm:1473-1488)
         self:sayChoice(
           Strings("Will %s\nchange POKéMON?", self.game.save.player.name),
           function(yes)
             if not yes then return end
             local game = self.game
-            Screens.push(game, "PartyMenu", {
+            local shiftOpts, reopenShift
+            reopenShift = function(text)
+              table.insert(self.queue, 1, { ui = function()
+                return self:buildScreen("PartyMenu", shiftOpts)
+              end })
+              table.insert(self.queue, 1, { text = text })
+            end
+            shiftOpts = {
               battle = self,
               party = self:playerPartyView(),
               forceSwitch = true,
               onSwitch = function(mon)
-                if mon ~= self.player.mon and mon.hp > 0 then
+                if mon == self.player.mon then
+                  reopenShift(Strings("%s is\nalready out!", self.player.name))
+                elseif mon.hp <= 0 then
+                  reopenShift(self:romText("_NoWillText", "There's no will\nto fight!"))
+                else
                   shiftSwitchMon = mon
                 end
               end,
-            })
+            }
+            Screens.push(game, "PartyMenu", shiftOpts)
           end, { box = Theme.trainerSwitchBox })
       end
       self:act(function()
@@ -4395,10 +4448,11 @@ function BattleState:enemyMonFainted()
         local mon = shiftSwitchMon
         if not mon then return end
         -- SwitchPlayerMon (core.asm:2419-2423): RetreatMon, the 50-frame
-        -- hold, then the recall and the send-out
+        -- hold, AnimateRetreatingPlayerMon, then the recall and the send-out
         self.nextInsert = 0
         self:sayNextAuto(self:withdrawText(self.player.name),
                          Timing.SWITCH_PLAYER_MON)
+        self:queueRetreatAnim()
         self:actNext(function()
           local previous = self.player
           self.player = makeBattler(self.data, mon, true, self.game.save)
@@ -5088,10 +5142,13 @@ function BattleState:openParty()
       battle = self,
       party = self:playerPartyView(),
       onSwitch = function(mon)
+        -- PartyMenuOrRockOrRun's SWITCH .partyMonDeselected (core.asm:2396-2408)
         if mon == self.player.mon then
           self:say(Strings("%s is\nalready out!", self.player.name))
+          self:act(function() self:openParty() end)
         elseif mon.hp <= 0 then
           self:say(self:romText("_NoWillText", "There's no will\nto fight!"))
+          self:act(function() self:openParty() end)
         else
           self:resolveSwitch(mon)
         end
@@ -5233,6 +5290,14 @@ function BattleState:growInScale(battler)
   if not grow or grow.battler ~= battler then return nil end
   local f = grow.frame
   return f < 3 and 0 or f < 7 and 3 / 7 or 5 / 7
+end
+
+-- AnimateRetreatingPlayerMon's CopyDownscaledMonTiles stages
+-- (core.asm:1769-1796)
+function BattleState:shrinkOutScale(battler)
+  local shrink = self.shrinkOut
+  if not shrink or shrink.battler ~= battler then return nil end
+  return shrink.frame < 4 and 5 / 7 or 3 / 7
 end
 
 -- battler hidden this frame? (damage blink)
@@ -5871,11 +5936,10 @@ function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
     local s = BattleState.resolveBattleScale(self.data, "back",
       imagePathOf(self.player.sprite),
       self.player.mon and self.player.mon.species)
-    local gs = self:growInScale(self.player)
+    local gs = self:growInScale(self.player) or self:shrinkOutScale(self.player)
     if gs then
-      -- the player-side AnimateSendingOutMon grow (after the poof,
-      -- core.asm:1757-1762): feet pinned at y=96, horizontal centre
-      -- pinned, mod scale composed with the grow stage
+      -- the player-side AnimateSendingOutMon grow (core.asm:1757-1762) and
+      -- the AnimateRetreatingPlayerMon shrink (core.asm:1769-1796)
       local eff = s * gs
       if eff > 0 then
         love.graphics.draw(img,

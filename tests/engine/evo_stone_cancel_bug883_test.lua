@@ -126,6 +126,17 @@ local function useStone(game)
   game.input.pressed = "a"
   picker:update(1 / 60)
   game.input.pressed = nil
+  -- IsEvolvingText hands off to the movie when it closes
+  -- (engine/pokemon/evos_moves.asm:120-134)
+  local intro = game.stack:top()
+  if not (intro and intro.textBox and intro.done) then
+    return nil, "the \"is evolving!\" box never opened"
+  end
+  if not tostring(intro.text):find("evolving") then
+    return nil, "the box before the movie is not _IsEvolvingText"
+  end
+  game.stack:pop()
+  intro.done()
   return list
 end
 

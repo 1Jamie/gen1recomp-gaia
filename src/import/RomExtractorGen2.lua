@@ -3439,6 +3439,18 @@ function RomExtractorGen2:extractScriptsAndText(maps, stdScripts)
       elseif info.name == "givepoke" then
         cmd.species, cmd.level, cmd.item, cmd.trainer =
           args[1], args[2], args[3], args[4]
+        -- Script_givepoke (engine/overworld/scripting.asm:1806)
+        if size == 8 then
+          local function readAt(lo, hi)
+            local addr = (args[lo] or 0) + (args[hi] or 0) * 0x100
+            if not romAddrOk(bank, addr) then return nil end
+            local okStr, str = pcall(self.rom.readString, self.rom,
+              bank, addr, charmap, 0x50, 16)
+            return okStr and str or nil
+          end
+          cmd.name = readAt(5, 6)
+          cmd.otName = readAt(7, 8)
+        end
       elseif info.name == "pokepic" or info.name == "disappear" then
         cmd.species = args[1] -- pokepic
         cmd.object = args[1]  -- disappear (same byte)
@@ -5230,6 +5242,20 @@ function RomExtractorGen2:extractMenuGfx()
     eggHatch.shellTiles = 2
   end
   if eggHatch.egg or eggHatch.shell then out.eggHatch = eggHatch end
+
+  -- StatsScreenPageTilesGFX (gfx/font.asm:23), the 17 tiles
+  -- LoadStatsScreenPageTilesGFX lands at vTiles2 $31 (engine/gfx/load_font.asm:90).
+  local hpBarBorder = self.symbols["EnemyHPBarBorderGFX"]
+  if hpBarBorder then
+    local address = hpBarBorder[2] - 17 * 16
+    self:write2bpp(self.rom:bytes(hpBarBorder[1], address, 17 * 16),
+      17 * 8, 8, "menu/stats_tiles.png")
+    out.stats = {
+      sheet = "assets/generated/menu/stats_tiles.png",
+      tiles = 17,
+      firstTile = 0x31,
+    }
+  end
 
   -- Goldenrod Game Corner: Slot Machine graphics assets
   if self.symbols["Slots1LZ"] then

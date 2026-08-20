@@ -136,8 +136,9 @@ do
   local list, why = useFromBag(game, nil, "RARE_CANDY")
   if check(list ~= nil, "the bag opened and reached the picker: " .. tostring(why)) then
     eq(mon.level, 6, "the candy leveled the mon 5 -> 6")
-    check(not inStack(game.stack, isPicker),
-          "the pickOnly picker popped itself before onSwitch")
+    -- .useRareCandy over the party list (item_effects.asm:1392-1418) #1594
+    check(inStack(game.stack, isPicker),
+          "the party picker is still up under the level text (#1594)")
     check(inStack(game.stack, function(s) return s == list end),
           "the bag list is STILL on the stack (.useItem_partyMenu re-enters "
           .. "StartMenu_Item, it does not CloseStartMenu) (#796)")

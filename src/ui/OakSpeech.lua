@@ -35,6 +35,23 @@ OakSpeech.letterboxWhite = true
 local FADE_FRAMES = 24
 local WIPE_FRAMES = 32
 
+-- OakSpeechSlidePicRight / OakSpeechSlidePicLeft (oak_speech2.asm:67-89)
+local SLIDE_TILES = 6
+local SLIDE_FRAMES = 3
+
+local PicSlide = {}
+PicSlide.__index = PicSlide
+
+function PicSlide:update(dt)
+  self.t = self.t + 1
+  local tiles = math.min(SLIDE_TILES, math.floor(self.t / SLIDE_FRAMES))
+  self.speech.picSlide = (self.dir > 0 and tiles or (SLIDE_TILES - tiles)) * 8
+  if tiles >= SLIDE_TILES then
+    self.game.stack:pop()
+    if self.onDone then self.onDone() end
+  end
+end
+
 -- naming presets are boot config (field.boot.namePresets), which a total
 -- conversion replaces; the Red/Blue lists remain the fallback
 local function namePresets(game, who, fallback)
@@ -155,6 +172,10 @@ function OakSpeech.defaultSteps(speech)
       kind = "say",
       textKey = "_IntroducePlayerText",
       pic = "player",
+      -- oak_speech.asm:89-92: MovePicLeft, then IntroducePlayerText ends in
+      -- text_end, so PrintText returns with the box still up under the names
+      reveal = "wipe",
+      stay = true,
     },
     {
       id = "name_player",
@@ -177,6 +198,10 @@ function OakSpeech.defaultSteps(speech)
       kind = "say",
       textKey = "_IntroduceRivalText",
       pic = "rival",
+      -- oak_speech.asm:98-101: FadeInIntroPic, then IntroduceRivalText's
+      -- text_end leaves the box up for ChooseRivalName
+      reveal = "fade",
+      stay = true,
     },
     {
       id = "name_rival",
@@ -378,7 +403,14 @@ function OakSpeech:runStep(step)
     self:applyPic(step)
     self:afterReveal(step, function()
       self:runCry(step)
-      self:sayText(self:stepText(step), function() self:advance() end)
+      if step.stay then
+        local box = TextBox.new(self.game, self:stepText(step), nil,
+          { stay = { onShown = function() self:advance() end } })
+        self.holdBox = box
+        self.game.stack:push(box)
+      else
+        self:sayText(self:stepText(step), function() self:advance() end)
+      end
     end)
   elseif kind == "demo" then
     -- NIDORINO show-off: mirrored front sprite + wipe + cry + text 2A
@@ -394,20 +426,26 @@ function OakSpeech:runStep(step)
     local presets = step.presets
       or namePresets(self.game, step.presetsWho or who,
                      step.presetsFallback or { "RED" })
-    require("src.ui.Screens").push(self.game, "NamingScreen", {
-      title = step.title or (who == "rival" and "HIS NAME?" or Strings("YOUR NAME?")),
-      presets = presets,
-      maxLen = step.maxLen or self.nameLen,
-      onDone = function(name)
-        if who == "rival" then
-          self.game.save.player.rival = name
-        else
-          self.game.save.player.name = name
-        end
-        self:recordAnswer(step, 1, name, name)
-        self:advance()
-      end,
-    })
+    local function openNaming()
+      require("src.ui.Screens").push(self.game, "NamingScreen", {
+        title = step.title or (who == "rival" and "HIS NAME?" or Strings("YOUR NAME?")),
+        presets = presets,
+        introBox = true,
+        maxLen = step.maxLen or self.nameLen,
+        onDone = function(name)
+          if who == "rival" then
+            self.game.save.player.rival = name
+          else
+            self.game.save.player.name = name
+          end
+          self:recordAnswer(step, 1, name, name)
+          -- YourNameIsText/HisNameIsText print into the box this one held
+          self:closeHoldBox()
+          self:slidePic(-1, function() self:advance() end)
+        end,
+      })
+    end
+    self:slidePic(1, openNaming)
   elseif kind == "choice" then
     self:applyPic(step)
     self:afterReveal(step, function()
@@ -518,6 +556,21 @@ function OakSpeech:revealPic(kind, next)
   }
 end
 
+-- ..(engine/movie/oak_speech/oak_speech2.asm ln 67)
+function OakSpeech:slidePic(dir, onDone)
+  self.picSlide = (dir > 0 and 0 or SLIDE_TILES * 8)
+  self.game.stack:push(setmetatable({
+    game = self.game, speech = self, dir = dir, t = 0, onDone = onDone,
+  }, PicSlide))
+end
+
+-- IntroducePlayerText's text_end box (oak_speech.asm:90) is ours to close
+function OakSpeech:closeHoldBox()
+  local box = self.holdBox
+  self.holdBox = nil
+  if box and self.game.stack:top() == box then self.game.stack:pop() end
+end
+
 function OakSpeech:advance()
   self.step = self.step + 1
   -- picFlip belongs to the pic, not to the step: OakSpeechText2 prints 2A
@@ -615,7 +668,7 @@ function OakSpeech:draw()
     -- it like the sprite buffer does ((8 - w) >> 1) tiles across,
     -- bottom-aligned
     local w, h = self.pic:getDimensions()
-    local x = 48 + math.floor((8 - w / 8) / 2) * 8
+    local x = 48 + math.floor((8 - w / 8) / 2) * 8 + (self.picSlide or 0)
     local y = 32 + (7 - h / 8) * 8
     local reveal = self.picReveal
     local off = 0

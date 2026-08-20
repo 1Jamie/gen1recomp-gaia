@@ -543,10 +543,14 @@ local function runCmd(self, cmd, op)
     local species = cmd.species or arg1(cmd)
     local level = cmd.level or (cmd.args and cmd.args[2]) or 5
     local item = cmd.item or (cmd.args and cmd.args[3]) or 0
+    local trainer = cmd.trainer or (cmd.args and cmd.args[4]) or 0
     if self.givePokeFn then
-      local mon = self.givePokeFn(species, level, item)
+      -- engine/pokemon/move_mon.asm:1695-1736: the trainer arm copies the
+      -- script's own nickname and OT name in instead of asking for one.
+      local named = trainer ~= 0
+        and { nickname = cmd.name, otName = cmd.otName } or nil
+      local mon = self.givePokeFn(species, level, item, named)
       -- engine/pokemon/move_mon.asm:1753-1757
-      local trainer = cmd.trainer or (cmd.args and cmd.args[4]) or 0
       if mon and trainer == 0 then
         Specials.askNickname(self, mon)
       end

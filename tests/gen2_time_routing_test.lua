@@ -109,6 +109,36 @@ do
   eq(world.daytime, HOST_DAYTIME, "so it is lit by the host clock")
 end
 
+-- ---- a pinned palette lights the room, it does not stop the clock (#1557) ---
+-- timeofday_pals.asm:114 and :5-11, checktime.asm:2, data/maps/maps.asm:427
+do
+  local save = {}
+  Clock.setTime(save, 21, 0)
+  local world = worldWithSave(save)
+  world.map.def.palette = "PALETTE_DAY"
+  world.map.def.environment = "INDOOR"
+  world:applyPalettes()
+  eq(world.daytime, "DAY", "the pinned room is still lit like day at 21:00")
+  eq(world.tod, "NITE", "but the world clock knows it is night")
+  eq(world:timeOfDayId(), 2, "and wTimeOfDay answers NITE_F")
+
+  -- Script_checktime: CheckTime's bit for wTimeOfDay ANDed with the mask.
+  local function checktime(mask)
+    local scripts = { generation = 2,
+      ["s:t"] = { { op = "checktime", args = { mask } } } }
+    local vm = Vm.new(scripts, {}, world.events,
+      { getTimeOfDay = function() return world:timeOfDayId() end })
+    vm:start("s:t")
+    for _ = 1, 100 do
+      if not vm:running() then break end
+      vm:update()
+    end
+    return vm.scriptVar
+  end
+  eq(checktime(4), 1, "checktime NITE is TRUE inside the PALETTE_DAY room")
+  eq(checktime(2), 0, "and checktime DAY is FALSE there")
+end
+
 -- ---- the hour-window respawn is not eaten by a busy frame -------------------
 -- UpdateTimePals runs every second; the port rides that poll to redo what a
 -- map load would (wObjectMasks).  A rollover that lands on a busy frame has to

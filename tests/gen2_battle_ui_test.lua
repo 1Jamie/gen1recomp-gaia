@@ -1306,4 +1306,114 @@ do
   eq(lead.moves[4].id, "SURF", "and SURF is still there")
 end
 
+-- ---- GetMovePriority's Vital Throw carve-out (#1475) ----------------------
+-- engine/battle/core.asm:786
+do
+  local screen = newScreen()
+  check(runToMenu(screen), "reached the menu")
+  local battle = screen.battle
+  local moves = battle.data.moves
+  moves.VITAL_THROW = { id = "VITAL_THROW", name = "VITALTHROW", power = 70,
+    type = "NORMAL", accuracy = 100, pp = 10, effect = "EFFECT_ALWAYS_HIT" }
+  moves.SWIFT = { id = "SWIFT", name = "SWIFT", power = 60, type = "NORMAL",
+    accuracy = 100, pp = 20, effect = "EFFECT_ALWAYS_HIT" }
+  moves.QUICK_ATTACK = { id = "QUICK_ATTACK", name = "QUICKATTACK", power = 40,
+    type = "NORMAL", accuracy = 100, pp = 30, effect = "EFFECT_PRIORITY_HIT" }
+  eq(battle:movePriority("VITAL_THROW"), -1, "VITAL_THROW goes last")
+  eq(battle:movePriority("SWIFT"), 0,
+    "while SWIFT, which shares its effect, keeps BASE_PRIORITY")
+  eq(battle:movePriority("QUICK_ATTACK"), 1, "and the table still reads")
+  eq(battle:orderOf("TACKLE", "TACKLE"), "player",
+    "the faster mon leads on equal priority")
+  eq(battle:orderOf("VITAL_THROW", "TACKLE"), "enemy",
+    "but VITAL_THROW loses to a normal move whatever the Speed")
+  moves.VITAL_THROW, moves.SWIFT, moves.QUICK_ATTACK = nil, nil, nil
+end
+
+-- ---- a send-out snapshots HP at send time (#1514) -------------------------
+-- SendOutPlayerMon's tail (engine/battle/core.asm:3796-3838)
+do
+  local lead = Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect })
+  local bench = Mon.new(DATA, "TOTODILE", 10, { dvs = perfect })
+  local screen, battle = newScreen({ player = lead, party = { lead, bench } })
+  check(runToMenu(screen), "reached the menu")
+  battle:takeEvents()
+  check(battle:switch(2), "the bench mon comes in")
+  local send = battle:takeEvents()[1]
+  eq(send.kind, "send", "the switch emits a send-out")
+  eq(send.hp, bench.hp, "carrying a numeric HP snapshot")
+  bench.hp = bench.hp - 7
+  check(send.hp ~= bench.hp,
+    "which the rest of the turn's damage cannot walk back")
+  screen.shownHp.player = 0
+  screen:push(send)
+  screen:advanceQueue()
+  eq(screen.shownHp.player, send.hp,
+    "and the HUD opens on the snapshot, not on the post-hit value")
+end
+
+-- ---- LearnMove finishes before the queued send-out (#1516) ----------------
+-- LearnMove inside GiveExperiencePoints (engine/battle/core.asm:1959-2010)
+do
+  local screen, lead = learnScreen()
+  screen:push({ kind = "send", side = "enemy", mon = { hp = 1 }, hp = 1,
+    text = "JOE sent out PIDGEY!" })
+  check(runToPhase(screen, "ask-forget"), "the pages reach the question")
+  local tap = tapper(screen)
+  tap("a")                      -- read the question
+  tap("a")                      -- YES
+  eq(screen.phase, "choose-forget", "YES opens the picker")
+  tap("a")                      -- slot 1
+  eq(lead.moves[1].id, "EMBER", "the move is learned")
+  check(screen.message and screen.message:find("forgot", 1, true) ~= nil,
+    "and its line prints ahead of the send-out that was already queued")
+end
+
+-- ---- MoveSelectionScreen's two boxes (#1478) ------------------------------
+-- engine/battle/core.asm:5074-5094, MoveInfoBox :5403-5478
+do
+  local Chrome = require("src.ui.gen2.Chrome")
+  local lead = Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect })
+  lead.moves = { { id = "TACKLE", pp = 30, maxPp = 35 },
+    { id = "THUNDER_WAVE", pp = 20, maxPp = 20 } }
+  local screen = newScreen({ player = lead, party = { lead } })
+  check(runToMenu(screen), "reached the menu")
+  screen.phase = "moves"
+  screen.moveIndex = 1
+
+  local boxes, prints = {}, {}
+  local saved = { box = Chrome.box, print = Chrome.print,
+    printRight = Chrome.printRight, cursor = Chrome.cursor }
+  Chrome.box = function(x, y, w, h)
+    boxes[#boxes + 1] = ("%d,%d,%d,%d"):format(x, y, w, h)
+  end
+  Chrome.print = function(text, x, y)
+    prints[#prints + 1] = ("%s@%d,%d"):format(tostring(text), x, y)
+  end
+  Chrome.printRight = function(text, x, y)
+    prints[#prints + 1] = ("R:%s@%d,%d"):format(tostring(text), x, y)
+  end
+  Chrome.cursor = function(x, y)
+    prints[#prints + 1] = ("cursor@%d,%d"):format(x, y)
+  end
+  local ok, err = pcall(function() screen:drawPanel() end)
+  Chrome.box, Chrome.print = saved.box, saved.print
+  Chrome.printRight, Chrome.cursor = saved.printRight, saved.cursor
+  check(ok, "the move menu draws: " .. tostring(err))
+
+  local drawn = table.concat(boxes, " ")
+  check(drawn:find("0,8,11,5", 1, true) ~= nil, "the TYPE/PP box is drawn")
+  check(drawn:find("4,12,16,6", 1, true) ~= nil, "over the narrow list box")
+  check(drawn:find("0,12,20,6", 1, true) == nil,
+    "and the full-width message box is not")
+  local text = table.concat(prints, " ")
+  check(text:find("TACKLE@6,13", 1, true) ~= nil, "names sit at column 6")
+  check(text:find("cursor@5,13", 1, true) ~= nil, "with the cursor at 5")
+  check(text:find("TYPE/@1,9", 1, true) ~= nil, "TYPE/ at (1,9)")
+  check(text:find("NORMAL@2,10", 1, true) ~= nil, "the type name at (2,10)")
+  check(text:find("30/35@5,11", 1, true) ~= nil,
+    "and only the highlighted move's PP, at (5,11)")
+  check(text:match("R:%d+/%d+@19,1%d") == nil, "no PP is printed per row")
+end
+
 S.finish()

@@ -647,27 +647,29 @@ end
 local rocketRows = {
   { "face_player" },                                           -- 1
   { "check_flag", "EVENT_GOT_TM28" },                          -- 2
-  { "jump_if_true", 15 },                                      -- 3 → CeruleanHideRocket
+  { "jump_if_true", 16 },                                      -- 3 → CeruleanHideRocket
   { "check_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },        -- 4
-  { "jump_if_true", 9 },                                       -- 5
+  { "jump_if_true", 10 },                                      -- 5
   { "show_text", "_CeruleanCityRocketText" },                  -- 6
-  { "start_battle", "trainer", "OPP_ROCKET", 5 },              -- 7
-  { "jump_if_false", "end" },                                  -- 8
-  { "show_text", "_CeruleanCityRocketIllReturnTheTMText" },    -- 9
-  { "set_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },          -- 10
-  { "give_item", "TM_DIG", 1, false },                         -- 11 (row 13 prints)
-  { "set_flag", "EVENT_GOT_TM28" },                            -- 12
-  { "show_text", "_CeruleanCityRocketReceivedTM28Text" },      -- 13
-  { "show_text", "_CeruleanCityRocketIBetterGetMovingText" },  -- 14
-  { "fade", "out" },                                           -- 15 GBFadeOutToBlack
+  -- scripts/CeruleanCity.asm:295 SaveEndBattleTextPointers
+  { "save_end_battle_text", "_CeruleanCityRocketIGiveUpText" }, -- 7
+  { "start_battle", "trainer", "OPP_ROCKET", 5 },              -- 8
+  { "jump_if_false", "end" },                                  -- 9
+  { "show_text", "_CeruleanCityRocketIllReturnTheTMText" },    -- 10
+  { "set_flag", "EVENT_BEAT_CERULEAN_ROCKET_THIEF" },          -- 11
+  { "give_item", "TM_DIG", 1, false },                         -- 12 (row 14 prints)
+  { "set_flag", "EVENT_GOT_TM28" },                            -- 13
+  { "show_text", "_CeruleanCityRocketReceivedTM28Text" },      -- 14
+  { "show_text", "_CeruleanCityRocketIBetterGetMovingText" },  -- 15
+  { "fade", "out" },                                           -- 16 GBFadeOutToBlack
   -- CeruleanHideRocket while black: GUARD1 (28,12) appears, GUARD2
   -- (27,12) and the ROCKET go.  GUARD2 blocks the trashed-house south
   -- door neighbour -- the swap reconnects the city (Bill's ticket does
   -- the same in story.lua; either route is enough).
-  { "show_object", "CERULEAN_CITY", "CERULEANCITY_GUARD1" },   -- 16
-  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_GUARD2" },   -- 17
-  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_ROCKET" },   -- 18
-  { "fade", "in" },                                            -- 19 GBFadeInFromBlack
+  { "show_object", "CERULEAN_CITY", "CERULEANCITY_GUARD1" },   -- 17
+  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_GUARD2" },   -- 18
+  { "hide_object", "CERULEAN_CITY", "CERULEANCITY_ROCKET" },   -- 19
+  { "fade", "in" },                                            -- 20 GBFadeInFromBlack
 }
 
 M.CERULEAN_CITY = {

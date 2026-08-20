@@ -221,7 +221,7 @@ function EffectRegistry.runDamaging(battle, ctx, record)
   -- replay PlayMoveAnimation per strike (pokered: GetPlayerAnimationType
   -- / GetEnemyAnimationType loop on wNumAttacksLeft); hit 1 reuses the
   -- announcement-time moveAnimRow, later hits queue fresh anim rows.
-  -- Thrash/rage continuations have no announcement anim -- a bare
+  -- Mimic queues no announcement anim (announceAnim = false) -- a bare
   -- hitRow carries the blink instead.
   -- PlayApplyingAttackSound (engine/battle/animations.asm, the routine after
   -- PlayApplyingAttackAnimation) picks the sound off wDamageMultipliers -- 10

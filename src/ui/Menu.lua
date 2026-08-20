@@ -34,6 +34,9 @@ function Menu.new(game, items, opts)
     if self.tx + self.tw > 20 then self.tx = math.max(0, 20 - self.tw) end
   end
   self.rowStep = opts.rowStep or 2
+  -- engine/movie/oak_speech/oak_speech2.asm:162 (DisplayIntroNameTextBox)
+  self.title = opts.title
+  self.itemY = opts.itemY
   -- maxVisible: cap the box to this many rows and scroll the rest instead
   -- of growing past it (e.g. the start menu, whose row count varies with
   -- save state and mod hooks); nil/unset keeps every caller's old
@@ -117,6 +120,10 @@ function Menu:draw()
   end
   Font.drawBox(self.tx, self.ty, self.tw, self.th)
   love.graphics.setColor(0, 0, 0, 1)
+  -- PlaceString at hlcoord 3,0 writes over the border row it was just drawn on
+  if self.title then
+    Font.draw(self.title, (self.tx + 3) * 8, self.ty * 8)
+  end
   local visible = (self.maxVisible and math.min(self.maxVisible, #self.items))
     or #self.items
   -- Row Y: pokered's boxed menus anchor the choices to the BOTTOM interior
@@ -130,15 +137,18 @@ function Menu:draw()
   -- USE/TOSS is th = 5 for two choices (#284, matching text_boxes.asm's
   -- USE_TOSS_MENU_TEMPLATE rows 10..14), and a top anchor pushed TOSS onto
   -- the bottom border (#564, #572).
+  local function rowY(row)
+    if self.itemY then
+      return (self.ty + self.itemY + (row - 1) * self.rowStep) * 8
+    end
+    return (self.ty + self.th - 2 - (visible - row) * self.rowStep) * 8
+  end
   for row = 1, visible do
     local item = self.items[self.scroll + row]
     if not item then break end
-    Font.draw(item.label, (self.tx + 2) * 8,
-      (self.ty + self.th - 2 - (visible - row) * self.rowStep) * 8)
+    Font.draw(item.label, (self.tx + 2) * 8, rowY(row))
   end
-  local cursorRow = self.index - self.scroll
-  Font.drawCode(Theme.cursor, (self.tx + 1) * 8,
-    (self.ty + self.th - 2 - (visible - cursorRow) * self.rowStep) * 8)
+  Font.drawCode(Theme.cursor, (self.tx + 1) * 8, rowY(self.index - self.scroll))
   -- moreArrow ($EE): the same "more below" glyph OptionRows/ManagerState
   -- use, sat on the bottom border like TextBox's page-advance cursor.  It
   -- has to be the border row, not ty + th - 2: that is the last interior

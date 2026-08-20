@@ -67,6 +67,7 @@ function NamingScreen.new(game, opts)
   self.game = game
   self.title = opts.title or Strings("YOUR NAME?")
   self.presets = opts.presets
+  self.introBox = opts.introBox
   self.maxLen = opts.maxLen or 7
   self.default = opts.default
   self.onDone = opts.onDone
@@ -99,9 +100,18 @@ function NamingScreen:enter()
         end,
       })
     end
-    self.game.stack:push(Menu.new(self.game, items, {
-      tx = 4, ty = 0, tw = 12, th = #items * 2 + 2, cancelable = false,
-    }))
+    if self.introBox then
+      -- DisplayIntroNameTextBox (oak_speech2.asm:162): TextBoxBorder at
+      -- hlcoord 0,0 with b=$a c=$9, "NAME" at hlcoord 3,0, list at hlcoord 2,2
+      self.game.stack:push(Menu.new(self.game, items, {
+        tx = 0, ty = 0, tw = 11, th = #items * 2 + 4,
+        itemY = 2, title = Strings("NAME"), cancelable = false,
+      }))
+    else
+      self.game.stack:push(Menu.new(self.game, items, {
+        tx = 4, ty = 0, tw = 12, th = #items * 2 + 2, cancelable = false,
+      }))
+    end
   end
 end
 

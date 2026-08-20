@@ -59,14 +59,37 @@ function StartMenu.new(game)
     for _ in pairs(game.save.pokedex and game.save.pokedex.owned or {}) do
       owned = owned + 1
     end
-    local t = math.floor(game.save.playTime or 0)
-    local panel = Strings("PLAYER %s\nBADGES    %d\nPOKéDEX %3d\nTIME %6d:%02d",
-                          game.save.player.name or "RED", badges, owned,
-                          math.floor(t / 3600), math.floor(t / 60) % 60)
+    -- PrintSaveScreenText draws its own border at hlcoord 4,0 (b=8, c=$e) and
+    -- leaves it up under the prompt -- engine/menus/main_menu.asm:381-405
+    local panel = {
+      update = function() end,
+      draw = function()
+        local t = math.floor(game.save.playTime or 0)
+        Font.drawBox(4, 0, 16, 10)
+        love.graphics.setColor(0, 0, 0, 1)
+        Font.draw(Strings("PLAYER"), 5 * 8, 2 * 8)
+        Font.draw(game.save.player.name or "RED", 12 * 8, 2 * 8)
+        Font.draw(Strings("BADGES"), 5 * 8, 4 * 8)
+        Font.draw(("%2d"):format(badges), 17 * 8, 4 * 8)
+        Font.draw(Strings("POKéDEX"), 5 * 8, 6 * 8)
+        Font.draw(("%3d"):format(owned), 16 * 8, 6 * 8)
+        Font.draw(Strings("TIME"), 5 * 8, 8 * 8)
+        Font.draw(("%3d:%02d"):format(math.floor(t / 3600),
+                                      math.floor(t / 60) % 60), 13 * 8, 8 * 8)
+        love.graphics.setColor(1, 1, 1, 1)
+      end,
+    }
+    local function closePanel()
+      if game.stack:top() == panel then game.stack:pop() end
+    end
+    game.stack:push(panel)
     game.stack:push(TextBox.new(game,
-      panel .. Strings("\fWould you like to\nSAVE the game?"), nil, {
+      Strings("Would you like to\nSAVE the game?"), nil, {
+      -- SaveTheGame_YesOrNo pins its TWO_OPTION_MENU at hlcoord 0, 7 rather
+      -- than the shared right-hand one -- engine/menus/save.asm:186-192
+      choiceBox = { tx = 0, ty = 7, tw = 6, th = 5 },
       choice = function(yes)
-        if not yes then return end
+        if not yes then closePanel() return end
         -- SaveMenu .save (engine/menus/save.asm:164-181): "Now saving..."
         -- is a bare PlaceString held by DelayFrames 120, then GameSavedText,
         -- which ends in `done` and so never reaches TX_PROMPT_BUTTON.
@@ -78,7 +101,7 @@ function StartMenu.new(game)
           game:writeSave()
           game.stack:push(TextBox.new(game,
             Strings("%s saved\nthe game!", game.save.player.name or "RED"),
-            nil, { auto = {
+            closePanel, { auto = {
               sound = function()
                 return require("src.core.Sound").play(game.data, "Save")
               end,

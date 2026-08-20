@@ -511,9 +511,12 @@ function TitleState:openMenu()
   table.insert(items, { label = Strings("NEW GAME"), onSelect = function()
     if self.onNewGame then self.onNewGame() end
   end })
-  table.insert(items, { label = Strings("OPTION"), onSelect = function()
-    require("src.ui.Screens").push(game, "OptionsMenu")
-  end })
+  -- DisplayOptionMenu returns to .mainMenuLoop, which redraws the box
+  -- (engine/menus/main_menu.asm ln 87-90)
+  table.insert(items, { label = Strings("OPTION"), keepOpen = true,
+    onSelect = function()
+      require("src.ui.Screens").push(game, "OptionsMenu")
+    end })
   table.insert(items, { label = Strings("EXIT GAME"), onSelect = function()
     if self.onExit then
       self.onExit()
@@ -530,11 +533,28 @@ function TitleState:openMenu()
   end
   local th = #items * 2 + 2
   local menu = Menu.new(game, items, { tx = 0, ty = 0, tw = 13, th = th })
+  -- .mainMenuLoop's B branch jumps back to DisplayTitleScreen, which opens
+  -- with GBPalWhiteOut (engine/menus/main_menu.asm:69, title.asm:29)
+  menu.onCancel = function()
+    game.stack:push(require("src.render.Transition").whiteFlash(game, nil,
+      function() self.menuOpen = false end))
+  end
   -- full-width title LOGO zones would recolor this box; see sgbPalettes.
   -- Menu.new may have grown tw for longer (e.g. localized) labels, so the
   -- recolor zone follows the box's real width instead of the vanilla 13.
   menu.titleUiBox = { 0, 0, menu.tw - 1, th - 1 }
   game.stack:push(menu)
+end
+
+-- .finishedWaiting: GBPalWhiteOutWithDelay3 then ClearScreen before MainMenu,
+-- which clears again itself (engine/movie/title.asm ln 243, main_menu.asm ln 26)
+function TitleState:toMenu()
+  local game = self.game
+  game.stack:push(require("src.render.Transition").whiteFlash(game, nil,
+    function()
+      self.menuOpen = true
+      self:openMenu()
+    end))
 end
 
 -- ..(engine/movie/title.asm ln 271)
@@ -602,7 +622,7 @@ function TitleState:update(dt)
       if not Sound.playPikaCry(self.game.data, 11) then
         Sound.playCry(self.game.data, "PIKACHU")
       end
-      self:openMenu()
+      self:toMenu()
     end
     return
   end
@@ -616,20 +636,23 @@ function TitleState:update(dt)
     require("src.core.Sound").playCry(self.game.data,
       self.yellowLayout and "PIKACHU"
       or self.cycleSpecies[self.cycleIndex])
-    self:openMenu()
+    self:toMenu()
   end
 end
 
 -- ..(engine/movie/title.asm ln 28)
 function TitleState:draw()
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.rectangle("fill", 0, 0, 160, 144)
+  -- MainMenu's own ClearScreen wipes the logo, mon and sprites before the
+  -- CONTINUE / NEW GAME border is drawn (engine/menus/main_menu.asm ln 26)
+  if self.menuOpen then return end
   local PaletteFX = require("src.render.PaletteFX")
   local playerImage = self.player
   if playerImage and PaletteFX.usesSpriteObp() then
     playerImage = require("src.render.SpriteRenderer").obpImage(
       self.playerPath, PaletteFX.ogObj())
   end
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.rectangle("fill", 0, 0, 160, 144)
   local scrollY = -(self.scy or 0)
   -- ..(engine/movie/title.asm ln 28)
   local preRibbon = not self.yellowLayout

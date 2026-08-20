@@ -2969,6 +2969,25 @@ function OverworldState:openPC(onDone)
     })
   end
 
+  -- PKMN LEAGUE sits between PROF.OAK's PC and LOG OFF once wNumHoFTeams
+  -- is nonzero (engine/pokemon/bills_pc.asm:5, :49)
+  if #(Game.save.hallOfFame or {}) > 0 then
+    table.insert(items, {
+      label = Strings("<PK><MN>LEAGUE"),
+      keepOpen = true,
+      onSelect = function()
+        -- pc.asm PKMNLeague plays SFX_ENTER_PC, then PKMNLeaguePC prints
+        -- AccessedHoFPCText (engine/menus/pc.asm:67, league_pc.asm:2)
+        require("src.core.Sound").play(Game.data, "Enter_PC")
+        Game.stack:push(TextBox.new(Game,
+          romText(Game.data, "_AccessedHoFPCText",
+            "Accessed POKéMON\nLEAGUE's site.\fAccessed the HALL\nOF FAME List."),
+          function() Screens.push(Game, "LeaguePC") end))
+        done()
+      end,
+    })
+  end
+
   local hooked = Runtime.call("ui.pc.items", sameItems, Game, items)
   if type(hooked) == "table" then
     items = hooked
@@ -3366,7 +3385,8 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
         -- checkVictoryRewards pushes the badge/prize box and starts the map's
         -- onVictory script UNDER whatever runs next, so the player still sees
         -- EndBattle (now inside the battle), then the reward, then AfterBattle
-        self:checkVictoryRewards(d.trainerClass, d.trainerParty)
+        self:checkVictoryRewards(d.trainerClass, d.trainerParty,
+                                 endBattleText ~= nil)
         self:afterBattle(result, battle)
         if onDone then onDone() end
       else
@@ -3477,7 +3497,10 @@ end
 -- SetEvent / SetEventRange do after the leader victory.
 -- `hide` is { { mapId, objName }, ... } -- HideObject on those toggles
 -- (e.g. Brock victory clears PEWTERCITY_YOUNGSTER / ROUTE22_RIVAL1).
-function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
+-- `shownOnBattleScreen`: `dialogue` already rode the battle screen as the
+-- armed end-battle line (scripts/CeruleanGym.asm:113)
+function OverworldState:checkVictoryRewards(trainerClass, partyIndex,
+                                            shownOnBattleScreen)
   local victories = require("data.scripts.victories")
   local reward = victories[trainerClass .. "#" .. tostring(partyIndex or 1)]
   if not reward then return self:runVictoryHook() end
@@ -3510,7 +3533,9 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex)
   end
   local chain = rewardChain()
   if reward.dialogue then
-    chain.add(reward.dialogue, reward.badgeSound)
+    if not shownOnBattleScreen then
+      chain.add(reward.dialogue, reward.badgeSound)
+    end
     if reward.item then
       chain.add(reward.tmPre)
       if tmGiven then
@@ -4423,7 +4448,8 @@ function OverworldState:restoreBattleContinuation(battle, origin)
     if result == "win" then
       game.save.defeatedTrainers[origin.npcId] = true
       if origin.event then game.save.flags[origin.event] = true end
-      self:checkVictoryRewards(battle.oppClass, battle.partyIndex)
+      self:checkVictoryRewards(battle.oppClass, battle.partyIndex,
+                               battle.endBattleText ~= nil)
     end
     self:afterBattle(result, battle)
     self.engaging = false

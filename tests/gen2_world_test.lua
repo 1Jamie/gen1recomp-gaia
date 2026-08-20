@@ -298,15 +298,21 @@ landGame.input:press("a")
 landPack:update(0)
 check(landPack.message == nil, "a button clears the message")
 
--- An item World claims nothing for still falls through to the PACK's own
--- onChoose (TM teaching).
+-- CoinCaseEffect (engine/items/item_effects.asm:2243) is a MenuTextboxWaitButton
+-- over _CoinCaseCountText: the PACK stays open and nothing reaches onChoose.
+landGame.save.player.coins = 250
 landPack.index = 3
 landGame.input:press("a")
 landPack:update(0)
 landGame.input:press("a")
 landPack:update(0)
-eq(chosen, "COIN_CASE", "an unhandled item reaches onChoose untouched")
+check(landPack.message ~= nil, "the COIN CASE prints inside the PACK")
+eq(landPack.message[1], "Coins:", "_CoinCaseCountText's first row")
+eq(landPack.message[2], "250", "and the count on the second")
+eq(chosen, nil, "the COIN CASE never reaches onChoose")
 eq(landGame.stack.cleared, 0, "and does not quit the PACK either")
+landGame.input:press("a")
+landPack:update(0)
 
 -- Facing water: the roll lands on $2 .FishGotSomething, the PACK quits
 -- (PACKSTATE_QUITRUNSCRIPT) and Script_FishCastRod's cast owns the world.
@@ -354,8 +360,10 @@ eq(busyWorld:useRod("OLD_ROD"), "nowhere", "no fishing from inside a battle")
 busyWorld.battleActive = nil
 busyWorld.vm = { running = function() return true end, update = function() end }
 eq(busyWorld:useRod("OLD_ROD"), "nowhere", "no fishing while a script runs")
-check(busyWorld:useFieldItem("COIN_CASE") == nil,
+check(busyWorld:useFieldItem("POTION") == nil,
   "useFieldItem passes an unhandled item back to the PACK")
+eq(busyWorld:useFieldItem("COIN_CASE"), "coin_case",
+  "the COIN CASE is ITEMMENU_CURRENT and World claims it")
 
 -- ---- A2. REPEL / SUPER REPEL / MAX REPEL ----------------------------------
 -- UseRepel (engine/items/item_effects.asm): the step count is the only thing

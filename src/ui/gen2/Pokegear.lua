@@ -2280,7 +2280,9 @@ function Pokegear:drawPanel()
     self:drawClock()
   end
   -- Last: the arrow is an OBJ and composites over whatever the card drew.
-  self:drawModeArrow()
+  -- _FlyMap has no card strip and never animates it
+  -- (engine/pokegear/pokegear.asm:1999).
+  if not self.fly then self:drawModeArrow() end
   G.setColor(1, 1, 1, 1)
 end
 

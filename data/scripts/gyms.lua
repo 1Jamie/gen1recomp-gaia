@@ -38,6 +38,22 @@ local function retryTmGive(game, ow, victoryKey, done)
   return true
 end
 
+-- The leader's badge line, armed for the battle screen the way
+-- scripts/PewterGym.asm:117 / CeruleanGym.asm:111 SaveEndBattleTextPointers do
+local function badgeEndBattleText(game, victoryKey)
+  local reward = victoryKey and require("data.scripts.victories")[victoryKey]
+  if not (reward and reward.dialogue) then return nil end
+  local text = game.data.text or {}
+  local pages = {}
+  for _, label in ipairs(reward.dialogue) do
+    if text[label] and text[label] ~= "" then
+      pages[#pages + 1] = text[label]
+    end
+  end
+  if #pages == 0 then return nil end
+  return table.concat(pages, "\f")
+end
+
 -- scripts/PewterGym.asm PewterGymBrockText (text_asm): CheckEvent
 -- EVENT_BEAT_BROCK branches his dialogue.  Before the badge he prints
 -- _PewterGymBrockPreBattleText and engages the leader battle
@@ -58,7 +74,7 @@ M.PEWTER_GYM.talk = {
         game.data.text._PewterGymBrockPostBattleAdviceText
         or "Go to the GYM in\nCERULEAN and test\nyour abilities!", done))
     else
-      ow:engageTrainer(npc, done)
+      ow:engageTrainer(npc, done, badgeEndBattleText(game, "OPP_BROCK#1"))
     end
   end,
 }
@@ -91,7 +107,7 @@ local function leaderTalk(beatFlag, adviceLabel, fallback, afterAdvice, victoryK
       game.stack:push(TextBox.new(game,
         game.data.text[adviceLabel] or fallback, finish))
     else
-      ow:engageTrainer(npc, done)
+      ow:engageTrainer(npc, done, badgeEndBattleText(game, victoryKey))
     end
   end
 end
