@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.11",
+          "date": "2026-08-20",
+          "size": 13735190,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.11/gen1recomp++-0.2.11-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #393 silph co. npc missing some dialogue\n- #1600 allow my uncle's neighbor to sit at the big kids table\n- #1603 pocket taco - type option \"screen position\"\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @dburton95\n- @mleo2003\n- @thibautbus"
+        },
+        {
           "version": "0.2.10",
           "date": "2026-08-19",
           "size": 13662645,
