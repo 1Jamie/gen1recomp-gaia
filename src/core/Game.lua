@@ -1260,6 +1260,7 @@ function Game:applyOptions(opts)
   -- after VideoMode: a faithful-resolution lock is an exact window size, so
   -- it has to be the last word on the window (it drops fullscreen to hold)
   require("src.core.FaithfulRes").applyOptions(opts)
+  require("src.core.ScreenPosition").applyOptions(opts)
   -- normalizes a nil/garbage cap to the 60 default, so old saves with no
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)

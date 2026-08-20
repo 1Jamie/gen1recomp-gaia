@@ -1660,8 +1660,9 @@ function Game2:drawScene(w, h)
       -- row to opt into the step-down half, so CENTERED is the whole rule
       -- here.
       local s = self.world:fitScale()
+      local ox, oy = Chrome.fitOrigin(w, h, s)
       G.push()
-      G.translate(math.floor((w - 160 * s) / 2), math.floor((h - 144 * s) / 2))
+      G.translate(ox, oy)
       G.scale(s, s)
       self.stack:draw()
       G.pop()
@@ -1982,6 +1983,7 @@ function Game2:applyOptions()
     haptics = options.haptics,
   })
   require("src.core.VideoMode").applyOptions(options)
+  require("src.core.ScreenPosition").applyOptions(options)
   require("src.core.FrameCap").applyOptions(options)
   require("src.world.gen2.BorderFill").applyOptions(options)
   local GBCFX = require("src.render.GBCFX")

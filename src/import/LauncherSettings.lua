@@ -332,6 +332,17 @@ local function coreRows(opts, hooks)
       end)
   end
 
+  local okSp, ScreenPos = pcall(require, "src.core.ScreenPosition")
+  if okSp then
+    add(Strings("SCREEN POS"),
+      function() return Strings(ScreenPos.label(opts.screenPos)) end,
+      function(dir)
+        opts.screenPos = ScreenPos.cycle(opts.screenPos, dir)
+        ScreenPos.setMode(opts.screenPos)
+        return true
+      end)
+  end
+
   local okCap, FrameCap = pcall(require, "src.core.FrameCap")
   if okCap then
     add(Strings("MAX FPS"),

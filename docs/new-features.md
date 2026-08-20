@@ -11,6 +11,7 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Persistent custom options** stored separately from game saves
 * **Optional widescreen battle layout**
 * **Mobile touch controls** with editable layouts, vibration, and orientation settings
+* **Screen position setting** (center, upper, top) shared across all games, for clamp-on controllers that cover the lower screen
 * **Touch skins** in RetroArch overlay format and Delta `.deltaskin` (including PDF-wrapped bezel art), with per-button press states and Super Game Boy borders
 * **Pokédex diploma and printer image exports**
 

@@ -285,6 +285,7 @@ function SaveData.defaultOptions()
     -- lock the window to an exact 160x144 multiple, 1..4 (0 = OFF); see
     -- src/core/FaithfulRes.lua.  Ignored on mobile.
     faithfulRes = 0,
+    screenPos = "center",
     -- hard render frame-rate cap; render-only pacing (issue #88, FrameCap.lua)
     fpsCap = 60,
     -- graphics performance tier: auto | high | balanced | low.  "auto"

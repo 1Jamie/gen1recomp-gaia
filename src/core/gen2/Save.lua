@@ -288,6 +288,7 @@ Save.DEFAULT_OPTIONS = {
   musicFilter = 0,          -- low-pass steps, 0 = off
   haptics = "light",
   touchControls = { enabled = true },
+  screenPos = "center",
 }
 
 function Save.defaultOptions()
@@ -308,7 +309,7 @@ end
 Save.OPTIONS_KEY = "gold"
 
 local SHARED_KEYS = {
-  touchControls = true, haptics = true,
+  touchControls = true, haptics = true, screenPos = true,
   mods = true, modsByVersion = true, modsGen2 = true,
   modOptions = true, modProfiles = true, modProfilesSeeded = true,
   activeProfile = true,

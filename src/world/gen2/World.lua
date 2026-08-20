@@ -10068,6 +10068,15 @@ function World:draw()
   if self.shake then
     self.camera.y = self.camera.y + (self.shake.phase or 0)
   end
+  local ScreenPosition = require("src.core.ScreenPosition")
+  local posLift = 0
+  if not ScreenPosition.skinActive(w, h) then
+    posLift = ScreenPosition.lift(h, 144 * self:fitScale(),
+      ScreenPosition.safeTop())
+  end
+  if posLift > 0 then
+    self.camera.y = self.camera.y + posLift / s
+  end
 
   local override = pipelineId and self:drawPipeline(pipelineId, w, h, s) or nil
 
@@ -10093,7 +10102,7 @@ function World:draw()
     local pad = POKEPIC.pad[math.floor(pw / 8)] or POKEPIC.pad[7]
     G.push()
     G.translate(math.floor((w - 160 * sPic) / 2),
-      math.floor((h - 144 * sPic) / 2))
+      math.floor((h - 144 * sPic) / 2) - posLift)
     G.scale(sPic, sPic)
     G.setColor(1, 1, 1, 1)
     local function body()
