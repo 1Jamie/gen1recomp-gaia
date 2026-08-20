@@ -398,11 +398,15 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        secondaryHostResumed = false;
         if (vibrator != null) {
             Log.d("GameActivity", "Cancelling vibration");
             vibrator.cancel();
         }
         unregisterSecondaryDisplayListener();
+        teardownSecondaryDisplay();
+        secondaryEnabled = false;
+        synchronized (secondaryFrameLock) { secondaryFrame = null; }
         unregisterAudioDeviceCallback();
         abandonAudioFocus();
         onHostDestroy();
@@ -411,6 +415,7 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onPause() {
+        secondaryHostResumed = false;
         if (vibrator != null) {
             Log.d("GameActivity", "Cancelling vibration");
             vibrator.cancel();
@@ -426,6 +431,7 @@ public class GameActivity extends SDLActivity {
     @Override
     public void onResume() {
         super.onResume();
+        secondaryHostResumed = true;
         onHostResume();
         requestGameAudioFocus();
         registerAudioDeviceCallback();
@@ -1933,6 +1939,7 @@ public class GameActivity extends SDLActivity {
     private static volatile int secondaryActivityTarget = Display.INVALID_DISPLAY;
     private static volatile long secondaryRetryAfter;
     private static volatile boolean secondaryEnabled = false;
+    private static volatile boolean secondaryHostResumed = false;
     private static volatile int secondaryTarget = SECONDARY_TARGET_AUTO;
     private static volatile int dualScreenDisplayMode = -1;
     private static volatile byte[] secondaryFrame;
@@ -1963,7 +1970,7 @@ public class GameActivity extends SDLActivity {
         if (self == null) return;
         self.runOnUiThread(new Runnable() {
             @Override public void run() {
-                if (on) {
+                if (on && secondaryHostResumed) {
                     self.refreshDualScreenDisplayMode();
                     self.registerSecondaryDisplayListener();
                     rebindSecondaryDisplay();
@@ -2035,9 +2042,11 @@ public class GameActivity extends SDLActivity {
 
     private static void rebindSecondaryDisplay() {
         GameActivity self = (GameActivity) mSingleton;
-        if (self == null || !secondaryEnabled || secondaryOutputIsPreferred(self)) return;
+        if (self == null || !secondaryHostResumed || !secondaryEnabled
+                || secondaryOutputIsPreferred(self)) return;
         self.runOnUiThread(() -> {
-            if (!secondaryEnabled || secondaryOutputIsPreferred(self)) return;
+            if (!secondaryHostResumed || !secondaryEnabled
+                    || secondaryOutputIsPreferred(self)) return;
             teardownSecondaryDisplay();
             setupSecondaryDisplay();
         });
@@ -2045,7 +2054,8 @@ public class GameActivity extends SDLActivity {
 
     private static void setupSecondaryDisplay() {
         GameActivity self = (GameActivity) mSingleton;
-        if (self == null || !secondaryEnabled || secondaryPresentation != null
+        if (self == null || !secondaryHostResumed || !secondaryEnabled
+                || secondaryPresentation != null
                 || secondaryActivity != null || secondaryActivityPending
                 || android.os.SystemClock.elapsedRealtime() < secondaryRetryAfter) return;
         try {
