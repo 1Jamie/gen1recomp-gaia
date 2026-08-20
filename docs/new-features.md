@@ -16,5 +16,6 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 
 ## Gen 2 Specifics
 
+* **Pokémon Silver** as an importable, launcher-selectable version alongside Gold
 * **Mod manager** with Gen 1 mod adapters, per-game targeting, and `modkit gen2check`
 * **Followers** for mods, plus Gen 2-only registries and hooks

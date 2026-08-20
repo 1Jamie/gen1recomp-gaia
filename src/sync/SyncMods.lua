@@ -5,7 +5,7 @@ SyncMods.REV = 1
 local function versions()
   local ok, GameVersion = pcall(require, "src.core.GameVersion")
   if ok and GameVersion and GameVersion.ORDER then return GameVersion.ORDER end
-  return { "red", "blue", "yellow", "gold" }
+  return { "red", "blue", "yellow", "gold", "silver" }
 end
 
 local function defaultDeps()

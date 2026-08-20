@@ -147,8 +147,8 @@ function GoldSilverIntro.new(game, opts)
     -- the movie's full 2335 frames over an empty screen and reads exactly
     -- like "the intro does not work".  Say so instead: the fix is a
     -- re-import, and nothing else in the boot chain will mention it.
-    Logger.warn("gold intro: no intro.lua in the cache -- re-import Gold "
-      .. "or the movie plays blank")
+    Logger.warn("gen2 intro: no intro.lua in the cache -- re-import "
+      .. "this version or the movie plays blank")
   end
   self.images = {}
   self.sheets = {}

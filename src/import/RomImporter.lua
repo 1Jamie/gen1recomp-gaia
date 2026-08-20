@@ -142,6 +142,8 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/audio/programs.bin",
   },
 }
+-- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
+VERSION_REQUIRED_FILES_OVERRIDE.silver = VERSION_REQUIRED_FILES_OVERRIDE.gold
 
 -- "Split-screen ROM selector" first-run palette (matches the FirstRun mockup):
 -- a dark neon arcade panel, one column per game.
@@ -335,7 +337,7 @@ function RomImporter.syncAndroidShortcuts(activeVersion)
     return false
   end
 
-  local allVersions = { "red", "blue", "yellow", "gold" }
+  local allVersions = GameVersion.ORDER
   local ready = {}
   local seen = {}
 
@@ -1360,11 +1362,10 @@ function RomImporter.new(onComplete, opts)
     saveNotice = {},
     -- MODS panel state (pass 3): mods is the cached LauncherMods.list() array
     -- (refreshed lazily on first draw and after any toggle/install/delete);
-    -- modScroll is the current paged list's inner scroll offset (px, clamped
-    -- in draw); modNotice is the last install/delete result { ok, text }.
+    -- modNotice is the last install/delete result { ok, text }.
     -- requiredImportNotice stays inside the imported-files modal so validation
     -- failures are visible beside the file picker that caused them.
-    mods = nil, modScroll = 0, modNotice = nil, requiredImportNotice = nil,
+    mods = nil, modNotice = nil, requiredImportNotice = nil,
     -- Which game the MODS panel is answering for (a GameVersion id, nil =
     -- every game).  Rows resolve their enable-state and their "runs here"
     -- verdict against it (src/mods/ModTargets.lua).
@@ -1420,7 +1421,8 @@ function RomImporter.new(onComplete, opts)
     self.returning[version] =
       (not ready) and marker ~= nil and marker ~= markerFor(version)
     self.romName[version] = "pokemon_" .. info.id
-      .. ((info.id == "yellow" or info.id == "gold") and ".gbc" or ".gb")
+      .. ((info.id == "yellow" or GameVersion.generation(version) == 2)
+        and ".gbc" or ".gb")
   end
   RomImporter.syncAndroidShortcuts()
   self:_applyLastVersionTab()
@@ -1685,7 +1687,7 @@ function RomImporter:startData(data, displayName)
   end
   if not isAcceptedRomSize(#data) then
     self:setError(("Expected a 1 MiB Game Boy ROM (Red/Blue/Yellow) or a "
-      .. "2 MiB Game Boy Color ROM (Gold); this file is %.2f MiB.")
+      .. "2 MiB Game Boy Color ROM (Gold/Silver); this file is %.2f MiB.")
       :format(#data / 1024 / 1024))
     return
   end
@@ -1693,7 +1695,8 @@ function RomImporter:startData(data, displayName)
   local version = GameVersion.forSha1(actualHash)
   if not version then
     self:setError(("Unsupported ROM (SHA-1 %s). This needs a clean US Pokemon "
-      .. "Red, Blue, Yellow, or Gold dump; patched, trimmed or \"fixed\" dumps "
+      .. "Red, Blue, Yellow, Gold, or Silver dump; patched, trimmed or "
+      .. "\"fixed\" dumps "
       .. "(tagged [b] or [BF]) never verify."):format(actualHash))
     return
   end
@@ -1770,7 +1773,7 @@ function RomImporter:_startExtractCoroutine(version, info, prefix, displayName)
     local CacheFs = require("src.import.CacheFs")
     CacheFs.prefix = prefix
     local manifest = require("src.import.RomManifest").decode(version)
-    local RomExtractor = version == "gold"
+    local RomExtractor = GameVersion.generation(version) == 2
       and require("src.import.RomExtractorGen2")
       or require("src.import.RomExtractor")
     local extractor = RomExtractor.new(self.romData, manifest,
@@ -2755,7 +2758,8 @@ function RomImporter:resumeAfterOverlay()
 end
 
 function RomImporter:_cycleTab(delta)
-  local order = { "red", "blue", "yellow", "gold", "mods", "find", "skins" }
+  local order = { "red", "blue", "yellow", "gold", "silver",
+    "mods", "find", "skins" }
   local idx = 1
   for i, id in ipairs(order) do
     if id == self.tab then idx = i; break end
@@ -3121,7 +3125,6 @@ function RomImporter:_switchTab(id)
   self.tab = id
   self._findSearchFocus = false
   self._skinUrlFocus = false
-  self._modScrollMax, self._modListRect = 0, nil
   self:_disarmTextInput()
   -- the skins list is cheap and can change behind the launcher's back
   -- (an export, a hand-dropped folder), so re-read it on every visit

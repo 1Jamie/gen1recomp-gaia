@@ -1569,11 +1569,11 @@ function World:readVar(varId)
 end
 
 -- Script_checkver: 0 for Gold, 1 for Silver (constants/misc_constants.asm
--- GS_VERSION).  Only the Goldenrod prize counters and a handful of gift mons
--- read it, and the port has no Silver cache yet, so an unset version is Gold.
+-- GS_VERSION).
 function World:gsVersion()
+  local GameVersion = require("src.core.GameVersion")
   local save = self.game and self.game.save
-  local version = (save and save.version) or "gold"
+  local version = (save and save.version) or GameVersion.get()
   return version == "silver" and 1 or 0
 end
 
@@ -6633,8 +6633,9 @@ function World:nameRival(onDone)
       if save then
         save.rival = save.rival or {}
         -- NameRival ends on `ld hl, wRivalName / ld de, .DefaultName / call
-        -- InitName`, and .DefaultName is "SILVER@" on Gold
-        -- (engine/events/specials.asm:80-91).  The default has to be written
+        -- InitName`, and .DefaultName is "SILVER@" on Gold and "GOLD@" on
+        -- Silver (engine/events/specials.asm:80-94).  The default has to be
+        -- written
         -- HERE rather than ridden in from the seed: wRivalName starts as
         -- InitializeNPCNames' "???" (src/core/gen2/Save.lua), which is what the
         -- pre-naming Cherrygrove battle prints.
@@ -6646,7 +6647,7 @@ function World:nameRival(onDone)
         if name and name:gsub(" ", "") ~= "" then
           save.rival.name = name
         else
-          save.rival.name = "SILVER"
+          save.rival.name = self:gsVersion() == 1 and "GOLD" or "SILVER"
         end
       end
       if onDone then onDone(name) end
@@ -10026,8 +10027,11 @@ function World:draw()
   G.clear(0.07, 0.05, 0.02, 1)
 
   if not self.mapImage or not self.player then
-    G.setColor(0.85, 0.57, 0.13, 1)
-    G.printf("POKEMON GOLD", 0, math.floor(h * 0.38), w, "center")
+    local silver = self:gsVersion() == 1
+    if silver then G.setColor(0.74, 0.78, 0.83, 1)
+    else G.setColor(0.85, 0.57, 0.13, 1) end
+    G.printf(silver and "POKEMON SILVER" or "POKEMON GOLD",
+      0, math.floor(h * 0.38), w, "center")
     G.setColor(0.92, 0.90, 0.82, 1)
     G.printf(self.status or "No map.",
       0, math.floor(h * 0.48), w, "center")
@@ -10140,8 +10144,10 @@ function World:draw()
   -- The survey overlay is a developer aid, not part of the game: POKEPORT_DEV
   -- (or the F3 toggle) shows it, a normal boot does not.
   if self.showDebugHud then
-    G.setColor(0.85, 0.57, 0.13, 1)
-    G.printf("POKEMON GOLD", 0, 10, w, "center")
+    local silver = self:gsVersion() == 1
+    if silver then G.setColor(0.74, 0.78, 0.83, 1)
+    else G.setColor(0.85, 0.57, 0.13, 1) end
+    G.printf(silver and "POKEMON SILVER" or "POKEMON GOLD", 0, 10, w, "center")
     G.setColor(0.92, 0.90, 0.82, 1)
     local label = string.format("%s  (%d,%d)  %s  ·  %s  ·  zoom %s",
       self.map.id, p.cellX, p.cellY, p.facing,

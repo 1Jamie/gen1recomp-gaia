@@ -3,7 +3,7 @@
 -- everything under src/*/gen2 reaches shared services through here.  Gen 1
 -- Game:load cannot consume a Gen 2 cache -- different generated tables, save
 -- shape and screen registry -- so main.lua's bootGame picks this owner when
--- GameVersion.isGold(), and the two never branch into each other.
+-- GameVersion.generation() == 2, and the two never branch into each other.
 --
 -- Boot: copyright → GameFreak Presents → GS intro stub → title
 -- (tilemap + Ho-Oh flap / clouds / trails) → Oak speech (Marill + shrink)
@@ -1702,7 +1702,7 @@ function Game2:hotkey(key)
     self:writeSave()
     return true
   elseif key == "f2" then
-    local loaded = Save.load("gold")
+    local loaded = Save.load()
     if loaded then self:continueGame(loaded) end
     return true
   elseif key == "1" then
