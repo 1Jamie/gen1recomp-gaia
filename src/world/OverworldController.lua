@@ -846,15 +846,20 @@ function OverworldState:useSoftboiledFieldMove(user, target)
   if not user or not user.stats or not target or not target.stats
       or target == user or target.hp <= 0
       or target.hp >= target.stats.hp or user.hp <= heal then
-    Game.stack:push(TextBox.new(Game, Strings("It won't have\nany effect.")))
+    Game.stack:push(TextBox.new(Game,
+      romText(Game.data, "_ItemUseNoEffectText", "It won't have\nany effect.")))
     return false
   end
+  local before = target.hp
   user.hp = user.hp - heal
   target.hp = math.min(target.stats.hp, target.hp + heal)
   require("src.core.Sound").play(Game.data, "Heal_HP")
   local def = Game.data.pokemon[target.species]
+  -- _PotionText's second slot is the recovered amount, same as
+  -- ItemEffects.lua's potion message -- the engine fallback never shows it
   Game.stack:push(TextBox.new(Game,
-    Strings("%s's HP\nwas restored!", target.nickname or def.name)))
+    romText(Game.data, "_PotionText", "%s's HP\nwas restored!",
+      target.nickname or def.name, target.hp - before)))
   return true
 end
 
@@ -2126,7 +2131,8 @@ function OverworldState:tryHiddenObject(fx, fy)
         -- leaves the spot unfound; _CantCarryMoreText is the Toss line (#872)
         local name = Game.data.items[h.item] and Game.data.items[h.item].name or h.item
         Game.stack:push(TextBox.new(Game,
-          Strings("%s found\n%s!", save.player.name, name) .. "\f"
+          romText(Game.data, "_FoundHiddenItemText", "%s found\n%s!",
+            save.player.name, name) .. "\f"
           .. romText(Game.data, "_HiddenItemBagFullText",
                      "But, {PLAYER} has\nno more room for\vother items!")))
         return true
@@ -2137,7 +2143,8 @@ function OverworldState:tryHiddenObject(fx, fy)
       -- text_asm tail runs it as PlaySoundWaitForCurrent +
       -- WaitForSoundToFinish once the box has printed (hidden_items.asm)
       Game.stack:push(TextBox.new(Game,
-        Strings("%s found\n%s!", save.player.name, name),
+        romText(Game.data, "_FoundHiddenItemText", "%s found\n%s!",
+          save.player.name, name),
         nil, TextBox.soundOpts(Game, "Get_Item2")))
       return true
     end
@@ -2795,8 +2802,8 @@ function OverworldState:talkTo(npc)
         "No more room for\nitems!")
       if GameVersion.isYellow() then
         local name = Game.data.items[d.item] and Game.data.items[d.item].name or d.item
-        noRoom = Strings("%s found\n%s!", Game.save.player.name, name)
-                 .. "\f" .. noRoom
+        noRoom = romText(Game.data, "_FoundItemText", "%s found\n%s!",
+                   Game.save.player.name, name) .. "\f" .. noRoom
       end
       Game.stack:push(TextBox.new(Game, noRoom))
       return
@@ -2813,7 +2820,8 @@ function OverworldState:talkTo(npc)
     local ddef = Game.data.items[d.item]
     -- FoundItemText: text_far, sound_get_item_1, text_end (pick_up_item.asm)
     Game.stack:push(TextBox.new(Game,
-      Strings("%s found\n%s!", Game.save.player.name, name), nil,
+      romText(Game.data, "_FoundItemText", "%s found\n%s!",
+        Game.save.player.name, name), nil,
       TextBox.soundOpts(Game,
         (ddef and ddef.keyItem) and "Get_Key_Item" or "Get_Item1")))
     return
@@ -3745,7 +3753,7 @@ function OverworldState:applyFieldPoison()
   local queue = {}
   for _, mon in ipairs(fainted) do
     local name = mon.nickname or Game.data.pokemon[mon.species].name
-    table.insert(queue, Strings("%s\nfainted!", name))
+    table.insert(queue, romText(Game.data, "_PokemonFaintedText", "%s\nfainted!", name))
   end
   local alive = false
   for _, mon in ipairs(save.party) do
