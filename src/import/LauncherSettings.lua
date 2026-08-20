@@ -550,9 +550,10 @@ end
 -- opened on the Gold tab used to offer a dozen controls that did nothing
 -- and hide the seven that the cart itself has.
 --
--- The block lives in options.lua under `gold`, which is exactly where
--- src/core/gen2/Save.lua loadOptions reads it, so an edit here is live on the
--- next boot the same way a Gen 1 edit is.  Ladders mirror
+-- The block lives in options.lua under `gold` (the historical key; Gold and
+-- Silver share it the way the Gen 1 games share the flat namespace), which is
+-- exactly where src/core/gen2/Save.lua loadOptions reads it, so an edit here
+-- is live on the next boot the same way a Gen 1 edit is.  Ladders mirror
 -- src/ui/gen2/OptionsMenu.lua's ROWS; when editing one, keep the two in sync.
 local GEN2_KEY = "gold"
 
@@ -699,7 +700,9 @@ end
 function LauncherSettings.open(hooks, version)
   local opts = SaveData.loadOptions()
   local sections
-  if version == "gold" then
+  local GameVersion = require("src.core.GameVersion")
+  if GameVersion.VERSIONS[version]
+      and GameVersion.generation(version) == 2 then
     local block = opts[GEN2_KEY]
     if type(block) ~= "table" then
       block = {}

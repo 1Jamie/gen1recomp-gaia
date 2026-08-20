@@ -81,7 +81,7 @@ Every mod contains a root `manifest.json` defining its metadata, supported games
 | `entry` | `string` | Entry Lua file path relative to mod root (usually `"main.lua"`). |
 | `profile` | `string` | Mod profile: `"content"`, `"overhaul"`, or `"total_conversion"`. |
 | `category` | `string` | Categorization chip (e.g. `"GAMEPLAY"`, `"CONTENT"`, `"UI"`, `"AUDIO"`). |
-| `games` | `array` | Supported game versions: `["gen1"]`, `["gen2"]`, `["red"]`, `["blue"]`, `["yellow"]`, `["gold"]`, or `["all"]`. |
+| `games` | `array` | Supported game versions: `["gen1"]`, `["gen2"]`, `["red"]`, `["blue"]`, `["yellow"]`, `["gold"]`, `["silver"]`, or `["all"]`. |
 | `game_version`| `string` | Semver range of required engine version (e.g. `">=0.0.0-dev <2.0.0"`). |
 | `priority` | `integer` | Load priority order (lower numbers load earlier; dependencies always precede dependents regardless of priority). |
 | `dependencies` | `array` | Hard required dependencies. A mod will not load if a required dependency is missing or disabled for the active game. |

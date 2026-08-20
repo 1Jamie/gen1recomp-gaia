@@ -30,6 +30,8 @@ YELLOW_MANIFEST_RELATIVE="tools/rom_manifest_yellow.json"
 YELLOW_MANIFEST_URL="${YELLOW_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_yellow.json}"
 GOLD_MANIFEST_RELATIVE="tools/rom_manifest_gold.json"
 GOLD_MANIFEST_URL="${GOLD_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_gold.json}"
+SILVER_MANIFEST_RELATIVE="tools/rom_manifest_silver.json"
+SILVER_MANIFEST_URL="${SILVER_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_silver.json}"
 
 VERSION=""
 PACKAGE_ONLY=false
@@ -177,6 +179,54 @@ ensure_gold_manifest() {
   fail "Gold import manifest is unavailable. Git recovery failed and could not download $GOLD_MANIFEST_URL"
 }
 
+silver_manifest_is_valid() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json, pathlib, sys
+
+try:
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if manifest.get("romSha1") ==
+                 "49b163f7e57702bc939d642a18f591de55d92dae" else 1)
+PY
+}
+
+ensure_silver_manifest() {
+  local manifest="$ROOT/$SILVER_MANIFEST_RELATIVE"
+  local staged
+  staged="$(mktemp)"
+
+  if silver_manifest_is_valid "$manifest"; then
+    rm -f "$staged"
+    return
+  fi
+
+  warn "Silver import manifest is missing or invalid; recovering it before packaging"
+  if git -C "$ROOT" show "HEAD:$SILVER_MANIFEST_RELATIVE" > "$staged" 2>/dev/null \
+      && silver_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "restored Silver import manifest from this checkout's Git data"
+    return
+  fi
+
+  if command -v curl >/dev/null 2>&1 \
+      && curl --fail --location --retry 2 --connect-timeout 15 \
+          --output "$staged" "$SILVER_MANIFEST_URL" \
+      && silver_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "downloaded Silver import manifest from the project repository"
+    return
+  fi
+
+  rm -f "$staged"
+  fail "Silver import manifest is unavailable. Git recovery failed and could not download $SILVER_MANIFEST_URL"
+}
+
 # --------------------------------------------------------------- branding
 # love-android 11.5+ reads app id / name / orientation from gradle.properties.
 # Manifest still gets permission trims. Re-applied every build so refreshing
@@ -242,6 +292,7 @@ pack_game_love() {
   say "packing game.love for love-android embed flavor"
   ensure_yellow_manifest
   ensure_gold_manifest
+  ensure_silver_manifest
   mkdir -p "$EMBED_ASSETS"
   rm -f "$LOVE_FILE"
   # tools/save-editor ships with the app: the launcher's Edit button on a save
@@ -256,6 +307,7 @@ pack_game_love() {
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
     tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
+    tools/rom_manifest_silver.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # List once and match against the captured text: piping unzip straight into
@@ -277,6 +329,8 @@ pack_game_love() {
     || fail "game.love is missing the Yellow ROM import manifest"
   grep -qx 'tools/rom_manifest_gold.json' <<< "$archive_entries" \
     || fail "game.love is missing the Gold ROM import manifest"
+  grep -qx 'tools/rom_manifest_silver.json' <<< "$archive_entries" \
+    || fail "game.love is missing the Silver ROM import manifest"
   # This gate exists because the launcher's UI toolkit once lived outside
   # src/ (libs/flexlove) and was added to scripts/build.sh's payload and to
   # no other packager, so Android and iOS built an APK/IPA whose launcher

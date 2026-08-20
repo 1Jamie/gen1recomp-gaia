@@ -189,11 +189,18 @@ defineString("CREDIT_END", "END")
 
 -- STAFF and everything after it is a heading.  Anything BELOW this id is a
 -- person as far as ParseCredits is concerned.
-Credits.STAFF = defineString("STAFF", {
-  "      #MON",
-  "    GOLD VERSION",
-  "     PORT STAFF",
-})
+-- Credits_Staff differs per edition, including the centring spaces
+-- (data/credits_strings.asm:54-60).
+Credits.STAFF = defineString("STAFF",
+  require("src.core.GameVersion").get() == "silver" and {
+    "      #MON",
+    "   SILVER VERSION",
+    "     PORT STAFF",
+  } or {
+    "      #MON",
+    "    GOLD VERSION",
+    "     PORT STAFF",
+  })
 defineString("DIRECTOR", "      DIRECTOR")
 defineString("PROGRAMMING", "    PROGRAMMING")
 defineString("ENGINE_DESIGN", "   ENGINE DESIGN")

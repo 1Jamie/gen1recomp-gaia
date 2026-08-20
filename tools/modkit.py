@@ -741,7 +741,7 @@ def imported_data_dir(repo):
         return path if _generated_data_dir_ok(path) else None
 
     version = (os.environ.get("POKEPORT_VERSION") or "red").lower()
-    if version not in ("red", "blue", "yellow"):
+    if version not in ("red", "blue", "yellow", "gold", "silver"):
         version = "red"
 
     candidates = [
@@ -2404,7 +2404,8 @@ UPVALUE_CALL = re.compile(
 UPVALUE_ARGS = re.compile(
     r"""^\s*([A-Za-z_]\w*)\s*\.\s*(\w+)\s*,\s*["'](\w+)["']""")
 VERSION_MATCH = re.compile(
-    r"""[=~]=\s*["'](red|blue|yellow)["']|["'](red|blue|yellow)["']\s*[=~]=""")
+    r"""[=~]=\s*["'](red|blue|yellow|gold|silver)["']"""
+    r"""|["'](red|blue|yellow|gold|silver)["']\s*[=~]=""")
 
 
 def _line_of(body, offset):
