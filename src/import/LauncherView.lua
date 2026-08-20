@@ -124,12 +124,48 @@ function LauncherView.detach(imp)
   Kit.clearCaches()
 end
 
+local function markNoDrag(imp, x, y, w, h)
+  if Kit.blockClicks then return end
+  local t = imp._noDragRects
+  if not t then t = {}; imp._noDragRects = t end
+  local n = (imp._noDragN or 0) + 1
+  imp._noDragN = n
+  local r = t[n]
+  if not r then r = {}; t[n] = r end
+  r.x, r.y, r.w, r.h = x, y, w, h
+end
+
+local function noDragAt(imp, x, y)
+  local rects = imp._noDragRects
+  for i = 1, imp._noDragN or 0 do
+    if inRect(rects[i], x, y) then return true end
+  end
+  return false
+end
+
+local function armMouse(imp, x, y)
+  if noDragAt(imp, x, y) then
+    imp._clickPt = { x = x, y = y }
+    return
+  end
+  local shielded = imp._modalUpNow
+  imp._mouseAt = {
+    x = x, y = y,
+    region = not shielded and tabScrollMax(imp) > 0
+      and inRect(imp._tabRegionRect, x, y) or false,
+    page = not shielded and (imp._pageScrollMax or 0) > 0 or false,
+  }
+  Kit.dragBegin(x, y)
+end
+
 -- ---------------------------------------------------------------- input
--- The kit is polled, not evented: update() samples the mouse and turns a
--- rising edge into a click point that the next draw consumes.  Host-forwarded
--- mousepressed stays unused, exactly as before, so Android's synthesized
--- mouse path cannot double-fire a tap (#553) -- the dedup window below is the
--- other half of that guarantee.
+-- The kit is polled, not evented: update() samples the mouse.  A press arms
+-- a drag that scrolls like a finger, and the click dispatches on RELEASE so
+-- the drag can disqualify it, exactly like the touch path below; only the
+-- cartridge (which owns its own spin-drag) keeps the press-down click.
+-- Host-forwarded mousepressed stays unused, exactly as before, so Android's
+-- synthesized mouse path cannot double-fire a tap (#553) -- the dedup window
+-- below is the other half of that guarantee.
 function LauncherView.update(imp, dt)
   if not imp._flex then return end
   if imp._launchFade then return end
@@ -154,7 +190,39 @@ function LauncherView.update(imp, dt)
     if not touching and now >= (imp._suppressMouseUntil or 0)
         and now >= (imp._suppressClickUntil or 0) then
       local mx, my = love.mouse.getPosition()
-      imp._clickPt = { x = mx, y = my }
+      armMouse(imp, mx, my)
+    end
+  elseif down and imp._mouseAt then
+    local start = imp._mouseAt
+    local mx, my = love.mouse.getPosition()
+    local ddx, ddy = mx - start.x, my - start.y
+    if ddx * ddx + ddy * ddy > TAP_SLOP2 then
+      start.dragged = true
+    end
+    if start.dragged then
+      local last = start.lastY or start.y
+      local move = -(my - last)
+      if move ~= 0 and start.region then
+        local at, leftover = Kit.scrollHandoff(tabScrollAt(imp),
+          tabScrollMax(imp), move)
+        setTabScroll(imp, at)
+        move = leftover
+      end
+      if move ~= 0 and start.page and (imp._pageScrollMax or 0) > 0 then
+        local at, leftover = Kit.scrollHandoff(imp._pageScroll or 0,
+          imp._pageScrollMax, move)
+        imp._pageScroll = at
+        move = leftover
+      end
+      if move ~= 0 then Kit.dragAdd(move) end
+    end
+    start.lastY = my
+  elseif not down and imp._mouseAt then
+    local start = imp._mouseAt
+    imp._mouseAt = nil
+    Kit.dragEnd()
+    if not start.dragged then
+      imp._clickPt = { x = start.x, y = start.y }
     end
   end
   imp._prevMouseDown = down
@@ -233,10 +301,12 @@ function LauncherView.clickAt(imp, x, y)
   imp._clickPt = { x = x, y = y }
 end
 
--- Event-driven click: a macOS trackpad tap delivers press+release inside one
--- frame, so update()'s love.mouse.isDown poll never sees it.  Mint the click
--- from the press event under the poll's own suppression rules, and mark the
--- press seen so the poll cannot mint a second one when isDown does catch it.
+-- Event-driven press: a macOS trackpad tap delivers press+release inside one
+-- frame, so update()'s love.mouse.isDown poll never sees it.  Arm the drag
+-- from the press event under the poll's own suppression rules -- the poll's
+-- release branch then mints the tap, still within the same frame for a
+-- one-frame tap -- and mark the press seen so the poll cannot arm a second
+-- one when isDown does catch it.
 function LauncherView.mousepressed(imp, x, y)
   if not imp._flex then return end
   local now = love.timer.getTime()
@@ -245,7 +315,7 @@ function LauncherView.mousepressed(imp, x, y)
       or now < (imp._suppressClickUntil or 0) then
     return
   end
-  imp._clickPt = { x = x, y = y }
+  if not imp._mouseAt then armMouse(imp, x, y) end
   imp._prevMouseDown = true
 end
 
@@ -495,6 +565,7 @@ end
 
 local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   local state = cartridgeState(imp, version)
+  markNoDrag(imp, x, y, w, h)
   local focused = Kit.focusable(key, x, y, w, h)
   local hot = Kit.hover(x, y, w, h)
   local active = state.active
@@ -4868,13 +4939,15 @@ function LauncherView.draw(imp)
   Kit.beginFrame(mx, my, click ~= nil, imp._wheelY or 0)
   imp._clickPt = nil
   imp._wheelY = 0
+  imp._noDragN = 0
 
   Theme.field()
 
   -- Everything from here to buildModals sits UNDER any open modal, so the
   -- whole stage draws shielded (no clicks, no hover, no focus ring) while
   -- one is up; buildModals lowers the shield for the modal's own controls.
-  Kit.blockClicks = modalUp(imp)
+  imp._modalUpNow = modalUp(imp)
+  Kit.blockClicks = imp._modalUpNow
 
   local step = Kit.scrollStep(m.s)
   do
