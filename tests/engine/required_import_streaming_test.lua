@@ -88,6 +88,74 @@ T.eq(love.filesystem.read("mods/stream_probe/baseroms/source.bin"), "abc",
 T.eq(importer.requiredImportNotice, nil, "successful stream leaves no import error")
 T.eq(importer._refreshed, true, "successful stream refreshes the mod list")
 
+local CacheFs = require("src.import.CacheFs")
+
+-- A thrown writer error must not leak the temporary empty CacheFs prefix.
+local workingNewFile = love.filesystem.newFile
+local workingPrefix = CacheFs.prefix
+CacheFs.prefix = "sentinel/"
+love.filesystem.newFile = function(path)
+  local file = workingNewFile(path)
+  if path == "mods/stream_probe/baseroms/source.bin" then
+    function file:write()
+      error("forced writer failure")
+    end
+  end
+  return file
+end
+importer.requiredImportNotice = nil
+RequiredImports.LARGE_WARN_BYTES = 2
+local failedWrite = importer:_importRequiredSource(
+  "stream_probe", "source", source, true)
+RequiredImports.LARGE_WARN_BYTES = oldWarn
+T.eq(failedWrite, nil, "thrown streaming writer error is contained")
+T.eq(CacheFs.prefix, "sentinel/",
+  "streaming writer error restores CacheFs.prefix")
+love.filesystem.newFile = workingNewFile
+CacheFs.prefix = workingPrefix
+
+-- acceptStoredDigest has its own prefix switch for marker/receipt I/O.
+-- Even an unexpected CacheFs failure must restore the caller's prefix.
+love.filesystem.write("mods/stream_probe/baseroms/source.bin", "abc")
+local workingRemove = CacheFs.remove
+CacheFs.prefix = "sentinel/"
+CacheFs.remove = function()
+  error("forced marker removal failure")
+end
+local accepted = RequiredImports.acceptStoredDigest(
+  manifest, "source", "900150983cd24fb0d6963f7d28e17f72", love.filesystem)
+T.eq(accepted, nil, "acceptStoredDigest contains CacheFs failure")
+T.eq(CacheFs.prefix, "sentinel/",
+  "acceptStoredDigest failure restores CacheFs.prefix")
+CacheFs.remove = workingRemove
+CacheFs.prefix = workingPrefix
+
+-- Native sources are rejected cleanly if seek-to-start fails after the
+-- size probe; never return a handle left sitting at EOF.
+local realIoOpen = io.open
+local fakeCloses = 0
+io.open = function(path, mode)
+  if path ~= source then return realIoOpen(path, mode) end
+  local calls = 0
+  return {
+    seek = function(_, whence)
+      calls = calls + 1
+      if whence == "end" then return 3 end
+      if whence == "set" then return nil, "forced rewind failure" end
+      return nil, "unexpected seek"
+    end,
+    close = function() fakeCloses = fakeCloses + 1 end,
+  }
+end
+importer.requiredImportNotice = nil
+RequiredImports.LARGE_WARN_BYTES = 2
+local failedSeek = importer:_importRequiredSource(
+  "stream_probe", "source", source, true)
+RequiredImports.LARGE_WARN_BYTES = oldWarn
+io.open = realIoOpen
+T.eq(failedSeek, nil, "failed native rewind rejects import source")
+T.ok(fakeCloses >= 2, "failed native rewind closes probed source handles")
+
 love.filesystem.remove("mods/stream_probe/baseroms/source.bin")
 love.filesystem.remove("mods/stream_probe/baseroms/source.iso")
 os.remove(source)

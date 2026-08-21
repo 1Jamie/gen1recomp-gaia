@@ -388,8 +388,16 @@ local function openImportSource(path)
   -- read into one Lua string before validation.
   local native = io.open(path, "rb")
   if native then
-    local size = native:seek("end")
-    if size then native:seek("set", 0) end
+    local size, sizeErr = native:seek("end")
+    if size == nil or size == false then
+      native:close()
+      return nil, sizeErr or "could not determine source file size"
+    end
+    local reset, resetErr = native:seek("set", 0)
+    if reset == nil or reset == false then
+      native:close()
+      return nil, resetErr or "could not rewind source file"
+    end
     return {
       size = size,
       read = function(_, n) return native:read(n) end,
@@ -410,7 +418,6 @@ local function openImportSource(path)
   end
   return nil, "streaming source access is unavailable"
 end
-
 local function streamRequiredImport(manifest, importId, source)
   local RequiredImports = require("src.mods.RequiredImports")
   local spec = RequiredImports.spec(manifest, importId)
@@ -426,58 +433,91 @@ local function streamRequiredImport(manifest, importId, source)
   local CacheFs = require("src.import.CacheFs")
   local destination = RequiredImports.path(manifest, spec)
   local savedPrefix = CacheFs.prefix
+  local output
+  local inputClosed, outputClosed = false, false
+
+  local function closeInput()
+    if inputClosed then return end
+    inputClosed = true
+    pcall(function() input:close() end)
+  end
+
+  local function closeOutput()
+    if outputClosed or not output then return end
+    outputClosed = true
+    pcall(function() output:close() end)
+  end
+
+  local resultOk, resultDetail
   CacheFs.prefix = ""
-  CacheFs.remove(RequiredImports.receiptPath(manifest, spec))
-  CacheFs.remove(destination)
-  local output, makeErr = CacheFs.openWrite(destination)
-  if not output then
-    CacheFs.prefix = savedPrefix
-    input:close()
-    return nil, makeErr or "could not create imported file"
-  end
-
-  local function cleanupDestination()
+  local ran, thrown = xpcall(function()
+    CacheFs.remove(RequiredImports.receiptPath(manifest, spec))
     CacheFs.remove(destination)
-    CacheFs.prefix = savedPrefix
-  end
-
-  local MD5 = require("src.mods.StreamMD5")
-  local md5 = MD5.new()
-  local total, chunkBytes = 0, 4 * 1024 * 1024
-  while true do
-    local chunk = input:read(chunkBytes)
-    if not chunk or #chunk == 0 then break end
-    md5:update(chunk)
-    local wrote, writeErr = output:write(chunk)
-    if wrote == false or wrote == nil then
-      input:close(); output:close(); cleanupDestination()
-      return nil, "could not copy import: " .. tostring(writeErr or "write failed")
+    local makeErr
+    output, makeErr = CacheFs.openWrite(destination)
+    if not output then
+      resultDetail = makeErr or "could not create imported file"
+      return
     end
-    total = total + #chunk
-    if #chunk < chunkBytes then break end
-  end
-  input:close()
-  output:close()
 
-  if input.size and total ~= input.size then
-    cleanupDestination()
-    return nil, ("source read ended early (expected %d bytes, copied %d)"):format(input.size, total)
-  end
-  local storedSizeErr = RequiredImports.sizeError(spec, total, true)
-  if storedSizeErr then cleanupDestination(); return nil, storedSizeErr end
-  local digest = md5:final()
-  CacheFs.prefix = savedPrefix
-  local accepted, detail = RequiredImports.acceptStoredDigest(
-    manifest, importId, digest, love.filesystem)
-  if not accepted then
-    CacheFs.prefix = ""
-    CacheFs.remove(destination)
+    local MD5 = require("src.mods.StreamMD5")
+    local md5 = MD5.new()
+    local total, chunkBytes = 0, 4 * 1024 * 1024
+    while true do
+      local chunk = input:read(chunkBytes)
+      if not chunk or #chunk == 0 then break end
+      md5:update(chunk)
+      local wrote, writeErr = output:write(chunk)
+      if wrote == false or wrote == nil then
+        resultDetail = "could not copy import: "
+.. tostring(writeErr or "write failed")
+        return
+      end
+      total = total + #chunk
+      if #chunk < chunkBytes then break end
+    end
+
+    closeInput()
+    closeOutput()
+    if input.size and total ~= input.size then
+      resultDetail = ("source read ended early (expected %d bytes, copied %d)")
+        :format(input.size, total)
+      return
+    end
+    local storedSizeErr = RequiredImports.sizeError(spec, total, true)
+    if storedSizeErr then resultDetail = storedSizeErr; return end
+    local digest = md5:final()
+
+    -- acceptStoredDigest uses the normal engine path/receipt rules, so
+    -- restore the caller's prefix before handing control to it.
     CacheFs.prefix = savedPrefix
-    return nil, detail
-  end
-  return true, detail
-end
+    local accepted, detail = RequiredImports.acceptStoredDigest(
+      manifest, importId, digest, love.filesystem)
+    if not accepted then resultDetail = detail; return end
+    resultOk, resultDetail = true, detail
+  end, function(err)
+    if debug and debug.traceback then
+      return debug.traceback(tostring(err), 2)
+    end
+    return tostring(err)
+  end)
 
+  -- finally: resource handles and the process-global CacheFs prefix must
+  -- be restored even when a read/hash/write helper raises a Lua error.
+  closeInput()
+  closeOutput()
+  CacheFs.prefix = ""
+  if not ran or not resultOk then
+    pcall(function() CacheFs.remove(destination) end)
+  end
+  CacheFs.prefix = savedPrefix
+
+  if not ran then
+    return nil, "could not copy import: " .. tostring(thrown)
+  end
+  if not resultOk then return nil, resultDetail end
+  return true, resultDetail
+end
 local function readDroppedFile(file)
   local ok, openError = file:open("r")
   if not ok then return nil, openError end

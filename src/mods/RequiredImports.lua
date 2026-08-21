@@ -228,9 +228,21 @@ function RequiredImports.acceptStoredDigest(manifest, importId, digest, fs)
   if sizeErr then return nil, sizeErr end
   if love and fs == love.filesystem then
     local savedPrefix = CacheFs.prefix
-    CacheFs.prefix = ""
-    CacheFs.remove(removedMarker(manifest, spec))
+    local ok, prefixErr = xpcall(function()
+      CacheFs.prefix = ""
+      CacheFs.remove(removedMarker(manifest, spec))
+      CacheFs.prefix = savedPrefix
+      -- writeReceipt has its own temporary CacheFs prefix switch. Keep it
+      -- inside this guard too so a write error cannot leak global state.
+      writeReceipt(manifest, spec, digest, info, fs)
+    end, function(err)
+      return tostring(err)
+    end)
     CacheFs.prefix = savedPrefix
+    if not ok then
+      return nil, "could not finalize import receipt: " .. tostring(prefixErr)
+    end
+    return true, digest
   elseif fs and fs.remove then
     fs.remove(removedMarker(manifest, spec))
   end
