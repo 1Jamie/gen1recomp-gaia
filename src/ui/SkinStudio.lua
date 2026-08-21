@@ -456,9 +456,10 @@ function Studio.setCanvas(index, fromSync)
     page.viewportFill = false
     markDirty()
   end
-  -- A cfg-authored aspect_ratio is the overlay's design aspect; keep it so
-  -- the preview letterboxes like RetroArch instead of stretching (#1503).
-  if page and not page.aspectFromCfg then
+  -- A cfg-authored aspect_ratio is the overlay's design aspect, and bezel art
+  -- is its own design canvas (TouchSkin.applyImageAspect); keep either so the
+  -- preview lays the page out exactly the way the game does (#1503).
+  if page and not (page.aspectFromCfg or page.aspectFromImage) then
     page.aspect = canvas.w / canvas.h
   end
 end

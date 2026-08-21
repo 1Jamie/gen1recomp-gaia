@@ -1067,9 +1067,22 @@ local GAME_TABS = {
 local HEADER_TABS = {
   { id = "mods",   key = "tab-mods" },
   { id = "find",   key = "tab-find" },
-  { id = "skins",  key = "tab-skins", glyph = true },
+  { id = "skins",  key = "tab-skins", glyph = true, beta = true },
   { id = "bug",    key = "tab-bug" },
 }
+
+local BETA_TAG_OPTS = { fill = true, bold = true, ink = PAL.inverse }
+
+local function drawBetaTag(x, y, w, h)
+  Kit.tag(x, y, w, h, "BETA", PAL.yellow, BETA_TAG_OPTS)
+end
+
+local function overlayBeta(tx, ty, w, tabH, m)
+  local bh = math.floor(11 * m.s)
+  local bw = math.min(w, Kit.textWidth("micro", "BETA") + math.floor(10 * m.s))
+  drawBetaTag(tx + (w - bw) / 2, ty + tabH - bh - math.floor(2 * m.s), bw, bh)
+end
+
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
   if t.glyph then
@@ -1273,6 +1286,7 @@ local function buildHeader(imp, m)
     o.image = t.icon
     o.action = chrome.tab[t.id]
     btn(imp, tx, ty, w, tabH, t.key, "", o)
+    if t.beta then overlayBeta(tx, ty, w, tabH, m) end
     tx = tx + w + tabGap
   end
   -- The bug-report chip sits LAST, past the sync chip.
@@ -1290,10 +1304,7 @@ local function buildHeader(imp, m)
     local o = chrome.sync
     o.active = imp._syncModal ~= nil
     btn(imp, tx, ty, w, tabH, "tab-sync", "", o)
-    local bh = math.floor(11 * m.s)
-    local bw = math.min(w, Kit.textWidth("micro", "BETA") + math.floor(10 * m.s))
-    Kit.tag(tx + (w - bw) / 2, ty + tabH - bh - math.floor(2 * m.s), bw, bh,
-      "BETA", o.active and PAL.inverse or PAL.yellow)
+    overlayBeta(tx, ty, w, tabH, m)
     local eng = imp._sync
     if eng and eng.busy and eng:busy() then
       Kit.spinner(tx + w - math.floor(8 * m.s), ty + math.floor(8 * m.s),
@@ -4490,8 +4501,8 @@ local function syncTitle(imp, m, px, py, pw, pad)
   Kit.text("button", label, px + pad, py, PAL.heading)
   local bh = math.floor(15 * m.s)
   local bw = Kit.textWidth("micro", "BETA") + math.floor(14 * m.s)
-  Kit.tag(px + pad + Kit.textWidth("button", label) + math.floor(8 * m.s),
-    py + (Kit.textHeight("button") - bh) / 2, bw, bh, "BETA", PAL.yellow)
+  drawBetaTag(px + pad + Kit.textWidth("button", label) + math.floor(8 * m.s),
+    py + (Kit.textHeight("button") - bh) / 2, bw, bh)
   return py + Kit.textHeight("button") + math.floor(12 * m.s)
 end
 
