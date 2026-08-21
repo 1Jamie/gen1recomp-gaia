@@ -5258,9 +5258,26 @@ function RomExtractorGen2:extractMenuGfx()
   end
 
   -- Goldenrod Game Corner: Slot Machine graphics assets
+  local CacheFs = require("src.import.CacheFs")
+  local function packBytes(bytes)
+    local chars = {}
+    for i = 1, #bytes do chars[i] = string.char(bytes[i]) end
+    return table.concat(chars)
+  end
+  local function writeRaw(relative, bytes)
+    local ok, writeError = CacheFs.write(
+      "assets/generated/" .. relative, packBytes(bytes))
+    if not ok then
+      error("could not write " .. relative .. ": " .. tostring(writeError))
+    end
+  end
+
+  local slots = nil
   if self.symbols["Slots1LZ"] then
     local raw1 = self:decompressLz3Symbol("Slots1LZ")
     self:write2bpp(raw1, 16, #raw1 / 4, "slots/gold_slots_1.png")
+    slots = slots or {}
+    slots.sheet1 = "assets/generated/slots/gold_slots_1.png"
   end
   if self.symbols["Slots2LZ"] then
     local raw2 = self:decompressLz3Symbol("Slots2LZ")
@@ -5269,6 +5286,8 @@ function RomExtractorGen2:extractMenuGfx()
       raw2[i] = bit.band(bit.bnot(raw2[i]), 0xFF)
     end
     self:write2bpp(raw2, 16, #raw2 / 4, "slots/gold_slots_2.png")
+    slots = slots or {}
+    slots.sheet2 = "assets/generated/slots/gold_slots_2.png"
   end
   if self.symbols["Slots3LZ"] then
     local raw3 = self:decompressLz3Symbol("Slots3LZ")
@@ -5283,55 +5302,58 @@ function RomExtractorGen2:extractMenuGfx()
     --   Y=192: Chansey 5 (Egg Drop pose, 24x32)
     --   Y=224: Egg (8x16 at X=0)
     self:write2bpp(raw3, 24, #raw3 / 6, "slots/gold_slots_actors.png", true)
+    slots = slots or {}
+    slots.sheet3 = "assets/generated/slots/gold_slots_3.png"
   end
   if self.symbols["SlotsTilemap"] then
     local symbol = self:symbol("SlotsTilemap")
     local tm = self.rom:bytes(symbol.bank, symbol.address, 20 * 12)
-    self:save(tm, "slots/gold_slots.tilemap")
+    writeRaw("slots/gold_slots.tilemap", tm)
+    slots = slots or {}
+    slots.tilemap = "assets/generated/slots/gold_slots.tilemap"
   end
+  if slots then out.slots = slots end
 
   -- Goldenrod Game Corner: Card Flip graphics assets
+  local cardFlip = nil
   if self.symbols["CardFlipLZ01"] then
     local raw1 = self:decompressLz3Symbol("CardFlipLZ01")
     self:write2bpp(raw1, 128, #raw1 / 32, "card_flip/card_flip_1.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet1 = "assets/generated/card_flip/card_flip_1.png"
   end
   if self.symbols["CardFlipLZ02"] then
     local raw2 = self:decompressLz3Symbol("CardFlipLZ02")
     self:write2bpp(raw2, 24, #raw2 / 6, "card_flip/card_flip_2.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet2 = "assets/generated/card_flip/card_flip_2.png"
   end
   if self.symbols["CardFlipLZ03"] then
     local raw3 = self:decompressLz3Symbol("CardFlipLZ03")
     self:write2bpp(raw3, 8, #raw3 / 2, "card_flip/card_flip_3.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet3 = "assets/generated/card_flip/card_flip_3.png"
   end
   if self.symbols["CardFlipOnButtonGFX"] then
     local symbol = self:symbol("CardFlipOnButtonGFX")
     self:write2bpp(self.rom:bytes(symbol.bank, symbol.address, 16), 8, 8, "card_flip/on.png")
+    cardFlip = cardFlip or {}
+    cardFlip.on = "assets/generated/card_flip/on.png"
   end
   if self.symbols["CardFlipOffButtonGFX"] then
     local symbol = self:symbol("CardFlipOffButtonGFX")
     self:write2bpp(self.rom:bytes(symbol.bank, symbol.address, 16), 8, 8, "card_flip/off.png")
+    cardFlip = cardFlip or {}
+    cardFlip.off = "assets/generated/card_flip/off.png"
   end
   if self.symbols["CardFlipTilemap"] then
     local symbol = self:symbol("CardFlipTilemap")
     local tm = self.rom:bytes(symbol.bank, symbol.address, 11 * 12)
-    self:save(tm, "card_flip/card_flip.tilemap")
+    writeRaw("card_flip/card_flip.tilemap", tm)
+    cardFlip = cardFlip or {}
+    cardFlip.tilemap = "assets/generated/card_flip/card_flip.tilemap"
   end
-
-  out.slots = {
-    sheet1 = "assets/generated/slots/gold_slots_1.png",
-    sheet2 = "assets/generated/slots/gold_slots_2.png",
-    sheet3 = "assets/generated/slots/gold_slots_3.png",
-    tilemap = "assets/generated/slots/gold_slots.tilemap",
-  }
-
-  out.cardFlip = {
-    sheet1 = "assets/generated/card_flip/card_flip_1.png",
-    sheet2 = "assets/generated/card_flip/card_flip_2.png",
-    sheet3 = "assets/generated/card_flip/card_flip_3.png",
-    on = "assets/generated/card_flip/on.png",
-    off = "assets/generated/card_flip/off.png",
-    tilemap = "assets/generated/card_flip/card_flip.tilemap",
-  }
+  if cardFlip then out.cardFlip = cardFlip end
 
   self:write("menu_gfx", out)
   self:tick("Menu graphics", 1, 1)
