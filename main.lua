@@ -24,10 +24,10 @@ local GameViewport = require("src.render.GameViewport")
 
 -- Lua errors: persist a redacted trace in the save dir and surface a hint.
 do
-  local defaultErrorHandler = love.errorhandler
+  local defaultErrorHandler = love.errorhandler or love.errhand
   function love.errorhandler(msg)
-    local hint = SwitchDiagnostics.logLuaError(msg)
-    if hint and type(msg) == "string" then
+    local ok, hint = pcall(SwitchDiagnostics.logLuaError, msg)
+    if ok and hint and type(msg) == "string" then
       msg = msg .. "\n\n" .. hint
     end
     if defaultErrorHandler then

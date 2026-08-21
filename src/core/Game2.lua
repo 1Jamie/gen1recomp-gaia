@@ -483,8 +483,10 @@ function Game2:learnMoveOn(mon, moveId, onDone)
     if onDone then onDone(learned) end
   end
   if ok then
+    -- data/text/common_3.asm:119
     return self:say(("%s learned\n%s!"):format(name, moveName),
-      function() finish(true) end)
+      function() finish(true) end,
+      TextBox.soundOpts(self, "Sfx_DexFanfare5079"))
   end
   if reason ~= "full" then return finish(false) end
   local askForget, pickMove, askStop
@@ -539,9 +541,11 @@ function Game2:learnMoveOn(mon, moveId, onDone)
         -- The slot is written here rather than through Mon.learnMove, so
         -- pokemon.move_learned is raised here too.
         ModRuntime.emit("pokemon.move_learned", { mon = mon, moveId = moveId })
+        -- engine/pokemon/learn.asm:115, data/text/common_3.asm:119
         self:say(("1, 2 and… Poof!\f%s forgot\n%s.\fAnd…\f%s learned\n%s!")
           :format(name, oldName, name, moveName),
-          function() finish(true) end)
+          function() finish(true) end,
+          TextBox.soundOpts(self, "Sfx_DexFanfare5079"))
       end,
     })
   end
@@ -706,7 +710,9 @@ function Game2:usePartyItem(itemId)
       })
     elseif action == "candy" then
       self:consumeItem(itemId)
-      self:say(result.text, function() self:afterRareCandy(mon, result) end)
+      -- data/text/common_1.asm:86
+      self:say(result.text, function() self:afterRareCandy(mon, result) end,
+        result.sfx and TextBox.soundOpts(self, result.sfx) or nil)
     else
       self:consumeItem(itemId)
       self:say(result.text)
@@ -765,8 +771,10 @@ function Game2:useSelectItem()
     local name = (items[itemId] and items[itemId].name) or itemId
     self:say(Strings("{PLAYER} used the\n%s.", name))
   elseif outcome == "trophy_sent" then
+    -- data/text/common_3.asm:372
     self:say(Strings(
-      "There was a trophy\ninside!\fThe trophy was\nsent home."))
+      "There was a trophy\ninside!\fThe trophy was\nsent home."),
+      nil, TextBox.soundOpts(self, "Sfx_DexFanfare5079"))
   end
   -- Anything else (a fishing bite, the ITEMFINDER's queued script) already
   -- drives its own presentation off World:step -- nothing left to print here.
@@ -778,9 +786,9 @@ end
 -- onDone that popped again ate the state UNDER the box: dismissing a message
 -- over the PACK closed the PACK with it, and over an empty overworld stack it
 -- was a silent extra pop.
-function Game2:say(text, onDone)
+function Game2:say(text, onDone, opts)
   local TextBox = require("src.render.TextBox")
-  self.stack:push(TextBox.new(self, text, onDone))
+  self.stack:push(TextBox.new(self, text, onDone, opts))
 end
 
 -- The landmark the player is standing in, for the Pokegear map's marker.

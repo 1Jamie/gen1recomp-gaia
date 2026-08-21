@@ -146,6 +146,9 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- complete and SlotMachine crashed on its labelled-cell fallback.
     "assets/generated/slots/gold_slots_1.png",
     "assets/generated/card_flip/card_flip_1.png",
+    -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173): Bill's PC has no
+    -- held-item or mail icon in a cache built before the symbol was listed.
+    "assets/generated/pc/mail_item.png",
   },
 }
 -- Same Gen 2 extract, so a Silver cache is complete when the same files exist.

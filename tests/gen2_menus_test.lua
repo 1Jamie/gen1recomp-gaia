@@ -483,6 +483,72 @@ packInput:press("right")
 pack:update(0)
 check("pocket wraps around", pack:pocket().id, "ITEM")
 
+-- engine/items/tmhm.asm:341 -- TMHM_DisplayPocketItems walks wTMsHMs 1..57, so
+-- the pocket is TM01..TM50 then HM01..HM07 whatever order the player picked
+-- them up in, and tmhm.asm:207 keeps SELECT out of it entirely.
+do
+  local tmSave2 = Save.newGame()
+  tmSave2.inventory = {
+    HM_WATERFALL = 1, TM_NIGHTMARE = 2, HM_CUT = 1, TM_ROAR = 3,
+    TM_DYNAMICPUNCH = 12, TM_LEGACY = 1,
+  }
+  tmSave2.bagOrder = {
+    "HM_WATERFALL", "TM_NIGHTMARE", "HM_CUT", "TM_ROAR", "TM_DYNAMICPUNCH",
+    "TM_LEGACY",
+  }
+  local tmGame2, tmInput2 = newGame(tmSave2)
+  tmGame2.data.items = {
+    TM_DYNAMICPUNCH = { id = "TM_DYNAMICPUNCH", name = "TM01",
+      pocket = "TM_HM", index = 191, tmNumber = 1 },
+    TM_ROAR = { id = "TM_ROAR", name = "TM05", pocket = "TM_HM",
+      index = 195, tmNumber = 5 },
+    TM_NIGHTMARE = { id = "TM_NIGHTMARE", name = "TM50", pocket = "TM_HM",
+      index = 240, tmNumber = 50 },
+    HM_CUT = { id = "HM_CUT", name = "HM01", pocket = "TM_HM",
+      index = 241, tmNumber = 51 },
+    HM_WATERFALL = { id = "HM_WATERFALL", name = "HM07", pocket = "TM_HM",
+      index = 247, tmNumber = 57 },
+    -- A cache (or a mod) with no tmNumber falls back to the ItemNames index.
+    TM_LEGACY = { id = "TM_LEGACY", name = "TM??", pocket = "TM_HM",
+      index = 300 },
+  }
+  local tmPack = PackMenu.new(tmGame2, { pocket = "TM_HM" })
+  local function ids(rows)
+    local out = {}
+    for i = 1, #rows do out[i] = rows[i].id end
+    return table.concat(out, ",")
+  end
+  check("TM/HM pocket is TM-number ordered, not pickup ordered",
+    ids(tmPack.rows),
+    "TM_DYNAMICPUNCH,TM_ROAR,TM_NIGHTMARE,HM_CUT,HM_WATERFALL,TM_LEGACY")
+  check("the first row is TM01", tmPack.rows[1].id, "TM_DYNAMICPUNCH")
+  check("and a tmNumber-less item lands after HM07",
+    tmPack.rows[#tmPack.rows].id, "TM_LEGACY")
+  check("the TM keeps its count", tmPack.rows[1].showCount, true)
+  check("the HM shows none", tmPack.rows[4].showCount, false)
+
+  tmPack.index = 1
+  tmInput2:press("select")
+  tmPack:update(0)
+  check("SELECT cannot arm a TM/HM row", tmPack.switching, nil)
+  check("and prints no move prompt", tmPack.message, nil)
+
+  -- The other three pockets still reorder on SELECT (pack.asm:1290).
+  tmSave2.inventory.POTION = 1
+  tmSave2.inventory.SUPER_POTION = 1
+  tmSave2.bagOrder = { "POTION", "SUPER_POTION" }
+  tmGame2.data.items.POTION =
+    { id = "POTION", name = "POTION", pocket = "ITEM", index = 1 }
+  tmGame2.data.items.SUPER_POTION =
+    { id = "SUPER_POTION", name = "SUPER POTION", pocket = "ITEM", index = 2 }
+  tmPack.pocketIndex = 1
+  tmPack:rebuild()
+  tmPack.index = 1
+  tmInput2:press("select")
+  tmPack:update(0)
+  check("but the ITEM pocket still arms", tmPack.switching, 1)
+end
+
 -- CANCEL sits one past the last row.
 check("cancel is past the end", pack:total(), #pack.rows + 1)
 pack.index = pack:total()

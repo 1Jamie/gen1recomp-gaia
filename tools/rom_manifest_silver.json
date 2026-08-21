@@ -12912,6 +12912,10 @@
       105,
       16840
     ],
+    "BillsPCOrangePalette": [
+      2,
+      21965
+    ],
     "BlastoiseBackpic": [
       25,
       31647
@@ -12971,6 +12975,30 @@
     "CalPic": [
       26,
       27406
+    ],
+    "CardFlipLZ01": [
+      56,
+      21795
+    ],
+    "CardFlipLZ02": [
+      56,
+      22197
+    ],
+    "CardFlipLZ03": [
+      56,
+      21736
+    ],
+    "CardFlipOffButtonGFX": [
+      56,
+      21763
+    ],
+    "CardFlipOnButtonGFX": [
+      56,
+      21779
+    ],
+    "CardFlipTilemap": [
+      56,
+      22809
     ],
     "CardStatusGFX": [
       9,
@@ -15432,6 +15460,10 @@
       5,
       18398
     ],
+    "PCMailGFX": [
+      56,
+      31768
+    ],
     "PackGFX": [
       4,
       21553
@@ -16156,6 +16188,22 @@
       5,
       17801
     ],
+    "Slots1LZ": [
+      36,
+      31138
+    ],
+    "Slots2LZ": [
+      36,
+      31522
+    ],
+    "Slots3LZ": [
+      36,
+      32130
+    ],
+    "SlotsTilemap": [
+      36,
+      30898
+    ],
     "SlowbroBackpic": [
       26,
       31900
@@ -16355,6 +16403,14 @@
     "StaryuPokedexEntry": [
       105,
       22501
+    ],
+    "StatsScreenPagePals": [
+      2,
+      21715
+    ],
+    "StatsScreenPageTilesGFX": [
+      62,
+      19106
     ],
     "StatsScreen_PlaceFrontpic": [
       20,
@@ -17667,46 +17723,6 @@
     "wBaseUnusedFrontpic": [
       1,
       53554
-    ],
-    "Slots1LZ": [
-      36,
-      31138
-    ],
-    "Slots2LZ": [
-      36,
-      31522
-    ],
-    "Slots3LZ": [
-      36,
-      32130
-    ],
-    "SlotsTilemap": [
-      36,
-      30898
-    ],
-    "CardFlipLZ01": [
-      56,
-      21795
-    ],
-    "CardFlipLZ02": [
-      56,
-      22197
-    ],
-    "CardFlipLZ03": [
-      56,
-      21736
-    ],
-    "CardFlipOnButtonGFX": [
-      56,
-      21779
-    ],
-    "CardFlipOffButtonGFX": [
-      56,
-      21763
-    ],
-    "CardFlipTilemap": [
-      56,
-      22809
     ]
   },
   "tilesets": {

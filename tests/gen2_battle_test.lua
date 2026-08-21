@@ -851,6 +851,83 @@ do
   check("the trainer's PP is untouched", refuseParty[1].moves[1].pp, 35)
 end
 
+-- ResetBattleParticipants falls through into AddBattleParticipant
+-- (engine/battle/core.asm:3033 and :3037), so every ENEMY-initiated mon change
+-- wipes both bitfields and re-credits the mon the player has out.  The player's
+-- own send-outs only ever call AddBattleParticipant (core.asm:2655, :2681,
+-- :3783, :4989, :5014).
+do
+  local function creditBattle()
+    local party = {
+      Mon.new(DATA, "CYNDAQUIL", 20, { dvs = perfect }),
+      Mon.new(DATA, "TOTODILE", 20, { dvs = perfect }),
+    }
+    local foes = {
+      Mon.new(DATA, "GEODUDE", 8, { dvs = perfect }),
+      Mon.new(DATA, "PIDGEY", 8, { dvs = perfect }),
+    }
+    for _, mon in ipairs(party) do
+      mon.moves = { { id = "TACKLE", pp = 35, maxPp = 35 } }
+    end
+    for _, mon in ipairs(foes) do
+      mon.moves = { { id = "TACKLE", pp = 35, maxPp = 35 } }
+    end
+    local battle = Battle.new({
+      data = DATA, party = party,
+      -- attributes[6] is the low byte of the switch flags: OFTEN.
+      trainer = { class = "YOUNGSTER", name = "JOEY", party = foes,
+        attributes = { 0, 0, 0, 0, 0, 0x01, 0 } },
+      random = zeroRandom,
+    })
+    battle:switch(2)
+    return battle, party, foes
+  end
+
+  -- AI_Switch (engine/battle/ai/items.asm:697).
+  local rotate, rotateParty, rotateFoes = creditBattle()
+  check("both mons are credited before the rotation",
+    rotate.participants[1] and rotate.participants[2], true)
+  rotate:volatile(rotate.enemy).perish = 1
+  check("the AI rotated", rotate:enemyTrySwitchOrItem(), true)
+  check("the rotation installed the second foe", rotate.enemy, rotateFoes[2])
+  check("the bench mon lost its credit", rotate.participants[1], nil)
+  check("only the mon on the field keeps it", rotate.participants[2], true)
+  local benchExp = rotateParty[1].experience
+  local activeExp = rotateParty[2].experience
+  rotate:awardExperience(rotate.enemy)
+  check("the bench mon earns nothing from the new foe",
+    rotateParty[1].experience, benchExp)
+  check("and the mon that faced it is still paid",
+    rotateParty[2].experience > activeExp, true)
+
+  -- ForceEnemySwitch (engine/battle/core.asm:2937), reached only from
+  -- BattleCommand_ForceSwitch (effect_commands.asm:4999).
+  local roar, _, roarFoes = creditBattle()
+  roar.firstMover = "enemy"
+  Battle.MOVE_EFFECTS.EFFECT_FORCE_SWITCH(roar, roar.player, roar.enemy,
+    nil, "ROAR", true)
+  check("Roar dragged the second foe out", roar.enemy, roarFoes[2])
+  check("the bench mon lost its credit to Roar", roar.participants[1], nil)
+  check("and the mon on the field keeps it", roar.participants[2], true)
+
+  -- engine/battle/move_effects/baton_pass.asm:59.
+  local baton, _, batonFoes = creditBattle()
+  Battle.MOVE_EFFECTS.EFFECT_BATON_PASS(baton, baton.enemy)
+  check("the baton passed to the second foe", baton.enemy, batonFoes[2])
+  check("the bench mon lost its credit to the baton",
+    baton.participants[1], nil)
+  check("and the mon on the field keeps it", baton.participants[2], true)
+
+  -- PassedBattleMonEntrance only adds (engine/battle/core.asm:5014): the
+  -- player's own baton pass must NOT wipe the set.
+  local playerBaton, playerBatonParty = creditBattle()
+  Battle.MOVE_EFFECTS.EFFECT_BATON_PASS(playerBaton, playerBaton.player)
+  check("the player's baton pass moved the lead back in",
+    playerBaton.player, playerBatonParty[1])
+  check("and credited both mons",
+    playerBaton.participants[1] and playerBaton.participants[2], true)
+end
+
 -- Switching costs the turn and adds the newcomer to the participant set.
 local switchParty = {
   Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect }),

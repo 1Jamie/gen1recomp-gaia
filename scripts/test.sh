@@ -66,6 +66,15 @@ run_tier() {
 
 # ------- ROM-free tiers: these are what CI runs
 
+if command -v luacheck >/dev/null 2>&1; then
+  run_tier "T0 luacheck gate (undefined globals, unreachable code)" \
+    ./scripts/lint.sh --gate
+else
+  echo ""
+  echo "-- T0 luacheck gate: skipped (no luacheck on PATH --"
+  echo "   luarocks install luacheck; CI installs and gates on it regardless)"
+fi
+
 run_tier "T0 ROM builder version routing" python3 tests/build_rom_data_cli_test.py
 run_tier "T0 ROM manifest generator pin/overrides" python3 tests/rom_manifest_generator_test.py
 run_tier "T0 switch CI workflow content gate" "$LUA" tests/switch_ci_workflows_test.lua

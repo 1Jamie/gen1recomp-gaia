@@ -2417,6 +2417,8 @@ Battle.MOVE_EFFECTS.EFFECT_BATON_PASS = function(self, attacker)
     self.enemyIndex = target
     self.enemy = party[target]
     self.enemy.volatile = carried
+    -- engine/battle/move_effects/baton_pass.asm:59
+    self:resetParticipants()
   end
   local sent = side == "player" and self.player or self.enemy
   self:emit({ kind = "send", side = side, mon = sent,
@@ -2679,6 +2681,8 @@ Battle.MOVE_EFFECTS.EFFECT_FORCE_SWITCH = function(self, attacker, defender,
     self.enemyIndex = pick
     self.enemy = incoming
     self.stages.enemy = Battle.newStages()
+    -- ForceEnemySwitch (engine/battle/core.asm:2937)
+    self:resetParticipants()
   end
   self:emit({ kind = "send", side = self:sideOf(incoming), mon = incoming,
     hp = incoming.hp or 0, status = incoming.status or false,
@@ -3341,7 +3345,9 @@ function Battle:giveExperiencePass(loser, def, recipients, count, halved)
           local moveDef = self:moveDef(moveId)
           local moveName = (moveDef and moveDef.name) or moveId
           if ok then
+            -- data/text/common_3.asm:119
             self:emit({ kind = "message",
+              sfx = "Sfx_DexFanfare5079", waitSfx = true,
               text = self:monName(mon) .. " learned " .. moveName .. "!" })
           elseif reason == "full" then
             -- LearnMove's full-moveset arm calls ForgetMove, which asks with
@@ -3450,8 +3456,7 @@ function Battle:awardExperience(loser)
 
   -- GiveExperiencePoints .done falls through ResetBattleParticipants into
   -- AddBattleParticipant (engine/battle/core.asm:7116 and :3033).
-  self.participants = {}
-  if self.playerIndex then self.participants[self.playerIndex] = true end
+  self:resetParticipants()
 end
 
 -- The answer to a `choose-forget`: drop the move in `slot` and put the
@@ -3472,7 +3477,9 @@ function Battle:resolveForget(index, slot, entry, moveName)
   end
   self:emit({ kind = "message",
     text = "1, 2 and… " .. self:monName(mon) .. " forgot " .. oldName .. "!" })
+  -- engine/pokemon/learn.asm:115, data/text/common_3.asm:119
   self:emit({ kind = "message",
+    sfx = "Sfx_DexFanfare5079", waitSfx = true,
     text = self:monName(mon) .. " learned "
       .. (moveName or (entry and entry.id) or "?") .. "!" })
   -- The forget path writes the slot itself rather than going through
@@ -3509,6 +3516,13 @@ end
 function Battle:switchLocked()
   if (self:volatile(self.player).wrapCount or 0) > 0 then return true end
   return self:volatile(self.enemy).trapsTarget == true
+end
+
+-- ResetBattleParticipants falls through into AddBattleParticipant
+-- (engine/battle/core.asm:3033 and :3037).
+function Battle:resetParticipants()
+  self.participants = {}
+  if self.playerIndex then self.participants[self.playerIndex] = true end
 end
 
 -- EnemySwitch's shift arm zeroes both participant bitfields before PlayerSwitch
@@ -3999,6 +4013,8 @@ function Battle:enemyTrySwitchOrItem()
         .. self:monName(outgoing) .. "!" })
     self.enemyIndex = target
     self.enemy = self.enemyParty[target]
+    -- AI_Switch (engine/battle/ai/items.asm:697)
+    self:resetParticipants()
     -- ResetEnemyBattleVars (engine/battle/core.asm:3016) zeroes wCurEnemyMove
     -- and wLastEnemyMove and NewEnemyMonStatus wipes the substatus bytes, so
     -- the mon coming IN starts from an empty area -- the same pair of clears

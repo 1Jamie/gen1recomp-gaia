@@ -12912,6 +12912,10 @@
       105,
       16837
     ],
+    "BillsPCOrangePalette": [
+      2,
+      21965
+    ],
     "BlastoiseBackpic": [
       25,
       30882
@@ -12935,6 +12939,10 @@
     "BlisseyPokedexEntry": [
       107,
       21761
+    ],
+    "BoltEmote": [
+      5,
+      17737
     ],
     "BugCatchingContestantEventFlagTable": [
       4,
@@ -12967,6 +12975,30 @@
     "CalPic": [
       26,
       26667
+    ],
+    "CardFlipLZ01": [
+      56,
+      21795
+    ],
+    "CardFlipLZ02": [
+      56,
+      22197
+    ],
+    "CardFlipLZ03": [
+      56,
+      21736
+    ],
+    "CardFlipOffButtonGFX": [
+      56,
+      21763
+    ],
+    "CardFlipOnButtonGFX": [
+      56,
+      21779
+    ],
+    "CardFlipTilemap": [
+      56,
+      22809
     ],
     "CardStatusGFX": [
       9,
@@ -13612,6 +13644,10 @@
       106,
       19800
     ],
+    "FishEmote": [
+      5,
+      17865
+    ],
     "FishGroups": [
       36,
       27127
@@ -13955,6 +13991,10 @@
     "HealMachineAnim.palettes": [
       4,
       26664
+    ],
+    "HeartEmote": [
+      5,
+      17673
     ],
     "HeldItemIcons": [
       35,
@@ -15420,6 +15460,10 @@
       5,
       18398
     ],
+    "PCMailGFX": [
+      56,
+      31768
+    ],
     "PackGFX": [
       4,
       21553
@@ -16096,22 +16140,6 @@
       5,
       17417
     ],
-    "HeartEmote": [
-      5,
-      17673
-    ],
-    "BoltEmote": [
-      5,
-      17737
-    ],
-    "SleepEmote": [
-      5,
-      17801
-    ],
-    "FishEmote": [
-      5,
-      17865
-    ],
     "Shrink1Pic": [
       62,
       30142
@@ -16155,6 +16183,26 @@
     "SkiploomPokedexEntry": [
       106,
       22935
+    ],
+    "SleepEmote": [
+      5,
+      17801
+    ],
+    "Slots1LZ": [
+      36,
+      31138
+    ],
+    "Slots2LZ": [
+      36,
+      31522
+    ],
+    "Slots3LZ": [
+      36,
+      32130
+    ],
+    "SlotsTilemap": [
+      36,
+      30898
     ],
     "SlowbroBackpic": [
       26,
@@ -16355,6 +16403,14 @@
     "StaryuPokedexEntry": [
       105,
       22509
+    ],
+    "StatsScreenPagePals": [
+      2,
+      21715
+    ],
+    "StatsScreenPageTilesGFX": [
+      62,
+      19106
     ],
     "StatsScreen_PlaceFrontpic": [
       20,
@@ -17667,46 +17723,6 @@
     "wBaseUnusedFrontpic": [
       1,
       53554
-    ],
-    "Slots1LZ": [
-      36,
-      31138
-    ],
-    "Slots2LZ": [
-      36,
-      31522
-    ],
-    "Slots3LZ": [
-      36,
-      32130
-    ],
-    "SlotsTilemap": [
-      36,
-      30898
-    ],
-    "CardFlipLZ01": [
-      56,
-      21795
-    ],
-    "CardFlipLZ02": [
-      56,
-      22197
-    ],
-    "CardFlipLZ03": [
-      56,
-      21736
-    ],
-    "CardFlipOnButtonGFX": [
-      56,
-      21779
-    ],
-    "CardFlipOffButtonGFX": [
-      56,
-      21763
-    ],
-    "CardFlipTilemap": [
-      56,
-      22809
     ]
   },
   "tilesets": {

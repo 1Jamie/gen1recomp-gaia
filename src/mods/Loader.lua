@@ -119,6 +119,17 @@ local GEN1_ONLY_MODULES = {
   ["src.ui.OptionsMenu"] = true,
 }
 
+local function crossGenerationDenial(name, generation)
+  if type(name) ~= "string" or generation ~= 1 then return nil end
+  if not (name:find("^src%.[%w_]+%.gen2%.") or name == "src.core.Game2") then
+    return nil
+  end
+  return ("%s is a Gen 2 engine module and this is a Gen 1 game; the structs "
+    .. "it reads and writes are not this game's, so anything it stores lands "
+    .. "on the save in the wrong shape. Take the game from mod.game and the "
+    .. "world from mod.world, which resolve per generation"):format(name)
+end
+
 -- the src.* modules the mod surface points authors at: another mod's
 -- exports carry a version string that wants range-checking before use, and
 -- ChipAsm is the authoring path for chip music and sfx
@@ -214,6 +225,7 @@ function Loader:_installDevShim()
       if owner or callerIsMod(3) then
         local id = type(owner) == "string" and owner or nil
         local denial = Sandbox.moduleDenial(name, devShim.permissions[id])
+          or (id and crossGenerationDenial(name, devShim.generation))
         if denial then error(("[%s] %s"):format(id or "mod", denial), 0) end
       end
       if devShim.dev or devShim.generation ~= 1 then scanRequire(name) end
