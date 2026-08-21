@@ -785,6 +785,14 @@ REQUIRED_SYMBOLS = {
     "KabutoPuzzleLZ", "OmanytePuzzleLZ", "AerodactylPuzzleLZ", "HoOhPuzzleLZ",
     "UnownPuzzleStartCancelLZ", "UnownPuzzleCursorGFX",
     "PuzzlePieceBorderData.TileBordersGFX",
+    # Goldenrod Game Corner (engine/games/slot_machine.asm + card_flip.asm).
+    # Slots1LZ/2LZ/3LZ are the reel + actor sheets; SlotsTilemap is the 20x12
+    # BG map.  CardFlipLZ01..03 + On/Off button tiles and CardFlipTilemap are
+    # the odds-board art.  Without these in the manifest the extractor skips
+    # the files and SlotMachine/CardFlip fall back to labelled cells.
+    "Slots1LZ", "Slots2LZ", "Slots3LZ", "SlotsTilemap",
+    "CardFlipLZ01", "CardFlipLZ02", "CardFlipLZ03",
+    "CardFlipOnButtonGFX", "CardFlipOffButtonGFX", "CardFlipTilemap",
     # Emote bubbles (data/sprites/emotes.asm): showemote's ! over a trainer
     # who just spotted the player, and the other faces scripts use.
     "ShockEmote", "QuestionEmote", "HappyEmote", "SadEmote",

@@ -140,6 +140,12 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- before the four ball tiles were extracted (#1502).
     "assets/generated/battle/hud/balls.png",
     "assets/generated/audio/programs.bin",
+    -- Goldenrod Game Corner reel + board art (#1581).  menu_gfx.lua used to
+    -- advertise these paths even when Slots*LZ / CardFlip* were absent from
+    -- the manifest, so a cache that never wrote the PNGs still looked
+    -- complete and SlotMachine crashed on its labelled-cell fallback.
+    "assets/generated/slots/gold_slots_1.png",
+    "assets/generated/card_flip/card_flip_1.png",
   },
 }
 -- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
