@@ -1,4 +1,5 @@
 local GameVersion = require("src.core.GameVersion")
+local CacheFormat = require("src.import.CacheFormat")
 local GamepadMap = require("src.core.GamepadMap")
 local Logger = require("src.core.Logger")
 local Strings = require("src.core.Strings")
@@ -41,7 +42,6 @@ end
 -- the stage, which is what the Yellow markers below already do for #439/#557.
 -- Reach for a bump when the change spans versions or has no single file to
 -- point at.
-local CACHE_FORMAT = "rom-cache-v10:"
 -- The completion marker is written under each version's cache prefix
 -- (red/rom-cache.complete, blue/rom-cache.complete, ...).
 local MARKER_PATH = "rom-cache.complete"
@@ -49,7 +49,7 @@ local MARKER_PATH = "rom-cache.complete"
 -- The marker a finished import writes for a version: the generation tag plus
 -- that version's ROM hash, so both a format bump and a swapped ROM invalidate.
 local function markerFor(version)
-  return CACHE_FORMAT .. GameVersion.info(version).sha1
+  return CacheFormat.markerFor(version)
 end
 local COMMUNITY_URL = "https://bois.icu"
 local TRUST_WARNING = "if you did not get this from bryanthaboi's github " ..

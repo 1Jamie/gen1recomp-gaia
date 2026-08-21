@@ -200,6 +200,42 @@ the adapter's own coverage table:
 python3 tools/modkit.py gen2check mods/my_mod
 ```
 
+## Imported version datasets
+
+A mod can inspect semantic content from another game the player has already
+imported without switching the active game or reaching into engine cache
+internals:
+
+```lua
+local gold, reason = mod.datasets:open("gold")
+if not gold then
+  -- reason is "unknown_version" or "not_imported"
+  return
+end
+
+local chikorita = gold.content.pokemon:get("CHIKORITA")
+local normalVsGhost = gold.content.type_chart:get("NORMAL>GHOST")
+local spritePath = gold.assets:path(chikorita.spriteFront)
+
+for id, record in gold.content.pokemon:each() do
+  -- ids are returned in deterministic lexical order
+end
+```
+
+`view.version` and `view.generation` identify the selected dataset.
+`view.content` exposes the same registry names and generation-specific record
+shapes as `mod.content`, but only `get`, `has`, and `each`; returned
+records are detached copies and cannot mutate either dataset. Each open call
+receives an independent facade, so one mod cannot replace another mod view method. Engine-provided
+semantic records, such as `NORMAL>GHOST` type matchups, are included.
+
+Only a cache carrying the current engine completion marker is opened. Missing
+and stale imports both return `nil, "not_imported"`; no raw ROM bytes or
+generated Lua modules are exposed. `view.assets:path(relative)` and
+`view.assets:info(relative)` accept only `assets/generated/...` paths and
+keep them under the selected version cache prefix. The API never changes
+`mod.game`, the active `Data` table, `GameVersion`, or cache mount state.
+
 ## Editing maps in Tiled
 
 Maps are data, not assets, so they can be authored in a real map editor and

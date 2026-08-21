@@ -983,6 +983,15 @@ function Loader:_api(mod)
     -- a deep copy: what a mod does to its own view never reaches the loader
     manifest = Merge.deepCopy(mod.manifest),
     content = {},
+    datasets = {
+      open = function(_, version)
+        if not loader.datasetViews then
+          local DatasetViews = engineRequire("src.mods.DatasetViews")
+          loader.datasetViews = DatasetViews.new(loader.fs)
+        end
+        return loader.datasetViews:open(version)
+      end,
+    },
     exports = {},
     DELETE = Registry.DELETE,
     events = {
