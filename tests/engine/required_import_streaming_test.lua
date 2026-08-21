@@ -154,7 +154,8 @@ local failedSeek = importer:_importRequiredSource(
 RequiredImports.LARGE_WARN_BYTES = oldWarn
 io.open = realIoOpen
 T.eq(failedSeek, nil, "failed native rewind rejects import source")
-T.ok(fakeCloses >= 2, "failed native rewind closes probed source handles")
+T.eq(fakeCloses >= 2, true,
+  "failed native rewind closes probed source handles")
 
 love.filesystem.remove("mods/stream_probe/baseroms/source.bin")
 love.filesystem.remove("mods/stream_probe/baseroms/source.iso")
