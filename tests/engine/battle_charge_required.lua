@@ -157,6 +157,11 @@ do
   T.eq(player.volatile.chargeMove, "SOLARBEAM",
     "Gold no-mod stores Solarbeam without sun")
   T.eq(move.pp, 9, "Gold no-mod charge spends one PP")
+  battle:useMove(player, wild, "SOLARBEAM")
+  T.check(wild.hp < hp, "Gold no-mod continuation resolves damage")
+  T.eq(player.volatile.chargeMove, nil,
+    "Gold no-mod continuation clears stored charge state")
+  T.eq(move.pp, 9, "Gold no-mod continuation spends no second PP")
 
   battle, player, wild, move = gen2Battle("SOLARBEAM", "sun")
   hp = wild.hp
@@ -273,6 +278,35 @@ do
   }, "Gold receives the same generation-neutral hook context")
 
   local calls = out.calls
+  battle, player, wild, move = gen2Battle("DIG")
+  hp = wild.hp
+  battle:useMove(player, wild, "DIG")
+  T.eq(wild.hp, hp, "Gold next(ctx) keeps the initial charge turn")
+  T.eq(player.volatile.chargeMove, "DIG",
+    "Gold next(ctx) stores the selected charge move")
+  T.eq(player.volatile.vanished, true,
+    "Gold next(ctx) preserves semi-invulnerability")
+  T.eq(move.pp, 9, "Gold next(ctx) spends one PP on the charge turn")
+  T.eq(out.calls, calls + 1,
+    "Gold next(ctx) invokes the hook once on initial use")
+  battle:useMove(player, wild, "DIG")
+  T.check(wild.hp < hp, "Gold next(ctx) release resolves damage")
+  T.eq(out.calls, calls + 1,
+    "Gold release does not invoke the charge hook again")
+  T.eq(move.pp, 9, "Gold release spends no second PP")
+
+  calls = out.calls
+  battle, player, wild, move = gen2Battle("TACKLE")
+  battle.copyDepth = 1
+  battle:useMove(player, wild, "FLY")
+  T.eq(out.calls, calls + 1, "a called Gold charge move invokes the hook")
+  T.eq(out.last and out.last.isCalled, true,
+    "the Gold context marks a called charge move")
+  T.eq(move.pp, 10, "a called Gold move spends no known-move PP")
+  T.eq(player.volatile.chargeMove, "FLY",
+    "a called Gold charge move can keep its charge through next(ctx)")
+
+  calls = out.calls
   battle, player, wild, move = gen2Battle("SOLARBEAM", "sun")
   hp = wild.hp
   battle:useMove(player, wild, "SOLARBEAM")
