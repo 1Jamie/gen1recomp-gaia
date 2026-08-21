@@ -70,6 +70,9 @@ function StartMenu.new(game)
     -- leaves it up under the prompt -- engine/menus/main_menu.asm:381-405
     local panel
     panel = {
+      -- the panel overlaps the kept-open START menu box (start_sub_menus.asm:
+      -- 641-647), so neither can be docked to a screen edge on its own
+      holdsUIAnchors = true,
       delay = 0,
       update = function()
         -- ld c, 30 / jp DelayFrames: the bare panel holds before the
