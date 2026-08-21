@@ -293,7 +293,9 @@ function TouchControls:applyOptions(opts)
   -- launcher editor round-trips through config() (#806)
   self.haptics = TouchControls.normalizeHaptics(opts and opts.haptics)
   TouchSkin.setOverlayLive(self.active)
-  self:selectSkin(cfg.skin)
+  -- Off means off everywhere: do not leave a hidden selected skin behind to
+  -- influence renderer placement on desktop or with a controller attached.
+  self:selectSkin(cfg.enabled and cfg.skin or nil)
   self.layouts = cfg.layouts
   self.layoutW, self.layoutH = nil, nil
   self.layoutOx, self.layoutOy = nil, nil
@@ -335,7 +337,10 @@ function TouchControls:visible()
   local art = TouchSkin.active ~= nil or self.img ~= nil
   if self.preview then return art end
   if self.enabled == false or not art then return false end
-  if TouchSkin.active and TouchSkin.decorativeOnly() then return true end
+  -- A selected skin is also a desktop/TV bezel.  Input remains gated in
+  -- touchpressed, but the artwork must not disappear when a controller is
+  -- connected or the platform is not touch-first.
+  if TouchSkin.active then return true end
   return self.active and not self.controllerHidden
 end
 
@@ -778,12 +783,19 @@ local function drawIcon(img, zone, pressed, alphaMul)
                      zone.cy - img:getHeight() * scale / 2, 0, scale, scale)
 end
 
-local function drawStretched(img, x, y, w, h, alpha)
+local function drawCovered(img, x, y, w, h, alpha)
   if not img or alpha <= 0 then return end
   local iw, ih = img:getWidth(), img:getHeight()
   if iw <= 0 or ih <= 0 then return end
+  -- Cover the assigned box with one uniform scale and crop the excess.  The
+  -- old independent X/Y scale made portrait art visibly squash on wide
+  -- displays (and vice versa).
+  local s = math.max(w / iw, h / ih)
+  local dw, dh = iw * s, ih * s
   love.graphics.setColor(1, 1, 1, math.min(1, alpha))
-  love.graphics.draw(img, x, y, 0, w / iw, h / ih)
+  love.graphics.setScissor(x, y, w, h)
+  love.graphics.draw(img, x + (w - dw) * 0.5, y + (h - dh) * 0.5, 0, s, s)
+  love.graphics.setScissor()
 end
 
 function TouchControls:drawSkin(alphaMul)
@@ -795,7 +807,7 @@ function TouchControls:drawSkin(alphaMul)
 
   love.graphics.push("all")
   love.graphics.origin()
-  drawStretched(page.image, bx, by, bw, bh, opacity)
+  drawCovered(page.image, bx, by, bw, bh, opacity)
 
   local pressed = {}
   for _, touch in pairs(self.touches or {}) do
@@ -810,7 +822,7 @@ function TouchControls:drawSkin(alphaMul)
         TouchSkin.controlGeometry(page, ctl, ww, wh, sox, soy)
       local alpha = opacity
       if down and not ctl.pressedImage then alpha = opacity * ctl.alphaMod end
-      drawStretched(img, cx - halfW, cy - halfH, halfW * 2, halfH * 2, alpha)
+      drawCovered(img, cx - halfW, cy - halfH, halfW * 2, halfH * 2, alpha)
     end
   end
 

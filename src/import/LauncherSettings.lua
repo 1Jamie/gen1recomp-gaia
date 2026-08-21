@@ -6,8 +6,8 @@
 -- options.lua table (src/core/SaveData.loadOptions/saveOptions) and lets the
 -- next boot's applyOptions pick the values up.  Every ladder mirrors
 -- OptionsMenu's semantics and stored values; when editing one, keep the two
--- in sync.  ZOOM is deliberately absent: its range depends on the live
--- renderer's fit scale (Renderer:fitScale), which does not exist here.
+-- in sync.  ZOOM uses the live window's integer fit (same 160×144 rule as
+-- Renderer:fitScale) so the row can offer OUT/FIT/IN without a running game.
 --
 -- Rows are the same descriptor idiom OptionRows draws in game:
 --   { label, value = fn() -> string, step = fn(dir) -> changed,
@@ -274,6 +274,16 @@ local function coreRows(opts, hooks)
       function() return GBCFX.levelLabel(opts.gbcfx or 0) end,
       function(dir)
         opts.gbcfx = wrapIndex((opts.gbcfx or 0) + dir, 5)
+        return true
+      end)
+  end
+
+  local okZ, Zoom = pcall(require, "src.render.Zoom")
+  if okZ then
+    add(Strings("ZOOM"),
+      function() return Zoom.offsetLabel(opts.zoom or 0) end,
+      function(dir)
+        Zoom.nudgeOptions(opts, dir, Zoom.windowFitScale())
         return true
       end)
   end
@@ -639,6 +649,16 @@ local function gen2Rows(opts, hooks)
       function() return Tilt.levelLabel(opts.tilt or 0) end,
       function(dir)
         opts.tilt = wrapIndex((opts.tilt or 0) + dir, 4)
+        return true
+      end)
+  end
+
+  local okZ, Zoom = pcall(require, "src.render.Zoom")
+  if okZ then
+    add(Strings("ZOOM"),
+      function() return Zoom.offsetLabel(opts.zoom or 0) end,
+      function(dir)
+        Zoom.nudgeOptions(opts, dir, Zoom.windowFitScale())
         return true
       end)
   end

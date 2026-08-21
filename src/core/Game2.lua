@@ -1955,7 +1955,11 @@ function Game2:applyOptions()
   local options = self.options or {}
   Music.applyOptions(options)
   require("src.core.Sound").applyOptions(options)
-  require("src.render.Zoom").applyOptions(options)
+  local Zoom = require("src.render.Zoom")
+  Zoom.applyOptions(options)
+  local caps = require("src.core.Performance").applyOptions(options)
+  Zoom.allowSurvey = caps.survey
+  if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
   require("src.render.Tilt").applyOptions(options)
   require("src.render.GbcPalette").applyOptions(options)
   -- engine/gfx/load_font.asm:29 LoadFrame, off options.lua's wTextboxFrame.

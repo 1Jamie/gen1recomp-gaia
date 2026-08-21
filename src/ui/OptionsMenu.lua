@@ -381,14 +381,7 @@ local function buildRows(game)
         return Zoom.offsetLabel(g.save.options.zoom or 0)
       end,
       step = function(g, dir)
-        local o = g.save.options
-        local S = Renderer:fitScale()
-        local lo, hi = Zoom.offsetRange(S)
-        local off = (o.zoom or 0) + dir
-        if off > hi then off = lo
-        elseif off < lo then off = hi end
-        o.zoom = off
-        Zoom.offset = off
+        Zoom.nudgeOptions(g.save.options, dir, Renderer:fitScale())
         return true
       end },
     { id = "voidFill", label = Strings("VOID FILL"),

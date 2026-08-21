@@ -45,6 +45,15 @@ for _, version in ipairs({ "gold", "silver" }) do
   check(has(model, "VIBRATION"), version .. " and VIBRATION")
   check(has(model, "TOUCH CONTROLS"), version .. " and the layout editor")
   check(has(model, "VOID FILL"), version .. " and VOID FILL")
+  check(has(model, "ZOOM"), version .. " and ZOOM")
+
+  local zoom = findRow(model, "ZOOM")
+  eq(zoom.value(), "FIT", version .. " ZOOM defaults to FIT")
+  zoom.step(-1)
+  eq(model.opts.gold.zoom, -1, version .. " left stores OUT1 in the gold block")
+  eq(zoom.value(), "OUT1", version .. " and the row reads OUT1")
+  zoom.step(1)
+  eq(model.opts.gold.zoom, 0, version .. " right restores FIT")
 
   local voidFill = findRow(model, "VOID FILL")
   eq(voidFill.value(), "FADE ", version .. " VOID FILL defaults to FADE")

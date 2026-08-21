@@ -3197,6 +3197,10 @@ function RomImporter:_ensureSkins(force)
       format = skin and skin.format or nil,
       pages = skin and #skin.pages or 0,
       controls = controls,
+      -- The launcher owns the visual skin picker, so retain the already
+      -- loaded first-page bezel for its preview card instead of decoding it
+      -- again every frame.
+      preview = page and page.image or nil,
       screen = page ~= nil
         and (page.viewport ~= nil or page.screenFit == "remainder"),
       ok = skin ~= nil,
@@ -3209,7 +3213,7 @@ end
 function RomImporter:_activeSkin()
   local opts = require("src.core.SaveData").loadOptions()
   local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
-  return tc.skin
+  return tc.enabled == false and nil or tc.skin
 end
 
 function RomImporter:_useSkin(id)
@@ -3224,6 +3228,16 @@ function RomImporter:_useSkin(id)
     ok = true,
     text = id and ("Now using " .. id) or "Now using the built-in pad",
   }
+end
+
+function RomImporter:_disableSkins()
+  local SaveData = require("src.core.SaveData")
+  local opts = SaveData.loadOptions()
+  local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
+  tc.enabled, tc.skin = false, nil
+  opts.touchControls = tc
+  SaveData.saveOptions(opts)
+  self._skinNotice = { ok = true, text = "Skins are off. Mobile will use the built-in pad when needed." }
 end
 
 function RomImporter:_installSkinZip(source)

@@ -302,6 +302,8 @@ local function makeLauncher()
     forceImport = forceImport,
     onEditSave = openEditor,
     onEditTouchControls = openTouchControlsEditor,
+    -- Skin Studio owns a touch-first layout as well as the desktop workspace.
+    -- Keep the compatibility predicate so external hosts using it still work.
     onOpenSkinStudio = require("src.ui.SkinStudio").available_desktop()
       and openSkinStudio or nil,
   })
@@ -931,7 +933,7 @@ function love.touchpressed(id, x, y, dx, dy, pressure)
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchpressed(id, x, y)
   end
-  if Studio then return end
+  if Studio then return Studio.touchpressed(id, x, y) end
   if Importer then
     -- Both mobiles: FlexLove scroll needs the real touch stream. Clicks are
     -- polled inside the view; the istouch filter on mousepressed still drops
@@ -948,7 +950,7 @@ function love.touchmoved(id, x, y, dx, dy, pressure)
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchmoved(id, x, y)
   end
-  if Studio then return end
+  if Studio then return Studio.touchmoved(id, x, y) end
   if Importer then
     return Importer:touchmoved(id, x, y, dx, dy, pressure)
   end
@@ -962,7 +964,7 @@ function love.touchreleased(id, x, y, dx, dy, pressure)
     if love.system.getOS() == "iOS" then return end
     return TouchEditor.touchreleased(id, x, y)
   end
-  if Studio then return end
+  if Studio then return Studio.touchreleased(id, x, y) end
   if Importer then
     return Importer:touchreleased(id, x, y, dx, dy, pressure)
   end
@@ -1015,7 +1017,12 @@ function love.mousepressed(x, y, button, istouch)
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousepressed(x, y, button)
   end
-  if Studio then return Studio.mousepressed(x, y, button) end
+  if Studio then
+    -- Mobile LÖVE sends both a touch event and an `istouch` mouse twin.
+    -- Studio consumes the real finger stream above, so discard the twin.
+    if istouch and (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then return end
+    return Studio.mousepressed(x, y, button)
+  end
   if Importer then
     -- love.touchpressed already forwards the primary touch into FlexLove for
     -- scroll. LÖVE ALSO synthesizes a mouse press for that same touch; if both
@@ -1050,7 +1057,10 @@ function love.mousereleased(x, y, button, istouch)
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousereleased(x, y, button)
   end
-  if Studio then return Studio.mousereleased(x, y, button) end
+  if Studio then
+    if istouch and (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then return end
+    return Studio.mousereleased(x, y, button)
+  end
   if Importer then return end
   if editorMode and EditorApp.mousereleased then
     return EditorApp.mousereleased(x, y, button)
@@ -1068,7 +1078,10 @@ function love.mousemoved(x, y, dx, dy, istouch)
     if love.system.getOS() == "Android" then return end
     return TouchEditor.mousemoved(x, y)
   end
-  if Studio then return Studio.mousemoved(x, y) end
+  if Studio then
+    if istouch and (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then return end
+    return Studio.mousemoved(x, y)
+  end
   if editorMode or Importer then return end
   if mouseTouch then
     if Game and love.mouse.isDown(1) then Game:touchmoved("mouse", x, y) end

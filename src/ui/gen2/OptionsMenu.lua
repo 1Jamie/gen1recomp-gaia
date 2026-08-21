@@ -123,13 +123,11 @@ local ROWS = {
   { label = "ZOOM", key = "zoom", port = true,
     cycle = function(options, delta, game)
       local Zoom = require("src.render.Zoom")
-      local scale = (game and game.world and game.world.fitScale
-        and game.world:fitScale()) or 1
-      local lo, hi = Zoom.offsetRange(scale)
-      local offset = (options.zoom or 0) + delta
-      if offset > hi then offset = lo elseif offset < lo then offset = hi end
-      options.zoom = offset
-      Zoom.offset = offset
+      local scale = Zoom.windowFitScale()
+      if game and game.world and game.world.fitScale then
+        scale = game.world:fitScale()
+      end
+      Zoom.nudgeOptions(options, delta, scale)
     end,
     text = function(options)
       return require("src.render.Zoom").offsetLabel(options.zoom or 0)
