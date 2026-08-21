@@ -74,6 +74,20 @@ local importer = setmetatable({
   _refreshMods = function(self) self._refreshed = true end,
 }, RomImporter)
 
+-- Reproduce the Windows failure seen with a 1.46 GiB optical-disc image:
+-- after the user accepts the "Large import" confirmation, the old path calls
+-- love.filesystem.read(source) and attempts to materialize the entire source as
+-- one Lua string. A large raw source must go straight to the streaming branch.
+local ordinaryLoveRead = love.filesystem.read
+local forbiddenWholeSourceReads = 0
+love.filesystem.read = function(path, ...)
+  if path == source then
+    forbiddenWholeSourceReads = forbiddenWholeSourceReads + 1
+    error("large external required import used whole-file love.filesystem.read")
+  end
+  return ordinaryLoveRead(path, ...)
+end
+
 -- Exercise the exact large-file branch with tiny fixture bytes by lowering the
 -- threshold for this test. Production keeps the 128 MiB confirmation/streaming
 -- threshold; the copy/hash algorithm is identical.
@@ -81,8 +95,11 @@ local oldWarn = RequiredImports.LARGE_WARN_BYTES
 RequiredImports.LARGE_WARN_BYTES = 2
 local ok = importer:_importRequiredSource("stream_probe", "source", source, true)
 RequiredImports.LARGE_WARN_BYTES = oldWarn
+love.filesystem.read = ordinaryLoveRead
 
 T.eq(ok, true, "large raw required import streams successfully")
+T.eq(forbiddenWholeSourceReads, 0,
+  "post-confirm large import never materializes the external source as one Lua string")
 T.eq(love.filesystem.read("mods/stream_probe/baseroms/source.bin"), "abc",
   "streamed destination preserves exact source bytes")
 T.eq(importer.requiredImportNotice, nil, "successful stream leaves no import error")
