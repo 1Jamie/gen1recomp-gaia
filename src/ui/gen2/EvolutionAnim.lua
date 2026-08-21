@@ -40,8 +40,6 @@ local EvolutionAnim = {}
 EvolutionAnim.__index = EvolutionAnim
 EvolutionAnim.isOpaque = true
 
-local SCREEN_W, SCREEN_H = 160, 144
-
 -- PrepMonFrontpic's box: hlcoord 7, 2, `lb bc, 7, 7`.
 local PIC_TILE_X, PIC_TILE_Y, PIC_TILES = 7, 2, 7
 
@@ -573,8 +571,7 @@ function EvolutionAnim:drawWidescreen(winW, winH)
   G.rectangle("fill", 0, 0, winW, winH)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
-  G.translate(math.floor((winW - SCREEN_W * scale) / 2),
-    math.floor((winH - SCREEN_H * scale) / 2))
+  G.translate(Chrome.fitOrigin(winW, winH, scale))
   G.scale(scale, scale)
   self:drawPanel()
   G.pop()

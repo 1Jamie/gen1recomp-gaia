@@ -110,4 +110,21 @@ eq(sy, cy2, "with a skin the Gold origin ignores the mode")
 TouchSkin.setActive(nil)
 ScreenPosition.setMode("center")
 
+-- A hand-rolled centre in drawWidescreen skips the lift and the playfield
+-- rect that Chrome.fitOrigin carries.
+local listing = assert(io.popen('grep -rln "drawWidescreen" src/ui/gen2'))
+local offenders = {}
+for path in listing:lines() do
+  local f = assert(io.open(path, "r"))
+  local body = f:read("*a")
+  f:close()
+  if body:find("winH %- %d+ %* scale")
+    or body:find("winH %- SCREEN_H %* scale") then
+    offenders[#offenders + 1] = path
+  end
+end
+listing:close()
+check(#offenders == 0, "no Gold screen centres its widescreen panel by hand: "
+  .. table.concat(offenders, " "))
+
 T.finish("screen_position")
