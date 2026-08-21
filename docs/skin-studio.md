@@ -209,8 +209,20 @@ New/Load workspace controls are deliberately not duplicated inside that editor.
 
 The editor keeps its canvas unobstructed and puts the contextual actions in a
 compact lower tray: add/control binding, button and bezel artwork, pages,
-screen placement, freeform/10:9 screen shape and deletion. Touches select, drag and resize the
+screen placement, freeform/10:9 screen shape and deletion. **Screen** opens
+cutout, bezel-hole detect, **Detect this screen**, and the canvas presets.
+**Detect this screen** (also on the tray) sets the mock device to the live
+window size so a phone skin is authored at that phone's form factor rather
+than a generic 1080x1920 16:9. **Zoom −** shrinks the mock device inside the
+workspace so the screen hole can be dragged larger than the bezel while the
+handles stay grabable; **Fit** restores contain. The mouse wheel over the
+canvas, and `-` / `=` / `0` on a keyboard, do the same. Touches select, drag and resize the
 same controls that a mouse edits on desktop.
+
+My Skins and the editor chrome sit inside the platform safe area (notch,
+status bar, home indicator), the same inset the launcher uses. The mock
+device still represents the full window, because a skin covers the whole
+screen at play time.
 
 The launcher’s **Turn skins off** button clears the selected skin and disables
 skin use. With no skin enabled, mobile falls back to the built-in pad; that pad
@@ -222,6 +234,7 @@ phone proportions on a desktop monitor.
 | Preset | Size |
 | --- | --- |
 | Phone portrait / landscape | 1080x1920, 1920x1080 |
+| This screen | the live window, so a phone is authored at its own height |
 | Tablet portrait / landscape | 1536x2048, 2048x1536 |
 | Steam Deck | 1280x800 |
 | Desktop 1080p | 1920x1080 |

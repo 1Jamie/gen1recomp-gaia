@@ -23,6 +23,7 @@ local function session()
   Studio.pageIndex = 1
   Studio.selected = nil
   Studio.canvasIndex = 1
+  Studio.viewZoom = 1
   Studio.aspectLock = true
   Studio.drag = nil
   Studio.dirty = false
@@ -73,11 +74,16 @@ eq(Studio.selected, nil, "and clears the selection")
 
 local ids = {}
 for _, c in ipairs(Studio.CANVASES) do
-  check(c.w > 0 and c.h > 0, c.id .. " has real pixel dimensions")
+  if c.live then
+    check(c.id == "this_device", "the live preset is this screen")
+  else
+    check(c.w > 0 and c.h > 0, c.id .. " has real pixel dimensions")
+  end
   check(not ids[c.id], c.id .. " appears once")
   ids[c.id] = true
 end
 check(ids.phone_portrait, "a phone portrait preset exists")
+check(ids.this_device, "a this-screen live preset exists")
 check(ids.desktop_1080, "a desktop preset exists")
 check(ids.ultrawide, "an ultrawide preset exists")
 check(ids.sgb_border, "a Super Game Boy border preset exists")
@@ -105,15 +111,43 @@ check(Studio.page().viewport ~= nil, "the SGB cutout cannot be toggled off")
 Studio.setCanvas(#Studio.CANVASES + 1)
 eq(Studio.canvasIndex, 1, "canvas selection wraps")
 
--- ------------------------------------------------------------ canvas fit
-
 Studio.setCanvas(1)
+Studio.viewZoom = 1
 local cx, cy, cw, ch = Studio.canvasRect(0, 0, 800, 600)
 near(cw / ch, Studio.canvas().w / Studio.canvas().h, 1e-6,
      "the mock device keeps its aspect")
 check(cw <= 800 + 1e-6 and ch <= 600 + 1e-6, "and fits inside the workspace")
 near(cx + cw / 2, 400, 1e-6, "centred horizontally")
 near(cy + ch / 2, 300, 1e-6, "centred vertically")
+
+eq(Studio.zoomOut(), 0.75, "zoom out steps to 75%")
+local zx, zy, zw, zh = Studio.canvasRect(0, 0, 800, 600)
+near(zw, cw * 0.75, 1e-6, "zoom out shrinks the mock device")
+near(zh, ch * 0.75, 1e-6, "on both axes")
+near(zx + zw / 2, 400, 1e-6, "and stays centred")
+near(zw / zh, cw / ch, 1e-6, "keeping the same aspect")
+check(zw < cw, "so there is margin around the device for a larger screen hole")
+eq(Studio.zoomIn(), 1, "zoom in restores fit")
+eq(Studio.zoomOut(), 0.75)
+eq(Studio.zoomOut(), 0.5)
+eq(Studio.zoomOut(), 0.35)
+eq(Studio.zoomOut(), 0.35, "zoom out stops at the smallest level")
+eq(Studio.zoomFit(), 1, "fit snaps back to contain")
+
+local oldDims = love.graphics.getDimensions
+love.graphics.getDimensions = function() return 1170, 2532 end
+session()
+local live = Studio.detectDeviceCanvas()
+eq(live.id, "this_device", "detect this screen selects the live canvas")
+eq(live.w, 1170, "at the window width")
+eq(live.h, 2532, "and the window height")
+eq(Studio.canvas().w / Studio.canvas().h, 1170 / 2532,
+   "so the mock device is this screen's form factor")
+Studio.matchOrient = true
+Studio.syncCanvasToPage()
+eq(Studio.canvas().id, "this_device",
+   "Match canvas leaves the live screen selected")
+love.graphics.getDimensions = oldDims
 
 -- ----------------------------------------------------------- touch bridge
 
