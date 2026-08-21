@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.16",
+          "date": "2026-08-21",
+          "size": 13769300,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.16/gen1recomp++-0.2.16-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1367 Android auto scrolling  down bug\n- #1570 Pokemon Gold isn't noticing my controller inputs on...ANY controller I own, despite all of them working in the other games, and in the main launcher\n- #1585 Power-saving mode or dark mode closes the game on Android.\n- #1611 bug: keyboard gets stuck IOS\n- #1612 Fold 7 infinite scrolling mouse.\n- #1636 Game freezes when trainer battle starts\n- #1638 Game screen orientation on smartphone\n- #1641 [Gold] [Android] PKMN Evolutions sequence freezes the Game \n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @HighDrexler\n- MaxTomahawk"
+        },
+        {
           "version": "0.2.15",
           "date": "2026-08-21",
           "size": 13753007,
