@@ -294,7 +294,6 @@ function TouchSkin.parse(text)
       page.viewport = { x = num(vp[1], 0), y = num(vp[2], 0),
                         w = num(vp[3], 1), h = num(vp[4], 1) }
       page.viewportFill = toBool(kv[p .. "_viewport_fill"])
-      page.viewportExpand = toBool(kv[p .. "_viewport_expand"])
     end
 
     page.pixelCoords = not page.normalized
@@ -447,7 +446,6 @@ function TouchSkin.parseNative(text)
       page.viewport = { x = num(raw.viewport.x, 0), y = num(raw.viewport.y, 0),
                         w = num(raw.viewport.w, 1), h = num(raw.viewport.h, 1) }
       page.viewportFill = raw.viewport.fill == true
-      page.viewportExpand = raw.viewport.expand == true
     end
     for _, c in ipairs(raw.controls or {}) do
       local buttons, hotkeys, keys, decorative = parseBinds(c.bind or "nul")
@@ -526,7 +524,6 @@ function TouchSkin.toNative(skin)
         x = page.viewport.x, y = page.viewport.y,
         w = page.viewport.w, h = page.viewport.h,
         fill = page.viewportFill or nil,
-        expand = page.viewportExpand or nil,
       }
     end
     for _, ctl in ipairs(page.controls or {}) do
@@ -922,7 +919,6 @@ function TouchSkin.toRetroArchConfig(skin)
     if page.viewport then
       out[#out + 1] = p .. "_viewport = " .. fmtRect(page.viewport)
       if page.viewportFill then out[#out + 1] = p .. "_viewport_fill = true" end
-      if page.viewportExpand then out[#out + 1] = p .. "_viewport_expand = true" end
     end
     local controls = {}
     for _, ctl in ipairs(page.controls or {}) do
@@ -1434,6 +1430,16 @@ local function remainderBox(ox, oy, w, h, bx, by, bw, bh)
   return best[1], best[2], best[3], best[4]
 end
 
+-- The deck box pinned to the lower edge (see pageBox) leaves room above it
+-- that belongs to the game, so a screen rect flush with the top of the deck
+-- grows into it instead of showing a black band.
+local function deckHeadroom(y, vh, by, bh, oy, h)
+  if by <= oy + 0.5 then return y, vh end
+  if by + bh < oy + h - 0.5 then return y, vh end
+  if y - by > math.max(2, bh * 0.01) then return y, vh end
+  return oy, vh + (y - oy)
+end
+
 function TouchSkin.pageViewport(page, w, h, ox, oy)
   if not page then return nil end
   ox, oy = ox or 0, oy or 0
@@ -1443,12 +1449,13 @@ function TouchSkin.pageViewport(page, w, h, ox, oy)
     local x, y = bx + v.x * bw, by + v.y * bh
     local vw, vh = v.w * bw, v.h * bh
     if vw <= 0 or vh <= 0 then return nil end
-    return x, y, vw, vh, page.viewportFill == true, page.viewportExpand == true
+    y, vh = deckHeadroom(y, vh, by, bh, oy, h)
+    return x, y, vw, vh, page.viewportFill == true
   end
   if page.screenFit == "remainder" then
     local x, y, vw, vh = remainderBox(ox, oy, w, h, bx, by, bw, bh)
     if not x then return nil end
-    return x, y, vw, vh, false, false
+    return x, y, vw, vh, false
   end
   return nil
 end

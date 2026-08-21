@@ -111,6 +111,25 @@ check(Studio.page().viewport ~= nil, "the SGB cutout cannot be toggled off")
 Studio.setCanvas(#Studio.CANVASES + 1)
 eq(Studio.canvasIndex, 1, "canvas selection wraps")
 
+-- the preview must lay the page out the way the game will, so a preset never
+-- overwrites the aspect the bezel art (or a cfg) already fixed
+session()
+local art = Studio.page()
+art.aspect, art.aspectFromImage = 0.5625, true
+Studio.setCanvas(1)
+near(art.aspect, 0.5625, 1e-9, "bezel art keeps its own aspect on a preset switch")
+local deckW, deckH = 900, 1700
+local _, dby, _, dbh = TouchSkin.pageBox(art, deckW, deckH)
+check(dby > 0 and math.abs(dby + dbh - deckH) < 1e-6,
+      "so a preset taller than the art pins the deck low, as gameplay does")
+
+session()
+local plain = Studio.page()
+plain.aspect, plain.aspectFromImage, plain.aspectFromCfg = nil, nil, nil
+Studio.setCanvas(1)
+near(plain.aspect, Studio.canvas().w / Studio.canvas().h, 1e-9,
+     "a page with no art of its own still takes the preset's aspect")
+
 Studio.setCanvas(1)
 Studio.viewZoom = 1
 local cx, cy, cw, ch = Studio.canvasRect(0, 0, 800, 600)

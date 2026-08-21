@@ -87,12 +87,12 @@ local function displayMetrics()
   if dpiX < 1e-6 then dpiX = 1 end
   if dpiY < 1e-6 then dpiY = 1 end
   local vx, vy = 0, 0
-  local cut, grow = false, false
-  local sx, sy, sw, sh, _, expand = Playfield.cutout(pw, ph)
+  local cut = false
+  local sx, sy, sw, sh = Playfield.cutout(pw, ph)
   if sx then
-    vx, vy, pw, ph, cut, grow = sx, sy, sw, sh, true, expand
+    vx, vy, pw, ph, cut = sx, sy, sw, sh, true
   end
-  return ww, wh, pw, ph, dpiX, dpiY, vx, vy, cut, grow
+  return ww, wh, pw, ph, dpiX, dpiY, vx, vy, cut
 end
 
 local function positionLift(ph, contentPx, dpiY, cut)
@@ -275,7 +275,7 @@ end
 -- corners; flat mode returns exactly today's size (growth factor is 1 when
 -- tilt is inactive).
 function Renderer:worldViewSize()
-  local _, _, pw, ph, _, dpiY, _, _, cut, grow = displayMetrics()
+  local _, _, pw, ph, _, dpiY, _, _, cut = displayMetrics()
   -- FAITHFUL RATIO on mobile.  The world pass deliberately expands to cover the
   -- WHOLE display, so letterbox voids become more map instead of black bars.
   -- That is why the lock appeared to do nothing in the overworld: it shrank
@@ -287,7 +287,6 @@ function Renderer:worldViewSize()
   -- this is the same sum with the viewport standing in for the window, so
   -- both platforms show the same map area at the same zoom.
   local cap = FaithfulRes.scaleCap()
-  if not cap and cut and not grow then cap = self:fitScale() end
   if cap then
     local uiw, uih = self:uiSize()
     pw = cut and math.min(pw, uiw * cap) or uiw * cap
