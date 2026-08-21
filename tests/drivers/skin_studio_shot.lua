@@ -58,6 +58,19 @@ return function(game)
   U.log("selected:", ctl and ctl.spec, "x", ctl and ctl.x, "y", ctl and ctl.y)
   shot("studio_selected.png")
 
+  Studio.zoomOut()
+  U.wait(2)
+  shot("studio_zoom_out.png")
+  Studio.zoomFit()
+
+  Studio.openScreenMenu()
+  U.wait(2)
+  shot("studio_screen.png")
+  Studio.closeModal()
+  Studio.detectDeviceCanvas()
+  U.wait(2)
+  shot("studio_this_screen.png")
+
   -- drag the selected control and confirm the model moved
   local r = Studio.lastCanvas
   if r and ctl then
