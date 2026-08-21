@@ -402,7 +402,8 @@ local GEN2_HOOKS = {
   "ui.pc.items", "ui.list_menu",
   "transition.style",
   -- battle
-  "battle.damage", "battle.crit", "battle.accuracy", "battle.turn_order",
+  "battle.damage", "battle.crit", "battle.accuracy",
+  "battle.charge_required", "battle.turn_order",
   "battle.enemy_action", "battle.run", "battle.exp_award", "exp.gain",
   "catch.rate", "trainer.party",
   -- one wrap cancels or forces an evolution in either game: Gold passes `data`
