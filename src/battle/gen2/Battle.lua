@@ -3272,7 +3272,16 @@ end
 -- `count` is the pass's own divisor -- the participant count for the first
 -- pass, the holder count for the EXP.SHARE pass -- and `halved` is whether
 -- any Share holder taxed the whole pool.
-function Battle:giveExperiencePass(loser, def, recipients, count, halved)
+--
+-- `silent` suppresses only the GainedText line.  It exists for the
+-- battle.exp_award seam below, where a mod paying the bench wants one summary
+-- line rather than a box per mon; the cart's own two passes never pass it, so
+-- vanilla prints exactly what it always did.  Everything else about the pass
+-- -- the exp, the stat exp, battle.exp_gained, "grew to level", learned moves
+-- and the forget prompt -- is unaffected, because a silent award is still an
+-- award.
+function Battle:giveExperiencePass(loser, def, recipients, count, halved,
+                                   silent)
   for _, index in ipairs(recipients) do
     local mon = self.party[index]
     if mon and (mon.hp or 0) > 0 and not mon.isEgg then
@@ -3323,10 +3332,12 @@ function Battle:giveExperiencePass(loser, def, recipients, count, halved)
           index = index,
         })
       end
-      self:emit({ kind = "experience", index = index, amount = amount,
-        -- BoostedExpPointsText, keyed on the traded arm alone.
-        text = self:monName(mon) .. " gained "
-          .. (traded and "a boosted " or "") .. amount .. " EXP. Points!" })
+      if not silent then
+        self:emit({ kind = "experience", index = index, amount = amount,
+          -- BoostedExpPointsText, keyed on the traded arm alone.
+          text = self:monName(mon) .. " gained "
+            .. (traded and "a boosted " or "") .. amount .. " EXP. Points!" })
+      end
       if result.levels > 0 then
         -- "level up happiness mod", the cart's own comment, sitting right
         -- after the stat recalc and before the "grew to level" text.  It fires
@@ -3420,22 +3431,38 @@ function Battle:awardExperience(loser)
 
   -- battle.exp_award, the same hook BattleState:awardExp calls on Gen 1 and
   -- with the same ctx: the participant COUNT, the live participants, and an
-  -- applyShare(mon, split) a mod can call to pay one mon its own share.  The
-  -- third applyShare argument is Gen 1's EXP.ALL announcement variant; Gen 2
-  -- has no EXP.ALL (the EXP.SHARE pass below is its replacement), so it is
-  -- accepted and ignored rather than changing what is printed.  `recipients`,
-  -- `holders` and `halved` are the Gen 2 additions.
+  -- applyShare(mon, split, announce) a mod can call to pay one mon its own
+  -- share.  `recipients`, `holders` and `halved` are the Gen 2 additions.
+  --
+  -- `announce` is Gen 1's third argument (src/battle/BattleState.lua
+  -- applyShare) and means the same thing here: truthy prints the mon's
+  -- GainedText, falsy pays it silently.  That is what lets one mod source
+  -- print ONE summary line for a party-wide award on both generations instead
+  -- of a box per mon -- which is what the Exp Share mod documents and could
+  -- not do on Gold, because this argument used to be accepted and ignored.
+  --
+  -- It is honoured only when it is actually PASSED, by argument count rather
+  -- than by value.  A Gen 2-era mod calling applyShare(mon, split) was written
+  -- against a seam that always announced and keeps announcing; a caller that
+  -- passes the argument -- including an explicit nil, which is what a "pay
+  -- this one quietly" call looks like -- gets Gen 1's reading.  So no existing
+  -- mod changes behaviour, and a mod that opts in gets parity.
   if Runtime.wantsHook("battle.exp_award") then
     local alive = {}
     for _, index in ipairs(participants) do
       local mon = self.party[index]
       if mon and (mon.hp or 0) > 0 then alive[#alive + 1] = mon end
     end
-    local function applyShare(mon, split)
+    local function applyShare(mon, split, ...)
+      local announce = ...
+      -- select("#") counts an explicit nil; `announce == nil` alone could not
+      -- tell applyShare(mon, split) from applyShare(mon, split, nil), and
+      -- those two have to mean different things here.
+      local silent = select("#", ...) > 0 and not announce
       for index, candidate in ipairs(self.party) do
         if candidate == mon then
           return self:giveExperiencePass(loser, def, { index },
-            math.max(1, split or 1), halved)
+            math.max(1, split or 1), halved, silent)
         end
       end
     end
