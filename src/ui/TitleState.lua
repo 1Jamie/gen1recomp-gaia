@@ -43,6 +43,28 @@ local function withWhiteOf(pal, ref)
   return { ref[1], pal[2], pal[3], pal[4] }
 end
 
+-- Every drawn box, not just the topmost state's: DisplayContinueGameInfo
+-- leaves the menu box up behind the info window (main_menu.asm:36-39), so both
+-- are on screen and both need the overlay below.
+local function titleUiBoxes(game)
+  local stack = game and game.stack
+  local states = stack and stack.states
+  if not states then
+    local top = stack and stack.top and stack:top()
+    local box = top and top.titleUiBox
+    return box and { box } or {}
+  end
+  local boxes = {}
+  for i = (stack.visibleBase and stack:visibleBase() or 1), #states do
+    local state = states[i]
+    local shown = not stack.renderVisible or stack:renderVisible(state)
+    if shown and state and state.titleUiBox then
+      boxes[#boxes + 1] = state.titleUiBox
+    end
+  end
+  return boxes
+end
+
 function TitleState:sgbPalettes(game)
   local P = require("src.render.PaletteFX")
   local z
@@ -65,16 +87,14 @@ function TitleState:sgbPalettes(game)
       P.zone(P.pal(game.data, "MEWMON"), 0, 10, 19, 17),
     }
   end
-  local top = game.stack and game.stack:top()
-  local box = top and top.titleUiBox
-  if box then
-    -- A DMG-grays zone, not the trueColor opt-out: through the shade-remap
-    -- shader GRAYS is the identity for the box's four shades, so SGB /
-    -- ADVANCED / OG modes keep #133's white paper and black ink exactly,
-    -- while effectiveColors still substitutes the mono and inverted display
-    -- modes -- a trueColor rect skipped the shader entirely, leaving the
-    -- main menu and CONTINUE info box a raw white hole over a CLASSIC
-    -- pea-green title instead of matching it like the START menu does (#870).
+  -- A DMG-grays zone, not the trueColor opt-out: through the shade-remap
+  -- shader GRAYS is the identity for the box's four shades, so SGB /
+  -- ADVANCED / OG modes keep #133's white paper and black ink exactly,
+  -- while effectiveColors still substitutes the mono and inverted display
+  -- modes -- a trueColor rect skipped the shader entirely, leaving the
+  -- main menu and CONTINUE info box a raw white hole over a CLASSIC
+  -- pea-green title instead of matching it like the START menu does (#870).
+  for _, box in ipairs(titleUiBoxes(game)) do
     z[#z + 1] = P.zone(P.GRAYS, box[1], box[2], box[3], box[4])
   end
   return z[3] and z or nil
@@ -175,18 +195,19 @@ end
 local function replayObjSprite(game, image, quad, x, y)
   local P = require("src.render.PaletteFX")
   if not P.usesSpriteObp() then return end
-  local top = game.stack and game.stack:top()
-  local box = top and top.titleUiBox
-  if box then
+  local boxes = titleUiBoxes(game)
+  if boxes[1] then
     local w, h
     if quad then
       w, h = select(3, quad:getViewport())
     else
       w, h = image:getDimensions()
     end
-    if x < (box[3] + 1) * 8 and x + w > box[1] * 8
-       and y < (box[4] + 1) * 8 and y + h > box[2] * 8 then
-      return
+    for _, box in ipairs(boxes) do
+      if x < (box[3] + 1) * 8 and x + w > box[1] * 8
+         and y < (box[4] + 1) * 8 and y + h > box[2] * 8 then
+        return
+      end
     end
   end
   P.markUiSpriteRedraw(image, quad, x, y)
