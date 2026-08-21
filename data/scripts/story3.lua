@@ -176,7 +176,7 @@ M.POKEMON_TOWER_6F = {
           -- .did_not_defeat: one simulated step right, off the trigger,
           -- so fleeing does not leave you standing on a cell that
           -- immediately re-fires.
-          ow:scriptMove(ow.player, "right", 1)
+          ow:scriptMove(ow.player, "right", 1, nil, { collide = true })
         end
         ow:afterBattle(result, battle)
       end

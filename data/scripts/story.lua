@@ -127,7 +127,7 @@ M.VIRIDIAN_CITY = {
     game.stack:push(TextBox.new(game,
       game.data.text._ViridianCityOldManSleepyPrivatePropertyText
       or "You can't go\nthrough here!\fThis is private\nproperty!",
-      function() ow:scriptMove(ow.player, "down", 1) end))
+      function() ow:scriptMove(ow.player, "down", 1, nil, { collide = true }) end))
     return true
   end,
 }
@@ -356,7 +356,7 @@ M.VERMILION_CITY = {
     if shipLeft then
       game.stack:push(TextBox.new(game,
         t._VermilionCitySailor1ShipSetSailText or "The ship set sail.",
-        function() ow:scriptMove(ow.player, "up", 1) end))
+        function() ow:scriptMove(ow.player, "up", 1, nil, { collide = true }) end))
       return true
     end
     -- Walk-past is never facing-right / inFrontOfOrBehindGuardCoords, so
@@ -377,7 +377,7 @@ M.VERMILION_CITY = {
       ask .. "\f"
       .. (t._VermilionCitySailor1YouNeedATicketText
           or "You need a ticket\nto get aboard."),
-      function() ow:scriptMove(ow.player, "up", 1) end))
+      function() ow:scriptMove(ow.player, "up", 1, nil, { collide = true }) end))
     return true
   end,
   talk = {
