@@ -54,7 +54,7 @@
     <activity
         android:name="org.love2d.android.GameActivity"
         android:exported="true"
-        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
+        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
         android:label="${NAME}"
         android:launchMode="singleTask"
         android:screenOrientation="${ORIENTATION}"
@@ -71,7 +71,7 @@
     </activity>
     <activity
         android:name="org.love2d.android.GameActivity$SecondaryActivity"
-        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
+        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
         android:excludeFromRecents="true"
         android:exported="false"
         android:launchMode="singleTask"

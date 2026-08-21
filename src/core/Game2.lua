@@ -18,6 +18,7 @@ local Chrome = require("src.ui.gen2.Chrome")
 local Clock = require("src.core.gen2.Clock")
 local FixedStep = require("src.core.FixedStep")
 local Font = require("src.render.Font")
+local GamepadMap = require("src.core.GamepadMap")
 local Input = require("src.core.Input")
 local Music = require("src.core.Music")
 local Save = require("src.core.gen2.Save")
@@ -56,20 +57,6 @@ local Game2 = {}
 Game2.__index = Game2
 
 local function noop() end
-
-for _, name in ipairs({
-  "joystickpressed", "joystickreleased", "joystickaxis", "joystickhat",
-  "joystickadded",
-}) do
-  Game2[name] = noop
-end
-
--- Not a noop, because the overlay has to come back on its own: a player who
--- unplugs the only controller would otherwise have to tap a blind screen to
--- get the pad back (src/core/Game.lua:869 does the same).
-function Game2:joystickremoved()
-  TouchControls:joystickremoved()
-end
 
 -- THE FRAME AND INPUT SEAMS.
 --
@@ -1968,7 +1955,11 @@ function Game2:applyOptions()
   local options = self.options or {}
   Music.applyOptions(options)
   require("src.core.Sound").applyOptions(options)
-  require("src.render.Zoom").applyOptions(options)
+  local Zoom = require("src.render.Zoom")
+  Zoom.applyOptions(options)
+  local caps = require("src.core.Performance").applyOptions(options)
+  Zoom.allowSurvey = caps.survey
+  if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
   require("src.render.Tilt").applyOptions(options)
   require("src.render.GbcPalette").applyOptions(options)
   -- engine/gfx/load_font.asm:29 LoadFrame, off options.lua's wTextboxFrame.
@@ -1993,6 +1984,13 @@ function Game2:applyOptions()
   end
 end
 
+function Game2:_cycleSpeed(dir)
+  local GameSpeed = require("src.core.GameSpeed")
+  self.options.speed = GameSpeed.cycle(self.options.speed, dir)
+  if self.save then self.save.options = self.options end
+  self:persistOptions()
+end
+
 -- `back` -- SDL's name for the small left-hand menu button: Xbox VIEW, the PS
 -- CREATE/SHARE beside the touchpad, the Switch MINUS -- is SELECT, and has been
 -- since src/core/GamepadMap.lua's DEFAULT_GAMEPAD_BINDINGS was written
@@ -2003,33 +2001,112 @@ end
 -- the PACK's move-item, the party menu's reorder and half the soft-reset chord
 -- (A+B+SELECT+START) were all unreachable from a pad, and pressing the button
 -- to find out killed the process.  It reaches Input like every other button now.
-function Game2:gamepadpressed(_joystick, button)
+function Game2:gamepadpressed(joystick, button)
   -- a controller is being used: the touch overlay steps aside until the next
   -- screen touch (mobile only; a no-op elsewhere)
   TouchControls:noteGamepad()
-  -- The shoulders cycle GAME SPEED, as they do in the Gen 1 path.
-  if button == "rightshoulder" or button == "leftshoulder" then
-    local GameSpeed = require("src.core.GameSpeed")
-    local dir = button == "rightshoulder" and 1 or -1
-    self.options.speed = GameSpeed.cycle(self.options.speed, dir)
-    if self.save then self.save.options = self.options end
-    self:persistOptions()
+  local selectHeld = Input:isDown("select")
+  if not selectHeld and joystick and joystick.isGamepadDown then
+    local ok, down = pcall(function()
+      return joystick:isGamepadDown("back")
+    end)
+    selectHeld = ok and down == true
+  end
+  -- shoulders and triggers cycle GAME SPEED, as in src/core/Game.lua:881
+  if not selectHeld then
+    if button == "rightshoulder" or button == "righttrigger" then
+      self:_cycleSpeed(1)
+      return
+    elseif button == "leftshoulder" or button == "lefttrigger" then
+      self:_cycleSpeed(-1)
+      return
+    end
+  end
+  local top = self.stack and self.stack:top()
+  if top and top.onGamepadPressed then
+    top:onGamepadPressed(button)
     return
+  end
+  if selectHeld then
+    local digit = GamepadMap.displayChordDigit(button)
+    if digit then
+      self:keypressed(digit)
+      return
+    end
   end
   -- START opens the start menu in the overworld; it used to quit, from before
   -- there was a menu to open.
 
-  Input:gamepadpressed(_joystick, button)
+  Input:gamepadpressed(joystick, button)
 end
 
 function Game2:gamepadreleased(joystick, button)
   Input:gamepadreleased(joystick, button)
+  local top = self.stack and self.stack:top()
+  if top and top.onGamepadReleased then top:onGamepadReleased(button) end
 end
 
 function Game2:gamepadaxis(joystick, axis, value)
   -- past-deadzone only, so resting-stick drift cannot hide the overlay
   if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
   Input:gamepadaxis(joystick, axis, value)
+end
+
+-- The raw joystick road, same bodies as src/core/Game.lua:935 (#620, #632, #1570).
+local function isRawStick(joystick)
+  return not (joystick and joystick.isGamepad and joystick:isGamepad())
+end
+
+function Game2:joystickpressed(joystick, button)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  TouchControls:noteGamepad()
+  local top = self.stack and self.stack:top()
+  if isRawStick(joystick) and top and top.onJoystickPressed then
+    top:onJoystickPressed(button)
+    return
+  end
+  Input:joystickpressed(joystick, button)
+end
+
+function Game2:joystickreleased(joystick, button)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  Input:joystickreleased(joystick, button)
+  local top = self.stack and self.stack:top()
+  if isRawStick(joystick) and top and top.onJoystickReleased then
+    top:onJoystickReleased(button)
+  end
+end
+
+function Game2:joystickaxis(joystick, axis, value)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
+  Input:joystickaxis(joystick, axis, value)
+end
+
+function Game2:joystickhat(joystick, hat, direction)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  if direction ~= "c" then TouchControls:noteGamepad() end
+  Input:joystickhat(joystick, hat, direction)
+end
+
+-- src/core/Game.lua:1015 (#799)
+function Game2:recoverInput()
+  Input:reset()
+  Input:reconcile()
+  TouchControls:reset()
+  if self.mods and self.mods.releaseModInput then self.mods:releaseModInput() end
+  self:cancelPointers()
+end
+
+function Game2:joystickadded()
+  self:recoverInput()
+end
+
+-- The overlay comes back on its own when the last pad is unplugged
+-- (src/core/Game.lua:1044).
+function Game2:joystickremoved()
+  self:recoverInput()
+  TouchControls:joystickremoved()
 end
 
 return Game2

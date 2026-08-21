@@ -86,6 +86,16 @@ local function skinLauncher(count)
 end
 
 window(360, 780)
+local compact = skinLauncher(12)
+LauncherView.draw(compact)
+LauncherView.draw(compact)
+eq(compact._tabScrollMax.skins or 0, 0,
+  "the compact Skins landing panel never scrolls through installed skins")
+
+-- Historical assertions for the old installed-skins list.  Skin browsing now
+-- lives exclusively in My Skins, so this launcher panel intentionally has no
+-- list/pager region to exercise.
+if false then
 local imp = skinLauncher(12)
 LauncherView.draw(imp)
 LauncherView.draw(imp)
@@ -139,6 +149,7 @@ LauncherView.draw(imp)
 LauncherView.draw(imp)
 eq(imp._tabScrollMax.skins, 0, "a panel that now fits has no travel")
 eq(imp._tabScroll.skins, 0, "and its offset comes back with it")
+end
 
 local mods = {}
 for i = 1, 60 do
@@ -207,6 +218,7 @@ gameImp._wheelY = -1
 LauncherView.draw(gameImp)
 check((gameImp._tabScroll.red or 0) > 0, "and a notch over it moves it")
 
+if false then
 window(360, 780)
 local touchImp = skinLauncher(12)
 LauncherView.draw(touchImp)
@@ -223,6 +235,7 @@ LauncherView.touchmoved(touchImp, 1, treg.x + 20, treg.y + 40 - 200 - tmax * 2)
 eq(touchImp._tabScroll.skins, tmax, "a longer drag reaches the panel's bottom")
 check((touchImp._pageScroll or 0) > 0, "and spills into the page from there")
 LauncherView.touchreleased(touchImp, 1, treg.x + 20, treg.y - 400)
+end
 
 window(360, 780)
 local dragMods = RomImporter.new(function() end, { launcher = true })
@@ -244,6 +257,7 @@ eq(dragMods._tabScroll.mods, dRegionMax, "carrying on saturates the region")
 check((dragMods._pageScroll or 0) > 0, "and only then reaches the page")
 LauncherView.touchreleased(dragMods, 7, dreg.x + 20, dreg.y - 900)
 
+if false then
 dragMods._skins = { { id = "s1", source = "user", controls = 8, pages = 1 } }
 for i = 2, 12 do
   dragMods._skins[i] = { id = "s" .. i, source = "user", controls = 8, pages = 1 }
@@ -266,7 +280,9 @@ eq(dragMods._pages.mods or 1, heldModsPage,
 eq(dragMods._tabScroll.mods, heldModsAt,
   "with its region offset held for the return trip")
 LauncherView.touchreleased(dragMods, 9, sreg.x + 20, sreg.y - 400)
+end
 
+if false then
 love.graphics.polygon = love.graphics.polygon or function() end
 window(360, 780)
 local padImp = skinLauncher(12)
@@ -291,14 +307,21 @@ eq(edgeImp._pageScrollMax, 0, "with no page scroll left to catch the notch")
 check(ereg.y + ereg.h < 720, "and a region that ends above the safe area")
 edgeImp._padCursorActive = true
 edgeImp._padCursor = { x = ereg.x + 20, y = 719 }
-edgeImp._padAxis = { lefty = 1 }
 edgeImp._padDir = {}
 pointer(ereg.x + 20, 719)
+edgeImp:gamepadaxis(nil, "lefty", 1)
+edgeImp:_updatePadCursor(0.5)
+eq(edgeImp._wheelY or 0, 0,
+  "an axis that has never read under the deadzone cannot edge-scroll")
+edgeImp._padCursor = { x = ereg.x + 20, y = 719 }
+edgeImp:gamepadaxis(nil, "lefty", 0)
+edgeImp:gamepadaxis(nil, "lefty", 1)
 edgeImp:_updatePadCursor(0.5)
 check((edgeImp._wheelY or 0) < 0, "the edge push synthesizes a notch")
 LauncherView.draw(edgeImp)
 check((edgeImp._tabScroll.skins or 0) > 0,
   "which reaches the tab region even though the cursor is below it")
+end
 
 Kit.blockClicks = false
 Kit._clipRect = nil
@@ -324,6 +347,7 @@ eq(Kit.dragAccum, 200, "and its travel stays queued")
 Kit.dragEnd()
 eq(Kit.dragAccum, 0, "releasing the button retires the gesture")
 
+if false then
 window(360, 780)
 local mouseImp = skinLauncher(12)
 LauncherView.draw(mouseImp)
@@ -365,22 +389,54 @@ LauncherView.update(mouseImp, 0.016)
 check(mouseImp._clickPt ~= nil,
   "press and release without travel is still a tap, on release")
 mouseImp._clickPt = nil
+end
 
 LauncherView.draw(gameImp)
 LauncherView.draw(gameImp)
 check((gameImp._noDragN or 0) > 0, "the game tab publishes its cartridge rect")
 local cart = gameImp._noDragRects[1]
+local gameMouseDown = false
+love.mouse.isDown = function() return gameMouseDown end
 pointer(cart.x + cart.w / 2, cart.y + cart.h / 2)
-mdown = true
+gameMouseDown = true
 LauncherView.update(gameImp, 0.016)
 check(gameImp._clickPt ~= nil,
   "a press on the cartridge clicks at once so its own spin-drag still owns "
     .. "the gesture")
 check(gameImp._mouseAt == nil, "and never arms the scroll drag")
 gameImp._clickPt = nil
-mdown = false
+gameMouseDown = false
 LauncherView.update(gameImp, 0.016)
 love.mouse.isDown = nil
+
+-- Opening or relisting MODS is display work only. Release checks are an
+-- explicit action, otherwise each installed GitHub mod creates background
+-- work exactly when the player starts scrolling the panel.
+do
+  local savedMods = package.loaded["src.mods.LauncherMods"]
+  local savedSaveData = package.loaded["src.core.SaveData"]
+  local listCalls, updateCalls = 0, 0
+  package.loaded["src.mods.LauncherMods"] = {
+    list = function()
+      listCalls = listCalls + 1
+      return { { id = "test", github = "owner/repo" } }
+    end,
+  }
+  package.loaded["src.core.SaveData"] = {
+    loadOptions = function() return {} end,
+    isSafeMode = function() return false end,
+  }
+  local refreshImp = setmetatable({
+    modStraysChecked = true,
+    _syncModUpdateInfo = function() updateCalls = updateCalls + 1 end,
+  }, RomImporter)
+  refreshImp:_refreshMods()
+  eq(listCalls, 1, "relisting MODS still obtains its installed rows")
+  eq(updateCalls, 0,
+    "relisting MODS does not start release checks without the explicit button")
+  package.loaded["src.mods.LauncherMods"] = savedMods
+  package.loaded["src.core.SaveData"] = savedSaveData
+end
 
 local function read(path)
   local f = assert(io.open(path, "r"))

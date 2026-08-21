@@ -140,6 +140,12 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- before the four ball tiles were extracted (#1502).
     "assets/generated/battle/hud/balls.png",
     "assets/generated/audio/programs.bin",
+    -- Goldenrod Game Corner reel + board art (#1581).  menu_gfx.lua used to
+    -- advertise these paths even when Slots*LZ / CardFlip* were absent from
+    -- the manifest, so a cache that never wrote the PNGs still looked
+    -- complete and SlotMachine crashed on its labelled-cell fallback.
+    "assets/generated/slots/gold_slots_1.png",
+    "assets/generated/card_flip/card_flip_1.png",
   },
 }
 -- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
@@ -382,6 +388,142 @@ local function externalFileSize(path)
   return size
 end
 
+local function openImportSource(path)
+  -- Desktop picker paths live outside LÖVE's virtual filesystem. Prefer the
+  -- native file handle so a 1.46 GiB disc is never copied to a temp file or
+  -- read into one Lua string before validation.
+  local native = io.open(path, "rb")
+  if native then
+    local size, sizeErr = native:seek("end")
+    if size == nil or size == false then
+      native:close()
+      return nil, sizeErr or "could not determine source file size"
+    end
+    local reset, resetErr = native:seek("set", 0)
+    if reset == nil or reset == false then
+      native:close()
+      return nil, resetErr or "could not rewind source file"
+    end
+    return {
+      size = size,
+      read = function(_, n) return native:read(n) end,
+      close = function() native:close() end,
+    }
+  end
+  if love and love.filesystem and love.filesystem.newFile then
+    local file, makeErr = love.filesystem.newFile(path)
+    if not file then return nil, makeErr or "could not open source file" end
+    local ok, openErr = file:open("r")
+    if not ok then return nil, openErr or "could not open source file" end
+    local size = file.getSize and file:getSize() or nil
+    return {
+      size = size,
+      read = function(_, n) return file:read(n) end,
+      close = function() file:close() end,
+    }
+  end
+  return nil, "streaming source access is unavailable"
+end
+local function streamRequiredImport(manifest, importId, source)
+  local RequiredImports = require("src.mods.RequiredImports")
+  local spec = RequiredImports.spec(manifest, importId)
+  if not spec then return nil, "Import declaration was not found." end
+  if spec.format == "n64" then
+    return nil, "streaming canonicalization is unavailable for N64 imports"
+  end
+  local input, openErr = openImportSource(source)
+  if not input then return nil, openErr end
+  local sizeErr = RequiredImports.sizeError(spec, input.size, false)
+  if sizeErr then input:close(); return nil, sizeErr end
+
+  local CacheFs = require("src.import.CacheFs")
+  local destination = RequiredImports.path(manifest, spec)
+  local savedPrefix = CacheFs.prefix
+  local output
+  local inputClosed, outputClosed = false, false
+
+  local function closeInput()
+    if inputClosed then return end
+    inputClosed = true
+    pcall(function() input:close() end)
+  end
+
+  local function closeOutput()
+    if outputClosed or not output then return end
+    outputClosed = true
+    pcall(function() output:close() end)
+  end
+
+  local resultOk, resultDetail
+  CacheFs.prefix = ""
+  local ran, thrown = xpcall(function()
+    CacheFs.remove(RequiredImports.receiptPath(manifest, spec))
+    CacheFs.remove(destination)
+    local makeErr
+    output, makeErr = CacheFs.openWrite(destination)
+    if not output then
+      resultDetail = makeErr or "could not create imported file"
+      return
+    end
+
+    local MD5 = require("src.mods.StreamMD5")
+    local md5 = MD5.new()
+    local total, chunkBytes = 0, 4 * 1024 * 1024
+    while true do
+      local chunk = input:read(chunkBytes)
+      if not chunk or #chunk == 0 then break end
+      md5:update(chunk)
+      local wrote, writeErr = output:write(chunk)
+      if wrote == false or wrote == nil then
+        resultDetail = "could not copy import: "
+.. tostring(writeErr or "write failed")
+        return
+      end
+      total = total + #chunk
+      if #chunk < chunkBytes then break end
+    end
+
+    closeInput()
+    closeOutput()
+    if input.size and total ~= input.size then
+      resultDetail = ("source read ended early (expected %d bytes, copied %d)")
+        :format(input.size, total)
+      return
+    end
+    local storedSizeErr = RequiredImports.sizeError(spec, total, true)
+    if storedSizeErr then resultDetail = storedSizeErr; return end
+    local digest = md5:final()
+
+    -- acceptStoredDigest uses the normal engine path/receipt rules, so
+    -- restore the caller's prefix before handing control to it.
+    CacheFs.prefix = savedPrefix
+    local accepted, detail = RequiredImports.acceptStoredDigest(
+      manifest, importId, digest, love.filesystem)
+    if not accepted then resultDetail = detail; return end
+    resultOk, resultDetail = true, detail
+  end, function(err)
+    if debug and debug.traceback then
+      return debug.traceback(tostring(err), 2)
+    end
+    return tostring(err)
+  end)
+
+  -- finally: resource handles and the process-global CacheFs prefix must
+  -- be restored even when a read/hash/write helper raises a Lua error.
+  closeInput()
+  closeOutput()
+  CacheFs.prefix = ""
+  if not ran or not resultOk then
+    pcall(function() CacheFs.remove(destination) end)
+  end
+  CacheFs.prefix = savedPrefix
+
+  if not ran then
+    return nil, "could not copy import: " .. tostring(thrown)
+  end
+  if not resultOk then return nil, resultDetail end
+  return true, resultDetail
+end
 local function readDroppedFile(file)
   local ok, openError = file:open("r")
   if not ok then return nil, openError end
@@ -1228,11 +1370,13 @@ local function chooseRequiredFile()
       "$d=New-Object System.Windows.Forms.OpenFileDialog;",
       "$d.Title='" .. prompt .. "';",
       "$d.Filter='All files (*.*)|*.*';",
+      -- Required imports can be multi-gigabyte optical-disc images. Do NOT
+      -- stage them through %TEMP%: that doubles free-space requirements and a
+      -- failed Copy-Item can leave a plausible-looking truncated temp file.
+      -- Stream the selected source directly into the mod-owned destination.
       "if($d.ShowDialog() -eq 'OK'){",
-      "$t=Join-Path $env:TEMP 'pokeport_required_import.bin';",
-      "Copy-Item -LiteralPath $d.FileName -Destination $t -Force;",
       "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
-      "[Console]::Write($t)}",
+      "[Console]::Write($d.FileName)}",
     })
     return commandOutput(
       'powershell -NoProfile -STA -Command "' .. script .. '"')
@@ -2072,8 +2216,13 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
     return nil
   end
   local RequiredImports = require("src.mods.RequiredImports")
-  local info = love.filesystem.getInfo(source, "file")
-  local size = info and info.size or externalFileSize(source)
+  -- A desktop picker returns a host path. Ask the host file handle first;
+  -- love.filesystem.getInfo is only authoritative for virtual/save paths.
+  local size = externalFileSize(source)
+  if not size then
+    local info = love.filesystem.getInfo(source, "file")
+    size = info and info.size or nil
+  end
   local sizeErr = RequiredImports.sizeError(spec, size, false)
   if sizeErr then
     requiredImportNotice(self, modId, importId, sizeErr)
@@ -2094,6 +2243,20 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
       },
       yesLabel = Strings("I understand"),
     }
+    return nil
+  end
+  if type(size) == "number" and size > RequiredImports.LARGE_WARN_BYTES
+      and spec.format ~= "n64" then
+    local ok, result = streamRequiredImport(manifest, importId, source)
+    if ok then
+      self.requiredImportNotice = nil
+      self.modNotice = { ok = true, text = "Imported " .. tostring(importId)
+        .. " for " .. tostring(manifest.name or manifest.id) .. "." }
+      self:_refreshMods()
+      return true
+    end
+    requiredImportNotice(self, modId, importId, result)
+    self.modNotice = nil
     return nil
   end
   local data = love.filesystem.read(source)
@@ -2848,6 +3011,7 @@ function RomImporter:_updatePadCursor(dt)
     local overY = 0
     if ny > oy + h then overY = ny - (oy + h)
     elseif ny < oy then overY = ny - oy end
+    if math.abs(ay) > PAD_DEAD and not self._padStickCentered then overY = 0 end
     if overY ~= 0 and self._flex then
       require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
     end
@@ -2907,7 +3071,11 @@ end
 function RomImporter:gamepadaxis(_, axis, value)
   if axis == "leftx" or axis == "lefty" or axis == "righty" then
     self._padAxis[axis] = value
-    if math.abs(value) > PAD_DEAD then self:_activatePadCursor() end
+    if math.abs(value) > PAD_DEAD then
+      self:_activatePadCursor()
+    elseif axis == "lefty" then
+      self._padStickCentered = true
+    end
   end
 end
 
@@ -2916,18 +3084,21 @@ end
 -- fire the virtual cursor's click twice off one A press (#620).
 function RomImporter:joystickpressed(joystick, button)
   if GamepadMap.ignoreRawForJoystick(joystick) then return end
+  if GamepadMap.isAccelerometer(joystick) then return end
   local padButton = GamepadMap.mapRawToGamepadButton(button)
   if padButton then self:gamepadpressed(joystick, padButton) end
 end
 
 function RomImporter:joystickreleased(joystick, button)
   if GamepadMap.ignoreRawForJoystick(joystick) then return end
+  if GamepadMap.isAccelerometer(joystick) then return end
   local padButton = GamepadMap.mapRawToGamepadButton(button)
   if padButton then self:gamepadreleased(joystick, padButton) end
 end
 
 function RomImporter:joystickaxis(joystick, axis, value)
   if GamepadMap.ignoreRawForJoystick(joystick) then return end
+  if GamepadMap.isAccelerometer(joystick) then return end
   if axis == 1 then
     self:gamepadaxis(joystick, "leftx", value)
   elseif axis == 2 then
@@ -2937,6 +3108,7 @@ end
 
 function RomImporter:joystickhat(joystick, hat, direction)
   if GamepadMap.ignoreRawForJoystick(joystick) then return end
+  if GamepadMap.isAccelerometer(joystick) then return end
   for _, dir in ipairs(self._rawHatDirs[hat] or {}) do
     self._padDir[dir] = nil
   end
@@ -3182,6 +3354,10 @@ function RomImporter:_ensureSkins(force)
       format = skin and skin.format or nil,
       pages = skin and #skin.pages or 0,
       controls = controls,
+      -- The launcher owns the visual skin picker, so retain the already
+      -- loaded first-page bezel for its preview card instead of decoding it
+      -- again every frame.
+      preview = page and page.image or nil,
       screen = page ~= nil
         and (page.viewport ~= nil or page.screenFit == "remainder"),
       ok = skin ~= nil,
@@ -3194,7 +3370,7 @@ end
 function RomImporter:_activeSkin()
   local opts = require("src.core.SaveData").loadOptions()
   local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
-  return tc.skin
+  return tc.enabled == false and nil or tc.skin
 end
 
 function RomImporter:_useSkin(id)
@@ -3209,6 +3385,16 @@ function RomImporter:_useSkin(id)
     ok = true,
     text = id and ("Now using " .. id) or "Now using the built-in pad",
   }
+end
+
+function RomImporter:_disableSkins()
+  local SaveData = require("src.core.SaveData")
+  local opts = SaveData.loadOptions()
+  local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
+  tc.enabled, tc.skin = false, nil
+  opts.touchControls = tc
+  SaveData.saveOptions(opts)
+  self._skinNotice = { ok = true, text = "Skins are off. Mobile will use the built-in pad when needed." }
 end
 
 function RomImporter:_installSkinZip(source)
@@ -3997,6 +4183,18 @@ function RomImporter:_disarmTextInput()
   end
 end
 
+function RomImporter:_blurPanelFields()
+  if not (self._findSearchFocus or self._skinUrlFocus) then return end
+  if self._indexPrompt or self._rename or self._settingsText
+      or self._profileSavePrompt or self._profileRenamePrompt
+      or (self._syncModal and self._syncFocus) then
+    return
+  end
+  self._findSearchFocus = false
+  self._skinUrlFocus = false
+  self:_disarmTextInput()
+end
+
 function RomImporter:_beginRename(version, id)
   local label
   for _, slot in ipairs(self.slots[version] or {}) do
@@ -4127,7 +4325,6 @@ function RomImporter:_refreshMods()
     end
     self.mods = kept
   end
-  self:_syncModUpdateInfo(false)
 end
 
 -- Point the MODS panel at one game (or nil for all of them) and relist, so
@@ -4141,15 +4338,12 @@ function RomImporter:_ensureMods()
   if not self.mods then self:_refreshMods() end
 end
 
--- Resolve cached (or freshly fetched) GitHub status for every mod that
--- declares a github field. force=true bypasses the 6h cache on every repo.
--- Results live on self.modUpdateInfo[id] = { status, latest, best, releases }.
--- ASYNC (was synchronous).  This runs on every _refreshMods -- boot, and any
--- toggle or install -- and used to make one blocking curl call per mod with a
--- github field, in a loop, on the render thread.  A handful of mods was a
--- multi-second freeze of the whole launcher.  Now each mod gets a handle and
--- they resolve together across later frames; a mod whose cache is still fresh
--- resolves on the first pump with no network at all.
+-- Resolve GitHub status for every installed mod that declares a github field.
+-- This is deliberately opt-in: only the explicit "Check for updates" action
+-- calls it. Opening, scrolling, toggling, or relisting the MODS tab must not
+-- create a burst of release work behind the list. force=true bypasses the 6h
+-- cache on every repo. Results live on self.modUpdateInfo[id] = {
+-- status, latest, best, releases } and resolve asynchronously across frames.
 function RomImporter:_syncModUpdateInfo(force)
   local ModUpdate = require("src.mods.ModUpdate")
   self.modUpdateInfo = self.modUpdateInfo or {}

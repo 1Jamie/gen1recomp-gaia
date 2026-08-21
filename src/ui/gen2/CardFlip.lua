@@ -49,9 +49,9 @@
 --                           Textbox at (0,12) with an 18x4 interior
 --
 -- The cart's own art (gfx/card_flip/card_flip_1..3.2bpp.lz and
--- gfx/card_flip/card_flip.tilemap) is NOT in the cache: no `cardFlip` entry is
--- written into menu_gfx.lua yet, so the board draws as labelled cells until one
--- appears.
+-- gfx/card_flip/card_flip.tilemap) is extracted into assets/generated/card_flip/
+-- when the Gold/Silver manifest carries CardFlip*.  Until those files exist,
+-- the board draws as labelled cells.
 
 local Chrome = require("src.ui.gen2.Chrome")
 local CoinCase = require("src.core.gen2.CoinCase")
@@ -616,10 +616,8 @@ local TILEMAP = nil
 local function getCardFlipTilemap()
   if TILEMAP == nil then
     local path = "assets/generated/card_flip/card_flip.tilemap"
-    local f = io.open(path, "rb")
-    if f then
-      local data = f:read("*a")
-      f:close()
+    local data = love and love.filesystem and love.filesystem.read(path)
+    if data and #data > 0 then
       TILEMAP = {}
       for i = 1, #data do
         TILEMAP[i] = string.byte(data, i)
@@ -974,8 +972,7 @@ function CardFlip:drawWidescreen(winW, winH)
   G.rectangle("fill", 0, 0, winW, winH)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
-  G.translate(math.floor((winW - 160 * scale) / 2),
-    math.floor((winH - 144 * scale) / 2))
+  G.translate(Chrome.fitOrigin(winW, winH, scale))
   G.scale(scale, scale)
   self:drawPanel()
   G.pop()

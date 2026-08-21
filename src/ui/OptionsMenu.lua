@@ -381,14 +381,7 @@ local function buildRows(game)
         return Zoom.offsetLabel(g.save.options.zoom or 0)
       end,
       step = function(g, dir)
-        local o = g.save.options
-        local S = Renderer:fitScale()
-        local lo, hi = Zoom.offsetRange(S)
-        local off = (o.zoom or 0) + dir
-        if off > hi then off = lo
-        elseif off < lo then off = hi end
-        o.zoom = off
-        Zoom.offset = off
+        Zoom.nudgeOptions(g.save.options, dir, Renderer:fitScale())
         return true
       end },
     { id = "voidFill", label = Strings("VOID FILL"),
@@ -580,8 +573,8 @@ local function buildRows(game)
     end
     rows = filtered
   end
-  -- ORIENTATION only on Android, the one platform Orientation.apply reaches.
-  if not Orientation.isAndroid() then
+  -- ORIENTATION only on the platforms Orientation.apply reaches (#1638).
+  if not (Orientation.isAndroid() or Orientation.isIOS()) then
     local filtered = {}
     for _, row in ipairs(rows) do
       if row.id ~= "orientation" then filtered[#filtered + 1] = row end

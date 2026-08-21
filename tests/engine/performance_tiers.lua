@@ -42,6 +42,12 @@ T.eq(Performance.detect(), "balanced", "iOS -> balanced")
 device("OS X", "x64", 8)
 T.eq(Performance.detect(), "high", "8-core desktop -> high")
 
+device("OS X", "arm64", 10)
+T.eq(Performance.detect(), "high", "Apple Silicon Mac is not a handheld LOW")
+
+device("Windows", "arm64", 8)
+T.eq(Performance.detect(), "high", "Windows-on-ARM desktop -> high")
+
 device("Windows", "x64", 2)
 T.eq(Performance.detect(), "balanced", "dual-core desktop -> balanced")
 

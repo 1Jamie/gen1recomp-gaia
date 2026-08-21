@@ -86,8 +86,11 @@ function Performance.detect()
   local cores = processorCount()
 
   -- PortMaster-style ARM Linux handhelds (e.g. the RG34XXSP the project
-  -- already ships a build for): the weakest target here.
-  if isArm and os ~= "Android" and os ~= "iOS" then
+  -- already ships a build for): the weakest target here.  Desktop ARM
+  -- (Apple Silicon "OS X", Windows-on-ARM) is not a handheld — those
+  -- used to resolve AUTO → LOW, which stripped survey zoom-out from
+  -- OPTIONS so the ZOOM row only offered IN.
+  if isArm and os == "Linux" then
     return "low"
   end
   -- Phones and tablets: GBC FX is already force-disabled here (issue #136);

@@ -6,8 +6,8 @@
 -- options.lua table (src/core/SaveData.loadOptions/saveOptions) and lets the
 -- next boot's applyOptions pick the values up.  Every ladder mirrors
 -- OptionsMenu's semantics and stored values; when editing one, keep the two
--- in sync.  ZOOM is deliberately absent: its range depends on the live
--- renderer's fit scale (Renderer:fitScale), which does not exist here.
+-- in sync.  ZOOM uses the live window's integer fit (same 160×144 rule as
+-- Renderer:fitScale) so the row can offer OUT/FIT/IN without a running game.
 --
 -- Rows are the same descriptor idiom OptionRows draws in game:
 --   { label, value = fn() -> string, step = fn(dir) -> changed,
@@ -278,6 +278,16 @@ local function coreRows(opts, hooks)
       end)
   end
 
+  local okZ, Zoom = pcall(require, "src.render.Zoom")
+  if okZ then
+    add(Strings("ZOOM"),
+      function() return Zoom.offsetLabel(opts.zoom or 0) end,
+      function(dir)
+        Zoom.nudgeOptions(opts, dir, Zoom.windowFitScale())
+        return true
+      end)
+  end
+
   local okTile, TileRenderer = pcall(require, "src.render.TileRenderer")
   if okTile and TileRenderer.VOID_FILLS then
     add(Strings("VOID FILL"),
@@ -303,15 +313,12 @@ local function coreRows(opts, hooks)
       end)
   end
 
-  -- ORIENTATION (#592): Android only -- the lock rides SDL's orientation
-  -- hint, which iOS reads only at startup (the Info.plist governs there) and
-  -- desktop ignores.  Unlike the other launcher rows this one live-applies:
-  -- the window exists here too, and rotating under the player's finger is
-  -- the only feedback that reads.
+  -- ORIENTATION (#592, #1638): mobile only.  Unlike the other launcher rows
+  -- this one live-applies: the window exists here too, and rotating under
+  -- the player's finger is the only feedback that reads.
   do
-    local osName = love.system and love.system.getOS and love.system.getOS()
     local okOr, Orientation = pcall(require, "src.core.Orientation")
-    if okOr and osName == "Android" then
+    if okOr and (Orientation.isAndroid() or Orientation.isIOS()) then
       add(Strings("ORIENTATION"),
         function() return Strings(Orientation.modeLabel(opts.orientation)) end,
         function(dir)
@@ -642,6 +649,16 @@ local function gen2Rows(opts, hooks)
       function() return Tilt.levelLabel(opts.tilt or 0) end,
       function(dir)
         opts.tilt = wrapIndex((opts.tilt or 0) + dir, 4)
+        return true
+      end)
+  end
+
+  local okZ, Zoom = pcall(require, "src.render.Zoom")
+  if okZ then
+    add(Strings("ZOOM"),
+      function() return Zoom.offsetLabel(opts.zoom or 0) end,
+      function(dir)
+        Zoom.nudgeOptions(opts, dir, Zoom.windowFitScale())
         return true
       end)
   end

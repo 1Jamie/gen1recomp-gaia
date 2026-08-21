@@ -39,11 +39,9 @@
 --                         tiles at (2,13),(3,13),(2,14),(3,14) and the ▼ at
 --                         (18,17)
 --
--- The cart's own reel art (gfx/slots/slots_1..3.2bpp.lz plus
--- gfx/slots/slots.tilemap) is NOT in the cache: src/import/RomExtractorGen2.lua
--- writes no `slots` entry into menu_gfx.lua yet.  SlotMachine:sheet() reads one
--- the moment it appears and falls back to labelled cells until then, the same
--- way src/ui/gen2/PackGfx.lua degrades.
+-- Reel art (gfx/slots/slots_1..3.2bpp.lz + slots.tilemap) is extracted into
+-- assets/generated/slots/ when the Gold/Silver manifest carries Slots*LZ.
+-- Until those files exist, drawReels falls back to labelled cells.
 
 local Chrome = require("src.ui.gen2.Chrome")
 local CoinCase = require("src.core.gen2.CoinCase")
@@ -1160,10 +1158,8 @@ local TILEMAP = nil
 local function getTilemap()
   if TILEMAP == nil then
     local path = "assets/generated/slots/gold_slots.tilemap"
-    local f = io.open(path, "rb")
-    if f then
-      local data = f:read("*a")
-      f:close()
+    local data = love and love.filesystem and love.filesystem.read(path)
+    if data and #data > 0 then
       TILEMAP = {}
       for i = 1, #data do
         TILEMAP[i] = string.byte(data, i)
@@ -1173,6 +1169,14 @@ local function getTilemap()
     end
   end
   return TILEMAP or nil
+end
+
+-- Placeholder 2x2 symbol cell used when reel sheets are not in the cache yet.
+local function cell(tx, ty, label)
+  local G = love.graphics
+  G.setColor(0, 0, 0, 1)
+  G.rectangle("line", tx * 8, ty * 8, 16, 16)
+  Chrome.print(label, tx, ty + 1)
 end
 
 function SlotMachine:sheets()
@@ -1253,36 +1257,40 @@ function SlotMachine:drawReels()
     -- Draw 4 consecutive 2x2 symbols from bottom to top, exactly matching SlotMachine.window
     for row = 0, 3 do
       local sym = strip[a + row + 1]
-      local py = 64 - (row * 16) + dy
-      local pal = GBC_PALS.obj[math.floor(sym / 4)] or GBC_PALS.obj[0]
-      s2.palette = pal
-
-      -- 2x2 tiles in 2-wide sheet:
-      -- sym + 0 = top-left (col 0, row 0)
-      -- sym + 1 = top-right (col 1, row 0)
-      -- sym + 2 = bottom-left (col 0, row 1)
-      -- sym + 3 = bottom-right (col 1, row 1)
-      local t0 = s2:quad(sym + 0)
-      local t1 = s2:quad(sym + 1)
-      local t2 = s2:quad(sym + 2)
-      local t3 = s2:quad(sym + 3)
-      local img = s2:image()
-
-      if img and t0 and t1 and t2 and t3 then
-        local function drawSym()
-          G.draw(img, t0, rx, py)
-          G.draw(img, t1, rx + 8, py)
-          G.draw(img, t2, rx, py + 8)
-          G.draw(img, t3, rx + 8, py + 8)
-        end
-        if GbcPalette.available() then
-          GbcPalette.with(pal, drawSym)
-        else
-          drawSym()
-        end
+      if type(sym) ~= "number" then
+        cell(REEL_X[i], REEL_ROW[row + 1], "?")
       else
-        -- Fallback label
-        cell(REEL_X[i], REEL_ROW[row + 1], SlotMachine.LABELS[sym] or "?")
+        local py = 64 - (row * 16) + dy
+        local pal = GBC_PALS.obj[math.floor(sym / 4)] or GBC_PALS.obj[0]
+        s2.palette = pal
+
+        -- 2x2 tiles in 2-wide sheet:
+        -- sym + 0 = top-left (col 0, row 0)
+        -- sym + 1 = top-right (col 1, row 0)
+        -- sym + 2 = bottom-left (col 0, row 1)
+        -- sym + 3 = bottom-right (col 1, row 1)
+        local t0 = s2:quad(sym + 0)
+        local t1 = s2:quad(sym + 1)
+        local t2 = s2:quad(sym + 2)
+        local t3 = s2:quad(sym + 3)
+        local img = s2:image()
+
+        if img and t0 and t1 and t2 and t3 then
+          local function drawSym()
+            G.draw(img, t0, rx, py)
+            G.draw(img, t1, rx + 8, py)
+            G.draw(img, t2, rx, py + 8)
+            G.draw(img, t3, rx + 8, py + 8)
+          end
+          if GbcPalette.available() then
+            GbcPalette.with(pal, drawSym)
+          else
+            drawSym()
+          end
+        else
+          -- Fallback label
+          cell(REEL_X[i], REEL_ROW[row + 1], SlotMachine.LABELS[sym] or "?")
+        end
       end
     end
   end
@@ -1439,31 +1447,35 @@ function SlotMachine:drawMessage()
       and self.phase == "payoutText" then
     local _, s2 = self:sheets()
     local sym = self.matched
-    local pal = GBC_PALS.obj[math.floor(sym / 4)] or GBC_PALS.obj[0]
-    s2.palette = pal
-    local t0 = s2:quad(sym + 0)
-    local t1 = s2:quad(sym + 1)
-    local t2 = s2:quad(sym + 2)
-    local t3 = s2:quad(sym + 3)
-    local img = s2:image()
-    local G = love.graphics
-    local px, py = PAYOUT_SYMBOL_X * 8, PAYOUT_SYMBOL_Y * 8
-    if img and t0 and t1 and t2 and t3 then
-      local function drawWin()
-        G.setColor(1, 1, 1, 1)
-        G.draw(img, t0, px, py)
-        G.draw(img, t1, px + 8, py)
-        G.draw(img, t2, px, py + 8)
-        G.draw(img, t3, px + 8, py + 8)
-      end
-      G.setColor(1, 1, 1, 1)
-      if GbcPalette.available() then
-        GbcPalette.with(pal, drawWin)
-      else
-        drawWin()
-      end
+    if type(sym) ~= "number" then
+      cell(PAYOUT_SYMBOL_X, PAYOUT_SYMBOL_Y, "?")
     else
-      cell(PAYOUT_SYMBOL_X, PAYOUT_SYMBOL_Y, SlotMachine.LABELS[self.matched] or "?")
+      local pal = GBC_PALS.obj[math.floor(sym / 4)] or GBC_PALS.obj[0]
+      s2.palette = pal
+      local t0 = s2:quad(sym + 0)
+      local t1 = s2:quad(sym + 1)
+      local t2 = s2:quad(sym + 2)
+      local t3 = s2:quad(sym + 3)
+      local img = s2:image()
+      local G = love.graphics
+      local px, py = PAYOUT_SYMBOL_X * 8, PAYOUT_SYMBOL_Y * 8
+      if img and t0 and t1 and t2 and t3 then
+        local function drawWin()
+          G.setColor(1, 1, 1, 1)
+          G.draw(img, t0, px, py)
+          G.draw(img, t1, px + 8, py)
+          G.draw(img, t2, px, py + 8)
+          G.draw(img, t3, px + 8, py + 8)
+        end
+        G.setColor(1, 1, 1, 1)
+        if GbcPalette.available() then
+          GbcPalette.with(pal, drawWin)
+        else
+          drawWin()
+        end
+      else
+        cell(PAYOUT_SYMBOL_X, PAYOUT_SYMBOL_Y, SlotMachine.LABELS[sym] or "?")
+      end
     end
   end
 end
@@ -1523,8 +1535,7 @@ function SlotMachine:drawWidescreen(winW, winH)
   G.rectangle("fill", 0, 0, winW, winH)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
-  G.translate(math.floor((winW - 160 * scale) / 2),
-    math.floor((winH - 144 * scale) / 2))
+  G.translate(Chrome.fitOrigin(winW, winH, scale))
   G.scale(scale, scale)
   self:drawPanel()
   G.pop()

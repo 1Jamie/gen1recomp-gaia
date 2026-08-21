@@ -5258,80 +5258,213 @@ function RomExtractorGen2:extractMenuGfx()
   end
 
   -- Goldenrod Game Corner: Slot Machine graphics assets
+  local CacheFs = require("src.import.CacheFs")
+  local function packBytes(bytes)
+    local chars = {}
+    for i = 1, #bytes do chars[i] = string.char(bytes[i]) end
+    return table.concat(chars)
+  end
+  local function writeRaw(relative, bytes)
+    local ok, writeError = CacheFs.write(
+      "assets/generated/" .. relative, packBytes(bytes))
+    if not ok then
+      error("could not write " .. relative .. ": " .. tostring(writeError))
+    end
+  end
+
+  -- Canonical sheet sizes match the cart art the UI indexes (and pret's
+  -- gfx/slots + gfx/card_flip PNGs).  ROM LZ streams are those sheets after
+  -- Makefile gfx transforms; reverse what the decompressed bytes still carry.
+  local SLOTS1_W, SLOTS1_H = 16, 152
+  local SLOTS2_W, SLOTS2_H = 16, 256
+  local SLOTS3_W, SLOTS3_H = 24, 240
+  local CARD1_W, CARD1_H = 128, 32
+  local CARD2_W, CARD2_H = 24, 160
+  local CARD3_W, CARD3_H = 8, 56
+
+  local function pad2bpp(raw, width, height)
+    local need = width * height / 4
+    while #raw < need do raw[#raw + 1] = 0 end
+    while #raw > need do table.remove(raw) end
+    return raw
+  end
+
+  local function writeSheet(raw, width, height, relative, transparent)
+    self:write2bpp(pad2bpp(raw, width, height), width, height, relative,
+      transparent)
+  end
+
+  -- Slots3LZ is unique 8x16 OBJ columns (interleave + remove-duplicates +
+  -- remove-xflip).  Rebuild the 24x240 actor sheet the UI quads expect from
+  -- OAMData_SlotsGolem / Chansey* / Egg (data/sprite_anims/oam.asm), same
+  -- pattern as title-screen Ho-Oh frame composition above.
+  local function composeSlotsActors(raw)
+    local tileCount = math.floor(#raw / 16)
+    local tiles = {}
+    for index = 0, tileCount - 1 do
+      local one = {}
+      for b = 1, 16 do one[b] = raw[index * 16 + b] or 0 end
+      tiles[index] = ImageWriter.decode2bpp(one, 8, 8, true)
+    end
+    local sheet = ImageWriter.blank(SLOTS3_W, SLOTS3_H, 1, 1, 1, 0)
+    local function blit8x16(tileId, dx, dy, flipX)
+      local top, bot = tiles[tileId], tiles[tileId + 1]
+      if not (top and bot) then return end
+      ImageWriter.blit(sheet, top, dx, dy, 0, 0, 8, 8, flipX)
+      ImageWriter.blit(sheet, bot, dx, dy + 8, 0, 0, 8, 8, flipX)
+    end
+    local function blitPose(poseY, base, entries)
+      for _, e in ipairs(entries) do
+        blit8x16(base + e.t, (e.x + 2) * 8, poseY + (e.y + 2) * 8, e.xf)
+      end
+    end
+    local golem = {
+      { x = -2, y = -2, t = 0x00 }, { x = -1, y = -2, t = 0x02 },
+      { x = 0, y = -2, t = 0x00, xf = true },
+      { x = -2, y = 0, t = 0x04 }, { x = -1, y = 0, t = 0x06 },
+      { x = 0, y = 0, t = 0x04, xf = true },
+    }
+    local chansey = {
+      {
+        { x = -2, y = -2, t = 0x00 }, { x = -1, y = -2, t = 0x02 },
+        { x = 0, y = -2, t = 0x04 },
+        { x = -2, y = 0, t = 0x06 }, { x = -1, y = 0, t = 0x08 },
+        { x = 0, y = 0, t = 0x0a },
+      },
+      {
+        { x = -2, y = -2, t = 0x00 }, { x = -1, y = -2, t = 0x02 },
+        { x = 0, y = -2, t = 0x04 },
+        { x = -2, y = 0, t = 0x0c }, { x = -1, y = 0, t = 0x0e },
+        { x = 0, y = 0, t = 0x10 },
+      },
+      {
+        { x = -2, y = -2, t = 0x00 }, { x = -1, y = -2, t = 0x02 },
+        { x = 0, y = -2, t = 0x04 },
+        { x = -2, y = 0, t = 0x12 }, { x = -1, y = 0, t = 0x14 },
+        { x = 0, y = 0, t = 0x16 },
+      },
+      {
+        { x = -2, y = -2, t = 0x00 }, { x = -1, y = -2, t = 0x02 },
+        { x = 0, y = -2, t = 0x04 },
+        { x = -2, y = 0, t = 0x18 }, { x = -1, y = 0, t = 0x1a },
+        { x = 0, y = 0, t = 0x1c },
+      },
+      {
+        { x = -2, y = -2, t = 0x1e }, { x = -1, y = -2, t = 0x20 },
+        { x = 0, y = -2, t = 0x22 },
+        { x = -2, y = 0, t = 0x24 }, { x = -1, y = 0, t = 0x26 },
+        { x = 0, y = 0, t = 0x28 },
+      },
+    }
+    blitPose(0, 0x00, golem)
+    blitPose(32, 0x08, golem)
+    for index, frame in ipairs(chansey) do
+      blitPose(32 + index * 32, 0x10, frame)
+    end
+    blit8x16(0x3a, 0, 224, false)
+    return sheet
+  end
+
+  -- card_flip_2.2bpp uses --remove-whitespace: blank tiles in column 2 of the
+  -- 3-wide header strip (indices 2,5,...,23) are dropped from the ROM stream.
+  -- Re-insert them so HEADER_TILE_MAP / MON_ANCHORS (pret sheet indices) work.
+  local function expandCardFlip2(compact)
+    local need = CARD2_W * CARD2_H / 4
+    local out = {}
+    for i = 1, need do out[i] = 0 end
+    local whitespace = {
+      [2] = true, [5] = true, [8] = true, [11] = true,
+      [14] = true, [17] = true, [20] = true, [23] = true,
+    }
+    local src = 0
+    for tile = 0, 59 do
+      if not whitespace[tile] then
+        for b = 1, 16 do
+          out[tile * 16 + b] = compact[src * 16 + b] or 0
+        end
+        src = src + 1
+      end
+    end
+    return out
+  end
+
+  local slots = nil
   if self.symbols["Slots1LZ"] then
+    -- --trim-whitespace drops the final empty tile (37 of 38).
     local raw1 = self:decompressLz3Symbol("Slots1LZ")
-    self:write2bpp(raw1, 16, #raw1 / 4, "slots/gold_slots_1.png")
+    writeSheet(raw1, SLOTS1_W, SLOTS1_H, "slots/gold_slots_1.png")
+    slots = slots or {}
+    slots.sheet1 = "assets/generated/slots/gold_slots_1.png"
   end
   if self.symbols["Slots2LZ"] then
-    local raw2 = self:decompressLz3Symbol("Slots2LZ")
-    -- In Pokemon Gold ROM, Seven symbol (first 4 tiles = 64 bytes) has inverted bit polarity
+    local raw2 = ImageWriter.deinterleave(
+      self:decompressLz3Symbol("Slots2LZ"), SLOTS2_W)
+    -- Commercial Gold stores the Seven symbol with inverted bit polarity.
     for i = 1, math.min(64, #raw2) do
       raw2[i] = bit.band(bit.bnot(raw2[i]), 0xFF)
     end
-    self:write2bpp(raw2, 16, #raw2 / 4, "slots/gold_slots_2.png")
+    writeSheet(raw2, SLOTS2_W, SLOTS2_H, "slots/gold_slots_2.png")
+    slots = slots or {}
+    slots.sheet2 = "assets/generated/slots/gold_slots_2.png"
   end
   if self.symbols["Slots3LZ"] then
     local raw3 = self:decompressLz3Symbol("Slots3LZ")
-    self:write2bpp(raw3, 24, #raw3 / 6, "slots/gold_slots_3.png", true)
-    -- Slots3LZ is a 24px-wide (3 tiles), 240px-tall (30 tiles) sprite sheet containing:
-    --   Y=0:   Golem 1 (Standing, 24x32)
-    --   Y=32:  Golem 2 (Ball, 24x32)
-    --   Y=64:  Chansey 1 (Standing / Step 1, 24x32)
-    --   Y=96:  Chansey 2 (Step 2, 24x32)
-    --   Y=128: Chansey 3 (Step 3, 24x32)
-    --   Y=160: Chansey 4 (Arm raised / Step 4, 24x32)
-    --   Y=192: Chansey 5 (Egg Drop pose, 24x32)
-    --   Y=224: Egg (8x16 at X=0)
-    self:write2bpp(raw3, 24, #raw3 / 6, "slots/gold_slots_actors.png", true)
+    local actors = composeSlotsActors(raw3)
+    self:save(actors, "slots/gold_slots_3.png")
+    self:save(actors, "slots/gold_slots_actors.png")
+    slots = slots or {}
+    slots.sheet3 = "assets/generated/slots/gold_slots_3.png"
   end
   if self.symbols["SlotsTilemap"] then
     local symbol = self:symbol("SlotsTilemap")
     local tm = self.rom:bytes(symbol.bank, symbol.address, 20 * 12)
-    self:save(tm, "slots/gold_slots.tilemap")
+    writeRaw("slots/gold_slots.tilemap", tm)
+    slots = slots or {}
+    slots.tilemap = "assets/generated/slots/gold_slots.tilemap"
   end
+  if slots then out.slots = slots end
 
   -- Goldenrod Game Corner: Card Flip graphics assets
+  local cardFlip = nil
   if self.symbols["CardFlipLZ01"] then
+    -- --trim-whitespace: 62 of 64 tiles in the ROM stream.
     local raw1 = self:decompressLz3Symbol("CardFlipLZ01")
-    self:write2bpp(raw1, 128, #raw1 / 32, "card_flip/card_flip_1.png")
+    writeSheet(raw1, CARD1_W, CARD1_H, "card_flip/card_flip_1.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet1 = "assets/generated/card_flip/card_flip_1.png"
   end
   if self.symbols["CardFlipLZ02"] then
-    local raw2 = self:decompressLz3Symbol("CardFlipLZ02")
-    self:write2bpp(raw2, 24, #raw2 / 6, "card_flip/card_flip_2.png")
+    local raw2 = expandCardFlip2(self:decompressLz3Symbol("CardFlipLZ02"))
+    writeSheet(raw2, CARD2_W, CARD2_H, "card_flip/card_flip_2.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet2 = "assets/generated/card_flip/card_flip_2.png"
   end
   if self.symbols["CardFlipLZ03"] then
     local raw3 = self:decompressLz3Symbol("CardFlipLZ03")
-    self:write2bpp(raw3, 8, #raw3 / 2, "card_flip/card_flip_3.png")
+    writeSheet(raw3, CARD3_W, CARD3_H, "card_flip/card_flip_3.png")
+    cardFlip = cardFlip or {}
+    cardFlip.sheet3 = "assets/generated/card_flip/card_flip_3.png"
   end
   if self.symbols["CardFlipOnButtonGFX"] then
     local symbol = self:symbol("CardFlipOnButtonGFX")
     self:write2bpp(self.rom:bytes(symbol.bank, symbol.address, 16), 8, 8, "card_flip/on.png")
+    cardFlip = cardFlip or {}
+    cardFlip.on = "assets/generated/card_flip/on.png"
   end
   if self.symbols["CardFlipOffButtonGFX"] then
     local symbol = self:symbol("CardFlipOffButtonGFX")
     self:write2bpp(self.rom:bytes(symbol.bank, symbol.address, 16), 8, 8, "card_flip/off.png")
+    cardFlip = cardFlip or {}
+    cardFlip.off = "assets/generated/card_flip/off.png"
   end
   if self.symbols["CardFlipTilemap"] then
     local symbol = self:symbol("CardFlipTilemap")
     local tm = self.rom:bytes(symbol.bank, symbol.address, 11 * 12)
-    self:save(tm, "card_flip/card_flip.tilemap")
+    writeRaw("card_flip/card_flip.tilemap", tm)
+    cardFlip = cardFlip or {}
+    cardFlip.tilemap = "assets/generated/card_flip/card_flip.tilemap"
   end
-
-  out.slots = {
-    sheet1 = "assets/generated/slots/gold_slots_1.png",
-    sheet2 = "assets/generated/slots/gold_slots_2.png",
-    sheet3 = "assets/generated/slots/gold_slots_3.png",
-    tilemap = "assets/generated/slots/gold_slots.tilemap",
-  }
-
-  out.cardFlip = {
-    sheet1 = "assets/generated/card_flip/card_flip_1.png",
-    sheet2 = "assets/generated/card_flip/card_flip_2.png",
-    sheet3 = "assets/generated/card_flip/card_flip_3.png",
-    on = "assets/generated/card_flip/on.png",
-    off = "assets/generated/card_flip/off.png",
-    tilemap = "assets/generated/card_flip/card_flip.tilemap",
-  }
+  if cardFlip then out.cardFlip = cardFlip end
 
   self:write("menu_gfx", out)
   self:tick("Menu graphics", 1, 1)

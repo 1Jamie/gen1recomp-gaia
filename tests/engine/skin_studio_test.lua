@@ -115,6 +115,18 @@ check(cw <= 800 + 1e-6 and ch <= 600 + 1e-6, "and fits inside the workspace")
 near(cx + cw / 2, 400, 1e-6, "centred horizontally")
 near(cy + ch / 2, 300, 1e-6, "centred vertically")
 
+-- ----------------------------------------------------------- touch bridge
+
+session()
+Studio.lastCanvas = { x = 0, y = 0, w = 100, h = 100 }
+Studio.touchpressed("finger", 50, 50)
+eq(Studio.touchId, "finger", "the first finger owns the Studio gesture")
+check(Studio.pointerDown, "a touch is tracked as a held editor pointer")
+Studio.touchmoved("finger", 60, 50)
+Studio.touchreleased("finger", 60, 50)
+eq(Studio.touchId, nil, "lifting clears the captured finger")
+check(not Studio.pointerDown, "and releases the editor pointer")
+
 -- ---------------------------------------------------------------- drag
 
 session()
@@ -151,6 +163,13 @@ Studio.updateDrag(100, 200, r)
 v = Studio.page().viewport
 near(v.w * r.w, 500, 1e-6, "unlocked, width follows the pointer")
 near(v.h * r.h, 600, 1e-6, "and height is free")
+
+Studio.drag = { kind = "viewport-move", mx = 0, my = 0,
+                bx = 0, by = 0, bw = 100, bh = 100 }
+Studio.updateDrag(-250, 1100, r)
+v = Studio.page().viewport
+check(v.x < 0, "a screen anchor can move past the left canvas edge")
+check(v.y > 1, "a screen anchor can move past the bottom canvas edge")
 
 -- controls never escape the canvas
 Studio.selected = 1

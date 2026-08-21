@@ -753,12 +753,15 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
     -- and one below the top-right corner notch, like the DMG cart.
     local grooveW = w * 0.115
     local grooveH = math.max(1, h * 0.009)
+    local grooveScale = { 1.22, 1.10, 1.00, 1.00, 1.10, 1.22 }
+    local grooveInset = w * 0.02
     for i = 0, 5 do
       local ry = mainTop + h * 0.014 + i * h * 0.021
-      cartPolygon(cartQuad(project, -halfW + w * 0.02, ry,
-        grooveW, grooveH, faceZ), side, 0.7)
-      cartPolygon(cartQuad(project, halfW - grooveW - w * 0.02, ry,
-        grooveW, grooveH, faceZ), side, 0.7)
+      local gw = grooveW * grooveScale[i + 1]
+      cartPolygon(cartQuad(project, -halfW + grooveInset, ry,
+        gw, grooveH, faceZ), side, 0.7)
+      cartPolygon(cartQuad(project, halfW - gw - grooveInset, ry,
+        gw, grooveH, faceZ), side, 0.7)
     end
     -- The thin diagonal mold ridge cut into each long side a little below
     -- the grip grooves, mirrored left/right.
@@ -774,12 +777,14 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
         { project(x1 + nx * t, y1 + ny * t, faceZ) },
       }, side, 0.7)
     end
-    local dgY = mainTop + h * 0.20
+    local dgY = mainTop + h * 0.25
     diagonal(-halfW + w * 0.006, dgY, -halfW + w * 0.085, dgY + h * 0.038)
     diagonal(halfW - w * 0.006, dgY, halfW - w * 0.085, dgY + h * 0.038)
-    -- The Nintendo GAME BOY recess: one stadium pill sunk into the shell.
-    local pillX, pillW = -halfW + w * 0.17, w * 0.62
-    local pillY, pillH = mainTop + h * 0.024, h * 0.115
+    -- The pill recess: one stadium pill sunk into the shell.
+    local pillX, pillW = -halfW + w * 0.19, w * 0.62
+    local pillY, pillH = mainTop + h * 0.015, h * 0.115
+    -- log out pillH
+ 
     cartPill(project, pillX, pillY, pillW, pillH, faceZ + 0.5, side, 0.55)
     local inX, inY = w * 0.008, h * 0.008
     cartPill(project, pillX + inX, pillY + inY,
@@ -2142,124 +2147,127 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     + math.floor(8 * m.s)
   local listTop = cy
 
-  -- One continuous list: every row is laid out, the region scroll moves
-  -- through all of it, and only rows inside the region's viewport draw --
-  -- so the per-frame cost stays bounded by the window, not the list.
+  -- One continuous list: derive the rows that can touch the viewport before
+  -- entering the loop. Drawing was already culled, but scanning every
+  -- installed row to discover that defeats the point on a large mod library.
   local view = imp._tabRegionRect
   local viewTop = view and view.y or listTop
   local viewBot = view and (view.y + view.h) or (listTop + availH)
-  for i = 1, #mods do
+  local stride = rowH + gap
+  local first = math.max(1,
+    math.ceil((viewTop - rowH - listTop) / stride) + 1)
+  local last = math.min(#mods,
+    math.floor((viewBot - listTop) / stride) + 1)
+  for i = first, last do
     local mod = mods[i]
     local ry = listTop + (i - 1) * (rowH + gap)
-    if ry + rowH >= viewTop and ry <= viewBot then
-      local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
-      local isFullyDisabled = true
-      if mod.enabledByVersion then
-        for _, on in pairs(mod.enabledByVersion) do
-          if on then isFullyDisabled = false; break end
-        end
-      else
-        isFullyDisabled = not mod.enabled
+    local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
+    local isFullyDisabled = true
+    if mod.enabledByVersion then
+      for _, on in pairs(mod.enabledByVersion) do
+        if on then isFullyDisabled = false; break end
       end
+    else
+      isFullyDisabled = not mod.enabled
+    end
 
-      local focused = Kit.focusable(rowKey, x, ry, w, rowH)
-      local hot = focused or Kit.hover(x, ry, w, rowH)
-      if isFullyDisabled then
-        Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
-      else
-        Kit.card(x, ry, w, rowH, hot)
-      end
-      local pad = math.floor(12 * m.s)
-      local px, inner = x + pad, w - 2 * pad
-      local ly = ry + math.floor(10 * m.s)
+    local focused = Kit.focusable(rowKey, x, ry, w, rowH)
+    local hot = focused or Kit.hover(x, ry, w, rowH)
+    if isFullyDisabled then
+      Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
+    else
+      Kit.card(x, ry, w, rowH, hot)
+    end
+    local pad = math.floor(12 * m.s)
+    local px, inner = x + pad, w - 2 * pad
+    local ly = ry + math.floor(10 * m.s)
 
-      local togGap = math.floor(5 * m.s) + 1
-      local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
+    local togGap = math.floor(5 * m.s) + 1
+    local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
 
-      -- These answer separate games, not a single shared install flag.  The
-      -- importer receives the game id so an experimental confirmation also
-      -- applies only to the checkbox the player pressed.
-      local flipped = false
-      local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
-      Kit.text("micro", gamesLabel, px,
-        gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
-      local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
-      for _, game in ipairs(GameVersion.ORDER) do
-        local togKey = "mod-toggle-" .. mod.id .. "-" .. game
-        if modGameCheckbox(tx, gamesY, togH,
-            mod.enabledByVersion and mod.enabledByVersion[game] == true,
-            game, togKey, not safeMode) then
-          local version = game
-          queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
-          flipped = true
-        end
-        tx = tx + togH + togGap
+    -- These answer separate games, not a single shared install flag.  The
+    -- importer receives the game id so an experimental confirmation also
+    -- applies only to the checkbox the player pressed.
+    local flipped = false
+    local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
+    Kit.text("micro", gamesLabel, px,
+      gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
+    local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
+    for _, game in ipairs(GameVersion.ORDER) do
+      local togKey = "mod-toggle-" .. mod.id .. "-" .. game
+      if modGameCheckbox(tx, gamesY, togH,
+          mod.enabledByVersion and mod.enabledByVersion[game] == true,
+          game, togKey, not safeMode) then
+        local version = game
+        queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
+        flipped = true
       end
-      -- The checkboxes sit inside the row's rect, so their press also passes the
-      -- row hit test; `flipped` gates the row action to everywhere else.
-      if not flipped
-          and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
-        local id = mod.id
-        queueAction(imp, rowKey, function() imp._modActions = id end)
-      end
-      local textW = inner
+      tx = tx + togH + togGap
+    end
+    -- The checkboxes sit inside the row's rect, so their press also passes the
+    -- row hit test; `flipped` gates the row action to everywhere else.
+    if not flipped
+        and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
+      local id = mod.id
+      queueAction(imp, rowKey, function() imp._modActions = id end)
+    end
+    local textW = inner
 
-      local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
-      -- the games the mod is for, beside its category: the same chip the
-      -- in-game manager shows (src/mods/ModTargets.lua)
-      local gamesW = mod.targets
-        and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
-      local nameShown = Kit.ellipsize("button", mod.name,
-        textW - badgeW - gamesW - math.floor(12 * m.s))
-      local headingCol = isFullyDisabled and PAL.muted or PAL.heading
-      Kit.text("button", nameShown, px, ly, headingCol)
-      local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
-      Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
-        mod.experimental and PAL.yellow or PAL.muted)
-      if mod.targets then
-        Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
-          Kit.textHeight("button"), mod.targets,
-          mod.targetsHere == false and PAL.steel or PAL.blue)
-      end
-      ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
+    local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
+    -- the games the mod is for, beside its category: the same chip the
+    -- in-game manager shows (src/mods/ModTargets.lua)
+    local gamesW = mod.targets
+      and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
+    local nameShown = Kit.ellipsize("button", mod.name,
+      textW - badgeW - gamesW - math.floor(12 * m.s))
+    local headingCol = isFullyDisabled and PAL.muted or PAL.heading
+    Kit.text("button", nameShown, px, ly, headingCol)
+    local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
+    Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
+      mod.experimental and PAL.yellow or PAL.muted)
+    if mod.targets then
+      Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
+        Kit.textHeight("button"), mod.targets,
+        mod.targetsHere == false and PAL.steel or PAL.blue)
+    end
+    ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
 
-      -- version + status + update state
-      local statusText, statusCol = modStatusColor(mod.status)
-      local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
-      Kit.text("small", line, px, ly, statusCol)
-      local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
-      if imp:_modInfoPending(mod.id) then
-        -- An inline spinner, because this row's release check is genuinely in
-        -- flight -- the list stays usable while it resolves.
-        Loader.dot(lx, ly, Kit.textHeight("small"))
-        Kit.text("small", Strings("Checking..."),
-          lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
-      elseif info and info.status == "available" then
-        Kit.text("small", Strings("v%s available", tostring(info.latest)),
-          lx, ly, PAL.yellow)
-      elseif info and info.status == "current" then
-        Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
-      elseif info and info.status == "error" then
-        Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
-      end
-      ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
+    -- version + status + update state
+    local statusText, statusCol = modStatusColor(mod.status)
+    local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
+    Kit.text("small", line, px, ly, statusCol)
+    local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
+    if imp:_modInfoPending(mod.id) then
+      -- An inline spinner, because this row's release check is genuinely in
+      -- flight -- the list stays usable while it resolves.
+      Loader.dot(lx, ly, Kit.textHeight("small"))
+      Kit.text("small", Strings("Checking..."),
+        lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
+    elseif info and info.status == "available" then
+      Kit.text("small", Strings("v%s available", tostring(info.latest)),
+        lx, ly, PAL.yellow)
+    elseif info and info.status == "current" then
+      Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
+    elseif info and info.status == "error" then
+      Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
+    end
+    ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
 
-      -- one line of description, or the download stats when we have them
-      -- (download count in green so popularity reads at a glance)
-      if info and info.downloads then
-        local d = info.dates
-        local dl = ModUpdate.downloadsLine(info.downloads.total)
-        local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
-        local segs = {}
-        if dl then segs[#segs + 1] = { dl, PAL.green } end
-        if dates then
-          segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
-        end
-        segLine("small", segs, px, ly, textW)
-      elseif (mod.description or "") ~= "" then
-        Kit.text("small", Kit.ellipsize("small", mod.description, textW),
-          px, ly, PAL.detail)
+    -- one line of description, or the download stats when we have them
+    -- (download count in green so popularity reads at a glance)
+    if info and info.downloads then
+      local d = info.dates
+      local dl = ModUpdate.downloadsLine(info.downloads.total)
+      local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
+      local segs = {}
+      if dl then segs[#segs + 1] = { dl, PAL.green } end
+      if dates then
+        segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
       end
+      segLine("small", segs, px, ly, textW)
+    elseif (mod.description or "") ~= "" then
+      Kit.text("small", Kit.ellipsize("small", mod.description, textW),
+        px, ly, PAL.detail)
     end
   end
 
@@ -2269,8 +2277,8 @@ end
 
 -- ---------------------------------------------------------- find mods panel
 
--- SKINS tab: pick the on-screen skin, import one, or open the desktop studio.
-local function buildSkinsPanel(imp, x, y, w, availH, m)
+-- SKINS tab: pick the on-screen skin, import one, or open Skin Studio.
+local function buildSkinsPanelLegacy(imp, x, y, w, availH, m)
   local skins = imp:_ensureSkins()
   local active = imp:_activeSkin()
   local gap = m.gap
@@ -2324,7 +2332,7 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
   end
   cy = cy + urlH + math.floor(8 * m.s)
 
-  -- Studio button.  Desktop only: the host supplies the hook nowhere else.
+  -- The Studio reflows to a touch-first canvas plus inspector on phones.
   if imp.onOpenSkinStudio then
     local label = Strings("Open Skin Studio")
     local bw = math.min(w, Kit.textWidth("small", label) + math.floor(40 * m.s))
@@ -2343,6 +2351,64 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
 
   Kit.caption(x, cy, Strings("INSTALLED"))
   cy = cy + Kit.textHeight("small") + math.floor(6 * m.s)
+
+  -- Keep the actionable list below for detailed metadata and exports, but
+  -- lead with a visual picker: skins are much easier to recognize by their
+  -- bezel than by a folder name.  Cards use the same loaded art that the
+  -- runtime draws, so they cannot drift from the selected skin.
+  local previewGap = math.floor(8 * m.s)
+  local previewCols = w >= math.floor(420 * m.s) and 2 or 1
+  local previewW = (w - previewGap * (previewCols - 1)) / previewCols
+  local previewH = math.max(108 * m.s, Kit.tapMin() * 2)
+  local previewCount = #skins
+  for i, entry in ipairs(skins) do
+    local n = i - 1
+    local px = x + (n % previewCols) * (previewW + previewGap)
+    local py = cy + math.floor(n / previewCols) * (previewH + previewGap)
+    local key = "skin-preview-" .. entry.id
+    local selected = active == entry.id
+    local focused = Kit.focusable(key, px, py, previewW, previewH)
+    Kit.card(px, py, previewW, previewH, selected and "selected"
+      or (focused or Kit.hover(px, py, previewW, previewH)))
+    local pad = math.floor(8 * m.s)
+    local artH = math.floor(previewH * 0.60)
+    Theme.fillRounded(px + pad, py + pad, previewW - pad * 2, artH,
+      PAL.bg, 1, Theme.cardRadius() * 0.6)
+    local art = entry.preview
+    if art and art.getDimensions then
+      local iw, ih = art:getDimensions()
+      if iw > 0 and ih > 0 then
+        local scale = math.min((previewW - pad * 4) / iw, (artH - pad * 2) / ih)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(art, px + (previewW - iw * scale) * 0.5,
+          py + pad + (artH - ih * scale) * 0.5, 0, scale, scale)
+      end
+    else
+      Theme.strokeRounded(px + previewW * 0.23, py + pad + artH * 0.15,
+        previewW * 0.54, artH * 0.42, PAL.line, Theme.A.hairline, 1, 2)
+      Theme.fillRounded(px + previewW * 0.20, py + pad + artH * 0.64,
+        previewW * 0.22, artH * 0.17, PAL.steel, 0.75, 3)
+      Theme.fillRounded(px + previewW * 0.60, py + pad + artH * 0.61,
+        previewW * 0.12, artH * 0.22, PAL.steel, 0.75, artH * 0.11)
+      Theme.fillRounded(px + previewW * 0.75, py + pad + artH * 0.56,
+        previewW * 0.12, artH * 0.22, PAL.steel, 0.75, artH * 0.11)
+    end
+    Kit.text("mono", Kit.ellipsize("mono", entry.id, previewW - pad * 2),
+      px + pad, py + pad + artH + math.floor(5 * m.s),
+      selected and PAL.green or PAL.heading)
+    if selected then
+      Kit.text("micro", Strings("IN USE"), px + pad,
+        py + previewH - pad - Kit.textHeight("micro"), PAL.green)
+    end
+    if Kit.press(px, py, previewW, previewH) or Kit._activateId == key then
+      queueAction(imp, key, function() imp:_useSkin(entry.id) end)
+    end
+  end
+  if previewCount > 0 then
+    cy = cy + math.ceil(previewCount / previewCols) * previewH
+      + math.max(0, math.ceil(previewCount / previewCols) - 1) * previewGap
+      + gap
+  end
 
   local rowH = math.max(Kit.tapMin(), math.floor(44 * m.s))
   imp._skinGear = imp._skinGear
@@ -2455,6 +2521,69 @@ local function buildSkinsPanel(imp, x, y, w, availH, m)
   cy = cy + math.floor(10 * m.s)
   Kit.textWrapped("small", hint, x, cy, w, PAL.muted, 3)
   return cy + hintH - y
+end
+
+-- The launcher is the short path: bring a skin in, see what is enabled, or
+-- turn skin use off.  Browsing, pagination and per-skin editing/export live
+-- together in My Skins, where they are useful instead of competing here.
+local function buildSkinsPanel(imp, x, y, w, availH, m)
+  local cy, gap, bh = y, m.gap, m.btnH
+  local active = imp:_activeSkin()
+
+  Kit.text("button", Strings("Skins"), x, cy, PAL.heading)
+  local importW = math.min(w * 0.46,
+    Kit.textWidth("small", imp:_skinsImportButtonLabel()) + math.floor(24 * m.s))
+  btn(imp, x + w - importW, cy, importW, bh, "skins-import",
+    imp:_skinsImportButtonLabel(), { kind = "accent", font = "small",
+      action = function() imp:chooseSkin() end })
+  cy = cy + bh + gap
+
+  if imp._skinNotice then
+    cy = cy + Kit.textWrapped("small", imp._skinNotice.text, x, cy, w,
+      imp._skinNotice.ok and PAL.green or PAL.red, 2) + gap
+  end
+
+  local addW = Kit.textWidth("small", Strings("Add")) + math.floor(24 * m.s)
+  if imp._skinFetch then
+    Loader.inline(x, cy, w, bh, Strings("Downloading %s...",
+      tostring(imp._skinFetch.name or "")))
+  else
+    btn(imp, x + w - addW, cy, addW, bh, "skins-url-add", Strings("Add"), {
+      kind = "accent", font = "small", action = function() imp:_addSkinFromUrl() end })
+    textField(imp, x, cy, w - addW - gap, bh, "skins-url", imp.skinUrl or "",
+      Strings("Paste a skin link (.zip, .cfg, .deltaskin)"),
+      imp._skinUrlFocus == true, function() imp:_toggleSkinUrlFocus() end)
+  end
+  cy = cy + bh + gap
+
+  local currentH = active and (bh * 2 + gap * 2) or (bh + gap * 2)
+  Kit.card(x, cy, w, currentH)
+  Kit.caption(x + gap, cy + gap, "CURRENT SKIN")
+  local current = active and tostring(active) or Strings("No skin enabled")
+  Kit.text("mono", Kit.ellipsize("mono", current, w - gap * 2), x + gap,
+    cy + gap + Kit.textHeight("small") + math.floor(4 * m.s),
+    active and PAL.green or PAL.muted)
+  local buttonY = cy + bh + gap
+  local half = (w - gap * 3) * 0.5
+  if active then
+    btn(imp, x + gap, buttonY, half, bh, "skins-export-current",
+      Strings("Export current"), { font = "small",
+        action = function() imp:_exportSkin(active, "native") end })
+    btn(imp, x + gap * 2 + half, buttonY, half, bh, "skins-off",
+      Strings("Turn skins off"), { kind = "danger", font = "small",
+        action = function() imp:_disableSkins() end })
+  end
+  cy = cy + currentH + gap
+
+  if imp.onOpenSkinStudio then
+    btn(imp, x, cy, w, bh, "skins-my-skins", Strings("My Skins"), {
+      kind = "accent", font = "small",
+      action = function() imp.onOpenSkinStudio(imp.modScope or "red", active) end })
+    cy = cy + bh + gap
+  end
+  Kit.textWrapped("small", Strings("Import from a file or link, then manage, edit and export individual skins in My Skins."),
+    x, cy, w, PAL.muted, 3)
+  return cy + Kit.wrapHeight("small", Strings("Import from a file or link, then manage, edit and export individual skins in My Skins."), w, 3) - y
 end
 
 local function buildBugPanel(imp, x, y, w, availH, m)
@@ -3017,9 +3146,13 @@ local function buildTextModal(imp, m, key, title, body, closeFn)
   local h = math.floor(math.min(m.H - 2 * m.pad, 460 * m.s))
   local px, py, pw, ph = modalPanel(m, w, h)
   local cy = py + pad
-  Kit.text("button", Kit.ellipsize("button", title, pw - 2 * pad),
+  local xW = math.max(Kit.tapMin(), math.floor(30 * m.s))
+  Kit.text("button", Kit.ellipsize("button", title,
+    pw - 2 * pad - xW - math.floor(8 * m.s)),
     px + pad, cy, PAL.heading)
-  cy = cy + Kit.textHeight("button") + math.floor(10 * m.s)
+  btn(imp, px + pw - pad - xW, cy, xW, xW, key .. "-x", "X",
+    { font = "small", action = closeFn })
+  cy = cy + math.max(Kit.textHeight("button"), xW) + math.floor(10 * m.s)
 
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local bodyH = (py + ph - pad) - cy - m.btnH - math.floor(10 * m.s)
@@ -5071,6 +5204,7 @@ function LauncherView.draw(imp)
   -- whole stage draws shielded (no clicks, no hover, no focus ring) while
   -- one is up; buildModals lowers the shield for the modal's own controls.
   imp._modalUpNow = modalUp(imp)
+  if imp._modalUpNow then imp:_blurPanelFields() end
   Kit.blockClicks = imp._modalUpNow
 
   local step = Kit.scrollStep(m.s)

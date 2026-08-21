@@ -162,6 +162,10 @@ check(specs["overlay_previous"], "overlay_previous is reachable at last")
 check(specs["pause_toggle"] and specs["exit_emulator"],
       "so are the hotkeys the old cycle could not reach")
 check(specs["key:escape"], "and a keyboard bind can be picked")
+check(specs["key:-"] and specs["key:="] and specs["key:1"]
+    and specs["key:5"] and specs["key:f1"] and specs["key:f2"]
+    and specs["key:f10"],
+  "desktop hotkeys can be placed on a mobile skin button")
 check(specs["nul"], "decoration is still an option")
 
 session()

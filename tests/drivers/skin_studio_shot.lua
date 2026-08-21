@@ -9,7 +9,9 @@ return function(game)
 
   local dir = os.getenv("SHOT_DIR") or "/tmp/studio"
   os.execute('mkdir -p "' .. dir .. '" 2>/dev/null')
-  love.window.setMode(1440, 900, { resizable = true, highdpi = true })
+  local shotW = tonumber(os.getenv("STUDIO_SHOT_W")) or 1440
+  local shotH = tonumber(os.getenv("STUDIO_SHOT_H")) or 900
+  love.window.setMode(shotW, shotH, { resizable = true, highdpi = true })
   U.wait(2)
 
   local pending = nil
@@ -41,6 +43,14 @@ return function(game)
   U.log("skin:", Studio.skin and Studio.skin.id, "pages:", #(Studio.skin.pages or {}))
   U.log("controls:", #Studio.page().controls, "images:", #(Studio.images or {}))
   shot("studio_open.png")
+  Studio.enterEditor()
+  U.wait(2)
+  shot("studio_editor.png")
+
+  Studio.openPageMenu()
+  U.wait(2)
+  shot("studio_pages.png")
+  Studio.closeModal()
 
   Studio.selected = 9
   U.wait(3)

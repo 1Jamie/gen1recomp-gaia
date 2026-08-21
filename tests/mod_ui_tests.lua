@@ -341,6 +341,15 @@ check(orow(om, "zoom").value(om.game) == "FIT",
 orow(om, "zoom").step(om.game, 1)
 check(om.game.save.options.zoom == 1 and Zoom.offset == 1,
   "ZOOM row steps to IN1")
+orow(om, "zoom").step(om.game, -1)
+check(om.game.save.options.zoom == 0, "ZOOM row steps back to FIT")
+orow(om, "zoom").step(om.game, -1)
+check(om.game.save.options.zoom == -1 and Zoom.offset == -1,
+  "ZOOM row steps to OUT1")
+check(orow(om, "zoom").value(om.game) == "OUT1",
+  "ZOOM row shows OUT1")
+orow(om, "zoom").step(om.game, 1)
+check(om.game.save.options.zoom == 0, "ZOOM row steps back to FIT from OUT")
 orow(om, "voidFill").step(om.game, 1)
 check(om.game.save.options.voidFill == "water"
       and TileRenderer.voidFill == "water",

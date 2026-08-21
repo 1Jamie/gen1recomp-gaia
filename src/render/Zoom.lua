@@ -19,6 +19,8 @@ Zoom.allowSurvey = true
 
 -- legal offset range for a given fit scale (vanilla: survey at 1 px/world
 -- through 2× fit).  zoom.range may widen or shrink the window.
+-- When the window only fits 1×, 1-S is 0 and there would be no OUT
+-- levels; keep three survey steps so OPTIONS always has zoom-out.
 function Zoom.offsetRange(S)
   S = math.max(1, math.floor(tonumber(S) or 1))
   local lo, hi = 1 - S, S
@@ -30,7 +32,11 @@ function Zoom.offsetRange(S)
   end
   -- LOW performance tier: no survey (negative offsets), even if a mod's
   -- zoom.range widened it.  == false so nil/true stays permissive.
-  if Zoom.allowSurvey == false and lo < 0 then lo = 0 end
+  if Zoom.allowSurvey == false then
+    if lo < 0 then lo = 0 end
+  elseif lo > -3 then
+    lo = -3
+  end
   return lo, hi
 end
 
@@ -44,6 +50,8 @@ function Zoom.scale(S)
   local maxScale = math.max(minScale, S + hi)
   if s < minScale then s = minScale end
   if s > maxScale then s = maxScale end
+  -- Integer offset below 1px/world (OPTIONS OUT on a 1× window): 1/2, 1/4, …
+  if s < 1 then s = 0.5 ^ (1 - s) end
   if s < 0.25 then s = 0.25 end
   return s
 end
@@ -77,6 +85,30 @@ end
 
 function Zoom.applyOptions(opts)
   Zoom.offset = math.floor(tonumber(opts and opts.zoom) or 0)
+end
+
+-- Integer fit used when OPTIONS has no live renderer (launcher, title).
+function Zoom.windowFitScale()
+  if love and love.graphics and love.graphics.getDimensions then
+    local ww, wh = love.graphics.getDimensions()
+    ww, wh = tonumber(ww) or 0, tonumber(wh) or 0
+    if ww >= 160 and wh >= 144 then
+      return math.max(1, math.floor(math.min(ww / 160, wh / 144)))
+    end
+  end
+  return 1
+end
+
+-- One step of the OPTIONS ZOOM row (dir +1 in, -1 out).  Shared by Red
+-- and Gold so both ladders offer OUT / FIT / IN.
+function Zoom.nudgeOptions(options, dir, S)
+  S = math.max(1, math.floor(tonumber(S) or Zoom.windowFitScale()))
+  local lo, hi = Zoom.offsetRange(S)
+  local off = math.floor(tonumber(options and options.zoom) or 0) + (dir or 1)
+  if off > hi then off = lo elseif off < lo then off = hi end
+  if options then options.zoom = off end
+  Zoom.offset = off
+  return off
 end
 
 -- FIT / OUT1 / OUT2 / … / IN1 / IN2 / …
