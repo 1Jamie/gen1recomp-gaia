@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.15",
+          "date": "2026-08-21",
+          "size": 13753007,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.15/gen1recomp++-0.2.15-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1589 Player sprite still blinking on the Town Map\n- #1595 Pokedex completion certificate is not displaying correctly\n- #1597 Link cable looks broken\n- #1613 Visual differences in Pokemon trades\n- #1619 Save Menu cutting off and Put into another place\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.14",
           "date": "2026-08-20",
           "size": 13749372,
