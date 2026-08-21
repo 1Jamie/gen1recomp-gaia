@@ -877,6 +877,8 @@ love.handlers = love.handlers or {}
 function love.handlers.audiosuspend()
   local ChipAudio = package.loaded["src.core.ChipAudio"]
   if ChipAudio then pcall(ChipAudio.setSuspended, true) end
+  local Sound = package.loaded["src.core.Sound"]
+  if Sound then pcall(Sound.onDeviceReset) end
 end
 
 function love.handlers.audioreset()

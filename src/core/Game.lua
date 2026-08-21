@@ -919,16 +919,7 @@ function Game:gamepadaxis(joystick, axis, value)
   Input:gamepadaxis(joystick, axis, value)
 end
 
--- conf.lua turns the mobile accelerometer-joystick off (#468), but guard the
--- generic joystick path anyway: any sensor-style device that still reaches us
--- has gravity pinning an axis past the deadzone, which would hide the touch
--- overlay every instant and steer the player by tilt through the axis-1/2
--- mapping (#459).  Real controllers arrive as SDL gamepads or named sticks,
--- never as "* Accelerometer".
-local function isAccelerometer(joystick)
-  local name = joystick and joystick.getName and joystick:getName()
-  return name ~= nil and name:lower():find("accelerometer", 1, true) ~= nil
-end
+local isAccelerometer = GamepadMap.isAccelerometer
 
 -- BindingsMenu's raw-stick capture rides the same top-state routing as the
 -- keyboard and gamepad paths (#632).  Only a stick SDL does not recognize

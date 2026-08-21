@@ -303,15 +303,12 @@ local function coreRows(opts, hooks)
       end)
   end
 
-  -- ORIENTATION (#592): Android only -- the lock rides SDL's orientation
-  -- hint, which iOS reads only at startup (the Info.plist governs there) and
-  -- desktop ignores.  Unlike the other launcher rows this one live-applies:
-  -- the window exists here too, and rotating under the player's finger is
-  -- the only feedback that reads.
+  -- ORIENTATION (#592, #1638): mobile only.  Unlike the other launcher rows
+  -- this one live-applies: the window exists here too, and rotating under
+  -- the player's finger is the only feedback that reads.
   do
-    local osName = love.system and love.system.getOS and love.system.getOS()
     local okOr, Orientation = pcall(require, "src.core.Orientation")
-    if okOr and osName == "Android" then
+    if okOr and (Orientation.isAndroid() or Orientation.isIOS()) then
       add(Strings("ORIENTATION"),
         function() return Strings(Orientation.modeLabel(opts.orientation)) end,
         function(dir)

@@ -3017,9 +3017,13 @@ local function buildTextModal(imp, m, key, title, body, closeFn)
   local h = math.floor(math.min(m.H - 2 * m.pad, 460 * m.s))
   local px, py, pw, ph = modalPanel(m, w, h)
   local cy = py + pad
-  Kit.text("button", Kit.ellipsize("button", title, pw - 2 * pad),
+  local xW = math.max(Kit.tapMin(), math.floor(30 * m.s))
+  Kit.text("button", Kit.ellipsize("button", title,
+    pw - 2 * pad - xW - math.floor(8 * m.s)),
     px + pad, cy, PAL.heading)
-  cy = cy + Kit.textHeight("button") + math.floor(10 * m.s)
+  btn(imp, px + pw - pad - xW, cy, xW, xW, key .. "-x", "X",
+    { font = "small", action = closeFn })
+  cy = cy + math.max(Kit.textHeight("button"), xW) + math.floor(10 * m.s)
 
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local bodyH = (py + ph - pad) - cy - m.btnH - math.floor(10 * m.s)
@@ -5071,6 +5075,7 @@ function LauncherView.draw(imp)
   -- whole stage draws shielded (no clicks, no hover, no focus ring) while
   -- one is up; buildModals lowers the shield for the modal's own controls.
   imp._modalUpNow = modalUp(imp)
+  if imp._modalUpNow then imp:_blurPanelFields() end
   Kit.blockClicks = imp._modalUpNow
 
   local step = Kit.scrollStep(m.s)

@@ -580,8 +580,8 @@ local function buildRows(game)
     end
     rows = filtered
   end
-  -- ORIENTATION only on Android, the one platform Orientation.apply reaches.
-  if not Orientation.isAndroid() then
+  -- ORIENTATION only on the platforms Orientation.apply reaches (#1638).
+  if not (Orientation.isAndroid() or Orientation.isIOS()) then
     local filtered = {}
     for _, row in ipairs(rows) do
       if row.id ~= "orientation" then filtered[#filtered + 1] = row end

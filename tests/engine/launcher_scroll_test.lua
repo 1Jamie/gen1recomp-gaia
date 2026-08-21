@@ -291,9 +291,15 @@ eq(edgeImp._pageScrollMax, 0, "with no page scroll left to catch the notch")
 check(ereg.y + ereg.h < 720, "and a region that ends above the safe area")
 edgeImp._padCursorActive = true
 edgeImp._padCursor = { x = ereg.x + 20, y = 719 }
-edgeImp._padAxis = { lefty = 1 }
 edgeImp._padDir = {}
 pointer(ereg.x + 20, 719)
+edgeImp:gamepadaxis(nil, "lefty", 1)
+edgeImp:_updatePadCursor(0.5)
+eq(edgeImp._wheelY or 0, 0,
+  "an axis that has never read under the deadzone cannot edge-scroll")
+edgeImp._padCursor = { x = ereg.x + 20, y = 719 }
+edgeImp:gamepadaxis(nil, "lefty", 0)
+edgeImp:gamepadaxis(nil, "lefty", 1)
 edgeImp:_updatePadCursor(0.5)
 check((edgeImp._wheelY or 0) < 0, "the edge push synthesizes a notch")
 LauncherView.draw(edgeImp)
