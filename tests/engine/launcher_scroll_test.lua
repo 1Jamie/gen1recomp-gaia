@@ -388,6 +388,35 @@ mdown = false
 LauncherView.update(gameImp, 0.016)
 love.mouse.isDown = nil
 
+-- Opening or relisting MODS is display work only. Release checks are an
+-- explicit action, otherwise each installed GitHub mod creates background
+-- work exactly when the player starts scrolling the panel.
+do
+  local savedMods = package.loaded["src.mods.LauncherMods"]
+  local savedSaveData = package.loaded["src.core.SaveData"]
+  local listCalls, updateCalls = 0, 0
+  package.loaded["src.mods.LauncherMods"] = {
+    list = function()
+      listCalls = listCalls + 1
+      return { { id = "test", github = "owner/repo" } }
+    end,
+  }
+  package.loaded["src.core.SaveData"] = {
+    loadOptions = function() return {} end,
+    isSafeMode = function() return false end,
+  }
+  local refreshImp = setmetatable({
+    modStraysChecked = true,
+    _syncModUpdateInfo = function() updateCalls = updateCalls + 1 end,
+  }, RomImporter)
+  refreshImp:_refreshMods()
+  eq(listCalls, 1, "relisting MODS still obtains its installed rows")
+  eq(updateCalls, 0,
+    "relisting MODS does not start release checks without the explicit button")
+  package.loaded["src.mods.LauncherMods"] = savedMods
+  package.loaded["src.core.SaveData"] = savedSaveData
+end
+
 local function read(path)
   local f = assert(io.open(path, "r"))
   local src = f:read("*a")

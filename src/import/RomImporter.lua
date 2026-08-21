@@ -4154,7 +4154,6 @@ function RomImporter:_refreshMods()
     end
     self.mods = kept
   end
-  self:_syncModUpdateInfo(false)
 end
 
 -- Point the MODS panel at one game (or nil for all of them) and relist, so
@@ -4168,15 +4167,12 @@ function RomImporter:_ensureMods()
   if not self.mods then self:_refreshMods() end
 end
 
--- Resolve cached (or freshly fetched) GitHub status for every mod that
--- declares a github field. force=true bypasses the 6h cache on every repo.
--- Results live on self.modUpdateInfo[id] = { status, latest, best, releases }.
--- ASYNC (was synchronous).  This runs on every _refreshMods -- boot, and any
--- toggle or install -- and used to make one blocking curl call per mod with a
--- github field, in a loop, on the render thread.  A handful of mods was a
--- multi-second freeze of the whole launcher.  Now each mod gets a handle and
--- they resolve together across later frames; a mod whose cache is still fresh
--- resolves on the first pump with no network at all.
+-- Resolve GitHub status for every installed mod that declares a github field.
+-- This is deliberately opt-in: only the explicit "Check for updates" action
+-- calls it. Opening, scrolling, toggling, or relisting the MODS tab must not
+-- create a burst of release work behind the list. force=true bypasses the 6h
+-- cache on every repo. Results live on self.modUpdateInfo[id] = {
+-- status, latest, best, releases } and resolve asynchronously across frames.
 function RomImporter:_syncModUpdateInfo(force)
   local ModUpdate = require("src.mods.ModUpdate")
   self.modUpdateInfo = self.modUpdateInfo or {}

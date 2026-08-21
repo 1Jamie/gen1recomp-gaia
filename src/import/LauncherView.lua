@@ -2142,124 +2142,127 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     + math.floor(8 * m.s)
   local listTop = cy
 
-  -- One continuous list: every row is laid out, the region scroll moves
-  -- through all of it, and only rows inside the region's viewport draw --
-  -- so the per-frame cost stays bounded by the window, not the list.
+  -- One continuous list: derive the rows that can touch the viewport before
+  -- entering the loop. Drawing was already culled, but scanning every
+  -- installed row to discover that defeats the point on a large mod library.
   local view = imp._tabRegionRect
   local viewTop = view and view.y or listTop
   local viewBot = view and (view.y + view.h) or (listTop + availH)
-  for i = 1, #mods do
+  local stride = rowH + gap
+  local first = math.max(1,
+    math.ceil((viewTop - rowH - listTop) / stride) + 1)
+  local last = math.min(#mods,
+    math.floor((viewBot - listTop) / stride) + 1)
+  for i = first, last do
     local mod = mods[i]
     local ry = listTop + (i - 1) * (rowH + gap)
-    if ry + rowH >= viewTop and ry <= viewBot then
-      local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
-      local isFullyDisabled = true
-      if mod.enabledByVersion then
-        for _, on in pairs(mod.enabledByVersion) do
-          if on then isFullyDisabled = false; break end
-        end
-      else
-        isFullyDisabled = not mod.enabled
+    local rowKey = rowKeyFor(imp, "mod-row-", mod.id)
+    local isFullyDisabled = true
+    if mod.enabledByVersion then
+      for _, on in pairs(mod.enabledByVersion) do
+        if on then isFullyDisabled = false; break end
       end
+    else
+      isFullyDisabled = not mod.enabled
+    end
 
-      local focused = Kit.focusable(rowKey, x, ry, w, rowH)
-      local hot = focused or Kit.hover(x, ry, w, rowH)
-      if isFullyDisabled then
-        Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
-      else
-        Kit.card(x, ry, w, rowH, hot)
-      end
-      local pad = math.floor(12 * m.s)
-      local px, inner = x + pad, w - 2 * pad
-      local ly = ry + math.floor(10 * m.s)
+    local focused = Kit.focusable(rowKey, x, ry, w, rowH)
+    local hot = focused or Kit.hover(x, ry, w, rowH)
+    if isFullyDisabled then
+      Kit.card(x, ry, w, rowH, hot and "mutedHot" or "muted")
+    else
+      Kit.card(x, ry, w, rowH, hot)
+    end
+    local pad = math.floor(12 * m.s)
+    local px, inner = x + pad, w - 2 * pad
+    local ly = ry + math.floor(10 * m.s)
 
-      local togGap = math.floor(5 * m.s) + 1
-      local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
+    local togGap = math.floor(5 * m.s) + 1
+    local info = mod.github and mod.github ~= "" and imp:_modUpdateInfo(mod.id)
 
-      -- These answer separate games, not a single shared install flag.  The
-      -- importer receives the game id so an experimental confirmation also
-      -- applies only to the checkbox the player pressed.
-      local flipped = false
-      local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
-      Kit.text("micro", gamesLabel, px,
-        gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
-      local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
-      for _, game in ipairs(GameVersion.ORDER) do
-        local togKey = "mod-toggle-" .. mod.id .. "-" .. game
-        if modGameCheckbox(tx, gamesY, togH,
-            mod.enabledByVersion and mod.enabledByVersion[game] == true,
-            game, togKey, not safeMode) then
-          local version = game
-          queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
-          flipped = true
-        end
-        tx = tx + togH + togGap
+    -- These answer separate games, not a single shared install flag.  The
+    -- importer receives the game id so an experimental confirmation also
+    -- applies only to the checkbox the player pressed.
+    local flipped = false
+    local gamesY = ry + math.floor(8 * m.s) + textH + math.floor(8 * m.s)
+    Kit.text("micro", gamesLabel, px,
+      gamesY + (togH - Kit.textHeight("micro")) / 2, PAL.muted)
+    local tx = px + Kit.textWidth("micro", gamesLabel) + math.floor(10 * m.s)
+    for _, game in ipairs(GameVersion.ORDER) do
+      local togKey = "mod-toggle-" .. mod.id .. "-" .. game
+      if modGameCheckbox(tx, gamesY, togH,
+          mod.enabledByVersion and mod.enabledByVersion[game] == true,
+          game, togKey, not safeMode) then
+        local version = game
+        queueAction(imp, togKey, function() imp:_toggleMod(mod.id, nil, version) end)
+        flipped = true
       end
-      -- The checkboxes sit inside the row's rect, so their press also passes the
-      -- row hit test; `flipped` gates the row action to everywhere else.
-      if not flipped
-          and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
-        local id = mod.id
-        queueAction(imp, rowKey, function() imp._modActions = id end)
-      end
-      local textW = inner
+      tx = tx + togH + togGap
+    end
+    -- The checkboxes sit inside the row's rect, so their press also passes the
+    -- row hit test; `flipped` gates the row action to everywhere else.
+    if not flipped
+        and (Kit.press(x, ry, w, rowH) or Kit._activateId == rowKey) then
+      local id = mod.id
+      queueAction(imp, rowKey, function() imp._modActions = id end)
+    end
+    local textW = inner
 
-      local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
-      -- the games the mod is for, beside its category: the same chip the
-      -- in-game manager shows (src/mods/ModTargets.lua)
-      local gamesW = mod.targets
-        and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
-      local nameShown = Kit.ellipsize("button", mod.name,
-        textW - badgeW - gamesW - math.floor(12 * m.s))
-      local headingCol = isFullyDisabled and PAL.muted or PAL.heading
-      Kit.text("button", nameShown, px, ly, headingCol)
-      local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
-      Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
-        mod.experimental and PAL.yellow or PAL.muted)
-      if mod.targets then
-        Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
-          Kit.textHeight("button"), mod.targets,
-          mod.targetsHere == false and PAL.steel or PAL.blue)
-      end
-      ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
+    local badgeW = Kit.textWidth("micro", mod.badge) + math.floor(12 * m.s)
+    -- the games the mod is for, beside its category: the same chip the
+    -- in-game manager shows (src/mods/ModTargets.lua)
+    local gamesW = mod.targets
+      and Kit.textWidth("micro", mod.targets) + math.floor(12 * m.s) or 0
+    local nameShown = Kit.ellipsize("button", mod.name,
+      textW - badgeW - gamesW - math.floor(12 * m.s))
+    local headingCol = isFullyDisabled and PAL.muted or PAL.heading
+    Kit.text("button", nameShown, px, ly, headingCol)
+    local tagX = px + Kit.textWidth("button", nameShown) + math.floor(8 * m.s)
+    Kit.tag(tagX, ly, badgeW, Kit.textHeight("button"), mod.badge,
+      mod.experimental and PAL.yellow or PAL.muted)
+    if mod.targets then
+      Kit.tag(tagX + badgeW + math.floor(4 * m.s), ly, gamesW,
+        Kit.textHeight("button"), mod.targets,
+        mod.targetsHere == false and PAL.steel or PAL.blue)
+    end
+    ly = ly + Kit.textHeight("button") + math.floor(4 * m.s)
 
-      -- version + status + update state
-      local statusText, statusCol = modStatusColor(mod.status)
-      local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
-      Kit.text("small", line, px, ly, statusCol)
-      local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
-      if imp:_modInfoPending(mod.id) then
-        -- An inline spinner, because this row's release check is genuinely in
-        -- flight -- the list stays usable while it resolves.
-        Loader.dot(lx, ly, Kit.textHeight("small"))
-        Kit.text("small", Strings("Checking..."),
-          lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
-      elseif info and info.status == "available" then
-        Kit.text("small", Strings("v%s available", tostring(info.latest)),
-          lx, ly, PAL.yellow)
-      elseif info and info.status == "current" then
-        Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
-      elseif info and info.status == "error" then
-        Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
-      end
-      ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
+    -- version + status + update state
+    local statusText, statusCol = modStatusColor(mod.status)
+    local line = "v" .. tostring(mod.version or "?") .. "   " .. statusText
+    Kit.text("small", line, px, ly, statusCol)
+    local lx = px + Kit.textWidth("small", line) + math.floor(12 * m.s)
+    if imp:_modInfoPending(mod.id) then
+      -- An inline spinner, because this row's release check is genuinely in
+      -- flight -- the list stays usable while it resolves.
+      Loader.dot(lx, ly, Kit.textHeight("small"))
+      Kit.text("small", Strings("Checking..."),
+        lx + Kit.textHeight("small") + math.floor(6 * m.s), ly, PAL.muted)
+    elseif info and info.status == "available" then
+      Kit.text("small", Strings("v%s available", tostring(info.latest)),
+        lx, ly, PAL.yellow)
+    elseif info and info.status == "current" then
+      Kit.text("small", Strings("up to date"), lx, ly, PAL.muted)
+    elseif info and info.status == "error" then
+      Kit.text("small", Strings("check failed"), lx, ly, PAL.red)
+    end
+    ly = ly + Kit.textHeight("small") + math.floor(2 * m.s)
 
-      -- one line of description, or the download stats when we have them
-      -- (download count in green so popularity reads at a glance)
-      if info and info.downloads then
-        local d = info.dates
-        local dl = ModUpdate.downloadsLine(info.downloads.total)
-        local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
-        local segs = {}
-        if dl then segs[#segs + 1] = { dl, PAL.green } end
-        if dates then
-          segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
-        end
-        segLine("small", segs, px, ly, textW)
-      elseif (mod.description or "") ~= "" then
-        Kit.text("small", Kit.ellipsize("small", mod.description, textW),
-          px, ly, PAL.detail)
+    -- one line of description, or the download stats when we have them
+    -- (download count in green so popularity reads at a glance)
+    if info and info.downloads then
+      local d = info.dates
+      local dl = ModUpdate.downloadsLine(info.downloads.total)
+      local dates = ModUpdate.datesLine(d and d.first, d and d.latest)
+      local segs = {}
+      if dl then segs[#segs + 1] = { dl, PAL.green } end
+      if dates then
+        segs[#segs + 1] = { (dl and "  -  " or "") .. dates, PAL.detail }
       end
+      segLine("small", segs, px, ly, textW)
+    elseif (mod.description or "") ~= "" then
+      Kit.text("small", Kit.ellipsize("small", mod.description, textW),
+        px, ly, PAL.detail)
     end
   end
 
