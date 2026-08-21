@@ -173,7 +173,7 @@ before the key existed changes behavior; list both generations or say `"all"`
 when you mean everywhere.
 
 `docs/mod-api-gen2-compat.md` is the compatibility matrix: what works on Gold
-and Silver today (40 of the 46 registries, 40 event and 43 hook names shared with Gen 1,
+and Silver today (40 of the 46 registries, 40 event and 44 hook names shared with Gen 1,
 and 24 Gen 2-only ones), which registries have no Gen 2 home and drop their
 writes with a report, and which hooks and events are still to come.
 `docs/preparing-your-mod-for-gen2.md` is the step-by-step migration guide for a
