@@ -1234,10 +1234,15 @@ function Battle:dealDamage(attacker, defender, damage, opts)
   if opts.critical then
     self:emit({ kind = "message", text = "A critical hit!" })
   end
+  -- SuperEffectiveText / NotVeryEffectiveText (data/text/battle.asm:603,608).
+  -- The cart breaks both across the box's two lines and hyphenates "super-"
+  -- to do it, and the not-very line ends on the single ellipsis glyph Gold's
+  -- charmap carries at $75, not three periods.
   if opts.effectiveness and opts.effectiveness > 10 then
-    self:emit({ kind = "message", text = "It's super effective!" })
+    self:emit({ kind = "message", text = Strings("It's super-\neffective!") })
   elseif opts.effectiveness and opts.effectiveness < 10 then
-    self:emit({ kind = "message", text = "It's not very effective..." })
+    self:emit({ kind = "message",
+      text = Strings("It's not very\neffective…") })
   end
   if endured then
     self:emit({ kind = "message",
@@ -1391,7 +1396,9 @@ function Battle:useMove(attacker, defender, moveId)
 
   if not (charging or rampaging or rolling) then
     if move and (move.pp or 0) <= 0 then
-      self:emit({ kind = "message", text = "No PP left for this move!" })
+      -- BattleText_TheresNoPPLeftForThisMove (data/text/battle.asm:315).
+      self:emit({ kind = "message",
+        text = Strings("There's no PP left\nfor this move!") })
       return
     end
     if move then move.pp = (move.pp or 1) - 1 end
@@ -1747,8 +1754,12 @@ function Battle:useMove(attacker, defender, moveId)
       landed = landed + 1
     end
     if landed > 1 then
-      self:emit({ kind = "message",
-        text = ("Hit %d time(s)!"):format(landed) })
+      -- PlayerHitTimesText / EnemyHitTimesText (data/text/battle.asm:749,755)
+      -- are "Hit @ times!".  Gen 2 has no singular form of this line, so the
+      -- plural stands even at one hit rather than the "(s)" this printed.
+      -- Gen 1 already says it this way (src/battle/EffectRegistry.lua,
+      -- _HitXTimesText).
+      self:emit({ kind = "message", text = Strings("Hit %d times!", landed) })
     end
 
     -- move_effects/pay_day.asm:13
@@ -1968,8 +1979,11 @@ Battle.MOVE_EFFECTS.EFFECT_PERISH_SONG = function(self)
   if mine.perish and theirs.perish then return fail(self) end
   if not mine.perish then mine.perish = Effects.PERISH_TURNS end
   if not theirs.perish then theirs.perish = Effects.PERISH_TURNS end
+  -- StartPerishText (data/text/battle.asm:986).  What shipped here was a
+  -- sentence no cart prints; the Gen 2 line names both sides and counts in
+  -- digits.
   self:emit({ kind = "message",
-    text = "All POKéMON hearing the song will faint in three turns!" })
+    text = Strings("Both POKéMON will\nfaint in 3 turns!") })
 end
 
 -- BattleCommand_Encore: 3-6 turns locked into the move the target last used.
@@ -2099,6 +2113,11 @@ Battle.MOVE_EFFECTS.EFFECT_SPIKES = function(self, attacker, defender)
   local side = self:sideOf(defender)
   if self.spikes[side] then return fail(self) end
   self.spikes[side] = true
+  -- SpikesText (data/text/battle.asm:974) is three rows, the third scrolled
+  -- (`cont`) and carrying <TARGET>.  The battle message path has no `cont`:
+  -- src/ui/gen2/BattleState.lua sets self.message straight from the event and
+  -- printMessage cuts past two rows, so the cart's line cannot be told here
+  -- yet without the name being dropped on screen.  Left as it stands.
   self:emit({ kind = "message", text = "Spikes were scattered all around!" })
 end
 
@@ -2334,7 +2353,9 @@ Battle.MOVE_EFFECTS.EFFECT_BEAT_UP = function(self, attacker, defender, def)
       { move = def, moveId = def and def.id })
     landed = landed + 1
   end
-  self:emit({ kind = "message", text = ("Hit %d time(s)!"):format(landed) })
+  -- BattleCommand_EndLoop prints the same line for Beat Up, and Beat Up can
+  -- land exactly once, which is the case the cart still prints as "times".
+  self:emit({ kind = "message", text = Strings("Hit %d times!", landed) })
 end
 
 -- BattleCommand_Heal (effect_commands.asm:5986): Recover and Rest are both
