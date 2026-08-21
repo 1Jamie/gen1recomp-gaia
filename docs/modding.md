@@ -633,6 +633,17 @@ the selected indices. Mods remain responsible for selection policy and should
 use only public `mod.ui`, hook, and save APIs. See RFC 0010 for the exact
 contract and compatibility guarantees.
 
+Both battle engines expose the guarded `battle.charge_required` hook when a
+charge-capable move is selected for its initial turn and the active ruleset
+would otherwise charge it. The wrapper receives `(next, ctx)`, where `ctx` is
+`{ battle, user, target, move, charge = true, isCalled }`. Return `false` to
+skip only that initial charge and continue through the ordinary move pipeline;
+call `next(ctx)` to keep it. The hook does not run for the release turn or when
+the active ruleset already skips charging (for example, Gold Solarbeam in
+sun). PP use, accuracy, damage, animation, and secondary effects remain owned
+by the engine. With no subscriber, the vanilla decision runs without building
+the hook context.
+
 ## Developer console
 
 Boot with developer mode on to unlock the in-game console and hot-reload

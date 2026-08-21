@@ -1494,6 +1494,15 @@ function Battle:useMove(attacker, defender, moveId)
   if def.effect == "EFFECT_SOLARBEAM" and self.weather == "sun" then
     charge = nil
   end
+  if charge and not charging and Runtime.wantsHook("battle.charge_required") then
+    local required = Runtime.call("battle.charge_required", function(c)
+      return c.charge
+    end, {
+      battle = self, user = attacker, target = defender, move = def,
+      charge = true, isCalled = (self.copyDepth or 0) > 0,
+    })
+    if required == false then charge = nil end
+  end
   if charge and not charging then
     state.chargeMove = moveId
     state.vanished = charge.vanish or nil
