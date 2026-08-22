@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.20",
+          "date": "2026-08-22",
+          "size": 13812226,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.20/gen1recomp++-0.2.20-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1536 Magnet Train Cutscene visual bugs\n- #1597 Link cable looks broken\n- #1643 Pikachu + Title uses an incorrect Colour Palette\n- #1662 The game glitches after exiting, returning to the menu, and choosing another one.\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @colsonrice"
+        },
+        {
           "version": "0.2.19",
           "date": "2026-08-22",
           "size": 13778435,
