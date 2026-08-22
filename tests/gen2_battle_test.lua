@@ -2871,6 +2871,26 @@ end)()
   b:takeEvents()
   check("using an item cancels the Bide", b:forcedMove(player), nil)
   check("and drops the bank", b:volatile(player).bideStored, nil)
+
+  -- CantMove (engine/battle/effect_commands.asm:344-353) clears SUBSTATUS_BIDE
+  -- on every arm that spends the turn, so a flinch ends the Bide.
+  b:useMove(player, wild, "BIDE")
+  b:takeEvents()
+  check("locked once more", b:forcedMove(player), "BIDE")
+  b:volatile(player).flinched = true
+  check("a flinch spends the turn", b:canAct(player, "BIDE"), false)
+  b:takeEvents()
+  check("and CantMove ends the Bide", b:forcedMove(player), nil)
+  check("bank dropped with it", b:volatile(player).bideStored, nil)
+
+  -- .not_linked reads SUBSTATUS_ENCORED before CheckEnemyLockedIn
+  -- (engine/battle/core.asm:5524-5533), so an encored foe obeys the Encore.
+  es.bideTurns, es.bideMove, es.bideStored = 2, "BIDE", 0
+  es.encore, es.encoreTurns = "TACKLE", 3
+  check("Encore outranks the foe's Bide lock", b:enemyMove(), "TACKLE")
+  es.encore, es.encoreTurns = nil, nil
+  check("without it the Bide lock holds", b:enemyMove(), "BIDE")
+  es.bideTurns, es.bideMove, es.bideStored = nil, nil, nil
 end)()
 
 -- --------------------------------------------------- Snore and Sleep Talk

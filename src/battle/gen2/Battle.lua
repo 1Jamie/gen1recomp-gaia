@@ -908,7 +908,11 @@ Battle.SLEEP_BYPASS_MOVES = { SNORE = true, SLEEP_TALK = true }
 
 -- Can this mon act?  Returns true, or false plus the message the cart prints.
 -- `moveId` is wCurPlayerMove / wCurEnemyMove (effect_commands.asm:193).
-function Battle:canAct(mon, moveId)
+local function clearBide(state)
+  state.bideTurns, state.bideStored, state.bideMove = nil, nil, nil
+end
+
+local function checkTurn(self, mon, moveId)
   local name = self:monName(mon)
   -- SUBSTATUS_RECHARGE, and it is checked BEFORE status: CheckPlayerTurn reads
   -- it first, clears it, prints MustRechargeText and jumps to EndTurn, so a mon
@@ -965,6 +969,14 @@ function Battle:canAct(mon, moveId)
     return beforeMove(self, mon, name) and true or false
   end
   return true
+end
+
+-- CantMove (engine/battle/effect_commands.asm:344-353) clears BIDE on every
+-- arm of CheckPlayerTurn / CheckEnemyTurn that spends the turn.
+function Battle:canAct(mon, moveId)
+  local acted = checkTurn(self, mon, moveId)
+  if not acted then clearBide(self:volatile(mon)) end
+  return acted
 end
 
 -- STRUGGLE, the move a mon with nothing left to spend falls back to
@@ -3854,26 +3866,30 @@ end
 
 -- engine/battle/core.asm:627-629
 function Battle:cancelBide(mon)
-  local state = self:volatile(mon)
-  state.bideTurns, state.bideStored, state.bideMove = nil, nil, nil
+  clearBide(self:volatile(mon))
 end
 
 -- Encore forces the move; Disable forbids one.  Both are read by the screen
 -- (to grey out the move list) and by the enemy's own choice below.
+-- engine/battle/core.asm:561-566
+local function encoredMove(state, mon)
+  if not state.encore then return nil end
+  for _, move in ipairs(mon.moves or {}) do
+    if move.id == state.encore and (move.pp or 0) > 0 then
+      return state.encore
+    end
+  end
+  state.encore, state.encoreTurns = nil, nil
+  return nil
+end
+
 function Battle:forcedMove(mon)
   local locked = self:lockedInMove(mon)
   if locked then return locked end
-  local state = self:volatile(mon)
   -- ParsePlayerAction reads SUBSTATUS_ENCORED ahead of the bide arm
   -- (engine/battle/core.asm:561-566).
-  if state.encore then
-    for _, move in ipairs(mon.moves or {}) do
-      if move.id == state.encore and (move.pp or 0) > 0 then
-        return state.encore
-      end
-    end
-    state.encore, state.encoreTurns = nil, nil
-  end
+  local encored = encoredMove(self:volatile(mon), mon)
+  if encored then return encored end
   return self:fightLockedMove(mon)
 end
 
@@ -4188,8 +4204,10 @@ function Battle:vanillaEnemyMove()
   local charged = enemyState.chargeMove
   if charged then return charged end
 
-  -- engine/battle/core.asm:5650, :5532-5533.  Straight off the volatile, the
-  -- way `charged` above is, so the charge-lock test's bare stub still drives it.
+  -- engine/battle/core.asm:5524-5533: the encore arm runs ahead of
+  -- CheckEnemyLockedIn (:5650).
+  local encored = encoredMove(enemyState, self.enemy)
+  if encored then return encored end
   if enemyState.bideTurns then return enemyState.bideMove end
 
   -- Encore and Disable narrow the pool before the AI ever scores it.
