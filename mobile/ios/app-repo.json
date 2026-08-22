@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.19",
+          "date": "2026-08-22",
+          "size": 13778435,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.19/gen1recomp++-0.2.19-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1274 Choose ROM imports a different version than the one selected when several dumps are pending (Linux, no file picker)\n- #1484 (Pokémon Gold) Bill's PC doesn't show equipped items + missing orange filter on pokémon sprite\n- #1486 (Pokémon Gold) Can't deposit key items\n- #1513 Experience share issue different case from #1464\n- #1517 Game Crash Opening Stats\n- #1548 Colisión\n- #1556 (Gold) Missing SFX for a lot of actions\n- #1564 Bide's storing turn is missing the screen shake\n- #1567 TM/HM case not in order\n- #1663 transition pops the top state, destroying anything pushed from a midpoint callback\n- #1664 gold bide spends pp every turn instead of only the turn it is selected\n- #1665 gold has no bide lock-in, so a mid-bide switch of move strands the counter\n- #1666 sleep talk is inert in gold: EFFECT_SLEEP_TALK has no move effect entry\n- #1667 gold: a fainted party mon keeps its exp participant credit and halves the survivor's exp\n- #1668 summary page 2 formats a move's pp with no numeric guard\n- #1670 gold tm/hm pocket capacity is an invented 64 where the cart has 57 slots\n- #1672 bill's pc move screen is missing the box name arrows\n\n## Contributors\n\n- @AverageConsumer\n- @bryanthaboi\n- @colsonrice\n- @jramiresbrito"
+        },
+        {
           "version": "0.2.18",
           "date": "2026-08-21",
           "size": 13772120,
