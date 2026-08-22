@@ -27,7 +27,7 @@ RomExtractorGen2.__index = RomExtractorGen2
 -- scripts, pokemon, moves, items, marts, encounters, trainers, pokedex,
 -- landmarks, intro movie, menu gfx, title, credits, diploma, trade animation,
 -- audio, stubs
-local STAGE_COUNT = 26
+local STAGE_COUNT = 27
 local Opcodes = require("src.script.gen2.Opcodes")
 
 -- BG palette slots inside one loaded 8-palette set (constants/tileset_constants.asm
@@ -134,6 +134,18 @@ local TEXT_NO_GLYPH = {
   [0x05] = true, [0x07] = true, [0x0a] = true, [0x0b] = true, [0x0d] = true,
   [0x0e] = true, [0x0f] = true, [0x10] = true, [0x11] = true, [0x12] = true,
   [0x13] = true, [0x15] = true,
+}
+
+-- The three runtime name slots.  PlaceMoveUsersName, PlaceMoveTargetsName and
+-- PlaceEnemysName (home/text.asm:302, :307, :327) swap these for a battler's
+-- own name as the line prints, so they are markers rather than glyphs.  They
+-- decode to the same shape Gen 1 uses, which src/core/RomText.lua already
+-- fills in argument order.  Dropped, SubTookDamageText read "took damage
+-- for" with nothing after it.
+local NAME_SLOT = {
+  ["<USER>"] = "{USER}",
+  ["<TARGET>"] = "{TARGET}",
+  ["<ENEMY>"] = "{ENEMY}",
 }
 
 local ROOF_TILES = 9
@@ -2596,6 +2608,8 @@ function RomExtractorGen2:decodeGen2Text(bank, address, charmap, buffers)
         out[#out + 1] = ch
       elseif ch == "<……>" or b == 0x56 then
         out[#out + 1] = "……"
+      elseif NAME_SLOT[ch] then
+        out[#out + 1] = NAME_SLOT[ch]
       elseif not ch then
         out[#out + 1] = ("{BYTE:%02X}"):format(b)
       end
@@ -3696,6 +3710,37 @@ function RomExtractorGen2:splashGfx()
     obPalette = self:predefPal(PREDEFPAL_GAMEFREAK_LOGO_OB),
     bgPalette = self:predefPal(PREDEFPAL_GAMEFREAK_LOGO_BG),
   }
+end
+
+-- The engine's own strings, keyed by the label the disassembly gives them.
+--
+-- This is what extractOakSpeech has always done for _OakText1-7: resolve the
+-- label, decode from the cart, key by name.  What is new is that the list of
+-- labels comes from the manifest instead of being written out here, so all of
+-- data/text/ arrives rather than seven strings.  Gen 1 has had the same table
+-- since RomExtractor:extractText; this is the Gen 2 side of it, and it is
+-- what lets src/core/RomText.lua work on Gold and Silver at all.
+--
+-- Written as `rom_text` rather than `text`: data/generated/text.lua is
+-- already the script text, keyed by bank:address for the overworld VM, and
+-- these are a different table with different keys.
+function RomExtractorGen2:extractText()
+  self:beginStage("Dialogue")
+  local charmap = self.manifest.charmap or {}
+  local labels = (self.manifest.text or {}).labels or {}
+  local texts = {}
+  for index, label in ipairs(labels) do
+    local location = self.symbols[label]
+    -- A label the manifest names but the symbol table does not carry would
+    -- be a generator bug, not a cart difference: make_gold_manifest.py
+    -- resolves every one of these before it writes the list.
+    if location then
+      texts[label] = self:decodeGen2Text(location[1], location[2], charmap)
+    end
+    self:tick("Dialogue", index, #labels)
+  end
+  self:write("rom_text", texts)
+  return texts
 end
 
 -- OakSpeech (engine/menus/intro_menu.asm): named _OakText* strings plus the
@@ -6283,6 +6328,7 @@ function RomExtractorGen2:run()
   results.sprites = self:extractSprites()
   results.stdScripts = self:extractStdScripts()
   results.scripts = self:extractScriptsAndText(results.maps, results.stdScripts)
+  results.text = self:extractText()
   results.pokemon = self:extractPokemon()
   results.moves = self:extractMoves()
   results.items = self:extractItems()

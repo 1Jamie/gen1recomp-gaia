@@ -943,6 +943,12 @@ function Game2:load()
   self.data.gen2Scripts = loadGenerated("data/generated/scripts.lua")
   self.data.gen2StdScripts = loadGenerated("data/generated/std_scripts.lua")
   self.data.gen2Text = loadGenerated("data/generated/text.lua")
+  -- The engine's own strings, keyed by the disassembly's label.  gen2Text
+  -- above is the script text and is keyed by bank:address for the overworld
+  -- VM, so the two are different tables and both are loaded.  This one is
+  -- what src/core/RomText.lua reads, which is why it lands on `text`: that
+  -- helper is shared with Gen 1 and looks up data.text[label].
+  self.data.text = loadGenerated("data/generated/rom_text.lua") or {}
   -- data/generated/events.lua: the side tables a script command NAMES rather
   -- than carries -- the phone book, the in-game trades, the elevator's floor
   -- labels, the decoration descriptions.  Keyed for World's own `eventTables`
@@ -2115,6 +2121,24 @@ end
 function Game2:joystickremoved()
   self:recoverInput()
   TouchControls:joystickremoved()
+end
+
+-- In-process return-to-launcher (Android / intent_game): drop session fields
+-- so a later Game2.new() + load is not sharing a live stack or mod loader.
+-- Methods live on the class table; pairs(self) only sees instance state.
+function Game2:reset()
+  if self.stack and self.stack.clear then
+    pcall(function() self.stack:clear() end)
+  end
+  local keys = {}
+  for key, value in pairs(self) do
+    if type(value) ~= "function" then
+      keys[#keys + 1] = key
+    end
+  end
+  for _, key in ipairs(keys) do
+    self[key] = nil
+  end
 end
 
 return Game2
