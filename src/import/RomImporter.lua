@@ -104,6 +104,12 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/sprites.lua", -- OW sheets (Chris + NPCs)
     "data/generated/scripts.lua", -- disassembled map scripts
     "data/generated/text.lua", -- decoded Gen 2 dialogue strings
+    -- The engine's own strings, keyed by label rather than by address.  A
+    -- cache built before RomExtractorGen2:extractText has none, and every
+    -- line that reads through src/core/RomText.lua would silently keep
+    -- printing its Lua fallback, so this re-imports those caches rather than
+    -- bumping CACHE_FORMAT and dragging Red, Blue and Yellow through it too.
+    "data/generated/rom_text.lua",
     "data/generated/pokemon.lua",
     "data/generated/tilesets.lua",
     "data/generated/audio.lua",

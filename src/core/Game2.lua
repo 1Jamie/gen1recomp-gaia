@@ -943,6 +943,12 @@ function Game2:load()
   self.data.gen2Scripts = loadGenerated("data/generated/scripts.lua")
   self.data.gen2StdScripts = loadGenerated("data/generated/std_scripts.lua")
   self.data.gen2Text = loadGenerated("data/generated/text.lua")
+  -- The engine's own strings, keyed by the disassembly's label.  gen2Text
+  -- above is the script text and is keyed by bank:address for the overworld
+  -- VM, so the two are different tables and both are loaded.  This one is
+  -- what src/core/RomText.lua reads, which is why it lands on `text`: that
+  -- helper is shared with Gen 1 and looks up data.text[label].
+  self.data.text = loadGenerated("data/generated/rom_text.lua") or {}
   -- data/generated/events.lua: the side tables a script command NAMES rather
   -- than carries -- the phone book, the in-game trades, the elevator's floor
   -- labels, the decoration descriptions.  Keyed for World's own `eventTables`
