@@ -39,6 +39,25 @@ return function(game)
 
   local function reset() heard = {} end
 
+  -- Re-entering a map re-fires its entry script, and a held direction would
+  -- feed that textbox instead of the walk.  World:busy() is the same gate the
+  -- overworld's own input uses.
+  local function settle()
+    local calm = 0
+    for _ = 1, 400 do
+      if game.world:busy() then
+        calm = 0
+        U.tap(game, "a")
+        U.wait(2)
+      else
+        calm = calm + 1
+        if calm >= 12 then break end
+        U.wait(2)
+      end
+    end
+    U.wait(6)
+  end
+
   local function report(label)
     local counts, order = {}, {}
     for _, name in ipairs(heard) do
@@ -81,12 +100,13 @@ return function(game)
   end
 
   -- ---- 1. a wall -----------------------------------------------------------
-  assert(w:setMap("PLAYERS_HOUSE_1F", 4, 4, "down"), "setMap PLAYERS_HOUSE_1F")
+  assert(w:setMap("NEW_BARK_TOWN", 5, 5, "down"), "setMap NEW_BARK_TOWN")
   U.wait(5)
   local wx, wy, wdir = findWall(w.map)
   if wx then
-    assert(w:setMap("PLAYERS_HOUSE_1F", wx, wy, wdir))
+    assert(w:setMap("NEW_BARK_TOWN", wx, wy, wdir))
     U.wait(8)
+    settle()
     reset()
     U.hold(game, wdir, 90)
     U.wait(5)
@@ -95,7 +115,7 @@ return function(game)
           "-- a per-frame count here means the CheckSFX gate is not working")
     U.shot(game, out .. "/01-wall.png")
   else
-    U.log("SKIP 01 wall -- no wall cell found in PLAYERS_HOUSE_1F")
+    U.log("SKIP 01 wall -- no wall cell found in NEW_BARK_TOWN")
   end
 
   -- ---- 2. an NPC -----------------------------------------------------------
@@ -110,15 +130,16 @@ return function(game)
     if npc then break end
   end
   if npc then
-    assert(w:setMap("PLAYERS_HOUSE_1F", npc[1], npc[2], npcDir))
+    assert(w:setMap("NEW_BARK_TOWN", npc[1], npc[2], npcDir))
     U.wait(8)
+    settle()
     reset()
     U.hold(game, npcDir, 45)
     U.wait(5)
     report("02 NPC (" .. npcDir .. "):")
     U.shot(game, out .. "/02-npc.png")
   else
-    U.log("SKIP 02 NPC -- no reachable NPC in PLAYERS_HOUSE_1F")
+    U.log("SKIP 02 NPC -- no reachable NPC in NEW_BARK_TOWN")
   end
 
   -- ---- 3. a ledge ----------------------------------------------------------
@@ -138,6 +159,7 @@ return function(game)
               if d and walkable(map, x + d[1] * 2, y + d[2] * 2) then
                 assert(w:setMap(mapId, x, y, dir))
                 U.wait(8)
+                settle()
                 reset()
                 U.hold(game, dir, 40)
                 U.wait(20)
@@ -183,6 +205,7 @@ return function(game)
     if ex then
       assert(w:setMap("NEW_BARK_TOWN", ex, ey, dir))
       U.wait(8)
+      settle()
       reset()
       U.hold(game, dir, 40)
       U.wait(20)
