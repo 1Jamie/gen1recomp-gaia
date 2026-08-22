@@ -614,14 +614,18 @@ function CacheFs.mountVersion(version)
   return true
 end
 
--- Undo mountVersion.  A process normally mounts exactly one version and then
--- boots it, but the launcher can open the save editor on one game's save,
--- close it, and press Play on another: with the first version's subtree
--- still prepended, the other's require("data.generated.*") and generated
--- art would silently resolve to the first game's files.  Callers must also
--- drop the generated modules from package.loaded
--- (src.core.Data:unloadGenerated) -- unmounting alone only fixes the read
--- path, not what require already cached.
+-- Undo mountVersion in LIFO order relative to mountVersion: generated-tree
+-- overlays first (assets, then data -- reverse of mountGeneratedTrees), then
+-- the version folder.  PHYSFS resolves by stack order; peeling the wrong
+-- layer first can leave another version's generated files winning a name.
+--
+-- A process normally mounts exactly one version and then boots it, but the
+-- launcher can open the save editor on one game's save, close it, and press
+-- Play on another: with the first version's subtree still prepended, the
+-- other's require("data.generated.*") and generated art would silently
+-- resolve to the first game's files.  Callers must also drop the generated
+-- modules from package.loaded (src.core.Data:unloadGenerated) -- unmounting
+-- alone only fixes the read path, not what require already cached.
 --
 -- Returns true when nothing was mounted or the unmount took.
 function CacheFs.unmountVersion(version)
@@ -633,6 +637,16 @@ function CacheFs.unmountVersion(version)
     base = love.filesystem.getSaveDirectory()
   end
   local done = false
+  -- LIFO vs mountGeneratedTrees: assets/generated, then data/generated.
+  if love.filesystem and love.filesystem.unmount then
+    local generated = {
+      prefix .. "assets/generated",
+      prefix .. "data/generated",
+    }
+    for _, src in ipairs(generated) do
+      done = love.filesystem.unmount(src) or done
+    end
+  end
   local fn = resolveUnmount()
   if fn and base then
     done = fn(base .. SEP .. sub) or done

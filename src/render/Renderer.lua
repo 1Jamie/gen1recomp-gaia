@@ -100,10 +100,30 @@ local function positionLift(ph, contentPx, dpiY, cut)
   return ScreenPosition.lift(ph, contentPx, ScreenPosition.safeTop() * dpiY)
 end
 
+-- Free GPU canvases immediately.  Overwriting the Lua reference alone leaves
+-- VRAM allocated until LOVE's GC runs, which is too slow when Android loops
+-- Play → launcher → Play in one process.
+local function releaseCanvas(canvas)
+  if canvas and canvas.release then pcall(canvas.release, canvas) end
+end
+
+function Renderer:releaseCanvases()
+  releaseCanvas(self.canvas); self.canvas = nil
+  releaseCanvas(self.battleHUDCanvas); self.battleHUDCanvas = nil
+  releaseCanvas(self.worldCanvas); self.worldCanvas = nil
+  releaseCanvas(self.uprightCanvas); self.uprightCanvas = nil
+  self.worldActive = false
+  self.uprightActive = false
+  self.worldOverride = nil
+end
+
 function Renderer:init()
   -- 160x144 real pixels, never DPI-scaled: see src/render/PixelCanvas.lua
   -- (#208).  Every canvas below is sized in framebuffer pixels for the same
   -- reason -- worldViewSize() already works in drawable pixels.
+  -- Release any prior session's surfaces before reallocating (in-process
+  -- return-to-launcher reuses this Renderer singleton).
+  self:releaseCanvases()
   self.uiWidth, self.uiHeight = self.WIDTH, self.HEIGHT
   self.canvas = PixelCanvas.new(self.uiWidth, self.uiHeight, "nearest")
   self.battleHUDCanvas = nil

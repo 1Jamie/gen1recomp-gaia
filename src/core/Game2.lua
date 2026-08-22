@@ -2123,4 +2123,22 @@ function Game2:joystickremoved()
   TouchControls:joystickremoved()
 end
 
+-- In-process return-to-launcher (Android / intent_game): drop session fields
+-- so a later Game2.new() + load is not sharing a live stack or mod loader.
+-- Methods live on the class table; pairs(self) only sees instance state.
+function Game2:reset()
+  if self.stack and self.stack.clear then
+    pcall(function() self.stack:clear() end)
+  end
+  local keys = {}
+  for key, value in pairs(self) do
+    if type(value) ~= "function" then
+      keys[#keys + 1] = key
+    end
+  end
+  for _, key in ipairs(keys) do
+    self[key] = nil
+  end
+end
+
 return Game2
