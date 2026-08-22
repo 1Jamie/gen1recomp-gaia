@@ -1700,6 +1700,14 @@ local function clamp(n, lo, hi, fallback)
   return n
 end
 
+-- PP and the PP Up count are unsigned bit fields of one byte
+-- (constants/pokemon_data_constants.asm:101-102)
+local function ppInt(v, fallback)
+  local n = tonumber(v)
+  if n == nil or n ~= n or n == math.huge or n == -math.huge then return fallback end
+  return math.max(0, math.floor(n))
+end
+
 local function ensureOrphaned(save)
   if not save.orphaned then
     save.orphaned = { mons = {}, items = {} }
@@ -1763,7 +1771,7 @@ local function scrubKnownMon(mon, data)
   -- (status_screen.asm:66-76, add_mon.asm _MoveMon); deriving once here means
   -- every later reader (menus, battle, items, SGB bar zones, the link
   -- fingerprint) sees a party-shaped mon.  Runs after the level clamp above
-  -- so the derived stats use a sane level.  A save that already has stats is
+  -- so the derived stats use a sane level.  A complete stat block is
   -- untouched.
   Stats.ensure(data.pokemon and data.pokemon[mon.species], mon)
   local moves = mon.moves
@@ -1781,6 +1789,18 @@ local function scrubKnownMon(mon, data)
     local def = data.moves and data.moves[fallback]
     if def then
       moves[1] = { id = fallback, pp = def.pp }
+    end
+  end
+  -- the replacement PP mirrors AddBonusPP (engine/items/item_effects.asm:2418);
+  -- Mimic rewrites the move id and not the PP (engine/battle/effects.asm:1266)
+  for j = 1, #moves do
+    local slot = moves[j]
+    if type(slot) == "table" then
+      local mdef = data.moves and data.moves[slot.id]
+      local base = ppInt(mdef and mdef.pp, 0)
+      local ppUps = math.min(3, ppInt(slot.ppUps, 0))
+      if slot.ppUps ~= nil then slot.ppUps = ppUps end
+      slot.pp = ppInt(slot.pp, base + ppUps * math.floor(base / 5))
     end
   end
 end

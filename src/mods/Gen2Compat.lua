@@ -808,6 +808,33 @@ local function buildOverworld()
   local Movement = rawRequire("src.script.gen2.Movement")
   local HiddenItems = rawRequire("src.world.gen2.HiddenItems")
   local Bike = rawRequire("src.world.gen2.Bike")
+  local FieldMoves = rawRequire("src.world.gen2.FieldMoves")
+
+  -- home/map.asm:1869
+  local function stepAllowed(world, entity, dir, cx, cy)
+    local d = Map2.DELTA[dir]
+    if not (world.map and d and entity) then return true end
+    cx, cy = cx or entity.cellX, cy or entity.cellY
+    if not (cx and cy) then return true end
+    if not Permissions.stepPermitted(
+         function(px, py) return world:cellCollisionAcross(world.map, px, py) end,
+         cx, cy, dir) then
+      return false
+    end
+    local map = world.map
+    if entity == world.player and FieldMoves.isSurfing(world.playerState) then
+      map = world:surfMap(world.map)
+    end
+    local tx, ty = cx + d[1], cy + d[2]
+    if not map:inBounds(tx, ty) or not map:isWalkable(tx, ty) then return false end
+    for _, e in ipairs(world.entities or {}) do
+      if e ~= entity and not e.passable then
+        if e.cellX == tx and e.cellY == ty then return false end
+        if e.moving and e.targetX == tx and e.targetY == ty then return false end
+      end
+    end
+    return true
+  end
 
   local api = nil
   -- one WorldAPI instance, so queueScript reuses the five-verb allow list
@@ -1011,20 +1038,33 @@ local function buildOverworld()
 
   -- Gold has ONE movement slot; a second concurrent call is refused with a
   -- reason rather than dropped (src/world/gen2/WorldAPI.lua:171's recipe).
-  function ow.scriptMove(entity, dir, tiles, onDone)
+  function ow.scriptMove(entity, dir, tiles, onDone, opts)
     local world = w("scriptMove")
     if not world then return nil, "no overworld" end
     if world.moveState then return nil, "a movement is already running" end
     local step = Movement.stepByte(dir)
     if not step then return nil, "unknown direction: " .. tostring(dir) end
-    local bytes = {}
-    for _ = 1, math.max(0, tiles or 1) do bytes[#bytes + 1] = step end
-    bytes[#bytes + 1] = Movement.STEP_END
     local objectId = objectIdOf(world, entity)
     if not objectId then
       return nil, "no Gen 2 objectId for that entity: only the player and a "
         .. "mapped object (def.index) can be moved"
     end
+    local n = math.max(0, tiles or 1)
+    if opts and opts.collide and n > 0 then
+      local d = Map2.DELTA[dir]
+      local cx, cy = entity.cellX, entity.cellY
+      local allowed = 0
+      for _ = 1, n do
+        if not stepAllowed(world, entity, dir, cx, cy) then break end
+        allowed = allowed + 1
+        if d and cx and cy then cx, cy = cx + d[1], cy + d[2] end
+      end
+      if allowed < n then entity.facing = dir end
+      n = allowed
+    end
+    local bytes = {}
+    for _ = 1, n do bytes[#bytes + 1] = step end
+    bytes[#bytes + 1] = Movement.STEP_END
     world:beginMovement(objectId, bytes, onDone)
     return true
   end
@@ -1401,7 +1441,8 @@ COVERAGE[OW] = {
       .. "objectId 1 is wLastTalked, not object zero",
     scriptMove = "the player maps to objectId 0 and a mapped object to "
       .. "def.index + 1; an entity with neither (a mod's own guest) is "
-      .. "REFUSED with a reason rather than moving the last-talked NPC",
+      .. "REFUSED with a reason rather than moving the last-talked NPC; "
+      .. "opts.collide truncates the walk at the first blocked step",
     connectionLanding = "Gen 1's five values (destDef, tilesetDef, x, y, "
       .. "conn); `conn` is Gold's connection record, keyed map/mapId + offset",
     timeOfDay = "recomputed from the clock every call and never cached, so a "

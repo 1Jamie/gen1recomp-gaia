@@ -146,6 +146,8 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- complete and SlotMachine crashed on its labelled-cell fallback.
     "assets/generated/slots/gold_slots_1.png",
     "assets/generated/card_flip/card_flip_1.png",
+    -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173)
+    "assets/generated/pc/mail_item.png",
   },
 }
 -- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
@@ -1084,13 +1086,19 @@ end
 -- naive "first ROM wins" scan would re-import Red when the player tries to
 -- add Blue (issue #167).  Yellow and Gold carts are typically .gbc (Gold is
 -- 2 MiB).
-local function findPendingRom(ready)
+-- `wanted` narrows the scan to one version.  A Choose names the cart it is
+-- for, so without it several dumps sitting in the save directory answered in
+-- listing order and the selection was dropped: picking Red imported Blue
+-- (#1274).  The callers that are not a Choose, the Android USB-drop scans,
+-- pass nothing and still take the first pending cart of any version.
+local function findPendingRom(ready, wanted)
   for _, name in ipairs(love.filesystem.getDirectoryItems("")) do
     if name:lower():match("%.gbc?$") and love.filesystem.getInfo(name, "file") then
       local data = love.filesystem.read(name)
       if type(data) == "string" and isAcceptedRomSize(#data) then
         local version = GameVersion.forSha1(sha1(data))
-        if version and not ready[version] then
+        if version and not ready[version]
+            and (wanted == nil or version == wanted) then
           return name, data
         end
       end
@@ -2573,8 +2581,9 @@ function RomImporter:choose(version)
   if self.android then
     -- Prefer a not-yet-imported .gb/.gbc already in the save dir (USB copy, or
     -- a fresh SAF pick).  Never reuse an already-imported cart's file -- that
-    -- was the #167 failure mode (second Choose just re-extracted Red).
-    local name, data = findPendingRom(self.ready)
+    -- was the #167 failure mode (second Choose just re-extracted Red).  This
+    -- is a Choose, so it takes the cart that was asked for and nothing else.
+    local name, data = findPendingRom(self.ready, self.chooseVersion)
     if name then
       self:startData(data, name)
     elseif consumePickedRomError(self) then
@@ -2602,8 +2611,10 @@ function RomImporter:choose(version)
   -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
   -- kdialog.  Fall back to the same "drop a .gb/.gbc next to the game" scan
   -- used on Android, which works when the game is launched as an unpacked
-  -- directory (see build-rg34xxsp.sh).
-  local name, data = findPendingRom(self.ready)
+  -- directory (see build-rg34xxsp.sh).  Narrowed to the chosen version: with
+  -- four dumps in the folder the unnarrowed scan answered in listing order,
+  -- so Choose Red imported and decoded Blue (#1274).
+  local name, data = findPendingRom(self.ready, self.chooseVersion)
   if name then
     self:startData(data, name)
     return

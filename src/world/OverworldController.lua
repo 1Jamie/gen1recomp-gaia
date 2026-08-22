@@ -150,6 +150,21 @@ local function pooledNPC(pool, data, mapId, obj)
 end
 OverworldState.pooledNPC = pooledNPC -- exposed for tests
 
+local function nearestWalkableCell(map, x, y)
+  for r = 1, 8 do
+    for dy = -r, r do
+      for dx = -r, r do
+        if math.abs(dx) == r or math.abs(dy) == r then
+          local nx, ny = x + dx, y + dy
+          if map:inBounds(nx, ny) and map:isWalkableCell(nx, ny) then
+            return nx, ny
+          end
+        end
+      end
+    end
+  end
+end
+
 -- connection hops rendered around the current map: two, so
 -- corner-adjacent maps (connections of connections) don't pop in and
 -- out of the survey zoom at the seams (constants.world.neighborHops)
@@ -412,6 +427,15 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
       local npc = pooledNPC(self.npcPool, Game.data, mapId, obj)
       npc.frozen = false
       table.insert(self.npcs, npc)
+    end
+  end
+  if opts and opts.via == "boot" and self.map:inBounds(x, y)
+     and not self.map:isWalkableCell(x, y) and not self.map:isWaterCell(x, y) then
+    local rx, ry = nearestWalkableCell(self.map, x, y)
+    if rx then
+      Logger.warn("saved position %s (%d,%d) is not walkable; moved to (%d,%d)",
+                  mapId, x, y, rx, ry)
+      x, y = rx, ry
     end
   end
   if self.player then
@@ -4113,7 +4137,7 @@ function OverworldState:checkBadgeGate()
         Game.stack:push(TextBox.new(Game,
           (t["_" .. g.failText] or Strings("You don't have the\nBOULDERBADGE yet!"))
           .. (t._Route22GateGuardICantLetYouPassText or ""), function()
-            self:scriptMove(p, "down", 1)
+            self:scriptMove(p, "down", 1, nil, { collide = true })
           end))
         return true
       end
@@ -4141,7 +4165,7 @@ function OverworldState:checkBadgeGate()
         local text = (t["_" .. g.failText] or
                       Strings("You don't have the\n{RAM} yet!")):gsub("{RAM:wNameBuffer}", badgeName)
         Game.stack:push(TextBox.new(Game, text, function()
-          self:scriptMove(p, "down", 1)
+          self:scriptMove(p, "down", 1, nil, { collide = true })
         end))
         return true
       end
@@ -4181,7 +4205,7 @@ function OverworldState:checkForcedMovement()
             function()
               local back = ({ up = "down", down = "up",
                               left = "right", right = "left" })[p.facing]
-              self:scriptMove(p, back, 1)
+              self:scriptMove(p, back, 1, nil, { collide = true })
             end))
           return true
         end
@@ -4222,6 +4246,7 @@ function OverworldState:checkSeafoamCurrent()
         -- push so the B3F stair warps underfoot cannot bounce you back.
         self.forcedWarp = false
         require("src.core.Sound").play(Game.data, "Collision")
+        -- home/overworld.asm:1891
         self:scriptMove(p, "up", c.y == 17 and 2 or 1)
         return true
       end
@@ -4780,9 +4805,10 @@ end
 -- scripted movement
 -- -------------------------------------------------------------------------
 
-function OverworldState:scriptMove(entity, dir, tiles, onDone)
+function OverworldState:scriptMove(entity, dir, tiles, onDone, opts)
   table.insert(self.scriptMoves, {
     entity = entity, dir = dir, remaining = tiles, onDone = onDone,
+    collide = opts and opts.collide or nil,
   })
 end
 
@@ -4822,14 +4848,20 @@ function OverworldState:updateScriptMoves()
         e.moving = true
         e.marching = true
         e.progress = 0
+        mv.remaining = mv.remaining - 1
+      elseif mv.collide
+             and not Collision.canMove(self.map, self.entities, e, mv.dir) then
+        -- home/overworld.asm:1224
+        e.facing = mv.dir
+        mv.remaining = 0
       else
         e.facing = mv.dir
         local tx, ty = Collision.target(e.cellX, e.cellY, mv.dir)
         e.targetX, e.targetY = tx, ty
         e.moving = true
         e.progress = 0
+        mv.remaining = mv.remaining - 1
       end
-      mv.remaining = mv.remaining - 1
     end
   end
   -- march_in_place toggles: re-arm the in-place cycle each time it ends.

@@ -414,7 +414,7 @@ local function saffronGate(guardText, triggers, horizontal)
       game.stack:push(TextBox.new(game,
         t._SaffronGateGuardGeeImThirstyText or "Gee, I'm thirsty\nthough!\nThe road's closed.",
         function()
-          ow:scriptMove(ow.player, back, 1)
+          ow:scriptMove(ow.player, back, 1, nil, { collide = true })
         end))
       return true
     end,
@@ -769,7 +769,7 @@ M.MUSEUM_1F = {
     if y == 4 and (x == 9 or x == 10)
        and not game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET then
       museumClerk(game, ow, nil, function()
-        ow:scriptMove(ow.player, "down", 1)
+        ow:scriptMove(ow.player, "down", 1, nil, { collide = true })
       end)
       return true
     end

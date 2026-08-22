@@ -5151,6 +5151,7 @@ function RomExtractorGen2:extractMenuGfx()
   }
   out.pack = pack
   out.pokedex = self:pokedexGfx()
+  out.billsPc = self:billsPcGfx()
   out.pokegear = self:pokegearGfx()
   out.trainerCard = self:trainerCardGfx()
   out.unownPuzzle = self:unownPuzzleGfx()
@@ -5695,6 +5696,25 @@ function RomExtractorGen2:pokedexGfx()
   dex.footprints = "assets/generated/pokedex/footprints.png"
   dex.footprintOrder = species
   return dex
+end
+
+-- BillsPC_InitGFX's four tiles at vTiles2 $5c
+-- (engine/pokemon/bills_pc.asm:2170-2173)
+function RomExtractorGen2:billsPcGfx()
+  if not self.symbols["PCMailGFX"] then return nil end
+  local pc = {}
+  local gfx = self:symbol("PCMailGFX")
+  self:write2bpp(self.rom:bytes(gfx.bank, gfx.address, 4 * 16),
+    32, 8, "pc/mail_item.png")
+  pc.icons = "assets/generated/pc/mail_item.png"
+  pc.firstTile = 0x5c
+  pc.palette = self:predefPal(PREDEFPAL_POKEDEX)
+  -- gfx/pc/orange.pal
+  if self.symbols["BillsPCOrangePalette"] then
+    local orange = self:symbol("BillsPCOrangePalette")
+    pc.orangePalette = self:colors(orange.bank, orange.address, 4)
+  end
+  return pc
 end
 
 -- Reads a `tile, count` RLE tilemap (Pokegear_LoadTilemapRLE).  The routine's

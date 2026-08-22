@@ -16,6 +16,9 @@ local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
 local Strings = require("src.core.Strings")
 
+-- constants/sfx_constants.asm:3, :28
+local SFX_DEX_FANFARE_50_79, SFX_WRONG = 0, 25
+
 local PackMenu = {}
 PackMenu.__index = PackMenu
 PackMenu.isOpaque = true
@@ -192,6 +195,14 @@ function PackMenu:pocketOf(itemId)
   return (def and def.pocket) or "ITEM"
 end
 
+-- engine/items/tmhm.asm:341
+function PackMenu:tmhmKey(itemId)
+  local def = self.items and self.items[itemId]
+  local n = def and tonumber(def.tmNumber)
+  if n then return n end
+  return 1000 + ((def and tonumber(def.index)) or 0)
+end
+
 -- The name on the row.  An inventory key with no ItemAttributes row behind it
 -- (an older cache, a mod's own item, a driver seeding an id that is not in
 -- items.lua) still has to draw something a person can read, so the id stands
@@ -238,6 +249,14 @@ function PackMenu:rebuild()
           or (pocket == "TM_HM" and tostring(itemId):sub(1, 3) ~= "HM_"),
       }
     end
+  end
+  -- engine/items/tmhm.asm:341
+  if pocket == "TM_HM" then
+    table.sort(rows, function(a, b)
+      local ka, kb = self:tmhmKey(a.id), self:tmhmKey(b.id)
+      if ka ~= kb then return ka < kb end
+      return a.id < b.id
+    end)
   end
   self.rows = rows
   self.index = math.min(self.index, #rows + 1)
@@ -359,6 +378,9 @@ function PackMenu:useSelected()
       -- with sound_dex_fanfare_50_79 between them; the PACK's box here holds
       -- all four rows at once, the way OAK_THIS_ISNT_THE_TIME's three fit.
       -- World has already set the decoration's flag and taken the box.
+      if world.playSfxNamed then
+        world:playSfxNamed("Sfx_DexFanfare5079", SFX_DEX_FANFARE_50_79)
+      end
       self.message = { "There was a trophy", "inside!",
                        "{PLAYER} sent the", "trophy home." }
       self:rebuild()
@@ -641,6 +663,11 @@ function PackMenu:openTeachParty(row)
         if id == moveId then allowed = true end
       end
       if not allowed then
+        -- engine/items/tmhm.asm:131
+        local world = game.world
+        if world and world.playSfxNamed then
+          world:playSfxNamed("Sfx_Wrong", SFX_WRONG)
+        end
         if game.say then
           game:say(("%s can't learn %s!"):format(
             require("src.battle.gen2.Mon").displayName(mon), moveName))
@@ -740,7 +767,9 @@ function PackMenu:update(_dt)
 end
 
 -- engine/items/pack.asm:1290 Pack_InterpretJoypad .select
+-- engine/items/tmhm.asm:207 -- the TM/HM pocket's joypad filter drops SELECT.
 function PackMenu:armSwitch()
+  if self:pocket().id == "TM_HM" then return end
   if self:isCancel() then return end
   if not self.rows[self.index] then return end
   self.switching = self.index

@@ -699,6 +699,9 @@ REQUIRED_SYMBOLS = {
     # marker without this symbol.
     "MonMenuIcons", "Icons", "IconPointers", "HeldItemIcons",
     "PokedexDataPointerTable",
+    # engine/pokemon/bills_pc.asm:2170-2173 (the four vTiles2 $5c tiles
+    # PCMonInfo prints at :1086/:1091) and engine/gfx/cgb_layouts.asm:287.
+    "PCMailGFX", "BillsPCOrangePalette",
     # New-game / Pokecenter respawn table (data/maps/spawn_points.asm)
     "SpawnPoints",
     "NewPokedexOrder", "AlphabeticalPokedexOrder", "Landmarks",

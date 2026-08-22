@@ -2707,7 +2707,9 @@ function BattleState:pushCaught(enemy, itemId)
   -- so the contest branch is BELOW them (item_effects.asm:528-546), and
   -- CheckReceivedDex gates the pair (:532-533).
   if not knew and self:hasPokedex() then
+    -- data/text/common_3.asm:285
     self:push({ kind = "message",
+      sfx = "Sfx_SlotMachineStart", waitSfx = true,
       text = self:name(enemy) .. "'s data was newly added to the #DEX." })
     self:push({ kind = "dex-entry", species = enemy.species })
   end

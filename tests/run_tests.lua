@@ -3623,6 +3623,8 @@ runSuites({ "tests/rom_importer_android_mod_pick_test.lua" })
 -- ---------------------------------------------- import with no picker (#482)
 runSuites({ "tests/rom_importer_no_picker_test.lua" })
 runSuites({ "tests/rom_importer_double_pick_test.lua" })
+-- the same pickerless scan, asked for one version in particular (#1274)
+runSuites({ "tests/rom_importer_choose_version_test.lua" })
 -- ---------------------------------------------- Switch platform capabilities
 -- platform_nx_* / rom_importer_nx_* live in tests/engine/ (ROM-free T2) so
 -- CI's headless lane runs them without data/generated/.

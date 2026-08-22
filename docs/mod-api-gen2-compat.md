@@ -550,6 +550,17 @@ gains a field instead of the name gaining a prefix.
   screen has no `.data` field, so the Gen 2 site **adds** `ctx.data` beside the
   Gen 1 keys. A mod that calls `nextFn` is unaffected; one that reaches through
   `ctx.battle.data` instead gets nil on Gold.
+  `battle.exp_award`'s `ctx.applyShare(mon, split, announce)` reads its third
+  argument on both generations: truthy prints the mon's GainedText, falsy pays
+  it silently, so one mod source can print a single summary line for a
+  party-wide award instead of a box per recipient. Gold honours it **only when
+  it is passed**, by argument count -- `applyShare(mon, split)` was written
+  against a seam that always announced on Gold and keeps announcing there,
+  while `applyShare(mon, split, nil)` is silent on both. Pass the argument
+  explicitly and the two generations agree; omit it and Gen 1 stays silent
+  where Gold speaks. Only the line is affected: the exp, the stat exp,
+  `battle.exp_gained`, the level-up line, learned moves and the forget prompt
+  happen either way.
 - *The catch and the evolution:* `pokemon.caught`, `pokemon.evolved`; hook
   `evolution.check`. `src/ui/gen2/BattleState.lua:pushCaught` emits
   `pokemon.caught` once the mon is in the party or the box, and

@@ -83,6 +83,7 @@ local SFX = {
   WARP_TO = 19,
   EXIT_BUILDING = 35,
   JUMP_OVER_LEDGE = 0x16,
+  BUMP = 0x24,
 }
 local EMOTE_SHOCK = 0
 
@@ -2181,6 +2182,13 @@ end
 
 function World:playSfxNamed(want, fallbackId)
   self:playSfx(self:sfxIdNamed(want, fallbackId))
+end
+
+-- .BumpSound (engine/overworld/player_movement.asm:771), CheckSFX at
+-- home/audio.asm:477
+function World:bumpSound()
+  if Sound.sfxBusy() then return end
+  self:playSfxNamed("Sfx_Bump", SFX.BUMP)
 end
 
 -- Script_specialsound (engine/overworld/scripting.asm:476) is not a fixed cue:
@@ -9031,6 +9039,9 @@ function World:movePlayer(dir)
   elseif result == "blocked" or result == "edge" then
     self.turningDirection = nil
   end
+  -- .NotMoving and .Ice's own arm (player_movement.asm:102 and :87), which
+  -- .TryJump's carry (:376) returns above.
+  if result == "blocked" then self:bumpSound() end
   -- NormalStep, in order (engine/overworld/movement.asm:657-674): InitStep has
   -- already moved OBJECT_TILE_COLLISION onto the destination.
   if result == "moved" then self:playerStepGrass() end
@@ -9738,7 +9749,8 @@ function World:stepBody()
 
   local result = self:movePlayer(dir)
   if result == "edge" then
-    self:tryConnection(dir)
+    -- A border block is a wall: engine/overworld/player_movement.asm:264
+    if not self:tryConnection(dir) then self:bumpSound() end
   elseif result == "blocked" and p.facing == dir then
     -- .CheckNPC came back 2: something movable is in the way.  The step is
     -- lost either way, and the boulder is what moves.

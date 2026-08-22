@@ -645,7 +645,9 @@ MoveEffects.full = {
       user.bideTurns = ctx.rng(2, 3)
       user.bideDamage = 0
       ctx.battle:cancelMoveAnim()
-      ctx.anim(user.isPlayer and "XSTATITEM_ANIM" or "XSTATITEM_DUPLICATE_ANIM")
+      ctx.battle:animBeforeMove(
+        user.isPlayer and "XSTATITEM_ANIM" or "XSTATITEM_DUPLICATE_ANIM",
+        user.isPlayer)
       ctx.say(Strings("%s\nis storing energy!", displayName(user)))
     end,
   },

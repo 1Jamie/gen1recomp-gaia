@@ -734,7 +734,7 @@ local function e4ExitSeal(flag, closedBlock, openBlock, dontRunText, autoFlag)
       local TextBox = require("src.render.TextBox")
       game.stack:push(TextBox.new(game,
         game.data.text[dontRunText] or "Don't run away!", function()
-        ow:scriptMove(ow.player, "up", 1)
+        ow:scriptMove(ow.player, "up", 1, nil, { collide = true })
       end))
       return true
     end,

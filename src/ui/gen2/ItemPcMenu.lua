@@ -320,12 +320,15 @@ function ItemPcMenu:leaveDeposit()
 end
 
 function ItemPcMenu:offerToDeposit(id, count)
-  -- .TryDepositItem's `.no_toss` arm is a bare ret: a KEY ITEM or HM stays in
-  -- the bag with no message at all.
-  if self:cantToss(id) then return end
   if (count or 0) < 1 then return end
   local def = self:def(id)
   local name = (def and def.name) or id
+  -- .DepositItem (engine/events/pokecenter_pc.asm:504): an item with no
+  -- quantity is always x1 and never reaches .AskQuantity.
+  if self:cantToss(id) then
+    self:deposit(id, name, 1)
+    return
+  end
   self:askQuantity(count,
     { "How many do you", "want to deposit?" },
     function(qty) self:deposit(id, name, qty) end)
@@ -518,9 +521,10 @@ function ItemPcMenu:drawList()
       local entry = self.rows[i]
       if i == self.listIndex then Chrome.cursor(5, ty) end
       Chrome.print(entry.name, 6, ty)
-      -- PlaceMenuItemQuantity (engine/menus/menu_2.asm:24): the xNN is the
-      -- entry's second line, right-aligned in a blank-padded 2-digit field.
-      Chrome.print(TIMES .. Chrome.number(entry.count, 2), 7, ty + 1)
+      -- PlaceMenuItemQuantity (engine/menus/menu_2.asm:18, :24)
+      if not self:cantToss(entry.id) then
+        Chrome.print(TIMES .. Chrome.number(entry.count, 2), 7, ty + 1)
+      end
     elseif i == self:listTotal() then
       if i == self.listIndex then Chrome.cursor(5, ty) end
       Chrome.print("CANCEL", 6, ty)

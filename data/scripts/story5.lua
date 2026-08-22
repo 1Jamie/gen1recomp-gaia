@@ -240,7 +240,7 @@ local function stepGate(opts)
     push(game, text(game)[opts.text] or opts.fallback, function()
       ow.player.facing = opts.push
       if not ow:checkLedgeHop(opts.push) then
-        ow:scriptMove(ow.player, opts.push, 1)
+        ow:scriptMove(ow.player, opts.push, 1, nil, { collide = true })
       end
     end)
     return true
@@ -820,7 +820,8 @@ M.PEWTER_POKECENTER = {
 -- on the west-side cells and walks you back
 local function bikeGateGuard(coords, stopText, explainText)
   return function(game, ow, x, y)
-    if game.save.inventory.BICYCLE then return false end
+    local bike = game.save.inventory.BICYCLE
+    if bike and bike ~= 0 then return false end
     if not inCoords(coords, x, y) then return false end
     -- walk the player up to the tile beside the counter, no further:
     -- (matchedY - closestY) tiles, 0 when already next to it
@@ -842,10 +843,10 @@ local function bikeGateGuard(coords, stopText, explainText)
         -- (PlayerMovingRightScript). Without it the player was left
         -- parked beside the guard's counter with no way past. #518
         local function shoveRight()
-          ow:scriptMove(ow.player, "right", 1)
+          ow:scriptMove(ow.player, "right", 1, nil, { collide = true })
         end
         if dist > 0 then
-          ow:scriptMove(ow.player, "up", dist, shoveRight)
+          ow:scriptMove(ow.player, "up", dist, shoveRight, { collide = true })
         else
           shoveRight()
         end
