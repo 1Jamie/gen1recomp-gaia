@@ -15,6 +15,8 @@
 -- fanfare by a second over "learned".
 local U = require("tests.drivers.util")
 
+local Bag = require("src.inventory.Bag")
+local PackMenu = require("src.ui.gen2.PackMenu")
 local Mon = require("src.battle.gen2.Mon")
 local Sound = require("src.core.Sound")
 
@@ -28,6 +30,18 @@ return function(game)
     return realPlay(data, name)
   end
   local function reset() heard = {} end
+  -- A throw, its wobbles and a level-up all animate for a while; a report taken
+  -- before the jingle lands reads as silence.
+  local function awaitSfx(name, frames, want)
+    want = want or 1
+    for i = 1, (frames or 200) do
+      local seen = 0
+      for _, n in ipairs(heard) do if n == name then seen = seen + 1 end end
+      if seen >= want then return true end
+      if i % 5 == 0 then U.tap(game, "a") else U.wait(2) end
+    end
+    return false
+  end
   local function report(label, want)
     U.log(label, #heard > 0 and table.concat(heard, ", ") or "(silence)")
     U.log("   want:", want)
@@ -54,7 +68,8 @@ return function(game)
 
   -- ---- 1. a first catch: "Gotcha!" then the #DEX line ---------------------
   save.party = { Mon.new(data, "CYNDAQUIL", 20) }
-  save.inventory = { MASTER_BALL = 1 }
+  save.inventory, save.bagOrder = {}, {}
+  Bag.add(save, "MASTER_BALL", 1, data)
   save.pokedexReceived = true
   save.pokedex = { seen = {}, caught = {} }
 
@@ -74,6 +89,14 @@ return function(game)
   U.wait(6)
   local pack = game.stack:top()
   assert(pack and pack.rows, "the battle PACK did not open")
+  -- The PACK restores its own cursor pocket; the BALL pocket is where a
+  -- MASTER BALL lives (engine/items/pack.asm's ItemAttributes pocket byte).
+  for _ = 1, #PackMenu.POCKETS do
+    if pack:pocket().id == "BALL" then break end
+    U.tap(game, "right")
+    U.wait(3)
+  end
+  assert(pack:pocket().id == "BALL", "could not reach the BALL pocket")
   local ballRow
   for index, row in ipairs(pack.rows) do
     if row.id == "MASTER_BALL" then ballRow = index end
@@ -82,7 +105,9 @@ return function(game)
   for _ = 2, ballRow do U.tap(game, "down") U.wait(2) end
   reset()
   U.tap(game, "a")
-  U.wait(180)           -- the throw, the wobbles, "Gotcha!"
+  awaitSfx("Sfx_CaughtMon", 400)
+  awaitSfx("Sfx_SlotMachineStart", 300)
+  U.wait(30)
   report("01 catch:",
          "Sfx_CaughtMon, then Sfx_SlotMachineStart over the #DEX line")
   U.shot(game, out .. "/01-caught.png")
@@ -129,7 +154,8 @@ return function(game)
     U.tap(game, "a")      -- FIGHT
     U.wait(6)
     U.tap(game, "a")      -- the first move
-    U.wait(240)
+    awaitSfx("Sfx_DexFanfare5079", 400, 2)
+    U.wait(60)
     report("02 level-up move:",
            "Sfx_DexFanfare5079 twice: \"grew to level\" and \"learned\"")
     U.shot(game, out .. "/03-level-up.png")

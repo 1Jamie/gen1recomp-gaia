@@ -45,6 +45,16 @@ return function(game)
     U.wait(frames or 6)
   end
 
+  -- TextCommand_SOUND rings when the box FINISHES printing (home/text.asm),
+  -- so a report taken mid-print reads as silence.
+  local function awaitSfx(name, frames)
+    for _ = 1, (frames or 90) do
+      for _, n in ipairs(heard) do if n == name then return true end end
+      U.wait(2)
+    end
+    return false
+  end
+
   U.wait(45)
   local w = game.world
   assert(w and w.map, "gold world did not boot")
@@ -58,13 +68,19 @@ return function(game)
   local canLearn, cannotLearn = nil, nil
   local allowed = {}
   for _, moveId in ipairs(def.tmhm or {}) do allowed[moveId] = true end
+  local tmIds = {}
   for itemId, item in pairs(data.items or {}) do
-    if item.teaches and tostring(itemId):sub(1, 3) == "TM_" then
-      if allowed[item.teaches] then
-        canLearn = canLearn or itemId
-      else
-        cannotLearn = cannotLearn or itemId
-      end
+    if type(item) == "table" and item.teaches
+        and tostring(itemId):sub(1, 3) == "TM_" then
+      tmIds[#tmIds + 1] = itemId
+    end
+  end
+  table.sort(tmIds)
+  for _, itemId in ipairs(tmIds) do
+    if allowed[data.items[itemId].teaches] then
+      canLearn = canLearn or itemId
+    else
+      cannotLearn = cannotLearn or itemId
     end
   end
   U.log("TM that fits:", tostring(canLearn),
@@ -100,6 +116,7 @@ return function(game)
   game:usePartyItem("RARE_CANDY")
   U.wait(8)
   tap("a", 30)          -- the party pick
+  awaitSfx("Sfx_DexFanfare5079")
   report("01 rare candy:", "Sfx_DexFanfare5079 under \"grew to level 13!\"")
   U.shot(game, out .. "/01-rare-candy.png")
   tap("a", 10)
@@ -108,12 +125,16 @@ return function(game)
   -- ---- 2. a TM the mon CAN learn: "X learned MOVE!" + the fanfare ---------
   if canLearn then
     mon = seed()
+    -- A full moveset diverts into MoveAskForgetText (engine/pokemon/learn.asm:
+    -- 110-137); the direct-learn arm is what carries the fanfare.
+    while #mon.moves > 2 do table.remove(mon.moves) end
     save.inventory = { [canLearn] = 1 }
     local pack = openPack()
     reset()
     pack:openTeachParty({ id = canLearn })
     U.wait(10)
     tap("a", 30)        -- the party pick
+    awaitSfx("Sfx_DexFanfare5079")
     report("02 TM " .. canLearn .. ":",
            "Sfx_DexFanfare5079 under \"learned ...!\"")
     U.shot(game, out .. "/02-tm-learned.png")
