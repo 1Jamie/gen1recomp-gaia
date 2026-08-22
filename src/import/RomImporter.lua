@@ -146,8 +146,7 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- complete and SlotMachine crashed on its labelled-cell fallback.
     "assets/generated/slots/gold_slots_1.png",
     "assets/generated/card_flip/card_flip_1.png",
-    -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173): Bill's PC has no
-    -- held-item or mail icon in a cache built before the symbol was listed.
+    -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173)
     "assets/generated/pc/mail_item.png",
   },
 }

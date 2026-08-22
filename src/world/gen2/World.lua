@@ -2184,8 +2184,8 @@ function World:playSfxNamed(want, fallbackId)
   self:playSfx(self:sfxIdNamed(want, fallbackId))
 end
 
--- .BumpSound (engine/overworld/player_movement.asm:771): `call CheckSFX /
--- ret c` is the whole rate limit (home/audio.asm:477), not a frame counter.
+-- .BumpSound (engine/overworld/player_movement.asm:771), CheckSFX at
+-- home/audio.asm:477
 function World:bumpSound()
   if Sound.sfxBusy() then return end
   self:playSfxNamed("Sfx_Bump", SFX.BUMP)

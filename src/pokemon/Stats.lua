@@ -52,7 +52,9 @@ end
 -- CalcStats) and when one is moved back into the party
 -- (engine/pokemon/add_mon.asm _MoveMon tail).  The stored current HP is
 -- kept (box_struct does hold it) but clamped to the recalculated maximum.
--- CalcStats writes all NUM_STATS stats or none (home/move_mon.asm:33-48).
+-- A complete stat block is returned untouched; an incomplete one is rebuilt,
+-- because CalcStats writes all NUM_STATS stats or none
+-- (home/move_mon.asm:33-48).  #233, #304, #1517
 local function statsComplete(stats)
   for _, key in ipairs(ORDER) do
     if type(stats[key]) ~= "number" then return false end

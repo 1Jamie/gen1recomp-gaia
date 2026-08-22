@@ -903,8 +903,12 @@ function Battle:movePriority(moveId)
   return (def and Battle.PRIORITY[def.effect]) or 0
 end
 
+-- engine/battle/effect_commands.asm:192-197 (enemy twin :383-390)
+Battle.SLEEP_BYPASS_MOVES = { SNORE = true, SLEEP_TALK = true }
+
 -- Can this mon act?  Returns true, or false plus the message the cart prints.
-function Battle:canAct(mon)
+-- `moveId` is wCurPlayerMove / wCurEnemyMove (effect_commands.asm:193).
+function Battle:canAct(mon, moveId)
   local name = self:monName(mon)
   -- SUBSTATUS_RECHARGE, and it is checked BEFORE status: CheckPlayerTurn reads
   -- it first, clears it, prints MustRechargeText and jumps to EndTurn, so a mon
@@ -925,7 +929,11 @@ function Battle:canAct(mon)
   local beforeMove = record and record.beforeMove
   if beforeMove
       and (record.beforeMovePriority or 0) > Battle.VOLATILE_PRIORITY then
-    return beforeMove(self, mon, name) and true or false
+    -- engine/battle/effect_commands.asm:188-200
+    local bypass = mon.status == "sleep" and Battle.SLEEP_BYPASS_MOVES[moveId]
+    local acted = beforeMove(self, mon, name) and true or false
+    if acted or not bypass then return acted end
+    beforeMove = nil
   end
   -- SUBSTATUS_FLINCHED, read and cleared right after the freeze check
   -- (CheckPlayerTurn / CheckEnemyTurn `.not_frozen`).  Set this turn by the
@@ -1389,7 +1397,14 @@ function Battle:useMove(attacker, defender, moveId)
   -- free of PP and obedience in exactly the same way.
   local rolling = state.rolloutLock == moveId
 
-  if not (charging or rampaging or rolling) then
+  -- engine/battle/effect_commands.asm:977-979, data/moves/effects.asm:795-800,
+  -- engine/battle/move_effects/bide.asm:62-68
+  local biding = def.effect == "EFFECT_BIDE" and state.bideTurns ~= nil
+
+  -- engine/battle/effect_commands.asm:6222-6234, :949-951
+  local called = (self.copyDepth or 0) > 0
+
+  if not (charging or rampaging or rolling or biding or called) then
     if move and (move.pp or 0) <= 0 then
       self:emit({ kind = "message", text = "No PP left for this move!" })
       return
@@ -1471,9 +1486,38 @@ function Battle:useMove(attacker, defender, moveId)
     return
   end
 
+  -- engine/battle/move_effects/sleep_talk.asm:2, :16-19, :61
+  if def.effect == "EFFECT_SLEEP_TALK" then
+    local picked
+    if attacker.status == "sleep" and (self.copyDepth or 0) == 0 then
+      -- engine/battle/move_effects/sleep_talk.asm:40-44, :117-141
+      local pool = {}
+      for _, own in ipairs(attacker.moves or {}) do
+        local ownDef = self:moveDef(own.id)
+        local effect = ownDef and ownDef.effect
+        if own.id ~= moveId and not self:moveDisabled(attacker, own.id)
+            and not Effects.CHARGE[effect] and effect ~= "EFFECT_BIDE" then
+          pool[#pool + 1] = own.id
+        end
+      end
+      if #pool > 0 then picked = pool[rand(self.random, #pool) + 1] end
+    end
+    if not picked then
+      self:markMissed()
+      self:emit({ kind = "message", text = "But it failed!" })
+      return
+    end
+    state.lastMove = nil
+    self.copyDepth = (self.copyDepth or 0) + 1
+    self:useMove(attacker, defender, picked)
+    self.copyDepth = self.copyDepth - 1
+    return
+  end
+
   -- Everything past here counts as "the user's last move" for Mirror Move,
-  -- Encore and Disable.
-  state.lastMove = moveId
+  -- Encore and Disable.  A called move skips the write
+  -- (engine/battle/used_move_text.asm:30-36).
+  if (self.copyDepth or 0) == 0 then state.lastMove = moveId end
   state.turnsTaken = (state.turnsTaken or 0) + 1
   state.usedMoves = state.usedMoves or {}
   local seen = false
@@ -1513,6 +1557,13 @@ function Battle:useMove(attacker, defender, moveId)
     local text = charge.text
     if moveId == "DIG" then text = "%s dug a hole!" end
     self:emit({ kind = "message", text = text:format(name) })
+    return
+  end
+
+  -- BattleCommand_Snore (engine/battle/move_effects/snore.asm:1-9)
+  if def.effect == "EFFECT_SNORE" and attacker.status ~= "sleep" then
+    self:markMissed()
+    self:emit({ kind = "message", text = "But it failed!" })
     return
   end
 
@@ -2133,6 +2184,8 @@ Battle.MOVE_EFFECTS.EFFECT_BIDE = function(self, attacker, defender, def, moveId
   if not state.bideTurns then
     state.bideTurns = Effects.bideTurns(self.random)
     state.bideStored = 0
+    -- engine/battle/core.asm:574-576
+    state.bideMove = moveId
     self:emit({ kind = "message",
       text = self:monName(attacker) .. " is storing energy!" })
     return
@@ -2144,7 +2197,7 @@ Battle.MOVE_EFFECTS.EFFECT_BIDE = function(self, attacker, defender, def, moveId
     return
   end
   local damage = Effects.bideDamage(state.bideStored)
-  state.bideTurns, state.bideStored = nil, nil
+  state.bideTurns, state.bideStored, state.bideMove = nil, nil, nil
   self:emit({ kind = "message",
     text = self:monName(attacker) .. " unleashed energy!" })
   if damage <= 0 then return fail(self) end
@@ -3092,6 +3145,12 @@ end
 
 -- Faint bookkeeping and experience.  Returns true when the battle ended.
 function Battle:resolveFaints()
+  -- engine/battle/core.asm:2551-2556, :7116-7130, :3033-3037
+  if (self.player.hp or 0) <= 0 and self.participantsCleared ~= self.player then
+    self.participantsCleared = self.player
+    if self.playerIndex then self.participants[self.playerIndex] = nil end
+  end
+
   if (self.enemy.hp or 0) <= 0 then
     self:emit({ kind = "faint", side = "enemy",
       text = (self.wild and "Wild " or "") .. self:monName(self.enemy)
@@ -3547,6 +3606,7 @@ function Battle:switch(index)
   -- A mon that comes back (a REVIVE, or a second battle) has to be able to
   -- announce its own faint again; see resolveFaints.
   self.faintAnnounced = nil
+  self.participantsCleared = nil
   -- ForcePlayerMonChoice has been answered, so the next faint may ask again.
   self.pendingSwitch = nil
   self.player = mon
@@ -3784,19 +3844,37 @@ function Battle:lockedInMove(mon)
   return nil
 end
 
+-- ParsePlayerAction's bide arm (engine/battle/core.asm:569-576), enemy twin
+-- at :5650
+function Battle:fightLockedMove(mon)
+  local state = self:volatile(mon)
+  if state.bideTurns then return state.bideMove end
+  return nil
+end
+
+-- engine/battle/core.asm:627-629
+function Battle:cancelBide(mon)
+  local state = self:volatile(mon)
+  state.bideTurns, state.bideStored, state.bideMove = nil, nil, nil
+end
+
 -- Encore forces the move; Disable forbids one.  Both are read by the screen
 -- (to grey out the move list) and by the enemy's own choice below.
 function Battle:forcedMove(mon)
   local locked = self:lockedInMove(mon)
   if locked then return locked end
   local state = self:volatile(mon)
-  if not state.encore then return nil end
-  for _, move in ipairs(mon.moves or {}) do
-    if move.id == state.encore and (move.pp or 0) > 0 then return state.encore end
+  -- ParsePlayerAction reads SUBSTATUS_ENCORED ahead of the bide arm
+  -- (engine/battle/core.asm:561-566).
+  if state.encore then
+    for _, move in ipairs(mon.moves or {}) do
+      if move.id == state.encore and (move.pp or 0) > 0 then
+        return state.encore
+      end
+    end
+    state.encore, state.encoreTurns = nil, nil
   end
-  -- Encore ends early when the move runs out of PP.
-  state.encore, state.encoreTurns = nil, nil
-  return nil
+  return self:fightLockedMove(mon)
 end
 
 function Battle:moveDisabled(mon, moveId)
@@ -3810,8 +3888,9 @@ function Battle:usableMoves(mon)
   -- .CheckPlayerHasUsableMoves (core.asm:533-556), so a Rollout or a rampage
   -- that spent its last PP on the opening turn keeps running: no later turn
   -- of the lock spends any.  Encore is not in this exemption -- forcedMove
-  -- ends it the moment the encored move runs dry.
-  local locked = self:lockedInMove(mon)
+  -- ends it the moment the encored move runs dry.  Bide is exempt too:
+  -- .CheckPlayerHasUsableMoves lives inside MoveSelectionScreen (core.asm:5058).
+  local locked = self:lockedInMove(mon) or self:fightLockedMove(mon)
   local out = {}
   for _, move in ipairs(mon.moves or {}) do
     local ok = (move.pp or 0) > 0 and not self:moveDisabled(mon, move.id)
@@ -4105,8 +4184,13 @@ function Battle:vanillaEnemyMove()
   -- move answers "TYPHLOSION's attack missed!", so Hitmonlee cannot be damaged
   -- by anything, at any level.  Fifteen straight attempts at the Elite Four
   -- died there, and no amount of grinding could ever have got past it.
-  local charged = self:volatile(self.enemy).chargeMove
+  local enemyState = self:volatile(self.enemy)
+  local charged = enemyState.chargeMove
   if charged then return charged end
+
+  -- engine/battle/core.asm:5650, :5532-5533.  Straight off the volatile, the
+  -- way `charged` above is, so the charge-lock test's bare stub still drives it.
+  if enemyState.bideTurns then return enemyState.bideMove end
 
   -- Encore and Disable narrow the pool before the AI ever scores it.
   local moves = self:usableMoves(self.enemy)
@@ -4201,6 +4285,7 @@ local function runTurn(self, action)
     -- (engine/battle/core.asm:5035-5038), which reopens the 2x2 menu with the
     -- turn unspent -- so a refused RUN never bought the enemy a free attack.
     if self.runRefused then return self:takeEvents() end
+    self:cancelBide(self.player)
     action = { kind = "skip" }
   end
 
@@ -4216,6 +4301,9 @@ local function runTurn(self, action)
   if action.kind == "item" and Battle.X_ITEMS[action.item] then
     Happiness.change(self.player, "USEDXITEM")
   end
+  -- engine/battle/core.asm:572-573 into :627-629; a switch takes :570-571
+  -- instead and keeps the store.
+  if action.kind == "item" then self:cancelBide(self.player) end
 
   -- AI_SwitchOrTryItem runs BEFORE the move is chosen: a trainer that decides
   -- to rotate or drink a potion spends its whole turn on it.
@@ -4264,7 +4352,6 @@ local function runTurn(self, action)
 
   local function playerAttack()
     if action.kind ~= "move" then return end
-    if not self:canAct(self.player) then return end
     local move = action.move
     -- An encored mon has no choice, whatever the menu said.
     local forced = self:forcedMove(self.player)
@@ -4284,13 +4371,20 @@ local function runTurn(self, action)
     -- player's own mon spends the rest of the battle underground.
     local stored = self:volatile(self.player).chargeMove
     if stored then move = stored end
+    -- engine/battle/core.asm:558-598 settles wCurPlayerMove before
+    -- engine/battle/effect_commands.asm:193 reads it.
+    if not self:canAct(self.player, move) then return end
     -- CheckPlayerLockedIn quits before .CheckPlayerHasUsableMoves and before
     -- checkobedience, so a locked Rollout or Thrash is exempt from the
     -- Struggle substitution and the obedience roll the same way the second
     -- half of a charge move is.
     local charging = self:volatile(self.player).chargeMove == move
       or self:lockedInMove(self.player) == move
-    if not charging and not self:hasUsableMoves(self.player) then
+    -- engine/battle/core.asm:5058, and data/moves/effects.asm:796 keeps
+    -- `checkobedience`.
+    local bideLocked = self:fightLockedMove(self.player) == move
+    if not charging and not bideLocked
+        and not self:hasUsableMoves(self.player) then
       self:emit({ kind = "message",
         text = self:monName(self.player) .. " has no moves left!" })
       move = Battle.STRUGGLE
@@ -4328,7 +4422,7 @@ local function runTurn(self, action)
       -- against a trainer, could not be escaped either.
       enemyMoveId = Battle.STRUGGLE
     end
-    if not self:canAct(self.enemy) then return end
+    if not self:canAct(self.enemy, enemyMoveId) then return end
     -- CheckEnemyTurn's disabled arm (engine/battle/effect_commands.asm:562-574):
     -- the AI chose before the player's Disable landed, so the turn is spent here.
     if self:moveDisabled(self.enemy, enemyMoveId) then

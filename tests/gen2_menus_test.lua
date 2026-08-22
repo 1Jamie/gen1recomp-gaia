@@ -549,6 +549,33 @@ do
   check("but the ITEM pocket still arms", tmPack.switching, 1)
 end
 
+-- item_data_constants.asm:47 MAX_ITEMS / MAX_BALLS / MAX_KEY_ITEMS, and the
+-- TM/HM pocket is wTMsHMs (ram/wram.asm:2421), NUM_TMS + NUM_HMS = 57 bytes:
+-- 50 add_tm rows and 7 add_hm rows in constants/item_constants.asm:220-293.
+do
+  local Bag = require("src.inventory.Bag")
+  check("ITEM pocket is MAX_ITEMS", Bag.capacity(packGame.data, "ITEM"), 20)
+  check("BALL pocket is MAX_BALLS", Bag.capacity(packGame.data, "BALL"), 12)
+  check("KEY_ITEM pocket is MAX_KEY_ITEMS",
+    Bag.capacity(packGame.data, "KEY_ITEM"), 25)
+  check("TM/HM pocket is NUM_TMS + NUM_HMS",
+    Bag.capacity(packGame.data, "TM_HM"), 57)
+
+  -- Bag.add tests the cap before inserting, so all 57 cart TM/HMs fit.
+  local tmData = { items = {}, constants = { bagSize = 2 } }
+  for i = 1, 58 do
+    tmData.items["TM_FIX_" .. i] = { id = "TM_FIX_" .. i, name = "TM" .. i,
+      pocket = "TM_HM", index = 200 + i }
+  end
+  check("a mod's bagSize resizes the ITEM pocket only",
+    Bag.capacity(tmData, "TM_HM"), 57)
+  local tmSave = { inventory = {}, bagOrder = {} }
+  for i = 1, 57 do Bag.add(tmSave, "TM_FIX_" .. i, 1, tmData) end
+  check("all 57 of them fit", Bag.slots(tmSave, tmData, "TM_HM"), 57)
+  check("and a 58th TM/HM id has no byte to live in",
+    Bag.add(tmSave, "TM_FIX_58", 1, tmData), false)
+end
+
 -- CANCEL sits one past the last row.
 check("cancel is past the end", pack:total(), #pack.rows + 1)
 pack.index = pack:total()

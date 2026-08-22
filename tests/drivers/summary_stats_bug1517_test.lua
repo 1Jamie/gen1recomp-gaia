@@ -2,7 +2,7 @@
 --
 -- Gen 1's party_struct carries one Special word (macros/ram.asm:28-37) and
 -- PrintStatsBox reads four fixed cells, wLoadedMonAttack/Defense/Speed/Special
--- (engine/pokemon/status_screen.asm:255-296).  Gen 2 splits that word into
+-- (engine/pokemon/status_screen.asm:238-287).  Gen 2 splits that word into
 -- SpclAtk/SpclDef (pokegold macros/ram.asm:29-42), so a mod that wrote a Gen 2
 -- block over a Yellow party leaves the port with no `special` to print.
 --

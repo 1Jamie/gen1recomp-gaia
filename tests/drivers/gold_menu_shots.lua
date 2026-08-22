@@ -252,6 +252,11 @@ return function(game)
   dep.index = 2 -- the mon holding FLOWER MAIL
   show("23b-pc-deposit-mail", dep)
 
+  -- Only the move list gets the box-name arrows, $5f left and $5e right
+  -- (engine/pokemon/bills_pc.asm:957-963); 22 and 23 above are the controls.
+  local mv = BoxMenu.new(game, { save = save, mode = "move" })
+  show("23c-pc-move-arrows", mv)
+
   -- The two clock screens NEW GAME and Mom open (timeset.asm InitClock and
   -- SetDayOfWeek), each at its picker rather than at its opening page.
   local clock = InitClock.new(game, { save = save })

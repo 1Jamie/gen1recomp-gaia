@@ -811,19 +811,21 @@ local function buildOverworld()
   local FieldMoves = rawRequire("src.world.gen2.FieldMoves")
 
   -- home/map.asm:1869
-  local function stepAllowed(world, entity, dir)
+  local function stepAllowed(world, entity, dir, cx, cy)
     local d = Map2.DELTA[dir]
-    if not (world.map and d and entity and entity.cellX) then return true end
+    if not (world.map and d and entity) then return true end
+    cx, cy = cx or entity.cellX, cy or entity.cellY
+    if not (cx and cy) then return true end
     if not Permissions.stepPermitted(
-         function(cx, cy) return world:cellCollisionAcross(world.map, cx, cy) end,
-         entity.cellX, entity.cellY, dir) then
+         function(px, py) return world:cellCollisionAcross(world.map, px, py) end,
+         cx, cy, dir) then
       return false
     end
     local map = world.map
     if entity == world.player and FieldMoves.isSurfing(world.playerState) then
       map = world:surfMap(world.map)
     end
-    local tx, ty = entity.cellX + d[1], entity.cellY + d[2]
+    local tx, ty = cx + d[1], cy + d[2]
     if not map:inBounds(tx, ty) or not map:isWalkable(tx, ty) then return false end
     for _, e in ipairs(world.entities or {}) do
       if e ~= entity and not e.passable then
@@ -1048,9 +1050,17 @@ local function buildOverworld()
         .. "mapped object (def.index) can be moved"
     end
     local n = math.max(0, tiles or 1)
-    if opts and opts.collide and n > 0 and not stepAllowed(world, entity, dir) then
-      entity.facing = dir
-      n = 0
+    if opts and opts.collide and n > 0 then
+      local d = Map2.DELTA[dir]
+      local cx, cy = entity.cellX, entity.cellY
+      local allowed = 0
+      for _ = 1, n do
+        if not stepAllowed(world, entity, dir, cx, cy) then break end
+        allowed = allowed + 1
+        if d and cx and cy then cx, cy = cx + d[1], cy + d[2] end
+      end
+      if allowed < n then entity.facing = dir end
+      n = allowed
     end
     local bytes = {}
     for _ = 1, n do bytes[#bytes + 1] = step end
@@ -1431,7 +1441,8 @@ COVERAGE[OW] = {
       .. "objectId 1 is wLastTalked, not object zero",
     scriptMove = "the player maps to objectId 0 and a mapped object to "
       .. "def.index + 1; an entity with neither (a mod's own guest) is "
-      .. "REFUSED with a reason rather than moving the last-talked NPC",
+      .. "REFUSED with a reason rather than moving the last-talked NPC; "
+      .. "opts.collide truncates the walk at the first blocked step",
     connectionLanding = "Gen 1's five values (destDef, tilesetDef, x, y, "
       .. "conn); `conn` is Gold's connection record, keyed map/mapId + offset",
     timeOfDay = "recomputed from the clock every call and never cached, so a "

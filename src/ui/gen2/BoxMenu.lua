@@ -66,7 +66,7 @@ local PIC_X, PIC_Y = 1, 4
 -- 7-size blank tiles per column (engine/gfx/load_pics.asm:342-386).
 local PIC_PAD = { [7] = { 0, 0 }, [6] = { 1, 1 }, [5] = { 1, 2 } }
 
--- gfx/pc/orange.pal, for a cache that predates menu_gfx.billsPc.
+-- gfx/pc/orange.pal
 local BILLS_PC_ORANGE = {
   { 255, 123, 0 }, { 189, 99, 0 }, { 123, 58, 0 }, { 0, 0, 0 },
 }
@@ -74,6 +74,12 @@ local BILLS_PC_ORANGE = {
 -- PCMonInfo prints the held-item icon at hlcoord 7, 12
 -- (engine/pokemon/bills_pc.asm:1093).
 local ICON_X, ICON_Y = 7, 12
+
+-- $5f at hlcoord 8, 1 and $5e at hlcoord 19, 1, off a PCMailGFX sheet that
+-- starts at $5c (engine/pokemon/bills_pc.asm:957-963).
+local ARROW_ROW = 1
+local ARROW_LEFT = { 3, 8 }
+local ARROW_RIGHT = { 2, 19 }
 
 -- wBillsPC_LoadedBox: 0 is the PARTY, 1..NUM_BOXES are the boxes.  Only the
 -- MOVE screen ever loads box 0; the withdraw and deposit lists are one list
@@ -550,7 +556,7 @@ function BoxMenu:playSfx(name)
   if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
 end
 
--- PlayMonCry: `call GetCryIndex / jr c, .done` (home/pokemon.asm:101)
+-- PlayMonCry: `call GetCryIndex / jr c, .done` (home/pokemon.asm:113-114)
 function BoxMenu:playMonCry(mon)
   local data = self.game and self.game.data
   if not (data and mon and mon.species) or mon.isEgg then return end
@@ -765,6 +771,35 @@ function BoxMenu:drawHeldIcon(mon)
   G.setColor(1, 1, 1, 1)
 end
 
+-- _MovePKMNWithoutMail only (engine/pokemon/bills_pc.asm:545, :698)
+function BoxMenu:drawBoxArrows()
+  if self.mode ~= "move" then return end
+  local gfx = (self.menuGfx or {}).billsPc
+  local image = self:image(gfx and gfx.icons)
+  if not image then return end
+  local G = love.graphics
+  local quads = {}
+  for _, arrow in ipairs({ ARROW_LEFT, ARROW_RIGHT }) do
+    local ok, quad = pcall(love.graphics.newQuad, arrow[1] * 8, 0, 8, 8,
+      image:getDimensions())
+    if not ok then return end
+    quads[#quads + 1] = { quad, arrow[2] }
+  end
+  G.setColor(1, 1, 1, 1)
+  local function body()
+    for _, entry in ipairs(quads) do
+      G.draw(image, entry[1], entry[2] * 8, ARROW_ROW * 8)
+    end
+  end
+  local colors = gfx and gfx.palette
+  if colors and GbcPalette.available() then
+    GbcPalette.with(colors, body)
+  else
+    body()
+  end
+  G.setColor(1, 1, 1, 1)
+end
+
 -- The PC does not mark the selected row with a ▶: BillsPC_UpdateSelectionCursor
 -- lays 20 OBJs as a frame *around* the row -- ten tiles wide by two tall, top
 -- left at pixel (71, 25), stepping 16 pixels per row.  Those cursor tiles are
@@ -811,6 +846,7 @@ function BoxMenu:drawPanel()
   -- Textbox at (8,0) with a 10x1 interior and the name at (10,1).
   Chrome.box(8, 0, 12, 3)
   Chrome.print(self:title(), 10, 1)
+  self:drawBoxArrows()
   Chrome.box(8, 2, 12, 12)
   -- BillsPC_RefreshTextboxes overwrites its own top corners with '└'/'┘'
   -- (engine/pokemon/bills_pc.asm:1204-1211) so the list reads as hanging

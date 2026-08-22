@@ -521,9 +521,7 @@ function ItemPcMenu:drawList()
       local entry = self.rows[i]
       if i == self.listIndex then Chrome.cursor(5, ty) end
       Chrome.print(entry.name, 6, ty)
-      -- PlaceMenuItemQuantity (engine/menus/menu_2.asm:24): the xNN is the
-      -- entry's second line, right-aligned in a blank-padded 2-digit field,
-      -- and an item with no quantity draws none at all (menu_2.asm:18).
+      -- PlaceMenuItemQuantity (engine/menus/menu_2.asm:18, :24)
       if not self:cantToss(entry.id) then
         Chrome.print(TIMES .. Chrome.number(entry.count, 2), 7, ty + 1)
       end

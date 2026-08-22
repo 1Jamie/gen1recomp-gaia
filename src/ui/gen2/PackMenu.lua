@@ -16,6 +16,9 @@ local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
 local Strings = require("src.core.Strings")
 
+-- constants/sfx_constants.asm:3, :28
+local SFX_DEX_FANFARE_50_79, SFX_WRONG = 0, 25
+
 local PackMenu = {}
 PackMenu.__index = PackMenu
 PackMenu.isOpaque = true
@@ -247,8 +250,7 @@ function PackMenu:rebuild()
       }
     end
   end
-  -- engine/items/tmhm.asm:341 -- wTMsHMs is walked 1..57, so the TM/HM pocket
-  -- has no acquisition order to preserve.
+  -- engine/items/tmhm.asm:341
   if pocket == "TM_HM" then
     table.sort(rows, function(a, b)
       local ka, kb = self:tmhmKey(a.id), self:tmhmKey(b.id)
@@ -377,7 +379,7 @@ function PackMenu:useSelected()
       -- all four rows at once, the way OAK_THIS_ISNT_THE_TIME's three fit.
       -- World has already set the decoration's flag and taken the box.
       if world.playSfxNamed then
-        world:playSfxNamed("Sfx_DexFanfare5079")
+        world:playSfxNamed("Sfx_DexFanfare5079", SFX_DEX_FANFARE_50_79)
       end
       self.message = { "There was a trophy", "inside!",
                        "{PLAYER} sent the", "trophy home." }
@@ -663,7 +665,9 @@ function PackMenu:openTeachParty(row)
       if not allowed then
         -- engine/items/tmhm.asm:131
         local world = game.world
-        if world and world.playSfxNamed then world:playSfxNamed("Sfx_Wrong") end
+        if world and world.playSfxNamed then
+          world:playSfxNamed("Sfx_Wrong", SFX_WRONG)
+        end
         if game.say then
           game:say(("%s can't learn %s!"):format(
             require("src.battle.gen2.Mon").displayName(mon), moveName))
