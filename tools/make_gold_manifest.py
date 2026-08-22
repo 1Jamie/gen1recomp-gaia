@@ -907,9 +907,62 @@ REQUIRED_SYMBOLS = {
 }
 
 
-def embedded_symbols(symbols, pokemon_labels, song_labels=()):
-    """Resolve REQUIRED_SYMBOLS + pic labels + Music_* song headers."""
-    names = set(REQUIRED_SYMBOLS) | set(pokemon_labels) | set(song_labels)
+# The engine's own text, the counterpart to make_rom_manifest.text_metadata.
+#
+# Only these five carry dialogue.  data/text/'s other files are character
+# tables rather than strings: dakutens.asm and name_input_chars.asm /
+# mail_input_chars.asm are keyboard layouts, and unused_gen1_trainer_names.asm
+# is a dead Gen 1 leftover.  Decoding those as text yields keyboard rows and
+# kana runs, so they are left out by name rather than filtered afterwards.
+#
+# None of the five carries an IF DEF(_GOLD) / IF DEF(_SILVER) arm, so the
+# label set is one list for both editions and make_silver_manifest.py inherits
+# it with the addresses re-resolved from pokesilver.sym.
+TEXT_SOURCES = (
+    "battle.asm",
+    "common_1.asm",
+    "common_2.asm",
+    "common_3.asm",
+    "std_text.asm",
+)
+
+
+def text_labels(pokegold):
+    """Every text label in TEXT_SOURCES, in sorted order.
+
+    Unlike Gen 1 there is no `dynamic` map beside this.  pokered's decoder is
+    told which runtime token each label carries; RomExtractorGen2's reads the
+    cart's own TX_RAM / TX_DECIMAL command bytes and emits {STRBUF} / {NUM}
+    itself, so the label alone is enough.
+    """
+    labels = set()
+    for name in TEXT_SOURCES:
+        path = os.path.join(pokegold, "data/text", name)
+        pending = None
+        for _, line in read_asm(path):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            match = re.match(r"(\w+)::?\s*$", stripped)
+            if match:
+                # A label whose next line is another label owns no string of
+                # its own.  `BattleText::` is the one in this set: its own
+                # comment says "used only for BANK(BattleText)", and it shares
+                # an address with the first real label under it, so taking it
+                # would decode that neighbour's string a second time.
+                pending = match.group(1)
+                continue
+            if pending:
+                labels.add(pending)
+                pending = None
+    return sorted(labels)
+
+
+def embedded_symbols(symbols, pokemon_labels, song_labels=(),
+                     text_label_names=()):
+    """Resolve REQUIRED_SYMBOLS + pic labels + songs + text labels."""
+    names = (set(REQUIRED_SYMBOLS) | set(pokemon_labels)
+             | set(song_labels) | set(text_label_names))
     for symbol_name in symbols.by_name:
         # Pokedex entries are split across four banks and the game derives the
         # bank arithmetically from the species id (radio.asm's rlca/maskbits
@@ -1111,6 +1164,7 @@ def generate(pokegold, symbols_path):
             pokemon_labels.append(asset["backLabel"])
 
     songs = music_order(pokegold)
+    text_label_names = text_labels(pokegold)
     sfx = sfx_order(pokegold)
 
     # Index 0 is NO_ITEM, so the parsed list is already 1-based on item id.
@@ -1202,6 +1256,9 @@ def generate(pokegold, symbols_path):
             "battleAnimBgPaletteOrder": battle_anim_bg_pals,
             "battleAnimObPaletteOrder": battle_anim_ob_pals,
         },
+        # Label -> decoded string is built at import time from these, the
+        # same way Gen 1 builds data/generated/text.lua from its own list.
+        "text": {"labels": text_label_names},
         "charmap": charmap(pokegold),
         "fontCharmap": font_extract.parse_charmap(pokegold),
         "pokemonAssets": assets,
@@ -1210,7 +1267,8 @@ def generate(pokegold, symbols_path):
         "maps": {name: map_groups[name] for name in map_order},
         "tilesets": {name: {} for name in tilesets},
     }
-    data["symbols"] = embedded_symbols(symbols, pokemon_labels, songs)
+    data["symbols"] = embedded_symbols(
+        symbols, pokemon_labels, songs, text_label_names)
     return data
 
 

@@ -3526,6 +3526,7 @@ runSuites({
   "tests/gen2_decorations_test.lua",
   "tests/gen2_pokerus_test.lua",
   "tests/gen2_common_text_test.lua",
+  "tests/gen2_rom_text_test.lua",
   "tests/gen2_magnet_train_test.lua",
   "tests/gen2_bank_of_mom_test.lua",
   "tests/gen2_trainerhouse_test.lua",
