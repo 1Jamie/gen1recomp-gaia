@@ -1320,7 +1320,7 @@ local function buildHeader(imp, m)
   return y + math.floor(10 * m.s)
 end
 
--- The state of the self-updater, as a top-right control.
+-- The state of the self-updater, shown in the launcher footer.
 -- Returns status, label, action, glow.
 function LauncherView._updateControl(imp)
   if not imp.Check then return nil end
