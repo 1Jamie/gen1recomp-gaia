@@ -6,6 +6,8 @@ local TouchControls = require("src.core.TouchControls")
 local SaveData = require("src.core.SaveData")
 local FilePicker = require("src.core.FilePicker")
 local SafeArea = require("src.core.SafeArea")
+local GamepadMap = require("src.core.GamepadMap")
+local PadCursor = require("src.ui.PadCursor")
 
 local Studio = {}
 
@@ -501,6 +503,7 @@ function Studio.load(opts)
   Studio.thumbs = {}
   Studio.pointerX, Studio.pointerY = nil, nil
   Studio.pointerDown, Studio.touchId = false, nil
+  PadCursor.reset()
   -- Studio always opens on the library.  Creating and choosing a skin are
   -- first-class tasks, not controls buried inside the editor workspace.
   Studio.mode = "library"
@@ -758,6 +761,7 @@ function Studio.unload()
   Studio.undoStack, Studio.redoStack = {}, {}
   Studio.pointerX, Studio.pointerY = nil, nil
   Studio.pointerDown, Studio.touchId = false, nil
+  PadCursor.reset()
 end
 
 -- The Studio is a real touch editor on Android and iOS.  Keeping this here,
@@ -2678,7 +2682,12 @@ function Studio.draw()
   local f = Studio._frame
   Kit.layout(f.w, f.h)
   local mx, my = love.mouse.getPosition()
-  if Studio.pointerX ~= nil then mx, my = Studio.pointerX, Studio.pointerY end
+  local px, py, padActive = PadCursor.pointer()
+  if padActive then
+    mx, my = px, py
+  elseif Studio.pointerX ~= nil then
+    mx, my = Studio.pointerX, Studio.pointerY
+  end
   Kit.beginFrame(mx, my, Studio.clicked, Studio.wheel)
   Studio.clicked, Studio.wheel = false, 0
   Theme.fill(0, 0, W, H, PAL.bg, 1)
@@ -2691,19 +2700,26 @@ function Studio.draw()
   Kit.blockClicks = false
   Studio.drawOverlay(f.w, f.h)
   Kit.endFrame()
+  PadCursor.draw()
 end
 
 -- ---------------------------------------------------------------- input
 
-function Studio.update()
+function Studio.update(dt)
+  PadCursor.update(dt or 0)
+  local x, y, active = PadCursor.pointer()
+  if active and Studio.pointerDown then Studio.mousemoved(x, y) end
+  local wheel = PadCursor.takeWheel()
+  if wheel ~= 0 then Studio.wheelmoved(0, wheel) end
   if not Studio.pendingPlay then return end
   Studio.pendingPlay = false
   local onPlay, version, canvas = Studio.onPlay, Studio.version, Studio.canvas()
   if onPlay then onPlay(version, canvas) end
 end
 
-function Studio.mousepressed(x, y, button)
+function Studio.mousepressed(x, y, button, fromPad)
   if button ~= 1 then return end
+  if not fromPad then PadCursor.yieldToPointer() end
   Studio.pointerX, Studio.pointerY = x, y
   Studio.pointerDown = true
   Studio.clicked = true
@@ -2760,6 +2776,65 @@ function Studio.touchpressed(id, x, y)
   return Studio.mousepressed(x, y, 1)
 end
 
+local function closeFromPad()
+  if Studio.confirm then
+    Studio.confirmNo()
+  elseif Studio.modal then
+    Studio.closeModal()
+  elseif Studio.mode == "editor" then
+    Studio.backToLibrary()
+  elseif Studio.onClose then
+    Studio.onClose()
+  end
+end
+
+local function handlePadAction(action)
+  if action == "a" then
+    local x, y = PadCursor.pointer()
+    Studio.mousepressed(x, y, 1, true)
+  elseif action == "b" then
+    closeFromPad()
+  end
+end
+
+function Studio.gamepadpressed(joystick, button)
+  handlePadAction(PadCursor.gamepadpressed(joystick, button))
+end
+
+function Studio.gamepadreleased(joystick, button)
+  PadCursor.gamepadreleased(joystick, button)
+  if GamepadMap.mapGamepadButton(button) == "a" then
+    local x, y = PadCursor.pointer()
+    Studio.mousereleased(x, y, 1)
+  end
+end
+
+function Studio.gamepadaxis(joystick, axis, value)
+  PadCursor.gamepadaxis(joystick, axis, value)
+end
+
+function Studio.joystickpressed(joystick, button)
+  handlePadAction(PadCursor.joystickpressed(joystick, button))
+end
+
+function Studio.joystickreleased(joystick, button)
+  PadCursor.joystickreleased(joystick, button)
+  if GamepadMap.ignoreRawForJoystick(joystick) then return end
+  local padButton = GamepadMap.mapRawToGamepadButton(button)
+  if padButton and GamepadMap.mapGamepadButton(padButton) == "a" then
+    local x, y = PadCursor.pointer()
+    Studio.mousereleased(x, y, 1)
+  end
+end
+
+function Studio.joystickaxis(joystick, axis, value)
+  PadCursor.joystickaxis(joystick, axis, value)
+end
+
+function Studio.joystickhat(joystick, hat, direction)
+  PadCursor.joystickhat(joystick, hat, direction)
+end
+
 function Studio.touchmoved(id, x, y)
   if Studio.touchId ~= id then return end
   return Studio.mousemoved(x, y)
@@ -2774,7 +2849,8 @@ end
 function Studio.wheelmoved(_, dy)
   if Studio.mode == "editor" and not Studio.modalUp() and dy and dy ~= 0 then
     local work = Studio.canvasWorkspace
-    local mx, my = Studio.pointerX, Studio.pointerY
+    local mx, my, active = PadCursor.pointer()
+    if not active then mx, my = Studio.pointerX, Studio.pointerY end
     if (not mx or not my) and love and love.mouse and love.mouse.getPosition then
       mx, my = love.mouse.getPosition()
     end
