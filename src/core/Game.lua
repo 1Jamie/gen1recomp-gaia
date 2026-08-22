@@ -1381,4 +1381,26 @@ function Game:restoreCheckpointBattle(battle)
   if battle.resumeCheckpoint then battle:resumeCheckpoint() end
 end
 
+-- Drop every session-owned field so the next Game:load() starts clean when
+-- the process returns to the launcher in-place (Android / intent_game).
+-- main.lua must not guess field names: new systems (Game.network, …) are
+-- cleared automatically because only functions (methods) are kept.
+function Game:reset()
+  if self.stack and self.stack.clear then
+    pcall(function() self.stack:clear() end)
+  end
+  if self.renderer and self.renderer.releaseCanvases then
+    pcall(function() self.renderer:releaseCanvases() end)
+  end
+  local keys = {}
+  for key, value in pairs(self) do
+    if type(value) ~= "function" then
+      keys[#keys + 1] = key
+    end
+  end
+  for _, key in ipairs(keys) do
+    self[key] = nil
+  end
+end
+
 return Game

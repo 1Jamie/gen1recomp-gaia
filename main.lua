@@ -82,6 +82,43 @@ end
 local editorHost, editorVersion, editorWindow
 local closeEditor  -- forward declaration: openEditor hands it to the editor
 
+-- Drop CacheFs / Data / mod Runtime / Assets / LegacyCompat for one mounted
+-- version session (save editor or game).  closeEditor and returnToLauncher
+-- both go through here so neither path can forget a singleton the other resets.
+local function teardownMountedSession(version)
+  if version then
+    require("src.import.CacheFs").unmountVersion(version)
+  end
+  require("src.core.Data"):unloadGenerated()
+  local Runtime = require("src.mods.Runtime")
+  if Runtime.reset then Runtime.reset() end
+  local Assets = require("src.render.Assets")
+  if Assets.installLoader then Assets.installLoader(nil) end
+  local okCompat, LegacyCompat = pcall(require, "src.mods.LegacyCompat")
+  if okCompat and LegacyCompat.reset then LegacyCompat.reset() end
+end
+
+-- Evict every save-editor module from package.loaded without a hardcoded
+-- panel whitelist.  Flat require names (App, Party, …) resolve under
+-- tools/save-editor/; path-style keys may also appear.  A key is flushed
+-- when it names a save-editor path or when tools/save-editor/{panels/}K.lua
+-- exists for a flat name K -- new panels are picked up automatically.
+local function flushEditorPackageLoaded()
+  local fs = love and love.filesystem
+  local function isEditorFlat(name)
+    if not (fs and fs.getInfo) then return false end
+    if name:find("[./]") then return false end
+    return fs.getInfo("tools/save-editor/" .. name .. ".lua") ~= nil
+      or fs.getInfo("tools/save-editor/panels/" .. name .. ".lua") ~= nil
+  end
+  for k in pairs(package.loaded) do
+    if type(k) == "string"
+        and (k:find("save%-editor", 1, false) or isEditorFlat(k)) then
+      package.loaded[k] = nil
+    end
+  end
+end
+
 -- The editor's modules use flat names (require("Kit"), require("Party")), so
 -- their directories have to be on the require path.  It must be
 -- love.filesystem's path, not package.path: in a packaged build these files
@@ -180,9 +217,9 @@ local function openEditor(version, slotId)
     if EditorApp.unload then pcall(EditorApp.unload) end
     EditorApp = nil
     if version then
-      require("src.import.CacheFs").unmountVersion(version)
-      require("src.core.Data"):unloadGenerated()
+      teardownMountedSession(version)
     end
+    flushEditorPackageLoaded()
     restoreWindow()
     Importer = editorHost
     editorHost = nil
@@ -197,21 +234,17 @@ end
 -- Back to the launcher.  Everything the editor mounted or cached has to come
 -- back out: the version overlay (CacheFs) and the generated modules require
 -- cached behind it (Data), or pressing Play on the OTHER game would boot it
--- with this one's data.
+-- with this one's data.  Also reset Runtime / Assets / LegacyCompat so the
+-- next Edit or Play does not inherit the editor's dead mod loader.
 function closeEditor()
   local version = editorVersion
   editorMode = false
   if EditorApp and EditorApp.unload then EditorApp.unload() end
   EditorApp = nil
   if version then
-    require("src.import.CacheFs").unmountVersion(version)
-    require("src.core.Data"):unloadGenerated()
+    teardownMountedSession(version)
   end
-  for k in pairs(package.loaded) do
-    if type(k) == "string" and (k:find("save%-editor") or k == "App" or k == "Kit" or k == "State" or k == "Catalog" or k == "SaveIO" or k == "Ops" or k == "MonOps" or k == "ItemOps" or k == "PadInput" or k == "Gen" or k == "Theme") then
-      package.loaded[k] = nil
-    end
-  end
+  flushEditorPackageLoaded()
   editorVersion = nil
   restoreWindow()
   Importer = editorHost
@@ -333,16 +366,11 @@ local function returnToLauncher()
 
   local GameVersion = require("src.core.GameVersion")
   local currentVersion = GameVersion.get()
-  if currentVersion then
-    require("src.import.CacheFs").unmountVersion(currentVersion)
-  end
-  require("src.core.Data"):unloadGenerated()
+  teardownMountedSession(currentVersion)
 
-  local Runtime = require("src.mods.Runtime")
-  if Runtime.reset then
-    Runtime.reset()
+  if Game.reset then
+    pcall(function() Game:reset() end)
   end
-
   Game = nil
   autopilot = nil
   driverCo = nil
