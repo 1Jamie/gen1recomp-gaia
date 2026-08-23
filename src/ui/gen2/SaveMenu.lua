@@ -24,6 +24,7 @@
 -- one-line call.
 
 local Chrome = require("src.ui.gen2.Chrome")
+local Logger = require("src.core.Logger")
 local Save = require("src.core.gen2.Save")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
@@ -57,39 +58,46 @@ local YESNO_X, YESNO_Y, YESNO_W, YESNO_H = 0, 7, 6, 5
 
 -- AlreadyASaveFileText (AskOverwriteSaveFile, engine/menus/save.asm:47) and
 -- SavingDontTurnOffThePower's own line, shared with the PC's CHANGE BOX save
--- (src/ui/gen2/PcMenu.lua:savePrompt(), which returns this two-slot table
--- straight through to its own lines[1]/lines[2] Chrome.print calls, so the
--- table shape here is a cross-file contract that must not change).
+-- (src/ui/gen2/PcMenu.lua:savePrompt() reads these two tables' lines[1]/
+-- lines[2] directly, so their shape is a cross-file contract: keep them
+-- plain, untranslated tables).
 local OVERWRITE_PROMPT = { "There is already a", "save file. Is it" }
 local SAVING_PROMPT = { "SAVING… DON'T TURN", "OFF THE POWER." }
 
--- The same two prompts as a single \n-joined Strings.source() key, used only
--- by this screen's own prompt() below (PcMenu keeps reading the untranslated
--- table above unchanged). One key lets a translation reorder the whole
--- sentence rather than two independently-translated fragments, and lets a
--- cart whose own translation shows it on ONE line (German's SAVING prompt
--- has no second line at all) say so directly -- the per-line "{RAM:...}"-
--- style split load_engine_overrides uses elsewhere requires a non-empty
--- override for every line, so it cannot express "this line is blank" the
--- way an embedded "\n"-less string can.
+-- Translatable copies of the two prompts above, one \n-joined key each, used
+-- only by this screen's own prompt() below. One key per prompt lets a
+-- translation write one whole, freely reordered sentence instead of two
+-- fragments translated in isolation, and lets a cart whose own text is a
+-- single line (German's SAVING prompt) say so directly by simply omitting
+-- the "\n" -- the per-line override style used elsewhere requires a
+-- non-empty value for every line, so it can't express "this line is blank".
 --
--- Written as literals, not `table.concat(OVERWRITE_PROMPT, "\n")`: tools/
--- modkit.py's STRINGS_CALL harvester matches a quoted string literal
--- immediately inside Strings.source(...)/Strings(...), not an arbitrary
--- expression, so a computed argument here would be invisible to every
--- translator's `modkit.py translation ... --refresh` scaffold despite the
--- runtime lookup working fine -- caught by an independent review. Keep
--- these two byte-for-byte in sync with OVERWRITE_PROMPT/SAVING_PROMPT
--- above (checked by tests/engine/gen2_save_menu_translation_test.lua).
+-- Written as literals, not `table.concat(OVERWRITE_PROMPT, "\n")`: the
+-- translation tooling's string harvester only recognizes a literal inside
+-- Strings.source(...), not a computed expression, so a concat call here
+-- would quietly never reach a translator. Keep byte-for-byte in sync with
+-- OVERWRITE_PROMPT/SAVING_PROMPT above (checked by
+-- tests/engine/gen2_save_menu_translation_test.lua).
 local OVERWRITE_PROMPT_SOURCE = Strings.source("There is already a\nsave file. Is it")
 local SAVING_PROMPT_SOURCE = Strings.source("SAVING… DON'T TURN\nOFF THE POWER.")
 
--- Splits a Strings()-resolved "line one\nline two" into the two-slot table
--- drawPanel's fixed-position Chrome.print calls expect; a translation with no
--- "\n" at all (single-line messages like "Could not save.") lands whole on
+-- Splits a translated "line one\nline two" string back into the two-slot
+-- table drawPanel's fixed Chrome.print calls expect. No "\n" at all (a
+-- single-line message, or German's one-line SAVING prompt) lands whole on
 -- the first slot, matching the untranslated code's own { text, "" } shape.
+--
+-- Only the first "\n" splits, since this box has room for exactly two
+-- lines. A third line would otherwise draw as a raw newline byte -- garbage
+-- glyph data -- with no other sign anything went wrong, so this warns once
+-- per string instead.
+local warnedTooManyLines = {}
 local function twoLines(text)
   local first, second = text:match("^(.-)\n(.*)$")
+  if second and second:find("\n", 1, true) and not warnedTooManyLines[text] then
+    warnedTooManyLines[text] = true
+    Logger.warn("SaveMenu: translation of %q has more than two lines; " ..
+      "only the first two fit this box", text)
+  end
   return { first or text, second or "" }
 end
 

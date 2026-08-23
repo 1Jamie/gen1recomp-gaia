@@ -164,4 +164,36 @@ do
   T.eq(SaveMenu.SAVING_PROMPT[2], "OFF THE POWER.", "and its second line")
 end
 
+-- A translation with a THIRD line (a second embedded "\n") has nowhere on
+-- screen to go -- drawPanel's box has room for exactly two Chrome.print
+-- calls -- so it must not silently draw the literal newline byte as glyph
+-- garbage on the second line, and should warn so a translator notices.
+do
+  Strings.load({
+    strings = {
+      ["Would you like to\nsave the game?"] = "Ligne un\nLigne deux\nLigne trois",
+    },
+  })
+
+  local warned = {}
+  require("src.core.Logger").warn = function(fmt, ...)
+    warned[#warned + 1] = select("#", ...) > 0 and fmt:format(...) or fmt
+  end
+
+  local menu = SaveMenu.new({}, { save = SAVE, existed = false })
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "Ligne un", "only the first line reaches the box")
+  T.eq(drawnAt(PROMPT2_X, PROMPT2_Y), "Ligne deux\nLigne trois",
+    "the rest lands in the second slot rather than vanishing")
+  T.check(#warned == 1, "and a single warning is logged")
+
+  drawn = {}
+  menu:drawPanel()
+  T.check(#warned == 1, "the warning does not repeat for the same text")
+
+  require("src.core.Logger").warn = function() end
+  Strings.load({})
+end
+
 T.finish("gen2_save_menu_translation_test")
