@@ -117,6 +117,36 @@ function WorldAPI:current()
            facing = p and p.facing }
 end
 
+local function validBlockCoordinate(value)
+  return type(value) == "number" and value == value
+    and value ~= math.huge and value ~= -math.huge
+    and value == math.floor(value)
+end
+
+-- Read one block from the active Gen 1 map without exposing the mutable block
+-- array.  Requiring the expected map id makes a stale signature fail closed
+-- if a warp or reload moved the player before the caller completed its check.
+-- Block coordinates are zero-based, matching replaceBlock.
+function WorldAPI:activeBlockAt(mapId, bx, by)
+  local ow = self:overworld()
+  if not ow or not ow.map then return nil, NO_OVERWORLD end
+  local map = ow.map
+  if map.id ~= mapId then return nil, "map is not active" end
+  if not validBlockCoordinate(bx) or not validBlockCoordinate(by) then
+    return nil, "invalid block coordinates"
+  end
+  local def = map.def
+  if not def or type(def.width) ~= "number" or type(def.height) ~= "number"
+      or bx < 0 or by < 0 or bx >= def.width or by >= def.height then
+    return nil, "block coordinates out of bounds"
+  end
+  local blockId = map:blockAt(bx, by)
+  if not validBlockCoordinate(blockId) or blockId < 0 then
+    return nil, "block unavailable"
+  end
+  return blockId
+end
+
 -- Companion UIs may offer party ordering while the player is in free roam.
 -- The same guard that makes opening a menu safe keeps scripts, transitions,
 -- movement and screens above the overworld from observing a mid-action swap.
