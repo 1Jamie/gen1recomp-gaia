@@ -411,32 +411,69 @@ local function cartColor(version)
   return CART_COLOR[version] or PAL.green
 end
 
+local function shellColor(hex)
+  local r, g, b = tostring(hex):match("^#(%x%x)(%x%x)(%x%x)$")
+  if not r then return nil end
+  return { tonumber(r, 16), tonumber(g, 16), tonumber(b, 16) }
+end
+
+local function cartSkin(imp, version)
+  local row = imp.activeCartRow and imp:activeCartRow(version) or nil
+  if not row then
+    return { cacheKey = version, color = cartColor(version),
+             labelPath = "assets/labels/" .. tostring(version) .. ".png" }
+  end
+  return { cacheKey = "cart:" .. tostring(row.id),
+           color = shellColor(row.shell) or cartColor(version),
+           name = row.title, cart = row, cartId = row.id }
+end
+
 local CART_DRAG_SLOP = 8
 local TAU = math.pi * 2
 
-local function cartridgeState(imp, version)
+local function cartridgeState(imp, key)
   imp._cartridge = imp._cartridge or {}
-  local state = imp._cartridge[version]
+  local state = imp._cartridge[key]
   if not state then
     state = { spin = 0, lastTime = Kit.time }
-    imp._cartridge[version] = state
+    imp._cartridge[key] = state
   end
   return state
 end
 
-local function cartridgeLabel(imp, version)
+local function cartLabelImage(cartId)
+  local CartStore = require("src.carts.CartStore")
+  local got, bytes = pcall(CartStore.labelArt, cartId)
+  if not got or type(bytes) ~= "string" or bytes == "" then return nil end
+  if not (love.filesystem and love.filesystem.newFileData) then return nil end
+  local made, image = pcall(function()
+    return love.graphics.newImage(
+      love.filesystem.newFileData(bytes, tostring(cartId) .. ".png"))
+  end)
+  if not made then return nil end
+  return image
+end
+
+local function cartridgeLabel(imp, key, path, cartId)
   imp._cartridgeLabels = imp._cartridgeLabels or {}
-  local label = imp._cartridgeLabels[version]
+  local label = imp._cartridgeLabels[key]
   if label ~= nil then return label or nil end
-  local ok, image = pcall(love.graphics.newImage,
-    "assets/labels/" .. tostring(version) .. ".png")
-  if not ok then
-    imp._cartridgeLabels[version] = false
+  local image
+  if cartId then
+    image = cartLabelImage(cartId)
+  elseif path then
+    local ok, art = pcall(love.graphics.newImage, path)
+    if ok then image = art end
+  end
+  local sized, iw, ih = false, nil, nil
+  if image then sized, iw, ih = pcall(image.getDimensions, image) end
+  if not (sized and type(iw) == "number" and type(ih) == "number"
+      and iw > 0 and ih > 0) then
+    imp._cartridgeLabels[key] = false
     return nil
   end
-  local iw, ih = image:getDimensions()
   label = { image = image, width = iw, height = ih }
-  imp._cartridgeLabels[version] = label
+  imp._cartridgeLabels[key] = label
   return label
 end
 
@@ -492,10 +529,10 @@ local function cartPill(project, x, y, w, h, z, color, alpha)
   cartPolygon(points, color, alpha)
 end
 
-local function cartLabelMesh(imp, version, label, points)
+local function cartLabelMesh(imp, key, label, points)
   if not love.graphics.newMesh then return nil end
   imp._cartridgeLabelMeshes = imp._cartridgeLabelMeshes or {}
-  local mesh = imp._cartridgeLabelMeshes[version]
+  local mesh = imp._cartridgeLabelMeshes[key]
   if not mesh then
     mesh = love.graphics.newMesh({
       { 0, 0, 0, 0, 255, 255, 255, 255 },
@@ -504,7 +541,7 @@ local function cartLabelMesh(imp, version, label, points)
       { 0, 0, 0, 1, 255, 255, 255, 255 },
     }, "fan", "dynamic")
     mesh:setTexture(label.image)
-    imp._cartridgeLabelMeshes[version] = mesh
+    imp._cartridgeLabelMeshes[key] = mesh
   end
   mesh:setVertices({
     { points[1][1], points[1][2], 0, 0, 255, 255, 255, 255 },
@@ -564,8 +601,8 @@ local function cartSendHover(shader, mx, my, hovering, screenScale)
   return ok
 end
 
-local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
-  local state = cartridgeState(imp, version)
+local function cartridgeButton(imp, x, y, w, h, key, skin, gameName, action)
+  local state = cartridgeState(imp, skin.cacheKey)
   markNoDrag(imp, x, y, w, h)
   local focused = Kit.focusable(key, x, y, w, h)
   local hot = Kit.hover(x, y, w, h)
@@ -640,7 +677,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
   local ease = math.exp(-60 * dt)
   state.visScale = ease * state.visScale + (1 - ease) * desScale
   if not state.animId then
-    local n, s = 0, tostring(version)
+    local n, s = 0, tostring(skin.cacheKey)
     for i = 1, #s do n = n + s:byte(i) * i end
     state.animId = n
   end
@@ -696,7 +733,7 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
     capRight + halfW, capH, depth)
   local capBack = cartQuad(project, -halfW, -halfH,
     capRight + halfW, capH, -depth)
-  local shell = cartColor(version)
+  local shell = skin.color
   local side = { math.floor(shell[1] * 0.54), math.floor(shell[2] * 0.54),
     math.floor(shell[3] * 0.54) }
 
@@ -798,8 +835,8 @@ local function cartridgeButton(imp, x, y, w, h, key, version, gameName, action)
     local plate = cartQuad(project, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8)
     cartPolygon(plate, side, 0.95)
     local labelPoints = cartQuad(project, labelX, labelY, labelW, labelH, faceZ + 1.2)
-    local label = cartridgeLabel(imp, version)
-    local mesh = label and cartLabelMesh(imp, version, label, labelPoints)
+    local label = cartridgeLabel(imp, skin.cacheKey, skin.labelPath, skin.cartId)
+    local mesh = label and cartLabelMesh(imp, skin.cacheKey, label, labelPoints)
     if mesh then
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.draw(mesh)
@@ -932,6 +969,35 @@ local function buildModScopeRow(imp, x, y, w, m)
     end
   end
   return h + math.floor(8 * m.s)
+end
+
+local function buildSaveCartRow(imp, x, y, w, m)
+  local version = imp.modScope
+  local h = m.btnH
+  local gap = math.floor(8 * m.s)
+  local label = Strings("Save as cart")
+  local bw = math.min(w, Kit.textWidth("small", label) + math.floor(28 * m.s))
+  local enabled = version ~= nil and imp:_cartCaptureCount(version) > 0
+  btn(imp, x, y, bw, h, "mods-save-cart", label, {
+    kind = "accent", font = "small", enabled = enabled,
+    action = enabled and function() imp:_beginCartSave(version) end or nil })
+  local hint
+  if version == nil then
+    hint = Strings("Pick one game above to save its enabled mods as a cart.")
+  elseif not enabled then
+    hint = Strings("Enable a mod for this game first.")
+  else
+    local info = GameVersion.info(version)
+    hint = Strings("Freeze the mods enabled for %s into a cart.",
+      (info and (info.launcherName or info.displayName)) or tostring(version))
+  end
+  local hx = x + bw + gap
+  local hw = math.max(0, x + w - hx)
+  if hw > 0 then
+    Kit.text("small", Kit.ellipsize("small", hint, hw), hx,
+      y + (h - Kit.textHeight("small")) / 2, PAL.muted)
+  end
+  return h + gap
 end
 
 local function findActionFor(entry, installedVersion)
@@ -1512,9 +1578,11 @@ local function chipWidth(label, m)
 end
 
 local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
-  imp:_ensureSlots(version)
-  local slots = imp.slots[version] or {}
-  local active = imp.activeSlot[version]
+  local scope = imp.slotScope and imp:slotScope(version) or version
+  local onCart = scope ~= version
+  imp:_ensureSlots(scope)
+  local slots = imp.slots[scope] or {}
+  local active = imp.activeSlot[scope]
   local n = #slots
   local pad = math.floor(14 * m.s)
   local iw = w - 2 * pad
@@ -1570,7 +1638,7 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
   local headH = math.max(Kit.textHeight("caption"), m.btnH) + math.floor(8 * m.s)
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local newBtnH = m.btnH
-  local sfNotice = imp.saveNotice[version]
+  local sfNotice = imp.saveNotice[scope]
   local hintText, hintCol
   if sfNotice then
     hintText, hintCol = sfNotice.text, (sfNotice.ok and PAL.green or PAL.red)
@@ -1586,7 +1654,7 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
   local listH = availH
     - (pad * 2 + headH + hintH + pagerH + gap + newBtnH + gap)
   local perPage = Kit.rowsThatFit(listH, rowH, gap, 1, 12)
-  local pageKey = "slots-" .. version
+  local pageKey = "slots-" .. scope
   local first, last, cur, pages = Kit.pageBounds(page(imp, pageKey), n, perPage)
   setPage(imp, pageKey, cur)
 
@@ -1603,10 +1671,12 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
   local savImportLabel = imp.isNX and Strings("Scan again")
     or Strings("Import save")
   local impW = chipWidth(savImportLabel, m) + math.floor(8 * m.s)
-  btn(imp, x + w - pad - impW, cy, impW, m.btnH, "sav-import-" .. version,
+  btn(imp, x + w - pad - impW, cy, impW, m.btnH, "sav-import-" .. scope,
     savImportLabel, {
-      kind = "accent", font = "small", enabled = ready and true or false,
-      action = ready and function() imp:chooseSaveImport(version) end or nil,
+      kind = "accent", font = "small",
+      enabled = (ready and not onCart) and true or false,
+      action = (ready and not onCart)
+        and function() imp:chooseSaveImport(version) end or nil,
     })
   local countW = (x + w - pad - impW - math.floor(8 * m.s))
     - (x + pad + Kit.captionWidth(Strings("SAVE SLOT")) + math.floor(8 * m.s))
@@ -1629,10 +1699,10 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
     for i = first, last do
       local slot = slots[i]
       local selected = slot.id == active
-      local rowKey = "slot-" .. version .. "-" .. slot.id
+      local rowKey = "slot-" .. scope .. "-" .. slot.id
       local ry = cy + (i - first) * (rowH + gap)
       local ink = rowHit(imp, x + pad, ry, iw, rowH, selected, rowKey,
-        function() imp:_selectSlot(version, slot.id) end)
+        function() imp:_selectSlot(scope, slot.id) end)
 
       local px = x + pad + math.floor(10 * m.s)
       local inner = iw - math.floor(20 * m.s)
@@ -1661,6 +1731,9 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
       else
         metaTxt = Strings("empty slot")
       end
+      if slot.sealBroken then
+        metaTxt = Strings("%s - seal broken", metaTxt)
+      end
       Kit.text("small", Kit.ellipsize("small", metaTxt, textW), px, ly,
         selected and PAL.inverse or PAL.muted)
       -- Where the chip block starts: centred on the row beside the text, or
@@ -1673,22 +1746,22 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
       -- an export is a property of a slot, so the control belongs on the slot
       -- it exports (it selects the row first, since the exporter writes
       -- whichever slot is active).
-      local armed = deleteArmed(imp, "slot", slot.id, version)
+      local armed = deleteArmed(imp, "slot", slot.id, scope)
       local chips = {}
-      if slot.exists then
+      if slot.exists and not onCart then
         chips[#chips + 1] = { label = Strings("Export"), kind = "accent",
           key = rowKey .. "-export",
           action = function()
-            imp:_selectSlot(version, slot.id)
+            imp:_selectSlot(scope, slot.id)
             imp:exportSave(version)
           end }
       end
       if not imp.android then
         chips[#chips + 1] = { label = Strings("Rename"), kind = "accent",
           key = rowKey .. "-rename",
-          action = function() imp:_beginRename(version, slot.id) end }
+          action = function() imp:_beginRename(scope, slot.id) end }
       end
-      if imp.onEditSave and slot.exists then
+      if imp.onEditSave and slot.exists and not onCart then
         chips[#chips + 1] = { label = Strings("Edit"), kind = "accent",
           key = rowKey .. "-edit",
           action = function() imp.onEditSave(version, slot.id) end }
@@ -1699,8 +1772,8 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
         w = math.max(chipWidth(DELETE_LABEL(false), m),
           chipWidth(DELETE_LABEL(true), m)),
         action = function()
-          imp:pressDelete("slot", slot.id, version, function()
-            imp:_deleteSlot(version, slot.id)
+          imp:pressDelete("slot", slot.id, scope, function()
+            imp:_deleteSlot(scope, slot.id)
           end)
         end }
       for _, c in ipairs(chips) do c.w = c.w or chipWidth(c.label, m) end
@@ -1729,7 +1802,7 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
     cy = cy + Kit.textWrapped("small", hintText, x + pad, cy, iw, hintCol, 2)
     if folderRow then
       cy = cy + math.floor(4 * m.s)
-      local key = "sav-folder-" .. version
+      local key = "sav-folder-" .. scope
       local label = Strings("Open folder")
       local lw = Kit.textWidth("small", label)
       local lh = Kit.textHeight("small")
@@ -1752,11 +1825,92 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
     setPage(imp, pageKey, newPage)
     cy = cy + pagerH + gap
   end
-  btn(imp, x + pad, cy, iw, newBtnH, "slot-new-" .. version,
+  btn(imp, x + pad, cy, iw, newBtnH, "slot-new-" .. scope,
     Strings("+ New save slot"), {
       kind = "good",
-      action = function() imp:_newSlot(version) end,
+      action = function() imp:_newSlot(scope) end,
     })
+  return h
+end
+
+local function SEAL_LABEL(armed)
+  return armed and Strings("Break it") or Strings("Break the seal")
+end
+
+local function sealSlotName(slot)
+  if not slot then return nil end
+  if type(slot.label) == "string" and slot.label ~= "" then return slot.label end
+  return tostring(slot.id):match("^slot(%d+)$") or tostring(slot.id)
+end
+
+local function buildCartCard(imp, x, y, w, m, version)
+  if not imp.cartPlan then return 0 end
+  local report, slot = imp:cartPlan(version)
+  if not report then return 0 end
+  local title = tostring(report.title or report.id or "")
+  local broken = (slot and slot.sealBroken == true) or false
+  local state, stateCol, body = nil, PAL.green, {}
+  if report.refused then
+    state, stateCol = Strings("This cart will not start"), PAL.red
+    body[#body + 1] = { report.message, PAL.detail }
+    body[#body + 1] = { Strings("Break the seal to play it with the mods you have."),
+      PAL.detail }
+  elseif broken then
+    state, stateCol = Strings("Seal broken"), PAL.yellow
+    body[#body + 1] = { Strings("This save loads the cart's pinned mods first, then your other enabled mods. It is marked modified."),
+      PAL.detail }
+  elseif report.sealed then
+    state = Strings("Sealed - ready to play")
+    body[#body + 1] = { Strings("This cart loads only the mods it pins."),
+      PAL.detail }
+  else
+    state = Strings("Open cart - ready to play")
+    body[#body + 1] = { Strings("This cart's pinned mods load first, then your other enabled mods."),
+      PAL.detail }
+  end
+  local scope = imp:slotScope(version)
+  local offer = report.sealed and not broken
+  local armed = offer and deleteArmed(imp, "seal", slot and slot.id or nil, scope)
+  if armed then
+    local name = sealSlotName(slot)
+    body[#body + 1] = { name
+      and Strings("Break the seal on %s, save slot %s?", title, name)
+      or Strings("Break the seal on %s, on a new save slot?", title),
+      PAL.yellow }
+    body[#body + 1] = { Strings("This is permanent and cannot be undone. That save is marked modified from then on."),
+      PAL.yellow }
+    body[#body + 1] = { Strings("%s still loads its pinned mods first, with your other enabled mods on top.", title),
+      PAL.yellow }
+    body[#body + 1] = { Strings("Press Break it again to do it."), PAL.yellow }
+  end
+
+  local pad = math.floor(14 * m.s)
+  local iw = w - 2 * pad
+  local chipH = offer and math.max(Kit.tapMin(), math.floor(30 * m.s)) or 0
+  local h = pad + Kit.textHeight("button") + math.floor(4 * m.s)
+  for _, line in ipairs(body) do
+    h = h + Kit.wrapHeight("small", line[1] or "", iw, 3)
+  end
+  if offer then h = h + math.floor(8 * m.s) + chipH end
+  h = h + pad
+
+  Kit.card(x, y, w, h)
+  local cy = y + pad
+  Kit.text("button", Kit.ellipsize("button", state, iw), x + pad, cy, stateCol)
+  cy = cy + Kit.textHeight("button") + math.floor(4 * m.s)
+  for _, line in ipairs(body) do
+    cy = cy + Kit.textWrapped("small", line[1] or "", x + pad, cy, iw,
+      line[2], 3)
+  end
+  if offer then
+    cy = cy + math.floor(8 * m.s)
+    local cw = math.max(chipWidth(SEAL_LABEL(false), m),
+      chipWidth(SEAL_LABEL(true), m))
+    btn(imp, x + pad, cy, cw, chipH, "seal-" .. scope, SEAL_LABEL(armed), {
+      kind = "danger", font = "small", keepArm = true,
+      action = function() imp:pressBreakSeal(version) end,
+    })
+  end
   return h
 end
 
@@ -1764,7 +1918,8 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
   imp.panelVersion = version
   local info = GameVersion.info(version)
   local locked = info == nil
-  local gameName = info and (info.launcherName or info.displayName)
+  local skin = cartSkin(imp, version)
+  local gameName = skin.name or (info and (info.launcherName or info.displayName))
     or tostring(version)
   local ready = (not locked) and imp.ready[version] or false
 
@@ -1842,7 +1997,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
     local cartW = math.min(cartAreaW, math.floor(playH * 0.88))
     local cartX = lx + math.floor((cartAreaW - cartW) / 2)
     cartridgeButton(imp, cartX, ly, cartW, playH, "play-" .. version,
-      version, gameName, function() imp:play(version, true) end)
+      skin, gameName, function() imp:play(version, true) end)
     imp._gearIcon = imp._gearIcon
       or love.graphics.newImage("assets/launcher/gear.png")
     btn(imp, lx + lw - mgW, ly, mgW, mgW, "manage-" .. version, "", {
@@ -1850,6 +2005,17 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
       action = function() imp._gameManage = version end,
     })
     ly = ly + playH + gap
+    btn(imp, lx, ly, lw, m.btnH, "carts-" .. version,
+      Strings("Custom Carts"), {
+        kind = "accent", font = "small",
+        action = function()
+          imp._cartPopup = version
+          imp._cartNotice = nil
+        end,
+      })
+    ly = ly + m.btnH + gap
+    local sealH = buildCartCard(imp, lx, ly, lw, m, version)
+    if sealH > 0 then ly = ly + sealH + gap end
   end
 
   -- The ROM card, which now only exists while there is something to report:
@@ -2109,6 +2275,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     + math.floor(8 * m.s)
 
   cy = cy + buildModScopeRow(imp, x, cy, w, m)
+  cy = cy + buildSaveCartRow(imp, x, cy, w, m)
 
   if #mods == 0 then
     Kit.emptyBox(x, cy, w, math.floor(110 * m.s), imp:_modsEmptyHint())
@@ -3593,6 +3760,195 @@ local function buildGameModal(imp, m)
       action = function() imp._gamePopup = nil end })
 end
 
+local function cartRowLabel(row)
+  local seal = (row.seal == "open") and Strings("open") or Strings("sealed")
+  return Strings("%s - v%s - %s", tostring(row.title or row.id),
+    tostring(row.version or "?"), seal)
+end
+
+local function buildCartModal(imp, m)
+  local version = imp._cartPopup
+  local rows = imp:_ensureCarts(version)
+  local info = GameVersion.info(version)
+  local baseName = info and (info.displayName or info.launcherName)
+    or tostring(version)
+  local active = imp.activeCart[version]
+  local pad = math.floor(18 * m.s)
+  local gap = math.floor(8 * m.s)
+  local w = math.floor(420 * m.s)
+  local rowH = m.btnH
+  local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
+  local notice = imp._cartNotice
+  local noticeH = notice
+    and (Kit.wrapHeight("small", notice, w - 2 * pad, 2) + gap) or 0
+  local emptyH = (#rows == 0) and (Kit.textHeight("small") + gap) or 0
+  local fixed = pad + Kit.textHeight("button") + math.floor(12 * m.s)
+    + noticeH + emptyH + 2 * (rowH + gap) + rowH + pad
+  local perPage = Kit.rowsThatFit(m.H - 2 * m.pad - fixed, rowH, gap, 1, 8)
+  local pageKey = "cartpop-" .. tostring(version)
+  local first, last, cur, pages = Kit.pageBounds(page(imp, pageKey), #rows, perPage)
+  setPage(imp, pageKey, cur)
+  local shown = math.max(0, last - first + 1)
+  local h = fixed + shown * (rowH + gap) + (pages > 1 and (pagerH + gap) or 0)
+
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Custom Carts"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  if notice then
+    cy = cy + Kit.textWrapped("small", notice, px + pad, cy,
+      pw - 2 * pad, PAL.detail, 2) + gap
+  end
+  btn(imp, px + pad, cy, pw - 2 * pad, rowH, "cartpop-vanilla", baseName, {
+    kind = (active == nil) and "primary" or "ghost", font = "small",
+    action = function() imp:_selectCart(version, nil) end })
+  cy = cy + rowH + gap
+  if #rows == 0 then
+    Kit.text("small", Strings("No carts installed for this game yet."),
+      px + pad, cy, PAL.muted)
+    cy = cy + Kit.textHeight("small") + gap
+  end
+  local expGap = math.floor(6 * m.s)
+  local expW = math.min(chipWidth(Strings("Export"), m),
+    math.floor((pw - 2 * pad) * 0.35))
+  for i = first, last do
+    local row = rows[i]
+    local rowKey = "cartpop-id-" .. tostring(row.id)
+    local pickW = pw - 2 * pad - expW - expGap
+    btn(imp, px + pad, cy, pickW, rowH, rowKey, cartRowLabel(row), {
+        kind = (active == row.id) and "primary" or "ghost", font = "small",
+        action = function() imp:_selectCart(version, row.id) end })
+    btn(imp, px + pad + pickW + expGap, cy, expW, rowH, rowKey .. "-export",
+      Strings("Export"), { kind = "accent", font = "small",
+        action = function() imp:exportCart(row.id) end })
+    cy = cy + rowH + gap
+  end
+  if pages > 1 then
+    setPage(imp, pageKey,
+      Kit.pager(px + pad, cy, pw - 2 * pad, cur, #rows, perPage, pageKey))
+    cy = cy + pagerH + gap
+  end
+  btn(imp, px + pad, cy, pw - 2 * pad, rowH, "cartpop-more",
+    Strings("Get more carts"), { kind = "accent", font = "small",
+      action = function()
+        imp._cartNotice = Strings("Browsing for carts arrives in a later update.")
+      end })
+  cy = cy + rowH + gap
+  btn(imp, px + pad, cy, pw - 2 * pad, rowH, "cartpop-close",
+    Strings("Close"), { font = "small",
+      action = function()
+        imp._cartPopup = nil
+        imp._cartNotice = nil
+      end })
+end
+
+local CART_PIN_LINES = 4
+
+local function cartPinLines(pins)
+  local out = {}
+  for i = 1, math.min(#pins, CART_PIN_LINES) do
+    local pin = pins[i]
+    out[#out + 1] = Strings("%s - %s", tostring(pin.name or pin.id),
+      tostring(pin.reason or ""))
+  end
+  if #pins > CART_PIN_LINES then
+    out[#out + 1] = Strings("...and %d more.", #pins - CART_PIN_LINES)
+  end
+  return out
+end
+
+local function buildCartSaveModal(imp, m)
+  local st = imp._cartSave
+  local info = GameVersion.info(st.version)
+  local gameName = (info and (info.launcherName or info.displayName))
+    or tostring(st.version)
+  local pad = math.floor(18 * m.s)
+  local gap = math.floor(8 * m.s)
+  local w = math.floor(500 * m.s)
+  local inner = w - 2 * pad
+  local fieldH = math.max(Kit.tapMin(), math.floor(36 * m.s))
+
+  local hint = (st.count == 1)
+    and Strings("This freezes the 1 mod enabled for %s into a cart.", gameName)
+    or Strings("This freezes the %d mods enabled for %s into a cart.",
+      st.count, gameName)
+  local id = imp:_cartSaveId()
+  local meta = id
+    and Strings("id %s - v%s - by %s", id, st.cartVersion, st.author)
+    or Strings("Type a title - the cart id is built from it.")
+
+  local pins = st.unresolved or {}
+  local pinHead = (#pins > 0) and ((#pins == 1)
+    and Strings("1 mod could only be pinned to this install:")
+    or Strings("%d mods could only be pinned to this install:", #pins)) or nil
+  local pinRows = pinHead and cartPinLines(pins) or {}
+  local share = st.publishable
+    and Strings("Every mod is pinned to a release, so this cart can be shared.")
+    or Strings("This cart can be saved and played here while those mods stay installed at these versions, and cannot be shared.")
+  local shareCol = st.publishable and PAL.green or PAL.yellow
+
+  local pinIndent = math.floor(10 * m.s)
+  local hintH = Kit.wrapHeight("small", hint, inner, 3) + gap
+  local metaH = Kit.textHeight("micro") + gap
+  local errH = st.error
+    and (Kit.wrapHeight("small", st.error, inner, 2) + gap) or 0
+  local pinH = 0
+  if pinHead then
+    pinH = Kit.textHeight("small") + math.floor(4 * m.s)
+    for _, line in ipairs(pinRows) do
+      pinH = pinH + Kit.wrapHeight("small", line, inner - pinIndent, 2)
+        + math.floor(2 * m.s)
+    end
+    pinH = pinH + gap
+  end
+  local shareH = Kit.wrapHeight("small", share, inner, 2) + gap
+  local footH = Kit.textHeight("micro") + math.floor(8 * m.s)
+  local h = pad + Kit.textHeight("button") + math.floor(10 * m.s) + hintH
+    + fieldH + gap + metaH + errH + pinH + shareH + m.btnH + footH + pad
+
+  local px, py, pw = modalPanel(m, w, h)
+  local cy = py + pad
+  Kit.text("button", Strings("Save as cart"), px + pad, cy, PAL.heading)
+  cy = cy + Kit.textHeight("button") + math.floor(10 * m.s)
+  cy = cy + Kit.textWrapped("small", hint, px + pad, cy, pw - 2 * pad,
+    PAL.detail, 3) + gap
+  textField(imp, px + pad, cy, pw - 2 * pad, fieldH, "cartsave-field",
+    st.text or "", Strings("Cart title"), true)
+  cy = cy + fieldH + gap
+  Kit.text("micro", Kit.ellipsize("micro", meta, pw - 2 * pad), px + pad, cy,
+    PAL.muted)
+  cy = cy + Kit.textHeight("micro") + gap
+  if st.error then
+    cy = cy + Kit.textWrapped("small", st.error, px + pad, cy, pw - 2 * pad,
+      PAL.red, 2) + gap
+  end
+  if pinHead then
+    Kit.text("small", Kit.ellipsize("small", pinHead, pw - 2 * pad),
+      px + pad, cy, PAL.yellow)
+    cy = cy + Kit.textHeight("small") + math.floor(4 * m.s)
+    for _, line in ipairs(pinRows) do
+      cy = cy + Kit.textWrapped("small", line, px + pad + pinIndent, cy,
+        pw - 2 * pad - pinIndent, PAL.detail, 2) + math.floor(2 * m.s)
+    end
+    cy = cy + gap
+  end
+  cy = cy + Kit.textWrapped("small", share, px + pad, cy, pw - 2 * pad,
+    shareCol, 2) + gap
+
+  local place = Layout.rightCluster(px + pad, pw - 2 * pad, math.floor(8 * m.s))
+  local okLabel = Strings("Save as cart")
+  local okW = Kit.textWidth("small", okLabel) + math.floor(28 * m.s)
+  btn(imp, place(okW), cy, okW, m.btnH, "cartsave-ok", okLabel,
+    { kind = "primary", font = "small",
+      action = function() imp:_commitCartSave() end })
+  local cw = Kit.textWidth("small", Strings("Cancel")) + math.floor(28 * m.s)
+  btn(imp, place(cw), cy, cw, m.btnH, "cartsave-cancel", Strings("Cancel"),
+    { font = "small", action = function() imp:_cancelCartSave() end })
+  cy = cy + m.btnH + math.floor(8 * m.s)
+  Kit.text("micro", Strings("Enter to save - Esc to cancel"), px + pad, cy,
+    PAL.muted)
+end
+
 -- Category filter for FIND MODS.  Two columns, because an index can list
 -- enough categories to overflow a single stacked column on a short window.
 local function buildFilterModal(imp, m)
@@ -4962,7 +5318,7 @@ local function modalUp(imp)
     or imp._appPatchNotes
     or imp._findDetails or imp._modVersions or imp._modDepResolver or imp._sortPopup
     or imp._filterPopup or imp._modScopePopup or imp._indexManage
-    or imp._gamePopup
+    or imp._gamePopup or imp._cartPopup or imp._cartSave
     or imp._modActions or imp._modImports or imp._skinActions or imp._syncModal
     or imp._modHeaderActionsPopup or imp._profilesPopup or imp._singleProfileActions or imp._profileSavePrompt
     or imp._profileRenamePrompt or imp._findEntry or imp._gameManage) ~= nil
@@ -5030,6 +5386,7 @@ local function buildModals(imp, m)
     })
     return true
   end
+  if imp._cartSave then buildCartSaveModal(imp, m) return true end
   if imp._settings then buildSettingsModal(imp, m) return true end
   if imp._rename then
     buildPrompt(imp, m, {
@@ -5105,6 +5462,7 @@ local function buildModals(imp, m)
   if imp._modHeaderActionsPopup then buildModHeaderActionsModal(imp, m) return true end
   if imp._sortPopup then buildSortModal(imp, m) return true end
   if imp._gamePopup then buildGameModal(imp, m) return true end
+  if imp._cartPopup then buildCartModal(imp, m) return true end
   if imp._modScopePopup then buildModScopeModal(imp, m) return true end
   if imp._filterPopup then buildFilterModal(imp, m) return true end
   if imp._indexManage then buildIndexesModal(imp, m) return true end

@@ -327,9 +327,9 @@ end
 local function makeLauncher()
   local RomImporter = require("src.import.RomImporter")
   local forceImport = os.getenv("POKEPORT_FORCE_IMPORT") == "1"
-  return RomImporter.new(function(version)
+  return RomImporter.new(function(version, cartId)
     Importer = nil
-    bootGame(version)
+    bootGame(version, cartId)
   end, {
     launcher = true,
     forceImport = forceImport,
@@ -394,7 +394,7 @@ local function returnToLauncher()
   Importer = makeLauncher()
 end
 
-function bootGame(version)
+function bootGame(version, cartId)
   -- The launcher hands us the chosen game (Red / Blue / Yellow / Gold);
   -- scripted and headless runs fall back to POKEPORT_VERSION, then Red.
   -- Set the active version and overlay its extracted cache BEFORE anything
@@ -407,6 +407,16 @@ function bootGame(version)
   -- (Blue/Yellow/Gold caches live under blue/ / yellow/ / gold/).
   CacheFs.prefix = GameVersion.cachePrefix()
   CacheFs.mountVersion(GameVersion.get())
+  local cartHash
+  if cartId then
+    local ok, cart, hash = pcall(function()
+      return require("src.carts.CartStore").get(cartId)
+    end)
+    if ok and cart then cartHash = hash else cartId = nil end
+  end
+  local SaveData = require("src.core.SaveData")
+  SaveData.setCart(cartId, cartHash)
+  if cartId then SaveData.adoptCartSeal(cartId) end
   -- NX: always write nx-asset-probe.log so Yellow/Blue art failures are
   -- diagnosable from the SD without enabling switch-debug.txt.
   pcall(function()

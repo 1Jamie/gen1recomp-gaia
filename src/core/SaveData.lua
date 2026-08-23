@@ -759,25 +759,41 @@ end
 -- use" and the flat legacy path (save.lua / save_blue.lua / save_yellow.lua)
 -- is used, which keeps a brand-new install and every pre-slots caller
 -- working unchanged.
-local activeSlotCache = {}   -- version -> slotId in use, or false when none
-local slotsChecked = {}      -- version -> true once resolved this process
+local activeSlotCache = {}   -- scope key -> slotId in use, or false when none
+local slotsChecked = {}      -- scope key -> true once resolved this process
 -- At most one New Game can be the live candidate for a first public tool
 -- request. A single strong reference models that runtime fact without adding
 -- marker data to the save or retaining abandoned playthrough tables.
 local freshPlaythrough
 
-local function slotDir(version) return "saves/" .. version end
+local CART_PREFIX = "cart_"
 
-local function slotNames(version, id)
-  local main = slotDir(version) .. "/" .. id .. ".lua"
+local activeCart, activeCartHash
+local sealBroken = false
+
+local function cartKey(cartId)
+  if type(cartId) ~= "string" or #cartId > 64 then return nil end
+  if not cartId:match("^%w[%w%._%-]*$") then return nil end
+  return CART_PREFIX .. cartId
+end
+
+local function isCartKey(key)
+  return key:sub(1, #CART_PREFIX) == CART_PREFIX
+end
+
+local function slotDir(key) return "saves/" .. key end
+
+local function slotNames(key, id)
+  local main = slotDir(key) .. "/" .. id .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
 
--- the pre-slots flat names a version always used (save.lua for Red,
--- save_blue.lua / save_yellow.lua for the others); still the destination
--- before any slot exists
-local function legacyNames(version)
-  local main = "save" .. GameVersion.saveSuffix(version) .. ".lua"
+-- the pre-slots flat names a scope uses before any slot exists (save.lua for
+-- Red, save_blue.lua / save_yellow.lua for the other versions, and
+-- save_cart_<id>.lua for a cart)
+local function legacyNames(key)
+  local suffix = isCartKey(key) and ("_" .. key) or GameVersion.saveSuffix(key)
+  local main = "save" .. suffix .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
 
@@ -788,6 +804,37 @@ end
 -- degrade to empty/no-op instead.
 local function knownVersion(version)
   return GameVersion.info(version) ~= nil
+end
+
+local function knownScope(key)
+  if type(key) ~= "string" or key == "" then return false end
+  if isCartKey(key) then return true end
+  return knownVersion(key)
+end
+
+local function activeScopeKey(version)
+  if activeCart then return CART_PREFIX .. activeCart end
+  return version or GameVersion.get()
+end
+
+local function registryOf(opts, key)
+  local root, id = opts.saveSlots, key
+  if isCartKey(key) then
+    root, id = opts.cartSlots, key:sub(#CART_PREFIX + 1)
+  end
+  if type(root) ~= "table" then return nil end
+  local reg = root[id]
+  return type(reg) == "table" and reg or nil
+end
+
+local function putRegistry(opts, key, reg)
+  if isCartKey(key) then
+    opts.cartSlots = type(opts.cartSlots) == "table" and opts.cartSlots or {}
+    opts.cartSlots[key:sub(#CART_PREFIX + 1)] = reg
+  else
+    opts.saveSlots = type(opts.saveSlots) == "table" and opts.saveSlots or {}
+    opts.saveSlots[key] = reg
+  end
 end
 
 -- Create the parent directory of a slot path when the fs supports it.
@@ -802,8 +849,8 @@ end
 -- Decode a slot's save using the same recovery order load() uses -- main,
 -- then the .tmp write-witness, then the .bak -- so a slot mid-crash still
 -- summarizes.  nil when nothing readable is present.
-local function decodeSlot(fs, version, id)
-  local main, bak, tmp = slotNames(version, id)
+local function decodeSlot(fs, key, id)
+  local main, bak, tmp = slotNames(key, id)
   local data = fs.getInfo(main) and SaveSerializer.decode(fs.read(main) or "")
   if data then return data end
   data = fs.getInfo(tmp) and SaveSerializer.decode(fs.read(tmp) or "")
@@ -818,30 +865,29 @@ end
 -- active slot.  Returns the new slot id, or nil when there is nothing to
 -- migrate or the copy could not be verified (originals left in place so no
 -- data is ever lost to a failed move).
-local function tryMigrateLegacy(version, fs)
-  local lmain, lbak, ltmp = legacyNames(version)
+local function tryMigrateLegacy(key, fs)
+  local lmain, lbak, ltmp = legacyNames(key)
   local mainBody = fs.getInfo(lmain) and fs.read(lmain)
   local bakBody = fs.getInfo(lbak) and fs.read(lbak)
   if not (mainBody or bakBody) then return nil end
   local id = "slot1"
-  local dmain, dbak = slotNames(version, id)
+  local dmain, dbak = slotNames(key, id)
   ensureParentDir(fs, dmain)
   if mainBody then fs.write(dmain, mainBody) end
   if bakBody then fs.write(dbak, bakBody) end
   -- refuse to delete the originals unless the new slot is loadable (from
   -- the main copy or, failing that, the backup)
-  if not decodeSlot(fs, version, id) then return nil end
+  if not decodeSlot(fs, key, id) then return nil end
   remove(fs, lmain)
   remove(fs, lbak)
   remove(fs, ltmp)
   local opts = SaveData.loadOptions(fs)
-  opts.saveSlots = opts.saveSlots or {}
-  opts.saveSlots[version] = { list = { id }, active = id }
+  putRegistry(opts, key, { list = { id }, active = id })
   -- A tool may have allocated the legacy scope before the player made their
   -- first ordinary SAVE. Promoting that flat save into slot1 must preserve the
   -- same opaque identity; otherwise title-selected mod storage becomes
   -- unreachable after the migration even though every durable record exists.
-  local ids = opts.playthroughIds and opts.playthroughIds[version]
+  local ids = opts.playthroughIds and opts.playthroughIds[key]
   if type(ids) == "table" and type(ids.legacy) == "string" and ids.legacy ~= "" then
     if type(ids[id]) ~= "string" or ids[id] == "" then ids[id] = ids.legacy end
     ids.legacy = nil
@@ -852,9 +898,9 @@ end
 
 -- Scan the filesystem for orphaned slot files under saves/<version>/ when options.lua
 -- has no registered slots for this version (e.g. options.lua was reset or lost).
-local function scanDiskSlots(version, fs)
+local function scanDiskSlots(key, fs)
   if not fs then return nil end
-  local dir = "saves/" .. version
+  local dir = slotDir(key)
   local slots = {}
   if fs.getDirectoryItems and fs.getInfo and fs.getInfo(dir) then
     local items = pcall(fs.getDirectoryItems, dir) and fs.getDirectoryItems(dir) or {}
@@ -882,49 +928,49 @@ local function scanDiskSlots(version, fs)
   return #slots > 0 and slots or nil
 end
 
--- Resolve (once per version per process) which slot in-game saves use: an
+-- Resolve (once per scope per process) which slot in-game saves use: an
 -- existing registry wins; otherwise a lazy legacy migration may create
 -- slot1; otherwise auto-recover disk slots; otherwise false (flat legacy path).
-local function ensureVersionSlots(version, fs)
-  if slotsChecked[version] then return end
-  slotsChecked[version] = true
-  if not knownVersion(version) then
-    activeSlotCache[version] = false
+local function ensureSlots(key, fs)
+  if slotsChecked[key] then return end
+  slotsChecked[key] = true
+  if not knownScope(key) then
+    activeSlotCache[key] = false
     return
   end
   local opts = SaveData.loadOptions(fs)
-  local reg = opts.saveSlots and opts.saveSlots[version]
+  local reg = registryOf(opts, key)
   if reg and type(reg.list) == "table" and #reg.list > 0 then
-    activeSlotCache[version] = reg.active or reg.list[1]
+    activeSlotCache[key] = reg.active or reg.list[1]
     return
   end
-  local migrated = tryMigrateLegacy(version, fs)
+  local migrated = tryMigrateLegacy(key, fs)
   if migrated then
-    activeSlotCache[version] = migrated
+    activeSlotCache[key] = migrated
     return
   end
   -- Auto-recovery: if options.lua lost its slot registry, scan disk for orphaned slot files
-  local recovered = scanDiskSlots(version, fs)
+  local recovered = scanDiskSlots(key, fs)
   if recovered and #recovered > 0 then
-    opts.saveSlots = opts.saveSlots or {}
-    opts.saveSlots[version] = { list = recovered, active = recovered[1] }
+    putRegistry(opts, key, { list = recovered, active = recovered[1] })
     SaveData.saveOptions(opts, fs)
-    activeSlotCache[version] = recovered[1]
-    Logger.info("auto-recovered %d save slot(s) for %s from disk", #recovered, version)
+    activeSlotCache[key] = recovered[1]
+    Logger.info("auto-recovered %d save slot(s) for %s from disk", #recovered, key)
     return
   end
-  activeSlotCache[version] = false
+  activeSlotCache[key] = false
 end
 
 -- (body for the forward-declared saveNames.)  Resolves the ACTIVE slot for
--- the version, falling back to the flat legacy names when no slot is in use.
+-- the scope -- the active cart when one is set, otherwise the version --
+-- falling back to the flat legacy names when no slot is in use.
 function saveNames(version, injectedFs)
-  version = version or GameVersion.get()
+  local key = activeScopeKey(version)
   local fs = persistFs(injectedFs)
-  ensureVersionSlots(version, fs)
-  local slot = activeSlotCache[version]
-  if slot then return slotNames(version, slot) end
-  return legacyNames(version)
+  ensureSlots(key, fs)
+  local slot = activeSlotCache[key]
+  if slot then return slotNames(key, slot) end
+  return legacyNames(key)
 end
 
 -- Pure extraction of the launcher's per-slot summary from a decoded save,
@@ -1005,26 +1051,33 @@ function SaveData.slotDiskPath(version, slotId)
   return base .. sep .. rel:gsub("/", sep)
 end
 
--- Slots visible to the launcher: every registered slot for a version, each
+-- Slots visible to the launcher: every registered slot for a scope, each
 -- with whether it holds a save and the cheap summary above.  A fresh
 -- install with nothing registered returns an empty array; a legacy install
 -- is migrated to slot1 first.
+local function listSlotsIn(key)
+  local fs = persistFs(nil)
+  ensureSlots(key, fs)
+  local opts = SaveData.loadOptions(fs)
+  local reg = registryOf(opts, key)
+  local list = (reg and type(reg.list) == "table" and reg.list) or {}
+  local out = {}
+  for _, id in ipairs(list) do
+    local save = decodeSlot(fs, key, id)
+    local name, meta = SaveData.slotSummary(save)
+    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta,
+                      label = reg.names and reg.names[id] or nil,
+                      cartHash = reg.hashes and reg.hashes[id] or nil,
+                      sealBroken = (reg.broken and reg.broken[id] == true)
+                        or false }
+  end
+  return out
+end
+
 function SaveData.listSlots(version)
   version = version or GameVersion.get()
   if not knownVersion(version) then return {} end
-  local fs = persistFs(nil)
-  ensureVersionSlots(version, fs)
-  local opts = SaveData.loadOptions(fs)
-  local reg = opts.saveSlots and opts.saveSlots[version]
-  local list = (reg and reg.list) or {}
-  local out = {}
-  for _, id in ipairs(list) do
-    local save = decodeSlot(fs, version, id)
-    local name, meta = SaveData.slotSummary(save)
-    out[#out + 1] = { id = id, exists = save ~= nil, name = name, meta = meta,
-                      label = reg.names and reg.names[id] or nil }
-  end
-  return out
+  return listSlotsIn(version)
 end
 
 function SaveData.readSlotSource(version, slotId, injectedFs)
@@ -1049,17 +1102,14 @@ end
 -- needs no save rewrite and an empty slot can be labeled too.  The label is
 -- trimmed; an empty (or whitespace-only) one clears it.  Returns true, or
 -- false + an error string when the id is not registered.
-function SaveData.renameSlot(version, slotId, name)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return false, "unknown version" end
+local function renameSlotIn(key, slotId, name)
   if type(slotId) ~= "string" or slotId == "" then
     return false, "missing slot id"
   end
   local fs = persistFs(nil)
   local opts = SaveData.loadOptions(fs)
-  opts.saveSlots = opts.saveSlots or {}
-  local reg = opts.saveSlots[version]
-  if not reg or not reg.list then return false, "slot not registered" end
+  local reg = registryOf(opts, key)
+  if not reg or type(reg.list) ~= "table" then return false, "slot not registered" end
   local found = false
   for _, id in ipairs(reg.list) do
     if id == slotId then found = true break end
@@ -1070,47 +1120,55 @@ function SaveData.renameSlot(version, slotId, name)
   reg.names = reg.names or {}
   reg.names[slotId] = label
   if next(reg.names) == nil then reg.names = nil end
-  opts.saveSlots[version] = reg
+  putRegistry(opts, key, reg)
   SaveData.saveOptions(opts, fs)
   return true
+end
+
+function SaveData.renameSlot(version, slotId, name)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  return renameSlotIn(version, slotId, name)
 end
 
 -- Point the active slot at slotId (registering it if new) and persist the
 -- choice to options.lua; also update the process-global cache so the very
 -- next save/load lands in the chosen slot.
-function SaveData.setActiveSlot(version, slotId)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return nil end
+local function setActiveSlotIn(key, slotId)
   local fs = persistFs(nil)
   local opts = SaveData.loadOptions(fs)
-  opts.saveSlots = opts.saveSlots or {}
-  local reg = opts.saveSlots[version] or { list = {}, active = nil }
+  local reg = registryOf(opts, key) or { list = {}, active = nil }
+  reg.list = type(reg.list) == "table" and reg.list or {}
   local found = false
   for _, id in ipairs(reg.list) do
     if id == slotId then found = true break end
   end
   if not found then reg.list[#reg.list + 1] = slotId end
   reg.active = slotId
-  opts.saveSlots[version] = reg
+  putRegistry(opts, key, reg)
   SaveData.saveOptions(opts, fs)
-  slotsChecked[version] = true
-  activeSlotCache[version] = slotId
+  slotsChecked[key] = true
+  activeSlotCache[key] = slotId
   return slotId
 end
 
--- Register a new empty slot for the version and return its id.  Does NOT
+function SaveData.setActiveSlot(version, slotId)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  return setActiveSlotIn(version, slotId)
+end
+
+-- Register a new empty slot for the scope and return its id.  Does NOT
 -- write a save file and does NOT change the active slot: an empty slot
 -- means the title screen offers NEW GAME only.  Ids are "slot%d+",
 -- allocated one past the highest existing number so a reused id can never
 -- collide with a lingering file.
-function SaveData.createSlot(version)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return nil end
+local function createSlotIn(key)
   local fs = persistFs(nil)
-  ensureVersionSlots(version, fs)
+  ensureSlots(key, fs)
   local opts = SaveData.loadOptions(fs)
-  opts.saveSlots = opts.saveSlots or {}
-  local reg = opts.saveSlots[version] or { list = {}, active = nil }
+  local reg = registryOf(opts, key) or { list = {}, active = nil }
+  reg.list = type(reg.list) == "table" and reg.list or {}
   local maxN = 0
   for _, id in ipairs(reg.list) do
     local n = tonumber(tostring(id):match("^slot(%d+)$"))
@@ -1118,21 +1176,31 @@ function SaveData.createSlot(version)
   end
   local id = "slot" .. (maxN + 1)
   reg.list[#reg.list + 1] = id
-  opts.saveSlots[version] = reg
+  putRegistry(opts, key, reg)
   SaveData.saveOptions(opts, fs)
   return id
 end
 
--- The active slot id in use for a version (resolved once per process like
+function SaveData.createSlot(version)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  return createSlotIn(version)
+end
+
+-- The active slot id in use for a scope (resolved once per process like
 -- saveNames does), or nil when none is registered and the flat legacy path is
 -- in use.  Public so the launcher's save Import/Export glue can name an export
 -- after the slot it came from without reaching into the private cache.
+local function activeSlotIn(key)
+  local fs = persistFs(nil)
+  ensureSlots(key, fs)
+  return activeSlotCache[key] or nil
+end
+
 function SaveData.activeSlot(version)
   version = version or GameVersion.get()
   if not knownVersion(version) then return nil end
-  local fs = persistFs(nil)
-  ensureVersionSlots(version, fs)
-  return activeSlotCache[version] or nil
+  return activeSlotIn(version)
 end
 
 -- Write saveTable into an existing slot's file (SaveSerializer.encode), through
@@ -1142,12 +1210,10 @@ end
 -- already registered the slot via createSlot but written no bytes yet; unlike
 -- SaveData.save this targets a specific slot and never rebuilds meta or touches
 -- options.  Returns true, or false + an error string on a failed write.
-function SaveData.writeSlot(version, slotId, saveTable)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return false, "unknown version" end
+local function writeSlotIn(key, slotId, saveTable)
   if type(slotId) ~= "string" then return false, "missing slot id" end
   if type(saveTable) ~= "table" then return false, "missing save table" end
-  local main, bak, tmp = slotNames(version, slotId)
+  local main, bak, tmp = slotNames(key, slotId)
   local encoded = SaveSerializer.encode(saveTable)
   local fs = persistFs(nil)
   ensureParentDir(fs, main)
@@ -1164,52 +1230,253 @@ function SaveData.writeSlot(version, slotId, saveTable)
   return true
 end
 
+function SaveData.writeSlot(version, slotId, saveTable)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  return writeSlotIn(version, slotId, saveTable)
+end
+
 -- Delete a registered slot: remove its main/.bak/.tmp files, drop it from the
 -- options registry, and if it was active point active at another remaining
 -- slot (or clear active when the list is empty).  Returns true, or false +
 -- an error string when the id is unknown / not registered.
-function SaveData.deleteSlot(version, slotId)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return false, "unknown version" end
+local function deleteSlotIn(key, slotId)
   if type(slotId) ~= "string" or slotId == "" then
     return false, "missing slot id"
   end
   local fs = persistFs(nil)
-  ensureVersionSlots(version, fs)
+  ensureSlots(key, fs)
   local opts = SaveData.loadOptions(fs)
-  opts.saveSlots = opts.saveSlots or {}
-  local reg = opts.saveSlots[version]
-  if not reg or not reg.list then return false, "slot not registered" end
+  local reg = registryOf(opts, key)
+  if not reg or type(reg.list) ~= "table" then return false, "slot not registered" end
   local found, idx = false, nil
   for i, id in ipairs(reg.list) do
     if id == slotId then found = true; idx = i; break end
   end
   if not found then return false, "slot not registered" end
 
-  local main, bak, tmp = slotNames(version, slotId)
+  local main, bak, tmp = slotNames(key, slotId)
   remove(fs, main)
   remove(fs, bak)
   remove(fs, tmp)
 
   table.remove(reg.list, idx)
   if reg.names then reg.names[slotId] = nil end
+  if reg.hashes then
+    reg.hashes[slotId] = nil
+    if next(reg.hashes) == nil then reg.hashes = nil end
+  end
+  if reg.broken then
+    reg.broken[slotId] = nil
+    if next(reg.broken) == nil then reg.broken = nil end
+  end
   if reg.active == slotId then
     reg.active = reg.list[1]  -- may be nil when the list is now empty
   end
-  opts.saveSlots[version] = reg
+  putRegistry(opts, key, reg)
   SaveData.saveOptions(opts, fs)
-  slotsChecked[version] = true
-  activeSlotCache[version] = reg.active or false
+  slotsChecked[key] = true
+  activeSlotCache[key] = reg.active or false
   return true
 end
 
--- Test seam: drop the process-global slot cache so a suite can exercise
--- migration/resolution against a freshly injected filesystem.  Unused by
--- the game, which resolves each version exactly once per boot.
+function SaveData.deleteSlot(version, slotId)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return false, "unknown version" end
+  return deleteSlotIn(version, slotId)
+end
+
+-- Test seam: drop the process-global slot cache (and the active cart) so a
+-- suite can exercise migration/resolution against a freshly injected
+-- filesystem.  Unused by the game, which resolves each scope exactly once per
+-- boot.
 function SaveData.resetSlotState()
   for k in pairs(activeSlotCache) do activeSlotCache[k] = nil end
   for k in pairs(slotsChecked) do slotsChecked[k] = nil end
   freshPlaythrough = nil
+  activeCart, activeCartHash = nil, nil
+  sealBroken = false
+end
+
+-- ------- custom carts
+
+function SaveData.setCart(cartId, cartHash)
+  if cartId ~= nil and cartKey(cartId) then
+    activeCart = cartId
+    activeCartHash = (type(cartHash) == "string" and cartHash ~= "") and cartHash or nil
+  else
+    activeCart, activeCartHash = nil, nil
+  end
+  return activeCart
+end
+
+function SaveData.getCart()
+  return activeCart
+end
+
+function SaveData.setCartHash(cartHash)
+  activeCartHash = (type(cartHash) == "string" and cartHash ~= "") and cartHash or nil
+  return activeCartHash
+end
+
+function SaveData.getCartHash()
+  return activeCartHash
+end
+
+function SaveData.breakSeal(save)
+  sealBroken = true
+  if type(save) == "table" then
+    save.meta = type(save.meta) == "table" and save.meta or {}
+    save.meta.sealBroken = true
+  end
+  return true
+end
+
+function SaveData.isSealBroken(save)
+  if type(save) == "table" then
+    return type(save.meta) == "table" and save.meta.sealBroken == true
+  end
+  return sealBroken
+end
+
+function SaveData.listCartSlots(cartId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return {} end
+  return listSlotsIn(key)
+end
+
+function SaveData.createCartSlot(cartId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return nil end
+  return createSlotIn(key)
+end
+
+function SaveData.setActiveCartSlot(cartId, slotId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return nil end
+  if type(slotId) ~= "string" or slotId == "" then return nil end
+  return setActiveSlotIn(key, slotId)
+end
+
+function SaveData.activeCartSlot(cartId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return nil end
+  return activeSlotIn(key)
+end
+
+function SaveData.renameCartSlot(cartId, slotId, name)
+  local key = cartKey(cartId or activeCart)
+  if not key then return false, "unknown cart" end
+  return renameSlotIn(key, slotId, name)
+end
+
+function SaveData.deleteCartSlot(cartId, slotId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return false, "unknown cart" end
+  return deleteSlotIn(key, slotId)
+end
+
+function SaveData.writeCartSlot(cartId, slotId, saveTable)
+  local key = cartKey(cartId or activeCart)
+  if not key then return false, "unknown cart" end
+  local ok, err = writeSlotIn(key, slotId, saveTable)
+  if not ok then return ok, err end
+  local hash = type(saveTable.meta) == "table" and saveTable.meta.cartHash or nil
+  if type(hash) == "string" and hash ~= "" then
+    SaveData.setSlotCartHash(cartId or activeCart, slotId, hash)
+  end
+  return true
+end
+
+function SaveData.slotCartHash(cartId, slotId)
+  local key = cartKey(cartId or activeCart)
+  if not key or type(slotId) ~= "string" then return nil end
+  local reg = registryOf(SaveData.loadOptions(persistFs(nil)), key)
+  local hash = reg and type(reg.hashes) == "table" and reg.hashes[slotId] or nil
+  if type(hash) ~= "string" or hash == "" then return nil end
+  return hash
+end
+
+function SaveData.setSlotCartHash(cartId, slotId, cartHash)
+  local key = cartKey(cartId or activeCart)
+  if not key then return false, "unknown cart" end
+  if type(slotId) ~= "string" or slotId == "" then
+    return false, "missing slot id"
+  end
+  local fs = persistFs(nil)
+  local opts = SaveData.loadOptions(fs)
+  local reg = registryOf(opts, key)
+  if not reg or type(reg.list) ~= "table" then return false, "slot not registered" end
+  local found = false
+  for _, id in ipairs(reg.list) do
+    if id == slotId then found = true break end
+  end
+  if not found then return false, "slot not registered" end
+  local hash = (type(cartHash) == "string" and cartHash ~= "") and cartHash or nil
+  reg.hashes = type(reg.hashes) == "table" and reg.hashes or {}
+  if reg.hashes[slotId] == hash then return true end
+  reg.hashes[slotId] = hash
+  if next(reg.hashes) == nil then reg.hashes = nil end
+  putRegistry(opts, key, reg)
+  SaveData.saveOptions(opts, fs)
+  return true
+end
+
+function SaveData.slotSealBroken(cartId, slotId)
+  local key = cartKey(cartId or activeCart)
+  if not key or type(slotId) ~= "string" then return false end
+  local reg = registryOf(SaveData.loadOptions(persistFs(nil)), key)
+  local broken = reg and type(reg.broken) == "table" and reg.broken[slotId]
+  return broken == true
+end
+
+function SaveData.markSlotSealBroken(cartId, slotId)
+  local key = cartKey(cartId or activeCart)
+  if not key then return false, "unknown cart" end
+  if type(slotId) ~= "string" or slotId == "" then
+    return false, "missing slot id"
+  end
+  local fs = persistFs(nil)
+  local opts = SaveData.loadOptions(fs)
+  local reg = registryOf(opts, key)
+  if not reg or type(reg.list) ~= "table" then return false, "slot not registered" end
+  local found = false
+  for _, id in ipairs(reg.list) do
+    if id == slotId then found = true break end
+  end
+  if not found then return false, "slot not registered" end
+  reg.broken = type(reg.broken) == "table" and reg.broken or {}
+  if reg.broken[slotId] == true then return true end
+  reg.broken[slotId] = true
+  putRegistry(opts, key, reg)
+  SaveData.saveOptions(opts, fs)
+  return true
+end
+
+function SaveData.adoptCartSeal(cartId)
+  local id = cartId or activeCart
+  if not cartKey(id) then return false end
+  local slot = SaveData.activeCartSlot(id)
+  if type(slot) ~= "string" or not SaveData.slotSealBroken(id, slot) then
+    return false
+  end
+  SaveData.breakSeal()
+  return true
+end
+
+local function stampActiveCartHash(fs)
+  if not (activeCart and activeCartHash) then return end
+  local key = CART_PREFIX .. activeCart
+  local slot = activeSlotCache[key]
+  if type(slot) ~= "string" then return end
+  local opts = SaveData.loadOptions(fs)
+  local reg = registryOf(opts, key)
+  if not reg or type(reg.list) ~= "table" then return end
+  reg.hashes = type(reg.hashes) == "table" and reg.hashes or {}
+  if reg.hashes[slot] == activeCartHash then return end
+  reg.hashes[slot] = activeCartHash
+  putRegistry(opts, key, reg)
+  SaveData.saveOptions(opts, fs)
 end
 
 -- ------- opaque playthrough identity
@@ -1235,10 +1502,10 @@ function SaveData.newPlaythroughId()
 end
 
 local function playthroughScope(version, injectedFs)
-  version = version or GameVersion.get()
+  local key = activeScopeKey(version)
   local fs = persistFs(injectedFs)
-  ensureVersionSlots(version, fs)
-  return activeSlotCache[version] or "legacy"
+  ensureSlots(key, fs)
+  return activeSlotCache[key] or "legacy", key
 end
 
 local function rememberPlaythroughId(save, opts, injectedFs)
@@ -1246,7 +1513,7 @@ local function rememberPlaythroughId(save, opts, injectedFs)
   local id = type(meta) == "table" and meta.playthroughId
   if type(id) ~= "string" or id == "" then return opts, false end
   local version = save.version or GameVersion.get()
-  local scope = playthroughScope(version, injectedFs)
+  local scope, key = playthroughScope(version, injectedFs)
   local persisted = SaveData.loadOptions(injectedFs)
   if opts then
     -- Slot selection and opaque playthrough routing are engine-owned launcher
@@ -1254,14 +1521,15 @@ local function rememberPlaythroughId(save, opts, injectedFs)
     -- save was promoted to slot1; writing that stale snapshot must not erase
     -- the freshly persisted routing and strand tool storage on next boot.
     opts.saveSlots = deepCopy(persisted.saveSlots)
+    opts.cartSlots = deepCopy(persisted.cartSlots)
     opts.playthroughIds = deepCopy(persisted.playthroughIds)
   else
     opts = persisted
   end
   opts.playthroughIds = opts.playthroughIds or {}
-  opts.playthroughIds[version] = opts.playthroughIds[version] or {}
-  local changed = opts.playthroughIds[version][scope] ~= id
-  opts.playthroughIds[version][scope] = id
+  opts.playthroughIds[key] = opts.playthroughIds[key] or {}
+  local changed = opts.playthroughIds[key][scope] ~= id
+  opts.playthroughIds[key][scope] = id
   return opts, changed
 end
 
@@ -1275,11 +1543,11 @@ function SaveData.ensurePlaythroughId(save, injectedFs)
   if type(id) == "string" and id ~= "" then return id end
 
   local version = save.version or GameVersion.get()
-  local scope = playthroughScope(version, injectedFs)
+  local scope, key = playthroughScope(version, injectedFs)
   local opts = SaveData.loadOptions(injectedFs)
   local isFresh = save == freshPlaythrough
   if isFresh then freshPlaythrough = nil end
-  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
+  local byVersion = opts.playthroughIds and opts.playthroughIds[key]
   local existing = byVersion and byVersion[scope]
   id = not isFresh and existing or nil
   if type(id) ~= "string" or id == "" then
@@ -1296,8 +1564,8 @@ function SaveData.ensurePlaythroughId(save, injectedFs)
     -- storage and repeating on every launch.
     if not (isFresh and type(existing) == "string" and existing ~= "") then
       opts.playthroughIds = opts.playthroughIds or {}
-      opts.playthroughIds[version] = opts.playthroughIds[version] or {}
-      opts.playthroughIds[version][scope] = id
+      opts.playthroughIds[key] = opts.playthroughIds[key] or {}
+      opts.playthroughIds[key][scope] = id
       SaveData.saveOptions(opts, injectedFs)
     end
   end
@@ -1325,9 +1593,9 @@ function SaveData.selectedPlaythroughId(save, injectedFs)
   -- Resolve the selected scope first. That may perform the one-time legacy
   -- save-to-slot migration, which also moves the opaque identity mapping; only
   -- then read options so this lookup never observes the pre-migration table.
-  local scope = playthroughScope(version, injectedFs)
+  local scope, key = playthroughScope(version, injectedFs)
   local opts = SaveData.loadOptions(injectedFs)
-  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
+  local byVersion = opts.playthroughIds and opts.playthroughIds[key]
   id = byVersion and byVersion[scope] or nil
   if type(id) ~= "string" or id == "" then
     return nil, "no_selected_playthrough",
@@ -1394,6 +1662,8 @@ function SaveData.buildMeta(mods, previous, sessionStart)
     savedAt = savedAt,
     sessionStart = started,
     playthroughId = type(previous) == "table" and previous.playthroughId or nil,
+    cartHash = type(previous) == "table" and previous.cartHash or nil,
+    sealBroken = (type(previous) == "table" and previous.sealBroken == true) or nil,
     mods = list,
   }
 end
@@ -1619,6 +1889,12 @@ function SaveData.save(data, mods)
   if mods ~= nil or data.meta == nil then
     data.meta = SaveData.buildMeta(mods, data.meta)
   end
+  if activeCart and activeCartHash and type(data.meta) == "table" then
+    data.meta.cartHash = activeCartHash
+  end
+  if sealBroken and type(data.meta) == "table" then
+    data.meta.sealBroken = true
+  end
   local gameOnly = {}
   for k, v in pairs(data) do
     if k ~= "options" then gameOnly[k] = v end
@@ -1646,6 +1922,7 @@ function SaveData.save(data, mods)
     return false
   end
   remove(fs, TMP_FILENAME)
+  stampActiveCartHash(fs)
   Logger.info("saved game")
   return true
 end
