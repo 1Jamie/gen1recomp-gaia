@@ -1,0 +1,165 @@
+-- Crystal manifest shape and the specials surface the extractor pins to it.
+-- ROM-free: reads tools/rom_manifest_crystal.json out of the source tree.
+--   luajit tests/crystal_import_test.lua
+-- Also dofile'd by tests/run_tests.lua.
+package.path = "./?.lua;./?/init.lua;" .. package.path
+
+local S = require("tests.harness").suite("crystal import")
+local check, eq = S.check, S.eq
+
+love = require("tests.love_stub")
+
+local Json = require("src.link.Json")
+local GameVersion = require("src.core.GameVersion")
+
+local function manifest(path)
+  local file = assert(io.open(path, "r"))
+  local data = assert(Json.decode(file:read("*a")))
+  file:close()
+  return data
+end
+
+local function size(tbl)
+  local n = 0
+  for _ in pairs(tbl or {}) do n = n + 1 end
+  return n
+end
+
+local crystal = manifest("tools/rom_manifest_crystal.json")
+local gold = manifest("tools/rom_manifest_gold.json")
+
+-- ------- 1. the manifest the launcher row points at
+
+eq(GameVersion.VERSIONS.crystal.manifest, "tools/rom_manifest_crystal.json",
+  "the crystal row names this manifest")
+eq(crystal.romSha1, GameVersion.VERSIONS.crystal.sha1,
+  "and the manifest carries the same sha1")
+eq(crystal.generation, 2, "generation 2")
+eq(crystal.format, gold.format, "same manifest format as Gold")
+
+-- ------- 2. content counts
+
+eq(size(crystal.maps), 388, "388 maps")
+eq(size(crystal.tilesets), 36, "36 tilesets")
+eq(size(crystal.pokemonAssets), 251, "251 pokemon asset rows")
+eq(size(crystal.constants), 50, "50 constants keys")
+eq(type(crystal.constants.engineFlagOrder), "table",
+  "the 50th is engineFlagOrder, the key Gold has no counterpart for")
+check(size(crystal.symbols) > 2000,
+  ("symbols table is populated (%d)"):format(size(crystal.symbols)))
+check(size(crystal.charmap) > 200,
+  ("charmap is populated (%d)"):format(size(crystal.charmap)))
+check(#(crystal.fontCharmap or {}) > 200,
+  ("fontCharmap is populated (%d)"):format(#(crystal.fontCharmap or {})))
+
+-- pokecrystal/constants/map_constants.asm:504, pokegold:484
+eq(size(gold.maps), 368, "Gold names 368")
+local added, removed = 0, 0
+for name in pairs(crystal.maps) do
+  if not gold.maps[name] then added = added + 1 end
+end
+for name in pairs(gold.maps) do
+  if not crystal.maps[name] then removed = removed + 1 end
+end
+eq(added, 21, "Crystal adds 21 maps")
+eq(removed, 1, "and drops one")
+-- pokegold/constants/map_constants.asm:152
+eq(crystal.maps.ECRUTEAK_TIN_TOWER_BACK_ENTRANCE, nil,
+  "the one Gold map Crystal drops is ECRUTEAK_TIN_TOWER_BACK_ENTRANCE")
+check(crystal.maps.BATTLE_TOWER_1F ~= nil, "and BATTLE_TOWER_1F is new")
+
+-- ------- 3. every map row is addressable
+
+local badMap
+for name, row in pairs(crystal.maps) do
+  if type(row) ~= "table" then badMap = name; break end
+end
+eq(badMap, nil, "every map row is a table")
+
+-- ------- 4. the text labels resolve, as they must for the Dialogue stage
+
+local labels = (crystal.text or {}).labels or {}
+check(#labels > 800, ("crystal names %d text labels"):format(#labels))
+local unresolved = {}
+for _, label in ipairs(labels) do
+  if not crystal.symbols[label] then unresolved[#unresolved + 1] = label end
+end
+eq(#unresolved, 0,
+  ("every crystal text label resolves to a symbol (%s)")
+    :format(table.concat(unresolved, ", "):sub(1, 60)))
+
+-- ------- 5. specials: constants.specialOrder against the handler table
+
+local Specials = require("src.script.gen2.Specials")
+
+local order = crystal.constants.specialOrder
+check(type(order) == "table", "constants.specialOrder is a list")
+eq(#order, 169, "Crystal's SpecialsPointers has 169 rows")
+
+local missing = {}
+for index, name in ipairs(order) do
+  if not Specials.ALL[name] then
+    missing[#missing + 1] = ("%d (%s)"):format(index - 1, name)
+  end
+end
+eq(#missing, 0,
+  ("every crystal special has a handler (%s)")
+    :format(table.concat(missing, ", "):sub(1, 80)))
+
+local goldOrder = gold.constants.specialOrder
+local goldMissing = {}
+for index, name in ipairs(goldOrder or {}) do
+  if not Specials.ALL[name] then
+    goldMissing[#goldMissing + 1] = ("%d (%s)"):format(index - 1, name)
+  end
+end
+eq(#goldMissing, 0,
+  ("every gold special has a handler too (%s)")
+    :format(table.concat(goldMissing, ", "):sub(1, 80)))
+
+local sameOrder = #order == #(goldOrder or {})
+if sameOrder then
+  for index, name in ipairs(order) do
+    if goldOrder[index] ~= name then sameOrder = false; break end
+  end
+end
+check(not sameOrder, "the Crystal and Gold special orders are not the same")
+
+-- ------- 6. handler bookkeeping
+
+local overlap = {}
+for name in pairs(Specials.STUBS) do
+  if Specials.HANDLERS[name] then overlap[#overlap + 1] = name end
+end
+eq(#overlap, 0,
+  ("HANDLERS and STUBS are disjoint (%s)"):format(table.concat(overlap, ", ")))
+
+local unexplained = {}
+for name in pairs(Specials.STUBS) do
+  local reason = (Specials.STUB_REASONS or {})[name]
+  if type(reason) ~= "string" or reason == "" then
+    unexplained[#unexplained + 1] = name
+  end
+end
+eq(#unexplained, 0,
+  ("every stub records a reason (%s)")
+    :format(table.concat(unexplained, ", "):sub(1, 80)))
+
+-- ------- 7. the Crystal-only assets the completeness gate pins
+
+local importerSource = assert(io.open("src/import/RomImporter.lua", "r"))
+local importerText = importerSource:read("*a")
+importerSource:close()
+for _, path in ipairs({
+  "assets/generated/title/crystal_logo.png",
+  "assets/generated/title/crystal_wordmark.png",
+  "assets/generated/title/crystal_suicune.png",
+  "assets/generated/splash/ditto.png",
+  "assets/generated/intro/chris.png",
+  "assets/generated/intro/kris.png",
+}) do
+  check(importerText:find(path, 1, true) ~= nil,
+    "RomImporter still requires " .. path)
+end
+
+S.finish()

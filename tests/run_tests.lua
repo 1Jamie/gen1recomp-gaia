@@ -1338,7 +1338,7 @@ do
   Game.save.pokedex.owned.EKANS = nil
   local cb = BattleState.newWild(Game, "EKANS", 5)
   cb:storeCaughtMon()
-  check(hasText(cb, "New POKéDEX data\nwill be added for\nEKANS!"),
+  check(hasText(cb, "New POKéDEX data\nwill be added for\vEKANS!"),
         "_ItemUseBallText06 on a first catch")
   check(Game.save.pokedex.owned.EKANS == true, "species registered as owned")
   eq(cb.result, "caught", "catch resolves the battle")
@@ -1348,7 +1348,7 @@ do
   for _ = 1, 6 do table.insert(Game.save.party, Pokemon.new(Data, "RATTATA", 5)) end
   local cb2 = BattleState.newWild(Game, "EKANS", 5)
   cb2:storeCaughtMon()
-  check(hasText(cb2, "EKANS was\ntransferred to\nsomeone's PC!"),
+  check(hasText(cb2, "EKANS was\ntransferred to\vsomeone's PC!"),
         "_ItemUseBallText08 before meeting Bill")
   check(not hasText(cb2, "New POKéDEX data"),
         "no dex page for an already-owned species")
@@ -1372,7 +1372,7 @@ do
   Game.save.flags.EVENT_MET_BILL = true
   local cb3 = BattleState.newWild(Game, "EKANS", 5)
   cb3:storeCaughtMon()
-  check(hasText(cb3, "EKANS was\ntransferred to\nBILL's PC!"),
+  check(hasText(cb3, "EKANS was\ntransferred to\vBILL's PC!"),
         "_ItemUseBallText07 after meeting Bill")
   Game.save.flags.EVENT_MET_BILL = nil
 
@@ -3485,10 +3485,14 @@ runSuites({ "tests/rom_importer_cursor_test.lua" })
 -- ---------------------------------------------- launcher last played tab (#835)
 runSuites({ "tests/rom_importer_last_version_test.lua" })
 
--- ---------------------------------------------- Gold (Gen 2)
--- All ROM-free: each file carries its own fixtures shaped like the extractor's
--- output, so they run without a Gold cache.
-runSuites({
+-- ---------------------------------------------- Gold / Crystal (Gen 2)
+-- All ROM-free: own fixtures, or a self-skip on a missing cache.  Globbed on
+-- the historical chain; tests/run_gen2.lua runs the same set, one per process.
+local LEAKS_SAVE_SLOT_STATE = {
+  ["tests/gen2_save_export_test.lua"] = true,
+}
+runSuites(orderedGlob(
+  "tests/gen2_*.lua tests/crystal_*.lua tests/rom_lz3_test.lua", {
   "tests/rom_lz3_test.lua",
   "tests/gen2_world_test.lua",
   "tests/gen2_audio_test.lua",
@@ -3599,10 +3603,8 @@ runSuites({
   -- name resolution, and the .sav converter refusing a Gen 2 save table.
   "tests/gen2_sound_alias_test.lua",
   "tests/gen2_save_convert_cli_test.lua",
-  -- The wall radios (`special MapRadio`); the Pokegear-proper suites next to
-  -- it (gen2_pokegear_unlock_test, gen2_save_export_test) stay out of this
-  -- block because their headers ask for a GOLD_CACHE, which this tier cannot
-  -- assume.
+  -- The wall radios (`special MapRadio`).  gen2_save_export_test cannot share a
+  -- process (LEAKS_SAVE_SLOT_STATE above); tests/run_gen2.lua runs it alone.
   "tests/gen2_map_radio_test.lua",
   -- The two seams where a battle meets everything else: what ends a round and
   -- a battle (and what a battle may not leave on the party), and BattlePack --
@@ -3613,7 +3615,13 @@ runSuites({
   -- which failures suppress the attack animation, and the Rollout /
   -- EFFECT_RAMPAGE lock-ins.  ROM-free like the rest of this block.
   "tests/gen2_battle_lockin_test.lua",
-})
+  -- Crystal rides the same glob: crystal_*.lua and the gen2_crystal_* files.
+  "tests/crystal_import_test.lua",
+  "tests/crystal_world_test.lua",
+  "tests/gen2_crystal_anim_test.lua",
+  "tests/gen2_crystal_caught_data_test.lua",
+  "tests/gen2_crystal_gender_test.lua",
+}, LEAKS_SAVE_SLOT_STATE))
 
 -- ---------------------------------------------- Android second ROM pick (#167)
 runSuites({ "tests/rom_importer_android_pick_test.lua" })

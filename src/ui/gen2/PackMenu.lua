@@ -12,6 +12,7 @@
 
 local Bag = require("src.inventory.Bag")
 local Chrome = require("src.ui.gen2.Chrome")
+local Gen2Save = require("src.core.gen2.Save")
 local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
 local Strings = require("src.core.Strings")
@@ -77,6 +78,21 @@ local ASK_ITEM_MOVE = { "Where should this", "be moved to?" }
 -- _YouDontHaveAMonText and .AnEggCantHoldAnItemText, GiveItem's two refusals.
 local NO_POKEMON = { "You don't have a", "#MON!" }
 local EGG_CANT_HOLD = { "An EGG can't hold", "an item." }
+
+-- _CGB_PackPals' .KrisPackPals arm, and the BATTLETYPE_TUTORIAL test above it
+-- that forces the DUDE's (../pokecrystal/engine/gfx/cgb_layouts.asm:770-786).
+local function packGfxFor(menuGfx, save, tutorial)
+  local pack = menuGfx and menuGfx.pack
+  if not (pack and pack.palettesFemale) then return menuGfx end
+  if tutorial or not Gen2Save.isFemale(save) then return menuGfx end
+  local female = {}
+  for key, value in pairs(pack) do female[key] = value end
+  female.palettes = pack.palettesFemale
+  local out = {}
+  for key, value in pairs(menuGfx) do out[key] = value end
+  out.pack = female
+  return out
+end
 
 -- The PACK's cursor bytes.  Every pocket menu restores its own cursor and
 -- scroll before ScrollingMenu and writes them back after -- `ld a,
@@ -157,7 +173,8 @@ function PackMenu.new(game, opts)
   end
   self:restoreCursor()
   -- The cart's own PACK tiles, when the cache has them.
-  self.gfx = PackGfx.new(game and game.data and game.data.gen2MenuGfx)
+  self.gfx = PackGfx.new(packGfxFor(
+    game and game.data and game.data.gen2MenuGfx, self.save, opts.tutorial))
   self:rebuild()
   return self
 end

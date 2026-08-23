@@ -133,10 +133,33 @@ local function fs()
   return love.filesystem
 end
 
--- The blank-name fallback is the first PlayerNameArray row, which differs
--- per edition -- data/player_names.asm:12-23.
-function Save.defaultPlayerName(version)
-  return (version or GameVersion.get()) == "silver" and "SILVER" or "GOLD"
+-- The first PlayerNameArray row -- pokegold data/player_names.asm:12-22, and
+-- Crystal's gender-split arrays at data/player_names.asm:12-16, :31-35.
+Save.DEFAULT_PLAYER_NAMES = {
+  gold = "GOLD",
+  silver = "SILVER",
+  crystal = "CHRIS",
+}
+
+-- FemalePlayerNameArray's first row, the `.Kris` dname NamePlayer falls back to
+-- (data/player_names.asm:31-32, engine/menus/intro_menu.asm:768-781).
+Save.DEFAULT_PLAYER_NAMES_FEMALE = {
+  crystal = "KRIS",
+}
+
+-- wPlayerGender as this save spells it (constants/ram_constants.asm:176-177).
+function Save.isFemale(save)
+  local player = type(save) == "table" and save.player
+  return (player and player.gender) == "female"
+end
+
+function Save.defaultPlayerName(version, gender)
+  version = version or GameVersion.get()
+  if gender == "female" then
+    local female = Save.DEFAULT_PLAYER_NAMES_FEMALE[version]
+    if female then return female end
+  end
+  return Save.DEFAULT_PLAYER_NAMES[version] or "GOLD"
 end
 
 -- A fresh Gen 2 save.  `opts` carries what the intro collected: player name,
@@ -148,10 +171,13 @@ function Save.newGame(opts)
     version = GameVersion.get(),
     generation = 2,
     player = {
-      name = opts.playerName or Save.defaultPlayerName(),
+      name = opts.playerName
+        or Save.defaultPlayerName(nil, opts.gender or "male"),
       -- _ResetWRAM rolls wPlayerID out of hRandomSub/hRandomAdd
       -- (engine/menus/intro_menu.asm:41-49).
       id = opts.trainerId or rand(0, 65535),
+      -- InitCrystalData zeroes wPlayerGender before InitGender is even offered
+      -- (engine/menus/init_gender.asm:1-6).
       gender = opts.gender or "male",
       money = 3000,
       coins = 0,
@@ -379,6 +405,49 @@ local function normalizePokerus(mons)
   end
 end
 
+-- ../pokecrystal/ram/sram.asm:140 sGSBallFlag.  nil is the cleared byte.
+Save.GS_BALL_STATES = { have = true, given = true, used = true }
+
+local function counter(value)
+  return math.max(0, math.floor(tonumber(value) or 0))
+end
+
+-- ../pokecrystal/ram/sram.asm:138 "SRAM Crystal Data", created on demand the
+-- way Mail.state creates sPartyMail, so a Crystal handler can index freely.
+function Save.crystalState(save)
+  local crystal = save.crystal or {}
+  save.crystal = crystal
+  if crystal.celebiCaught == nil then crystal.celebiCaught = false end
+  crystal.beasts = crystal.beasts or {}
+  -- ../pokecrystal/ram/wram.asm:3342 wBuenasPassword, :3343 wBlueCardBalance.
+  local buena = crystal.buenaPassword or {}
+  crystal.buenaPassword = buena
+  buena.prizesToday = counter(buena.prizesToday)
+  buena.streak = counter(buena.streak)
+  -- ../pokecrystal/engine/events/move_tutor.asm:1 MoveTutor.
+  crystal.moveTutor = crystal.moveTutor or {}
+  if crystal.moveTutor.used == nil then crystal.moveTutor.used = false end
+  -- ../pokecrystal/ram/wram.asm:3445 wUnlockedUnowns.
+  crystal.unownWords = crystal.unownWords or {}
+  return crystal
+end
+
+-- ../pokecrystal/ram/sram.asm:147 "SRAM Battle Tower".  `reward` stays nil
+-- until one is won, which is sBattleTowerReward's zero byte (:160).
+function Save.battleTowerState(save)
+  local tower = save.battleTower or {}
+  save.battleTower = tower
+  -- ../pokecrystal/ram/sram.asm:155 sNrOfBeatenBattleTowerTrainers.
+  tower.streak = counter(tower.streak)
+  tower.best = counter(tower.best)
+  -- ../pokecrystal/ram/sram.asm:150 sBattleTowerChallengeState: 0 normal, 2 tower.
+  tower.challenge = counter(tower.challenge)
+  -- ../pokecrystal/ram/sram.asm:162 sBTMonOfTrainers.
+  tower.prevTeams = tower.prevTeams or {}
+  if tower.inChallenge == nil then tower.inChallenge = false end
+  return tower
+end
+
 -- Fill in anything a save (or an older save) is missing, so callers can index
 -- freely.  Runs on both newGame and load.
 function Save.normalize(save)
@@ -390,7 +459,11 @@ function Save.normalize(save)
   end
   save.generation = 2
   save.player = save.player or {}
-  save.player.name = save.player.name or Save.defaultPlayerName(save.version)
+  -- _ResetWRAM leaves wPlayerGender at 0, PLAYERGENDER_MALE, and Gold never
+  -- writes it -- constants/ram_constants.asm:177.
+  save.player.gender = save.player.gender or "male"
+  save.player.name = save.player.name
+    or Save.defaultPlayerName(save.version, save.player.gender)
   save.player.id = save.player.id or rand(0, 65535)
   save.player.money = math.max(0, math.min(save.player.money or 0, Save.MAX_MONEY))
   save.player.coins = math.max(0, math.min(save.player.coins or 0, Save.MAX_COINS))
@@ -462,6 +535,12 @@ function Save.normalize(save)
   save.playTime = save.playTime
     or { hours = 0, minutes = 0, seconds = 0, frames = 0 }
   save.rtc = save.rtc or {}
+  -- ../pokecrystal/ram/sram.asm:138,147: both regions are Crystal's own, so a
+  -- Gold or Silver file never grows either key.
+  if GameVersion.engine(save.version) == "crystal" then
+    Save.crystalState(save)
+    Save.battleTowerState(save)
+  end
   -- HallOfFame.record fills in the count and the roster list, and trims a
   -- roster that a corrupt file grew past NUM_HOF_TEAMS -- the same guard the
   -- party gets below, for the same reason.

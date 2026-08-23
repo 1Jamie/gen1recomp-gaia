@@ -56,14 +56,16 @@ And before you say, "that's not a recomp", you're wrong. Recomp is an acronym. *
 [![Watch the latest update video](https://img.youtube.com/vi/yi7LkWQPKKM/maxresdefault.jpg)](https://youtu.be/yi7LkWQPKKM)
 
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
-or download a disassembly. A canonical US Poke Red, Blue, Yellow, Gold, or
-Silver ROM is the only game content input.
+or download a disassembly. A canonical US Poke Red, Blue, Yellow, Gold,
+Silver, or Crystal ROM is the only game content input.
 
 The ROM is verified, used during import, and then released from memory. It is
 not copied into the cache. Later launches load the private generated cache and
-do not ask for the ROM again. Red, Blue, Yellow, Gold, and Silver can all be
-imported side by side. Gold and Silver are Gen 2 Phase 1 (import + launcher;
-see `docs/gold-phase1.md`): the Gen 2 engine is still under construction.
+do not ask for the ROM again. Red, Blue, Yellow, Gold, Silver, and Crystal can
+all be imported side by side. Gold, Silver, and Crystal are Gen 2 Phase 1
+(import + launcher; see `docs/gold-phase1.md`): the Gen 2 engine is still under
+construction, and Crystal is the newest of the three, so the launcher lists it
+as Crystal (Beta).
 
 ## Quick Start
 
@@ -71,14 +73,16 @@ Open the desktop app. On first boot, choose your legally obtained `.gb` /
 `.gbc` file or drop it onto the window. Import takes a few seconds and the
 game starts automatically.
 
-Only the canonical US Red, Blue, Yellow (1 MiB), Gold, and Silver (2 MiB)
-ROMs are accepted. The importer verifies SHA-1 before creating any game data:
+Only the canonical US Red, Blue, Yellow (1 MiB), Gold, Silver, and Crystal
+(2 MiB) ROMs are accepted. The importer verifies SHA-1 before creating any
+game data:
 
 - Red: `ea9bcae617fdf159b045185467ae58b2e4a48b9a`
 - Blue: `d7037c83e1ae5b39bde3c30787637ba1d4c48ce2`
 - Yellow: `cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1`
 - Gold: `d8b8a3600a465308c9953dfa04f0081c05bdcb94`
 - Silver: `49b163f7e57702bc939d642a18f591de55d92dae`
+- Crystal: `f4cd194bdee0d04ca4eac29e09b8e4e9d818c133`
 
 The packaged app contains neither a ROM nor pre-extracted game data. Music,
 sound effects, and cries are synthesized while the game runs from compact
@@ -219,7 +223,7 @@ entry: a desktop shortcut per game, a Steam entry, or a handheld frontend.
 
 | Option | Effect |
 | --- | --- |
-| `--game=red` | boot Red, skipping the launcher (`blue`, `yellow`, `gold` and `silver` too, or just `r` / `b` / `y` / `g` / `s`) |
+| `--game=red` | boot Red, skipping the launcher (`blue`, `yellow`, `gold`, `silver` and `crystal` too, or just `r` / `b` / `y` / `g` / `s` / `c`) |
 | `--slot=2` | load that save slot; takes a slot number or a slot id |
 | `--launcher` | open the launcher anyway, so you can edit a shortcut you already made |
 

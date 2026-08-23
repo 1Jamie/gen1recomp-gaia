@@ -41,6 +41,7 @@ local HiddenItems = require("src.world.gen2.HiddenItems")
 local Mail = require("src.core.gen2.Mail")
 local Map = require("src.world.gen2.Map")
 local Palettes = require("src.world.gen2.Palettes")
+local UnownWords = require("src.world.gen2.UnownWords")
 local Mon = require("src.battle.gen2.Mon")
 local Movement = require("src.script.gen2.Movement")
 local Music = require("src.core.Music")
@@ -116,6 +117,14 @@ local VAR = {
   XCOORD = 0x12,
   YCOORD = 0x13,
   SPECIALPHONECALL = 0x14,
+  -- ../pokecrystal/constants/script_constants.asm:69-74, the six rows Gold's
+  -- table stops short of; ../pokecrystal/engine/overworld/variables.asm:62-67.
+  BT_WIN_STREAK = 0x15,
+  KURT_APRICORNS = 0x16,
+  CALLERID = 0x17,
+  BLUECARDBALANCE = 0x18,
+  BUENASPASSWORD = 0x19,
+  KENJI_BREAK = 0x1a,
 }
 
 -- constants/ram_constants.asm:293 wPlayerState.  PLAYER_SKATE (2) has no row:
@@ -372,6 +381,13 @@ local function itemByIndex(items, index)
     if type(def) == "table" and def.index == index then return id, def end
   end
   return nil
+end
+
+-- One WRAM byte, the width every VAR_* store is (`ld a, [de]` / `ld [de], a`).
+local function byteOf(value)
+  local n = math.floor(tonumber(value) or 0)
+  if n < 0 then n = 0 end
+  return n % 256
 end
 
 -- CountSetBits over a { key = true } flag table: VAR.DEXCAUGHT, VAR.DEXSEEN
@@ -810,6 +826,7 @@ function World:load()
   self.text = self:dataTable("gen2Text", "data/generated/text.lua") or {}
   self.constants =
     self:dataTable("gen2Constants", "data/generated/constants.lua") or {}
+  FieldMoves.bindEngineFlags(self.constants.engineFlagOrder)
   -- The side tables a script command NAMES rather than carries: the phone
   -- book, the in-game trades, the elevator's floor labels and the decoration
   -- descriptions.  A cache built before the extractor reached them has no
@@ -1256,7 +1273,7 @@ function World:load()
     end,
 
     -- ---- encounters --------------------------------------------------------
-    setSwarm = function(group, mapNum) self:setSwarm(group, mapNum) end,
+    setSwarm = function(group, mapNum, kind) self:setSwarm(group, mapNum, kind) end,
     rollWild = function() return self:rollWild() end,
     -- The WRAM bytes the ENGINE owns rather than the script: nil means "not
     -- mine", and the VM falls back to its own sparse store.
@@ -1573,7 +1590,76 @@ function World:readVar(varId)
   if varId == VAR.SPECIALPHONECALL then
     return self:specialCall()
   end
+  if varId >= VAR.BT_WIN_STREAK and varId <= VAR.KENJI_BREAK then
+    return self:crystalVar(varId)
+  end
   return 0
+end
+
+-- ../pokecrystal/engine/overworld/variables.asm:62-67, the six .VarActionTable
+-- rows Crystal appends past VAR_SPECIALPHONECALL.
+function World:crystalVar(varId)
+  -- ../pokecrystal/ram/wram.asm:3286 wCurCaller, which this port parks on the
+  -- VM (src/script/gen2/CallAsm.lua:190).
+  if varId == VAR.CALLERID then
+    return (self.vm and self.vm.curPhoneCaller) or 0
+  end
+  local save = self.game and self.game.save
+  if not save then return 0 end
+  -- ../pokecrystal/ram/wram.asm:1703 wNrOfBeatenBattleTowerTrainers.
+  if varId == VAR.BT_WIN_STREAK then
+    return byteOf(Gen2Save.battleTowerState(save).streak)
+  end
+  -- ../pokecrystal/engine/events/kurt.asm:24,45 wKurtApricornQuantity.
+  if varId == VAR.KURT_APRICORNS then
+    return byteOf(save.kurtApricornQuantity)
+  end
+  local crystal = Gen2Save.crystalState(save)
+  if varId == VAR.BLUECARDBALANCE then
+    return byteOf(crystal.buenaPassword.balance)
+  end
+  if varId == VAR.BUENASPASSWORD then
+    return byteOf(crystal.buenaPassword.word)
+  end
+  -- ../pokecrystal/engine/overworld/time.asm:136 SampleKenjiBreakCountdown.
+  if varId == VAR.KENJI_BREAK then
+    return byteOf(crystal.kenjiBreak)
+  end
+  return 0
+end
+
+-- The three of them Script_writevar can reach: RETVAR_ADDR_DE rows write the
+-- variable itself, RETVAR_STRBUF2 rows write the scratch buffer and are lost
+-- (../pokecrystal/engine/overworld/variables.asm:21-25).
+function World:setCrystalVar(varId, value)
+  value = byteOf(value)
+  if varId == VAR.CALLERID then
+    if self.vm then self.vm.curPhoneCaller = value end
+    return
+  end
+  local save = self.game and self.game.save
+  if not save then return end
+  local buena = Gen2Save.crystalState(save).buenaPassword
+  if varId == VAR.BLUECARDBALANCE then
+    buena.balance = value
+  elseif varId == VAR.BUENASPASSWORD then
+    buena.word = value
+  end
+end
+
+-- ../pokecrystal/engine/events/kurt.asm:19-45 SelectApricornForKurt, whose
+-- byte is what `verbosegiveitemvar <BALL>, VAR_KURT_APRICORNS` hands over.
+function World:setKurtApricornQuantity(count)
+  local save = self.game and self.game.save
+  if not save then return end
+  save.kurtApricornQuantity = byteOf(count)
+end
+
+-- ../pokecrystal/engine/overworld/time.asm:136-142, the 3..6 day roll.
+function World:setKenjiBreak(days)
+  local save = self.game and self.game.save
+  if not save then return end
+  Gen2Save.crystalState(save).kenjiBreak = byteOf(days)
 end
 
 -- Script_checkver: 0 for Gold, 1 for Silver (constants/misc_constants.asm
@@ -1622,6 +1708,11 @@ function World:engineFlag(flag)
     local owned = player and player[badge.store]
     return type(owned) == "table" and owned[badge.name] == true
   end
+  -- Same one-store rule for ENGINE_PLAYER_IS_FEMALE, which IS wPlayerGender
+  -- (../pokecrystal/data/events/engine_flags.asm:131); Gold's FEMALE_FLAG is nil.
+  if flag == FieldMoves.FEMALE_FLAG then
+    return Gen2Save.isFemale(save)
+  end
   -- Same one-store rule for the day care.  data/events/engine_flags.asm:18-20
   -- maps the three ids onto DAYCAREMAN_HAS_EGG_F / DAYCAREMAN_HAS_MON_F /
   -- DAYCARELADY_HAS_MON_F, i.e. they ARE the bits DayCare_InitBreeding,
@@ -1661,6 +1752,13 @@ function World:setEngineFlag(flag, value)
     save.player[badge.store][badge.name] = value and true or nil
     return
   end
+  -- InitGender is the only writer on the cart, so this exists only to keep a
+  -- stray setflag out of save.engineFlags (../pokecrystal/engine/menus/init_gender.asm:23-42).
+  if flag == FieldMoves.FEMALE_FLAG and save then
+    save.player = save.player or {}
+    save.player.gender = value and "female" or "male"
+    return
+  end
   -- The write half of the day-care aliases.  DayCareManScript_Outside's
   -- `clearflag ENGINE.DAY_CARE_MAN_HAS_EGG` (maps/Route34.asm) is the ONLY cart
   -- script that writes any of the three, and it is idempotent because
@@ -1696,6 +1794,9 @@ function World:writeVar(varId, value)
   if varId == VAR.MOVEMENT then
     local state = PLAYER_STATE_BY_ID[value or 0]
     if state then self:applyPlayerState(state) end
+  end
+  if varId >= VAR.BT_WIN_STREAK and varId <= VAR.KENJI_BREAK then
+    self:setCrystalVar(varId, value)
   end
 end
 
@@ -1854,6 +1955,16 @@ end
 -- (maps/Route36.asm:58, and again at :70 on the DidntCatchSudowoodo arm) hands
 -- the same slot to the Route 37 twins.  So the pooled objects that read
 -- through the slot have to go with it.
+-- ../pokecrystal/engine/events/battle_tower/battle_tower.asm:1564-1575 writes
+-- the sprite byte into wMapObjects, the LIVE copy, so the map def is untouched.
+function World:setObjectSprite(objectId, spriteName)
+  local npc = self:objectEntity(objectId)
+  local spriteDef = spriteName and self.sprites and self.sprites[spriteName]
+  if not (npc and spriteDef) then return false end
+  if npc:setSpriteDef(spriteDef) then self:applySpritePalette(npc) end
+  return true
+end
+
 function World:setVariableSprite(slot, spriteIndex)
   if slot == nil then return end
   self.variableSprites[slot] = spriteIndex
@@ -2318,12 +2429,10 @@ end
 -- the map pair and DAILYFLAGS1_SWARM are set by the one command.  A port that
 -- stored only the map would leave the Dunsparce call live forever, because
 -- CheckSwarmFlag answers off the flag and clears the pair itself.
-function World:setSwarm(group, mapNum)
+function World:setSwarm(group, mapNum, kind)
   local save = self.game and self.game.save
   if not save then return end
-  save.dailyFlags = save.dailyFlags or {}
-  save.dailyFlags.swarm = true
-  save.swarmMap = self:mapIdByGroupMap(group, mapNum)
+  Roamers.Swarm.set(save, self:mapIdByGroupMap(group, mapNum), kind)
 end
 
 -- Script_loadwildmon's other half: roll the CURRENT map's own table the way a
@@ -3472,7 +3581,7 @@ function World:specialHooks()
     takeItem = function(index, qty) return self:takeItem(index, qty) end,
     engineFlag = function(flag) return self:engineFlag(flag) end,
     setEngineFlag = function(flag, v) self:setEngineFlag(flag, v) end,
-    setSwarm = function(group, mapNum) self:setSwarm(group, mapNum) end,
+    setSwarm = function(group, mapNum, kind) self:setSwarm(group, mapNum, kind) end,
     dayCare = function(side, onDone) self:dayCare(side, onDone) end,
     givePokeMail = function(mail) return self:givePokeMail(mail) end,
     checkPokeMail = function(mail, onDone) self:checkPokeMail(mail, onDone) end,
@@ -3503,6 +3612,14 @@ function World:specialHooks()
     end,
     magnetTrain = function(toGoldenrod, onDone)
       self:magnetTrain(toGoldenrod, onDone)
+    end,
+    -- ../pokecrystal/engine/events/battle_tower/battle_tower.asm:220-223
+    startTowerBattle = function(trainer, onDone)
+      return self:startBattle({ trainer = trainer, battleTower = true }, onDone)
+    end,
+    -- ../pokecrystal/engine/events/battle_tower/battle_tower.asm:1552-1575
+    setObjectSprite = function(objectId, spriteName)
+      return self:setObjectSprite(objectId, spriteName)
     end,
     pushScreen = function(id, opts) return self:pushScreen(id, opts) end,
     monName = function(index)
@@ -3537,7 +3654,34 @@ function World:specialHooks()
       self:openScriptMenu(header, "vertical", onChoose)
     end,
     rareWildMon = function() return self:rareWildMon() end,
+    -- ../pokecrystal/engine/menus/save.asm:181 AskOverwriteSaveFile and :266
+    -- _SaveGameData, the two halves of Link_SaveGame (:63).
+    saveFileState = function() return self:saveFileState() end,
+    writeSave = function() return self:writeSave() end,
+    setKurtApricornQuantity = function(n) self:setKurtApricornQuantity(n) end,
+    setKenjiBreak = function(days) self:setKenjiBreak(days) end,
   }
+end
+
+-- AskOverwriteSaveFile's two reads: wSaveFileExists, and
+-- CompareLoadedAndSavedPlayerID (../pokecrystal/engine/menus/save.asm:224),
+-- which is what picks AlreadyASaveFileText over AnotherSaveFileText.
+function World:saveFileState()
+  local save = self.game and self.game.save
+  local version = save and save.version
+  if not Gen2Save.exists(version) then return false, false end
+  local stored = Gen2Save.load(version)
+  local mine = save and save.player and save.player.id
+  local theirs = stored and stored.player and stored.player.id
+  return true, (mine ~= nil and mine == theirs)
+end
+
+-- _SaveGameData, through the writer the SAVE menu is handed
+-- (src/core/Game2.lua:435) so the save.write veto holds here too.
+function World:writeSave()
+  local game = self.game
+  if not (game and game.writeSave) then return false end
+  return game:writeSave() ~= false
 end
 
 -- RandomUnseenWildMon's lookup half.  The routine picks one of the THREE
@@ -4441,6 +4585,9 @@ function World:useEscapeRope(itemId)
   local items = self.game and self.game.data and self.game.data.items
   local def = items and items[itemId or "ESCAPE_ROPE"]
   self:takeItem(def and def.index, 1)
+  -- ../pokecrystal/engine/events/overworld.asm:809, between .escaperope and
+  -- QueueScript.
+  UnownWords.kabutoChamber(self.events, self.map and self.map.id)
   self.queuedFieldMove = {
     ok = true, action = "escaperope",
     destMap = destMapId, destWarp = destWarp,
@@ -5186,6 +5333,9 @@ function World:fieldContext(mon)
     facingX = fx, facingY = fy,
     facingColl = map:cellCollision(fx, fy),
     playerColl = map:cellCollision(p.cellX, p.cellY),
+    -- Crystal's SurfFunction.TrySurf is the only field move that asks
+    -- (../pokecrystal/engine/events/overworld.asm:364).
+    facingObject = self:facingObject(),
     upColl = map:cellCollision(p.cellX, p.cellY - 1),
     tileset = map.def and map.def.tileset,
     facingBlock = blockId,
@@ -5199,6 +5349,11 @@ function World:fieldContext(mon)
     -- FlashFunction tests wTimeOfDayPalset, not the map header, so a
     -- PALETTE_DARK map that FLASH has already lit refuses a second FLASH.
     dark = Palettes.isDarkness(map.def, self:hour(), self.flashUsed),
+    -- ../pokecrystal/engine/events/overworld.asm:285, called by FLASH only and
+    -- only after the badge gate, because it SETS the wall-opened flag.
+    openAerodactylWall = function()
+      return UnownWords.aerodactylChamber(self.events, map.id)
+    end,
   }
 end
 
@@ -5328,12 +5483,26 @@ function World:refreshMapImages()
   return true
 end
 
+-- wPlayerGender, the byte GetPlayerSprite and AddMapObject both branch on
+-- (engine/overworld/overworld.asm:61-64, engine/overworld/player_object.asm:32-39).
+function World:playerGender()
+  local save = self.game and self.game.save
+  return save and save.player and save.player.gender or nil
+end
+
+-- The Chris/Kris sheet the player wears with no state on it
+-- (data/sprites/player_sprites.asm:2, :9).
+function World:playerSpriteName()
+  return FieldMoves.playerSprite(self:playerGender()) or PLAYER_SPRITE
+end
+
 -- UpdatePlayerSprite (data/sprites/player_sprites.asm ChrisStateSprites): the
 -- player's sprite is a pure function of wPlayerState, which is what makes
 -- getting on and off a Lapras a one-byte change rather than an animation.
 function World:applyPlayerState(state)
   self.playerState = state or FieldMoves.PLAYER_NORMAL
-  local name = FieldMoves.STATE_SPRITE[self.playerState] or PLAYER_SPRITE
+  local name = FieldMoves.stateSprite(self.playerState, self:playerGender())
+    or PLAYER_SPRITE
   local def = self.sprites and self.sprites[name]
   if def and self.player then
     self.player:setSprite(def)
@@ -5884,6 +6053,9 @@ function World:startBattle(opts, onDone)
     -- wBattleType, when the script armed one: the FORCESHINY / TRAP
     -- no-escape rules live in Battle:tryRun and the force-switch handler.
     battleType = opts.battleType,
+    -- wInBattleTowerBattle (../pokecrystal/engine/events/battle_tower/
+    -- battle_tower.asm:220-223), which turns DoBadgeTypeBoosts off.
+    battleTower = opts.battleTower,
   })
   self:playBattleMusic(opts)
   local function pushBattle()
@@ -7397,26 +7569,43 @@ function World:interact()
   return self:interactBody()
 end
 
+-- CheckFacingObject (engine/overworld/npc_movement.asm:229-248): "Double the
+-- distance for counter tiles."  A Pokecenter nurse and a Mart clerk stand
+-- BEHIND a COLL_COUNTER tile, so the cell the player faces is the counter
+-- itself and the object is one further on.  Without this the press finds an
+-- empty wall and nothing happens -- which is to say no nurse and no clerk in
+-- the game could be talked to at all.
+--
+-- Only the OBJECT lookup is doubled, exactly as the cart does it: bg events
+-- and the tile-collision events still read the tile actually faced.
+function World:facingObjectCell()
+  local p = self.player
+  if not p then return nil end
+  local d = Map.DELTA[p.facing] or Map.DELTA.down
+  local fx, fy = p.cellX + d[1], p.cellY + d[2]
+  if self.map and Permissions.isCounter(self.map:cellCollision(fx, fy)) then
+    return p.cellX + d[1] * 2, p.cellY + d[2] * 2
+  end
+  return fx, fy
+end
+
+-- The carry CheckFacingObject answers with: IsNPCAtCoord, and then only when
+-- that object's OBJECT_WALKING reads STANDING (npc_movement.asm:250-266).
+function World:facingObject()
+  local ox, oy = self:facingObjectCell()
+  if not ox then return nil end
+  local npc = self:npcAt(ox, oy)
+  if npc and npc.moving then return nil end
+  return npc
+end
+
 function World:interactBody()
   if self:busy() or not self.player or not self.vm then return false end
   local p = self.player
   if p.moving then return false end
   local d = Map.DELTA[p.facing]
   local fx, fy = p.cellX + d[1], p.cellY + d[2]
-  -- CheckFacingObject (engine/overworld/npc_movement.asm:229): "Double the
-  -- distance for counter tiles."  A Pokecenter nurse and a Mart clerk stand
-  -- BEHIND a COLL_COUNTER tile, so the cell the player faces is the counter
-  -- itself and the object is one further on.  Without this the press finds an
-  -- empty wall and nothing happens -- which is to say no nurse and no clerk in
-  -- the game could be talked to at all.
-  --
-  -- Only the OBJECT lookup is doubled, exactly as the cart does it: bg events
-  -- and the tile-collision events below still read the tile actually faced.
-  local ox, oy = fx, fy
-  if self.map and Permissions.isCounter(self.map:cellCollision(fx, fy)) then
-    ox, oy = p.cellX + d[1] * 2, p.cellY + d[2] * 2
-  end
-  local npc = self:npcAt(ox, oy)
+  local npc = self:npcAt(self:facingObjectCell())
   -- TryObjectEvent writes hLastTalked for EVERY A-press dispatch; scripts
   -- then use LAST_TALKED (`disappear`, `applymovementlasttalked`) without any
   -- setlasttalked of their own.  The port only wrote it from the explicit
@@ -8510,13 +8699,13 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- GetWarpDestCoords / EnterMapConnection / EnterMapSpawnPoint write wXCoord
   -- and wYCoord BEFORE HandleNewMap (data/maps/setup_scripts.asm:79-106).
   local face = facing or (self.player and self.player.facing) or "down"
-  local chris = self.sprites and self.sprites[PLAYER_SPRITE]
+  local playerDef = self.sprites and self.sprites[self:playerSpriteName()]
   if self.player then
     self.player.cellX, self.player.cellY = cx, cy
     self.player.px, self.player.py = cx * 16, cy * 16
     self.player.facing = face
-    if chris and not self.player.sprite then
-      self.player:setSprite(chris)
+    if playerDef and not self.player.sprite then
+      self.player:setSprite(playerDef)
     end
     if not opts.seamless then
       self.player.moving = false
@@ -8524,7 +8713,7 @@ function World:setMap(mapId, cx, cy, facing, opts)
       self.player.targetX, self.player.targetY = nil, nil
     end
   else
-    self.player = Player.new(cx, cy, face, chris)
+    self.player = Player.new(cx, cy, face, playerDef)
   end
   -- LoadMapObjects rebuilds OBJECT_FLAGS2 from scratch, so IN_GRASS is decided
   -- by the cell the player arrives on (engine/overworld/map_objects.asm:247).

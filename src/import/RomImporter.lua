@@ -155,6 +155,53 @@ local VERSION_REQUIRED_FILES_OVERRIDE = {
     -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173)
     "assets/generated/pc/mail_item.png",
   },
+  crystal = {
+    "data/generated/constants.lua",
+    "data/generated/maps.lua",
+    "data/generated/roofs.lua",
+    "data/generated/sprites.lua",
+    "data/generated/scripts.lua",
+    "data/generated/text.lua",
+    "data/generated/rom_text.lua",
+    "data/generated/pokemon.lua",
+    "data/generated/encounters.lua",
+    "data/generated/tilesets.lua",
+    "data/generated/landmarks.lua",
+    "data/generated/audio.lua",
+    "data/generated/marts.lua",
+    "data/generated/oak_speech.lua",
+    "data/generated/title.lua",
+    "data/generated/intro.lua",
+    "assets/generated/fonts/font.png",
+    "assets/generated/fonts/frames.png",
+    "assets/generated/title/crystal_logo.png",
+    "assets/generated/title/crystal_wordmark.png",
+    "assets/generated/title/crystal_suicune.png",
+    "assets/generated/splash/ditto.png",
+    "assets/generated/intro/chris.png",
+    "assets/generated/intro/kris.png",
+    "assets/generated/intro/suicune_run_sprites.png",
+    "assets/generated/intro/unowns_tiles.png",
+    "assets/generated/intro/oak.png",
+    "assets/generated/tilesets/johto.png",
+    "assets/generated/tilesets/roofs/new_bark.png",
+    "assets/generated/sprites/chris.png",
+    "assets/generated/sprites/kris.png",
+    "assets/generated/battle/front/chikorita.png",
+    "assets/generated/battle/front/wooper.png",
+    "assets/generated/battle/front/pikachu.png",
+    "assets/generated/battle/trainers/falkner.png",
+    "assets/generated/battle/hud/balls.png",
+    "assets/generated/audio/programs.bin",
+    "assets/generated/slots/gold_slots_1.png",
+    "assets/generated/card_flip/card_flip_1.png",
+    "assets/generated/pc/mail_item.png",
+    "assets/generated/trainer_card/card_f.png",
+    "data/generated/mobile_gfx.lua",
+    "assets/generated/battle/player_back_female.png",
+    "assets/generated/battle/trainers/kris.png",
+    "assets/generated/battle/trainers/chris.png",
+  },
 }
 -- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
 VERSION_REQUIRED_FILES_OVERRIDE.silver = VERSION_REQUIRED_FILES_OVERRIDE.gold
@@ -603,6 +650,27 @@ local ROM_BYTES = ROM_BYTES_GEN1
 
 local function isAcceptedRomSize(n)
   return n == ROM_BYTES_GEN1 or n == ROM_BYTES_GEN2
+end
+
+local function cartLabels(generation)
+  local out = {}
+  for _, id in ipairs(GameVersion.ORDER) do
+    if generation == nil or GameVersion.generation(id) == generation then
+      out[#out + 1] = GameVersion.info(id).label
+    end
+  end
+  return out
+end
+
+local function cartsSlashed(generation)
+  return table.concat(cartLabels(generation), "/")
+end
+
+local function cartsProse()
+  local names = cartLabels(nil)
+  local last = table.remove(names)
+  if #names == 0 then return last end
+  return table.concat(names, ", ") .. ", or " .. last
 end
 
 local function savesInboxDir(version)
@@ -1849,18 +1917,18 @@ function RomImporter:startData(data, displayName)
     return
   end
   if not isAcceptedRomSize(#data) then
-    self:setError(("Expected a 1 MiB Game Boy ROM (Red/Blue/Yellow) or a "
-      .. "2 MiB Game Boy Color ROM (Gold/Silver); this file is %.2f MiB.")
-      :format(#data / 1024 / 1024))
+    self:setError(("Expected a 1 MiB Game Boy ROM (%s) or a "
+      .. "2 MiB Game Boy Color ROM (%s); this file is %.2f MiB.")
+      :format(cartsSlashed(1), cartsSlashed(2), #data / 1024 / 1024))
     return
   end
   local actualHash = sha1(data)
   local version = GameVersion.forSha1(actualHash)
   if not version then
     self:setError(("Unsupported ROM (SHA-1 %s). This needs a clean US Pokemon "
-      .. "Red, Blue, Yellow, Gold, or Silver dump; patched, trimmed or "
+      .. "%s dump; patched, trimmed or "
       .. "\"fixed\" dumps "
-      .. "(tagged [b] or [BF]) never verify."):format(actualHash))
+      .. "(tagged [b] or [BF]) never verify."):format(actualHash, cartsProse()))
     return
   end
   local info = GameVersion.info(version)
@@ -2965,8 +3033,10 @@ function RomImporter:resumeAfterOverlay()
 end
 
 function RomImporter:_cycleTab(delta)
-  local order = { "red", "blue", "yellow", "gold", "silver",
-    "mods", "find", "skins", "bug" }
+  local order = { "mods", "find", "skins", "bug" }
+  for i = #GameVersion.ORDER, 1, -1 do
+    table.insert(order, 1, GameVersion.ORDER[i])
+  end
   local idx = 1
   for i, id in ipairs(order) do
     if id == self.tab then idx = i; break end

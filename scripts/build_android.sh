@@ -34,6 +34,8 @@ GOLD_MANIFEST_RELATIVE="tools/rom_manifest_gold.json"
 GOLD_MANIFEST_URL="${GOLD_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_gold.json}"
 SILVER_MANIFEST_RELATIVE="tools/rom_manifest_silver.json"
 SILVER_MANIFEST_URL="${SILVER_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_silver.json}"
+CRYSTAL_MANIFEST_RELATIVE="tools/rom_manifest_crystal.json"
+CRYSTAL_MANIFEST_URL="${CRYSTAL_MANIFEST_URL:-https://raw.githubusercontent.com/bryanthaboi/gen1recomp/main/tools/rom_manifest_crystal.json}"
 
 VERSION=""
 PACKAGE_ONLY=false
@@ -246,6 +248,54 @@ ensure_silver_manifest() {
   fail "Silver import manifest is unavailable. Git recovery failed and could not download $SILVER_MANIFEST_URL"
 }
 
+crystal_manifest_is_valid() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json, pathlib, sys
+
+try:
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if manifest.get("romSha1") ==
+                 "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133" else 1)
+PY
+}
+
+ensure_crystal_manifest() {
+  local manifest="$ROOT/$CRYSTAL_MANIFEST_RELATIVE"
+  local staged
+  staged="$(mktemp)"
+
+  if crystal_manifest_is_valid "$manifest"; then
+    rm -f "$staged"
+    return
+  fi
+
+  warn "Crystal import manifest is missing or invalid; recovering it before packaging"
+  if git -C "$ROOT" show "HEAD:$CRYSTAL_MANIFEST_RELATIVE" > "$staged" 2>/dev/null \
+      && crystal_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "restored Crystal import manifest from this checkout's Git data"
+    return
+  fi
+
+  if command -v curl >/dev/null 2>&1 \
+      && curl --fail --location --retry 2 --connect-timeout 15 \
+          --output "$staged" "$CRYSTAL_MANIFEST_URL" \
+      && crystal_manifest_is_valid "$staged"; then
+    mkdir -p "$(dirname "$manifest")"
+    mv "$staged" "$manifest"
+    say "downloaded Crystal import manifest from the project repository"
+    return
+  fi
+
+  rm -f "$staged"
+  fail "Crystal import manifest is unavailable. Git recovery failed and could not download $CRYSTAL_MANIFEST_URL"
+}
+
 # --------------------------------------------------------------- branding
 # love-android 11.5+ reads app id / name / orientation from gradle.properties.
 # Manifest still gets permission trims. Re-applied every build so refreshing
@@ -312,6 +362,7 @@ pack_game_love() {
   ensure_yellow_manifest
   ensure_gold_manifest
   ensure_silver_manifest
+  ensure_crystal_manifest
   mkdir -p "$EMBED_ASSETS"
   rm -f "$LOVE_FILE"
   # tools/save-editor ships with the app: the launcher's Edit button on a save
@@ -326,7 +377,7 @@ pack_game_love() {
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
     tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
-    tools/rom_manifest_silver.json \
+    tools/rom_manifest_silver.json tools/rom_manifest_crystal.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # List once and match against the captured text: piping unzip straight into
@@ -350,6 +401,8 @@ pack_game_love() {
     || fail "game.love is missing the Gold ROM import manifest"
   grep -qx 'tools/rom_manifest_silver.json' <<< "$archive_entries" \
     || fail "game.love is missing the Silver ROM import manifest"
+  grep -qx 'tools/rom_manifest_crystal.json' <<< "$archive_entries" \
+    || fail "game.love is missing the Crystal ROM import manifest"
   # This gate exists because the launcher's UI toolkit once lived outside
   # src/ (libs/flexlove) and was added to scripts/build.sh's payload and to
   # no other packager, so Android and iOS built an APK/IPA whose launcher

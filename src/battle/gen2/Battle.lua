@@ -166,6 +166,9 @@ Battle.SUBSTATUS_ITEMS = {
 -- be run from or Roared away.
 Battle.BATTLETYPE_FORCESHINY = 7
 Battle.BATTLETYPE_TRAP = 9
+-- ../pokecrystal/constants/battle_constants.asm:102-103, Crystal-only appends
+Battle.BATTLETYPE_CELEBI = 11
+Battle.BATTLETYPE_SUICUNE = 12
 -- LostBattle's .canlose arm (engine/battle/core.asm:2766): the only battle
 -- type whose loss still prints the trainer's own line instead of a whiteout.
 Battle.BATTLETYPE_CANLOSE = 1
@@ -247,6 +250,10 @@ function Battle.new(opts)
   -- (BATTLETYPE_FISH is the one condition LureBallMultiplier reads), and the
   -- FORCESHINY / TRAP no-escape rules will hang off the same field.
   self.battleType = opts.battleType
+  -- wInBattleTowerBattle (../pokecrystal/constants/ram_constants.asm:38), set
+  -- around the Tower's own StartBattle (engine/events/battle_tower/
+  -- battle_tower.asm:220-223) and cleared again at :253-254.
+  self.inBattleTowerBattle = opts.battleTower and true or false
   self.events = {}
   self.turn = 0
   self.over = false
@@ -765,6 +772,9 @@ end
 function Battle:battleStat(mon, key)
   local value = (mon.stats or {})[key] or 1
   if mon ~= self.player then return value end
+  -- BadgeStatBoosts' second early return (engine/battle/core.asm:6786-6788):
+  -- adventure badges do not follow the player into the standardised Tower.
+  if self.inBattleTowerBattle then return value end
   local badge = Battle.BADGE_STAT_BOOSTS[key]
   if badge and self:hasBadge("badges", badge) then
     return Battle.boostStat(value)
@@ -783,6 +793,8 @@ end
 -- boosts the damage.  Each type appears once, so this is a plain scan.
 function Battle:badgeTypeBoost(attacker, moveType)
   if attacker ~= self.player or not moveType then return false end
+  -- DoBadgeTypeBoosts' own tower guard (engine/battle/misc.asm:152-154).
+  if self.inBattleTowerBattle then return false end
   for _, row in ipairs(Battle.BADGE_TYPE_BOOSTS) do
     if row.type == moveType then
       return self:hasBadge(row.store, row.badge)
@@ -3965,6 +3977,16 @@ function Battle:usableMoves(mon)
   return out
 end
 
+-- ../pokecrystal/engine/battle/core.asm:3687-3694 refuses TRAP, CELEBI,
+-- FORCESHINY and SUICUNE; pokegold's :3476-3479 has only the first and third.
+function Battle:noEscapeBattleType()
+  local t = self.battleType
+  return t == Battle.BATTLETYPE_FORCESHINY
+      or t == Battle.BATTLETYPE_TRAP
+      or t == Battle.BATTLETYPE_CELEBI
+      or t == Battle.BATTLETYPE_SUICUNE
+end
+
 -- Running: Gen 2's odds (engine/battle/core.asm TryToRunAwayFromBattle) are
 -- based on the speed ratio and how many times you have tried this battle.
 -- Trainers never let you run.
@@ -3978,8 +4000,7 @@ function Battle:tryRun(pSpd)
   -- BATTLETYPE_FORCESHINY jump straight to .cant_escape, ahead of the
   -- trainer check and any speed math.  Without this, running from the Red
   -- Gyarados returned a WIN to the script and forfeited the one-shot shiny.
-  if self.battleType == Battle.BATTLETYPE_FORCESHINY
-      or self.battleType == Battle.BATTLETYPE_TRAP then
+  if self:noEscapeBattleType() then
     self:emit({ kind = "message", text = "Can't escape!" })
     self.runRefused = true
     return false

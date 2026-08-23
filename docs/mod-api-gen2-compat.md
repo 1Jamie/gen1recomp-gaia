@@ -55,10 +55,10 @@ The short version, for an author deciding what to write:
 ```
 
 `games` is an optional array of version ids (`"red"`, `"blue"`, `"yellow"`,
-`"gold"`, `"silver"`), generations (`"gen1"`, `"gen2"`, case-insensitive) or
-`"all"`. `src/mods/ModTargets.lua` resolves the tokens off `GameVersion.ORDER`
-and `GameVersion.generation`, so nothing anywhere restates the game list.
-`"gen2"` now expands to both Gold and Silver.
+`"gold"`, `"silver"`, `"crystal"`), generations (`"gen1"`, `"gen2"`,
+case-insensitive) or `"all"`. `src/mods/ModTargets.lua` resolves the tokens off
+`GameVersion.ORDER` and `GameVersion.generation`, so nothing anywhere restates
+the game list. `"gen2"` now expands to Gold, Silver and Crystal.
 `Manifest.validate` stores the resolved, ORDER-sorted ids on `manifest.games`
 and **derives** `manifest.gen2compat` from them, which is the one field the
 loader's gate reads.

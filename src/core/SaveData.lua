@@ -1486,8 +1486,10 @@ function SaveData.runMigrations(save, modChains, activeMods)
   -- every step whose from-format the save has not passed yet runs, in
   -- (from, registration) order; a save at the current format runs none
   local fmt = (save.meta and save.meta.format) or 1
-  for _, m in ipairs(coreMigrations) do
-    if m.from >= fmt then m.fn(save) end
+  if GameVersion.generation() == 1 then
+    for _, m in ipairs(coreMigrations) do
+      if m.from >= fmt then m.fn(save) end
+    end
   end
   -- a save that predates meta records an empty mod set: an old vanilla
   -- save becomes a v2 vanilla save

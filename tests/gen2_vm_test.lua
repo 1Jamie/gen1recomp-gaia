@@ -2357,9 +2357,11 @@ check(Specials.STUBS.PhotoStudio == nil,
   "PhotoStudio is a HANDLER now: the conversation and the portrait card exist")
 check(Specials.HANDLERS.PhotoStudio ~= nil,
   "and it is the one that special dispatch resolves to")
-check(Specials.STUBS.PrintDiploma ~= nil,
-  "PrintDiploma stays stubbed -- it is nothing but the print, with no screen "
-  .. "half of its own")
+check(Specials.STUBS.PrintDiploma == nil
+  and Specials.HANDLERS.PrintDiploma ~= nil,
+  "PrintDiploma is a handler now: _PrintDiploma opens on the very page "
+  .. "`special Diploma` shows (engine/printer/printer.asm:382) and only the "
+  .. "two SendScreenToPrinter passes wanted a printer")
 check(Specials.STUBS.UnownPrinter == nil
   and Specials.HANDLERS.UnownPrinter ~= nil,
   "UnownPrinter is a handler for the same reason this one is: the stamp "

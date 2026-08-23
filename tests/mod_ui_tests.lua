@@ -286,7 +286,7 @@ local WANT_IDS = { "textSpeed", "animations", "battleStyle", "battleLayout",
                    "ruleset", "musicVol", "sfxVol", "musicFilter",
                    "performance", "colors",
                    "tilt", "gbcfx", "zoom", "voidFill", "videoMode",
-                   "faithfulRes", "fpsCap",
+                   "faithfulRes", "screenPos", "fpsCap",
                    "speedOverworld", "speedBattle", "speedMenu",
                    "mods", "controls", "dateFormat", "timeFormat" }
 local function orow(menu, id)

@@ -19,6 +19,7 @@ local Clock = require("src.core.gen2.Clock")
 local FixedStep = require("src.core.FixedStep")
 local Font = require("src.render.Font")
 local GamepadMap = require("src.core.GamepadMap")
+local GameVersion = require("src.core.GameVersion")
 local Input = require("src.core.Input")
 local Music = require("src.core.Music")
 local Save = require("src.core.gen2.Save")
@@ -288,8 +289,6 @@ function Game2:continueGame(save)
   self:startWorld()
   -- After the adopt and after the world is standing, which is where Gen 1
   -- emits it (src/core/Game.lua:1127, once the stack has been rebuilt).
-  -- `meta` stays absent on a Gold save, which stamps no meta block; modsDiff
-  -- is derived from it and so comes back empty rather than missing.
   if modsDiff then
     local notice = SaveData.modsDiffNotice(modsDiff, save.meta)
     if notice then require("src.core.Logger").warn("%s", notice) end
@@ -354,10 +353,14 @@ function Game2:showTitle()
   })
 end
 
+-- ../pokegold/engine/movie/intro.asm:1 GoldSilverIntro, and Crystal's own
+-- program at ../pokecrystal/engine/movie/intro.asm:1 CrystalIntro.
 function Game2:showIntro()
   self.stack:clear()
   self.phase = "boot"
-  Screens.push(self, "Gen2GoldSilverIntro", {
+  local id = (GameVersion.engine() == "crystal")
+    and "Gen2CrystalIntro" or "Gen2GoldSilverIntro"
+  Screens.push(self, id, {
     onDone = function()
       self:showTitle()
     end,

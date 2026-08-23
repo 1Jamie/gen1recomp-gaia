@@ -79,7 +79,7 @@ else
     main.lua conf.lua src data assets tools/save-editor \
     tools/rom_manifest.json tools/rom_manifest_blue.json \
     tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
-    tools/rom_manifest_silver.json \
+    tools/rom_manifest_silver.json tools/rom_manifest_crystal.json \
     -x '*.DS_Store' 'data/generated/*' 'assets/generated/*')
 fi
 # Materialize the listing once and grep the file: piping unzip straight into
@@ -101,7 +101,8 @@ for required in tools/save-editor/App.lua tools/save-editor/Kit.lua \
                 src/ui/kit/Kit.lua \
                 tools/rom_manifest.json tools/rom_manifest_blue.json \
                 tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
-                tools/rom_manifest_silver.json; do
+                tools/rom_manifest_silver.json \
+                tools/rom_manifest_crystal.json; do
   grep -qxF "$required" "$LOVE_LISTING" \
     || fail "game.love is missing $required"
 done

@@ -405,6 +405,7 @@ end
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber, silver = PAL.railSilver,
+  crystal = PAL.railCrystal,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -1062,6 +1063,8 @@ local GAME_TABS = {
     label = "Gold" },
   { id = "silver", key = "tab-silver", letter = "S", color = PAL.railSilver,
     label = "Silver" },
+  { id = "crystal", key = "tab-crystal", letter = "C",
+    color = PAL.railCrystal, label = "Crystal" },
 }
 
 local HEADER_TABS = {
@@ -3555,24 +3558,37 @@ end
 -- also what a controller reaches after the tab row.
 local function buildGameModal(imp, m)
   local pad = math.floor(18 * m.s)
-  local gap = math.floor(8 * m.s)
-  local w = math.floor(360 * m.s)
-  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
-    + #GAME_TABS * (m.btnH + gap) + m.btnH + pad
-  local px, py, pw = modalPanel(m, w, h)
+  local headH = Kit.textHeight("button") + math.floor(12 * m.s)
+  local avail = m.H - 2 * m.pad
+  local cols, gap, btnH = 1, math.floor(8 * m.s), m.btnH
+  local function rows() return math.ceil(#GAME_TABS / cols) + 1 end
+  local function total() return 2 * pad + headH + rows() * btnH
+    + (rows() - 1) * gap end
+  if total() > avail then cols = 2 end
+  if total() > avail then gap = math.max(2, math.floor(3 * m.s)) end
+  if total() > avail then
+    btnH = math.max(Kit.tapMin(),
+      btnH - math.ceil((total() - avail) / rows()))
+  end
+  local nrows = rows() - 1
+  local w = math.floor((cols > 1 and 440 or 360) * m.s)
+  local px, py, pw = modalPanel(m, w, total())
   local cy = py + pad
   Kit.text("button", Strings("Choose game"), px + pad, cy, PAL.heading)
-  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  cy = cy + headH
   local chrome = headerChrome(imp)
-  for _, g in ipairs(GAME_TABS) do
-    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "gamepop-" .. g.id,
+  local colW = math.floor((pw - 2 * pad - (cols - 1) * gap) / cols)
+  for i, g in ipairs(GAME_TABS) do
+    local bx = px + pad + ((i - 1) % cols) * (colW + gap)
+    local by = cy + math.floor((i - 1) / cols) * (btnH + gap)
+    btn(imp, bx, by, colW, btnH, "gamepop-" .. g.id,
       Strings(g.label), {
         face = "tab", font = "small", letter = g.letter, color = g.color,
         active = imp.tab == g.id,
         action = chrome.tab[g.id] })
-    cy = cy + m.btnH + gap
   end
-  btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "gamepop-close",
+  cy = cy + nrows * (btnH + gap)
+  btn(imp, px + pad, cy, pw - 2 * pad, btnH, "gamepop-close",
     Strings("Close"), { font = "small",
       action = function() imp._gamePopup = nil end })
 end
