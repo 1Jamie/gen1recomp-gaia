@@ -272,11 +272,18 @@ mod.hooks:wrap("map.occupancy_allowed", function(next, game, ctx)
 end)
 ```
 
-With no wrapper, the hook allocates no context and vanilla behavior is byte-for-
-byte unchanged. A throwing wrapper is isolated by the normal hook bus. A nil,
+With no wrapper, the hook allocates no context and vanilla behavior is
+unchanged. A throwing wrapper is isolated by the normal hook bus. A nil,
 string, number, table, or other malformed final answer fails closed. Disabling
 or uninstalling the permitting mod therefore restores vanilla ejection without
 changing the S.S. Anne story flag or restoring the ship.
+
+Normal hook-chain ownership applies: a wrapper that does not call `next`
+intentionally owns the final answer and does not run lower-priority wrappers.
+Permission wrappers must call `next` as shown above to compose. A noncompliant
+wrapper that returns false without calling `next` safely denies occupancy and
+can suppress downstream permission by this standard rule. A malformed answer
+also fails closed and cannot force occupancy.
 
 ## Party ordering
 

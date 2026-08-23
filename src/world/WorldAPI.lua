@@ -136,12 +136,18 @@ function WorldAPI:activeBlockAt(mapId, bx, by)
     return nil, "invalid block coordinates"
   end
   local def = map.def
-  if not def or type(def.width) ~= "number" or type(def.height) ~= "number"
-      or bx < 0 or by < 0 or bx >= def.width or by >= def.height then
+  if not def or not validBlockCoordinate(def.width) or def.width <= 0
+      or not validBlockCoordinate(def.height) or def.height <= 0 then
+    return nil, "block unavailable"
+  end
+  if bx < 0 or by < 0 or bx >= def.width or by >= def.height then
     return nil, "block coordinates out of bounds"
   end
-  local blockId = map:blockAt(bx, by)
-  if not validBlockCoordinate(blockId) or blockId < 0 then
+  if type(def.blocks) ~= "table" or type(map.blockAt) ~= "function" then
+    return nil, "block unavailable"
+  end
+  local ok, blockId = pcall(map.blockAt, map, bx, by)
+  if not ok or not validBlockCoordinate(blockId) or blockId < 0 then
     return nil, "block unavailable"
   end
   return blockId

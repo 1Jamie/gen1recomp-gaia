@@ -56,6 +56,12 @@ true when either downstream or its own narrow rule permits occupancy. The hook
 does not replace `MapScripts` registration, merging, or dispatch, and does not
 change the departure flag or reconstruct the ship.
 
+As with every wrapper hook, a callback that does not call `next` intentionally
+owns the final answer and does not run lower-priority callbacks. Permission
+wrappers must call downstream to compose. A false, non-forwarding wrapper
+safely denies occupancy and can suppress downstream permission by this normal
+rule. A malformed final result also fails closed and cannot permit occupancy.
+
 The call is guarded by `Runtime.wantsHook`, so an empty chain allocates no
 context and follows the prior branch exactly.
 
@@ -108,7 +114,8 @@ The parity gate must prove:
 - one permission wrapper can allow occupancy without removing the ship-erasure
   work or any map handler;
 - multiple cooperative wrappers preserve downstream permission;
-- absent, throwing, nil, false, and malformed hook answers fail closed;
+- absent, throwing, nil, false, malformed, and non-forwarding hook answers fail
+  closed according to the normal wrapper-chain rule;
 - Red, Blue, and Yellow contexts keep their version identity separate;
 - disabling or removing the owner restores vanilla behavior without a save
   migration;
