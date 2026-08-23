@@ -57,7 +57,7 @@ BUNDLE_FORMAT = "g1rcart"
 BUNDLE_VERSION = 1
 CART_SCHEMA = 1
 
-BASES = ("red", "blue", "yellow", "gold", "silver")
+BASES = ("red", "blue", "yellow", "gold", "silver", "crystal")
 SEALS = ("sealed", "open")
 SOURCES = ("github", "gamebanana")
 MAX_MODS = 64
@@ -1380,7 +1380,7 @@ def t_identity():
                        ("title", ""), ("title", "t" * 49),
                        ("version", "1.0"), ("version", "v1.0.0"),
                        ("author", ""), ("shell", "8b1a1a"),
-                       ("shell", "#8b1a1"), ("base", "crystal"),
+                       ("shell", "#8b1a1"), ("base", "nonesuch"),
                        ("seal", "welded"), ("schema", 2),
                        ("summary", "s" * 121), ("repo", "someone"),
                        ("engine", ">=1.0.0 <<2.0.0")):
