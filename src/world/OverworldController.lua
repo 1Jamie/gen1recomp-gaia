@@ -228,6 +228,11 @@ function OverworldState.computeNeighbors(maps, rootId, hops, reachW, reachH)
   return out
 end
 
+function OverworldState:exit()
+  self.map = nil
+  self.neighbors = nil
+end
+
 function OverworldState:enter(mapId, x, y, facing, opts)
   Game = require("src.core.Game")
   Game.overworld = self

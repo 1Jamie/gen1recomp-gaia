@@ -117,6 +117,8 @@ function Renderer:releaseCanvases()
   self.worldOverride = nil
 end
 
+Renderer.release = Renderer.releaseCanvases
+
 function Renderer:init()
   -- 160x144 real pixels, never DPI-scaled: see src/render/PixelCanvas.lua
   -- (#208).  Every canvas below is sized in framebuffer pixels for the same
