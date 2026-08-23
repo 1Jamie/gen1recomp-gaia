@@ -544,7 +544,7 @@ function LinkState:update(dt)
       -- (cable rules), so a mode that wants it -- a tournament ladder, a
       -- battle royale -- reads it from here before the state unwinds
       local battle = self.battle
-      if battle then
+      if battle and Runtime.wants("link.battle_ended") then
         Runtime.emit("link.battle_ended", {
           result = battle.result or "ended",
           myParty = battle.playerParty,

@@ -58,7 +58,11 @@ end
 
 -- ------- no mod: the battle still ends, nothing observes it
 
+local Runtime = require("src.mods.Runtime")
+
 local vanilla = T.sdk.loadNone({})
+T.check(not Runtime.wants("link.battle_ended"),
+  "with nothing subscribed the event is not wanted, so no payload is built")
 local quiet = finishedSession("win", true)
 quiet:update(0)
 T.check(quiet.exited, "with no mod loaded the finished battle still unwinds")
