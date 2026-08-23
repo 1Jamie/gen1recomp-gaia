@@ -146,8 +146,13 @@ function WorldAPI:activeBlockAt(mapId, bx, by)
   if type(def.blocks) ~= "table" or type(map.blockAt) ~= "function" then
     return nil, "block unavailable"
   end
+  local stored = def.blocks[by * def.width + bx + 1]
+  if not validBlockCoordinate(stored) or stored < 0 then
+    return nil, "block unavailable"
+  end
   local ok, blockId = pcall(map.blockAt, map, bx, by)
-  if not ok or not validBlockCoordinate(blockId) or blockId < 0 then
+  if not ok or not validBlockCoordinate(blockId) or blockId < 0
+      or blockId ~= stored then
     return nil, "block unavailable"
   end
   return blockId

@@ -89,6 +89,10 @@ Failure reasons are stable:
 | Coordinate is negative or outside the active map | `block coordinates out of bounds` |
 | Active block data is absent or malformed | `block unavailable` |
 
+The block slot and the active map accessor must both contain the same valid
+nonnegative integer. Missing or sparse storage and inconsistent accessor data
+return `block unavailable`.
+
 Requiring the expected map ID and rejecting all ambiguous input lets a mod
 compare every cell in its version-specific signature before it calls an
 existing mutation API. Red, Blue, and Yellow each use their own loaded map

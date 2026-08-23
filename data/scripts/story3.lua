@@ -913,8 +913,8 @@ M.VERMILION_DOCK = {
       -- the ship is long gone: erase her right away, and anyone who
       -- still lands here is sent back out past the guard unless a mod
       -- explicitly permits this occupied map state.  This hook surrounds
-      -- only the ejection decision; the map's complete onEnter chain has
-      -- already run and the departed ship remains erased.
+      -- only the ejection decision; map-script registration and dispatch
+      -- stay unchanged, and the departed ship remains erased.
       for _, b in ipairs(DOCK_SHIP_BLOCKS) do
         ow.map:setBlock(b.bx, b.by, b.water)
       end

@@ -247,6 +247,9 @@ or malformed active block returns `nil, "block unavailable"`. The caller must
 require every expected cell to match before changing presentation. This method
 is Gen 1-only; Gold callers receive no parity promise for it.
 
+The same unavailable result covers missing or sparse active block storage and
+an accessor result that does not match its validated active block slot.
+
 ### Conditional map occupancy
 
 `map.occupancy_allowed` is a narrow Gen 1 hook around a map script's vanilla
