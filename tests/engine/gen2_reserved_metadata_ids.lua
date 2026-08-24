@@ -64,6 +64,19 @@ mod.content.pokemon:register("growthRates", {
   spriteBack = "assets/generated/battle/back/claimed.png", picSize = 5,
 })
 ]],
+  replace_growth_rates = [[
+local mod = ...
+mod.content.pokemon:register("growthRates", {
+  id = "growthRates", name = "REPLACED", dex = 999,
+  types = {},
+  baseStats = { hp = 1, attack = 1, defense = 1, speed = 1,
+    specialAttack = 1, specialDefense = 1 },
+  catchRate = 1, baseExp = 1, growthRate = "GROWTH_MEDIUM_FAST",
+  levelMoves = {}, evolutions = {},
+  spriteFront = "assets/generated/battle/front/replaced.png",
+  spriteBack = "assets/generated/battle/back/replaced.png", picSize = 5,
+}, { replace = true })
+]],
   override_move_generation = [[
 local mod = ...
 mod.content.moves:override("generation", {
