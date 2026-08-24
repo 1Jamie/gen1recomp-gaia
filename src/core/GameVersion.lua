@@ -96,6 +96,10 @@ GameVersion.VERSIONS = {
     saveSuffix = "_crystal",   -- save_crystal.lua / .bak / .tmp
     generation = 2,
     engine = "crystal",
+    revisions = {
+      { sha1 = "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133", label = "1.0" },
+      { sha1 = "f2f52230b536214ef7c9924f483392993e226cfb", label = "1.1" },
+    },
     fixes = {
       -- pokegold/docs/bugs_and_glitches.md:61
       luckyNumberBoxes = true,
@@ -168,10 +172,29 @@ function GameVersion.cachePrefix(id)
   return GameVersion.info(id).cachePrefix
 end
 
+function GameVersion.revisions(id)
+  local info = GameVersion.info(id)
+  return info.revisions or { { sha1 = info.sha1 } }
+end
+
+function GameVersion.acceptsSha1(id, sha1)
+  for _, revision in ipairs(GameVersion.revisions(id)) do
+    if revision.sha1 == sha1 then return true end
+  end
+  return false
+end
+
+function GameVersion.revisionLabel(id, sha1)
+  for _, revision in ipairs(GameVersion.revisions(id)) do
+    if revision.sha1 == sha1 then return revision.label end
+  end
+  return nil
+end
+
 -- The version a ROM belongs to, by its SHA-1, or nil for an unknown ROM.
 function GameVersion.forSha1(sha1)
-  for id, info in pairs(GameVersion.VERSIONS) do
-    if info.sha1 == sha1 then return id end
+  for id in pairs(GameVersion.VERSIONS) do
+    if GameVersion.acceptsSha1(id, sha1) then return id end
   end
   return nil
 end

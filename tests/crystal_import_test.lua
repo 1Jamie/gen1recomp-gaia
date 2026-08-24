@@ -37,6 +37,36 @@ eq(crystal.romSha1, GameVersion.VERSIONS.crystal.sha1,
 eq(crystal.generation, 2, "generation 2")
 eq(crystal.format, gold.format, "same manifest format as Gold")
 
+-- ------- 1b. the 1.1 revision's symbol delta
+
+local rev11
+for _, revision in ipairs(GameVersion.revisions("crystal")) do
+  if revision.label == "1.1" then rev11 = revision end
+end
+check(rev11 ~= nil, "the crystal row names a 1.1 revision")
+
+if rev11 then
+  check(GameVersion.acceptsSha1("crystal", GameVersion.VERSIONS.crystal.sha1),
+    "the crystal row accepts the canonical 1.0 sha1")
+  check(GameVersion.acceptsSha1("crystal", rev11.sha1),
+    "and the 1.1 sha1 too")
+
+  local overlay = (crystal.symbolRevisions or {})[rev11.sha1]
+  check(type(overlay) == "table",
+    "the manifest carries a symbolRevisions overlay for the 1.1 sha1")
+  if overlay then
+    eq(size(overlay), 1, "with exactly one symbol moved")
+    local moved = overlay.Stadium2N64Attrmap
+    check(type(moved) == "table", "and it names Stadium2N64Attrmap")
+    local base = crystal.symbols.Stadium2N64Attrmap
+    check(base ~= nil, "the base manifest still carries Stadium2N64Attrmap")
+    if moved and base then
+      check(not (moved[1] == base[1] and moved[2] == base[2]),
+        "at a location different from the base symbols entry")
+    end
+  end
+end
+
 -- ------- 2. content counts
 
 eq(size(crystal.maps), 388, "388 maps")

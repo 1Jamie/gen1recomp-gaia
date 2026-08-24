@@ -1432,7 +1432,7 @@ function RomImporter.new(onComplete, opts)
     -- "update required" (re-import) rather than a clean first-run choose
     local marker = CacheContract.readMarker(version, CacheFs)
     self.returning[version] =
-      (not ready) and marker ~= nil and marker ~= CacheContract.markerFor(version)
+      (not ready) and marker ~= nil and not CacheContract.markerMatches(version, marker)
     self.romName[version] = "pokemon_" .. info.id
       .. ((info.id == "yellow" or GameVersion.generation(version) == 2)
         and ".gbc" or ".gb")
@@ -1721,6 +1721,7 @@ function RomImporter:startData(data, displayName)
       .. "(tagged [b] or [BF]) never verify."):format(actualHash, cartsProse()))
     return
   end
+  self.romSha1 = actualHash
   local info = GameVersion.info(version)
 
   -- Bring the launcher to this version's tab so its progress bar is on screen
@@ -1775,7 +1776,7 @@ function RomImporter:_startExtractThread(version, prefix, data, displayName)
   love.thread.getChannel(progressName):clear()
   love.thread.getChannel(resultName):clear()
   local started = pcall(thread.start, thread, version, prefix, data,
-    progressName, resultName)
+    progressName, resultName, self.romSha1)
   if not started then return false end
   self._extract = {
     thread = thread, version = version, prefix = prefix,
@@ -1804,7 +1805,7 @@ function RomImporter:_startExtractCoroutine(version, info, prefix, displayName)
         self.stageCurrent = current
         self.stageTotal = stageTotal
         coroutine.yield()
-      end)
+      end, self.romSha1)
     extractor:run()
     CacheFs.prefix = ""   -- restore the default so later writes stay at the root
     self.romData = nil
@@ -1822,7 +1823,7 @@ function RomImporter:_completeImport(version, prefix, displayName)
   -- appear once every required file is in place.
   local savedPrefix = CacheFs.prefix
   CacheFs.prefix = prefix
-  local ok, writeError = CacheContract.publish(version, CacheFs)
+  local ok, writeError = CacheContract.publish(version, CacheFs, self.romSha1)
   CacheFs.prefix = savedPrefix
   if not ok then
     error("could not finish the private cache: " .. tostring(writeError))

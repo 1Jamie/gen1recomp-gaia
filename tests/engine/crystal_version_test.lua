@@ -68,10 +68,55 @@ eq(GameVersion.ORDER[5], "silver", "silver keeps slot 5")
 -- ------- 4. sha1 routing
 
 eq(GameVersion.forSha1("f4cd194bdee0d04ca4eac29e09b8e4e9d818c133"), "crystal",
-  "the retail Crystal sha1 resolves to crystal")
+  "the retail Crystal 1.0 sha1 resolves to crystal")
+eq(GameVersion.forSha1("f2f52230b536214ef7c9924f483392993e226cfb"), "crystal",
+  "the retail Crystal 1.1 sha1 also resolves to crystal")
 eq(GameVersion.forSha1("d8b8a3600a465308c9953dfa04f0081c05bdcb94"), "gold",
   "Gold's sha1 still resolves to gold")
 eq(GameVersion.forSha1("deadbeef"), nil, "an unknown ROM resolves to nothing")
+
+-- ------- 4b. revisions / acceptsSha1 / revisionLabel
+
+local crystalRevisions = GameVersion.revisions("crystal")
+eq(#crystalRevisions, 2, "crystal lists both accepted revisions")
+eq(crystalRevisions[1].sha1, "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133",
+  "revision 1 is the 1.0 sha1")
+eq(crystalRevisions[1].label, "1.0", "revision 1 is labeled 1.0")
+eq(crystalRevisions[2].sha1, "f2f52230b536214ef7c9924f483392993e226cfb",
+  "revision 2 is the 1.1 sha1")
+eq(crystalRevisions[2].label, "1.1", "revision 2 is labeled 1.1")
+
+check(GameVersion.acceptsSha1("crystal", "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133"),
+  "crystal accepts the 1.0 sha1")
+check(GameVersion.acceptsSha1("crystal", "f2f52230b536214ef7c9924f483392993e226cfb"),
+  "crystal accepts the 1.1 sha1")
+check(not GameVersion.acceptsSha1("crystal", "deadbeef"),
+  "crystal rejects an unknown sha1")
+
+eq(GameVersion.revisionLabel("crystal", "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133"),
+  "1.0", "revisionLabel resolves the 1.0 hash")
+eq(GameVersion.revisionLabel("crystal", "f2f52230b536214ef7c9924f483392993e226cfb"),
+  "1.1", "revisionLabel resolves the 1.1 hash")
+eq(GameVersion.revisionLabel("crystal", "deadbeef"), nil,
+  "revisionLabel is nil for an unrecognized hash")
+
+local goldRevisions = GameVersion.revisions("gold")
+eq(#goldRevisions, 1, "gold synthesizes a single revision entry")
+eq(goldRevisions[1].sha1, GameVersion.info("gold").sha1,
+  "the synthesized entry carries gold's canonical sha1")
+check(GameVersion.acceptsSha1("gold", GameVersion.info("gold").sha1),
+  "gold accepts its own canonical sha1")
+check(not GameVersion.acceptsSha1("gold", "deadbeef"),
+  "gold rejects an unknown sha1")
+eq(GameVersion.revisionLabel("gold", GameVersion.info("gold").sha1), nil,
+  "gold's synthesized entry carries no label")
+
+local redRevisions = GameVersion.revisions("red")
+eq(#redRevisions, 1, "red synthesizes a single revision entry")
+check(GameVersion.acceptsSha1("red", GameVersion.info("red").sha1),
+  "red accepts its own canonical sha1")
+eq(GameVersion.forSha1(GameVersion.info("red").sha1), "red",
+  "and forSha1 still resolves red through the synthesized entry")
 
 -- ------- 5. set / get round trip
 

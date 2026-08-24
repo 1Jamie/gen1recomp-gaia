@@ -31,10 +31,19 @@ where `charmap` and `fontCharmap` already live, so a consumer picks the map it
 wants by name and no reader of the main table can see these bytes.  The `ascii`
 map is not emitted, because nothing outside the Mobile System reads it.
 
+The manifest also carries `symbolRevisions`, a map of ROM sha1 -> symbol name
+-> [bank, address] for the retail revisions this port accepts besides the 1.0
+hash in `romSha1`.  Crystal has one, v1.1, where `Stadium2N64Attrmap` sits 13
+bytes later than on 1.0 because the Stadium 2 tilemap in front of it is longer
+(../pokecrystal/mobile/mobile_5c.asm:869).  `crystal11_symbol_revisions` diffs
+the v1.1 symbol table against the resolved 1.0 `symbols` and keeps only the
+names that appear in both and moved.
+
 Usage: python3 tools/make_crystal_manifest.py
 Default paths: pokecrystal at ../pokecrystal (relative to the repo) or
 /Users/bryanbassett/Documents/development/pokecrystal; symbols at
-/Users/bryanbassett/Documents/development/pokecrystal-symbols/pokecrystal.sym.
+/Users/bryanbassett/Documents/development/pokecrystal-symbols/pokecrystal.sym
+and /Users/bryanbassett/Documents/development/pokecrystal-symbols/pokecrystal11.sym.
 """
 
 from __future__ import annotations
@@ -49,7 +58,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import make_gold_manifest as gold  # noqa: E402
 from crystal_symbol_deltas import crystal_required  # noqa: E402
-from rom_data import CANONICAL_CRYSTAL_SHA1  # noqa: E402
+from rom_data import (  # noqa: E402
+    CANONICAL_CRYSTAL_SHA1, CANONICAL_CRYSTAL11_SHA1, SymbolTable,
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEV = "/Users/bryanbassett/Documents/development"
@@ -58,6 +69,8 @@ DEFAULT_POKECRYSTAL_CANDIDATES = [
     os.path.join(DEV, "pokecrystal"),
 ]
 DEFAULT_SYMBOLS = os.path.join(DEV, "pokecrystal-symbols/pokecrystal.sym")
+DEFAULT_SYMBOLS11 = os.path.join(
+    DEV, "pokecrystal-symbols/pokecrystal11.sym")
 DEFAULT_OUT = os.path.join(
     os.path.dirname(__file__), "rom_manifest_crystal.json")
 
@@ -126,7 +139,31 @@ def unown_charmap(pokecrystal, defines=None):
     return out
 
 
-def generate(pokecrystal, symbols_path):
+def crystal11_symbol_revisions(symbols11_path, base_symbols):
+    """Diff the v1.1 symbol table against the manifest's resolved 1.0 symbols.
+
+    Returns only the entries whose [bank, address] differs, restricted to
+    names the 1.0 manifest actually carries -- a v1.1-only symbol with no
+    1.0 counterpart is nothing an extractor built against `symbols` could
+    ever look up, so it is not this table's business to report.
+    """
+    if not os.path.isfile(symbols11_path):
+        raise SystemExit(
+            f"Crystal v1.1 symbol file not found: {symbols11_path} "
+            "(pass --symbols11 or install it at the default path)")
+    symbols11 = SymbolTable(symbols11_path)
+    revisions = {}
+    for name, location in base_symbols.items():
+        symbol11 = symbols11.by_name.get(name)
+        if symbol11 is None:
+            continue
+        location11 = [symbol11.bank, symbol11.address]
+        if location11 != location:
+            revisions[name] = location11
+    return revisions
+
+
+def generate(pokecrystal, symbols_path, symbols11_path=DEFAULT_SYMBOLS11):
     data = gold.generate(
         pokecrystal, symbols_path,
         defines=CRYSTAL_ASM_DEFINES,
@@ -139,6 +176,10 @@ def generate(pokecrystal, symbols_path):
         os.path.join(pokecrystal, "constants", "engine_flags.asm"),
         defines=CRYSTAL_ASM_DEFINES)
     data["unownCharmap"] = unown_charmap(pokecrystal, CRYSTAL_ASM_DEFINES)
+    data["symbolRevisions"] = {
+        CANONICAL_CRYSTAL11_SHA1: crystal11_symbol_revisions(
+            symbols11_path, data["symbols"]),
+    }
     return data
 
 
@@ -153,13 +194,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pokecrystal", default=find_pokecrystal())
     parser.add_argument("--symbols", default=DEFAULT_SYMBOLS)
+    parser.add_argument("--symbols11", default=DEFAULT_SYMBOLS11)
     parser.add_argument("--out", default=DEFAULT_OUT)
     args = parser.parse_args()
 
     pokecrystal = os.path.abspath(args.pokecrystal)
     if not os.path.isfile(os.path.join(pokecrystal, "main.asm")):
         raise SystemExit(f"{pokecrystal} is not a pokecrystal checkout")
-    data = generate(pokecrystal, os.path.abspath(args.symbols))
+    data = generate(
+        pokecrystal, os.path.abspath(args.symbols),
+        os.path.abspath(args.symbols11))
     with open(args.out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
         f.write("\n")
