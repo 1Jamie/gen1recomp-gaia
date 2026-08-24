@@ -204,20 +204,6 @@ local ROWS = {
     text = function(options)
       return require("src.render.GbcPalette").modeLabel(options.color or "gbc")
     end },
-  { label = Strings.source("GBC FX"), key = "gbcfx", port = true,
-    cycle = function(options, delta)
-      local GBCFX = require("src.render.GBCFX")
-      if not GBCFX.isSupported() then
-        options.gbcfx = 0
-        return
-      end
-      local level = ((options.gbcfx or 0) + delta) % 5
-      options.gbcfx = level
-      GBCFX.setLevel(level)
-    end,
-    text = function(options)
-      return require("src.render.GBCFX").levelLabel(options.gbcfx or 0)
-    end },
   -- SHADER FX reaches Gen 2 too, not just Gen 1. Same "activate" shape as
   -- CONTROLS/TOUCH LAYOUT below (a pushed screen, not a `cycle` ladder) --
   -- ShaderFXScreen is the shared list screen both generations push, `id`

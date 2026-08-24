@@ -147,9 +147,12 @@ eq(#unexplained, 0,
 
 -- ------- 7. the Crystal-only assets the completeness gate pins
 
-local importerSource = assert(io.open("src/import/RomImporter.lua", "r"))
-local importerText = importerSource:read("*a")
-importerSource:close()
+local CacheContract = require("src.import.CacheContract")
+local requiredFiles, isOverride = CacheContract.requiredFilesFor("crystal")
+check(isOverride, "crystal has its own required-file list")
+
+local required = {}
+for _, path in ipairs(requiredFiles) do required[path] = true end
 for _, path in ipairs({
   "assets/generated/title/crystal_logo.png",
   "assets/generated/title/crystal_wordmark.png",
@@ -158,8 +161,7 @@ for _, path in ipairs({
   "assets/generated/intro/chris.png",
   "assets/generated/intro/kris.png",
 }) do
-  check(importerText:find(path, 1, true) ~= nil,
-    "RomImporter still requires " .. path)
+  check(required[path], "the crystal cache contract still requires " .. path)
 end
 
 S.finish()
