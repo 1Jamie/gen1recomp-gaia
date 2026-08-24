@@ -194,6 +194,21 @@ if not cache then
   cache = home .. "/Library/Application Support/LOVE/crystal-dev/crystal"
 end
 
+local GameVersion = require("src.core.GameVersion")
+local CacheContract = require("src.import.CacheContract")
+
+local function crystalCacheRevision()
+  local fs = { prefix = "", read = function(rel) return readFile(cache .. "/" .. rel) end }
+  local marker = CacheContract.readMarker("crystal", fs)
+  if not marker then return "1.0" end
+  for _, revision in ipairs(GameVersion.revisions("crystal")) do
+    if marker == CacheContract.markerFor("crystal", revision.sha1) then
+      return revision.label or "1.0"
+    end
+  end
+  return "1.0"
+end
+
 local function loadCache(rel)
   local chunk = loadfile(cache .. "/data/generated/" .. rel .. ".lua")
   if not chunk then return nil end
@@ -338,7 +353,7 @@ local MAPS = {
   { "centerAttrmap", "mobile_center_attrmap", 360,
     "gfx/mobile/mobile_center.attrmap" },
   { "stadium2N64Tilemap", "stadium2_n64_tilemap", 360,
-    "gfx/mobile/stadium2_n64.tilemap" },
+    "revision" },
   { "stadium2N64Attrmap", "stadium2_n64_attrmap", 360,
     "gfx/mobile/stadium2_n64.attrmap" },
   { "dialpadTilemap", "dialpad_tilemap", 360, "gfx/mobile/dialpad.tilemap" },
@@ -408,6 +423,14 @@ else
 
   for _, row in ipairs(MAPS) do
     local key, file, bytes, source = row[1], row[2], row[3], row[4]
+    local revisionLabel
+    if key == "stadium2N64Tilemap" then
+      -- ../pokecrystal/mobile/mobile_5c.asm:869
+      revisionLabel = crystalCacheRevision()
+      source = revisionLabel == "1.1"
+        and "gfx/mobile/stadium2_n64_corrupt.tilemap"
+        or "gfx/mobile/stadium2_n64.tilemap"
+    end
     local entry = maps[key]
     local rel = "assets/generated/mobile/" .. file .. ".bin"
     if type(entry) ~= "table" then
@@ -425,7 +448,10 @@ else
           check(true, "no ../pokecrystal: " .. source .. " not diffed (SKIP)")
         else
           check(blob == want:sub(1, bytes),
-            "it is ../pokecrystal/" .. source .. " byte for byte")
+            "it is ../pokecrystal/" .. source .. " byte for byte"
+              .. (revisionLabel
+                and (" (cache built from Crystal " .. revisionLabel .. ")")
+                or ""))
         end
       end
     end

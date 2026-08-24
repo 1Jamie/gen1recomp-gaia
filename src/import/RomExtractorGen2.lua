@@ -201,14 +201,23 @@ local function copy(value)
   return result
 end
 
-function RomExtractorGen2.new(romData, manifest, progress)
+function RomExtractorGen2.new(romData, manifest, progress, romSha1)
   -- _GOLD / _SILVER: the labels are shared, the data behind a handful of
   -- them is not (gfx/misc.asm:9-20 vs :46-57).
   local edition = GameVersion.forSha1(manifest.romSha1) or "gold"
+  local symbols = manifest.symbols
+  local revision = romSha1 and manifest.symbolRevisions
+      and manifest.symbolRevisions[romSha1]
+  if revision then
+    local merged = {}
+    for name, location in pairs(manifest.symbols) do merged[name] = location end
+    for name, location in pairs(revision) do merged[name] = location end
+    symbols = merged
+  end
   return setmetatable({
     rom = Rom.new(romData),
     manifest = manifest,
-    symbols = manifest.symbols,
+    symbols = symbols,
     progress = progress,
     stage = 0,
     edition = edition,

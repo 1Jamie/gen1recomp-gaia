@@ -147,21 +147,26 @@ do
   T.check(not Strings.active(), "the catalog is unloaded for the checks after this one")
 end
 
--- src/ui/gen2/PcMenu.lua:savePrompt() returns SaveMenu.OVERWRITE_PROMPT/
--- SAVING_PROMPT straight through to its own `lines[1]`/`lines[2]`
--- Chrome.print calls (the PC's CHANGE BOX save uses the same two prompts).
--- Indexing a plain string with [1]/[2] returns nil, not characters, so this
--- shape is a cross-file contract: it caught a real regression during review,
--- where routing these through a single Strings.source()-wrapped string (to
--- translate SaveMenu's own screen) silently turned them into non-table
--- values and left PcMenu's overwrite/saving prompt blank.
+-- src/ui/gen2/PcMenu.lua:savePrompt() shares SaveMenu's overwrite/saving
+-- prompts through SaveMenu.OVERWRITE_PROMPT_SOURCE/SAVING_PROMPT_SOURCE and
+-- SaveMenu.twoLines(), rather than duplicating them -- both exported below,
+-- both used by PcMenu's own translation test
+-- (tests/engine/gen2_pcmenu_changebox_save_translation_test.lua). Checked
+-- here that they stay callable the shape twoLines() expects: a table in,
+-- one \n-joined string out with the split back on load.
 do
-  T.eq(type(SaveMenu.OVERWRITE_PROMPT), "table", "OVERWRITE_PROMPT stays a table for PcMenu.lua")
-  T.eq(SaveMenu.OVERWRITE_PROMPT[1], "There is already a", "and its first line stays indexable")
-  T.eq(SaveMenu.OVERWRITE_PROMPT[2], "save file. Is it", "and its second line")
-  T.eq(type(SaveMenu.SAVING_PROMPT), "table", "SAVING_PROMPT stays a table for PcMenu.lua")
-  T.eq(SaveMenu.SAVING_PROMPT[1], "SAVING… DON'T TURN", "and its first line stays indexable")
-  T.eq(SaveMenu.SAVING_PROMPT[2], "OFF THE POWER.", "and its second line")
+  T.eq(SaveMenu.OVERWRITE_PROMPT_SOURCE, "There is already a\nsave file. Is it",
+    "OVERWRITE_PROMPT_SOURCE stays the cart's own \\n-joined text")
+  T.eq(SaveMenu.twoLines(Strings(SaveMenu.OVERWRITE_PROMPT_SOURCE))[1], "There is already a",
+    "and twoLines() splits its untranslated fallback back to the first line")
+  T.eq(SaveMenu.twoLines(Strings(SaveMenu.OVERWRITE_PROMPT_SOURCE))[2], "save file. Is it",
+    "and its second line")
+  T.eq(SaveMenu.SAVING_PROMPT_SOURCE, "SAVING… DON'T TURN\nOFF THE POWER.",
+    "SAVING_PROMPT_SOURCE stays the cart's own \\n-joined text")
+  T.eq(SaveMenu.twoLines(Strings(SaveMenu.SAVING_PROMPT_SOURCE))[1], "SAVING… DON'T TURN",
+    "and twoLines() splits its untranslated fallback back to the first line")
+  T.eq(SaveMenu.twoLines(Strings(SaveMenu.SAVING_PROMPT_SOURCE))[2], "OFF THE POWER.",
+    "and its second line")
 end
 
 -- A translation with a THIRD line (a second embedded "\n") has nowhere on

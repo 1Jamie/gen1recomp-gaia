@@ -82,7 +82,8 @@ game data:
 - Yellow: `cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1`
 - Gold: `d8b8a3600a465308c9953dfa04f0081c05bdcb94`
 - Silver: `49b163f7e57702bc939d642a18f591de55d92dae`
-- Crystal: `f4cd194bdee0d04ca4eac29e09b8e4e9d818c133`
+- Crystal (1.0): `f4cd194bdee0d04ca4eac29e09b8e4e9d818c133`
+- Crystal (1.1): `f2f52230b536214ef7c9924f483392993e226cfb`
 
 The packaged app contains neither a ROM nor pre-extracted game data. Music,
 sound effects, and cries are synthesized while the game runs from compact

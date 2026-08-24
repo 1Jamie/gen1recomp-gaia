@@ -136,8 +136,15 @@ function CacheContract.requiredFilesFor(version)
   return CacheContract.REQUIRED_FILES, false
 end
 
-function CacheContract.markerFor(version)
-  return CacheContract.FORMAT .. GameVersion.info(version).sha1
+function CacheContract.markerFor(version, sha1)
+  return CacheContract.FORMAT .. (sha1 or GameVersion.info(version).sha1)
+end
+
+function CacheContract.markerMatches(version, marker)
+  for _, revision in ipairs(GameVersion.revisions(version)) do
+    if marker == CacheContract.markerFor(version, revision.sha1) then return true end
+  end
+  return false
 end
 
 -- Keep the process-global CacheFs prefix isolated even when a filesystem
@@ -189,11 +196,11 @@ function CacheContract.isReady(version, fs)
   fs = fs or require("src.import.CacheFs")
   if CacheContract.sourceTreeHasData(version) then return true end
   local marker, readError = CacheContract.readMarker(version, fs)
-  if readError or marker ~= CacheContract.markerFor(version) then return false end
+  if readError or not CacheContract.markerMatches(version, marker) then return false end
   return CacheContract.allRequiredFilesExist(version, fs)
 end
 
-function CacheContract.publish(version, fs)
+function CacheContract.publish(version, fs, sha1)
   fs = fs or require("src.import.CacheFs")
   local complete, missing = CacheContract.allRequiredFilesExist(version, fs)
   if not complete then
@@ -212,7 +219,7 @@ function CacheContract.publish(version, fs)
     return false, "cache is incomplete; missing " .. tostring(missing)
   end
   local changed, ok, err = withVersionPrefix(version, fs, function()
-    return fs.write(CacheContract.MARKER_PATH, CacheContract.markerFor(version))
+    return fs.write(CacheContract.MARKER_PATH, CacheContract.markerFor(version, sha1))
   end)
   if not changed then return false, tostring(ok) end
   return ok, err

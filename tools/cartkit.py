@@ -1582,9 +1582,17 @@ def t_png():
     assert label_art("#123456") == art
 
 
+class SelftestSkip(Exception):
+    pass
+
+
 def t_roundtrip():
     root = tempfile.mkdtemp(prefix="cartkit-selftest-")
-    repo = find_repo(os.path.dirname(os.path.abspath(__file__)))
+    repo = find_repo(os.getcwd()) or find_repo(
+        os.path.dirname(os.path.abspath(__file__)))
+    if not repo:
+        raise SelftestSkip("scaffold needs an engine checkout; none found "
+                           "from the cwd or the script")
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             _roundtrip(root, repo)
@@ -1650,21 +1658,26 @@ CHECKS = [
 
 def cmd_selftest(args, repo):
     failures = []
+    skipped = []
     for name, check in CHECKS:
         try:
             check()
+        except SelftestSkip as why:
+            skipped.append((name, why))
+            print(f"skip {name}: {why}")
         except Exception as problem:
             failures.append((name, problem))
-            if not args.quiet:
-                print(f"FAIL {name}: {problem!r}")
+            print(f"FAIL {name}: {problem!r}")
         else:
             if not args.quiet:
                 print(f"ok   {name}")
     if failures:
         print(f"FAIL {len(failures)} of {len(CHECKS)} checks")
         return 1
+    ran = len(CHECKS) - len(skipped)
+    tail = f" ({len(skipped)} skipped)" if skipped else ""
     if not args.quiet:
-        print(f"ok {len(CHECKS)} checks")
+        print(f"ok {ran} checks{tail}")
     return 0
 
 
