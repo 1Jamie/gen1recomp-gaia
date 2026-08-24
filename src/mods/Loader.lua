@@ -270,7 +270,7 @@ function Loader.new(opts)
     modSave = {}, modOptions = {}, optionSchemas = {}, imageCache = {},
     modInput = {}, modEnv = {}, stepsQueues = {},
     fs = (opts and opts.fs) or (love and love.filesystem),
-    dev = dev,
+    dev = dev == true,
     safeMode = false,
     -- Which generation this boot is (1 or 2).  Fixed at construction: the
     -- active version is set once in main.lua's bootGame before anything
@@ -980,6 +980,10 @@ function Loader:_api(mod)
     id = modId,
     version = mod.manifest.version,
     path = mod.path,
+    -- Fixed at Loader construction and copied as plain data: a sandboxed
+    -- entry chunk can decide whether to register developer-only diagnostics
+    -- without receiving the process environment or the loader itself.
+    developer = loader.dev == true,
     -- a deep copy: what a mod does to its own view never reaches the loader
     manifest = Merge.deepCopy(mod.manifest),
     content = {},

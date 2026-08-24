@@ -469,8 +469,11 @@ is warned once per name and the rest of the list still runs. The engine's own
 Gen 1 verbs are **not** seeded on Gold: a row-list verb handed Gold's ctx would
 find no runner on it, so `data.commands` under Gen 2 is the mod verbs alone.
 
-**`mod.save`, `mod.options`, `mod.log`, `mod.assets`, `mod.find`, exports.**
-Generation-agnostic; nothing to adapt.
+**`mod.save`, `mod.options`, `mod.log`, `mod.assets`, `mod.find`,
+`mod.developer`, exports.** Generation-agnostic; nothing to adapt.
+`mod.developer` is the same fixed boot-time boolean on both generations and is
+available while the entry chunk runs. Gold does not gain Gen 1's developer
+console or F5 hot-reload hotkey; the field reports the loader's mode only.
 
 **`mod.world`.** Same method set, resolved against Gold's world
 (`src/world/gen2/WorldAPI.lua`). Two differences show through and are
