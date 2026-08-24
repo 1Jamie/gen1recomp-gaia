@@ -384,7 +384,14 @@ function bootGame(version, cartId)
     Game = require("src.core.Game2").new()
     Game:load()
   else
-    Game = require("src.core.Game")
+    -- Gen1 Game is a module singleton.  In-process EXIT GAME resets it in
+    -- place; if a prior teardown left load missing, rebuild from source.
+    local gameMod = require("src.core.Game")
+    if type(gameMod.load) ~= "function" then
+      package.loaded["src.core.Game"] = nil
+      gameMod = require("src.core.Game")
+    end
+    Game = gameMod
     Game:load()
     if os.getenv("POKEPORT_AUTOPILOT") then
       autopilot = require("tests.autopilot")

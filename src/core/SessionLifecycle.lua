@@ -87,6 +87,13 @@ function SessionLifecycle.endGameSession(game)
   if game and game.reset then
     pcall(function() game:reset() end)
   end
+  -- Gen1 Game is the module singleton.  If teardown left it without load,
+  -- drop the cached module so the next require rebuilds a clean table
+  -- (bootGame also guards this; doing it here keeps Play-again reliable).
+  if game and type(game.load) ~= "function"
+      and package.loaded["src.core.Game"] == game then
+    package.loaded["src.core.Game"] = nil
+  end
 
   local Input = require("src.core.Input")
   local TouchControls = require("src.core.TouchControls")
