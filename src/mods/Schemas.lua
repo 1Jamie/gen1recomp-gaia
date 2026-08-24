@@ -757,6 +757,32 @@ end
 local R = {}
 Schemas.REGISTRIES = R
 
+-- Some generated Gen 2 modules keep extractor metadata beside their public
+-- record maps. These callbacks are the registry normalization boundary: the
+-- metadata remains available to engine consumers through Data, but is not an
+-- id a mod can read or overwrite through the record registry.
+local function recordMapExcept(...)
+  local excluded = {}
+  for index = 1, select("#", ...) do excluded[select(index, ...)] = true end
+  return function(base, id)
+    if excluded[id] then return nil end
+    return base[id]
+  end, function(base)
+    local ids = {}
+    for id in pairs(base) do
+      if not excluded[id] then ids[#ids + 1] = id end
+    end
+    return ids
+  end
+end
+
+local pokemonGen2BaseAt, pokemonGen2BaseIds =
+  recordMapExcept("growthRates", "tmhmMoves")
+local movesGen2BaseAt, movesGen2BaseIds =
+  recordMapExcept("generation", "source")
+local itemsGen2BaseAt, itemsGen2BaseIds =
+  recordMapExcept("generation", "source", "pockets")
+
 -- ------- shared Gen 2 leaves
 --
 -- The ROM name spaces Gold's tables key by.  They are enums rather than
@@ -779,6 +805,7 @@ local gen2PaletteRow = f.list(gen2Color)
 
 R.pokemon = {
   semantics = "record", target = "pokemon",
+  gen2BaseAt = pokemonGen2BaseAt, gen2BaseIds = pokemonGen2BaseIds,
   fields = {
     id = f.str, name = f.str, dex = f.int(1),
     index = f.opt(f.int(0, 255)),
@@ -870,6 +897,7 @@ R.pokemon = {
 
 R.moves = {
   semantics = "record", target = "moves",
+  gen2BaseAt = movesGen2BaseAt, gen2BaseIds = movesGen2BaseIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),
@@ -894,6 +922,7 @@ R.moves = {
 
 R.items = {
   semantics = "record", target = "items",
+  gen2BaseAt = itemsGen2BaseAt, gen2BaseIds = itemsGen2BaseIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),

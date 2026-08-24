@@ -226,18 +226,28 @@ end
 `view.content` exposes the same registry names, aliases, generation routing,
 and data-only record shapes as `mod.content`, but only `get`, `has`, and
 `each`. Returned records are detached copies and cannot mutate either dataset.
+Every generated base record passes the selected generation's existing public
+schema before it is returned; extractor metadata beside record maps stays out
+of the registry id space. A malformed record makes `get` return nil, `has`
+return false, and `each` return no rows, and invalidates that dataset view.
 Records containing functions, userdata, threads, metatables, or cycles are not
 exposed. Each open call receives an independent facade, so one mod cannot
 replace another mod view method. Canonical boot shaping is included, such as
 Gen 1 defaults and Yellow corrections, and Gold's Foresight matchup rows and
 derived `held_items`.
 
-The marker and every required generated module for the selected version are
-rechecked on each open. Missing, partial, and stale imports return
-`nil, "not_imported"`; malformed or resource-limit-breaking generated data
-returns `nil, "invalid_cache"`. Generated modules are decoded with a bounded
-literal-only grammar and are never executed. No raw ROM bytes or generated
-source are exposed. `view.assets:path(relative)` and
+`open` checks the completion marker, exact version-specific file inventory,
+source/cache boundary, and file-size bounds without reading or decoding the
+semantic modules. A root is read, bounded-decoded, normalized, and cached only
+when a content operation first needs it. Each later view operation rechecks
+readiness and the source bytes behind already cached roots; unchanged roots are
+not decoded again. Missing, partial, and stale imports return
+`nil, "not_imported"`. Malformed syntax, a resource-limit violation, or a
+record that fails the public schema is discovered on first root access and
+fails that operation closed; a later `open` against the same source returns
+`nil, "invalid_cache"`. Generated modules use a bounded literal-only grammar
+and are never executed. No raw ROM bytes or generated source are exposed.
+`view.assets:path(relative)` and
 `view.assets:info(relative)` accept only `assets/generated/...` paths and
 keep them under the selected version cache prefix. The API never changes
 `mod.game`, the active `Data` table, `GameVersion`, or cache mount state.

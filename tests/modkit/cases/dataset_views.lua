@@ -65,6 +65,13 @@ for _, id in ipairs({ "IRON_TAIL", "METAL_CLAW", "STEEL_WING", "RAIN_DANCE",
   out.moves[id] = gold.content.moves:has(id)
 end
 out.steel = gold.content.type_chart:has("STEEL")
+out.metadataHidden = not gold.content.pokemon:has("growthRates")
+  and not gold.content.pokemon:has("tmhmMoves")
+  and not gold.content.moves:has("generation")
+  and not gold.content.moves:has("source")
+  and not gold.content.items:has("generation")
+  and not gold.content.items:has("source")
+  and not gold.content.items:has("pockets")
 out.executableBuiltinHidden = gold.content.statuses:get("sleep") == nil
 out.assetDirectory = gold.assets:info("assets/generated/battle/front")
 out.assetRejects = {}
@@ -113,6 +120,8 @@ for _, id in ipairs(Fixture.CONTINUATIONS) do
 end
 for _, id in ipairs(Fixture.MOVES) do T.eq(out.moves[id], true, "Gold exposes " .. id) end
 T.eq(out.steel, true, "Gold exposes Steel")
+T.eq(out.metadataHidden, true,
+  "Gold extractor metadata stays outside record registry id spaces")
 local registryCount = 0
 for _ in pairs(Schemas.REGISTRIES) do registryCount = registryCount + 1 end
 for _ in pairs(Schemas.ALIASES) do registryCount = registryCount + 1 end
@@ -206,16 +215,22 @@ local transitionRead = transitionFs.read
 local transitionMarkers = 0
 local reimportedPokemon = require("src.import.LuaWriter").encode({
   FIXMON = { id = "FIXMON", name = "REIMPORTED", dex = 1,
+    types = {}, catchRate = 45, baseExp = 64, growthRate = "MEDIUM_FAST",
+    baseStats = { hp = 45, attack = 49, defense = 49, speed = 45,
+      special = 65 },
+    level1Moves = {}, tmhm = {}, learnset = {}, evolutions = {},
     spriteFront = "assets/generated/battle/front/fixmon.png",
     spriteBack = "assets/generated/battle/back/fixmon.png", frontSize = 5 },
 })
 transitionFs.read = function(path)
   if path == GameVersion.cachePrefix("red") .. "rom-cache.complete" then
     transitionMarkers = transitionMarkers + 1
-    if transitionMarkers == 2 then return nil end
+    -- open and the first facade read each recheck readiness; remove the cache
+    -- for the next open, then make the following open the reimport.
+    if transitionMarkers == 3 then return nil end
   end
   local body = transitionRead(path)
-  if transitionMarkers >= 3
+  if transitionMarkers >= 4
       and path == GameVersion.cachePrefix("red") .. "data/generated/pokemon.lua" then
     return reimportedPokemon
   end
@@ -255,7 +270,12 @@ local mod = ...
 local out = {}
 for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
   local view, reason = mod.datasets:open(version)
-  out[version] = { view ~= nil, reason }
+  local value = view and view.content.pokemon:get("BAD")
+  local reopened, reopenedReason = mod.datasets:open(version)
+  out[version] = {
+    first = view ~= nil, firstReason = reason, value = value,
+    reopened = reopened ~= nil, reason = reopenedReason,
+  }
 end
 mod.exports.result = out
 ]])
@@ -272,8 +292,9 @@ local hostileRun = T.sdk.loadMods(hostilePaths, {
 })
 local hostileOut = hostileRun.loader.exports.hostile_probe.result
 for _, row in ipairs(hostile) do
-  T.same(hostileOut[row[1]], { false, "invalid_cache" },
-    row[1] .. " hostile generated source fails closed")
+  T.same(hostileOut[row[1]], {
+    first = true, reopened = false, reason = "invalid_cache",
+  }, row[1] .. " hostile generated source fails closed on first root access")
 end
 T.eq(debug.gethook and debug.gethook(), beforeHook,
   "dataset decoding preserves the caller debug hook")
@@ -282,6 +303,91 @@ if debug.sethook then
   else debug.sethook() end
 end
 hostileRun.release()
+
+-- A syntactically valid semantic root with a primitive record must fail closed
+-- whichever public read verb encounters it first.
+local malformedFiles = {}
+for _, version in ipairs({ "red", "blue", "yellow" }) do
+  Fixture.cache(malformedFiles, version, {
+    pokemon = "return { FIXMON = 7 }",
+  })
+end
+local malformedMod = Fixture.addMod(malformedFiles, "malformed_probe", [[
+local mod = ...
+local out = {}
+local getView = assert(mod.datasets:open("red"))
+out.get = getView.content.pokemon:get("FIXMON")
+local getAgain, getReason = mod.datasets:open("red")
+out.getAgain = { getAgain ~= nil, getReason }
+
+local hasView = assert(mod.datasets:open("blue"))
+out.has = hasView.content.pokemon:has("FIXMON")
+local hasAgain, hasReason = mod.datasets:open("blue")
+out.hasAgain = { hasAgain ~= nil, hasReason }
+
+local eachView = assert(mod.datasets:open("yellow"))
+for id, value in eachView.content.pokemon:each() do
+  out.each = { id, value }
+  break
+end
+local eachAgain, eachReason = mod.datasets:open("yellow")
+out.eachAgain = { eachAgain ~= nil, eachReason }
+mod.exports.result = out
+]])
+local malformedRun = T.sdk.loadMods({ malformedMod }, {
+  fs = T.sdk.memfs(malformedFiles), data = { pokemon = {} }, generation = 1,
+})
+T.eq(#malformedRun.errors, 0, "malformed-record probe stays sandboxed")
+local malformedOut = malformedRun.loader.exports.malformed_probe.result
+T.eq(malformedOut.get, nil, "get never exposes a malformed semantic record")
+T.eq(malformedOut.has, false, "has never affirms a malformed semantic record")
+T.eq(malformedOut.each, nil, "each never exposes a malformed semantic record")
+T.same(malformedOut.getAgain, { false, "invalid_cache" },
+  "get invalidates the malformed dataset")
+T.same(malformedOut.hasAgain, { false, "invalid_cache" },
+  "has invalidates the malformed dataset")
+T.same(malformedOut.eachAgain, { false, "invalid_cache" },
+  "each invalidates the malformed dataset")
+malformedRun.release()
+
+-- The same Gold view stays independent while each Gen 1 version is the
+-- actual active runtime version and cache namespace, not just a fixture label.
+for _, activeVersion in ipairs({ "red", "blue", "yellow" }) do
+  local matrixFiles = {}
+  Fixture.cache(matrixFiles, "gold")
+  local matrixMod = Fixture.addMod(matrixFiles,
+    "active_" .. activeVersion .. "_gold_probe", [[
+local mod = ...
+local gold = assert(mod.datasets:open("gold"))
+mod.exports.result = {
+  species = gold.content.pokemon:get("FIXMON").name,
+  foresight = gold.content.type_chart:get("NORMAL>GHOST").multiplier,
+  held = gold.content.held_items:get("LEFTOVERS").heldEffect,
+}
+]])
+  GameVersion.set(activeVersion)
+  CacheFs.prefix = GameVersion.cachePrefix(activeVersion)
+  local activeData = {
+    pokemon = { ACTIVE = { id = "ACTIVE_" .. activeVersion,
+      nested = { version = activeVersion } } },
+  }
+  local matrixRun = T.sdk.loadMods({ matrixMod }, {
+    fs = T.sdk.memfs(matrixFiles), data = activeData, generation = 1,
+  })
+  T.eq(#matrixRun.errors, 0, activeVersion .. "-active Gold probe loads")
+  T.same(matrixRun.loader.exports["active_" .. activeVersion .. "_gold_probe"].result,
+    { species = "FIXMON", foresight = 0, held = "HELD_LEFTOVERS" },
+    activeVersion .. "-active runtime sees canonical Gold semantics")
+  T.eq(GameVersion.get(), activeVersion,
+    activeVersion .. " remains the active GameVersion")
+  T.eq(CacheFs.prefix, GameVersion.cachePrefix(activeVersion),
+    activeVersion .. " remains the active cache namespace")
+  T.eq(activeData.pokemon.ACTIVE.nested.version, activeVersion,
+    activeVersion .. " active Data remains unchanged")
+  T.eq(activeData.pokemon.FIXMON, nil,
+    activeVersion .. " active Data receives no Gold record")
+  matrixRun.release()
+end
 
 GameVersion.set(originalVersion)
 CacheFs.prefix = originalPrefix

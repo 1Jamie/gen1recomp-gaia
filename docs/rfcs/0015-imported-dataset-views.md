@@ -70,9 +70,13 @@ semantic presence.
 the selected version's generation routing and the engine's existing
 `Schemas`, `Registry`, and `Builtins` normalization, so structured sources
 such as type matchups retain the same public ids used by the active
-`mod.content` facade. No register, patch, override, or remove verb is exposed. Each call returns an
-independent facade over the cached internal dataset, so facade mutation cannot cross
-mod boundaries.
+`mod.content` facade and extractor metadata beside record maps is not exposed
+as a record id. Every generated base record is checked with that selected
+generation's existing public schema before it can cross `get`, `has`, or
+`each`; there is no dataset-specific duplicate schema. No register, patch,
+override, or remove verb is exposed. Each call returns an independent facade
+over the cached internal dataset, so facade mutation cannot cross mod
+boundaries.
 
 `assets:path` returns the selected cache-prefixed virtual path.
 `assets:info` returns sanitized `type` and optional `size` metadata. Both
@@ -80,16 +84,29 @@ accept only relative paths below `assets/generated/`, reject control
 characters, absolute paths, backslashes, and traversal, and expose no byte
 reader.
 
-An unknown version returns `nil, "unknown_version"`. A missing, partial, or
-stale cache returns `nil, "not_imported"`. A required module that is malformed
-or exceeds the limits (8 MiB per module, 48 MiB aggregate, depth 64, 500,000
-values, 2 MiB per string, or 250,000 entries per table) returns
-`nil, "invalid_cache"`; actionable detail is engine-logged but not exposed to
-the mod. Generated Lua is decoded with the existing restricted
-literal grammar and never executed. Functions, userdata, threads, metatables,
-cycles, non-table roots, binary chunks, and trailing syntax cannot cross the
-facade. Successful roots are decoded lazily and cached per selected version.
-The API never exposes raw ROM bytes, generated source, host paths, or a mount.
+An unknown version returns `nil, "unknown_version"`. `open` checks the current
+completion marker, exact version-specific file inventory, source/cache
+boundary, and available file sizes; it does not read or decode semantic
+modules. A missing, partial, or stale cache returns `nil, "not_imported"`.
+
+The first content operation that needs a root reads it once, applies the
+limits (8 MiB per module, 48 MiB aggregate, depth 64, 500,000 values, 2 MiB
+per string, and 250,000 entries per table), decodes the restricted literal
+grammar, applies canonical selected-version normalization, and caches the
+detached root. Each later content or asset operation rechecks marker/file and
+source-bound readiness. It also rereads the source bytes for already cached
+roots; unchanged roots are not decoded again, while a changed root clears the
+derived registry cache and is decoded on its next use.
+
+Malformed syntax, non-table roots, binary/trailing content, resource-limit
+violations, and records that fail the public schema are therefore discovered
+on first access rather than during `open`. The triggering `get` returns nil,
+`has` returns false, or `each` returns no rows; the whole internal view is
+invalidated, and a subsequent `open` against the unchanged source returns
+`nil, "invalid_cache"`. Actionable detail is engine-logged but not exposed to
+the mod. Generated Lua is never executed. Functions, userdata, threads,
+metatables, and cycles cannot cross the facade. The API never exposes raw ROM
+bytes, generated source, host paths, or a mount.
 
 ## Migration and compatibility
 
@@ -106,7 +123,9 @@ The completion marker and per-version required-file rules live in the pure,
 injected `CacheContract` shared by the importer and dataset service. It also
 defines source-tree behavior. Neither consumer mutates `CacheFs.prefix` while
 checking readiness. Every `open` revalidates the contract and required module
-shapes; a stale/remove/reimport transition evicts the previous semantic view.
+inventory without semantic decoding. Every view operation rechecks that
+readiness before serving cached state; a stale/remove/reimport transition
+evicts the previous semantic view.
 
 ## Verification
 
@@ -117,8 +136,12 @@ shapes; a stale/remove/reimport transition evicts the previous semantic view.
   version-prefixed generated assets,
   traversal rejection, stable failure reasons, and stale-marker rejection.
 - It also proves missing/empty/partial/stale/remove/reimport behavior, hostile
-  generated-source rejection, canonical Gen 1/Yellow/Gold hydration, and the
-  approved Kanto+ Gold records and assets.
+  generated-source and malformed-record rejection, canonical Gen
+  1/Yellow/Gold hydration, active Red/Blue/Yellow isolation while reading Gold,
+  and the approved Kanto+ Gold records and assets.
+- `tests/engine/dataset_views_lazy_validation.lua` counts semantic reads and
+  decoder calls to prove `open` decodes nothing, unused roots stay unread, and
+  repeated access does not re-decode an unchanged cached root.
 - `tests/modkit/cases/dataset_views_nontermination.lua` proves generated code
   is rejected rather than executed; `tests/engine/generated_data_decoder_test.lua`
   proves every decoder resource bound.

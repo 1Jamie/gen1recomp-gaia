@@ -30,10 +30,23 @@ local MOVES = {
 local function species(id, dex, generation)
   local row = {
     id = id, name = id, dex = dex,
+    types = {}, catchRate = 45, baseExp = 64, growthRate = "MEDIUM_FAST",
+    tmhm = {}, evolutions = {},
     spriteFront = "assets/generated/battle/front/" .. id:lower() .. ".png",
     spriteBack = "assets/generated/battle/back/" .. id:lower() .. ".png",
   }
-  if generation == 2 then row.picSize = 5 else row.frontSize = 5 end
+  if generation == 2 then
+    row.baseStats = { hp = 45, attack = 49, defense = 49, speed = 45,
+      specialAttack = 65, specialDefense = 65 }
+    row.levelMoves = {}
+    row.picSize = 5
+  else
+    row.baseStats = { hp = 45, attack = 49, defense = 49, speed = 45,
+      special = 65 }
+    row.level1Moves = {}
+    row.learnset = {}
+    row.frontSize = 5
+  end
   return row
 end
 
@@ -47,6 +60,10 @@ local function defaults(version)
     types = {},
   }
   if generation == 2 then
+    pokemon.growthRates = {}
+    pokemon.tmhmMoves = {}
+    moves.generation, moves.source = 2, "fixture moves"
+    items.generation, items.source, items.pockets = 2, "fixture items", {}
     for index, id in ipairs(CONTINUATIONS) do
       pokemon[id] = species(id, 168 + index, generation)
     end

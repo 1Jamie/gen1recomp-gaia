@@ -47,10 +47,6 @@ local GEN2_ROOTS = {
   gen2Constants = "constants", gen2Landmarks = "landmarks",
 }
 
-local function decode(source)
-  return SaveSerializer.decode(source, DECODE_LIMITS)
-end
-
 local function resolvePath(root, suffix)
   local node = root
   for key in suffix:gmatch("[^.]+") do
@@ -130,15 +126,15 @@ local function isDataOnly(value, state, depth)
   return true
 end
 
-function DatasetViews.new(fs, engineRequire)
+function DatasetViews.new(fs, engineRequire, decoder)
   assert(fs and fs.read and fs.getInfo,
     "DatasetViews.new requires a readable filesystem")
   return setmetatable({ fs = fs, engineRequire = engineRequire or require,
-    datasets = {} }, DatasetViews)
+    decoder = decoder or SaveSerializer.decode, datasets = {} }, DatasetViews)
 end
 
-function DatasetViews:_validate(version, inspected)
-  local sources, aggregate = {}, 0
+function DatasetViews:_preflight(version, inspected)
+  local paths, aggregate = {}, 0
   local modules = CacheContract.semanticModules(version)
   for _, name in ipairs(CacheContract.optionalSemanticModules(version)) do
     local path = inspected.prefix .. "data/generated/" .. name .. ".lua"
@@ -151,31 +147,80 @@ function DatasetViews:_validate(version, inspected)
     if size and size > DECODE_LIMITS.maxBytes then return nil, name .. ": size limit" end
     aggregate = aggregate + (size or 0)
     if aggregate > MAX_AGGREGATE_BYTES then return nil, "aggregate size limit" end
+    paths[name] = path
   end
-  aggregate = 0
-  for _, name in ipairs(modules) do
-    local path = inspected.prefix .. "data/generated/" .. name .. ".lua"
-    local source = self.fs.read(path)
-    if type(source) ~= "string" then return nil, "missing " .. name end
-    aggregate = aggregate + #source
-    if aggregate > MAX_AGGREGATE_BYTES then return nil, "aggregate size limit" end
-    local value, err = decode(source)
-    if type(value) ~= "table" then
-      return nil, name .. ": " .. tostring(err or "non-table root")
+  return { paths = paths, key = table.concat(modules, "\n") }
+end
+
+local function resetInternal(view)
+  view.moduleCache, view.data, view.registries = {}, nil, nil
+end
+
+function DatasetViews:_reject(view, moduleName, source, detail)
+  view.invalid = { module = moduleName, source = source, detail = detail }
+  view.data, view.registries = nil, nil
+  Logger.warn("dataset %s cache rejected: %s", view.version, tostring(detail))
+  return nil
+end
+
+function DatasetViews:_ready(view)
+  if view.invalid or view.unavailable then return false end
+  local inspected, _, detail = CacheContract.inspect(view.version, self.fs, {
+    allowSource = true, semantic = true,
+  })
+  if not inspected then
+    view.unavailable = true
+    if self.datasets[view.version] == view then self.datasets[view.version] = nil end
+    Logger.warn("dataset %s unavailable: %s", view.version, detail)
+    return false
+  end
+  local plan, invalid = self:_preflight(view.version, inspected)
+  if not plan then
+    self:_reject(view, nil, nil, invalid)
+    return false
+  end
+  if view.prefix ~= inspected.prefix or view.plan.key ~= plan.key then
+    view.prefix, view.plan = inspected.prefix, plan
+    resetInternal(view)
+  else
+    view.plan = plan
+  end
+  for name, cached in pairs(view.moduleCache) do
+    local source = self.fs.read(plan.paths[name])
+    if type(source) ~= "string" then
+      self:_reject(view, name, source, name .. ": unreadable generated module")
+      return false
     end
-    sources[name] = source
+    if source ~= cached.source then
+      resetInternal(view)
+      break
+    end
   end
-  return sources
+  return not view.invalid
 end
 
 function DatasetViews:_module(view, root)
   local moduleName = view.modules[root]
   if not moduleName then return nil end
-  local source = view.sources[moduleName]
-  if source == nil then return nil end
   local cached = view.moduleCache[moduleName]
-  if cached and cached.source == source then return cached.value end
-  local value = assert(decode(source))
+  if cached then return cached.value end
+  local path = view.plan.paths[moduleName]
+  if not path then return nil end
+  local source = self.fs.read(path)
+  if type(source) ~= "string" then
+    return self:_reject(view, moduleName, source,
+      moduleName .. ": unreadable generated module")
+  end
+  local aggregate = #source
+  for _, loaded in pairs(view.moduleCache) do aggregate = aggregate + #loaded.source end
+  if aggregate > MAX_AGGREGATE_BYTES then
+    return self:_reject(view, moduleName, source, "aggregate size limit")
+  end
+  local value, err = self.decoder(source, DECODE_LIMITS)
+  if type(value) ~= "table" then
+    return self:_reject(view, moduleName, source,
+      moduleName .. ": " .. tostring(err or "non-table root"))
+  end
   view.moduleCache[moduleName] = { source = source, value = value }
   return value
 end
@@ -191,6 +236,7 @@ function DatasetViews:_data(view)
     end,
   })
   DatasetHydration.apply(data, view.version, self.engineRequire)
+  if view.invalid then error(view.invalid.detail, 0) end
   view.data = data
   return data
 end
@@ -217,10 +263,37 @@ function DatasetViews:_registries(view)
 end
 
 function DatasetViews:_registry(view, name)
-  local registry = self:_registries(view)[name]
+  local service = self
+  local function registryForRead()
+    if not service:_ready(view) then return nil end
+    local ok, registries = pcall(service._registries, service, view)
+    if not ok then
+      if not view.invalid then service:_reject(view, nil, nil, registries) end
+      return nil
+    end
+    if view.invalid then return nil end
+    return registries[name]
+  end
+  local function validate(registry, id, value)
+    if value == nil then return true end
+    local ok, detail = Schemas.check(registry.spec, registry.name, id,
+      value, "override")
+    if ok then return true end
+    local target = registry.spec.target
+      or Schemas.targetFor(registry.name, registry.spec, view.generation)
+    local root = target and target:match("^[^%.]+")
+    local moduleName = root and view.modules[root]
+    if root == "gen2HeldItems" then moduleName = "items" end
+    local cached = moduleName and view.moduleCache[moduleName]
+    service:_reject(view, moduleName, cached and cached.source,
+      "invalid " .. registry.name .. " record: " .. detail)
+    return false
+  end
   local function rawAt(id)
+    local registry = registryForRead()
     local value = registry and registry:get(id)
-    if value == nil or not isDataOnly(value) then return nil end
+    if value == nil or not validate(registry, id, value)
+        or not isDataOnly(value) then return nil end
     return value
   end
   local function valueAt(id)
@@ -239,9 +312,16 @@ function DatasetViews:_registry(view, name)
     end,
     each = function()
       local ids = {}
+      local registry = registryForRead()
       if registry then
         for id, value in registry:each() do
-          if type(id) == "string" and isDataOnly(value) then ids[#ids + 1] = id end
+          if not validate(registry, id, value) then
+            ids = {}
+            break
+          end
+          if type(id) == "string" and isDataOnly(value) then
+            ids[#ids + 1] = id
+          end
         end
       end
       table.sort(ids)
@@ -259,9 +339,13 @@ end
 function DatasetViews:_assets(view)
   local service = self
   local assets = {}
-  function assets:path(path) return view.prefix .. assetRelative(path) end
+  function assets:path(path)
+    if not service:_ready(view) then return nil end
+    return view.prefix .. assetRelative(path)
+  end
   function assets:info(path)
     local full = self:path(path)
+    if not full then return nil end
     local info = service.fs.getInfo and service.fs.getInfo(full, "file")
     if not info or (info.type and info.type ~= "file") then return nil end
     local out = { type = "file" }
@@ -283,43 +367,36 @@ function DatasetViews:open(version)
     Logger.warn("dataset %s unavailable: %s", version, detail)
     return nil, reason
   end
-  local sources, invalid = self:_validate(version, inspected)
-  if not sources then
-    self.datasets[version] = nil
+  local plan, invalid = self:_preflight(version, inspected)
+  if not plan then
     Logger.warn("dataset %s cache rejected: %s", version, invalid)
     return nil, "invalid_cache"
   end
 
   local internal = self.datasets[version]
+  if internal and internal.invalid then
+    local bad = internal.invalid
+    local path = bad.module and plan.paths[bad.module]
+    local source = path and self.fs.read(path)
+    if source == bad.source then return nil, "invalid_cache" end
+    internal = nil
+    self.datasets[version] = nil
+  end
   local changed = not internal or internal.prefix ~= inspected.prefix
-  if internal and not changed then
-    for name, source in pairs(internal.sources) do
-      if sources[name] ~= source then changed = true; break end
-    end
-  end
-  if internal and not changed then
-    for name, source in pairs(sources) do
-      if internal.sources[name] ~= source then changed = true; break end
-    end
-  end
+    or internal.plan.key ~= plan.key
   if changed then
+    if internal then internal.unavailable = true end
     internal = {
       version = version,
       generation = GameVersion.generation(version),
       prefix = inspected.prefix,
+      plan = plan,
       modules = GameVersion.generation(version) == 2 and GEN2_ROOTS or GEN1_ROOTS,
-      moduleCache = {}, sources = sources,
+      moduleCache = {},
     }
-    local ok, buildError = pcall(function() internal.registries = self:_registries(internal) end)
-    if not ok then
-      Logger.warn("dataset %s semantic hydration failed: %s", version,
-        tostring(buildError))
-      self.datasets[version] = nil
-      return nil, "invalid_cache"
-    end
     self.datasets[version] = internal
   else
-    internal.sources = sources
+    internal.plan = plan
   end
 
   local view = { version = version, generation = internal.generation, content = {} }
