@@ -57,27 +57,21 @@ local TIME_X, TIME_Y = 13, 8
 local YESNO_X, YESNO_Y, YESNO_W, YESNO_H = 0, 7, 6, 5
 
 -- AlreadyASaveFileText (AskOverwriteSaveFile, engine/menus/save.asm:47) and
--- SavingDontTurnOffThePower's own line, shared with the PC's CHANGE BOX save
--- (src/ui/gen2/PcMenu.lua:savePrompt() reads these two tables' lines[1]/
--- lines[2] directly, so their shape is a cross-file contract: keep them
--- plain, untranslated tables).
-local OVERWRITE_PROMPT = { "There is already a", "save file. Is it" }
-local SAVING_PROMPT = { "SAVING… DON'T TURN", "OFF THE POWER." }
-
--- Translatable copies of the two prompts above, one \n-joined key each, used
--- only by this screen's own prompt() below. One key per prompt lets a
--- translation write one whole, freely reordered sentence instead of two
--- fragments translated in isolation, and lets a cart whose own text is a
--- single line (German's SAVING prompt) say so directly by simply omitting
--- the "\n" -- the per-line override style used elsewhere requires a
--- non-empty value for every line, so it can't express "this line is blank".
+-- SavingDontTurnOffThePower's own line -- one \n-joined translatable key
+-- each, used both by this screen's own prompt() below and, through the
+-- SOURCE/twoLines() exports at the bottom of this file, by the PC's CHANGE
+-- BOX save (src/ui/gen2/PcMenu.lua:savePrompt()), which shares these exact
+-- same two cart messages. One key per prompt lets a translation write one
+-- whole, freely reordered sentence instead of two fragments translated in
+-- isolation, and lets a cart whose own text is a single line (German's
+-- SAVING prompt) say so directly by simply omitting the "\n" -- the
+-- per-line override style used elsewhere requires a non-empty value for
+-- every line, so it can't express "this line is blank".
 --
--- Written as literals, not `table.concat(OVERWRITE_PROMPT, "\n")`: the
--- translation tooling's string harvester only recognizes a literal inside
--- Strings.source(...), not a computed expression, so a concat call here
--- would quietly never reach a translator. Keep byte-for-byte in sync with
--- OVERWRITE_PROMPT/SAVING_PROMPT above (checked by
--- tests/engine/gen2_save_menu_translation_test.lua).
+-- Written as a literal, not built from a table: the translation tooling's
+-- string harvester only recognizes a literal inside Strings.source(...),
+-- not a computed expression, so a concat call here would quietly never
+-- reach a translator.
 local OVERWRITE_PROMPT_SOURCE = Strings.source("There is already a\nsave file. Is it")
 local SAVING_PROMPT_SOURCE = Strings.source("SAVING… DON'T TURN\nOFF THE POWER.")
 
@@ -279,7 +273,8 @@ end
 SaveMenu.SFX_SAVE = SFX_SAVE
 SaveMenu.SAVING_FRAMES = SAVING_FRAMES
 SaveMenu.SAVED_FRAMES = SAVED_FRAMES
-SaveMenu.OVERWRITE_PROMPT = OVERWRITE_PROMPT
-SaveMenu.SAVING_PROMPT = SAVING_PROMPT
+SaveMenu.OVERWRITE_PROMPT_SOURCE = OVERWRITE_PROMPT_SOURCE
+SaveMenu.SAVING_PROMPT_SOURCE = SAVING_PROMPT_SOURCE
+SaveMenu.twoLines = twoLines
 
 return SaveMenu
