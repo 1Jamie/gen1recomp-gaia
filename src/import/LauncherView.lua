@@ -3056,8 +3056,8 @@ local function buildFindKindRow(imp, x, y, w, m)
 end
 
 local function buildFindPanel(imp, x, y, w, availH, m)
+  imp._findVisibleEntries = nil
   imp:_ensureFind()
-  imp:_ensureMods()
   local ModIndex = require("src.mods.ModIndex")
   local ModUpdate = require("src.mods.ModUpdate")
   local sources = imp.findSources or {}
@@ -3126,7 +3126,9 @@ local function buildFindPanel(imp, x, y, w, availH, m)
 
   if #rows == 0 then
     local empty
-    if carts then
+    if imp._findFetch then
+      empty = Strings("Loading mod index...")
+    elseif carts then
       empty = (total == 0) and Strings("This index lists no carts yet.")
         or Strings("No carts match that search.")
     else
@@ -3190,6 +3192,11 @@ local function buildFindPanel(imp, x, y, w, availH, m)
   setPage(imp, "find", cur)
   local listTop = cy
   setPage(imp, "find", Kit.wheelPage(x, listTop, w, listH, cur, #rows, perPage))
+
+  local visible = imp._findVisibleEntries or {}
+  for i = #visible, 1, -1 do visible[i] = nil end
+  for i = first, last do visible[#visible + 1] = rows[i] end
+  imp._findVisibleEntries = visible
 
   for i = first, last do
     local entry = rows[i]
@@ -5763,12 +5770,6 @@ local function loaderSpec(imp)
   if b then
     return { title = b.title, detail = b.detail, progress = b.progress,
              onCancel = b.cancel }
-  end
-  -- The boot prewarm runs without an overlay (the user did not ask for it and
-  -- must be able to use the launcher meanwhile), but if they reach the Find
-  -- Mods tab before it lands, THEN they are waiting on it and it earns one.
-  if imp.tab == "find" and imp._findFetch and not imp.findLoaded then
-    return { title = Strings("Loading mod index") }
   end
   return nil
 end
