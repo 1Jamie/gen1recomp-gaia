@@ -228,6 +228,66 @@ optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
 read-only snapshots; mods choose which layers to render. Red and Gold expose
 the same contract while applying their own object and event visibility rules.
 
+### Active Gen 1 block checks
+
+Red, Blue, and Yellow expose
+`mod.world:activeBlockAt(mapId, blockX, blockY)`. It returns the numeric block
+ID at one zero-based block coordinate only when `mapId` is the active map.
+The value is a scalar snapshot: changing it cannot change the map. This lets a
+mod compare a small runtime map signature before it applies a lawful authored
+replacement, without reading the mutable map or ROM cache through engine
+internals.
+
+The method fails closed. Before an overworld exists it returns
+`nil, "no overworld"`; for a different active map it returns
+`nil, "map is not active"`; non-numeric, non-finite, or fractional coordinates
+return `nil, "invalid block coordinates"`; and negative or out-of-range
+coordinates return `nil, "block coordinates out of bounds"`. An unavailable
+or malformed active block returns `nil, "block unavailable"`. The caller must
+require every expected cell to match before changing presentation. This method
+is Gen 1-only; Gold callers receive no parity promise for it.
+
+The same unavailable result covers missing or sparse active block storage and
+an accessor result that does not match its validated active block slot.
+
+### Conditional map occupancy
+
+`map.occupancy_allowed` is a narrow Gen 1 hook around a map script's vanilla
+decision to eject the player from an otherwise valid loaded map. Its first
+call site is the post-departure `VERMILION_DOCK` branch. The ship has already
+been erased when the hook runs, and the hook does not replace or suppress any
+base or peer map handler.
+
+The wrapper receives `(next, game, context)`. The dock context is a copied
+`{ mapId = "VERMILION_DOCK", reason = "ss_anne_departed", gameVersion, x, y }`
+record. Vanilla returns `false`. Return exactly `true` to allow the player to
+remain; every other value denies occupancy and preserves the normal message
+and warp. A composable wrapper calls downstream first and only adds its own
+permission:
+
+```lua
+mod.hooks:wrap("map.occupancy_allowed", function(next, game, ctx)
+  local allowed = next(game, ctx)
+  local mine = ctx.mapId == "VERMILION_DOCK"
+    and ctx.reason == "ss_anne_departed"
+    and myPublicEligibilityCheck(game)
+  return allowed == true or mine == true
+end)
+```
+
+With no wrapper, the hook allocates no context and vanilla behavior is
+unchanged. A throwing wrapper is isolated by the normal hook bus. A nil,
+string, number, table, or other malformed final answer fails closed. Disabling
+or uninstalling the permitting mod therefore restores vanilla ejection without
+changing the S.S. Anne story flag or restoring the ship.
+
+Normal hook-chain ownership applies: a wrapper that does not call `next`
+intentionally owns the final answer and does not run lower-priority wrappers.
+Permission wrappers must call `next` as shown above to compose. A noncompliant
+wrapper that returns false without calling `next` safely denies occupancy and
+can suppress downstream permission by this standard rule. A malformed answer
+also fails closed and cannot force occupancy.
+
 ## Party ordering
 
 Companion UIs and alternate party screens can call
