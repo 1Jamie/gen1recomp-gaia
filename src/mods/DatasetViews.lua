@@ -359,12 +359,11 @@ function DatasetViews:open(version)
   if type(version) ~= "string" or not GameVersion.VERSIONS[version] then
     return nil, "unknown_version"
   end
-  local inspected, reason, detail = CacheContract.inspect(version, self.fs, {
+  local inspected, reason = CacheContract.inspect(version, self.fs, {
     allowSource = true, semantic = true,
   })
   if not inspected then
     self.datasets[version] = nil
-    Logger.warn("dataset %s unavailable: %s", version, detail)
     return nil, reason
   end
   local plan, invalid = self:_preflight(version, inspected)
