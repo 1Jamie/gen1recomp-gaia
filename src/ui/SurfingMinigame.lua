@@ -484,7 +484,7 @@ function SurfingMinigame.new(game, onDone, skipTitle)
   -- Linear cols mirror kept for unit tests only
   self.cols = {}
   for c = 0, 10 do
-    self.cols[c] = flatCol
+    self.cols[c] = { pat = WAVE_PATTERNS[0x00], hl = FLAT_WATER_Y, hr = FLAT_WATER_Y }
   end
   self.colTail = 10
 
