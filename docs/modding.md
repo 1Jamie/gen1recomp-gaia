@@ -209,7 +209,7 @@ internals:
 ```lua
 local gold, reason = mod.datasets:open("gold")
 if not gold then
-  -- reason is "unknown_version" or "not_imported"
+  -- reason is "unknown_version", "not_imported", or "invalid_cache"
   return
 end
 
@@ -223,15 +223,21 @@ end
 ```
 
 `view.version` and `view.generation` identify the selected dataset.
-`view.content` exposes the same registry names and generation-specific record
-shapes as `mod.content`, but only `get`, `has`, and `each`; returned
-records are detached copies and cannot mutate either dataset. Each open call
-receives an independent facade, so one mod cannot replace another mod view method. Engine-provided
-semantic records, such as `NORMAL>GHOST` type matchups, are included.
+`view.content` exposes the same registry names, aliases, generation routing,
+and data-only record shapes as `mod.content`, but only `get`, `has`, and
+`each`. Returned records are detached copies and cannot mutate either dataset.
+Records containing functions, userdata, threads, metatables, or cycles are not
+exposed. Each open call receives an independent facade, so one mod cannot
+replace another mod view method. Canonical boot shaping is included, such as
+Gen 1 defaults and Yellow corrections, and Gold's Foresight matchup rows and
+derived `held_items`.
 
-Only a cache carrying the current engine completion marker is opened. Missing
-and stale imports both return `nil, "not_imported"`; no raw ROM bytes or
-generated Lua modules are exposed. `view.assets:path(relative)` and
+The marker and every required generated module for the selected version are
+rechecked on each open. Missing, partial, and stale imports return
+`nil, "not_imported"`; malformed or resource-limit-breaking generated data
+returns `nil, "invalid_cache"`. Generated modules are decoded with a bounded
+literal-only grammar and are never executed. No raw ROM bytes or generated
+source are exposed. `view.assets:path(relative)` and
 `view.assets:info(relative)` accept only `assets/generated/...` paths and
 keep them under the selected version cache prefix. The API never changes
 `mod.game`, the active `Data` table, `GameVersion`, or cache mount state.

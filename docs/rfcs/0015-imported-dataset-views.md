@@ -1,4 +1,4 @@
-# RFC 0012: Read-only imported dataset views
+# RFC 0015: Read-only imported dataset views
 
 ## Status
 
@@ -15,10 +15,15 @@ generated Lua directly, or asking for a second raw-ROM import. They compose
 poorly with the active game, expose unstable import layout, and make safe
 read-only use impossible from the sandbox.
 
-The immediate example is an optional content pack derived from an already
-verified Gold import while Red, Blue, or Yellow remains active. The capability
-is generic and useful to randomizers, compatibility inspectors, dex tools, and
-other cross-version content mods.
+The concrete consumer is **Adaptive Trainers**, whose approved Phase G Kanto+
+sidecar must derive nine Kanto-line continuations, Steel/type and move
+definitions, and generated sprites from the player's existing verified Gold
+cache while Red, Blue, or Yellow remains active. `mod.content` exposes only the
+active R/B/Y dataset; `mod.imports` can read only separately declared raw mod
+imports; and `mod.cache` is mod-private generated output. None can inspect the
+launcher-owned Gold semantic dataset without a second ROM import and mod-side
+ROM interpretation. The engine API remains generic and contains no Adaptive
+Trainers policy.
 
 ## Decision and plan extended
 
@@ -59,7 +64,8 @@ view = {
 }
 ```
 
-`get` returns a detached copy or nil. `has` reports semantic presence.
+`get` returns a bounded detached data-only copy or nil. `has` reports data-only
+semantic presence.
 `each` returns ids in lexical order and detached values. The registries use
 the selected version's generation routing and the engine's existing
 `Schemas`, `Registry`, and `Builtins` normalization, so structured sources
@@ -74,10 +80,16 @@ accept only relative paths below `assets/generated/`, reject control
 characters, absolute paths, backslashes, and traversal, and expose no byte
 reader.
 
-An unknown version returns `nil, "unknown_version"`. A missing or stale
-completion marker returns `nil, "not_imported"`. Generated tables are parsed
-under an empty environment and cached per version; the API never exposes raw
-ROM bytes, generated source, host paths, or a cache mount.
+An unknown version returns `nil, "unknown_version"`. A missing, partial, or
+stale cache returns `nil, "not_imported"`. A required module that is malformed
+or exceeds the limits (8 MiB per module, 48 MiB aggregate, depth 64, 500,000
+values, 2 MiB per string, or 250,000 entries per table) returns
+`nil, "invalid_cache"`; actionable detail is engine-logged but not exposed to
+the mod. Generated Lua is decoded with the existing restricted
+literal grammar and never executed. Functions, userdata, threads, metatables,
+cycles, non-table roots, binary chunks, and trailing syntax cannot cross the
+facade. Successful roots are decoded lazily and cached per selected version.
+The API never exposes raw ROM bytes, generated source, host paths, or a mount.
 
 ## Migration and compatibility
 
@@ -90,23 +102,28 @@ Opening a view does not change `GameVersion`, `CacheFs.prefix`, the active
 `Data` table, PhysFS mounts, save state, or the selected game's behavior.
 Red, Blue, Yellow, Gold, and Silver keep their existing active data paths.
 
-The completion-marker format moves to the pure `CacheFormat` helper shared by
-the importer and dataset service. The literal marker and import readiness
-behavior are unchanged.
+The completion marker and per-version required-file rules live in the pure,
+injected `CacheContract` shared by the importer and dataset service. It also
+defines source-tree behavior. Neither consumer mutates `CacheFs.prefix` while
+checking readiness. Every `open` revalidates the contract and required module
+shapes; a stale/remove/reimport transition evicts the previous semantic view.
 
 ## Verification
 
-- `tests/modkit/cases/dataset_views.lua` loads a sandboxed fixture mod through
-  the public API and covers Red, Blue, Yellow, and Gold independently.
+- `tests/modkit/cases/dataset_views.lua` loads sandboxed fixture mods through
+  the public API and covers Red, Blue, Yellow, Gold, and Silver independently.
 - The test proves semantic registry normalization, deterministic iteration,
   detached records, read-only facades, cross-mod facade isolation,
   version-prefixed generated assets,
   traversal rejection, stable failure reasons, and stale-marker rejection.
-- The same test proves that cross-version reads do not change the active data,
-  active game, or cache prefix, and that a no-mod boot performs zero
-  cross-version cache reads.
-- The existing importer and engine/modkit suites prove unchanged marker
-  readiness and no-mod behavior.
+- It also proves missing/empty/partial/stale/remove/reimport behavior, hostile
+  generated-source rejection, canonical Gen 1/Yellow/Gold hydration, and the
+  approved Kanto+ Gold records and assets.
+- `tests/modkit/cases/dataset_views_nontermination.lua` proves generated code
+  is rejected rather than executed; `tests/engine/generated_data_decoder_test.lua`
+  proves every decoder resource bound.
+- `tests/engine/dataset_views_no_mod_parity.lua` is the separate guarded no-mod
+  parity suite and proves the service stays unallocated with zero cache reads.
 
 ## Deprecation etiquette
 

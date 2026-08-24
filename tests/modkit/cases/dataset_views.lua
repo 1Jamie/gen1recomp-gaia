@@ -1,251 +1,288 @@
--- Cross-version imported datasets through the public sandboxed mod API.
--- The view is semantic and read-only: registry-shaped records in, detached
--- copies out, with generated assets kept inside the selected version namespace.
-
+-- Sandboxed public-API coverage for imported semantic dataset views.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.modkit")
+local Fixture = require("tests.modkit.dataset_view_fixture")
 local GameVersion = require("src.core.GameVersion")
 local CacheFs = require("src.import.CacheFs")
-local CacheFormat = require("src.import.CacheFormat")
-
-local function serialized(value)
-  local function encode(v)
-    if type(v) == "string" then return string.format("%q", v) end
-    if type(v) == "number" or type(v) == "boolean" then return tostring(v) end
-    local keys = {}
-    for key in pairs(v) do keys[#keys + 1] = key end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-    local out = { "{" }
-    for _, key in ipairs(keys) do
-      out[#out + 1] = "[" .. encode(key) .. "]=" .. encode(v[key]) .. ","
-    end
-    out[#out + 1] = "}"
-    return table.concat(out)
-  end
-  return "return " .. encode(value)
-end
-
-local files = {
-  ["mods/dataset_probe/manifest.json"] = [[{
-    "id": "dataset_probe",
-    "name": "Dataset Probe",
-    "version": "1.0.0",
-    "entry": "main.lua",
-    "api": 2,
-    "games": ["all"]
-  }]],
-  ["mods/dataset_probe/main.lua"] = [[
-local mod = ...
-local out = {}
-for _, version in ipairs({ "red", "blue", "yellow", "gold" }) do
-  local view, reason = mod.datasets:open(version)
-  if not view then
-    out[version] = { reason = reason }
-  else
-    local registry = view.content.pokemon
-    local first = registry:get("FIXMON")
-    first.name = "MUTATED"
-    local ids = {}
-    for id in registry:each() do ids[#ids + 1] = id end
-    local immune = view.content.type_chart:get("NORMAL>GHOST")
-    local steel = view.content.type_chart:get("STEEL")
-    out[version] = {
-      version = view.version,
-      generation = view.generation,
-      name = registry:get("FIXMON").name,
-      has = registry:has("FIXMON"),
-      ids = ids,
-      writable = registry.register ~= nil or registry.patch ~= nil
-        or registry.override ~= nil or registry.remove ~= nil,
-      sprite = view.assets:path(registry:get("FIXMON").spriteFront),
-      spriteInfo = view.assets:info(registry:get("FIXMON").spriteFront),
-      normalGhost = immune and immune.multiplier,
-      steelCategory = steel and steel.category,
-    }
-  end
-end
-local missing, missingReason = mod.datasets:open("silver")
-local unknown, unknownReason = mod.datasets:open("crystal")
-out.silver = { present = missing ~= nil, reason = missingReason }
-out.crystal = { present = unknown ~= nil, reason = unknownReason }
-local gold = mod.datasets:open("gold")
-out.assetEscape = pcall(function() gold.assets:path("../save.lua") end)
-out.rawAssetRead = gold.assets.read ~= nil
-mod.exports.result = out
-  ]],
-}
-
-local isolationMods = {
-  ["mods/dataset_mutator/manifest.json"] = [[{
-    "id": "dataset_mutator",
-    "name": "Dataset Mutator",
-    "version": "1.0.0",
-    "entry": "main.lua",
-    "api": 2,
-    "games": ["all"]
-  }]],
-  ["mods/dataset_mutator/main.lua"] = [[
-local mod = ...
-local view = assert(mod.datasets:open("red"))
-view.content.pokemon.get = function() return { name = "POISONED" } end
-  ]],
-  ["mods/dataset_observer/manifest.json"] = [[{
-    "id": "dataset_observer",
-    "name": "Dataset Observer",
-    "version": "1.0.0",
-    "entry": "main.lua",
-    "api": 2,
-    "games": ["all"],
-    "dependencies": ["dataset_mutator"]
-  }]],
-  ["mods/dataset_observer/main.lua"] = [[
-local mod = ...
-local view = assert(mod.datasets:open("red"))
-mod.exports.name = view.content.pokemon:get("FIXMON").name
-  ]],
-}
-
-local labels = {
-  red = "RED SOURCE", blue = "BLUE SOURCE",
-  yellow = "YELLOW SOURCE", gold = "GOLD SOURCE",
-}
-
-for _, version in ipairs({ "red", "blue", "yellow", "gold" }) do
-  local prefix = GameVersion.cachePrefix(version)
-  files[prefix .. "rom-cache.complete"] =
-    "rom-cache-v10:" .. GameVersion.info(version).sha1
-  files[prefix .. "data/generated/pokemon.lua"] = serialized({
-    FIXMON = {
-      id = "FIXMON", name = labels[version], dex = version == "gold" and 252 or 152,
-      spriteFront = "assets/generated/battle/front/fixmon.png",
-    },
-    ALPHA = { id = "ALPHA", name = "ALPHA", dex = 1,
-      spriteFront = "assets/generated/battle/front/alpha.png" },
-  })
-  files[prefix .. "data/generated/type_chart.lua"] = serialized({
-    matchups = { { attacker = "NORMAL", defender = "GHOST", multiplier = 0 } },
-    types = version == "gold" and {
-      STEEL = { name = "STEEL", category = "physical", index = 9 },
-    } or {},
-  })
-  files[prefix .. "assets/generated/battle/front/fixmon.png"] = "png-" .. version
-end
-
--- An otherwise plausible Silver tree has no completion marker.  A view must
--- not execute or expose it.
-files[GameVersion.cachePrefix("silver") .. "data/generated/pokemon.lua"] =
-  serialized({ FIXMON = { id = "FIXMON", name = "UNVERIFIED" } })
-
-T.eq(CacheFormat.markerFor("red"),
-  "rom-cache-v10:" .. GameVersion.info("red").sha1,
-  "cache marker follows the importer format and version hash")
-T.eq(CacheFormat.matches("silver", "rom-cache-v9:stale"), false,
-  "stale cache formats are rejected")
-T.eq(CacheFormat.markerFor("crystal"), nil,
-  "unknown versions have no valid cache marker")
+local Schemas = require("src.mods.Schemas")
 
 local originalVersion = GameVersion.get()
 local originalPrefix = CacheFs.prefix
 GameVersion.set("red")
 
-local function isVersionCachePath(path)
-  for _, version in ipairs(GameVersion.ORDER) do
-    local prefix = GameVersion.cachePrefix(version)
-    if path:sub(1, #prefix) == prefix then return true end
-  end
-  return false
+local files = {}
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+  Fixture.cache(files, version)
 end
+local probe = Fixture.addMod(files, "dataset_probe", [[
+local mod = ...
+local out = {}
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+  local view, reason = mod.datasets:open(version)
+  local mon = view and view.content.pokemon:get("FIXMON")
+  if mon then mon.name = "MUTATED" end
+  local ids = {}
+  if view then
+    for id, value in view.content.pokemon:each() do
+      ids[#ids + 1] = id
+      if value then value.name = "EACH_MUTATED" end
+    end
+  end
+  out[version] = {
+    reason = reason, generation = view and view.generation,
+    name = view and view.content.pokemon:get("FIXMON").name,
+    has = view and view.content.pokemon:has("FIXMON"), ids = ids,
+    aliasScripts = view and view.content.scripts == view.content.map_scripts,
+    aliasUi = view and view.content.ui == view.content.screens,
+    readOnly = view and view.content.pokemon.register == nil
+      and view.content.pokemon.patch == nil and view.content.pokemon.remove == nil,
+  }
+end
+local yellow = assert(mod.datasets:open("yellow"))
+out.yellowOldMan = yellow.content.field:get("oldManBattle")
+out.yellowBoot = yellow.content.field:get("boot")
+local red = assert(mod.datasets:open("red"))
+out.redBoot = red.content.field:get("boot")
+out.redConstants = red.content.constants:get("dexSize")
+local gold = assert(mod.datasets:open("gold"))
+out.registryCount = 0
+for _, registry in pairs(gold.content) do
+  if type(registry) == "table" then out.registryCount = out.registryCount + 1 end
+end
+out.foresight = gold.content.type_chart:get("NORMAL>GHOST")
+out.held = gold.content.held_items:get("LEFTOVERS")
+out.continuations, out.moves, out.assets = {}, {}, {}
+for _, id in ipairs({ "CROBAT", "BELLOSSOM", "POLITOED", "SLOWKING",
+    "STEELIX", "SCIZOR", "KINGDRA", "PORYGON2", "BLISSEY" }) do
+  local row = gold.content.pokemon:get(id)
+  out.continuations[id] = row and row.dex
+  out.assets[id] = row and {
+    gold.assets:info(row.spriteFront), gold.assets:info(row.spriteBack) }
+end
+for _, id in ipairs({ "IRON_TAIL", "METAL_CLAW", "STEEL_WING", "RAIN_DANCE",
+    "SUNNY_DAY", "SANDSTORM", "SLUDGE_BOMB", "SHADOW_BALL" }) do
+  out.moves[id] = gold.content.moves:has(id)
+end
+out.steel = gold.content.type_chart:has("STEEL")
+out.executableBuiltinHidden = gold.content.statuses:get("sleep") == nil
+out.assetDirectory = gold.assets:info("assets/generated/battle/front")
+out.assetRejects = {}
+for _, path in ipairs({ "/assets/generated/x", "assets\\generated\\x",
+    "assets/generated/../x", "assets/generated/./x", "other/x",
+    "assets/generated/x\1" }) do
+  out.assetRejects[#out.assetRejects + 1] = pcall(gold.assets.path, gold.assets, path)
+end
+local unknown, unknownReason = mod.datasets:open("crystal")
+out.unknown = { unknown ~= nil, unknownReason }
+mod.exports.result = out
+]])
 
--- No mod means the new service is completely cold.  Count only cross-version
--- cache reads so the loader's ordinary discovery/state reads do not matter.
-local vanillaFiles = {}
-for path, body in pairs(files) do
-  if not path:match("^mods/") then
-    vanillaFiles[path] = body
-  end
-end
-local vanillaFs = T.sdk.memfs(vanillaFiles)
-local vanillaReads = 0
-local vanillaRead = vanillaFs.read
-vanillaFs.read = function(path)
-  if isVersionCachePath(path) then
-    vanillaReads = vanillaReads + 1
-  end
-  return vanillaRead(path)
-end
-local vanillaData = { pokemon = { ACTIVE = { id = "ACTIVE", name = "ACTIVE" } } }
-local vanilla = T.sdk.loadNone({ fs = vanillaFs, data = vanillaData })
-T.eq(#vanilla.errors, 0, "no-mod loader remains clean")
-T.eq(vanillaReads, 0, "no mod performs no imported-dataset reads")
-T.eq(vanillaData.pokemon.ACTIVE.name, "ACTIVE",
-  "no mod leaves the active dataset unchanged")
-vanilla.release()
-
-local activeData = { pokemon = { ACTIVE = { id = "ACTIVE", name = "ACTIVE" } } }
-local run = T.sdk.loadMods({ "mods/dataset_probe" }, {
-  fs = T.sdk.memfs(files), data = activeData, generation = 1,
+local active = { pokemon = { ACTIVE = { id = "ACTIVE", nested = { n = 1 } } } }
+local run = T.sdk.loadMods({ probe }, {
+  fs = T.sdk.memfs(files), data = active, generation = 1,
 })
-T.eq(#run.errors, 0,
-  "sandboxed dataset probe loads clean: " .. tostring(run.errors[1]))
-local out = run.loader.exports.dataset_probe
-  and run.loader.exports.dataset_probe.result or {}
-
-for _, version in ipairs({ "red", "blue", "yellow", "gold" }) do
-  local got = out[version] or {}
-  T.eq(got.version, version, version .. " view reports its selected version")
-  T.eq(got.generation, version == "gold" and 2 or 1,
-    version .. " view reports the selected generation")
-  T.eq(got.name, labels[version],
-    version .. " returns its own semantic species record")
-  T.eq(got.has, true, version .. " registry has() reads the imported view")
-  T.same(got.ids, { "ALPHA", "FIXMON" },
-    version .. " registry each() is deterministic")
-  T.eq(got.writable, false, version .. " registry exposes no write verbs")
-  T.eq(got.sprite,
-    GameVersion.cachePrefix(version) .. "assets/generated/battle/front/fixmon.png",
-    version .. " asset path stays in its cache namespace")
-  T.same(got.spriteInfo, { type = "file" },
-    version .. " asset info is sanitized metadata")
-  T.eq(got.normalGhost, 0,
-    version .. " exposes structured matchup ids semantically")
+T.eq(#run.errors, 0, "dataset public probe loads clean")
+local out = run.loader.exports.dataset_probe.result
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+  T.eq(out[version].reason, nil, version .. " opens")
+  T.eq(out[version].generation,
+    (version == "gold" or version == "silver") and 2 or 1,
+    version .. " reports selected generation")
+  T.eq(out[version].name, "FIXMON", version .. " get/each values are detached")
+  T.eq(out[version].has, true, version .. " has reads without exposing a copy")
+  T.eq(out[version].aliasScripts, true, version .. " scripts alias is canonical")
+  T.eq(out[version].aliasUi, true, version .. " ui alias is canonical")
+  T.eq(out[version].readOnly, true, version .. " registry has no write verbs")
 end
-T.eq(out.gold and out.gold.steelCategory, "physical",
-  "Gold exposes imported Steel as a semantic type record")
-
-T.same(out.silver, { present = false, reason = "not_imported" },
-  "an unverified cache is unavailable")
-T.same(out.crystal, { present = false, reason = "unknown_version" },
-  "an unknown version fails with a stable reason")
-T.eq(out.assetEscape, false, "dataset asset paths reject traversal")
-T.eq(out.rawAssetRead, false, "dataset assets expose no raw byte reader")
-T.eq(activeData.pokemon.ACTIVE.name, "ACTIVE",
-  "cross-version reads do not mutate the active game dataset")
-T.eq(activeData.pokemon.FIXMON, nil,
-  "cross-version records are not merged into active game data")
-T.eq(GameVersion.get(), "red", "dataset reads do not switch the active game")
-T.eq(CacheFs.prefix, originalPrefix, "dataset reads do not change cache prefix state")
-
+T.eq(out.redConstants, 1, "Red derives dexSize through canonical defaults")
+T.eq(out.redBoot and out.redBoot.screens and out.redBoot.screens.splash,
+  "IntroMovie", "Red uses canonical boot defaults")
+T.eq(out.yellowOldMan and out.yellowOldMan.species, "RATTATA",
+  "Yellow applies canonical correction")
+T.eq(out.yellowBoot and out.yellowBoot.screens and out.yellowBoot.screens.splash,
+  "YellowIntro",
+  "Yellow uses its canonical splash")
+T.eq(out.foresight and out.foresight.multiplier, 0,
+  "Gold appends Foresight matchup rows")
+T.eq(out.held and out.held.heldEffect, "HELD_LEFTOVERS", "Gold derives held_items")
+for _, id in ipairs(Fixture.CONTINUATIONS) do
+  T.check(out.continuations[id] ~= nil, "Gold exposes " .. id)
+  T.same(out.assets[id], { { type = "file" }, { type = "file" } },
+    "Gold exposes namespaced front/back assets for " .. id)
+end
+for _, id in ipairs(Fixture.MOVES) do T.eq(out.moves[id], true, "Gold exposes " .. id) end
+T.eq(out.steel, true, "Gold exposes Steel")
+local registryCount = 0
+for _ in pairs(Schemas.REGISTRIES) do registryCount = registryCount + 1 end
+for _ in pairs(Schemas.ALIASES) do registryCount = registryCount + 1 end
+T.eq(out.registryCount, registryCount,
+  "view exposes every canonical registry and alias")
+T.eq(out.executableBuiltinHidden, true,
+  "engine records containing closures do not cross the data-only facade")
+T.eq(out.assetDirectory, nil, "asset info does not expose directories")
+for index, accepted in ipairs(out.assetRejects) do
+  T.eq(accepted, false, "asset rejection " .. index)
+end
+T.same(out.unknown, { false, "unknown_version" }, "unknown version fails stably")
+T.eq(active.pokemon.ACTIVE.nested.n, 1, "active Data stays unchanged")
+T.eq(active.pokemon.FIXMON, nil, "inactive records do not merge into active Data")
+T.eq(GameVersion.get(), "red", "active GameVersion stays unchanged")
+T.eq(CacheFs.prefix, originalPrefix, "CacheFs prefix stays unchanged")
 run.release()
 
-local isolationFiles = {}
-for path, body in pairs(files) do
-  if not path:match("^mods/") then
-    isolationFiles[path] = body
-  end
-end
-for path, body in pairs(isolationMods) do isolationFiles[path] = body end
-local isolationRun = T.sdk.loadMods({
-  "mods/dataset_mutator", "mods/dataset_observer",
-}, { fs = T.sdk.memfs(isolationFiles),
-     data = { pokemon = {} }, generation = 1 })
-T.eq(#isolationRun.errors, 0, "cross-mod isolation fixture loads cleanly")
-T.eq(isolationRun.loader.exports.dataset_observer
-    and isolationRun.loader.exports.dataset_observer.name,
-  labels.red, "one mod cannot mutate another mod dataset facade")
+-- Facade replacement and nested record mutation do not cross mod boundaries.
+local isolation = {}
+Fixture.cache(isolation, "red")
+local mutator = Fixture.addMod(isolation, "dataset_mutator", [[
+local mod = ...
+local view = assert(mod.datasets:open("red"))
+view.content.pokemon.get = function() return { name = "POISONED" } end
+local row = view.content.pokemon:get("FIXMON")
+if row then row.name = "CHANGED" end
+]])
+local observer = Fixture.addMod(isolation, "dataset_observer", [[
+local mod = ...
+local view = assert(mod.datasets:open("red"))
+mod.exports.name = view.content.pokemon:get("FIXMON").name
+]])
+isolation["mods/dataset_observer/manifest.json"] = [[{
+  "id": "dataset_observer", "name": "dataset_observer", "version": "1.0.0",
+  "entry": "main.lua", "api": 2, "games": ["all"],
+  "dependencies": ["dataset_mutator"]
+}]]
+local isolationRun = T.sdk.loadMods({ mutator, observer }, {
+  fs = T.sdk.memfs(isolation), data = { pokemon = {} }, generation = 1,
+})
+T.eq(isolationRun.loader.exports.dataset_observer.name, "FIXMON",
+  "facade and record mutation cannot cross mods")
 isolationRun.release()
+
+-- Marker-only, empty, partial, and stale-after-first-open caches fail closed.
+local readiness = {}
+local emptyPrefix = GameVersion.cachePrefix("red")
+readiness[emptyPrefix .. "rom-cache.complete"] =
+  "rom-cache-v10:" .. GameVersion.info("red").sha1
+Fixture.cache(readiness, "blue")
+readiness[GameVersion.cachePrefix("blue") .. "data/generated/moves.lua"] = nil
+Fixture.cache(readiness, "gold")
+local staleReads = 0
+local readinessFs = T.sdk.memfs(readiness)
+local rawRead = readinessFs.read
+readinessFs.read = function(path)
+  if path == GameVersion.cachePrefix("gold") .. "rom-cache.complete" then
+    staleReads = staleReads + 1
+    if staleReads > 1 then return "rom-cache-v9:stale" end
+  end
+  return rawRead(path)
+end
+local readinessMod = Fixture.addMod(readiness, "readiness_probe", [[
+local mod = ...
+local out = {}
+for _, version in ipairs({ "red", "blue" }) do
+  local view, reason = mod.datasets:open(version)
+  out[version] = { view ~= nil, reason }
+end
+local first, firstReason = mod.datasets:open("gold")
+local second, secondReason = mod.datasets:open("gold")
+out.gold = { first ~= nil, firstReason, second ~= nil, secondReason }
+mod.exports.result = out
+]])
+local readinessRun = T.sdk.loadMods({ readinessMod }, {
+  fs = readinessFs, data = { pokemon = {} }, generation = 1,
+})
+local readyOut = readinessRun.loader.exports.readiness_probe.result
+T.same(readyOut.red, { false, "not_imported" }, "marker-only empty cache fails")
+T.same(readyOut.blue, { false, "not_imported" }, "partial cache fails")
+T.same(readyOut.gold, { true, nil, false, "not_imported" },
+  "cached view is invalidated when marker becomes stale")
+readinessRun.release()
+
+-- Removal followed by a fresh import cannot resurrect the pre-removal view.
+local transition = {}
+Fixture.cache(transition, "red")
+local transitionFs = T.sdk.memfs(transition)
+local transitionRead = transitionFs.read
+local transitionMarkers = 0
+local reimportedPokemon = require("src.import.LuaWriter").encode({
+  FIXMON = { id = "FIXMON", name = "REIMPORTED", dex = 1,
+    spriteFront = "assets/generated/battle/front/fixmon.png",
+    spriteBack = "assets/generated/battle/back/fixmon.png", frontSize = 5 },
+})
+transitionFs.read = function(path)
+  if path == GameVersion.cachePrefix("red") .. "rom-cache.complete" then
+    transitionMarkers = transitionMarkers + 1
+    if transitionMarkers == 2 then return nil end
+  end
+  local body = transitionRead(path)
+  if transitionMarkers >= 3
+      and path == GameVersion.cachePrefix("red") .. "data/generated/pokemon.lua" then
+    return reimportedPokemon
+  end
+  return body
+end
+local transitionMod = Fixture.addMod(transition, "transition_probe", [[
+local mod = ...
+local out = {}
+for index = 1, 3 do
+  local view, reason = mod.datasets:open("red")
+  out[index] = { view and view.content.pokemon:get("FIXMON").name, reason }
+end
+mod.exports.result = out
+]])
+local transitionRun = T.sdk.loadMods({ transitionMod }, {
+  fs = transitionFs, data = { pokemon = {} }, generation = 1,
+})
+T.same(transitionRun.loader.exports.transition_probe.result, {
+  { "FIXMON" }, { nil, "not_imported" }, { "REIMPORTED" },
+}, "remove and reimport transition rebuilds the semantic view")
+transitionRun.release()
+
+-- Every hostile source is rejected as data, with one stable public reason.
+local hostile = {
+  { "red", "return { BAD = function() return 1 end }" },
+  { "blue", "owned = true; return {}" },
+  { "yellow", "return 7" },
+  { "gold", string.char(27) .. "Lua" },
+  { "silver", "return {}; while true do end" },
+}
+local hostileFiles, hostilePaths = {}, {}
+for _, row in ipairs(hostile) do
+  Fixture.cache(hostileFiles, row[1], { pokemon = row[2] })
+end
+local hostileMod = Fixture.addMod(hostileFiles, "hostile_probe", [[
+local mod = ...
+local out = {}
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+  local view, reason = mod.datasets:open(version)
+  out[version] = { view ~= nil, reason }
+end
+mod.exports.result = out
+]])
+hostilePaths[1] = hostileMod
+local previousHook, previousMask, previousCount
+local beforeHook
+if debug.gethook and debug.sethook then
+  previousHook, previousMask, previousCount = debug.gethook()
+  beforeHook = function() end
+  debug.sethook(beforeHook, "", 1000)
+end
+local hostileRun = T.sdk.loadMods(hostilePaths, {
+  fs = T.sdk.memfs(hostileFiles), data = { pokemon = {} }, generation = 1,
+})
+local hostileOut = hostileRun.loader.exports.hostile_probe.result
+for _, row in ipairs(hostile) do
+  T.same(hostileOut[row[1]], { false, "invalid_cache" },
+    row[1] .. " hostile generated source fails closed")
+end
+T.eq(debug.gethook and debug.gethook(), beforeHook,
+  "dataset decoding preserves the caller debug hook")
+if debug.sethook then
+  if previousHook then debug.sethook(previousHook, previousMask, previousCount)
+  else debug.sethook() end
+end
+hostileRun.release()
 
 GameVersion.set(originalVersion)
 CacheFs.prefix = originalPrefix
-
 T.finish("dataset_views")

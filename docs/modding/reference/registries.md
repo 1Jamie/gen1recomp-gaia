@@ -342,6 +342,7 @@ accepted and merged as-is.
 | `source` | string |
 | `swarmGrass` | map of string -> {map?, rates, slots} |
 | `swarmWater` | map of string -> {map?, rate, slots} |
+| `timeFishGroups` | map of string | integer 0..255 -> {day, nite} |
 | `treeSets` | map of string -> {common, rare} |
 | `trees` | map of string -> string |
 | `water` | map of string -> {map?, rate, slots} |
@@ -598,7 +599,7 @@ mod.content.map_songs:override("PALLET_TOWN", "Music_Routes1")
 | `id` | string | yes |
 | `index` | integer >= 0 | no |
 | `label` | string | no |
-| `objects` | list of any value | no |
+| `objects` | list of {pokemon?, ...} | no |
 | `palette` | string | no |
 | `signs` | list of any value | no |
 | `tileset` | tilesets id | yes |

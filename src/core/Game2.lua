@@ -894,10 +894,7 @@ function Game2:load()
   self.data.type_chart = loadGenerated("data/generated/type_chart.lua") or {}
   -- data/types/type_matchups.asm:112-116: the rows after the `db -2` marker
   -- apply by default; Foresight is what cuts the table short at it.
-  local chart = self.data.type_chart
-  for _, row in ipairs(chart.foresightMatchups or {}) do
-    chart.matchups[#chart.matchups + 1] = row
-  end
+  require("src.core.DatasetHydration").applyGen2(self.data)
   -- The `held_items` registry's merge target: ItemAttributes' last two columns
   -- as their own table, so a mod can give an item a held behaviour without
   -- owning the whole item record.  Built BEFORE mods:load so the registry
@@ -906,7 +903,6 @@ function Game2:load()
   -- changed from what a mod reached through the shared `items` registry
   -- instead.  Both halves live in src/core/gen2/ItemEffects.lua.
   local ItemEffects = require("src.core.gen2.ItemEffects")
-  self.data.gen2HeldItems = ItemEffects.heldItemsFrom(self.data.items)
   local heldBefore = ItemEffects.heldSnapshot(self.data.gen2HeldItems)
   -- Gen 2-only tables the menus read.  Namespaced so nothing collides with the
   -- Gen 1 keys of the same idea (data.palettes, data.icons).

@@ -987,7 +987,7 @@ function Loader:_api(mod)
       open = function(_, version)
         if not loader.datasetViews then
           local DatasetViews = engineRequire("src.mods.DatasetViews")
-          loader.datasetViews = DatasetViews.new(loader.fs)
+          loader.datasetViews = DatasetViews.new(loader.fs, engineRequire)
         end
         return loader.datasetViews:open(version)
       end,

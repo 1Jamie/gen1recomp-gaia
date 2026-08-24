@@ -83,16 +83,12 @@ if extractor then
     "field.lua publishes tradeArt")
 end
 
--- a cache imported before #750 has none of the art; listing one of the
--- files in REQUIRED_FILES is what makes it re-import
-local importer = readFile("src/import/RomImporter.lua")
-T.check(importer ~= nil, "src/import/RomImporter.lua is readable")
-if importer then
-  local required = importer:match("local REQUIRED_FILES = {(.-)\n}")
-  T.check(required ~= nil, "REQUIRED_FILES parses")
-  T.check(required ~= nil and required:find(
-      '"assets/generated/trade/game_boy.png"', 1, true) ~= nil,
-    "REQUIRED_FILES makes pre-#750 caches re-import the trade art")
-end
+-- a cache imported before #750 has none of the art; the shared readiness
+-- contract is what makes it re-import.
+local CacheContract = require("src.import.CacheContract")
+local required = {}
+for _, path in ipairs(CacheContract.requiredFiles("red")) do required[path] = true end
+T.eq(required["assets/generated/trade/game_boy.png"], true,
+  "required-file contract makes pre-#750 caches re-import the trade art")
 
 T.finish("trade art import")
