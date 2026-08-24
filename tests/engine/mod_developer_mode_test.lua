@@ -60,6 +60,22 @@ do
   run.release()
 end
 
+for _, provided in ipairs({ "yes", 1 }) do
+  local run = load(provided)
+  T.eq(#run.errors, 0,
+    "non-boolean developer-mode probe loads clean: " .. tostring(provided))
+  local out = run.loader.exports.dev_probe
+  T.eq(out.seenAtLoad, false,
+    "non-boolean opts.dev is false in mod.developer: " .. tostring(provided))
+  T.eq(out.kind, "boolean",
+    "non-boolean opts.dev stays a strict public boolean: " .. tostring(provided))
+  T.eq(run.loader.dev, false,
+    "non-boolean opts.dev is false in loader.dev: " .. tostring(provided))
+  T.eq(run.loader.content.commands:get("dev_probe:diagnostics"), nil,
+    "non-boolean opts.dev cannot register developer diagnostics: " .. tostring(provided))
+  run.release()
+end
+
 do
   local run = load(true, 2)
   T.eq(#run.errors, 0, "Gen 2 developer-mode public probe loads clean")
