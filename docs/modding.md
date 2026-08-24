@@ -687,17 +687,18 @@ the hook context.
 
 ## Developer console
 
-Boot with developer mode on to unlock the in-game console and hot-reload
-hotkeys. Either set `POKEPORT_DEV=1` in the environment or pass
-`--developer` on the command line:
+On a Gen 1 boot, developer mode unlocks the in-game console and hot-reload
+hotkeys. Either set `POKEPORT_DEV=1` in the environment or pass `--developer`
+on the command line:
 
 ```sh
 love . --developer
 ```
 
-Every sandboxed entry chunk receives the same boot decision as the boolean
-`mod.developer`. It is available while the entry file is loading, so a mod can
-keep diagnostic commands, screens, and verbose tracing out of player builds:
+The mod loader independently derives a matching boolean for every sandboxed
+entry chunk as `mod.developer`. It is available while the entry file is
+loading, so a mod can keep diagnostic commands, screens, and verbose tracing
+out of player builds:
 
 ```lua
 if mod.developer then
@@ -710,11 +711,14 @@ end
 `mod.developer` is a plain boolean snapshot for this boot. It grants no
 permission and exposes neither the process environment nor the loader. In a
 normal player boot it is `false`; `POKEPORT_DEV=1` and `--developer` make it
-`true` through the same engine-owned decision that enables the console and hot
-reload. Use a mod option for player-facing feature toggles rather than treating
-developer mode as configuration.
+`true`. On Gen 1 those inputs separately enable the console and hot-reload
+hotkeys. The headless loader's `opts.dev` test seam changes only the loader
+signal and diagnostics; it does not enable the game's console or hot reload.
+Gold exposes the same `mod.developer` boolean but does not implement the Gen 1
+console or hotkeys. Use a mod option for player-facing feature toggles rather
+than treating developer mode as configuration.
 
-While developer mode is active:
+While developer mode is active on Gen 1:
 
 - `` ` `` (backtick) opens the console overlay — a Lua REPL with `game`,
   `data` and `mods` in scope. Press `` ` `` again to close it.

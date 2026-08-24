@@ -6,10 +6,11 @@ Proposed.
 
 ## Motivation
 
-The loader already has one boot-time developer-mode decision. It enables the
-console and hot reload and can be forced in headless tests, but a sandboxed mod
-cannot read it. `mod.commands` can register a diagnostic command but cannot say
-whether the current boot is a developer boot. `mod.exports` only publishes
+The loader already derives a boot-time developer-mode flag for its permission
+diagnostics and headless test seam. Gen 1's `Game` independently derives a
+similarly sourced flag for its console and hot reload. A sandboxed mod cannot
+read either one. `mod.commands` can register a diagnostic command but cannot
+say whether the current boot is a developer boot. `mod.exports` only publishes
 values to other mods. `game.ready` fires after entry registration and carries
 only the game. `mod.options` is player configuration, not engine mode, and
 `mod.log` logs unconditionally. The pre-sandbox compatibility
@@ -50,15 +51,17 @@ end
 ```
 
 The value is a plain boolean snapshot, not a loader reference or environment
-facade. `false` is the normal player-build answer. `POKEPORT_DEV=1`, the
-`--developer` command-line path, and the loader's existing injected `opts.dev`
-test seam produce `true` through the same decision that already controls the
-developer console, hot reload, and loader diagnostics. It grants no permission
+facade. `false` is the normal player-build answer. `POKEPORT_DEV=1` and the
+`--developer` command-line path make the loader flag true; on Gen 1 those inputs
+separately make `Game`'s own developer flag true for its console and hot
+reload. The loader's existing injected `opts.dev` test seam changes only the
+loader flag and diagnostics, not `Game` or its hotkeys. It grants no permission
 and does not expose environment variables. The answer is fixed for the life of
 that loader; changing a field on a mod's own table cannot change engine mode.
 
 The field is generation-independent and has identical semantics on Red, Blue,
-Yellow, Gold, and Silver.
+Yellow, Gold, and Silver. Gold and Silver do not gain Gen 1's developer console
+or hot-reload hotkeys from this field.
 
 ## Migration and compatibility
 
