@@ -371,9 +371,13 @@ end
 -- `es`: true for GLSL ES 1.00 (mobile), false for GLSL 1.20 (desktop). Only
 -- ever called from ShaderFX.convert().
 function ShaderFX.translate(fullPath, es)
-  local ffi = require("ffi")
-  local ok, l = pcall(ensureLib)
+  local okFfi, ffi = pcall(require, "ffi")
+  if not okFfi or type(ffi) ~= "table" then
+    return nil, "this build has no ffi, so presets cannot be converted here"
+  end
+  local ok, l, lerr = pcall(ensureLib)
   if not ok then return nil, "ffi.load failed: " .. tostring(l) end
+  if not l then return nil, tostring(lerr or libError or "librashader bridge not available") end
   local ptr = l.librashader_translate_preset(fullPath, es and 1 or 0)
   if ptr == nil then return nil, "librashader_translate_preset returned NULL" end
   local json = ffi.string(ptr)
@@ -780,7 +784,7 @@ end
 
 -- Translates `entry` via the bridge and writes ShaderFX.artifactPath(entry).
 -- Sets entry.converted on success; an existing artifact survives a failure.
-function ShaderFX.convert(entry, es)
+local function doConvert(entry, es)
   ShaderSourcePatches.apply(entry)
   local preset, err = ShaderFX.translate(entry.fullPath, es == nil and defaultEs() or es)
   if not preset then return false, err end
@@ -795,6 +799,12 @@ function ShaderFX.convert(entry, es)
   f:close()
   entry.converted = true
   return true
+end
+
+function ShaderFX.convert(entry, es)
+  local ok, res, err = pcall(doConvert, entry, es)
+  if not ok then return false, tostring(res) end
+  return res, err
 end
 
 -- Two independent slots. "shaderfx" stays main's option key, so existing
