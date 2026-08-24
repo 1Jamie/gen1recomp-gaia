@@ -228,7 +228,9 @@ and data-only record shapes as `mod.content`, but only `get`, `has`, and
 `each`. Returned records are detached copies and cannot mutate either dataset.
 Every generated base record passes the selected generation's existing public
 schema before it is returned; extractor metadata beside record maps stays out
-of the registry id space. A malformed record makes `get` return nil, `has`
+of the registry id space and is reserved against `register`, `override`,
+`patch`, and `remove` writes through the active registry. A malformed record
+makes `get` return nil, `has`
 return false, and `each` return no rows, and invalidates that dataset view.
 Records containing functions, userdata, threads, metatables, or cycles are not
 exposed. Each open call receives an independent facade, so one mod cannot

@@ -676,9 +676,10 @@ end
 --
 -- So beside `value` / `fields` / `keys` / `keyValue` a spec may carry
 -- `gen2Value` / `gen2Fields` / `gen2Keys` / `gen2KeyValue`, and beside
--- `semantics` / `extra` / `write` / `baseAt` / `baseIds` / `example` /
--- `notes` the matching `gen2*`.  Absent means "the Gen 1 shape is right here
--- too", which is the common case and why most registries carry none of this.
+-- `semantics` / `extra` / `write` / `baseAt` / `baseIds` / `reservedIds` /
+-- `example` / `notes` the matching `gen2*`.  Absent means "the Gen 1 shape is
+-- right here too", which is the common case and why most registries carry
+-- none of this.
 -- The registry NAME, the verbs and (wherever the id space allows it) the ids
 -- stay shared, exactly as the routing table keeps them shared.
 --
@@ -700,6 +701,7 @@ local GEN2_SHAPE = {
   gen2KeyValue = "keyValue", gen2Extra = "extra",
   gen2Semantics = "semantics", gen2Write = "write",
   gen2BaseAt = "baseAt", gen2BaseIds = "baseIds",
+  gen2ReservedIds = "reservedIds",
   gen2Example = "example", gen2Notes = "notes",
 }
 
@@ -773,14 +775,14 @@ local function recordMapExcept(...)
       if not excluded[id] then ids[#ids + 1] = id end
     end
     return ids
-  end
+  end, excluded
 end
 
-local pokemonGen2BaseAt, pokemonGen2BaseIds =
+local pokemonGen2BaseAt, pokemonGen2BaseIds, pokemonGen2ReservedIds =
   recordMapExcept("growthRates", "tmhmMoves")
-local movesGen2BaseAt, movesGen2BaseIds =
+local movesGen2BaseAt, movesGen2BaseIds, movesGen2ReservedIds =
   recordMapExcept("generation", "source")
-local itemsGen2BaseAt, itemsGen2BaseIds =
+local itemsGen2BaseAt, itemsGen2BaseIds, itemsGen2ReservedIds =
   recordMapExcept("generation", "source", "pockets")
 
 -- ------- shared Gen 2 leaves
@@ -806,6 +808,7 @@ local gen2PaletteRow = f.list(gen2Color)
 R.pokemon = {
   semantics = "record", target = "pokemon",
   gen2BaseAt = pokemonGen2BaseAt, gen2BaseIds = pokemonGen2BaseIds,
+  gen2ReservedIds = pokemonGen2ReservedIds,
   fields = {
     id = f.str, name = f.str, dex = f.int(1),
     index = f.opt(f.int(0, 255)),
@@ -898,6 +901,7 @@ R.pokemon = {
 R.moves = {
   semantics = "record", target = "moves",
   gen2BaseAt = movesGen2BaseAt, gen2BaseIds = movesGen2BaseIds,
+  gen2ReservedIds = movesGen2ReservedIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),
@@ -923,6 +927,7 @@ R.moves = {
 R.items = {
   semantics = "record", target = "items",
   gen2BaseAt = itemsGen2BaseAt, gen2BaseIds = itemsGen2BaseIds,
+  gen2ReservedIds = itemsGen2ReservedIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),

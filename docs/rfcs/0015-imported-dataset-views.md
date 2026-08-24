@@ -71,8 +71,9 @@ the selected version's generation routing and the engine's existing
 `Schemas`, `Registry`, and `Builtins` normalization, so structured sources
 such as type matchups retain the same public ids used by the active
 `mod.content` facade and extractor metadata beside record maps is not exposed
-as a record id. Every generated base record is checked with that selected
-generation's existing public schema before it can cross `get`, `has`, or
+as a record id or writable through the active registry's mutation verbs. Every
+generated base record is checked with that selected generation's existing
+public schema before it can cross `get`, `has`, or
 `each`; there is no dataset-specific duplicate schema. No register, patch,
 override, or remove verb is exposed. Each call returns an independent facade
 over the cached internal dataset, so facade mutation cannot cross mod
