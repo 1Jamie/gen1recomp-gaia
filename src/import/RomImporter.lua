@@ -28,137 +28,12 @@ local function pickFile(...)
   return fn(...) and true or false
 end
 
--- Cache generation tag; bump to force every imported version to re-extract.
--- v9: Yellow audio re-anchored on pokeyellow.sym (#522) -- stale caches
--- carry Red's bank $1f header, wave-table, and CryData offsets.
--- v10: maps carry their raw map-header/connection/object bytes and tilesets
--- their Tilesets row (#889), which a .sav export replays so a Continue on
--- real hardware has a map to load; a v9 cache has none of them and exports
--- the same unbootable save as before.
--- Deliberately NOT bumped for the Gold trainer-pic gap: this tag invalidates
--- every version at once, and that gap is Gold-only.  A per-version marker in
--- VERSION_REQUIRED_FILES_OVERRIDE.gold re-imports exactly the caches that lack
--- the stage, which is what the Yellow markers below already do for #439/#557.
--- Reach for a bump when the change spans versions or has no single file to
--- point at.
-local CACHE_FORMAT = "rom-cache-v10:"
--- The completion marker is written under each version's cache prefix
--- (red/rom-cache.complete, blue/rom-cache.complete, ...).
-local MARKER_PATH = "rom-cache.complete"
-
--- The marker a finished import writes for a version: the generation tag plus
--- that version's ROM hash, so both a format bump and a swapped ROM invalidate.
-local function markerFor(version)
-  return CACHE_FORMAT .. GameVersion.info(version).sha1
-end
+local CacheContract = require("src.import.CacheContract")
 local COMMUNITY_URL = "https://bois.icu"
 local TRUST_WARNING = "if you did not get this from bryanthaboi's github " ..
   "or a link from the discord that bryanthaboi himself posted, just know " ..
   "it might have been tampered with. go to the discord to verify " ..
   COMMUNITY_URL .. " (or click the logo above)"
-local REQUIRED_FILES = {
-  "data/generated/constants.lua",
-  "data/generated/maps.lua",
-  "data/generated/text.lua",
-  "data/generated/field.lua",
-  "data/generated/battle_anims.lua",
-  "assets/generated/title/pokemon_logo.png",
-  "assets/generated/fonts/font.png",
-  "assets/generated/battle/front/pikachu.png",
-  "assets/generated/battle/anims/move_anim_0.png",
-  "assets/generated/battle/anims/move_anim_1.png",
-  "assets/generated/audio/programs.bin",
-  -- The trade cinematic's Game Boy / cable art. Caches built before #750
-  -- carry none of it and fall back to plain rectangles, so listing one of
-  -- the files re-imports them without a CACHE_FORMAT bump.
-  "assets/generated/trade/game_boy.png",
-}
-
--- Files only one version's cache carries.  A version that predates one of
--- them re-imports on its own, without dragging the other versions through a
--- CACHE_FORMAT bump.
-local VERSION_REQUIRED_FILES = {
-  yellow = {
-    "assets/generated/battle/trainers/jessie_james.png", -- #439
-    -- Oak's own back pic and the pikapic base frames only exist in caches
-    -- built after their manifest symbols landed, so an older Yellow cache
-    -- has to re-import to stop falling back to the old man's back pic and
-    -- to the battle front pic (#557, #561).  Both are gated on manifest
-    -- symbols in RomExtractor, so these markers must only ever list files
-    -- tools/rom_manifest_yellow.json can actually produce -- otherwise the
-    -- cache reads as incomplete and re-importing cannot clear it.
-    "assets/generated/battle/profoakb.png",
-    "assets/generated/pikachu/pikapic_1.png",
-  },
-}
-
--- Gold Phase 1 writes a thinner cache than Gen 1 (no battle anim sheets,
--- trade art, or field.lua payload yet -- see docs/gold-phase1.md).  This
--- list replaces REQUIRED_FILES entirely for that version so a successful
--- Gen 2 extract is not stuck as "incomplete" waiting on Gen 1 markers.
-local VERSION_REQUIRED_FILES_OVERRIDE = {
-  gold = {
-    "data/generated/constants.lua",
-    "data/generated/maps.lua",
-    "data/generated/roofs.lua", -- Phase 2: forces re-import of Phase 1 caches
-    "data/generated/sprites.lua", -- OW sheets (Chris + NPCs)
-    "data/generated/scripts.lua", -- disassembled map scripts
-    "data/generated/text.lua", -- decoded Gen 2 dialogue strings
-    -- The engine's own strings, keyed by label rather than by address.  A
-    -- cache built before RomExtractorGen2:extractText has none, and every
-    -- line that reads through src/core/RomText.lua would silently keep
-    -- printing its Lua fallback, so this re-imports those caches rather than
-    -- bumping CACHE_FORMAT and dragging Red, Blue and Yellow through it too.
-    "data/generated/rom_text.lua",
-    "data/generated/pokemon.lua",
-    "data/generated/tilesets.lua",
-    "data/generated/audio.lua",
-    -- Mart shelves + the heal machine art ride the same import, so listing
-    -- marts.lua alone re-imports the caches from before either existed
-    -- (empty shop shelves, no Pokecenter light show).
-    "data/generated/marts.lua",
-    "assets/generated/fonts/font.png",
-    "assets/generated/fonts/frames.png", -- the seven other OPTION textbox frames
-    "assets/generated/title/pokemon_logo.png",
-    "assets/generated/title/title_screen.png", -- TitleScreenTilemap composition
-    "assets/generated/title/hooh.png",
-    "assets/generated/title/hooh_5.png", -- wing-flap frames force re-import
-    "assets/generated/title/clouds.png",
-    "assets/generated/title/copyright_splash.png",
-    "data/generated/oak_speech.lua", -- Oak texts + trainer pics
-    "assets/generated/intro/oak.png",
-    "assets/generated/intro/cal.png",
-    "assets/generated/tilesets/johto.png",
-    "assets/generated/tilesets/roofs/new_bark.png",
-    "assets/generated/sprites/chris.png",
-    "assets/generated/battle/front/chikorita.png",
-    "assets/generated/battle/front/pikachu.png",
-    "assets/generated/battle/front/marill.png", -- Oak speech demo mon
-    -- The trainer class pics (TrainerPicPointers).  FALKNER is row 0 of that
-    -- table, so a cache that produced any class pic at all produced this one.
-    -- Listed for the reason the Yellow markers above are: a cache built before
-    -- the stage existed reads as INCOMPLETE and re-imports itself, so this
-    -- particular gap cannot survive a tag bump being forgotten again.  It
-    -- costs nothing on a current cache and is the difference between every
-    -- trainer battle opening with a picture and opening with none.
-    "assets/generated/battle/trainers/falkner.png",
-    -- BattleStart_TrainerHuds cannot draw its party rows from a cache made
-    -- before the four ball tiles were extracted (#1502).
-    "assets/generated/battle/hud/balls.png",
-    "assets/generated/audio/programs.bin",
-    -- Goldenrod Game Corner reel + board art (#1581).  menu_gfx.lua used to
-    -- advertise these paths even when Slots*LZ / CardFlip* were absent from
-    -- the manifest, so a cache that never wrote the PNGs still looked
-    -- complete and SlotMachine crashed on its labelled-cell fallback.
-    "assets/generated/slots/gold_slots_1.png",
-    "assets/generated/card_flip/card_flip_1.png",
-    -- PCMailGFX (engine/pokemon/bills_pc.asm:2170-2173)
-    "assets/generated/pc/mail_item.png",
-  },
-}
--- Same Gen 2 extract, so a Silver cache is complete when the same files exist.
-VERSION_REQUIRED_FILES_OVERRIDE.silver = VERSION_REQUIRED_FILES_OVERRIDE.gold
-
 -- "Split-screen ROM selector" first-run palette (matches the FirstRun mockup):
 -- a dark neon arcade panel, one column per game.
 -- Red, Blue, and Yellow share the same importer flow once listed in
@@ -210,58 +85,6 @@ local PAL = {
   chipModBot  = { 32, 42, 69 },    -- #202a45
   chipInkGold = { 58, 44, 0 },     -- #3a2c00  dark "Y" on the gold chip
 }
-
--- Per-version required cache files.  Gold replaces the Gen 1 list entirely
--- (VERSION_REQUIRED_FILES_OVERRIDE); Yellow adds a few extra markers.
-local function requiredFilesFor(version)
-  local override = VERSION_REQUIRED_FILES_OVERRIDE[version]
-  if override then return override, true end
-  return REQUIRED_FILES, false
-end
-
--- CacheFs.exists checks the game folder directly for a portable install,
--- otherwise the save directory through love.filesystem.  It honors
--- CacheFs.prefix, so we point it at the version's cache subtree (red/,
--- blue/, yellow/, gold/).
-local function allRequiredFilesExist(version)
-  local CacheFs = require("src.import.CacheFs")
-  local saved = CacheFs.prefix
-  CacheFs.prefix = GameVersion.cachePrefix(version)
-  local ok = true
-  local required, isOverride = requiredFilesFor(version)
-  for _, path in ipairs(required) do
-    if not CacheFs.exists(path) then ok = false; break end
-  end
-  if ok and not isOverride then
-    for _, path in ipairs(VERSION_REQUIRED_FILES[version] or {}) do
-      if not CacheFs.exists(path) then ok = false; break end
-    end
-  end
-  CacheFs.prefix = saved
-  return ok
-end
-
--- A developer checkout / Python build leaves generated data in the physfs
--- source: Red at the historical root, Blue/Yellow/Gold in their versioned
--- trees.  Imported Red caches still live under red/.  Check source paths
--- directly so that cache prefix cannot hide Red's source tree, and keep
--- save-dir caches from counting as current source data.
-local function sourceTreeHasData(version)
-  if not love.filesystem.getRealDirectory then return false end
-  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
-  local required, isOverride = requiredFilesFor(version)
-  for _, path in ipairs(required) do
-    if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
-  end
-  if not isOverride then
-    for _, path in ipairs(VERSION_REQUIRED_FILES[version] or {}) do
-      if love.filesystem.getInfo(prefix .. path, "file") == nil then return false end
-    end
-  end
-  local path = prefix .. required[1]
-  local real = love.filesystem.getRealDirectory(path)
-  return real == love.filesystem.getSource()
-end
 
 -- ------- ROM cache location
 --
@@ -318,10 +141,15 @@ local function purgeSaveDirCache()
   -- / yellow/ / gold/ prefix) so it cannot shadow the portable game-folder cache.
   for _, version in ipairs(GameVersion.ORDER) do
     local prefix = GameVersion.cachePrefix(version)
-    if saveDirHas(prefix .. MARKER_PATH) or saveDirHas(prefix .. REQUIRED_FILES[1]) then
+    local required = CacheContract.requiredFilesFor(version)
+    local hasRequired = false
+    for _, path in ipairs(required) do
+      if saveDirHas(prefix .. path) then hasRequired = true; break end
+    end
+    if saveDirHas(prefix .. CacheContract.MARKER_PATH) or hasRequired then
       removeTree(prefix .. "data/generated")
       removeTree(prefix .. "assets/generated")
-      love.filesystem.remove(prefix .. MARKER_PATH)
+      love.filesystem.remove(prefix .. CacheContract.MARKER_PATH)
     end
   end
 end
@@ -336,13 +164,7 @@ function RomImporter.isReady(version)
     -- save-directory copy that would otherwise shadow it at runtime.
     purgeSaveDirCache()
   end
-  -- Generated data in a developer checkout / Python build is always current.
-  if sourceTreeHasData(version) then return true end
-  local saved = CacheFs.prefix
-  CacheFs.prefix = GameVersion.cachePrefix(version)
-  local marker = CacheFs.read(MARKER_PATH)
-  CacheFs.prefix = saved
-  return marker == markerFor(version) and allRequiredFilesExist(version)
+  return CacheContract.isReady(version, CacheFs)
 end
 
 function RomImporter.syncAndroidShortcuts(activeVersion)
@@ -1574,12 +1396,9 @@ function RomImporter.new(onComplete, opts)
     self.ready[version] = ready
     -- a marker present but for an older cache generation / different ROM means
     -- "update required" (re-import) rather than a clean first-run choose
-    local saved = CacheFs.prefix
-    CacheFs.prefix = info.cachePrefix
-    local marker = CacheFs.read(MARKER_PATH)
-    CacheFs.prefix = saved
+    local marker = CacheContract.readMarker(version, CacheFs)
     self.returning[version] =
-      (not ready) and marker ~= nil and marker ~= markerFor(version)
+      (not ready) and marker ~= nil and marker ~= CacheContract.markerFor(version)
     self.romName[version] = "pokemon_" .. info.id
       .. ((info.id == "yellow" or GameVersion.generation(version) == 2)
         and ".gbc" or ".gb")
@@ -1889,10 +1708,10 @@ function RomImporter:startData(data, displayName)
   local cleared, clearError = pcall(function()
     removeTree(prefix .. "data/generated")
     removeTree(prefix .. "assets/generated")
-    love.filesystem.remove(prefix .. MARKER_PATH)
+    love.filesystem.remove(prefix .. CacheContract.MARKER_PATH)
     CacheFs.removeTree("data/generated")
     CacheFs.removeTree("assets/generated")
-    CacheFs.remove(MARKER_PATH)
+    CacheFs.remove(CacheContract.MARKER_PATH)
   end)
   CacheFs.prefix = savedPrefix
   if not cleared then
@@ -1964,7 +1783,7 @@ function RomImporter:_completeImport(version, prefix, displayName)
   -- appear once every required file is in place.
   local savedPrefix = CacheFs.prefix
   CacheFs.prefix = prefix
-  local ok, writeError = CacheFs.write(MARKER_PATH, markerFor(version))
+  local ok, writeError = CacheContract.publish(version, CacheFs)
   CacheFs.prefix = savedPrefix
   if not ok then
     error("could not finish the private cache: " .. tostring(writeError))
