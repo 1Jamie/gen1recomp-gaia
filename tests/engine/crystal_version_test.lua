@@ -84,37 +84,32 @@ GameVersion.set(savedCurrent)
 
 -- ------- 6. the importer's required-file list
 
-local RomImporter = require("src.import.RomImporter")
+local CacheContract = require("src.import.CacheContract")
 
-love.filesystem = love.filesystem or {}
-local savedGetInfo = love.filesystem.getInfo
-local savedGetReal = love.filesystem.getRealDirectory
-local savedGetSource = love.filesystem.getSource
-
-local function probe(version)
-  local seen, order = {}, {}
-  love.filesystem.getInfo = function(name)
-    if not seen[name] then
-      seen[name] = true
-      order[#order + 1] = name
-    end
-    return { type = "file" }
+local function requiredSet(version)
+  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
+  local required, isOverride = CacheContract.requiredFilesFor(version)
+  local seen, count = {}, 0
+  local function add(path)
+    if not seen[prefix .. path] then count = count + 1 end
+    seen[prefix .. path] = true
   end
-  love.filesystem.getRealDirectory = function() return "/source" end
-  love.filesystem.getSource = function() return "/source" end
-  RomImporter.isReady(version)
-  return seen, order
+  for _, path in ipairs(required) do add(path) end
+  if not isOverride then
+    for _, path in ipairs(CacheContract.VERSION_REQUIRED_FILES[version] or {}) do
+      add(path)
+    end
+  end
+  return seen, count
 end
 
-local crystalSeen, crystalOrder = probe("crystal")
-local redSeen = probe("red")
+local crystalSeen, crystalCount = requiredSet("crystal")
+local redSeen = requiredSet("red")
 
-love.filesystem.getInfo = savedGetInfo
-love.filesystem.getRealDirectory = savedGetReal
-love.filesystem.getSource = savedGetSource
-
-check(#crystalOrder > 20,
-  ("the crystal list is substantial (%d entries probed)"):format(#crystalOrder))
+check(select(2, CacheContract.requiredFilesFor("crystal")) == true,
+  "crystal has its own required-file override, not the Gen 1 list")
+check(crystalCount > 20,
+  ("the crystal list is substantial (%d entries)"):format(crystalCount))
 for _, path in ipairs({
   "crystal/data/generated/encounters.lua",
   "crystal/data/generated/landmarks.lua",
@@ -183,6 +178,8 @@ check(Opcodes.TERMINATORS.farjumptext == true,
   "farjumptext is a terminator")
 
 -- ------- 8. the launcher reaches the crystal tab
+
+local RomImporter = require("src.import.RomImporter")
 
 local visited = {}
 local fake = setmetatable({ tab = GameVersion.ORDER[1] }, RomImporter)
