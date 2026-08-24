@@ -56,6 +56,9 @@ local GEN2 = {
   -- ../pokecrystal/engine/movie/intro.asm:1 CrystalIntro, the Crystal-only
   -- peer of GoldSilverIntro below.
   "CrystalIntro",
+  -- ../pokecrystal/engine/movie/splash.asm:1 SplashScreen, the Crystal-only
+  -- Ditto peer of GameFreakPresents below.
+  "CrystalSplash",
   "DayCareMenu", "DecorationMenu", "Diploma",
   "EggHatchAnim", "ElevatorMenu", "EvolutionAnim",
   "GameFreakPresents",

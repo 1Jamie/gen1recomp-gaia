@@ -1768,8 +1768,10 @@ end
 -- Shuckle you caught yourself is the thing the routine refuses.
 do
   local list = {}
+  local record = { party = list }
   local vm = specialVm(0, { order = { "x" }, hooks = {
     party = function() return list end,
+    save = function() return record end,
     data = function()
       return { pokemon = { SHUCKLE = { name = "SHUCKLE", index = 213,
         growthRate = "MEDIUM_FAST",
@@ -1785,6 +1787,9 @@ do
   eq(list[1].otId, Specials.MANIA_OT_ID, "with MANIA's trainer ID")
   eq(list[1].item, "BERRY", "holding a BERRY")
   eq(list[1].level, 15, "at level 15")
+  local dex = record.pokedex or {}
+  eq((dex.seen or {}).SHUCKLE, true, "seen in the #DEX")
+  eq((dex.caught or {}).SHUCKLE, true, "and caught in the #DEX")
 
   local hooks2 = { party = function() return list end,
     selectPartyMon = function(_, done) done(1, list[1]) end }

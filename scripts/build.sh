@@ -168,6 +168,31 @@ make_ico() { # $1 = output .ico path
 }
 
 # --------------------------------------------------------------- macOS
+# ShaderFX's librashader bridge.  Only the CONVERT action needs it, so a build
+# without it still runs presets that were converted elsewhere.
+# SHADERFX_BRIDGE points at a prebuilt library; otherwise cargo builds it.
+bundle_shader_bridge() {
+  local dest="$1" name="$2"
+  local src="${SHADERFX_BRIDGE:-}"
+  local crate="$ROOT/tools/shaderfx-bridge"
+  if [ -z "$src" ] && [ -f "$crate/target/release/$name" ]; then
+    src="$crate/target/release/$name"
+  fi
+  if [ -z "$src" ] && command -v cargo >/dev/null 2>&1; then
+    say "building the ShaderFX bridge with cargo"
+    if (cd "$crate" && cargo build --release >/dev/null 2>&1); then
+      src="$crate/target/release/$name"
+    fi
+  fi
+  if [ -n "$src" ] && [ -f "$src" ]; then
+    mkdir -p "$dest"
+    cp "$src" "$dest/$name"
+    say "bundled $name for SHADER FX preset conversion"
+  else
+    warn "$name not found: this build can run converted presets but not CONVERT new ones (set SHADERFX_BRIDGE or install cargo)"
+  fi
+}
+
 build_mac() {
   say "building macOS app"
   local love_app="${LOVE_APP:-/Applications/love.app}"
@@ -180,6 +205,7 @@ build_mac() {
   # drop any bundled placeholder .love and fuse ours in
   find "$out_app/Contents/Resources" -maxdepth 1 -name '*.love' -delete
   cp "$LOVE_FILE" "$out_app/Contents/Resources/game.love"
+  bundle_shader_bridge "$out_app/Contents/MacOS" "liblibrashader_bridge.dylib"
 
   local plist="$out_app/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$plist" 2>/dev/null \
@@ -293,8 +319,10 @@ build_win() {
     cp "$tls_dll" "$out_dir/gen1tls.dll"
     say "bundled gen1tls.dll for Windows TLS (wss://)"
   else
-    warn "gen1tls.dll not found — Windows zip will not support wss:// (set GEN1TLS_DLL or build native/tls_dial)"
+    warn "gen1tls.dll not found: Windows zip will not support wss:// (set GEN1TLS_DLL or build native/tls_dial)"
   fi
+
+  bundle_shader_bridge "$out_dir" "librashader_bridge.dll"
 
   # The exe's icon lives in love.exe's PE resources, so it must be patched
   # BEFORE the .love is appended: peresed rewrites the whole file and would
@@ -391,6 +419,7 @@ build_linux() {
   unsquashfs -q -no-xattrs -o "$sfs_offset" -d "$appdir" "$love_appimage" >/dev/null
 
   cp "$LOVE_FILE" "$appdir/game.love"
+  bundle_shader_bridge "$appdir" "liblibrashader_bridge.so"
 
   # Replace LÖVE's own desktop entry rather than keeping it: it says
   # Name=LÖVE / Icon=love, which is what appimaged, app menus and file

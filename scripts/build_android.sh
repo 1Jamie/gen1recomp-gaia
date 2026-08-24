@@ -2,11 +2,22 @@
 # Packages the LÖVE2D Pokémon Red port into an Android APK via love-android 11.5a.
 #
 # Usage: scripts/build_android.sh [--version X.Y.Z] [--release] [--package-only]
+#                                 [--test-application-id ID]
 #
-#   --version X.Y.Z  set app.version_name / app.version_code (else left as-is)
-#   --release        build the production-signed release APK (requires the
-#                    GEN1RECOMP_ANDROID_* signing environment variables)
-#   --package-only   zip game.love + apply branding; skip gradle
+#   --version X.Y.Z          set app.version_name / app.version_code (else left as-is)
+#   --release                build the production-signed release APK (requires the
+#                            GEN1RECOMP_ANDROID_* signing environment variables)
+#   --package-only           zip game.love + apply branding; skip gradle
+#   --test-application-id ID install under a distinct application id (e.g.
+#                             com.theboisclub.pokemonred.shaderfxtest) so a
+#                             test build installs side by side with a real
+#                             played copy instead of overwriting it. App name
+#                             gets a " (test)" suffix so it's distinguishable
+#                             in the launcher too. Without this flag,
+#                             apply_android_branding always writes back the
+#                             real shipping identity, which previously had to
+#                             be restored by hand in gradle.properties after
+#                             every test build.
 #
 # Prerequisites:
 #   - mobile/android vendored love-android tree at tag 11.5a (in-repo; see mobile/ANDROID.md)
@@ -40,6 +51,7 @@ CRYSTAL_MANIFEST_URL="${CRYSTAL_MANIFEST_URL:-https://raw.githubusercontent.com/
 VERSION=""
 PACKAGE_ONLY=false
 RELEASE=false
+TEST_APPLICATION_ID=""
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -50,11 +62,12 @@ while [ $# -gt 0 ]; do
     --version) VERSION="$2"; shift ;;
     --package-only) PACKAGE_ONLY=true ;;
     --release) RELEASE=true ;;
+    --test-application-id) TEST_APPLICATION_ID="$2"; shift ;;
     -h|--help)
-      sed -n '2,20p' "$0"
+      sed -n '2,28p' "$0"
       exit 0
       ;;
-    *) fail "unknown argument: $1 (try --version X.Y.Z, --release, or --package-only)" ;;
+    *) fail "unknown argument: $1 (try --version X.Y.Z, --release, --package-only, or --test-application-id ID)" ;;
   esac
   shift
 done
@@ -84,6 +97,14 @@ if $RELEASE; then
   done
   [ -f "$GEN1RECOMP_ANDROID_KEYSTORE" ] \
     || fail "Android signing keystore does not exist: $GEN1RECOMP_ANDROID_KEYSTORE"
+fi
+
+if [ -n "$TEST_APPLICATION_ID" ]; then
+  if ! printf '%s' "$TEST_APPLICATION_ID" | grep -Eq '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$'; then
+    fail "invalid --test-application-id '$TEST_APPLICATION_ID' (expected a dotted package id, e.g. com.theboisclub.pokemonred.shaderfxtest)"
+  fi
+  APPLICATION_ID="$TEST_APPLICATION_ID"
+  APP_NAME="$APP_NAME (test)"
 fi
 
 # --------------------------------------------------------------- preconditions

@@ -126,24 +126,23 @@ supported out of the box.
 | `2`       | Cycle COLORS                                         |
 | `3`       | Cycle TILT (free-roam overworld)                     |
 | `4`       | Cycle ZOOM through every level (free-roam overworld) |
-| `5`       | Cycle GBC FX                                         |
 | `F1`      | Save                                                 |
 | `F2`      | Load                                                 |
 | `F10`     | Open / close the mod manager                         |
 
 
-COLORS, TILT, ZOOM, GBC FX, GAME SPEED, and VOID FILL are also in the
+COLORS, TILT, ZOOM, SHADER FX, GAME SPEED, and VOID FILL are also in the
 Options menu and persist in `options.lua`.
 
 ### Low-end devices
 
 **OPTIONS → PERFORMANCE** scales the port's optional extras for weaker
-hardware: **HIGH** (everything on), **BALANCED** (no 3D tilt or GBC FX),
+hardware: **HIGH** (everything on), **BALANCED** (no 3D tilt),
 **LOW** (also no survey zoom, FPS capped), or **AUTO** — the default, which
 picks a tier from your device (ARM handhelds → LOW, phones → BALANCED,
 normal desktops → HIGH, unchanged). It only scales presentation; the
 fixed-step game logic is identical on every tier, and a lower tier hides
-your tilt/zoom/GBC-FX preferences without forgetting them. Details in
+your tilt/zoom preferences without forgetting them. Details in
 [docs/new-features.md](docs/new-features.md#performance-tier-low-end-devices).
 
 ### Rulesets

@@ -198,7 +198,101 @@ rejects(function(c) c.load_order = { "rare_soda", "rare_soda" } end, "twice",
 rejects(function(c) c.load_order = { "rare_soda", "master_ball" } end,
   "does not pin", "a load_order naming an unpinned mod")
 
+rejects(function(c) c.mods[1].enabled = "no" end, "enabled must be",
+  "a string enabled flag")
+rejects(function(c) c.mods[1].enabled = 0 end, "enabled must be",
+  "a numeric enabled flag")
+
+rejects(function(c) c.options = "fast" end, "cart options must be a table",
+  "a non-table cart options block")
+rejects(function(c) c.options = { [2] = 1 } end, "cart option keys",
+  "a numeric cart option key")
+rejects(function(c) c.options = { textSpeed = { 1 } } end,
+  "must be a string, number or boolean", "a table cart option value")
+
 T.eq(CartManifest.parse(nil), nil, "parse refuses a non-table")
+
+-- ------- a pin the cart ships switched off
+
+T.eq(cart.mods[1].enabled, nil, "a pin that says nothing carries no enabled flag")
+T.eq(CartManifest.modEnabled(cart.mods[1]), true, "and defaults to enabled")
+T.eq(CartManifest.modEnabled(nil), false, "modEnabled refuses a non-entry")
+
+local offRaw = baseCart()
+offRaw.mods[1].enabled = false
+local offCart = CartManifest.parse(offRaw)
+T.check(offCart ~= nil, "a pin switched off parses")
+T.eq(offCart.mods[1].enabled, false, "and keeps the flag")
+T.eq(CartManifest.modEnabled(offCart.mods[1]), false, "which reads back as off")
+T.eq(offCart.mods[1].sha256, SHA, "a switched-off pin is pinned like any other")
+T.eq(offCart.mods[1].options.flavour, "grape", "with its options captured")
+T.same(CartManifest.decode(CartManifest.encode(offCart)), offCart,
+  "a switched-off pin survives the file round trip")
+T.neq(CartManifest.hash(offCart), CartManifest.hash(cart),
+  "and is part of the cart hash")
+
+local onRaw = baseCart()
+onRaw.mods[1].enabled = true
+T.eq(CartManifest.canonical(CartManifest.parse(onRaw)),
+  CartManifest.canonical(cart),
+  "an explicit enabled = true is the same cart as saying nothing")
+
+-- ------- settings the cart ships
+
+local optRaw = baseCart()
+optRaw.options = { textSpeed = 1, animations = false, ruleset = "gen1_faithful" }
+local optCart, optErr = CartManifest.parse(optRaw)
+T.check(optCart ~= nil, "a cart that ships settings parses: " .. tostring(optErr))
+T.eq(optCart.options.textSpeed, 1, "the shipped number survives")
+T.eq(optCart.options.animations, false, "the shipped boolean survives")
+T.eq(optCart.options.ruleset, "gen1_faithful", "the shipped string survives")
+T.eq(cart.options, nil, "a cart that ships none carries no options table")
+T.same(CartManifest.decode(CartManifest.encode(optCart)), optCart,
+  "shipped settings survive the file round trip")
+T.neq(CartManifest.hash(optCart), CartManifest.hash(cart),
+  "and are part of the cart hash")
+T.neq(optCart.options, optCart.mods[1].options,
+  "a cart's own settings are not a mod's")
+
+-- ------- the sealed+ seal
+
+local plusRaw = baseCart()
+plusRaw.seal = "sealed+"
+local plusCart, plusErr = CartManifest.parse(plusRaw)
+T.check(plusCart ~= nil, "a sealed+ cart parses: " .. tostring(plusErr))
+T.eq(plusCart.seal, "sealed+", "the seal survives")
+T.same(CartManifest.decode(CartManifest.encode(plusCart)), plusCart,
+  "a sealed+ cart round trips through a file")
+T.neq(CartManifest.hash(plusCart), CartManifest.hash(cart),
+  "and sealed+ is part of the cart hash")
+T.eq(CartManifest.SEALS["sealed+"], true, "sealed+ is a known seal")
+
+-- ------- the launcher fields the file round trip used to drop
+
+local dressed = baseCart()
+dressed.finish = "sparkle+holo"
+dressed.speeds = { 1, 2 }
+local dressedCart = CartManifest.parse(dressed)
+local reread = CartManifest.decode(CartManifest.encode(dressedCart))
+T.eq(reread.finish, "sparkle+holo", "a cart's finish survives the file round trip")
+T.same(reread.speeds, { 1, 2 }, "and so does its speed ladder")
+T.eq(CartManifest.hash(reread), CartManifest.hash(dressedCart),
+  "so an installed copy hashes the same as the one that was written")
+
+-- ------- a cart that uses none of the above serializes exactly as it always did
+
+T.eq(CartManifest.canonical(cart),
+  "[cart].6:author$3:Ren.4:base$3:red.6:engine$7:>=1.4.0.2:id$10:kanto_plus"
+  .. ".5:label$13:art/label.png.4:repo$14:ren/kanto-plus.4:seal$6:sealed"
+  .. ".5:shell$7:#3fa9f5.7:summary$20:A sealed set of five.5:title$10:Kanto Plus"
+  .. ".7:version$5:1.2.0[mods]@9:rare_soda.2:id$9:rare_soda"
+  .. ".4:repo$13:ren/rare-soda.6:sha256$64:" .. SHA
+  .. ".6:source$6:github.7:version$5:0.4.1[options].5:fizzyT.7:flavour$5:grape"
+  .. ".9:sweetness#3@9:hard_mode.4:file#99123.2:id$9:hard_mode.3:md5$32:" .. MD5
+  .. ".3:mod#4821.6:source$10:gamebanana[options][order]@9:rare_soda@9:hard_mode",
+  "the canonical string of a cart using no new field is byte for byte the old one")
+T.eq(CartManifest.hash(cart), "2a8fbbacbd1df3f349b6a6ed387fa036",
+  "so its hash, and every save stamped with it, is unchanged")
 
 local open = baseCart()
 open.seal = "open"

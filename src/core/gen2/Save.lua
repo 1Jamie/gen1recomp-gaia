@@ -298,9 +298,11 @@ Save.DEFAULT_OPTIONS = {
   -- uses (src/core/SaveData.lua) and they drive the same shared modules, so
   -- a player's display and speed choices mean the same thing in both games.
   speed = 1,                -- GameSpeed.LEVELS multiplier, logic only
+  -- graphics performance tier: auto | high | balanced | low.  "auto" is the
+  -- Gen 1 save's own default (src/core/SaveData.lua); same key, same module.
+  performance = "auto",
   zoom = 0,                 -- Zoom offset from the window's fit scale
   tilt = 0,                 -- Tilt.LEVELS degrees, 0 = off
-  gbcfx = 0,                -- GBCFX ladder, 0 = off
   -- COLOR: GbcPalette.MODES.  "gbc" is the cart's own palettes and the
   -- default -- this is a Game Boy Color game, so colour is ON out of the box
   -- and the other two rungs are the deliberate step DOWN to a grey or green
@@ -309,6 +311,8 @@ Save.DEFAULT_OPTIONS = {
   color = "gbc",
   videoMode = "windowed",
   fpsCap = 60,
+  -- BATTLE BG (#1709): white | black, the surround around the battle screen.
+  battleBg = "white",
   -- VOID FILL: fade | water | trees | black.  fade is each map header's own
   -- border block with the dissolve across a boundary (#1418).
   voidFill = "fade",

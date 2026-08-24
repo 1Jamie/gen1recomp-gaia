@@ -367,14 +367,22 @@ function Game2:showIntro()
   })
 end
 
+-- ../pokegold/engine/menus/intro_menu.asm:848-851 IntroSequence, and Crystal's
+-- at ../pokecrystal/engine/menus/intro_menu.asm:964-967: a skip means the title.
 function Game2:showGameFreak()
   self.stack:clear()
   self.phase = "boot"
-  Screens.push(self, "Gen2GameFreakPresents", {
+  local id = (GameVersion.engine() == "crystal")
+    and "Gen2CrystalSplash" or "Gen2GameFreakPresents"
+  Screens.push(self, id, {
     title = self.titleData or {},
     oakSpeech = self.oakSpeechData or {},
-    onDone = function()
-      self:showIntro()
+    onDone = function(skipped)
+      if skipped then
+        self:showTitle()
+      else
+        self:showIntro()
+      end
     end,
   })
 end
@@ -1098,18 +1106,26 @@ function Game2:load()
     -- The play clock only runs in the overworld, the way wGameTimerPaused is
     -- set while the intro menu is up.
     Save.tickPlayTime(self.save)
-    -- START and SELECT are read only at the tail of OWPlayerInput, which
-    -- PlayerEvents never reaches while a script is running or the player is
-    -- mid-step (World:acceptsMenuInput transcribes the three gates).  A press
-    -- that arrives under one of them is dropped, not queued -- and the frame
-    -- still runs, so world:step must not be skipped on the swallowed press.
-    if self.input:wasPressed("start") and self.world:acceptsMenuInput() then
-      self:openStartMenu()
-      return
-    end
-    if self.input:wasPressed("select") and self.world:acceptsMenuInput() then
-      self:useSelectItem()
-      return
+    -- MAPEVENTS_OFF skips GetJoypad for the whole of a step, so the hJoyDown
+    -- mirror is frozen -- events.asm:190-198, :211-227 (#525, #1718)
+    local accepts = self.world:acceptsMenuInput()
+    local latch = self.joyLatch
+    if accepts then
+      self.joyLatch = nil
+      if self.input:wasPressed("start")
+          or (latch and latch.start and self.input:isDown("start")) then
+        self:openStartMenu()
+        return
+      end
+      if self.input:wasPressed("select")
+          or (latch and latch.select and self.input:isDown("select")) then
+        self:useSelectItem()
+        return
+      end
+    else
+      if not latch then latch = {}; self.joyLatch = latch end
+      if self.input:wasPressed("start") then latch.start = true end
+      if self.input:wasPressed("select") then latch.select = true end
     end
     self.world:pollInput(self.input)
     if self.input:wasPressed("a") then
@@ -1161,8 +1177,8 @@ end
 
 -- The screen-pixels-per-GB-pixel scale the post passes need so their grid and
 -- shadow offsets stay window-size independent.  Always the plain letterbox
--- fit, never the survey zoom: GBC FX is simulating the PANEL the picture is
--- being shown on, and the panel does not resize when the player zooms the map
+-- fit, never the survey zoom: SHADER FX is simulating the PANEL the picture
+-- is being shown on, and the panel does not resize when the player zooms the map
 -- -- Gen 1 hands the same pass its `Renderer:fitScale()` for that reason
 -- (Renderer:endFrame's Sp).  Following the zoom used to shrink the LCD grid to
 -- one screen pixel a cell out at survey range.
@@ -1359,25 +1375,29 @@ end
 -- Gold's frame, and then the passes that run over it.
 --
 -- The Gen 1 path gets these for free because everything it draws goes through
--- src/render/Renderer.lua, which owns a present canvas and calls GBCFX there.
--- Gold draws straight to the screen instead, which is why its GBC FX row used
--- to change a number and nothing else: nothing ever presented a canvas for the
--- shader to read.  So compose into one here when a pass wants it, and skip the
--- canvas entirely when none does -- the common case, and one less full-screen
--- blit than the old path would have paid.
+-- src/render/Renderer.lua, which owns a present canvas and calls ShaderFX
+-- there.  Gold draws straight to the screen instead, which is why its SHADER
+-- FX row used to change a number and nothing else (back when it was GBC FX):
+-- nothing ever presented a canvas for the shader to read.  So compose into
+-- one here when a pass wants it, and skip the canvas entirely when none does
+-- -- the common case, and one less full-screen blit than the old path would
+-- have paid.
 --
--- CLASSIC runs first and GBC FX second, matching the Gen 1 order: the palette
--- IS the picture, and the screen effects are simulating the panel that picture
--- is being shown on.  Mod post-processes fold in between the two, where
--- Renderer.lua:1058 folds them -- a blur or a colour grade is what the LCD grid
--- is then drawn over, rather than something that smears the grid itself.
+-- CLASSIC runs first and SHADER FX second, matching the Gen 1 order: the
+-- palette IS the picture, and the screen effects are simulating the panel
+-- that picture is being shown on.  Mod post-processes fold in between the
+-- two, where Renderer.lua:1058 folds them -- a blur or a colour grade is
+-- what the LCD grid is then drawn over, rather than something that smears
+-- the grid itself.
 function Game2:drawViewportFrame()
   local G = love.graphics
   local w, h = GameViewport.dimensions()
-  local GBCFX = require("src.render.GBCFX")
+  local ShaderFX = require("src.render.ShaderFX")
   local GbcPalette = require("src.render.GbcPalette")
   local Pipelines = require("src.render.Pipelines")
-  local fx = GBCFX.active()
+  -- Same dispatch src/render/Renderer.lua:1185 already uses for Gen 1
+  -- (ShaderFX replaced GBCFX's slot; GBCFX.lua itself is removed).
+  local shaderfx = ShaderFX.active()
 
   -- render.zones, at the instant Gen 1 raises it: the palette list is settled
   -- and the blit has not happened yet.  Gen 1's list is the SGB packet zones
@@ -1400,14 +1420,14 @@ function Game2:drawViewportFrame()
   local zoned = type(zones) == "table" and zones[1] ~= nil
 
   -- A present canvas is paid for only when something reads it: the zone pass,
-  -- GBC FX, a mod post-process, render.compose, or an enabled render.output
+  -- SHADER FX, a mod post-process, render.compose, or an enabled render.output
   -- subscriber. With none of them the frame draws straight to the screen
   -- exactly as it always did.
   local composing = ModRuntime.wantsHook("render.compose")
   local hasOutputHook = ModRuntime.wantsHook("render.output")
     and ModRuntime.call("render.output_enabled", function() return false end) == true
   local scene = nil
-  if zoned or fx or composing or Pipelines.wantsPresent() or hasOutputHook then
+  if zoned or shaderfx or composing or Pipelines.wantsPresent() or hasOutputHook then
     scene = self:presentCanvas(1, w, h)
   end
   if not scene then
@@ -1435,11 +1455,11 @@ function Game2:drawViewportFrame()
   end
 
   -- The zone pass has to land in a texture whenever anything still reads one
-  -- after it: GBC FX and a post-process both sample the tinted image, not the
-  -- untinted one.  On its own the tint rides the final blit and no second
+  -- after it: SHADER FX and a post-process both sample the tinted image, not
+  -- the untinted one.  On its own the tint rides the final blit and no second
   -- canvas is paid for.
   local source = scene
-  local reread = fx or Pipelines.wantsPresent() or hasOutputHook
+  local reread = shaderfx or Pipelines.wantsPresent() or hasOutputHook
   if zoned and reread then
     local tinted = self:presentCanvas(2, w, h)
     if tinted then
@@ -1459,7 +1479,7 @@ function Game2:drawViewportFrame()
     -- Post-process pipelines run over the finished composite and before GBC
     -- FX.  Each hands back a canvas; with none registered this returns `source`
     -- unchanged and the frame is byte-identical (Renderer.lua:1058).
-    local scale, ox, oy, dpi = self:frameFit(w, h)
+    local scale, ox, oy, dpi, pw, ph = self:frameFit(w, h)
     source = Pipelines.present(source, { width = w, height = h, scale = scale,
       dpi = dpi, dpiX = dpi, dpiY = dpi }) or source
     local outputHandled = hasOutputHook
@@ -1473,8 +1493,30 @@ function Game2:drawViewportFrame()
     if not outputHandled then
       local cx, cy, cw, ch = Playfield.cutout(w, h)
       if cx then G.setScissor(cx, cy, cw, ch) end
-      if fx then
-        GBCFX.present(source, self:pixelScale(w, h))
+      if shaderfx then
+        -- rect is physical framebuffer pixels and source is the un-scaled
+        -- size, matching Renderer.lua's fxRectPx / fxSrc contract.
+        -- A live overworld draws edge to edge at World:zoomScale, so the
+        -- faithful 160*scale box would leave the rest of the map unshaded.
+        local rect, srcW, srcH
+        if self.frameWorldActive and self.world then
+          local s = self.world:zoomScale() * dpi
+          srcW = self.world.viewW or 160
+          srcH = self.world.viewH or 144
+          local rw, rh = srcW * s, srcH * s
+          rect = {
+            x = math.floor((pw - rw) / 2), y = math.floor((ph - rh) / 2),
+            w = rw, h = rh, scale = s,
+          }
+        else
+          srcW, srcH = 160, 144
+          rect = {
+            x = ox * dpi, y = oy * dpi,
+            w = 160 * scale * dpi, h = 144 * scale * dpi,
+            scale = scale * dpi,
+          }
+        end
+        ShaderFX.render(source, rect, { w = srcW, h = srcH }, dpi, dpi)
       else
         G.setColor(1, 1, 1, 1)
         G.draw(source, 0, 0)
@@ -1516,6 +1558,28 @@ function Game2:drawContained(w, h)
   local ok, err = pcall(self.drawScene, self, pw, ph)
   Playfield.pop()
   if not ok then error(err, 0) end
+end
+
+-- BATTLE BG (#1709): the surround around the centred GB screen, taken from
+-- whichever state in the stack owns a battle.
+function Game2:paintBattleSurround(w, h)
+  local states = self.stack and self.stack.states or {}
+  local mode
+  for i = #states, 1, -1 do
+    local state = states[i]
+    if state and state.bgMode then mode = state:bgMode() break end
+  end
+  if mode ~= "black" then return end
+  local G = love.graphics
+  local scale = Chrome.fitScale(w, h)
+  local ox, oy = Chrome.fitOrigin(w, h, scale)
+  local pw, ph = 160 * scale, 144 * scale
+  G.setColor(0, 0, 0, 1)
+  if oy > 0 then G.rectangle("fill", 0, 0, w, oy) end
+  if oy + ph < h then G.rectangle("fill", 0, oy + ph, w, h - oy - ph) end
+  if ox > 0 then G.rectangle("fill", 0, oy, ox, ph) end
+  if ox + pw < w then G.rectangle("fill", ox + pw, oy, w - ox - pw, ph) end
+  G.setColor(1, 1, 1, 1)
 end
 
 function Game2:drawScene(w, h)
@@ -1587,6 +1651,7 @@ function Game2:drawScene(w, h)
         and base.drawWidescreen and base)
     if wide then
       wide:drawWidescreen(w, h)
+      self:paintBattleSurround(w, h)
       self:letterbox(w, h, false)
       if wide ~= top then
         -- The pushed box blits at the same integer fit the widescreen layer
@@ -1691,7 +1756,6 @@ end
 --   F1/F2  write / reload the save        1  GAME SPEED
 --   -  =   zoom one step out / in         2  COLOR
 --   4      cycle ZOOM                     3  TILT (mnemonic: 3D)
---                                         5  GBC FX
 --
 -- `2` is COLOR here rather than Gen 1's COLORS.  The Gen 1 row cycles SGB
 -- palette packs, which a CGB-native game has no use for; what it cycles here
@@ -1725,13 +1789,6 @@ function Game2:hotkey(key)
     local Tilt = require("src.render.Tilt")
     options.tilt = Tilt.cycle()
     persist()
-    return true
-  elseif key == "5" then
-    local GBCFX = require("src.render.GBCFX")
-    if GBCFX.isSupported() then
-      options.gbcfx = GBCFX.cycle()
-      persist()
-    end
     return true
   end
   if not (self.world and self.world.map) then
@@ -1967,7 +2024,8 @@ end
 
 -- Push the saved display options into the modules that own them.  Called
 -- whenever the options table changes hands (boot, CONTINUE, the OPTION
--- screen), so a reload comes back at the zoom, tilt and GBC FX the player left.
+-- screen), so a reload comes back at the zoom, tilt and SHADER FX the player
+-- left.
 function Game2:applyOptions()
   local options = self.options or {}
   Music.applyOptions(options)
@@ -1994,9 +2052,26 @@ function Game2:applyOptions()
   require("src.core.ScreenPosition").applyOptions(options)
   require("src.core.FrameCap").applyOptions(options)
   require("src.world.gen2.BorderFill").applyOptions(options)
-  local GBCFX = require("src.render.GBCFX")
-  if GBCFX.applyOptions(options) and self.save then
-    -- applyOptions returns true when it had to clear an unsupported level.
+  -- returns true when a persisted preset name no longer resolves (deleted
+  -- from the drop-in folder, or failed to (re)translate) and had to be
+  -- cleared back to OFF -- src\core\Game.lua:1215 mirrors this call for
+  -- Gen 1 (SHADER FX reaches Gen 2 too)
+  local shaderfxCleared = require("src.render.ShaderFX").applyOptions(options)
+  -- Scale the optional presentation extras to the device's performance
+  -- tier, same clamp src/core/Game.lua:1222-1230 applies for Gen 1 -- see
+  -- that site's comment for the full rationale.
+  local caps = require("src.core.Performance").applyOptions(options)
+  if not caps.tilt then require("src.render.Tilt").setLevel(0) end
+  if not caps.shaderfx then require("src.render.ShaderFX").deactivate() end
+  local Zoom = require("src.render.Zoom")
+  Zoom.allowSurvey = caps.survey
+  if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
+  if caps.fpsMax then
+    local FrameCap = require("src.core.FrameCap")
+    if FrameCap.current > caps.fpsMax then FrameCap.apply(caps.fpsMax) end
+  end
+  if shaderfxCleared and self.save then
+    -- applyOptions returns true when it had to clear an unresolved preset.
     self.save.options = options
   end
 end

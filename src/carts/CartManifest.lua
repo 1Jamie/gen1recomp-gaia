@@ -11,7 +11,13 @@ CartManifest.SCHEMA = 1
 CartManifest.EXT = ".g1rcart"
 CartManifest.FORMAT = "g1rcart"
 CartManifest.DIR = "carts"
-CartManifest.SEALS = { sealed = true, open = true }
+-- sealed: the pinned set runs exactly as pinned.  sealed+: the same fixed set,
+-- but the player may switch any pinned mod on or off.  open: additive.
+CartManifest.SEALS = { sealed = true, ["sealed+"] = true, open = true }
+-- Shell and label finishes the launcher cartridge can render.
+CartManifest.FINISHES = {
+  sparkle = true, holo = true, ["sparkle+holo"] = true,
+}
 CartManifest.SOURCES = { github = true, gamebanana = true, ["local"] = true }
 CartManifest.ART_ENCODINGS = { base64 = true }
 CartManifest.PNG_SIGNATURE = "\137PNG\r\n\26\10"
@@ -143,10 +149,22 @@ local function parseMod(raw, index, seen)
     entry.md5 = raw.md5
   end
 
+  if raw.enabled ~= nil and type(raw.enabled) ~= "boolean" then
+    return nil, label .. " enabled must be true or false"
+  end
+  -- Only a declared OFF is carried: an absent or explicit true is the default,
+  -- so a cart that says nothing serializes exactly as it did before this field.
+  if raw.enabled == false then entry.enabled = false end
+
   local options, err = parseOptions(raw.options, label)
   if err then return nil, err end
   entry.options = options
   return entry
+end
+
+-- A pin the cart ships switched off is installed and configured but not run.
+function CartManifest.modEnabled(entry)
+  return type(entry) == "table" and entry.enabled ~= false
 end
 
 local function parseOrder(raw, mods)
@@ -244,11 +262,44 @@ function CartManifest.parse(tbl)
     engine = trim(tbl.engine)
   end
 
+  local speeds
+  if tbl.speeds ~= nil then
+    if type(tbl.speeds) ~= "table" or #tbl.speeds == 0 then
+      return nil, "cart speeds must be a non-empty array of multipliers"
+    end
+    local GameSpeed = require("src.core.GameSpeed")
+    local valid, seen = {}, {}
+    for _, want in ipairs(GameSpeed.LEVELS) do
+      for _, have in ipairs(tbl.speeds) do
+        if have == want and not seen[want] then
+          seen[want] = true
+          valid[#valid + 1] = want
+        end
+      end
+    end
+    if #valid ~= #tbl.speeds then
+      return nil, "cart speeds must all be GameSpeed levels"
+    end
+    speeds = valid
+  end
+
+  local finish = tbl.finish
+  if finish ~= nil then
+    if type(finish) ~= "string" or not CartManifest.FINISHES[finish] then
+      return nil, "cart finish must be sparkle, holo or sparkle+holo"
+    end
+  end
+
   local seal = tbl.seal
   if seal == nil then seal = "sealed" end
   if type(seal) ~= "string" or not CartManifest.SEALS[seal] then
-    return nil, "cart seal must be sealed or open"
+    return nil, "cart seal must be sealed, sealed+ or open"
   end
+
+  -- The author's preferred game settings, seeded once per cart
+  -- (SaveData.CART_OPTION_KEYS); unknown keys are kept but ignored.
+  local cartOptions, cartOptErr = parseOptions(tbl.options, "cart")
+  if cartOptErr then return nil, cartOptErr end
 
   if type(tbl.mods) ~= "table" then return nil, "cart mods must be an array" end
   local count = #tbl.mods
@@ -273,10 +324,13 @@ function CartManifest.parse(tbl)
     repo = repo,
     summary = summary,
     shell = shell,
+    finish = finish,
+    speeds = speeds,
     label = label,
     base = tbl.base,
     engine = engine,
     seal = seal,
+    options = cartOptions,
     mods = mods,
     load_order = order,
   }
@@ -364,6 +418,10 @@ local function writeValue(out, value)
     out[#out + 1] = "#" .. number(value)
   elseif kind == "boolean" then
     out[#out + 1] = value and "T" or "F"
+  elseif kind == "table" then
+    -- Length-prefixed so a list can never collide with another field's text.
+    out[#out + 1] = "*" .. tostring(#value)
+    for _, item in ipairs(value) do writeValue(out, item) end
   else
     writeText(out, "$", tostring(value))
   end
@@ -375,23 +433,31 @@ local function writeField(out, name, value)
   writeValue(out, value)
 end
 
-local CART_FIELDS = { "author", "base", "engine", "id", "label", "repo",
-                      "seal", "shell", "summary", "title", "version" }
-local MOD_FIELDS = { "file", "id", "md5", "mod", "repo", "sha256",
+local CART_FIELDS = { "author", "base", "engine", "finish", "id", "label",
+                      "repo", "seal", "shell", "speeds", "summary", "title",
+                      "version" }
+local MOD_FIELDS = { "enabled", "file", "id", "md5", "mod", "repo", "sha256",
                      "source", "version" }
+
+local function writeOptions(out, marker, options)
+  out[#out + 1] = marker
+  local keys = {}
+  for key in pairs(options or {}) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do writeField(out, key, options[key]) end
+end
 
 function CartManifest.canonical(cart)
   local out = { "[cart]" }
   for _, field in ipairs(CART_FIELDS) do writeField(out, field, cart[field]) end
+  -- Absent when the cart ships no settings, so a cart written before this
+  -- field hashes byte for byte as it did.
+  if cart.options ~= nil then writeOptions(out, "[cart_options]", cart.options) end
   out[#out + 1] = "[mods]"
   for _, entry in ipairs(cart.mods or {}) do
     writeText(out, "@", tostring(entry.id))
     for _, field in ipairs(MOD_FIELDS) do writeField(out, field, entry[field]) end
-    out[#out + 1] = "[options]"
-    local keys = {}
-    for key in pairs(entry.options or {}) do keys[#keys + 1] = key end
-    table.sort(keys)
-    for _, key in ipairs(keys) do writeField(out, key, entry.options[key]) end
+    writeOptions(out, "[options]", entry.options)
   end
   out[#out + 1] = "[order]"
   for _, id in ipairs(cart.load_order or {}) do writeText(out, "@", tostring(id)) end
@@ -407,11 +473,14 @@ function CartManifest.encode(cart)
     format = CartManifest.FORMAT,
     formatVersion = CartManifest.SCHEMA,
     labelArt = CartManifest.parseLabelArt(cart.labelArt),
+    -- Every field parse() keeps: a name missing here is a field the file
+    -- round trip silently drops, as finish and speeds were.
     cart = { id = cart.id, title = cart.title, version = cart.version,
              author = cart.author, repo = cart.repo, summary = cart.summary,
-             shell = cart.shell, label = cart.label, base = cart.base,
-             engine = cart.engine, seal = cart.seal, mods = cart.mods,
-             load_order = cart.load_order },
+             shell = cart.shell, finish = cart.finish, speeds = cart.speeds,
+             label = cart.label, base = cart.base,
+             engine = cart.engine, seal = cart.seal, options = cart.options,
+             mods = cart.mods, load_order = cart.load_order },
   })
 end
 

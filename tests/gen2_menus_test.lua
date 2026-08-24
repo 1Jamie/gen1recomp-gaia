@@ -356,10 +356,11 @@ local optionsGame, optionsInput = newGame(Save.newGame())
 local options = OptionsMenu.new(optionsGame, {
   options = Save.defaultOptions(),
 })
--- The cart's seven rows, then the port's: CONTROLS, audio, speed, display,
--- video mode, screen position, the mobile-gated touch three (buildRows),
--- MAX FPS and CANCEL.
-check("twenty-four rows", #OptionsMenu.ROWS, 24)
+-- The cart's seven rows, then the port's: CONTROLS, audio, PERFORMANCE,
+-- speed, display, SHADER FX + SHADER FX 2 (the second slot added alongside
+-- the dual-shader feature), video mode, screen position, the mobile-gated
+-- touch three (buildRows), MAX FPS, BATTLE BG and CANCEL.
+check("twenty-seven rows", #OptionsMenu.ROWS, 27)
 check("the cart's rows come first", OptionsMenu.ROWS[7].key, "frame")
 check("then the rebind screen", OptionsMenu.ROWS[8].id, "controls")
 check("then the port's audio group", OptionsMenu.ROWS[9].key, "musicVol")
@@ -955,20 +956,24 @@ check("GBC leaves a palette alone",
     1)[1], 1)
 check("and has no present pass", GbcPalette.presentColors(), nil)
 
-local zoomIndex, gbcfxIndex
+local zoomIndex, tiltIndex
 for i, row in ipairs(OptionsMenu.ROWS) do
   if row.label == "ZOOM" then zoomIndex = i end
-  if row.label == "GBC FX" then gbcfxIndex = i end
+  if row.label == "TILT" then tiltIndex = i end
 end
 check("VOID FILL follows ZOOM", OptionsMenu.ROWS[zoomIndex + 1].label,
   "VOID FILL")
 check("and TILT follows VOID FILL", OptionsMenu.ROWS[zoomIndex + 2].label,
   "TILT")
-check("VIDEO MODE follows GBC FX", OptionsMenu.ROWS[gbcfxIndex + 1].label,
+check("SHADER FX follows COLOR follows TILT", OptionsMenu.ROWS[tiltIndex + 2].label,
+  "SHADER FX")
+check("SHADER FX 2 follows SHADER FX", OptionsMenu.ROWS[tiltIndex + 3].label,
+  "SHADER FX 2")
+check("VIDEO MODE follows SHADER FX 2", OptionsMenu.ROWS[tiltIndex + 4].label,
   "VIDEO MODE")
-check("and SCREEN POS follows it", OptionsMenu.ROWS[gbcfxIndex + 2].label,
+check("and SCREEN POS follows it", OptionsMenu.ROWS[tiltIndex + 5].label,
   "SCREEN POS")
-check("and TOUCH PAD follows that", OptionsMenu.ROWS[gbcfxIndex + 3].label,
+check("and TOUCH PAD follows that", OptionsMenu.ROWS[tiltIndex + 6].label,
   "TOUCH PAD")
 
 local videoRow = select(2, rowNamed("VIDEO MODE"))

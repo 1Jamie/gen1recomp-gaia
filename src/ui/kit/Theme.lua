@@ -65,7 +65,7 @@ local PAL = {
   railGold    = { 255, 203, 5 },   -- Yellow cartridge (bright)
   railAmber   = { 218, 145, 32 },  -- Gold cartridge (deeper metal)
   railSilver  = { 190, 198, 210 }, -- Silver cartridge (cool light metal)
-  railCrystal = { 168, 120, 236 }, -- Crystal cartridge (translucent violet)
+  railCrystal = { 132, 196, 228 }, -- Crystal cartridge (translucent ice blue)
 }
 -- Semantic aliases kept so ported call sites read the same as before.
 PAL.cardBorder = PAL.line

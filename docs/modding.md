@@ -806,7 +806,7 @@ contract, so a mod does not need a desktop-specific rendering path.
 
 `render.output_enabled` and `render.output` are the later, whole-window seam
 for mods that need the engine's normal composite rather than its separate
-layers. It runs after registered present pipelines and before GBCFX,
+layers. It runs after registered present pipelines and before ShaderFX,
 `render.hud`, and touch controls. A mod wraps both hooks: the first returns
 `true` only while output ownership is needed, and the second receives
 `(next, ctx)` with `canvas`, `width`, `height`, `gameX`, `gameY`, `gameWidth`,

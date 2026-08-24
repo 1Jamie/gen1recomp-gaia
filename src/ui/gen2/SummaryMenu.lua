@@ -103,6 +103,14 @@ local PAGE_PALETTES = {
   { { 255, 255, 255 }, { 140, 255, 255 }, { 140, 255, 255 }, { 0, 0, 0 } },
 }
 
+-- gfx/stats/stats.pal, the colour LoadStatsScreenPals writes over colour 0 of
+-- BG palettes 0 and 2 (engine/gfx/color.asm:386-390).  #1693
+local PAGE_TINTS = {
+  { 255, 156, 255 },
+  { 173, 255, 115 },
+  { 140, 255, 255 },
+}
+
 -- PrintTempMonStats' .StatNames, and the wTempMon fields it prints beside
 -- them.  <NEXT> steps two rows, so the five labels are 2 rows apart and the
 -- values start one row below the first label.
@@ -901,13 +909,20 @@ end
 
 -- A tile out of StatsScreenPageTilesGFX.  The fallback arm draws each of the
 -- seven shapes by hand for a cache built before menu_gfx.stats existed.
-function SummaryMenu:pageTile(id, tx, ty)
+function SummaryMenu:pageTile(id, tx, ty, colors)
   local G = love.graphics
   local px, py = tx * 8, ty * 8
   local sheet = self:statsTiles()
   if sheet and sheet.quads[id] then
     G.setColor(1, 1, 1, 1)
-    G.draw(sheet.image, sheet.quads[id], px, py)
+    local function body()
+      G.draw(sheet.image, sheet.quads[id], px, py)
+    end
+    if colors and GbcPalette.available() then
+      GbcPalette.with(colors, body)
+    else
+      body()
+    end
     return
   end
   G.setColor(0, 0, 0, 1)
@@ -1106,8 +1121,26 @@ function SummaryMenu:drawHorizontalDivider()
   end
 end
 
+-- BG palette 0 as the stats screen leaves it: the page tint in colour 0, black
+-- ink in colour 3 (engine/gfx/color.asm:386-390).
+function SummaryMenu:lowerColors()
+  local tint = PAGE_TINTS[self.page] or PAGE_TINTS[PINK_PAGE]
+  return { tint, tint, tint, { 0, 0, 0 } }
+end
+
+-- StatsScreen_LoadGFX's .ClearBox: hlcoord 0, 8 / lb bc, 10, 20, the ten rows
+-- LoadStatsScreenPals then tints (engine/pokemon/stats_screen.asm:549-557).
+function SummaryMenu:drawPageBackground()
+  local G = love.graphics
+  local tint = GbcPalette.color(self:lowerColors(), 1) or { 255, 255, 255 }
+  G.setColor(tint[1] / 255, tint[2] / 255, tint[3] / 255, 1)
+  G.rectangle("fill", 0, 8 * 8, Chrome.SCREEN_W * 8, 10 * 8)
+  G.setColor(0, 0, 0, 1)
+end
+
 function SummaryMenu:drawVerticalDivider(tx)
-  for y = 8, 17 do self:pageTile(TILE_VERTICAL_DIVIDER, tx, y) end
+  local colors = self:lowerColors()
+  for y = 8, 17 do self:pageTile(TILE_VERTICAL_DIVIDER, tx, y, colors) end
 end
 
 function SummaryMenu:drawUpperHalf()
@@ -1125,11 +1158,12 @@ end
 function SummaryMenu:drawPinkPage()
   local mon = self.mon or {}
   local maxHp = mon.maxHp or (mon.stats and mon.stats.hp) or 0
+  local tint = PAGE_TINTS[self.page] or PAGE_TINTS[PINK_PAGE]
   -- DrawPlayerHP is DrawBattleHPBar with d = 6 and b = 0: "HP:" at (0,9), six
   -- bar cells, and the end cap at (8,9) -- which LoadPinkPage then rewrites as
   -- $41, the same shape from the stats sheet.
   if self.hud and self.hud:available() then
-    self.hud:drawHpBar(mon.hp, maxHp, 0, 9)
+    self.hud:drawHpBar(mon.hp, maxHp, 0, 9, tint)
   else
     HpBar.drawWithLabel(self.palettes, mon.hp, maxHp, 0, 9, Font)
   end
@@ -1141,15 +1175,16 @@ function SummaryMenu:drawPinkPage()
   -- and (19,16).
   local fraction = HpBar.expFraction(mon, self:growth(), Mon.experienceForLevel)
   if self.hud and self.hud:available() then
-    self.hud:drawExpBar(fraction, 11, 16)
+    self.hud:drawExpBar(fraction, 11, 16, tint)
   else
     -- No HUD sheet in the cache: the plain rule, which is HP_BAR_LENGTH_PX
     -- (48) wide rather than the exp bar's 64, so it stops two tiles short of
     -- the $41 cap.  A cache old enough to hit this has no bar tiles at all.
     HpBar.drawExp(self.palettes, fraction, 11 * 8, 16 * 8 + 3)
   end
-  self:pageTile(TILE_BAR_CAP_LEFT, 10, 16)
-  self:pageTile(TILE_BAR_CAP_RIGHT, 19, 16)
+  local colors = self:lowerColors()
+  self:pageTile(TILE_BAR_CAP_LEFT, 10, 16, colors)
+  self:pageTile(TILE_BAR_CAP_RIGHT, 19, 16, colors)
 end
 
 function SummaryMenu:drawGreenPage()
@@ -1211,6 +1246,7 @@ function SummaryMenu:drawPanel()
     self:drawMoveDetail()
   else
     Chrome.clear()
+    self:drawPageBackground()
     self:drawUpperHalf()
     if self.page == GREEN_PAGE then
       self:drawGreenPage()
@@ -1244,6 +1280,7 @@ SummaryMenu.STAT_LABELS = STAT_LABELS
 SummaryMenu.STAT_KEYS = STAT_KEYS
 SummaryMenu.TYPE_NAMES = TYPE_NAMES
 SummaryMenu.PAGE_PALETTES = PAGE_PALETTES
+SummaryMenu.PAGE_TINTS = PAGE_TINTS
 SummaryMenu.levelText = levelText
 
 return SummaryMenu

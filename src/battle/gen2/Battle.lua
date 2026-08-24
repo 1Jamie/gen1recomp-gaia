@@ -16,7 +16,7 @@
 --
 -- Status handling follows Gen 2's rules rather than Gen 1's: burn is 1/8 max HP
 -- (not 1/16) and halves physical Attack, poison is 1/8, and sleep counts down
--- from 1-7 turns.
+-- from 2-7 turns.
 
 local Damage = require("src.battle.gen2.Damage")
 local Ai = require("src.battle.gen2.Ai")
@@ -254,6 +254,9 @@ function Battle.new(opts)
   -- around the Tower's own StartBattle (engine/events/battle_tower/
   -- battle_tower.asm:220-223) and cleared again at :253-254.
   self.inBattleTowerBattle = opts.battleTower and true or false
+  -- wTimeOfDay: only BattleCommand_TimeBasedHealContinue reads it in battle
+  -- (engine/battle/effect_commands.asm:6401-6404).
+  self.timeOfDay = opts.timeOfDay
   self.events = {}
   self.turn = 0
   self.over = false
@@ -2469,7 +2472,7 @@ end
 -- BattleCommand_TimeBasedHealContinue (effect_commands.asm:6374) answers the
 -- same two lines BattleCommand_Heal does: HPIsFullText (:6447) and
 -- RegainedHealthText (:6440).
-for effect in pairs(Effects.SUN_HEAL) do
+for effect, wants in pairs(Effects.SUN_HEAL) do
   Battle.MOVE_EFFECTS[effect] = function(self, attacker)
     local maxHp = attacker.maxHp or (attacker.stats and attacker.stats.hp) or 1
     if (attacker.hp or 0) >= maxHp then
@@ -2478,7 +2481,9 @@ for effect in pairs(Effects.SUN_HEAL) do
         text = self:monName(attacker) .. "'s HP is full!" })
       return
     end
-    local fraction = Effects.weatherHealFraction(self.weather)
+    -- effect_commands.asm:6396-6417, the time of day and the weather (#1751).
+    local fraction = Effects.timeBasedHealFraction(self.weather, wants,
+      self.timeOfDay)
     self:heal(attacker, math.max(1, math.floor(maxHp * fraction)))
     self:emit({ kind = "message",
       text = self:monName(attacker) .. " regained health!" })
@@ -2925,9 +2930,12 @@ Battle.STATUSES = {
     id = "sleep", label = "SLP", hudLabel = "SLP", healClass = "slp",
     inflictText = " fell asleep!",
     catchBonus = 10, catchBonusIntended = 10,
-    -- BattleCommand_Sleep rolls a 3-bit value, retried until nonzero.
+    -- BattleCommand_SleepTarget's .random_loop rerolls 0 and SLP_MASK before
+    -- `inc a`, so sleep opens at 2 (effect_commands.asm:3591-3598, #1707).
+    -- Crystal masks the roll to %011 in the Battle Tower, capping it at 4
+    -- (../pokecrystal/engine/battle/effect_commands.asm:3609-3613).
     onInflict = function(battle, mon)
-      mon.statusTurns = rand(battle.random, 7) + 1
+      mon.statusTurns = rand(battle.random, battle.inBattleTowerBattle and 3 or 6) + 2
     end,
     beforeMovePriority = 40,
     beforeMove = function(battle, mon, name)

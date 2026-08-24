@@ -62,10 +62,12 @@ TITLE_SYMBOLS = [
     "TitleScreenPalettes",
 ]
 
-# engine/movie/splash.asm:344 -- replaces Gold's GameFreakLogoStarsGFX
+# engine/movie/splash.asm:344 -- replaces Gold's GameFreakLogoStarsGFX.
+# The Ditto OBJ palette is a local label (engine/gfx/cgb_layouts.asm:876-893).
 SPLASH_SYMBOLS = [
     "GameFreakDittoGFX",
     "GameFreakDittoPaletteFade",
+    "_CGB_GamefreakLogo.GamefreakDittoPalette",
 ]
 
 MOVIE_SYMBOLS = (

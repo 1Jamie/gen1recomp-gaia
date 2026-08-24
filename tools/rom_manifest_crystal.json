@@ -15796,6 +15796,10 @@
       36,
       25736
     ],
+    "FishingGFX": [
+      46,
+      17650
+    ],
     "FlaaffyBackpic": [
       85,
       16753
@@ -16907,6 +16911,10 @@
     "KrisCardPic": [
       34,
       17813
+    ],
+    "KrisFishingGFX": [
+      46,
+      17794
     ],
     "KrisPic": [
       34,
@@ -20939,6 +20947,10 @@
     "_CGB_GSIntro.ShellderLaprasOBPals": [
       2,
       20822
+    ],
+    "_CGB_GamefreakLogo.GamefreakDittoPalette": [
+      2,
+      21793
     ],
     "_CGB_PackPals.ChrisPackPals": [
       2,

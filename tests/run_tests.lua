@@ -1223,8 +1223,8 @@ do
     local mhc = BattleState.newWild(Game, "SNORLAX", 40)
     mhc.rng = mkseq({ 0, 255 }) -- acc, damage; crit from the hook
     mhc:performMove(mhc.player, mhc.enemy, { id = "DOUBLE_KICK", pp = 10 })
-    eq(countText(mhc, "Critical hit!"), 2,
-       "multi-hit prints Critical hit! once per strike")
+    eq(countText(mhc, "Critical hit!"), 1,
+       "PrintCriticalOHKOText clears wCriticalHitOrOHKO, so the crit line prints once")
     local cseq = {}
     for _, r in ipairs(mhc.queue) do
       if r.anim == "DOUBLE_KICK" then cseq[#cseq + 1] = "anim"
@@ -1233,8 +1233,8 @@ do
       elseif r.text == "It's super\neffective!" then cseq[#cseq + 1] = "se"
       end
     end
-    eq(table.concat(cseq, ","), "anim,drain,crit,se,anim,drain,crit,se",
-       "crit then effectiveness follow each multi-hit drain")
+    eq(table.concat(cseq, ","), "anim,drain,crit,se,anim,drain,se",
+       "the crit line prints once, effectiveness after every drain")
     unsub()
     Runtime.install(savedE, savedH)
   end
@@ -1658,7 +1658,7 @@ do
   rep.options = {
     textSpeed = 3, animations = false, battleStyle = "SET",
     ruleset = "gen1_faithful", musicVol = 4, sfxVol = 2, musicFilter = 2,
-    colors = "og", tilt = 2, gbcfx = 3,
+    colors = "og", tilt = 2,
   }
   rep.defeatedTrainers = { ["OPP_BROCK:1"] = true }
   rep.pokedex = { seen = { PIKACHU = true, CATERPIE = true },
@@ -1687,7 +1687,6 @@ do
   eq(back.options.animations, false, "options.lua round-trips animations")
   eq(back.options.colors, "og", "options.lua round-trips colors")
   eq(back.options.tilt, 2, "options.lua round-trips tilt")
-  eq(back.options.gbcfx, 3, "options.lua round-trips gbcfx")
   -- zoom / voidFill ride the same options.lua path when present
   rep.options.zoom = -2
   rep.options.voidFill = "water"
@@ -2315,6 +2314,14 @@ do
   press("down")
   press("down")
   press("a") -- QUIT
+  check(not quitCalled, "QUIT says goodbye before it returns (pokemart.asm:220)")
+  local goodbye = StateStack:top()
+  check(goodbye ~= shop and goodbye.isTextBox,
+        "QUIT prints _PokemartThankYouText")
+  for _ = 1, 600 do
+    if quitCalled then break end
+    press("a")
+  end
   check(quitCalled, "QUIT fires onQuit (script runner resume)")
   eq(#StateStack.states, depth0, "mart menu unwound cleanly")
 end
@@ -2635,14 +2642,14 @@ do
 -- option boxes (the port rows plus the MODS/CONTROLS entries) through a 4-box
 -- viewport with a $EE ▼ marker; MUSIC VOL / SFX VOL clamp at 0..7 like
 -- the text-speed cursor clamps at its ends (.pressedLeftInTextSpeed),
--- MUSIC FILTER cycles OFF/1X/2X/3X, and COLORS / TILT / GBC FX / VIDEO MODE
--- cycle their display modes.
+-- MUSIC FILTER cycles OFF/1X/2X/3X, and COLORS / TILT / VIDEO MODE
+-- cycle their display modes (SHADER FX activates a pushed screen instead).
 do
   local OptionsMenu = require("src.ui.OptionsMenu")
   local OInput = require("src.core.Input")
   local PaletteFX = require("src.render.PaletteFX")
   local Tilt = require("src.render.Tilt")
-  local GBCFX = require("src.render.GBCFX")
+  local ShaderFX = require("src.render.ShaderFX")
   local GameSpeed = require("src.core.GameSpeed")
   local FrameCap = require("src.core.FrameCap")
   local SD = require("src.core.SaveData")
@@ -2681,7 +2688,6 @@ do
      "new saves default to MEDIUM text (InitOptions TEXT_DELAY_MEDIUM)")
   eq(og.save.options.colors, "gbc", "new saves default COLORS to GBC")
   eq(og.save.options.tilt, 0, "new saves default TILT to OFF")
-  eq(og.save.options.gbcfx, 0, "new saves default GBC FX to OFF")
   eq(og.save.options.zoom, 0, "new saves default ZOOM to FIT")
   eq(og.save.options.voidFill, "trees", "new saves default VOID FILL to TREES")
   eq(og.save.options.videoMode, "windowed",
@@ -2725,12 +2731,22 @@ do
   eq(Tilt.level, 1, "Tilt level tracks TILT option")
   press("a"); press("a"); press("a")
   eq(og.save.options.tilt, 0, "TILT wraps back to OFF")
-  check(seek("gbcfx"), "cursor reaches GBC FX")
-  press("a")
-  eq(og.save.options.gbcfx, 1, "A cycles GBC FX to 1")
-  eq(GBCFX.level, 1, "GBCFX level tracks GBC FX option")
-  for _ = 1, 4 do press("a") end
-  eq(og.save.options.gbcfx, 0, "GBC FX wraps back to OFF")
+  check(seek("shaderfx"), "cursor reaches SHADER FX")
+  -- this row activates a pushed ShaderFXScreen rather than cycling in
+  -- place like the rest of this suite's rows; `og.stack` above only
+  -- stubs `pop`, not a real push/top stack, so activate() is not
+  -- called here -- tests/mod_ui_tests.lua exercises it end to end against
+  -- a real stack.
+  check(om.rows[om.index].step == nil, "SHADER FX row has no step()")
+  check(type(om.rows[om.index].activate) == "function",
+    "SHADER FX row has an activate()")
+  check(seek("shaderfx2"), "cursor reaches SHADER FX 2")
+  -- the dual-shader secondary slot: same shared ShaderFXScreen, opened on
+  -- "secondary" instead -- see the SHADER FX row above for why activate()
+  -- isn't exercised against this stub stack either.
+  check(om.rows[om.index].step == nil, "SHADER FX 2 row has no step() either")
+  check(type(om.rows[om.index].activate) == "function",
+    "SHADER FX 2 row has an activate()")
   check(seek("zoom"), "cursor reaches ZOOM")
   local ZoomOpt = require("src.render.Zoom")
   press("a")
@@ -2806,7 +2822,7 @@ do
   require("src.core.Sound").applyOptions(og.save.options)
   PaletteFX.applyOptions(og.save.options)
   Tilt.applyOptions(og.save.options)
-  GBCFX.applyOptions(og.save.options)
+  ShaderFX.applyOptions(og.save.options)
   require("src.render.Zoom").applyOptions(og.save.options)
   require("src.render.TileRenderer").applyOptions(og.save.options)
   require("src.core.VideoMode").applyOptions(og.save.options)
@@ -3354,7 +3370,7 @@ end
 -- ---------------------------------------------- suite discovery
 -- The chains below used to be hard-coded arrays, so adding a suite meant
 -- editing a list and forgetting to meant the suite silently never ran.
--- They are globbed now (21-testing-and-ci §CI).
+-- They're globbed now instead.
 --
 -- Order still matters: these suites share one process and one Data, and
 -- the sequence they were chained in is the sequence they are known to
@@ -3395,10 +3411,6 @@ end
 -- back.  Nothing notices until a LATER file reads the leftover, and then the
 -- failure lands nowhere near its cause:
 --
---   * the Android ROM-importer suites pin getOS to "Android", so
---     GBCFX.isSupported() answers false for the rest of the run and
---     parity_gbcfx fails "setLevel stores an in-range level (got 0, want 2)"
---     -- while passing perfectly on its own;
 --   * suites that swap in a minimal love.filesystem drop
 --     getDirectoryItems, so three rom_importer suites then die on
 --     "attempt to call field 'getDirectoryItems' (a nil value)".
@@ -3621,6 +3633,19 @@ runSuites(orderedGlob(
   "tests/gen2_crystal_anim_test.lua",
   "tests/gen2_crystal_caught_data_test.lua",
   "tests/gen2_crystal_gender_test.lua",
+  -- Pinned in the order the glob already ran them in, alphabetically last.
+  "tests/gen2_battle_cursor_test.lua",
+  "tests/gen2_battle_options_test.lua",
+  "tests/gen2_billspc_dpad_test.lua",
+  "tests/gen2_box_intake_test.lua",
+  "tests/gen2_cycling_road_test.lua",
+  "tests/gen2_dex_gift_test.lua",
+  "tests/gen2_ledge_hop_test.lua",
+  "tests/gen2_ow_bounce_test.lua",
+  "tests/gen2_pack_rows_test.lua",
+  "tests/gen2_sleep_counter_test.lua",
+  "tests/gen2_timed_heal_test.lua",
+  "tests/gen2_whirlpool_test.lua",
 }, LEAKS_SAVE_SLOT_STATE))
 
 -- ---------------------------------------------- Android second ROM pick (#167)
@@ -3638,6 +3663,8 @@ runSuites({ "tests/rom_importer_choose_version_test.lua" })
 -- platform_nx_* / rom_importer_nx_* live in tests/engine/ (ROM-free T2) so
 -- CI's headless lane runs them without data/generated/.
 runSuites({ "tests/launcher_mods_install_zip_test.lua" })
+-- ---------------------------------------------- pet Pokemon cries (#1687, #1649)
+runSuites({ "tests/pet_cries_test.lua" })
 -- ---------------------------------------------- parity workstream tests
 -- Each tests/parity_*.lua is a self-contained file (own bootstrap + check,
 -- error()s if any assertion fails).  Globbed, so dropping a new parity
@@ -3656,7 +3683,6 @@ runSuites(orderedGlob("tests/parity_*.lua", {
   "tests/parity_yellow_bills_pikachu.lua",
   "tests/parity_trainer_evolution_order.lua",
   "tests/parity_intro.lua", "tests/parity_tilt.lua",
-  "tests/parity_gbcfx.lua",
 }))
 
 -- ---------------------------------------------- the globbed tiers

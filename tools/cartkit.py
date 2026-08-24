@@ -58,7 +58,10 @@ BUNDLE_VERSION = 1
 CART_SCHEMA = 1
 
 BASES = ("red", "blue", "yellow", "gold", "silver", "crystal")
-SEALS = ("sealed", "open")
+SEALS = ("sealed", "sealed+", "open")
+FINISHES = ("sparkle", "holo", "sparkle+holo")
+# GameSpeed.LEVELS (src/core/GameSpeed.lua)
+SPEED_LEVELS = (1, 2, 3, 4, 10, 20, 30, 50, 75, 100, 200)
 SOURCES = ("github", "gamebanana")
 MAX_MODS = 64
 MAX_OPTIONS = 64
@@ -67,9 +70,10 @@ LABEL_WARN_BYTES = 256 * 1024
 LABEL_MAX_BYTES = 1024 * 1024
 
 CART_KEYS = ("schema", "id", "title", "version", "author", "repo", "summary",
-             "shell", "label", "base", "engine", "seal", "mods", "load_order")
+             "shell", "finish", "label", "base", "engine", "seal", "speeds",
+             "mods", "load_order")
 MOD_KEYS = ("id", "source", "repo", "version", "sha256", "mod", "file", "md5",
-            "options")
+            "enabled", "options")
 
 ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 SEMVER_RE = re.compile(
@@ -338,7 +342,21 @@ def check_identity(cart, findings):
 
     seal = cart.get("seal", "sealed")
     if seal not in SEALS:
-        findings.append(err("CK002", '"seal" must be "sealed" or "open"'))
+        findings.append(err("CK002", '"seal" must be one of: '
+                            + ", ".join(SEALS)))
+    finish = cart.get("finish")
+    if finish is not None and finish not in FINISHES:
+        findings.append(err("CK002", '"finish" must be one of: '
+                            + ", ".join(FINISHES)))
+    speeds = cart.get("speeds")
+    if speeds is not None:
+        if not isinstance(speeds, list) or not speeds:
+            findings.append(err("CK002",
+                                '"speeds" must be a non-empty array'))
+        elif any(v not in SPEED_LEVELS for v in speeds):
+            findings.append(err("CK002", '"speeds" entries must be game-speed '
+                                'levels: '
+                                + ", ".join(str(v) for v in SPEED_LEVELS)))
 
     for key in cart:
         if key not in CART_KEYS:
@@ -424,6 +442,9 @@ def check_mods(cart, findings):
             check_github_pin(entry, label, findings)
         else:
             check_gamebanana_pin(entry, label, findings)
+        if "enabled" in entry and not isinstance(entry["enabled"], bool):
+            findings.append(err("CK004", f"{label} enabled must be true or "
+                                         "false; omit it to ship the mod on"))
         if "options" in entry and entry["options"] is not None:
             for problem in option_problems(entry["options"], label):
                 findings.append(err("CK004", problem))

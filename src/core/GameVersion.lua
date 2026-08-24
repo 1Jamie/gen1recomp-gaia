@@ -60,9 +60,7 @@ GameVersion.VERSIONS = {
     id = "gold",
     label = "Gold",
     displayName = "Pokemon Gold",
-    -- Still Gen 2 Phase work; the launcher panel / Play button say Beta so
-    -- players do not treat it like the shipped Gen 1 columns.
-    launcherName = "Gold (Beta)",
+    launcherName = "Gold",
     sha1 = "d8b8a3600a465308c9953dfa04f0081c05bdcb94",
     manifest = "tools/rom_manifest_gold.json",
     cachePrefix = "gold/",    -- gold/data/generated, gold/assets/generated
@@ -77,7 +75,7 @@ GameVersion.VERSIONS = {
     id = "silver",
     label = "Silver",
     displayName = "Pokemon Silver",
-    launcherName = "Silver (Beta)",
+    launcherName = "Silver",
     sha1 = "49b163f7e57702bc939d642a18f591de55d92dae",
     manifest = "tools/rom_manifest_silver.json",
     cachePrefix = "silver/",  -- silver/data/generated, silver/assets/generated
@@ -89,6 +87,8 @@ GameVersion.VERSIONS = {
     id = "crystal",
     label = "Crystal",
     displayName = "Pokemon Crystal",
+    -- Still Gen 2 Phase work; the launcher panel / Play button say Beta so
+    -- players do not treat it like the shipped Gold and Silver columns.
     launcherName = "Crystal (Beta)",
     sha1 = "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133",
     manifest = "tools/rom_manifest_crystal.json",

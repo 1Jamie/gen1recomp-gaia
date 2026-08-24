@@ -374,6 +374,11 @@ local function returnToLauncher()
   Game = nil
   autopilot = nil
   driverCo = nil
+  -- Leave the cart's scope behind: the launcher's own settings and slots are
+  -- the base game's, not the cart's.  The speed ladder is cart state too, so
+  -- a 1x/2x cart must not pin the launcher or the next game.
+  require("src.core.SaveData").setCart(nil)
+  require("src.core.GameSpeed").setAllowed(nil)
 
   local Input = require("src.core.Input")
   local TouchControls = require("src.core.TouchControls")
@@ -407,15 +412,24 @@ function bootGame(version, cartId)
   -- (Blue/Yellow/Gold caches live under blue/ / yellow/ / gold/).
   CacheFs.prefix = GameVersion.cachePrefix()
   CacheFs.mountVersion(GameVersion.get())
-  local cartHash
+  local cartHash, cartSpeeds, cartOptions
   if cartId then
     local ok, cart, hash = pcall(function()
       return require("src.carts.CartStore").get(cartId)
     end)
-    if ok and cart then cartHash = hash else cartId = nil end
+    if ok and cart then
+      cartHash, cartSpeeds, cartOptions = hash, cart.speeds, cart.options
+    else
+      cartId = nil
+    end
   end
   local SaveData = require("src.core.SaveData")
   SaveData.setCart(cartId, cartHash)
+  -- The author's settings land in the cart's own scope the first time only;
+  -- after that the player owns them.
+  if cartOptions then SaveData.seedCartOptions(cartOptions) end
+  -- A cart may narrow or pin the speed ladder; nil restores the full one.
+  require("src.core.GameSpeed").setAllowed(cartSpeeds)
   if cartId then SaveData.adoptCartSeal(cartId) end
   -- NX: always write nx-asset-probe.log so Yellow/Blue art failures are
   -- diagnosable from the SD without enabling switch-debug.txt.

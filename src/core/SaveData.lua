@@ -272,10 +272,9 @@ function SaveData.defaultOptions()
     speedOverworld = 1,
     speedBattle = 1,
     speedMenu = 1,
-    -- port display options (OptionsMenu / hotkeys 2/3/4/5)
+    -- port display options (OptionsMenu / hotkeys 2/3/4)
     colors = "gbc",
     tilt = 0,
-    gbcfx = 0,
     -- survey zoom offset from window fit scale (0 = FIT); see Zoom.lua
     zoom = 0,
     -- OVERWORLD beyond-edge fill: trees | water | black
@@ -290,8 +289,8 @@ function SaveData.defaultOptions()
     fpsCap = 60,
     -- graphics performance tier: auto | high | balanced | low.  "auto"
     -- picks a default from the device (ARM handhelds/phones drop the heavy
-    -- extras); scales TILT / GBC FX / survey ZOOM / FPS but never game
-    -- logic.  See src/core/Performance.lua.
+    -- extras); scales TILT / survey ZOOM / FPS but never game logic.  See
+    -- src/core/Performance.lua.
     performance = "auto",
     -- Per-pipeline display levels, keyed by render_pipelines id (see
     -- src/render/Pipelines.lua).  A level for a mod that is not installed
@@ -360,8 +359,23 @@ function SaveData.defaultOptions()
     timeFormat = "device", -- device | 24h | 12h
     saveSync = { enabled = false, lastSyncAt = 0, revs = {}, stamps = {},
                  pendingConflicts = {} },
+    -- Cart-scoped settings, beside cartSlots: cartOptions[cartId][key] layers
+    -- over the global value for CART_OPTION_KEYS while that cart is playing.
+    cartOptions = {},
+    -- The player's own answer for a mod a cart pins, kept out of the per-game
+    -- flags: cartMods[cartId][modId], absent while the cart's switch stands.
+    cartMods = {},
+    -- The carts whose shipped defaults were already seeded, so a player's
+    -- later change is never overwritten (compare modProfilesSeeded).
+    cartOptionsSeeded = {},
   }
 end
+
+-- Settings that belong to a playthrough and follow the cart: pacing and the
+-- battle rules.  Everything else -- audio, video, bindings, touch, language,
+-- launcher state -- belongs to the machine and stays global.
+SaveData.CART_OPTION_KEYS = { "animations", "battleStyle", "ruleset",
+  "speedBattle", "speedMenu", "speedOverworld", "textSpeed" }
 
 -- Merge loaded keys over defaults (shallow).  Unknown keys are kept so
 -- future options aren't dropped by older builds writing the file back.
@@ -437,6 +451,60 @@ end
 
 -- ------- options
 
+-- The cart being played, if any; SaveData.setCart owns it.  Declared here
+-- because the options overlay below reads it.
+local activeCart, activeCartHash
+
+local function cartBucket(opts, cartId)
+  local root = type(opts) == "table" and opts.cartOptions or nil
+  local bucket = type(root) == "table" and root[cartId] or nil
+  return type(bucket) == "table" and bucket or nil
+end
+
+-- Lay the active cart's values over the globals for the cart-scoped keys; a
+-- key the cart never set falls through to the global value.
+local function applyCartOverlay(opts)
+  if not (activeCart and type(opts) == "table") then return opts end
+  local bucket = cartBucket(opts, activeCart)
+  if not bucket then return opts end
+  for _, key in ipairs(SaveData.CART_OPTION_KEYS) do
+    if bucket[key] ~= nil then opts[key] = bucket[key] end
+  end
+  return opts
+end
+
+local function cartGlobals(onDisk)
+  local out = {}
+  if type(onDisk) ~= "table" then return out end
+  for _, key in ipairs(SaveData.CART_OPTION_KEYS) do out[key] = onDisk[key] end
+  return out
+end
+
+-- The inverse, run just before a write: the cart-scoped keys go into the
+-- active cart's bucket and the globals keep whatever the file already held.
+local function splitCartOverlay(opts, globals, onDisk)
+  if not (activeCart and type(opts) == "table") then return opts end
+  local root = {}
+  local prior = type(onDisk) == "table" and onDisk.cartOptions or nil
+  if type(prior) == "table" then
+    for id, bucket in pairs(prior) do root[id] = deepCopy(bucket) end
+  end
+  for id, bucket in pairs(type(opts.cartOptions) == "table" and opts.cartOptions or {}) do
+    root[id] = bucket
+  end
+  local bucket = type(root[activeCart]) == "table" and root[activeCart] or {}
+  local defaults = SaveData.defaultOptions()
+  for _, key in ipairs(SaveData.CART_OPTION_KEYS) do
+    if opts[key] ~= nil then bucket[key] = opts[key] end
+    local global = globals and globals[key]
+    if global == nil then global = defaults[key] end
+    opts[key] = global
+  end
+  root[activeCart] = bucket
+  opts.cartOptions = root
+  return opts
+end
+
 -- Both take an optional fs (write/getInfo/read) defaulting to
 -- love.filesystem, so the mod loader's injected filesystem can carry the
 -- options round-trip headless (no love global).
@@ -458,6 +526,10 @@ function SaveData.saveOptions(opts, fs)
   -- activeProfile -- not defaultOptions members -- can be deleted by their
   -- sites precisely because those sites always write full tables.
   local onDisk = readTable(fs, OPTIONS_FILENAME)
+  -- Fold from the cart's view of the file, not the globals underneath it, or
+  -- a partial write would push the global value into the cart's bucket.
+  local cartGlobalValues = cartGlobals(onDisk)
+  applyCartOverlay(onDisk)
   local isFull = type(opts) == "table"
   if isFull then
     for k in pairs(SaveData.defaultOptions()) do
@@ -497,6 +569,7 @@ function SaveData.saveOptions(opts, fs)
     end
     opts.modOptions = merged
   end
+  splitCartOverlay(opts, cartGlobalValues, onDisk)
   local encoded = SaveSerializer.encode(opts)
   -- Stage the new bytes and roll the last good file aside BEFORE the main
   -- write truncates it, the same tmp/bak dance SaveData.save uses for
@@ -544,7 +617,8 @@ function SaveData.saveOptions(opts, fs)
   fs.write(OPTIONS_BACKUP_FILENAME, encoded)
   -- the staged witness has served its purpose; the main file is verified
   remove(fs, OPTIONS_TMP_FILENAME)
-  return opts
+  -- hand back the cart's view, matching what loadOptions would answer
+  return applyCartOverlay(opts)
 end
 
 function SaveData.loadOptions(fs)
@@ -572,11 +646,11 @@ function SaveData.loadOptions(fs)
       if fs.write then
         fs.write(OPTIONS_FILENAME, SaveSerializer.encode(recovered))
       end
-      return SaveData.mergeOptions(recovered)
+      return applyCartOverlay(SaveData.mergeOptions(recovered))
     end
     return SaveData.defaultOptions()
   end
-  return SaveData.mergeOptions(data)
+  return applyCartOverlay(SaveData.mergeOptions(data))
 end
 
 -- ------- per-game mod enablement
@@ -768,7 +842,6 @@ local freshPlaythrough
 
 local CART_PREFIX = "cart_"
 
-local activeCart, activeCartHash
 local sealBroken = false
 
 local function cartKey(cartId)
@@ -1312,6 +1385,53 @@ end
 
 function SaveData.getCart()
   return activeCart
+end
+
+-- The player's answer for one mod a cart pins, or nil while they have not
+-- given one and the cart's own switch stands.
+function SaveData.cartModEnabled(options, cartId, modId)
+  if not cartKey(cartId) or type(modId) ~= "string" then return nil end
+  local root = type(options) == "table" and options.cartMods or nil
+  local bucket = type(root) == "table" and root[cartId] or nil
+  if type(bucket) == "table" and type(bucket[modId]) == "boolean" then
+    return bucket[modId]
+  end
+  return nil
+end
+
+-- Kept apart from options.mods so switching a cart's mod never changes what
+-- the base game runs, and vice versa.
+function SaveData.setCartModEnabled(cartId, modId, enabled, fs)
+  if not cartKey(cartId) or type(modId) ~= "string" or modId == "" then
+    return false
+  end
+  local opts = SaveData.loadOptions(fs)
+  local root = type(opts.cartMods) == "table" and opts.cartMods or {}
+  local bucket = type(root[cartId]) == "table" and root[cartId] or {}
+  bucket[modId] = enabled and true or false
+  root[cartId], opts.cartMods = bucket, root
+  return SaveData.saveOptions(opts, fs) ~= nil
+end
+
+-- Seed the active cart's shipped settings into its overlay, once ever.  Keys
+-- outside CART_OPTION_KEYS are ignored; a later player change is never redone.
+function SaveData.seedCartOptions(defaults, fs)
+  if not (activeCart and type(defaults) == "table") then return false end
+  local opts = SaveData.loadOptions(fs)
+  local seeded = type(opts.cartOptionsSeeded) == "table"
+    and opts.cartOptionsSeeded or {}
+  if seeded[activeCart] then return false end
+  local root = type(opts.cartOptions) == "table" and opts.cartOptions or {}
+  local bucket = type(root[activeCart]) == "table" and root[activeCart] or {}
+  for _, key in ipairs(SaveData.CART_OPTION_KEYS) do
+    if defaults[key] ~= nil and bucket[key] == nil then
+      bucket[key] = defaults[key]
+      opts[key] = defaults[key]
+    end
+  end
+  root[activeCart], opts.cartOptions = bucket, root
+  seeded[activeCart], opts.cartOptionsSeeded = true, seeded
+  return SaveData.saveOptions(opts, fs) ~= nil
 end
 
 function SaveData.setCartHash(cartHash)

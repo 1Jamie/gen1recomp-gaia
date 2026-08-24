@@ -102,8 +102,8 @@ FieldMoves.TEXT = {
                      .. "\fA #MON may be\nable to pass it."),
   ASK_WHIRLPOOL    = Strings.source("A whirlpool is in\nthe way."
                      .. "\fWant to use\nWHIRLPOOL?"),
-  -- Not a cart line: the stand-in destination prompt World:askFlyPoint uses
-  -- until the POKeGEAR's MAP card grows _FlyMap's cursor mode.
+  -- Not a cart line: the prompt World:askFlyPoint falls back to when there is
+  -- no screen at all to push -- a headless probe, never a real run.
   ASK_FLY_TO       = Strings.source("Fly to %s?"),
 }
 
@@ -183,6 +183,10 @@ function FieldMoves.bindEngineFlags(order)
   -- The flag IS wPlayerGender's bit 0, so World routes it to the gender byte
   -- (data/events/engine_flags.asm:131, constants/engine_flags.asm:121).
   FieldMoves.FEMALE_FLAG = byName[FieldMoves.FEMALE_FLAG_NAME]
+  -- Crystal's ENGINE_MOBILE_SYSTEM (constants/engine_flags.asm:25) has no Gold
+  -- row, so every id from BUG_CONTEST_TIMER up shifts one.
+  FieldMoves.BUG_CONTEST_FLAG = byName["ENGINE_BUG_CONTEST_TIMER"] or 16
+  FieldMoves.BIKE_SHOP_CALL_FLAG = byName["ENGINE_BIKE_SHOP_CALL_ENABLED"] or 19
   return flags
 end
 

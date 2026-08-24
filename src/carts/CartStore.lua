@@ -10,7 +10,7 @@ CartStore.OPTIONS_KEY = "carts"
 CartStore.UNPINNED_VERSION = "0.0.0"
 
 local RECORD_FIELDS = { "id", "title", "version", "author", "base", "seal",
-                        "shell", "summary", "hash", "file" }
+                        "shell", "finish", "speeds", "summary", "hash", "file" }
 
 local function fsOr(fs)
   return fs or (love and love.filesystem) or nil
@@ -52,14 +52,26 @@ end
 local function recordFor(cart, hash)
   return { id = cart.id, title = cart.title, version = cart.version,
            author = cart.author, base = cart.base, seal = cart.seal,
-           shell = cart.shell, summary = cart.summary,
+           shell = cart.shell, finish = cart.finish, speeds = cart.speeds,
+           summary = cart.summary,
            hash = hash, file = fileFor(cart.id) }
+end
+
+local function sameValue(a, b)
+  if type(a) == "table" and type(b) == "table" then
+    if #a ~= #b then return false end
+    for i = 1, #a do
+      if a[i] ~= b[i] then return false end
+    end
+    return true
+  end
+  return a == b
 end
 
 local function sameRecord(a, b)
   if type(a) ~= "table" or type(b) ~= "table" then return false end
   for _, field in ipairs(RECORD_FIELDS) do
-    if a[field] ~= b[field] then return false end
+    if not sameValue(a[field], b[field]) then return false end
   end
   return true
 end
@@ -67,7 +79,8 @@ end
 local function entryFor(cart, hash)
   return { id = cart.id, title = cart.title, version = cart.version,
            author = cart.author, base = cart.base, seal = cart.seal,
-           shell = cart.shell, summary = cart.summary, label = cart.label,
+           shell = cart.shell, finish = cart.finish, speeds = cart.speeds,
+           summary = cart.summary, label = cart.label,
            cart = cart, cartHash = hash, file = fileFor(cart.id) }
 end
 
@@ -299,7 +312,7 @@ function CartStore.capture(identity, available, modOptions)
   if type(identity) ~= "table" then return nil, "cart identity is required" end
   local mods, order, unresolved = {}, {}, {}
   for _, row in ipairs(available or {}) do
-    if type(row) == "table" and row.enabled and safeId(row.id) then
+    if type(row) == "table" and safeId(row.id) then
       local m = manifestOf(row)
       local version = textOf(row.version, m and m.version)
       local semver = version and Semver.parse(version) and version or nil
@@ -319,6 +332,9 @@ function CartStore.capture(identity, available, modOptions)
           reason = pinReason(repo, version, semver, hash),
         }
       end
+      -- A switched-off mod is pinned OFF rather than dropped, so the cart
+      -- still ships it with the author's settings.
+      if not row.enabled then entry.enabled = false end
       entry.options = frozenOptions(modOptions and modOptions[row.id])
       mods[#mods + 1] = entry
       order[#order + 1] = row.id
@@ -327,8 +343,9 @@ function CartStore.capture(identity, available, modOptions)
   local cart, err = CartManifest.parse({
     id = identity.id, title = identity.title, version = identity.version,
     author = identity.author, repo = identity.repo, summary = identity.summary,
-    shell = identity.shell, label = identity.label, base = identity.base,
-    engine = identity.engine, seal = identity.seal,
+    shell = identity.shell, finish = identity.finish, speeds = identity.speeds,
+    label = identity.label, base = identity.base,
+    engine = identity.engine, seal = identity.seal, options = identity.options,
     mods = mods, load_order = order,
   })
   if not cart then return nil, err end

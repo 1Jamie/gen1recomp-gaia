@@ -282,12 +282,12 @@ SEQUENCES.IntroPichuWooper = function(_, st)
 end
 
 -- SpriteAnimFunc_IntroUnown (engine/sprite_anims/functions.asm:797-821):
--- circle at radius VAR1, three sine steps per frame.
+-- VAR1 is the angle, the counter is the radius (core.asm:543-545).
 SEQUENCES.IntroUnown = function(_, st)
-  local angle = st.jt
+  local radius = st.jt
   st.jt = (st.jt + 3) % 256
-  st.yOffset = SpriteAnims.sine(angle, st.var1)
-  st.xOffset = SpriteAnims.cosine(angle, st.var1)
+  st.yOffset = SpriteAnims.sine(st.var1, radius)
+  st.xOffset = SpriteAnims.cosine(st.var1, radius)
 end
 
 -- SpriteAnimFunc_IntroUnownF (engine/sprite_anims/functions.asm:823-829):
@@ -488,7 +488,7 @@ local function unownFade(self, pal, t)
 end
 
 -- CrystalIntro_InitUnownAnim (engine/movie/intro.asm:1191-1229): four structs
--- at one spot, radii $08/$18/$28/$38, framesets 4/3/1/2.
+-- at one spot, angles $08/$18/$28/$38, framesets 4/3/1/2.
 local UNOWN_SWIRL = {
   { 0x08, "IntroUnown4" }, { 0x18, "IntroUnown3" },
   { 0x28, "IntroUnown1" }, { 0x38, "IntroUnown2" },

@@ -1386,11 +1386,9 @@ end
 -- tiles, no sheet of its own.  So the rows here point at the icon sheets
 -- extractIcons already writes rather than at a second copy of them.
 --
--- One frame, not two.  _DoesSpriteHaveFacings sends everything from
--- SPRITE_POKEMON up to .only_down, and a doll is a still object that never
--- steps, so the only OAM set it ever uses is FacingStepDown0 -- tiles $00..$03,
--- the icon's FIRST frame (data/sprites/facings.asm).  The second frame is the
--- party menu's bob and never reaches the map.
+-- Two frames: SPRITEMOVEDATA_POKEMON's OBJECT_ACTION_BOUNCE swaps
+-- FacingStepDown0's tiles $00..$03 for FacingStepUp0's $04..$07 (#1748).
+-- data/sprites/map_objects.asm:181-187, engine/overworld/map_object_action.asm:184
 --
 -- Palette 0 because _GetSpritePalette answers `xor a` for every mon sprite,
 -- which is PAL_OW_RED in the MapObjectPals set.
@@ -1418,7 +1416,7 @@ function RomExtractorGen2:extractMonSprites(out)
         id = constName,
         source = ("ROM:SpriteMons[%d]"):format(row),
         image = "assets/generated/icons/gen2/" .. base .. ".png",
-        frames = 1,
+        frames = 2,
         walker = false,
         spriteType = "POKEMON_SPRITE",
         palette = SPRITE_PALETTE_NAME[0],
@@ -4039,6 +4037,12 @@ function RomExtractorGen2:splashGfx()
     local fade = self:symbol("GameFreakDittoPaletteFade")
     out.dittoFade = self:colors(fade.bank, fade.address, 16)
   end
+  -- gfx/splash/ditto.pal, the OBJ palette _CGB_GamefreakLogo loads
+  -- (../pokecrystal/engine/gfx/cgb_layouts.asm:876-893).
+  if self.symbols["_CGB_GamefreakLogo.GamefreakDittoPalette"] then
+    local pal = self:symbol("_CGB_GamefreakLogo.GamefreakDittoPalette")
+    out.dittoPalette = self:colors(pal.bank, pal.address, 4)
+  end
 
   return out
 end
@@ -5843,6 +5847,21 @@ function RomExtractorGen2:extractMenuGfx()
     self:write2bpp(self.rom:bytes(rustle[1], rustle[2], 16),
       8, 8, "emotes/grass_rustle.png", true)
     emotes.grassRustle = "assets/generated/emotes/grass_rustle.png"
+  end
+  -- LoadFishingGFX (engine/events/fishing_gfx.asm:1-21): three 16x8 pose rows
+  -- over the standing frames' bottom tiles, then the rod tiles $fc/$fd (#1708).
+  local fishing = self.symbols["FishingGFX"]
+  if fishing then
+    self:write2bpp(self.rom:bytes(fishing[1], fishing[2], 8 * 16),
+      16, 32, "emotes/fishing.png", true)
+    emotes.fishing = "assets/generated/emotes/fishing.png"
+  end
+  -- ../pokecrystal/engine/events/fishing_gfx.asm:41, Kris' half of that art.
+  local krisFishing = self.symbols["KrisFishingGFX"]
+  if krisFishing then
+    self:write2bpp(self.rom:bytes(krisFishing[1], krisFishing[2], 8 * 16),
+      16, 32, "emotes/fishing_female.png", true)
+    emotes.fishingFemale = "assets/generated/emotes/fishing_female.png"
   end
   out.emotes = emotes
 

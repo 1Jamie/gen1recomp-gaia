@@ -224,6 +224,33 @@ local empty = memfs()
 T.eq(#CartStore.list(empty), 0, "a fresh install lists no carts")
 T.eq(#CartStore.listFor("red", empty), 0, "listFor is empty on a fresh install")
 
+-- ------- the fields the registry rows have to carry through the store
+
+local dressedFs = memfs()
+local dressed = select(2, bytesOf({ id = "dressed", title = "Dressed",
+  finish = "holo", speeds = { 1, 2 }, seal = "sealed+",
+  options = { textSpeed = 1 } }))
+local dressedCart, dressedHash = CartStore.install(CartManifest.encode(dressed),
+  dressedFs)
+T.check(dressedCart ~= nil, "a cart with a finish, speeds and settings installs")
+T.eq(dressedHash, CartManifest.hash(dressed), "hashing the same as it was written")
+T.same(CartStore.get("dressed", dressedFs), dressed,
+  "and coming back off disk unchanged")
+
+local dressedReg = SaveData.loadOptions(dressedFs).carts.dressed
+T.eq(dressedReg.finish, "holo", "the registry row carries the finish")
+T.same(dressedReg.speeds, { 1, 2 }, "and the speed ladder")
+T.eq(dressedReg.seal, "sealed+", "and the seal, spelled in full")
+
+local dressedRow = CartStore.list(dressedFs)[1]
+T.eq(dressedRow.finish, "holo", "the list row carries the finish")
+T.same(dressedRow.speeds, { 1, 2 }, "and the speed ladder")
+T.eq(dressedRow.seal, "sealed+", "and the seal")
+T.eq(dressedRow.cart.options.textSpeed, 1,
+  "and the settings the cart ships, on the parsed cart")
+T.eq(SaveData.loadOptions(dressedFs).carts.dressed.hash, dressedHash,
+  "listing does not rewrite the registry it already agrees with")
+
 local function rowSet()
   return {
     { id = "hard_mode", name = "Hard Mode", version = "2.0.0", enabled = true,
@@ -258,26 +285,33 @@ T.eq(captured.title, "My Cart", "the captured cart keeps the title")
 T.eq(captured.shell, "#ff8800", "the captured shell normalises")
 T.eq(captured.seal, "open", "the captured seal is the author's choice")
 T.eq(captured.base, "red", "the captured base is the identity's")
-T.eq(#captured.mods, 3, "only the enabled mods are pinned")
+T.eq(#captured.mods, 4, "every installed mod is pinned, switched on or off")
 T.eq(captured.load_order[1], "hard_mode", "load order follows the row order")
-T.eq(captured.load_order[2], "rare_soda", "load order follows the row order")
-T.eq(captured.load_order[3], "sprite_pack", "load order follows the row order")
-for _, entry in ipairs(captured.mods) do
-  T.neq(entry.id, "off_mode", "a disabled mod is never pinned")
-end
+T.eq(captured.load_order[2], "off_mode", "including the row that is switched off")
+T.eq(captured.load_order[3], "rare_soda", "load order follows the row order")
+T.eq(captured.load_order[4], "sprite_pack", "load order follows the row order")
 
 T.eq(captured.mods[1].source, "github", "a mod with repo, version and hash pins to github")
 T.eq(captured.mods[1].repo, "ren/hard-mode", "the github pin keeps the repo")
 T.eq(captured.mods[1].sha256, SHA, "the github pin keeps the recorded hash")
-T.eq(captured.mods[2].source, "local", "a mod with no archive hash pins locally")
-T.eq(captured.mods[2].version, "0.4.1", "the local pin keeps the installed version")
-T.eq(captured.mods[2].repo, nil, "a local pin carries no repo")
-T.eq(captured.mods[2].sha256, nil, "a local pin carries no hash")
-T.eq(captured.mods[2].options.flavour, "grape", "the author's option values are frozen in")
-T.eq(captured.mods[2].options.sweetness, 3, "every scalar option is frozen in")
-T.eq(captured.mods[2].options.nested, nil, "a table option value is dropped")
-T.eq(captured.mods[3].source, "local", "a mod with no repo pins locally")
-T.eq(captured.mods[3].version, "0.0.0", "an unparsable version pins as 0.0.0")
+T.eq(captured.mods[1].enabled, nil, "an enabled mod pins with no enabled field")
+T.eq(CartManifest.modEnabled(captured.mods[1]), true, "and reads back as enabled")
+T.eq(captured.mods[2].id, "off_mode", "the switched-off mod is pinned in place")
+T.eq(captured.mods[2].enabled, false, "and is pinned switched off")
+T.eq(CartManifest.modEnabled(captured.mods[2]), false, "which reads back as off")
+T.eq(captured.mods[2].source, "github", "a disabled pin still resolves its source")
+T.eq(captured.mods[2].sha256, SHA2, "and still carries its archive hash")
+T.eq(captured.mods[2].options.unused, true,
+  "a disabled mod's options are captured like any other")
+T.eq(captured.mods[3].source, "local", "a mod with no archive hash pins locally")
+T.eq(captured.mods[3].version, "0.4.1", "the local pin keeps the installed version")
+T.eq(captured.mods[3].repo, nil, "a local pin carries no repo")
+T.eq(captured.mods[3].sha256, nil, "a local pin carries no hash")
+T.eq(captured.mods[3].options.flavour, "grape", "the author's option values are frozen in")
+T.eq(captured.mods[3].options.sweetness, 3, "every scalar option is frozen in")
+T.eq(captured.mods[3].options.nested, nil, "a table option value is dropped")
+T.eq(captured.mods[4].source, "local", "a mod with no repo pins locally")
+T.eq(captured.mods[4].version, "0.0.0", "an unparsable version pins as 0.0.0")
 T.eq(captured.mods[1].options, nil, "a mod with no options freezes none")
 
 T.eq(#unresolved, 2, "capture reports every locally pinned mod")
@@ -309,12 +343,18 @@ pinned[4] = nil
 local full, fullUnresolved = CartStore.capture(identity, pinned, modOptions)
 T.check(full ~= nil, "a fully pinned capture builds a cart")
 T.eq(#fullUnresolved, 0, "a fully pinned capture reports nothing unresolved")
-T.eq(full.mods[2].source, "github", "a recorded hash promotes the pin to github")
-T.eq(full.mods[2].sha256, SHA2, "the promoted pin uses the recorded hash")
+T.eq(full.mods[3].source, "github", "a recorded hash promotes the pin to github")
+T.eq(full.mods[3].sha256, SHA2, "the promoted pin uses the recorded hash")
 T.eq(CartManifest.publishable(full), true, "a fully pinned cart is publishable")
 
-local noMods, noModsErr = CartStore.capture(identity, { rowSet()[2] }, modOptions)
-T.eq(noMods, nil, "a capture with nothing enabled is refused")
+local offOnly = CartStore.capture(identity, { rowSet()[2] }, modOptions)
+T.check(offOnly ~= nil, "a capture of nothing but switched-off mods still builds")
+T.eq(#offOnly.mods, 1, "pinning the one mod it was given")
+T.eq(offOnly.mods[1].enabled, false, "switched off")
+T.eq(offOnly.mods[1].options.unused, true, "with its settings kept")
+
+local noMods, noModsErr = CartStore.capture(identity, {}, modOptions)
+T.eq(noMods, nil, "a capture with no mods at all is refused")
 T.check(type(noModsErr) == "string" and noModsErr:find("cart must pin", 1, true) ~= nil,
   "the empty capture says why (got " .. tostring(noModsErr) .. ")")
 T.eq(CartStore.capture({ id = "bad id" }, rowSet(), modOptions), nil,

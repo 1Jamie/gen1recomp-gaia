@@ -264,6 +264,90 @@ do
   T.eq(again.meta.cartHash, nil, "with no cart stamp on it")
 end
 
+-- ------- cart-scoped settings
+
+do
+  local files = fresh()
+  local base = SaveData.loadOptions()
+  base.textSpeed = 5
+  base.musicVol = 2
+  base.speedBattle = 1
+  T.check(SaveData.saveOptions(base), "the base game writes its own settings")
+  local plain = files["options.lua"]
+
+  SaveData.setCart("nuzlocke", "hash1")
+  local inCart = SaveData.loadOptions()
+  T.eq(inCart.textSpeed, 5, "a cart starts from the global value")
+  T.eq(inCart.musicVol, 2, "for every key, scoped or not")
+  inCart.textSpeed = 1
+  inCart.musicVol = 7
+  inCart.speedBattle = 4
+  T.check(SaveData.saveOptions(inCart), "change some settings inside the cart")
+
+  local stored = options(files)
+  T.eq(stored.textSpeed, 5, "the global text speed is untouched")
+  T.eq(stored.cartOptions.nuzlocke.textSpeed, 1, "the cart keeps its own")
+  T.eq(stored.cartOptions.nuzlocke.speedBattle, 4, "and its own battle speed")
+  T.eq(stored.musicVol, 7, "an unscoped setting is written globally")
+  T.eq(stored.cartOptions.nuzlocke.musicVol, nil, "and never lands in the cart")
+
+  T.eq(SaveData.loadOptions().textSpeed, 1, "the cart reads its value back")
+  T.eq(SaveData.loadOptions().musicVol, 7, "and the machine's shared volume")
+
+  SaveData.setCart("marathon", "hash2")
+  T.eq(SaveData.loadOptions().textSpeed, 5,
+    "another cart does not see the first cart's setting")
+  local other = SaveData.loadOptions()
+  other.textSpeed = 3
+  T.check(SaveData.saveOptions(other), "the second cart sets its own")
+  T.eq(options(files).cartOptions.nuzlocke.textSpeed, 1,
+    "which leaves the first cart's alone")
+
+  SaveData.setCart(nil)
+  T.eq(SaveData.loadOptions().textSpeed, 5, "and the base game keeps the global")
+  T.eq(SaveData.loadOptions().speedBattle, 1, "for every scoped key")
+
+  T.check(plain:find("cartOptions", 1, true) ~= nil,
+    "the options file declares the overlay")
+  T.check(plain:find("nuzlocke", 1, true) == nil,
+    "but an install that never ran a cart names no cart in it")
+  SaveData.setCart(nil)
+  local vanilla = SaveData.loadOptions()
+  vanilla.textSpeed = 4
+  T.check(SaveData.saveOptions(vanilla), "a base-game write after playing carts")
+  T.eq(options(files).cartOptions.nuzlocke.textSpeed, 1,
+    "leaves every cart's overlay intact")
+  T.eq(options(files).cartOptions.marathon.textSpeed, 3, "for every cart")
+end
+
+do
+  local files = fresh()
+  SaveData.setCart("author_cart", "hash3")
+  T.eq(SaveData.seedCartOptions({ textSpeed = 1, animations = false,
+    musicVol = 0, nonesuch = 3 }), true, "a cart seeds its shipped settings")
+  local seeded = SaveData.loadOptions()
+  T.eq(seeded.textSpeed, 1, "the author's text speed applies")
+  T.eq(seeded.animations, false, "and the author's battle animation choice")
+  T.eq(seeded.musicVol, 7, "a machine setting is never seeded")
+  T.eq(options(files).cartOptions.author_cart.musicVol, nil, "not even into the cart")
+  T.eq(options(files).cartOptions.author_cart.nonesuch, nil,
+    "and a key outside the cart-scoped set is ignored")
+  T.eq(options(files).cartOptionsSeeded.author_cart, true, "the seed is recorded")
+
+  local player = SaveData.loadOptions()
+  player.textSpeed = 5
+  T.check(SaveData.saveOptions(player), "the player then picks their own speed")
+  T.eq(SaveData.seedCartOptions({ textSpeed = 1, animations = false }), false,
+    "a second boot re-seeds nothing")
+  T.eq(SaveData.loadOptions().textSpeed, 5, "so the player's change survives")
+
+  SaveData.setCart(nil)
+  T.eq(SaveData.loadOptions().textSpeed, 3,
+    "and the base game still has the shipped default of its own")
+  T.eq(SaveData.seedCartOptions({ textSpeed = 1 }), false,
+    "seeding with no cart active does nothing")
+end
+
 love.filesystem = realFS
 
 T.finish("cart_saves")

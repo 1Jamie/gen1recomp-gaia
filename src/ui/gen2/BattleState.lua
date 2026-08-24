@@ -209,6 +209,12 @@ end
 function BattleState:wantsFillScale() return true end
 function BattleState:drawsWidescreen() return true end
 
+-- BATTLE BG (#1709): WHITE is the cart's paper surround, BLACK plain bars.
+function BattleState:bgMode()
+  local options = self.game and self.game.options
+  return (options and options.battleBg) == "black" and "black" or "white"
+end
+
 function BattleState:bottomUIVisible()
   if not Runtime.wantsHook("battle.bottom_ui_visible") then return true end
   return Runtime.call("battle.bottom_ui_visible", function() return true end,
@@ -2184,15 +2190,21 @@ function BattleState:update(_dt)
   end
 
   if self.phase == "menu" then
-    -- 2x2 grid: left/right swap the column, up/down the row.
+    -- 2x2 grid: left/right swap the column, up/down the row.  No
+    -- STATICMENU_WRAP in BattleMenuHeader (engine/battle/menu.asm:31-33), so
+    -- the cursor clamps at each edge (engine/menus/menu.asm:156-166) (#1706).
     -- MenuClickSound / PlayClickSFX (home/menu.asm:746-762): SFX_READ_TEXT_2
     -- on A/B only, never on D-pad.
-    if input:wasPressed("left") or input:wasPressed("right") then
-      self.menuIndex = self.menuIndex % 2 == 1 and self.menuIndex + 1
-        or self.menuIndex - 1
-    elseif input:wasPressed("up") or input:wasPressed("down") then
-      self.menuIndex = self.menuIndex <= 2 and self.menuIndex + 2
-        or self.menuIndex - 2
+    local col = (self.menuIndex - 1) % 2
+    local row = math.floor((self.menuIndex - 1) / 2)
+    if input:wasPressed("left") then
+      self.menuIndex = row * 2 + math.max(0, col - 1) + 1
+    elseif input:wasPressed("right") then
+      self.menuIndex = row * 2 + math.min(1, col + 1) + 1
+    elseif input:wasPressed("up") then
+      self.menuIndex = math.max(0, row - 1) * 2 + col + 1
+    elseif input:wasPressed("down") then
+      self.menuIndex = math.min(1, row + 1) * 2 + col + 1
     elseif input:wasPressed("a") then
       self:playSfx("Sfx_ReadText2")
       self:chooseMenu(MENU_ACTION[MENU[self.menuIndex]])
@@ -2819,8 +2831,9 @@ function BattleState:pushCaught(enemy, itemId)
     -- PC's own move is InsertPokemonIntoBox, which inserts at the cursor.
     table.insert(box, 1, enemy)
     -- SendMonIntoBox refills the boxed slot's PP before it closes SRAM
-    -- (move_mon.asm:1062-1063).
-    Boxes.restorePP(enemy)
+    -- (move_mon.asm:1062-1063); the box_struct it writes carries no HP and no
+    -- status at all (macros/ram.asm:7-26).  #1696
+    Boxes.enterBox(enemy)
     -- `.SendToPC` re-reads sBoxCount AFTER the insert and sets
     -- BATTLERESULT_BOX_FULL when the box has just filled
     -- (item_effects.asm:612-619); Script_reloadmapafterbattle tests that bit

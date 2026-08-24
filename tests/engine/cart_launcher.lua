@@ -96,6 +96,38 @@ eq(#imp:_ensureCarts("blue"), 1, "blue lists only its own cart")
 eq(imp:_ensureCarts("blue")[1].id, "johto_lite", "and that one is Johto Lite")
 eq(#imp:_ensureCarts("yellow"), 0, "a game with no carts lists none")
 
+-- A .g1rcart dropped into the carts folder by hand, with no registry entry:
+-- the launcher must adopt it, not read past it.  _refreshCarts used to call
+-- CartStore.index (registry only) and never saw one.
+do
+  local stray = CartManifest.parse(cartTable({
+    id = "dropped_in", title = "Dropped In", version = "2.0.0" }))
+  check(stray ~= nil, "the stray fixture parses")
+  local opts = SaveData.loadOptions()
+  opts[CartStore.OPTIONS_KEY] = nil
+  SaveData.saveOptions(opts)
+  love.filesystem.createDirectory(CartStore.DIR)
+  love.filesystem.write(CartStore.fileFor("dropped_in"),
+    CartManifest.encode(stray))
+
+  local fresh = freshLauncher()
+  local found
+  for _, row in ipairs(fresh:_ensureCarts("red")) do
+    if row.id == "dropped_in" then found = row end
+  end
+  check(found ~= nil, "the launcher lists a cart dropped into the folder")
+  if found then
+    eq(found.title, "Dropped In", "and reads its title from the file")
+    eq(found.base, "red", "and its base game")
+  end
+  eq(CartStore.index()[1] ~= nil, true,
+    "listing healed the registry so the cheap index sees it too")
+
+  -- Put the fixture set back: later blocks assert on the picker's own layout,
+  -- and a third red cart changes its height.
+  CartStore.uninstall("dropped_in")
+end
+
 imp.tab = "red"
 imp.ready.red = true
 imp._cartPopup = "red"
@@ -109,8 +141,9 @@ check(picker:find("Johto Lite", 1, true) == nil,
 check(picker:find("v1.2.0", 1, true) ~= nil, "a cart row carries its version")
 check(picker:find("sealed", 1, true) ~= nil, "a cart row carries its seal state")
 check(picker:find("open", 1, true) ~= nil, "including an open one")
-check(picker:find("Get more carts", 1, true) ~= nil,
-  "the last row is the browse placeholder")
+check(picker:find("Import a cart", 1, true) ~= nil
+    or picker:find("Get more carts", 1, true) ~= nil,
+  "the last row imports a cart, by picker or by folder")
 
 imp._cartPopup = nil
 local vanillaColors = drawColors(imp)
@@ -305,14 +338,14 @@ local maker = freshLauncher()
 maker.tab = "red"
 maker.ready.red = true
 maker:_setModScope("red")
-eq(maker:_cartCaptureCount("red"), 2,
-  "the control counts only the mods enabled for this game")
+eq(maker:_cartCaptureCount("red"), 3,
+  "the control counts every mod the capture would pin, on or off")
 
 maker:_beginCartSave("red")
 check(maker._cartSave ~= nil, "Save as cart opens a form")
-eq(maker._cartSave.count, 2, "the form reports the captured mod count")
+eq(maker._cartSave.count, 3, "the form reports the captured mod count")
 eq(maker._cartSave.version, "red", "scoped to the game the panel is showing")
-eq(#maker._cartSave.unresolved, 1, "capture reports one pin it could not resolve")
+eq(#maker._cartSave.unresolved, 2, "capture reports the pins it could not resolve")
 eq(maker._cartSave.unresolved[1].id, "wide_gym", "naming the mod it belongs to")
 check(tostring(maker._cartSave.unresolved[1].reason):find("semantic", 1, true) ~= nil,
   "and why it could only be pinned locally")
@@ -345,7 +378,13 @@ eq(made.base, "red", "based on the game the panel was showing")
 eq(made.version, "1.0.0", "at the default cart version")
 eq(made.seal, "sealed", "sealed by default")
 eq(made.shell, "#ff3c48", "wearing the base game's rail colour")
-eq(#made.mods, 2, "pinning exactly the enabled mods")
+eq(#made.mods, 3, "pinning every installed mod, on or off")
+local madeOff
+for _, entry in ipairs(made.mods) do
+  if entry.id == "off_mod" then madeOff = entry end
+end
+check(madeOff ~= nil, "including the one the player has switched off")
+eq(madeOff.enabled, false, "which is pinned switched off rather than dropped")
 
 local listedNow = false
 for _, row in ipairs(maker:_ensureCarts("red")) do
@@ -472,8 +511,512 @@ eq(SaveData.slotSealBroken("kanto_plus", freshSlot), false,
   "starts sealed again")
 eq(gapCart:cartPlan("red").refused, true, "so the cart refuses that one")
 
+install({ id = "plus_cart", title = "Plus Cart", seal = "sealed+",
+          shell = "#445566" })
+LauncherMods.list = function() return FULL_MODS end
+local plusCart = freshLauncher()
+plusCart.tab = "red"
+plusCart.ready.red = true
+plusCart._cartPopup = "red"
+local plusPicker = drawAndCapture(plusCart)
+check(plusPicker:find("sealed+", 1, true) ~= nil,
+  "the picker spells a sealed+ cart's seal out")
+plusCart._cartPopup = nil
+plusCart:_selectCart("red", "plus_cart")
+local plusPlan = plusCart:cartPlan("red")
+eq(plusPlan.seal, "sealed+", "the plan carries the sealed+ seal")
+eq(plusPlan.sealed, true, "sealed+ is a sealed cart")
+eq(plusPlan.enforced, true, "and enforces its mod set")
+local plusText = drawAndCapture(plusCart)
+check(plusText:find("Sealed", 1, true) ~= nil, "the page says it is sealed")
+check(plusText:find("switch any of them on or off", 1, true) ~= nil,
+  "and that the player may switch the mods it pins")
+check(plusText:find("Break the seal", 1, true) ~= nil,
+  "while still offering the escape hatch")
+eq(SaveData.slotSealBroken("plus_cart",
+  plusCart.activeSlot[plusCart:slotScope("red")] or "slot1"), false,
+  "and reading the page breaks nothing")
+
+-- ------- installing the mods a cart pins, instead of defeating its seal
+
+local ModUpdate = require("src.mods.ModUpdate")
+local realFetchBegin, realFetchPump =
+  ModUpdate.beginFetchReleases, ModUpdate.pumpFetchReleases
+local realDlBegin, realDlPump =
+  ModUpdate.beginDownloadZip, ModUpdate.pumpDownloadZip
+local realInstallDownloaded = LauncherMods.installDownloadedZip
+
+love.data = love.data or {}
+local savedData = { hash = love.data.hash, encode = love.data.encode }
+-- The archive's digest IS its bytes here, so a fixture writes the hash it
+-- wants the downloaded zip to have.
+love.data.hash = function(_, data) return tostring(data) end
+love.data.encode = function(_, _, digest) return tostring(digest) end
+
+local SHA_ONE = ("0123abcd"):rep(8)
+local SHA_TWO = ("dead9876"):rep(8)
+
+local net = { versions = {}, bytes = {}, err = nil, repos = {} }
+ModUpdate.beginFetchReleases = function(repo, modId)
+  net.repos[modId] = repo
+  return { modId = modId, repo = repo }
+end
+ModUpdate.pumpFetchReleases = function(h)
+  if net.err then return true, nil, net.err end
+  local out = {}
+  for _, v in ipairs(net.versions[h.modId] or {}) do
+    out[#out + 1] = { version = v, tag = "v" .. v,
+      zip = { url = h.modId .. "@" .. v, name = h.modId .. ".zip" } }
+  end
+  return true, out
+end
+ModUpdate.beginDownloadZip = function(url, destName)
+  love.filesystem.write(destName, net.bytes[url] or "not-the-pinned-archive")
+  return { path = destName }
+end
+ModUpdate.pumpDownloadZip = function(h) return true, h.path end
+
+local haveMods = {}
+LauncherMods.installDownloadedZip = function(modId, localPath, version)
+  haveMods[modId] = version or "?"
+  pcall(love.filesystem.remove, localPath)
+  return true, haveMods[modId]
+end
+LauncherMods.list = function()
+  local rows = {}
+  for id, v in pairs(haveMods) do
+    rows[#rows + 1] = fakeRow({ id = id, name = id, version = v })
+  end
+  return rows
+end
+
+install({ id = "fill_cart", title = "Fill Cart", shell = "#227744",
+  mods = {
+    { id = "fill_one", source = "github", repo = "ren/fill-one",
+      version = "1.0.0", sha256 = SHA_ONE },
+    { id = "fill_two", source = "github", repo = "ren/fill-two",
+      version = "2.1.0", sha256 = SHA_TWO },
+  },
+  load_order = { "fill_one", "fill_two" } })
+install({ id = "odd_cart", title = "Odd Cart", shell = "#772244",
+  mods = {
+    { id = "banana_mod", source = "gamebanana", mod = 4821, file = 99123,
+      md5 = ("ab"):rep(16) },
+    { id = "here_mod", source = "local", version = "0.0.0" },
+  },
+  load_order = { "banana_mod", "here_mod" } })
+
+local function fillPage(cartId)
+  local page = freshLauncher()
+  page.tab = "red"
+  page.ready.red = true
+  page:_selectCart("red", cartId)
+  return page
+end
+
+local function runFill(page)
+  page:pressInstallCartMods("red")
+  local guard = 0
+  while page._cartFill and guard < 500 do
+    page:_pumpModInstall()
+    page:_pumpCartFill()
+    guard = guard + 1
+  end
+  check(page._cartFill == nil, "the install run finishes")
+  return page.cartFillNotice or {}
+end
+
+local function failureText(notice)
+  return table.concat(notice.failures or {}, " | ")
+end
+
+net.versions.fill_one = { "1.0.0", "0.9.0" }
+net.versions.fill_two = { "2.1.0" }
+net.bytes["fill_one@1.0.0"] = SHA_ONE
+net.bytes["fill_two@2.1.0"] = SHA_TWO
+
+-- A cart whose pins are all installed offers nothing to install.
+haveMods = { fill_one = "1.0.0", fill_two = "2.1.0" }
+local readyFill = fillPage("fill_cart")
+eq(readyFill:cartPlan("red").refused, false, "every pin installed, so it plays")
+eq(#readyFill:cartFillRows("red"), 0, "with nothing left to install")
+local readyText = drawAndCapture(readyFill)
+check(readyText:find("Install required mods", 1, true) == nil
+    and readyText:find("required mods", 1, true) == nil,
+  "so a ready cart never offers the install button")
+check(readyText:find("Break the seal", 1, true) ~= nil,
+  "while the seal control is where it always was")
+
+-- Nothing installed: the button appears, named for the count, beside the seal.
+haveMods = {}
+local gapFill = fillPage("fill_cart")
+eq(#gapFill:cartFillRows("red"), 2, "both uninstalled pins queue up")
+local gapFillText = drawAndCapture(gapFill)
+check(gapFillText:find("Install 2 required mods", 1, true) ~= nil,
+  "a refused cart offers to install what it pins, counted")
+check(gapFillText:find("the way its author built it", 1, true) ~= nil,
+  "saying plainly that this is the way to play it as built")
+check(gapFillText:find("Break the seal", 1, true) ~= nil,
+  "with breaking the seal still there as the fallback")
+
+-- A pin installed at the WRONG version is a gap too: the cart wants its own.
+haveMods = { fill_one = "0.9.0", fill_two = "2.1.0" }
+local skewFill = fillPage("fill_cart")
+eq(skewFill:cartPlan("red").mismatched[1].id, "fill_one",
+  "a pin at another version is a mismatch")
+eq(#skewFill:cartFillRows("red"), 1, "which queues for install like a gap")
+eq(skewFill:cartFillRows("red")[1].version, "1.0.0",
+  "at the version the cart pins, not the one on disk")
+local skewText = drawAndCapture(skewFill)
+check(skewText:find("Install required mods", 1, true) ~= nil,
+  "a single gap drops the count from the label")
+
+-- THE HASH GATE.  An archive that is not the one the cart recorded installs
+-- nothing, however well the id and version line up.
+haveMods = {}
+net.bytes["fill_one@1.0.0"] = "some other build entirely"
+local badHash = fillPage("fill_cart")
+local badNotice = runFill(badHash)
+eq(haveMods.fill_one, nil, "a hash mismatch installs nothing at all")
+eq(badNotice.ok, false, "and the run reports as failed")
+check(failureText(badNotice):find("fill_one", 1, true) ~= nil,
+  "naming the mod whose archive did not match")
+check(failureText(badNotice):find("sha256", 1, true) ~= nil,
+  "and saying it was the hash: " .. failureText(badNotice))
+eq(badHash:cartPlan("red").refused, true, "so the cart still refuses")
+net.bytes["fill_one@1.0.0"] = SHA_ONE
+
+-- Partial: one archive verifies, the other does not.
+haveMods = {}
+net.bytes["fill_two@2.1.0"] = "wrong bytes for the second mod"
+local partial = fillPage("fill_cart")
+local partialNotice = runFill(partial)
+eq(haveMods.fill_one, "1.0.0", "the pin that verified is installed")
+eq(haveMods.fill_two, nil, "the pin that did not is not")
+eq(partialNotice.ok, false, "a partial run reads as a failure")
+check(tostring(partialNotice.text):find("1 of 2", 1, true) ~= nil,
+  "counting what landed: " .. tostring(partialNotice.text))
+check(failureText(partialNotice):find("fill_two", 1, true) ~= nil,
+  "and naming only the mod that failed")
+check(failureText(partialNotice):find("fill_one", 1, true) == nil,
+  "not the one that worked")
+local partialText = drawAndCapture(partial)
+check(partialText:find("fill_two", 1, true) ~= nil,
+  "the card reports the failure where the player pressed the button")
+net.bytes["fill_two@2.1.0"] = SHA_TWO
+
+-- The whole run, verified, with the seal untouched at the end of it.
+haveMods = {}
+local good = fillPage("fill_cart")
+local goodScope = good:slotScope("red")
+good:_ensureSlots(goodScope)
+local goodSlot = good.activeSlot[goodScope]
+eq(good:cartPlan("red").refused, true, "the cart refuses before the run")
+local goodNotice = runFill(good)
+eq(goodNotice.ok, true, "the run reports success: " .. tostring(goodNotice.text))
+eq(haveMods.fill_one, "1.0.0", "the first pin lands at its pinned version")
+eq(haveMods.fill_two, "2.1.0", "and the second at its own")
+eq(net.repos.fill_one, "ren/fill-one", "each pin was looked up in its own repo")
+eq(net.repos.fill_two, "ren/fill-two", "including the second")
+eq(good:cartPlan("red").refused, false,
+  "and the cart is ready to play with no further presses")
+eq(SaveData.slotSealBroken("fill_cart", goodSlot or "slot1"), false,
+  "installing never breaks the cart's seal")
+eq(SaveData.isSealBroken(), false, "nor the session's")
+local goodText = drawAndCapture(good)
+check(goodText:find("Sealed", 1, true) ~= nil,
+  "the card flips to ready without another click")
+check(goodText:find("required mods", 1, true) == nil,
+  "and stops offering the install button")
+
+-- No release carrying that version.
+haveMods = {}
+net.versions.fill_one = { "0.9.0" }
+local noRel = fillPage("fill_cart")
+local noRelNotice = runFill(noRel)
+eq(haveMods.fill_one, nil, "a version the repo does not publish installs nothing")
+check(failureText(noRelNotice):find("v1.0.0", 1, true) ~= nil,
+  "and the failure names the version it wanted: " .. failureText(noRelNotice))
+net.versions.fill_one = { "1.0.0", "0.9.0" }
+
+-- No .zip on the matching release.
+haveMods = {}
+local savedPump = ModUpdate.pumpFetchReleases
+ModUpdate.pumpFetchReleases = function(h)
+  return true, { { version = "1.0.0", tag = "v1.0.0" },
+                 { version = "2.1.0", tag = "v2.1.0" } }
+end
+local noZip = fillPage("fill_cart")
+local noZipNotice = runFill(noZip)
+eq(haveMods.fill_one, nil, "a release with no archive installs nothing")
+check(failureText(noZipNotice):find(".zip", 1, true) ~= nil,
+  "and says so: " .. failureText(noZipNotice))
+ModUpdate.pumpFetchReleases = savedPump
+
+-- Network down.
+haveMods = {}
+net.err = "no network transport on this platform"
+local offline = fillPage("fill_cart")
+local offlineNotice = runFill(offline)
+eq(haveMods.fill_one, nil, "an offline run installs nothing")
+eq(offlineNotice.ok, false, "and reports as failed")
+check(failureText(offlineNotice):find("no network transport", 1, true) ~= nil,
+  "carrying the transport's own words: " .. failureText(offlineNotice))
+net.err = nil
+
+-- Sources the launcher cannot fetch are refused per mod, not as one silence.
+haveMods = {}
+local odd = fillPage("odd_cart")
+eq(#odd:cartFillRows("red"), 2, "both odd pins are gaps")
+local oddText = drawAndCapture(odd)
+check(oddText:find("Install 2 required mods", 1, true) ~= nil,
+  "the button is offered even when a pin may not be fetchable")
+local oddNotice = runFill(odd)
+eq(oddNotice.ok, false, "neither can be installed")
+eq(#(oddNotice.failures or {}), 2, "and each is reported on its own line")
+check(failureText(oddNotice):find("banana_mod", 1, true) ~= nil
+    and failureText(oddNotice):find("GameBanana", 1, true) ~= nil,
+  "the gamebanana pin says what it is pinned to: " .. failureText(oddNotice))
+check(failureText(oddNotice):find("here_mod", 1, true) ~= nil
+    and failureText(oddNotice):find("nothing to download", 1, true) ~= nil,
+  "and the local pin says there is nothing to fetch")
+eq(next(haveMods), nil, "with nothing installed either way")
+local oddAfter = drawAndCapture(odd)
+check(oddAfter:find("Break the seal", 1, true) ~= nil,
+  "and the seal is still the fallback it was")
+
+-- Breaking the seal still works exactly as it did, install button or not.
+local sealStill = fillPage("odd_cart")
+local oddScope = sealStill:slotScope("red")
+sealStill:_newSlot(oddScope)
+local oddSlot = sealStill.activeSlot[oddScope]
+check(type(oddSlot) == "string", "the cart page has a loaded save slot")
+eq(sealStill:pressBreakSeal("red"), false, "the first press still only arms")
+eq(SaveData.slotSealBroken("odd_cart", oddSlot), false, "breaking nothing")
+eq(sealStill:pressBreakSeal("red"), true, "and the second still breaks it")
+eq(SaveData.slotSealBroken("odd_cart", oddSlot), true, "on that slot")
+eq(sealStill:cartPlan("red").refused, false, "so the cart plays")
+
+love.data.hash, love.data.encode = savedData.hash, savedData.encode
+ModUpdate.beginFetchReleases, ModUpdate.pumpFetchReleases =
+  realFetchBegin, realFetchPump
+ModUpdate.beginDownloadZip, ModUpdate.pumpDownloadZip =
+  realDlBegin, realDlPump
+LauncherMods.installDownloadedZip = realInstallDownloaded
+-- Later blocks audit the picker's layout, which counts the carts on red.
+CartStore.uninstall("fill_cart")
+CartStore.uninstall("odd_cart")
+
 LauncherMods.list = realModList
 window(1280, 720)
+
+-- ------- the MODS tab under an active cart
+
+-- the rows the base game's own list would hand back, so the panel with no
+-- cart active has something real to disagree with the carts about
+local PIN_MODS = {
+  fakeRow({ id = "pin_on", name = "Pin On", version = "1.0.0" }),
+  fakeRow({ id = "pin_off", name = "Pin Off", version = "1.0.0",
+            enabled = false,
+            enabledByVersion = { red = false, blue = false, yellow = false,
+                                 gold = false, silver = false } }),
+}
+
+local function localPin(id, off)
+  local entry = { id = id, source = "local", version = "1.0.0" }
+  if off then entry.enabled = false end
+  return entry
+end
+
+local PIN_SET = { localPin("pin_on"), localPin("pin_off", true) }
+local PIN_ORDER = { "pin_on", "pin_off" }
+
+install({ id = "plus_mods", title = "Plus Mods", seal = "sealed+",
+          shell = "#2b8a3e", mods = PIN_SET, load_order = PIN_ORDER })
+install({ id = "hard_mods", title = "Hard Mods", seal = "sealed",
+          shell = "#8a2b3e", mods = PIN_SET, load_order = PIN_ORDER })
+install({ id = "gap_mods", title = "Gap Mods", seal = "sealed+",
+          shell = "#3e2b8a",
+          mods = { localPin("pin_on"), localPin("ghost_mod") },
+          load_order = { "pin_on", "ghost_mod" } })
+
+local realSetEnabled, realSetAllEnabled = LauncherMods.setEnabled, LauncherMods.setAllEnabled
+local perGameWrites = 0
+LauncherMods.setEnabled = function(...)
+  perGameWrites = perGameWrites + 1
+  return realSetEnabled(...)
+end
+LauncherMods.setAllEnabled = function(...)
+  perGameWrites = perGameWrites + 1
+  return realSetAllEnabled(...)
+end
+LauncherMods.list = function() return PIN_MODS end
+
+-- the base game's own answer for the same mod, which nothing below may move
+local seeded = SaveData.loadOptions()
+SaveData.setModEnabled(seeded, "pin_off", false, "red")
+SaveData.setModEnabled(seeded, "pin_on", true, "red")
+SaveData.saveOptions(seeded)
+
+local function rowsById(imp)
+  local byId = {}
+  for _, row in ipairs(imp.mods or {}) do byId[row.id] = row end
+  return byId
+end
+
+local plain = freshLauncher()
+plain.tab = "mods"
+plain.ready.red = true
+plain:_selectCart("red", nil)
+plain:_setModScope("red")
+eq(#plain.mods, 2, "with no cart the panel lists the installed mods")
+eq(plain.mods[1].cartPin, nil, "which are not marked as any cart's")
+check(type(plain.mods[1].enabledByVersion) == "table",
+  "and still carry their per-game answers")
+perGameWrites = 0
+plain:_toggleMod("pin_on", nil, "red")
+eq(perGameWrites, 1, "a toggle with no cart still writes the per-game flag")
+eq(SaveData.modEnabled(SaveData.loadOptions(), "pin_on", "red"), false,
+  "which is what changed")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "pin_on"), nil,
+  "and no cart scope was touched")
+SaveData.setModEnabled(seeded, "pin_on", true, "red")
+SaveData.saveOptions(seeded)
+
+local pins = freshLauncher()
+pins.tab = "mods"
+pins.ready.red = true
+pins:_selectCart("red", "plus_mods")
+pins:_setModScope("red")
+eq(#pins.mods, 2, "an active cart makes the panel list its pins")
+local pinRows = rowsById(pins)
+eq(pinRows.pin_on.cartPin, true, "each row is marked as the cart's")
+eq(pinRows.pin_on.cartId, "plus_mods", "naming the cart it came from")
+eq(pinRows.pin_on.enabled, true, "a pin shipped switched on shows on")
+eq(pinRows.pin_off.enabled, false, "a pin shipped switched off shows off")
+eq(pinRows.pin_off.cartTogglable, true, "sealed+ hands every pin's switch over")
+eq(pinRows.pin_on.enabledByVersion, nil,
+  "and a cart row carries no per-game answer, because a cart is one game")
+
+local pinText = drawAndCapture(pins)
+check(pinText:find("PINNED", 1, true) ~= nil,
+  "the list says on every row that these are the cart's mods")
+check(pinText:find("Plus Mods", 1, true) ~= nil, "and names the cart above them")
+check(pinText:find("In this cart:", 1, true) ~= nil,
+  "with a switch that answers the cart, not the game")
+
+perGameWrites = 0
+pins:_toggleMod("pin_off", nil, "red")
+local afterOn = SaveData.loadOptions()
+eq(SaveData.cartModEnabled(afterOn, "plus_mods", "pin_off"), true,
+  "a sealed+ toggle writes the player's answer into the cart's scope")
+eq(perGameWrites, 0, "and never through the per-game path")
+eq(SaveData.modEnabled(afterOn, "pin_off", "red"), false,
+  "so the base game's flag for that mod is untouched")
+eq(SaveData.modEnabled(afterOn, "pin_on", "red"), true, "as is every other")
+eq(rowsById(pins).pin_off.enabled, true, "the row follows the new answer")
+
+local pinScope = pins:slotScope("red")
+pins:_ensureSlots(pinScope)
+local pinSlot = pins.activeSlot[pinScope]
+eq(SaveData.slotSealBroken("plus_mods", pinSlot or "slot1"), false,
+  "switching a sealed+ pin does not break the cart's seal")
+eq(SaveData.isSealBroken(), false, "nor the session's")
+eq(pins:cartPlan("red").broken, false, "and the plan still reads it as intact")
+
+pins:_toggleMod("pin_off", nil, "red")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "pin_off"), false,
+  "pressing again switches it back off, still in the cart's scope")
+
+perGameWrites = 0
+pins:_setAllMods(true)
+eq(perGameWrites, 0, "Enable all cannot reach a cart's mod set")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "pin_off"), false,
+  "so no pin moved")
+check(tostring(pins.modNotice.text):find("Plus Mods", 1, true) ~= nil,
+  "and the panel says which cart is deciding")
+eq(pins.modNotice.ok, false, "as a refusal")
+pins:_setAllMods(false)
+eq(perGameWrites, 0, "Disable all cannot either")
+eq(SaveData.modEnabled(SaveData.loadOptions(), "pin_on", "red"), true,
+  "and the base game's list is where it was")
+
+pins:_toggleMod("wide_gym", nil, "red")
+check(tostring(pins.modNotice.text):find("cannot be added to", 1, true) ~= nil,
+  "a mod the cart does not pin cannot be switched on from here")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "wide_gym"), nil,
+  "and nothing is written for it")
+
+pins.safeMode = true
+pins:_toggleMod("pin_off", nil, "red")
+check(tostring(pins.modNotice.text):find("Safe mode", 1, true) ~= nil,
+  "safe mode still refuses a cart toggle first")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "pin_off"), false,
+  "and writes nothing")
+pins.safeMode = false
+
+local sealedPins = freshLauncher()
+sealedPins.tab = "mods"
+sealedPins.ready.red = true
+sealedPins:_selectCart("red", "hard_mods")
+sealedPins:_setModScope("red")
+local hardRows = rowsById(sealedPins)
+eq(hardRows.pin_off.enabled, false, "a sealed cart's off pin shows off")
+eq(hardRows.pin_off.cartTogglable, false, "and hands no switch over")
+eq(hardRows.pin_on.cartTogglable, false, "nor does the pin it ships on")
+perGameWrites = 0
+sealedPins:_toggleMod("pin_off", nil, "red")
+eq(perGameWrites, 0, "a sealed pin never reaches the per-game path either")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "hard_mods", "pin_off"), nil,
+  "and a press under a sealed cart writes nothing")
+eq(sealedPins.modNotice.ok, false, "the press is refused")
+check(tostring(sealedPins.modNotice.text):find("sealed", 1, true) ~= nil,
+  "with the panel saying why rather than doing nothing")
+check(tostring(sealedPins.modNotice.text):find("Break the seal", 1, true) ~= nil,
+  "and pointing at the one way to change it")
+local hardScope = sealedPins:slotScope("red")
+sealedPins:_ensureSlots(hardScope)
+eq(SaveData.slotSealBroken("hard_mods",
+  sealedPins.activeSlot[hardScope] or "slot1"), false,
+  "a refused press breaks no seal of its own")
+local hardText = drawAndCapture(sealedPins)
+check(hardText:find("Pinned, sealed:", 1, true) ~= nil,
+  "and the row itself reads as locked")
+
+local gapPins = freshLauncher()
+gapPins.tab = "mods"
+gapPins.ready.red = true
+gapPins:_selectCart("red", "gap_mods")
+gapPins:_setModScope("red")
+local gapRows = rowsById(gapPins)
+eq(#gapPins.mods, 2, "a pin that is not installed is still listed")
+eq(gapRows.ghost_mod.status, "missing", "as missing")
+eq(gapRows.ghost_mod.enabled, false, "and switched off")
+gapPins:_toggleMod("ghost_mod", nil, "red")
+check(tostring(gapPins.modNotice.text):find("not installed", 1, true) ~= nil,
+  "switching it says so instead of writing an answer for a mod that is absent")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "gap_mods", "ghost_mod"), nil,
+  "and writes nothing")
+
+pins:_selectCart("red", nil)
+pins:_setModScope("red")
+local backRows = rowsById(pins)
+eq(#pins.mods, 2, "choosing the base game lists the player's own mods again")
+eq(backRows.pin_on.cartPin, nil, "with no cart marks left on them")
+check(type(backRows.pin_on.enabledByVersion) == "table",
+  "and their per-game answers back")
+eq(backRows.pin_off.enabled, false,
+  "reading exactly what the base game's flags say")
+perGameWrites = 0
+pins:_toggleMod("pin_off", nil, "red")
+eq(perGameWrites, 1, "and a toggle is a per-game write once more")
+eq(SaveData.modEnabled(SaveData.loadOptions(), "pin_off", "red"), true,
+  "which lands in the game's own flags")
+eq(SaveData.cartModEnabled(SaveData.loadOptions(), "plus_mods", "pin_off"), false,
+  "leaving the cart's answer where the player left it")
+
+LauncherMods.setEnabled, LauncherMods.setAllEnabled = realSetEnabled, realSetAllEnabled
+LauncherMods.list = realModList
 
 local function clipped(r)
   local x1, y1, x2, y2 = r.x, r.y, r.x + r.w, r.y + r.h
@@ -540,6 +1083,22 @@ for _, size in ipairs(SIZES) do
     if ok then
       auditFrame(("%dx%d %s"):format(W, H, cart and "cart" or "vanilla"),
         "Custom Carts")
+      -- The refused card carries two chips now, so both have to stay on it.
+      if cart then
+        local sawFill = false
+        for _, r in ipairs(Kit.audit or {}) do
+          local label = tostring(r.label)
+          if label == "Install required mods" or label == "Break the seal" then
+            sawFill = sawFill or label == "Install required mods"
+            check(r.x >= -0.5 and r.x + r.w <= W + 0.5
+              and r.y >= -0.5 and r.y + r.h <= H + 0.5,
+              ("%dx%d cart card: %q stays inside the window")
+                :format(W, H, label))
+          end
+        end
+        check(sawFill,
+          ("%dx%d cart card: drew Install required mods"):format(W, H))
+      end
     end
     Kit.audit = nil
 
@@ -595,6 +1154,303 @@ for _, size in ipairs(SIZES) do
   end
   Kit.audit = nil
 end
+LauncherMods.list = function() return PIN_MODS end
+for _, size in ipairs(SIZES) do
+  local W, H = size[1], size[2]
+  window(W, H)
+  for _, cart in ipairs({ "plus_mods", "hard_mods" }) do
+    local panel = freshLauncher()
+    panel.tab = "mods"
+    panel.ready.red = true
+    panel:_selectCart("red", cart)
+    panel:_setModScope("red")
+    LauncherView.draw(panel)
+    Kit.audit = {}
+    local ok, err = pcall(LauncherView.draw, panel)
+    Kit.audit = ok and Kit.audit or nil
+    check(ok, ("%dx%d %s mods draws: %s"):format(W, H, cart, tostring(err)))
+    if ok then auditFrame(("%dx%d %s mods"):format(W, H, cart)) end
+    Kit.audit = nil
+  end
+end
 LauncherMods.list = realModList
+
+-- ------- FIND tab: browsing the index's carts instead of its mods
+--
+-- The feed carries carts beside mods at the same schema_version, so the panel
+-- has a Mods / Carts switch.  Installing a cart from a listing goes through
+-- CartStore.install with the downloaded bytes, never the mod installer.
+
+local ModIndex = require("src.mods.ModIndex")
+local ModUpdate = require("src.mods.ModUpdate")
+local Json = require("src.link.Json")
+
+local INDEX_CART = {
+  id = "indexed_cart", title = "Indexed Cart", author = "Ren",
+  version = "1.4.0", base = "silver", seal = "sealed",
+  repo = "https://github.com/ren/indexed-cart",
+  github = "ren/indexed-cart",
+  mods = { { id = "rare_soda", source = "github", repo = "ren/rare-soda",
+             version = "0.4.1", sha256 = SHA } },
+  update_check = "ok",
+  latest = { version = "1.4.0", tag = "v1.4.0",
+             zip = { name = "indexed_cart-1.4.0.zip",
+                     url = "https://example.test/indexed_cart-1.4.0.zip" } },
+}
+
+local INDEX_FEED = ModIndex.parse(Json.encode({
+  schema_version = 1,
+  categories = { "GAMEPLAY" },
+  base_games = { "red", "blue", "yellow", "gold", "silver" },
+  mods = {
+    { id = "rare_soda", title = "Rare Soda", author = "Ren", version = "0.4.1",
+      categories = { "GAMEPLAY" }, update_check = "off" },
+    { id = "true_colour", title = "True Colour", author = "Sam",
+      version = "1.0.0", categories = { "ART" }, update_check = "off" },
+  },
+  carts = {
+    INDEX_CART,
+    { id = "gold_rush", title = "Gold Rush", author = "Sam", version = "3.0.0",
+      base = "gold", seal = "open", repo = "https://github.com/sam/gold-rush",
+      mods = { { id = "steps", source = "github", repo = "sam/steps",
+                 version = "1.0.0", sha256 = SHA } },
+      update_check = "off" },
+  },
+}))
+check(INDEX_FEED ~= nil, "the find-tab fixture feed parses")
+
+window(1280, 720)
+
+local find = freshLauncher()
+eq(find.findKind, "mods", "the Find tab browses mods by default")
+check(find.findBase == nil, "with no base-game filter armed")
+find.tab = "find"
+find.modScope = nil
+find.findLoaded = true
+find.findSources = { { feed = "https://example.test/data/index.json",
+                       base = "https://example.test/",
+                       label = "example/index" } }
+find.findIndex = { mods = INDEX_FEED.mods, carts = INDEX_FEED.carts,
+                   categories = { "GAMEPLAY", "ART" },
+                   baseGames = ModIndex.baseGamesIn(INDEX_FEED) }
+
+eq(#find:_findRows(), 2, "the default rows are the feed's mods")
+eq(find:_findRows()[1].id, "rare_soda", "and they are the mod entries")
+
+local modsFind = drawAndCapture(find)
+check(modsFind:find("Mods (2)", 1, true) ~= nil,
+  "the switch says how many mods the feed lists")
+check(modsFind:find("Carts (2)", 1, true) ~= nil, "and how many carts")
+check(modsFind:find("Rare Soda", 1, true) ~= nil, "mods are what is listed")
+
+find:_setFindKind("carts")
+eq(find.findKind, "carts", "the switch flips to carts")
+eq(#find:_findRows(), 2, "and the rows become the feed's carts")
+check(ModIndex.isCart(find:_findRows()[1]), "which are cart entries")
+
+local cartsFind = drawAndCapture(find)
+check(cartsFind:find("Indexed Cart", 1, true) ~= nil,
+  "a cart listing is drawn on the Carts half")
+check(cartsFind:find("Rare Soda", 1, true) == nil,
+  "and the mod listings are gone")
+check(cartsFind:find("Search carts", 1, true) ~= nil,
+  "the search field asks for carts")
+
+-- search spans the same fields it does for a mod
+find.findQuery = "gold"
+eq(#find:_findRows(), 1, "searching a cart title narrows the list")
+eq(find:_findRows()[1].id, "gold_rush", "to that cart")
+find.findQuery = "Ren"
+eq(find:_findRows()[1].id, "indexed_cart", "searching by author works too")
+find.findQuery = ""
+
+-- the cart-side filter is by base game, and the popup offers only the base
+-- games the feed's carts actually play as
+find.findBase = "gold"
+eq(#find:_findRows(), 1, "filtering by base game keeps that game's carts")
+eq(find:_findRows()[1].id, "gold_rush", "and only those")
+local filterText
+do
+  find._filterPopup = true
+  filterText = drawAndCapture(find)
+  find._filterPopup = nil
+end
+check(filterText:find("Filter by base game", 1, true) ~= nil,
+  "the filter popup filters carts by base game")
+check(filterText:find("Filter by category", 1, true) == nil,
+  "not by a category no cart has")
+find.findBase = nil
+
+-- MODS-tab scope still applies: a cart plays as exactly one game
+find.modScope = "silver"
+eq(#find:_findRows(), 1, "a scoped launcher lists only that game's carts")
+eq(find:_findRows()[1].id, "indexed_cart", "the one based on silver")
+find.modScope = nil
+
+find:_setFindKind("mods")
+eq(#find:_findRows(), 2, "switching back restores the mod rows")
+find:_setFindKind("carts")
+
+-- ------- installing a cart from a listing
+
+local INDEX_CART_BYTES = CartManifest.encode(CartManifest.parse(cartTable({
+  id = "indexed_cart", title = "Indexed Cart", version = "1.4.0",
+  base = "silver", shell = "#d8c24a" })))
+
+eq(#find:_ensureCarts("silver"), 0, "silver has no carts before the install")
+
+local entry
+for _, row in ipairs(find:_findRows()) do
+  if row.id == "indexed_cart" then entry = row end
+end
+check(entry ~= nil, "the cart listing is on screen to install")
+
+local realBegin, realPump = ModUpdate.beginDownloadZip, ModUpdate.pumpDownloadZip
+local asked = {}
+ModUpdate.beginDownloadZip = function(url, name)
+  asked[#asked + 1] = { url = url, name = name }
+  return { name = name }
+end
+ModUpdate.pumpDownloadZip = function(h)
+  love.filesystem.write(h.name, INDEX_CART_BYTES)
+  return true, h.name
+end
+
+find:_findConfirmInstall(entry)
+check(find._modConfirm ~= nil, "installing a cart arms a confirm first")
+eq(find._modConfirm.title, "Install cart", "and it says it is a cart")
+eq(find._modConfirm.indexEntry, entry, "carrying the listing it will install")
+do
+  local lines = table.concat(find._modConfirm.lines or {}, "\n")
+  check(lines:find("Pins 1 mod", 1, true) ~= nil,
+    "the confirm says how many mods the cart pins")
+  check(lines:find("installed separately", 1, true) ~= nil,
+    "and that installing the cart does not install them")
+end
+find._modConfirm = nil
+
+find:_findInstall(entry)
+check(find._cartInstall ~= nil, "the cart download is in flight")
+check(find._modInstall == nil, "and it is not a mod install")
+eq(asked[1].url, "https://example.test/indexed_cart-1.4.0.zip",
+  "the release the listing resolves is what gets downloaded")
+check(asked[1].name:find(".g1rcart", 1, true) ~= nil,
+  "into a cart file, not a mod zip")
+
+-- single in flight: a mod install cannot start on top of a cart download
+find:_beginModInstall({ modId = "rare_soda", name = "Rare Soda", notice = "find",
+  release = { version = "0.4.1",
+              zip = { url = "https://example.test/rare_soda.zip" } } })
+check(find._modInstall == nil, "a mod install cannot race a cart install")
+eq(#asked, 1, "and nothing else was downloaded")
+
+find:_pumpCartInstall()
+check(find._cartInstall == nil, "the cart install completes")
+check(find.findNotice ~= nil and find.findNotice.ok,
+  "and reports success on the Find tab")
+
+local installedCart = CartStore.get("indexed_cart")
+check(installedCart ~= nil, "the cart is installed through CartStore")
+if installedCart then
+  eq(installedCart.title, "Indexed Cart", "with its own title")
+  eq(installedCart.base, "silver", "and the game it plays as")
+end
+
+-- the per-version cache is the whole point: without invalidating it the new
+-- cart would not show in Custom Carts until a relaunch
+eq(#find.carts["silver"], 1,
+  "the cached cart list for that game is refreshed in place")
+eq(find.carts["silver"][1].id, "indexed_cart", "with the new cart in it")
+eq(find:_findInstalledCarts()["indexed_cart"], "1.4.0",
+  "and the Find rows now read it as installed")
+
+-- the Custom Carts picker draws the new cart in the same session, with no
+-- refresh call from here and no relaunch
+do
+  local picker = freshLauncher()
+  picker.tab = "silver"
+  picker.ready.silver = true
+  picker._cartPopup = "silver"
+  local pickerText = drawAndCapture(picker)
+  check(pickerText:find("Indexed Cart", 1, true) ~= nil,
+    "the Custom Carts picker lists the freshly installed cart")
+end
+do
+  local same = drawAndCapture(find)
+  check(same ~= nil, "the Find tab still draws after an install")
+end
+
+-- ------- the pins prompt
+--
+-- Installing a cart never installs its mods behind the player's back, but a
+-- cart whose pins are missing will not start, so it asks once and routes a
+-- yes at the existing hash-verified fill queue.
+
+check(find._modConfirm ~= nil, "a cart with missing pins prompts after install")
+eq(find._modConfirm.kind, "cartPins", "through the launcher's confirm modal")
+eq(find._modConfirm.version, "silver", "for the game the cart plays as")
+eq(find._modConfirm.id, "indexed_cart", "naming the cart just installed")
+do
+  local lines = table.concat(find._modConfirm.lines or {}, "\n")
+  check(lines:find("Indexed Cart pins 1 mod", 1, true) ~= nil,
+    "the prompt names the cart and how many pins are missing")
+end
+check(find.activeCart["silver"] == nil,
+  "and asking does not select the cart on its own")
+
+-- yes routes at pressInstallCartMods, which owns the hash check
+do
+  local realFetchRel = ModUpdate.beginFetchReleases
+  local realPumpRel = ModUpdate.pumpFetchReleases
+  local asked_repos = {}
+  ModUpdate.beginFetchReleases = function(repo)
+    asked_repos[#asked_repos + 1] = repo
+    return { repo = repo }
+  end
+  ModUpdate.pumpFetchReleases = function() return true, nil, "no releases" end
+  find._modConfirm = nil
+  find:_installCartPins("silver", "indexed_cart")
+  eq(find.activeCart["silver"], "indexed_cart",
+    "saying yes selects the cart the pins belong to")
+  for _ = 1, 8 do find:_pumpCartFill() end
+  eq(asked_repos[1], "ren/rare-soda",
+    "and the fill queue resolves the cart's own pin")
+  check(find.cartFillNotice ~= nil and not find.cartFillNotice.ok,
+    "reporting per-mod failures through the existing notice")
+  find:_selectCart("silver", nil)
+  find.cartFillNotice = nil
+  ModUpdate.beginFetchReleases = realFetchRel
+  ModUpdate.pumpFetchReleases = realPumpRel
+end
+
+-- a cart whose pins are all installed must not prompt at all
+do
+  local realList = LauncherMods.list
+  LauncherMods.list = function()
+    return { { id = "rare_soda", version = "0.4.1",
+               manifest = { id = "rare_soda", version = "0.4.1" } } }
+  end
+  local satisfied = freshLauncher()
+  eq(#satisfied:_cartPinsMissing("silver", "indexed_cart"), 0,
+    "a cart with every pin installed is missing none")
+  satisfied:_offerCartPins({ id = "indexed_cart", title = "Indexed Cart",
+                             base = "silver" })
+  check(satisfied._modConfirm == nil, "so it does not prompt")
+  LauncherMods.list = realList
+end
+
+-- a download that is not a cart at all fails loudly instead of installing
+ModUpdate.pumpDownloadZip = function(h)
+  love.filesystem.write(h.name, "not a cart at all")
+  return true, h.name
+end
+find.findNotice = nil
+find:_findInstall(entry)
+find:_pumpCartInstall()
+check(find._cartInstall == nil, "a junk download ends the job")
+check(find.findNotice ~= nil and not find.findNotice.ok,
+  "and says so rather than installing anything")
+
+ModUpdate.beginDownloadZip, ModUpdate.pumpDownloadZip = realBegin, realPump
 
 T.finish("cart launcher")

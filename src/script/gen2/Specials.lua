@@ -1375,6 +1375,13 @@ H.GiveShuckle = function(vm)
   mon.ot = Specials.MANIA_OT
   mon.otId = Specials.MANIA_OT_ID
   list[#list + 1] = mon
+  -- TryAddMonToParty's .registerpokedex (engine/pokemon/move_mon.asm:188-196) #1719
+  local record = save(vm)
+  if record then
+    record.pokedex = record.pokedex or { seen = {}, caught = {} }
+    record.pokedex.seen[mon.species] = true
+    record.pokedex.caught[mon.species] = true
+  end
   answer(vm, TRUE)
 end
 

@@ -1,6 +1,7 @@
 local Json = require("src.link.Json")
 local Logger = require("src.core.Logger")
 local SaveData = require("src.core.SaveData")
+local CartManifest = require("src.carts.CartManifest")
 local CartStore = require("src.carts.CartStore")
 local Data = require("src.core.Data")
 local GameVersion = require("src.core.GameVersion")
@@ -269,7 +270,7 @@ function Loader.new(opts)
     events = Events.new(), hooks = Hooks.new(), content = {}, assets = {},
     exports = {}, migrations = {}, order = {},
     modSave = {}, modOptions = {}, optionSchemas = {}, imageCache = {},
-    modInput = {}, modEnv = {}, stepsQueues = {},
+    modInput = {}, modEnv = {}, stepsQueues = {}, cartSwitches = {},
     fs = (opts and opts.fs) or (love and love.filesystem),
     cart = opts and opts.cart or nil,
     dev = dev,
@@ -369,7 +370,11 @@ function Loader:_saveState()
   local scope = self:_enableScope()
   local version = self:_targetVersion()
   for id in pairs(self.mods) do
-    SaveData.setModEnabled(options, id, not self.disabled[id], scope)
+    -- a switch the cart owns is answered in the cart's scope by setEnabled,
+    -- so it never rewrites what the base game runs
+    if not self.cartSwitches[id] then
+      SaveData.setModEnabled(options, id, not self.disabled[id], scope)
+    end
     -- only the games this boot can answer for: another version's overrides
     -- are not this run's to rewrite.  With no version (an injected-generation
     -- harness) the override stays in memory for this boot only.
@@ -436,6 +441,9 @@ function Loader:setEnabled(id, enabled)
   if not self.mods[id] then return false end
   self.disabled[id] = not enabled
   self.mods[id].enabled = enabled
+  if self.cartSwitches[id] and self.cartReport then
+    SaveData.setCartModEnabled(self.cartReport.id, id, enabled, self.fs)
+  end
   self:_saveState()
   return true
 end
@@ -530,6 +538,15 @@ local function cartComplaints(report)
   return parts
 end
 
+-- Whether the player's own enable flag decides a pinned mod.  "sealed+" hands
+-- every pin over; any other seal hands over only the pins the cart ships off.
+function Loader.pinTogglable(report, pin)
+  if type(report) ~= "table" or type(pin) ~= "table" then return false end
+  if report.seal == "sealed+" then return true end
+  if pin.enabled ~= false then return false end
+  return not (report.seal == "sealed" and not report.broken)
+end
+
 function Loader.planCart(cart, installed, broken)
   local report = { seal = "sealed", sealed = true, broken = broken == true,
     order = {}, rank = {}, pins = {}, missing = {}, mismatched = {},
@@ -541,8 +558,8 @@ function Loader.planCart(cart, installed, broken)
     return report
   end
   report.id, report.title = cart.id, cart.title
-  report.seal = cart.seal == "open" and "open" or "sealed"
-  report.sealed = report.seal == "sealed"
+  report.seal = CartManifest.SEALS[cart.seal] and cart.seal or "sealed"
+  report.sealed = report.seal ~= "open"
   report.enforced = report.sealed and not report.broken
   local have = installedVersions(installed)
   local pins = {}
@@ -599,9 +616,20 @@ function Loader:_applyCart()
     return
   end
   if report.message then Logger.warn("cart %s: %s", cartId, report.message) end
+  -- the pins whose switch the cart hands to the player: their answer lives in
+  -- the cart's own scope, never in the per-game flags
+  self.cartSwitches = {}
+  local options = SaveData.loadOptions(self.fs)
   for id, mod in pairs(self.mods) do
-    if report.pins[id] then
-      mod.enabled, mod.state = true, "pending"
+    local pin = report.pins[id]
+    if pin then
+      local on = CartManifest.modEnabled(pin)
+      if Loader.pinTogglable(report, pin) then
+        local chosen = SaveData.cartModEnabled(options, cartId, id)
+        if type(chosen) == "boolean" then on = chosen end
+        self.cartSwitches[id] = true
+      end
+      mod.enabled, mod.state = on, on and "pending" or "disabled"
     elseif report.enforced then
       mod.enabled, mod.state = false, "disabled"
     end

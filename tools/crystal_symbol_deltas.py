@@ -1,6 +1,6 @@
 """REQUIRED_SYMBOLS delta between pokegold.sym and pokecrystal.sym.
 
-make_gold_manifest.REQUIRED_SYMBOLS names 340 symbols by hand.  25 of them do
+make_gold_manifest.REQUIRED_SYMBOLS names 341 symbols by hand.  25 of them do
 not exist in pokecrystal.sym: Crystal renamed the credits mons, split the
 trainer-card / Pokegear / pack-pals blocks by player gender, split the two
 FontsExtra tiles apart, and replaced the whole Gold/Silver intro movie and
@@ -54,6 +54,8 @@ ADD_SYMBOLS = frozenset({
     "MalePokegearPals", "FemalePokegearPals",
     # engine/gfx/cgb_layouts.asm:818,821
     "_CGB_PackPals.ChrisPackPals", "_CGB_PackPals.KrisPackPals",
+    # engine/events/fishing_gfx.asm:41 -- Kris' half of the fishing pose.
+    "KrisFishingGFX",
     # gfx/font.asm:51,63 -- black is 1bpp at tile $60, up_arrow 2bpp at $61.
     "FontsExtra_SolidBlackGFX", "FontsExtra2_UpArrowGFX",
     # main.asm:425-448 -- the pic-animation pointer tables, absent from Gold.

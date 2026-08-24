@@ -573,7 +573,7 @@ gains a field instead of the name gaining a prefix.
   at the same moment `src/core/Game.lua` and `src/render/Renderer.lua` raise it
   -- the logic tick before the pad is read, a pointer the touch overlay gets
   first refusal on, the palette zone list handed to the present pass, the
-  composed frame before GBCFX, the letterbox, and the finished playfield rect
+  composed frame before ShaderFX, the letterbox, and the finished playfield rect
   -- and carries the same payload.
   `render.hud`'s `gameX` / `gameY` really is where Gold's dialogue boxes and
   menus land, because `Chrome.fitScale` / `fitOrigin` and `World:fitScale`

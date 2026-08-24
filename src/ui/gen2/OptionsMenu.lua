@@ -20,6 +20,7 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local Logger = require("src.core.Logger")
+local Performance = require("src.core.Performance")
 local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
 
@@ -112,6 +113,22 @@ local ROWS = {
     text = function(options)
       return FILTERS[(options.musicFilter or 0) + 1]
     end },
+  -- Heads the port's display group, same spot src/ui/OptionsMenu.lua's own
+  -- PERFORMANCE row occupies relative to ZOOM/VOID FILL/TILT/SHADER FX below
+  -- (the extras this tier scales).  Gen 1 row shape (`value`/`step`, not this
+  -- file's own `text`/`cycle`) works here unmodified: OptionsMenu:cycle
+  -- answers `row.step` first, and drawPanel already reads a function
+  -- `row.value` -- both written for exactly this kind of shared mod row.
+  { id = "performance", label = "PERFORMANCE", port = true,
+    value = function(g)
+      return Performance.label(g.options and g.options.performance)
+    end,
+    step = function(g, dir)
+      local o = g.options
+      o.performance = Performance.cycle(o.performance, dir)
+      g:applyOptions()
+      return true
+    end },
   { label = "GAME SPEED", key = "speed", port = true,
     cycle = function(options, delta)
       local GameSpeed = require("src.core.GameSpeed")
@@ -169,19 +186,33 @@ local ROWS = {
     text = function(options)
       return require("src.render.GbcPalette").modeLabel(options.color or "gbc")
     end },
-  { label = "GBC FX", key = "gbcfx", port = true,
-    cycle = function(options, delta)
-      local GBCFX = require("src.render.GBCFX")
-      if not GBCFX.isSupported() then
-        options.gbcfx = 0
-        return
-      end
-      local level = ((options.gbcfx or 0) + delta) % 5
-      options.gbcfx = level
-      GBCFX.setLevel(level)
-    end,
+  -- SHADER FX reaches Gen 2 too, not just Gen 1. Same "activate" shape as
+  -- CONTROLS/TOUCH LAYOUT below (a pushed screen, not a `cycle` ladder) --
+  -- ShaderFXScreen is the shared list screen both generations push, `id`
+  -- matching the Gen 1 row's so a mod filtering "shaderfx" on Red also
+  -- reaches Gold.
+  { id = "shaderfx", label = "SHADER FX", port = true,
     text = function(options)
-      return require("src.render.GBCFX").levelLabel(options.gbcfx or 0)
+      local ShaderFX = require("src.render.ShaderFX")
+      local entry = ShaderFX.activeEntry("main")
+      if not entry then return "OFF" end
+      return (entry.name:gsub("%.slangp$", "")):upper()
+    end,
+    activate = function(game)
+      require("src.ui.Screens").push(game, "ShaderFXScreen", "main")
+    end },
+  -- Dual-shader secondary slot, same shared ShaderFXScreen as the row
+  -- above, opened on "secondary" instead -- see src/ui/OptionsMenu.lua's
+  -- mirror of this row for the full rationale.
+  { id = "shaderfx2", label = "SHADER FX 2", port = true,
+    text = function(options)
+      local ShaderFX = require("src.render.ShaderFX")
+      local entry = ShaderFX.activeEntry("secondary")
+      if not entry then return "OFF" end
+      return (entry.name:gsub("%.slangp$", "")):upper()
+    end,
+    activate = function(game)
+      require("src.ui.Screens").push(game, "ShaderFXScreen", "secondary")
     end },
   { label = "VIDEO MODE", key = "videoMode", port = true,
     cycle = function(options, delta)
@@ -240,6 +271,11 @@ local ROWS = {
     text = function(options)
       return require("src.core.FrameCap").label(options.fpsCap)
     end },
+  -- BATTLE BG (#1709): the void around the battle screen.  Gold has no WIDE
+  -- layout and no WORLD backdrop, so the ladder is the WHITE/BLACK pair only.
+  { label = "BATTLE BG", key = "battleBg", port = true,
+    values = { "white", "black" },
+    display = { white = "WHITE", black = "BLACK" } },
   { label = "CANCEL", cancel = true },
 }
 
@@ -257,7 +293,7 @@ local function sameRows(_, rows) return rows end
 -- edit into the next opening -- the Gen 1 site rebuilds its descriptors for the
 -- same reason (src/ui/OptionsMenu.lua buildRows).
 --
--- `id` is the key a Gen 1 mod filters a row on ("gbcfx", "speed", "musicVol")
+-- `id` is the key a Gen 1 mod filters a row on ("shaderfx", "speed", "musicVol")
 -- and is added ALONGSIDE this file's own `key`, never in place of it: a mod
 -- written against Red's OPTION screen finds the shared rows where it expects
 -- them, and the rows Gold has that Red does not (PRINT, MENU ACCOUNT, FRAME,

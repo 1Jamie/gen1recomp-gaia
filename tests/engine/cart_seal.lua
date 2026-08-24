@@ -98,6 +98,12 @@ local function pin(id, version, options)
            options = options }
 end
 
+local function offPin(id, version, options)
+  local p = pin(id, version, options)
+  p.enabled = false
+  return p
+end
+
 local function boot(files)
   local data = { pokemon = {} }
   local loader = Loader.new({ fs = memfs(files) })
@@ -173,6 +179,171 @@ do
     "and it stands where the player set nothing")
   T.eq(data.pokemon.ALPHA.name, "player", "the player's extra mod loads normally")
   T.eq(loader:cartStatus().enforced, false, "an open cart enforces nothing")
+end
+
+-- ------- a pin the cart ships switched off
+
+local function withFlags(files, flags)
+  local opts = SaveSerializer.decode(files["options.lua"]) or {}
+  opts.mods = opts.mods or {}
+  for id, on in pairs(flags) do opts.mods[id] = on end
+  files["options.lua"] = SaveSerializer.encode(opts)
+  return files
+end
+
+local function withCartFlags(files, cartId, flags)
+  local opts = SaveSerializer.decode(files["options.lua"]) or {}
+  opts.cartMods = opts.cartMods or {}
+  opts.cartMods[cartId] = opts.cartMods[cartId] or {}
+  for id, on in pairs(flags) do opts.cartMods[cartId][id] = on end
+  files["options.lua"] = SaveSerializer.encode(opts)
+  return files
+end
+
+do
+  local files = install()
+  writeCart(files, cartTable("shipped_off", "sealed",
+    { pin("alpha"), offPin("gamma", "1.0.0", { tint = "cart" }) },
+    { "alpha", "gamma" }))
+  SaveData.setCart("shipped_off", "hashA")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "a sealed cart that ships a mod switched off loads")
+  T.eq(names(loader.order), "alpha", "and runs only the pins it ships switched on")
+  T.eq(data.pokemon.GAMMA, nil, "the switched-off pin does not run")
+  T.eq(loader.mods.gamma.enabled, false, "and is reported as inactive")
+  T.eq(loader.mods.gamma.state, "disabled", "with the disabled row state")
+  T.check(loader.mods.gamma ~= nil, "while still being installed")
+  T.eq(loader:cartStatus().pins.gamma.options.tint, "cart",
+    "carrying the settings the cart shipped it with")
+end
+
+do
+  local files = withCartFlags(install(), "welded", { gamma = true })
+  writeCart(files, cartTable("welded", "sealed",
+    { pin("alpha"), offPin("gamma") }, { "alpha", "gamma" }))
+  SaveData.setCart("welded", "hashB")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "a sealed cart loads with the player asking for the off pin")
+  T.eq(data.pokemon.GAMMA, nil, "but sealed refuses the toggle")
+  T.eq(loader.mods.gamma.enabled, false, "the pin stays exactly as the cart shipped it")
+end
+
+-- ------- sealed+ : the same fixed set, switchable
+
+do
+  local files = withCartFlags(install(), "plus", { gamma = true })
+  writeCart(files, cartTable("plus", "sealed+",
+    { pin("alpha"), offPin("gamma", "1.0.0", { tint = "cart" }) },
+    { "alpha", "gamma" }))
+  SaveData.setCart("plus", "hashC")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "a sealed+ cart loads")
+  local report = loader:cartStatus()
+  T.eq(report.seal, "sealed+", "the report carries the new seal")
+  T.eq(report.sealed, true, "which is a sealed cart")
+  T.eq(report.enforced, true, "and is enforced like one")
+  T.eq(names(loader.order), "alpha,gamma",
+    "the player switched the cart's off pin on and it runs")
+  T.eq(data.pokemon.GAMMA.name, "cart",
+    "still with the cart's frozen option value, not the player's")
+  T.eq(data.pokemon.BETA, nil, "a mod the cart does not pin cannot be added")
+  T.eq(loader.mods.beta.enabled, false, "and stays switched off")
+end
+
+do
+  local files = withCartFlags(install(), "plus_off", { alpha = false })
+  writeCart(files, cartTable("plus_off", "sealed+",
+    { pin("alpha"), pin("gamma") }, { "alpha", "gamma" }))
+  SaveData.setCart("plus_off", "hashD")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "a sealed+ cart loads with a pin the player switched off")
+  T.eq(names(loader.order), "gamma", "which does not run")
+  T.eq(data.pokemon.ALPHA, nil, "so its content is absent")
+  T.eq(loader.mods.alpha.enabled, false, "and the row reads as off")
+end
+
+do
+  local files = install()
+  writeCart(files, cartTable("plus_gap", "sealed+",
+    { pin("alpha"), pin("delta", "2.0.0") }, { "alpha", "delta" }))
+  SaveData.setCart("plus_gap", "hashE")
+
+  local loader, _, ok = boot(files)
+  T.check(not ok, "sealed+ still refuses a pin that is not installed")
+  T.eq(#loader.order, 0, "and plays no subset of itself")
+  T.eq(loader:cartStatus().refused, true, "the report refuses it")
+end
+
+do
+  local files = install()
+  love.filesystem = memfs(files)
+  SaveData.resetSlotState()
+  GameVersion.set("red")
+  writeCart(files, cartTable("plus_seal", "sealed+",
+    { pin("alpha"), offPin("gamma") }, { "alpha", "gamma" }))
+  SaveData.setCart("plus_seal", "hashF")
+  local slot = SaveData.createCartSlot("plus_seal")
+  SaveData.setActiveCartSlot("plus_seal", slot)
+
+  local loader = boot(files)
+  T.check(loader:setEnabled("gamma", true), "switch a sealed+ pin on")
+  T.eq(SaveData.isSealBroken(), false, "which does not break the session seal")
+  T.eq(SaveData.slotSealBroken("plus_seal", slot), false,
+    "nor mark the save slot modified")
+  T.eq(SaveData.adoptCartSeal("plus_seal"), false,
+    "so the next boot still adopts an intact seal")
+
+  local again, data, ok = boot(files)
+  T.check(ok, "and the cart loads again")
+  T.eq(names(again.order), "alpha,gamma", "with the mod the player switched on")
+  T.eq(data.pokemon.BETA, nil, "and still nothing the cart does not pin")
+end
+
+do
+  local files = withFlags(install(), { gamma = false })
+  writeCart(files, cartTable("plus_split", "sealed+",
+    { pin("alpha"), offPin("gamma") }, { "alpha", "gamma" }))
+  SaveData.setCart("plus_split", "hashI")
+
+  local loader = boot(files)
+  T.eq(loader.mods.gamma.enabled, false, "a cart's off pin starts off")
+  T.check(loader:setEnabled("gamma", true), "and the player switches it on")
+  local opts = options(files)
+  T.eq(opts.cartMods.plus_split.gamma, true,
+    "the answer is stored under the cart that asked for it")
+  T.eq(SaveData.modEnabled(opts, "gamma", "red"), false,
+    "and the base game's own flag for that mod is untouched")
+end
+
+-- ------- an open cart hands back only the pins it ships switched off
+
+do
+  local files = withCartFlags(install(), "open_off", { gamma = true })
+  writeCart(files, cartTable("open_off", "open",
+    { pin("beta"), offPin("gamma") }, { "beta", "gamma" }))
+  SaveData.setCart("open_off", "hashG")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "an open cart with a switched-off pin loads")
+  T.check(data.pokemon.GAMMA ~= nil, "the player switched it on, so it runs")
+  T.eq(loader.mods.beta.enabled, true,
+    "while a pin the cart says nothing about is still forced on")
+end
+
+do
+  local files = install()
+  writeCart(files, cartTable("open_quiet", "open",
+    { pin("beta"), offPin("gamma") }, { "beta", "gamma" }))
+  SaveData.setCart("open_quiet", "hashH")
+
+  local loader, data, ok = boot(files)
+  T.check(ok, "an open cart whose off pin the player never touched loads")
+  T.eq(data.pokemon.GAMMA, nil, "with that pin off by default")
+  T.eq(loader.mods.gamma.enabled, false, "and reported off")
 end
 
 -- ------- a missing pin: refusal when sealed, warning when open

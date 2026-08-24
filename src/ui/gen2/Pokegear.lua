@@ -933,6 +933,7 @@ function Pokegear.new(game, opts)
   -- reject already dropped, so the cursor's skip loop is just "next row".
   self.fly = opts.fly
   self.onFly = opts.onFly
+  self.flyMon = opts.flyMon
   if self.fly and #self.fly > 0 then
     self.cards = { FLY_MAP_CARD }
     self.cardIndex = 1
@@ -956,6 +957,9 @@ function Pokegear.new(game, opts)
   -- so the RED_WALK icon keeps the overworld's own OBJ palette.
   self.sprites = opts.sprites or data.gen2Sprites
   self.palettes = opts.palettes or data.gen2Palettes
+  -- TownMapMon reads wCurPartyMon's icon
+  -- (../pokecrystal/engine/pokegear/pokegear.asm:2708-2721).
+  self.icons = opts.icons or data.gen2Icons
 
   local gfx = (opts.menuGfx or data.gen2MenuGfx or {}).pokegear
   self.gfx = gfx
@@ -2130,7 +2134,11 @@ function Pokegear:drawMap()
     end
   end
   if current and current.x and current.y then
-    self:mapCursorSprite(current.x, current.y)
+    -- FlyMap's cursor is TownMapMon, the FlyMon's icon; only the MAP card's is
+    -- the POKEGEAR_ARROW (../pokecrystal/engine/pokegear/pokegear.asm:2326).
+    if not (self.fly and self:drawFlyMonCursor(current.x, current.y)) then
+      self:mapCursorSprite(current.x, current.y)
+    end
   end
 end
 
@@ -2171,6 +2179,48 @@ function Pokegear:drawPlayerIcon(x, y)
   love.graphics.setColor(1, 1, 1, 1)
   self.playerIcon:draw(x - 8, y - 8, 0, -4, "down",
     beat % 2, beat == 3)
+  return true
+end
+
+-- TownMapMon (../pokecrystal/engine/pokegear/pokegear.asm:2708-2721): the
+-- FlyMon's party icon, on PAL_OW_RED like the RED_WALK icon beside it.
+function Pokegear:loadFlyMonIcon()
+  if self.flyMonIcon ~= nil then return end
+  self.flyMonIcon = false
+  local mon = self.flyMon
+  if type(mon) ~= "table" then return end
+  local icons = self.icons
+  local iconId = mon.isEgg and "ICON_EGG"
+    or (icons and icons.species and mon.species
+      and icons.species[mon.species])
+  local entry = iconId and icons and icons.icons and icons.icons[iconId]
+  if not (entry and entry.image) then return end
+  local def = {
+    id = "SPRITE_FLY_MON", image = entry.image, frames = 2, walker = false,
+    spriteType = "POKEMON_SPRITE", palette = "PAL_OW_RED", paletteId = 0,
+    species = mon.species, icon = iconId,
+  }
+  local ok, icon = pcall(SpriteRenderer.new, def, "flymon")
+  if not (ok and icon) then return end
+  local world = self.game and self.game.world
+  local daytime = (world and world.daytime)
+    or Palettes.clockDaytime(self.clock and self.clock.hour or nil)
+  local colors = self.palettes
+    and Palettes.spritePalette(self.palettes, daytime, def)
+  if colors then
+    icon:setObjPalette(colors, ("gen2:%s:0"):format(tostring(daytime)))
+  end
+  self.flyMonIcon = icon
+end
+
+-- .Frameset_PartyMon is two 8-frame icon beats and no mirror
+-- (data/sprite_anims/framesets.asm:66-69).
+function Pokegear:drawFlyMonCursor(x, y)
+  self:loadFlyMonIcon()
+  if not self.flyMonIcon then return false end
+  love.graphics.setColor(1, 1, 1, 1)
+  self.flyMonIcon:draw(x - 8, y - 8, 0, -4, "down", 0, false, false, false,
+    math.floor((self.iconTimer or 0) / 8) % 2)
   return true
 end
 

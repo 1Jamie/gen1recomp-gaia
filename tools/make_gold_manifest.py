@@ -840,6 +840,9 @@ REQUIRED_SYMBOLS = {
     # who just spotted the player, and the other faces scripts use.
     "ShockEmote", "QuestionEmote", "HappyEmote", "SadEmote",
     "HeartEmote", "BoltEmote", "SleepEmote", "FishEmote",
+    # gfx/overworld/chris_fish.2bpp (engine/events/fishing_gfx.asm:23): the
+    # fishing pose rows and the rod tiles FacingFish* parks by the player.
+    "FishingGFX",
     # The Pokecenter heal machine's OBJ art (engine/events/
     # heal_machine_anim.asm): two tiles -- the machine's light ($7c) and the
     # ball ($7d) -- plus the CGB palette .LoadPalettes copies over
