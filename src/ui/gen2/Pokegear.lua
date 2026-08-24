@@ -26,6 +26,7 @@ local Font = require("src.render.Font")
 local Palettes = require("src.world.gen2.Palettes")
 local Phone = require("src.core.gen2.Phone")
 local SpriteRenderer = require("src.render.SpriteRenderer")
+local Strings = require("src.core.Strings")
 local TileSheet = require("src.ui.gen2.TileSheet")
 
 local Pokegear = {}
@@ -1881,7 +1882,7 @@ function Pokegear:drawClock()
   self:text(Chrome.number(display, 2), 6, 8)
   self:text(":", 8, 8)
   self:text(Chrome.number(minute, 2, true), 9, 8)
-  self:text(hour < 12 and "AM" or "PM", 12, 8)
+  self:text(Strings(hour < 12 and "AM" or "PM"), 12, 8)
 
   -- The bottom Textbox is part of the card (lb bc, 4, 18 at (0,12)), and
   -- PokegearClock_Init prints PokegearPressButtonText straight into it
@@ -2218,7 +2219,7 @@ function Pokegear:drawPlain()
     if display == 0 then display = 12 end
     Chrome.print(("%s:%s %s"):format(
       Chrome.number(display, 2), Chrome.number(minute, 2, true),
-      hour < 12 and "AM" or "PM"), 5, 9)
+      Strings(hour < 12 and "AM" or "PM")), 5, 9)
     Chrome.print(Clock.daytimeLabel(hour), 5, 11)
   elseif id == "radio" then
     -- Without the gear sheet there is no dial art, so the frequencies go down
