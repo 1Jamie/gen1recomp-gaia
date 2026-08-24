@@ -2064,10 +2064,14 @@ def extract_field(rom, symbols, manifest, out_dir, assets_dir):
         raw_2bpp("SurfingPikachu1Graphics2", 128, 128, "minigame/surf_1b.png", transparent=True)
         raw_2bpp("SurfingPikachu1Graphics3", 96, 96, "minigame/surf_1c.png", transparent=True)
 
-        beach_intro = rom.bytes(62, 0x50bc, 240)
-        use_ctrl_pad = rom.bytes(62, 0x51ac, 15)
-        to_surf_rad = rom.bytes(62, 0x51bb, 13)
-        title_map = rom.bytes(62, 0x51c8, 72)
+        beach_sym = _symbol(symbols, "SurfingMinigame_BeachIntroTilemap")
+        use_ctrl_sym = _symbol(symbols, "SurfingMinigame_UseControlPadTilemap")
+        to_surf_sym = _symbol(symbols, "SurfingMinigame_ToSurfRadTilemap")
+        title_sym = _symbol(symbols, "SurfingMinigame_TitleTilemap")
+        beach_intro = rom.bytes(beach_sym.bank, beach_sym.address, 240)
+        use_ctrl_pad = rom.bytes(use_ctrl_sym.bank, use_ctrl_sym.address, 15)
+        to_surf_rad = rom.bytes(to_surf_sym.bank, to_surf_sym.address, 13)
+        title_map = rom.bytes(title_sym.bank, title_sym.address, 72)
         screen = [0xff] * (20 * 18)
         for i in range(240):
             screen[6 * 20 + i] = beach_intro[i]
