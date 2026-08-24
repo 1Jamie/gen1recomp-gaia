@@ -39,7 +39,7 @@ end
 local edited = 0
 local hooks = { editTouchControls = function() edited = edited + 1 end }
 
-for _, version in ipairs({ "gold", "silver" }) do
+for _, version in ipairs({ "gold", "silver", "crystal" }) do
   local model = LauncherSettings.open(hooks, version)
   check(has(model, "TOUCH PAD"), version .. " gear offers TOUCH PAD")
   check(has(model, "VIBRATION"), version .. " and VIBRATION")
@@ -82,6 +82,7 @@ for _, version in ipairs({ "gold", "silver" }) do
     version .. " leaving the flat Gen 1 key alone")
   eq(model.opts.silver, nil,
     version .. " and inventing no second Gen 2 block beside it")
+  eq(model.opts.crystal, nil, version .. " nor a third")
 
   local buzz = findRow(model, "VIBRATION")
   local buzzBefore = buzz.value()
@@ -114,6 +115,8 @@ eq(has(LauncherSettings.open(nil, "gold"), "TOUCH CONTROLS"), false,
   "no hook, no editor row on Gold")
 eq(has(LauncherSettings.open(nil, "silver"), "TOUCH CONTROLS"), false,
   "nor on Silver")
+eq(has(LauncherSettings.open(nil, "crystal"), "TOUCH CONTROLS"), false,
+  "nor on Crystal")
 eq(has(LauncherSettings.open(nil, "red"), "TOUCH CONTROLS"), false,
   "nor on Red")
 -- The Edit row hands the screen to the host, and the host has to know WHICH

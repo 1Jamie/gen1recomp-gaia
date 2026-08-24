@@ -161,8 +161,10 @@ local function drawHUDs(battle, slide)
   -- item, not a HUD element (DisplayBattleMenu prints wNumSafariBalls inside
   -- the battle menu box, engine/battle/core.asm:2074-2079), so it rides in
   -- drawCommandMenu below like the classic layout's (#540).
+  -- RemoveFaintedPlayerMon clears the player HUD (core.asm:1024-1026) (#1721)
   if showStatus and not battle.safari and battle.player and not battle.demo
-      and not battle.showPlayerBack and slide == 0 then
+      and not battle.showPlayerBack and slide == 0
+      and not battle.player.fainted then
     drawStatusPanel(battle, battle.player, 184, 56, true)
   end
 end

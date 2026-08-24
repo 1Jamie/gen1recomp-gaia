@@ -390,9 +390,12 @@ function H.CutDownTreeOrGrass(ctx)
 end
 
 -- DisappearWhirlpool is CutDownTreeOrGrass with PlayWhirlpoolSound in place of
--- OWCutAnimation: the same block write, the same redraw.
+-- OWCutAnimation: the same block write, the same redraw, then the surf wash the
+-- port owns as World:playWhirlpoolSound.  #1717
 function H.DisappearWhirlpool(ctx)
-  return H.CutDownTreeOrGrass(ctx)
+  local ret = H.CutDownTreeOrGrass(ctx)
+  call(ctx, "playWhirlpoolSound")
+  return ret
 end
 
 -- BlindingFlash sets STATUSFLAGS_FLASH_F and reloads the palettes.  Setting

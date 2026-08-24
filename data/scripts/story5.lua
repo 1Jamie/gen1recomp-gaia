@@ -922,10 +922,12 @@ M.SS_ANNE_2F = {
       { "move_npc_to", 2, 36, onLeft and 7 or 8 },             -- 2
       { "face_object", 2, onLeft and "down" or "right" },      -- 3
       { "show_text", "_SSAnne2FRivalText" },                   -- 4
-      { "rival_battle", "OPP_RIVAL2", 1 },                     -- 5
-      { "jump_if_false", 13 },                                 -- 6
-      { "set_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },              -- 7
-      { "show_text", "_SSAnne2FRivalDefeatedText" },           -- 8
+      -- SSAnne2FRivalText's text_asm arms SaveEndBattleTextPointers
+      -- (scripts/SSAnne2F.asm:199), so the line prints in battle (#1688)
+      { "save_end_battle_text", "_SSAnne2FRivalDefeatedText" }, -- 5
+      { "rival_battle", "OPP_RIVAL2", 1 },                     -- 6
+      { "jump_if_false", 13 },                                 -- 7
+      { "set_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },              -- 8
       { "show_text", "_SSAnne2FRivalCutMasterText" },          -- 9
       { "play_music", "Music_MeetRival", { start = "rival" } }, -- 10
       { "walk_npc", 2, ssAnne2FRivalExitDirs(onLeft) },        -- 11

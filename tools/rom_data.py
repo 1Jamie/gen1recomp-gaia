@@ -14,6 +14,9 @@ CANONICAL_YELLOW_SHA1 = "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
 # Gold and Silver are Gen 2: 2 MiB carts, twice the size of the Gen 1 ROMs above.
 CANONICAL_GOLD_SHA1 = "d8b8a3600a465308c9953dfa04f0081c05bdcb94"
 CANONICAL_SILVER_SHA1 = "49b163f7e57702bc939d642a18f591de55d92dae"
+# Crystal is the retail international v1.0 build (pret/pokecrystal's default
+# `make` target), also 2 MiB.
+CANONICAL_CRYSTAL_SHA1 = "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133"
 ROM_BANK_SIZE = 0x4000
 
 

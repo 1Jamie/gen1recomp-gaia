@@ -25,10 +25,12 @@ local Catching = require("src.battle.gen2.Catching")
 local Chrome = require("src.ui.gen2.Chrome")
 local Evolution = require("src.core.gen2.Evolution")
 local GbcPalette = require("src.render.GbcPalette")
+local Gen2Save = require("src.core.gen2.Save")
 local Font = require("src.render.Font")
 local HpBar = require("src.battle.gen2.HpBar")
 local ItemEffects = require("src.core.gen2.ItemEffects")
 local Mon = require("src.battle.gen2.Mon")
+local MonAnim = require("src.render.MonAnim")
 local Palettes = require("src.world.gen2.Palettes")
 local Pokerus = require("src.core.gen2.Pokerus")
 local Prize = require("src.battle.gen2.Prize")
@@ -207,6 +209,12 @@ end
 function BattleState:wantsFillScale() return true end
 function BattleState:drawsWidescreen() return true end
 
+-- BATTLE BG (#1709): WHITE is the cart's paper surround, BLACK plain bars.
+function BattleState:bgMode()
+  local options = self.game and self.game.options
+  return (options and options.battleBg) == "black" and "black" or "white"
+end
+
 function BattleState:bottomUIVisible()
   if not Runtime.wantsHook("battle.bottom_ui_visible") then return true end
   return Runtime.call("battle.bottom_ui_visible", function() return true end,
@@ -306,6 +314,11 @@ function BattleState.new(game, opts)
   self.playerBackTrueColor = false
   local hudGfx = data.gen2MenuGfx and data.gen2MenuGfx.battleHud
   local backPath = hudGfx and hudGfx.playerBack
+  -- GetTrainerBackpic's gender arm, under the Dude exception
+  -- (../pokecrystal/engine/battle/core.asm:8984-9008).
+  if hudGfx and hudGfx.playerBackFemale and Gen2Save.isFemale(self.save) then
+    backPath = hudGfx.playerBackFemale
+  end
   if self.tutorial and hudGfx and hudGfx.dudeBack then
     backPath = hudGfx.dudeBack
   end
@@ -586,6 +599,65 @@ function BattleState:pic(mon, back)
   return cached or nil, trueColor, path
 end
 
+-- Crystal's animated front pics.  A cache with no `anim` row -- every Gold
+-- and Silver one -- gets nil here and the static pic is drawn as before.
+function BattleState:animData(mon)
+  local def = self.pokemon and mon and self.pokemon[mon.species]
+  if not def then return nil end
+  if mon.species == Unown.SPECIES and def.letters then
+    local entry = def.letters[Unown.monLetter(mon)]
+    if entry and entry.anim then return entry.anim end
+  end
+  return def.anim
+end
+
+-- ANIM_MON_NORMAL, the scene BattleStartMessage runs on the enemy's frontpic.
+-- ../pokecrystal/engine/battle/core.asm:9112-9113
+function BattleState:startFrontAnim(mon)
+  self.frontAnim = nil
+  local data = self:animData(mon)
+  if not data then return end
+  local cached = self.picCache[data.sheet]
+  if cached == nil then
+    local ok, image = pcall(Assets.image, data.sheet)
+    cached = ok and image or false
+    self.picCache[data.sheet] = cached
+  end
+  if not cached then return end
+  local runner = MonAnim.new(data, "battle")
+  if not runner then return end
+  local size = data.tiles * 8
+  self.frontAnim = { mon = mon, runner = runner, sheet = cached, size = size,
+    quads = {} }
+end
+
+-- AnimateFrontpic's .loop, one scene command per frame.
+-- ../pokecrystal/engine/gfx/pic_animation.asm:79-89
+function BattleState:stepFrontAnim()
+  local state = self.frontAnim
+  if not state then return end
+  state.runner:update()
+  if state.runner:finished() then self.frontAnim = nil end
+end
+
+-- The sheet is one column of whole pictures, base first, so a frame is one
+-- quad at the size the static pic would have been.
+function BattleState:frontAnimFrame(mon)
+  local state = self.frontAnim
+  if not (state and mon and state.mon == mon) then return nil end
+  local frame = state.runner:currentFrame()
+  if frame <= 0 then return nil end
+  local quad = state.quads[frame]
+  if not quad then
+    local w, h = state.sheet:getDimensions()
+    if (frame + 1) * state.size > h then return nil end
+    quad = love.graphics.newQuad(0, frame * state.size, state.size, state.size,
+      w, h)
+    state.quads[frame] = quad
+  end
+  return state.sheet, quad, state.size
+end
+
 -- The battle_sprite_scales registry: record id -> { path, scale }, keyed by the
 -- ASSET PATH the pic is drawn from rather than by species, which is the only
 -- handle there is on the pics that are not a species' own (the player's
@@ -696,6 +768,13 @@ function BattleState:drawPic(mon, back)
   end
   local G = love.graphics
   local w, h = image:getDimensions()
+  -- Crystal only: the frame the animation is showing replaces the static
+  -- picture in the same box, at the same size.
+  local animSheet, animQuad, animSize
+  if not (back or trainerBack or enemyTrainer or doll) then
+    animSheet, animQuad, animSize = self:frontAnimFrame(mon)
+    if animSheet then w, h = animSize, animSize end
+  end
   local px, py
   local boxTiles
   if back then
@@ -770,6 +849,10 @@ function BattleState:drawPic(mon, back)
       if visible <= 0 then return end
       G.draw(image, self:cropQuad(image, visible), px, py + sunk, 0,
         scale, scale)
+      return
+    end
+    if animQuad then
+      G.draw(animSheet, animQuad, px, py, 0, scale, scale)
       return
     end
     G.draw(image, px, py, 0, scale, scale)
@@ -1588,7 +1671,10 @@ function BattleState:advanceQueue()
     if event.intro then self.introTextShown = true end
     -- BattleStartMessage's `.not_shiny` cries the wild mon before its own line
     -- (engine/battle/core.asm:8718-8721).
-    if event.cry then self:playCry(event.cry) end
+    if event.cry then
+      self:playCry(event.cry)
+      self:startFrontAnim(event.cry)
+    end
     -- A text_asm tail that plays its own sound, the way Text_BallCaught's
     -- sound_caught_mon rides the "Gotcha!" line rather than following it.
     if event.sfx then
@@ -1694,6 +1780,7 @@ function BattleState:finishSendOut(after)
   if not after then return end
   self:playCry(after.mon)
   if after.side == "enemy" then
+    self:startFrontAnim(after.mon)
     self.showEnemyHud = true
   else
     self.showPlayerHud = true
@@ -1964,6 +2051,7 @@ function BattleState:update(_dt)
   -- this state is only still here because ExitBattle has not cleaned up yet.
   if self.phase == "evolving" or self.phase == "done" then return end
   self:updateAlarm()
+  self:stepFrontAnim()
   local input = self.game and self.game.input
   if not input then return end
 
@@ -2102,15 +2190,21 @@ function BattleState:update(_dt)
   end
 
   if self.phase == "menu" then
-    -- 2x2 grid: left/right swap the column, up/down the row.
+    -- 2x2 grid: left/right swap the column, up/down the row.  No
+    -- STATICMENU_WRAP in BattleMenuHeader (engine/battle/menu.asm:31-33), so
+    -- the cursor clamps at each edge (engine/menus/menu.asm:156-166) (#1706).
     -- MenuClickSound / PlayClickSFX (home/menu.asm:746-762): SFX_READ_TEXT_2
     -- on A/B only, never on D-pad.
-    if input:wasPressed("left") or input:wasPressed("right") then
-      self.menuIndex = self.menuIndex % 2 == 1 and self.menuIndex + 1
-        or self.menuIndex - 1
-    elseif input:wasPressed("up") or input:wasPressed("down") then
-      self.menuIndex = self.menuIndex <= 2 and self.menuIndex + 2
-        or self.menuIndex - 2
+    local col = (self.menuIndex - 1) % 2
+    local row = math.floor((self.menuIndex - 1) / 2)
+    if input:wasPressed("left") then
+      self.menuIndex = row * 2 + math.max(0, col - 1) + 1
+    elseif input:wasPressed("right") then
+      self.menuIndex = row * 2 + math.min(1, col + 1) + 1
+    elseif input:wasPressed("up") then
+      self.menuIndex = math.max(0, row - 1) * 2 + col + 1
+    elseif input:wasPressed("down") then
+      self.menuIndex = math.min(1, row + 1) * 2 + col + 1
     elseif input:wasPressed("a") then
       self:playSfx("Sfx_ReadText2")
       self:chooseMenu(MENU_ACTION[MENU[self.menuIndex]])
@@ -2489,6 +2583,7 @@ function BattleState:openTutorialPack()
   end
   Screens.push(self.game, "Gen2PackMenu", {
     battle = true,
+    tutorial = true,
     save = CatchTutorial.dudeSave(),
     -- An empty world rather than the real one: a DUDE pocket must not reach
     -- World:useFieldItem, because these buffers are not the player's bag and
@@ -2736,8 +2831,9 @@ function BattleState:pushCaught(enemy, itemId)
     -- PC's own move is InsertPokemonIntoBox, which inserts at the cursor.
     table.insert(box, 1, enemy)
     -- SendMonIntoBox refills the boxed slot's PP before it closes SRAM
-    -- (move_mon.asm:1062-1063).
-    Boxes.restorePP(enemy)
+    -- (move_mon.asm:1062-1063); the box_struct it writes carries no HP and no
+    -- status at all (macros/ram.asm:7-26).  #1696
+    Boxes.enterBox(enemy)
     -- `.SendToPC` re-reads sBoxCount AFTER the insert and sets
     -- BATTLERESULT_BOX_FULL when the box has just filled
     -- (item_effects.asm:612-619); Script_reloadmapafterbattle tests that bit

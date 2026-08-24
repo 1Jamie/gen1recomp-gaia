@@ -134,9 +134,7 @@ love.graphics = {
 
 -- Fresh copies of the modules that cache a compiled shader or a page set
 -- at first use, so they see the recorder above -- and so the originals
--- every other suite holds never see it.  GBCFX is in the list because
--- Renderer:endFrame reaches it and parity_gbcfx asserts on its unset
--- shader cache.
+-- every other suite holds never see it.
 -- The tile/sprite renderers join them because they report trueColor rects
 -- to PaletteFX and resolve through Assets, and the loader because it holds
 -- Assets as an upvalue: an earlier suite's copy of any of the three would
@@ -144,7 +142,7 @@ love.graphics = {
 local savedLoaded = {}
 for _, name in ipairs({ "src.render.PaletteFX", "src.render.Renderer",
                         "src.render.Font", "src.render.Assets",
-                        "src.render.GBCFX", "src.render.SpriteRenderer",
+                        "src.render.SpriteRenderer",
                         "src.render.TileRenderer", "src.mods.Loader" }) do
   savedLoaded[name] = package.loaded[name]
   package.loaded[name] = nil

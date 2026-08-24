@@ -17,6 +17,25 @@ Zoom.offset = 0
 -- close-up.  Nil/true keeps the historical full range.
 Zoom.allowSurvey = true
 
+-- The deepest legal survey step (offset = 1-S, effective scale s' = S+lo =
+-- 1 px/world px) plus an active SHADER FX chain crashes the app on real
+-- hardware (Pixel 10 Pro XL, "OUT7" == this exact step at that device's own
+-- fit scale of 8 -- reported by the user, 2026-08-21). A quantifying repro
+-- (TrueFX/zoom-mem-scan/) ruled out ShaderFX's own per-pass canvases as the
+-- driver (worst real-corpus case at that step: ~31MB, not crash-sized) --
+-- the actual cost is almost certainly the world canvas/tile-render path
+-- itself at that resolution (a preexisting cost of deep survey zoom,
+-- unrelated to ShaderFX), which a shader chain reading that same
+-- full-resolution canvas as its own input then pushes over some real
+-- device/driver ceiling this project cannot measure without the device
+-- in hand. Removing just the single deepest step while a preset is active
+-- is the smallest change that directly targets what was actually reported
+-- ("OUT7 + any shader", not "OUT7 alone" and not "OUT6 or shallower") --
+-- not a guessed-at general zoom restriction. Needs the user's own on-device
+-- confirmation; extend the margin (currently 1 step) if OUT6 turns out to
+-- be risky too.
+local ShaderFX
+
 -- legal offset range for a given fit scale (vanilla: survey at 1 px/world
 -- through 2× fit).  zoom.range may widen or shrink the window.
 -- When the window only fits 1×, 1-S is 0 and there would be no OUT
@@ -36,6 +55,14 @@ function Zoom.offsetRange(S)
     if lo < 0 then lo = 0 end
   elseif lo > -3 then
     lo = -3
+  end
+  -- SHADER FX + the single deepest survey step: see the comment above.
+  -- The floor is one step above the deepest this call would otherwise
+  -- allow, so the three-step minimum above still keeps a zoom-out.
+  ShaderFX = ShaderFX or require("src.render.ShaderFX")
+  if ShaderFX.active() then
+    local floor = math.min(2 - S, lo + 1)
+    if lo < floor then lo = floor end
   end
   return lo, hi
 end
