@@ -218,8 +218,12 @@ for name, module in pairs({ Assets = Assets, TileRenderer = TileRenderer,
 end
 check(type(require("src.world.MapLoader").invalidateAll) == "function",
       "MapLoader keeps its wave-1 invalidateAll")
+check(type(require("src.world.MapLoader").releaseAll) == "function",
+      "MapLoader exposes releaseAll for session end")
 check(type(require("src.core.Sound").invalidate) == "function",
       "Sound keeps its wave-1 invalidate")
+check(type(Assets.releaseSession) == "function",
+      "Assets exposes releaseSession for in-process session end")
 
 -- the central cache hands back one image per resolved path, and flush
 -- fans out to every registered downstream cache
@@ -239,6 +243,14 @@ Assets.register(function() error("boom") end)
 Assets.register(function() reached = true end)
 Assets.flush()
 check(reached, "a throwing invalidator does not stop the fan-out")
+
+-- flush/invalidate must not run release hooks (HotReload / live overworld safe)
+local releaseCalls = 0
+Assets.register({ release = function() releaseCalls = releaseCalls + 1 end })
+Assets.flush()
+check(releaseCalls == 0, "flush() does not call release hooks")
+Assets.releaseSession()
+check(releaseCalls == 1, "releaseSession() calls registered release hooks")
 
 -- ------- animated tiles as tileset data
 
