@@ -9,6 +9,9 @@ local GameVersion = require("src.core.GameVersion")
 local CacheContract = {}
 
 CacheContract.FORMAT = "rom-cache-v10:"
+CacheContract.VERSION_FORMAT = {
+  crystal = "rom-cache-v10-crystal2:",
+}
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
 CacheContract.REQUIRED_FILES = {
@@ -136,8 +139,13 @@ function CacheContract.requiredFilesFor(version)
   return CacheContract.REQUIRED_FILES, false
 end
 
+function CacheContract.formatFor(version)
+  return CacheContract.VERSION_FORMAT[version] or CacheContract.FORMAT
+end
+
 function CacheContract.markerFor(version, sha1)
-  return CacheContract.FORMAT .. (sha1 or GameVersion.info(version).sha1)
+  return CacheContract.formatFor(version)
+    .. (sha1 or GameVersion.info(version).sha1)
 end
 
 function CacheContract.markerMatches(version, marker)

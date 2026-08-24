@@ -114,21 +114,26 @@ check(CacheContract.VERSION_REQUIRED_FILES.yellow ~= nil,
 local CRYSTAL_1_0 = "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133"
 local CRYSTAL_1_1 = "f2f52230b536214ef7c9924f483392993e226cfb"
 
+local CRYSTAL_FORMAT = CacheContract.formatFor("crystal")
+
 eq(CacheContract.markerFor("crystal", CRYSTAL_1_1),
-  CacheContract.FORMAT .. CRYSTAL_1_1,
+  CRYSTAL_FORMAT .. CRYSTAL_1_1,
   "markerFor with an explicit sha1 uses that sha1, not the canonical one")
-eq(CacheContract.markerFor("crystal"), CacheContract.FORMAT .. CRYSTAL_1_0,
+eq(CacheContract.markerFor("crystal"), CRYSTAL_FORMAT .. CRYSTAL_1_0,
   "markerFor with no sha1 still defaults to the canonical (1.0) sha1")
 
-check(CacheContract.markerMatches("crystal", CacheContract.FORMAT .. CRYSTAL_1_0),
+check(CacheContract.markerMatches("crystal", CRYSTAL_FORMAT .. CRYSTAL_1_0),
   "a marker written from the 1.0 hash matches crystal")
-check(CacheContract.markerMatches("crystal", CacheContract.FORMAT .. CRYSTAL_1_1),
+check(CacheContract.markerMatches("crystal", CRYSTAL_FORMAT .. CRYSTAL_1_1),
   "a marker written from the 1.1 hash also matches crystal")
 check(not CacheContract.markerMatches("crystal",
-  CacheContract.FORMAT .. "ea9bcae617fdf159b045185467ae58b2e4a48b9a"),
+  CRYSTAL_FORMAT .. "ea9bcae617fdf159b045185467ae58b2e4a48b9a"),
   "a marker written from Red's hash does not match crystal")
-check(not CacheContract.markerMatches("red", CacheContract.FORMAT .. CRYSTAL_1_1),
+check(not CacheContract.markerMatches("red", CRYSTAL_FORMAT .. CRYSTAL_1_1),
   "a marker written from Crystal's 1.1 hash does not match red")
+check(not CacheContract.markerMatches("crystal",
+  CacheContract.FORMAT .. CRYSTAL_1_0),
+  "a crystal marker written on the shared format no longer matches")
 
 local crystalFs = { prefix = "crystal-marker-test/", files = {} }
 function crystalFs.exists(path) return crystalFs.files[crystalFs.prefix .. path] ~= nil end
@@ -146,7 +151,7 @@ end
 local published11 = CacheContract.publish("crystal", crystalFs, CRYSTAL_1_1)
 check(published11, "publishing with the 1.1 sha1 succeeds")
 eq(crystalFs.files["crystal/" .. CacheContract.MARKER_PATH],
-  CacheContract.FORMAT .. CRYSTAL_1_1, "the marker records the 1.1 sha1")
+  CRYSTAL_FORMAT .. CRYSTAL_1_1, "the marker records the 1.1 sha1")
 check(CacheContract.isReady("crystal", crystalFs),
   "a cache published with the 1.1 sha1 still reads ready for crystal")
 
