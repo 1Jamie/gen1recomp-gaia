@@ -56,9 +56,6 @@ local MAP_GROUP_COUNT = 26 -- constants/map_constants.asm NUM_MAP_GROUPS
 -- "bank13" (../pokecrystal/main.asm:192-195).
 local PAL_MAP_BANK = 0x02
 local PAL_MAP_BANK_CRYSTAL = 0x13
--- LoadBallIconGFX.gfx (engine/battle/trainer_huds.asm:225-232); bank $0b
--- carries no manifest symbol to resolve it through.
-local BALL_ICON_GFX = { 0x0b, 0x41a4 }
 -- A tileset sheet is 96 tiles (128x48 at 8x8), and its PalMap packs two
 -- tiles per byte: low nibble first tile, high nibble second (`dn` in the
 -- tilepal macro).  The high bit of each nibble is the VRAM bank, not colour.
@@ -5716,8 +5713,8 @@ function RomExtractorGen2:extractMenuGfx()
 
   -- Four OAM tiles at $31 -- normal, statused, fainted, empty -- and OBJ
   -- colour 0 is transparent (engine/battle/trainer_huds.asm:47-99, :225-232).
-  local balls = self.symbols["LoadBallIconGFX.gfx"] or BALL_ICON_GFX
-  self:write2bpp(self.rom:bytes(balls[1], balls[2], 4 * 16), 32, 8,
+  local balls = self:symbol("LoadBallIconGFX.gfx")
+  self:write2bpp(self.rom:bytes(balls.bank, balls.address, 4 * 16), 32, 8,
     "battle/hud/balls.png", true)
   hud.balls = "assets/generated/battle/hud/balls.png"
   hud.ballsFirstTile = 0x31

@@ -119,6 +119,7 @@ function ShaderFXScreen.new(game, slot)
           item.entry.name, tostring(err))
       end
       applyRowState(item)
+      if not ok then item.right = Strings("FAILED") end
       return
     end
 

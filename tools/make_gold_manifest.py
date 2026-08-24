@@ -778,6 +778,9 @@ REQUIRED_SYMBOLS = {
     # nine fill cells.  "HP:" and the ten HP-bar cells come from
     # FontBattleExtra, which is already extracted.
     "EnemyHPBarBorderGFX", "HPExpBarBorderGFX", "ExpBarGFX",
+    # gfx/battle/balls.2bpp, the four party-ball OAM tiles
+    # (engine/battle/trainer_huds.asm LoadBallIconGFX).
+    "LoadBallIconGFX.gfx",
     # gfx/stats/stats_tiles.png + gfx/stats/pages.pal, StatsScreen_LoadFont
     # and _CGB_StatsScreenHPPals (#1558)
     "StatsScreenPageTilesGFX", "StatsScreenPagePals",
