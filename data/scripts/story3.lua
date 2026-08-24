@@ -2,6 +2,8 @@
 -- ghost, elevators, the Game Corner coins/prizes, the SS Anne departure
 -- and the Hall of Fame record.  Each cites its pokered source.
 
+local Runtime = require("src.mods.Runtime")
+
 local M = {}
 
 -- -------------------------------------------------------------------
@@ -908,17 +910,34 @@ M.VERMILION_DOCK = {
     local f = game.save.flags
     if Flags.get(game.save, "EVENT_SS_ANNE_LEFT") then
       -- the ship is long gone: erase her right away, and anyone who
-      -- still lands here is sent back out past the guard
+      -- still lands here is sent back out past the guard unless a mod
+      -- explicitly permits this occupied map state.  This hook surrounds
+      -- only the ejection decision; map-script registration and dispatch
+      -- stay unchanged, and the departed ship remains erased.
       for _, b in ipairs(DOCK_SHIP_BLOCKS) do
         ow.map:setBlock(b.bx, b.by, b.water)
       end
       ow.map.renderer:rebuild()
-      local TextBox = require("src.render.TextBox")
-      game.stack:push(TextBox.new(game,
-        game.data.text._VermilionCitySailor1ShipSetSailText
-        or "The ship set sail.", function()
-        ow:startWarpTo("VERMILION_CITY", 18, 29, "up")
-      end))
+      local occupancyAllowed = false
+      if Runtime.wantsHook("map.occupancy_allowed") then
+        local player = ow.player or {}
+        occupancyAllowed = Runtime.call("map.occupancy_allowed",
+          function() return false end, game, {
+            mapId = "VERMILION_DOCK",
+            reason = "ss_anne_departed",
+            gameVersion = game.save and game.save.version,
+            x = player.cellX,
+            y = player.cellY,
+          }) == true
+      end
+      if not occupancyAllowed then
+        local TextBox = require("src.render.TextBox")
+        game.stack:push(TextBox.new(game,
+          game.data.text._VermilionCitySailor1ShipSetSailText
+          or "The ship set sail.", function()
+          ow:startWarpTo("VERMILION_CITY", 18, 29, "up")
+        end))
+      end
     elseif f.EVENT_GOT_HM01 and ow.player.cellY == 2 then
       -- VermilionDockSSAnneLeavesScript: only stepping OFF the ship
       -- triggers the departure (wDestinationWarpID == 1 in pokered)

@@ -147,29 +147,42 @@ function Game:bootConfig()
   return boot
 end
 
+-- NEW GAME, as a call: a fresh skeleton (through save.new_game, so a mod
+-- can reshape it), the overworld at the skeleton's spawn, and the intro
+-- screen on top.  The title menu's NEW GAME row is this; a mod that starts a
+-- game on its own terms -- a match, a challenge mode -- calls it directly.
+--
+-- opts.intro = false skips the newGame screen (Oak's speech) so the player
+-- lands straight in the world; the skeleton then has to carry a name and a
+-- party, which is the caller's job via save.new_game.
+function Game:startNewGame(opts)
+  local OverworldState = require("src.world.OverworldController")
+  while self.stack:top() do self.stack:pop() end
+  -- New Game keeps the standalone options.lua preferences
+  self.sessionStartedAt = os.time()
+  self.save = SaveData.newGame(self:bootConfig())
+  -- no bucket carry-over: mod state from an abandoned session must
+  -- not leak into a fresh slot; mods seed via save.created instead
+  self:adoptSave(self.save)
+  ModRuntime.emit("save.created", { save = self.save })
+  self:applyOptions(self.save.options)
+  self.stack:push(OverworldState, self.save.player.map,
+                  self.save.player.x, self.save.player.y,
+                  self.save.player.facing,
+                  { via = "boot", freshBoot = true })
+  if not (opts and opts.intro == false) then
+    Screens.push(self, bootScreens(self).newGame or "OakSpeech",
+                 function() end)
+  end
+end
+
 -- the title screen with its NEW GAME / CONTINUE wiring; used at boot
 -- and by the START-menu QUIT confirmation
 function Game:makeTitleState()
   local OverworldState = require("src.world.OverworldController")
   local factory = Screens.get(self, bootScreens(self).title or "TitleState")
   local title = factory.new(self, {
-    onNewGame = function()
-      while self.stack:top() do self.stack:pop() end
-      -- New Game keeps the standalone options.lua preferences
-      self.sessionStartedAt = os.time()
-      self.save = SaveData.newGame(self:bootConfig())
-      -- no bucket carry-over: mod state from an abandoned session must
-      -- not leak into a fresh slot; mods seed via save.created instead
-      self:adoptSave(self.save)
-      ModRuntime.emit("save.created", { save = self.save })
-      self:applyOptions(self.save.options)
-      self.stack:push(OverworldState, self.save.player.map,
-                      self.save.player.x, self.save.player.y,
-                      self.save.player.facing,
-                      { via = "boot", freshBoot = true })
-      Screens.push(self, bootScreens(self).newGame or "OakSpeech",
-                   function() end)
-    end,
+    onNewGame = function() self:startNewGame() end,
     onContinue = function()
       local loaded, recovered = SaveData.load()
       if loaded then
@@ -1382,12 +1395,25 @@ function Game:reset()
   if self.stack and self.stack.clear then
     pcall(function() self.stack:clear() end)
   end
+  if self.world and self.world.release then
+    pcall(function() self.world:release() end)
+  end
+  if self._canvases then
+    for _, canvas in pairs(self._canvases) do
+      if canvas and canvas.release then pcall(canvas.release, canvas) end
+    end
+  end
   if self.renderer and self.renderer.releaseCanvases then
     pcall(function() self.renderer:releaseCanvases() end)
   end
   local keys = {}
   for key, value in pairs(self) do
     if type(value) ~= "function" then
+      if key ~= "world" and key ~= "renderer" and key ~= "_canvases" then
+        if type(value) == "table" and value.release then
+          pcall(value.release, value)
+        end
+      end
       keys[#keys + 1] = key
     end
   end

@@ -343,7 +343,9 @@ function Check.shutdown()
   if cmdCh then cmdCh:push({ cmd = "quit" }) end
   if worker then pcall(function() worker:wait() end) end
   worker, cmdCh, stateCh = nil, nil, nil
-  workerReady = false
+  workerReady = nil
 end
+
+require("src.core.SessionLifecycle").registerProcessShutdown(Check.shutdown)
 
 return Check

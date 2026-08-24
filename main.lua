@@ -84,40 +84,8 @@ local closeEditor  -- forward declaration: openEditor hands it to the editor
 
 -- Drop CacheFs / Data / mod Runtime / Assets / LegacyCompat for one mounted
 -- version session (save editor or game).  closeEditor and returnToLauncher
--- both go through here so neither path can forget a singleton the other resets.
-local function teardownMountedSession(version)
-  if version then
-    require("src.import.CacheFs").unmountVersion(version)
-  end
-  require("src.core.Data"):unloadGenerated()
-  local Runtime = require("src.mods.Runtime")
-  if Runtime.reset then Runtime.reset() end
-  local Assets = require("src.render.Assets")
-  if Assets.installLoader then Assets.installLoader(nil) end
-  local okCompat, LegacyCompat = pcall(require, "src.mods.LegacyCompat")
-  if okCompat and LegacyCompat.reset then LegacyCompat.reset() end
-end
-
--- Evict every save-editor module from package.loaded without a hardcoded
--- panel whitelist.  Flat require names (App, Party, …) resolve under
--- tools/save-editor/; path-style keys may also appear.  A key is flushed
--- when it names a save-editor path or when tools/save-editor/{panels/}K.lua
--- exists for a flat name K -- new panels are picked up automatically.
-local function flushEditorPackageLoaded()
-  local fs = love and love.filesystem
-  local function isEditorFlat(name)
-    if not (fs and fs.getInfo) then return false end
-    if name:find("[./]") then return false end
-    return fs.getInfo("tools/save-editor/" .. name .. ".lua") ~= nil
-      or fs.getInfo("tools/save-editor/panels/" .. name .. ".lua") ~= nil
-  end
-  for k in pairs(package.loaded) do
-    if type(k) == "string"
-        and (k:find("save%-editor", 1, false) or isEditorFlat(k)) then
-      package.loaded[k] = nil
-    end
-  end
-end
+-- both go through SessionLifecycle so neither path forgets a singleton.
+local SessionLifecycle = require("src.core.SessionLifecycle")
 
 -- The editor's modules use flat names (require("Kit"), require("Party")), so
 -- their directories have to be on the require path.  It must be
@@ -194,9 +162,7 @@ local function openEditor(version, slotId)
   local okReq, appOrErr = pcall(require, "App")
   if not okReq then
     editorMode = false
-    if version then
-      require("src.import.CacheFs").unmountVersion(version)
-    end
+    SessionLifecycle.endEditorSession({ version = version, app = nil })
     restoreWindow()
     Importer = editorHost
     editorHost = nil
@@ -216,10 +182,7 @@ local function openEditor(version, slotId)
     editorMode = false
     if EditorApp.unload then pcall(EditorApp.unload) end
     EditorApp = nil
-    if version then
-      teardownMountedSession(version)
-    end
-    flushEditorPackageLoaded()
+    SessionLifecycle.endEditorSession({ version = version, app = nil })
     restoreWindow()
     Importer = editorHost
     editorHost = nil
@@ -238,13 +201,10 @@ end
 -- next Edit or Play does not inherit the editor's dead mod loader.
 function closeEditor()
   local version = editorVersion
+  local app = EditorApp
   editorMode = false
-  if EditorApp and EditorApp.unload then EditorApp.unload() end
   EditorApp = nil
-  if version then
-    teardownMountedSession(version)
-  end
-  flushEditorPackageLoaded()
+  SessionLifecycle.endEditorSession({ version = version, app = app })
   editorVersion = nil
   restoreWindow()
   Importer = editorHost
@@ -345,32 +305,9 @@ end
 local function returnToLauncher()
   if not Game then return end
 
-  pcall(function() require("src.core.Music").stop() end)
-  pcall(function() require("src.core.Sound").stop() end)
-  if package.loaded["src.core.ChipAudio"] then
-    pcall(package.loaded["src.core.ChipAudio"].shutdown)
-  end
-  if package.loaded["src.core.DiscordPresence"] then
-    pcall(package.loaded["src.core.DiscordPresence"].shutdown)
-  end
-  if package.loaded["src.core.gen2.Clock"] then
-    pcall(package.loaded["src.core.gen2.Clock"].shutdown)
-  end
-  if package.loaded["src.net.Gen1Tls"] then
-    pcall(package.loaded["src.net.Gen1Tls"].shutdown)
-  end
-  if love.audio and love.audio.stop then
-    pcall(love.audio.stop)
-  end
-  pcall(function() require("src.render.SecondScreen").setEnabled(false) end)
-
   local GameVersion = require("src.core.GameVersion")
   local currentVersion = GameVersion.get()
-  teardownMountedSession(currentVersion)
-
-  if Game.reset then
-    pcall(function() Game:reset() end)
-  end
+  SessionLifecycle.endGameSession(Game)
   Game = nil
   autopilot = nil
   driverCo = nil
@@ -380,10 +317,7 @@ local function returnToLauncher()
   require("src.core.SaveData").setCart(nil)
   require("src.core.GameSpeed").setAllowed(nil)
 
-  local Input = require("src.core.Input")
-  local TouchControls = require("src.core.TouchControls")
-  Input:reset()
-  TouchControls:reset()
+  SessionLifecycle.endMountedSession(currentVersion)
 
   require("src.core.Orientation").applyOptions(
     require("src.core.SaveData").loadOptions())
@@ -746,7 +680,7 @@ function love.gamepadpressed(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadpressed(joystick, button) end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   if not Game then return end
   Game:gamepadpressed(joystick, button)
@@ -766,7 +700,7 @@ function love.gamepadreleased(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadreleased(joystick, button) end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   if not Game then return end
   Game:gamepadreleased(joystick, button)
@@ -786,7 +720,7 @@ function love.gamepadaxis(joystick, axis, value)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadaxis(joystick, axis, value) end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   if not Game then return end
   Game:gamepadaxis(joystick, axis, value)
@@ -806,7 +740,7 @@ function love.joystickpressed(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickpressed(joystick, button) end
   if Importer then return Importer:joystickpressed(joystick, button) end
   if not Game then return end
   Game:joystickpressed(joystick, button)
@@ -826,7 +760,7 @@ function love.joystickreleased(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickreleased(joystick, button) end
   if Importer then return Importer:joystickreleased(joystick, button) end
   if not Game then return end
   Game:joystickreleased(joystick, button)
@@ -846,7 +780,7 @@ function love.joystickaxis(joystick, axis, value)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickaxis(joystick, axis, value) end
   if Importer then return Importer:joystickaxis(joystick, axis, value) end
   if not Game then return end
   Game:joystickaxis(joystick, axis, value)
@@ -866,7 +800,7 @@ function love.joystickhat(joystick, hat, direction)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickhat(joystick, hat, direction) end
   if Importer then return Importer:joystickhat(joystick, hat, direction) end
   if not Game then return end
   Game:joystickhat(joystick, hat, direction)
@@ -1205,22 +1139,7 @@ function love.quit()
   pcall(function()
     require("src.core.DiscordPresence").shutdown()
   end)
-  -- LOVE waits for every live love.thread before the process exits, and both
-  -- background workers idle in a loop that only a "quit" command breaks, so
-  -- without this the process outlived the window and the next launch re-entered
-  -- the dead one instead of starting fresh (#339)
-  if package.loaded["src.core.ChipAudio"] then
-    pcall(package.loaded["src.core.ChipAudio"].shutdown)
-  end
-  if package.loaded["src.update.Check"] then
-    pcall(package.loaded["src.update.Check"].shutdown)
-  end
-  -- The launcher's fetch pool is the same story: its workers idle in
-  -- Channel:demand(), which never returns on its own, so a launcher that ever
-  -- touched the network would hang the process on exit (#339's shape again).
-  if package.loaded["src.net.Fetch"] then
-    pcall(package.loaded["src.net.Fetch"].shutdown)
-  end
+  SessionLifecycle.endProcess()
 end
 
 function love.filedropped(file)

@@ -1,5 +1,5 @@
 -- In-process launcher session teardown: Game:reset, Renderer canvas release,
--- Runtime/Assets/LegacyCompat cleanup, and editor package.loaded discovery flush.
+-- SessionLifecycle mount/game tiers, and editor package.loaded discovery flush.
 --   luajit tests/engine/launcher_session_teardown_test.lua
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -12,8 +12,12 @@ local Runtime = require("src.mods.Runtime")
 local Assets = require("src.render.Assets")
 local LegacyCompat = require("src.mods.LegacyCompat")
 local Game = require("src.core.Game")
+local Game2 = require("src.core.Game2")
 local Renderer = require("src.render.Renderer")
 local StateStack = require("src.core.StateStack")
+local SessionLifecycle = require("src.core.SessionLifecycle")
+local MapLoader = require("src.world.MapLoader")
+local World = require("src.world.gen2.World")
 
 -- ---- Game:reset drops instance state, keeps methods ----------------------
 do
@@ -38,6 +42,35 @@ do
   check(StateStack:top() == nil, "Game:reset cleared the shared StateStack")
 end
 
+-- ---- Game2:reset releases world GPU and present canvases ------------------
+do
+  local game2 = Game2.new()
+  local canvas = love.graphics.newCanvas(4, 4)
+  game2.world = World.new({})
+  game2.world.mapImages = { ["MAP|d|1"] = canvas }
+  game2._canvases = { love.graphics.newCanvas(8, 8) }
+  game2:reset()
+  check(canvas.released == true, "Game2:reset releases World mapImages")
+  check(game2.world == nil, "Game2:reset clears world reference")
+  check(game2._canvases == nil, "Game2:reset clears _canvases")
+end
+
+-- ---- World:release frees owned GPU caches --------------------------------
+do
+  local world = World.new({})
+  local bake = love.graphics.newCanvas(16, 16)
+  local strip = love.graphics.newCanvas(8, 64)
+  local tilt = love.graphics.newCanvas(160, 144)
+  world.mapImages = { ["R1|DAY|1"] = bake }
+  world.scrollStrips = { ["TS|1|0,0"] = strip }
+  world.tiltCanvas = tilt
+  world:release()
+  check(bake.released == true, "World:release frees map bake canvases")
+  check(strip.released == true, "World:release frees scroll strips")
+  check(tilt.released == true, "World:release frees tiltCanvas")
+  eq(next(world.mapImages), nil, "World:release clears mapImages table")
+end
+
 -- ---- Renderer:init releases prior canvases before realloc ----------------
 do
   local first = love.graphics.newCanvas(16, 16)
@@ -52,14 +85,13 @@ do
     "Renderer:init allocates a fresh primary canvas")
   check(Renderer.canvas.released ~= true,
     "the new primary canvas is not released")
-  -- second init also releases the one just created
   local second = Renderer.canvas
   Renderer:init()
   check(second.released == true,
     "a second Renderer:init releases the canvas from the prior init")
 end
 
--- ---- Shared singleton teardown contract (closeEditor / returnToLauncher)
+-- ---- SessionLifecycle.endMountedSession (closeEditor / returnToLauncher) --
 do
   Runtime.install({ emit = function() end }, { call = function() end }, { "e" })
   Assets.installLoader({
@@ -68,44 +100,79 @@ do
   })
   LegacyCompat.reports = { some_mod = { order = {} } }
 
-  -- Mirrors main.lua teardownMountedSession without mounting CacheFs.
-  require("src.core.Data"):unloadGenerated()
-  Runtime.reset()
-  Assets.installLoader(nil)
-  LegacyCompat.reset()
+  SessionLifecycle.endMountedSession(nil)
 
-  check(Runtime.errors == nil, "teardown clears Runtime.errors")
-  check(Assets.loader == nil, "teardown clears Assets.loader")
-  eq(next(LegacyCompat.reports), nil, "teardown clears LegacyCompat.reports")
+  check(Runtime.errors == nil, "endMountedSession clears Runtime.errors")
+  check(Assets.loader == nil, "endMountedSession clears Assets.loader")
+  eq(next(LegacyCompat.reports), nil, "endMountedSession clears LegacyCompat.reports")
 end
 
--- ---- Editor package.loaded discovery flush (no panel whitelist) ---------
+-- ---- releaseSession empties MapLoader via releaseAll, not flush -------------
+do
+  local data = {
+    maps = { T1 = { id = "T1", tileset = "TS", width = 1, height = 1,
+      blocks = { 0 }, borderBlock = 0, objects = {}, warps = {}, signs = {} } },
+    tilesets = { TS = { id = "TS", image = "assets/generated/t.png",
+      walkable = {}, blocks = { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } },
+      tilesPerRow = 1 } },
+  }
+  MapLoader.load(data, "T1")
+  check(MapLoader.cached("T1") ~= nil, "MapLoader holds a map before release")
+  Assets.releaseSession()
+  check(MapLoader.cached("T1") == nil,
+    "releaseSession evicts MapLoader via releaseAll")
+end
+
+-- ---- Editor package.loaded discovery flush via endEditorSession -----------
 do
   love.filesystem.write("tools/save-editor/App.lua", "return {}")
   love.filesystem.write("tools/save-editor/panels/NewPanel.lua", "return {}")
   package.loaded["App"] = { stale = true }
   package.loaded["NewPanel"] = { stale = true }
-  package.loaded["src.core.Data"] = package.loaded["src.core.Data"] -- keep
+  package.loaded["src.core.Data"] = package.loaded["src.core.Data"]
 
-  local function isEditorFlat(name)
-    if name:find("[./]") then return false end
-    return love.filesystem.getInfo("tools/save-editor/" .. name .. ".lua") ~= nil
-      or love.filesystem.getInfo("tools/save-editor/panels/" .. name .. ".lua") ~= nil
-  end
-  for k in pairs(package.loaded) do
-    if type(k) == "string"
-        and (k:find("save%-editor", 1, false) or isEditorFlat(k)) then
-      package.loaded[k] = nil
-    end
-  end
+  SessionLifecycle.endEditorSession({ version = nil, app = nil })
 
-  check(package.loaded["App"] == nil, "discovery flush drops flat App")
+  check(package.loaded["App"] == nil, "endEditorSession drops flat App")
   check(package.loaded["NewPanel"] == nil,
-    "discovery flush drops a new panel without a hardcoded list")
+    "endEditorSession drops a new panel without a hardcoded list")
   check(package.loaded["src.core.Data"] ~= nil,
-    "discovery flush leaves engine modules alone")
+    "endEditorSession leaves engine modules alone")
   love.filesystem.remove("tools/save-editor/App.lua")
   love.filesystem.remove("tools/save-editor/panels/NewPanel.lua")
+end
+
+-- ---- Fetch shutdown clears ready so Play-again can respawn workers ---------
+do
+  local Fetch = require("src.net.Fetch")
+  local spawnAttempts = 0
+  love.thread = love.thread or {}
+  local savedNewThread = love.thread.newThread
+  local savedGetChannel = love.thread.getChannel
+  love.thread.getChannel = function()
+    return {
+      clear = function() end,
+      push = function() end,
+      pop = function() return nil end,
+      demand = function() end,
+    }
+  end
+  love.thread.newThread = function()
+    spawnAttempts = spawnAttempts + 1
+    return {
+      start = function() end,
+      wait = function() end,
+      getError = function() return nil end,
+    }
+  end
+  Fetch.available()
+  local afterFirst = spawnAttempts
+  Fetch.shutdown()
+  Fetch.available()
+  check(spawnAttempts > afterFirst,
+    "Fetch.available retries worker spawn after shutdown (ready=nil)")
+  love.thread.newThread = savedNewThread
+  love.thread.getChannel = savedGetChannel
 end
 
 T.finish("launcher_session_teardown_test")

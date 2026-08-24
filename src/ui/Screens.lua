@@ -166,6 +166,14 @@ local function build(game, id, ...)
     inst = factory.new(game, ...)
   end
   inst.screenId = inst.screenId or id
+  -- Standardized opt-in marker for mod-created options/settings screens.
+  -- A mod may declare `isModOptions = true` on its screen factory table or
+  -- on the returned instance.  Either way the flag is propagated so that other
+  -- UI mods can detect mod options screens reliably without brittle screenId
+  -- string-matching (issue #1697).
+  if factory.isModOptions and inst.isModOptions == nil then
+    inst.isModOptions = true
+  end
   return inst
 end
 

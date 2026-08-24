@@ -2208,9 +2208,25 @@ function Game2:reset()
   if self.stack and self.stack.clear then
     pcall(function() self.stack:clear() end)
   end
+  if self.world and self.world.release then
+    pcall(function() self.world:release() end)
+  end
+  if self._canvases then
+    for _, canvas in pairs(self._canvases) do
+      if canvas and canvas.release then pcall(canvas.release, canvas) end
+    end
+  end
+  if self.renderer and self.renderer.releaseCanvases then
+    pcall(function() self.renderer:releaseCanvases() end)
+  end
   local keys = {}
   for key, value in pairs(self) do
     if type(value) ~= "function" then
+      if key ~= "world" and key ~= "renderer" and key ~= "_canvases" then
+        if type(value) == "table" and value.release then
+          pcall(value.release, value)
+        end
+      end
       keys[#keys + 1] = key
     end
   end

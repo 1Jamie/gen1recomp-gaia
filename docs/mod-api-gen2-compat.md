@@ -469,8 +469,11 @@ is warned once per name and the rest of the list still runs. The engine's own
 Gen 1 verbs are **not** seeded on Gold: a row-list verb handed Gold's ctx would
 find no runner on it, so `data.commands` under Gen 2 is the mod verbs alone.
 
-**`mod.save`, `mod.options`, `mod.log`, `mod.assets`, `mod.find`, exports.**
-Generation-agnostic; nothing to adapt.
+**`mod.save`, `mod.options`, `mod.log`, `mod.assets`, `mod.find`,
+`mod.developer`, exports.** Generation-agnostic; nothing to adapt.
+`mod.developer` is the same fixed boot-time boolean on both generations and is
+available while the entry chunk runs. Gold does not gain Gen 1's developer
+console or F5 hot-reload hotkey; the field reports the loader's mode only.
 
 **`mod.world`.** Same method set, resolved against Gold's world
 (`src/world/gen2/WorldAPI.lua`). Two differences show through and are
@@ -783,6 +786,9 @@ name and the existing payload, plus fields where Gen 2 genuinely carries more
 
 The list is much shorter than it was. What is outstanding, in descending value:
 
+- `battle.field_residual`: the first guarded call site is in Gen 1 end-of-round
+  processing. Gold already has a native weather/between-turn pipeline but does
+  not yet expose the shared data-only descriptor hook.
 - `trainer.before_battle`: Gold constructs and pushes its trainer battle in
   `src/world/gen2/World.lua:startBattle`, which does not yet expose a deferred
   preparation boundary or a battle-local player-party view. Gen 1 mods can use

@@ -234,7 +234,9 @@ function Fetch.shutdown()
   end
   for _, th in ipairs(workers) do pcall(function() th:wait() end) end
   workers = {}
-  cmdCh, resCh, quitCh, ready = nil, nil, nil, false
+  cmdCh, resCh, quitCh, ready = nil, nil, nil, nil
 end
+
+require("src.core.SessionLifecycle").registerProcessShutdown(Fetch.shutdown)
 
 return Fetch

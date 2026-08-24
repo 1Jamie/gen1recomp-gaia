@@ -100,8 +100,8 @@ local function probe(version)
     end
     return { type = "file" }
   end
-  love.filesystem.getRealDirectory = function() return "/nowhere" end
-  love.filesystem.getSource = function() return "/elsewhere" end
+  love.filesystem.getRealDirectory = function() return "/source" end
+  love.filesystem.getSource = function() return "/source" end
   RomImporter.isReady(version)
   return seen, order
 end

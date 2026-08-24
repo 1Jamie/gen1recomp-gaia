@@ -5470,6 +5470,37 @@ function World:dropMapImages(mapId)
   if self.connectionMaps then self.connectionMaps[mapId] = nil end
 end
 
+local function safeRelease(obj)
+  if obj and obj ~= false and obj.release then pcall(obj.release, obj) end
+end
+
+-- Eagerly free session-owned GPU caches.  Assets.image-backed atlases are
+-- nilled without release; unique bakes, strips, and roof composites are released.
+function World:release()
+  if self.mapImages then
+    for _, img in pairs(self.mapImages) do safeRelease(img) end
+    self.mapImages = {}
+  end
+  if self.scrollStrips then
+    for _, strip in pairs(self.scrollStrips) do safeRelease(strip) end
+    self.scrollStrips = {}
+  end
+  safeRelease(self.tiltCanvas)
+  self.tiltCanvas = nil
+  if self.grassAtlases then
+    for _, atlas in pairs(self.grassAtlases) do safeRelease(atlas) end
+    self.grassAtlases = {}
+  end
+  if self.atlasCache then
+    for key, atlas in pairs(self.atlasCache) do
+      if key:find("|", 1, true) then safeRelease(atlas) end
+    end
+    self.atlasCache = {}
+  end
+  self.animQuads = nil
+  self.connectionMaps = nil
+end
+
 -- LoadMapAttributes' refill, for every map the session has edited.  Neighbour
 -- strips share the same buffer on the cart, so a connection crossing reloads
 -- them too: this runs on any setMap, seamless or not.

@@ -768,7 +768,8 @@ the same:
 So: read the log for coverage problems, and the manager for load problems.
 
 `POKEPORT_IDENTITY=<name>` sandboxes the save directory if you want a clean
-profile to test in, and `POKEPORT_DEV=1` adds the console and `F5` hot reload.
+profile to test in. `POKEPORT_DEV=1` makes `mod.developer` true for loader-gated
+diagnostics; Gold does not add Gen 1's console or `F5` hot reload.
 
 ## What this guide does not promise
 

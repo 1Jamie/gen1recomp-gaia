@@ -23,6 +23,7 @@ local Logger = require("src.core.Logger")
 local Performance = require("src.core.Performance")
 local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
+local Strings = require("src.core.Strings")
 
 local OptionsMenu = {}
 OptionsMenu.__index = OptionsMenu
@@ -43,43 +44,60 @@ end
 -- Each row: the label, the option key it edits, and the cycle of values with
 -- the exact strings the cart prints (trailing spaces included -- they are what
 -- blank the longer previous value, e.g. "MID " over "SLOW").
+-- Labels and cart-original display strings are wrapped in Strings.source so
+-- the catalog generator harvests them even though this table is built once
+-- at require time, before any mod's Strings.load has a catalog to answer
+-- from (src/core/Strings.lua's own note on this).  The lookup itself happens
+-- live, in drawPanel, through plain Strings(...) calls.
 local ROWS = {
   {
-    label = "TEXT SPEED", key = "textSpeed",
+    label = Strings.source("TEXT SPEED"), key = "textSpeed",
     values = { "FAST", "MID", "SLOW" },
-    display = { FAST = "FAST", MID = "MID ", SLOW = "SLOW" },
-  },
-  {
-    label = "BATTLE SCENE", key = "battleScene",
-    values = { true, false },
-    display = { [true] = "ON ", [false] = "OFF" },
-  },
-  {
-    label = "BATTLE STYLE", key = "battleStyle",
-    values = { "SHIFT", "SET" },
-    display = { SHIFT = "SHIFT", SET = "SET  " },
-  },
-  {
-    label = "SOUND", key = "sound",
-    values = { "MONO", "STEREO" },
-    display = { MONO = "MONO  ", STEREO = "STEREO" },
-  },
-  {
-    label = "PRINT", key = "print",
-    values = { "LIGHTEST", "LIGHTER", "NORMAL", "DARKER", "DARKEST" },
     display = {
-      LIGHTEST = "LIGHTEST", LIGHTER = "LIGHTER ", NORMAL = "NORMAL  ",
-      DARKER = "DARKER  ", DARKEST = "DARKEST ",
+      FAST = Strings.source("FAST"), MID = Strings.source("MID "),
+      SLOW = Strings.source("SLOW"),
     },
   },
   {
-    label = "MENU ACCOUNT", key = "menuAccount",
+    label = Strings.source("BATTLE SCENE"), key = "battleScene",
+    values = { true, false },
+    display = {
+      [true] = Strings.source("ON "), [false] = Strings.source("OFF"),
+    },
+  },
+  {
+    label = Strings.source("BATTLE STYLE"), key = "battleStyle",
+    values = { "SHIFT", "SET" },
+    display = {
+      SHIFT = Strings.source("SHIFT"), SET = Strings.source("SET  "),
+    },
+  },
+  {
+    label = Strings.source("SOUND"), key = "sound",
+    values = { "MONO", "STEREO" },
+    display = {
+      MONO = Strings.source("MONO  "), STEREO = Strings.source("STEREO"),
+    },
+  },
+  {
+    label = Strings.source("PRINT"), key = "print",
+    values = { "LIGHTEST", "LIGHTER", "NORMAL", "DARKER", "DARKEST" },
+    display = {
+      LIGHTEST = Strings.source("LIGHTEST"), LIGHTER = Strings.source("LIGHTER "),
+      NORMAL = Strings.source("NORMAL  "), DARKER = Strings.source("DARKER  "),
+      DARKEST = Strings.source("DARKEST "),
+    },
+  },
+  {
+    label = Strings.source("MENU ACCOUNT"), key = "menuAccount",
     values = { false, true },
-    display = { [false] = "OFF", [true] = "ON " },
+    display = {
+      [false] = Strings.source("OFF"), [true] = Strings.source("ON "),
+    },
   },
   -- FRAME is the textbox border style, 1-8, and prints its number after the
   -- word TYPE rather than in the shared value column.
-  { label = "FRAME", key = "frame", frame = true },
+  { label = Strings.source("FRAME"), key = "frame", frame = true },
   -- Everything from here down is the port's, not the cart's.  They are the
   -- same settings the Gen 1 OPTION screen carries and they drive the same
   -- shared modules, so a player who learns them in Red knows them here.  The
@@ -87,17 +105,17 @@ local ROWS = {
   --
   -- The two volume rows clamp at the ends rather than wrapping, the way
   -- pokered's text-speed cursor does, so holding left reaches OFF and stays.
-  { id = "controls", label = "CONTROLS", port = true,
+  { id = "controls", label = Strings.source("CONTROLS"), port = true,
     activate = function(game)
       require("src.ui.Screens").push(game, "BindingsMenu")
     end },
-  { label = "MUSIC VOL", key = "musicVol", port = true,
+  { label = Strings.source("MUSIC VOL"), key = "musicVol", port = true,
     cycle = function(options, delta)
       options.musicVol = stepVolume(options.musicVol, delta)
       require("src.core.Music").setVolumeLevel(options.musicVol)
     end,
     text = function(options) return volLabel(options.musicVol) end },
-  { label = "SFX VOL", key = "sfxVol", port = true,
+  { label = Strings.source("SFX VOL"), key = "sfxVol", port = true,
     cycle = function(options, delta)
       options.sfxVol = stepVolume(options.sfxVol, delta)
       require("src.core.Sound").setVolumeLevel(options.sfxVol)
@@ -105,7 +123,7 @@ local ROWS = {
     text = function(options) return volLabel(options.sfxVol) end },
   -- Each filter step keeps 40% of the previous step's treble, so 2X and 3X
   -- are the 1X low-pass applied twice and three times over.
-  { label = "MUSIC FILTER", key = "musicFilter", port = true,
+  { label = Strings.source("MUSIC FILTER"), key = "musicFilter", port = true,
     cycle = function(options, delta)
       options.musicFilter = ((options.musicFilter or 0) + delta) % #FILTERS
       require("src.core.Music").setFilterLevel(options.musicFilter)
@@ -119,7 +137,7 @@ local ROWS = {
   -- file's own `text`/`cycle`) works here unmodified: OptionsMenu:cycle
   -- answers `row.step` first, and drawPanel already reads a function
   -- `row.value` -- both written for exactly this kind of shared mod row.
-  { id = "performance", label = "PERFORMANCE", port = true,
+  { id = "performance", label = Strings.source("PERFORMANCE"), port = true,
     value = function(g)
       return Performance.label(g.options and g.options.performance)
     end,
@@ -129,7 +147,7 @@ local ROWS = {
       g:applyOptions()
       return true
     end },
-  { label = "GAME SPEED", key = "speed", port = true,
+  { label = Strings.source("GAME SPEED"), key = "speed", port = true,
     cycle = function(options, delta)
       local GameSpeed = require("src.core.GameSpeed")
       options.speed = GameSpeed.cycle(options.speed, delta)
@@ -137,7 +155,7 @@ local ROWS = {
     text = function(options)
       return require("src.core.GameSpeed").levelLabel(options.speed)
     end },
-  { label = "ZOOM", key = "zoom", port = true,
+  { label = Strings.source("ZOOM"), key = "zoom", port = true,
     cycle = function(options, delta, game)
       local Zoom = require("src.render.Zoom")
       local scale = Zoom.windowFitScale()
@@ -153,7 +171,7 @@ local ROWS = {
   -- a boundary; WATER / TREES force one outdoor block; BLACK is a flat void.
   -- #1418.  Same key the Gen 1 OPTION screen uses, different ladder (FADE
   -- is Gold's default because that is already what the maps call for).
-  { label = "VOID FILL", key = "voidFill", port = true,
+  { label = Strings.source("VOID FILL"), key = "voidFill", port = true,
     cycle = function(options, delta)
       local BorderFill = require("src.world.gen2.BorderFill")
       BorderFill.setVoidFill(options.voidFill or "fade")
@@ -162,7 +180,7 @@ local ROWS = {
     text = function(options)
       return require("src.world.gen2.BorderFill").voidFillLabel(options.voidFill)
     end },
-  { label = "TILT", key = "tilt", port = true,
+  { label = Strings.source("TILT"), key = "tilt", port = true,
     cycle = function(options, delta)
       local Tilt = require("src.render.Tilt")
       -- Four levels (OFF, 15, 35, 50); left steps back through them.
@@ -177,7 +195,7 @@ local ROWS = {
   -- CGB game whose colour comes from its own palettes, so there are no packs
   -- to swap -- what there is instead is the choice to turn that colour OFF,
   -- down to the grey Game Boy or the green one.  GBC is the default.
-  { label = "COLOR", key = "color", port = true,
+  { label = Strings.source("COLOR"), key = "color", port = true,
     cycle = function(options, delta)
       local GbcPalette = require("src.render.GbcPalette")
       GbcPalette.setMode(options.color or "gbc")
@@ -186,12 +204,26 @@ local ROWS = {
     text = function(options)
       return require("src.render.GbcPalette").modeLabel(options.color or "gbc")
     end },
+  { label = Strings.source("GBC FX"), key = "gbcfx", port = true,
+    cycle = function(options, delta)
+      local GBCFX = require("src.render.GBCFX")
+      if not GBCFX.isSupported() then
+        options.gbcfx = 0
+        return
+      end
+      local level = ((options.gbcfx or 0) + delta) % 5
+      options.gbcfx = level
+      GBCFX.setLevel(level)
+    end,
+    text = function(options)
+      return require("src.render.GBCFX").levelLabel(options.gbcfx or 0)
+    end },
   -- SHADER FX reaches Gen 2 too, not just Gen 1. Same "activate" shape as
   -- CONTROLS/TOUCH LAYOUT below (a pushed screen, not a `cycle` ladder) --
   -- ShaderFXScreen is the shared list screen both generations push, `id`
   -- matching the Gen 1 row's so a mod filtering "shaderfx" on Red also
   -- reaches Gold.
-  { id = "shaderfx", label = "SHADER FX", port = true,
+  { id = "shaderfx", label = Strings.source("SHADER FX"), port = true,
     text = function(options)
       local ShaderFX = require("src.render.ShaderFX")
       local entry = ShaderFX.activeEntry("main")
@@ -204,7 +236,7 @@ local ROWS = {
   -- Dual-shader secondary slot, same shared ShaderFXScreen as the row
   -- above, opened on "secondary" instead -- see src/ui/OptionsMenu.lua's
   -- mirror of this row for the full rationale.
-  { id = "shaderfx2", label = "SHADER FX 2", port = true,
+  { id = "shaderfx2", label = Strings.source("SHADER FX 2"), port = true,
     text = function(options)
       local ShaderFX = require("src.render.ShaderFX")
       local entry = ShaderFX.activeEntry("secondary")
@@ -214,7 +246,7 @@ local ROWS = {
     activate = function(game)
       require("src.ui.Screens").push(game, "ShaderFXScreen", "secondary")
     end },
-  { label = "VIDEO MODE", key = "videoMode", port = true,
+  { label = Strings.source("VIDEO MODE"), key = "videoMode", port = true,
     cycle = function(options, delta)
       local VideoMode = require("src.core.VideoMode")
       options.videoMode = VideoMode.cycle(options.videoMode, delta)
@@ -225,20 +257,20 @@ local ROWS = {
       return VideoMode.normalize(options.videoMode) == "borderless"
         and "FULL" or "WINDOWED"
     end },
-  { label = "SCREEN POS", key = "screenPos", port = true,
+  { label = Strings.source("SCREEN POS"), key = "screenPos", port = true,
     cycle = function(options, delta)
       local ScreenPosition = require("src.core.ScreenPosition")
       options.screenPos = ScreenPosition.cycle(options.screenPos, delta)
       ScreenPosition.setMode(options.screenPos)
     end,
     text = function(options)
-      return require("src.core.ScreenPosition").label(options.screenPos)
+      return Strings(require("src.core.ScreenPosition").label(options.screenPos))
     end },
-  { id = "touchControls", label = "TOUCH PAD", port = true,
+  { id = "touchControls", label = Strings.source("TOUCH PAD"), port = true,
     text = function(options)
       local tc = options.touchControls
       local on = not (type(tc) == "table" and tc.enabled == false)
-      return on and "ON" or "OFF"
+      return on and Strings("ON") or Strings("OFF")
     end,
     cycle = function(options, _delta, game)
       local tc = type(options.touchControls) == "table" and options.touchControls or {}
@@ -247,13 +279,13 @@ local ROWS = {
       require("src.core.TouchControls"):applyOptions(options)
       if game and game.persistOptions then game:persistOptions() end
     end },
-  { id = "touchLayout", label = "TOUCH LAYOUT", port = true,
+  { id = "touchLayout", label = Strings.source("TOUCH LAYOUT"), port = true,
     activate = function(game)
       game.stack:push(require("src.ui.TouchControlsEditor").new(game))
     end },
-  { id = "haptics", label = "VIBRATION", port = true,
+  { id = "haptics", label = Strings.source("VIBRATION"), port = true,
     text = function(options)
-      return require("src.core.TouchControls").hapticLabel(options.haptics)
+      return Strings(require("src.core.TouchControls").hapticLabel(options.haptics))
     end,
     cycle = function(options, delta, game)
       local TC = require("src.core.TouchControls")
@@ -262,7 +294,7 @@ local ROWS = {
       TC.buzz(options.haptics)
       if game and game.persistOptions then game:persistOptions() end
     end },
-  { label = "MAX FPS", key = "fpsCap", port = true,
+  { label = Strings.source("MAX FPS"), key = "fpsCap", port = true,
     cycle = function(options, delta)
       local FrameCap = require("src.core.FrameCap")
       options.fpsCap = FrameCap.cycle(options.fpsCap, delta)
@@ -273,10 +305,10 @@ local ROWS = {
     end },
   -- BATTLE BG (#1709): the void around the battle screen.  Gold has no WIDE
   -- layout and no WORLD backdrop, so the ladder is the WHITE/BLACK pair only.
-  { label = "BATTLE BG", key = "battleBg", port = true,
+  { label = Strings.source("BATTLE BG"), key = "battleBg", port = true,
     values = { "white", "black" },
     display = { white = "WHITE", black = "BLACK" } },
-  { label = "CANCEL", cancel = true },
+  { label = Strings.source("CANCEL"), cancel = true },
 }
 
 -- The cart's screen is one full-height textbox with every row on it.  This one
@@ -460,9 +492,9 @@ function OptionsMenu:drawPanel()
     local row = self.rows[i]
     if row then
       local labelY = 2 + (slot - 1) * 2
-      Chrome.print(row.label, 2, labelY)
+      Chrome.print(Strings(row.label), 2, labelY)
       if row.frame then
-        Chrome.print(":TYPE", 10, labelY + 1)
+        Chrome.print(Strings(":TYPE"), 10, labelY + 1)
         Chrome.print(tostring(self.options.frame or 1), 16, labelY + 1)
       elseif row.text then
         Chrome.print(":", 10, labelY + 1)
@@ -470,7 +502,7 @@ function OptionsMenu:drawPanel()
       elseif row.values then
         Chrome.print(":", 10, labelY + 1)
         local value = self.options[row.key]
-        local text = row.display and row.display[value] or tostring(value)
+        local text = row.display and Strings(row.display[value]) or tostring(value)
         Chrome.print(text, 11, labelY + 1)
       elseif type(row.value) == "function" then
         -- the Gen 1 row's value reader (src/ui/OptionRows.lua:4), so a mod row
