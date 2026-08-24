@@ -695,6 +695,25 @@ hotkeys. Either set `POKEPORT_DEV=1` in the environment or pass
 love . --developer
 ```
 
+Every sandboxed entry chunk receives the same boot decision as the boolean
+`mod.developer`. It is available while the entry file is loading, so a mod can
+keep diagnostic commands, screens, and verbose tracing out of player builds:
+
+```lua
+if mod.developer then
+  mod.commands:register("my_mod:diagnostics", function(ctx)
+    -- open or print this mod's diagnostic view
+  end)
+end
+```
+
+`mod.developer` is a plain boolean snapshot for this boot. It grants no
+permission and exposes neither the process environment nor the loader. In a
+normal player boot it is `false`; `POKEPORT_DEV=1` and `--developer` make it
+`true` through the same engine-owned decision that enables the console and hot
+reload. Use a mod option for player-facing feature toggles rather than treating
+developer mode as configuration.
+
 While developer mode is active:
 
 - `` ` `` (backtick) opens the console overlay — a Lua REPL with `game`,
