@@ -656,7 +656,7 @@ function love.gamepadpressed(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadpressed(joystick, button) end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   if not Game then return end
   Game:gamepadpressed(joystick, button)
@@ -676,7 +676,7 @@ function love.gamepadreleased(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadreleased(joystick, button) end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   if not Game then return end
   Game:gamepadreleased(joystick, button)
@@ -696,7 +696,7 @@ function love.gamepadaxis(joystick, axis, value)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.gamepadaxis(joystick, axis, value) end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   if not Game then return end
   Game:gamepadaxis(joystick, axis, value)
@@ -716,7 +716,7 @@ function love.joystickpressed(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickpressed(joystick, button) end
   if Importer then return Importer:joystickpressed(joystick, button) end
   if not Game then return end
   Game:joystickpressed(joystick, button)
@@ -736,7 +736,7 @@ function love.joystickreleased(joystick, button)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickreleased(joystick, button) end
   if Importer then return Importer:joystickreleased(joystick, button) end
   if not Game then return end
   Game:joystickreleased(joystick, button)
@@ -756,7 +756,7 @@ function love.joystickaxis(joystick, axis, value)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickaxis(joystick, axis, value) end
   if Importer then return Importer:joystickaxis(joystick, axis, value) end
   if not Game then return end
   Game:joystickaxis(joystick, axis, value)
@@ -776,7 +776,7 @@ function love.joystickhat(joystick, hat, direction)
     end
     return
   end
-  if Studio then return end
+  if Studio then return Studio.joystickhat(joystick, hat, direction) end
   if Importer then return Importer:joystickhat(joystick, hat, direction) end
   if not Game then return end
   Game:joystickhat(joystick, hat, direction)
