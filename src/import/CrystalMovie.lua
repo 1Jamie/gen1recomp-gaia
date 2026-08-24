@@ -258,6 +258,44 @@ local function colorize(image, palFor)
   return out
 end
 
+-- engine/movie/splash.asm:20-30 sets SCGB_GAMEFREAK_LOGO before Copyright, so
+-- the card runs on gfx/sgb/predef.pal:79 PREDEFPAL_GAMEFREAK_LOGO_BG.
+local COPYRIGHT_TILES = 29
+local COPYRIGHT_BG = {
+  { 0, 0, 0 }, { 66, 90, 90 }, { 173, 173, 173 }, { 255, 255, 255 },
+}
+
+-- data/copyright.asm at hlcoord 2, 7 (engine/menus/intro_menu.asm:1315-1326).
+local COPYRIGHT_LINES = {
+  { 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+    0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c },
+  { 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x7a, 0x7b, 0x7c },
+  { 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7c },
+}
+
+local function extractCopyright(self)
+  local symbol = self:symbol("CopyrightGFX")
+  local raw = self.rom:bytes(symbol.bank, symbol.address,
+    COPYRIGHT_TILES * TILE_BYTES)
+  self:write2bpp(raw, COPYRIGHT_TILES * 8, 8, "title/copyright.png")
+
+  local painted = {}
+  for index, tile in ipairs(tilesFrom2bpp(raw)) do
+    painted[index] = colorize(tile, function() return COPYRIGHT_BG end)
+  end
+  local backdrop = COPYRIGHT_BG[1]
+  local splash = ImageWriter.blank(160, 144,
+    backdrop[1] / 255, backdrop[2] / 255, backdrop[3] / 255, 1)
+  for row, line in ipairs(COPYRIGHT_LINES) do
+    for column, id in ipairs(line) do
+      blitTile(splash, painted[id - 0x60 + 1], (1 + column) * 8, (6 + row) * 8)
+    end
+  end
+  self:save(splash, "title/copyright_splash.png")
+end
+
 function CrystalMovie.extractTitle(self)
   self:beginStage("Title screen")
 
@@ -348,6 +386,7 @@ function CrystalMovie.extractTitle(self)
   local gemTinted = colorize(gem, function() return pals.obj[1] end)
   self:save(gemTinted, "title/crystal_gem.png")
   self:save(gem, "title/crystal_gem_gray.png")
+  extractCopyright(self)
   self:tick("Title screen", 4, 5)
 
   local function unit(color) return { color[1] / 255, color[2] / 255, color[3] / 255 } end
@@ -356,7 +395,7 @@ function CrystalMovie.extractTitle(self)
     generation = 2,
     layout = "crystal_title",
     source = "ROM:TitleSuicuneGFX + TitleLogoGFX + TitleCrystalGFX"
-      .. " + TitleScreenPalettes",
+      .. " + TitleScreenPalettes + CopyrightGFX",
     screen = "assets/generated/title/crystal_screen.png",
     screenGray = "assets/generated/title/crystal_screen_gray.png",
     image = "assets/generated/title/crystal_logo.png",
@@ -371,6 +410,10 @@ function CrystalMovie.extractTitle(self)
     suicuneEvery = 8,
     gem = "assets/generated/title/crystal_gem.png",
     gemGray = "assets/generated/title/crystal_gem_gray.png",
+    copyright = "assets/generated/title/copyright.png",
+    copyrightSplash = "assets/generated/title/copyright_splash.png",
+    copyrightBackdrop = unit(COPYRIGHT_BG[1]),
+    copyrightInk = unit(COPYRIGHT_BG[4]),
     -- Strip 0 starts at OAM (64, -$22) and stops at OAM y 22, i.e. screen
     -- (56, 6) (engine/movie/title.asm:306-311,340-362).
     gemX = 56,

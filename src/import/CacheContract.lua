@@ -98,6 +98,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/title/crystal_logo.png",
     "assets/generated/title/crystal_wordmark.png",
     "assets/generated/title/crystal_suicune.png",
+    "assets/generated/title/copyright_splash.png",
     "assets/generated/splash/ditto.png",
     "assets/generated/intro/chris.png",
     "assets/generated/intro/kris.png",
