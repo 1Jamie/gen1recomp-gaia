@@ -1969,6 +1969,10 @@ function OverworldState:pushableAtCell(cx, cy)
   return nil
 end
 
+-- world.talk's fallthrough, hoisted so the A press does not build a closure
+-- on every press just to have one to hand a hook nobody may have wrapped
+local function vanillaTalk(ow, target) ow:talkTo(target) end
+
 -- what the A press resolved to, for world.interacted's listeners
 local function interacted(self, fx, fy, kind, target)
   Runtime.emit("world.interacted", { mapId = self.map.id, x = fx, y = fy,
@@ -1998,7 +2002,12 @@ function OverworldState:interact()
       -- talk() lands the follower on its cell first.
       require("src.world.PikachuFollower").talk(Game, self, npc)
     elseif not npc.moving then
-      self:talkTo(npc)
+      -- world.talk: the A press on an object, before the map's text tables
+      -- get it.  A runtime object a mod spawned (WorldAPI:spawnNpc) carries
+      -- no TEXT_* id, so the vanilla path has nothing to say for it; a mod
+      -- that owns the object wraps this and simply does not call next().
+      -- Everything else falls straight through to talkTo as before.
+      Runtime.call("world.talk", vanillaTalk, self, npc)
     end
     interacted(self, fx, fy, "npc", npc)
     return

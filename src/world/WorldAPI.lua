@@ -5,6 +5,7 @@
 -- quiet no-op, never a crash.  Reaching into OverworldState internals
 -- stays unsupported; anything a mod legitimately needs belongs here.
 
+local Collision = require("src.world.Collision")
 local Logger = require("src.core.Logger")
 local FieldDefaults = require("src.world.FieldDefaults")
 local Map = require("src.world.Map")
@@ -405,6 +406,72 @@ end
 
 function Handle:position()
   return self.npc.cellX, self.npc.cellY
+end
+
+-- Walk one tile starting NOW, outside the scripted-movement queue.
+--
+-- scriptMove queues onto OverworldState.scriptMoves, and a non-empty
+-- scriptMoves is how the overworld knows a cutscene is running -- it gates
+-- handleInput (OverworldController "local scripted = ... #self.scriptMoves >
+-- 0"), so an actor animated that way freezes the player's controls for as
+-- long as it walks.  That is right for Oak marching to his lab and wrong for
+-- an actor that moves on its own schedule: a networked player's ghost, an
+-- ambient walker.  This is the same per-tile state scriptMove sets, minus
+-- the queue and therefore minus the lockout.
+--
+-- Collision is deliberately not checked.  The caller is replaying a move
+-- that was already decided somewhere else (validated on the peer's machine,
+-- or authored), and re-judging it here would let the two copies disagree
+-- about where the actor is.  Use canStep first if you want the check.
+function Handle:stepNow(dir)
+  local npc = self.npc
+  if not Collision.DELTA[dir] then return nil, "bad direction: " .. tostring(dir) end
+  if npc.moving then return nil, "already moving" end
+  npc.facing = dir
+  npc.targetX, npc.targetY = Collision.target(npc.cellX, npc.cellY, dir)
+  npc.moving = true
+  npc.progress = 0
+  return true
+end
+
+-- Would stepNow land somewhere legal?  Exposed separately so a caller that
+-- does want the map's opinion can ask for it without giving up the "replay
+-- verbatim" default above.
+function Handle:canStep(dir)
+  local ow = self.ow
+  if not (ow and ow.map) then return false end
+  return Collision.canMove(ow.map, ow.entities, self.npc, dir) and true or false
+end
+
+-- Snap to a cell with no animation: a warp arrival, or a resync that has
+-- drifted too far to walk off.  Clears any step in flight so the entity
+-- cannot land on its old target a frame later.
+function Handle:placeAt(x, y, facing)
+  local npc = self.npc
+  npc.moving = false
+  npc.marching = false
+  npc.targetX, npc.targetY = nil, nil
+  npc.progress = 0
+  npc.cellX, npc.cellY = x, y
+  npc.px, npc.py = x * 16, y * 16
+  if facing then npc.facing = facing end
+  return true
+end
+
+-- True while a step is still animating, so a driver can pace itself rather
+-- than stomping a move in flight.
+function Handle:isMoving()
+  return self.npc.moving and true or false
+end
+
+-- Whether the player may walk through this object (Collision.occupied skips
+-- passable entities -- Yellow's companion Pikachu is the engine's own user
+-- of the flag).  It still draws and can still be talked to; it just stops
+-- being an obstacle, which is what a dynamic actor wants when standing in a
+-- doorway would otherwise wall someone in.
+function Handle:setPassable(passable)
+  self.npc.passable = passable and true or false
+  return true
 end
 
 function WorldAPI:npc(mapId, indexOrName)

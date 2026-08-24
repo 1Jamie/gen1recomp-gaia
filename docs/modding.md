@@ -265,6 +265,80 @@ Red exposes FLY separately because it requires a destination picker:
 and `mod.world:flyTo(mapId)` accepts only a visited destination from the native
 Fly town list. Gold does not expose these two methods yet.
 
+## Self-driven world actors
+
+`mod.world:spawnNpc()` returns a handle whose `scriptMove` queues onto the
+overworld's scripted-movement list. A non-empty list is how the overworld
+knows a cutscene is running, so it gates player input for as long as the
+actor walks -- right for Oak marching to his lab, wrong for an actor that
+moves on its own schedule (a networked player's ghost, an ambient walker).
+Five handle methods drive one without that lockout:
+
+```lua
+local ghost = mod.world:spawnNpc({ map = "ROUTE_1", x = 5, y = 7,
+                                   sprite = "SPRITE_RED" })
+if ghost:canStep("up") then ghost:stepNow("up") end   -- one tile, now
+if not ghost:isMoving() then ghost:placeAt(9, 3, "down") end  -- snap, no walk
+ghost:setPassable(true)                               -- walk-through
+```
+
+`stepNow(dir)` sets the same per-tile state `scriptMove` does, minus the
+queue. It deliberately does **not** check collision: a caller replaying a
+move that was already decided elsewhere (validated on a peer's machine, or
+authored) would let the two copies disagree about where the actor is if this
+re-judged it. Ask `canStep(dir)` first when you do want the map's opinion.
+`placeAt(x, y, facing)` snaps with no animation and clears any step in
+flight, for a warp arrival or a resync too far gone to walk off.
+`isMoving()` lets a driver pace itself instead of stomping a move already
+running. `setPassable(flag)` is the flag `Collision.occupied` skips (the
+engine's own user is Yellow's companion Pikachu); a passable object still
+draws and can still be talked to.
+
+An object spawned this way carries no `TEXT_*` id, so the vanilla talk path
+has nothing to say for it. The **`world.talk`** hook is the A press on an
+object, raised before the map's text tables get it:
+
+```lua
+mod.hooks:wrap("world.talk", function(next, ow, target)
+  if mine(target) then
+    say(target)        -- the mod answers for an object it owns
+    return             -- ...by not calling next()
+  end
+  return next(ow, target)   -- everything else falls through unchanged
+end)
+```
+
+With no subscriber the A press reaches `talkTo` exactly as before. An object
+mid-step raises no hook, matching the vanilla gate.
+
+## Adopting an already-paired link session
+
+`LinkState.newFromSession(game, transport, mode, isHost, opts)` starts a link
+session on a transport that is *already* paired, skipping the address/code
+entry UI while keeping the hello and fingerprint compatibility exchange
+intact. `transport` is anything `Session` accepts, which is what lets a mode
+tunnel a battle through its own connection rather than opening a second one.
+
+When the battle finishes, **`link.battle_ended`** reports the outcome:
+
+```lua
+mod.events:on("link.battle_ended", function(ev)
+  -- ev = { result, myParty, theirParty, peerName, role }
+end)
+```
+
+The party copies are the point. Cable rules leave the real party untouched,
+so a mode built on link battles -- a tournament ladder, a battle royale --
+has no other way to learn what the fight cost, and by the time the state
+unwinds the battle object is gone. `role` is `"host"` or `"guest"`.
+
+Two smaller pieces support the same shape of mode. `Game:startNewGame(opts)`
+is the title screen's NEW GAME closure made callable, with `opts.intro =
+false` to land straight in the world -- a mode that hands out its own starting
+state has no use for Oak's speech. `CodeEntry.new` takes an optional
+`{ length = , charset = }`, so the slot-scrub widget that enters a link code
+can also carry a room code or an address.
+
 ## Read-only battle snapshots
 
 `mod.battle:snapshot()` returns `nil` outside a battle and a copied battle
