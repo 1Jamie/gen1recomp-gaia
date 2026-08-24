@@ -689,15 +689,16 @@ statusBattle.player.moves[1].pp = 20
 statusBattle:takeTurn({ kind = "move", move = "THUNDER_WAVE" })
 check("a second status fails", statusBattle.enemy.status, "paralyze")
 
--- Sleep lands with a turn counter, and canAct spends it.  Asserted on the move
--- rather than a whole turn: with this deterministic random the roll is the
--- minimum 1 turn, and the slower foe's own turn later in the same round then
--- wakes it -- which is what the cart does as well.
+-- Sleep lands with a turn counter, and canAct spends it.  The counter opens at
+-- 2, so the target cannot wake in the round it was slept
+-- (engine/battle/effect_commands.asm:3591-3598, #1707).
 local sleepBattle = newBattle()
 sleepBattle.player.moves = { { id = "SPORE", pp = 15, maxPp = 15 } }
 sleepBattle:useMove(sleepBattle.player, sleepBattle.enemy, "SPORE")
 check("spore slept the target", sleepBattle.enemy.status, "sleep")
-check("sleep has turns", (sleepBattle.enemy.statusTurns or 0) >= 1, true)
+check("sleep never opens shorter than two turns",
+  (sleepBattle.enemy.statusTurns or 0) >= 2, true)
+check("the lowest roll is exactly two", sleepBattle.enemy.statusTurns, 2)
 -- A sleeping mon cannot act, and the counter runs down to a wake-up.
 sleepBattle.enemy.statusTurns = 2
 check("asleep cannot act", sleepBattle:canAct(sleepBattle.enemy), false)
@@ -1386,12 +1387,25 @@ check("Ground is immune", Effects.sandstormHits({ "NORMAL", "GROUND" }), false)
 check("Steel is immune", Effects.sandstormHits({ "STEEL" }), false)
 check("Flying is not", Effects.sandstormHits({ "NORMAL", "FLYING" }), true)
 
--- BattleCommand_Heal's .Weather ladder: a half normally, two thirds in sun,
--- a quarter in rain or sandstorm.
-check("Morning Sun heals half in clear weather",
-  Effects.weatherHealFraction(nil), 1 / 2)
-checkNear("...two thirds in sun", Effects.weatherHealFraction("sun"), 2 / 3, 0.001)
-check("...a quarter in rain", Effects.weatherHealFraction("rain"), 1 / 4)
+-- BattleCommand_TimeBasedHealContinue's .Multipliers ladder, walked by the
+-- time of day and the weather (engine/battle/effect_commands.asm:6388-6454).
+local DAY_F = Effects.SUN_HEAL.EFFECT_SYNTHESIS
+check("Synthesis heals half in the day in clear weather",
+  Effects.timeBasedHealFraction(nil, DAY_F, 1), 1 / 2)
+check("...the lot in sun", Effects.timeBasedHealFraction("sun", DAY_F, 1), 1)
+check("...a quarter in rain",
+  Effects.timeBasedHealFraction("rain", DAY_F, 1), 1 / 4)
+check("...a quarter at night in clear weather",
+  Effects.timeBasedHealFraction(nil, DAY_F, 2), 1 / 4)
+check("...a half at night in sun",
+  Effects.timeBasedHealFraction("sun", DAY_F, 2), 1 / 2)
+check("...an eighth at night in a sandstorm",
+  Effects.timeBasedHealFraction("sandstorm", DAY_F, 2), 1 / 8)
+check("Moonlight wants NITE instead",
+  Effects.timeBasedHealFraction(nil, Effects.SUN_HEAL.EFFECT_MOONLIGHT, 2),
+  1 / 2)
+check("a battle with no clock still heals half",
+  Effects.timeBasedHealFraction(nil, DAY_F, nil), 1 / 2)
 
 -- ProtectChance halves for every consecutive use and gives up after eight.
 check("first Protect always works", Effects.protectChance(0), 0xff)

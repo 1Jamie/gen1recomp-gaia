@@ -638,6 +638,9 @@ local function newBattle(game)
   -- wPartyAndBillsPCSavedMenuItem, so entering a battle drops the party
   -- cursor the field menu has been carrying (src/ui/PartyMenu.lua). #768
   game.partyMenuSavedIndex = nil
+  -- the same run covers wBagSavedMenuItem, and wListScrollOffset follows it
+  -- (init_battle_variables.asm:7-12) #1732
+  game.bagSavedMenuItem, game.bagListScrollOffset = nil, nil
   self.data = game.data
   -- ruleset from the merged registry (the requires above are the same
   -- records on a mod-free boot); an unknown save value falls back to the
@@ -1918,6 +1921,8 @@ function BattleState:exit()
   -- end_of_battle.asm clears wPartyAndBillsPCSavedMenuItem as well, so the
   -- field party menu comes back on slot 1 after a battle. #768
   self.game.partyMenuSavedIndex = nil
+  -- and wBagSavedMenuItem / wListScrollOffset (end_of_battle.asm:57-62) #1732
+  self.game.bagSavedMenuItem, self.game.bagListScrollOffset = nil, nil
   -- Free this battle's own GPU objects now rather than waiting on a GC
   -- finalizer: the two full-screen wavy-effect canvases (colorMode) and
   -- the AnimPlayer's per-instance tilesheet images/quads.  The shared
@@ -1942,6 +1947,7 @@ local function clearTrapping(battler)
   battler.trappingTurns = nil
   battler.trapMove = nil
   battler.trapDamage = nil
+  battler.trapHitSfx = nil
 end
 
 -- SendOutMon (core.asm:1733-1735) clears both battle cursors, though the
@@ -2792,6 +2798,111 @@ function BattleState:queueResidual(b, opp)
   end
 end
 
+local function fieldBattlerView(battler, side)
+  local types = {}
+  for index, typeId in ipairs(battler.curTypes or {}) do
+    types[index] = typeId
+  end
+  local mon = battler.mon or {}
+  return {
+    side = side,
+    name = battler.name,
+    hp = tonumber(mon.hp) or 0,
+    maxHp = tonumber(mon.stats and mon.stats.hp) or tonumber(mon.hp) or 0,
+    types = types,
+    vanished = battler.invulnerable and true or false,
+  }
+end
+
+local function publicScalar(value)
+  local kind = type(value)
+  if kind == "string" or kind == "boolean" then return value, true end
+  if kind == "number" and value == value
+      and value < math.huge and value > -math.huge then
+    return value, true
+  end
+  return nil, false
+end
+
+local function publicDataCopy(value, visiting)
+  local scalar, ok = publicScalar(value)
+  if ok then return scalar, true end
+  if type(value) ~= "table" then return nil, false end
+
+  visiting = visiting or {}
+  if visiting[value] then return nil, false end
+  visiting[value] = true
+
+  local copy = {}
+  for key, child in next, value do
+    local copiedKey, keyOk = publicScalar(key)
+    local copiedChild, childOk = publicDataCopy(child, visiting)
+    if keyOk and childOk then copy[copiedKey] = copiedChild end
+  end
+  visiting[value] = nil
+  return copy, true
+end
+
+local function checkpointFieldView(field)
+  field = field or {}
+  local view = publicDataCopy({
+    weather = field.weather,
+    tokens = field.tokens or {},
+  })
+  return view
+end
+
+-- Public field residuals are data-only requests. Mods can inspect a detached
+-- checkpoint-shaped field view and detached battler views, but only the engine
+-- mutates HP, animates the bar, or enters the faint pipeline.
+function BattleState:applyFieldResiduals()
+  if not Runtime.wantsHook("battle.field_residual") then return end
+  local views = {
+    player = fieldBattlerView(self.player, "player"),
+    enemy = fieldBattlerView(self.enemy, "enemy"),
+  }
+  local rows = Runtime.call("battle.field_residual", function() return {} end, {
+    field = checkpointFieldView(self.field),
+    battlers = views,
+    turn = self.turnCount or 0,
+  })
+  if type(rows) ~= "table" then return end
+
+  local fainted = {}
+  for _, row in ipairs(rows) do
+    local battler = type(row) == "table" and row.side == "player"
+      and self.player or type(row) == "table" and row.side == "enemy"
+      and self.enemy or nil
+    local amount = type(row) == "table" and row.amount or nil
+    if battler and battler.mon.hp > 0 and type(amount) == "number"
+        and amount > 0
+        and amount < math.huge and amount == math.floor(amount)
+        and (row.message == nil or type(row.message) == "string") then
+      amount = math.min(amount, battler.mon.hp)
+      if type(row.message) == "string" and row.message ~= "" then
+        self:sayNext(row.message)
+      end
+      battler.mon.hp = battler.mon.hp - amount
+      self:drainNext(battler, battler.mon.hp)
+      if battler.mon.hp <= 0 then fainted[battler] = true end
+    end
+  end
+  -- A terminal player faint owns a simultaneous field-residual batch. Queue
+  -- only that authority so its blackout cannot race an enemy EXP/replacement
+  -- path from the same hook response. Native faint paths remain untouched.
+  if fainted[self.player]
+      and not Party.firstHealthy(self:playerPartyView()) then
+    self:onFaint(self.player)
+    return
+  end
+
+  -- Otherwise resolve the two sides in engine order after every accepted
+  -- descriptor has landed. Descriptor order must not decide resolution.
+  for _, battler in ipairs({ self.player, self.enemy }) do
+    if fainted[battler] then self:onFaint(battler) end
+  end
+end
+
 function BattleState:endOfTurn()
   -- the same ret: a decided battle never reaches HandlePoisonBurnLeechSeed
   -- or CheckNumAttacksLeft (core.asm:417-421, 456-460), so the residual
@@ -2845,6 +2956,7 @@ function BattleState:endOfTurn()
       b.trappingTurns = nil
     end
   end
+  self:applyFieldResiduals()
   self:tickTokens()
   Runtime.emit("battle.turn_ended", { battle = self, turn = self.turnCount or 0 })
 end
@@ -4070,12 +4182,15 @@ function BattleState:continueTrapping(user, target)
   -- .MultiturnMoveCheck (core.asm:3554-3566) prints AttackContinuesText
   -- then jumps to GetPlayerAnimationType, so the trapping move's full
   -- animation replays each locked turn (same damage, animation shown).
-  -- Mirror performMove's anim row (BattleState.lua ~1307), gated on the
-  -- OPTIONS animation toggle.
-  if user.trapMove and self:animationsOn() then
+  -- Mirror performMove's anim row (BattleState.lua ~1307), with the
+  -- applying-attack shake GetPlayerAnimationType picks (core.asm:3159 /
+  -- :5555 -- a trapping move's effect is nonzero, so type 5 / 2) (#1653).
+  if user.trapMove then
     self.nextInsert = (self.nextInsert or 0) + 1
     table.insert(self.queue, self.nextInsert,
-                 { anim = user.trapMove, attackerIsPlayer = user.isPlayer })
+                 { anim = user.trapMove, attackerIsPlayer = user.isPlayer,
+                   hit = { animType = user.isPlayer and 5 or 2,
+                           sfx = user.trapHitSfx } })
   end
   -- the counter can sit at 0 until the END of the turn: the trapping
   -- bit is only cleared by CheckNumAttacksLeft (core.asm:439/467)
@@ -4250,7 +4365,7 @@ function BattleState:awardExp()
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, traded)
-    -- Track level-ups for EvolveAfterBattle (OverworldState:afterBattle ->
+    -- Track level-ups for EvolveAfterBattle (BattleState:finish ->
     -- Evolution.checkParty).  B-cancel leaves the mon at/above threshold;
     -- without this gate it re-triggers after every later fight (#213).
     if #levels > 0 then
@@ -4627,6 +4742,14 @@ function BattleState:playerMonFainted()
   -- Exception: the Oak's Lab starter rival (HandlePlayerBlackOut).
   if not nextMon and self.result ~= "lose" then
     if self.oppClass == "OPP_RIVAL1" then
+      -- HandlePlayerBlackOut (core.asm:1139-1146): ClearScreenArea, the pic
+      -- scroll-in and DelayFrames 40 all run before Rival1WinText (#1721)
+      self:actNext(function()
+        self.showEnemyTrainer = self.trainerPic ~= nil
+        if self.showEnemyTrainer then self:slidePic("foe", 64, 16, 2) end
+      end)
+      self.nextInsert = (self.nextInsert or 0) + 1
+      table.insert(self.queue, self.nextInsert, { wait = 64 })
       local TextBox = require("src.render.TextBox")
       local raw = (self.data.text and self.data.text._Rival1WinText)
         or Strings("{RIVAL}: Yeah! Am\nI great or what?")
@@ -5216,6 +5339,14 @@ function BattleState:finish()
     self.phase = "messages"
     return
   end
+  -- EndOfBattle runs EvolutionAfterBattle on the battle screen, before the
+  -- GBPalWhiteOut back to the map (end_of_battle.asm:42-45) (#1656, #213)
+  if not self.evolutionsChecked then
+    self.evolutionsChecked = true
+    require("src.pokemon.Evolution").checkParty(self.game,
+      function() self:finish() end, self.leveledUp)
+    return
+  end
   -- Invariant: a battle can never hand the overworld a party with nothing
   -- healthy in it -- except the Oak's Lab starter rival, where pret skips
   -- the blackout and OaksLabRivalEndBattleScript HealParty's immediately.
@@ -5256,6 +5387,13 @@ function BattleState:finish()
   local result = self.result or "run"
   local onFinish = self.onFinish
   if result == "lose" then
+    -- .battleOccurred skips the faint check in OAKS_LAB and re-enters the map
+    -- through MapEntryAfterBattle (home/overworld.asm:343-352) (#1721)
+    if BattleState.isOaksLabStarterRival(self) then
+      self.game.stack:push(require("src.render.Transition").battleReturn(
+        self.game, function() if onFinish then onFinish(result) end end))
+      return
+    end
     -- the blackout path warps to the heal point with its own transition
     if onFinish then onFinish(result) end
     return
@@ -6120,8 +6258,10 @@ function BattleState:drawHUDs(slide)
     self:drawBallRow(self:playerPartyView(), 88, 80, 8)
   end
   local hidePlayer = self.safari or self.demo
+  -- RemoveFaintedPlayerMon clears the player HUD (core.asm:1024-1026) and
+  -- nothing redraws it until the next SendOutMon (#1721)
   if showStatus and self.player and not hidePlayer and not self.showPlayerBack
-     and slide == 0 then
+     and slide == 0 and not self.player.fainted then
     -- player HUD (DrawPlayerHUDAndHPBar): name (10,7), <LV>+level
     -- (14,8), HP bar (10,9), HP numbers row 10, underline row 11 with
     -- the tick at (18,10) and the triangle at (9,11)

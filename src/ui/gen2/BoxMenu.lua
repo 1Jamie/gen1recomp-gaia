@@ -432,7 +432,7 @@ function BoxMenu:insertMon()
   table.insert(dest, math.max(1, math.min(target, #dest + 1)), mon)
   -- .CopyToBox is InsertPokemonIntoBox, which tails into
   -- RestorePPOfDepositedPokemon (engine/pokemon/move_mon_wo_mail.asm:35-37).
-  if not self:isParty(destIndex) then Boxes.restorePP(mon) end
+  if not self:isParty(destIndex) then Boxes.enterBox(mon) end
   self.phase = nil
   self.moveFrom, self.backup = nil, nil
   self.index, self.scroll = 1, 0
@@ -453,9 +453,8 @@ function BoxMenu:cancelMove()
   self:clampIndex()
 end
 
--- BillsPC_PressLeft / BillsPC_PressRight.  The move screen wraps through box 0
--- (the PARTY); the withdraw list has no party to walk into, so it wraps inside
--- the fourteen boxes.
+-- BillsPC_PressLeft / BillsPC_PressRight, reached only from
+-- MoveMonWithoutMail_DPad: the move screen wraps through box 0 (the PARTY).
 function BoxMenu:stepBox(delta)
   local low = self.mode == "move" and PARTY_BOX or 1
   local span = Boxes.NUM_BOXES - low + 1
@@ -531,9 +530,11 @@ function BoxMenu:update(_dt)
   elseif input:wasPressed("down") then
     self.index = self.index < total and self.index + 1 or 1
     self:ensureVisible()
-  elseif input:wasPressed("left") and self.mode ~= "deposit" then
+  -- Withdraw_UpDown reads PAD_UP and PAD_DOWN and nothing else; only
+  -- MoveMonWithoutMail_DPad walks the boxes (bills_pc.asm:806-820, :822-845).
+  elseif input:wasPressed("left") and self.mode == "move" then
     self:stepBox(-1)
-  elseif input:wasPressed("right") and self.mode ~= "deposit" then
+  elseif input:wasPressed("right") and self.mode == "move" then
     self:stepBox(1)
   elseif input:wasPressed("a") then
     self:act()

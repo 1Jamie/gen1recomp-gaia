@@ -33,7 +33,7 @@ end
 -- A label the list names but the symbol table cannot place would fail the
 -- import at the Dialogue stage rather than at generation time, so the pairing
 -- is asserted here instead.
-for _, edition in ipairs({ "gold", "silver" }) do
+for _, edition in ipairs({ "gold", "silver", "crystal" }) do
   local data = manifest("tools/rom_manifest_" .. edition .. ".json")
   local labels = (data.text or {}).labels or {}
   check((data.text or {}).labels ~= nil,
@@ -64,7 +64,7 @@ for _, edition in ipairs({ "gold", "silver" }) do
   end
 end
 
--- Both editions describe the same strings; only the addresses move.
+-- Gold and Silver describe the same strings; only the addresses move.
 do
   local gold = (manifest("tools/rom_manifest_gold.json").text or {}).labels or {}
   local silver =
@@ -75,6 +75,20 @@ do
     if silver[index] ~= label then mismatch = label; break end
   end
   eq(mismatch, nil, "and the same labels in the same order")
+
+  local crystal =
+    (manifest("tools/rom_manifest_crystal.json").text or {}).labels or {}
+  check(#crystal > #gold,
+    ("Crystal names more labels than Gold (%d vs %d)"):format(#crystal, #gold))
+  local named = {}
+  for _, label in ipairs(gold) do named[label] = true end
+  local extra = 0
+  for _, label in ipairs(crystal) do
+    if not named[label] then extra = extra + 1 end
+  end
+  check(extra > 0,
+    ("and %d of them are Crystal-only, so it is not a Gold alias")
+      :format(extra))
 end
 
 -- ---- the slots RomText fills ----------------------------------------------

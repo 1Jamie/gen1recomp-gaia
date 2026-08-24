@@ -147,29 +147,42 @@ function Game:bootConfig()
   return boot
 end
 
+-- NEW GAME, as a call: a fresh skeleton (through save.new_game, so a mod
+-- can reshape it), the overworld at the skeleton's spawn, and the intro
+-- screen on top.  The title menu's NEW GAME row is this; a mod that starts a
+-- game on its own terms -- a match, a challenge mode -- calls it directly.
+--
+-- opts.intro = false skips the newGame screen (Oak's speech) so the player
+-- lands straight in the world; the skeleton then has to carry a name and a
+-- party, which is the caller's job via save.new_game.
+function Game:startNewGame(opts)
+  local OverworldState = require("src.world.OverworldController")
+  while self.stack:top() do self.stack:pop() end
+  -- New Game keeps the standalone options.lua preferences
+  self.sessionStartedAt = os.time()
+  self.save = SaveData.newGame(self:bootConfig())
+  -- no bucket carry-over: mod state from an abandoned session must
+  -- not leak into a fresh slot; mods seed via save.created instead
+  self:adoptSave(self.save)
+  ModRuntime.emit("save.created", { save = self.save })
+  self:applyOptions(self.save.options)
+  self.stack:push(OverworldState, self.save.player.map,
+                  self.save.player.x, self.save.player.y,
+                  self.save.player.facing,
+                  { via = "boot", freshBoot = true })
+  if not (opts and opts.intro == false) then
+    Screens.push(self, bootScreens(self).newGame or "OakSpeech",
+                 function() end)
+  end
+end
+
 -- the title screen with its NEW GAME / CONTINUE wiring; used at boot
 -- and by the START-menu QUIT confirmation
 function Game:makeTitleState()
   local OverworldState = require("src.world.OverworldController")
   local factory = Screens.get(self, bootScreens(self).title or "TitleState")
   local title = factory.new(self, {
-    onNewGame = function()
-      while self.stack:top() do self.stack:pop() end
-      -- New Game keeps the standalone options.lua preferences
-      self.sessionStartedAt = os.time()
-      self.save = SaveData.newGame(self:bootConfig())
-      -- no bucket carry-over: mod state from an abandoned session must
-      -- not leak into a fresh slot; mods seed via save.created instead
-      self:adoptSave(self.save)
-      ModRuntime.emit("save.created", { save = self.save })
-      self:applyOptions(self.save.options)
-      self.stack:push(OverworldState, self.save.player.map,
-                      self.save.player.x, self.save.player.y,
-                      self.save.player.facing,
-                      { via = "boot", freshBoot = true })
-      Screens.push(self, bootScreens(self).newGame or "OakSpeech",
-                   function() end)
-    end,
+    onNewGame = function() self:startNewGame() end,
     onContinue = function()
       local loaded, recovered = SaveData.load()
       if loaded then
@@ -817,14 +830,6 @@ function Game:keypressed(key)
       self:writeOptions()
     end
     return
-  elseif key == "5" then
-    -- cycle GBC FX OFF → 1 → 2 → 3 → 4 (unlit-GBC ladder); always on
-    -- desktop.  Mobile refuses the present shader (issue #136).
-    local GBCFX = require("src.render.GBCFX")
-    if not GBCFX.isSupported() then return end
-    self.save.options.gbcfx = GBCFX.cycle()
-    self:writeOptions()
-    return
   end
   -- Mod render pipelines claim their hotkeys last, so one can never shadow
   -- an engine display key however a mod declares it (12 §rendering
@@ -1258,8 +1263,10 @@ function Game:applyOptions(opts)
   require("src.render.Pipelines").applyOptions(opts)
   require("src.render.Zoom").applyOptions(opts)
   require("src.render.TileRenderer").applyOptions(opts)
-  -- returns true when a persisted GBC FX level was cleared on mobile
-  local gbcCleared = require("src.render.GBCFX").applyOptions(opts)
+  -- returns true when a persisted preset name no longer resolves (deleted
+  -- from the drop-in folder, or failed to (re)translate) and had to be
+  -- cleared back to OFF -- "sanitized, please persist" contract
+  local shaderfxCleared = require("src.render.ShaderFX").applyOptions(opts)
   require("src.core.VideoMode").applyOptions(opts)
   -- Android orientation lock (#592); no-op everywhere else
   require("src.core.Orientation").applyOptions(opts)
@@ -1274,12 +1281,12 @@ function Game:applyOptions(opts)
   -- tier.  Every heavy feature was just applied from the stored options
   -- above; here we clamp the *live* state down for a weaker device without
   -- rewriting what the player saved, so raising the tier later restores
-  -- their exact TILT / GBC FX / ZOOM / MAX FPS choices.  A HIGH tier (the
+  -- their exact TILT / ZOOM / MAX FPS choices.  A HIGH tier (the
   -- default on a normal desktop, and every options.lua predating this
   -- option) clamps nothing, so it is a no-op for the common case.
   local caps = require("src.core.Performance").applyOptions(opts)
   if not caps.tilt then require("src.render.Tilt").setLevel(0) end
-  if not caps.gbcfx then require("src.render.GBCFX").setLevel(0) end
+  if not caps.shaderfx then require("src.render.ShaderFX").deactivate() end
   local Zoom = require("src.render.Zoom")
   Zoom.allowSurvey = caps.survey
   if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
@@ -1289,8 +1296,7 @@ function Game:applyOptions(opts)
   end
   Input:applyBindings(opts.bindings)
   TouchControls:applyOptions(opts)
-  -- heal soft-bricked APK installs that already saved gbcfx > 0 (#136)
-  if gbcCleared then self:writeOptions() end
+  if shaderfxCleared then self:writeOptions() end
 end
 
 function Game:restoreSave(loaded, recovered, opts)
@@ -1389,12 +1395,25 @@ function Game:reset()
   if self.stack and self.stack.clear then
     pcall(function() self.stack:clear() end)
   end
+  if self.world and self.world.release then
+    pcall(function() self.world:release() end)
+  end
+  if self._canvases then
+    for _, canvas in pairs(self._canvases) do
+      if canvas and canvas.release then pcall(canvas.release, canvas) end
+    end
+  end
   if self.renderer and self.renderer.releaseCanvases then
     pcall(function() self.renderer:releaseCanvases() end)
   end
   local keys = {}
   for key, value in pairs(self) do
     if type(value) ~= "function" then
+      if key ~= "world" and key ~= "renderer" and key ~= "_canvases" then
+        if type(value) == "table" and value.release then
+          pcall(value.release, value)
+        end
+      end
       keys[#keys + 1] = key
     end
   end

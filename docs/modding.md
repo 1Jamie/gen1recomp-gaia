@@ -228,6 +228,66 @@ optional visual `tileRows` at 2x resolution, and optional `tileDetailRows` at
 read-only snapshots; mods choose which layers to render. Red and Gold expose
 the same contract while applying their own object and event visibility rules.
 
+### Active Gen 1 block checks
+
+Red, Blue, and Yellow expose
+`mod.world:activeBlockAt(mapId, blockX, blockY)`. It returns the numeric block
+ID at one zero-based block coordinate only when `mapId` is the active map.
+The value is a scalar snapshot: changing it cannot change the map. This lets a
+mod compare a small runtime map signature before it applies a lawful authored
+replacement, without reading the mutable map or ROM cache through engine
+internals.
+
+The method fails closed. Before an overworld exists it returns
+`nil, "no overworld"`; for a different active map it returns
+`nil, "map is not active"`; non-numeric, non-finite, or fractional coordinates
+return `nil, "invalid block coordinates"`; and negative or out-of-range
+coordinates return `nil, "block coordinates out of bounds"`. An unavailable
+or malformed active block returns `nil, "block unavailable"`. The caller must
+require every expected cell to match before changing presentation. This method
+is Gen 1-only; Gold callers receive no parity promise for it.
+
+The same unavailable result covers missing or sparse active block storage and
+an accessor result that does not match its validated active block slot.
+
+### Conditional map occupancy
+
+`map.occupancy_allowed` is a narrow Gen 1 hook around a map script's vanilla
+decision to eject the player from an otherwise valid loaded map. Its first
+call site is the post-departure `VERMILION_DOCK` branch. The ship has already
+been erased when the hook runs, and the hook does not replace or suppress any
+base or peer map handler.
+
+The wrapper receives `(next, game, context)`. The dock context is a copied
+`{ mapId = "VERMILION_DOCK", reason = "ss_anne_departed", gameVersion, x, y }`
+record. Vanilla returns `false`. Return exactly `true` to allow the player to
+remain; every other value denies occupancy and preserves the normal message
+and warp. A composable wrapper calls downstream first and only adds its own
+permission:
+
+```lua
+mod.hooks:wrap("map.occupancy_allowed", function(next, game, ctx)
+  local allowed = next(game, ctx)
+  local mine = ctx.mapId == "VERMILION_DOCK"
+    and ctx.reason == "ss_anne_departed"
+    and myPublicEligibilityCheck(game)
+  return allowed == true or mine == true
+end)
+```
+
+With no wrapper, the hook allocates no context and vanilla behavior is
+unchanged. A throwing wrapper is isolated by the normal hook bus. A nil,
+string, number, table, or other malformed final answer fails closed. Disabling
+or uninstalling the permitting mod therefore restores vanilla ejection without
+changing the S.S. Anne story flag or restoring the ship.
+
+Normal hook-chain ownership applies: a wrapper that does not call `next`
+intentionally owns the final answer and does not run lower-priority wrappers.
+Permission wrappers must call `next` as shown above to compose. A noncompliant
+wrapper that returns false without calling `next` safely denies occupancy and
+can suppress downstream permission by this standard rule. A malformed answer
+also fails closed and cannot force occupancy.
+
 ## Party ordering
 
 Companion UIs and alternate party screens can call
@@ -264,6 +324,80 @@ Red exposes FLY separately because it requires a destination picker:
 `mod.world:canFly()` reports whether FLY is eligible at the current location,
 and `mod.world:flyTo(mapId)` accepts only a visited destination from the native
 Fly town list. Gold does not expose these two methods yet.
+
+## Self-driven world actors
+
+`mod.world:spawnNpc()` returns a handle whose `scriptMove` queues onto the
+overworld's scripted-movement list. A non-empty list is how the overworld
+knows a cutscene is running, so it gates player input for as long as the
+actor walks -- right for Oak marching to his lab, wrong for an actor that
+moves on its own schedule (a networked player's ghost, an ambient walker).
+Five handle methods drive one without that lockout:
+
+```lua
+local ghost = mod.world:spawnNpc({ map = "ROUTE_1", x = 5, y = 7,
+                                   sprite = "SPRITE_RED" })
+if ghost:canStep("up") then ghost:stepNow("up") end   -- one tile, now
+if not ghost:isMoving() then ghost:placeAt(9, 3, "down") end  -- snap, no walk
+ghost:setPassable(true)                               -- walk-through
+```
+
+`stepNow(dir)` sets the same per-tile state `scriptMove` does, minus the
+queue. It deliberately does **not** check collision: a caller replaying a
+move that was already decided elsewhere (validated on a peer's machine, or
+authored) would let the two copies disagree about where the actor is if this
+re-judged it. Ask `canStep(dir)` first when you do want the map's opinion.
+`placeAt(x, y, facing)` snaps with no animation and clears any step in
+flight, for a warp arrival or a resync too far gone to walk off.
+`isMoving()` lets a driver pace itself instead of stomping a move already
+running. `setPassable(flag)` is the flag `Collision.occupied` skips (the
+engine's own user is Yellow's companion Pikachu); a passable object still
+draws and can still be talked to.
+
+An object spawned this way carries no `TEXT_*` id, so the vanilla talk path
+has nothing to say for it. The **`world.talk`** hook is the A press on an
+object, raised before the map's text tables get it:
+
+```lua
+mod.hooks:wrap("world.talk", function(next, ow, target)
+  if mine(target) then
+    say(target)        -- the mod answers for an object it owns
+    return             -- ...by not calling next()
+  end
+  return next(ow, target)   -- everything else falls through unchanged
+end)
+```
+
+With no subscriber the A press reaches `talkTo` exactly as before. An object
+mid-step raises no hook, matching the vanilla gate.
+
+## Adopting an already-paired link session
+
+`LinkState.newFromSession(game, transport, mode, isHost, opts)` starts a link
+session on a transport that is *already* paired, skipping the address/code
+entry UI while keeping the hello and fingerprint compatibility exchange
+intact. `transport` is anything `Session` accepts, which is what lets a mode
+tunnel a battle through its own connection rather than opening a second one.
+
+When the battle finishes, **`link.battle_ended`** reports the outcome:
+
+```lua
+mod.events:on("link.battle_ended", function(ev)
+  -- ev = { result, myParty, theirParty, peerName, role }
+end)
+```
+
+The party copies are the point. Cable rules leave the real party untouched,
+so a mode built on link battles -- a tournament ladder, a battle royale --
+has no other way to learn what the fight cost, and by the time the state
+unwinds the battle object is gone. `role` is `"host"` or `"guest"`.
+
+Two smaller pieces support the same shape of mode. `Game:startNewGame(opts)`
+is the title screen's NEW GAME closure made callable, with `opts.intro =
+false` to land straight in the world -- a mode that hands out its own starting
+state has no use for Oak's speech. `CodeEntry.new` takes an optional
+`{ length = , charset = }`, so the slot-scrub widget that enters a link code
+can also carry a room code or an address.
 
 ## Read-only battle snapshots
 
@@ -687,15 +821,38 @@ the hook context.
 
 ## Developer console
 
-Boot with developer mode on to unlock the in-game console and hot-reload
-hotkeys. Either set `POKEPORT_DEV=1` in the environment or pass
-`--developer` on the command line:
+On a Gen 1 boot, developer mode unlocks the in-game console and hot-reload
+hotkeys. Either set `POKEPORT_DEV=1` in the environment or pass `--developer`
+on the command line:
 
 ```sh
 love . --developer
 ```
 
-While developer mode is active:
+The mod loader independently derives a matching boolean for every sandboxed
+entry chunk as `mod.developer`. It is available while the entry file is
+loading, so a mod can keep diagnostic commands, screens, and verbose tracing
+out of player builds:
+
+```lua
+if mod.developer then
+  mod.commands:register("my_mod:diagnostics", function(ctx)
+    -- open or print this mod's diagnostic view
+  end)
+end
+```
+
+`mod.developer` is a plain boolean snapshot for this boot. It grants no
+permission and exposes neither the process environment nor the loader. In a
+normal player boot it is `false`; `POKEPORT_DEV=1` and `--developer` make it
+`true`. On Gen 1 those inputs separately enable the console and hot-reload
+hotkeys. The headless loader's `opts.dev` test seam changes only the loader
+signal and diagnostics; it does not enable the game's console or hot reload.
+Gold exposes the same `mod.developer` boolean but does not implement the Gen 1
+console or hotkeys. Use a mod option for player-facing feature toggles rather
+than treating developer mode as configuration.
+
+While developer mode is active on Gen 1:
 
 - `` ` `` (backtick) opens the console overlay — a Lua REPL with `game`,
   `data` and `mods` in scope. Press `` ` `` again to close it.
@@ -806,7 +963,7 @@ contract, so a mod does not need a desktop-specific rendering path.
 
 `render.output_enabled` and `render.output` are the later, whole-window seam
 for mods that need the engine's normal composite rather than its separate
-layers. It runs after registered present pipelines and before GBCFX,
+layers. It runs after registered present pipelines and before ShaderFX,
 `render.hud`, and touch controls. A mod wraps both hooks: the first returns
 `true` only while output ownership is needed, and the second receives
 `(next, ctx)` with `canvas`, `width`, `height`, `gameX`, `gameY`, `gameWidth`,
@@ -856,6 +1013,47 @@ which stay unconditional and are never visible to a subscriber.
 
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
+
+## Battle field residual hook
+
+`battle.field_residual` lets a Gen 1 battle-rule mod request end-of-round
+damage without mutating live battlers. It is guarded and runs after vanilla
+status residuals, before field-token expiry and `battle.turn_ended`. The
+wrapper receives `(next, context)`, calls `next(context)` for the existing
+descriptor list, and appends data-only rows:
+
+```lua
+mod.hooks:wrap("battle.field_residual", function(next, context)
+  local rows = next(context)
+  rows[#rows + 1] = {
+    side = "enemy", amount = 7,
+    message = context.battlers.enemy.name .. " is buffeted!",
+  }
+  return rows
+end)
+```
+
+`context.field` is a detached, data-only view with the same
+`{ weather, tokens }` shape that battle checkpoints capture; it does not expose
+`field.sides` or any live battler aliases. The projection recursively retains
+raw tables and finite numbers, strings, and booleans under scalar keys. It
+strips metatables and omits functions, userdata, threads, unsupported keys, and
+cyclic edges. Consequently a wrapper cannot obtain or invoke an engine callback
+even if a live field token uses one internally, and changing any nested view
+value cannot change live field state. `context.battlers.player` and `.enemy` are
+detached `{ side, name, hp, maxHp, types, vanished }` views, and `context.turn`
+is the current turn number. A descriptor accepts `side`
+(`player` or `enemy`), a positive, finite integer number `amount`, and an
+optional string `message`.
+Numeric strings and invalid rows are ignored; damage is clamped to current HP.
+The engine retains HP-bar, faint, experience, and replacement authority. If
+both active battlers take terminal residual damage together and the player has
+no healthy reserve, this hook batch queues only the player faint authority and
+resolves as a blackout loss without an enemy-faint EXP award or replacement.
+That precedence is local to accepted rows from this hook; native faint paths
+are unchanged when no hook is active. Hook callbacks remain process-local;
+checkpoints serialize only field data. Gold does not yet raise this hook; its
+native weather pipeline is documented in `docs/mod-api-gen2-compat.md`.
 
 ## Process-lifecycle hooks
 

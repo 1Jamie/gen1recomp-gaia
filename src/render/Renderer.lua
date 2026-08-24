@@ -117,6 +117,8 @@ function Renderer:releaseCanvases()
   self.worldOverride = nil
 end
 
+Renderer.release = Renderer.releaseCanvases
+
 function Renderer:init()
   -- 160x144 real pixels, never DPI-scaled: see src/render/PixelCanvas.lua
   -- (#208).  Every canvas below is sized in framebuffer pixels for the same
@@ -154,8 +156,8 @@ function Renderer:setWorldOverride(canvas)
 end
 
 -- Integer framebuffer pixels per GB pixel that fit the window.  Zoom /
--- GBCFX / callers treat this as the crisp scale; endFrame converts to LOVE
--- units via / dpiX and / dpiY when drawing.
+-- ShaderFX / callers treat this as the crisp scale; endFrame converts to
+-- LOVE units via / dpiX and / dpiY when drawing.
 function Renderer:fitScale()
   local _, _, pw, ph = displayMetrics()
   local w, h = self:uiSize()
@@ -594,7 +596,7 @@ function Renderer:drawTiltedWorld(zoneList, sx, sy, wox, woy, target,
   local zoneShader = zoneList and zoneList[1] and PaletteFX.shader() or nil
   if zoneShader then
     love.graphics.setShader(zoneShader)
-    -- same trueColor sentinel the flat blit honors (14 §trueColor)
+    -- same trueColor sentinel the flat blit below honors
     local bare = false
     for _, z in ipairs(zoneList) do
       local plain = z.colors == false
@@ -785,8 +787,8 @@ end
 -- visible map area separately), applied to the world pass; the world
 -- pass falls back to the UI zones when absent.  Each zone is drawn
 -- scissored through the shade-remap shader, later zones on top.
--- When GBC FX is active the composite is drawn into presentCanvas and
--- presented through the GBC FX shader as a final pass.
+-- When ShaderFX is active the composite is drawn into presentCanvas and
+-- presented through the shader chain as a final pass.
 function Renderer:frameRects()
   local ww, wh, pw, ph, dpiX, dpiY, vx, vy, cut = displayMetrics()
   local r = {
@@ -850,7 +852,11 @@ function Renderer:endFrame(zones, worldZones)
   local vpw, vph, ox, oy = R.vpw, R.vph, R.ox, R.oy
   local Ux, Uy = R.Ux, R.Uy
   local uvpw, uvph, uox, uoy = R.uvpw, R.uvph, R.uox, R.uoy
-  local GBCFX = require("src.render.GBCFX")
+  local Up = R.Up
+  -- Physical-pixel numerators for ShaderFX's per-frame rect; derived from
+  -- the unit rects frameRects already lifted so both agree.
+  local uoxPx, uoyPx = uox * dpiX, uoy * dpiY
+  local ShaderFX = require("src.render.ShaderFX")
   -- Forced mono/Classic modes still need a whole-screen zone when a state
   -- exposes no SGB packets (raw DMG canvas), so sendColors can remap.
   zones = PaletteFX.ensureZones(zones)
@@ -893,12 +899,12 @@ function Renderer:endFrame(zones, worldZones)
     end
   end
 
-  -- Post-process pipelines, GBC FX and an enabled final-output owner need the
+  -- Post-process pipelines, ShaderFX and an enabled final-output owner need the
   -- whole composite in a canvas. With none of them, the frame draws straight
   -- to the screen exactly as it always did.
   local hasOutputHook = Runtime.wantsHook("render.output")
     and Runtime.call("render.output_enabled", function() return false end) == true
-  local needPresent = GBCFX.active() or Pipelines.wantsPresent() or hasOutputHook
+  local needPresent = ShaderFX.active() or Pipelines.wantsPresent() or hasOutputHook
   local present = nil
   if needPresent then
     if not self.presentCanvas or self.presentCanvas:getWidth() ~= ww
@@ -1003,6 +1009,17 @@ function Renderer:endFrame(zones, worldZones)
     return Renderer.clipToView(R, x, y, w, h)
   end
 
+  -- Real per-frame ShaderFX game rect + source content size, in PHYSICAL
+  -- framebuffer pixels -- what ShaderFX.render below actually draws through
+  -- the chain, instead of it reconstructing a fixed 160x144-at-base-Sp
+  -- approximation of its own. Defaults to this frame's real UI rect, which
+  -- is already correct whenever neither branch below overrides it
+  -- (title/menu/credits, no world active) -- uiFill is already folded into
+  -- Up above, so that case needs no extra handling here.
+  local fxRectPxX, fxRectPxY, fxRectPxW, fxRectPxH, fxScale =
+    uoxPx, uoyPx, uiw * Up, uih * Up, Up
+  local fxSrcW, fxSrcH = uiw, uih
+
   if self.worldOverride then
     -- A render pipeline already produced the whole world -- terrain,
     -- characters and its own FX overlay -- as one window-resolution image,
@@ -1010,6 +1027,13 @@ function Renderer:endFrame(zones, worldZones)
     -- skipped entirely (nothing drew into it).  The UI blit below still
     -- runs, so dialogs, menus and the HUD sit on top as usual.
     love.graphics.setColor(1, 1, 1, 1)
+    -- worldOverride is already a window-resolution image drawn 1:1 at the
+    -- origin -- ShaderFX's real rect degenerates to the whole image, no
+    -- crop needed (source size == rect size).
+    fxRectPxX, fxRectPxY = 0, 0
+    fxRectPxW, fxRectPxH = self.worldOverride:getPixelWidth(), self.worldOverride:getPixelHeight()
+    fxScale = 1
+    fxSrcW, fxSrcH = fxRectPxW, fxRectPxH
     love.graphics.setScissor(vux, vuy, vuw, vuh)
     local loveMajor = love.getVersion()
     if love.system and love.system.getOS and love.system.getOS() == "iOS" and loveMajor >= 12 then
@@ -1030,8 +1054,20 @@ function Renderer:endFrame(zones, worldZones)
     local sx, sy = sp / dpiX, sp / dpiY
     local wvw = self.worldCanvas:getWidth()
     local wvh = self.worldCanvas:getHeight()
-    local wox = (vx + math.floor((pw - wvw * sp) / 2)) / dpiX
-    local woy = (vy + math.floor((ph - wvh * sp) / 2) - R.lift) / dpiY
+    local woxPx = vx + math.floor((pw - wvw * sp) / 2)
+    local woyPx = vy + math.floor((ph - wvh * sp) / 2) - R.lift
+    local wox, woy = woxPx / dpiX, woyPx / dpiY
+    -- The real on-screen world rect at the CURRENT survey zoom -- can be
+    -- larger (zoomed out, more map revealed) or smaller than the UI's own
+    -- default rect above. ShaderFX.render below now shades this real rect
+    -- against this real wvw x wvh source, not a fixed 160x144 box, so a
+    -- grid/LCD-style effect's own math lines up with true on-screen pixels
+    -- at any zoom level. Covers both the flat blit below and the
+    -- Tilt-projected blit -- both share this wox/woy/sp/wvw/wvh.
+    fxRectPxX, fxRectPxY = woxPx, woyPx
+    fxRectPxW, fxRectPxH = wvw * sp, wvh * sp
+    fxScale = sp
+    fxSrcW, fxSrcH = wvw, wvh
     -- Tilt mode projects the ground world pass through the perspective mesh
     -- (SGB zones baked in beforehand -- see drawTiltedWorld -- so no zone
     -- scissoring here).  drawTiltedWorld returns false when tilt is off or
@@ -1243,9 +1279,9 @@ function Renderer:endFrame(zones, worldZones)
   if present then
     GameViewport.setTarget()
     -- Post-process pipelines run over the finished composite -- world, UI
-    -- and all -- and before GBC FX, so a blur or colour grade is what the
-    -- LCD grid is then drawn over rather than something that smears the
-    -- grid itself.  Each pass hands back a canvas; with none registered
+    -- and all -- and before ShaderFX, so a blur or colour grade is what a
+    -- shader preset is then drawn over rather than something that smears
+    -- it.  Each pass hands back a canvas; with none registered
     -- this returns `present` unchanged and the frame is byte-identical.
     local composed = Pipelines.present(present,
       { width = ww, height = wh, scale = Sp, dpi = dpiY, dpiX = dpiX, dpiY = dpiY }) or present
@@ -1260,9 +1296,19 @@ function Renderer:endFrame(zones, worldZones)
       }) == true
     if not outputHandled then
       if cut then love.graphics.setScissor(vux, vuy, vuw, vuh) end
-      if GBCFX.active() then
-        -- shader grid/shadow math is in framebuffer pixels
-        GBCFX.present(composed, Sp)
+      if ShaderFX.active() then
+        -- The ShaderFX feature replaced GBCFX.lua's fixed level ladder
+        -- with a preset picker (GBCFX.lua itself removed). fxRectPx*/fxScale/fxSrc*
+        -- are this frame's REAL game rect + source size, set above by
+        -- whichever branch actually ran (worldOverride, worldActive at the
+        -- current survey zoom, or the UI-rect default for no-world/uiFill
+        -- states) -- not a fixed 160x144-at-base-Sp reconstruction, so the
+        -- chain sees true on-screen pixel geometry at any zoom/Faithful
+        -- Ratio state.
+        ShaderFX.render(composed,
+          { x = fxRectPxX, y = fxRectPxY, w = fxRectPxW, h = fxRectPxH, scale = fxScale },
+          { w = fxSrcW, h = fxSrcH },
+          dpiX, dpiY)
       else
         -- the present canvas only existed for the post-process, so put the
         -- result on the screen at the same 1:1 unit mapping it was built at

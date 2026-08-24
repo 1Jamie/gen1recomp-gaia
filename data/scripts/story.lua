@@ -381,22 +381,35 @@ M.VERMILION_CITY = {
     return true
   end,
   talk = {
-    -- the sailor guarding the dock gangway (VermilionCitySailor1Text):
-    -- flashing the ticket just lets you through -- he never hides, and
-    -- once the ship has sailed he only reports it gone
-    TEXT_VERMILIONCITY_SAILOR1 = {
-      { "face_player" },                                             -- 1
-      { "check_flag", "EVENT_SS_ANNE_LEFT" },                        -- 2
-      { "jump_if_true", 11 },                                        -- 3
-      { "show_text", "_VermilionCitySailor1DoYouHaveATicketText" },  -- 4
-      { "check_item", "S_S_TICKET" },                                -- 5
-      { "jump_if_false", 9 },                                        -- 6
-      { "show_text", "_VermilionCitySailor1FlashedTicketText" },     -- 7
-      { "jump", 12 },                                                -- 8
-      { "show_text", "_VermilionCitySailor1YouNeedATicketText" },    -- 9
-      { "jump", 12 },                                                -- 10
-      { "show_text", "_VermilionCitySailor1ShipSetSailText" },       -- 11
-    },
+    -- scripts/VermilionCity.asm:158 (#1651)
+    TEXT_VERMILIONCITY_SAILOR1 = function(game, ow, npc, done)
+      local Flags = require("src.script.Flags")
+      local TextBox = require("src.render.TextBox")
+      local t = game.data.text
+      if Flags.get(game.save, "EVENT_SS_ANNE_LEFT") then
+        game.stack:push(TextBox.new(game,
+          t._VermilionCitySailor1ShipSetSailText or "The ship set sail.",
+          done))
+        return
+      end
+      -- scripts/VermilionCity.asm:195
+      local p = ow and ow.player
+      if not p or p.facing == "right"
+         or (p.cellX == 19 and (p.cellY == 29 or p.cellY == 31)) then
+        game.stack:push(TextBox.new(game,
+          t._VermilionCitySailor1WelcomeToSSAnneText
+            or "Welcome to S.S.\nANNE!", done))
+        return
+      end
+      local ask = t._VermilionCitySailor1DoYouHaveATicketText
+        or "Welcome to S.S.\nANNE!\fExcuse me, do you\nhave a ticket?"
+      local tail = ((game.save.inventory.S_S_TICKET or 0) > 0)
+        and (t._VermilionCitySailor1FlashedTicketText
+             or "{PLAYER} flashed\nthe S.S.TICKET!")
+        or (t._VermilionCitySailor1YouNeedATicketText
+            or "You need a ticket\nto get aboard.")
+      game.stack:push(TextBox.new(game, ask .. "\f" .. tail, done))
+    end,
   },
 }
 
@@ -405,13 +418,14 @@ M.SS_ANNE_2F = {
     TEXT_SSANNE2F_RIVAL = {
       { "face_player" },                                  -- 1
       { "check_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },       -- 2
-      { "jump_if_true", 9 },                              -- 3
+      { "jump_if_true", 9 },                              -- 3 (beaten: silent)
       { "show_text", "_SSAnne2FRivalText" },              -- 4
-      { "rival_battle", "OPP_RIVAL2", 1 },                -- 5
-      { "jump_if_false", 10 },                            -- 6
-      { "set_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },         -- 7
-      { "show_text", "_SSAnne2FRivalDefeatedText" },      -- 8
-      { "jump", 10 },                                     -- 9 (already beaten: silent)
+      -- SSAnne2FRivalText's text_asm arms SaveEndBattleTextPointers
+      -- (scripts/SSAnne2F.asm:199), so the line prints in battle (#1688)
+      { "save_end_battle_text", "_SSAnne2FRivalDefeatedText" }, -- 5
+      { "rival_battle", "OPP_RIVAL2", 1 },                -- 6
+      { "jump_if_false", 9 },                             -- 7
+      { "set_flag", "EVENT_BEAT_SS_ANNE_RIVAL" },         -- 8
     },
   },
 }

@@ -33,6 +33,7 @@
 
 local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
+local FieldMoves = require("src.world.gen2.FieldMoves")
 local GbcPalette = require("src.render.GbcPalette")
 local MagnetTrain = require("src.core.gen2.MagnetTrain")
 local Music = require("src.core.Music")
@@ -82,6 +83,8 @@ function MagnetTrainRide.new(game, opts)
   self.data = game and game.data
   self.onDone = opts.onDone
   self.finished = false
+  local save = opts.save or (game and game.save)
+  self.gender = save and save.player and save.player.gender or nil
 
   local field = self.data and self.data.gen2Field
   local gfx = field and field.magnetTrain
@@ -155,8 +158,7 @@ end
 -- are cut per 8x8 sub-tile rather than by the sheet's 16-pixel width, because
 -- the OAM data addresses the four tiles of a frame individually.
 function MagnetTrainRide:playerSheet()
-  local sprites = self.data and self.data.gen2Sprites
-  local def = sprites and (sprites.SPRITE_CHRIS or sprites.SPRITE_KRIS)
+  local def = self:playerSpriteDef()
   local path = def and def.image
   if not path then return nil end
   local ok, image = pcall(Assets.image, path)
@@ -357,14 +359,23 @@ function MagnetTrainRide:drawBands(canvas)
   end
 end
 
+-- GetPlayerIcon's sheet, which .InitPlayerSpriteAnim pairs with
+-- SPRITE_ANIM_OBJ_MAGNET_TRAIN_RED or _BLUE
+-- (../pokecrystal/engine/events/magnet_train.asm:131-141, :291-305).
+function MagnetTrainRide:playerSpriteDef()
+  local sprites = self.data and self.data.gen2Sprites
+  if not sprites then return nil end
+  return sprites[FieldMoves.playerSprite(self.gender)]
+    or sprites.SPRITE_CHRIS or sprites.SPRITE_KRIS
+end
+
 -- MapObjectPals' PAL_OW_RED, the palette every .OAMData_MagnetTrainRed entry
--- names.
+-- names, or PAL_OW_BLUE for the _BLUE object Kris rides under.
 function MagnetTrainRide:playerPalette()
   local palettes = self.data and self.data.gen2Palettes
-  local sprites = self.data and self.data.gen2Sprites
   if not palettes then return nil end
   return Palettes.spritePalette(palettes, Palettes.clockDaytime(),
-    sprites and sprites.SPRITE_CHRIS)
+    self:playerSpriteDef())
 end
 
 function MagnetTrainRide:drawPlayer()
