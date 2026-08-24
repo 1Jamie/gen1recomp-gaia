@@ -55,10 +55,10 @@ The short version, for an author deciding what to write:
 ```
 
 `games` is an optional array of version ids (`"red"`, `"blue"`, `"yellow"`,
-`"gold"`, `"silver"`), generations (`"gen1"`, `"gen2"`, case-insensitive) or
-`"all"`. `src/mods/ModTargets.lua` resolves the tokens off `GameVersion.ORDER`
-and `GameVersion.generation`, so nothing anywhere restates the game list.
-`"gen2"` now expands to both Gold and Silver.
+`"gold"`, `"silver"`, `"crystal"`), generations (`"gen1"`, `"gen2"`,
+case-insensitive) or `"all"`. `src/mods/ModTargets.lua` resolves the tokens off
+`GameVersion.ORDER` and `GameVersion.generation`, so nothing anywhere restates
+the game list. `"gen2"` now expands to Gold, Silver and Crystal.
 `Manifest.validate` stores the resolved, ORDER-sorted ids on `manifest.games`
 and **derives** `manifest.gen2compat` from them, which is the one field the
 loader's gate reads.
@@ -576,7 +576,7 @@ gains a field instead of the name gaining a prefix.
   at the same moment `src/core/Game.lua` and `src/render/Renderer.lua` raise it
   -- the logic tick before the pad is read, a pointer the touch overlay gets
   first refusal on, the palette zone list handed to the present pass, the
-  composed frame before GBCFX, the letterbox, and the finished playfield rect
+  composed frame before ShaderFX, the letterbox, and the finished playfield rect
   -- and carries the same payload.
   `render.hud`'s `gameX` / `gameY` really is where Gold's dialogue boxes and
   menus land, because `Chrome.fitScale` / `fitOrigin` and `World:fitScale`

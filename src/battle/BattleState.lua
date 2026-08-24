@@ -638,6 +638,9 @@ local function newBattle(game)
   -- wPartyAndBillsPCSavedMenuItem, so entering a battle drops the party
   -- cursor the field menu has been carrying (src/ui/PartyMenu.lua). #768
   game.partyMenuSavedIndex = nil
+  -- the same run covers wBagSavedMenuItem, and wListScrollOffset follows it
+  -- (init_battle_variables.asm:7-12) #1732
+  game.bagSavedMenuItem, game.bagListScrollOffset = nil, nil
   self.data = game.data
   -- ruleset from the merged registry (the requires above are the same
   -- records on a mod-free boot); an unknown save value falls back to the
@@ -1918,6 +1921,8 @@ function BattleState:exit()
   -- end_of_battle.asm clears wPartyAndBillsPCSavedMenuItem as well, so the
   -- field party menu comes back on slot 1 after a battle. #768
   self.game.partyMenuSavedIndex = nil
+  -- and wBagSavedMenuItem / wListScrollOffset (end_of_battle.asm:57-62) #1732
+  self.game.bagSavedMenuItem, self.game.bagListScrollOffset = nil, nil
   -- Free this battle's own GPU objects now rather than waiting on a GC
   -- finalizer: the two full-screen wavy-effect canvases (colorMode) and
   -- the AnimPlayer's per-instance tilesheet images/quads.  The shared
@@ -1942,6 +1947,7 @@ local function clearTrapping(battler)
   battler.trappingTurns = nil
   battler.trapMove = nil
   battler.trapDamage = nil
+  battler.trapHitSfx = nil
 end
 
 -- SendOutMon (core.asm:1733-1735) clears both battle cursors, though the
@@ -4176,12 +4182,15 @@ function BattleState:continueTrapping(user, target)
   -- .MultiturnMoveCheck (core.asm:3554-3566) prints AttackContinuesText
   -- then jumps to GetPlayerAnimationType, so the trapping move's full
   -- animation replays each locked turn (same damage, animation shown).
-  -- Mirror performMove's anim row (BattleState.lua ~1307), gated on the
-  -- OPTIONS animation toggle.
-  if user.trapMove and self:animationsOn() then
+  -- Mirror performMove's anim row (BattleState.lua ~1307), with the
+  -- applying-attack shake GetPlayerAnimationType picks (core.asm:3159 /
+  -- :5555 -- a trapping move's effect is nonzero, so type 5 / 2) (#1653).
+  if user.trapMove then
     self.nextInsert = (self.nextInsert or 0) + 1
     table.insert(self.queue, self.nextInsert,
-                 { anim = user.trapMove, attackerIsPlayer = user.isPlayer })
+                 { anim = user.trapMove, attackerIsPlayer = user.isPlayer,
+                   hit = { animType = user.isPlayer and 5 or 2,
+                           sfx = user.trapHitSfx } })
   end
   -- the counter can sit at 0 until the END of the turn: the trapping
   -- bit is only cleared by CheckNumAttacksLeft (core.asm:439/467)
@@ -4356,7 +4365,7 @@ function BattleState:awardExp()
     local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
                                             split, traded)
-    -- Track level-ups for EvolveAfterBattle (OverworldState:afterBattle ->
+    -- Track level-ups for EvolveAfterBattle (BattleState:finish ->
     -- Evolution.checkParty).  B-cancel leaves the mon at/above threshold;
     -- without this gate it re-triggers after every later fight (#213).
     if #levels > 0 then
@@ -4733,6 +4742,14 @@ function BattleState:playerMonFainted()
   -- Exception: the Oak's Lab starter rival (HandlePlayerBlackOut).
   if not nextMon and self.result ~= "lose" then
     if self.oppClass == "OPP_RIVAL1" then
+      -- HandlePlayerBlackOut (core.asm:1139-1146): ClearScreenArea, the pic
+      -- scroll-in and DelayFrames 40 all run before Rival1WinText (#1721)
+      self:actNext(function()
+        self.showEnemyTrainer = self.trainerPic ~= nil
+        if self.showEnemyTrainer then self:slidePic("foe", 64, 16, 2) end
+      end)
+      self.nextInsert = (self.nextInsert or 0) + 1
+      table.insert(self.queue, self.nextInsert, { wait = 64 })
       local TextBox = require("src.render.TextBox")
       local raw = (self.data.text and self.data.text._Rival1WinText)
         or Strings("{RIVAL}: Yeah! Am\nI great or what?")
@@ -5322,6 +5339,14 @@ function BattleState:finish()
     self.phase = "messages"
     return
   end
+  -- EndOfBattle runs EvolutionAfterBattle on the battle screen, before the
+  -- GBPalWhiteOut back to the map (end_of_battle.asm:42-45) (#1656, #213)
+  if not self.evolutionsChecked then
+    self.evolutionsChecked = true
+    require("src.pokemon.Evolution").checkParty(self.game,
+      function() self:finish() end, self.leveledUp)
+    return
+  end
   -- Invariant: a battle can never hand the overworld a party with nothing
   -- healthy in it -- except the Oak's Lab starter rival, where pret skips
   -- the blackout and OaksLabRivalEndBattleScript HealParty's immediately.
@@ -5362,6 +5387,13 @@ function BattleState:finish()
   local result = self.result or "run"
   local onFinish = self.onFinish
   if result == "lose" then
+    -- .battleOccurred skips the faint check in OAKS_LAB and re-enters the map
+    -- through MapEntryAfterBattle (home/overworld.asm:343-352) (#1721)
+    if BattleState.isOaksLabStarterRival(self) then
+      self.game.stack:push(require("src.render.Transition").battleReturn(
+        self.game, function() if onFinish then onFinish(result) end end))
+      return
+    end
     -- the blackout path warps to the heal point with its own transition
     if onFinish then onFinish(result) end
     return
@@ -6226,8 +6258,10 @@ function BattleState:drawHUDs(slide)
     self:drawBallRow(self:playerPartyView(), 88, 80, 8)
   end
   local hidePlayer = self.safari or self.demo
+  -- RemoveFaintedPlayerMon clears the player HUD (core.asm:1024-1026) and
+  -- nothing redraws it until the next SendOutMon (#1721)
   if showStatus and self.player and not hidePlayer and not self.showPlayerBack
-     and slide == 0 then
+     and slide == 0 and not self.player.fainted then
     -- player HUD (DrawPlayerHUDAndHPBar): name (10,7), <LV>+level
     -- (14,8), HP bar (10,9), HP numbers row 10, underline row 11 with
     -- the tick at (18,10) and the triangle at (9,11)

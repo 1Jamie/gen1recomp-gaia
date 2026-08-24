@@ -81,6 +81,24 @@ local HEAL_BALL_XY = {
 -- swaps the two middle shades of the monitor/ball art in place
 local HEAL_FLASH_MAP = { [0] = 0, [1] = 2, [2] = 1, [3] = 3 }
 
+-- scripts/VermilionDock.asm:39 VermilionDockSSAnneLeavesScript: her hull is
+-- the four blocks (5..8, 1..2) of VermilionDock.blk
+local SS_ANNE_BLOCK = { x = 5, y = 1, w = 4, h = 2 }
+-- scripts/VermilionDock.asm:164 VermilionDock_SyncScrollWithLY splits rSCX at
+-- LY $50, so her top 16px -- the player's own cell row -- never scrolls
+local SS_ANNE_KEEP_PX = 16
+-- scripts/VermilionDock.asm:79 `ld e, $8`: eight 16px columns, and each
+-- .delay_between_drifts pass is eight frames per pixel
+local SS_ANNE_SAIL_PX, SS_ANNE_PX_FRAMES = 128, 8
+-- scripts/VermilionDock.asm:182 VermilionDock_EraseSSAnne: block 1 is the
+-- shoreline row she sat in, block 13 the open water below it
+local SS_ANNE_WATER = { 1, 13 }
+-- scripts/VermilionDock.asm:142 VermilionDock_EmitSmokePuff: a puff per
+-- column off the front smokestack, drifting east 2px per drift step
+local SS_ANNE_SMOKE = { dx = 64, dy = 20, drift = 2, every = 16, count = 5 }
+-- scripts/VermilionDock.asm:65 `ldh [rOBP1], a` with a = 0: the puff is white
+local SS_ANNE_SMOKE_MAP = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 }
+
 -- Fishing rod placement (FishingRodOAM, engine/overworld/player_animations
 -- .asm).  Those dbsprite rows are raw shadow-OAM bytes like HEAL_BALL_XY
 -- above (screen = tile*8 + pixel - 8/16), measured against the player
@@ -325,6 +343,7 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
     self.parallelQueue = {}
   end
   self.marchers = {}
+  self.shipAnim = nil
   local queue = self.pendingScripts
   if queue then
     for i = #queue, 1, -1 do
@@ -418,12 +437,14 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   -- (home/overworld.asm), so an NPC who walked up to the player stands
   -- on her spawn cell again the next time that map loads (#1028).  Only
   -- the save-side spawn flags survive, and those live in Game.save, not
-  -- here.  Warps rebuild the whole pool from scratch.
+  -- here.  Warps rebuild the whole pool from scratch; a seam crossing arms
+  -- the re-seed and applyPendingSpawnResets lands it off camera (#1755).
   if not (opts and opts.seamless and self.npcPool) then
     self.npcPool = {}
   elseif fromMapId ~= mapId then
     for _, obj in ipairs(self.map.def.objects or {}) do
-      self.npcPool[mapId .. "_obj_" .. obj.index] = nil
+      local npc = self.npcPool[mapId .. "_obj_" .. obj.index]
+      if npc then npc.pendingSpawnReset = true end
     end
   end
   self.npcs = {}
@@ -626,6 +647,41 @@ function OverworldState:rebuildNeighbors()
                        peers = peers })
       end
     end
+  end
+end
+
+-- the deferred half of the seam re-seed armed in setMap (#1755): the cart's
+-- connected map has no sprites to be seen snapping -- home/overworld.asm:2133
+function OverworldState:applyPendingSpawnResets()
+  local pool = self.npcPool
+  if not (pool and self.camera) then return end
+  local due
+  for _, npc in pairs(pool) do
+    if npc.pendingSpawnReset then
+      due = due or {}
+      due[npc] = true
+    end
+  end
+  if not due then return end
+  local cam = self.camera
+  local vw, vh = Game.renderer:worldViewSize()
+  local function onCamera(px, py)
+    return px + 16 > cam.x - 16 and px < cam.x + vw + 16
+       and py + 16 > cam.y - 16 and py < cam.y + vh + 16
+  end
+  for _, mv in ipairs(self.scriptMoves or {}) do due[mv.entity] = nil end
+  for entity in pairs(self.marchers or {}) do due[entity] = nil end
+  for _, npc in ipairs(self.npcs or {}) do
+    if due[npc] and onCamera(npc.px, npc.py) then due[npc] = nil end
+  end
+  for _, g in ipairs(self.ghosts or {}) do
+    if due[g.npc] and onCamera(g.npc.px + g.ox, g.npc.py + g.oy) then
+      due[g.npc] = nil
+    end
+  end
+  for npc in pairs(due) do
+    npc.pendingSpawnReset = nil
+    npc:resetToSpawn()
   end
 end
 
@@ -1073,6 +1129,27 @@ function OverworldState:update(dt)
       if da.onDone then da.onDone() end
     end
   end
+  -- scripts/VermilionDock.asm:80 .shift_columns_up
+  if self.shipAnim and not self.shipAnim.gone then
+    local sa = self.shipAnim
+    sa.frames = sa.frames + 1
+    if sa.frames >= SS_ANNE_PX_FRAMES then
+      sa.frames = 0
+      sa.off = sa.off + 1
+      if sa.off % SS_ANNE_SMOKE.every == 1
+         and #sa.puffs < SS_ANNE_SMOKE.count then
+        sa.puffs[#sa.puffs + 1] = { x = sa.px - sa.off + SS_ANNE_SMOKE.dx,
+                                    y = sa.py + SS_ANNE_SMOKE.dy }
+      end
+      for _, p in ipairs(sa.puffs) do p.x = p.x + SS_ANNE_SMOKE.drift end
+      if sa.off >= SS_ANNE_SAIL_PX then
+        sa.gone, sa.puffs = true, {}
+        local done = sa.onDone
+        sa.onDone = nil
+        if done then done() end
+      end
+    end
+  end
   if self.cutAnim then
     local ca = self.cutAnim
     ca.frames = ca.frames - 1
@@ -1232,6 +1309,7 @@ function OverworldState:update(dt)
   -- escort then walks an extra tile before PlayerEntryMovementRLE, and
   -- the player lands on desk Oak.
   local scripted = self.runner:isRunning() or #self.scriptMoves > 0
+                   or (self.hopLand or 0) > 0
                    or self.engaging or self.emote or self.teleportOut
                    or self.flyAnim or self.flyArrive
   if not scripted and not self.transitioning then
@@ -1241,6 +1319,7 @@ function OverworldState:update(dt)
     -- direction handling (JoypadOverworld runs the map script first) --
     -- the player can never start another step after being spotted.
     scripted = self.runner:isRunning() or #self.scriptMoves > 0
+               or (self.hopLand or 0) > 0
                or self.engaging or self.emote or self.teleportOut
                or self.flyAnim or self.flyArrive
   end
@@ -1249,6 +1328,7 @@ function OverworldState:update(dt)
   if not scripted and not self.transitioning and Game.stack:top() == self then
     self:handleInput()
   end
+  if (self.hopLand or 0) > 0 then self.hopLand = self.hopLand - 1 end
 
   local stepped = self.player:update()
   -- the warp-arrival cell goes stale the instant the player's real cell
@@ -1276,6 +1356,7 @@ function OverworldState:update(dt)
 
   self.camera:follow(self.player.px, self.player.py,
                      Game.renderer:worldViewSize())
+  self:applyPendingSpawnResets()
 
   -- pan_camera offset rides on top of the follow; the ramp resumes its
   -- runner when it lands
@@ -1514,6 +1595,76 @@ function OverworldState:startDustAnim(cx, cy, onDone)
   self.dustAnim = { x = cx, y = cy, frames = 32, onDone = onDone }
 end
 
+-- scripts/VermilionDock.asm:39 VermilionDockSSAnneLeavesScript: snapshot her
+-- hull tiles, flood her box with water, and slide the snapshot west from there
+function OverworldState:startSsAnneDeparture(onDone)
+  local map = self.map
+  local tx0, ty0 = SS_ANNE_BLOCK.x * 4, SS_ANNE_BLOCK.y * 4
+  local tiles = {}
+  for row = 1, SS_ANNE_BLOCK.h * 4 do
+    local r = {}
+    for col = 1, SS_ANNE_BLOCK.w * 4 do
+      r[col] = map:tileAt(tx0 + col - 1, ty0 + row - 1)
+    end
+    tiles[row] = r
+  end
+  for bx = SS_ANNE_BLOCK.x, SS_ANNE_BLOCK.x + SS_ANNE_BLOCK.w - 1 do
+    for by = SS_ANNE_BLOCK.y, SS_ANNE_BLOCK.y + SS_ANNE_BLOCK.h - 1 do
+      map:setBlock(bx, by, SS_ANNE_WATER[by - SS_ANNE_BLOCK.y + 1] or 13)
+    end
+  end
+  map.renderer:rebuild()
+  self.shipAnim = { px = tx0 * 8, py = ty0 * 8, tiles = tiles,
+                    off = 0, frames = 0, puffs = {}, onDone = onDone }
+end
+
+-- scripts/VermilionDock.asm:164: the rSCX split keeps her top 16px (the
+-- shoreline row and the gangway under the player) put while the rest sails
+function OverworldState:drawShipAnim(camX, camY)
+  local sa = self.shipAnim
+  if not sa then return end
+  local renderer = self.map.renderer
+  local img, quads = renderer.image, renderer.quads
+  local ox, oy = -math.floor(camX), -math.floor(camY)
+  local keep = SS_ANNE_KEEP_PX / 8
+  love.graphics.setColor(1, 1, 1, 1)
+  for row = 1, #sa.tiles do
+    if row <= keep or not sa.gone then
+      local slide = row > keep and sa.off or 0
+      local wy = sa.py + (row - 1) * 8 + oy
+      for col = 1, #sa.tiles[row] do
+        local quad = quads[sa.tiles[row][col]]
+        if quad then
+          love.graphics.draw(img, quad, sa.px + (col - 1) * 8 - slide + ox, wy)
+        end
+      end
+    end
+  end
+  if #sa.puffs == 0 then return end
+  local fxDef = Game.data.field.overworldFx
+  local smoke = fxDef and fxDef.smoke
+  if not smoke then return end
+  if self.smokeImg == nil then
+    local ok, image = pcall(love.graphics.newImage, smoke.path)
+    self.smokeImg = ok and image or false
+  end
+  if not self.smokeImg then return end
+  local shader = PaletteFX.shader()
+  if shader then
+    PaletteFX.sendColors(shader,
+      PaletteFX.permute(PaletteFX.GRAYS, SS_ANNE_SMOKE_MAP))
+    love.graphics.setShader(shader)
+  end
+  for _, p in ipairs(sa.puffs) do
+    for i = 0, 1 do
+      for j = 0, 1 do
+        love.graphics.draw(self.smokeImg, p.x + i * 8 + ox, p.y + j * 8 + oy)
+      end
+    end
+  end
+  if shader then love.graphics.setShader() end
+end
+
 -- Ledge hops (data/tilesets/ledge_tiles.asm): standing tile + ledge tile
 -- in front + matching input direction -> jump two cells.
 function OverworldState:checkLedgeHop(dir)
@@ -1547,22 +1698,34 @@ function OverworldState:checkLedgeHop(dir)
           return false
         end
         require("src.core.Sound").play(Game.data, "Ledge")
-        local hop = (p.stepFramesCur or p.stepFrames or 16) * 2
+        p.ledgeHop = true -- BIT_LEDGE_OR_FISHING, no bike speedup mid-hop
+        local hop = p:stepLength() * 2
         p.hopFrames, p.hopTotal = hop, hop -- jump arc (cosmetic)
-        self:scriptMove(p, dir, 1, function() self:checkEdgeExit(dir) end)
+        self:scriptMove(p, dir, 1, function()
+          self:checkEdgeExit(dir)
+          self:finishLedgeHop()
+        end)
         return true
       end
       if not Collision.occupied(self.entities, lx, ly, p)
          and self.map:isWalkableCell(lx, ly) then
         require("src.core.Sound").play(Game.data, "Ledge")
-        local hop = (p.stepFramesCur or p.stepFrames or 16) * 2
+        p.ledgeHop = true -- BIT_LEDGE_OR_FISHING, no bike speedup mid-hop
+        local hop = p:stepLength() * 2
         p.hopFrames, p.hopTotal = hop, hop -- jump arc (cosmetic)
-        self:scriptMove(p, dir, 2)
+        self:scriptMove(p, dir, 2, function() self:finishLedgeHop() end)
         return true
       end
     end
   end
   return false
+end
+
+-- _HandleMidJump .finishedJump lands with UpdateSprites + Delay3 before it
+-- clears the joypad bytes -- engine/overworld/player_animations.asm:509
+function OverworldState:finishLedgeHop()
+  self.player.ledgeHop = nil
+  self.hopLand = 3
 end
 
 -- walking off the map edge: connection crossing or edge warp (exit mats)
@@ -1670,9 +1833,7 @@ function OverworldState:crossConnection(dir, conn)
   -- fresh walk-cycle clock so the seam step always shows leg frames
   -- (mid-cycle stand phase would otherwise look like a slide)
   p.animClock = 0
-  p.stepFramesCur = Game.save.onBike
-    and (FieldDefaults.world(Game.data, "bikeStepFrames") or 8)
-    or (FieldDefaults.world(Game.data, "stepFrames") or 16)
+  p.stepFramesCur = p:stepLength()
   require("src.core.FixedStep"):discardCatchup()
   return true
 end
@@ -2427,16 +2588,12 @@ function OverworldState:trashCanSwitch(canIndex)
     local adj = tc.adjacent[puz.first]
     local masked = require("bit").band(love.math.random(0, 255), #adj)
     puz.second = masked == 0 and 0 or adj[masked]
-    -- VermilionGymTrashSuccessText1's text_asm tail plays SFX_SWITCH only
-    -- after the text has printed (text_far ...; text_asm;
-    -- WaitForSoundToFinish; PlaySound SFX_SWITCH; WaitForSoundToFinish),
-    -- and DisplayTextID's WaitForTextScrollButtonPress then holds the box
-    -- until the player dismisses it -- so the beep belongs on close, not
-    -- open.
+    -- engine/events/hidden_events/vermilion_gym_trash.asm:130 (text_asm tail:
+    -- SFX_SWITCH once the text has printed, before the button wait) (#1702)
     Game.stack:push(TextBox.new(Game,
       t._VermilionGymTrashSuccessText1
       or Strings("Hey! There's a\nswitch under the\ntrash!\fThe 1st electric\nlock opened!"),
-      function() require("src.core.Sound").play(Game.data, "Switch") end))
+      nil, TextBox.soundOpts(Game, "Switch")))
     return
   end
   -- .trySecondLock
@@ -2447,25 +2604,28 @@ function OverworldState:trashCanSwitch(canIndex)
     -- the clear floor block opens the doors (VermilionGymSetDoorTile)
     local door = FieldDefaults.fieldValue(Game.data, "hiddenExtras",
                                           "trashCans", "doorBlock")
-    self:replaceBlock(door.bx, door.by, door.block)
-    -- SuccessText3's text_asm tail plays SFX_GO_INSIDE after the text
-    -- prints, so the beep fires as the box closes, not as it opens.
+    -- engine/events/hidden_events/vermilion_gym_trash.asm:153 beeps as the
+    -- text finishes; scripts/VermilionGym.asm:30 beeps on the swap (#1702)
     Game.stack:push(TextBox.new(Game,
       t._VermilionGymTrashSuccessText3
       or Strings("The 2nd electric\nlock opened!\fThe motorized door\nopened!"),
-      function() require("src.core.Sound").play(Game.data, "Go_Inside") end))
+      function()
+        require("src.core.Sound").play(Game.data, "Go_Inside")
+        self:replaceBlock(door.bx, door.by, door.block)
+      end,
+      TextBox.soundOpts(Game, "Go_Inside")))
   else
     -- wrong can: ResetEvent EVENT_1ST_LOCK_OPENED and immediately
     -- re-roll the first switch (Random & $e)
     save.flags.EVENT_1ST_LOCK_OPENED = nil
     puz.first = love.math.random(0, 7) * 2
     puz.second = nil
-    -- VermilionGymTrashFailText's text_asm tail plays SFX_DENIED after the
-    -- text prints, so the beep fires as the box closes, not as it opens.
+    -- engine/events/hidden_events/vermilion_gym_trash.asm:162 (text_asm tail:
+    -- SFX_DENIED once the text has printed, before the button wait) (#1702)
     Game.stack:push(TextBox.new(Game,
       t._VermilionGymTrashFailText
       or Strings("Nope! There's\nonly trash here.\fHey! The electric\nlocks were reset!"),
-      function() require("src.core.Sound").play(Game.data, "Denied") end))
+      nil, TextBox.soundOpts(Game, "Denied")))
   end
 end
 
@@ -2913,10 +3073,10 @@ function OverworldState:talkTo(npc)
   if entry then
     if entry.mart then
       npc:facePlayer(self.player)
-      Game.stack:push(TextBox.new(Game, romText(Game.data, "_PokemartGreetingText", "Hi there!\nMay I help you?"), function()
-        Screens.push(Game, "ShopMenu", entry.mart)
-        unfreeze()
-      end))
+      -- the greeting stays in the box under the menu, so ShopMenu owns it
+      -- now -- home/text_script.asm:143
+      Screens.push(Game, "ShopMenu", entry.mart)
+      unfreeze()
       return
     end
     if entry.nurse then
@@ -3379,22 +3539,18 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
                   or (header and header.won and Game.data.text[header.won])
 
   local BattleState = require("src.battle.BattleState")
+  local stingPlayed = false
+  -- home/trainers.asm:109 prints, :123 engages (BIT_SEEN_BY_TRAINER =
+  -- self.engaging), then home/text_script.asm:96 waits for A (#764, #1683)
+  local function playMeetSting()
+    if stingPlayed or self.engaging then return end
+    stingPlayed = true
+    local theme = meetTrainerTheme(d.trainerClass)
+    if theme then require("src.core.Music").play(Game.data, theme) end
+  end
   local function startBattle(options)
     self.cancelledTrainerSight = nil
-    -- TalkToTrainer (home/trainers.asm:88) prints the before-battle text
-    -- FIRST and only then runs `call EngageMapTrainer` / `jp
-    -- StartTrainerBattle`, so a trainer challenged on foot gets the sting
-    -- over the battle transition rather than under the dialogue.  Its
-    -- `bit BIT_SEEN_BY_TRAINER, [hl] / ret nz` guard is self.engaging
-    -- here: TrainerEngage (engine/overworld/trainer_sight.asm:224) already
-    -- started the sting before the "!" bubble on the sight path, so it
-    -- must not restart.  Script-driven challenges (gyms.lua leaders,
-    -- scripts/SilphCo11F.asm:269 Giovanni, scripts/FightingDojo.asm:122)
-    -- all `call EngageMapTrainer` too, and reach this same path (#764).
-    if not self.engaging then
-      local theme = meetTrainerTheme(d.trainerClass)
-      if theme then require("src.core.Music").play(Game.data, theme) end
-    end
+    playMeetSting()
     local battle = BattleState.newTrainer(Game, d.trainerClass, d.trainerParty,
       options)
     battle.checkpointOrigin = {
@@ -3465,7 +3621,8 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
   if skipBattleText then
     prepareBattle()
   else
-    Game.stack:push(TextBox.new(Game, battleText, prepareBattle))
+    Game.stack:push(TextBox.new(Game, battleText, prepareBattle,
+      { auto = { wait = true, delay = 0, sound = playMeetSting } }))
   end
 end
 
@@ -4409,18 +4566,11 @@ function OverworldState:afterBattle(result, battle)
   Logger.info("battle over: %s (lead %s %d/%d)", tostring(result),
               lead and lead.species or "-", lead and lead.hp or 0,
               lead and lead.stats.hp or 0)
-  local Evolution = require("src.pokemon.Evolution")
-  local function evolutions()
-    -- Only mons that gained a level this battle (EXP.ALL included).
-    -- Scanning the whole party re-offered B-cancelled evolutions forever (#213).
-    Evolution.checkParty(Game, nil, battle and battle.leveledUp)
-  end
   if result == "lose" then
     local oaksLabRival = battle and battle.oppClass == "OPP_RIVAL1"
       and self.map and self.map.id == "OAKS_LAB"
     if oaksLabRival then
       -- stay in the lab; OaksLabRivalEndBattleScript heals and continues
-      evolutions()
       return
     end
     -- blackout: revive the party at the last heal point; half the
@@ -4433,7 +4583,7 @@ function OverworldState:afterBattle(result, battle)
       / (FieldDefaults.world(Game.data, "blackoutMoneyDivisor") or 2))
     Runtime.emit("world.blacked_out",
       { save = Game.save, healTarget = self:healPoint() })
-    self:warpToHealPoint(evolutions)
+    self:warpToHealPoint()
   else
     -- EndTrainerBattle sets BIT_CUR_MAP_LOADED_1 (home/trainers.asm), which
     -- re-runs the floor's door callback: beating the last Rocket Hideout guard
@@ -4443,7 +4593,6 @@ function OverworldState:afterBattle(result, battle)
     if Game.save.safari and Game.save.safari.balls <= 0 then
       self:safariGameOver(Strings("PA: You're out of\nSAFARI BALLs!"))
     end
-    evolutions()
   end
 end
 
@@ -4872,6 +5021,9 @@ function OverworldState:updateScriptMoves()
         e.facing = mv.dir
         local tx, ty = Collision.target(e.cellX, e.cellY, mv.dir)
         e.targetX, e.targetY = tx, ty
+        -- a simulated d-pad press runs at the CURRENT walk/bike speed, not
+        -- whatever the last real step left behind -- home/overworld.asm:276
+        if e.stepLength then e.stepFramesCur = e:stepLength() end
         e.moving = true
         e.progress = 0
         mv.remaining = mv.remaining - 1
@@ -5032,6 +5184,7 @@ function OverworldState:drawWorld()
     for _, nb in ipairs(self.neighbors) do
       nb.map.renderer:drawMapOnly(cam.x - nb.ox, bgY - nb.oy, vw, vh)
     end
+    self:drawShipAnim(cam.x, bgY)
   end
   -- per-billboard SGB palette source; only needed (and only paid for) when
   -- tilting.  nil headless / on stale palettes -> billboards go uncolorized.
@@ -5388,6 +5541,7 @@ function OverworldState:drawWorld()
       for _, nb in ipairs(self.neighbors) do
         nb.map.renderer:drawMapOnly(cam.x - nb.ox, bgY - nb.oy, vw, vh)
       end
+      self:drawShipAnim(cam.x, bgY)
     end
   end
 

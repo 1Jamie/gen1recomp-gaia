@@ -1582,7 +1582,7 @@ local function buildPartyMenu()
     elseif opts.battle and opts.onSwitch then
       prompt, battleSubmenu = "choose", true
     elseif opts.pickOnly then
-      prompt = "useItem"
+      prompt = opts.itemUse and "useItem" or "choose"
     elseif opts.onSwitch then
       -- src/ui/PartyMenu.lua:569: onSwitch OUTSIDE battle fires on A itself,
       -- so the field submenu must not swallow the press
@@ -1647,7 +1647,7 @@ COVERAGE["src.ui.PartyMenu"] = {
   warned = "keepOpen tmhm",
   absent = "drawIcon frameFor mirrorsIcon iconFrames sgbPalettes animateTo "
     .. "heal softboiledFrom battle subItems subIndex swapFrom blink onSwitch "
-    .. "pickOnly forceSwitch",
+    .. "pickOnly itemUse forceSwitch",
   notes = {
     new = "onSwitch(mon, menu) is wrapped onto onChoose(index, mon); opts."
       .. "battle carries only its BOOLEAN sense and self.battle is left nil "
@@ -1663,7 +1663,7 @@ COVERAGE["src.ui.PartyMenu"] = {
     onSwitch = "replacing menu.onSwitch on a LIVE instance writes a field "
       .. "Gen 2 never reads; pass it to .new instead",
     bottomMessage = "returns Gold's strings with <PK>/<MN> charmap glyphs, so "
-      .. "a compare against \"Use on which one?\" will not match",
+      .. "a compare against \"Use item on which\\nPOKéMON?\" will not match",
     ["hook ui.party.submenu"] = "same name and arity; rows carry `id` on Gold "
       .. "where Gen 1 carries `action`, and ctx.battle is a BOOLEAN, not a "
       .. "BattleState",
@@ -1838,7 +1838,7 @@ local function buildBattleState()
     "syncSides", "playerHasPP", "lockedAction", "computeMusicKind",
     "throwBall", "ballChain", "tossAnimFor", "ballFlicker", "ballMissMessage",
     "storeCaughtMon", "safariAction", "safariEnemyTurn", "drawBallRow",
-    "drawClassic", "isWideBattleLayout", "wideLayout", "bgMode", "uiSize",
+    "drawClassic", "isWideBattleLayout", "wideLayout", "uiSize",
     "sgbPalettes", "trainerPalette", "trainerPicPath", "trainerTrueColor",
     "trainerSprite", "invalidate",
     "imageBattleScale", "resolveBattleScale", "backPlacement",
@@ -1922,11 +1922,11 @@ COVERAGE["src.battle.BattleState"] = {
   backed = "update draw __index isOpaque openParty swapMoves "
     .. "lowHealthAlarmActive playVictoryMusic say sayAuto openItems "
     .. "openReplacementMenu finish askNicknameUI playEntranceCry stampOT "
-    .. "tryRun wantsFillScale",
+    .. "tryRun wantsFillScale bgMode",
   warned = "tryRun askNicknameUI",
   absent = "newWild newTrainer makeSafari makeGhost makeBattler resolveTurn "
     .. "computeDamage catchAttempt runRoll enter exit sgbPalettes "
-    .. "isWideBattleLayout wideLayout bgMode uiSize letterboxWhite "
+    .. "isWideBattleLayout wideLayout uiSize letterboxWhite "
     .. "holdsUIAnchors BG_WORLD_DIM trainerPalette trainerPicPath "
     .. "trainerTrueColor trainerSprite invalidate "
     .. "backPlacement frontPlacement StatBox drawClassic drawBallRow "

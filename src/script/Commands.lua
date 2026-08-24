@@ -340,10 +340,8 @@ function Commands.start_battle(ctx, kind, a, b)
     ctx.lastBattleResult = result
     ctx.lastCheck = result == "win"
     if ctx.overworld then
-      -- A map script often follows a trainer battle with its own text.
-      -- Keep a level evolution behind that text: otherwise afterBattle
-      -- pushes the evolution screen, then this runner resumes and pushes
-      -- the trainer's text on top of it.
+      -- The map-side follow-up (stampClosedDoors, #372) rides behind the
+      -- script's own text; the evolution now runs in BattleState:finish.
       if result == "win" then
         ctx.afterScript = ctx.afterScript or {}
         table.insert(ctx.afterScript, function()
@@ -1211,6 +1209,16 @@ function Commands.replace_block(ctx, bx, by, blockId)
   if ctx.overworld then ctx.overworld:replaceBlock(bx, by, blockId) end
 end
 
+-- ss_anne_departs: scripts/VermilionDock.asm:80 .shift_columns_up, blocking
+-- until she has cleared her own width
+function Commands.ss_anne_departs(ctx)
+  local ow = ctx.overworld
+  if not ow or not ow.startSsAnneDeparture then return end
+  local runner = ctx.runner
+  ow:startSsAnneDeparture(function() runner:resume() end)
+  runner:yield()
+end
+
 -- set_tile_anim <anim|false>: override the current tileset's animation
 -- ("TILEANIM_WATER"; false stops it) until the next map change restores
 -- the record (setMap)
@@ -1422,7 +1430,7 @@ Commands.meta = {}
 for _, verb in ipairs({ "show_text", "ask", "choice", "start_battle", "warp",
     "open_mart", "trade", "push_screen", "record_hall_of_fame",
     "old_man_demo", "static_battle", "rival_battle", "give_item",
-    "give_pokemon", "fade", "pan_camera" }) do
+    "give_pokemon", "fade", "pan_camera", "ss_anne_departs" }) do
   Commands.meta[verb] = { foreground = true }
 end
 for _, verb in ipairs({ "show_text", "ask", "choice", "start_battle", "warp",
@@ -1430,7 +1438,8 @@ for _, verb in ipairs({ "show_text", "ask", "choice", "start_battle", "warp",
     "old_man_demo", "static_battle", "rival_battle", "give_item",
     "give_pokemon", "wait",
     "wait_flag", "move_player", "move_npc", "move_npc_to", "walk_npc",
-    "emote", "fade", "pan_camera", "play_once", "pikachu_make_way" }) do
+    "emote", "fade", "pan_camera", "play_once", "pikachu_make_way",
+    "ss_anne_departs" }) do
   local meta = Commands.meta[verb] or {}
   Commands.meta[verb] = meta
   meta.blocking = true

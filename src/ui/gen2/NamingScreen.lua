@@ -89,19 +89,28 @@ local BOTTOM_CURSOR_TILES = 5
 -- NAME_* types (constants/menu_constants.asm order) as prompts + field sizes.
 -- Lengths are the ASM's *_NAME_LENGTH - 1, i.e. usable characters.
 NamingScreen.TYPES = {
-  player = { prompt = Strings.source("YOUR NAME?"), maxLength = 7, sprite = "SPRITE_CHRIS" },
+  player = { prompt = Strings.source("YOUR NAME?"), maxLength = 7,
+    sprite = "SPRITE_CHRIS", spriteFemale = "SPRITE_KRIS" },
   rival = { prompt = Strings.source("RIVAL'S NAME?"), maxLength = 7, sprite = "SPRITE_RIVAL" },
   mom = { prompt = Strings.source("MOTHER'S NAME?"), maxLength = 7, sprite = "SPRITE_MOM" },
   box = { prompt = Strings.source("BOX NAME?"), maxLength = 8, isBox = true },
   nickname = { prompt = nil, maxLength = 10 },
 }
 
+-- GetPlayerIcon's two sheets (../pokecrystal/engine/gfx/player_gfx.asm:85-93),
+-- which is also the pair the header icon here is cut from.
+function NamingScreen.playerSprite(gender)
+  local kind = NamingScreen.TYPES.player
+  if gender == "female" and kind.spriteFemale then return kind.spriteFemale end
+  return kind.sprite
+end
+
 function NamingScreen:wantsFillScale() return true end
 function NamingScreen:drawsWidescreen() return true end
 
 -- opts: type ("player"/"rival"/"mom"/"box"/"nickname"), prompt, maxLength,
--- initial, monName (nickname header), icon/sprite image path, onDone(name),
--- onCancel().
+-- initial, monName (nickname header), icon/sprite image path, gender,
+-- onDone(name), onCancel().
 function NamingScreen.new(game, opts)
   opts = opts or {}
   local self = setmetatable({}, NamingScreen)
@@ -109,6 +118,8 @@ function NamingScreen.new(game, opts)
   local kind = NamingScreen.TYPES[opts.type or "player"]
     or NamingScreen.TYPES.player
   self.kind = kind
+  self.gender = opts.gender
+    or (game and game.save and game.save.player and game.save.player.gender)
   self.isBox = opts.isBox or kind.isBox or false
   self.maxLength = opts.maxLength or kind.maxLength or 7
   self.prompt = opts.prompt or kind.prompt or Strings.source("NICKNAME?")

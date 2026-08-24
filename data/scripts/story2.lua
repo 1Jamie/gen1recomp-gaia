@@ -731,10 +731,33 @@ M.MT_MOON_B2F = {
 local function museumClerk(game, ow, done, onDecline)
   local TextBox = require("src.render.TextBox")
   local t = game.data.text or {}
+  local p = ow and ow.player
+  -- scripts/Museum1F.asm:45 (#1690)
+  if p and ((p.cellY == 4 and p.cellX == 13)
+            or (p.cellY == 3 and p.cellX == 12)) then
+    game.stack:push(TextBox.new(game,
+      t._Museum1FScientist1DoYouKnowWhatAmberIsText
+        or "You can't sneak\nin the back way!\fOh, whatever!\nDo you know what\vAMBER is?",
+      nil, { choice = function(yes)
+        game.stack:push(TextBox.new(game, yes
+          and (t._Museum1FScientist1TheresALabSomewhereText
+               or "There's a lab\nsomewhere trying\vto resurrect\vancient POKéMON\vfrom AMBER.")
+          or (t._Museum1FScientist1AmberIsFossilizedTreeSapText
+              or "AMBER is fossil-\nized tree sap."), done))
+      end }))
+    return
+  end
   if game.save.flags.EVENT_BOUGHT_MUSEUM_TICKET then
     game.stack:push(TextBox.new(game,
       t._Museum1FScientist1TakePlentyOfTimeText
         or "Take your time,\nand enjoy it all!", done))
+    return
+  end
+  -- scripts/Museum1F.asm:58
+  if p and p.cellY ~= 4 then
+    game.stack:push(TextBox.new(game,
+      t._Museum1FScientist1GoToOtherSideText
+        or "Please go to the\nother side!", done))
     return
   end
   -- scripts/Museum1F.asm:72
