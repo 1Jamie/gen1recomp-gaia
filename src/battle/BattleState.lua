@@ -2792,6 +2792,111 @@ function BattleState:queueResidual(b, opp)
   end
 end
 
+local function fieldBattlerView(battler, side)
+  local types = {}
+  for index, typeId in ipairs(battler.curTypes or {}) do
+    types[index] = typeId
+  end
+  local mon = battler.mon or {}
+  return {
+    side = side,
+    name = battler.name,
+    hp = tonumber(mon.hp) or 0,
+    maxHp = tonumber(mon.stats and mon.stats.hp) or tonumber(mon.hp) or 0,
+    types = types,
+    vanished = battler.invulnerable and true or false,
+  }
+end
+
+local function publicScalar(value)
+  local kind = type(value)
+  if kind == "string" or kind == "boolean" then return value, true end
+  if kind == "number" and value == value
+      and value < math.huge and value > -math.huge then
+    return value, true
+  end
+  return nil, false
+end
+
+local function publicDataCopy(value, visiting)
+  local scalar, ok = publicScalar(value)
+  if ok then return scalar, true end
+  if type(value) ~= "table" then return nil, false end
+
+  visiting = visiting or {}
+  if visiting[value] then return nil, false end
+  visiting[value] = true
+
+  local copy = {}
+  for key, child in next, value do
+    local copiedKey, keyOk = publicScalar(key)
+    local copiedChild, childOk = publicDataCopy(child, visiting)
+    if keyOk and childOk then copy[copiedKey] = copiedChild end
+  end
+  visiting[value] = nil
+  return copy, true
+end
+
+local function checkpointFieldView(field)
+  field = field or {}
+  local view = publicDataCopy({
+    weather = field.weather,
+    tokens = field.tokens or {},
+  })
+  return view
+end
+
+-- Public field residuals are data-only requests. Mods can inspect a detached
+-- checkpoint-shaped field view and detached battler views, but only the engine
+-- mutates HP, animates the bar, or enters the faint pipeline.
+function BattleState:applyFieldResiduals()
+  if not Runtime.wantsHook("battle.field_residual") then return end
+  local views = {
+    player = fieldBattlerView(self.player, "player"),
+    enemy = fieldBattlerView(self.enemy, "enemy"),
+  }
+  local rows = Runtime.call("battle.field_residual", function() return {} end, {
+    field = checkpointFieldView(self.field),
+    battlers = views,
+    turn = self.turnCount or 0,
+  })
+  if type(rows) ~= "table" then return end
+
+  local fainted = {}
+  for _, row in ipairs(rows) do
+    local battler = type(row) == "table" and row.side == "player"
+      and self.player or type(row) == "table" and row.side == "enemy"
+      and self.enemy or nil
+    local amount = type(row) == "table" and row.amount or nil
+    if battler and battler.mon.hp > 0 and type(amount) == "number"
+        and amount > 0
+        and amount < math.huge and amount == math.floor(amount)
+        and (row.message == nil or type(row.message) == "string") then
+      amount = math.min(amount, battler.mon.hp)
+      if type(row.message) == "string" and row.message ~= "" then
+        self:sayNext(row.message)
+      end
+      battler.mon.hp = battler.mon.hp - amount
+      self:drainNext(battler, battler.mon.hp)
+      if battler.mon.hp <= 0 then fainted[battler] = true end
+    end
+  end
+  -- A terminal player faint owns a simultaneous field-residual batch. Queue
+  -- only that authority so its blackout cannot race an enemy EXP/replacement
+  -- path from the same hook response. Native faint paths remain untouched.
+  if fainted[self.player]
+      and not Party.firstHealthy(self:playerPartyView()) then
+    self:onFaint(self.player)
+    return
+  end
+
+  -- Otherwise resolve the two sides in engine order after every accepted
+  -- descriptor has landed. Descriptor order must not decide resolution.
+  for _, battler in ipairs({ self.player, self.enemy }) do
+    if fainted[battler] then self:onFaint(battler) end
+  end
+end
+
 function BattleState:endOfTurn()
   -- the same ret: a decided battle never reaches HandlePoisonBurnLeechSeed
   -- or CheckNumAttacksLeft (core.asm:417-421, 456-460), so the residual
@@ -2845,6 +2950,7 @@ function BattleState:endOfTurn()
       b.trappingTurns = nil
     end
   end
+  self:applyFieldResiduals()
   self:tickTokens()
   Runtime.emit("battle.turn_ended", { battle = self, turn = self.turnCount or 0 })
 end

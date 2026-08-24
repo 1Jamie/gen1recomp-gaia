@@ -931,6 +931,47 @@ which stay unconditional and are never visible to a subscriber.
 Developer mode also arms the mod loader's dev tripwire, which flags mods
 that reach outside their permission set.
 
+## Battle field residual hook
+
+`battle.field_residual` lets a Gen 1 battle-rule mod request end-of-round
+damage without mutating live battlers. It is guarded and runs after vanilla
+status residuals, before field-token expiry and `battle.turn_ended`. The
+wrapper receives `(next, context)`, calls `next(context)` for the existing
+descriptor list, and appends data-only rows:
+
+```lua
+mod.hooks:wrap("battle.field_residual", function(next, context)
+  local rows = next(context)
+  rows[#rows + 1] = {
+    side = "enemy", amount = 7,
+    message = context.battlers.enemy.name .. " is buffeted!",
+  }
+  return rows
+end)
+```
+
+`context.field` is a detached, data-only view with the same
+`{ weather, tokens }` shape that battle checkpoints capture; it does not expose
+`field.sides` or any live battler aliases. The projection recursively retains
+raw tables and finite numbers, strings, and booleans under scalar keys. It
+strips metatables and omits functions, userdata, threads, unsupported keys, and
+cyclic edges. Consequently a wrapper cannot obtain or invoke an engine callback
+even if a live field token uses one internally, and changing any nested view
+value cannot change live field state. `context.battlers.player` and `.enemy` are
+detached `{ side, name, hp, maxHp, types, vanished }` views, and `context.turn`
+is the current turn number. A descriptor accepts `side`
+(`player` or `enemy`), a positive, finite integer number `amount`, and an
+optional string `message`.
+Numeric strings and invalid rows are ignored; damage is clamped to current HP.
+The engine retains HP-bar, faint, experience, and replacement authority. If
+both active battlers take terminal residual damage together and the player has
+no healthy reserve, this hook batch queues only the player faint authority and
+resolves as a blackout loss without an enemy-faint EXP award or replacement.
+That precedence is local to accepted rows from this hook; native faint paths
+are unchanged when no hook is active. Hook callbacks remain process-local;
+checkpoints serialize only field data. Gold does not yet raise this hook; its
+native weather pipeline is documented in `docs/mod-api-gen2-compat.md`.
+
 ## Process-lifecycle hooks
 
 These exist so a platform-specific launcher integration (a native shell
