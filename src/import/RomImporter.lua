@@ -1390,8 +1390,9 @@ function RomImporter.new(onComplete, opts)
     -- player's index list from options; findIndex is the merged listing;
     -- _findThumbs caches one image per mod id (false = fetched and failed).
     findLoaded = false, findSources = nil, findIndex = nil,
-    findScroll = 0, findNotice = nil, findQuery = "", findCategory = nil,
-    _findSearchFocus = false, _findThumbs = nil,
+    findInstalled = nil, findScroll = 0, findNotice = nil, findQuery = "",
+    findCategory = nil, _findSearchFocus = false, _findThumbs = nil,
+    _findVisibleEntries = nil,
     -- Which half of the feed the panel is browsing.  Mods by default: carts
     -- are the newer, much shorter list, and a feed may carry none at all.
     findKind = "mods", findBase = nil,
@@ -2589,6 +2590,7 @@ function RomImporter:update(dt)
   -- before a tab switch still completes.
   self:_pumpFindFetch()
   self:_pumpModInfoFetch()
+  self:_queueFindEnrichment()
   self:_pumpFindStats()
   self:_pumpFindThumbs()
   self:_pumpSkinFetch()
@@ -3226,6 +3228,7 @@ end
 -- offset persists inside the view's per-tab scroll container.
 function RomImporter:_switchTab(id)
   self.tab = id
+  if id ~= "find" then self._findVisibleEntries = nil end
   self._findSearchFocus = false
   self._skinUrlFocus = false
   self:_disarmTextInput()
@@ -3823,6 +3826,7 @@ function RomImporter:_toggleSafeMode()
   SaveData.saveOptions(options)
   self.safeMode = enabled
   self.mods = nil
+  self.findInstalled = nil
   self._modSortCache = nil
   self._modInfoFetch = nil
   self.modNotice = nil
@@ -4798,6 +4802,7 @@ function RomImporter:_refreshMods()
   local LauncherMods = require("src.mods.LauncherMods")
   local SaveData = require("src.core.SaveData")
   self._cartPlan = nil
+  self.findInstalled = nil
   self.safeMode = SaveData.isSafeMode(SaveData.loadOptions())
   -- Once per session, ahead of the first listing: pull in any mod the player
   -- unzipped beside the executable, which an ordinary (non-portable) install
@@ -5718,7 +5723,8 @@ end
 -- as long as the slowest index took -- measured at over two minutes on a
 -- cold open, with no spinner, because the frame that would have drawn one
 -- never ran.  The fetch now starts here and completes across later frames in
--- _pumpFindFetch; the loader overlay is up for the whole flight.
+-- _pumpFindFetch.  Only an explicit Refresh is blocking; boot prewarm and the
+-- first visit keep the launcher interactive while the listing arrives.
 function RomImporter:_refreshFind(force)
   -- The notice is the fix, not the gate (#876).  This branch used to return an
   -- empty listing silently, and because the player had by then added a source,
@@ -5756,9 +5762,11 @@ function RomImporter:_refreshFind(force)
     carts = {}, cartSeen = {}, bases = {}, baseSeen = {},
     stale = false, oldest = nil, at = 1,
   }
-  self:_setBusy(Strings("Fetching mod index"),
-    #sources == 1 and (sources[1].label or sources[1].feed)
-      or Strings("%d indexes", #sources))
+  if force == true then
+    self:_setBusy(Strings("Fetching mod index"),
+      #sources == 1 and (sources[1].label or sources[1].feed)
+        or Strings("%d indexes", #sources))
+  end
 end
 
 -- Drive the in-flight index fetch one frame at a time.  Called from update().
@@ -5958,9 +5966,17 @@ end
 
 function RomImporter:_findInstalledMap()
   if self:findingCarts() then return self:_findInstalledCarts() end
-  local map = {}
-  for _, m in ipairs(self.mods or {}) do map[m.id] = m.version or true end
-  return map
+  if self.findInstalled then return self.findInstalled end
+  local LauncherMods = require("src.mods.LauncherMods")
+  if self.mods then
+    self.findInstalled = {}
+    for _, m in ipairs(self.mods) do
+      self.findInstalled[m.id] = m.version or true
+    end
+  else
+    self.findInstalled = LauncherMods.installedVersions() or {}
+  end
+  return self.findInstalled
 end
 
 -- id -> installed version for every cart on disk, whatever game it plays as.
@@ -5978,10 +5994,9 @@ function RomImporter:_findInstalledCarts()
   return map
 end
 
--- One thumbnail per frame, and only for a card actually on screen: the fetch
--- is a blocking curl, so downloading a whole listing's worth on open would
--- stall the launcher for as many seconds as there are mods.  A failure is
--- remembered as `false` so a broken URL is tried once, not every frame.
+-- Read the cached thumbnail for a card.  Starting a download is deliberately
+-- separate: immediate-mode draw may call this for every visible row, but it
+-- must not mutate the fetch queue or perform network work.
 function RomImporter:_findThumb(entry)
   self._findThumbs = self._findThumbs or {}
   local cached = self._findThumbs[entry.id]
@@ -5991,6 +6006,20 @@ function RomImporter:_findThumb(entry)
   if not url then
     self._findThumbs[entry.id] = false
     return nil
+  end
+  return nil
+end
+
+-- Queue one thumbnail after draw has recorded the visible rows.  The fetch
+-- pool runs off-thread; only the finished image decode stays in update().
+function RomImporter:_startFindThumb(entry)
+  self._findThumbs = self._findThumbs or {}
+  if self._findThumbs[entry.id] ~= nil then return end
+  local ModIndex = require("src.mods.ModIndex")
+  local url = ModIndex.joinUrl(entry._base, entry.thumbnail)
+  if not url then
+    self._findThumbs[entry.id] = false
+    return
   end
   -- ASYNC (was one blocking download per frame).  Only rows on the current
   -- page ever ask, so pagination already bounds this to a page's worth of
@@ -6112,9 +6141,9 @@ function RomImporter:_requestFindStats(entry)
   }
 end
 
--- Request-and-read, for a row that is being drawn and for the detail modal.
+-- Read-only accessor for a row being drawn or shown in the detail modal.
+-- Network work is scheduled by _queueFindEnrichment from update().
 function RomImporter:_findStats(entry)
-  self:_requestFindStats(entry)
   return self:_findStatsCached(entry)
 end
 
@@ -6132,6 +6161,38 @@ end
 
 function RomImporter:_findThumbPending(id)
   return (self._findThumbFetch and self._findThumbFetch[id]) ~= nil
+end
+
+-- Draw records the visible page in _findVisibleEntries.  Queue only a small
+-- batch from that snapshot during update(), keeping network scheduling out of
+-- the immediate-mode render path and preventing a large index from creating a
+-- burst of thumbnail/GitHub work in one frame.
+local FIND_ENRICH_PER_FRAME = 2
+
+function RomImporter:_queueFindEnrichment()
+  if self.tab ~= "find" or not self.findLoaded then return end
+  local visible = self._findVisibleEntries
+  if not visible then return end
+  local thumbnails, stats = 0, 0
+  for _, entry in ipairs(visible) do
+    if thumbnails < FIND_ENRICH_PER_FRAME
+        and self:_findThumb(entry) == nil
+        and not self:_findThumbPending(entry.id) then
+      self:_startFindThumb(entry)
+      thumbnails = thumbnails + 1
+    end
+    if stats < FIND_ENRICH_PER_FRAME
+        and self:_findStatsCached(entry) == nil
+        and entry.github and entry.github ~= ""
+        and not self:_findStatsPendingFor(entry.id) then
+      self:_requestFindStats(entry)
+      stats = stats + 1
+    end
+    if thumbnails >= FIND_ENRICH_PER_FRAME
+        and stats >= FIND_ENRICH_PER_FRAME then
+      break
+    end
+  end
 end
 
 -- Drive in-flight FIND MODS stats lookups.  Called from update().
