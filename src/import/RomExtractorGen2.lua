@@ -2849,7 +2849,10 @@ function RomExtractorGen2:decodeGen2Text(bank, address, charmap, buffers)
       out[#out + 1] = "\f"
     elseif b == 0x55 then
       out[#out + 1] = "\v"
-    elseif b == 0x52 then
+    elseif b == 0x52
+        or (b == 0x14 and inString and self.edition == "crystal") then
+      -- ../pokecrystal/constants/charmap.asm:6 <PLAY_G>,
+      -- ../pokecrystal/home/text.asm:243,380 PlaceGenderedPlayerName
       out[#out + 1] = "{PLAYER}"
     elseif b == 0x53 then
       out[#out + 1] = "{RIVAL}"
