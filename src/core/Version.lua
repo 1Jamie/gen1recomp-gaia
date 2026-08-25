@@ -22,10 +22,22 @@ local Version = {
   cache = "rom-cache-v5", -- ROM import cache generation (RomImporter marker)
 }
 
--- "gen1recomp v0.0.0-dev" (or the stamped release version in shipped builds)
+-- True for the working-tree placeholder and any stamped "-dev" pre-release.
+-- Shipped builds get a bare X.Y.Z from CI and are not "dev" here.
+function Version.isDev()
+  local engine = tostring(Version.engine or "")
+  return engine == "0.0.0-dev" or engine:find("%-dev", 1) ~= nil
+end
+
+-- Window / chrome title.  Dev builds keep the version visible
+-- ("gen1recomp v0.0.0-dev"); release builds are just the base name so Linux
+-- window chrome and taskbars do not read "gen1recomp 0.1.73".
 function Version.title(base)
-  return (base or "gen1recomp")
-    .. " v" .. Version.engine
+  base = base or "gen1recomp"
+  if Version.isDev() then
+    return base .. " v" .. Version.engine
+  end
+  return base
 end
 
 return Version

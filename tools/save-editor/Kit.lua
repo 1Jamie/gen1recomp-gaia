@@ -11,7 +11,8 @@
 -- Hit testing is a plain rect with no z-order, so panels must draw
 -- overlapping controls in dispatch order and every target is >= 26px tall
 -- (rule 6 of the design spec) -- that sizing is the whole accessibility story
--- here.
+-- here.  Kit.tapMin() is the px floor after scale (a short handheld sits on
+-- the 0.9 scale floor, so bare `26 * s` would slip under 26).
 
 local Theme = require("Theme")
 local PAL = Theme.PAL
@@ -24,6 +25,10 @@ Kit.focus = nil           -- id of the text field receiving keystrokes
 Kit.time = 0
 Kit.fonts = {}
 Kit.scale = 1
+
+function Kit.tapMin()
+  return math.max(26, math.floor(30 * (Kit.scale or 1)))
+end
 
 local G = love and love.graphics or nil
 local edits = {}          -- queued textinput / backspace since the last frame

@@ -13,6 +13,7 @@
 
 local Theme = require("Theme")
 local Ops = require("Ops")
+local PickerChrome = require("PickerChrome")
 local PAL = Theme.PAL
 
 local Picker = {}
@@ -57,38 +58,39 @@ function Picker.draw(S, Kit, width, height)
     Kit.blockClicks = true
   end
 
-  -- the scrim doubles as the "tap outside to cancel" target
+  -- the scrim doubles as the "tap outside to cancel" target; it covers the
+  -- full window so unsafe bands (notch / home indicator) stay dimmed too
   Theme.col(PAL.bg, 0.82)
   love.graphics.rectangle("fill", 0, 0, width, height)
 
-  local w = math.min(width - 32 * s, 520 * s)
-  local h = math.min(height - 32 * s, 560 * s)
-  local x = (width - w) / 2
-  local y = (height - h) / 2
+  -- Card fills / centres in SafeArea so phones and RGxxx landscapes keep a
+  -- usable list (#917 / #715).
+  local x, y, w, h, pad = PickerChrome.card(Kit, width, height)
   if Kit.press(0, 0, width, height) and not Kit.hit(x, y, w, h) then
     Ops.closeItemPicker(S, Kit)
     return
   end
 
   Kit.card(x, y, w, h)
-  local pad = 18 * s
   local cx, cy = x + pad, y + pad
   local inner = w - 2 * pad
 
-  Kit.caption(cx, cy, "ADD AN ITEM")
-  local closeW = 30 * s
-  if Kit.button(x + w - pad - closeW, cy - 4 * s, closeW, 26 * s, "x",
+  local closeW = PickerChrome.closeSize(Kit)
+  local captionH = Kit.textHeight("caption")
+  local headH = math.max(captionH, closeW)
+  Kit.caption(cx, cy + (headH - captionH) / 2, "ADD AN ITEM")
+  if Kit.button(x + w - pad - closeW, cy + (headH - closeW) / 2, closeW, closeW, "x",
       { font = "small" }) then
     Ops.closeItemPicker(S, Kit)
     return
   end
-  cy = cy + Kit.textHeight("caption") + 10 * s
+  cy = cy + headH + 10 * s
 
   -- Destination toggle.  Which list an item lands in is the only real choice
   -- here, so it is a pair of chips at the top rather than two buttons at the
   -- bottom that each mean "commit, and also pick a destination".
   local half = (inner - 8 * s) / 2
-  local destH = 30 * s
+  local destH = math.max(PickerChrome.tapMin(Kit), math.floor(30 * s))
   if Kit.chip(cx, cy, half, destH, "-> BAG", p.dest ~= "pc", PAL.green, PAL.steel) then
     p.dest = "bag"
   end
@@ -98,16 +100,13 @@ function Picker.draw(S, Kit, width, height)
   end
   cy = cy + destH + 10 * s
 
-  local fieldH = 34 * s
+  local fieldH = PickerChrome.fieldH(Kit)
   p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query,
     "type an item id")
   cy = cy + fieldH + 10 * s
 
   local hits = Picker.results(S)
-  local rowH = 36 * s
-  local rowGap = 6 * s
-  local pagerH = 30 * s
-  local listH = (y + h - pad - pagerH - 10 * s) - cy
+  local listH, rowH, rowGap, pagerH = PickerChrome.listMetrics(Kit, y, h, pad, cy)
   local perPage = math.max(1, math.floor((listH + rowGap) / (rowH + rowGap)))
   p.offset = Theme.clamp(p.offset or 0, 0, math.max(0, #hits - perPage))
   -- wheel / touch drag scroll the modal list too; the shield is already

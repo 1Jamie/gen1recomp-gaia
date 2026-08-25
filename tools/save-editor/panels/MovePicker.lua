@@ -1,9 +1,8 @@
--- Type-to-search species picker (#541).  The inspector used to change species
--- with a pair of arrows, which walked the catalog one entry at a time -- 151
--- taps to cross the dex -- and ran a full MonOps recalculation on whatever
--- record happened to be next, including records the Gen1 formulas cannot use.
--- This is the replacement: one modal list, filtered as you type, committing
--- through Ops.setSpecies so an unusable record refuses instead of crashing.
+-- Type-to-search move picker.  The inspector used to change moves by cycling
+-- the catalog one tap at a time -- 165 taps to walk Gen1 -- which is the same
+-- class of friction the species arrows had before #541.  This is the
+-- replacement: one modal list, filtered as you type, committing through
+-- Ops.setMove so an unusable / scalar id refuses instead of asserting.
 --
 -- Modal is literal.  Kit hit-tests without a z-order, so App.draw raises
 -- Kit.blockClicks over the chrome and the panel while this is open and lowers
@@ -11,42 +10,35 @@
 
 local Theme = require("Theme")
 local Ops = require("Ops")
-local MonEditor = require("MonEditor")
 local PickerChrome = require("PickerChrome")
 local PAL = Theme.PAL
 
 local Picker = {}
 
-local FIELD_ID = "species-picker"
+local FIELD_ID = "move-picker"
 
 function Picker.results(S)
-  local p = S.speciesPicker
-  return Ops.speciesSearch(S, p and p.query or "")
+  local p = S.movePicker
+  return Ops.moveSearch(S, p and p.query or "")
 end
 
--- One commit funnel for both of the picker's jobs: changing the inspected
--- mon's species, and the Boxes panel's add flow (mode "box-add"), which
--- creates a fresh Lv5 mon in the selected box instead (#715).  Either way an
--- unusable record refuses in the status bar rather than crashing (#541).
 local function commit(S, id)
-  local p = S.speciesPicker
-  if p and p.mode == "box-add" then
-    return Ops.boxAddSpecies(S, id)
-  end
-  return Ops.setSpecies(S, S.editingMon, id)
+  local p = S.movePicker
+  if not p then return false end
+  return Ops.setMove(S, S.editingMon, p.slot, id)
 end
 
 -- Enter commits the top match, which is the whole point of a search field.
 function Picker.commitFirst(S, Kit)
   local hits = Picker.results(S)
-  if not hits[1] then return Ops.say(S, "No species matches that") end
+  if not hits[1] then return Ops.say(S, "No move matches that") end
   local ok = commit(S, hits[1])
-  if ok then Ops.closeSpeciesPicker(S, Kit) end
+  if ok then Ops.closeMovePicker(S, Kit) end
   return ok
 end
 
 function Picker.draw(S, Kit, width, height)
-  local p = S.speciesPicker
+  local p = S.movePicker
   if not p then return end
   local s = Kit.scale
 
@@ -69,7 +61,7 @@ function Picker.draw(S, Kit, width, height)
   -- usable list (#917 / #715).
   local x, y, w, h, pad = PickerChrome.card(Kit, width, height)
   if Kit.press(0, 0, width, height) and not Kit.hit(x, y, w, h) then
-    Ops.closeSpeciesPicker(S, Kit)
+    Ops.closeMovePicker(S, Kit)
     return
   end
 
@@ -80,18 +72,17 @@ function Picker.draw(S, Kit, width, height)
   local closeW = PickerChrome.closeSize(Kit)
   local captionH = Kit.textHeight("caption")
   local headH = math.max(captionH, closeW)
-  Kit.caption(cx, cy + (headH - captionH) / 2, p.mode == "box-add"
-    and ("ADD TO BOX %d"):format(S.selectedBox or 1) or "CHOOSE A SPECIES")
+  Kit.caption(cx, cy + (headH - captionH) / 2, ("CHOOSE MOVE %d"):format(p.slot or 1))
   if Kit.button(x + w - pad - closeW, cy + (headH - closeW) / 2, closeW, closeW, "x",
       { font = "small", radius = 7 * s }) then
-    Ops.closeSpeciesPicker(S, Kit)
+    Ops.closeMovePicker(S, Kit)
     return
   end
   cy = cy + headH + 10 * s
 
   local fieldH = PickerChrome.fieldH(Kit)
   p.query = Kit.textfield(FIELD_ID, cx, cy, inner, fieldH, p.query,
-    "type a name, an id, or a dex number")
+    "type a name, an id, or a type")
   cy = cy + fieldH + 10 * s
 
   local hits = Picker.results(S)
@@ -102,6 +93,10 @@ function Picker.draw(S, Kit, width, height)
   -- lowered for this layer, so Kit.scroll works here and only here (#715)
   p.offset = Kit.scroll(cx, cy, inner, listH, p.offset, #hits, perPage)
 
+  local mon = S.editingMon
+  local currentId = mon and mon.moves and mon.moves[p.slot]
+    and mon.moves[p.slot].id
+
   if #hits == 0 then
     Kit.emptyBox(cx, cy, inner, listH, "Nothing matches that.")
   else
@@ -110,29 +105,23 @@ function Picker.draw(S, Kit, width, height)
       local id = hits[p.offset + i]
       if not id then break end
       local ry = cy + (i - 1) * (rowH + rowGap)
-      local def = S.data.pokemon[id]
-      -- A record the formulas cannot use still lists, greyed: hiding it would
-      -- make a modded species look like it never registered (#541).
-      local usable = Ops.speciesUsable(S, id)
-      -- box-add has no "current" species: nothing is being replaced
-      local current = p.mode ~= "box-add"
-        and (S.editingMon and S.editingMon.species == id) or false
+      local def = S.data.moves[id]
+      local usable = Ops.moveUsable(S, id)
+      local current = currentId == id
       if Kit.row(cx, ry, inner, rowH, current, PAL.green, 9 * s) then
         if commit(S, id) then
-          Ops.closeSpeciesPicker(S, Kit)
+          Ops.closeMovePicker(S, Kit)
           Kit.popClip()
           return
         end
       end
-      local icon = rowH - 4 * s
-      MonEditor.drawSprite(S, Kit, id, cx + 6 * s, ry + 2 * s, icon)
-      local tx = cx + 6 * s + icon + 8 * s
-      local tail = usable and ("#%03d"):format(tonumber(def and def.dex) or 0)
-        or "no data"
+      local typ = usable and tostring(def and def.type or "?") or "no data"
+      local pp = usable and ("PP %d"):format(tonumber(def and def.pp) or 0) or ""
+      local tail = pp ~= "" and (typ .. "  " .. pp) or typ
       local tailW = Kit.textWidth("tiny", tail)
       Kit.text("monoRow",
-        Kit.ellipsize("monoRow", id, inner - (tx - cx) - tailW - 20 * s), tx,
-        ry + (rowH - Kit.textHeight("monoRow")) / 2,
+        Kit.ellipsize("monoRow", id, inner - tailW - 28 * s),
+        cx + 12 * s, ry + (rowH - Kit.textHeight("monoRow")) / 2,
         usable and PAL.text or PAL.faint)
       Kit.textRight("tiny", tail, cx + inner - 10 * s,
         ry + (rowH - Kit.textHeight("tiny")) / 2, PAL.caption)

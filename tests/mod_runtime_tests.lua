@@ -145,8 +145,24 @@ check(type(Version.engine) == "string"
   and Semver.parse(Version.engine) ~= nil,
   "engine version parses as a semver (triple, optionally with a pre-release)")
 check(Version.modApi == 2, "mod api version is 2")
+check(Version.isDev() == true, "the working-tree placeholder is a dev build")
 check(Version.title("X") == "X v" .. Version.engine,
-  "window title carries the engine version")
+  "dev window title carries the engine version")
+do
+  local saved = Version.engine
+  Version.engine = "0.1.73"
+  check(Version.isDev() == false, "a stamped X.Y.Z is not a dev build")
+  check(Version.title() == "gen1recomp",
+    "release window title omits the version number")
+  check(Version.title("Gen 1 Recompilation Project")
+      == "Gen 1 Recompilation Project",
+    "release titles keep the base string alone")
+  Version.engine = "1.2.3-dev"
+  check(Version.isDev() == true, "a -dev pre-release still counts as dev")
+  check(Version.title() == "gen1recomp v1.2.3-dev",
+    "and still shows the version in the title")
+  Version.engine = saved
+end
 
 -- null-object runtime: emit/call are safe with no loader installed
 local nullEvents, nullHooks = Runtime.events, Runtime.hooks
