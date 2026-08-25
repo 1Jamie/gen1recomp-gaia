@@ -220,6 +220,54 @@ output directory; nothing packages it next to a shipped game yet.
 and `ShaderFX.bridgeError()` says why not. Activating an already-converted
 preset never needs any of this.
 
+**Statically linked bridges.** On iOS there is no loadable library at all:
+the bridge is linked straight into the app binary, so its symbols live in the
+main image and are reachable only through `ffi.C`. The candidate list is empty
+on iOS and, on every platform, a failed candidate walk falls back to probing
+`ffi.C` for `librashader_translate_preset` after the `ffi.cdef`. If the symbol
+is there, `ffi.C` becomes the library handle and `ShaderFX.translate` uses it
+unchanged. If it is not, `ShaderFX.bridgeError()` reports that `ffi.C` was
+probed as well, followed by the file paths that were tried (omitted on iOS,
+where none are).
+
+**Android ships the bridge inside the APK.** `scripts/build_android.sh`
+stages `liblibrashader_bridge.so` into
+`mobile/android/app/src/main/jniLibs/<abi>/` for the two ABIs the APK ships,
+arm64-v8a and armeabi-v7a, so `ffi.load("liblibrashader_bridge.so")` finds it
+by bare name in the app's native library directory. The build cross-compiles
+the crate with `cargo ndk` against the same NDK the gradle project uses
+(25.2.9519653), which needs `cargo install cargo-ndk` and
+`rustup target add aarch64-linux-android armv7-linux-androideabi`; the script
+names the exact command for any target that is missing. Set
+`SHADERFX_BRIDGE_ANDROID_DIR` to a directory holding
+`<abi>/liblibrashader_bridge.so` to bundle prebuilt libraries instead. As on
+desktop, the bridge is only needed to CONVERT a preset: a build without it
+still runs presets converted elsewhere, and the packager warns and continues
+rather than failing.
+
+**iOS links the bridge instead of loading it.** An iOS app cannot `dlopen` a
+dylib shipped beside its binary, so `tools/shaderfx-bridge` also builds as a
+`staticlib` and `scripts/build_ios.sh` links it into the app executable
+(`bundle_shader_bridge_ios`, mirroring `bundle_shader_bridge` in
+`scripts/build.sh`). `SHADERFX_BRIDGE_IOS` points at a prebuilt archive;
+otherwise cargo builds `aarch64-apple-ios` for device builds and every
+installed simulator target (`aarch64-apple-ios-sim`, `x86_64-apple-ios`) for
+the Simulator, with `IPHONEOS_DEPLOYMENT_TARGET=15.0`, and `ARCHS` is pinned to
+what got built. The archive is never linked directly: LÖVE 12 carries its own
+glslang for shader validation and the crate drags in a second, incompatible
+one, and linking both crashed inside `Shader::validateInternal` at startup.
+Each slice is therefore prelinked with `ld -r -all_load
+-exported_symbols_list` so only `_librashader_translate_preset` and
+`_librashader_free_string` stay external and every other symbol (glslang,
+spirv-cross, Rust std) becomes private to the object, then `rust-objcopy`
+drops the `__LLVM` bitcode sections rustup's prebuilt std carries, since
+Apple's `nm` cannot read them. `OTHER_LDFLAGS` adds `-Wl,-u` on both entry
+points to keep them past dead-stripping and `-lc++` for the C++ the crate
+needs; no Objective-C framework is involved. A build that linked the object
+fails if `nm` cannot find `_librashader_translate_preset` in the finished
+binary; a build that could not produce one only warns and lands where the
+desktop packages without cargo land: converted presets run, CONVERT does not.
+
 ### Fixup
 
 `ShaderFixup.lua` mechanically rewrites the emitted GLSL into something LOVE
@@ -656,7 +704,8 @@ None of these are theoretical.
   `bundle_shader_bridge`, building it with cargo when a prebuilt one is not
   supplied through `SHADERFX_BRIDGE`. A build host without cargo produces a
   package that can run converted presets but cannot CONVERT new ones, and says
-  so rather than failing. Android ships the `.so` via `jniLibs`.
+  so rather than failing. `scripts/build_android.sh` and `scripts/build_ios.sh`
+  follow the same rule with `cargo ndk` and the iOS static archive.
 - **The buildbot shortlist is a temporary trim.** `KEPT_PRESETS` reflects one
   manual pass over `handheld/` and is expected to change, most likely to shrink.
 - **Tilt direction is unverified.** Which way forward and back rocking moves the

@@ -4803,6 +4803,7 @@ function RomImporter:_refreshMods()
   local LauncherMods = require("src.mods.LauncherMods")
   local SaveData = require("src.core.SaveData")
   self._cartPlan = nil
+  self._profileCache = nil
   self.findInstalled = nil
   self.safeMode = SaveData.isSafeMode(SaveData.loadOptions())
   -- Once per session, ahead of the first listing: pull in any mod the player

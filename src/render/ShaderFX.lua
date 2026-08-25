@@ -264,7 +264,9 @@ ShaderFX.BRIDGE_DIR = "tools/shaderfx-bridge"
 local function libNames()
   local osName = (love and love.system and love.system.getOS
     and love.system.getOS()) or ""
-  if osName == "Windows" then
+  if osName == "iOS" then
+    return {}
+  elseif osName == "Windows" then
     return { "librashader_bridge.dll" }
   elseif osName == "OS X" then
     return { "liblibrashader_bridge.dylib", "librashader_bridge.dylib" }
@@ -313,11 +315,13 @@ end
 
 -- Every place the bridge may sit, most specific first.
 local function libCandidates()
+  local names = libNames()
+  if #names == 0 then return {} end
   local out = {}
   local override = os.getenv("LIBRASHADER_BRIDGE_DLL")
   if override and override ~= "" then out[#out + 1] = override end
   local dirs, save = sourceDirs(), saveDir()
-  for _, name in ipairs(libNames()) do
+  for _, name in ipairs(names) do
     for _, dir in ipairs(dirs) do
       out[#out + 1] = dir .. "/" .. name
       out[#out + 1] = dir .. "/" .. ShaderFX.BRIDGE_DIR .. "/target/release/" .. name
@@ -353,7 +357,17 @@ local function ensureLib()
     end
     tried[#tried + 1] = path
   end
-  libError = "librashader bridge not found; looked in " .. table.concat(tried, ", ")
+  local okSym, sym = pcall(function()
+    return ffi.C and ffi.C.librashader_translate_preset
+  end)
+  if okSym and sym ~= nil then
+    lib = ffi.C
+    return lib
+  end
+  libError = "librashader bridge not found; ffi.C has no librashader_translate_preset"
+  if #tried > 0 then
+    libError = libError .. "; looked in " .. table.concat(tried, ", ")
+  end
   return nil, libError
 end
 

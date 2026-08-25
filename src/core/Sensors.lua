@@ -76,7 +76,14 @@ local function sdlFfi()
     ]])
     if sdlCdefOk then
       local okLoad, lib = pcall(ffi.load, "SDL2")
-      sdlLib = okLoad and lib or ffi.C
+      lib = okLoad and lib or ffi.C
+      local okSyms = pcall(function()
+        return lib.SDL_InitSubSystem, lib.SDL_NumSensors, lib.SDL_SensorGetDeviceType,
+          lib.SDL_SensorOpen, lib.SDL_SensorUpdate, lib.SDL_SensorGetData,
+          lib.SDL_GL_GetCurrentWindow, lib.SDL_GetWindowDisplayIndex,
+          lib.SDL_GetDisplayOrientation
+      end)
+      sdlLib = okSyms and lib or false
     end
   end
   if not sdlCdefOk or not sdlLib then return nil end

@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 name = "librashader_bridge"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 librashader-preprocess = "0.12.0"

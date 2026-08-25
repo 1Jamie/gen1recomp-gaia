@@ -461,6 +461,115 @@ pack_game_love() {
   fi
 }
 
+# --------------------------------------------------------------- ShaderFX bridge
+SHADER_BRIDGE_LIB="liblibrashader_bridge.so"
+SHADER_BRIDGE_ABIS="arm64-v8a armeabi-v7a"
+
+shader_bridge_rust_target() {
+  case "$1" in
+    arm64-v8a)   printf 'aarch64-linux-android' ;;
+    armeabi-v7a) printf 'armv7-linux-androideabi' ;;
+    x86_64)      printf 'x86_64-linux-android' ;;
+    x86)         printf 'i686-linux-android' ;;
+    *)           printf '' ;;
+  esac
+}
+
+shader_bridge_staged_count() {
+  local jni="$1" abi count=0
+  for abi in $SHADER_BRIDGE_ABIS; do
+    [ -f "$jni/$abi/$SHADER_BRIDGE_LIB" ] && count=$((count + 1))
+  done
+  printf '%s' "$count"
+}
+
+bundle_shader_bridge_android() {
+  local jni="$ANDROID_DIR/app/src/main/jniLibs"
+  local crate="$ROOT/tools/shaderfx-bridge"
+  local abi target
+
+  for abi in $SHADER_BRIDGE_ABIS; do
+    rm -f "$jni/$abi/$SHADER_BRIDGE_LIB"
+  done
+
+  local prebuilt="${SHADERFX_BRIDGE_ANDROID_DIR:-}"
+  if [ -n "$prebuilt" ]; then
+    for abi in $SHADER_BRIDGE_ABIS; do
+      if [ -f "$prebuilt/$abi/$SHADER_BRIDGE_LIB" ]; then
+        mkdir -p "$jni/$abi"
+        cp "$prebuilt/$abi/$SHADER_BRIDGE_LIB" "$jni/$abi/$SHADER_BRIDGE_LIB"
+      else
+        warn "SHADERFX_BRIDGE_ANDROID_DIR has no $abi/$SHADER_BRIDGE_LIB"
+      fi
+    done
+    if [ "$(shader_bridge_staged_count "$jni")" -gt 0 ]; then
+      say "bundled $SHADER_BRIDGE_LIB for SHADER FX preset conversion (prebuilt)"
+      return
+    fi
+  fi
+
+  if [ ! -f "$crate/Cargo.toml" ]; then
+    warn "$SHADER_BRIDGE_LIB not found: this build can run converted presets but not CONVERT new ones (tools/shaderfx-bridge is missing)"
+    return
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1 || ! cargo ndk --version >/dev/null 2>&1; then
+    warn "$SHADER_BRIDGE_LIB not found: this build can run converted presets but not CONVERT new ones (set SHADERFX_BRIDGE_ANDROID_DIR or run 'cargo install cargo-ndk')"
+    return
+  fi
+
+  local ndk="${ANDROID_NDK_HOME:-}"
+  if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+    ndk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}/ndk/$NDK_VERSION"
+  fi
+  if [ ! -d "$ndk" ]; then
+    warn "$SHADER_BRIDGE_LIB not built: NDK $NDK_VERSION not found (set ANDROID_NDK_HOME)"
+    return
+  fi
+
+  local installed missing="" buildable=""
+  installed="$(rustup target list --installed 2>/dev/null || true)"
+  for abi in $SHADER_BRIDGE_ABIS; do
+    target="$(shader_bridge_rust_target "$abi")"
+    if grep -qx "$target" <<< "$installed"; then
+      buildable="$buildable $abi"
+    else
+      missing="$missing $target"
+    fi
+  done
+  if [ -n "$missing" ]; then
+    warn "$SHADER_BRIDGE_LIB: skipping$missing. Run: rustup target add$missing"
+  fi
+  if [ -z "$buildable" ]; then
+    warn "$SHADER_BRIDGE_LIB not built: this build can run converted presets but not CONVERT new ones (no Android Rust targets installed)"
+    return
+  fi
+
+  local args=()
+  for abi in $buildable; do
+    args+=(-t "$abi")
+  done
+
+  say "building the ShaderFX bridge with cargo-ndk (${buildable# })"
+  mkdir -p "$jni"
+  if ! (
+    cd "$crate"
+    export ANDROID_NDK_HOME="$ndk"
+    export ANDROID_NDK_ROOT="$ndk"
+    export CARGO_PROFILE_RELEASE_STRIP="symbols"
+    cargo ndk "${args[@]}" -o "$jni" build --release
+  ); then
+    warn "$SHADER_BRIDGE_LIB failed to cross-compile: this build can run converted presets but not CONVERT new ones"
+    return
+  fi
+
+  if [ "$(shader_bridge_staged_count "$jni")" -gt 0 ]; then
+    say "bundled $SHADER_BRIDGE_LIB for SHADER FX preset conversion"
+  else
+    warn "$SHADER_BRIDGE_LIB not found after cargo-ndk: this build can run converted presets but not CONVERT new ones"
+  fi
+}
+
 # --------------------------------------------------------------- SDK check
 require_android_sdk() {
   local sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
@@ -575,5 +684,6 @@ if $PACKAGE_ONLY; then
 fi
 
 require_android_sdk
+bundle_shader_bridge_android
 run_gradle
 say "done"

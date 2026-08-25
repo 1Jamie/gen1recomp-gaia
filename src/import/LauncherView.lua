@@ -984,6 +984,17 @@ local function modScopeChipsWidth(options, gap, m)
   return need
 end
 
+local function profileState(imp)
+  if imp._profileCache == nil then
+    local LauncherMods = require("src.mods.LauncherMods")
+    local SaveData = require("src.core.SaveData")
+    local options = SaveData.loadOptions()
+    local list, cur = LauncherMods.getProfiles(options)
+    imp._profileCache = { options = options, list = list, active = cur }
+  end
+  return imp._profileCache
+end
+
 local function buildModScopeRow(imp, x, y, w, m)
   local LauncherMods = require("src.mods.LauncherMods")
   local h = math.max(Kit.tapMin(), math.floor(26 * m.s))
@@ -994,7 +1005,7 @@ local function buildModScopeRow(imp, x, y, w, m)
   local options = modScopeOptions(imp)
 
   -- Dedicated Profile control section (cycle button + gear icon button) on right side of Scope Bar
-  local _, activeProf = LauncherMods.getProfiles()
+  local activeProf = profileState(imp).active
   local isCompact = (w < math.floor(500 * m.s))
   local nameText = tostring(activeProf or "Default")
   local profLabel = isCompact and nameText or Strings("Profile: %s", nameText)
@@ -3698,9 +3709,8 @@ local function buildSingleProfileActionsModal(imp, m)
   if not pName then imp._singleProfileActions = nil return end
 
   local LauncherMods = require("src.mods.LauncherMods")
-  local SaveData = require("src.core.SaveData")
-  local options = SaveData.loadOptions()
-  local profiles, active = LauncherMods.getProfiles(options)
+  local prof = profileState(imp)
+  local options, profiles = prof.options, prof.list
 
   local pad = math.floor(18 * m.s)
   local w = math.min(math.floor(380 * m.s), m.w - 2 * m.pad)
@@ -3715,6 +3725,7 @@ local function buildSingleProfileActionsModal(imp, m)
       action = function()
         LauncherMods.duplicateProfile(pName, options)
         imp._singleProfileActions = nil
+        if imp._refreshMods then imp:_refreshMods() end
       end
     },
     {
@@ -3736,6 +3747,7 @@ local function buildSingleProfileActionsModal(imp, m)
         imp:pressDelete("profile", pName, nil, function()
           LauncherMods.deleteProfile(pName, options)
           imp._singleProfileActions = nil
+          if imp._refreshMods then imp:_refreshMods() end
         end)
       end
     }
@@ -3771,9 +3783,8 @@ end
 -- Modal for Mod Profiles (#593) - interactive profile manager (switch, edit, duplicate, delete)
 local function buildProfilesModal(imp, m)
   local LauncherMods = require("src.mods.LauncherMods")
-  local SaveData = require("src.core.SaveData")
-  local options = SaveData.loadOptions()
-  local profiles, active = LauncherMods.getProfiles(options)
+  local prof = profileState(imp)
+  local options, profiles, active = prof.options, prof.list, prof.active
 
   local pad = math.floor(18 * m.s)
   local w = math.min(math.floor(460 * m.s), m.w - 2 * m.pad)
