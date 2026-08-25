@@ -200,6 +200,60 @@ the adapter's own coverage table:
 python3 tools/modkit.py gen2check mods/my_mod
 ```
 
+## Imported version datasets
+
+A mod can inspect semantic content from another game the player has already
+imported without switching the active game or reaching into engine cache
+internals:
+
+```lua
+local gold, reason = mod.datasets:open("gold")
+if not gold then
+  -- reason is "unknown_version", "not_imported", or "invalid_cache"
+  return
+end
+
+local chikorita = gold.content.pokemon:get("CHIKORITA")
+local normalVsGhost = gold.content.type_chart:get("NORMAL>GHOST")
+local spritePath = gold.assets:path(chikorita.spriteFront)
+
+for id, record in gold.content.pokemon:each() do
+  -- ids are returned in deterministic lexical order
+end
+```
+
+`view.version` and `view.generation` identify the selected dataset.
+`view.content` exposes the same registry names, aliases, generation routing,
+and data-only record shapes as `mod.content`, but only `get`, `has`, and
+`each`. Returned records are detached copies and cannot mutate either dataset.
+Every generated base record passes the selected generation's existing public
+schema before it is returned; extractor metadata beside record maps stays out
+of the registry id space and is reserved against `register`, `override`,
+`patch`, and `remove` writes through the active registry. A malformed record
+makes `get` return nil, `has`
+return false, and `each` return no rows, and invalidates that dataset view.
+Records containing functions, userdata, threads, metatables, or cycles are not
+exposed. Each open call receives an independent facade, so one mod cannot
+replace another mod view method. Canonical boot shaping is included, such as
+Gen 1 defaults and Yellow corrections, and Gold's Foresight matchup rows and
+derived `held_items`.
+
+`open` checks the completion marker, exact version-specific file inventory,
+source/cache boundary, and file-size bounds without reading or decoding the
+semantic modules. A root is read, bounded-decoded, normalized, and cached only
+when a content operation first needs it. Each later view operation rechecks
+readiness and the source bytes behind already cached roots; unchanged roots are
+not decoded again. Missing, partial, and stale imports return
+`nil, "not_imported"`. Malformed syntax, a resource-limit violation, or a
+record that fails the public schema is discovered on first root access and
+fails that operation closed; a later `open` against the same source returns
+`nil, "invalid_cache"`. Generated modules use a bounded literal-only grammar
+and are never executed. No raw ROM bytes or generated source are exposed.
+`view.assets:path(relative)` and
+`view.assets:info(relative)` accept only `assets/generated/...` paths and
+keep them under the selected version cache prefix. The API never changes
+`mod.game`, the active `Data` table, `GameVersion`, or cache mount state.
+
 ## Editing maps in Tiled
 
 Maps are data, not assets, so they can be authored in a real map editor and
