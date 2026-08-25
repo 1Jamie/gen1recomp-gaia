@@ -5086,6 +5086,22 @@ end
 -- "New POKéDEX data will be added" + the dex entry page, then
 -- AddPartyMon or SendNewMonToBox (both call AskName), then the PC
 -- transfer text when the party was full.
+-- Where a caught mon goes when the party has no room for it (RFC 0018):
+-- "box", as AddPartyMon falling through to SendNewMonToBox always did, or
+-- "mod" when the catch.party_full hook claims it -- a game mode that has
+-- done away with storage hands the decision to the player instead of
+-- laundering the catch through a PC it has locked.  A method rather than
+-- an inline read, so a mod or a compatibility shim can tell a seam engine
+-- from a stock one by name.
+function BattleState:partyFullDestination(mon)
+  if not Runtime.wantsHook("catch.party_full") then return "box" end
+  local claimed = Runtime.call("catch.party_full", function() return false end,
+    { battle = self, mon = mon, name = self.enemy and self.enemy.name,
+      game = self.game })
+  if claimed then return "mod" end
+  return "box"
+end
+
 function BattleState:storeCaughtMon()
   -- ItemUseBall reloads the caught mon via LoadEnemyMonData
   -- (item_effects.asm:472-501), regenerating its move list from the
@@ -5126,19 +5142,21 @@ function BattleState:storeCaughtMon()
   if Party.add(game.save.party, self.enemy.mon) then
     askCaughtNickname()
   else
-    destination = "box"
-    local boxNum = require("src.pokemon.Boxes").deposit(game.save, self.enemy.mon)
-    if boxNum then
-      askCaughtNickname()
-      -- _ItemUseBallText07/08 keyed on EVENT_MET_BILL
-      local metBill = game.save.flags and game.save.flags.EVENT_MET_BILL
-      self:sayNext(self:romText(
-        metBill and "_ItemUseBallText07" or "_ItemUseBallText08",
-        metBill and "%s was\ntransferred to\nBILL's PC!"
-                or "%s was\ntransferred to\nsomeone's PC!",
-        self.enemy.name))
-    else
-      self:sayNext(Strings("But every BOX\nis full!"))
+    destination = self:partyFullDestination(self.enemy.mon)
+    if destination == "box" then
+      local boxNum = require("src.pokemon.Boxes").deposit(game.save, self.enemy.mon)
+      if boxNum then
+        askCaughtNickname()
+        -- _ItemUseBallText07/08 keyed on EVENT_MET_BILL
+        local metBill = game.save.flags and game.save.flags.EVENT_MET_BILL
+        self:sayNext(self:romText(
+          metBill and "_ItemUseBallText07" or "_ItemUseBallText08",
+          metBill and "%s was\ntransferred to\nBILL's PC!"
+                  or "%s was\ntransferred to\nsomeone's PC!",
+          self.enemy.name))
+      else
+        self:sayNext(Strings("But every BOX\nis full!"))
+      end
     end
   end
   Runtime.emit("pokemon.caught", {
