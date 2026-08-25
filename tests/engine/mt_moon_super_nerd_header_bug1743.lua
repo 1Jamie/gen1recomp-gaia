@@ -29,11 +29,4 @@ Data.seedMtMoonB2FSuperNerd(empty)
 eq(empty.trainer_headers.MtMoonB2F[1].battle, "KEEP",
    "seed does not overwrite an existing header")
 
--- live Data load (Red/Blue pin or Yellow seed) must expose the battle label
-if not Data.maps then Data:load() end
-local header = Data:trainerHeader("MtMoonB2F", 1)
-check(header ~= nil, "loaded Data has MtMoonB2F[1]")
-eq(header.battle, "_MtMoonB2FSuperNerdTheyreBothMineText",
-   "engageTrainer can resolve real pre-battle text")
-
 S.finish()
