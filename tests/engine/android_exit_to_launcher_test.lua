@@ -99,4 +99,19 @@ do
   check(type(Game.load) == "function", "Game:reset keeps methods")
 end
 
+-- 6. Play-again after endGameSession: Game.load must still be callable
+--    (Android crash: main.lua bootGame → Game:load with load == nil)
+do
+  local Game = require("src.core.Game")
+  local SessionLifecycle = require("src.core.SessionLifecycle")
+  Game.save = {}
+  Game.stack = { clear = function() end }
+  -- Mimic a shared net module parked on the singleton (handle-style release).
+  Game.net = { release = function(id) end }
+  SessionLifecycle.endGameSession(Game)
+  local again = require("src.core.Game")
+  check(type(again.load) == "function",
+    "Play-again can call Game:load after endGameSession")
+end
+
 T.finish("android_exit_to_launcher_test")
