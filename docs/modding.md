@@ -505,6 +505,42 @@ Menu choices and moves use the same engine methods as the native controls;
 their mutable logic. Tutorial, link, forced, stale, and covered battle states
 refuse core intents. Use `mod.input` for ordinary text advance.
 
+## Battle rule hooks
+
+Two decisions the OPTION screen and the cart make for the player, which a game
+mode can make instead (RFC 0015). Neither writes the player's saved
+preference, so a mode can hold a rule for as long as it is active and hand the
+player's own setting back untouched.
+
+`battle.style` wraps the SHIFT/SET read at the moment the foe's Pokémon faints
+and the engine would offer a free switch:
+
+```lua
+mod.hooks:wrap("battle.style", function(next, battle)
+  if myMode.active then return "set" end   -- no "will you change POKéMON?"
+  return next(battle)                      -- the OPTION row, as today
+end)
+```
+
+Return `"set"` or `"shift"`; anything else reads as the vanilla answer.
+
+`catch.nickname` wraps the `AskName` prompt after a capture (party or box),
+the same question `pokemon.before_give`'s `gift.nickname` already answers for
+script gifts:
+
+```lua
+mod.hooks:wrap("catch.nickname", function(next, mon, ctx)
+  -- ctx = { battle = <BattleState>, name = <display name>, game = <Game> }
+  if myMode.active then return false end        -- keep the species name
+  if myNames then return myNames[mon.species] end -- a string names it, no prompt
+  return next(mon, ctx)                         -- true: ask, as today
+end)
+```
+
+`false` keeps the species name with no prompt. A string is the nickname with
+no prompt, clipped to the naming grid's ten characters (an empty string names
+nothing). Anything else queues the prompt.
+
 ## Party-full custody at a catch
 
 When a capture lands on a full party, the cart deposits the mon in storage

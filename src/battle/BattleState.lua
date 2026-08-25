@@ -4531,8 +4531,7 @@ function BattleState:enemyMonFainted()
       -- remaining HP); SET / single-mon / fainted active skip the prompt.
       local nextMon = self.enemyParty[self.enemyIndex]
       local nextName = nextMon.nickname or self.data.pokemon[nextMon.species].name
-      local style = tostring((self.game.save.options or {}).battleStyle or "shift")
-        :lower()
+      local style = self:battleStyle()
       local partyCount = #self:playerPartyView()
       -- ReplaceFaintedEnemyMon (core.asm:892-896): DrawEnemyPokeballs puts the
       -- foe's party ball row -- and the HUD chrome PlaceEnemyHUDTiles lays
@@ -5100,6 +5099,57 @@ function BattleState:ballMissMessage(shakes)
   return t._ItemUseBallText04 or self:romText("_ItemUseBallText04", "Shoot! It was so\nclose too!")
 end
 
+-- ------- battle rules a mode may own
+--
+-- Two decisions the OPTION screen and the cart make for the player that a
+-- game mode may want to make instead: whether a faint offers a free switch,
+-- and whether a catch asks for a nickname.  Each is a hook around the vanilla
+-- answer, so a mode can force it without touching the player's saved
+-- preference and without the player being able to change it mid-match.
+--
+-- The vanilla links are file-locals so an empty chain allocates no closure.
+
+local function styleFromOptions(battle)
+  return tostring(((battle.game.save or {}).options or {}).battleStyle or "shift")
+    :lower()
+end
+
+local function alwaysAsk() return true end
+
+-- "shift" or "set" for this battle.  battle.style wraps the OPTION row: a
+-- mod returns "set" or "shift"; anything else reads as the vanilla answer.
+function BattleState:battleStyle()
+  if not Runtime.wantsHook("battle.style") then return styleFromOptions(self) end
+  local style = Runtime.call("battle.style", styleFromOptions, self)
+  if style == "set" then return "set" end
+  if style == "shift" then return "shift" end
+  return styleFromOptions(self)
+end
+
+-- AskName for a catch (AddPartyMon / SendNewMonToBox).  Vanilla queues the
+-- yes/no prompt.  catch.nickname may answer for the player: false keeps the
+-- species name and shows nothing; a string is the nickname, shown nothing;
+-- anything else asks as usual.  Returns whether a prompt was queued.
+--
+-- The same verdict a script gift already takes from pokemon.before_give's
+-- gift.nickname, for the other way a Pokemon joins the party.
+function BattleState:offerNickname(mon, displayName)
+  if Runtime.wantsHook("catch.nickname") then
+    local verdict = Runtime.call("catch.nickname", alwaysAsk, mon,
+      { battle = self, name = displayName, game = self.game })
+    if verdict == false then return false end
+    if type(verdict) == "string" then
+      -- the naming grid's own limit, so a mod cannot hand the party a name
+      -- the summary screen has no room to draw
+      verdict = verdict:sub(1, 10)
+      if #verdict > 0 then mon.nickname = verdict end
+      return false
+    end
+  end
+  self:uiNext(function() return self:askNicknameUI(mon, displayName) end)
+  return true
+end
+
 -- AskName (engine/menus/naming_screen.asm): ClearSprites, wild field blank,
 -- PrintText, YES/NO while text stays (TextBox opts.choice). Shared by party
 -- AddPartyMon and SendNewMonToBox (#172).
@@ -5180,11 +5230,7 @@ function BattleState:storeCaughtMon()
     end)
   end
   local function askCaughtNickname()
-    local caught = self.enemy.mon
-    local enemyName = self.enemy.name
-    self:uiNext(function()
-      return self:askNicknameUI(caught, enemyName)
-    end)
+    self:offerNickname(self.enemy.mon, self.enemy.name)
   end
   if Party.add(game.save.party, self.enemy.mon) then
     askCaughtNickname()
