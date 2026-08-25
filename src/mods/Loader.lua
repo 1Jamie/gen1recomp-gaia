@@ -147,12 +147,19 @@ local SUPPORTED_REQUIRES = {
 local ENGINE_PREFIX = (debug.getinfo(1, "S").source or "")
   :gsub("^@", ""):gsub("mods[/\\]Loader%.lua$", "")
 
+local ENGINE_CHUNKS = {
+  ["main.lua"] = true,
+  ["conf.lua"] = true,
+}
+
 local function callerIsMod(level)
   if ENGINE_PREFIX == "" then return false end
   local info = debug.getinfo(level, "S")
   local source = info and info.source
   if not source or source:sub(1, 1) ~= "@" then return false end
-  return source:sub(2, 1 + #ENGINE_PREFIX) ~= ENGINE_PREFIX
+  local path = source:sub(2)
+  if ENGINE_CHUNKS[path] then return false end
+  return path:sub(1, #ENGINE_PREFIX) ~= ENGINE_PREFIX
 end
 
 local function scanRequire(name)
@@ -207,6 +214,11 @@ local function engineRequire(name)
   return module
 end
 
+function Loader.endSession()
+  devShim.generation = nil
+  devShim.errors = nil
+end
+
 function Loader:_installDevShim()
   for id, mod in pairs(self.mods) do
     devShim.permissions[id] = mod.manifest.permissionSet
@@ -234,7 +246,7 @@ function Loader:_installDevShim()
       -- The Gen 1 name a mod asked for, answered by the Gen 2 arm behind it.
       -- Engine code keeps the real module: src/render/PaletteFX.lua:776
       -- requires src.core.Game on both generations and means it.
-      if devShim.generation ~= 1 and Gen2Compat.serves(name)
+      if devShim.generation == 2 and Gen2Compat.serves(name)
           and (owner or callerIsMod(3)) then
         local adapter = Gen2Compat.resolve(name, Runtime.currentMod)
         if adapter then

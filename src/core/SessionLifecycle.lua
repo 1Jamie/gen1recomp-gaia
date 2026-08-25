@@ -30,6 +30,8 @@ function SessionLifecycle.endMountedSession(version)
   local Runtime = require("src.mods.Runtime")
   if Runtime.reset then Runtime.reset() end
   if Assets.installLoader then Assets.installLoader(nil) end
+  local Loader = package.loaded["src.mods.Loader"]
+  if Loader and Loader.endSession then Loader.endSession() end
   local okCompat, LegacyCompat = pcall(require, "src.mods.LegacyCompat")
   if okCompat and LegacyCompat.reset then LegacyCompat.reset() end
 end
