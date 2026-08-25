@@ -102,5 +102,44 @@ class ApplyKnownNonreproducibleOverridesTest(TestCase):
             texts, field_data)
 
 
+class YellowSuperRodParseTest(TestCase):
+    """#1074: Yellow's inline Super Rod table (species, level), not Red's."""
+
+    def test_parse_super_rod_yellow_safari_dragonair(self):
+        import json
+        import tempfile
+        from extract import field
+
+        asm = (
+            "SuperRodFishingSlots::\n"
+            "\tdb SAFARI_ZONE_CENTER, MAGIKARP, 5, MAGIKARP, 10, "
+            "DRATINI, 10, DRAGONAIR, 15\n"
+            "\tdb SAFARI_ZONE_EAST, MAGIKARP, 5, MAGIKARP, 10, "
+            "MAGIKARP, 15, DRATINI, 15\n"
+            "\tdb -1 ; end\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            wild = Path(td) / "data" / "wild"
+            wild.mkdir(parents=True)
+            (wild / "super_rod.asm").write_text(asm)
+            parsed = field.parse_super_rod_yellow(td)
+
+        self.assertEqual(parsed["SAFARI_ZONE_CENTER"], [
+            {"level": 5, "species": "MAGIKARP"},
+            {"level": 10, "species": "MAGIKARP"},
+            {"level": 10, "species": "DRATINI"},
+            {"level": 15, "species": "DRAGONAIR"},
+        ])
+        self.assertNotIn("DRAGONAIR",
+                         [s["species"] for s in parsed["SAFARI_ZONE_EAST"]])
+
+    def test_shipped_yellow_manifest_has_safari_dragonair(self):
+        import json
+        path = Path(__file__).resolve().parents[1] / "tools" / "rom_manifest_yellow.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        center = data["field"]["superRod"]["SAFARI_ZONE_CENTER"]
+        self.assertIn({"level": 15, "species": "DRAGONAIR"}, center)
+
+
 if __name__ == "__main__":
     main()

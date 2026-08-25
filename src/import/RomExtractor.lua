@@ -1535,6 +1535,14 @@ function RomExtractor:extractYellowTitleArt()
   local bg = sheetTiles("TitlePikachuBGGraphics", 64)
   local ob = sheetTiles("TitlePikachuOBGraphics", 12)
   local obClear = sheetTiles("TitlePikachuOBGraphics", 12, true)
+  -- Title rOBP0=$E0: remap eye OAM shades 1/2 → white before baking into the
+  -- MEWMON BG composition (otherwise glints read as body yellow).
+  local eyeOb = {}
+  for i, tile in ipairs(obClear) do
+    local copy = ImageWriter.blank(8, 8, 0, 0, 0, 0)
+    ImageWriter.blit(copy, tile, 0, 0)
+    eyeOb[i] = ImageWriter.applyTitleObp0(copy)
+  end
   local function tileFor(id)
     if id < 0x80 then return logo[id + 1] end
     if id < 0xF0 then return bg[id - 0x80 + 1] end
@@ -1623,13 +1631,13 @@ function RomExtractor:extractYellowTitleArt()
     local overlay = ImageWriter.blank(48, 16, 1, 1, 1, 0)
     ImageWriter.blit(overlay, pikachu, 0, 0, 24, 16, 48, 16)
     for _, e in ipairs(EYE_LAYOUT) do
-      blitSprite(overlay, obClear[base + e[1]], e[2] - 24, e[3] - 16, e[4])
+      blitSprite(overlay, eyeOb[base + e[1]], e[2] - 24, e[3] - 16, e[4])
     end
     overlays[suffix] = overlay
   end
   -- open eyes bake into pikachu.png AFTER the blank-face crops
   for _, e in ipairs(EYE_LAYOUT) do
-    blitSprite(pikachu, obClear[e[1]], e[2], e[3], e[4])
+    blitSprite(pikachu, eyeOb[e[1]], e[2], e[3], e[4])
   end
   self:save(pikachu, "title/pikachu.png")
   for suffix, overlay in pairs(overlays) do

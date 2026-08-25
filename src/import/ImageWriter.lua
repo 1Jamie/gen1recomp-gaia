@@ -7,6 +7,28 @@ local SHADES = {
   { 0, 0, 0, 1 },
 }
 
+ImageWriter.SHADES = SHADES
+
+-- Title screen rOBP0 = %11100000 ($E0): OBJ shades 1 and 2 draw as white,
+-- shade 3 as black (pokeyellow engine/movie/title.asm after PlacePikachu).
+-- Eye OAM is baked into the MEWMON-colored BG PNG; without this remap the
+-- shade-1 glints become body yellow under the title palette.
+function ImageWriter.applyTitleObp0(image)
+  local mid, dark = SHADES[2][1], SHADES[3][1]
+  local w, h = image:getWidth(), image:getHeight()
+  for y = 0, h - 1 do
+    for x = 0, w - 1 do
+      local r, g, b, a = image:getPixel(x, y)
+      if a ~= 0 then
+        if math.abs(r - mid) < 0.02 or math.abs(r - dark) < 0.02 then
+          image:setPixel(x, y, 1, 1, 1, 1)
+        end
+      end
+    end
+  end
+  return image
+end
+
 local function assertDimensions(raw, width, height, bits)
   assert(width % 8 == 0 and height % 8 == 0,
     ("%dbpp dimensions must be tile-aligned: %dx%d")

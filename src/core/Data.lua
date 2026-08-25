@@ -170,6 +170,10 @@ function Data:seedDefaults(version)
   -- writes no header for him -- seed one so he engages on sight and has
   -- his defeat / re-talk lines (same idea as the Cinnabar seed above).
   Data.seedFightingDojoKarateMaster(self)
+  -- #1743: Mt. Moon B2F Super Nerd is text_asm (no def_trainers), so Yellow's
+  -- extractor never writes his header -- seed one so engageTrainer finds
+  -- battle/won/after text instead of the "I like shorts!" fallback.
+  Data.seedMtMoonB2FSuperNerd(self)
   -- #189: 1F cabin door order vs rooms map (survey zoom)
   require("src.world.SsAnneLayout").apply(self.maps)
 end
@@ -198,6 +202,25 @@ function Data:seedFightingDojoKarateMaster()
     battle = "_FightingDojoKarateMasterText",
     won = "_FightingDojoKarateMasterDefeatedText",
     after = "_FightingDojoKarateMasterStayAndTrainWithUsText",
+  }
+end
+
+-- Mt. Moon B2F Super Nerd (object index 1) is text_asm with no def_trainers
+-- row, so Yellow never gets a trainerHeaders.MtMoonB2F[1] entry (Red/Blue
+-- pin one in make_rom_manifest.py). Without it, engageTrainer falls through
+-- to the hard-coded "I like shorts!" fallback (#1743). trainerDefeated still
+-- tracks him via defeatedTrainers[npc.id]; the fabricated event name matches
+-- the shipped Red/Blue manifest pin for consistency with fossil drivers.
+function Data:seedMtMoonB2FSuperNerd()
+  local headers = self.trainer_headers
+  if not headers then return end
+  headers.MtMoonB2F = headers.MtMoonB2F or {}
+  if headers.MtMoonB2F[1] then return end
+  headers.MtMoonB2F[1] = {
+    battle = "_MtMoonB2FSuperNerdTheyreBothMineText",
+    won = "_MtMoonB2FSuperNerdOkIllShareText",
+    after = "_MtMoonB2FSuperNerdTheresAPokemonLabText",
+    event = "EVENT_BEAT_MT_MOON_3_SUPER_NERD",
   }
 end
 

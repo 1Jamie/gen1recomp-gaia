@@ -453,6 +453,7 @@ def derive(red, pokeyellow, symbols_path):
             print(f"warning: parse_credits failed ({exc}); keeping Red credits")
             # TODO: hand-author a Yellow credits banner if pret layout drifts.
         yellow["field"]["trades"] = field.parse_trades(pokeyellow)
+        yellow["field"]["superRod"] = field.parse_super_rod_yellow(pokeyellow)
     finally:
         util.ASM_DEFINES = saved
 

@@ -114,6 +114,7 @@ fi
 
 run_tier "T0 ROM builder version routing" python3 tests/build_rom_data_cli_test.py
 run_tier "T0 ROM manifest generator pin/overrides" python3 tests/rom_manifest_generator_test.py
+run_tier "T0 Yellow title OBP eye remap" python3 tests/title_pikachu_obp_test.py
 run_tier "T0 Crystal manifest + specials coverage" "$LUA" tests/crystal_import_test.lua
 run_tier "T0 switch CI workflow content gate" "$LUA" tests/switch_ci_workflows_test.lua
 run_tier "T0 switch transfer docs gate" "$LUA" tests/switch_transfer_docs_test.lua
