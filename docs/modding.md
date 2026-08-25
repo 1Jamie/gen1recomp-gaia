@@ -451,6 +451,29 @@ Menu choices and moves use the same engine methods as the native controls;
 their mutable logic. Tutorial, link, forced, stale, and covered battle states
 refuse core intents. Use `mod.input` for ordinary text advance.
 
+## Party-full custody at a catch
+
+When a capture lands on a full party, the cart deposits the mon in storage
+without a question. `catch.party_full` (RFC 0018) lets a mode stand in front
+of `SendNewMonToBox` and take custody instead:
+
+```lua
+mod.hooks:wrap("catch.party_full", function(next, ctx)
+  -- ctx = { battle = <BattleState>, mon = <Pokemon>, name = <display name>,
+  --         game = <Game> }
+  if myMode.active then
+    takeCustody(ctx.mon)   -- the mon is the mod's problem now
+    return true            -- nothing is deposited
+  end
+  return next(ctx)         -- false: deposit, as today
+end)
+```
+
+A truthy return skips the box entirely -- the mon is neither in the party nor
+in any box, and `pokemon.caught` reports `destination = "mod"` so the mode can
+find its own custody again. Anything falsy deposits as always, "But every BOX
+is full!" included.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
