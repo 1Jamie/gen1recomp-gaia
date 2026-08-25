@@ -116,7 +116,7 @@ public:
 	 *             "required_import" -> picked_required_import.bin.
 	 * @return Whether the picker was shown.
 	 **/
-	virtual bool pickFile(const char *kind = nullptr) const;
+	virtual bool pickFile(const char *kind = nullptr, const char *destination = nullptr) const;
 	virtual const char *pickFileKinds() const;
 
 	/**

@@ -17,10 +17,11 @@ local saved = {
   pickFileKinds = love.system.pickFileKinds,
 }
 
-local pickCalls = {}
+local pickCalls, pickDestinations = {}, {}
 love.system.getOS = function() return "Android" end
-love.system.pickFile = function(kind)
+love.system.pickFile = function(kind, destination)
   pickCalls[#pickCalls + 1] = kind or "rom"
+  pickDestinations[#pickCalls] = destination
   return true
 end
 love.system.pickFileKinds = function() return "rom,mod,sav,required_import" end
@@ -103,13 +104,15 @@ ri.nativePicker = true
 ri.mobileFileBridge = true
 ri.mods = { {
   id = "needs_source",
-  manifest = { id = "needs_source", name = "Needs Source",
+  manifest = { id = "needs_source", name = "Needs Source", path = "mods/needs_source",
     required_imports = { { id = "source", name = "Source", file = "source.bin",
       format = "raw", md5 = { "00000000000000000000000000000000" } } } },
 } }
 ri:chooseRequiredImport("needs_source", "source")
 eq(pickCalls[1], "required_import",
   "required file asks for the dedicated picker kind")
+eq(pickDestinations[1], "mods/needs_source/baseroms/source.bin",
+  "raw required file receives its direct private baseroms destination")
 eq(ri.pickerPendingModId, "needs_source", "pending mod is remembered")
 eq(ri.pickerPendingImportId, "source", "pending import is remembered")
 
@@ -166,6 +169,52 @@ eq(ri._requiredImported.importId, "source", "focus routes to the pending declara
 check(love.filesystem.getInfo("picked_required_import.bin") == nil,
   "focus removes the staged required-file pick")
 
+
+-- Current bridge completion: the large source already lives in final baseroms;
+-- only the tiny path/digest/size marker crosses the launcher focus path.
+local directPath = "mods/needs_source/baseroms/source.bin"
+local directSavedGetInfo = love.filesystem.getInfo
+love.filesystem.getInfo = function(name, kind)
+  local info = directSavedGetInfo(name, kind)
+  if info and name == directPath then
+    info.size = 12
+    info.modtime = 123456
+  end
+  return info
+end
+love.filesystem.createDirectory("mods/needs_source/baseroms")
+love.filesystem.write(directPath, "source bytes")
+ri.mods[1].manifest.required_imports[1].md5 = {
+  "fe1eb7483479c3a4e44fd41ce6f6d6ad"
+}
+ri.pickerPendingKind = "required_import"
+ri.pickerPendingModId = "needs_source"
+ri.pickerPendingImportId = "source"
+love.filesystem.write("pick_complete.flag",
+  "v1\n" .. directPath .. "\nfe1eb7483479c3a4e44fd41ce6f6d6ad\n12\n")
+ri:focus(true)
+check(ri.modNotice ~= nil and ri.modNotice.ok == true,
+  "focus accepts a direct native required-import completion")
+check(love.filesystem.getInfo(directPath, "file") ~= nil,
+  "direct required import remains in final baseroms")
+check(love.filesystem.getInfo("pick_complete.flag") == nil,
+  "direct completion marker is consumed")
+
+-- A native digest that does not match the manifest is rejected and the direct
+-- copy is removed, so an invalid source cannot masquerade as a validated one.
+love.filesystem.write(directPath, "source bytes")
+ri.pickerPendingKind = "required_import"
+ri.pickerPendingModId = "needs_source"
+ri.pickerPendingImportId = "source"
+love.filesystem.write("pick_complete.flag",
+  "v1\n" .. directPath .. "\n00000000000000000000000000000000\n12\n")
+ri:focus(true)
+check(ri.requiredImportNotice ~= nil,
+  "bad direct digest reports a dependency validation error")
+check(love.filesystem.getInfo(directPath, "file") == nil,
+  "bad direct digest removes the rejected final copy")
+love.filesystem.getInfo = directSavedGetInfo
+
 -- Android releases with the updated launcher but the older native bridge do
 -- not advertise required_import. They still support the established ROM SAF
 -- picker, whose result must be quarantined to the pending dependency request.
@@ -176,12 +225,14 @@ ri.nativePicker = true
 ri.mobileFileBridge = true
 ri.mods = { {
   id = "needs_source",
-  manifest = { id = "needs_source", name = "Needs Source",
+  manifest = { id = "needs_source", name = "Needs Source", path = "mods/needs_source",
     required_imports = { { id = "source", name = "Source", file = "source.bin",
       format = "raw", md5 = { "00000000000000000000000000000000" } } } },
 } }
 ri:chooseRequiredImport("needs_source", "source")
 eq(pickCalls[1], "rom", "legacy Android bridge falls back to its ROM SAF picker")
+check(pickDestinations[1] == nil,
+  "legacy ROM fallback receives no nested dependency destination")
 check(ri.requiredImportLegacyRomPick,
   "legacy Android ROM picker result is marked as a required import")
 ri._importRequiredSource = function(self, modId, importId, source)
@@ -216,5 +267,8 @@ love.filesystem.remove("picked_mod.zip")
 love.filesystem.remove("picked_save.sav")
 love.filesystem.remove("picked_required_import.bin")
 love.filesystem.remove("picked_rom.gb")
+love.filesystem.remove("pick_complete.flag")
+love.filesystem.remove("pick_error.flag")
+love.filesystem.remove("mods/needs_source/baseroms/source.bin")
 
 S.finish()
