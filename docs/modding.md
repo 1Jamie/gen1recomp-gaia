@@ -200,6 +200,60 @@ the adapter's own coverage table:
 python3 tools/modkit.py gen2check mods/my_mod
 ```
 
+## Imported version datasets
+
+A mod can inspect semantic content from another game the player has already
+imported without switching the active game or reaching into engine cache
+internals:
+
+```lua
+local gold, reason = mod.datasets:open("gold")
+if not gold then
+  -- reason is "unknown_version", "not_imported", or "invalid_cache"
+  return
+end
+
+local chikorita = gold.content.pokemon:get("CHIKORITA")
+local normalVsGhost = gold.content.type_chart:get("NORMAL>GHOST")
+local spritePath = gold.assets:path(chikorita.spriteFront)
+
+for id, record in gold.content.pokemon:each() do
+  -- ids are returned in deterministic lexical order
+end
+```
+
+`view.version` and `view.generation` identify the selected dataset.
+`view.content` exposes the same registry names, aliases, generation routing,
+and data-only record shapes as `mod.content`, but only `get`, `has`, and
+`each`. Returned records are detached copies and cannot mutate either dataset.
+Every generated base record passes the selected generation's existing public
+schema before it is returned; extractor metadata beside record maps stays out
+of the registry id space and is reserved against `register`, `override`,
+`patch`, and `remove` writes through the active registry. A malformed record
+makes `get` return nil, `has`
+return false, and `each` return no rows, and invalidates that dataset view.
+Records containing functions, userdata, threads, metatables, or cycles are not
+exposed. Each open call receives an independent facade, so one mod cannot
+replace another mod view method. Canonical boot shaping is included, such as
+Gen 1 defaults and Yellow corrections, and Gold's Foresight matchup rows and
+derived `held_items`.
+
+`open` checks the completion marker, exact version-specific file inventory,
+source/cache boundary, and file-size bounds without reading or decoding the
+semantic modules. A root is read, bounded-decoded, normalized, and cached only
+when a content operation first needs it. Each later view operation rechecks
+readiness and the source bytes behind already cached roots; unchanged roots are
+not decoded again. Missing, partial, and stale imports return
+`nil, "not_imported"`. Malformed syntax, a resource-limit violation, or a
+record that fails the public schema is discovered on first root access and
+fails that operation closed; a later `open` against the same source returns
+`nil, "invalid_cache"`. Generated modules use a bounded literal-only grammar
+and are never executed. No raw ROM bytes or generated source are exposed.
+`view.assets:path(relative)` and
+`view.assets:info(relative)` accept only `assets/generated/...` paths and
+keep them under the selected version cache prefix. The API never changes
+`mod.game`, the active `Data` table, `GameVersion`, or cache mount state.
+
 ## Editing maps in Tiled
 
 Maps are data, not assets, so they can be authored in a real map editor and
@@ -450,6 +504,29 @@ Menu choices and moves use the same engine methods as the native controls;
 `party` and `item` open the native screens rather than exposing or duplicating
 their mutable logic. Tutorial, link, forced, stale, and covered battle states
 refuse core intents. Use `mod.input` for ordinary text advance.
+
+## Party-full custody at a catch
+
+When a capture lands on a full party, the cart deposits the mon in storage
+without a question. `catch.party_full` (RFC 0018) lets a mode stand in front
+of `SendNewMonToBox` and take custody instead:
+
+```lua
+mod.hooks:wrap("catch.party_full", function(next, ctx)
+  -- ctx = { battle = <BattleState>, mon = <Pokemon>, name = <display name>,
+  --         game = <Game> }
+  if myMode.active then
+    takeCustody(ctx.mon)   -- the mon is the mod's problem now
+    return true            -- nothing is deposited
+  end
+  return next(ctx)         -- false: deposit, as today
+end)
+```
+
+A truthy return skips the box entirely -- the mon is neither in the party nor
+in any box, and `pokemon.caught` reports `destination = "mod"` so the mode can
+find its own custody again. Anything falsy deposits as always, "But every BOX
+is full!" included.
 
 ## Rendering pipelines
 

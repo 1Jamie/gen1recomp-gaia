@@ -151,6 +151,19 @@ local TEXT_BUFFERS = {
   [0xc602] = "wOTTrademonSpeciesName",
   [0xc618] = "wOTTrademonSenderName",
 }
+-- ../pokecrystal/ram/wram.asm:1925,2333
+local TEXT_BUFFERS_CRYSTAL = {
+  [0xd050] = "wMonOrItemNameBuffer",
+  [0xd073] = "wStringBuffer1",
+  [0xd086] = "wStringBuffer2",
+  [0xd099] = "wStringBuffer3",
+  [0xd0ac] = "wStringBuffer4",
+  [0xd0bf] = "wStringBuffer5",
+  [0xc6d1] = "wPlayerTrademonSpeciesName",
+  [0xc6e7] = "wPlayerTrademonSenderName",
+  [0xc703] = "wOTTrademonSpeciesName",
+  [0xc719] = "wOTTrademonSenderName",
+}
 -- The text commands that print nothing and carry no argument
 -- (macros/scripts/text.asm, in TextCommands order): TX_LOW, TX_SCROLL,
 -- TX_PAUSE, TX_WAIT_BUTTON, TX_DAY, and the six TX_SOUND_* jingles.
@@ -2295,6 +2308,8 @@ function RomExtractorGen2:extractTitle()
     trailBobAmplitude = silver and 3 or 2,
     trailPhaseStep = silver and 7 or 3,
     trailPhase = silver and 0 or nil,
+    -- TitleScreenTimer (engine/menus/intro_menu.asm:951-966).
+    timeoutFrames = silver and (73 * 60 + 36) or (84 * 60 + 16),
   }
   self:write("title", data)
   return data
@@ -2805,6 +2820,8 @@ end
 -- is which alongside the text lets a caller fill them in order without
 -- changing a marker every screen already reads.
 function RomExtractorGen2:decodeGen2Text(bank, address, charmap, buffers)
+  local textBuffers = (self.edition == "crystal") and TEXT_BUFFERS_CRYSTAL
+    or TEXT_BUFFERS
   local out = {}
   local i = 0
   local hops = 0
@@ -2840,7 +2857,7 @@ function RomExtractorGen2:decodeGen2Text(bank, address, charmap, buffers)
       out[#out + 1] = "{STRBUF}"
       if buffers then
         local target = self.rom:word(bank, address + i + 1)
-        buffers[#buffers + 1] = TEXT_BUFFERS[target] or target
+        buffers[#buffers + 1] = textBuffers[target] or target
       end
       i = i + 2
     elseif b == 0x4e or b == 0x4f then

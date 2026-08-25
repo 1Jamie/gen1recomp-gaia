@@ -343,6 +343,7 @@ Save.OPTIONS_KEY = "gold"
 
 local SHARED_KEYS = {
   touchControls = true, haptics = true, screenPos = true,
+  videoMode = true,
   mods = true, modsByVersion = true, modsGen2 = true,
   modOptions = true, modProfiles = true, modProfilesSeeded = true,
   activeProfile = true,
@@ -361,12 +362,9 @@ function Save.loadOptions(fs)
   end
   if type(loaded) == "table" then
     for key in pairs(SHARED_KEYS) do
-      if loaded[key] ~= nil then options[key] = loaded[key] end
-    end
-  end
-  if type(stored) == "table" then
-    for key in pairs(SHARED_KEYS) do
-      if options[key] == nil and stored[key] ~= nil then
+      if loaded[key] ~= nil then
+        options[key] = loaded[key]
+      elseif type(stored) == "table" and stored[key] ~= nil then
         options[key] = stored[key]
       end
     end

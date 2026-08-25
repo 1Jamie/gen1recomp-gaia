@@ -28,7 +28,14 @@ do
   Game.network = { live = true } -- future field: must not need a whitelist
   Game.stack = StateStack
   Game.renderer = Renderer
+  Game.SKIN_FAST_FORWARD = 4
   Renderer.canvas = love.graphics.newCanvas(8, 8)
+
+  -- Handle-style :release (Fetch/SyncClient) must not run as instance teardown.
+  local shared = {
+    release = function(self) self.killed = true end,
+  }
+  Game.sharedNet = shared
 
   Game:reset()
 
@@ -40,6 +47,29 @@ do
   check(Game.stack == nil, "Game:reset clears stack reference")
   check(Game.renderer == nil, "Game:reset clears renderer reference")
   check(StateStack:top() == nil, "Game:reset cleared the shared StateStack")
+  check(shared.killed ~= true,
+    "Game:reset does not call handle-style :release on session fields")
+  check(Game.SKIN_FAST_FORWARD == 4,
+    "Game:reset preserves module scalars like SKIN_FAST_FORWARD")
+end
+
+-- ---- endGameSession must leave Gen1 Game.load callable for Play-again ------
+do
+  Game.save = { money = 1 }
+  Game.stack = { clear = function() end }
+  -- Poison pattern from the Android crash: a field whose :release is a
+  -- job-handle API.  Old reset called it as value:release() and could leave
+  -- the singleton unbootable (Game.load nil → main.lua bootGame crash).
+  local jobs = {}
+  Game.linkFetch = {
+    release = function(id) jobs[id] = nil end,
+  }
+  SessionLifecycle.endGameSession(Game)
+  check(type(Game.load) == "function",
+    "endGameSession leaves Game.load intact for the next bootGame")
+  check(package.loaded["src.core.Game"] == Game
+      or type((package.loaded["src.core.Game"] or {}).load) == "function",
+    "Gen1 Game module remains require-able after endGameSession")
 end
 
 -- ---- Game2:reset releases world GPU and present canvases ------------------

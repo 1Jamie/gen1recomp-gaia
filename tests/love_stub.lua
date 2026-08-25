@@ -139,6 +139,7 @@ stub.graphics = {
   end,
   translate = noop, scale = noop,
   rotate = noop, origin = noop, setScissor = noop,
+  getScissor = function() return nil end,
   getDimensions = function() return 640, 576 end,
   -- dpi=1 desktop default; issue #87 tests override these for Android density
   getPixelDimensions = function() return 640, 576 end,

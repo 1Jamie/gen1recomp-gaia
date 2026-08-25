@@ -64,22 +64,17 @@ for _, version in ipairs({ "gold", "silver", "crystal" }) do
   voidFill.step(-1)
   eq(model.opts.gold.voidFill, "fade", version .. " left restores fade")
 
-  -- Every write has to land in the gen2 block: the flat keys beside it are
-  -- Red's, and no Gen 2 boot reads them (src/core/gen2/Save.lua:299).
-  -- loadOptions seeds the flat Gen 1 defaults, so the check is that the Gen 2
-  -- rows leave them exactly as they found them.
-  local flatPad = model.opts.touchControls
-  local flatBuzz = model.opts.haptics
-
+  -- The pad and the buzz are one device-wide setting: Gen 2 reads them from
+  -- the flat keys, not its block (src/core/gen2/Save.lua SHARED_KEYS), so the
+  -- rows write the flat keys and must never grow a copy inside `gold`.
   local pad = findRow(model, "TOUCH PAD")
   local before = pad.value()
   pad.step(1)
   check(pad.value() ~= before, version .. " stepping TOUCH PAD flips it")
-  check(type(model.opts.gold) == "table", version .. " into the gold block")
-  eq(model.opts.gold.touchControls.enabled, false,
-    version .. " which now carries enabled")
-  eq(model.opts.touchControls, flatPad,
-    version .. " leaving the flat Gen 1 key alone")
+  eq(model.opts.touchControls.enabled, false,
+    version .. " on the flat shared key")
+  eq(model.opts.gold.touchControls, nil,
+    version .. " without a copy in the gold block")
   eq(model.opts.silver, nil,
     version .. " and inventing no second Gen 2 block beside it")
   eq(model.opts.crystal, nil, version .. " nor a third")
@@ -88,10 +83,10 @@ for _, version in ipairs({ "gold", "silver", "crystal" }) do
   local buzzBefore = buzz.value()
   buzz.step(1)
   check(buzz.value() ~= buzzBefore, version .. " stepping VIBRATION moves the level")
-  eq(model.opts.gold.haptics,
-    TouchControls.normalizeHaptics(model.opts.gold.haptics),
+  eq(model.opts.haptics,
+    TouchControls.normalizeHaptics(model.opts.haptics),
     version .. " VIBRATION stores a level the shared module knows")
-  eq(model.opts.haptics, flatBuzz, version .. " also without touching Red's")
+  eq(model.opts.gold.haptics, nil, version .. " on the flat key only")
 
   edited = 0
   findRow(model, "TOUCH CONTROLS").action()

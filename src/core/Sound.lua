@@ -371,6 +371,13 @@ function Sound.waitSfxDone()
   curSfx = nil
 end
 
+-- SFXChannelsOff (home/audio.asm:545)
+function Sound.sfxChannelsOff()
+  if not curSfx then return end
+  pcall(curSfx.src.stop, curSfx.src)
+  curSfx = nil
+end
+
 local function startSfx(data, name, def)
   local src = playPath(data, name, def)
   if not src then return end

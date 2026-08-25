@@ -384,7 +384,14 @@ function bootGame(version, cartId)
     Game = require("src.core.Game2").new()
     Game:load()
   else
-    Game = require("src.core.Game")
+    -- Gen1 Game is a module singleton.  In-process EXIT GAME resets it in
+    -- place; if a prior teardown left load missing, rebuild from source.
+    local gameMod = require("src.core.Game")
+    if type(gameMod.load) ~= "function" then
+      package.loaded["src.core.Game"] = nil
+      gameMod = require("src.core.Game")
+    end
+    Game = gameMod
     Game:load()
     if os.getenv("POKEPORT_AUTOPILOT") then
       autopilot = require("tests.autopilot")
@@ -1170,6 +1177,17 @@ function love.run()
   -- per-frame sleep-granularity jitter.
   local nextFrame = love.timer and love.timer.getTime() or 0
   local dt = 0
+  local idleFor = 0
+  local SLEEP_FLOOR = 0.001
+  local WAKE = {
+    keypressed = true, keyreleased = true, textinput = true,
+    mousepressed = true, mousereleased = true, mousemoved = true,
+    wheelmoved = true, touchpressed = true, touchreleased = true,
+    touchmoved = true, joystickpressed = true, joystickreleased = true,
+    joystickhat = true, gamepadpressed = true, gamepadreleased = true,
+    joystickadded = true, joystickremoved = true, filedropped = true,
+    directorydropped = true, focus = true, visible = true, resize = true,
+  }
 
   return function()
     -- process events
@@ -1188,17 +1206,34 @@ function love.run()
             return a or 0
           end
         end
+        if WAKE[name] then
+          idleFor = 0
+        elseif name == "joystickaxis" and type(c) == "number" and math.abs(c) > 0.5 then
+          idleFor = 0
+        end
         love.handlers[name](a, b, c, d, e, f)
       end
     end
 
     -- update dt
     if love.timer then dt = love.timer.step() end
+    idleFor = idleFor + dt
 
     -- call update and draw
     if love.update then love.update(dt) end
 
-    if love.graphics and love.graphics.isActive() then
+    local visible = not (love.window and love.window.isVisible)
+      or love.window.isVisible()
+    local focused = not (love.window and love.window.hasFocus)
+      or love.window.hasFocus()
+    local cap = FrameCap.current
+    if not visible then
+      cap = 10
+    elseif Importer and (not focused or idleFor > 30) then
+      cap = 15
+    end
+
+    if visible and love.graphics and love.graphics.isActive() then
       love.graphics.origin()
       love.graphics.clear(love.graphics.getBackgroundColor())
       if love.draw then love.draw() end
@@ -1209,9 +1244,9 @@ function love.run()
       if paced then
         -- Sleep out the remainder of the frame budget, measured from the
         -- carried deadline, in small chunks so the OS timer stays
-        -- responsive.  vsync is untouched: when it already paces slower
-        -- than the cap the remainder is <= 0 and this rounds to a no-op.
-        local budget = 1 / FrameCap.current
+        -- responsive.  The pacer yields to vsync inside a 1ms dead band, so
+        -- when the panel already paces at or below the cap it is a no-op.
+        local budget = 1 / cap
         nextFrame = nextFrame + budget
         local now = love.timer.getTime()
         -- A stall (alt-tab, a GC pause, a blocked import) can leave the
@@ -1222,8 +1257,8 @@ function love.run()
         end
         while true do
           local remaining = nextFrame - love.timer.getTime()
-          if remaining <= 0 then break end
-          love.timer.sleep(remaining < 0.001 and remaining or 0.001)
+          if remaining <= SLEEP_FLOOR then break end
+          love.timer.sleep(0.001)
         end
       else
         love.timer.sleep(0.001)

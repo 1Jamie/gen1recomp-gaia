@@ -324,9 +324,9 @@ function CacheFs.openWrite(rel)
   return file
 end
 
--- read cache-relative `rel`; returns the bytes or nil
-function CacheFs.read(rel)
-  rel = withPrefix(rel)
+-- Read an exact version-qualified path without consulting CacheFs.prefix.
+-- Readiness checks use this to inspect another version without global state.
+function CacheFs.readAt(rel)
   local root = CacheFs.root()
   if root then
     local f = io.open(realPath(root, rel), "rb")
@@ -339,6 +339,11 @@ function CacheFs.read(rel)
   -- no save directory to read from, so a cache miss is nil, not a crash
   if not (love and love.filesystem) then return nil end
   return love.filesystem.read(rel)
+end
+
+-- read cache-relative `rel`; returns the bytes or nil
+function CacheFs.read(rel)
+  return CacheFs.readAt(withPrefix(rel))
 end
 
 -- Read cache-relative `rel` for the active GameVersion when PhysFS may hide
@@ -386,8 +391,7 @@ function CacheFs.loadActive(rel)
 end
 
 -- does cache-relative `rel` exist as a file?
-function CacheFs.exists(rel)
-  rel = withPrefix(rel)
+function CacheFs.existsAt(rel)
   local root = CacheFs.root()
   if root then
     local f = io.open(realPath(root, rel), "rb")
@@ -396,6 +400,11 @@ function CacheFs.exists(rel)
     return true
   end
   return love.filesystem.getInfo(rel, "file") ~= nil
+end
+
+
+function CacheFs.exists(rel)
+  return CacheFs.existsAt(withPrefix(rel))
 end
 
 -- remove a single cache-relative file

@@ -1232,6 +1232,10 @@ function OverworldState:update(dt)
       self.player.inputLocked = false
     end
   end
+  if self.spinArrive and not self.player.spinFrames then
+    self.spinArrive = nil
+    self.player.inputLocked = false
+  end
 
   -- EnterMapAnim's .done tail re-enables the companion once the swoop or the
   -- spin-down has landed (player_animations.asm:40)
@@ -1311,7 +1315,7 @@ function OverworldState:update(dt)
   local scripted = self.runner:isRunning() or #self.scriptMoves > 0
                    or (self.hopLand or 0) > 0
                    or self.engaging or self.emote or self.teleportOut
-                   or self.flyAnim or self.flyArrive
+                   or self.flyAnim or self.flyArrive or self.spinArrive
   if not scripted and not self.transitioning then
     self:checkTrainerSight()
     -- CheckFightingMapTrainers (home/trainers.asm) zeroes hJoyHeld and
@@ -1321,7 +1325,7 @@ function OverworldState:update(dt)
     scripted = self.runner:isRunning() or #self.scriptMoves > 0
                or (self.hopLand or 0) > 0
                or self.engaging or self.emote or self.teleportOut
-               or self.flyAnim or self.flyArrive
+               or self.flyAnim or self.flyArrive or self.spinArrive
   end
   -- a scriptMove's onDone can push a text box on the frame it retires, and
   -- DisplayTextID owns the loop from there (home/text_script.asm:3)
@@ -4802,6 +4806,10 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
   self.doorWarp = nil
   local arriveWarp = self.arriveWarp
   self.arriveWarp = nil
+  if self.spinArrive then
+    self.spinArrive = nil
+    self.player.inputLocked = false
+  end
   -- PlayMapChangeSound (home/overworld.asm) plays before the tail-called
   -- GBFadeOutToBlack, so the SFX starts with the fade (#961)
   if doorWarp then
@@ -4849,6 +4857,9 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
       self.player.spinFrames = 48
       self.player.spinTotal = 48
       self.player.spinDrop = true
+      -- engine/overworld/player_animations.asm:19
+      self.spinArrive = true
+      self.player.inputLocked = true
     end
     if doorWarp then
       -- PlayerStepOutFromDoor (engine/overworld/auto_movement.asm): any
@@ -5329,8 +5340,9 @@ function OverworldState:drawWorld()
     -- cry with no bubble still pauses the world for its beat)
     if self.emote.bubble == false then return end
     local npc = self.emote.npc
-    local ex = npc.px - cam.x + 4
-    local ey = npc.py - cam.y - 14
+    -- engine/overworld/emotion_bubbles.asm:41
+    local ex = npc.px - cam.x
+    local ey = npc.py - cam.y - 20
     local bubble = Game.data.field.emotionBubbles
     local drawn = false
     if bubble and bubble.path then

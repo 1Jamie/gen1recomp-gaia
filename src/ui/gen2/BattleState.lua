@@ -826,7 +826,10 @@ function BattleState:drawPic(mon, back)
   if trainerBack then
     -- PAL_BATTLE_OB_PLAYER: the player's own colours, which are row 0 of
     -- TrainerPalettes (Chris shares Cal's).
-    colors = Palettes.trainerColors(self.palettes, "PLAYER") or colors
+    -- engine/gfx/color.asm:683-696
+    local row = Gen2Save.isFemale(self.save) and "FALKNER" or "PLAYER"
+    colors = Palettes.trainerColors(self.palettes, row)
+      or Palettes.trainerColors(self.palettes, "PLAYER") or colors
   elseif enemyTrainer then
     -- The opponent's class row out of the same TrainerPalettes table.
     colors = Palettes.trainerColors(self.palettes, self.enemyTrainerClass)
@@ -1258,7 +1261,15 @@ function BattleState:afterAnimFor(side)
   return "ANIM_PLAYER_DAMAGE"
 end
 
-function BattleState:animForMove(moveId, side, param)
+-- engine/battle_anims/anim_commands.asm:1200 PlayHitSound
+function BattleState:playHitSound(effectiveness)
+  if not effectiveness or effectiveness == 0 then return end
+  if effectiveness > 10 then self:playSfx("Sfx_SuperEffective")
+  elseif effectiveness < 10 then self:playSfx("Sfx_NotVeryEffective")
+  else self:playSfx("Sfx_Damage") end
+end
+
+function BattleState:animForMove(moveId, side, param, effectiveness)
   local key = self.anims and self.anims.moves and self.anims.moves[moveId]
   local started = self:startAnim(key, {
     turn = self:turnFor(side), animId = moveId, isMove = true, param = param,
@@ -1267,7 +1278,8 @@ function BattleState:animForMove(moveId, side, param)
     -- BattleAnimRunScript (anim_commands.asm:55-72): after the move script
     -- restores HUDs it immediately runs wBattleAfterAnim (the hit shake).
     -- Queue it so stepAnim chains without waiting on the next event.
-    self.pendingAfterAnim = { name = self:afterAnimFor(side), side = side }
+    self.pendingAfterAnim = { name = self:afterAnimFor(side), side = side,
+      effectiveness = effectiveness }
   end
   return started
 end
@@ -1278,6 +1290,7 @@ function BattleState:startPendingAfterAnim()
   if not pending then return false end
   self.pendingAfterAnim = nil
   if self:animForId(pending.name, pending.side) then
+    self:playHitSound(pending.effectiveness)
     -- dealDamage's default ANIM_x_DAMAGE is this same shake; skip it there.
     self.afterAnimPlayed = true
     return true
@@ -1575,6 +1588,11 @@ function BattleState:advanceQueue()
     self:showPages(text)
     return
   end
+  -- data/text/battle.asm:184
+  if event.kind == "money" then
+    self:showPages(event.text or "")
+    return
+  end
   -- The shiny sparkle: hBattleTurn 1 and wBattleAnimParam 1 pick
   -- BattleAnim_SendOutMon's `.Shiny` arm on the enemy (core.asm:8708-8715).
   if event.kind == "shiny-flash" then
@@ -1692,12 +1710,14 @@ function BattleState:advanceQueue()
   if event.kind == "move" and not event.missed then
     self.afterAnimPlayed = nil
     self.pendingAfterAnim = nil
-    if not self:animForMove(event.move, event.side, event.animParam) then
+    if not self:animForMove(event.move, event.side, event.animParam,
+        event.effectiveness) then
       -- BATTLE SCENE off skips the move script but still runs wBattleAfterAnim
       -- (anim_commands.asm:55-72 .disabled fallthrough).
       local options = self.game and self.game.options
       if options and options.battleScene == false then
         if self:animForId(self:afterAnimFor(event.side), event.side) then
+          self:playHitSound(event.effectiveness)
           self.afterAnimPlayed = true
         end
       end
@@ -1725,6 +1745,7 @@ function BattleState:advanceQueue()
           and (hit == "ANIM_ENEMY_DAMAGE" or hit == "ANIM_PLAYER_DAMAGE") then
         self.afterAnimPlayed = nil
       else
+        self:playHitSound(event.effectiveness)
         self:animForId(hit, from)
       end
     end

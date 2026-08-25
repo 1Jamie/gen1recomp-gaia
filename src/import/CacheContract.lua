@@ -10,7 +10,7 @@ local CacheContract = {}
 
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
-  crystal = "rom-cache-v10-crystal2:",
+  crystal = "rom-cache-v10-crystal3:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -34,6 +34,11 @@ CacheContract.VERSION_REQUIRED_FILES = {
     "assets/generated/battle/trainers/jessie_james.png",
     "assets/generated/battle/profoakb.png",
     "assets/generated/pikachu/pikapic_1.png",
+    "assets/generated/minigame/surf_1a.png",
+    "assets/generated/minigame/surf_1b.png",
+    "assets/generated/minigame/surf_1c.png",
+    "assets/generated/minigame/title_bg.png",
+    "assets/generated/minigame/intro_pika_0.png",
   },
 }
 
@@ -133,10 +138,68 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =
   CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.gold
 
+local SEMANTIC_MODULES = {
+  [1] = {
+    "constants", "maps", "tilesets", "text", "text_pointers",
+    "trainer_headers", "font", "sprites", "pokemon", "moves", "items",
+    "type_chart", "trainers", "encounters", "field", "battle_anims",
+  },
+  [2] = {
+    "pokemon", "moves", "items", "type_chart", "audio", "font", "maps",
+    "tilesets", "text", "trainers", "encounters", "sprites", "palettes",
+    "icons", "battle_anims", "constants", "landmarks",
+  },
+}
+
+local OPTIONAL_SEMANTIC_MODULES = {
+  [1] = { "audio", "palettes", "icons" },
+  [2] = {},
+}
+
+local function copy(values)
+  local out = {}
+  for index, value in ipairs(values or {}) do out[index] = value end
+  return out
+end
+
 function CacheContract.requiredFilesFor(version)
   local override = CacheContract.VERSION_REQUIRED_FILES_OVERRIDE[version]
   if override then return override, true end
   return CacheContract.REQUIRED_FILES, false
+end
+
+-- A detached, version-specific inventory for read-only consumers. Semantic
+-- consumers additionally require every generated module that backs the public
+-- registry surface; optional semantic roots are discovered lazily.
+function CacheContract.requiredFiles(version, semantic)
+  local base, isOverride = CacheContract.requiredFilesFor(version)
+  local files = copy(base)
+  if not isOverride then
+    for _, path in ipairs(CacheContract.VERSION_REQUIRED_FILES[version] or {}) do
+      files[#files + 1] = path
+    end
+  end
+  if semantic then
+    for _, name in ipairs(SEMANTIC_MODULES[GameVersion.generation(version)] or {}) do
+      files[#files + 1] = "data/generated/" .. name .. ".lua"
+    end
+  end
+  local seen, out = {}, {}
+  for _, path in ipairs(files) do
+    if not seen[path] then
+      seen[path] = true
+      out[#out + 1] = path
+    end
+  end
+  return out
+end
+
+function CacheContract.semanticModules(version)
+  return copy(SEMANTIC_MODULES[GameVersion.generation(version)])
+end
+
+function CacheContract.optionalSemanticModules(version)
+  return copy(OPTIONAL_SEMANTIC_MODULES[GameVersion.generation(version)])
 end
 
 function CacheContract.formatFor(version)
@@ -258,6 +321,61 @@ function CacheContract.sourceTreeHasData(version)
     end
   end
   return true
+end
+
+-- Inspect another version without mutating CacheFs.prefix, GameVersion, mounts,
+-- or the active Data table. The injected filesystem addresses exact paths.
+local function readAt(fs, path)
+  if fs.readAt then return fs.readAt(path) end
+  if fs.read then return fs.read(path) end
+  return nil
+end
+
+local function isFileAt(fs, path)
+  if fs.getInfo then
+    local info = fs.getInfo(path, "file")
+    return info ~= nil and (info.type == nil or info.type == "file")
+  end
+  if fs.existsAt then return fs.existsAt(path) == true end
+  return false
+end
+
+local function hasExactFiles(version, fs, prefix, semantic)
+  for _, path in ipairs(CacheContract.requiredFiles(version, semantic)) do
+    if not isFileAt(fs, prefix .. path) then return false, path end
+  end
+  return true
+end
+
+local function sourceReady(version, fs, semantic)
+  if not (fs.getInfo and fs.getRealDirectory and fs.getSource) then return nil end
+  local prefix = version == "red" and "" or GameVersion.cachePrefix(version)
+  local complete = hasExactFiles(version, fs, prefix, semantic)
+  if not complete then return nil end
+  local first = prefix .. CacheContract.requiredFiles(version, semantic)[1]
+  if fs.getRealDirectory(first) ~= fs.getSource() then return nil end
+  return { kind = "source", prefix = prefix }
+end
+
+function CacheContract.inspect(version, fs, opts)
+  opts = opts or {}
+  if not (GameVersion.VERSIONS[version] and fs) then
+    return nil, "not_imported", "unsupported cache inspection"
+  end
+  if opts.allowSource then
+    local source = sourceReady(version, fs, opts.semantic)
+    if source then return source end
+  end
+  local prefix = GameVersion.cachePrefix(version)
+  local marker = readAt(fs, prefix .. CacheContract.MARKER_PATH)
+  if not CacheContract.markerMatches(version, marker) then
+    return nil, "not_imported", "completion marker is missing or stale"
+  end
+  local complete, missing = hasExactFiles(version, fs, prefix, opts.semantic)
+  if not complete then
+    return nil, "not_imported", "required cache file is missing: " .. tostring(missing)
+  end
+  return { kind = "cache", prefix = prefix, marker = marker }
 end
 
 return CacheContract

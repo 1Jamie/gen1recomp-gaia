@@ -23,6 +23,11 @@ local SaveData = require("src.core.SaveData")
 
 local LauncherSettings = {}
 
+local function bgLocked(opts)
+  return opts.battleLayout == "wide" and opts.battleFit == "fill"
+     and opts.battleHud == "extended"
+end
+
 local function wrapIndex(i, n)
   i = i % n
   if i < 0 then i = i + n end
@@ -156,8 +161,6 @@ local function coreRows(opts, hooks)
       opts.battleLayout = opts.battleLayout == "wide" and "og" or "wide"
       if opts.battleLayout ~= "wide" then
         opts.battleHud = "standard"
-      elseif opts.battleFit == "fill" and opts.battleHud == "extended" then
-        opts.battleBg = "white"
       end
       return true
     end)
@@ -167,10 +170,6 @@ local function coreRows(opts, hooks)
     end,
     function()
       opts.battleFit = opts.battleFit == "fill" and "fixed" or "fill"
-      if opts.battleFit == "fill" and opts.battleLayout == "wide"
-         and opts.battleHud == "extended" then
-        opts.battleBg = "white"
-      end
       return true
     end)
   add(Strings("BATTLE HUD"),
@@ -185,28 +184,17 @@ local function coreRows(opts, hooks)
         return false
       end
       opts.battleHud = opts.battleHud == "extended" and "standard" or "extended"
-      if opts.battleHud == "extended" and opts.battleFit == "fill" then
-        opts.battleBg = "white"
-      end
       return true
     end)
   add(Strings("BATTLE BG"),
     function()
-      if opts.battleLayout == "wide" and opts.battleFit == "fill"
-         and opts.battleHud == "extended" then
-        opts.battleBg = "white"
-        return Strings("AUTO")
-      end
+      if bgLocked(opts) then return Strings("AUTO (FILL HUD)") end
       if opts.battleBg == "black" then return Strings("BLACK") end
       if opts.battleBg == "world" then return Strings("WORLD") end
       return Strings("WHITE")
     end,
     function(dir)
-      if opts.battleLayout == "wide" and opts.battleFit == "fill"
-         and opts.battleHud == "extended" then
-        opts.battleBg = "white"
-        return false
-      end
+      if bgLocked(opts) then return false end
       local order = { "white", "black", "world" }
       local cur = 1
       for i, mode in ipairs(order) do
@@ -563,7 +551,7 @@ end
 -- src/ui/gen2/OptionsMenu.lua's ROWS; when editing one, keep the two in sync.
 local GEN2_KEY = "gold"
 
-local function gen2Rows(opts, hooks)
+local function gen2Rows(opts, hooks, shared)
   local rows = {}
   local function add(label, value, step)
     rows[#rows + 1] = { label = label, value = value, step = step }
@@ -669,9 +657,9 @@ local function gen2Rows(opts, hooks)
   local okVm, VideoMode = pcall(require, "src.core.VideoMode")
   if okVm then
     add(Strings("VIDEO MODE"),
-      function() return VideoMode.modeLabel(opts.videoMode) end,
+      function() return VideoMode.modeLabel(shared.videoMode) end,
       function(dir)
-        opts.videoMode = VideoMode.cycle(opts.videoMode, dir)
+        shared.videoMode = VideoMode.cycle(shared.videoMode, dir)
         return true
       end)
   end
@@ -690,7 +678,7 @@ local function gen2Rows(opts, hooks)
   add(Strings("BATTLE BG"), ladder(opts, "battleBg",
     { { "white", "WHITE" }, { "black", "BLACK" } }, "white"))
 
-  addTouchRows(rows, add, opts, hooks)
+  addTouchRows(rows, add, shared, hooks)
 
   return rows
 end
@@ -718,7 +706,7 @@ function LauncherSettings.open(hooks, version)
       opts[GEN2_KEY] = block
     end
     sections = {
-      { title = Strings("OPTIONS"), rows = gen2Rows(block, hooks) },
+      { title = Strings("OPTIONS"), rows = gen2Rows(block, hooks, opts) },
     }
   else
     sections = {

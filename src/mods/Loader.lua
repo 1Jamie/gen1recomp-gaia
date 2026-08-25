@@ -1154,6 +1154,15 @@ function Loader:_api(mod)
     developer = loader.dev == true,
     -- a deep copy: what a mod does to its own view never reaches the loader
     manifest = Merge.deepCopy(mod.manifest),
+    datasets = {
+      open = function(_, version)
+        if not loader.datasetViews then
+          local DatasetViews = engineRequire("src.mods.DatasetViews")
+          loader.datasetViews = DatasetViews.new(loader.fs, engineRequire)
+        end
+        return loader.datasetViews:open(version)
+      end,
+    },
     content = {},
     exports = {},
     DELETE = Registry.DELETE,

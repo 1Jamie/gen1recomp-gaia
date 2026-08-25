@@ -1983,6 +1983,11 @@ SaveData.addCoreMigration(3, function(save)
   end
 end)
 
+-- #1461 repair, one-shot on pre-format-5 saves
+SaveData.addCoreMigration(4, function(save)
+  SaveData.repairTradedOtIds(save)
+end)
+
 -- ------- write
 
 -- Game progress only; options are written separately via saveOptions.
@@ -2394,8 +2399,8 @@ function SaveData.applyPostGameHome(save, boot)
 end
 
 -- 0.1.82-0.1.9x loads stamped the player's own id onto traded mons and saved
--- it, which reads back as home-caught.  A caught mon can never carry
--- traded=true, so clearing that pair is safe on every load.  #1461
+-- it, which reads back as home-caught.  Run only as the pre-format-5
+-- migration: a same-id trade partner makes that pair legitimate.  #1461
 function SaveData.repairTradedOtIds(save)
   local playerId = save and save.player and save.player.id
   if playerId == nil then return 0 end

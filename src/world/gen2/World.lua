@@ -551,6 +551,7 @@ function World.new(game)
     lastSfx = nil,
     pokePic = nil,
     pendingSceneScript = false,
+    startedOverworld = false,
     -- GBC color state (engine/gfx/color.asm).  `daytime` is the resolved
     -- MORN/DAY/NITE/DARK the map is currently lit by; clockHour overrides
     -- World:hour for drivers and tests, so the palette, the hour windows and
@@ -9045,10 +9046,9 @@ function World:setMap(mapId, cx, cy, facing, opts)
   if not opts.seamless then
     self.pendingSceneScript = true
   end
-  -- StartMap (engine/overworld/events.asm): `farcall InitCallReceiveDelay` on
-  -- every map entry, connections included -- which is why a player who keeps
-  -- warping is never rung (src/core/gen2/Phone.lua's receive timer).
-  if self.game and self.game.save then
+  -- engine/overworld/events.asm:98
+  if not self.startedOverworld and self.game and self.game.save then
+    self.startedOverworld = true
     require("src.core.gen2.Phone").onMapLoad(self.game.save,
       self:stepContext().phone)
   end

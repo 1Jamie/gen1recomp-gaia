@@ -156,7 +156,9 @@ function TitleState.new(game, opts)
   self.entranceHideBelow = entrance and tonumber(entrance.hideBelow) or nil
   self.gemY = entrance and (tonumber(title.gemFromY) or -50) or self.gemRestY
   self.entranceSfx = title.entranceSfx
+  -- engine/menus/intro_menu.asm:951-966
   self.timeoutFrames = tonumber(title.timeoutFrames)
+    or ((self.trailMode == "silver") and (73 * 60 + 36) or (84 * 60 + 16))
   self.onTimeout = opts.onTimeout
   -- The copyright window line is pal 7 (engine/movie/title.asm:40-43); its
   -- colour 0 backs the whole band.
@@ -295,12 +297,17 @@ function TitleState:update(_dt)
     return
   end
 
-  -- TitleScreenTimer / TitleScreenMain's run-down back into the attract
-  -- loop (engine/menus/intro_menu.asm:1125-1236).
-  if self.timeoutFrames and self.onTimeout
-      and self.frameCounter - (self.timeoutStart or 0) >= self.timeoutFrames then
-    self.onTimeout()
-    return
+  -- engine/menus/intro_menu.asm:1023-1059
+  if self.timeoutFrames and self.onTimeout then
+    if self.fadeStart then
+      if self.frameCounter - self.fadeStart >= 60 then self.onTimeout() end
+      return
+    end
+    if self.frameCounter - (self.timeoutStart or 0) >= self.timeoutFrames then
+      self.fadeStart = self.frameCounter
+      Music.fadeOut(8)
+      return
+    end
   end
 
   local input = self.game.input
