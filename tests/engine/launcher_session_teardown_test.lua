@@ -64,12 +64,17 @@ do
   Game.linkFetch = {
     release = function(id) jobs[id] = nil end,
   }
+  local before = Game
   SessionLifecycle.endGameSession(Game)
-  check(type(Game.load) == "function",
-    "endGameSession leaves Game.load intact for the next bootGame")
-  check(package.loaded["src.core.Game"] == Game
-      or type((package.loaded["src.core.Game"] or {}).load) == "function",
-    "Gen1 Game module remains require-able after endGameSession")
+  check(type(before.load) == "function",
+    "endGameSession reset leaves methods on the old table")
+  check(package.loaded["src.core.Game"] == nil,
+    "endGameSession drops Gen1 Game from package.loaded")
+  local again = require("src.core.Game")
+  check(type(rawget(again, "load")) == "function",
+    "require rebuilds a bootable Gen1 Game after endGameSession")
+  check(again ~= before, "Play-again uses a fresh Gen1 Game module table")
+  Game = again
 end
 
 -- ---- Game2:reset releases world GPU and present canvases ------------------

@@ -384,12 +384,14 @@ function bootGame(version, cartId)
     Game = require("src.core.Game2").new()
     Game:load()
   else
-    -- Gen1 Game is a module singleton.  In-process EXIT GAME resets it in
-    -- place; if a prior teardown left load missing, rebuild from source.
+    -- Gen1 Game is a module singleton.  Always re-require after in-process
+    -- EXIT GAME so a prior session cannot leave a table whose rawget(load)
+    -- is nil (release Android: bootGame then dies with load-a-nil-value).
+    -- rawget: type(mod.load) can lie via __index and skip a rebuild.
+    package.loaded["src.core.Game"] = nil
     local gameMod = require("src.core.Game")
-    if type(gameMod.load) ~= "function" then
-      package.loaded["src.core.Game"] = nil
-      gameMod = require("src.core.Game")
+    if type(rawget(gameMod, "load")) ~= "function" then
+      error("src.core.Game missing load after reload")
     end
     Game = gameMod
     Game:load()
@@ -1125,15 +1127,23 @@ function love.quit()
   -- docs/modding.md's core.quit_to_launcher entry) may veto returning to
   -- this Lua launcher via that hook. Vanilla behavior (used when no mod
   -- claims the hook) is exactly the condition below.
-  local isAndroid = (love.system and love.system.getOS and love.system.getOS() == "Android")
+  --
+  -- Android and iOS both tear down LOVE in-process rather than
+  -- love.event.quit("restart"): Android's vendored love.cpp PHYSFS-crashes
+  -- on a second init (#575), and iOS's love.cpp forces DONE_RESTART for
+  -- every quit while warning that leftover threads make that unreliable.
+  -- SessionLifecycle workers (ChipAudio / Fetch / Check) make that warning
+  -- real -- endProcess joins them, then the native restart still blows up.
+  local osName = love.system and love.system.getOS and love.system.getOS()
+  local inProcessReturn = (osName == "Android" or osName == "iOS")
   local wouldReturnToLauncher = PlatformHooks.quitToLauncher(function()
     return Game and not Importer and not quitToLauncher and not scripted
-      and (isAndroid or not launchedIntoGame)
+      and (inProcessReturn or not launchedIntoGame)
   end)
   if wouldReturnToLauncher then
-    if isAndroid then
+    if inProcessReturn then
       returnToLauncher()
-      return true -- abort this quit; the restart lands back in the launcher
+      return true -- abort this quit; stay in the same LOVE run
     end
     quitToLauncher = true
     -- Tell the fresh boot to ignore any boot-straight-into-a-game option this
