@@ -441,15 +441,25 @@ end
 
 -- Intro_ClearBGPals blacks all 16 palettes and burns two frames
 -- (engine/movie/intro.asm:1554-1571); IntroScene26 clears to white instead
--- (engine/movie/intro.asm:1058, home/tilemap.asm:168-196).
-local function setup(self, white, fn)
+-- (engine/movie/intro.asm:1058, home/tilemap.asm:1-9,168-196).
+-- Request2bpp (home/gfx.asm:1,190-260): TILES_PER_CYCLE tiles per frame,
+-- then one more frame for the final short (or empty) request.
+local function requestFrames(tiles)
+  local frames = 0
+  for _, count in ipairs(tiles) do
+    frames = frames + math.floor(count / 8) + 1
+  end
+  return frames
+end
+
+local function setup(self, white, tiles, fn)
   if self.phase == 0 then
     self.phase = 1
     local color = white and WHITE or BLACK
     self.bgPals = flatPals(color)
     self.obPals = flatPals(color)
     markDirty(self)
-    self.hold = 1
+    self.hold = (white and 4 or 2) + requestFrames(tiles) - 1
     return
   end
   self.phase = 0
@@ -556,7 +566,7 @@ local Scenes = {}
 
 -- IntroScene1 (engine/movie/intro.asm:96-146).
 Scenes[1] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 128, 64 }, function()
     loadAct(self, "unownA")
     clearAnims(self)
     self.scx, self.scy = 0, 0
@@ -582,7 +592,7 @@ end
 
 -- IntroScene3 (engine/movie/intro.asm:172-218).
 Scenes[3] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 64 }, function()
     loadAct(self, "background")
     resetLYOverrides(self)
     self.scx, self.scy = 0, 0
@@ -602,7 +612,7 @@ end
 
 -- IntroScene5 (engine/movie/intro.asm:234-285).
 Scenes[5] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 128, 64 }, function()
     loadAct(self, "unownHI")
     self.lyActive = false
     clearAnims(self)
@@ -641,7 +651,7 @@ end
 
 -- IntroScene7 (engine/movie/intro.asm:332-401).
 Scenes[7] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 255, 128, 64 }, function()
     loadAct(self, "background")
     resetLYOverrides(self)
     clearAnims(self)
@@ -708,7 +718,7 @@ end
 
 -- IntroScene11 (engine/movie/intro.asm:502-550).
 Scenes[11] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 64 }, function()
     loadAct(self, "unowns")
     self.lyActive = false
     clearAnims(self)
@@ -729,7 +739,10 @@ local UNOWN_SOUNDS = {
 Scenes[12] = function(self)
   local a = self.counter
   local sound = UNOWN_SOUNDS[a]
-  if sound then self:playSfx(sound) end
+  if sound then
+    Sound.sfxChannelsOff()
+    self:playSfx(sound)
+  end
   self.counter = (a + 1) % 256
   if a >= 0xc0 then
     self.scene = 13
@@ -746,7 +759,7 @@ end
 
 -- IntroScene13 (engine/movie/intro.asm:626-683).
 Scenes[13] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 255, 128, 64 }, function()
     loadAct(self, "background")
     clearAnims(self)
     self.anims:init("INTRO_SUICUNE", 11 * 8, 13 * 8 + 4)
@@ -783,7 +796,7 @@ end
 
 -- IntroScene15 (engine/movie/intro.asm:730-792).
 Scenes[15] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 128, 1, 64 }, function()
     loadAct(self, "suicuneJump")
     clearAnims(self)
     self.anims:init("INTRO_UNOWN_F", 5 * 8, 8 * 8)
@@ -809,7 +822,7 @@ end
 
 -- IntroScene17 (engine/movie/intro.asm:812-859).
 Scenes[17] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 255, 64 }, function()
     loadAct(self, "suicuneClose")
     clearAnims(self)
     self.scx, self.scy = 0, 0
@@ -832,7 +845,7 @@ end
 
 -- IntroScene19 (engine/movie/intro.asm:878-941).
 Scenes[19] = function(self)
-  setup(self, false, function()
+  setup(self, false, { 64, 128, 128, 1, 64 }, function()
     loadAct(self, "suicuneBack")
     clearAnims(self)
     self.anims:init("INTRO_SUICUNE_AWAY", 0, 12 * 8)
@@ -918,7 +931,7 @@ end
 
 -- IntroScene26 (engine/movie/intro.asm:1056-1103).
 Scenes[26] = function(self)
-  setup(self, true, function()
+  setup(self, true, { 64, 128, 64 }, function()
     loadAct(self, "crystalUnowns")
     clearAnims(self)
     self.scx, self.scy = 0, 0
