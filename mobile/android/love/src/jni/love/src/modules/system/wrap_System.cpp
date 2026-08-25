@@ -101,7 +101,8 @@ int w_vibrate(lua_State *L)
 int w_pickFile(lua_State *L)
 {
 	const char *kind = luaL_optstring(L, 1, nullptr);
-	luax_pushboolean(L, instance()->pickFile(kind));
+	const char *destination = luaL_optstring(L, 2, nullptr);
+	luax_pushboolean(L, instance()->pickFile(kind, destination));
 	return 1;
 }
 

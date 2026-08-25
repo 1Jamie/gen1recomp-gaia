@@ -93,7 +93,20 @@ static int gr_callBridge(lua_State *L, const char *className,
 int w_pickFile(lua_State *L)
 {
 	const char *kind = luaL_optstring(L, 1, "rom");
-	return gr_callBridge(L, "GRPickerBridge", "presentPickerWithKind:saveDir:", kind);
+	const char *destination = luaL_optstring(L, 2, nullptr);
+	Class cls = objc_getClass("GRPickerBridge");
+	if (cls == nullptr)
+	{
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	typedef signed char (*GRPick)(Class, SEL, const char *, const char *,
+	                              const char *);
+	signed char ok = ((GRPick)objc_msgSend)(
+		cls, sel_registerName("presentPickerWithKind:saveDir:destination:"),
+		kind, gr_saveDirectory(), destination);
+	lua_pushboolean(L, ok != 0);
+	return 1;
 }
 
 // love.system.pickFileKinds() -> the comma-separated kinds supported by the
