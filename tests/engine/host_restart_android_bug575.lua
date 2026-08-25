@@ -4,7 +4,10 @@
 -- The fix prefers the love.system.restartApp JNI bridge (which kills the
 -- process, so a true return is never observed live) and, on an old APK
 -- whose liblove lacks the bridge, falls back to a CLEAN quit with no
--- argument.  Desktop keeps the in-process quit("restart").
+-- argument.  iOS has no restartApp bridge and love.cpp forces DONE_RESTART
+-- for every quit; HostShell.restart must still refuse quit("restart") so a
+-- leftover caller does not pick the worker-join + native-restart path that
+-- crashes EXIT GAME.  Desktop keeps the in-process quit("restart").
 --   luajit tests/engine/host_restart_android_bug575.lua
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -48,12 +51,18 @@ HostShell.restart()
 eq(#quits, 2, "a bridge-less APK quits cleanly instead of crashing")
 eq(quits[2].n, 0, "again with no restart argument")
 
+-- iOS: no process-kill bridge; never quit("restart")
+osName = "iOS"
+HostShell.restart()
+eq(#quits, 3, "iOS HostShell.restart still quits once")
+eq(quits[3].n, 0, "iOS uses a bare quit(), never quit(\"restart\")")
+
 -- desktop (no AppImage in a test environment) keeps the in-process restart
 if not os.getenv("APPIMAGE") then
   osName = "OS X"
   HostShell.restart()
-  eq(quits[3] and quits[3].arg, "restart",
-     "non-Android still restarts in-process")
+  eq(quits[4] and quits[4].arg, "restart",
+     "non-mobile still restarts in-process")
 end
 
 T.finish("host_restart_android_bug575")

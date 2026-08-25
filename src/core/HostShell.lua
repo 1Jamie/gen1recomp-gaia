@@ -158,7 +158,15 @@ end
 -- and the app dies. There we relaunch through the GameActivity.restartApp
 -- JNI bridge (love.system.restartApp), which schedules our launch intent
 -- and kills the process so no native state can leak into the fresh run.
--- On every other platform the in-process restart works, so keep it.
+-- iOS is the same class of problem with a sharper edge: love.cpp under
+-- LOVE_IOS forces DONE_RESTART for *every* quit (Apple forbids programmatic
+-- exit) and comments that leftover threads make that restart unreliable --
+-- which our ChipAudio / Fetch / Check workers are.  There is no
+-- restartApp bridge on iOS, so callers that want "back to launcher" must
+-- use main.lua's in-process returnToLauncher (love.quit aborts the quit);
+-- HostShell.restart itself refuses quit("restart") and falls back to a
+-- bare quit() so a mod that still calls restart does not pick the worst
+-- path on purpose.
 function HostShell.restart()
   if not (love and love.event and love.event.quit) then return end
 
@@ -171,6 +179,14 @@ function HostShell.restart()
     -- cleanly and let the player relaunch by hand -- worse than restarting,
     -- but better than the guaranteed crash of quit("restart") (#575).
     if love.system.restartApp and love.system.restartApp() then return end
+    love.event.quit()
+    return
+  end
+  if osName == "iOS" then
+    -- No process-kill bridge.  A bare quit still becomes DONE_RESTART in
+    -- love.cpp, but quit("restart") is the path that also runs our
+    -- endProcess worker joins first and then re-enters runlove -- the
+    -- combination that crashes EXIT GAME.  Prefer the softer quit.
     love.event.quit()
     return
   end

@@ -64,11 +64,18 @@ end
 
 -- EXIT GAME / intent_game before dropping Game.  Stops audio and resets the
 -- live game instance so map/GPU holders are gone before endMountedSession.
+--
+-- ChipAudio's worker stays alive across game sessions (see tier comment
+-- above).  shutdown() joins the thread and is process-exit only -- calling
+-- it here on every Android EXIT GAME has been observed to leave the Gen1
+-- Game singleton unbootable (Game.load nil) on the next Play of a version
+-- already opened this process, while a debug APK with a different liblove
+-- did not reproduce.
 function SessionLifecycle.endGameSession(game)
   pcall(function() require("src.core.Music").stop() end)
   pcall(function() require("src.core.Sound").stop() end)
   if package.loaded["src.core.ChipAudio"] then
-    pcall(package.loaded["src.core.ChipAudio"].shutdown)
+    pcall(package.loaded["src.core.ChipAudio"].stopMusic)
   end
   if package.loaded["src.core.DiscordPresence"] then
     pcall(package.loaded["src.core.DiscordPresence"].shutdown)
@@ -87,11 +94,11 @@ function SessionLifecycle.endGameSession(game)
   if game and game.reset then
     pcall(function() game:reset() end)
   end
-  -- Gen1 Game is the module singleton.  If teardown left it without load,
-  -- drop the cached module so the next require rebuilds a clean table
-  -- (bootGame also guards this; doing it here keeps Play-again reliable).
-  if game and type(game.load) ~= "function"
-      and package.loaded["src.core.Game"] == game then
+  -- Gen1 Game is the module singleton.  Always drop the cached module after
+  -- a session that owned it so the next bootGame require rebuilds a clean
+  -- table.  A type(game.load) check is not enough: a wrong table parked in
+  -- package.loaded (e.g. with __index) can still look like it has load.
+  if game and package.loaded["src.core.Game"] == game then
     package.loaded["src.core.Game"] = nil
   end
 

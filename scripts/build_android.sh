@@ -106,6 +106,13 @@ if [ -n "$TEST_APPLICATION_ID" ]; then
   APPLICATION_ID="$TEST_APPLICATION_ID"
   APP_NAME="$APP_NAME (test)"
 fi
+# Optional overrides for side-by-side test APKs (never used by CI shipping builds).
+if [ -n "${GEN1RECOMP_ANDROID_APPLICATION_ID:-}" ]; then
+  APPLICATION_ID="$GEN1RECOMP_ANDROID_APPLICATION_ID"
+fi
+if [ -n "${GEN1RECOMP_ANDROID_APP_NAME:-}" ]; then
+  APP_NAME="$GEN1RECOMP_ANDROID_APP_NAME"
+fi
 
 # --------------------------------------------------------------- preconditions
 if [ ! -f "$ANDROID_DIR/settings.gradle" ] || [ ! -f "$ANDROID_DIR/gradlew" ]; then
