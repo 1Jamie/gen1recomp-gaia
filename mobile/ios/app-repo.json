@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.26",
+          "date": "2026-08-25",
+          "size": 21326715,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.26/gen1recomp++-0.2.26-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #917 Save editor still unable to save\n- #1074 Yellow ROM Importer may be broken\n- #1635 Missing FX jingle sounds for items\n- #1639 [Yellow] Summer Beach House colors in Advanced mode\n- #1644 Minor bug: Fly's screen fade is black instead of white\n- #1743 Super Nerd in Mt. Moon Wrong Dialogue\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @campavao\n- @HighDrexler"
+        },
+        {
           "version": "0.2.25",
           "date": "2026-08-25",
           "size": 21307139,
