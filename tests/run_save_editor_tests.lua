@@ -928,6 +928,113 @@ do
 end
 
 do
+  -- Move picker search predicate: same plain-text rules as species (#541),
+  -- plus type substring and whole-number power / accuracy matches.
+  local S = State.new()
+  S.data = Data
+  S.cat = Catalog.build(Data)
+  S.save = SaveData.newGame()
+
+  check(Ops.moveMatches(S, "THUNDERBOLT", "thunder"), "lowercase query matches an id")
+  check(Ops.moveMatches(S, "THUNDERBOLT", "BOLT"), "a mid-word substring matches")
+  check(Ops.moveMatches(S, "THUNDERBOLT", "electric"), "a type substring matches")
+  check(Ops.moveMatches(S, "THUNDERBOLT", "95"), "a whole power matches")
+  check(Ops.moveMatches(S, "THUNDERBOLT", "100"), "a whole accuracy matches")
+  check(Ops.moveMatches(S, "THUNDERBOLT", "9") == false,
+        "a power/accuracy number does not substring-match")
+  check(Ops.moveMatches(S, "THUNDERBOLT", ""), "an empty query matches everything")
+  check(Ops.moveUsable(S, "THUNDERBOLT"), "a real move is usable")
+  check(Ops.moveUsable(S, "generation") == false, "a provenance scalar is not usable")
+
+  eq(#Ops.moveSearch(S, ""), #S.cat.moves, "an empty search lists the catalog")
+  eq(#Ops.moveSearch(S, "%a"), 0, "a pattern class is literal")
+  check(#Ops.moveSearch(S, "zzzznope") == 0, "a miss returns nothing")
+  local bolt = Ops.moveSearch(S, "thunderbolt")
+  eq(#bolt, 1, "an exact name search narrows to one")
+  eq(bolt[1], "THUNDERBOLT", "and it is the right one")
+
+  -- Prefix beats mid-string: "sur" used to list ACUPRESSURE / FISSURE before
+  -- SURF because the catalog is A-Z.  Rank so Enter commits the obvious hit.
+  local sur = Ops.moveSearch(S, "sur")
+  check(#sur >= 1, "sur finds at least one move")
+  eq(sur[1], "SURF", "a prefix match ranks above mid-string hits")
+  local thunder = Ops.moveSearch(S, "thunder")
+  check(#thunder >= 1, "thunder finds at least one move")
+  eq(thunder[1], "THUNDER", "THUNDER prefixes beat THUNDERBOLT / THUNDERSHOCK")
+end
+
+do
+  -- Move picker end to end through App: open off a move row, type, commit
+  -- with Enter.  Same Enter/Escape-before-Kit rule as the species picker.
+  local Kit = require("Kit")
+  local MovePicker = require("MovePicker")
+  local tmpPath = os.tmpname() .. "-movepicker-save.lua"
+  local data = SaveData.newGame()
+  data.party = { MonOps.create(Data, "WARTORTLE", 20) }
+  local f = io.open(tmpPath, "wb")
+  f:write(SaveData.encode(data))
+  f:close()
+
+  App.load(tmpPath, { version = "red" })
+  local S = App.getState()
+  S.tab = "party"
+
+  check(Ops.openMovePicker(S, Kit, 1) == false,
+        "the move picker refuses to open with no slot selected")
+  check(S.movePicker == nil, "and it stayed closed")
+  check(S.status:match("Pick a slot") ~= nil, "and it said why")
+
+  Ops.selectParty(S, 1)
+  check(Ops.openMovePicker(S, Kit, 0) == false, "slot 0 is refused")
+  check(Ops.openMovePicker(S, Kit, 1) == true, "the move picker opens on slot 1")
+  check(S.movePicker ~= nil, "the picker is up")
+  eq(S.movePicker.slot, 1, "for the requested slot")
+  eq(S.movePicker.query, "", "it opens with an empty query")
+  eq(Kit.focus, "move-picker", "it opens with the field focused (#529 keyboard)")
+
+  local ok, err = pcall(App.draw)
+  check(ok, "the move picker draws headlessly: " .. tostring(err))
+
+  App.textinput("THUNDERBOLT")
+  ok, err = pcall(App.draw)
+  check(ok, "the move picker draws while typing: " .. tostring(err))
+  eq(S.movePicker.query, "THUNDERBOLT", "typing reaches the picker's field")
+  eq(#MovePicker.results(S), 1, "the list narrowed to the typed move")
+
+  App.keypressed("return")
+  eq(S.save.party[1].moves[1].id, "THUNDERBOLT", "Enter commits the top match")
+  check(S.movePicker == nil, "and closes the picker")
+  check(S.dirty, "and the save is dirty")
+
+  -- Escape leaves without touching the mon
+  local before = S.save.party[1].moves[1].id
+  Ops.openMovePicker(S, Kit, 1)
+  App.textinput("SURF")
+  App.draw()
+  App.keypressed("escape")
+  check(S.movePicker == nil, "Escape closes the move picker")
+  eq(S.save.party[1].moves[1].id, before, "Escape did not commit anything")
+  check(S.editingMon ~= nil, "Escape closed the picker, not the selection")
+
+  -- a query nothing matches cannot commit
+  Ops.openMovePicker(S, Kit, 2)
+  App.textinput("zzzznope")
+  App.draw()
+  App.keypressed("return")
+  check(S.movePicker ~= nil, "Enter on an empty result set keeps the picker up")
+  check(S.status:match("No move matches") ~= nil, "and says so")
+  Ops.closeMovePicker(S, Kit)
+
+  -- Ops.setMove refuses a scalar / missing id
+  check(Ops.setMove(S, S.editingMon, 1, "generation") == false,
+        "setMove refuses a provenance scalar")
+  eq(S.save.party[1].moves[1].id, "THUNDERBOLT", "and leaves the slot alone")
+
+  os.remove(tmpPath)
+  for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
+end
+
+do
   -- The inspector's nickname field is commit-on-Enter: the draft lives in
   -- S.nicknameDraft while typing, Enter commits it through Ops.setNickname,
   -- and Escape discards it.  Drive it through App the way a player would:
@@ -1127,10 +1234,13 @@ do
 
   -- 720x1280 / 1280x720 are the #715 report's shapes (Android, both
   -- orientations): the Map tab used to lay its viewport out at a negative
-  -- width in portrait and crash on the scissor.  The desktop sizes pin that
-  -- the responsive reflow does not disturb the layouts that already worked.
+  -- width in portrait and crash on the scissor.  RGxxx / Switch shapes pin
+  -- short-landscape handhelds (RG34XXSP 720x480, RG35XX 640x480, NX 1280x720)
+  -- and a tiny 360x640 phone.  Desktop sizes keep the layouts that already
+  -- worked.
   for _, size in ipairs({ { 720, 1560 }, { 1560, 720 }, { 480, 1040 },
                           { 1280, 800 }, { 720, 1280 }, { 1280, 720 },
+                          { 720, 480 }, { 640, 480 }, { 480, 320 },
                           { 1024, 768 }, { 1920, 1080 }, { 360, 640 } }) do
     love.graphics.getDimensions = function() return size[1], size[2] end
     App.load(tmpPath, { version = "red" })
@@ -1153,6 +1263,12 @@ do
     ok, err = pcall(App.draw)
     check(ok, ("the species picker redraws at %s: %s"):format(label, tostring(err)))
     Ops.closeSpeciesPicker(S, Kit)
+    Ops.openMovePicker(S, Kit, 1)
+    ok, err = pcall(App.draw)
+    check(ok, ("the move picker draws at %s: %s"):format(label, tostring(err)))
+    ok, err = pcall(App.draw)
+    check(ok, ("the move picker redraws at %s: %s"):format(label, tostring(err)))
+    Ops.closeMovePicker(S, Kit)
   end
 
   love.graphics.getDimensions = oldDimensions
@@ -1233,8 +1349,12 @@ do
   f:close()
 
   local oldDimensions = love.graphics.getDimensions
+  -- Include RG34XXSP (720x480) and Switch handheld; keep 640x480 out of the
+  -- overlap audit (Map still needs its own short-landscape pass) but the
+  -- phone draw suite above already covers it.
   local sizes = { { 500, 800 }, { 720, 1280 }, { 1280, 720 },
-                  { 1024, 768 }, { 900, 700 }, { 1920, 1080 } }
+                  { 720, 480 }, { 1024, 768 },
+                  { 900, 700 }, { 1920, 1080 } }
   for _, size in ipairs(sizes) do
     local W, H = size[1], size[2]
     love.graphics.getDimensions = function() return W, H end
@@ -1266,6 +1386,14 @@ do
     if ok then auditFrame(("%dx%d species picker"):format(W, H), W, H) end
     Kit.audit = nil
     Ops.closeSpeciesPicker(S, Kit)
+    Ops.openMovePicker(S, Kit, 1)
+    App.draw()
+    Kit.audit = {}
+    ok, err = pcall(App.draw)
+    check(ok, ("%dx%d move picker draws: %s"):format(W, H, tostring(err)))
+    if ok then auditFrame(("%dx%d move picker"):format(W, H), W, H) end
+    Kit.audit = nil
+    Ops.closeMovePicker(S, Kit)
   end
   love.graphics.getDimensions = oldDimensions
 
@@ -1347,6 +1475,151 @@ do
 
   os.remove(tmpPath)
   for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
+end
+
+do
+  -- #917: Pixel 9a Save was dead because the title cluster sat in the
+  -- cutout / status unsafe band.  Chrome and modal search fields must live
+  -- inside love.window.getSafeArea (background may still paint full-bleed).
+  local Kit = require("Kit")
+  local tmpPath = os.tmpname() .. "-safe-area-save.lua"
+  local f = io.open(tmpPath, "wb")
+  f:write(SaveData.encode(SaveData.newGame()))
+  f:close()
+
+  local W, H = 720, 1560
+  local ox, oy, sw, sh = 0, 64, 720, 1456  -- punch-hole + home indicator
+  local oldDimensions = love.graphics.getDimensions
+  local oldSafe = love.window.getSafeArea
+  love.graphics.getDimensions = function() return W, H end
+  love.window.getSafeArea = function() return ox, oy, sw, sh end
+
+  App.load(tmpPath, { version = "blue" })
+  local S = App.getState()
+  Ops.partyAdd(S)
+  S.dirty = true
+  S.allowSave = true
+  S.tab = "party"
+
+  local function insideSafe(rects, where)
+    for _, r in ipairs(rects or {}) do
+      if r.class == "control" then
+        check(r.x >= ox - 0.5,
+          where .. " '" .. r.label .. "' is right of the left inset")
+        check(r.y >= oy - 0.5,
+          where .. " '" .. r.label .. "' is below the notch (#917)")
+        check(r.x + r.w <= ox + sw + 0.5,
+          where .. " '" .. r.label .. "' stays left of the right inset")
+        check(r.y + r.h <= oy + sh + 0.5,
+          where .. " '" .. r.label .. "' stays above the home indicator")
+      end
+    end
+  end
+
+  Kit.audit = {}
+  local ok, err = pcall(App.draw)
+  check(ok, "editor draws inside an inset safe area: " .. tostring(err))
+  insideSafe(Kit.audit, "chrome")
+
+  local saveBtn
+  for _, r in ipairs(Kit.audit) do
+    if r.class == "control" and (r.label == "SAVE" or r.label == "SAVED"
+        or r.label == "SAVE LOCKED") then
+      saveBtn = r
+      break
+    end
+  end
+  check(saveBtn ~= nil, "the Save button was audited")
+  if saveBtn then
+    check(saveBtn.y >= oy - 0.5,
+      "Save clears the top safe inset (#917)")
+    check(saveBtn.y + saveBtn.h <= oy + sh + 0.5,
+      "Save stays above the bottom safe inset")
+  end
+  Kit.audit = nil
+
+  -- Species-picker search field must also clear the notch once chrome is inset.
+  Ops.openSpeciesPicker(S, Kit)
+  App.draw()  -- opening frame is fully shielded
+  Kit.audit = {}
+  ok, err = pcall(App.draw)
+  check(ok, "species picker draws inside an inset safe area: " .. tostring(err))
+  insideSafe(Kit.audit, "species picker")
+  local search
+  for _, r in ipairs(Kit.audit) do
+    if r.class == "control" and r.label == "species-picker" then
+      search = r
+      break
+    end
+  end
+  check(search ~= nil, "the species search field was audited")
+  if search then
+    check(search.y >= oy - 0.5,
+      "species search clears the top safe inset (#917)")
+  end
+  Kit.audit = nil
+  Ops.closeSpeciesPicker(S, Kit)
+
+  love.graphics.getDimensions = oldDimensions
+  love.window.getSafeArea = oldSafe
+  os.remove(tmpPath)
+  for _, bak in ipairs(FsIo.globPrefix(tmpPath .. ".bak-")) do os.remove(bak) end
+end
+
+do
+  -- PickerChrome: short RGxxx / phone landscapes must nearly fill SafeArea
+  -- (not sit in a 32px-guttered desk card that leaves no list body), and every
+  -- interactive metric stays at or above the 26px tap floor.
+  local Kit = require("Kit")
+  local PickerChrome = require("PickerChrome")
+  local oldDimensions = love.graphics.getDimensions
+  local oldSafe = love.window.getSafeArea
+
+  local function checkDevice(W, H, safe, label)
+    love.graphics.getDimensions = function() return W, H end
+    if safe then
+      love.window.getSafeArea = function()
+        return safe[1], safe[2], safe[3], safe[4]
+      end
+    else
+      love.window.getSafeArea = function() return 0, 0, W, H end
+    end
+    Kit.layout(safe and safe[3] or W, safe and safe[4] or H)
+    local x, y, w, h, pad = PickerChrome.card(Kit, W, H)
+    local ox = safe and safe[1] or 0
+    local oy = safe and safe[2] or 0
+    local sw = safe and safe[3] or W
+    local sh = safe and safe[4] or H
+    check(w > 0 and h > 0, label .. ": card has positive size")
+    check(x >= ox - 0.5 and y >= oy - 0.5,
+      label .. ": card origin stays inside the safe rect")
+    check(x + w <= ox + sw + 0.5 and y + h <= oy + sh + 0.5,
+      label .. ": card fits inside the safe rect")
+    -- Short landscapes should use almost all of the safe height.
+    if sh <= 560 * Kit.scale + 40 then
+      check(h >= sh * 0.85,
+        label .. ": short landscape card fills most of the safe height")
+    end
+    local tap = PickerChrome.tapMin(Kit)
+    check(tap >= 26, label .. ": tapMin is at least 26px")
+    check(PickerChrome.fieldH(Kit) >= tap, label .. ": search field meets tapMin")
+    check(PickerChrome.closeSize(Kit) >= tap, label .. ": close meets tapMin")
+    local listH, rowH = PickerChrome.listMetrics(Kit, y, h, pad,
+      y + pad + 80 * Kit.scale)
+    check(listH >= 0, label .. ": list height is non-negative")
+    check(rowH >= tap, label .. ": list rows meet tapMin")
+  end
+
+  checkDevice(720, 480, nil, "RG34XXSP 720x480")
+  checkDevice(640, 480, nil, "RG35XX 640x480")
+  checkDevice(1280, 720, nil, "Switch handheld 1280x720")
+  checkDevice(720, 1280, { 0, 64, 720, 1176 }, "Pixel portrait + notch")
+  checkDevice(1280, 720, { 48, 0, 1184, 720 }, "landscape + side cutout")
+  checkDevice(360, 640, nil, "tiny phone 360x640")
+  checkDevice(1920, 1080, nil, "desktop 1080p")
+
+  love.graphics.getDimensions = oldDimensions
+  love.window.getSafeArea = oldSafe
 end
 
 print(string.format("save editor tests: %d passed, %d failed", passed, failed))

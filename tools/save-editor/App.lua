@@ -9,7 +9,11 @@
 --   * Edit on a launcher save row (main.lua, embedded = true), Close returns
 --     to the launcher with the slot list refreshed
 --
--- Vertical rhythm (scaled by Kit's height/768 factor, everything else flexes):
+-- Vertical rhythm inside the platform safe area (scaled by Kit's height/768
+-- factor, everything else flexes).  Background still fills the full window so
+-- the notch / home-indicator bands match the field colour; interactive chrome
+-- starts at SafeArea.rect() so Save stays reachable on a punch-hole phone
+-- (#917).  Offsets below are relative to that safe origin:
 --   0    6px   tri-colour version rail, identical to the launcher's
 --   6    64px  title bar   identity, file chip, Save / Reload / Open / Close
 --                          (104px when the bar reflows to two rows, #715)
@@ -18,6 +22,7 @@
 --   -38  38px  status bar  the last Ops message + the keyboard map
 
 local Data = require("src.core.Data")
+local SafeArea = require("src.core.SafeArea")
 local TileRenderer = require("src.render.TileRenderer")
 local SaveIO = require("SaveIO")
 local Catalog = require("Catalog")
@@ -37,6 +42,7 @@ local MapBrowser = require("MapBrowser")
 local Dex = require("Dex")
 -- chrome, not a tab panel, so deliberately kept out of PANELS below (#541)
 local SpeciesPicker = require("SpeciesPicker")
+local MovePicker = require("MovePicker")
 local ItemPicker = require("ItemPicker")
 
 local App = {}
@@ -772,7 +778,17 @@ function App.draw()
   -- tolerates that rather than indexing a torn-down state.
   if not S then return end
   local width, height = love.graphics.getDimensions()
-  Kit.layout(width, height)
+  width = math.max(1, tonumber(width) or 1)
+  height = math.max(1, tonumber(height) or 1)
+  -- Usable chrome rect.  Background still fills the window so the notch /
+  -- home-indicator bands stay the field colour; every button (Save first)
+  -- lives inside the safe area, matching the launcher and Skin Studio (#917).
+  local ox, oy, sw, sh = SafeArea.rect()
+  ox = math.max(0, tonumber(ox) or 0)
+  oy = math.max(0, tonumber(oy) or 0)
+  sw = math.max(1, tonumber(sw) or width)
+  sh = math.max(1, tonumber(sh) or height)
+  Kit.layout(sw, sh)
   local s = Kit.scale
 
   local mx, my = love.mouse.getPosition()
@@ -791,6 +807,7 @@ function App.draw()
   -- shield goes up before anything dispatches and comes down only for the
   -- picker's own layer at the bottom of this function (#541).
   Kit.blockClicks = (S.speciesPicker ~= nil) or (S.itemPicker ~= nil)
+    or (S.movePicker ~= nil)
 
   Theme.field(width, height)
 
@@ -799,26 +816,29 @@ function App.draw()
   -- the window is too narrow for both on one, instead of the buttons and the
   -- identity painting through each other (#715).  The taller bar simply
   -- costs the content column height, which scrolls.
-  local titleTwoRow = titleNeedsTwoRows(width)
+  local titleTwoRow = titleNeedsTwoRows(sw)
   local titleH = (titleTwoRow and 104 or 64) * s
   local tabH = 66 * s
   local statusH = 38 * s
 
-  Theme.versionRail(0, 0, width, railH)
-  drawTitleBar(0, railH, width, titleH, titleTwoRow)
-  drawTabRail(0, railH + titleH, width, tabH)
+  Theme.versionRail(ox, oy, sw, railH)
+  drawTitleBar(ox, oy + railH, sw, titleH, titleTwoRow)
+  drawTabRail(ox, oy + railH + titleH, sw, tabH)
 
-  local contentY = railH + titleH + tabH
-  local contentH = height - contentY - statusH
+  local contentY = oy + railH + titleH + tabH
+  local contentH = sh - railH - titleH - tabH - statusH
   local panel = PANELS[S.tab]
   if panel then
-    panel.draw(S, Kit, 22 * s, contentY + 20 * s,
-      width - 44 * s, contentH - 38 * s)
+    panel.draw(S, Kit, ox + 22 * s, contentY + 20 * s,
+      sw - 44 * s, contentH - 38 * s)
   end
 
-  drawStatusBar(0, height - statusH, width, statusH)
+  drawStatusBar(ox, oy + sh - statusH, sw, statusH)
   Kit.blockClicks = false
+  -- Scrim still covers the full window (including unsafe bands); the card
+  -- itself is centred in the safe rect so search fields clear the notch.
   SpeciesPicker.draw(S, Kit, width, height)
+  MovePicker.draw(S, Kit, width, height)
   ItemPicker.draw(S, Kit, width, height)
   Kit.endFrame()
   PadInput.draw()
@@ -838,6 +858,15 @@ function App.keypressed(key)
       return
     elseif key == "escape" then
       Ops.closeItemPicker(S, Kit)
+      return
+    end
+  end
+  if S.movePicker then
+    if key == "return" or key == "kpenter" then
+      MovePicker.commitFirst(S, Kit)
+      return
+    elseif key == "escape" then
+      Ops.closeMovePicker(S, Kit)
       return
     end
   end

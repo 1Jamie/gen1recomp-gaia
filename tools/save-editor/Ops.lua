@@ -329,6 +329,31 @@ function Ops.speciesSearch(S, query)
   for _, id in ipairs(S.cat.species) do
     if Ops.speciesMatches(S, id, query) then out[#out + 1] = id end
   end
+  -- Rank hits so a typed prefix ("pika") puts PIKACHU above mid-string
+  -- noise; empty query keeps the catalog's A-Z order.
+  if query and tostring(query) ~= "" then
+    local q = tostring(query):lower()
+    local function rank(id)
+      local idLower = id:lower()
+      local def = S.data.pokemon[id]
+      local nameLower = def and def.name and tostring(def.name):lower() or ""
+      if idLower == q or nameLower == q then return 0 end
+      if idLower:sub(1, #q) == q
+          or (nameLower ~= "" and nameLower:sub(1, #q) == q) then
+        return 1
+      end
+      if idLower:find(q, 1, true)
+          or (nameLower ~= "" and nameLower:find(q, 1, true)) then
+        return 2
+      end
+      return 3  -- dex-number hit
+    end
+    table.sort(out, function(a, b)
+      local ra, rb = rank(a), rank(b)
+      if ra ~= rb then return ra < rb end
+      return a < b
+    end)
+  end
   return out
 end
 
@@ -429,6 +454,8 @@ function Ops.setDv(S, mon, key, value)
   return Ops.mark(S, ("%s DV %d  (HP DV now %d)"):format(key, mon.dvs[key], mon.dvs.hp))
 end
 
+-- Kept for tests and any keyboard path; the inspector opens the searchable
+-- picker instead of walking the catalog one tap at a time.
 function Ops.cycleMove(S, mon, slot)
   if not mon or not (S.cat and S.cat.moves and #S.cat.moves > 0) then return false end
   local moves = S.cat.moves
@@ -441,12 +468,115 @@ function Ops.cycleMove(S, mon, slot)
   end
   for step = 1, #moves do
     local nextId = moves[((idx + step - 1) % #moves) + 1]
-    if S.data and S.data.moves and type(S.data.moves[nextId]) == "table" then
-      MonOps.setMove(S.data, mon, slot, nextId)
-      return Ops.mark(S, ("Move %d set to %s"):format(slot, nextId))
+    if Ops.moveUsable(S, nextId) then
+      return Ops.setMove(S, mon, slot, nextId)
     end
   end
   return false
+end
+
+-- A move record is usable when it is a real table with a numeric PP -- the
+-- same floor Catalog already uses to keep provenance scalars out of the list.
+function Ops.moveUsable(S, id)
+  local def = id and S.data and S.data.moves and S.data.moves[id]
+  return type(def) == "table" and type(def.pp) == "number"
+end
+
+-- Search predicate behind the move picker's field: id, display name, and type
+-- substring-match case-insensitively; power / accuracy match as whole numbers
+-- (same plain-text / no-pattern rule as Ops.speciesMatches).
+function Ops.moveMatches(S, id, query)
+  if not query or query == "" then return true end
+  local q = tostring(query):lower()
+  if id:lower():find(q, 1, true) then return true end
+  local def = S.data.moves[id]
+  if type(def) ~= "table" then return false end
+  local name = def.name
+  if name and tostring(name):lower():find(q, 1, true) then return true end
+  local typ = def.type
+  if typ and tostring(typ):lower():find(q, 1, true) then return true end
+  local power = tonumber(def.power)
+  if power ~= nil and q == tostring(power) then return true end
+  local accuracy = tonumber(def.accuracy)
+  return accuracy ~= nil and q == tostring(accuracy)
+end
+
+function Ops.moveSearch(S, query)
+  local out = {}
+  for _, id in ipairs(S.cat.moves or {}) do
+    if Ops.moveMatches(S, id, query) then out[#out + 1] = id end
+  end
+  -- Rank hits so a typed prefix ("sur") puts SURF above mid-string noise
+  -- like ACUPRESSURE / FISSURE; empty query keeps the catalog's A-Z order.
+  if query and tostring(query) ~= "" then
+    local q = tostring(query):lower()
+    local function rank(id)
+      local idLower = id:lower()
+      local def = S.data.moves[id]
+      local nameLower = (type(def) == "table" and def.name)
+        and tostring(def.name):lower() or ""
+      if idLower == q or nameLower == q then return 0 end
+      if idLower:sub(1, #q) == q
+          or (nameLower ~= "" and nameLower:sub(1, #q) == q) then
+        return 1
+      end
+      if idLower:find(q, 1, true)
+          or (nameLower ~= "" and nameLower:find(q, 1, true)) then
+        return 2
+      end
+      return 3  -- type / power / accuracy hit
+    end
+    table.sort(out, function(a, b)
+      local ra, rb = rank(a), rank(b)
+      if ra ~= rb then return ra < rb end
+      return a < b
+    end)
+  end
+  return out
+end
+
+-- One funnel for assigning a move (picker commit and cycleMove).  Refuses
+-- unknown / scalar ids before MonOps asserts, and speaks in the status bar.
+function Ops.setMove(S, mon, slot, id)
+  if not mon then return false end
+  slot = math.floor(tonumber(slot) or 0)
+  if slot < 1 or slot > 4 then return false end
+  local current = mon.moves and mon.moves[slot] and mon.moves[slot].id
+  if id == current then
+    return Ops.say(S, ("Move %d is already %s"):format(slot, tostring(id)))
+  end
+  if not Ops.moveUsable(S, id) then
+    return Ops.say(S, ("%s is not a usable move,  cannot assign it")
+      :format(tostring(id)))
+  end
+  local ok, err = pcall(MonOps.setMove, S.data, mon, slot, id)
+  if not ok then
+    return Ops.say(S, ("Could not set move %d: %s"):format(slot, tostring(err)))
+  end
+  return Ops.mark(S, ("Move %d set to %s"):format(slot, id))
+end
+
+-- Modal door for the move picker.  `slot` is which of the four move rows the
+-- inspector opened; the picker writes back through Ops.setMove on commit.
+function Ops.openMovePicker(S, Kit, slot)
+  if not S.editingMon then
+    return Ops.say(S, "Pick a slot first, then choose a move")
+  end
+  slot = math.floor(tonumber(slot) or 0)
+  if slot < 1 or slot > 4 then
+    return Ops.say(S, "Move slots are 1 through 4")
+  end
+  if not (S.cat and S.cat.moves and #S.cat.moves > 0) then
+    return Ops.say(S, "No moves in the catalog")
+  end
+  S.movePicker = { query = "", offset = 0, opened = true, slot = slot }
+  if Kit then Kit.focus = "move-picker" end
+  return true
+end
+
+function Ops.closeMovePicker(S, Kit)
+  S.movePicker = nil
+  if Kit and Kit.blur then Kit.blur() end
 end
 
 function Ops.clearMove(S, mon, slot)
