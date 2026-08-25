@@ -43,4 +43,9 @@ scripts/build_flatpak.sh --version X.Y.Z
 Requires `flatpak` + `flatpak-builder` and the Freedesktop 24.08 runtime from
 Flathub (installed automatically on first build).
 
+Release CI builds the bundle on `ubuntu-24.04` (`linux-flatpak` job) from the
+shared `game.love` payload and publishes `gen1recomp-<ver>-linux.flatpak`
+alongside the AppImages. PR CI path-gates the same script when `flatpak/` or
+`scripts/build_flatpak.sh` change.
+
 Flathub store submission is out of scope for the GitHub bundle channel.

@@ -173,6 +173,38 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  linux-flatpak:
+    name: build Linux Flatpak
+    needs: [version, love-payload]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install flatpak-builder deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils imagemagick
+      - name: Download shared payload
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1recomp-release-love
+          path: .bazinga/work
+      - name: Build Flatpak bundle
+        run: |
+          set -euo pipefail
+          scripts/build_flatpak.sh \
+            --version "${{ needs.version.outputs.version }}" \
+            --game-love .bazinga/work/game.love
+      - name: Upload Flatpak release
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-linux-flatpak-release
+          path: |
+            dist/flatpak/gen1recomp-${{ needs.version.outputs.version }}-linux.flatpak
+            dist/flatpak/gen1recomp-${{ needs.version.outputs.version }}-linux.flatpak.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   xbox-uwp:
     name: build Xbox UWP release
     needs: [version, love-payload]
@@ -287,7 +319,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [version, love-payload, xbox-uwp, linux-arm64, native-tls-win]
+    needs: [version, love-payload, xbox-uwp, linux-arm64, linux-flatpak, native-tls-win]
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
 
     steps:
@@ -498,6 +530,13 @@ jobs:
           name: gen1recomp-linux-arm64-release
           path: dist/linux-arm64
 
+      - name: Download Linux Flatpak release
+        if: github.repository == 'bryanthaboi/gen1recomp'
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1recomp-linux-flatpak-release
+          path: dist/flatpak
+
       - name: Stage release assets
         if: github.repository == 'bryanthaboi/gen1recomp'
         id: assets
@@ -525,7 +564,7 @@ jobs:
           chmod +x "$outdir/gen1recomp-${v}-linux-arm64.AppImage"
 
           flatpak_bundle="dist/flatpak/gen1recomp-${v}-linux.flatpak"
-          [ -f "$flatpak_bundle" ] || { echo "::error::$flatpak_bundle not found (expected from scripts/build_flatpak.sh)"; exit 1; }
+          [ -f "$flatpak_bundle" ] || { echo "::error::$flatpak_bundle not found (expected from the linux-flatpak job)"; exit 1; }
           cp "$flatpak_bundle" "$outdir/gen1recomp-${v}-linux.flatpak"
           apk="$(find dist/android/release -name '*.apk' | head -1)"
           [ -n "$apk" ] || { echo "::error::no Android APK found under dist/android/release"; exit 1; }
