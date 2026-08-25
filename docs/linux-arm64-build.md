@@ -1,10 +1,11 @@
 # Linux arm64 (aarch64) AppImage
 
 Releases ship `gen1recomp-<version>-linux-arm64.AppImage` alongside the
-existing x86_64 `gen1recomp-<version>-linux.zip`. It targets 64-bit ARM
+existing x86_64 `gen1recomp-<version>-linux-x86_64.AppImage`. It targets 64-bit ARM
 desktop Linux: Raspberry Pi 4/5 running Raspberry Pi OS, Armbian and other
 SBC distros, arm64 VMs on Apple Silicon, Ampere/Graviton desktops, and the
-aarch64 handhelds that run a full distro.
+aarch64 handhelds that run a full distro. See also
+[linux-appimage.md](linux-appimage.md) for shared AppImage failure modes.
 
 > The Anbernic RG34XXSP has its own PortMaster-style pack
 > (`gen1recomp-*-rg34xxsp-stockos64-mod.zip`, see

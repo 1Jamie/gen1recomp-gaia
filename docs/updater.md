@@ -63,8 +63,9 @@ mounted or deleted as stale; the launcher directs the player to a full package.
 ## Release assets
 
 Each tagged release `vX.Y.Z` carries the existing per-platform archives
-(`gen1recomp-X.Y.Z-macos.zip`, `-windows.zip`, `-linux.zip`,
-`-linux-arm64.AppImage`, `-android.apk`, `-ios.ipa`, `-switch.zip`, Xbox and
+(`gen1recomp-X.Y.Z-macos.zip`, `-windows.zip`,
+`-linux-x86_64.AppImage`, `-linux-arm64.AppImage`, `-linux.flatpak`,
+`-android.apk`, `-ios.ipa`, `-switch.zip`, Xbox and
 PortMaster archives) plus two assets the updater itself consumes:
 
 - `gen1recomp-X.Y.Z.love` - the payload, matched by the exact pattern

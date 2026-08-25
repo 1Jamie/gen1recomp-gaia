@@ -310,8 +310,13 @@ local function launchDownload(url, partAbs, doneAbs)
       .. "type nul > \"" .. doneAbs .. "\"\r\n")
     os.execute('start "" /b ' .. shq(saveDir .. "/" .. batRel))
   else
-    -- ( ... ) & backgrounds the whole group so os.execute returns at once
-    os.execute("( " .. HostShell.envPrefix() .. "curl -fsSL --connect-timeout 15 --max-time 900 -o "
+    -- ( ... ) & backgrounds the whole group so os.execute returns at once.
+    -- Use the same dual-env curl resolution as HostShell.http*: bundled
+    -- AppDir/Flatpak curl keeps APPDIR libs; host curl scrubs them.
+    local curlPath, curlKind = HostShell.resolveCurl()
+    os.execute("( " .. HostShell.curlEnvPrefix(curlKind)
+      .. HostShell.quote(curlPath)
+      .. " -fsSL --connect-timeout 15 --max-time 900 -o "
       .. shq(partAbs) .. " " .. shq(url)
       .. " ; touch " .. shq(doneAbs) .. " ) >/dev/null 2>&1 &")
   end

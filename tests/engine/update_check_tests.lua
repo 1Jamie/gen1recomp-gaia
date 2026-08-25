@@ -43,6 +43,10 @@ eq(Check.fullAssetName("1.4.2", "Android", "arm64"),
   "gen1recomp-1.4.2-android.apk", "Android full asset mapping")
 eq(Check.fullAssetName("1.4.2", "Linux", "aarch64"),
   "gen1recomp-1.4.2-linux-arm64.AppImage", "Linux ARM package mapping")
+eq(Check.fullAssetName("1.4.2", "Linux", "x64"),
+  "gen1recomp-1.4.2-linux-x86_64.AppImage", "Linux x86_64 AppImage mapping")
+eq(Check.fullAssetName("1.4.2", "Linux", "x64", "flatpak"),
+  "gen1recomp-1.4.2-linux.flatpak", "Linux Flatpak package mapping")
 eq(Check.fullAssetName("1.4.2", "iOS", "arm64"),
   "gen1recomp++-1.4.2-ios.ipa", "iOS package mapping")
 eq(Check.fullAssetName("not-a-version", "Android", "arm64"), nil,
