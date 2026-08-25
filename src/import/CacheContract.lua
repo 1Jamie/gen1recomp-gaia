@@ -34,6 +34,11 @@ CacheContract.VERSION_REQUIRED_FILES = {
     "assets/generated/battle/trainers/jessie_james.png",
     "assets/generated/battle/profoakb.png",
     "assets/generated/pikachu/pikapic_1.png",
+    "assets/generated/minigame/surf_1a.png",
+    "assets/generated/minigame/surf_1b.png",
+    "assets/generated/minigame/surf_1c.png",
+    "assets/generated/minigame/title_bg.png",
+    "assets/generated/minigame/intro_pika_0.png",
   },
 }
 
