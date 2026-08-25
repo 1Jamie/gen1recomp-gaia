@@ -34,6 +34,28 @@ DATASETS = (
     "text", "field", "battle_anims",
 )
 
+# Sound is decoded by the Lua importer (src/import/RomExtractor.lua), not here,
+# so --clean must step around it rather than delete what it cannot rebuild.
+UNOWNED_DATA = ("audio.lua",)
+UNOWNED_ASSETS = ("audio",)
+
+
+def clean_generated(out_dir, assets_dir):
+    """Empty the generated dirs, keeping artifacts this tool never writes."""
+    kept = []
+    for path, spared in ((out_dir, UNOWNED_DATA), (assets_dir, UNOWNED_ASSETS)):
+        if not os.path.isdir(path):
+            continue
+        for name in os.listdir(path):
+            target = os.path.join(path, name)
+            if name in spared:
+                kept.append(target)
+            elif os.path.isdir(target):
+                shutil.rmtree(target)
+            else:
+                os.remove(target)
+    return kept
+
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 VERSION_MANIFESTS = {
     "red": os.path.join(_TOOLS_DIR, "rom_manifest.json"),
@@ -2207,9 +2229,9 @@ def main(argv=None):
     out_dir = args.out or prefix + os.path.join("data", "generated")
     assets_dir = args.assets or prefix + os.path.join("assets", "generated")
     if args.clean:
-        for path in (out_dir, assets_dir):
-            if os.path.isdir(path):
-                shutil.rmtree(path)
+        kept = clean_generated(out_dir, assets_dir)
+        for path in kept:
+            print(f"kept {path} (not produced by this tool)")
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(assets_dir, exist_ok=True)
     datasets = tuple(args.only) if args.only else DATASETS

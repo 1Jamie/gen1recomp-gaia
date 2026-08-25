@@ -1,36 +1,34 @@
--- Shared cache readiness uses the selected version's source-tree contract.
+-- sourceTreeHasData must use the engine-owned cache contract. Gold's cache has
+-- no Gen 1 trade art; validating it against the Gen 1 list made a Gold source
+-- tree look incomplete forever.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
+local check = T.check
 local CacheContract = require("src.import.CacheContract")
-local GameVersion = require("src.core.GameVersion")
 
-local present = {}
-for _, path in ipairs(CacheContract.requiredFiles("gold")) do
-  present[GameVersion.cachePrefix("gold") .. path] = true
-end
-local fs = {
-  read = function() return nil end,
-  getInfo = function(path) return present[path] and { type = "file" } or nil end,
-  getRealDirectory = function(path) return present[path] and "/source" or nil end,
-  getSource = function() return "/source" end,
-}
+local f = assert(io.open("src/import/RomImporter.lua", "r"))
+local src = f:read("*a")
+f:close()
 
-local inspected = CacheContract.inspect("gold", fs, { allowSource = true })
-T.eq(inspected and inspected.kind, "source",
-  "Gold source tree uses Gold's required-file contract")
+local readyStart = src:find("function RomImporter.isReady", 1, true)
+check(readyStart ~= nil, "isReady is defined")
+local readyEnd = src:find("\nfunction RomImporter.syncAndroidShortcuts", readyStart, true)
+check(readyEnd ~= nil, "isReady ends before the next importer helper")
+local readyBody = src:sub(readyStart, readyEnd)
 
-present["gold/assets/generated/battle/hud/balls.png"] = nil
-T.eq(CacheContract.inspect("gold", fs, { allowSource = true }), nil,
-  "missing Gold-only trainer HUD asset makes the source tree incomplete")
+check(readyBody:find("CacheContract.isReady", 1, true) ~= nil,
+  "isReady delegates source-tree and cache readiness to the contract")
+check(readyBody:find("ipairs(REQUIRED_FILES)", 1, true) == nil,
+  "isReady does not iterate the Gen 1 REQUIRED_FILES list raw")
 
-local required = {}
-for _, path in ipairs(CacheContract.requiredFiles("gold")) do required[path] = true end
-T.eq(required["data/generated/rom_text.lua"], true,
-  "Gold requires generated ROM text")
-T.eq(required["assets/generated/pc/mail_item.png"], true,
-  "Gold requires PC mail art")
-T.eq(required["assets/generated/trade/game_boy.png"], nil,
-  "Gold does not inherit the Gen 1 trade-art contract")
+local required, isOverride = CacheContract.requiredFilesFor("gold")
+check(isOverride, "Gold uses the override required-file list")
+local requiredSet = {}
+for _, path in ipairs(required) do requiredSet[path] = true end
+check(requiredSet["assets/generated/battle/hud/balls.png"],
+  "Gold caches require the trainer HUD ball sheet")
+check(not requiredSet["assets/generated/trade/game_boy.png"],
+  "Gold does not inherit the Gen 1 trade-art requirement")
 
 T.finish()

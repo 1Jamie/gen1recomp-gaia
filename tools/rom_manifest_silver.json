@@ -14072,6 +14072,10 @@
       36,
       27127
     ],
+    "FishingGFX": [
+      20,
+      17792
+    ],
     "FlaaffyBackpic": [
       25,
       24656
@@ -15079,6 +15083,10 @@
     "LightScreenEffectText": [
       64,
       24169
+    ],
+    "LoadBallIconGFX.gfx": [
+      11,
+      16804
     ],
     "LoadOrientedFrontpic": [
       20,

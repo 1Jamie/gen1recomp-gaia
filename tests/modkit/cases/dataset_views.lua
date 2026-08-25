@@ -12,13 +12,13 @@ local originalPrefix = CacheFs.prefix
 GameVersion.set("red")
 
 local files = {}
-for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver", "crystal" }) do
   Fixture.cache(files, version)
 end
 local probe = Fixture.addMod(files, "dataset_probe", [[
 local mod = ...
 local out = {}
-for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver", "crystal" }) do
   local view, reason = mod.datasets:open(version)
   local mon = view and view.content.pokemon:get("FIXMON")
   if mon then mon.name = "MUTATED" end
@@ -80,7 +80,7 @@ for _, path in ipairs({ "/assets/generated/x", "assets\\generated\\x",
     "assets/generated/x\1" }) do
   out.assetRejects[#out.assetRejects + 1] = pcall(gold.assets.path, gold.assets, path)
 end
-local unknown, unknownReason = mod.datasets:open("crystal")
+local unknown, unknownReason = mod.datasets:open("missing-version")
 out.unknown = { unknown ~= nil, unknownReason }
 mod.exports.result = out
 ]])
@@ -91,10 +91,10 @@ local run = T.sdk.loadMods({ probe }, {
 })
 T.eq(#run.errors, 0, "dataset public probe loads clean")
 local out = run.loader.exports.dataset_probe.result
-for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver", "crystal" }) do
   T.eq(out[version].reason, nil, version .. " opens")
   T.eq(out[version].generation,
-    (version == "gold" or version == "silver") and 2 or 1,
+    GameVersion.generation(version),
     version .. " reports selected generation")
   T.eq(out[version].name, "FIXMON", version .. " get/each values are detached")
   T.eq(out[version].has, true, version .. " has reads without exposing a copy")
@@ -268,7 +268,7 @@ end
 local hostileMod = Fixture.addMod(hostileFiles, "hostile_probe", [[
 local mod = ...
 local out = {}
-for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
+for _, version in ipairs({ "red", "blue", "yellow", "gold", "silver", "crystal" }) do
   local view, reason = mod.datasets:open(version)
   local value = view and view.content.pokemon:get("BAD")
   local reopened, reopenedReason = mod.datasets:open(version)

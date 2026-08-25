@@ -118,7 +118,7 @@ it, performs no cross-version cache reads.
 
 Opening a view does not change `GameVersion`, `CacheFs.prefix`, the active
 `Data` table, PhysFS mounts, save state, or the selected game's behavior.
-Red, Blue, Yellow, Gold, and Silver keep their existing active data paths.
+Red, Blue, Yellow, Gold, Silver, and Crystal keep their existing active data paths.
 
 The completion marker and per-version required-file rules live in the pure,
 injected `CacheContract` shared by the importer and dataset service. It also
@@ -131,7 +131,7 @@ evicts the previous semantic view.
 ## Verification
 
 - `tests/modkit/cases/dataset_views.lua` loads sandboxed fixture mods through
-  the public API and covers Red, Blue, Yellow, Gold, and Silver independently.
+  the public API and covers Red, Blue, Yellow, Gold, Silver, and Crystal independently.
 - The test proves semantic registry normalization, deterministic iteration,
   detached records, read-only facades, cross-mod facade isolation,
   version-prefixed generated assets,

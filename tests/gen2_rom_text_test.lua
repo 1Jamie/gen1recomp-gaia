@@ -33,7 +33,7 @@ end
 -- A label the list names but the symbol table cannot place would fail the
 -- import at the Dialogue stage rather than at generation time, so the pairing
 -- is asserted here instead.
-for _, edition in ipairs({ "gold", "silver" }) do
+for _, edition in ipairs({ "gold", "silver", "crystal" }) do
   local data = manifest("tools/rom_manifest_" .. edition .. ".json")
   local labels = (data.text or {}).labels or {}
   check((data.text or {}).labels ~= nil,
@@ -64,7 +64,7 @@ for _, edition in ipairs({ "gold", "silver" }) do
   end
 end
 
--- Both editions describe the same strings; only the addresses move.
+-- Gold and Silver describe the same strings; only the addresses move.
 do
   local gold = (manifest("tools/rom_manifest_gold.json").text or {}).labels or {}
   local silver =
@@ -75,6 +75,49 @@ do
     if silver[index] ~= label then mismatch = label; break end
   end
   eq(mismatch, nil, "and the same labels in the same order")
+
+  local crystal =
+    (manifest("tools/rom_manifest_crystal.json").text or {}).labels or {}
+  check(#crystal > #gold,
+    ("Crystal names more labels than Gold (%d vs %d)"):format(#crystal, #gold))
+  local named = {}
+  for _, label in ipairs(gold) do named[label] = true end
+  local extra = 0
+  for _, label in ipairs(crystal) do
+    if not named[label] then extra = extra + 1 end
+  end
+  check(extra > 0,
+    ("and %d of them are Crystal-only, so it is not a Gold alias")
+      :format(extra))
+end
+
+-- ---- the gendered player name ---------------------------------------------
+-- ../pokecrystal/constants/charmap.asm:6 <PLAY_G> ($14),
+-- ../pokecrystal/home/text.asm:243,380 PlaceGenderedPlayerName
+do
+  local Extractor = require("src.import.RomExtractorGen2")
+  local charmap = manifest("tools/rom_manifest_crystal.json").charmap
+
+  local function decode(edition, bytes)
+    local rom = {}
+    function rom:byte(_, address) return bytes[address] or 0x50 end
+    function rom:word(_, address)
+      return (bytes[address] or 0) + (bytes[address + 1] or 0) * 0x100
+    end
+    local extractor = setmetatable({ rom = rom, edition = edition }, Extractor)
+    return extractor:decodeGen2Text(0, 0, charmap)
+  end
+
+  local H, i, comma, space, bang = 0x87, 0xa8, 0xf4, 0x7f, 0xe7
+  local inString = { [0] = 0x00, H, i, comma, space, 0x14, bang, 0x57 }
+  eq(decode("crystal", inString), "Hi, {PLAYER}!",
+    "an in-string $14 decodes as the player's name")
+  eq(decode("gold", inString), "Hi, !",
+    "and only on Crystal, which is the only edition that writes one")
+
+  local command = { [0] = 0x14, 0x03, 0x00, H, i, 0x57 }
+  eq(decode("crystal", command), "{STRBUF}Hi",
+    "a $14 outside a string is still TX_STRINGBUFFER and eats its buffer id")
 end
 
 -- ---- the slots RomText fills ----------------------------------------------

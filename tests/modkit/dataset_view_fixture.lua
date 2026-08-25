@@ -93,7 +93,7 @@ function Fixture.cache(files, version, overrides)
   local values = defaults(version)
   for name, value in pairs(overrides or {}) do values[name] = value end
   files[prefix .. "rom-cache.complete"] =
-    "rom-cache-v10:" .. GameVersion.info(version).sha1
+    CacheContract.markerFor(version)
   for _, name in ipairs(generation == 2 and GEN2_MODULES or GEN1_MODULES) do
     local value = values[name]
     files[prefix .. "data/generated/" .. name .. ".lua"] =

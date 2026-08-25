@@ -84,12 +84,14 @@ T.eq(Performance.label(nil), "AUTO", "label nil -> AUTO")
 
 -- -------------------------------------------------------------------- caps
 local hi, lo = Performance.CAPS.high, Performance.CAPS.low
-T.check(hi.tilt and hi.gbcfx and hi.survey and not hi.fpsMax, "high caps: all on, no fps ceiling")
-T.check((not lo.tilt) and (not lo.gbcfx) and (not lo.survey), "low caps: heavy extras off")
+T.check(hi.tilt and hi.survey and hi.shaderfx and not hi.fpsMax,
+  "high caps: all on, no fps ceiling")
+T.check((not lo.tilt) and (not lo.survey) and (not lo.shaderfx),
+  "low caps: heavy extras off")
 T.eq(lo.fpsMax, 60, "low caps: FPS ceiling of 60")
 local bal = Performance.CAPS.balanced
-T.check((not bal.tilt) and (not bal.gbcfx) and bal.survey and not bal.fpsMax,
-  "balanced caps: no tilt/gbcfx, survey kept, no fps ceiling")
+T.check((not bal.tilt) and bal.survey and (not bal.shaderfx) and not bal.fpsMax,
+  "balanced caps: no tilt, no shaderfx, survey kept, no fps ceiling")
 
 device("Linux", "arm64", 4)
 T.eq(Performance.caps("auto"), Performance.CAPS.low, "caps(auto) resolves through detect")

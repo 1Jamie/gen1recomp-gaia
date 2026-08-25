@@ -266,18 +266,6 @@ local function coreRows(opts, hooks)
       end)
   end
 
-  -- issue #136: GBC FX soft-bricks the mobile present shader; same gate as
-  -- the in-game row.
-  local okFx, GBCFX = pcall(require, "src.render.GBCFX")
-  if okFx and GBCFX.isSupported() then
-    add(Strings("GBC FX"),
-      function() return GBCFX.levelLabel(opts.gbcfx or 0) end,
-      function(dir)
-        opts.gbcfx = wrapIndex((opts.gbcfx or 0) + dir, 5)
-        return true
-      end)
-  end
-
   local okZ, Zoom = pcall(require, "src.render.Zoom")
   if okZ then
     add(Strings("ZOOM"),
@@ -678,17 +666,6 @@ local function gen2Rows(opts, hooks)
       end)
   end
 
-  -- Same #136 gate as the Gen 1 row and the in-game one.
-  local okFx, GBCFX = pcall(require, "src.render.GBCFX")
-  if okFx and GBCFX.isSupported() then
-    add(Strings("GBC FX"),
-      function() return GBCFX.levelLabel(opts.gbcfx or 0) end,
-      function(dir)
-        opts.gbcfx = wrapIndex((opts.gbcfx or 0) + dir, 5)
-        return true
-      end)
-  end
-
   local okVm, VideoMode = pcall(require, "src.core.VideoMode")
   if okVm then
     add(Strings("VIDEO MODE"),
@@ -708,6 +685,10 @@ local function gen2Rows(opts, hooks)
         return true
       end)
   end
+
+  -- BATTLE BG (#1709): the WHITE/BLACK pair Gold's battle screen honours.
+  add(Strings("BATTLE BG"), ladder(opts, "battleBg",
+    { { "white", "WHITE" }, { "black", "BLACK" } }, "white"))
 
   addTouchRows(rows, add, opts, hooks)
 
