@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.25",
+          "date": "2026-08-25",
+          "size": 21307139,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.25/gen1recomp++-0.2.25-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #941 Screen Size in Portrait\n- #1081 OS Slideshow\n- #1349 Modded Transparent Sprites getting cropped\n- #1602 Default on screen controls are different between RBY and Gold\n- #1618 [Silver] Potions [the item] are able to use rock smash as if they are Pokemon\n- #1624 gen 2 fullscreen\n- #1630 Gold missing attack feedback\n- #1633 #1488 Issue fixed, but a minor blemish remains.\n- #1661 bug: built in controls are missing.\n- #1669 gold item pc cannot hold two stacks of the same item id\n- #1676 Battle size: world\n- #1731 (Gold) 2 turn moves are broken\n- #1739 Town Map Sprite Icon dont have Color in Advanced Color Setting\n- #1740 Misaligned ! Box\n- #1742 Healing Screen\n- #1744 foresight does not allow normal type moves to hit ghosts\n- #1753 Pokémon show up in wide battle layout and use the incorrect colour palette\n- #1757 Potential deviations in game mechanics\n- #1758 Smog animation colors\n- #1760 \"Sent some money to mom\" cut off\n- #1761 Return / Frustration have incorrect base power\n- #1762 No incoming phone calls\n- #1763 [Gen2] Title Screen should restart after song ends\n- #1765 Battle animations all black when Flash isn't used in Rock Tunnel\n- #1770 \"Go!\" text visible when opening item menu\n- #1777 bug: Frame pacing micro stutter above 60Hz on steam deck oled\n- #1781 Missing Pokemon cries in Lavender Town\n- #1783 Order of items displayed is different from inventory when depositing\n- #1784 Pokemon cries not played in Celadon City\n- #1785 Wrong text order when picking up Eevee\n- #1787 Blackboard in Celadon Mansion is a little buggy\n- #1788 Cry of Pokemon that's about to evolve isn't played\n- #1789 Champion Blue doesn't force battle animations\n- #1790 Kris is red in battle screen\n- #1792 Violet City Bellsprout for Onix Trade Offers Bellsprout for Bellsprout\n- #1797 Pokedex diploma has minor visual errors\n- #1802 Weird persistant CPU usage spike after viewing mod list\n- #1803 A couple of issues in the secret house\n\n## Contributors\n\n- @1Jamie\n- @AverageConsumer\n- @bryanthaboi\n- @campavao\n- MaxTomahawk"
+        },
+        {
           "version": "0.2.24",
           "date": "2026-08-24",
           "size": 14060528,
