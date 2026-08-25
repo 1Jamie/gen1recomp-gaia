@@ -118,8 +118,13 @@ local systemFile = assert(io.open(systemPath, "rb"))
 local system = systemFile:read("*a")
 systemFile:close()
 check(system:find('strcmp(kind, "required_import")', 1, true)
-    and system:find('dest = "picked_required_import.bin"', 1, true)
+    and system:find('destination != nullptr', 1, true)
+    and system:find('"picked_required_import.bin"', 1, true)
     and system:find('return "rom,mod,sav,required_import"', 1, true),
   "native Android bridge advertises and routes required imports")
+check(source:find('normalized.startsWith("mods/")', 1, true)
+    and source:find('/baseroms/', 1, true)
+    and source:find('PICK_COMPLETE_FILENAME', 1, true),
+  "direct required imports stay inside mod baseroms and publish completion")
 
 print("android_host_extension_test: ok")

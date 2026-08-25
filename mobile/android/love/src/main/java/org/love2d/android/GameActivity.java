@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.security.MessageDigest;
 
 import android.Manifest;
 import android.app.AlarmManager;
@@ -111,6 +112,8 @@ public class GameActivity extends SDLActivity {
     // basename as its body, so RomImporter:focus can say so in the launcher
     // instead of leaving the player on "No ROM imported" (issue #442).
     private static final String PICK_ERROR_FILENAME = "pick_error.flag";
+    // Written after a direct required-import copy has been fully published.
+    private static final String PICK_COMPLETE_FILENAME = "pick_complete.flag";
     // Step bridge (love.system.syncHealthSteps): pending-steps delivery
     // consumed by the Pokéwalker mod, same contract as the iOS
     // GRHealthBridge. Steps come from the hardware TYPE_STEP_COUNTER
@@ -576,6 +579,21 @@ public class GameActivity extends SDLActivity {
      *                     picked_rom.gb, picked_mod.zip, picked_save.sav, or
      *                     picked_required_import.bin)
      */
+    private static boolean isDirectRequiredDestination(String relative) {
+        if (relative == null || relative.length() == 0 || relative.startsWith("/")) return false;
+        String normalized = relative.replace('\\', '/');
+        if (!normalized.startsWith("mods/")) return false;
+        int marker = normalized.indexOf("/baseroms/");
+        if (marker <= "mods/".length() || marker + "/baseroms/".length() >= normalized.length()) {
+            return false;
+        }
+        return !normalized.contains("//")
+            && !normalized.equals("..")
+            && !normalized.startsWith("../")
+            && !normalized.contains("/../")
+            && !normalized.endsWith("/..");
+    }
+
     /** Legacy single-argument entry; resolves the save dir itself. */
     @Keep
     public static boolean showFilePicker(String destFilename) {
@@ -593,14 +611,30 @@ public class GameActivity extends SDLActivity {
         // onActivityResult copies the pick there, not into a recomputed
         // (possibly different-volume) root (#604, #839).
         self.pendingPickSaveDir = (saveDir != null) ? saveDir : "";
-        // Reject path separators so a hostile JNI caller cannot escape the
-        // save identity directory.
-        if (destFilename.indexOf('/') >= 0 || destFilename.indexOf('\\') >= 0) {
-            Log.d("GameActivity", "refusing unsafe picker dest: " + destFilename);
+        // Basename destinations keep the historical ROM/mod/save staging path.
+        // A nested destination is accepted only for an engine-generated mod
+        // baseroms path, then canonicalized beneath LOVE's mounted save root.
+        String normalizedDest = destFilename.replace('\\', '/');
+        boolean nested = normalizedDest.indexOf('/') >= 0;
+        if (nested && !isDirectRequiredDestination(normalizedDest)) {
+            Log.d("GameActivity", "refusing non-baseroms picker dest: " + destFilename);
+            return false;
+        }
+        try {
+            File rootCanonical = self.saveIdentityDir().getCanonicalFile();
+            File destCanonical = new File(rootCanonical, normalizedDest).getCanonicalFile();
+            String rootPrefix = rootCanonical.getPath() + File.separator;
+            if (destCanonical.equals(rootCanonical)
+                    || !destCanonical.getPath().startsWith(rootPrefix)) {
+                Log.d("GameActivity", "refusing unsafe picker dest: " + destFilename);
+                return false;
+            }
+        } catch (IOException e) {
+            Log.d("GameActivity", "could not validate picker dest: " + e.getMessage());
             return false;
         }
 
-        self.pendingPickFilename = destFilename;
+        self.pendingPickFilename = normalizedDest;
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -1277,13 +1311,7 @@ public class GameActivity extends SDLActivity {
 
     /** Drops a small flag file in the save identity for Lua to consume on focus. */
     private void writeSaveDirFlag(String name, String body) {
-        try {
-            FileOutputStream fos = new FileOutputStream(new File(saveIdentityDir(), name), false);
-            fos.write(body.getBytes());
-            fos.close();
-        } catch (IOException e) {
-            Log.d("GameActivity", "could not write " + name + ": " + e.getMessage());
-        }
+        writeFlagFile(saveIdentityDir(), name, body);
     }
 
     /**
@@ -1506,9 +1534,26 @@ public class GameActivity extends SDLActivity {
             Log.d("GameActivity", "could not create " + destDir);
             return;
         }
-        String destName = pendingPickFilename != null
+        final String destName = pendingPickFilename != null
             ? pendingPickFilename : PICKED_ROM_FILENAME;
-        File destFile = new File(destDir, destName);
+        final boolean directRequired = isDirectRequiredDestination(destName);
+        final File destFile;
+        try {
+            File rootCanonical = destDir.getCanonicalFile();
+            destFile = new File(rootCanonical, destName).getCanonicalFile();
+            String rootPrefix = rootCanonical.getPath() + File.separator;
+            if (destFile.equals(rootCanonical)
+                    || !destFile.getPath().startsWith(rootPrefix)
+                    || (destName.indexOf('/') >= 0 && !directRequired)) {
+                Log.d("GameActivity", "refusing unsafe result dest: " + destName);
+                writeSaveDirFlag(PICK_ERROR_FILENAME, destName);
+                return;
+            }
+        } catch (IOException e) {
+            Log.d("GameActivity", "could not validate result dest: " + e.getMessage());
+            writeSaveDirFlag(PICK_ERROR_FILENAME, destName);
+            return;
+        }
 
         // ACTION_OPEN_DOCUMENT is meant to land in the system documents UI, but
         // some OEM shells (ColorOS) offer third-party file managers in a
@@ -1534,12 +1579,107 @@ public class GameActivity extends SDLActivity {
             writeSaveDirFlag(PICK_ERROR_FILENAME, destName);
             return;
         }
-        if (!copyAssetFile(source, destFile.getPath())) {
+        final InputStream pickedSource = source;
+        final File pickedRoot = destDir;
+        if (directRequired) {
+            // Optical-disc-sized imports must not block Android's UI thread and
+            // must not create a second picked_required_import.bin copy.
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    PickCopyResult result = copyRequiredImport(pickedSource, destFile);
+                    if (!result.ok) {
+                        writeFlagFile(pickedRoot, PICK_ERROR_FILENAME, destName);
+                        return;
+                    }
+                    String marker = "v1\n" + destName + "\n" + result.md5 + "\n"
+                        + Long.toString(result.bytes) + "\n";
+                    writeFlagFile(pickedRoot, PICK_COMPLETE_FILENAME, marker);
+                }
+            }, "gen1recomp-required-import").start();
+            return;
+        }
+
+        if (!copyAssetFile(pickedSource, destFile.getPath())) {
             Log.d("GameActivity", "could not copy picked file to " + destFile);
-            // A truncated pick would only fail verification later, so drop it
-            // and report instead.
             destFile.delete();
             writeSaveDirFlag(PICK_ERROR_FILENAME, destName);
+        }
+    }
+
+    private static final class PickCopyResult {
+        boolean ok = false;
+        long bytes = 0;
+        String md5 = "";
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder out = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) out.append(String.format(Locale.US, "%02x", b & 0xff));
+        return out.toString();
+    }
+
+    private static void writeFlagFile(File dir, String name, String body) {
+        try {
+            if (!dir.isDirectory() && !dir.mkdirs()) return;
+            File tmp = new File(dir, name + ".tmp");
+            File dest = new File(dir, name);
+            FileOutputStream out = new FileOutputStream(tmp, false);
+            out.write(body.getBytes("UTF-8"));
+            out.getFD().sync();
+            out.close();
+            if (dest.exists() && !dest.delete()) { tmp.delete(); return; }
+            if (!tmp.renameTo(dest)) tmp.delete();
+        } catch (Exception e) {
+            Log.d("GameActivity", "could not write " + name + ": " + e.getMessage());
+        }
+    }
+
+    private static PickCopyResult copyRequiredImport(InputStream source, File destination) {
+        PickCopyResult result = new PickCopyResult();
+        File parent = destination.getParentFile();
+        File partial = new File(destination.getPath() + ".part");
+        BufferedInputStream in = null;
+        BufferedOutputStream out = null;
+        FileOutputStream rawOut = null;
+        try {
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return result;
+            if (partial.exists() && !partial.delete()) return result;
+            MessageDigest md5 = MessageDigest.getInstance("MD5");
+            in = new BufferedInputStream(source, 1024 * 1024);
+            rawOut = new FileOutputStream(partial, false);
+            out = new BufferedOutputStream(rawOut, 1024 * 1024);
+            byte[] buf = new byte[1024 * 1024];
+            int n;
+            long total = 0;
+            while ((n = in.read(buf)) != -1) {
+                if (n == 0) continue;
+                out.write(buf, 0, n);
+                md5.update(buf, 0, n);
+                total += n;
+            }
+            out.flush();
+            rawOut.getFD().sync();
+            out.close(); out = null; rawOut = null;
+            in.close(); in = null;
+
+            // Publish only a complete same-directory file. Validation still
+            // happens in Lua against the manifest before a receipt is written.
+            if (destination.exists() && !destination.delete()) return result;
+            if (!partial.renameTo(destination)) return result;
+            result.ok = true;
+            result.bytes = total;
+            result.md5 = hex(md5.digest());
+            Log.d("GameActivity", "direct required import copied " + total
+                + " bytes to " + destination);
+            return result;
+        } catch (Exception e) {
+            Log.d("GameActivity", "direct required import failed: " + e.getMessage());
+            return result;
+        } finally {
+            try { if (in != null) in.close(); } catch (IOException ignored) {}
+            try { if (out != null) out.close(); } catch (IOException ignored) {}
+            try { if (rawOut != null) rawOut.close(); } catch (IOException ignored) {}
+            if (!result.ok && partial.exists()) partial.delete();
         }
     }
 
@@ -1565,13 +1705,12 @@ public class GameActivity extends SDLActivity {
         assert (source != null && destination != null);
 
         try {
-            byte[] buf = new byte[1024];
-            chunk_read = source.read(buf);
-            do {
+            byte[] buf = new byte[1024 * 1024];
+            while ((chunk_read = source.read(buf)) != -1) {
+                if (chunk_read == 0) continue;
                 destination.write(buf, 0, chunk_read);
                 bytes_written += chunk_read;
-                chunk_read = source.read(buf);
-            } while (chunk_read != -1);
+            }
         } catch (IOException e) {
             Log.d("GameActivity", "Copying failed:" + e.getMessage());
         }

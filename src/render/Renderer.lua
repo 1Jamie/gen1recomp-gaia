@@ -338,6 +338,7 @@ function Renderer:beginFrame(transparent)
   -- warp-fade overlay from Transition (issue #121); cleared each frame so
   -- a popped transition cannot leave a sticky black veil
   self.worldFadeAlpha = nil
+  self.worldFadeColor = nil
   -- battle-transition wipe, drawn over the whole surface (BattleTransition)
   self.battleWipe = nil
   -- whole-surface veil in screen space (battle-transition flash, the
@@ -1045,7 +1046,8 @@ function Renderer:endFrame(zones, worldZones)
     -- the screen-space overlays the flat path draws over its composite
     local fade = self.worldFadeAlpha
     if fade and fade > 0 then
-      love.graphics.setColor(0, 0, 0, fade)
+      local c = self.worldFadeColor or { 0, 0, 0 }
+      love.graphics.setColor(c[1], c[2], c[3], fade)
       love.graphics.rectangle("fill", vux, vuy, vuw, vuh)
       love.graphics.setColor(1, 1, 1, 1)
     end
@@ -1132,7 +1134,8 @@ function Renderer:endFrame(zones, worldZones)
     -- composite normally if one is ever stacked that way.
     local fade = self.worldFadeAlpha
     if fade and fade > 0 then
-      love.graphics.setColor(0, 0, 0, fade)
+      local c = self.worldFadeColor or { 0, 0, 0 }
+      love.graphics.setColor(c[1], c[2], c[3], fade)
       love.graphics.rectangle("fill", vux, vuy, vuw, vuh)
       love.graphics.setColor(1, 1, 1, 1)
     end

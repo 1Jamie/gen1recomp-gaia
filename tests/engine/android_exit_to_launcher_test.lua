@@ -109,9 +109,35 @@ do
   -- Mimic a shared net module parked on the singleton (handle-style release).
   Game.net = { release = function(id) end }
   SessionLifecycle.endGameSession(Game)
+  check(package.loaded["src.core.Game"] == nil,
+    "endGameSession drops the Gen1 Game module cache")
   local again = require("src.core.Game")
-  check(type(again.load) == "function",
+  check(type(rawget(again, "load")) == "function",
     "Play-again can call Game:load after endGameSession")
+  check(again ~= Game, "Play-again gets a fresh Gen1 Game module table")
+end
+
+-- 7. endGameSession must not join the ChipAudio worker (process-tier only).
+--    Joining on every EXIT GAME correlates with release-APK Game.load nil
+--    when reopening a version already played this process.
+do
+  local SessionLifecycle = require("src.core.SessionLifecycle")
+  local ChipAudio = require("src.core.ChipAudio")
+  local shutdownCalls, stopCalls = 0, 0
+  local origShutdown, origStop = ChipAudio.shutdown, ChipAudio.stopMusic
+  ChipAudio.shutdown = function(...)
+    shutdownCalls = shutdownCalls + 1
+    return origShutdown(...)
+  end
+  ChipAudio.stopMusic = function(...)
+    stopCalls = stopCalls + 1
+    return origStop(...)
+  end
+  local game = { reset = function() end, load = function() end }
+  SessionLifecycle.endGameSession(game)
+  ChipAudio.shutdown, ChipAudio.stopMusic = origShutdown, origStop
+  eq(shutdownCalls, 0, "endGameSession does not ChipAudio.shutdown")
+  check(stopCalls >= 1, "endGameSession stops chip music (Music.stop and/or stopMusic)")
 end
 
 T.finish("android_exit_to_launcher_test")

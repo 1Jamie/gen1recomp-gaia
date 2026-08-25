@@ -13,6 +13,7 @@
 
 import UIKit
 import UniformTypeIdentifiers
+import CryptoKit
 
 @objc(GRPickerBridge)
 public final class GRPickerBridge: NSObject {
@@ -190,9 +191,17 @@ public final class GRPickerBridge: NSObject {
     @objc(presentPickerWithKind:saveDir:)
     public static func presentPicker(kind: UnsafePointer<CChar>?,
                                      saveDir: UnsafePointer<CChar>?) -> Bool {
+        return presentPicker(kind: kind, saveDir: saveDir, destination: nil)
+    }
+
+    @objc(presentPickerWithKind:saveDir:destination:)
+    public static func presentPicker(kind: UnsafePointer<CChar>?,
+                                     saveDir: UnsafePointer<CChar>?,
+                                     destination: UnsafePointer<CChar>?) -> Bool {
         let kindStr = kind.map { String(cString: $0) } ?? "rom"
         guard let dir = resolvedSaveDir(saveDir) else { return false }
 
+        let requestedDestination = destination.map { String(cString: $0) }
         let destName: String
         var types: [UTType] = []
         switch kindStr {
@@ -202,7 +211,13 @@ public final class GRPickerBridge: NSObject {
         case "sav":
             destName = "picked_save.sav"
         case "required_import":
-            destName = "picked_required_import.bin"
+            if let requestedDestination,
+               isDirectRequiredDestination(requestedDestination),
+               safeDestination(in: dir, relative: requestedDestination) != nil {
+                destName = requestedDestination
+            } else {
+                destName = "picked_required_import.bin"
+            }
         // A Nintendo 64 cartridge, for mods that build assets out of one --
         // the voxel mod's Pokemon Stadium battle models are the caller this
         // was added for. Its own filename on purpose: an N64 ROM landing on
@@ -234,12 +249,18 @@ public final class GRPickerBridge: NSObject {
         types.append(.data)
         if !types.contains(.item) { types.append(.item) }
 
+        let directRequired = kindStr == "required_import"
+            && destName != "picked_required_import.bin"
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types,
-                                                    asCopy: true)
+                                                    asCopy: !directRequired)
         picker.allowsMultipleSelection = false
         let delegate = PickerDelegate { urls in
             guard let src = urls.first else { return }
-            copyItem(at: src, into: dir, named: destName)
+            if directRequired {
+                copyRequiredItemAsync(at: src, into: dir, relative: destName)
+            } else {
+                copyItem(at: src, into: dir, named: destName)
+            }
         }
         return present(picker, with: delegate)
     }
@@ -410,6 +431,82 @@ public final class GRPickerBridge: NSObject {
         try? fm.moveItem(at: item, to: target)
     }
 
+    private static func isDirectRequiredDestination(_ relative: String) -> Bool {
+        let normalized = relative.replacingOccurrences(of: "\\", with: "/")
+        guard normalized.hasPrefix("mods/"),
+              let range = normalized.range(of: "/baseroms/"),
+              range.lowerBound > normalized.index(normalized.startIndex, offsetBy: 5),
+              range.upperBound < normalized.endIndex else { return false }
+        return !normalized.hasPrefix("/")
+            && !normalized.contains("//")
+            && !normalized.contains("/../")
+            && !normalized.hasSuffix("/..")
+    }
+
+    private static func safeDestination(in root: URL, relative: String) -> URL? {
+        guard isDirectRequiredDestination(relative) else { return nil }
+        let rootURL = root.standardizedFileURL
+        let candidate = rootURL.appendingPathComponent(relative).standardizedFileURL
+        let rootPath = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+        guard candidate.path.hasPrefix(rootPath) else { return nil }
+        return candidate
+    }
+
+    private static func writeFlag(in dir: URL, name: String, body: String) {
+        try? body.data(using: .utf8)?.write(to: dir.appendingPathComponent(name),
+                                           options: .atomic)
+    }
+
+    private static func copyRequiredItemAsync(at src: URL, into dir: URL,
+                                              relative: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let scoped = src.startAccessingSecurityScopedResource()
+            defer { if scoped { src.stopAccessingSecurityScopedResource() } }
+            guard let dest = safeDestination(in: dir, relative: relative) else {
+                writeFlag(in: dir, name: "pick_error.flag", body: relative)
+                return
+            }
+            let fm = FileManager.default
+            ensureDirectory(dest.deletingLastPathComponent())
+            let partial = URL(fileURLWithPath: dest.path + ".part")
+            try? fm.removeItem(at: partial)
+            guard fm.createFile(atPath: partial.path, contents: nil) else {
+                writeFlag(in: dir, name: "pick_error.flag", body: relative)
+                return
+            }
+
+            var hasher = Insecure.MD5()
+            var total: UInt64 = 0
+            do {
+                let input = try FileHandle(forReadingFrom: src)
+                let output = try FileHandle(forWritingTo: partial)
+                defer {
+                    try? input.close()
+                    try? output.close()
+                }
+                while true {
+                    let data = input.readData(ofLength: 1024 * 1024)
+                    if data.isEmpty { break }
+                    hasher.update(data: data)
+                    output.write(data)
+                    total += UInt64(data.count)
+                }
+                output.synchronizeFile()
+                try? fm.removeItem(at: dest)
+                try fm.moveItem(at: partial, to: dest)
+                let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                let marker = "v1\n" + relative + "\n" + digest + "\n"
+                    + String(total) + "\n"
+                writeFlag(in: dir, name: "pick_complete.flag", body: marker)
+                NSLog("GRPickerBridge: direct required import delivered %llu bytes", total)
+            } catch {
+                try? fm.removeItem(at: partial)
+                NSLog("GRPickerBridge: direct required import failed: \(error)")
+                writeFlag(in: dir, name: "pick_error.flag", body: relative)
+            }
+        }
+    }
+
     private static func copyItem(at src: URL, into dir: URL, named name: String) {
         let scoped = src.startAccessingSecurityScopedResource()
         defer { if scoped { src.stopAccessingSecurityScopedResource() } }
@@ -426,7 +523,7 @@ public final class GRPickerBridge: NSObject {
             let report = "Could not copy \(src.lastPathComponent): " +
                 error.localizedDescription
             try? report.data(using: .utf8)?
-                .write(to: dir.appendingPathComponent("pick_error.txt"))
+                .write(to: dir.appendingPathComponent("pick_error.flag"))
         }
     }
 

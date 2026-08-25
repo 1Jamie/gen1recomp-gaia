@@ -9,6 +9,9 @@ local SafeArea = require("src.core.SafeArea")
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
+local PICK_COMPLETE_FILENAME = "pick_complete.flag"
+local finishDirectRequiredImport
+
 -- love.system.pickFile is a NATIVE BRIDGE, not part of LÖVE: it exists only on
 -- builds that compiled one (Android, and iOS builds patched by
 -- mobile/ios/patch_love_src.py). A build without it must fall back to the
@@ -1582,8 +1585,11 @@ function RomImporter:focus(f)
       .. love.filesystem.getSaveDirectory()
     local legacyRequiredPick = self.requiredImportLegacyRomPick
       and self.pickerPendingKind == "required_import"
-    if pickError:find("picked_required_import", 1, true)
+    if self.pickerPendingKind == "required_import"
+        or pickError:find("picked_required_import", 1, true)
         or pickError:find("picked_stadium", 1, true)
+        or pickError:find("/baseroms/", 1, true)
+        or pickError:find("\\baseroms\\", 1, true)
         or (legacyRequiredPick and pickError:find("picked_rom", 1, true)) then
       self.modNotice = { ok = false, text = text }
       self.pickerPendingKind = nil
@@ -1606,6 +1612,22 @@ function RomImporter:focus(f)
     end
     return
   end
+
+  -- Current mobile bridge: the native picker has already streamed a raw
+  -- dependency into mods/<id>/baseroms and published its digest/size marker.
+  local completedRequired = love.filesystem.getInfo(PICK_COMPLETE_FILENAME, "file")
+    and love.filesystem.read(PICK_COMPLETE_FILENAME)
+  if completedRequired then
+    love.filesystem.remove(PICK_COMPLETE_FILENAME)
+    self.pickPending = nil
+    finishDirectRequiredImport(self, completedRequired)
+    self.pickerPendingKind = nil
+    self.pickerPendingModId = nil
+    self.pickerPendingImportId = nil
+    self.requiredImportLegacyRomPick = nil
+    return
+  end
+
   local requiredName = findPendingRequiredImport(self)
   if requiredName then
     local modId, importId = self.pickerPendingModId, self.pickerPendingImportId
@@ -2059,6 +2081,122 @@ local function requiredImportNotice(self, modId, importId, text)
   }
 end
 
+-- Current Android/iOS bridges can stream a raw required import directly from
+-- the system document provider into its engine-owned baseroms destination.
+-- The bridge hashes/counts the same bytes and then publishes this tiny marker:
+--   v1\n<relative destination>\n<md5>\n<byte count>\n
+-- Older mobile builds still stage picked_required_import.bin, so this is an
+-- additive completion path rather than a replacement for the legacy one.
+local function directRequiredImportTarget(self, marker)
+  local fields = {}
+  for line in tostring(marker or ""):gmatch("[^\r\n]+") do
+    fields[#fields + 1] = line
+    if #fields > 4 then break end
+  end
+  local version, path, digest, count = fields[1], fields[2], fields[3], fields[4]
+  if version ~= "v1" or not path or not digest or not count or #digest ~= 32
+      or not digest:match("^%x+$") or not count:match("^%d+$") then
+    return nil, "The completed dependency marker was malformed."
+  end
+  digest = digest:lower()
+  count = tonumber(count)
+  if not count then return nil, "The completed dependency size was invalid." end
+
+  if not self.mods and self._refreshMods then pcall(self._refreshMods, self) end
+  local RequiredImports = require("src.mods.RequiredImports")
+
+  local function matchRow(row, wantedImportId)
+    local manifest = row and row.manifest
+    if not manifest then return nil end
+    for _, spec in ipairs(RequiredImports.specs(manifest)) do
+      if (not wantedImportId or spec.id == wantedImportId)
+          and RequiredImports.path(manifest, spec) == path then
+        return manifest, spec, row.id or manifest.id
+      end
+    end
+    return nil
+  end
+
+  -- Normal resume: bind the marker to exactly the request that opened picker.
+  if self.pickerPendingModId and self.pickerPendingImportId then
+    for _, row in ipairs(self.mods or {}) do
+      if row.id == self.pickerPendingModId then
+        local manifest, spec, modId = matchRow(row, self.pickerPendingImportId)
+        if manifest then return path, digest, count, manifest, spec, modId end
+      end
+    end
+    return nil, "The completed dependency did not match the pending import request."
+  end
+
+  -- Android may recreate GameActivity while DocumentsUI is open. If Lua was
+  -- restarted too, recover by the exact engine-owned destination. The path
+  -- includes the mod id and only a manifest-declared import can match it.
+  for _, row in ipairs(self.mods or {}) do
+    local manifest, spec, modId = matchRow(row)
+    if manifest then return path, digest, count, manifest, spec, modId end
+  end
+  return nil, "The completed dependency did not match an installed mod request."
+end
+
+finishDirectRequiredImport = function(self, marker)
+  local path, digestOrErr, nativeSize, manifest, spec, modId =
+    directRequiredImportTarget(self, marker)
+  if not path then
+    self.modNotice = { ok = false, text = tostring(digestOrErr) }
+    return nil
+  end
+  local digest = digestOrErr
+  local RequiredImports = require("src.mods.RequiredImports")
+  local info = love.filesystem.getInfo(path, "file")
+  if not info or type(info.size) ~= "number" then
+    requiredImportNotice(self, modId, spec.id,
+      "The completed dependency file was not found.")
+    self.modNotice = nil
+    return nil
+  end
+  if info.size ~= nativeSize then
+    love.filesystem.remove(path)
+    if RequiredImports.receiptPath then
+      love.filesystem.remove(RequiredImports.receiptPath(manifest, spec))
+    end
+    requiredImportNotice(self, modId, spec.id,
+      ("Dependency copy size changed after completion (expected %d bytes, found %d).")
+        :format(nativeSize, info.size))
+    self.modNotice = nil
+    return nil
+  end
+  local sizeErr = RequiredImports.sizeError(spec, info.size, true)
+  if sizeErr then
+    love.filesystem.remove(path)
+    if RequiredImports.receiptPath then
+      love.filesystem.remove(RequiredImports.receiptPath(manifest, spec))
+    end
+    requiredImportNotice(self, modId, spec.id, sizeErr)
+    self.modNotice = nil
+    return nil
+  end
+
+  -- No second 665 MiB / 1.46 GiB read: native calculated this digest while
+  -- streaming the selected document into the one final copy.
+  local ok, detail = RequiredImports.acceptStoredDigest(
+    manifest, spec.id, digest, love.filesystem)
+  if not ok then
+    love.filesystem.remove(path)
+    if RequiredImports.receiptPath then
+      love.filesystem.remove(RequiredImports.receiptPath(manifest, spec))
+    end
+    requiredImportNotice(self, modId, spec.id, detail)
+    self.modNotice = nil
+    return nil
+  end
+
+  self.requiredImportNotice = nil
+  self.modNotice = { ok = true, text = "Imported " .. tostring(spec.id)
+    .. " for " .. tostring(manifest.name or manifest.id) .. "." }
+  self:_refreshMods()
+  return true
+end
+
 function RomImporter:_importRequiredData(modId, importId, data)
   local manifest = requiredManifest(self, modId)
   if not manifest then
@@ -2218,7 +2356,15 @@ function RomImporter:chooseRequiredImport(modId, importId)
     self.pickerPendingModId = modId
     self.pickerPendingImportId = importId
     self.requiredImportLegacyRomPick = legacyAndroidPicker or nil
-    if not pickFile(legacyAndroidPicker and "rom" or "required_import") then
+    -- Raw imports can go straight to their final private destination on current
+    -- Android/iOS bridges. N64 stays on staging because the launcher still has
+    -- to canonicalize byte order/copier headers before storing it.
+    local directDestination = (self.mobileFileBridge and not legacyAndroidPicker
+        and spec.format ~= "n64"
+        and type(manifest.path) == "string" and manifest.path ~= "")
+      and require("src.mods.RequiredImports").path(manifest, spec) or nil
+    if not pickFile(legacyAndroidPicker and "rom" or "required_import",
+        directDestination) then
       self.pickerPendingKind = nil
       self.pickerPendingModId = nil
       self.pickerPendingImportId = nil
@@ -2549,6 +2695,8 @@ function RomImporter:_pollPickedFiles(dt)
     return
   end
   local found = love.filesystem.getInfo("export_done.flag", "file") ~= nil
+    or love.filesystem.getInfo("pick_error.flag", "file") ~= nil
+    or love.filesystem.getInfo(PICK_COMPLETE_FILENAME, "file") ~= nil
   if not found then
     for _, name in ipairs(love.filesystem.getDirectoryItems("")) do
       local n = name:lower()

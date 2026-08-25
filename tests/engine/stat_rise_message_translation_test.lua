@@ -31,16 +31,19 @@ local save = SaveData.newGame()
 local player = { name = "FIXMON", stages = {} }
 local xBattle = { player = player, kind = "wild" }
 
-local _, baseline = ItemEffects.use(Data, save, "X_ATTACK", nil, xBattle)
-T.check(baseline[1]:find("ATTACK", 1, true) ~= nil,
+local _, baseline, baselineExtra = ItemEffects.use(Data, save, "X_ATTACK", nil, xBattle)
+local baselineRose = baselineExtra and baselineExtra.afterMessages
+  and baselineExtra.afterMessages[1] or baseline[1]
+T.check(baselineRose:find("ATTACK", 1, true) ~= nil,
   "X ATTACK's rose! message names the stat in English with no catalog")
 
 withCatalog({ ATTACK = "ATTAQUE" }, function()
   player.stages.attack = nil
-  local _, msgs = ItemEffects.use(Data, save, "X_ATTACK", nil, xBattle)
-  T.check(msgs[1]:find("ATTAQUE", 1, true) ~= nil,
+  local _, msgs, extra = ItemEffects.use(Data, save, "X_ATTACK", nil, xBattle)
+  local rose = extra and extra.afterMessages and extra.afterMessages[1] or msgs[1]
+  T.check(rose:find("ATTAQUE", 1, true) ~= nil,
     "a catalog translating ATTACK reaches the X ATTACK rose! message")
-  T.check(msgs[1]:find("ATTACK", 1, true) == nil,
+  T.check(rose:find("ATTACK", 1, true) == nil,
     "...and the untranslated English stat name is gone")
 end)
 

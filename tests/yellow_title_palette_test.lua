@@ -22,9 +22,12 @@ eq(mewmonSgb[3][1], 222, "SGB: Color 2 is red R=222")
 PaletteFX.setMode("redpp")
 local mewmonAdv = PaletteFX.pal(nil, "MEWMON")
 check(mewmonAdv ~= nil, "MEWMON palette exists in ADVANCED mode on Yellow")
--- Must NOT be Red++'s Mew purple {115, 33, 165}! It must be Yellow's Pikachu palette!
+-- Must NOT be Red++'s Mew purple {115, 33, 165}! It must be Yellow's Pikachu
+-- CGBBase yellow {255,255,0}, not washed SuperPalette cream {255,255,156}.
 eq(mewmonAdv[1][1], 255, "ADVANCED: Color 0 is white R=255 (Pikachu eye sclera)")
 eq(mewmonAdv[2][1], 255, "ADVANCED: Color 1 is yellow R=255 (Pikachu body)")
+eq(mewmonAdv[2][2], 255, "ADVANCED: Color 1 is saturated yellow G=255")
+eq(mewmonAdv[2][3], 0, "ADVANCED: Color 1 is pure yellow B=0 (not washed cream)")
 check(mewmonAdv[3][3] < 150, "ADVANCED: Color 2 is not purple (B < 150, red cheeks)")
 
 -- Test 3: OG YELLOW mode (ogred on Yellow)

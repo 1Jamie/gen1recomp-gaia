@@ -4818,6 +4818,15 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
     require("src.core.Sound").play(Game.data,
                                    outdoor and "Go_Outside" or "Go_Inside")
   end
+  -- Fly/Teleport/Dig/Escape Rope: GBFadeOutToWhite / GBFadeInFromWhite
+  -- (player_animations.asm).  Door warps stay black with no fade-in (#1644).
+  local Timing = require("src.core.Timing")
+  local specialWarp = arriveWarp == "fly" or arriveWarp == "teleport"
+  local fadeOpts = specialWarp and {
+    color = { 1, 1, 1 },
+    frames = Timing.FADE_OUT_TO_WHITE,
+    framesIn = Timing.FADE_IN_FROM_WHITE,
+  } or nil
   Game.stack:push(Transition.new(Game, function()
     self:setMap(mapId, x, y, facing or "down", opts)
     -- the departure-side hide from flyAnim/teleportOut ends here, on the new
@@ -4884,7 +4893,7 @@ function OverworldState:startWarpTo(mapId, x, y, facing, onDone, opts)
   end, function()
     self.transitioning = false
     if onDone then onDone() end
-  end, true))  -- warp shape: no fade back in (LoadGBPal restores in one write)
+  end, not specialWarp, fadeOpts))
 end
 
 -- Re-read a map record after its data changed (WorldAPI:invalidateMap,

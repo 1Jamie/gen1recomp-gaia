@@ -197,6 +197,16 @@ check(source("src/update/Check.lua"):find("registerProcessShutdown(Check.shutdow
 check(source("src/net/Fetch.lua"):find("registerProcessShutdown(Fetch.shutdown)", 1, true) ~= nil,
       "Fetch registers its shutdown hook at load")
 
+-- iOS EXIT GAME must share Android's in-process returnToLauncher: love.cpp
+-- under LOVE_IOS forces DONE_RESTART for every quit and warns that leftover
+-- threads make that restart unreliable (ChipAudio / Fetch / Check).
+check(quitHook:find('osName == "Android" or osName == "iOS"', 1, true) ~= nil,
+      "love.quit treats Android and iOS as in-process return platforms")
+check(quitHook:find("inProcessReturn", 1, true) ~= nil,
+      "love.quit gates returnToLauncher on inProcessReturn")
+check(quitHook:find('require("src.core.HostShell").restart()', 1, true) ~= nil,
+      "desktop return-to-launcher still reaches HostShell.restart")
+
 -- The Android half: LOVE keeps the JVM process after the native main returns,
 -- so the quit event exits the process outright.  It has to sit after the
 -- love.quit() veto test, or the editor's abort-quit path would die on a quit

@@ -53,6 +53,11 @@ function State.new()
     -- without a z-order (#541).
     speciesPicker = nil,
 
+    -- move picker overlay: nil when closed, otherwise
+    -- { query, offset, slot = 1..4 }.  Same modal contract as speciesPicker;
+    -- the inspector opens it instead of cycling the catalog one tap at a time.
+    movePicker = nil,
+
     -- item picker overlay: nil when closed, otherwise
     -- { query, offset, dest = "bag"|"pc" }.  Same modal contract as
     -- speciesPicker above -- adding an item is now a full-screen picker
