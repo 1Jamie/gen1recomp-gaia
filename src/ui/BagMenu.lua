@@ -54,6 +54,21 @@ local function showMessages(game, msgs, onDone, opts)
   game.stack:push(TextBox.new(game, table.concat(msgs, "\f"), onDone, opts))
 end
 
+-- PrintItemUseTextAndRemoveItem: used-line TextBox carries Heal_Ailment, then
+-- optional afterMessages (X Stat effect line) before onDone (#1635).
+local function showUseMessages(game, msgs, onDone, extra)
+  local opts = (extra and extra.useJingle)
+    and TextBox.soundOpts(game, "Heal_Ailment") or nil
+  local after = extra and extra.afterMessages
+  if after and #after > 0 then
+    showMessages(game, msgs, function()
+      showMessages(game, after, onDone)
+    end, opts)
+  else
+    showMessages(game, msgs, onDone, opts)
+  end
+end
+
 -- run the use-flow for an item on a chosen target.  `picker` is the party
 -- menu when it was opened with keepOpen (HP medicine only): it is still on
 -- the stack, so every exit that prints has to close it afterwards.  For
@@ -115,7 +130,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
   if result == "consumed_escape" then -- Poké Doll
     consume(game, id, list)
     list:close()
-    showMessages(game, payload, function()
+    showUseMessages(game, payload, function()
       -- ItemUsePokeDoll sets wEscapedFromBattle and never touches
       -- wBattleResult, so a script that reads the result afterwards sees
       -- 0 -- "defeated". The ghost MAROWAK's script keys on exactly that
@@ -125,7 +140,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       battle.result = "run"
       battle.afterQueue = "finish"
       battle.phase = "messages"
-    end)
+    end, extra)
     return
   end
 
@@ -403,9 +418,9 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
     end
     if battle then
       list:close()
-      showMessages(game, payload, function() battle:itemUsed({}) end)
+      showUseMessages(game, payload, function() battle:itemUsed({}) end, extra)
     else
-      showMessages(game, payload, closePicker)
+      showUseMessages(game, payload, closePicker, extra)
     end
     return
   end

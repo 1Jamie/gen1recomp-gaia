@@ -86,6 +86,43 @@ def parse_super_rod(pokered):
     return out
 
 
+def parse_super_rod_yellow(pokeyellow):
+    """pokeyellow data/wild/super_rod.asm: inline species,level rows.
+
+    Yellow stores four (species, level) pairs per map on one `db` line
+    (`db MAP, SPECIES, LEVEL, SPECIES, LEVEL, ...`), unlike Red's
+    `dbw MAP, .Group` + `db level, species` groups.  Slot order is kept
+    so Super Rod weighted rolls and DexNav lists stay faithful (#1074).
+    """
+    out = {}
+    path = os.path.join(pokeyellow, "data/wild/super_rod.asm")
+    for lineno, line in read_asm(path):
+        s = line.strip()
+        if not s.startswith("db ") or s == "db -1" or s.startswith("db -1 ;"):
+            continue
+        # db MAP, SPECIES, LEVEL, SPECIES, LEVEL, SPECIES, LEVEL, SPECIES, LEVEL
+        parts = [p.strip() for p in s[3:].split(",")]
+        if len(parts) < 3 or not re.match(r"^[A-Z][A-Z0-9_]*$", parts[0]):
+            continue
+        map_id = parts[0]
+        slots = []
+        rest = parts[1:]
+        i = 0
+        while i + 1 < len(rest):
+            species, level = rest[i], rest[i + 1]
+            if not re.match(r"^[A-Z][A-Z0-9_]*$", species):
+                break
+            try:
+                level_n = int(level)
+            except ValueError:
+                break
+            slots.append({"level": level_n, "species": species})
+            i += 2
+        if slots:
+            out[map_id] = slots
+    return out
+
+
 def parse_trades(pokered):
     """data/events/trades.asm: npctrade give, get, dialogset, nickname."""
     # TRADE_DIALOGSET_* order (constants/script_constants.asm) indexes

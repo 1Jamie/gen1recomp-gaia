@@ -8360,94 +8360,74 @@
     "superRod": {
       "CELADON_CITY": [
         {
-          "level": 23,
-          "species": "POLIWHIRL"
+          "level": 5,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 10,
+          "species": "GOLDEEN"
         },
         {
           "level": 15,
-          "species": "SLOWPOKE"
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 20,
+          "species": "GOLDEEN"
         }
       ],
       "CERULEAN_CAVE_1F": [
         {
-          "level": 23,
-          "species": "SLOWBRO"
+          "level": 25,
+          "species": "GOLDEEN"
         },
         {
-          "level": 23,
+          "level": 35,
           "species": "SEAKING"
         },
         {
-          "level": 23,
-          "species": "KINGLER"
-        },
-        {
-          "level": 23,
-          "species": "SEADRA"
-        }
-      ],
-      "CERULEAN_CAVE_2F": [
-        {
-          "level": 23,
-          "species": "SLOWBRO"
-        },
-        {
-          "level": 23,
+          "level": 45,
           "species": "SEAKING"
         },
         {
-          "level": 23,
-          "species": "KINGLER"
-        },
-        {
-          "level": 23,
-          "species": "SEADRA"
+          "level": 55,
+          "species": "SEAKING"
         }
       ],
       "CERULEAN_CAVE_B1F": [
         {
-          "level": 23,
-          "species": "SLOWBRO"
+          "level": 30,
+          "species": "GOLDEEN"
         },
         {
-          "level": 23,
+          "level": 40,
           "species": "SEAKING"
         },
         {
-          "level": 23,
-          "species": "KINGLER"
+          "level": 50,
+          "species": "SEAKING"
         },
         {
-          "level": 23,
-          "species": "SEADRA"
+          "level": 60,
+          "species": "SEAKING"
         }
       ],
       "CERULEAN_CITY": [
         {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
+          "level": 25,
           "species": "GOLDEEN"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
-        }
-      ],
-      "CERULEAN_GYM": [
-        {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
+          "level": 30,
           "species": "GOLDEEN"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 30,
+          "species": "SEAKING"
+        },
+        {
+          "level": 40,
+          "species": "SEAKING"
         }
       ],
       "CINNABAR_ISLAND": [
@@ -8457,99 +8437,123 @@
         },
         {
           "level": 15,
-          "species": "HORSEA"
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
+          "level": 10,
+          "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 30,
+          "species": "TENTACOOL"
         }
       ],
       "FUCHSIA_CITY": [
         {
-          "level": 23,
-          "species": "SEAKING"
+          "level": 5,
+          "species": "MAGIKARP"
         },
+        {
+          "level": 10,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 15,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 15,
+          "species": "GYARADOS"
+        }
+      ],
+      "PALLET_TOWN": [
+        {
+          "level": 10,
+          "species": "STARYU"
+        },
+        {
+          "level": 10,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 5,
+          "species": "STARYU"
+        },
+        {
+          "level": 20,
+          "species": "TENTACOOL"
+        }
+      ],
+      "ROUTE_10": [
         {
           "level": 15,
           "species": "KRABBY"
         },
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 20,
+          "species": "KRABBY"
         },
         {
-          "level": 15,
-          "species": "MAGIKARP"
-        }
-      ],
-      "PALLET_TOWN": [
-        {
-          "level": 15,
-          "species": "TENTACOOL"
+          "level": 10,
+          "species": "HORSEA"
         },
         {
-          "level": 15,
-          "species": "POLIWAG"
-        }
-      ],
-      "ROUTE_10": [
-        {
-          "level": 23,
-          "species": "POLIWHIRL"
-        },
-        {
-          "level": 15,
-          "species": "SLOWPOKE"
+          "level": 25,
+          "species": "KINGLER"
         }
       ],
       "ROUTE_11": [
         {
           "level": 15,
-          "species": "KRABBY"
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
+          "level": 20,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 10,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 5,
+          "species": "HORSEA"
         }
       ],
       "ROUTE_12": [
         {
-          "level": 5,
-          "species": "TENTACOOL"
+          "level": 20,
+          "species": "HORSEA"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 25,
+          "species": "HORSEA"
         },
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 25,
+          "species": "SEADRA"
         },
         {
-          "level": 15,
-          "species": "MAGIKARP"
+          "level": 35,
+          "species": "SEADRA"
         }
       ],
       "ROUTE_13": [
         {
-          "level": 5,
+          "level": 15,
+          "species": "HORSEA"
+        },
+        {
+          "level": 20,
+          "species": "HORSEA"
+        },
+        {
+          "level": 10,
           "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
-        },
-        {
-          "level": 15,
-          "species": "MAGIKARP"
+          "level": 20,
+          "species": "SEADRA"
         }
       ],
       "ROUTE_17": [
@@ -8559,304 +8563,356 @@
         },
         {
           "level": 15,
-          "species": "KRABBY"
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 25,
+          "species": "SHELLDER"
         },
         {
-          "level": 15,
-          "species": "MAGIKARP"
+          "level": 35,
+          "species": "SHELLDER"
         }
       ],
       "ROUTE_18": [
         {
-          "level": 5,
+          "level": 15,
           "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 20,
+          "species": "SHELLDER"
         },
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 30,
+          "species": "SHELLDER"
         },
         {
-          "level": 15,
-          "species": "MAGIKARP"
+          "level": 40,
+          "species": "SHELLDER"
         }
       ],
       "ROUTE_19": [
         {
           "level": 15,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 20,
           "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "HORSEA"
+          "level": 30,
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 30,
+          "species": "TENTACRUEL"
         }
       ],
       "ROUTE_20": [
         {
-          "level": 15,
+          "level": 20,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 20,
+          "species": "TENTACRUEL"
+        },
+        {
+          "level": 30,
           "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "HORSEA"
-        },
-        {
-          "level": 15,
-          "species": "SHELLDER"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 40,
+          "species": "TENTACRUEL"
         }
       ],
       "ROUTE_21": [
         {
           "level": 15,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 20,
           "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "HORSEA"
+          "level": 30,
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 30,
+          "species": "TENTACRUEL"
         }
       ],
       "ROUTE_22": [
         {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 5,
+          "species": "POLIWAG"
+        },
+        {
+          "level": 10,
+          "species": "POLIWAG"
         },
         {
           "level": 15,
           "species": "POLIWAG"
+        },
+        {
+          "level": 15,
+          "species": "POLIWHIRL"
         }
       ],
       "ROUTE_23": [
         {
-          "level": 23,
-          "species": "SLOWBRO"
+          "level": 25,
+          "species": "POLIWAG"
         },
         {
-          "level": 23,
-          "species": "SEAKING"
+          "level": 30,
+          "species": "POLIWAG"
         },
         {
-          "level": 23,
-          "species": "KINGLER"
+          "level": 30,
+          "species": "POLIWHIRL"
         },
         {
-          "level": 23,
-          "species": "SEADRA"
+          "level": 40,
+          "species": "POLIWHIRL"
         }
       ],
       "ROUTE_24": [
         {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
+          "level": 20,
           "species": "GOLDEEN"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 25,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 30,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 30,
+          "species": "SEAKING"
         }
       ],
       "ROUTE_25": [
         {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 10,
+          "species": "KRABBY"
         },
         {
           "level": 15,
           "species": "KRABBY"
+        },
+        {
+          "level": 15,
+          "species": "KINGLER"
+        },
+        {
+          "level": 25,
+          "species": "KINGLER"
         }
       ],
       "ROUTE_4": [
         {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
+          "level": 20,
           "species": "GOLDEEN"
         },
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 25,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 30,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 30,
+          "species": "SEAKING"
         }
       ],
       "ROUTE_6": [
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 5,
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 10,
+          "species": "GOLDEEN"
         },
         {
           "level": 15,
-          "species": "SHELLDER"
+          "species": "GOLDEEN"
+        },
+        {
+          "level": 20,
+          "species": "GOLDEEN"
         }
       ],
       "SAFARI_ZONE_CENTER": [
         {
-          "level": 15,
+          "level": 5,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 10,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 10,
           "species": "DRATINI"
         },
         {
           "level": 15,
-          "species": "KRABBY"
-        },
-        {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
-          "species": "SLOWPOKE"
+          "species": "DRAGONAIR"
         }
       ],
       "SAFARI_ZONE_EAST": [
         {
+          "level": 5,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 10,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 15,
+          "species": "MAGIKARP"
+        },
+        {
           "level": 15,
           "species": "DRATINI"
-        },
-        {
-          "level": 15,
-          "species": "KRABBY"
-        },
-        {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
-          "species": "SLOWPOKE"
         }
       ],
       "SAFARI_ZONE_NORTH": [
         {
+          "level": 5,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 10,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 15,
+          "species": "MAGIKARP"
+        },
+        {
           "level": 15,
           "species": "DRATINI"
-        },
-        {
-          "level": 15,
-          "species": "KRABBY"
-        },
-        {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
-          "species": "SLOWPOKE"
         }
       ],
       "SAFARI_ZONE_WEST": [
         {
+          "level": 5,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 10,
+          "species": "MAGIKARP"
+        },
+        {
+          "level": 15,
+          "species": "MAGIKARP"
+        },
+        {
           "level": 15,
           "species": "DRATINI"
-        },
-        {
-          "level": 15,
-          "species": "KRABBY"
-        },
-        {
-          "level": 15,
-          "species": "PSYDUCK"
-        },
-        {
-          "level": 15,
-          "species": "SLOWPOKE"
         }
       ],
       "SEAFOAM_ISLANDS_B3F": [
         {
-          "level": 15,
+          "level": 25,
+          "species": "KRABBY"
+        },
+        {
+          "level": 20,
           "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "HORSEA"
+          "level": 35,
+          "species": "KINGLER"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 40,
+          "species": "STARYU"
         }
       ],
       "SEAFOAM_ISLANDS_B4F": [
         {
-          "level": 15,
+          "level": 25,
+          "species": "KRABBY"
+        },
+        {
+          "level": 20,
           "species": "STARYU"
         },
         {
-          "level": 15,
-          "species": "HORSEA"
+          "level": 35,
+          "species": "KINGLER"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
-        },
-        {
-          "level": 15,
-          "species": "GOLDEEN"
+          "level": 40,
+          "species": "STARYU"
         }
       ],
       "VERMILION_CITY": [
         {
           "level": 15,
-          "species": "KRABBY"
+          "species": "TENTACOOL"
         },
         {
-          "level": 15,
-          "species": "SHELLDER"
+          "level": 20,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 10,
+          "species": "TENTACOOL"
+        },
+        {
+          "level": 5,
+          "species": "HORSEA"
         }
       ],
       "VERMILION_DOCK": [
         {
-          "level": 15,
-          "species": "KRABBY"
+          "level": 10,
+          "species": "TENTACOOL"
         },
-        {
-          "level": 15,
-          "species": "SHELLDER"
-        }
-      ],
-      "VIRIDIAN_CITY": [
         {
           "level": 15,
           "species": "TENTACOOL"
         },
         {
           "level": 15,
+          "species": "STARYU"
+        },
+        {
+          "level": 10,
+          "species": "SHELLDER"
+        }
+      ],
+      "VIRIDIAN_CITY": [
+        {
+          "level": 5,
+          "species": "POLIWAG"
+        },
+        {
+          "level": 10,
+          "species": "POLIWAG"
+        },
+        {
+          "level": 15,
+          "species": "POLIWAG"
+        },
+        {
+          "level": 10,
           "species": "POLIWAG"
         }
       ]
