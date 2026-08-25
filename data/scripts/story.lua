@@ -1047,6 +1047,7 @@ local championsRoomRivalScript = {
   -- numeric 26 into a jump ONTO the closing HALL_OF_FAME warp instead of past
   -- it, so a returning champion warped straight into the induction.
   { "jump_if_true", "end" },                                -- 3
+  { "set_option", "animations", true },                     -- scripts/ChampionsRoom.asm:57
   { "show_text", "_ChampionsRoomRivalIntroText" },          -- 4
   -- ChampionsRoomRivalReadyToBattleScript plays MUSIC_FINAL_BATTLE after
   -- the intro text, before the battle itself (#706); pushBattle's wipe-time

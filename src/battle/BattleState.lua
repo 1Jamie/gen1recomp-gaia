@@ -97,7 +97,7 @@ end
 -- space.
 function BattleState:extendedHUD()
   local options = self.game and self.game.save and self.game.save.options
-  local bg = options and options.battleBg
+  local bg = options and self:bgMode()
   return self:wideLayout()
      and options and options.battleHud == "extended"
      and ((options.battleFit == "fixed"
@@ -108,12 +108,12 @@ end
 function BattleState:extendedWorldHUD()
   local options = self.game and self.game.save and self.game.save.options
   return self:extendedHUD() and options
-     and options.battleFit == "fixed" and options.battleBg == "world"
+     and options.battleFit == "fixed" and self:bgMode() == "world"
 end
 
 function BattleState:extendedBlackHUD()
   local options = self.game and self.game.save and self.game.save.options
-  return self:extendedHUD() and options and options.battleBg == "black"
+  return self:extendedHUD() and options and self:bgMode() == "black"
 end
 
 -- BATTLE BG: what fills the screen AROUND the battle -- the letterbox voids
@@ -130,6 +130,10 @@ end
 -- opaque 160x144 field over the top, so only the surround changes.
 function BattleState:bgMode()
   local options = self.game and self.game.save and self.game.save.options
+  if options and self:wideLayout() and options.battleFit == "fill"
+     and options.battleHud == "extended" then
+    return "white"
+  end
   local mode = options and options.battleBg
   if mode == "black" or mode == "world" then return mode end
   return "white"
@@ -212,6 +216,13 @@ local BALL_ANIMS = {
   SHAKE_ANIM = true, SHOWPIC_ANIM = true,
 }
 
+-- engine/battle/effects.asm:552
+local ENEMY_STAT_DOWN_MISS = {
+  ATTACK_DOWN1_EFFECT = true, DEFENSE_DOWN1_EFFECT = true,
+  DEFENSE_DOWN2_EFFECT = true, SPEED_DOWN1_EFFECT = true,
+  ACCURACY_DOWN1_EFFECT = true,
+}
+
 local imageCache = {}
 -- The three tables below are keyed by the Image OBJECT, not by a path, and a
 -- running battle holds the pics it built at enter() (battler.sprite,
@@ -229,6 +240,11 @@ local imagePadLeft = setmetatable({}, WEAK_KEYS)
 -- image -> { path, pal } so palette-fade variants (see fadeImage) can be
 -- rebuilt for any battle pic, whatever code loaded it
 local imageMeta = setmetatable({}, WEAK_KEYS)
+local function mattedPic(path)
+  return path:sub(1, 17) == "assets/generated/"
+      or path:sub(1, 17) == "save/mod-derived/"
+end
+
 -- pal = { name, colors } recolors the 4 GB shades like the Super Game Boy.
 -- trueColor art (14 §the 4-shade contract) opts out of the quantize
 -- entirely, so its palette variant collapses back onto the plain path.
@@ -254,29 +270,31 @@ local function getImage(path, pal, trueColor)
         end)
       end
       local w, h = id:getDimensions()
-      local bottom = h - 1
-      while bottom >= 0 do
-        local opaque = false
-        for x = 0, w - 1 do
-          local _, _, _, a = id:getPixel(x, bottom)
-          if a > 0 then opaque = true break end
+      if mattedPic(Assets.resolve(path)) then
+        local bottom = h - 1
+        while bottom >= 0 do
+          local opaque = false
+          for x = 0, w - 1 do
+            local _, _, _, a = id:getPixel(x, bottom)
+            if a > 0 then opaque = true break end
+          end
+          if opaque then break end
+          bottom = bottom - 1
         end
-        if opaque then break end
-        bottom = bottom - 1
-      end
-      local left = 0
-      while left < w do
-        local opaque = false
-        for y = 0, h - 1 do
-          local _, _, _, a = id:getPixel(left, y)
-          if a > 0 then opaque = true break end
+        local left = 0
+        while left < w do
+          local opaque = false
+          for y = 0, h - 1 do
+            local _, _, _, a = id:getPixel(left, y)
+            if a > 0 then opaque = true break end
+          end
+          if opaque then break end
+          left = left + 1
         end
-        if opaque then break end
-        left = left + 1
+        pad = h - 1 - bottom
+        padL = left
       end
       img = love.graphics.newImage(id)
-      pad = h - 1 - bottom
-      padL = left
     else
       img = Assets.image(path) -- headless stub: no pixel access
     end
@@ -2214,6 +2232,9 @@ function BattleState:update(dt)
       self.waitFrames = nil
       if destination == "menu" then
         self.introSlide = nil
+        -- engine/battle/core.asm:2007
+        self.msgHold = nil
+        self.shown = nil
         self.phase = "menu"
       elseif destination == "finish" then
         self:finish()
@@ -3041,14 +3062,29 @@ local BGP_INVERT   = { [0] = 3, 2, 1, 0 }              -- $1b (flash phase 1)
 local BGP_WHITE    = { [0] = 0, 0, 0, 0 }              -- $00 (flash phase 2)
 local BGP_DARK     = { [0] = 3, 3, 2, 1 }              -- $6f DarkScreenPalette
 local BGP_LIGHT    = { [0] = 0, 0, 1, 2 }              -- $90 LightScreenPalette
-local BGP_DARKEN   = { [0] = 0, 1, 3, 3 }              -- $f4 DarkenMonPalette (SGB)
+local BGP_DARKEN_SGB  = { [0] = 0, 1, 3, 3 }           -- $f4
+local BGP_DARKEN_MONO = { [0] = 1, 2, 3, 3 }           -- $f9
+
+-- engine/battle/animations.asm:1090
+local function onSgb()
+  local m = require("src.render.PaletteFX").mode
+  return m == "gbc" or m == "gbc_inv"
+end
 
 -- FlashScreenLongSGB (animations.asm:1010): 12 BGP values per cycle,
 -- 3 cycles; the first cycle holds each for 2 frames, the rest for 1
 -- (FlashScreenLongDelay)
-local FLASH_LONG_MAPS = {
+local FLASH_LONG_SGB = {
   { [0] = 0, 2, 3, 3 }, { [0] = 0, 3, 3, 3 }, { [0] = 3, 3, 3, 3 },
   { [0] = 0, 3, 3, 3 }, { [0] = 0, 2, 3, 3 }, { [0] = 0, 1, 2, 3 },
+  { [0] = 0, 0, 1, 2 }, { [0] = 0, 0, 0, 1 }, { [0] = 0, 0, 0, 0 },
+  { [0] = 0, 0, 0, 1 }, { [0] = 0, 0, 1, 2 }, { [0] = 0, 1, 2, 3 },
+}
+
+-- engine/battle/animations.asm:992
+local FLASH_LONG_MONO = {
+  { [0] = 1, 2, 3, 3 }, { [0] = 2, 3, 3, 3 }, { [0] = 3, 3, 3, 3 },
+  { [0] = 2, 3, 3, 3 }, { [0] = 1, 2, 3, 3 }, { [0] = 0, 1, 2, 3 },
   { [0] = 0, 0, 1, 2 }, { [0] = 0, 0, 0, 1 }, { [0] = 0, 0, 0, 0 },
   { [0] = 0, 0, 0, 1 }, { [0] = 0, 0, 1, 2 }, { [0] = 0, 1, 2, 3 },
 }
@@ -3186,7 +3222,7 @@ function BattleState:applyAnimEffect(ev)
   elseif e == "SE_LIGHT_SCREEN_PALETTE" then
     fx.bgp = BGP_LIGHT
   elseif e == "SE_DARKEN_MON_PALETTE" then
-    fx.bgp = BGP_DARKEN
+    fx.bgp = onSgb() and BGP_DARKEN_SGB or BGP_DARKEN_MONO
   elseif e == "SE_RESET_SCREEN_PALETTE" then
     fx.bgp = nil
   elseif e == "SE_DARK_SCREEN_FLASH" then
@@ -3196,8 +3232,9 @@ function BattleState:applyAnimEffect(ev)
                   idx = 1, left = 2 }
   elseif e == "SE_FLASH_SCREEN_LONG" then
     local steps = {}
+    local maps = onSgb() and FLASH_LONG_SGB or FLASH_LONG_MONO
     for cycle = 1, 3 do
-      for _, m in ipairs(FLASH_LONG_MAPS) do
+      for _, m in ipairs(maps) do
         steps[#steps + 1] = { map = m, frames = (cycle == 1) and 2 or 1 }
       end
     end
@@ -4139,6 +4176,12 @@ function BattleState:performMove(user, target, moveInst, isCalled)
 
   -- pure status moves
   if move.power == 0 and record and record.kind == "primary" and record.run then
+    if ENEMY_STAT_DOWN_MISS[move.effect] and not user.isPlayer
+       and self.kind ~= "link" and self.rng(0, 255) < 64 then
+      self:cancelMoveAnim()
+      self:sayNext(self:romText("_AttackMissedText", "%s's\nattack missed!", displayName(user)))
+      return
+    end
     -- accuracy-checked status effects run MoveHitTest, which has no
     -- 100%-accuracy early-out (even Thunder Wave misses on the 255
     -- roll) and misses outright against a mid-Fly/Dig target; the
@@ -4417,7 +4460,11 @@ function BattleState:awardExp()
       -- new current HP (house convention: potions drain the bar too, see
       -- itemUsed) so the bar grows instead.  Only the active player battler
       -- shares its table with the HUD; other party mons (EXP.ALL) have no bar.
-      if mon == self.player.mon then self:drainNext() end
+      if mon == self.player.mon then
+        -- engine/battle/experience.asm:236
+        self.player.badgeExtraBoosts = nil
+        self:drainNext()
+      end
       for _, moveId in ipairs(Experience.movesLearnedAt(
           self.data.pokemon[mon.species], lv)) do
         self:learnMove(mon, moveId)
@@ -5920,7 +5967,9 @@ function BattleState:animSpriteColors(s, px, py)
   local P
   -- engine/battle/animations.asm:551 (.notSGB)
   if PaletteFX.usesSpriteObp() then
-    P = PaletteFX.ogObj()
+    -- engine/battle/init_battle_variables.asm:18
+    P = require("src.core.GameVersion").isBlue() and PaletteFX.GBC_OBJ_BLUE
+        or PaletteFX.GBC_OBJ
     if key == "f0" then key = "e4" elseif key == "f0x" then key = "e4x" end
   else
     P = self:zoneColorsAt(px or (s.x - 8 + 4), py or (s.y - 16 + 4))

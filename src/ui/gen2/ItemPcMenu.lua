@@ -41,6 +41,8 @@ ItemPcMenu.isOpaque = true
 local PC_ITEM_CAPACITY = 50
 local MAX_STACK = 99
 
+local function stacksFor(n) return math.ceil((n or 0) / MAX_STACK) end
+
 -- PlayersPCMenuData .PlayersPCMenuPointers strings, verbatim.  .WhichPC picks
 -- which rows a caller sees: PLAYERSPC_NORMAL ends on LOG OFF, PLAYERSPC_HOUSE
 -- carries DECORATION and ends on TURN OFF.
@@ -167,18 +169,24 @@ function ItemPcMenu:rebuild()
   for id, count in pairs(pc) do
     if (count or 0) > 0 then
       local def = self:def(id)
-      rows[#rows + 1] = {
-        id = id, count = count,
-        name = (def and def.name) or id,
-        index = def and def.index or math.huge,
-      }
+      local remaining = count
+      while remaining > 0 do
+        local n = math.min(remaining, MAX_STACK)
+        rows[#rows + 1] = {
+          id = id, count = n,
+          name = (def and def.name) or id,
+          index = def and def.index or math.huge,
+        }
+        remaining = remaining - n
+      end
     end
   end
   -- wPCItems keeps acquisition order; without that recorded, item id order is
   -- the stable choice, the same sort the PACK uses.
   table.sort(rows, function(a, b)
     if a.index ~= b.index then return a.index < b.index end
-    return a.id < b.id
+    if a.id ~= b.id then return a.id < b.id end
+    return a.count > b.count
   end)
   self.rows = rows
   if self.listIndex > #rows + 1 then self.listIndex = #rows + 1 end
@@ -200,20 +208,18 @@ function ItemPcMenu:ensureVisible()
     math.max(0, self:listTotal() - VISIBLE_ROWS)))
 end
 
--- ReceiveItem over wPCItems: a new id needs one of the fifty stacks, a grown
--- one may not pass 99.  False is the no-carry the deposit turns into
+-- ReceiveItem over wPCItems: the add tops up every existing stack of that id
+-- and spills the rest into a new one, so it only needs a free stack when the
+-- room in place is short.  False is the no-carry the deposit turns into
 -- _PlayersPCNoRoomDepositText.
+-- engine/items/items.asm:156 PutItemInPocket
 function ItemPcMenu:pcAdd(id, qty)
   local pc = self.save.pcItems
   local held = pc[id] or 0
-  if held == 0 then
-    local stacks = 0
-    for _, count in pairs(pc) do
-      if (count or 0) > 0 then stacks = stacks + 1 end
-    end
-    if stacks >= PC_ITEM_CAPACITY then return false end
-  end
-  if held + qty > MAX_STACK then return false end
+  local used = 0
+  for _, count in pairs(pc) do used = used + stacksFor(count) end
+  local need = stacksFor(held + qty) - stacksFor(held)
+  if used + need > PC_ITEM_CAPACITY then return false end
   pc[id] = held + qty
   return true
 end

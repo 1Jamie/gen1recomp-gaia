@@ -20,7 +20,8 @@ local yellow = GameVersion.isYellow()
 -- pokered/scripts/*.asm, PlayCry line in brackets:
 --   SSAnne1FRooms.asm:66 [:70], SSAnneB1FRooms.asm:82 [:86],
 --   VermilionPidgeyHouse.asm:15 [:19], VermilionCity.asm:224 [:228],
---   PokemonFanClub.asm:71 [:76] and :84 [:89].
+--   PokemonFanClub.asm:71 [:76] and :84 [:89],
+--   MrFujisHouse.asm:56 [:60] and :63 [:67], LavenderCuboneHouse.asm:10 [:14].
 local PETS = {
   { map = "SS_ANNE_1F_ROOMS", const = "TEXT_SSANNE1FROOMS_WIGGLYTUFF",
     object = "SSANNE1FROOMS_WIGGLYTUFF", species = "WIGGLYTUFF",
@@ -40,6 +41,15 @@ local PETS = {
   { map = "POKEMON_FAN_CLUB", const = "TEXT_POKEMONFANCLUB_SEEL",
     object = "POKEMONFANCLUB_SEEL", species = "SEEL",
     label = "_PokemonFanClubSeelText" },
+  { map = "MR_FUJIS_HOUSE", const = "TEXT_MRFUJISHOUSE_PSYDUCK",
+    object = "MRFUJISHOUSE_PSYDUCK", species = "PSYDUCK",
+    label = "_MrFujisHousePsyduckText" },
+  { map = "MR_FUJIS_HOUSE", const = "TEXT_MRFUJISHOUSE_NIDORINO",
+    object = "MRFUJISHOUSE_NIDORINO", species = "NIDORINO",
+    label = "_MrFujisHouseNidorinoText" },
+  { map = "LAVENDER_CUBONE_HOUSE", const = "TEXT_LAVENDERCUBONEHOUSE_CUBONE",
+    object = "LAVENDERCUBONEHOUSE_CUBONE", species = "CUBONE",
+    label = "_LavenderCuboneHouseCuboneText" },
 }
 
 if yellow then

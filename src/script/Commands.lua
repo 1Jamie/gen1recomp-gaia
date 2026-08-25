@@ -529,6 +529,16 @@ function Commands.set_field(ctx, key, value)
   ctx.save[key] = value
 end
 
+-- scripts/ChampionsRoom.asm:57
+function Commands.set_option(ctx, key, value)
+  local o = ctx.save.options
+  if not o then
+    o = {}
+    ctx.save.options = o
+  end
+  o[key] = value
+end
+
 function Commands.load_player_starter_name(ctx)
   local flags = ctx.save.flags or {}
   local species = flags.EVENT_CHOSE_PIKACHU and "PIKACHU"
@@ -720,7 +730,8 @@ end
 -- Box deposits also print SentToBoxText (give_pokemon.asm:36-37).
 -- skipNickname suppresses AskName for callers that name the gift themselves;
 -- no vanilla script uses it (pokeyellow scripts/OaksLab.asm, #1013)
-function Commands.give_pokemon(ctx, species, level, skipNickname)
+-- gotText prints GotMonText ahead of AskName (give_pokemon.asm:46).
+function Commands.give_pokemon(ctx, species, level, skipNickname, gotText)
   -- Native mods can transform a gift before the Pokémon object is created.
   -- This is intentionally an event rather than a special-case starter hook:
   -- mods can use the same seam for story gifts, fossils, or custom scripts.
@@ -754,6 +765,11 @@ function Commands.give_pokemon(ctx, species, level, skipNickname)
   ctx.lastCheck = true
   ctx.addedToParty = addedToParty
   ctx.boxNum = boxNum
+  -- engine/events/give_pokemon.asm:46
+  if gotText and ctx.runner then
+    Commands.text_sound(ctx, "Get_Item1")
+    Commands.show_text(ctx, "_GotMonText", { RAM = species })
+  end
   -- AskName: both AddPartyMon and SendNewMonToBox; skip mod-set nicks
   -- and callback-style callers with no script runner to yield on.
   if not gift.nickname and not skipNickname and ctx.runner then
@@ -1303,11 +1319,14 @@ function FadeOverlay:update()
 end
 
 function FadeOverlay:draw()
-  if self.color == "white" then
-    love.graphics.setColor(1, 1, 1, self.alpha)
-  else
-    love.graphics.setColor(0, 0, 0, self.alpha)
+  local shade = (self.color == "white") and 1 or 0
+  -- home/fade.asm:26
+  local r = self.game and self.game.renderer
+  if r then
+    r.screenVeil = { shade, self.alpha }
+    return
   end
+  love.graphics.setColor(shade, shade, shade, self.alpha)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
   love.graphics.setColor(1, 1, 1, 1)
 end

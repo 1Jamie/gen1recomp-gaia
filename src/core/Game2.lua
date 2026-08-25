@@ -350,6 +350,10 @@ function Game2:showTitle()
     onContinue = function()
       self:showMainMenu()
     end,
+    -- engine/menus/intro_menu.asm:848-889
+    onTimeout = function()
+      self:showCopyright()
+    end,
   })
 end
 

@@ -284,6 +284,14 @@ function Effects.magnitudePower(random)
   return last[2], last[3]
 end
 
+-- engine/battle/move_effects/return.asm:1-24, frustration.asm:1-25
+function Effects.happinessPower(happiness, frustration)
+  local h = happiness or 0
+  if h < 0 then h = 0 elseif h > 255 then h = 255 end
+  if frustration then h = 255 - h end
+  return math.floor(h * 10 / 25)
+end
+
 -- ------------------------------------------------------------------- weather
 --
 -- BattleCommand_StartRain / StartSun / StartSandstorm all set wWeatherCount to

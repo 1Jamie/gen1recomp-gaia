@@ -157,6 +157,11 @@ end
 -- new SHADER FX 2 row below it -- when both are set, ShaderFX.render() runs
 -- main's chain into secondary's, same as stacking two RetroArch presets.
 
+local function bgLocked(o)
+  return o.battleLayout == "wide" and o.battleFit == "fill"
+     and o.battleHud == "extended"
+end
+
 -- the vanilla rows as descriptors; each step body is the old per-index
 -- ladder's, so the save.options mutations are unchanged
 local function buildRows(game)
@@ -197,8 +202,6 @@ local function buildRows(game)
         o.battleLayout = o.battleLayout == "wide" and "og" or "wide"
         if o.battleLayout ~= "wide" then
           o.battleHud = "standard"
-        elseif o.battleFit == "fill" and o.battleHud == "extended" then
-          o.battleBg = "white"
         end
         return true
       end },
@@ -215,10 +218,6 @@ local function buildRows(game)
       step = function(g)
         local o = g.save.options
         o.battleFit = o.battleFit == "fill" and "fixed" or "fill"
-        if o.battleFit == "fill" and o.battleLayout == "wide"
-           and o.battleHud == "extended" then
-          o.battleBg = "white"
-        end
         return true
       end },
     { id = "battleHud", label = Strings("BATTLE HUD"),
@@ -237,9 +236,6 @@ local function buildRows(game)
           return false
         end
         o.battleHud = o.battleHud == "extended" and "standard" or "extended"
-        if o.battleHud == "extended" and o.battleFit == "fill" then
-          o.battleBg = "white"
-        end
         return true
       end },
     -- What sits behind and around the battle.  WHITE is the classic paper
@@ -249,11 +245,7 @@ local function buildRows(game)
     { id = "battleBg", label = Strings("BATTLE BG"),
       value = function(g)
         local o = g.save.options
-        if o.battleLayout == "wide" and o.battleFit == "fill"
-           and o.battleHud == "extended" then
-          o.battleBg = "white"
-          return Strings("AUTO")
-        end
+        if bgLocked(o) then return Strings("AUTO (FILL HUD)") end
         local m = o.battleBg
         if m == "black" then return Strings("BLACK") end
         if m == "world" then return Strings("WORLD") end
@@ -261,11 +253,7 @@ local function buildRows(game)
       end,
       step = function(g, dir)
         local o = g.save.options
-        if o.battleLayout == "wide" and o.battleFit == "fill"
-           and o.battleHud == "extended" then
-          o.battleBg = "white"
-          return false
-        end
+        if bgLocked(o) then return false end
         local order = { "white", "black", "world" }
         local cur = 1
         for i, m in ipairs(order) do if o.battleBg == m then cur = i break end end

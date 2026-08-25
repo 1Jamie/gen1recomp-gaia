@@ -645,6 +645,7 @@ function Battle:smartAiState()
     -- wPlayerSubStatus5 & SUBSTATUS_LOCK_ON: the enemy's OWN Lock-On, since
     -- BattleCommand_LockOn sets the bit on the target it was aimed at.
     playerLockOn = playerState.lockOn or nil,
+    playerIdentified = playerState.identified or nil,
     playerPhysicalMoves = physical,
     enemyRage = enemyState.rage,
     enemyRageCount = enemyState.rageCount,
@@ -1082,7 +1083,7 @@ function Battle:hitOnce(attacker, defender, def, opts)
   local attackerStages = self.stages[self:sideOf(attacker)]
   local defenderStages = self.stages[self:sideOf(defender)]
   local types = self.data.type_chart and self.data.type_chart.types
-  local matchups = self.data.type_chart and self.data.type_chart.matchups
+  local matchups = self:matchupsAgainst(defender)
 
   local heldEffect, heldParam = self:heldEffect(attacker, "damage")
   -- BattleCommand_Critical: SUBSTATUS_FOCUS_ENERGY (Focus Energy or a
@@ -1202,6 +1203,8 @@ function Battle:hitOnce(attacker, defender, def, opts)
   if def.effect == "EFFECT_FALSE_SWIPE" and damage >= (defender.hp or 0) then
     damage = math.max(0, (defender.hp or 0) - 1)
   end
+  -- engine/battle_anims/anim_commands.asm:1200
+  if self.moveEvent then self.moveEvent.effectiveness = info.effectiveness end
   return self:dealDamage(attacker, defender, damage, {
     critical = critical, effectiveness = info.effectiveness,
     -- Counter answers physical damage and Mirror Coat special, so what kind
@@ -1690,6 +1693,13 @@ function Battle:useMove(attacker, defender, moveId)
       text = ("Magnitude %d!"):format(number) })
   end
 
+  -- data/moves/effects.asm:1607, :1649
+  if def.effect == "EFFECT_RETURN" then
+    powerOverride = Effects.happinessPower(attacker.happiness)
+  elseif def.effect == "EFFECT_FRUSTRATION" then
+    powerOverride = Effects.happinessPower(attacker.happiness, true)
+  end
+
   if not sureHit
       and not self:accuracyRoll(def, attacker, defender) then
     -- data/moves/effects.asm:148-151: `selfdestruct` sits between checkhit and
@@ -1744,7 +1754,7 @@ function Battle:useMove(attacker, defender, moveId)
     -- thing that stops SONIC BOOM, NIGHT SHADE or SUPER FANG.
     local defenderTypes = (self:speciesDef(defender) or {}).types
       or defender.types
-    local matchups = self.data.type_chart and self.data.type_chart.matchups
+    local matchups = self:matchupsAgainst(defender)
     if Damage.typeMultiplier(def.type, defenderTypes, matchups) == 0 then
       self:markMissed()
       self:emit({ kind = "message",
@@ -2119,6 +2129,21 @@ Battle.MOVE_EFFECTS.EFFECT_LOCK_ON = function(self, attacker, defender)
     text = self:monName(attacker) .. " took aim!" })
 end
 
+-- engine/battle/move_effects/foresight.asm
+Battle.MOVE_EFFECTS.EFFECT_FORESIGHT = function(self, attacker, defender,
+    def, _, sureHit)
+  if not sureHit
+      and not self:accuracyRoll(def, attacker, defender) then
+    return fail(self)
+  end
+  local target = self:volatile(defender)
+  if target.vanished or target.identified then return fail(self) end
+  target.identified = true
+  self:emit({ kind = "message",
+    text = self:monName(attacker) .. " identified "
+      .. self:monName(defender) .. "!" })
+end
+
 -- BattleCommand_CheckHit's .LockOn: the flag is read AND cleared by the next
 -- move aimed at the mon carrying it, whether or not that move was the one the
 -- lock-on was meant for, and whether or not the exception at :1683-1688 then
@@ -2166,9 +2191,15 @@ function Battle:accuracyRoll(def, attacker, defender, accuracy)
 end
 
 function Battle:vanillaAccuracyRoll(accuracy, attacker, defender)
-  return Damage.rollHit(self:moveAccuracy(accuracy, defender),
-    self.stages[self:sideOf(attacker)].accuracy,
-    self.stages[self:sideOf(defender)].evasion, self.random)
+  local acc = self.stages[self:sideOf(attacker)].accuracy
+  local eva = self.stages[self:sideOf(defender)].evasion
+  -- engine/battle/effect_commands.asm:1786
+  if defender and self:volatile(defender).identified
+      and (eva or 0) >= (acc or 0) then
+    acc, eva = 0, 0
+  end
+  return Damage.rollHit(self:moveAccuracy(accuracy, defender), acc, eva,
+    self.random)
 end
 
 -- BattleCommand_StatDown's SUBSTATUS_MIST arm (a GUARD SPEC): a drop the FOE
@@ -2354,7 +2385,7 @@ Battle.MOVE_EFFECTS.EFFECT_FUTURE_SIGHT = function(self, attacker, defender, def
       stages = self.stages[self:sideOf(defender)],
     },
     types = self.data.type_chart and self.data.type_chart.types,
-    matchups = self.data.type_chart and self.data.type_chart.matchups,
+    matchups = self:matchupsAgainst(defender),
     random = self.random,
   })
   state.futureSight = Effects.FUTURE_SIGHT_TURNS
@@ -3072,6 +3103,30 @@ function Battle:safeguarded(mon)
   return (self.screens[self:sideOf(mon)].safeguard or 0) > 0
 end
 
+-- engine/battle/effect_commands.asm:1305
+function Battle:matchupsAgainst(defender)
+  local chart = self.data.type_chart
+  local rows = chart and chart.matchups
+  if not rows or not defender then return rows end
+  if not self:volatile(defender).identified then return rows end
+  local skipped = chart.foresightMatchups
+  if not skipped or #skipped == 0 then return rows end
+  if not self.identifiedMatchups then
+    local drop = {}
+    for _, row in ipairs(skipped) do
+      drop[tostring(row.attacker) .. "/" .. tostring(row.defender)] = true
+    end
+    local out = {}
+    for _, row in ipairs(rows) do
+      if not drop[tostring(row.attacker) .. "/" .. tostring(row.defender)] then
+        out[#out + 1] = row
+      end
+    end
+    self.identifiedMatchups = out
+  end
+  return self.identifiedMatchups
+end
+
 -- `source` is the battler that inflicted it, carried only so
 -- battle.status_inflicted can name it the way Gen 1's does.
 -- BattleCommand_Paralyze and BattleCommand_Poison refuse on a zero matchup,
@@ -3084,7 +3139,7 @@ function Battle:statusRefusedByType(defender, moveType, status)
   end
   local types = (self:speciesDef(defender) or {}).types or defender.types or {}
   if moveType then
-    local matchups = self.data.type_chart and self.data.type_chart.matchups
+    local matchups = self:matchupsAgainst(defender)
     if Damage.typeMultiplier(moveType, types, matchups) == 0 then return true end
   end
   if status == "poison" or status == "toxic" then
@@ -3917,6 +3972,8 @@ end
 -- check.  Split out because playerAttack needs the same answer.
 function Battle:lockedInMove(mon)
   local state = self:volatile(mon)
+  -- engine/battle/core.asm:543
+  if state.chargeMove then return state.chargeMove end
   if state.rolloutLock then return state.rolloutLock end
   if state.rampageMove and (state.rampageTurns or 0) > 0 then
     return state.rampageMove
