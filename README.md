@@ -53,7 +53,7 @@ And before you say, "that's not a recomp", you're wrong. Recomp is an acronym. *
 
 ### Watch the latest update video
 
-[![Watch the latest update video](https://img.youtube.com/vi/yi7LkWQPKKM/maxresdefault.jpg)](https://youtu.be/yi7LkWQPKKM)
+[![Watch the latest update video](https://img.youtube.com/vi/0hgtLDNGpdo/maxresdefault.jpg)](https://youtu.be/0hgtLDNGpdo)
 
 This project does not include a ROM, emulate the Game Boy, transpile assembly,
 or download a disassembly. A canonical US Poke Red, Blue, Yellow, Gold,
