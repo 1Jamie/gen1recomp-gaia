@@ -394,6 +394,9 @@ jobs:
             linux-x64|linux-arm64)
               pipx install cargo-zigbuild
               pipx inject cargo-zigbuild ziglang
+              zigpy="$(pipx environment --value PIPX_LOCAL_VENVS)/cargo-zigbuild/bin/python"
+              "$zigpy" -m ziglang version
+              export CARGO_ZIGBUILD_PYTHON_PATH="$zigpy"
               triple="$GLIBC_TRIPLE"
               rustup target add "${triple%%.*}"
               cargo zigbuild --release --target "$triple"
