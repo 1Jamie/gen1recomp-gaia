@@ -43,10 +43,13 @@ local function fullAssetName(version, osName, arch, port)
     return "gen1recomp-" .. version .. "-xbox-uwp.zip"
   elseif osName == "NX" then
     return "gen1recomp-" .. version .. "-switch.zip"
+  elseif osName == "Linux" and (port == "flatpak"
+      or (type(os.getenv) == "function" and os.getenv("FLATPAK_ID"))) then
+    return "gen1recomp-" .. version .. "-linux.flatpak"
   elseif osName == "Linux" and (arch == "arm64" or arch == "aarch64") then
     return "gen1recomp-" .. version .. "-linux-arm64.AppImage"
   elseif osName == "Linux" then
-    return "gen1recomp-" .. version .. "-linux.zip"
+    return "gen1recomp-" .. version .. "-linux-x86_64.AppImage"
   end
   return nil
 end
@@ -288,6 +291,13 @@ function Check.fullUpdateAction()
       "https://github.com/bryanthaboi/gen1recomp/raw/refs/heads/main/mobile/ios/app-repo.json" }
   elseif osName == "UWP" then
     return { label = "Open Xbox install guide", url = Check.releaseUrl() }
+  elseif osName == "Linux" and type(st.full) == "table"
+      and type(st.full.url) == "string" then
+    local name = type(st.full.name) == "string" and st.full.name or ""
+    if name:find("%.flatpak$") or os.getenv("FLATPAK_ID") then
+      return { label = "Download Flatpak update", url = st.full.url }
+    end
+    return { label = "Download AppImage update", url = st.full.url }
   elseif type(st.full) == "table" and type(st.full.url) == "string" then
     return { label = "Download full update", url = st.full.url }
   end
