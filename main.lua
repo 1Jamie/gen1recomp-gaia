@@ -22,6 +22,56 @@ local PlatformHooks = require("src.core.PlatformHooks")
 local HostDisplay = require("src.core.HostDisplay")
 local GameViewport = require("src.render.GameViewport")
 
+-- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
+local emergencyQuitTimer = 0
+
+local function checkEmergencyQuit(dt)
+  local held = false
+  if love.joystick and love.joystick.getJoysticks then
+    local joysticks = love.joystick.getJoysticks()
+    for _, j in ipairs(joysticks) do
+      if j:isGamepad() then
+        local start = j:isGamepadDown("start")
+        local selectBtn = j:isGamepadDown("back") or j:isGamepadDown("guide")
+        if start and selectBtn then
+          held = true
+          break
+        end
+      else
+        local bCount = j:getButtonCount()
+        local s1 = (bCount >= 7 and j:isDown(7)) or (bCount >= 9 and j:isDown(9))
+        local s2 = (bCount >= 8 and j:isDown(8)) or (bCount >= 10 and j:isDown(10))
+        if s1 and s2 then
+          held = true
+          break
+        end
+      end
+    end
+  end
+
+  if love.keyboard and love.keyboard.isDown then
+    if (love.keyboard.isDown("escape") and love.keyboard.isDown("return"))
+        or (love.keyboard.isDown("lalt") and love.keyboard.isDown("f4")) then
+      held = true
+    end
+  end
+
+  if held then
+    emergencyQuitTimer = emergencyQuitTimer + (dt or 0.016)
+    if emergencyQuitTimer >= 5.0 then
+      print("[FORCE QUIT] Start + Select held for 5 seconds. Exiting forcefully.")
+      pcall(function()
+        if love.audio and love.audio.stop then love.audio.stop() end
+        if love.window and love.window.close then love.window.close() end
+      end)
+      local exitFn = os["exit"]
+      exitFn(0)
+    end
+  else
+    emergencyQuitTimer = 0
+  end
+end
+
 -- Lua errors: persist a redacted trace in the save dir and surface a hint.
 do
   local defaultErrorHandler = love.errorhandler or love.errhand
@@ -30,10 +80,33 @@ do
     if ok and hint and type(msg) == "string" then
       msg = msg .. "\n\n" .. hint
     end
+
+    if love.window and love.window.isOpen and love.window.isOpen() and love.graphics and love.graphics.isActive() then
+      local fullMsg = tostring(msg) .. "\n\n" .. tostring(debug.traceback()) .. "\n\n[Hold START + SELECT for 5s to Force Quit]"
+      return function()
+        love.event.pump()
+        for e, a in love.event.poll() do
+          if e == "quit" or (e == "keypressed" and a == "escape") then
+            return 1
+          elseif e == "gamepadpressed" and (a == "start" or a == "back") then
+            return 1
+          end
+        end
+        checkEmergencyQuit(0.016)
+        love.graphics.origin()
+        love.graphics.clear(0.10, 0.10, 0.12)
+        love.graphics.setColor(1, 0.4, 0.4, 1)
+        love.graphics.printf(fullMsg, 20, 20, love.graphics.getWidth() - 40)
+        love.graphics.present()
+        love.timer.sleep(0.016)
+      end
+    end
+
     if defaultErrorHandler then
       return defaultErrorHandler(msg)
     end
   end
+  love.errhand = love.errorhandler
 end
 
 local Game, EditorApp, Importer, TouchEditor, Studio
@@ -559,6 +632,7 @@ function love.load(args)
 end
 
 function love.update(dt)
+  checkEmergencyQuit(dt)
   HostDisplay.update(dt)
   SwitchDiagnostics.maybeFlush(false)
   -- NX only (no-op elsewhere): follow dock/undock without waiting for SDL.
@@ -1228,6 +1302,8 @@ function love.run()
     -- update dt
     if love.timer then dt = love.timer.step() end
     idleFor = idleFor + dt
+
+    checkEmergencyQuit(dt)
 
     -- call update and draw
     if love.update then love.update(dt) end

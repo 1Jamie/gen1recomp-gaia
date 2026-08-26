@@ -57,7 +57,10 @@ function GamepadMap._setForceNXForTests(v)
 end
 
 local function nxActive()
-  if GamepadMap._forceNXForTests then return true end
+  if GamepadMap._forceNXForTests == true then return true end
+  if GamepadMap._forceNXForTests == false and love and (love._os ~= "NX" and (not love.system or love.system.getOS() ~= "NX")) then
+    return false
+  end
   if love and love._os == "NX" then return true end
   if love and love.system and love.system.getOS() == "NX" then return true end
   return false
@@ -76,6 +79,20 @@ end
 
 function GamepadMap.mapGamepadButton(button)
   return GamepadMap.gamepadBindings()[button]
+end
+
+function GamepadMap.mapLauncherButton(button)
+  if nxActive() then
+    if button == "a" then return "b"
+    elseif button == "b" then return "a"
+    elseif button == "x" then return "y"
+    elseif button == "y" then return "x"
+    elseif button == "back" then return "select"
+    end
+  elseif button == "back" then
+    return "select"
+  end
+  return button
 end
 
 -- Select+face display chords (docs / Nintendo UX):

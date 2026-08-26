@@ -1263,7 +1263,12 @@ end
 -- up the background worker or reach out to the network.
 local function updaterAllowed()
   if not Platform.networkValidated() then return false end
-  if not (love.filesystem.isFused and love.filesystem.isFused()) then return false end
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+  if not (love.filesystem.isFused and love.filesystem.isFused()) and not isHandheld then
+    return false
+  end
   if os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER") then return false end
   if os.getenv("POKEPORT_IMPORT_ONLY") == "1" then return false end
   return true
@@ -2055,8 +2060,42 @@ function RomImporter:chooseMod()
     end
     return
   end
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+
+  if isHandheld then
+    local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+    if okKit and Kit.FileBrowser then
+      self._padCursorActive = false
+      Kit.FileBrowser.open({
+        title = "Select Mod (.zip)",
+        mode = "mod",
+        onSelect = function(pickedPath)
+          self:_installMod(pickedPath)
+        end,
+      })
+      return
+    end
+  end
+
   local path = chooseZip()
-  if path then self:_installMod(path) end
+  if path then
+    self:_installMod(path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select Mod (.zip)",
+      mode = "mod",
+      onSelect = function(pickedPath)
+        self:_installMod(pickedPath)
+      end,
+    })
+    return
+  end
 end
 
 local function requiredManifest(self, modId)
@@ -2479,8 +2518,42 @@ function RomImporter:chooseSaveImport(version)
     end
     return
   end
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+
+  if isHandheld then
+    local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+    if okKit and Kit.FileBrowser then
+      self._padCursorActive = false
+      Kit.FileBrowser.open({
+        title = "Select Save (.sav)",
+        mode = "save",
+        onSelect = function(pickedPath)
+          self:_importSave(version, pickedPath)
+        end,
+      })
+      return
+    end
+  end
+
   local path = chooseSav()
-  if path then self:_importSave(version, path) end
+  if path then
+    self:_importSave(version, path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select Save (.sav)",
+      mode = "save",
+      onSelect = function(pickedPath)
+        self:_importSave(version, pickedPath)
+      end,
+    })
+    return
+  end
 end
 
 -- "Export save" button: write the active slot back out to a raw .sav in the save
@@ -2621,9 +2694,40 @@ function RomImporter:choose(version)
     end
     return
   end
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+
+  if isHandheld then
+    local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+    if okKit and Kit.FileBrowser then
+      self._padCursorActive = false
+      Kit.FileBrowser.open({
+        title = "Select " .. (GameVersion.info(self.chooseVersion).displayName or "ROM"),
+        mode = "rom",
+        onSelect = function(pickedPath)
+          self:startPath(pickedPath)
+        end,
+      })
+      return
+    end
+  end
+
   local path = chooseRom(GameVersion.info(self.chooseVersion).displayName)
   if path then
     self:startPath(path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select " .. (GameVersion.info(self.chooseVersion).displayName or "ROM"),
+      mode = "rom",
+      onSelect = function(pickedPath)
+        self:startPath(pickedPath)
+      end,
+    })
     return
   end
   -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
@@ -2998,6 +3102,14 @@ function RomImporter:_cycleTab(delta)
 end
 
 function RomImporter:_updatePadCursor(dt)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if (Kit.FileBrowser and Kit.FileBrowser.active)
+        or (Kit.VirtualKeyboard and Kit.VirtualKeyboard.active) then
+      return
+    end
+  end
+
   if self.isNX then
     self:_ensureNxPointerBridge()
     -- Cap dt so a hitch in the FlexLove immediate-mode frame does not fling
@@ -3040,14 +3152,6 @@ function RomImporter:_updatePadCursor(dt)
     local ny = self._padCursor.y + dy * speed * dt
     self._padCursor.x = math.max(ox, math.min(ox + w, nx))
     self._padCursor.y = math.max(oy, math.min(oy + h, ny))
-    -- Pushing INTO the top/bottom edge scrolls the page instead of stalling.
-    -- The cursor is clamped to the safe area above, so on a short window the
-    -- rows below the fold are unreachable on a stickless handheld: no mouse
-    -- wheel, no touchscreen, and no right stick to feed the existing wheel
-    -- path.  Only the OVERSHOOT scrolls -- parking the cursor at the edge does
-    -- nothing, it has to be actively pushed -- and this block only runs on pad
-    -- input, so a real mouse is unaffected.  /48 matches the pixels-per-notch
-    -- LauncherView.draw multiplies back out.
     local overY = 0
     if ny > oy + h then overY = ny - (oy + h)
     elseif ny < oy then overY = ny - oy end
@@ -3055,17 +3159,12 @@ function RomImporter:_updatePadCursor(dt)
     if overY ~= 0 and self._flex then
       require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
     end
-    -- Desktop: FlexLove polls the real mouse, so warp it with the pad pointer.
-    -- NX: the getPosition bridge already returns pad coords -- skip setPosition.
     if not self.isNX and love.mouse.setPosition then
       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y
     end
   end
 
-  -- Right stick scrolls whatever the pad pointer sits over, through the
-  -- view's wheel path, so the page and the modal scrollers all behave like a
-  -- mouse wheel would.
   local ry = self._padAxis.righty or 0
   if math.abs(ry) > PAD_DEAD and self._flex then
     self:_activatePadCursor()
@@ -3074,29 +3173,167 @@ function RomImporter:_updatePadCursor(dt)
 end
 
 function RomImporter:gamepadpressed(_, button)
-  self:_activatePadCursor()
-  -- Map through GamepadMap so NX swaps SDL face labels to Nintendo A/B.
-  local action = GamepadMap.mapGamepadButton(button)
-  if action == "a" then
-    -- Instant click at the virtual pointer: dispatched straight into the
-    -- view, since the launcher no longer hit-tests presses itself.
-    if self._flex then
-      require("src.import.LauncherView").clickAt(self,
-        self._padCursor.x, self._padCursor.y)
+  local action = (GamepadMap.mapLauncherButton and GamepadMap.mapLauncherButton(button)) or button
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+      if Kit.VirtualKeyboard.gamepadpressed(action) then return end
     end
-  elseif button == "leftshoulder" then
+    if Kit.FileBrowser and Kit.FileBrowser.active then
+      if Kit.FileBrowser.gamepadpressed(action) then return end
+    end
+  end
+
+  -- Y button toggle between Native Controller Navigation and Virtual Pointer Cursor:
+  if action == "y" or button == "y" then
+    self._padCursorActive = not self._padCursorActive
+    if okKit then Kit._ringShown = not self._padCursorActive end
+    self._cursorModeToast = self._padCursorActive and "Cursor Navigation [Y]" or "Controller Menu Navigation [Y]"
+    self._cursorModeToastTime = love.timer.getTime()
+    return
+  end
+
+  -- Select button: toggle Virtual Keyboard
+  if button == "back" or button == "select" or action == "select" then
+    if okKit and Kit.VirtualKeyboard then
+      if Kit.VirtualKeyboard.active then
+        Kit.VirtualKeyboard.close(false)
+        return
+      end
+      if self._indexPrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._indexPrompt.text or "",
+          title = "Add a mod index",
+          onDone = function(newText, confirmed)
+            if confirmed and self._indexPrompt then self._indexPrompt.text = newText end
+          end
+        })
+        return
+      elseif self._rename then
+        Kit.VirtualKeyboard.open({
+          text = self._rename.text or "",
+          title = "Name save slot",
+          onDone = function(newText, confirmed)
+            if confirmed and self._rename then self._rename.text = newText end
+          end
+        })
+        return
+      elseif self._profileRenamePrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._profileRenamePrompt.text or "",
+          title = "Rename profile",
+          onDone = function(newText, confirmed)
+            if confirmed and self._profileRenamePrompt then self._profileRenamePrompt.text = newText end
+          end
+        })
+        return
+      elseif self._profileSavePrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._profileSavePrompt.text or "",
+          title = "Save mod profile",
+          onDone = function(newText, confirmed)
+            if confirmed and self._profileSavePrompt then self._profileSavePrompt.text = newText end
+          end
+        })
+        return
+      elseif self._settingsText then
+        Kit.VirtualKeyboard.open({
+          text = self._settingsText.text or "",
+          title = (self._settingsText.row and self._settingsText.row.label) or "Edit Text",
+          onDone = function(newText, confirmed)
+            if confirmed and self._settingsText then self._settingsText.text = newText end
+          end
+        })
+        return
+      elseif self.tab == "find" then
+        Kit.VirtualKeyboard.open({
+          text = self._findQuery or "",
+          title = "Search Mods",
+          onDone = function(newText, confirmed)
+            if confirmed then
+              self._findQuery = newText
+              if self._refreshFind then self:_refreshFind() end
+            end
+          end
+        })
+        return
+      else
+        Kit.VirtualKeyboard.open({
+          text = "",
+          title = "Virtual Keyboard",
+          onDone = function() end
+        })
+        return
+      end
+    end
+  end
+
+  -- Shoulder buttons: cycle tabs
+  if button == "leftshoulder" then
     self:_cycleTab(-1)
+    return
   elseif button == "rightshoulder" then
     self:_cycleTab(1)
-  elseif button == "dpup" or button == "dpdown"
-      or button == "dpleft" or button == "dpright" then
-    self._padDir[button] = true
-  elseif button == "start" or button == "back" then
-    -- Start / Select: Play if ready, else Choose ROM on the active game tab.
+    return
+  end
+
+  -- Start button: Play / Choose ROM
+  if button == "start" then
     if self.workState == "working" then return end
     local version = self.tab
     if GameVersion.VERSIONS[version] then
       if self.ready[version] then self:play(version) else self:_romAction(version) end
+    end
+    return
+  end
+
+  if not self._padCursorActive and not self.isNX then
+    if okKit then Kit._ringShown = true end
+    if action == "a" then
+      if okKit and Kit.focusId then
+        Kit.activateFocused()
+      elseif self._flex then
+        require("src.import.LauncherView").clickAt(self,
+          self._padCursor.x, self._padCursor.y)
+      end
+      return
+    elseif action == "b" then
+      if self._indexPrompt then self._indexPrompt = nil; self:_disarmTextInput(); return
+      elseif self._rename then self._rename = nil; self:_disarmTextInput(); return
+      elseif self._profileRenamePrompt then self._profileRenamePrompt = nil; self:_disarmTextInput(); return
+      elseif self._profileSavePrompt then self._profileSavePrompt = nil; self:_disarmTextInput(); return
+      elseif self._settingsText then self._settingsText = nil; self:_disarmTextInput(); return
+      end
+    elseif button == "dpup" or action == "dpup" then
+      if okKit then Kit.navigate("up") end
+      return
+    elseif button == "dpdown" or action == "dpdown" then
+      if okKit then Kit.navigate("down") end
+      return
+    elseif button == "dpleft" or action == "dpleft" then
+      if okKit then Kit.navigate("left") end
+      return
+    elseif button == "dpright" or action == "dpright" then
+      if okKit then Kit.navigate("right") end
+      return
+    end
+  else
+    self:_activatePadCursor()
+    if action == "a" then
+      if self._flex then
+        require("src.import.LauncherView").clickAt(self,
+          self._padCursor.x, self._padCursor.y)
+      end
+    elseif action == "b" then
+      if self._indexPrompt then self._indexPrompt = nil; self:_disarmTextInput(); return
+      elseif self._rename then self._rename = nil; self:_disarmTextInput(); return
+      elseif self._profileRenamePrompt then self._profileRenamePrompt = nil; self:_disarmTextInput(); return
+      elseif self._profileSavePrompt then self._profileSavePrompt = nil; self:_disarmTextInput(); return
+      elseif self._settingsText then self._settingsText = nil; self:_disarmTextInput(); return
+      end
+    elseif button == "dpup" or button == "dpdown"
+        or button == "dpleft" or button == "dpright" then
+      self._padDir[button] = true
     end
   end
 end
@@ -3111,9 +3348,9 @@ end
 function RomImporter:gamepadaxis(_, axis, value)
   if axis == "leftx" or axis == "lefty" or axis == "righty" then
     self._padAxis[axis] = value
-    if math.abs(value) > PAD_DEAD then
+    if self._padCursorActive and math.abs(value) > PAD_DEAD then
       self:_activatePadCursor()
-    elseif axis == "lefty" then
+    elseif axis == "lefty" and math.abs(value) <= PAD_DEAD then
       self._padStickCentered = true
     end
   end
@@ -4062,6 +4299,15 @@ function RomImporter:fileUrl(path)
 end
 
 function RomImporter:keypressed(key)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if Kit.FileBrowser and Kit.FileBrowser.active then
+      if Kit.FileBrowser.keypressed(key) then return end
+    end
+    if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+      if Kit.VirtualKeyboard.keypressed(key) then return end
+    end
+  end
   if self._profileSavePrompt then
     if key == "backspace" then
       self._profileSavePrompt.text = utf8Back(self._profileSavePrompt.text or "")
