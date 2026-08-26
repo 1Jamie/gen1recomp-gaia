@@ -5604,6 +5604,8 @@ end
 -- a click on the scrim lands on whatever button happens to be behind it.
 -- Keep this list in sync with buildModals below.
 local function modalUp(imp)
+  if Kit.FileBrowser and Kit.FileBrowser.active then return true end
+  if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then return true end
   return (imp._settingsText or imp._settings or imp._rename
     or imp._indexPrompt or imp._modConfirm or imp._modReleaseNotes
     or imp._appPatchNotes
