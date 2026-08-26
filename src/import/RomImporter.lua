@@ -3193,8 +3193,13 @@ function RomImporter:gamepadpressed(_, button)
     return
   end
 
-  -- Select button: toggle Virtual Keyboard
+  -- Select button: toggle Virtual Keyboard on handhelds
   if button == "back" or button == "select" or action == "select" then
+    local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+      or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+      or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+      or os.getenv("POKEPORT_SBC") == "1" or os.getenv("ANBERNIC") == "1"
+    if not isHandheld then return end
     if okKit and Kit.VirtualKeyboard then
       if Kit.VirtualKeyboard.active then
         Kit.VirtualKeyboard.close(false)
@@ -3277,6 +3282,17 @@ function RomImporter:gamepadpressed(_, button)
     return
   end
 
+  -- Triggers (L2 / R2): fast scroll content / lists up and down
+  if button == "triggerleft" or button == "lefttrigger" or button == "l2"
+      or action == "triggerleft" or action == "l2" then
+    require("src.import.LauncherView").wheelmoved(self, 0, 4)
+    return
+  elseif button == "triggerright" or button == "righttrigger" or button == "r2"
+      or action == "triggerright" or action == "r2" then
+    require("src.import.LauncherView").wheelmoved(self, 0, -4)
+    return
+  end
+
   -- Start button: Play / Choose ROM
   if button == "start" then
     if self.workState == "working" then return end
@@ -3353,6 +3369,24 @@ function RomImporter:gamepadaxis(_, axis, value)
     elseif axis == "lefty" and math.abs(value) <= PAD_DEAD then
       self._padStickCentered = true
     end
+  elseif axis == "triggerleft" or axis == "lefttrigger" then
+    if value > 0.4 then
+      if not self._l2TriggerActive then
+        require("src.import.LauncherView").wheelmoved(self, 0, 4)
+        self._l2TriggerActive = true
+      end
+    elseif value < 0.2 then
+      self._l2TriggerActive = false
+    end
+  elseif axis == "triggerright" or axis == "righttrigger" then
+    if value > 0.4 then
+      if not self._r2TriggerActive then
+        require("src.import.LauncherView").wheelmoved(self, 0, -4)
+        self._r2TriggerActive = true
+      end
+    elseif value < 0.2 then
+      self._r2TriggerActive = false
+    end
   end
 end
 
@@ -3380,6 +3414,24 @@ function RomImporter:joystickaxis(joystick, axis, value)
     self:gamepadaxis(joystick, "leftx", value)
   elseif axis == 2 then
     self:gamepadaxis(joystick, "lefty", value)
+  elseif axis == 3 or axis == 5 then
+    if value > 0.4 then
+      if not self._l2RawActive then
+        require("src.import.LauncherView").wheelmoved(self, 0, 4)
+        self._l2RawActive = true
+      end
+    elseif value < 0.2 then
+      self._l2RawActive = false
+    end
+  elseif axis == 4 or axis == 6 then
+    if value > 0.4 then
+      if not self._r2RawActive then
+        require("src.import.LauncherView").wheelmoved(self, 0, -4)
+        self._r2RawActive = true
+      end
+    elseif value < 0.2 then
+      self._r2RawActive = false
+    end
   end
 end
 
