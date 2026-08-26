@@ -3128,6 +3128,23 @@ function RomImporter:_updatePadCursor(dt)
 
   local ax = self._padAxis.leftx or 0
   local ay = self._padAxis.lefty or 0
+
+  if not self._padCursorActive then
+    -- Stick navigation flick in native controller mode
+    if math.abs(ax) > 0.55 or math.abs(ay) > 0.55 then
+      if not self._stickFlicked then
+        if ay < -0.55 then Kit.navigate("up"); self._stickFlicked = true
+        elseif ay > 0.55 then Kit.navigate("down"); self._stickFlicked = true
+        elseif ax < -0.55 then Kit.navigate("left"); self._stickFlicked = true
+        elseif ax > 0.55 then Kit.navigate("right"); self._stickFlicked = true
+        end
+      end
+    elseif math.abs(ax) < 0.3 and math.abs(ay) < 0.3 then
+      self._stickFlicked = false
+    end
+    return
+  end
+
   local dx, dy = 0, 0
   if math.abs(ax) > PAD_DEAD then dx = dx + ax end
   if math.abs(ay) > PAD_DEAD then dy = dy + ay end
@@ -3147,14 +3164,6 @@ function RomImporter:_updatePadCursor(dt)
     local ny = self._padCursor.y + dy * speed * dt
     self._padCursor.x = math.max(ox, math.min(ox + w, nx))
     self._padCursor.y = math.max(oy, math.min(oy + h, ny))
-    -- Pushing INTO the top/bottom edge scrolls the page instead of stalling.
-    -- The cursor is clamped to the safe area above, so on a short window the
-    -- rows below the fold are unreachable on a stickless handheld: no mouse
-    -- wheel, no touchscreen, and no right stick to feed the existing wheel
-    -- path.  Only the OVERSHOOT scrolls -- parking the cursor at the edge does
-    -- nothing, it has to be actively pushed -- and this block only runs on pad
-    -- input, so a real mouse is unaffected.  /48 matches the pixels-per-notch
-    -- LauncherView.draw multiplies back out.
     local overY = 0
     if ny > oy + h then overY = ny - (oy + h)
     elseif ny < oy then overY = ny - oy end
@@ -3162,17 +3171,12 @@ function RomImporter:_updatePadCursor(dt)
     if overY ~= 0 and self._flex then
       require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
     end
-    -- Desktop: FlexLove polls the real mouse, so warp it with the pad pointer.
-    -- NX: the getPosition bridge already returns pad coords -- skip setPosition.
     if not self.isNX and love.mouse.setPosition then
       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y
     end
   end
 
-  -- Right stick scrolls whatever the pad pointer sits over, through the
-  -- view's wheel path, so the page and the modal scrollers all behave like a
-  -- mouse wheel would.
   local ry = self._padAxis.righty or 0
   if math.abs(ry) > PAD_DEAD and self._flex then
     self:_activatePadCursor()
@@ -3191,45 +3195,18 @@ function RomImporter:gamepadpressed(_, button)
       if Kit.FileBrowser.gamepadpressed(action) then return end
     end
   end
-  self:_activatePadCursor()
-  if action == "a" then
-    -- Instant click at the virtual pointer: dispatched straight into the
-    -- view, since the launcher no longer hit-tests presses itself.
-    if self._flex then
-      require("src.import.LauncherView").clickAt(self,
-        self._padCursor.x, self._padCursor.y)
-    end
-  elseif action == "b" then
-    -- Cancel / dismiss active prompts
-    if self._indexPrompt then
-      self._indexPrompt = nil
-      self:_disarmTextInput()
-      return
-    elseif self._rename then
-      self._rename = nil
-      self:_disarmTextInput()
-      return
-    elseif self._profileRenamePrompt then
-      self._profileRenamePrompt = nil
-      self:_disarmTextInput()
-      return
-    elseif self._profileSavePrompt then
-      self._profileSavePrompt = nil
-      self:_disarmTextInput()
-      return
-    elseif self._settingsText then
-      self._settingsText = nil
-      self:_disarmTextInput()
-      return
-    end
-  elseif button == "leftshoulder" then
-    self:_cycleTab(-1)
-  elseif button == "rightshoulder" then
-    self:_cycleTab(1)
-  elseif button == "dpup" or button == "dpdown"
-      or button == "dpleft" or button == "dpright" then
-    self._padDir[button] = true
-  elseif button == "back" or button == "select" or action == "select" then
+
+  -- Y button toggle between Native Controller Navigation and Virtual Pointer Cursor:
+  if action == "y" or button == "y" or button == "x" then
+    self._padCursorActive = not self._padCursorActive
+    if okKit then Kit._ringShown = not self._padCursorActive end
+    self._cursorModeToast = self._padCursorActive and "Cursor Navigation [Y]" or "Controller Menu Navigation [Y]"
+    self._cursorModeToastTime = love.timer.getTime()
+    return
+  end
+
+  -- Select button: toggle Virtual Keyboard
+  if button == "back" or button == "select" or action == "select" then
     if okKit and Kit.VirtualKeyboard then
       if Kit.VirtualKeyboard.active then
         Kit.VirtualKeyboard.close(false)
@@ -3301,12 +3278,69 @@ function RomImporter:gamepadpressed(_, button)
         return
       end
     end
-  elseif button == "start" then
-    -- Start: Play if ready, else Choose ROM on the active game tab.
+  end
+
+  -- Shoulder buttons: cycle tabs
+  if button == "leftshoulder" then
+    self:_cycleTab(-1)
+    return
+  elseif button == "rightshoulder" then
+    self:_cycleTab(1)
+    return
+  end
+
+  -- Start button: Play / Choose ROM
+  if button == "start" then
     if self.workState == "working" then return end
     local version = self.tab
     if GameVersion.VERSIONS[version] then
       if self.ready[version] then self:play(version) else self:_romAction(version) end
+    end
+    return
+  end
+
+  if not self._padCursorActive then
+    if okKit then Kit._ringShown = true end
+    if action == "a" then
+      if okKit then Kit.activateFocused() end
+      return
+    elseif action == "b" then
+      if self._indexPrompt then self._indexPrompt = nil; self:_disarmTextInput(); return
+      elseif self._rename then self._rename = nil; self:_disarmTextInput(); return
+      elseif self._profileRenamePrompt then self._profileRenamePrompt = nil; self:_disarmTextInput(); return
+      elseif self._profileSavePrompt then self._profileSavePrompt = nil; self:_disarmTextInput(); return
+      elseif self._settingsText then self._settingsText = nil; self:_disarmTextInput(); return
+      end
+    elseif button == "dpup" or action == "dpup" then
+      if okKit then Kit.navigate("up") end
+      return
+    elseif button == "dpdown" or action == "dpdown" then
+      if okKit then Kit.navigate("down") end
+      return
+    elseif button == "dpleft" or action == "dpleft" then
+      if okKit then Kit.navigate("left") end
+      return
+    elseif button == "dpright" or action == "dpright" then
+      if okKit then Kit.navigate("right") end
+      return
+    end
+  else
+    self:_activatePadCursor()
+    if action == "a" then
+      if self._flex then
+        require("src.import.LauncherView").clickAt(self,
+          self._padCursor.x, self._padCursor.y)
+      end
+    elseif action == "b" then
+      if self._indexPrompt then self._indexPrompt = nil; self:_disarmTextInput(); return
+      elseif self._rename then self._rename = nil; self:_disarmTextInput(); return
+      elseif self._profileRenamePrompt then self._profileRenamePrompt = nil; self:_disarmTextInput(); return
+      elseif self._profileSavePrompt then self._profileSavePrompt = nil; self:_disarmTextInput(); return
+      elseif self._settingsText then self._settingsText = nil; self:_disarmTextInput(); return
+      end
+    elseif button == "dpup" or button == "dpdown"
+        or button == "dpleft" or button == "dpright" then
+      self._padDir[button] = true
     end
   end
 end

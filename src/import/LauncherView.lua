@@ -6011,6 +6011,25 @@ function LauncherView.draw(imp)
 
   Kit.endFrame()
   drawPadCursor(imp)
+
+  if imp._cursorModeToast and imp._cursorModeToastTime then
+    local elapsed = love.timer.getTime() - imp._cursorModeToastTime
+    if elapsed < 2.2 then
+      local alpha = 1.0
+      if elapsed > 1.7 then alpha = math.max(0, (2.2 - elapsed) / 0.5) end
+      local msg = imp._cursorModeToast
+      local tw = Kit.textWidth("small", msg) + 36 * m.s
+      local th = 34 * m.s
+      local tx = (m.W - tw) / 2
+      local ty = 16 * m.s
+      Theme.fillRounded(tx, ty, tw, th, PAL.surface, 0.95 * alpha, 6)
+      Theme.strokeRounded(tx - 2, ty - 2, tw + 4, th + 4, PAL.railBlue, 0.35 * alpha, 2, 8)
+      Theme.strokeRounded(tx, ty, tw, th, PAL.lineStrong, 0.85 * alpha, 1.5, 6)
+      Kit.textCenterBold("small", msg, tx, ty + 8 * m.s, tw, PAL.heading)
+    else
+      imp._cursorModeToast = nil
+    end
+  end
 end
 
 return LauncherView

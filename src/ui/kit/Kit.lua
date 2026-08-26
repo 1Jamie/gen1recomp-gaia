@@ -568,8 +568,11 @@ function Kit.row(x, y, w, h, selected, id)
   -- The focus ring is a second inset outline, so it reads on both a black
   -- row and a white selected one.
   if focused then
-    Theme.strokeRounded(x + 2, y + 2, w - 4, h - 4,
-      selected and PAL.inverse or PAL.lineStrong, Theme.A.focus, 1,
+    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 4)
+    Theme.strokeRounded(x - 2, y - 2, w + 4, h + 4,
+      PAL.railBlue, 0.35 + 0.25 * glowPulse, 2, Theme.radius() + 2)
+    Theme.strokeRounded(x, y, w, h,
+      selected and PAL.inverse or PAL.lineStrong, 0.90 + 0.10 * glowPulse, 1.5,
       Theme.radius())
   end
   local clicked = Kit.press(x, y, w, h)
@@ -688,9 +691,15 @@ function Kit.button(x, y, w, h, label, opts)
       Theme.strokeRounded(x, y, w, h, stroke, strokeA, 1, radius)
     end
     if doRing then
+      local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 4)
+      -- Outer soft-glow highlight aura
+      Theme.strokeRounded(x - B.ringPad - 2, y - B.ringPad - 2,
+        w + 2 * (B.ringPad + 2), h + 2 * (B.ringPad + 2), PAL.railBlue,
+        0.30 + 0.25 * glowPulse, 2, radius + B.ringPad + 2)
+      -- Primary crisp focus ring
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
         w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,
-        Theme.A.focus, B.ringWidth, radius + B.ringPad)
+        0.90 + 0.10 * glowPulse, B.ringWidth, radius + B.ringPad)
     elseif glowA then
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
         w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,
