@@ -197,8 +197,9 @@ function HostShell.popen(command, mode, opts)
     prefix = opts.envPrefix
   end
   local pipe
+  local line = HostShell.shellCommand(prefix .. command)
   withPopenLock(function()
-    local ok, p = pcall(io.popen, prefix .. command, mode or "r")
+    local ok, p = pcall(io.popen, line, mode or "r")
     pipe = (ok and p) or nil
   end)
   return pipe
@@ -361,6 +362,18 @@ local function fetchError(url, status, noise)
   if why == "" then why = "no response" end
   if #why > 160 then why = why:sub(1, 157) .. "..." end
   return ("fetch failed for %s: %s"):format(url, why)
+end
+
+function HostShell.isWindows()
+  return (love and love.system and love.system.getOS
+    and love.system.getOS() == "Windows") or false
+end
+
+function HostShell.shellCommand(command)
+  command = tostring(command)
+  if not HostShell.isWindows() then return command end
+  if command:sub(1, 1) ~= '"' then return command end
+  return '"' .. command .. '"'
 end
 
 -- Shell quoting for one curl argument; cmd.exe has no single-quote form.
