@@ -63,12 +63,6 @@ local function nxActive()
   end
   if love and love._os == "NX" then return true end
   if love and love.system and love.system.getOS() == "NX" then return true end
-  if os.getenv("XBOX_LAYOUT") == "1" then return false end
-  local h = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
-    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
-    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
-    or os.getenv("NINTENDO_LAYOUT") == "1"
-  if h then return true end
   return false
 end
 
@@ -95,6 +89,8 @@ function GamepadMap.mapLauncherButton(button)
     elseif button == "y" then return "x"
     elseif button == "back" then return "select"
     end
+  elseif button == "back" then
+    return "select"
   end
   return button
 end

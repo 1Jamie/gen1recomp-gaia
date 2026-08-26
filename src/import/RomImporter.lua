@@ -3202,7 +3202,7 @@ function RomImporter:gamepadpressed(_, button)
   end
 
   -- Y button toggle between Native Controller Navigation and Virtual Pointer Cursor:
-  if action == "y" or button == "y" or button == "x" then
+  if action == "y" or button == "y" then
     self._padCursorActive = not self._padCursorActive
     if okKit then Kit._ringShown = not self._padCursorActive end
     self._cursorModeToast = self._padCursorActive and "Cursor Navigation [Y]" or "Controller Menu Navigation [Y]"
