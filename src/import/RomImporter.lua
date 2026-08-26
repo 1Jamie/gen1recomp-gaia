@@ -3360,9 +3360,9 @@ end
 function RomImporter:gamepadaxis(_, axis, value)
   if axis == "leftx" or axis == "lefty" or axis == "righty" then
     self._padAxis[axis] = value
-    if math.abs(value) > PAD_DEAD then
+    if self._padCursorActive and math.abs(value) > PAD_DEAD then
       self:_activatePadCursor()
-    elseif axis == "lefty" then
+    elseif axis == "lefty" and math.abs(value) <= PAD_DEAD then
       self._padStickCentered = true
     end
   end

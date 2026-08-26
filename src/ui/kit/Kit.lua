@@ -352,10 +352,26 @@ function Kit.endFrame()
   -- This frame's focusables become next frame's navigation graph.
   local n = Kit._navN or 0
   Kit._navPrevN = n
-  -- If the focused id vanished (panel switch, list repaged), park the ring
-  -- on the first focusable so the keyboard is never stranded.
-  if Kit.focusId and not Kit._navSeen[Kit.focusId] and n > 0 then
-    Kit.focusId = Kit._nav[1] and Kit._nav[1].id or nil
+  -- If the focused id vanished or not set yet, park the ring on Layer 3 (Import ROM / Play)
+  if (not Kit.focusId or not Kit._navSeen[Kit.focusId]) and n > 0 then
+    -- 1. Prefer ROM Action (Layer 3)
+    local chosen = nil
+    for i = 1, n do
+      local slot = Kit._nav[i]
+      if slot and slot.id and tostring(slot.id):match("^rom%-") then
+        chosen = slot.id; break
+      end
+    end
+    -- 2. Prefer any Layer 3 control
+    if not chosen then
+      for i = 1, n do
+        local slot = Kit._nav[i]
+        if slot and getNavLayer(slot) == 3 then
+          chosen = slot.id; break
+        end
+      end
+    end
+    Kit.focusId = chosen or (Kit._nav[1] and Kit._nav[1].id) or nil
   end
   for k in pairs(Kit._navSeen) do Kit._navSeen[k] = nil end
 end
@@ -363,21 +379,16 @@ end
 -- ------------------------------------------------------------ focus ring
 -- Spatial navigation.  Every focusable control registers its rect as it
 -- draws; a queued direction picks the nearest candidate in that direction
--- from the previous frame's set.  Spatial rather than index-order because
--- the launcher is a multi-column layout: tab-order would zigzag between
--- columns, while "press right, go right" is what both a keyboard and a
--- d-pad user expects.
+-- from the previous frame's set.
 Kit._nav = {}
 Kit._navN = 0
 Kit._navPrevN = 0
 Kit._navSeen = {}
 Kit._navQueue = nil
 Kit._activateId = nil
-Kit._ringShown = false
+Kit._ringShown = true
 
 -- Register a focusable.  Returns true when it currently holds the ring.
--- Shielded widgets do not register: while a modal owns the frame the ring
--- must not wander through (or Enter-activate) the controls underneath it.
 function Kit.focusable(id, x, y, w, h)
   if Kit.blockClicks then return false end
   local n = (Kit._navN or 0) + 1
@@ -386,9 +397,9 @@ function Kit.focusable(id, x, y, w, h)
   if not slot then slot = {}; Kit._nav[n] = slot end
   slot.id, slot.x, slot.y, slot.w, slot.h = id, x, y, w, h
   Kit._navSeen[id] = true
-  -- First focusable ever drawn adopts the ring, so keyboard users start
-  -- somewhere rather than nowhere.
-  if Kit.focusId == nil then Kit.focusId = id end
+  if Kit.focusId == nil and tostring(id):match("^rom%-") then
+    Kit.focusId = id
+  end
   return Kit._ringShown and Kit.focusId == id
 end
 
