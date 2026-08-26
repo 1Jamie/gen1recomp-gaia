@@ -5645,6 +5645,14 @@ local function modalUp(imp)
 end
 
 local function buildModals(imp, m)
+  if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+    Kit.VirtualKeyboard.draw(m)
+    return true
+  end
+  if Kit.FileBrowser and Kit.FileBrowser.active then
+    Kit.FileBrowser.draw(m)
+    return true
+  end
   if imp._profileRenamePrompt then
     buildPrompt(imp, m, {
       key = "profren", title = Strings("Rename profile"),
@@ -5791,14 +5799,6 @@ local function buildModals(imp, m)
   if imp._modActions then buildModActionsModal(imp, m) return true end
   if imp._findEntry then buildFindEntryModal(imp, m) return true end
   if imp._gameManage then buildGameManageModal(imp, m) return true end
-  if Kit.FileBrowser and Kit.FileBrowser.active then
-    Kit.FileBrowser.draw(m)
-    return true
-  end
-  if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
-    Kit.VirtualKeyboard.draw(m)
-    return true
-  end
   return false
 end
 

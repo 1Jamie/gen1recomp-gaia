@@ -486,17 +486,19 @@ end
 
 -- Gamepad d-pad / stick, routed by the host's pad handling.
 function Kit.gamepadpressed(button)
+  local GamepadMap = require("src.core.GamepadMap")
+  local action = (GamepadMap.mapLauncherButton and GamepadMap.mapLauncherButton(button)) or button
   if VirtualKeyboard.active then
-    return VirtualKeyboard.gamepadpressed(button)
+    return VirtualKeyboard.gamepadpressed(action)
   end
   if FileBrowser.active then
-    return FileBrowser.gamepadpressed(button)
+    return FileBrowser.gamepadpressed(action)
   end
-  if button == "dpup" then Kit.navigate("up") return true
-  elseif button == "dpdown" then Kit.navigate("down") return true
-  elseif button == "dpleft" then Kit.navigate("left") return true
-  elseif button == "dpright" then Kit.navigate("right") return true
-  elseif button == "a" then Kit.activateFocused() return true end
+  if action == "dpup" then Kit.navigate("up") return true
+  elseif action == "dpdown" then Kit.navigate("down") return true
+  elseif action == "dpleft" then Kit.navigate("left") return true
+  elseif action == "dpright" then Kit.navigate("right") return true
+  elseif action == "a" then Kit.activateFocused() return true end
   return false
 end
 

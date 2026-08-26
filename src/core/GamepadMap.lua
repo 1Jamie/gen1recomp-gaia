@@ -87,6 +87,18 @@ function GamepadMap.mapGamepadButton(button)
   return GamepadMap.gamepadBindings()[button]
 end
 
+function GamepadMap.mapLauncherButton(button)
+  if nxActive() then
+    if button == "a" then return "b"
+    elseif button == "b" then return "a"
+    elseif button == "x" then return "y"
+    elseif button == "y" then return "x"
+    elseif button == "back" then return "select"
+    end
+  end
+  return button
+end
+
 -- Select+face display chords (docs / Nintendo UX):
 --   Select+A → "2" (COLORS), Select+B → "3" (TILT),
 --   Select+Y → "5", Select+X → "6", Select+L (leftshoulder) → "7".

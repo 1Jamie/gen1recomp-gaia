@@ -3181,24 +3181,46 @@ function RomImporter:_updatePadCursor(dt)
 end
 
 function RomImporter:gamepadpressed(_, button)
+  local action = (GamepadMap.mapLauncherButton and GamepadMap.mapLauncherButton(button)) or button
   local okKit, Kit = pcall(require, "src.ui.kit.Kit")
   if okKit then
-    if Kit.FileBrowser and Kit.FileBrowser.active then
-      if Kit.FileBrowser.gamepadpressed(button) then return end
-    end
     if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
-      if Kit.VirtualKeyboard.gamepadpressed(button) then return end
+      if Kit.VirtualKeyboard.gamepadpressed(action) then return end
+    end
+    if Kit.FileBrowser and Kit.FileBrowser.active then
+      if Kit.FileBrowser.gamepadpressed(action) then return end
     end
   end
   self:_activatePadCursor()
-  -- Map through GamepadMap so NX swaps SDL face labels to Nintendo A/B.
-  local action = GamepadMap.mapGamepadButton(button)
   if action == "a" then
     -- Instant click at the virtual pointer: dispatched straight into the
     -- view, since the launcher no longer hit-tests presses itself.
     if self._flex then
       require("src.import.LauncherView").clickAt(self,
         self._padCursor.x, self._padCursor.y)
+    end
+  elseif action == "b" then
+    -- Cancel / dismiss active prompts
+    if self._indexPrompt then
+      self._indexPrompt = nil
+      self:_disarmTextInput()
+      return
+    elseif self._rename then
+      self._rename = nil
+      self:_disarmTextInput()
+      return
+    elseif self._profileRenamePrompt then
+      self._profileRenamePrompt = nil
+      self:_disarmTextInput()
+      return
+    elseif self._profileSavePrompt then
+      self._profileSavePrompt = nil
+      self:_disarmTextInput()
+      return
+    elseif self._settingsText then
+      self._settingsText = nil
+      self:_disarmTextInput()
+      return
     end
   elseif button == "leftshoulder" then
     self:_cycleTab(-1)
