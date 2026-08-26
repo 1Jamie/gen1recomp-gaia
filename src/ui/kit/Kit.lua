@@ -342,6 +342,32 @@ function Kit.beginFrame(mx, my, clicked, wheel)
   Kit._navN = 0
 end
 
+local function getNavLayer(slot)
+  if not slot then return 3 end
+  local id = tostring(slot.id or "")
+  local y = slot.y or 0
+
+  -- Layer 1: Top Bar (Settings / Gear, Close / Quit)
+  if id == "gear" or id == "settings" or id == "close" or id == "quit" or (y < 45 * Kit.scale and not id:match("^tab%-")) then
+    return 1
+  end
+
+  -- Layer 2: ROM Select & Feature Tabs (Red, Blue, Yellow, Gold, Silver, Crystal, Mods, Find, Skins, Bug)
+  if id:match("^tab%-") or (y >= 45 * Kit.scale and y < 105 * Kit.scale and (slot.h and slot.h < 50 * Kit.scale)) then
+    return 2
+  end
+
+  -- Layer 4: Footer (Patch notes, Updater, BCG, Export, etc.)
+  local screenH = (love and love.graphics and love.graphics.getHeight and love.graphics.getHeight()) or 480
+  if id == "patch-notes" or id == "updater" or id == "bcg"
+      or id:match("^footer") or (y > screenH - 55 * Kit.scale) then
+    return 4
+  end
+
+  -- Layer 3: Main content panel (Import ROM / Play, Manage, Save slots, Mods list, Find mods, etc.)
+  return 3
+end
+
 -- Retire this frame's keystrokes, wheel notches and one-shot activations.
 -- Anything typed while no field had focus is dropped here rather than
 -- replayed into the next field that gets clicked.
@@ -415,32 +441,6 @@ end
 function Kit.setFocus(id)
   Kit.focusId = id
   Kit._ringShown = id ~= nil
-end
-
--- Pick the nearest focusable in `dir` from the current one.  Candidates must
-local function getNavLayer(slot)
-  local id = tostring(slot.id or "")
-  local y = slot.y or 0
-
-  -- Layer 1: Top Bar (Settings / Gear, Close / Quit)
-  if id == "gear" or id == "settings" or id == "close" or id == "quit" or (y < 45 * Kit.scale and not id:match("^tab%-")) then
-    return 1
-  end
-
-  -- Layer 2: ROM Select & Feature Tabs (Red, Blue, Yellow, Gold, Silver, Crystal, Mods, Find, Skins, Bug)
-  if id:match("^tab%-") or (y >= 45 * Kit.scale and y < 105 * Kit.scale and (slot.h < 50 * Kit.scale)) then
-    return 2
-  end
-
-  -- Layer 4: Footer (Patch notes, Updater, BCG, Export, etc.)
-  local screenH = (love and love.graphics and love.graphics.getHeight and love.graphics.getHeight()) or 480
-  if id == "patch-notes" or id == "updater" or id == "bcg"
-      or id:match("^footer") or (y > screenH - 55 * Kit.scale) then
-    return 4
-  end
-
-  -- Layer 3: Main content panel (Import ROM / Play, Manage, Save slots, Mods list, Find mods, etc.)
-  return 3
 end
 
 function Kit._resolveNav()
