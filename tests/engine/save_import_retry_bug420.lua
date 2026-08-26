@@ -221,6 +221,11 @@ do
   local seen = {}
   package.loaded["src.save_convert.SaveConvert"] = {
     SAVE_SIZE = 32768,
+    -- importToSlot asks this before it measures the bytes, so a save for a
+    -- game with no codec is refused as that rather than as a bad checksum.
+    -- The double has to answer it; "yes" is what keeps this case about the
+    -- cache-name contract below and nothing else.
+    importSupported = function() return true end,
     importSav = function(_, version, gameVersion)
       seen.import = { version = version, gameVersion = gameVersion }
       return nil, "stub"
