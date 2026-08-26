@@ -48,7 +48,23 @@ local ROWS_SYM = {
   { { id = "url_https", label = "https://", w = 3 }, { id = "url_http", label = "http://", w = 2 }, { id = "url_json", label = ".json", w = 2 }, { id = "url_zip", label = ".zip", w = 2 }, { id = "clear", label = "Clear", w = 3 } },
 }
 
+local function isLinuxHandheld()
+  return os.getenv("HANDHELD") == "1"
+      or os.getenv("PORTMASTER") == "1"
+      or os.getenv("POKEPORT_HANDHELD") == "1"
+      or os.getenv("TRIMUI") == "1"
+      or os.getenv("MUOS") == "1"
+      or os.getenv("KNULLI") == "1"
+      or os.getenv("POKEPORT_SBC") == "1"
+      or os.getenv("ANBERNIC") == "1"
+end
+
+function VirtualKeyboard.isSupported()
+  return isLinuxHandheld()
+end
+
 function VirtualKeyboard.open(opts)
+  if not isLinuxHandheld() then return false end
   opts = opts or {}
   VirtualKeyboard.active = true
   VirtualKeyboard.text = tostring(opts.text or "")
@@ -58,6 +74,7 @@ function VirtualKeyboard.open(opts)
   VirtualKeyboard.row = 1
   VirtualKeyboard.col = 1
   VirtualKeyboard.mode = 1
+  return true
 end
 
 function VirtualKeyboard.close(confirmed)
