@@ -377,12 +377,19 @@ end
 -- visible while typing, and blinks a caret on the importer's pulse clock.
 local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, action)
   Kit._audit("control", x, y, w, h, key)
-  Kit.focusable(key, x, y, w, h)
+  local isFocused = Kit.focusable(key, x, y, w, h)
   Theme.fill(x, y, w, h, PAL.bg, 1)
-  Theme.stroke(x, y, w, h, PAL.line,
-    focused and Theme.A.focus or
-      (Kit.hover(x, y, w, h) and Theme.A.hover or Theme.A.hairline),
-    focused and 2 or 1)
+  if isFocused then
+    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+    Theme.strokeRounded(x - 3, y - 3, w + 6, h + 6, PAL.ink, 0.35 + 0.25 * glowPulse, 2.5, 4)
+    Theme.strokeRounded(x, y, w, h, PAL.ink, 0.95 + 0.05 * glowPulse, 2, 2)
+    Theme.fillRounded(x, y, w, h, PAL.ink, 0.12 + 0.06 * glowPulse, 2)
+  else
+    Theme.stroke(x, y, w, h, PAL.line,
+      focused and Theme.A.focus or
+        (Kit.hover(x, y, w, h) and Theme.A.hover or Theme.A.hairline),
+      focused and 2 or 1)
+  end
   local pad = math.floor(10 * Kit.scale)
   local ty = y + (h - Kit.textHeight("button")) / 2
   local text = rawText or ""
@@ -3433,13 +3440,19 @@ local function buildFooter(imp, m, y)
   local bx = m.x + math.floor((m.w - topW) / 2)
   local my = cy + math.floor((rowH - dh) / 2)
   local chipY = cy + math.floor((rowH - chipH) / 2)
+  local isFocused = Kit.focusable("bcg", bx, my, dw, dh)
   local hot = Kit.hover(bx, my, dw, dh)
+  if isFocused then
+    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+    Theme.strokeRounded(bx - 3, my - 3, dw + 6, dh + 6, PAL.ink, 0.35 + 0.25 * glowPulse, 2.5, 4)
+    Theme.strokeRounded(bx, my, dw, dh, PAL.ink, 0.95 + 0.05 * glowPulse, 2, 2)
+  end
   love.graphics.setShader(imp.invertShader)
-  love.graphics.setColor(1, 1, 1, hot and 1 or 0.85)
+  love.graphics.setColor(1, 1, 1, (hot or isFocused) and 1 or 0.85)
   love.graphics.draw(imp.bcg, Theme.snap(bx), Theme.snap(my), 0, scale, scale)
   love.graphics.setShader()
   love.graphics.setColor(1, 1, 1, 1)
-  if Kit.press(bx, my, dw, dh) then
+  if Kit.press(bx, my, dw, dh) or Kit._activateId == "bcg" then
     queueAction(imp, "bcg", function() love.system.openURL(COMMUNITY_URL) end)
   end
   local cx = bx + dw

@@ -407,9 +407,31 @@ function Kit.setFocus(id)
 end
 
 -- Pick the nearest focusable in `dir` from the current one.  Candidates must
--- lie in the half-plane of the direction; the score prefers a small step
--- along the axis of travel and penalises drift across it, which keeps a
--- column walk inside its column.
+local function getNavLayer(slot)
+  local id = tostring(slot.id or "")
+  local y = slot.y or 0
+
+  -- Layer 1: Top Bar (Settings / Gear, Close / Quit)
+  if id == "gear" or id == "settings" or id == "close" or id == "quit" or (y < 45 * Kit.scale and not id:match("^tab%-")) then
+    return 1
+  end
+
+  -- Layer 2: ROM Select & Feature Tabs (Red, Blue, Yellow, Gold, Silver, Crystal, Mods, Find, Skins, Bug)
+  if id:match("^tab%-") or (y >= 45 * Kit.scale and y < 105 * Kit.scale and (slot.h < 50 * Kit.scale)) then
+    return 2
+  end
+
+  -- Layer 4: Footer (Patch notes, Updater, BCG, Export, etc.)
+  local screenH = (love and love.graphics and love.graphics.getHeight and love.graphics.getHeight()) or 480
+  if id == "patch-notes" or id == "updater" or id == "bcg"
+      or id:match("^footer") or (y > screenH - 55 * Kit.scale) then
+    return 4
+  end
+
+  -- Layer 3: Main content panel (Import ROM / Play, Manage, Save slots, Mods list, Find mods, etc.)
+  return 3
+end
+
 function Kit._resolveNav()
   local dir = Kit._navQueue
   Kit._navQueue = nil
@@ -417,34 +439,68 @@ function Kit._resolveNav()
   if not dir or n == 0 then return end
   local cur
   for i = 1, n do
-    if Kit._nav[i].id == Kit.focusId then cur = Kit._nav[i] break end
+    if Kit._nav[i].id == Kit.focusId then cur = Kit._nav[i]; break end
   end
   if not cur then
     Kit.focusId = Kit._nav[1].id
     return
   end
+
+  local curLayer = getNavLayer(cur)
   local cx, cy = cur.x + cur.w / 2, cur.y + cur.h / 2
-  local best, bestScore
-  for i = 1, n do
-    local c = Kit._nav[i]
-    if c.id ~= cur.id then
-      local dx = (c.x + c.w / 2) - cx
-      local dy = (c.y + c.h / 2) - cy
-      local along, across
-      if dir == "left" then along, across = -dx, math.abs(dy)
-      elseif dir == "right" then along, across = dx, math.abs(dy)
-      elseif dir == "up" then along, across = -dy, math.abs(dx)
-      else along, across = dy, math.abs(dx) end
-      -- A control merely overlapping on the travel axis is not "in that
-      -- direction"; require real separation so a tall row's neighbours do
-      -- not all qualify.
-      if along > 1 then
-        local score = along + across * 2
-        if not bestScore or score < bestScore then best, bestScore = c, score end
+
+  if dir == "left" or dir == "right" then
+    -- STRICT SAME-LAYER HORIZONTAL NAVIGATION (Left/Right NEVER jumps between layers)
+    local best, bestDx
+    for i = 1, n do
+      local c = Kit._nav[i]
+      if c.id ~= cur.id and getNavLayer(c) == curLayer then
+        local cMidX = c.x + c.w / 2
+        local dx = cMidX - cx
+        if dir == "left" and dx < -1 then
+          local dist = -dx
+          if not bestDx or dist < bestDx then
+            best, bestDx = c, dist
+          end
+        elseif dir == "right" and dx > 1 then
+          local dist = dx
+          if not bestDx or dist < bestDx then
+            best, bestDx = c, dist
+          end
+        end
       end
     end
+    if best then
+      Kit.focusId = best.id
+      return
+    end
+    return
+  elseif dir == "up" or dir == "down" then
+    -- VERTICAL LAYER NAVIGATION (Up/Down steps between layers: 1 <-> 2 <-> 3 <-> 4)
+    local targetLayer = dir == "up" and (curLayer - 1) or (curLayer + 1)
+    targetLayer = math.max(1, math.min(4, targetLayer))
+
+    local best, bestScore
+    for i = 1, n do
+      local c = Kit._nav[i]
+      if c.id ~= cur.id then
+        local l = getNavLayer(c)
+        if (dir == "up" and l < curLayer) or (dir == "down" and l > curLayer) then
+          local layerDiff = math.abs(l - targetLayer)
+          local cMidX = c.x + c.w / 2
+          local xDist = math.abs(cMidX - cx)
+          local score = layerDiff * 10000 + xDist
+          if not bestScore or score < bestScore then
+            best, bestScore = c, score
+          end
+        end
+      end
+    end
+    if best then
+      Kit.focusId = best.id
+      return
+    end
   end
-  if best then Kit.focusId = best.id end
 end
 
 -- ------------------------------------------------------------ input plumbing
@@ -568,12 +624,15 @@ function Kit.row(x, y, w, h, selected, id)
   -- The focus ring is a second inset outline, so it reads on both a black
   -- row and a white selected one.
   if focused then
-    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 4)
-    Theme.strokeRounded(x - 2, y - 2, w + 4, h + 4,
-      PAL.railBlue, 0.35 + 0.25 * glowPulse, 2, Theme.radius() + 2)
+    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+    -- Outer white soft aura
+    Theme.strokeRounded(x - 3, y - 3, w + 6, h + 6,
+      PAL.ink, 0.35 + 0.25 * glowPulse, 2.5, Theme.radius() + 3)
+    -- Bright white inner stroke
     Theme.strokeRounded(x, y, w, h,
-      selected and PAL.inverse or PAL.lineStrong, 0.90 + 0.10 * glowPulse, 1.5,
-      Theme.radius())
+      PAL.ink, 0.95 + 0.05 * glowPulse, 2, Theme.radius())
+    -- Luminous white fill overlay
+    Theme.fillRounded(x, y, w, h, PAL.ink, 0.12 + 0.06 * glowPulse, Theme.radius())
   end
   local clicked = Kit.press(x, y, w, h)
     or (id ~= nil and Kit._activateId == id)
@@ -691,15 +750,17 @@ function Kit.button(x, y, w, h, label, opts)
       Theme.strokeRounded(x, y, w, h, stroke, strokeA, 1, radius)
     end
     if doRing then
-      local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 4)
-      -- Outer soft-glow highlight aura
-      Theme.strokeRounded(x - B.ringPad - 2, y - B.ringPad - 2,
-        w + 2 * (B.ringPad + 2), h + 2 * (B.ringPad + 2), PAL.railBlue,
-        0.30 + 0.25 * glowPulse, 2, radius + B.ringPad + 2)
-      -- Primary crisp focus ring
+      local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+      -- 1. Outer bright white soft glow aura
+      Theme.strokeRounded(x - B.ringPad - 3, y - B.ringPad - 3,
+        w + 2 * (B.ringPad + 3), h + 2 * (B.ringPad + 3), PAL.ink,
+        0.35 + 0.25 * glowPulse, 2.5, radius + B.ringPad + 3)
+      -- 2. Inner solid white focus border
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
-        w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,
-        0.90 + 0.10 * glowPulse, B.ringWidth, radius + B.ringPad)
+        w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.ink,
+        0.95 + 0.05 * glowPulse, 2.5, radius + B.ringPad)
+      -- 3. Subtle luminous white fill overlay so the entire button body shines
+      Theme.fillRounded(x, y, w, h, PAL.ink, 0.12 + 0.06 * glowPulse, radius)
     elseif glowA then
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
         w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,

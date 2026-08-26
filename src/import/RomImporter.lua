@@ -1263,7 +1263,12 @@ end
 -- up the background worker or reach out to the network.
 local function updaterAllowed()
   if not Platform.networkValidated() then return false end
-  if not (love.filesystem.isFused and love.filesystem.isFused()) then return false end
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+  if not (love.filesystem.isFused and love.filesystem.isFused()) and not isHandheld then
+    return false
+  end
   if os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER") then return false end
   if os.getenv("POKEPORT_IMPORT_ONLY") == "1" then return false end
   return true
