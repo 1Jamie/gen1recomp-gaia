@@ -118,6 +118,7 @@ run_tier "T0 Yellow title OBP eye remap" python3 tests/title_pikachu_obp_test.py
 run_tier "T0 Crystal manifest + specials coverage" "$LUA" tests/crystal_import_test.lua
 run_tier "T0 switch CI workflow content gate" "$LUA" tests/switch_ci_workflows_test.lua
 run_tier "T0 switch transfer docs gate" "$LUA" tests/switch_transfer_docs_test.lua
+run_tier "T0 ShaderFX bridge packaging gate" "$LUA" tests/shaderfx_bridge_packaging_test.lua
 # NX Blue/Yellow asset overlay: ROM-free, must run on every checkout so a
 # Sound.lua / overlay regression is not gated only on switch-changes paths.
 run_tier "T0 NX asset overlay fallback" "$LUA" tests/engine/assets_version_fallback_test.lua

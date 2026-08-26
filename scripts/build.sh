@@ -170,27 +170,53 @@ make_ico() { # $1 = output .ico path
 # --------------------------------------------------------------- macOS
 # ShaderFX's librashader bridge.  Only the CONVERT action needs it, so a build
 # without it still runs presets that were converted elsewhere.
-# SHADERFX_BRIDGE points at a prebuilt library; otherwise cargo builds it.
+# SHADERFX_BRIDGE_<PLAT> or dist/native/<plat>/ points at a prebuilt library;
+# otherwise cargo builds it, host platform only.
+shader_bridge_host_plat() {
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-*)             printf 'mac' ;;
+    Linux-x86_64)         printf 'linux-x64' ;;
+    Linux-aarch64|Linux-arm64) printf 'linux-arm64' ;;
+    *)                    printf '' ;;
+  esac
+}
+
 bundle_shader_bridge() {
-  local dest="$1" name="$2"
-  local src="${SHADERFX_BRIDGE:-}"
+  local dest="$1" name="$2" plat="$3"
   local crate="$ROOT/tools/shaderfx-bridge"
-  if [ -z "$src" ] && [ -f "$crate/target/release/$name" ]; then
-    src="$crate/target/release/$name"
+  local src="" var
+  [ -n "$plat" ] || fail "bundle_shader_bridge: no platform key for $name"
+
+  var="SHADERFX_BRIDGE_$(printf '%s' "$plat" | tr 'a-z-' 'A-Z_')"
+  eval "src=\${$var:-}"
+
+  if [ -z "$src" ] && [ -f "$DIST/native/$plat/$name" ]; then
+    src="$DIST/native/$plat/$name"
   fi
-  if [ -z "$src" ] && command -v cargo >/dev/null 2>&1; then
-    say "building the ShaderFX bridge with cargo"
-    if (cd "$crate" && cargo build --release >/dev/null 2>&1); then
+  if [ -z "$src" ] && [ -n "${SHADERFX_BRIDGE:-}" ]; then
+    src="$SHADERFX_BRIDGE"
+  fi
+  if [ -z "$src" ] && [ "$plat" = "$(shader_bridge_host_plat)" ]; then
+    if [ -f "$crate/target/release/$name" ]; then
       src="$crate/target/release/$name"
+    elif command -v cargo >/dev/null 2>&1; then
+      say "building the ShaderFX bridge with cargo"
+      if (cd "$crate" && cargo build --release >/dev/null 2>&1); then
+        src="$crate/target/release/$name"
+      fi
     fi
   fi
+
   if [ -n "$src" ] && [ -f "$src" ]; then
     mkdir -p "$dest"
     cp "$src" "$dest/$name"
-    say "bundled $name for SHADER FX preset conversion"
-  else
-    warn "$name not found: this build can run converted presets but not CONVERT new ones (set SHADERFX_BRIDGE or install cargo)"
+    say "bundled $name for SHADER FX preset conversion ($plat)"
+    return 0
   fi
+  if [ "${SHADERFX_BRIDGE_REQUIRED:-}" = "1" ]; then
+    fail "$name ($plat) not found: set $var or stage it at dist/native/$plat/$name"
+  fi
+  warn "$name not found: this build can run converted presets but not CONVERT new ones (set $var or install cargo)"
 }
 
 build_mac() {
@@ -205,7 +231,7 @@ build_mac() {
   # drop any bundled placeholder .love and fuse ours in
   find "$out_app/Contents/Resources" -maxdepth 1 -name '*.love' -delete
   cp "$LOVE_FILE" "$out_app/Contents/Resources/game.love"
-  bundle_shader_bridge "$out_app/Contents/MacOS" "liblibrashader_bridge.dylib"
+  bundle_shader_bridge "$out_app/Contents/MacOS" "liblibrashader_bridge.dylib" mac
 
   local plist="$out_app/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$plist" 2>/dev/null \
@@ -322,7 +348,7 @@ build_win() {
     warn "gen1tls.dll not found: Windows zip will not support wss:// (set GEN1TLS_DLL or build native/tls_dial)"
   fi
 
-  bundle_shader_bridge "$out_dir" "librashader_bridge.dll"
+  bundle_shader_bridge "$out_dir" "librashader_bridge.dll" win-x64
 
   # The exe's icon lives in love.exe's PE resources, so it must be patched
   # BEFORE the .love is appended: peresed rewrites the whole file and would
@@ -419,7 +445,7 @@ build_linux() {
   unsquashfs -q -no-xattrs -o "$sfs_offset" -d "$appdir" "$love_appimage" >/dev/null
 
   cp "$LOVE_FILE" "$appdir/game.love"
-  bundle_shader_bridge "$appdir" "liblibrashader_bridge.so"
+  bundle_shader_bridge "$appdir" "liblibrashader_bridge.so" linux-x64
 
   # Replace LÖVE's own desktop entry rather than keeping it: it says
   # Name=LÖVE / Icon=love, which is what appimaged, app menus and file

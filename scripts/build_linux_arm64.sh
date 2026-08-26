@@ -100,6 +100,21 @@ then
 fi
 cp "$GAME_LOVE" "$IN_DIR/game.love"
 
+BRIDGE_LIB="liblibrashader_bridge.so"
+BRIDGE_SRC="${SHADERFX_BRIDGE_LINUX_ARM64:-}"
+if [ -z "$BRIDGE_SRC" ] && [ -f "$ROOT/dist/native/linux-arm64/$BRIDGE_LIB" ]; then
+  BRIDGE_SRC="$ROOT/dist/native/linux-arm64/$BRIDGE_LIB"
+fi
+rm -f "$IN_DIR/$BRIDGE_LIB"
+if [ -n "$BRIDGE_SRC" ] && [ -f "$BRIDGE_SRC" ]; then
+  cp "$BRIDGE_SRC" "$IN_DIR/$BRIDGE_LIB"
+  say "staged $BRIDGE_LIB for SHADER FX preset conversion"
+elif [ "${SHADERFX_BRIDGE_REQUIRED:-}" = "1" ]; then
+  fail "$BRIDGE_LIB not found: set SHADERFX_BRIDGE_LINUX_ARM64 or stage it at dist/native/linux-arm64/$BRIDGE_LIB"
+else
+  warn "$BRIDGE_LIB not found: this build can run converted presets but not CONVERT new ones"
+fi
+
 # --------------------------------------------------------------- downloads
 # Fetched on the host and checksum-pinned here so the container never needs
 # network access and every input is verified in exactly one place.

@@ -86,7 +86,25 @@ text = re.sub(
 pathlib.Path(dst).write_text(text, encoding="utf-8")
 PY
 
-cp "$ROOT/flatpak/$APP_ID.yml" "$CACHE/$APP_ID.yml"
+BRIDGE_LIB="liblibrashader_bridge.so"
+BRIDGE_SRC="${SHADERFX_BRIDGE_LINUX_X64:-}"
+if [ -z "$BRIDGE_SRC" ] && [ -f "$ROOT/dist/native/linux-x64/$BRIDGE_LIB" ]; then
+  BRIDGE_SRC="$ROOT/dist/native/linux-x64/$BRIDGE_LIB"
+fi
+if [ -z "$BRIDGE_SRC" ] && [ -f "$ROOT/tools/shaderfx-bridge/target/release/$BRIDGE_LIB" ]; then
+  BRIDGE_SRC="$ROOT/tools/shaderfx-bridge/target/release/$BRIDGE_LIB"
+fi
+rm -f "$CACHE/$BRIDGE_LIB"
+if [ -n "$BRIDGE_SRC" ] && [ -f "$BRIDGE_SRC" ]; then
+  cp "$BRIDGE_SRC" "$CACHE/$BRIDGE_LIB"
+  cp "$ROOT/flatpak/$APP_ID.yml" "$CACHE/$APP_ID.yml"
+  say "staged $BRIDGE_LIB for SHADER FX preset conversion"
+elif [ "${SHADERFX_BRIDGE_REQUIRED:-}" = "1" ]; then
+  fail "$BRIDGE_LIB not found: set SHADERFX_BRIDGE_LINUX_X64 or stage it at dist/native/linux-x64/$BRIDGE_LIB"
+else
+  warn "$BRIDGE_LIB not found: this bundle can run converted presets but not CONVERT new ones"
+  sed '/# BRIDGE-BEGIN/,/# BRIDGE-END/d' "$ROOT/flatpak/$APP_ID.yml" > "$CACHE/$APP_ID.yml"
+fi
 
 say "installing Freedesktop runtime (no-op if present)"
 flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
@@ -115,6 +133,11 @@ if command -v sha256sum >/dev/null 2>&1; then
   printf '%s  %s\n' "$(sha256sum "$OUT" | awk '{print $1}')" "$(basename "$OUT")" > "$OUT.sha256"
 else
   printf '%s  %s\n' "$(shasum -a 256 "$OUT" | awk '{print $1}')" "$(basename "$OUT")" > "$OUT.sha256"
+fi
+if [ -f "$CACHE/$BRIDGE_LIB" ]; then
+  [ -f "$BUILD_DIR/files/share/gen1recomp/$BRIDGE_LIB" ] \
+    || fail "$BRIDGE_LIB was staged but is missing from the built /app/share/gen1recomp"
+  say "verified $BRIDGE_LIB in the Flatpak"
 fi
 say "Flatpak build: $OUT ($(du -h "$OUT" | cut -f1))"
 say "sha256: $(cut -d' ' -f1 "$OUT.sha256")"

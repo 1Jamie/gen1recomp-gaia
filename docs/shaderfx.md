@@ -214,11 +214,50 @@ finally the bare name handed to the system loader. Per-OS names are
 `librashader_bridge.dylib` (macOS), and `liblibrashader_bridge.so` or
 `librashader_bridge.so` (Linux and Android). Android resolves the bare name
 because the `.so` ships as an ordinary `jniLibs` entry, so `dlopen` finds it
-without a path. The desktop path is still a developer build sitting in cargo's
-output directory; nothing packages it next to a shipped game yet.
-`ShaderFX.canConvert()` reports whether the library resolved on this machine,
+without a path. `ShaderFX.canConvert()` reports whether the library resolved on this machine,
 and `ShaderFX.bridgeError()` says why not. Activating an already-converted
 preset never needs any of this.
+
+**Shipped builds carry it.** `cargo` only ever emits the host's library, and
+the macOS release runner packs macOS, Windows and Linux in a single
+`scripts/build.sh all`, so release CI cross-builds one cdylib per platform on
+its own native runner (the `shaderfx-bridge` matrix in
+`.github/workflows/release.yml`) and stages it at `dist/native/<plat>/`.
+`bundle_shader_bridge` in `scripts/build.sh` reads that directory, and
+`SHADERFX_BRIDGE_<PLAT>` overrides it. Where each artifact puts the library:
+
+| Artifact | Location | Found by |
+| --- | --- | --- |
+| macOS .app | `Contents/MacOS/` | source base directory |
+| Windows zip | next to `love.exe` | source base directory |
+| Linux AppImage (both arches) | AppDir root, next to `game.love` | source base directory |
+| Flatpak | `/app/share/gen1recomp/` | source base directory |
+| RG34XXSP / ARM SBC ports | `libs.aarch64/` | bare name via `LD_LIBRARY_PATH` |
+| Android APK | `jniLibs/<abi>/` | bare name |
+| iOS | linked into the binary | `ffi.C` |
+
+The macOS library is a universal binary, because LÖVE.app is: an arm64-only
+bridge would fail `ffi.load` on Intel Macs the moment they hit CONVERT. The
+two Linux libraries are built with `cargo-zigbuild` against
+`{x86_64,aarch64}-unknown-linux-gnu.2.17`, below every consumer: the upstream
+x86_64 LÖVE AppImage floors at GLIBC_2.29, the arm64 AppImage's own gate is
+GLIBC_2.31, PortMaster's aarch64 LÖVE runtime floors at GLIBC_2.17, and ArkOS
+is glibc 2.30. 2.17 is the oldest glibc with aarch64 support, so one library
+per arch clears the whole fleet. `scripts/linux-arm64/verify_appimage.sh`
+discovers every ELF object in the AppDir rather than globbing `bin/love` and
+`lib/*.so*`, so the bridge is held to the same floor, resolution and
+dlopen-not-linked rules as everything else, then dlopened once to prove
+relocations and constructors run.
+
+Setting `SHADERFX_BRIDGE_REQUIRED=1` turns the packagers' "not found" warning
+into a hard error. Release CI sets it on every job that ships a bridge, so a
+release cannot silently go out without one again.
+
+**Where CONVERT is unavailable.** Switch and Xbox UWP ship without a bridge.
+The Switch build uses devkitPro's toolchain, which is not a rustc target; the
+UWP appcontainer is unproven for loading a desktop MSVC DLL. On both, presets
+converted elsewhere still activate and run normally, and `ShaderFX.canConvert()`
+returns false with `ShaderFX.bridgeError()` explaining why.
 
 **Statically linked bridges.** On iOS there is no loadable library at all:
 the bridge is linked straight into the app binary, so its symbols live in the

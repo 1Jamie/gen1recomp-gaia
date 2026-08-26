@@ -43,6 +43,9 @@ modules:
         EOF
       - chmod +x /app/bin/gen1recomp
       - install -Dm644 game.love /app/share/gen1recomp/game.love
+      # BRIDGE-BEGIN
+      - install -Dm755 liblibrashader_bridge.so /app/share/gen1recomp/liblibrashader_bridge.so
+      # BRIDGE-END
       - install -Dm644 com.theboisclub.gen1recomp.desktop /app/share/applications/com.theboisclub.gen1recomp.desktop
       - install -Dm644 com.theboisclub.gen1recomp.metainfo.xml /app/share/metainfo/com.theboisclub.gen1recomp.metainfo.xml
       - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.theboisclub.gen1recomp.png
@@ -53,6 +56,10 @@ modules:
         dest-filename: love-x86_64.AppImage
       - type: file
         path: game.love
+      # BRIDGE-BEGIN
+      - type: file
+        path: liblibrashader_bridge.so
+      # BRIDGE-END
       - type: file
         path: com.theboisclub.gen1recomp.metainfo.xml
       - type: file

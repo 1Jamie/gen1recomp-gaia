@@ -20,6 +20,23 @@ for required in AppRun bin/love game.love lib/liblove-11.5.so; do
     || { echo "::error::AppImage is missing $required"; exit 1; }
 done
 
+bridge="squashfs-root/liblibrashader_bridge.so"
+if [ "${SHADERFX_BRIDGE_REQUIRED:-}" = "1" ] && [ ! -e "$bridge" ]; then
+  echo "::error::AppImage is missing liblibrashader_bridge.so"
+  exit 1
+fi
+
+# Discovered, not enumerated: bin/love and lib/*.so* miss anything native at
+# the AppDir root, which is where ShaderFX's bridge sits and where the next
+# root-level library would land too.
+scan=()
+while IFS= read -r f; do
+  scan+=("$f")
+done < <(find squashfs-root -type f -exec sh -c \
+  'head -c4 "$1" | od -An -tx1 | tr -d " \n" | grep -q "^7f454c46$"' _ {} \; -print | sort)
+[ "${#scan[@]}" -gt 0 ] || { echo "::error::found no ELF objects in the AppDir"; exit 1; }
+echo "scanning ${#scan[@]} ELF objects: ${scan[*]#squashfs-root/}"
+
 # Every bundled object must resolve once AppRun's LD_LIBRARY_PATH is
 # applied; an unresolved soname here is a user-visible launch crash.
 #
@@ -28,14 +45,14 @@ done
 # hard-links libpulse/libasound/libX11/libwayland, so it only ever
 # started on a full desktop -- a bare runner is what exposed it.
 missing="$(LD_LIBRARY_PATH="$PWD/squashfs-root/lib" \
-  ldd squashfs-root/bin/love squashfs-root/lib/*.so* 2>/dev/null \
+  ldd "${scan[@]}" 2>/dev/null \
   | grep 'not found' || true)"
 [ -z "$missing" ] || { echo "::error::unresolved deps:"; echo "$missing"; exit 1; }
 
 # Nothing may hard-link a driver, session or audio-stack library:
 # those must be reached through dlopen so the AppImage runs on a box
 # with only ALSA, only Wayland, or only KMSDRM.
-linked="$(for f in squashfs-root/bin/love squashfs-root/lib/*.so*; do
+linked="$(for f in "${scan[@]}"; do
   objdump -p "$f" 2>/dev/null | awk '/NEEDED/{print $2}'
 done | sort -u | grep -E '^lib(pulse|asound|X11|wayland|GL|EGL|drm|gbm|xcb|cairo|sndio|dbus)' || true)"
 [ -z "$linked" ] \
@@ -45,7 +62,7 @@ done | sort -u | grep -E '^lib(pulse|asound|X11|wayland|GL|EGL|drm|gbm|xcb|cairo
 # the builder to a newer base, the glibc floor silently rises and
 # every user on an older distro gets "GLIBC_2.xx not found" -- catch
 # it here instead of in a release.
-floor="$(objdump -T squashfs-root/bin/love squashfs-root/lib/*.so* 2>/dev/null \
+floor="$(objdump -T "${scan[@]}" 2>/dev/null \
   | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1)"
 echo "highest required glibc symbol version: $floor"
 [ -n "$floor" ] \
@@ -53,5 +70,13 @@ echo "highest required glibc symbol version: $floor"
 highest="$(printf '%s\n' "$floor" "GLIBC_2.31" | sort -V | tail -1)"
 [ "$highest" = "GLIBC_2.31" ] \
   || { echo "::error::AppImage requires $floor, above the bullseye 2.31 floor"; exit 1; }
+
+# The floor grep proves symbol versions; an actual dlopen additionally proves
+# relocations and constructors. Native arch only, so it is skipped elsewhere.
+if [ -e "$bridge" ] && [ "$(uname -m)" = "aarch64" ] && command -v python3 >/dev/null 2>&1; then
+  python3 -c "import ctypes,sys; ctypes.CDLL(sys.argv[1])" "$PWD/$bridge" \
+    || { echo "::error::liblibrashader_bridge.so failed to dlopen"; exit 1; }
+  echo "librashader bridge dlopens cleanly"
+fi
 
 echo "AppImage verified: $image"
