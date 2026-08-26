@@ -2056,7 +2056,22 @@ function RomImporter:chooseMod()
     return
   end
   local path = chooseZip()
-  if path then self:_installMod(path) end
+  if path then
+    self:_installMod(path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select Mod (.zip)",
+      mode = "mod",
+      onSelect = function(pickedPath)
+        self:_installMod(pickedPath)
+      end,
+    })
+    return
+  end
 end
 
 local function requiredManifest(self, modId)
@@ -2480,7 +2495,22 @@ function RomImporter:chooseSaveImport(version)
     return
   end
   local path = chooseSav()
-  if path then self:_importSave(version, path) end
+  if path then
+    self:_importSave(version, path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select Save (.sav)",
+      mode = "save",
+      onSelect = function(pickedPath)
+        self:_importSave(version, pickedPath)
+      end,
+    })
+    return
+  end
 end
 
 -- "Export save" button: write the active slot back out to a raw .sav in the save
@@ -2624,6 +2654,18 @@ function RomImporter:choose(version)
   local path = chooseRom(GameVersion.info(self.chooseVersion).displayName)
   if path then
     self:startPath(path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select " .. (GameVersion.info(self.chooseVersion).displayName or "ROM"),
+      mode = "rom",
+      onSelect = function(pickedPath)
+        self:startPath(pickedPath)
+      end,
+    })
     return
   end
   -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
@@ -2998,6 +3040,14 @@ function RomImporter:_cycleTab(delta)
 end
 
 function RomImporter:_updatePadCursor(dt)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if (Kit.FileBrowser and Kit.FileBrowser.active)
+        or (Kit.VirtualKeyboard and Kit.VirtualKeyboard.active) then
+      return
+    end
+  end
+
   if self.isNX then
     self:_ensureNxPointerBridge()
     -- Cap dt so a hitch in the FlexLove immediate-mode frame does not fling
@@ -3074,6 +3124,15 @@ function RomImporter:_updatePadCursor(dt)
 end
 
 function RomImporter:gamepadpressed(_, button)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if Kit.FileBrowser and Kit.FileBrowser.active then
+      if Kit.FileBrowser.gamepadpressed(button) then return end
+    end
+    if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+      if Kit.VirtualKeyboard.gamepadpressed(button) then return end
+    end
+  end
   self:_activatePadCursor()
   -- Map through GamepadMap so NX swaps SDL face labels to Nintendo A/B.
   local action = GamepadMap.mapGamepadButton(button)
@@ -4062,6 +4121,15 @@ function RomImporter:fileUrl(path)
 end
 
 function RomImporter:keypressed(key)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then
+    if Kit.FileBrowser and Kit.FileBrowser.active then
+      if Kit.FileBrowser.keypressed(key) then return end
+    end
+    if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+      if Kit.VirtualKeyboard.keypressed(key) then return end
+    end
+  end
   if self._profileSavePrompt then
     if key == "backspace" then
       self._profileSavePrompt.text = utf8Back(self._profileSavePrompt.text or "")

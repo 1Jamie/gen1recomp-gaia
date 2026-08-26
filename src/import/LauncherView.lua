@@ -5762,6 +5762,14 @@ local function buildModals(imp, m)
   if imp._modActions then buildModActionsModal(imp, m) return true end
   if imp._findEntry then buildFindEntryModal(imp, m) return true end
   if imp._gameManage then buildGameManageModal(imp, m) return true end
+  if Kit.FileBrowser and Kit.FileBrowser.active then
+    Kit.FileBrowser.draw(m)
+    return true
+  end
+  if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
+    Kit.VirtualKeyboard.draw(m)
+    return true
+  end
   return false
 end
 
@@ -5787,6 +5795,10 @@ end
 
 local function drawPadCursor(imp)
   if not imp._padCursorActive then return end
+  if (Kit.FileBrowser and Kit.FileBrowser.active)
+      or (Kit.VirtualKeyboard and Kit.VirtualKeyboard.active) then
+    return
+  end
   -- Pixel-snap on NX: subpixel polygon edges shimmer on the 720p Switch
   -- framebuffer when the stick advances by fractional pixels each frame.
   local x, y = imp._padCursor.x, imp._padCursor.y

@@ -43,19 +43,22 @@
 
 local Theme = require("src.ui.kit.Theme")
 local PAL = Theme.PAL
+local VirtualKeyboard = require("src.ui.kit.VirtualKeyboard")
+local FileBrowser = require("src.ui.kit.FileBrowser")
 
-local Kit = {}
-Kit.Theme = Theme
-Kit.PAL = PAL
+local Kit = {
+  scale = 1,
+  time = 0,
+  focus = nil,       -- active text-input id (nil = no focused field)
+  focusId = nil,     -- spatial-nav ring id (nil = nothing selected by pad/arrows)
+  VirtualKeyboard = VirtualKeyboard,
+  FileBrowser = FileBrowser,
+}
 
 Kit.mouseX, Kit.mouseY = 0, 0
 Kit.mouseClicked = false   -- left button pressed this frame
 Kit.mouseDown = false      -- held, polled (drag / press-and-hold)
 Kit.wheelY = 0             -- wheel notches queued since the last frame
-Kit.focus = nil            -- id of the text field receiving keystrokes
-Kit.focusId = nil          -- id of the keyboard/gamepad focus ring target
-Kit.time = 0
-Kit.fonts = {}
 Kit.scale = 1
 Kit.blockClicks = false
 Kit.audit = nil
@@ -446,6 +449,9 @@ end
 
 -- ------------------------------------------------------------ input plumbing
 function Kit.textinput(text)
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.textinput(text)
+  end
   if not Kit.focus then return false end
   edits[#edits + 1] = text
   return true
@@ -454,6 +460,12 @@ end
 -- Returns true when the key was consumed, so the host can leave its own
 -- shortcuts alone while the user is typing or driving the ring.
 function Kit.keypressed(key)
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.keypressed(key)
+  end
+  if FileBrowser.active then
+    return FileBrowser.keypressed(key)
+  end
   if Kit.focus then
     if key == "backspace" then edits[#edits + 1] = "\b" return true
     elseif key == "return" or key == "kpenter" or key == "escape" then
@@ -474,6 +486,12 @@ end
 
 -- Gamepad d-pad / stick, routed by the host's pad handling.
 function Kit.gamepadpressed(button)
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.gamepadpressed(button)
+  end
+  if FileBrowser.active then
+    return FileBrowser.gamepadpressed(button)
+  end
   if button == "dpup" then Kit.navigate("up") return true
   elseif button == "dpdown" then Kit.navigate("down") return true
   elseif button == "dpleft" then Kit.navigate("left") return true
@@ -829,6 +847,24 @@ function Kit.textfield(id, x, y, w, h, value, placeholder)
   audit("control", x, y, w, h, id)
   local focusRing = Kit.focusable(id, x, y, w, h)
   value = tostring(value or "")
+
+  if Kit._activateId == id and not mobile() then
+    VirtualKeyboard.open({
+      text = value,
+      targetId = id,
+      title = placeholder or "Enter Text",
+      onDone = function(newText, confirmed)
+        if confirmed then
+          edits[#edits + 1] = "\r"
+        end
+      end
+    })
+  end
+
+  if VirtualKeyboard.active and VirtualKeyboard.targetId == id then
+    value = VirtualKeyboard.text
+  end
+
   if Kit.press(x, y, w, h) or (Kit._activateId == id) then Kit.focus = id end
   local focused = (Kit.focus == id)
   if focused then
