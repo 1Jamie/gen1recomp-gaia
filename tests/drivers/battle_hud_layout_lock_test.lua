@@ -20,8 +20,8 @@ return function(game)
   end
   assert(layoutRow and hudRow, "battle layout/HUD rows are present")
 
-  menu.index = 6
-  menu.scroll = 3
+  -- BATTLE HUD lives on the BATTLE OPTIONS page now, so focus it there.
+  assert(menu:focusRow("battleHud"), "BATTLE HUD row is reachable")
   assert(hudRow.value(game) == "EXTENDED", "WIDE displays EXTENDED")
   assert(U.shot(game, BEFORE), "WIDE/EXTENDED screenshot was written")
 

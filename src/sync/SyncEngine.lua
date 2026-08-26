@@ -116,6 +116,36 @@ function SyncEngine.overlaps(a, b)
   return aStart <= bEnd and bStart <= aEnd
 end
 
+-- Inline, under .meta, or under .remoteMeta, depending on the endpoint.
+function SyncEngine.metaOf(row)
+  if type(row) ~= "table" then return nil end
+  if type(row.meta) == "table" then return row.meta end
+  if type(row.remoteMeta) == "table" then return row.remoteMeta end
+  return row
+end
+
+-- Gen 2 stores playTime as a table, so meta.playTime is nil on a Gold save
+-- and summary.timeText is the only field that survives.
+local function playedMinutes(meta)
+  if type(meta) ~= "table" then return nil end
+  local summary = type(meta.summary) == "table" and meta.summary or nil
+  local text = summary and summary.timeText
+  if type(text) == "string" then
+    local hours, minutes = text:match("^(%d+):(%d%d)$")
+    if hours then return tonumber(hours) * 60 + tonumber(minutes) end
+  end
+  local seconds = tonumber(meta.playTime)
+  if seconds then return math.floor(seconds / 60) end
+  return nil
+end
+
+-- Same minute of playtime means the same point in the playthrough, so there
+-- is no fork.  Unknown playtime on either side is NOT a match.
+function SyncEngine.samePlaytime(a, b)
+  local left, right = playedMinutes(a), playedMinutes(b)
+  return left ~= nil and left == right
+end
+
 function SyncEngine.new(opts)
   opts = opts or {}
   local eng = setmetatable({}, SyncEngine)
@@ -457,7 +487,11 @@ function SyncEngine:_planFrom(remoteState)
       if not row then
         self:_queueUpload(entry, key, false)
       elseif localChanged and remoteChanged then
-        self:_addConflict(entry, key, row)
+        if SyncEngine.samePlaytime(entry.meta, SyncEngine.metaOf(row)) then
+          self:_queueUpload(entry, key, true)
+        else
+          self:_addConflict(entry, key, row)
+        end
       elseif localChanged then
         self:_queueUpload(entry, key, false)
       elseif remoteChanged and key ~= self.protectedKey then
@@ -477,12 +511,7 @@ function SyncEngine:_planFrom(remoteState)
 end
 
 function SyncEngine:_addConflict(entry, key, row)
-  local remoteMeta = row
-  if type(row.meta) == "table" then
-    remoteMeta = row.meta
-  elseif type(row.remoteMeta) == "table" then
-    remoteMeta = row.remoteMeta
-  end
+  local remoteMeta = SyncEngine.metaOf(row)
   self.conflicts[#self.conflicts + 1] = {
     key = key,
     version = entry.version,
@@ -528,7 +557,14 @@ function SyncEngine:_queueUpload(entry, key, force)
     end, function(e, res)
       if res.code == 409 then
         local row = res.data or {}
-        e:_addConflict(entry, key, row)
+        -- Retried with force only once: a forced write that still 409s is a
+        -- real refusal, and retrying it would spin.
+        if not force
+            and SyncEngine.samePlaytime(entry.meta, SyncEngine.metaOf(row)) then
+          e:_queueUpload(entry, key, true)
+        else
+          e:_addConflict(entry, key, row)
+        end
         if not e:busy() then e:_finish() end
         return true
       end

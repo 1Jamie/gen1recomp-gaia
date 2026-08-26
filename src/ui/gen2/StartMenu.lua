@@ -295,9 +295,7 @@ function StartMenu:draw()
   if not desc then return end
   -- ._DrawMenuAccount ClearBox (0,13) 5 rows by 10, .PrintMenuAccount decoord
   -- 0, 14 and the desc's `next` steps two rows (start_menu.asm:366-382).
-  local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 13 * 8, 10 * 8, 5 * 8)
+  Chrome.paletteFill(0, 13 * 8, 10 * 8, 5 * 8)
   Chrome.print(desc[1] or "", 0, 14)
   Chrome.print(desc[2] or "", 0, 16)
 end

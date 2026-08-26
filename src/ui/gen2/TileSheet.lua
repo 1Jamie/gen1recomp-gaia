@@ -18,7 +18,6 @@ local TileSheet = {}
 TileSheet.__index = TileSheet
 
 -- opts: path, wide, firstTile, palette (a 4-colour table) or palettes + a
--- paletteFor(tile, tx, ty) hook, transparent
 function TileSheet.new(opts)
   local self = setmetatable({}, TileSheet)
   self.path = opts and opts.path
@@ -26,6 +25,7 @@ function TileSheet.new(opts)
   self.firstTile = (opts and opts.firstTile) or 0
   self.palette = opts and opts.palette
   self.paletteFor = opts and opts.paletteFor
+  self.raw = opts and opts.raw
   self.quads = {}
   return self
 end
@@ -79,7 +79,11 @@ function TileSheet:draw(tile, tx, ty)
   if self.paletteFor then colors = self.paletteFor(tile, tx, ty) or colors end
   local function body() G.draw(image, quad, tx * 8, ty * 8) end
   if colors and GbcPalette.available() then
-    GbcPalette.with(colors, body)
+    if self.raw then
+      GbcPalette.withRaw(colors, body)
+    else
+      GbcPalette.with(colors, body)
+    end
   else
     body()
   end

@@ -1029,8 +1029,7 @@ end
 
 function GoldSilverIntro:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(0, 0, 0, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 0, 0, 0)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

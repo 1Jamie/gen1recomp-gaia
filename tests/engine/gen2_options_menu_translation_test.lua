@@ -54,13 +54,41 @@ local function rowIndex(rows, id)
   end
 end
 
+-- TEXT SPEED and the other cart rows live on a group page now, so the
+-- screen a row draws on is the page its group opens, not the top level.
+local function pageFor(menu, id)
+  for _, row in ipairs(menu.view) do
+    if row.group then
+      row.activate(menu.game)
+      local page = menu.game.stack:top()
+      if rowIndex(page.view, id) then return page end
+      menu.game.stack:pop()
+    end
+  end
+end
+
+local function fakeGame()
+  local stack = { items = {} }
+  function stack:push(s) self.items[#self.items + 1] = s; return s end
+  function stack:pop() self.items[#self.items] = nil end
+  function stack:top() return self.items[#self.items] end
+  return { stack = stack }
+end
+
 -- ---------------------------------------------- vanilla: no mod catalog
 do
-  local menu = OptionsMenu.new({})
+  local menu = OptionsMenu.new(fakeGame())
   drawn = {}
   menu:drawPanel()
+  T.eq(drawnAt(LABEL_X, 2 * 8), "SPEED",
+    "row 1 is the SPEED group with no mod loaded")
+
+  local page = pageFor(menu, "textSpeed")
+  T.check(page ~= nil, "TEXT SPEED is on a group page")
+  drawn = {}
+  page:drawPanel()
   T.eq(drawnAt(LABEL_X, 2 * 8), "TEXT SPEED",
-    "row 1's label draws in English with no mod loaded")
+    "the page's first label draws in English")
   -- Save.DEFAULT_OPTIONS.textSpeed is "MID", the cart's own default.
   T.eq(drawnAt(VALUE_X, 3 * 8), "MID ",
     "and its cart-original display value too")
@@ -73,13 +101,20 @@ do
       ["TEXT SPEED"] = "VITESSE TEXTE",
       ["MID "] = "MOY ",
       ["CONTROLS"] = "COMMANDES",
-      ["CANCEL"] = "ANNULER",
+      ["SPEED"] = "VITESSE",
+      ["BACK"] = "RETOUR",
     },
   })
 
-  local menu = OptionsMenu.new({})
+  local menu = OptionsMenu.new(fakeGame())
   drawn = {}
   menu:drawPanel()
+  T.eq(drawnAt(LABEL_X, 2 * 8), "VITESSE",
+    "a mod catalog reaches a group opener's label too")
+
+  local page = pageFor(menu, "textSpeed")
+  drawn = {}
+  page:drawPanel()
   T.eq(drawnAt(LABEL_X, 2 * 8), "VITESSE TEXTE",
     "a mod catalog reaches a cart-original row's label")
   T.eq(drawnAt(VALUE_X, 3 * 8), "MOY ",
@@ -87,7 +122,7 @@ do
 
   -- CONTROLS is the first port-added row; scroll to it so it lands in the
   -- VISIBLE_ROWS=7 window drawPanel actually draws.
-  local index = rowIndex(menu.rows, "controls")
+  local index = rowIndex(menu.view, "controls")
   T.check(index ~= nil, "CONTROLS is one of the rows")
   menu.index = index
   menu:ensureVisible()
@@ -97,17 +132,17 @@ do
   T.eq(drawnAt(LABEL_X, (2 + (slot - 1) * 2) * 8), "COMMANDES",
     "and a port-added row's label is translated too")
 
-  -- CANCEL is the last row, built into ROWS like any other -- there is no
+  -- BACK is the last row, built into ROWS like any other -- there is no
   -- separate hook to fall through if this one row is missed.
-  local cancelMenu = OptionsMenu.new({})
-  local cancelIndex = #cancelMenu.rows
-  T.check(cancelMenu.rows[cancelIndex].cancel, "the last row is CANCEL")
+  local cancelMenu = OptionsMenu.new(fakeGame())
+  local cancelIndex = #cancelMenu.view
+  T.check(cancelMenu.view[cancelIndex].cancel, "the last row is BACK")
   cancelMenu.index = cancelIndex
   cancelMenu:ensureVisible()
   drawn = {}
   cancelMenu:drawPanel()
   local cancelSlot = cancelIndex - cancelMenu.scroll
-  T.eq(drawnAt(LABEL_X, (2 + (cancelSlot - 1) * 2) * 8), "ANNULER",
+  T.eq(drawnAt(LABEL_X, (2 + (cancelSlot - 1) * 2) * 8), "RETOUR",
     "CANCEL, the way out of the menu, is translated too")
 
   -- Module state is process-global (see tests/gen2_clock_test.lua's own

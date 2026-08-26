@@ -293,9 +293,8 @@ do
                  end },
                  stack = { pop = function() end } }
   local menu = OptionsMenu.new(game)
-  for i, row in ipairs(menu.rows) do
-    if row.id == "ruleset" then menu.index = i end
-  end
+  -- RULESET is in no group, so this focuses it on the top level.
+  check(menu:focusRow("ruleset") == menu, "RULESET focuses in place")
   local function press(key)
     pressed = { [key] = true }
     menu:update(1 / 60)

@@ -18,8 +18,6 @@
 -- colour IS its palettes -- so one substitution at this seam recolours the
 -- whole game without a single screen knowing about it:
 --
---   GBC      the cart's own palettes.  The default: this is a Game Boy
---            Color game and its colour is the point.
 --   DMG      the original grey Game Boy.  Every palette collapses to the
 --            four hardware shades, and the sheets that are drawn straight
 --            (chrome, text) are already those shades, so the screen is
@@ -32,8 +30,11 @@
 local GbcPalette = {}
 
 GbcPalette.MODES = { "gbc", "dmg", "classic" }
-GbcPalette.MODE_LABELS = { gbc = "GBC", dmg = "DMG", classic = "CLASSIC" }
+GbcPalette.MODE_LABELS = { gbc = "GEN 2", dmg = "DMG", classic = "CLASSIC",
+                            custom = "GBC" }
 GbcPalette.mode = "gbc"
+
+GbcPalette.CUSTOM_MODE = "custom"
 
 -- rBGP's four shades as the hardware shows them.
 local DMG_SHADES = {
@@ -162,11 +163,22 @@ local function channel(colors, index)
   return (c[1] or 0) / 255, (c[2] or 0) / 255, (c[3] or 0) / 255
 end
 
+GbcPalette.customRamp = nil
+
+function GbcPalette.setCustomRamp(ramp)
+  local prev = GbcPalette.customRamp
+  GbcPalette.customRamp = ramp
+  if (prev ~= nil) ~= (ramp ~= nil) or prev ~= ramp then
+    pcall(function() require("src.render.SpriteRenderer").invalidate() end)
+  end
+end
+
 -- What a palette actually draws as under the current COLOR mode.  Anything
 -- that reads a colour out of a palette directly -- a canvas cleared to BG
 -- colour 0, say -- has to go through this too, or the backdrop would keep its
 -- cart colour while everything on top of it went grey.
 function GbcPalette.resolve(colors)
+  if GbcPalette.customRamp then return GbcPalette.customRamp end
   if GbcPalette.mode == "gbc" then return colors end
   return DMG_SHADES
 end
@@ -249,6 +261,10 @@ function GbcPalette.presentColors()
 end
 
 function GbcPalette.setMode(mode)
+  if mode == GbcPalette.CUSTOM_MODE then
+    GbcPalette.mode = mode
+    return mode
+  end
   for _, name in ipairs(GbcPalette.MODES) do
     if name == mode then
       GbcPalette.mode = mode
@@ -260,7 +276,7 @@ function GbcPalette.setMode(mode)
 end
 
 function GbcPalette.modeLabel(mode)
-  return GbcPalette.MODE_LABELS[mode or GbcPalette.mode] or "GBC"
+  return GbcPalette.MODE_LABELS[mode or GbcPalette.mode] or "GEN 2"
 end
 
 -- Advance GBC -> DMG -> CLASSIC -> GBC.  `delta` may be -1 to step back, so
@@ -273,11 +289,20 @@ function GbcPalette.cycle(delta)
   local count = #GbcPalette.MODES
   at = (at - 1 + (delta or 1)) % count + 1
   GbcPalette.mode = GbcPalette.MODES[at]
+  GbcPalette.setCustomRamp(nil)
   return GbcPalette.mode
 end
 
 function GbcPalette.applyOptions(opts)
-  return GbcPalette.setMode(opts and opts.color or "gbc")
+  local mode = GbcPalette.setMode(opts and opts.color or "gbc")
+  local id = opts and opts.palette
+  if id and id ~= "" then
+    local ok, Palette = pcall(require, "src.render.Palette")
+    GbcPalette.setCustomRamp(ok and Palette.ramp(id) or nil)
+  else
+    GbcPalette.setCustomRamp(nil)
+  end
+  return mode
 end
 
 -- Point the shader at one 4-color palette. Colors are 0-255 triples, matching
@@ -425,6 +450,16 @@ function GbcPalette.with(colors, body)
   local previous = love and love.graphics and love.graphics.getShader
     and love.graphics.getShader() or nil
   local applied = GbcPalette.use(colors)
+  local ok, err = pcall(body)
+  if love and love.graphics then love.graphics.setShader(previous) end
+  if not ok then error(err, 0) end
+  return applied
+end
+
+function GbcPalette.withRaw(colors, body)
+  local previous = love and love.graphics and love.graphics.getShader
+    and love.graphics.getShader() or nil
+  local applied = GbcPalette.useRaw(colors)
   local ok, err = pcall(body)
   if love and love.graphics then love.graphics.setShader(previous) end
   if not ok then error(err, 0) end

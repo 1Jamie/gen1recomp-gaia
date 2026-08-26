@@ -28,8 +28,8 @@ return function(game)
   assert(bgRow.step(game, 1) == false, "AUTO background row is locked")
   assert(options.battleBg == "black", "locked AUTO does not overwrite the stored value")
 
-  menu.index = bgIndex
-  menu.scroll = math.max(0, bgIndex - 5)
+  -- BATTLE BG lives on the BATTLE OPTIONS page now, so focus it there.
+  assert(menu:focusRow("battleBg"), "BATTLE BG row is reachable")
   U.wait(2)
   local autoPath = DIR .. "/fill_extended_auto_menu.png"
   os.remove(autoPath)

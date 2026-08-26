@@ -1258,6 +1258,7 @@ function Game:applyOptions(opts)
   if Sound.applyOptions then Sound.applyOptions(opts) end
   require("src.render.PaletteFX").applyOptions(opts)
   require("src.render.Tilt").applyOptions(opts)
+  require("src.render.Letterbox").applyOptions(opts)
   -- after Tilt, so a persisted world pipeline can switch the tilt level it
   -- just restored back off (the two are mutually exclusive)
   require("src.render.Pipelines").applyOptions(opts)

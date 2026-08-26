@@ -444,8 +444,7 @@ function MagnetTrainRide:drawsWidescreen() return true end
 function MagnetTrainRide:drawWidescreen(winW, winH)
   local G = love.graphics
   local backdrop = self:backdrop()
-  G.setColor(backdrop[1] / 255, backdrop[2] / 255, backdrop[3] / 255, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, backdrop[1] / 255, backdrop[2] / 255, backdrop[3] / 255)
   G.setColor(1, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   local ox, oy = Chrome.fitOrigin(winW, winH, scale)

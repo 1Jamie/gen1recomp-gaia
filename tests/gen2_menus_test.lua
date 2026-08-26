@@ -360,33 +360,51 @@ local options = OptionsMenu.new(optionsGame, {
 -- speed, display, SHADER FX + SHADER FX 2 (the second slot added alongside
 -- the dual-shader feature), video mode, screen position, the mobile-gated
 -- touch three (buildRows), MAX FPS, BATTLE BG and CANCEL.
-check("twenty-seven rows", #OptionsMenu.ROWS, 27)
+check("twenty-eight rows", #OptionsMenu.ROWS, 28)
 check("the cart's rows come first", OptionsMenu.ROWS[7].key, "frame")
 check("then the rebind screen", OptionsMenu.ROWS[8].id, "controls")
 check("then the port's audio group", OptionsMenu.ROWS[9].key, "musicVol")
-check("last row is CANCEL", OptionsMenu.ROWS[#OptionsMenu.ROWS].cancel, true)
-check("starts on TEXT SPEED", options:row().key, "textSpeed")
-check("default text speed", options.options.textSpeed, "MID")
+check("last row is BACK", OptionsMenu.ROWS[#OptionsMenu.ROWS].cancel, true)
+-- PRINT is wGBPrinterBrightness and there is no Game Boy Printer here, so
+-- buildRows hides it: the descriptor and the save key survive, the row does
+-- not reach the screen.
+local function hasRow(rows, key)
+  for _, row in ipairs(rows) do if row.key == key then return true end end
+  return false
+end
+check("PRINT is still a descriptor", hasRow(OptionsMenu.ROWS, "print"), true)
+check("but never reaches the screen", hasRow(options.rows, "print"), false)
+check("and the save keeps its value",
+  Save.defaultOptions().print ~= nil, true)
+-- The rows are grouped into pages now, so the top level opens on the SPEED
+-- group and TEXT SPEED is the first row of the page it opens.
+check("starts on the SPEED group", options:row().id, "group.speed")
+local speedPage = options:focusRow("textSpeed")
+check("TEXT SPEED is on a page", speedPage ~= options, true)
+check("and the cursor lands on it", speedPage:row().key, "textSpeed")
+check("default text speed", speedPage.options.textSpeed, "MID")
 optionsInput:press("right")
-options:update(0)
+speedPage:update(0)
 check("right cycles forward", options.options.textSpeed, "SLOW")
 optionsInput:press("right")
-options:update(0)
+speedPage:update(0)
 check("right wraps", options.options.textSpeed, "FAST")
 optionsInput:press("left")
-options:update(0)
+speedPage:update(0)
 check("left wraps back", options.options.textSpeed, "SLOW")
+check("a page edits the caller's own options table",
+  speedPage.options == options.options, true)
 
-optionsInput:press("down")
-options:update(0)
-check("down moves a row", options:row().key, "battleScene")
+local battlePage = options:focusRow("battleScene")
+check("BATTLE SCENE is on the battle page", battlePage:row().key, "battleScene")
 optionsInput:press("right")
-options:update(0)
+battlePage:update(0)
 check("battle scene toggles off", options.options.battleScene, false)
 
 -- FRAME is 1-8 and wraps.
-options.index = 7
-check("frame row", options:row().frame, true)
+local framePage = options:focusRow("frame")
+check("frame row", framePage:row().frame, true)
+options = framePage
 options.options.frame = 8
 optionsInput:press("right")
 options:update(0)
@@ -406,10 +424,10 @@ local exiting = OptionsMenu.new(exitGame, {
 })
 -- The screen's own rows, not ROWS: buildRows drops the touch three off a
 -- desktop, so the raw descriptor count overshoots CANCEL.
-exiting.index = #exiting.rows
+exiting.index = #exiting.view
 exitInput:press("a")
 exiting:update(0)
-check("CANCEL leaves", savedOptions ~= nil, true)
+check("BACK leaves", savedOptions ~= nil, true)
 
 -- --------------------------------------------------------- start menu
 
@@ -934,16 +952,13 @@ local colorRow = select(2, rowNamed("COLOR"))
 check("COLOR is a row", colorRow ~= nil, true)
 check("and it defaults to the cart's own colour",
   Save.DEFAULT_OPTIONS.color, "gbc")
-scrollOptions.options.color = "gbc"
-scrollOptions:cycle(colorRow, 1)
-check("right steps to DMG", scrollOptions.options.color, "dmg")
-scrollOptions:cycle(colorRow, 1)
-check("then CLASSIC", scrollOptions.options.color, "classic")
-scrollOptions:cycle(colorRow, 1)
-check("and wraps back to GBC", scrollOptions.options.color, "gbc")
-scrollOptions:cycle(colorRow, -1)
-check("left walks the ladder the other way", scrollOptions.options.color,
-  "classic")
+-- COLOR no longer cycles in place (tests/engine/gen2_palette_picker_test.lua
+-- covers the picker it opens instead, end to end); the ladder itself still
+-- steps via the `2` hotkey (src/core/Game2.lua:hotkey), untouched here.
+check("COLOR no longer cycles in place", colorRow.cycle, nil)
+check("COLOR opens the picker instead", type(colorRow.activate), "function")
+scrollOptions.options.color = "classic"
+GbcPalette.setMode("classic")
 check("CLASSIC is the only mode with a present pass",
   GbcPalette.presentColors() ~= nil, true)
 GbcPalette.setMode("dmg")
@@ -965,16 +980,16 @@ check("VOID FILL follows ZOOM", OptionsMenu.ROWS[zoomIndex + 1].label,
   "VOID FILL")
 check("and TILT follows VOID FILL", OptionsMenu.ROWS[zoomIndex + 2].label,
   "TILT")
-check("SHADER FX follows COLOR follows TILT", OptionsMenu.ROWS[tiltIndex + 2].label,
-  "SHADER FX")
-check("SHADER FX 2 follows SHADER FX", OptionsMenu.ROWS[tiltIndex + 3].label,
-  "SHADER FX 2")
-check("VIDEO MODE follows SHADER FX 2", OptionsMenu.ROWS[tiltIndex + 4].label,
-  "VIDEO MODE")
-check("and SCREEN POS follows it", OptionsMenu.ROWS[tiltIndex + 5].label,
-  "SCREEN POS")
-check("and TOUCH PAD follows that", OptionsMenu.ROWS[tiltIndex + 6].label,
-  "TOUCH PAD")
+-- By sequence rather than by offset, so inserting a row in the display block
+-- moves the whole run instead of breaking six separate index assertions.
+do
+  local run = { "TILT", "COLOR", "UI LETTERBOX", "SHADER FX",
+                "SHADER FX 2", "VIDEO MODE", "SCREEN POS", "TOUCH PAD" }
+  for at, want in ipairs(run) do
+    check("display block order: " .. want,
+      OptionsMenu.ROWS[tiltIndex + at - 1].label, want)
+  end
+end
 
 local videoRow = select(2, rowNamed("VIDEO MODE"))
 check("VIDEO MODE is a row", videoRow ~= nil, true)
@@ -2518,7 +2533,8 @@ local function modRowChecks()
   local og, oi = newGame(nil)
   local om = OptionsMenu.new(og, { options = Save.defaultOptions() })
   check("gen2 OPTION takes the hook's row", om.rows[#om.rows].id, "modrow")
-  om.index = #om.rows
+  -- A hook row is in no group, so it stays on the top level.
+  check("and keeps it reachable there", om:focusRow("modrow"), om)
   oi:press("a")
   om:update(0)
   check("A on a mod row calls activate", fired, 1)

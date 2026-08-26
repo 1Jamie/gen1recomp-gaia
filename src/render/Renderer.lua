@@ -972,6 +972,13 @@ function Renderer:endFrame(zones, worldZones)
        and not FaithfulRes.scaleCap() then
       clearR, clearG, clearB = PaletteFX.paperShade(Game and Game.data)
     end
+    -- UI LETTERBOX overrides whatever the rules above settled on, except
+    -- under FAITHFUL RATIO's mobile lock, which promises black bars.
+    if not FaithfulRes.scaleCap() then
+      local Letterbox = require("src.render.Letterbox")
+      clearR, clearG, clearB = Letterbox.fill(clearR, clearG, clearB,
+        function() return PaletteFX.paperShade(Game and Game.data) end)
+    end
   end
   if cut then
     love.graphics.setColor(0, 0, 0, 1)

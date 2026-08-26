@@ -11,10 +11,12 @@
 -- bottom line like pokered's.
 
 local PaletteFX = require("src.render.PaletteFX")
+local Palette = require("src.render.Palette")
 local Pipelines = require("src.render.Pipelines")
 local Tilt = require("src.render.Tilt")
 local ShaderFX = require("src.render.ShaderFX")
 local Zoom = require("src.render.Zoom")
+local Letterbox = require("src.render.Letterbox")
 local TileRenderer = require("src.render.TileRenderer")
 local GameSpeed = require("src.core.GameSpeed")
 local GameVersion = require("src.core.GameVersion")
@@ -125,14 +127,6 @@ end
 -- (.pressedLeftInTextSpeed stays at FAST rather than wrapping)
 local function stepVolume(v, dir)
   return math.max(0, math.min(7, (v or 7) + dir))
-end
-
-local function colorIndex(opts)
-  local cur = opts.colors or "gbc"
-  for i, m in ipairs(PaletteFX.MODES) do
-    if m == cur then return i end
-  end
-  return 1
 end
 
 local function wrapIndex(i, n)
@@ -341,15 +335,14 @@ local function buildRows(game)
       end },
     { id = "colors", label = Strings("COLORS"),
       value = function(g)
+        local id = g.save.options.palette
+        if id and id ~= "" then
+          return Palette.label(id) or PaletteFX.modeLabel(g.save.options.colors or "gbc")
+        end
         return PaletteFX.modeLabel(g.save.options.colors or "gbc")
       end,
-      step = function(g, dir)
-        local o = g.save.options
-        local i = colorIndex(o)
-        i = wrapIndex(i - 1 + dir, #PaletteFX.MODES) + 1
-        o.colors = PaletteFX.MODES[i]
-        PaletteFX.setMode(o.colors)
-        return true
+      activate = function(g)
+        require("src.ui.Screens").push(g, "PaletteScreen")
       end },
     { id = "tilt", label = Strings("TILT"),
       value = function(g) return Tilt.levelLabel(g.save.options.tilt or 0) end,
@@ -376,6 +369,16 @@ local function buildRows(game)
     -- cycling in place on this row.
     -- ShaderFXScreen.lua does the actual list/activate; this row only opens
     -- it and shows what is currently active.
+    { id = "uiLetterbox", label = Strings("UI LETTERBOX"),
+      value = function(g)
+        return Strings(Letterbox.label(g.save.options.uiLetterbox))
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.uiLetterbox = Letterbox.cycle(o.uiLetterbox, dir)
+        Letterbox.setMode(o.uiLetterbox)
+        return true
+      end },
     { id = "shaderfx", label = Strings("SHADER FX"),
       value = function(g)
         return shaderfxLabel(ShaderFX.activeEntry("main"))
@@ -643,8 +646,90 @@ local function buildRows(game)
   return rows
 end
 
+-- Grouping runs AFTER the ui.options.rows hook and never touches self.rows,
+-- so a mod still sees and edits the flat list it always did; a row in no
+-- group stays where it is, which is where a mod's own additions land.
+local GROUPS = {
+  { id = "group.battle", label = "BATTLE OPTIONS",
+    members = { "animations", "battleStyle", "battleLayout", "battleFit",
+                "battleHud", "battleBg" } },
+  { id = "group.audio", label = "AUDIO",
+    members = { "musicVol", "sfxVol", "pikaVol", "musicFilter" } },
+  { id = "group.video", label = "VIDEO",
+    members = { "uiLayout", "videoMode", "orientation", "faithfulRes",
+                "screenPos", "fpsCap" } },
+  { id = "group.speed", label = "SPEED",
+    members = { "textSpeed", "speedOverworld", "speedBattle", "speedMenu" } },
+  { id = "group.graphics", label = "GRAPHICS",
+    members = { "colors", "uiLetterbox", "shaderfx", "shaderfx2" } },
+  -- A mod's Pipelines row splices in after TILT and is in no group, so it
+  -- stays on the top level rather than being swallowed into this page.
+  { id = "group.extras", label = "EXTRAS",
+    members = { "tilt", "zoom", "voidFill" } },
+}
+
+-- The top level's order, groups and singles alike.  Anything not named here
+-- (a mod's row, the touch rows) keeps its flat position after these.
+local ORDER = {
+  "group.speed", "group.video", "group.graphics", "group.audio",
+  "performance", "ruleset", "group.battle", "group.extras", "mods",
+}
+
+-- Each group replaced by one opener.
+local function groupRows(game, rows)
+  local owner, picked = {}, {}
+  for _, group in ipairs(GROUPS) do
+    for _, id in ipairs(group.members) do owner[id] = group end
+    picked[group.id] = {}
+  end
+  for _, row in ipairs(rows) do
+    local group = row.id and owner[row.id]
+    if group then picked[group.id][#picked[group.id] + 1] = row end
+  end
+  local made = {}
+  for _, group in ipairs(GROUPS) do
+    local members = picked[group.id]
+    if #members > 0 then
+      made[group.id] = {
+        id = group.id, label = Strings(group.label), group = true,
+        value = function() return Strings("%d OPTIONS", #members) end,
+        -- No onCancel: BACK out of a page returns here, it does not close
+        -- OPTIONS, so the caller's close callback must not fire.
+        activate = function(g)
+          g.stack:push(OptionsMenu.new(g, { rows = members }))
+        end,
+      }
+    end
+  end
+  local byId, view, taken = {}, {}, {}
+  for _, row in ipairs(rows) do
+    if row.id and not owner[row.id] then byId[row.id] = row end
+  end
+  for _, id in ipairs(ORDER) do
+    local row = made[id] or byId[id]
+    if row then
+      view[#view + 1] = row
+      taken[id] = true
+    end
+  end
+  -- Whatever ORDER does not name, in the order the flat list had it: a mod's
+  -- own rows, and the platform rows that come and go.
+  for _, row in ipairs(rows) do
+    local id = row.id
+    if not (id and (owner[id] or taken[id])) then view[#view + 1] = row end
+  end
+  return view
+end
+
+-- opts.rows makes a submenu: a fixed row list, no hook and no regrouping, so
+-- a group's page is this same screen driving the rows it was handed.
 function OptionsMenu.new(game, opts)
   opts = opts or {}
+  if opts.rows then
+    return setmetatable({ game = game, rows = opts.rows, view = opts.rows,
+                          index = 1, scroll = 0, sub = true,
+                          onCancel = opts.onCancel }, OptionsMenu)
+  end
   local rows = buildRows(game)
   local hooked = Runtime.call("ui.options.rows", sameRows, game, rows)
   if type(hooked) == "table" then
@@ -653,14 +738,44 @@ function OptionsMenu.new(game, opts)
     Logger.error("ui.options.rows returned %s; keeping the vanilla rows",
                  type(hooked))
   end
-  return setmetatable({ game = game, rows = rows, index = 1, scroll = 0,
-                        onCancel = opts.onCancel }, OptionsMenu)
+  local self = setmetatable({ game = game, rows = rows, index = 1, scroll = 0,
+                              onCancel = opts.onCancel }, OptionsMenu)
+  self.view = groupRows(game, rows)
+  return self
+end
+
+-- Cursor onto a row by id, opening its group page first if it lives in one.
+-- Returns the screen the row ended up on, so a caller can keep driving it.
+function OptionsMenu:focusRow(id)
+  local rows = self.view or self.rows
+  for i, row in ipairs(rows) do
+    if row.id == id then
+      self.index = i
+      self.scroll = OptionRows.clampScroll(i, self.scroll or 0, #rows, #rows + 1)
+      return self
+    end
+  end
+  for i, row in ipairs(rows) do
+    if row.group and row.activate then
+      local group
+      for _, g in ipairs(GROUPS) do if g.id == row.id then group = g end end
+      for _, member in ipairs(group and group.members or {}) do
+        if member == id then
+          self.index = i
+          row.activate(self.game)
+          local sub = self.game.stack:top()
+          return sub.focusRow and sub:focusRow(id) or sub
+        end
+      end
+    end
+  end
+  return nil
 end
 
 function OptionsMenu:update(dt)
   local input = self.game.input
-  local rows = self.rows
-  -- CANCEL sits below the hook-built rows so a mod cannot orphan the exit
+  local rows = self.view or self.rows
+  -- BACK sits below the hook-built rows so a mod cannot orphan the exit
   local cancelRow = #rows + 1
   local changed = false
   if input:wasPressed("up") then
@@ -702,14 +817,15 @@ function OptionsMenu:update(dt)
 end
 
 function OptionsMenu:draw()
-  -- Through Strings, like every other label on this menu.  CANCEL is
+  -- Through Strings, like every other label on this menu.  BACK is
   -- appended AFTER the rows hook (see the header), which is what keeps a mod
   -- from orphaning the exit -- but it also means a translation mod never sees
   -- this string, and cannot: there is no row for it to rewrite.  So the one
   -- word a Spanish player could not read on a fully translated OPTIONS menu
   -- was the way out of it.
-  OptionRows.draw(self.game, self.rows, self.index, self.scroll or 0,
-                  Strings("CANCEL"), #self.rows + 1)
+  local rows = self.view or self.rows
+  OptionRows.draw(self.game, rows, self.index, self.scroll or 0,
+                  Strings("BACK"), #rows + 1)
 end
 
 return OptionsMenu

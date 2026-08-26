@@ -34,6 +34,12 @@ local RomText = require("src.core.RomText")
 local Strings = require("src.core.Strings")
 local WideBattle = require("src.battle.WideBattle")
 
+local Chrome2
+do
+  local ok, v = pcall(require, "src.ui.gen2.Chrome")
+  Chrome2 = ok and v or nil
+end
+
 local romText = RomText
 
 local BattleState = {}
@@ -461,7 +467,7 @@ function BattleState:picImage(img)
   -- palettes (CYANMON reds 0.678/0.451) already rendered correctly.  This mode
   -- set mirrors PaletteFX.ensureZones / effectiveColors -- keep them in sync.
   local mono = PaletteFX.mode == "og" or PaletteFX.mode == "og_inv"
-               or PaletteFX.mode == "classic"
+               or PaletteFX.mode == "classic" or PaletteFX.forcesRawGrays()
   if self.grayPics or mono then return grayImage(img) end
   -- SET_PAL_BATTLE_BLACK covers every battle palette slot, so the pics go
   -- dark with the HP bars while the blackout text is up (#292).  The intro
@@ -5989,7 +5995,7 @@ function BattleState:drawZonePass(src, sx, sy)
   -- only the other two showed it.  Keep this mode set in sync with picImage /
   -- PaletteFX.ensureZones / WideBattle.monoMode.
   local mono = PaletteFX.mode == "og" or PaletteFX.mode == "og_inv"
-               or PaletteFX.mode == "classic"
+               or PaletteFX.mode == "classic" or PaletteFX.forcesRawGrays()
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(shader)
   local shaking = sx ~= 0 or sy ~= 0
@@ -6399,8 +6405,35 @@ end
 
 function BattleState:drawTextArea()
   if not self:bottomUIVisible() then return end
-  Font.drawBox(0, 12, 20, 6)
-  love.graphics.setColor(0, 0, 0, 1)
+  -- Gold only: routes the command box and its labels through GbcPalette,
+  -- the same fix TextBox.lua got for dialogue. moveSelect/mimicSelect below
+  -- aren't migrated yet since they need their own interior-patch handling
+  -- (see #240).
+  local gold = self.game and self.game.save
+    and (self.game.save.generation == 2 or self.game.save.version == "gold")
+  local Chrome = gold and Chrome2 or nil
+  local function box(tx, ty, tw, th)
+    if Chrome then
+      Chrome.paletteBox(tx, ty, tw, th)
+    else
+      Font.drawBox(tx, ty, tw, th)
+      love.graphics.setColor(0, 0, 0, 1)
+    end
+  end
+  local drawGlyph, finishGlyph = Font.drawCode, nil
+  if Chrome then
+    local _, dg, fg = Chrome.paletteGlyphs(Chrome.DEFAULT_BOX_PALETTE)
+    drawGlyph, finishGlyph = dg, fg
+  end
+  local function text(str, x, y)
+    local pen = x
+    for _, code in ipairs(Font.encode(str)) do
+      drawGlyph(code, pen, y)
+      pen = pen + Font.advanceOf(code)
+    end
+  end
+
+  box(0, 12, 20, 6)
   if self.phase == "messages"
      and (self.current or self.animPlaying or self.msgHold) then
     -- during the move animation self.current is nil but shown still holds
@@ -6419,48 +6452,47 @@ function BattleState:drawTextArea()
     for li, line in ipairs(self.shown or {}) do
       local y = (ys[li] or 128) + off
       for i = 1, #line do
-        Font.drawCode(line[i], 8 + (i - 1) * 8, y)
+        drawGlyph(line[i], 8 + (i - 1) * 8, y)
       end
     end
     -- the blinking down arrow ('▼', glyph $EE) while a \v CONT wait
     -- (_ContText) or a typed-out page (PromptText) holds the box; both write
     -- it at (18,16), bottom-right, like TextBox / home/text.asm (#317)
     if (self.msgWaiting or self.msgPrompt) and self.frame % 60 < 30 then
-      Font.drawCode(0xEE, (0 + 20 - 2) * 8, (12 + 6 - 1) * 8 - 4)
+      drawGlyph(0xEE, (0 + 20 - 2) * 8, (12 + 6 - 1) * 8 - 4)
     end
   elseif self.phase == "menu" and self.demo then
     -- the old-man script (DisplayBattleMenu, core.asm:2038-2049): the
     -- standard menu, with the '▶' hand drawn by the scripted keystrokes
     -- -- next to FIGHT (9,14) for the first 80 frames, then ITEM (9,16)
-    Font.drawBox(8, 12, 12, 6)
-    love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(Strings("FIGHT", "battle"), 80, 112)
-    Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-    Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
-    Font.drawCode(0xED, 72, (self.demoTimer or 0) <= 80 and 112 or 128)
+    box(8, 12, 12, 6)
+    text(Strings("FIGHT", "battle"), 80, 112)
+    drawGlyph(0xE1, 128, 112); drawGlyph(0xE2, 136, 112)
+    text(Strings("ITEM", "battle"), 80, 128); text(Strings("RUN", "battle"), 128, 128)
+    drawGlyph(0xED, 72, (self.demoTimer or 0) <= 80 and 112 or 128)
   elseif self.phase == "menu" then
     local col = (self.menuIndex - 1) % 2
     local row = math.floor((self.menuIndex - 1) / 2)
     if self.safari then
       -- SAFARI_BATTLE_MENU_TEMPLATE: full-width box, "BALLx  BAIT /
       -- THROW ROCK  RUN" from (2,14)
-      Font.drawBox(0, 12, 20, 6)
-      Font.draw(Strings("BALLx"), 16, 112); Font.draw(Strings("BAIT"), 112, 112)
-      Font.draw(Strings("THROW ROCK"), 16, 128); Font.draw(Strings("RUN", "battle"), 112, 128)
+      box(0, 12, 20, 6)
+      text(Strings("BALLx"), 16, 112); text(Strings("BAIT"), 112, 112)
+      text(Strings("THROW ROCK"), 16, 128); text(Strings("RUN", "battle"), 112, 128)
       -- DisplayBattleMenu .safariLeftColumn / .safariRightColumn print
       -- wNumSafariBalls at hlcoord 7,14 with `lb bc, 1, 2` -- one byte, two
       -- digits, space padded -- right after the "BALLx" label at columns
       -- 2..6 (engine/battle/core.asm:2074-2079, 2107-2112) (#540)
-      Font.draw(("%2d"):format(self.safari.balls), 56, 112)
-      Font.drawCode(0xED, (col == 0 and 8 or 104), 112 + row * 16)
+      text(("%2d"):format(self.safari.balls), 56, 112)
+      drawGlyph(0xED, (col == 0 and 8 or 104), 112 + row * 16)
     else
       -- BATTLE_MENU_TEMPLATE: box (8,12)-(19,17), "FIGHT <PK><MN> /
       -- ITEM  RUN" from (10,14); cursor columns 9 / 15
-      Font.drawBox(8, 12, 12, 6)
-      Font.draw(Strings("FIGHT", "battle"), 80, 112)
-      Font.drawCode(0xE1, 128, 112); Font.drawCode(0xE2, 136, 112)
-      Font.draw(Strings("ITEM", "battle"), 80, 128); Font.draw(Strings("RUN", "battle"), 128, 128)
-      Font.drawCode(0xED, (col == 0 and 72 or 120), 112 + row * 16)
+      box(8, 12, 12, 6)
+      text(Strings("FIGHT", "battle"), 80, 112)
+      drawGlyph(0xE1, 128, 112); drawGlyph(0xE2, 136, 112)
+      text(Strings("ITEM", "battle"), 80, 128); text(Strings("RUN", "battle"), 128, 128)
+      drawGlyph(0xED, (col == 0 and 72 or 120), 112 + row * 16)
     end
   elseif self.phase == "moveSelect" then
     -- pokered MoveSelectionMenu: move list in a box at (4,12) 16x6,
@@ -6535,6 +6567,7 @@ function BattleState:drawTextArea()
     Font.drawCode(0xED, 8, (7 + self.mimicIndex) * 8)
     Font.draw(Strings("WHICH TECHNIQUE?"), 8, 112)
   end
+  if finishGlyph then finishGlyph() end
 end
 
 function BattleState:draw()

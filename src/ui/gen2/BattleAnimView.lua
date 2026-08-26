@@ -18,6 +18,7 @@
 
 local bit = require("bit")
 local Assets = require("src.render.Assets")
+local Chrome = require("src.ui.gen2.Chrome")
 local GbcPalette = require("src.render.GbcPalette")
 local Palettes = require("src.world.gen2.Palettes")
 
@@ -164,12 +165,8 @@ local function needsCanvas(runner)
 end
 
 -- The battle background is BG colour 0 everywhere the two pic boxes and the
--- text box are not, which Chrome.clear draws as plain white; anything the
--- scanline blit exposes has to be that colour and not a hole.
 function BattleAnimView:fillBackground()
-  local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, SCREEN_W, SCREEN_H)
+  Chrome.paletteFill(0, 0, SCREEN_W, SCREEN_H)
 end
 
 -- One reusable quad, re-aimed per scanline.  A row shifted by `dx` is drawn

@@ -797,6 +797,18 @@ function PaletteFX.shadeMap()
   return shadeMap
 end
 
+local function invalidateColorCaches()
+  pcall(function() require("src.battle.BattleState").invalidate() end)
+  pcall(function() require("src.render.SpriteRenderer").invalidate() end)
+  pcall(function()
+    require("src.world.MapLoader").invalidateAll()
+    local Game = require("src.core.Game")
+    if Game.overworld and Game.overworld.map and Game.overworld.reloadMap then
+      Game.overworld:reloadMap(Game.overworld.map.id, "colors")
+    end
+  end)
+end
+
 function PaletteFX.setMode(mode)
   local prev = PaletteFX.mode
   local ok = false
@@ -808,25 +820,33 @@ function PaletteFX.setMode(mode)
     end
   end
   if not ok then PaletteFX.mode = "gbc" end
-  -- battle pics and overworld sprites bake the active pack into ImageData;
-  -- drop those caches when the pack (or any COLORS mode) changes so the
-  -- next draw re-tints
-  if prev ~= PaletteFX.mode then
-    pcall(function() require("src.battle.BattleState").invalidate() end)
-    pcall(function() require("src.render.SpriteRenderer").invalidate() end)
-    -- RED++'s baked tileset atlas (TileRenderer.getGbcAtlas) is built once
-    -- per loaded map, so a mode toggle needs every cached Map/TileRenderer
-    -- dropped and the currently-visible one rebuilt in place -- otherwise
-    -- the on-screen map keeps its stale (wrong-mode) atlas until the next
-    -- map transition happens to reload it.
-    pcall(function()
-      require("src.world.MapLoader").invalidateAll()
-      local Game = require("src.core.Game")
-      if Game.overworld and Game.overworld.map and Game.overworld.reloadMap then
-        Game.overworld:reloadMap(Game.overworld.map.id, "colors")
-      end
-    end)
+  if prev ~= PaletteFX.mode then invalidateColorCaches() end
+end
+
+PaletteFX.customRamp = nil
+
+function PaletteFX.setCustomRamp(ramp)
+  local prev = PaletteFX.customRamp
+  PaletteFX.customRamp = ramp
+  if (prev ~= nil) ~= (ramp ~= nil) or prev ~= ramp then
+    invalidateColorCaches()
   end
+end
+
+function PaletteFX.pickerActive()
+  local ok, Game = pcall(require, "src.core.Game")
+  local states = ok and Game.stack and Game.stack.states
+  local top = states and states[#states]
+  return top ~= nil and top.screenId == "PaletteScreen"
+end
+
+-- Whether the active COLORS state needs a battle pic rendered as raw DMG
+-- grays instead of real colour, the same "forced-mono" contract OG/OG
+-- INV/CLASSIC already use (issue #207). A custom palette needs this too,
+-- since ensureZones re-thresholds the already-drawn frame. Keep this in
+-- sync with ensureZones and the mode checks in BattleState and WideBattle.
+function PaletteFX.forcesRawGrays()
+  return PaletteFX.customRamp ~= nil
 end
 
 function PaletteFX.cycleMode()
@@ -841,6 +861,13 @@ end
 
 function PaletteFX.applyOptions(opts)
   PaletteFX.setMode(opts and opts.colors or "gbc")
+  local id = opts and opts.palette
+  if id and id ~= "" then
+    local ok, Palette = pcall(require, "src.render.Palette")
+    PaletteFX.setCustomRamp(ok and Palette.ramp(id) or nil)
+  else
+    PaletteFX.setCustomRamp(nil)
+  end
 end
 
 function PaletteFX.modeLabel(mode)
@@ -853,12 +880,11 @@ function PaletteFX.modeLabel(mode)
 end
 
 -- When a state exposes no SGB zones but COLORS needs a forced palette
--- (OG / OG INV / CLASSIC), invent a whole-screen zone so the shade-remap
--- shader still runs.  GBC / RED++ / GBC INV leave nil alone (raw DMG canvas).
 function PaletteFX.ensureZones(zones)
   if zones and zones[1] then return zones end
   local mode = PaletteFX.mode or "gbc"
-  if mode == "og" or mode == "og_inv" or mode == "classic" then
+  if mode == "og" or mode == "og_inv" or mode == "classic"
+      or (PaletteFX.forcesRawGrays() and not PaletteFX.pickerActive()) then
     return { PaletteFX.whole(PaletteFX.GRAYS) }
   end
   return zones
@@ -888,7 +914,9 @@ function PaletteFX.effectiveColors(c)
   if not c then return nil end
   local mode = PaletteFX.mode or "gbc"
   local out = c
-  if mode == "og" then
+  if PaletteFX.customRamp and not PaletteFX.pickerActive() then
+    out = PaletteFX.customRamp
+  elseif mode == "og" then
     out = PaletteFX.GRAYS
   elseif mode == "og_inv" then
     out = PaletteFX.permute(PaletteFX.GRAYS, INV_MAP)

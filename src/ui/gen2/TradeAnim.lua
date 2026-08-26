@@ -870,8 +870,7 @@ end
 
 function TradeAnimView:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

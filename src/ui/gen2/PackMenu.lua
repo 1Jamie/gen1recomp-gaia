@@ -973,22 +973,22 @@ function PackMenu:drawList(listX, listY)
       local entry = self.rows[i]
       -- engine/items/tmhm.asm:355-385 (#1695)
       if entry.tmhmLabel then
-        Chrome.print(entry.tmhmLabel, listX - 3, ty)
+        Chrome.printThrough(entry.tmhmLabel, listX - 3, ty, Chrome.DEFAULT_BOX_PALETTE)
       end
       if i == self.index then
         self:cursorAt(listX - 1, ty)
       elseif i == self.switching then
         self:cursorAt(listX - 1, ty, true)
       end
-      Chrome.print((entry.tmhmLabel and entry.teaches) or entry.name,
-        listX, ty)
+      Chrome.printThrough((entry.tmhmLabel and entry.teaches) or entry.name,
+        listX, ty, Chrome.DEFAULT_BOX_PALETTE)
       if entry.showCount then
-        Chrome.print("\xc3\x97" .. Chrome.number(entry.count, 2),
-          listX + 9, ty + 1)
+        Chrome.printThrough("\xc3\x97" .. Chrome.number(entry.count, 2),
+          listX + 9, ty + 1, Chrome.DEFAULT_BOX_PALETTE)
       end
     elseif i == self:total() then
       if i == self.index then self:cursorAt(listX - 1, ty) end
-      Chrome.print("CANCEL", listX, ty)
+      Chrome.printThrough("CANCEL", listX, ty, Chrome.DEFAULT_BOX_PALETTE)
     end
   end
 end
@@ -1006,7 +1006,8 @@ function PackMenu:drawDescription(ty)
     local top, step = ty, 2
     if #lines > 2 then top, step = ty - 1, 1 end
     for i, line in ipairs(lines) do
-      Chrome.print((line:gsub("{PLAYER}", name)), 1, top + (i - 1) * step)
+      Chrome.printThrough((line:gsub("{PLAYER}", name)), 1, top + (i - 1) * step,
+        Chrome.DEFAULT_BOX_PALETTE)
     end
     return
   end
@@ -1019,8 +1020,8 @@ function PackMenu:drawDescription(ty)
   -- the second line is row 16.  '\n' covers hand-written data.
   local first, second = description:match("^(.-)<NEXT>(.*)$")
   if not first then first, second = description:match("^(.-)\n(.*)$") end
-  Chrome.print(first or description, 1, ty)
-  if second then Chrome.print(second, 1, ty + 2) end
+  Chrome.printThrough(first or description, 1, ty, Chrome.DEFAULT_BOX_PALETTE)
+  if second then Chrome.printThrough(second, 1, ty + 2, Chrome.DEFAULT_BOX_PALETTE) end
 end
 
 -- The submenu box.  Every one of the seven headers is `menu_coords 0, top,
@@ -1037,23 +1038,24 @@ function PackMenu:drawSubmenu()
   Chrome.box(0, top, 7, bottom - top + 1)
   for i, id in ipairs(menu.rows) do
     local ty = top + 1 + (i - 1) * 2
-    if i == menu.index then Chrome.cursor(1, ty) end
-    Chrome.print(SUBMENU_LABEL[id] or id, 2, ty)
+    if i == menu.index then Chrome.cursorThrough(1, ty, Chrome.DEFAULT_BOX_PALETTE) end
+    Chrome.printThrough(SUBMENU_LABEL[id] or id, 2, ty, Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 
 -- engine/items/buy_sell_toss.asm:133 BuySellToss_UpdateQuantityDisplay
 function PackMenu:drawQuantity()
   Chrome.box(15, 9, 5, 3)
-  Chrome.print("\xc3\x97" .. Chrome.number(self.qtyState.qty, 2, true), 16, 10)
+  Chrome.printThrough("\xc3\x97" .. Chrome.number(self.qtyState.qty, 2, true), 16, 10,
+    Chrome.DEFAULT_BOX_PALETTE)
 end
 
 -- YesNoBox's own coords, the same box every other Gen 2 screen here draws.
 function PackMenu:drawYesNo()
   Chrome.box(14, 7, 6, 5)
-  Chrome.print("YES", 16, 8)
-  Chrome.print("NO", 16, 10)
-  Chrome.cursor(15, self.confirm.choice == 1 and 8 or 10)
+  Chrome.printThrough("YES", 16, 8, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough("NO", 16, 10, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.cursorThrough(15, self.confirm.choice == 1 and 8 or 10, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 function PackMenu:drawOverlays()
@@ -1080,7 +1082,7 @@ function PackMenu:drawPanel()
   -- boxes, the layout this screen shipped with.
   Chrome.clear()
   Chrome.box(0, 0, 20, 3)
-  Chrome.print(self:pocket().label, 2, 1)
+  Chrome.printThrough(self:pocket().label, 2, 1, Chrome.DEFAULT_BOX_PALETTE)
   Chrome.box(0, 3, 20, 12)
   self:drawList(5, 4)
   Chrome.box(0, 12, 20, 6)
@@ -1095,8 +1097,7 @@ end
 
 function PackMenu:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

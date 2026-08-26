@@ -27,11 +27,37 @@ Chrome.SCREEN_H = 18
 -- charmap.asm "¥", the money field's own prefix tile.
 local YEN = "\xc2\xa5"
 
-function Chrome.clear()
+function Chrome.paletteFill(px, py, pw, ph, palette)
+  palette = palette or Chrome.DEFAULT_BOX_PALETTE
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, Chrome.SCREEN_W * 8, Chrome.SCREEN_H * 8)
+  if GbcPalette.available() then
+    GbcPalette.with(palette, function() G.rectangle("fill", px, py, pw, ph) end)
+  else
+    G.rectangle("fill", px, py, pw, ph)
+  end
   G.setColor(0, 0, 0, 1)
+end
+
+-- Every drawWidescreen paints the window around its 160x144 panel through
+-- here, so UI LETTERBOX has exactly one place to override.  r/g/b is what the
+-- screen was authored with and is what AUTO keeps.
+local function letterboxPaper()
+  local c = GbcPalette.resolve(Chrome.DEFAULT_BOX_PALETTE)
+  c = c and c[1]
+  if not c then return nil end
+  return c[1] / 255, c[2] / 255, c[3] / 255
+end
+
+function Chrome.letterbox(winW, winH, r, g, b)
+  local Letterbox = require("src.render.Letterbox")
+  local G = love.graphics
+  G.setColor(Letterbox.fill(r or 1, g or 1, b or 1, letterboxPaper))
+  G.rectangle("fill", 0, 0, winW, winH)
+end
+
+function Chrome.clear()
+  Chrome.paletteFill(0, 0, Chrome.SCREEN_W * 8, Chrome.SCREEN_H * 8)
 end
 
 -- The blit scale every `drawWidescreen` paints its 160x144 panel at.
@@ -77,10 +103,24 @@ function Chrome.positionLift(winW, winH, scale)
     or Chrome.fitScale(winW, winH)), ScreenPosition.safeTop())
 end
 
+Chrome.DEFAULT_BOX_PALETTE = {
+  { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 0, 0, 0 },
+}
+
+function Chrome.paletteBox(tx, ty, tw, th, palette)
+  palette = palette or Chrome.DEFAULT_BOX_PALETTE
+  if GbcPalette.available() then
+    love.graphics.setColor(1, 1, 1, 1)
+    GbcPalette.with(palette, function() Font.drawBox(tx, ty, tw, th) end)
+  else
+    Font.drawBox(tx, ty, tw, th, palette[1])
+  end
+  love.graphics.setColor(0, 0, 0, 1)
+end
+
 -- A bordered box, tile coords.  Leaves the draw color black for text.
 function Chrome.box(tx, ty, tw, th)
-  Font.drawBox(tx, ty, tw, th)
-  love.graphics.setColor(0, 0, 0, 1)
+  Chrome.paletteBox(tx, ty, tw, th)
 end
 
 -- Gold's Textbox helper takes an interior width/height and draws the border
@@ -90,9 +130,14 @@ function Chrome.textbox(tx, ty, interiorW, interiorH)
   Chrome.box(tx, ty, interiorW + 2, interiorH + 2)
 end
 
-function Chrome.print(text, tx, ty)
+local function flatPrint(text, tx, ty)
   love.graphics.setColor(0, 0, 0, 1)
   return Font.draw(text, tx * 8, ty * 8)
+end
+
+function Chrome.print(text, tx, ty)
+  if not GbcPalette.available() then return flatPrint(text, tx, ty) end
+  return Chrome.printThrough(text, tx, ty, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 -- Prints a string the way a tilemap screen does: the glyph tiles replace the
@@ -124,32 +169,39 @@ function Chrome.throughPalette(palette, invert)
   return GbcPalette.remap(pal, GbcPalette.bgp)
 end
 
--- `palette` is a 4-colour table of 0-255 triples.  `invert` is what
--- Chrome.printInverted passes; see there.
-function Chrome.printThrough(text, tx, ty, palette, invert)
+function Chrome.rawPalette(palette, invert)
+  if invert then return { palette[4], palette[3], palette[2], palette[1] } end
+  return palette
+end
+
+-- The per-glyph shader/tint switch printThrough needs, factored out so a
+-- caller that positions its own glyphs (TextBox's typewriter/scroll
+-- animation) gets the same shaded ink without re-deriving the TTF-vs-tile
+-- split.
+--
+-- Returns (pal, drawGlyph, finish):
+--   pal        the resolved ramp, or nil if there's no shader to draw
+--              through; a caller that also draws a paper rect should skip
+--              it and take the plain Chrome.print degrade instead.
+--   drawGlyph  (code, x, y): draws one glyph, shaded through `pal` for a
+--              tile glyph or tinted with pal[4] for a TTF one (see the
+--              inline comment below, gen1recomp#1642).
+--   finish     call once after the last glyph to restore the previous
+--              shader and draw colour.
+function Chrome.paletteGlyphs(palette, invert, raw)
   if not (palette and GbcPalette.available()) then
-    return Chrome.print(text, tx, ty)
+    return nil, Font.drawCode, function() end
   end
   -- `pal` is used below and never touches the caller's palette again --
   -- including useRaw for the draw, since useRaw skips the fold GbcPalette.use
   -- would otherwise apply and folding it a second time would undo this.
-  local pal = Chrome.throughPalette(palette, invert)
-  local width = Font.width(text)
-  local paper = pal[1] or { 255, 255, 255 }
-  love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
-  love.graphics.rectangle("fill", tx * 8, ty * 8, width, 8)
-  -- Per glyph, not per string: a TTF-mod build still keeps the multi-byte
-  -- charmap sequences (the naming screen's <PK>/<MN>, the 'd/'l/'s ligatures)
-  -- and anything the mod names in ttf.tiles (Font.lua's own note on keeping
-  -- digits tile-based for column alignment) on their ROM tiles, so a string
-  -- can freely mix the two kinds of glyph.
+  local pal = raw and Chrome.rawPalette(palette, invert)
+    or Chrome.throughPalette(palette, invert)
   local ink = pal[4] or { 0, 0, 0 }
   local previous = love.graphics.getShader()
   local shaded = false
-  local pen = tx * 8
-  for _, code in ipairs(Font.encode(text)) do
+  local function drawGlyph(code, x, y)
     if code >= Font.TTF_BASE then
-      -- The shader below recovers a shade from the RED CHANNEL of an already
       -- flat-shaded 2bpp tile sheet -- exactly what a TTF glyph is not.
       -- LÖVE's font rasterizer stores glyph coverage as alpha over a plain
       -- white texture, which this shader reads back as shade 0 no matter how
@@ -167,11 +219,28 @@ function Chrome.printThrough(text, tx, ty, palette, invert)
       GbcPalette.useRaw(pal)
       shaded = true
     end
-    Font.drawCode(code, pen, ty * 8)
+    Font.drawCode(code, x, y)
+  end
+  local function finish()
+    if shaded then love.graphics.setShader(previous) end
+    love.graphics.setColor(0, 0, 0, 1)
+  end
+  return pal, drawGlyph, finish
+end
+
+function Chrome.printThrough(text, tx, ty, palette, invert, raw)
+  local pal, drawGlyph, finish = Chrome.paletteGlyphs(palette, invert, raw)
+  if not pal then return Chrome.print(text, tx, ty) end
+  local width = Font.width(text)
+  local paper = pal[1] or { 255, 255, 255 }
+  love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
+  love.graphics.rectangle("fill", tx * 8, ty * 8, width, 8)
+  local pen = tx * 8
+  for _, code in ipairs(Font.encode(text)) do
+    drawGlyph(code, pen, ty * 8)
     pen = pen + Font.advanceOf(code)
   end
-  if shaded then love.graphics.setShader(previous) end
-  love.graphics.setColor(0, 0, 0, 1)
+  finish()
   return width
 end
 
@@ -186,10 +255,32 @@ end
 
 -- Right-aligned within a field that ends at tile `txEnd` (exclusive), which is
 -- how Gold prints numbers (PrintNum fills from the right).
-function Chrome.printRight(text, txEnd, ty)
+local function flatPrintRight(text, txEnd, ty)
   local width = Font.width(text)
   love.graphics.setColor(0, 0, 0, 1)
   return Font.draw(text, txEnd * 8 - width, ty * 8)
+end
+
+function Chrome.printRight(text, txEnd, ty)
+  if not GbcPalette.available() then return flatPrintRight(text, txEnd, ty) end
+  return Chrome.printRightThrough(text, txEnd, ty, Chrome.DEFAULT_BOX_PALETTE)
+end
+
+function Chrome.printRightThrough(text, txEnd, ty, palette, invert, raw)
+  local pal, drawGlyph, finish = Chrome.paletteGlyphs(palette, invert, raw)
+  if not pal then return Chrome.printRight(text, txEnd, ty) end
+  local width = Font.width(text)
+  local tx = txEnd * 8 - width
+  local paper = pal[1] or { 255, 255, 255 }
+  love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
+  love.graphics.rectangle("fill", tx, ty * 8, width, 8)
+  local pen = tx
+  for _, code in ipairs(Font.encode(text)) do
+    drawGlyph(code, pen, ty * 8)
+    pen = pen + Font.advanceOf(code)
+  end
+  finish()
+  return width
 end
 
 -- Wrap text to `width` tiles, measuring with the real font so a proportional
@@ -227,9 +318,14 @@ function Chrome.printWrapped(text, tx, ty, width, rows)
   return #lines
 end
 
-function Chrome.cursor(tx, ty, hollow)
+local function flatCursor(tx, ty, hollow)
   love.graphics.setColor(0, 0, 0, 1)
   Font.drawCode(hollow and Chrome.CURSOR_HOLLOW or Chrome.CURSOR, tx * 8, ty * 8)
+end
+
+function Chrome.cursor(tx, ty, hollow)
+  if not GbcPalette.available() then return flatCursor(tx, ty, hollow) end
+  return Chrome.cursorThrough(tx, ty, Chrome.DEFAULT_BOX_PALETTE, nil, hollow)
 end
 
 -- The cursor glyph through a palette, the way Chrome.printThrough draws text.
@@ -237,11 +333,12 @@ end
 -- xors both bitplanes, so it runs white on black) needs its cursor inverted
 -- with everything else -- Chrome.cursor's flat black is invisible against that
 -- ground, which is what made the dex's action arrow look absent.
-function Chrome.cursorThrough(tx, ty, palette, invert, hollow)
+function Chrome.cursorThrough(tx, ty, palette, invert, hollow, raw)
   if not (palette and GbcPalette.available()) then
     return Chrome.cursor(tx, ty, hollow)
   end
-  local pal = Chrome.throughPalette(palette, invert)
+  local pal = raw and Chrome.rawPalette(palette, invert)
+    or Chrome.throughPalette(palette, invert)
   local paper = pal[1] or { 255, 255, 255 }
   love.graphics.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
   love.graphics.rectangle("fill", tx * 8, ty * 8, 8, 8)
@@ -286,8 +383,8 @@ end
 -- PRINTNUM_LEADINGZEROS.
 function Chrome.coinBalanceBox(coins)
   Chrome.textbox(11, 0, 7, 1)
-  Chrome.print("COIN", 12, 0)
-  Chrome.print(Chrome.number(coins, 4, true), 13, 1)
+  Chrome.printThrough("COIN", 12, 0, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough(Chrome.number(coins, 4, true), 13, 1, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 -- DisplayMoneyAndCoinBalance: one Textbox at (5,0) with a 13x3 interior
@@ -295,10 +392,10 @@ end
 -- "COIN" at (6,3) with the four-digit count at (15,3).
 function Chrome.moneyAndCoinBalanceBox(money, coins)
   Chrome.textbox(5, 0, 13, 3)
-  Chrome.print("MONEY", 6, 1)
-  Chrome.print(Chrome.money(money), 12, 1)
-  Chrome.print("COIN", 6, 3)
-  Chrome.print(Chrome.number(coins, 4, true), 15, 3)
+  Chrome.printThrough("MONEY", 6, 1, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough(Chrome.money(money), 12, 1, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough("COIN", 6, 3, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough(Chrome.number(coins, 4, true), 15, 3, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 -- PlaceMoneyTopRight: MoneyTopRightMenuHeader is `menu_coords 11, 0,
@@ -306,7 +403,7 @@ end
 -- prints the number at MenuBoxCoord2Tile + SCREEN_WIDTH + 1, i.e. (12,1).
 function Chrome.moneyBalanceBox(money)
   Chrome.box(11, 0, 9, 3)
-  Chrome.print(Chrome.money(money), 12, 1)
+  Chrome.printThrough(Chrome.money(money), 12, 1, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 -- A vertical cursor list.
@@ -344,6 +441,7 @@ function List.new(opts)
   self.onChoose = opts.onChoose
   self.onCancel = opts.onCancel
   self.onMove = opts.onMove
+  self.palette = opts.palette == nil and Chrome.DEFAULT_BOX_PALETTE or opts.palette
   self.index = math.max(1, math.min(opts.index or 1, math.max(1, #self.items)))
   self.scroll = 0
   self:ensureVisible()
@@ -409,15 +507,32 @@ function List:draw()
     local item = self.items[i]
     if item then
       local ty = self.y + (row - 1) * self.spacing
-      if i == self.index then Chrome.cursor(self.x - 1, ty) end
-      Chrome.print(item.label, self.x, ty)
+      if i == self.index then
+        if self.palette then
+          Chrome.cursorThrough(self.x - 1, ty, self.palette)
+        else
+          flatCursor(self.x - 1, ty)
+        end
+      end
+      if self.palette then
+        Chrome.printThrough(item.label, self.x, ty, self.palette)
+      else
+        flatPrint(item.label, self.x, ty)
+      end
     end
   end
   -- Scrolling lists get the ▼ hint Gold shows when there is more below.
   if self.rows < #self.items and self.scroll + self.rows < #self.items then
-    love.graphics.setColor(0, 0, 0, 1)
-    Font.drawCode(Chrome.DOWN_ARROW, (self.x - 1) * 8,
-      (self.y + self.rows * self.spacing - 1) * 8)
+    if self.palette then
+      local _, drawGlyph, finish = Chrome.paletteGlyphs(self.palette)
+      drawGlyph(Chrome.DOWN_ARROW, (self.x - 1) * 8,
+        (self.y + self.rows * self.spacing - 1) * 8)
+      finish()
+    else
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.drawCode(Chrome.DOWN_ARROW, (self.x - 1) * 8,
+        (self.y + self.rows * self.spacing - 1) * 8)
+    end
   end
 end
 

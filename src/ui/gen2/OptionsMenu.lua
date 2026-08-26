@@ -6,7 +6,7 @@
 -- literal "TYPE".  The cursor is a ▶ in column 1 at row 2 + index * 2.
 --
 -- Up/down move between rows, left/right change the value under the cursor, and
--- START or B leaves.  CANCEL is a row like any other that simply exits.
+-- START or B leaves.  BACK is a row like any other that simply exits.
 --
 -- Values are stored on the save's options table by name (see
 -- src/core/gen2/Save.lua DEFAULT_OPTIONS) rather than as the packed wOptions
@@ -20,6 +20,8 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local Logger = require("src.core.Logger")
+local Marquee = require("src.ui.Marquee")
+local Palette = require("src.render.Palette")
 local Performance = require("src.core.Performance")
 local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
@@ -39,6 +41,45 @@ end
 
 local function stepVolume(v, delta)
   return math.max(0, math.min(7, (v or 7) + delta))
+end
+
+local function dropClassic(options)
+  local GbcPalette = require("src.render.GbcPalette")
+  if GbcPalette.mode ~= "classic" then return end
+  local target = (options.palette and options.palette ~= "")
+    and GbcPalette.CUSTOM_MODE or "gbc"
+  options.color = target
+  GbcPalette.setMode(target)
+end
+
+local function colorPickerOpts(game)
+  local GbcPalette = require("src.render.GbcPalette")
+  local options = game.options
+  dropClassic(options)
+  local labels = GbcPalette.MODE_LABELS or {}
+  local modes = {}
+  for i, id in ipairs(GbcPalette.MODES) do
+    modes[i] = { labels[id] or id:upper(), id }
+  end
+  return {
+    palette = Palette,
+    get = function() return options.palette or "" end,
+    set = function(v)
+      options.palette = v
+      local target = (v ~= "") and GbcPalette.CUSTOM_MODE or "gbc"
+      options.color = target
+      GbcPalette.setMode(target)
+      GbcPalette.setCustomRamp(v ~= "" and Palette.ramp(v) or nil)
+      if game.persistOptions then pcall(game.persistOptions, game) end
+    end,
+    modes = modes,
+    getMode = function() return options.color or "gbc" end,
+    setMode = function(v)
+      options.color = v
+      GbcPalette.setMode(v)
+      if game.persistOptions then pcall(game.persistOptions, game) end
+    end,
+  }
 end
 
 -- Each row: the label, the option key it edits, and the cycle of values with
@@ -191,24 +232,30 @@ local ROWS = {
     text = function(options)
       return require("src.render.Tilt").levelLabel(options.tilt or 0)
     end },
-  -- COLOR is the Gen 2 answer to the Gen 1 screen's COLORS row.  Gold is a
-  -- CGB game whose colour comes from its own palettes, so there are no packs
-  -- to swap -- what there is instead is the choice to turn that colour OFF,
-  -- down to the grey Game Boy or the green one.  GBC is the default.
   { label = Strings.source("COLOR"), key = "color", port = true,
-    cycle = function(options, delta)
-      local GbcPalette = require("src.render.GbcPalette")
-      GbcPalette.setMode(options.color or "gbc")
-      options.color = GbcPalette.cycle(delta)
-    end,
     text = function(options)
+      local name = Palette.label(options.palette)
+      if name then return name end
       return require("src.render.GbcPalette").modeLabel(options.color or "gbc")
+    end,
+    activate = function(game)
+      require("src.ui.Screens").push(game, "PaletteScreen", colorPickerOpts(game))
     end },
   -- SHADER FX reaches Gen 2 too, not just Gen 1. Same "activate" shape as
   -- CONTROLS/TOUCH LAYOUT below (a pushed screen, not a `cycle` ladder) --
   -- ShaderFXScreen is the shared list screen both generations push, `id`
   -- matching the Gen 1 row's so a mod filtering "shaderfx" on Red also
   -- reaches Gold.
+  { id = "uiLetterbox", label = Strings.source("UI LETTERBOX"), port = true,
+    cycle = function(options, delta)
+      local Letterbox = require("src.render.Letterbox")
+      options.uiLetterbox = Letterbox.cycle(options.uiLetterbox, delta)
+      Letterbox.setMode(options.uiLetterbox)
+    end,
+    text = function(options)
+      local Letterbox = require("src.render.Letterbox")
+      return Strings(Letterbox.label(options.uiLetterbox))
+    end },
   { id = "shaderfx", label = Strings.source("SHADER FX"), port = true,
     text = function(options)
       local ShaderFX = require("src.render.ShaderFX")
@@ -294,7 +341,7 @@ local ROWS = {
   { label = Strings.source("BATTLE BG"), key = "battleBg", port = true,
     values = { "white", "black" },
     display = { white = "WHITE", black = "BLACK" } },
-  { label = Strings.source("CANCEL"), cancel = true },
+  { label = Strings.source("BACK"), cancel = true },
 }
 
 -- The cart's screen is one full-height textbox with every row on it.  This one
@@ -302,6 +349,69 @@ local ROWS = {
 -- (2,2) and step two rows, exactly as _Option lays them, and the window moves
 -- only when the cursor would leave it.
 local VISIBLE_ROWS = 7
+
+-- The same grouping the Gen 1 screen uses (src/ui/OptionsMenu.lua GROUPS),
+-- with Gold's own rows in it: FRAME is a graphics setting here and SOUND is
+-- an audio one.  Runs after the ui.options.rows hook and only builds
+-- self.view, so self.rows stays the flat list a mod reads and edits.
+local GROUPS = {
+  { id = "group.speed", label = Strings.source("SPEED"),
+    members = { "textSpeed", "speed" } },
+  { id = "group.video", label = Strings.source("VIDEO"),
+    members = { "videoMode", "screenPos", "fpsCap" } },
+  { id = "group.graphics", label = Strings.source("GRAPHICS"),
+    members = { "color", "uiLetterbox", "shaderfx", "shaderfx2", "frame" } },
+  { id = "group.audio", label = Strings.source("AUDIO"),
+    members = { "sound", "musicVol", "sfxVol", "musicFilter" } },
+  { id = "group.battle", label = Strings.source("BATTLE OPTIONS"),
+    members = { "battleScene", "battleStyle", "battleBg" } },
+  { id = "group.extras", label = Strings.source("EXTRAS"),
+    members = { "zoom", "voidFill", "tilt" } },
+}
+
+local ORDER = {
+  "group.speed", "group.video", "group.graphics", "group.audio",
+  "performance", "group.battle", "group.extras",
+}
+
+-- A group's page is this same screen driving the rows it was handed, with
+-- its own BACK on the bottom.
+local function groupView(rows, open)
+  local owner, picked = {}, {}
+  for _, group in ipairs(GROUPS) do
+    for _, id in ipairs(group.members) do owner[id] = group end
+    picked[group.id] = {}
+  end
+  for _, row in ipairs(rows) do
+    if row.id and owner[row.id] then
+      local into = picked[owner[row.id].id]
+      into[#into + 1] = row
+    end
+  end
+  local made, byId = {}, {}
+  for _, group in ipairs(GROUPS) do
+    local members = picked[group.id]
+    if #members > 0 then
+      -- No value line: the value column is eight characters wide here, and a
+      -- group has no setting of its own to show in it anyway.
+      made[group.id] = { id = group.id, label = group.label, group = true,
+                         activate = function(game) open(game, members) end }
+    end
+  end
+  for _, row in ipairs(rows) do
+    if row.id and not owner[row.id] then byId[row.id] = row end
+  end
+  local view, taken = {}, {}
+  for _, id in ipairs(ORDER) do
+    local row = made[id] or byId[id]
+    if row then view[#view + 1] = row; taken[id] = true end
+  end
+  for _, row in ipairs(rows) do
+    local id = row.id
+    if not (id and (owner[id] or taken[id])) then view[#view + 1] = row end
+  end
+  return view
+end
 
 -- ui.options.rows identity: an unhooked build hands its own rows back.
 local function sameRows(_, rows) return rows end
@@ -323,8 +433,17 @@ local function buildRows()
   local showTouch = env == "1"
     or (env ~= "0" and (osName == "Android" or osName == "iOS"))
   for i, row in ipairs(ROWS) do
-    if showTouch or (row.id ~= "touchControls" and row.id ~= "touchLayout"
-        and row.id ~= "haptics") then
+    -- PRINT is wGBPrinterBrightness, how dark the Game Boy Printer prints
+    -- (GBPRINTER_LIGHTEST..DARKEST, constants/ram_constants.asm:67-70).
+    -- There is no printer here (src/script/gen2/Specials.lua answers the
+    -- print specials with "no Game Boy Printer"), so nothing reads the
+    -- value and the row is hidden rather than offering a dead setting.
+    -- The descriptor and the save key stay, so a build that grows a printer
+    -- only has to drop this test.
+    local hidden = row.key == "print"
+      or (not showTouch and (row.id == "touchControls"
+          or row.id == "touchLayout" or row.id == "haptics"))
+    if not hidden then
       local copy = {}
       for key, value in pairs(row) do copy[key] = value end
       copy.id = copy.id or copy.key or (copy.cancel and "cancel") or nil
@@ -338,6 +457,22 @@ function OptionsMenu:wantsFillScale() return true end
 function OptionsMenu:drawsWidescreen() return true end
 
 -- opts: options (the table to edit in place), onDone(options)
+-- The page edits the SAME options table the parent screen does, so a value
+-- changed on it lands where the caller's onDone will read it.
+local function pushGroup(parent, members)
+  local page = setmetatable({}, OptionsMenu)
+  page.game = parent.game
+  page.rows = members
+  page.options = parent.options
+  page.index, page.scroll, page.sub = 1, 0, true
+  page.view = {}
+  for i, row in ipairs(members) do page.view[i] = row end
+  page.view[#page.view + 1] = { label = Strings.source("BACK"), cancel = true,
+                                id = "cancel" }
+  parent.game.stack:push(page)
+  return page
+end
+
 function OptionsMenu.new(game, opts)
   opts = opts or {}
   local self = setmetatable({}, OptionsMenu)
@@ -363,21 +498,57 @@ function OptionsMenu.new(game, opts)
   self.onDone = opts.onDone
   self.index = 1
   self.scroll = 0
+  self.view = groupView(rows, function(_, members)
+    return pushGroup(self, members)
+  end)
   return self
 end
 
+function OptionsMenu:visible()
+  return self.view or self.rows
+end
+
 function OptionsMenu:ensureVisible()
+  local rows = self:visible()
   if self.index <= self.scroll then
     self.scroll = self.index - 1
   elseif self.index > self.scroll + VISIBLE_ROWS then
     self.scroll = self.index - VISIBLE_ROWS
   end
   self.scroll = math.max(0,
-    math.min(self.scroll, math.max(0, #self.rows - VISIBLE_ROWS)))
+    math.min(self.scroll, math.max(0, #rows - VISIBLE_ROWS)))
 end
 
 function OptionsMenu:row()
-  return self.rows[self.index]
+  return self:visible()[self.index]
+end
+
+-- Cursor onto a row by id, opening its group page first if it lives in one.
+-- Returns the screen the row ended up on, so a caller can keep driving it.
+function OptionsMenu:focusRow(id)
+  local rows = self:visible()
+  for i, row in ipairs(rows) do
+    if row.id == id then
+      self.index = i
+      self:ensureVisible()
+      return self
+    end
+  end
+  for i, row in ipairs(rows) do
+    if row.group and row.activate then
+      local group
+      for _, g in ipairs(GROUPS) do if g.id == row.id then group = g end end
+      for _, member in ipairs(group and group.members or {}) do
+        if member == id then
+          self.index = i
+          row.activate(self.game)
+          local page = self.game.stack:top()
+          return page.focusRow and page:focusRow(id) or page
+        end
+      end
+    end
+  end
+  return nil
 end
 
 function OptionsMenu:cycle(row, delta)
@@ -437,12 +608,13 @@ function OptionsMenu:update(_dt)
     self:leave_()
     return
   end
+  local rows = self:visible()
   if input:wasPressed("up") then
-    self.index = self.index > 1 and self.index - 1 or #self.rows
+    self.index = self.index > 1 and self.index - 1 or #rows
     self:ensureVisible()
     return
   elseif input:wasPressed("down") then
-    self.index = self.index < #self.rows and self.index + 1 or 1
+    self.index = self.index < #rows and self.index + 1 or 1
     self:ensureVisible()
     return
   end
@@ -473,35 +645,46 @@ function OptionsMenu:drawPanel()
   Chrome.clear()
   -- hlcoord 0,0 with b = SCREEN_HEIGHT - 2, c = SCREEN_WIDTH - 2.
   Chrome.textbox(0, 0, Chrome.SCREEN_W - 2, Chrome.SCREEN_H - 2)
-  for slot = 1, math.min(VISIBLE_ROWS, #self.rows) do
+  -- The textbox spends column 19 on its frame, so a line drawn past column
+  -- 18 prints over the border: 17 characters from the label's column 2,
+  -- 8 from the value's column 11.  Anything longer scrolls under the cursor.
+  local rows = self:visible()
+  for slot = 1, math.min(VISIBLE_ROWS, #rows) do
     local i = slot + self.scroll
-    local row = self.rows[i]
+    local row = rows[i]
     if row then
       local labelY = 2 + (slot - 1) * 2
-      Chrome.print(Strings(row.label), 2, labelY)
+      local hot = i == self.index
+      local key = tostring(row.id or row.label)
+      local function fit(text, col)
+        local room = 19 - col
+        if hot then return Marquee.scroll(text, room, key) end
+        return Marquee.clip(text, room)
+      end
+      Chrome.print(fit(Strings(row.label), 2), 2, labelY)
       if row.frame then
         Chrome.print(Strings(":TYPE"), 10, labelY + 1)
         Chrome.print(tostring(self.options.frame or 1), 16, labelY + 1)
       elseif row.text then
         Chrome.print(":", 10, labelY + 1)
-        Chrome.print(row.text(self.options), 11, labelY + 1)
+        Chrome.print(fit(row.text(self.options), 11), 11, labelY + 1)
       elseif row.values then
         Chrome.print(":", 10, labelY + 1)
         local value = self.options[row.key]
         local text = row.display and Strings(row.display[value]) or tostring(value)
-        Chrome.print(text, 11, labelY + 1)
+        Chrome.print(fit(text, 11), 11, labelY + 1)
       elseif type(row.value) == "function" then
         -- the Gen 1 row's value reader (src/ui/OptionRows.lua:4), so a mod row
         -- shows its setting here instead of drawing a bare label
         local ok, text = pcall(row.value, self.game)
         Chrome.print(":", 10, labelY + 1)
-        Chrome.print(ok and tostring(text) or "?", 11, labelY + 1)
+        Chrome.print(fit(ok and tostring(text) or "?", 11), 11, labelY + 1)
       end
     end
   end
   Chrome.cursor(1, 2 + (self.index - self.scroll - 1) * 2)
   -- The ▼ hint every scrolling Gen 2 list shows when there is more below.
-  if self.scroll + VISIBLE_ROWS < #self.rows then
+  if self.scroll + VISIBLE_ROWS < #rows then
     local Font = require("src.render.Font")
     love.graphics.setColor(0, 0, 0, 1)
     Font.drawCode(Chrome.DOWN_ARROW, 1 * 8, (2 + VISIBLE_ROWS * 2 - 1) * 8)
@@ -514,8 +697,7 @@ end
 
 function OptionsMenu:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

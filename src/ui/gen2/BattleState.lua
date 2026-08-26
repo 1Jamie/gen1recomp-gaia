@@ -3520,7 +3520,7 @@ function BattleState:drawHud()
   -- And nothing at all before UpdateEnemyHUD has ever run: the intro bands
   -- slide in over a blanked tilemap (core.asm:8554/8564).
   if showStatus and self.showEnemyHud and not self:hudCleared("enemy") then
-  Chrome.print(self:name(enemy), 1, 0)
+  Chrome.printThrough(self:name(enemy), 1, 0, Chrome.DEFAULT_BOX_PALETTE)
   -- PrintLevel writes <LV> at the coordinate it is given and then LEFT-aligns
   -- the digits after it, so the glyph is pinned to column 6 whether the level
   -- is 5 or 100; only a three-digit level moves, and it does so by eating the
@@ -3528,10 +3528,12 @@ function BattleState:drawHud()
   -- PlaceNonFaintStatus (engine/pokemon/mon_stats.asm): a statused mon's tag
   -- prints where the level goes, and DrawEnemyHUD's `.skip_level` arm drops
   -- the level entirely while one is up.
-  Chrome.print(self:statusTag(enemy, "enemy")
-    or ("<LV>" .. tostring(enemy.level or 1)), 6, 1)
+  Chrome.printThrough(self:statusTag(enemy, "enemy")
+    or ("<LV>" .. tostring(enemy.level or 1)), 6, 1, Chrome.DEFAULT_BOX_PALETTE)
   local enemyGender = self:genderSymbol(enemy)
-  if enemyGender then Chrome.print(enemyGender, 9, 1) end
+  if enemyGender then
+    Chrome.printThrough(enemyGender, 9, 1, Chrome.DEFAULT_BOX_PALETTE)
+  end
   -- `ld a, [wBattleMode] / dec a / ret nz`, then CheckCaughtMon puts $5d at
   -- (1,1) (engine/battle/trainer_huds.asm:140-152).
   if self.battle and self.battle.wild and self.caughtMark then
@@ -3580,17 +3582,20 @@ function BattleState:drawHud()
     Font.useBattleExtra(wasBattle)
     return
   end
-  Chrome.print(self:name(player), 10, 7)
+  Chrome.printThrough(self:name(player), 10, 7, Chrome.DEFAULT_BOX_PALETTE)
   -- PrintPlayerHUD places the same status tag at (14,8) and skips the level
   -- while it is up.
-  Chrome.print(self:statusTag(player, "player")
-    or ("<LV>" .. tostring(self.shownLevel or player.level or 1)), 14, 8)
+  Chrome.printThrough(self:statusTag(player, "player")
+    or ("<LV>" .. tostring(self.shownLevel or player.level or 1)), 14, 8,
+    Chrome.DEFAULT_BOX_PALETTE)
   local playerGender = self:genderSymbol(player)
-  if playerGender then Chrome.print(playerGender, 17, 8) end
+  if playerGender then
+    Chrome.printThrough(playerGender, 17, 8, Chrome.DEFAULT_BOX_PALETTE)
+  end
   self:drawHpBar(player, "player", 10, 9)
   local maxHp = player.maxHp or (player.stats and player.stats.hp) or 0
-  Chrome.printRight(("%d/%d"):format(self:hudHp(player, "player"), maxHp),
-    18, 10)
+  Chrome.printRightThrough(("%d/%d"):format(self:hudHp(player, "player"), maxHp),
+    18, 10, Chrome.DEFAULT_BOX_PALETTE)
   -- Stub on the RIGHT (tile $73), border from (18,10) laid leftward, exp bar
   -- at (10,11).
   -- The chased fill, not the mon's: AnimateExpBar crawls it, and reading the
@@ -3659,8 +3664,8 @@ end
 function BattleState:printMessage()
   local lines = Chrome.wrap(self.message or "", TEXT_WIDTH)
   for i = 1, math.min(#lines, TEXT_ROWS) do
-    Chrome.print(lines[i], TEXT_INNER_X,
-      TEXT_INNER_Y + (i - 1) * TEXT_ROW_STEP)
+    Chrome.printThrough(lines[i], TEXT_INNER_X,
+      TEXT_INNER_Y + (i - 1) * TEXT_ROW_STEP, Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 
@@ -3670,15 +3675,17 @@ function BattleState:drawMoveInfoBox(move)
   if not move then return end
   local fighter = self.battle and self.battle.player
   if fighter and self.battle:moveDisabled(fighter, move.id) then
-    Chrome.print("Disabled!", 1, 10)
+    Chrome.printThrough("Disabled!", 1, 10, Chrome.DEFAULT_BOX_PALETTE)
     return
   end
   local def = self.game and self.game.data and self.game.data.moves
     and self.game.data.moves[move.id]
-  Chrome.print("TYPE/", 1, 9)
+  Chrome.printThrough("TYPE/", 1, 9, Chrome.DEFAULT_BOX_PALETTE)
   local moveType = def and def.type
-  Chrome.print(moveType and (TYPE_NAMES[moveType] or moveType) or "", 2, 10)
-  Chrome.print(("%2d/%2d"):format(move.pp or 0, move.maxPp or 0), 5, 11)
+  Chrome.printThrough(moveType and (TYPE_NAMES[moveType] or moveType) or "",
+    2, 10, Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough(("%2d/%2d"):format(move.pp or 0, move.maxPp or 0),
+    5, 11, Chrome.DEFAULT_BOX_PALETTE)
 end
 
 function BattleState:drawPanel()
@@ -3687,7 +3694,7 @@ function BattleState:drawPanel()
   -- required there; everywhere else a missing side is a caller bug.
   local hasPlayer = self.battle and (self.battle.player or self.tutorial)
   if not (self.battle and hasPlayer and self.battle.enemy) then
-    Chrome.print("NO BATTLE", 1, 1)
+    Chrome.printThrough("NO BATTLE", 1, 1, Chrome.DEFAULT_BOX_PALETTE)
     return
   end
   self:drawHud()
@@ -3719,8 +3726,10 @@ function BattleState:drawPanel()
       local col = ((i - 1) % 2) * spacing
       local row = math.floor((i - 1) / 2) * 2
       local tx, ty = boxX + 2 + col, 14 + row
-      if i == self.menuIndex then Chrome.cursor(tx - 1, ty) end
-      Chrome.print(label, tx, ty)
+      if i == self.menuIndex then
+        Chrome.cursorThrough(tx - 1, ty, Chrome.DEFAULT_BOX_PALETTE)
+      end
+      Chrome.printThrough(label, tx, ty, Chrome.DEFAULT_BOX_PALETTE)
     end
   elseif self.phase == "moves"
       or (self.phase == "choose-forget" and (self.messageTimer or 0) <= 0) then
@@ -3740,21 +3749,24 @@ function BattleState:drawPanel()
     for i, move in ipairs(moves) do
       local ty = 13 + (i - 1)
       -- Cursor in the box's own gutter, not clipped against the border.
-      if i == cursorRow then Chrome.cursor(cursorCol, ty) end
+      if i == cursorRow then
+        Chrome.cursorThrough(cursorCol, ty, Chrome.DEFAULT_BOX_PALETTE)
+      end
       -- The held slot's marker.  `.battle_player_moves` writes '▷' into the
       -- row wSwappingMove names (engine/battle/core.asm:5157-5165) so a move
       -- picked up for a swap is visible while the cursor moves off it.  It
       -- hlcoord 5, 13 is the cursor's own gutter, so PlaceMenuCursor covers
       -- the marker on the cursor's row.
       if not forgetting and self.moveSwapIndex == i and i ~= cursorRow then
-        Chrome.print("\u{25B7}", cursorCol, ty)
+        Chrome.printThrough("\u{25B7}", cursorCol, ty, Chrome.DEFAULT_BOX_PALETTE)
       end
       local def = self.game and self.game.data and self.game.data.moves
         and self.game.data.moves[move.id]
-      Chrome.print((def and def.name) or move.id, nameCol, ty)
+      Chrome.printThrough((def and def.name) or move.id, nameCol, ty,
+        Chrome.DEFAULT_BOX_PALETTE)
       if not moveMenu then
-        Chrome.printRight(("%d/%d"):format(move.pp or 0, move.maxPp or 0),
-          19, ty)
+        Chrome.printRightThrough(("%d/%d"):format(move.pp or 0, move.maxPp or 0),
+          19, ty, Chrome.DEFAULT_BOX_PALETTE)
       end
     end
     if moveMenu then self:drawMoveInfoBox(moves[cursorRow]) end
@@ -3773,13 +3785,14 @@ function BattleState:drawPanel()
       local left = (self.phase == "ask-shift" or self.phase == "ask-next-mon")
         and 1 or 14
       Chrome.box(left, 7, 6, 5)
-      Chrome.print("YES", left + 2, 8)
-      Chrome.print("NO", left + 2, 10)
+      Chrome.printThrough("YES", left + 2, 8, Chrome.DEFAULT_BOX_PALETTE)
+      Chrome.printThrough("NO", left + 2, 10, Chrome.DEFAULT_BOX_PALETTE)
       local index = self.phase == "ask-nickname" and self.nicknameIndex
         or self.phase == "ask-shift" and self.shiftIndex
         or self.phase == "ask-next-mon" and self.nextMonIndex
         or self.forgetChoice
-      Chrome.cursor(left + 1, index == 1 and 8 or 10)
+      Chrome.cursorThrough(left + 1, index == 1 and 8 or 10,
+        Chrome.DEFAULT_BOX_PALETTE)
     end
   end
   if self.phase == "stats-box" and self.statsBoxMon then
@@ -3808,8 +3821,9 @@ function BattleState:drawStatsBox(mon)
   Chrome.textbox(9, 0, 9, 10)
   for i, row in ipairs(STATS_BOX_ROWS) do
     local ty = 1 + (i - 1) * 2
-    Chrome.print(Strings(row[1]), 11, ty)
-    Chrome.printRight(("%d"):format(stats[row[2]] or 0), 19, ty + 1)
+    Chrome.printThrough(Strings(row[1]), 11, ty, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printRightThrough(("%d"):format(stats[row[2]] or 0), 19, ty + 1,
+      Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 
@@ -3893,8 +3907,7 @@ end
 
 function BattleState:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   local ox, oy = Chrome.fitOrigin(winW, winH, scale)
   G.push()

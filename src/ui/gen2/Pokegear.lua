@@ -22,6 +22,7 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local FieldMoves = require("src.world.gen2.FieldMoves")
+local GbcPalette = require("src.render.GbcPalette")
 local Gen2Save = require("src.core.gen2.Save")
 local Clock = require("src.core.gen2.Clock")
 local Font = require("src.render.Font")
@@ -971,6 +972,7 @@ function Pokegear.new(game, opts)
   if gfx then
     self.sheet = TileSheet.new({
       path = gfx.tiles, wide = gfx.tilesWide or 16, firstTile = 0,
+      raw = true,
       paletteFor = function(tile) return self:colorsFor(tile) end,
     })
   end
@@ -997,10 +999,9 @@ end
 
 -- Every string on a Pokegear card is a run of font tiles laid straight into
 -- the tilemap, so it wears BG palette 0 (PokegearPals' first entry) rather
--- than drawing as black ink over whatever was underneath.
 function Pokegear:text(str, tx, ty)
   local pals = self:pals()
-  return Chrome.printThrough(str, tx, ty, pals and pals[1])
+  return Chrome.printThrough(str, tx, ty, pals and pals[1], false, true)
 end
 
 -- wPokegearFlags' four card bits are ENGINE flags: EngineFlags rows 0-3 are
@@ -2411,6 +2412,8 @@ function Pokegear:drawPlain()
   end
 end
 
+Pokegear.CUSTOM_RAMP_FILM = true
+
 function Pokegear:drawPanel()
   if not self:styled() then
     self:drawPlain()
@@ -2418,29 +2421,54 @@ function Pokegear:drawPanel()
     return
   end
   local G = love.graphics
-  -- InitPokegearTilemap ByteFills the whole SCREEN_AREA with $4f before the
-  -- card's tilemap goes down (engine/pokegear/pokegear.asm InitPokegearTilemap),
-  -- and every cell the card leaves blank is a font-page tile on palette 0, so
-  -- the ground under a card is the gear's paper, not white.  See
-  -- Pokegear:paperColor.
-  local ground = self:groundColor()
-  G.setColor(ground[1] / 255, ground[2] / 255, ground[3] / 255, 1)
-  G.rectangle("fill", 0, 0, SCREEN_W * 8, SCREEN_H * 8)
-  local id = self:card() and self:card().id
-  if id == "map" then
-    self:drawMap()
-  elseif id == "radio" then
-    self:drawRadio()
-  elseif id == "phone" then
-    self:drawPhone()
-  else
-    self:drawClock()
+  local function paint()
+    -- InitPokegearTilemap ByteFills the whole SCREEN_AREA with $4f before the
+    -- card's tilemap goes down (engine/pokegear/pokegear.asm InitPokegearTilemap),
+    -- and every cell the card leaves blank is a font-page tile on palette 0, so
+    -- the ground under a card is the gear's paper, not white.  See
+    -- Pokegear:paperColor.
+    local ground = self:groundColor()
+    G.setColor(ground[1] / 255, ground[2] / 255, ground[3] / 255, 1)
+    G.rectangle("fill", 0, 0, SCREEN_W * 8, SCREEN_H * 8)
+    local id = self:card() and self:card().id
+    if id == "map" then
+      self:drawMap()
+    elseif id == "radio" then
+      self:drawRadio()
+    elseif id == "phone" then
+      self:drawPhone()
+    else
+      self:drawClock()
+    end
+    -- Last: the arrow is an OBJ and composites over whatever the card drew.
+    -- _FlyMap has no card strip and never animates it
+    -- (engine/pokegear/pokegear.asm:1999); neither does _TownMap
+    -- (../pokecrystal/engine/pokegear/pokegear.asm:1757).
+    if not (self.fly or self.townMap) then self:drawModeArrow() end
   end
-  -- Last: the arrow is an OBJ and composites over whatever the card drew.
-  -- _FlyMap has no card strip and never animates it
-  -- (engine/pokegear/pokegear.asm:1999); neither does _TownMap
-  -- (../pokecrystal/engine/pokegear/pokegear.asm:1757).
-  if not (self.fly or self.townMap) then self:drawModeArrow() end
+
+  if Pokegear.CUSTOM_RAMP_FILM and GbcPalette.customRamp
+      and GbcPalette.available() then
+    if not self.filmCanvas then
+      self.filmCanvas = G.newCanvas(SCREEN_W * 8, SCREEN_H * 8)
+      self.filmCanvas:setFilter("nearest", "nearest")
+    end
+    local previousCanvas = G.getCanvas()
+    G.setCanvas(self.filmCanvas)
+    G.clear(0, 0, 0, 0)
+    G.push()
+    G.origin()
+    local ok, err = pcall(paint)
+    G.pop()
+    G.setCanvas(previousCanvas)
+    if not ok then error(err, 0) end
+    G.setColor(1, 1, 1, 1)
+    GbcPalette.with(GbcPalette.customRamp, function()
+      G.draw(self.filmCanvas, 0, 0)
+    end)
+  else
+    paint()
+  end
   G.setColor(1, 1, 1, 1)
 end
 
@@ -2454,8 +2482,7 @@ function Pokegear:drawWidescreen(winW, winH)
   -- black card sitting inside a cream frame.  It follows groundColor for the
   -- same reason drawPanel does: $4f is what the screen is filled with.
   local ground = self:groundColor()
-  G.setColor(ground[1] / 255, ground[2] / 255, ground[3] / 255, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, ground[1] / 255, ground[2] / 255, ground[3] / 255)
   local scale = Chrome.fitScale(winW, winH)
   local ox, oy = Chrome.fitOrigin(winW, winH, scale)
   G.push()

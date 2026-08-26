@@ -4,6 +4,7 @@
 -- SpecialKabutoChamber, the four routines that open the chambers' walls.
 
 local Assets = require("src.render.Assets")
+local Chrome = require("src.ui.gen2.Chrome")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local Palettes = require("src.world.gen2.Palettes")
@@ -189,7 +190,7 @@ function UnownWords:draw()
   local wall = self.wall
   if not wall then return end
   local bx, by, bw, bh = UnownWords.boxRect(wall)
-  Font.drawBox(bx, by, bw, bh)
+  Chrome.paletteBox(bx, by, bw, bh)
   local tileset, atlas = self:tileset()
   if not tileset then return end
   local perRow = tileset.tilesPerRow or 16

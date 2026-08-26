@@ -336,8 +336,7 @@ end
 
 function MailCompose:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(0.62, 0.62, 0.62, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 0.62, 0.62, 0.62)
   G.setColor(1, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
