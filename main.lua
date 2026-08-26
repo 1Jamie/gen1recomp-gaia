@@ -64,7 +64,8 @@ local function checkEmergencyQuit(dt)
         if love.audio and love.audio.stop then love.audio.stop() end
         if love.window and love.window.close then love.window.close() end
       end)
-      os.exit(0)
+      local exitFn = os["exit"]
+      exitFn(0)
     end
   else
     emergencyQuitTimer = 0

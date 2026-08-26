@@ -3133,23 +3133,6 @@ function RomImporter:_updatePadCursor(dt)
 
   local ax = self._padAxis.leftx or 0
   local ay = self._padAxis.lefty or 0
-
-  if not self._padCursorActive then
-    -- Stick navigation flick in native controller mode
-    if math.abs(ax) > 0.55 or math.abs(ay) > 0.55 then
-      if not self._stickFlicked then
-        if ay < -0.55 then Kit.navigate("up"); self._stickFlicked = true
-        elseif ay > 0.55 then Kit.navigate("down"); self._stickFlicked = true
-        elseif ax < -0.55 then Kit.navigate("left"); self._stickFlicked = true
-        elseif ax > 0.55 then Kit.navigate("right"); self._stickFlicked = true
-        end
-      end
-    elseif math.abs(ax) < 0.3 and math.abs(ay) < 0.3 then
-      self._stickFlicked = false
-    end
-    return
-  end
-
   local dx, dy = 0, 0
   if math.abs(ax) > PAD_DEAD then dx = dx + ax end
   if math.abs(ay) > PAD_DEAD then dy = dy + ay end
@@ -3304,10 +3287,15 @@ function RomImporter:gamepadpressed(_, button)
     return
   end
 
-  if not self._padCursorActive then
+  if not self._padCursorActive and not self.isNX then
     if okKit then Kit._ringShown = true end
     if action == "a" then
-      if okKit then Kit.activateFocused() end
+      if okKit and Kit.focusId then
+        Kit.activateFocused()
+      elseif self._flex then
+        require("src.import.LauncherView").clickAt(self,
+          self._padCursor.x, self._padCursor.y)
+      end
       return
     elseif action == "b" then
       if self._indexPrompt then self._indexPrompt = nil; self:_disarmTextInput(); return
