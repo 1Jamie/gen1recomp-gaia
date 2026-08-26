@@ -11,6 +11,7 @@
 
 local Assets = require("src.render.Assets")
 local Font = require("src.render.Font")
+local LevelDisplay = require("src.ui.LevelDisplay")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
@@ -785,7 +786,11 @@ function PartyMenu:draw()
     -- level at column 13 (<LV> tile + digits, PrintLevel) AND the
     -- status/FNT text at column 17 (PrintStatusCondition), like the
     -- original rows -- statused mons keep their level display
-    if mon.level < 100 then
+    if not LevelDisplay.visible(mon, "party", self.game) then -- RFC 0019
+      -- the level column is simply empty; the status/FNT column at 17 is a
+      -- separate field and still prints, exactly as it does for a mon whose
+      -- level is on screen
+    elseif mon.level < 100 then
       HudTiles.tile(0x6E, 104, y) -- <LV>
       Font.draw(tostring(mon.level), 112, y)
     else

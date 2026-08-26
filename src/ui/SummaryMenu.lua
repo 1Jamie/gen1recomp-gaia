@@ -12,6 +12,7 @@ local Font = require("src.render.Font")
 -- TypeChart.displayName maps it back to "PSYCHIC", like HallOfFame and the
 -- battle move-type box already do (#214).
 local TypeChart = require("src.battle.TypeChart")
+local LevelDisplay = require("src.ui.LevelDisplay")
 local Strings = require("src.core.Strings")
 local Stats = require("src.pokemon.Stats")
 local Status = require("src.battle.Status")
@@ -137,7 +138,9 @@ function SummaryMenu:draw()
   if self.page == 1 then
     -- level is page 1 only: StatusScreen2 opens with ClearScreenArea over
     -- (9,2) 5x10 (status_screen.asm:303-305). #280
-    printLevel(14, 2, mon.level)
+    if LevelDisplay.visible(mon, "summary", self.game) then -- RFC 0019
+      printLevel(14, 2, mon.level)
+    end
     drawLineBox(19, 1, 6, 10)
     -- engine/pokemon/status_screen.asm:120-125
     local PaletteFX = require("src.render.PaletteFX")
@@ -196,8 +199,12 @@ function SummaryMenu:draw()
     local nextExp = mon.level < 100
       and (Growth.expForLevel(def.growthRate, mon.level + 1) - mon.exp) or 0
     Font.draw(("%7d"):format(math.max(0, nextExp)), 56, 48)
-    HudTiles.statusTile(0x70, 112, 48) -- '<to>' at (14,6), was missing (#280)
-    printLevel(16, 6, math.min(100, mon.level + 1))
+    if LevelDisplay.visible(mon, "summary", self.game) then -- RFC 0019
+      -- the '<to>' arrow is half a sentence without the level it points at,
+      -- so the pair is hidden together
+      HudTiles.statusTile(0x70, 112, 48) -- '<to>' at (14,6), was missing (#280)
+      printLevel(16, 6, math.min(100, mon.level + 1))
+    end
     Font.drawBox(0, 8, 20, 10)
     for i = 1, 4 do
       local mv = mon.moves[i]
