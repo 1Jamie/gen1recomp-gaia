@@ -26,14 +26,10 @@ local WideBattle = {
   FIELD_BOTTOM = 104,
 }
 
--- The forced-mono display modes re-threshold the whole finished frame
--- through the shade shader, and picImage hands them raw DMG grays for that
--- (#207).  The wide layout has to know: it exposes a matching whole-surface
--- zone and leaves the HP bar fill gray, exactly like the zone pass does in
--- the classic layout (#229).  Keep in sync with picImage / ensureZones.
 local function monoMode()
   local m = PaletteFX.mode
   return m == "og" or m == "og_inv" or m == "classic"
+      or PaletteFX.forcesRawGrays()
 end
 
 local function shownHP(battler)

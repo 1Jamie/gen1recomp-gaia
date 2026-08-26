@@ -192,6 +192,20 @@ chmod +x "$PORT_ROOT/$PORT_DIR_NAME/bin/love.aarch64"
 cp "$LOVE_LIB" "$LUAJIT_LIB" "$MODPLUG_LIB" "$OGG_LIB" \
   "$PORT_ROOT/$PORT_DIR_NAME/libs.aarch64/"
 
+BRIDGE_LIB="liblibrashader_bridge.so"
+BRIDGE_SRC="${SHADERFX_BRIDGE_LINUX_ARM64:-}"
+if [ -z "$BRIDGE_SRC" ] && [ -f "$ROOT/dist/native/linux-arm64/$BRIDGE_LIB" ]; then
+  BRIDGE_SRC="$ROOT/dist/native/linux-arm64/$BRIDGE_LIB"
+fi
+if [ -n "$BRIDGE_SRC" ] && [ -f "$BRIDGE_SRC" ]; then
+  cp "$BRIDGE_SRC" "$PORT_ROOT/$PORT_DIR_NAME/libs.aarch64/$BRIDGE_LIB"
+  say "bundled $BRIDGE_LIB for SHADER FX preset conversion"
+elif [ "${SHADERFX_BRIDGE_REQUIRED:-}" = "1" ]; then
+  fail "$BRIDGE_LIB not found: set SHADERFX_BRIDGE_LINUX_ARM64 or stage it at dist/native/linux-arm64/$BRIDGE_LIB"
+else
+  warn "$BRIDGE_LIB not found: this port can run converted presets but not CONVERT new ones"
+fi
+
 # Drop a short license pointer for the bundled LÖVE bits.
 cat > "$PORT_ROOT/$PORT_DIR_NAME/licenses/LICENSE.love2d.txt" <<'EOF'
 This port bundles the LÖVE 11.5 aarch64 runtime from PortMaster
@@ -203,81 +217,203 @@ EOF
 # Resolve the game directory from the launcher so this works with both
 # PortMaster-managed ports directories.
 cat > "$PORT_ROOT/$LAUNCHER_NAME" <<'EOF'
-#!/bin/bash
-# gen1recomp-sbc — Linux ARM SBC / PortMaster launcher
-# Uses SHDIR-relative paths so firmware-specific mount points do not matter.
+#!/usr/bin/env bash
+# gen1recomp-sbc — High-Performance Native ARM64 Handheld Port Launcher
+# Compatible with TrimUI Brick, TrimUI Smart Pro, Anbernic (H700/RK3566), muOS, Knulli, ArkOS, Stock OS
 
 export HOME="${HOME:-/root}"
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 SHDIR="$(cd "$(dirname "$0")" && pwd)"
-
-if [ -d "/mnt/SDCARD/Apps/PortMaster/PortMaster/" ]; then
-  controlfolder="/mnt/SDCARD/Apps/PortMaster/PortMaster"
-elif [ -d "/mnt/SDCARD/Roms/ports/PortMaster" ]; then
-  controlfolder="/mnt/SDCARD/Roms/ports/PortMaster"
-elif [ -d "/mnt/SDCARD/Data/PortMaster/" ]; then
-  controlfolder="/mnt/SDCARD/Data/PortMaster"
-elif [ -d "$SHDIR/PortMaster" ]; then
-  controlfolder="$SHDIR/PortMaster"
-elif [ -d "/opt/system/Tools/PortMaster/" ]; then
-  controlfolder="/opt/system/Tools/PortMaster"
-elif [ -d "/opt/tools/PortMaster/" ]; then
-  controlfolder="/opt/tools/PortMaster"
-elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
-  controlfolder="$XDG_DATA_HOME/PortMaster"
-elif [ -d "/roms/ports/PortMaster" ]; then
-  controlfolder="/roms/ports/PortMaster"
-else
-  controlfolder="/mnt/SDCARD/Roms/PORTS/PortMaster"
-fi
-
-if [ ! -f "$controlfolder/control.txt" ]; then
-  echo "PortMaster control.txt not found under $controlfolder" >&2
-  exit 1
-fi
-# shellcheck disable=SC1090
-source "$controlfolder/control.txt"
-get_controls
-if [ -n "${CFW_NAME:-}" ] && [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ]; then
-  # shellcheck disable=SC1090
-  source "${controlfolder}/mod_${CFW_NAME}.txt"
-fi
-
 GAMEDIR="$SHDIR/gen1recomp-sbc"
 CONFDIR="$GAMEDIR/conf"
+
 mkdir -p "$CONFDIR"
-
 cd "$GAMEDIR" || exit 1
-> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
 
+# Setup POSIX logging (compatible with busybox ash/dash/bash)
+exec 1>"$GAMEDIR/log.txt" 2>&1
+
+echo "========================================="
+echo "gen1recomp Handheld Native ARM64 Launcher"
+echo "SHDIR: $SHDIR"
+echo "GAMEDIR: $GAMEDIR"
+echo "Date: $(date 2>/dev/null || echo 'N/A')"
+echo "========================================="
+
+# PortMaster's control.txt wants a home tree under /mnt/SDCARD/Data; on a
+# fresh card that tree may not exist yet and its mkdir fails noisily (log.txt:
+# "mkdir: can't create directory '/mnt/SDCARD/Data/home'"). Pre-create it
+# before any PortMaster script runs so the failure cannot occur.
+if [ -d /mnt/SDCARD ]; then
+  mkdir -p /mnt/SDCARD/Data/home 2>/dev/null || true
+fi
+
+# 1. Locate PortMaster control directory if present
+controlfolder=""
+if [ -d "/mnt/SDCARD/Apps/PortMaster/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Apps/PortMaster/PortMaster"
+elif [ -d "/mnt/SDCARD/PortMaster/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/PortMaster/PortMaster"
+elif [ -d "/mnt/SDCARD/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/PortMaster"
+elif [ -d "/mnt/SDCARD/Apps/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Apps/PortMaster"
+elif [ -d "/mnt/SDCARD/Emus/PORTS/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Emus/PORTS/PortMaster"
+elif [ -d "/mnt/SDCARD/Emus/PORTMASTER" ]; then
+  controlfolder="/mnt/SDCARD/Emus/PORTMASTER"
+elif [ -d "/mnt/SDCARD/Roms/ports/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Roms/ports/PortMaster"
+elif [ -d "/mnt/SDCARD/Roms/PORTS/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Roms/PORTS/PortMaster"
+elif [ -d "/mnt/SDCARD/Ports/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Ports/PortMaster"
+elif [ -d "$SHDIR/PortMaster" ]; then
+  controlfolder="$SHDIR/PortMaster"
+elif [ -d "/opt/system/Tools/PortMaster" ]; then
+  controlfolder="/opt/system/Tools/PortMaster"
+elif [ -d "/opt/tools/PortMaster" ]; then
+  controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
+elif [ -d "/mnt/SDCARD/Emus/tg5040/PORTS.pak/PortMaster" ]; then
+  controlfolder="/mnt/SDCARD/Emus/tg5040/PORTS.pak/PortMaster"
+elif [ -d "/roms/PORTS/PortMaster" ]; then
+  controlfolder="/roms/PORTS/PortMaster"
+elif [ -d "/roms/ports/PortMaster" ]; then
+  controlfolder="/roms/ports/PortMaster"
+fi
+
+if [ -n "$controlfolder" ] && [ -f "$controlfolder/control.txt" ]; then
+  echo "Found PortMaster control folder: $controlfolder"
+  # shellcheck disable=SC1090
+  . "$controlfolder/control.txt"
+  if type get_controls >/dev/null 2>&1; then
+    get_controls
+  fi
+  if [ -n "${CFW_NAME:-}" ] && [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ]; then
+    # shellcheck disable=SC1090
+    . "${controlfolder}/mod_${CFW_NAME}.txt"
+  fi
+else
+  echo "PortMaster control.txt not found, using standalone handheld configuration."
+fi
+
+# 2. CPU governor
+# Pinning every core to performance keeps handhelds at peak clock even when gameplay
+# uses only a fraction of CPU. Schedutil is the default; set POKEPORT_CPU_GOVERNOR=performance
+# only for profiling or devices needing an extra boost.
+CPU_GOVERNOR_OVERRIDE="${POKEPORT_CPU_GOVERNOR:-schedutil}"
+CPU_GOVERNOR_STATE=""
+
+write_cpu_governor() {
+  local governor_path="$1"
+  local governor="$2"
+  if [ -n "${ESUDO:-}" ]; then
+    printf '%s\n' "$governor" | $ESUDO tee "$governor_path" >/dev/null 2>&1 || true
+  else
+    printf '%s\n' "$governor" > "$governor_path" 2>/dev/null || true
+  fi
+}
+
+restore_cpu_governors() {
+  [ -n "$CPU_GOVERNOR_STATE" ] || return 0
+  while IFS='|' read -r governor_path governor; do
+    [ -n "$governor_path" ] || continue
+    write_cpu_governor "$governor_path" "$governor"
+  done <<< "$CPU_GOVERNOR_STATE"
+  CPU_GOVERNOR_STATE=""
+}
+
+apply_cpu_governors() {
+  [ -n "$CPU_GOVERNOR_OVERRIDE" ] || return 0
+  for governor_path in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    [ -f "$governor_path" ] || continue
+    old_governor=$(cat "$governor_path" 2>/dev/null || true)
+    [ -n "$old_governor" ] || continue
+    CPU_GOVERNOR_STATE="${CPU_GOVERNOR_STATE}${governor_path}|${old_governor}"$'\n'
+    write_cpu_governor "$governor_path" "$CPU_GOVERNOR_OVERRIDE"
+  done
+  echo "CPU governor requested: $CPU_GOVERNOR_OVERRIDE"
+}
+
+# 3. Environment & Low-Level OS Tuning
+export POKEPORT_HANDHELD=1
+export HANDHELD=1
+export PORTMASTER=1
+export NINTENDO_LAYOUT=1
 export XDG_DATA_HOME="$CONFDIR"
 export XDG_CONFIG_HOME="$CONFDIR"
-export LD_LIBRARY_PATH="$GAMEDIR/libs.aarch64:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$GAMEDIR/libs.aarch64:$GAMEDIR/libs:/usr/trimui/lib:/mnt/SDCARD/System/lib:/usr/lib64:/usr/lib:${LD_LIBRARY_PATH:-}"
 export SDL_GAMECONTROLLERCONFIG="${sdl_controllerconfig:-}"
-# GLES is the common path on ARM SBC handhelds; firmware may override it.
 export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"
 
-$ESUDO chmod a+x ./bin/love.aarch64 2>/dev/null || chmod a+x ./bin/love.aarch64
-$ESUDO chmod 666 /dev/uinput 2>/dev/null || true
+# Audio buffer size
+export SDL_AUDIO_SAMPLES=1024
 
-if [ -n "${GPTOKEYB:-}" ]; then
-  $GPTOKEYB "love.aarch64" &
+# Chip-synth sample rate. The audio worker is the dominant CPU cost while
+# idle (music keeps playing when the screen is static), and synthesis cost
+# scales linearly with the rate. 22050 Hz roughly halves audio CPU vs the
+# 44100 Hz default; the Game Boy's own DAC content is well below 11 kHz, so
+# the handheld speaker sounds effectively identical.
+export POKEPORT_AUDIO_RATE=22050
+
+# Idle-power render governor: after 10s with no input on static screens,
+# presentation drops to IDLE_FPS, cutting idle CPU/GPU compositing ~6x.
+# Any button press restores full framerate next frame.
+export POKEPORT_IDLE_FPS=6
+
+# Memory allocator tuning (limit arena fragmentation on 1GB RAM SBCs)
+export MALLOC_ARENA_MAX=2
+export MALLOC_TRIM_THRESHOLD_=131072
+
+# Process scheduling & CPU affinity
+renice -n -5 -p $$ >/dev/null 2>&1 || true
+taskset -cp 0-3 $$ >/dev/null 2>&1 || true
+ionice -c 3 -p $$ >/dev/null 2>&1 || true
+
+# Ensure executable permissions
+if [ -n "${ESUDO:-}" ]; then
+  $ESUDO chmod a+x ./bin/love.aarch64 2>/dev/null || true
+  $ESUDO chmod 666 /dev/uinput 2>/dev/null || true
+else
+  chmod a+x ./bin/love.aarch64 2>/dev/null || true
 fi
+
+# 4. Platform helper
 if type pm_platform_helper >/dev/null 2>&1; then
+  echo "Running pm_platform_helper..."
   pm_platform_helper "$GAMEDIR/bin/love.aarch64"
 fi
 
+# Apply after PortMaster's helper: some firmware helpers reset cpufreq policy
+# while preparing the runtime. The saved values are restored on exit.
+apply_cpu_governors
+trap restore_cpu_governors EXIT
+
+# PulseAudio runtime: PortMaster's helper points it at conf/pulse on the vfat
+# SD card, where the runtime symlink fails ("Operation not permitted" -- vfat
+# has no symlinks). Force the runtime onto tmpfs (real dirs, no symlinks).
+export PULSE_RUNTIME_PATH="/tmp/pulse-$PPID"
+mkdir -p "$PULSE_RUNTIME_PATH" 2>/dev/null || true
+
+echo "Launching ./bin/love.aarch64 $GAMEDIR/lovegame..."
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+
+# 5. Launch
 ./bin/love.aarch64 "$GAMEDIR/lovegame"
+EXIT_CODE=$?
+
+echo "Game exited with code: $EXIT_CODE"
+
+# 6. Cleanup
+restore_cpu_governors
 
 if type pm_finish >/dev/null 2>&1; then
   pm_finish
-else
-  if [ -n "${ESUDO:-}" ]; then
-    $ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null || true
-  else
-    kill -9 $(pidof gptokeyb) 2>/dev/null || true
-  fi
 fi
+
+exit $EXIT_CODE
 EOF
 chmod +x "$PORT_ROOT/$LAUNCHER_NAME"
 

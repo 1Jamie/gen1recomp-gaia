@@ -327,6 +327,14 @@ bundle_needed "$APPDIR/lib/liblove-$LOVE_VERSION.so"
 say "bundled $(ls "$APPDIR/lib" | wc -l) libraries: $(ls "$APPDIR/lib" | tr '\n' ' ')"
 
 # ------------------------------------------------- host dependency contract
+SHADER_BRIDGE=()
+if [ -f "$IN/liblibrashader_bridge.so" ]; then
+  cp "$IN/liblibrashader_bridge.so" "$APPDIR/liblibrashader_bridge.so"
+  chmod 0755 "$APPDIR/liblibrashader_bridge.so"
+  SHADER_BRIDGE=("$APPDIR/liblibrashader_bridge.so")
+  say "bundled liblibrashader_bridge.so for SHADER FX preset conversion"
+fi
+
 # The portability promise, stated as an assertion instead of a paragraph in a
 # README: these are the ONLY sonames the shipped objects may require from the
 # host. Everything driver-, session- or audio-related has to be reached
@@ -339,7 +347,7 @@ say "bundled $(ls "$APPDIR/lib" | wc -l) libraries: $(ls "$APPDIR/lib" | tr '\n'
 HOST_ALLOWED_RE='^(ld-linux-aarch64\.so\.1|libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|libstdc\+\+\.so\.6|libgcc_s\.so\.1|libatomic\.so\.1|libfreetype\.so\.6|libpng[0-9]*\.so\.[0-9]+|libz\.so\.1|libbrotli(dec|common)\.so\.1)$'
 
 unexpected=""
-for object in "$APPDIR/bin/love" "$APPDIR"/lib/*.so*; do
+for object in "$APPDIR/bin/love" "$APPDIR"/lib/*.so* ${SHADER_BRIDGE[@]+"${SHADER_BRIDGE[@]}"}; do
   while read -r soname; do
     [ -n "$soname" ] || continue
     # Satisfied from inside the AppDir, so not a host requirement at all.

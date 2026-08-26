@@ -180,8 +180,7 @@ function Diploma:drawWidescreen(winW, winH)
   -- Nil palette degrades to the DMG ramp's colour 1, i.e. white, matching the
   -- Chrome.clear() the panel falls back to when the cache has no gfx/diploma.
   local paper = GbcPalette.color(self:palette(), 1)
-  G.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, paper[1] / 255, paper[2] / 255, paper[3] / 255)
   G.setColor(1, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   local ox, oy = Chrome.fitOrigin(winW, winH, scale)

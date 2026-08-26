@@ -143,7 +143,7 @@ jobs:
 
   linux-arm64:
     name: build Linux arm64 AppImage
-    needs: [version, love-payload]
+    needs: [version, love-payload, shaderfx-bridge]
     # GitHub's free arm64 runner for public repos. It has to be arm64: the
     # AppImage compiles LÖVE natively inside a Debian bullseye arm64
     # container, and the qemu-emulated alternative takes hours.
@@ -155,13 +155,22 @@ jobs:
         with:
           name: gen1recomp-release-love
           path: .bazinga/work
+      - name: Download the ShaderFX bridge
+        uses: actions/download-artifact@v8
+        with:
+          name: shaderfx-bridge-linux-arm64
+          path: dist/native/linux-arm64
       - name: Build Linux arm64 AppImage
+        env:
+          SHADERFX_BRIDGE_REQUIRED: "1"
         run: |
           set -euo pipefail
           scripts/build_linux_arm64.sh \
             --version "${{ needs.version.outputs.version }}" \
             --game-love .bazinga/work/game.love
       - name: Verify the AppImage is self-contained and bullseye-compatible
+        env:
+          SHADERFX_BRIDGE_REQUIRED: "1"
         run: bash scripts/linux-arm64/verify_appimage.sh "dist/linux-arm64/gen1recomp-${{ needs.version.outputs.version }}-linux-arm64.AppImage"
       - name: Upload Linux arm64 release
         uses: actions/upload-artifact@v7
@@ -170,6 +179,45 @@ jobs:
           path: |
             dist/linux-arm64/gen1recomp-${{ needs.version.outputs.version }}-linux-arm64.AppImage
             dist/linux-arm64/gen1recomp-${{ needs.version.outputs.version }}-linux-arm64.AppImage.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  linux-flatpak:
+    name: build Linux Flatpak
+    needs: [version, love-payload, shaderfx-bridge]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install flatpak-builder deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils imagemagick
+      - name: Download shared payload
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1recomp-release-love
+          path: .bazinga/work
+      - name: Download the ShaderFX bridge
+        uses: actions/download-artifact@v8
+        with:
+          name: shaderfx-bridge-linux-x64
+          path: dist/native/linux-x64
+      - name: Build Flatpak bundle
+        env:
+          SHADERFX_BRIDGE_REQUIRED: "1"
+        run: |
+          set -euo pipefail
+          scripts/build_flatpak.sh \
+            --version "${{ needs.version.outputs.version }}" \
+            --game-love .bazinga/work/game.love
+      - name: Upload Flatpak release
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-linux-flatpak-release
+          path: |
+            dist/flatpak/gen1recomp-${{ needs.version.outputs.version }}-linux.flatpak
+            dist/flatpak/gen1recomp-${{ needs.version.outputs.version }}-linux.flatpak.sha256
           if-no-files-found: error
           retention-days: 1
 
@@ -286,8 +334,82 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  shaderfx-bridge:
+    name: build ShaderFX bridge (${{ matrix.plat }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plat: win-x64
+            runs-on: windows-2022
+            lib: librashader_bridge.dll
+          - plat: mac
+            runs-on: macos-latest
+            lib: liblibrashader_bridge.dylib
+          - plat: linux-x64
+            runs-on: ubuntu-24.04
+            lib: liblibrashader_bridge.so
+            glibc_triple: x86_64-unknown-linux-gnu.2.17
+          - plat: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            lib: liblibrashader_bridge.so
+            glibc_triple: aarch64-unknown-linux-gnu.2.17
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry and build dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/shaderfx-bridge
+          key: ${{ matrix.plat }}-${{ matrix.glibc_triple }}
+      - name: Build the bridge
+        shell: bash
+        env:
+          PLAT: ${{ matrix.plat }}
+          LIB: ${{ matrix.lib }}
+          GLIBC_TRIPLE: ${{ matrix.glibc_triple }}
+        run: |
+          set -euo pipefail
+          out="dist/native/$PLAT"
+          mkdir -p "$out"
+          cd tools/shaderfx-bridge
+          case "$PLAT" in
+            win-x64)
+              rustup target add x86_64-pc-windows-msvc
+              cargo build --release --target x86_64-pc-windows-msvc
+              cp "target/x86_64-pc-windows-msvc/release/$LIB" "$GITHUB_WORKSPACE/$out/$LIB"
+              ;;
+            mac)
+              rustup target add x86_64-apple-darwin aarch64-apple-darwin
+              cargo build --release --target x86_64-apple-darwin
+              cargo build --release --target aarch64-apple-darwin
+              lipo -create -output "$GITHUB_WORKSPACE/$out/$LIB" \
+                "target/x86_64-apple-darwin/release/$LIB" \
+                "target/aarch64-apple-darwin/release/$LIB"
+              lipo -info "$GITHUB_WORKSPACE/$out/$LIB"
+              ;;
+            linux-x64|linux-arm64)
+              pipx install cargo-zigbuild
+              pipx inject cargo-zigbuild ziglang
+              triple="$GLIBC_TRIPLE"
+              rustup target add "${triple%%.*}"
+              cargo zigbuild --release --target "$triple"
+              cp "target/${triple%%.*}/release/$LIB" "$GITHUB_WORKSPACE/$out/$LIB"
+              ;;
+          esac
+      - name: Upload the bridge
+        uses: actions/upload-artifact@v7
+        with:
+          name: shaderfx-bridge-${{ matrix.plat }}
+          path: dist/native/${{ matrix.plat }}/${{ matrix.lib }}
+          if-no-files-found: error
+          retention-days: 1
+
   release:
-    needs: [version, love-payload, xbox-uwp, linux-arm64, native-tls-win]
+    needs: [version, love-payload, xbox-uwp, linux-arm64, linux-flatpak, native-tls-win, shaderfx-bridge]
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
 
     steps:
@@ -308,6 +430,28 @@ jobs:
         with:
           name: gen1tls-win-x64
           path: dist/native/win-x64
+
+      - name: Download ShaderFX bridge libraries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: shaderfx-bridge-*
+          path: dist/native
+      - name: Flatten the ShaderFX bridge artifact layout
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for d in dist/native/shaderfx-bridge-*/; do
+            d="${d%/}"
+            plat="${d#dist/native/shaderfx-bridge-}"
+            mkdir -p "dist/native/$plat"
+            for f in "$d"/*; do mv "$f" "dist/native/$plat/"; done
+            rmdir "$d"
+          done
+          for plat in mac win-x64 linux-x64 linux-arm64; do
+            ls "dist/native/$plat" >/dev/null \
+              || { echo "::error::no ShaderFX bridge staged for $plat"; exit 1; }
+          done
+          ls -lR dist/native
 
       # The same game.love the arm64 AppImage and Xbox UWP builds fused, so
       # every release asset ships one identical payload (build.sh's own pack
@@ -358,6 +502,7 @@ jobs:
       - name: Build macOS + Windows + Linux
         env:
           GEN1TLS_DLL: ${{ github.workspace }}/dist/native/win-x64/gen1tls.dll
+          SHADERFX_BRIDGE_REQUIRED: "1"
         run: |
           set -euo pipefail
           # Sign in-build (identity auto-detected from the temp keychain);
@@ -372,6 +517,8 @@ jobs:
             --game-love dist/payload/game.love
           unzip -l dist/win/gen1recomp-win64.zip | grep -F gen1tls.dll \
             || { echo "::error::Windows zip is missing gen1tls.dll"; exit 1; }
+          unzip -l dist/win/gen1recomp-win64.zip | grep -F librashader_bridge.dll \
+            || { echo "::error::Windows zip is missing librashader_bridge.dll"; exit 1; }
 
       - name: Materialize Android release signing key
         env:
@@ -429,6 +576,8 @@ jobs:
             --version "${{ needs.version.outputs.version }}"
 
       - name: Build Anbernic RG34XXSP port
+        env:
+          SHADERFX_BRIDGE_REQUIRED: "1"
         run: |
           set -euo pipefail
           # Self-contained aarch64 PortMaster-style pack; pulls the LÖVE 11.5
@@ -442,6 +591,7 @@ jobs:
           # builds, while this explicit local override keeps CI source-aligned.
           GEN1RECOMP_SOURCE_DIR: ${{ github.workspace }}
           GEN1RECOMP_RELEASE_TAG: v${{ needs.version.outputs.version }}
+          SHADERFX_BRIDGE_REQUIRED: "1"
         run: |
           set -euo pipefail
           # Same aarch64 PortMaster-style pack for Linux ARM SBC PortMaster. The build
@@ -498,6 +648,13 @@ jobs:
           name: gen1recomp-linux-arm64-release
           path: dist/linux-arm64
 
+      - name: Download Linux Flatpak release
+        if: github.repository == 'bryanthaboi/gen1recomp'
+        uses: actions/download-artifact@v8
+        with:
+          name: gen1recomp-linux-flatpak-release
+          path: dist/flatpak
+
       - name: Stage release assets
         if: github.repository == 'bryanthaboi/gen1recomp'
         id: assets
@@ -509,16 +666,24 @@ jobs:
           mkdir -p "$outdir"
           cp "dist/mac/gen1recomp-macos.zip" "$outdir/gen1recomp-${v}-macos.zip"
           cp "dist/win/gen1recomp-win64.zip" "$outdir/gen1recomp-${v}-windows.zip"
-          cp "dist/linux/gen1recomp-linux.zip" "$outdir/gen1recomp-${v}-linux.zip"
+          # x86_64 desktop Linux: raw AppImage (no zip wrapper).
+          x64_appimage="dist/linux/gen1recomp-linux-x86_64.AppImage"
+          [ -f "$x64_appimage" ] || { echo "::error::$x64_appimage not found (expected from scripts/build.sh linux)"; exit 1; }
+          cp "$x64_appimage" "$outdir/gen1recomp-${v}-linux-x86_64.AppImage"
+          chmod +x "$outdir/gen1recomp-${v}-linux-x86_64.AppImage"
 
           # arm64 desktop Linux (Raspberry Pi, Armbian, arm64 VMs). Built on
           # its own runner because LÖVE publishes no aarch64 binary and the
           # AppImage has to be compiled natively; ships as a runnable
-          # AppImage rather than a zip so `chmod +x && ./it` just works.
+          # AppImage so `chmod +x && ./it` just works.
           arm64_appimage="dist/linux-arm64/gen1recomp-${v}-linux-arm64.AppImage"
           [ -f "$arm64_appimage" ] || { echo "::error::$arm64_appimage not found (expected from the linux-arm64 job)"; exit 1; }
           cp "$arm64_appimage" "$outdir/gen1recomp-${v}-linux-arm64.AppImage"
           chmod +x "$outdir/gen1recomp-${v}-linux-arm64.AppImage"
+
+          flatpak_bundle="dist/flatpak/gen1recomp-${v}-linux.flatpak"
+          [ -f "$flatpak_bundle" ] || { echo "::error::$flatpak_bundle not found (expected from the linux-flatpak job)"; exit 1; }
+          cp "$flatpak_bundle" "$outdir/gen1recomp-${v}-linux.flatpak"
           apk="$(find dist/android/release -name '*.apk' | head -1)"
           [ -n "$apk" ] || { echo "::error::no Android APK found under dist/android/release"; exit 1; }
           cp "$apk" "$outdir/gen1recomp-${v}-android.apk"
@@ -656,8 +821,9 @@ jobs:
           release_files=(
             "dist/release/gen1recomp-${v}-macos.zip"
             "dist/release/gen1recomp-${v}-windows.zip"
-            "dist/release/gen1recomp-${v}-linux.zip"
+            "dist/release/gen1recomp-${v}-linux-x86_64.AppImage"
             "dist/release/gen1recomp-${v}-linux-arm64.AppImage"
+            "dist/release/gen1recomp-${v}-linux.flatpak"
             "dist/release/gen1recomp-${v}-android.apk"
             "dist/release/gen1recomp++-${v}-ios.ipa"
             "dist/release/gen1recomp-${v}-switch.zip"

@@ -1,19 +1,19 @@
 # Gen1Recomp
 
-A native LÖVE2D recreation of Poke Red, Blue and Yellow. The engine and map
-behavior are hand-written Lua; game data and graphics are decoded from a ROM
-supplied by the player.
+A native LÖVE2D recreation of Poke Red, Blue, Gold, Silver, and Crystal. The 
+engine and map behavior are hand-written Lua; game data and graphics are 
+decoded from a ROM supplied by the player.
 
 And before you say, "that's not a recomp", you're wrong. Recomp is an acronym. ***Reverse Engineering Causes Obsessive Mental Problems***
 
 [Click Here for the AI Use Disclosure!](AIDisclosure.md)
 
 > [!CAUTION]
-> **We are NOT affiliated with the website `gen1recomp[.]com`** That website is not run by this project, was not authorized by us, and we have no idea who operates it. It is impersonating this project; do not download anything from it, and treat anything it hosts or claims as untrustworthy. Even if the site currently links back to this repository, the people behind it can change its content at any time, so nothing on it should ever be trusted. This GitHub repository and the Discord linked below are the only official sources for this project. Also, as I assumed would eventually happen, the idiot that made that website now pumped it full of adware. Please stay away from that website.
+> **We are NOT affiliated with the website `gen1recomp[.]com`** That website is not run by this project, was not authorized by us, and we have no idea who operates it. It is impersonating this project; do not download anything from it, and treat anything it hosts or claims as untrustworthy. Even if the site currently links back to this repository, the people behind it can change its content at any time, so nothing on it should ever be trusted. This GitHub repository, the Discord, and https://gen1re.com are the only official sources for this project. Also, as I assumed would eventually happen, the idiot that made that website now pumped it full of adware. Please stay away from that website.
 
 <p align="center"><img src="https://raw.githubusercontent.com/bryanthaboi/gen1recomp/refs/heads/dev/assets/logo/logo.png"></p>
 
-**SUPPORT / ANNOUNCEMENTS / MODS:** [Discord](https://bois.icu)
+# [SUPPORT / ANNOUNCEMENTS / MODS ALL FOUND ON THE DISCORD](https://bois.icu)
 
 <p align="center">
 
@@ -228,18 +228,27 @@ entry: a desktop shortcut per game, a Steam entry, or a handheld frontend.
 | `--launcher` | open the launcher anyway, so you can edit a shortcut you already made |
 
 
-## Linux on arm64 (Raspberry Pi)
+## Linux desktop (AppImage / Flatpak)
 
-Alongside the x86_64 `gen1recomp-*-linux.zip`, every release ships
-`gen1recomp-*-linux-arm64.AppImage` for 64-bit ARM desktop Linux — Raspberry
-Pi 4/5, Armbian and other SBC distros, and arm64 VMs on Apple Silicon:
+Releases ship raw AppImages (no zip wrapper) plus an optional Flatpak bundle:
+
+- `gen1recomp-*-linux-x86_64.AppImage`
+- `gen1recomp-*-linux-arm64.AppImage` (Raspberry Pi 4/5, Armbian, arm64 VMs)
+- `gen1recomp-*-linux.flatpak` (see [docs/linux-flatpak.md](docs/linux-flatpak.md))
+
+```sh
+chmod +x gen1recomp-*-linux-x86_64.AppImage
+./gen1recomp-*-linux-x86_64.AppImage
+```
 
 ```sh
 chmod +x gen1recomp-*-linux-arm64.AppImage
 ./gen1recomp-*-linux-arm64.AppImage
 ```
 
-LÖVE publishes no aarch64 binary of any kind, so this artifact compiles the
+Shared troubleshooting (FUSE, curl, portable mode): [docs/linux-appimage.md](docs/linux-appimage.md).
+
+LÖVE publishes no aarch64 binary of any kind, so the arm64 artifact compiles the
 engine — and SDL2, OpenAL and the codecs — from source inside a Debian
 bullseye arm64 container. It needs only glibc 2.29+, libstdc++, freetype and
 zlib on the host; OpenGL, X11, Wayland, KMSDRM, ALSA and PulseAudio are all

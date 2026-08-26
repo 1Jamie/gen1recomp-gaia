@@ -605,6 +605,7 @@ local function gen2Rows(opts, hooks, shared)
         end
         opts.color =
           GbcPalette.MODES[wrapIndex(idx - 1 + dir, #GbcPalette.MODES) + 1]
+        opts.palette = ""
         return true
       end)
   end

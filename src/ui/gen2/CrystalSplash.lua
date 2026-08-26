@@ -410,8 +410,7 @@ end
 function CrystalSplash:drawWidescreen(winW, winH)
   local G = love.graphics
   local backdrop = GbcPalette.color(self.bgColors, 1) or BLACK
-  G.setColor(backdrop[1] / 255, backdrop[2] / 255, backdrop[3] / 255, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, backdrop[1] / 255, backdrop[2] / 255, backdrop[3] / 255)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

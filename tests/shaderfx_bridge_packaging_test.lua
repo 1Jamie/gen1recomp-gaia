@@ -1,0 +1,71 @@
+-- Content gate: every shipped artifact carries ShaderFX's librashader bridge.
+-- Self-contained: luajit tests/shaderfx_bridge_packaging_test.lua
+
+local T = require("tests.harness")
+local check = T.check
+
+local function read(path)
+  local f, err = io.open(path, "r")
+  if not f then error("cannot read " .. path .. ": " .. tostring(err)) end
+  local s = f:read("*a")
+  f:close()
+  return s
+end
+
+local function mustContain(body, needle, label)
+  check(body:find(needle, 1, true) ~= nil,
+    label .. " must contain " .. string.format("%q", needle))
+end
+
+local build = read("scripts/build.sh")
+local release = read(".github/workflows/release.yml")
+local flatpak = read("scripts/build_flatpak.sh")
+local manifest = read("flatpak/com.theboisclub.gen1recomp.yml")
+local arm64 = read("scripts/build_linux_arm64.sh")
+local arm64_pack = read("scripts/linux-arm64/build_appimage.sh")
+local verify = read("scripts/linux-arm64/verify_appimage.sh")
+local rg34 = read("build-rg34xxsp.sh")
+local sbc = read("build-linux-arm-sbc.sh")
+
+for _, call in ipairs({
+  'bundle_shader_bridge "$out_app/Contents/MacOS" "liblibrashader_bridge.dylib" mac',
+  'bundle_shader_bridge "$out_dir" "librashader_bridge.dll" win-x64',
+  'bundle_shader_bridge "$appdir" "liblibrashader_bridge.so" linux-x64',
+}) do
+  mustContain(build, call, "build.sh")
+end
+mustContain(build, '$DIST/native/$plat/$name', "build.sh staged lookup")
+mustContain(build, 'SHADERFX_BRIDGE_REQUIRED', "build.sh hard-fail switch")
+mustContain(build, '[ "$plat" = "$(shader_bridge_host_plat)" ]', "build.sh host guard")
+
+mustContain(release, "shaderfx-bridge:", "release.yml bridge job")
+for _, plat in ipairs({ "win-x64", "mac", "linux-x64", "linux-arm64" }) do
+  mustContain(release, "plat: " .. plat, "release.yml matrix")
+end
+mustContain(release, "lipo -create", "release.yml universal macOS bridge")
+
+local requiredIn = select(2, release:gsub('SHADERFX_BRIDGE_REQUIRED: "1"', ""))
+check(requiredIn >= 6,
+  'release.yml must set SHADERFX_BRIDGE_REQUIRED on every shipping job, found ' .. requiredIn)
+mustContain(release, "librashader_bridge.dll", "release.yml Windows zip assertion")
+
+mustContain(manifest, "# BRIDGE-BEGIN", "flatpak manifest markers")
+mustContain(manifest, "/app/share/gen1recomp/liblibrashader_bridge.so", "flatpak install path")
+mustContain(flatpak, "/# BRIDGE-BEGIN/,/# BRIDGE-END/d", "build_flatpak.sh strip")
+mustContain(flatpak, "$BUILD_DIR/files/share/gen1recomp/$BRIDGE_LIB", "build_flatpak.sh verify")
+
+mustContain(arm64, "SHADERFX_BRIDGE_LINUX_ARM64", "build_linux_arm64.sh override")
+mustContain(arm64_pack, '$APPDIR/liblibrashader_bridge.so', "build_appimage.sh AppDir root")
+mustContain(arm64_pack, '${SHADER_BRIDGE[@]+"${SHADER_BRIDGE[@]}"}', "build_appimage.sh contract scan")
+mustContain(verify, "7f454c46", "verify_appimage.sh discovers ELF objects")
+mustContain(verify, 'ctypes.CDLL', "verify_appimage.sh dlopen smoke")
+for _, scanned in ipairs({ 'ldd "${scan[@]}"', 'for f in "${scan[@]}"', 'objdump -T "${scan[@]}"' }) do
+  mustContain(verify, scanned, "verify_appimage.sh")
+end
+
+for _, pair in ipairs({ { rg34, "build-rg34xxsp.sh" }, { sbc, "build-linux-arm-sbc.sh" } }) do
+  mustContain(pair[1], 'libs.aarch64/$BRIDGE_LIB', pair[2])
+  mustContain(pair[1], "SHADERFX_BRIDGE_REQUIRED", pair[2])
+end
+
+T.finish("shaderfx_bridge_packaging_test")

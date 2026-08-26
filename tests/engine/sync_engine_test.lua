@@ -180,6 +180,58 @@ do
   T.eq(eng.phase, "idle", "and the sync ends idle")
 end
 
+-- Identical playtime is not a fork.  The Gold prompt the player saw offered
+-- "GOLD - 8 badges - 3:46 - 9 seen" against "GOLD - 8 badges - 3:46 - 9 seen":
+-- the same minute of the same playthrough, two saves that differ only in
+-- their savedAt stamp.  Nothing to choose between, so nothing to ask.
+do
+  T.eq(SyncEngine.samePlaytime(
+        { summary = { timeText = "3:46" } },
+        { summary = { timeText = "3:46" } }), true,
+    "the same H:MM is the same point in the playthrough")
+  T.eq(SyncEngine.samePlaytime(
+        { summary = { timeText = "3:46" } },
+        { summary = { timeText = "3:47" } }), false,
+    "one minute apart is a real fork")
+  T.eq(SyncEngine.samePlaytime({ playTime = 13560 }, { playTime = 13599 }),
+    true, "Gen 1's seconds count compares to the minute, not the second")
+  T.eq(SyncEngine.samePlaytime({ playTime = 13560 }, { playTime = 13620 }),
+    false, "and a whole minute apart still forks")
+  -- Gen 2 stores playTime as a table, so meta.playTime is nil on a Gold
+  -- save and only timeText survives; a missing time must never read as a
+  -- match, or an unknowable conflict would be silently discarded.
+  T.eq(SyncEngine.samePlaytime({}, {}), false,
+    "two unknown playtimes are not a match")
+  T.eq(SyncEngine.samePlaytime({ summary = { timeText = "3:46" } }, {}), false,
+    "and neither is one unknown side")
+end
+
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 7, 500)
+  local entry = saveEntry("red", "abc", 700, 650)
+  entry.meta.summary.timeText = "3:46"
+  local eng, transport = engine({
+    ["GET /sync/state"] = { code = 200,
+      body = '{"saves":{"red/abc":{"rev":9,"meta":{"savedAt":760,' ..
+             '"sessionStart":600,"summary":{"name":"ASH","timeText":"3:46"}}}}}' },
+    ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":10}' },
+  }, { entry }, state)
+
+  eng:syncNow()
+  pump(eng)
+  T.eq(#eng.conflicts, 0, "matching playtime raises no conflict")
+  T.eq(#eng.state.pendingConflicts, 0, "and leaves nothing pending")
+  T.neq(eng.phase, "conflict", "so the player is never prompted")
+  local put
+  for _, req in ipairs(transport.sent) do
+    if req.method == "PUT" then put = req end
+  end
+  T.check(put ~= nil, "this device's copy is pushed instead")
+  T.check(put and put.body:find('"force":true', 1, true) ~= nil,
+    "forced past the moved rev, since there is nothing to preserve")
+end
+
 local function conflictEngine()
   local state = linkedState()
   SyncState.setRev(state, "red/abc", 7, 500)

@@ -21,6 +21,7 @@
 
 local Assets = require("src.render.Assets")
 local GbcPalette = require("src.render.GbcPalette")
+local Chrome = require("src.ui.gen2.Chrome")
 
 local PackGfx = {}
 PackGfx.__index = PackGfx
@@ -111,9 +112,7 @@ end
 -- Everything behind the item list: the header strip, the background column,
 -- the bag picture for this pocket, and the pocket plaque.
 function PackGfx:draw(pocketId)
-  local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, SCREEN_W * 8, SCREEN_H * 8)
+  Chrome.paletteFill(0, 0, SCREEN_W * 8, SCREEN_H * 8, Chrome.DEFAULT_BOX_PALETTE)
 
   -- ◀▶ POCKET       ▼▲ ITEMS: 20 running tiles from $28.
   local header = self.gfx.headerFirstTile or 0x28

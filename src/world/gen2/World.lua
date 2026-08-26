@@ -8217,7 +8217,8 @@ function World:mapCacheKey(mapId)
   local daytime = self.daytime
   local flicker = (daytime == "DARK") and self.flickerPhase or 1
   return mapId .. "|" .. tostring(daytime)
-    .. "|" .. tostring(GbcPalette.mode) .. "|" .. tostring(flicker)
+    .. "|" .. tostring(GbcPalette.mode) .. "|" .. tostring(GbcPalette.customRamp)
+    .. "|" .. tostring(flicker)
 end
 
 function World:imageFor(mapId)
@@ -8440,7 +8441,8 @@ function World:borderImageFor(mapId)
   -- stale bake (#1418).
   local waterFrame = self:borderWaterFrame(def, tileset)
   local cacheKey = BorderFill.cacheKey(mapId .. "|" .. tostring(daytime)
-    .. "|" .. tostring(GbcPalette.mode) .. "|" .. tostring(flicker)
+    .. "|" .. tostring(GbcPalette.mode) .. "|" .. tostring(GbcPalette.customRamp)
+    .. "|" .. tostring(flicker)
     .. "|" .. tostring(BorderFill.voidFill or "fade")
     .. "|" .. tostring(blockId)
     .. "|" .. tostring(waterFrame and waterFrame.row or 0))
@@ -10500,12 +10502,12 @@ end
 -- The COLOR option can change under a standing world (the hotkey, or the
 -- OPTION screen closing), and the map is a baked canvas rather than a live
 -- draw -- so the cached references have to be re-fetched when it does.  The
--- bakes themselves are keyed by mode in imageFor, so this is a pointer swap
--- after the first time each mode is seen, not a re-bake.
 function World:refreshColorMode()
   local mode = GbcPalette.mode
-  if self.colorMode == mode then return end
+  local ramp = GbcPalette.customRamp
+  if self.colorMode == mode and self.colorRamp == ramp then return end
   self.colorMode = mode
+  self.colorRamp = ramp
   if not self.map then return end
   self.mapImage = self:imageFor(self.map.id)
   self:rebuildNeighbors()

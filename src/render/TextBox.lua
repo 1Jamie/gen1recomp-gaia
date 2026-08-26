@@ -11,6 +11,12 @@ local UIVisibility = require("src.battle.UIVisibility")
 local Theme = require("src.ui.Theme")
 local Timing = require("src.core.Timing")
 
+local Chrome2
+do
+  local ok, v = pcall(require, "src.ui.gen2.Chrome")
+  Chrome2 = ok and v or nil
+end
+
 local TextBox = {}
 TextBox.__index = TextBox
 TextBox.isTextBox = true
@@ -470,8 +476,21 @@ function TextBox:draw()
   -- (pokegold engine/pokegear/pokegear.asm TownMapPals sends every tile
   -- >= $60 to palette 0).  Gen 1's Game has no textboxPaper, so it stays nil.
   local paper = self.game and self.game.textboxPaper and self.game:textboxPaper()
-  Font.drawBox(self.boxTx, self.boxTy, self.boxTw, self.boxTh, paper)
-  love.graphics.setColor(0, 0, 0, 1)
+
+  local gold = self.game and self.game.save
+    and (self.game.save.generation == 2 or self.game.save.version == "gold")
+  local Chrome = gold and Chrome2 or nil
+  local drawGlyph, finishGlyph = Font.drawCode, nil
+  if Chrome then
+    local base = paper and { paper, paper, paper, { 0, 0, 0 } }
+      or Chrome.DEFAULT_BOX_PALETTE
+    Chrome.paletteBox(self.boxTx, self.boxTy, self.boxTw, self.boxTh, base)
+    local _, dg, fg = Chrome.paletteGlyphs(base)
+    drawGlyph, finishGlyph = dg, fg
+  else
+    Font.drawBox(self.boxTx, self.boxTy, self.boxTw, self.boxTh, paper)
+    love.graphics.setColor(0, 0, 0, 1)
+  end
   if self.scrollPx and self.scrollPx > 0 then
     self.scrollPx = self.scrollPx - 2
     if self.scrollPx <= 0 then self.scrollPx = nil end
@@ -491,17 +510,25 @@ function TextBox:draw()
     -- measured with; every fixed-width page still lands on the 8px grid
     local pen = self.textX
     for _, code in ipairs(line) do
-      Font.drawCode(code, pen, y)
+      drawGlyph(code, pen, y)
       pen = pen + Font.advanceOf(code)
     end
   end
   if self.money then
     -- money box (engine/menus/text_box.asm:130): DisplayMoneyBox at
     -- hlcoord 11,0, the amount right-aligned on its middle row
-    Font.drawBox(11, 0, 9, 3)
-    love.graphics.setColor(0, 0, 0, 1)
+    if Chrome then
+      Chrome.paletteBox(11, 0, 9, 3, Chrome.DEFAULT_BOX_PALETTE)
+    else
+      Font.drawBox(11, 0, 9, 3)
+      love.graphics.setColor(0, 0, 0, 1)
+    end
     local money = ("¥%d"):format(self.money() or 0)
-    Font.draw(money, 152 - Font.width(money), 8)
+    local pen = 152 - Font.width(money)
+    for _, code in ipairs(Font.encode(money)) do
+      drawGlyph(code, pen, 8)
+      pen = pen + Font.advanceOf(code)
+    end
   end
   if (self.waiting or (self.done and not self.choice and not self.auto
                        and (not self.stay
@@ -509,10 +536,11 @@ function TextBox:draw()
      and self.blink < 30 then
     -- page-advance cursor: glyph $EE by default, the blinking down arrow
     -- the original prints via `ld a, "▼"` (home/text.asm)
-    Font.drawCode(Theme.moreArrow or 0xEE,
-                  (self.boxTx + self.boxTw - 2) * 8,
-                  (self.boxTy + self.boxTh - 1) * 8 - 4)
+    drawGlyph(Theme.moreArrow or 0xEE,
+              (self.boxTx + self.boxTw - 2) * 8,
+              (self.boxTy + self.boxTh - 1) * 8 - 4)
   end
+  if finishGlyph then finishGlyph() end
   love.graphics.setColor(1, 1, 1, 1)
 end
 

@@ -1275,8 +1275,7 @@ end
 function CrystalIntro:drawWidescreen(winW, winH)
   local G = love.graphics
   local fill = self:surroundColor()
-  G.setColor(fill[1] / 255, fill[2] / 255, fill[3] / 255, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, fill[1] / 255, fill[2] / 255, fill[3] / 255)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

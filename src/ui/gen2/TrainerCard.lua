@@ -271,16 +271,24 @@ end
 -- TrainerCard_PrintTopHalfOfCard runs once, in .InitRAM, and no page redraws
 -- it -- so the name, ID, money and portrait stay on screen behind the badge
 -- pages too.
+function TrainerCard:print(text, tx, ty)
+  Chrome.printThrough(text, tx, ty, self:colorsAt(tx, ty))
+end
+
+function TrainerCard:cursor(tx, ty, hollow)
+  Chrome.cursorThrough(tx, ty, self:colorsAt(tx, ty), false, hollow)
+end
+
 function TrainerCard:drawTopHalf()
   local player = (self.save or {}).player or {}
   self:frame(0, 5)
-  Chrome.print("NAME/", 2, 2)
-  Chrome.print(player.name or "GOLD", 7, 2)
+  self:print("NAME/", 2, 2)
+  self:print(player.name or "GOLD", 7, 2)
   self:tile(self.card, TILE_ID_NO[1], 2, 4)
   self:tile(self.card, TILE_ID_NO[2], 3, 4)
-  Chrome.print(Chrome.number(player.id or 0, 5, true), 5, 4)
-  Chrome.print("MONEY", 2, 6)
-  Chrome.print(moneyText(player.money), 7, 6)
+  self:print(Chrome.number(player.id or 0, 5, true), 5, 4)
+  self:print("MONEY", 2, 6)
+  self:print(moneyText(player.money), 7, 6)
   for x = 1, 12 do self:tile(self.card, TILE_DIVIDER, x, 3) end
   self:tile(self.card, TILE_DIVIDER_END, 13, 3)
   self:drawPortrait()
@@ -298,22 +306,22 @@ function TrainerCard:drawCard()
 
   -- `#` is the compression byte for POKé, four tiles, so spelling it out is
   -- what the cart actually draws.
-  Chrome.print("POKéDEX", 2, 10)
-  Chrome.print("PLAY TIME", 2, 12)
-  Chrome.print(Chrome.number(self:caughtCount(), 3), 15, 10)
+  self:print("POKéDEX", 2, 10)
+  self:print("PLAY TIME", 2, 12)
+  self:print(Chrome.number(self:caughtCount(), 3), 15, 10)
 
   local time = save.playTime or {}
-  Chrome.print(Chrome.number(time.hours or 0, 4), 11, 12)
+  self:print(Chrome.number(time.hours or 0, 4), 11, 12)
   -- The colon is $2e, which belongs to CardStatusGFX rather than the card
   -- sheet, and TrainerCard_Page1_PrintGameTime xors it with ' ' every 32
   -- frames -- which is what makes the clock look like it is running.
   if math.floor(self.frames / 32) % 2 == 0 then
     self:tile(self.status, TILE_COLON, 15, 12)
   end
-  Chrome.print(Chrome.number(time.minutes or 0, 2, true), 16, 12)
+  self:print(Chrome.number(time.minutes or 0, 2, true), 16, 12)
 
-  Chrome.print("BADGES", 12, 15)
-  Chrome.cursor(18, 15)
+  self:print("BADGES", 12, 15)
+  self:cursor(18, 15)
 end
 
 -- TrainerCard_Page2_3_PlaceLeadersFaces: four tiles across the top row, then
@@ -397,22 +405,22 @@ function TrainerCard:drawPlain()
   Chrome.clear()
   if self.page == 1 then
     Chrome.box(0, 0, 20, 9)
-    Chrome.print("NAME/", 2, 2)
-    Chrome.print(player.name or "GOLD", 7, 2)
-    Chrome.print("ID No", 2, 4)
-    Chrome.print(Chrome.number(player.id or 0, 5, true), 5, 4)
-    Chrome.print("MONEY", 2, 6)
-    Chrome.print(moneyText(player.money), 7, 6)
+    Chrome.printThrough("NAME/", 2, 2, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(player.name or "GOLD", 7, 2, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough("ID No", 2, 4, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Chrome.number(player.id or 0, 5, true), 5, 4, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough("MONEY", 2, 6, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(moneyText(player.money), 7, 6, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.box(0, 8, 20, 10)
-    Chrome.print("POKéDEX", 2, 10)
-    Chrome.print(Chrome.number(self:caughtCount(), 3), 15, 10)
-    Chrome.print("PLAY TIME", 2, 12)
+    Chrome.printThrough("POKéDEX", 2, 10, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Chrome.number(self:caughtCount(), 3), 15, 10, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough("PLAY TIME", 2, 12, Chrome.DEFAULT_BOX_PALETTE)
     local time = save.playTime or {}
-    Chrome.print(Chrome.number(time.hours or 0, 4), 11, 12)
-    Chrome.print(":", 15, 12)
-    Chrome.print(Chrome.number(time.minutes or 0, 2, true), 16, 12)
-    Chrome.print("BADGES", 12, 15)
-    Chrome.cursor(18, 15)
+    Chrome.printThrough(Chrome.number(time.hours or 0, 4), 11, 12, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(":", 15, 12, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Chrome.number(time.minutes or 0, 2, true), 16, 12, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough("BADGES", 12, 15, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.cursorThrough(18, 15, Chrome.DEFAULT_BOX_PALETTE)
     return
   end
   local names = self.page == 2 and JOHTO_BADGES or KANTO_BADGES
@@ -423,12 +431,14 @@ function TrainerCard:drawPlain()
   -- player.badges on both pages to match.
   local held = player.badges or {}
   Chrome.box(0, 0, 20, 9)
-  Chrome.print(self.page == 2 and "JOHTO BADGES" or "KANTO BADGES", 2, 2)
+  Chrome.printThrough(self.page == 2 and "JOHTO BADGES" or "KANTO BADGES", 2, 2,
+    Chrome.DEFAULT_BOX_PALETTE)
   Chrome.box(0, 8, 20, 10)
   for i, name in ipairs(names) do
     local tx = 2 + ((i - 1) % 4) * 4
     local ty = 10 + math.floor((i - 1) / 4) * 3
-    Chrome.print((held[i] or held[name]) and name:sub(1, 4) or "----", tx, ty)
+    Chrome.printThrough((held[i] or held[name]) and name:sub(1, 4) or "----", tx, ty,
+      Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 
@@ -438,9 +448,7 @@ function TrainerCard:drawPanel()
     love.graphics.setColor(1, 1, 1, 1)
     return
   end
-  local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, SCREEN_W * 8, SCREEN_H * 8)
+  Chrome.paletteFill(0, 0, SCREEN_W * 8, SCREEN_H * 8, Chrome.DEFAULT_BOX_PALETTE)
   local player = (self.save and self.save.player) or {}
   if self.page == 1 then
     self:drawCard()
@@ -453,7 +461,7 @@ function TrainerCard:drawPanel()
     -- the same table page 2 reads.
     self:drawBadges(JOHTO_BADGES, player.badges or {})
   end
-  G.setColor(1, 1, 1, 1)
+  love.graphics.setColor(1, 1, 1, 1)
 end
 
 function TrainerCard:draw()
@@ -462,8 +470,7 @@ end
 
 function TrainerCard:drawWidescreen(winW, winH)
   local G = love.graphics
-  G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", 0, 0, winW, winH)
+  Chrome.letterbox(winW, winH, 1, 1, 1)
   local scale = Chrome.fitScale(winW, winH)
   G.push()
   G.translate(Chrome.fitOrigin(winW, winH, scale))

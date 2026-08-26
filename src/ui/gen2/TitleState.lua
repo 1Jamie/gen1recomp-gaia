@@ -316,11 +316,8 @@ function TitleState:update(_dt)
   end
 end
 
--- Which of the two baked sets is showing.  GBC is the cart's colour; every
--- other COLOR mode wants the grey source, and CLASSIC's green comes from the
--- present pass over the finished frame rather than from a third set of art.
 function TitleState:gray()
-  return GbcPalette.mode ~= "gbc"
+  return GbcPalette.mode == "dmg" or GbcPalette.mode == "classic"
 end
 
 function TitleState:art()

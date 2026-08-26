@@ -173,18 +173,52 @@ function SaveData.gameFolders()
 end
 
 -- The game folder carrying portable.txt, or false.  First candidate holding
--- the marker wins.
+-- the marker *and* a writable probe wins.  Flatpak installs always use the
+-- sandbox XDG save dir (portable USB mode does not apply).  A read-only
+-- parent (system /opt, immutable OS, etc.) falls back to LOVE's save
+-- directory without throwing -- probe I/O is fully guarded.
+local function dirIsWritable(dir)
+  if type(dir) ~= "string" or dir == "" then return false end
+  local ok, writable = pcall(function()
+    local name = string.format(".write_probe_%d_%d.tmp",
+      os.time() % 100000000, math.random(0, 999999))
+    local path = dir .. SEP .. name
+    local f, err = io.open(path, "wb")
+    if not f then return false end
+    local wrote = f:write("ok")
+    f:close()
+    pcall(os.remove, path)
+    return wrote ~= nil
+  end)
+  return ok and writable == true
+end
+
 local function detectPortable()
   if portableChecked then return portableBase end
   portableChecked = true
   portableBase = false
+  -- Flatpak: never honor portable.txt (sandbox home is the persistence root).
+  if type(os.getenv) == "function" and os.getenv("FLATPAK_ID") then
+    return portableBase
+  end
   for _, base in ipairs(SaveData.gameFolders()) do
-    if pathExists(base .. SEP .. PORTABLE_MARKER) then
+    local markerOk = false
+    pcall(function()
+      markerOk = pathExists(base .. SEP .. PORTABLE_MARKER)
+    end)
+    if markerOk and dirIsWritable(base) then
       portableBase = base
       break
     end
   end
   return portableBase
+end
+
+-- Soft-reset cache so tests can re-run detect after env changes.
+function SaveData._resetPortableCacheForTests()
+  portableChecked = false
+  portableBase = false
+  portableFsCache = nil
 end
 
 function SaveData.isPortable()
@@ -279,6 +313,7 @@ function SaveData.defaultOptions()
     zoom = 0,
     -- OVERWORLD beyond-edge fill: trees | water | black
     voidFill = "trees",
+    uiLetterbox = "auto",
     -- windowed | borderless (desktop fullscreen); ignored on mobile
     videoMode = "windowed",
     -- lock the window to an exact 160x144 multiple, 1..4 (0 = OFF); see

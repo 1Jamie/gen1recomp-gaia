@@ -43,19 +43,22 @@
 
 local Theme = require("src.ui.kit.Theme")
 local PAL = Theme.PAL
+local VirtualKeyboard = require("src.ui.kit.VirtualKeyboard")
+local FileBrowser = require("src.ui.kit.FileBrowser")
 
-local Kit = {}
-Kit.Theme = Theme
-Kit.PAL = PAL
+local Kit = {
+  scale = 1,
+  time = 0,
+  focus = nil,       -- active text-input id (nil = no focused field)
+  focusId = nil,     -- spatial-nav ring id (nil = nothing selected by pad/arrows)
+  VirtualKeyboard = VirtualKeyboard,
+  FileBrowser = FileBrowser,
+}
 
 Kit.mouseX, Kit.mouseY = 0, 0
 Kit.mouseClicked = false   -- left button pressed this frame
 Kit.mouseDown = false      -- held, polled (drag / press-and-hold)
 Kit.wheelY = 0             -- wheel notches queued since the last frame
-Kit.focus = nil            -- id of the text field receiving keystrokes
-Kit.focusId = nil          -- id of the keyboard/gamepad focus ring target
-Kit.time = 0
-Kit.fonts = {}
 Kit.scale = 1
 Kit.blockClicks = false
 Kit.audit = nil
@@ -339,6 +342,32 @@ function Kit.beginFrame(mx, my, clicked, wheel)
   Kit._navN = 0
 end
 
+local function getNavLayer(slot)
+  if not slot then return 3 end
+  local id = tostring(slot.id or "")
+  local y = slot.y or 0
+
+  -- Layer 1: Top Bar (Settings / Gear, Close / Quit)
+  if id == "gear" or id == "settings" or id == "close" or id == "quit" or (y < 45 * Kit.scale and not id:match("^tab%-")) then
+    return 1
+  end
+
+  -- Layer 2: ROM Select & Feature Tabs (Red, Blue, Yellow, Gold, Silver, Crystal, Mods, Find, Skins, Bug)
+  if id:match("^tab%-") or (y >= 45 * Kit.scale and y < 105 * Kit.scale and (slot.h and slot.h < 50 * Kit.scale)) then
+    return 2
+  end
+
+  -- Layer 4: Footer (Patch notes, Updater, BCG, Export, etc.)
+  local screenH = (love and love.graphics and love.graphics.getHeight and love.graphics.getHeight()) or 480
+  if id == "patch-notes" or id == "updater" or id == "bcg"
+      or id:match("^footer") or (y > screenH - 55 * Kit.scale) then
+    return 4
+  end
+
+  -- Layer 3: Main content panel (Import ROM / Play, Manage, Save slots, Mods list, Find mods, etc.)
+  return 3
+end
+
 -- Retire this frame's keystrokes, wheel notches and one-shot activations.
 -- Anything typed while no field had focus is dropped here rather than
 -- replayed into the next field that gets clicked.
@@ -349,10 +378,26 @@ function Kit.endFrame()
   -- This frame's focusables become next frame's navigation graph.
   local n = Kit._navN or 0
   Kit._navPrevN = n
-  -- If the focused id vanished (panel switch, list repaged), park the ring
-  -- on the first focusable so the keyboard is never stranded.
-  if Kit.focusId and not Kit._navSeen[Kit.focusId] and n > 0 then
-    Kit.focusId = Kit._nav[1] and Kit._nav[1].id or nil
+  -- If the focused id vanished or not set yet, park the ring on Layer 3 (Import ROM / Play)
+  if (not Kit.focusId or not Kit._navSeen[Kit.focusId]) and n > 0 then
+    -- 1. Prefer ROM Action (Layer 3)
+    local chosen = nil
+    for i = 1, n do
+      local slot = Kit._nav[i]
+      if slot and slot.id and tostring(slot.id):match("^rom%-") then
+        chosen = slot.id; break
+      end
+    end
+    -- 2. Prefer any Layer 3 control
+    if not chosen then
+      for i = 1, n do
+        local slot = Kit._nav[i]
+        if slot and getNavLayer(slot) == 3 then
+          chosen = slot.id; break
+        end
+      end
+    end
+    Kit.focusId = chosen or (Kit._nav[1] and Kit._nav[1].id) or nil
   end
   for k in pairs(Kit._navSeen) do Kit._navSeen[k] = nil end
 end
@@ -360,21 +405,16 @@ end
 -- ------------------------------------------------------------ focus ring
 -- Spatial navigation.  Every focusable control registers its rect as it
 -- draws; a queued direction picks the nearest candidate in that direction
--- from the previous frame's set.  Spatial rather than index-order because
--- the launcher is a multi-column layout: tab-order would zigzag between
--- columns, while "press right, go right" is what both a keyboard and a
--- d-pad user expects.
+-- from the previous frame's set.
 Kit._nav = {}
 Kit._navN = 0
 Kit._navPrevN = 0
 Kit._navSeen = {}
 Kit._navQueue = nil
 Kit._activateId = nil
-Kit._ringShown = false
+Kit._ringShown = true
 
 -- Register a focusable.  Returns true when it currently holds the ring.
--- Shielded widgets do not register: while a modal owns the frame the ring
--- must not wander through (or Enter-activate) the controls underneath it.
 function Kit.focusable(id, x, y, w, h)
   if Kit.blockClicks then return false end
   local n = (Kit._navN or 0) + 1
@@ -383,9 +423,9 @@ function Kit.focusable(id, x, y, w, h)
   if not slot then slot = {}; Kit._nav[n] = slot end
   slot.id, slot.x, slot.y, slot.w, slot.h = id, x, y, w, h
   Kit._navSeen[id] = true
-  -- First focusable ever drawn adopts the ring, so keyboard users start
-  -- somewhere rather than nowhere.
-  if Kit.focusId == nil then Kit.focusId = id end
+  if Kit.focusId == nil and tostring(id):match("^rom%-") then
+    Kit.focusId = id
+  end
   return Kit._ringShown and Kit.focusId == id
 end
 
@@ -403,10 +443,6 @@ function Kit.setFocus(id)
   Kit._ringShown = id ~= nil
 end
 
--- Pick the nearest focusable in `dir` from the current one.  Candidates must
--- lie in the half-plane of the direction; the score prefers a small step
--- along the axis of travel and penalises drift across it, which keeps a
--- column walk inside its column.
 function Kit._resolveNav()
   local dir = Kit._navQueue
   Kit._navQueue = nil
@@ -414,38 +450,75 @@ function Kit._resolveNav()
   if not dir or n == 0 then return end
   local cur
   for i = 1, n do
-    if Kit._nav[i].id == Kit.focusId then cur = Kit._nav[i] break end
+    if Kit._nav[i].id == Kit.focusId then cur = Kit._nav[i]; break end
   end
   if not cur then
     Kit.focusId = Kit._nav[1].id
     return
   end
+
+  local curLayer = getNavLayer(cur)
   local cx, cy = cur.x + cur.w / 2, cur.y + cur.h / 2
-  local best, bestScore
-  for i = 1, n do
-    local c = Kit._nav[i]
-    if c.id ~= cur.id then
-      local dx = (c.x + c.w / 2) - cx
-      local dy = (c.y + c.h / 2) - cy
-      local along, across
-      if dir == "left" then along, across = -dx, math.abs(dy)
-      elseif dir == "right" then along, across = dx, math.abs(dy)
-      elseif dir == "up" then along, across = -dy, math.abs(dx)
-      else along, across = dy, math.abs(dx) end
-      -- A control merely overlapping on the travel axis is not "in that
-      -- direction"; require real separation so a tall row's neighbours do
-      -- not all qualify.
-      if along > 1 then
-        local score = along + across * 2
-        if not bestScore or score < bestScore then best, bestScore = c, score end
+
+  if dir == "left" or dir == "right" then
+    -- STRICT SAME-LAYER HORIZONTAL NAVIGATION (Left/Right NEVER jumps between layers)
+    local best, bestDx
+    for i = 1, n do
+      local c = Kit._nav[i]
+      if c.id ~= cur.id and getNavLayer(c) == curLayer then
+        local cMidX = c.x + c.w / 2
+        local dx = cMidX - cx
+        if dir == "left" and dx < -1 then
+          local dist = -dx
+          if not bestDx or dist < bestDx then
+            best, bestDx = c, dist
+          end
+        elseif dir == "right" and dx > 1 then
+          local dist = dx
+          if not bestDx or dist < bestDx then
+            best, bestDx = c, dist
+          end
+        end
       end
     end
+    if best then
+      Kit.focusId = best.id
+      return
+    end
+    return
+  elseif dir == "up" or dir == "down" then
+    -- VERTICAL LAYER NAVIGATION (Up/Down steps between layers: 1 <-> 2 <-> 3 <-> 4)
+    local targetLayer = dir == "up" and (curLayer - 1) or (curLayer + 1)
+    targetLayer = math.max(1, math.min(4, targetLayer))
+
+    local best, bestScore
+    for i = 1, n do
+      local c = Kit._nav[i]
+      if c.id ~= cur.id then
+        local l = getNavLayer(c)
+        if (dir == "up" and l < curLayer) or (dir == "down" and l > curLayer) then
+          local layerDiff = math.abs(l - targetLayer)
+          local cMidX = c.x + c.w / 2
+          local xDist = math.abs(cMidX - cx)
+          local score = layerDiff * 10000 + xDist
+          if not bestScore or score < bestScore then
+            best, bestScore = c, score
+          end
+        end
+      end
+    end
+    if best then
+      Kit.focusId = best.id
+      return
+    end
   end
-  if best then Kit.focusId = best.id end
 end
 
 -- ------------------------------------------------------------ input plumbing
 function Kit.textinput(text)
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.textinput(text)
+  end
   if not Kit.focus then return false end
   edits[#edits + 1] = text
   return true
@@ -454,6 +527,12 @@ end
 -- Returns true when the key was consumed, so the host can leave its own
 -- shortcuts alone while the user is typing or driving the ring.
 function Kit.keypressed(key)
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.keypressed(key)
+  end
+  if FileBrowser.active then
+    return FileBrowser.keypressed(key)
+  end
   if Kit.focus then
     if key == "backspace" then edits[#edits + 1] = "\b" return true
     elseif key == "return" or key == "kpenter" or key == "escape" then
@@ -474,11 +553,19 @@ end
 
 -- Gamepad d-pad / stick, routed by the host's pad handling.
 function Kit.gamepadpressed(button)
-  if button == "dpup" then Kit.navigate("up") return true
-  elseif button == "dpdown" then Kit.navigate("down") return true
-  elseif button == "dpleft" then Kit.navigate("left") return true
-  elseif button == "dpright" then Kit.navigate("right") return true
-  elseif button == "a" then Kit.activateFocused() return true end
+  local GamepadMap = require("src.core.GamepadMap")
+  local action = (GamepadMap.mapLauncherButton and GamepadMap.mapLauncherButton(button)) or button
+  if VirtualKeyboard.active then
+    return VirtualKeyboard.gamepadpressed(action)
+  end
+  if FileBrowser.active then
+    return FileBrowser.gamepadpressed(action)
+  end
+  if action == "dpup" then Kit.navigate("up") return true
+  elseif action == "dpdown" then Kit.navigate("down") return true
+  elseif action == "dpleft" then Kit.navigate("left") return true
+  elseif action == "dpright" then Kit.navigate("right") return true
+  elseif action == "a" then Kit.activateFocused() return true end
   return false
 end
 
@@ -548,9 +635,15 @@ function Kit.row(x, y, w, h, selected, id)
   -- The focus ring is a second inset outline, so it reads on both a black
   -- row and a white selected one.
   if focused then
-    Theme.strokeRounded(x + 2, y + 2, w - 4, h - 4,
-      selected and PAL.inverse or PAL.lineStrong, Theme.A.focus, 1,
-      Theme.radius())
+    local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+    -- Outer white soft aura
+    Theme.strokeRounded(x - 3, y - 3, w + 6, h + 6,
+      PAL.ink, 0.35 + 0.25 * glowPulse, 2.5, Theme.radius() + 3)
+    -- Bright white inner stroke
+    Theme.strokeRounded(x, y, w, h,
+      PAL.ink, 0.95 + 0.05 * glowPulse, 2, Theme.radius())
+    -- Luminous white fill overlay
+    Theme.fillRounded(x, y, w, h, PAL.ink, 0.12 + 0.06 * glowPulse, Theme.radius())
   end
   local clicked = Kit.press(x, y, w, h)
     or (id ~= nil and Kit._activateId == id)
@@ -668,9 +761,17 @@ function Kit.button(x, y, w, h, label, opts)
       Theme.strokeRounded(x, y, w, h, stroke, strokeA, 1, radius)
     end
     if doRing then
+      local glowPulse = 0.5 + 0.5 * math.sin(Kit.time * 5)
+      -- 1. Outer bright white soft glow aura
+      Theme.strokeRounded(x - B.ringPad - 3, y - B.ringPad - 3,
+        w + 2 * (B.ringPad + 3), h + 2 * (B.ringPad + 3), PAL.ink,
+        0.35 + 0.25 * glowPulse, 2.5, radius + B.ringPad + 3)
+      -- 2. Inner solid white focus border
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
-        w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,
-        Theme.A.focus, B.ringWidth, radius + B.ringPad)
+        w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.ink,
+        0.95 + 0.05 * glowPulse, 2.5, radius + B.ringPad)
+      -- 3. Subtle luminous white fill overlay so the entire button body shines
+      Theme.fillRounded(x, y, w, h, PAL.ink, 0.12 + 0.06 * glowPulse, radius)
     elseif glowA then
       Theme.strokeRounded(x - B.ringPad, y - B.ringPad,
         w + 2 * B.ringPad, h + 2 * B.ringPad, PAL.lineStrong,
@@ -829,6 +930,29 @@ function Kit.textfield(id, x, y, w, h, value, placeholder)
   audit("control", x, y, w, h, id)
   local focusRing = Kit.focusable(id, x, y, w, h)
   value = tostring(value or "")
+
+  local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+
+  local clickedOrActivated = (Kit._activateId == id) or (isHandheld and Kit.press(x, y, w, h))
+  if clickedOrActivated and not mobile() then
+    VirtualKeyboard.open({
+      text = value,
+      targetId = id,
+      title = placeholder or "Enter Text",
+      onDone = function(newText, confirmed)
+        if confirmed then
+          edits[#edits + 1] = "\r"
+        end
+      end
+    })
+  end
+
+  if VirtualKeyboard.active and VirtualKeyboard.targetId == id then
+    value = VirtualKeyboard.text
+  end
+
   if Kit.press(x, y, w, h) or (Kit._activateId == id) then Kit.focus = id end
   local focused = (Kit.focus == id)
   if focused then

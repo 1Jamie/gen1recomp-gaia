@@ -146,8 +146,23 @@ Chrome.cursor = function(tx, ty) cursorAt = { x = tx, y = ty } end
 Chrome.clear = function() end
 Chrome.textbox = function() end
 
-local options = OptionsMenu.new({}, { options = {} })
-options:drawPanel()
+-- TEXT SPEED and FRAME sit on group pages now; the pages are the same
+-- screen and draw at the same StringOptions coordinates, which is what this
+-- pins.  A stack, because opening a page pushes one.
+local optStack = { items = {} }
+function optStack:push(s) self.items[#self.items + 1] = s; return s end
+function optStack:pop() self.items[#self.items] = nil end
+function optStack:top() return self.items[#self.items] end
+
+local options = OptionsMenu.new({ stack = optStack }, { options = {} })
+options:focusRow("textSpeed"):drawPanel()
+local framePage = options:focusRow("frame")
+framePage.index = 1
+for i, row in ipairs(framePage:visible()) do
+  if row.frame then framePage.index = i end
+end
+framePage:ensureVisible()
+framePage:drawPanel()
 
 Chrome.print, Chrome.cursor = realPrint, realCursor
 Chrome.clear, Chrome.textbox = realClear, realBox
