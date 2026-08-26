@@ -327,6 +327,7 @@ apply_cpu_governors() {
 export POKEPORT_HANDHELD=1
 export HANDHELD=1
 export PORTMASTER=1
+export NINTENDO_LAYOUT=1
 export XDG_DATA_HOME="$CONFDIR"
 export XDG_CONFIG_HOME="$CONFDIR"
 export LD_LIBRARY_PATH="$GAMEDIR/libs.aarch64:$GAMEDIR/libs:/usr/trimui/lib:/mnt/SDCARD/System/lib:/usr/lib64:/usr/lib:${LD_LIBRARY_PATH:-}"

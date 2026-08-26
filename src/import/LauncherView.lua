@@ -397,8 +397,35 @@ local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, ac
         Kit.textHeight("button"), PAL.ink, 1)
     end
   end
-  if action and (Kit.press(x, y, w, h) or Kit._activateId == key) then
-    queueAction(imp, key, action)
+  if (Kit.press(x, y, w, h) or Kit._activateId == key) then
+    if Kit.VirtualKeyboard then
+      Kit.VirtualKeyboard.open({
+        text = text,
+        targetId = key,
+        title = placeholder or "Enter Text",
+        onDone = function(newText, confirmed)
+          if confirmed then
+            if imp._indexPrompt and key:find("index") then
+              imp._indexPrompt.text = newText
+            elseif imp._rename and key:find("rename") then
+              imp._rename.text = newText
+            elseif imp._profileRenamePrompt and key:find("profren") then
+              imp._profileRenamePrompt.text = newText
+            elseif imp._profileSavePrompt and key:find("profsave") then
+              imp._profileSavePrompt.text = newText
+            elseif imp._settingsText and key:find("settext") then
+              imp._settingsText.text = newText
+            elseif imp.tab == "find" then
+              imp._findQuery = newText
+              if imp._refreshFind then imp:_refreshFind() end
+            end
+          end
+        end
+      })
+    end
+    if action then
+      queueAction(imp, key, action)
+    end
   end
 end
 

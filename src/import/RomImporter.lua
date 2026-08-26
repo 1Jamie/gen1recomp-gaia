@@ -3207,8 +3207,80 @@ function RomImporter:gamepadpressed(_, button)
   elseif button == "dpup" or button == "dpdown"
       or button == "dpleft" or button == "dpright" then
     self._padDir[button] = true
-  elseif button == "start" or button == "back" then
-    -- Start / Select: Play if ready, else Choose ROM on the active game tab.
+  elseif button == "back" or button == "select" or action == "select" then
+    if okKit and Kit.VirtualKeyboard then
+      if Kit.VirtualKeyboard.active then
+        Kit.VirtualKeyboard.close(false)
+        return
+      end
+      if self._indexPrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._indexPrompt.text or "",
+          title = "Add a mod index",
+          onDone = function(newText, confirmed)
+            if confirmed and self._indexPrompt then self._indexPrompt.text = newText end
+          end
+        })
+        return
+      elseif self._rename then
+        Kit.VirtualKeyboard.open({
+          text = self._rename.text or "",
+          title = "Name save slot",
+          onDone = function(newText, confirmed)
+            if confirmed and self._rename then self._rename.text = newText end
+          end
+        })
+        return
+      elseif self._profileRenamePrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._profileRenamePrompt.text or "",
+          title = "Rename profile",
+          onDone = function(newText, confirmed)
+            if confirmed and self._profileRenamePrompt then self._profileRenamePrompt.text = newText end
+          end
+        })
+        return
+      elseif self._profileSavePrompt then
+        Kit.VirtualKeyboard.open({
+          text = self._profileSavePrompt.text or "",
+          title = "Save mod profile",
+          onDone = function(newText, confirmed)
+            if confirmed and self._profileSavePrompt then self._profileSavePrompt.text = newText end
+          end
+        })
+        return
+      elseif self._settingsText then
+        Kit.VirtualKeyboard.open({
+          text = self._settingsText.text or "",
+          title = (self._settingsText.row and self._settingsText.row.label) or "Edit Text",
+          onDone = function(newText, confirmed)
+            if confirmed and self._settingsText then self._settingsText.text = newText end
+          end
+        })
+        return
+      elseif self.tab == "find" then
+        Kit.VirtualKeyboard.open({
+          text = self._findQuery or "",
+          title = "Search Mods",
+          onDone = function(newText, confirmed)
+            if confirmed then
+              self._findQuery = newText
+              if self._refreshFind then self:_refreshFind() end
+            end
+          end
+        })
+        return
+      else
+        Kit.VirtualKeyboard.open({
+          text = "",
+          title = "Virtual Keyboard",
+          onDone = function() end
+        })
+        return
+      end
+    end
+  elseif button == "start" then
+    -- Start: Play if ready, else Choose ROM on the active game tab.
     if self.workState == "working" then return end
     local version = self.tab
     if GameVersion.VERSIONS[version] then
