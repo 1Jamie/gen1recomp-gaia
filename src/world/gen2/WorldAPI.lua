@@ -205,6 +205,96 @@ function WorldAPI:useFieldAction(id, opts)
   return nil, "field action unavailable"
 end
 
+local ENCOUNTER_TERRAIN = { grass = true, water = true }
+local DAYTIMES = { MORN = true, DAY = true, NITE = true, DARK = true }
+
+-- Same contract as the Gen 1 arm's effectiveEncounters: the effective wild
+-- encounter distribution for a map/terrain, composed with any
+-- encounter.table wrapper, with no RNG and no live World required.
+--
+-- Grass is genuinely three different distributions per map, one per time of
+-- day (Gold has no Gen 1 equivalent of this). opts.daytime previews a
+-- specific one ("MORN"/"DAY"/"NITE", or "DARK" which reads as NITE, the same
+-- fallback Encounter.grassSlot uses); omitted, this resolves the map's own
+-- actual current time the same way a real roll would, via Clock/Palettes
+-- rather than needing a live World instance.
+--
+-- The base table is run through Roamers.Swarm.tables first, the same
+-- substitution a real roll draws from, so an active swarm is reflected here
+-- too. An active ROAMING legendary is not: Roamers.checkEncounter overrides
+-- a single step at roll time, and this is a static-table query -- the same
+-- gap docs/mod-api-gen2-compat.md already documents for encounter.roll/
+-- encounter.species.
+function WorldAPI:effectiveEncounters(mapId, terrain, opts)
+  if not ENCOUNTER_TERRAIN[terrain] then
+    return nil, "invalid terrain: " .. tostring(terrain)
+  end
+  local game = self.game
+  local data = game and game.data
+  local encounters = data and data.encounters
+  local save = game and game.save
+  local tables = encounters
+  if encounters and save then
+    tables = require("src.core.gen2.Roamers").Swarm.tables(save, encounters, mapId)
+  end
+
+  local Encounter = require("src.battle.gen2.Encounter")
+  local dist = {}
+  local chance
+
+  if terrain == "water" then
+    local entry = tables and tables.water and tables.water[mapId]
+    chance = (entry and tonumber(entry.rate) or 0) / 256
+    if entry and chance > 0 and entry.slots then
+      local prev = 0
+      for i, cumulative in ipairs(Encounter.WATER_SLOT_CHANCES) do
+        local slot = entry.slots[i]
+        if slot and slot.species then
+          dist[slot.species] = (dist[slot.species] or 0) + (cumulative - prev)
+        end
+        prev = cumulative
+      end
+    end
+  else
+    local entry = tables and tables.grass and tables.grass[mapId]
+    local daytime = opts and opts.daytime
+    if daytime and not DAYTIMES[daytime] then
+      return nil, "invalid daytime: " .. tostring(daytime)
+    end
+    if not daytime then
+      local Clock = require("src.core.gen2.Clock")
+      local Palettes = require("src.world.gen2.Palettes")
+      daytime = save and Palettes.clockDaytime(Clock.hour(save)) or "DAY"
+    end
+    local key = (daytime == "DARK") and "NITE" or daytime
+    local rate = entry and entry.rates and (entry.rates[key] or entry.rates.DAY)
+    chance = (tonumber(rate) or 0) / 256
+    local slots = entry and entry.slots and entry.slots[key]
+    if slots and chance > 0 then
+      local prev = 0
+      for i, cumulative in ipairs(Encounter.GRASS_SLOT_CHANCES) do
+        local slot = slots[i]
+        if slot and slot.species then
+          dist[slot.species] = (dist[slot.species] or 0) + (cumulative - prev)
+        end
+        prev = cumulative
+      end
+    end
+  end
+
+  if Runtime.wantsHook("encounter.table") then
+    -- A wrapper that forgets to return anything makes Runtime.call itself
+    -- return nothing (Hooks:call unpacks an empty pcall result), which would
+    -- otherwise turn dist into nil here. Keep the pre-hook dist instead of
+    -- handing a caller a nil they will pairs() over and crash on.
+    local transformed = Runtime.call("encounter.table",
+      function(d) return d end, dist,
+      { mapId = mapId, terrain = terrain, preview = true })
+    if type(transformed) == "table" then dist = transformed end
+  end
+  return { chance = chance, dist = dist }
+end
+
 -- The same read-only minimap contract as Gen 1, with Gold's object/event
 -- visibility rules supplying the semantic markers.
 function WorldAPI:mapOverview()

@@ -564,6 +564,34 @@ in any box, and `pokemon.caught` reports `destination = "mod"` so the mode can
 find its own custody again. Anything falsy deposits as always, "But every BOX
 is full!" included.
 
+## Effective wild-encounter distribution
+
+`encounter.roll` and `encounter.species` transform one wild-encounter draw;
+neither gives a mod a way to ask what the distribution looks like without
+rolling it. `encounter.table` and `mod.world:effectiveEncounters` are the read
+side of that pair (RFC 0019): a hook that transforms a whole distribution
+instead of one draw, and a query that runs it with no RNG and no side effects.
+
+```lua
+mod.hooks:wrap("encounter.table", function(next, dist, ctx)
+  -- dist = { [speciesName] = weight, ... }; ctx.mapId, ctx.terrain match
+  -- encounter.roll/encounter.species; ctx.preview = true; ctx.rng is absent
+  if myMode.bias(ctx.mapId) then dist = myMode.reweight(dist) end
+  return next(dist, ctx)
+end)
+
+local info = mod.world:effectiveEncounters("ROUTE_29", "grass")
+-- info = { chance = 0.6, dist = { RATTATA = 51, PIDGEY = 51, ... } }
+```
+
+`terrain` is `"grass"`, `"water"`, or (Gen 1 only) `"indoor"`, the same values
+`encounter.roll`'s own `ctx.terrain` already uses. On Gen 2, an optional third
+argument, `{ daytime = "NITE" }`, previews a specific time of day instead of
+the save's actual current one; grass genuinely has three different
+distributions per map there. `effectiveEncounters` reflects an active Gen 2
+swarm but not a roaming legendary, which overrides a single step at roll time
+rather than the table itself.
+
 ## Rendering pipelines
 
 Most registries hand the engine *content*. `render_pipelines` hands it
