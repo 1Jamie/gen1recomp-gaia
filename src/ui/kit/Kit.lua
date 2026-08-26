@@ -934,9 +934,10 @@ function Kit.textfield(id, x, y, w, h, value, placeholder)
   local isHandheld = os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
     or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
     or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+    or os.getenv("POKEPORT_SBC") == "1" or os.getenv("ANBERNIC") == "1"
 
   local clickedOrActivated = (Kit._activateId == id) or (isHandheld and Kit.press(x, y, w, h))
-  if clickedOrActivated and not mobile() then
+  if isHandheld and clickedOrActivated and not mobile() then
     VirtualKeyboard.open({
       text = value,
       targetId = id,

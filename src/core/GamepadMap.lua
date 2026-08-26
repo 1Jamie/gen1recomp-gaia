@@ -40,8 +40,10 @@ GamepadMap.NX_RAW_BUTTON_BINDINGS = {
 
 -- Raw index -> gamepad button *name* for RomImporter (then NX face swap applies).
 GamepadMap.RAW_TO_GAMEPAD_BUTTON = {
-  [1] = "a", [2] = "b",
+  [1] = "a", [2] = "b", [3] = "x", [4] = "y",
+  [5] = "leftshoulder", [6] = "rightshoulder",
   [7] = "back", [8] = "start", [9] = "back", [10] = "start",
+  [11] = "triggerleft", [12] = "triggerright",
 }
 
 GamepadMap.NX_RAW_TO_GAMEPAD_BUTTON = {
