@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.30",
+          "date": "2026-08-27",
+          "size": 21375253,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.30/gen1recomp++-0.2.30-ios.ipa",
+          "localizedDescription": "Download the correct version for your computer below.\n\n## Issues closed\n\n- #1562 Link battles show no withdraw message on switch\n- #1804 closed poke ball is not shown sometimes after catching\n- #1805 Missing jingle + closing menu when using ability enhancers\n- #1810 Wrong amount of hidden coins in the game corner\n- #1811 Slot machine issues\n- #1814 Rocket has no vision\n- #1817 Giovanni dialogue in the hideout\n- #1818 Sound effect missing when teaching a move\n- #1819 Option box in Pokemon menu not connected to bottom of the screen\n- #1821 Cursor position still on SAVE after loading\n- #1826 EXP calculation after opposing trainer switches out its PKMN\n- #1827 Behavior of sprite replacement mods on Crystal\n- #1829 Pokedex could use further clean up\n- #1831 Spinning too fast\n- #1833 Cancel option missing when selecting Pokemon in the overworld\n- #1834 Possible bug with Unown in Gold, Silver, Crystal\n- #1836 Crystal Kanto Flight Bugged\n- #1840 Two small issues with flying\n- #1842 Pokemon Tower rival bugs\n- #1845 Pokemon Trainer Item PC wrong Layout\n- #1846 No jingle when leveling up with rare candy\n- #1847 Someones / Bill PC Wrong Layout\n- #1848 Nightshade animation too slow\n- #1849 Pokemon Tower Marowak bugs\n- #1853 Try Catching Pokemon have wierd White nohing\n- #1858 (GSC) Broken colors on stats screen since 0.2.27\n- #1860 (GSC) Jingles are cut off if you advance the dialogue while they play\n- #1862 (GSC) Whirlpool disappearing before the SFX ends\n\n## Contributors\n\n- @bryanthaboi\n- @colsonrice\n- @thibautbus"
+        },
+        {
           "version": "0.2.29",
           "date": "2026-08-26",
           "size": 21366635,
