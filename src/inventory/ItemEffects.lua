@@ -94,9 +94,11 @@ function ItemEffects.healsHP(id)
 end
 
 -- .useRareCandy prints over the still-drawn party menu
--- (engine/items/item_effects.asm:1392-1418)
+-- (engine/items/item_effects.asm:1392-1418); .useVitamin ends at
+-- RemoveUsedItem the same way (engine/items/item_effects.asm:1315-1322)
 function ItemEffects.keepsPartyMenuOpen(id)
   return ItemEffects.healsHP(id) or id == "RARE_CANDY"
+      or VITAMINS[id] ~= nil
 end
 
 function ItemEffects.isBattleMedicine(id)
@@ -526,8 +528,9 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     -- _VitaminStatRoseText's slot order is localization-dependent (the
     -- Spanish ROM puts the stat before the name), so the extracted line
     -- cannot be filled positionally; the engine wording stands
+    -- engine/items/item_effects.asm:1313
     return "consumed", { Strings("%s's %s\nrose!", monName(data, target),
-      Strings(STAT_LABEL[vitaminStat])) }
+      Strings(STAT_LABEL[vitaminStat])) }, { useJingle = true }
   end
 
   -- PP UP boosts the move the player picked (ItemUsePPUp's move menu)

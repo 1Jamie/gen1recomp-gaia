@@ -133,16 +133,18 @@ check(ow.player.spinDrop ~= true and ow.player.spinning == false,
 check(not playerHidden(ow), "player drawable again after the dig landing")
 
 -- ------------------------------------------------------------------ fly
--- flap (24) + path1 (36) + hold (40) + path2 (33) = 133 frames of flyAnim,
--- then the fade, then the bird swoops in (flyArrive).  Same invariant.
+-- the StopMusic fade hold (28) then flap (24) + path1 (36) + hold (40) +
+-- path2 (33) = 161 frames of flyAnim, then the fade, then the bird swoops
+-- in (flyArrive).  Same invariant.
 Data.field.flyWarps.FIX_ROUTE = { x = 4, y = 6 }
 ow = newOW()
 ow:flyTo("FIX_ROUTE")
 st = drive(ow, 260)
 check(st.warpFrame ~= nil, "fly departure ends and the warp fade begins")
--- flap (8*3) + path1 (12*3) + hold (40) + path2 (11*3) = 133 frames; the
--- warp fires on frame 133's update, so the fade is on top from loop frame 134
-eq(st.warpFrame, 134, "fly fade begins right after the bird''s exit path")
+-- fade hold (4*7) + flap (8*3) + path1 (12*3) + hold (40) + path2 (11*3)
+-- = 161 frames; the warp fires on frame 161's update, so the fade is on top
+-- from loop frame 162 (player_animations.asm:123 StopMusic) #1840
+eq(st.warpFrame, 162, "fly fade begins right after the bird''s exit path")
 check(st.fadeFrames > 0, "fly warp fade ran (" .. st.fadeFrames .. " frames)")
 eq(st.gapFrames, 0,
    "no fly fade frame leaves the player standing bare (#916)")

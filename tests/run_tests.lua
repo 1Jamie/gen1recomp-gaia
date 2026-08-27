@@ -12,6 +12,9 @@ love = require("tests.love_stub")
 -- assertions and the RNG seed come off the shared harness; this file keeps
 -- its own tail because the verdict line ("N FAILURES") is what CI greps
 local T = require("tests.harness")
+-- every suite below is dofile'd in this process, so a suite that reaches for
+-- T.finish must raise into runSuites' pcall instead of os.exit(0)-ing the tier
+_G.POKEPORT_TEST_CHILD = true
 -- this suite has always streamed a line per check, and it is the one a
 -- developer watches for progress through ~1600 assertions
 T.verbose = true
@@ -437,11 +440,13 @@ check(Damage.compute(ruleset, confused, confused, confMove,
 -- (StatModifierDownEffect's side-effect branch skips MoveHitTest)
 local MoveEffects = require("src.battle.MoveEffects")
 local sideRng = { rng = function() return 0 end }
+-- player attacker: effects.asm:552's 25 percent miss is the enemy's branch
+local sideUser = { isPlayer = true, stages = {}, mon = {} }
 local misted = { stages = {}, mist = true, name = "MISTY", mon = {} }
-MoveEffects.secondary.ATTACK_DOWN_SIDE_EFFECT(sideRng, nil, misted)
+MoveEffects.secondary.ATTACK_DOWN_SIDE_EFFECT(sideRng, sideUser, misted)
 eq(misted.stages.attack, -1, "secondary stat drop pierces MIST")
 local misted2 = { stages = {}, mist = true, name = "MISTY", mon = {} }
-local mistMsgs = MoveEffects.primary.ATTACK_DOWN1_EFFECT(sideRng, nil, misted2)
+local mistMsgs = MoveEffects.primary.ATTACK_DOWN1_EFFECT(sideRng, sideUser, misted2)
 check(misted2.stages.attack == nil
       and mistMsgs[1]:find("MIST", 1, true) ~= nil,
       "primary stat drop still blocked by MIST")
@@ -2644,7 +2649,8 @@ do
 -- the text-speed cursor clamps at its ends (.pressedLeftInTextSpeed),
 -- MUSIC FILTER cycles OFF/1X/2X/3X, and COLORS / TILT / VIDEO MODE
 -- cycle their display modes (SHADER FX activates a pushed screen instead).
-do
+-- Nested function so LuaJIT's 200-local main-chunk limit is not hit.
+(function()
   local OptionsMenu = require("src.ui.OptionsMenu")
   local OInput = require("src.core.Input")
   local PaletteFX = require("src.render.PaletteFX")
@@ -2656,8 +2662,19 @@ do
   -- Isolate from earlier save/options writes in this suite
   SD.saveOptions(SD.defaultOptions())
   local popped = false
+  local om
+  -- the rows sit on group pages now, so the stub needs a real push/pop/top
+  -- stack for a group opener to have anywhere to go
+  local ostack = { states = {} }
+  function ostack:push(s) self.states[#self.states + 1] = s end
+  function ostack:pop()
+    local s = table.remove(self.states)
+    if s == om then popped = true end
+    return s
+  end
+  function ostack:top() return self.states[#self.states] end
   local og = { data = Data, save = SD.newGame(),
-               input = OInput, stack = { pop = function() popped = true end },
+               input = OInput, stack = ostack,
                writeOptions = function(self) SD.saveOptions(self.save.options) end,
                -- the PERFORMANCE row routes through Game:applyOptions; the
                -- stub carries the headless slice of it (the tier record),
@@ -2665,24 +2682,29 @@ do
                applyOptions = function(self, o)
                  require("src.core.Performance").applyOptions(o)
                end }
-  local om = OptionsMenu.new(og)
+  om = OptionsMenu.new(og)
+  ostack:push(om)
+  local OptionRows = require("src.ui.OptionRows")
+  -- cur is whichever screen the cursor is on: the top level, or the group
+  -- page seek() walked into
+  local cur = om
   local function press(btn)
     OInput.pressed = { [btn] = true }
-    om:update(1 / 60)
+    cur:update(1 / 60)
     OInput.pressed = {}
   end
-  -- walk the cursor down to a row by id, so a row added to OptionsMenu
-  -- shifts these blocks instead of silently retargeting them
+  local function rowAt(s)
+    local rows = s.view or s.rows
+    return rows[s.index]
+  end
+  -- put the cursor on a row by id, opening its group page first, so a row
+  -- added to OptionsMenu shifts these blocks instead of silently
+  -- retargeting them
   local function seek(id)
-    local want = -1
-    for i, row in ipairs(om.rows) do
-      if row.id == id then want = i end
-    end
-    for _ = 1, #om.rows do
-      if om.index == want then break end
-      press("down")
-    end
-    return om.index == want
+    while ostack:top() ~= om do ostack:pop() end
+    cur = om:focusRow(id) or om
+    local row = rowAt(cur)
+    return row ~= nil and row.id == id
   end
   eq(og.save.options.textSpeed, 3,
      "new saves default to MEDIUM text (InitOptions TEXT_DELAY_MEDIUM)")
@@ -2699,9 +2721,11 @@ do
      "A switches the battle screen to the WIDE layout")
   press("a")
   eq(og.save.options.battleLayout, "og", "BATTLE LAYOUT wraps back to OG")
+  -- the BATTLE page's sixth row sits past the 4-box viewport
+  check(seek("battleBg"), "cursor reaches BATTLE BG")
+  eq(cur.scroll, cur.index - OptionRows.VISIBLE,
+     "viewport scrolls to keep a deep group row on screen")
   check(seek("musicVol"), "cursor reaches MUSIC VOL")
-  eq(om.scroll, om.index - require("src.ui.OptionRows").VISIBLE,
-     "viewport scrolls to keep MUSIC VOL on screen")
   press("left")
   eq(og.save.options.musicVol, 6, "left lowers MUSIC VOL")
   press("right")
@@ -2733,19 +2757,18 @@ do
   eq(og.save.options.tilt, 0, "TILT wraps back to OFF")
   check(seek("shaderfx"), "cursor reaches SHADER FX")
   -- this row activates a pushed ShaderFXScreen rather than cycling in
-  -- place like the rest of this suite's rows; `og.stack` above only
-  -- stubs `pop`, not a real push/top stack, so activate() is not
-  -- called here -- tests/mod_ui_tests.lua exercises it end to end against
-  -- a real stack.
-  check(om.rows[om.index].step == nil, "SHADER FX row has no step()")
-  check(type(om.rows[om.index].activate) == "function",
+  -- place like the rest of this suite's rows, so activate() is not called
+  -- here -- tests/mod_ui_tests.lua exercises it end to end against a real
+  -- game.
+  check(rowAt(cur).step == nil, "SHADER FX row has no step()")
+  check(type(rowAt(cur).activate) == "function",
     "SHADER FX row has an activate()")
   check(seek("shaderfx2"), "cursor reaches SHADER FX 2")
   -- the dual-shader secondary slot: same shared ShaderFXScreen, opened on
   -- "secondary" instead -- see the SHADER FX row above for why activate()
-  -- isn't exercised against this stub stack either.
-  check(om.rows[om.index].step == nil, "SHADER FX 2 row has no step() either")
-  check(type(om.rows[om.index].activate) == "function",
+  -- isn't exercised here either.
+  check(rowAt(cur).step == nil, "SHADER FX 2 row has no step() either")
+  check(type(rowAt(cur).activate) == "function",
     "SHADER FX 2 row has an activate()")
   check(seek("zoom"), "cursor reaches ZOOM")
   local ZoomOpt = require("src.render.Zoom")
@@ -2804,10 +2827,10 @@ do
   check(seek("dateFormat"), "cursor reaches DATE FORMAT")
   check(seek("timeFormat"), "cursor reaches TIME FORMAT")
   press("down")
-  -- CANCEL is appended after the descriptor list rather than living in it, so
-  -- it lands one past #rows and the window holds the last six boxes.  Counted
-  -- off #rows so the next row added here is not read as a wrap bug.
-  local cancelRow = #om.rows + 1
+  -- CANCEL is appended after the top-level view rather than living in it, so
+  -- it lands one past #view and the window holds the last six boxes.  Counted
+  -- off #view so the next row added here is not read as a wrap bug.
+  local cancelRow = #om.view + 1
   eq(om.index, cancelRow, "CANCEL stays the fixed final row")
   eq(om.scroll, cancelRow - 5, "CANCEL keeps the last option boxes on screen")
   om:draw() -- smoke: scrolled layout draws under the headless stub
@@ -2826,7 +2849,7 @@ do
   require("src.render.Zoom").applyOptions(og.save.options)
   require("src.render.TileRenderer").applyOptions(og.save.options)
   require("src.core.VideoMode").applyOptions(og.save.options)
-end
+end)()
 end
 
 -- ------------------------------------------------------------------
@@ -2927,7 +2950,8 @@ do
   qpressed = { a = true }
   qmenu:update(1 / 60)
   qpressed = {}
-  eq(qsave.startMenuIndex, quitIdx, "QUIT selection persists the cursor slot")
+  eq(qg.startMenuIndex, quitIdx, "QUIT selection persists the cursor slot")
+  check(qsave.startMenuIndex == nil, "and keeps it off the saved data")
   local qbox = qstack:top()
   check(qbox ~= qmenu and qbox ~= nil and qbox.pages ~= nil,
         "QUIT pushes a confirmation textbox")
@@ -3223,7 +3247,8 @@ do
   local TileRenderer = require("src.render.TileRenderer")
   TileRenderer.setSpinning(true)
   local before = TileRenderer.spinBlurActive()
-  for _ = 1, 8 do TileRenderer.tick(1 / 60) end
+  -- the blur alternates once per simulated-joypad step, 16 frames (#1831)
+  for _ = 1, 16 do TileRenderer.tick(1 / 60) end
   check(before ~= TileRenderer.spinBlurActive(),
         "tick(1/60) advances water/spinner clock at fixed 60Hz")
   local mid = TileRenderer.spinBlurActive()
@@ -3615,6 +3640,7 @@ runSuites(orderedGlob(
   -- name resolution, and the .sav converter refusing a Gen 2 save table.
   "tests/gen2_sound_alias_test.lua",
   "tests/gen2_save_convert_cli_test.lua",
+  "tests/gen2_save_import_message_test.lua",
   -- The wall radios (`special MapRadio`).  gen2_save_export_test cannot share a
   -- process (LEAKS_SAVE_SLOT_STATE above); tests/run_gen2.lua runs it alone.
   "tests/gen2_map_radio_test.lua",

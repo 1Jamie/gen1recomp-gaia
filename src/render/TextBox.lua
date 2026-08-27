@@ -28,6 +28,52 @@ local MAX_COLS = 18
 -- pokegold constants/ram_constants.asm: TEXT_DELAY_FAST/MED/SLOW = 1/3/5
 local NAME_DELAYS = { FAST = 1, MID = 3, SLOW = 5 }
 
+-- TextCommand_PAUSE (home/text.asm:492-504): a mid-string wait callers
+-- embed as TextBox.PAUSE, stripped here and re-anchored after pagination.
+TextBox.PAUSE = "\1"
+local PAUSE_FRAMES = 30
+
+local function glyphs(str)
+  return #Font.split((str:gsub("[\n\v\f]", "")))
+end
+
+local function stripPauses(text)
+  if not text:find(TextBox.PAUSE, 1, true) then return text, nil end
+  local out, marks, count, pos = {}, {}, 0, 1
+  while true do
+    local i = text:find(TextBox.PAUSE, pos, true)
+    if not i then
+      out[#out + 1] = text:sub(pos)
+      break
+    end
+    local chunk = text:sub(pos, i - 1)
+    out[#out + 1] = chunk
+    count = count + glyphs(chunk)
+    marks[#marks + 1] = count
+    pos = i + 1
+  end
+  return table.concat(out), marks
+end
+
+-- glyph offsets into the whole text -> [page][line][char]
+local function mapPauses(pages, marks)
+  local at, acc, mi = {}, 0, 1
+  for pi, page in ipairs(pages) do
+    for li, line in ipairs(page) do
+      local n = #Font.split(line)
+      while mi <= #marks and marks[mi] <= acc + n do
+        local ci = marks[mi] - acc
+        at[pi] = at[pi] or {}
+        at[pi][li] = at[pi][li] or {}
+        at[pi][li][ci] = mi
+        mi = mi + 1
+      end
+      acc = acc + n
+    end
+  end
+  return at
+end
+
 -- opts.choice: when the last page has typed out, a YES/NO ChoiceBox pops
 -- up over the still-visible text (YesNoChoicePokeCenter and friends);
 -- the box then closes and choice(yes) runs instead of onDone.
@@ -66,6 +112,8 @@ function TextBox.new(game, text, onDone, opts)
   self.stay = opts and opts.stay
   -- engine/events/hidden_events/cinnabar_gym_quiz.asm:119
   self.preSound = opts and opts.preSound
+  -- pokegold engine/overworld/scripting.asm:485 WaitSFX
+  self.sfxWait = opts and opts.sfxWait
   -- opts.instant: put the LAST page up already typed, with no typewriter and
   -- no page waits.  A `yesorno` follows a `writetext` that has already been
   -- read, so re-typing the line under the YES/NO box would be wrong -- the
@@ -81,7 +129,13 @@ function TextBox.new(game, text, onDone, opts)
   self.line1Y = (self.boxTy + 2) * 8
   self.line2Y = (self.boxTy + 4) * 8
   text = TextBox.substitute(game, text)
+  local marks
+  text, marks = stripPauses(text)
   self.pages = TextBox.paginate(text, self.maxCols)
+  -- opts.pauseSounds[i] is the sfx the i-th marker fires once its wait is
+  -- over (text_asm SFX_SWAP, engine/pokemon/learn_move.asm:210-213)
+  self.pauseSounds = opts and opts.pauseSounds
+  self.pauseAt = marks and mapPauses(self.pages, marks) or nil
   self.pageIndex = 1
   self.lineIndex = 1
   self.charIndex = 0
@@ -276,6 +330,14 @@ function TextBox:visibleText()
   return #out > 0 and out or nil
 end
 
+-- pokegold engine/overworld/scripting.asm:484-485 PlaySFX / WaitSFX
+function TextBox:sfxHeld()
+  if not self.sfxWait then return false end
+  if require("src.core.Sound").sfxBusy() then return true end
+  self.sfxWait = nil
+  return false
+end
+
 function TextBox:update(dt)
   local input = self.game.input
   self.blink = (self.blink + 1) % 60
@@ -296,6 +358,20 @@ function TextBox:update(dt)
   if (self.holdFrames or 0) > 0 then
     self.holdFrames = self.holdFrames - 1
     return
+  end
+  -- home/text.asm:492
+  if self.pauseFrames then
+    if self.pauseFrames > 0 then
+      self.pauseFrames = self.pauseFrames - 1
+      return
+    end
+    self.pauseFrames = nil
+    local snd = self.pauseSounds and self.pauseSounds[self.pauseMark]
+    if type(snd) == "function" then
+      snd()
+    elseif snd then
+      require("src.core.Sound").play(self.game.data, snd)
+    end
   end
   if self.done then
     -- opts.stay: the box is finished but stays up under whatever the caller
@@ -378,6 +454,7 @@ function TextBox:update(dt)
       end
       return
     end
+    if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       require("src.core.Sound").play(self.game.data, "Press_AB")
       self.game.stack:pop()
@@ -393,6 +470,7 @@ function TextBox:update(dt)
       self.preWait = self.preWait - 1
       return
     end
+    if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       require("src.core.Sound").play(self.game.data, "Press_AB")
       self.waiting = false
@@ -430,6 +508,15 @@ function TextBox:update(dt)
       self.charIndex = self.charIndex + 1
       local line = self.shown[#self.shown]
       line[#line + 1] = self.codes[self.charIndex]
+      local marks = self.pauseAt and self.pauseAt[self.pageIndex]
+      marks = marks and marks[self.lineIndex]
+      if marks and marks[self.charIndex] then
+        self.pauseMark = marks[self.charIndex]
+        -- TextCommand_PAUSE reads hJoyHeld, so a held A/B skips the wait
+        self.pauseFrames = (input:isDown("a") or input:isDown("b"))
+          and 0 or PAUSE_FRAMES
+        break
+      end
     else
       -- line finished
       local page = self.pages[self.pageIndex]

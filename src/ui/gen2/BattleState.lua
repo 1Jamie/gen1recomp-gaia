@@ -605,10 +605,50 @@ function BattleState:animData(mon)
   local def = self.pokemon and mon and self.pokemon[mon.species]
   if not def then return nil end
   if mon.species == Unown.SPECIES and def.letters then
-    local entry = def.letters[Unown.monLetter(mon)]
+    local entry = def.letters[Unown.name(Unown.monLetter(mon))]
     if entry and entry.anim then return entry.anim end
   end
   return def.anim
+end
+
+-- ../pokecrystal/engine/gfx/load_pics.asm:105-131
+function BattleState:frontPicReplaced(mon)
+  local def = self.pokemon and mon and self.pokemon[mon.species]
+  local vanilla = def and def.spriteFront
+  if mon and mon.species == Unown.SPECIES then
+    vanilla = Unown.formSprite(self.pokemon, Unown.monLetter(mon), false)
+      or vanilla
+  end
+  if type(vanilla) ~= "string" then return false end
+  local _, _, path = self:pic(mon, false)
+  if type(path) == "string" and path ~= vanilla then return true end
+  return Assets.resolve(vanilla) ~= vanilla
+end
+
+-- one cart asset, two files on the pokemon.sprite seam (#1827)
+-- ../pokecrystal/engine/gfx/load_pics.asm:132-158
+function BattleState:animSheetPath(mon, data)
+  local path = data and data.sheet
+  if type(path) ~= "string" then return nil, false end
+  if not Runtime.wantsHook("pokemon.sprite") then
+    return path, Assets.resolve(path) ~= path
+  end
+  local letter
+  if mon and mon.species == Unown.SPECIES then letter = Unown.monLetter(mon) end
+  local hooked = Runtime.call("pokemon.sprite",
+    function(value) return value end, path, {
+      species = mon and mon.species,
+      side = "front",
+      kind = "battle_anim",
+      mon = mon,
+      data = (self.game and self.game.data) or nil,
+      letter = letter,
+      shiny = mon and mon.shiny and true or false,
+    })
+  if type(hooked) == "string" and hooked ~= "" and hooked ~= path then
+    return hooked, true
+  end
+  return path, Assets.resolve(path) ~= path
 end
 
 -- ANIM_MON_NORMAL, the scene BattleStartMessage runs on the enemy's frontpic.
@@ -617,11 +657,14 @@ function BattleState:startFrontAnim(mon)
   self.frontAnim = nil
   local data = self:animData(mon)
   if not data then return end
-  local cached = self.picCache[data.sheet]
+  local sheet, sheetReplaced = self:animSheetPath(mon, data)
+  if not sheet then return end
+  if not sheetReplaced and self:frontPicReplaced(mon) then return end
+  local cached = self.picCache[sheet]
   if cached == nil then
-    local ok, image = pcall(Assets.image, data.sheet)
+    local ok, image = pcall(Assets.image, sheet)
     cached = ok and image or false
-    self.picCache[data.sheet] = cached
+    self.picCache[sheet] = cached
   end
   if not cached then return end
   local runner = MonAnim.new(data, "battle")

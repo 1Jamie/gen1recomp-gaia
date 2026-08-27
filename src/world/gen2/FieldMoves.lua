@@ -187,6 +187,11 @@ function FieldMoves.bindEngineFlags(order)
   -- row, so every id from BUG_CONTEST_TIMER up shifts one.
   FieldMoves.BUG_CONTEST_FLAG = byName["ENGINE_BUG_CONTEST_TIMER"] or 16
   FieldMoves.BIKE_SHOP_CALL_FLAG = byName["ENGINE_BIKE_SHOP_CALL_ENABLED"] or 19
+  -- pokecrystal constants/engine_flags.asm:66-92 vs pokegold :65-91
+  for _, row in ipairs(FieldMoves.FLYPOINTS or {}) do
+    row.goldFlag = row.goldFlag or row.flag
+    row.flag = byName[row.name] or row.goldFlag
+  end
   return flags
 end
 
@@ -475,33 +480,35 @@ end
 -- const_def count (0-based, ENGINE_RADIO_CARD is 0): the byte a town's own
 -- MAPCALLBACK_NEWMAP callback sets with `setflag` the first time you walk in,
 -- and what FieldMoves.hasVisitedSpawn below actually reads.
+-- Ids are pokegold's; bindEngineFlags rebinds by name (pokecrystal
+-- constants/engine_flags.asm:25 ENGINE_MOBILE_SYSTEM shifts them +1).
 FieldMoves.FLYPOINTS = {
   -- Johto
-  { landmark = "LANDMARK_NEW_BARK_TOWN",    spawn = "SPAWN_NEW_BARK",      flag = 64 },
-  { landmark = "LANDMARK_CHERRYGROVE_CITY", spawn = "SPAWN_CHERRYGROVE",   flag = 65 },
-  { landmark = "LANDMARK_VIOLET_CITY",      spawn = "SPAWN_VIOLET",        flag = 66 },
-  { landmark = "LANDMARK_AZALEA_TOWN",      spawn = "SPAWN_AZALEA",        flag = 67 },
-  { landmark = "LANDMARK_GOLDENROD_CITY",   spawn = "SPAWN_GOLDENROD",     flag = 69 },
-  { landmark = "LANDMARK_ECRUTEAK_CITY",    spawn = "SPAWN_ECRUTEAK",      flag = 71 },
-  { landmark = "LANDMARK_OLIVINE_CITY",     spawn = "SPAWN_OLIVINE",       flag = 70 },
-  { landmark = "LANDMARK_CIANWOOD_CITY",    spawn = "SPAWN_CIANWOOD",      flag = 68 },
-  { landmark = "LANDMARK_MAHOGANY_TOWN",    spawn = "SPAWN_MAHOGANY",      flag = 72 },
-  { landmark = "LANDMARK_LAKE_OF_RAGE",     spawn = "SPAWN_LAKE_OF_RAGE",  flag = 73 },
-  { landmark = "LANDMARK_BLACKTHORN_CITY",  spawn = "SPAWN_BLACKTHORN",    flag = 74 },
-  { landmark = "LANDMARK_SILVER_CAVE",      spawn = "SPAWN_MT_SILVER",     flag = 75 },
+  { landmark = "LANDMARK_NEW_BARK_TOWN",    spawn = "SPAWN_NEW_BARK",      flag = 64, name = "ENGINE_FLYPOINT_NEW_BARK" },
+  { landmark = "LANDMARK_CHERRYGROVE_CITY", spawn = "SPAWN_CHERRYGROVE",   flag = 65, name = "ENGINE_FLYPOINT_CHERRYGROVE" },
+  { landmark = "LANDMARK_VIOLET_CITY",      spawn = "SPAWN_VIOLET",        flag = 66, name = "ENGINE_FLYPOINT_VIOLET" },
+  { landmark = "LANDMARK_AZALEA_TOWN",      spawn = "SPAWN_AZALEA",        flag = 67, name = "ENGINE_FLYPOINT_AZALEA" },
+  { landmark = "LANDMARK_GOLDENROD_CITY",   spawn = "SPAWN_GOLDENROD",     flag = 69, name = "ENGINE_FLYPOINT_GOLDENROD" },
+  { landmark = "LANDMARK_ECRUTEAK_CITY",    spawn = "SPAWN_ECRUTEAK",      flag = 71, name = "ENGINE_FLYPOINT_ECRUTEAK" },
+  { landmark = "LANDMARK_OLIVINE_CITY",     spawn = "SPAWN_OLIVINE",       flag = 70, name = "ENGINE_FLYPOINT_OLIVINE" },
+  { landmark = "LANDMARK_CIANWOOD_CITY",    spawn = "SPAWN_CIANWOOD",      flag = 68, name = "ENGINE_FLYPOINT_CIANWOOD" },
+  { landmark = "LANDMARK_MAHOGANY_TOWN",    spawn = "SPAWN_MAHOGANY",      flag = 72, name = "ENGINE_FLYPOINT_MAHOGANY" },
+  { landmark = "LANDMARK_LAKE_OF_RAGE",     spawn = "SPAWN_LAKE_OF_RAGE",  flag = 73, name = "ENGINE_FLYPOINT_LAKE_OF_RAGE" },
+  { landmark = "LANDMARK_BLACKTHORN_CITY",  spawn = "SPAWN_BLACKTHORN",    flag = 74, name = "ENGINE_FLYPOINT_BLACKTHORN" },
+  { landmark = "LANDMARK_SILVER_CAVE",      spawn = "SPAWN_MT_SILVER",     flag = 75, name = "ENGINE_FLYPOINT_SILVER_CAVE" },
   -- Kanto
-  { landmark = "LANDMARK_PALLET_TOWN",      spawn = "SPAWN_PALLET",        flag = 52 },
-  { landmark = "LANDMARK_VIRIDIAN_CITY",    spawn = "SPAWN_VIRIDIAN",      flag = 53 },
-  { landmark = "LANDMARK_PEWTER_CITY",      spawn = "SPAWN_PEWTER",        flag = 54 },
-  { landmark = "LANDMARK_CERULEAN_CITY",    spawn = "SPAWN_CERULEAN",      flag = 55 },
-  { landmark = "LANDMARK_VERMILION_CITY",   spawn = "SPAWN_VERMILION",     flag = 57 },
-  { landmark = "LANDMARK_ROCK_TUNNEL",      spawn = "SPAWN_ROCK_TUNNEL",   flag = 56 },
-  { landmark = "LANDMARK_LAVENDER_TOWN",    spawn = "SPAWN_LAVENDER",      flag = 58 },
-  { landmark = "LANDMARK_CELADON_CITY",     spawn = "SPAWN_CELADON",       flag = 60 },
-  { landmark = "LANDMARK_SAFFRON_CITY",     spawn = "SPAWN_SAFFRON",       flag = 59 },
-  { landmark = "LANDMARK_FUCHSIA_CITY",     spawn = "SPAWN_FUCHSIA",       flag = 61 },
-  { landmark = "LANDMARK_CINNABAR_ISLAND",  spawn = "SPAWN_CINNABAR",      flag = 62 },
-  { landmark = "LANDMARK_INDIGO_PLATEAU",   spawn = "SPAWN_INDIGO",        flag = 63 },
+  { landmark = "LANDMARK_PALLET_TOWN",      spawn = "SPAWN_PALLET",        flag = 52, name = "ENGINE_FLYPOINT_PALLET" },
+  { landmark = "LANDMARK_VIRIDIAN_CITY",    spawn = "SPAWN_VIRIDIAN",      flag = 53, name = "ENGINE_FLYPOINT_VIRIDIAN" },
+  { landmark = "LANDMARK_PEWTER_CITY",      spawn = "SPAWN_PEWTER",        flag = 54, name = "ENGINE_FLYPOINT_PEWTER" },
+  { landmark = "LANDMARK_CERULEAN_CITY",    spawn = "SPAWN_CERULEAN",      flag = 55, name = "ENGINE_FLYPOINT_CERULEAN" },
+  { landmark = "LANDMARK_VERMILION_CITY",   spawn = "SPAWN_VERMILION",     flag = 57, name = "ENGINE_FLYPOINT_VERMILION" },
+  { landmark = "LANDMARK_ROCK_TUNNEL",      spawn = "SPAWN_ROCK_TUNNEL",   flag = 56, name = "ENGINE_FLYPOINT_ROCK_TUNNEL" },
+  { landmark = "LANDMARK_LAVENDER_TOWN",    spawn = "SPAWN_LAVENDER",      flag = 58, name = "ENGINE_FLYPOINT_LAVENDER" },
+  { landmark = "LANDMARK_CELADON_CITY",     spawn = "SPAWN_CELADON",       flag = 60, name = "ENGINE_FLYPOINT_CELADON" },
+  { landmark = "LANDMARK_SAFFRON_CITY",     spawn = "SPAWN_SAFFRON",       flag = 59, name = "ENGINE_FLYPOINT_SAFFRON" },
+  { landmark = "LANDMARK_FUCHSIA_CITY",     spawn = "SPAWN_FUCHSIA",       flag = 61, name = "ENGINE_FLYPOINT_FUCHSIA" },
+  { landmark = "LANDMARK_CINNABAR_ISLAND",  spawn = "SPAWN_CINNABAR",      flag = 62, name = "ENGINE_FLYPOINT_CINNABAR" },
+  { landmark = "LANDMARK_INDIGO_PLATEAU",   spawn = "SPAWN_INDIGO",        flag = 63, name = "ENGINE_FLYPOINT_INDIGO_PLATEAU" },
 }
 
 -- spawn -> row, built once, so hasVisitedSpawn below does not walk the whole

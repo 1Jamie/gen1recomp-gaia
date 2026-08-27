@@ -8,6 +8,11 @@
 -- findPendingRom, answered with the first dump whose SHA-1 mapped to any
 -- not-yet-ready version, so the selection was dropped on the floor.
 --
+-- Since 592daafa the in-launcher Kit.FileBrowser is tried ahead of that scan,
+-- so the save-dir scan is now what a build without the Kit browser takes.
+-- Kit is stubbed away below to reach it; the last block covers the browser
+-- being present.
+--
 -- Self-contained: `luajit tests/rom_importer_choose_version_test.lua`
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
@@ -51,6 +56,9 @@ local saved = {
 -- to a dialog that may or may not exist on the machine running the suite.
 -- The fallback under test is the same one every pickerless device takes.
 love.system.getOS = function() return "Unknown" end
+-- No Kit browser in this build, so Choose falls through to the save-dir scan.
+local savedKit = package.loaded["src.ui.kit.Kit"]
+package.loaded["src.ui.kit.Kit"] = { FileBrowser = nil }
 love.filesystem.getSaveDirectory = function() return "/tmp/pokemon-love2d" end
 love.filesystem.getDirectoryItems = function() return LISTING end
 love.filesystem.getInfo = function(name, filter)
@@ -115,6 +123,24 @@ ri.ready = { red = true, blue = false, yellow = false }
 ri:choose("red")
 check(ri._started == nil,
   "and a version already imported is not extracted a second time")
+
+-- ------- with the Kit browser present it opens instead of scanning
+
+local opened = nil
+package.loaded["src.ui.kit.Kit"] = {
+  FileBrowser = {
+    open = function(opts) opened = opts end,
+  },
+}
+ri = freshImporter()
+ri:choose("blue")
+check(ri._started == nil and opened ~= nil,
+  "a build with the Kit browser opens it rather than scanning the save dir")
+eq(opened and opened.title, "Select "
+  .. (GameVersion.info("blue").displayName or "ROM"),
+  "titled for the version that was chosen")
+
+package.loaded["src.ui.kit.Kit"] = savedKit
 
 for name, fn in pairs(saved) do
   if name == "getOS" then love.system.getOS = fn

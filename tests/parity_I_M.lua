@@ -303,7 +303,9 @@ Game.save.forcedBike = true
 ow = pushOW("ROUTE_17", 4, 10, "down")
 ow:flyTo("PALLET_TOWN")
 eq(Game.save.forcedBike, nil, "Fly clears BIT_ALWAYS_ON_BIKE")
-ow.flyAnim, ow.flyDest, ow.player.inputLocked = nil, nil, false -- undo flyTo
+-- undo flyTo, flyFade included: it re-arms flyAnim when it drains
+ow.flyAnim, ow.flyDest, ow.flyFade = nil, nil, nil
+ow.player.inputLocked = false
 Game.save.forcedBike = true
 ow:warpToHealPoint()
 eq(Game.save.forcedBike, nil, "blackout/escape warps clear BIT_ALWAYS_ON_BIKE")

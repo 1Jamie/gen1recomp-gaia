@@ -826,10 +826,14 @@ R.pokemon = {
                                item = f.opt(f.id("items")),
                                species = f.id("pokemon") }),
     spriteFront = f.path, spriteBack = f.path, frontSize = f.int(1, 7),
+    -- text2 is the #DEX entry's second description page (Pokedex_asm's bare
+    -- `page` macro, engine/pokedex/pokedex.asm): PokedexMenu:drawEntryBody
+    -- shows `entry.text` on page 1 and `entry.text2` on page 2, so a
+    -- translation needs both to cover the whole entry.
     dexEntry = f.opt(f.rec{ kind = f.str, heightFt = f.int(0),
                             heightIn = f.int(0, 11), weight = f.num,
                             heightM = f.opt(f.num), weightKg = f.opt(f.num),
-                            text = f.str }),
+                            text = f.str, text2 = f.opt(f.str) }),
     icon = f.opt(f.union{ f.str, f.rec{ image = f.path,
                                         frames = f.opt(f.int(1)) } }),
     cry = f.opt(f.id("cries")), palette = f.opt(f.id("palettes")),

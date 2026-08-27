@@ -44,11 +44,14 @@ end
 TileRenderer.setSpinning(false)
 check(not TileRenderer.spinBlurActive(), "no arrow blur frame outside a spin")
 
+-- one toggle per 16-frame walked tile: wSimulatedJoypadStatesIndex drops
+-- once per JoypadOverworld call (home/overworld.asm:1844-1846) and
+-- spinners.asm:18-22 reads its bit 0 (#1831)
 TileRenderer.setSpinning(true)
 local a = TileRenderer.spinBlurActive()
-for i = 1, 8 do TileRenderer.tick() end
+for i = 1, 16 do TileRenderer.tick() end
 local b = TileRenderer.spinBlurActive()
-check(a ~= b, "arrow blur frame toggles every ~8 ticks while spinning")
+check(a ~= b, "arrow blur frame toggles every ~16 ticks while spinning")
 
 TileRenderer.setSpinning(false)
 check(not TileRenderer.spinBlurActive(), "blur frame turns off once the spin ends")

@@ -336,7 +336,7 @@ function SummaryMenu:startPicAnim()
   if not def then return end
   local data = def.anim
   if mon.species == Unown.SPECIES and def.letters then
-    local entry = def.letters[Unown.monLetter(mon)]
+    local entry = def.letters[Unown.name(Unown.monLetter(mon))]
     if entry and entry.anim then data = entry.anim end
   end
   if not data then return end
@@ -1105,9 +1105,14 @@ function SummaryMenu:drawEggIconFallback(colors)
   G.setColor(1, 1, 1, 1)
 end
 
-function SummaryMenu:drawPlacements(list)
+-- engine/gfx/color.asm:342-359
+function SummaryMenu:drawPlacements(list, palette)
   for _, entry in ipairs(list) do
-    Chrome.print(entry.text, entry.x, entry.y)
+    if palette then
+      Chrome.printThrough(entry.text, entry.x, entry.y, palette)
+    else
+      Chrome.print(entry.text, entry.x, entry.y)
+    end
   end
 end
 
@@ -1168,7 +1173,7 @@ function SummaryMenu:drawPinkPage()
     HpBar.drawWithLabel(self.palettes, mon.hp, maxHp, 0, 9, Font)
   end
   self:drawVerticalDivider(9)
-  self:drawPlacements(self:pinkPlacements())
+  self:drawPlacements(self:pinkPlacements(), self:lowerColors())
 
   -- FillInExpBar is handed (11,16), adds 7 to reach the rightmost cell and
   -- fills eight of them walking left, with the $40/$41 caps outside at (10,16)
@@ -1188,12 +1193,12 @@ function SummaryMenu:drawPinkPage()
 end
 
 function SummaryMenu:drawGreenPage()
-  self:drawPlacements(self:greenPlacements())
+  self:drawPlacements(self:greenPlacements(), self:lowerColors())
 end
 
 function SummaryMenu:drawBluePage()
   self:drawVerticalDivider(10)
-  self:drawPlacements(self:bluePlacements())
+  self:drawPlacements(self:bluePlacements(), self:lowerColors())
 end
 
 function SummaryMenu:drawMoveDetail()

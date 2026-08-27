@@ -120,14 +120,17 @@ function MoveLearnMenu:finish(learned)
   local opts
   if learned then
     -- pokered pages this as four texts in a row; _ForgotAndText carries
-    -- the "And..." tail
+    -- the "And..." tail.  Each text_pause holds the box, and the first one
+    -- is followed by SFX_SWAP (engine/pokemon/learn_move.asm:208-222).
     msg = romText(game.data, "_OneTwoAndText", "1, 2 and...")
+      .. TextBox.PAUSE
       .. romText(game.data, "_PoofText", " Poof!")
+      .. TextBox.PAUSE
       .. romText(game.data, "_ForgotAndText",
            "\f%s forgot\n%s!\fAnd...", name, self.forgot)
       .. "\f" .. romText(game.data, "_LearnedMove1Text",
            "%s learned\n%s!", name, mdef.name)
-    opts = { auto = { sound = function()
+    opts = { pauseSounds = { "Swap" }, auto = { sound = function()
       return require("src.core.Sound").play(game.data, self.learnedSound)
     end, wait = true } }
   else

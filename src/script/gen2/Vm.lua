@@ -700,8 +700,10 @@ local function runCmd(self, cmd, op)
         -- GetPocketName fills from ItemPocketNames: KEY ITEMs, BALLs and TMs
         -- name their own pocket, not the ITEM one (data/text/common_2.asm
         -- :1351, data/items/pocket_names.asm:10-13).
+        -- Script_specialsound's WaitSFX (scripting.asm:485): the box holds
+        -- its press until the jingle ends.
         self:showRaw(Strings("{PLAYER} put the\n%s in\nthe %s.",
-          name, self:pocketName(item)))
+          name, self:pocketName(item)), nil, nil, true)
       else
         self:showRaw(Strings("The %s\nis full…", self:pocketName(item)))
       end
@@ -1510,8 +1512,8 @@ local function runCmd(self, cmd, op)
       self.playSoundFn(SFX_ITEM)
     end
     -- FruitTreeScript's tail is `specialsound / itemnotify` with NOTHING
-    -- between them (engine/events/fruit_trees.asm:23-24), and Script_specialsound
-    -- is a bare PlaySFX -- it does not wait either (scripting.asm:476-483).
+    -- between them (engine/events/fruit_trees.asm:23-24);
+    -- Script_specialsound ends PlaySFX / WaitSFX (scripting.asm:484-485)
     -- The port used to park here on a `waitsfx`, which is the same seam
     -- GiveItemScript's did: this port's box takes its own button and pops on
     -- it, so the park ran with an EMPTY state stack and the bare overworld
@@ -1523,7 +1525,7 @@ local function runCmd(self, cmd, op)
     -- noun still comes from ItemPocketNames rather than from a third copy of
     -- the literal (data/items/pocket_names.asm:10-13).
     self:showRaw(Strings("{PLAYER} put the\n%s in\nthe %s.",
-      name, self:pocketName(item)))
+      name, self:pocketName(item)), nil, nil, true)
     return "end"
   elseif op == "describedecoration" then
     -- `describedecoration byte` picks one of five DECODESC_* arms
@@ -2427,7 +2429,7 @@ end
 -- the port's world does not tick while a box is on the stack (Game2:update
 -- stops at the top state), so the only clock that can count it is the box's;
 -- World:showText is where it lands.
-function Vm:showRaw(body, stay, hold)
+function Vm:showRaw(body, stay, hold, sfxWait)
   if not body or body == "" then body = "..." end
   if self.stringBuffer and self.stringBuffer ~= "" then
     body = body:gsub("{STRBUF}", self.stringBuffer)
@@ -2438,6 +2440,8 @@ function Vm:showRaw(body, stay, hold)
       text = body,
       stay = (stay or self:textStays()) and true or false,
       hold = hold,
+      -- pokegold engine/overworld/scripting.asm:485 WaitSFX
+      sfxWait = sfxWait and true or nil,
     })
   end
 end
@@ -2646,7 +2650,7 @@ function Vm:resume(resumeValue)
   if req and req.kind == "text" and self.showTextFn then
     self.showTextFn(req.text, function()
       self:resume()
-    end, req.stay, req.hold)
+    end, req.stay, req.hold, req.sfxWait)
   elseif req and req.kind == "wait" then
     self.waitLeft = req.frames or 0
   elseif req and req.kind == "waitbutton" then

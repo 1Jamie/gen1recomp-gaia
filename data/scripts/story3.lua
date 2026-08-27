@@ -167,13 +167,11 @@ M.POKEMON_TOWER_6F = {
           -- PlayCry RESTLESS_SOUL (EQU MAROWAK, constants/pokemon_constants
           -- .asm:209) + WaitForSoundToFinish + DelayFrames 30 before the
           -- calmed line; the port dropped the first text and the cry
-          -- (#867).  play_cry arms the next show_text, so the cry rides
-          -- the calmed box's open with the button prompt kept, and the
-          -- wait row stands in for the asm's 30-frame gap.
+          -- (#867).  text/PokemonTower6F.asm:1-5 (#1849)
           local rows = {
+            { "play_cry", "MAROWAK" },
             { "show_text", t._PokemonTower6FGhostWasCubonesMotherText
               or "The GHOST was the\nrestless soul of\vCUBONE's mother!" },
-            { "play_cry", "MAROWAK", true },
             { "wait", 30 },
             { "show_text", t._PokemonTower6FSoulWasCalmedText
               or "The mother's soul\nwas calmed.\012It departed to\nthe afterlife!" },
@@ -191,7 +189,8 @@ M.POKEMON_TOWER_6F = {
         end
         ow:afterBattle(result, battle)
       end
-      game.stack:push(battle)
+      -- InitWildBattle runs the wipe before the disguise (core.asm:6695-6702)
+      ow:pushBattle(battle)
     end))
     return true
   end,
@@ -443,6 +442,9 @@ M.ROCKET_HIDEOUT_B4F = {
                    or "I hope we meet\nagain..."
       game.stack:push(TextBox.new(game, impressed, function()
         local battle = BattleState.newTrainer(game, "OPP_GIOVANNI", 1)
+        -- SaveEndBattleTextPointers (scripts/RocketHideoutB4F.asm:99-120):
+        -- PrintEndBattleText prints it on the battle screen (#1817)
+        battle.endBattleText = TextBox.substitute(game, cannotBe)
         battle.onFinish = function(result)
           if result ~= "win" then
             ow:afterBattle(result, battle)
@@ -451,22 +453,19 @@ M.ROCKET_HIDEOUT_B4F = {
           end
           game.save.defeatedTrainers[npc.id] = true
           game.save.flags.EVENT_BEAT_ROCKET_HIDEOUT_GIOVANNI = true
-          -- End-battle "WHAT!" then BeatGiovanniScript's hope text,
-          -- fade, HideObject Giovanni, ShowObject Silph Scope.
-          game.stack:push(TextBox.new(game, cannotBe, function()
-            game.stack:push(TextBox.new(game, hope, function()
-              local Transition = require("src.render.Transition")
-              game.stack:push(Transition.new(game, function()
-                local Commands = require("src.script.Commands")
-                local ctx = { game = game, save = game.save, overworld = ow }
-                Commands.hide_object(ctx, "ROCKET_HIDEOUT_B4F",
-                  "ROCKETHIDEOUTB4F_GIOVANNI")
-                Commands.show_object(ctx, "ROCKET_HIDEOUT_B4F",
-                  "ROCKETHIDEOUTB4F_SILPH_SCOPE")
-              end, function()
-                ow:afterBattle(result, battle)
-                done()
-              end))
+          -- BeatGiovanniScript (scripts/RocketHideoutB4F.asm)
+          game.stack:push(TextBox.new(game, hope, function()
+            local Transition = require("src.render.Transition")
+            game.stack:push(Transition.new(game, function()
+              local Commands = require("src.script.Commands")
+              local ctx = { game = game, save = game.save, overworld = ow }
+              Commands.hide_object(ctx, "ROCKET_HIDEOUT_B4F",
+                "ROCKETHIDEOUTB4F_GIOVANNI")
+              Commands.show_object(ctx, "ROCKET_HIDEOUT_B4F",
+                "ROCKETHIDEOUTB4F_SILPH_SCOPE")
+            end, function()
+              ow:afterBattle(result, battle)
+              done()
             end))
           end))
         end

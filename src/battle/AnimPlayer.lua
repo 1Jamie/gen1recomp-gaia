@@ -104,7 +104,9 @@ local SE_FRAMES = {
   SE_FLASH_MON_PIC = 4, SE_FLASH_ENEMY_MON_PIC = 4,
   SE_TRANSFORM_MON = 4,
   SE_SUBSTITUTE_MON = 3,
-  SE_WAVY_SCREEN = 255,            -- AnimationWavyScreen: ld c, $ff frames
+  -- AnimationWavyScreen: `ld c, $ff` counts outer passes, and the inner
+  -- loop exits twice per displayed frame (animations.asm:1884-1903)
+  SE_WAVY_SCREEN = 128,
 }
 
 -- data/battle_anims/special_effects.asm AnimationIdSpecialEffects:
@@ -502,15 +504,10 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
         local transform = resolveTransform(sub.type, attackerIsPlayer)
         local first, last, dir = 1, #sub.blocks, 1
         if transform == "REVERSE" then first, last, dir = last, first, -1 end
-        -- DoBallShakeSpecialEffects: each ball shake opens with SFX_TINK
-        -- and a 40-frame pause, then rewinds the same subanimation; the
-        -- mode-4 frame blocks persist, so the resting ball stays visible
-        -- through the pauses between wobbles
+        -- DoBallShakeSpecialEffects: animations.asm:739-747, :623-627
+        local pendingTink = false
         for _ = 1, (opts and opts.shakes) or 1 do
-          if opts and opts.shakes then
-            events[#events + 1] = { effect = "SFX_TINK", frame = frame }
-            emit(40)
-          end
+          pendingTink = opts and opts.shakes ~= nil
           local dest = 1   -- PlaySubanimation resets the OAM cursor per row
           local nblocks = math.abs(last - first) + 1
           local played = 0
@@ -568,6 +565,11 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
               -- DoSpecialEffectByAnimationId runs after every frame
               -- block with wSubAnimCounter = blocks remaining
               played = played + 1
+              if pendingTink then
+                pendingTink = false
+                events[#events + 1] = { effect = "SFX_TINK", frame = frame }
+                emit(40)
+              end
               if ballFlicker then obp0Flip = not obp0Flip end
               if idFx then
                 local counter = nblocks - played + 1

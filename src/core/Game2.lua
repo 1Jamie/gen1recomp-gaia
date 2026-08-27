@@ -1024,6 +1024,11 @@ function Game2:load()
   require("src.core.gen2.Phone").useRegistry(self.data)
   require("src.core.gen2.Decorations").useRegistry(self.data)
   require("src.core.gen2.Apricorns").useRegistry(self.data)
+  -- data.gen2Pokedex is a separate table from the `pokemon` registry's own
+  -- merge target (data.pokemon): a translation mod's
+  -- mod.content.pokemon:patch(id, { dexEntry = ... }) would otherwise never
+  -- reach the #DEX screen. See src/core/gen2/PokedexText.lua.
+  require("src.core.gen2.PokedexText").apply(self.data)
 
   -- Rendering pipelines: the engine half of the render_pipelines registry
   -- (src/render/Pipelines.lua).  install() points it at GOLD's merged dataset

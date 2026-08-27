@@ -23,7 +23,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.harness")
-local check, eq = T.check, T.eq
+local check, eq, same = T.check, T.eq, T.same
 love = love or require("tests.love_stub")
 
 -- Lazily-required inside the use branches, so seeding package.loaded before
@@ -34,8 +34,15 @@ package.loaded["src.core.Sound"] = {
 }
 -- Real TextBoxes want a Font atlas.  This flow only cares that a message
 -- opened, what it says, and what its onDone does.
+local jingles = {}
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, done) return { textBox = true, text = text, done = done } end,
+  soundOpts = function(_, sound, opts)
+    jingles[#jingles + 1] = sound
+    opts = opts or {}
+    opts.auto = { sound = sound, wait = true }
+    return opts
+  end,
 }
 -- BagMenu and PartyMenu bind TextBox at require time, so they load against
 -- the stub; Screens caches its factory per id and must be told to forget.
@@ -133,6 +140,7 @@ end
 -- The bug: three candies in the bag, use one in the field.
 do
   local game, mon = freshGame(3)
+  jingles = {}
   local list, why = useFromBag(game, nil, "RARE_CANDY")
   if check(list ~= nil, "the bag opened and reached the picker: " .. tostring(why)) then
     eq(mon.level, 6, "the candy leveled the mon 5 -> 6")
@@ -156,6 +164,10 @@ do
       check(box.text:find("level 6", 1, true) ~= nil,
             "and it names the new level: " .. tostring(box.text))
     end
+    -- RareCandyText: text_far, sound_get_item_1, text_promptbutton
+    -- (engine/menus/party_menu.asm:289-293)
+    same(jingles, { "Get_Item1" },
+         "the level-up line carries sound_get_item_1 and nothing else")
   end
 end
 

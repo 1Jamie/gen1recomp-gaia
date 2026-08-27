@@ -88,6 +88,7 @@ function AnimRunner.new(opts)
   }
   self.objects = AnimObjects.new(self.data, self.constants, self.env)
   self.bg = BgEffects.new(self.constants, self.env)
+  self.animId = opts.animId    -- wFXAnimID
   self.gfxOrder = self.constants.battleAnimGfxOrder or {}
   self.sfxOrder = opts.sfxOrder or {}
 

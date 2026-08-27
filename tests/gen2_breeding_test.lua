@@ -645,6 +645,16 @@ save = newSave({ eggWith(0) })
 hatched = Breeding.hatch(DATA, save, 1, "SPROUT")
 eq(hatched.nickname, "SPROUT", "a nickname taken from the naming screen sticks")
 
+-- HatchEggs writes wPlayerID / wPlayerName over whatever the egg carried, so
+-- the ODD_EGG's "ODD" and its table id do not survive the hatch.
+-- engine/pokemon/breeding.asm:299-309
+save = newSave({ eggWith(0) })
+save.party[1].ot = "ODD"
+save.party[1].otId = 2048
+hatched = Breeding.hatch(DATA, save, 1)
+eq(hatched.ot, "GOLD", "the hatchling's OT becomes the player")
+eq(hatched.otId, 1234, "and MON_OT_ID becomes wPlayerID")
+
 eq(#Breeding.readyToHatch(newSave({ eggWith(0), eggWith(2), eggWith(0) })), 2,
   "readyToHatch names every spent counter")
 

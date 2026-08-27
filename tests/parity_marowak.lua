@@ -62,12 +62,15 @@ local function gameWith(inventory, flags)
 end
 
 local function owWith()
-  local moved, after = {}, {}
+  local moved, after, wiped = {}, {}, {}
   return {
     player = { facing = "up" },
     scriptMove = function(_, _, dir, n) moved[#moved + 1] = { dir, n } end,
     afterBattle = function(_, result) after[#after + 1] = result end,
-  }, moved, after
+    -- InitWildBattle runs the transition before the disguise
+    -- (engine/battle/core.asm:6695-6702), so the script uses pushBattle
+    pushBattle = function(_, battle) wiped[#wiped + 1] = battle end,
+  }, moved, after, wiped
 end
 
 -- Walk the trigger: run onStep, then the Be-gone text's done() to push

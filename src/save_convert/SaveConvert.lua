@@ -235,6 +235,35 @@ local function gen2CartName(gameVersion)
   return GameVersion.info(gameVersion).displayName
 end
 
+-- Can a cart save for this game cross in or out at all?  Public because the
+-- launcher has to ask about the GAME before it measures the BYTES.
+--
+-- SaveFileIO.importToSlot judges anything that is not exactly SAVE_SIZE with
+-- mainChecksumValid, which is pokered's main-data checksum.  A Gen 2 cart is
+-- MBC3+TIMER, so a real Gold/Silver/Crystal .sav carries an RTC footer and is
+-- 32786 bytes: it misses the size test and is then measured against a rule
+-- that was never going to match it.  The player is told "save data checksum
+-- invalid" about a save that is perfectly good (#1832).
+--
+-- Returns true, or false plus the same sentence importSav/exportSav would have
+-- answered with, so a caller that asks early and a caller that does not cannot
+-- describe the same game two different ways.
+function SaveConvert.importSupported(gameVersion)
+  local gen2Name = gen2CartName(gameVersion)
+  if gen2Name then
+    return false, gen2Name .. " uses a Gen 2 cart save; importing one is not supported yet."
+  end
+  return true
+end
+
+function SaveConvert.exportSupported(gameVersion)
+  local gen2Name = gen2CartName(gameVersion)
+  if gen2Name then
+    return false, gen2Name .. " uses a Gen 2 cart save; exporting one is not supported yet."
+  end
+  return true
+end
+
 -- importSav(bytes, version, gameVersion) -> saveTable, err
 -- bytes: the raw 32768-byte SRAM string. Validates size and the main-data
 -- checksum, decodes through GenSave, and returns a save table fully merged
@@ -247,10 +276,8 @@ function SaveConvert.importSav(bytes, version, gameVersion)
   if type(bytes) ~= "string" then
     return nil, "expected raw save bytes as a string"
   end
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return nil, gen2Name .. " uses a Gen 2 cart save; importing one is not supported yet."
-  end
+  local supported, unsupportedWhy = SaveConvert.importSupported(gameVersion)
+  if not supported then return nil, unsupportedWhy end
   if #bytes ~= GenSave.SAVE_SIZE then
     return nil, ("save must be %d bytes, got %d"):format(GenSave.SAVE_SIZE, #bytes)
   end
@@ -283,10 +310,8 @@ function SaveConvert.exportSav(saveTable, gameVersion)
   if type(saveTable) ~= "table" then
     return nil, "expected a save table"
   end
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return nil, gen2Name .. " uses a Gen 2 cart save; exporting one is not supported yet."
-  end
+  local supported, unsupportedWhy = SaveConvert.exportSupported(gameVersion)
+  if not supported then return nil, unsupportedWhy end
   local data, derr = ensureData(gameVersion)
   if not data then return nil, derr end
   local ok, bytes = pcall(GenSave.encode, saveTable, data, nil)

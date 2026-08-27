@@ -1251,19 +1251,26 @@ local function pokemonTower2FRivalScript(playerX)
     and TOWER_RIVAL_EXIT_DOWN_THEN_RIGHT
     or TOWER_RIVAL_EXIT_RIGHT_THEN_DOWN
   return {
-    { "face_player" },                                            -- 1
-    { "check_flag", "EVENT_BEAT_POKEMON_TOWER_RIVAL" },           -- 2
-    { "jump_if_true", 12 },                                       -- 3
-    { "show_text", "_PokemonTower2FRivalWhatBringsYouHereText" }, -- 4
-    { "rival_battle", "OPP_RIVAL2", 4 },                          -- 5
-    { "jump_if_false", "end" },                                   -- 6 loss: stay
-    { "set_flag", "EVENT_BEAT_POKEMON_TOWER_RIVAL" },             -- 7
-    { "show_text", "_PokemonTower2FRivalDefeatedText" },          -- 8
+    { "face_player" },
+    { "check_flag", "EVENT_BEAT_POKEMON_TOWER_RIVAL" },
+    { "jump_if_true", "beaten" },
+    { "show_text", "_PokemonTower2FRivalWhatBringsYouHereText" },
+    -- .DefeatedText rides BIT_PRINT_END_BATTLE_TEXT, so it prints on the
+    -- battle screen -- scripts/PokemonTower2F.asm:145-150
+    { "save_end_battle_text", "_PokemonTower2FRivalDefeatedText" },
+    { "rival_battle", "OPP_RIVAL2", 4 },
+    { "jump_if_false", "end" },                                   -- loss: stay
+    { "set_flag", "EVENT_BEAT_POKEMON_TOWER_RIVAL" },
+    -- the win re-runs DisplayTextID on the beaten branch
+    -- scripts/PokemonTower2F.asm:72-75, :137-140
+    { "show_text", "_PokemonTower2FRivalHowsYourDexText" },
     { "play_music", "Music_MeetRival", { start = "rival" } },
-    { "walk_npc", 1, exitDirs },                                  -- 9
-    { "hide_object", "POKEMON_TOWER_2F", "POKEMONTOWER2F_RIVAL" }, -- 10
-    { "jump", "end" },                                            -- 11
-    { "show_text", "_PokemonTower2FRivalHowsYourDexText" },       -- 12
+    { "walk_npc", 1, exitDirs },
+    { "hide_object", "POKEMON_TOWER_2F", "POKEMONTOWER2F_RIVAL" },
+    { "play_default_music" },              -- scripts/PokemonTower2F.asm:124
+    { "jump", "end" },
+    { "label", "beaten" },
+    { "show_text", "_PokemonTower2FRivalHowsYourDexText" },
   }
 end
 

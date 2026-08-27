@@ -37,6 +37,13 @@ local TileSheet = require("src.ui.gen2.TileSheet")
 local Nests = require("src.core.gen2.Nests")
 local Sound = require("src.core.Sound")
 local Unown = require("src.core.gen2.Unown")
+local Strings = require("src.core.Strings")
+
+-- `db $3b, " OPTION ", $3c` / `db $3b, " SEARCH ", $3c"`: the panel titles
+-- drawn by drawOption/drawSearch below, declared here (rather than inline)
+-- so Strings.source puts them in the catalog harvest.
+local OPTION_LABEL = Strings.source(" OPTION ")
+local SEARCH_LABEL = Strings.source(" SEARCH ")
 
 local PokedexMenu = {}
 PokedexMenu.__index = PokedexMenu
@@ -776,7 +783,6 @@ function PokedexMenu:printEntry()
   local row = self:current()
   if not row then return end
   local Printer = require("src.core.Printer")
-  local Strings = require("src.core.Strings")
   local TextBox = require("src.render.TextBox")
   local name = (self.pokemon and self.pokemon[row.species]
     and self.pokemon[row.species].name) or tostring(row.species)
@@ -1385,7 +1391,7 @@ function PokedexMenu:drawOption()
   -- `db $3b, " OPTION ", $3c`: the two end-cap tiles are the dex sheet's, not
   -- font glyphs.
   self:tile(0x3b, 0, 1)
-  self:text(" OPTION ", 1, 1)
+  self:text(Strings(OPTION_LABEL), 1, 1)
   self:tile(0x3c, 9, 1)
   local rows = self:optionRows()
   for i, row in ipairs(rows) do
@@ -1405,7 +1411,7 @@ function PokedexMenu:drawSearch()
   self:fill(TILE_BG, 0, 0, Chrome.SCREEN_W, Chrome.SCREEN_H)
   self:border(0, 2, 14, 18)
   self:tile(0x3b, 0, 1)
-  self:text(" SEARCH ", 1, 1)
+  self:text(Strings(SEARCH_LABEL), 1, 1)
   self:tile(0x3c, 9, 1)
   self:text("TYPE1", 3, 4)
   self:text("TYPE2", 3, 6)

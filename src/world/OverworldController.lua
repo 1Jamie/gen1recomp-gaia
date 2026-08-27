@@ -48,6 +48,10 @@ local WILD_ENCOUNTER_GRACE_STEPS = 3
 -- of the GB screen center: FLY_ANCHOR is the pair where the original has
 -- the player's sprite, so path1 starts exactly on the player.
 local FLY_ANCHOR = { 0x3C, 0x48 }
+-- StopMusic's fade-out control byte and the 7 volume steps it waits out
+-- engine/overworld/player_animations.asm:123, home/fade_audio.asm:36
+local FLY_FADE_CONTROL = 4
+local FLY_FADE_FRAMES = FLY_FADE_CONTROL * 7
 local FLY_PATH1 = { -- FlyAnimationScreenCoords1: up and off to the right
   { 0x3C, 0x48 }, { 0x3C, 0x50 }, { 0x3B, 0x58 }, { 0x3A, 0x60 },
   { 0x39, 0x68 }, { 0x37, 0x70 }, { 0x37, 0x78 }, { 0x33, 0x80 },
@@ -1189,6 +1193,17 @@ function OverworldState:update(dt)
     end
     return
   end
+  -- StopMusic busy-waits on the fade before LoadBirdSpriteGraphics, so the
+  -- world holds and the bird is not on screen yet -- home/overworld.asm:772
+  if self.flyFade then
+    self.flyFade = self.flyFade - 1
+    if self.flyFade <= 0 then
+      self.flyFade = nil
+      self.flyAnim = { phase = "flap", t = 0 }
+    end
+    self.player:update()
+    return
+  end
   if self.flyAnim then
     -- DoFlyAnimation runs one coord pair every Delay3 (3 frames); the
     -- in-place flap is 8 pairs, then the two paths with a 40-frame beat
@@ -2070,7 +2085,9 @@ function OverworldState:flyTo(mapId)
   -- then SFX_FLY and the up-right path, a 40-frame beat off screen, and
   -- the exit over the top-left -- the warp fades only once the bird is
   -- gone (#702).  fxBird draws it; the player hides for the whole flight.
-  self.flyAnim = { phase = "flap", t = 0 }
+  -- engine/overworld/player_animations.asm:123, home/overworld.asm:772
+  require("src.core.Music").fadeOut(FLY_FADE_CONTROL)
+  self.flyFade = FLY_FADE_FRAMES
   self.player.inputLocked = true
   self.flyDest = { map = mapId, x = spot.x, y = spot.y }
 end
@@ -2093,6 +2110,9 @@ function OverworldState:beginTeleportOut(onDone)
     if onDone then onDone() end
     return
   end
+  -- StopMusic sits above both _LeaveMapAnim branches
+  -- engine/overworld/player_animations.asm:123
+  require("src.core.Music").fadeOut(FLY_FADE_CONTROL)
   require("src.core.Sound").play(Game.data, "Teleport_Exit1")
   self.player.surfing = false
   self:syncSurfingPikachu()
@@ -2315,6 +2335,15 @@ function OverworldState.benchGuyText(data, save, label)
   return data.text["_" .. label] or data.text[BENCH_GUY_TEXT[label] or ""]
 end
 
+-- HiddenCoins pays a BCD constant chosen by the argument, and the 40 case
+-- falls into .bcd20 -- engine/events/hidden_items.asm:79
+function OverworldState.hiddenCoinPayout(amount)
+  amount = tonumber(amount) or 0
+  if amount == 10 then return 10 end
+  if amount == 20 or amount == 40 then return 20 end
+  return 100
+end
+
 -- Hidden events at the faced cell (data/events/hidden_events.asm):
 -- HiddenItems give their item once, HiddenCoins fill the COIN CASE,
 -- StartSlotMachine seats open the minigame.  Taken spots persist in
@@ -2359,9 +2388,10 @@ function OverworldState:tryHiddenObject(fx, fy)
       if save.hiddenTaken[key] then return false end
       if not save.inventory.COIN_CASE then return false end
       save.hiddenTaken[key] = true
-      save.coins = math.min(9999, (save.coins or 0) + h.coins)
+      local paid = OverworldState.hiddenCoinPayout(h.coins)
+      save.coins = math.min(9999, (save.coins or 0) + paid)
       Game.stack:push(TextBox.new(Game,
-        Strings("%s found\n%d coins!", save.player.name, h.coins),
+        Strings("%s found\n%d coins!", save.player.name, paid),
         nil, TextBox.soundOpts(Game, "Get_Item2")))
       return true
     end
@@ -2391,7 +2421,19 @@ function OverworldState:tryHiddenObject(fx, fy)
       else
         -- one machine per visit is secretly lucky
         -- (wLuckySlotHiddenEventIndex, engine/slots/game_corner_slots.asm)
-        Screens.push(Game, "SlotMachine", seatIndex == self.luckySlot)
+        local lucky = seatIndex == self.luckySlot
+        -- PromptUserToPlaySlots: engine/slots/slot_machine.asm:9-23
+        Game.stack:push(TextBox.new(Game, txt._PlaySlotMachineText
+          or romText(Game.data, "_PlaySlotMachineText",
+                     "A slot machine!\nWant to play?"), nil, {
+          choice = function(yes)
+            if not yes then return end
+            self.emote = {
+              npc = self.player, frames = 60, bubble = 3,
+              onDone = function() Screens.push(Game, "SlotMachine", lucky) end,
+            }
+          end,
+        }))
       end
       return true
     end
@@ -3829,6 +3871,10 @@ function OverworldState:checkTrainerSight()
   if self.player.moving or self.engaging then return end
   if Game.stack:top() ~= self then return end
   local p = self.player
+  -- a map contribution opts a trainer out of CheckFightingMapTrainers with
+  -- `noSight = { TEXT_... = true }` -- home/trainers.asm:129
+  local view = mapScripts.get and mapScripts.get(self.map.id)
+  local noSight = view and view.noSight
   local cancelled = self.cancelledTrainerSight
   if cancelled and (cancelled.playerX ~= p.cellX
       or cancelled.playerY ~= p.cellY) then
@@ -3842,7 +3888,7 @@ function OverworldState:checkTrainerSight()
     if d.trainerClass and not npc.moving
        and not (cancelled and cancelled.npcId == npc.id)
        and not self:trainerDefeated(npc)
-       and not mapScripts.talkScript(self.map.id, d.text)
+       and not (noSight and d.text and noSight[d.text])
        and trainerSpriteOnScreen(npc, p) then
       local header = Game.data:trainerHeader(self.map.def.label, d.index)
       local range = header and header.range or 0

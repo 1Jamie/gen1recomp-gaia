@@ -1101,8 +1101,10 @@ function Breeding.hatch(data, save, index, nickname, where)
   hatched.experience = egg.experience
   -- `ld a, [de] / ld [hli], a` twice: HP := MaxHP.
   hatched.hp = hatched.maxHp
-  hatched.ot = egg.ot or (save.player and save.player.name)
-  hatched.otId = egg.otId or (save.player and save.player.id)
+  -- HatchEggs overwrites OT unconditionally, so the ODD_EGG's "ODD" and its
+  -- table id do not survive -- engine/pokemon/breeding.asm:299-309
+  hatched.ot = (save.player and save.player.name) or egg.ot
+  hatched.otId = (save.player and save.player.id) or egg.otId
   hatched.caughtLevel = egg.level or Breeding.EGG_LEVEL
   -- SetEggMonCaughtData swaps wCurPartyLevel for CAUGHT_EGG_LEVEL around the
   -- shared setter -- engine/pokemon/caught_data.asm:235-246.

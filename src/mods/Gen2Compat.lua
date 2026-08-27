@@ -1711,8 +1711,8 @@ local function buildStartMenu()
   function overrides.new(game)
     local g = live() or game
     local save = g and g.save
-    if save and save.startMenuIndex then
-      Start2.lastIndex = save.startMenuIndex
+    if g and g.startMenuIndex then
+      Start2.lastIndex = g.startMenuIndex
     end
     return newOrig(g, {
       save = save,
@@ -1741,7 +1741,7 @@ COVERAGE["src.ui.StartMenu"] = {
     new = "synthesises onClose (stack:pop) and onChoose "
       .. "(Game2:openStartMenuItem); without them the menu cannot be left",
     index = "the cursor is menu.list.index on Gold (a Chrome.List)",
-    ["save.startMenuIndex"] = "copied INTO StartMenu.lastIndex on construct "
+    ["game.startMenuIndex"] = "copied INTO StartMenu.lastIndex on construct "
       .. "and never copied back: Gold's cursor is a class field, not save data",
     tx = "the box is fixed at Chrome.box(10, 0, 10, h); tx/ty/tw/th/anchor/"
       .. "maxVisible/startCloses/noSound do not exist and writes are inert",
