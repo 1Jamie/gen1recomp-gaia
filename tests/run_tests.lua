@@ -3640,7 +3640,6 @@ runSuites(orderedGlob(
   -- name resolution, and the .sav converter refusing a Gen 2 save table.
   "tests/gen2_sound_alias_test.lua",
   "tests/gen2_save_convert_cli_test.lua",
-  "tests/gen2_save_import_message_test.lua",
   -- The wall radios (`special MapRadio`).  gen2_save_export_test cannot share a
   -- process (LEAKS_SAVE_SLOT_STATE above); tests/run_gen2.lua runs it alone.
   "tests/gen2_map_radio_test.lua",
