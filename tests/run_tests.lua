@@ -2927,7 +2927,8 @@ do
   qpressed = { a = true }
   qmenu:update(1 / 60)
   qpressed = {}
-  eq(qsave.startMenuIndex, quitIdx, "QUIT selection persists the cursor slot")
+  eq(qg.startMenuIndex, quitIdx, "QUIT selection persists the cursor slot")
+  check(qsave.startMenuIndex == nil, "and keeps it off the saved data")
   local qbox = qstack:top()
   check(qbox ~= qmenu and qbox ~= nil and qbox.pages ~= nil,
         "QUIT pushes a confirmation textbox")

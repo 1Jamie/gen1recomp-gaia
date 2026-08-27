@@ -186,7 +186,8 @@ function Game:makeTitleState()
     onContinue = function()
       local loaded, recovered = SaveData.load()
       if loaded then
-        self:restoreSave(loaded, recovered, { freshBoot = true })
+        self:restoreSave(loaded, recovered,
+                         { freshBoot = true, continued = true })
       end
     end,
     onExit = self.onExit,
@@ -1322,6 +1323,9 @@ function Game:restoreSave(loaded, recovered, opts)
   report.recovered = recovered
   report.modsDiff = modsDiff
   self.save = loaded
+  -- the START cursor lives outside sGameData (ram/sram.asm:17-21)
+  loaded.startMenuIndex = nil
+  self.startMenuIndex = nil
   self:adoptSave(loaded)
   -- SaveData.load already attached the standalone options.lua table
   self:applyOptions(loaded.options)
@@ -1336,8 +1340,10 @@ function Game:restoreSave(loaded, recovered, opts)
   -- freshBoot threads through from the caller (onContinue and F2 both set
   -- it); a future caller that doesn't ask for it keeps the ordinary
   -- crossfade by default.
+  -- engine/menus/main_menu.asm:110 (CONTINUE forces PLAYER_DIR_DOWN)
+  local facing = (opts and opts.continued) and "down" or loaded.player.facing
   self.stack:push(self.overworld, loaded.player.map,
-                  loaded.player.x, loaded.player.y, loaded.player.facing,
+                  loaded.player.x, loaded.player.y, facing,
                   { via = "boot", freshBoot = opts and opts.freshBoot })
   self.saveReport = report
   if not SaveData.emptyReport(report) then

@@ -23,6 +23,7 @@ local Protocol = require("src.link.Protocol")
 local Runtime = require("src.mods.Runtime")
 local TurnOrder = require("src.battle.TurnOrder")
 local Strings = require("src.core.Strings")
+local Timing = require("src.core.Timing")
 
 local LinkBattle = {}
 
@@ -473,11 +474,22 @@ function LinkBattle.new(game, net, opts)
     -- switches happen before attacks (both may switch)
     if myMsg.kind == "switch" then
       local idx = myMsg.index
-      s:act(function() sendOutPlayer(s, myParty[idx]) end)
+      -- SwitchPlayerMon (engine/battle/core.asm:2419-2423); a post-faint
+      -- replacement shares sendOutPlayer and prints neither line
+      s:act(function()
+        s:sayNextAuto(s:withdrawText(s.player.name), Timing.SWITCH_PLAYER_MON)
+        s:queueRetreatAnim()
+        s:actNext(function() sendOutPlayer(s, myParty[idx]) end)
+      end)
       myAction = nil
     end
     if theirSwitch then
-      s:act(function() sendOutEnemy(s, theirParty[theirSwitch]) end)
+      -- SwitchEnemyMon (engine/battle/trainer_ai.asm:596-599)
+      s:act(function()
+        s:sayNext(s:romText("_AIBattleWithdrawText", "%s with-\ndrew %s!",
+          theirName, s.enemy.name))
+        s:actNext(function() sendOutEnemy(s, theirParty[theirSwitch]) end)
+      end)
     end
 
     s:act(function()
@@ -885,11 +897,21 @@ function LinkBattle.newSpectator(game, net, opts)
 
     if hostMsg.kind == "switch" then
       local idx = hostMsg.index
-      s:act(function() sendOutHost(s, hostParty[idx]) end)
+      -- SwitchPlayerMon (engine/battle/core.asm:2419-2423)
+      s:act(function()
+        s:sayNextAuto(s:withdrawText(s.player.name), Timing.SWITCH_PLAYER_MON)
+        s:queueRetreatAnim()
+        s:actNext(function() sendOutHost(s, hostParty[idx]) end)
+      end)
     end
     if guestMsg.kind == "switch" then
       local idx = guestMsg.index
-      s:act(function() sendOutGuest(s, guestParty[idx]) end)
+      -- SwitchEnemyMon (engine/battle/trainer_ai.asm:596-599)
+      s:act(function()
+        s:sayNext(s:romText("_AIBattleWithdrawText", "%s with-\ndrew %s!",
+          guestName, s.enemy.name))
+        s:actNext(function() sendOutGuest(s, guestParty[idx]) end)
+      end)
     end
 
     s:act(function()

@@ -558,8 +558,9 @@ local pm = PartyMenu.new(pgame)
 pm.game = pgame
 pgame.stack:push(pm)
 press(pm, "a")
-check(pm.submenu and #pm.subItems == 2
-  and pm.subItems[1].label == "STATS" and pm.subItems[2].label == "SWITCH",
+check(pm.submenu and #pm.subItems == 3
+  and pm.subItems[1].label == "STATS" and pm.subItems[2].label == "SWITCH"
+  and pm.subItems[3].label == "CANCEL",
   "vanilla party submenu unchanged with no hooks")
 pm.submenu = nil
 
@@ -570,9 +571,9 @@ hooks:wrap("ui.party.submenu", function(nextFn, game, items, mon, ctx)
   return nextFn(game, items, mon, ctx)
 end, 0, "fixture")
 press(pm, "a")
-check(#pm.subItems == 3 and pm.subItems[3].label == "QUESTS",
+check(#pm.subItems == 4 and pm.subItems[4].label == "QUESTS",
   "hook appends a party submenu entry")
-pm.subIndex = 3
+pm.subIndex = 4
 press(pm, "a")
 check(ranWith == pgame.save.party[1],
   "an injected entry's onSelect runs with the focused mon")
@@ -581,7 +582,7 @@ hooks:removeOwner("fixture")
 
 hooks:wrap("ui.party.submenu", function() return nil end, 0, "bad")
 press(pm, "a")
-check(#pm.subItems == 2, "a non-table submenu result keeps the vanilla list")
+check(#pm.subItems == 3, "a non-table submenu result keeps the vanilla list")
 hooks:removeOwner("bad")
 pm.submenu = nil
 

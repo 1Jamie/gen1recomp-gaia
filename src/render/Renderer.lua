@@ -332,6 +332,7 @@ end
 
 -- transparent: the world pass shows through (UI pass draws overlays only)
 function Renderer:beginFrame(transparent)
+  self.uiOpaque = not transparent
   self.worldActive = false
   self.uprightActive = false
   self.worldOverride = nil
@@ -699,6 +700,18 @@ function Renderer:blitCanvas(canvas, sx, sy, zoneList, zoneSx, zoneSy,
     return
   end
   love.graphics.setShader(shader)
+  -- data/sgb/sgb_packets.asm:123-127: zone 1 is the whole-screen ATTR_BLK,
+  -- so the underpaint is only drawn when it leaves part of the box bare (#1866)
+  local first = zoneList[1]
+  if canvas == self.canvas and self.uiOpaque and first.colors
+      and not (bx + first.x * zoneSx <= boxX
+               and by + first.y * zoneSy <= boxY
+               and bx + (first.x + first.w) * zoneSx >= boxX + boxW
+               and by + (first.y + first.h) * zoneSy >= boxY + boxH) then
+    PaletteFX.sendColors(shader, first.colors)
+    love.graphics.setScissor(boxX, boxY, boxW, boxH)
+    love.graphics.draw(canvas, bx, by, 0, sx, sy)
+  end
   -- a colors == false zone is the trueColor opt-out: its rect draws with
   -- no shader at all.  Nothing sets one without a mod, so a vanilla zone
   -- list never toggles and issues exactly the calls it always did.

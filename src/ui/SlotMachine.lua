@@ -192,9 +192,9 @@ function SlotMachine.new(game, lucky)
   local self = setmetatable({}, SlotMachine)
   self.game = game
   self.wheels = game.data.field.slotWheels
-  -- intro | bet | spinup | spin | reroll | flash | message | payout | onemore
-  -- PromptUserToPlaySlots asks "Want to play?" before the session starts.
-  self.stage = "intro"
+  -- bet | spinup | spin | reroll | flash | message | payout | onemore
+  -- PromptUserToPlaySlots: engine/slots/slot_machine.asm:9-23
+  self.stage = "bet"
   self.yesno = 1        -- YES/NO cursor (1 = YES); wCurrentMenuItem
   -- CoinMultiplierSlotMachineText lists ×3/×2/×1 with the cursor defaulting to
   -- the top (wCurrentMenuItem 0), i.e. bet = 3 - menuItem.
@@ -417,7 +417,7 @@ function SlotMachine:startPayout()
   self.flash = false
 end
 
--- YES/NO prompt shared by the intro ("Want to play?") and "One more go?".
+-- the "One more go?" YES/NO prompt.
 function SlotMachine:updateYesNo(onYes)
   local input = self.game.input
   if input:wasPressed("up") or input:wasPressed("down") then
@@ -434,12 +434,6 @@ end
 function SlotMachine:update(dt)
   local input = self.game.input
   local save = self.game.save
-
-  if self.stage == "intro" then
-    -- PromptUserToPlaySlots: "A slot machine! Want to play?"
-    self:updateYesNo(function() self:enterBet() end)
-    return
-  end
 
   if self.stage == "message" then
     if self.exitTimer then
@@ -638,9 +632,7 @@ end
 -- menu on the right (like MainSlotMachineLoop's TextBoxBorder + menus).
 function SlotMachine:drawBottom()
   local lines
-  if self.stage == "intro" then
-    lines = { "A slot machine!", "Want to play?" }
-  elseif self.stage == "bet" then
+  if self.stage == "bet" then
     lines = { "Bet how many", "coins?" }
   elseif self.stage == "onemore" then
     lines = { "One more", "go?" }
@@ -661,22 +653,21 @@ function SlotMachine:drawBottom()
   Font.draw(lines[1] or "", 8, 14 * 8)
   Font.draw(lines[2] or "", 8, 16 * 8)
   if self.stage == "bet" then
-    Font.drawBox(14, 11, 6, 5)
+    -- hlcoord 14,11 with b=5 c=4 -- engine/slots/slot_machine.asm:83-86
+    Font.drawBox(14, 11, 6, 7)
     love.graphics.setColor(0, 0, 0, 1)
     Font.draw("×3", 16 * 8, 12 * 8)
     Font.draw("×2", 16 * 8, 13 * 8)
     Font.draw("×1", 16 * 8, 14 * 8)
     Font.drawCode(0xED, 15 * 8, (12 + self.betIndex) * 8)
-  elseif self.stage == "intro" or self.stage == "onemore" then
-    -- "One more go?" sits at the right of the box (hlcoord 14,12); the longer
-    -- "A slot machine!" prompt would clip against it, so the intro's YES/NO
-    -- floats above the reels instead.
-    local by = self.stage == "intro" and 6 or 11
-    Font.drawBox(13, by, 6, 5)
+  elseif self.stage == "onemore" then
+    -- hlcoord 14,12 with the YES_NO_MENU 4x3 body
+    -- engine/slots/slot_machine.asm:136-138, data/yes_no_menu_strings.asm:10
+    Font.drawBox(14, 12, 6, 5)
     love.graphics.setColor(0, 0, 0, 1)
-    Font.draw(Strings("YES"), 15 * 8, (by + 1) * 8)
-    Font.draw(Strings("NO"), 15 * 8, (by + 2) * 8)
-    Font.drawCode(0xED, 14 * 8, (by + 1 + (self.yesno == 1 and 0 or 1)) * 8)
+    Font.draw(Strings("YES"), 16 * 8, 13 * 8)
+    Font.draw(Strings("NO"), 16 * 8, 14 * 8)
+    Font.drawCode(0xED, 15 * 8, (13 + (self.yesno == 1 and 0 or 1)) * 8)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

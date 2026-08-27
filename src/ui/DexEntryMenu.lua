@@ -87,6 +87,15 @@ local function frameSheet(game)
   return frameCache[path]
 end
 
+-- one tile of the sheet, for the CONTENTS screen's divider column
+-- (engine/menus/pokedex.asm:350, DrawPokedexVerticalLine)
+function DexEntryMenu.tile(game, code, tx, ty)
+  local frame = frameSheet(game)
+  if not (frame and code) then return end
+  local quad = frame.quads[code - 0x60]
+  if quad then love.graphics.draw(frame.img, quad, tx * 8, ty * 8) end
+end
+
 -- engine/menus/pokedex.asm:601
 local DIVIDER = {
   0x68, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x69, 0x6B, 0x6B,
@@ -106,14 +115,28 @@ function DexEntryMenu.new(game, speciesOrOpts, onDone)
   self.sprite = ok and img or nil
   self.spriteTrueColor = self.sprite and trueColor or false
   self.page = 1
+  self.blink = 0
   local pages = descPages(game, self.def, forceOwned)
   self.pageCount = pages and #pages or 1
-  require("src.core.Sound").playCry(game.data, species)
+  -- engine/menus/pokedex.asm:500-506, home/pokemon.asm:145-148
+  self.crySrc = require("src.core.Sound").playCry(game.data, species)
   return self
+end
+
+-- home/pokemon.asm:148 (jp WaitForSoundToFinish)
+function DexEntryMenu:crying()
+  local src = self.crySrc
+  if not src then return false end
+  local ok, playing = pcall(src.isPlaying, src)
+  if ok and playing then return true end
+  self.crySrc = nil
+  return false
 end
 
 function DexEntryMenu:update(dt)
   local input = self.game.input
+  self.blink = ((self.blink or 0) + 1) % 60
+  if self:crying() then return end
   if input:wasPressed("a") or input:wasPressed("b") then
     -- home/text.asm:245
     if self.page < (self.pageCount or 1) then
@@ -127,15 +150,18 @@ end
 
 function DexEntryMenu:draw()
   DexEntryMenu.render(self.game, self.def, self.sprite, self.forceOwned,
-                      self.spriteTrueColor, self.page)
+                      self.spriteTrueColor, self.page,
+                      { crying = self:crying(),
+                        arrow = (self.blink or 0) < 30 })
 end
 
 -- Static entry-page renderer, shared with the printer stand-in
 -- (src/core/Printer.lua renders the same page into a PNG the way
 -- PrintPokedexEntry rendered it to the Game Boy Printer).
 -- engine/menus/pokedex.asm:399
-function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor, page)
+function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor, page, state)
   page = page or 1
+  state = state or {}
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, 160, 144)
   local frame = frameSheet(game)
@@ -185,6 +211,12 @@ function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor, page)
   Font.draw(Strings("No.") .. ("%0" .. digits .. "d"):format(def.dex or 0),
             16, 64)
   local owned = ownedFor(game, def, forceOwned)
+  -- engine/menus/pokedex.asm:516: everything below the divider waits on the
+  -- cry the line above it started
+  if state.crying then
+    love.graphics.setColor(1, 1, 1, 1)
+    return
+  end
   -- engine/menus/pokedex.asm:449, numbers only once owned
   if owned and e.heightFt then
     if e.heightM then
@@ -202,8 +234,8 @@ function DexEntryMenu.render(game, def, sprite, forceOwned, trueColor, page)
     for i, line in ipairs(lines) do
       Font.draw(line, 8, 72 + i * 16)
     end
-    -- home/text.asm:245
-    if page < #pages then
+    -- home/text.asm:245 places the '▼' and home/joypad2.asm:55-83 blinks it
+    if page < #pages and state.arrow ~= false then
       Font.drawCode(Theme.moreArrow, 144, 128)
     end
   else

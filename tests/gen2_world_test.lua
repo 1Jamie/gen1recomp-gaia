@@ -922,8 +922,12 @@ check(poolWorld:useFieldMove("WHIRLPOOL", SPINNER[1]).ok, "whirlpool cleared")
 runFrames(poolWorld, 1)
 eq(poolWorld.log[1], T.USE_WHIRLPOOL, "UseWhirlpoolText")
 advanceText(poolWorld)
+-- engine/events/overworld.asm:1142-1164
+eq(poolWorld.map.def.blocks[TREE_BLOCK_INDEX], 0x07,
+  "the whirlpool block is still on screen while the sfx plays (#1862)")
+runFrames(poolWorld, 4)
 eq(poolWorld.map.def.blocks[TREE_BLOCK_INDEX], 0x36,
-  "DisappearWhirlpool swaps block $07 for $36")
+  "DisappearWhirlpool swaps block $07 for $36 once the sfx ends")
 local wrongBlock = fieldWorld({ [4 * 100 + 5] = COLL_WHIRLPOOL }, SPINNER)
 check(not wrongBlock:useFieldMove("WHIRLPOOL", SPINNER[1]).ok,
   "a whirlpool collision over the wrong block is refused")

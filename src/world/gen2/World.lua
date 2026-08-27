@@ -5618,15 +5618,16 @@ end
 function World:runWhirlpool(result)
   self:setNickname(result.mon)
   self:showText(Strings(result.text), function()
-    self:replaceBlock(result.blockIndex, result.replacement)
-    self:playWhirlpoolSound()
+    self:playWhirlpoolSound(result.blockIndex, result.replacement)
   end)
 end
 
 -- PlayWhirlpoolSound is WaitSFX, SFX_SURF, WaitSFX, never a bare PlaySFX
--- -- engine/events/field_moves.asm:5-10 (#1717)
-function World:playWhirlpoolSound()
-  self.fieldMove = { phase = "whirlpoolsfx", waiting = true, left = 180 }
+-- -- engine/events/field_moves.asm:5-10 (#1717).  The block swap lands after
+-- it -- engine/events/overworld.asm:1157-1164
+function World:playWhirlpoolSound(blockIndex, replacement)
+  self.fieldMove = { phase = "whirlpoolsfx", waiting = true, left = 180,
+    blockIndex = blockIndex, replacement = replacement }
 end
 
 -- PlayerMovementPointers' .force_turn arm and the Script_ForcedMovement it
@@ -6193,6 +6194,8 @@ function World:updateFieldMove()
     end
     if Sound.sfxBusy() and st.left > 0 then return end
     self.fieldMove = nil
+    -- engine/events/overworld.asm:1163-1164
+    if st.blockIndex then self:replaceBlock(st.blockIndex, st.replacement) end
     return
   end
   if st.phase == "strength" then

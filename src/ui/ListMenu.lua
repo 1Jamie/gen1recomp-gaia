@@ -120,8 +120,9 @@ function ListMenu.new(game, title, items, opts)
   -- so their lists opt out of the A/B beep the same way Menu's noSound does
   self.noSound = opts.noSound or false
   -- the bag's item list: a partial box the map stays visible around, not a
-  -- screen of its own (home/list_menu.asm:29-31)
-  self.itemBox = opts.itemBox or false
+  -- screen of its own (home/list_menu.asm:29-31).  Every DisplayListMenuID
+  -- caller gets the same box, the PC item lists included (#1845).
+  self.itemBox = opts.itemBox or opts.messageBox or false
   if self.itemBox then
     self.isOpaque = false
     -- keep RunDefaultPaletteCommand's last palette: ItemMenuLoop never sets
@@ -256,6 +257,34 @@ function ListMenu:close()
   if top == self then self.game.stack:pop() end
 end
 
+-- standard bottom text box (PrintText); long prompts wrap and keep
+-- their last two lines, like the GB's scrolled box (#115/#174)
+local function drawMessageBox(self)
+  Font.drawBox(0, 12, 20, 6)
+  love.graphics.setColor(0, 0, 0, 1)
+  if not self.footer then return end
+  local flat = {}
+  for _, page in ipairs(require("src.render.TextBox").paginate(self.footer)) do
+    for _, line in ipairs(page) do flat[#flat + 1] = line end
+  end
+  local y = 112
+  for i = math.max(1, #flat - 1), #flat do
+    Font.draw(flat[i], 8, y)
+    y = y + 16
+  end
+end
+
+-- the Pokédex owned-ball marker tile, also the CHANGE BOX screen's
+-- PokeballTileGraphics marker (engine/menus/save.asm:495-499)
+function ListMenu.drawBall(x, y)
+  local r, g, b, a = love.graphics.getColor()
+  love.graphics.circle("fill", x, y, 3.5)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.rectangle("fill", x - 3.5, y - 0.5, 7, 1)
+  love.graphics.circle("fill", x, y, 1.2)
+  love.graphics.setColor(r, g, b, a)
+end
+
 -- PrintListMenuEntries, minus the price column StartMenu_Item never asks for
 -- (wPrintItemPrices = 0, engine/menus/start_sub_menus.asm)
 function ListMenu:drawItemBox()
@@ -274,7 +303,10 @@ function ListMenu:drawItemBox()
     if item.cancel then sawCancel = true end
     local y = ITEM_TOP_Y + (row - 1) * 16
     Font.draw(item.label, ITEM_NAME_X, y)
-    if item.right then
+    if item.sub then
+      -- PrintLevel, one row down and 8 columns right (home/list_menu.asm:459-461)
+      Font.draw(item.sub, ITEM_QTY_X, y + 8)
+    elseif item.right then
       -- '×' at column 14, PrintNumber's two right-aligned digits after it
       -- (home/list_menu.asm:479-490)
       local count = item.right:sub(2)
@@ -294,6 +326,9 @@ function ListMenu:drawItemBox()
   if shown == self.rows and not sawCancel then
     Font.drawCode(Theme.moreArrow, ITEM_MORE_X, ITEM_MORE_Y)
   end
+  -- players_pc.asm:97/151/205 PrintText the prompt before DisplayListMenuID,
+  -- so the bottom box sits under the list from the first frame
+  if self.messageBox or self.footer then drawMessageBox(self) end
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -326,13 +361,7 @@ function ListMenu:draw()
       -- one blank glyph after the name, measured in glyph advances rather
       -- than bytes: NIDORAN♂/♀ carry a multi-byte charmap entry, so
       -- `#item.label` overcounted by 2 and pushed their ball 16px right (#285)
-      local bx = 16 + Font.width(label) + 8 + 3
-      local by = y + 3
-      love.graphics.circle("fill", bx, by, 3.5)
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.rectangle("fill", bx - 3.5, by - 0.5, 7, 1)
-      love.graphics.circle("fill", bx, by, 1.2)
-      love.graphics.setColor(unpack(textColor))
+      ListMenu.drawBall(16 + Font.width(label) + 8 + 3, y + 3)
     end
     if item.right then
       Font.draw(item.right, 160 - 8 - Font.width(item.right), y)
@@ -360,22 +389,8 @@ function ListMenu:draw()
     local money = ("¥%d"):format(self.money and self.money() or 0)
     Font.draw(money, 152 - Font.width(money), 8)
   end
-  if self.dialogue or (self.messageBox and self.footer) then
-    -- standard bottom text box (PrintText); long prompts wrap and keep
-    -- their last two lines, like the GB's scrolled box (#115/#174)
-    Font.drawBox(0, 12, 20, 6)
-    love.graphics.setColor(0, 0, 0, 1)
-    if self.footer then
-      local flat = {}
-      for _, page in ipairs(require("src.render.TextBox").paginate(self.footer)) do
-        for _, line in ipairs(page) do flat[#flat + 1] = line end
-      end
-      local y = 112
-      for i = math.max(1, #flat - 1), #flat do
-        Font.draw(flat[i], 8, y)
-        y = y + 16
-      end
-    end
+  if self.dialogue then
+    drawMessageBox(self)
   elseif self.footer then
     -- bare footer (bag money line, etc.)
     local flat = {}

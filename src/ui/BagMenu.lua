@@ -360,6 +360,8 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       -- .useItem_partyMenu jumps back to StartMenu_Item once UseItem
       -- returns, cursor still on the candy (start_sub_menus.asm) -- so
       -- mashing A burns through a stack of them (#796)
+      -- RareCandyText carries sound_get_item_1
+      -- (engine/menus/party_menu.asm:289-293)
       showMessages(game, payload, function()
         local StatBox = require("src.battle.BattleState").StatBox
         game.stack:push(StatBox.new(game, target, function()
@@ -400,7 +402,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
           end
           nextStep()
         end))
-      end)
+      end, TextBox.soundOpts(game, "Get_Item1"))
       return
     end
     -- HP medicine: fill the bar in the still-open picker first, then print

@@ -72,7 +72,11 @@ return function(game)
   check(howY == 112, "How many? sits on text-box first line (y=112)")
   check(textBox ~= nil, "bottom PrintText box drawn")
   check(qtyBox ~= nil, "quantity box at pokered row 9")
-  check(maxItemY and maxItemY <= 72, "last visible item row above qty/text (y<=72)")
+  -- LIST_MENU_BOX 4,2 - 19,12: the fourth row's quantity sits at y=88
+  -- (data/text_boxes.asm:13, engine/menus/players_pc.asm)
+  check(maxItemY == 88, "last visible item row at y=88")
+  check(textBox and maxItemY and maxItemY + 8 <= textBox.ty * 8,
+        "last visible item row clears the bottom text box (#174)")
   if maxItemY and howY then
     check(maxItemY + 8 <= howY, "item glyphs do not overlap How many?")
   end

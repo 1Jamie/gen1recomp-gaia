@@ -130,6 +130,25 @@ local function markerXY(loc)
   return loc.x * 8 + 16, loc.y * 8 + 8
 end
 
+-- the marker wears its own sheet's OBJ palette and shade-0 keying
+-- engine/items/town_map.asm:342
+local function markerSheet(def, seed)
+  local colors, group
+  if PaletteFX.usesGbcPack() then
+    colors, group = PaletteFX.spriteObp(def, seed)
+  end
+  if not colors then
+    if PaletteFX.usesSpriteObp() then
+      colors, group = PaletteFX.ogObj()
+    else
+      colors, group = PaletteFX.dmgObj()
+    end
+  end
+  local ok, img = pcall(SpriteRenderer.obpImage, def and def.image, colors, group)
+  if not (ok and img) then return nil, nil end
+  return img, love.graphics.newQuad(0, 0, 16, 16, img:getDimensions())
+end
+
 -- the row-0 name banner; fly mode prefixes "To " like LoadTownMap_Fly
 -- (engine/menus/town_map.asm prints the destination as "To <NAME>")
 function TownMap:bannerText(loc)
@@ -224,32 +243,18 @@ function TownMap.new(game, opts)
   local mapId = game.overworld and game.overworld.map and game.overworld.map.id
   self.playerLoc = mapId and self.byMap[mapId] or nil
   -- engine/items/town_map.asm:347
-  do
-    local playerSprites = (game.data.field and game.data.field.playerSprites)
-                          or {}
-    local sprites = game.data.sprites or {}
-    local red = sprites[playerSprites.walk or "SPRITE_RED"]
-                or sprites.SPRITE_RED
-    -- the marker is the overworld walking sheet, so it wears that sheet's OBJ
-    -- palette and shade-0 keying -- engine/items/town_map.asm:342
-    local colors, group
-    if PaletteFX.usesGbcPack() then
-      colors, group = PaletteFX.spriteObp(red, "player")
-    end
-    if not colors then
-      if PaletteFX.usesSpriteObp() then
-        colors, group = PaletteFX.ogObj()
-      else
-        colors, group = PaletteFX.dmgObj()
-      end
-    end
-    local ok, img = pcall(SpriteRenderer.obpImage,
-                          red and red.image, colors, group)
-    if ok and img then
-      self.playerSheet = img
-      self.playerQuad = love.graphics.newQuad(0, 0, 16, 16,
-                                              img:getDimensions())
-    end
+  local playerSprites = (game.data.field and game.data.field.playerSprites)
+                        or {}
+  local sprites = game.data.sprites or {}
+  self.playerSheet, self.playerQuad =
+    markerSheet(sprites[playerSprites.walk or "SPRITE_RED"] or sprites.SPRITE_RED,
+                "player")
+  -- LoadTownMap_Fly overwrites the cursor tiles with BirdSprite and marks
+  -- the destination with it -- engine/items/town_map.asm:146-149, 177-179
+  if self.fly then
+    self.birdSheet, self.birdQuad =
+      markerSheet(sprites[playerSprites.fly or "SPRITE_BIRD"]
+                  or sprites.SPRITE_BIRD, "bird")
   end
   self.sel = 1
   -- LoadTownMap_Fly always opens with hl on wFlyLocationsList[0], the FIRST
@@ -402,8 +407,19 @@ function TownMap:draw()
       end
     end
     -- WriteTownMapSpriteOAM carry quirk: -4 X, -3 Y for cursor and player alike -- engine/items/town_map.asm:454
+    -- LoadTownMap_Fly's .inputLoop has no blinking animation
+    -- engine/items/town_map.asm:190-198
     local showCursor = true
-    if GameVersion.generation() == 1 then
+    if self.fly and self.birdSheet then
+      if selected then
+        local x, y = markerXY(selected)
+        love.graphics.draw(self.birdSheet, self.birdQuad, x - 4, y - 3)
+        if PaletteFX.usesSpriteObp() or PaletteFX.usesGbcPack() then
+          PaletteFX.markUiSpriteRedraw(self.birdSheet, self.birdQuad, x - 4, y - 3)
+        end
+      end
+      showCursor = false
+    elseif GameVersion.generation() == 1 then
       showCursor = self.blink < 25
     else
       showCursor = self.blink % 16 < 10

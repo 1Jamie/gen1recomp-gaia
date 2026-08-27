@@ -200,12 +200,12 @@ function StartMenu.new(game)
       anchor = "topright" })
   -- the cursor position survives closing the menu
   -- (wBattleAndStartSavedMenuItem, home/start_menu.asm)
-  menu.index = math.min(game.save.startMenuIndex or 1, #items)
+  menu.index = math.min(game.startMenuIndex or 1, #items)
   menu:clampScroll()
   local baseUpdate = menu.update
   menu.update = function(self, dt)
     baseUpdate(self, dt)
-    game.save.startMenuIndex = self.index
+    game.startMenuIndex = self.index
   end
 
   -- inside the Safari Zone the start menu also shows remaining steps and

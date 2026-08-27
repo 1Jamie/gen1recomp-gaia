@@ -5,7 +5,7 @@
 -- GetMonFieldMoves (engine/menus/text_box.asm, called from
 -- start_sub_menus.asm) walks wPartyMon1Moves in slot order -- so a mon
 -- with STRENGTH in slot 3 and SURF in slot 4 shows STRENGTH then SURF on
--- top, with STATS/SWITCH closing the list.  The port used to build the
+-- top, with STATS/SWITCH/CANCEL closing the list.  The port used to build the
 -- submenu as STATS/SWITCH first and tack the field moves on the bottom.
 -- ROM-free: drives the real PartyMenu over stub game state.
 --   luajit tests/engine/party_fieldmove_order_bug792.lua
@@ -74,7 +74,8 @@ local pm = PartyMenu.new(game, {})
 game.stack:push(pm)
 openSubmenu(pm)
 check(pm.submenu, "A on a party mon opens the submenu")
-same(actions(pm.subItems), { "strength", "surf", "stats", "switch" },
+same(actions(pm.subItems),
+     { "strength", "surf", "stats", "switch", "cancel" },
      "field moves sit above STATS/SWITCH in move-list order (#792)")
 eq(pm.subItems[1].label, "STRENGTH", "slot 3's STRENGTH leads the submenu")
 eq(pm.subItems[2].label, "SURF", "slot 4's SURF follows it")
@@ -84,8 +85,8 @@ local plain = newGame({ { id = "TACKLE", pp = 35 } })
 local pm2 = PartyMenu.new(plain, {})
 plain.stack:push(pm2)
 openSubmenu(pm2)
-same(actions(pm2.subItems), { "stats", "switch" },
-     "no field moves: the submenu is just STATS/SWITCH")
+same(actions(pm2.subItems), { "stats", "switch", "cancel" },
+     "no field moves: the submenu is just PokemonMenuEntries")
 
 -- GetMonFieldMoves is badge-blind: the same Lapras without the badges
 -- still lists both HMs, and .outOfBattleMovePointers refuses on
@@ -95,7 +96,8 @@ local noBadges = newGame(
 local pm3 = PartyMenu.new(noBadges, {})
 noBadges.stack:push(pm3)
 openSubmenu(pm3)
-same(actions(pm3.subItems), { "strength", "surf", "stats", "switch" },
+same(actions(pm3.subItems),
+     { "strength", "surf", "stats", "switch", "cancel" },
      "the HM moves are listed without the badges (#1022)")
 
 T.finish("party_fieldmove_order_bug792")

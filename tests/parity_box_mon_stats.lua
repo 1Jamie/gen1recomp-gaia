@@ -259,7 +259,10 @@ do
     withdraw(game)
     check(captured ~= nil, "withdraw opened its box list")
     if captured then
-      eq(#captured.items, 1, "the list has the one box mon in it")
+      -- engine/menus/players_pc.asm: the list ends in CANCEL (#1847)
+      eq(#captured.items, 2, "the list has the one box mon in it, plus CANCEL")
+      check(captured.items[2] and captured.items[2].cancel,
+            "the last row is the CANCEL terminator")
       captured.opts.onChoose(captured.items[1],
                              { index = 1, close = function() end })
       eq(#save.boxes[1], 0, "the mon left the box")

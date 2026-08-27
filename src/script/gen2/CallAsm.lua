@@ -451,12 +451,13 @@ function H.CutDownTreeOrGrass(ctx)
 end
 
 -- DisappearWhirlpool is CutDownTreeOrGrass with PlayWhirlpoolSound in place of
--- OWCutAnimation: the same block write, the same redraw, then the surf wash the
--- port owns as World:playWhirlpoolSound.  #1717
+-- OWCutAnimation, and the block only reaches the screen after the sound
+-- -- engine/events/overworld.asm:1157-1164 (#1717, #1862)
 function H.DisappearWhirlpool(ctx)
-  local ret = H.CutDownTreeOrGrass(ctx)
-  call(ctx, "playWhirlpoolSound")
-  return ret
+  local index = ctx and ctx.cutWhirlpoolBlockIndex
+  local blockId = ctx and ctx.cutWhirlpoolReplacement
+  call(ctx, "playWhirlpoolSound", index, blockId)
+  return nil
 end
 
 -- BlindingFlash sets STATUSFLAGS_FLASH_F and reloads the palettes.  Setting

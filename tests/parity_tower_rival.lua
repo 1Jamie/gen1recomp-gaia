@@ -64,16 +64,22 @@ do
         "player at x=15 uses DownThenRightMovement")
 end
 
--- (2) win path: flag, defeat text, walk, hide -- in order
+-- (2) win path: flag, post-win text, walk, hide -- in order.
+-- DefeatedText rides SaveEndBattleTextPointers, so it prints in battle and the
+-- map-side box after the win is HowsYourDex (#1842).
+-- scripts/PokemonTower2F.asm:71-75, :137-140
 do
   local rows = tower.rivalScript(14)
   local preds = {
+    { "save_end_battle_text DefeatedText",
+      function(r) return r[1] == "save_end_battle_text"
+        and r[2] == "_PokemonTower2FRivalDefeatedText" end },
     { "set_flag EVENT_BEAT_POKEMON_TOWER_RIVAL",
       function(r) return r[1] == "set_flag"
         and r[2] == "EVENT_BEAT_POKEMON_TOWER_RIVAL" end },
-    { "show_text DefeatedText",
+    { "show_text HowsYourDexText",
       function(r) return r[1] == "show_text"
-        and r[2] == "_PokemonTower2FRivalDefeatedText" end },
+        and r[2] == "_PokemonTower2FRivalHowsYourDexText" end },
     { "walk_npc exit",
       function(r) return r[1] == "walk_npc" end },
     { "hide_object POKEMONTOWER2F_RIVAL",
