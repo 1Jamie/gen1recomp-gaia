@@ -2296,8 +2296,8 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
     }
     return nil
   end
-  if type(size) == "number" and size > RequiredImports.LARGE_WARN_BYTES
-      and spec.format ~= "n64" then
+  if spec.format ~= "n64" and (size == nil
+      or size > RequiredImports.LARGE_WARN_BYTES) then
     local ok, result = streamRequiredImport(manifest, importId, source)
     if ok then
       self.requiredImportNotice = nil
