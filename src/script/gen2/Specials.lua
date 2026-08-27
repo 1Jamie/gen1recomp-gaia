@@ -152,6 +152,12 @@ local function answer(vm, value)
   vm.scriptVar = value or 0
 end
 
+-- WaitSFX (pokegold home/audio.asm); a test stub that calls a handler off
+-- the coroutine has no sfx to drain.
+local function drainSfx()
+  if coroutine.running() then coroutine.yield({ kind = "waitsfx" }) end
+end
+
 -- Every routine that ends `call GetPokemonName / jp
 -- CopyPokemonName_Buffer1_Buffer3` puts a name where the next writetext's
 -- {STRBUF} will find it.
@@ -452,8 +458,10 @@ H.BugContestJudging = function(vm)
       local what = (h.monName and h.monName(entry.species)) or entry.species
         or ""
       vm:showRaw(Strings(row.page, who, what))
+      -- pokegold engine/events/bug_contest/judging.asm:29-32
+      drainSfx()
       if h.playSfxNamed then h.playSfxNamed(row.sfx) end
-      vm:showRaw(Strings(row.score, entry.score or 0))
+      vm:showRaw(Strings(row.score, entry.score or 0), nil, nil, true)
     end
   end
   answer(vm, place)
@@ -2033,12 +2041,10 @@ H.ProfOaksPCBoot = function(vm)
   vm:showRaw(Strings(OAK_PC_TEXT.counts, seen, caught))
   local rating = findOakRating(caught)
   local h = hooks(vm)
+  -- pokegold engine/events/prof_oaks_pc.asm:18-20 PlaySFX / JoyWaitAorB / WaitSFX
+  drainSfx()
   if h.playSfxNamed then h.playSfxNamed(rating.sfx) end
-  vm:showRaw(Strings(rating.text))
-  -- `call PlaySFX / call JoyWaitAorB / call WaitSFX`: the fanfare is left
-  -- playing under the rating text, and the caller (OaksLab's own script)
-  -- waits it out before closing the box.
-  coroutine.yield({ kind = "waitsfx" })
+  vm:showRaw(Strings(rating.text), nil, nil, true)
 end
 
 -- The whose-PC menu's PROF.OAK's PC row (src/ui/gen2/CenterPcMenu.lua) runs

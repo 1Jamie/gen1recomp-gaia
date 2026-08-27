@@ -112,6 +112,8 @@ function TextBox.new(game, text, onDone, opts)
   self.stay = opts and opts.stay
   -- engine/events/hidden_events/cinnabar_gym_quiz.asm:119
   self.preSound = opts and opts.preSound
+  -- pokegold engine/overworld/scripting.asm:485 WaitSFX
+  self.sfxWait = opts and opts.sfxWait
   -- opts.instant: put the LAST page up already typed, with no typewriter and
   -- no page waits.  A `yesorno` follows a `writetext` that has already been
   -- read, so re-typing the line under the YES/NO box would be wrong -- the
@@ -328,6 +330,14 @@ function TextBox:visibleText()
   return #out > 0 and out or nil
 end
 
+-- pokegold engine/overworld/scripting.asm:484-485 PlaySFX / WaitSFX
+function TextBox:sfxHeld()
+  if not self.sfxWait then return false end
+  if require("src.core.Sound").sfxBusy() then return true end
+  self.sfxWait = nil
+  return false
+end
+
 function TextBox:update(dt)
   local input = self.game.input
   self.blink = (self.blink + 1) % 60
@@ -444,6 +454,7 @@ function TextBox:update(dt)
       end
       return
     end
+    if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       require("src.core.Sound").play(self.game.data, "Press_AB")
       self.game.stack:pop()
@@ -459,6 +470,7 @@ function TextBox:update(dt)
       self.preWait = self.preWait - 1
       return
     end
+    if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       require("src.core.Sound").play(self.game.data, "Press_AB")
       self.waiting = false

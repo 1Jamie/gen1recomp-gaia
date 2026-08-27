@@ -2753,7 +2753,8 @@ function RomExtractorGen2:extractAudio(maps)
   local speciesOrder = self.manifest.constants.speciesOrder or {}
   local cries = {}
   for index, species in ipairs(speciesOrder) do
-    if species ~= "UNOWN" and not tostring(species):match("^UNUSED") then
+    -- data/pokemon/cries.asm:209 gives UNOWN a real cry row
+    if not tostring(species):match("^UNUSED") then
       local row = self.rom:bytes(
         pokeCryPtr.bank, pokeCryPtr.address + (index - 1) * 6, 6)
       local cryIndex = row[1] + row[2] * 256

@@ -605,7 +605,7 @@ function BattleState:animData(mon)
   local def = self.pokemon and mon and self.pokemon[mon.species]
   if not def then return nil end
   if mon.species == Unown.SPECIES and def.letters then
-    local entry = def.letters[Unown.monLetter(mon)]
+    local entry = def.letters[Unown.name(Unown.monLetter(mon))]
     if entry and entry.anim then return entry.anim end
   end
   return def.anim

@@ -929,8 +929,8 @@ function World:load()
     -- `hold` is the same story one argument along: the cart `pause` a held box
     -- stands through (FindItemInBallScript's `pause 60`).  Dropping it made the
     -- box hand back the instant it finished typing.
-    showText = function(body, onDone, stay, hold)
-      self:showText(body, onDone, stay, hold)
+    showText = function(body, onDone, stay, hold, sfxWait)
+      self:showText(body, onDone, stay, hold, sfxWait)
     end,
     facePlayer = function()
       if self.talkNpc and self.player then
@@ -4224,7 +4224,7 @@ function World:tryWildEncounter()
   -- That is what keeps the Ruins chambers empty until a wall has been solved.
   local monOpts = nil
   if roll.species == Unown.SPECIES then
-    local flags = self:engineFlags()
+    local flags = self:unownUnlockFlags()
     if not Unown.anyUnlocked(flags) then return false end
     -- LoadEnemyMon's .GenerateDVs loop rerolls until CheckUnownLetter clears
     -- the form, so a chamber only ever produces letters its own puzzle
@@ -4846,6 +4846,19 @@ function World:engineFlagId(name, goldId)
   return ids[name] or goldId
 end
 
+-- Unown.UNLOCK_SETS keys the flags by pokegold's ids; Crystal's are one
+-- higher (../pokecrystal/constants/engine_flags.asm:57-60 vs ../pokegold:56-59).
+function World:unownUnlockFlags()
+  local engine = self:engineFlags()
+  local out = {}
+  for _, set in ipairs(Unown.UNLOCK_SETS) do
+    if engine[self:engineFlagId(set.name, set.flag)] then
+      out[set.flag] = true
+    end
+  end
+  return out
+end
+
 -- wBikeFlags' three bits are ENGINE_* ids like any other flag, so the map
 -- callbacks that set them (Route16AlwaysOnBikeCallback,
 -- Route17AlwaysOnBikeCallback) already land on save.engineFlags.
@@ -5338,7 +5351,7 @@ function World:sweetScentEncounter()
   -- stays empty for SWEET SCENT too.
   local monOpts = nil
   if roll.species == Unown.SPECIES then
-    local flags = self:engineFlags()
+    local flags = self:unownUnlockFlags()
     if not Unown.anyUnlocked(flags) then return false end
     monOpts = { dvs = Unown.wildDVs(flags, Mon.randomDVs) }
   end
@@ -7280,7 +7293,7 @@ end
 -- stack the overworld and the VM under it do not tick at all -- so the wait has
 -- to be counted by the box itself.  Frames, already doubled by Vm:pauseFrames
 -- the way Script_pause's `ld c, 2 / call DelayFrames` doubles the operand.
-function World:showText(body, onDone, stay, hold)
+function World:showText(body, onDone, stay, hold, sfxWait)
   local game = self.game
   -- The box a PREVIOUS `stay` left standing (TextBox's contract is "whoever
   -- pushed it owns the pop", src/render/TextBox.lua:40).  `yesorno` consumes it
@@ -7330,7 +7343,7 @@ function World:showText(body, onDone, stay, hold)
   game.stack:push(TextBox.new(game, body, function()
     self.textbox = nil
     if onDone then onDone() end
-  end))
+  end, sfxWait and { sfxWait = true } or nil))
 end
 
 function World:pooledNpc(mapId, obj)

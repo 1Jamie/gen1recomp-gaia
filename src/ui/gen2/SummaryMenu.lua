@@ -336,7 +336,7 @@ function SummaryMenu:startPicAnim()
   if not def then return end
   local data = def.anim
   if mon.species == Unown.SPECIES and def.letters then
-    local entry = def.letters[Unown.monLetter(mon)]
+    local entry = def.letters[Unown.name(Unown.monLetter(mon))]
     if entry and entry.anim then data = entry.anim end
   end
   if not data then return end

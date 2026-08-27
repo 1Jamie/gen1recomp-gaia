@@ -182,6 +182,9 @@ function Player:update()
   if self.turnTimer > 0 then
     self.turnTimer = self.turnTimer - 1
   end
+  if self.spinning then
+    self.spinTimer = (self.spinTimer or 0) + 1
+  end
   if self.spinFrames then
     self.spinFrames = self.spinFrames - 1
     if self.spinFrames <= 0 then
@@ -261,11 +264,6 @@ local SPIN_ORDER = { "down", "left", "up", "right" }
 --
 -- The last return says the player is mid-ledge-hop, which is what the 2D
 -- path draws the ground shadow from and a 3D path turns into vertical lift.
---
--- This ADVANCES the surf-bob and spinner timers, so exactly one of pose()
--- and draw() may run per frame -- and draw() is written in terms of pose()
--- to keep that true by construction.  (hopFrames counts down in
--- Player:update, on the fixed step, so it is safe to read here.)
 function Player:pose()
   local py = self.py
   local hopping = false
@@ -288,10 +286,8 @@ function Player:pose()
   -- the leg cadence
   local flip = math.floor((self.animClock or 0) / 16) % 2 == 1
   if self.spinning then
-    -- spinner tiles whirl the sprite on its standing pose, one facing
-    -- per frame (LoadSpinnerArrowTiles runs every OverworldLoop frame)
-    self.spinTimer = (self.spinTimer or 0) + 1
-    facing = SPIN_ORDER[self.spinTimer % 4 + 1]
+    -- spinners.asm:1-11, home/overworld.asm:41-44, :268-272
+    facing = SPIN_ORDER[math.floor((self.spinTimer or 0) / 2) % 4 + 1]
     phase, flip = 0, false
     -- teleport arrivals spin the sprite down into place
     -- (EnterMapAnim PlayerSpinWhileMovingDown)
