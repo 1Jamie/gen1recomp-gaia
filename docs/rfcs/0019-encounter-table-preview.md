@@ -98,9 +98,10 @@ On a hit, returns `{ chance, dist }`:
   all: `grass.rate / 256` on Gen 1 (or the def's own `.buckets`-scaled
   equivalent), the model-specific constant on Gen 2. It is not run through
   `encounter.table` in this RFC. Biasing whether an encounter happens at all,
-  as opposed to which species it is, is a different question, and the same
-  reasoning that scoped fishing out of this RFC ("grass/surf is what needs it
-  now") applies just as well to a future hook for `chance`.
+  as opposed to which species it is, is a separate question, one this RFC
+  doesn't answer for grass/water and doesn't need to: `encounter.fishing`
+  already handles rod encounters as its own hook, untouched here. Worth its
+  own preview hook later if a mod actually needs one.
 - `dist` is a flat species-to-weight map, one entry per distinct species
   (slots repeating the same species are summed, since a caller asking "how
   likely is CATERPIE" doesn't care which slot it's in). Weights are the raw
@@ -137,13 +138,14 @@ with `encounter.table` wrappers; a route overlay built on it should treat the
 answer as "the map's own encounters," not "guaranteed to be what the next
 step produces."
 
-## Migration
+## Migration and compatibility
 
 Nothing changes for existing mods. `encounter.roll` and `encounter.species`
 keep their exact current signatures, call sites, and behavior; no existing
 mod using either needs to change anything. A mod that already estimates a
 distribution by sampling `encounter.roll` hundreds of times can switch to one
-`effectiveEncounters` call, at its own pace.
+`effectiveEncounters` call, at its own pace. `encounter.table` is additive
+only: no existing hook, event, registry, or manifest field changes shape.
 
 ## Verification
 
@@ -182,12 +184,6 @@ distribution by sampling `encounter.roll` hundreds of times can switch to one
 - `docs/modding.md`: a new "Effective wild-encounter distribution" section,
   matching the RFC-cited-in-prose convention the two most recent hook
   additions (RFC 0014, RFC 0015) already established there.
-
-## Backward compatibility
-
-Additive only. No existing hook, event, registry, or manifest field changes
-shape. `encounter.roll`, `encounter.species`, and every existing `WorldAPI`
-method keep their exact current contracts.
 
 ## Deprecation etiquette
 
