@@ -66,8 +66,8 @@ check(files["saves/gold/" .. tostring(slotId) .. ".lua"] ~= nil,
 
 local ok, res = SaveFileIO.exportActiveSlot("gold")
 eq(ok, false, "Export on a Gold slot is refused, not crashed")
-check(type(res) == "string" and res:find("not supported yet", 1, true),
-      "the refusal is the plain launcher message: " .. tostring(res))
+check(type(res) == "string" and res:find("no cartridge image", 1, true),
+      "the refusal names the missing cartridge image: " .. tostring(res))
 check(not tostring(res):find("GenSave", 1, true)
       and not tostring(res):find("attempt to index", 1, true),
       "no codec traceback leaks into the notice line")

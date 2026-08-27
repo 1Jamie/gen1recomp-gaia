@@ -62,8 +62,11 @@ write(goldPath, SaveSerializer.encode({
 
 local out = run(("luajit tools/save_convert/convert.lua export %q %q")
   :format(goldPath, outPath))
-check(out:find("Gen 2 cart save", 1, true) ~= nil,
-  "exporting a Gold save.lua is refused by name: " .. (out:gsub("%s+$", "")))
+-- Gen 2 exports through Gen2Save now, but only for a save that carries the
+-- cartridge image it came from. A slot built in the launcher has none.
+check(out:find("no cartridge image", 1, true) ~= nil,
+  "exporting a Gold slot with no cartridge behind it is refused, and says why: "
+    .. (out:gsub("%s+$", "")))
 check(not exists(outPath),
   "and no 32768-byte file that looks like a Red battery is written")
 

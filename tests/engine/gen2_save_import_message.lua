@@ -110,14 +110,18 @@ do
 end
 
 -- ------------------------------------------------------------------
--- Export is still one-way, and still says so
+-- Export needs the cartridge image behind the save
 -- ------------------------------------------------------------------
 
+-- Export goes through the codec now, but only for a save that came from a
+-- cartridge: the regions it does not model are the ones the real game trusts
+-- on CONTINUE.
 for _, version in ipairs({ "gold", "silver", "crystal" }) do
-  local ok, why = SaveConvert.exportSupported(version)
-  eq(ok, false, version .. ": export is still refused")
-  check(type(why) == "string" and why:find("exporting", 1, true) ~= nil,
-    version .. ": and the sentence is about exporting -- " .. tostring(why))
+  eq(SaveConvert.exportSupported(version), true, version .. ": export is supported")
+  local out, why = SaveConvert.exportSav({ meta = {}, player = { name = "A" } }, version)
+  eq(out, nil, version .. ": a save with no cartridge behind it is refused")
+  check(type(why) == "string" and why:find("no cartridge image", 1, true) ~= nil,
+    version .. ": and the reason is the missing image -- " .. tostring(why))
 end
 
 T.finish()

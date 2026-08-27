@@ -208,6 +208,66 @@ do
 end
 
 -- ------------------------------------------------------------------
+-- Export: what goes in comes back out, including what changed
+-- ------------------------------------------------------------------
+--
+-- Exporting a save onto the buffer it was decoded from proves nothing: every
+-- region encode does not write matches because it was copied. So this CHANGES
+-- things first, in each of the places export has to reach, and reads them back
+-- through a fresh decode.
+
+do
+  local ITEMS = {
+    POTION      = { index = 20, pocket = "ITEM" },
+    BICYCLE     = { index = 7,  pocket = "KEY_ITEM" },
+    POKE_BALL   = { index = 5,  pocket = "BALL" },
+    TM_HEADBUTT = { index = 191, pocket = "TM_HM", tmNumber = 2 },
+  }
+  local data = {
+    pokemon = CROSSWALK.pokemon, moves = CROSSWALK.moves,
+    items = ITEMS, maps = CROSSWALK.maps,
+  }
+  local cart = build("gold")
+  local save = assert(Gen2Save.decode(cart, "gold", data))
+
+  save.inventory = { POTION = 7, BICYCLE = 1, POKE_BALL = 12, TM_HEADBUTT = 1 }
+  save.currentBox = 5
+  save.party[1].status, save.party[1].statusTurns = "slp", 3
+  save.party[1].pokerus = 0x34
+  save.party[1].caughtData = 0x1234
+  save.events[9] = 0xA5
+
+  local out = assert(Gen2Save.encode(save, "gold", cart, data))
+  eq(#out, #cart, "the image keeps its size")
+  local back = assert(Gen2Save.decode(out, "gold", data))
+
+  -- The bag: encode used to leave it at whatever the template carried, so a
+  -- potion bought in a session never reached the cartridge.
+  eq(back.inventory.POTION, 7, "the ITEM pocket is written")
+  eq(back.inventory.BICYCLE, 1, "and KEY_ITEM")
+  eq(back.inventory.POKE_BALL, 12, "and BALL")
+  eq(back.inventory.TM_HEADBUTT, 1, "and TM_HM, by its tmNumber")
+  eq(back.currentBox, 5, "the open box is written")
+
+  -- 0x1C-0x1E are the mon's, not the slot's: left to the template, reordering
+  -- the party gives slot 1 the previous occupant's pokerus and caught data.
+  eq(back.party[1].pokerus, 0x34, "pokerus rides the mon")
+  eq(back.party[1].caughtData, 0x1234, "so does caught data")
+
+  eq(back.party[1].status, "slp", "status survives as a class")
+  eq(back.party[1].statusTurns, 3, "with its turn count")
+  eq(back.events[9], 0xA5, "event bytes are written")
+end
+
+-- A save with no cartridge image behind it is refused, not invented.
+do
+  local out, err = Gen2Save.encode({ player = { name = "A" } }, "gold", nil, {})
+  eq(out, nil, "encode refuses a save with no lineage")
+  check(type(err) == "string" and err:find("no cartridge image", 1, true) ~= nil,
+    "and says why -- " .. tostring(err))
+end
+
+-- ------------------------------------------------------------------
 -- A save the real cartridge would open must not be refused
 -- ------------------------------------------------------------------
 --
@@ -264,9 +324,11 @@ do
     check(type(save.hallOfFame) == "table", "so does the hall of fame")
     check(type(save.phoneContacts) == "table", "and the phone book")
   end
+  -- Export needs the cartridge image the save came from. Without one it is
+  -- refused rather than built from nothing.
   local _, expErr = SaveConvert.exportSav({ meta = {} }, "gold")
-  check(type(expErr) == "string" and expErr:find("exporting", 1, true) ~= nil,
-    "export is still refused, and says so -- got: " .. tostring(expErr))
+  check(type(expErr) == "string" and expErr:find("no cartridge image", 1, true) ~= nil,
+    "a save with no cartridge behind it is refused -- got: " .. tostring(expErr))
 end
 
 -- ------------------------------------------------------------------
@@ -299,6 +361,23 @@ else
       end
       for b, box in ipairs(save.boxes) do
         check(#box <= Gen2Save.BOX_CAPACITY, ("box %d holds at most 20"):format(b))
+      end
+
+      -- And back out. Without the item table the bag cannot be bucketed, so
+      -- this asserts the refusal rather than a lossy write.
+      local out, err = Gen2Save.encode(save, fixtureVersion, bytes, {})
+      if out then
+        eq(#out, #bytes, "the exported image keeps the cart's size, RTC and all")
+        local back = assert(Gen2Save.decode(out, fixtureVersion))
+        eq(back.player.name, save.player.name, "the player survives the round trip")
+        eq(#back.party, #save.party, "and the party")
+        local a, b2 = 0, 0
+        for _, box in ipairs(save.boxes) do a = a + #box end
+        for _, box in ipairs(back.boxes) do b2 = b2 + #box end
+        eq(b2, a, "and every stored Pokemon")
+      else
+        check(err:find("pocket", 1, true) ~= nil,
+          "or it refuses because the bag cannot be sorted -- " .. tostring(err))
       end
     end
   end

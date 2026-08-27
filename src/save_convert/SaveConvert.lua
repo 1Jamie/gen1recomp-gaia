@@ -22,7 +22,6 @@
 
 local GenSave = require("src.save_convert.GenSave")
 local Gen2Save = require("src.save_convert.Gen2Save")
-local GameVersion = require("src.core.GameVersion")
 
 local SaveConvert = {}
 
@@ -258,13 +257,6 @@ SaveConvert.mergeDefaults = mergeDefaults
 -- pokered's single sPlayerName..sMainDataCheckSum window), and no Gen 2
 -- codec exists yet.  Both directions answer with a plain message the
 -- launcher's save card renders as-is, instead of pushing a Gen 2 save
--- table through Gen 1 offsets and surfacing a codec traceback.
-local function gen2CartName(gameVersion)
-  if not GameVersion.VERSIONS[gameVersion] then return nil end
-  if GameVersion.generation(gameVersion) ~= 2 then return nil end
-  return GameVersion.info(gameVersion).displayName
-end
-
 -- Can a cart save for this game cross in or out at all?  Public because the
 -- launcher has to ask about the GAME before it measures the BYTES.
 --
@@ -291,11 +283,9 @@ function SaveConvert.importSupported(gameVersion)
   return true
 end
 
+-- Gen 2 exports through Gen2Save now, but only for a save with a cartridge
+-- image behind it; encode says so itself.
 function SaveConvert.exportSupported(gameVersion)
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return false, gen2Name .. " uses a Gen 2 cart save; exporting one is not supported yet."
-  end
   return true
 end
 
@@ -344,18 +334,23 @@ function SaveConvert.importSav(bytes, version, gameVersion)
   return mergeDefaults(decoded, version)
 end
 
--- exportSav(saveTable, gameVersion) -> bytes, err
+-- exportSav(saveTable, gameVersion, cartImage) -> bytes, err
 -- Encodes a save table back to a raw 32768-byte SRAM image. Template-aware:
 -- if the table still carries the stashed import template (saveTable.rawImport)
 -- GenSave reproduces every unmodeled region from it; otherwise those regions
 -- are zero-filled. gameVersion selects the crosswalk tables exactly as in
 -- importSav. On failure returns nil + a message (never raises).
-function SaveConvert.exportSav(saveTable, gameVersion)
+function SaveConvert.exportSav(saveTable, gameVersion, cartImage)
   if type(saveTable) ~= "table" then
     return nil, "expected a save table"
   end
   local supported, unsupportedWhy = SaveConvert.exportSupported(gameVersion)
   if not supported then return nil, unsupportedWhy end
+  -- Gen 2 has its own SRAM and its own codec, and needs no Gen 1 crosswalks.
+  if Gen2Save.layoutFor(gameVersion) then
+    return Gen2Save.encode(saveTable, gameVersion, cartImage,
+                           ensureGen2Data(gameVersion))
+  end
   local data, derr = ensureData(gameVersion)
   if not data then return nil, derr end
   local ok, bytes = pcall(GenSave.encode, saveTable, data, nil)
