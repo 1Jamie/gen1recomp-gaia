@@ -78,6 +78,12 @@ function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
   local bytes, readErr = readSource(source)
   if not bytes then return false, readErr end
+  -- The GAME decides before the BYTES do.  Everything below this line judges a
+  -- save by Gen 1's rules -- the size test, and mainChecksumValid, which is
+  -- pokered's checksum -- so a Gen 2 cart save reaching it is measured against
+  -- a rule that cannot match and comes back "checksum invalid" (#1832).
+  local supported, unsupportedWhy = SaveConvert.importSupported(version)
+  if not supported then return false, unsupportedWhy end
   if #bytes ~= SAVE_SIZE then
     local check = SaveConvert.mainChecksumValid(bytes)
     if check == nil then
