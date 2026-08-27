@@ -21,12 +21,24 @@
 -- require alone cannot see them there (#420).
 
 local GenSave = require("src.save_convert.GenSave")
+local Gen2Save = require("src.save_convert.Gen2Save")
 local GameVersion = require("src.core.GameVersion")
 
 local SaveConvert = {}
 
 SaveConvert.SAVE_SIZE = GenSave.SAVE_SIZE
-SaveConvert.mainChecksumValid = GenSave.mainChecksumValid
+-- Is this a real save for THIS GAME? Dispatches on the generation, because
+-- the two do not share a rule: Gen 1 stores a complement checksum of its main
+-- data block, Gen 2 stores two check values plus a 16-bit sum. Run one over
+-- the other's bytes and the answer is always no.
+--
+-- gameVersion is optional and defaults to Gen 1's rule, which is what every
+-- caller meant before Gen 2 had a codec.
+function SaveConvert.mainChecksumValid(bytes, gameVersion)
+  local L = gameVersion and Gen2Save.layoutFor(gameVersion)
+  if L then return Gen2Save.checksumValid(bytes, L) end
+  return GenSave.mainChecksumValid(bytes)
+end
 
 -- ------------------------------------------------------------------
 -- Crosswalk data loading (cached).  Mirrors src/core/Data.lua: prefer
@@ -123,6 +135,24 @@ local function loadCacheTable(gameVersion, filePath)
   local okx, mod = pcall(chunk)
   if okx and type(mod) == "table" then return mod end
   return nil
+end
+
+-- The generated tables Gen2Save needs to turn cart numbers into the ids the
+-- engine is keyed by. Deliberately not ensureData: that one also demands Gen
+-- 1's charmap, event flags and hidden items, none of which a Gen 2 cache has
+-- or a Gen 2 save uses.
+local gen2Data = {}
+local function ensureGen2Data(gameVersion)
+  local key = gameVersion or "*"
+  if gen2Data[key] == nil then
+    local out = {}
+    for _, name in ipairs({ "pokemon", "moves", "items", "maps" }) do
+      out[name] = loadCacheTable(gameVersion, "data/generated/" .. name .. ".lua")
+        or (loadTable("data.generated." .. name, "data/generated/" .. name .. ".lua"))
+    end
+    gen2Data[key] = out
+  end
+  return gen2Data[key]
 end
 
 -- Crosswalk sets keyed by the game whose cache they came from ("*" for the
@@ -248,11 +278,16 @@ end
 -- Returns true, or false plus the same sentence importSav/exportSav would have
 -- answered with, so a caller that asks early and a caller that does not cannot
 -- describe the same game two different ways.
+-- Does this game use a Gen 2 cart save?  The RTC footer that follows one is
+-- expected rather than surprising, which the import path needs to know.
+function SaveConvert.isGen2Cart(gameVersion)
+  return Gen2Save.layoutFor(gameVersion) ~= nil
+end
+
 function SaveConvert.importSupported(gameVersion)
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return false, gen2Name .. " uses a Gen 2 cart save; importing one is not supported yet."
-  end
+  -- Gen 2 imports through Gen2Save now. Kept as a predicate rather than
+  -- deleted: SaveFileIO asks it before it measures the bytes, and export
+  -- still answers no.
   return true
 end
 
@@ -278,6 +313,15 @@ function SaveConvert.importSav(bytes, version, gameVersion)
   end
   local supported, unsupportedWhy = SaveConvert.importSupported(gameVersion)
   if not supported then return nil, unsupportedWhy end
+  -- Gen 2 is a different SRAM entirely: different bank map, different party
+  -- struct, its own check values. Gen2Save owns it, and it needs no crosswalk
+  -- tables because it decodes ids the engine already speaks.
+  if Gen2Save.layoutFor(gameVersion) then
+    local decoded, gen2Err = Gen2Save.decode(bytes, gameVersion,
+                                             ensureGen2Data(gameVersion))
+    if not decoded then return nil, gen2Err end
+    return Gen2Save.mergeDefaults(decoded, gameVersion)
+  end
   if #bytes ~= GenSave.SAVE_SIZE then
     return nil, ("save must be %d bytes, got %d"):format(GenSave.SAVE_SIZE, #bytes)
   end

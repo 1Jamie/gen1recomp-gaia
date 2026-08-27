@@ -78,14 +78,17 @@ function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
   local bytes, readErr = readSource(source)
   if not bytes then return false, readErr end
-  -- The GAME decides before the BYTES do.  Everything below this line judges a
-  -- save by Gen 1's rules -- the size test, and mainChecksumValid, which is
-  -- pokered's checksum -- so a Gen 2 cart save reaching it is measured against
-  -- a rule that cannot match and comes back "checksum invalid" (#1832).
+  -- The GAME decides before the BYTES do.  Everything below this line used to
+  -- judge a save by Gen 1's rules whatever game it was for, and a Gen 2 cart
+  -- is MBC3+TIMER: a real Gold/Silver/Crystal .sav carries an RTC footer, so
+  -- it is 32786 bytes, misses the size test, and was then measured against
+  -- pokered's checksum -- which is why a perfectly good Crystal save reported
+  -- as corrupt (#1832).  mainChecksumValid now takes the game and asks that
+  -- generation's rule.
   local supported, unsupportedWhy = SaveConvert.importSupported(version)
   if not supported then return false, unsupportedWhy end
   if #bytes ~= SAVE_SIZE then
-    local check = SaveConvert.mainChecksumValid(bytes)
+    local check = SaveConvert.mainChecksumValid(bytes, version)
     if check == nil then
       return false, ("A save file must be %d bytes (32 KB); this one is %d.")
         :format(SAVE_SIZE, #bytes)
@@ -93,7 +96,12 @@ function SaveFileIO.importToSlot(source, version, force)
     if check == false then
       return false, "save data checksum invalid (main data checksum mismatch)"
     end
-    if #bytes > SAVE_SIZE and not force then
+    -- The confirm exists because a Gen 1 save bigger than 32768 is a surprise
+    -- worth asking about.  On a Gen 2 cart it is the normal shape -- every
+    -- real one has the footer -- so asking would be a prompt with one sensible
+    -- answer, on every import, forever.
+    if #bytes > SAVE_SIZE and not force
+       and not SaveConvert.isGen2Cart(version) then
       return false, nil, { needsConfirm = true, size = #bytes }
     end
     bytes = #bytes > SAVE_SIZE and bytes:sub(1, SAVE_SIZE)
