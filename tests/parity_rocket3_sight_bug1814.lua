@@ -50,6 +50,9 @@ check(hideout.noSight == nil or hideout.noSight[TEXT] ~= true,
 
 -- the LIFT KEY half: after the battle -- however it started -- the next talk
 -- reveals the ball
+-- put the real module back at the bottom: the tier dofiles every parity file
+-- into one process, so a stub left behind here breaks every later suite
+local realTextBox = package.loaded["src.render.TextBox"]
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, done) return { text = text, done = done } end,
   soundOpts = function() return nil end,
@@ -76,5 +79,7 @@ local toggles = game.save.objectToggles and game.save.objectToggles[MAP]
 check(toggles and toggles.ROCKETHIDEOUTB4F_LIFT_KEY == true,
       "the LIFT KEY ball is shown")
 check(finished, "and the talk hands control back")
+
+package.loaded["src.render.TextBox"] = realTextBox
 
 S.finish()

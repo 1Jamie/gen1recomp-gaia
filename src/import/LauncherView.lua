@@ -1394,7 +1394,9 @@ local function buildHeader(imp, m)
   -- under the gear and the quit X -- "the settings is covering the logo".
   -- Reserving the space on both sides costs a little width and cannot
   -- overlap at any window size.
-  local clusterW = 2 * gear + math.floor(6 * m.s) + m.pad
+  -- iOS has no quit button (the OS owns app exit), so the cluster is the
+  -- gear alone and the wordmark gets that width back
+  local clusterW = (imp.ios and gear or 2 * gear + math.floor(6 * m.s)) + m.pad
   local boxX = m.x + clusterW
   local boxW = math.max(0, m.w - 2 * clusterW)
   if imp.logo and boxW > 0 then
@@ -1428,8 +1430,8 @@ local function buildHeader(imp, m)
   -- inboard of it -- but the two are REGISTERED gear first, because the first
   -- focusable of the first frame adopts the keyboard ring and that must not be
   -- the button that exits the app.
-  local quitX = rx - gear
-  rx = quitX - math.floor(6 * m.s)
+  local quitX = not imp.ios and rx - gear or nil
+  if quitX then rx = quitX - math.floor(6 * m.s) end
 
   -- Settings gear.  It now also owns the CONTROL settings (touch overlay
   -- editor, reset rebinds), which used to be buttons stacked in the game
@@ -1441,7 +1443,7 @@ local function buildHeader(imp, m)
   chrome.gear.image = imp._gearIcon
   btn(imp, rx, by, gear, gear, "gear", "", chrome.gear)
 
-  btn(imp, quitX, by, gear, gear, "quit", "", chrome.quit)
+  if quitX then btn(imp, quitX, by, gear, gear, "quit", "", chrome.quit) end
 
   -- The self-update control lives in the FOOTER next to the BCG mark (small,
   -- out of the wordmark's way -- it used to overlap the logo on a phone).  It

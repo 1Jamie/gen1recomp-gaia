@@ -138,4 +138,4 @@ do
   eq(#pushed, 0, "loss does not push after-battle text")
 end
 
-print("parity_lance: ok")
+S.finish()

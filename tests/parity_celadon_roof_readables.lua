@@ -90,7 +90,7 @@ end
 eq(hooks.onInteract(game, ow, 2, 0), false,
    "the wall left of the blackboard stays silent")
 
--- walk the loop: intro -> prompt -> heading box -> blurb -> prompt again
+-- walk the loop: intro -> held prompt -> heading menu over it
 stack = {}
 hooks.onInteract(game, ow, 3, 0)
 local intro = stack[#stack]
@@ -100,36 +100,52 @@ local prompt = stack[#stack]
 check(getmetatable(prompt) == TextBox
         and pages(prompt):find("heading", 1, true) ~= nil,
       "the intro leads into the which-heading prompt")
-prompt.onDone()
+-- #591: LinkCableHelpText2 ends in `text_end`, so .linkHelpLoop leaves it on
+-- screen and runs HandleMenuInput under it
+check(prompt.onDone == nil and prompt.stay ~= nil,
+      "the prompt is held open instead of waiting for A and popping")
+prompt.stay.onShown()
 local menu = stack[#stack]
-check(getmetatable(menu) == Menu, "the prompt opens the heading menu")
+check(getmetatable(menu) == Menu, "the held prompt opens the heading menu")
+eq(stack[#stack - 1], prompt, "the menu sits on the still-visible prompt box")
 eq(#menu.items, 4, "four headings, as in HowToLinkText")
 local labels = {}
 for i, item in ipairs(menu.items) do labels[i] = item.label end
 eq(table.concat(labels, "/"),
    "HOW TO LINK/COLOSSEUM/TRADE CENTER/STOP READING",
    "the headings read in HowToLinkText order")
-eq(menu.items[4].onSelect, nil, "STOP READING just closes the menu")
 check(menu.tw == 15 and menu.th == 10 and menu.tx == 0 and menu.ty == 0,
       "the box is the asm's 15x10 at the top left")
 
 for i = 1, 3 do
-  stack = {}
+  stack = { prompt, menu }
+  menu.index = i
+  eq(menu.items[i].keepOpen, true,
+     labels[i] .. " leaves the menu up, as `jp .linkHelpLoop` does")
   menu.items[i].onSelect()
   local blurb = stack[#stack]
-  check(getmetatable(blurb) == TextBox,
-        labels[i] .. " prints a text box")
+  check(getmetatable(blurb) == TextBox, labels[i] .. " prints a text box")
   local want = Data.text["_LinkCableInfoText" .. i]:match("^[^\n\011\012]+")
   check(pages(blurb):find(want, 1, true) ~= nil,
         labels[i] .. " prints _LinkCableInfoText" .. i)
-  check(type(blurb.onDone) == "function",
-        labels[i] .. " returns to the prompt instead of dropping out")
-  blurb.onDone()
-  check(getmetatable(stack[#stack]) == TextBox,
-        "the prompt comes back after " .. labels[i])
-  stack[#stack].onDone()
-  check(getmetatable(stack[#stack]) == Menu,
-        "the menu comes back after " .. labels[i])
+  eq(blurb.onDone, nil,
+     labels[i] .. " pops itself back onto the menu instead of dropping out")
+  table.remove(stack) -- the blurb pops itself once it has been read
+  eq(stack[#stack], menu, "the same menu comes back after " .. labels[i])
+  eq(menu.index, i, "the cursor stays on the heading that was just read")
+  eq(stack[#stack - 1], prompt, "the held prompt is still under it")
 end
+
+-- STOP READING and B share .exit: both close the menu and the prompt box
+eq(menu.items[4].keepOpen, nil, "STOP READING closes the menu")
+stack = { prompt, menu }
+table.remove(stack) -- Menu pops itself before a non-keepOpen onSelect runs
+menu.items[4].onSelect()
+eq(#stack, 0, "STOP READING closes the menu and the held prompt together")
+check(type(menu.onCancel) == "function", "B is watched (PAD_A | PAD_B)")
+stack = { prompt, menu }
+table.remove(stack)
+menu.onCancel()
+eq(#stack, 0, "B closes the menu and the held prompt together")
 
 S.finish()

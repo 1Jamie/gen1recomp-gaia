@@ -29,8 +29,11 @@ local Bag = require("src.inventory.Bag")
 local realTextBox = package.loaded["src.render.TextBox"]
 local realBag = package.loaded["src.ui.BagMenu"]
 local realParty = package.loaded["src.ui.PartyMenu"]
+-- soundOpts only builds an opts table, so the real one runs against the stub.
+local soundOpts = require("src.render.TextBox").soundOpts
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, done) return { textBox = true, text = text, done = done } end,
+  soundOpts = soundOpts,
 }
 package.loaded["src.ui.BagMenu"] = nil
 package.loaded["src.ui.PartyMenu"] = nil
