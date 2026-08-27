@@ -821,7 +821,7 @@ mod.content.phone_contacts:patch("PHONE_YOUNGSTER_JOEY", { map = "ROUTE_31" })
 | `catchRate` | integer 0..255 | yes |
 | `cry` | cries id | no |
 | `dex` | integer >= 1 | yes |
-| `dexEntry` | {heightFt, heightIn, heightM?, kind, text, weight, weightKg?} | no |
+| `dexEntry` | {heightFt, heightIn, heightM?, kind, text, text2?, weight, weightKg?} | no |
 | `evolutions` | list of {item?, level?, method, species} | yes |
 | `frontSize` | integer 1..7 | yes |
 | `growthRate` | growth_rates id | yes |
