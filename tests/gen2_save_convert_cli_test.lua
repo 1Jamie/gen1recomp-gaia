@@ -62,20 +62,29 @@ write(goldPath, SaveSerializer.encode({
 
 local out = run(("luajit tools/save_convert/convert.lua export %q %q")
   :format(goldPath, outPath))
-check(out:find("Gen 2 cart save", 1, true) ~= nil,
-  "exporting a Gold save.lua is refused by name: " .. (out:gsub("%s+$", "")))
+-- Gen 2 exports through Gen2Save now, but only for a save that carries the
+-- cartridge image it came from. A slot built in the launcher has none.
+check(out:find("no cartridge image", 1, true) ~= nil,
+  "exporting a Gold slot with no cartridge behind it is refused, and says why: "
+    .. (out:gsub("%s+$", "")))
 check(not exists(outPath),
   "and no 32768-byte file that looks like a Red battery is written")
 
--- The same gate on the way in, when the caller names the game.
+-- The way IN is no longer a gate: Gen 2 imports through
+-- src/save_convert/Gen2Save.lua now.  What this pins is that the bytes reach
+-- that codec and are judged by ITS rules -- an all-zero image has neither of
+-- Gen 2's check values, so it is refused for being blank rather than for
+-- being Gold.
 local savPath = tmp("in.sav")
 local outPath2 = tmp("in.lua")
 os.remove(outPath2)
 write(savPath, string.rep("\0", 32768))
 out = run(("luajit tools/save_convert/convert.lua import %q %q gold")
   :format(savPath, outPath2))
-check(out:find("Gen 2 cart save", 1, true) ~= nil,
-  "importing for a Gen 2 game is refused too")
+check(out:find("not supported yet", 1, true) == nil,
+  "importing for a Gen 2 game is no longer refused by version: " .. (out:gsub("%s+$", "")))
+check(out:find("checksum", 1, true) ~= nil,
+  "a blank image is refused on Gen 2's own check values: " .. (out:gsub("%s+$", "")))
 check(not exists(outPath2), "and writes nothing")
 
 -- Gen 1 keeps working: a Red-shaped save is never caught by the Gen 2 gate.

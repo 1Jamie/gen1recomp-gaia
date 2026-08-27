@@ -66,8 +66,8 @@ check(files["saves/gold/" .. tostring(slotId) .. ".lua"] ~= nil,
 
 local ok, res = SaveFileIO.exportActiveSlot("gold")
 eq(ok, false, "Export on a Gold slot is refused, not crashed")
-check(type(res) == "string" and res:find("not supported yet", 1, true),
-      "the refusal is the plain launcher message: " .. tostring(res))
+check(type(res) == "string" and res:find("no cartridge image", 1, true),
+      "the refusal names the missing cartridge image: " .. tostring(res))
 check(not tostring(res):find("GenSave", 1, true)
       and not tostring(res):find("attempt to index", 1, true),
       "no codec traceback leaks into the notice line")
@@ -77,12 +77,17 @@ for path in pairs(files) do
 end
 eq(exported, false, "no export file is written for a Gold slot")
 
--- The import direction through the same seam: a 32 KB image aimed at Gold
--- must be refused by version, before any Gen 1 decoding is attempted.
+-- The import direction no longer matches the export one. Gold imports through
+-- Gen2Save now, so a 32 KB image aimed at Gold is decoded rather than turned
+-- away by version. An all-zero image still fails, because Gen 2's guards are
+-- two check values and a sum and a blank image has none of them: refused for
+-- what it is, not for which game it is for.
 local iok, ierr = SaveConvert.importSav(string.rep("\0", 32768), "gold", "gold")
-eq(iok, nil, "importing a cart .sav for Gold is refused")
-check(type(ierr) == "string" and ierr:find("not supported yet", 1, true),
-      "the import refusal is the plain launcher message: " .. tostring(ierr))
+eq(iok, nil, "a blank cart .sav for Gold is still refused")
+check(type(ierr) == "string" and ierr:find("not supported yet", 1, true) == nil,
+      "and no longer refused by version: " .. tostring(ierr))
+check(type(ierr) == "string" and ierr:find("checksum", 1, true) ~= nil,
+      "it is Gen 2's own guards that turn it away: " .. tostring(ierr))
 
 -- Gen 1 versions still pass the gate: red reaches the codec proper and
 -- fails on its own terms (an all-zero image is not a table), never on the

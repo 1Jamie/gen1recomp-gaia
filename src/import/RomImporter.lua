@@ -2296,8 +2296,8 @@ function RomImporter:_importRequiredSource(modId, importId, source, confirmed)
     }
     return nil
   end
-  if type(size) == "number" and size > RequiredImports.LARGE_WARN_BYTES
-      and spec.format ~= "n64" then
+  if spec.format ~= "n64" and (size == nil
+      or size > RequiredImports.LARGE_WARN_BYTES) then
     local ok, result = streamRequiredImport(manifest, importId, source)
     if ok then
       self.requiredImportNotice = nil
@@ -4266,6 +4266,7 @@ function RomImporter:_toggleSafeMode()
   self.mods = nil
   self.findInstalled = nil
   self._modSortCache = nil
+  self._cartCaptureCache = nil
   self._modInfoFetch = nil
   self.modNotice = nil
 end
@@ -4592,7 +4593,7 @@ function RomImporter:_selectCart(version, id)
   self.activeCart[version] = id
   self._cartPlan = nil
   -- the MODS panel answers for the cart now, so its cached rows are stale
-  self.mods, self._modSortCache = nil, nil
+  self.mods, self._modSortCache, self._cartCaptureCache = nil, nil, nil
   local scope = self:slotScope(version)
   self.slots[scope] = nil
   self.slotScroll[scope] = nil
@@ -4891,7 +4892,11 @@ end
 -- pins the off ones too, so they are part of the cart it would write.
 function RomImporter:_cartCaptureCount(version)
   if not GameVersion.VERSIONS[version] then return 0 end
-  return #cartModRows(self, version)
+  local cache = self._cartCaptureCache
+  if cache and cache.version == version then return cache.n end
+  local n = #cartModRows(self, version)
+  self._cartCaptureCache = { version = version, n = n }
+  return n
 end
 
 function RomImporter:_cartAuthor()
@@ -5250,6 +5255,7 @@ function RomImporter:_refreshMods()
   local SaveData = require("src.core.SaveData")
   self._cartPlan = nil
   self._profileCache = nil
+  self._cartCaptureCache = nil
   self.findInstalled = nil
   self.safeMode = SaveData.isSafeMode(SaveData.loadOptions())
   -- Once per session, ahead of the first listing: pull in any mod the player
@@ -5284,6 +5290,7 @@ function RomImporter:_refreshMods()
       if m.targetsHere ~= false then kept[#kept + 1] = m end
     end
     self.mods = kept
+    self._cartCaptureCache = { version = self.modScope, n = #kept }
   end
   -- a pin is judged against the whole listing: the cart named it, so it is
   -- listed even where the game filter above would have dropped it

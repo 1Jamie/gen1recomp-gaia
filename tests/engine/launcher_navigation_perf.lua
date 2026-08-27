@@ -85,4 +85,31 @@ do
     "MOD INDEX panel does not force the full MODS list")
 end
 
+do
+  local calls = 0
+  local old = LauncherMods.list
+  LauncherMods.list = function()
+    calls = calls + 1
+    return {
+      { id = "scoped", name = "Scoped", targetsHere = true },
+      { id = "other", name = "Other", targetsHere = false },
+    }
+  end
+  local imp = setmetatable({
+    modScope = "red",
+    modStraysChecked = true,
+    activeCart = {},
+  }, RomImporter)
+  imp:_refreshMods()
+  local listed = calls
+  check(listed >= 1, "refresh lists installed mods")
+  eq(imp:_cartCaptureCount("red"), 1,
+    "capture count is the targeting subset")
+  eq(calls, listed,
+    "Save as cart does not re-list after the panel already has the rows")
+  eq(imp:_cartCaptureCount("red"), 1, "a second count is the same answer")
+  eq(calls, listed, "and still does not re-list")
+  LauncherMods.list = old
+end
+
 T.finish("launcher_navigation_perf")

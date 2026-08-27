@@ -21,5 +21,13 @@ local xml = meta:read("*a")
 meta:close()
 check(xml:find("<releases>", 1, true), "AppStream metainfo includes releases")
 check(xml:find("<release ", 1, true), "AppStream metainfo includes a release entry")
+check(xml:find("<project_license>MIT</project_license>", 1, true),
+  "AppStream metainfo declares MIT project license")
+check(not xml:find("LicenseRef-proprietary", 1, true),
+  "AppStream metainfo must not claim proprietary")
+check(xml:find('url type="homepage">https://gen1re.com/</url>', 1, true),
+  "AppStream metainfo homepage is gen1re.com")
+check(xml:find('url type="vcs-browser">https://github.com/bryanthaboi/gen1recomp</url>', 1, true),
+  "AppStream metainfo vcs-browser points at the public repo")
 
 print("ok")
