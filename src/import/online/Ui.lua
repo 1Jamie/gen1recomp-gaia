@@ -49,6 +49,7 @@ function Ui.field(imp, x, y, w, h, key, text, placeholder, focused, set)
     end
   end
   if Kit.press(x, y, w, h) or Kit._activateId == key then
+    imp._onlineFieldHit = true
     if Kit.VirtualKeyboard then
       Kit.VirtualKeyboard.open({
         text = text or "",

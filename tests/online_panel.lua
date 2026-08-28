@@ -1645,4 +1645,58 @@ do
   love.timer.getTime = savedGetTime
 end
 
+do
+  local bimp = { ready = { red = true }, activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local bst = OnlinePanel.state(bimp)
+  bst.version, bst.ready = "red", true
+  local fakeRoom = { code = "LEAV01", intent = "battle", stage = "waiting",
+                     players = {} }
+  local savedRoom, savedLeave, savedYou2 = Client.room, Client.leaveRoom, Client.you
+  local left = 0
+  Client.room = function() return fakeRoom end
+  Client.leaveRoom = function() left = left + 1 fakeRoom = nil return true end
+  OnlinePanel.go(bimp, "play")
+  OnlinePanel.go(bimp, "room")
+  T.check(OnlinePanel.back(bimp), "Back leaves the Room screen")
+  T.eq(left, 1, "and tells the relay you left the room")
+  T.eq(bst.ready, false, "clearing the ready flag")
+  T.check(OnlinePanel.back(bimp), "Back from Play")
+  T.eq(left, 1, "does not leave anything")
+  fakeRoom = { code = "LEAV02", intent = "trade", stage = "waiting", players = {} }
+  bst.ready = true
+  OnlinePanel.go(bimp, "play")
+  OnlinePanel.go(bimp, "room")
+  OnlinePanel.home(bimp)
+  T.eq(left, 2, "Home from a waiting room leaves it too")
+  T.eq(OnlinePanel.screen(bimp), "home", "and lands on Home")
+
+  local readied = 0
+  local savedSend = OnlinePanel.sendReady
+  OnlinePanel.sendReady = function() readied = readied + 1 return true end
+  Client.you = function() return { id = "me", name = "RED" } end
+  local tradeRoom = { code = "TRD001", intent = "trade", stage = "waiting",
+    players = { { id = "me", ready = false }, { id = "them", ready = false } } }
+  bst.autoReadyAt = nil
+  T.check(OnlinePanel.autoReadyTrade(bimp, tradeRoom),
+    "a trade room with both trainers readies itself")
+  T.eq(readied, 1, "by sending ready once")
+  T.check(not OnlinePanel.autoReadyTrade(bimp, tradeRoom),
+    "and not again inside the retry window")
+  bst.autoReadyAt = nil
+  tradeRoom.players[1].ready = true
+  T.check(not OnlinePanel.autoReadyTrade(bimp, tradeRoom),
+    "nor once the relay already shows you ready")
+  T.check(not OnlinePanel.autoReadyTrade(bimp, { code = "TRD002",
+    intent = "trade", stage = "waiting", players = { { id = "me" } } }),
+    "a lone trader keeps waiting")
+  T.check(not OnlinePanel.autoReadyTrade(bimp, { code = "BTL001",
+    intent = "battle", stage = "waiting",
+    players = { { id = "me" }, { id = "them" } } }),
+    "battle rooms keep the manual Ready button")
+  T.eq(readied, 1, "no extra ready went out")
+  OnlinePanel.sendReady = savedSend
+  Client.room, Client.leaveRoom, Client.you = savedRoom, savedLeave, savedYou2
+end
+
 T.finish("online panel")
