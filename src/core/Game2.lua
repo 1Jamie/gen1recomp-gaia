@@ -1105,6 +1105,7 @@ function Game2:load(opts)
   -- a mod to hold).  Emitted where Gen 1 emits it -- every service up, the
   -- stack still empty -- so a listener that pushes a state lands underneath
   -- the boot cinema rather than being buried by it.
+  pcall(function() require("src.core.DiscordPresence").init(self) end)
   ModRuntime.emit("game.ready", { game = self })
 
   -- Drivers that walk the overworld skip boot cinema so smoke stays stable.
@@ -1206,6 +1207,7 @@ function Game2:update(dt)
   -- reason and at the same place Gen 1 ticks them (src/core/Game.lua:265):
   -- they are presentational, so fast-forward must not speed them up.
   require("src.render.Pipelines").update(dt)
+  pcall(function() require("src.core.DiscordPresence").update(dt) end)
   -- GAME SPEED scales the logic clock only, exactly as the Gen 1 path does:
   -- audio runs off its own real-time accumulator, so music and sfx keep their
   -- tempo at every multiplier.  speedOverride is the driver/CLI hook and wins

@@ -202,7 +202,7 @@ function TeamPick.convert(source, toGeneration, fromData, toData)
   local list = TeamPick.candidates(source)
   local mons = {}
   for i, row in ipairs(list) do mons[i] = row.mon end
-  local results
+  local _, results
   if toGeneration == 1 then
     _, results = Convert.partyToGen1(mons, fromData, toData)
   else

@@ -410,6 +410,11 @@ end
 
 local function locationName(game, mapId)
   if not mapId then return nil end
+  local world = game and game.world
+  if world and world.landmarkName then
+    local ok, name = pcall(world.landmarkName, world)
+    if ok and type(name) == "string" and name ~= "" then return name end
+  end
   local field = game and game.data and game.data.field
   local townMap = field and field.townMap
   local locations = townMap and (townMap.locations or townMap)

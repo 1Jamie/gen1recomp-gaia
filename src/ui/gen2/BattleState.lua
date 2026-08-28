@@ -489,6 +489,15 @@ function BattleState.new(game, opts)
   self.shownLevel = (player and player.level) or 1
   self.shownExp = player
     and self:expPixels(player, player.level, player.experience) or 0
+  local enemy = self.battle and self.battle.enemy
+  Runtime.emit("battle.started", {
+    battle = self,
+    kind = (self.battle and self.battle.wild and "wild")
+      or (self.link and "link") or "trainer",
+    trainerId = self.battle and self.battle.trainer and self.battle.trainer.id,
+    species = enemy and enemy.species,
+    level = enemy and enemy.level,
+  })
   return self
 end
 
@@ -1979,6 +1988,9 @@ function BattleState:finishBattle()
   -- The party tables it wrote them on are the save's own, so this has to run
   -- before the overworld (and the next save write) sees them again.
   if self.battle then self.battle:clearAllVolatiles() end
+  Runtime.emit("battle.ended", {
+    battle = self, result = self.battle and self.battle.outcome,
+  })
   if self.onDone then
     self.onDone(self.battle and self.battle.outcome, self.battle)
   end
