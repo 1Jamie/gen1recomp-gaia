@@ -327,6 +327,13 @@ end
 
 function Loader:_loadState()
   self.disabled = {}
+  if self.arenaMode then
+    self.safeMode = false
+    Runtime.safeMode = false
+    self.gen2Forced = {}
+    self.modOptions = {}
+    return
+  end
   local options = SaveData.loadOptions(self.fs)
   self.safeMode = SaveData.isSafeMode(options)
   Runtime.safeMode = self.safeMode
@@ -606,6 +613,88 @@ end
 
 function Loader:cartStatus()
   return self.cartReport
+end
+
+Loader.ARENA_MODES = { normal = true, disableAll = true, cartOnly = true }
+
+local function translationCandidate(manifest)
+  if type(manifest) ~= "table" then return false end
+  if manifest.language ~= true then return false end
+  if manifest.affects_link ~= false then return false end
+  return #(manifest.permissions or {}) == 0
+end
+
+function Loader:_arenaDisableAll()
+  for id, mod in pairs(self.mods) do
+    if not translationCandidate(mod.manifest) then self.disabled[id] = true end
+  end
+end
+
+function Loader:_arenaVerifyTranslations()
+  local ok, Handshake = pcall(require, "src.link.Handshake")
+  if not ok or not Handshake or not Handshake.onlineBlockers then return end
+  local blocked = {}
+  for _, entry in ipairs(Handshake.onlineBlockers({ mods = self })) do
+    blocked[entry.id] = true
+  end
+  if next(blocked) == nil then return end
+  for id in pairs(blocked) do
+    local mod = self.mods[id]
+    if mod then
+      self:_rollback(id)
+      mod.enabled, mod.state = false, "disabled"
+      mod.skipReason = "not a verified translation"
+      self.disabled[id] = true
+    end
+  end
+  for i = #self.loaded, 1, -1 do
+    if blocked[self.loaded[i].manifest.id] then table.remove(self.loaded, i) end
+  end
+  for i = #self.order, 1, -1 do
+    if blocked[self.order[i]] then table.remove(self.order, i) end
+  end
+end
+
+function Loader:_arenaCart()
+  local cartId = self.arenaCartId
+  if type(cartId) ~= "string" or cartId == "" then
+    return false, "no cart chosen"
+  end
+  local cart, err = self.cart
+  if not cart then cart, err = CartStore.get(cartId, self.fs) end
+  if not cart then
+    return false, tostring(err or "this cart is not installed")
+  end
+  local report = Loader.planCart(cart, self.mods, self.arenaSealBroken)
+  report.id = cartId
+  self.cartReport = report
+  if self.arenaSealBroken then return false, "this save's seal is broken" end
+  if cart.seal ~= "sealed" then
+    return false, ("%s is not a sealed cart"):format(cart.title or cartId)
+  end
+  if report.refused or not report.enforced then
+    return false, report.message or ("%s cannot be enforced"):format(cartId)
+  end
+  self.cartSwitches = {}
+  for id, mod in pairs(self.mods) do
+    local pin = report.pins[id]
+    if pin then
+      local on = CartManifest.modEnabled(pin)
+      mod.enabled, mod.state = on, on and "pending" or "disabled"
+      self.disabled[id] = not on or nil
+    else
+      mod.enabled, mod.state = false, "disabled"
+      self.disabled[id] = true
+    end
+  end
+  local merged = {}
+  for id, pin in pairs(report.pins) do
+    local bucket = {}
+    for key, value in pairs(pin.options or {}) do bucket[key] = value end
+    merged[id] = bucket
+  end
+  self.modOptions = merged
+  return true
 end
 
 function Loader:_applyCart()
@@ -1737,7 +1826,15 @@ local function stampAudioOwners(data, name, registry)
   owners[key] = map
 end
 
-function Loader:load(data)
+function Loader:load(data, opts)
+  opts = opts or {}
+  local mode = opts.mode or "normal"
+  if not Loader.ARENA_MODES[mode] then
+    return false, ("unknown loader mode %q"):format(tostring(mode))
+  end
+  self.arenaMode = mode ~= "normal" and mode or nil
+  self.arenaCartId = mode == "cartOnly" and opts.cartId or nil
+  self.arenaSealBroken = opts.sealBroken == true
   self.baseData = data
   -- every registry folds against the pristine view of its Data target;
   -- resolution is lazy so optional namespaces may appear later
@@ -1760,11 +1857,17 @@ function Loader:load(data)
   if self.safeMode then
     for id in pairs(self.mods) do self.disabled[id] = true end
   end
+  if self.arenaMode == "disableAll" then
+    self:_arenaDisableAll()
+  elseif self.arenaMode == "cartOnly" then
+    local ok, reason = self:_arenaCart()
+    if not ok then return false, reason end
+  end
   -- Existing installs stored one shared answer.  Once their manifests are
   -- known, split that answer across every game before the next launcher/game
   -- toggle can change one independently.  _loadState already used the same
   -- fallback, so this write cannot change the current boot's result.
-  do
+  if not self.arenaMode then
     local options = SaveData.loadOptions(self.fs)
     local installed = {}
     for id, mod in pairs(self.mods) do
@@ -1779,7 +1882,7 @@ function Loader:load(data)
   end
   -- Experimental mods stay off until the player opts in: a missing
   -- options.mods entry normally means enabled, but experimental flips that.
-  do
+  if not self.arenaMode then
     local options = SaveData.loadOptions(self.fs)
     local scope = self:_enableScope()
     for id, mod in pairs(self.mods) do
@@ -1795,7 +1898,8 @@ function Loader:load(data)
   -- the one build where its env var is set.
   for id, mod in pairs(self.mods) do
     local envName = mod.manifest.force_enable_env
-    if not self.safeMode and envName and os.getenv(envName) == "1" then
+    if not self.safeMode and not self.arenaMode and envName
+        and os.getenv(envName) == "1" then
       self.disabled[id] = nil
     end
   end
@@ -1803,7 +1907,7 @@ function Loader:load(data)
     mod.enabled = not self.disabled[id]
     mod.state = mod.enabled and "pending" or "disabled"
   end
-  self:_applyCart()
+  if not self.arenaMode then self:_applyCart() end
   -- engine call sites reach these buses -- and this error feed, for failures
   -- that only surface at play time -- through Runtime from here on
   Runtime.install(self.events, self.hooks, self.errors)
@@ -1856,6 +1960,7 @@ function Loader:load(data)
   -- the commands registry is final once every entry chunk has run, so
   -- each map_scripts contribution's rows can be judged before they merge
   self:_validateScripts()
+  if self.arenaMode == "disableAll" then self:_arenaVerifyTranslations() end
   -- merge: fold every touched id from its pristine base value and write it
   -- home, creating the Data namespace when the base modules never shipped
   -- one.  A registry nobody wrote to -- engine included -- is skipped, so
@@ -1977,7 +2082,8 @@ function Loader:status()
   table.sort(available, function(a, b) return a.id < b.id end)
   table.sort(loaded, function(a, b) return a.id < b.id end)
   return { available = available, loaded = loaded, errors = self.errors,
-    order = self.order, cart = self.cartReport }
+    order = self.order, cart = self.cartReport,
+    arenaMode = self.arenaMode or "normal" }
 end
 
 return Loader

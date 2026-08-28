@@ -1230,8 +1230,9 @@ local ModProfile = require("src.mods.ModProfile")
 
 function LauncherMods.getProfiles(options)
   options = options or SaveData.loadOptions()
-  local manifests = discover()
-  ModProfile.ensureFirst(options, manifests, options.modOptions)
+  if not options.modProfilesSeeded then
+    ModProfile.ensureFirst(options, discover(), options.modOptions)
+  end
   return options.modProfiles or {}, options.activeProfile or "PROFILE 1"
 end
 

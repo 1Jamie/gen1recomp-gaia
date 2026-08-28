@@ -34,6 +34,8 @@ function Menu.new(game, items, opts)
     if self.tx + self.tw > 20 then self.tx = math.max(0, 20 - self.tw) end
   end
   self.rowStep = opts.rowStep or 2
+  -- home/window.asm:56-83
+  self.noWrap = opts.noWrap or false
   -- engine/movie/oak_speech/oak_speech2.asm:162 (DisplayIntroNameTextBox)
   self.title = opts.title
   self.itemY = opts.itemY
@@ -82,9 +84,11 @@ end
 function Menu:update(dt)
   local input = self.game.input
   if input:wasPressed("up") then
-    self.index = self.index > 1 and self.index - 1 or #self.items
+    self.index = self.index > 1 and self.index - 1
+      or (self.noWrap and 1 or #self.items)
   elseif input:wasPressed("down") then
-    self.index = self.index < #self.items and self.index + 1 or 1
+    self.index = self.index < #self.items and self.index + 1
+      or (self.noWrap and #self.items or 1)
   elseif input:wasPressed("a") then
     -- HandleMenuInput_ (home/window.asm): SFX_PRESS_AB on every A press
     if not self.noSound then

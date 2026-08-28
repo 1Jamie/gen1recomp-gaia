@@ -20,6 +20,7 @@ local CallAsm = require("src.script.gen2.CallAsm")
 local Camera = require("src.render.Camera")
 local Clock = require("src.core.gen2.Clock")
 local CatchTutorial = require("src.core.gen2.CatchTutorial")
+local Catching = require("src.battle.gen2.Catching")
 local Decorations = require("src.core.gen2.Decorations")
 local MomShopping = require("src.core.gen2.MomShopping")
 local CmdQueue = require("src.world.gen2.CmdQueue")
@@ -812,6 +813,19 @@ function World:load()
       local okImg, img = pcall(Assets.image, emotes.grassRustle)
       if okImg then self.grassRustleImage = img end
     end
+    -- data/sprites/emotes.asm:19
+    if emotes.jumpShadow then
+      local okImg, img = pcall(Assets.image, emotes.jumpShadow)
+      if okImg then self.jumpShadowImage = img end
+    end
+    -- engine/events/field_moves.asm:390-407
+    if emotes.cutGrass then
+      local okImg, img = pcall(Assets.image, emotes.cutGrass)
+      if okImg then
+        self.cutGrassImage = img
+        self.cutGrassQuad = love.graphics.newQuad(0, 0, 8, 8, 32, 8)
+      end
+    end
     -- LoadFishingGFX's two sheets
     -- (../pokecrystal/engine/events/fishing_gfx.asm:7-12)
     if emotes.fishing and pcall(Assets.image, emotes.fishing) then
@@ -1053,6 +1067,14 @@ function World:load()
         end
         -- GivePoke -> TryAddMonToParty -> AddPartyMon (move_mon.asm:44-56, :143-149).
         Mon.stampOT(save, mon)
+        -- move_mon.asm:1734, :1761
+        if Mon.hasCaughtData(save.version) then
+          if opts and opts.otName then
+            Mon.setGiftCaughtData(mon, opts.caughtBy or "unknown")
+          else
+            Catching.stampCaughtData(mon, self:caughtDataOpts())
+          end
+        end
         Party.add(save.party, mon)
         -- GivePoke ends in SetSeenAndCaughtMon, which is why the STARTER is
         -- already ticked off in the #DEX before the first battle.
@@ -1516,6 +1538,22 @@ local TIME_OF_DAY_ID = { MORN = 0, DAY = 1, NITE = 2, DARK = 3 }
 
 function World:timeOfDayId()
   return TIME_OF_DAY_ID[self.tod or self.daytime or "DAY"] or 1
+end
+
+-- caught_data.asm:168-199
+function World:caughtDataOpts()
+  local save = self.game and self.game.save
+  local opts = {
+    version = save and save.version,
+    save = save,
+    data = self.game and self.game.data,
+    timeOfDay = self:timeOfDayId(),
+    map = self.map and self.map.def,
+    backupMap = self.backupMapId and self.maps and self.maps[self.backupMapId],
+    playerGender = save and save.player and save.player.gender,
+  }
+  opts.landmark = Catching.caughtLandmark(opts)
+  return opts
 end
 
 -- GetWeekday -> wCurDay, which the RTC counts SUNDAY 0 .. SATURDAY 6 -- the
@@ -4925,6 +4963,8 @@ function World:playBikeMusic()
   local audio = data and data.audio
   if not (audio and audio.runtime) then return false end
   if not (audio.songs and audio.songs[Bike.MUSIC_BICYCLE]) then return false end
+  -- engine/events/overworld.asm:1621-1630
+  Music.stop()
   Music.play(data, Bike.MUSIC_BICYCLE, true, { reason = "bike" })
   return true
 end
@@ -5997,6 +6037,10 @@ end
 local FLY = {
   FROM_FRAMES = 128, TO_FRAMES = 64, HOVER = 0x40,
   AMP_MAX = 0x40, TO_AMP = 11 * 8, RISE = 84,
+  -- engine/sprite_anims/functions.asm:1389-1416
+  LEAF_DEATH_X = 184, LEAF_AMP = 0x40,
+  -- constants/sprite_anim_constants.asm:20
+  LEAF_MAX = 9,
 }
 
 -- FlyFunction_InitGFX's GetSpeciesIcon (engine/events/field_moves.asm:390):
@@ -6036,6 +6080,7 @@ function World:startFlyAnim(phase, mon, onDone)
   self.flyAnim = {
     phase = phase, icon = icon, onDone = onDone, t = 0,
     px = p.px, py = p.py, xoff = 0, wave = 0,
+    leaves = {},
     left = landing and FLY.TO_FRAMES or FLY.FROM_FRAMES,
     hover = landing and 0 or FLY.HOVER,
     amp = landing and FLY.TO_AMP or 0,
@@ -6056,6 +6101,7 @@ function World:stepFlyAnim()
     if done then done() end
     return
   end
+  self:spawnFlyLeaves(fa)
   fa.left = left - 1
   if left >= 0x40 and left % 8 == 0 then
     self:playSfxNamed("Sfx_Fly", SFX.FLY)
@@ -6077,6 +6123,59 @@ function World:stepFlyAnim()
   end
   fa.xoff = math.floor(amp * math.cos((fa.wave % 64) * math.pi / 32))
   fa.wave = fa.wave + 1
+end
+
+-- engine/events/field_moves.asm:429-446
+-- engine/sprite_anims/functions.asm:1389-1416
+function World:spawnFlyLeaves(fa)
+  local leaves = fa.leaves
+  if not leaves then
+    leaves = {}
+    fa.leaves = leaves
+  end
+  local counter = self.flyLeafCounter or 0
+  self.flyLeafCounter = (counter + 1) % 256
+  if counter % 8 == 0 and #leaves < FLY.LEAF_MAX then
+    local row = math.floor(self.flyLeafCounter / 8) % 4
+    leaves[#leaves + 1] = { x = 0, y = row * 16 + 0x40, wave = 0, xoff = 0 }
+  end
+  for i = #leaves, 1, -1 do
+    local leaf = leaves[i]
+    if leaf.x >= FLY.LEAF_DEATH_X then
+      table.remove(leaves, i)
+    else
+      leaf.x = leaf.x + 2
+      leaf.y = leaf.y - 1
+      leaf.xoff = math.floor(FLY.LEAF_AMP
+        * math.cos((leaf.wave % 64) * math.pi / 32))
+      leaf.wave = leaf.wave + 1
+    end
+  end
+end
+
+-- data/sprite_anims/oam.asm:485-487
+function World:drawFlyLeaves(s)
+  local fa = self.flyAnim
+  local sheet = self.cutGrassImage
+  if not (fa and fa.leaves and sheet and self.cutGrassQuad) then return end
+  local G = love.graphics
+  local colors = Palettes.spritePalette(self.palettes,
+    self.daytime or Palettes.daytimeFor(self.map and self.map.def,
+      self:hour(), self.flashUsed),
+    { paletteId = 6 })
+  local function blit()
+    G.setColor(1, 1, 1, 1)
+    for _, leaf in ipairs(fa.leaves) do
+      G.draw(sheet, self.cutGrassQuad,
+        math.floor((leaf.x + (leaf.xoff or 0) - 4) * s),
+        math.floor((leaf.y - 4) * s), 0, s, s)
+    end
+  end
+  if colors and GbcPalette.available() then
+    GbcPalette.with(colors, blit)
+  else
+    blit()
+  end
 end
 
 -- .Frameset_RedWalk is two 8-frame icon beats, the fourth mirrored
@@ -6104,6 +6203,7 @@ function World:drawFlyAnim(s, billboard)
   else
     body()
   end
+  self:drawFlyLeaves(s)
 end
 
 -- .FlyScript: FlyFromAnim, WarpToSpawnPoint, `newloadmap MAPSETUP_TELEPORT`,
@@ -6548,6 +6648,11 @@ function World:startScriptedBattle(record, wild, onDone)
     end
   end
   if not (opts.trainer and #opts.trainer.party > 0) and not opts.wild then
+    if record then
+      require("src.core.Logger").warn(
+        "trainer %s (class %s, member %s) built no party; no battle ran",
+        tostring(record.name), tostring(record.class), tostring(record.member))
+    end
     if onDone then onDone("win") end
     return false
   end
@@ -8399,6 +8504,30 @@ function World:drawGrassShake(entity, ox, oy, s)
   end
 end
 
+-- engine/overworld/map_objects.asm:1995, :879-893, facings.asm:161-164
+function World:drawJumpShadow(entity, ox, oy, s)
+  local sheet = self.jumpShadowImage
+  if not (sheet and entity and entity.jumping) then return end
+  local G = love.graphics
+  local facing = entity.facing
+  local dy = (facing == "left" or facing == "right") and 8 or 10
+  local colors = Palettes.spritePalette(self.palettes,
+    self.daytime or Palettes.daytimeFor(self.map and self.map.def,
+      self:hour(), self.flashUsed),
+    { paletteId = 5 })
+  local function blit()
+    G.setColor(1, 1, 1, 1)
+    local y = math.floor(oy + (entity.py + dy) * s)
+    G.draw(sheet, math.floor(ox + entity.px * s), y, 0, s, s)
+    G.draw(sheet, math.floor(ox + (entity.px + 16) * s), y, 0, -s, s)
+  end
+  if colors and GbcPalette.available() then
+    GbcPalette.with(colors, blit)
+  else
+    blit()
+  end
+end
+
 -- This frame's AnimateWaterTile graphic for a map's border block, or nil when
 -- the block holds no water at all (engine/tilesets/tileset_anims.asm:167).
 function World:borderWaterFrame(def, tileset)
@@ -9823,7 +9952,8 @@ function World:hatchEggs()
       return
     end
     self:showText("Huh?", function()
-      local hatched, effects = Breeding.hatch(data, save, index)
+      local hatched, effects =
+        Breeding.hatch(data, save, index, nil, self:caughtDataOpts())
       if not hatched then return nextEgg() end
       -- Breeding.hatch already ran SetSeenAndCaughtMon; the Togepi flag is the
       -- one side effect it hands back rather than setting, because wEventFlags
@@ -10321,6 +10451,8 @@ function World:drawPeople(s, billboard)
     local oy = math.floor((entry.oy - cam.y) * s)
     local entity = entry.kind == "player" and p or entry.npc
     local function body()
+      -- map_objects.asm:221-227
+      self:drawJumpShadow(entity, ox, oy, s)
       if entry.kind == "player" then
         self.player:draw(ox, oy, s)
       else

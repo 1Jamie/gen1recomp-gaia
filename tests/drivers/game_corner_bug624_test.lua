@@ -9,7 +9,7 @@
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local ChoiceBox = require("src.ui.ChoiceBox")
-  local ListMenu = require("src.ui.ListMenu")
+  local PrizeCounter = require("src.ui.PrizeCounter")
   local TextBox = require("src.render.TextBox")
   local mapScripts = require("data.scripts.init")
 
@@ -197,7 +197,7 @@ return function(game)
   U.tap(game, "a")
   U.wait(20)
   local function listUp()
-    return getmetatable(game.stack:top()) == ListMenu
+    return getmetatable(game.stack:top()) == PrizeCounter
   end
   mashUntil(listUp, 600)
   local list = listUp() and game.stack:top() or nil
@@ -206,20 +206,17 @@ return function(game)
   if list then
     -- wMaxMenuItem is 3: this counter's three prizes and NO THANKS, never
     -- the whole catalogue (#623)
-    local rows = list.items or {}
+    local rows = list.prizes or {}
     local names = {}
-    for _, item in ipairs(rows) do
-      names[#names + 1] = item.label ..
-        (item.right and (" " .. item.right) or "")
+    for _, row in ipairs(rows) do
+      names[#names + 1] = row.name .. " " .. tostring(row.cost)
     end
     U.log("counter 1 offers:", table.concat(names, ", "))
-    check("four rows: three prizes and NO THANKS", #rows == 4)
-    check("the last row is the NO THANKS exit",
-          rows[4] ~= nil and rows[4].label == "NO THANKS"
-          and rows[4].value == nil)
+    check("three prizes, with NO THANKS as the fourth cursor row", #rows == 3)
     local priced = true
-    for i = 1, math.min(3, #rows) do
-      if not (rows[i].value and tonumber(rows[i].right)) then priced = false end
+    for i = 1, #rows do
+      if not (rows[i].prize and tonumber(rows[i].cost)) then priced = false end
+      if tostring(rows[i].name):find("L%d") then priced = false end
     end
     check("each prize names a real species or TM and a coin price", priced)
     check("captured the prize list",
@@ -240,8 +237,7 @@ return function(game)
     U.log("it asks:", (said:gsub("^%s+", "")))
     check("the question names the prize, not {RAM:wNameBuffer}",
           said:find("wNameBuffer", 1, true) == nil
-          and rows[1] ~= nil and said:find(rows[1].label:match("^%S+"), 1, true)
-              ~= nil)
+          and rows[1] ~= nil and said:find(rows[1].name, 1, true) ~= nil)
     check("captured the confirmation",
           U.shot(game, SHOT_DIR .. "/bug623_prize_confirm.png"))
   end
@@ -258,8 +254,9 @@ return function(game)
   U.log("out under the YES/NO, MONEY ¥3000 and COIN 500 in the top-right")
   U.log("window. the near-miss to look for is that window going stale, still")
   U.log("reading ¥3000 after the 50 coins are bought.")
-  U.log("the prize list is still full-screen and the YES/NO lands on top of")
-  U.log("the third row. the small windowed menu half of #623 was left alone.")
+  U.log("the prize window is the cart's two boxes over the prize room: COIN")
+  U.log("top-right, names with their coin prices on the row below, and the")
+  U.log("floor still visible to the right of it (#1867).")
 
   while true do
     coroutine.yield()

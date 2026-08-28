@@ -38,6 +38,7 @@ local Net = require("src.link.Net")
 local Json = require("src.link.Json")
 local Input = require("src.core.Input")
 local LinkBattle = require("src.link.LinkBattle")
+local Handshake = require("src.link.Handshake")
 Input:init()
 require("src.render.Font").load(Data)
 
@@ -169,11 +170,15 @@ local function firstMismatch(a, b)
 end
 
 -- Returns nil when the run agreed, or a description of how it split.
-local function runOne(seed, mutateRate)
+local function runOne(seed, mutateRate, rulesetSplit)
   local rnd = makeRandom(seed)
   -- the two sides are deliberately different clients
   local optsA = { animations = false, textSpeed = 1, battleStyle = "SET" }
   local optsB = { animations = true, textSpeed = 3, battleStyle = "SHIFT" }
+  if rulesetSplit then
+    optsA.ruleset = seed % 2 == 0 and "modern_clean" or "gen1_faithful"
+    optsB.ruleset = seed % 2 == 0 and "gen1_faithful" or "modern_clean"
+  end
   local stepsA, stepsB = rnd(1, 4), 1   -- A fast-forwards, B does not
   local lagA, lagB = rnd(0, 8), rnd(0, 8)
 
@@ -183,15 +188,21 @@ local function runOne(seed, mutateRate)
 
   local netA, netB = laggyPair(lagA, lagB, rnd, mutateRate)
   local battleSeed = rnd(1, 2 ^ 30)
+  local dealtRuleset = rulesetSplit and Handshake.ruleset(gameA) or nil
   local battleA = LinkBattle.newHost(gameA, netA, {
     myParty = Protocol.packParty(gameA.save.party),
     theirParty = Protocol.packParty(gameB.save.party),
-    theirName = "BLUE", seed = battleSeed })
+    theirName = "BLUE", seed = battleSeed, ruleset = dealtRuleset })
   local battleB = LinkBattle.newGuest(gameB, netB, {
     myParty = Protocol.packParty(gameB.save.party),
     theirParty = Protocol.packParty(gameA.save.party),
-    theirName = "RED", seed = battleSeed })
+    theirName = "RED", seed = battleSeed, ruleset = dealtRuleset })
   if not battleA or not battleB then return nil, 0 end
+  if rulesetSplit and battleA.ruleset ~= battleB.ruleset then
+    return ("seed %d: the two sides hold different rulesets (%s vs %s)"):format(
+      seed, tostring(battleA.ruleset and battleA.ruleset.name),
+      tostring(battleB.ruleset and battleB.ruleset.name)), 0
+  end
 
   local resA, resB
   battleA.onFinish = function(r) resA = r end
@@ -312,6 +323,23 @@ end
 print(("link mutation fuzz: %d runs, %d failures"):format(
   MUTATION_RUNS, mutationFailures))
 
+local rulesetFailures, rulesetTurns = 0, 0
+for seed = FIRST, FIRST + RUNS - 1 do
+  local ok, why, t = pcall(runOne, seed, nil, true)
+  rulesetTurns = rulesetTurns + (t or 0)
+  if not ok then
+    rulesetFailures = rulesetFailures + 1
+    print("FAIL link ruleset-split fuzz seed " .. seed .. ": " .. tostring(why))
+  elseif why then
+    rulesetFailures = rulesetFailures + 1
+    print("FAIL link ruleset-split fuzz " .. why)
+  end
+end
+print(("link ruleset-split fuzz: %d runs, %d turns, %d failures"):format(
+  RUNS, rulesetTurns, rulesetFailures))
+
 assert(failures == 0, failures .. " lockstep run(s) diverged")
 assert(mutationFailures == 0, mutationFailures .. " mutated run(s) threw")
+assert(rulesetFailures == 0,
+       rulesetFailures .. " ruleset-split run(s) diverged")
 return true

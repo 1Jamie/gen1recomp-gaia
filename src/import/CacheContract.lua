@@ -27,6 +27,9 @@ CacheContract.REQUIRED_FILES = {
   "assets/generated/battle/anims/move_anim_1.png",
   "assets/generated/audio/programs.bin",
   "assets/generated/trade/game_boy.png",
+  -- engine/items/town_map.asm:296, 150
+  "assets/generated/townmap/nest.png",
+  "assets/generated/townmap/up_arrow.png",
 }
 
 CacheContract.VERSION_REQUIRED_FILES = {
@@ -83,6 +86,11 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/pc/mail_item.png",
     -- engine/events/fishing_gfx.asm:23
     "assets/generated/emotes/fishing.png",
+    -- data/sprites/emotes.asm:19, engine/events/field_moves.asm:390
+    "assets/generated/emotes/jump_shadow.png",
+    "assets/generated/emotes/cut_grass.png",
+    -- engine/pokegear/pokegear.asm:2298
+    "assets/generated/pokegear/nest_icon.png",
   },
   crystal = {
     "data/generated/constants.lua",
@@ -133,6 +141,11 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/battle/trainers/chris.png",
     -- ../pokecrystal/engine/events/fishing_gfx.asm:38-42
     "assets/generated/emotes/fishing.png",
+    -- data/sprites/emotes.asm:19, engine/events/field_moves.asm:390
+    "assets/generated/emotes/jump_shadow.png",
+    "assets/generated/emotes/cut_grass.png",
+    -- engine/pokegear/pokegear.asm:2298
+    "assets/generated/pokegear/nest_icon.png",
   },
 }
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =

@@ -2045,7 +2045,8 @@ R.field = {
       cursorOrder = f.opt(f.list(f.str)),
       locations = f.opt(f.map(f.str, f.rec{ x = f.int(0), y = f.int(0),
                                             name = f.opt(f.str) })),
-      nest = f.opt(f.any) },
+      nest = f.opt(f.any),
+      upArrow = f.opt(f.any) },
     flyOrder = f.list(f.str),
     -- the player's own trainer art (FieldDefaults.PLAYER_PICS): the battle
     -- back pic, the catch tutorial's old man, Yellow's PROF.OAK variant of

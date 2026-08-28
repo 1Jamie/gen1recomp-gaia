@@ -336,6 +336,9 @@ local ROWS = {
     text = function(options)
       return require("src.core.FrameCap").label(options.fpsCap)
     end },
+  { label = Strings.source("BATTLE SIZE"), key = "battleFit", port = true,
+    values = { "fixed", "fill" },
+    display = { fixed = "FIXED", fill = "FILL " } },
   -- BATTLE BG (#1709): the void around the battle screen.  Gold has no WIDE
   -- layout and no WORLD backdrop, so the ladder is the WHITE/BLACK pair only.
   { label = Strings.source("BATTLE BG"), key = "battleBg", port = true,
@@ -364,7 +367,7 @@ local GROUPS = {
   { id = "group.audio", label = Strings.source("AUDIO"),
     members = { "sound", "musicVol", "sfxVol", "musicFilter" } },
   { id = "group.battle", label = Strings.source("BATTLE OPTIONS"),
-    members = { "battleScene", "battleStyle", "battleBg" } },
+    members = { "battleScene", "battleStyle", "battleFit", "battleBg" } },
   { id = "group.extras", label = Strings.source("EXTRAS"),
     members = { "zoom", "voidFill", "tilt" } },
 }

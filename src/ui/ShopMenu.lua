@@ -45,22 +45,31 @@ local function buy(game, stock, menu)
       table.insert(items, {
         value = id,
         label = def.name,
-        right = ("¥%d"):format(def.price),
+        price = ("¥%d"):format(def.price),
       })
     end
   end
+  items[#items + 1] = { cancel = true, label = Strings("CANCEL") }
   local greet = txt(game, "_PokemartBuyingGreetingText", "Take your time.")
   local notEnough = txt(game, "_PokemartNotEnoughMoneyText",
                         Strings("You don't have\nenough money."))
   local bagFull = txt(game, "_PokemartItemBagFullText",
                       Strings("You can't carry\nany more items."))
   local list
-  list = ListMenu.new(game, "BUY", items, {
+  list = ListMenu.new(game, nil, items, {
     dialogue = true,
+    -- home/list_menu.asm:29-31
+    itemBox = true,
     money = function() return game.save.money end,
     footer = greet,
     onCancel = function() menu.footer = anythingElse(game) end,
     onChoose = function(item)
+      -- home/list_menu.asm:105-110, 523-528
+      if item.cancel then
+        list:close()
+        menu.footer = anythingElse(game)
+        return
+      end
       local def = game.data.items[item.value]
       if game.save.money < def.price then
         list.footer = notEnough
@@ -109,24 +118,32 @@ local function buy(game, stock, menu)
   game.stack:push(list)
 end
 
+-- home/list_menu.asm:472-477
+local function sellItems(game)
+  local items = {}
+  for _, id in ipairs(Bag.order(game.save)) do
+    local def = game.data.items[id]
+    local keyed = (def and def.keyItem) or id:find("^HM_") ~= nil
+    table.insert(items, {
+      value = id,
+      label = def and def.name or id,
+      right = (not keyed) and ("x" .. game.save.inventory[id]) or nil,
+    })
+  end
+  items[#items + 1] = { cancel = true, label = Strings("CANCEL") }
+  return items
+end
+
 local function sell(game, menu)
   -- Sell list is ITEMLISTMENU with wPrintItemPrices cleared
   -- (pokemart.asm .sellMenuLoop): name + quantity only.  Price shows
   -- in the quantity chooser.  Stuffing "xN" into the label next to a
   -- right-aligned ¥ price made long names overlap (issue #116).
-  local items = {}
-  for _, id in ipairs(Bag.order(game.save)) do
-    local def = game.data.items[id]
-    table.insert(items, {
-      value = id,
-      label = def and def.name or id,
-      right = "x" .. game.save.inventory[id],
-    })
-  end
+  local items = sellItems(game)
   -- engine/events/pokemart.asm:50
   local greet = txt(game, "_PokemonSellingGreetingText",
                     Strings("What would you\nlike to sell?"))
-  if #items == 0 then
+  if #Bag.order(game.save) == 0 then
     refuse(game, menu, nil, txt(game, "_PokemartItemBagEmptyText",
                                 Strings("You don't have\nanything to sell.")))
     return
@@ -134,13 +151,16 @@ local function sell(game, menu)
   local unsellable = txt(game, "_PokemartUnsellableItemText",
                          Strings("I can't put a\nprice on that."))
   local list
-  list = ListMenu.new(game, "SELL", items, {
+  list = ListMenu.new(game, nil, items, {
     dialogue = true,
+    -- home/list_menu.asm:29-31
+    itemBox = true,
     money = function() return game.save.money end,
     footer = greet,
     onCancel = function() menu.footer = anythingElse(game) end,
     onSelectKey = function(item, l)
-      if not item then return end
+      -- swap_items.asm:19-22
+      if not item or item.cancel then return end
       if not l.swapIndex then
         l.swapIndex = l.index
         return
@@ -149,18 +169,15 @@ local function sell(game, menu)
       order[l.swapIndex], order[l.index] = order[l.index], order[l.swapIndex]
       l.swapIndex = nil
       require("src.core.Sound").play(game.data, "Swap")
-      local rebuilt = {}
-      for _, id in ipairs(order) do
-        local def = game.data.items[id]
-        rebuilt[#rebuilt + 1] = {
-          value = id,
-          label = def and def.name or id,
-          right = "x" .. game.save.inventory[id],
-        }
-      end
-      l.items = rebuilt
+      l.items = sellItems(game)
     end,
     onChoose = function(item)
+      -- home/list_menu.asm:105-110, 523-528
+      if item.cancel then
+        list:close()
+        menu.footer = anythingElse(game)
+        return
+      end
       local def = game.data.items[item.value]
       -- only key items and HMs are unsellable (pokemart.asm IsKeyItem /
       -- IsItemHM); zero-price items like ETHER sell for ¥0.  An unknown id
@@ -214,7 +231,10 @@ local function drawClerk(menu)
   local game = menu.game
   love.graphics.setColor(1, 1, 1, 1)
   Font.drawBox(11, 0, 9, 3)
+  -- data/text_boxes.asm:35
+  love.graphics.rectangle("fill", 13 * 8, 0, 5 * 8, 8)
   love.graphics.setColor(0, 0, 0, 1)
+  Font.draw(Strings("MONEY"), 13 * 8, 0)
   local money = ("¥%d"):format((game.save and game.save.money) or 0)
   Font.draw(money, 152 - Font.width(money), 8)
   love.graphics.setColor(1, 1, 1, 1)
@@ -247,7 +267,8 @@ function ShopMenu.new(game, stock, onQuit)
     { label = Strings("BUY"), keepOpen = true, onSelect = function() buy(game, stock, menu) end },
     { label = Strings("SELL"), keepOpen = true, onSelect = function() sell(game, menu) end },
     { label = Strings("QUIT"), onSelect = farewell },
-  }, { tx = 0, ty = 0, tw = 8, th = 8 })
+    -- data/text_boxes.asm:34
+  }, { tx = 0, ty = 0, tw = 11, th = 7 })
   menu.onCancel = farewell
   menu.footer = txt(game, "_PokemartGreetingText",
                     Strings("Hi there!\nMay I help you?"))

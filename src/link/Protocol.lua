@@ -103,7 +103,7 @@ function Protocol.unpackMon(data, packed, opts)
   end
   -- forceLevel comes from an "auto-level" ruling.  The picker's ANY choice
   -- ("use each mon's real level", Gen1's only mode) is a string sentinel on
-  -- the LinkState/Tournament side (see levelForWire) that must mean "no
+  -- the LinkState side (see levelForWire) that must mean "no
   -- forced level" here.  Coerce once so a non-numeric level string -- the ANY
   -- sentinel, an old peer, or a mod (#204) -- can never reach math.floor
   -- below: tonumber("ANY") == nil, i.e. keep the packed real level, while
@@ -400,6 +400,20 @@ function Protocol.packParty(party, indices)
   end
   for _, mon in ipairs(party) do
     table.insert(mons, Protocol.packMon(mon))
+  end
+  return mons
+end
+
+function Protocol.packParty2(party, indices)
+  local mons = {}
+  if indices then
+    for _, i in ipairs(indices) do
+      table.insert(mons, Protocol.packMon2(party[i]))
+    end
+    return mons
+  end
+  for _, mon in ipairs(party) do
+    table.insert(mons, Protocol.packMon2(mon))
   end
   return mons
 end

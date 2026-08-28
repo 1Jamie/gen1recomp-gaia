@@ -4,13 +4,13 @@ local Wire = require("src.link.Wire")
 local Session = {}
 Session.__index = Session
 
-local VALID_ROLES = { host = true, guest = true }
+local VALID_ROLES = { host = true, guest = true, client = true }
 local REQUIRED_METHODS = { "update", "poll", "send", "close" }
 
 function Session.new(transport, options)
   assert(type(transport) == "table", "Session.new requires a transport")
   assert(type(options) == "table", "Session.new requires options")
-  assert(VALID_ROLES[options.role], "Session role must be host or guest")
+  assert(VALID_ROLES[options.role], "Session role must be host, guest or client")
   assert(type(options.kind) == "string" and options.kind ~= "",
     "Session kind must be a non-empty string")
   for _, method in ipairs(REQUIRED_METHODS) do
@@ -155,10 +155,11 @@ local function finishRead(self)
   self:_refreshStatus()
 end
 
-function Session:take(messageType)
+function Session:take(messageType, predicate)
   assert(type(messageType) == "string", "Session.take requires a message type")
   for index, message in ipairs(self._inbox) do
-    if message.type == messageType then
+    if message.type == messageType
+       and (predicate == nil or predicate(message) == true) then
       local found = table.remove(self._inbox, index)
       finishRead(self)
       return found
@@ -179,6 +180,17 @@ function Session:poll()
   self._inbox = {}
   finishRead(self)
   return messages
+end
+
+function Session:unread(messages)
+  if type(messages) ~= "table" then return end
+  for index = #messages, 1, -1 do
+    local message = messages[index]
+    if type(message) == "table" and type(message.type) == "string" then
+      table.insert(self._inbox, 1, message)
+    end
+  end
+  finishRead(self)
 end
 
 function Session:close()

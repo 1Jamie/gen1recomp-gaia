@@ -206,7 +206,33 @@ local function paginate(text)
   return pages
 end
 
-function BattleState:wantsFillScale() return true end
+function BattleState.fillScale(winW, winH)
+  local w, h = winW or 0, winH or 0
+  local ok, Playfield = pcall(require, "src.render.Playfield")
+  if ok and Playfield.rect then
+    local okv, _, _, pw, ph = pcall(Playfield.rect, winW, winH)
+    if okv and pw and pw >= 1 and ph and ph >= 1 then
+      w, h = pw, ph
+    end
+  end
+  return math.max(1, math.min(w / (Chrome.SCREEN_W * 8),
+    h / (Chrome.SCREEN_H * 8)))
+end
+
+function BattleState.panelScale(winW, winH, fill)
+  if not fill then return Chrome.fitScale(winW, winH) end
+  return BattleState.fillScale(winW, winH)
+end
+
+function BattleState:wantsFillScale()
+  local options = self.game and self.game.options
+  return (options and options.battleFit) == "fill"
+end
+
+function BattleState:battlePanelScale(winW, winH)
+  return BattleState.panelScale(winW, winH, self:wantsFillScale())
+end
+
 function BattleState:drawsWidescreen() return true end
 
 -- BATTLE BG (#1709): WHITE is the cart's paper surround, BLACK plain bars.
@@ -251,6 +277,7 @@ function BattleState.new(game, opts)
   self.pokemon = data.pokemon
   self.battle = opts.battle
   self.onDone = opts.onDone
+  self.link = opts.link
   -- What PlayVictoryMusic needs to know about the opponent (the class the
   -- trainer belongs to); nil for a wild battle.
   self.music = opts.music
@@ -462,6 +489,15 @@ function BattleState.new(game, opts)
   self.shownLevel = (player and player.level) or 1
   self.shownExp = player
     and self:expPixels(player, player.level, player.experience) or 0
+  local enemy = self.battle and self.battle.enemy
+  Runtime.emit("battle.started", {
+    battle = self,
+    kind = (self.battle and self.battle.wild and "wild")
+      or (self.link and "link") or "trainer",
+    trainerId = self.battle and self.battle.trainer and self.battle.trainer.id,
+    species = enemy and enemy.species,
+    level = enemy and enemy.level,
+  })
   return self
 end
 
@@ -1952,6 +1988,9 @@ function BattleState:finishBattle()
   -- The party tables it wrote them on are the save's own, so this has to run
   -- before the overworld (and the next save write) sees them again.
   if self.battle then self.battle:clearAllVolatiles() end
+  Runtime.emit("battle.ended", {
+    battle = self, result = self.battle and self.battle.outcome,
+  })
   if self.onDone then
     self.onDone(self.battle and self.battle.outcome, self.battle)
   end
@@ -2004,6 +2043,9 @@ function BattleState:playVictoryMusic()
 end
 
 function BattleState:submit(action)
+  if self.link and self.link.submit then
+    return self.link.submit(self, action)
+  end
   self.phase = "resolving"
   self:pushAll(self.battle:takeTurn(action))
   self.message = nil
@@ -2018,6 +2060,9 @@ end
 -- One semantic path for the native command menu and mod.battle intents.
 function BattleState:chooseMenu(choice)
   if self.phase ~= "menu" then return nil, "battle menu is not active" end
+  if self.link and self.link.menuChoice and self.link.menuChoice(self, choice) then
+    return true
+  end
   if choice == "fight" then
     -- CheckPlayerHasUsableMoves skips MoveSelectionScreen and uses Struggle.
     local fighter = self.battle and self.battle.player
@@ -2415,6 +2460,9 @@ function BattleState:update(_dt)
   end
 
   if self.phase == "forced-switch" then
+    if self.link and self.link.forcedPrompt and self.link.forcedPrompt(self) then
+      return
+    end
     -- Reuse the party list so the layout and controls match the start menu's.
     self:openParty(true)
     return
@@ -2451,6 +2499,18 @@ function BattleState:update(_dt)
     end
     self.message = nil
     self.phase = "moves"
+    return
+  end
+
+  if self.phase == "refuse-menu" then
+    if self.messageTimer > 0 then
+      if input:wasPressed("a") or input:wasPressed("b") then
+        self.messageTimer = 0
+      end
+      return
+    end
+    self.message = nil
+    self.phase = "menu"
     return
   end
 
@@ -2541,6 +2601,8 @@ function BattleState:openParty(forced)
     prompt = forced and "which" or "choose",
     battle = true,
     battleSubmenu = not forced,
+    party = (self.battle and self.battle.party) or nil,
+    save = self.save,
     onCancel = function()
       stack:pop()
       -- A forced switch cannot be cancelled.
@@ -2577,6 +2639,9 @@ function BattleState:openParty(forced)
         -- ForcePickPartyMonInBattle loops on carry: a pick the engine will not
         -- take has to come back as the list again, never as the battle menu
         -- with a fainted mon standing on the field.
+        if self.link and self.link.forcedSwitch then
+          return self.link.forcedSwitch(self, index)
+        end
         if not self.battle:switch(index) then
           return self:refuseSwitch(true)
         end
@@ -2603,6 +2668,12 @@ end
 
 function BattleState:refuseMove(text)
   self.phase = "refuse-move"
+  self.message = text
+  self.messageTimer = MESSAGE_FRAMES
+end
+
+function BattleState:refuseMenu(text)
+  self.phase = "refuse-menu"
   self.message = text
   self.messageTimer = MESSAGE_FRAMES
 end
@@ -2828,6 +2899,26 @@ function BattleState:hasPokedex()
     or save.pokedexReceived == true
 end
 
+-- caught_data.asm:168-199
+function BattleState:stampCaughtData(mon, bugContest)
+  local save = self.save
+  local world = self.game and self.game.world
+  local map = world and world.map
+  local battle = self.battle
+  Catching.stampCaughtData(mon, {
+    version = save and save.version,
+    save = save,
+    data = self.game and self.game.data,
+    bugContest = bugContest,
+    timeOfDay = (battle and battle.timeOfDay)
+      or (world and world.timeOfDayId and world:timeOfDayId()),
+    map = map and map.def,
+    backupMap = world and world.backupMapId and world.maps
+      and world.maps[world.backupMapId],
+    playerGender = save and save.player and save.player.gender,
+  })
+end
+
 -- PokeBallEffect's caught tail, in the cart's order (item_effects.asm:514-676):
 -- Text_GotchaMonWasCaught, CheckCaughtMon / SetSeenAndCaughtMon, the new-entry
 -- line and NewPokedexEntry, the party add or .SendToPC, then
@@ -2879,6 +2970,8 @@ function BattleState:pushCaught(enemy, itemId)
     return self:pushPayDay()
   end
   save.party = save.party or {}
+  -- item_effects.asm:556-558, :612-614
+  self:stampCaughtData(enemy)
   local toPc = #save.party >= Boxes.PARTY_SIZE
   if toPc then
     -- `.SendToPC` / `predef SendMonIntoBox` (item_effects.asm:548-550, 604):
@@ -2956,6 +3049,7 @@ end
 -- (engine/battle/core.asm:3269-3295, engine/menus/options_menu.asm:249-256).
 function BattleState:shiftOfferAllowed()
   local battle = self.battle
+  if self.link then return false end
   if not (battle and battle.player and battle.trainer) then return false end
   if #(battle.party or {}) < 2 then return false end
   if (battle.player.hp or 0) <= 0 then return false end
@@ -3156,6 +3250,8 @@ end
 -- already in stock the player is shown the comparison and asked, and the NO arm
 -- -- which is also what B does -- keeps the mon they already had.
 function BattleState:contestCatch(mon)
+  -- engine/pokemon/caught_data.asm:72-81
+  self:stampCaughtData(mon, true)
   local kind, stock, fresh = BugContest.catch(self.save, mon)
   if kind ~= BugContest.ASK_SWITCH then
     self:push({ kind = "message", text = "Caught " .. self:name(mon) .. "!" })
@@ -3902,7 +3998,10 @@ function BattleState:drawLiftedRows()
     self.liftCanvas:setFilter("nearest", "nearest")
   end
   local previous = G.getCanvas()
+  local sx, sy, sw, sh
+  if G.getScissor then sx, sy, sw, sh = G.getScissor() end
   G.setCanvas(self.liftCanvas)
+  G.setScissor()
   G.clear(0, 0, 0, 0)
   G.push()
   G.origin()
@@ -3912,6 +4011,7 @@ function BattleState:drawLiftedRows()
   self.liftedPass = nil
   G.pop()
   G.setCanvas(previous)
+  if sx then G.setScissor(sx, sy, sw, sh) end
   G.setColor(1, 1, 1, 1)
   G.draw(self.liftCanvas, 0, 0)
 end
@@ -3945,19 +4045,12 @@ function BattleState:drawSceneBody()
 end
 
 function BattleState:draw()
-  self:drawScene()
+  Chrome.withClip(function() self:drawScene() end)
 end
 
 function BattleState:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  local ox, oy = Chrome.fitOrigin(winW, winH, scale)
-  G.push()
-  G.translate(ox, oy)
-  G.scale(scale, scale)
-  self:drawScene()
-  G.pop()
+  Chrome.withPanel(winW, winH, 1, 1, 1, function() self:drawScene() end,
+    self:battlePanelScale(winW, winH))
 end
 
 BattleState.MENU = MENU

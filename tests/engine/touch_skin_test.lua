@@ -412,6 +412,26 @@ local _, _, sHalfW, sHalfH =
   TouchSkin.controlGeometry(TouchSkin.page(), TouchSkin.page().controls[1], 1920, 1080)
 check(math.abs(sHalfW - sHalfH) < 2, "A stays round on a 16:9 window")
 
+TouchSkin.setSurface(0, 0, LW, LH)
+local aCx, aCy, aHalfW, aHalfH =
+  TouchSkin.controlGeometry(TouchSkin.page(), TouchSkin.page().controls[1], LW, LH)
+local aW, aH = aHalfW * 2, aHalfH * 2
+local sx, sy = TouchSkin.imageFit(210, 210, aW, aH)
+eq(sx, aW / 210, "desc art scales to the dest width")
+eq(sy, aH / 210, "desc art scales to the dest height")
+check(210 * sx <= aW + 1e-6 and 210 * sy <= aH + 1e-6,
+      "the whole bitmap lands inside its dest box")
+check(sx >= math.min(aW / 210, aH / 210) - 1e-6,
+      "and it is not shrunk below a contain fit")
+local lx, ly = TouchSkin.imageFit(327, 193, 218, 129)
+check(327 * lx <= 218 + 1e-6 and 193 * ly <= 129 + 1e-6,
+      "a wide shoulder PNG is not cropped by its dest box")
+check(TouchSkin.imageFit(0, 0, aW, aH) == nil, "a zero-sized image has no fit")
+local wx, wy = TouchSkin.imageFit(100, 50, 200, 200)
+eq(wx, 2, "independent X scale, not one uniform cover scale")
+eq(wy, 4, "independent Y scale")
+check(aCx > 0 and aCy > 0, "landscape A sits inside the page box")
+
 local nativeOrient = TouchSkin.parseNative(TouchSkin.serialize(orient))
 check(nativeOrient and nativeOrient.pages[2].aspectFromCfg,
       "native export keeps the aspect lock")

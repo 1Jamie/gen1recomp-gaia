@@ -63,10 +63,12 @@ function Player.new(cx, cy, facing, spriteDef)
 end
 
 function Player:setSprite(spriteDef)
-  if spriteDef then
-    self.spriteDef = spriteDef
-    self.sprite = SpriteRenderer.new(spriteDef, "player")
-  end
+  if not spriteDef then return end
+  -- pokegold engine/overworld/overworld.asm:55-64
+  local ok, sprite = pcall(SpriteRenderer.new, spriteDef, "player")
+  if not (ok and sprite) then return end
+  self.spriteDef = spriteDef
+  self.sprite = sprite
 end
 
 -- the movement.collision chain sees the boolean; a wrapper that flips it
@@ -265,15 +267,6 @@ function Player:draw(ox, oy, scale)
   -- it moves the sprite without moving the player off the tile they are
   -- standing on.  StepFunction_GotBite's `xor 1` rod bob rides this one byte.
   local yOffset = self.spriteYOffset or 0
-  if self.jumping then
-    -- engine/overworld/map_objects.asm:1995
-    local gx = ox + self.px * scale
-    local gy = oy + self.py * scale
-    local s = 16 * scale
-    G.setColor(0, 0, 0, 0.4)
-    G.ellipse("fill", gx + s * 0.5, gy + s * 0.85, s * 0.35, s * 0.12)
-    G.setColor(1, 1, 1, 1)
-  end
   if self.sprite then
     G.push()
     G.translate(ox, oy)

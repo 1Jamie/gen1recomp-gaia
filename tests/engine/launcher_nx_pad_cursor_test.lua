@@ -70,7 +70,6 @@ do
   local gx, gy = love.mouse.getPosition()
   eq(gx, imp._padCursor.x, "NX getPosition X matches pad cursor")
   eq(gy, imp._padCursor.y, "NX getPosition Y matches pad cursor")
-  -- Real (stored) mouse must stay where the stub left it — bridge only.
   eq(mouseX, 0, "NX does not warp the underlying mouse X")
   eq(mouseY, 0, "NX does not warp the underlying mouse Y")
   imp:_restoreNxPointerBridge()
@@ -279,10 +278,10 @@ do
     "RomImporter exports prepareOverlayHandoff")
   check(impSrc:find("function RomImporter:resumeAfterOverlay", 1, true) ~= nil,
     "RomImporter exports resumeAfterOverlay")
-  check(impSrc:find("if not self.isNX then", 1, true) ~= nil,
-    "NX skips desktop mouse-yield path")
-  check(impSrc:find("if not self.isNX and love.mouse.setPosition", 1, true) ~= nil,
-    "RomImporter skips setPosition on NX")
+  check(impSrc:find("if not self:_consolePointerHost() then", 1, true) ~= nil,
+    "consoles skip the desktop mouse-yield path")
+  check(impSrc:find("if not self:_consolePointerHost() and love.mouse.setPosition",
+    1, true) ~= nil, "RomImporter skips setPosition on consoles")
   check(impSrc:find("dt > 1 / 30", 1, true) ~= nil,
     "NX clamps pad cursor dt")
 

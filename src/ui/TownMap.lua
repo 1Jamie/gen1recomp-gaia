@@ -18,10 +18,14 @@ local GameVersion = require("src.core.GameVersion")
 local PaletteFX = require("src.render.PaletteFX")
 local Sound = require("src.core.Sound")
 local SpriteRenderer = require("src.render.SpriteRenderer")
+local Theme = require("src.ui.Theme")
 
 local TownMap = {}
 TownMap.__index = TownMap
 TownMap.isOpaque = true
+
+-- engine/items/town_map.asm:183
+local ARROW_DELAY = 15
 
 -- SGB: PalPacket_TownMap, whole screen
 function TownMap:sgbPalettes(game)
@@ -47,12 +51,27 @@ local function isRoute(loc)
   return loc.name:find("ROUTE", 1, true) ~= nil
 end
 
+-- data/maps/town_map_order.asm:1
+local function orderByCursorOrder(byMap, order)
+  if type(order) ~= "table" then return nil end
+  local out, seen = {}, {}
+  for _, mapId in ipairs(order) do
+    local loc = byMap[mapId]
+    if loc and not seen[loc] then
+      seen[loc] = true
+      out[#out + 1] = loc
+    end
+  end
+  return #out >= 2 and out or nil
+end
+
 -- Build the ordered location list.  Grid mode dedupes shared entries
 -- (interior maps point at their town's square); list mode falls back to
 -- the fly towns so the screen still works without townMap data.
 local function buildLocations(game)
   local field = game.data.field or {}
   local townMap = field.townMap
+  local cursorOrder = type(townMap) == "table" and townMap.cursorOrder or nil
   -- the extractor nests the per-map entries under .locations
   if type(townMap) == "table" and type(townMap.locations) == "table" then
     townMap = townMap.locations
@@ -80,7 +99,7 @@ local function buildLocations(game)
         if a.x ~= b.x then return a.x < b.x end
         return a.name < b.name
       end)
-      return locs, byMap, "grid"
+      return orderByCursorOrder(byMap, cursorOrder) or locs, byMap, "grid", locs
     end
   end
   -- fallback: towns from the fly order (deduped, outdoor maps only)
@@ -193,7 +212,7 @@ function TownMap.new(game, opts)
   local self = setmetatable({}, TownMap)
   self.game = game
   self.bg = loadBackground(game)
-  self.locs, self.byMap, self.mode = buildLocations(game)
+  self.locs, self.byMap, self.mode, self.allLocs = buildLocations(game)
   if opts.nestSpecies then
     self.nestSpecies = opts.nestSpecies
     self.nests = {}
@@ -207,7 +226,8 @@ function TownMap.new(game, opts)
         if found then break end
       end
       local loc = found and self.byMap[mapId]
-      if loc and not seen[loc] then
+      -- engine/items/town_map.asm:388
+      if loc and not seen[loc] and not (loc.x == 9 and loc.y == 1) then
         seen[loc] = true
         table.insert(self.nests, loc)
       end
@@ -255,39 +275,32 @@ function TownMap.new(game, opts)
     self.birdSheet, self.birdQuad =
       markerSheet(sprites[playerSprites.fly or "SPRITE_BIRD"]
                   or sprites.SPRITE_BIRD, "bird")
+    -- engine/items/town_map.asm:150
+    local art = ((game.data.field or {}).townMap or {}).upArrow
+    local okArrow, arrow = pcall(love.graphics.newImage,
+                                 (art and art.path)
+                                 or "assets/generated/townmap/up_arrow.png")
+    self.upArrow = okArrow and arrow or nil
+    -- engine/items/town_map.asm:170, 183
+    self.arrowHide, self.arrowDelay = "up", ARROW_DELAY
   end
   self.sel = 1
   -- LoadTownMap_Fly always opens with hl on wFlyLocationsList[0], the FIRST
   -- fly destination (PALLET_TOWN), never the player's current town (#795).
   -- Only the plain viewer snaps the cursor to where the player stands.
   if not self.fly then
+    local found = false
     for i, loc in ipairs(self.locs) do
-      if loc == self.playerLoc then self.sel = i break end
+      if loc == self.playerLoc then self.sel = i found = true break end
+    end
+    -- engine/items/town_map.asm:29
+    if self.playerLoc and not found then
+      table.insert(self.locs, self.playerLoc)
+      self.sel = #self.locs
     end
   end
   self.blink = 0
   return self
-end
-
--- snap the cursor to the nearest location in the pressed direction
-function TownMap:moveGrid(dx, dy)
-  local cur = self.locs[self.sel]
-  local best, bestScore
-  for i, loc in ipairs(self.locs) do
-    if i ~= self.sel then
-      local ddx, ddy = loc.x - cur.x, loc.y - cur.y
-      local fwd = ddx * dx + ddy * dy       -- progress along the d-pad axis
-      local side = math.abs(ddx * dy) + math.abs(ddy * dx)
-      if fwd > 0 then
-        local score = fwd + side * 3        -- prefer staying on-axis
-        if not best or score < bestScore then best, bestScore = i, score end
-      end
-    end
-  end
-  if best then
-    self.sel = best
-    Sound.play(self.game.data, "Tink")
-  end
 end
 
 function TownMap:moveList(step)
@@ -300,6 +313,10 @@ end
 function TownMap:update(dt)
   local cycle = GameVersion.generation() == 2 and 32 or 50
   self.blink = (self.blink + 1) % cycle
+  if self.arrowDelay and self.arrowDelay > 0 then
+    self.arrowDelay = self.arrowDelay - 1
+    if self.arrowDelay == 0 then self.arrowHide = nil end
+  end
   local input = self.game.input
   if input:wasPressed("b") then
     Sound.play(self.game.data, "Press_AB")
@@ -318,8 +335,12 @@ function TownMap:update(dt)
       self.game.stack:pop()
       if mapId and self.onFly then self.onFly(mapId) end
       return
-    elseif input:wasPressed("up") then self:moveList(1)
-    elseif input:wasPressed("down") then self:moveList(-1)
+    elseif input:wasPressed("up") then
+      self:moveList(1)
+      self.arrowHide, self.arrowDelay = "up", ARROW_DELAY
+    elseif input:wasPressed("down") then
+      self:moveList(-1)
+      self.arrowHide, self.arrowDelay = "down", ARROW_DELAY
     end
   elseif self.nestSpecies then
     if input:wasPressed("a") then
@@ -327,10 +348,9 @@ function TownMap:update(dt)
       self.game.stack:pop()
     end
   elseif self.mode == "grid" then
-    if input:wasPressed("up") then self:moveGrid(0, -1)
-    elseif input:wasPressed("down") then self:moveGrid(0, 1)
-    elseif input:wasPressed("left") then self:moveGrid(-1, 0)
-    elseif input:wasPressed("right") then self:moveGrid(1, 0)
+    -- engine/items/town_map.asm:74
+    if input:wasPressed("up") then self:moveList(1)
+    elseif input:wasPressed("down") then self:moveList(-1)
     end
   else
     if input:wasPressed("up") then self:moveList(-1)
@@ -343,6 +363,22 @@ end
 function TownMap:markPlayerRedraw(x, y)
   if not (PaletteFX.usesSpriteObp() or PaletteFX.usesGbcPack()) then return end
   PaletteFX.markUiSpriteRedraw(self.playerSheet, self.playerQuad, x, y)
+end
+
+-- engine/items/town_map.asm:170, 185
+function TownMap:drawFlyArrows()
+  if self.arrowHide ~= "up" then
+    if self.upArrow then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(self.upArrow, 144, 0)
+      love.graphics.setColor(0, 0, 0, 1)
+    else
+      love.graphics.polygon("fill", 148, 1, 152, 7, 144, 7)
+    end
+  end
+  if self.arrowHide ~= "down" then
+    Font.drawCode(Theme.moreArrow, 152, 0)
+  end
 end
 
 local function drawSquare(loc)
@@ -385,12 +421,26 @@ function TownMap:draw()
           end
         end
       end
+      if #self.nests > 0 then
+        -- engine/items/town_map.asm:399
+        if self.playerLoc and self.playerSheet then
+          local x, y = markerXY(self.playerLoc)
+          love.graphics.draw(self.playerSheet, self.playerQuad, x - 4, y - 3)
+          self:markPlayerRedraw(x - 4, y - 3)
+        end
+      else
+        -- engine/items/town_map.asm:403
+        Font.drawBox(1, 7, 17, 4)
+        love.graphics.setColor(0, 0, 0, 1)
+        Font.draw(" AREA UNKNOWN", 16, 72)
+        love.graphics.setColor(1, 1, 1, 1)
+      end
       love.graphics.rectangle("fill", 0, 0, 160, 8)
       love.graphics.setColor(0, 0, 0, 1)
       local def = self.game.data.pokemon[self.nestSpecies]
       local name = def and def.name or self.nestSpecies
-      Font.draw(#self.nests > 0 and (name .. "'s NEST")
-                or (name .. " AREA UNKNOWN"), 8, 0)
+      -- engine/items/town_map.asm:124
+      Font.draw(name .. "'s NEST", 8, 0)
       love.graphics.setColor(1, 1, 1, 1)
       return
     end
@@ -437,7 +487,14 @@ function TownMap:draw()
     -- the name strip on row 0 (DisplayTownMap: ClearScreenArea + name)
     love.graphics.rectangle("fill", 0, 0, 160, 8)
     love.graphics.setColor(0, 0, 0, 1)
-    if selected then Font.draw(self:bannerText(selected), 8, 0) end
+    if self.fly then
+      -- engine/items/town_map.asm:167, 176, 185
+      Font.draw("To", 0, 0)
+      if selected then Font.draw(selected.name, 24, 0) end
+      self:drawFlyArrows()
+    elseif selected then
+      Font.draw(self:bannerText(selected), 8, 0)
+    end
     love.graphics.setColor(1, 1, 1, 1)
     return
   end
@@ -446,7 +503,7 @@ function TownMap:draw()
   Font.drawBox(0, 0, 20, 18)
   if self.mode == "grid" then
     -- stale assets (no background art): the old abstract squares
-    for _, loc in ipairs(self.locs) do
+    for _, loc in ipairs(self.allLocs or self.locs) do
       drawSquare(loc)
     end
     -- player marker is static in both Gen 1 and 2

@@ -45,6 +45,7 @@ import android.Manifest;
 import android.app.AlarmManager;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
+import android.app.UiModeManager;
 import android.content.Context;
 import android.content.ClipData;
 import android.content.DialogInterface;
@@ -53,6 +54,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -112,6 +114,7 @@ public class GameActivity extends SDLActivity {
     // basename as its body, so RomImporter:focus can say so in the launcher
     // instead of leaving the player on "No ROM imported" (issue #442).
     private static final String PICK_ERROR_FILENAME = "pick_error.flag";
+    private static final String PICK_CANCELLED_PREFIX = "cancelled:";
     // Written after a direct required-import copy has been fully published.
     private static final String PICK_COMPLETE_FILENAME = "pick_complete.flag";
     // Step bridge (love.system.syncHealthSteps): pending-steps delivery
@@ -566,19 +569,37 @@ public class GameActivity extends SDLActivity {
      * is. The picked file (if any) arrives later in onActivityResult, not
      * synchronously here.
      *
-     * API 21+ uses ACTION_OPEN_DOCUMENT; API 16-20 uses an ACTION_GET_CONTENT
-     * chooser instead. Below 19 OPEN_DOCUMENT does not exist, and on 19/20
-     * the stock DocumentsUI is unreliable -- it launches and then hands back
-     * RESULT_CANCELED with no data, which onActivityResult cannot tell apart
-     * from the player cancelling (#584). GET_CONTENT lets any installed file
-     * manager serve the pick, and both intents return the same content:// or
-     * file:// URI shapes, so the result path in onActivityResult stays
-     * picker-agnostic and unchanged.
+     * API 21+ uses ACTION_OPEN_DOCUMENT; API 16-20 and television devices use
+     * an ACTION_GET_CONTENT chooser instead. Below 19 OPEN_DOCUMENT does not
+     * exist, and on 19/20 the stock DocumentsUI is unreliable -- it launches
+     * and then hands back RESULT_CANCELED with no data, which onActivityResult
+     * cannot tell apart from the player cancelling (#584); Android TV ships no
+     * DocumentsUI at all and behaves the same way (#1535). GET_CONTENT lets any
+     * installed file manager serve the pick, and both intents return the same
+     * content:// or file:// URI shapes, so the result path in onActivityResult
+     * stays picker-agnostic and unchanged.
      *
      * @param destFilename basename under the app save identity (e.g.
      *                     picked_rom.gb, picked_mod.zip, picked_save.sav, or
      *                     picked_required_import.bin)
      */
+    private static boolean isTelevision(Context context) {
+        if (context == null) return false;
+        try {
+            UiModeManager modes =
+                (UiModeManager) context.getSystemService(Context.UI_MODE_SERVICE);
+            if (modes != null
+                    && modes.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION) {
+                return true;
+            }
+        } catch (Exception e) {
+            Log.d("GameActivity", "could not read ui mode: " + e.getMessage());
+        }
+        PackageManager packages = context.getPackageManager();
+        return packages != null
+            && packages.hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+    }
+
     private static boolean isDirectRequiredDestination(String relative) {
         if (relative == null || relative.length() == 0 || relative.startsWith("/")) return false;
         String normalized = relative.replace('\\', '/');
@@ -635,7 +656,7 @@ public class GameActivity extends SDLActivity {
         }
 
         self.pendingPickFilename = normalizedDest;
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
+        if (android.os.Build.VERSION.SDK_INT >= 21 && !isTelevision(self)) {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
@@ -1499,6 +1520,16 @@ public class GameActivity extends SDLActivity {
         outState.putString(STATE_PENDING_CREATE, pendingCreateSuggestedName);
     }
 
+    private static Uri pickedUri(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null) return null;
+        if (data.getData() != null) return data.getData();
+        ClipData clip = data.getClipData();
+        if (clip != null && clip.getItemCount() > 0) {
+            return clip.getItemAt(0).getUri();
+        }
+        return null;
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -1523,19 +1554,22 @@ public class GameActivity extends SDLActivity {
             return;
         }
         if (requestCode != FILE_PICKER_REQUEST_CODE) return;
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+        final String destName = pendingPickFilename != null
+            ? pendingPickFilename : PICKED_ROM_FILENAME;
+        Uri uri = pickedUri(resultCode, data);
+        if (uri == null) {
             Log.d("GameActivity", "file picker returned no file (cancelled?)");
+            if (isTelevision(this)) {
+                writeSaveDirFlag(PICK_ERROR_FILENAME, PICK_CANCELLED_PREFIX + destName);
+            }
             return;
         }
-
-        Uri uri = data.getData();
         File destDir = saveIdentityDir();
         if (!destDir.exists() && !destDir.mkdirs()) {
             Log.d("GameActivity", "could not create " + destDir);
+            writeSaveDirFlag(PICK_ERROR_FILENAME, destName);
             return;
         }
-        final String destName = pendingPickFilename != null
-            ? pendingPickFilename : PICKED_ROM_FILENAME;
         final boolean directRequired = isDirectRequiredDestination(destName);
         final File destFile;
         try {

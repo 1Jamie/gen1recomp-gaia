@@ -32,7 +32,9 @@ local function bootScreens(game)
   return (boot and boot.screens) or {}
 end
 
-function Game:load()
+function Game:load(opts)
+  opts = opts or {}
+  local arena = opts.arena
   self.data = Data
   self.sessionStartedAt = os.time()
   Data:load()
@@ -42,7 +44,15 @@ function Game:load()
   -- the rest of the game consumes.  A broken mod is reported and skipped by
   -- the loader without preventing the base game from booting.
   self.mods = ModLoader.new()
-  self.mods:load(Data)
+  if arena then
+    self.mods:load(Data, {
+      mode = (arena.profile and arena.profile.kind == "cart")
+        and "cartOnly" or "disableAll",
+      cartId = opts.cartId,
+    })
+  else
+    self.mods:load(Data)
+  end
   self.modStatus = self.mods:status()
   -- render pipelines dispatch off the merged dataset; point them at the
   -- one the mods just merged into before anything can draw a frame
@@ -102,7 +112,9 @@ function Game:load()
   -- boot into the title screen (engine/movie/title.asm); NEW GAME runs
   -- the Oak speech + naming, CONTINUE restores the save.  The headless
   -- autopilot skips straight into the overworld.
-  if os.getenv("POKEPORT_AUTOPILOT") then
+  if arena then
+    self:enterArena(arena)
+  elseif os.getenv("POKEPORT_AUTOPILOT") then
     StateStack:push(OverworldState, self.save.player.map,
                     self.save.player.x, self.save.player.y, self.save.player.facing)
   else
@@ -176,6 +188,28 @@ function Game:startNewGame(opts)
   end
 end
 
+function Game:enterArena(spec)
+  local version = require("src.core.GameVersion").get()
+  if spec.slotId then pcall(SaveData.setActiveSlot, version, spec.slotId) end
+  local loaded = SaveData.load()
+  if loaded then
+    local activeMods = self.modStatus and self.modStatus.loaded
+    SaveData.runMigrations(loaded, self.mods and self.mods.migrations, activeMods)
+    self.saveReport = SaveData.validate(loaded, self.data)
+    self.save = loaded
+    loaded.startMenuIndex = nil
+    self.startMenuIndex = nil
+    self:adoptSave(loaded)
+    self:applyOptions(loaded.options)
+    local stamp = require("src.battle.BattleState").stampOT
+    for _, mon in ipairs(loaded.party or {}) do stamp(loaded, mon) end
+  else
+    Logger.warn("arena: save slot %s could not be loaded", tostring(spec.slotId))
+  end
+  self.linkSession = true
+  StateStack:push(require("src.ui.ArenaState").new(self, spec))
+end
+
 -- the title screen with its NEW GAME / CONTINUE wiring; used at boot
 -- and by the START-menu QUIT confirmation
 function Game:makeTitleState()
@@ -239,8 +273,12 @@ function Game:touchSkinHotkey(action, pressed)
   end
 end
 
-function Game:breakLink(err)
-  Logger.error("link: torn down after an error\n%s", tostring(err))
+function Game:breakLink(err, source)
+  if source == "engine" then
+    Logger.error("link: engine error, link torn down\n%s", tostring(err))
+  else
+    Logger.error("link: torn down after an error\n%s", tostring(err))
+  end
   self.linkSession = nil
   local net = self.linkNet
   self.linkNet = nil
@@ -255,7 +293,9 @@ function Game:breakLink(err)
   pcall(function()
     local Strings = require("src.core.Strings")
     local TextBox = require("src.render.TextBox")
-    stack:push(TextBox.new(self, Strings("The link was\nbroken.")))
+    stack:push(TextBox.new(self, source == "engine"
+      and Strings("Something broke\nduring the link.")
+      or Strings("The link was\nbroken.")))
   end)
 end
 
@@ -288,7 +328,7 @@ function Game:step(dt)
   if self.linkNet and not self.linkNet.closed then
     local ok, err = pcall(self.linkNet.update, self.linkNet)
     if not ok then
-      self:breakLink(err)
+      self:breakLink(err, "transport")
       return
     end
   end
@@ -296,7 +336,7 @@ function Game:step(dt)
     local ok, err = xpcall(function() self.stack:update(dt) end,
       function(e) return debug.traceback(tostring(e), 2) end)
     if not ok then
-      self:breakLink(err)
+      self:breakLink(err, "engine")
       return
     end
   else

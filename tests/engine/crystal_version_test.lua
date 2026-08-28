@@ -238,10 +238,10 @@ local sawCrystal, sawMods, sawBug = false, false, false
 for _, id in ipairs(visited) do
   if id == "crystal" then sawCrystal = true end
   if id == "mods" then sawMods = true end
-  if id == "bug" then sawBug = true end
+  if id == "skins" then sawBug = true end
 end
 check(sawCrystal, "cycling the launcher tabs reaches crystal")
-check(sawMods and sawBug, "and still reaches the mods and bug tabs")
+check(sawMods and sawBug, "and still reaches the mods and skins tabs")
 
 local seen, cycle = {}, 0
 fake.tab = "crystal"
@@ -250,8 +250,8 @@ repeat
   fake:_cycleTab(1)
   cycle = cycle + 1
 until fake.tab == "crystal" or cycle > 40
-eq(cycle, #GameVersion.ORDER + 4,
-  "the ring is the six games plus mods/find/skins/bug")
+eq(cycle, #GameVersion.ORDER + 3,
+  "the ring is the six games plus mods/find/skins")
 
 fake.tab = "crystal"
 fake:_cycleTab(-1)

@@ -67,6 +67,14 @@ local data = {
   maps = loadfile("data/generated/maps.lua")(),
   eventFlags = loadfile("src/save_convert/data/event_flags.lua")(),
 }
+-- home/overworld.asm:2016 (#1691)
+local cacheHasMapWindow = (data.maps.REDS_HOUSE_2F or {}).sram ~= nil
+if not cacheHasMapWindow then
+  print("save_file_io export cases skipped (this ROM cache predates the saved-map "
+    .. "bytes; re-import the ROM to run them)")
+end
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+for mapId in pairs(data.maps) do stampMapWindow(data, mapId) end
 
 -- independent checksum re-derivation (complement of the additive byte sum) so
 -- the export sanity check does not trust the encoder that wrote it
@@ -393,6 +401,7 @@ do
   local function assertLoadable(label, mapId, x, y)
     local def = data.maps[mapId]
     if not def then return end -- this data set lacks the map; skip silently
+    if not cacheHasMapWindow then return end
     local out = exportedThrough(mapId, x, y)
     check(out ~= nil and #out == GenSave.SAVE_SIZE,
       label .. ": exports a 32768-byte image through the launcher path")

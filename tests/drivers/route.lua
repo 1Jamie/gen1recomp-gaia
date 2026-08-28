@@ -6504,10 +6504,7 @@ end
 -- to MR_FUJIS_HOUSE" however hard it searches. One FRESH_WATER opens every
 -- gate permanently.
 --
--- The machines are SIGNS (10,1) (11,1) (12,2), not clerks, so ops.shop
--- cannot drive them -- they open a plain ListMenu (data/scripts/story4.lua
--- vendingMachine) which stays up between purchases, showing a "popped out!"
--- box over itself each time.
+-- The machines are SIGNS (10,1) (11,1) (12,2), not clerks.
 --
 -- Buys several: one goes to the guards, and the roof's thirsty girl trades
 -- the others for TMs. Nothing later depends on those TMs, so a short bag or
@@ -6526,32 +6523,27 @@ function MANUAL.giveWater(where)
     note("giveWater: no vending machine here", where)
     return false
   end
-  -- a sign is read from the cell below it, facing up
-  if not ops.goto_({ x = sign.x, y = sign.y + 1 }) then
-    note("giveWater: cannot reach the vending machine", where)
-    return false
-  end
-  faceDir("up")
-  press("a")
-  U.wait(10)
-  if not waitFor(isList, 40) then
-    note("giveWater: the vending machine did not open", where)
-    say("giveWater: no vending menu appeared")
-    backOut()
-    return false
-  end
   local bought = 0
   for _ = 1, VENDING_WANT do
-    if not isList() then break end
-    cursorTo("index", 1) -- FRESH_WATER, the cheapest at 200
-    press("a")
-    U.wait(12)
-    -- the purchase (or "Not enough money") prints over the list; clear it
-    for _ = 1, 20 do
-      if isList() then break end
-      press("a")
-      U.wait(4)
+    if not ops.goto_({ x = sign.x, y = sign.y + 1 }) then
+      note("giveWater: cannot reach the vending machine", where)
+      break
     end
+    faceDir("up")
+    press("a")
+    U.wait(10)
+    if not pressUntil(isMenu, "a", 20) then
+      if bought == 0 then
+        note("giveWater: the vending machine did not open", where)
+        say("giveWater: no vending menu appeared")
+      end
+      backOut()
+      break
+    end
+    cursorTo("index", 1) -- FRESH WATER, the cheapest at 200
+    press("a")
+    U.wait(140)
+    mashUntilIdle()
     bought = bought + 1
   end
   backOut()

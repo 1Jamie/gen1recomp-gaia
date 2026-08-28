@@ -178,6 +178,19 @@ famous bugs included:
 | `hyperBeamSkipRechargeOnKO` | Off: HYPER BEAM always recharges, like Gen 2+          |
 | `randMin` / `randMax`       | Damage random factor 217-255, same as faithful         |
 
+## Online play
+
+The launcher has an **ONLINE** tab. Connect once and you get a lobby of who
+else is around, with what game and what rules: host a battle or join one,
+watch any live match or tournament as a spectator, run a bracket where
+everyone not playing watches the match that is on, or trade Pokemon between
+save files, yours or someone else's. Picking a battle opens the game
+straight into it, no intro and no overworld, and drops you back in the tab
+when it ends. Every room names exactly what it runs, so both sides are on
+the same engine, the same version and the same ruleset: vanilla, or a sealed
+custom cart that both players have installed. The in-game LINK menu is still
+there and is still local network only.
+
 ## Running From Source
 
 Requires LÖVE 11.x. Place a Red, Blue, or Yellow ROM in the project folder and

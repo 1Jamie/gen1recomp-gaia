@@ -1426,6 +1426,14 @@ function BattleState:updateQueue()
         self.waitFrames = Timing.MOVE_ANIM_PRE
         return true
       end
+      -- animations.asm:431-437
+      if item.anim and not item.animOffDelayed
+         and not self:animationsOn() and not BALL_ANIMS[item.anim] then
+        item.animOffDelayed = true
+        table.insert(self.queue, 1, item)
+        self.waitFrames = Timing.MOVE_ANIM_OFF
+        return true
+      end
       local mdef = item.anim and self.data.moves[item.anim]
       local anim = mdef and mdef.anim
       if item.anim == "POOF_ANIM" then
@@ -4906,7 +4914,8 @@ function BattleState:openReplacementMenu()
         end
         self:restoreMimicked(self.player)
         local previous = self.player
-        self.player = makeBattler(self.data, mon, true, game.save)
+        self.player = makeBattler(self.data, mon, true,
+                                  self.kind ~= "link" and game.save or nil)
         clearTrapping(self.enemy) -- SendOutMon clears foe trap
         self:syncSides()
         Runtime.emit("battle.battler_switched", {

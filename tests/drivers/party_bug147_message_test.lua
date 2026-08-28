@@ -1,7 +1,6 @@
 -- Driver: party menu bottom context message (#147).
 --   Gen1 (pokered engine/menus/party_menu.asm PartyMenuMessage) always prints
---   a message in the bottom text box: "Choose a POKéMON." (PartyMenuNormalText)
---   in the field, "Bring out which POKéMON?" (PartyMenuBattleText) in battle.
+--   the bottom text box message (core.asm:2315, #1901).
 --   The recomp handled only the swap / item / TM-HM ids and printed NOTHING for
 --   the default field and battle voluntary-switch cases -- reporter's "NO TEXT
 --   BOX".  This driver opens the party menu in both contexts, screenshots each,
@@ -48,12 +47,15 @@ return function(game)
   ow:pushBattle(battle)
 
   local function mashUntil(cond, max)
-    for _ = 1, max or 80 do
+    for _ = 1, max or 200 do
       if cond() then return true end
       U.tap(game, "a")
-      U.wait(4)
+      for _ = 1, 4 do
+        if cond() then return true end
+        U.wait(1)
+      end
     end
-    return false
+    return cond()
   end
   check("reached battle menu", mashUntil(function()
     return battle.phase == "menu"
@@ -67,8 +69,17 @@ return function(game)
   local battleMsg = pm and pm.bottomMessage and pm:bottomMessage()
   U.log("battle party open (onSwitch set):", pm and pm.onSwitch ~= nil)
   U.log("battle bottomMessage:", tostring(battleMsg))
-  check("battle message == 'Bring out which\\nPOKéMON?'",
-        battleMsg == "Bring out which\nPOKéMON?")
+  check("voluntary battle message == 'Choose a POKéMON.'",
+        battleMsg == "Choose a POKéMON.")
+
+  local forced = require("src.ui.PartyMenu").new(game, {
+    battle = battle, party = game.save.party, forceSwitch = true,
+    onSwitch = function() end,
+  })
+  local forcedMsg = forced:bottomMessage()
+  U.log("forced-switch bottomMessage:", tostring(forcedMsg))
+  check("forced switch message == 'Bring out which\\nPOKéMON?'",
+        forcedMsg == "Bring out which\nPOKéMON?")
 
   U.log(("RESULT pass=%d fail=%d"):format(pass, fail))
 end

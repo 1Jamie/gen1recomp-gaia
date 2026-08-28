@@ -25,7 +25,7 @@ local WATCHED_DIRS = {
 }
 local WATCHED_FILES = {
   "src/link/LinkState.lua", "src/link/LinkBattle.lua",
-  "src/link/Tournament.lua", "src/link/Net.lua",
+  "src/link/Net.lua",
   "src/mods/ManagerState.lua", "src/import/RomImporter.lua",
   "src/core/DiscordPresence.lua",
 }

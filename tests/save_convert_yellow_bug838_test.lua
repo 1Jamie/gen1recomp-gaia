@@ -49,6 +49,11 @@ local yellowData = {
   maps = shared.maps, eventFlags = yellowFlags, gameVersion = "yellow",
 }
 
+-- home/overworld.asm:2016 (#1691)
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+for mapId in pairs(shared.maps) do stampMapWindow(redData, mapId) end
+yellowData.tilesets, yellowData.audio = redData.tilesets, redData.audio
+
 local OFF = GenSave.OFFSETS
 
 -- ------------------------------------------------------------------

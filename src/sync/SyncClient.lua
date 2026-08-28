@@ -190,6 +190,17 @@ function SyncClient:fetchShare(code)
     { noAuth = true, params = { code = trimmed } })
 end
 
+function SyncClient:lobbyTicket()
+  return self:send("POST", "/lobby/ticket", {})
+end
+
+function SyncClient:setDisplayName(name)
+  if type(name) ~= "string" or name == "" then
+    return nil, "pick a display name first"
+  end
+  return self:send("POST", "/sync/displayname", { displayName = name })
+end
+
 function SyncClient:unlink(device)
   return self:send("POST", "/sync/unlink", { device = device })
 end

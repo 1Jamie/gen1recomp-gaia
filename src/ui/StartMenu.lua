@@ -1,6 +1,6 @@
 -- The START menu (engine/menus/start_menu.asm): entries appear as they
 -- become usable -- POKéDEX once Oak gives it, POKéMON once you have any,
--- SAVE with a confirmation, plus ITEM / OPTION / LINK / QUIT.  The built
+-- SAVE with a confirmation, plus ITEM / OPTION / QUIT.  The built
 -- item list runs through the ui.start_menu.items hook before the menu
 -- opens, so mods insert or remove rows without patching this file.
 
@@ -142,14 +142,6 @@ function StartMenu.new(game)
     Screens.push(game, "OptionsMenu", { onCancel = reopen })
   end })
 
-  -- LINK needs a party
-  if #game.save.party > 0 then
-    table.insert(items, { label = Strings("LINK"), onSelect = function()
-      local LinkState = require("src.link.LinkState")
-      game.stack:push(LinkState.new(game))
-    end })
-  end
-
   -- the manager's pause-menu entry (18-mod-manager-ux): gated on at least
   -- one discovered mod so a vanilla install's menu is unchanged
   local status = game.modStatus
@@ -184,7 +176,7 @@ function StartMenu.new(game)
   -- (engine/menus/draw_start_menu.asm), so START closes it back to the
   -- overworld -- unlike most menus, whose masks omit PAD_START.
   --
-  -- item count isn't fixed: POKéDEX/LINK/MODS come and go with save state,
+  -- item count isn't fixed: POKéDEX/MODS come and go with save state,
   -- and mods can append their own rows through the hook above, so the
   -- double-spaced box (the original's style) can grow past the 18-tile
   -- canvas. Cap it at however many rows actually fit and scroll the rest,

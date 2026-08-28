@@ -312,6 +312,8 @@ Save.DEFAULT_OPTIONS = {
   palette = "",
   videoMode = "windowed",
   fpsCap = 60,
+  -- BATTLE SIZE (#1709): fixed | fill
+  battleFit = "fixed",
   -- BATTLE BG (#1709): white | black, the surround around the battle screen.
   battleBg = "white",
   -- VOID FILL: fade | water | trees | black.  fade is each map header's own
@@ -405,6 +407,22 @@ local function normalizePokerus(mons)
       local value = tonumber(mon.pokerus) or 0
       if value < 0 then value = 0 end
       mon.pokerus = math.floor(value) % 256
+    end
+  end
+end
+
+-- constants/pokemon_data_constants.asm:79, :90
+local function normalizeMoves(mons)
+  for _, mon in ipairs(mons or {}) do
+    if type(mon) == "table" and type(mon.moves) == "table" then
+      local rebuilt = false
+      for i, entry in ipairs(mon.moves) do
+        if type(entry) ~= "table" then
+          mon.moves[i] = { id = entry, pp = (mon.pp or {})[i] }
+          rebuilt = true
+        end
+      end
+      if rebuilt then mon.pp = nil end
     end
   end
 end
@@ -558,8 +576,12 @@ function Save.normalize(save)
     table.remove(save.party)
   end
   normalizePokerus(save.party)
+  normalizeMoves(save.party)
   for _, box in pairs(save.boxes) do
-    if type(box) == "table" then normalizePokerus(box) end
+    if type(box) == "table" then
+      normalizePokerus(box)
+      normalizeMoves(box)
+    end
   end
   -- move_mon.asm:143-149: a mon the player owns carries wPlayerID; saves
   -- written before the stamp existed get it here.

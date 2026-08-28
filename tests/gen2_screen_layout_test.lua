@@ -275,7 +275,8 @@ for _, path in ipairs(screens) do
     src:find("math%.min%(win[WH] */ *[%dSCREN_WH]+", 1, false) == nil, true)
   if src:find("function [%w_]+:drawWidescreen") then
     check(path .. " blits through Chrome.fitScale",
-      src:find("fitScale", 1, true) ~= nil, true)
+      src:find("fitScale", 1, true) ~= nil
+        or src:find("Chrome.withPanel", 1, true) ~= nil, true)
   end
   -- An opaque screen is one nothing under it is drawn for: its cart routine
   -- ran ClearBGPalettes / ClearTilemap, so the map is gone and the screen owns

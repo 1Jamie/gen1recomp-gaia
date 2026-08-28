@@ -20958,6 +20958,10 @@
       10,
       31660
     ],
+    "MonNestIcon": [
+      28,
+      22206
+    ],
     "MonPartyData": [
       28,
       22797
@@ -22157,6 +22161,10 @@
     "TownMapCursor": [
       28,
       20288
+    ],
+    "TownMapUpArrow": [
+      28,
+      20627
     ],
     "TradeBubbleIconGFX": [
       28,

@@ -5,6 +5,7 @@
 local Font = require("src.render.Font")
 local Runtime = require("src.mods.Runtime")
 local Theme = require("src.ui.Theme")
+local MenuRepeat = require("src.ui.MenuRepeat")
 local Strings = require("src.core.Strings")
 
 local ListMenu = {}
@@ -54,14 +55,18 @@ local ITEM_CURSOR_X = 40
 local ITEM_QTY_X, ITEM_QTY_END = 112, 136
 local ITEM_MORE_X, ITEM_MORE_Y = 144, 88
 -- frames to wait before key-repeat kicks in, then between repeats
-local REPEAT_DELAY = 16
-local REPEAT_RATE = 4
+local REPEAT_DELAY = MenuRepeat.GEN1_DELAY
+local REPEAT_RATE = MenuRepeat.GEN1_RATE
+local UPDOWN_DIRS = { "up", "down" }
+local NAV_DIRS = { "up", "down", "left", "right" }
 
 -- ui.list_menu identity: unhooked opts pass through unchanged
 local function sameOpts(opts) return opts end
 
 function ListMenu.new(game, title, items, opts)
   opts = opts or {}
+  -- home/list_menu.asm:8
+  opts.keyRepeat = opts.keyRepeat ~= false
   -- bag / shop / dex / generic: mods may enable wrap, pageJump, keyRepeat
   if Runtime.wantsHook("ui.list_menu") then
     local hooked = Runtime.call("ui.list_menu", sameOpts, {
@@ -99,8 +104,7 @@ function ListMenu.new(game, title, items, opts)
   self.keyRepeat = opts.keyRepeat  -- hold Up/Down (and pageJump L/R) to scroll
   self.repeatDelay = opts.repeatDelay or REPEAT_DELAY
   self.repeatRate = opts.repeatRate or REPEAT_RATE
-  self.holdDir = nil
-  self.holdFrames = 0
+  self.hold = MenuRepeat.new(self.repeatDelay, self.repeatRate, self.keyRepeat)
   self.onSelectKey = opts.onSelectKey -- SELECT pressed on an item
   -- scripted mode (the old man tutorial): update() runs the script
   -- every frame INSTEAD of reading input -- DisplayListMenuID's old-man
@@ -201,18 +205,10 @@ function ListMenu:update(dt)
   end
 
   local moved = false
-  if input:wasPressed("up") then
-    moved = navPressed(self, "up")
-    self.holdDir, self.holdFrames = "up", 0
-  elseif input:wasPressed("down") then
-    moved = navPressed(self, "down")
-    self.holdDir, self.holdFrames = "down", 0
-  elseif self.pageJump and input:wasPressed("left") then
-    moved = navPressed(self, "left")
-    self.holdDir, self.holdFrames = "left", 0
-  elseif self.pageJump and input:wasPressed("right") then
-    moved = navPressed(self, "right")
-    self.holdDir, self.holdFrames = "right", 0
+  local dir = MenuRepeat.direction(self.hold, input,
+                                   self.pageJump and NAV_DIRS or UPDOWN_DIRS)
+  if dir then
+    moved = navPressed(self, dir)
   elseif self.onSelectKey and input:wasPressed("select") then
     self.onSelectKey(self.items[self.index], self)
   elseif input:wasPressed("b") then
@@ -227,20 +223,6 @@ function ListMenu:update(dt)
       self.onChoose(item, self)
     end
     return
-  end
-
-  -- hold-to-scroll (opt-in via ui.list_menu keyRepeat)
-  if self.keyRepeat then
-    local dir = self.holdDir
-    if dir and input:isDown(dir) then
-      self.holdFrames = self.holdFrames + 1
-      local afterDelay = self.holdFrames - self.repeatDelay
-      if afterDelay >= 0 and afterDelay % self.repeatRate == 0 then
-        navPressed(self, dir)
-      end
-    else
-      self.holdDir, self.holdFrames = nil, 0
-    end
   end
 
   if not moved then syncScroll(self) end
@@ -306,6 +288,9 @@ function ListMenu:drawItemBox()
     if item.sub then
       -- PrintLevel, one row down and 8 columns right (home/list_menu.asm:459-461)
       Font.draw(item.sub, ITEM_QTY_X, y + 8)
+    elseif item.price then
+      -- home/list_menu.asm:410-424
+      Font.draw(item.price, ITEM_QTY_END - Font.width(item.price), y + 8)
     elseif item.right then
       -- '×' at column 14, PrintNumber's two right-aligned digits after it
       -- (home/list_menu.asm:479-490)

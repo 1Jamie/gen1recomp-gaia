@@ -5875,6 +5875,20 @@ function RomExtractorGen2:extractMenuGfx()
       8, 8, "emotes/grass_rustle.png", true)
     emotes.grassRustle = "assets/generated/emotes/grass_rustle.png"
   end
+  -- data/sprites/emotes.asm:19, engine/overworld/map_objects.asm:1995
+  local jumpShadow = self.symbols["JumpShadowGFX"]
+  if jumpShadow then
+    self:write2bpp(self.rom:bytes(jumpShadow[1], jumpShadow[2], 16),
+      8, 8, "emotes/jump_shadow.png", true)
+    emotes.jumpShadow = "assets/generated/emotes/jump_shadow.png"
+  end
+  -- engine/events/field_moves.asm:390-407
+  local cutGrass = self.symbols["CutGrassGFX"]
+  if cutGrass then
+    self:write2bpp(self.rom:bytes(cutGrass[1], cutGrass[2], 4 * 16),
+      32, 8, "emotes/cut_grass.png", true)
+    emotes.cutGrass = "assets/generated/emotes/cut_grass.png"
+  end
   -- LoadFishingGFX (engine/events/fishing_gfx.asm:1-21): three 16x8 pose rows
   -- over the standing frames' bottom tiles, then the rod tiles $fc/$fd (#1708).
   local fishing = self.symbols["FishingGFX"]
@@ -6491,6 +6505,14 @@ function RomExtractorGen2:pokegearGfx()
   self:write2bpp(sprites, 16, 40, "pokegear/sprites.png", true)
   gear.sprites = "assets/generated/pokegear/sprites.png"
   gear.spritesWide = 2
+
+  -- engine/pokegear/pokegear.asm:2298
+  if self.symbols["PokedexNestIconGFX"] then
+    local nest = self:symbol("PokedexNestIconGFX")
+    self:write2bpp(self.rom:bytes(nest.bank, nest.address, 16), 8, 8,
+      "pokegear/nest_icon.png", true)
+    gear.nestIcon = "assets/generated/pokegear/nest_icon.png"
+  end
 
   local cells = SCREEN_AREA
   gear.cards = {

@@ -23,8 +23,7 @@
 -- ORIGINAL imported bytes as a template when available (GenSave.decode
 -- stashes them) so that scratch state round-trips untouched instead of
 -- being invented; with no template (a save that originated in this
--- project) those bytes stay zero-filled, which is safe because the real
--- game regenerates all of it from wCurMap on the next map load anyway.
+-- project) src/save_convert/MapContext.lua rebuilds it (home/overworld.asm:2016).
 
 local bit = require("bit")
 local MapContext = require("src.save_convert.MapContext")
@@ -1069,20 +1068,21 @@ function GenSave.encode(save, data, template)
       rebuild = index == nil or u8(src, O.curMap) ~= bit.band(index, 0xFF)
     end
     if rebuild then
-      local ctx = MapContext.build(data, mapId,
+      local ctx, why = MapContext.build(data, mapId,
         (save.player and save.player.x) or 0, (save.player and save.player.y) or 0)
-      if ctx then
-        for offset, values in pairs(ctx.writes) do
-          for i, value in ipairs(values) do
-            setByte(buf, O.mainData + offset + i - 1, value)
-          end
-        end
-        for i, value in ipairs(ctx.spriteData) do
-          setByte(buf, O.spriteData + i - 1, value)
-        end
-        -- sTileAnimations, the byte between sCurBoxData and the checksum
-        setByte(buf, O.checksumEnd - 1, ctx.tileAnimations)
+      -- home/overworld.asm:2016 (#1691)
+      if not ctx then
+        error(("this save cannot be exported: %s"):format(tostring(why)), 0)
       end
+      for offset, values in pairs(ctx.writes) do
+        for i, value in ipairs(values) do
+          setByte(buf, O.mainData + offset + i - 1, value)
+        end
+      end
+      for i, value in ipairs(ctx.spriteData) do
+        setByte(buf, O.spriteData + i - 1, value)
+      end
+      setByte(buf, O.checksumEnd - 1, ctx.tileAnimations)
     end
   end
 

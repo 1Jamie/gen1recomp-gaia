@@ -13600,6 +13600,10 @@
       105,
       20725
     ],
+    "CutGrassGFX": [
+      35,
+      19524
+    ],
     "CyndaquilBackpic": [
       23,
       25508
@@ -14843,6 +14847,10 @@
     "JolteonPokedexEntry": [
       106,
       17077
+    ],
+    "JumpShadowGFX": [
+      5,
+      17929
     ],
     "JumpluffBackpic": [
       25,
@@ -16371,6 +16379,10 @@
     "PokedexLZ": [
       16,
       21777
+    ],
+    "PokedexNestIconGFX": [
+      36,
+      25124
     ],
     "PokedexQuestionMarkPalette": [
       2,

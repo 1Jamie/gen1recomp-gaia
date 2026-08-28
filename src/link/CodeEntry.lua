@@ -1,5 +1,5 @@
--- Shared slot-scrub entry widget: the digit-scrub interaction LinkState's
--- own `ipDigits`/`addrPos` already uses for IP entry, over the Crockford-32
+-- Shared slot-scrub entry widget: the digit-scrub interaction LinkState
+-- uses for LAN address entry, over the Crockford-32
 -- style alphabet pokeserver room/tournament codes are drawn from
 -- (23456789ABCDEFGHJKMNPQRSTUVWXYZ -- no 0/O/1/I/L, so a code read aloud or
 -- handwritten never has to be checked twice).
@@ -30,7 +30,7 @@ function CodeEntry.new(opts)
 end
 
 -- Seed the slots from an existing string: prefilling the LAN address means
--- the player scrubs the last octet instead of all twelve digits.  Anything
+-- the player scrubs the last octet instead of the whole address.  Anything
 -- not in the charset lands on slot 1's character.
 -- Slots past the end of the seed -- and any character the charset does not
 -- carry -- land on the charset's blank where it has one, so seeding a

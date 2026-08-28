@@ -125,10 +125,9 @@ local SPIN_NEXT = {
 -- each quarter, no Random anywhere in the loop.
 local SPIN_TURN_FRAMES = 16
 
--- SetFacingBounce steps OBJECT_STEP_FRAME once a frame and reads bit 3, so a
--- mon object holds each icon frame for eight -- map_object_action.asm:184-201
-local BOUNCE_PERIOD = 16
-local BOUNCE_HALF = 8
+-- map_object_action.asm:184-201, events.asm:175-189
+local BOUNCE_PERIOD = 32
+local BOUNCE_HALF = 16
 
 local function rand(a, b)
   if love and love.math and love.math.random then

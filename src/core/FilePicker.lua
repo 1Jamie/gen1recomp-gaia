@@ -24,6 +24,7 @@ local function commandOutput(command)
   if not pipe then return nil end
   local result = pipe:read("*a")
   HostShell.pclose(pipe)
+  HostShell.pumpHostEvents()
   result = trim(result)
   return result ~= "" and result or nil
 end

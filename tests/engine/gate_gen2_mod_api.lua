@@ -381,6 +381,9 @@ local GEN2_EVENTS = {
   -- in the party or the box, Evolution.apply after the species swap, both
   -- matching the Gen 1 payload keys
   "pokemon.caught", "pokemon.evolved",
+  -- the arena battle's own result, from src/ui/ArenaState.lua and
+  -- src/ui/gen2/ArenaState.lua with the same five keys
+  "link.battle_ended",
   -- boot, save and the script VM
   "game.ready", "save.created", "save.loaded", "save.loading", "save.writing",
   "script.started", "script.ended",
@@ -546,6 +549,10 @@ local GEN2_ONLY_EVENTS = {
 local GEN2_ONLY_HOOKS = {
   "held_item.trigger", "breeding.compatibility", "phone.contact_list",
   "shiny.roll", "gender.roll",
+  -- AI_SwitchOrTryItem's choke point.  Red's AI has no switch or item branch
+  -- at all (src/battle/TrainerAI.lua picks a move and nothing else), so there
+  -- is no Gen 1 site to share the name with.
+  "battle.enemy_switch_or_item",
 }
 
 local sourceCache = {}

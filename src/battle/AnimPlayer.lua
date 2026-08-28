@@ -401,6 +401,12 @@ function AnimPlayer:start(moveId, attackerIsPlayer, opts)
   self.stepIndex, self.stepLeft = 1, 0
   self.elapsed, self.eventCursor = 0, 1
 
+  -- animations.asm:452-473 (#1881)
+  if not attackerIsPlayer then
+    if moveId == "AMNESIA" then moveId = "CONF_ANIM"
+    elseif moveId == "REST" then moveId = "SLP_ANIM" end
+  end
+
   local anim = self.data and self.data.moveAnims and self.data.moveAnims[moveId]
   if not anim then
     self:warnOnce("move:" .. tostring(moveId),

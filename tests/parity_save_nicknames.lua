@@ -19,6 +19,14 @@ local Pokemon = require("src.pokemon.Pokemon")
 local Evolution = require("src.pokemon.Evolution")
 
 local cwData = assert(SaveConvert.loadData(), "save-convert crosswalk data")
+-- home/overworld.asm:2016 (#1691)
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+local function stampAll(d)
+  for mapId in pairs((d or {}).maps or {}) do stampMapWindow(d, mapId) end
+end
+stampAll(cwData)
+stampAll(Data)
+
 local O = GenSave.OFFSETS
 local NAME_LENGTH = 11
 local charmap = assert(loadfile("src/save_convert/data/charmap.lua"))()

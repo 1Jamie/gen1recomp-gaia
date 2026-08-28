@@ -3,14 +3,12 @@
 --   luajit tests/gen2_ow_bounce_test.lua   (ROM-free; the cache section SKIPs
 --                                           without a gold cache)
 --
--- data/sprites/map_objects.asm:181-187 gives the row SPRITEMOVEFN_BOUNCE and
--- OBJECT_ACTION_BOUNCE.  SetFacingBounce increments OBJECT_STEP_FRAME once a
--- frame, masks it to four bits and reads bit 3: set means FACING_STEP_UP_0,
--- clear falls into SetFacingFreezeBounce and FACING_STEP_DOWN_0
+-- data/sprites/map_objects.asm:181-187 gives the row SPRITEMOVEFN_BOUNCE
 -- (engine/overworld/map_object_action.asm:184-202).  Those are tiles $00..$03
 -- and $04..$07 of the mon's menu icon (data/sprites/facings.asm:43-72), i.e.
 -- the two 16x16 halves of the 16x32 sheet extractIcons already writes.
 --
+-- events.asm:175-189
 -- Both halves of #1748 are pinned here: the animation itself, and the sheet
 -- being two frames deep so the animation has a second pose to reach.
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -69,32 +67,27 @@ do
     "MovementFunction_Bouncing parks it on STEP_TYPE_STANDING: no walking")
 end
 
--- ---- eight frames down, eight frames up ------------------------------------
--- `inc a / and %00001111 / ld [hl], a / and %00001000` is a sixteen-frame
--- cycle with an eight-frame dwell on each pose, and the counter is stepped
--- BEFORE the bit is read -- so the spawn frame is pose 0 and so are the seven
--- after it.
 do
   local mon = build(SPRITEMOVEDATA_POKEMON)
   eq(mon.bounceStep, 0, "OBJECT_STEP_FRAME starts at zero")
   local seen, wrong = { mon:bounceFrame() }, nil
-  for i = 1, 31 do
+  for i = 1, 63 do
     mon:update()
     seen[i + 1] = mon:bounceFrame()
   end
-  for i = 0, 31 do
-    local want = math.floor(i / 8) % 2
+  for i = 0, 63 do
+    local want = math.floor(i / 16) % 2
     if seen[i + 1] ~= want and not wrong then
       wrong = ("frame %d drew pose %s, wanted %d")
         :format(i, tostring(seen[i + 1]), want)
     end
   end
-  check(wrong == nil, "two full cycles run 0,0..0,1,1..1 eight frames apiece"
+  check(wrong == nil, "two full cycles run sixteen fixed steps a pose"
     .. (wrong and (" -- " .. wrong) or ""))
   eq(seen[1], 0, "the spawn frame is FacingStepDown0, the icon's first half")
-  eq(seen[9], 1, "the ninth is FacingStepUp0, its second half")
-  eq(seen[17], 0, "and the seventeenth is back to the first")
-  eq(mon.bounceStep, 31 % 16, "the counter wrapped at sixteen, not at eight")
+  eq(seen[17], 1, "the seventeenth is FacingStepUp0, its second half")
+  eq(seen[33], 0, "and the thirty-third is back to the first")
+  eq(mon.bounceStep, 63 % 32, "the counter wrapped at thirty-two")
 end
 
 -- ---- the frozen column -----------------------------------------------------
@@ -103,9 +96,9 @@ end
 -- conversation pins its FIRST pose and resumes on the phase it left.
 do
   local mon = build(SPRITEMOVEDATA_POKEMON)
-  for _ = 1, 10 do mon:update() end
-  eq(mon:bounceFrame(), 1, "ten frames in, the mon is on the up pose")
-  eq(mon.bounceStep, 10, "with OBJECT_STEP_FRAME at 10")
+  for _ = 1, 20 do mon:update() end
+  eq(mon:bounceFrame(), 1, "twenty frames in, the mon is on the up pose")
+  eq(mon.bounceStep, 20, "with the step counter at 20")
 
   mon.frozen = true
   local pinned = true
@@ -114,12 +107,12 @@ do
     if mon:bounceFrame() ~= 0 then pinned = false end
   end
   check(pinned, "frozen, it holds FacingStepDown0 for the whole conversation")
-  eq(mon.bounceStep, 10,
+  eq(mon.bounceStep, 20,
     "and SetFacingFreezeBounce leaves the step counter where it was")
 
   mon.frozen = false
   mon:update()
-  eq(mon.bounceStep, 11, "released, the counter carries on from 10")
+  eq(mon.bounceStep, 21, "released, the counter carries on from 20")
   eq(mon:bounceFrame(), 1, "so the bounce resumes on the phase it froze at")
 end
 
@@ -166,9 +159,9 @@ do
   eq(seen.mon.override, 0, "the mon's first draw overrides to frame 0")
   check(seen.doll.override == nil, "and the doll's overrides to nothing")
 
-  for _ = 1, 8 do mon:update() end
+  for _ = 1, 16 do mon:update() end
   mon:draw(0, 0, 1)
-  eq(seen.mon.override, 1, "eight frames later it overrides to frame 1")
+  eq(seen.mon.override, 1, "sixteen frames later it overrides to frame 1")
 end
 
 -- ---- a one-frame sheet has nowhere to bounce to ----------------------------

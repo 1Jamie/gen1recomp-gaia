@@ -126,6 +126,17 @@ local Game, EditorApp, Importer, TouchEditor, Studio
 local launchedIntoGame = false
 local RELAUNCH_MARKER = "relaunch_to_launcher.txt"
 
+local onlineClient, onlineClientResolved
+local function onlineClientModule()
+  if onlineClientResolved then return onlineClient end
+  onlineClientResolved = true
+  local ok, mod = pcall(require, "src.online.Client")
+  if ok and type(mod) == "table" and type(mod.update) == "function" then
+    onlineClient = mod
+  end
+  return onlineClient
+end
+
 local autopilot -- optional scripted-input dev tool (tests/autopilot.lua)
 local driverCo  -- optional frame-driver (POKEPORT_DRIVER=file.lua): a
                 -- coroutine that receives `Game` and yields once per
@@ -357,15 +368,16 @@ function closeSkinStudio()
   end
 end
 
-local function makeLauncher()
+local function makeLauncher(launcherOpts)
   local RomImporter = require("src.import.RomImporter")
   local forceImport = os.getenv("POKEPORT_FORCE_IMPORT") == "1"
-  return RomImporter.new(function(version, cartId)
+  return RomImporter.new(function(version, cartId, opts)
     Importer = nil
-    bootGame(version, cartId)
+    bootGame(version, cartId, opts)
   end, {
     launcher = true,
     forceImport = forceImport,
+    initialTab = launcherOpts and launcherOpts.initialTab or nil,
     onEditSave = openEditor,
     onEditTouchControls = openTouchControlsEditor,
     -- Skin Studio owns a touch-first layout as well as the desktop workspace.
@@ -375,13 +387,14 @@ local function makeLauncher()
   })
 end
 
-local function returnToLauncher()
+local function returnToLauncher(opts)
   if not Game then return end
 
   local GameVersion = require("src.core.GameVersion")
   local currentVersion = GameVersion.get()
   SessionLifecycle.endGameSession(Game)
   Game = nil
+  pcall(function() require("src.online.Trade").hostIsLive = nil end)
   autopilot = nil
   driverCo = nil
   -- Leave the cart's scope behind: the launcher's own settings and slots are
@@ -403,10 +416,16 @@ local function returnToLauncher()
     love.window.setTitle(Version.title("Gen 1 Recompilation Project"))
   end
 
-  Importer = makeLauncher()
+  Importer = makeLauncher({ initialTab = opts and opts.tab or nil })
 end
 
-function bootGame(version, cartId)
+local pendingLauncherReturn
+
+function bootGame(version, cartId, opts)
+  opts = opts or {}
+  pcall(function()
+    require("src.online.Trade").hostIsLive = function() return true end
+  end)
   -- The launcher hands us the chosen game (Red / Blue / Yellow / Gold);
   -- scripted and headless runs fall back to POKEPORT_VERSION, then Red.
   -- Set the active version and overlay its extracted cache BEFORE anything
@@ -453,9 +472,14 @@ function bootGame(version, cartId)
   -- own service owner, which mounts src/world/gen2 (walk / warps /
   -- connections) and the Gen 2 screens instead of src/core/Game.lua's Gen 1
   -- wiring.
+  local arena = opts.arena
+  local loadOpts = { arena = arena, cartId = cartId }
   if GameVersion.generation() == 2 then
     Game = require("src.core.Game2").new()
-    Game:load()
+    if arena then
+      Game.returnToLauncher = function(o) pendingLauncherReturn = o or {} end
+    end
+    Game:load(loadOpts)
   else
     -- Gen1 Game is a module singleton.  Always re-require after in-process
     -- EXIT GAME so a prior session cannot leave a table whose rawget(load)
@@ -467,7 +491,10 @@ function bootGame(version, cartId)
       error("src.core.Game missing load after reload")
     end
     Game = gameMod
-    Game:load()
+    if arena then
+      Game.returnToLauncher = function(o) pendingLauncherReturn = o or {} end
+    end
+    Game:load(loadOpts)
     if os.getenv("POKEPORT_AUTOPILOT") then
       autopilot = require("tests.autopilot")
     end
@@ -562,6 +589,18 @@ function love.load(args)
   local scripted = os.getenv("POKEPORT_AUTOPILOT") or os.getenv("POKEPORT_DRIVER")
     or os.getenv("POKEPORT_IMPORT_ONLY") == "1" or importPath ~= nil
 
+  local scriptedOpts = nil
+  local specPath = os.getenv("POKEPORT_ARENA_SPEC")
+  if specPath and os.getenv("POKEPORT_DRIVER") then
+    local chunk, chunkErr = loadfile(specPath)
+    if not chunk then error("POKEPORT_ARENA_SPEC: " .. tostring(chunkErr)) end
+    local spec = chunk()
+    if type(spec) ~= "table" then
+      error("POKEPORT_ARENA_SPEC must return an ArenaSpec table")
+    end
+    scriptedOpts = { arena = spec }
+  end
+
   if scripted then
     if forceImport or not ready then
       -- The importer detects the dropped/loaded ROM's version by SHA-1 and
@@ -572,12 +611,12 @@ function love.load(args)
           return
         end
         Importer = nil
-        bootGame(version or scriptedVersion)
+        bootGame(version or scriptedVersion, nil, scriptedOpts)
       end)
       if importPath then Importer:startPath(importPath) end
       return
     end
-    bootGame(scriptedVersion)
+    bootGame(scriptedVersion, nil, scriptedOpts)
     return
   end
 
@@ -640,6 +679,14 @@ function love.update(dt)
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
   if Studio then return Studio.update(dt) end
+  local client = onlineClientModule()
+  if client then pcall(client.update, dt) end
+  if pendingLauncherReturn then
+    local opts = pendingLauncherReturn
+    pendingLauncherReturn = nil
+    returnToLauncher(opts)
+    return
+  end
   if Importer then return Importer:update(dt) end
   if not Game then return end
 

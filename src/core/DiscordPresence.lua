@@ -410,6 +410,11 @@ end
 
 local function locationName(game, mapId)
   if not mapId then return nil end
+  local world = game and game.world
+  if world and world.landmarkName then
+    local ok, name = pcall(world.landmarkName, world)
+    if ok and type(name) == "string" and name ~= "" then return name end
+  end
   local field = game and game.data and game.data.field
   local townMap = field and field.townMap
   local locations = townMap and (townMap.locations or townMap)
@@ -602,14 +607,14 @@ local function subscribe(game)
   end)
 end
 
--- Advertise (or clear, with code=nil) an online-match/tournament code as a
--- Discord join secret. LinkState/Tournament call this once they have a
--- real code from the relay, and clear it again once paired/started or the
--- hosting screen exits (an invite that's already full or gone is worse
--- than no invite). kind is "match" (default) or "tournament"; size/max are
--- the party.size Discord shows (default 1/2, a plain 1v1 room) -- a
--- tournament passes its live roster count and a generous cap instead, and
--- should call this again whenever the roster changes, not just once.
+-- Advertise (or clear, with code=nil) a room code as a Discord join
+-- secret. The launcher's ONLINE tab calls this once the relay has given it
+-- a real code, and clears it again once the room fills or closes (an invite
+-- that's already full or gone is worse than no invite). kind is "match"
+-- (default) or "tournament"; size/max are the party.size Discord shows
+-- (default 1/2, a plain 1v1 room) -- a tournament passes its live roster
+-- count and a generous cap instead, and should call this again whenever the
+-- roster changes, not just once.
 function DiscordPresence.setJoinCode(code, kind, size, max)
   pcall(function()
     state.joinCode = code
@@ -632,23 +637,22 @@ local function handleJoinRequest(secret)
   if not secret or secret == "" then return end
   if state.activity == "battle" then return end
   local game = state.game
-  if not game or not game.stack then return end
-  local top = game.stack:top()
+  local top = game and game.stack and game.stack:top()
   if top and top.stage and top.net then return end -- already in a link session
   local kindTag, code = secret:match("^(%a):(.+)$")
   if not kindTag then kindTag, code = "m", secret end -- older/plain secret: assume match
   Runtime.emit("discord.join_requested", { code = code, kind = kindTag })
-  if kindTag == "t" then
-    local ok, Tournament = pcall(require, "src.link.Tournament")
-    if ok and Tournament.newJoinOnline then
-      game.stack:push(Tournament.newJoinOnline(game, code))
-    end
-  else
-    local ok, LinkState = pcall(require, "src.link.LinkState")
-    if ok and LinkState.newJoinOnline then
-      game.stack:push(LinkState.newJoinOnline(game, code))
-    end
+  if game and not game.returnToLauncher then
+    print("[discord] no launcher to return to; ignoring join code " .. tostring(code))
+    return
   end
+  local ok, Client = pcall(require, "src.online.Client")
+  if not ok or type(Client) ~= "table" or not Client.joinRoom then
+    print("[discord] online client unavailable; ignoring join code " .. tostring(code))
+    return
+  end
+  if game then game.returnToLauncher({ tab = "online", joinCode = code }) end
+  Client.joinRoom(code, "player")
 end
 
 -- non-blocking peek for an incoming ACTIVITY_JOIN dispatch. Unix (FFI)

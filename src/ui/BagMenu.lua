@@ -116,14 +116,16 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
   -- then the woke-up/battle sequence (data/scripts/story.lua snorlaxWake)
   if result == "flute_wake" then
     closeBag()
-    require("src.core.Sound").play(game.data, "Pokeflute")
+    -- engine/items/item_effects.asm:1794 (#1880)
+    local opts = TextBox.soundOpts(game, "Pokeflute",
+      { auto = { wait = false, delay = 0, promptFirst = true } })
     showMessages(game, payload, function()
       local ow = game.overworld
       local mod = ow and require("data.scripts.init").get(extra.mapId)
       if ow and mod and mod.snorlaxWake then
         ow.runner:run(mod.snorlaxWake.script, { npc = extra.npc })
       end
-    end)
+    end, opts)
     return
   end
 

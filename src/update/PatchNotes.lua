@@ -58,7 +58,7 @@ function PatchNotes.fromCache(engine)
     if text then
       local ok, doc = pcall(Json.decode, text)
       if ok and type(doc) == "table" then
-        if engine and engine ~= "0.0.0-dev" then
+        if engine and not engine:match("^0%.0%.0%-dev") then
           if doc[engine] and nonempty(doc[engine]) then
             return doc[engine], engine
           end
@@ -109,7 +109,7 @@ function PatchNotes.fromRepo(engine)
     if text then
       local list = PatchNotes.parseRepo(text)
       if #list == 0 then return nil, nil end
-      if engine and engine ~= "0.0.0-dev" then
+      if engine and not engine:match("^0%.0%.0%-dev") then
         for _, row in ipairs(list) do
           if row.version == engine then
             return row.notes, row.version
@@ -128,7 +128,7 @@ function PatchNotes.body(Check)
   local engine = (Version and Version.engine) or "?"
 
   local notes, ver = PatchNotes.fromCheck(Check)
-  if notes and (engine == "0.0.0-dev" or ver == engine or ver == nil) then
+  if notes and (engine:match("^0%.0%.0%-dev") or ver == engine or ver == nil) then
     return notes, ver or engine
   end
 

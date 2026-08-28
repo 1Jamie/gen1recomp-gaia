@@ -207,13 +207,13 @@ function MapContext.build(data, mapId, x, y)
   -- The tileset header, as predef LoadTilesetHeader would have copied it.
   local tilesets = data.tilesets or {}
   local tilesetDef = tilesets[map.tileset]
-  local tileAnimations = 0
-  if tilesetDef and tilesetDef.header then
-    local row = {}
-    for i = 1, 11 do row[i] = tilesetDef.header[i] end
-    writes[O.tilesetHeader] = row
-    tileAnimations = tilesetDef.header[12] or 0
+  if not (tilesetDef and tilesetDef.header) then
+    return nil, ("no tileset bytes for %s (re-import the ROM)"):format(tostring(mapId))
   end
+  local row = {}
+  for i = 1, 11 do row[i] = tilesetDef.header[i] end
+  writes[O.tilesetHeader] = row
+  local tileAnimations = tilesetDef.header[12] or 0
 
   -- MapSongBanks: without it the game continues with sound id 0 and audio
   -- bank 0, which is what actually hangs a Continue on a white screen.
@@ -221,10 +221,11 @@ function MapContext.build(data, mapId, x, y)
   local songLabel = audio and audio.mapSongs and audio.mapSongs[mapId]
   local song = songLabel and audio.songs and audio.songs[songLabel]
   local id = song and soundId(song.address)
-  if id and song.bank then
-    writes[O.mapMusicSoundID] = { id }
-    writes[O.mapMusicROMBank] = { song.bank % 256 }
+  if not (id and song.bank) then
+    return nil, ("no map music for %s (re-import the ROM)"):format(tostring(mapId))
   end
+  writes[O.mapMusicSoundID] = { id }
+  writes[O.mapMusicROMBank] = { song.bank % 256 }
 
   -- Player position within its block, and the upper-left corner of the view.
   -- The pointer is the same expression the warp_to tables are assembled with

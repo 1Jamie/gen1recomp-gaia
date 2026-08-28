@@ -782,7 +782,7 @@ end
 -- buying again means talking to the counter again (#623).
 local function prizeCounter(window)
   return function(game, ow, npc, done)
-    local ListMenu = require("src.ui.ListMenu")
+    local PrizeCounter = require("src.ui.PrizeCounter")
     local Commands = require("src.script.Commands")
     local TextBox = require("src.render.TextBox")
     local t = game.data.text
@@ -793,28 +793,25 @@ local function prizeCounter(window)
         t._RequireCoinCaseText or "A COIN CASE is\nrequired!", done))
       return
     end
-    -- ExchangeCoinsForPrizesText plays before the prize window opens.
     game.stack:push(TextBox.new(game,
       t._ExchangeCoinsForPrizesText or "We exchange your\ncoins for prizes.",
       function()
-        local items = {}
+        local rows = {}
         for _, p in ipairs(prizeWindow(window)) do
-          local label
-          if p.kind == "mon" then
-            label = ("%s L%d"):format(game.data.pokemon[p.species].name, p.level)
-          else
-            label = game.data.items[p.item].name
-          end
-          table.insert(items,
-            { label = label, right = tostring(p.cost), value = p })
+          rows[#rows + 1] = {
+            name = (p.kind == "mon")
+                   and game.data.pokemon[p.species].name
+                   or game.data.items[p.item].name,
+            cost = p.cost,
+            prize = p,
+          }
         end
-        -- NoThanksText (data/events/prizes.asm) sits under the three prizes
-        table.insert(items, { label = "NO THANKS" })
-        local list
-        -- close the window first: every ending in HandlePrizeChoice leaves
-        -- the menu for good, and the closing line belongs over the map
+        local function close()
+          game.stack:pop()
+          game.stack:pop()
+        end
         local function finish(msg)
-          list:close()
+          close()
           game.stack:push(TextBox.new(game, msg, done))
         end
         local function buy(p)
@@ -844,40 +841,38 @@ local function prizeCounter(window)
           game.save.coins = game.save.coins - p.cost
           -- no thank-you line: HereYouGoText is unreferenced in the asm,
           -- which just redraws the coin box (PrintPrizePrice) and returns
-          list:close()
+          close()
           done()
         end
-        list = ListMenu.new(game, "PRIZES (COINS)", items, {
-          footer = ("COINS %d"):format(game.save.coins or 0),
-          onChoose = function(item)
-            local p = item.value
-            if not p then -- NO THANKS is the B exit (cp 3 -> .noChoice)
-              list:close()
-              done()
-              return
-            end
-            local name = (p.kind == "mon")
-                         and game.data.pokemon[p.species].name
-                         or game.data.items[p.item].name
-            -- SoYouWantPrizeText names the prize out of wNameBuffer, which
-            -- is not one of TextBox's RAM tokens, so fill it in here
-            local ask = (t._SoYouWantPrizeText
-                         or "So, you want\n{RAM:wNameBuffer}?")
-                        :gsub("{RAM:wNameBuffer}", name)
-            game.stack:push(TextBox.new(game, ask, nil, {
-              choice = function(yes)
-                if not yes then
-                  finish(t._OhFineThenText or "Oh, fine then.")
-                  return
-                end
-                buy(p)
-              end,
-            }))
-          end,
-          onCancel = done,
-        })
-        game.stack:push(list)
-      end))
+        game.stack:push(TextBox.new(game,
+          t._WhichPrizeText or "Which prize do\nyou want?", nil, {
+            instant = true,
+            stay = { onShown = function()
+              game.stack:push(PrizeCounter.new(game, rows, {
+                onCancel = function()
+                  close()
+                  done()
+                end,
+                onPick = function(row)
+                  local p = row.prize
+                  local ask = (t._SoYouWantPrizeText
+                               or "So, you want\n{RAM:wNameBuffer}?")
+                              :gsub("{RAM:wNameBuffer}", row.name)
+                  game.stack:push(TextBox.new(game, ask, nil, {
+                    instant = true,
+                    choice = function(yes)
+                      if not yes then
+                        finish(t._OhFineThenText or "Oh, fine then.")
+                        return
+                      end
+                      buy(p)
+                    end,
+                  }))
+                end,
+              }))
+            end },
+          }))
+      end, { instant = true }))
   end
 end
 

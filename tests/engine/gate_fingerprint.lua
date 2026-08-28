@@ -95,6 +95,19 @@ local mutations = {
     end,
   },
   {
+    name = "a retuned ruleset field",
+    apply = function(d)
+      local rulesets = d.rulesets
+      local id = rulesets and next(rulesets)
+      if id then
+        local copy = {}
+        for k, v in pairs(rulesets[id]) do copy[k] = v end
+        copy.oneIn256Miss = not copy.oneIn256Miss
+        rulesets[id] = copy
+      end
+    end,
+  },
+  {
     name = "a link-surface constant",
     apply = function(d) d.constants.levelCap = d.constants.levelCap - 1 end,
   },

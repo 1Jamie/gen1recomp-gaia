@@ -152,6 +152,11 @@ function NpcTrade.perform(data, save, row, index)
   -- already disagree and a traded mon has to answer both.
   received.ot, received.otName = row.otName, row.otName
   received.otId = row.otId
+  -- engine/events/npc_trade.asm:189-197
+  if Mon.hasCaughtData(save.version) then
+    Mon.setGiftCaughtData(received,
+      row.dialog == "TRADE_DIALOGSET_GIRL" and "girl" or "unknown")
+  end
   table.remove(party, index)
   -- RemoveMonFromPartyOrBox's "Mail time!" tail.  NPCTrade itself has no mail
   -- check -- unlike the Day-Care and the PC, it will trade a mon holding a

@@ -281,7 +281,8 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     -- WakeUpEntireParty runs on the enemy's bench too
     for _, mon in ipairs(battle.enemyParty or {}) do wake(mon) end
     if not woke then
-      return "failed", { romText(data, "_PlayedFluteNoEffectText",
+      -- engine/items/item_effects.asm:1728, engine/battle/core.asm:2257 (#1882)
+      return "kept", { romText(data, "_PlayedFluteNoEffectText",
         "Played the POKé\nFLUTE.\fNow, that's a\ncatchy tune!") }
     end
     return "flute", { romText(data, "_PlayedFluteHadEffectText",

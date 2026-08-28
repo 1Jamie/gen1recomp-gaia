@@ -812,7 +812,7 @@ jobs:
                               else .commit.author.name end' 2>/dev/null \
             | grep -viE '\[bot\]$' | sort -uf | sed 's/^/- /' || true)"
 
-          notes="Download the correct version for your computer below."
+          notes="Download the right version for your device below."
           if [ -n "$closed" ]; then
             notes+=$'\n\n## Issues closed\n\n'"$closed"
           fi

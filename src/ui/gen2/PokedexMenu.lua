@@ -32,18 +32,22 @@
 local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
 local GbcPalette = require("src.render.GbcPalette")
+local HallOfFame = require("src.core.gen2.HallOfFame")
 local Palettes = require("src.world.gen2.Palettes")
 local TileSheet = require("src.ui.gen2.TileSheet")
 local Nests = require("src.core.gen2.Nests")
 local Sound = require("src.core.Sound")
 local Unown = require("src.core.gen2.Unown")
 local Strings = require("src.core.Strings")
+local MenuRepeat = require("src.ui.MenuRepeat")
 
 -- `db $3b, " OPTION ", $3c` / `db $3b, " SEARCH ", $3c"`: the panel titles
 -- drawn by drawOption/drawSearch below, declared here (rather than inline)
 -- so Strings.source puts them in the catalog harvest.
 local OPTION_LABEL = Strings.source(" OPTION ")
 local SEARCH_LABEL = Strings.source(" SEARCH ")
+
+local LIST_DIRS = { "up", "down" }
 
 local PokedexMenu = {}
 PokedexMenu.__index = PokedexMenu
@@ -164,6 +168,8 @@ function PokedexMenu.new(game, opts)
   end
   self.index = 1
   self.scroll = 0
+  -- engine/pokedex/pokedex.asm:36-39
+  self.hold = MenuRepeat.new(MenuRepeat.GEN2_DELAY, MenuRepeat.GEN2_RATE)
   self.view = "list" -- list | entry | area | option | search | results | unown
   self.page = 1
   self.entryAction = 1
@@ -384,6 +390,7 @@ function PokedexMenu:update(_dt)
   if self.view == "option" then return self:updateOption(input) end
   if self.view == "search" then return self:updateSearch(input) end
   if self.view == "unown" then return self:updateUnown(input) end
+  local dir, edge = MenuRepeat.direction(self.hold, input, LIST_DIRS)
   if input:wasPressed("b") then
     self:close()
     return
@@ -399,12 +406,21 @@ function PokedexMenu:update(_dt)
     self.searchType = self.searchType or { 1, 0 }
     self.searchResults = nil
     return
-  elseif input:wasPressed("up") then
-    self.index = self.index > 1 and self.index - 1 or #self.rows
+  elseif dir == "up" then
+    -- pokedex.asm:982-1011
+    if self.index > 1 then
+      self.index = self.index - 1
+    elseif edge then
+      self.index = #self.rows
+    end
     self:ensureVisible()
     return
-  elseif input:wasPressed("down") then
-    self.index = self.index < #self.rows and self.index + 1 or 1
+  elseif dir == "down" then
+    if self.index < #self.rows then
+      self.index = self.index + 1
+    elseif edge then
+      self.index = 1
+    end
     self:ensureVisible()
     return
   elseif input:wasPressed("a") then
@@ -807,22 +823,9 @@ end
 
 -- ------------------------------------------------------------------- AREA
 --
--- Pokedex_GetArea (engine/pokegear/pokegear.asm) borrows the Pokegear's town
--- map and overlays FindNest's landmarks. The region shown starts as the one the
--- player is standing in; LEFT/RIGHT swap it, which is how you see a Kanto mon's
--- nests from Johto. B goes back to the entry.
+-- engine/pokegear/pokegear.asm:2285, :2322
 function PokedexMenu:areaRegionName()
-  if self.areaRegion then return self.areaRegion end
-  local landmark = self:playerLandmark()
-  return Nests.regionOf(landmark) or "johto"
-end
-
--- The player's landmark index, which is what decides the starting region.
-function PokedexMenu:playerLandmark()
-  local save = self.game and self.game.save
-  local mapId = save and save.position and save.position.map
-  local def = mapId and self.data and self.data.gen2Maps and self.data.gen2Maps[mapId]
-  return def and def.landmark
+  return self.areaRegion or "johto"
 end
 
 -- The Pokegear's own tilemap blit: a flat list of tile ids, row-major over the
@@ -849,9 +852,68 @@ function PokedexMenu:updateArea(input)
     self.view = "entry"
     return
   end
-  if input:wasPressed("left") or input:wasPressed("right") then
-    self.areaRegion = (self:areaRegionName() == "johto") and "kanto" or "johto"
+  if input:wasPressed("left") then
+    self.areaRegion = "johto"
+  elseif input:wasPressed("right") then
+    -- pokegear.asm:2373
+    if HallOfFame.hasEntered(self.game and self.game.save) then
+      self.areaRegion = "kanto"
+    end
   end
+end
+
+-- engine/pokegear/pokegear.asm:2451
+function PokedexMenu:nestIconColors()
+  local set = self.palettes and Palettes.objectSet(self.palettes, "DAY")
+  return (set and set[1])
+    or (self.mapGfx and self.mapGfx.palettes and self.mapGfx.palettes[1])
+end
+
+-- engine/pokegear/pokegear.asm:2298
+function PokedexMenu:drawNestIcon(x, y)
+  if self.nestIcon == nil then
+    self.nestIcon = false
+    local path = self.mapGfx and self.mapGfx.nestIcon
+    if path then
+      local ok, image = pcall(Assets.image, path)
+      if ok and image then self.nestIcon = image end
+    end
+  end
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  if not self.nestIcon then
+    local ink = self:nestIconColors()
+    local dark = ink and GbcPalette.color(ink, 4) or { 0, 0, 0 }
+    G.setColor(dark[1] / 255, dark[2] / 255, dark[3] / 255, 1)
+    G.rectangle("fill", x + 1, y + 1, 6, 6)
+    G.setColor(1, 1, 1, 1)
+    return
+  end
+  local function body() G.draw(self.nestIcon, x, y) end
+  local colors = self:nestIconColors()
+  if colors and GbcPalette.available() then
+    GbcPalette.withRaw(colors, body)
+  else
+    body()
+  end
+end
+
+-- engine/pokegear/pokegear.asm:2403
+function PokedexMenu:drawAreaHeader(title)
+  local pals = self.mapGfx and self.mapGfx.palettes
+  local pal = pals and pals[1]
+  local paper = pal and GbcPalette.color(pal, 1) or { 255, 255, 255 }
+  local G = love.graphics
+  G.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
+  G.rectangle("fill", 0, 0, Chrome.SCREEN_W * 8, 8)
+  G.setColor(1, 1, 1, 1)
+  local sheet = self.mapSheet
+  if sheet then
+    sheet:draw(0x06, 0, 1)
+    for x = 1, Chrome.SCREEN_W - 2 do sheet:draw(0x07, x, 1) end
+    sheet:draw(0x17, Chrome.SCREEN_W - 1, 1)
+  end
+  Chrome.printThrough(title, 2, 0, pal, false, true)
 end
 
 function PokedexMenu:drawArea()
@@ -861,54 +923,22 @@ function PokedexMenu:drawArea()
   local save = self.game and self.game.save
   local nests = Nests.find(self.data, row.species, region, save)
 
-  self:fill(TILE_BG, 0, 0, Chrome.SCREEN_W + 1, Chrome.SCREEN_H)
-
-  -- The map itself is the Pokegear's, drawn through the same gfx the MAP card
-  -- uses. Without it (a cache imported before the town map was extracted) the
-  -- page still lists the landmark NAMES, which is the information the screen
-  -- exists to convey.
   local maps = self.mapGfx and self.mapGfx.maps
   local cells = maps and maps[region]
   if cells then
     self:drawTilemap(cells)
   end
 
-  self:blank(0, 0, Chrome.SCREEN_W, 2)
-  self:text(self:monName(row.species) .. "'S NEST", 1, 0)
-  self:text(region == "kanto" and "KANTO" or "JOHTO", 1, 1)
+  self:drawAreaHeader(self:monName(row.species) .. "'S NEST")
 
-  local G = love.graphics
-
-  if #nests == 0 then
-    -- A species with no grass, water or roamer entry in this region. The cart
-    -- simply shows the map with nothing blinking on it.
-    self:text("AREA UNKNOWN", 4, 16)
-    return
-  end
-
-  -- engine/pokegear/pokegear.asm:2427
-  local on = ((self.areaBlink or 0) % 32) < 20
-  if cells and on then
-    for _, index in ipairs(nests) do
-      local mark = Nests.landmark(self.data, index)
-      if mark and mark.x and mark.y then
-        G.setColor(0, 0, 0, 1)
-        G.rectangle("fill", mark.x - 2, mark.y - 2, 5, 5)
-        G.setColor(1, 1, 1, 1)
-        G.rectangle("fill", mark.x - 1, mark.y - 1, 3, 3)
-      end
-    end
-  end
-
-  -- Name the first one in words as well as on the map: the flashing dot is
-  -- unreadable at this size on a modern display, and the landmark name is what
-  -- a player actually wants off this screen.
-  local first = Nests.landmark(self.data, nests[1])
-  if first and first.name then
-    local name = tostring(first.name):gsub("\n", " ")
-    self:text(name, 1, 16)
-    if #nests > 1 then
-      self:text(("+%d"):format(#nests - 1), 17, 16)
+  -- engine/pokegear/pokegear.asm:2385
+  local on = ((self.areaBlink or 0) % 32) < 16
+  if not on then return end
+  for _, index in ipairs(nests) do
+    local mark = Nests.landmark(self.data, index)
+    if mark and mark.x and mark.y then
+      -- engine/pokegear/pokegear.asm:2444
+      self:drawNestIcon(mark.x - 4, mark.y - 4)
     end
   end
 end

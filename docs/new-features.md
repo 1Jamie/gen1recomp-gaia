@@ -7,7 +7,8 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Multiple color modes**, including original, SGB, advanced GBC, monochrome, and classic green
 * **Optional GBC screen effects**, including pixel grids, shadows, glare, and transparency
 * **Performance presets** and configurable FPS limits
-* **Peer-to-peer link play** for trades and battles between Red, Blue, and Yellow
+* **Peer-to-peer LAN link play** for trades and battles between Red, Blue, and Yellow
+* **Online lobby** in the launcher for battles, spectating and tournaments
 * **Persistent custom options** stored separately from game saves
 * **Optional widescreen battle layout**
 * **Mobile touch controls** with editable layouts, vibration, and orientation settings
@@ -25,3 +26,4 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Pokémon Crystal** as an importable, launcher-selectable version alongside Gold and Silver
 * **Mod manager** with Gen 1 mod adapters, per-game targeting, and `modkit gen2check`
 * **Followers** for mods, plus Gen 2-only registries and hooks
+* **Battle screen options** on Gold, Silver and Crystal: BATTLE SIZE (fixed or window-filling) and BATTLE BG (white or black surround)

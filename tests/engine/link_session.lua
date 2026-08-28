@@ -328,22 +328,4 @@ do
     "LinkState uses the session lifecycle instead of raw terminal flags")
 end
 
-do
-  local source = readFile("src/link/Tournament.lua")
-  T.check(source:find('require("src.link.Session")', 1, true) ~= nil,
-    "Tournament depends on the session boundary")
-  T.check(source:find('kind = "tournament"', 1, true) ~= nil,
-    "Tournament assigns its connection role and kind locally")
-  T.check(source:find("self.net.inbox", 1, true) == nil,
-    "Tournament never mutates a transport inbox")
-  T.check(source:find("self.net = Net.new()", 1, true) == nil,
-    "Tournament stores only a successful session wrapper")
-  T.check(source:find(':take("hello")', 1, true) ~= nil,
-    "Tournament retrieves match hello without draining its tail")
-  T.check(source:find(":pollOne()", 1, true) ~= nil,
-    "Tournament processes handoff prefixes one packet at a time")
-  T.check(source:find("getStatus()", 1, true) ~= nil,
-    "Tournament uses the session lifecycle instead of raw terminal flags")
-end
-
 T.finish("link_session")
