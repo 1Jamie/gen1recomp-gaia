@@ -56,8 +56,15 @@ function Room.draw(imp, x, y, w, availH, m)
   local btnH = math.max(m.btnH, Kit.tapMin())
 
   if not room then
+    local pending = st.pending
+    local line = Strings("You are not in a room.")
+    if pending and not pending.done then
+      line = pending.code
+        and Strings("Joining room %s...", tostring(pending.code))
+        or Strings("Creating the room...")
+    end
     local cy = y + Ui.header(imp, x, y, w, m, Strings("Room"))
-    Kit.emptyBox(x, cy, w, rowH * 2, Strings("You are not in a room."))
+    Kit.emptyBox(x, cy, w, rowH * 2, line)
     return (cy - y) + rowH * 2
   end
 

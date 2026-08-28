@@ -1699,6 +1699,8 @@ ensureHooks = function()
       OnlinePanel._tourClosed = e.text
     elseif e.scope == "room" and e.reason == "resume_incomplete" then
       OnlinePanel._roomLost = Strings("Connection lost, left the room.")
+    elseif e.scope == "join" then
+      OnlinePanel._joinError = e.text
     end
   end)
   client.on("tour_over", function(payload)
@@ -2831,6 +2833,10 @@ function OnlinePanel.update(imp, dt)
     st.ready, st.confirmLeave = false, nil
     OnlinePanel.go(imp, "play")
     st.status, st.statusOk = notice, false
+  end
+  if OnlinePanel._joinError then
+    st.status, st.statusOk = tostring(OnlinePanel._joinError), false
+    OnlinePanel._joinError = nil
   end
   if st.pending and st.pending.done then
     if st.pending.error then

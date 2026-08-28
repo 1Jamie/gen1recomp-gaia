@@ -129,12 +129,24 @@ local function remoteTrade(imp, x, y, w, m)
     cy = cy + Kit.textWrapped("small", OnlinePanel.remoteStageText(stage),
       x, cy, w, PAL.heading, 2) + tiny
     local mine, theirs = OnlinePanel.remoteRows(tr.remote)
+    local peer = tr.peerName or Strings("The other trainer")
+    Ui.label(Strings("Your POKeMON"), x, cy)
+    cy = cy + Ui.label(Strings("%s's POKeMON", tostring(peer)),
+      x + colW + gap, cy) + tiny
     local left = column(imp, x, cy, colW, m, "mine", mine, function(ref)
       OnlinePanel.remotePick(imp, ref)
     end)
     local right = column(imp, x + colW + gap, cy, colW, m, "theirs", theirs,
       function() end)
     cy = cy + math.max(left, right)
+    local give, get
+    for _, row in ipairs(mine) do if row.picked then give = row.label end end
+    for _, row in ipairs(theirs) do if row.picked then get = row.label end end
+    if give or get then
+      cy = cy + Kit.textWrapped("small",
+        Strings("You give %s, you get %s", give or "...", get or "..."),
+        x, cy, w, PAL.muted, 2) + tiny
+    end
     local third = math.floor((w - 2 * gap) / 3)
     LV().btn(imp, x, cy, third, rowH, "online-trade-yes", Strings("Confirm"),
       { kind = "primary", font = "small", enabled = stage == "confirming",
@@ -211,19 +223,21 @@ function TradeScreen.draw(imp, x, y, w, availH, m)
     return cy - y
   end
 
-  cy = cy + Ui.label(Strings("Trade with"), x, cy) + tiny
-  local half = math.floor((w - gap) / 2)
-  for i, mode in ipairs(MODES) do
-    local id = mode.id
-    if Kit.chip(x + (i - 1) * (half + gap), cy, half, rowH,
-                Strings(mode.title), tr.mode == id, PAL.lineStrong,
-                "online-trade-pick-" .. id) then
-      LV().queueAction(imp, "online-trade-pick-" .. id, function()
-        OnlinePanel.tradeMode(imp, id)
-      end)
+  if not tr.remote then
+    cy = cy + Ui.label(Strings("Trade with"), x, cy) + tiny
+    local half = math.floor((w - gap) / 2)
+    for i, mode in ipairs(MODES) do
+      local id = mode.id
+      if Kit.chip(x + (i - 1) * (half + gap), cy, half, rowH,
+                  Strings(mode.title), tr.mode == id, PAL.lineStrong,
+                  "online-trade-pick-" .. id) then
+        LV().queueAction(imp, "online-trade-pick-" .. id, function()
+          OnlinePanel.tradeMode(imp, id)
+        end)
+      end
     end
+    cy = cy + rowH + gap
   end
-  cy = cy + rowH + gap
 
   if tr.mode == "remote" then
     cy = cy + remoteTrade(imp, x, cy, w, m)
