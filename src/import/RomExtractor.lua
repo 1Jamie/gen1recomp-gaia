@@ -1871,7 +1871,7 @@ end
 
 function RomExtractor:extractField()
   self:beginStage("Interface artwork")
-  local done, total = 0, 51
+  local done, total = 0, 53
   local function tick()
     done = done + 1
     self:tick("Interface artwork", math.min(done, total), total)
@@ -2199,8 +2199,26 @@ function RomExtractor:extractField()
     "townmap/tiles.png"); tick()
   self:raw1bpp("TownMapCursor", 16, 16,
     "townmap/cursor.png", true); tick()
+  -- engine/items/town_map.asm:296, 150
+  local nestArt, upArrowArt
+  if self.symbols["MonNestIcon"] then
+    self:raw1bpp("MonNestIcon", 8, 8, "townmap/nest.png", true); tick()
+    nestArt = {
+      path = "assets/generated/townmap/nest.png", width = 8, height = 8,
+    }
+  end
+  if self.symbols["TownMapUpArrow"] then
+    self:raw1bpp("TownMapUpArrow", 8, 8, "townmap/up_arrow.png", true); tick()
+    upArrowArt = {
+      path = "assets/generated/townmap/up_arrow.png", width = 8, height = 8,
+    }
+  end
 
   local data = copy(self.manifest.field)
+  if type(data.townMap) == "table" then
+    data.townMap.nest = nestArt
+    data.townMap.upArrow = upArrowArt
+  end
   local adjacency = data.hiddenExtras.trashCans.adjacent
   local converted = {}
   for index, values in pairs(adjacency) do converted[tonumber(index)] = values end

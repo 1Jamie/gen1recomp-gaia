@@ -2,6 +2,7 @@
 -- the other joins by typing that address in.  Direct peer-to-peer over
 -- lua-enet (bundled with LÖVE),  no relay server.
 
+local CodeEntry = require("src.link.CodeEntry")
 local DiscordPresence = require("src.core.DiscordPresence")
 local Font = require("src.render.Font")
 local Handshake = require("src.link.Handshake")
@@ -53,20 +54,28 @@ local PRE_CONNECT_STAGES = { menu = true }
 -- the handshake (a pre-mod guest sends nothing until it hears the mode)
 local HELLO_GRACE = 2
 
--- the joiner edits an IPv4 address as 12 digits (three per octet),
--- prefilled with our own LAN IP so usually only the tail needs changing
-local function ipDigits(ip)
-  local digits = {}
-  local a, b, c, d = (ip or ""):match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  local octets = { tonumber(a) or 192, tonumber(b) or 168,
-                   tonumber(c) or 0, tonumber(d) or 1 }
+LinkState.ADDR_LENGTH = 15
+LinkState.ADDR_CHARSET = "0123456789. "
+
+local ADDR_OPTS = { length = LinkState.ADDR_LENGTH,
+                    charset = LinkState.ADDR_CHARSET }
+
+function LinkState.addrEntry(ip)
+  local seed = ip or "192.168.0.1"
+  if not seed:match("^%d+%.%d+%.%d+%.%d+$") then seed = "192.168.0.1" end
+  local state = CodeEntry.fromText(seed, ADDR_OPTS)
+  state.pos = math.max(1, math.min(ADDR_OPTS.length, #seed))
+  return state
+end
+
+function LinkState.addrText(state)
+  local text = (CodeEntry.text(state):gsub(" ", ""))
+  local octets = { text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$") }
+  if #octets ~= 4 then return nil end
   for _, o in ipairs(octets) do
-    o = math.min(255, o)
-    table.insert(digits, math.floor(o / 100))
-    table.insert(digits, math.floor(o / 10) % 10)
-    table.insert(digits, o % 10)
+    if #o > 3 or tonumber(o) > 255 then return nil end
   end
-  return digits
+  return text
 end
 
 local function openSession(role, connect)
@@ -87,8 +96,7 @@ function LinkState.new(game)
   game.linkSession = true
   self.stage = "menu"
   self.index = 1
-  self.addr = ipDigits(Net.lanIP())
-  self.addrPos = 12 -- the last octet is what usually differs
+  self.addr = LinkState.addrEntry(Net.lanIP())
   self.status = ""
   return self
 end
@@ -249,22 +257,20 @@ function LinkState:update(dt)
   elseif self.stage == "addrEntry" then
     if input:wasPressed("b") then self:exitWith(nil) return end
     if input:wasPressed("up") then
-      self.addr[self.addrPos] = (self.addr[self.addrPos] + 1) % 10
+      CodeEntry.up(self.addr)
     elseif input:wasPressed("down") then
-      self.addr[self.addrPos] = (self.addr[self.addrPos] - 1) % 10
+      CodeEntry.down(self.addr)
     elseif input:wasPressed("left") then
-      self.addrPos = math.max(1, self.addrPos - 1)
+      CodeEntry.left(self.addr)
     elseif input:wasPressed("right") then
-      self.addrPos = math.min(12, self.addrPos + 1)
+      CodeEntry.right(self.addr)
     elseif input:wasPressed("a") then
-      local octets = {}
-      for i = 1, 4 do
-        local base = (i - 1) * 3
-        octets[i] = math.min(255, self.addr[base + 1] * 100
-                                  + self.addr[base + 2] * 10
-                                  + self.addr[base + 3])
+      local address = LinkState.addrText(self.addr)
+      if not address then
+        self.status = Strings("Not an IP address.")
+        return
       end
-      local address = table.concat(octets, ".")
+      self.status = ""
       local session, detail = openSession("guest", function(transport)
         return transport:join(address)
       end)
@@ -597,18 +603,16 @@ function LinkState:draw()
 
   elseif self.stage == "addrEntry" then
     drawTitle("ENTER HOST ADDRESS")
-    for i = 1, 12 do
-      local octet = math.floor((i - 1) / 3) -- 0..3
-      local x = 16 + (i - 1) * 8 + octet * 8 -- gap for the dots
-      Font.draw(tostring(self.addr[i]), x, 64)
-      if i == self.addrPos then
-        Font.drawCode(0xEE, x, 76) -- ▼ under the active digit
+    for i = 1, LinkState.ADDR_LENGTH do
+      local x = 8 + (i - 1) * 8
+      local ch = CodeEntry.charAt(self.addr, i)
+      if ch ~= " " then Font.draw(ch, x, 64) end
+      if i == self.addr.pos then
+        Font.drawCode(0xEE, x, 76)
       end
     end
-    for octet = 1, 3 do
-      Font.draw(".", 16 + octet * 32 - 8, 64)
-    end
-    Font.draw(Strings("Port: %s", Net.defaultPort()), 16, 96)
+    Font.draw(Strings("Port: %s", Net.defaultPort()), 8, 96)
+    if self.status ~= "" then Font.draw(self.status, 8, 112) end
     Font.draw(Strings("A: connect  B: back"), 8, 128)
 
   elseif self.stage == "joining" then

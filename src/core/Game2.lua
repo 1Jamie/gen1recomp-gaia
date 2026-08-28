@@ -173,6 +173,7 @@ function Game2.new()
     options = Save.loadOptions(),
   }, Game2)
   self.save.options = self.options
+  self.sessionStartedAt = os.time()
   anchorNewGameClock(self.save)
   return self
 end
@@ -244,6 +245,7 @@ end
 function Game2:newGame()
   self.save = Save.newGame({ playerName = self.save.player.name })
   self.save.options = self.options
+  self.sessionStartedAt = os.time()
   -- InitClock re-anchors this the moment the player answers Oak; the default
   -- only has to hold for a run that skips the screen.
   anchorNewGameClock(self.save)
@@ -281,6 +283,7 @@ function Game2:continueGame(save)
   SaveData.runMigrations(save, self.mods and self.mods.migrations, activeMods)
   local modsDiff = SaveData.modsDiff(save, activeMods)
   self.save = save
+  self.sessionStartedAt = os.time()
   self:adoptSave(save)
   -- Editor species swaps used to leave mon.name on the previous species.
   -- CONTINUE rewrites party, boxes, and Day-Care copies from the live record.
@@ -882,14 +885,36 @@ function Game2:writeSave()
     return false
   end
   local save = self:snapshotSave()
-  -- The snapshot is complete, so this payload carries exactly the table the
-  -- file gets; mods stash runtime state into their own keys now.  `meta` is
-  -- the Gen 1 key, absent rather than renamed: a Gold save stamps no meta
-  -- block yet (see save.loaded in continueGame).
+  save.meta = SaveData.buildMeta(
+    self.modStatus and self.modStatus.loaded, save.meta, self.sessionStartedAt)
   if ModRuntime.wants("save.writing") then
     ModRuntime.emit("save.writing", { save = save, meta = save.meta })
   end
-  return Save.save(save)
+  local written, err = Save.save(save)
+  if written then
+    local eng = self:syncEngine()
+    if eng then pcall(eng.noteSaveWritten, eng) end
+  end
+  return written, err
+end
+
+function Game2:syncEngine()
+  if self._syncOff then return nil end
+  local eng = self._syncEngineRef
+  if not eng then
+    local ok, SyncEngine = pcall(require, "src.sync.SyncEngine")
+    if not ok or type(SyncEngine) ~= "table" then
+      self._syncOff = true
+      return nil
+    end
+    eng = SyncEngine.shared()
+    if not eng then
+      self._syncOff = true
+      return nil
+    end
+    self._syncEngineRef = eng
+  end
+  return eng
 end
 
 function Game2:load(opts)
@@ -1584,6 +1609,23 @@ function Game2:drawContained(w, h)
   if not ok then error(err, 0) end
 end
 
+local function panelBlit(stack, w, h)
+  local states = stack and stack.states or {}
+  for i = #states, 1, -1 do
+    local state = states[i]
+    if state then
+      if state.battlePanelScale then
+        local scale = state:battlePanelScale(w, h)
+        if scale then return scale, Chrome.fitOrigin(w, h, scale) end
+      end
+      if state.drawsWidescreen and state:drawsWidescreen() then break end
+    end
+  end
+  local scale = Chrome.fitScale(w, h)
+  local ox, oy = Chrome.fitOrigin(w, h, scale)
+  return scale, ox, oy
+end
+
 -- BATTLE BG (#1709): the surround around the centred GB screen, taken from
 -- whichever state in the stack owns a battle.
 function Game2:paintBattleSurround(w, h)
@@ -1595,8 +1637,7 @@ function Game2:paintBattleSurround(w, h)
   end
   if mode ~= "black" then return end
   local G = love.graphics
-  local scale = Chrome.fitScale(w, h)
-  local ox, oy = Chrome.fitOrigin(w, h, scale)
+  local scale, ox, oy = panelBlit(self.stack, w, h)
   local pw, ph = 160 * scale, 144 * scale
   G.setColor(0, 0, 0, 1)
   if oy > 0 then G.rectangle("fill", 0, 0, w, oy) end
@@ -1678,10 +1719,7 @@ function Game2:drawScene(w, h)
       self:paintBattleSurround(w, h)
       self:letterbox(w, h, false)
       if wide ~= top then
-        -- The pushed box blits at the same integer fit the widescreen layer
-        -- used, or it lands on a different grid than the panel underneath it.
-        local scale = Chrome.fitScale(w, h)
-        local ox, oy = Chrome.fitOrigin(w, h, scale)
+        local scale, ox, oy = panelBlit(self.stack, w, h)
         G.push()
         G.translate(ox, oy)
         G.scale(scale, scale)

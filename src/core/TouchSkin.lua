@@ -1352,6 +1352,11 @@ function TouchSkin.pageBox(page, w, h, ox, oy)
   return bx + r.x * bw, by + r.y * bh, r.w * bw, r.h * bh
 end
 
+function TouchSkin.imageFit(iw, ih, w, h)
+  if not iw or not ih or iw <= 0 or ih <= 0 then return nil end
+  return w / iw, h / ih
+end
+
 function TouchSkin.controlGeometry(page, ctl, w, h, ox, oy)
   local bx, by, bw, bh = TouchSkin.pageBox(page, w, h, ox, oy)
   local cx, cy = bx + ctl.x * bw, by + ctl.y * bh

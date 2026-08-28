@@ -103,6 +103,34 @@ function Chrome.positionLift(winW, winH, scale)
     or Chrome.fitScale(winW, winH)), ScreenPosition.safeTop())
 end
 
+-- pokegold engine/battle/core.asm:8646, engine/events/halloffame.asm:270
+local function clipTo(x, y, w, h)
+  local G = love.graphics
+  if G.intersectScissor then G.intersectScissor(x, y, w, h)
+  else G.setScissor(x, y, w, h) end
+end
+
+function Chrome.withPanel(winW, winH, r, g, b, drawFn, scale)
+  local G = love.graphics
+  Chrome.letterbox(winW, winH, r, g, b)
+  scale = scale or Chrome.fitScale(winW, winH)
+  local ox, oy = Chrome.fitOrigin(winW, winH, scale)
+  G.push("all")
+  clipTo(ox, oy, Chrome.SCREEN_W * 8 * scale, Chrome.SCREEN_H * 8 * scale)
+  G.translate(ox, oy)
+  G.scale(scale, scale)
+  drawFn()
+  G.pop()
+end
+
+function Chrome.withClip(drawFn)
+  local G = love.graphics
+  G.push("all")
+  clipTo(0, 0, Chrome.SCREEN_W * 8, Chrome.SCREEN_H * 8)
+  drawFn()
+  G.pop()
+end
+
 Chrome.DEFAULT_BOX_PALETTE = {
   { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 0, 0, 0 },
 }

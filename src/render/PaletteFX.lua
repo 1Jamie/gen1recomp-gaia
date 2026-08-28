@@ -787,6 +787,9 @@ end
 -- leaves the original.
 PaletteFX.DARK_BGP = { [0] = 2, [1] = 3, [2] = 3, [3] = 3 }
 
+-- engine/gfx/screen_effects.asm:1-12
+PaletteFX.POISON_BGP = { [0] = 2, [1] = 1, [2] = 2, [3] = 3 }
+
 local shadeMap = nil
 
 function PaletteFX.setShadeMap(map)

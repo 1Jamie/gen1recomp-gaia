@@ -29,6 +29,9 @@ local data = {
   maps = loadfile("data/generated/maps.lua")(),
   eventFlags = loadfile("src/save_convert/data/event_flags.lua")(),
 }
+-- home/overworld.asm:2016 (#1691)
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+for mapId in pairs(data.maps) do stampMapWindow(data, mapId) end
 
 -- Independent re-implementation of CalcCheckSum (complement of the additive
 -- byte sum) so the export scenarios below can verify all three SRAM checksums

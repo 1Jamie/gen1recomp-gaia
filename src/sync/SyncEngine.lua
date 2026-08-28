@@ -13,6 +13,16 @@ SyncEngine.MAX_STEPS_PER_UPDATE = 8
 local IDLE_STATUS = "Ready"
 local UNLINKED_STATUS = "Not set up"
 
+local function unixSeconds(v)
+  local n = tonumber(v)
+  if not n or n ~= n or n <= 0 or n == math.huge or n == -math.huge then
+    return nil
+  end
+  return n
+end
+
+SyncEngine.unixSeconds = unixSeconds
+
 local function saveApi()
   return require("src.core.SaveData")
 end
@@ -56,8 +66,9 @@ function SyncEngine.defaultSaves()
                   playthroughId = id,
                   blob = source,
                   meta = {
-                    savedAt = tonumber(meta.savedAt),
-                    sessionStart = tonumber(meta.sessionStart),
+                    savedAt = unixSeconds(meta.savedAt)
+                      or unixSeconds(save.savedAt),
+                    sessionStart = unixSeconds(meta.sessionStart),
                     playthroughId = id,
                     format = meta.format,
                     engine = meta.engine,
@@ -110,8 +121,8 @@ end
 
 function SyncEngine.overlaps(a, b)
   if type(a) ~= "table" or type(b) ~= "table" then return false end
-  local aStart, aEnd = tonumber(a.sessionStart), tonumber(a.savedAt)
-  local bStart, bEnd = tonumber(b.sessionStart), tonumber(b.savedAt)
+  local aStart, aEnd = unixSeconds(a.sessionStart), unixSeconds(a.savedAt)
+  local bStart, bEnd = unixSeconds(b.sessionStart), unixSeconds(b.savedAt)
   if not (aStart and aEnd and bStart and bEnd) then return false end
   return aStart <= bEnd and bStart <= aEnd
 end
@@ -135,7 +146,7 @@ local function playedMinutes(meta)
     if hours then return tonumber(hours) * 60 + tonumber(minutes) end
   end
   local seconds = tonumber(meta.playTime)
-  if seconds then return math.floor(seconds / 60) end
+  if seconds and seconds > 0 then return math.floor(seconds / 60) end
   return nil
 end
 
@@ -144,6 +155,26 @@ end
 function SyncEngine.samePlaytime(a, b)
   local left, right = playedMinutes(a), playedMinutes(b)
   return left ~= nil and left == right
+end
+
+function SyncEngine.sameProgress(a, b)
+  if SyncEngine.samePlaytime(a, b) then return true end
+  if type(a) ~= "table" or type(b) ~= "table" then return false end
+  local left = type(a.summary) == "table" and a.summary or nil
+  local right = type(b.summary) == "table" and b.summary or nil
+  if not (left and right) then return false end
+  if type(left.name) ~= "string" or left.name == "" then return false end
+  return left.name == right.name and left.badges == right.badges
+    and left.timeText == right.timeText and left.dexCount == right.dexCount
+end
+
+function SyncEngine.displayMeta(meta)
+  if type(meta) ~= "table" then return meta end
+  local out = {}
+  for k, v in pairs(meta) do out[k] = v end
+  out.savedAt = unixSeconds(meta.savedAt)
+  out.sessionStart = unixSeconds(meta.sessionStart)
+  return out
 end
 
 function SyncEngine.new(opts)
@@ -383,19 +414,20 @@ function SyncEngine:unlink()
     self:_forgetLocal()
     return true
   end
-  if self:busy() then return false, "sync is busy" end
+  if self:busy() then self:cancel() end
   self.phase = "checking"
   self.status = "Unlinking this device..."
   self.error = nil
   local handle, err = self.client:unlink(self.state.deviceId)
+  if not handle then
+    self:_forgetLocal()
+    return true
+  end
   return self:_request(handle, err, function(eng)
     eng:_forgetLocal()
-  end, function(eng, res)
-    if res.code == 401 or res.code == 404 then
-      eng:_forgetLocal()
-      return true
-    end
-    return false
+  end, function(eng)
+    eng:_forgetLocal()
+    return true
   end)
 end
 
@@ -479,15 +511,20 @@ function SyncEngine:_planFrom(remoteState)
       seen[key] = true
       local row = remote[key]
       local knownRev = SyncState.rev(self.state, key)
-      local stamp = SyncState.stamp(self.state, key)
-      local localChanged = stamp == nil
-        or tonumber(entry.meta and entry.meta.savedAt) ~= stamp
+      local stamp = unixSeconds(SyncState.stamp(self.state, key))
+      local liveStamp = unixSeconds(entry.meta and entry.meta.savedAt)
+      local localChanged
+      if liveStamp == nil and stamp == nil then
+        localChanged = knownRev == nil
+      else
+        localChanged = liveStamp ~= stamp
+      end
       local remoteRev = row and tonumber(row.rev)
       local remoteChanged = row ~= nil and remoteRev ~= knownRev
       if not row then
         self:_queueUpload(entry, key, false)
       elseif localChanged and remoteChanged then
-        if SyncEngine.samePlaytime(entry.meta, SyncEngine.metaOf(row)) then
+        if SyncEngine.sameProgress(entry.meta, SyncEngine.metaOf(row)) then
           self:_queueUpload(entry, key, true)
         else
           self:_addConflict(entry, key, row)
@@ -511,14 +548,14 @@ function SyncEngine:_planFrom(remoteState)
 end
 
 function SyncEngine:_addConflict(entry, key, row)
-  local remoteMeta = SyncEngine.metaOf(row)
+  local remoteMeta = SyncEngine.displayMeta(SyncEngine.metaOf(row))
   self.conflicts[#self.conflicts + 1] = {
     key = key,
     version = entry.version,
     playthroughId = entry.playthroughId,
     slot = entry.slot,
     entry = entry,
-    localMeta = entry.meta,
+    localMeta = SyncEngine.displayMeta(entry.meta),
     remoteMeta = remoteMeta,
     remoteRev = tonumber(row.rev),
     overlap = SyncEngine.overlaps(entry.meta, remoteMeta),
@@ -551,7 +588,7 @@ function SyncEngine:_queueUpload(entry, key, force)
     eng:_request(handle, err, function(e, res)
       local data = res.data or {}
       SyncState.setRev(e.state, key, tonumber(data.rev),
-        entry.meta and entry.meta.savedAt)
+        unixSeconds(entry.meta and entry.meta.savedAt))
       e:_persist()
       if not e:busy() then e:_finish() end
     end, function(e, res)
@@ -560,7 +597,7 @@ function SyncEngine:_queueUpload(entry, key, force)
         -- Retried with force only once: a forced write that still 409s is a
         -- real refusal, and retrying it would spin.
         if not force
-            and SyncEngine.samePlaytime(entry.meta, SyncEngine.metaOf(row)) then
+            and SyncEngine.sameProgress(entry.meta, SyncEngine.metaOf(row)) then
           e:_queueUpload(entry, key, true)
         else
           e:_addConflict(entry, key, row)
@@ -592,7 +629,7 @@ function SyncEngine:_queueDownload(key, version, playthroughId, mode, knownRev)
       if mode ~= "new" then
         local meta = type(data.meta) == "table" and data.meta or {}
         SyncState.setRev(e.state, key, tonumber(data.rev) or knownRev,
-          tonumber(meta.savedAt))
+          unixSeconds(meta.savedAt))
       end
       e:_persist()
       if not e:busy() then e:_finish() end

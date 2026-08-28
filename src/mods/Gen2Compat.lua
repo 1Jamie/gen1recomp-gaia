@@ -1942,8 +1942,9 @@ COVERAGE["src.battle.BattleState"] = {
       .. "takes its native safari path when it finds one",
     openParty = "Gold's takes a `forced` argument Gen 1's does not; a wrap "
       .. "must forward ... faithfully rather than normalising it away",
-    wantsFillScale = "returns TRUE unconditionally on Gold, which reads as "
-      .. "\"the player chose FILL\" and is not a choice at all",
+    wantsFillScale = "reads OPTION -> BATTLE SIZE (#1709), same fixed/fill "
+      .. "key as Gen 1; Gold has no WIDE layout, so FILL is the scale of the "
+      .. "160x144 panel and nothing more",
     swapMoves = "no disabled-slot migration and no sfx on Gold",
     sides = "self.battle.sides is the same { index, battlers, screens, "
       .. "hazards, tokens } shape, with the same index-1-is-player rule",

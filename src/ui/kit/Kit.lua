@@ -720,14 +720,16 @@ function Kit.button(x, y, w, h, label, opts)
     strokeA = invert and Theme.A.focus or Theme.A.hairline
     doRing = focused and not hot
   elseif face == "tab" then
-    invert = active or focused or hot
+    invert = active and true or false
     local tint = opts.color or opts.fill or PAL.ink
     fill = invert and tint or PAL.surface
     ink = invert and PAL.inverse or (opts.color or PAL.text)
     if not invert then
       stroke = tint
-      strokeA = opts.color and Theme.A.hover or Theme.A.hairline
+      strokeA = (focused or hot) and Theme.A.focus
+        or (opts.color and Theme.A.hover or Theme.A.hairline)
     end
+    doRing = focused or hot
   elseif face == "chip" then
     local c = opts.color or PAL.line
     invert = active and true or false

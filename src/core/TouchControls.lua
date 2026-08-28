@@ -779,19 +779,12 @@ local function drawIcon(img, zone, pressed, alphaMul)
                      zone.cy - img:getHeight() * scale / 2, 0, scale, scale)
 end
 
-local function drawCovered(img, x, y, w, h, alpha)
+local function drawOverlayImage(img, x, y, w, h, alpha)
   if not img or alpha <= 0 then return end
-  local iw, ih = img:getWidth(), img:getHeight()
-  if iw <= 0 or ih <= 0 then return end
-  -- Cover the assigned box with one uniform scale and crop the excess.  The
-  -- old independent X/Y scale made portrait art visibly squash on wide
-  -- displays (and vice versa).
-  local s = math.max(w / iw, h / ih)
-  local dw, dh = iw * s, ih * s
+  local sx, sy = TouchSkin.imageFit(img:getWidth(), img:getHeight(), w, h)
+  if not sx then return end
   love.graphics.setColor(1, 1, 1, math.min(1, alpha))
-  love.graphics.setScissor(x, y, w, h)
-  love.graphics.draw(img, x + (w - dw) * 0.5, y + (h - dh) * 0.5, 0, s, s)
-  love.graphics.setScissor()
+  love.graphics.draw(img, x, y, 0, sx, sy)
 end
 
 function TouchControls:drawSkin(alphaMul)
@@ -803,7 +796,7 @@ function TouchControls:drawSkin(alphaMul)
 
   love.graphics.push("all")
   love.graphics.origin()
-  drawCovered(page.image, bx, by, bw, bh, opacity)
+  drawOverlayImage(page.image, bx, by, bw, bh, opacity)
 
   local pressed = {}
   for _, touch in pairs(self.touches or {}) do
@@ -818,7 +811,7 @@ function TouchControls:drawSkin(alphaMul)
         TouchSkin.controlGeometry(page, ctl, ww, wh, sox, soy)
       local alpha = opacity
       if down and not ctl.pressedImage then alpha = opacity * ctl.alphaMod end
-      drawCovered(img, cx - halfW, cy - halfH, halfW * 2, halfH * 2, alpha)
+      drawOverlayImage(img, cx - halfW, cy - halfH, halfW * 2, halfH * 2, alpha)
     end
   end
 

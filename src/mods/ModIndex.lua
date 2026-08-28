@@ -880,6 +880,42 @@ function ModIndex.fetchText(url)
   return ModIndex.httpGet(url)
 end
 
+function ModIndex.beginFetchText(url)
+  local h = { url = url, stage = "start" }
+  if type(url) ~= "string" or url == "" then
+    h.stage, h.err = "done", "no description"
+  end
+  return h
+end
+
+function ModIndex.pumpFetchText(h)
+  if not h then return true, nil, "no handle" end
+  if h.stage == "done" then return true, h.body, h.err end
+  local Fetch = require("src.net.Fetch")
+  if h.stage == "start" then
+    h.job = Fetch.get(h.url, { userAgent = "gen1recomp-mod-index" })
+    h.stage = "fetching"
+    return false
+  end
+  local st = Fetch.poll(h.job)
+  if st.status == "pending" then return false end
+  Fetch.release(h.job)
+  h.job, h.stage = nil, "done"
+  if st.status == "ok" and type(st.body) == "string" and st.body ~= "" then
+    h.body = st.body
+    return true, h.body
+  end
+  h.err = st.err or "description fetch failed"
+  return true, nil, h.err
+end
+
+function ModIndex.cancelFetchText(h)
+  if not h or not h.job then return end
+  local Fetch = require("src.net.Fetch")
+  pcall(Fetch.cancel, h.job)
+  h.job, h.stage = nil, "done"
+end
+
 -- Download a thumbnail into the save directory and return the love.filesystem
 -- relative path.  Reuses ModUpdate.downloadZip, which is a plain curl -o with
 -- a non-empty-file check -- nothing in it is zip-specific.

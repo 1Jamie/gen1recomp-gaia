@@ -3,12 +3,10 @@
 -- COIN CASE: IsItemInBag COIN_CASE first, and with no case it prints
 -- RequireCoinCaseText and returns without ever opening a window; only with the
 -- case does it print ExchangeCoinsForPrizesText and then show the prize list.
--- The port used to open "PRIZES (COINS)" unconditionally with no intro line.
 --
 -- The three prize counters are bg-event signs at cells (2,2),(4,2),(6,2) in
 -- GAME_CORNER_PRIZE_ROOM (data/generated/maps.lua).  Stand south of vendor 1
--- and press A: no-case -> require box and NO list; has-case -> exchange box,
--- then the prize list; cancel returns to the overworld (onCancel == done).
+-- and press A: no-case -> require box and NO list; has-case -> exchange box.
 --
 --   SHOT_DIR=/tmp/prize194 POKEPORT_IDENTITY=bug194 POKEPORT_TOUCH=0 \
 --     POKEPORT_DRIVER=tests/drivers/prize_room_coincase_bug194_test.lua love .
@@ -20,7 +18,7 @@ return function(game)
 
   local Pokemon = require("src.pokemon.Pokemon")
   local TextBox = require("src.render.TextBox")
-  local ListMenu = require("src.ui.ListMenu")
+  local PrizeCounter = require("src.ui.PrizeCounter")
 
   -- a party so nothing else blocks overworld interaction
   game.save.party = { Pokemon.new(game.data, "BULBASAUR", 5) }
@@ -102,19 +100,27 @@ return function(game)
   assert(sawExchange,
     "has-case: 'We exchange your coins for prizes.' never shown (#194)")
 
-  -- advance past the exchange line; the prize list must then open
   local sawList = false
   for _ = 1, 60 do
-    if topMeta() == ListMenu then sawList = true break end
+    if topMeta() == PrizeCounter then sawList = true break end
     U.tap(game, "a")
     U.wait(1)
   end
-  U.log("has-case: sawList", sawList, "title",
-        (sawList and game.stack:top().title) or "-")
+  U.log("has-case: sawList", sawList, "rows",
+        (sawList and #game.stack:top().prizes) or "-")
   U.shot(game, DIR .. "/prize_room_3_menu.png")
-  assert(sawList, "has-case: prize ListMenu never opened after exchange text")
-  assert(game.stack:top().title == "PRIZES (COINS)",
-    "has-case: opened list is not the prize window")
+  assert(sawList, "has-case: prize window never opened after exchange text")
+  local under = game.stack.states[#game.stack.states - 1]
+  assert(getmetatable(under) == TextBox,
+    "has-case: WhichPrizeText should stay in the box under the window")
+  U.log("has-case: names",
+        table.concat({ game.stack:top().prizes[1].name,
+                       game.stack:top().prizes[2].name,
+                       game.stack:top().prizes[3].name }, ", "))
+  for _, row in ipairs(game.stack:top().prizes) do
+    assert(not tostring(row.name):find("L%d"),
+      "has-case: prize names carry no level (GetMonName only)")
+  end
 
   -- cancel returns to the overworld (onCancel == done)
   U.tap(game, "b")

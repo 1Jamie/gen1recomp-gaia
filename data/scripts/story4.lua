@@ -391,30 +391,84 @@ local DRINK_PRICES = {
   { id = "LEMONADE", price = 350 },
 }
 
+-- engine/events/vending_machine.asm:56-65
+local function deliveryRumble(game, onDone)
+  local left, wait = 60, 2
+  return {
+    draw = function() end,
+    update = function(self)
+      wait = wait - 1
+      if wait > 0 then return end
+      wait = 2
+      require("src.core.Sound").play(game.data, "Push_Boulder")
+      left = left - 1
+      if left <= 0 then
+        game.stack:pop()
+        onDone()
+      end
+    end,
+  }
+end
+
+-- engine/events/vending_machine.asm
 local function vendingMachine(game, ow, npc, done)
-  local ListMenu = require("src.ui.ListMenu")
+  local t = text(game)
+  local Menu = require("src.ui.Menu")
+  local Font = require("src.render.Font")
+  local money = function() return game.save.money end
+  local function closeSession(msg, menuPopped)
+    if not menuPopped then game.stack:pop() end
+    game.stack:pop()
+    push(game, msg, done, { money = money })
+  end
+  local function notThirsty()
+    closeSession(t._VendingMachineText7 or "Not thirsty!", true)
+  end
+  local function buy(d)
+    if game.save.money < d.price then
+      closeSession(t._VendingMachineText4 or "Oops, not enough\nmoney!")
+      return
+    end
+    if not require("src.inventory.Bag").add(game.save, d.id, 1, game.data) then
+      closeSession(t._VendingMachineText6 or "There's no more\nroom for stuff!")
+      return
+    end
+    game.stack:push(deliveryRumble(game, function()
+      game.save.money = game.save.money - d.price
+      closeSession(fill(t._VendingMachineText5
+                        or "{RAM:wStringBuffer}\npopped out!",
+                        { ram = game.data.items[d.id].name }))
+    end))
+  end
   local items = {}
   for _, d in ipairs(DRINK_PRICES) do
-    table.insert(items, {
-      value = d, label = ("%s ¥%d"):format(game.data.items[d.id].name, d.price),
-    })
+    items[#items + 1] = {
+      label = game.data.items[d.id].name,
+      keepOpen = true,
+      onSelect = function() buy(d) end,
+    }
   end
-  game.stack:push(ListMenu.new(game, "VENDING MACHINE", items, {
-    onChoose = function(item, list)
-      local d = item.value
-      if game.save.money < d.price then
-        push(game, "Not enough\nmoney.")
-        return
-      end
-      if not require("src.inventory.Bag").add(game.save, d.id, 1) then
-        push(game, "You have no room\nfor it!")
-        return
-      end
-      game.save.money = game.save.money - d.price
-      push(game, ("%s\npopped out!"):format(game.data.items[d.id].name))
-    end,
-    onCancel = done,
-  }))
+  items[#items + 1] = { label = "CANCEL", onSelect = notThirsty }
+  push(game, t._VendingMachineText1 or "A vending machine!\nHere's the menu!",
+    nil, {
+      money = money,
+      stay = { prompt = true, onShown = function()
+        local menu = Menu.new(game, items, {
+          tx = 0, ty = 3, tw = 14, th = 10, itemY = 2,
+          noWrap = true,
+          onCancel = notThirsty,
+        })
+        menu.draw = function(self)
+          Menu.draw(self)
+          love.graphics.setColor(0, 0, 0, 1)
+          for i, d in ipairs(DRINK_PRICES) do
+            Font.draw(("¥%d"):format(d.price), 9 * 8, (6 + (i - 1) * 2) * 8)
+          end
+          love.graphics.setColor(1, 1, 1, 1)
+        end
+        game.stack:push(menu)
+      end },
+    })
 end
 
 -- drink -> TM (CeladonMartRoof.asm .gaveFreshWater/.gaveSodaPop/

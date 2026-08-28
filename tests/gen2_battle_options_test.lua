@@ -65,6 +65,11 @@ check("the default surround is the cart's paper white",
 check("and a fresh options table carries it",
   Save.defaultOptions().battleBg, "white")
 
+check("the default battle size is the whole-pixel blit",
+  Save.DEFAULT_OPTIONS.battleFit, "fixed")
+check("and a fresh options table carries that too",
+  Save.defaultOptions().battleFit, "fixed")
+
 -- --------------------------------------------------------------- the row
 
 local function rowNamed(label)
@@ -82,10 +87,25 @@ if bgRow then
   check("stored lowercase, shown WHITE", bgRow.display.white, "WHITE")
   check("and BLACK", bgRow.display.black, "BLACK")
   -- Appended at the tail, so nothing the other suites index by position moves.
-  check("it follows MAX FPS", OptionsMenu.ROWS[bgIndex - 1].label, "MAX FPS")
+  check("it follows BATTLE SIZE",
+    OptionsMenu.ROWS[bgIndex - 1].label, "BATTLE SIZE")
   check("and CANCEL still ends the list",
     OptionsMenu.ROWS[bgIndex + 1].cancel, true)
   check("CANCEL is last", bgIndex + 1, #OptionsMenu.ROWS)
+end
+
+local sizeIndex, sizeRow = rowNamed("BATTLE SIZE")
+check("OPTION has a BATTLE SIZE row", sizeRow ~= nil, true)
+if sizeRow then
+  check("it edits battleFit", sizeRow.key, "battleFit")
+  check("it is a port row, not one of the cart's seven", sizeRow.port, true)
+  check("FIXED and FILL are the whole ladder", #sizeRow.values, 2)
+  check("stored lowercase, shown FIXED", sizeRow.display.fixed, "FIXED")
+  check("and FILL, padded to the value column",
+    sizeRow.display.fill, "FILL ")
+  check("it follows MAX FPS",
+    OptionsMenu.ROWS[sizeIndex - 1].label, "MAX FPS")
+  check("BATTLE BG comes straight after it", sizeIndex + 1, bgIndex)
 end
 check("the cart's rows are unmoved", OptionsMenu.ROWS[7].key, "frame")
 check("the rebind screen is unmoved", OptionsMenu.ROWS[8].id, "controls")
@@ -113,6 +133,25 @@ if built then
   check("and back", menu.options.battleBg, "white")
 end
 
+local builtFit
+for _, row in ipairs(menu.rows) do
+  if row.key == "battleFit" then builtFit = row end
+end
+check("buildRows keeps BATTLE SIZE", builtFit ~= nil, true)
+if builtFit then
+  check("and gives it the mod-facing id battleFit", builtFit.id, "battleFit")
+  check("the menu starts on FIXED", menu.options.battleFit, "fixed")
+  menu:cycle(builtFit, 1)
+  check("right stores fill, not the display string",
+    menu.options.battleFit, "fill")
+  menu:cycle(builtFit, 1)
+  check("right again wraps to fixed", menu.options.battleFit, "fixed")
+  menu:cycle(builtFit, -1)
+  check("left walks the ladder the other way", menu.options.battleFit, "fill")
+  menu:cycle(builtFit, -1)
+  check("and back", menu.options.battleFit, "fixed")
+end
+
 -- ------------------------------------------------------ the launcher gear
 
 local model = LauncherSettings.open(nil, "gold")
@@ -132,6 +171,25 @@ if gearRow then
   check("and the row reads BLACK", gearRow.value(), "BLACK")
   gearRow.step(1)
   check("stepping again returns to white", model.opts.gold.battleBg, "white")
+end
+
+local gearSize
+for _, section in ipairs(model.sections) do
+  for _, row in ipairs(section.rows) do
+    if row.label == "BATTLE SIZE" then gearSize = row end
+  end
+end
+check("the gold gear offers BATTLE SIZE", gearSize ~= nil, true)
+if gearSize then
+  model.opts.gold.battleFit = nil
+  check("an options.lua with no battleFit reads FIXED", gearSize.value(),
+    "FIXED")
+  gearSize.step(1)
+  check("stepping writes the gold block, not the flat Gen 1 one",
+    model.opts.gold.battleFit, "fill")
+  check("and the row reads FILL", gearSize.value(), "FILL")
+  gearSize.step(1)
+  check("stepping again returns to fixed", model.opts.gold.battleFit, "fixed")
 end
 
 -- ---------------------------------------------------------- the battle end
@@ -199,8 +257,8 @@ check("the overworld alone paints nothing",
 check("a party menu over the battle still finds the battle's mode",
   #paint({ overworld, blackBattle, plainMenu }, 1024, 768), 4)
 
-local function panelSafe(states, w, h, label)
-  local scale = Chrome.fitScale(w, h)
+local function panelSafe(states, w, h, label, scale)
+  scale = scale or Chrome.fitScale(w, h)
   local ox, oy = Chrome.fitOrigin(w, h, scale)
   local pw, ph = 160 * scale, 144 * scale
   local rects = paint(states, w, h)
@@ -218,7 +276,8 @@ local function panelSafe(states, w, h, label)
   -- a black frame eating the HUD or the message box, and any shortfall is a
   -- strip of white left behind on one edge.
   check(label .. ": no band touches the battle panel", overlap, 0)
-  check(label .. ": the void is covered edge to edge", covered, w * h - pw * ph)
+  check(label .. ": the void is covered edge to edge",
+    math.abs(covered - (w * h - pw * ph)) < 1, true)
   check(label .. ": every band is black", offColour, 0)
 end
 
@@ -240,6 +299,44 @@ ScreenPosition.setMode("center")
 -- not wrap around to the far edge on the negative origin.
 check("nothing to paint under 160x144", #paint({ blackBattle }, 100, 90), 0)
 
+local wantsFill = BattleState.wantsFillScale
+check("the Gold battle screen answers wantsFillScale", type(wantsFill),
+  "function")
+if type(wantsFill) == "function" then
+  check("FILL asks for the fill scale",
+    wantsFill({ game = { options = { battleFit = "fill" } } }), true)
+  check("FIXED does not",
+    wantsFill({ game = { options = { battleFit = "fixed" } } }), false)
+  check("nor does an options table that predates the key",
+    wantsFill({ game = { options = {} } }), false)
+  check("nor a screen with no game at all", wantsFill({}), false)
+end
+
+check("FIXED is the integer fit", BattleState.panelScale(1280, 840, false),
+  Chrome.fitScale(1280, 840))
+check("FILL is min(w/160, h/144)", BattleState.fillScale(1280, 840), 840 / 144)
+check("and FILL is not the integer fit here",
+  BattleState.fillScale(1280, 840) ~= Chrome.fitScale(1280, 840), true)
+check("FILL never goes below one whole pixel",
+  BattleState.fillScale(100, 90), 1)
+
+local fillBattle = {
+  bgMode = function() return "black" end,
+  battlePanelScale = function(_, w, h) return BattleState.fillScale(w, h) end,
+}
+for _, size in ipairs({ { 1280, 840 }, { 1366, 768 }, { 1024, 768 } }) do
+  panelSafe({ fillBattle }, size[1], size[2],
+    ("fill %dx%d"):format(size[1], size[2]),
+    BattleState.fillScale(size[1], size[2]))
+  panelSafe({ fillBattle, plainMenu }, size[1], size[2],
+    ("fill under a menu %dx%d"):format(size[1], size[2]),
+    BattleState.fillScale(size[1], size[2]))
+end
+
+local widescreenMenu = { drawsWidescreen = function() return true end }
+panelSafe({ fillBattle, widescreenMenu }, 1280, 840,
+  "a widescreen menu over a fill battle", Chrome.fitScale(1280, 840))
+
 -- ----------------------------------------------------- the call site
 --
 -- Constructing a Game2 needs love, so where the paint is called from is read
@@ -253,6 +350,9 @@ check("Game2's source is readable", source ~= nil, true)
 if source then
   check("drawScene repaints straight after the widescreen layer",
     source:find("wide:drawWidescreen%(w, h%)%s*self:paintBattleSurround%(w, h%)")
+      ~= nil, true)
+  check("the overlay blit shares the battle's panel scale",
+    source:find("local scale, ox, oy = panelBlit%(self%.stack, w, h%)")
       ~= nil, true)
 end
 

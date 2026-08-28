@@ -417,8 +417,9 @@ local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, ac
     end
   end
   if (Kit.press(x, y, w, h) or Kit._activateId == key) then
+    local osk = false
     if Kit.VirtualKeyboard then
-      Kit.VirtualKeyboard.open({
+      osk = Kit.VirtualKeyboard.open({
         text = text,
         targetId = key,
         title = placeholder or "Enter Text",
@@ -435,14 +436,14 @@ local function textField(imp, x, y, w, h, key, rawText, placeholder, focused, ac
             elseif imp._settingsText and key:find("settext") then
               imp._settingsText.text = newText
             elseif imp.tab == "find" then
-              imp._findQuery = newText
+              imp.findQuery = newText
               if imp._refreshFind then imp:_refreshFind() end
             end
           end
         end
-      })
+      }) and true or false
     end
-    if action then
+    if action and not osk then
       queueAction(imp, key, action)
     end
   end
@@ -1387,6 +1388,7 @@ local function headerChrome(imp)
         local g = currentGame(imp)
         if imp.tab == g.id then
           imp._gamePopup = true
+          Kit.setFocus("gamepop-" .. g.id)
         else
           imp:_switchTab(g.id)
         end
@@ -1514,10 +1516,8 @@ local function buildHeader(imp, m)
   chrome0.game.active = imp.tab == game.id
   local gameHot = Kit.hover(tx, ty, dropW, tabH)
   local gameDown = gameHot and Kit.mouseDown
-  -- face "tab" inverts on hover as well as when active, so the caret has to
-  -- flip with it or it vanishes into the cartridge colour
-  local gameInvert = chrome0.game.active or gameHot
-  chrome0.game.ring = gameHot and not chrome0.game.active or nil
+  local gameInvert = chrome0.game.active
+  chrome0.game.ring = nil
   btn(imp, tx, ty, dropW, tabH, "tab-game", "", chrome0.game)
   do
     local cw = math.floor(7 * m.s)
@@ -5892,9 +5892,15 @@ local function buildModals(imp, m)
     local ModUpdate = require("src.mods.ModUpdate")
     local d = imp._findDetails
     local body = ModUpdate.cleanBody(d.body or "", 0)
-    if body == "" then body = Strings("(No description.)") end
+    if body == "" then
+      body = d.loading and Strings("Loading description...")
+        or Strings("(No description.)")
+    end
     buildTextModal(imp, m, "find-details", d.title, body,
-      function() imp._findDetails = nil end)
+      function()
+        imp._findDetails = nil
+        if imp._cancelFindDetails then imp:_cancelFindDetails() end
+      end)
     return true
   end
   if imp._modVersions then buildVersionsModal(imp, m) return true end
@@ -5953,10 +5959,8 @@ local function drawPadCursor(imp)
       or (Kit.VirtualKeyboard and Kit.VirtualKeyboard.active) then
     return
   end
-  -- Pixel-snap on NX: subpixel polygon edges shimmer on the 720p Switch
-  -- framebuffer when the stick advances by fractional pixels each frame.
   local x, y = imp._padCursor.x, imp._padCursor.y
-  if imp.isNX then
+  if imp._consolePointerHost and imp:_consolePointerHost() then
     x, y = math.floor(x + 0.5), math.floor(y + 0.5)
   end
   love.graphics.push("all")

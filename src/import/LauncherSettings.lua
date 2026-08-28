@@ -675,6 +675,9 @@ local function gen2Rows(opts, hooks, shared)
       end)
   end
 
+  add(Strings("BATTLE SIZE"), ladder(opts, "battleFit",
+    { { "fixed", "FIXED" }, { "fill", "FILL" } }, "fixed"))
+
   -- BATTLE BG (#1709): the WHITE/BLACK pair Gold's battle screen honours.
   add(Strings("BATTLE BG"), ladder(opts, "battleBg",
     { { "white", "WHITE" }, { "black", "BLACK" } }, "white"))

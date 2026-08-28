@@ -28,6 +28,7 @@ FIELDS = [
     "wKeyItems", "wNumBalls", "wBalls", "wTMsHMs", "wPokedexCaught",
     "wPokedexSeen", "wCurBox", "wBoxNames", "wMapGroup", "wMapNumber",
     "wXCoord", "wYCoord", "wEventFlags", "wPlayerState",
+    "wStatusFlags", "wStatusFlags2", "wPokegearFlags",
     "wGameTimeHours", "wGameTimeMinutes",
 ]
 GUARDS = ["sCheckValue1", "sCheckValue2", "sChecksum", "sGameData", "sGameDataEnd"]

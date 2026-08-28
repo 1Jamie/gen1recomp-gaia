@@ -26,3 +26,4 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Pokémon Crystal** as an importable, launcher-selectable version alongside Gold and Silver
 * **Mod manager** with Gen 1 mod adapters, per-game targeting, and `modkit gen2check`
 * **Followers** for mods, plus Gen 2-only registries and hooks
+* **Battle screen options** on Gold, Silver and Crystal: BATTLE SIZE (fixed or window-filling) and BATTLE BG (white or black surround)

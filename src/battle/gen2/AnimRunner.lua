@@ -457,9 +457,14 @@ function Runner:step()
     if first and first.index ~= 0 then first.yOffset = self.bg.rolloutYOffset end
   end
   if self.stopped then
-    -- BattleAnim_ClearOAM: unless the script asked to keep them, every object
-    -- goes at the end.
-    if not self.keepSprites then self.objects.oam = {} end
+    -- engine/battle_anims/anim_commands.asm:213
+    if not self.keepSprites then
+      self.objects.oam = {}
+    else
+      for _, obj in ipairs(self.objects.oam) do
+        obj.palette = "PAL_BATTLE_OB_ENEMY"
+      end
+    end
     return false
   end
   return true

@@ -172,7 +172,7 @@ end
 -- One reusable quad, re-aimed per scanline.  A row shifted by `dx` is drawn
 -- CLIPPED to the 160-pixel screen rather than allowed to hang over the edge:
 -- the cart's BG map wraps, so a scrolled scanline never spills past the LCD.
-function BattleAnimView:blitRow(row, dx, dy)
+function BattleAnimView:blitRowAt(srcRow, destRow, dx)
   local canvas = self.canvas
   if not self.blitQuad then
     self.blitQuad = love.graphics.newQuad(0, 0, SCREEN_W, 1, SCREEN_W, SCREEN_H)
@@ -184,8 +184,12 @@ function BattleAnimView:blitRow(row, dx, dy)
     srcX, width, destX = -dx, SCREEN_W + dx, 0
   end
   if width <= 0 then return end
-  self.blitQuad:setViewport(srcX, row, width, 1, SCREEN_W, SCREEN_H)
-  love.graphics.draw(canvas, self.blitQuad, destX, row + dy)
+  self.blitQuad:setViewport(srcX, srcRow, width, 1, SCREEN_W, SCREEN_H)
+  love.graphics.draw(canvas, self.blitQuad, destX, destRow)
+end
+
+function BattleAnimView:blitRow(row, dx, dy)
+  self:blitRowAt(row, row + dy, dx)
 end
 
 -- Draw the battle panel into the blit canvas, optionally with an rBGP byte
@@ -207,7 +211,10 @@ function BattleAnimView:bake(drawBg, palByte)
   end
   local previousCanvas = G.getCanvas()
   local previousBgp = GbcPalette.setBgp(palByte)
+  local sx, sy, sw, sh
+  if G.getScissor then sx, sy, sw, sh = G.getScissor() end
   G.setCanvas(self.canvas)
+  G.setScissor()
   G.clear(0, 0, 0, 0)
   -- A love canvas does NOT reset the transform: without this the panel is
   -- drawn at whatever scale and offset the caller was already under, and then
@@ -217,6 +224,7 @@ function BattleAnimView:bake(drawBg, palByte)
   local ok, err = pcall(drawBg)
   G.pop()
   G.setCanvas(previousCanvas)
+  if sx then G.setScissor(sx, sy, sw, sh) end
   GbcPalette.setBgp(previousBgp)
   if not ok then error(err, 0) end
 end
@@ -286,6 +294,26 @@ function BattleAnimView:panelPalettes(battle)
   return list
 end
 
+-- engine/battle_anims/bg_effects.asm:2638
+function BattleAnimView.scanlines(bg)
+  local lines = {}
+  local scy = signed(bg.scy)
+  for row = 0, SCREEN_H - 1 do
+    local dx, src = 0, row + scy
+    local inWindow = bg.lcdc and bg.lcdc ~= "BGP"
+      and row >= bg.lyStart and row < bg.lyEnd
+    local byte = bg.lyBackup[row] or 0
+    if inWindow then
+      local value = signed(byte)
+      if bg.lcdc == "SCX" then dx = -value else src = src + value end
+    end
+    if (not inWindow or byte ~= 0x90) and src >= 0 and src < SCREEN_H then
+      lines[#lines + 1] = { src = src, dest = row, dx = dx }
+    end
+  end
+  return lines
+end
+
 -- Runs `drawBg` (the battle panel) and puts it on screen through the
 -- animation's BG registers; skips the canvas when nothing needs one.
 function BattleAnimView:present(runner, drawBg, battle)
@@ -332,20 +360,9 @@ function BattleAnimView:present(runner, drawBg, battle)
   G.setColor(1, 1, 1, 1)
   -- hSCX / hSCY move the whole background; the per-scanline overrides only
   -- apply inside the effect's own window.
-  local baseX, baseY = -signed(bg.scx), -signed(bg.scy)
-  for row = 0, SCREEN_H - 1 do
-    local dx, dy = baseX, baseY
-    local inWindow = bg.lcdc and row >= bg.lyStart and row < bg.lyEnd
-    if inWindow and bg.lcdc ~= "BGP" then
-      local value = signed(bg.lyBackup[row] or 0)
-      if bg.lcdc == "SCX" then dx = -value else dy = -value end
-    end
-    -- A row scrolled to $90 is showing a blank part of the map: skip it, which
-    -- is what makes Withdraw and Dig look like the mon sinking out of sight.
-    if (bg.lyBackup[row] or 0) ~= 0x90 or not bg.lcdc or bg.lcdc == "BGP"
-        or not inWindow then
-      self:blitRow(row, dx, dy)
-    end
+  local baseX = -signed(bg.scx)
+  for _, line in ipairs(BattleAnimView.scanlines(bg)) do
+    self:blitRowAt(line.src, line.dest, baseX + line.dx)
   end
   if remapped then GbcPalette.clear() end
   -- Shaderless boot: the panel is raw grayscale, so there are no palettes to

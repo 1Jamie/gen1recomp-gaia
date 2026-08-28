@@ -836,18 +836,11 @@ function Credits:drawPanel()
 end
 
 function Credits:draw()
-  self:drawPanel()
+  Chrome.withClip(function() self:drawPanel() end)
 end
 
 function Credits:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 0, 0, 0)
-  local scale = Chrome.fitScale(winW, winH)
-  G.push()
-  G.translate(Chrome.fitOrigin(winW, winH, scale))
-  G.scale(scale, scale)
-  self:drawPanel()
-  G.pop()
+  Chrome.withPanel(winW, winH, 0, 0, 0, function() self:drawPanel() end)
 end
 
 Credits.TILES_W = TILES_W

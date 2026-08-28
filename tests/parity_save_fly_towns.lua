@@ -21,6 +21,14 @@ local FlyMenu = require("src.ui.FlyMenu")
 -- loadData() hands back the crosswalk set GenSave wants ({pokemon, moves,
 -- items, maps, eventFlags}) and installs the charmap as a side effect
 local cwData = assert(SaveConvert.loadData(), "save-convert crosswalk data")
+-- home/overworld.asm:2016 (#1691)
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+local function stampAll(d)
+  for mapId in pairs((d or {}).maps or {}) do stampMapWindow(d, mapId) end
+end
+stampAll(cwData)
+stampAll(Data)
+
 local O = GenSave.OFFSETS
 
 -- ------------------------------------------------------------------

@@ -39,6 +39,8 @@ local data = {
   eventFlags = loadfile("src/save_convert/data/event_flags.lua")(),
   toggleObjects = toggles,
 }
+local stampMapWindow = loadfile("tests/fixture_data/map_window.lua")()
+stampMapWindow(data, "REDS_HOUSE_2F")
 
 -- ------------------------------------------------------------------
 -- offset pins, independent of the codec's own arithmetic: wram.asm places
@@ -175,6 +177,7 @@ local dataYellow = {
   eventFlags = loadfile("src/save_convert/data/event_flags_yellow.lua")(),
   gameVersion = "yellow",
 }
+stampMapWindow(dataYellow, "REDS_HOUSE_2F")
 local ySave = seedSave()
 ySave.pikachuHappiness = 200
 local yBytes = GenSave.encode(ySave, dataYellow, nil)

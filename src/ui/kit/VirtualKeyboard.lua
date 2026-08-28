@@ -203,6 +203,7 @@ function VirtualKeyboard.draw(m)
 
   -- Scrim background
   Theme.fill(0, 0, W, H, PAL.bg, 0.92)
+  local shielded = Kit.blockClicks
   Kit.blockClicks = true
 
   local pad = math.floor(12 * s)
@@ -212,6 +213,7 @@ function VirtualKeyboard.draw(m)
   local py = math.floor((H - modalH) / 2)
 
   Kit.card(px, py, modalW, modalH, true)
+  Kit.blockClicks = shielded
 
   local cy = py + pad
   -- Title & hint
@@ -276,7 +278,7 @@ function VirtualKeyboard.draw(m)
     cy = cy + rowH + gap
   end
 
-  Kit.blockClicks = false
+  Kit.blockClicks = shielded
 end
 
 return VirtualKeyboard

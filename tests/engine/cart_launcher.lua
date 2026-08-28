@@ -1281,10 +1281,15 @@ check(filterText:find("Filter by category", 1, true) == nil,
   "not by a category no cart has")
 find.findBase = nil
 
--- MODS-tab scope still applies: a cart plays as exactly one game
-find.modScope = "silver"
-eq(#find:_findRows(), 1, "a scoped launcher lists only that game's carts")
-eq(find:_findRows()[1].id, "indexed_cart", "the one based on silver")
+find.modScope = "blue"
+eq(#find:_findRows(), 2, "an unfiltered cart list ignores the launcher's game")
+find.findBase = "silver"
+eq(#find:_findRows(), 1, "the Filter popup is what narrows it")
+eq(find:_findRows()[1].id, "indexed_cart", "to that base game's carts")
+find.findBase = "gold"
+eq(#find:_findRows(), 1, "including a game the launcher is not scoped to")
+eq(find:_findRows()[1].id, "gold_rush", "which is the point of Filter")
+find.findBase = nil
 find.modScope = nil
 
 find:_setFindKind("mods")

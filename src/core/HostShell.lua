@@ -213,6 +213,11 @@ function HostShell.pclose(pipe)
   withPopenLock(function() pcall(function() pipe:close() end) end)
 end
 
+function HostShell.pumpHostEvents()
+  if not (love and love.event and love.event.pump) then return end
+  pcall(love.event.pump)
+end
+
 -- Restart the whole app. The obvious love.event.quit("restart") re-runs LÖVE's
 -- boot in-process, which calls love.filesystem.init a second time -- and inside
 -- an AppImage physfs is already initialized, so that second init throws

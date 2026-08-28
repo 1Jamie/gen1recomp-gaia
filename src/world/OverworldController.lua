@@ -528,6 +528,8 @@ function OverworldState:setMap(mapId, x, y, facing, opts)
   -- one-shot set by play_music opts.keep.
   local keepMusic = (opts and opts.keepMusic) or self.keepMusicOnce
   self.keepMusicOnce = nil
+  -- home/overworld.asm ln 2340, player_animations.asm ln 64
+  if opts and opts.via == "fly" then keepMusic = true end
   if not keepMusic then
     -- ..(home/overworld.asm ln 2346)
     local Music = require("src.core.Music")
@@ -1245,6 +1247,9 @@ function OverworldState:update(dt)
     if self.flyArrive.t >= #FLY_PATH_IN * 3 then
       self.flyArrive = nil
       self.player.inputLocked = false
+      -- engine/overworld/player_animations.asm ln 64
+      require("src.core.Music").playMap(
+        Game.data, self.map.id, Game.save.onBike, self.player.surfing, nil)
     end
   end
   if self.spinArrive and not self.player.spinFrames then
@@ -4026,7 +4031,8 @@ function OverworldState:applyFieldPoison()
   end
   if not anyPoisoned then return false end
   require("src.core.Sound").play(Game.data, "Poisoned")
-  self.poisonFlash = 12
+  -- engine/gfx/screen_effects.asm:7-8
+  self.poisonFlash = 4
   local queue = {}
   for _, mon in ipairs(fainted) do
     local name = mon.nickname or Game.data.pokemon[mon.species].name
@@ -5777,12 +5783,18 @@ function OverworldState:drawUI()
     end
   end
 
-  -- poison step flicker (ChangeBGPalColor0_4Frames: dark for two
-  -- 4-frame pulses)
+  -- engine/gfx/screen_effects.asm:1-12
   if self.poisonFlash and self.poisonFlash > 0 then
     self.poisonFlash = self.poisonFlash - 1
-    local pulse = math.floor(self.poisonFlash / 4) % 2 == 1
-    if pulse then
+    local r = Game and Game.renderer
+    if PaletteFX.shader() then
+      -- home/fade.asm:66
+      if not PaletteFX.shadeMap() then
+        PaletteFX.setShadeMap(PaletteFX.POISON_BGP)
+      end
+    elseif r then
+      r.screenVeil = { 0, 0.45 }
+    else
       love.graphics.setColor(0, 0, 0, 0.45)
       love.graphics.rectangle("fill", 0, 0, 160, 144)
       love.graphics.setColor(1, 1, 1, 1)

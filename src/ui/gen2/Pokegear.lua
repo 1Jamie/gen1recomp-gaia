@@ -22,6 +22,7 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local FieldMoves = require("src.world.gen2.FieldMoves")
+local FlagNames = require("src.core.gen2.FlagNames")
 local GbcPalette = require("src.render.GbcPalette")
 local Gen2Save = require("src.core.gen2.Save")
 local Clock = require("src.core.gen2.Clock")
@@ -1004,6 +1005,11 @@ function Pokegear:text(str, tx, ty)
   return Chrome.printThrough(str, tx, ty, pals and pals[1], false, true)
 end
 
+function Pokegear:cursor(tx, ty)
+  local pals = self:pals()
+  return Chrome.cursorThrough(tx, ty, pals and pals[1], false, false, true)
+end
+
 -- wPokegearFlags' four card bits are ENGINE flags: EngineFlags rows 0-3 are
 -- POKEGEAR_RADIO/MAP/PHONE/EXPN_CARD_F (pokegold data/events/engine_flags.asm,
 -- constants/engine_flags.asm const order), so the scripts' `setflag` -- the
@@ -1013,6 +1019,14 @@ end
 -- save.pokegearFlags overlay stays readable so a test can seed a card without
 -- a world.
 local CARD_ENGINE_FLAGS = { radio = 0, map = 1, phone = 2, expn = 3 }
+
+-- ../pokecrystal/constants/engine_flags.asm:25
+function Pokegear:engineFlag(name, goldId)
+  local world = self.game and self.game.world
+  local id = goldId
+  if world and world.engineFlagId then id = world:engineFlagId(name, goldId) end
+  return ((self.save or {}).engineFlags or {})[id] == true
+end
 
 function Pokegear:flags()
   local save = self.save or {}
@@ -1164,7 +1178,18 @@ function Pokegear:update(_dt)
     self.phoneSubmenu = nil
     return
   end
+  -- engine/pokegear/pokegear.asm:454
+  if card and card.id == "clock" then
+    if input:wasPressed("right") then self:switchCard("map", "phone", "radio") end
+    return
+  end
   if card and card.id == "radio" then
+    -- engine/pokegear/pokegear.asm:740
+    if input:wasPressed("left") then
+      self:stopRadio()
+      self:switchCard("phone", "map", "clock")
+      return
+    end
     self:ensureTuned()
     -- AnimateTuningKnob.TuningKnob: up winds the knob towards 80 and down
     -- back towards 0, and it stops dead at either end rather than wrapping.
@@ -1220,7 +1245,8 @@ function Pokegear:radioContext()
     -- POKEGEAR_EXPN_CARD_F, the Kanto radio upgrade.
     expnCard = flags.expn or false,
     -- STATUSFLAGS_ROCKET_SIGNAL_F, set while Team Rocket holds Mahogany.
-    rocketSignal = (save.flags or {}).ROCKET_SIGNAL or false,
+    rocketSignal = self:engineFlag("ENGINE_ROCKET_SIGNAL_ON_CH20",
+      FlagNames.engine.ENGINE_ROCKET_SIGNAL_ON_CH20),
   }
 end
 
@@ -1386,7 +1412,10 @@ function Pokegear:radioData()
   -- Number Man in Radio Tower has never rolled one, so 00000 is the honest
   -- reading, not a stand-in for unfinished work.
   out.luckyNumber = save.luckyNumber or 0
-  out.rocketsInRadioTower = (save.flags or {}).ROCKETS_IN_RADIO_TOWER or false
+  -- ../pokegold/engine/events/std_scripts.asm:255
+  out.rocketsInRadioTower =
+    self:engineFlag("ENGINE_ROCKETS_IN_RADIO_TOWER",
+      FlagNames.engine.ENGINE_ROCKETS_IN_RADIO_TOWER)
   self.radioDataCache = out
   return out
 end
@@ -1949,8 +1978,8 @@ function Pokegear:drawClock()
   local hour, minute, weekday = self:clockParts()
   self:drawTilemap(self.gfx and self.gfx.cards and self.gfx.cards.clock)
   self:drawStrip()
-  self:text("SWITCH", 13, 1)
-  Chrome.cursor(19, 1)
+  self:text(" SWITCH", 12, 1)
+  self:cursor(19, 1)
 
   -- Pokegear_UpdateClock: ClearBox(3,5) 5x14, the day at (6,6) and
   -- PrintHoursMins at (6,8) -- two digits, ':', two more, then AM/PM at
@@ -1981,7 +2010,7 @@ end
 function Pokegear:printBoxText(text)
   local lines = Chrome.wrap(text, 18)
   for i = 1, math.min(#lines, 2) do
-    Chrome.print(lines[i], 1, 14 + (i - 1) * 2)
+    self:text(lines[i], 1, 14 + (i - 1) * 2)
   end
 end
 
@@ -2056,17 +2085,19 @@ end
 
 -- TownMapBubble: the plate the fly screen wears instead of the card strip.
 -- Three rows from (1,0) to (18,2), "Where?" at (2,0), the flypoint's landmark
--- name at (2,1) and the up/down scroller at (18,1).  The four rounded corners
--- come from FlyMapLabelBorderGFX, a six-tile 1bpp set loaded over vTiles2 tile
--- $30 for this screen only -- the extractor carries the town map's own $30-$33
--- instead, so the plate is drawn square rather than with the wrong art in its
--- corners.
+-- name at (2,1) and the up/down scroller at (18,1).
 function Pokegear:drawFlyBubble()
-  self:drawPlate(1, 0, 18, 3)
+  self:tile(0x30, 1, 0)
+  for x = 2, 17 do self:tile(SPACE_TILE, x, 0) end
+  self:tile(0x31, 18, 0)
+  for x = 1, 18 do self:tile(SPACE_TILE, x, 1) end
+  self:tile(0x32, 1, 2)
+  for x = 2, 17 do self:tile(SPACE_TILE, x, 2) end
+  self:tile(0x33, 18, 2)
   self:text("Where?", 2, 0)
   local row = self:flyRow()
   self:text(flatName(row and row.name), 2, 1)
-  Chrome.cursor(18, 1)
+  self:tile(0x34, 18, 1)
 end
 
 -- _TownMap.InitTilemap (../pokecrystal/engine/pokegear/pokegear.asm:1891-1918):
@@ -2273,8 +2304,8 @@ function Pokegear:drawRadio()
   self:textbox(0, 12, 18, 4)
   local radio = self.radio
   if not (station and station.station and radio) then return end
-  if radio.top ~= "" then Chrome.print(radio.top, 1, 14) end
-  if radio.bottom ~= "" then Chrome.print(radio.bottom, 1, 16) end
+  if radio.top ~= "" then self:text(radio.top, 1, 14) end
+  if radio.bottom ~= "" then self:text(radio.bottom, 1, 16) end
 end
 
 function Pokegear:drawPhone()
@@ -2294,8 +2325,9 @@ function Pokegear:drawPhone()
   -- A call in progress replaces the prompt with what the caller is saying;
   -- otherwise the box holds PokegearAskWhoCallText the whole time.
   if self.call then
-    Chrome.printWrapped(self.call.text or self:phoneText("GearEllipse"),
-      1, 14, 18, 3)
+    local lines = Chrome.wrap(self.call.text
+      or self:phoneText("GearEllipse"), 18)
+    for i = 1, math.min(#lines, 3) do self:text(lines[i], 1, 13 + i) end
   else
     self:printBoxText(self:phoneText("AskWhoCall"))
   end
@@ -2312,7 +2344,7 @@ function Pokegear:drawPhone()
     if className then self:text(className, 5, ty + 1) end
   end
   -- PokegearPhone_UpdateCursor draws the cursor at (1, 4 + 2 * cursor).
-  Chrome.cursor(1, 4 + self.phoneCursor * 2)
+  self:cursor(1, 4 + self.phoneCursor * 2)
   self:drawPhoneSubmenu()
 end
 
@@ -2328,7 +2360,7 @@ function Pokegear:drawPhoneSubmenu()
     local ty = menu.textY + (index - 1) * 2
     self:text(label, menu.textX, ty)
   end
-  Chrome.cursor(menu.textX - 1, menu.textY + self.phoneSubmenuCursor * 2)
+  self:cursor(menu.textX - 1, menu.textY + self.phoneSubmenuCursor * 2)
 end
 
 -- ------------------------------------------------------------------ fallback

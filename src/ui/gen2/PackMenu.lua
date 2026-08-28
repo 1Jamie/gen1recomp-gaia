@@ -15,10 +15,14 @@ local Chrome = require("src.ui.gen2.Chrome")
 local Gen2Save = require("src.core.gen2.Save")
 local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
+local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local MenuRepeat = require("src.ui.MenuRepeat")
 
 -- constants/sfx_constants.asm:3, :28
 local SFX_DEX_FANFARE_50_79, SFX_WRONG = 0, 25
+
+local LIST_DIRS = { "up", "down" }
 
 local PackMenu = {}
 PackMenu.__index = PackMenu
@@ -161,6 +165,8 @@ function PackMenu.new(game, opts)
   self.give = opts.give and true or false
   self.battle = opts.battle and true or false
   self.cursorStore = cursorStore(game)
+  -- engine/menus/scrolling_menu.asm:6
+  self.hold = MenuRepeat.new(MenuRepeat.GEN2_DELAY, MenuRepeat.GEN2_RATE)
   self.pocketIndex = 1
   -- wLastPocket, unless the caller names one: DepositSellInitPackBuffers writes
   -- ITEM_POCKET over it, so an explicit pocket still wins.
@@ -301,6 +307,13 @@ function PackMenu:isCancel()
   return self.index > #self.rows
 end
 
+-- home/menu.asm:746, :758
+function PackMenu:playSfx(name)
+  local data = self.game and self.game.data
+  local sfx = data and data.audio and data.audio.sfx
+  if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
+end
+
 function PackMenu:ensureVisible()
   if self.index <= self.scroll then
     self.scroll = self.index - 1
@@ -319,6 +332,8 @@ function PackMenu:switchPocket(delta)
   self:restoreCursor()
   self:rebuild()
   self:storeCursor()
+  -- engine/items/pack.asm:1268
+  self:playSfx("Sfx_SwitchPockets")
 end
 
 -- The player name OakThisIsntTheTimeText addresses, same fallback the SAVE
@@ -759,25 +774,26 @@ function PackMenu:update(_dt)
     self:updateSubmenu(input)
     return
   end
+  local dir, edge = MenuRepeat.direction(self.hold, input, LIST_DIRS)
   if input:wasPressed("left") then
     self:switchPocket(-1)
     return
   elseif input:wasPressed("right") then
     self:switchPocket(1)
     return
-  elseif input:wasPressed("up") then
-    self.index = self.index > 1 and self.index - 1 or self:total()
-    self:ensureVisible()
+  elseif dir == "up" then
+    self:stepCursor(-1, edge)
     return
-  elseif input:wasPressed("down") then
-    self.index = self.index < self:total() and self.index + 1 or 1
-    self:ensureVisible()
+  elseif dir == "down" then
+    self:stepCursor(1, edge)
     return
   elseif input:wasPressed("b") then
+    self:playSfx("Sfx_ReadText2")
     self:storeCursor()
     if self.onClose then self.onClose() end
     return
   elseif input:wasPressed("a") then
+    self:playSfx("Sfx_ReadText2")
     if self:isCancel() then
       self:storeCursor()
       if self.onClose then self.onClose() end
@@ -795,6 +811,19 @@ function PackMenu:update(_dt)
   end
 end
 
+-- engine/menus/scrolling_menu.asm
+function PackMenu:stepCursor(delta, edge)
+  local total = self:total()
+  local next = self.index + delta
+  if next < 1 then
+    next = edge and total or 1
+  elseif next > total then
+    next = edge and 1 or total
+  end
+  self.index = next
+  self:ensureVisible()
+end
+
 -- engine/items/pack.asm:1290 Pack_InterpretJoypad .select
 -- engine/items/tmhm.asm:207 -- the TM/HM pocket's joypad filter drops SELECT.
 function PackMenu:armSwitch()
@@ -808,12 +837,11 @@ end
 -- `.switching_item` (engine/items/pack.asm:1297): A or SELECT places, B backs
 -- out, and left/right cannot leave the pocket mid-move.
 function PackMenu:updateSwitch(input)
-  if input:wasPressed("up") then
-    self.index = self.index > 1 and self.index - 1 or self:total()
-    self:ensureVisible()
-  elseif input:wasPressed("down") then
-    self.index = self.index < self:total() and self.index + 1 or 1
-    self:ensureVisible()
+  local dir, edge = MenuRepeat.direction(self.hold, input, LIST_DIRS)
+  if dir == "up" then
+    self:stepCursor(-1, edge)
+  elseif dir == "down" then
+    self:stepCursor(1, edge)
   elseif input:wasPressed("a") or input:wasPressed("select") then
     self:placeSwitch()
   elseif input:wasPressed("b") then
@@ -830,6 +858,8 @@ function PackMenu:placeSwitch()
     self:rebuild()
     self:storeCursor()
   end
+  -- engine/items/pack.asm:1309
+  self:playSfx("Sfx_SwitchPokemon")
   self:endSwitch()
 end
 
@@ -848,8 +878,10 @@ function PackMenu:updateSubmenu(input)
   elseif input:wasPressed("down") then
     menu.index = menu.index < total and menu.index + 1 or 1
   elseif input:wasPressed("a") then
+    self:playSfx("Sfx_ReadText2")
     self:chooseSubmenu()
   elseif input:wasPressed("b") then
+    self:playSfx("Sfx_ReadText2")
     self:closeSubmenu()
   end
 end
@@ -867,9 +899,11 @@ function PackMenu:updateQuantity(input)
   elseif input:wasPressed("left") then
     state.qty = qtyStep(state.qty, state.max, -10)
   elseif input:wasPressed("a") then
+    self:playSfx("Sfx_ReadText2")
     self.message = nil
     self:confirmToss()
   elseif input:wasPressed("b") then
+    self:playSfx("Sfx_ReadText2")
     self.qtyState = nil
     self.message = nil
   end
@@ -881,9 +915,11 @@ function PackMenu:updateConfirm(input)
   if input:wasPressed("up") or input:wasPressed("down") then
     confirm.choice = confirm.choice == 1 and 2 or 1
   elseif input:wasPressed("b") then
+    self:playSfx("Sfx_ReadText2")
     self.confirm = nil
     if confirm.onNo then confirm.onNo() end
   elseif input:wasPressed("a") then
+    self:playSfx("Sfx_ReadText2")
     local yes = confirm.choice == 1
     self.confirm = nil
     if yes then
@@ -908,6 +944,8 @@ function PackMenu:registerSelected()
   local world = not self:inBattle() and self.world or nil
   local ok = world and world.registerItem and world:registerItem(row.id)
   if ok then
+    -- engine/items/pack.asm:551
+    self:playSfx("Sfx_FullHeal")
     -- RegisteredItemText: "Registered the\n<item>."
     self.message = { Strings("Registered the"), row.name .. "." }
   else

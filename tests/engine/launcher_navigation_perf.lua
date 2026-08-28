@@ -112,4 +112,42 @@ do
   LauncherMods.list = old
 end
 
+do
+  local calls = 0
+  local old = LauncherMods.list
+  LauncherMods.list = function()
+    calls = calls + 1
+    return { { id = "scoped", name = "Scoped", targetsHere = true,
+               manifest = { id = "scoped", version = "1.0.0" } } }
+  end
+  local imp = setmetatable({
+    modScope = "red",
+    modStraysChecked = true,
+    activeCart = { red = "somecart" },
+    activeSlot = {}, slots = { ["cart:somecart"] = {} },
+  }, RomImporter)
+  imp:_refreshMods()
+  eq(calls, 1, "a scoped relist reads the installed mods once, not per consumer")
+  local before = calls
+  imp:modCartPlan()
+  imp:modCartPlan()
+  eq(calls, before, "and the cart plan the panel asks for every frame reuses it")
+  LauncherMods.list = old
+end
+
+do
+  local ModProfile = require("src.mods.ModProfile")
+  local seeded = 0
+  local oldEnsure = ModProfile.ensureFirst
+  ModProfile.ensureFirst = function() seeded = seeded + 1 end
+  local options = { modProfilesSeeded = true,
+                    modProfiles = { { name = "PROFILE 1" } },
+                    activeProfile = "PROFILE 1" }
+  local list, active = LauncherMods.getProfiles(options)
+  eq(active, "PROFILE 1", "the active profile is read straight off options")
+  eq(#list, 1, "with the profiles already stored there")
+  eq(seeded, 0, "and no first-run seeding pass behind it")
+  ModProfile.ensureFirst = oldEnsure
+end
+
 T.finish("launcher_navigation_perf")

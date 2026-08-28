@@ -35,6 +35,7 @@ local data = {
   maps = loadfile("data/generated/maps.lua")(),
   eventFlags = events,
 }
+loadfile("tests/fixture_data/map_window.lua")()(data, "REDS_HOUSE_2F")
 
 -- ------------------------------------------------------------------
 -- offsets, walked forward from wTownVisitedFlag over ram/wram.asm's own

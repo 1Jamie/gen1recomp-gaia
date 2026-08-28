@@ -317,6 +317,48 @@ do
     "the anim row pays Delay3 before it plays")
   T.eq(#b.queue, 1, "and is put back on the queue to run after the hold")
   T.check(b.queue[1].animDelayed, "flagged so the hold is paid only once")
+  b.waitFrames = nil
+  b:updateQueue()
+  T.check(b.waitFrames ~= Timing.MOVE_ANIM_OFF,
+    "with animations on the disabled arm's 30 is never paid")
+end
+
+-- animations.asm:431-437
+T.eq(Timing.MOVE_ANIM_OFF, 30, "the animations-off arm holds 30 frames")
+do
+  local b = newBattle()
+  b.game.save.options.animations = false
+  b.queue, b.nextInsert, b.current = {}, 0, nil
+  b.waitFrames, b.waitingSound = nil, nil
+  b.draining, b.animPlaying, b.waitingUI = nil, nil, nil
+  b.queue[1] = { anim = "FIX_TACKLE", attackerIsPlayer = true,
+                 hit = { animType = 4, blink = b.enemy } }
+  b:updateQueue()
+  T.eq(b.waitFrames, Timing.MOVE_ANIM_PRE, "Delay3 is paid whatever the option")
+  b.waitFrames = nil
+  b:updateQueue()
+  T.eq(b.waitFrames, Timing.MOVE_ANIM_OFF, "then the 30 stands in for the anim")
+  T.eq(#b.queue, 1, "and the row goes back for the applying-attack layer")
+  T.check(b.queue[1].animOffDelayed, "flagged so the hold is paid only once")
+  b.waitFrames = nil
+  b:updateQueue()
+  T.eq(b.waitFrames, Timing.BLINK_MON,
+    "the enemy blink still runs with animations off (#1384)")
+  T.check(b.fx and b.fx.blink ~= nil, "and it targets the enemy pic")
+end
+
+-- animations.asm:415-419
+do
+  local b = newBattle()
+  b.game.save.options.animations = false
+  b.queue, b.nextInsert, b.current = {}, 0, nil
+  b.waitFrames, b.waitingSound = nil, nil
+  b.draining, b.animPlaying, b.waitingUI = nil, nil, nil
+  b.queue[1] = { anim = "POOF_ANIM", attackerIsPlayer = true }
+  b:updateQueue()
+  b.waitFrames = nil
+  b:updateQueue()
+  T.check(b.waitFrames ~= Timing.MOVE_ANIM_OFF, "a ball anim skips the 30")
 end
 
 -- StartBattle's 40-frame hold is unconditional -- the `call nz` gates only

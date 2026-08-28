@@ -4,6 +4,7 @@
 local Font = require("src.render.Font")
 local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
+local MenuRepeat = require("src.ui.MenuRepeat")
 
 local PokedexMenu = {}
 PokedexMenu.__index = PokedexMenu
@@ -46,6 +47,8 @@ function PokedexMenu.new(game, opts)
   self.onCancel = opts.onCancel -- B returns to the start menu when opened from it
   self.index = 1
   self.scroll = 0
+  -- engine/menus/pokedex.asm:13
+  self.hold = MenuRepeat.new(MenuRepeat.GEN1_DELAY, MenuRepeat.GEN1_RATE)
   self.rowsAt = require("src.core.GameVersion").isYellow()
     and YELLOW_ROWS or RED_ROWS
   local dex = game.save.pokedex or { seen = {}, owned = {} }
@@ -153,13 +156,14 @@ function PokedexMenu:update(dt)
     end
     return
   end
-  if input:wasPressed("up") then
+  local dir = MenuRepeat.direction(self.hold, input)
+  if dir == "up" then
     self.index = self.index - 1
-  elseif input:wasPressed("down") then
+  elseif dir == "down" then
     self.index = self.index + 1
-  elseif input:wasPressed("left") then
+  elseif dir == "left" then
     self:pageScroll(-1)
-  elseif input:wasPressed("right") then
+  elseif dir == "right" then
     self:pageScroll(1)
   elseif input:wasPressed("b") then
     beep(self)

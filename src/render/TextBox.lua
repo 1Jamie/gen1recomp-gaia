@@ -394,6 +394,13 @@ function TextBox:update(dt)
       return
     end
     if self.auto then
+      -- engine/items/item_effects.asm:1794 (#1880)
+      if self.auto.promptFirst and not self.autoPrompted then
+        if not (input:wasPressed("a") or input:wasPressed("b")) then return end
+        require("src.core.Sound").play(self.game.data, "Press_AB")
+        self.autoPrompted = true
+        return
+      end
       if not self.autoStarted then
         self.autoStarted = true
         self.autoSrc = self.auto.sound and self.auto.sound() or nil
@@ -608,7 +615,15 @@ function TextBox:draw()
       Chrome.paletteBox(11, 0, 9, 3, Chrome.DEFAULT_BOX_PALETTE)
     else
       Font.drawBox(11, 0, 9, 3)
+      -- data/text_boxes.asm:35
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.rectangle("fill", 13 * 8, 0, 5 * 8, 8)
       love.graphics.setColor(0, 0, 0, 1)
+      local cap = 13 * 8
+      for _, code in ipairs(Font.encode("MONEY")) do
+        drawGlyph(code, cap, 0)
+        cap = cap + Font.advanceOf(code)
+      end
     end
     local money = ("¥%d"):format(self.money() or 0)
     local pen = 152 - Font.width(money)
@@ -617,7 +632,9 @@ function TextBox:draw()
       pen = pen + Font.advanceOf(code)
     end
   end
-  if (self.waiting or (self.done and not self.choice and not self.auto
+  if (self.waiting or (self.done and not self.choice
+                       and (not self.auto
+                            or (self.auto.promptFirst and not self.autoPrompted))
                        and (not self.stay
                             or (self.stay.prompt and not self.stayShown))))
      and self.blink < 30 then

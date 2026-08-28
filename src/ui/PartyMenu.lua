@@ -731,14 +731,7 @@ function PartyMenu:update(dt)
   end
 end
 
--- The bottom-of-screen context message for the current menu state
--- (pokered engine/menus/party_menu.asm PartyMenuMessage / RedrawPartyMenu_):
--- the party menu always prints a message in the bottom text box.  With the
--- normal message id that is PartyMenuBattleText ("Bring out which POKéMON?")
--- when IsInBattle else PartyMenuNormalText ("Choose a POKéMON."); the swap /
--- item / TM-HM ids print their own strings, and EVO_STONE shares
--- PartyMenuItemUseText (party_menu.asm:229 PartyMenuMessagePointers).
--- Pure (no side effects) so drivers can assert it. #147 #1610
+-- engine/menus/party_menu.asm:229 (#147 #1610 #1901)
 function PartyMenu:bottomMessage()
   if self.swapFrom then
     return self.game.data.text._PartyMenuSwapMonText
@@ -749,7 +742,7 @@ function PartyMenu:bottomMessage()
   elseif self.softboiledFrom or self.itemUse then
     return self.game.data.text._PartyMenuItemUseText
       or Strings("Use item on which\nPOKéMON?")
-  elseif self.battle then
+  elseif self.forceSwitch then
     return self.game.data.text._PartyMenuBattleText
       or Strings("Bring out which\nPOKéMON?")
   else

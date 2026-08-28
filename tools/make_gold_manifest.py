@@ -818,6 +818,8 @@ REQUIRED_SYMBOLS = {
     "TownMapGFX", "PokegearGFX", "PokegearSpritesGFX",
     "ClockTilemapRLE", "PhoneTilemapRLE", "RadioTilemapRLE",
     "JohtoMap", "KantoMap", "TownMapPals.PalMap", "PokegearPals",
+    # engine/pokegear/pokegear.asm:2298 -- Pokedex_GetArea's nest marker.
+    "PokedexNestIconGFX",
     # Trainer card (engine/menus/trainer_card.asm): the player's portrait and
     # the card frame share one sheet at $00, the status/leader sheets both
     # load at $29, and the badges are OBJs with their own OAM template table.

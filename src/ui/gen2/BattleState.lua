@@ -206,7 +206,33 @@ local function paginate(text)
   return pages
 end
 
-function BattleState:wantsFillScale() return true end
+function BattleState.fillScale(winW, winH)
+  local w, h = winW or 0, winH or 0
+  local ok, Playfield = pcall(require, "src.render.Playfield")
+  if ok and Playfield.rect then
+    local okv, _, _, pw, ph = pcall(Playfield.rect, winW, winH)
+    if okv and pw and pw >= 1 and ph and ph >= 1 then
+      w, h = pw, ph
+    end
+  end
+  return math.max(1, math.min(w / (Chrome.SCREEN_W * 8),
+    h / (Chrome.SCREEN_H * 8)))
+end
+
+function BattleState.panelScale(winW, winH, fill)
+  if not fill then return Chrome.fitScale(winW, winH) end
+  return BattleState.fillScale(winW, winH)
+end
+
+function BattleState:wantsFillScale()
+  local options = self.game and self.game.options
+  return (options and options.battleFit) == "fill"
+end
+
+function BattleState:battlePanelScale(winW, winH)
+  return BattleState.panelScale(winW, winH, self:wantsFillScale())
+end
+
 function BattleState:drawsWidescreen() return true end
 
 -- BATTLE BG (#1709): WHITE is the cart's paper surround, BLACK plain bars.
@@ -2861,6 +2887,26 @@ function BattleState:hasPokedex()
     or save.pokedexReceived == true
 end
 
+-- caught_data.asm:168-199
+function BattleState:stampCaughtData(mon, bugContest)
+  local save = self.save
+  local world = self.game and self.game.world
+  local map = world and world.map
+  local battle = self.battle
+  Catching.stampCaughtData(mon, {
+    version = save and save.version,
+    save = save,
+    data = self.game and self.game.data,
+    bugContest = bugContest,
+    timeOfDay = (battle and battle.timeOfDay)
+      or (world and world.timeOfDayId and world:timeOfDayId()),
+    map = map and map.def,
+    backupMap = world and world.backupMapId and world.maps
+      and world.maps[world.backupMapId],
+    playerGender = save and save.player and save.player.gender,
+  })
+end
+
 -- PokeBallEffect's caught tail, in the cart's order (item_effects.asm:514-676):
 -- Text_GotchaMonWasCaught, CheckCaughtMon / SetSeenAndCaughtMon, the new-entry
 -- line and NewPokedexEntry, the party add or .SendToPC, then
@@ -2912,6 +2958,8 @@ function BattleState:pushCaught(enemy, itemId)
     return self:pushPayDay()
   end
   save.party = save.party or {}
+  -- item_effects.asm:556-558, :612-614
+  self:stampCaughtData(enemy)
   local toPc = #save.party >= Boxes.PARTY_SIZE
   if toPc then
     -- `.SendToPC` / `predef SendMonIntoBox` (item_effects.asm:548-550, 604):
@@ -3190,6 +3238,8 @@ end
 -- already in stock the player is shown the comparison and asked, and the NO arm
 -- -- which is also what B does -- keeps the mon they already had.
 function BattleState:contestCatch(mon)
+  -- engine/pokemon/caught_data.asm:72-81
+  self:stampCaughtData(mon, true)
   local kind, stock, fresh = BugContest.catch(self.save, mon)
   if kind ~= BugContest.ASK_SWITCH then
     self:push({ kind = "message", text = "Caught " .. self:name(mon) .. "!" })
@@ -3936,7 +3986,10 @@ function BattleState:drawLiftedRows()
     self.liftCanvas:setFilter("nearest", "nearest")
   end
   local previous = G.getCanvas()
+  local sx, sy, sw, sh
+  if G.getScissor then sx, sy, sw, sh = G.getScissor() end
   G.setCanvas(self.liftCanvas)
+  G.setScissor()
   G.clear(0, 0, 0, 0)
   G.push()
   G.origin()
@@ -3946,6 +3999,7 @@ function BattleState:drawLiftedRows()
   self.liftedPass = nil
   G.pop()
   G.setCanvas(previous)
+  if sx then G.setScissor(sx, sy, sw, sh) end
   G.setColor(1, 1, 1, 1)
   G.draw(self.liftCanvas, 0, 0)
 end
@@ -3979,19 +4033,12 @@ function BattleState:drawSceneBody()
 end
 
 function BattleState:draw()
-  self:drawScene()
+  Chrome.withClip(function() self:drawScene() end)
 end
 
 function BattleState:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  local ox, oy = Chrome.fitOrigin(winW, winH, scale)
-  G.push()
-  G.translate(ox, oy)
-  G.scale(scale, scale)
-  self:drawScene()
-  G.pop()
+  Chrome.withPanel(winW, winH, 1, 1, 1, function() self:drawScene() end,
+    self:battlePanelScale(winW, winH))
 end
 
 BattleState.MENU = MENU

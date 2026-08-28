@@ -1426,6 +1426,14 @@ function BattleState:updateQueue()
         self.waitFrames = Timing.MOVE_ANIM_PRE
         return true
       end
+      -- animations.asm:431-437
+      if item.anim and not item.animOffDelayed
+         and not self:animationsOn() and not BALL_ANIMS[item.anim] then
+        item.animOffDelayed = true
+        table.insert(self.queue, 1, item)
+        self.waitFrames = Timing.MOVE_ANIM_OFF
+        return true
+      end
       local mdef = item.anim and self.data.moves[item.anim]
       local anim = mdef and mdef.anim
       if item.anim == "POOF_ANIM" then

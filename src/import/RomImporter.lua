@@ -438,6 +438,7 @@ local function commandOutput(command)
   -- lock can free a FILE while a worker thread's popen is walking the stream
   -- list, which deadlocks that thread for good (see HostShell).
   HostShell.pclose(pipe)
+  HostShell.pumpHostEvents()
   result = trim(result)
   return result ~= "" and result or nil
 end
@@ -1620,9 +1621,15 @@ function RomImporter:focus(f)
     and love.filesystem.read("pick_error.flag")
   if pickError then
     love.filesystem.remove("pick_error.flag")
-    local text = "Could not read the picked file. Reopen the picker and choose "
-      .. "it with the Files (Documents) app, or copy it into: "
-      .. love.filesystem.getSaveDirectory()
+    local text
+    if pickError:find("cancelled:", 1, true) == 1 then
+      text = "The file manager did not return a file. Try a different file "
+        .. "manager, or copy it into: " .. love.filesystem.getSaveDirectory()
+    else
+      text = "Could not read the picked file. Reopen the picker and choose "
+        .. "it with the Files (Documents) app, or copy it into: "
+        .. love.filesystem.getSaveDirectory()
+    end
     local legacyRequiredPick = self.requiredImportLegacyRomPick
       and self.pickerPendingKind == "required_import"
     if self.pickerPendingKind == "required_import"
@@ -2881,6 +2888,7 @@ function RomImporter:update(dt)
   -- nothing.  They run whether or not the view is up, so a refresh started
   -- before a tab switch still completes.
   self:_pumpFindFetch()
+  self:_pumpFindDetails()
   self:_pumpModInfoFetch()
   self:_queueFindEnrichment()
   self:_pumpFindStats()
@@ -3100,6 +3108,10 @@ local PAD_DEAD = 0.28
 local PAD_SPEED = 560   -- px/s at full stick deflection
 local PAD_DPAD_SPEED = 420
 
+function RomImporter:_consolePointerHost()
+  return (self.isNX or Platform.isUWP()) and true or false
+end
+
 function RomImporter:_activatePadCursor()
   if self._padCursorActive then return end
   local ox, oy, w, h = SafeArea.rect()
@@ -3116,7 +3128,7 @@ end
 -- and makes the virtual cursor lag. Expose the pad pointer through a getPosition
 -- shim instead; desktop keeps the setPosition path unchanged.
 function RomImporter:_ensureNxPointerBridge()
-  if not self.isNX or self._nxPointerBridge then return end
+  if not self:_consolePointerHost() or self._nxPointerBridge then return end
   if not (love and love.mouse and love.mouse.getPosition) then return end
   self._nxRealGetPosition = love.mouse.getPosition
   local importer = self
@@ -3141,7 +3153,7 @@ end
 -- NX only: drop the getPosition shim + hide the virtual cursor before a host
 -- takes over input (embedded save editor). Desktop is a no-op.
 function RomImporter:parkNxPointerForHost()
-  if not self.isNX then return end
+  if not self:_consolePointerHost() then return end
   self._padCursorActive = false
   self:_restoreNxPointerBridge()
 end
@@ -3188,6 +3200,48 @@ function RomImporter:_cycleTab(delta)
   self:_switchTab(order[((idx - 1 + delta) % #order) + 1])
 end
 
+local STICK_NAV_ON = 0.5
+local STICK_NAV_OFF = 0.3
+local STICK_NAV_DELAY = 0.28
+local STICK_NAV_REPEAT = 0.12
+
+function RomImporter:_stickNavDir()
+  local nav = self._stickNav
+  local on = (nav and nav.dir) and STICK_NAV_OFF or STICK_NAV_ON
+  local ax = self._padAxis.leftx or 0
+  local ay = self._padAxis.lefty or 0
+  if math.abs(ax) >= math.abs(ay) then
+    if math.abs(ax) > on then return ax > 0 and "right" or "left" end
+  else
+    if math.abs(ay) > on then return ay > 0 and "down" or "up" end
+  end
+  if self._padDir.dpleft then return "left" end
+  if self._padDir.dpright then return "right" end
+  if self._padDir.dpup then return "up" end
+  if self._padDir.dpdown then return "down" end
+  return nil
+end
+
+function RomImporter:_navigateWithStick(dt, Kit)
+  local nav = self._stickNav
+  if not nav then nav = {}; self._stickNav = nav end
+  local dir = self:_stickNavDir()
+  if not dir then
+    nav.dir, nav.t, nav.fired = nil, 0, false
+    return
+  end
+  if nav.dir ~= dir then
+    nav.dir, nav.t, nav.fired = dir, 0, false
+    if Kit then Kit.navigate(dir) end
+    return
+  end
+  nav.t = (nav.t or 0) + dt
+  if nav.t >= (nav.fired and STICK_NAV_REPEAT or STICK_NAV_DELAY) then
+    nav.t, nav.fired = 0, true
+    if Kit then Kit.navigate(dir) end
+  end
+end
+
 function RomImporter:_updatePadCursor(dt)
   local okKit, Kit = pcall(require, "src.ui.kit.Kit")
   if okKit then
@@ -3197,7 +3251,7 @@ function RomImporter:_updatePadCursor(dt)
     end
   end
 
-  if self.isNX then
+  if self:_consolePointerHost() then
     self:_ensureNxPointerBridge()
     -- Cap dt so a hitch in the FlexLove immediate-mode frame does not fling
     -- the cursor; desktop keeps raw dt (setPosition path already smooth there).
@@ -3208,7 +3262,7 @@ function RomImporter:_updatePadCursor(dt)
   -- pointer after bumping a stick once. On NX this must stay off: love-nx /
   -- SDL often drifts the system mouse with the stick (or touch), and axis
   -- events are not every frame, so yield+reactivate flickers the overlay.
-  if not self.isNX then
+  if not self:_consolePointerHost() then
     local mx, my = love.mouse.getPosition()
     if self._lastMouseX and self._padCursorActive then
       if math.abs(mx - self._lastMouseX) > 3 or math.abs(my - self._lastMouseY) > 3 then
@@ -3217,6 +3271,17 @@ function RomImporter:_updatePadCursor(dt)
     end
     self._lastMouseX, self._lastMouseY = mx, my
   end
+
+  if not self._padCursorActive and not self.isNX
+      and (Platform.isUWP() or self._padNavChosen) then
+    self:_navigateWithStick(dt, okKit and Kit or nil)
+    local scrollY = self._padAxis.righty or 0
+    if math.abs(scrollY) > PAD_DEAD and self._flex then
+      require("src.import.LauncherView").wheelmoved(self, 0, -scrollY * 8 * dt)
+    end
+    return
+  end
+  self._stickNav = nil
 
   local ax = self._padAxis.leftx or 0
   local ay = self._padAxis.lefty or 0
@@ -3246,7 +3311,7 @@ function RomImporter:_updatePadCursor(dt)
     if overY ~= 0 and self._flex then
       require("src.import.LauncherView").wheelmoved(self, 0, -overY / 48)
     end
-    if not self.isNX and love.mouse.setPosition then
+    if not self:_consolePointerHost() and love.mouse.setPosition then
       pcall(love.mouse.setPosition, self._padCursor.x, self._padCursor.y)
       self._lastMouseX, self._lastMouseY = self._padCursor.x, self._padCursor.y
     end
@@ -3275,6 +3340,7 @@ function RomImporter:gamepadpressed(_, button)
   -- Y button toggle between Native Controller Navigation and Virtual Pointer Cursor:
   if action == "y" or button == "y" then
     self._padCursorActive = not self._padCursorActive
+    self._padNavChosen = not self._padCursorActive
     if okKit then Kit._ringShown = not self._padCursorActive end
     self._cursorModeToast = self._padCursorActive and "Cursor Navigation [Y]" or "Controller Menu Navigation [Y]"
     self._cursorModeToastTime = love.timer.getTime()
@@ -3340,11 +3406,11 @@ function RomImporter:gamepadpressed(_, button)
         return
       elseif self.tab == "find" then
         Kit.VirtualKeyboard.open({
-          text = self._findQuery or "",
+          text = self.findQuery or "",
           title = "Search Mods",
           onDone = function(newText, confirmed)
             if confirmed then
-              self._findQuery = newText
+              self.findQuery = newText
               if self._refreshFind then self:_refreshFind() end
             end
           end
@@ -3546,7 +3612,6 @@ function RomImporter:joystickhat(joystick, hat, direction)
   })[direction] or {}
   for _, dir in ipairs(dirs) do self._padDir[dir] = true end
   self._rawHatDirs[hat] = dirs
-  if #dirs > 0 then self:_activatePadCursor() end
 end
 
 -- Player pressed Play on a game whose ROM is imported: hand off to boot.
@@ -4430,6 +4495,13 @@ end
 -- notice line used.
 -- Desktop picks a .cart file; everywhere else CartStore's stray scan already
 -- adopts anything dropped in the folder, so we just point at it.
+function RomImporter:_resyncPointerAfterDialog()
+  self._mouseAt = nil
+  self._clickPt = nil
+  self._prevMouseDown = (love and love.mouse and love.mouse.isDown
+    and love.mouse.isDown(1)) and true or false
+end
+
 function RomImporter:importCartFile(version)
   local CartStore = require("src.carts.CartStore")
   local FilePicker = require("src.core.FilePicker")
@@ -4442,6 +4514,7 @@ function RomImporter:importCartFile(version)
   end
   local path = FilePicker.open("Choose a cart",
     { label = "Cart", exts = { CartStore.EXT:gsub("^%.", "") } })
+  self:_resyncPointerAfterDialog()
   if not path then return false end
   local bytes = FilePicker.read(path)
   if not bytes then
@@ -4609,6 +4682,7 @@ function RomImporter:keypressed(key)
     if key == "escape" then
       if self._findDetails then
         self._findDetails = nil
+        self:_cancelFindDetails()
       elseif self._modReleaseNotes then
         self._modReleaseNotes = nil
       elseif self._appPatchNotes then
@@ -4777,7 +4851,7 @@ function RomImporter:_cartSealSlot(version)
   return nil, scope
 end
 
-function RomImporter:cartPlan(version)
+function RomImporter:cartPlan(version, listed)
   local id = self.activeCart and self.activeCart[version] or nil
   if not id then return nil, nil end
   local slot = self:_cartSealSlot(version)
@@ -4788,7 +4862,7 @@ function RomImporter:cartPlan(version)
   if cached and cached.key == key then return cached.report, slot end
   local installed = {}
   pcall(function()
-    local rows = require("src.mods.LauncherMods").list(version) or {}
+    local rows = listed or require("src.mods.LauncherMods").list(version) or {}
     for _, row in ipairs(rows) do
       local manifest = type(row.manifest) == "table" and row.manifest or row
       if type(manifest.id) == "string" then
@@ -5510,18 +5584,18 @@ function RomImporter:_refreshMods()
   end
   -- a pin is judged against the whole listing: the cart named it, so it is
   -- listed even where the game filter above would have dropped it
-  local cartId, report = self:modCartPlan()
+  local cartId, report = self:modCartPlan(listed)
   if cartId then self.mods = self:_cartPinRows(cartId, report, listed) end
 end
 
 -- The cart the MODS panel is answering for, with the plan that resolves its
 -- pins, or nil when the panel is on a base game.
-function RomImporter:modCartPlan()
+function RomImporter:modCartPlan(listed)
   local version = self.modScope
   if not version then return nil end
   local id = self.activeCart and self.activeCart[version] or nil
   if not id then return nil end
-  local report = self:cartPlan(version)
+  local report = self:cartPlan(version, listed)
   if type(report) ~= "table" or type(report.pins) ~= "table" then return nil end
   return id, report, version
 end
@@ -5674,6 +5748,29 @@ end
 
 function RomImporter:_modUpdateInfo(id)
   return self.modUpdateInfo and self.modUpdateInfo[id] or nil
+end
+
+function RomImporter:_rejudgeModUpdate(id, fallbackVersion)
+  if type(id) ~= "string" then return end
+  local info = self:_modUpdateInfo(id)
+  local releases = info and info.releases
+  if type(releases) ~= "table" or #releases == 0 then return end
+  local installed
+  for _, m in ipairs(self.mods or {}) do
+    if m.id == id then installed = m.version break end
+  end
+  installed = installed or fallbackVersion
+  if type(installed) ~= "string" or installed == "" then return end
+  local ModUpdate = require("src.mods.ModUpdate")
+  local status, best = ModUpdate.statusFor(installed, releases)
+  info.status = status
+  info.latest = best and best.version or nil
+  info.best = best
+  info.err = nil
+  self._modUpdateRev = (self._modUpdateRev or 0) + 1
+  for _, item in ipairs(self._modInfoFetch or {}) do
+    if item.mod and item.mod.id == id then item.mod.version = installed end
+  end
 end
 
 -- Flip one game's mod flag (persisted via LauncherMods.setEnabled) and relist
@@ -6092,6 +6189,7 @@ function RomImporter:_pumpModInstall()
   -- The installed list is what the Install / Installed labels read, so it has
   -- to be re-derived before the next paint or the card lies.
   pcall(self._refreshMods, self)
+  self:_rejudgeModUpdate(spec.modId, resErr or job.version)
   local shown = tostring(resErr or job.version or "")
   local text = ("%s %s %s"):format(spec.verb or "Installed",
     tostring(spec.name or spec.modId), shown)
@@ -6692,27 +6790,17 @@ function RomImporter:_findRows()
     category = (not carts) and self.findCategory or nil,
     base = carts and self.findBase or nil,
   })
-  if self.modScope then
-    if carts then
-      -- A cart plays as exactly one game, so the scope is a plain match on
-      -- the base rather than a ModTargets coverage question.
-      local kept = {}
-      for _, entry in ipairs(rows) do
-        if entry.base == self.modScope then kept[#kept + 1] = entry end
+  if self.modScope and not carts then
+    local ModTargets = require("src.mods.ModTargets")
+    local gen = GameVersion.generation(self.modScope)
+    local kept = {}
+    for _, entry in ipairs(rows) do
+      local versions = ModTargets.normalize(entry.games)
+      if #versions == 0 or ModTargets.covers(versions, gen) then
+        kept[#kept + 1] = entry
       end
-      rows = kept
-    else
-      local ModTargets = require("src.mods.ModTargets")
-      local gen = GameVersion.generation(self.modScope)
-      local kept = {}
-      for _, entry in ipairs(rows) do
-        local versions = ModTargets.normalize(entry.games)
-        if #versions == 0 or ModTargets.covers(versions, gen) then
-          kept[#kept + 1] = entry
-        end
-      end
-      rows = kept
     end
+    rows = kept
   end
   self._findRowsCache = { src = all, query = self.findQuery,
     category = self.findCategory, base = self.findBase,
@@ -7025,16 +7113,39 @@ end
 function RomImporter:_findShowDetails(entry)
   local ModIndex = require("src.mods.ModIndex")
   local url = ModIndex.joinUrl(entry._base, entry.description_url)
-  local body = entry.summary or ""
-  if url then
-    local ok, text = pcall(ModIndex.fetchText, url)
-    if ok and type(text) == "string" and text ~= "" then body = text end
-  end
+  self:_cancelFindDetails()
   self._findDetails = {
     title = entry.title or entry.id,
-    body = body,
+    body = entry.summary or "",
+    loading = url ~= nil,
     scroll = 0,
   }
+  if url then
+    self._findDetailsFetch = ModIndex.beginFetchText(url)
+  end
+end
+
+function RomImporter:_cancelFindDetails()
+  local h = self._findDetailsFetch
+  if not h then return end
+  self._findDetailsFetch = nil
+  pcall(require("src.mods.ModIndex").cancelFetchText, h)
+end
+
+function RomImporter:_pumpFindDetails()
+  local h = self._findDetailsFetch
+  if not h then return end
+  if not self._findDetails then
+    self:_cancelFindDetails()
+    return
+  end
+  local ok, done, text = pcall(require("src.mods.ModIndex").pumpFetchText, h)
+  if ok and not done then return end
+  self._findDetailsFetch = nil
+  local d = self._findDetails
+  if not d then return end
+  d.loading = false
+  if ok and type(text) == "string" and text ~= "" then d.body = text end
 end
 
 -- Arm the install confirm.  The compatibility list is the whole point of the

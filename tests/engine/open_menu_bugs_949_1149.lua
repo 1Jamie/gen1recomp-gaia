@@ -16,9 +16,13 @@ T.eq(romText(localized, "_MoveIsDisabledText", "%s's %s is disabled!", {
 
 GenSave.setCharmap(loadfile("src/save_convert/data/charmap.lua")())
 local data = {
-  pokemon = {}, moves = {}, items = {}, maps = {},
+  pokemon = {}, moves = {}, items = {},
+  -- home/overworld.asm:2016 (#1691)
+  maps = { PALLET_TOWN = { id = "PALLET_TOWN", index = 0, tileset = "OVERWORLD",
+                           width = 10, height = 9 } },
   hiddenItems = loadfile("src/save_convert/data/hidden_items.lua")(),
 }
+loadfile("tests/fixture_data/map_window.lua")()(data, "PALLET_TOWN")
 local save = {
   player = { name = "RED", id = 1, map = "PALLET_TOWN", x = 0, y = 0 },
   rival = { name = "BLUE" }, party = {}, boxes = {}, inventory = {},
