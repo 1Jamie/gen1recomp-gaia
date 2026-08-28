@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.33",
+          "date": "2026-08-28",
+          "size": 21475829,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.33/gen1recomp++-0.2.33-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1275 Find Mods: opening a mod's details blocks the render thread (_findShowDetails uses the synchronous fetch)\n- #1295 lan code doesn't do double digits only three digit\n- #1384 Battle animations off: player damaging moves show no feedback at all (enemy blink is wrongly gated)\n- #1628 Save Sync showing a duplicate save\n- #1677 Retroarch Skin Getting Cutout\n- #1682 Mods don't remove update\n- #1691 Exported .sav not valid in emulator\n- #1813 Custom Carts menu stops responding after canceling explorer browse for RED\n- #1822 Launcher filters carts by selected cart instead of by selected filter\n- #1861 bug: can’t search mods on iOS because an onscreen keyboard pops up that I can’t interact with\n- #1867 (RBY) Game Corner Prize Exchange Menu Inaccuracies\n- #1868 (RBY) Town Map navigation should only account UP or DOWN\n- #1869 (GSC) Some issues in wider aspect ratios\n- #1870 (GSC) Overworld pokémon sprites are animating too fast\n- #1871 team rocket radio takeover doesn't trigger on pokegear radio\n- #1872 poison flicker only covers the 160x144 canvas\n- #1874 Launcher always shows Red as selected when choosing a game\n- #1876 Vending machine issues\n- #1878 Area issues in the Pokedex\n- #1880 Poke Flute tune can be skipped when waking up Snorlax\n- #1881 Amnesia & Sleep animation bug\n- #1882 Pokeflute with no Pokemon asleep doesn't end turn\n- #1884 PokeGear menu locking up\n- #1885 Visual bugs in PokeGear\n- #1886 Save Editor not tracking OT gender/catch time\n- #1887 (RBY) Buy and Sell menus inaccauracies\n- #1888 (GSC) Shadow when jumping off ledges is transparent and completely round\n- #1889 (GSC) Missing leaves when using FLY in the overworld\n- #1890 (GSC) FLY destination menu inaccuracies\n- #1891 (GSC) Pokédex area map inaccuracies\n- #1892 Flying bugs\n- #1893 (GSC) Missing SFX when operating the bag\n- #1894 Save Sync fails after unlinking Android device — unable to sync or unlink on PC\n- #1895 (GSC) Distortion effect for some moves is glitched\n- #1896 (GSC) Pokéballs not changing color after catching a pokémon\n- #1899 0 pp when importing a savegame\n- #1900 No pokedex when importing an existing savegame\n- #1901 Wrong text in Pokemon menu during fights\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.32",
           "date": "2026-08-27",
           "size": 21387427,
