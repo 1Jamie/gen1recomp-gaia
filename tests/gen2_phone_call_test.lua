@@ -220,6 +220,21 @@ do
   check(pages[1]:find("MOM:", 1, true) ~= nil, "ringing as MOM")
   check(table.concat(pages, "|"):find("Click!", 1, true) ~= nil,
     "and hanging up on the Click!")
+
+  -- The defeated trainer's after-battle script may write wCurCaller again
+  -- before the deferred Mom call starts.  The queued call must restore its
+  -- own caller instead of showing that trainer above Mom's text.
+  vm.curPhoneCaller = 15
+  local startedAs
+  vm.start = function(self)
+    startedAs = self.curPhoneCaller
+    return true
+  end
+  fake.busy = function() return false end
+  fake.runQueuedScript = World.runQueuedScript
+  check(fake:runQueuedScript(), "the deferred Mom call starts")
+  eq(startedAs, Phone.PHONECONTACT_MOM,
+    "and restores MOM after a trainer overwrote wCurCaller")
 end
 
 -- ------------------------------------------------- against the cache
