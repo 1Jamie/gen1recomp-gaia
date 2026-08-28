@@ -5040,7 +5040,11 @@ function World:runQueuedScript()
   if not script or self:busy() then return false end
   self.queuedScript = nil
   self.talkNpc = nil
-  return self.vm and self.vm:start(script) or false
+  local vm = self.vm
+  if vm and type(script) == "table" and script.phoneContact ~= nil then
+    vm.curPhoneCaller = script.phoneContact
+  end
+  return vm and vm:start(script) or false
 end
 
 -- Script_FishCastRod, then Script_NotEvenANibble or Script_GotABite.  Held as
@@ -6758,7 +6762,7 @@ function World:momTriesToBuy()
   local Phone = require("src.core.gen2.Phone")
   if self.vm then self.vm.curPhoneCaller = Phone.PHONECONTACT_MOM end
   self.queuedScript = require("src.core.gen2.PhoneRing").script(
-    { scriptKey = script },
+    { contact = Phone.PHONECONTACT_MOM, scriptKey = script },
     Phone.NON_TRAINER_NAMES[Phone.PHONECONTACT_MOM])
   -- A doll changes what stands in the bedroom, and the room is rebuilt from
   -- the flags on a MAP LOAD -- so nothing has to be dropped here, the same
