@@ -1111,6 +1111,37 @@ own state, preserving selective control outside a battle; a wrapper that only
 owns battle presentation should return `false` only for its active battle or
 text-box state.
 
+`pokemon.level_visible` (RFC 0019) takes a Pokémon's level off the screens
+that print it, without moving anything else on them:
+
+```lua
+mod.hooks:wrap("pokemon.level_visible", function(next, mon, ctx)
+  -- ctx = { where = "battle.enemy" | "battle.player" | "party" | "summary",
+  --         game = <Game> }
+  if myMode.active and ctx.where ~= "party" then return false end
+  return next(mon, ctx)
+end)
+```
+
+It receives `(next, mon, ctx)` and defaults to `true`, so vanilla rendering
+is unchanged. Only an explicit `false` suppresses; `nil` and anything else
+print, so a wrapper that forgets a branch cannot blank a screen by accident.
+The `<LV>` glyph goes with the digits, and on status page 2 so does the
+`<to>` arrow that points at the next level, because an arrow with nothing
+after it is half a sentence. A status condition still replaces the level on
+a battle healthbox exactly as it does in the cart, so hiding a level never
+hides `PSN` or `BRN`.
+
+`ctx.where` names the surface rather than the widget, because the number
+means different things on different screens: on a battle HUD an opponent's
+level is information about them, on the party and status screens your own
+level is information about you. A mode can hide one and keep the other.
+
+**Gen 1 only for now.** The Gen 2 screens keep their own level readouts and
+do not consult this hook, and neither does the Gen 1 PC box list, where the
+level is part of a row label rather than a drawn field. Both are noted in
+RFC 0019 as follow-ups.
+
 `core.logic_speed` receives `(next, game)` once per `Game:logicSpeed()` call
 (once per frame). Vanilla behavior resolves the per-category GAME SPEED
 option (`GameSpeed.CATEGORIES`: overworld/battle/menu) for whichever

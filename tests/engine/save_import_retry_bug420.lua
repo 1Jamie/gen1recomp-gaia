@@ -226,6 +226,8 @@ do
     -- The double has to answer it; "yes" is what keeps this case about the
     -- cache-name contract below and nothing else.
     importSupported = function() return true end,
+    -- Red is not a Gen 2 cart, which is what this case uses.
+    isGen2Cart = function() return false end,
     importSav = function(_, version, gameVersion)
       seen.import = { version = version, gameVersion = gameVersion }
       return nil, "stub"

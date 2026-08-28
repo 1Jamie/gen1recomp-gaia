@@ -20,6 +20,37 @@ local GameVersion = require("src.core.GameVersion")
 
 local SaveFileIO = {}
 
+-- The cartridge image an imported Gen 2 slot came from, kept BESIDE the slot
+-- rather than inside it: export needs the regions the codec does not model,
+-- and 32 KB of binary in the serialized table is 40 KB of Lua source reparsed
+-- on every save and load.
+local function cartPath(version, slotId)
+  return ("saves/%s/%s.cart"):format(version, tostring(slotId))
+end
+
+local function cartFs()
+  local portable = SaveData.portableFs and SaveData.portableFs()
+  return portable or (love and love.filesystem)
+end
+
+local function writeCart(version, slotId, bytes)
+  local fs = cartFs()
+  if not (fs and fs.write and bytes) then return end
+  if fs.createDirectory then
+    fs.createDirectory("saves")
+    fs.createDirectory("saves/" .. version)
+  end
+  fs.write(cartPath(version, slotId), bytes)
+end
+
+local function readCart(version, slotId)
+  local fs = cartFs()
+  if not (fs and fs.read) then return nil end
+  local ok, bytes = pcall(fs.read, cartPath(version, slotId))
+  if ok and type(bytes) == "string" then return bytes end
+  return nil
+end
+
 local SAVE_SIZE = SaveConvert.SAVE_SIZE
 
 -- Resolve raw save bytes from whatever the launcher hands us:
@@ -78,14 +109,17 @@ function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
   local bytes, readErr = readSource(source)
   if not bytes then return false, readErr end
-  -- The GAME decides before the BYTES do.  Everything below this line judges a
-  -- save by Gen 1's rules -- the size test, and mainChecksumValid, which is
-  -- pokered's checksum -- so a Gen 2 cart save reaching it is measured against
-  -- a rule that cannot match and comes back "checksum invalid" (#1832).
+  -- The GAME decides before the BYTES do.  Everything below this line used to
+  -- judge a save by Gen 1's rules whatever game it was for, and a Gen 2 cart
+  -- is MBC3+TIMER: a real Gold/Silver/Crystal .sav carries an RTC footer, so
+  -- it is 32786 bytes, misses the size test, and was then measured against
+  -- pokered's checksum -- which is why a perfectly good Crystal save reported
+  -- as corrupt (#1832).  mainChecksumValid now takes the game and asks that
+  -- generation's rule.
   local supported, unsupportedWhy = SaveConvert.importSupported(version)
   if not supported then return false, unsupportedWhy end
   if #bytes ~= SAVE_SIZE then
-    local check = SaveConvert.mainChecksumValid(bytes)
+    local check = SaveConvert.mainChecksumValid(bytes, version)
     if check == nil then
       return false, ("A save file must be %d bytes (32 KB); this one is %d.")
         :format(SAVE_SIZE, #bytes)
@@ -93,7 +127,12 @@ function SaveFileIO.importToSlot(source, version, force)
     if check == false then
       return false, "save data checksum invalid (main data checksum mismatch)"
     end
-    if #bytes > SAVE_SIZE and not force then
+    -- The confirm exists because a Gen 1 save bigger than 32768 is a surprise
+    -- worth asking about.  On a Gen 2 cart it is the normal shape -- every
+    -- real one has the footer -- so asking would be a prompt with one sensible
+    -- answer, on every import, forever.
+    if #bytes > SAVE_SIZE and not force
+       and not SaveConvert.isGen2Cart(version) then
       return false, nil, { needsConfirm = true, size = #bytes }
     end
     bytes = #bytes > SAVE_SIZE and bytes:sub(1, SAVE_SIZE)
@@ -117,6 +156,7 @@ function SaveFileIO.importToSlot(source, version, force)
     return false, "could not write the imported save: " .. tostring(writeErr)
   end
   SaveData.setActiveSlot(version, slotId)
+  if SaveConvert.isGen2Cart(version) then writeCart(version, slotId, bytes) end
   return true, slotId
 end
 
@@ -131,9 +171,10 @@ function SaveFileIO.exportActiveSlot(version)
   version = version or GameVersion.get()
   local save = SaveData.load(version)
   if not save then return false, "this game has no save to export yet" end
-  local bytes, exportErr = SaveConvert.exportSav(save, version)
-  if not bytes then return false, exportErr end
   local slotId = SaveData.activeSlot(version) or "save"
+  local bytes, exportErr = SaveConvert.exportSav(save, version,
+                                                 readCart(version, slotId))
+  if not bytes then return false, exportErr end
   -- Portable mode is the same seam SaveData's own persistFs uses: when
   -- portable.txt marks the install every persistent write leaves the OS save
   -- directory for the game folder, and an export is no exception.  Writing
