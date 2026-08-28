@@ -610,6 +610,13 @@ end
 
 function Remote:update()
   if self.link.update then self.link:update() end
+  local session = self.session
+  if (self.link.closed or self.link.paired == false)
+      and session.stage ~= "done" and session.stage ~= "cancelled" then
+    session.stage = "cancelled"
+    session.error = "the other trainer left"
+    return session.stage
+  end
   local messages = self.link:poll() or {}
   for _, msg in ipairs(messages) do
     if type(msg) == "table" and type(msg.type) == "string" then

@@ -163,7 +163,7 @@ local function remoteTrade(imp, x, y, w, m)
   end
 
   local refusal = OnlinePanel.remoteTradeRefusal(imp)
-  if refusal then
+  if refusal and st.slotId then
     cy = cy + Kit.textWrapped("small", refusal, x, cy, w, PAL.yellow, 3) + tiny
   end
   LV().btn(imp, x, cy, w, rowH, "online-trade-remote-start",
@@ -172,7 +172,7 @@ local function remoteTrade(imp, x, y, w, m)
       action = function() OnlinePanel.startWizard(imp, "tradeRemote") end })
   cy = cy + rowH + tiny
 
-  local note = tr.remoteError or tr.remoteResult or tr.status or st.status
+  local note = tr.remoteError or tr.remoteResult or tr.status
   if note then
     cy = cy + Kit.textWrapped("small", tostring(note), x, cy, w,
       tr.remoteError and PAL.red or PAL.muted, 3) + tiny

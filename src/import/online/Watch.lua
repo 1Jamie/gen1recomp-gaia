@@ -32,11 +32,7 @@ function Watch.draw(imp, x, y, w, availH, m)
     "online-spectate-code", Strings("Spectate"),
     { kind = "primary", font = "small",
       enabled = online and #st.joinCode == OnlinePanel.CODE_LEN,
-      action = function()
-        if OnlinePanel.joinByCode(imp, st.joinCode, "spectator") then
-          OnlinePanel.go(imp, "room")
-        end
-      end })
+      action = function() OnlinePanel.spectateByCode(imp, st.joinCode) end })
   cy = cy + btnH + gap
 
   local rows = c.watch
@@ -74,13 +70,7 @@ function Watch.draw(imp, x, y, w, availH, m)
         cy + (rowH - btnH) / 2, watchW, btnH, "online-watch-go-" .. row.id,
         tournament and Strings("Watch") or Strings("Spectate"),
         { kind = "accent", font = "small", enabled = online,
-          action = function()
-            if tournament then
-              OnlinePanel.joinTournamentByCode(imp, code, "spectator")
-            elseif OnlinePanel.joinByCode(imp, code, "spectator") then
-              OnlinePanel.go(imp, "room")
-            end
-          end })
+          action = function() OnlinePanel.spectateByCode(imp, code) end })
       cy = cy + rowH + tiny
     end
     if #rows > perPage then
