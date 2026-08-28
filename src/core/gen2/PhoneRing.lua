@@ -100,6 +100,7 @@ function PhoneRing.script(call, name, className)
     })
   end
   local rows = {}
+  rows.phoneContact = call and call.contact
   if call and call.delay then
     rows[#rows + 1] = { op = "pause", frames = call.delay }
   end
