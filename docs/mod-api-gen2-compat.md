@@ -676,6 +676,17 @@ the same letter raises a second event.
 | `phone.contact_list` | `Phone`'s `wPhoneList` read | called `(save, list)`, the shape the other list hooks use | the same list |
 | `shiny.roll` | `Mon` | `dvs`, `species`, `def`, `level` | the DV-derived boolean |
 | `gender.roll` | `Mon` | `def`, `dvs`, `ratio`, `species`, `level` | the DV-derived gender |
+| `battle.enemy_switch_or_item` | `Battle:enemyTrySwitchOrItem` | called `(battle)` | `true` when the foe spent the turn rotating or drinking |
+
+`battle.enemy_switch_or_item` is the companion to the shared
+`battle.enemy_action`: that one rewrites which MOVE the foe picks, this one
+decides whether the foe spends the whole turn on a rotation or an item instead
+of moving at all. Red has no such branch, which is why the name is new. Return
+a boolean to answer "the turn was spent" the way vanilla does, or an action
+table -- `{ kind = "switch", index = n }` or `{ kind = "item", item = id }` --
+to have the engine perform it. A link battle supplies both sides' actions
+directly (`Battle:takeLinkTurn`) and consults neither this hook nor
+`battle.enemy_action`, so a mod cannot desync a lockstep match through either.
 
 `held_item.trigger` is one hook over eight call sites, because on the cart
 those eight *are* one routine (`GetUserItem` / `GetOpponentItem` loading b and
@@ -737,7 +748,9 @@ change in the Gen 2 module first and a routing row second:
 - `field`: the Gen 1 overworld's data grab bag. Gold's equivalents live in
   `data.gen2Maps` and the VM's own tables.
 - `text_pointers`: Gen 1's `TEXT_*` indirection. Gold's text *is* pointers.
-- `link_fields`: link play is Gen 1 only.
+- `link_fields`: gated until the Gen 2 mon wire format carries mod fields;
+  Gen 2 link battles exist (launcher arenas over `src/link/LinkBattle2.lua`)
+  but ship no extra mon fields yet.
 - `map_scripts`: `data.gen2Scripts` is the cart's bytecode pool keyed by ROM
   pointer, and a Lua row list merged into it is not something
   `src/script/gen2/Vm.lua` can run. Routing it needs a Gen 2 side dispatcher in
@@ -796,10 +809,10 @@ The list is much shorter than it was. What is outstanding, in descending value:
   when that selection is required.
 - `pokemon.before_give` / `pokemon.received`: Gold has no give-mon seam of its
   own yet.
-- `link.*` and `trade.completed`: a Gold boot offers no link menu at all. The
-  Gen 2 fingerprint and handshake exist (`src/link/Fingerprint.lua` hashes a
-  Gen 2 surface and a cross-generation pairing is refused by name), but nothing
-  in `src/ui/gen2/` opens onto the protocol, so these raise nowhere.
+- `link.*` and `trade.completed`: a Gold boot offers no in-game link menu.
+  Gen 2 battles run as launcher arenas (`src/ui/gen2/ArenaState.lua` over
+  `src/link/LinkBattle2.lua`), which raise `link.battle_ended`; trades happen
+  in the launcher, so `trade.completed` still raises nowhere in Gold.
 
 Four groups that used to sit here have since landed and moved to the shared
 table above: the frame seams (`render.compose` / `render.hud` /

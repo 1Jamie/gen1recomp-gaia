@@ -22,6 +22,71 @@ local Version = {
   cache = "rom-cache-v5", -- ROM import cache generation (RomImporter marker)
 }
 
+local DEV_PLACEHOLDER = "0.0.0-dev"
+
+local function readFile(path)
+  local handle = io.open(path, "rb")
+  if not handle then return nil end
+  local text = handle:read("*a")
+  handle:close()
+  if type(text) ~= "string" or text == "" then return nil end
+  return text
+end
+
+local function commitFromBuildInfo()
+  local fs = rawget(_G, "love") and love.filesystem
+  if not (fs and fs.read) then return nil end
+  local ok, text = pcall(fs.read, "build-info.json")
+  if not ok or type(text) ~= "string" then return nil end
+  return text:match('"gitCommitFull"%s*:%s*"(%x+)"')
+      or text:match('"gitCommit"%s*:%s*"(%x+)"')
+end
+
+local function commitFromGit(source, read)
+  read = read or readFile
+  if type(source) ~= "string" or source == "" then return nil end
+  local gitDir = source .. "/.git"
+  local head = read(gitDir .. "/HEAD")
+  if not head then
+    local pointer = read(gitDir)
+    local target = pointer and pointer:match("^gitdir:%s*(%S+)")
+    if not target then return nil end
+    if not target:match("^/") then target = source .. "/" .. target end
+    gitDir = target
+    head = read(gitDir .. "/HEAD")
+    if not head then return nil end
+  end
+  local ref = head:match("^ref:%s*(%S+)")
+  if not ref then return head:match("^(%x+)") end
+  local hash = read(gitDir .. "/" .. ref)
+  if hash then return hash:match("^(%x+)") end
+  local packed = read(gitDir .. "/packed-refs")
+  if packed then
+    return packed:match("(%x+)%s+" .. ref:gsub("%p", "%%%0"))
+  end
+  return nil
+end
+
+function Version.devEngine(engine, source, read)
+  engine = tostring(engine or "")
+  if engine ~= DEV_PLACEHOLDER then return engine end
+  local commit = commitFromBuildInfo() or commitFromGit(source, read)
+  if type(commit) ~= "string" or #commit < 7 then return engine end
+  return engine .. "+" .. commit:sub(1, 12):lower()
+end
+
+do
+  local ok, derived = pcall(function()
+    local source
+    local fs = rawget(_G, "love") and love.filesystem
+    if fs and fs.getSource then source = fs.getSource() end
+    return Version.devEngine(Version.engine, source)
+  end)
+  if ok and type(derived) == "string" and derived ~= "" then
+    Version.engine = derived
+  end
+end
+
 -- True for the working-tree placeholder and any stamped "-dev" pre-release.
 -- Shipped builds get a bare X.Y.Z from CI and are not "dev" here.
 function Version.isDev()

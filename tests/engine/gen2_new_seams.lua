@@ -650,6 +650,76 @@ end
 
 -- ------- the mod-free state is restored
 
+-- ------- battle.enemy_switch_or_item
+--
+-- AI_SwitchOrTryItem's whole choke point (src/battle/gen2/Battle.lua), the
+-- companion to battle.enemy_action: enemy_action rewrites which MOVE the foe
+-- picks, this one decides whether the foe spends the turn on a rotation or an
+-- item instead of moving at all.  Vanilla answers a boolean; a mod may answer
+-- a { kind = "switch", index } or a { kind = "item", item } action.
+
+do
+  local Battle = require("src.battle.gen2.Battle")
+  local Mon = require("src.battle.gen2.Mon")
+  local data = {
+    pokemon = DATA.pokemon,
+    moves = DATA.moves,
+    items = { POTION = { id = "POTION", name = "POTION" } },
+    type_chart = { types = {}, matchups = {} },
+  }
+  local function fighter(level)
+    local mon = Mon.new(data, "SEEDMON", level,
+      { dvs = { attack = 15, defense = 15, speed = 15, special = 15 } })
+    mon.moves = { { id = "SEED_TACKLE", pp = 35, maxPp = 35 } }
+    return mon
+  end
+  local roster = { fighter(10), fighter(12) }
+  local battle = Battle.new({
+    data = data,
+    random = function() return 0 end,
+    party = { fighter(10) },
+    trainer = { name = "FOE", party = roster, items = { "POTION" } },
+  })
+
+  -- No TRNATTR_AI flags: vanilla never rotates and never drinks.
+  T.eq(battle:enemyTrySwitchOrItem(), false,
+    "battle.enemy_switch_or_item's vanilla refuses a flagless trainer")
+
+  local ctxSeen
+  withHook("battle.enemy_switch_or_item", function(nextFn, b)
+    ctxSeen = b
+    return nextFn(b)
+  end, function()
+    T.eq(battle:enemyTrySwitchOrItem(), false,
+      "battle.enemy_switch_or_item passes vanilla's answer through")
+  end)
+  T.eq(ctxSeen, battle, "battle.enemy_switch_or_item is handed the battle")
+
+  withHook("battle.enemy_switch_or_item", function()
+    return { kind = "switch", index = 2 }
+  end, function()
+    T.eq(battle:enemyTrySwitchOrItem(), true,
+      "battle.enemy_switch_or_item can rotate the foe")
+    T.eq(battle.enemyIndex, 2, "...to the slot the action names")
+    T.eq(battle.enemy, roster[2], "...and the battler follows")
+  end)
+
+  battle.enemy.hp = 1
+  withHook("battle.enemy_switch_or_item", function()
+    return { kind = "item", item = "POTION" }
+  end, function()
+    T.eq(battle:enemyTrySwitchOrItem(), true,
+      "battle.enemy_switch_or_item can spend the turn on an item")
+  end)
+  T.check(battle.enemy.hp > 1, "...and the item's effect lands")
+  T.eq(#battle.trainer.items, 0, "...consuming it from the roster")
+
+  withHook("battle.enemy_switch_or_item", function() return nil end, function()
+    T.eq(battle:enemyTrySwitchOrItem(), false,
+      "battle.enemy_switch_or_item can refuse both")
+  end)
+end
+
 for _, name in ipairs({ "intro.boot.copyright", "intro.boot.gamefreak",
                         "intro.boot.movie", "intro.boot.movie_ended",
                         "intro.boot.title",
@@ -667,7 +737,8 @@ end
 -- same residue gate_events.lua documents for the event bus, so the check is on
 -- the chain's contents rather than on wantsHook.
 for _, name in ipairs({ "held_item.trigger", "breeding.compatibility",
-                        "phone.contact_list", "shiny.roll", "gender.roll" }) do
+                        "phone.contact_list", "shiny.roll", "gender.roll",
+                        "battle.enemy_switch_or_item" }) do
   T.eq(#(hooks.chains[name] or {}), 0, "every hook case unwrapped: " .. name)
 end
 

@@ -315,6 +315,19 @@ local function writeGen2TypeChart(out, data)
   end
 end
 
+local function writeRulesets(out, data)
+  local rulesets = data.rulesets
+  if not rulesets then return end
+  out[#out + 1] = "[rulesets]"
+  for _, id in ipairs(sortedIds(rulesets)) do
+    local record = rulesets[id]
+    if type(record) == "table" then
+      out[#out + 1] = "@" .. id
+      writeValue(out, record)
+    end
+  end
+end
+
 local function writeConstants(out, data)
   if not data.constants then return end
   out[#out + 1] = "[constants]"
@@ -365,6 +378,7 @@ local function surfaceGen1(data, mods)
   writeTypeChart(out, data)
   writeSection(out, data, "statuses")
   writeSection(out, data, "move_effects")
+  writeRulesets(out, data)
   writeConstants(out, data)
   writeLinkFields(out, data)
   out[#out + 1] = "[mods]" .. modKey(mods)

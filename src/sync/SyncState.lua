@@ -35,6 +35,7 @@ function SyncState.sanitize(raw)
   out.deviceToken = str(raw.deviceToken)
   out.deviceId = str(raw.deviceId)
   out.deviceLabel = str(raw.deviceLabel)
+  out.displayName = str(raw.displayName)
   out.lastSyncAt = num(raw.lastSyncAt) or 0
   if type(raw.revs) == "table" then
     for key, rev in pairs(raw.revs) do

@@ -140,7 +140,7 @@ end
 
 -- the enabled mods that keep this install out of online play, in the
 -- id order Handshake.mods sorts: everything except verified translations.
--- LinkState:offerVanillaRestart names these and switches off exactly these.
+-- The launcher's ONLINE tab names these and switches off exactly these.
 function Handshake.onlineBlockers(game)
   local mod = loader(game)
   local blockers = {}
@@ -152,8 +152,8 @@ function Handshake.onlineBlockers(game)
   return blockers
 end
 
--- online play (the relay-based online match / tournament flows in
--- LinkState/Tournament) meets strangers, not a coordinating friend, so it
+-- online play (the launcher's relay-based rooms and tournaments) meets
+-- strangers, not a coordinating friend, so it
 -- skips the LAN path's per-peer compatibility negotiation entirely and
 -- just requires a vanilla simulation on both ends: no mod-added Pokemon, no
 -- surprises.  #501 carves out translations, because a language is not a
@@ -175,6 +175,21 @@ function Handshake.generation(game)
   return Fingerprint.generationOf(game and game.data)
 end
 
+Handshake.DEFAULT_RULESET = "gen1_faithful"
+
+function Handshake.ruleset(game)
+  local data = game and game.data
+  local fallback = (data and data.constants and data.constants.defaultRuleset)
+                   or Handshake.DEFAULT_RULESET
+  local selected = game and game.save and game.save.options
+                   and game.save.options.ruleset
+  if selected == nil then return fallback end
+  selected = tostring(selected)
+  local rulesets = data and data.rulesets
+  if rulesets and rulesets[selected] == nil then return fallback end
+  return selected
+end
+
 -- mode is nil on the guest: it pairs and announces itself before the host
 -- has picked, and compatibility is decided from the two hellos, not the mode
 function Handshake.hello(game, mode)
@@ -193,6 +208,7 @@ function Handshake.hello(game, mode)
     generation = generation,
     fingerprint = Fingerprint.compute(game and game.data, mods, generation),
     linkModified = Handshake.linkModified(game),
+    ruleset = Handshake.ruleset(game),
     mods = mods,
   }
 end
@@ -247,6 +263,11 @@ function Handshake.checkCompat(localHello, remoteHello)
     return "engine_skew", "engine_release_mismatch"
   end
   if remoteHello.fingerprint == localHello.fingerprint then
+    local localRuleset = localHello.ruleset or Handshake.DEFAULT_RULESET
+    local remoteRuleset = remoteHello.ruleset or Handshake.DEFAULT_RULESET
+    if tostring(localRuleset) ~= tostring(remoteRuleset) then
+      return "ruleset_skew", "ruleset_mismatch"
+    end
     return "full", nil
   end
   return "subset", "fingerprint_mismatch"
@@ -256,6 +277,7 @@ end
 -- peer keeps the old substitute-a-move behaviour it was built against
 function Handshake.strict(verdict)
   return verdict == "full" or verdict == "subset" or verdict == "engine_skew"
+         or verdict == "ruleset_skew"
 end
 
 function Handshake.battleAllowed(verdict)
@@ -356,6 +378,24 @@ function Handshake.describe(localHello, remoteHello, verdict, mode)
       wrap(lines, "The two games are")
       wrap(lines, "different engine")
       wrap(lines, "versions.")
+    end
+    return lines
+  end
+  if verdict == "ruleset_skew" then
+    wrap(lines, "Your battle rules")
+    wrap(lines, "differ:")
+    wrap(lines, (" you: %s"):format(
+      tostring(localHello.ruleset or Handshake.DEFAULT_RULESET):upper():sub(1, 12)))
+    wrap(lines, (" %s: %s"):format(peer:sub(1, 8),
+      tostring((remoteHello and remoteHello.ruleset)
+               or Handshake.DEFAULT_RULESET):upper():sub(1, 12)))
+    if mode == "battle" then
+      wrap(lines, "Battle needs the")
+      wrap(lines, "same RULESET in")
+      wrap(lines, "OPTIONS.")
+    else
+      wrap(lines, "Trading still")
+      wrap(lines, "works.")
     end
     return lines
   end

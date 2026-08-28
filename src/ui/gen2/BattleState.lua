@@ -251,6 +251,7 @@ function BattleState.new(game, opts)
   self.pokemon = data.pokemon
   self.battle = opts.battle
   self.onDone = opts.onDone
+  self.link = opts.link
   -- What PlayVictoryMusic needs to know about the opponent (the class the
   -- trainer belongs to); nil for a wild battle.
   self.music = opts.music
@@ -2004,6 +2005,9 @@ function BattleState:playVictoryMusic()
 end
 
 function BattleState:submit(action)
+  if self.link and self.link.submit then
+    return self.link.submit(self, action)
+  end
   self.phase = "resolving"
   self:pushAll(self.battle:takeTurn(action))
   self.message = nil
@@ -2018,6 +2022,9 @@ end
 -- One semantic path for the native command menu and mod.battle intents.
 function BattleState:chooseMenu(choice)
   if self.phase ~= "menu" then return nil, "battle menu is not active" end
+  if self.link and self.link.menuChoice and self.link.menuChoice(self, choice) then
+    return true
+  end
   if choice == "fight" then
     -- CheckPlayerHasUsableMoves skips MoveSelectionScreen and uses Struggle.
     local fighter = self.battle and self.battle.player
@@ -2415,6 +2422,9 @@ function BattleState:update(_dt)
   end
 
   if self.phase == "forced-switch" then
+    if self.link and self.link.forcedPrompt and self.link.forcedPrompt(self) then
+      return
+    end
     -- Reuse the party list so the layout and controls match the start menu's.
     self:openParty(true)
     return
@@ -2451,6 +2461,18 @@ function BattleState:update(_dt)
     end
     self.message = nil
     self.phase = "moves"
+    return
+  end
+
+  if self.phase == "refuse-menu" then
+    if self.messageTimer > 0 then
+      if input:wasPressed("a") or input:wasPressed("b") then
+        self.messageTimer = 0
+      end
+      return
+    end
+    self.message = nil
+    self.phase = "menu"
     return
   end
 
@@ -2541,6 +2563,8 @@ function BattleState:openParty(forced)
     prompt = forced and "which" or "choose",
     battle = true,
     battleSubmenu = not forced,
+    party = (self.battle and self.battle.party) or nil,
+    save = self.save,
     onCancel = function()
       stack:pop()
       -- A forced switch cannot be cancelled.
@@ -2577,6 +2601,9 @@ function BattleState:openParty(forced)
         -- ForcePickPartyMonInBattle loops on carry: a pick the engine will not
         -- take has to come back as the list again, never as the battle menu
         -- with a fainted mon standing on the field.
+        if self.link and self.link.forcedSwitch then
+          return self.link.forcedSwitch(self, index)
+        end
         if not self.battle:switch(index) then
           return self:refuseSwitch(true)
         end
@@ -2603,6 +2630,12 @@ end
 
 function BattleState:refuseMove(text)
   self.phase = "refuse-move"
+  self.message = text
+  self.messageTimer = MESSAGE_FRAMES
+end
+
+function BattleState:refuseMenu(text)
+  self.phase = "refuse-menu"
   self.message = text
   self.messageTimer = MESSAGE_FRAMES
 end
@@ -2956,6 +2989,7 @@ end
 -- (engine/battle/core.asm:3269-3295, engine/menus/options_menu.asm:249-256).
 function BattleState:shiftOfferAllowed()
   local battle = self.battle
+  if self.link then return false end
   if not (battle and battle.player and battle.trainer) then return false end
   if #(battle.party or {}) < 2 then return false end
   if (battle.player.hp or 0) <= 0 then return false end

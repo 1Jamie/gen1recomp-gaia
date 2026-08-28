@@ -29,17 +29,32 @@ local LinkBattle = {}
 
 -- Deterministic Park-Miller PRNG: both sides must roll identical
 -- streams, so love.math.random can't be used.
-local function makeRng(seed)
+local function makeRng(seed, owner)
   local s = tonumber(seed) or 1
   if s ~= s or s == math.huge or s == -math.huge then s = 1 end
   s = math.floor(s) % 2147483647
   if s <= 0 then s = s + 2147483646 end
+  if owner then owner.rngDraws = 0 end
   return function(a, b)
+    if owner then owner.rngDraws = (owner.rngDraws or 0) + 1 end
     s = (s * 16807) % 2147483647
     if a == nil then return s / 2147483647 end
     if b == nil then a, b = 1, a end
     return a + (s % (b - a + 1))
   end
+end
+
+local BUILTIN_RULESETS = {
+  gen1_faithful = require("src.battle.rulesets.gen1_faithful"),
+  modern_clean = require("src.battle.rulesets.modern_clean"),
+}
+
+local function rulesetFor(game, id)
+  local rulesets = game.data.rulesets or BUILTIN_RULESETS
+  local fallback = (game.data.constants and game.data.constants.defaultRuleset)
+                   or "gen1_faithful"
+  return (id and rulesets[id]) or rulesets[fallback]
+         or BUILTIN_RULESETS.gen1_faithful
 end
 
 -- Battlers go through BattleState.makeBattler so pics get the same
@@ -177,7 +192,8 @@ local function stateSig(self, role, myParty, theirParty)
   local hostParty = role == "host" and myParty or theirParty
   local guestParty = role == "host" and theirParty or myParty
   return {
-    actives = Fingerprint.digest(activeStr(host) .. "|" .. activeStr(guest)),
+    actives = Fingerprint.digest(activeStr(host) .. "|" .. activeStr(guest)
+                                 .. "|r" .. tostring(self.rngDraws or 0)),
     volatile = Fingerprint.digest(volStr(host) .. "|" .. volStr(guest)),
     bench = Fingerprint.digest(benchStr(hostParty) .. "|" .. benchStr(guestParty)),
   }
@@ -197,7 +213,7 @@ local PARTS = { "actives", "volatile", "bench" }
 local FATAL_PART = { actives = true, bench = true }
 
 -- opts: { myParty = packed, theirParty = packed, theirName, role =
--- "host"/"guest", seed, verdict, strict }.  Returns nil plus a reason when
+-- "host"/"guest", seed, ruleset, verdict, strict }.  Returns nil plus a reason when
 -- the handshake says the two link surfaces don't match: a lockstep
 -- simulation of two different rulebooks can only end in a bogus draw.
 function LinkBattle.new(game, net, opts)
@@ -255,7 +271,9 @@ function LinkBattle.new(game, net, opts)
   -- back up and the link can stall or time out. Game:step services
   -- game.linkNet unconditionally every frame.
   game.linkNet = net
-  self.rng = makeRng(opts.seed or 1)
+  self.rng = makeRng(opts.seed or 1, self)
+  self.rulesetId = opts.ruleset
+  self.ruleset = rulesetFor(game, opts.ruleset)
   self.player = mkBattler(game.data, myParty[1], true)
   self.enemy = mkBattler(game.data, theirParty[1], false)
   self.enemyParty = theirParty
@@ -751,8 +769,8 @@ function LinkBattle.new(game, net, opts)
     -- the whole tournament, not just this match.
     if not opts.keepNetOpen then
       net:close()
+      if game.linkNet == net then game.linkNet = nil end
     end
-    if game.linkNet == net then game.linkNet = nil end
     baseFinish(s)
   end
 
@@ -802,7 +820,9 @@ function LinkBattle.newSpectator(game, net, opts)
   self.spectating = true -- Tournament.lua's marker: don't report a result for this one
   self.net = net
   game.linkNet = net
-  self.rng = makeRng(opts.seed or 1)
+  self.rng = makeRng(opts.seed or 1, self)
+  self.rulesetId = opts.ruleset
+  self.ruleset = rulesetFor(game, opts.ruleset)
   self.player = mkBattler(game.data, hostParty[1], true)
   self.enemy = mkBattler(game.data, guestParty[1], false)
   self.enemyParty = guestParty
@@ -1011,10 +1031,11 @@ function LinkBattle.newSpectator(game, net, opts)
           end
         elseif inner.type == "bye" or inner.type == "forfeit" then
           if not s.result then endSpectate(s, "The match ended.") end
+        elseif inner.type == "hello" or inner.type == "party" then
+          s.pendingTournamentMessages = s.pendingTournamentMessages or {}
+          table.insert(s.pendingTournamentMessages, msg)
         end
-        -- "hello"/"party"/"hash" ride along too (Tournament.lua already
-        -- consumed hello/party before building this battle); none of them
-        -- need any action here
+        -- a spectated "hash" needs no action here
       else
         -- same reasoning as the real-participant loop above: don't lose a
         -- bracket_update/match_start_spectate that arrives mid-match
@@ -1046,7 +1067,6 @@ function LinkBattle.newSpectator(game, net, opts)
   local baseFinish = self.finish
   self.finish = function(s)
     s.linkEnded = true
-    if game.linkNet == net then game.linkNet = nil end
     baseFinish(s) -- deliberately doesn't touch net: it's the caller's
                   -- tournament connection, still needed after this match
   end

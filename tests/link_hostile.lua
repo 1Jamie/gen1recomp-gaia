@@ -1,7 +1,7 @@
 -- Hostile link traffic: every message type this build reads, with every
 -- field replaced by every wrong Lua type, driven through the real Session
 -- choke point and then into the real consumers (trade session, link battle,
--- spectator battle, tournament screen -- including its draw).
+-- spectator battle -- including their draws).
 --
 -- The three payloads from the "How to Troll Pokemon Players" writeup are
 -- rows in the table below: action.slot as a table, hash.parts as a number,
@@ -27,7 +27,6 @@ local Net = require("src.link.Net")
 local Pokemon = require("src.pokemon.Pokemon")
 local Protocol = require("src.link.Protocol")
 local Session = require("src.link.Session")
-local Tournament = require("src.link.Tournament")
 local Wire = require("src.link.Wire")
 
 local failures = 0
@@ -69,34 +68,13 @@ local TEMPLATES = {
     parts = { actives = "a", volatile = "b", bench = "c" } },
   { type = "replace", index = 1 },
   { type = "bye" },
-  { type = "forfeit" },
+  { type = "forfeit", match = "ABCDEF-r1-m0" },
   { type = "spectate", side = "host",
     msg = { type = "action", kind = "move", slot = 1 } },
   { type = "hosted", code = "ABCDEF" },
   { type = "paired" },
   { type = "peer_gone" },
   { type = "join_error", reason = "not_found" },
-  { type = "tournament_hosted", code = "ABCDEF", turnLimit = 6,
-    requiredPartySize = 3, minLevel = 5, maxLevel = 50, forceLevel = 50,
-    participating = true },
-  { type = "tournament_host_error", reason = "party_ineligible",
-    requiredPartySize = 3, minLevel = 5, maxLevel = 50 },
-  { type = "tournament_join_error", reason = "party_ineligible",
-    requiredPartySize = 3, minLevel = 5, maxLevel = 50 },
-  { type = "tournament_roster", players = { "RED", "BLUE" },
-    spectators = { "GREEN" }, turnLimit = 6, requiredPartySize = 3,
-    minLevel = 5, maxLevel = 50, forceLevel = 50 },
-  { type = "bracket_update", tournament = { code = "ABCDEF", turnLimit = 6,
-    requiredPartySize = 3, minLevel = 5, maxLevel = 50, status = "active",
-    round = 1, champion = "RED",
-    rounds = { { round = 1, matches = { { a = "RED", b = "BLUE",
-      winner = "RED", bye = false, state = "live" } } } } } },
-  { type = "match_start", opponent = "BLUE", round = 1, turnLimit = 6,
-    role = "host" },
-  { type = "match_start_spectate", round = 1, playerHost = "RED",
-    playerGuest = "BLUE" },
-  { type = "tournament_bye", round = 1 },
-  { type = "tournament_over", champion = "RED" },
   { type = "a_type_this_build_has_never_heard_of", payload = { n = 1 } },
 }
 
@@ -112,10 +90,6 @@ local NESTED = {
   { "hello", { "mods", 1 } },
   { "spectate", { "msg" } },
   { "spectate", { "msg", "slot" } },
-  { "bracket_update", { "tournament", "rounds" } },
-  { "bracket_update", { "tournament", "rounds", 1, "matches" } },
-  { "bracket_update", { "tournament", "rounds", 1, "matches", 1, "a" } },
-  { "tournament_roster", { "players", 1 } },
 }
 
 local function templateFor(kind)
@@ -330,44 +304,6 @@ do
     end
   end
   check(not crashed, "a spectator battle survives every hostile envelope"
-        .. (crashed and (": " .. crashed) or ""))
-end
-
-do
-  local game = makeFakeGame("PIKACHU", "RED")
-  local exits = 0
-  local t = setmetatable({
-    game = game,
-    stage = "bracket",
-    index = 1,
-    settingsIndex = 1,
-    settings = { turnLimit = 6, requiredPartySize = 3, minLevel = "ANY",
-                 maxLevel = "ANY", forceLevel = "ANY", participating = true },
-    roster = {},
-    spectatorRoster = {},
-    isCreator = false,
-    net = { send = function() end, close = function() end,
-            take = function() return nil end,
-            poll = function() return {} end,
-            hasPending = function() return false end },
-  }, Tournament)
-  t.exitWith = function(self) exits = exits + 1 end
-  local crashed
-  for _, msg in ipairs(survivors) do
-    local ok, err = pcall(function()
-      t:handleMessage(msg)
-      t:draw()
-    end)
-    if not ok then
-      crashed = ("%s: %s"):format(tostring(msg.type), tostring(err))
-      break
-    end
-    if type(t.roster) ~= "table" or type(t.spectatorRoster) ~= "table" then
-      crashed = ("%s left a non-table roster"):format(tostring(msg.type))
-      break
-    end
-  end
-  check(not crashed, "the tournament screen survives every hostile message"
         .. (crashed and (": " .. crashed) or ""))
 end
 

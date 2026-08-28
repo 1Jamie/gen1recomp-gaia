@@ -382,7 +382,9 @@ function Evolution.apply(data, mon, entry)
   local level = mon.level or 1
   -- CalcMonStats runs through the one builder, so an evolved mon's stats can
   -- never disagree with a freshly built one's.
-  local stats = Mon.stats(def.baseStats, mon.dvs, level, mon.statExp)
+  -- engine/pokemon/evolve.asm:261-264
+  local statExp = mon.statExp
+  local stats = Mon.stats(def.baseStats, mon.dvs, level, statExp)
   local previousMax = mon.maxHp or (mon.stats and mon.stats.hp) or stats.hp
   local hp = (mon.hp or previousMax) + (stats.hp - previousMax)
   -- The cart does not clamp; the bound only matters for data where an
@@ -398,6 +400,7 @@ function Evolution.apply(data, mon, entry)
 
   local evolved = Mon.new(data, species, level, {
     dvs = mon.dvs,
+    statExp = statExp,
     moves = mon.moves,
     hp = hp,
     item = heldItem,

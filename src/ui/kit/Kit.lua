@@ -45,6 +45,7 @@ local Theme = require("src.ui.kit.Theme")
 local PAL = Theme.PAL
 local VirtualKeyboard = require("src.ui.kit.VirtualKeyboard")
 local FileBrowser = require("src.ui.kit.FileBrowser")
+local Transition = require("src.ui.kit.Transition")
 
 local Kit = {
   scale = 1,
@@ -53,6 +54,7 @@ local Kit = {
   focusId = nil,     -- spatial-nav ring id (nil = nothing selected by pad/arrows)
   VirtualKeyboard = VirtualKeyboard,
   FileBrowser = FileBrowser,
+  Transition = Transition,
 }
 
 Kit.mouseX, Kit.mouseY = 0, 0
@@ -334,6 +336,8 @@ function Kit.beginFrame(mx, my, clicked, wheel)
   if love and love.timer and love.timer.getTime then
     Kit.time = love.timer.getTime()
   end
+  Transition.update(Kit.time)
+  if Transition.active() then Kit.blockClicks = true end
   -- Resolve any queued focus-ring movement against LAST frame's geometry.
   -- Immediate mode has no geometry until the frame is built, and the ring
   -- must move before widgets test themselves against it.

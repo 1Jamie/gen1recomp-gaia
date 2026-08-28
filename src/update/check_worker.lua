@@ -238,7 +238,7 @@ local function doCheck(target)
   -- Unstamped dev build: the working tree always looks "newer", so never
   -- pester the developer with an update (contract item, Check design).
   local currentEngine = (Version and Version.engine) or "0.0.0-dev"
-  if currentEngine == "0.0.0-dev" then
+  if currentEngine:match("^0%.0%.0%-dev") then
     post({ status = "uptodate", latest = rel.version })
     return
   end

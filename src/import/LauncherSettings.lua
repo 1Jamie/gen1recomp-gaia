@@ -714,6 +714,23 @@ function LauncherSettings.open(hooks, version)
       { title = Strings("OPTIONS"), rows = coreRows(opts, hooks) },
     }
   end
+  sections[#sections + 1] = {
+    title = Strings("LAUNCHER"),
+    rows = {
+      {
+        label = Strings("REDUCE MOTION"),
+        value = function()
+          return opts.reduceMotion == true and Strings("ON") or Strings("OFF")
+        end,
+        step = function()
+          opts.reduceMotion = not (opts.reduceMotion == true)
+          local okT, Transition = pcall(require, "src.ui.kit.Transition")
+          if okT then Transition.reduceMotion = opts.reduceMotion end
+          return true
+        end,
+      },
+    },
+  }
   -- Mod options are generation-agnostic (the manager's options_schema
   -- contract), so they ride along either way.
   for _, mod in ipairs(discoverModSchemas(opts)) do

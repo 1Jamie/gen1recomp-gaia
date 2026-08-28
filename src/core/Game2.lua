@@ -205,6 +205,12 @@ function Game2:adoptSave(save, seedBuckets)
   loader.modSave = save.modData
 end
 
+function Game2:enterArena(spec)
+  self.phase = "boot"
+  self.stack:clear()
+  self.stack:push(require("src.ui.gen2.ArenaState").new(self, spec))
+end
+
 function Game2:startWorld()
   if self.world and self.world.map then
     self.phase = "play"
@@ -886,7 +892,9 @@ function Game2:writeSave()
   return Save.save(save)
 end
 
-function Game2:load()
+function Game2:load(opts)
+  opts = opts or {}
+  local arena = opts.arena
   Input:init()
   -- Before applyOptions, which is what pushes options.touchControls into it:
   -- init() decides whether the platform wants the overlay at all and loads the
@@ -990,13 +998,18 @@ function Game2:load()
   -- self.data and the ones without report instead of silently vanishing.  The
   -- whole thing is behind a pcall so a mod problem can never cost Gold its
   -- boot.
+  local modOpts = arena and {
+    mode = (arena.profile and arena.profile.kind == "cart")
+      and "cartOnly" or "disableAll",
+    cartId = opts.cartId,
+  } or nil
   local ok, loader = pcall(function()
     local mods = require("src.mods.Loader").new()
     -- the live service owner, before load: mod.world and mod.input resolve
     -- through this, and without it the facade would bind to the Gen 1
     -- src/core/Game.lua singleton that a Gold boot never loads
     mods.game = self
-    mods:load(self.data)
+    mods:load(self.data, modOpts)
     return mods
   end)
   if ok and loader then
@@ -1072,7 +1085,9 @@ function Game2:load()
   -- Drivers that walk the overworld skip boot cinema so smoke stays stable.
   -- POKEPORT_BOOT_CINEMA=1 opts back in, which is how the boot-chain driver
   -- exercises copyright -> title -> intro menu -> Oak -> naming.
-  if os.getenv("POKEPORT_DRIVER")
+  if arena then
+    self:enterArena(arena)
+  elseif os.getenv("POKEPORT_DRIVER")
       and os.getenv("POKEPORT_BOOT_CINEMA") ~= "1" then
     self:startWorld()
   else

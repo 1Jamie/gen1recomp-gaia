@@ -7,7 +7,8 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Multiple color modes**, including original, SGB, advanced GBC, monochrome, and classic green
 * **Optional GBC screen effects**, including pixel grids, shadows, glare, and transparency
 * **Performance presets** and configurable FPS limits
-* **Peer-to-peer link play** for trades and battles between Red, Blue, and Yellow
+* **Peer-to-peer LAN link play** for trades and battles between Red, Blue, and Yellow
+* **Online lobby** in the launcher for battles, spectating and tournaments
 * **Persistent custom options** stored separately from game saves
 * **Optional widescreen battle layout**
 * **Mobile touch controls** with editable layouts, vibration, and orientation settings

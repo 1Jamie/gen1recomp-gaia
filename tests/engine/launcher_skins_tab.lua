@@ -50,30 +50,36 @@ local imp = read("src/import/RomImporter.lua")
 
 check(view:find('id = "skins"', 1, true) ~= nil,
       "LauncherView registers a skins tab")
-check(view:find('id = "bug"', 1, true) ~= nil,
-      "LauncherView registers a bug tab")
+check(view:find('id = "bug"', 1, true) == nil,
+      "the bug tab has left the header")
 check(view:find("drawSkinGlyph", 1, true) ~= nil,
       "the skins tab draws its own glyph rather than shipping an asset")
 check(view:find('assets/launcher/bug.png', 1, true) ~= nil,
-      "the bug tab uses the standard bug report asset")
+      "the bug report asset is still loaded for the panel")
 -- the tab has to be next to Find, which is what the request was
 local order = view:match("local HEADER_TABS = %{(.-)%}\n")
 check(order ~= nil, "HEADER_TABS found")
 if order then
   local findAt = order:find('id = "find"', 1, true)
   local skinsAt = order:find('id = "skins"', 1, true)
-  local bugAt = order:find('id = "bug"', 1, true)
+  local onlineAt = order:find('id = "online"', 1, true)
   check(findAt and skinsAt and skinsAt > findAt,
         "the skins tab sits immediately after Find")
-  check(skinsAt and bugAt and bugAt > skinsAt,
-        "the bug tab sits after Skins")
+  check(onlineAt ~= nil, "the online tab is in the header")
+  local onlineRow = order:match('{ id = "online".-}')
+  check(onlineRow and onlineRow:find("beta = true", 1, true) ~= nil,
+        "and carries the BETA badge the skins tab uses")
 end
 check(view:find('imp.tab == "skins"', 1, true) ~= nil,
       "the panel dispatch routes the skins tab")
 check(view:find("buildSkinsPanel", 1, true) ~= nil, "and a panel builds it")
-check(view:find('imp.tab == "bug"', 1, true) ~= nil,
-      "the panel dispatch routes the bug tab")
-check(view:find("buildBugPanel", 1, true) ~= nil, "and the bug panel builds it")
+check(view:find('imp.tab == "bug"', 1, true) == nil,
+      "no tab dispatch routes the bug panel any more")
+check(view:find("buildBugModal", 1, true) ~= nil,
+      "the gear opens it as a modal instead")
+check(view:find("buildBugPanel", 1, true) ~= nil, "over the same panel code")
+check(view:find('"settings-bug"', 1, true) ~= nil,
+      "reached from a button inside the settings modal")
 check(view:find('Kit.toggle', 1, true) ~= nil,
       "the bug panel uses a switch for safe mode")
 check(view:find('bug-report', 1, true) ~= nil,
@@ -99,8 +105,8 @@ for _ = 1, #GameVersion.ORDER + 3 do RomImporter._cycleTab(probe, 1) end
 local reached = " " .. table.concat(cycled, " ") .. " "
 check(reached:find(" skins ", 1, true) ~= nil,
       "shoulder-button tab cycling reaches the skins tab")
-check(reached:find(" bug ", 1, true) ~= nil,
-      "shoulder-button tab cycling reaches the bug tab")
+check(reached:find(" bug ", 1, true) == nil,
+      "shoulder-button tab cycling no longer stops on the bug panel")
 for _, id in ipairs(GameVersion.ORDER) do
   if id ~= GameVersion.ORDER[1] then
     check(reached:find(" " .. id .. " ", 1, true) ~= nil,

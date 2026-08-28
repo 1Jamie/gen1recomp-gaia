@@ -31,6 +31,7 @@ local Kit = require("src.ui.kit.Kit")
 local Theme = require("src.ui.kit.Theme")
 local Layout = require("src.ui.kit.Layout")
 local Loader = require("src.ui.kit.Loader")
+local Transition = require("src.ui.kit.Transition")
 local GameVersion = require("src.core.GameVersion")
 local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
@@ -116,6 +117,7 @@ function LauncherView.detach(imp)
   elseif imp and imp._restoreNxPointerBridge then
     pcall(imp._restoreNxPointerBridge, imp)
   end
+  Transition.reset()
   if not imp or not imp._flex then return end
   imp._flex = nil
   if love.keyboard and love.keyboard.setKeyRepeat then
@@ -330,9 +332,15 @@ function LauncherView.keypressed(imp, key)
     Kit.navigate(key)
     return true
   end
-  if imp._ringArmed and (key == "return" or key == "kpenter" or key == "space") then
-    Kit.activateFocused()
-    return true
+  if key == "return" or key == "kpenter" or key == "space" then
+    if imp._ringArmed then
+      Kit.activateFocused()
+      return true
+    end
+    if imp._tradeModal then
+      require("src.import.OnlinePanel").tradeModalAction(imp, "a")
+      return true
+    end
   end
   return false
 end
@@ -369,6 +377,10 @@ local function rowHit(imp, x, y, w, h, selected, key, action)
   if clicked and action then queueAction(imp, key, action) end
   return ink
 end
+
+LauncherView.btn = btn
+LauncherView.rowHit = rowHit
+LauncherView.queueAction = queueAction
 
 -- ------------------------------------------------------- shared widgets
 
@@ -1292,12 +1304,28 @@ local GAME_TABS = {
     color = PAL.railCrystal, label = "Crystal" },
 }
 
+local function drawOnlineGlyph(x, y, w, h, hot)
+  local box = math.min(w, h)
+  local bx = x + (w - box) / 2
+  local by = y + (h - box) / 2
+  local pad = box * 0.24
+  local d = box - 2 * pad
+  local ink = hot and PAL.inverse or PAL.ink
+  local lw = math.max(1, math.floor(Kit.scale + 0.5))
+  Theme.strokeRounded(bx + pad, by + pad, d, d, ink, 1, lw, d / 2)
+  Theme.fill(bx + pad, by + pad + d / 2 - lw / 2, d, lw, ink, 1)
+  Theme.strokeRounded(bx + pad + d * 0.30, by + pad, d * 0.40, d, ink, 0.8, lw,
+    d * 0.20)
+end
+
 local HEADER_TABS = {
   { id = "mods",   key = "tab-mods" },
   { id = "find",   key = "tab-find" },
+  { id = "online", key = "tab-online", glyph = true, beta = true },
   { id = "skins",  key = "tab-skins", glyph = true, beta = true },
-  { id = "bug",    key = "tab-bug" },
 }
+
+LauncherView.HEADER_TABS = HEADER_TABS
 
 local BETA_TAG_OPTS = { fill = true, bold = true, ink = PAL.inverse }
 
@@ -1314,7 +1342,7 @@ end
 for _, t in ipairs(HEADER_TABS) do
   t.opts = { face = "tab", font = "tab", color = t.color, letter = t.letter }
   if t.glyph then
-    t.opts.drawFn = drawSkinGlyph
+    t.opts.drawFn = t.id == "online" and drawOnlineGlyph or drawSkinGlyph
   end
 end
 
@@ -1467,7 +1495,6 @@ local function buildHeader(imp, m)
   for _, t in ipairs(tabs) do
     if t.id == "mods" then t.icon = imp._modsIcon end
     if t.id == "find" then t.icon = imp._findIcon end
-    if t.id == "bug" then t.icon = imp._bugIcon end
   end
   local tabH = m.chip
   local tx = m.x + m.pad
@@ -1519,11 +1546,7 @@ local function buildHeader(imp, m)
     if t.beta then overlayBeta(tx, ty, w, tabH, m) end
     tx = tx + w + tabGap
   end
-  -- The bug-report chip sits LAST, past the sync chip.
-  local bugTab
-  for _, t in ipairs(tabs) do
-    if t.id == "bug" then bugTab = t else headerTab(t) end
-  end
+  for _, t in ipairs(tabs) do headerTab(t) end
 
   do
     local w = tabH
@@ -1542,13 +1565,14 @@ local function buildHeader(imp, m)
     end
     tx = tx + w + tabGap
   end
-  if bugTab then headerTab(bugTab) end
 
   -- `ty` has walked down with the wraps, so this stays correct at one row too.
   y = ty + tabH + math.floor(8 * m.s)
   Theme.fill(m.x, y, m.w, 1, PAL.line, Theme.A.hairline)
   return y + math.floor(10 * m.s)
 end
+
+LauncherView.textField = textField
 
 -- The state of the self-updater, shown in the launcher footer.
 -- Returns status, label, action, glow.
@@ -3517,22 +3541,57 @@ end
 -- underneath is inert, then lowers it for its own panel.  There is no
 -- z-ordered hit test, so this ordering IS the z-order.
 
+local modalRect = { x = 0, y = 0, w = 0, h = 0 }
+local modalTransform = false
+
+local function modalAmount()
+  local L = Transition.get("modal")
+  if not L then return 1 end
+  local p = Transition.progress("modal")
+  if L.kind == "out" then return 1 - p end
+  return p
+end
+
 local function modalPanel(m, w, h)
   -- A near-opaque scrim, not a tint.  At 0.82 the header and the wordmark
   -- still read through the settings panel and the screen looked like two
   -- layouts fighting rather than one panel on top ("the settings is covering
   -- the logo"); at this weight the page behind is present but plainly out of
   -- play, which is what a modal is supposed to say.
-  Theme.fill(0, 0, m.W, m.H, PAL.bg, 0.93)
+  local amt = modalAmount()
+  Theme.fill(0, 0, m.W, m.H, PAL.bg, 0.93 * amt)
   Kit.blockClicks = true
   local pw = math.floor(math.min(w, m.W - 2 * m.pad))
   local ph = math.floor(math.min(h, m.H - 2 * m.pad))
   local px = math.floor((m.W - pw) / 2)
   local py = math.floor((m.H - ph) / 2)
+  modalRect.x, modalRect.y, modalRect.w, modalRect.h = px, py, pw, ph
+  if amt < 1 and love.graphics and love.graphics.push then
+    local s = 0.96 + 0.04 * amt
+    love.graphics.push()
+    love.graphics.translate(m.W / 2, m.H / 2)
+    love.graphics.scale(s, s)
+    love.graphics.translate(-m.W / 2, -m.H / 2)
+    modalTransform = true
+  end
   Kit.card(px, py, pw, ph, true)
-  Kit.blockClicks = false
+  Kit.blockClicks = Transition.active()
   return px, py, pw, ph
 end
+
+local function endModalDraw(m)
+  if not modalTransform then return end
+  modalTransform = false
+  local fade = 1 - modalAmount()
+  if fade > 0 then
+    local pad = math.floor(6 * m.s)
+    Theme.fillRounded(modalRect.x - pad, modalRect.y - pad,
+      modalRect.w + 2 * pad, modalRect.h + 2 * pad, PAL.bg, fade, 10)
+  end
+  love.graphics.pop()
+end
+
+LauncherView.modalPanel = modalPanel
 
 -- Shared prompt: title, read-only field over the importer's text, buttons.
 local function buildPrompt(imp, m, spec)
@@ -4795,6 +4854,19 @@ local function buildGameManageModal(imp, m)
       action = function() imp._gameManage = nil end })
 end
 
+local function buildBugModal(imp, m)
+  local pad = math.floor(18 * m.s)
+  local w = math.floor(560 * m.s)
+  local btnH = math.max(m.btnH, Kit.tapMin())
+  local h = math.floor(math.min(m.H - 2 * m.pad, 420 * m.s))
+  local px, py, pw, ph = modalPanel(m, w, h)
+  buildBugPanel(imp, px + pad, py + pad, pw - 2 * pad,
+    ph - 2 * pad - btnH - m.gap, m)
+  btn(imp, px + pad, py + ph - pad - btnH, pw - 2 * pad, btnH, "bug-close",
+    Strings("Close"), { kind = "primary", font = "small",
+      action = function() imp:_closeBugPanel() end })
+end
+
 local function buildSettingsModal(imp, m)
   local model = imp._settings
   local SaveData = require("src.core.SaveData")
@@ -4809,6 +4881,11 @@ local function buildSettingsModal(imp, m)
   btn(imp, px + pw - pad - cw, cy, cw, m.btnH, "settings-close",
     Strings("Close"), { font = "small",
       action = function() imp:_closeSettings() end })
+  local bugLabel = Strings("Troubleshooting")
+  local bw = Kit.textWidth("small", bugLabel) + math.floor(24 * m.s)
+  btn(imp, px + pw - pad - cw - m.gap - bw, cy, bw, m.btnH, "settings-bug",
+    bugLabel, { kind = "ghost", font = "small",
+      action = function() imp:_openBugPanel() end })
   cy = cy + math.max(Kit.textHeight("stat"), m.btnH) + math.floor(6 * m.s)
   -- WRAPPED, not printed flat: on a portrait panel this line ran straight off
   -- the right edge and the sentence ended mid-word at the card border.
@@ -5645,6 +5722,19 @@ end
 -- panels underneath a modal must run with Kit.blockClicks already raised or
 -- a click on the scrim lands on whatever button happens to be behind it.
 -- Keep this list in sync with buildModals below.
+local MODAL_KEYS = {
+  "_profileRenamePrompt", "_profileSavePrompt", "_settingsText",
+  "_cartSave", "_bugModal", "_settings", "_rename", "_indexPrompt",
+  "_modConfirm", "_appPatchNotes", "_modReleaseNotes", "_findDetails",
+  "_modVersions", "_modDepResolver", "_modImports", "_singleProfileActions",
+  "_profilesPopup", "_modHeaderActionsPopup", "_sortPopup", "_gamePopup",
+  "_cartPopup", "_modScopePopup", "_filterPopup", "_indexManage",
+  "_syncModal", "_pcPicker", "_tradeModal", "_skinActions", "_modActions",
+  "_findEntry", "_gameManage",
+}
+
+LauncherView.MODAL_KEYS = MODAL_KEYS
+
 local function modalUp(imp)
   if Kit.FileBrowser and Kit.FileBrowser.active then return true end
   if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then return true end
@@ -5656,8 +5746,21 @@ local function modalUp(imp)
     or imp._gamePopup or imp._cartPopup or imp._cartSave
     or imp._modActions or imp._modImports or imp._skinActions or imp._syncModal
     or imp._modHeaderActionsPopup or imp._profilesPopup or imp._singleProfileActions or imp._profileSavePrompt
-    or imp._profileRenamePrompt or imp._findEntry or imp._gameManage) ~= nil
+    or imp._profileRenamePrompt or imp._findEntry or imp._gameManage
+    or imp._tradeModal or imp._bugModal or imp._pcPicker) ~= nil
 end
+
+local function modalKey(imp)
+  if not modalUp(imp) then return nil end
+  if Kit.FileBrowser and Kit.FileBrowser.active then return "filebrowser" end
+  if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then return "vkeyboard" end
+  for i = 1, #MODAL_KEYS do
+    if imp[MODAL_KEYS[i]] ~= nil then return MODAL_KEYS[i] end
+  end
+  return nil
+end
+
+LauncherView.modalKey = modalKey
 
 local function buildModals(imp, m)
   if Kit.VirtualKeyboard and Kit.VirtualKeyboard.active then
@@ -5730,6 +5833,7 @@ local function buildModals(imp, m)
     return true
   end
   if imp._cartSave then buildCartSaveModal(imp, m) return true end
+  if imp._bugModal then buildBugModal(imp, m) return true end
   if imp._settings then buildSettingsModal(imp, m) return true end
   if imp._rename then
     buildPrompt(imp, m, {
@@ -5810,6 +5914,12 @@ local function buildModals(imp, m)
   if imp._filterPopup then buildFilterModal(imp, m) return true end
   if imp._indexManage then buildIndexesModal(imp, m) return true end
   if imp._syncModal then buildSyncModal(imp, m) return true end
+  if imp._pcPicker then
+    return require("src.import.online.PcPicker").draw(imp, m) == true
+  end
+  if imp._tradeModal then
+    return require("src.import.online.TradeScreen").drawModal(imp, m) == true
+  end
   if imp._skinActions then buildSkinActionsModal(imp, m) return true end
   if imp._modActions then buildModActionsModal(imp, m) return true end
   if imp._findEntry then buildFindEntryModal(imp, m) return true end
@@ -5894,6 +6004,43 @@ local function minPanelHeight(m)
   return math.floor((m.twoCol and 340 or 470) * m.s)
 end
 
+local function buildTabPanel(imp, x, y, w, availH, budgetH, m)
+  if imp.tab == "mods" then
+    return buildModsPanel(imp, x, y, w, budgetH, m)
+  elseif imp.tab == "find" then
+    return buildFindPanel(imp, x, y, w, budgetH, m)
+  elseif imp.tab == "skins" then
+    return buildSkinsPanel(imp, x, y, w, budgetH, m)
+  elseif imp.tab == "online" then
+    return require("src.import.OnlinePanel")
+      .buildOnlinePanel(imp, x, y, w, budgetH, m)
+  end
+  return buildGamePanel(imp, x, y, w, availH, m, imp.tab, budgetH)
+end
+
+local function drawTabLayer(imp, tabId, x, contentY, w, viewH, availH, m, dx)
+  local prevTab = imp.tab
+  imp.tab = tabId
+  local at = tabScrollAt(imp)
+  local maxAt = tabScrollMax(imp)
+  if dx ~= 0 then
+    love.graphics.push()
+    love.graphics.translate(dx, 0)
+  end
+  local py = Kit.scrollBegin(x, contentY, w, viewH, at, maxAt)
+  local budgetH = math.floor(viewH * (1 + PANEL_OVERSCAN))
+  local panelW = math.max(0, w - Kit.scrollGutter(m.s))
+  local contentH = buildTabPanel(imp, x, py, panelW, availH, budgetH, m)
+  contentH = contentH or availH
+  imp._tabContentH[tabId] = contentH
+  imp._tabScrollMax[tabId] = Kit.scrollExtent(contentH, viewH)
+  at = clamp(at, 0, tabScrollMax(imp))
+  imp._tabScroll[tabId] = at
+  Kit.scrollEnd(x, contentY, w, viewH, at, maxAt)
+  if dx ~= 0 then love.graphics.pop() end
+  imp.tab = prevTab
+end
+
 function LauncherView.draw(imp)
   ensureState(imp)
   local m = Layout.metrics(1200)
@@ -5929,9 +6076,28 @@ function LauncherView.draw(imp)
   -- Everything from here to buildModals sits UNDER any open modal, so the
   -- whole stage draws shielded (no clicks, no hover, no focus ring) while
   -- one is up; buildModals lowers the shield for the modal's own controls.
-  imp._modalUpNow = modalUp(imp)
+  local mkey = modalKey(imp)
+  if mkey ~= imp._modalKey then
+    if mkey then
+      if imp._modalHeld then
+        Transition.clear("modal")
+        imp._modalHeld = nil
+      end
+      Transition.start("modal", "in")
+    elseif imp._modalKey and imp._modalLastValue ~= nil then
+      if Transition.start("modal", "out") then
+        imp._modalHeld = { key = imp._modalKey, value = imp._modalLastValue }
+      end
+    end
+    imp._modalKey = mkey
+  end
+  imp._modalLastValue = mkey and imp[mkey] or nil
+  if imp._modalHeld and not Transition.active("modal") then
+    imp._modalHeld = nil
+  end
+  imp._modalUpNow = mkey ~= nil
   if imp._modalUpNow then imp:_blurPanelFields() end
-  Kit.blockClicks = imp._modalUpNow
+  Kit.blockClicks = imp._modalUpNow or Transition.active()
 
   local step = Kit.scrollStep(m.s)
   do
@@ -5983,32 +6149,25 @@ function LauncherView.draw(imp)
   if not rect then rect = {}; imp._tabRegionRect = rect end
   rect.x, rect.y, rect.w, rect.h = x, contentY, w, viewH
 
-  local at = tabScrollAt(imp)
-  local py = Kit.scrollBegin(x, contentY, w, viewH, at, tabScrollMax(imp))
-  local budgetH = math.floor(viewH * (1 + PANEL_OVERSCAN))
-  local panelW = math.max(0, w - Kit.scrollGutter(m.s))
-  local contentH
-  if imp.tab == "mods" then
-    contentH = buildModsPanel(imp, x, py, panelW, budgetH, m)
-  elseif imp.tab == "find" then
-    contentH = buildFindPanel(imp, x, py, panelW, budgetH, m)
-  elseif imp.tab == "skins" then
-    contentH = buildSkinsPanel(imp, x, py, panelW, budgetH, m)
-  elseif imp.tab == "bug" then
-    contentH = buildBugPanel(imp, x, py, panelW, budgetH, m)
+  local tabTr = Transition.get("tabs")
+  if tabTr and tabTr.from and tabTr.from ~= tabKeyOf(imp) then
+    local p = Transition.progress("tabs")
+    local dir = tabTr.dir >= 0 and 1 or -1
+    pcall(drawTabLayer, imp, tabTr.from, x, contentY, w, viewH, availH, m,
+      -dir * p * w)
+    drawTabLayer(imp, tabKeyOf(imp), x, contentY, w, viewH, availH, m,
+      dir * (1 - p) * w)
   else
-    contentH = buildGamePanel(imp, x, py, panelW, availH, m, imp.tab, budgetH)
+    drawTabLayer(imp, tabKeyOf(imp), x, contentY, w, viewH, availH, m, 0)
   end
-  contentH = contentH or availH
-  imp._tabContentH[tabKeyOf(imp)] = contentH
-  imp._tabScrollMax[tabKeyOf(imp)] = Kit.scrollExtent(contentH, viewH)
-  at = clamp(at, 0, tabScrollMax(imp))
-  imp._tabScroll[tabKeyOf(imp)] = at
-  Kit.scrollEnd(x, contentY, w, viewH, at, tabScrollMax(imp))
 
   buildFooter(imp, m, footY)
-  Kit.blockClicks = false
+  Kit.blockClicks = Transition.active()
+  local held = imp._modalHeld
+  if held then imp[held.key] = held.value end
   buildModals(imp, m)
+  endModalDraw(m)
+  if held then imp[held.key] = nil end
 
   -- The loader sits above everything, including modals: it is the one thing
   -- that must never be clicked around.

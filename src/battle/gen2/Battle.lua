@@ -885,8 +885,13 @@ function Battle:orderOf(playerMove, enemyMove)
   local playerClaw = playerEffect == "HELD_QUICK_CLAW"
   local enemyClaw = enemyEffect == "HELD_QUICK_CLAW"
   if playerClaw and enemyClaw then
-    if rand(self.random, 256) < enemyParam then return "enemy" end
-    if rand(self.random, 256) < playerParam then return "player" end
+    if self.mirrored then
+      if rand(self.random, 256) < playerParam then return "player" end
+      if rand(self.random, 256) < enemyParam then return "enemy" end
+    else
+      if rand(self.random, 256) < enemyParam then return "enemy" end
+      if rand(self.random, 256) < playerParam then return "player" end
+    end
   elseif playerClaw then
     if rand(self.random, 256) < playerParam then return "player" end
   elseif enemyClaw then
@@ -897,7 +902,9 @@ function Battle:orderOf(playerMove, enemyMove)
   if playerSpeed ~= enemySpeed then
     return playerSpeed > enemySpeed and "player" or "enemy"
   end
-  return rand(self.random, 2) == 0 and "player" or "enemy"
+  local playerFirst = rand(self.random, 2) == 0
+  if self.mirrored then playerFirst = not playerFirst end
+  return playerFirst and "player" or "enemy"
 end
 
 -- Gen 2 priority moves.  data/moves/effects_priorities.asm keys off the move
@@ -1377,6 +1384,7 @@ Battle.AI_FAIL_STATUSES = {
 
 -- engine/battle/effect_commands.asm:3615
 function Battle:aiRandomFail(attacker, defender)
+  if self.linkBattle then return false end
   if self:sideOf(attacker) ~= "enemy" then return false end
   if self:volatile(defender).lockOn then return false end
   return rand(self.random, 256) < 64
@@ -3260,6 +3268,11 @@ function Battle:resolveFaints()
   end
 
   if (self.enemy.hp or 0) <= 0 then
+    if self.linkBattle and self.enemyFaintAnnounced == self.enemy then
+      self.faintInterrupt = true
+      return false
+    end
+    self.enemyFaintAnnounced = self.enemy
     self:emit({ kind = "faint", side = "enemy",
       text = (self.wild and "Wild " or "") .. self:monName(self.enemy)
         .. " fainted!" })
@@ -3286,6 +3299,11 @@ function Battle:resolveFaints()
       self.payDay = nil
       self:endBattle("win")
       return true
+    end
+    if self.linkBattle then
+      self.pendingEnemySwitch = true
+      self.faintInterrupt = true
+      return false
     end
     local previous = self.enemy
     self:clearVolatile(self.enemy)
@@ -3579,6 +3597,7 @@ end
 -- IsAnyMonHoldingExpShare's `cp EXP_SHARE` does, and a fainted holder gets
 -- nothing (the pass loop skips fainted mons).
 function Battle:awardExperience(loser)
+  if self.linkBattle then return self:resetParticipants() end
   local def = self:speciesDef(loser)
 
   local participants = {}
@@ -4183,6 +4202,25 @@ end
 -- a trainer's class decides how eager it is.  Returns true when the turn was
 -- spent on the switch or the item.
 function Battle:enemyTrySwitchOrItem()
+  if not Runtime.wantsHook("battle.enemy_switch_or_item") then
+    return Battle.vanillaEnemySwitchOrItem(self)
+  end
+  local chosen = Runtime.call("battle.enemy_switch_or_item", function(battle)
+    return Battle.vanillaEnemySwitchOrItem(battle)
+  end, self)
+  if type(chosen) == "table" then
+    if chosen.kind == "switch" then
+      return self:switchEnemy(tonumber(chosen.index) or 0)
+    end
+    if chosen.kind == "item" then
+      return self:enemyUseItem(chosen.item)
+    end
+    return false
+  end
+  return chosen and true or false
+end
+
+function Battle.vanillaEnemySwitchOrItem(self)
   if self.wild or not self.trainer then return false end
   local attributes = self.trainer.attributes
   if type(attributes) ~= "table" then return false end
@@ -4229,39 +4267,7 @@ function Battle:enemyTrySwitchOrItem()
   })
   if not trapped and target
       and Ai.shouldSwitch(attributes, score, self.random) then
-    self:clearVolatile(self.enemy)
-    -- AI_Switch prints EnemyWithdrewText BEFORE it farcalls EnemySwitch
-    -- (engine/battle/ai/items.asm:685), so a rotation announces the mon
-    -- coming OFF the field as well as the one coming on; without it a
-    -- trainer swapping between two of the same species looked like nothing
-    -- had happened.  The line is skipped only when Pursuit hit the mon on
-    -- its way out, which this port has no analogue for yet.
-    local outgoing = self.enemy
-    self:emit({ kind = "message",
-      text = (self.trainer.name or "TRAINER") .. " withdrew "
-        .. self:monName(outgoing) .. "!" })
-    self.enemyIndex = target
-    self.enemy = self.enemyParty[target]
-    -- AI_Switch (engine/battle/ai/items.asm:697)
-    self:resetParticipants()
-    -- ResetEnemyBattleVars (engine/battle/core.asm:3016) zeroes wCurEnemyMove
-    -- and wLastEnemyMove and NewEnemyMonStatus wipes the substatus bytes, so
-    -- the mon coming IN starts from an empty area -- the same pair of clears
-    -- Battle:switch makes for the player's side.
-    self:clearVolatile(self.enemy)
-    self.stages.enemy = Battle.newStages()
-    self:emit({ kind = "send", side = "enemy", mon = self.enemy,
-      hp = self.enemy.hp or 0, status = self.enemy.status or false,
-      level = self.enemy.level, experience = self.enemy.experience,
-      text = (self.trainer.name or "TRAINER") .. " sent out "
-        .. self:monName(self.enemy) .. "!" })
-    Runtime.emit("battle.battler_switched", {
-      battle = self, side = self:sideRecord(self.enemy), battler = self.enemy,
-      previous = outgoing,
-    })
-    self:breakTrapsOnSend(self.enemy)
-    self:spikesDamage(self.enemy)
-    return true
+    return self:switchEnemy(target)
   end
 
   -- AI_TryItem: only the trainer's highest-level mon is worth an item.
@@ -4277,9 +4283,42 @@ function Battle:enemyTrySwitchOrItem()
     status = self.enemy.status,
     enemyTurns = self:volatile(self.enemy).turnsTaken or 0,
   })
+  return self:enemyUseItem(item)
+end
+
+-- (engine/battle/ai/items.asm:685), so a rotation announces the mon coming
+function Battle:switchEnemy(index)
+  local mon = self.enemyParty and self.enemyParty[index]
+  if not mon or (mon.hp or 0) <= 0 or mon == self.enemy then return false end
+  self:clearVolatile(self.enemy)
+  local outgoing = self.enemy
+  local trainerName = (self.trainer and self.trainer.name) or "TRAINER"
+  self:emit({ kind = "message",
+    text = trainerName .. " withdrew " .. self:monName(outgoing) .. "!" })
+  self.enemyIndex = index
+  self.enemy = mon
+  -- AI_Switch (engine/battle/ai/items.asm:697)
+  self:resetParticipants()
+  -- ResetEnemyBattleVars (engine/battle/core.asm:3016) zeroes wCurEnemyMove
+  self:clearVolatile(self.enemy)
+  self.stages.enemy = Battle.newStages()
+  self:emit({ kind = "send", side = "enemy", mon = self.enemy,
+    hp = self.enemy.hp or 0, status = self.enemy.status or false,
+    level = self.enemy.level, experience = self.enemy.experience,
+    text = trainerName .. " sent out " .. self:monName(self.enemy) .. "!" })
+  Runtime.emit("battle.battler_switched", {
+    battle = self, side = self:sideRecord(self.enemy), battler = self.enemy,
+    previous = outgoing,
+  })
+  self:breakTrapsOnSend(self.enemy)
+  self:spikesDamage(self.enemy)
+  return true
+end
+
+function Battle:enemyUseItem(item)
   if not item then return false end
   -- Consume it, so a trainer with one Potion cannot drink it every turn.
-  for index, id in ipairs(self.trainer.items or {}) do
+  for index, id in ipairs((self.trainer and self.trainer.items) or {}) do
     if id == item then table.remove(self.trainer.items, index) break end
   end
   local heal = Ai.HEAL_ITEMS[item]
@@ -4294,8 +4333,9 @@ function Battle:enemyTrySwitchOrItem()
     self.enemy.status = nil
     self:volatile(self.enemy).confuseCount = nil
   end
-  self:emit({ kind = "message", text = (self.trainer.name or "TRAINER")
-    .. " used " .. item .. "!" })
+  self:emit({ kind = "message",
+    text = ((self.trainer and self.trainer.name) or "TRAINER")
+      .. " used " .. item .. "!" })
   return true
 end
 
@@ -4409,7 +4449,7 @@ end
 --   { kind = "item", item = <id>, target = n }  (handled by the caller, which
 --       applies the effect and then calls this with kind = "item" so the enemy
 --       still gets its turn)
-local function runTurn(self, action)
+local function runTurn(self, action, enemyAction)
   if self.over then return self:takeEvents() end
   self.turn = self.turn + 1
   action = action or { kind = "move" }
@@ -4458,9 +4498,24 @@ local function runTurn(self, action)
   if action.kind == "item" then self:cancelBide(self.player) end
 
   -- AI_SwitchOrTryItem runs BEFORE the move is chosen: a trainer that decides
-  -- to rotate or drink a potion spends its whole turn on it.
-  local enemyActed = self:enemyTrySwitchOrItem()
-  local enemyMoveId = (not enemyActed) and self:enemyMove() or nil
+  local enemyActed, enemyMoveId
+  if enemyAction then
+    if enemyAction.kind == "switch" then
+      self:switchEnemy(tonumber(enemyAction.index) or 0)
+      enemyActed = true
+    elseif enemyAction.kind == "item" then
+      self:enemyUseItem(enemyAction.item)
+      enemyActed = true
+    elseif enemyAction.kind == "move" then
+      enemyActed = false
+      enemyMoveId = enemyAction.move
+    else
+      enemyActed = true
+    end
+  else
+    enemyActed = self:enemyTrySwitchOrItem()
+    enemyMoveId = (not enemyActed) and self:enemyMove() or nil
+  end
 
   -- battle.turn_started, where BattleState:resolveTurn raises it on Gen 1:
   -- once both sides have chosen and before either acts.  Gen 1's action tables
@@ -4483,6 +4538,8 @@ local function runTurn(self, action)
   local playerFirst
   if action.kind == "skip" or action.kind == "item" then
     playerFirst = true
+  elseif self.linkBattle and enemyActed then
+    playerFirst = false
   elseif Runtime.wantsHook("battle.turn_order") then
     -- battle.turn_order, the same hook BattleState:resolveTurn calls on Gen 1
     -- and with the same five arguments: both battlers, both move records, and
@@ -4504,6 +4561,7 @@ local function runTurn(self, action)
 
   local function playerAttack()
     if action.kind ~= "move" then return end
+    if self.linkBattle and (self.player.hp or 0) <= 0 then return end
     local move = action.move
     -- An encored mon has no choice, whatever the menu said.
     local forced = self:forcedMove(self.player)
@@ -4564,6 +4622,32 @@ local function runTurn(self, action)
     -- TryEnemyFlee sits here in both of the cart's turn orders, ahead of the
     -- enemy's move and behind the faint checks.
     if self:tryEnemyFlee() then return end
+    if self.linkBattle then
+      local forced = self:forcedMove(self.enemy)
+      if forced then enemyMoveId = forced end
+      local stored = self:volatile(self.enemy).chargeMove
+      if stored then enemyMoveId = stored end
+      if not self:canAct(self.enemy, enemyMoveId) then return end
+      local charging = stored == enemyMoveId
+        or self:lockedInMove(self.enemy) == enemyMoveId
+      local bideLocked = self:fightLockedMove(self.enemy) == enemyMoveId
+      if not charging and not bideLocked
+          and not self:hasUsableMoves(self.enemy) then
+        self:emit({ kind = "message",
+          text = self:monName(self.enemy) .. " has no moves left!" })
+        enemyMoveId = Battle.STRUGGLE
+      end
+      if not enemyMoveId then enemyMoveId = Battle.STRUGGLE end
+      if self:moveDisabled(self.enemy, enemyMoveId) then
+        local state = self:volatile(self.enemy)
+        state.chargeMove, state.vanished = nil, nil
+        self:emit({ kind = "message", text = self:monName(self.enemy)
+          .. "'s " .. enemyMoveId .. " is DISABLED!" })
+        return
+      end
+      self:useMove(self.enemy, self.player, enemyMoveId)
+      return
+    end
     if not enemyMoveId then
       -- `.struggle` (engine/battle/core.asm:5630-5632) sets STRUGGLE and
       -- finishes silently: BattleText_MonHasNoMovesLeft is text_ram
@@ -4640,22 +4724,24 @@ local function runTurn(self, action)
   --   weather, then status chip and the Leech Seed / Curse residuals, then
   --   the wrap ticks, then held items, then Future Sight and Perish Song,
   --   then the screens and the per-turn counters.
+  local firstMon, secondMon = self.player, self.enemy
+  if self.mirrored then firstMon, secondMon = self.enemy, self.player end
   self:tickWeather()
-  self:tickStatus(self.player)
-  self:tickSeedAndCurse(self.player)
-  self:tickStatus(self.enemy)
-  self:tickSeedAndCurse(self.enemy)
-  self:tickWrap(self.player)
-  self:tickWrap(self.enemy)
-  self:tickHeldItem(self.player)
-  self:tickHeldItem(self.enemy)
-  self:tickFutureSight(self.player)
-  self:tickFutureSight(self.enemy)
-  self:tickPerish(self.player)
-  self:tickPerish(self.enemy)
+  self:tickStatus(firstMon)
+  self:tickSeedAndCurse(firstMon)
+  self:tickStatus(secondMon)
+  self:tickSeedAndCurse(secondMon)
+  self:tickWrap(firstMon)
+  self:tickWrap(secondMon)
+  self:tickHeldItem(firstMon)
+  self:tickHeldItem(secondMon)
+  self:tickFutureSight(firstMon)
+  self:tickFutureSight(secondMon)
+  self:tickPerish(firstMon)
+  self:tickPerish(secondMon)
   self:tickScreens()
-  self:tickCounters(self.player)
-  self:tickCounters(self.enemy)
+  self:tickCounters(firstMon)
+  self:tickCounters(secondMon)
   self:resolveFaints()
   return self:takeEvents()
 end
@@ -4666,7 +4752,15 @@ end
 -- was already over) opened nothing and so closes nothing, which is what keeps
 -- the two events paired the way Gen 1's endOfTurn keeps them.
 function Battle:takeTurn(action)
-  local events = runTurn(self, action)
+  return self:closeTurn(runTurn(self, action))
+end
+
+function Battle:takeLinkTurn(playerAction, enemyAction)
+  return self:closeTurn(runTurn(self, playerAction,
+    enemyAction or { kind = "skip" }))
+end
+
+function Battle:closeTurn(events)
   if self.turnOpen then
     self.turnOpen = nil
     if Runtime.wants("battle.turn_ended") then
@@ -4939,6 +5033,150 @@ function Battle:tickHeldItem(mon)
       text = name .. "'s " .. (def.name or "item")
         .. " cured its confusion!" })
   end
+end
+
+function Battle:forcedReplacement(side, index)
+  index = tonumber(index)
+  if side == "enemy" then
+    local party = self.enemyParty or {}
+    local mon = index and party[index]
+    if not mon or (mon.hp or 0) <= 0 or mon.isEgg then
+      index = Battle.firstHealthy(party)
+      mon = index and party[index]
+    end
+    if not mon then return false end
+    self.pendingEnemySwitch = nil
+    local previous = self.enemy
+    self:clearVolatile(previous)
+    self.enemyIndex = index
+    self.enemy = mon
+    self:clearVolatile(mon)
+    self.stages.enemy = Battle.newStages()
+    self:emit({ kind = "send", side = "enemy", mon = mon, replacement = true,
+      hp = mon.hp or 0, status = mon.status or false,
+      level = mon.level, experience = mon.experience,
+      text = ((self.trainer and self.trainer.name) or "Foe") .. " sent out "
+        .. self:monName(mon) .. "!" })
+    Runtime.emit("battle.battler_switched", {
+      battle = self, side = self:sideRecord(mon), battler = mon,
+      previous = previous,
+    })
+    self:breakTrapsOnSend(mon)
+    self:spikesDamage(mon)
+    return true
+  end
+  local mon = index and self.party[index]
+  if not mon or (mon.hp or 0) <= 0 or mon.isEgg then
+    index = Battle.firstHealthy(self.party)
+  end
+  if not index then return false end
+  return self:switch(index)
+end
+
+Battle.LINK_STAGES = { "attack", "defense", "speed", "specialAttack",
+  "specialDefense", "accuracy", "evasion" }
+
+Battle.LINK_VOLATILE = {
+  "bideStored", "bideTurns", "chargeMove", "confuseCount", "curled", "cursed",
+  "disabled", "disabledTurns", "encore", "encoreTurns", "endure", "flinched",
+  "focusEnergy", "futureSight", "futureSightDamage", "futureSightSide",
+  "identified", "lastMove", "leechSeed", "lockOn", "mist", "perish", "protect",
+  "protectCount", "rage", "rampCount", "rampMove", "rampageMove",
+  "rampageTurns", "recharge", "rolloutLock", "substitute", "tookThisTurn",
+  "transformed", "trapsTarget", "turnsTaken", "vanished", "wrapCount",
+  "wrapMoveId", "xAccuracy",
+}
+
+Battle.LINK_SCREENS = { "lightScreen", "reflect", "safeguard" }
+
+local function linkOff(v)
+  return v == nil or v == false or v == 0
+end
+
+local function linkScalar(v)
+  if type(v) == "table" then return tostring(v.id or v.move or "?") end
+  if type(v) == "boolean" then return v and "T" or "F" end
+  return tostring(v)
+end
+
+local function linkPp(mon)
+  local out = {}
+  for i, mv in ipairs((mon and mon.moves) or {}) do
+    out[i] = ("%s=%s"):format(tostring(mv.id), tostring(mv.pp or 0))
+  end
+  return table.concat(out, ",")
+end
+
+local function linkStages(self, key)
+  local stages = (self.stages and self.stages[key]) or {}
+  local out = {}
+  for i, stat in ipairs(Battle.LINK_STAGES) do
+    out[i] = tostring(stages[stat] or 0)
+  end
+  return table.concat(out, ",")
+end
+
+local function linkActive(self, mon, key)
+  if not mon then return "-" end
+  return ("%s:%d:%s:%s:%s:%s"):format(tostring(mon.species), mon.hp or 0,
+    tostring(mon.status or false), linkStages(self, key), linkPp(mon),
+    tostring(mon.item or "-"))
+end
+
+local function linkVolatile(mon)
+  if not mon then return "-" end
+  local state = mon.volatile or {}
+  local out = {}
+  for _, field in ipairs(Battle.LINK_VOLATILE) do
+    if not linkOff(state[field]) then
+      out[#out + 1] = field .. "=" .. linkScalar(state[field])
+    end
+  end
+  if not linkOff(mon.statusTurns) then
+    out[#out + 1] = "statusTurns=" .. tostring(mon.statusTurns)
+  end
+  if not linkOff(mon.toxicCounter) then
+    out[#out + 1] = "toxicCounter=" .. tostring(mon.toxicCounter)
+  end
+  return table.concat(out, ",")
+end
+
+local function linkSide(self, key)
+  local screens = (self.screens and self.screens[key]) or {}
+  local out = { ((self.spikes or {})[key] and "spikes" or "-") }
+  for _, field in ipairs(Battle.LINK_SCREENS) do
+    out[#out + 1] = field .. "=" .. tostring(screens[field] or 0)
+  end
+  return table.concat(out, ",")
+end
+
+local function linkBench(party)
+  local out = {}
+  for i, mon in ipairs(party or {}) do
+    out[i] = ("%s:%d:%s:%s"):format(tostring(mon.species), mon.hp or 0,
+      tostring(mon.status or false), tostring(mon.item or "-"))
+  end
+  return table.concat(out, "|")
+end
+
+function Battle:linkSignature(role)
+  local hostIsPlayer = role ~= "guest"
+  local hostKey = hostIsPlayer and "player" or "enemy"
+  local guestKey = hostIsPlayer and "enemy" or "player"
+  local hostMon = hostIsPlayer and self.player or self.enemy
+  local guestMon = hostIsPlayer and self.enemy or self.player
+  local hostParty = hostIsPlayer and self.party or self.enemyParty
+  local guestParty = hostIsPlayer and self.enemyParty or self.party
+  return {
+    actives = linkActive(self, hostMon, hostKey) .. "|"
+      .. linkActive(self, guestMon, guestKey)
+      .. "|r" .. tostring(self.rngDraws or 0),
+    volatile = linkVolatile(hostMon) .. "|" .. linkVolatile(guestMon)
+      .. "|" .. linkSide(self, hostKey) .. "|" .. linkSide(self, guestKey)
+      .. "|w" .. tostring(self.weather or "-")
+      .. ":" .. tostring(self.weatherTurns or 0),
+    bench = linkBench(hostParty) .. "|" .. linkBench(guestParty),
+  }
 end
 
 Battle.Damage = Damage

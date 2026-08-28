@@ -130,13 +130,23 @@ keeps validating with the value it has shipped since before the taxonomy
 existed.
 
 A translation may also set `"language": true` in the manifest. That is the
-one claim online play acts on: an install running nothing but verified
-translations may take an ONLINE MATCH or a TOURNAMENT instead of being
-asked to restart vanilla. The claim is checked, not taken -- the mod
+one claim online play acts on. Online rooms, spectating and tournaments live
+in the launcher's ONLINE tab, and a match is played in an **arena boot**: the
+game starts with the mod loader in `disableAll` (nothing runs) or `cartOnly`
+(one sealed cart and nothing else), never in the enable state the player has
+saved. A verified translation is the single exception `disableAll` carves
+out, so an install running nothing but translations still enters rooms and
+tournaments. The claim is checked, not taken -- the mod
 qualifies only if every record it writes lands in `text`, `strings` or
 `font`, it wraps no hook, subscribes to no event and requests no
 permission. Anything else and it is an ordinary content mod that happens to
-ship text.
+ship text, and it simply does not load in an arena.
+
+A mod is not shut out of link play by any of that: it just cannot ride the
+launcher's rooms. `LinkState.newFromSession(game, transport, mode, isHost,
+opts)` still adopts an already-paired transport of the mod's own and runs a
+LAN-style battle or trade on it, hello and fingerprint check intact (see
+`docs/modding.md`).
 
 ### 4. `games` (and the legacy `gen2compat`)
 

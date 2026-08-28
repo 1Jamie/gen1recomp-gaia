@@ -61,6 +61,48 @@ the same core data and graphics into the source tree for verification.
 | ui | `src/ui/*` | start menu, generic menu, yes/no box, party/bag lists |
 | | `tools/save-editor/` | Save editor: shipped in every build, opened from the launcher's Edit button or standalone with `love . --editor` |
 
+## Online play
+
+Online play is owned by the launcher, not by a running game. `src/online/`
+holds one persistent relay connection for the life of the process
+(`main.lua` pumps it every frame, whether the launcher or a game is on
+screen), and a battle is run by **arena booting** the game: no splash, no
+title, no overworld, just the lockstep battle, then straight back to the
+launcher with the room still selected. In-game link (`src/link/LinkState.lua`)
+stays as it was and is LAN only. The relay lives in its own repo,
+`../pokeserver`; `docs/link-security.md` describes protocol v2 and what it
+does and does not guarantee.
+
+- `src/online/Client.lua` - process singleton: connection, heartbeat,
+  reconnect with session resume, the inbox, and the local model (presence,
+  room, match, tournament). `Client.roomSession()` hands `LinkBattle` the
+  same shape a LAN `Session` does.
+- `src/online/Protocol2.lua` - relay protocol v2 message builders; the
+  matching schemas live with the v1 ones in `src/link/Wire.lua`.
+- `src/online/ArenaData.lua` - computes an ArenaProfile (engine, version,
+  engine/api version, fingerprint, ruleset, vanilla or sealed cart) headless
+  by mounting a version's cache, and compares two profiles
+  (`equal`, `describeMismatch`).
+- `src/online/ArenaBoot.lua` - the ArenaSpec: profile, role, slot, team,
+  seed, parties, session, `onDone`; plus the battle options a spec turns
+  into.
+- `src/online/TeamPick.lua` - headless slot read, rule validation and party
+  packing. `src/online/Convert.lua` - Gen 1 <-> Gen 2 mon conversion with
+  Time Capsule refusals. `src/online/Trade.lua` - launcher-side trade with a
+  two-file commit. `src/online/OnlineSprites.lua` - the cached party icons
+  and front sprites those pickers draw.
+- Boot path: `main.lua` `bootGame(version, cartId, { arena = spec })` ->
+  `Game:load` / `Game2:load` skip the intro and push
+  `src/ui/ArenaState.lua` or `src/ui/gen2/ArenaState.lua`, which build
+  `src/link/LinkBattle.lua` (Gen 1) or `src/link/LinkBattle2.lua` (Gen 2),
+  host, guest or spectator, and return the result.
+- Mods in an arena: `Loader:load(data, { mode = ... })` runs `disableAll`
+  (verified translations only) for a vanilla arena and `cartOnly` for a
+  sealed-cart one, without touching the player's saved enable state.
+- `src/import/OnlinePanel.lua` plus `src/import/online/` are the launcher's
+  ONLINE tab: a small stack of screens (home, play, setup, room, watch,
+  tournaments, trade) drawn from `Client`, `ArenaData` and `TeamPick`.
+
 ## Map scripts
 
 Map-specific behavior lives in `data/scripts/<map>.lua`, keyed by the

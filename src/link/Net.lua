@@ -38,11 +38,17 @@ local Net = {}
 Net.__index = Net
 
 Net.DEFAULT_PORT = 7777
-Net.DEFAULT_RELAY_ADDRESS = "147.182.215.255:7778"
+Net.DEFAULT_RELAY_ADDRESS = "relay.gen1re.com:7778"
 
 Net.MAX_LINE = 256 * 1024
 Net.MAX_RX_PER_FRAME = 512 * 1024
 Net.ENET_BANDWIDTH = 256 * 1024
+
+Net.CONNECT_TIMEOUT = 5
+Net.PING_INTERVAL = 10
+Net.PING_MISSES = 3
+Net.CLOSE_FLUSH_TIMEOUT = 0.25
+Net.CLOSE_FLUSH_ATTEMPTS = 256
 
 function Net.available()
   return enet ~= nil
@@ -97,6 +103,11 @@ function Net.new()
     rxBuf = "",      -- relay backend: bytes read but not yet a full line
     txBuf = "",      -- relay backend: bytes queued but not yet written
     code = nil,      -- relay backend, hosting: the room/tournament code
+    connecting = false, -- relay backend: TCP connect still in flight
+    selectable = true,
+    lastSendAt = nil,
+    pendingPings = 0,
+    sawPong = false,
   }, Net)
 end
 
@@ -160,13 +171,34 @@ function Net:join(address)
   return true
 end
 
--- opens a TCP connection to a pokeserver relay (blocking connect with a
--- short timeout -- this runs once, from a single explicit user action, not
--- from a per-frame poll, so blocking briefly is fine). Callers then send
+-- opens a TCP connection to a pokeserver relay. The connect is
+-- non-blocking: connectTCP returns true once the socket is dialing and
+-- updateTCP polls writability until the 5 s deadline. Callers send
 -- whatever control message starts their session ({type="host"},
--- {type="join",...}, {type="host_tournament",...}, ...); every reply that
--- isn't one of the four generic ones below lands in the normal inbox for
--- the caller (LinkState, or Tournament.lua) to interpret.
+-- {type="join",...}, {type="host_tournament",...}, ...) straight away; it
+-- waits in txBuf until the connection lands. Every reply that isn't one
+-- of the generic ones below reaches the normal inbox for the caller
+-- (LinkState, or the launcher online client) to interpret.
+local function connectPending(err)
+  err = tostring(err or "")
+  return err == "timeout" or err:find("in progress", 1, true) ~= nil
+end
+
+function Net:beginTCP(tcp, host, port, pending)
+  self.tcpSocket = tcp
+  self.connectHost, self.connectPort = host, port
+  self.rxBuf = ""
+  self.txBuf = ""
+  self.connecting = pending and true or false
+  self.connectDeadline = now() + Net.CONNECT_TIMEOUT
+  self.lastSendAt = now()
+  if not pending then self:applyKeepalive() end
+end
+
+function Net:applyKeepalive()
+  pcall(function() self.tcpSocket:setoption("keepalive", true) end)
+end
+
 function Net:connectTCP(addr)
   if not socket then
     self.error = "online play needs luasocket (bundled with LOVE)"
@@ -176,17 +208,54 @@ function Net:connectTCP(addr)
   host = host or addr
   port = tonumber(port) or 7778
   local tcp = socket.tcp()
-  tcp:settimeout(5)
+  tcp:settimeout(0)
   local ok, err = tcp:connect(host, port)
-  if not ok then
-    self.error = Strings("can't reach relay %s:%d\n(%s)", host, port, tostring(err))
+  if ok then
+    self:beginTCP(tcp, host, port, false)
+    return true
+  end
+  if connectPending(err) then
+    self:beginTCP(tcp, host, port, true)
+    return true
+  end
+  pcall(function() tcp:close() end)
+  local blocking = socket.tcp()
+  blocking:settimeout(Net.CONNECT_TIMEOUT)
+  local bok, berr = blocking:connect(host, port)
+  if not bok then
+    pcall(function() blocking:close() end)
+    self.error = Strings("can't reach relay %s:%d\n(%s)", host, port, tostring(berr))
     return false
   end
-  tcp:settimeout(0)
-  self.tcpSocket = tcp
-  self.rxBuf = ""
-  self.txBuf = ""
+  blocking:settimeout(0)
+  self:beginTCP(blocking, host, port, false)
   return true
+end
+
+function Net:pollConnectTCP()
+  local sock = self.tcpSocket
+  local okSel, _, writable = pcall(socket.select, nil, { sock }, 0)
+  if okSel and writable and #writable > 0 then
+    local ok, err = sock:connect(self.connectHost, self.connectPort)
+    err = tostring(err or "")
+    if ok or err:find("already connected", 1, true) then
+      self.connecting = false
+      self:applyKeepalive()
+      return true
+    end
+    if not connectPending(err) then
+      self.error = Strings("can't reach relay %s:%d\n(%s)",
+                           self.connectHost, self.connectPort, err)
+      self.closed = true
+      return false
+    end
+  end
+  if now() > (self.connectDeadline or 0) then
+    self.error = Strings("can't reach relay %s:%d\n(%s)",
+                         self.connectHost, self.connectPort, "timeout")
+    self.closed = true
+  end
+  return false
 end
 
 function Net:hostOnline(addr)
@@ -208,6 +277,7 @@ function Net:send(msg)
   if self.closed then return end
   if self.tcpSocket then
     self.txBuf = self.txBuf .. Json.encode(msg) .. "\n"
+    self.lastSendAt = now()
     return
   end
   if self.peerEnd then -- loopback: re-encode through json like the wire
@@ -242,6 +312,7 @@ local function handleGenericRelayControl(self, msg)
     self.paired = true
     return true
   elseif msg.type == "join_error" then
+    if self.v2 then return false end
     self.error = Strings(({
       not_found = Strings.source("That code wasn't\nfound."),
       full = Strings.source("That game already\nhas two players."),
@@ -254,6 +325,13 @@ local function handleGenericRelayControl(self, msg)
     return true
   elseif msg.type == "peer_gone" then
     self.closed = true
+    return true
+  elseif msg.type == "ping" then
+    self:send({ type = "pong", t = msg.t })
+    return true
+  elseif msg.type == "pong" then
+    self.sawPong = true
+    self.pendingPings = 0
     return true
   end
   return false
@@ -295,9 +373,24 @@ end
 -- non-blocking caller recover the partial line across calls -- a
 -- byte-count read hands back whatever's available via the third return
 -- value on timeout, which we can buffer ourselves.
+function Net:heartbeatTCP()
+  local t = now()
+  if not self.lastSendAt then self.lastSendAt = t end
+  if t - self.lastSendAt < Net.PING_INTERVAL then return end
+  self:send({ type = "ping", t = math.floor(t * 1000) })
+  self.pendingPings = (self.pendingPings or 0) + 1
+  if self.sawPong and self.pendingPings >= Net.PING_MISSES then
+    self.error = Strings("The relay stopped\nanswering.")
+    self.closed = true
+  end
+end
+
 function Net:updateTCP()
   if self.closed then return end
   local sock = self.tcpSocket
+  if self.connecting then
+    if not self:pollConnectTCP() then return end
+  end
   if #self.txBuf > 0 then
     local sent, err, lastByte = sock:send(self.txBuf)
     if sent then
@@ -329,6 +422,31 @@ function Net:updateTCP()
     if not data then break end -- nothing more buffered this frame
   end
   self:drainLines()
+  if not self.closed then self:heartbeatTCP() end
+end
+
+function Net:flushTCP(seconds)
+  local sock = self.tcpSocket
+  if not sock or self.connecting then return end
+  local deadline = now() + (seconds or Net.CLOSE_FLUSH_TIMEOUT)
+  for _ = 1, Net.CLOSE_FLUSH_ATTEMPTS do
+    if #self.txBuf == 0 then return end
+    local sent, err, lastByte = sock:send(self.txBuf)
+    if sent then
+      self.txBuf = ""
+      return
+    elseif err == "timeout" then
+      self.txBuf = self.txBuf:sub((lastByte or 0) + 1)
+    else
+      return
+    end
+    if #self.txBuf == 0 or now() >= deadline then return end
+    if self.selectable and socket and socket.select then
+      if not pcall(socket.select, nil, { sock }, 0.01) then
+        self.selectable = false
+      end
+    end
+  end
 end
 
 -- pump enet events; decoded JSON messages are queued for poll()
@@ -400,6 +518,7 @@ function Net:close()
     return
   end
   if self.tcpSocket then
+    pcall(function() self:flushTCP() end)
     pcall(function() self.tcpSocket:close() end)
     self.tcpSocket = nil
     self.closed = true

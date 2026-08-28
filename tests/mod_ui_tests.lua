@@ -154,7 +154,7 @@ local function startGame()
   }
 end
 local VANILLA_START = { "POKéDEX", "POKéMON", "ITEM", "RED", "SAVE",
-                        "OPTION", "LINK", "QUIT" }
+                        "OPTION", "QUIT" }
 local menu = StartMenu.new(startGame())
 check(#menu.items == #VANILLA_START, "vanilla start menu row count")
 for i, label in ipairs(VANILLA_START) do

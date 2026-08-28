@@ -140,7 +140,7 @@ end
 
 local function appVersion()
   local version = clean(Version.engine)
-  if not version or version == "0.0.0" or version == "0.0.0-dev" then return "" end
+  if not version or version == "0.0.0" or version:match("^0%.0%.0%-dev") then return "" end
   return version
 end
 

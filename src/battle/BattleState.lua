@@ -4905,7 +4905,8 @@ function BattleState:openReplacementMenu()
         end
         self:restoreMimicked(self.player)
         local previous = self.player
-        self.player = makeBattler(self.data, mon, true, game.save)
+        self.player = makeBattler(self.data, mon, true,
+                                  self.kind ~= "link" and game.save or nil)
         clearTrapping(self.enemy) -- SendOutMon clears foe trap
         self:syncSides()
         Runtime.emit("battle.battler_switched", {
