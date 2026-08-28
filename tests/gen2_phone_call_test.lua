@@ -221,9 +221,9 @@ do
   check(table.concat(pages, "|"):find("Click!", 1, true) ~= nil,
     "and hanging up on the Click!")
 
-  -- The defeated trainer's after-battle script may write wCurCaller again
+  -- wCurCaller is shared state and may still hold an earlier trainer contact
   -- before the deferred Mom call starts.  The queued call must restore its
-  -- own caller instead of showing that trainer above Mom's text.
+  -- own caller instead of showing that stale trainer above Mom's text.
   vm.curPhoneCaller = 15
   local startedAs
   vm.start = function(self)
