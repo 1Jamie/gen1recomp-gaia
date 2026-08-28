@@ -87,6 +87,8 @@ local function lobbyView(imp, x, y, w, m)
   local version = OnlinePanel.engineVersion(imp)
   local canPlay = online and profile ~= nil
     and OnlinePanel.canBattleWith(version)
+  local c = OnlinePanel.cache(imp)
+  local rowH = math.max(m.rowH, Kit.tapMin())
   local cy = y
 
   LV().btn(imp, x, cy, w, btnH, "online-tour-host",
@@ -117,8 +119,44 @@ local function lobbyView(imp, x, y, w, m)
       action = function()
         OnlinePanel.joinTournamentByCode(imp, st.joinCode, "spectator")
       end })
-  cy = cy + btnH + tiny
-  return cy - y
+  cy = cy + btnH + gap
+
+  local rows = c.tours or {}
+  cy = cy + Ui.label(Strings("Open tournaments"), x, cy) + tiny
+  if #rows == 0 then
+    Kit.emptyBox(x, cy, w, rowH, online
+      and Strings("No public tournaments right now.")
+      or Strings("Connect to see open tournaments."))
+    return (cy + rowH + gap) - y
+  end
+  local actW = math.floor(64 * m.s)
+  for _, row in ipairs(rows) do
+    local ink = LV().rowHit(imp, x, cy, w, rowH, false,
+      "online-tour-row-" .. row.id, nil)
+    local tx = x + math.floor(10 * m.s)
+    local textW = w - 2 * actW - math.floor(30 * m.s)
+    Kit.text("small", Kit.ellipsize("small", row.name, textW), tx,
+      cy + math.floor(5 * m.s), ink or PAL.heading)
+    Kit.text("micro", Kit.ellipsize("micro", row.sub, textW), tx,
+      cy + rowH - Kit.textHeight("micro") - math.floor(5 * m.s), PAL.muted)
+    local code, rule = row.code, row.ruleTable
+    LV().btn(imp, x + w - 2 * actW - gap - math.floor(6 * m.s),
+      cy + (rowH - btnH) / 2, actW, btnH, "online-tour-join-" .. row.id,
+      Strings("Join"),
+      { kind = "accent", font = "small",
+        enabled = canPlay and row.stage == "waiting" and row.reason == nil,
+        action = function()
+          OnlinePanel.startJoinTournament(imp, code, rule)
+        end })
+    LV().btn(imp, x + w - actW - math.floor(6 * m.s), cy + (rowH - btnH) / 2,
+      actW, btnH, "online-tour-watch-" .. row.id, Strings("Watch"),
+      { kind = "ghost", font = "small", enabled = online,
+        action = function()
+          OnlinePanel.joinTournamentByCode(imp, code, "spectator")
+        end })
+    cy = cy + rowH + tiny
+  end
+  return (cy + gap) - y
 end
 
 function Tournaments.draw(imp, x, y, w, availH, m)

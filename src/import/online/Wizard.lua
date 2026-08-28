@@ -182,6 +182,14 @@ local function stepTeam(imp, x, y, w, m)
       x, cy, w, PAL.yellow, 2) + tiny
   end
 
+  local target = st.wizard and st.wizard.kind == "join" and st.joinTarget
+  if target and type(target.rule) == "table" then
+    local want, have = OnlinePanel.teamCap(imp), #(st.team or {})
+    cy = cy + Kit.textWrapped("small",
+      Strings("Pick %d POKeMON (%d of %d picked)  -  %s", want, have, want,
+        OnlinePanel.ruleText(target.rule)),
+      x, cy, w, have == want and PAL.green or PAL.yellow, 2) + tiny
+  end
   cy = cy + Ui.label(Strings("Your party"), x, cy) + tiny
   if #c.party == 0 then
     Kit.emptyBox(x, cy, w, rowH,
@@ -196,7 +204,7 @@ local function stepTeam(imp, x, y, w, m)
       cy = cy + Wizard.monRow(imp, row, x, cy, listW, m, function()
         st.focusMon = row.key
         if row.refused then return end
-        OnlinePanel.toggleTeam(st.team, ref, OnlinePanel.TEAM_MAX)
+        OnlinePanel.toggleTeam(st.team, ref, OnlinePanel.teamCap(imp))
         st.ready = false
         OnlinePanel.invalidate(imp, "party", "summary")
       end) + tiny

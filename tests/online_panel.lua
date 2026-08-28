@@ -1699,4 +1699,134 @@ do
   Client.room, Client.leaveRoom, Client.you = savedRoom, savedLeave, savedYou2
 end
 
+do
+  local simp = { ready = { red = true }, activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local sst = OnlinePanel.state(simp)
+  sst.version, sst.ready = "red", true
+  local savedJoin, savedTour, savedLobby =
+    Client.joinRoom, Client.joinTournament, Client.lobby
+  local roomJoins, tourJoins = {}, {}
+  local pendingRoom
+  Client.joinRoom = function(code, as)
+    roomJoins[#roomJoins + 1] = { code = code, as = as }
+    pendingRoom = { code = code, done = false }
+    return pendingRoom
+  end
+  Client.joinTournament = function(code, as)
+    tourJoins[#tourJoins + 1] = { code = code, as = as }
+    return { code = code, done = false }
+  end
+  Client.lobby = function()
+    return { { id = "t1", code = "TQURA2", intent = "tournament" } }
+  end
+  T.check(OnlinePanel.spectateByCode(simp, "tqura2"),
+    "spectating a listed tournament code")
+  T.eq(#tourJoins, 1, "goes straight to tour_join")
+  T.eq(tourJoins[1] and tourJoins[1].as, "spectator", "as a spectator")
+  T.eq(#roomJoins, 0, "with no room_join")
+
+  T.check(OnlinePanel.spectateByCode(simp, "RMBC23"),
+    "spectating an unlisted code")
+  T.eq(#roomJoins, 1, "tries the room first")
+  T.eq(OnlinePanel.screen(simp), "room", "on the Room screen")
+  pendingRoom.error, pendingRoom.reason, pendingRoom.done =
+    "That room code wasn't found.", "not_found", true
+  OnlinePanel.update(simp, 1 / 60)
+  T.eq(#tourJoins, 2, "and a not_found answer retries it as a tournament")
+  T.eq(tourJoins[2] and tourJoins[2].code, "RMBC23", "with the same code")
+  T.eq(sst.status, nil, "without surfacing the room miss as an error")
+
+  T.check(OnlinePanel.spectateByCode(simp, "RMCD34"), "another unlisted code")
+  pendingRoom.error, pendingRoom.reason, pendingRoom.done =
+    "That room is full.", "full", true
+  OnlinePanel.update(simp, 1 / 60)
+  T.eq(#tourJoins, 2, "other join errors do not retry")
+  T.eq(sst.status, "That room is full.", "and are shown")
+  Client.joinRoom, Client.joinTournament, Client.lobby =
+    savedJoin, savedTour, savedLobby
+  OnlinePanel.home(simp)
+end
+
+do
+  local jimp = { ready = { red = true }, activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local jst = OnlinePanel.state(jimp)
+  jst.version, jst.ready = "red", true
+  local savedLobby = Client.lobby
+  Client.lobby = function()
+    return { { id = "t1", code = "TQURA2", intent = "tournament",
+               profile = { rule = { partySize = 3 } } } }
+  end
+  T.check(OnlinePanel.startJoin(jimp, "tqura2"), "joining a listed code")
+  T.eq(jst.joinTarget.tournament, true, "learns it is a tournament")
+  T.eq(jst.joinTarget.rule.partySize, 3, "and picks up its rule")
+  T.eq(OnlinePanel.teamCap(jimp), 3, "so the team step caps at the rule")
+  local team = {}
+  for i = 1, 5 do
+    OnlinePanel.toggleTeam(team, { where = "party", index = i },
+      OnlinePanel.teamCap(jimp))
+  end
+  T.eq(#team, 3, "and refuses a fourth pick")
+  OnlinePanel.wizardTo(jimp, "team")
+  jst.team = { { where = "party", index = 1 } }
+  T.check(not OnlinePanel.wizardReady(jimp),
+    "the team step will not advance short of the count")
+  jst.team = team
+  T.check(OnlinePanel.wizardReady(jimp), "and advances at exactly the count")
+  OnlinePanel.home(jimp)
+  T.eq(OnlinePanel.teamCap(jimp), OnlinePanel.TEAM_MAX,
+    "outside the join wizard the cap is the full party")
+  Client.lobby = savedLobby
+end
+
+do
+  local dimp = { ready = { red = true }, activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local dst = OnlinePanel.state(dimp)
+  dst.version, dst.ready = "red", true
+  local tr = OnlinePanel.tradeState(dimp)
+  local closed, left = 0, 0
+  local savedLeave, savedRoom = Client.leaveRoom, Client.room
+  Client.leaveRoom = function() left = left + 1 return true end
+  Client.room = function() return nil end
+  tr.mode, tr.chosen = "remote", true
+  OnlinePanel.go(dimp, "trade")
+  tr.remote = { handle = { path = "x", version = "red", party = {} },
+    session = {},
+    update = function() return "done" end,
+    commit = function() return true end,
+    close = function() closed = closed + 1 end }
+  OnlinePanel.pumpRemoteTrade(dimp)
+  T.eq(tr.remote, nil, "a finished trade closes the remote session")
+  T.eq(closed, 1, "closing the link")
+  T.eq(left, 1, "and leaving the room")
+  T.eq(OnlinePanel.screen(dimp), "home", "then lands on Home")
+  T.eq(dst.status, "Trade complete.", "saying the trade completed")
+  T.eq(dst.statusOk, true, "as good news")
+  OnlinePanel.go(dimp, "trade")
+  T.eq(tr.remoteResult, nil, "reopening Trade forgets the old result")
+  T.eq(tr.status, nil, "and any stale trade status")
+  Client.leaveRoom, Client.room = savedLeave, savedRoom
+end
+
+do
+  local Trade = require("src.online.Trade")
+  local link = { closed = false, paired = true, sent = {},
+    send = function(self, m) self.sent[#self.sent + 1] = m end,
+    poll = function() return {} end, close = function() end }
+  local Protocol = require("src.link.Protocol")
+  local remote = setmetatable({
+    handle = { generation = 1, party = {} }, link = link,
+    session = { stage = "waitPick", handle = function() return nil end },
+  }, getmetatable(Trade.remote({ data = {}, party = {} }, link) or {}))
+  T.eq(remote:update(), "waitPick", "a live link keeps the trade going")
+  link.paired = false
+  T.eq(remote:update(), "cancelled", "the other trainer leaving calls it off")
+  T.eq(remote.session.error, "the other trainer left", "with a reason")
+  link.paired, link.closed = true, true
+  remote.session.stage = "done"
+  T.eq(remote:update(), "done", "but a finished trade stays finished")
+end
+
 T.finish("online panel")

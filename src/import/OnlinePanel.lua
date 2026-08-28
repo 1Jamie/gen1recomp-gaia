@@ -1403,7 +1403,8 @@ function OnlinePanel.remoteConfirm(imp, yes)
 end
 
 function OnlinePanel.pumpRemoteTrade(imp)
-  local tr = OnlinePanel.state(imp).trade
+  local st = OnlinePanel.state(imp)
+  local tr = st.trade
   if not tr or not tr.remote then return end
   local ok, stage = pcall(function() return tr.remote:update() end)
   if not ok then
@@ -1424,9 +1425,12 @@ function OnlinePanel.pumpRemoteTrade(imp)
       pcall(require("src.online.Trade").pruneBackups,
         tr.remote.handle.path, 3)
       tr.remoteResult = Strings("Trade complete.")
-    else
-      tr.remoteResult = tostring(result)
+      OnlinePanel.endRemoteTrade(imp)
+      OnlinePanel.home(imp)
+      st.status, st.statusOk = tr.remoteResult, true
+      return
     end
+    tr.remoteResult = tostring(result)
     OnlinePanel.endRemoteTrade(imp)
   elseif stage == "cancelled" then
     tr.remoteDone = true
@@ -1679,6 +1683,8 @@ ensureHooks = function()
     OnlinePanel._pendingStart = payload
   end)
   client.on("match_end", function(msg)
+    local room = client.room()
+    if room and room.intent == "trade" then return end
     OnlinePanel.lastResult = OnlinePanel.resultText(msg)
   end)
   client.on("tour_match", function(payload)
@@ -1924,10 +1930,14 @@ local function entered(imp, id)
   imp._pcPicker = nil
   st.status, st.statusOk = nil, false
   st.confirmLeave = nil
-  if id == "play" or id == "watch" then
+  if id == "play" or id == "watch" or id == "tournament" then
     c.dirty.lobby = true
   elseif id == "trade" then
     c.dirty.trade = true
+    local tr = st.trade
+    if tr and not tr.remote then
+      tr.status, tr.remoteResult, tr.remoteError = nil, nil, nil
+    end
   elseif id == "wizard" then
     c.dirty.slots, c.dirty.party = true, true
   end
@@ -2064,7 +2074,16 @@ function OnlinePanel.wizardReady(imp)
   local id = OnlinePanel.wizardStep(imp)
   if id == "game" then return OnlinePanel.selectedVersion(imp) ~= nil end
   if id == "save" then return st.slotId ~= nil end
-  if id == "team" then return #(st.team or {}) > 0 end
+  if id == "team" then
+    local n = #(st.team or {})
+    if n == 0 then return false end
+    local w, target = st.wizard, st.joinTarget
+    if w and w.kind == "join" and type(target) == "table"
+        and type(target.rule) == "table" and tonumber(target.rule.partySize) then
+      return n == OnlinePanel.teamCap(imp)
+    end
+    return true
+  end
   if id == "role" then
     if st.tradeRole == "join" then
       return #OnlinePanel.sanitizeCode(OnlinePanel.tradeState(imp).code or "")
@@ -2236,9 +2255,28 @@ function OnlinePanel.startJoin(imp, code, rule, as, tournament)
     st.status, st.statusOk = Strings("Room codes are 6 characters."), false
     return false
   end
+  if type(rule) ~= "table" then
+    for _, entry in ipairs(Client().lobby() or {}) do
+      if entry.code == code then
+        rule = entry.profile and entry.profile.rule or nil
+        if entry.intent == "tournament" then tournament = true end
+      end
+    end
+  end
   st.joinTarget = { code = code, rule = rule, as = as or "player",
                     tournament = tournament == true }
   return OnlinePanel.startWizard(imp, "join")
+end
+
+function OnlinePanel.teamCap(imp)
+  local st = OnlinePanel.state(imp)
+  local w, target = st.wizard, st.joinTarget
+  if w and w.kind == "join" and type(target) == "table"
+      and type(target.rule) == "table" then
+    local n = tonumber(target.rule.partySize)
+    if n then return math.max(1, math.min(n, OnlinePanel.TEAM_MAX)) end
+  end
+  return OnlinePanel.TEAM_MAX
 end
 
 function OnlinePanel.startJoinTournament(imp, code, rule)
@@ -2459,7 +2497,7 @@ local function newCache()
     dirty = { slots = true, carts = true, party = true, lobby = true,
               trade = true, summary = true },
     slots = {}, carts = {}, party = {}, pc = {}, team = {},
-    rooms = {}, watch = {}, mine = nil,
+    rooms = {}, watch = {}, tours = {}, mine = nil,
     tradeSlots = {}, tradeRows = { a = {}, b = {} },
     tradePc = EMPTY, tradePcKey = nil,
     counts = { players = 0, lobbies = 0 },
@@ -2679,11 +2717,14 @@ local function refreshLobby(imp, c)
   c.lobbyKey = key
   local filter = OnlinePanel.filter(imp)
   local me = OnlinePanel.mySeatId()
-  c.rooms, c.watch = {}, {}
+  c.rooms, c.watch, c.tours = {}, {}, {}
   for _, entry in ipairs(open) do
-    if entry.id ~= me and entry.intent ~= "tournament"
-        and OnlinePanel.entryPasses(filter, entry) then
-      c.rooms[#c.rooms + 1] = roomRow(imp, entry, profile)
+    if entry.id ~= me and OnlinePanel.entryPasses(filter, entry) then
+      if entry.intent == "tournament" then
+        c.tours[#c.tours + 1] = roomRow(imp, entry, profile)
+      else
+        c.rooms[#c.rooms + 1] = roomRow(imp, entry, profile)
+      end
     end
   end
   for _, entry in ipairs(watch) do
@@ -2839,10 +2880,14 @@ function OnlinePanel.update(imp, dt)
     OnlinePanel._joinError = nil
   end
   if st.pending and st.pending.done then
-    if st.pending.error then
-      st.status, st.statusOk = tostring(st.pending.error), false
-    end
+    local pending = st.pending
     st.pending = nil
+    if pending.error and pending.tourFallback
+        and pending.reason == "not_found" then
+      OnlinePanel.joinTournamentByCode(imp, pending.code, "spectator")
+    elseif pending.error then
+      st.status, st.statusOk = tostring(pending.error), false
+    end
   end
   local room = Client().room()
   local tour = Client().tournament()
@@ -2901,6 +2946,20 @@ function OnlinePanel.autoReadyTrade(imp, room)
   if (st.autoReadyAt or 0) > now then return false end
   st.autoReadyAt = now + 3
   return OnlinePanel.sendReady(imp)
+end
+
+function OnlinePanel.spectateByCode(imp, code)
+  local st = OnlinePanel.state(imp)
+  code = OnlinePanel.sanitizeCode(code)
+  for _, entry in ipairs(Client().lobby() or {}) do
+    if entry.code == code and entry.intent == "tournament" then
+      return OnlinePanel.joinTournamentByCode(imp, code, "spectator")
+    end
+  end
+  if not OnlinePanel.joinByCode(imp, code, "spectator") then return false end
+  if st.pending then st.pending.tourFallback = true end
+  OnlinePanel.go(imp, "room")
+  return true
 end
 
 function OnlinePanel.joinByCode(imp, code, as)
