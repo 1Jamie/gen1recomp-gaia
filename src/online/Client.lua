@@ -263,11 +263,18 @@ end
 
 function RoomSession:hasPending() return #S.roomInbox > 0 end
 
+local function sendLeave()
+  if S.room and S.role == "host" and S.room.intent ~= "tournament" then
+    sendRaw(Protocol2.roomClose())
+  end
+  sendRaw(Protocol2.roomLeave())
+end
+
 function RoomSession:close()
   if self.left then return end
   self.left = true
   self.closed = true
-  sendRaw(Protocol2.roomLeave())
+  sendLeave()
   clearRoom()
 end
 
@@ -817,7 +824,7 @@ end
 
 function Client.disconnect()
   if S.session then
-    if S.room then sendRaw(Protocol2.roomLeave()) end
+    if S.room then sendLeave() end
     pcall(function() S.session:close() end)
   end
   S.session = nil
@@ -924,7 +931,7 @@ function Client.leaveRoom()
     return true
   end
   if not S.room then return false end
-  sendRaw(Protocol2.roomLeave())
+  sendLeave()
   clearRoom()
   return true
 end

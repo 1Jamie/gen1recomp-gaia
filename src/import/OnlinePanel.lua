@@ -1950,6 +1950,18 @@ function OnlinePanel.go(imp, id)
   return true
 end
 
+local function leaveScreen(imp, from)
+  local st = OnlinePanel.state(imp)
+  local tr = st.trade
+  if from == "trade" and tr and tr.remote then
+    OnlinePanel.endRemoteTrade(imp)
+  elseif from == "room" and Client().room() then
+    st.ready, st.confirmLeave = false, nil
+    Client().leaveRoom()
+    OnlinePanel.clearPresence()
+  end
+end
+
 function OnlinePanel.back(imp)
   local st = imp and imp._online
   if not st then return false end
@@ -1966,6 +1978,7 @@ function OnlinePanel.back(imp)
   Transition.start("online", "pop", { dir = -1, from = from,
     to = stack[#stack] })
   entered(imp, stack[#stack])
+  leaveScreen(imp, from)
   return true
 end
 
@@ -1979,6 +1992,8 @@ function OnlinePanel.home(imp)
     Transition.start("online", "pop", { dir = -1, from = from, to = "home" })
   end
   entered(imp, "home")
+  local tr = st.trade
+  leaveScreen(imp, (tr and tr.remote) and "trade" or "room")
   return true
 end
 
@@ -2839,6 +2854,7 @@ function OnlinePanel.update(imp, dt)
     st.roomCart = room and OnlinePanel.cartNeed(room.profile) or nil
   end
   route(imp)
+  OnlinePanel.autoReadyTrade(imp, room)
   OnlinePanel.refresh(imp)
   local start = OnlinePanel._pendingStart
   if start then
@@ -2858,6 +2874,27 @@ function OnlinePanel.update(imp, dt)
       end
     end
   end
+end
+
+function OnlinePanel.autoReadyTrade(imp, room)
+  local st = OnlinePanel.state(imp)
+  if not room or room.intent ~= "trade" then return false end
+  if st.trade and st.trade.remote then return false end
+  if room.stage ~= "waiting" and room.stage ~= "ready" then return false end
+  local players = room.players or {}
+  if #players < 2 then return false end
+  local you = type(Client().you) == "function" and Client().you() or nil
+  local me = you and you.id
+  local mine
+  for _, p in ipairs(players) do
+    if me ~= nil and p.id == me then mine = p end
+  end
+  if not mine or mine.ready then return false end
+  local now = (love and love.timer and love.timer.getTime and love.timer.getTime())
+    or os.time()
+  if (st.autoReadyAt or 0) > now then return false end
+  st.autoReadyAt = now + 3
+  return OnlinePanel.sendReady(imp)
 end
 
 function OnlinePanel.joinByCode(imp, code, as)

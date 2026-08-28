@@ -6187,6 +6187,13 @@ function LauncherView.draw(imp)
       math.min(1, imp._launchFade.elapsed / imp._launchFade.duration))
   end
 
+  if Kit.mouseClicked and not Kit.blockClicks and imp._onlineFocus
+      and not imp._onlineFieldHit
+      and not (Kit.VirtualKeyboard and Kit.VirtualKeyboard.active)
+      and type(imp._commitOnlineField) == "function" then
+    imp:_commitOnlineField()
+  end
+  imp._onlineFieldHit = nil
   Kit.endFrame()
   drawPadCursor(imp)
 

@@ -1265,6 +1265,39 @@ ClientC.update(0)
 eq(ClientC.room(), nil, "the room_close broadcast clears the room")
 
 
+-- ------------------------------------------------- host leaving closes it
+
+do
+  local rr = newRelay()
+  local sh = rr:seat("h1", "HOST")
+  local sg = rr:seat("g1", "GUEST")
+  local CH, CG = newClientModule(), newClientModule()
+  connectTo(CH, sh, "HOST")
+  connectTo(CG, sg, "GUEST")
+  rr:pump(); CH.update(0); CG.update(0)
+  CH.createRoom({ intent = "battle", profile = PROFILE })
+  rr:pump(); CH.update(0)
+  CG.joinRoom("ABC234", "player")
+  rr:pump(); CH.update(0); CG.update(0)
+  eq(#CH.room().players, 2, "host and guest share the room")
+  local function types(seat)
+    local out = {}
+    for _, m in ipairs(seat.transport.outbox) do out[#out + 1] = m.type end
+    return table.concat(out, ",")
+  end
+  sg.transport.outbox = {}
+  check(CG.leaveRoom(), "the guest can leave")
+  eq(types(sg), "room_leave", "a guest leaving only sends room_leave")
+  rr:pump(); CH.update(0)
+  sh.transport.outbox = {}
+  check(CH.leaveRoom(), "the host can leave")
+  eq(types(sh), "room_close,room_leave",
+     "a host leaving closes the room before leaving it")
+  rr:pump()
+  eq(rr.closedBy, "h1", "so the relay tears the room down for everyone")
+  eq(CH.room(), nil, "and the host's room model is gone")
+end
+
 -- ------------------------------------------------- reports across a drop
 
 do
