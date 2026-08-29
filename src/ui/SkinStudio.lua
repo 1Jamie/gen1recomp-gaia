@@ -47,6 +47,7 @@ Studio.ORIENT_LABEL = {
 }
 
 local HANDLE = 7
+local TAP_SLOP2 = 16 * 16
 local HANDLES = {
   { "nw", 0, 0 }, { "n", 0.5, 0 }, { "ne", 1, 0 },
   { "w", 0, 0.5 }, { "e", 1, 0.5 },
@@ -508,7 +509,9 @@ function Studio.load(opts)
   -- first-class tasks, not controls buried inside the editor workspace.
   Studio.mode = "library"
   Studio.libraryThumbs = {}
-  Studio.libraryPage = 1
+  Studio.libraryScroll, Studio.libraryScrollMax = 0, 0
+  Studio.libraryPress, Studio.libraryRects = nil, {}
+  Studio.libraryFocusId = nil
 
   TouchControls:init()
   TouchControls.active = true
@@ -606,6 +609,9 @@ function Studio.refreshAvailable()
   Studio.available = TouchSkin.list()
   Studio.availableMeta = {}
   Studio.libraryThumbs = {}
+  Studio.libraryScroll = Kit.scrollClamp(Studio.libraryScroll or 0,
+    Studio.libraryScrollMax or 0)
+  Studio.libraryPress = nil
   return Studio.available
 end
 
@@ -2487,31 +2493,61 @@ local function drawLibrary()
   y = y + Kit.textHeight("small") + gap
 
   local entries = Studio.available or {}
-  local cols = W >= 520 * Kit.scale and 3 or 2
   local cardGap = 10 * Kit.scale
-  local cardW = (W - pad * 2 - cardGap * (cols - 1)) / cols
-  local cardH = math.max(182 * Kit.scale, cardW * 1.42)
+  local listX, listTop = ox + pad, y
+  local listW = W - pad * 2
+  local listH = math.max(0, (oy + H) - listTop - pad)
+  local gridW = listW - Kit.scrollGutter()
+  local cols = math.max(2, math.min(5,
+    math.floor((gridW + cardGap) / (250 * Kit.scale + cardGap))))
+  local cardW = (gridW - cardGap * (cols - 1)) / cols
+  local textH = Kit.textHeight("mono") + Kit.textHeight("small")
+  local artH = math.min(cardW * 0.52, math.max(52 * Kit.scale, listH * 0.34))
+  local cardH = artH + textH + btnH * 2 + 34 * Kit.scale
   local saved = SaveData.loadOptions()
   local tc = type(saved.touchControls) == "table" and saved.touchControls or {}
   local activeId = tc.enabled == false and nil or tc.skin
-  local total = #entries
-  local maxRows = math.max(1, math.floor((oy + H - y - pad - btnH - gap)
-    / (cardH + cardGap)))
-  local perPage = maxRows * cols
-  local pages = math.max(1, math.ceil(total / perPage))
-  Studio.libraryPage = math.max(1, math.min(Studio.libraryPage or 1, pages))
-  local first = (Studio.libraryPage - 1) * perPage + 1
-  local last = math.min(total, first + perPage - 1)
 
-  for slot = first, last do
-    local index = slot - first
-    local cx = ox + pad + (index % cols) * (cardW + cardGap)
-    local cy = y + math.floor(index / cols) * (cardH + cardGap)
-    do
+  local rows = math.ceil(#entries / cols)
+  local contentH = rows * cardH + math.max(0, rows - 1) * cardGap
+  local maxScroll = Kit.scrollExtent(contentH, listH)
+  Studio.libraryScroll = Kit.scrollWheel(Studio.libraryScroll or 0, maxScroll,
+    listX, listTop, listW, listH)
+  Studio.libraryScroll = Kit.scrollClamp(Studio.libraryScroll, maxScroll)
+  local focusId = (Kit._ringShown and Kit.focusId) or nil
+  if focusId ~= Studio.libraryFocusId then
+    Studio.libraryFocusId = focusId
+    local focusSkin = focusId and tostring(focusId):match("^skin%-%a+%-(.+)$")
+    if focusSkin and maxScroll > 0 then
+      for i = 1, #entries do
+        if entries[i].id == focusSkin then
+          local bandTop = math.floor((i - 1) / cols) * (cardH + cardGap)
+          if bandTop < Studio.libraryScroll then
+            Studio.libraryScroll = Kit.scrollClamp(bandTop, maxScroll)
+          elseif bandTop + cardH > Studio.libraryScroll + listH then
+            Studio.libraryScroll = Kit.scrollClamp(bandTop + cardH - listH,
+              maxScroll)
+          end
+          break
+        end
+      end
+    end
+  end
+  Studio.libraryScrollMax = maxScroll
+  Studio.libraryView = { x = listX, y = listTop, w = listW, h = listH }
+  Studio.libraryRects = {}
+
+  local jumped = false
+  local top = Kit.scrollBegin(listX, listTop, listW, listH,
+    Studio.libraryScroll, maxScroll)
+  for slot = 1, #entries do
+    local index = slot - 1
+    local cx = listX + (index % cols) * (cardW + cardGap)
+    local cy = top + math.floor(index / cols) * (cardH + cardGap)
+    if cy + cardH >= listTop - listH and cy <= listTop + listH * 2 then
       local entry = entries[slot]
       local selected = entry.id == activeId
       Kit.card(cx, cy, cardW, cardH, selected and "selected" or nil)
-      local artH = cardH * 0.45
       drawSkinArtwork(Studio.libraryThumb(entry), cx + 7 * Kit.scale,
         cy + 7 * Kit.scale, cardW - 14 * Kit.scale, artH)
       Kit.text("mono", Kit.ellipsize("mono", entry.id, cardW - 20 * Kit.scale),
@@ -2524,6 +2560,8 @@ local function drawLibrary()
       local actionGap = 4 * Kit.scale
       local actionW = (cardW - 20 * Kit.scale - actionGap) * 0.5
       local actionY = cy + cardH - btnH * 2 - actionGap - 8 * Kit.scale
+      Studio.libraryRects[entry.id] =
+        { x = cx + 8 * Kit.scale, y = actionY, w = actionW, h = btnH }
       if Kit.button(cx + 8 * Kit.scale, actionY, actionW, btnH,
                     selected and "Selected" or "Select",
                     { id = "skin-select-" .. entry.id,
@@ -2534,7 +2572,8 @@ local function drawLibrary()
                     "Edit", { id = "skin-edit-" .. entry.id, kind = "accent" }) then
         Studio.loadEntry(entry.id)
         Studio.enterEditor()
-        return
+        jumped = true
+        break
       end
       actionY = actionY + btnH + actionGap
       if Kit.button(cx + 8 * Kit.scale, actionY, actionW, btnH,
@@ -2548,23 +2587,12 @@ local function drawLibrary()
       end
     end
   end
-
-  if pages > 1 then
-    local pagerY = oy + H - pad - btnH
-    local prevW, nextW = (W - pad * 2 - gap) * 0.5, (W - pad * 2 - gap) * 0.5
-    if Kit.button(ox + pad, pagerY, prevW, btnH, "Previous",
-                  { id = "library-prev", enabled = Studio.libraryPage > 1 }) then
-      Studio.libraryPage = Studio.libraryPage - 1
-    end
-    if Kit.button(ox + pad + prevW + gap, pagerY, nextW, btnH, "Next",
-                  { id = "library-next", enabled = Studio.libraryPage < pages }) then
-      Studio.libraryPage = Studio.libraryPage + 1
-    end
-  end
+  Kit.scrollEnd(listX, listTop, listW, listH, Studio.libraryScroll, maxScroll)
+  if jumped then return end
 
   if #entries == 0 then
     Kit.text("small", "Create a blank skin or import one to get started.",
-      ox + pad, y + cardH + gap, PAL.muted)
+      listX, listTop + gap, PAL.muted)
   end
 end
 
@@ -2724,9 +2752,13 @@ function Studio.mousepressed(x, y, button, fromPad)
   if not fromPad then PadCursor.yieldToPointer() end
   Studio.pointerX, Studio.pointerY = x, y
   Studio.pointerDown = true
+  if Studio.modalUp() then Studio.clicked = true return end
+  if Studio.mode == "library" then
+    if fromPad then Studio.clicked = true return end
+    Studio.libraryPress = { x = x, y = y, at = Studio.libraryScroll or 0 }
+    return
+  end
   Studio.clicked = true
-  if Studio.modalUp() then return end
-  if Studio.mode == "library" then return end
   local r = Studio.lastCanvas
   if not r then return end
   if Studio.testing then
@@ -2750,7 +2782,17 @@ end
 function Studio.mousemoved(x, y)
   Studio.pointerX, Studio.pointerY = x, y
   if Studio.modalUp() then return end
-  if Studio.mode == "library" then return end
+  if Studio.mode == "library" then
+    local p = Studio.libraryPress
+    if not p then return end
+    local ddx, ddy = x - p.x, y - p.y
+    if ddx * ddx + ddy * ddy > TAP_SLOP2 then p.dragged = true end
+    if p.dragged then
+      Studio.libraryScroll = Kit.scrollClamp(p.at - (y - p.y),
+        Studio.libraryScrollMax or 0)
+    end
+    return
+  end
   if Studio.testing then
     TouchControls:touchmoved("studio", x, y)
     return
@@ -2764,6 +2806,9 @@ function Studio.mousereleased(x, y, button)
   if button ~= 1 then return end
   Studio.pointerX, Studio.pointerY = x, y
   Studio.pointerDown = false
+  local press = Studio.libraryPress
+  Studio.libraryPress = nil
+  if press and not press.dragged then Studio.clicked = true end
   if Studio.testing then
     TouchControls:touchreleased("studio", x, y)
     return
@@ -2869,6 +2914,7 @@ end
 function Studio.focus()
   Studio.drag = nil
   Studio.clicked = false
+  Studio.libraryPress = nil
   Studio.pointerDown, Studio.touchId = false, nil
   if Studio.testing then TouchControls:reset() end
 end

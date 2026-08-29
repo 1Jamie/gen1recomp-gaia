@@ -286,7 +286,7 @@ local WANT_IDS = { "textSpeed", "animations", "battleStyle", "battleLayout",
                    "ruleset", "musicVol", "sfxVol", "musicFilter",
                    "performance", "colors",
                    "tilt", "uiLetterbox", "shaderfx", "shaderfx2", "zoom", "voidFill",
-                   "videoMode", "faithfulRes", "screenPos", "fpsCap",
+                   "videoMode", "faithfulRes", "screenPos", "fpsCap", "vsync",
                    "speedOverworld", "speedBattle", "speedMenu",
                    "mods", "controls", "dateFormat", "timeFormat" }
 local function orow(menu, id)
@@ -404,9 +404,26 @@ check(orow(om, "fpsCap").value(om.game) == "75",
   "the MAX FPS row renders the cap")
 om.game.save.options.fpsCap = 160
 orow(om, "fpsCap").step(om.game, 1)
-check(om.game.save.options.fpsCap == 30, "MAX FPS wraps past the ceiling to 30")
+check(om.game.save.options.fpsCap == FrameCap.DISPLAY,
+  "MAX FPS steps past the ceiling to DISPLAY")
+check(orow(om, "fpsCap").value(om.game) == "DISPLAY",
+  "the uncapped stop renders as DISPLAY")
+orow(om, "fpsCap").step(om.game, 1)
+check(om.game.save.options.fpsCap == 30, "and wraps from there to the floor")
 orow(om, "fpsCap").step(om.game, -1)
-check(om.game.save.options.fpsCap == 160, "MAX FPS wraps back down to the ceiling")
+check(om.game.save.options.fpsCap == FrameCap.DISPLAY,
+  "MAX FPS wraps back down to DISPLAY")
+
+om.game.save.options.vsync = nil
+check(orow(om, "vsync").value(om.game) == "ON",
+  "VSYNC row reads the boot mode with no saved key")
+orow(om, "vsync").step(om.game, 1)
+check(om.game.save.options.vsync == "off", "VSYNC steps ON to OFF")
+check(orow(om, "vsync").value(om.game) == "OFF", "and renders it")
+orow(om, "vsync").step(om.game, 1)
+check(om.game.save.options.vsync == "adaptive", "then OFF to ADAPTIVE")
+orow(om, "vsync").step(om.game, 1)
+check(om.game.save.options.vsync == "on", "and ADAPTIVE wraps to ON")
 
 -- ------- FrameCap normalize / cycle (issue #88)
 check(FrameCap.normalize(nil) == 60, "FrameCap defaults nil to 60")
@@ -414,7 +431,9 @@ check(FrameCap.normalize("junk") == 60, "FrameCap defaults garbage to 60")
 check(FrameCap.normalize(60) == 60, "FrameCap keeps an exact step")
 check(FrameCap.normalize(58) == 60, "FrameCap snaps 58 to the nearest step 60")
 check(FrameCap.normalize(72) == 75, "FrameCap snaps 72 to the nearest step 75")
-check(FrameCap.normalize(0) == 30, "FrameCap clamps below the floor to 30")
+check(FrameCap.normalize(1) == 30, "FrameCap clamps below the floor to 30")
+check(FrameCap.normalize(0) == FrameCap.DISPLAY,
+  "and a zero cap is DISPLAY, not the floor (issue #1910)")
 check(FrameCap.normalize(9999) == 160, "FrameCap clamps above the ceiling to 160")
 check(FrameCap.normalize(30) == 30 and FrameCap.normalize(160) == 160,
   "FrameCap keeps the exact floor and ceiling")
@@ -422,8 +441,12 @@ check(FrameCap.label(nil) == "60" and FrameCap.label(144) == "144",
   "FrameCap.label renders the normalized cap as plain text")
 check(FrameCap.cycle(60, 1) == 75, "FrameCap cycles 60 up to 75")
 check(FrameCap.cycle(60, -1) == 50, "FrameCap cycles 60 down to 50")
-check(FrameCap.cycle(160, 1) == 30, "FrameCap cycle wraps the ceiling to the floor")
-check(FrameCap.cycle(30, -1) == 160, "FrameCap cycle wraps the floor to the ceiling")
+check(FrameCap.cycle(160, 1) == FrameCap.DISPLAY,
+  "FrameCap cycle steps the ceiling to DISPLAY")
+check(FrameCap.cycle(FrameCap.DISPLAY, 1) == 30,
+  "and wraps DISPLAY to the floor")
+check(FrameCap.cycle(30, -1) == FrameCap.DISPLAY,
+  "FrameCap cycle wraps the floor back to DISPLAY")
 check(FrameCap.cycle(nil, 1) == 75,
   "FrameCap cycle normalizes a nil cap (60) before stepping")
 -- apply drives the live value the run loop paces to; never touches love.timer
@@ -451,12 +474,16 @@ check(getmetatable(bm) == BindingsMenu,
   "the CONTROLS row opens the rebind list")
 check(bm.screenId == "BindingsMenu",
   "the pushed rebind screen carries its screen id")
-check(#bm.items == 8, "one row per logical button")
+check(#bm.items == 10,
+  "one row per logical button, plus the two pad-action rows (#1922)")
 check(bm.items[1].label == "UP" and bm.items[1].right == "UP/D-UP"
   and bm.items[5].label == "A" and bm.items[5].right == "Z/A"
   and bm.items[7].label == "START" and bm.items[7].right == "ESC/START"
   and bm.items[8].label == "SELECT" and bm.items[8].right == "TAB/BACK",
   "with no rebind the rows mirror the fixed map, key and pad both (#589)")
+check(bm.items[9].label == "SPEED -" and bm.items[9].right == "LB"
+  and bm.items[10].label == "SPEED +" and bm.items[10].right == "RB",
+  "and the GAME SPEED shortcuts show the shoulders they sit on (#1922)")
 check(cbGame.save.options.bindings == nil,
   "opening the screen alone writes nothing")
 

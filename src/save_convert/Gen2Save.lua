@@ -327,16 +327,60 @@ local ENGINE_FLAG_BITS = {
   },
 }
 
-local function decodeEngineFlags(bytes, L)
+-- data/events/engine_flags.asm:74-101 over the spawn indexes at
+-- constants/map_data_constants.asm:68-99
+local FLYPOINT_BITS = {
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+  18, 19, 20, 21, 22, 23, 24, 25, 26, 28,
+}
+local FLYPOINT_FIRST_ID = 50
+
+-- pokecrystal constants/engine_flags.asm:25 ENGINE_MOBILE_SYSTEM
+local function engineId(gold, gameVersion)
+  if gameVersion == "crystal" and gold >= 16 then return gold + 1 end
+  return gold
+end
+
+-- engine/pokegear/pokegear.asm:2189 HasVisitedSpawn
+local function eachSpawnBit(L, fn)
+  if not L.wVisitedSpawns then return end
+  for i, bit in ipairs(FLYPOINT_BITS) do
+    fn(FLYPOINT_FIRST_ID + i - 1, L.wVisitedSpawns + math.floor(bit / 8),
+       2 ^ (bit % 8))
+  end
+end
+
+local function decodeEngineFlags(bytes, L, gameVersion)
   local out = {}
   for field, rows in pairs(ENGINE_FLAG_BITS) do
     local at = L[field]
     if at then
       local byte = u8(bytes, at)
       for _, row in ipairs(rows) do
-        if math.floor(byte / 2 ^ row[2]) % 2 == 1 then out[row[1]] = true end
+        if math.floor(byte / 2 ^ row[2]) % 2 == 1 then
+          out[engineId(row[1], gameVersion)] = true
+        end
       end
     end
+  end
+  eachSpawnBit(L, function(id, at, mask)
+    if math.floor(u8(bytes, at) / mask) % 2 == 1 then
+      out[engineId(id, gameVersion)] = true
+    end
+  end)
+  return out
+end
+
+-- constants/sprite_constants.asm:149 SPRITE_VARS; ram/sram.asm:96
+Gen2Save.VARIABLE_SPRITES = 16
+
+-- engine/overworld/overworld.asm:326 GetMonSprite.Variable
+local function decodeVariableSprites(bytes, at, count)
+  if not at then return nil end
+  local out = {}
+  for i = 0, count - 1 do
+    local b = u8(bytes, at + i)
+    if b and b ~= 0 then out[i] = b end
   end
   return out
 end
@@ -398,6 +442,9 @@ function Gen2Save.decode(bytes, gameVersion, data)
       coins = be(bytes, L.wCoins, 2),
       badges = decodeBadges(u8(bytes, L.wBadges), Gen2Save.JOHTO_BADGES),
       kantoBadges = decodeBadges(u8(bytes, L.wKantoBadges), Gen2Save.KANTO_BADGES),
+      -- constants/ram_constants.asm:177 PLAYERGENDER_FEMALE_F
+      gender = L.wPlayerGender
+        and (u8(bytes, L.wPlayerGender) % 2 == 1 and "female" or "male") or nil,
     },
     rival = { name = text(bytes, L.wRivalName, Gen2Save.NAME_LENGTH) },
     mom = { name = text(bytes, L.wMomsName, Gen2Save.NAME_LENGTH) },
@@ -411,7 +458,9 @@ function Gen2Save.decode(bytes, gameVersion, data)
       seen = decodeDex(bytes, L.wPokedexSeen, x),
     },
     events = decodeFlagBytes(bytes, L.wEventFlags, Gen2Save.EVENT_BYTES),
-    engineFlags = decodeEngineFlags(bytes, L),
+    engineFlags = decodeEngineFlags(bytes, L, gameVersion),
+    variableSprites = decodeVariableSprites(bytes, L.wVariableSprites,
+                                            Gen2Save.VARIABLE_SPRITES),
     -- Save.summary does `save.position.map or save.spawn`.
     position = {
       map = x.maps[u8(bytes, L.wMapGroup) * 256 + u8(bytes, L.wMapNumber)],
@@ -601,7 +650,7 @@ local function putBag(t, L, inventory, x)
   return overflow
 end
 
-local function putEngineFlags(t, L, flags)
+local function putEngineFlags(t, L, flags, gameVersion)
   for field, rows in pairs(ENGINE_FLAG_BITS) do
     local at = L[field]
     if at then
@@ -609,12 +658,18 @@ local function putEngineFlags(t, L, flags)
       for _, row in ipairs(rows) do
         local mask = 2 ^ row[2]
         local on = math.floor(byte / mask) % 2 == 1
-        local want = flags[row[1]] == true
+        local want = flags[engineId(row[1], gameVersion)] == true
         if on ~= want then byte = want and (byte + mask) or (byte - mask) end
       end
       t[at] = byte
     end
   end
+  eachSpawnBit(L, function(id, at, mask)
+    local cur = t[at] or 0
+    local on = math.floor(cur / mask) % 2 == 1
+    local want = flags[engineId(id, gameVersion)] == true
+    if on ~= want then t[at] = want and (cur + mask) or (cur - mask) end
+  end)
 end
 
 local function putFlagSet(t, at, set, count, indexFor)
@@ -658,6 +713,12 @@ function Gen2Save.encode(save, gameVersion, template, data)
   putBadges(t, L.wKantoBadges, p.kantoBadges, Gen2Save.KANTO_BADGES)
   putText(t, L.wRivalName, (save.rival or {}).name or "", Gen2Save.NAME_LENGTH)
   putText(t, L.wMomsName, (save.mom or {}).name or "", Gen2Save.NAME_LENGTH)
+  -- engine/menus/init_gender.asm:38
+  if L.wPlayerGender then
+    local byte = t[L.wPlayerGender] or 0
+    putU8(t, L.wPlayerGender,
+          byte - byte % 2 + (p.gender == "female" and 1 or 0))
+  end
 
   local party = save.party or {}
   if #party > Gen2Save.PARTY_LENGTH then
@@ -724,7 +785,14 @@ function Gen2Save.encode(save, gameVersion, template, data)
     if type(byte) == "number" then putU8(t, L.wEventFlags + i, byte) end
   end
   if type(save.engineFlags) == "table" then
-    putEngineFlags(t, L, save.engineFlags)
+    putEngineFlags(t, L, save.engineFlags, gameVersion)
+  end
+  -- engine/overworld/scripting.asm:869 Script_variablesprite
+  if L.wVariableSprites and type(save.variableSprites) == "table" then
+    for i = 0, Gen2Save.VARIABLE_SPRITES - 1 do
+      local b = save.variableSprites[i]
+      if type(b) == "number" then putU8(t, L.wVariableSprites + i, b) end
+    end
   end
 
   local pos = save.position

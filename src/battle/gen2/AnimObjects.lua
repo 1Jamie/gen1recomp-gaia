@@ -127,10 +127,9 @@ function AnimObjects.new(data, constants, env)
   for index, name in ipairs(self.framesetOrder) do
     self.framesetIds[name] = index - 1
   end
-  -- Written by the two functions that reach past their own struct: Sky
-  -- Attack's OBP0 cycle and Surf's per-scanline window.  The view reads them.
+  -- engine/battle_anims/functions.asm:1158
+  self.hram = nil
   self.obp0 = nil
-  self.lyOverride = nil
   return self
 end
 
@@ -139,7 +138,6 @@ function Pool:clear()
   self.lastIndex = 0
   self.oam = {}
   self.obp0 = nil
-  self.lyOverride = nil
 end
 
 -- BattleAnimCmd_ClearObjs.  The cart's loop clears $a0 bytes from
@@ -850,20 +848,21 @@ F.BATTLE_ANIM_FUNC_BUBBLE = function(self, st)
   st.y, st.var2 = add16(st.y, st.var2, bit.band(st.param, 0xf0) - 0x100)
 end
 
--- BattleAnimFunction_Surf: the wave is a per-scanline SCY override, so the
--- port hands the view the same window the cart writes to hLYOverrideStart /
--- hLYOverrideEnd rather than moving anything itself.
+-- engine/battle_anims/functions.asm:1148
 F.BATTLE_ANIM_FUNC_SURF = function(self, st)
+  local hram = self.hram
   local jt = st.jt
   if jt == 0 then
     incJt(st)
-    self.lyOverride = { register = "SCY", first = 0x58, last = 0x5e }
+    if hram then
+      hram.lcdc, hram.lyStart, hram.lyEnd = "SCY", 0x58, 0x5e
+    end
     return
   end
   if jt == 1 then
     if st.y < st.param then
       incJt(st)
-      if self.lyOverride then self.lyOverride.first = 0 end
+      if hram then hram.lyStart = 0 end
       return
     end
     st.y = u8(st.y - 1)
@@ -872,21 +871,23 @@ F.BATTLE_ANIM_FUNC_SURF = function(self, st)
     -- `ret c`: the wave stops climbing entirely on the frames the subtraction
     -- underflows, offsets and all.
     if top < 0 then return end
-    if self.lyOverride then self.lyOverride.first = u8(top) end
+    if hram then hram.lyStart = u8(top) end
     st.xOffset = bit.band(st.xOffset + 1, 7)
     st.var1 = u8(st.var1 + 2)
     return
   end
   if jt == 3 then
     if st.y >= 0x70 then
-      self.lyOverride = nil
+      if hram then
+        hram.lcdc, hram.lyStart, hram.lyEnd = nil, 0, 0
+      end
       deinit(st)
       return
     end
     st.y = u8(st.y + 2)
     local top = st.y - 0x10
     if top < 0 then return end
-    if self.lyOverride then self.lyOverride.first = u8(top) end
+    if hram then hram.lyStart = u8(top) end
     return
   end
   if jt == 4 then deinit(st) end

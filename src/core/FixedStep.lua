@@ -22,11 +22,37 @@ local STEP_EPS = 1 / 60 * 0.02
 -- warps go through Transition instead (issue #487).
 local RESEED_PHASE = 0.5
 
+FixedStep.refreshPeriod = nil
+
+local PHASE_PROBE = 600
+
+local function phaseOffset(period, step)
+  local residuals, seen, accum = {}, {}, 0
+  for _ = 1, PHASE_PROBE do
+    accum = accum + period
+    while accum >= step - STEP_EPS do accum = accum - step end
+    local key = math.floor(accum / step * 1e6 + 0.5)
+    if seen[key] then break end
+    seen[key] = true
+    residuals[#residuals + 1] = accum
+  end
+  if #residuals == 0 then return 0 end
+  table.sort(residuals)
+  local bestGap, bestCentre = -1, 0
+  for i = 1, #residuals do
+    local a = residuals[i]
+    local b = (i < #residuals) and residuals[i + 1] or (residuals[1] + step)
+    if b - a > bestGap then bestGap, bestCentre = b - a, (a + b) * 0.5 end
+  end
+  return (step - bestCentre) % step
+end
+
 function FixedStep:init(callback)
   self.accum = 0
   self.callback = callback
   self.suppressCatchup = false
   self.dtHistory, self.dtSum = nil, 0
+  self.phasedFor = nil
 end
 
 -- The anti-spiral clamp doubles as a steps-per-frame ceiling (0.25s = 15
@@ -48,7 +74,19 @@ function FixedStep:update(dt)
     self.callback(self.STEP)
     return
   end
-  if dt > 0 and dt <= SMOOTH_MAX then
+  local period = self.refreshPeriod
+  local snapped = false
+  if period and dt > 0 then
+    local frames = math.floor(dt / period + 0.5)
+    if frames >= 1 and frames * period <= SMOOTH_MAX
+       and math.abs(frames * period - dt) < period * 0.25 then
+      dt = frames * period
+      snapped = true
+    end
+  end
+  if snapped then
+    self.dtHistory, self.dtSum = nil, 0
+  elseif dt > 0 and dt <= SMOOTH_MAX then
     local hist = self.dtHistory
     if not hist then hist = {}; self.dtHistory = hist; self.dtSum = 0 end
     hist[#hist + 1] = dt
@@ -60,6 +98,11 @@ function FixedStep:update(dt)
     dt = self.dtSum / #hist
   else
     self.dtHistory, self.dtSum = nil, 0
+  end
+  if period and self.phasedFor ~= period then
+    self.phasedFor = period
+    local target = phaseOffset(period, self.STEP)
+    self.accum = self.accum - self.accum % self.STEP + target
   end
   self.accum = math.min(self.accum + dt, self.maxAccum or MAX_ACCUM)
   while self.accum >= self.STEP - STEP_EPS do

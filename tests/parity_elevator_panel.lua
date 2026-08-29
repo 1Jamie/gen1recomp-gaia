@@ -27,16 +27,22 @@ local realList = package.loaded["src.ui.ListMenu"]
 local realShake = package.loaded["src.world.ElevatorShake"]
 local realTextBox = package.loaded["src.render.TextBox"]
 package.loaded["src.ui.ListMenu"] = {
-  new = function(_, title, items, opts)
-    return { kind = "list", title = title, items = items, opts = opts,
-             close = function() end }
+  new = function(game, title, items, opts)
+    local list
+    list = { kind = "list", title = title, items = items, opts = opts,
+             close = function()
+               if game.stack:top() == list then game.stack:pop() end
+             end }
+    return list
   end,
 }
 package.loaded["src.world.ElevatorShake"] = {
   new = function(_, _, opts) return { kind = "shake", opts = opts } end,
 }
 package.loaded["src.render.TextBox"] = {
-  new = function(_, text, done) return { kind = "text", text = text, done = done } end,
+  new = function(_, text, done, opts)
+    return { kind = "text", text = text, done = done, opts = opts }
+  end,
 }
 
 -- panel cell / reading cell from the bg_event coordinates above; facing is
@@ -147,14 +153,28 @@ for _, car in ipairs(CARS) do
     game.save.inventory[car.key] = 1
   end
 
-  -- reading the panel with a key (or with no gate): WHICH FLOOR?
+  -- (engine/events/elevator.asm:2-3), then the LIST_MENU_BOX over the map
   local done = false
   panel(game, ow, nil, function() done = true end)
+  local prompt = pushed[#pushed]
+  eq(#pushed, 1, tag .. ": the panel pushes the prompt box and nothing else")
+  eq(prompt and prompt.kind, "text", tag .. ": and that state is a text box")
+  eq(prompt and prompt.text, Data.text._WhichFloorText,
+     tag .. ": carrying _WhichFloorText, not an invented title")
+  check(prompt and prompt.opts and prompt.opts.stay
+        and type(prompt.opts.stay.onShown) == "function",
+        tag .. ": a `done` box that stays up while the list opens over it")
+  prompt.opts.stay.onShown()
   local list = pushed[#pushed]
   eq(list and list.kind, "list", tag .. ": reading the panel opens a list menu")
-  eq(list and list.title, "WHICH FLOOR?", tag .. ": titled WHICH FLOOR?")
-  eq(list and #list.items, car.floors,
-     tag .. ": every floor that warps into this car is listed")
+  eq(list and list.title, nil, tag .. ": the box has no title row")
+  eq(list and list.opts.itemBox, true,
+     tag .. ": drawn as LIST_MENU_BOX over the still-visible map")
+  eq(list and #list.items, car.floors + 1,
+     tag .. ": every floor that warps into this car, plus the terminator")
+  local last = list and list.items[#list.items]
+  eq(last and last.cancel, true, tag .. ": the last row is the $ff terminator")
+  eq(last and last.label, "CANCEL", tag .. ": printed as CANCEL")
   eq(destinations(ow), seeded,
      tag .. ": opening the menu has not rewritten anything yet")
 
@@ -164,17 +184,35 @@ for _, car in ipairs(CARS) do
   entry.onEnter(cancelGame, cancelOw, car.from)
   local cancelDone = false
   panel(cancelGame, cancelOw, nil, function() cancelDone = true end)
+  cancelPushed[#cancelPushed].opts.stay.onShown()
   local cancelList = cancelPushed[#cancelPushed]
+  cancelGame.stack:pop()
   cancelList.opts.onCancel()
   check(cancelDone, tag .. ": B closes the panel")
+  eq(#cancelPushed, 0, tag .. ": and the prompt box goes with it")
   eq(destinations(cancelOw), car.from,
      tag .. ": B leaves the exit warps on the floor entered from")
   eq(cancelOw.moveCount(), 0, tag .. ": B moves nobody")
 
+  -- A on the CANCEL row exits exactly like B (home/list_menu.asm:105-110)
+  local rowGame, rowPushed = fakeGame(car.key and { [car.key] = 1 } or nil)
+  local rowOw = fakeCar(car)
+  entry.onEnter(rowGame, rowOw, car.from)
+  local rowDone = false
+  panel(rowGame, rowOw, nil, function() rowDone = true end)
+  rowPushed[#rowPushed].opts.stay.onShown()
+  local rowList = rowPushed[#rowPushed]
+  rowList.opts.onChoose(rowList.items[#rowList.items], rowList)
+  check(rowDone, tag .. ": the CANCEL row closes the panel")
+  eq(#rowPushed, 0, tag .. ": leaving nothing on the stack")
+  eq(destinations(rowOw), car.from,
+     tag .. ": the CANCEL row rewrites no warps")
+  eq(rowOw.moveCount(), 0, tag .. ": the CANCEL row moves nobody")
+
   -- choosing a floor: the ride first, the .UpdateWarp rewrite when it ends
   local chosen
   for _, item in ipairs(list.items) do
-    if item.value.map == car.pick then chosen = item end
+    if item.value and item.value.map == car.pick then chosen = item end
   end
   check(chosen ~= nil, tag .. ": " .. car.pick .. " is on the floor list")
   list.opts.onChoose(chosen, list)

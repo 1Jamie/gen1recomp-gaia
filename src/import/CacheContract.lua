@@ -10,7 +10,7 @@ local CacheContract = {}
 
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
-  crystal = "rom-cache-v10-crystal3:",
+  crystal = "rom-cache-v10-crystal4:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 

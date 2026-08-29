@@ -6350,7 +6350,8 @@ local function rideElevator(where, wantMap)
         if ow().map.id == m.id and p.cellX == sx and p.cellY == sy then
           faceDir(s[3])
           press("a")
-          if waitFor(isList, 60) then return true end
+          -- the prompt box types out first (engine/events/elevator.asm:2-3)
+          if waitFor(isList, 180) then return true end
         end
       end
     end
@@ -6366,7 +6367,7 @@ local function rideElevator(where, wantMap)
   local from = ow().map.id
   if not isList() and not pressPanel() then
     note("elevator: no floor menu", where)
-    say(("elevator on %s: the WHICH FLOOR? menu never opened"):format(from))
+    say(("elevator on %s: the floor list never opened"):format(from))
     return false
   end
   local idx

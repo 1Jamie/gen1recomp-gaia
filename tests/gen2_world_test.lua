@@ -66,6 +66,10 @@ local ITEMS = {
   -- BICYCLE, and both of those are claimed by useFieldItem.
   COIN_CASE = { id = "COIN_CASE", name = "COIN CASE", pocket = "KEY_ITEM",
     index = 0x47 },
+  -- ../pokecrystal/data/items/attributes.asm:242
+  BLUE_CARD = { id = "BLUE_CARD", name = "BLUE CARD", pocket = "KEY_ITEM",
+    index = 0x74, fieldMenu = "ITEMMENU_CURRENT",
+    battleMenu = "ITEMMENU_NOUSE" },
   REPEL = { id = "REPEL", name = "REPEL", pocket = "ITEM", index = 0x14,
     canSelect = true },
   SUPER_REPEL = { id = "SUPER_REPEL", name = "SUPER REPEL", pocket = "ITEM",
@@ -314,6 +318,28 @@ eq(landGame.stack.cleared, 0, "and does not quit the PACK either")
 landGame.input:press("a")
 landPack:update(0)
 
+-- BlueCardEffect (../pokecrystal/engine/items/item_effects.asm:2251)
+do
+  landGame.save.inventory.BLUE_CARD = 1
+  landPack:rebuild()
+  landWorld:writeVar(0x18, 12)
+  landPack.index = 4
+  eq(landPack.rows[4].id, "BLUE_CARD", "the BLUE CARD is the fourth key item")
+  landGame.input:press("a")
+  landPack:update(0)
+  landGame.input:press("a")
+  landPack:update(0)
+  check(landPack.message ~= nil, "the BLUE CARD prints inside the PACK")
+  eq(landPack.message[1], "You now have", "_BlueCardBalanceText's first row")
+  eq(landPack.message[2], "12 points.", "and the balance on the second")
+  eq(chosen, nil, "the BLUE CARD never reaches onChoose")
+  eq(landGame.stack.cleared, 0, "and does not quit the PACK")
+  landGame.input:press("a")
+  landPack:update(0)
+  landGame.save.inventory.BLUE_CARD = nil
+  landPack:rebuild()
+end
+
 -- Facing water: the roll lands on $2 .FishGotSomething, the PACK quits
 -- (PACKSTATE_QUITRUNSCRIPT) and Script_FishCastRod's cast owns the world.
 local waterCells = { [4 * 100 + 5] = COLL_WATER }
@@ -364,6 +390,12 @@ check(busyWorld:useFieldItem("POTION") == nil,
   "useFieldItem passes an unhandled item back to the PACK")
 eq(busyWorld:useFieldItem("COIN_CASE"), "coin_case",
   "the COIN CASE is ITEMMENU_CURRENT and World claims it")
+do
+  busyWorld:writeVar(0x18, 17)
+  local result, balance = busyWorld:useFieldItem("BLUE_CARD")
+  eq(result, "blue_card", "the BLUE CARD is ITEMMENU_CURRENT too")
+  eq(balance, 17, "and it comes back with wBlueCardBalance")
+end
 
 -- ---- A2. REPEL / SUPER REPEL / MAX REPEL ----------------------------------
 -- UseRepel (engine/items/item_effects.asm): the step count is the only thing

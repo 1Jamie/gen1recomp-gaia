@@ -170,6 +170,26 @@ do
   eq(world:scriptReadMem(0xd117), 0, "and the byte is consumed by the battle")
 end
 
+do
+  local world = rockWorld("DARK_CAVE_VIOLET_ENTRANCE")
+  world.game.save.version = "crystal"
+  eq(world:tempWildMonSpeciesAddress(), 0xd22e,
+    "a Crystal save claims pokecrystal's address")
+  eq(world:scriptReadMem(0xd22e), 0, "nothing smashed reads back as zero")
+  eq(world:scriptReadMem(0xd117), nil,
+    "and the GS address is not the one Crystal's script reads")
+  world.rockmonRandom = function() return 3 end
+  world:rockMonEncounter()
+  eq(world:scriptReadMem(0xd22e), KRABBY_INDEX,
+    "a hit reads back where Crystal's readmem looks, so iffalse is skipped")
+
+  local gs = rockWorld("DARK_CAVE_VIOLET_ENTRANCE")
+  gs.game.save.version = "gold"
+  eq(gs:tempWildMonSpeciesAddress(), 0xd117, "Gold keeps 01:d117")
+  gs.game.save.version = "silver"
+  eq(gs:tempWildMonSpeciesAddress(), 0xd117, "and so does Silver")
+end
+
 -- CallAsm.run is the entry point World:callAsm reaches, and the handler must
 -- leave wScriptVar alone: the cart's routine writes none.
 do
@@ -223,6 +243,41 @@ do
     eq(rockSet and rockSet.common[1].species, "KRABBY", "90 percent KRABBY")
     eq(rockSet and rockSet.common[2].species, "SHUCKLE",
       "and 10 percent SHUCKLE, the only wild SHUCKLE in the game")
+  end
+end
+
+do
+  local cache = os.getenv("CRYSTAL_CACHE")
+  if not cache then
+    local home = os.getenv("HOME") or ""
+    cache = home .. "/Library/Application Support/LOVE/crystal-dev/crystal"
+  end
+  local scriptChunk = loadfile(cache .. "/data/generated/scripts.lua")
+  local encChunk = loadfile(cache .. "/data/generated/encounters.lua")
+  if not (scriptChunk and encChunk) then
+    check(true, "no crystal cache: RockSmashScript rows (SKIP)")
+  else
+    local scripts = scriptChunk()
+    local encounters = encChunk()
+    local rows = scripts["03:4f32"]
+    check(rows ~= nil, "RockSmashScript is in the Crystal cache at 03:4f32")
+    eq(rows and rows[9] and rows[9].op, "callasm", "row 9 is the callasm")
+    eq(rows and rows[9] and rows[9].args and rows[9].args[1], 0x2e,
+      "in bank $2e")
+    eq(rows and rows[10] and rows[10].op, "readmem", "row 10 reads the byte")
+    local args = rows and rows[10] and rows[10].args
+    eq(args and (args[1] + args[2] * 256), 0xd22e,
+      "and Crystal's wTempWildMonSpecies is the address it reads")
+    eq(rows and rows[11] and rows[11].op, "iffalse", "row 11 branches on it")
+    eq(rows and rows[12] and rows[12].op, "randomwildmon", "row 12 rolls")
+    eq(rows and rows[13] and rows[13].op, "startbattle", "row 13 fights it")
+
+    local rocks = encounters.rocks or {}
+    eq(rocks.CIANWOOD_CITY, "TREEMON_SET_ROCK", "RockMonMaps: Cianwood")
+    eq(rocks.ROUTE_40, "TREEMON_SET_ROCK", "Route 40")
+    eq(rocks.DARK_CAVE_VIOLET_ENTRANCE, "TREEMON_SET_ROCK",
+      "Dark Cave Violet Entrance")
+    eq(rocks.SLOWPOKE_WELL_B1F, "TREEMON_SET_ROCK", "and Slowpoke Well B1F")
   end
 end
 

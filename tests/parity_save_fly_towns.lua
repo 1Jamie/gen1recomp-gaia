@@ -106,7 +106,9 @@ end
 -- ------------------------------------------------------------------
 
 local fresh = SaveData.newGame({ playerName = "RED", rivalName = "BLUE" })
-fresh.flags = { EVENT_GOT_POKEDEX = true, EVENT_GOT_STARTER = true }
+-- ram/wram.asm:2074-2078
+fresh.flags = { EVENT_GOT_POKEDEX = true, EVENT_GOT_STARTER = true,
+                EVENT_CHOSE_CHARMANDER = true }
 fresh.money = 54321
 local base = GenSave.encode(fresh, cwData, nil)
 eq(#base, GenSave.SAVE_SIZE, "baseline image is 32768 bytes")

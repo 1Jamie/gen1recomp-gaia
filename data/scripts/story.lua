@@ -236,7 +236,8 @@ M.BILLS_HOUSE = {
       -- the received text that reads it (scripts/BillsHouse.asm; the
       -- item id is S_S_TICKET in generated items.lua -- keyItem, so the
       -- sound_get_key_item jingle plays like BillsHouse.asm:196)
-      { "give_item", "S_S_TICKET", 1, false },                     -- 5
+      -- .bag_full (scripts/BillsHouse.asm:184-186)
+      { "give_item", "S_S_TICKET", 1, false, "_SSTicketNoRoomText" }, -- 5
       { "show_text", "_SSTicketReceivedText" },                    -- 6
       { "set_flag", "EVENT_GOT_SS_TICKET" },                       -- 7
       -- The two Cerulean guards are a SWAP PAIR, not scenery

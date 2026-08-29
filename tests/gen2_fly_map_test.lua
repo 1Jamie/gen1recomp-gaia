@@ -157,4 +157,58 @@ do
   check(ok, "the unstyled fly picker draws (" .. tostring(err) .. ")")
 end
 
+-- IsInJohto (home/region.asm:10, :23)
+do
+  local World = require("src.world.gen2.World")
+
+  local function landmarkTable(indices)
+    local out = { landmarks = {}, order = {} }
+    for id, index in pairs(indices) do
+      out.landmarks[id] = { index = index, name = id, x = 8, y = 8 }
+      out.order[index + 1] = id
+    end
+    return out
+  end
+
+  local GOLD = landmarkTable({
+    LANDMARK_NEW_BARK_TOWN = 0x01,
+    LANDMARK_SILVER_CAVE = 0x2d,
+    LANDMARK_PALLET_TOWN = 0x2e,
+    LANDMARK_ROUTE_28 = 0x5d,
+    LANDMARK_FAST_SHIP = 0x5e,
+  })
+  local CRYSTAL = landmarkTable({
+    LANDMARK_NEW_BARK_TOWN = 0x01,
+    LANDMARK_BATTLE_TOWER = 0x1d,
+    LANDMARK_SILVER_CAVE = 0x2e,
+    LANDMARK_PALLET_TOWN = 0x2f,
+    LANDMARK_ROUTE_28 = 0x5e,
+    LANDMARK_FAST_SHIP = 0x5f,
+  })
+
+  local function regionAt(landmarks, id)
+    return World.region(setmetatable({
+      landmarks = landmarks, map = { def = { landmark = id } },
+    }, World))
+  end
+
+  eq(regionAt(CRYSTAL, "LANDMARK_SILVER_CAVE"), "johto",
+    "Crystal's $2e is SILVER CAVE, so Mt. Silver flies to Johto")
+  eq(regionAt(CRYSTAL, "LANDMARK_PALLET_TOWN"), "kanto",
+    "and its $2f is PALLET TOWN, so Kanto")
+  eq(regionAt(CRYSTAL, "LANDMARK_FAST_SHIP"), "johto",
+    "the S.S. Aqua is Johto at $5f")
+  eq(regionAt(CRYSTAL, "LANDMARK_ROUTE_28"), "kanto",
+    "and $5e is ROUTE 28, which is Kanto")
+
+  eq(regionAt(GOLD, "LANDMARK_SILVER_CAVE"), "johto", "Gold's $2d is Johto")
+  eq(regionAt(GOLD, "LANDMARK_PALLET_TOWN"), "kanto",
+    "Gold's PALLET TOWN is Kanto at $2e")
+  eq(regionAt(GOLD, "LANDMARK_FAST_SHIP"), "johto",
+    "and its S.S. Aqua is Johto at $5e")
+
+  eq(World.region(setmetatable({ map = { def = { landmark = 0x2e } } }, World)),
+    "kanto", "with no landmark table the Gold constants stand in")
+end
+
 S.finish()

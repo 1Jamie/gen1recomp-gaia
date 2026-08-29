@@ -235,11 +235,15 @@ end
 
 function BattleState:drawsWidescreen() return true end
 
--- BATTLE BG (#1709): WHITE is the cart's paper surround, BLACK plain bars.
+-- engine/battle/core.asm:8754
 function BattleState:bgMode()
   local options = self.game and self.game.options
-  return (options and options.battleBg) == "black" and "black" or "white"
+  local mode = options and options.battleBg
+  if mode == "black" or mode == "world" then return mode end
+  return "white"
 end
+
+BattleState.BG_WORLD_DIM = 0.55
 
 function BattleState:bottomUIVisible()
   if not Runtime.wantsHook("battle.bottom_ui_visible") then return true end

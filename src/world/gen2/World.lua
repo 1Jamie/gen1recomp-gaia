@@ -2504,7 +2504,6 @@ end
 
 -- Script_loadwildmon's other half: roll the CURRENT map's own table the way a
 -- step would, and hand it to the startbattle that follows.  nil is fine --
--- startScriptedBattle answers "win" rather than hanging when there is no mon.
 function World:rollWild()
   local map = self.map
   if not (map and self.encounters and self.player) then return nil end
@@ -4599,6 +4598,10 @@ function World:useFieldItem(itemId)
   if itemId == "SQUIRTBOTTLE" then return self:useSquirtbottle() end
   -- CoinCaseEffect (engine/items/item_effects.asm:2243).
   if itemId == "COIN_CASE" then return "coin_case", self:coins() end
+  -- BlueCardEffect (../pokecrystal/engine/items/item_effects.asm:2251).
+  if itemId == "BLUE_CARD" then
+    return "blue_card", self:readVar(VAR.BLUECARDBALANCE)
+  end
   if REPEL_STEPS[itemId] then return self:useRepel(itemId) end
   if TROPHY_BOXES[itemId] then return self:openTrophyBox(itemId) end
   if not World.isRod(itemId, items) then return nil end
@@ -5305,10 +5308,18 @@ end
 -- ones the ENGINE writes, where answering out of that store would read back a
 -- stale 0.  RockSmashScript's `readmem wTempWildMonSpecies / iffalse` is the
 -- whole reason this exists: the byte is written by the callasm one row above.
-local WRAM_TEMP_WILD_MON_SPECIES = 0xd117
+-- wTempWildMonSpecies: 01:d117 (pokesilver.sym), 01:d22e (pokecrystal.sym)
+local WRAM_TEMP_WILD_MON_SPECIES = { gs = 0xd117, crystal = 0xd22e }
+
+function World:tempWildMonSpeciesAddress()
+  local GameVersion = require("src.core.GameVersion")
+  local save = self.game and self.game.save
+  local engine = GameVersion.engine((save and save.version) or GameVersion.get())
+  return WRAM_TEMP_WILD_MON_SPECIES[engine] or WRAM_TEMP_WILD_MON_SPECIES.gs
+end
 
 function World:scriptReadMem(addr)
-  if addr == WRAM_TEMP_WILD_MON_SPECIES then
+  if addr == self:tempWildMonSpeciesAddress() then
     return (self.tempWildMon and self.tempWildMon.species) or 0
   end
   return nil
@@ -6014,8 +6025,18 @@ end
 
 -- ---- fly ------------------------------------------------------------------
 
--- FlyMap's region split, which reads the PLAYER's landmark and nothing else:
--- the first 46 landmarks are Johto, the rest Kanto.
+-- ../pokecrystal/constants/landmark_constants.asm:34
+local LANDMARK_PALLET_TOWN = 0x2e
+local LANDMARK_FAST_SHIP = 0x5e
+
+function World:landmarkIndex(id, fallback)
+  local records = self.landmarks and self.landmarks.landmarks
+  local record = records and (records["LANDMARK_" .. id] or records[id])
+  local index = record and tonumber(record.index)
+  return index or fallback
+end
+
+-- IsInJohto, the PLAYER's landmark and nothing else (home/region.asm:1)
 function World:region()
   local landmarks = self.landmarks and self.landmarks.landmarks
   local id = self.map and self.map.def and self.map.def.landmark
@@ -6027,8 +6048,13 @@ function World:region()
     entry = order and landmarks and landmarks[order[id + 1]]
   end
   local index = (entry and entry.index) or (type(id) == "number" and id) or 0
-  if index == 94 then return "johto" end -- LANDMARK_FAST_SHIP
-  return index >= 46 and "kanto" or "johto"
+  -- ../pokecrystal/home/region.asm:10 (cp LANDMARK_FAST_SHIP)
+  if index == self:landmarkIndex("FAST_SHIP", LANDMARK_FAST_SHIP) then
+    return "johto"
+  end
+  -- ../pokecrystal/home/region.asm:23 (cp KANTO_LANDMARK)
+  return index >= self:landmarkIndex("PALLET_TOWN", LANDMARK_PALLET_TOWN)
+    and "kanto" or "johto"
 end
 
 function World:flyPoints()
@@ -6045,7 +6071,14 @@ local FLY = {
   LEAF_DEATH_X = 184, LEAF_AMP = 0x40,
   -- constants/sprite_anim_constants.asm:20
   LEAF_MAX = 9,
+  -- data/sprite_anims/oam.asm:487 over the OAM origin
+  LEAF_OX = -4 - 8, LEAF_OY = -4 - 16,
 }
+
+-- engine/sprite_anims/core.asm:216 (UpdateAnimFrame)
+function World.leafScreenPos(leaf)
+  return leaf.x + (leaf.xoff or 0) + FLY.LEAF_OX, leaf.y + FLY.LEAF_OY
+end
 
 -- FlyFunction_InitGFX's GetSpeciesIcon (engine/events/field_moves.asm:390):
 -- the icon of the mon in wCurPartyMon, on PAL_OW_RED like every other OW OBJ.
@@ -6170,9 +6203,9 @@ function World:drawFlyLeaves(s)
   local function blit()
     G.setColor(1, 1, 1, 1)
     for _, leaf in ipairs(fa.leaves) do
+      local lx, ly = World.leafScreenPos(leaf)
       G.draw(sheet, self.cutGrassQuad,
-        math.floor((leaf.x + (leaf.xoff or 0) - 4) * s),
-        math.floor((leaf.y - 4) * s), 0, s, s)
+        math.floor(lx * s), math.floor(ly * s), 0, s, s)
     end
   end
   if colors and GbcPalette.available() then
@@ -6651,13 +6684,18 @@ function World:startScriptedBattle(record, wild, onDone)
       if given then opts.wild.item = given end
     end
   end
+  -- engine/overworld/scripting.asm Script_startbattle
   if not (opts.trainer and #opts.trainer.party > 0) and not opts.wild then
-    if record then
-      require("src.core.Logger").warn(
-        "trainer %s (class %s, member %s) built no party; no battle ran",
-        tostring(record.name), tostring(record.class), tostring(record.member))
+    require("src.core.Logger").warn(
+      "no battle opened (trainer %s, class %s, member %s, party %d, wild %s)",
+      tostring(record and record.name), tostring(record and record.class),
+      tostring(record and record.member),
+      opts.trainer and #opts.trainer.party or 0,
+      tostring(wild and wild.species))
+    if not wild then
+      self:refuseTrainer(record or (self.vm and self.vm.trainerObject))
     end
-    if onDone then onDone("win") end
+    if onDone then onDone(nil) end
     return false
   end
   -- wBattleType, which `writevar VAR.BATTLETYPE / loadvar BATTLETYPE_*` armed:
@@ -7579,6 +7617,22 @@ function World:loadObjectMasks(opts)
   self.maskScripted = scripted
 end
 
+-- InitializeVisibleSprites (engine/overworld/player_object.asm:223)
+function World:objectSpawnable(obj)
+  local map = self.map
+  local def = map and map.def
+  local wCells = (map and map.widthCells) or (def and def.width and def.width * 2)
+  local hCells = (map and map.heightCells)
+    or (def and def.height and def.height * 2)
+  if not (obj and wCells and hCells) then return true end
+  local ox, oy = obj.x or 0, obj.y or 0
+  if ox >= 0 and oy >= 0 and ox < wCells and oy < hCells then return true end
+  local px = (self.player and self.player.cellX) or 0
+  local py = (self.player and self.player.cellY) or 0
+  local dx, dy = ox - px, oy - py
+  return dx >= -5 and dx < 7 and dy >= -5 and dy < 6
+end
+
 -- Current-map NPCs + visual-only ghosts on neighbor strips (Gen 1 pattern).
 function World:rebuildPeople(opts)
   opts = opts or {}
@@ -7615,7 +7669,7 @@ function World:rebuildPeople(opts)
       masked = not (self.events:objectVisible(obj.eventFlag)
         and self:objectTimeVisible(obj))
     end
-    if not masked then
+    if not masked and self:objectSpawnable(obj) then
       local npc = self:pooledNpc(self.map.id, obj)
       if npc then
         fromMap[npc] = true
@@ -7815,6 +7869,24 @@ function World:trainerBeaten(record)
   return self.events:get(record.event) and true or false
 end
 
+local function trainerKey(record)
+  if not (record and record.class and record.member) then return nil end
+  return tostring(record.class) .. "/" .. tostring(record.member)
+end
+
+function World:refuseTrainer(record)
+  local key = trainerKey(record)
+  if not key then return end
+  self.refusedTrainers = self.refusedTrainers or {}
+  self.refusedTrainers[key] = true
+end
+
+function World:trainerRefused(record)
+  local key = trainerKey(record)
+  if not (key and self.refusedTrainers) then return false end
+  return self.refusedTrainers[key] and true or false
+end
+
 -- _CheckTrainerBattle: every visible, unbeaten trainer object that is facing
 -- the player along a shared row or column, within its own sight range.
 function World:checkTrainerBattle()
@@ -7824,7 +7896,8 @@ function World:checkTrainerBattle()
   if not (save and save.party and #save.party > 0) then return false end
   for _, npc in ipairs(self.npcs) do
     local record = npc.def and npc.def.trainer
-    if record and not self:trainerBeaten(record) then
+    if record and not self:trainerBeaten(record)
+      and not self:trainerRefused(record) then
       local distance, dir = Trainers.sees(npc, self.player, npc.def.sight)
       if distance then
         return self:startTrainerScript(npc, SEEN_BY_TRAINER_SCRIPT, {
@@ -7991,7 +8064,8 @@ function World:interactBody()
     local talkTo = Gen1Facade.talkToWrapper()
     if talkTo and talkTo(self, npc) then return true end
   end
-  if npc and npc.def and npc.def.trainer then
+  if npc and npc.def and npc.def.trainer
+    and not self:trainerRefused(npc.def.trainer) then
     interacted(self, fx, fy, "trainer", npc)
     return self:startTrainerScript(npc, TALK_TO_TRAINER_SCRIPT, nil)
   end

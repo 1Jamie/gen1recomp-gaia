@@ -1204,9 +1204,11 @@ local INDEX_FEED = ModIndex.parse(Json.encode({
   base_games = { "red", "blue", "yellow", "gold", "silver" },
   mods = {
     { id = "rare_soda", title = "Rare Soda", author = "Ren", version = "0.4.1",
-      categories = { "GAMEPLAY" }, update_check = "off" },
+      categories = { "GAMEPLAY" }, games = { "gen1" }, tags = { "items" },
+      update_check = "off" },
     { id = "true_colour", title = "True Colour", author = "Sam",
-      version = "1.0.0", categories = { "ART" }, update_check = "off" },
+      version = "1.0.0", categories = { "ART" }, games = { "gen2" },
+      update_check = "off" },
   },
   carts = {
     INDEX_CART,
@@ -1242,6 +1244,39 @@ check(modsFind:find("Mods (2)", 1, true) ~= nil,
   "the switch says how many mods the feed lists")
 check(modsFind:find("Carts (2)", 1, true) ~= nil, "and how many carts")
 check(modsFind:find("Rare Soda", 1, true) ~= nil, "mods are what is listed")
+check(modsFind:find("GEN 1", 1, true) ~= nil,
+  "a listing says which games it is for")
+check(modsFind:find("items", 1, true) ~= nil, "and carries its feed tags")
+check(find.findGame == nil, "a fresh launcher browses every game")
+
+do
+  window(520, 820)
+  local narrowFind = drawAndCapture(find)
+  check(narrowFind:find("GEN 1", 1, true) ~= nil,
+    "a phone-width row keeps the chip: the title ellipsizes around it")
+  check(narrowFind:find("Rare", 1, true) ~= nil,
+    "and enough of the title to name the mod")
+  window(1280, 720)
+end
+
+find.modScope = "gold"
+eq(#find:_findRows(), 2, "the MODS tab's game does not narrow the index")
+find.modScope = nil
+
+find:_setFindGame("gen2")
+eq(#find:_findRows(), 1, "the index's own game filter does narrow it")
+eq(find:_findRows()[1].id, "true_colour", "to the listings for that generation")
+do
+  find._filterPopup = true
+  local gameFilter = drawAndCapture(find)
+  find._filterPopup = nil
+  check(gameFilter:find("Filter by game", 1, true) ~= nil,
+    "and the popup is where that filter lives")
+end
+find:_setFindGame("red")
+eq(find:_findRows()[1].id, "rare_soda", "a single game reads its generation")
+find:_setFindGame(nil)
+eq(#find:_findRows(), 2, "clearing it restores the whole index")
 
 find:_setFindKind("carts")
 eq(find.findKind, "carts", "the switch flips to carts")

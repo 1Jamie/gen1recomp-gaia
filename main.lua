@@ -109,7 +109,7 @@ do
   love.errhand = love.errorhandler
 end
 
-local Game, EditorApp, Importer, TouchEditor, Studio
+local Game, EditorApp, Importer, TouchEditor, Studio, Prelaunch
 
 -- #887: quit-to-launcher state, shared by love.load and love.quit (both need
 -- it, so it is declared here rather than next to love.quit).
@@ -650,10 +650,26 @@ function love.load(args)
   local launchGame, launchSlot = LaunchOptions.resolve(arg)
   if launchGame and not relaunched and not LaunchOptions.forceLauncher(arg) then
     if RomImporter.isReady(launchGame) then
-      if launchSlot then LaunchOptions.selectSlot(launchGame, launchSlot) end
-      -- No launcher behind this session: love.quit must exit, not restart.
-      launchedIntoGame = true
-      bootGame(launchGame)
+      local function bootShortcut()
+        if launchSlot then LaunchOptions.selectSlot(launchGame, launchSlot) end
+        launchedIntoGame = true
+        bootGame(launchGame)
+      end
+      Prelaunch = require("src.core.Prelaunch").new({
+        version = launchGame,
+        tasks = LaunchOptions.tasks(args, arg),
+        done = function(outcome)
+          if outcome == "restart" then return end
+          Prelaunch = nil
+          if outcome == "launcher" then
+            LaunchOptions.pendingTab = launchGame
+            Importer = makeLauncher()
+            return
+          end
+          bootShortcut()
+        end,
+      })
+      if not Prelaunch then bootShortcut() end
       return
     end
     -- Not importable yet: open the launcher already showing that game, so the
@@ -679,6 +695,7 @@ function love.update(dt)
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
   if Studio then return Studio.update(dt) end
+  if Prelaunch then return Prelaunch:update(dt) end
   local client = onlineClientModule()
   if client then pcall(client.update, dt) end
   if pendingLauncherReturn then
@@ -750,6 +767,10 @@ function love.draw()
     HostDisplay.endFrame("skin_studio", Studio)
     return result
   end
+  if Prelaunch then
+    GameViewport.reset()
+    return Prelaunch:draw()
+  end
   if Importer then
     GameViewport.reset()
     HostDisplay.beginFrame("launcher", Importer)
@@ -784,6 +805,7 @@ function love.keypressed(key, scancode, isrepeat)
   if editorMode then return EditorApp.keypressed(key) end
   if TouchEditor then return TouchEditor.keypressed(key) end
   if Studio then return Studio.keypressed(key) end
+  if Prelaunch then return Prelaunch:cancel() end
   if Importer then return Importer:keypressed(key) end
   if not Game then return end
   Game:keypressed(key)
@@ -811,6 +833,7 @@ function love.gamepadpressed(joystick, button)
     return
   end
   if Studio then return Studio.gamepadpressed(joystick, button) end
+  if Prelaunch then return Prelaunch:cancel() end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   if not Game then return end
   Game:gamepadpressed(joystick, button)
@@ -1029,7 +1052,25 @@ function love.handlers.intent_game(version)
     returnToLauncher()
   end
   Importer = nil
-  bootGame(version)
+  if Prelaunch then return end
+
+  local tasks = LaunchOptions.tasks(arg, arg)
+  tasks.update = false
+  Prelaunch = require("src.core.Prelaunch").new({
+    version = version,
+    tasks = tasks,
+    done = function(outcome)
+      if outcome == "restart" then return end
+      Prelaunch = nil
+      if outcome == "launcher" then
+        LaunchOptions.pendingTab = version
+        Importer = makeLauncher()
+        return
+      end
+      bootGame(version)
+    end,
+  })
+  if not Prelaunch then bootGame(version) end
 end
 
 function love.touchpressed(id, x, y, dx, dy, pressure)
@@ -1050,6 +1091,7 @@ function love.touchpressed(id, x, y, dx, dy, pressure)
     return TouchEditor.touchpressed(id, x, y)
   end
   if Studio then return Studio.touchpressed(id, x, y) end
+  if Prelaunch then return Prelaunch:cancel() end
   if Importer then
     -- Both mobiles: FlexLove scroll needs the real touch stream. Clicks are
     -- polled inside the view; the istouch filter on mousepressed still drops
@@ -1138,6 +1180,10 @@ function love.mousepressed(x, y, button, istouch)
     -- Studio consumes the real finger stream above, so discard the twin.
     if istouch and (love.system.getOS() == "Android" or love.system.getOS() == "iOS") then return end
     return Studio.mousepressed(x, y, button)
+  end
+  if Prelaunch then
+    if istouch then return end
+    return Prelaunch:cancel()
   end
   if Importer then
     -- love.touchpressed already forwards the primary touch into FlexLove for
@@ -1302,6 +1348,9 @@ function love.run()
   if love.timer then love.timer.step() end
 
   local FrameCap = require("src.core.FrameCap")
+  local RefreshRate = require("src.core.RefreshRate")
+  local FixedStep = require("src.core.FixedStep")
+  local VSync = require("src.core.VSync")
   local paced = pacingEnabled()
   -- The deadline the next present() should not beat.  Carried forward one
   -- budget per frame so pacing stays even instead of drifting with the
@@ -1349,6 +1398,9 @@ function love.run()
     -- update dt
     if love.timer then dt = love.timer.step() end
     idleFor = idleFor + dt
+    if RefreshRate.sample(dt) then
+      FixedStep.refreshPeriod = RefreshRate.period()
+    end
 
     checkEmergencyQuit(dt)
 
@@ -1364,6 +1416,8 @@ function love.run()
       cap = 10
     elseif Importer and (not focused or idleFor > 30) then
       cap = 15
+    elseif cap == FrameCap.DISPLAY and not VSync.isOn() then
+      cap = FrameCap.DEFAULT
     end
 
     if visible and love.graphics and love.graphics.isActive() then
@@ -1374,7 +1428,7 @@ function love.run()
     end
 
     if love.timer then
-      if paced then
+      if paced and cap ~= FrameCap.DISPLAY then
         -- Sleep out the remainder of the frame budget, measured from the
         -- carried deadline, in small chunks so the OS timer stays
         -- responsive.  The pacer yields to vsync inside a 1ms dead band, so

@@ -40,6 +40,7 @@ local PAL_BG_NAMES = {
   "GRAY", "RED", "GREEN", "WATER", "YELLOW", "BROWN", "ROOF", "TEXT",
 }
 local PAL_BG_ROOF = 6 -- 0-based slot index
+local PAL_BG_WATER, PAL_BG_YELLOW = 3, 4
 -- Time-of-day palette sets, in wTimeOfDayPal order (MORN_F..DARKNESS_F).
 local DAYTIMES = { "MORN", "DAY", "NITE", "DARK" }
 -- gfx/tilesets/bg_tiles.pal: morn/day/nite/dark/indoor (8 each) plus the two
@@ -614,6 +615,41 @@ function RomExtractorGen2:readPalMap(address)
   return out
 end
 
+-- engine/tilesets/tileset_palettes.asm:1
+local SPECIAL_TILESET_PALETTES = {
+  TILESET_POKECOM_CENTER = "PokeComPalette",
+  TILESET_BATTLE_TOWER_INSIDE = "BattleTowerInsidePalette",
+  TILESET_ICE_PATH = "IcePathPalette",
+  TILESET_HOUSE = "HousePalette",
+  TILESET_RADIO_TOWER = "RadioTowerPalette",
+  TILESET_MANSION = "MansionPalette1",
+}
+
+function RomExtractorGen2:specialTilesetPalettes()
+  if self.edition ~= "crystal" then return nil end
+  local out = nil
+  for tileset, label in pairs(SPECIAL_TILESET_PALETTES) do
+    local at = self.symbols[label]
+    if at then
+      local set = {}
+      for slot = 0, 7 do
+        set[slot + 1] = self:colors(at[1], at[2] + slot * 8, 4)
+      end
+      out = out or {}
+      out[tileset] = set
+    end
+  end
+  -- MansionPalette1's ninth palette -- engine/tilesets/tileset_palettes.asm:113
+  local one, two = self.symbols["MansionPalette1"], self.symbols["MansionPalette2"]
+  local mansion = out and out.TILESET_MANSION
+  if mansion and one and two then
+    mansion[PAL_BG_YELLOW + 1] = self:colors(two[1], two[2], 4)
+    mansion[PAL_BG_WATER + 1] = self:colors(one[1], one[2] + 6 * 8, 4)
+    mansion[PAL_BG_ROOF + 1] = self:colors(one[1], one[2] + 8 * 8, 4)
+  end
+  return out
+end
+
 function RomExtractorGen2:extractPalettes()
   self:beginStage("Color palettes")
   local consts = self.manifest.constants
@@ -723,6 +759,7 @@ function RomExtractorGen2:extractPalettes()
     roofSlot = PAL_BG_ROOF + 1,
     bg = bg,
     environments = environments,
+    specialTilesets = self:specialTilesetPalettes(),
     objects = objects,
     roofs = roofs,
     pokemon = pokemon,

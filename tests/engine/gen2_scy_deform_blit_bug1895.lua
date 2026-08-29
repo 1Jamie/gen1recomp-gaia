@@ -52,7 +52,7 @@ do
       "scanline " .. line.dest .. " samples inside the panel")
   end
   local gaps = 0
-  for row = 3, 0x32 do
+  for row = 0, 0x35 do
     if not seen[row] then gaps = gaps + 1 end
   end
   T.eq(gaps, 0, "a per-scanline rSCY sine leaves no blank rows in the window")
@@ -64,6 +64,32 @@ do
       lyBackup = { [10] = 0x90, [120] = 0x90 } })))
   T.eq(lines[10], nil, "a $90 row inside the window is skipped")
   T.check(lines[120] ~= nil, "a $90 row outside the window still draws")
+end
+
+-- home/lcd.asm:3 (#1921)
+do
+  local lines = byRow(BattleAnimView.scanlines(
+    bg({ lcdc = "SCY", lyStart = 0, lyEnd = 0x36,
+      lyBackup = { [0] = 0xff, [1] = 0xfe } })))
+  T.eq(lines[0] and lines[0].src, 0,
+    "a window row that wobbles above the panel clamps to row 0")
+  T.eq(lines[1] and lines[1].src, 0, "two rows above the panel clamp as well")
+  T.eq(lines[1] and lines[1].dest, 1, "and still land on their own scanline")
+end
+
+do
+  local lines = byRow(BattleAnimView.scanlines(
+    bg({ lcdc = "SCY", lyStart = 0x80, lyEnd = SCREEN_H,
+      lyBackup = { [SCREEN_H - 1] = 2 } })))
+  T.eq(lines[SCREEN_H - 1] and lines[SCREEN_H - 1].src, SCREEN_H - 1,
+    "and a window row that wobbles below it clamps to the last row")
+end
+
+do
+  local lines = byRow(BattleAnimView.scanlines(
+    bg({ lcdc = "SCY", scy = 0xfc, lyStart = 0, lyEnd = 0x36,
+      lyBackup = { [0] = 0xff } })))
+  T.eq(lines[0], nil, "an hSCY shake keeps its blank rows, window or not")
 end
 
 do

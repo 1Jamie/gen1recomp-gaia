@@ -14728,6 +14728,10 @@
       32,
       19642
     ],
+    "BattleTowerInsidePalette": [
+      18,
+      21840
+    ],
     "BattleTowerMons": [
       126,
       17488
@@ -16436,6 +16440,10 @@
       116,
       20223
     ],
+    "HousePalette": [
+      18,
+      21998
+    ],
     "HungOnText": [
       32,
       20121
@@ -16467,6 +16475,10 @@
     "HypnoPokedexEntry": [
       110,
       19840
+    ],
+    "IcePathPalette": [
+      18,
+      21919
     ],
     "IconPointers": [
       35,
@@ -17219,6 +17231,14 @@
     "MankeyPokedexEntry": [
       96,
       28093
+    ],
+    "MansionPalette1": [
+      18,
+      22141
+    ],
+    "MansionPalette2": [
+      18,
+      22270
     ],
     "MantineBackpic": [
       89,
@@ -18508,6 +18528,10 @@
       108,
       17110
     ],
+    "PokeComPalette": [
+      18,
+      21761
+    ],
     "PokecenterSignText": [
       108,
       17791
@@ -18783,6 +18807,10 @@
     "RadioTilemapRLE": [
       36,
       21773
+    ],
+    "RadioTowerPalette": [
+      18,
+      22077
     ],
     "RageBuildingText": [
       32,

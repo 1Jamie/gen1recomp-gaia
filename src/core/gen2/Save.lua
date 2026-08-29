@@ -314,7 +314,6 @@ Save.DEFAULT_OPTIONS = {
   fpsCap = 60,
   -- BATTLE SIZE (#1709): fixed | fill
   battleFit = "fixed",
-  -- BATTLE BG (#1709): white | black, the surround around the battle screen.
   battleBg = "white",
   -- VOID FILL: fade | water | trees | black.  fade is each map header's own
   -- border block with the dissolve across a boundary (#1418).

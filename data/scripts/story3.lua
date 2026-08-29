@@ -306,30 +306,50 @@ local function elevator(elevatorMapId, panelText, keyGate, preFrames)
     for _, f in ipairs(floors) do
       table.insert(items, { label = f.token, value = f })
     end
-    local ListMenu = require("src.ui.ListMenu")
-    game.stack:push(ListMenu.new(game, "WHICH FLOOR?", items, {
-      onChoose = function(item, list)
-        list:close()
-        -- the whole ShakeElevator ride runs in place -- music stop, 100
-        -- collision-thud scroll bounces, the PA chime -- and only then
-        -- does .UpdateWarp's rewrite land, with the player still stood
-        -- at the panel: they walk out to the car door themselves
-        local ElevatorShake = require("src.world.ElevatorShake")
-        game.stack:push(ElevatorShake.new(game, ow, {
-          preFrames = preFrames,
-          onDone = function()
-            elevatorSetExit(ow, item.value)
+    -- (home/list_menu.asm:105-110, 371-372, 524-525)
+    local Strings = require("src.core.Strings")
+    items[#items + 1] = { cancel = true, label = Strings("CANCEL") }
+    -- (engine/events/elevator.asm:2-3, data/text_boxes.asm:13)
+    local prompt
+    local function closePrompt()
+      if prompt and game.stack:top() == prompt then game.stack:pop() end
+      prompt = nil
+    end
+    local function openList()
+      local ListMenu = require("src.ui.ListMenu")
+      game.stack:push(ListMenu.new(game, nil, items, {
+        kind = "elevator_floors",
+        itemBox = true,
+        onChoose = function(item, list)
+          list:close()
+          closePrompt()
+          if item.cancel then
             done()
-          end,
-        }))
-      end,
-      onCancel = function()
-        -- DisplayElevatorFloorMenu: `ret c` on B -- no warp, nothing
-        -- happens, the player just stays in the car (exit warps were
-        -- already seeded on entry)
-        done()
-      end,
-    }))
+            return
+          end
+          local ElevatorShake = require("src.world.ElevatorShake")
+          game.stack:push(ElevatorShake.new(game, ow, {
+            preFrames = preFrames,
+            onDone = function()
+              elevatorSetExit(ow, item.value)
+              done()
+            end,
+          }))
+        end,
+        onCancel = function()
+          closePrompt()
+          done()
+        end,
+      }))
+    end
+    local TextBox = require("src.render.TextBox")
+    prompt = TextBox.new(game,
+      game.data.text._WhichFloorText or "Which floor do\nyou want? ", nil, {
+        -- pokeyellow/engine/events/elevator.asm:1-8 sets BIT_NO_TEXT_DELAY
+        instant = require("src.core.GameVersion").isYellow(),
+        stay = { onShown = openList },
+      })
+    game.stack:push(prompt)
   end
   return {
     -- fromMapId: the floor the player just left (setMap passes it), so a

@@ -143,30 +143,52 @@ function Palettes.withCaveFlicker(set, sourceIndex)
   return out
 end
 
+-- LoadSpecialMapPalette (engine/tilesets/tileset_palettes.asm:1)
+function Palettes.specialSet(data, mapDef)
+  local sets = data and data.specialTilesets
+  local tileset = mapDef and mapDef.tileset
+  local set = sets and tileset and sets[tileset]
+  if not set then return nil end
+  if tileset == "TILESET_ICE_PATH" and mapDef.environment == "INDOOR" then
+    return nil
+  end
+  local out = {}
+  for slot = 1, 8 do
+    local source = set[slot]
+    local colors = {}
+    for i = 1, 4 do
+      local c = source and source[i] or BLACK
+      colors[i] = { c[1], c[2], c[3] }
+    end
+    out[slot] = colors
+  end
+  return out
+end
+
 -- The eight BG palettes loaded for this map, each { {r,g,b} x4 }, with the
 -- roof override already folded in.  Index with a tileset's tilePalettes value.
 function Palettes.bgSet(data, mapDef, daytime)
   if not (data and data.bg and data.environments) then return nil end
   local env = mapDef and mapDef.environment
-  local row = env and data.environments[env]
-  -- ENVIRONMENT_5 and friends fall back to the outdoor table, same as the
-  -- pointer table's duplicate entries do.
-  row = row or data.environments.TOWN
-  if not row then return nil end
-  local indices = row[daytime] or row.DAY
-  if not indices then return nil end
+  -- LoadSpecialMapPalette wins over the pool -- engine/gfx/color.asm:1198
+  local set = Palettes.specialSet(data, mapDef)
+  if not set then
+    local row = env and data.environments[env]
+    row = row or data.environments.TOWN
+    if not row then return nil end
+    local indices = row[daytime] or row.DAY
+    if not indices then return nil end
 
-  local set = {}
-  for slot = 1, 8 do
-    local pool = data.bg[indices[slot]]
-    -- Copy: the roof override below mutates one slot, and the pool entry is
-    -- shared by every map that picks it.
-    local colors = {}
-    for i = 1, 4 do
-      local c = pool and pool[i] or BLACK
-      colors[i] = { c[1], c[2], c[3] }
+    set = {}
+    for slot = 1, 8 do
+      local pool = data.bg[indices[slot]]
+      local colors = {}
+      for i = 1, 4 do
+        local c = pool and pool[i] or BLACK
+        colors[i] = { c[1], c[2], c[3] }
+      end
+      set[slot] = colors
     end
-    set[slot] = colors
   end
 
   local roofSlot = data.roofSlot or 7

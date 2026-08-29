@@ -208,6 +208,29 @@ check(dData and dData.eventFlags.byName.EVENT_GOT_DOME_FOSSIL == 1406
       and dData.gameVersion == nil,
       "versionless loadData still serves the red numbering, untagged")
 
+-- scripts/OaksLab.asm:1020, :231, :381
+local cw = GenSave.crosswalks(yellowData)
+local starter = SaveData.newGame({ playerName = "ASH", rivalName = "GARY" })
+starter.flags = { EVENT_GOT_STARTER = true, EVENT_CHOSE_PIKACHU = true }
+starter.rivalStarter = 3
+
+local sBytes = GenSave.encode(starter, yellowData, nil)
+check(sBytes:byte(OFF.playerStarter + 1) == cw.pokemonIndex.PIKACHU,
+      "yellow encode writes STARTER_PIKACHU into wPlayerStarter (got "
+      .. sBytes:byte(OFF.playerStarter + 1) .. ")")
+check(sBytes:byte(OFF.rivalStarter + 1) == 3,
+      "yellow encode writes RIVAL_STARTER_VAPOREON into wRivalStarter (got "
+      .. sBytes:byte(OFF.rivalStarter + 1) .. ")")
+local sDec = GenSave.decode(sBytes, yellowData)
+check(sDec.rivalStarter == 3,
+      "yellow decode reads save.rivalStarter back (got "
+      .. tostring(sDec.rivalStarter) .. ")")
+check(sDec.flags.EVENT_CHOSE_PIKACHU == true,
+      "yellow decode restores EVENT_CHOSE_PIKACHU from wPlayerStarter")
+
+check(GenSave.decode(GenSave.encode(starter, redData, nil), redData).rivalStarter == nil,
+      "red/blue decode does not fabricate a rivalStarter index")
+
 print(string.format("save convert yellow #838: %d/%d checks passed",
       checks - failures, checks))
 if failures > 0 then os.exit(1) end

@@ -106,6 +106,12 @@ local function addTouchRows(rows, add, opts, hooks)
           return true
         end)
     end
+    add(Strings("KEY BAR"),
+      function() return opts.hotbar == false and Strings("OFF") or Strings("ON") end,
+      function()
+        opts.hotbar = opts.hotbar == false
+        return true
+      end)
   end
 
   -- TOUCH CONTROLS, the on-screen pad's layout editor.  It used to be a
@@ -678,9 +684,9 @@ local function gen2Rows(opts, hooks, shared)
   add(Strings("BATTLE SIZE"), ladder(opts, "battleFit",
     { { "fixed", "FIXED" }, { "fill", "FILL" } }, "fixed"))
 
-  -- BATTLE BG (#1709): the WHITE/BLACK pair Gold's battle screen honours.
   add(Strings("BATTLE BG"), ladder(opts, "battleBg",
-    { { "white", "WHITE" }, { "black", "BLACK" } }, "white"))
+    { { "white", "WHITE" }, { "black", "BLACK" }, { "world", "WORLD" } },
+    "white"))
 
   addTouchRows(rows, add, shared, hooks)
 

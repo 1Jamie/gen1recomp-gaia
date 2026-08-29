@@ -1628,20 +1628,25 @@ local function panelBlit(stack, w, h)
   return scale, ox, oy
 end
 
--- BATTLE BG (#1709): the surround around the centred GB screen, taken from
--- whichever state in the stack owns a battle.
-function Game2:paintBattleSurround(w, h)
-  local states = self.stack and self.stack.states or {}
-  local mode
+local function battleSurround(stack)
+  local states = stack and stack.states or {}
   for i = #states, 1, -1 do
     local state = states[i]
-    if state and state.bgMode then mode = state:bgMode() break end
+    if state and state.bgMode then
+      return state:bgMode(), state.BG_WORLD_DIM or 0.55
+    end
   end
-  if mode ~= "black" then return end
+end
+
+function Game2:paintBattleSurround(w, h)
+  local mode, dim = battleSurround(self.stack)
+  if mode ~= "black" and mode ~= "world" then return end
+  local alpha = mode == "world" and dim or 1
+  if not alpha or alpha <= 0 then return end
   local G = love.graphics
   local scale, ox, oy = panelBlit(self.stack, w, h)
   local pw, ph = 160 * scale, 144 * scale
-  G.setColor(0, 0, 0, 1)
+  G.setColor(0, 0, 0, alpha)
   if oy > 0 then G.rectangle("fill", 0, 0, w, oy) end
   if oy + ph < h then G.rectangle("fill", 0, oy + ph, w, h - oy - ph) end
   if ox > 0 then G.rectangle("fill", 0, oy, ox, ph) end
@@ -1654,6 +1659,7 @@ function Game2:drawScene(w, h)
   -- render.compose reads this after the scene is drawn; the plain overworld
   -- branch below is the only one where Gen 1 would call the world pass live.
   self.frameWorldActive = false
+  Chrome.worldSurround = false
 
   if self:inFillBoot() then
     local top = self.stack:top()
@@ -1717,8 +1723,15 @@ function Game2:drawScene(w, h)
       or (base and base.drawsWidescreen and base:drawsWidescreen()
         and base.drawWidescreen and base)
     if wide then
+      if battleSurround(self.stack) == "world" then
+        self.frameWorldActive = true
+        self:letterbox(w, h, true)
+        self.world:draw()
+        Chrome.worldSurround = true
+      end
       wide:drawWidescreen(w, h)
       self:paintBattleSurround(w, h)
+      Chrome.worldSurround = false
       self:letterbox(w, h, false)
       if wide ~= top then
         local scale, ox, oy = panelBlit(self.stack, w, h)
@@ -2113,9 +2126,13 @@ function Game2:applyOptions()
   TouchControls:applyOptions({
     touchControls = options.touchControls,
     haptics = options.haptics,
+    hotbar = options.hotbar,
   })
   require("src.core.VideoMode").applyOptions(options)
   require("src.core.ScreenPosition").applyOptions(options)
+  require("src.core.VSync").applyOptions(options)
+  require("src.core.FixedStep").refreshPeriod =
+    require("src.core.RefreshRate").period()
   require("src.core.FrameCap").applyOptions(options)
   require("src.world.gen2.BorderFill").applyOptions(options)
   -- returns true when a persisted preset name no longer resolves (deleted
@@ -2134,7 +2151,10 @@ function Game2:applyOptions()
   if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
   if caps.fpsMax then
     local FrameCap = require("src.core.FrameCap")
-    if FrameCap.current > caps.fpsMax then FrameCap.apply(caps.fpsMax) end
+    if FrameCap.current == FrameCap.DISPLAY
+       or FrameCap.current > caps.fpsMax then
+      FrameCap.apply(caps.fpsMax)
+    end
   end
   if shaderfxCleared and self.save then
     -- applyOptions returns true when it had to clear an unresolved preset.
@@ -2170,20 +2190,20 @@ function Game2:gamepadpressed(joystick, button)
     end)
     selectHeld = ok and down == true
   end
-  -- shoulders and triggers cycle GAME SPEED, as in src/core/Game.lua:881
-  if not selectHeld then
-    if button == "rightshoulder" or button == "righttrigger" then
-      self:_cycleSpeed(1)
-      return
-    elseif button == "leftshoulder" or button == "lefttrigger" then
-      self:_cycleSpeed(-1)
-      return
-    end
-  end
   local top = self.stack and self.stack:top()
   if top and top.onGamepadPressed then
     top:onGamepadPressed(button)
     return
+  end
+  if not selectHeld then
+    local action = Input:padAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
   end
   if selectHeld then
     local digit = GamepadMap.displayChordDigit(button)

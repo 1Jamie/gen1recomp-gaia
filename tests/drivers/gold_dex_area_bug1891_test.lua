@@ -62,7 +62,7 @@ return function(game)
 
   dex.areaBlink = 0
   U.log("00-johto-on: the Johto map, edge to edge, with no red or orange")
-  U.log("anywhere. row 0 is a cream strip reading \"MILTANK'S NEST\" in dark")
+  U.log("anywhere. row 0 is a black strip reading \"MILTANK'S NEST\" in pale")
   U.log("letters from the third column, row 1 the map's own rule. two markers")
   U.log("blink over Routes 38 and 39, west of the middle. the word JOHTO is")
   U.log("only the one baked into the map at the bottom right; no landmark")
@@ -84,8 +84,8 @@ return function(game)
   dex.areaBlink = 0
   pass(dex:areaRegionName() == "kanto", "and taken once it is")
   U.log("02-kanto: the Kanto map with nothing blinking on it and the same")
-  U.log("cream caption on top. no \"AREA UNKNOWN\" printed over the baked-in")
-  U.log("KANTO at the bottom left.")
+  U.log("pale-on-black caption on top. no \"AREA UNKNOWN\" printed over the")
+  U.log("baked-in KANTO at the bottom left.")
   shot("02-kanto")
 
   U.log(("%d check(s) failed"):format(failed))

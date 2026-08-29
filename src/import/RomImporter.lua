@@ -1423,6 +1423,7 @@ function RomImporter.new(onComplete, opts)
     -- Which half of the feed the panel is browsing.  Mods by default: carts
     -- are the newer, much shorter list, and a feed may carry none at all.
     findKind = "mods", findBase = nil,
+    findGame = nil,
     skinUrl = "", _skinUrlFocus = false,
     -- Page scroll offset (px) for the column under the tab bar -- panel, updater
     -- banner and footer -- used only while that column is taller than the window
@@ -2900,6 +2901,7 @@ function RomImporter:update(dt)
   self:_pumpModInstall()
   self:_pumpCartInstall()
   self:_pumpCartFill()
+  self:_pumpUpdateAll()
   self:_pumpExtract()
   -- Dev harness: POKEPORT_LAUNCHER_SHOT=/path.png resizes the window from
   -- POKEPORT_WIN=WxH, lets the view settle, then captures one frame and
@@ -4981,7 +4983,8 @@ function RomImporter:_cartPinIndexRelease(row)
 end
 
 function RomImporter:pressInstallCartMods(version)
-  if self._cartFill or self._modInstall or self._cartInstall then return false end
+  if self._cartFill or self._modInstall or self._cartInstall
+      or self._updateAll then return false end
   local rows = self:cartFillRows(version)
   if #rows == 0 then return false end
   self.cartFillNotice = nil
@@ -6104,9 +6107,11 @@ function RomImporter:_beginModInstall(spec)
 end
 
 function RomImporter:_modInstallFailed(spec, msg)
-  local notice = { ok = false, text = tostring(msg) }
-  if spec.notice == "find" then self.findNotice = notice
-  elseif spec.notice ~= "cart" then self.modNotice = notice end
+  if not spec.quiet then
+    local notice = { ok = false, text = tostring(msg) }
+    if spec.notice == "find" then self.findNotice = notice
+    elseif spec.notice ~= "cart" then self.modNotice = notice end
+  end
   self:_clearBusy()
   if spec.done then spec.done(false, tostring(msg)) end
 end
@@ -6193,14 +6198,15 @@ function RomImporter:_pumpModInstall()
   local shown = tostring(resErr or job.version or "")
   local text = ("%s %s %s"):format(spec.verb or "Installed",
     tostring(spec.name or spec.modId), shown)
-  if spec.notice == "find" then
+  if spec.quiet then
+  elseif spec.notice == "find" then
     self.findNotice = { ok = true, text = text }
   elseif spec.notice ~= "cart" then
     self.modNotice = { ok = true, text = text }
   end
   -- A cart pins its whole load order, so the dependency modal would only
   -- interrupt the queue that is already installing the rest of it.
-  if spec.notice ~= "cart" then
+  if spec.notice ~= "cart" and not spec.quiet then
     local depCheck = LauncherMods.checkDependencies({ id = spec.modId })
     if depCheck and depCheck.hasIssues then
       self._modDepResolver = depCheck
@@ -6215,7 +6221,7 @@ end
 -- never through the mod installer.  Shares the mod job's single-in-flight
 -- rule: either entry point refuses while the other is running.
 function RomImporter:_beginCartInstall(entry)
-  if self._modInstall or self._cartInstall then return end
+  if self._modInstall or self._cartInstall or self._updateAll then return end
   local ModIndex = require("src.mods.ModIndex")
   local release, why = ModIndex.releaseFor(entry)
   if type(release) ~= "table" or not (release.zip and release.zip.url) then
@@ -6500,6 +6506,125 @@ function RomImporter:_installModVersion(modId, release)
 end
 
 
+function RomImporter:_updateAllRows()
+  if self.modCartPlan and self:modCartPlan() then return {} end
+  local rows = {}
+  for _, m in ipairs(self.mods or {}) do
+    local info = self:_modUpdateInfo(m.id)
+    if info and info.status == "available" and info.best
+        and info.best.zip and info.best.zip.url then
+      rows[#rows + 1] = { id = m.id, name = m.name, release = info.best,
+                          from = m.version }
+    end
+  end
+  return rows
+end
+
+function RomImporter:pressUpdateAllMods()
+  if self._updateAll or self._modInstall or self._cartInstall
+      or self._cartFill then return false end
+  if not Platform.canFetchRemote() then
+    self.modNotice = { ok = false,
+      text = "Remote mod download is unavailable on this platform. Install a mod .zip from storage instead." }
+    return false
+  end
+  self._updateAll = { stage = "check", index = 0, updated = 0,
+                      updatedIds = {}, failures = {} }
+  self.modNotice = nil
+  self:_syncModUpdateInfo(true)
+  self:_setBusy(Strings("Checking for updates"), nil,
+    function() self:_cancelUpdateAll() end)
+  self:_pumpUpdateAll()
+  return true
+end
+
+function RomImporter:_cancelUpdateAll()
+  local job = self._updateAll
+  if not job or job.cancelled then return end
+  job.cancelled = true
+  if self._modInstall then
+    self:_setBusy(Strings("Finishing the last mod"))
+  else
+    self:_finishUpdateAll(true)
+  end
+end
+
+function RomImporter:_pumpUpdateAll()
+  local job = self._updateAll
+  if not job then return end
+
+  if job.stage == "check" then
+    if self._modInfoFetch then return end
+    job.rows = self:_updateAllRows()
+    job.total = #job.rows
+    if job.cancelled or job.total == 0 then
+      return self:_finishUpdateAll(job.cancelled)
+    end
+    job.stage = "next"
+    return
+  end
+
+  if job.stage ~= "next" then return end
+  if job.cancelled then return self:_finishUpdateAll(true) end
+  if self._modInstall or self._cartInstall then return end
+  job.index = job.index + 1
+  local row = job.rows[job.index]
+  if not row then return self:_finishUpdateAll() end
+  job.stage = "installing"
+  self:_beginModInstall({
+    modId = row.id, name = row.name, release = row.release,
+    verb = "Updated", notice = "mod", quiet = true,
+    done = function(ok, text)
+      if ok then
+        job.updated = job.updated + 1
+        job.updatedIds[#job.updatedIds + 1] = row.id
+      else
+        job.failures[#job.failures + 1] =
+          ("%s: %s"):format(tostring(row.name or row.id), tostring(text))
+      end
+      job.stage = "next"
+    end,
+  })
+  if self._modInstall then
+    self:_setBusy(Strings("Updating %s (%d of %d)",
+      tostring(row.name or row.id), job.index, job.total),
+      "v" .. tostring(row.release.version or "?"),
+      function() self:_cancelUpdateAll() end)
+  elseif job.stage == "installing" then
+    job.stage = "next"
+  end
+end
+
+function RomImporter:_finishUpdateAll(cancelled)
+  local job = self._updateAll
+  self._updateAll = nil
+  self:_clearBusy()
+  pcall(self._refreshMods, self)
+  if not job then return end
+  if cancelled then
+    self.modNotice = { ok = true, failures = job.failures,
+      text = Strings("Stopped after updating %d mods.", job.updated) }
+  elseif (job.total or 0) == 0 then
+    self.modNotice = { ok = true, text = Strings("All mods are up to date.") }
+  elseif #job.failures == 0 then
+    self.modNotice = { ok = true,
+      text = Strings("Updated %d mods.", job.updated) }
+  else
+    self.modNotice = { ok = false, failures = job.failures,
+      text = Strings("Updated %d of %d. %d failed:", job.updated, job.total,
+        #job.failures) }
+  end
+  local LauncherMods = require("src.mods.LauncherMods")
+  for _, id in ipairs(job.updatedIds or {}) do
+    local ok, depCheck = pcall(LauncherMods.checkDependencies, { id = id })
+    if ok and depCheck and depCheck.hasIssues then
+      self._modDepResolver = depCheck
+      break
+    end
+  end
+end
+
+
 -- NX / desktop / Android labels and inbox hints for the FlexLove view.
 function RomImporter:_modsImportButtonLabel()
   if self.isNX then return Strings("Scan again") end
@@ -6781,7 +6906,7 @@ function RomImporter:_findRows()
   local c = self._findRowsCache
   if c and c.src == all and c.query == self.findQuery
       and c.category == self.findCategory and c.base == self.findBase
-      and c.scope == self.modScope then
+      and c.game == self.findGame then
     return c.rows
   end
   local ModIndex = require("src.mods.ModIndex")
@@ -6789,23 +6914,22 @@ function RomImporter:_findRows()
     query = self.findQuery,
     category = (not carts) and self.findCategory or nil,
     base = carts and self.findBase or nil,
+    game = self.findGame,
   })
-  if self.modScope and not carts then
-    local ModTargets = require("src.mods.ModTargets")
-    local gen = GameVersion.generation(self.modScope)
-    local kept = {}
-    for _, entry in ipairs(rows) do
-      local versions = ModTargets.normalize(entry.games)
-      if #versions == 0 or ModTargets.covers(versions, gen) then
-        kept[#kept + 1] = entry
-      end
-    end
-    rows = kept
-  end
   self._findRowsCache = { src = all, query = self.findQuery,
     category = self.findCategory, base = self.findBase,
-    scope = self.modScope, rows = rows }
+    game = self.findGame, rows = rows }
   return rows
+end
+
+function RomImporter:_setFindGame(token)
+  if token == "all" then token = nil end
+  if self.findGame == token then return end
+  self.findGame = token
+  self._findRowsCache = nil
+  self._findSortCache = nil
+  if self._pages then self._pages["find"] = 1 end
+  self.findPage = 1
 end
 
 function RomImporter:_findInstalledMap()

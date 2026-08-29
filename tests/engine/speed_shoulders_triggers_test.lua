@@ -1,10 +1,6 @@
 -- The built-in GAME SPEED hotkeys on controller: the shoulder buttons
 -- (L1/R1) and the analog triggers (L2/R2) all cycle the engine speed
 -- ladder, R-side faster and L-side slower, exactly like keyboard hotkey
--- 1.  Anything else must still fall through to the top-state pad
--- routing and never touch the speed ladder.  LÖVE reports an analog
--- trigger as gamepadpressed once it crosses the press threshold, so
--- "lefttrigger"/"righttrigger" land here like any other pad button.
 -- No pokered cite: port-only (gap C2).
 --   luajit tests/engine/speed_shoulders_triggers_test.lua
 
@@ -47,7 +43,6 @@ eq(last(), 1, "R2 speeds up")
 Game.gamepadpressed(game, nil, "lefttrigger")
 eq(last(), -1, "L2 slows down")
 
--- ---- everything else falls through to the top-state pad routing ---------
 local routed = nil
 game.stack.top = function()
   return { onGamepadPressed = function(_, b) routed = b end }
@@ -56,9 +51,21 @@ Game.gamepadpressed(game, nil, "a")
 eq(routed, "a", "a normal button still reaches the top-state pad routing")
 routed = nil
 Game.gamepadpressed(game, nil, "rightshoulder")
-check(routed == nil, "the speed buttons are consumed, never routed to a menu")
+eq(routed, "rightshoulder",
+   "a screen owning pad input sees L1/R1 too, so CONTROLS can capture them")
 Game.gamepadpressed(game, nil, "lefttrigger")
-check(routed == nil, "a trigger pull is consumed the same way")
-check(#dirs == 4, "only the speed buttons touched the speed ladder")
+eq(routed, "lefttrigger", "and the trigger names alongside them")
+check(#dirs == 2, "a captured shoulder never touches the speed ladder")
+
+game.stack.top = function() return nil end
+local forwarded = nil
+local origPad = Input.gamepadpressed
+function Input:gamepadpressed(joystick, button) forwarded = button end
+Game.gamepadpressed(game, nil, "rightshoulder")
+check(forwarded == nil, "the speed buttons never reach the GB button map")
+eq(#dirs, 3, "and they still cycle the ladder")
+Game.gamepadpressed(game, nil, "a")
+eq(forwarded, "a", "everything else does reach it")
+Input.gamepadpressed = origPad
 
 T.finish("speed_shoulders_triggers")

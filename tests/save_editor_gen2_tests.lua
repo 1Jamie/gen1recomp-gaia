@@ -29,6 +29,7 @@ local MonOps = require("MonOps")
 local Ops = require("Ops")
 local State = require("State")
 local Save2 = require("src.core.gen2.Save")
+local Bag = require("src.inventory.Bag")
 local SaveData = require("src.core.SaveData")
 local GameVersion = require("src.core.GameVersion")
 
@@ -64,9 +65,11 @@ local data = {
     SCRATCH = { pp = 35 },
   },
   items = {
-    POTION = { pocket = "ITEM" },
-    MASTER_BALL = { pocket = "BALL" },
-    FLOWER_MAIL = { pocket = "ITEM" },
+    POTION = { pocket = "ITEM", index = 20, name = "POTION" },
+    MASTER_BALL = { pocket = "BALL", index = 1, name = "MASTER BALL" },
+    FLOWER_MAIL = { pocket = "ITEM", index = 8, name = "FLOWER MAIL" },
+    BICYCLE = { pocket = "KEY_ITEM", index = 6, name = "BICYCLE" },
+    HM_01 = { pocket = "TM_HM", index = 249, name = "HM01" },
   },
   maps = {},
 }
@@ -254,6 +257,60 @@ do
   eq(S.save.player.money, 999999, "money cap")
   Ops.addCoins(S, 250)
   eq(S.save.player.coins, 250, "coins write player.coins")
+  Ops.maxCoins(S)
+  eq(S.save.player.coins, Ops.COIN_MAX, "maxCoins fills the case on player.coins")
+  eq(S.save.coins, nil, "Gen 2 coins never land on save.coins")
+end
+
+do
+  -- (ram/wram.asm:3115 wKeyItems, engine/items/tmhm.asm:390)
+  local S = newState()
+  Ops.addToBag(S, "POTION")
+  Ops.addToBag(S, "MASTER_BALL")
+  Ops.addToBag(S, "BICYCLE")
+  Ops.addToBag(S, "HM_01")
+
+  check(Ops.itemStacks(S, "POTION") == true, "an ITEM pocket row stacks")
+  check(Ops.itemStacks(S, "MASTER_BALL") == true, "a BALL pocket row stacks")
+  check(Ops.itemStacks(S, "BICYCLE") == false, "a KEY_ITEM pocket row does not")
+  check(Ops.itemStacks(S, "HM_01") == false, "a Gen 2 HM prints no count either")
+  S.dirty = false
+  check(Ops.bagMax(S, "BICYCLE") == false, "bagMax refuses a Gen 2 key item")
+  check(Ops.bagMax(S, "HM_01") == false, "bagMax refuses a Gen 2 HM")
+  check(S.dirty == false, "a refused bagMax does not dirty the save")
+
+  check(Ops.bagMaxAll(S) ~= false, "bagMaxAll fills the stackable pockets")
+  eq(S.save.inventory.POTION, Ops.STACK_MAX, "the ITEM row is maxed")
+  eq(S.save.inventory.MASTER_BALL, Ops.STACK_MAX, "the BALL row is maxed")
+  eq(S.save.inventory.BICYCLE, 1, "the KEY_ITEM row is untouched")
+  eq(S.save.inventory.HM_01, 1, "the HM row is untouched")
+end
+
+do
+  -- (constants/item_data_constants.asm:41)
+  local S = newState()
+  Ops.addToBag(S, "MASTER_BALL")
+  Ops.addToBag(S, "BICYCLE")
+  Ops.addToBag(S, "POTION")
+  Ops.addToBag(S, "FLOWER_MAIL")
+  Ops.addToBag(S, "HM_01")
+
+  check(Ops.bagSort(S, "index") ~= false, "bagSort runs on a gen2 bag")
+  local order = Bag.order(S.save, S.data)
+  local rank = { ITEM = 1, BALL = 2, KEY_ITEM = 3, TM_HM = 4 }
+  local grouped = true
+  for i = 2, #order do
+    if rank[Bag.pocketOf(order[i - 1], S.data)]
+        > rank[Bag.pocketOf(order[i], S.data)] then
+      grouped = false
+    end
+  end
+  check(grouped, "a sorted gen2 bag follows the PACK's own pocket order")
+  eq(order[1], "FLOWER_MAIL", "the ITEM pocket sorts by item number inside itself")
+  eq(order[2], "POTION", "and keeps the rest of that pocket in number order")
+  eq(order[3], "MASTER_BALL", "the BALL pocket follows the ITEM pocket")
+  eq(order[4], "BICYCLE", "then the KEY_ITEM pocket")
+  eq(order[#order], "HM_01", "and the TM/HM pocket comes last")
 end
 
 do

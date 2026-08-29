@@ -2409,6 +2409,48 @@ local function modGameCheckbox(x, y, size, checked, game, id, enabled)
   return enabled and (Kit.press(x, y, size, size) or Kit._activateId == id)
 end
 
+local function modsWithUpdates(imp)
+  local names = {}
+  for _, m in ipairs(imp.mods or {}) do
+    local info = imp._modUpdateInfo and imp:_modUpdateInfo(m.id)
+    if info and info.status == "available" and info.best then
+      names[#names + 1] = m.name or m.id
+    end
+  end
+  return names
+end
+
+local function modsWithUpdatesCount(imp)
+  local mods = imp.mods or {}
+  local rev = imp._modUpdateRev or 0
+  local cache = imp._modUpdateCountCache
+  if cache and cache.src == mods and cache.n == #mods and cache.rev == rev then
+    return cache.count
+  end
+  local n = 0
+  for _, m in ipairs(mods) do
+    local info = imp._modUpdateInfo and imp:_modUpdateInfo(m.id)
+    if info and info.status == "available" and info.best then n = n + 1 end
+  end
+  imp._modUpdateCountCache = { src = mods, n = #mods, rev = rev, count = n }
+  return n
+end
+
+local function askUpdateAllMods(imp)
+  local names = modsWithUpdates(imp)
+  if #names == 0 then
+    imp:pressUpdateAllMods()
+    return
+  end
+  local lines = { Strings("Update %d mods?", #names) }
+  for i = 1, math.min(3, #names) do lines[#lines + 1] = names[i] end
+  if #names > 3 then
+    lines[#lines + 1] = Strings("and %d more", #names - 3)
+  end
+  imp._modConfirm = { kind = "updateAll", title = Strings("Update all mods"),
+    yesLabel = Strings("Update all"), lines = lines }
+end
+
 local function buildModsPanel(imp, x, y, w, availH, m)
   imp:_ensureMods()
   local ModUpdate = require("src.mods.ModUpdate")
@@ -2433,10 +2475,12 @@ local function buildModsPanel(imp, x, y, w, availH, m)
     local enableW = Kit.textWidth("small", Strings("Enable all")) + math.floor(20 * m.s)
     local checkFullW = Kit.textWidth("small", Strings("Check for updates")) + math.floor(20 * m.s)
     local checkShortW = Kit.textWidth("small", Strings("Updates")) + math.floor(20 * m.s)
+    local updateAllW = Kit.textWidth("small", Strings("Update all")) + math.floor(20 * m.s)
     local sortW = Kit.textWidth("small", Strings("Sort")) + math.floor(24 * m.s)
     local moreW = Kit.textWidth("small", Strings("More...")) + math.floor(20 * m.s)
 
-    local fullReq = importW + disableW + enableW + checkFullW + sortW + math.floor(30 * m.s)
+    local fullReq = importW + disableW + enableW + checkFullW + updateAllW
+      + sortW + math.floor(36 * m.s)
     local medReq = importW + checkShortW + sortW + moreW + math.floor(24 * m.s)
 
     local place = Layout.rightCluster(x, w, math.floor(6 * m.s))
@@ -2457,6 +2501,11 @@ local function buildModsPanel(imp, x, y, w, availH, m)
       btn(imp, place(checkFullW), cy, checkFullW, bh, "mods-check-updates", Strings("Check for updates"), {
         font = "small",
         action = function() imp:_syncModUpdateInfo(true) end })
+      btn(imp, place(updateAllW), cy, updateAllW, bh, "mods-update-all",
+        Strings("Update all"), {
+          kind = (modsWithUpdatesCount(imp) > 0) and "warn" or "ghost",
+          font = "small", enabled = bulkOk and imp._updateAll == nil,
+          action = function() askUpdateAllMods(imp) end })
       btn(imp, place(sortW), cy, sortW, bh, "mods-sort", Strings("Sort"), {
         font = "small",
         action = function() imp._sortPopup = "mods" end })
@@ -2511,6 +2560,12 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   end
   cy = cy + Kit.textWrapped("small", noticeText, x, cy, w, noticeCol, 2)
     + math.floor(8 * m.s)
+  if not safeMode and imp.modNotice then
+    for _, line in ipairs(imp.modNotice.failures or {}) do
+      cy = cy + Kit.textWrapped("small", line, x, cy, w, PAL.red, 2)
+        + math.floor(2 * m.s)
+    end
+  end
 
   cy = cy + buildModScopeRow(imp, x, cy, w, m)
   cy = cy + buildModCartRow(imp, x, cy, w, m, cartId, cartReport)
@@ -3180,10 +3235,8 @@ local function buildFindPanel(imp, x, y, w, availH, m)
   btn(imp, place(sw), cy, sw, fieldH, "find-sort", Strings("Sort"), {
     font = "small",
     action = function() imp._sortPopup = "find" end })
-  -- The Filter button carries its state: blue while a category (mods) or a
-  -- base game (carts) is active, so a filtered-down list never reads as "the
-  -- index shrank".
-  local activeFilter = carts and imp.findBase or imp.findCategory
+  local activeFilter = (carts and imp.findBase or imp.findCategory)
+    or imp.findGame
   local fw = Kit.textWidth("small", Strings("Filter")) + math.floor(20 * m.s)
   btn(imp, place(fw), cy, fw, fieldH, "find-filter", Strings("Filter"), {
     kind = activeFilter and "accent" or "ghost", font = "small",
@@ -3318,8 +3371,16 @@ local function buildFindPanel(imp, x, y, w, availH, m)
 
     local bx = px + thumb + math.floor(10 * m.s)
     local bw = inner - thumb - math.floor(10 * m.s) - chipsW
-    Kit.text("button", Kit.ellipsize("button", entry.title or entry.id, bw),
-      bx, ly, PAL.heading)
+    local targets = (not carts) and ModIndex.targetLabel(entry) or nil
+    local targetsW = targets
+      and Kit.textWidth("micro", targets) + math.floor(12 * m.s) or 0
+    local titleShown = Kit.ellipsize("button", entry.title or entry.id,
+      bw - targetsW - (targets and math.floor(8 * m.s) or 0))
+    Kit.text("button", titleShown, bx, ly, PAL.heading)
+    if targets then
+      Kit.tag(bx + Kit.textWidth("button", titleShown) + math.floor(8 * m.s),
+        ly, targetsW, Kit.textHeight("button"), targets, PAL.blue)
+    end
     local by2 = ly + Kit.textHeight("button") + math.floor(4 * m.s)
     -- meta and stats on one line, the download count first (and green)
     -- because it is what the default Most-downloaded sort is ordering by: a
@@ -3341,6 +3402,11 @@ local function buildFindPanel(imp, x, y, w, availH, m)
       if entry.seal then rest[#rest + 1] = entry.seal end
     elseif entry.categories and entry.categories[1] then
       rest[#rest + 1] = entry.categories[1]
+    end
+    if not carts then
+      for i = 1, math.min(2, #(entry.tags or {})) do
+        rest[#rest + 1] = entry.tags[i]
+      end
     end
     if dates then
       rest[#rest + 1] = dates
@@ -3666,6 +3732,8 @@ local function buildConfirmModal(imp, m)
           imp:_installCartPins(c.version, c.id)
         elseif c.kind == "update" then
           imp:_confirmModUpdate(c.id, c.release)
+        elseif c.kind == "updateAll" then
+          imp:pressUpdateAllMods()
         elseif c.kind == "enableAll" then
           imp:_setAllMods(true, true)
         elseif c.kind == "importOversize" then
@@ -3994,6 +4062,9 @@ local function buildModHeaderActionsModal(imp, m)
   local btns = {
     { label = Strings("Mod profiles..."), action = function() imp._profilesPopup = true end },
     { label = Strings("Check for updates"), action = function() imp:_syncModUpdateInfo(true) end },
+    { label = Strings("Update all mods"), kind = "warn",
+      enabled = bulkOk and imp._updateAll == nil,
+      action = function() askUpdateAllMods(imp) end },
     { label = Strings("Enable all mods"), kind = "good", enabled = bulkOk,
       action = function() imp:_setAllMods(true) end },
     { label = Strings("Disable all mods"), kind = "warn", enabled = bulkOk,
@@ -4319,9 +4390,24 @@ local function buildCartSaveModal(imp, m)
     PAL.muted)
 end
 
--- Category filter for FIND MODS, base-game filter for FIND CARTS (a cart has
--- no categories).  Two columns, because an index can list enough categories
--- to overflow a single stacked column on a short window.
+local function findGameOptions(imp)
+  local out = { { key = nil, label = Strings("All games") } }
+  local seen = {}
+  for _, version in ipairs(GameVersion.ORDER) do
+    local gen = GameVersion.generation(version)
+    if gen and not seen[gen] then
+      seen[gen] = true
+      out[#out + 1] = { key = "gen" .. gen, label = Strings("Gen %d", gen) }
+    end
+  end
+  for _, version in ipairs(GameVersion.ORDER) do
+    if imp.ready and imp.ready[version] then
+      out[#out + 1] = { key = version, label = gameLabel(version) }
+    end
+  end
+  return out
+end
+
 local function buildFilterModal(imp, m)
   local carts = imp.findKind == "carts"
   local keys = (imp.findIndex
@@ -4330,17 +4416,38 @@ local function buildFilterModal(imp, m)
   for _, c in ipairs(keys) do
     items[#items + 1] = { key = c, label = carts and gameLabel(c) or c }
   end
+  local games = findGameOptions(imp)
   local pad = math.floor(18 * m.s)
   local w = math.floor(440 * m.s)
   local gap = math.floor(8 * m.s)
   local nrows = math.ceil(#items / 2)
-  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
-    + nrows * (m.btnH + gap) + m.btnH + pad
+  local grows = math.ceil(#games / 3)
+  local headH = Kit.textHeight("button") + math.floor(12 * m.s)
+  local h = pad + headH + grows * (m.btnH + gap) + math.floor(6 * m.s)
+    + headH + nrows * (m.btnH + gap) + m.btnH + pad
   local px, py, pw = modalPanel(m, w, h)
   local cy = py + pad
+  Kit.text("button", Strings("Filter by game"), px + pad, cy, PAL.heading)
+  cy = cy + headH
+  local gColW = math.floor((pw - 2 * pad - 2 * gap) / 3)
+  for i, it in ipairs(games) do
+    local bx = px + pad + ((i - 1) % 3) * (gColW + gap)
+    local by = cy + math.floor((i - 1) / 3) * (m.btnH + gap)
+    local key = it.key
+    btn(imp, bx, by, gColW, m.btnH, "filterpopgame-" .. (key or "all"),
+      it.label, {
+        kind = (imp.findGame == key) and "primary" or "ghost",
+        font = "small",
+        action = function()
+          imp:_setFindGame(key)
+          setPage(imp, "find", 1)
+          imp._filterPopup = nil
+        end })
+  end
+  cy = cy + grows * (m.btnH + gap) + math.floor(6 * m.s)
   Kit.text("button", carts and Strings("Filter by base game")
     or Strings("Filter by category"), px + pad, cy, PAL.heading)
-  cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  cy = cy + headH
   local colW = math.floor((pw - 2 * pad - gap) / 2)
   local active = carts and imp.findBase or imp.findCategory
   for i, it in ipairs(items) do

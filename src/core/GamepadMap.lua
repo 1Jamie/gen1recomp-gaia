@@ -10,6 +10,11 @@ GamepadMap.DEFAULT_GAMEPAD_BINDINGS = {
   start = "start", back = "select",
 }
 
+GamepadMap.DEFAULT_PAD_ACTIONS = {
+  rightshoulder = "speedUp", righttrigger = "speedUp",
+  leftshoulder = "speedDown", lefttrigger = "speedDown",
+}
+
 -- Switch: LÖVE/SDL labels south as "a" and east as "b", but Nintendo UX is
 -- physical A (east) = confirm (GB A), physical B (south) = cancel (GB B).
 GamepadMap.NX_GAMEPAD_BINDINGS = {

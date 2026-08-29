@@ -219,6 +219,80 @@ f, t = runRoute25({
 })
 eq(next(t), nil, "already-left Route 25 enter is a no-op")
 
+-- pokeyellow scripts/BillsHouse.asm:211 and :232; pokered's
+-- BillsHouseCleanupScript (scripts/BillsHouse.asm:96) has neither state.
+local GameVersion = require("src.core.GameVersion")
+local realVersion = GameVersion.current
+
+local function newScene()
+  local said
+  local self = setmetatable({
+    map = { id = "BILLS_HOUSE", def = { label = "BillsHouse" } },
+    player = { cellX = 1, cellY = 5, facing = "up" },
+    scriptMoves = {},
+    showMapText = function(_, textConst, npc)
+      said = { textConst = textConst, npc = npc }
+    end,
+  }, { __index = OW })
+  return self, function() return said end
+end
+
+local function drain(s)
+  local guard = 0
+  while #s.scriptMoves > 0 and guard < 32 do
+    local mv = table.remove(s.scriptMoves, 1)
+    if mv.onDone then mv.onDone() end
+    guard = guard + 1
+  end
+end
+
+GameVersion.current = "red"
+local scene, saidOf = newScene()
+scene:billsHouseSSTicketScene({ facing = "left" })
+eq(#scene.scriptMoves, 0, "Red/Blue queue no forced walk after Bill exits")
+eq(saidOf(), nil, "Red/Blue never auto-open the SS Ticket text")
+
+GameVersion.current = "yellow"
+scene, saidOf = newScene()
+local billNpc = { facing = "left", def = { name = "BILLSHOUSE_BILL1" } }
+scene:billsHouseSSTicketScene(billNpc)
+eq(#scene.scriptMoves, 1, "Yellow queues the simulated walk")
+eq(scene.scriptMoves[1].entity, scene.player, "the forced walk moves the player")
+eq(scene.scriptMoves[1].dir, "right", "RLE_1e219 is PAD_RIGHT")
+eq(scene.scriptMoves[1].remaining, 3, "RLE_1e219 runs three steps")
+eq(scene.scriptMoves[1].collide, nil, "the simulated walk is unconditional")
+eq(saidOf(), nil, "the text waits for the walk to finish")
+drain(scene)
+eq(scene.player.facing, "up", "player ends facing up (SPRITE_FACING_UP)")
+eq(billNpc.facing, "down", "BILL1 is turned down before the text")
+eq(saidOf() and saidOf().textConst, "TEXT_BILLSHOUSE_BILL_SS_TICKET",
+   "the ticket text opens with no A press")
+eq(saidOf() and saidOf().npc, billNpc, "the text runs as BILL1")
+
+scene, saidOf = newScene()
+scene:billsHouseSSTicketScene(nil)
+eq(#scene.scriptMoves, 0, "no walk without BILL1")
+eq(saidOf() and saidOf().textConst, "TEXT_BILLSHOUSE_BILL_SS_TICKET",
+   "the ticket text still opens without BILL1")
+
+package.loaded["src.core.Music"] = { stop = function() end, playMap = function() end }
+local ticketBill = "unset"
+local exitSelf = setmetatable({
+  map = { id = "BILLS_HOUSE", def = { label = "BillsHouse" } },
+  player = { cellX = 1, cellY = 5, facing = "up" },
+  scriptMoves = {},
+  npcs = { { def = { name = "BILLSHOUSE_BILL1" }, facing = "down" } },
+  billsHouseSSTicketScene = function(_, b) ticketBill = b end,
+}, { __index = OW })
+fakeGame.save = SaveData.newGame()
+setUpvalue(OW.billsHousePC, "Game", fakeGame)
+exitSelf:billsHouseBillExits()
+drain(exitSelf)
+check(fakeGame.save.flags.EVENT_MET_BILL_2, "Bill's exit sets EVENT_MET_BILL_2")
+eq(ticketBill, exitSelf.npcs[1], "the exit walk hands BILL1 to the ticket scene")
+
+GameVersion.current = realVersion
+
 Commands.hide_object = realHide
 Commands.show_object = realShow
 package.loaded["src.ui.Menu"] = realMenu

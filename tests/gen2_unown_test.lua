@@ -452,6 +452,49 @@ press(screen, "a")
 check("A after the fanfare closes it", closed.count, 1)
 check("reporting solved", closed.solved, true)
 
+-- WaitPlaySFX (home/audio.asm:220)
+do
+  local Sound = require("src.core.Sound")
+  local realPlay, realWait = Sound.play, Sound.waitSfxDone
+  local log = {}
+  Sound.play = function(_data, name) log[#log + 1] = name end
+  Sound.waitSfxDone = function() log[#log + 1] = "wait" end
+
+  screen = newPuzzle(2)
+  for cell = 1, UnownPuzzle.CELLS do
+    screen.pieces[cell] = UnownPuzzle.SOLVED[cell]
+  end
+  screen.pieces[pc(4, 4) + 1] = 0
+  screen.pieces[pc(0, 0) + 1] = 16
+  screen.cursor = pc(0, 0)
+  press(screen, "a")
+  screen.cursor = pc(4, 4)
+  press(screen, "a")
+
+  check("the solve drains the channels before the fanfare",
+    table.concat(log, ","),
+    "wait,Sfx_MegaKick,wait,Sfx_PlacePuzzlePieceDown,wait,Sfx_1stPlace")
+  check("and the board really is solved", screen.solved, true)
+
+  -- UnownPuzzle_InvalidAction (unown_puzzle.asm:339)
+  log = {}
+  screen = newPuzzle(2)
+  screen.pieces[pc(0, 0) + 1] = 0
+  screen.cursor = pc(0, 0)
+  press(screen, "a")
+  check("a refused click is not stopped on the frame it starts",
+    table.concat(log, ","), "wait,Sfx_Wrong")
+
+  log = {}
+  screen.pieces[pc(0, 0) + 1] = 16
+  press(screen, "a")
+  press(screen, "right")
+  check("nor is the pickup, and the move click drains before it",
+    table.concat(log, ","), "wait,Sfx_MegaKick,wait,Sfx_MovePuzzlePiece")
+
+  Sound.play, Sound.waitSfxDone = realPlay, realWait
+end
+
 -- A panel cannot be dropped on an occupied cell.
 screen = newPuzzle(0)
 screen.cursor = 0

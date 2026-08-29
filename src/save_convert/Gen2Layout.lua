@@ -42,6 +42,8 @@ Gen2Layout.goldSilver = {
   wStatusFlags = 0x23D9,
   wStatusFlags2 = 0x23DA,
   wPokegearFlags = 0x24E4,
+  wVisitedSpawns = 0x2856,
+  wVariableSprites = 0x23BD,
   wGameTimeHours = 0x2053,
   wGameTimeMinutes = 0x2055,
   -- The 14 archived boxes, listed rather than strided (see BOX_COUNT).
@@ -87,8 +89,11 @@ Gen2Layout.crystal = {
   wStatusFlags = 0x23DA,
   wStatusFlags2 = 0x23DB,
   wPokegearFlags = 0x24E5,
+  wVisitedSpawns = 0x2833,
+  wVariableSprites = 0x23BC,
   wGameTimeHours = 0x2052,
   wGameTimeMinutes = 0x2054,
+  wPlayerGender = 0x3E3D,
   -- The 14 archived boxes, listed rather than strided (see BOX_COUNT).
   boxes = { 0x4000, 0x4450, 0x48A0, 0x4CF0, 0x5140, 0x5590, 0x59E0, 0x6000, 0x6450, 0x68A0, 0x6CF0, 0x7140, 0x7590, 0x79E0 },
   -- The backup copy the game falls back to when the primary
@@ -132,8 +137,11 @@ Gen2Layout.crystal = {
     wStatusFlags = 0x15DA,
     wStatusFlags2 = 0x15DB,
     wPokegearFlags = 0x16E5,
+    wVisitedSpawns = 0x1A33,
+    wVariableSprites = 0x15BC,
     wGameTimeHours = 0x1252,
     wGameTimeMinutes = 0x1254,
+    wPlayerGender = 0x3E3D,
     boxes = { 0x4000, 0x4450, 0x48A0, 0x4CF0, 0x5140, 0x5590, 0x59E0, 0x6000, 0x6450, 0x68A0, 0x6CF0, 0x7140, 0x7590, 0x79E0 },
   },
 }

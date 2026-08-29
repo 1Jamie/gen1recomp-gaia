@@ -204,4 +204,83 @@ sf:close()
 check(story2:find("flags.EVENT_GAVE_GUARDS_DRINK", 1, true) ~= nil,
       "the gate scripts still spell the drink flag EVENT_GAVE_GUARDS_DRINK")
 
+-- ram/wram.asm:2057-2078; engine/debug/debug_party.asm:119
+
+eq(OFF.rivalStarter, TOWN_VISITED + 10, "wRivalStarter is wTownVisitedFlag + 10")
+eq(OFF.playerStarter, TOWN_VISITED + 12, "wPlayerStarter is wTownVisitedFlag + 12")
+check(OFF.playerStarter >= OFF.checksumStart and OFF.playerStarter < OFF.checksumEnd,
+      "both starter bytes lie inside the main checksum window")
+
+local cw = GenSave.crosswalks(data)
+eq(cw.pokemonIndex.CHARMANDER, 176, "STARTER1 CHARMANDER is internal index 176")
+eq(cw.pokemonIndex.SQUIRTLE, 177, "STARTER2 SQUIRTLE is internal index 177")
+eq(cw.pokemonIndex.BULBASAUR, 153, "STARTER3 BULBASAUR is internal index 153")
+
+for _, species in ipairs({ "CHARMANDER", "SQUIRTLE", "BULBASAUR" }) do
+  eq(events.byName["EVENT_CHOSE_" .. species], nil,
+     "EVENT_CHOSE_" .. species .. " has no wEventFlags bit to ride")
+end
+
+-- scripts/OaksLab.asm:797-825; scripts/PokemonTower2F.asm:155-168
+local COUNTERPICK = {
+  CHARMANDER = "SQUIRTLE", SQUIRTLE = "BULBASAUR", BULBASAUR = "CHARMANDER",
+}
+for player, rival in pairs(COUNTERPICK) do
+  local chose = seedSave()
+  chose.flags.EVENT_GOT_STARTER = true
+  chose.flags["EVENT_CHOSE_" .. player] = true
+  local bytes = GenSave.encode(chose, data, nil)
+  eq(bytes:byte(OFF.playerStarter + 1), cw.pokemonIndex[player],
+     "EVENT_CHOSE_" .. player .. " reaches wPlayerStarter as " .. player)
+  eq(bytes:byte(OFF.rivalStarter + 1), cw.pokemonIndex[rival],
+     "and hands the rival " .. rival .. " in wRivalStarter")
+  check(GenSave.mainChecksumValid(bytes),
+        "the " .. player .. " export still checksums")
+  local back = GenSave.decode(bytes, data)
+  eq(back.flags["EVENT_CHOSE_" .. player], true,
+     "EVENT_CHOSE_" .. player .. " survives export -> import")
+  eq(back.flags["EVENT_CHOSE_" .. rival], nil,
+     "and no second starter flag comes back with it")
+end
+
+local function patch(bytes, off, value)
+  return bytes:sub(1, off) .. string.char(value) .. bytes:sub(off + 2)
+end
+
+local plain = seedSave()
+plain.flags.EVENT_GOT_STARTER = true
+local cart = GenSave.encode(plain, data, nil)
+cart = patch(cart, OFF.playerStarter, cw.pokemonIndex.BULBASAUR)
+cart = patch(cart, OFF.rivalStarter, cw.pokemonIndex.CHARMANDER)
+local cartSave = GenSave.decode(cart, data)
+eq(cartSave.flags.EVENT_CHOSE_BULBASAUR, true,
+   "a cart save that chose BULBASAUR imports with the BULBASAUR flag set")
+
+-- scripts/OaksLab.asm:322-323
+local rivalOnly = GenSave.decode(patch(cart, OFF.playerStarter, 0), data)
+eq(rivalOnly.flags.EVENT_CHOSE_BULBASAUR, true,
+   "a blank wPlayerStarter falls back to the wRivalStarter counterpick")
+
+local neither = GenSave.decode(
+  patch(patch(cart, OFF.playerStarter, 0), OFF.rivalStarter, 0), data)
+eq(neither.flags.EVENT_CHOSE_BULBASAUR, nil,
+   "an empty starter pair invents no choice")
+local warned = false
+for _, w in ipairs(neither.warnings or {}) do
+  if w:find("starter", 1, true) then warned = true end
+end
+check(warned, "and the import warns that the rival parties will default")
+
+local preLab = seedSave()
+preLab.flags.EVENT_GOT_STARTER = nil
+eq(GenSave.encode(preLab, data, cart):byte(OFF.playerStarter + 1),
+   cw.pokemonIndex.BULBASAUR,
+   "a save with no EVENT_CHOSE_* leaves the template's starter bytes alone")
+
+-- scripts/OaksLab.asm:335
+local preBytes = patch(GenSave.encode(preLab, data, nil),
+                       OFF.playerStarter, cw.pokemonIndex.BULBASAUR)
+eq(GenSave.decode(preBytes, data).flags.EVENT_CHOSE_BULBASAUR, nil,
+   "a pre-lab import sets no starter flag")
+
 T.finish("save_convert_extra_flags")

@@ -114,6 +114,8 @@ local function press(list, btn)
   list.game.input.pressed = btn
   list:update(1 / 60)
   list.game.input.pressed = nil
+  -- (home/list_menu.asm:61-63, 338-342)
+  for _ = 1, 4 do list:update(1 / 60) end
 end
 
 -- the row itself: one CANCEL after the last bag entry, carrying no id and no

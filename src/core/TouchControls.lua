@@ -1,5 +1,3 @@
--- On-screen touch controls: a visible d-pad, A, B, START and SELECT drawn
--- over the finished frame (art: Xelu's CC0 controller prompts, see
 -- assets/touch/README.md).  Replaces the old touch gesture recognizer:
 -- every control is a real button under the thumb, so there is no
 -- tap-vs-swipe classification, no deferred-A double-tap window, and no
@@ -59,9 +57,19 @@ local DPAD_DEAD = 0.16
 -- multiplier on the control's half-width.  START/SELECT get more because
 -- the glyphs are small.
 local SLOP = { a = 1.3, b = 1.3, start = 1.4, select = 1.4 }
+local HOTBAR_SLOP = 1.4
 
 local BUTTONS = { "a", "b", "start", "select" }
-local CONTROLS = { "dpad", "a", "b", "start", "select" }
+local CONTROLS = { "dpad", "a", "b", "start", "select", "hotbar" }
+
+local HOTBAR = {
+  { spec = "key:f1", label = "SAVE" },
+  { spec = "key:f2", label = "LOAD" },
+  { spec = "key:1", label = "SPEED" },
+  { spec = "key:2", label = "COLOR" },
+  { spec = "key:3", label = "TILT" },
+  { spec = "key:4", label = "ZOOM" },
+}
 
 -- Per-orientation layout buckets (#633).  Orientation comes from the safe
 -- rect, not the device: sw > sh is landscape, so a resized desktop window
@@ -223,6 +231,7 @@ function TouchControls.defaultLayout(ww, wh, ox, oy, scale)
     b = { cx = ox + ww - margin - abW * 1.60, cy = oy + wh - margin - abW * 0.55, w = abW },
     start = { cx = ox + ww / 2 + ssW * 0.60, cy = oy + wh - margin - ssW * 0.95, w = ssW },
     select = { cx = ox + ww / 2 - ssW * 0.60, cy = oy + wh - margin - ssW * 0.95, w = ssW },
+    hotbar = { cx = ox + ww - margin - ssW * 0.70, cy = oy + margin + ssW * 0.70, w = ssW },
   }
 end
 
@@ -263,6 +272,9 @@ function TouchControls:init()
   self.skinId = nil
   self.skinError = nil
   self.hotkeysHeld = {}
+  self.hotbarEnabled = true
+  self.hotbarOpen = false
+  self.hotbarControls = nil
   TouchSkin.setActive(nil)
   self.img = nil
   -- Images load whenever the platform wants the overlay OR the launcher
@@ -288,6 +300,8 @@ function TouchControls:applyOptions(opts)
   -- haptics is a plain top-level option, not part of the layout config the
   -- launcher editor round-trips through config() (#806)
   self.haptics = TouchControls.normalizeHaptics(opts and opts.haptics)
+  self.hotbarEnabled = not (opts and opts.hotbar == false)
+  if not self.hotbarEnabled then self.hotbarOpen = false end
   TouchSkin.setOverlayLive(self.active)
   -- Off means off everywhere: do not leave a hidden selected skin behind to
   -- influence renderer placement on desktop or with a controller attached.
@@ -503,6 +517,60 @@ local function inCircle(zone, x, y, slop)
   return dx * dx + dy * dy <= r * r
 end
 
+function TouchControls:hotbarItems()
+  if self.hotbarControls then return self.hotbarControls end
+  local out = {}
+  for i, entry in ipairs(HOTBAR) do
+    local ctl = TouchSkin.newControl(entry.spec, 0, 0, 0, 0, "rect")
+    ctl.label = entry.label
+    out[i] = ctl
+  end
+  self.hotbarControls = out
+  return out
+end
+
+function TouchControls:hotbarShown()
+  return self.hotbarEnabled ~= false and not TouchSkin.active
+end
+
+function TouchControls:hotbarStrip()
+  local L = self:layout()
+  local zone = L and L.hotbar
+  local items = self:hotbarItems()
+  if not zone or #items == 0 then return nil end
+  local ox, oy, sw, sh = SafeArea.windowRect()
+  local h = zone.w * 0.95
+  local pad = h * 0.14
+  local cw = h * 1.9
+  if self.labelFont then
+    for _, ctl in ipairs(items) do
+      cw = math.max(cw, self.labelFont:getWidth(ctl.label) + pad * 3)
+    end
+  end
+  local total = math.min(sw - pad * 2, cw * #items)
+  cw = total / #items
+  local x0 = math.max(ox + pad,
+                      math.min(zone.cx - total, ox + sw - pad - total))
+  local y0 = math.min(zone.cy + zone.w * 0.80, oy + sh - h)
+  local cells = {}
+  for i, ctl in ipairs(items) do
+    cells[i] = { ctl = ctl, label = ctl.label, h = h,
+                 x = x0 + (i - 1) * cw, y = y0, w = cw - pad }
+  end
+  return cells
+end
+
+function TouchControls:hotbarCellAt(x, y)
+  if not (self.hotbarOpen and self:hotbarShown()) then return nil end
+  for _, cell in ipairs(self:hotbarStrip() or {}) do
+    if x >= cell.x and x <= cell.x + cell.w
+       and y >= cell.y and y <= cell.y + cell.h then
+      return cell
+    end
+  end
+  return nil
+end
+
 -- Which control (if any) contains (x, y).  Prefer face buttons over the
 -- d-pad when they overlap, matching touchpressed's order.
 function TouchControls:hitTest(x, y)
@@ -516,6 +584,9 @@ function TouchControls:hitTest(x, y)
     return nil
   end
   local L = self:layout()
+  if self:hotbarShown() and inCircle(L.hotbar, x, y, HOTBAR_SLOP) then
+    return "hotbar"
+  end
   for _, btn in ipairs(BUTTONS) do
     if inCircle(L[btn], x, y, SLOP[btn]) then return btn end
   end
@@ -676,6 +747,20 @@ function TouchControls:touchpressed(id, x, y)
     return true
   end
   local L = self:layout()
+  if self:hotbarShown() then
+    local cell = self:hotbarCellAt(x, y)
+    if cell then
+      self.touches[id] = { control = "hotkey", ctl = cell.ctl }
+      enterControl(self, cell.ctl)
+      return true
+    end
+    if inCircle(L.hotbar, x, y, HOTBAR_SLOP) then
+      self.hotbarOpen = not self.hotbarOpen
+      self.touches[id] = { control = "hotbarToggle" }
+      TouchControls.buzz(self.haptics)
+      return true
+    end
+  end
   for _, btn in ipairs(BUTTONS) do
     if inCircle(L[btn], x, y, SLOP[btn]) then
       self.touches[id] = { control = btn }
@@ -717,6 +802,9 @@ function TouchControls:touchreleased(id, x, y)
   self.touches[id] = nil
   if touch.control == "skin" then
     applySkinSet(self, touch, nil)
+  elseif touch.control == "hotkey" then
+    if touch.ctl then exitControl(self, touch.ctl) end
+  elseif touch.control == "hotbarToggle" then
   elseif touch.control == "dpad" then
     setDpad(self, touch, nil)
     self.dpadTouch = nil
@@ -733,6 +821,8 @@ function TouchControls:reset()
   for _, touch in pairs(self.touches or {}) do
     if touch.control == "skin" and touch.set then
       for ctl in pairs(touch.set) do exitControl(self, ctl) end
+    elseif touch.control == "hotkey" and touch.ctl then
+      exitControl(self, touch.ctl)
     end
   end
   for action in pairs(self.hotkeysHeld or {}) do
@@ -745,6 +835,7 @@ function TouchControls:reset()
   self.held = {}
   self.touches = {}
   self.dpadTouch = nil
+  self.hotbarOpen = false
 end
 
 -- a gamepad is being used: hide the overlay (dropping anything it held)
@@ -858,6 +949,48 @@ function TouchControls:draw()
   end
   label("START", L.start)
   label("SELECT", L.select)
+
+  if self:hotbarShown() then
+    local z = L.hotbar
+    local r = z.w * 0.5
+    love.graphics.setColor(0.15, 0.15, 0.15, 0.55 * alphaMul)
+    love.graphics.circle("fill", z.cx, z.cy, r * 1.16)
+    love.graphics.setColor(1, 1, 1, (ALPHA + 0.2) * alphaMul)
+    local dot = r * 0.16
+    for i = -1, 1 do
+      love.graphics.circle("fill", z.cx + i * r * 0.5, z.cy, dot)
+    end
+    if self.hotbarOpen and not self.preview then
+      local pressed = {}
+      for _, touch in pairs(self.touches or {}) do
+        if touch.control == "hotkey" and touch.ctl then pressed[touch.ctl] = true end
+      end
+      local cells = self:hotbarStrip() or {}
+      local first, last = cells[1], cells[#cells]
+      if first and last then
+        local pad = first.h * 0.14
+        love.graphics.setColor(0.15, 0.15, 0.15, 0.55 * alphaMul)
+        love.graphics.rectangle("fill", first.x - pad, first.y - pad,
+                                last.x + last.w - first.x + pad * 2,
+                                first.h + pad * 2, first.h * 0.3)
+      end
+      for _, cell in ipairs(cells) do
+        local down = pressed[cell.ctl] == true
+        love.graphics.setColor(0.3, 0.3, 0.3,
+          (down and 0.85 or 0.6) * alphaMul)
+        love.graphics.rectangle("fill", cell.x, cell.y, cell.w, cell.h,
+                                cell.h * 0.25)
+        local tw = self.labelFont:getWidth(cell.label)
+        local ty = cell.y + (cell.h - self.labelFont:getHeight()) * 0.5
+        love.graphics.setColor(0, 0, 0, 0.6 * alphaMul)
+        love.graphics.print(cell.label,
+                            cell.x + (cell.w - tw) * 0.5 + 1, ty + 1)
+        love.graphics.setColor(1, 1, 1,
+          (down and ALPHA_PRESSED or (ALPHA + 0.2)) * alphaMul)
+        love.graphics.print(cell.label, cell.x + (cell.w - tw) * 0.5, ty)
+      end
+    end
+  end
 
   love.graphics.pop()
 end

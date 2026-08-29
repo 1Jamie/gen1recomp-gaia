@@ -948,8 +948,7 @@ end
 
 -- Surf.  `.zero` lays a 2-amplitude wave into the ring and falls through to
 -- `.one` on the same frame (ASM fallthrough, not a jumptable branch), and
--- `.one` declines to do anything at all until some OTHER effect has set
--- hLCDCPointer -- START_WATER is what the Surf animation queues first.
+-- `.one` waits for hLCDCPointer: engine/battle_anims/functions.asm:1158.
 E.BATTLE_BG_EFFECT_SURF = function(self, st)
   local jt = st.jt
   if jt == 0 then

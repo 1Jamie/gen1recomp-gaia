@@ -386,6 +386,7 @@ function SaveData.defaultOptions()
     -- Inert wherever the overlay never appears (desktop) or LOVE has no
     -- vibrator.
     haptics = "light",
+    hotbar = true,
     -- Shared UI/mod timestamp presentation. DEVICE follows the process time
     -- locale where the platform exposes one; otherwise DateTime falls back to
     -- DD-MM-YYYY and 24-hour time. Kept in options.lua so checkpoints never

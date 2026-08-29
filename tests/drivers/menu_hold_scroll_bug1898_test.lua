@@ -59,12 +59,35 @@ return function(game)
     U.log("captured", SHOT_DIR .. "/bug1898_bag_bottom.png")
   end
 
+  -- home/list_menu.asm:47, 61-64, 338-342
+  list.index, list.scroll = 4, 1
+  U.wait(2)
+  table.insert(game.input.pressQueue, "down")
+  game.input.state.down = true
+  coroutine.yield()
+  game.input.state.down = false
+  local blanked = list.cursorBlank
+  U.log("cursorBlank right after a scrolling step:", tostring(blanked))
+  check("a scroll step blanks the arrow", (blanked or 0) > 0)
+  if U.shot(game, SHOT_DIR .. "/bug1898_cursor_off.png") then
+    U.log("captured", SHOT_DIR .. "/bug1898_cursor_off.png")
+  end
+  U.wait(5)
+  U.log("cursorBlank five frames later:", tostring(list.cursorBlank))
+  check("and puts it back after Delay3", (list.cursorBlank or 0) == 0)
+  if U.shot(game, SHOT_DIR .. "/bug1898_cursor_on.png") then
+    U.log("captured", SHOT_DIR .. "/bug1898_cursor_on.png")
+  end
+  U.log("Compare the two: the arrow left of the item name is missing in")
+  U.log("bug1898_cursor_off.png and present in bug1898_cursor_on.png.")
+
   list.index, list.scroll = 1, 0
   U.wait(5)
   U.log("The bag is open at the top of a twelve-item list, input handed back.")
   U.log("Hold Down: the cursor steps once, pauses about half a second, then")
   U.log("runs to CANCEL at roughly twelve rows a second.  Hold Up to come")
   U.log("back. Before this fix the cursor moved one row and stopped there.")
+  U.log("While it is running, the arrow flickers: three frames of every five.")
 
   while true do
     coroutine.yield()

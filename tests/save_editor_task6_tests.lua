@@ -157,6 +157,23 @@ do
 end
 
 do
+  -- Game Corner coins are a Gen 1 save field too (ram/wram.asm:1908)
+  local S = newState()
+
+  Ops.addCoins(S, 250)
+  eq(S.save.coins, 250, "addCoins writes save.coins on a Gen 1 save")
+  Ops.addCoins(S, -1000)
+  eq(S.save.coins, 0, "addCoins clamps at zero")
+  Ops.maxCoins(S)
+  eq(S.save.coins, Ops.COIN_MAX, "maxCoins fills the case")
+  eq(S.save.player and S.save.player.coins, nil,
+     "Gen 1 coins never land on player.coins")
+  S.dirty = false
+  check(Ops.addCoins(S, 100) == false, "addCoins at the cap is a no-op")
+  check(S.dirty == false, "a no-op addCoins does not dirty the save")
+end
+
+do
   local S = newState()
   local id = S.cat.items[1]
 
@@ -228,6 +245,203 @@ do
   Ops.pcDrop(S, id)
   eq(Ops.pcItems(S)[id], nil, "pcDrop removes the entry")
   eq(#Ops.pcOrder(S), seeded, "pcDrop shrinks the PC order back")
+end
+
+-- key item and one HM (home/list_menu.asm:474 prints no quantity for either)
+local function itemFixtures(S)
+  local stack, key, hm = {}, nil, nil
+  for _, id in ipairs(S.cat.items) do
+    local def = S.data.items[id]
+    if Ops.isBadgeId(id) then
+    elseif id:find("^HM_") then hm = hm or id
+    elseif def and def.keyItem then key = key or id
+    elseif #stack < 3 then stack[#stack + 1] = id
+    end
+  end
+  return stack, key, hm
+end
+
+do
+  -- (engine/items/inventory.asm:74)
+  local S = newState()
+  local stack, key, hm = itemFixtures(S)
+  check(#stack == 3 and key ~= nil and hm ~= nil,
+        "the catalog has stackable, key and HM items to max")
+  for _, id in ipairs(stack) do Ops.addToBag(S, id) end
+  Ops.addToBag(S, key)
+  Ops.addToBag(S, hm)
+  local rows = #Bag.order(S.save)
+
+  check(Ops.itemStacks(S, stack[1]) == true, "a plain item carries a quantity")
+  check(Ops.itemStacks(S, key) == false, "a key item has no quantity to max")
+  check(Ops.itemStacks(S, hm) == false, "an HM has no quantity to max")
+
+  check(Ops.bagMax(S, stack[1]) ~= false, "bagMax fills a stack")
+  eq(S.save.inventory[stack[1]], Ops.STACK_MAX, "bagMax lands on the 99 cap")
+  S.dirty = false
+  check(Ops.bagMax(S, stack[1]) == false, "bagMax at the cap is a no-op")
+  check(S.status:match("already at x99") ~= nil, "a refused bagMax says why")
+  check(Ops.bagMax(S, key) == false, "bagMax refuses a key item")
+  check(Ops.bagMax(S, hm) == false, "bagMax refuses an HM")
+  check(S.dirty == false, "a refused bagMax does not dirty the save")
+
+  check(Ops.bagCanMax(S) == true, "bagCanMax sees the rows still under 99")
+  check(Ops.bagMaxAll(S) ~= false, "bagMaxAll tops up the rest of the bag")
+  check(S.status:match("^Maxed %d+ bag stack") ~= nil,
+        "bagMaxAll reports how many stacks it filled")
+  eq(S.save.inventory[stack[2]], Ops.STACK_MAX, "bagMaxAll fills the second stack")
+  eq(S.save.inventory[stack[3]], Ops.STACK_MAX, "bagMaxAll fills the third stack")
+  eq(S.save.inventory[key], 1, "bagMaxAll leaves a key item alone")
+  eq(S.save.inventory[hm], 1, "bagMaxAll leaves an HM alone")
+  eq(#Bag.order(S.save), rows, "maxing adds no bag rows")
+  S.dirty = false
+  check(Ops.bagMaxAll(S) == false, "a second bagMaxAll is a no-op")
+  check(Ops.bagCanMax(S) == false, "bagCanMax is false once every stack is 99")
+  check(S.dirty == false, "a no-op bagMaxAll does not dirty the save")
+
+  local badge = Ops.badgeIds(S)[1]
+  Ops.toggleBadge(S, badge)
+  Ops.bagMaxAll(S)
+  eq(S.save.inventory[badge], 1, "bagMaxAll never stacks a badge")
+end
+
+do
+  local S = newState()
+  local stack = itemFixtures(S)
+  for _, id in ipairs(stack) do Ops.addToPc(S, id) end
+  local pc = Ops.pcItems(S)
+
+  check(Ops.pcMax(S, stack[1]) ~= false, "pcMax fills a PC stack")
+  eq(pc[stack[1]], Ops.STACK_MAX, "pcMax lands on the 99 cap")
+  S.dirty = false
+  check(Ops.pcMax(S, stack[1]) == false, "pcMax at the cap is a no-op")
+  check(Ops.pcMax(S, "NOT_A_REAL_ITEM") == false,
+        "pcMax refuses an id that is not in PC storage")
+  check(S.dirty == false, "a refused pcMax does not dirty the save")
+
+  check(Ops.pcCanMax(S) == true, "pcCanMax sees the rows still under 99")
+  check(Ops.pcMaxAll(S) ~= false, "pcMaxAll tops up the rest of PC storage")
+  eq(pc[stack[2]], Ops.STACK_MAX, "pcMaxAll fills the second PC stack")
+  eq(pc[stack[3]], Ops.STACK_MAX, "pcMaxAll fills the third PC stack")
+  S.dirty = false
+  check(Ops.pcMaxAll(S) == false, "a second pcMaxAll is a no-op")
+  check(Ops.pcCanMax(S) == false, "pcCanMax is false once every PC stack is 99")
+  check(S.dirty == false, "a no-op pcMaxAll does not dirty the save")
+end
+
+do
+  local S = newState()
+  local ids = {}
+  for _, id in ipairs(S.cat.items) do
+    if not Ops.isBadgeId(id) and #ids < 6 then ids[#ids + 1] = id end
+  end
+  for i = #ids, 1, -1 do Ops.addToBag(S, ids[i]) end
+  Ops.bagAdjust(S, ids[1], 1)
+  local qty = S.save.inventory[ids[1]]
+  local order = Bag.order(S.save)
+  local n = #order
+  local before = {}
+  for _, id in ipairs(order) do before[id] = true end
+
+  S.dirty = false
+  check(Ops.bagSort(S, "bogus") == false, "bagSort refuses an unknown mode")
+  check(S.dirty == false, "a refused bagSort does not dirty the save")
+
+  check(Ops.bagSort(S, "index") ~= false, "bagSort by index runs")
+  check(Bag.order(S.save) == order, "bagSort rewrites save.bagOrder in place")
+  eq(#order, n, "sorting drops no rows")
+  eq(S.save.inventory[ids[1]], qty, "sorting leaves the quantities alone")
+  local kept, ascending = true, true
+  local seen = {}
+  for i, id in ipairs(order) do
+    if not before[id] or seen[id] then kept = false end
+    seen[id] = true
+    if i > 1 then
+      local a = S.data.items[order[i - 1]]
+      local b = S.data.items[id]
+      if ((a and a.index) or math.huge) > ((b and b.index) or math.huge) then
+        ascending = false
+      end
+    end
+  end
+  check(kept, "sorting keeps exactly the ids the bag had")
+  check(ascending, "bagSort index leaves the bag ascending by item number")
+
+  Ops.bagSort(S, "name")
+  local byName = true
+  for i = 2, #order do
+    local a = S.data.items[order[i - 1]]
+    local b = S.data.items[order[i]]
+    local an = tostring((a and a.name) or order[i - 1]):lower()
+    local bn = tostring((b and b.name) or order[i]):lower()
+    if an > bn then byName = false end
+  end
+  check(byName, "bagSort name leaves the bag alphabetical")
+  local first = table.concat(order, ",")
+  Ops.bagSort(S, "name")
+  eq(table.concat(order, ","), first, "sorting twice by the same mode is stable")
+
+  local empty = newState()
+  empty.save.inventory = {}
+  empty.save.bagOrder = nil
+  empty.dirty = false
+  check(Ops.bagSort(empty, "index") == false, "an empty bag has nothing to sort")
+  check(empty.dirty == false, "a refused bagSort on an empty bag stays clean")
+end
+
+do
+  local S = newState()
+  local ids = {}
+  for _, id in ipairs(S.cat.items) do
+    if not Ops.isBadgeId(id) and #ids < 4 then ids[#ids + 1] = id end
+  end
+  for _, id in ipairs(ids) do Ops.addToPc(S, id) end
+
+  eq(S.pcSort, "index", "the PC list starts in item-number order")
+  local byIndex = Ops.pcOrder(S)
+  S.pcOffset = 3
+  S.dirty = false
+  check(Ops.pcSort(S, "name") == true, "pcSort switches the PC view order")
+  eq(S.pcOffset, 0, "switching the PC sort resets its scroll")
+  check(S.dirty == false, "a view-only PC sort does not dirty the save")
+  check(Ops.pcSort(S, "name") == false, "re-picking the same PC mode is a no-op")
+  check(Ops.pcSort(S, "bogus") == false, "pcSort refuses an unknown mode")
+
+  local byName = Ops.pcOrder(S)
+  eq(#byName, #byIndex, "both PC orders list the same rows")
+  local differs = false
+  for i = 1, #byName do
+    if byName[i] ~= byIndex[i] then differs = true end
+  end
+  check(differs, "the two PC orders are not the same list")
+
+  S.save.pcOrder = { "STALE_ID" }
+  S.dirty = false
+  check(Ops.pcSort(S, "index") ~= false, "pcSort re-runs after a mode change")
+  check(S.dirty == true, "rewriting an imported PC order dirties the save")
+  eq(#S.save.pcOrder, #byIndex, "the imported PC order is rebuilt from the view")
+  eq(S.save.pcOrder[1], byIndex[1], "and matches what the panel draws")
+end
+
+do
+  local S = newState()
+  local ids = {}
+  for _, id in ipairs(S.cat.items) do
+    if not Ops.isBadgeId(id) and #ids < 4 then ids[#ids + 1] = id end
+  end
+  for _, id in ipairs(ids) do Ops.addToPc(S, id) end
+  local byIndex = Ops.pcOrder(S)
+  S.save.pcOrder = { byIndex[#byIndex], byIndex[1] }
+  S.dirty = false
+  eq(S.pcSort, "index", "an imported save opens in item-number order")
+  check(Ops.pcSort(S, "index") ~= false,
+        "the first press rebuilds an imported order already in the default mode")
+  check(S.dirty == true, "that rebuild dirties the save")
+  eq(#S.save.pcOrder, #byIndex, "the rebuilt list holds every PC row")
+  eq(S.save.pcOrder[1], byIndex[1], "in the order the panel draws")
+  S.dirty = false
+  check(Ops.pcSort(S, "index") == false, "a second press changes nothing")
+  check(S.dirty == false, "and leaves the save clean")
 end
 
 do

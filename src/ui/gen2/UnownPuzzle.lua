@@ -285,8 +285,10 @@ function UnownPuzzle:loadGfx()
   end
 end
 
+-- WaitPlaySFX (home/audio.asm:220)
 function UnownPuzzle:sfx(name)
   local data = self.game and self.game.data
+  Sound.waitSfxDone()
   if data then Sound.play(data, name) end
 end
 

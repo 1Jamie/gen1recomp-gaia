@@ -306,6 +306,10 @@ function BattleAnimView.scanlines(bg)
     if inWindow then
       local value = signed(byte)
       if bg.lcdc == "SCX" then dx = -value else src = src + value end
+      -- home/lcd.asm:3
+      if byte ~= 0x90 and scy == 0 then
+        if src < 0 then src = 0 elseif src >= SCREEN_H then src = SCREEN_H - 1 end
+      end
     end
     if (not inWindow or byte ~= 0x90) and src >= 0 and src < SCREEN_H then
       lines[#lines + 1] = { src = src, dest = row, dx = dx }

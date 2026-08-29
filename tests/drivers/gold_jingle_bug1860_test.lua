@@ -51,6 +51,7 @@ return function(game)
     U.wait(2)
     local everBusy, maxRun, run = false, 0, 0
     local sawHeld, popEarly = false, false
+    local sawArrowWhileBusy = false
     local pressIn = 4
     for _ = 1, 1500 do
       local busy = Sound.sfxBusy()
@@ -63,6 +64,10 @@ return function(game)
       end
       local top = game.stack:top()
       if top and top.sfxWait and busy then sawHeld = true end
+      -- LoadBlinkingCursor (home/text.asm:749) (#1926)
+      if busy and top and top.arrowVisible and top:arrowVisible() then
+        sawArrowWhileBusy = true
+      end
       pressIn = pressIn - 1
       if pressIn <= 0 then
         pressIn = 4
@@ -83,6 +88,7 @@ return function(game)
       :format(label, maxRun, minRun), maxRun >= minRun)
     check(label .. ": the held box refused A while it rang",
       sawHeld and not popEarly)
+    check(label .. ": no arrow while the jingle rang", not sawArrowWhileBusy)
   end
 
   if tm then
