@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.38",
+          "date": "2026-08-29",
+          "size": 21493318,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.38/gen1recomp++-0.2.38-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1928 (GSC) Incorrect song when fighting against the roaming dogs\n- #1929 (Crystal) NPC at Cianwood can't identify where your pokémon were caught at\n- #1930 (GSC) When winning some badges, you can skip the jingle for winning them\n- #1931 (GSC) Missing sounds for entering and exiting menus on the PC\n- #1933 (GSC) The game is letting you click on \"use\" for items that it shouldn't during battles\n- #1934 (Crystal) Badge and TM jingle not played when receiving both from Clair\n- #1935 (GSC) Wrong layout for exchanging points in the radio tower in goldenrod cirty\n- #1936 (GSC) The game lets you push a boulder way further than it should\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.37",
           "date": "2026-08-29",
           "size": 21490921,
