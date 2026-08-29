@@ -313,6 +313,27 @@ function Permissions.stepPermitted(collOf, cx, cy, dir)
   return true
 end
 
+-- WillObjectBumpIntoTile .dir_masks, engine/overworld/npc_movement.asm:116
+local OPPOSITE = { up = "down", down = "up", left = "right", right = "left" }
+
+function Permissions.entryBlocks(coll)
+  local row = Permissions.sideBlocks(coll)
+  if not row then return nil end
+  local out = {}
+  for d in pairs(row) do out[OPPOSITE[d]] = true end
+  return out
+end
+
+-- WillObjectBumpIntoWater, engine/overworld/npc_movement.asm:60
+function Permissions.objectStepPermitted(fromColl, toColl, dir)
+  local leave = Permissions.sideBlocks(fromColl)
+  if leave and leave[dir] then return false end
+  if not Permissions.isLand(toColl) then return false end
+  local enter = Permissions.entryBlocks(toColl)
+  if enter and enter[dir] then return false end
+  return true
+end
+
 function Permissions.isWarpCollision(coll)
   if coll == nil or coll < 0 then return false end
   -- COLL_PIT / COLL_PIT_68 plus high-nybble $7 (CheckWarpCollision /

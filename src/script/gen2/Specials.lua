@@ -1382,9 +1382,13 @@ H.GiveShuckle = function(vm)
   end
   mon.ot = Specials.MANIA_OT
   mon.otId = Specials.MANIA_OT_ID
-  list[#list + 1] = mon
-  -- TryAddMonToParty's .registerpokedex (engine/pokemon/move_mon.asm:188-196) #1719
   local record = save(vm)
+  list[#list + 1] = mon
+  -- ../pokecrystal/engine/events/shuckle.asm:18-19
+  if Mon.hasCaughtData(record and record.version) then
+    Mon.setGiftCaughtData(mon, "unknown")
+  end
+  -- TryAddMonToParty's .registerpokedex (engine/pokemon/move_mon.asm:188-196) #1719
   if record then
     record.pokedex = record.pokedex or { seen = {}, caught = {} }
     record.pokedex.seen[mon.species] = true

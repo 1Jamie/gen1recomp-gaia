@@ -1948,6 +1948,7 @@ function Vm.new(scripts, text, events, hooks)
     playMusicFn = hooks.playMusic,
     specialSoundFn = hooks.specialSound,
     waitSfxFn = hooks.waitSfx,
+    waitSfxCapFn = hooks.waitSfxCap,
     -- StartAutoInput, by script pointer (`autoinput`) and by stream name
     -- (CatchTutorial), plus StopAutoInput.  See src/core/gen2/AutoInput.lua.
     autoInputFn = hooks.autoInput,
@@ -2681,8 +2682,10 @@ function Vm:resume(resumeValue)
       self:resume()
     end)
   elseif req and req.kind == "waitsfx" then
+    -- home/audio.asm:225
     self.waitSfx = true
-    self.waitSfxLeft = 180 -- safety cap (~3s) if a source never ends
+    local cap = self.waitSfxCapFn and self.waitSfxCapFn()
+    self.waitSfxLeft = math.max(cap or 180, 1)
   elseif req and req.kind == "battle" then
     if self.startBattleFn then
       self.startBattleFn(req.trainer, req.wild, function(outcome)

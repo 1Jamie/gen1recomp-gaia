@@ -197,13 +197,15 @@ local function pressPack(pack, button)
 end
 
 -- ---- the battle PACK never runs a field effect ----------------------------
+-- ItemSubmenu (engine/items/pack.asm:783
 do
   local screen, _, world, save, pushed = newBattleOverWorld({
-    POTION = 2, ITEMFINDER = 1, NORMAL_BOX = 1 })
+    POTION = 2, ITEMFINDER = 1, NORMAL_BOX = 1, TM_ROCK_SMASH = 1 })
   check(runToMenu(screen), "the intro drains to the battle menu")
   local pack = openPackFromMenu(screen, pushed)
   eq(getmetatable(pack), PackMenu, "PACK opens the pack")
   eq(pack:inBattle(), true, "as BattlePack rather than the field Pack")
+  eq(pack:hasSubmenu(), true, "which has ItemSubmenu on the cart")
   eq(#pushed, 2, "over the battle, which is still on the stack")
 
   -- KEY ITEMS, where the arm that ate the battle lived.
@@ -214,34 +216,139 @@ do
   pack.index = 1
   eq(pack.rows[1].id, "ITEMFINDER", "the ITEMFINDER is the first row")
   pressPack(pack, "a")
-  eq(pack.message and pack.message[1], "OAK: {PLAYER}!",
-    "A on it prints OakThisIsntTheTimeText")
+  check(pack.submenu ~= nil, "A on it opens the submenu")
+  eq(table.concat(pack.submenu.rows, ","), "quit",
+    "a battle-NOUSE key item gets .UnusableMenuHeader's lone QUIT")
+  eq(pack.message, nil, "with no Oak line anywhere near it")
   eq(#pushed, 2, "the pack is still up")
   eq(pushed[1], screen, "and the battle is still under it")
   eq(world.battleActive, true, "the world is still in its battle")
   eq(world.queuedScript, nil, "no field script was queued")
   eq(save.inventory.ITEMFINDER, 1, "and the key item is still in the bag")
 
+  pressPack(pack, "a")
+  eq(pack.submenu, nil, "QUIT closes the submenu")
+  eq(pack.message, nil, "printing nothing")
+  eq(save.inventory.ITEMFINDER, 1, "and still spending nothing")
+
   -- The trophy boxes are the same nibble: no decoration flag, no box spent.
-  pack.message = nil
   pressPack(pack, "left")
   pressPack(pack, "left")
   eq(pack:pocket().id, "ITEM", "back in the ITEMS pocket")
   pack.index = 2
   eq(pack.rows[2].id, "NORMAL_BOX", "with the trophy box in it")
   pressPack(pack, "a")
-  eq(pack.message and pack.message[1], "OAK: {PLAYER}!",
-    "a trophy box answers .Oak in battle too")
+  eq(pack.submenu and table.concat(pack.submenu.rows, ","), "quit",
+    "a trophy box gets the QUIT-only submenu too")
   eq(save.inventory.NORMAL_BOX, 1, "the box is not spent")
   eq(next(world.events.flags or {}), nil, "and no decoration flag was granted")
+  pressPack(pack, "b")
+  eq(pack.submenu, nil, "B backs out of it as well")
 
-  -- ITEMMENU_PARTY still reaches the battle's own item flow.
-  pack.message = nil
+  pressPack(pack, "right")
+  pressPack(pack, "right")
+  pressPack(pack, "right")
+  eq(pack:pocket().id, "TM_HM", "the TM pocket")
+  pack.index = 1
+  eq(pack.rows[1].id, "TM_ROCK_SMASH", "with the TM in it")
+  pressPack(pack, "a")
+  eq(pack.submenu and table.concat(pack.submenu.rows, ","), "quit",
+    "a TM in a fight gets QUIT alone")
+  eq(table.concat(pack:submenuRows("MYSTERY_THING"), ","), "quit",
+    "and so does a row with no attributes behind it, `xor a` forcing it")
+  pressPack(pack, "b")
+
+  pressPack(pack, "left")
+  pressPack(pack, "left")
+  pressPack(pack, "left")
+  eq(pack:pocket().id, "ITEM", "back in the ITEMS pocket")
   pack.index = 1
   eq(pack.rows[1].id, "POTION", "on the POTION")
   pressPack(pack, "a")
+  eq(pack.submenu and table.concat(pack.submenu.rows, ","), "use,quit",
+    "a battle-legal item gets .UsableMenuHeader's USE / QUIT")
+  eq(pack.submenu.index, 1, "opening on USE (`db 1 ; default option`)")
+  eq(getmetatable(pushed[#pushed]), PackMenu, "and nothing is used yet")
+  pressPack(pack, "a")
   eq(getmetatable(pushed[#pushed]), PartyMenu,
-    "a battle-legal item opens UseItem_SelectMon instead")
+    "USE opens UseItem_SelectMon")
+end
+
+-- engine/items/pack.asm:1068
+do
+  local save = { player = { name = "GOLD" },
+    inventory = { POKE_BALL = 1 } }
+  local game = { data = DATA, save = save, input = Input, options = {},
+    stack = { push = function() end, pop = function() end,
+      top = function() return nil end } }
+  local thrown
+  local pack = PackMenu.new(game, {
+    save = save, items = ITEMS, world = {}, pocket = "BALL",
+    battle = true, tutorial = true,
+    onChoose = function(id) thrown = id end,
+  })
+  eq(pack:inBattle(), true, "the DUDE's pack is opened over a battle")
+  eq(pack:hasSubmenu(), false, "and still has no submenu")
+  pressPack(pack, "a")
+  eq(pack.submenu, nil, "so A opens nothing")
+  eq(thrown, "POKE_BALL", "and throws the ball on the first press")
+end
+
+-- ../pokecrystal/engine/items/pack.asm:810
+-- two headers in ../pokegold/engine/items/pack.asm are menu_coords 0.
+do
+  local Chrome = require("src.ui.gen2.Chrome")
+  local realBox = Chrome.box
+  local realCursor = Chrome.cursorThrough
+  local realPrint = Chrome.printThrough
+  local boxes = {}
+  Chrome.box = function(tx, ty, tw, th) boxes[#boxes + 1] = { tx, ty, tw, th } end
+  Chrome.cursorThrough = function() end
+  Chrome.printThrough = function() end
+
+  local function battlePack(version)
+    local save = { player = { name = "GOLD" }, version = version,
+      inventory = { POTION = 1 } }
+    local game = { data = DATA, save = save, input = Input, options = {},
+      stack = { push = function() end, pop = function() end,
+        top = function() return nil end } }
+    return PackMenu.new(game, { save = save, items = ITEMS, world = {},
+      pocket = "ITEM", battle = true })
+  end
+
+  local function drawnBox(pack)
+    pressPack(pack, "a")
+    boxes = {}
+    pack:drawSubmenu()
+    return boxes[1]
+  end
+
+  local gold = battlePack("gold")
+  eq(gold:submenuColumn(), 0, "Gold's battle submenu is menu_coords 0")
+  local goldBox = drawnBox(gold)
+  eq(goldBox and goldBox[1], 0, "and the box it draws starts in column 0")
+  eq(goldBox and goldBox[3], 7, "SCREEN_WIDTH - 14 wide, both borders in")
+  eq(goldBox and goldBox[2], 7, ".UsableMenuHeader's row 7")
+
+  local crystal = battlePack("crystal")
+  eq(crystal:submenuColumn(), 13, "Crystal's is menu_coords 13")
+  local crystalBox = drawnBox(crystal)
+  eq(crystalBox and crystalBox[1], 13, "putting the same box on the right")
+  eq(crystalBox and crystalBox[3], 7, "SCREEN_WIDTH - 1 is the same 7 wide")
+
+  local silver = battlePack("silver")
+  eq(silver:submenuColumn(), 0, "Silver runs Gold's engine and its column")
+
+  local field = PackMenu.new({ data = DATA, input = Input, options = {},
+    save = { player = { name = "GOLD" }, version = "crystal",
+      inventory = { POTION = 1 } },
+    stack = { push = function() end, pop = function() end,
+      top = function() return nil end } }, { items = ITEMS })
+  eq(field:submenuColumn(), 0, "the field pack keeps the column it drew in")
+
+  Chrome.box = realBox
+  Chrome.cursorThrough = realCursor
+  Chrome.printThrough = realPrint
 end
 
 -- ---- and the world refuses both arms on its own ---------------------------

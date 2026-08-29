@@ -12,6 +12,7 @@
 
 local Bag = require("src.inventory.Bag")
 local Chrome = require("src.ui.gen2.Chrome")
+local GameVersion = require("src.core.GameVersion")
 local Gen2Save = require("src.core.gen2.Save")
 local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
@@ -164,6 +165,8 @@ function PackMenu.new(game, opts)
   -- a rod or the ITEMFINDER on the way past (src/ui/gen2/HeldItemMenu.lua).
   self.give = opts.give and true or false
   self.battle = opts.battle and true or false
+  -- engine/items/pack.asm:1068 TutorialPack
+  self.tutorial = opts.tutorial and true or false
   self.cursorStore = cursorStore(game)
   -- engine/menus/scrolling_menu.asm:6
   self.hold = MenuRepeat.new(MenuRepeat.GEN2_DELAY, MenuRepeat.GEN2_RATE)
@@ -469,28 +472,20 @@ end
 
 -- ------------------------------------------------------------- the submenu
 
--- Whether A on a row opens the item submenu.  Three packs on the cart skip it
--- and hand their row straight back, and all three are here:
 --
 --   DepositSellPack (pack.asm:931) -- the mart's SELL, the item PC's DEPOSIT
 --     and HeldItemMenu's GIVE.  Its jumptable is four ScrollingMenus and
 --     nothing else, which is why `give` and the empty-world callers answer
 --     their chooser directly.
 --   TutorialPack (pack.asm:1068) -- the DUDE's pack, same shape.
---   BattlePack (pack.asm:627) -- this one DOES have a submenu on the cart
---     (ItemSubmenu, USE / QUIT or QUIT alone), but it can neither toss, give
---     nor register, so the row it would add over this port's direct dispatch
---     is a second A press on the way to the same item effect.  The field
---     PACK is the one this bug is about; see src/ui/gen2/BattleState.lua for
---     the battle side.
 --
--- The test is the world rather than a flag because that is what already tells
--- a field PACK from a chooser here: MartMenu:enterSell and
+-- engine/items/pack.asm:627 BattlePack
 -- ItemPcMenu:enterDeposit both pass `world = {}` precisely so no field effect
 -- can fire, and Game2's START-menu PACK passes the real overworld.
 function PackMenu:hasSubmenu()
   if self.give then return false end
-  if self:inBattle() then return false end
+  if self.tutorial then return false end
+  if self:inBattle() then return true end
   local world = self.world
   return (world and world.useFieldItem) and true or false
 end
@@ -501,6 +496,13 @@ end
 -- gate and ItemPcMenu:cantToss take.
 function PackMenu:submenuRows(itemId)
   local def = self.items and self.items[itemId]
+  if self:inBattle() then
+    -- engine/items/pack.asm:783 ItemSubmenu, :745 .TMHMPocketMenu
+    local usable = not (def and def.battleMenu == "ITEMMENU_NOUSE")
+    if self:pocket().id == "TM_HM" then usable = false end
+    if usable then return { "use", "quit" } end
+    return { "quit" }
+  end
   local canToss = not (def and def.canToss == false)
   local canSelect = def ~= nil and def.canSelect == true
   local usable = not (def and def.fieldMenu == "ITEMMENU_NOUSE")
@@ -1071,16 +1073,25 @@ end
 -- header is the one exception, reaching one row further down (TEXTBOX_Y), so
 -- the bottom is 12 there and 11 otherwise; either way the first label sits one
 -- row inside (STATICMENU_NO_TOP_SPACING) with the cursor a column left of it.
+-- ../pokecrystal/engine/items/pack.asm:810, :826 open at column 13;
+-- ../pokegold/engine/items/pack.asm:810, :826 open at column 0.
+function PackMenu:submenuColumn()
+  if not self:inBattle() then return 0 end
+  local version = (self.save and self.save.version) or GameVersion.get()
+  return GameVersion.engine(version) == "crystal" and 13 or 0
+end
+
 function PackMenu:drawSubmenu()
   local menu = self.submenu
   local count = #menu.rows
+  local x = self:submenuColumn()
   local bottom = count >= 5 and 12 or 11
   local top = bottom - count * 2
-  Chrome.box(0, top, 7, bottom - top + 1)
+  Chrome.box(x, top, 7, bottom - top + 1)
   for i, id in ipairs(menu.rows) do
     local ty = top + 1 + (i - 1) * 2
-    if i == menu.index then Chrome.cursorThrough(1, ty, Chrome.DEFAULT_BOX_PALETTE) end
-    Chrome.printThrough(SUBMENU_LABEL[id] or id, 2, ty, Chrome.DEFAULT_BOX_PALETTE)
+    if i == menu.index then Chrome.cursorThrough(x + 1, ty, Chrome.DEFAULT_BOX_PALETTE) end
+    Chrome.printThrough(SUBMENU_LABEL[id] or id, x + 2, ty, Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 

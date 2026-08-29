@@ -235,10 +235,12 @@ function CenterPcMenu:update(_dt)
     if input:wasPressed("up") or input:wasPressed("down") then
       c.choice = c.choice == 1 and 2 or 1
     elseif input:wasPressed("b") then
-      -- YesNoBox's B is NO.
+      -- home/menu.asm:345
+      self:playSfx("Sfx_ReadText2")
       self.confirm = nil
       if c.onNo then c.onNo() end
     elseif input:wasPressed("a") then
+      self:playSfx("Sfx_ReadText2")
       self.confirm = nil
       if c.choice == 1 then
         if c.onYes then c.onYes() end

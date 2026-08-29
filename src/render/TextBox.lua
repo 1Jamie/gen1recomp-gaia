@@ -474,7 +474,8 @@ function TextBox:update(dt)
     end
     if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
-      require("src.core.Sound").play(self.game.data, "Press_AB")
+      -- home/joypad.asm:292
+      require("src.core.Sound").playPress(self.game.data)
       self.game.stack:pop()
       if self.onDone then self.onDone() end
     end

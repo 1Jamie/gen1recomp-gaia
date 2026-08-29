@@ -104,6 +104,10 @@ return function(game)
   assert(ballRow, "the battle PACK does not show the MASTER BALL")
   for _ = 2, ballRow do U.tap(game, "down") U.wait(2) end
   reset()
+  -- ItemSubmenu (engine/items/pack.asm:783
+  U.tap(game, "a")
+  U.wait(4)
+  assert(pack.submenu, "the MASTER BALL did not open ItemSubmenu")
   U.tap(game, "a")
   awaitSfx("Sfx_CaughtMon", 400)
   awaitSfx("Sfx_SlotMachineStart", 300)

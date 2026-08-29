@@ -175,8 +175,7 @@ check("and the player's name", legacy.party[1].ot, "GOLD")
 -- store, format 4 the MAIL structs (sPartyMail + sMailboxes), format 5 the
 -- world state (wEventFlags and the w<Map>SceneID block) becoming load bearing,
 -- format 6 wPlayerState, format 7 Mom's shopping pair (wWhichMomItem and
--- wMomItemTriggerBalance).
-check("format is 7", Save.FORMAT, 7)
+check("format is 8", Save.FORMAT, 8)
 for from = 1, Save.FORMAT - 1 do
   check("a migration exists for format " .. from,
     type(Save.MIGRATIONS[from]), "function")

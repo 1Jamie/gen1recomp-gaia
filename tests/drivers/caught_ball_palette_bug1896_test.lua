@@ -105,6 +105,10 @@ return function(game)
     U.wait(3)
   end
   ok("the cursor reached it", pack.index == ballRow, pack.index)
+  -- ItemSubmenu (engine/items/pack.asm:783
+  U.tap(game, "a")
+  U.wait(4)
+  ok("the ball opened ItemSubmenu", pack.submenu ~= nil, pack.submenu)
   U.tap(game, "a")
   U.wait(6)
 

@@ -498,6 +498,21 @@ do
     "CAUGHT_EGG_LEVEL prints EGG_LEVEL, not 1")
 end
 
+-- GetCaughtLocation's .Unknown arm, ../pokecrystal/engine/events/poke_seer.asm
+do
+  local Save = require("src.core.gen2.Save")
+  local legacy = runSeer(seerMon({ caughtLevel = 30 }))
+  check(legacy[2]:find("Unknown", 1, true) ~= nil,
+    "a half-stamped mon reads as Unknown before the migration")
+
+  local file = { format = 7, version = "crystal",
+    party = { seerMon({ caughtLevel = 30 }) } }
+  Save.migrate(file)
+  local pages = runSeer(file.party[1])
+  check(pages[2]:find("Whaaaat", 1, true) ~= nil,
+    "and as _SeerCantTellAThingText after it")
+end
+
 -- SeerAdviceTexts (engine/events/poke_seer.asm:357-364), walked in order;
 -- `sub c` is one byte, so the 255 row catches an underflow.
 do

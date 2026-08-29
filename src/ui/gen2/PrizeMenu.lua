@@ -252,7 +252,7 @@ end
 -- The transaction itself, once the player has said yes.  Item counters do the
 -- giveitem BEFORE the takecoins, so a bag that turns out to be full costs
 -- nothing; that ordering is what makes "room" a possible answer here too.
-function PrizeMenu.buy(save, counter, prize, data)
+function PrizeMenu.buy(save, counter, prize, data, where)
   if counter.kind == "coins" then
     local reason = PrizeMenu.check(save, counter, prize, data)
     if reason ~= "ok" then return reason end
@@ -269,6 +269,15 @@ function PrizeMenu.buy(save, counter, prize, data)
     save.party = save.party or {}
     -- The prize is a `givepoke`, so it takes AddPartyMon's stamp (move_mon.asm:143-149).
     Mon.stampOT(save, mon)
+    -- ../pokecrystal/engine/pokemon/move_mon.asm:1761-1773
+    local Catching = require("src.battle.gen2.Catching")
+    local stamp = { version = save.version, save = save, data = data }
+    if type(where) == "table" then
+      for key, value in pairs(where) do
+        if stamp[key] == nil then stamp[key] = value end
+      end
+    end
+    Catching.stampCaughtData(mon, stamp)
     save.party[#save.party + 1] = mon
     -- `special GameCornerPrizeMonCheckDex` right before the givepoke: the prize
     -- mon is registered as seen and caught even though it never appeared in a
@@ -305,13 +314,13 @@ function PrizeMenu:drawsWidescreen() return true end
 
 -- opts: save, counter (a COUNTERS key or a table), texts (a TEXTS key),
 --       version ("gold"/"silver"), data, hasCoinCase (defaults to the bag),
---       onClose()
 function PrizeMenu.new(game, opts)
   opts = opts or {}
   local self = setmetatable({}, PrizeMenu)
   self.game = game
   self.save = opts.save or (game and game.save)
   self.data = opts.data or (game and game.data)
+  self.where = opts.where
   self.onClose = opts.onClose
   local counter = opts.counter or "CELADON_TM"
   self.counter = type(counter) == "table" and counter
@@ -435,8 +444,17 @@ function PrizeMenu:choose()
     function() self:cancel() end)
 end
 
+-- ../pokecrystal/engine/pokemon/caught_data.asm:177-193
+function PrizeMenu:caughtWhere()
+  if self.where then return self.where end
+  local world = self.game and self.game.world
+  if not (world and world.caughtDataOpts) then return nil end
+  return world:caughtDataOpts()
+end
+
 function PrizeMenu:complete(prize)
-  local reason = PrizeMenu.buy(self.save, self.counter, prize, self.data)
+  local reason = PrizeMenu.buy(self.save, self.counter, prize, self.data,
+    self:caughtWhere())
   if reason ~= "ok" then
     self:refuse(reason)
     return

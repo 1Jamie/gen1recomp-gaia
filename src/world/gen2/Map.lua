@@ -276,6 +276,17 @@ function Map:stepPermitted(cx, cy, dir)
     function(x, y) return self:cellCollision(x, y) end, cx, cy, dir)
 end
 
+-- CanObjectMoveInDirection, engine/overworld/npc_movement.asm:1
+-- GetCoordTileCollision's .nope, ../pokegold/home/map.asm:2095
+function Map:objectStepPermitted(cx, cy, dir)
+  local d = DELTA[dir]
+  if not d then return false end
+  local tx, ty = cx + d[1], cy + d[2]
+  if not self:inBounds(tx, ty) then return false end
+  return Permissions.objectStepPermitted(
+    self:cellCollision(cx, cy), self:cellCollision(tx, ty), dir)
+end
+
 function Map:connection(dir)
   return self.connections[dir]
 end

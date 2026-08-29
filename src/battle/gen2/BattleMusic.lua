@@ -61,16 +61,20 @@ end
 -- against the MEMBER id inside the class.
 BattleMusic.RIVAL2_CHAMPION_MEMBER = "RIVAL2_2_CHIKORITA"
 
--- opts:
---   class     trainer class id ("FALKNER"), or nil for a wild battle
---   member    trainer member id ("RIVAL2_1_TOTODILE") -- only RIVAL2 reads it
---   members   the class's member list, to order `member` against
---   landmark  the map's landmark index, for RegionCheck
---   daytime   "MORN" | "DAY" | "NITE" | "DARK"
+-- ../pokecrystal/constants/battle_constants.asm:96
+BattleMusic.BATTLETYPE_ROAMING = 5
+BattleMusic.BATTLETYPE_SUICUNE = 12
+
 function BattleMusic.battleSong(opts)
   opts = opts or {}
   local class = opts.class
   local kanto = BattleMusic.isKanto(opts.landmark)
+
+  -- ../pokecrystal/engine/battle/start_battle.asm:60-66
+  if opts.crystal and (opts.battleType == BattleMusic.BATTLETYPE_SUICUNE
+      or opts.battleType == BattleMusic.BATTLETYPE_ROAMING) then
+    return "Music_SuicuneBattle"
+  end
 
   if not class then
     if kanto then return "Music_KantoWildBattle" end

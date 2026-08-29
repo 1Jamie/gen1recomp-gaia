@@ -164,6 +164,14 @@ local function fakeMap(cells, opts)
       if not map:inBounds(x, y) then return false end
       return Permissions.isWalkable(map:cellCollision(x, y))
     end,
+    objectStepPermitted = function(_, cx, cy, dir)
+      local d = Map.DELTA[dir]
+      if not d then return false end
+      local tx, ty = cx + d[1], cy + d[2]
+      if not map:inBounds(tx, ty) then return false end
+      return Permissions.objectStepPermitted(
+        map:cellCollision(cx, cy), map:cellCollision(tx, ty), dir)
+    end,
     warpAt = function() return nil end,
   }
   return map

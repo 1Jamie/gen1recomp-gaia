@@ -26,6 +26,7 @@ local arm64_pack = read("scripts/linux-arm64/build_appimage.sh")
 local verify = read("scripts/linux-arm64/verify_appimage.sh")
 local rg34 = read("build-rg34xxsp.sh")
 local sbc = read("build-linux-arm-sbc.sh")
+local android = read("scripts/build_android.sh")
 
 for _, call in ipairs({
   'bundle_shader_bridge "$out_app/Contents/MacOS" "liblibrashader_bridge.dylib" mac',
@@ -39,15 +40,27 @@ mustContain(build, 'SHADERFX_BRIDGE_REQUIRED', "build.sh hard-fail switch")
 mustContain(build, '[ "$plat" = "$(shader_bridge_host_plat)" ]', "build.sh host guard")
 
 mustContain(release, "shaderfx-bridge:", "release.yml bridge job")
-for _, plat in ipairs({ "win-x64", "mac", "linux-x64", "linux-arm64" }) do
+for _, plat in ipairs({ "win-x64", "mac", "linux-x64", "linux-arm64", "android" }) do
   mustContain(release, "plat: " .. plat, "release.yml matrix")
 end
 mustContain(release, "lipo -create", "release.yml universal macOS bridge")
+mustContain(release, "cargo ndk -t arm64-v8a -t armeabi-v7a", "release.yml Android bridge build")
+mustContain(release, "SHADERFX_BRIDGE_ANDROID_DIR", "release.yml stages the Android bridge")
 
 local requiredIn = select(2, release:gsub('SHADERFX_BRIDGE_REQUIRED: "1"', ""))
-check(requiredIn >= 6,
+check(requiredIn >= 7,
   'release.yml must set SHADERFX_BRIDGE_REQUIRED on every shipping job, found ' .. requiredIn)
 mustContain(release, "librashader_bridge.dll", "release.yml Windows zip assertion")
+
+mustContain(android, 'SHADERFX_BRIDGE_REQUIRED', "build_android.sh hard-fail switch")
+mustContain(android, 'shader_bridge_absent', "build_android.sh routes every miss to the gate")
+mustContain(android, 'lib/$abi/$SHADER_BRIDGE_LIB', "build_android.sh per-ABI APK assertion")
+mustContain(android, 'shader_bridge_verify_apk "$apk"', "build_android.sh checks the built APK")
+mustContain(android, 'apk_entries="$(unzip -Z1 "$apk")"', "build_android.sh lists the APK once")
+check(android:find('unzip -l "$apk" | grep', 1, true) == nil,
+  "build_android.sh must not pipe unzip into grep -q (pipefail SIGPIPEs unzip, #774)")
+check(android:find('warn "$SHADER_BRIDGE_LIB not', 1, true) == nil,
+  "build_android.sh must not warn-and-continue past a missing bridge")
 
 mustContain(manifest, "# BRIDGE-BEGIN", "flatpak manifest markers")
 mustContain(manifest, "/app/share/gen1recomp/liblibrashader_bridge.so", "flatpak install path")

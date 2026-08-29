@@ -355,6 +355,11 @@ jobs:
             runs-on: ubuntu-24.04-arm
             lib: liblibrashader_bridge.so
             glibc_triple: aarch64-unknown-linux-gnu.2.17
+          # Built here rather than on the packaging runner so the APK's bridge
+          # does not depend on that machine's local Rust/NDK toolchain (#1932).
+          - plat: android
+            runs-on: ubuntu-24.04
+            lib: liblibrashader_bridge.so
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v7
@@ -402,12 +407,26 @@ jobs:
               cargo zigbuild --release --target "$triple"
               cp "target/${triple%%.*}/release/$LIB" "$GITHUB_WORKSPACE/$out/$LIB"
               ;;
+            android)
+              rustup target add aarch64-linux-android armv7-linux-androideabi
+              cargo install cargo-ndk --locked
+              ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+              [ -d "$ndk" ] || { echo "::error::no Android NDK on this runner"; exit 1; }
+              export ANDROID_NDK_HOME="$ndk"
+              export CARGO_PROFILE_RELEASE_STRIP=symbols
+              cargo ndk -t arm64-v8a -t armeabi-v7a \
+                -o "$GITHUB_WORKSPACE/$out" build --release
+              for abi in arm64-v8a armeabi-v7a; do
+                test -f "$GITHUB_WORKSPACE/$out/$abi/$LIB" \
+                  || { echo "::error::no Android bridge for $abi"; exit 1; }
+              done
+              ;;
           esac
       - name: Upload the bridge
         uses: actions/upload-artifact@v7
         with:
           name: shaderfx-bridge-${{ matrix.plat }}
-          path: dist/native/${{ matrix.plat }}/${{ matrix.lib }}
+          path: dist/native/${{ matrix.plat }}
           if-no-files-found: error
           retention-days: 1
 
@@ -450,7 +469,7 @@ jobs:
             for f in "$d"/*; do mv "$f" "dist/native/$plat/"; done
             rmdir "$d"
           done
-          for plat in mac win-x64 linux-x64 linux-arm64; do
+          for plat in mac win-x64 linux-x64 linux-arm64 android; do
             ls "dist/native/$plat" >/dev/null \
               || { echo "::error::no ShaderFX bridge staged for $plat"; exit 1; }
           done
@@ -541,6 +560,8 @@ jobs:
 
       - name: Build Android
         env:
+          SHADERFX_BRIDGE_REQUIRED: "1"
+          SHADERFX_BRIDGE_ANDROID_DIR: ${{ github.workspace }}/dist/native/android
           GEN1RECOMP_ANDROID_KEYSTORE: ${{ runner.temp }}/gen1recomp-android-release.keystore
           GEN1RECOMP_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           GEN1RECOMP_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
