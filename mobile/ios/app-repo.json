@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.37",
+          "date": "2026-08-29",
+          "size": 21490921,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.37/gen1recomp++-0.2.37-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1590 [Feature request] Mods one-click update\n- #1592 [Feature request] PC keys on mobile platforms \n- #1625 bug: Rival has wrong starter\n- #1657 Add Launch Options For Syncing Save and Update\n- #1698 [Save editor] Option to max out the items\n- #1699 [Save editor] Option to sort out the items\n- #1700 [Save editor] Edit the number of coins for the Celedon Game Corner in the save editor\n- #1843 bug: trainer battles not happening\n- #1875 bug: replace this with a meaningful title\n- #1898 Holding up or down doesn't keep scrolling in Pokedex or item menu\n- #1902 Crystal Rocksmash Pokémon spawns not working\n- #1905 Twin girls are trees on road 37\n- #1906 Can’t fly anywhere (with imported save)\n- #1907 Character doesnt keep gender when you import a save\n- #1908 Poison damage flicker missing\n- #1909 Elevator menu inaccuracies\n- #1912 Skin Selection Problem\n- #1915 (GSC) Missing jingle for completing ancient puzzles\n- #1917 Mt. silver flight map incorrect Crystal\n- #1919 (GSC) Some slight inaccuracies after fixing issues #1889 and #1891\n- #1920 (GSC) Missing distortion effect for Surf during battles\n- #1921 (GSC) Animation for the move Night Shade shows a corrupt white line at the top\n- #1922 There's no way to remove speed shortcuts from L1/R1 in controller or remap them to other buttons\n- #1923 (Crystal) Nurse appearing beyond the limits of the map in Goldenrod's Pokémon Center\n- #1924 (Crystal) Plant vases are blue intead of brown\n- #1925 (GSC) Key item Blue Card isn't doing anything when the player uses it\n- #1926 (GSC) Dialogues with unskippable jingles shoudn't show the arrow on the text box while the jingle plays\n- #1927 Add game/gen filters and tags to mod index separate from mod manager\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.36",
           "date": "2026-08-28",
           "size": 21477353,
