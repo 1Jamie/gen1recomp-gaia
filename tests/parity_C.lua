@@ -118,7 +118,23 @@ local function openElevator(mapId, inventory, fromMapId)
   local panel = script.talk and script.talk[PANEL_TEXT[mapId]]
   check(panel ~= nil, mapId .. " panel bg_event has a talk script")
   if panel then panel(game, ow, nil, function() end) end
+  -- opens from its onShown (engine/events/elevator.asm:2-3)
+  local prompt = items[#items]
+  if prompt and prompt.stay and prompt.stay.onShown then
+    check(prompt.isTextBox, mapId .. " prints the prompt in a text box first")
+    prompt.stay.onShown()
+  end
   return items[#items], warpCalls, stack, ow
+end
+
+-- the $ff terminator's CANCEL row (home/list_menu.asm:371-372, 523-528)
+local function checkCancelRow(menu, floors, label)
+  eq(#menu.items, floors + 1, label .. " lists all " .. floors ..
+     " floors plus the terminator")
+  local last = menu.items[#menu.items]
+  eq(last and last.cancel, true, label .. " ends on the terminator row")
+  eq(last and last.label, require("src.core.Strings")("CANCEL"),
+     label .. " prints that row as CANCEL")
 end
 
 -- step the ElevatorShake state (pokered ShakeElevator) frame by frame
@@ -159,7 +175,7 @@ do
     openElevator("SILPH_CO_ELEVATOR", nil, "SILPH_CO_5F")
   check(menu ~= nil and getmetatable(menu) == ListMenu, "SILPH_CO_ELEVATOR opens a ListMenu")
   if menu then
-    eq(#menu.items, 11, "Silph Co elevator lists all 11 floors")
+    checkCancelRow(menu, 11, "Silph Co elevator")
     local wantOrder = { "1F", "2F", "3F", "4F", "5F", "6F", "7F", "8F", "9F", "10F", "11F" }
     for i, want in ipairs(wantOrder) do
       local item = menu.items[i]
@@ -242,7 +258,7 @@ do
   local menu, warpCalls, stack, ow = openElevator("CELADON_MART_ELEVATOR")
   check(menu ~= nil and getmetatable(menu) == ListMenu, "CELADON_MART_ELEVATOR opens a ListMenu")
   if menu then
-    eq(#menu.items, 5, "Celadon Mart elevator lists all 5 floors")
+    checkCancelRow(menu, 5, "Celadon Mart elevator")
     local wantOrder = { "1F", "2F", "3F", "4F", "5F" }
     for i, want in ipairs(wantOrder) do
       eq(menu.items[i] and menu.items[i].label, want, "Celadon Mart floor " .. i .. " label/order")
@@ -304,7 +320,7 @@ do
   check(menu ~= nil and getmetatable(menu) == ListMenu,
         "Rocket Hideout with LIFT_KEY opens a ListMenu")
   if menu then
-    eq(#menu.items, 3, "Rocket Hideout elevator lists all 3 floors")
+    checkCancelRow(menu, 3, "Rocket Hideout elevator")
     local wantOrder = { "B1F", "B2F", "B4F" }
     for i, want in ipairs(wantOrder) do
       eq(menu.items[i] and menu.items[i].label, want, "Rocket Hideout floor " .. i .. " label/order")

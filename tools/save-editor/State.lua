@@ -77,6 +77,7 @@ function State.new()
     itemPickOffset = 0, -- scroll position in the ADD ITEM list (#595)
     bagOffset = 0,
     pcOffset = 0,
+    pcSort = "index",
     itemsScroll = 0,    -- stacked-layout pixel scroll (#715)
 
     -- events

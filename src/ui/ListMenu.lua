@@ -54,6 +54,8 @@ local ITEM_NAME_X, ITEM_TOP_Y = 48, 32
 local ITEM_CURSOR_X = 40
 local ITEM_QTY_X, ITEM_QTY_END = 112, 136
 local ITEM_MORE_X, ITEM_MORE_Y = 144, 88
+-- Delay3 (home/list_menu.asm:61-64, 338-342, 47; home/window.asm:14-18)
+local SCROLL_BLANK = 3
 -- frames to wait before key-repeat kicks in, then between repeats
 local REPEAT_DELAY = MenuRepeat.GEN1_DELAY
 local REPEAT_RATE = MenuRepeat.GEN1_RATE
@@ -96,6 +98,7 @@ function ListMenu.new(game, title, items, opts)
   self.items = items
   self.index = 1
   self.scroll = 0
+  self.cursorBlank = 0
   self.onChoose = opts.onChoose
   self.onCancel = opts.onCancel
   self.footer = opts.footer
@@ -174,6 +177,7 @@ end
 
 -- edge press or key-repeat tick for a held direction
 local function navPressed(self, dir)
+  local before = self.scroll
   if dir == "up" then
     moveIndex(self, -1)
   elseif dir == "down" then
@@ -186,6 +190,10 @@ local function navPressed(self, dir)
     return false
   end
   syncScroll(self)
+  -- the loop reaches PlaceMenuCursor again (home/list_menu.asm:176-190)
+  if self.itemBox and self.scroll ~= before then
+    self.cursorBlank = SCROLL_BLANK
+  end
   return true
 end
 
@@ -194,6 +202,7 @@ function ListMenu:update(dt)
     self.script(self)
     return
   end
+  if (self.cursorBlank or 0) > 0 then self.cursorBlank = self.cursorBlank - 1 end
   local input = self.game.input
   if #self.items == 0 then
     if input:wasPressed("a") or input:wasPressed("b") then
@@ -298,7 +307,7 @@ function ListMenu:drawItemBox()
       Font.draw(item.right:sub(1, 1), ITEM_QTY_X, y + 8)
       Font.draw(count, ITEM_QTY_END - Font.width(count), y + 8)
     end
-    if i == self.index then
+    if i == self.index and (self.cursorBlank or 0) == 0 then
       Font.drawCode(self.hollowIndex == i
                     and Theme.cursorHollow or Theme.cursor, ITEM_CURSOR_X, y)
     end

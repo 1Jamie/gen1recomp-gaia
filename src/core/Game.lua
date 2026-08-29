@@ -918,26 +918,20 @@ function Game:gamepadpressed(joystick, button)
     end)
     selectHeld = ok and down == true
   end
-  -- shoulder buttons and analog triggers cycle GAME SPEED (R1/RB or
-  -- R2/RT = faster, L1/LB or L2/LT = slower; same as keyboard hotkey
-  -- 1).  LÖVE reports an analog trigger as gamepadpressed once it
-  -- crosses the press threshold, so a trigger pull lands here like any
-  -- other pad button.  Skip while Select is held so Select+L can reach
-  -- displayChordDigit ("7").
-  if not selectHeld then
-    if button == "rightshoulder" or button == "righttrigger" then
-      self:_cycleSpeed(1)
-      return
-    elseif button == "leftshoulder" or button == "lefttrigger" then
-      self:_cycleSpeed(-1)
-      return
-    end
-  end
-  -- BindingsMenu's pad capture rides the same top-state routing as keys
   local top = self.stack and self.stack:top()
   if top and top.onGamepadPressed then
     top:onGamepadPressed(button)
     return
+  end
+  if not selectHeld then
+    local action = Input:padAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
   end
   -- Select+face display chords → same digit path as Game:keypressed
   -- (COLORS/TILT/pipelines). Intercept before Input so face does not
@@ -1316,6 +1310,8 @@ function Game:applyOptions(opts)
   -- it has to be the last word on the window (it drops fullscreen to hold)
   require("src.core.FaithfulRes").applyOptions(opts)
   require("src.core.ScreenPosition").applyOptions(opts)
+  require("src.core.VSync").applyOptions(opts)
+  FixedStep.refreshPeriod = require("src.core.RefreshRate").period()
   -- normalizes a nil/garbage cap to the 60 default, so old saves with no
   -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)
@@ -1334,7 +1330,10 @@ function Game:applyOptions(opts)
   if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
   if caps.fpsMax then
     local FrameCap = require("src.core.FrameCap")
-    if FrameCap.current > caps.fpsMax then FrameCap.apply(caps.fpsMax) end
+    if FrameCap.current == FrameCap.DISPLAY
+       or FrameCap.current > caps.fpsMax then
+      FrameCap.apply(caps.fpsMax)
+    end
   end
   Input:applyBindings(opts.bindings)
   TouchControls:applyOptions(opts)

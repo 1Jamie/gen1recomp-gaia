@@ -1922,12 +1922,12 @@ COVERAGE["src.battle.BattleState"] = {
   backed = "update draw __index isOpaque openParty swapMoves "
     .. "lowHealthAlarmActive playVictoryMusic say sayAuto openItems "
     .. "openReplacementMenu finish askNicknameUI playEntranceCry stampOT "
-    .. "tryRun wantsFillScale bgMode",
+    .. "tryRun wantsFillScale bgMode BG_WORLD_DIM",
   warned = "tryRun askNicknameUI",
   absent = "newWild newTrainer makeSafari makeGhost makeBattler resolveTurn "
     .. "computeDamage catchAttempt runRoll enter exit sgbPalettes "
     .. "isWideBattleLayout wideLayout uiSize letterboxWhite "
-    .. "holdsUIAnchors BG_WORLD_DIM trainerPalette trainerPicPath "
+    .. "holdsUIAnchors trainerPalette trainerPicPath "
     .. "trainerTrueColor trainerSprite invalidate "
     .. "backPlacement frontPlacement StatBox drawClassic drawBallRow "
     .. "safariAction safariEnemyTurn throwBall storeCaughtMon field ruleset "
@@ -1945,6 +1945,10 @@ COVERAGE["src.battle.BattleState"] = {
     wantsFillScale = "reads OPTION -> BATTLE SIZE (#1709), same fixed/fill "
       .. "key as Gen 1; Gold has no WIDE layout, so FILL is the scale of the "
       .. "160x144 panel and nothing more",
+    bgMode = "reads OPTION -> BATTLE BG (#1709), the same white/black/world "
+      .. "keys as Gen 1; Game2:paintBattleSurround paints the result, and "
+      .. "Gold's battle stays OPAQUE under world -- its map is drawn by "
+      .. "Game2:drawScene, not by StateStack finding the overworld below",
     swapMoves = "no disabled-slot migration and no sfx on Gold",
     sides = "self.battle.sides is the same { index, battlers, screens, "
       .. "hazards, tokens } shape, with the same index-1-is-player rule",

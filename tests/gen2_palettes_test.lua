@@ -156,6 +156,57 @@ checkColor("bgSet does not mutate the pool", mornAgain[7][1], 70, 70, 70)
 local cave = Palettes.bgSet(data, darkCave, "DARK")
 check("cave falls back to outdoor", cave ~= nil, true)
 
+-- LoadSpecialMapPalette (engine/tilesets/tileset_palettes.asm:1)
+local house = {
+  id = "CHERRYGROVE_HOUSE", group = 24, environment = "INDOOR",
+  palette = "PALETTE_AUTO", tileset = "TILESET_HOUSE",
+}
+local icePath = {
+  id = "ICE_PATH_1F", group = 3, environment = "CAVE",
+  palette = "PALETTE_NITE", tileset = "TILESET_ICE_PATH",
+}
+local hallOfFame = {
+  id = "HALL_OF_FAME", group = 26, environment = "INDOOR",
+  palette = "PALETTE_DAY", tileset = "TILESET_ICE_PATH",
+}
+local crystalData = {}
+for key, value in pairs(data) do crystalData[key] = value end
+crystalData.specialTilesets = {
+  TILESET_HOUSE = {
+    pool(200, 201, 202, 203), pool(210, 211, 212, 213),
+    pool(220, 221, 222, 223), pool(230, 231, 232, 233),
+    pool(240, 241, 242, 243), pool(250, 251, 252, 253),
+    { { 247, 230, 214 }, { 255, 156, 197 }, { 132, 107, 25 }, { 58, 58, 58 } },
+    pool(190, 191, 192, 193),
+  },
+  TILESET_ICE_PATH = {
+    pool(1, 1, 1, 1), pool(2, 2, 2, 2), pool(3, 3, 3, 3), pool(4, 4, 4, 4),
+    pool(5, 5, 5, 5), pool(6, 6, 6, 6), pool(7, 7, 7, 7), pool(8, 8, 8, 8),
+  },
+}
+
+local houseSet = Palettes.bgSet(crystalData, house, "DAY")
+checkColor("house glass color0", houseSet[7][1], 247, 230, 214)
+checkColor("house glass color1", houseSet[7][2], 255, 156, 197)
+checkColor("house glass color2", houseSet[7][3], 132, 107, 25)
+checkColor("house gray slot", houseSet[1][1], 200, 200, 200)
+local houseNite = Palettes.bgSet(crystalData, house, "NITE")
+checkColor("house glass at night", houseNite[7][2], 255, 156, 197)
+
+-- the Hall of Fame keeps the pool (tileset_palettes.asm:26).
+local icePathSet = Palettes.bgSet(crystalData, icePath, "NITE")
+checkColor("ice path takes its own block", icePathSet[1][1], 1, 1, 1)
+local fameSet = Palettes.bgSet(crystalData, hallOfFame, "DAY")
+checkColor("hall of fame keeps the pool", fameSet[1][1], 20, 20, 20)
+
+local plain = { id = "X", group = 24, environment = "INDOOR",
+  palette = "PALETTE_DAY", tileset = "TILESET_POKECENTER" }
+checkColor("an ordinary tileset is untouched",
+  Palettes.bgSet(crystalData, plain, "DAY")[1][1], 20, 20, 20)
+checkColor("and a cache without the table is unchanged",
+  Palettes.bgSet(data, house, "DAY")[1][1], 20, 20, 20)
+check("specialSet is nil without a table", Palettes.specialSet(data, house), nil)
+
 -- Sprite palettes: paletteId is 0-based PAL_OW_*, so id 0 is entry 1.
 local spr = Palettes.spritePalette(data, "DAY", { paletteId = 0 })
 checkColor("sprite day pal", spr[1], 5, 5, 5)

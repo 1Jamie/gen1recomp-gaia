@@ -239,6 +239,16 @@ entry: a desktop shortcut per game, a Steam entry, or a handheld frontend.
 | `--game=red` | boot Red, skipping the launcher (`blue`, `yellow`, `gold`, `silver` and `crystal` too, or just `r` / `b` / `y` / `g` / `s` / `c`) |
 | `--slot=2` | load that save slot; takes a slot number or a slot id |
 | `--launcher` | open the launcher anyway, so you can edit a shortcut you already made |
+| `--no-sync` | skip the save sync a linked device otherwise runs before the game boots (`POKEPORT_LAUNCH_SYNC=0`) |
+| `--update` | check for a release first, and restart once into it if one is ready (`POKEPORT_LAUNCH_UPDATE=1`; `-update` works too) |
+
+If this device is linked for save sync, a shortcut now syncs before it boots
+so CONTINUE never loads a save another device has already moved past. The
+screen shows what it is doing and any button skips straight into the game; a
+sync conflict opens the launcher so you can pick a copy rather than booting
+over one. Android launcher intents take the same path, on the environment
+defaults above since an intent carries no arguments, and never run the update
+check.
 
 
 ## Linux desktop (AppImage / Flatpak)

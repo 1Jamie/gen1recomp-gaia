@@ -117,6 +117,58 @@ do
   eq(list.scroll, 0, "and the window comes with it")
 end
 
+-- home/list_menu.asm:47, 61-64, 338-342, 176-190; home/window.asm:14-18
+do
+  local items = {}
+  for i = 1, 10 do items[i] = { value = i, label = "ITEM " .. i } end
+  local input = newInput()
+  local game = { input = input,
+                 stack = { push = function() end, pop = function() end,
+                           top = function() end } }
+  local list = ListMenu.new(game, "ITEMS", items, { kind = "bag", itemBox = true })
+  eq(list.cursorBlank, 0, "the arrow is up before anything moves")
+
+  local function step(dir)
+    input:press(dir)
+    list:update(1 / 60)
+    input:release(dir)
+  end
+
+  step("down")
+  eq(list.index, 2, "the press moves one row")
+  eq(list.scroll, 0, "inside the rows already printed")
+  eq(list.cursorBlank, 0, "so nothing reprints and the arrow stays up")
+  step("down")
+  eq(list.scroll, 0, "the third row is the last wMaxMenuItem reaches")
+  eq(list.cursorBlank, 0, "and the arrow is still up")
+
+  step("down")
+  eq(list.index, 4, "the fourth row is past it")
+  eq(list.scroll, 1, "so wListScrollOffset moves and the entries reprint")
+  eq(list.cursorBlank, 3, "which wipes the arrow")
+  list:update(1 / 60)
+  eq(list.cursorBlank, 2, "it counts down one frame at a time")
+  list:update(1 / 60)
+  eq(list.cursorBlank, 1, "over the Delay3 window")
+  list:update(1 / 60)
+  eq(list.cursorBlank, 0, "and the arrow comes back")
+  list:update(1 / 60)
+  eq(list.cursorBlank, 0, "and stays back while the cursor sits still")
+
+  step("down")
+  eq(list.cursorBlank, 3, "the next scrolling step blanks it again")
+  step("up")
+  eq(list.cursorBlank, 2,
+     "moving back inside the window reprints nothing, so it just counts down")
+
+  local plain = ListMenu.new(game, "ITEMS", items, { kind = "generic" })
+  input:press("down")
+  for _ = 1, 200 do plain:update(1 / 60) end
+  input:release("down")
+  check(plain.scroll > 0, "the generic list scrolled to the bottom")
+  eq(plain.cursorBlank, 0, "without ever blanking its cursor")
+end
+
 do
   local data = { pokemon = {}, constants = { dexSize = 151, dexDigits = 3 } }
   for n = 1, 151 do
@@ -142,6 +194,8 @@ do
   eq(dex.index, 3, "before the first repeat")
   for _ = 1, 200 do dex:update(1 / 60) end
   eq(dex.index, 20, "a long hold reaches the last seen species")
+  -- arrow is never wiped (engine/menus/pokedex.asm:18, 217-221)
+  eq(dex.cursorBlank, nil, "and the dex cursor is never blanked")
 
   input:release("down")
   input:press("right")

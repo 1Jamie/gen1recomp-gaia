@@ -109,4 +109,16 @@ do
   check(Nests.regionOf(0x5e) == nil, "and neither is FAST_SHIP")
 end
 
+-- ../pokecrystal/constants/landmark_constants.asm:34
+do
+  local CRYSTAL = { gen2Landmarks = { landmarks = {
+    LANDMARK_PALLET_TOWN = { index = 0x2f },
+    LANDMARK_FAST_SHIP = { index = 0x5f },
+  } } }
+  eq(Nests.regionOf(0x2e, CRYSTAL), "johto", "Crystal's $2e is SILVER CAVE")
+  eq(Nests.regionOf(0x2f, CRYSTAL), "kanto", "and its PALLET TOWN is $2f")
+  eq(Nests.regionOf(0x5e, CRYSTAL), "kanto", "ROUTE 28 is a Kanto nest")
+  check(Nests.regionOf(0x5f, CRYSTAL) == nil, "and FAST_SHIP is still neither")
+end
+
 S.finish()

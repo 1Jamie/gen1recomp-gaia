@@ -78,9 +78,12 @@ function Editor.load(opts)
     and GameVersion.generation(opts.version) == 2
   if gen2 then
     local gold = type(optsTbl.gold) == "table" and optsTbl.gold or {}
+    local hotbar = gold.hotbar
+    if hotbar == nil then hotbar = optsTbl.hotbar end
     applied = {
       touchControls = gold.touchControls,
       haptics = gold.haptics or optsTbl.haptics,
+      hotbar = hotbar,
     }
   end
   TouchControls:init()

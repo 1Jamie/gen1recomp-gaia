@@ -2798,10 +2798,11 @@ do
   press("a")
   eq(og.save.options.fpsCap, 75, "A cycles MAX FPS up from 60 to 75")
   eq(FrameCap.current, 75, "the live render cap tracks the MAX FPS option")
-  -- Driven by the step list rather than a literal press count, like GAME
-  -- SPEED below: a full loop of #STEPS presses returns to the 60 default.
-  for _ = 1, #FrameCap.STEPS - 1 do press("a") end
+  for _ = 1, #FrameCap.CYCLE - 1 do press("a") end
   eq(og.save.options.fpsCap, 60, "MAX FPS wraps back to 60")
+  check(seek("vsync"), "cursor reaches VSYNC")
+  press("a")
+  eq(og.save.options.vsync, "off", "A cycles VSYNC to OFF")
   -- RFC 0007: the single GAME SPEED row is now three independent rows,
   -- one per GameSpeed.CATEGORIES entry.
   check(seek("speedOverworld"), "cursor reaches OVERWORLD SPEED")

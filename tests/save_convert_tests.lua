@@ -114,7 +114,9 @@ save.inventory = { POKE_BALL = 5, BOULDERBADGE = 1, ANTIDOTE = 1 }
 save.bagOrder = { "POKE_BALL", "ANTIDOTE" }
 save.pcItems = { REVIVE = 2 }
 save.pokedex = { seen = { MEW = true, PIKACHU = true }, owned = { PIKACHU = true } }
-save.flags = { EVENT_GOT_STARTER = true, EVENT_GOT_POKEDEX = true }
+-- ram/wram.asm:2074-2078 (#1625)
+save.flags = { EVENT_GOT_STARTER = true, EVENT_GOT_POKEDEX = true,
+               EVENT_CHOSE_SQUIRTLE = true }
 -- the FLY destination set (pokered's wTownVisitedFlag), keyed by map id
 save.visited = { PALLET_TOWN = true, CELADON_CITY = true }
 save.boxes = {}
@@ -156,6 +158,12 @@ check(decoded2.pokedex.seen.MEW and decoded2.pokedex.seen.PIKACHU and decoded2.p
 check(not decoded2.pokedex.owned.MEW, "a species only marked seen doesn't also come back owned")
 check(decoded2.flags.EVENT_GOT_STARTER and decoded2.flags.EVENT_GOT_POKEDEX,
       "event flags round-trip")
+-- scripts/OaksLab.asm:797-825; scripts/PokemonTower2F.asm:155-168
+check(bytes2:byte(OFF.playerStarter + 1) == cw.pokemonIndex.SQUIRTLE
+      and bytes2:byte(OFF.rivalStarter + 1) == cw.pokemonIndex.BULBASAUR,
+      "the starter pair reaches wPlayerStarter/wRivalStarter")
+check(decoded2.flags.EVENT_CHOSE_SQUIRTLE and not decoded2.flags.EVENT_CHOSE_BULBASAUR,
+      "the starter choice round-trips as exactly one EVENT_CHOSE_* flag")
 -- wTownVisitedFlag: bit index == map index, LSB first (PALLET_TOWN is bit 0,
 -- CELADON_CITY bit 6).  Before #263 decode never touched it, so an imported
 -- save reached FLY with no destinations at all.
@@ -623,6 +631,33 @@ do
   check(b2:sub(OFF.playerName + 1, OFF.playerName + 11)
           == tplBytes:sub(OFF.playerName + 1, OFF.playerName + 11),
         "template name tails (incl. 0x00 bytes) round-trip byte-identical")
+end
+
+-- scripts/PokemonTower2F.asm:155-168
+do
+  local Commands = require("src.script.Commands")
+  local cart = SaveData.newGame({ playerName = "RED", rivalName = "BLUE" })
+  cart.flags = { EVENT_GOT_STARTER = true }
+  local raw = GenSave.encode(cart, data, nil)
+  local function poke(bytes, off, value)
+    return bytes:sub(1, off) .. string.char(value) .. bytes:sub(off + 2)
+  end
+  raw = poke(raw, OFF.playerStarter, cw.pokemonIndex.BULBASAUR)
+  raw = poke(raw, OFF.rivalStarter, cw.pokemonIndex.CHARMANDER)
+  local imported = GenSave.decode(raw, data)
+  check(imported.flags.EVENT_CHOSE_BULBASAUR,
+        "a BULBASAUR cartridge save imports with EVENT_CHOSE_BULBASAUR")
+
+  local picked
+  local realStart = Commands.start_battle
+  Commands.start_battle = function(_, _, _, party) picked = party end
+  local ok, err = pcall(Commands.rival_battle,
+                        { save = imported, game = { data = data } }, "OPP_RIVAL2", 4)
+  Commands.start_battle = realStart
+  check(ok, "rival_battle runs on the imported save (" .. tostring(err) .. ")")
+  check(picked == 6,
+        "Tower 2F picks OPP_RIVAL2 party 6 (CHARMELEON), not 4 (WARTORTLE) -- got "
+        .. tostring(picked))
 end
 
 print(string.format("save convert: %d/%d checks passed", checks - failures, checks))

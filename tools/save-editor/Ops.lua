@@ -910,6 +910,8 @@ function Ops.maxMoney(S)
   return Ops.addMoney(S, Ops.MONEY_MAX)
 end
 
+-- ram/wram.asm:1908 wPlayerCoins is two BCD bytes, so 9999 is the ceiling on
+-- both generations (misc_constants.asm:47 MAX_COINS).
 Ops.COIN_MAX = 9999
 
 function Ops.addCoins(S, delta)
@@ -921,6 +923,10 @@ function Ops.addCoins(S, delta)
   end
   Gen.setCoins(S.save, want)
   return Ops.mark(S, ("Coins set to %d"):format(want))
+end
+
+function Ops.maxCoins(S)
+  return Ops.addCoins(S, Ops.COIN_MAX)
 end
 
 function Ops.addToBag(S, id)
@@ -959,6 +965,105 @@ function Ops.bagDrop(S, id)
   return Ops.mark(S, ("Dropped all %d %s"):format(qty, id))
 end
 
+-- home/list_menu.asm:474 IsKeyItem (Gen 1 prints no count for key items or
+-- HMs); ram/wram.asm:3115 wKeyItems (Gen 2 stores that pocket as bare ids)
+-- and engine/items/tmhm.asm:390 prints no count for an HM.
+function Ops.itemStacks(S, id)
+  if not id then return false end
+  if Gen.ofState(S) == 2 then
+    return Bag.pocketOf(id, S.data) ~= "KEY_ITEM"
+      and tostring(id):sub(1, 3) ~= "HM_"
+  end
+  local def = S.data and S.data.items and S.data.items[id]
+  return not ((def and def.keyItem) or tostring(id):find("^HM_") ~= nil)
+end
+
+-- engine/items/inventory.asm:74 caps a slot at 99
+function Ops.bagMax(S, id)
+  if not id then return Ops.say(S, "No bag row selected") end
+  local have = S.save.inventory[id] or 0
+  if have <= 0 then return Ops.say(S, ("%s is not in the bag"):format(id)) end
+  if not Ops.itemStacks(S, id) then
+    return Ops.say(S, ("%s has no quantity to max"):format(id))
+  end
+  if have >= Ops.STACK_MAX then
+    return Ops.say(S, ("%s is already at x%d"):format(id, Ops.STACK_MAX))
+  end
+  Bag.add(S.save, id, Ops.STACK_MAX - have, S.data)
+  return Ops.mark(S, ("%s x%d"):format(id, Ops.STACK_MAX))
+end
+
+function Ops.bagCanMax(S, id)
+  if id then
+    local have = S.save.inventory[id] or 0
+    return have > 0 and have < Ops.STACK_MAX and Ops.itemStacks(S, id)
+  end
+  for _, rowId in ipairs(Bag.order(S.save, S.data)) do
+    if Ops.bagCanMax(S, rowId) then return true end
+  end
+  return false
+end
+
+function Ops.bagMaxAll(S)
+  local order = Bag.order(S.save, S.data)
+  local ids = {}
+  for i = 1, #order do ids[i] = order[i] end
+  local n = 0
+  for _, id in ipairs(ids) do
+    local have = S.save.inventory[id] or 0
+    if have > 0 and have < Ops.STACK_MAX and Ops.itemStacks(S, id) then
+      Bag.add(S.save, id, Ops.STACK_MAX - have, S.data)
+      n = n + 1
+    end
+  end
+  if n == 0 then
+    return Ops.say(S, ("Every bag stack is already at x%d"):format(Ops.STACK_MAX))
+  end
+  return Ops.mark(S, ("Maxed %d bag stack%s to x%d")
+    :format(n, n == 1 and "" or "s", Ops.STACK_MAX))
+end
+
+-- constants/item_data_constants.asm:41
+local POCKET_RANK = { ITEM = 1, BALL = 2, KEY_ITEM = 3, TM_HM = 4 }
+
+local ITEM_SORT_KEYS = {
+  index = function(def, id) return (def and def.index) or math.huge end,
+  name = function(def, id)
+    return tostring((def and def.name) or id):lower()
+  end,
+}
+
+local function itemRows(S, ids, mode)
+  local make = ITEM_SORT_KEYS[mode] or ITEM_SORT_KEYS.index
+  local items = S.data and S.data.items
+  local gen2 = Gen.ofState(S) == 2
+  local rows = {}
+  for i = 1, #ids do
+    local id = ids[i]
+    local def = items and items[id]
+    rows[i] = { id = id, key = make(def, id),
+      rank = gen2 and (POCKET_RANK[Bag.pocketOf(id, S.data)] or 9) or 0 }
+  end
+  table.sort(rows, function(a, b)
+    if a.rank ~= b.rank then return a.rank < b.rank end
+    if a.key ~= b.key then return a.key < b.key end
+    return a.id < b.id
+  end)
+  local out = {}
+  for i = 1, #rows do out[i] = rows[i].id end
+  return out
+end
+
+function Ops.bagSort(S, mode)
+  if not ITEM_SORT_KEYS[mode] then return false end
+  local order = Bag.order(S.save, S.data)
+  if #order < 2 then return Ops.say(S, "Nothing to sort in the bag") end
+  local sorted = itemRows(S, order, mode)
+  for i = 1, #sorted do order[i] = sorted[i] end
+  S.bagOffset = 0
+  return Ops.mark(S, ("Bag sorted by %s (%d items)"):format(mode, #order))
+end
+
 function Ops.pcItems(S)
   S.save.pcItems = S.save.pcItems or {}
   return S.save.pcItems
@@ -967,8 +1072,29 @@ end
 function Ops.pcOrder(S)
   local ids = {}
   for id in pairs(Ops.pcItems(S)) do ids[#ids + 1] = id end
-  table.sort(ids)
-  return ids
+  return itemRows(S, ids, S.pcSort)
+end
+
+function Ops.pcSort(S, mode)
+  if not ITEM_SORT_KEYS[mode] then return false end
+  local repeated = S.pcSort == mode
+  S.pcSort = mode
+  if not repeated then S.pcOffset = 0 end
+  local stored = S.save.pcOrder
+  if type(stored) == "table" then
+    local sorted = Ops.pcOrder(S)
+    local same = #stored == #sorted
+    for i = 1, #sorted do
+      if stored[i] ~= sorted[i] then same = false end
+    end
+    if not same then
+      S.pcOffset = 0
+      for i = 1, #stored do stored[i] = nil end
+      for i = 1, #sorted do stored[i] = sorted[i] end
+      return Ops.mark(S, ("PC storage sorted by %s"):format(mode))
+    end
+  end
+  return not repeated
 end
 
 function Ops.addToPc(S, id)
@@ -1005,6 +1131,50 @@ function Ops.pcDrop(S, id)
   local qty = pc[id] or 0
   pc[id] = nil
   return Ops.mark(S, ("Dropped all %d %s from PC storage"):format(qty, id))
+end
+
+function Ops.pcMax(S, id)
+  if not id then return Ops.say(S, "No PC row selected") end
+  local pc = Ops.pcItems(S)
+  if not pc[id] then return Ops.say(S, ("%s is not in PC storage"):format(id)) end
+  if not Ops.itemStacks(S, id) then
+    return Ops.say(S, ("%s has no quantity to max"):format(id))
+  end
+  if pc[id] >= Ops.STACK_MAX then
+    return Ops.say(S, ("%s is already at x%d"):format(id, Ops.STACK_MAX))
+  end
+  pc[id] = Ops.STACK_MAX
+  return Ops.mark(S, ("%s x%d in PC storage"):format(id, Ops.STACK_MAX))
+end
+
+function Ops.pcCanMax(S, id)
+  local pc = Ops.pcItems(S)
+  if id then
+    return (pc[id] or 0) > 0 and pc[id] < Ops.STACK_MAX and Ops.itemStacks(S, id)
+  end
+  for rowId, qty in pairs(pc) do
+    if qty > 0 and qty < Ops.STACK_MAX and Ops.itemStacks(S, rowId) then
+      return true
+    end
+  end
+  return false
+end
+
+function Ops.pcMaxAll(S)
+  local pc = Ops.pcItems(S)
+  local n = 0
+  for _, id in ipairs(Ops.pcOrder(S)) do
+    local qty = pc[id] or 0
+    if qty > 0 and qty < Ops.STACK_MAX and Ops.itemStacks(S, id) then
+      pc[id] = Ops.STACK_MAX
+      n = n + 1
+    end
+  end
+  if n == 0 then
+    return Ops.say(S, ("Every PC stack is already at x%d"):format(Ops.STACK_MAX))
+  end
+  return Ops.mark(S, ("Maxed %d PC stack%s to x%d")
+    :format(n, n == 1 and "" or "s", Ops.STACK_MAX))
 end
 
 -- Badges are truthy inventory flags, not stackable items, which is why the

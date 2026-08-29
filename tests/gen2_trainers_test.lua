@@ -332,4 +332,94 @@ fightWorld:startScriptedBattle(champion, nil, function() end)
 eq(fought.opts and fought.opts.battle and fought.opts.battle.trainer.name,
   "CHAMPION LANCE", "and no other class loses its prefix")
 
+-- engine/overworld/scripting.asm Script_startbattle
+fought.opts = nil
+local refused = "unset"
+check(fightWorld:startScriptedBattle(nil, nil, function(result)
+  refused = result
+end) == false, "a battle with no trainer and no wild mon does not start")
+check(fought.opts == nil, "and no battle screen is pushed")
+eq(refused, nil, "the script is answered with nil, not a fabricated win")
+
+fought.opts = nil
+refused = "unset"
+check(fightWorld:startScriptedBattle({ class = 1, member = 2, name = "GHOST",
+  className = "CHAMPION", roster = {} }, nil, function(result)
+  refused = result
+end) == false, "nor does a member whose party builds empty")
+eq(refused, nil, "answered with nil the same way")
+
+local missingEvents = Events.new()
+local MISSING_FLAG = 1169
+local missingShown, missingLooked = {}, {}
+local missingVm = Vm.new(scripts, texts, missingEvents, {
+  showText = function(body, onDone) missingShown[#missingShown + 1] = body onDone() end,
+  showEmote = function() end,
+  trainerApproach = function(onDone) onDone() end,
+  encounterMusic = function() end,
+  lookupTrainer = function(class, member)
+    missingLooked[#missingLooked + 1] = tostring(class) .. "/" .. tostring(member)
+    return nil
+  end,
+  startBattle = function(_trainer, _wild, onDone) onDone(nil) end,
+})
+missingVm.trainerObject = { event = MISSING_FLAG, class = 53, member = 20,
+  seenText = "t:seen", scriptKey = "s:after" }
+check(missingVm:start(SEEN_SCRIPT), "the seen-by script runs")
+for _ = 1, 60 do missingVm:update() end
+check(not missingVm:running(), "and stops at the refused battle")
+check(not missingEvents:get(MISSING_FLAG),
+  "no SET_FLAG: the trainer is still unbeaten")
+eq(missingShown[2], nil, "and the after-battle script never ran")
+check(missingVm.missingTrainers and missingVm.missingTrainers["53/20"],
+  "the missing class/member pair is named in the log ledger")
+
+-- home/trainers.asm _CheckTrainerBattle gates the sight cone on the same flag.
+missingShown = {}
+check(missingVm:start(TALK_SCRIPT), "talk-to-trainer runs against the same struct")
+for _ = 1, 60 do missingVm:update() end
+check(not missingEvents:get(MISSING_FLAG), "still unbeaten")
+eq(missingShown[1], nil, "and the after-battle line did not print")
+
+-- home/trainers.asm:13 _CheckTrainerBattle samples the cone every frame
+local ghost = { event = MISSING_FLAG, class = 53, member = 20,
+  seenText = "t:seen", scriptKey = "s:after" }
+local ghostVm = Vm.new(scripts, texts, fightWorld.events, {
+  showText = function(_body, onDone) onDone() end,
+  showEmote = function() end,
+  trainerApproach = function(onDone) onDone() end,
+  encounterMusic = function() end,
+  lookupTrainer = function() return nil end,
+  startBattle = function(_trainer, _wild, onDone) onDone(nil) end,
+})
+fightWorld.vm = ghostVm
+fightWorld.player = { cellX = 5, cellY = 8, facing = "up", moving = false }
+fightWorld.npcs = { { cellX = 5, cellY = 5, facing = "down",
+  def = { index = 0, sight = 4, trainer = ghost } } }
+fightGame.save.party = { { species = "PIDGEY" } }
+
+eq(Trainers.sees(fightWorld.npcs[1], fightWorld.player, 4), 3,
+  "the ghost trainer's sight line reaches the player")
+ghostVm.trainerObject = ghost
+fightWorld.trainerNpc = fightWorld.npcs[1]
+check(fightWorld:startScriptedBattle(nil, nil, function() end) == false,
+  "the struct the port cannot build refuses its battle")
+check(not fightWorld:checkTrainerBattle(),
+  "and the sight cone does not engage it again")
+check(not ghostVm:running(), "so no seen-by script is started")
+check(not fightWorld.events:get(MISSING_FLAG),
+  "with the beat flag still clear")
+
+fightWorld.map.cellCollision = function() return 0 end
+fightWorld.player.cellX, fightWorld.player.cellY = 5, 6
+pcall(function() fightWorld:interactBody() end)
+eq(ghostVm.lastTalked, 1, "the A press reached the facing trainer object")
+check(not ghostVm:running(),
+  "an A press on a refused trainer starts no talk script either")
+check(not fightWorld.events:get(MISSING_FLAG), "and sets no flag")
+
+fightWorld.refusedTrainers = nil
+check(fightWorld:checkTrainerBattle(),
+  "the same cone engages once the refusal is cleared")
+
 S.finish()

@@ -64,7 +64,8 @@ end
 local function argFlag(argv, name)
   if type(argv) ~= "table" then return false end
   for i = 1, #argv do
-    if argv[i] == "--" .. name then return true end
+    local a = argv[i]
+    if a == "--" .. name or a == "-" .. name then return true end
   end
   return false
 end
@@ -100,6 +101,24 @@ function LaunchOptions.forceLauncher(argv)
   return argFlag(argv, "launcher") or os.getenv("POKEPORT_FORCE_LAUNCHER") == "1"
 end
 
+local function taskFlag(argv, rawArgv, name, env)
+  if argFlag(argv, "no-" .. name) or argFlag(rawArgv, "no-" .. name) then
+    return false
+  end
+  if argFlag(argv, name) or argFlag(rawArgv, name) then return true end
+  local v = os.getenv(env)
+  if v == "1" then return true end
+  if v == "0" then return false end
+  return nil
+end
+
+function LaunchOptions.tasks(argv, rawArgv)
+  return {
+    sync = taskFlag(argv, rawArgv, "sync", "POKEPORT_LAUNCH_SYNC"),
+    update = taskFlag(argv, rawArgv, "update", "POKEPORT_LAUNCH_UPDATE") == true,
+  }
+end
+
 -- Point a version at a save slot before it boots.  Accepts either a slot id
 -- ("slot2") or a 1-based index ("2"), because a shortcut author should not
 -- have to know the internal id scheme.  A slot that does not exist is
@@ -127,9 +146,13 @@ end
 
 -- The shortcut command a player would use for this game, for the launcher to
 -- show and for docs to quote.
-function LaunchOptions.commandFor(version, slot)
+function LaunchOptions.commandFor(version, slot, tasks)
   local cmd = "--game " .. tostring(version)
   if slot then cmd = cmd .. " --slot " .. tostring(slot) end
+  if type(tasks) == "table" then
+    if tasks.update then cmd = cmd .. " --update" end
+    if tasks.sync == false then cmd = cmd .. " --no-sync" end
+  end
   return cmd
 end
 

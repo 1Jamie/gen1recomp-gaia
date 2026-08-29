@@ -22,14 +22,25 @@
 -- spelling.
 local Nests = {}
 
--- constants/landmark_constants.asm.  LANDMARK_SPECIAL is 0 and never a nest.
+-- ../pokecrystal/constants/landmark_constants.asm:34
 Nests.LANDMARK_PALLET_TOWN = 0x2e
 Nests.LANDMARK_FAST_SHIP = 0x5e
 
-function Nests.regionOf(landmark)
+local function landmarkIndexOf(data, id, fallback)
+  local landmarks = data and data.gen2Landmarks
+  local records = landmarks and landmarks.landmarks
+  local record = records and records["LANDMARK_" .. id]
+  local index = type(record) == "table" and tonumber(record.index)
+  return index or fallback
+end
+
+function Nests.regionOf(landmark, data)
   if not landmark or landmark <= 0 then return nil end
-  if landmark >= Nests.LANDMARK_FAST_SHIP then return nil end
-  return (landmark < Nests.LANDMARK_PALLET_TOWN) and "johto" or "kanto"
+  if landmark >= landmarkIndexOf(data, "FAST_SHIP", Nests.LANDMARK_FAST_SHIP) then
+    return nil
+  end
+  local kanto = landmarkIndexOf(data, "PALLET_TOWN", Nests.LANDMARK_PALLET_TOWN)
+  return (landmark < kanto) and "johto" or "kanto"
 end
 
 -- ---------------------------------------------------------- the landmarks
@@ -124,7 +135,7 @@ function Nests.find(data, species, region, save)
   local out, seen = {}, {}
   local function add(landmark)
     if not landmark or landmark <= 0 or seen[landmark] then return end
-    local where = Nests.regionOf(landmark)
+    local where = Nests.regionOf(landmark, data)
     if not where then return end
     if region and where ~= region then return end
     seen[landmark] = true

@@ -378,6 +378,58 @@ do
     "tag filters")
 end
 
+
+do
+  local mods = {
+    { id = "gen1only", title = "Gen 1 Only", games = { "gen1" } },
+    { id = "goldonly", title = "Gold Only", games = { "gold" } },
+    { id = "everywhere", title = "Everywhere", games = { "all" } },
+    { id = "silent", title = "Silent" },
+  }
+  eq(#ModIndex.filter(mods, {}), 4, "no game filter keeps every listing")
+  local gen1 = ModIndex.filter(mods, { game = "gen1" })
+  eq(#gen1, 3, "gen1 keeps the Gen 1 mods, the all-games mod and the silent one")
+  eq(gen1[1].id, "gen1only", "feed order survives the game filter")
+  local gen2 = ModIndex.filter(mods, { game = "gen2" })
+  eq(#gen2, 3, "gen2 drops the Gen 1-only mod")
+  eq(gen2[1].id, "goldonly", "and keeps the one that names a Gen 2 game")
+  eq(#ModIndex.filter(mods, { game = "red" }), 3,
+    "a single version reads the generation's mods too")
+  eq(ModIndex.filter(mods, { game = "gold" })[1].id, "goldonly",
+    "and a Gen 2 version keeps a mod that names only that game")
+  eq(#ModIndex.filter(mods, { game = "all" }), 4, '"all" filters nothing')
+  eq(#ModIndex.filter(mods, { game = "nonsense" }), 4,
+    "a token naming no game this engine has filters nothing")
+  local silentSeen = false
+  for _, entry in ipairs(gen2) do
+    if entry.id == "silent" then silentSeen = true end
+  end
+  check(silentSeen, "a listing with no games stays in every game's list")
+
+  local carts = {
+    { id = "johto", kind = "cart", base = "gold" },
+    { id = "kanto", kind = "cart", base = "red" },
+  }
+  eq(ModIndex.filter(carts, { game = "gen2" })[1].id, "johto",
+    "a cart is filtered by the game it plays as")
+  eq(#ModIndex.filter(carts, { game = "gen1" }), 1,
+    "and only that game")
+end
+
+do
+  eq(ModIndex.targetLabel({ games = { "red", "blue", "yellow" } }), "GEN 1",
+    "a whole generation chips as GEN 1")
+  eq(ModIndex.targetLabel({ games = { "all" } }), "GEN 1+2",
+    "every game chips as both generations")
+  eq(ModIndex.targetLabel({ games = { "gold" } }), "GOLD",
+    "a lone game chips as its own name")
+  check(ModIndex.targetLabel({}) == nil, "a listing with no games has no chip")
+  check(ModIndex.targetLabel(nil) == nil, "and neither does a nil entry")
+  eq(#ModIndex.targets({ games = { "gen1" } }), 3,
+    "targets expands a generation token to its versions")
+  eq(#ModIndex.targets({}), 0, "and an undeclared games list is empty")
+end
+
 do
   local index = ModIndex.parse(feed({ NUZLOCKE }))
   local cats = ModIndex.categoriesIn(index)

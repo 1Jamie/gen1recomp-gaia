@@ -82,6 +82,14 @@ return function(game)
           end
         end
         if dup then worst = "two source rows landed on one scanline" end
+        if bg.lcdc then
+          local last = math.min(bg.lyEnd, BattleAnimView.SCREEN_H) - 1
+          for row = bg.lyStart, last do
+            if not seen[row] and (bg.lyBackup[row] or 0) ~= 0x90 then
+              worst = "scanline " .. row .. " was left blank"
+            end
+          end
+        end
         scanned = scanned + 1
       end
       U.wait(1)
@@ -104,6 +112,14 @@ return function(game)
     { "WITHDRAW", "04-withdraw", 20,
       "WITHDRAW parks rows on $90: TOTODILE sinks out of sight row by row.",
       "Wrong is the pic staying put, or the whole panel jumping." },
+    { "NIGHT_SHADE", "05-night-shade", 10,
+      "NIGHT SHADE: the enemy window starts at scanline 0, so the wave",
+      "reaches the very top of the screen.  Wrong is a white line flashing",
+      "across the top row every few frames (#1921)." },
+    { "SURF", "06-surf", 30,
+      "SURF: the wave rolls up the screen and everything it has passed",
+      "ripples with it -- pics and HUD boxes sheared, not ruler straight",
+      "(#1920)." },
   }
 
   for _, entry in ipairs(shots) do

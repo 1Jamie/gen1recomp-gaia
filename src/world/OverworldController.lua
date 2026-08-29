@@ -1135,6 +1135,7 @@ function OverworldState:update(dt)
       if da.onDone then da.onDone() end
     end
   end
+  self:tickPoisonFlash()
   -- scripts/VermilionDock.asm:80 .shift_columns_up
   if self.shipAnim and not self.shipAnim.gone then
     local sa = self.shipAnim
@@ -2758,13 +2759,14 @@ function OverworldState:billsHouseBillExits()
   local ctx = { game = Game, save = Game.save, overworld = self }
   Commands.show_object(ctx, "BILLS_HOUSE", "BILLSHOUSE_BILL1")
   require("src.world.PikachuFollower").onBillExitedMachine(Game, self)
+  local bill
   local function done()
     Game.save.flags.EVENT_MET_BILL = true
     Game.save.flags.EVENT_MET_BILL_2 = true
     require("src.core.Music").playMap(Game.data, self.map.id,
                                       Game.save.onBike, self.player.surfing)
+    self:billsHouseSSTicketScene(bill)
   end
-  local bill
   for _, n in ipairs(self.npcs) do
     if n.def and n.def.name == "BILLSHOUSE_BILL1" then bill = n break end
   end
@@ -2780,6 +2782,22 @@ function OverworldState:billsHouseBillExits()
       self:scriptMove(bill, "down", 1, done)
     end)
   end)
+end
+
+-- pokeyellow scripts/BillsHouse.asm:211, :232
+function OverworldState:billsHouseSSTicketScene(bill)
+  if not GameVersion.isYellow() then return end
+  local function talk()
+    self.player.facing = "up"
+    if bill then bill.facing = "down" end
+    self:showMapText("TEXT_BILLSHOUSE_BILL_SS_TICKET", bill)
+  end
+  if not bill then
+    talk()
+    return
+  end
+  -- RLE_1e219, pokeyellow scripts/BillsHouse.asm:228
+  self:scriptMove(self.player, "right", 3, talk)
 end
 
 -- Any hidden item still unfound NEAR the player? (the ITEMFINDER,
@@ -4003,6 +4021,28 @@ end
 
 -- -------------------------------------------------------------------------
 -- step events
+-- engine/gfx/screen_effects.asm:7-8
+function OverworldState:tickPoisonFlash()
+  if (self.poisonFlash or 0) > 0 then
+    self.poisonFlash = self.poisonFlash - 1
+  end
+end
+
+-- engine/events/poison.asm:57, :93
+function OverworldState:poisonFlashLive()
+  if (self.poisonFlash or 0) <= 0 then return false end
+  return not (Game and Game.stack) or Game.stack:top() == self
+end
+
+function OverworldState:poisonShadeMap()
+  if not self:poisonFlashLive() then return nil end
+  if PaletteFX.usesGbcPack() and self.map and self.map.renderer
+     and self.map.renderer.gbcAtlas then
+    return nil
+  end
+  return PaletteFX.POISON_BGP
+end
+
 -- Field poison (engine/events/poison.asm ApplyOutOfBattlePoisonDamage):
 -- every 4th step, 1 HP per poisoned mon; the BG flickers dark with
 -- SFX_POISONED; fainted mons get their message; a whole-party faint
@@ -4030,9 +4070,16 @@ function OverworldState:applyFieldPoison()
     end
   end
   if not anyPoisoned then return false end
-  require("src.core.Sound").play(Game.data, "Poisoned")
-  -- engine/gfx/screen_effects.asm:7-8
-  self.poisonFlash = 4
+  -- engine/events/poison.asm:75-91 .countPoisonedLoop
+  local stillPoisoned = false
+  for _, mon in ipairs(save.party) do
+    if mon.status == "PSN" then stillPoisoned = true break end
+  end
+  if stillPoisoned then
+    require("src.core.Sound").play(Game.data, "Poisoned")
+    -- engine/gfx/screen_effects.asm:7-8
+    self.poisonFlash = 4
+  end
   local queue = {}
   for _, mon in ipairs(fainted) do
     local name = mon.nickname or Game.data.pokemon[mon.species].name
@@ -5213,8 +5260,9 @@ function OverworldState:drawWorld()
   -- original's saved offset means.
   local battleOverWorld = Game and Game.stack
                           and Game.worldBgBattleInStack(Game.stack)
+  -- home/fade.asm:66
   PaletteFX.setShadeMap((self.dark and not battleOverWorld)
-                        and PaletteFX.DARK_BGP or nil)
+                        and PaletteFX.DARK_BGP or self:poisonShadeMap())
   -- advance the water/flower tile animation (runs under dialogs too).
   -- TileRenderer.tick uses wall-clock 60Hz steps so display refresh rate
   -- does not speed or slow the cycle (issue #4).
@@ -5784,13 +5832,13 @@ function OverworldState:drawUI()
   end
 
   -- engine/gfx/screen_effects.asm:1-12
-  if self.poisonFlash and self.poisonFlash > 0 then
-    self.poisonFlash = self.poisonFlash - 1
+  if self:poisonFlashLive() then
     local r = Game and Game.renderer
-    if PaletteFX.shader() then
+    local map = self:poisonShadeMap()
+    if PaletteFX.shader() and map then
       -- home/fade.asm:66
       if not PaletteFX.shadeMap() then
-        PaletteFX.setShadeMap(PaletteFX.POISON_BGP)
+        PaletteFX.setShadeMap(map)
       end
     elseif r then
       r.screenVeil = { 0, 0.45 }

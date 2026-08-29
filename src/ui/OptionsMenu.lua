@@ -25,6 +25,7 @@ local Orientation = require("src.core.Orientation")
 local FaithfulRes = require("src.core.FaithfulRes")
 local ScreenPosition = require("src.core.ScreenPosition")
 local FrameCap = require("src.core.FrameCap")
+local VSync = require("src.core.VSync")
 local Performance = require("src.core.Performance")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
@@ -480,6 +481,16 @@ local function buildRows(game)
         FrameCap.apply(o.fpsCap)
         return true
       end },
+    { id = "vsync", label = Strings("VSYNC"),
+      value = function(g)
+        return Strings(VSync.label(g.save.options.vsync))
+      end,
+      step = function(g, dir)
+        local o = g.save.options
+        o.vsync = VSync.cycle(o.vsync, dir)
+        VSync.apply(o.vsync)
+        return true
+      end },
     -- fast-forward the logic clock only; music and sfx keep their tempo
     -- (src/core/GameSpeed.lua), so this is safe to leave on. Per-category
     -- (RFC 0007): overworld walking, battle turns and menu navigation each
@@ -584,6 +595,17 @@ local function buildRows(game)
         TC.buzz(o.haptics)
         return true
       end },
+    { id = "hotbar", label = Strings("KEY BAR"),
+      value = function(g)
+        return g.save.options.hotbar == false and Strings("OFF")
+               or Strings("ON")
+      end,
+      step = function(g)
+        local o = g.save.options
+        o.hotbar = o.hotbar == false
+        require("src.core.TouchControls"):applyOptions(o)
+        return true
+      end },
   }
   -- ORIENTATION only on the platforms Orientation.apply reaches (#1638).
   if not (Orientation.isAndroid() or Orientation.isIOS()) then
@@ -605,7 +627,8 @@ local function buildRows(game)
     if not show then
       local filtered = {}
       for _, row in ipairs(rows) do
-        if row.id ~= "touchControls" and row.id ~= "haptics" then
+        if row.id ~= "touchControls" and row.id ~= "haptics"
+           and row.id ~= "hotbar" then
           filtered[#filtered + 1] = row
         end
       end
@@ -657,7 +680,7 @@ local GROUPS = {
     members = { "musicVol", "sfxVol", "pikaVol", "musicFilter" } },
   { id = "group.video", label = "VIDEO",
     members = { "uiLayout", "videoMode", "orientation", "faithfulRes",
-                "screenPos", "fpsCap" } },
+                "screenPos", "fpsCap", "vsync" } },
   { id = "group.speed", label = "SPEED",
     members = { "textSpeed", "speedOverworld", "speedBattle", "speedMenu" } },
   { id = "group.graphics", label = "GRAPHICS",

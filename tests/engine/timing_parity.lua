@@ -671,4 +671,76 @@ T.check(FixedStep.accum > FixedStep.STEP * 0.25
         and FixedStep.accum < FixedStep.STEP * 0.75,
   "the absorbed hitch frame leaves the accumulator mid-step, not on a boundary")
 
+
+T.eq(FixedStep.refreshPeriod, nil, "no refresh period is known headless")
+
+local function cadence(hz, frames, period, jitter)
+  local seed = 20250828
+  local counts, run, worst = {}, 0, 1
+  FixedStep.refreshPeriod = period
+  FixedStep:init(function() run = run + 1 end)
+  for i = 1, frames do
+    local before = run
+    local dt = 1 / hz
+    if jitter then
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      dt = dt + (seed / 2147483648 - 0.5) * 2 * jitter
+    end
+    FixedStep:update(dt)
+    counts[i] = run - before
+    local residual = FixedStep.accum % FixedStep.STEP
+    worst = math.min(worst, residual, FixedStep.STEP - residual)
+  end
+  FixedStep.refreshPeriod = nil
+  local seen = {}
+  for _, n in ipairs(counts) do seen[n] = (seen[n] or 0) + 1 end
+  return run, seen, worst
+end
+
+local ran, seen, margin = cadence(90, 180, 1 / 90)
+T.eq(ran, 120, "180 frames of a 90Hz panel are exactly 120 logic steps")
+T.eq(seen[0], 60, "60 of them draw the same logic frame twice")
+T.eq(seen[1], 120, "the other 120 advance once")
+T.eq(seen[2], nil, "and no display frame ever doubles up")
+T.check(margin > 0.002,
+  "the residual cycle sits clear of the step boundary at 90Hz")
+
+local _, jittered, jitterMargin = cadence(90, 180, 1 / 90, 0.001)
+T.eq(jittered[1], 120, "a millisecond of vsync wobble moves no step")
+T.eq(jittered[2], nil, "and doubles none up")
+T.check(jitterMargin > 0.002, "the snapped dt keeps the wobble out of the sum")
+
+local _, unsnapped, bareMargin = cadence(90, 180, nil)
+T.eq(unsnapped[1], 120, "the same stream unsnapped costs the same 120 steps")
+T.check(bareMargin < 0.0005,
+  "but parks the accumulator on the boundary, with nothing to absorb wobble")
+
+local at60, sixty = cadence(60, 180, 1 / 60)
+T.eq(at60, 180, "a 60Hz panel is one step per frame")
+T.eq(sixty[1], 180, "every frame, with no duplicate and no double")
+
+local at144 = cadence(144, 288, 1 / 144)
+T.eq(at144, 120, "288 frames of a 144Hz panel are 120 steps")
+
+local at5994, nearSixty, nearMargin = cadence(59.94, 600, 1 / 60)
+T.eq(at5994, 600, "a 59.94Hz panel quantized to 60 is still one step per frame")
+T.eq(nearSixty[2], nil, "with no frame ever doubling up")
+T.check(nearMargin > 0.002, "and no drift onto the step boundary")
+
+local rephased = 0
+FixedStep.refreshPeriod = 1 / 60
+FixedStep:init(function() rephased = rephased + 1 end)
+for i = 1, 120 do
+  FixedStep.refreshPeriod = (1 / 60) * (1 + (i % 2) * 1e-9)
+  FixedStep:update(1 / 60)
+end
+local rephasedMargin = math.min(FixedStep.accum % FixedStep.STEP,
+  FixedStep.STEP - FixedStep.accum % FixedStep.STEP)
+FixedStep.refreshPeriod = nil
+T.eq(rephased, 120, "a period re-reported every frame still costs one step a frame")
+T.check(rephasedMargin > 0.002,
+  "and the re-phase sets the residual instead of walking it onto the boundary")
+
+T.eq(FixedStep.refreshPeriod, nil, "and the period is left nil for everyone else")
+
 T.finish("timing parity")

@@ -1041,6 +1041,11 @@ local function runCmd(self, cmd, op)
       wild = self.wildMon })
     self.wildMon = nil
     self.trainer = nil
+    -- engine/overworld/scripting.asm Script_startbattle
+    if outcome == nil then
+      self.aborted = true
+      return "end"
+    end
     self.justBattled = true
     self.battleOutcome = outcome
     self.scriptVar = BATTLE_RESULTS[outcome] or BATTLE_RESULTS.win
@@ -2348,7 +2353,17 @@ end
 function Vm:lookupTrainer(class, member)
   if not (class and member) then return nil end
   if not self.lookupTrainerFn then return { class = class, member = member } end
-  return self.lookupTrainerFn(class, member)
+  local record = self.lookupTrainerFn(class, member)
+  if not record then
+    local key = tostring(class) .. "/" .. tostring(member)
+    self.missingTrainers = self.missingTrainers or {}
+    if not self.missingTrainers[key] then
+      self.missingTrainers[key] = true
+      Logger.warn("gen2 trainer class %s member %s is not in the roster",
+        tostring(class), tostring(member))
+    end
+  end
+  return record
 end
 
 -- `special` handlers.  The script command carries an index into

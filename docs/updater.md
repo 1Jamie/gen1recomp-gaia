@@ -122,6 +122,14 @@ bundled game, in that case.
 4. **Restart to apply**: a `ready` payload just sits in `updates/` until the
    player relaunches; the next launch's Boot step (1) is what actually
    mounts and runs it. There is no in-session hot-swap.
+   A shortcut launched with `--update` (`src/core/Prelaunch.lua`, #1657) is
+   the one path that does this without the launcher on screen: it runs steps
+   2-3 before `bootGame`, and on `ready` writes the one-shot
+   `launch_update.txt` marker and restarts, so the fresh boot chainloads the
+   payload in step 1 and then boots the game. The marker is consumed on that
+   next launch, so a payload that will not apply cannot restart-loop the
+   shortcut. `needs_full` is never acted on unattended; it falls through and
+   boots the game.
 5. **Native-package requirement**: when `minShell` or `payloadHost` is
    incompatible, the worker writes `full-update.json` and surfaces a
    persistent launcher control. Android downloads the release APK, verifies

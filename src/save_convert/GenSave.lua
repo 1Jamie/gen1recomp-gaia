@@ -93,6 +93,10 @@ O.statusFlags1 = O.townVisited + 29                       -- 1B
 O.statusFlags4 = O.townVisited + 35                       -- 1B
 O.elite4Flags = O.townVisited + 41                        -- 1B
 O.tradeFlags = O.townVisited + 44                         -- 2B (flag_array NUM_NPC_TRADES)
+-- +10 wRivalStarter / +12 wPlayerStarter from the same run (ram/wram.asm:2057-2078;
+-- engine/debug/debug_party.asm:119 ASSERTs the spacing) (#1625)
+O.rivalStarter = O.townVisited + 10
+O.playerStarter = O.townVisited + 12
 -- wToggleableObjectFlags (ram/wram.asm, flag_array $100): the ShowObject/
 -- HideObject persistence, one bit per data/maps/toggleable_objects.asm entry,
 -- set = hidden (engine/overworld/toggleable_objects.asm IsObjectHidden).
@@ -379,6 +383,15 @@ local EXTRA_FLAG_BITS = {
 
 -- port-local name -> the wEventFlags name it means (#396)
 local FLAG_ALIAS = { EVENT_RECEIVED_BIKE_VOUCHER = "EVENT_GOT_BIKE_VOUCHER" }
+
+-- scripts/OaksLab.asm:797-825
+local PLAYER_TO_RIVAL = {
+  CHARMANDER = "SQUIRTLE", SQUIRTLE = "BULBASAUR", BULBASAUR = "CHARMANDER",
+}
+local RIVAL_TO_PLAYER = {}
+for player, rival in pairs(PLAYER_TO_RIVAL) do RIVAL_TO_PLAYER[rival] = player end
+-- pokeyellow scripts/OaksLab.asm:1020 (wPlayerStarter) and :231/:381
+local YELLOW_STARTER = "PIKACHU"
 
 -- STATUS_* bits (constants/battle_constants.asm): 0-2 sleep-turns-left,
 -- 3 PSN, 4 BRN, 5 FRZ, 6 PAR
@@ -751,6 +764,25 @@ function GenSave.decode(bytes, data, opts)
     if save.flags[vanillaName] then save.flags[portName] = true end
   end
 
+  -- scripts/OaksLab.asm:335, :900-901
+  if save.flags.EVENT_GOT_STARTER then
+    local chosen = cw.pokemonByIndex[u8(bytes, O.playerStarter)]
+    if data.gameVersion == "yellow" then
+      if chosen ~= YELLOW_STARTER then chosen = nil end
+    elseif not PLAYER_TO_RIVAL[chosen or ""] then
+      chosen = RIVAL_TO_PLAYER[cw.pokemonByIndex[u8(bytes, O.rivalStarter)] or ""]
+    end
+    if chosen then
+      save.flags["EVENT_CHOSE_" .. chosen] = true
+    else
+      warn("no starter recorded in the save; rival parties will default")
+    end
+  end
+  if data.gameVersion == "yellow" then
+    local rival = u8(bytes, O.rivalStarter)
+    if rival >= 1 and rival <= 3 then save.rivalStarter = rival end
+  end
+
   -- wToggleableObjectFlags -> save.objectToggles (bit set = hidden).  A few
   -- of these are re-derived from flags on map entry (#106/#234 onEnter
   -- re-applies), but most ShowObject/HideObject state -- the Mt Moon
@@ -924,6 +956,24 @@ function GenSave.encode(save, data, template)
   if save.flags then
     for name, spec in pairs(EXTRA_FLAG_BITS) do
       bitSet(buf, spec[1], spec[2], save.flags[name] and true or false)
+    end
+  end
+
+  -- scripts/OaksLab.asm:322-323, :900-901
+  if data.gameVersion == "yellow" then
+    if save.flags and save.flags["EVENT_CHOSE_" .. YELLOW_STARTER] then
+      setByte(buf, O.playerStarter, cw.pokemonIndex[YELLOW_STARTER] or 0)
+    end
+    local rival = tonumber(save.rivalStarter)
+    if rival and rival >= 1 and rival <= 3 then
+      setByte(buf, O.rivalStarter, rival)
+    end
+  elseif save.flags then
+    for species, rival in pairs(PLAYER_TO_RIVAL) do
+      if save.flags["EVENT_CHOSE_" .. species] then
+        setByte(buf, O.playerStarter, cw.pokemonIndex[species] or 0)
+        setByte(buf, O.rivalStarter, cw.pokemonIndex[rival] or 0)
+      end
     end
   end
 

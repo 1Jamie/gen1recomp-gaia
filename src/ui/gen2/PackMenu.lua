@@ -409,6 +409,9 @@ function PackMenu:useSelected()
       -- _CoinCaseCountText (data/text/common_3.asm:336): "Coins:" then the
       -- count, text_decimal 4 digits with PRINTNUM_LEFTALIGN_F so no padding.
       self.message = { "Coins:", tostring(extra or 0) }
+    elseif result == "blue_card" then
+      -- _BlueCardBalanceText (../pokecrystal/data/text/common_3.asm:1297).
+      self.message = { "You now have", tostring(extra or 0) .. " points." }
     elseif result == "repel_used" then
       -- ItemUsedText (data/text/common_3.asm): "<PLAYER> used the\n<ITEM>."
       -- World already wrote the counter and took the item out of the bag, so

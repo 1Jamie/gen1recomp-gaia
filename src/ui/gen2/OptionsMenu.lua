@@ -327,6 +327,15 @@ local ROWS = {
       TC.buzz(options.haptics)
       if game and game.persistOptions then game:persistOptions() end
     end },
+  { id = "hotbar", label = Strings.source("KEY BAR"), port = true,
+    text = function(options)
+      return options.hotbar == false and Strings("OFF") or Strings("ON")
+    end,
+    cycle = function(options, _delta, game)
+      options.hotbar = options.hotbar == false
+      require("src.core.TouchControls"):applyOptions(options)
+      if game and game.persistOptions then game:persistOptions() end
+    end },
   { label = Strings.source("MAX FPS"), key = "fpsCap", port = true,
     cycle = function(options, delta)
       local FrameCap = require("src.core.FrameCap")
@@ -336,14 +345,22 @@ local ROWS = {
     text = function(options)
       return require("src.core.FrameCap").label(options.fpsCap)
     end },
+  { label = Strings.source("VSYNC"), key = "vsync", port = true,
+    cycle = function(options, delta)
+      local VSync = require("src.core.VSync")
+      options.vsync = VSync.cycle(options.vsync, delta)
+      VSync.apply(options.vsync)
+    end,
+    text = function(options)
+      return Strings(require("src.core.VSync").label(options.vsync))
+    end },
   { label = Strings.source("BATTLE SIZE"), key = "battleFit", port = true,
     values = { "fixed", "fill" },
     display = { fixed = "FIXED", fill = "FILL " } },
-  -- BATTLE BG (#1709): the void around the battle screen.  Gold has no WIDE
-  -- layout and no WORLD backdrop, so the ladder is the WHITE/BLACK pair only.
+  -- BATTLE BG (#1709): the void around the battle screen.
   { label = Strings.source("BATTLE BG"), key = "battleBg", port = true,
-    values = { "white", "black" },
-    display = { white = "WHITE", black = "BLACK" } },
+    values = { "white", "black", "world" },
+    display = { white = "WHITE", black = "BLACK", world = "WORLD" } },
   { label = Strings.source("BACK"), cancel = true },
 }
 
@@ -361,7 +378,7 @@ local GROUPS = {
   { id = "group.speed", label = Strings.source("SPEED"),
     members = { "textSpeed", "speed" } },
   { id = "group.video", label = Strings.source("VIDEO"),
-    members = { "videoMode", "screenPos", "fpsCap" } },
+    members = { "videoMode", "screenPos", "fpsCap", "vsync" } },
   { id = "group.graphics", label = Strings.source("GRAPHICS"),
     members = { "color", "uiLetterbox", "shaderfx", "shaderfx2", "frame" } },
   { id = "group.audio", label = Strings.source("AUDIO"),
@@ -445,7 +462,8 @@ local function buildRows()
     -- only has to drop this test.
     local hidden = row.key == "print"
       or (not showTouch and (row.id == "touchControls"
-          or row.id == "touchLayout" or row.id == "haptics"))
+          or row.id == "touchLayout" or row.id == "haptics"
+          or row.id == "hotbar"))
     if not hidden then
       local copy = {}
       for key, value in pairs(row) do copy[key] = value end

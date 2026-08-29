@@ -28,10 +28,13 @@ FIELDS = [
     "wKeyItems", "wNumBalls", "wBalls", "wTMsHMs", "wPokedexCaught",
     "wPokedexSeen", "wCurBox", "wBoxNames", "wMapGroup", "wMapNumber",
     "wXCoord", "wYCoord", "wEventFlags", "wPlayerState",
-    "wStatusFlags", "wStatusFlags2", "wPokegearFlags",
-    "wGameTimeHours", "wGameTimeMinutes",
+    "wStatusFlags", "wStatusFlags2", "wPokegearFlags", "wVisitedSpawns",
+    "wVariableSprites", "wGameTimeHours", "wGameTimeMinutes",
 ]
 GUARDS = ["sCheckValue1", "sCheckValue2", "sChecksum", "sGameData", "sGameDataEnd"]
+
+# ram/sram.asm:138-144
+SRAM_FIELDS = [("wPlayerGender", "sCrystalData", "wCrystalData")]
 
 # The 14 archived PC boxes. Emitted as real per-box offsets, never a stride:
 # boxes 1-7 live in SRAM bank 2 and 8-14 in bank 3, so the step from box 7 to
@@ -69,10 +72,13 @@ def backup_table(sym, rows, label):
               "sChecksum": off("sBackupChecksum"),
               "sGameData": off("sBackupGameData"),
               "sGameDataEnd": off("sBackupGameDataEnd")}
+    absolute = {n for n, _, _ in SRAM_FIELDS}
     out = []
     for name, value in rows:
         if name in guards:
             out.append((name, guards[name]))
+        elif name in absolute:
+            out.append((name, value))
         else:
             out.append((name, value + delta))
     return out
@@ -106,6 +112,10 @@ def table(sym, label):
             skipped.append(f + " (outside sGameData..sGameDataEnd)")
             continue
         rows.append((f, base + (w[1] - anchor)))
+    for name, sbase, wbase in SRAM_FIELDS:
+        if name in sym and sbase in sym and wbase in sym:
+            at = sym[sbase][0] * 0x2000 + (sym[sbase][1] - 0xA000)
+            rows.append((name, at + (sym[name][1] - sym[wbase][1])))
     boxes = []
     for i in range(1, BOX_COUNT + 1):
         b = sym.get("sBox%d" % i)

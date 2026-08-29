@@ -22,6 +22,18 @@ end
 
 do
   local world, fa = newWorld(), { leaves = {} }
+  world:spawnFlyLeaves(fa)
+  local leaf = fa.leaves[1]
+  local x, y = World.leafScreenPos(leaf)
+  T.eq(x, 2 + 0x40 - 12,
+    "XCOORD + XOFFSET less the OAM origin and .OAMData_Leaf's own -1 tile")
+  T.eq(y, 0x40 - 1 - 20, "and YCOORD the same way")
+  T.eq(select(1, World.leafScreenPos({ x = 0, y = 0 })), -12,
+    "a leaf with no XOFFSET yet still gets the bias")
+end
+
+do
+  local world, fa = newWorld(), { leaves = {} }
   local rows = {}
   for _ = 1, 32 do
     local before = #fa.leaves

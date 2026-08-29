@@ -22,6 +22,7 @@ local check, eq = T.check, T.eq
 local Gen2Save = require("src.save_convert.Gen2Save")
 local Gen2Layout = require("src.save_convert.Gen2Layout")
 local SaveConvert = require("src.save_convert.SaveConvert")
+local FieldMoves = require("src.world.gen2.FieldMoves")
 
 local SIZE = Gen2Save.SAVE_SIZE
 
@@ -65,7 +66,10 @@ local function pack(b)
   return table.concat(out)
 end
 
-local function build(version, bare)
+-- SPRITE_TWIN is $26 (constants/sprite_constants.asm:42,149,154).
+local WEIRD_TREE_SLOT, SPRITE_TWIN = 4, 0x26
+
+local function build(version, bare, female)
   local L = Gen2Save.layoutFor(version)
   local b = blank()
   putName(b, L.wPlayerName, "ASH")
@@ -95,7 +99,11 @@ local function build(version, bare)
   if not bare then
     put(b, L.wStatusFlags, 0x01)           -- STATUSFLAGS_POKEDEX_F
     put(b, L.wPokegearFlags, 0x81)         -- POKEGEAR_OBTAINED_F + map card
+    put(b, L.wVisitedSpawns + 1, 0x40)
+    put(b, L.wVisitedSpawns + 2, 0x05)
+    put(b, L.wVariableSprites + WEIRD_TREE_SLOT, SPRITE_TWIN)
   end
+  if L.wPlayerGender then put(b, L.wPlayerGender, female and 1 or 0) end
   put(b, L.wNumItems, 1); put(b, L.wItems, 20, 3); put(b, L.wItems + 2, 0xFF)
   put(b, L.wNumKeyItems, 1); put(b, L.wKeyItems, 7); put(b, L.wKeyItems + 1, 0xFF)
   put(b, L.wNumBalls, 1); put(b, L.wBalls, 5, 9); put(b, L.wBalls + 2, 0xFF)
@@ -157,6 +165,36 @@ for _, version in ipairs({ "gold", "silver", "crystal" }) do
     eq(bare.engineFlags[11], nil,
        version .. ": a save from before Mr. Pokemon's house has no dex flag")
     eq(bare.engineFlags[4], nil, version .. ": nor a POKEGEAR")
+
+    local shift = version == "crystal" and 1 or 0
+    eq(save.engineFlags[64 + shift], true, version .. ": ENGINE_FLYPOINT_NEW_BARK")
+    eq(save.engineFlags[66 + shift], true, version .. ": ENGINE_FLYPOINT_VIOLET")
+    eq(save.engineFlags[67 + shift], true,
+       version .. ": AZALEA is bit 18, not 17 -- SPAWN_UNION_CAVE has no flag")
+    eq(save.engineFlags[65 + shift], nil,
+       version .. ": a town the cart never reached stays unflyable")
+    eq(bare.engineFlags[64 + shift], nil,
+       version .. ": and a pre-Mr.-Pokemon save has no flypoint at all")
+    if shift == 0 then
+      eq(FieldMoves.hasVisitedSpawn(save, "SPAWN_AZALEA"), true,
+         version .. ": FLY offers the town the cart unlocked")
+      eq(FieldMoves.hasVisitedSpawn(save, "SPAWN_CHERRYGROVE"), false,
+         version .. ": and not the one it did not")
+      eq(FieldMoves.hasVisitedSpawn(bare, "SPAWN_NEW_BARK"), false,
+         version .. ": a fresh cart offers nothing")
+    end
+
+    eq(save.variableSprites[WEIRD_TREE_SLOT], SPRITE_TWIN,
+       version .. ": the SPRITE_WEIRD_TREE slot comes off the cart")
+    eq(save.variableSprites[0], nil,
+       version .. ": a slot the cart never filled stays absent for World's seed")
+
+    -- constants/ram_constants.asm:177 (#1907)
+    eq(save.player.gender, version == "crystal" and "male" or nil,
+       version .. ": Gold and Silver have no gender byte to read")
+    local kris = assert(Gen2Save.decode(build(version, false, true), version))
+    eq(kris.player.gender, version == "crystal" and "female" or nil,
+       version .. ": sCrystalData bit 0 is the imported gender")
   end
 end
 
@@ -260,6 +298,9 @@ do
   save.events[9] = 0xA5
   save.party[1].moves[1].pp = 12
   save.engineFlags[11] = nil
+  save.engineFlags[66] = nil
+  save.engineFlags[69] = true
+  save.variableSprites[6] = 0x35
 
   local out = assert(Gen2Save.encode(save, "gold", cart, data))
   eq(#out, #cart, "the image keeps its size")
@@ -288,6 +329,39 @@ do
   -- engine/menus/save.asm
   eq(back.engineFlags[11], nil, "a cleared engine flag clears its SRAM bit")
   eq(back.engineFlags[4], true, "and the ones left alone stay set")
+
+  -- engine/pokegear/pokegear.asm:2189 (#1906)
+  eq(back.engineFlags[66], nil, "a cleared flypoint clears its wVisitedSpawns bit")
+  eq(back.engineFlags[69], true, "and a newly earned one is written")
+  eq(back.engineFlags[64], true, "with the neighbours on either side untouched")
+  eq(back.engineFlags[67], true, "AZALEA included, across the UNION_CAVE hole")
+
+  -- engine/overworld/scripting.asm:869 (#1905)
+  eq(back.variableSprites[WEIRD_TREE_SLOT], SPRITE_TWIN,
+     "the twins' slot survives the round trip")
+  eq(back.variableSprites[6], 0x35, "and a slot filled inside the port is written")
+end
+
+-- ram/sram.asm:138-144
+do
+  eq(Gen2Layout.goldSilver.wPlayerGender, nil,
+     "Gold and Silver have no gender byte")
+  eq(Gen2Layout.crystal.wPlayerGender, Gen2Layout.crystal.backup.wPlayerGender,
+     "the Crystal backup shares the primary's gender byte")
+
+  local cart = build("crystal", false, true)
+  local save = assert(Gen2Save.decode(cart, "crystal"))
+  eq(save.player.gender, "female", "Kris imports as Kris")
+  local out = assert(Gen2Save.encode(save, "crystal", cart))
+  eq(out:byte(Gen2Layout.crystal.wPlayerGender + 1) % 2, 1,
+     "and exports back into sCrystalData bit 0")
+
+  save.player.gender = "male"
+  local male = assert(Gen2Save.encode(save, "crystal", cart))
+  eq(male:byte(Gen2Layout.crystal.wPlayerGender + 1) % 2, 0,
+     "a gender changed in the port reaches the cart image")
+  eq(assert(Gen2Save.decode(male, "crystal")).player.gender, "male",
+     "and reads back as Chris")
 end
 
 -- engine/pokemon/stats_screen.asm (#1899)

@@ -49,7 +49,10 @@ local function letterboxPaper()
   return c[1] / 255, c[2] / 255, c[3] / 255
 end
 
+Chrome.worldSurround = false
+
 function Chrome.letterbox(winW, winH, r, g, b)
+  if Chrome.worldSurround then return end
   local Letterbox = require("src.render.Letterbox")
   local G = love.graphics
   G.setColor(Letterbox.fill(r or 1, g or 1, b or 1, letterboxPaper))

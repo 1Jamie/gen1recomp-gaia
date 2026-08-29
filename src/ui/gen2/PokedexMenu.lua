@@ -902,7 +902,8 @@ end
 function PokedexMenu:drawAreaHeader(title)
   local pals = self.mapGfx and self.mapGfx.palettes
   local pal = pals and pals[1]
-  local paper = pal and GbcPalette.color(pal, 1) or { 255, 255, 255 }
+  -- engine/pokedex/pokedex.asm:2459
+  local paper = pal and GbcPalette.color(pal, 4) or { 0, 0, 0 }
   local G = love.graphics
   G.setColor(paper[1] / 255, paper[2] / 255, paper[3] / 255, 1)
   G.rectangle("fill", 0, 0, Chrome.SCREEN_W * 8, 8)
@@ -913,7 +914,7 @@ function PokedexMenu:drawAreaHeader(title)
     for x = 1, Chrome.SCREEN_W - 2 do sheet:draw(0x07, x, 1) end
     sheet:draw(0x17, Chrome.SCREEN_W - 1, 1)
   end
-  Chrome.printThrough(title, 2, 0, pal, false, true)
+  Chrome.printThrough(title, 2, 0, pal, true, true)
 end
 
 function PokedexMenu:drawArea()

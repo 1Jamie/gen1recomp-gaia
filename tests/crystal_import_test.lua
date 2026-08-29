@@ -194,4 +194,31 @@ for _, path in ipairs({
   check(required[path], "the crystal cache contract still requires " .. path)
 end
 
+
+-- engine/tilesets/tileset_palettes.asm:1
+local specialPalettes = {
+  PokeComPalette = 0x5501,
+  BattleTowerInsidePalette = 0x5550,
+  IcePathPalette = 0x559f,
+  HousePalette = 0x55ee,
+  RadioTowerPalette = 0x563d,
+  MansionPalette1 = 0x567d,
+  MansionPalette2 = 0x56fe,
+}
+for label, address in pairs(specialPalettes) do
+  local at = crystal.symbols[label]
+  check(type(at) == "table", "the crystal manifest names " .. label)
+  if at then
+    eq(at[1], 0x12, label .. " lives in bank $12")
+    eq(at[2], address, ("%s at $%04x"):format(label, address))
+  end
+  eq(gold.symbols[label], nil, "and Gold has no " .. label)
+  local overlay11 = rev11 and (crystal.symbolRevisions or {})[rev11.sha1] or {}
+  eq(overlay11[label], nil, label .. " sits at the same place in 1.1")
+end
+
+-- LoadMansionPalette (engine/tilesets/tileset_palettes.asm:131)
+check(crystal.symbols.MansionPalette2[2] - crystal.symbols.MansionPalette1[2]
+  >= 9 * 8, "MansionPalette1 has room for its ninth palette")
+
 S.finish()

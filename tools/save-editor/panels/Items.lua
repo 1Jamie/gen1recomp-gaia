@@ -24,14 +24,15 @@ local PAL = Theme.PAL
 local M = {}
 
 local MONEY_STEPS = { -1000, -100, 100, 1000 }
+local COIN_STEPS = { -100, -10, 10, 100 }
 
 -- One quantity row shape, shared by the bag and the PC list: id, qty, then
--- the -/+/drop cluster.  Returns true when the row body was clicked.
-local function quantityRow(S, Kit, x, y, w, h, id, qty, selected, onMinus, onPlus, onDrop)
+local function quantityRow(S, Kit, x, y, w, h, id, qty, selected, onMinus, onPlus,
+    onMax, canMax, onDrop)
   local s = Kit.scale
   local clicked = Kit.row(x, y, w, h, selected, PAL.blue, 9 * s)
   local btn = 24 * s
-  local bx = x + w - 10 * s - 3 * btn - 2 * (6 * s)
+  local bx = x + w - 10 * s - 4 * btn - 3 * (6 * s)
   if Kit.stepper(bx, y + (h - btn) / 2, btn, btn, "-", { font = "small" }) then
     onMinus()
   end
@@ -39,7 +40,11 @@ local function quantityRow(S, Kit, x, y, w, h, id, qty, selected, onMinus, onPlu
       { font = "small" }) then
     onPlus()
   end
-  if Kit.button(bx + 2 * (btn + 6 * s), y + (h - btn) / 2, btn, btn, "x",
+  if Kit.stepper(bx + 2 * (btn + 6 * s), y + (h - btn) / 2, btn, btn,
+      tostring(Ops.STACK_MAX), { font = "tiny", enabled = canMax }) then
+    onMax()
+  end
+  if Kit.button(bx + 3 * (btn + 6 * s), y + (h - btn) / 2, btn, btn, "x",
       { kind = "danger", font = "tiny", radius = 6 * s }) then
     onDrop()
   end
@@ -60,13 +65,13 @@ end
 -- Each card is a function of its own rect so the wide (three column) and the
 -- stacked (#715) layouts are the same drawing code with different geometry.
 
+local function coinsHeight(Kit, s)
+  return 12 * s + math.max(Kit.textHeight("caption"), 26 * s) + 8 * s + 30 * s
+end
+
 local function moneyHeight(Kit, s, pad, S)
-  local h = pad * 2 + Kit.textHeight("caption") + 8 * s
-    + Kit.textHeight("headline") + 10 * s + 30 * s
-  if S and Gen.of(S.save) == 2 then
-    h = h + 28 * s
-  end
-  return h
+  return pad * 2 + Kit.textHeight("caption") + 8 * s
+    + Kit.textHeight("headline") + 10 * s + 30 * s + coinsHeight(Kit, s)
 end
 
 local function drawMoney(S, Kit, x, y, w, h)
@@ -82,21 +87,37 @@ local function drawMoney(S, Kit, x, y, w, h)
   end
   Kit.text("headline", ("$%d"):format(Gen.money(S.save)), x + pad,
     y + pad + Kit.textHeight("caption") + 8 * s, PAL.yellow)
-  if Gen.of(S.save) == 2 then
-    Kit.text("mono", ("COINS %d"):format(Gen.coins(S.save)), x + pad + 160 * s,
-      y + pad + Kit.textHeight("caption") + 8 * s, PAL.muted)
-    if Kit.button(x + w - pad - 74 * s, y + pad + 26 * s, 74 * s, 22 * s, "+100 coins",
-        { kind = "ghost", font = "tiny", radius = 6 * s }) then
-      Ops.addCoins(S, 100)
-    end
-  end
-  local mbY = y + h - pad - 30 * s
+  local coinsH = coinsHeight(Kit, s)
+  local mbY = y + h - pad - coinsH - 30 * s
   local mbW = (w - 2 * pad - 3 * 8 * s) / 4
   for i, delta in ipairs(MONEY_STEPS) do
     local label = (delta > 0 and "+" or "") .. tostring(delta)
     if Kit.button(x + pad + (i - 1) * (mbW + 8 * s), mbY, mbW, 30 * s, label,
         { kind = "accent", font = "tiny", radius = 8 * s }) then
       Ops.addMoney(S, delta)
+    end
+  end
+
+  -- Game Corner coins, both generations: ram/wram.asm:1908 wPlayerCoins
+  local rowH = math.max(Kit.textHeight("caption"), 26 * s)
+  local cy = mbY + 30 * s + 12 * s
+  Kit.caption(x + pad, cy + (rowH - Kit.textHeight("caption")) / 2, "COINS")
+  local coinMaxW = 52 * s
+  if Kit.button(x + w - pad - coinMaxW, cy, coinMaxW, 26 * s, "Max",
+      { kind = "accent", font = "tiny", radius = 7 * s,
+        enabled = Gen.coins(S.save) < Ops.COIN_MAX }) then
+    Ops.maxCoins(S)
+  end
+  Kit.text("mono", ("%d"):format(Gen.coins(S.save)),
+    x + pad + Kit.captionWidth("COINS") + 12 * s,
+    cy + (rowH - Kit.textHeight("mono")) / 2, PAL.yellow)
+  local cbY = cy + rowH + 8 * s
+  local cbW = (w - 2 * pad - 3 * 8 * s) / 4
+  for i, delta in ipairs(COIN_STEPS) do
+    local label = (delta > 0 and "+" or "") .. tostring(delta)
+    if Kit.button(x + pad + (i - 1) * (cbW + 8 * s), cbY, cbW, 30 * s, label,
+        { kind = "accent", font = "tiny", radius = 8 * s }) then
+      Ops.addCoins(S, delta)
     end
   end
 end
@@ -191,14 +212,36 @@ local function drawPicker(S, Kit, x, y, w, h)
   end
 end
 
--- The bag and PC cards share one shape: a caption line, an optional meter,
--- a quantity-row list with wheel/drag + pager.
+local SORT_MODES = { { "#", "index" }, { "A-Z", "name" } }
+
 local function drawQuantityCard(S, Kit, x, y, w, h, cfg)
   local s = Kit.scale
   local pad = 16 * s
   Kit.card(x, y, w, h)
   Kit.caption(x + pad, y + pad, cfg.title)
-  Kit.textRight("mono", cfg.counter, x + w - pad, y + pad, PAL.caption)
+  local hx = x + w - pad
+  local hy = y + pad - 4 * s
+  local maxW = Kit.textWidth("tiny", "Max all") + 22 * s
+  hx = hx - maxW
+  if Kit.button(hx, hy, maxW, 24 * s, "Max all",
+      { kind = "accent", font = "tiny", radius = 7 * s,
+        enabled = cfg.canMaxAll() }) then
+    cfg.maxAll()
+  end
+  for i = #SORT_MODES, 1, -1 do
+    local mode = SORT_MODES[i]
+    local bw = Kit.textWidth("tiny", mode[1]) + 22 * s
+    hx = hx - 6 * s - bw
+    if Kit.button(hx, hy, bw, 24 * s, mode[1],
+        { kind = "ghost", font = "tiny", radius = 6 * s }) then
+      cfg.sort(mode[2])
+    end
+  end
+  local counterX = hx - 8 * s
+  if counterX - Kit.textWidth("mono", cfg.counter)
+      >= x + pad + Kit.captionWidth(cfg.title) + 8 * s then
+    Kit.textRight("mono", cfg.counter, counterX, y + pad, PAL.caption)
+  end
   local rowsTop = y + pad + Kit.textHeight("caption") + 8 * s
   if cfg.meterFrac then
     Kit.meter(x + pad, rowsTop, w - 2 * pad, 5 * s, cfg.meterFrac * 100,
@@ -230,6 +273,7 @@ local function drawQuantityCard(S, Kit, x, y, w, h, cfg)
         cfg.qty(id), id == cfg.selected(),
         function() cfg.adjust(id, -1) end,
         function() cfg.adjust(id, 1) end,
+        function() cfg.max(id) end, cfg.canMax(id),
         function() cfg.drop(id) end) then
       cfg.select(id)
     end
@@ -256,6 +300,11 @@ local function drawBag(S, Kit, x, y, w, h)
       Ops.say(S, ("Selected %s in the bag"):format(id))
     end,
     adjust = function(id, d) Ops.bagAdjust(S, id, d) end,
+    max = function(id) Ops.bagMax(S, id) end,
+    canMax = function(id) return Ops.bagCanMax(S, id) end,
+    maxAll = function() Ops.bagMaxAll(S) end,
+    canMaxAll = function() return Ops.bagCanMax(S) end,
+    sort = function(mode) Ops.bagSort(S, mode) end,
     drop = function(id) Ops.bagDrop(S, id) end,
   })
 end
@@ -275,6 +324,11 @@ local function drawPc(S, Kit, x, y, w, h)
       Ops.say(S, ("Selected %s in PC storage"):format(id))
     end,
     adjust = function(id, d) Ops.pcAdjust(S, id, d) end,
+    max = function(id) Ops.pcMax(S, id) end,
+    canMax = function(id) return Ops.pcCanMax(S, id) end,
+    maxAll = function() Ops.pcMaxAll(S) end,
+    canMaxAll = function() return Ops.pcCanMax(S) end,
+    sort = function(mode) Ops.pcSort(S, mode) end,
     drop = function(id) Ops.pcDrop(S, id) end,
   })
 end
@@ -285,15 +339,19 @@ function M.draw(S, Kit, x, y, w, h)
   local pad = 16 * s
   Ops.pcItems(S)
 
-  if w < 900 * s then
+  local moneyH = moneyHeight(Kit, s, pad, S)
+  local badgeH = badgeHeight(S, Kit, s, pad)
+  local topH = 0
+  if Gen.hasPlayerGender(S.save, S.version) then
+    topH = trainerHeight(Kit, s, pad) + gap
+  end
+  if w < 900 * s or h - topH - moneyH - badgeH - 2 * gap < 150 * s then
     -- stacked (#715): one full-width column, scrolled in pixels.  The offset
     -- from LAST frame's scrollPixels call positions this frame, and the call
     -- itself comes after the cards so their inner lists claim the wheel or a
     -- drag over their own bodies first.
     local off = Theme.clamp(S.itemsScroll or 0, 0,
       math.max(0, (S._itemsContentH or 0) - h))
-    local moneyH = moneyHeight(Kit, s, pad, S)
-    local badgeH = badgeHeight(S, Kit, s, pad)
     local pickH = 280 * s
     local listH = 300 * s
     Kit.pushClip(x, y, w, h)
@@ -321,11 +379,7 @@ function M.draw(S, Kit, x, y, w, h)
   -- Money and badges are fixed-height so the picker gets every pixel left
   -- over: cycling through ~250 item ids in a two-row list was the thing that
   -- made the old panel unusable.
-  local moneyH = moneyHeight(Kit, s, pad, S)
-  local badgeH = badgeHeight(S, Kit, s, pad)
-  local topH = 0
-  if Gen.hasPlayerGender(S.save, S.version) then
-    topH = trainerHeight(Kit, s, pad) + gap
+  if topH > 0 then
     drawTrainer(S, Kit, x, y, leftW, topH - gap)
   end
   drawMoney(S, Kit, x, y + topH, leftW, moneyH)

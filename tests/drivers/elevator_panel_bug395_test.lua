@@ -85,6 +85,12 @@ return function(game)
 
   U.tap(game, "a")
   U.wait(20)
+  -- (engine/events/elevator.asm:2-3, home/list_menu.asm:29-31)
+  U.shot(game, DIR .. "/elev395_1a_prompt.png")
+  for _ = 1, 180 do
+    if getmetatable(game.stack:top()) == ListMenu then break end
+    U.wait(1)
+  end
   local menu = getmetatable(game.stack:top()) == ListMenu
   check("A on the panel opens the floor list", menu)
   if menu then
@@ -127,8 +133,10 @@ return function(game)
 
   U.log("The ride is over and the pad is yours: walk down and left onto the")
   U.log("door tile at (2,3) and you should come out on CELADON MART 2F.  The")
-  U.log("panel is behind you -- A on it should reopen WHICH FLOOR?, and B out")
-  U.log("of that list should leave you in the car with 2F still the exit.")
+  U.log("panel is behind you -- A on it should reprint \"Which floor do you")
+  U.log("want?\" in the bottom box, then open the bordered floor list over the")
+  U.log("map with CANCEL as its last row; B, or A on CANCEL, should leave you")
+  U.log("in the car with 2F still the exit.")
   U.log("Worth checking by hand: Silph Co (same panel cell, 11 floors) and the")
   U.log("Rocket car, whose panel is at (1,1) so you face LEFT from (2,1) and")
   U.log("with no LIFT KEY get \"It appears to need a key.\" and no list.")
