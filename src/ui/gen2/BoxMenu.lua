@@ -289,7 +289,7 @@ function BoxMenu:beginMove()
     -- list comes back, which is the same place the player ends up.
     self.phase = nil
     -- engine/pokemon/bills_pc.asm:1607
-    self:playSfx("Sfx_Wrong")
+    self:playRefusalSfx("Sfx_Wrong")
     self.message = reason
     return
   end
@@ -318,7 +318,7 @@ function BoxMenu:doWithdraw()
   local ok, result = Boxes.withdraw(self.save, self.boxIndex, self.index)
   if not ok then
     -- engine/pokemon/bills_pc.asm:1845
-    self:playSfx("Sfx_Wrong")
+    self:playRefusalSfx("Sfx_Wrong")
     self.message = result
     return
   end
@@ -334,7 +334,7 @@ function BoxMenu:doDeposit()
   local ok, result = Boxes.deposit(self.save, self.index, self.boxIndex)
   if not ok then
     -- engine/pokemon/bills_pc.asm:1790
-    self:playSfx("Sfx_Wrong")
+    self:playRefusalSfx("Sfx_Wrong")
     self.message = result
     return
   end
@@ -485,8 +485,11 @@ function BoxMenu:update(_dt)
       self.submenuIndex = self.submenuIndex < #submenu
         and self.submenuIndex + 1 or 1
     elseif input:wasPressed("a") then
+      -- home/menu.asm:345
+      self:playSfx("Sfx_ReadText2")
       self:chooseSubmenu()
     elseif input:wasPressed("b") then
+      self:playSfx("Sfx_ReadText2")
       self.phase = nil
     end
     return
@@ -512,7 +515,7 @@ function BoxMenu:update(_dt)
         -- .no_space: `dec [hl]` puts the jumptable back on .PrepInsertCursor,
         -- so the refusal leaves the cursor exactly where it was.
         -- engine/pokemon/bills_pc.asm:1567
-        self:playSfx("Sfx_Wrong")
+        self:playRefusalSfx("Sfx_Wrong")
         self.message = reason
       else
         self:insertMon()
@@ -557,6 +560,12 @@ function BoxMenu:playSfx(name)
   if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
 end
 
+-- engine/pokemon/bills_pc.asm:1608
+function BoxMenu:playRefusalSfx(name)
+  Sound.waitSfxDone()
+  self:playSfx(name)
+end
+
 -- PlayMonCry: `call GetCryIndex / jr c, .done` (home/pokemon.asm:113-114)
 function BoxMenu:playMonCry(mon)
   local data = self.game and self.game.data
@@ -579,7 +588,7 @@ function BoxMenu:askRelease()
     if not allowed then
       self.phase = nil
       -- engine/pokemon/bills_pc.asm:1607
-      self:playSfx("Sfx_Wrong")
+      self:playRefusalSfx("Sfx_Wrong")
       self.message = refusal
       return
     end
@@ -588,7 +597,7 @@ function BoxMenu:askRelease()
   -- even asked over an egg (engine/pokemon/bills_pc.asm:186-187 and :427-428).
   if mon.isEgg then
     self.message = NO_RELEASING_EGGS
-    self:playSfx("Sfx_Wrong")
+    self:playRefusalSfx("Sfx_Wrong")
     return
   end
   local game = self.game

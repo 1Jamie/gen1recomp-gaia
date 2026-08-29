@@ -363,6 +363,34 @@ function Sound.sfxBusy()
   return true
 end
 
+-- home/audio.asm:225
+function Sound.sfxRemaining()
+  if not curSfx then return 0 end
+  local ok, playing = pcall(curSfx.src.isPlaying, curSfx.src)
+  if not (ok and playing) then
+    curSfx = nil
+    return 0
+  end
+  local okd, dur = pcall(curSfx.src.getDuration, curSfx.src)
+  local okt, pos = pcall(curSfx.src.tell, curSfx.src)
+  if not (okd and okt) then return nil end
+  if type(dur) ~= "number" or type(pos) ~= "number" then return nil end
+  return math.max(0, dur - pos)
+end
+
+-- home/joypad.asm:292
+function Sound.playPress(data)
+  local src = Sound.play(data, "Press_AB")
+  if src and curSfx and curSfx.src == src then curSfx.press = true end
+  return src
+end
+
+function Sound.dropPressSfx()
+  if not (curSfx and curSfx.press) then return end
+  pcall(curSfx.src.stop, curSfx.src)
+  curSfx = nil
+end
+
 -- WaitSFX (home/audio.asm), the drain above GiveItemScript's `specialsound`
 -- (engine/overworld/scripting.asm:445), so ch5-ch8 are free for it (#1483).
 function Sound.waitSfxDone()

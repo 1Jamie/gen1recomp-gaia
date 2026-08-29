@@ -2257,6 +2257,23 @@ check("...but from RIVAL2_2 on it is the Champion's",
   BattleMusic.battleSong({ class = "RIVAL2", member = "RIVAL2_2_CHIKORITA",
     members = RIVAL2_MEMBERS, landmark = 80 }), "Music_ChampionBattle")
 
+-- ../pokecrystal/engine/battle/start_battle.asm:60-66
+check("a Crystal roaming battle plays Suicune's theme",
+  BattleMusic.battleSong({ crystal = true, battleType = 5, landmark = 1,
+    daytime = "NITE" }), "Music_SuicuneBattle")
+check("...and so does the Tin Tower Suicune",
+  BattleMusic.battleSong({ crystal = true, battleType = 12, landmark = 1 }),
+  "Music_SuicuneBattle")
+check("...ahead of even the trainer class",
+  BattleMusic.battleSong({ crystal = true, battleType = 5, class = "FALKNER",
+    landmark = 1 }), "Music_SuicuneBattle")
+check("Gold's roamers keep the ordinary wild theme",
+  BattleMusic.battleSong({ battleType = 5, landmark = 1, daytime = "DAY" }),
+  "Music_JohtoWildBattle")
+check("...as does an ordinary Crystal wild battle",
+  BattleMusic.battleSong({ crystal = true, landmark = 1, daytime = "DAY" }),
+  "Music_JohtoWildBattle")
+
 check("a wild win plays the wild jingle",
   BattleMusic.victorySong({}), "Music_WildPokemonVictory")
 -- PlayVictoryMusic's `.lost` path: no participant left standing means no

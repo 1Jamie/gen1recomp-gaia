@@ -2,11 +2,8 @@
 --
 --   POKEPORT_GAME=gold POKEPORT_DRIVER=tests/drivers/gold_battle_pack_probe.lua love .
 --
--- BattlePack (engine/items/pack.asm) is a different jumptable from the field
--- PACK's, and its first four entries are .Oak: a key item picked mid-fight
--- prints OakThisIsntTheTimeText inside the pack.  Nothing here may reach the
--- field jumptable, whose ITEMFINDER arm quits the PACK -- over a battle that
--- takes the battle off the stack with it.
+-- engine/items/pack.asm:627
+-- ../pokegold/engine/items/pack.asm:810
 local U = require("tests.drivers.util")
 
 local Mon = require("src.battle.gen2.Mon")
@@ -67,17 +64,41 @@ return function(game)
   print("[driver] key item row 1 " .. tostring(pack.rows[1].id))
   tap("a")
   U.wait(4)
-  U.shot(game, out .. "/00-battle-pack-oak.png")
+  U.shot(game, out .. "/00-battle-pack-unusable.png")
 
-  assert(pack.message and pack.message[1] == "OAK: {PLAYER}!",
-    "the ITEMFINDER did not print OakThisIsntTheTimeText")
+  assert(pack.submenu, "the ITEMFINDER did not open ItemSubmenu")
+  assert(#pack.submenu.rows == 1 and pack.submenu.rows[1] == "quit",
+    "the key item was offered more than .UnusableMenuHeader's QUIT")
+  assert(pack:submenuColumn() == 0,
+    "Gold drew the battle submenu in column " .. tostring(pack:submenuColumn()))
+  assert(pack.message == nil, "OakThisIsntTheTimeText printed inside a battle")
   assert(game.stack:top() == pack, "the pack left the stack")
   assert(world.battleActive, "battleActive was cleared by a field effect")
   assert(world.queuedScript == nil, "a field script was queued from a battle")
   assert(game.save.inventory.ITEMFINDER == 1, "the key item was spent")
 
-  -- B clears the message, B again closes the pack, and the battle is still
-  -- there underneath with its menu.
+  tap("a")
+  assert(pack.submenu == nil, "QUIT did not close the submenu")
+  assert(game.save.inventory.ITEMFINDER == 1, "QUIT spent the key item")
+
+  tap("left")
+  tap("left")
+  assert(pack:pocket().id == "ITEM",
+    "did not reach the ITEMS pocket: " .. tostring(pack:pocket().id))
+  for _ = 1, #pack.rows do
+    if pack.rows[pack.index] and pack.rows[pack.index].id == "POTION" then break end
+    tap("down")
+  end
+  assert(pack.rows[pack.index] and pack.rows[pack.index].id == "POTION",
+    "never landed on the POTION")
+  tap("a")
+  U.wait(4)
+  U.shot(game, out .. "/01-battle-pack-usable.png")
+  assert(pack.submenu and #pack.submenu.rows == 2
+    and pack.submenu.rows[1] == "use",
+    "the POTION did not get .UsableMenuHeader's USE / QUIT")
+  assert(game.stack:top() == pack, "USE ran before it was chosen")
+
   tap("b")
   tap("b")
   for _ = 1, 120 do

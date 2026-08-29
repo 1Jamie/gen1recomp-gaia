@@ -27,6 +27,7 @@ local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
 local SaveMenu = require("src.ui.gen2.SaveMenu")
 local Screens = require("src.ui.Screens")
+local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
 
 -- _PCMonHoldingMailText (data/text/common_2.asm), the refusal
@@ -171,6 +172,13 @@ function PcMenu:notice(pages)
   self.messageCloses = false
 end
 
+-- home/menu.asm:746
+function PcMenu:playSfx(name)
+  local data = self.game and self.game.data
+  local sfx = data and data.audio and data.audio.sfx
+  if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
+end
+
 function PcMenu:close()
   if self.onClose then self.onClose(self.changedDecorations) end
 end
@@ -211,7 +219,11 @@ function PcMenu:writeChangeBox()
   Boxes.setCurrent(self.save, self.changeBox)
   local ok = self.writer(self.save)
   self.saved = ok and true or false
-  if ok then SaveMenu.playSaveSfx(self.game, SaveMenu.SFX_SAVE) end
+  -- engine/menus/save.asm:266
+  if ok then
+    Sound.waitSfxDone()
+    SaveMenu.playSaveSfx(self.game, SaveMenu.SFX_SAVE)
+  end
 end
 
 function PcMenu:savePrompt()
@@ -257,9 +269,12 @@ function PcMenu:updateChangeBox()
   if input:wasPressed("up") or input:wasPressed("down") then
     self.saveChoice = self.saveChoice == 1 and 2 or 1
   elseif input:wasPressed("a") then
+    -- home/menu.asm:345
+    self:playSfx("Sfx_ReadText2")
     self:acceptChangeBox()
   elseif input:wasPressed("b") then
     -- B out of a yes/no is NO (InterpretTwoOptionMenu returns carry).
+    self:playSfx("Sfx_ReadText2")
     self:refuseChangeBox()
   end
 end
@@ -351,12 +366,15 @@ function PcMenu:update(_dt)
     elseif input:wasPressed("down") then
       self.pickIndex = self.pickIndex < total and self.pickIndex + 1 or 1
     elseif input:wasPressed("a") then
+      -- engine/menus/scrolling_menu.asm:24
+      self:playSfx("Sfx_ReadText2")
       if self.pickIndex == (self.save.currentBox or 1) then
         self.picking = false
       else
         self:beginChangeBox(self.pickIndex)
       end
     elseif input:wasPressed("b") then
+      self:playSfx("Sfx_ReadText2")
       self.picking = false
     end
     return
@@ -367,8 +385,11 @@ function PcMenu:update(_dt)
   elseif input:wasPressed("down") then
     self.index = self.index < #self.entries and self.index + 1 or 1
   elseif input:wasPressed("a") then
+    -- home/menu.asm:476
+    self:playSfx("Sfx_ReadText2")
     self:choose()
   elseif input:wasPressed("b") then
+    self:playSfx("Sfx_ReadText2")
     self:close()
   end
 end

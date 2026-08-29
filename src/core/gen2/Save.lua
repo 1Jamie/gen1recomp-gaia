@@ -79,7 +79,11 @@ local Save = {}
 --           that already has savings banked therefore starts buying from the
 --           bottom of the list, which is what a cartridge whose owner had
 --           saved that much would also do.
-Save.FORMAT = 7
+--   7 -> 8  Crystal caught data: a mon carrying a caught level but no landmark
+--           is zeroed, so the Seer takes ReadCaughtData's `.error` arm
+--           (../pokecrystal/engine/events/poke_seer.asm:103-104) instead of
+--           GetCaughtLocation's "Unknown".  #1929
+Save.FORMAT = 8
 
 Save.MAX_MONEY = 999999
 Save.MAX_COINS = 9999
@@ -647,6 +651,30 @@ Save.MIGRATIONS = {
     if save.mom.whichItem == nil then save.mom.whichItem = 0 end
     if save.mom.triggerBalance == nil then
       save.mom.triggerBalance = MomShopping.MOM_MONEY
+    end
+  end,
+  -- ../pokecrystal/engine/events/poke_seer.asm:103-104
+  [7] = function(save)
+    local Mon = require("src.battle.gen2.Mon")
+    if not Mon.hasCaughtData(save.version) then return end
+    local function clear(mon)
+      if type(mon) ~= "table" or mon.isEgg then return end
+      if (tonumber(mon.caughtLocation) or 0) ~= 0 then return end
+      mon.caughtTime, mon.caughtLevel = 0, 0
+      mon.caughtLocation, mon.caughtByGender = 0, "boy"
+    end
+    for _, mon in ipairs(save.party or {}) do clear(mon) end
+    for _, box in pairs(save.boxes or {}) do
+      if type(box) == "table" then
+        for _, mon in ipairs(box) do clear(mon) end
+      end
+    end
+    local dc = save.dayCare
+    if type(dc) == "table" then
+      for _, which in ipairs({ "man", "lady" }) do
+        local side = dc[which]
+        if type(side) == "table" then clear(side.mon) end
+      end
     end
   end,
 }

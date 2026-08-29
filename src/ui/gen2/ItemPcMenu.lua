@@ -114,7 +114,7 @@ function ItemPcMenu.new(game, opts)
   self.confirm = nil
   if self.house then
     -- _PlayersHousePC: PC_PlayBootSound, then PlayersPCTurnOnText.
-    self:playSfx("Sfx_BootPc")
+    self:playPcSfx("Sfx_BootPc")
     self:say({ { "{PLAYER} turned on", "the PC." } })
   end
   return self
@@ -126,6 +126,12 @@ function ItemPcMenu:playSfx(name)
   if sfx and sfx[Sound.resolve(data, name)] then
     Sound.play(data, name)
   end
+end
+
+-- engine/events/pokecenter_pc.asm:200
+function ItemPcMenu:playPcSfx(name)
+  Sound.waitSfxDone()
+  self:playSfx(name)
 end
 
 function ItemPcMenu:playerName()
@@ -144,7 +150,7 @@ function ItemPcMenu:close()
   -- _PlayersHousePC plays PC_PlayShutdownSound only on the unchanged arm;
   -- `.changed_deco_tiles` leaves for the map reload without it.
   if self.house and not self.changedDecorations then
-    self:playSfx("Sfx_ShutDownPc")
+    self:playPcSfx("Sfx_ShutDownPc")
   end
   if self.onClose then self.onClose(self.changedDecorations) end
 end
@@ -451,9 +457,12 @@ function ItemPcMenu:update(_dt)
     if input:wasPressed("up") or input:wasPressed("down") then
       c.choice = c.choice == 1 and 2 or 1
     elseif input:wasPressed("b") then
+      -- home/menu.asm:345
+      self:playSfx("Sfx_ReadText2")
       self.confirm = nil
       if c.onNo then c.onNo() end
     elseif input:wasPressed("a") then
+      self:playSfx("Sfx_ReadText2")
       self.confirm = nil
       if c.choice == 1 then
         if c.onYes then c.onYes() end
@@ -483,8 +492,11 @@ function ItemPcMenu:update(_dt)
         or 1
       self:ensureVisible()
     elseif input:wasPressed("b") then
+      -- engine/menus/scrolling_menu.asm:24
+      self:playSfx("Sfx_ReadText2")
       self.phase = "menu"
     elseif input:wasPressed("a") then
+      self:playSfx("Sfx_ReadText2")
       if self.phase == "withdraw" then
         self:chooseWithdraw()
       else
@@ -499,9 +511,12 @@ function ItemPcMenu:update(_dt)
   elseif input:wasPressed("down") then
     self.index = self.index < #self.entries and self.index + 1 or 1
   elseif input:wasPressed("a") then
+    -- home/menu.asm:476
+    self:playSfx("Sfx_ReadText2")
     self:choose()
   elseif input:wasPressed("b") then
     -- DoNthMenu's carry is `.turn_off`.
+    self:playSfx("Sfx_ReadText2")
     self:close()
   end
 end

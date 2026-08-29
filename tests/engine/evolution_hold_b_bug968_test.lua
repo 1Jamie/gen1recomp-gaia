@@ -10,6 +10,7 @@ love = love or require("tests.love_stub")
 -- TextBox and EvolutionState both require Sound inside update, so seeding
 package.loaded["src.core.Sound"] = {
   play = function() end,
+  playPress = function() end,
   playCry = function() end,
 }
 

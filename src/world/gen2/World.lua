@@ -145,6 +145,8 @@ for id, state in pairs(PLAYER_STATE_BY_ID) do PLAYER_STATE_ID[state] = id end
 
 local BATTLETYPE = {
   CANLOSE = 1,
+  -- CheckEncounterRoamMon, ../pokecrystal/engine/overworld/wildmons.asm:561
+  ROAMING = 5,
   FORCESHINY = 7,
   FORCEITEM = 10,
 }
@@ -1118,6 +1120,8 @@ function World:load()
       self:playCry(speciesIndex)
     end,
     playSound = function(sfxId)
+      -- home/audio.asm:180
+      require("src.core.Sound").dropPressSfx()
       self:playSfx(sfxId)
     end,
     playMusic = function(musicId)
@@ -1138,6 +1142,22 @@ function World:load()
       if not src then return true end
       local ok, playing = pcall(src.isPlaying, src)
       return not (ok and playing)
+    end,
+    waitSfxCap = function()
+      local left = require("src.core.Sound").sfxRemaining()
+      local src = self.lastSfx
+      local okp, playing = false, false
+      if src then okp, playing = pcall(src.isPlaying, src) end
+      if okp and playing then
+        local okd, dur = pcall(src.getDuration, src)
+        local okt, pos = pcall(src.tell, src)
+        if not (okd and okt) then return nil end
+        if type(dur) ~= "number" or type(pos) ~= "number" then return nil end
+        local rest = math.max(0, dur - pos)
+        if left == nil or rest > left then left = rest end
+      end
+      if left == nil then return nil end
+      return math.ceil(left * 60) + 30
     end,
     readVar = function(varId)
       return self:readVar(varId)
@@ -2391,6 +2411,7 @@ end
 function World:warpSound()
   local p = self.player
   if not (self.map and p) then return end
+  Sound.dropPressSfx()
   local coll = self.map:cellCollision(p.cellX, p.cellY)
   local id = SFX.EXIT_BUILDING
   if coll == COLL.DOOR then
@@ -5826,7 +5847,9 @@ function World:tryPushBoulder(dir, cx, cy)
   end
   local d = Map.DELTA[dir]
   local tx, ty = cx + d[1], cy + d[2]
-  if not self.map:isWalkable(tx, ty) then return false end
+  -- CanObjectMoveInDirection, engine/overworld/npc_movement.asm:1
+  -- is MovementFunction_Strength's .ok2, engine/overworld/map_objects.asm:686
+  if not self.map:objectStepPermitted(cx, cy, dir) then return false end
   for _, e in ipairs(self.entities or {}) do
     if e ~= npc and e.cellX == tx and e.cellY == ty then return false end
   end
@@ -6370,8 +6393,10 @@ end
 -- opponent belongs to, the member inside it (only RIVAL2 reads that), the
 -- map's landmark for RegionCheck, and the clock.
 function World:battleMusicContext(opts)
+  local GameVersion = require("src.core.GameVersion")
   local members = self.constants and self.constants.trainerClassMembers
   local trainer = opts and opts.trainer
+  local save = self.game and self.game.save
   return {
     class = trainer and trainer.classId,
     member = trainer and trainer.memberId,
@@ -6381,6 +6406,12 @@ function World:battleMusicContext(opts)
     -- PlayBattleMusic reads wTimeOfDay (engine/battle/start_battle.asm:24),
     -- not the map's pinned palette set.
     daytime = self.tod,
+    -- ../pokecrystal/engine/battle/start_battle.asm:60-66
+    -- wBattleType write at ../pokecrystal/engine/overworld/wildmons.asm:561
+    battleType = (opts and opts.battleType)
+      or (opts and opts.roaming and BATTLETYPE.ROAMING) or nil,
+    crystal = GameVersion.engine((save and save.version)
+      or GameVersion.get()) == "crystal",
   }
 end
 

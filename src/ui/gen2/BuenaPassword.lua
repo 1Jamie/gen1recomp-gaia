@@ -4,10 +4,9 @@
 --             .MenuHeader is `menu_coords 0, 0, 10, 7` with the right edge
 --             moved to left + the category's points byte + 2 (:9-12), and
 --             whose .PasswordIndices answer is zero based (:44-49).
---   prize     :64 BuenaPrize -- Buena_PlacePrizeMenuBox (:219),
---             Buena_PrizeMenu's scrolling list (:249-261) and
---             PrintBlueCardBalance's "Points" box (:210).  0 is a B press
---             (:236-245).
+--   prize     ../pokecrystal/engine/events/buena.asm:64 BuenaPrize
+--             (:249, ../pokecrystal/home/scrolling_menu.asm:25-41
+--             ../pokecrystal/home/menu.asm:311
 --
 -- Neither is opaque: engine/events/buena.asm:71-83 prints the prize question
 -- BEFORE the list goes up over it, and the password menu stands on the map.
@@ -25,9 +24,11 @@ BuenaPassword.isOpaque = false
 local WORD_X, WORD_Y, WORD_SPACING = 2, 2, 2
 local WORD_BOX_H = 8
 
--- engine/events/buena.asm:219 and :249, as menu_coords lays them down.
-local FIELD_X, FIELD_Y, FIELD_W, FIELD_H = 0, 0, 18, 12
+-- ../pokecrystal/engine/events/buena.asm:249
 local LIST_BOX_X, LIST_BOX_Y, LIST_BOX_W, LIST_BOX_H = 1, 1, 16, 9
+-- (../pokecrystal/home/scrolling_menu.asm:25-41
+local FRAME_X, FRAME_Y = LIST_BOX_X - 1, LIST_BOX_Y - 1
+local FRAME_W, FRAME_H = LIST_BOX_W + 2, LIST_BOX_H + 2
 local LIST_X, LIST_Y, LIST_SPACING = 2, 2, 2
 -- ScrollingMenu_CallFunctions1and2's `add hl, de` on
 -- wMenuData_ScrollingMenuWidth (engine/menus/scrolling_menu.asm:424-431).
@@ -134,8 +135,7 @@ function BuenaPassword:drawPasswordPanel()
 end
 
 function BuenaPassword:drawPrizePanel()
-  Chrome.box(FIELD_X, FIELD_Y, FIELD_W, FIELD_H)
-  Chrome.box(LIST_BOX_X, LIST_BOX_Y, LIST_BOX_W, LIST_BOX_H)
+  Chrome.box(FRAME_X, FRAME_Y, FRAME_W, FRAME_H)
   for row = 1, VISIBLE_ROWS do
     local i = row + self.scroll
     local prize = self.prizes[i]
