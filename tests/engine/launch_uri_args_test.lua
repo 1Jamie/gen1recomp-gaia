@@ -33,6 +33,10 @@ do
   eq(request.game, "blue", "URI scheme and host are case-insensitive")
   eq(request.sync, true, "boolean URI values accept true")
   eq(request.update, false, "boolean URI values accept off")
+  local direct = LaunchOptions.parseURI("gen1recomp++://launch?game=red")
+  eq(direct.launcher, nil, "omitted launcher does not force the launcher")
+  eq(direct.sync, nil, "omitted sync keeps the normal sync default")
+  eq(direct.update, nil, "omitted update keeps the normal update default")
   eq(LaunchOptions.uriFor("r", { cart = "custom cart", slot = "slot 2" }),
     "gen1recomp++://launch?game=red&slot=slot%202",
     "URI builder ignores invalid cart ids")

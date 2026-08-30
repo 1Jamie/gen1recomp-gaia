@@ -67,6 +67,7 @@ local function decodeURIComponent(value)
 end
 
 local function booleanValue(value)
+  if value == nil then return nil end
   value = trim(value)
   if not value then return true end
   value = value:lower()

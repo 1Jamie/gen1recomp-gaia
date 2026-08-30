@@ -13,6 +13,8 @@ static NSString *GRPendingLaunchURI;
 static IMP GRApplicationOpenURLOriginal;
 static IMP GRApplicationOpenURLLegacyOriginal;
 static IMP GRApplicationConfigurationOriginal;
+static IMP GRApplicationWillFinishLaunchingOriginal;
+static IMP GRApplicationDidFinishLaunchingOriginal;
 static IMP GRApplicationSetDelegateOriginal;
 static Class GRApplicationDelegateClass;
 static IMP GRSceneWillConnectOriginal;
@@ -94,6 +96,32 @@ static BOOL GRApplicationOpenURLLegacy(id self, SEL selector,
     return YES;
 }
 
+static BOOL GRApplicationWillFinishLaunching(id self, SEL selector,
+                                             UIApplication *application,
+                                             NSDictionary *options)
+{
+    GRStoreLaunchOptions(options);
+    if (GRApplicationWillFinishLaunchingOriginal) {
+        typedef BOOL (*GRWillFinishLaunching)(id, SEL, UIApplication *, NSDictionary *);
+        return ((GRWillFinishLaunching)GRApplicationWillFinishLaunchingOriginal)(
+            self, selector, application, options);
+    }
+    return YES;
+}
+
+static BOOL GRApplicationDidFinishLaunching(id self, SEL selector,
+                                            UIApplication *application,
+                                            NSDictionary *options)
+{
+    GRStoreLaunchOptions(options);
+    if (GRApplicationDidFinishLaunchingOriginal) {
+        typedef BOOL (*GRDidFinishLaunching)(id, SEL, UIApplication *, NSDictionary *);
+        return ((GRDidFinishLaunching)GRApplicationDidFinishLaunchingOriginal)(
+            self, selector, application, options);
+    }
+    return YES;
+}
+
 static id GRApplicationConfiguration(id self, SEL selector,
                                      UIApplication *application,
                                      id session, id options)
@@ -138,6 +166,7 @@ static void GRApplicationSetDelegate(id self, SEL selector, id delegate)
     typedef void (*GRSetDelegate)(id, SEL, id);
     ((GRSetDelegate)GRApplicationSetDelegateOriginal)(self, selector, delegate);
     GRInstallApplicationURLHooks();
+    if (delegate) GRInstallSceneURLHooksForClass([delegate class]);
 }
 
 static void GRSceneSetDelegate(id self, SEL selector, id delegate)
@@ -217,6 +246,34 @@ static void GRInstallApplicationURLHooks(void)
     GRApplicationOpenURLOriginal = NULL;
     GRApplicationOpenURLLegacyOriginal = NULL;
     GRApplicationConfigurationOriginal = NULL;
+    GRApplicationWillFinishLaunchingOriginal = NULL;
+    GRApplicationDidFinishLaunchingOriginal = NULL;
+
+    SEL willFinish = @selector(application:willFinishLaunchingWithOptions:);
+    Method willFinishMethod = class_getInstanceMethod(delegateClass, willFinish);
+    if (willFinishMethod) {
+        GRApplicationWillFinishLaunchingOriginal = method_getImplementation(willFinishMethod);
+        if (!class_addMethod(delegateClass, willFinish, (IMP)GRApplicationWillFinishLaunching,
+                             method_getTypeEncoding(willFinishMethod))) {
+            method_setImplementation(willFinishMethod, (IMP)GRApplicationWillFinishLaunching);
+        }
+    } else {
+        class_addMethod(delegateClass, willFinish, (IMP)GRApplicationWillFinishLaunching,
+                        "c@:@@");
+    }
+
+    SEL didFinish = @selector(application:didFinishLaunchingWithOptions:);
+    Method didFinishMethod = class_getInstanceMethod(delegateClass, didFinish);
+    if (didFinishMethod) {
+        GRApplicationDidFinishLaunchingOriginal = method_getImplementation(didFinishMethod);
+        if (!class_addMethod(delegateClass, didFinish, (IMP)GRApplicationDidFinishLaunching,
+                             method_getTypeEncoding(didFinishMethod))) {
+            method_setImplementation(didFinishMethod, (IMP)GRApplicationDidFinishLaunching);
+        }
+    } else {
+        class_addMethod(delegateClass, didFinish, (IMP)GRApplicationDidFinishLaunching,
+                        "c@:@@");
+    }
 
     SEL openURL = @selector(application:openURL:options:);
     Method openURLMethod = class_getInstanceMethod(delegateClass, openURL);
