@@ -1270,15 +1270,28 @@ do
   magWild.hp = 200
   magWild.maxHp = 200
   local magEvents = magBattle:takeTurn({ kind = "move", move = "MAGNITUDE" })
-  local announced
+  local announced, announceEvent, usedEvent
   for _, ev in ipairs(magEvents) do
+    if ev.kind == "move" and ev.move == "MAGNITUDE" and not usedEvent then
+      usedEvent = ev
+    end
     if ev.kind == "message" and type(ev.text) == "string"
-        and ev.text:match("^Magnitude %d+") then
+        and ev.text:match("^Magnitude %d+") and not announced then
       announced = ev.text
-      break
+      announceEvent = ev
     end
   end
   check("magnitude announces rolled number", announced, "Magnitude 8!")
+  check("magnitude used-move line defers the animation",
+    usedEvent and usedEvent.deferAnim, true)
+  check("magnitude used-move line burns the move delay",
+    usedEvent and usedEvent.animDelay, true)
+  check("magnitude used-move line owns no animation",
+    usedEvent and usedEvent.moveAnim, nil)
+  check("magnitude line carries the animation",
+    announceEvent and announceEvent.moveAnim, "MAGNITUDE")
+  check("magnitude line carries the attacking side",
+    announceEvent and announceEvent.side, "player")
   check("magnitude deals more than power-1 would",
     magWild.hp < 200, true)
 end

@@ -22,6 +22,7 @@ return function(game)
   U.wait(20)
 
   local function run(style, trainer)
+    local tag = style .. (trainer and "-trainer" or "-wild")
     local done = false
     game.stack:push(Transition.new(game, {
       world = world,
@@ -40,14 +41,14 @@ return function(game)
       if want then
         shots = shots + 1
         U.shot(game, ("%s/%s/%s-%02d.png")
-          :format(out, style, outro and "outro" or "flash", shots))
+          :format(out, tag, outro and "outro" or "flash", shots))
       end
       if outro then outroShots = outroShots + 1 end
       if done then break end
       U.wait(1)
     end
-    print(("[driver] %-8s %d shots, finished=%s")
-      :format(style, shots, tostring(done)))
+    print(("[driver] %-16s %d shots, finished=%s")
+      :format(tag, shots, tostring(done)))
     -- The state pops itself; if it did not, take it off so the next run starts
     -- from a clean stack.
     if not done then game.stack:pop() end
@@ -55,9 +56,10 @@ return function(game)
   end
 
   run("spin", true)
-  run("speckle", false)
-  run("sine", false)
-  run("zoom", false)
+  run("spin", false)
+  run("speckle", true)
+  run("sine", true)
+  run("zoom", true)
 
   print("[driver] shots in " .. out)
   love.event.quit()

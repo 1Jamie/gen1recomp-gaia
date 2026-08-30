@@ -159,6 +159,39 @@ local function deviceSuspended()
   return ChipAudio ~= nil and ChipAudio.isSuspended()
 end
 
+-- home/vblank.asm:58-72
+local FF_PITCH_MAX = 4
+local rate = 1
+
+function Sound.setRate(n)
+  n = tonumber(n)
+  if n and n == n and n > 0 then
+    rate = math.min(n, FF_PITCH_MAX)
+  else
+    rate = 1
+  end
+end
+
+function Sound.rate() return rate end
+
+local function applyRate(src, base)
+  if not src then return src end
+  pcall(src.setPitch, src, (base or 1) * rate)
+  return src
+end
+
+-- home/delay.asm:14
+function Sound.waitFrames(src, fallback)
+  if not src then return 0 end
+  local okd, dur = pcall(src.getDuration, src)
+  if not okd or type(dur) ~= "number" or dur ~= dur or dur <= 0 then
+    return fallback or 180
+  end
+  local okp, pitch = pcall(src.getPitch, src)
+  if okp and type(pitch) == "number" and pitch > 0 then dur = dur / pitch end
+  return math.ceil(dur * 60 * rate) + 2
+end
+
 local function playPath(data, key, def, pitch, tempo, plain)
   if not love.audio or not def then return nil end
   if deviceSuspended() then return nil end
@@ -176,6 +209,7 @@ local function playPath(data, key, def, pitch, tempo, plain)
     src = s
   end
   pcall(src.stop, src)
+  applyRate(src, type(def) == "table" and def.pitch or 1)
   pcall(src.play, src)
   return src
 end
@@ -674,6 +708,7 @@ function Sound.playPikaCry(data, n)
     src = s
   end
   pcall(src.stop, src)
+  applyRate(src, 1)
   pcall(src.play, src)
   played("cry", "PIKACHU_PCM_" .. n, "PIKACHU")
   return src
@@ -715,6 +750,7 @@ function Sound.playCry(data, species, pikaClip)
     src = s
   end
   pcall(src.stop, src)
+  applyRate(src, 1)
   pcall(src.play, src)
   played("cry", species, species)
   return src
@@ -733,7 +769,7 @@ end
 function Sound.playMoveCry(data, species, tempoMod)
   local src = Sound.playCry(data, species)
   if src and tempoMod and tempoMod ~= 0x80 then
-    pcall(src.setPitch, src, 256 / (128 + tempoMod))
+    applyRate(src, 256 / (128 + tempoMod))
   end
   return src
 end
@@ -746,6 +782,13 @@ function Sound.isPlaying(name)
   if not src then return false end
   local ok, playing = pcall(src.isPlaying, src)
   return ok and playing or false
+end
+
+-- home/delay.asm:14
+function Sound.waitFramesFor(name, fallback)
+  local src = cached(name)
+  if not src then return 0 end
+  return Sound.waitFrames(src, fallback)
 end
 
 -- cut a one-shot short (the SFX_STOP_ALL_MUSIC beats around the

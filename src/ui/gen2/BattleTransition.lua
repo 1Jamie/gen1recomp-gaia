@@ -55,7 +55,7 @@ local COLS, ROWS = 20, 18 -- SCREEN_WIDTH x SCREEN_HEIGHT, in tiles
 -- flash runs there is no four-entry palette left in the frame to permute.
 -- GbcPalette's remap shader puts one back: it matches each pixel to the BG
 -- palette entry that produced it and substitutes what the byte sends that entry
--- to, which is CopyPals exactly.  BattleTransition:drawFlash does that and
+-- to, which is CopyPals exactly.  BattleTransition:drawMap does that and
 -- falls back to flashVeil below -- the entry's mean shade against the identity
 -- %11100100 (3,2,1,0), normalised so 3,3,3,3 is solid black and 0,0,0,0 is
 -- solid white -- only when the exact pass cannot run.
@@ -105,6 +105,18 @@ BattleTransition.FLASH_FRAMES =
 --------------------------------------------------------------------------
 -- The Poke Ball overlay (trainer battles only)
 --------------------------------------------------------------------------
+
+BattleTransition.TRAINER_PAL = {
+  { 255, 148, 239 }, { 255, 90, 123 }, { 255, 41, 41 }, { 58, 58, 58 },
+}
+BattleTransition.TRAINER_PAL_DARK = {
+  { 255, 148, 239 }, { 255, 41, 41 }, { 255, 41, 41 }, { 255, 41, 41 },
+}
+-- ../pokecrystal/engine/battle/battle_transition.asm:689-701
+BattleTransition.RAMPED_OBJ = {
+  [Palettes.OW_PALETTE_ID.PAL_OW_TREE] = true,
+  [Palettes.OW_PALETTE_ID.PAL_OW_ROCK] = true,
+}
 
 -- `.PokeBallTransition`, 16 bigdw rows of 16 bits, stamped from hlcoord 2, 1.
 -- A set bit becomes BATTLETRANSITION_SQUARE; the drawing loop stops early on a
@@ -357,6 +369,15 @@ end
 function BattleTransition:drawsWidescreen() return true end
 function BattleTransition:wantsFillScale() return true end
 
+-- ../pokecrystal/engine/battle/battle_transition.asm:272-275
+local function darknessFor(world)
+  if not world then return false end
+  if world.daytime then return world.daytime == "DARK" end
+  local def = world.map and world.map.def
+  local hour = world.hour and world:hour() or nil
+  return Palettes.isDarkness(def, hour, world.flashUsed) and true or false
+end
+
 -- opts: world, trainer (bool), environment, playerLevel, enemyLevel,
 --       random(n), onDone
 function BattleTransition.new(game, opts)
@@ -389,12 +410,46 @@ function BattleTransition.new(game, opts)
   if not BattleTransition.STYLES[style] then style = vanillaStyle(ctx) end
   self.style = style
   self.trainer = opts.trainer and true or false
+  -- ../pokecrystal/engine/battle/battle_transition.asm:585-587
+  self.recolor = self.trainer
+  if opts.dark ~= nil then
+    self.dark = opts.dark and true or false
+  else
+    self.dark = darknessFor(self.world)
+  end
   self.black = {}
   self.frame = 0
   self.step = 0
-  self.phase = self.trainer and "pokeball" or "flash"
   self.sine = nil
+  if self.trainer then
+    self.phase = "pokeball"
+  elseif self.dark then
+    self:beginOutro()
+  else
+    self.phase = "flash"
+  end
   return self
+end
+
+function BattleTransition:trainerRamp()
+  if not self.recolor then return nil end
+  return self.dark and BattleTransition.TRAINER_PAL_DARK
+    or BattleTransition.TRAINER_PAL
+end
+
+-- ../pokecrystal/engine/battle/battle_transition.asm:272-275
+function BattleTransition:flashFrames()
+  if self.dark then return 0 end
+  return BattleTransition.FLASH_FRAMES
+end
+
+function BattleTransition:beginOutro()
+  self.phase = "outro"
+  self.frame = 0
+  self.step = 0
+  if self.style == "sine" then
+    self.sine = BattleTransition.sineFrames()
+  end
 end
 
 -- One logic frame.  The phases run in the jumptable's order and the state pops
@@ -406,20 +461,17 @@ function BattleTransition:update(_dt)
     -- Two DelayFrames on the DMG path, one CGBOnly_CopyTilemapAtOnce on the
     -- other; either way the ball is on screen for a moment before the flash.
     if self.frame >= 2 then
-      self.phase = "flash"
-      self.frame = 0
+      if self.dark then
+        self:beginOutro()
+      else
+        self.phase = "flash"
+        self.frame = 0
+      end
     end
     return
   end
   if self.phase == "flash" then
-    if self.frame >= BattleTransition.FLASH_FRAMES then
-      self.phase = "outro"
-      self.frame = 0
-      self.step = 0
-      if self.style == "sine" then
-        self.sine = BattleTransition.sineFrames()
-      end
-    end
+    if self.frame >= self:flashFrames() then self:beginOutro() end
     return
   end
   if self.phase == "outro" then
@@ -536,12 +588,38 @@ function BattleTransition:remapPalettes()
   return bg, Palettes.objectSet(world.palettes, world.daytime)
 end
 
+-- ../pokecrystal/engine/battle/battle_transition.asm:657-683
+function BattleTransition:bindRemap(byte)
+  if Tilt.active and Tilt.active() then return false end
+  if not GbcPalette.remapShader() then return false end
+  byte = byte or GbcPalette.BGP_IDENTITY
+  local ramp = self:trainerRamp()
+  local world = self.world
+  local def = world and world.map and world.map.def
+  local daytime = world and world.daytime
+  local palettes = world and world.palettes
+  local cache = self.remapCache
+  if not (cache and cache.byte == byte and cache.ramp == ramp
+          and cache.def == def and cache.daytime == daytime
+          and cache.palettes == palettes) then
+    local bg, obj = self:remapPalettes()
+    if not bg then return false end
+    local uniforms = GbcPalette.remapUniforms(bg, byte, obj, ramp,
+      ramp and BattleTransition.RAMPED_OBJ or nil)
+    if not uniforms then return false end
+    cache = { byte = byte, ramp = ramp, def = def, daytime = daytime,
+      palettes = palettes, uniforms = uniforms }
+    self.remapCache = cache
+  end
+  return GbcPalette.useRemapUniforms(cache.uniforms) and true or false
+end
+
 -- Draw the map through this frame's rBGP byte, exactly.  Returns false when the
 -- exact pass cannot run, which is the caller's cue to draw the world plainly
 -- and lay the brightness veil over it instead.
-function BattleTransition:drawFlash(w, h, pal)
-  local byte = BattleTransition.flashByte(pal)
-  if byte == GbcPalette.BGP_IDENTITY then
+function BattleTransition:drawMap(w, h, byte)
+  local ramp = self:trainerRamp()
+  if not ramp and (not byte or byte == GbcPalette.BGP_IDENTITY) then
     -- `dc 3, 2, 1, 0` twice in the table: the picture is simply itself.
     self.world:draw()
     return true
@@ -549,16 +627,27 @@ function BattleTransition:drawFlash(w, h, pal)
   -- TILT projects the finished frame through a linear-filtered canvas, so its
   -- pixels are blends of palette colours rather than palette colours; matching
   -- them back would posterise the warp instead of flashing it.
-  if Tilt.active and Tilt.active() then return false end
-  local bg, obj = self:remapPalettes()
-  if not bg then return false end
   local canvas = self:capture(w, h)
   if not canvas then return false end
-  local applied = GbcPalette.useRemap(bg, byte, obj)
-  if not applied then return false end
+  if not self:bindRemap(byte) then return false end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(canvas, 0, 0)
   GbcPalette.clear()
+  return true
+end
+
+BattleTransition.TINT_ALPHA = 0.55
+
+function BattleTransition:drawTint(w, h)
+  local ramp = self:trainerRamp()
+  if not ramp then return false end
+  local color = GbcPalette.resolve(ramp)
+  local c = color and color[3]
+  if not c then return false end
+  local G = love.graphics
+  G.setColor(c[1] / 255, c[2] / 255, c[3] / 255, BattleTransition.TINT_ALPHA)
+  G.rectangle("fill", 0, 0, w, h)
+  G.setColor(1, 1, 1, 1)
   return true
 end
 
@@ -577,14 +666,16 @@ function BattleTransition:drawWidescreen(w, h)
   -- Cleared once the flash has been drawn exactly, so the veil below is only
   -- ever the fallback and the two can never both land on one frame.
   local pal = self:flashPal()
+  local byte = pal and BattleTransition.flashByte(pal) or nil
 
   if world and world.map then
     if ly then
       self:drawWavy(w, h, ly)
-    elseif pal and self:drawFlash(w, h, pal) then
+    elseif self:drawMap(w, h, byte) then
       pal = nil
     else
       world:draw()
+      self:drawTint(w, h)
     end
   else
     G.setColor(0, 0, 0, 1)
@@ -649,7 +740,8 @@ function BattleTransition:drawCells(w, h, cells)
   local size, ox, oy = self:grid(w, h)
   -- Shade 3 of the text palette, through the COLOR mode like every other
   -- direct colour read.
-  local color = GbcPalette.color(nil, 4)
+  local ramp = self:trainerRamp()
+  local color = ramp and GbcPalette.color(ramp, 4) or GbcPalette.color(nil, 4)
   if color then
     G.setColor(color[1] / 255, color[2] / 255, color[3] / 255, 1)
   else
@@ -678,6 +770,7 @@ function BattleTransition:drawWavy(w, h, ly)
   if not self.quad then
     self.quad = love.graphics.newQuad(0, 0, w, scale, w, h)
   end
+  local shaded = self:trainerRamp() and self:bindRemap(nil)
   for y = 0, rows - 1 do
     -- 144 overrides for however many screen rows the window has; a row past
     -- the end of the array holds the last value, the way the LCD keeps the
@@ -695,6 +788,11 @@ function BattleTransition:drawWavy(w, h, ly)
     elseif shift < 0 then
       G.draw(canvas, self.quad, -shift - w, y * scale)
     end
+  end
+  if shaded then
+    GbcPalette.clear()
+  else
+    self:drawTint(w, h)
   end
 end
 

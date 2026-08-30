@@ -207,6 +207,22 @@ function Game2:adoptSave(save, seedBuckets)
 end
 
 function Game2:enterArena(spec)
+  local version = GameVersion.get()
+  if spec and spec.slotId then
+    pcall(SaveData.setActiveSlot, version, spec.slotId)
+  end
+  local ok, loaded = pcall(Save.load, version)
+  if ok and loaded then
+    local activeMods = self.modStatus and self.modStatus.loaded
+    SaveData.runMigrations(loaded, self.mods and self.mods.migrations, activeMods)
+    self.save = loaded
+    self.save.options = self.options
+    self:adoptSave(loaded)
+    require("src.battle.gen2.Mon").syncSaveIdentity(loaded, self.data)
+  else
+    require("src.core.Logger").warn("arena2: save slot %s could not be loaded",
+      tostring(spec and spec.slotId))
+  end
   self.phase = "boot"
   self.stack:clear()
   self.stack:push(require("src.ui.gen2.ArenaState").new(self, spec))
@@ -543,12 +559,12 @@ function Game2:learnMoveOn(mon, moveId, onDone)
         return askForget()
       end }))
   end
-  -- The four-slot list ForgetMove draws under MoveAskForgetText, which is the
-  -- Blackthorn deleter's own SetUpMoveList box (learn.asm:135-146).
+  -- engine/pokemon/learn.asm:135-166
   local function pushList()
     Screens.push(self, "Gen2MoveDeleter", {
       mon = mon,
       moves = self.data.moves,
+      layout = "forget",
       onCancel = function()
         self.stack:pop() -- the move list
         self.stack:pop() -- the question it stood on
@@ -647,6 +663,12 @@ function Game2:consumeItem(itemId)
   self.save.inventory[itemId] = left > 0 and left or nil
 end
 
+-- engine/pokemon/evolve.asm:333
+function Game2:restartMapMusicAfterEvolution()
+  local world = self.world
+  if world and world.restoreMapMusic then world:restoreMapMusic() end
+end
+
 -- RareCandyEffect's tail (engine/items/item_effects.asm): LearnLevelMoves at
 -- the new level, then EvolvePokemon.  LearnLevelMoves' .learn arm is `predef
 -- LearnMove` (engine/pokemon/evolve.asm), so a full set gets ForgetMove's ask
@@ -683,6 +705,7 @@ function Game2:afterRareCandy(mon, result, onDone)
       save = self.save,
       onDone = function()
         self.stack:pop()
+        self:restartMapMusicAfterEvolution()
         if onDone then onDone() end
       end,
     })
@@ -716,12 +739,20 @@ function Game2:usePartyItem(itemId)
     self:say(Strings("You don't have a\n#MON!"))
     return
   end
-  local function finish(result, mon)
+  -- engine/items/item_effects.asm:1748
+  local function openMenu()
+    local menu = self.stack.top and self.stack:top()
+    if menu and menu.showItemResult then return menu end
+    return nil
+  end
+  local function finish(result, mon, slot, before)
+    local menu = openMenu()
     if not result.used then
-      self:say(result.text)
+      self:say(result.text, menu and function() self.stack:pop() end or nil)
       return
     end
     if action == "stone" then
+      if menu then self.stack:pop() end
       local party = (self.save and self.save.party) or {}
       local index
       for i, member in ipairs(party) do
@@ -734,43 +765,61 @@ function Game2:usePartyItem(itemId)
         onDone = function(evolution)
           if evolution and evolution.evolved then self:consumeItem(itemId) end
           self.stack:pop()
+          self:restartMapMusicAfterEvolution()
         end,
       })
-    elseif action == "candy" then
-      self:consumeItem(itemId)
-      -- data/text/common_1.asm:86
-      self:say(result.text, function() self:afterRareCandy(mon, result) end,
-        result.sfx and TextBox.soundOpts(self, result.sfx) or nil)
-    else
-      self:consumeItem(itemId)
-      self:say(result.text)
+      return
     end
+    self:consumeItem(itemId)
+    if not menu then
+      if action == "candy" then
+        -- data/text/common_1.asm:86
+        self:say(result.text, function() self:afterRareCandy(mon, result) end,
+          result.sfx and TextBox.soundOpts(self, result.sfx) or nil)
+      else
+        self:say(result.text)
+      end
+      return
+    end
+    -- engine/items/item_effects.asm:1663
+    local climbs = (action == "heal" or action == "revive")
+      and before and mon.hp and mon.hp ~= before
+    menu:showItemResult(slot, {
+      fromHp = climbs and before or nil,
+      toHp = climbs and mon.hp or nil,
+      sfx = climbs and "Sfx_Potion" or result.sfx,
+      text = result.text,
+      onDone = function()
+        self.stack:pop()
+        if action == "candy" then self:afterRareCandy(mon, result) end
+      end,
+    })
   end
   Screens.push(self, "Gen2PartyMenu", {
     prompt = "useItem",
     onCancel = function() self.stack:pop() end,
-    onChoose = function(_, mon)
+    onChoose = function(slot, mon)
+      local before = mon and mon.hp
       if action ~= "pp" then
-        self.stack:pop()
-        finish(ItemEffects.useOnMon(itemId, mon, self.data), mon)
+        finish(ItemEffects.useOnMon(itemId, mon, self.data), mon, slot, before)
         return
       end
       -- RestorePPEffect: the ELIXER pair needs no move pick; an EGG refuses
       -- before the move list ever opens (UseItem_SelectMon's `cp EGG`).
       local row = ItemEffects.RESTORE_PP[itemId] or {}
       if row.each or mon.isEgg then
-        self.stack:pop()
-        finish(ItemEffects.usePpItem(itemId, mon, nil, self.data), mon)
+        finish(ItemEffects.usePpItem(itemId, mon, nil, self.data), mon, slot,
+          before)
         return
       end
       Screens.push(self, "Gen2MoveDeleter", {
         mon = mon,
         moves = self.data.moves,
         onCancel = function() self.stack:pop() end,
-        onChoose = function(slot)
+        onChoose = function(moveSlot)
           self.stack:pop() -- the move list
-          self.stack:pop() -- the party list
-          finish(ItemEffects.usePpItem(itemId, mon, slot, self.data), mon)
+          finish(ItemEffects.usePpItem(itemId, mon, moveSlot, self.data), mon,
+            slot, before)
         end,
       })
     end,
@@ -1212,14 +1261,12 @@ function Game2:update(dt)
   -- they are presentational, so fast-forward must not speed them up.
   require("src.render.Pipelines").update(dt)
   pcall(function() require("src.core.DiscordPresence").update(dt) end)
-  -- GAME SPEED scales the logic clock only, exactly as the Gen 1 path does:
-  -- audio runs off its own real-time accumulator, so music and sfx keep their
-  -- tempo at every multiplier.  speedOverride is the driver/CLI hook and wins
-  -- over the saved option.
   -- pokegold engine/menus/intro_menu.asm:848 IntroSequence: boot cinema runs on the same clock as the overworld
   local speed = math.max(1,
     tonumber(self.speedOverride) or tonumber(self.options and self.options.speed)
     or 1)
+  local Sound = require("src.core.Sound")
+  if Sound.setRate then Sound.setRate(speed) end
   if self.phase == "boot" then
     FixedStep.maxAccum = math.max(0.25, speed / 60 + 0.05)
     FixedStep:update(dt * speed)

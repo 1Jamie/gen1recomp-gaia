@@ -1697,7 +1697,13 @@ function Battle:useMove(attacker, defender, moveId)
   if def.effect == "EFFECT_MAGNITUDE" then
     local rolled, number = Effects.magnitudePower(self.random)
     powerOverride = rolled
-    self:emit({ kind = "message",
+    -- engine/battle/move_effects/magnitude.asm:20-22
+    if self.moveEvent then
+      self.moveEvent.deferAnim = true
+      self.moveEvent.animDelay = true
+    end
+    self.moveEvent = self:emit({ kind = "message",
+      moveAnim = moveId, side = self:sideOf(attacker),
       text = ("Magnitude %d!"):format(number) })
   end
 

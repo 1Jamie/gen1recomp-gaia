@@ -366,7 +366,7 @@ end
 -- map whose palettes share nothing at all fills the array and the OBJ list is
 -- dropped.  BG is walked first for that reason too: losing the sprite guard
 -- costs a few sprite pixels, losing a BG palette would cost the effect.
-function GbcPalette.remapTable(bgPalettes, byte, objPalettes)
+function GbcPalette.remapTable(bgPalettes, byte, objPalettes, ramp, objRamped)
   local src, dst = {}, {}
   local seen = {}
   local ambiguous = 0
@@ -391,13 +391,21 @@ function GbcPalette.remapTable(bgPalettes, byte, objPalettes)
     end
   end
 
+  -- ../pokecrystal/engine/battle/battle_transition.asm:592-607
+  local forced = ramp and GbcPalette.resolve(ramp)
+  local forcedBg = forced and GbcPalette.remap(forced, byte)
+
   for _, colors in ipairs(bgPalettes or {}) do
     local resolved = GbcPalette.resolve(colors)
-    add(resolved, GbcPalette.remap(resolved, byte))
+    add(resolved, forcedBg or GbcPalette.remap(resolved, byte))
   end
-  for _, colors in ipairs(objPalettes or {}) do
+  for index, colors in ipairs(objPalettes or {}) do
     local resolved = GbcPalette.resolve(colors)
-    add(resolved, resolved)
+    if forced and objRamped and objRamped[index] then
+      add(resolved, forced)
+    else
+      add(resolved, resolved)
+    end
   end
 
   local count = #src
@@ -414,12 +422,16 @@ end
 -- false when there is no shader or no palette, so a caller can fall back to
 -- whatever approximation it had before; on success it also returns the
 -- `ambiguous` count, which is 0 when the pass is exact.
-function GbcPalette.useRemap(bgPalettes, byte, objPalettes)
-  local sh = GbcPalette.remapShader()
-  if not sh then return false end
+function GbcPalette.useRemap(bgPalettes, byte, objPalettes, ramp, objRamped)
+  if not GbcPalette.remapShader() then return false end
+  return GbcPalette.useRemapUniforms(
+    GbcPalette.remapUniforms(bgPalettes, byte, objPalettes, ramp, objRamped))
+end
+
+function GbcPalette.remapUniforms(bgPalettes, byte, objPalettes, ramp, objRamped)
   local src, dst, count, ambiguous =
-    GbcPalette.remapTable(bgPalettes, byte, objPalettes)
-  if count == 0 then return false end
+    GbcPalette.remapTable(bgPalettes, byte, objPalettes, ramp, objRamped)
+  if count == 0 then return nil end
   local sendSrc, sendDst = {}, {}
   for index = 1, GbcPalette.REMAP_MAX do
     sendSrc[index] = { src[index][1] / 255, src[index][2] / 255,
@@ -427,13 +439,19 @@ function GbcPalette.useRemap(bgPalettes, byte, objPalettes)
     sendDst[index] = { dst[index][1] / 255, dst[index][2] / 255,
       dst[index][3] / 255 }
   end
+  return { src = sendSrc, dst = sendDst, count = count, ambiguous = ambiguous }
+end
+
+function GbcPalette.useRemapUniforms(uniforms)
+  local sh = GbcPalette.remapShader()
+  if not (sh and uniforms) then return false end
   -- pcall rather than an assert: a driver that will not take a 32-entry vec3
   -- array should drop the effect, not take the battle down with it.
   local ok = pcall(function()
-    sh:send("remapCount", count)
+    sh:send("remapCount", uniforms.count)
     sh:send("remapTol", GbcPalette.REMAP_TOLERANCE)
-    sh:send("remapSrc", unpack(sendSrc))
-    sh:send("remapDst", unpack(sendDst))
+    sh:send("remapSrc", unpack(uniforms.src))
+    sh:send("remapDst", unpack(uniforms.dst))
   end)
   if not ok then
     remapFailed = true
@@ -441,7 +459,7 @@ function GbcPalette.useRemap(bgPalettes, byte, objPalettes)
     return false
   end
   love.graphics.setShader(sh)
-  return true, ambiguous
+  return true, uniforms.ambiguous
 end
 
 -- Run `body` with `colors` active, restoring whatever shader was set before.

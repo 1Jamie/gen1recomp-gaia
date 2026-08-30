@@ -283,11 +283,15 @@ Client.you = savedYou
 
 local joined = nil
 local savedJoin = Client.joinRoom
-Client.joinRoom = function(code, as) joined = { code = code, as = as } end
+Client.joinRoom = function(code, as, profile)
+  joined = { code = code, as = as, profile = profile }
+end
 T.check(OnlinePanel.joinByCode(imp, "ab2cd3", "player"),
   "a six-character code joins")
 T.eq(joined and joined.code, "AB2CD3", "the code is upper-cased on the way out")
 T.eq(joined and joined.as, "player", "the join role is passed through")
+T.eq(joined and joined.profile and joined.profile.version, "red",
+  "and the join carries the profile of the game that is picked")
 joined = nil
 T.check(not OnlinePanel.joinByCode(imp, "AB", "player"),
   "a short code is refused")
@@ -1704,12 +1708,14 @@ do
     _pages = {}, _uiActions = {}, _actAt = {} }
   local sst = OnlinePanel.state(simp)
   sst.version, sst.ready = "red", true
+  sst.profiles["red|vanilla|-"] = { profile = { engine = 1, version = "red",
+    kind = "vanilla", fingerprint = "f1" } }
   local savedJoin, savedTour, savedLobby =
     Client.joinRoom, Client.joinTournament, Client.lobby
   local roomJoins, tourJoins = {}, {}
   local pendingRoom
-  Client.joinRoom = function(code, as)
-    roomJoins[#roomJoins + 1] = { code = code, as = as }
+  Client.joinRoom = function(code, as, profile)
+    roomJoins[#roomJoins + 1] = { code = code, as = as, profile = profile }
     pendingRoom = { code = code, done = false }
     return pendingRoom
   end
@@ -1827,6 +1833,143 @@ do
   link.paired, link.closed = true, true
   remote.session.stage = "done"
   T.eq(remote:update(), "done", "but a finished trade stays finished")
+end
+
+do
+  local himp = { ready = { red = true, crystal = true }, modScope = "crystal",
+    activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  T.eq(OnlinePanel.selectedVersion(himp), "crystal",
+    "the ONLINE tab follows the launcher's cartridge, not ORDER[1]")
+  local hst = OnlinePanel.state(himp)
+  hst.versionPicked = true
+  himp.modScope = "red"
+  T.eq(OnlinePanel.selectedVersion(himp), "crystal",
+    "a game picked in the wizard is not yanked by the header")
+end
+
+do
+  local wimp = { ready = { red = true, crystal = true }, modScope = "crystal",
+    activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  T.eq(OnlinePanel.selectedVersion(wimp), "crystal", "the tab starts on the header")
+  local wst = OnlinePanel.state(wimp)
+  wst.joinWant = { code = "AB2CD3", as = "player", at = 1e9 }
+  wimp.modScope = "red"
+  T.eq(OnlinePanel.selectedVersion(wimp), "crystal",
+    "a parked join is not re-aimed at another game by the header")
+end
+
+do
+  local aimp = { ready = { red = true, crystal = true }, modScope = "crystal",
+    activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local ast = OnlinePanel.state(aimp)
+  T.eq(OnlinePanel.selectedVersion(aimp), "crystal", "the tab starts on the header")
+  local savedLobby = Client.lobby
+  Client.lobby = function()
+    return { { code = "RM1234", intent = "battle",
+               profile = { version = "red", kind = "vanilla" } } }
+  end
+  T.check(OnlinePanel.alignToRoom(aimp, "RM1234"), "aligning to a listed room")
+  T.eq(ast.version, "red", "takes the room's game")
+  T.eq(OnlinePanel.selectedVersion(aimp), "red",
+    "and the header does not yank the tab while the room is live")
+  Client.lobby = savedLobby
+  OnlinePanel.update(aimp, 1 / 60)
+  T.eq(ast.roomPicked, nil, "leaving the room releases the room's pin")
+  T.eq(OnlinePanel.selectedVersion(aimp), "crystal",
+    "so the header drives the tab again")
+end
+
+do
+  local pimp = { ready = { red = true, crystal = true }, modScope = "crystal",
+    activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local pst = OnlinePanel.state(pimp)
+  pst.ready = true
+  local sent, profiles = {}, nil
+  local savedJoin, savedSet = Client.joinRoom, Client.setProfiles
+  Client.joinRoom = function(code, as, profile)
+    sent[#sent + 1] = { code = code, as = as, profile = profile }
+    return { code = code, done = false }
+  end
+  Client.setProfiles = function(list) profiles = list return list end
+
+  T.check(not OnlinePanel.joinByCode(pimp, "ab2cd3", "player"),
+    "a join with no computed profile yet is not sent")
+  T.eq(#sent, 0, "nothing goes on the wire")
+  T.eq(pst.joinWant and pst.joinWant.code, "AB2CD3", "the join is parked")
+  T.eq(pst.profileWant, "crystal|vanilla|-",
+    "and the profile for the picked game is queued")
+
+  pst.profiles["crystal|vanilla|-"] = { profile = { engine = 2,
+    version = "crystal", kind = "vanilla", fingerprint = "c1" } }
+  OnlinePanel.update(pimp, 1 / 60)
+  T.eq(#sent, 1, "the parked join fires once the profile lands")
+  T.eq(sent[1] and sent[1].profile and sent[1].profile.version, "crystal",
+    "carrying the game the player picked")
+  T.eq(profiles and profiles[1] and profiles[1].version, "crystal",
+    "and the client's own snapshot is refreshed with it")
+  T.eq(pst.joinWant, nil, "the parked join is cleared")
+  T.eq(OnlinePanel.screen(pimp), "room", "landing on the Room screen")
+
+  local savedTime = love.timer.getTime
+  local clock = 0
+  love.timer.getTime = function() return clock end
+  pst.pending = { code = "AB2CD3", done = false, at = 0 }
+  clock = OnlinePanel.JOIN_WAIT + 1
+  OnlinePanel.update(pimp, 1 / 60)
+  T.eq(pst.pending, nil, "a join the relay never answers stops pending")
+  T.eq(pst.status, "The relay didn't answer.", "and says so")
+  T.eq(OnlinePanel.screen(pimp), "play", "off the dead Room screen")
+
+  pst.status = nil
+  pst.profiles["crystal|vanilla|-"] = { profile = nil, reason = "no cache" }
+  clock = 100
+  T.check(not OnlinePanel.joinByCode(pimp, "cd3ab2", "player"),
+    "an unreadable profile refuses the join")
+  T.eq(pst.status, "no cache", "with the reason")
+  clock = 100 + OnlinePanel.JOIN_WAIT + 1
+  OnlinePanel.update(pimp, 1 / 60)
+  T.eq(pst.joinWant, nil, "and the parked join gives up on its own deadline")
+  T.eq(pst.status, "Couldn't read your game, so the join was not sent.",
+    "saying why instead of waiting forever")
+  love.timer.getTime = savedTime
+  Client.joinRoom, Client.setProfiles = savedJoin, savedSet
+  OnlinePanel.home(pimp)
+end
+
+do
+  local savedProfiles = Client.profiles()
+  Client.setProfiles({ { version = "red" } })
+  T.eq(Client.profiles()[1].version, "red",
+    "setProfiles replaces the client's profile snapshot")
+  Client.setProfiles(savedProfiles)
+end
+
+do
+  local mimp = { ready = { red = true }, activeSlot = {}, slots = {}, pulse = 0,
+    _pages = {}, _uiActions = {}, _actAt = {} }
+  local mst = OnlinePanel.state(mimp)
+  mst.version, mst.kind = "red", "vanilla"
+  local ArenaData = require("src.online.ArenaData")
+  local savedSpecies = ArenaData.speciesIds
+  ArenaData.speciesIds = function() return { PIKACHU = true } end
+  T.eq(OnlinePanel.partyRefusal(mimp, { { species = "PIKACHU" } }), nil,
+    "a vanilla party is sent as it is")
+  T.eq(OnlinePanel.partyRefusal(mimp, { { species = "PIKACHU" },
+    { species = "CELEBI" } }),
+    "CELEBI is not in the vanilla game, so it cannot go online.",
+    "a mod species is named and refused before the handshake")
+  mst.kind, mst.cartId = "cart", "kanto"
+  T.eq(OnlinePanel.partyRefusal(mimp, { { species = "CELEBI" } }), nil,
+    "a cart arena is the cart's business, not the vanilla list's")
+  mst.kind, mst.cartId = "vanilla", nil
+  ArenaData.speciesIds = function() return nil end
+  T.eq(OnlinePanel.partyRefusal(mimp, { { species = "CELEBI" } }), nil,
+    "and an unreadable dataset keeps its opinion to itself")
+  ArenaData.speciesIds = savedSpecies
 end
 
 T.finish("online panel")

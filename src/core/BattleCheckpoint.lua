@@ -43,7 +43,8 @@ local BATTLE_FIELDS = {
   "moveIndex", "moveSwapIndex", "aiUses", "runAttempts", "payDay",
   "sideToxic", "isGymLeader", "musicKind", "lastBall", "lockedBall",
   "lowHealthAlarmDisabled", "lowHealthAlarmOn", "victoryMusicPlayed",
-  "endBattleText",
+  "endBattleText", "endBattleSound", "endBattleSoundPage",
+  "rewardDialogueShown",
   "playerPartyIndices",
 }
 

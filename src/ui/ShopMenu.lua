@@ -71,13 +71,9 @@ local function buy(game, stock, menu)
         return
       end
       local def = game.data.items[item.value]
-      if game.save.money < def.price then
-        list.footer = notEnough
-        return
-      end
-      local affordable = math.min(99, math.floor(game.save.money / math.max(1, def.price)))
+      -- engine/events/pokemart.asm:152-156
       game.stack:push(QuantityBox.new(game, {
-        max = affordable,
+        max = 99,
         unitPrice = def.price,
         onDone = function(qty)
           if not qty then

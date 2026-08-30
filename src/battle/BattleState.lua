@@ -1336,8 +1336,15 @@ function BattleState:updateQueue()
   -- own clear window instead of letting the next beat play over it
   if self.waitingSound then
     local src = self.waitingSound
-    if src and src.isPlaying and src:isPlaying() then return true end
-    self.waitingSound = nil
+    if not self.waitSoundLeft then
+      local Sound = require("src.core.Sound")
+      self.waitSoundLeft = Sound.waitFrames and Sound.waitFrames(src) or 180
+    end
+    self.waitSoundLeft = self.waitSoundLeft - 1
+    local playing = src and src.isPlaying and src:isPlaying()
+    if playing and self.waitSoundLeft > 0 then return true end
+    if playing then pcall(src.stop, src) end
+    self.waitingSound, self.waitSoundLeft = nil, nil
   end
   -- an HP-bar drain holds the queue until the bar catches up
   if self.draining then
@@ -4764,14 +4771,16 @@ function BattleState:enemyMonFainted()
       -- TrainerNamePointers aims those entries at wTrainerName).  The tag
       -- prints once, so a `para` page carries no second copy (#566).
       local tag = self.trainer and self.trainer.name
-      -- the badge jingle (sound_get_item_1 and friends) rides the armed
-      -- line's first page, as the script's text command would (#1606)
+      -- scripts/PewterGym.asm:156-159
       local sfx = self.endBattleSound
+      local sfxPage = self.endBattleSoundPage or 1
+      local shown = 0
       local data = self.data
       for page in (self.endBattleText .. "\f"):gmatch("(.-)\f") do
         if page ~= "" then
+          shown = shown + 1
           local line = tag and (tag .. ": " .. page) or page
-          if sfx then
+          if sfx and shown >= sfxPage then
             local id = sfx
             self:sayNextWaitSfx(line, function()
               return require("src.core.Sound").play(data, id)

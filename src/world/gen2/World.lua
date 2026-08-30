@@ -2593,17 +2593,31 @@ function World:playMapMusic()
   end
 end
 
--- RestartMapMusic, which replays wMapMusic -- and wMapMusic is MUSIC_BICYCLE
--- for as long as the player is riding (.GetOnBike writes it there).  So a
--- battle, a hatch or a menu that owned the sound gives the BIKE theme back,
--- not the map's own song.
+-- data/maps/setup_scripts.asm:48
+-- home/audio.asm:335
+-- home/audio.asm:281
+function World:setMapMusic(mapId, seamless)
+  local data = self.game and self.game.data
+  local audio = data and data.audio
+  if not (audio and audio.runtime) then return end
+  local bike = not seamless
+    and FieldMoves.isBiking(self.playerState)
+    and self:playBikeMusic()
+  if bike then return end
+  Music.playMap(data, mapId, nil,
+                FieldMoves.isSurfing(self.playerState),
+                seamless and Music.MAP_FADE or nil,
+                self:mapMusicSong(mapId))
+end
+
+-- home/audio.asm:379
+-- home/audio.asm:281
 function World:restoreMapMusic()
   local data = self.game and self.game.data
   if not data then return end
-  if FieldMoves.isBiking(self.playerState) and self:playBikeMusic() then
-    return
-  end
-  Music.restoreMap(data)
+  -- engine/events/overworld.asm:1627
+  local reason = FieldMoves.isBiking(self.playerState) and "bike" or nil
+  Music.restoreMap(data, reason)
 end
 
 -- ForceMapMusic (engine/overworld/map_setup.asm:201), the music row every
@@ -5006,6 +5020,7 @@ function World:playBikeMusic()
   if not (audio.songs and audio.songs[Bike.MUSIC_BICYCLE]) then return false end
   -- engine/events/overworld.asm:1621-1630
   Music.stop()
+  Music.setMapSong(Bike.MUSIC_BICYCLE)
   Music.play(data, Bike.MUSIC_BICYCLE, true, { reason = "bike" })
   return true
 end
@@ -9327,16 +9342,7 @@ function World:setMap(mapId, cx, cy, facing, opts)
   self:rebuildPeople({ seamless = opts.seamless })
   -- rebuildPeople may have pooled fresh NPCs; give them their colors too.
   self:applyPalettes()
-  local audio = self.game and self.game.data and self.game.data.audio
-  -- PlayMapMusicBike / SpecialMapMusic (home/audio.asm:335, :397): a biking
-  -- player keeps the bike theme; Music.play dedupes seamless edge crossings.
-  if audio and audio.runtime then
-    if not (FieldMoves.isBiking(self.playerState) and self:playBikeMusic()) then
-      Music.playMap(self.game.data, mapId, nil,
-                    FieldMoves.isSurfing(self.playerState), nil,
-                    self:mapMusicSong(mapId))
-    end
-  end
+  self:setMapMusic(mapId, opts.seamless)
   -- Fires with the map fully built and BEFORE the map's own scene script, so a
   -- listener sees exactly the state that script does -- the position Gen 1's
   -- emit takes ahead of its onEnter chain.  `via` carries the same four words
@@ -9624,6 +9630,7 @@ function World:tryConnection(dir)
   p.facing = dir
   p.targetX, p.targetY = x, y
   p.moving = true
+  p.bumpFrames = nil
   p.progress = 0
   FixedStep:discardCatchup()
   return true
@@ -9687,6 +9694,7 @@ function World:tryLedgeJump(dir)
   p.targetX, p.targetY = tx, ty
   p.moving = true
   p.jumping = true
+  p.bumpFrames = nil
   -- JumpStep res IN_GRASS_F and calls neither UpdateTallGrassFlags nor
   -- ShakeGrass (engine/overworld/movement.asm:741-770).
   p.inGrass, p.grassShake = false, nil
@@ -10496,6 +10504,8 @@ function World:stepBody()
   end
   if not dir then
     p.turnArmed = true
+    -- engine/overworld/player_movement.asm:108
+    p.bumpFrames = nil
     return
   end
   if p.moving then return end

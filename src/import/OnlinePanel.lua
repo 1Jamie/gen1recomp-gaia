@@ -132,11 +132,26 @@ function OnlinePanel.readyVersions(imp)
   return out
 end
 
+function OnlinePanel.headerVersion(imp)
+  local scope = type(imp) == "table" and imp.modScope or nil
+  if scope and imp.ready and imp.ready[scope] then return scope end
+  return nil
+end
+
 function OnlinePanel.selectedVersion(imp)
   local st = OnlinePanel.state(imp)
+  local header = OnlinePanel.headerVersion(imp)
+  if header and header ~= st.version and not st.versionPicked
+      and not st.roomPicked and not st.wizard and not st.pending
+      and not st.joinWant and not st.hadRoom then
+    st.version, st.slotId, st.cartId, st.team = header, nil, nil, {}
+    st.slotRead, st.ready, st.kind = nil, false, "vanilla"
+    OnlinePanel.invalidate(imp)
+    return st.version
+  end
   if st.version and imp.ready and imp.ready[st.version] then return st.version end
   local list = OnlinePanel.readyVersions(imp)
-  st.version = list[1]
+  st.version = header or list[1]
   return st.version
 end
 
@@ -708,6 +723,19 @@ end
 
 local function Client()
   return require("src.online.Client")
+end
+
+local function nowSeconds()
+  if love and love.timer and love.timer.getTime then return love.timer.getTime() end
+  return os.clock()
+end
+
+OnlinePanel.nowSeconds = nowSeconds
+
+function OnlinePanel.pushProfile(profile)
+  local client = Client()
+  if type(client.setProfiles) ~= "function" then return false end
+  return client.setProfiles(profile and { profile } or {})
 end
 
 local ensureHooks
@@ -1791,6 +1819,25 @@ function OnlinePanel.pushPresence(room)
   pcall(Presence.setJoinCode, room.code, "match", #(room.players or {}), 2)
 end
 
+function OnlinePanel.partyRefusal(imp, packed)
+  local st = OnlinePanel.state(imp)
+  if st.kind == "cart" or st.cartId then return nil end
+  local version = OnlinePanel.engineVersion(imp)
+  if not version then return nil end
+  local ok, known = pcall(function()
+    return require("src.online.ArenaData").speciesIds(version)
+  end)
+  if not ok or type(known) ~= "table" then return nil end
+  for _, mon in ipairs(packed or {}) do
+    local id = type(mon) == "table" and mon.species or nil
+    if id and not known[id] then
+      return Strings("%s is not in the vanilla game, so it cannot go online.",
+        tostring(id))
+    end
+  end
+  return nil
+end
+
 function OnlinePanel.sendReady(imp)
   local st = OnlinePanel.state(imp)
   local pick, reason = OnlinePanel.readTeamSlot(imp)
@@ -1821,6 +1868,11 @@ function OnlinePanel.sendReady(imp)
   if not packed then
     st.status, st.statusOk = tostring(why), false
     return false, why
+  end
+  local refusal = OnlinePanel.partyRefusal(imp, packed)
+  if refusal then
+    st.status, st.statusOk = refusal, false
+    return false, refusal
   end
   Client().ready(packed, OnlinePanel.partyDigest(packed))
   st.ready = true
@@ -2879,6 +2931,27 @@ function OnlinePanel.update(imp, dt)
     st.status, st.statusOk = tostring(OnlinePanel._joinError), false
     OnlinePanel._joinError = nil
   end
+  if st.joinWant then
+    local want = st.joinWant
+    if OnlinePanel.myProfile(imp) then
+      st.joinWant = nil
+      if OnlinePanel.joinByCode(imp, want.code, want.as) then
+        if want.tourFallback and st.pending then
+          st.pending.tourFallback = true
+        end
+        if st.wizard then finishTo(imp, "room") else OnlinePanel.go(imp, "room") end
+      end
+    elseif nowSeconds() > (want.at or 0) then
+      st.joinWant = nil
+      st.status, st.statusOk =
+        Strings("Couldn't read your game, so the join was not sent."), false
+    end
+  end
+  if st.pending and not st.pending.done and st.pending.at
+      and nowSeconds() - st.pending.at > OnlinePanel.JOIN_WAIT then
+    st.pending.error = Strings("The relay didn't answer.")
+    st.pending.done = true
+  end
   if st.pending and st.pending.done then
     local pending = st.pending
     st.pending = nil
@@ -2886,6 +2959,9 @@ function OnlinePanel.update(imp, dt)
         and pending.reason == "not_found" then
       OnlinePanel.joinTournamentByCode(imp, pending.code, "spectator")
     elseif pending.error then
+      if OnlinePanel.screen(imp) == "room" and not Client().room() then
+        OnlinePanel.go(imp, "play")
+      end
       st.status, st.statusOk = tostring(pending.error), false
     end
   end
@@ -2899,6 +2975,10 @@ function OnlinePanel.update(imp, dt)
     OnlinePanel.clearPresence()
   end
   st.hadRoom = room ~= nil or tour ~= nil
+  if st.roomPicked and not st.hadRoom and not st.pending
+      and not st.joinWant then
+    st.roomPicked = nil
+  end
   local cartKey = room and tostring(room.code) or nil
   if cartKey ~= st.roomCartKey then
     st.roomCartKey = cartKey
@@ -2948,6 +3028,25 @@ function OnlinePanel.autoReadyTrade(imp, room)
   return OnlinePanel.sendReady(imp)
 end
 
+function OnlinePanel.alignToRoom(imp, code)
+  local st = OnlinePanel.state(imp)
+  for _, entry in ipairs(Client().lobby() or {}) do
+    local p = entry.code == code and entry.profile or nil
+    if p and p.version and imp.ready and imp.ready[p.version] then
+      local kind = p.kind or "vanilla"
+      local cartId = p.cart and p.cart.id or nil
+      st.roomPicked = true
+      if p.version ~= st.version or kind ~= st.kind or cartId ~= st.cartId then
+        st.version, st.kind, st.cartId = p.version, kind, cartId
+        st.slotId, st.team, st.slotRead, st.ready = nil, {}, nil, false
+        OnlinePanel.invalidate(imp)
+      end
+      return true
+    end
+  end
+  return false
+end
+
 function OnlinePanel.spectateByCode(imp, code)
   local st = OnlinePanel.state(imp)
   code = OnlinePanel.sanitizeCode(code)
@@ -2956,21 +3055,38 @@ function OnlinePanel.spectateByCode(imp, code)
       return OnlinePanel.joinTournamentByCode(imp, code, "spectator")
     end
   end
-  if not OnlinePanel.joinByCode(imp, code, "spectator") then return false end
+  OnlinePanel.alignToRoom(imp, code)
+  if not OnlinePanel.joinByCode(imp, code, "spectator") then
+    if st.joinWant then st.joinWant.tourFallback = true end
+    return false
+  end
   if st.pending then st.pending.tourFallback = true end
   OnlinePanel.go(imp, "room")
   return true
 end
 
+OnlinePanel.JOIN_WAIT = 15
+
 function OnlinePanel.joinByCode(imp, code, as)
   local st = OnlinePanel.state(imp)
   code = OnlinePanel.sanitizeCode(code)
   if #code ~= OnlinePanel.CODE_LEN then
+    st.joinWant = nil
     st.status, st.statusOk = Strings("Room codes are 6 characters."), false
     return false
   end
   ensureHooks()
-  st.pending = Client().joinRoom(code, as or "player")
+  local profile, reason = OnlinePanel.myProfile(imp)
+  if not profile then
+    st.joinWant = { code = code, as = as or "player",
+                    at = nowSeconds() + OnlinePanel.JOIN_WAIT }
+    st.status, st.statusOk = reason or Strings("Reading your game..."), false
+    return false
+  end
+  st.joinWant = nil
+  OnlinePanel.pushProfile(profile)
+  st.pending = Client().joinRoom(code, as or "player", profile)
+  if st.pending and st.pending.at == nil then st.pending.at = nowSeconds() end
   return true
 end
 

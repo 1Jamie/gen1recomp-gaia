@@ -21,6 +21,13 @@ local TextBox = {}
 TextBox.__index = TextBox
 TextBox.isTextBox = true
 
+-- home/delay.asm:14
+local function sfxWaitFrames(src)
+  local Sound = require("src.core.Sound")
+  if not Sound.waitFrames then return 180 end
+  return Sound.waitFrames(src)
+end
+
 -- theme-free fallbacks; geometry resolves against Theme.textBox at
 -- construction time, so an unthemed boot stays byte-identical
 local BOX_TX, BOX_TY, BOX_TW, BOX_TH = 0, 12, 20, 6
@@ -108,6 +115,8 @@ function TextBox.new(game, text, onDone, opts)
   self.choiceLabels = opts and opts.choiceLabels
   self.choiceBox = opts and opts.choiceBox
   self.money = opts and opts.money
+  -- scripts/MtMoonPokecenter.asm:30
+  self.moneyWithChoice = opts and opts.moneyWithChoice
   self.auto = opts and opts.auto
   self.stay = opts and opts.stay
   -- engine/events/hidden_events/cinnabar_gym_quiz.asm:119
@@ -349,6 +358,12 @@ function TextBox:arrowVisible()
          or (self.stay.prompt and not self.stayShown)))
 end
 
+-- scripts/MtMoonPokecenter.asm:30
+function TextBox:moneyVisible()
+  if not self.money then return false end
+  return not self.moneyWithChoice or not not self.choicePushed
+end
+
 function TextBox:update(dt)
   local input = self.game.input
   self.blink = (self.blink + 1) % 60
@@ -357,11 +372,13 @@ function TextBox:update(dt)
     if not self.preStarted then
       self.preStarted = true
       self.preSrc = self.preSound()
+      self.preSrcLeft = sfxWaitFrames(self.preSrc)
     end
-    if self.preSrc and self.preSrc.isPlaying and self.preSrc:isPlaying() then
-      return
-    end
-    self.preSound, self.preSrc = nil, nil
+    self.preSrcLeft = (self.preSrcLeft or 0) - 1
+    local playing = self.preSrc and self.preSrc.isPlaying and self.preSrc:isPlaying()
+    if playing and self.preSrcLeft > 0 then return end
+    if playing then pcall(self.preSrc.stop, self.preSrc) end
+    self.preSound, self.preSrc, self.preSrcLeft = nil, nil, nil
   end
   -- A page or CONT advance blocks the whole box while the original's scroll
   -- and clear run (src/core/Timing.lua TEXT_SCROLL_PAIR / TEXT_PAGE_CLEAR).
@@ -415,6 +432,7 @@ function TextBox:update(dt)
       if not self.autoStarted then
         self.autoStarted = true
         self.autoSrc = self.auto.sound and self.auto.sound() or nil
+        self.autoSrcLeft = sfxWaitFrames(self.autoSrc)
         self.autoTimer = 0
       end
       -- auto.tick: one call per frame for as long as the box is held open,
@@ -424,8 +442,13 @@ function TextBox:update(dt)
       -- the overworld underneath is frozen (the Pewter JIGGLYPUFF spin,
       -- #249).
       if self.auto.tick then self.auto.tick() end
-      if self.autoSrc and self.autoSrc.isPlaying and self.autoSrc:isPlaying() then
-        return -- the cry is still sounding (WaitForSoundToFinish)
+      -- home/delay.asm:14
+      if self.autoSrc then
+        self.autoSrcLeft = (self.autoSrcLeft or 0) - 1
+        if self.autoSrc.isPlaying and self.autoSrc:isPlaying() then
+          if self.autoSrcLeft > 0 then return end
+          pcall(self.autoSrc.stop, self.autoSrc)
+        end
       end
       -- auto.wait: the pet-NPC cries (PewterNidoranHouseNidoranText,
       -- ViridianNicknameHouseSpearowText) have nothing queued behind the
@@ -620,7 +643,7 @@ function TextBox:draw()
       pen = pen + Font.advanceOf(code)
     end
   end
-  if self.money then
+  if self:moneyVisible() then
     -- money box (engine/menus/text_box.asm:130): DisplayMoneyBox at
     -- hlcoord 11,0, the amount right-aligned on its middle row
     if Chrome then

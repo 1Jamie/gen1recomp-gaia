@@ -39,6 +39,12 @@ return function(game)
     U.tap(game, "a") -- first item
     U.wait(8)
     U.log(tag, "qty:", topIs(QuantityBox))
+    U.tap(game, "down") -- engine/events/pokemart.asm:152-153
+    U.wait(6)
+    U.log(tag, "qty max:", game.stack:top().qty)
+    U.shot(game, ("%s/%s_0b_qty99.png"):format(DIR, tag))
+    U.tap(game, "up")
+    U.wait(6)
     U.tap(game, "a") -- x01
     U.wait(8)
     U.log(tag, "confirm:", topIs(ChoiceBox))

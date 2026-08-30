@@ -54,6 +54,7 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local Font = require("src.render.Font")
+local GameVersion = require("src.core.GameVersion")
 local GbcPalette = require("src.render.GbcPalette")
 local Logger = require("src.core.Logger")
 local Music = require("src.core.Music")
@@ -89,17 +90,30 @@ local STEP_LY = 7
 
 -- ConstructCreditsTilemap's rows.  The banner is rows 0-3 and 14-17, the two
 -- border strips rows 4 and 13, and rows 5-12 are the blank $7f text field.
-local BANNER_ROWS = { 0, 14 }
 local BANNER_TILES = 4          -- a mon graphic is 4x4 tiles
 local BANNER_REPEATS = 5        -- .InitTopPortion's `ld b, 5`
-local BORDER_ROWS = { 4, 13 }
 local TEXT_TOP_ROW = 5          -- ParseCredits clears from hlcoord 0, 5
-local TEXT_ROWS = 8             -- ...for SCREEN_WIDTH * 8
 local TEXT_FIRST_ROW = 6        -- .print's hlcoord 0, 6
 local LINE_SPACING = 2          -- `ld bc, SCREEN_WIDTH * 2`
 
 -- Credits_TheEnd: tiles $40.. at hlcoord 6, 8 and 6, 9, eight apiece.
-local THEEND_X, THEEND_Y, THEEND_W = 6, 8, 8
+local THEEND_X, THEEND_W = 6, 8
+
+-- ../pokecrystal/engine/movie/credits.asm:400-451
+local LAYOUT = {
+  gs = { bannerRows = { 0, 14 }, borderRows = { 4, 13 }, textRows = 8,
+    theEndY = 8, lyStep = 2 },
+  crystal = { bannerRows = { 0 }, borderRows = { 4, 17 }, textRows = 12,
+    theEndY = 9, lyStep = -2 },
+}
+
+local function isCrystal()
+  return GameVersion.engine() == "crystal"
+end
+
+local function layout()
+  return isCrystal() and LAYOUT.crystal or LAYOUT.gs
+end
 
 -- Credits_HandleBButton: the fast-forward only unlocks once wCreditsPos has
 -- passed $d, i.e. thirteen script bytes in.
@@ -137,6 +151,22 @@ Credits.PALETTES = {
   [3] = pal555(31, 31, 31, 22, 15, 10, 31, 19, 09, 07, 07, 07), -- Sentret
 }
 
+Credits.PALETTES_CRYSTAL = {
+  pal555(31, 00, 31, 31, 25, 00, 11, 14, 31, 07, 07, 07),
+  pal555(31, 05, 05, 11, 14, 31, 11, 14, 31, 31, 31, 31),
+  pal555(31, 05, 05, 00, 00, 00, 31, 31, 31, 31, 31, 31),
+  pal555(31, 31, 31, 31, 27, 00, 26, 06, 31, 07, 07, 07),
+  pal555(03, 13, 31, 20, 00, 24, 26, 06, 31, 31, 31, 31),
+  pal555(03, 13, 31, 00, 00, 00, 31, 31, 31, 31, 31, 31),
+  pal555(31, 31, 31, 23, 12, 28, 31, 22, 00, 07, 07, 07),
+  pal555(03, 20, 00, 31, 22, 00, 31, 22, 00, 31, 31, 31),
+  pal555(03, 20, 00, 00, 00, 00, 31, 31, 31, 31, 31, 31),
+  pal555(31, 31, 31, 31, 10, 31, 31, 00, 09, 07, 07, 07),
+  pal555(31, 14, 00, 31, 00, 09, 31, 00, 09, 31, 31, 31),
+  pal555(31, 14, 00, 31, 31, 31, 31, 31, 31, 31, 31, 31),
+}
+Credits.CRYSTAL_PALETTES_PER_SCENE = 3
+
 -- Credits_LoadBorderGFX's .Frames, as which of a mon's graphics each of the
 -- four animation frames uses.  Three of the four mons repeat their first
 -- graphic on frame 2; Sentret is the one with four distinct frames.
@@ -147,8 +177,19 @@ Credits.BORDER_FRAMES = {
   [3] = { 1, 2, 3, 4 }, -- Sentret
 }
 
+-- ../pokecrystal/engine/movie/credits.asm:572-591
+Credits.BORDER_FRAMES_CRYSTAL = {
+  [0] = { 1, 2, 3, 4 },
+  [1] = { 1, 2, 3, 4 },
+  [2] = { 1, 2, 3, 4 },
+  [3] = { 1, 2, 3, 4 },
+}
+
 -- The four species the banner parades, in scene order.
 Credits.SCENE_SPECIES = { [0] = "BELLOSSOM", "TOGEPI", "ELEKID", "SENTRET" }
+-- ../pokecrystal/engine/movie/credits.asm:610-613
+Credits.SCENE_SPECIES_CRYSTAL =
+  { [0] = "PICHU", "SMOOCHUM", "DITTO", "IGGLYBUFF" }
 
 --------------------------------------------------------------------------
 -- The strings
@@ -163,7 +204,15 @@ Credits.SCENE_SPECIES = { [0] = "BELLOSSOM", "TOGEPI", "ELEKID", "SENTRET" }
 -- changes anything, because .staff and the default arm really do land on the
 -- same hlcoord.
 
-local STRINGS = {}
+local RAW_STRINGS = {}
+local STRINGS = setmetatable({}, {
+  __index = function(_, key)
+    local value = RAW_STRINGS[key]
+    if type(value) == "function" then return value() end
+    return value
+  end,
+  __newindex = function(_, key, value) RAW_STRINGS[key] = value end,
+})
 local ID = {}
 local nextId = 0
 
@@ -191,16 +240,28 @@ defineString("CREDIT_END", "END")
 -- person as far as ParseCredits is concerned.
 -- Credits_Staff differs per edition, including the centring spaces
 -- (data/credits_strings.asm:54-60).
-Credits.STAFF = defineString("STAFF",
-  require("src.core.GameVersion").get() == "silver" and {
-    "      #MON",
-    "   SILVER VERSION",
-    "     PORT STAFF",
-  } or {
+-- ../pokecrystal/data/credits_strings.asm:183-185
+local STAFF_LINES = {
+  gold = {
     "      #MON",
     "    GOLD VERSION",
     "     PORT STAFF",
-  })
+  },
+  silver = {
+    "      #MON",
+    "   SILVER VERSION",
+    "     PORT STAFF",
+  },
+  crystal = {
+    "      #MON",
+    "  CRYSTAL VERSION",
+    "     PORT STAFF",
+  },
+}
+
+Credits.STAFF = defineString("STAFF", function()
+  return STAFF_LINES[GameVersion.get()] or STAFF_LINES.gold
+end)
 defineString("DIRECTOR", "      DIRECTOR")
 defineString("PROGRAMMING", "    PROGRAMMING")
 defineString("ENGINE_DESIGN", "   ENGINE DESIGN")
@@ -422,7 +483,7 @@ end
 -- gfx/credits/theend.2bpp the same eight columns carry the words instead.
 local function theEnd(self)
   self.pending[#self.pending + 1] =
-    { theEnd = true, x = THEEND_X, y = THEEND_Y, width = THEEND_W }
+    { theEnd = true, x = THEEND_X, y = layout().theEndY, width = THEEND_W }
 end
 
 -- The `.wait` arm's hBGMapMode: everything written since the last parse
@@ -490,7 +551,9 @@ end
 -- banner is cleared.
 function Credits:borderGraphic()
   if self.borderFrame == 0xff then return nil end
-  local frames = Credits.BORDER_FRAMES[self.scene] or Credits.BORDER_FRAMES[0]
+  local sets = isCrystal() and Credits.BORDER_FRAMES_CRYSTAL
+    or Credits.BORDER_FRAMES
+  local frames = sets[self.scene] or sets[0]
   return frames[self.borderFrame + 1]
 end
 
@@ -498,7 +561,7 @@ end
 -- scanlines at $1f and the eight at $67 -- which, with hLCDCPointer pointing
 -- at rSCX, is a horizontal slide of the two border strips and nothing else.
 function Credits:advanceLY()
-  self.lyOverride = (self.lyOverride + 2) % 256
+  self.lyOverride = (self.lyOverride + layout().lyStep) % 256
 end
 
 --------------------------------------------------------------------------
@@ -603,10 +666,23 @@ end
 -- index.  The extracted table is 1-based, so scene 0 is set 1; the transcribed
 -- PALETTES above stay as the fallback for a cache without it.
 function Credits:palette()
+  if isCrystal() then return (self:palettes()) end
   local sets = self.gfx and self.gfx.palettes
   local extracted = sets and sets[self.scene % 4 + 1]
   if extracted then return extracted end
   return Credits.PALETTES[self.scene] or Credits.PALETTES[0]
+end
+
+-- ../pokecrystal/engine/movie/credits.asm:501-514
+function Credits:palettes()
+  if not isCrystal() then
+    local pal = self:palette()
+    return pal, pal, pal
+  end
+  local sets = self.gfx and self.gfx.palettes
+  if not (sets and sets[12]) then sets = Credits.PALETTES_CRYSTAL end
+  local base = (self.scene % 4) * Credits.CRYSTAL_PALETTES_PER_SCENE
+  return sets[base + 1], sets[base + 2], sets[base + 3]
 end
 
 function Credits:image(path)
@@ -625,7 +701,9 @@ end
 -- The icon standing in for this scene's 4x4 mon graphic, and which of its two
 -- 16x16 frames the border frame maps onto.
 function Credits:sceneIcon()
-  local species = Credits.SCENE_SPECIES[self.scene]
+  local names = isCrystal() and Credits.SCENE_SPECIES_CRYSTAL
+    or Credits.SCENE_SPECIES
+  local species = names[self.scene]
   local icons = self.icons
   if not (species and icons and icons.species and icons.icons) then return nil end
   local entry = icons.icons[icons.species[species]]
@@ -704,10 +782,11 @@ end
 
 -- Rows 0-3 and 14-17: five copies of a 4x4-tile block across the screen.
 function Credits:drawBanner()
-  local pal = GbcPalette.resolve(self:palette())
+  local banner = self:palettes()
+  local pal = GbcPalette.resolve(banner)
   local graphic = self:borderGraphic()
   local cell = BANNER_TILES * 8
-  for _, row in ipairs(BANNER_ROWS) do
+  for _, row in ipairs(layout().bannerRows) do
     -- The cleared banner really is one flat colour: wCreditsBlankFrame2bpp is
     -- sixteen tiles of solid colour 2.
     local backdrop = graphic and (GbcPalette.color(pal, 1) or pal[1])
@@ -755,14 +834,16 @@ end
 -- `lyOverride % 32` is the whole of the slide.  Row 4 starts at $24 and row 13
 -- at $20: the two rows are different quarters of the 9-tile strip.
 function Credits:drawBorderStrips()
-  local pal = GbcPalette.resolve(self:palette())
+  local _, strips = self:palettes()
+  local pal = GbcPalette.resolve(strips)
   local color = GbcPalette.color(pal, 3) or pal[3]
   local shift = self.lyOverride % 32
   local gfx = self.gfx
   local image = gfx and gfx.border and self:image(gfx.border)
-  local starts = { [BORDER_ROWS[1]] = (gfx and gfx.borderTopTile) or 5,
-    [BORDER_ROWS[2]] = (gfx and gfx.borderBottomTile) or 1 }
-  for _, row in ipairs(BORDER_ROWS) do
+  local rows = layout().borderRows
+  local starts = { [rows[1]] = (gfx and gfx.borderTopTile) or 5,
+    [rows[2]] = (gfx and gfx.borderBottomTile) or 1 }
+  for _, row in ipairs(rows) do
     fill(color, 0, row * 8, SCREEN_W, 8)
     if image then
       local first = starts[row]
@@ -795,7 +876,7 @@ function Credits:drawBorderStrips()
 end
 
 function Credits:drawText()
-  local pal = self:palette()
+  local _, _, pal = self:palettes()
   for _, entry in ipairs(self.shown) do
     if entry.theEnd then
       local image = self:theEndImage()
@@ -825,7 +906,8 @@ function Credits:drawText()
 end
 
 function Credits:drawPanel()
-  local pal = GbcPalette.resolve(self:palette())
+  local _, _, field = self:palettes()
+  local pal = GbcPalette.resolve(field)
   -- Rows 4-13 are $7f, the blank tile, which reads as colour 0.
   local paper = GbcPalette.color(pal, 1) or pal[1]
   fill(paper, 0, 0, SCREEN_W, SCREEN_H)
@@ -845,11 +927,10 @@ end
 
 Credits.TILES_W = TILES_W
 Credits.TEXT_TOP_ROW = TEXT_TOP_ROW
-Credits.TEXT_ROWS = TEXT_ROWS
 Credits.TEXT_FIRST_ROW = TEXT_FIRST_ROW
 Credits.LINE_SPACING = LINE_SPACING
-Credits.BANNER_ROWS = BANNER_ROWS
-Credits.BORDER_ROWS = BORDER_ROWS
+Credits.LAYOUT = LAYOUT
+Credits.layout = layout
 Credits.SKIP_AFTER_POS = SKIP_AFTER_POS
 Credits.ALLOW_SKIPPING_CREDITS_F = ALLOW_SKIPPING_CREDITS_F
 Credits.JUMPTABLE_EXIT_F = JUMPTABLE_EXIT_F

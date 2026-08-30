@@ -183,6 +183,33 @@ return function(game)
   end
   check(watching.error == nil, "a matching spectator is admitted: " ..
         tostring(watching.error))
+
+  local function rejoin(profile)
+    Watcher.leaveRoom()
+    pump3(10)
+    local pending = profile and Watcher.joinRoom(room.code, "spectator", profile)
+      or Watcher.joinRoom(room.code, "spectator")
+    for _ = 1, 600 do
+      if pending.done then break end
+      pump3(1)
+    end
+    return pending
+  end
+
+  Watcher.setProfiles({ badProfile })
+  local stale = rejoin(nil)
+  check(stale.reason == "profile_mismatch",
+        "a join with no profile argument falls back to the stale snapshot " ..
+        "and is refused: " .. tostring(stale.reason))
+  local fresh = rejoin(PROFILE)
+  check(fresh.error == nil,
+        "the same session joins once the picked profile is passed: " ..
+        tostring(fresh.error))
+  Watcher.setProfiles({})
+  local blind = rejoin(nil)
+  check(blind.reason == "bad_profile",
+        "a join with no profile at all is refused as bad_profile: " ..
+        tostring(blind.reason))
   Watcher.disconnect()
   pump(5)
 

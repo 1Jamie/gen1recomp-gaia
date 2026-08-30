@@ -2348,7 +2348,7 @@ local DEFAULT_STOCK = { { "POTION", 10 } }
 --
 -- It does NOT follow the list convention cursorTo implements. On a list,
 -- up moves toward index 1; on a QuantityBox, up *increases* the count and
--- down decreases it, both wrapping around 1..max (QuantityBox.lua:29-33).
+-- down decreases it, both wrapping around 1..max (QuantityBox.lua:36-39).
 -- Handing it cursorTo therefore walked the wrong way and then oscillated
 -- between 1 and max forever, so buyItem gave up and bought nothing -- the
 -- exception being a target exactly one wrap below max, which is why the
@@ -2475,6 +2475,13 @@ local function buyItem(id, qty, where)
     say(("shop: could not reach the %s row"):format(id))
     return false
   end
+  local price = ((G.data.items or {})[id] or {}).price or 0
+  local afford = price > 0 and math.floor((G.save.money or 0) / price) or qty
+  if afford < 1 then
+    say(("shop: cannot afford one %s (¥%d of ¥%d)")
+        :format(id, G.save.money or 0, price))
+    return false
+  end
   press("a")
   U.wait(6)
   if not isQty() then
@@ -2482,8 +2489,7 @@ local function buyItem(id, qty, where)
     say(("shop: no quantity box opened for %s"):format(id))
     return false
   end
-  -- QuantityBox caps at .max (what we can afford), so never ask for more
-  local want = math.min(qty, top().max or qty)
+  local want = math.max(1, math.min(qty, top().max or qty, afford))
   if not qtyTo(want) then
     note("shop: could not set the quantity for " .. id, where)
     say(("shop: stuck setting %s quantity to %d on %s"):format(id, want,

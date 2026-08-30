@@ -76,6 +76,10 @@ end
 function SessionLifecycle.endGameSession(game)
   pcall(function() require("src.core.Music").stop() end)
   pcall(function() require("src.core.Sound").stop() end)
+  pcall(function()
+    local Sound = require("src.core.Sound")
+    if Sound.setRate then Sound.setRate(1) end
+  end)
   if package.loaded["src.core.ChipAudio"] then
     pcall(package.loaded["src.core.ChipAudio"].stopMusic)
   end

@@ -26,6 +26,7 @@ local Mail = require("src.core.gen2.Mail")
 local Mon = require("src.battle.gen2.Mon")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
+local Sound = require("src.core.Sound")
 
 local PartyMenu = {}
 PartyMenu.__index = PartyMenu
@@ -48,6 +49,9 @@ PartyMenu.PROMPTS = {
 -- The icon's two frames swap every 16 logic steps, close to the cart's
 -- SPRITE_ANIM cadence.
 local ICON_FRAME_STEPS = 16
+
+-- engine/items/item_effects.asm:1748
+PartyMenu.ACTION_TEXT_DELAY = 50
 
 -- data/mon_menu.asm MonMenuOptions' MONMENU_FIELD_MOVE rows, in table order:
 -- a move the mon knows that appears here gets a row of its own above the
@@ -489,10 +493,64 @@ function PartyMenu:updateSubmenu(input)
   end
 end
 
+function PartyMenu:playSfx(name)
+  local data = self.game and self.game.data
+  local sfx = data and data.audio and data.audio.sfx
+  if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
+end
+
+-- engine/items/item_effects.asm:1671
+function PartyMenu:showItemResult(slot, opts)
+  opts = opts or {}
+  self.itemResult = {
+    slot = slot,
+    shown = opts.fromHp,
+    target = opts.toHp,
+    text = opts.text,
+    delay = PartyMenu.ACTION_TEXT_DELAY,
+    onDone = opts.onDone,
+  }
+  if opts.sfx then self:playSfx(opts.sfx) end
+end
+
+function PartyMenu:itemResultClimbing()
+  local r = self.itemResult
+  return r ~= nil and r.shown ~= nil and r.target ~= nil and r.shown ~= r.target
+end
+
+-- engine/battle/anim_hp_bar.asm:246
+function PartyMenu:shownHpFor(slot, mon)
+  local r = self.itemResult
+  if r and r.slot == slot and r.shown then return r.shown end
+  return mon and mon.hp
+end
+
+function PartyMenu:updateItemResult(input)
+  local r = self.itemResult
+  if self:itemResultClimbing() then
+    local mon = self.party[r.slot]
+    local maxHp = mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
+    r.shown = HpBar.stepToward(r.shown, r.target, maxHp)
+    return
+  end
+  if r.delay > 0 then
+    r.delay = r.delay - 1
+    return
+  end
+  if input:wasPressed("a") or input:wasPressed("b") then
+    self.itemResult = nil
+    if r.onDone then r.onDone() end
+  end
+end
+
 function PartyMenu:update(_dt)
   self.clock = self.clock + 1
   local input = self.game and self.game.input
   if not input then return end
+  if self.itemResult then
+    self:updateItemResult(input)
+    return
+  end
   if self.submenu then
     self:updateSubmenu(input)
     return
@@ -685,14 +743,15 @@ end
 -- the coordinate it is given, then six $62 bar cells, then the $6b end cap.  So
 -- a party row's bar is the battle HUD's bar, tile for tile -- which is why this
 -- goes through BattleHud instead of drawing a rectangle.
-function PartyMenu:drawHpBar(mon, tx, ty)
+function PartyMenu:drawHpBar(mon, tx, ty, hp)
   local maxHp = mon.maxHp or (mon.stats and mon.stats.hp)
+  if hp == nil then hp = mon.hp end
   if self.hud and self.hud:available() then
-    return self.hud:drawHpBar(mon.hp, maxHp, tx, ty)
+    return self.hud:drawHpBar(hp, maxHp, tx, ty)
   end
   -- No battle-HUD sheet in the cache: the plain bar, two tiles in, so the
   -- fallback still lands where the cells would.
-  HpBar.draw(self.palettes, mon.hp, maxHp, (tx + 2) * 8, ty * 8 + 2)
+  HpBar.draw(self.palettes, hp, maxHp, (tx + 2) * 8, ty * 8 + 2)
   return tx + 2 + HpBar.LENGTH_TILES
 end
 
@@ -705,8 +764,9 @@ end
 
 -- PlaceStatusString (engine/pokemon/mon_stats.asm): three letters, and a mon
 -- with no HP reads FNT whatever its status byte says.
-local function statusString(mon)
-  if (mon.hp or 0) <= 0 then return "FNT" end
+local function statusString(mon, hp)
+  if hp == nil then hp = mon.hp end
+  if (hp or 0) <= 0 then return "FNT" end
   local status = mon.status
   if not status then return nil end
   local class = ItemEffects.STATUS_CLASS[tostring(status):lower()]
@@ -719,13 +779,14 @@ end
 -- name and an icon alone: no HP digits, no bar, no level, no FNT.  The name
 -- itself is String_Egg -- GiveEgg writes "EGG" over the nickname slot -- so
 -- it never reads as the species hiding inside.
-function PartyMenu.rowFor(mon)
+function PartyMenu.rowFor(mon, hp)
   if mon.isEgg then return { name = "EGG" } end
   local maxHp = mon.maxHp or (mon.stats and mon.stats.hp) or 0
+  if hp == nil then hp = mon.hp end
   return {
     name = mon.nickname or mon.name or mon.species or "?",
-    hp = num3(mon.hp) .. "/" .. num3(maxHp),
-    status = statusString(mon),
+    hp = num3(hp) .. "/" .. num3(maxHp),
+    status = statusString(mon, hp),
     -- <LV> is one font glyph ($6e), not the two characters ":L".
     level = "<LV>" .. tostring(mon.level or 1),
   }
@@ -779,14 +840,15 @@ function PartyMenu:drawPanel()
       Chrome.cursor(0, nameY, true)
     end
     self:drawIcon(mon, self:iconX(i), 4 + (i - 1) * 16 + self:iconBob(i))
-    local row = PartyMenu.rowFor(mon)
+    local hp = self:shownHpFor(i, mon)
+    local row = PartyMenu.rowFor(mon, hp)
     Chrome.print(row.name, 3, nameY)
     if self.tmhm then
       local able = self:tmhmAble(mon)
       if able then Chrome.print(able, 12, dataY) end
     else
       if row.hp then Chrome.print(row.hp, 13, nameY) end
-      if row.hp then self:drawHpBar(mon, 11, dataY) end
+      if row.hp then self:drawHpBar(mon, 11, dataY, hp) end
     end
     if row.status then Chrome.print(row.status, 5, dataY) end
     if row.level then Chrome.print(row.level, 8, dataY) end
@@ -802,11 +864,19 @@ function PartyMenu:drawPanel()
   -- ReturnToMapWithSpeechTextbox restores the normal font afterwards, and so
   -- does this: the prompt is ordinary text.
   Font.useBattleExtra(wasBattle)
-  Chrome.box(0, 14, 20, 4)
-  -- SwitchPartyMons swaps the prompt for PARTYMENUACTION_MOVE's string while
-  -- the second pick is open, then puts the caller's own back.
-  local prompt = self.switchFrom and PartyMenu.PROMPTS.moveTo or self.prompt
-  Chrome.print(#self.party == 0 and PartyMenu.PROMPTS.none or prompt, 1, 16)
+  -- engine/pokemon/party_menu.asm:698
+  if self.itemResult and self.itemResult.text and not self:itemResultClimbing() then
+    Chrome.textbox(0, 12, 18, 4)
+    local line = 14
+    for part in tostring(self.itemResult.text):gmatch("[^\n]+") do
+      if line <= 16 then Chrome.print(part, 1, line) end
+      line = line + 2
+    end
+  else
+    Chrome.box(0, 14, 20, 4)
+    local prompt = self.switchFrom and PartyMenu.PROMPTS.moveTo or self.prompt
+    Chrome.print(#self.party == 0 and PartyMenu.PROMPTS.none or prompt, 1, 16)
+  end
   -- PokemonActionSubmenu clears (1,15) 2x18 before MonSubmenu draws, so the
   -- prompt is gone behind the box rather than showing through it.
   if self.submenu then self:drawSubmenu() end

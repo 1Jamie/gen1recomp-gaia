@@ -741,6 +741,16 @@ function PaletteFX.spriteObp(spriteDef, seed)
   return PaletteFX.darkObp(w.spritePalettes[group], group)
 end
 
+-- engine/overworld/healing_machine.asm:74
+-- color/data/spritepalettes.asm:2
+PaletteFX.HEAL_MACHINE_GROUP = 4
+
+function PaletteFX.healMachineObp()
+  local w = PaletteFX.worldPack()
+  return w and w.spritePalettes
+     and w.spritePalettes[PaletteFX.HEAL_MACHINE_GROUP] or nil
+end
+
 -- GetHealthBarColor (home/palettes.asm) on the standard 48px bar.  It reads
 -- the bar's own length, so a caller mid-drain passes the animated `pixels`
 -- rather than let it be re-derived from hp.

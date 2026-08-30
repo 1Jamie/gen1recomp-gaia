@@ -397,6 +397,18 @@ STATES["room-result"] = function(OnlinePanel, imp)
   OnlinePanel.lastResult = "win"
 end
 
+STATES["room-refused"] = function(OnlinePanel, imp)
+  local client = goOnline(OnlinePanel, imp, 4)
+  client.room = function() return nil end
+  ready(OnlinePanel, imp, 3)
+  OnlinePanel.home(imp)
+  OnlinePanel.go(imp, "play")
+  OnlinePanel.go(imp, "room")
+  local st = OnlinePanel.state(imp)
+  st.status, st.statusOk = "Your game doesn't match the room. " ..
+    "(game version differs: the room has crystal, you have red)", false
+end
+
 STATES["room-trade"] = function(OnlinePanel, imp)
   local client = goOnline(OnlinePanel, imp, 4)
   client.room = function()

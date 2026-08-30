@@ -2442,7 +2442,9 @@ function RomExtractorGen2:extractCredits()
       CREDITS_THEEND_TILES * 16), 64, 16, "credits/theend.png")
     data.theEnd = "assets/generated/credits/theend.png"
     -- Credits_TheEnd: hlcoord 6, 8 and 6, 9, eight tiles apiece.
-    data.theEndX, data.theEndY, data.theEndWidth = 6, 8, 8
+    -- ../pokecrystal/engine/movie/credits.asm:595
+    data.theEndX, data.theEndWidth = 6, 8
+    data.theEndY = (self.edition == "crystal") and 9 or 8
   end
   self:tick("Credits", 2, steps)
 
@@ -2467,11 +2469,15 @@ function RomExtractorGen2:extractCredits()
 
   if self.symbols["CreditsPalettes"] then
     local pal = self:symbol("CreditsPalettes")
+    -- ../pokecrystal/engine/movie/credits.asm:502
+    local crystal = (self.edition == "crystal")
+    local setCount = crystal and 12 or 6
     local palettes = {}
-    for set = 0, 5 do
+    for set = 0, setCount - 1 do
       palettes[set + 1] = self:colors(pal.bank, pal.address + set * 8, 4)
     end
     data.palettes = palettes
+    data.palettesPerScene = crystal and 3 or 1
   end
   self:tick("Credits", steps, steps)
 

@@ -172,6 +172,21 @@ local function runToMenu(screen, cap)
   return false
 end
 
+-- engine/items/item_effects.asm:1748
+local function pick(pushed, slot, mon)
+  local picker = pushed[#pushed]
+  picker.onChoose(slot, mon)
+  for _ = 1, 400 do
+    local top = pushed[#pushed]
+    if not (top and top.itemResult) then break end
+    Input:overlayPressed("a")
+    Input:step()
+    top:update(1 / 60)
+    Input:overlayReleased("a")
+  end
+  return picker
+end
+
 -- The real menu press: the 2x2 grid's DOWN puts the cursor on PACK.
 local function openPackFromMenu(screen, pushed)
   Input:overlayPressed("down")
@@ -421,7 +436,7 @@ do
 
   local turn0 = battle.turn
   screen:useItem("PARLYZ_HEAL")
-  pushed[#pushed].onChoose(1, player)
+  pick(pushed, 1, player)
   eq(player.status, nil, "a PARLYZ HEAL cures it in battle")
   eq(save.inventory.PARLYZ_HEAL, nil, "the item is spent")
   eq(battle.turn, turn0 + 1, "and the turn with it")

@@ -802,6 +802,16 @@ function Client.configure(opts)
   return S.relayAddress
 end
 
+function Client.setProfiles(list)
+  S.opts = S.opts or {}
+  S.opts.profiles = list or {}
+  return S.opts.profiles
+end
+
+function Client.profiles()
+  return (S.opts and S.opts.profiles) or {}
+end
+
 function Client.connect(opts)
   opts = opts or {}
   if S.session then Client.disconnect() end
@@ -902,7 +912,7 @@ end
 
 local function newPending(code, kind)
   S.pending = { code = code, room = nil, error = nil, done = false,
-                kind = kind or "room" }
+                kind = kind or "room", at = now() }
   return S.pending
 end
 

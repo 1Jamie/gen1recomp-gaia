@@ -141,6 +141,18 @@ function HpBar.drawExp(palettes, fraction, px, py)
   G.setColor(0, 0, 0, 1)
 end
 
+-- engine/battle/anim_hp_bar.asm:129
+function HpBar.stepToward(shown, target, maxHp)
+  shown = shown or 0
+  target = target or 0
+  local step = 1
+  if (maxHp or 0) >= HpBar.LENGTH_PX then
+    step = math.max(1, math.ceil(maxHp / HpBar.LENGTH_PX))
+  end
+  if shown < target then return math.min(target, shown + step) end
+  return math.max(target, shown - step)
+end
+
 -- How far along its current level a mon is, for the exp bar.
 function HpBar.expFraction(mon, growth, levelFor)
   if not (mon and growth and levelFor) then return 0 end

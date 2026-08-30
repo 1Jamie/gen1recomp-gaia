@@ -39,6 +39,10 @@ Palettes.OW_PALETTE_ID = {
   PAL_OW_PINK = 5, PAL_OW_EMOTE = 6, PAL_OW_TREE = 7, PAL_OW_ROCK = 8,
 }
 
+Palettes.BLACKOUT = {
+  { 255, 255, 255 }, { 58, 58, 58 }, { 16, 25, 25 }, { 0, 0, 0 },
+}
+
 -- Roofs are only recolored outdoors; LoadMapPals returns early for anything
 -- that is not TOWN or ROUTE, so an indoor map keeps the pool's roof palette.
 local ROOF_ENVIRONMENTS = { TOWN = true, ROUTE = true }

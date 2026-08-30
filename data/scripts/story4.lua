@@ -123,7 +123,7 @@ M.MT_MOON_POKECENTER = {
       { "check_flag", "EVENT_BOUGHT_MAGIKARP" },
       { "jump_if_true", "no_refunds" },
       -- MONEY_BOX goes up between the offer and YesNoChoice -- MtMoonPokecenter.asm:31
-      { "text_opts", { money = true } },
+      { "text_opts", { money = "choice" } },
       { "ask", "_MtMoonPokecenterMagikarpSalesmanIGotADealText" },
       { "jump_if_false", "declined" },
       { "check_money", 500 },

@@ -18,6 +18,13 @@ function QuantityBox.new(game, opts)
   return self
 end
 
+-- home/print_bcd.asm:14-50
+local function moneyField(amount)
+  local digits = ("%06d"):format(math.max(0, math.floor(amount or 0)))
+  local first = digits:find("[1-9]") or #digits
+  return "¥" .. digits:sub(first)
+end
+
 local function wrap(v, max)
   if v < 1 then return max end
   if v > max then return 1 end
@@ -48,11 +55,13 @@ function QuantityBox:draw()
   local ty = 9
   Font.drawBox(tx, ty, tw, 3)
   love.graphics.setColor(0, 0, 0, 1)
-  local s = ("×%02d"):format(self.qty) -- the multiply glyph tile
+  local y = (ty + 1) * 8
+  Font.draw(("×%02d"):format(self.qty), (tx + 1) * 8, y)
   if self.unitPrice then
-    s = s .. (" ¥%d"):format(self.qty * self.unitPrice)
+    -- home/list_menu.asm:293-299
+    local s = moneyField(self.qty * self.unitPrice)
+    Font.draw(s, (tx + tw - 1) * 8 - Font.width(s), y)
   end
-  Font.draw(s, (tx + 1) * 8, (ty + 1) * 8)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

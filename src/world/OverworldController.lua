@@ -85,6 +85,25 @@ local HEAL_BALL_XY = {
 -- swaps the two middle shades of the monitor/ball art in place
 local HEAL_FLASH_MAP = { [0] = 0, [1] = 2, [2] = 1, [3] = 3 }
 
+-- engine/overworld/healing_machine.asm:54
+local HEAL_FLASH_MAP_GBC = { [0] = 0, [1] = 0, [2] = 1, [3] = 2 }
+
+-- engine/overworld/healing_machine.asm:74
+local function healMachineShader(visible)
+  local base = PaletteFX.usesGbcPack() and PaletteFX.healMachineObp() or nil
+  if not base and visible then return nil end
+  local shader = PaletteFX.shader()
+  if not shader then return nil end
+  local colors = base or PaletteFX.GRAYS
+  if not visible then
+    colors = PaletteFX.permute(colors,
+      base and HEAL_FLASH_MAP_GBC or HEAL_FLASH_MAP)
+  end
+  PaletteFX.sendColors(shader, colors)
+  love.graphics.setShader(shader)
+  return shader
+end
+
 -- scripts/VermilionDock.asm:39 VermilionDockSSAnneLeavesScript: her hull is
 -- the four blocks (5..8, 1..2) of VermilionDock.blk
 local SS_ANNE_BLOCK = { x = 5, y = 1, w = 4, h = 2 }
@@ -3600,7 +3619,8 @@ end
 -- caller already showed the box, so the battle starts without a second
 -- one (#869).
 function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText,
-                                      endBattleSound, endBattleIsReward)
+                                      endBattleSound, endBattleIsReward,
+                                      endBattleSoundPage)
   local d = npc.def
   Runtime.emit("world.trainer_engaged", { npc = npc, trainerClass = d.trainerClass,
                                           partyIndex = d.trainerParty })
@@ -3652,9 +3672,9 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
     -- cuts (#282).  Substituted here because BattleState:say takes finished
     -- text, while TextBox expanded the {PLAYER}/{RIVAL} tokens itself.
     battle.endBattleText = wonText and TextBox.substitute(Game, wonText) or nil
-    -- the badge jingle rides the armed line's first page on the battle
-    -- screen (sound_get_item_1 in _TX_PRE dialogue; see gyms.lua) (#1606)
+    -- scripts/PewterGym.asm:156-159
     battle.endBattleSound = endBattleText ~= nil and endBattleSound or nil
+    battle.endBattleSoundPage = endBattleText ~= nil and endBattleSoundPage or nil
     -- one truth for both checkVictoryRewards call sites; endBattleIsReward
     -- = false marks an armed line that is NOT the victories dialogue (#1606)
     battle.rewardDialogueShown = endBattleText ~= nil
@@ -5396,19 +5416,7 @@ function OverworldState:drawWorld()
           love.graphics.newQuad(0, 8, 8, 8, w, h), -- ball ($7d)
         }
       end
-      -- the jingle flash recolors the machine sprites in place
-      -- (FlashSprite8Times XORs rOBP1; the sprites never disappear):
-      -- ha.visible == false is the flashed half of each beat, drawn with
-      -- the light/dark shades swapped instead of skipped
-      local shader
-      if not ha.visible then
-        shader = PaletteFX.shader()
-        if shader then
-          PaletteFX.sendColors(shader,
-            PaletteFX.permute(PaletteFX.GRAYS, HEAL_FLASH_MAP))
-          love.graphics.setShader(shader)
-        end
-      end
+      local shader = healMachineShader(ha.visible)
       -- TileRenderer windows with -floor(cam), so the overlay must use the
       -- same snap or a fractional camera (odd fill/tilt view sizes) parks
       -- the balls a pixel off the machine tiles

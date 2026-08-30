@@ -3,10 +3,7 @@
 -- Speeding up means running the 1/60 fixed step N times per real frame
 -- (Game:update), so everything driven by the step -- movement, text,
 -- battle timing, scripts -- advances N times faster while staying
--- deterministic. Audio deliberately does NOT scale: Music.update drives
--- fade counters and ChipAudio synthesis off its own real-time 60Hz
--- accumulator in Game:update, so music and sfx play at normal pitch and
--- tempo at every speed.
+-- deterministic.
 --
 -- Vsync still caps how much work a real frame can do, so 10X is a target
 -- rather than a promise on a slow machine -- the logic simply runs as many
