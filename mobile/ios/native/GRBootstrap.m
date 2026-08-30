@@ -13,10 +13,15 @@ static NSString *GRPendingLaunchURI;
 static IMP GRApplicationOpenURLOriginal;
 static IMP GRApplicationOpenURLLegacyOriginal;
 static IMP GRApplicationConfigurationOriginal;
+static IMP GRApplicationSetDelegateOriginal;
 static Class GRApplicationDelegateClass;
 static IMP GRSceneWillConnectOriginal;
 static IMP GRSceneOpenURLContextsOriginal;
+static IMP GRSceneSetDelegateOriginal;
 static Class GRSceneDelegateClass;
+
+static void GRInstallApplicationURLHooks(void);
+static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass);
 
 static BOOL GRIsLaunchURL(NSURL *url)
 {
@@ -125,6 +130,36 @@ static void GRSceneOpenURLContexts(id self, SEL selector, id scene,
         typedef void (*GROpenURLContexts)(id, SEL, id, NSSet *);
         ((GROpenURLContexts)GRSceneOpenURLContextsOriginal)(
             self, selector, scene, contexts);
+    }
+}
+
+static void GRApplicationSetDelegate(id self, SEL selector, id delegate)
+{
+    typedef void (*GRSetDelegate)(id, SEL, id);
+    ((GRSetDelegate)GRApplicationSetDelegateOriginal)(self, selector, delegate);
+    GRInstallApplicationURLHooks();
+}
+
+static void GRSceneSetDelegate(id self, SEL selector, id delegate)
+{
+    typedef void (*GRSetDelegate)(id, SEL, id);
+    ((GRSetDelegate)GRSceneSetDelegateOriginal)(self, selector, delegate);
+    if (delegate) GRInstallSceneURLHooksForClass([delegate class]);
+}
+
+static void GRInstallDelegateURLHooks(void)
+{
+    Method applicationSetDelegate = class_getInstanceMethod(
+        [UIApplication class], @selector(setDelegate:));
+    if (applicationSetDelegate && !GRApplicationSetDelegateOriginal) {
+        GRApplicationSetDelegateOriginal = method_getImplementation(applicationSetDelegate);
+        method_setImplementation(applicationSetDelegate, (IMP)GRApplicationSetDelegate);
+    }
+
+    Method sceneSetDelegate = class_getInstanceMethod([UIScene class], @selector(setDelegate:));
+    if (sceneSetDelegate && !GRSceneSetDelegateOriginal) {
+        GRSceneSetDelegateOriginal = method_getImplementation(sceneSetDelegate);
+        method_setImplementation(sceneSetDelegate, (IMP)GRSceneSetDelegate);
     }
 }
 
@@ -255,6 +290,7 @@ static void GRInstallApplicationURLHooks(void)
 __attribute__((constructor))
 static void GRBootstrapInstall(void)
 {
+    GRInstallDelegateURLHooks();
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
     [center addObserverForName:UIApplicationDidFinishLaunchingNotification
                          object:nil
