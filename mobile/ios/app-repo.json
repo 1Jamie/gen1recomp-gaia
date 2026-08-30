@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.41",
+          "date": "2026-08-30",
+          "size": 21533788,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.41/gen1recomp++-0.2.41-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #889 Pokemon yellow can't export save file right\n- #1691 Exported .sav not valid in emulator\n- #1910 Screen tearing and presentation sync failure at 90Hz (Steam Deck OLED)\n- #1958 (RBYGSC) Irregular frame pacing\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @castdrian\n- @colsonrice"
+        },
+        {
           "version": "0.2.40",
           "date": "2026-08-30",
           "size": 21511375,
