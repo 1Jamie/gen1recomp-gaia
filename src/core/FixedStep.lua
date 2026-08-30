@@ -5,7 +5,12 @@
 local FixedStep = {}
 
 FixedStep.STEP = 1 / 60
-local MAX_ACCUM = 0.25 -- avoid spiral of death after a stall
+-- Hard ceiling on catch-up debt (seconds of logic time drained in one
+-- rendered frame).  0.25s = 15 GB steps.  Game:update may lower this for the
+-- current speed target but must never raise it: a hitch at high multipliers
+-- cannot dump unbounded steps and starve input / spiral the frame.
+FixedStep.MAX_ACCUM = 0.25
+local MAX_ACCUM = FixedStep.MAX_ACCUM
 local SMOOTH_FRAMES = 4
 local SMOOTH_MAX = 1 / 60 * 2.5
 local STEP_EPS = 1 / 60 * 0.02
@@ -55,14 +60,24 @@ function FixedStep:init(callback)
   self.phasedFor = nil
 end
 
--- The anti-spiral clamp doubles as a steps-per-frame ceiling (0.25s = 15
--- steps), which silently throttled the high fast-forward levels: at 100X
--- a 60fps frame wants ~100 steps. Game:update raises this to fit the
--- current speed target; a stall still cannot snowball past one frame's
--- intended budget.
+-- The anti-spiral clamp is the steps-per-frame ceiling.  Game:update sets
+-- maxAccum to the current speed's one-frame budget, hard-capped at MAX_ACCUM
+-- so high fast-forward cannot turn a hitch into input starvation.
 FixedStep.maxAccum = MAX_ACCUM
 
-function FixedStep:update(dt)
+-- Compute the live catch-up ceiling for a logic-speed multiplier.
+-- Always ≤ MAX_ACCUM; at least two steps so ordinary vsync wobble can recover.
+function FixedStep.catchupLimit(speed)
+  speed = tonumber(speed) or 1
+  if speed < 1 then speed = 1 end
+  local target = speed * FixedStep.STEP * 1.5
+  local floor = FixedStep.STEP * 2
+  if target < floor then target = floor end
+  if target > MAX_ACCUM then target = MAX_ACCUM end
+  return target
+end
+
+function FixedStep:update(dt, speed)
   -- A hitch's oversized dt lands on the frame AFTER discardCatchup was
   -- called (the hitch itself already ran inside the current step); absorb
   -- that one frame as a single step instead of the normal accumulator so
@@ -74,6 +89,15 @@ function FixedStep:update(dt)
     self.callback(self.STEP)
     return
   end
+  -- Snap/smooth against the wall-clock frame dt first.  Game speed is a
+  -- multiplier on how many logic steps that real frame buys — applying it
+  -- before refresh-period snap made 2–4X look like multi-period frames and
+  -- destabilized pacing under DISPLAY sync.
+  speed = tonumber(speed) or 1
+  if speed < 1 then speed = 1 end
+  -- Pathological wall-clock stalls: do not let dt alone exceed the catch-up
+  -- ceiling before speed is applied (speed amplify would just hit the clamp).
+  if dt > MAX_ACCUM then dt = MAX_ACCUM end
   local period = self.refreshPeriod
   local snapped = false
   if period and dt > 0 then
@@ -104,7 +128,7 @@ function FixedStep:update(dt)
     local target = phaseOffset(period, self.STEP)
     self.accum = self.accum - self.accum % self.STEP + target
   end
-  self.accum = math.min(self.accum + dt, self.maxAccum or MAX_ACCUM)
+  self.accum = math.min(self.accum + dt * speed, self.maxAccum or MAX_ACCUM)
   while self.accum >= self.STEP - STEP_EPS do
     self.accum = self.accum - self.STEP
     self.callback(self.STEP)

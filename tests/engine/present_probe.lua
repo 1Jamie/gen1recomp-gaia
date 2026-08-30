@@ -11,13 +11,52 @@ local fast = {}
 for i = 1, 20 do fast[i] = 0.001 end
 T.eq(LPS._testClassifyGated(fast), false, "sub-ms presents count as ungated")
 
-local locked60 = {}
-for i = 1, 20 do locked60[i] = 1 / 60 end
-T.eq(LPS._testClassifyGated(locked60), true, "1/60 presents count as gated")
+local function withHz(hz, fn)
+  package.loaded["src.core.RefreshRate"] = {
+    hz = function() return hz end,
+    period = function() return 1 / hz end,
+    mismatch = function() return nil end,
+    sample = function() return false end,
+    reset = function() end,
+  }
+  local ok, err = pcall(fn)
+  package.loaded["src.core.RefreshRate"] = nil
+  if not ok then error(err) end
+end
 
-local locked90 = {}
-for i = 1, 20 do locked90[i] = 1 / 90 end
-T.eq(LPS._testClassifyGated(locked90), true, "1/90 presents count as gated")
+withHz(60, function()
+  local locked60 = {}
+  for i = 1, 20 do locked60[i] = 1 / 60 end
+  T.eq(LPS._testClassifyGated(locked60), true, "1/60 presents count as gated")
+  local half60 = {}
+  for i = 1, 20 do half60[i] = 2 / 60 end
+  T.eq(LPS._testClassifyGated(half60), true, "half-rate 30Hz on 60Hz counts as gated")
+  local ambiguous = {}
+  for i = 1, 20 do ambiguous[i] = 0.010 end
+  T.eq(LPS._testClassifyGated(ambiguous), false,
+    "10ms CPU-bound presents are ungated (not evidence of sync)")
+end)
+
+withHz(90, function()
+  local locked90 = {}
+  for i = 1, 20 do locked90[i] = 1 / 90 end
+  T.eq(LPS._testClassifyGated(locked90), true, "1/90 presents count as gated")
+end)
+
+-- Unknown SDL Hz: stable cadence at a common rate still gates via inference.
+local locked90unknown = {}
+for i = 1, 20 do locked90unknown[i] = 1 / 90 end
+T.eq(LPS._testClassifyGated(locked90unknown), true,
+  "without SDL Hz, stable 1/90 cadence still gates via common-rate inference")
+
+withHz(60, function()
+  local jittery = {}
+  -- Median near 1/60 but IQR > 20% of mid → non-deterministic, fail closed.
+  for i = 1, 10 do jittery[i] = 0.008 end
+  for i = 11, 20 do jittery[i] = 0.024 end
+  T.eq(LPS._testClassifyGated(jittery), false,
+    "high present-time variance fails closed to ungated")
+end)
 
 T.eq(LPS._testClassifyGated({ 0.016, 0.017 }), nil,
   "too few samples stay unclassified")
@@ -181,10 +220,68 @@ LPS.reset()
 LPS.waitBeforePresent()
 T.eq(true, true, "waitBeforePresent tolerates a cold module")
 
+-- Cadence probe (FrameCap off): compositor-deferred waits (Wayland frame
+-- callback, Win DWM / flip-model, macOS compositor) still gate when the gap
+-- between presents locks to the panel, even if present() returns immediately.
+LPS.reset()
+LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
+local t = 0
+love.timer = love.timer or {}
+local savedGetTime = love.timer.getTime
+love.timer.getTime = function() return t end
+-- Broken: ~1ms between presents (uncapped spin)
+for i = 1, 60 do
+  LPS.waitBeforePresent()
+  LPS.notePresent()
+  t = t + 0.001
+end
+local st = LPS.status()
+T.eq(st.gated, false, "uncapped ~1ms cadence stays ungated")
+T.eq(LPS.needsSoftwareCap(), true, "so FrameCap becomes the thermal net")
+
+for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios" }) do
+  LPS.reset()
+  LPS._testSetState({
+    osLinux = (nest == "wayland"),
+    ready = true,
+    nest = nest,
+    clearGated = true,
+    needsSoftwareCap = false,
+  })
+  t = 0
+  for i = 1, 60 do
+    LPS.waitBeforePresent()
+    LPS.notePresent()
+    t = t + 1 / 60
+  end
+  st = LPS.status()
+  T.eq(st.gated, true,
+    nest .. ": compositor-paced ~1/60 cadence counts as gated")
+  T.eq(LPS.needsSoftwareCap(), false,
+    nest .. ": does not force FrameCap when cadence is locked")
+end
+
+-- A bound wait that overruns abandons to FrameCap instead of wedging.
+LPS.reset()
+LPS._testSetState({
+  osLinux = true, ready = true, nest = "x11", gated = true,
+  strategy = "oml", needsSoftwareCap = false,
+  waitFn = function()
+    t = t + 0.2  -- > WAIT_ABORT_S
+  end,
+})
+t = 0
+LPS.waitBeforePresent()
+T.eq(LPS.needsSoftwareCap(), true, "an overrunning GLX wait falls back to FrameCap")
+T.eq(LPS.status().strategy, "none", "and clears the wait strategy")
+
+love.timer.getTime = savedGetTime
+
 -- status() on non-Linux stays inert (whatever OS the harness reports)
 LPS.reset()
 local status = LPS.status()
 T.eq(type(status.strategy), "string", "status always reports a strategy string")
 T.eq(type(status.linux), "boolean", "and whether this process is Linux")
 
+LPS.reset()
 T.finish("present probe")

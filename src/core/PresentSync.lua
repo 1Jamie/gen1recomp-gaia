@@ -1,6 +1,15 @@
--- Cross-platform present sync: probe whether vsync actually gates presents,
--- delegate Linux-specific GLX waits to PresentProbe, and decide when FixedStep
--- may snap dt to the panel refresh (DISPLAY + working sync only).
+-- Cross-platform present sync: layered fail-safe for vsync / frame pacing.
+--
+-- Defense in depth:
+--   1. Probe isolation — calibration runs with FrameCap OFF and no FixedStep
+--      refresh snap.  Cadence between presents is the signal (Wayland often
+--      returns from present() immediately and waits on the next frame).
+--   2. Tight classification — stable, panel-aligned cadence only; jitter /
+--      unknown rates fail closed.
+--   3. Fallback cascade — ungated / failed / abandoned waits force FrameCap
+--      immediately; logic never snaps to panel Hz unless sync is confirmed.
+--   4. (FixedStep) catch-up debt is hard-capped so speed multipliers cannot
+--      spiral into input-starving multi-frame dumps.
 
 local PresentSync = {}
 
@@ -16,7 +25,7 @@ function PresentSync.notePresent()
   probe().notePresent()
 end
 
--- True while the probe still has no gated/ungated verdict for DISPLAY+vsync.
+-- True while DISPLAY+vsync still has no gated/ungated verdict.
 function PresentSync.probingDisplaySync()
   local status = probe().status()
   if status.gated ~= nil then return false end
@@ -25,17 +34,27 @@ function PresentSync.probingDisplaySync()
   return FrameCap.current == FrameCap.DISPLAY and VSync.isOn()
 end
 
+-- Software FrameCap is required only after sync has failed (or a bound wait
+-- was abandoned).  During probe we deliberately do NOT soft-cap: the
+-- calibration must observe the raw swapchain, not our own limiter.
 function PresentSync.needsSoftwareCap()
-  if probe().needsSoftwareCap() then return true end
-  return PresentSync.probingDisplaySync()
+  return probe().needsSoftwareCap() == true
+end
+
+-- Hardware gating is trusted only after a finished probe says gated and the
+-- fallback flag is clear.  Probing or failed → not confirmed.
+function PresentSync.displaySyncConfirmed()
+  if PresentSync.needsSoftwareCap() then return false end
+  local status = probe().status()
+  return status.gated == true
 end
 
 -- Vsync cannot be turned on usefully once the probe has failed; the row still
--- allows stepping to OFF.  Warmup (probingDisplaySync) does not block the row.
+-- allows stepping to OFF.  Warmup does not block the row.
 function PresentSync.vsyncEnableBlocked()
   local VSync = require("src.core.VSync")
   if not VSync.isOn() then return false end
-  return probe().needsSoftwareCap()
+  return PresentSync.needsSoftwareCap()
 end
 
 function PresentSync.vsyncStepAllowed(mode, dir)
@@ -60,9 +79,8 @@ function PresentSync.status()
   return probe().status()
 end
 
--- FixedStep.refreshPeriod is only set when logic cadence should track the
--- display.  Snapping dt to 144Hz while software-pacing at 60 (#1958) or
--- with vsync off is what caused the irregular frame pacing regression.
+-- FixedStep.refreshPeriod only when display sync is confirmed working.
+-- Never during probe, never when FrameCap is the live pacing path (#1958).
 function PresentSync.logicRefreshPeriod()
   local FrameCap = require("src.core.FrameCap")
   local VSync = require("src.core.VSync")
@@ -71,11 +89,15 @@ function PresentSync.logicRefreshPeriod()
 
   if cap == FrameCap.DISPLAY then
     if not VSync.isOn() then return nil end
-    if PresentSync.needsSoftwareCap() then return nil end
+    if not PresentSync.displaySyncConfirmed() then return nil end
     return RefreshRate.period()
   end
 
   if not cap or cap <= 0 then return nil end
+  -- Numeric cap matching panel Hz may snap; still withhold while a DISPLAY
+  -- probe failure forced the software limiter (cap may still read DISPLAY
+  -- until main.lua overrides the live sleep budget).
+  if PresentSync.needsSoftwareCap() then return nil end
 
   local hz = RefreshRate.hz()
   if hz and cap == hz then return 1 / hz end
