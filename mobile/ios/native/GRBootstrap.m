@@ -170,7 +170,6 @@ static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass)
     SEL openURLContexts = @selector(scene:openURLContexts:);
     Method willConnectMethod = class_getInstanceMethod(sceneDelegateClass, willConnect);
     Method openURLContextsMethod = class_getInstanceMethod(sceneDelegateClass, openURLContexts);
-    if (!willConnectMethod && !openURLContextsMethod) return;
 
     GRSceneDelegateClass = sceneDelegateClass;
     GRSceneWillConnectOriginal = willConnectMethod
@@ -184,6 +183,9 @@ static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass)
                              method_getTypeEncoding(willConnectMethod))) {
             method_setImplementation(willConnectMethod, (IMP)GRSceneWillConnect);
         }
+    } else {
+        class_addMethod(sceneDelegateClass, willConnect,
+                        (IMP)GRSceneWillConnect, "v@:@@@");
     }
     if (openURLContextsMethod) {
         if (!class_addMethod(sceneDelegateClass, openURLContexts,
@@ -192,6 +194,9 @@ static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass)
             method_setImplementation(openURLContextsMethod,
                                      (IMP)GRSceneOpenURLContexts);
         }
+    } else {
+        class_addMethod(sceneDelegateClass, openURLContexts,
+                        (IMP)GRSceneOpenURLContexts, "v@:@@");
     }
 }
 
