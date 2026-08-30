@@ -1,5 +1,5 @@
--- home/vblank.asm:58-72
--- home/delay.asm:14
+-- Wait gates must release early at high GAME SPEED (#1952) without
+-- pitching one-shot SFX (#1990/#1991/#1997).
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or os.getenv("POKEPORT_SHOT_DIR") or "/tmp/shots"
@@ -26,6 +26,10 @@ return function(game)
   ow:pushBattle(battle)
 
   U.log("logic speed", game:logicSpeed(), "sfx rate", Sound.rate())
+  if Sound.rate() ~= 1 then
+    error(("bug1952: Game:update pitched SFX off GAME SPEED (rate %s at 4X)")
+      :format(tostring(Sound.rate())))
+  end
 
   for _ = 1, 240 do
     if battle.phase == "menu" then break end
@@ -53,6 +57,10 @@ return function(game)
       local okp, p = pcall(src.getPitch, src)
       dur = okd and d or nil
       pitch = okp and p or nil
+      if pitch and pitch ~= 1 then
+        error(("bug1952: the level-up fanfare was pitched with GAME SPEED (%s)")
+          :format(tostring(pitch)))
+      end
       if not shot then
         shot = U.shot(game, DIR .. "/bug1952_fanfare.png")
       end
@@ -74,10 +82,6 @@ return function(game)
     error(("bug1952: the 4X battle still held the full fanfare (%.3fs of %.3fs)")
       :format(held, dur))
   end
-  if dur and pitch and pitch > 0 and held < (dur / pitch) * 0.8 then
-    error(("bug1952: the fanfare was cut short (%.3fs of a %.3fs pitched jingle)")
-      :format(held, dur / pitch))
-  end
-  U.log("PASS the fanfare hold scaled with the logic clock")
+  U.log("PASS the fanfare kept natural pitch and the hold released early")
   love.event.quit()
 end

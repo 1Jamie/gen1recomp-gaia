@@ -1261,12 +1261,14 @@ function Game2:update(dt)
   -- they are presentational, so fast-forward must not speed them up.
   require("src.render.Pipelines").update(dt)
   pcall(function() require("src.core.DiscordPresence").update(dt) end)
+  -- GAME SPEED scales the logic clock only, exactly as the Gen 1 path does:
+  -- audio runs off its own real-time accumulator, so music and sfx keep their
+  -- tempo at every multiplier (#1990/#1991/#1997).  speedOverride is the
+  -- driver/CLI hook and wins over the saved option.
   -- pokegold engine/menus/intro_menu.asm:848 IntroSequence: boot cinema runs on the same clock as the overworld
   local speed = math.max(1,
     tonumber(self.speedOverride) or tonumber(self.options and self.options.speed)
     or 1)
-  local Sound = require("src.core.Sound")
-  if Sound.setRate then Sound.setRate(speed) end
   if self.phase == "boot" then
     FixedStep.maxAccum = FixedStep.catchupLimit(speed)
     FixedStep:update(dt, speed)

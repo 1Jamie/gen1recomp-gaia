@@ -1,5 +1,5 @@
--- home/vblank.asm:58-72
--- home/delay.asm:14
+-- WaitForSoundToFinish must not stall logic at high GAME SPEED (#1952),
+-- but one-shot SFX stay at natural pitch (#1990/#1991/#1997).
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -45,9 +45,9 @@ eq(Sound.waitFrames(stub(2, 4)), 32, "and a quarter at the 4X clamp")
 
 Sound.setRate(4)
 eq(Sound.waitFrames(stub(2, 4)), 122,
-  "at 4X a 4X-pitched jingle still spans the same 120 logic frames")
+  "at rate 4 a 4X-pitched jingle still spans the same 120 logic frames")
 eq(Sound.waitFrames(stub(2, 1)), 482,
-  "a source fast-forward could not pitch costs proportionally more frames")
+  "a source the rate could not pitch costs proportionally more frames")
 Sound.setRate(1)
 
 local broken = { getDuration = function() error("no duration") end }
@@ -85,8 +85,21 @@ check(st2:updateQueue() == false, "and releases the frame the sfx goes quiet")
 eq(st2.waitSoundLeft, nil, "the budget is cleared with the source")
 
 
+local Game = require("src.core.Game")
 local Game2 = require("src.core.Game2")
 require("src.core.FixedStep"):init(function() end)
+
+local function gen1(speed)
+  return setmetatable({
+    speedOverride = speed,
+    audioAccum = 0,
+    stack = { top = function() return nil end },
+    logicSpeed = function(self)
+      return require("src.core.GameSpeed").clamp(self.speedOverride or 1)
+    end,
+    updateSync = function() end,
+  }, { __index = Game })
+end
 
 local function gen2(speed)
   return setmetatable({
@@ -99,14 +112,12 @@ local function gen2(speed)
 end
 
 Sound.setRate(1)
+gen1(4):update(0)
+eq(Sound.rate(), 1, "a Gen 1 frame does not pitch SFX from GAME SPEED")
 gen2(4):update(0)
-eq(Sound.rate(), 4, "a Gen 2 frame drives the one-shot rate off its own speed")
-gen2(2):update(0)
-eq(Sound.rate(), 2, "and follows it down")
+eq(Sound.rate(), 1, "and neither does a Gen 2 frame")
 gen2(100):update(0)
-eq(Sound.rate(), 4, "the Gen 2 path clamps through the same setRate")
-gen2(1):update(0)
-eq(Sound.rate(), 1, "1X is rate 1 in Gen 2 too")
+eq(Sound.rate(), 1, "even at a clamped 200X logic multiplier")
 
 Sound.setRate(4)
 require("src.core.SessionLifecycle").endGameSession(nil)

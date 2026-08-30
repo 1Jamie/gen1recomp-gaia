@@ -394,13 +394,17 @@ function Game:logicSpeed()
 end
 
 function Game:update(dt)
+  -- Fast-forward scales only the logic clock (see src/core/GameSpeed.lua).
   -- Give the accumulator room for one full frame at the current speed,
   -- or the anti-spiral clamp quietly caps every level above ~15X.
   local speed = self:logicSpeed()
-  local Sound = require("src.core.Sound")
-  if Sound.setRate then Sound.setRate(speed) end
   FixedStep.maxAccum = FixedStep.catchupLimit(speed)
   FixedStep:update(dt, speed)
+  -- Audio runs off real time at a fixed 60Hz regardless of game speed or
+  -- display refresh, so fades and chip synthesis keep their intended tempo
+  -- whether we are at 1X, 10X, or running with vsync disabled.  One-shot
+  -- SFX stay at natural pitch too (#1990/#1991/#1997); WaitForSoundToFinish
+  -- gates still release early at high speed via their logic-frame budget.
   local step = FixedStep.STEP
   self.audioAccum = math.min((self.audioAccum or 0) + dt, 0.25)
   while self.audioAccum >= step do
