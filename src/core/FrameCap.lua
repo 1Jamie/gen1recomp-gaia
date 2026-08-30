@@ -47,8 +47,10 @@ end
 function FrameCap.label(value)
   local cap = FrameCap.normalize(value)
   local text = cap == FrameCap.DISPLAY and "DISPLAY" or tostring(cap)
-  local hz = require("src.core.RefreshRate").mismatch()
-  if hz then text = string.format("%s (%dHZ)", text, math.floor(hz + 0.5)) end
+  local ok, hz = pcall(function()
+    return require("src.core.RefreshRate").mismatch()
+  end)
+  if ok and hz then text = string.format("%s (%dHZ)", text, math.floor(hz + 0.5)) end
   return text
 end
 
@@ -71,25 +73,8 @@ function FrameCap.apply(value)
   return FrameCap.current
 end
 
-FrameCap.migrated = false
-
-FrameCap.MIGRATE_MAX_HZ = 120
-
 function FrameCap.applyOptions(opts)
-  local cap = opts and opts.fpsCap
-  if not FrameCap.migrated then
-    FrameCap.migrated = true
-    if opts and not opts.fpsCapMigrated
-       and FrameCap.normalize(cap) == FrameCap.DEFAULT then
-      local hz = require("src.core.RefreshRate").mismatch()
-      if hz and hz < FrameCap.MIGRATE_MAX_HZ then
-        cap = FrameCap.DISPLAY
-        opts.fpsCap = cap
-        opts.fpsCapMigrated = true
-      end
-    end
-  end
-  FrameCap.apply(cap)
+  FrameCap.apply(opts and opts.fpsCap)
 end
 
 return FrameCap

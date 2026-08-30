@@ -347,11 +347,20 @@ local ROWS = {
     end },
   { label = Strings.source("VSYNC"), key = "vsync", port = true,
     cycle = function(options, delta)
+      local ok, PS = pcall(require, "src.core.PresentSync")
+      if ok and PS.vsyncStepAllowed
+         and not PS.vsyncStepAllowed(options.vsync, delta) then
+        return
+      end
       local VSync = require("src.core.VSync")
       options.vsync = VSync.cycle(options.vsync, delta)
       VSync.apply(options.vsync)
     end,
     text = function(options)
+      local ok, PS = pcall(require, "src.core.PresentSync")
+      if ok and PS.vsyncEnableBlocked and PS.vsyncEnableBlocked() then
+        return Strings("UNAVAILABLE")
+      end
       return Strings(require("src.core.VSync").label(options.vsync))
     end },
   { label = Strings.source("BATTLE SIZE"), key = "battleFit", port = true,
