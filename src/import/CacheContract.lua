@@ -10,7 +10,13 @@ local CacheContract = {}
 
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
-  crystal = "rom-cache-v10-crystal4:",
+  -- v11: Gen 2 maps carry their object list's ROM address, which a .sav
+  -- export re-anchoring a save onto another map writes back into
+  -- wCurMapObjectEventsPointer. A v10 cache has no address to write, and
+  -- such an export is refused until the ROM re-imports.
+  gold = "rom-cache-v11:",
+  silver = "rom-cache-v11:",
+  crystal = "rom-cache-v11-crystal4:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
