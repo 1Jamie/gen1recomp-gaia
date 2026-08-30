@@ -34,12 +34,21 @@ end
 
 -- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
 local emergencyQuitTimer = 0
+-- getJoysticks() allocates a fresh table every call; this runs once (twice)
+-- per frame, so cache the list and refresh it once a second instead.  The 5s
+-- hold requirement makes a 1s hotplug delay irrelevant.
+local cachedJoysticks = nil
+local joystickCacheAge = 1
 
 local function checkEmergencyQuit(dt)
   local held = false
+  joystickCacheAge = joystickCacheAge + (dt or 0.016)
   if love.joystick and love.joystick.getJoysticks then
-    local joysticks = love.joystick.getJoysticks()
-    for _, j in ipairs(joysticks) do
+    if not cachedJoysticks or joystickCacheAge >= 1 then
+      cachedJoysticks = love.joystick.getJoysticks()
+      joystickCacheAge = 0
+    end
+    for _, j in ipairs(cachedJoysticks) do
       if j:isGamepad() then
         local start = j:isGamepadDown("start")
         local selectBtn = j:isGamepadDown("back") or j:isGamepadDown("guide")

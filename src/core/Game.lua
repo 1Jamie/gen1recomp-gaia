@@ -21,6 +21,12 @@ local function renderVisible(stack, state)
   return state and (not stack.renderVisible or stack:renderVisible(state))
 end
 
+-- Vanilla defaults for ModRuntime.call, hoisted to module level: called from
+-- the 60Hz logic step / per-frame speed resolution, an inline closure here
+-- allocated a fresh function every tick for no behavioral gain.
+local function noop() end
+local function resolveLogicSpeedVanilla(g) return g:_resolveLogicSpeed() end
+
 -- dev-mode gate for the F5/backtick hotkeys; false keeps every src/dev
 -- module unloaded, so a player boot never touches a byte of dev code
 local devMode = os.getenv("POKEPORT_DEV") == "1" or _G.POKEPORT_DEV_MODE == true
@@ -304,7 +310,7 @@ function Game:step(dt)
   -- the same fixed-step boundary as a physical controller.  Run them before
   -- Input:step promotes queued edges so a button chosen here is visible to
   -- this logic tick, not one tick later.  With no wrapper this is a no-op.
-  ModRuntime.call("input.step", function() end, self, dt)
+  ModRuntime.call("input.step", noop, self, dt)
   self.input:step()
   -- A+B+SELECT+START held for 16 steps: SoftReset (home/init.asm) stops the
   -- audio, whites the palettes out and falls through into Init, i.e. the
@@ -390,7 +396,7 @@ function Game:logicSpeed()
   -- returns a bad value, so an unclamped result would flow straight into
   -- the FixedStep accumulator math below and freeze or destabilize logic.
   return GameSpeed.clamp(ModRuntime.call("core.logic_speed",
-    function(g) return g:_resolveLogicSpeed() end, self))
+    resolveLogicSpeedVanilla, self))
 end
 
 function Game:update(dt)
@@ -420,12 +426,15 @@ function Game:update(dt)
   pcall(function() require("src.core.DiscordPresence").update(dt) end)
   self:updateSync(dt)
   -- Steady-state memory backstop: advance the incremental collector one
-  -- small step every rendered frame.  The heavy GPU objects are now freed
-  -- explicitly (map eviction, battle exit, canvas/renderer swaps), so this
-  -- only has to keep ordinary Lua-heap garbage (per-frame tables/closures)
-  -- from drifting upward over a long session, and to spread collection out
-  -- so the default lazy schedule never batches it into a visible pause.
-  if collectgarbage then collectgarbage("step", 1) end
+  -- small step every few rendered frames.  The heavy GPU objects are now
+  -- freed explicitly (map eviction, battle exit, canvas/renderer swaps), so
+  -- this only has to keep ordinary Lua-heap garbage (per-frame tables) from
+  -- drifting upward over a long session, and to spread collection out so the
+  -- default lazy schedule never batches it into a visible pause.  Every 4th
+  -- frame (not every frame) so the stepping itself does not compete with
+  -- the frame budget on weak single-core handhelds.
+  self.gcStepFrame = (self.gcStepFrame or 0) + 1
+  if collectgarbage and self.gcStepFrame % 4 == 0 then collectgarbage("step", 1) end
 end
 
 -- render.zones' identity default: unhooked, the zone list reaches the blit
