@@ -49,6 +49,15 @@ for i = 1, 20 do locked90unknown[i] = 1 / 90 end
 T.eq(LPS._testClassifyGated(locked90unknown), false,
   "without a panel Hz, 1/90 is inconclusive and prefers FrameCap")
 
+withHz(60, function()
+  local jittery = {}
+  -- Median near 1/60 but IQR > 20% of mid → non-deterministic, fail closed.
+  for i = 1, 10 do jittery[i] = 0.008 end
+  for i = 11, 20 do jittery[i] = 0.024 end
+  T.eq(LPS._testClassifyGated(jittery), false,
+    "high present-time variance fails closed to ungated")
+end)
+
 T.eq(LPS._testClassifyGated({ 0.016, 0.017 }), nil,
   "too few samples stay unclassified")
 
@@ -219,30 +228,32 @@ local t = 0
 love.timer = love.timer or {}
 local savedGetTime = love.timer.getTime
 love.timer.getTime = function() return t end
-for i = 1, 45 do
-  -- Instant present() (broken vsync), then a fake 16ms FrameCap sleep afterward.
-  LPS.waitBeforePresent()
-  t = t + 0.001
-  LPS.notePresent()
-  t = t + 1 / 60
-end
-local st = LPS.status()
-T.eq(st.gated, false,
-  "instant present() stays ungated even when FrameCap sleeps 16ms after")
-T.eq(LPS.needsSoftwareCap(), true, "so FrameCap remains the thermal net")
+withHz(60, function()
+  for i = 1, 45 do
+    -- Instant present() (broken vsync), then a fake 16ms FrameCap sleep afterward.
+    LPS.waitBeforePresent()
+    t = t + 0.001
+    LPS.notePresent()
+    t = t + 1 / 60
+  end
+  local st = LPS.status()
+  T.eq(st.gated, false,
+    "instant present() stays ungated even when FrameCap sleeps 16ms after")
+  T.eq(LPS.needsSoftwareCap(), true, "so FrameCap remains the thermal net")
 
-LPS.reset()
-LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
-t = 0
-for i = 1, 45 do
-  LPS.waitBeforePresent()
-  t = t + 1 / 60  -- present() itself blocks a full panel period
-  LPS.notePresent()
-  t = t + 1 / 60  -- trailing FrameCap sleep is ignored by the probe
-end
-st = LPS.status()
-T.eq(st.gated, true, "a present() that blocks a panel period counts as gated")
-T.eq(LPS.needsSoftwareCap(), false, "and does not force FrameCap")
+  LPS.reset()
+  LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
+  t = 0
+  for i = 1, 45 do
+    LPS.waitBeforePresent()
+    t = t + 1 / 60  -- present() itself blocks a full panel period
+    LPS.notePresent()
+    t = t + 1 / 60  -- trailing FrameCap sleep is ignored by the probe
+  end
+  st = LPS.status()
+  T.eq(st.gated, true, "a present() that blocks a panel period counts as gated")
+  T.eq(LPS.needsSoftwareCap(), false, "and does not force FrameCap")
+end)
 
 -- A bound wait that overruns abandons to FrameCap instead of wedging.
 LPS.reset()

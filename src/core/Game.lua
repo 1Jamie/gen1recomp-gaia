@@ -399,7 +399,7 @@ function Game:update(dt)
   local speed = self:logicSpeed()
   local Sound = require("src.core.Sound")
   if Sound.setRate then Sound.setRate(speed) end
-  FixedStep.maxAccum = math.max(0.25, speed * FixedStep.STEP * 1.5)
+  FixedStep.maxAccum = FixedStep.catchupLimit(speed)
   FixedStep:update(dt, speed)
   local step = FixedStep.STEP
   self.audioAccum = math.min((self.audioAccum or 0) + dt, 0.25)

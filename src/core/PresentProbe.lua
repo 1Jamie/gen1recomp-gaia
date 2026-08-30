@@ -1,15 +1,15 @@
 -- Present sync: on every platform, measure whether love.window.setVSync
--- actually gates presents by timing present() itself (not the gap between
--- frames — that gap includes FrameCap sleeps and would false-trigger "gated"
--- during DISPLAY warmup).  Linux additionally binds a real wait (GLX OML /
--- SGI on native X11) when SDL's swap interval is a no-op (Gamescope /
--- XWayland).  Wayland: never duplicate wl_surface.frame.  drmWaitVBlank is
--- never used.  Ambiguous probe results prefer FrameCap over trusting sync.
+-- actually gates presents by timing present() itself with the software
+-- limiter disabled (probe isolation — no self-measurement artifacts).
+-- Linux may additionally bind a real wait (GLX OML / SGI on native X11)
+-- when SDL's swap interval is a no-op.  Wayland: never duplicate
+-- wl_surface.frame.  drmWaitVBlank is never used.
+-- Ambiguous or unstable probe results prefer FrameCap over trusting sync.
 
 local PresentProbe = {}
 
--- Probe present() block time (not inter-frame gaps).  Inter-frame gaps include
--- FrameCap sleeps and would always look "gated" during DISPLAY warmup.
+-- Probe present() block time with FrameCap disabled during calibration.
+-- Inter-frame gaps include limiter sleeps and must never be the signal.
 local PROBE_FRAMES = 45
 local INSTANT_MS = 0.0005
 local BLOCK_MS = 0.002
@@ -109,9 +109,10 @@ local function detectNest(driver)
   return "unknown"
 end
 
--- Classify from present() block times.  Prefer false (ungated → FrameCap)
--- whenever the signal is ambiguous: trusting a broken swap interval uncapped
--- is far worse than pacing in software.
+-- Classify from present() block times.
+-- Fail closed: anything ambiguous or non-deterministic → ungated → FrameCap.
+-- Trusting a broken / VRR-jittery swap interval uncapped is far worse than
+-- software pacing.
 local function classifyGated(intervals)
   if not intervals or #intervals < 10 then return nil end
   local sorted = {}
@@ -119,17 +120,26 @@ local function classifyGated(intervals)
   table.sort(sorted)
   local mid = sorted[math.floor(#sorted / 2) + 1]
   if not mid or mid <= 0 then return false end
+
+  -- Known panel Hz required before we ever trust hardware gating.
   local hz = nil
   local okRR, RR = pcall(require, "src.core.RefreshRate")
   if okRR then hz = RR.hz() end
-  local expect = hz and (1 / hz) or (1 / 60)
-  -- Ungated: present returns well before a panel period (often < 2ms).
-  if mid < expect * 0.45 then return false end
-  -- Full-rate vsync: block time sits near the panel period.
-  if mid >= expect * 0.7 and mid <= expect * 1.55 then return true end
-  -- Half-rate vsync (e.g. 30Hz on a 60Hz panel).
-  if mid >= expect * 1.7 and mid <= expect * 2.4 then return true end
-  -- CPU-bound mid-range (e.g. 8–12ms on 60Hz) is not evidence of sync.
+  if not hz or hz <= 0 then return false end
+  local expect = 1 / hz
+
+  -- Spread check: real swap-interval lock is tight; CPU-bound or VRR jitter
+  -- spreads the distribution and must not pass as "gated".
+  local q1 = sorted[math.floor(#sorted * 0.25) + 1]
+  local q3 = sorted[math.floor(#sorted * 0.75) + 1]
+  if not q1 or not q3 or (q3 - q1) > mid * 0.2 then return false end
+
+  -- Ungated: present returns well before a panel period.
+  if mid < expect * 0.5 then return false end
+  -- Full-rate vsync: tight band around the panel period.
+  if mid >= expect * 0.85 and mid <= expect * 1.15 then return true end
+  -- Half-rate vsync (e.g. 30Hz on a 60Hz panel): tight band around 2x.
+  if mid >= expect * 1.85 and mid <= expect * 2.15 then return true end
   return false
 end
 

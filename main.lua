@@ -1423,9 +1423,10 @@ function love.run()
     elseif cap == FrameCap.DISPLAY and not VSync.isOn() then
       cap = FrameCap.DEFAULT
     elseif cap == FrameCap.DISPLAY and PresentSync.needsSoftwareCap() then
-      -- Vsync is "on" but presents are ungated (driver no-op, VRR early
-      -- return, Gamescope/XWayland, etc.) and no platform wait is bound:
-      -- FrameCap is the thermal / pacing safety net on every OS.
+      -- Fallback cascade: probe failed / wait abandoned / sync non-
+      -- deterministic → FrameCap is the live pacing path on every OS.
+      -- (During an active probe we intentionally leave DISPLAY uncapped so
+      -- calibration is not grading our own limiter.)
       cap = FrameCap.DEFAULT
     end
 

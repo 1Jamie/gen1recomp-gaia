@@ -36,11 +36,14 @@ PresentProbe._testSetState({ osLinux = false, ready = true, gated = false,
   needsSoftwareCap = true, nest = "windows" })
 T.eq(PresentSync.logicRefreshPeriod(), nil,
   "DISPLAY with broken sync falls back to software cap, not panel snap")
+T.check(PresentSync.needsSoftwareCap(), "failed sync trips the FrameCap cascade")
+T.check(not PresentSync.displaySyncConfirmed(), "and is not treated as confirmed")
 
 PresentProbe._testSetState({ osLinux = false, ready = true, gated = true,
   needsSoftwareCap = false, nest = "windows" })
 T.eq(PresentSync.logicRefreshPeriod(), 1 / 144,
   "DISPLAY with working sync tracks the panel")
+T.check(PresentSync.displaySyncConfirmed(), "gated+clear softcap is confirmed sync")
 
 FrameCap.apply(60)
 T.eq(PresentSync.logicRefreshPeriod(), nil,
@@ -53,22 +56,27 @@ T.eq(PresentSync.logicRefreshPeriod(), 1 / 144,
 PresentSync.applyFixedStepPeriod()
 T.eq(FixedStep.refreshPeriod, 1 / 144, "applyFixedStepPeriod writes the module field")
 
+-- Probe isolation: during calibration we do NOT soft-cap (raw swapchain),
+-- and we never snap logic until sync is confirmed.
 FrameCap.apply(FrameCap.DISPLAY)
 VSync.apply("on")
 PresentProbe._testSetState({ osLinux = false, ready = true, clearGated = true,
   needsSoftwareCap = false, nest = "windows" })
 T.check(PresentSync.probingDisplaySync(), "DISPLAY+vsync probes before a verdict")
-T.check(PresentSync.needsSoftwareCap(),
-  "warmup still uses FrameCap as a thermal net during the probe")
+T.check(not PresentSync.needsSoftwareCap(),
+  "probe isolation: FrameCap is not forced during calibration")
+T.check(not PresentSync.displaySyncConfirmed(), "unconfirmed while still probing")
 T.eq(PresentSync.logicRefreshPeriod(), nil, "and does not snap logic during warmup")
 
 PresentProbe._testSetState({ gated = true, needsSoftwareCap = false })
 T.check(not PresentSync.probingDisplaySync(), "a finished probe clears warmup")
-T.check(not PresentSync.needsSoftwareCap(), "so software cap stops once sync is confirmed")
+T.check(PresentSync.displaySyncConfirmed(), "gated verdict confirms display sync")
+T.check(not PresentSync.needsSoftwareCap(), "so software cap stays off once sync is confirmed")
 
 -- Broken sync after an honest ungated probe keeps the thermal net and no snap.
 PresentProbe._testSetState({ gated = false, needsSoftwareCap = true })
 T.check(PresentSync.needsSoftwareCap(), "ungated DISPLAY keeps FrameCap")
+T.check(not PresentSync.displaySyncConfirmed(), "ungated is never confirmed")
 T.eq(PresentSync.logicRefreshPeriod(), nil, "and never snaps logic to the panel")
 
 VSync.apply("on")
@@ -82,12 +90,21 @@ T.check(not PresentSync.vsyncStepAllowed("on", -1),
 FixedStep.refreshPeriod = 1 / 60
 local steps = 0
 FixedStep:init(function() steps = steps + 1 end)
-FixedStep.maxAccum = 0.25
+FixedStep.maxAccum = FixedStep.catchupLimit(4)
 FixedStep:update(1 / 60, 4)
 T.eq(steps, 4, "4X on a snapped 60Hz frame runs four logic steps")
 steps = 0
+FixedStep.maxAccum = FixedStep.catchupLimit(2)
 FixedStep:update(1 / 60, 2)
 T.eq(steps, 2, "and 2X runs two")
+
+-- Catch-up debt hard ceiling: high speed cannot raise maxAccum past MAX_ACCUM.
+T.eq(FixedStep.catchupLimit(1), FixedStep.STEP * 2,
+  "1X catch-up floor is two steps")
+T.eq(FixedStep.catchupLimit(4), 4 * FixedStep.STEP * 1.5,
+  "4X catch-up matches one frame of target work")
+T.eq(FixedStep.catchupLimit(200), FixedStep.MAX_ACCUM,
+  "200X catch-up is hard-capped at MAX_ACCUM (no input-starving spiral)")
 FixedStep.refreshPeriod = nil
 
 love.window.getVSync, love.window.setVSync = nil, nil
