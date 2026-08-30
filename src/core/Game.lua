@@ -1311,10 +1311,8 @@ function Game:applyOptions(opts)
   require("src.core.FaithfulRes").applyOptions(opts)
   require("src.core.ScreenPosition").applyOptions(opts)
   require("src.core.VSync").applyOptions(opts)
-  FixedStep.refreshPeriod = require("src.core.RefreshRate").period()
-  -- normalizes a nil/garbage cap to the 60 default, so old saves with no
-  -- fpsCap key pace at the standard rate (issue #88)
   require("src.core.FrameCap").applyOptions(opts)
+  require("src.core.PresentSync").applyFixedStepPeriod()
   -- Scale the optional presentation extras to the device's performance
   -- tier.  Every heavy feature was just applied from the stored options
   -- above; here we clamp the *live* state down for a weaker device without

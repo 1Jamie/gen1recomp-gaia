@@ -483,9 +483,18 @@ local function buildRows(game)
       end },
     { id = "vsync", label = Strings("VSYNC"),
       value = function(g)
+        local ok, PS = pcall(require, "src.core.PresentSync")
+        if ok and PS.vsyncEnableBlocked and PS.vsyncEnableBlocked() then
+          return Strings("UNAVAILABLE")
+        end
         return Strings(VSync.label(g.save.options.vsync))
       end,
       step = function(g, dir)
+        local ok, PS = pcall(require, "src.core.PresentSync")
+        if ok and PS.vsyncStepAllowed
+           and not PS.vsyncStepAllowed(g.save.options.vsync, dir) then
+          return false
+        end
         local o = g.save.options
         o.vsync = VSync.cycle(o.vsync, dir)
         VSync.apply(o.vsync)
