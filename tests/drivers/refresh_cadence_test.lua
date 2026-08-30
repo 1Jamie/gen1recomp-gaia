@@ -3,6 +3,7 @@ return function(game)
   local FrameCap = require("src.core.FrameCap")
   local RefreshRate = require("src.core.RefreshRate")
   local VSync = require("src.core.VSync")
+  local PresentSync = require("src.core.PresentSync")
 
   local FRAMES = 300
 
@@ -12,6 +13,17 @@ return function(game)
   U.log("VSYNC reads", VSync.label(game.save.options.vsync),
         "driver says",
         (love.window.getVSync and tostring(love.window.getVSync())) or "unknown")
+
+  local sync = PresentSync.status()
+  U.log("PresentSync",
+        "linux=" .. tostring(sync.linux),
+        "driver=" .. tostring(sync.driver),
+        "nest=" .. tostring(sync.nest),
+        "gamescope=" .. tostring(sync.gamescope),
+        "gated=" .. tostring(sync.gated),
+        "strategy=" .. tostring(sync.strategy),
+        "needsSoftwareCap=" .. tostring(sync.needsSoftwareCap),
+        "probe=" .. tostring(sync.probeCount))
 
   local snapped = dofile("src/core/FixedStep.lua")
   local bare = dofile("src/core/FixedStep.lua")
@@ -29,7 +41,7 @@ return function(game)
     last = now
     total = total + dt
     RefreshRate.sample(dt)
-    snapped.refreshPeriod = RefreshRate.period()
+    snapped.refreshPeriod = require("src.core.PresentSync").logicRefreshPeriod()
     local before = snappedSteps
     snapped:update(dt)
     bare:update(dt)
@@ -40,6 +52,13 @@ return function(game)
     local residual = snapped.accum % snapped.STEP
     margin = math.min(margin, residual, snapped.STEP - residual)
   end
+
+  sync = PresentSync.status()
+  U.log("PresentSync after",
+        "gated=" .. tostring(sync.gated),
+        "strategy=" .. tostring(sync.strategy),
+        "needsSoftwareCap=" .. tostring(sync.needsSoftwareCap),
+        "probe=" .. tostring(sync.probeCount))
 
   local hz = RefreshRate.hz()
   U.log("SDL/measured refresh", hz and string.format("%.2fHz", hz) or "unknown",

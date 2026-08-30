@@ -1351,6 +1351,7 @@ function love.run()
   local RefreshRate = require("src.core.RefreshRate")
   local FixedStep = require("src.core.FixedStep")
   local VSync = require("src.core.VSync")
+  local PresentSync = require("src.core.PresentSync")
   local paced = pacingEnabled()
   -- The deadline the next present() should not beat.  Carried forward one
   -- budget per frame so pacing stays even instead of drifting with the
@@ -1391,6 +1392,11 @@ function love.run()
         elseif name == "joystickaxis" and type(c) == "number" and math.abs(c) > 0.5 then
           idleFor = 0
         end
+        if name == "focus" and a then
+          PresentSync.onDisplayChange()
+        elseif name == "resize" then
+          PresentSync.onDisplayChange()
+        end
         love.handlers[name](a, b, c, d, e, f)
       end
     end
@@ -1398,9 +1404,7 @@ function love.run()
     -- update dt
     if love.timer then dt = love.timer.step() end
     idleFor = idleFor + dt
-    if RefreshRate.sample(dt) then
-      FixedStep.refreshPeriod = RefreshRate.period()
-    end
+    RefreshRate.sample(dt)
 
     checkEmergencyQuit(dt)
 
@@ -1418,14 +1422,22 @@ function love.run()
       cap = 15
     elseif cap == FrameCap.DISPLAY and not VSync.isOn() then
       cap = FrameCap.DEFAULT
+    elseif cap == FrameCap.DISPLAY and PresentSync.needsSoftwareCap() then
+      -- Vsync is "on" but presents are ungated (Gamescope/XWayland no-op)
+      -- and no GLX wait bound: FrameCap is the thermal safety net.
+      cap = FrameCap.DEFAULT
     end
 
     if visible and love.graphics and love.graphics.isActive() then
       love.graphics.origin()
       love.graphics.clear(love.graphics.getBackgroundColor())
       if love.draw then love.draw() end
+      PresentSync.waitBeforePresent()
       love.graphics.present()
+      PresentSync.notePresent()
     end
+
+    PresentSync.applyFixedStepPeriod()
 
     if love.timer then
       if paced and cap ~= FrameCap.DISPLAY then

@@ -49,6 +49,18 @@ VSync.applyOptions({ vsync = "off" })
 T.eq(calls[#calls], 0, "and OFF turns it off")
 T.eq(#calls, 3, "one driver call per apply, no repeats")
 
+-- Driver reports 0 after we asked for ON (vblank_mode=0 / Gamescope quirk):
+-- isOn stays true so PresentProbe still tries a real wait on native X11.
+VSync.reset()
+calls = {}
+interval = 0
+love.window.getVSync = function() return 0 end
+love.window.setVSync = function(v) calls[#calls + 1] = v end
+VSync.apply("on")
+T.eq(calls[#calls], 1, "ON still asks the driver for interval 1")
+T.eq(VSync.isOn(), true, "requested ON stays wanted even if getVSync is 0")
+T.eq(VSync.effective(), "off", "while effective tracks the driver bit")
+
 love.window.getVSync, love.window.setVSync = nil, nil
 VSync.reset()
 

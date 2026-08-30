@@ -33,7 +33,6 @@ T.eq(FrameCap.current, 0, "apply stores the uncapped value as-is")
 FrameCap.apply(before)
 
 
-FrameCap.migrated = false
 local opts = { fpsCap = 60 }
 FrameCap.applyOptions(opts)
 T.eq(opts.fpsCap, 60, "an unknown refresh leaves the 60 default alone")
@@ -52,40 +51,26 @@ T.eq(FrameCap.label(60), "60 (90HZ)", "beside whatever the cap reads")
 FrameCap.migrated = false
 opts = { fpsCap = 60 }
 FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, FrameCap.DISPLAY, "the untouched 60 default moves to DISPLAY")
-T.eq(FrameCap.current, 0, "and the loop stops pacing")
+T.eq(opts.fpsCap, 60, "a mismatch panel no longer auto-migrates to DISPLAY")
+T.eq(FrameCap.current, 60, "and keeps pacing at the stored cap")
+T.eq(opts.fpsCapMigrated, nil, "without stamping a migration marker")
 
-T.eq(opts.fpsCapMigrated, true, "and stamps the marker that says it ran")
-
-opts = { fpsCap = 60 }
-FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, 60, "a later 60 is never rewritten")
-T.eq(FrameCap.current, 60, "and paces to it")
-
-FrameCap.migrated = false
-opts = { fpsCap = 60, fpsCapMigrated = true }
-FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, 60, "a 60 picked after the migration ran survives the next boot")
-T.eq(FrameCap.current, 60, "which is the cap that session paces to")
-
-FrameCap.migrated = false
 opts = { fpsCap = 144 }
 FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, 144, "a cap that is not the default is never migrated")
+T.eq(opts.fpsCap, 144, "a cap that is not the default is never rewritten")
 
 measure(144)
 T.eq(RefreshRate.mismatch(), 144, "144Hz is no multiple of 60 either")
 FrameCap.migrated = false
 opts = { fpsCap = 60 }
 FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, 60, "but a panel above the beat range keeps the shipped cap")
-T.eq(opts.fpsCapMigrated, nil, "and is not marked migrated, so a slower panel still is")
+T.eq(opts.fpsCap, 60, "nor does a high-Hz panel rewrite a default 60 cap")
 
 measure(75)
 FrameCap.migrated = false
 opts = { fpsCap = 60 }
 FrameCap.applyOptions(opts)
-T.eq(opts.fpsCap, FrameCap.DISPLAY, "75Hz has the same halved beat as 90 and migrates")
+T.eq(opts.fpsCap, 60, "75Hz mismatch also leaves the default alone")
 
 measure(120)
 T.eq(RefreshRate.mismatch(), nil, "120Hz shows 60Hz logic 1:1")

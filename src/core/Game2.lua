@@ -2131,9 +2131,8 @@ function Game2:applyOptions()
   require("src.core.VideoMode").applyOptions(options)
   require("src.core.ScreenPosition").applyOptions(options)
   require("src.core.VSync").applyOptions(options)
-  require("src.core.FixedStep").refreshPeriod =
-    require("src.core.RefreshRate").period()
   require("src.core.FrameCap").applyOptions(options)
+  require("src.core.PresentSync").applyFixedStepPeriod()
   require("src.world.gen2.BorderFill").applyOptions(options)
   -- returns true when a persisted preset name no longer resolves (deleted
   -- from the drop-in folder, or failed to (re)translate) and had to be

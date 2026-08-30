@@ -425,6 +425,21 @@ check(om.game.save.options.vsync == "adaptive", "then OFF to ADAPTIVE")
 orow(om, "vsync").step(om.game, 1)
 check(om.game.save.options.vsync == "on", "and ADAPTIVE wraps to ON")
 
+do
+  local PS = require("src.core.PresentSync")
+  PS.reset()
+  require("src.core.PresentProbe")._testSetState({ needsSoftwareCap = true })
+  check(orow(om, "vsync").value(om.game) == "UNAVAILABLE",
+    "VSYNC shows UNAVAILABLE when present sync fell back to FrameCap")
+  check(orow(om, "vsync").step(om.game, 1) == true,
+    "but stepping toward OFF is still allowed")
+  check(om.game.save.options.vsync == "off",
+    "and lands on OFF instead of staying stuck on")
+  check(orow(om, "vsync").value(om.game) == "OFF",
+    "so the row reads OFF once sync is disabled")
+  PS.reset()
+end
+
 -- ------- FrameCap normalize / cycle (issue #88)
 check(FrameCap.normalize(nil) == 60, "FrameCap defaults nil to 60")
 check(FrameCap.normalize("junk") == 60, "FrameCap defaults garbage to 60")
