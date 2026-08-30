@@ -173,8 +173,8 @@ local pickerBridge = read("mobile/ios/native/GRPickerBridge.swift")
 local bootstrap = read("mobile/ios/native/GRBootstrap.m")
 local iosPatch = read("mobile/ios/patch_love_src.py")
 local launcherView = read("src/import/LauncherView.lua")
-local appClip = read("src/core/AppClip.lua")
-check(pickerBridge:find("installAppClipWithLabel:url:icon:iconLength:", 1, true) ~= nil,
+local webClip = read("src/core/WebClip.lua")
+check(pickerBridge:find("installWebClipWithLabel:url:icon:iconLength:", 1, true) ~= nil,
   "iOS exposes managed Home Screen profile installation")
 check(pickerBridge:find("SFSafariViewController", 1, true) ~= nil,
   "iOS presents the profile through Safari")
@@ -188,8 +188,8 @@ check(bootstrap:find("GRSceneWillConnect", 1, true) ~= nil,
   "iOS captures scene cold-start URLs")
 check(bootstrap:find("GRSceneOpenURLContexts", 1, true) ~= nil,
   "iOS captures scene warm launch URLs")
-check(iosPatch:find('"installAppClip", w_installAppClip', 1, true) ~= nil,
-  "iOS patches the App Clip bridge into love.system")
+check(iosPatch:find('"installWebClip", w_installWebClip', 1, true) ~= nil,
+	"iOS patches the WebClip bridge into love.system")
 check(iosPatch:find('"pollLaunchURI", w_pollLaunchURI', 1, true) ~= nil,
   "iOS exposes a warm launch URI poll")
 check(launcherView:find("LONG_PRESS_SECONDS", 1, true) ~= nil,
@@ -198,10 +198,10 @@ check(launcherView:find("Add to Home Screen", 1, true) ~= nil,
   "iOS launcher exposes the Home Screen action")
 check(launcherView:find("Home Screen", 1, true) ~= nil,
   "iOS exposes a Home Screen action for each installed cart")
-check(appClip:find("LaunchOptions.uriFor", 1, true) ~= nil,
-  "App Clip URLs use the shared launch URI builder")
-check(appClip:find("Pokémon Red", 1, true) ~= nil,
-  "Red Home Screen entries use the accented Pokémon label")
+check(webClip:find("LaunchOptions.uriFor", 1, true) ~= nil,
+	"WebClip URLs use the shared launch URI builder")
+check(webClip:find("Pokémon Red", 1, true) ~= nil,
+	"Red Home Screen entries use the accented Pokémon label")
 
 os.getenv = savedGetenv
 love.system = savedSystem

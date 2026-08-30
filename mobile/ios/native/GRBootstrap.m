@@ -312,11 +312,11 @@ static void GRInstallApplicationURLHooks(void)
     }
 }
 
-@interface NSURL (GRAppClipDataURL)
+@interface NSURL (GRWebClipDataURL)
 - (BOOL)safari_isHTTPFamilyURL;
 @end
 
-@implementation NSURL (GRAppClipDataURL)
+@implementation NSURL (GRWebClipDataURL)
 - (BOOL)safari_isHTTPFamilyURL
 {
     return YES;

@@ -178,7 +178,7 @@ WRAP_REGISTRATION = """#ifdef LOVE_IOS
 	{ "httpRequest", w_httpRequest },
 	{ "getLaunchURI", w_getLaunchURI },
 	{ "pollLaunchURI", w_pollLaunchURI },
-	{ "installAppClip", w_installAppClip },
+	{ "installWebClip", w_installWebClip },
 #endif
 """
 
@@ -225,7 +225,7 @@ WRAP_SYNC_REGISTRATION = """#ifdef LOVE_IOS
 	{ "httpRequest", w_httpRequest },
 	{ "getLaunchURI", w_getLaunchURI },
 	{ "pollLaunchURI", w_pollLaunchURI },
-	{ "installAppClip", w_installAppClip },
+	{ "installWebClip", w_installWebClip },
 #endif
 """
 
@@ -353,7 +353,7 @@ int w_httpRequest(lua_State *L)
 	return 1;
 }
 
-int w_installAppClip(lua_State *L)
+int w_installWebClip(lua_State *L)
 {
 	const char *label = luaL_optstring(L, 1, "gen1recomp++");
 	const char *url = luaL_checkstring(L, 2);
@@ -373,7 +373,7 @@ int w_installAppClip(lua_State *L)
 	typedef signed char (*GRInstall)(Class, SEL, const char *, const char *,
 	                                const unsigned char *, int);
 	signed char ok = ((GRInstall)objc_msgSend)(
-		cls, sel_registerName("installAppClipWithLabel:url:icon:iconLength:"),
+		cls, sel_registerName("installWebClipWithLabel:url:icon:iconLength:"),
 		label, url, (const unsigned char *) icon, (int) iconLength);
 	lua_pushboolean(L, ok != 0);
 	return 1;

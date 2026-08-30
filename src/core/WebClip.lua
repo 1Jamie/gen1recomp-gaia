@@ -2,7 +2,7 @@ local GameVersion = require("src.core.GameVersion")
 local LaunchOptions = require("src.core.LaunchOptions")
 local CartStore = require("src.carts.CartStore")
 
-local AppClip = {}
+local WebClip = {}
 
 local CLIP_TITLES = {
   red = "Pokémon Red",
@@ -24,7 +24,7 @@ local function fileBytes(path)
   return ok and type(bytes) == "string" and bytes ~= "" and bytes or nil
 end
 
-function AppClip.spec(version, cartId)
+function WebClip.spec(version, cartId)
   local info = GameVersion.info(version)
   if not info then return nil end
 
@@ -53,16 +53,16 @@ function AppClip.spec(version, cartId)
   }
 end
 
-function AppClip.install(version, cartId)
+function WebClip.install(version, cartId)
   if type(love) ~= "table" or type(love.system) ~= "table"
-      or type(love.system.installAppClip) ~= "function" then
+      or type(love.system.installWebClip) ~= "function" then
     return false, "Home Screen entries are only available on iOS"
   end
-  local spec = AppClip.spec(version, cartId)
+  local spec = WebClip.spec(version, cartId)
   if not spec or not spec.icon or not spec.url then
     return false, "This game has no artwork to use for its Home Screen entry"
   end
-  local ok, installed = pcall(love.system.installAppClip,
+  local ok, installed = pcall(love.system.installWebClip,
     spec.title, spec.url, spec.icon)
   if not ok or installed ~= true then
     return false, "iOS could not open the Home Screen entry installer"
@@ -70,4 +70,4 @@ function AppClip.install(version, cartId)
   return true, spec.title
 end
 
-return AppClip
+return WebClip

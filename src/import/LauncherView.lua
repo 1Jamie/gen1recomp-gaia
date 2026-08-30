@@ -35,7 +35,7 @@ local Transition = require("src.ui.kit.Transition")
 local GameVersion = require("src.core.GameVersion")
 local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
-local AppClip = require("src.core.AppClip")
+local WebClip = require("src.core.WebClip")
 
 local PAL = Theme.PAL
 local LauncherView = {}
@@ -4223,13 +4223,13 @@ end
 
 local SEAL_WORD = { open = "open", ["sealed+"] = "sealed+" }
 
-local function appClipAvailable(imp)
-  return imp.ios and love.system and love.system.installAppClip ~= nil
+local function webClipAvailable(imp)
+  return imp.ios and love.system and love.system.installWebClip ~= nil
 end
 
-local function requestAppClip(imp, version, cartId)
-  local ok, text = AppClip.install(version, cartId)
-  imp._appClipNotice = {
+local function requestWebClip(imp, version, cartId)
+  local ok, text = WebClip.install(version, cartId)
+  imp._webClipNotice = {
     key = tostring(version) .. ":" .. tostring(cartId or ""),
     ok = ok,
     text = ok and ("Home Screen entry ready for " .. tostring(text)) or text,
@@ -4256,8 +4256,8 @@ local function buildCartModal(imp, m)
   local rowH = m.btnH
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local notice = imp._cartNotice
-  local canAppClip = appClipAvailable(imp)
-  local clipNotice = imp._appClipNotice
+  local canWebClip = webClipAvailable(imp)
+  local clipNotice = imp._webClipNotice
   local clipPrefix = tostring(version) .. ":"
   if not clipNotice or tostring(clipNotice.key):sub(1, #clipPrefix)
       ~= clipPrefix then
@@ -4301,26 +4301,26 @@ local function buildCartModal(imp, m)
   local expGap = math.floor(6 * m.s)
   local expW = math.min(chipWidth(Strings("Export"), m),
     math.floor((pw - 2 * pad) * 0.35))
-  local clipW = canAppClip
+  local clipW = canWebClip
     and math.min(chipWidth(Strings("Home Screen"), m),
       math.floor((pw - 2 * pad) * 0.32)) or 0
   for i = first, last do
     local row = rows[i]
     local rowKey = "cartpop-id-" .. tostring(row.id)
     local pickW = pw - 2 * pad - expW - expGap
-    if canAppClip then pickW = pickW - clipW - expGap end
+    if canWebClip then pickW = pickW - clipW - expGap end
     btn(imp, px + pad, cy, pickW, rowH, rowKey, cartRowLabel(row), {
         kind = (active == row.id) and "primary" or "ghost", font = "small",
         action = function() imp:_selectCart(version, row.id) end })
-    if canAppClip then
+    if canWebClip then
       btn(imp, px + pad + pickW + expGap, cy, clipW, rowH,
         rowKey .. "-clip", Strings("Home Screen"), { kind = "accent", font = "small",
           action = function()
-            if requestAppClip(imp, version, row.id) then imp._cartPopup = nil end
+            if requestWebClip(imp, version, row.id) then imp._cartPopup = nil end
           end })
     end
     local exportX = px + pad + pickW + expGap
-    if canAppClip then exportX = exportX + clipW + expGap end
+    if canWebClip then exportX = exportX + clipW + expGap end
     btn(imp, exportX, cy, expW, rowH, rowKey .. "-export",
       Strings("Export"), { kind = "accent", font = "small",
         action = function() imp:exportCart(row.id) end })
@@ -4975,9 +4975,9 @@ local function buildGameManageModal(imp, m)
   -- The folder link is desktop-only: Android and NX have no browsable path to
   -- open, and both already print their own transfer hint on the slot card.
   local canOpenFolder = saveDir and not imp.android and not imp.isNX
-  local canAppClip = ready and appClipAvailable(imp)
+  local canWebClip = ready and webClipAvailable(imp)
   local clipKey = tostring(version) .. ":" .. tostring(cartId or "")
-  local clipNotice = imp._appClipNotice
+  local clipNotice = imp._webClipNotice
   if not clipNotice or clipNotice.key ~= clipKey then clipNotice = nil end
 
   local pad = math.floor(18 * m.s)
@@ -4991,7 +4991,7 @@ local function buildGameManageModal(imp, m)
     and (Kit.textHeight("micro") + math.floor(8 * m.s)) or 0
   local noticeH = clipNotice
     and (Kit.wrapHeight("small", clipNotice.text, bodyW, 2) + gap) or 0
-  local nBtns = 1 + (canAppClip and 1 or 0) + (canOpenFolder and 1 or 0) + 1
+  local nBtns = 1 + (canWebClip and 1 or 0) + (canOpenFolder and 1 or 0) + 1
   local h = pad + Kit.textHeight("button") + math.floor(8 * m.s) + detailH
     + math.floor(12 * m.s) + pathH + noticeH
     + nBtns * (m.btnH + gap) - gap + pad
@@ -5026,11 +5026,11 @@ local function buildGameManageModal(imp, m)
         if fn then fn() end
       end or nil })
   cy = cy + m.btnH + gap
-  if canAppClip then
+  if canWebClip then
     btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-clip",
       Strings("Add to Home Screen"), { kind = "accent", font = "small",
         action = function()
-          if requestAppClip(imp, version, cartId) then imp._gameManage = nil end
+          if requestWebClip(imp, version, cartId) then imp._gameManage = nil end
         end })
     cy = cy + m.btnH + gap
   end

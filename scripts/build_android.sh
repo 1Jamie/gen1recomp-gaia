@@ -88,6 +88,7 @@ if [ -n "$VERSION" ]; then
     fail "--version components exceed Android versionCode limits"
   fi
   VERSION_CODE=$((major * 1000000 + minor * 1000 + patch))
+  if [ "$VERSION_CODE" -eq 0 ]; then VERSION_CODE=1; fi
 fi
 
 if $RELEASE; then

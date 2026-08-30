@@ -189,8 +189,8 @@ public final class GRPickerBridge: NSObject {
         return envelope
     }
 
-    @objc(installAppClipWithLabel:url:icon:iconLength:)
-    public static func installAppClip(label: UnsafePointer<CChar>?,
+    @objc(installWebClipWithLabel:url:icon:iconLength:)
+    public static func installWebClip(label: UnsafePointer<CChar>?,
                                        url: UnsafePointer<CChar>?,
                                        icon: UnsafePointer<UInt8>?,
                                        iconLength: Int32) -> Bool {
