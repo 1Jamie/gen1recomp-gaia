@@ -148,6 +148,7 @@ public:
 
 	virtual bool updateShortcuts(const std::vector<std::string> &versions) const;
 	virtual std::string getLaunchGame() const;
+	virtual std::string getLaunchURI() const;
 
 	/**
 	 * Blocking HTTPS GET into an absolute host path (Android only; false

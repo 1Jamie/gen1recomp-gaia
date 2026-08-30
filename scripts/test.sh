@@ -126,6 +126,7 @@ run_tier "T0 NX generated-path static guard" "$LUA" tests/engine/nx_generated_gu
 run_tier "T0 NX Yellow/Blue boot (dynamic paths)" "$LUA" tests/engine/nx_yellow_boot_test.lua
 run_tier "T0 NX Gold cache load (maps.lua prefix)" "$LUA" tests/engine/cache_fs_gold_nx_load_test.lua
 run_tier "T0 touch-controls pad cursor" "$LUA" tests/engine/touch_controls_pad_cursor_test.lua
+run_tier "T0 URI launch arguments" "$LUA" tests/engine/launch_uri_args_test.lua
 run_tier "T1/T2 engine invariants + parity gates" "$LUA" tests/run_engine.lua
 # Gen 2 / Crystal: ROM-free (own fixtures, or a self-skip on a missing cache),
 # so it runs here rather than behind the Red content gate below.

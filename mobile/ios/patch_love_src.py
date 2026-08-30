@@ -176,6 +176,9 @@ WRAP_REGISTRATION = """#ifdef LOVE_IOS
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "httpDownload", w_httpDownload },
 	{ "httpRequest", w_httpRequest },
+	{ "getLaunchURI", w_getLaunchURI },
+	{ "pollLaunchURI", w_pollLaunchURI },
+	{ "installWebClip", w_installWebClip },
 #endif
 """
 
@@ -220,6 +223,9 @@ WRAP_SYNC_REGISTRATION = """#ifdef LOVE_IOS
 	{ "syncHealthSteps", w_syncHealthSteps },
 	{ "httpDownload", w_httpDownload },
 	{ "httpRequest", w_httpRequest },
+	{ "getLaunchURI", w_getLaunchURI },
+	{ "pollLaunchURI", w_pollLaunchURI },
+	{ "installWebClip", w_installWebClip },
 #endif
 """
 
@@ -345,6 +351,69 @@ int w_httpRequest(lua_State *L)
 	}
 	lua_pushlstring(L, (const char *) bytes, (size_t) length);
 	return 1;
+}
+
+int w_installWebClip(lua_State *L)
+{
+	const char *label = luaL_optstring(L, 1, "gen1recomp++");
+	const char *url = luaL_checkstring(L, 2);
+	size_t iconLength = 0;
+	const char *icon = luaL_checklstring(L, 3, &iconLength);
+	if (iconLength > 0x7fffffff)
+	{
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	Class cls = objc_getClass("GRPickerBridge");
+	if (cls == nullptr)
+	{
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	typedef signed char (*GRInstall)(Class, SEL, const char *, const char *,
+	                                const unsigned char *, int);
+	signed char ok = ((GRInstall)objc_msgSend)(
+		cls, sel_registerName("installWebClipWithLabel:url:icon:iconLength:"),
+		label, url, (const unsigned char *) icon, (int) iconLength);
+	lua_pushboolean(L, ok != 0);
+	return 1;
+}
+
+static int w_launchURI(lua_State *L)
+{
+	Class cls = objc_getClass("GRDeviceBridge");
+	if (cls == nullptr)
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	typedef id (*GRObj)(Class, SEL);
+	id value = ((GRObj)objc_msgSend)(cls, sel_registerName("launchURI"));
+	if (value == nullptr)
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	typedef const char *(*GRUTF8)(id, SEL);
+	const char *bytes = ((GRUTF8)objc_msgSend)(value,
+	                                           sel_registerName("UTF8String"));
+	if (bytes == nullptr || bytes[0] == '\\0')
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushstring(L, bytes);
+	return 1;
+}
+
+int w_getLaunchURI(lua_State *L)
+{
+	return w_launchURI(L);
+}
+
+int w_pollLaunchURI(lua_State *L)
+{
+	return w_launchURI(L);
 }
 #endif
 """

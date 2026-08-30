@@ -19,6 +19,31 @@ The build enables `UIFileSharingEnabled` and
 Files and Finder. Files copied into the app's Documents directory are used by
 the game on its next activation.
 
+## Launch URLs
+
+The app registers the `gen1recomp++` URL scheme. Use the shared launch format
+to start a game or open the launcher:
+
+```text
+gen1recomp++://launch?game=red
+gen1recomp++://launch?game=red&slot=2
+gen1recomp++://launch?game=red&launcher=1
+```
+
+The complete parameter list and Android testing command are documented in the
+repository [Launch Options](../../README.md#launch-options) section. The iOS
+Simulator can open a URL with:
+
+```bash
+xcrun simctl openurl booted 'gen1recomp++://launch?game=red'
+```
+
+On a device, long-press an imported game cartridge to open its actions and
+choose Home Screen. Custom carts have their own Home Screen action in the
+Custom Carts list. Approve the downloaded configuration profile from Settings
+to add the entry. The entry uses the game or cart label artwork and launches
+through the shared URL scheme.
+
 Existing installations are migrated automatically. Files from the old
 private `Application Support/pokemon-love2d` directory are merged into
 Documents on launch; conflicts are retained with a `.legacy` suffix.

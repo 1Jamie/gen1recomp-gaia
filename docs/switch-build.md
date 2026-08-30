@@ -188,8 +188,8 @@ or the Switch-related workflow YAML), CI runs:
    head is that repo (same-repo push/PR). Fork CI never runs fused. Fork PRs into the main repo also skip Switch fused (offline selftest still runs) so untrusted head code is not executed on the self-hosted Mac; iOS device build eligibility is unchanged. Fused also waits for a successful offline selftest before starting on the Mac runner.
 3. On successful PR fused builds, a follow-up workflow posts a PR comment
    linking the Actions artifact named `gen1recomp-switch-nro`
-   (comment tag `switch-build-result`; see
-   `.github/workflows/switch-artifact-comment.yml`).
+   (comment tag `platform-build-result`; see
+   `.github/workflows/platform-artifact-comment.yml`).
 
 Unrelated PRs do not burn the self-hosted Mac on Switch packaging.
 

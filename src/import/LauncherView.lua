@@ -35,6 +35,7 @@ local Transition = require("src.ui.kit.Transition")
 local GameVersion = require("src.core.GameVersion")
 local Version = require("src.core.Version")
 local Strings = require("src.core.Strings")
+local WebClip = require("src.core.WebClip")
 
 local PAL = Theme.PAL
 local LauncherView = {}
@@ -44,6 +45,7 @@ local COMMUNITY_URL = "https://bois.icu"
 -- One dedup window covers a touch release plus the mouse click SDL
 -- synthesizes for the same tap.
 local ACT_DEDUP = 0.35
+local LONG_PRESS_SECONDS = 0.60
 -- Finger travel past this (px) is a drag, not a tap.
 local TAP_SLOP2 = 16 * 16
 local MIN_SKIN_ROWS = 4
@@ -249,7 +251,7 @@ function LauncherView.touchpressed(imp, id, x, y)
   if not imp._flex then return end
   imp._touchAt = imp._touchAt or {}
   imp._touchAt[tostring(id)] = {
-    x = x, y = y,
+    x = x, y = y, started = love.timer.getTime(),
     region = tabScrollMax(imp) > 0 and inRect(imp._tabRegionRect, x, y),
   }
 end
@@ -284,7 +286,7 @@ function LauncherView.touchreleased(imp, id, x, y)
   if not imp._flex then return end
   local start = imp._touchAt and imp._touchAt[tostring(id)]
   if imp._touchAt then imp._touchAt[tostring(id)] = nil end
-  if start and start.dragged then
+  if start and (start.dragged or start.longPressed) then
     -- Suppress the mouse click SDL will synthesize for this same gesture.
     imp._suppressClickUntil = love.timer.getTime() + ACT_DEDUP
     return
@@ -295,6 +297,25 @@ function LauncherView.touchreleased(imp, id, x, y)
   -- tap's own action.
   imp._suppressMouseUntil = love.timer.getTime() + ACT_DEDUP
   imp._clickPt = { x = x, y = y }
+end
+
+local function triggerLongPress(imp, x, y, w, h, version)
+  if not imp.ios or imp._modalUpNow then return false end
+  local touches = imp._touchAt
+  if not touches then return false end
+  local now = love.timer.getTime()
+  for _, touch in pairs(touches) do
+    if not touch.dragged and not touch.longPressed
+        and inRect({ x = x, y = y, w = w, h = h }, touch.x, touch.y)
+        and now - (touch.started or now) >= LONG_PRESS_SECONDS then
+      touch.longPressed = true
+      imp._suppressClickUntil = now + ACT_DEDUP
+      imp._clickPt = nil
+      imp._gameManage = version
+      return true
+    end
+  end
+  return false
 end
 
 -- Synthetic click for the gamepad virtual cursor.
@@ -721,13 +742,15 @@ local function cartSendFinish(shader, mode, spin)
   end)
 end
 
-local function cartridgeButton(imp, x, y, w, h, key, skin, gameName, action)
+local function cartridgeButton(imp, x, y, w, h, key, skin, gameName, action, version)
   local state = cartridgeState(imp, skin.cacheKey)
   markNoDrag(imp, x, y, w, h)
   local focused = Kit.focusable(key, x, y, w, h)
   local hot = Kit.hover(x, y, w, h)
   local active = state.active
   local cx, cy = x + w / 2, y + h / 2
+
+  triggerLongPress(imp, x, y, w, h, version)
 
   if Kit.mouseClicked and Kit.hit(x, y, w, h) and not Kit.blockClicks then
     if Kit.mouseDown then
@@ -2231,7 +2254,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
     local cartW = math.min(cartAreaW, math.floor(playH * 0.88))
     local cartX = lx + math.floor((cartAreaW - cartW) / 2)
     cartridgeButton(imp, cartX, ly, cartW, playH, "play-" .. version,
-      skin, gameName, function() imp:play(version, true) end)
+      skin, gameName, function() imp:play(version, true) end, version)
     imp._gearIcon = imp._gearIcon
       or love.graphics.newImage("assets/launcher/gear.png")
     btn(imp, lx + lw - mgW, ly, mgW, mgW, "manage-" .. version, "", {
@@ -4200,6 +4223,20 @@ end
 
 local SEAL_WORD = { open = "open", ["sealed+"] = "sealed+" }
 
+local function webClipAvailable(imp)
+  return imp.ios and love.system and love.system.installWebClip ~= nil
+end
+
+local function requestWebClip(imp, version, cartId)
+  local ok, text = WebClip.install(version, cartId)
+  imp._webClipNotice = {
+    key = tostring(version) .. ":" .. tostring(cartId or ""),
+    ok = ok,
+    text = ok and ("Home Screen entry ready for " .. tostring(text)) or text,
+  }
+  return ok
+end
+
 local function cartRowLabel(row)
   local seal = Strings(SEAL_WORD[row.seal] or "sealed")
   return Strings("%s - v%s - %s", tostring(row.title or row.id),
@@ -4219,11 +4256,20 @@ local function buildCartModal(imp, m)
   local rowH = m.btnH
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local notice = imp._cartNotice
+  local canWebClip = webClipAvailable(imp)
+  local webClipNotice = imp._webClipNotice
+  local webClipPrefix = tostring(version) .. ":"
+  if not webClipNotice or tostring(webClipNotice.key):sub(1, #webClipPrefix)
+      ~= webClipPrefix then
+    webClipNotice = nil
+  end
   local noticeH = notice
     and (Kit.wrapHeight("small", notice, w - 2 * pad, 2) + gap) or 0
+  local webClipNoticeH = webClipNotice
+    and (Kit.wrapHeight("small", webClipNotice.text, w - 2 * pad, 2) + gap) or 0
   local emptyH = (#rows == 0) and (Kit.textHeight("small") + gap) or 0
   local fixed = pad + Kit.textHeight("button") + math.floor(12 * m.s)
-    + noticeH + emptyH + 2 * (rowH + gap) + rowH + pad
+    + noticeH + webClipNoticeH + emptyH + 2 * (rowH + gap) + rowH + pad
   local perPage = Kit.rowsThatFit(m.H - 2 * m.pad - fixed, rowH, gap, 1, 8)
   local pageKey = "cartpop-" .. tostring(version)
   local first, last, cur, pages = Kit.pageBounds(page(imp, pageKey), #rows, perPage)
@@ -4239,6 +4285,10 @@ local function buildCartModal(imp, m)
     cy = cy + Kit.textWrapped("small", notice, px + pad, cy,
       pw - 2 * pad, PAL.detail, 2) + gap
   end
+  if webClipNotice then
+    cy = cy + Kit.textWrapped("small", webClipNotice.text, px + pad, cy,
+      pw - 2 * pad, webClipNotice.ok and PAL.green or PAL.red, 2) + gap
+  end
   btn(imp, px + pad, cy, pw - 2 * pad, rowH, "cartpop-vanilla", baseName, {
     kind = (active == nil) and "primary" or "ghost", font = "small",
     action = function() imp:_selectCart(version, nil) end })
@@ -4251,14 +4301,27 @@ local function buildCartModal(imp, m)
   local expGap = math.floor(6 * m.s)
   local expW = math.min(chipWidth(Strings("Export"), m),
     math.floor((pw - 2 * pad) * 0.35))
+  local webClipW = canWebClip
+    and math.min(chipWidth(Strings("Home Screen"), m),
+      math.floor((pw - 2 * pad) * 0.32)) or 0
   for i = first, last do
     local row = rows[i]
     local rowKey = "cartpop-id-" .. tostring(row.id)
     local pickW = pw - 2 * pad - expW - expGap
+    if canWebClip then pickW = pickW - webClipW - expGap end
     btn(imp, px + pad, cy, pickW, rowH, rowKey, cartRowLabel(row), {
         kind = (active == row.id) and "primary" or "ghost", font = "small",
         action = function() imp:_selectCart(version, row.id) end })
-    btn(imp, px + pad + pickW + expGap, cy, expW, rowH, rowKey .. "-export",
+    if canWebClip then
+      btn(imp, px + pad + pickW + expGap, cy, webClipW, rowH,
+        rowKey .. "-webclip", Strings("Home Screen"), { kind = "accent", font = "small",
+          action = function()
+            if requestWebClip(imp, version, row.id) then imp._cartPopup = nil end
+          end })
+    end
+    local exportX = px + pad + pickW + expGap
+    if canWebClip then exportX = exportX + webClipW + expGap end
+    btn(imp, exportX, cy, expW, rowH, rowKey .. "-export",
       Strings("Export"), { kind = "accent", font = "small",
         action = function() imp:exportCart(row.id) end })
     cy = cy + rowH + gap
@@ -4903,6 +4966,8 @@ local function buildGameManageModal(imp, m)
   local info = GameVersion.info(version)
   local ready = imp.ready[version] or false
   local mdl = romModel(imp, version, info, ready, info == nil)
+  local skin = cartSkin(imp, version)
+  local cartId = skin.cartId
   local gameName = info and (info.launcherName or info.displayName)
     or tostring(version)
   local saveDir = love.filesystem.getSaveDirectory
@@ -4910,6 +4975,10 @@ local function buildGameManageModal(imp, m)
   -- The folder link is desktop-only: Android and NX have no browsable path to
   -- open, and both already print their own transfer hint on the slot card.
   local canOpenFolder = saveDir and not imp.android and not imp.isNX
+  local canWebClip = ready and webClipAvailable(imp)
+  local webClipKey = tostring(version) .. ":" .. tostring(cartId or "")
+  local webClipNotice = imp._webClipNotice
+  if not webClipNotice or webClipNotice.key ~= webClipKey then webClipNotice = nil end
 
   local pad = math.floor(18 * m.s)
   local w = math.floor(460 * m.s)
@@ -4920,9 +4989,12 @@ local function buildGameManageModal(imp, m)
     bodyW, 3)
   local pathH = saveDir
     and (Kit.textHeight("micro") + math.floor(8 * m.s)) or 0
-  local nBtns = 1 + (canOpenFolder and 1 or 0) + 1
+  local noticeH = webClipNotice
+    and (Kit.wrapHeight("small", webClipNotice.text, bodyW, 2) + gap) or 0
+  local nBtns = 1 + (canWebClip and 1 or 0) + (canOpenFolder and 1 or 0) + 1
   local h = pad + Kit.textHeight("button") + math.floor(8 * m.s) + detailH
-    + math.floor(12 * m.s) + pathH + nBtns * (m.btnH + gap) - gap + pad
+    + math.floor(12 * m.s) + pathH + noticeH
+    + nBtns * (m.btnH + gap) - gap + pad
   local px, py, pw = modalPanel(m, w, h)
   local cy = py + pad
 
@@ -4940,6 +5012,10 @@ local function buildGameManageModal(imp, m)
       px + pad, cy, PAL.faint)
     cy = cy + Kit.textHeight("micro") + math.floor(8 * m.s)
   end
+  if webClipNotice then
+    cy = cy + Kit.textWrapped("small", webClipNotice.text, px + pad, cy,
+      pw - 2 * pad, webClipNotice.ok and PAL.green or PAL.red, 2) + gap
+  end
 
   btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-rom",
     mdl.label or Strings("Re-import ROM"), {
@@ -4950,6 +5026,14 @@ local function buildGameManageModal(imp, m)
         if fn then fn() end
       end or nil })
   cy = cy + m.btnH + gap
+  if canWebClip then
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-webclip",
+      Strings("Add to Home Screen"), { kind = "accent", font = "small",
+        action = function()
+          if requestWebClip(imp, version, cartId) then imp._gameManage = nil end
+        end })
+    cy = cy + m.btnH + gap
+  end
   if canOpenFolder then
     btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-folder",
       Strings("Open folder"), { kind = "accent", font = "small",

@@ -35,6 +35,17 @@
 	<string>gen1recomp++</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>gen1recomp++ launch options</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gen1recomp++</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleSignature</key>

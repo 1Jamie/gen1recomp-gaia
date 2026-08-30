@@ -50,12 +50,14 @@ function Orientation.modeLabel(mode)
 end
 
 function Orientation.isAndroid()
-  if not love or not love.system or not love.system.getOS then return false end
+  if type(love) ~= "table" or type(love.system) ~= "table"
+      or type(love.system.getOS) ~= "function" then return false end
   return love.system.getOS() == "Android"
 end
 
 function Orientation.isIOS()
-  if not love or not love.system or not love.system.getOS then return false end
+  if type(love) ~= "table" or type(love.system) ~= "table"
+      or type(love.system.getOS) ~= "function" then return false end
   return love.system.getOS() == "iOS"
 end
 

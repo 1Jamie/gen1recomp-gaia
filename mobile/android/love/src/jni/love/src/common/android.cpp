@@ -381,6 +381,38 @@ std::string getLaunchGame()
 	return result;
 }
 
+std::string getLaunchURI()
+{
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass("org/love2d/android/GameActivity");
+	if (activity == nullptr)
+		return "";
+
+	jmethodID method = env->GetStaticMethodID(activity, "getLaunchURI", "()Ljava/lang/String;");
+	if (method == nullptr)
+	{
+		env->ExceptionClear();
+		env->DeleteLocalRef(activity);
+		return "";
+	}
+
+	jstring juri = (jstring) env->CallStaticObjectMethod(activity, method);
+	if (juri == nullptr)
+	{
+		env->DeleteLocalRef(activity);
+		return "";
+	}
+
+	const char *str = env->GetStringUTFChars(juri, nullptr);
+	std::string result = (str != nullptr) ? str : "";
+	if (str != nullptr)
+		env->ReleaseStringUTFChars(juri, str);
+
+	env->DeleteLocalRef(juri);
+	env->DeleteLocalRef(activity);
+	return result;
+}
+
 bool httpDownload(const char *url, const char *destPath, const char *userAgent, const char *accept)
 {
 	if (url == nullptr || destPath == nullptr)
@@ -1601,6 +1633,20 @@ static void pushGameIntentEvent(const char *game)
 	msg->release();
 }
 
+static void pushLaunchURIEvent(const char *uri)
+{
+	auto eventmodule = love::Module::getInstance<love::event::Event>(love::Module::M_EVENT);
+	if (eventmodule == nullptr || uri == nullptr)
+		return;
+
+	std::vector<love::Variant> args;
+	args.push_back(love::Variant(std::string(uri)));
+
+	love::event::Message *msg = new love::event::Message("intent_uri", args);
+	eventmodule->push(msg);
+	msg->release();
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_org_love2d_android_GameActivity_nativeOnGameIntent(JNIEnv *env, jclass cls, jstring game)
 {
@@ -1612,6 +1658,20 @@ Java_org_love2d_android_GameActivity_nativeOnGameIntent(JNIEnv *env, jclass cls,
 	{
 		pushGameIntentEvent(str);
 		env->ReleaseStringUTFChars(game, str);
+	}
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_love2d_android_GameActivity_nativeOnLaunchURI(JNIEnv *env, jclass cls, jstring uri)
+{
+	(void) cls;
+	if (uri == nullptr)
+		return;
+	const char *str = env->GetStringUTFChars(uri, nullptr);
+	if (str != nullptr)
+	{
+		pushLaunchURIEvent(str);
+		env->ReleaseStringUTFChars(uri, str);
 	}
 }
 

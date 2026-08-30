@@ -30,6 +30,27 @@ git submodule update --init --force --recursive
 
 In the repository directory. For the last command, add `--depth 1` if needed.
 
+Launch URLs
+-----------
+
+The gen1recomp application accepts launch URLs using the `gen1recomp++` scheme:
+
+```text
+gen1recomp++://launch?game=red
+gen1recomp++://launch?game=red&slot=2
+gen1recomp++://launch?game=red&launcher=1
+```
+
+The complete parameter list and iOS testing command are documented in the
+repository [Launch Options](../../README.md#launch-options) section. Test an
+installed Android build with:
+
+```bash
+adb shell am start -a android.intent.action.VIEW \
+  -d 'gen1recomp++://launch?game=red' \
+  com.theboisclub.pokemonred
+```
+
 Instructions:
 -------------
 
