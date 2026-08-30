@@ -172,7 +172,10 @@ public class GameActivity extends SDLActivity {
 
     private static native void nativeOnGameIntent(String game);
 
+    private static native void nativeOnLaunchURI(String uri);
+
     private static String initialGame = "";
+    private static String initialLaunchURI = "";
 
     private AudioManager.OnAudioFocusChangeListener audioFocusListener = null;
     private Object audioFocusRequest = null;
@@ -247,6 +250,10 @@ public class GameActivity extends SDLActivity {
         if (startIntent != null && startIntent.hasExtra("game")) {
             initialGame = startIntent.getStringExtra("game");
         }
+        Uri launchURI = getLaunchURI(startIntent);
+        if (launchURI != null) {
+            initialLaunchURI = launchURI.toString();
+        }
         if (!embed) {
             Intent intent = getIntent();
             handleIntent(intent);
@@ -280,17 +287,32 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         Log.d("GameActivity", "onNewIntent() with " + intent);
-        if (intent != null && intent.hasExtra("game")) {
+        Uri launchURI = getLaunchURI(intent);
+        if (launchURI != null) {
+            nativeOnLaunchURI(launchURI.toString());
+        } else if (intent != null && intent.hasExtra("game")) {
             String game = intent.getStringExtra("game");
             if (game != null && !game.isEmpty()) {
                 nativeOnGameIntent(game);
             }
         }
-        if (!embed) {
+        if (!embed && launchURI == null) {
             handleIntent(intent);
             resetNative();
             startNative();
         }
+    }
+
+    private static Uri getLaunchURI(Intent intent) {
+        if (intent == null) return null;
+        Uri uri = intent.getData();
+        if (uri == null) return null;
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (scheme == null || host == null) return null;
+        if (!"gen1recomp++".equalsIgnoreCase(scheme)) return null;
+        if (!"launch".equalsIgnoreCase(host)) return null;
+        return uri;
     }
 
     protected void handleIntent(Intent intent) {
@@ -853,6 +875,11 @@ public class GameActivity extends SDLActivity {
     @Keep
     public static String getLaunchGame() {
         return initialGame != null ? initialGame : "";
+    }
+
+    @Keep
+    public static String getLaunchURI() {
+        return initialLaunchURI != null ? initialLaunchURI : "";
     }
 
     @Keep

@@ -230,7 +230,8 @@ local function resolvePortableRoot()
   if not resolveMkdir() then return nil end
   local base = require("src.core.SaveData").portableBaseDir()
   if not base then return nil end
-  if love.filesystem.getSource and base == love.filesystem.getSource() then
+  if type(love.filesystem) == "table" and love.filesystem.getSource
+      and base == love.filesystem.getSource() then
     -- source run: the folder is already the physfs source
     portableRoot = base
   elseif mountReadable(base) then

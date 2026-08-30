@@ -319,6 +319,16 @@ int w_getLaunchGame(lua_State *L)
 	return 1;
 }
 
+int w_getLaunchURI(lua_State *L)
+{
+	std::string uri = instance()->getLaunchURI();
+	if (uri.empty())
+		lua_pushnil(L);
+	else
+		luax_pushstring(L, uri);
+	return 1;
+}
+
 static const luaL_Reg functions[] =
 {
 	{ "getOS", w_getOS },
@@ -336,6 +346,7 @@ static const luaL_Reg functions[] =
 	{ "installApk", w_installApk },
 	{ "updateShortcuts", w_updateShortcuts },
 	{ "getLaunchGame", w_getLaunchGame },
+	{ "getLaunchURI", w_getLaunchURI },
 	{ "httpDownload", w_httpDownload },
 	{ "httpPost", w_httpPost },
 	{ "httpRequest", w_httpRequest },

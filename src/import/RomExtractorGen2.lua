@@ -1223,6 +1223,11 @@ function RomExtractorGen2:readMapEvents(bank, address, spriteOrder)
 
   local objectCount = self.rom:byte(bank, cursor)
   cursor = cursor + 1
+  -- The bus address of the first object_event, which is exactly the pointer
+  -- ReadObjectEvents (home/map.asm) leaves in wCurMapObjectEventsPointer: DE
+  -- after the count byte. A .sav export re-anchoring a save onto this map
+  -- writes it back so a later ReloadMapEvents reads the right list.
+  local objectEventsAddr = cursor
   local objects = {}
   for i = 1, objectCount do
     local spriteId = self.rom:byte(bank, cursor)
@@ -1256,6 +1261,7 @@ function RomExtractorGen2:readMapEvents(bank, address, spriteOrder)
   return {
     warps = warps, coordEvents = coordEvents,
     bgEvents = bgEvents, objects = objects,
+    objectEventsAddr = objectEventsAddr,
   }
 end
 
@@ -1374,6 +1380,7 @@ function RomExtractorGen2:extractMaps()
       coordEvents = events.coordEvents,
       bgEvents = events.bgEvents,
       objects = events.objects,
+      objectEventsAddr = events.objectEventsAddr,
       sceneScripts = sceneScripts,
       callbacks = callbacks,
       scripts = { bank = eventsBank, address = scriptsAddr },

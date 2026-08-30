@@ -1,5 +1,6 @@
 -- Live PresentProbe driver. Boots far enough to present, waits for the
--- gated/ungated classification, then prints the result and quits.
+-- gated/ungated classification (present() block time, not inter-frame gaps),
+-- then prints the result and quits.
 --
 --   cd /home/autumn/src/gen1recomp-gaia
 --   POKEPORT_DRIVER=tests/drivers/linux_present_probe.lua POKEPORT_TOUCH=0 \

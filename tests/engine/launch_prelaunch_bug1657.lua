@@ -281,11 +281,16 @@ do
     "function love%.handlers%.intent_game.-\n(.-)\nend\n")
   check(handler ~= nil, "main.lua still defines the Android intent handler")
   handler = handler or ""
-  check(handler:find("Prelaunch", 1, true) ~= nil,
-    "an Android intent runs the same pre-boot stage a shortcut does")
-  check(handler:find("tasks.update = false", 1, true) ~= nil,
-    "but never the update check, which would restart the app unattended")
-  local bootAt = handler:find("if not Prelaunch then bootGame", 1, true)
+  check(handler:find("LaunchOptions.fromGame", 1, true) ~= nil,
+    "an Android intent enters the shared launch request")
+  check(src:find("tasks = request.tasks or {}", 1, true) ~= nil,
+    "the shared request runs the same pre-boot stage a shortcut does")
+  local optionsFile = assert(io.open("src/core/LaunchOptions.lua", "r"))
+  local optionsSrc = optionsFile:read("*a")
+  optionsFile:close()
+  check(optionsSrc:find("tasks.update = false", 1, true) ~= nil,
+    "legacy Android intents never run the update check")
+  local bootAt = src:find("if not Prelaunch then bootShortcut()", 1, true)
   check(bootAt ~= nil,
     "and boots on the same frame when there is no stage to run")
 end

@@ -803,6 +803,29 @@ function Gen2Save.encode(save, gameVersion, template, data)
     putU8(t, L.wXCoord, pos.x or 0)
     putU8(t, L.wYCoord, pos.y or 0)
   end
+
+  -- The save may now stand on a different map than the cartridge image it
+  -- was written into. Everything the template carried for ITS map is right
+  -- only for that map: the real game's CONTINUE re-derives attributes and
+  -- blocks from the ROM but keeps the saved object window
+  -- (MapSetupScript_Continue runs LoadMapAttributes_SkipObjects), so a
+  -- moved save needs that window rebuilt for where it stands, or the new
+  -- map continues with the old map's people in it. Same-map exports leave
+  -- the template's window untouched, byte for byte.
+  local templateGroup = template:byte(L.wMapGroup + 1)
+  local templateNumber = template:byte(L.wMapNumber + 1)
+  if t[L.wMapGroup] ~= templateGroup or t[L.wMapNumber] ~= templateNumber then
+    local Gen2MapContext = require("src.save_convert.Gen2MapContext")
+    local ctx, why = Gen2MapContext.build(data, gameVersion,
+      t[L.wMapGroup], t[L.wMapNumber], t[L.wXCoord], t[L.wYCoord])
+    if not ctx then
+      return nil, ("this save cannot be exported onto map %d/%d: %s")
+        :format(t[L.wMapGroup], t[L.wMapNumber], tostring(why))
+    end
+    for offset, values in pairs(ctx.writes) do
+      for i, value in ipairs(values) do t[offset + i - 1] = value % 256 end
+    end
+  end
   local pt = save.playTime
   if pt then
     putBE(t, L.wGameTimeHours, pt.hours or 0, 2)

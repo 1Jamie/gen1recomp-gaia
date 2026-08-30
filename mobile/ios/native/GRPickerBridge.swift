@@ -14,6 +14,8 @@
 import UIKit
 import UniformTypeIdentifiers
 import CryptoKit
+import Network
+import SafariServices
 
 @objc(GRPickerBridge)
 public final class GRPickerBridge: NSObject {
@@ -28,6 +30,7 @@ public final class GRPickerBridge: NSObject {
     private static var liveDelegates: [PickerDelegate] = []
 
     private static let loveIdentity = "pokemon-love2d"
+    private static var profileServer: NWListener?
 
     @objc(httpDownloadWithUrl:destination:userAgent:accept:)
     public static func httpDownload(url: UnsafePointer<CChar>?,
@@ -184,6 +187,123 @@ public final class GRPickerBridge: NSObject {
             return httpEnvelope("ERROR the request timed out", nil)
         }
         return envelope
+    }
+
+    @objc(installWebClipWithLabel:url:icon:iconLength:)
+    public static func installWebClip(label: UnsafePointer<CChar>?,
+                                       url: UnsafePointer<CChar>?,
+                                       icon: UnsafePointer<UInt8>?,
+                                       iconLength: Int32) -> Bool {
+        guard let url, let icon, iconLength > 0,
+              let launchURL = URL(string: String(cString: url)),
+              launchURL.scheme?.lowercased() == "gen1recomp++",
+              launchURL.host?.lowercased() == "launch" else { return false }
+
+        let rawLabel = label.map { String(cString: $0) } ?? "gen1recomp++"
+        let displayName = String(rawLabel.replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ").prefix(48))
+        guard let source = UIImage(data: Data(bytes: icon, count: Int(iconLength))) else {
+            return false
+        }
+        guard source.size.width > 0, source.size.height > 0 else { return false }
+
+        let iconSize = CGSize(width: 180, height: 180)
+        let renderer = UIGraphicsImageRenderer(size: iconSize)
+        let iconData = renderer.pngData(actions: { context in
+            context.cgContext.setFillColor(UIColor.black.cgColor)
+            context.cgContext.fill(CGRect(origin: .zero, size: iconSize))
+            let scale = min(160 / source.size.width, 160 / source.size.height)
+            let size = CGSize(width: source.size.width * scale,
+                              height: source.size.height * scale)
+            let rect = CGRect(x: (iconSize.width - size.width) / 2,
+                              y: (iconSize.height - size.height) / 2,
+                              width: size.width, height: size.height)
+            source.draw(in: rect)
+        })
+
+        let uuid = UUID().uuidString
+        let payloadIdentifier = "com.theboisclub.gen1recompplusplus.webclip.\(uuid)"
+        let description = "Web Clip for launching \(displayName) in gen1recomp++"
+        let webClip: [String: Any] = [
+            "FullScreen": true,
+            "Icon": iconData,
+            "IsRemovable": true,
+            "Label": displayName,
+            "Precomposed": false,
+            "PayloadDescription": description,
+            "PayloadDisplayName": displayName,
+            "PayloadIdentifier": payloadIdentifier,
+            "PayloadOrganization": "gen1recomp++",
+            "PayloadType": "com.apple.webClip.managed",
+            "PayloadUUID": uuid,
+            "PayloadVersion": 1,
+            "TargetApplicationBundleIdentifier": "com.theboisclub.gen1recompplusplus",
+            "URL": launchURL.absoluteString,
+        ]
+        let profile: [String: Any] = [
+            "ConsentText": [
+                "default": "This profile installs a Home Screen entry for \(displayName)"
+            ],
+            "PayloadContent": [webClip],
+            "PayloadDescription": description,
+            "PayloadDisplayName": displayName,
+            "PayloadIdentifier": payloadIdentifier,
+            "PayloadOrganization": "gen1recomp++",
+            "PayloadRemovalDisallowed": false,
+            "PayloadType": "Configuration",
+            "PayloadUUID": UUID().uuidString,
+            "PayloadVersion": 1,
+        ]
+        guard let profileData = try? PropertyListSerialization.data(
+            fromPropertyList: profile, format: .xml, options: 0) else {
+            return false
+        }
+
+        guard let server = try? NWListener(using: .tcp, on: .any) else {
+            return false
+        }
+        profileServer?.cancel()
+        let serverQueue = DispatchQueue(label: "com.theboisclub.gen1recompplusplus.webclip")
+        server.newConnectionHandler = { connection in
+            connection.stateUpdateHandler = { state in
+                guard case .ready = state else {
+                    if case .failed = state { connection.cancel() }
+                    return
+                }
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+                    var response = Data("HTTP/1.1 200 OK\r\nContent-Type: application/x-apple-aspen-config\r\nContent-Disposition: attachment; filename=gen1recomp.mobileconfig\r\nContent-Length: \(profileData.count)\r\nConnection: close\r\n\r\n".utf8)
+                    response.append(profileData)
+                    connection.send(content: response, completion: .contentProcessed { _ in
+                        connection.cancel()
+                    })
+                }
+            }
+            connection.start(queue: serverQueue)
+        }
+        server.stateUpdateHandler = { state in
+            guard case .ready = state, let port = server.port?.rawValue else {
+                if case .failed = state { server.cancel() }
+                return
+            }
+            DispatchQueue.main.async {
+                guard let scene = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive }),
+                      let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController,
+                      let profileURL = URL(string: "http://127.0.0.1:\(port)/gen1recomp.mobileconfig") else {
+                    server.cancel()
+                    return
+                }
+                var presenter = root
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                presenter.present(SFSafariViewController(url: profileURL), animated: true)
+            }
+        }
+        profileServer = server
+        server.start(queue: serverQueue)
+        return true
     }
 
     // MARK: - Entry points called from liblove (C strings on purpose)

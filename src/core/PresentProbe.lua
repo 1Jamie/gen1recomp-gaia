@@ -1,14 +1,35 @@
--- Present sync: on every platform, measure whether love.window.setVSync
--- actually gates presents.  Linux additionally binds a real wait (GLX OML /
--- SGI on native X11) when SDL's swap interval is a no-op (Gamescope /
--- XWayland).  Wayland: never duplicate wl_surface.frame.  drmWaitVBlank is
--- never used.
+-- Present sync: probe whether presents are actually paced, then pick a
+-- strategy.  Fail closed to FrameCap whenever the signal is ambiguous.
+--
+-- PROBE SIGNAL = inter-present cadence (wall time between present ends),
+-- with FrameCap OFF for the whole calibration.  present()-block alone is
+-- not portable:
+--
+--   wayland   SDL sets EGL swapinterval 0 and waits on wl_surface.frame
+--             (often around swap).  Block timing alone false-failed here.
+--   windows   DWM / flip-model / VRR can return from Present early; the
+--             pacing shows up in the gap between presents (Ally X class).
+--   macos     Compositor / CVDisplayLink similarly; cadence is authoritative.
+--   android/ios  Choreographer-style wait; same cadence probe, no GLX.
+--   x11       GLX swapinterval often blocks in swap, but compositors
+--             (Picom, etc.) can defer — cadence still correct.  If ungated,
+--             try OML/SGI wait (native X11 only).
+--   xwayland/gamescope  Never bind GLX waits (WaitForMsc can hard-hang when
+--             the MSC ticks on a soft clock).  Ungated → FrameCap only.
+--   kmsdrm    Page-flip wait is SDL's; we never call drmWaitVBlank.  Ungated
+--             → FrameCap.
+--
+-- FrameCap sleep must never run during the probe or cadence grades our
+-- own limiter again.
 
 local PresentProbe = {}
 
+-- Cadence samples between presents while FrameCap is disabled.
 local PROBE_FRAMES = 45
+local PROBE_SKIP = 5          -- drop first samples (startup hitch)
 local INSTANT_MS = 0.0005
 local BLOCK_MS = 0.002
+local WAIT_ABORT_S = 0.1
 
 -- Hot-path: a single cached closure, no ffi.C / string work inside it.
 local waitFn = nil
@@ -17,14 +38,14 @@ local state = {
   osLinux = false,
   ready = false,
   driver = nil,       -- "wayland" | "x11" | "kmsdrm" | ...
-  nest = nil,         -- "wayland" | "x11" | "xwayland" | "kmsdrm" | "unknown"
+  nest = nil,         -- platform nest string (see platformNest / detectNest)
   gamescope = false,
   gated = nil,        -- nil while probing, then true/false
   strategy = "none",  -- "none" | "sdl" | "oml" | "sgi"
   needsSoftwareCap = false,
   probeCount = 0,
-  lastPresent = nil,
-  intervals = nil,
+  lastPresent = nil,  -- love.timer time of previous present end (cadence)
+  intervals = nil,    -- inter-present cadence while probing
   glxGen = 0,
   bindGen = -1,
 }
@@ -102,6 +123,32 @@ local function detectNest(driver)
   return "unknown"
 end
 
+-- Classify from inter-present cadence (probe runs with FrameCap off).
+-- Fail closed on ambiguity / jitter.  Prefer FrameCap over a false trust.
+local COMMON_HZ = { 60, 75, 90, 100, 120, 144, 165, 240 }
+
+local function resolveExpect(mid)
+  local hz = nil
+  local okRR, RR = pcall(require, "src.core.RefreshRate")
+  if okRR then hz = RR.hz() end
+  if hz and hz > 0 then return 1 / hz, hz end
+  -- SDL often reports refresh_rate=0 on some paths; infer a panel period
+  -- from the cadence itself against common rates so a working desktop is
+  -- not forced to UNAVAILABLE.
+  if not mid or mid <= 0 then return nil, nil end
+  for i = 1, #COMMON_HZ do
+    local c = COMMON_HZ[i]
+    local e = 1 / c
+    if mid >= e * 0.85 and mid <= e * 1.15 then return e, c end
+  end
+  for i = 1, #COMMON_HZ do
+    local c = COMMON_HZ[i]
+    local e = 1 / c
+    if mid >= e * 1.85 and mid <= e * 2.15 then return e, c end
+  end
+  return nil, nil
+end
+
 local function classifyGated(intervals)
   if not intervals or #intervals < 10 then return nil end
   local sorted = {}
@@ -109,15 +156,18 @@ local function classifyGated(intervals)
   table.sort(sorted)
   local mid = sorted[math.floor(#sorted / 2) + 1]
   if not mid or mid <= 0 then return false end
-  local hz = nil
-  local okRR, RR = pcall(require, "src.core.RefreshRate")
-  if okRR then hz = RR.hz() end
-  local expect = hz and (1 / hz) or (1 / 60)
-  -- Ungated presents are typically << panel period (often < 2ms for this game).
-  if mid < expect * 0.45 then return false end
-  if mid > expect * 0.7 and mid < expect * 1.6 then return true end
-  -- Weird ratio (e.g. half-rate): still treat as gated if slow enough.
-  return mid >= (1 / 200)
+
+  local expect = resolveExpect(mid)
+  if not expect then return false end
+
+  local q1 = sorted[math.floor(#sorted * 0.25) + 1]
+  local q3 = sorted[math.floor(#sorted * 0.75) + 1]
+  if not q1 or not q3 or (q3 - q1) > mid * 0.2 then return false end
+
+  if mid < expect * 0.5 then return false end
+  if mid >= expect * 0.85 and mid <= expect * 1.15 then return true end
+  if mid >= expect * 1.85 and mid <= expect * 2.15 then return true end
+  return false
 end
 
 local function loadGlx()
@@ -291,6 +341,9 @@ local function pickStrategy()
   end
 
   if not state.osLinux then
+    -- windows / macos / android / ios: never bind GLX.  Cadence probe is the
+    -- authority (DWM, Cocoa compositor, Choreographer can all defer the wait
+    -- past present() return).  Ungated → FrameCap only.
     if state.gated == true then
       state.strategy = "sdl"
     elseif state.gated == false then
@@ -365,6 +418,8 @@ local function platformNest()
   local osName = love.system.getOS()
   if osName == "Windows" then return "windows" end
   if osName == "OS X" or osName == "macOS" then return "macos" end
+  if osName == "Android" then return "android" end
+  if osName == "iOS" then return "ios" end
   if osName == "Linux" then return detectNest(state.driver) end
   return osName:lower()
 end
@@ -438,10 +493,28 @@ function PresentProbe.reprobe()
   pickStrategy()
 end
 
+local function abandonWait()
+  waitFn = nil
+  state.strategy = "none"
+  state.needsSoftwareCap = true
+  state.gated = false
+  state.bindGen = state.glxGen
+end
+
 -- Hot path: must stay allocation-free and avoid ffi.C / require.
+-- Cadence probe: wall time between present ends.  Safe only while FrameCap
+-- is off (PresentSync probe isolation).  present()-block alone is not enough
+-- on Wayland, where the wait often lands on the next frame callback.
 function PresentProbe.waitBeforePresent()
   local fn = waitFn
-  if fn then fn() end
+  if fn then
+    local t0 = love.timer and love.timer.getTime and love.timer.getTime()
+    local ok = pcall(fn)
+    local t1 = love.timer and love.timer.getTime and love.timer.getTime()
+    if not ok or (t0 and t1 and (t1 - t0) > WAIT_ABORT_S) then
+      abandonWait()
+    end
+  end
 end
 
 function PresentProbe.notePresent()
@@ -462,15 +535,18 @@ function PresentProbe.notePresent()
   local last = state.lastPresent
   state.lastPresent = now
   if not last then return end
-  local dt = now - last
-  if dt <= 0 or dt > 0.25 then return end
+  local gap = now - last
+  -- Discard hitches / timer glitches; keep sampling until we have clean ones.
+  if gap <= 0 or gap > 0.25 then return end
+  -- Skip the first few presents so window/map boot cost does not widen IQR.
+  state.probeCount = (state.probeCount or 0) + 1
+  if state.probeCount <= PROBE_SKIP then return end
   local intervals = state.intervals
   if not intervals then
     intervals = {}
     state.intervals = intervals
   end
-  intervals[#intervals + 1] = dt
-  state.probeCount = #intervals
+  intervals[#intervals + 1] = gap
   if #intervals < PROBE_FRAMES then return end
 
   state.gated = classifyGated(intervals)

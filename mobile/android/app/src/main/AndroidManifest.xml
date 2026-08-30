@@ -70,6 +70,12 @@
         <category android:name="tv.ouya.intent.category.GAME" />
       </intent-filter>
       <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="gen1recomp++" android:host="launch" />
+      </intent-filter>
+      <intent-filter>
         <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
       </intent-filter>
     </activity>

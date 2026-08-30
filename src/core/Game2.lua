@@ -1268,13 +1268,13 @@ function Game2:update(dt)
   local Sound = require("src.core.Sound")
   if Sound.setRate then Sound.setRate(speed) end
   if self.phase == "boot" then
-    FixedStep.maxAccum = math.max(0.25, speed / 60 + 0.05)
-    FixedStep:update(dt * speed)
+    FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+    FixedStep:update(dt, speed)
     return
   end
   if not self.world or not self.world.map then return end
-  FixedStep.maxAccum = math.max(0.25, speed / 60 + 0.05)
-  FixedStep:update(dt * speed)
+  FixedStep.maxAccum = FixedStep.catchupLimit(speed)
+  FixedStep:update(dt, speed)
 end
 
 -- The screen-pixels-per-GB-pixel scale the post passes need so their grid and

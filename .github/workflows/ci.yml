@@ -121,7 +121,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(scripts/build_switch\.sh$|scripts/switch/|docs/switch-.*\.md$|tests/switch_ci_workflows_test\.lua$|tests/switch_transfer_docs_test\.lua$|\.github/workflows/(ci|release|switch-artifact-comment)\.yml$|src/core/(NxAssetOverlay|Platform|GameVersion)\.lua$|src/import/CacheFs\.lua$|tests/engine/(assets_version_fallback|nx_generated_guard|nx_yellow_boot|switch_diagnostics|cache_fs_gold_nx_load)_test\.lua$|tests/engine/platform_nx)'; then
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(scripts/build_switch\.sh$|scripts/switch/|docs/switch-.*\.md$|tests/switch_ci_workflows_test\.lua$|tests/switch_transfer_docs_test\.lua$|\.github/workflows/(ci|release|platform-artifact-comment)\.yml$|src/core/(NxAssetOverlay|Platform|GameVersion)\.lua$|src/import/CacheFs\.lua$|tests/engine/(assets_version_fallback|nx_generated_guard|nx_yellow_boot|switch_diagnostics|cache_fs_gold_nx_load)_test\.lua$|tests/engine/platform_nx)'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -380,6 +380,113 @@ jobs:
           path: |
             dist/flatpak/gen1recomp-0.0.0-linux.flatpak
             dist/flatpak/gen1recomp-0.0.0-linux.flatpak.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-builds:
+    name: macOS, Windows, and Linux x86_64 builds
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: install desktop build tools
+        run: |
+          brew install imagemagick squashfs
+          love_zip="$RUNNER_TEMP/love-11.5-macos.zip"
+          curl -fL --retry 2 --connect-timeout 15 \
+            "https://github.com/love2d/love/releases/download/11.5/love-11.5-macos.zip" \
+            -o "$love_zip"
+          love_root="$RUNNER_TEMP/love-11.5"
+          rm -rf "$love_root"
+          mkdir -p "$love_root"
+          unzip -q "$love_zip" -d "$love_root"
+          love_app="$(find "$love_root" -maxdepth 2 -type d -name 'love.app' -print -quit)"
+          [ -d "$love_app" ] || { echo "LÖVE.app was not found"; exit 1; }
+          echo "LOVE_APP=$love_app" >> "$GITHUB_ENV"
+      - name: build desktop packages
+        run: scripts/build.sh all --version 0.0.0 --no-notarize
+      - name: upload macOS artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-macos
+          path: dist/mac/gen1recomp-macos.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-win64
+          path: dist/win/gen1recomp-win64.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: upload Linux x86_64 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-linux-x86_64
+          path: |
+            dist/linux/gen1recomp-linux-x86_64.AppImage
+            dist/linux/gen1recomp-linux-x86_64.AppImage.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  android-build:
+    name: Android APK build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: install Android build dependencies
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;25.2.9519653"
+      - name: build Android APK
+        run: scripts/build_android.sh --version 0.0.0
+      - name: upload Android artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-android-apk
+          path: dist/android/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  rg34xxsp-build:
+    name: RG34XXSP PortMaster build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: build RG34XXSP package
+        run: ./build-rg34xxsp.sh --version 0.0.0
+      - name: upload RG34XXSP artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-rg34xxsp
+          path: dist/rg34xxsp/gen1recomp-rg34xxsp-stockos64-mod.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-arm-sbc-build:
+    name: Linux ARM SBC PortMaster build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: build Linux ARM SBC package
+        env:
+          GEN1RECOMP_SOURCE_DIR: ${{ github.workspace }}
+        run: ./build-linux-arm-sbc.sh --version 0.0.0
+      - name: upload Linux ARM SBC artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp-linux-arm-sbc
+          path: dist/linux-arm-sbc/gen1recomp-sbc-portmaster.zip
           if-no-files-found: error
           retention-days: 7
 

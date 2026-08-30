@@ -126,12 +126,12 @@ end
 -- what the mods panel needs to notice a mod dropped beside the game by hand
 -- (LauncherMods.strays).  Empty on Android/iOS and outside LOVE.
 function SaveData.gameFolders()
-  if not (love and love.filesystem) then return {} end
+  if type(love) ~= "table" or type(love.filesystem) ~= "table" then return {} end
   -- Desktop only: portable mode carries the save (and, since issue #74, the
   -- ROM cache) in the game folder next to the executable/source.  On
   -- Android/iOS the source is a read-only package with no such folder, so
   -- portable mode never applies there.
-  if love.system and love.system.getOS then
+  if type(love.system) == "table" and type(love.system.getOS) == "function" then
     local osName = love.system.getOS()
     if osName ~= "Windows" and osName ~= "Linux" and osName ~= "OS X" then
       return {}

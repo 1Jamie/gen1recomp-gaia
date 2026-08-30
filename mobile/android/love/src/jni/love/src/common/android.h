@@ -105,6 +105,7 @@ bool updateAppShortcuts(const std::vector<std::string> &versions);
  * Returns the game version requested via initial launch Intent (if any).
  **/
 std::string getLaunchGame();
+std::string getLaunchURI();
 
 /**
  * Blocking HTTPS GET into destPath (GameActivity.httpDownload). Android has
