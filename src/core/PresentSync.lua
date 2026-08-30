@@ -1,11 +1,11 @@
 -- Cross-platform present sync: layered fail-safe for vsync / frame pacing.
 --
 -- Defense in depth:
---   1. Probe isolation — calibration measures present() block time with no
---      FrameCap sleep and no FixedStep refresh snap, so the probe cannot
---      grade its own limiter.
---   2. Tight classification — only a stable, panel-aligned present() block
---      distribution counts as hardware-gated; anything else fails closed.
+--   1. Probe isolation — calibration runs with FrameCap OFF and no FixedStep
+--      refresh snap.  Cadence between presents is the signal (Wayland often
+--      returns from present() immediately and waits on the next frame).
+--   2. Tight classification — stable, panel-aligned cadence only; jitter /
+--      unknown rates fail closed.
 --   3. Fallback cascade — ungated / failed / abandoned waits force FrameCap
 --      immediately; logic never snaps to panel Hz unless sync is confirmed.
 --   4. (FixedStep) catch-up debt is hard-capped so speed multipliers cannot

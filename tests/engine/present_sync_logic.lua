@@ -56,7 +56,7 @@ T.eq(PresentSync.logicRefreshPeriod(), 1 / 144,
 PresentSync.applyFixedStepPeriod()
 T.eq(FixedStep.refreshPeriod, 1 / 144, "applyFixedStepPeriod writes the module field")
 
--- Probe isolation: during calibration we do NOT soft-cap (raw swapchain),
+-- Probe isolation: during calibration we do NOT soft-cap (raw cadence),
 -- and we never snap logic until sync is confirmed.
 FrameCap.apply(FrameCap.DISPLAY)
 VSync.apply("on")

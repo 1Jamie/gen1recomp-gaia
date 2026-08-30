@@ -43,11 +43,11 @@ withHz(90, function()
   T.eq(LPS._testClassifyGated(locked90), true, "1/90 presents count as gated")
 end)
 
--- Unknown panel Hz: a 90Hz-looking block is NOT trusted (safe FrameCap fallback)
+-- Unknown SDL Hz: stable cadence at a common rate still gates via inference.
 local locked90unknown = {}
 for i = 1, 20 do locked90unknown[i] = 1 / 90 end
-T.eq(LPS._testClassifyGated(locked90unknown), false,
-  "without a panel Hz, 1/90 is inconclusive and prefers FrameCap")
+T.eq(LPS._testClassifyGated(locked90unknown), true,
+  "without SDL Hz, stable 1/90 cadence still gates via common-rate inference")
 
 withHz(60, function()
   local jittery = {}
@@ -220,40 +220,46 @@ LPS.reset()
 LPS.waitBeforePresent()
 T.eq(true, true, "waitBeforePresent tolerates a cold module")
 
--- Probe measures present() block time, not inter-frame gaps: FrameCap sleep
--- after notePresent must not make a broken swap look gated.
+-- Cadence probe (FrameCap off): compositor-deferred waits (Wayland frame
+-- callback, Win DWM / flip-model, macOS compositor) still gate when the gap
+-- between presents locks to the panel, even if present() returns immediately.
 LPS.reset()
 LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
 local t = 0
 love.timer = love.timer or {}
 local savedGetTime = love.timer.getTime
 love.timer.getTime = function() return t end
-withHz(60, function()
-  for i = 1, 45 do
-    -- Instant present() (broken vsync), then a fake 16ms FrameCap sleep afterward.
+-- Broken: ~1ms between presents (uncapped spin)
+for i = 1, 60 do
+  LPS.waitBeforePresent()
+  LPS.notePresent()
+  t = t + 0.001
+end
+local st = LPS.status()
+T.eq(st.gated, false, "uncapped ~1ms cadence stays ungated")
+T.eq(LPS.needsSoftwareCap(), true, "so FrameCap becomes the thermal net")
+
+for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios" }) do
+  LPS.reset()
+  LPS._testSetState({
+    osLinux = (nest == "wayland"),
+    ready = true,
+    nest = nest,
+    clearGated = true,
+    needsSoftwareCap = false,
+  })
+  t = 0
+  for i = 1, 60 do
     LPS.waitBeforePresent()
-    t = t + 0.001
     LPS.notePresent()
     t = t + 1 / 60
   end
-  local st = LPS.status()
-  T.eq(st.gated, false,
-    "instant present() stays ungated even when FrameCap sleeps 16ms after")
-  T.eq(LPS.needsSoftwareCap(), true, "so FrameCap remains the thermal net")
-
-  LPS.reset()
-  LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
-  t = 0
-  for i = 1, 45 do
-    LPS.waitBeforePresent()
-    t = t + 1 / 60  -- present() itself blocks a full panel period
-    LPS.notePresent()
-    t = t + 1 / 60  -- trailing FrameCap sleep is ignored by the probe
-  end
   st = LPS.status()
-  T.eq(st.gated, true, "a present() that blocks a panel period counts as gated")
-  T.eq(LPS.needsSoftwareCap(), false, "and does not force FrameCap")
-end)
+  T.eq(st.gated, true,
+    nest .. ": compositor-paced ~1/60 cadence counts as gated")
+  T.eq(LPS.needsSoftwareCap(), false,
+    nest .. ": does not force FrameCap when cadence is locked")
+end
 
 -- A bound wait that overruns abandons to FrameCap instead of wedging.
 LPS.reset()
