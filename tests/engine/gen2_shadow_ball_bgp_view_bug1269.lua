@@ -1,18 +1,15 @@
 -- engine/battle_anims/anim_commands.asm:1293 BattleAnim_SetBGPals
 --
--- gen2_shadow_ball_bgp_bug1269.lua proves the runner lands bg.bgp and that
--- panelPalettes/remapTable would invert correctly; it never calls
--- BattleAnimView:present, which is where #1269 actually lived (the byte
+-- gen2_shadow_ball_bgp_bug1269.lua proves the runner lands bg.bgp; it never
+-- calls BattleAnimView:present, which is where #1269 actually lived (the byte
 -- was landed but nothing read it). This suite drives present() itself and
--- watches the shader binding around the backdrop draw.
+-- watches the byte GbcPalette carries while the panel is drawn -- CopyPals'
+-- forward fold, not a colour-keyed pass over the finished frame (#1961).
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 love = require("tests.love_stub")
 
--- A remap shader that never touches the GPU: present() only needs
--- love.graphics.newShader to succeed so GbcPalette.remapShader() is
--- non-nil, which is the gate `present` checks before it will bake+remap.
 local sentShader = { calls = {} }
 function sentShader:send(name, ...) self.calls[#self.calls + 1] = name end
 love.graphics.newShader = function() return sentShader end
@@ -31,12 +28,10 @@ local T = require("tests.harness")
 local GbcPalette = require("src.render.GbcPalette")
 local BattleAnimView = require("src.ui.gen2.BattleAnimView")
 
-local shaderDuringFill = "unset"
+local bgpDuringFill = "unset"
 local realRectangle = love.graphics.rectangle
 love.graphics.rectangle = function(...)
-  if shaderDuringFill == "unset" then
-    shaderDuringFill = love.graphics.getShader()
-  end
+  if bgpDuringFill == "unset" then bgpDuringFill = GbcPalette.bgp end
   return realRectangle(...)
 end
 
@@ -56,23 +51,19 @@ local runner = {
   },
 }
 
-T.check(love.graphics.getShader() == nil, "no shader bound before present")
+T.eq(GbcPalette.bgp, nil, "no byte standing before present")
 
-view:present(runner, function() end, nil)
+local bgpDuringPanel = "unset"
+view:present(runner, function() bgpDuringPanel = GbcPalette.bgp end, nil)
 
-T.check(shaderDuringFill == sentShader,
-  "the panel backdrop is drawn through the remap shader, not plainly")
-T.check(love.graphics.getShader() == nil,
-  "the shader is unbound again once present returns, so drawObjects is unaffected")
+T.eq(bgpDuringPanel, 0x1b,
+  "the panel is DRAWN under the byte: CopyPals' forward fold, not a repaint")
+T.eq(bgpDuringFill, 0x1b,
+  "the backdrop fill takes the same fold, so the screen behind goes black")
+T.eq(GbcPalette.bgp, nil,
+  "the byte is put back once present returns, so drawObjects is unaffected")
 
-local sawRemapSend = false
-for _, name in ipairs(sentShader.calls) do
-  if name == "remapSrc" then sawRemapSend = true end
-end
-T.check(sawRemapSend, "GbcPalette.useRemap actually sent a remap table, not just bound the shader")
-
--- The identity byte must take the plain path: no bake, no shader, ever.
-shaderDuringFill = "unset"
+bgpDuringFill = "unset"
 local identityRunner = {
   bg = { bgp = GbcPalette.BGP_IDENTITY, lcdc = nil, scx = 0, scy = 0,
     lyStart = 0, lyEnd = 0, lyBackup = {} },
@@ -80,7 +71,7 @@ local identityRunner = {
 local plainDrawCalled = false
 view:present(identityRunner, function() plainDrawCalled = true end, nil)
 T.check(plainDrawCalled, "identity rBGP takes the plain drawBg() path")
-T.check(shaderDuringFill == "unset",
-  "identity rBGP never touches the remap shader")
+T.check(bgpDuringFill == "unset",
+  "identity rBGP never bakes, so nothing is filled behind the panel")
 
 T.finish("gen2 shadow ball bgp view bug 1269")

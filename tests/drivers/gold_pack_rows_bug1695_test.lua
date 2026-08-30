@@ -1,5 +1,5 @@
 -- The PACK's TM/HM rows (#1695), the list cursor's colour (#1694) and the rows
--- a message prints on in the description box (#1725).
+-- a message prints on in the description box (#1725, #1957).
 -- engine/items/tmhm.asm:355-403 and engine/gfx/cgb_layouts.asm:723-726 (pokegold).
 --
 --   POKEPORT_IDENTITY=gold-dev POKEPORT_GAME=gold POKEPORT_TOUCH=0 \
@@ -143,8 +143,8 @@ return function(game)
     "not the refusal")
   local rope = game.data.items and game.data.items.ESCAPE_ROPE
   pass(rope and rope.fieldMenu ~= "ITEMMENU_NOUSE",
-    "the ESCAPE ROPE's submenu carries a USE row to reach the three-line " ..
-    "OAK message with")
+    "the ESCAPE ROPE's submenu carries a USE row to reach OAK's two-page " ..
+    "message with")
 
   if failed > 0 then
     U.log(("%d check(s) failed above, so the shots below cannot be read as " ..
@@ -214,12 +214,21 @@ return function(game)
   tap("down")
   tap("a")
   tap("a")
-  U.log("07-oak-three-lines: a message too tall for two rows still packs one")
-  U.log("row apart, so \"OAK: GOLD!\" / \"This isn't the\" / \"time to use that!\"")
-  U.log("fill rows 13, 14 and 15. a gap here would clip the third line.")
+  U.log("07-oak-page1: OakThisIsntTheTimeText's first page. \"OAK: GOLD!\" on")
+  U.log("row 14 and \"This isn't the\" on row 16, the same pair every other")
+  U.log("message in this box uses. anything on row 13 or 15, or all three")
+  U.log("lines at once, is the bug (#1957).")
   U.log("message is " ..
-    (pack.message and table.concat(pack.message, " / ") or "nil"))
-  shot("07-oak-three-lines")
+    (pack.message and table.concat(pack.message, " / ") or "nil") ..
+    ", page " .. tostring(pack.messagePage))
+  shot("07-oak-page1")
+
+  tap("a")
+  U.log("08-oak-page2: `cont` prompts then scrolls twice, so \"This isn't the\"")
+  U.log("moves up to row 14, \"time to use that!\" lands on row 16 and OAK's")
+  U.log("greeting is gone. the press dismissing the message outright is #1957.")
+  U.log("page is " .. tostring(pack.messagePage))
+  shot("08-oak-page2")
 
   tap("b")
   tap("right")
@@ -227,13 +236,13 @@ return function(game)
   tap("a")
   tap("down")
   tap("a")
-  U.log("08-registered: the case the report filed. \"Registered the\" on row 14")
+  U.log("09-registered: the case the report filed. \"Registered the\" on row 14")
   U.log("and \"ITEMFINDER.\" on row 16, lining up with the item description")
   U.log("that shares this box. row 13 plus row 14 is the old behaviour; row 15")
   U.log("plus a clipped row 17 means the offset went the other way.")
   U.log("message is " ..
     (pack.message and table.concat(pack.message, " / ") or "nil"))
-  shot("08-registered")
+  shot("09-registered")
 
   U.log("shots in " .. out .. "; the PACK is open on KEY ITEMS, controls yours")
 

@@ -977,7 +977,7 @@ end
 
 -- Start a battle behind the into-battle transition: flash, then the
 -- wipe picked by trainer/level/dungeon (GetBattleTransitionID).
-function OverworldState:pushBattle(battle)
+function OverworldState:pushBattle(battle, trainerNpc)
   local BattleTransition = require("src.render.BattleTransition")
   local lead
   for _, mon in ipairs(Game.save.party) do
@@ -994,13 +994,24 @@ function OverworldState:pushBattle(battle)
   -- job now -- the one choke point every battle passes through on exit,
   -- guaranteed regardless of which caller pushed the battle -- so this
   -- function only owns the entry wipe.
+  -- engine/battle/battle_transitions.asm:28
+  self.battleOamKeep = trainerNpc or false
+  self.wipeSpritesFn = function() self:drawWipeSprites() end
   Game.stack:push(BattleTransition.new(Game, function()
+    self.battleOamKeep = nil
+    self.wipeSpritesFn = nil
     Game.stack:push(battle)
   end, {
     trainer = battle.kind == "trainer",
     stronger = lead ~= nil and enemyLevel >= lead.level + 3,
     dungeon = self:isDungeonTransitionMap(),
   }))
+end
+
+-- engine/battle/battle_transitions.asm:28
+function OverworldState:oamCulled(e)
+  if self.battleOamKeep == nil then return false end
+  return e ~= self.player and e ~= self.battleOamKeep
 end
 
 -- -------------------------------------------------------------------------
@@ -1109,6 +1120,8 @@ function OverworldState:updateParallel()
 end
 
 function OverworldState:update(dt)
+  self.battleOamKeep = nil
+  self.wipeSpritesFn = nil
   -- deferred cutscene launch (see queueScript): run a queued script only
   -- once the triggering warp's transition has finished, its runner has gone
   -- dead, and no scripted walk is mid-step.  This is how the HALL_OF_FAME
@@ -3664,7 +3677,7 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
         if onDone then onDone() end
       end
     end
-    self:pushBattle(battle)
+    self:pushBattle(battle, npc)
   end
   local function prepareBattle()
     if not Runtime.wantsHook("trainer.before_battle") then
@@ -5213,6 +5226,35 @@ local function zoneColorsAt(zones, fx, fy)
   return zones[1] and zones[1].colors or nil
 end
 
+-- engine/battle/battle_transitions.asm:28
+function OverworldState:drawWipeSprites()
+  local cam = self.camera
+  local ogObp = PaletteFX.usesSpriteObp()
+  local zw = not ogObp and self:sgbWorldZones() or nil
+  local prevPass = PaletteFX.pass()
+  if ogObp then PaletteFX.setPass("world") end
+  local function replay(e)
+    local colors = zoneColorsAt(zw, e.px - cam.x + 8, e.py - cam.y + 16)
+    local shader = colors and PaletteFX.shader() or nil
+    if shader then
+      PaletteFX.sendColors(shader, colors)
+      love.graphics.setShader(shader)
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    e:draw(cam.x, cam.y)
+    if shader then love.graphics.setShader() end
+  end
+  local ok, err = pcall(function()
+    local keep = self.battleOamKeep
+    if keep and keep.draw then replay(keep) end
+    if not (self.flyAnim or self.flyArrive or self.playerHidden) then
+      replay(self.player)
+    end
+  end)
+  if ogObp then PaletteFX.setPass(prevPass) end
+  if not ok then error(err, 0) end
+end
+
 -- Draw a standing thing as an upright billboard (tilt mode only).  ONLY the
 -- ground tilts: a standing thing draws UPRIGHT and UNSCALED -- pixel-identical
 -- to flat mode (same crisp nearest-neighbour art, nothing sheared, resized or
@@ -5276,6 +5318,10 @@ function OverworldState:drawWorld()
   -- hSCY, which scrolls the BG layer only -- tiles bounce while OAM
   -- sprites stay put.  ElevatorShake drives bgShakeY; zero elsewhere.
   local bgY = cam.y + (self.bgShakeY or 0)
+  -- engine/battle/battle_transitions.asm:28
+  if self.battleOamKeep ~= nil and Game.renderer then
+    Game.renderer.wipeSprites = self.wipeSpritesFn
+  end
   -- border block tiled behind everything the ring doesn't reach
   local vw, vh = Game.renderer:worldViewSize()
   -- Only things that actually stand (player, NPCs, ghosts, items and the FX
@@ -5476,6 +5522,10 @@ function OverworldState:drawWorld()
           self.emoteQuads[bi] = q
         end
         love.graphics.draw(img, q, ex, ey)
+        -- engine/overworld/emotion_bubbles.asm:18
+        if PaletteFX.usesSpriteObp() and PaletteFX.spriteRedrawPassActive() then
+          PaletteFX.markSpriteRedraw(img, q, ex, ey, 1)
+        end
         drawn = true
       end
     end
@@ -5679,11 +5729,13 @@ function OverworldState:drawWorld()
     local grassColors = PaletteFX.usesSpriteObp()
       and PaletteFX.pal(Game.data, self:paletteNameFor(self.map)) or nil
     for _, g in ipairs(self.ghosts) do
-      g.npc:draw(cam.x - g.ox, cam.y - g.oy)
+      if self.battleOamKeep == nil then
+        g.npc:draw(cam.x - g.ox, cam.y - g.oy)
+      end
     end
     for _, e in ipairs(self.entities) do
       if not ((self.flyAnim or self.flyArrive or self.playerHidden)
-              and e == self.player) then
+              and e == self.player) and not self:oamCulled(e) then
         e:draw(cam.x, cam.y)
         -- tall grass overdraws the sprite's feet (GB sprite priority);
         -- the overdraw is BG tiles, so it rides the shake offset too
@@ -5731,11 +5783,13 @@ function OverworldState:drawWorld()
     -- baseline y.
     local items = {}
     for _, g in ipairs(self.ghosts) do
-      items[#items + 1] = { y = g.npc.py + g.oy + 16, kind = "ghost", g = g }
+      if self.battleOamKeep == nil then
+        items[#items + 1] = { y = g.npc.py + g.oy + 16, kind = "ghost", g = g }
+      end
     end
     for _, e in ipairs(self.entities) do
       if not ((self.flyAnim or self.flyArrive or self.playerHidden)
-              and e == self.player) then
+              and e == self.player) and not self:oamCulled(e) then
         items[#items + 1] = { y = e.py + 16, kind = "entity", e = e }
       end
     end

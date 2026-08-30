@@ -385,7 +385,9 @@ function Channel:durationTicksGen2(length)
   local low = bit.band((length + 1) * (self.noteLength or 1), 0xFF)
   local product = bit.band(tempo * low + (self.durationModifier or 0), 0xFFFF)
   self.durationModifier = bit.band(product, 0xFF)
+  -- ../pokecrystal/audio/engine.asm:105
   local frames = math.floor(product / 256)
+  if frames < 1 then frames = 1 end
   return frames * FRAME_TICKS
 end
 

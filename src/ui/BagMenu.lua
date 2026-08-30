@@ -285,10 +285,20 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
   end
 
   -- POKé FLUTE in battle: not consumed, but uses the turn
+  -- engine/items/item_effects.asm:1706 ItemUsePokeFlute .inBattle (#1938)
   if result == "flute" then
     list:close()
-    require("src.core.Sound").play(game.data, "Pokeflute")
-    showMessages(game, payload, function() battle:itemUsed({}) end)
+    local head, tail = { payload[1] }, {}
+    for i = 2, #payload do tail[#tail + 1] = payload[i] end
+    local alarm = battle.lowHealthAlarmActive and battle:lowHealthAlarmActive()
+    local opts = nil
+    if not alarm then
+      opts = TextBox.soundOpts(game, "Pokeflute",
+        { auto = { wait = false, delay = 0, promptFirst = true } })
+    end
+    showMessages(game, head, function()
+      showMessages(game, tail, function() battle:itemUsed({}) end)
+    end, opts)
     return
   end
 
@@ -407,20 +417,21 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       end, TextBox.soundOpts(game, "Get_Item1"))
       return
     end
-    -- HP medicine: fill the bar in the still-open picker first, then print
-    -- and close, the order item_effects.asm .doneHealing runs in
-    -- (SFX_HEAL_HP -> UpdateHPBar2 -> RedrawPartyMenu prints the message).
-    -- Only a keepOpen picker is still on the stack to animate: every other
-    -- item, and every in-battle use, popped it in PartyMenu before onSwitch,
-    -- and takes the pop-then-print path below -- which is the path that
-    -- spends the battle turn.  #252, #379
+    -- engine/items/item_effects.asm:1189
     if picker and picker.keepOpen and extra and extra.healedFrom and target then
       picker:animateTo(target, extra.healedFrom, function()
-        showMessages(game, payload, closePicker)
+        showMessages(game, payload, function()
+          closePicker()
+          if battle then
+            list:close()
+            battle:itemUsed({}, { barShown = true })
+          end
+        end)
       end)
       return
     end
     if battle then
+      closePicker()
       list:close()
       showUseMessages(game, payload, function() battle:itemUsed({}) end, extra)
     else
@@ -461,8 +472,10 @@ local function pickTargetAndUse(game, battle, id, list)
     -- HP medicine animates with the picker up (#252), RARE CANDY prints over
     -- the party menu (item_effects.asm:1392-1418); TM/HM stays up through
     -- `predef LearnMove` (item_effects.asm:2238) (#1686)
-    keepOpen = (not battle)
-      and (ItemEffects.keepsPartyMenuOpen(id) or (def and def.machine ~= nil)),
+    -- engine/items/item_effects.asm:805 ItemUseMedicine, :1244 .done (#1946)
+    keepOpen = ItemEffects.healsHP(id)
+      or ((not battle)
+          and (ItemEffects.keepsPartyMenuOpen(id) or (def and def.machine ~= nil))),
     onSwitch = function(mon, picker)
       if not wantsMove then
         useOn(game, battle, id, mon, list, nil, picker)

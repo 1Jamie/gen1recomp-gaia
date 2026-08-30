@@ -423,6 +423,9 @@ end
 local UNOWN_FONT_TILES = 27
 local UNOWN_FONT_WIDE = 3
 
+-- ../pokecrystal/engine/events/map_name_sign.asm:129
+local MAP_SIGN_TILES = 14
+
 function RomExtractorGen2:extractFont()
   self:beginStage("Fonts")
   local font = self:symbol("Font")
@@ -546,6 +549,18 @@ function RomExtractorGen2:extractFont()
     data.unownWide = UNOWN_FONT_WIDE
     data.unownBase = 0x40 -- FIRST_UNOWN_CHAR
     data.source = data.source .. ", UnownFont"
+  end
+  -- ../pokecrystal/gfx/font.asm:60
+  -- ../pokecrystal/engine/events/map_name_sign.asm:127-132
+  if self.symbols["MapEntryFrameGFX"] then
+    local sign = self:symbol("MapEntryFrameGFX")
+    self:write2bpp(
+      self.rom:bytes(sign.bank, sign.address, MAP_SIGN_TILES * 16),
+      MAP_SIGN_TILES * 8, 8, "fonts/map_entry_sign.png")
+    data.imageMapSign = "assets/generated/fonts/map_entry_sign.png"
+    data.mapSignTiles = MAP_SIGN_TILES
+    data.mapSignBase = 0x60
+    data.source = data.source .. ", MapEntryFrameGFX"
   end
   self:tick("Fonts", 4, 5)
 

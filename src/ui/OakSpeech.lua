@@ -216,7 +216,8 @@ function OakSpeech.defaultSteps(speech)
       id = "name_rival",
       kind = "name",
       who = "rival",
-      title = Strings("HIS NAME?"),
+      -- engine/menus/naming_screen.asm:487
+      title = Strings("RIVAL's NAME?"),
       presetsWho = "rival",
       presetsFallback = { "BLUE", "GARY", "JOHN" },
     },
@@ -451,7 +452,8 @@ function OakSpeech:runStep(step)
                      step.presetsFallback or { "RED" })
     local function openNaming()
       require("src.ui.Screens").push(self.game, "NamingScreen", {
-        title = step.title or (who == "rival" and "HIS NAME?" or Strings("YOUR NAME?")),
+        title = step.title or (who == "rival" and Strings("RIVAL's NAME?")
+                                              or Strings("YOUR NAME?")),
         presets = presets,
         introBox = true,
         maxLen = step.maxLen or self.nameLen,

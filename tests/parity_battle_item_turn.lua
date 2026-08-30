@@ -4,7 +4,10 @@
 -- ItemUseMedicine only clears it on its failure paths (:826 empty party,
 -- :1241 .healingItemNoEffect), so a POTION that lands costs the turn the same
 -- way a status cure does.  The party HP bar fill (.doneHealing / UpdateHPBar2
--- with the menu still up) is the field-only case (#252).
+-- with the menu still up) runs in battle too -- ItemUseMedicine is one
+-- routine, and .done's only wIsInBattle test skips ReloadMapData
+-- (item_effects.asm:1244-1253) -- so the turn is spent from the fill's own
+-- message instead (#252, #1946).
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -143,9 +146,10 @@ end
 local function watchTurn(battle)
   local rec = { itemUsed = 0, messages = {} }
   local real = battle.itemUsed
-  battle.itemUsed = function(self, messages)
+  battle.itemUsed = function(self, messages, opts)
     rec.itemUsed = rec.itemUsed + 1
-    return real(self, messages)
+    rec.opts = opts
+    return real(self, messages, opts)
   end
   return rec
 end
@@ -167,8 +171,12 @@ do
   check(picker ~= nil, "the picker opened for a POTION in battle: " .. tostring(why))
   if picker then
     eq(lead.hp, 30, "the POTION restored 20 HP")
-    check(picker.heal == nil, "no party-menu bar fill in battle (#252 is field-only)")
-    check(not inStack(game.stack, isPicker), "the picker is gone")
+    check(picker.keepOpen == true, "the in-battle picker stays up (#1946)")
+    check(type(picker.heal) == "table" and picker.heal.from == 10,
+          "and its bar fills from the pre-heal HP")
+    check(inStack(game.stack, isPicker), "with the party menu still on the stack")
+    eq(rec.itemUsed, 0, "the turn is not spent while the bar is filling")
+    check(runFill(picker), "the fill lands")
     local box = game.stack:top()
     check(isBox(box), "the restored-HP message opened (#379)")
     if isBox(box) then
@@ -178,10 +186,21 @@ do
       check((box.text:find("recovered by", 1, true)
              or box.text:find("was restored", 1, true)) ~= nil,
             "and it is the restored-HP line: " .. tostring(box.text))
+      check(inStack(game.stack, isPicker), "...printed over the still-drawn menu")
       dismiss(game.stack, box)
     end
+    check(not inStack(game.stack, isPicker),
+          "dismissing the message closes the picker")
     eq(rec.itemUsed, 1, "a POTION in battle costs the turn (#379)")
     check(#battle.queue > 0, "and the foe's action is queued behind it")
+    -- core.asm:2280
+    eq(battle.player.shownHP, battle.player.mon.hp,
+       "the battle HUD is already at the new HP (#1946)")
+    local drains = 0
+    for _, row in ipairs(battle.queue) do
+      if row.drain then drains = drains + 1 end
+    end
+    eq(drains, 0, "and no HUD drain is queued behind it")
   end
 end
 
@@ -193,6 +212,8 @@ do
   local rec = watchTurn(battle)
   local picker = useFromBag(game, battle, "SUPER_POTION")
   if check(picker ~= nil, "the picker opened for a SUPER POTION") then
+    check(type(picker.heal) == "table", "a SUPER POTION fills the bar too")
+    check(runFill(picker), "and its fill lands")
     local box = game.stack:top()
     check(isBox(box), "a SUPER POTION prints its message too")
     if isBox(box) then dismiss(game.stack, box) end

@@ -1,6 +1,8 @@
 -- Gen 2 COLL_* → permission (pokegold CollisionPermissionTable lo-nybble,
 -- home/map_objects.asm GetTilePermission).  LAND=0, WATER=1, WALL=0x0f.
 
+local GameVersion = require("src.core.GameVersion")
+
 local Permissions = {}
 
 Permissions.LAND = 0x00
@@ -248,11 +250,9 @@ end
 --     you cannot leave upward.
 --   * the four NEIGHBOUR tiles.  Each arm matches its own wall kinds (below:
 --     UP/UP_RIGHT/UP_LEFT; above: DOWN/DOWN_*; right: LEFT/*_LEFT; left:
---     RIGHT/*_RIGHT) -- but on GOLD all four `.ok_*` arms are `set RIGHT, [hl]`
---     (bit 3 = FACE_DOWN), so every match forbids stepping DOWN.  Only
---     COLL_UP_WALL below the player occurs on real maps, where the quirk and
---     the intent agree: you cannot step DOWN onto an UP_WALL.  The other three
---     arms are transcribed faithfully anyway.
+--     RIGHT/*_RIGHT).
+--     ../pokegold/home/map.asm:1960 -- all four arms `set RIGHT, [hl]`
+--     ../pokecrystal/home/map.asm:1638 -- each arm sets its own FACE_* bit
 local SIDE_BLOCKS = {
   [0x0] = { right = true },               -- COLL_RIGHT_WALL / RIGHT_BUOY
   [0x1] = { left = true },                -- COLL_LEFT_WALL / LEFT_BUOY
@@ -277,9 +277,8 @@ function Permissions.sideBlocks(coll)
 end
 
 -- The neighbour arms of GetMovementPermissions.  `neighborDir` names where
--- the tile sits relative to the player ("down" = the tile below).  A true
--- answer forbids the player's DOWN step -- the Gold `set RIGHT` quirk above --
--- whichever arm matched.
+-- the tile sits relative to the player ("down" = the tile below).
+-- ../pokegold/home/map.asm:1946, ../pokecrystal/home/map.asm:1511
 local NEIGHBOR_ARM = {
   down  = { [0x2] = true, [0x6] = true, [0x7] = true }, -- UP_WALL kinds below
   up    = { [0x3] = true, [0x4] = true, [0x5] = true }, -- DOWN_WALL kinds above
@@ -287,10 +286,17 @@ local NEIGHBOR_ARM = {
   left  = { [0x0] = true, [0x4] = true, [0x6] = true }, -- RIGHT_WALL kinds left
 }
 
-function Permissions.neighborBlocksDown(neighborDir, coll)
-  if not Permissions.isSideWall(coll) then return false end
+-- ../pokecrystal/home/map.asm:1638
+function Permissions.neighborBlocks(neighborDir, coll)
+  if not Permissions.isSideWall(coll) then return nil end
   local arm = NEIGHBOR_ARM[neighborDir]
-  return (arm and arm[coll % 8]) == true
+  if not (arm and arm[coll % 8]) then return nil end
+  if GameVersion.fixes().sideWallArms then return neighborDir end
+  return "down"
+end
+
+function Permissions.neighborBlocksDown(neighborDir, coll)
+  return Permissions.neighborBlocks(neighborDir, coll) == "down"
 end
 
 -- The whole GetMovementPermissions verdict: may a step `dir` leave (cx, cy)?
@@ -303,9 +309,9 @@ local NEIGHBOR_DELTA = {
 function Permissions.stepPermitted(collOf, cx, cy, dir)
   local standing = Permissions.sideBlocks(collOf(cx, cy))
   if standing and standing[dir] then return false end
-  if dir == "down" then
+  if dir == "down" or GameVersion.fixes().sideWallArms then
     for nd, d in pairs(NEIGHBOR_DELTA) do
-      if Permissions.neighborBlocksDown(nd, collOf(cx + d[1], cy + d[2])) then
+      if Permissions.neighborBlocks(nd, collOf(cx + d[1], cy + d[2])) == dir then
         return false
       end
     end

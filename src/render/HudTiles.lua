@@ -49,7 +49,13 @@ local STATUS_PAGES = {
     image = "assets/generated/battle/battle_hud_2.png", base = 0x78, count = 1 },
 }
 
-local tiles, statusTiles
+-- engine/menus/naming_screen.asm:93
+local NAMING_PAGES = {
+  { id = "font_battle_extra",
+    image = "assets/generated/battle/font_battle_extra.png", base = 0x62 },
+}
+
+local tiles, statusTiles, namingTiles
 
 -- Build one code -> {img, quad} map from a page list.  `count` caps a page
 -- at the number of tiles the asm actually copies (the extracted sheets all
@@ -104,10 +110,17 @@ function HudTiles.statusTile(code, x, y, tint)
   put(statusTiles[code], x, y, tint)
 end
 
+-- engine/menus/naming_screen.asm:93
+function HudTiles.namingTile(code, x, y, tint)
+  if not namingTiles then namingTiles = build(NAMING_PAGES, true) end
+  put(namingTiles[code], x, y, tint)
+end
+
 -- lazy: the next tile() rebuilds every page from the search path
 function HudTiles.invalidate()
   tiles = nil
   statusTiles = nil
+  namingTiles = nil
 end
 
 Assets.register(HudTiles.invalidate)

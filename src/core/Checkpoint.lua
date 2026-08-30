@@ -83,7 +83,7 @@ function Checkpoint.inspect(game)
 
   local animationFields = {
     "engaging", "emote", "teleportOut", "dustAnim", "cutAnim", "fishPose",
-    "pikaHop", "healAnim", "flyAnim", "flyArrive",
+    "pikaHop", "healAnim", "flyAnim", "flyArrive", "flyHidden",
   }
   for _, field in ipairs(animationFields) do
     if ow[field] then

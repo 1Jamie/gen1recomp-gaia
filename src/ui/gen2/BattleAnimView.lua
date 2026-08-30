@@ -165,8 +165,11 @@ local function needsCanvas(runner)
 end
 
 -- The battle background is BG colour 0 everywhere the two pic boxes and the
-function BattleAnimView:fillBackground()
-  Chrome.paletteFill(0, 0, SCREEN_W, SCREEN_H)
+function BattleAnimView:fillBackground(palByte)
+  local previousBgp = GbcPalette.setBgp(palByte)
+  local ok, err = pcall(Chrome.paletteFill, 0, 0, SCREEN_W, SCREEN_H)
+  GbcPalette.setBgp(previousBgp)
+  if not ok then error(err, 0) end
 end
 
 -- One reusable quad, re-aimed per scanline.  A row shifted by `dx` is drawn
@@ -263,37 +266,6 @@ local function bgpBands(bg)
   return order
 end
 
--- engine/battle_anims/anim_commands.asm:1293 BattleAnim_SetBGPals
-function BattleAnimView:panelPalettes(battle)
-  local list = {}
-  local shades = {}
-  for index = 1, 4 do shades[index] = GbcPalette.color(nil, index) end
-  list[#list + 1] = shades
-  local function bracket(pair)
-    if not (pair and pair[1] and pair[2]) then return end
-    list[#list + 1] = {
-      { 255, 255, 255 },
-      { pair[1][1], pair[1][2], pair[1][3] },
-      { pair[2][1], pair[2][2], pair[2][3] },
-      { 0, 0, 0 },
-    }
-  end
-  for _, side in ipairs({ "player", "enemy" }) do
-    local mon = battle and battle[side]
-    local colors = mon
-      and Palettes.monColors(self.palettes, mon.species, mon.shiny)
-    if colors then list[#list + 1] = colors end
-  end
-  local hpBar = self.palettes and self.palettes.hpBar
-  if hpBar then
-    bracket(hpBar.green)
-    bracket(hpBar.yellow)
-    bracket(hpBar.red)
-  end
-  bracket(self.palettes and self.palettes.expBar)
-  return list
-end
-
 -- engine/battle_anims/bg_effects.asm:2638
 function BattleAnimView.scanlines(bg)
   local lines = {}
@@ -323,9 +295,10 @@ end
 function BattleAnimView:present(runner, drawBg, battle)
   if not (love and love.graphics) then return end
   local bg = runner.bg
-  local invert = bg.bgp and bg.bgp ~= GbcPalette.BGP_IDENTITY
-    and bg.lcdc ~= "BGP" and GbcPalette.remapShader() ~= nil
-  if not invert and not needsCanvas(runner) then
+  -- engine/battle_anims/anim_commands.asm:1293
+  local byte = bg.bgp ~= GbcPalette.BGP_IDENTITY and GbcPalette.available()
+    and bg.bgp or nil
+  if not byte and not needsCanvas(runner) then
     drawBg()
     return
   end
@@ -343,7 +316,7 @@ function BattleAnimView:present(runner, drawBg, battle)
     for _, band in ipairs(bands) do
       self:bake(drawBg, band.byte)
       if not filled then
-        self:fillBackground()
+        self:fillBackground(band.byte)
         filled = true
       end
       G.setColor(1, 1, 1, 1)
@@ -354,13 +327,11 @@ function BattleAnimView:present(runner, drawBg, battle)
     return
   end
 
-  self:bake(drawBg, nil)
+  self:bake(drawBg, byte)
 
-  local remapped = invert
-    and GbcPalette.useRemap(self:panelPalettes(battle), bg.bgp)
   -- A shifted scanline exposes the blank tile beside the pic boxes; without
   -- this the exposed strip is the canvas's own transparency.
-  self:fillBackground()
+  self:fillBackground(byte)
   G.setColor(1, 1, 1, 1)
   -- hSCX / hSCY move the whole background; the per-scanline overrides only
   -- apply inside the effect's own window.
@@ -368,7 +339,6 @@ function BattleAnimView:present(runner, drawBg, battle)
   for _, line in ipairs(BattleAnimView.scanlines(bg)) do
     self:blitRowAt(line.src, line.dest, baseX + line.dx)
   end
-  if remapped then GbcPalette.clear() end
   -- Shaderless boot: the panel is raw grayscale, so there are no palettes to
   -- permute and the entry's BRIGHTNESS is the only thing left to reproduce.
   if bg.lcdc == "BGP" then

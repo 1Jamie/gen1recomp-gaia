@@ -415,6 +415,10 @@ end
 -- the start menu, matching .MenuReturns (most entries reopen it; SAVE and EXIT
 -- close it).
 function Game2:openStartMenu()
+  -- ../pokecrystal/engine/overworld/events.asm:284-285
+  if self.world and self.world.cancelMapNameSign then
+    self.world:cancelMapNameSign()
+  end
   Screens.push(self, "Gen2StartMenu", {
     save = self.save,
     onClose = function() self.stack:pop() end,

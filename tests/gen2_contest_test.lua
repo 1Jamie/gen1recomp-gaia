@@ -1120,7 +1120,8 @@ do
       "Apricorns.treePicked(save, treeId)",
       "Apricorns.pickTree(save, treeId)",
       "fruitTreeReset = function() return self:fruitTreeReset() end,",
-      "Apricorns.checkDailyResetTimer(save)",
+      "Apricorns.checkDailyResetTimer(save, nil,",
+      "self.engineFlagResolver and self:engineFlagResolver() or nil)",
     }) do
     check(world:find(wanted, 1, true) ~= nil, "World has " .. wanted)
   end

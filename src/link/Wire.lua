@@ -115,6 +115,10 @@ local function mon(v)
     happiness = Wire.num(v.happiness, nil, 0, 65535),
     pokerus = Wire.num(v.pokerus, nil, 0, 65535),
     caughtLevel = Wire.num(v.caughtLevel, nil, 0, 65535),
+    -- ../pokecrystal/constants/pokemon_data_constants.asm:93-99
+    caughtTime = Wire.num(v.caughtTime, nil, 0, 255),
+    caughtLocation = Wire.num(v.caughtLocation, nil, 0, 255),
+    caughtByGender = Wire.str(v.caughtByGender, nil, MAX_NAME),
     isEgg = Wire.bool(v.isEgg, nil),
     eggSteps = Wire.num(v.eggSteps, nil, 0, MAX_INT),
     extra = Wire.plain(v.extra),

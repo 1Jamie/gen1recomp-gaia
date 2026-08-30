@@ -40,14 +40,15 @@ for _, id in ipairs({ "red", "blue", "yellow", "gold", "silver" }) do
 end
 eq(next(GameVersion.fixes("nonesuch")), nil, "an unknown id reads as {}")
 
-for _, name in ipairs({ "luckyNumberBoxes", "surfOntoNpc", "reflectOverflow" }) do
+for _, name in ipairs({ "luckyNumberBoxes", "surfOntoNpc", "reflectOverflow",
+    "sideWallArms" }) do
   eq(GameVersion.fixes("crystal")[name], true, "crystal fixes " .. name)
 end
 
 do
   local count = 0
   for _ in pairs(GameVersion.fixes("crystal")) do count = count + 1 end
-  eq(count, 3, "and carries no fix name a consumer was not told about")
+  eq(count, 4, "and carries no fix name a consumer was not told about")
 end
 
 GameVersion.set("gold")

@@ -416,6 +416,10 @@ function PaletteFX.spriteRedrawPassActive()
   return currentPass == "world"
 end
 
+function PaletteFX.pass()
+  return currentPass
+end
+
 function PaletteFX.spriteRedraws()
   return spriteRedraws
 end

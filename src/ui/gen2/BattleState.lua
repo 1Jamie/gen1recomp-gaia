@@ -3852,6 +3852,9 @@ function BattleState:drawPanel()
   -- on top, so the tail of a long name is simply covered.
   -- MoveSelectionScreen type 0 is two boxes: the name-only list
   -- (engine/battle/core.asm:5074-5084) and MoveInfoBox's (:5407-5410).
+  -- engine/gfx/cgb_layouts.asm:146
+  -- engine/battle_anims/anim_commands.asm:1302
+  local previousBgp = GbcPalette.setBgp(nil)
   local moveMenu = self.phase == "moves"
   Chrome.box(0, 12, 20, 6)
   if moveMenu then
@@ -3938,6 +3941,7 @@ function BattleState:drawPanel()
         Chrome.DEFAULT_BOX_PALETTE)
     end
   end
+  GbcPalette.setBgp(previousBgp)
   if self.phase == "stats-box" and self.statsBoxMon then
     self:drawStatsBox(self.statsBoxMon)
   end
@@ -4010,8 +4014,11 @@ function BattleState:drawLiftedRows()
   G.push()
   G.origin()
   self.liftedPass = true
+  -- engine/battle_anims/anim_commands.asm:1308
+  local previousBgp = GbcPalette.setBgp(self.anim and self.anim.bg.bgp or nil)
   if enemyLift then self:drawPic(battle.enemy, false) end
   if playerLift then self:drawPic(battle.player, true) end
+  GbcPalette.setBgp(previousBgp)
   self.liftedPass = nil
   G.pop()
   G.setCanvas(previous)

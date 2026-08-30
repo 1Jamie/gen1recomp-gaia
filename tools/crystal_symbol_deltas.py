@@ -58,6 +58,8 @@ ADD_SYMBOLS = frozenset({
     "KrisFishingGFX",
     # gfx/font.asm:51,63 -- black is 1bpp at tile $60, up_arrow 2bpp at $61.
     "FontsExtra_SolidBlackGFX", "FontsExtra2_UpArrowGFX",
+    # gfx/font.asm:60
+    "MapEntryFrameGFX",
     # main.asm:425-448 -- the pic-animation pointer tables, absent from Gold.
     "AnimationPointers", "AnimationIdlePointers",
     "BitmasksPointers", "FramesPointers",

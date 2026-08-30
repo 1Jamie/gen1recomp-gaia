@@ -306,9 +306,13 @@ eq(landPack.message[1], "OAK: {PLAYER}!", "and the message is Oak's")
 eq(landGame.stack.cleared, 0, "rod on land does not quit the PACK")
 eq(chosen, nil, "rod on land never reaches onChoose")
 check(landWorld.fishing == nil, "rod on land starts no cast")
+-- home/text.asm:502
 landGame.input:press("a")
 landPack:update(0)
-check(landPack.message == nil, "a button clears the message")
+eq(landPack.messagePage, 2, "a button scrolls Oak's `cont` to its second page")
+landGame.input:press("a")
+landPack:update(0)
+check(landPack.message == nil, "and the next clears the message")
 
 -- CoinCaseEffect (engine/items/item_effects.asm:2243) is a MenuTextboxWaitButton
 -- over _CoinCaseCountText: the PACK stays open and nothing reaches onChoose.
@@ -483,7 +487,8 @@ packGame.input:press("a")
 repelPack:update(0)
 eq(repelPack.message[1], "The REPEL used",
   "a REPEL already active refuses a second item with the static text")
-eq(repelPack.message[3], "in effect.", "the third line of the fixed text")
+eq(repelPack.message[4], "in effect.",
+  "with `cont` between it and the third line (data/text/common_3.asm:1270)")
 end
 
 -- ---- A3. SACRED ASH -------------------------------------------------------
