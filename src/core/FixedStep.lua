@@ -62,7 +62,7 @@ end
 -- intended budget.
 FixedStep.maxAccum = MAX_ACCUM
 
-function FixedStep:update(dt)
+function FixedStep:update(dt, speed)
   -- A hitch's oversized dt lands on the frame AFTER discardCatchup was
   -- called (the hitch itself already ran inside the current step); absorb
   -- that one frame as a single step instead of the normal accumulator so
@@ -74,6 +74,12 @@ function FixedStep:update(dt)
     self.callback(self.STEP)
     return
   end
+  -- Snap/smooth against the wall-clock frame dt first.  Game speed is a
+  -- multiplier on how many logic steps that real frame buys — applying it
+  -- before refresh-period snap made 2–4X look like multi-period frames and
+  -- destabilized pacing under DISPLAY sync.
+  speed = tonumber(speed) or 1
+  if speed < 1 then speed = 1 end
   local period = self.refreshPeriod
   local snapped = false
   if period and dt > 0 then
@@ -104,7 +110,7 @@ function FixedStep:update(dt)
     local target = phaseOffset(period, self.STEP)
     self.accum = self.accum - self.accum % self.STEP + target
   end
-  self.accum = math.min(self.accum + dt, self.maxAccum or MAX_ACCUM)
+  self.accum = math.min(self.accum + dt * speed, self.maxAccum or MAX_ACCUM)
   while self.accum >= self.STEP - STEP_EPS do
     self.accum = self.accum - self.STEP
     self.callback(self.STEP)

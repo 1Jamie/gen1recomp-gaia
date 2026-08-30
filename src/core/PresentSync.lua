@@ -1,6 +1,10 @@
 -- Cross-platform present sync: probe whether vsync actually gates presents,
 -- delegate Linux-specific GLX waits to PresentProbe, and decide when FixedStep
 -- may snap dt to the panel refresh (DISPLAY + working sync only).
+--
+-- During DISPLAY+vsync probe warmup, FrameCap still paces at 60 as a thermal
+-- net.  The probe times present() block duration (not inter-frame gaps), so
+-- that sleep does not contaminate the gated/ungated verdict.
 
 local PresentSync = {}
 
@@ -25,6 +29,8 @@ function PresentSync.probingDisplaySync()
   return FrameCap.current == FrameCap.DISPLAY and VSync.isOn()
 end
 
+-- Software FrameCap is required when sync failed, OR while DISPLAY+vsync is
+-- still probing (thermal net only — probe measures present() block time).
 function PresentSync.needsSoftwareCap()
   if probe().needsSoftwareCap() then return true end
   return PresentSync.probingDisplaySync()
@@ -63,6 +69,7 @@ end
 -- FixedStep.refreshPeriod is only set when logic cadence should track the
 -- display.  Snapping dt to 144Hz while software-pacing at 60 (#1958) or
 -- with vsync off is what caused the irregular frame pacing regression.
+-- Also withheld during probe warmup (needsSoftwareCap includes probing).
 function PresentSync.logicRefreshPeriod()
   local FrameCap = require("src.core.FrameCap")
   local VSync = require("src.core.VSync")

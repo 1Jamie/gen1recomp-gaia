@@ -58,19 +58,37 @@ VSync.apply("on")
 PresentProbe._testSetState({ osLinux = false, ready = true, clearGated = true,
   needsSoftwareCap = false, nest = "windows" })
 T.check(PresentSync.probingDisplaySync(), "DISPLAY+vsync probes before a verdict")
-T.check(PresentSync.needsSoftwareCap(), "warmup uses FrameCap until the probe finishes")
+T.check(PresentSync.needsSoftwareCap(),
+  "warmup still uses FrameCap as a thermal net during the probe")
 T.eq(PresentSync.logicRefreshPeriod(), nil, "and does not snap logic during warmup")
 
 PresentProbe._testSetState({ gated = true, needsSoftwareCap = false })
 T.check(not PresentSync.probingDisplaySync(), "a finished probe clears warmup")
 T.check(not PresentSync.needsSoftwareCap(), "so software cap stops once sync is confirmed")
 
+-- Broken sync after an honest ungated probe keeps the thermal net and no snap.
+PresentProbe._testSetState({ gated = false, needsSoftwareCap = true })
+T.check(PresentSync.needsSoftwareCap(), "ungated DISPLAY keeps FrameCap")
+T.eq(PresentSync.logicRefreshPeriod(), nil, "and never snaps logic to the panel")
+
 VSync.apply("on")
-PresentProbe._testSetState({ needsSoftwareCap = true })
+PresentProbe._testSetState({ needsSoftwareCap = true, gated = false })
 T.check(PresentSync.vsyncEnableBlocked(), "broken sync blocks enabling vsync")
 T.check(PresentSync.vsyncStepAllowed("on", 1), "but one step to OFF is allowed")
 T.check(not PresentSync.vsyncStepAllowed("on", -1),
   "while a step that stays on/adaptive is not")
+
+-- FixedStep snaps wall-clock dt, then applies speed (not the reverse).
+FixedStep.refreshPeriod = 1 / 60
+local steps = 0
+FixedStep:init(function() steps = steps + 1 end)
+FixedStep.maxAccum = 0.25
+FixedStep:update(1 / 60, 4)
+T.eq(steps, 4, "4X on a snapped 60Hz frame runs four logic steps")
+steps = 0
+FixedStep:update(1 / 60, 2)
+T.eq(steps, 2, "and 2X runs two")
+FixedStep.refreshPeriod = nil
 
 love.window.getVSync, love.window.setVSync = nil, nil
 VSync.reset()

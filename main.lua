@@ -1423,8 +1423,9 @@ function love.run()
     elseif cap == FrameCap.DISPLAY and not VSync.isOn() then
       cap = FrameCap.DEFAULT
     elseif cap == FrameCap.DISPLAY and PresentSync.needsSoftwareCap() then
-      -- Vsync is "on" but presents are ungated (Gamescope/XWayland no-op)
-      -- and no GLX wait bound: FrameCap is the thermal safety net.
+      -- Vsync is "on" but presents are ungated (driver no-op, VRR early
+      -- return, Gamescope/XWayland, etc.) and no platform wait is bound:
+      -- FrameCap is the thermal / pacing safety net on every OS.
       cap = FrameCap.DEFAULT
     end
 

@@ -11,13 +11,43 @@ local fast = {}
 for i = 1, 20 do fast[i] = 0.001 end
 T.eq(LPS._testClassifyGated(fast), false, "sub-ms presents count as ungated")
 
-local locked60 = {}
-for i = 1, 20 do locked60[i] = 1 / 60 end
-T.eq(LPS._testClassifyGated(locked60), true, "1/60 presents count as gated")
+local function withHz(hz, fn)
+  package.loaded["src.core.RefreshRate"] = {
+    hz = function() return hz end,
+    period = function() return 1 / hz end,
+    mismatch = function() return nil end,
+    sample = function() return false end,
+    reset = function() end,
+  }
+  local ok, err = pcall(fn)
+  package.loaded["src.core.RefreshRate"] = nil
+  if not ok then error(err) end
+end
 
-local locked90 = {}
-for i = 1, 20 do locked90[i] = 1 / 90 end
-T.eq(LPS._testClassifyGated(locked90), true, "1/90 presents count as gated")
+withHz(60, function()
+  local locked60 = {}
+  for i = 1, 20 do locked60[i] = 1 / 60 end
+  T.eq(LPS._testClassifyGated(locked60), true, "1/60 presents count as gated")
+  local half60 = {}
+  for i = 1, 20 do half60[i] = 2 / 60 end
+  T.eq(LPS._testClassifyGated(half60), true, "half-rate 30Hz on 60Hz counts as gated")
+  local ambiguous = {}
+  for i = 1, 20 do ambiguous[i] = 0.010 end
+  T.eq(LPS._testClassifyGated(ambiguous), false,
+    "10ms CPU-bound presents are ungated (not evidence of sync)")
+end)
+
+withHz(90, function()
+  local locked90 = {}
+  for i = 1, 20 do locked90[i] = 1 / 90 end
+  T.eq(LPS._testClassifyGated(locked90), true, "1/90 presents count as gated")
+end)
+
+-- Unknown panel Hz: a 90Hz-looking block is NOT trusted (safe FrameCap fallback)
+local locked90unknown = {}
+for i = 1, 20 do locked90unknown[i] = 1 / 90 end
+T.eq(LPS._testClassifyGated(locked90unknown), false,
+  "without a panel Hz, 1/90 is inconclusive and prefers FrameCap")
 
 T.eq(LPS._testClassifyGated({ 0.016, 0.017 }), nil,
   "too few samples stay unclassified")
@@ -181,10 +211,60 @@ LPS.reset()
 LPS.waitBeforePresent()
 T.eq(true, true, "waitBeforePresent tolerates a cold module")
 
+-- Probe measures present() block time, not inter-frame gaps: FrameCap sleep
+-- after notePresent must not make a broken swap look gated.
+LPS.reset()
+LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
+local t = 0
+love.timer = love.timer or {}
+local savedGetTime = love.timer.getTime
+love.timer.getTime = function() return t end
+for i = 1, 45 do
+  -- Instant present() (broken vsync), then a fake 16ms FrameCap sleep afterward.
+  LPS.waitBeforePresent()
+  t = t + 0.001
+  LPS.notePresent()
+  t = t + 1 / 60
+end
+local st = LPS.status()
+T.eq(st.gated, false,
+  "instant present() stays ungated even when FrameCap sleeps 16ms after")
+T.eq(LPS.needsSoftwareCap(), true, "so FrameCap remains the thermal net")
+
+LPS.reset()
+LPS._testSetState({ osLinux = false, ready = true, nest = "windows", clearGated = true })
+t = 0
+for i = 1, 45 do
+  LPS.waitBeforePresent()
+  t = t + 1 / 60  -- present() itself blocks a full panel period
+  LPS.notePresent()
+  t = t + 1 / 60  -- trailing FrameCap sleep is ignored by the probe
+end
+st = LPS.status()
+T.eq(st.gated, true, "a present() that blocks a panel period counts as gated")
+T.eq(LPS.needsSoftwareCap(), false, "and does not force FrameCap")
+
+-- A bound wait that overruns abandons to FrameCap instead of wedging.
+LPS.reset()
+LPS._testSetState({
+  osLinux = true, ready = true, nest = "x11", gated = true,
+  strategy = "oml", needsSoftwareCap = false,
+  waitFn = function()
+    t = t + 0.2  -- > WAIT_ABORT_S
+  end,
+})
+t = 0
+LPS.waitBeforePresent()
+T.eq(LPS.needsSoftwareCap(), true, "an overrunning GLX wait falls back to FrameCap")
+T.eq(LPS.status().strategy, "none", "and clears the wait strategy")
+
+love.timer.getTime = savedGetTime
+
 -- status() on non-Linux stays inert (whatever OS the harness reports)
 LPS.reset()
 local status = LPS.status()
 T.eq(type(status.strategy), "string", "status always reports a strategy string")
 T.eq(type(status.linux), "boolean", "and whether this process is Linux")
 
+LPS.reset()
 T.finish("present probe")

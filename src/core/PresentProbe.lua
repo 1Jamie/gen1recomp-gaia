@@ -1,14 +1,21 @@
 -- Present sync: on every platform, measure whether love.window.setVSync
--- actually gates presents.  Linux additionally binds a real wait (GLX OML /
+-- actually gates presents by timing present() itself (not the gap between
+-- frames — that gap includes FrameCap sleeps and would false-trigger "gated"
+-- during DISPLAY warmup).  Linux additionally binds a real wait (GLX OML /
 -- SGI on native X11) when SDL's swap interval is a no-op (Gamescope /
 -- XWayland).  Wayland: never duplicate wl_surface.frame.  drmWaitVBlank is
--- never used.
+-- never used.  Ambiguous probe results prefer FrameCap over trusting sync.
 
 local PresentProbe = {}
 
+-- Probe present() block time (not inter-frame gaps).  Inter-frame gaps include
+-- FrameCap sleeps and would always look "gated" during DISPLAY warmup.
 local PROBE_FRAMES = 45
 local INSTANT_MS = 0.0005
 local BLOCK_MS = 0.002
+-- If a bound GLX wait ever blocks longer than this, drop it and fall back to
+-- FrameCap.  Covers a stalled compositor without wedging the game loop.
+local WAIT_ABORT_S = 0.1
 
 -- Hot-path: a single cached closure, no ffi.C / string work inside it.
 local waitFn = nil
@@ -23,8 +30,8 @@ local state = {
   strategy = "none",  -- "none" | "sdl" | "oml" | "sgi"
   needsSoftwareCap = false,
   probeCount = 0,
-  lastPresent = nil,
-  intervals = nil,
+  presentStart = nil, -- love.timer time entering present(), probe only
+  intervals = nil,    -- present() block times while probing
   glxGen = 0,
   bindGen = -1,
 }
@@ -102,6 +109,9 @@ local function detectNest(driver)
   return "unknown"
 end
 
+-- Classify from present() block times.  Prefer false (ungated → FrameCap)
+-- whenever the signal is ambiguous: trusting a broken swap interval uncapped
+-- is far worse than pacing in software.
 local function classifyGated(intervals)
   if not intervals or #intervals < 10 then return nil end
   local sorted = {}
@@ -113,11 +123,14 @@ local function classifyGated(intervals)
   local okRR, RR = pcall(require, "src.core.RefreshRate")
   if okRR then hz = RR.hz() end
   local expect = hz and (1 / hz) or (1 / 60)
-  -- Ungated presents are typically << panel period (often < 2ms for this game).
+  -- Ungated: present returns well before a panel period (often < 2ms).
   if mid < expect * 0.45 then return false end
-  if mid > expect * 0.7 and mid < expect * 1.6 then return true end
-  -- Weird ratio (e.g. half-rate): still treat as gated if slow enough.
-  return mid >= (1 / 200)
+  -- Full-rate vsync: block time sits near the panel period.
+  if mid >= expect * 0.7 and mid <= expect * 1.55 then return true end
+  -- Half-rate vsync (e.g. 30Hz on a 60Hz panel).
+  if mid >= expect * 1.7 and mid <= expect * 2.4 then return true end
+  -- CPU-bound mid-range (e.g. 8–12ms on 60Hz) is not evidence of sync.
+  return false
 end
 
 local function loadGlx()
@@ -401,7 +414,7 @@ function PresentProbe.reset()
   state.strategy = "none"
   state.needsSoftwareCap = false
   state.probeCount = 0
-  state.lastPresent = nil
+  state.presentStart = nil
   state.intervals = nil
   state.glxGen = state.glxGen + 1
   state.bindGen = -1
@@ -417,7 +430,7 @@ function PresentProbe.onDisplayChange()
   state.gated = nil
   state.probeCount = 0
   state.intervals = {}
-  state.lastPresent = nil
+  state.presentStart = nil
   state.strategy = "none"
   state.needsSoftwareCap = false
   glLib = nil
@@ -430,7 +443,7 @@ function PresentProbe.reprobe()
   state.gated = nil
   state.probeCount = 0
   state.intervals = {}
-  state.lastPresent = nil
+  state.presentStart = nil
   waitFn = nil
   state.glxGen = state.glxGen + 1
   state.bindGen = -1
@@ -438,10 +451,30 @@ function PresentProbe.reprobe()
   pickStrategy()
 end
 
+local function abandonWait()
+  waitFn = nil
+  state.strategy = "none"
+  state.needsSoftwareCap = true
+  state.gated = false
+  state.bindGen = state.glxGen
+end
+
 -- Hot path: must stay allocation-free and avoid ffi.C / require.
+-- Records presentStart AFTER any GLX wait so the probe measures SDL/GL
+-- swap-interval block time alone (FrameCap sleep lives after notePresent).
 function PresentProbe.waitBeforePresent()
   local fn = waitFn
-  if fn then fn() end
+  if fn then
+    local t0 = love.timer and love.timer.getTime and love.timer.getTime()
+    local ok = pcall(fn)
+    local t1 = love.timer and love.timer.getTime and love.timer.getTime()
+    if not ok or (t0 and t1 and (t1 - t0) > WAIT_ABORT_S) then
+      abandonWait()
+    end
+  end
+  if state.gated == nil and love.timer and love.timer.getTime then
+    state.presentStart = love.timer.getTime()
+  end
 end
 
 function PresentProbe.notePresent()
@@ -457,19 +490,19 @@ function PresentProbe.notePresent()
     return
   end
 
+  local start = state.presentStart
+  state.presentStart = nil
   local now = love.timer and love.timer.getTime and love.timer.getTime()
-  if not now then return end
-  local last = state.lastPresent
-  state.lastPresent = now
-  if not last then return end
-  local dt = now - last
-  if dt <= 0 or dt > 0.25 then return end
+  if not start or not now then return end
+  local block = now - start
+  -- Discard hitches / timer glitches; keep sampling until we have clean ones.
+  if block <= 0 or block > 0.25 then return end
   local intervals = state.intervals
   if not intervals then
     intervals = {}
     state.intervals = intervals
   end
-  intervals[#intervals + 1] = dt
+  intervals[#intervals + 1] = block
   state.probeCount = #intervals
   if #intervals < PROBE_FRAMES then return end
 
