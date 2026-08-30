@@ -14,6 +14,7 @@
 import UIKit
 import UniformTypeIdentifiers
 import CryptoKit
+import Network
 import SafariServices
 
 @objc(GRPickerBridge)
@@ -29,6 +30,7 @@ public final class GRPickerBridge: NSObject {
     private static var liveDelegates: [PickerDelegate] = []
 
     private static let loveIdentity = "pokemon-love2d"
+    private static var profileServer: NWListener?
 
     @objc(httpDownloadWithUrl:destination:userAgent:accept:)
     public static func httpDownload(url: UnsafePointer<CChar>?,
@@ -205,12 +207,12 @@ public final class GRPickerBridge: NSObject {
         }
         guard source.size.width > 0, source.size.height > 0 else { return false }
 
-        let iconSize = CGSize(width: 1024, height: 1024)
+        let iconSize = CGSize(width: 180, height: 180)
         let renderer = UIGraphicsImageRenderer(size: iconSize)
         let iconData = renderer.pngData(actions: { context in
             context.cgContext.setFillColor(UIColor.black.cgColor)
             context.cgContext.fill(CGRect(origin: .zero, size: iconSize))
-            let scale = min(900 / source.size.width, 900 / source.size.height)
+            let scale = min(160 / source.size.width, 160 / source.size.height)
             let size = CGSize(width: source.size.width * scale,
                               height: source.size.height * scale)
             let rect = CGRect(x: (iconSize.width - size.width) / 2,
@@ -235,6 +237,7 @@ public final class GRPickerBridge: NSObject {
             "PayloadType": "com.apple.webClip.managed",
             "PayloadUUID": uuid,
             "PayloadVersion": 1,
+            "TargetApplicationBundleIdentifier": "com.theboisclub.gen1recompplusplus",
             "URL": launchURL.absoluteString,
         ]
         let profile: [String: Any] = [
@@ -252,25 +255,54 @@ public final class GRPickerBridge: NSObject {
             "PayloadVersion": 1,
         ]
         guard let profileData = try? PropertyListSerialization.data(
-            fromPropertyList: profile, format: .xml, options: 0),
-              let profileURL = URL(string:
-                "data:application/x-apple-aspen-config;base64,\(profileData.base64EncodedString())") else {
+            fromPropertyList: profile, format: .xml, options: 0) else {
             return false
         }
 
-        DispatchQueue.main.async {
-            guard let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-                  let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+        guard let server = try? NWListener(using: .tcp, on: .any) else {
+            return false
+        }
+        profileServer?.cancel()
+        let serverQueue = DispatchQueue(label: "com.theboisclub.gen1recompplusplus.webclip")
+        server.newConnectionHandler = { connection in
+            connection.stateUpdateHandler = { state in
+                guard case .ready = state else {
+                    if case .failed = state { connection.cancel() }
+                    return
+                }
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+                    var response = Data("HTTP/1.1 200 OK\r\nContent-Type: application/x-apple-aspen-config\r\nContent-Disposition: attachment; filename=gen1recomp.mobileconfig\r\nContent-Length: \(profileData.count)\r\nConnection: close\r\n\r\n".utf8)
+                    response.append(profileData)
+                    connection.send(content: response, completion: .contentProcessed { _ in
+                        connection.cancel()
+                    })
+                }
+            }
+            connection.start(queue: serverQueue)
+        }
+        server.stateUpdateHandler = { state in
+            guard case .ready = state, let port = server.port?.rawValue else {
+                if case .failed = state { server.cancel() }
                 return
             }
-            var presenter = root
-            while let presented = presenter.presentedViewController {
-                presenter = presented
+            DispatchQueue.main.async {
+                guard let scene = UIApplication.shared.connectedScenes
+                    .compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive }),
+                      let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController,
+                      let profileURL = URL(string: "http://127.0.0.1:\(port)/gen1recomp.mobileconfig") else {
+                    server.cancel()
+                    return
+                }
+                var presenter = root
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                presenter.present(SFSafariViewController(url: profileURL), animated: true)
             }
-            presenter.present(SFSafariViewController(url: profileURL), animated: true)
         }
+        profileServer = server
+        server.start(queue: serverQueue)
         return true
     }
 
