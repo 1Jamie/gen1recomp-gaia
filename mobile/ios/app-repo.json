@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.40",
+          "date": "2026-08-30",
+          "size": 21511375,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.40/gen1recomp++-0.2.40-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1938 Poké Flute tune can be skipped when waking up Pokemon\n- #1940 Minimize sprite at wrong position\n- #1941 Pokemon sprite visible during Minimize faint animation\n- #1943 [Crystal] Location banners are missing when changing area\n- #1944 My pokemon gen 1 cannot connect\n- #1945 (GSC) Pokemon Cries are Too Fast\n- #1946 Healing during fight looks different\n- #1948 Visibility of character sprites before trainer battle\n- #1949 Multi-hit move critical message doesn't stay onscreen\n- #1950 Player not looking up right at the start\n- #1952 When the game battle is speed up, the jingles stall\n- #1953 Returning to battle state for \"already out\" message\n- #1955 Menu for giving girl in Celadon drinks inaccurate\n- #1957 (GSC) Uncentered text for \"this isn't the time to use that\"\n- #1960 (GSC) Issues when using FLY in the overworld\n- #1961 (GSC) Night Shade move animation erros\n- #1962 (GSC) Unable to sort items in the PC\n- #1963 (Crystal) Move tutor never comes back after teaching a move\n- #1964 (Crystal) Unable to move in the top floor of Celadon Mansion\n- #1967 (Crystal) Broken Credits\n- #1968 (GSC) Missing black and white effect when entering battles\n- #1969 (GSC) Pokéballs for the player and the opponent shouldn't appear at the start of battle intros\n- #1970 (GSC) Missing battle intro effects against trainers\n- #1972 Crystal trading between xbox and android\n- #1974 Android not connecting to xbox battle\n- #1975 (GSC) Music doesn't change when changing routes in a bike\n- #1976 (GSC) Evolving a pokémon stops the overworld music\n- #1977 (GSC) Missing animation when using healing items\n- #1978 (GSC) Missing walking animation when going against obstacles\n- #1979 (GSC) Magnitude animation playing before its level is shown\n- #1980 (GSC) Wrong HUD for learning moves\n- #1981 Market - Buy Items\n- #1982 Early Getting Badge Sounds\n- #1983 Magikarp Money Box is always there\n- #1985 Pokemon Trading Sequence is skippable\n- #1986 Pokeballs in Healing Maschine missing Advance Color\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.39",
           "date": "2026-08-30",
           "size": 21499456,
