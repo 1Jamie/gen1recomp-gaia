@@ -6,10 +6,229 @@
 // Registered from a constructor so no LÖVE/SDL source needs to know about it.
 
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import <sys/utsname.h>
+
+static NSString *GRPendingLaunchURI;
+static IMP GRApplicationOpenURLOriginal;
+static IMP GRApplicationOpenURLLegacyOriginal;
+static IMP GRApplicationConfigurationOriginal;
+static Class GRApplicationDelegateClass;
+static IMP GRSceneWillConnectOriginal;
+static IMP GRSceneOpenURLContextsOriginal;
+static Class GRSceneDelegateClass;
+
+static BOOL GRIsLaunchURL(NSURL *url)
+{
+    return url.scheme.length > 0 && url.host.length > 0
+        && [url.scheme caseInsensitiveCompare:@"gen1recomp++"] == NSOrderedSame
+        && [url.host caseInsensitiveCompare:@"launch"] == NSOrderedSame;
+}
+
+static void GRStoreLaunchURL(NSURL *url)
+{
+    if (!GRIsLaunchURL(url)) return;
+    @synchronized ([UIApplication class]) {
+        GRPendingLaunchURI = [url.absoluteString copy];
+    }
+}
+
+static NSString *GRTakeLaunchURI(void)
+{
+    @synchronized ([UIApplication class]) {
+        NSString *uri = [GRPendingLaunchURI copy];
+        GRPendingLaunchURI = nil;
+        return uri;
+    }
+}
+
+static void GRStoreLaunchURLContexts(NSSet *contexts)
+{
+    for (id context in contexts) {
+        if (![context respondsToSelector:@selector(URL)]) continue;
+        GRStoreLaunchURL([context URL]);
+    }
+}
+
+static void GRStoreLaunchOptions(NSDictionary *options)
+{
+    if (![options isKindOfClass:[NSDictionary class]]) return;
+    GRStoreLaunchURL(options[UIApplicationLaunchOptionsURLKey]);
+    NSDictionary *activities = options[UIApplicationLaunchOptionsUserActivityDictionaryKey];
+    if (![activities isKindOfClass:[NSDictionary class]]) return;
+    for (id activity in activities.allValues) {
+        if (![activity respondsToSelector:@selector(webpageURL)]) continue;
+        GRStoreLaunchURL([activity webpageURL]);
+    }
+}
+
+static BOOL GRApplicationOpenURL(id self, SEL selector,
+                                 UIApplication *application, NSURL *url,
+                                 NSDictionary *options)
+{
+    GRStoreLaunchURL(url);
+    if (GRApplicationOpenURLOriginal) {
+        typedef BOOL (*GROpenURL)(id, SEL, UIApplication *, NSURL *, NSDictionary *);
+        return ((GROpenURL)GRApplicationOpenURLOriginal)(self, selector,
+                                                         application, url, options);
+    }
+    return YES;
+}
+
+static BOOL GRApplicationOpenURLLegacy(id self, SEL selector,
+                                       UIApplication *application, NSURL *url,
+                                       NSString *sourceApplication,
+                                       id annotation)
+{
+    GRStoreLaunchURL(url);
+    if (GRApplicationOpenURLLegacyOriginal) {
+        typedef BOOL (*GROpenURLLegacy)(id, SEL, UIApplication *, NSURL *, NSString *, id);
+        return ((GROpenURLLegacy)GRApplicationOpenURLLegacyOriginal)(
+            self, selector, application, url, sourceApplication, annotation);
+    }
+    return YES;
+}
+
+static id GRApplicationConfiguration(id self, SEL selector,
+                                     UIApplication *application,
+                                     id session, id options)
+{
+    if ([options respondsToSelector:@selector(URLContexts)]) {
+        GRStoreLaunchURLContexts([options URLContexts]);
+    }
+    if (GRApplicationConfigurationOriginal) {
+        typedef id (*GRConfiguration)(id, SEL, UIApplication *, id, id);
+        return ((GRConfiguration)GRApplicationConfigurationOriginal)(
+            self, selector, application, session, options);
+    }
+    return nil;
+}
+
+static void GRSceneWillConnect(id self, SEL selector, id scene,
+                               id session, id options)
+{
+    if ([options respondsToSelector:@selector(URLContexts)]) {
+        GRStoreLaunchURLContexts([options URLContexts]);
+    }
+    if (GRSceneWillConnectOriginal) {
+        typedef void (*GRWillConnect)(id, SEL, id, id, id);
+        ((GRWillConnect)GRSceneWillConnectOriginal)(
+            self, selector, scene, session, options);
+    }
+}
+
+static void GRSceneOpenURLContexts(id self, SEL selector, id scene,
+                                   NSSet *contexts)
+{
+    GRStoreLaunchURLContexts(contexts);
+    if (GRSceneOpenURLContextsOriginal) {
+        typedef void (*GROpenURLContexts)(id, SEL, id, NSSet *);
+        ((GROpenURLContexts)GRSceneOpenURLContextsOriginal)(
+            self, selector, scene, contexts);
+    }
+}
+
+static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass)
+{
+    if (!sceneDelegateClass || sceneDelegateClass == GRSceneDelegateClass) return;
+    SEL willConnect = @selector(scene:willConnectToSession:options:);
+    SEL openURLContexts = @selector(scene:openURLContexts:);
+    Method willConnectMethod = class_getInstanceMethod(sceneDelegateClass, willConnect);
+    Method openURLContextsMethod = class_getInstanceMethod(sceneDelegateClass, openURLContexts);
+    if (!willConnectMethod && !openURLContextsMethod) return;
+
+    GRSceneDelegateClass = sceneDelegateClass;
+    GRSceneWillConnectOriginal = willConnectMethod
+        ? method_getImplementation(willConnectMethod) : NULL;
+    GRSceneOpenURLContextsOriginal = openURLContextsMethod
+        ? method_getImplementation(openURLContextsMethod) : NULL;
+
+    if (willConnectMethod) {
+        if (!class_addMethod(sceneDelegateClass, willConnect,
+                             (IMP)GRSceneWillConnect,
+                             method_getTypeEncoding(willConnectMethod))) {
+            method_setImplementation(willConnectMethod, (IMP)GRSceneWillConnect);
+        }
+    }
+    if (openURLContextsMethod) {
+        if (!class_addMethod(sceneDelegateClass, openURLContexts,
+                             (IMP)GRSceneOpenURLContexts,
+                             method_getTypeEncoding(openURLContextsMethod))) {
+            method_setImplementation(openURLContextsMethod,
+                                     (IMP)GRSceneOpenURLContexts);
+        }
+    }
+}
+
+static void GRInstallSceneURLHooks(void)
+{
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        id delegate = scene.delegate;
+        if (delegate) GRInstallSceneURLHooksForClass([delegate class]);
+    }
+}
+
+static void GRInstallApplicationURLHooks(void)
+{
+    id delegate = UIApplication.sharedApplication.delegate;
+    Class delegateClass = delegate ? [delegate class] : Nil;
+    if (!delegateClass || delegateClass == GRApplicationDelegateClass) return;
+    GRApplicationDelegateClass = delegateClass;
+    GRApplicationOpenURLOriginal = NULL;
+    GRApplicationOpenURLLegacyOriginal = NULL;
+    GRApplicationConfigurationOriginal = NULL;
+
+    SEL openURL = @selector(application:openURL:options:);
+    Method openURLMethod = class_getInstanceMethod(delegateClass, openURL);
+    if (openURLMethod) {
+        GRApplicationOpenURLOriginal = method_getImplementation(openURLMethod);
+        if (!class_addMethod(delegateClass, openURL, (IMP)GRApplicationOpenURL,
+                             method_getTypeEncoding(openURLMethod))) {
+            method_setImplementation(openURLMethod, (IMP)GRApplicationOpenURL);
+        }
+    } else {
+        class_addMethod(delegateClass, openURL, (IMP)GRApplicationOpenURL,
+                         "c@:@@@");
+    }
+
+    SEL configuration = @selector(application:configurationForConnectingSceneSession:options:);
+    Method configurationMethod = class_getInstanceMethod(delegateClass, configuration);
+    if (configurationMethod) {
+        GRApplicationConfigurationOriginal = method_getImplementation(configurationMethod);
+        if (!class_addMethod(delegateClass, configuration,
+                             (IMP)GRApplicationConfiguration,
+                             method_getTypeEncoding(configurationMethod))) {
+            method_setImplementation(configurationMethod,
+                                     (IMP)GRApplicationConfiguration);
+        }
+    }
+
+    SEL legacyOpenURL = @selector(application:openURL:sourceApplication:annotation:);
+    Method legacyMethod = class_getInstanceMethod(delegateClass, legacyOpenURL);
+    if (legacyMethod) {
+        GRApplicationOpenURLLegacyOriginal = method_getImplementation(legacyMethod);
+        if (!class_addMethod(delegateClass, legacyOpenURL,
+                             (IMP)GRApplicationOpenURLLegacy,
+                             method_getTypeEncoding(legacyMethod))) {
+            method_setImplementation(legacyMethod, (IMP)GRApplicationOpenURLLegacy);
+        }
+    }
+}
+
+@interface NSURL (GRAppClipDataURL)
+- (BOOL)safari_isHTTPFamilyURL;
+@end
+
+@implementation NSURL (GRAppClipDataURL)
+- (BOOL)safari_isHTTPFamilyURL
+{
+    return YES;
+}
+@end
 
 @interface GRDeviceBridge : NSObject
 + (NSString *)deviceModel;
++ (NSString *)launchURI;
 @end
 
 @implementation GRDeviceBridge
@@ -26,15 +245,55 @@
     }
     return @"";
 }
+
++ (NSString *)launchURI
+{
+    return GRTakeLaunchURI() ?: @"";
+}
 @end
 
 __attribute__((constructor))
 static void GRBootstrapInstall(void)
 {
-    [[NSNotificationCenter defaultCenter]
-        addObserverForName:UIApplicationDidBecomeActiveNotification
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center addObserverForName:UIApplicationDidFinishLaunchingNotification
+                         object:nil
+                          queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(NSNotification *note) {
+        GRStoreLaunchOptions(note.userInfo);
+        GRInstallApplicationURLHooks();
+        GRInstallSceneURLHooks();
+    }];
+    [center addObserverForName:UIApplicationDidBecomeActiveNotification
+                         object:nil
+                          queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(NSNotification *note) {
+        GRInstallApplicationURLHooks();
+        GRInstallSceneURLHooks();
+    }];
+    [center addObserverForName:UISceneWillConnectNotification
+                         object:nil
+                          queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(NSNotification *note) {
+        GRInstallSceneURLHooks();
+        id scene = note.object;
+        id delegate = [scene respondsToSelector:@selector(delegate)]
+            ? [scene delegate] : nil;
+        if (delegate) GRInstallSceneURLHooksForClass([delegate class]);
+    }];
+    [center addObserverForName:UISceneDidActivateNotification
+                         object:nil
+                          queue:[NSOperationQueue mainQueue]
+                     usingBlock:^(NSNotification *note) {
+        GRInstallSceneURLHooks();
+    }];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        GRInstallApplicationURLHooks();
+        GRInstallSceneURLHooks();
+    });
+    [center addObserverForName:UIApplicationDidBecomeActiveNotification
                     object:nil
-                     queue:[NSOperationQueue mainQueue]
+                    queue:[NSOperationQueue mainQueue]
                 usingBlock:^(NSNotification *note) {
         Class bridge = NSClassFromString(@"GRPickerBridge");
         if ([bridge respondsToSelector:@selector(preparePublicDocuments)]) {

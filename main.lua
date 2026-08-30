@@ -22,6 +22,16 @@ local PlatformHooks = require("src.core.PlatformHooks")
 local HostDisplay = require("src.core.HostDisplay")
 local GameViewport = require("src.render.GameViewport")
 
+local function applySavedOrientation()
+  local ok, savedOptions = pcall(function()
+    return require("src.core.SaveData").loadOptions()
+  end)
+  if not ok or type(savedOptions) ~= "table" then savedOptions = {} end
+  pcall(function()
+    require("src.core.Orientation").applyOptions(savedOptions)
+  end)
+end
+
 -- Global emergency quit: holding Start + Select for 5 seconds forcefully terminates LOVE.
 local emergencyQuitTimer = 0
 
@@ -125,6 +135,7 @@ local Game, EditorApp, Importer, TouchEditor, Studio, Prelaunch
 --     launcher, whatever put the game on screen this time.
 local launchedIntoGame = false
 local RELAUNCH_MARKER = "relaunch_to_launcher.txt"
+local launchOptionsSuppressed = false
 
 local onlineClient, onlineClientResolved
 local function onlineClientModule()
@@ -405,8 +416,7 @@ local function returnToLauncher(opts)
 
   SessionLifecycle.endMountedSession(currentVersion)
 
-  require("src.core.Orientation").applyOptions(
-    require("src.core.SaveData").loadOptions())
+  applySavedOrientation()
 
   local preload = require("src.mods.LauncherMods").translationStrings()
   if preload then require("src.core.Strings").load({ strings = preload }) end
@@ -510,6 +520,71 @@ function bootGame(version, cartId, opts)
   Game.speedOverride = (autopilot or driverCo) and 1 or speedOverride
 end
 
+local function showLauncher(version)
+  LaunchOptions.pendingTab = version
+  if not Importer then
+    Importer = makeLauncher({ initialTab = version })
+  end
+end
+
+local function startLaunchRequest(request)
+  if type(request) ~= "table" then return false end
+
+  local version = request.game
+  if request.launcher or not version then
+    if Game then
+      returnToLauncher({ tab = version })
+    else
+      showLauncher(version)
+    end
+    return true
+  end
+
+  local RomImporter = require("src.import.RomImporter")
+  if Game then returnToLauncher() end
+  Importer = nil
+  if Prelaunch then return true end
+
+  local cartId
+  if request.cartSpecified then
+    local ok, cart = pcall(function()
+      return require("src.carts.CartStore").get(request.cart)
+    end)
+    if not ok or type(cart) ~= "table" or cart.base ~= version then
+      showLauncher(version)
+      return true
+    end
+    cartId = request.cart
+  end
+
+  if not RomImporter.isReady(version) then
+    showLauncher(version)
+    return true
+  end
+
+  local function bootShortcut()
+    if request.slot then LaunchOptions.selectSlot(version, request.slot) end
+    launchedIntoGame = true
+    bootGame(version, cartId)
+  end
+
+  Prelaunch = require("src.core.Prelaunch").new({
+    version = version,
+    tasks = request.tasks or {},
+    done = function(outcome)
+      if outcome == "restart" then return end
+      Prelaunch = nil
+      if outcome == "launcher" then
+        showLauncher(version)
+        return
+      end
+      bootShortcut()
+    end,
+  })
+  if not Prelaunch then bootShortcut() end
+  return true
+end
+
 function love.load(args)
   -- Before anything can shell out (update check, mod index, ROM picker),
   -- claim one hidden console on Windows so those children inherit it instead
@@ -555,8 +630,7 @@ function love.load(args)
   -- shows: SDL created the window with no orientation hint, so without this
   -- the launcher would rotate freely until options are applied at boot.
   -- No-op on desktop / iOS / when options.lua does not exist yet.
-  require("src.core.Orientation").applyOptions(
-    require("src.core.SaveData").loadOptions())
+  applySavedOrientation()
 
   -- Standalone editor.  A bare `--editor` run has no launcher behind it, so
   -- Close quits; --save points it at a specific file, otherwise it opens the
@@ -573,13 +647,14 @@ function love.load(args)
   end
 
   local RomImporter = require("src.import.RomImporter")
+  local resolvedLaunch = LaunchOptions.resolveRequest(arg, args)
   local forceImport = os.getenv("POKEPORT_FORCE_IMPORT") == "1"
   local importPath = os.getenv("POKEPORT_IMPORT_ROM")
   -- Scripted / headless runs pick their game from POKEPORT_VERSION, then
   -- POKEPORT_GAME / --game= (LaunchOptions), then Red.  Drivers for Gold
   -- must honor POKEPORT_GAME=gold the same way a desktop shortcut does.
   local scriptedVersion = os.getenv("POKEPORT_VERSION")
-    or LaunchOptions.resolve(arg)
+    or resolvedLaunch.game
     or "red"
   local ready = RomImporter.isReady(scriptedVersion)
   -- Scripted / headless runs have to reach the game with no human pressing
@@ -645,36 +720,17 @@ function love.load(args)
   -- would boot the same game again and that close would restart again,
   -- forever (#887).  Consumed on read, so the very next launch is normal.
   local relaunched = love.filesystem.getInfo(RELAUNCH_MARKER) ~= nil
-  if relaunched then pcall(love.filesystem.remove, RELAUNCH_MARKER) end
+  if relaunched then
+    launchOptionsSuppressed = true
+    pcall(love.filesystem.remove, RELAUNCH_MARKER)
+  end
 
-  local launchGame, launchSlot = LaunchOptions.resolve(arg)
-  if launchGame and not relaunched and not LaunchOptions.forceLauncher(arg) then
-    if RomImporter.isReady(launchGame) then
-      local function bootShortcut()
-        if launchSlot then LaunchOptions.selectSlot(launchGame, launchSlot) end
-        launchedIntoGame = true
-        bootGame(launchGame)
-      end
-      Prelaunch = require("src.core.Prelaunch").new({
-        version = launchGame,
-        tasks = LaunchOptions.tasks(args, arg),
-        done = function(outcome)
-          if outcome == "restart" then return end
-          Prelaunch = nil
-          if outcome == "launcher" then
-            LaunchOptions.pendingTab = launchGame
-            Importer = makeLauncher()
-            return
-          end
-          bootShortcut()
-        end,
-      })
-      if not Prelaunch then bootShortcut() end
-      return
-    end
-    -- Not importable yet: open the launcher already showing that game, so the
-    -- shortcut still lands the player where they meant to go.
-    LaunchOptions.pendingTab = launchGame
+  if not relaunched and resolvedLaunch.game and not resolvedLaunch.launcher
+      and startLaunchRequest(resolvedLaunch) then
+    return
+  end
+  if not relaunched and resolvedLaunch.launcher and resolvedLaunch.game then
+    LaunchOptions.pendingTab = resolvedLaunch.game
   end
 
   -- Interactive: the launcher always runs.  Red, Blue, Yellow, and Gold are
@@ -695,6 +751,8 @@ function love.update(dt)
   if editorMode then return EditorApp.update(dt) end
   if TouchEditor then return TouchEditor.update(dt) end
   if Studio then return Studio.update(dt) end
+  local launchURI = LaunchOptions.pollURI()
+  if launchURI then love.handlers.intent_uri(launchURI) end
   if Prelaunch then return Prelaunch:update(dt) end
   local client = onlineClientModule()
   if client then pcall(client.update, dt) end
@@ -1035,42 +1093,17 @@ function love.handlers.audioreset()
 end
 
 function love.handlers.intent_game(version)
-  if type(version) ~= "string" or version == "" then return end
-  version = version:lower():gsub("^%s+", ""):gsub("%s+$", "")
-  local GameVersion = require("src.core.GameVersion")
-  if GameVersion.VERSIONS and not GameVersion.VERSIONS[version] then return end
+  local request = LaunchOptions.fromGame(version)
+  if request then startLaunchRequest(request) end
+end
 
-  local RomImporter = require("src.import.RomImporter")
-  if not RomImporter.isReady(version) then return end
-
-  local currentVersion = GameVersion.get()
-  if Game and currentVersion == version then
-    return
+function love.handlers.intent_uri(uri)
+  local request = LaunchOptions.parseURI(uri)
+  if request then
+    startLaunchRequest(request)
+  elseif LaunchOptions.isLaunchURI(uri) then
+    startLaunchRequest({})
   end
-
-  if Game then
-    returnToLauncher()
-  end
-  Importer = nil
-  if Prelaunch then return end
-
-  local tasks = LaunchOptions.tasks(arg, arg)
-  tasks.update = false
-  Prelaunch = require("src.core.Prelaunch").new({
-    version = version,
-    tasks = tasks,
-    done = function(outcome)
-      if outcome == "restart" then return end
-      Prelaunch = nil
-      if outcome == "launcher" then
-        LaunchOptions.pendingTab = version
-        Importer = makeLauncher()
-        return
-      end
-      bootGame(version)
-    end,
-  })
-  if not Prelaunch then bootGame(version) end
 end
 
 function love.touchpressed(id, x, y, dx, dy, pressure)
@@ -1327,6 +1360,13 @@ function love.quit()
 end
 
 function love.filedropped(file)
+  local filename = file and file.getFilename and file:getFilename()
+  if LaunchOptions.isLaunchURI(filename) then
+    local request = LaunchOptions.parseURI(filename)
+    if launchOptionsSuppressed then return end
+    startLaunchRequest(request or {})
+    return
+  end
   if editorMode and EditorApp and EditorApp.filedropped then
     return EditorApp.filedropped(file)
   end

@@ -275,6 +275,15 @@ std::string System::getLaunchGame() const
 #endif
 }
 
+std::string System::getLaunchURI() const
+{
+#ifdef LOVE_ANDROID
+	return love::android::getLaunchURI();
+#else
+	return "";
+#endif
+}
+
 bool System::httpDownload(const char *url, const char *destPath,
 	const char *userAgent, const char *accept) const
 {
