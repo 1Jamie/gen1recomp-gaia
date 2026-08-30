@@ -159,7 +159,11 @@ local function deviceSuspended()
   return ChipAudio ~= nil and ChipAudio.isSuspended()
 end
 
--- home/vblank.asm:58-72
+-- Optional one-shot playback rate (Source:setPitch multiplier), capped the
+-- way the cart's audio engine clamps under frame-skip (home/vblank.asm:58-72).
+-- GAME SPEED does NOT drive this: the port keeps SFX at natural pitch at
+-- every multiplier (#1990/#1991/#1997).  Callers may still set it for tests
+-- or a future opt-in; SessionLifecycle resets it on teardown.
 local FF_PITCH_MAX = 4
 local rate = 1
 
@@ -180,7 +184,10 @@ local function applyRate(src, base)
   return src
 end
 
--- home/delay.asm:14
+-- WaitForSoundToFinish budget in logic frames (home/delay.asm:14).
+-- At N× GAME SPEED the same budget passes N× sooner in wall time, so a
+-- gate releases early instead of stalling the battle/script on a full-length
+-- jingle -- without pitching the SFX (#1952 vs #1990).
 function Sound.waitFrames(src, fallback)
   if not src then return 0 end
   local okd, dur = pcall(src.getDuration, src)

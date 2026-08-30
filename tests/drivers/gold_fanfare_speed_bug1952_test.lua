@@ -1,5 +1,6 @@
--- ../pokecrystal/home/vblank.asm:58-72
--- ../pokecrystal/home/delay.asm:14
+-- GAME SPEED must not pitch one-shot SFX (#1990/#1991/#1997).  Wait gates
+-- still release early via their logic-frame budget (#1952); that path is
+-- covered by the engine + Gen 1 battle drivers.
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or os.getenv("POKEPORT_SHOT_DIR") or "/tmp/shots"
@@ -22,8 +23,8 @@ return function(game)
   game.speedOverride = 4
   U.wait(2)
   U.log("gen2 speed override", 4, "sfx rate", Sound.rate())
-  if Sound.rate() ~= 4 then
-    error(("bug1952: Game2:update never drove Sound.setRate (rate %s at 4X)")
+  if Sound.rate() ~= 1 then
+    error(("bug1952: Game2:update pitched SFX off GAME SPEED (rate %s at 4X)")
       :format(tostring(Sound.rate())))
   end
 
@@ -34,8 +35,8 @@ return function(game)
   local okp, pitch = pcall(src.getPitch, src)
   if not (okd and dur) then error("bug1952: no duration for " .. name) end
   U.log(("%s duration %.3fs pitch %s"):format(name, dur, tostring(pitch)))
-  if not (okp and pitch == 4) then
-    error(("bug1952: the gen 2 jingle played at natural pitch (%s)")
+  if not (okp and pitch == 1) then
+    error(("bug1952: the gen 2 jingle was pitched with GAME SPEED (%s)")
       :format(tostring(pitch)))
   end
 
@@ -58,14 +59,16 @@ return function(game)
     end
   end
   if not held then error("bug1952: the gen 2 jingle never ended") end
-  U.log(("held %.3fs of a %.3fs jingle pitched to %s"):format(held, dur, pitch))
-  if held > dur * 0.75 then
-    error(("bug1952: the 4X jingle still ran the full length (%.3fs of %.3fs)")
+  U.log(("held %.3fs of a %.3fs natural-pitch jingle"):format(held, dur))
+  -- Freely playing (no wait gate cutting it) must take roughly the full
+  -- duration -- proof the 4X logic clock did not chipmunk the source.
+  if held < dur * 0.7 then
+    error(("bug1952: the jingle finished early under 4X (%.3fs of %.3fs)")
       :format(held, dur))
   end
-  if held < (dur / pitch) * 0.7 then
-    error(("bug1952: the jingle was cut short (%.3fs of a %.3fs pitched jingle)")
-      :format(held, dur / pitch))
+  if held > dur * 1.4 then
+    error(("bug1952: the jingle dragged past its length (%.3fs of %.3fs)")
+      :format(held, dur))
   end
 
   game.speedOverride = nil
@@ -76,6 +79,6 @@ return function(game)
   end
 
   U.shot(game, DIR .. "/bug1952_gold_after.png")
-  U.log("PASS the gen 2 jingle scaled with the logic clock")
+  U.log("PASS the gen 2 jingle kept natural pitch under GAME SPEED")
   love.event.quit()
 end
