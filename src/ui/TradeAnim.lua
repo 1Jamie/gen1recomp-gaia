@@ -287,8 +287,20 @@ function TradeAnim:advance()
   end
 end
 
+local envSkipAllowed = nil
+
+local function skipAllowed()
+  if envSkipAllowed == nil then
+    envSkipAllowed = os.getenv("POKEPORT_DEV") == "1"
+      or os.getenv("POKEPORT_DRIVER") ~= nil
+  end
+  return envSkipAllowed or _G.POKEPORT_DEV_MODE == true
+end
+
+-- engine/movie/trade.asm:20
 function TradeAnim:skipHeld()
-  return self.game.input:wasPressed("a") or self.game.input:wasPressed("b")
+  if not skipAllowed() then return false end
+  return self.game.input:wasPressed("start")
 end
 
 function TradeAnim:drawFrameBlock(blockId, x, y)

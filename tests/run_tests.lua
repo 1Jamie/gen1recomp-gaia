@@ -1240,8 +1240,53 @@ do
     end
     eq(table.concat(cseq, ","), "anim,drain,crit,se,anim,drain,se",
        "the crit line prints once, effectiveness after every drain")
+    -- data/text/text_2.asm:1144
+    local function rowFor(b, s)
+      for _, r in ipairs(b.queue) do
+        if r.text == s then return r end
+      end
+      return nil
+    end
+    local critRow = rowFor(mhc, "Critical hit!")
+    check(critRow ~= nil and critRow.auto ~= true,
+          "_CriticalHitText ends in prompt, so the crit line waits on A")
+    -- data/text/text_2.asm:1321
+    local seRow = rowFor(mhc, "It's super\neffective!")
+    check(seRow ~= nil and seRow.auto ~= true,
+          "_SuperEffectiveText ends in prompt too")
     unsub()
     Runtime.install(savedE, savedH)
+
+    -- home/text.asm:218
+    local Timing = require("src.core.Timing")
+    local hold = BattleState.newWild(Game, "SNORLAX", 40)
+    hold.queue, hold.current, hold.introSlide = {}, nil, 0
+    hold.phase, hold.afterQueue = "messages", nil
+    local realWasPressed = Input.wasPressed
+    local pressA = false
+    Input.wasPressed = function(_, k) return k == "a" and pressA end
+    local ranNext = false
+    hold:say("Critical hit!")
+    hold:waitNext(20)
+    hold:actNext(function() ranNext = true end)
+    for _ = 1, 600 do
+      hold:update(1 / 60)
+      if hold.msgPrompt then break end
+    end
+    check(hold.msgPrompt == true, "the crit page raises the prompt arrow")
+    for _ = 1, Timing.TEXT_PRE_ADVANCE do hold:update(1 / 60) end
+    pressA = true
+    hold:update(1 / 60)
+    pressA = false
+    check(hold.current == nil and hold.msgHold == true,
+          "PromptText blanks only the arrow, so the page stays held after A")
+    for _ = 1, 600 do
+      hold:update(1 / 60)
+      if ranNext then break end
+    end
+    check(ranNext and hold.msgHold == true,
+          "and it is still drawn through the rows that follow")
+    Input.wasPressed = realWasPressed
   end
   Game.save.party = { Pokemon.new(Data, "SNORLAX", 30) }
   local mh2 = BattleState.newWild(Game, "RATTATA", 5)
@@ -1249,6 +1294,14 @@ do
   mh2:performMove(mh2.enemy, mh2.player, { id = "DOUBLESLAP", pp = 10 })
   check(hasText(mh2, "Hit 5 times!"),
         "enemy multi-hit uses _HitXTimesText (plural, no '(s)')")
+  do
+    local countRow
+    for _, r in ipairs(mh2.queue) do
+      if r.text == "Hit 5 times!" then countRow = r end
+    end
+    check(countRow ~= nil and countRow.auto ~= true,
+          "the hit-count line stays readable until the command menu redraws")
+  end
 
   -- GainedText parity (experience.asm:342-354 + text_2.asm:1207-1226):
   -- the amount from wExpAmountGained, "a boosted" for traded mons,

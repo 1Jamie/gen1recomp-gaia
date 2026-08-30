@@ -361,6 +361,14 @@ function PartyMenu:close()
   if self.game.stack:top() == self then self.game.stack:pop() end
 end
 
+-- engine/battle/core.asm:2329
+function PartyMenu:refuse(text)
+  self.submenu = nil
+  self.subIndex = 1
+  local TextBox = require("src.render.TextBox")
+  self.game.stack:push(TextBox.new(self.game, text))
+end
+
 function PartyMenu:gridNavigation()
   if not self.battle
       or not Runtime.wantsHook("ui.party.grid_navigation") then return false end
@@ -418,8 +426,13 @@ function PartyMenu:update(dt)
         -- (core.asm .partyMenuWasSelected)
         Screens.push(self.game, "SummaryMenu", mon)
       elseif action == "battle_switch" then
-        self.game.stack:pop()
-        self.onSwitch(mon)
+        -- engine/battle/core.asm:2396
+        if self.keepOpen then
+          self.onSwitch(mon, self)
+        else
+          self.game.stack:pop()
+          self.onSwitch(mon)
+        end
         return
       elseif action == "cancel" then
         self.game.stack:pop()

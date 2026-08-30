@@ -342,6 +342,9 @@ function Renderer:beginFrame(transparent)
   self.worldFadeColor = nil
   -- battle-transition wipe, drawn over the whole surface (BattleTransition)
   self.battleWipe = nil
+  -- engine/battle/battle_transitions.asm:28
+  self.wipeSprites = nil
+  self.wipeWox, self.wipeWoy, self.wipeSx, self.wipeSy = nil, nil, nil, nil
   -- whole-surface veil in screen space (battle-transition flash, the
   -- fade in from white after a battle) -- covers the window, not just the
   -- 160x144 letterbox
@@ -1105,6 +1108,8 @@ function Renderer:endFrame(zones, worldZones)
       else
         blit(self.worldCanvas, sx, sy, zones, Sx, Sy, wox, woy, vux, vuy, vuw, vuh)
       end
+      -- engine/battle/battle_transitions.asm:28
+      self.wipeWox, self.wipeWoy, self.wipeSx, self.wipeSy = wox, woy, sx, sy
       -- OBP-baked overworld sprites replay on top of the zone pass (GBC
       -- mode per-object coloring; see PaletteFX.markSpriteRedraw).  Grass
       -- feet-overdraw entries carry `colors` and re-colorize through the
@@ -1267,12 +1272,24 @@ function Renderer:endFrame(zones, worldZones)
     love.graphics.setScissor()
   end
 
-  -- The battle wipe covers the whole surface, letterbox included, so it goes
-  -- over the finished composite rather than under the UI blit.  On hardware
-  -- it is the tilemap being overwritten -- there is nothing it does not cover.
+  -- engine/battle/battle_transitions.asm:1
   if self.battleWipe then
     self:drawBattleWipe(self.battleWipe, vuw, vuh, ox, oy, vpw, vph, Sx, Sy,
                         vux, vuy)
+    -- engine/battle/battle_transitions.asm:169
+    if self.wipeSprites and self.wipeWox
+       and (self.battleWipe.prog or 0) < 1 then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.setScissor(clipToView(vux, vuy, vuw, vuh))
+      love.graphics.push()
+      love.graphics.translate(self.wipeWox, self.wipeWoy)
+      love.graphics.scale(self.wipeSx, self.wipeSy)
+      pcall(self.wipeSprites)
+      love.graphics.pop()
+      love.graphics.setShader()
+      love.graphics.setScissor()
+      love.graphics.setColor(1, 1, 1, 1)
+    end
   end
 
   -- Palette-register effects (BattleTransition_FlashScreen's rBGP writes, the

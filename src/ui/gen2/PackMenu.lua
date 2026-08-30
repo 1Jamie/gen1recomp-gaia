@@ -118,14 +118,30 @@ local function cursorStore(game)
   return mem
 end
 
--- OakThisIsntTheTimeText (data/text/common_2.asm), as the three rows it
--- prints: `text` / `line` / `cont`.  On the cart that is a two-row text box
--- that scrolls once; the PACK's description box here is four rows tall, so all
--- three fit at once and nothing has to scroll.  {PLAYER} is filled in from the
--- save, the way TextBox fills it everywhere else.
+-- home/text.asm:424
+local PAGE, SCROLL, LINE = "\f", "\v", "\n"
+
+-- home/text.asm:397
+local function messagePages(lines)
+  local pages, rows = {}, {}
+  local function flush(scroll)
+    if #rows > 0 then pages[#pages + 1] = rows end
+    rows = scroll and { rows[#rows] or "" } or {}
+  end
+  for _, line in ipairs(lines or {}) do
+    if line == PAGE then flush(false)
+    elseif line == SCROLL then flush(true)
+    else rows[#rows + 1] = line end
+  end
+  flush(false)
+  return pages
+end
+
+-- data/text/common_2.asm:627
 local OAK_THIS_ISNT_THE_TIME = {
   "OAK: {PLAYER}!",
   "This isn't the",
+  SCROLL,
   "time to use that!",
 }
 
@@ -133,9 +149,11 @@ local OAK_THIS_ISNT_THE_TIME = {
 -- names REPEL no matter which of the three repel items is the one actually
 -- still ticking down -- the cart never reads the active item back out to
 -- print it.
+-- ../pokecrystal/data/text/common_3.asm:1270 -- `cont` again, so two pages.
 local REPEL_STILL_ACTIVE = {
   "The REPEL used",
   "earlier is still",
+  SCROLL,
   "in effect.",
 }
 
@@ -317,6 +335,18 @@ function PackMenu:playSfx(name)
   if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
 end
 
+function PackMenu:showMessage(lines)
+  self.message, self.messagePage = lines, 1
+  self.pagesSource, self.pages = lines, messagePages(lines)
+end
+
+function PackMenu:pagesFor(lines)
+  if self.pagesSource ~= lines then
+    self.pagesSource, self.pages = lines, messagePages(lines)
+  end
+  return self.pages
+end
+
 function PackMenu:ensureVisible()
   if self.index <= self.scroll then
     self.scroll = self.index - 1
@@ -393,7 +423,7 @@ function PackMenu:useSelected()
   if self:inBattle() then
     local def = self.items and self.items[row.id]
     if def and def.battleMenu == "ITEMMENU_NOUSE" then
-      self.message = OAK_THIS_ISNT_THE_TIME
+      self:showMessage(OAK_THIS_ISNT_THE_TIME)
       return
     end
     if self.onChoose then
@@ -407,32 +437,29 @@ function PackMenu:useSelected()
   if world and world.useFieldItem then result, extra = world:useFieldItem(row.id) end
   if result then
     if result == "nowhere" then
-      self.message = OAK_THIS_ISNT_THE_TIME
+      self:showMessage(OAK_THIS_ISNT_THE_TIME)
     elseif result == "coin_case" then
       -- _CoinCaseCountText (data/text/common_3.asm:336): "Coins:" then the
       -- count, text_decimal 4 digits with PRINTNUM_LEFTALIGN_F so no padding.
-      self.message = { "Coins:", tostring(extra or 0) }
+      self:showMessage({ "Coins:", tostring(extra or 0) })
     elseif result == "blue_card" then
       -- _BlueCardBalanceText (../pokecrystal/data/text/common_3.asm:1297).
-      self.message = { "You now have", tostring(extra or 0) .. " points." }
+      self:showMessage({ "You now have", tostring(extra or 0) .. " points." })
     elseif result == "repel_used" then
       -- ItemUsedText (data/text/common_3.asm): "<PLAYER> used the\n<ITEM>."
       -- World already wrote the counter and took the item out of the bag, so
       -- the row list is rebuilt under the message the way a TOSS would.
-      self.message = { Strings("{PLAYER} used the"), row.name .. "." }
+      self:showMessage({ Strings("{PLAYER} used the"), row.name .. "." })
       self:rebuild()
     elseif result == "repel_active" then
-      self.message = REPEL_STILL_ACTIVE
+      self:showMessage(REPEL_STILL_ACTIVE)
     elseif result == "trophy_sent" then
-      -- _SentTrophyHomeText (data/text/common_3.asm).  Two pages on the cart
-      -- with sound_dex_fanfare_50_79 between them; the PACK's box here holds
-      -- all four rows at once, the way OAK_THIS_ISNT_THE_TIME's three fit.
-      -- World has already set the decoration's flag and taken the box.
+      -- ../pokecrystal/data/text/common_3.asm:1338
       if world.playSfxNamed then
         world:playSfxNamed("Sfx_DexFanfare5079", SFX_DEX_FANFARE_50_79)
       end
-      self.message = { "There was a trophy", "inside!",
-                       "{PLAYER} sent the", "trophy home." }
+      self:showMessage({ "There was a trophy", "inside!", PAGE,
+                         "{PLAYER} sent the", "trophy home." })
       self:rebuild()
     else
       self:exitToField()
@@ -457,7 +484,7 @@ function PackMenu:useSelected()
       return
     end
     if def and def.fieldMenu == "ITEMMENU_NOUSE" then
-      self.message = OAK_THIS_ISNT_THE_TIME
+      self:showMessage(OAK_THIS_ISNT_THE_TIME)
       return
     end
   end
@@ -597,7 +624,7 @@ end
 -- -- the item is untouched and the PACK is exactly where it was.
 function PackMenu:tossItem(row)
   if not row then return end
-  self.message = TOSS_HOW_MANY
+  self:showMessage(TOSS_HOW_MANY)
   self.qtyState = {
     row = row,
     qty = 1,
@@ -617,7 +644,7 @@ function PackMenu:confirmToss()
     onYes = function()
       Bag.remove(self.save, row.id, qty)
       self:rebuild()
-      self.message = { "Threw away", row.name .. "(S)." }
+      self:showMessage({ "Threw away", row.name .. "(S)." })
     end,
   }
 end
@@ -634,7 +661,7 @@ function PackMenu:giveItem(row)
   local game = self.game
   local party = (self.save and self.save.party) or {}
   if #party == 0 then
-    self.message = NO_POKEMON
+    self:showMessage(NO_POKEMON)
     return
   end
   if not (game and game.stack) then return end
@@ -684,7 +711,7 @@ function PackMenu:openTeachParty(row)
   local game = self.game
   local party = (self.save and self.save.party) or {}
   if #party == 0 then
-    self.message = NO_POKEMON
+    self:showMessage(NO_POKEMON)
     return
   end
   if not (game and game.stack) then return end
@@ -765,9 +792,16 @@ function PackMenu:update(_dt)
     self:updateSwitch(input)
     return
   end
+  -- home/joypad.asm:383
   if self.message then
     if input:wasPressed("a") or input:wasPressed("b") then
-      self.message = nil
+      local page = (self.messagePage or 1) + 1
+      if page <= #self:pagesFor(self.message) then
+        self.messagePage = page
+        self:playSfx("Sfx_ReadText2")
+      else
+        self.message, self.messagePage = nil, nil
+      end
     end
     return
   end
@@ -836,7 +870,7 @@ function PackMenu:armSwitch()
   if self:isCancel() then return end
   if not self.rows[self.index] then return end
   self.switching = self.index
-  self.message = ASK_ITEM_MOVE
+  self:showMessage(ASK_ITEM_MOVE)
 end
 
 -- `.switching_item` (engine/items/pack.asm:1297): A or SELECT places, B backs
@@ -870,7 +904,7 @@ end
 
 function PackMenu:endSwitch()
   self.switching = nil
-  self.message = nil
+  self.message, self.messagePage = nil, nil
 end
 
 -- VerticalMenu over the submenu rows: up/down wrap, A picks, B is the carry
@@ -905,12 +939,12 @@ function PackMenu:updateQuantity(input)
     state.qty = qtyStep(state.qty, state.max, -10)
   elseif input:wasPressed("a") then
     self:playSfx("Sfx_ReadText2")
-    self.message = nil
+    self.message, self.messagePage = nil, nil
     self:confirmToss()
   elseif input:wasPressed("b") then
     self:playSfx("Sfx_ReadText2")
     self.qtyState = nil
-    self.message = nil
+    self.message, self.messagePage = nil, nil
   end
 end
 
@@ -952,10 +986,10 @@ function PackMenu:registerSelected()
     -- engine/items/pack.asm:551
     self:playSfx("Sfx_FullHeal")
     -- RegisteredItemText: "Registered the\n<item>."
-    self.message = { Strings("Registered the"), row.name .. "." }
+    self:showMessage({ Strings("Registered the"), row.name .. "." })
   else
     -- CantRegisterText: "You can't register\nthat item."
-    self.message = { Strings("You can't register"), Strings("that item.") }
+    self:showMessage({ Strings("You can't register"), Strings("that item.") })
   end
 end
 
@@ -1044,12 +1078,10 @@ function PackMenu:drawDescription(ty)
   local lines = self.message or (self.confirm and self.confirm.prompt)
   if lines then
     local name = self:playerName()
-    -- TEXTBOX_INNERY and home/text.asm:397 LineChar: rows 14 and 16 (#1725).
-    -- Only a message too tall for those two packs its rows one apart.
-    local top, step = ty, 2
-    if #lines > 2 then top, step = ty - 1, 1 end
-    for i, line in ipairs(lines) do
-      Chrome.printThrough((line:gsub("{PLAYER}", name)), 1, top + (i - 1) * step,
+    -- home/text.asm:397
+    local page = self:pagesFor(lines)[self.messagePage or 1] or {}
+    for i, line in ipairs(page) do
+      Chrome.printThrough((line:gsub("{PLAYER}", name)), 1, ty + (i - 1) * 2,
         Chrome.DEFAULT_BOX_PALETTE)
     end
     return
@@ -1062,7 +1094,7 @@ function PackMenu:drawDescription(ty)
   -- text box uses.  PrintItemDescription writes them from decoord 1, 14, so
   -- the second line is row 16.  '\n' covers hand-written data.
   local first, second = description:match("^(.-)<NEXT>(.*)$")
-  if not first then first, second = description:match("^(.-)\n(.*)$") end
+  if not first then first, second = description:match("^(.-)" .. LINE .. "(.*)$") end
   Chrome.printThrough(first or description, 1, ty, Chrome.DEFAULT_BOX_PALETTE)
   if second then Chrome.printThrough(second, 1, ty + 2, Chrome.DEFAULT_BOX_PALETTE) end
 end

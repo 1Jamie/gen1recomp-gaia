@@ -60,9 +60,7 @@ local PARAGRAPH_FRAMES = 20
 
 -- gfx/sgb/predef.pal PREDEFPAL_BLACKOUT, through the extractor's own 5-bit to
 -- 8-bit scale (floor(v * 255 / 31 + 0.5)).
-local BLACKOUT = {
-  { 255, 255, 255 }, { 58, 58, 58 }, { 16, 25, 25 }, { 0, 0, 0 },
-}
+local BLACKOUT = Palettes.BLACKOUT
 
 -- NUM_SPRITE_ANIM_STRUCTS.  InitSpriteAnimStruct refuses once the pool is
 -- full, so the balls of light cap out at ten on screen no matter how many

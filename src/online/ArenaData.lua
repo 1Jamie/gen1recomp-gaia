@@ -11,6 +11,7 @@ local Version = require("src.core.Version")
 local ArenaData = {}
 
 local rulesetMemo = {}
+local speciesMemo = {}
 
 local FIELDS = {
   { key = "engine", text = "engine differs" },
@@ -113,6 +114,31 @@ function ArenaData.forget(version)
   end
   pcall(SaveData.saveOptions, { arenaProfiles = bucket })
   if version then rulesetMemo[version] = nil else rulesetMemo = {} end
+  if version then speciesMemo[version] = nil else speciesMemo = {} end
+end
+
+function ArenaData.speciesIds(version)
+  if not GameVersion.VERSIONS[version] then return nil end
+  local hit = speciesMemo[version]
+  if hit then return hit end
+  local Trade = require("src.online.Trade")
+  if Trade.mounted() or Trade.gameIsLive() then return nil end
+  local prevVersion, prevPrefix = GameVersion.get(), CacheFs.prefix
+  local ok, rows = pcall(function()
+    GameVersion.set(version)
+    CacheFs.prefix = GameVersion.cachePrefix(version)
+    CacheFs.mountVersion(version)
+    return CacheFs.loadActive("data/generated/pokemon.lua")
+  end)
+  pcall(CacheFs.unmountVersion, version)
+  GameVersion.set(prevVersion)
+  CacheFs.prefix = prevPrefix
+  if not ok or type(rows) ~= "table" then return nil end
+  local out = {}
+  for id in pairs(rows) do out[id] = true end
+  if next(out) == nil then return nil end
+  speciesMemo[version] = out
+  return out
 end
 
 local function gen2Dataset()

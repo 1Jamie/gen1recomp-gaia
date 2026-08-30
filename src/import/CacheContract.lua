@@ -111,6 +111,8 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/intro.lua",
     "assets/generated/fonts/font.png",
     "assets/generated/fonts/frames.png",
+    -- ../pokecrystal/gfx/font.asm:60
+    "assets/generated/fonts/map_entry_sign.png",
     "assets/generated/title/crystal_logo.png",
     "assets/generated/title/crystal_wordmark.png",
     "assets/generated/title/crystal_suicune.png",

@@ -2,7 +2,8 @@
 -- turn (#379).  pokered engine/items/item_effects.asm:1-3 leaves
 -- wActionResultOrTookBattleTurn at its success value, and ItemUseMedicine only
 -- clears it on .healingItemNoEffect (:1241), so a medicine that lands costs
--- the turn; the party-menu bar fill is the field case (#252).  Data half:
+-- the turn; the party-menu bar fill runs in battle too, and the turn is spent
+-- when its message is dismissed (item_effects.asm:1189, #252, #1946).  Data half:
 -- tests/parity_battle_item_turn.lua.  Never under POKEPORT_SPEED: fast-forward
 -- desynchronizes SFX_HEAL_HP from the bar.
 --   POKEPORT_DRIVER=tests/drivers/battle_item_turn_bug379_test.lua POKEPORT_IDENTITY=bug379 POKEPORT_TOUCH=0 POKEPORT_VERSION=red love .
@@ -76,7 +77,8 @@ return function(game)
           type(extra) == "table" and extra.healedFrom == 4)
     check("...with the restored-HP message",
           type(msgs) == "table" and type(msgs[1]) == "string"
-          and msgs[1]:find("restored", 1, true) ~= nil)
+          and (msgs[1]:find("restored", 1, true)
+               or msgs[1]:find("recovered by", 1, true)) ~= nil)
   end
 
   -- ---- fixture -----------------------------------------------------------
@@ -193,35 +195,42 @@ return function(game)
     local picker = top()
     check("the party picker opened to pick a target", isPicker(picker))
     if isPicker(picker) then
-      check("keepOpen is off in battle (the fill is the field case, #252)",
-            picker.keepOpen ~= true)
+      check("keepOpen is on in battle too (item_effects.asm:805, #1946)",
+            picker.keepOpen == true)
       cursorTo(picker, 1)
       U.tap(game, "a")
-      U.wait(10)
+      U.wait(2)
 
       check("the mon was healed", lead.hp > 12)
-      check("no party-menu bar fill was started in battle", picker.heal == nil)
-      check("the picker popped itself", not inStack(isPicker))
-      check("the bag list closed underneath it", not inStack(isBag))
+      check("the party-menu bar fill started (#1946)", picker.heal ~= nil)
+      check("with the picker still up (#1946)", inStack(isPicker))
+      U.shot(game, DIR .. "/bug379_party_fill.png")
 
-      -- THE DEFECT: the animate branch swallowed this message, and with it the
-      -- itemUsed tail that spends the turn
-      for _ = 1, 60 do
+      for _ = 1, 200 do
         if isBox(top()) then break end
         U.wait(1)
       end
       local box = top()
       check("the restored-HP message printed (#379)", isBox(box))
+      check("...over the still-drawn party menu (#1946)", inStack(isPicker))
       if isBox(box) then
         U.wait(50)
         local said = boxText(box)
         U.log("box reads:", said)
         check("...and it is the restored-HP line",
-              said:find("restored", 1, true) ~= nil)
+              (said:find("restored", 1, true)
+               or said:find("recovered by", 1, true)) ~= nil)
         U.shot(game, DIR .. "/bug379_message_in_battle.png")
+        for _ = 1, 20 do
+          if not isBox(top()) then break end
+          U.tap(game, "a")
+          U.wait(6)
+        end
+        U.wait(20)
+        check("dismissing it closed the picker", not inStack(isPicker))
+        check("and the bag list underneath it", not inStack(isBag))
       end
 
-      -- the turn: drain, the foe's move, end-of-turn, back to the menu
       for _ = 1, 400 do
         if battle.phase == "menu" and #battle.queue == 0 then break end
         U.tap(game, "a")
@@ -285,9 +294,11 @@ return function(game)
   end
 
   U.log("The ITEMS list is open mid-battle with the cursor on POTION. Press A,")
-  U.log("pick CHARIZARD: the picker and the list both close, \"CHARIZARD's HP was")
-  U.log("restored!\" prints with the heal chime, the HUD bar climbs, then PIDGEY")
-  U.log("attacks before FIGHT comes back. #379 was no message and a free heal.")
+  U.log("pick CHARIZARD: the PARTY MENU stays up, its own HP bar climbs with the")
+  U.log("heal chime, \"CHARIZARD's HP was restored!\" prints under the list, and")
+  U.log("only on A does the list come down with the HUD already at the new HP,")
+  U.log("PIDGEY attacking before FIGHT returns. #1946 was the battle scene")
+  U.log("printing first and the HUD bar animating after. #379 was a free heal.")
 
   while true do
     coroutine.yield()

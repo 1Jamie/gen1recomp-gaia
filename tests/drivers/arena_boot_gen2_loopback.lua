@@ -129,7 +129,7 @@ return function(game)
   }
   local guest, why = LinkBattle2.newGuest(guestGame, ctx.guestNet, {
     myParty = ctx.guestParty,
-    theirParty = ctx.hostParty,
+    theirParty = ctx.hostParty or (arena.spec and arena.spec.myParty),
     theirName = "GOLD",
     seed = ctx.seed,
     verdict = "full",

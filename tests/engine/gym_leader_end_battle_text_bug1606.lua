@@ -35,15 +35,17 @@ end
 
 local fakeGame = { data = { text = text }, save = { flags = {} } }
 
-local armed, armedSound
+local armed, armedSound, armedSoundPage
 local fakeOw = {
-  engageTrainer = function(_, _, _, endBattleText, _, endBattleSound)
-    armed, armedSound = endBattleText, endBattleSound
+  engageTrainer = function(_, _, _, endBattleText, _, endBattleSound, _,
+                           endBattleSoundPage)
+    armed, armedSound, armedSoundPage =
+      endBattleText, endBattleSound, endBattleSoundPage
   end,
 }
 
 local function armedFor(mapId, textId, victoryKey)
-  armed, armedSound = nil, nil
+  armed, armedSound, armedSoundPage = nil, nil, nil
   gyms[mapId].talk[textId](fakeGame, fakeOw, { id = "npc#1" }, function() end)
   local labels = victories[victoryKey].dialogue
   local want = {}

@@ -188,13 +188,13 @@ do
   local result = ItemEffects.useOnMon("POTION", mon, DATA)
   eq(result.used, true, "a POTION on a hurt mon is spent")
   eq(mon.hp, 30, "and heals HealingHPAmounts' 20")
-  eq(result.text, "CYNDAQUIL\nrecovered 20 HP!", "with the cart's line")
+  eq(result.text, "CYNDAQUIL\nrecovered 20HP!", "with the cart's line")
 
   local capped = fixtureMon(12, { hp = mon.maxHp - 5 })
   local capResult = ItemEffects.useOnMon("HYPER_POTION", capped, DATA)
   eq(capResult.used, true, "a heal near full HP still lands")
   eq(capped.hp, capped.maxHp, "capped at max HP")
-  eq(capResult.text, "CYNDAQUIL\nrecovered 5 HP!", "printing the real delta")
+  eq(capResult.text, "CYNDAQUIL\nrecovered 5HP!", "printing the real delta")
 
   local full = fixtureMon(12)
   eq(ItemEffects.useOnMon("POTION", full, DATA).used, false,
@@ -444,16 +444,18 @@ do
   eq(party.prompt, "Use on which <PK><MN>?",
     "under UseOnWhichPKMNString")
   -- Pick the first mon: the real PartyMenu update loop takes the A press.
-  drive(host, function()
-    return host.stack:top() ~= party
-  end)
-  local box = host.stack:top()
-  check(box ~= nil and box.pages ~= nil, "the pick lands a TextBox")
+  drive(host, function() return party.itemResult ~= nil end)
+  -- engine/items/item_effects.asm:1748
+  check(party.itemResult ~= nil, "the pick stays in the party list")
+  eq(party.itemResult.text, "CYNDAQUIL\nrecovered 20HP!",
+    "with PARTYMENUTEXT_HEAL_HP in the list's box")
+  eq(party.itemResult.shown, 10, "the bar starts at the pre-heal HP")
+  eq(party.itemResult.target, 30, "and climbs to the healed value")
   eq(host.save.party[1].hp, 30, "the POTION healed through the real menu")
   eq(host.save.inventory.POTION, 1, "and one POTION left the pack")
   drive(host, function() return host.stack:top() == packSentinel end)
   eq(host.stack:top(), packSentinel,
-    "dismissing the message returns to the pack, not past it")
+    "the button returns to the pack, not past it")
 end
 
 do

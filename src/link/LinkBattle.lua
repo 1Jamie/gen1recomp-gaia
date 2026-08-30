@@ -364,8 +364,15 @@ function LinkBattle.new(game, net, opts)
         battle = s,
         party = myParty,
         forceSwitch = true,
-        onSwitch = function(mon)
-          if mon.hp > 0 then s.linkReplacement = mon end
+        keepOpen = true,
+        onSwitch = function(mon, menu)
+          -- engine/battle/core.asm:1473-1488
+          if mon.hp <= 0 then
+            if menu then menu:refuse(Strings("There's no will\nto fight!")) end
+            return
+          end
+          s.linkReplacement = mon
+          if menu then menu:close() end
         end,
       })
     end)
@@ -615,14 +622,21 @@ function LinkBattle.new(game, net, opts)
       return s:buildScreen("PartyMenu", {
         battle = s,
         party = myParty,
-        onSwitch = function(mon)
+        keepOpen = true,
+        onSwitch = function(mon, menu)
+          -- engine/battle/core.asm:2329
+          local refusal
           if mon == s.player.mon then
-            s:say(Strings("%s is\nalready out!", s.player.name))
+            refusal = Strings("%s is\nalready out!", s.player.name)
           elseif mon.hp <= 0 then
-            s:say(Strings("There's no will\nto fight!"))
-          else
-            s:resolveSwitch(mon)
+            refusal = Strings("There's no will\nto fight!")
           end
+          if refusal then
+            if menu then menu:refuse(refusal) else s:say(refusal) end
+            return
+          end
+          if menu then menu:close() end
+          s:resolveSwitch(mon)
         end,
       })
     end)

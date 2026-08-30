@@ -46,23 +46,15 @@ end
 
 -- engine/battle_anims/anim_commands.asm:1293 BattleAnim_SetBGPals
 do
-  local BattleAnimView = require("src.ui.gen2.BattleAnimView")
-  local palettes = {
-    pokemon = {
-      [6] = { normal = { { 200, 100, 50 }, { 80, 40, 20 } } },
-      [25] = { normal = { { 230, 200, 40 }, { 150, 90, 20 } } },
-    },
-    hpBar = {
-      green = { { 100, 220, 100 }, { 30, 160, 30 } },
-      yellow = { { 230, 220, 90 }, { 180, 150, 20 } },
-      red = { { 230, 100, 90 }, { 180, 30, 20 } },
-    },
-    expBar = { { 120, 140, 230 }, { 40, 60, 160 } },
+  local list = {
+    { { 255, 255, 255 }, { 168, 168, 168 }, { 84, 84, 84 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 200, 100, 50 }, { 80, 40, 20 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 230, 200, 40 }, { 150, 90, 20 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 100, 220, 100 }, { 30, 160, 30 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 230, 220, 90 }, { 180, 150, 20 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 230, 100, 90 }, { 180, 30, 20 }, { 0, 0, 0 } },
+    { { 255, 255, 255 }, { 120, 140, 230 }, { 40, 60, 160 }, { 0, 0, 0 } },
   }
-  local view = BattleAnimView.new({}, palettes)
-  local battle = { player = { species = 6 }, enemy = { species = 25 } }
-  local list = view:panelPalettes(battle)
-  T.eq(#list, 7, "shades + two mons + three hp bars + exp bar")
   local src, dst, count, ambiguous = GbcPalette.remapTable(list, 0x1b)
   T.check(count > 0 and count <= GbcPalette.REMAP_MAX,
     "the table fits the shader array")

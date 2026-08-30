@@ -87,6 +87,9 @@ Apricorns.DAILY_ENGINE_FLAGS = {
   { id = 90, name = "ENGINE_GOLDENROD_DEPT_STORE_TM27_RETURN" },
   { id = 91, name = "ENGINE_DAISYS_GROOMING" },
   { id = 92, name = "ENGINE_INDIGO_PLATEAU_RIVAL_FIGHT" },
+  -- ../pokecrystal/constants/engine_flags.asm:113-114
+  { name = "ENGINE_DAILY_MOVE_TUTOR" },
+  { name = "ENGINE_BUENAS_PASSWORD" },
 }
 
 -- ENGINE_ALL_FRUIT_TREES, the wDailyFlags1 bit TryResetFruitTrees tests before
@@ -372,7 +375,7 @@ Apricorns.updateTimeRemaining = updateTimeRemaining
 --
 -- When it is, wDailyFlags1 and wDailyFlags2 are cleared whole and the timer
 -- restarts.  Returns true on the frames the rollover actually happened.
-function Apricorns.checkDailyResetTimer(save, now)
+function Apricorns.checkDailyResetTimer(save, now, resolveId)
   if type(save) ~= "table" then return false end
   if not save.dailyReset then
     Apricorns.startDailyResetTimer(save, now)
@@ -386,7 +389,7 @@ function Apricorns.checkDailyResetTimer(save, now)
     since.days)
   timer.remaining = remaining
   if not expired then return false end
-  Apricorns.dailyReset(save)
+  Apricorns.dailyReset(save, resolveId)
   Apricorns.startDailyResetTimer(save, now)
   return true
 end
@@ -396,11 +399,16 @@ end
 -- a thing anyone checks for -- which is also why finishing the Bug Contest
 -- (ENGINE_DAILY_BUG_CONTEST) and refilling every fruit tree
 -- (ENGINE_ALL_FRUIT_TREES) happen on the same tick.
-function Apricorns.dailyReset(save)
+-- ../pokecrystal/constants/engine_flags.asm:25,113-114
+function Apricorns.dailyReset(save, resolveId)
   local flags = engineFlags(save)
   if not flags then return end
   for _, row in ipairs(Apricorns.DAILY_ENGINE_FLAGS) do
-    flags[row.id] = nil
+    if row.id then flags[row.id] = nil end
+    if resolveId then
+      local id = resolveId(row.name, row.id)
+      if id then flags[id] = nil end
+    end
   end
   -- The port keeps a couple of these under names as well as ids
   -- (src/script/gen2/Specials.lua's ActivateFishingSwarm writes

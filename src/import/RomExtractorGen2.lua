@@ -423,6 +423,9 @@ end
 local UNOWN_FONT_TILES = 27
 local UNOWN_FONT_WIDE = 3
 
+-- ../pokecrystal/engine/events/map_name_sign.asm:129
+local MAP_SIGN_TILES = 14
+
 function RomExtractorGen2:extractFont()
   self:beginStage("Fonts")
   local font = self:symbol("Font")
@@ -546,6 +549,18 @@ function RomExtractorGen2:extractFont()
     data.unownWide = UNOWN_FONT_WIDE
     data.unownBase = 0x40 -- FIRST_UNOWN_CHAR
     data.source = data.source .. ", UnownFont"
+  end
+  -- ../pokecrystal/gfx/font.asm:60
+  -- ../pokecrystal/engine/events/map_name_sign.asm:127-132
+  if self.symbols["MapEntryFrameGFX"] then
+    local sign = self:symbol("MapEntryFrameGFX")
+    self:write2bpp(
+      self.rom:bytes(sign.bank, sign.address, MAP_SIGN_TILES * 16),
+      MAP_SIGN_TILES * 8, 8, "fonts/map_entry_sign.png")
+    data.imageMapSign = "assets/generated/fonts/map_entry_sign.png"
+    data.mapSignTiles = MAP_SIGN_TILES
+    data.mapSignBase = 0x60
+    data.source = data.source .. ", MapEntryFrameGFX"
   end
   self:tick("Fonts", 4, 5)
 
@@ -2427,7 +2442,9 @@ function RomExtractorGen2:extractCredits()
       CREDITS_THEEND_TILES * 16), 64, 16, "credits/theend.png")
     data.theEnd = "assets/generated/credits/theend.png"
     -- Credits_TheEnd: hlcoord 6, 8 and 6, 9, eight tiles apiece.
-    data.theEndX, data.theEndY, data.theEndWidth = 6, 8, 8
+    -- ../pokecrystal/engine/movie/credits.asm:595
+    data.theEndX, data.theEndWidth = 6, 8
+    data.theEndY = (self.edition == "crystal") and 9 or 8
   end
   self:tick("Credits", 2, steps)
 
@@ -2452,11 +2469,15 @@ function RomExtractorGen2:extractCredits()
 
   if self.symbols["CreditsPalettes"] then
     local pal = self:symbol("CreditsPalettes")
+    -- ../pokecrystal/engine/movie/credits.asm:502
+    local crystal = (self.edition == "crystal")
+    local setCount = crystal and 12 or 6
     local palettes = {}
-    for set = 0, 5 do
+    for set = 0, setCount - 1 do
       palettes[set + 1] = self:colors(pal.bank, pal.address + set * 8, 4)
     end
     data.palettes = palettes
+    data.palettesPerScene = crystal and 3 or 1
   end
   self:tick("Credits", steps, steps)
 

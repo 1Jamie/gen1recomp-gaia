@@ -2332,10 +2332,11 @@ function SaveData.validate(save, data)
   end
   scrubItemMap(save.inventory, "inventory", save, data, report)
   scrubItemMap(save.pcItems, "pcItems", save, data, report)
-  if type(save.bagOrder) == "table" then
-    for i = #save.bagOrder, 1, -1 do
-      if not known(data.items, save.bagOrder[i]) then
-        table.remove(save.bagOrder, i)
+  for _, key in ipairs({ "bagOrder", "pcOrder" }) do
+    local order = save[key]
+    if type(order) == "table" then
+      for i = #order, 1, -1 do
+        if not known(data.items, order[i]) then table.remove(order, i) end
       end
     end
   end
@@ -2470,7 +2471,8 @@ function SaveData.newGame(boot)
   local map = boot.startMap or "REDS_HOUSE_2F"
   local x, y = boot.startX or 3, boot.startY or 6
   local facing = boot.startFacing or "down"
-  if map == "REDS_HOUSE_2F" and boot.version ~= "yellow" then facing = "up" end
+  -- scripts/RedsHouse2F.asm:14
+  if map == "REDS_HOUSE_2F" then facing = "up" end
   local heal = SaveData.defaultHeal(boot)
   local save = {
     meta = { format = Version.saveFormat, mods = {} },

@@ -476,11 +476,11 @@ function Music.mapSong()
   return state.mapSong
 end
 
-function Music.restoreMap(data)
+function Music.restoreMap(data, reason)
   state.current = nil
   state.pendingRestore = nil
   local play = effectiveMapSong(data, state.mapSong)
-  if play then Music.play(data, play, nil, { reason = "map" }) end
+  if play then Music.play(data, play, nil, { reason = reason or "map" }) end
 end
 
 -- Overwrite the remembered map song without playing anything: the wMapMusic

@@ -138,8 +138,7 @@ local function bitterHappiness(itemId, mon)
 end
 
 -- ItemRestoreHP: fainted and full-HP targets refuse before anything is spent,
--- then RestoreHealth adds the HealingHPAmounts row capped at max HP and
--- PARTYMENUTEXT_HEAL_HP prints the delta ("<name>\nrecovered NN HP!").
+-- then RestoreHealth adds the HealingHPAmounts row capped at max HP.
 local function restoreHp(itemId, mon)
   local amount = ItemEffects.HEAL_HP[itemId]
   local maxHp = maxHpOf(mon)
@@ -154,7 +153,9 @@ local function restoreHp(itemId, mon)
   bitterHappiness(itemId, mon)
   return {
     used = true,
-    text = ("%s\nrecovered %d HP!"):format(monName(mon), gained),
+    -- data/text/common_1.asm:30
+    -- home/text.asm:772
+    text = ("%s\nrecovered %dHP!"):format(monName(mon), gained),
   }
 end
 

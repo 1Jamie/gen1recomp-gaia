@@ -255,7 +255,11 @@ function Protocol.packMon2(mon)
     -- struct and both of which outlive a trade
     happiness = mon.happiness,
     pokerus = mon.pokerus,
+    -- ../pokecrystal/constants/pokemon_data_constants.asm:93-99
     caughtLevel = mon.caughtLevel,
+    caughtTime = mon.caughtTime,
+    caughtLocation = mon.caughtLocation,
+    caughtByGender = mon.caughtByGender,
     ot = mon.ot or mon.otName,
     otId = mon.otId,
     -- an egg is a party slot the cart marks by writing EGG into wPartySpecies;
@@ -364,7 +368,7 @@ function Protocol.unpackMon2(data, packed, opts)
     happiness = math.max(0, math.min(255,
       math.floor(num(packed.happiness, 70)))),
     pokerus = math.max(0, math.min(255, math.floor(num(packed.pokerus, 0)))),
-    caughtLevel = math.max(1, math.min(Mon.MAX_LEVEL,
+    caughtLevel = math.max(0, math.min(Mon.MAX_LEVEL,
       math.floor(num(packed.caughtLevel, level)))),
     ot = ot,
     otName = ot,
@@ -374,6 +378,15 @@ function Protocol.unpackMon2(data, packed, opts)
   if packed.isEgg then
     mon.isEgg = true
     mon.eggSteps = math.max(0, math.floor(num(packed.eggSteps, 0)))
+  end
+  -- ../pokecrystal/engine/pokemon/caught_data.asm:169-199
+  if packed.caughtTime ~= nil or packed.caughtLocation ~= nil
+      or packed.caughtByGender ~= nil then
+    mon.caughtTime = math.max(0, math.min(3,
+      math.floor(num(packed.caughtTime, 0))))
+    mon.caughtLocation = math.max(0, math.min(Mon.CAUGHT_LOCATION_MASK,
+      math.floor(num(packed.caughtLocation, 0))))
+    mon.caughtByGender = Mon.caughtGenderOf(packed.caughtByGender) or "boy"
   end
   -- Derived from the DVs on the RECEIVING side, exactly as they were derived on
   -- the sending one: shininess, gender and an Unown's letter are all functions

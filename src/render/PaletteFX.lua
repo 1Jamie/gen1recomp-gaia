@@ -416,6 +416,10 @@ function PaletteFX.spriteRedrawPassActive()
   return currentPass == "world"
 end
 
+function PaletteFX.pass()
+  return currentPass
+end
+
 function PaletteFX.spriteRedraws()
   return spriteRedraws
 end
@@ -735,6 +739,16 @@ function PaletteFX.spriteObp(spriteDef, seed)
     group = h % 4
   end
   return PaletteFX.darkObp(w.spritePalettes[group], group)
+end
+
+-- engine/overworld/healing_machine.asm:74
+-- color/data/spritepalettes.asm:2
+PaletteFX.HEAL_MACHINE_GROUP = 4
+
+function PaletteFX.healMachineObp()
+  local w = PaletteFX.worldPack()
+  return w and w.spritePalettes
+     and w.spritePalettes[PaletteFX.HEAL_MACHINE_GROUP] or nil
 end
 
 -- GetHealthBarColor (home/palettes.asm) on the standard 48px bar.  It reads

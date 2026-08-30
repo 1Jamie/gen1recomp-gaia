@@ -298,6 +298,7 @@ function EffectRegistry.runDamaging(battle, ctx, record)
     -- (:3228-3229), which is where the beat before "It's super effective!"
     -- comes from.
     battle:waitNext(Timing.CRIT_OHKO_TEXT)
+    -- engine/battle/display_effectiveness.asm:1
     if info.typeMult > 10 then
       battle:sayNext(romText(battle.data, "_SuperEffectiveText", "It's super\neffective!"))
     elseif info.typeMult < 10 then

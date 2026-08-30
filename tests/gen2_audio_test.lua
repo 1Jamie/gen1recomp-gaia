@@ -146,9 +146,54 @@ if type(audio.cries) == "table" and audio.cries.MARILL then
     end
     check(frames < 60,
       ("channel 5 runs %.0f frames, under a second"):format(frames))
+
+    -- ../pokecrystal/audio/engine.asm:105
+    local ch = cryEng.channels[1]
+    local zero, worst = false, nil
+    for tempo = 1, 576 do
+      ch.frameTicks, ch.durationModifier, ch.noteLength = tempo, 0, 1
+      for length = 0, 15 do
+        if ch:durationTicksGen2(length) <= 0 then
+          zero, worst = true, ("tempo %d length %d"):format(tempo, length)
+        end
+      end
+    end
+    check(not zero, "SetNoteDuration never yields a zero-frame note"
+      .. (worst and (" (" .. worst .. ")") or ""))
   end
 else
   check(true, "cries table absent : re-import Gold for cry coverage (SKIP)")
+end
+
+-- ../pokecrystal/audio/cries.asm:486
+if type(audio.cries) == "table" and audio.cries.CYNDAQUIL then
+  local cry = audio.cries.CYNDAQUIL
+  eq(cry.length, 128, "CYNDAQUIL cry length word is 128")
+  local cryOk, cryEng = pcall(ChipSynth.newEngine, data, cry.header, {
+    sfx = true, allowLoops = false,
+    frequencyOffset = cry.pitch, cryLength = cry.length,
+  })
+  check(cryOk, "CYNDAQUIL cry engine builds"
+    .. (cryOk and "" or (": " .. tostring(cryEng))))
+  if cryOk then
+    for index = 1, 2 do
+      local frames, events, dropped = 0, 0, 0
+      for _ = 1, 128 do
+        local event = cryEng.channels[index]:nextEvent()
+        if not event then break end
+        events = events + 1
+        if event.duration * 60 < 0.5 then dropped = dropped + 1 end
+        frames = frames + event.duration * 60
+      end
+      eq(dropped, 0, ("channel %d drops no note"):format(index + 4))
+      eq(math.floor(frames + 0.5), 20,
+        ("channel %d runs the cart's 20 frames"):format(index + 4))
+      check(events == 17, ("channel %d keeps all 17 notes (%d)")
+        :format(index + 4, events))
+    end
+  end
+else
+  check(true, "CYNDAQUIL cry absent : re-import Gold for cry coverage (SKIP)")
 end
 
 -- Which sfx silence the music.  On the cart sfx channel N takes hardware

@@ -3,6 +3,11 @@
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or "/tmp/shots"
+  local COLORS = os.getenv("HEAL_COLORS")
+  if COLORS then
+    require("src.render.PaletteFX").setMode(COLORS)
+    U.log("COLORS mode:", COLORS)
+  end
   local Pokemon = require("src.pokemon.Pokemon")
   local ChoiceBox = require("src.ui.ChoiceBox")
   local TextBox = require("src.render.TextBox")

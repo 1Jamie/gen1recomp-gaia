@@ -41,6 +41,7 @@ local HallOfFame = require("src.core.gen2.HallOfFame")
 local HiddenItems = require("src.world.gen2.HiddenItems")
 local Mail = require("src.core.gen2.Mail")
 local Map = require("src.world.gen2.Map")
+local MapNameSign = require("src.world.gen2.MapNameSign")
 local Palettes = require("src.world.gen2.Palettes")
 local UnownWords = require("src.world.gen2.UnownWords")
 local Mon = require("src.battle.gen2.Mon")
@@ -2592,17 +2593,31 @@ function World:playMapMusic()
   end
 end
 
--- RestartMapMusic, which replays wMapMusic -- and wMapMusic is MUSIC_BICYCLE
--- for as long as the player is riding (.GetOnBike writes it there).  So a
--- battle, a hatch or a menu that owned the sound gives the BIKE theme back,
--- not the map's own song.
+-- data/maps/setup_scripts.asm:48
+-- home/audio.asm:335
+-- home/audio.asm:281
+function World:setMapMusic(mapId, seamless)
+  local data = self.game and self.game.data
+  local audio = data and data.audio
+  if not (audio and audio.runtime) then return end
+  local bike = not seamless
+    and FieldMoves.isBiking(self.playerState)
+    and self:playBikeMusic()
+  if bike then return end
+  Music.playMap(data, mapId, nil,
+                FieldMoves.isSurfing(self.playerState),
+                seamless and Music.MAP_FADE or nil,
+                self:mapMusicSong(mapId))
+end
+
+-- home/audio.asm:379
+-- home/audio.asm:281
 function World:restoreMapMusic()
   local data = self.game and self.game.data
   if not data then return end
-  if FieldMoves.isBiking(self.playerState) and self:playBikeMusic() then
-    return
-  end
-  Music.restoreMap(data)
+  -- engine/events/overworld.asm:1627
+  local reason = FieldMoves.isBiking(self.playerState) and "bike" or nil
+  Music.restoreMap(data, reason)
 end
 
 -- ForceMapMusic (engine/overworld/map_setup.asm:201), the music row every
@@ -3471,7 +3486,9 @@ end
 -- before the map's own deferred scene script gets to run.  On the cart that
 -- falls out of the setup script being a blocking call inside the overworld
 -- loop; here it has to be said out loud.
-function World:runMapSetup(method, load)
+function World:runMapSetup(method, load, fly)
+  -- engine/events/overworld.asm:607
+  if not fly then self.flyHidden = nil end
   -- JumpRoamMons sits above the load in MapSetupScript_Teleport; UpdateRoamMons
   -- below it in _Connection and _Train.  Wrapping the load rather than editing
   -- setMap keeps both on the right side of it, and keeps the roam walk where
@@ -3585,7 +3602,11 @@ function World:updateMapSetup()
     self.mapSetup = nil
     -- `callasm FlyToAnim` is the command straight after `newloadmap
     -- MAPSETUP_TELEPORT` (engine/events/overworld.asm:604-605).
-    if ms.flyIn then self:startFlyAnim("to", ms.flyIn) end
+    if ms.flyIn then
+      -- engine/events/overworld.asm:607
+      local function respawn() self.flyHidden = nil end
+      if not self:startFlyAnim("to", ms.flyIn, respawn) then respawn() end
+    end
     return
   end
   self.fadeLevel = ms.step / FADE_STEPS
@@ -4415,7 +4436,8 @@ function World:checkTimeEvents()
   local save = self.game and self.game.save
   if not save then return false end
   if not BugContest.isActive(save) then
-    Apricorns.checkDailyResetTimer(save)
+    Apricorns.checkDailyResetTimer(save, nil,
+      self.engineFlagResolver and self:engineFlagResolver() or nil)
     -- CheckSwarmFlag, second on `.do_daily` and the ONLY thing that ever ends
     -- a swarm: the reset above takes DAILYFLAGS1_SWARM down, and this is what
     -- notices and clears wSwarmMapGroup/Number and wFishingSwarmFlag with it.
@@ -4908,6 +4930,15 @@ function World:engineFlagId(name, goldId)
   return ids[name] or goldId
 end
 
+function World:engineFlagResolver()
+  local fn = self.engineFlagResolverFn
+  if not fn then
+    fn = function(name, goldId) return self:engineFlagId(name, goldId) end
+    self.engineFlagResolverFn = fn
+  end
+  return fn
+end
+
 -- Unown.UNLOCK_SETS keys the flags by pokegold's ids; Crystal's are one
 -- higher (../pokecrystal/constants/engine_flags.asm:57-60 vs ../pokegold:56-59).
 function World:unownUnlockFlags()
@@ -4989,6 +5020,7 @@ function World:playBikeMusic()
   if not (audio.songs and audio.songs[Bike.MUSIC_BICYCLE]) then return false end
   -- engine/events/overworld.asm:1621-1630
   Music.stop()
+  Music.setMapSong(Bike.MUSIC_BICYCLE)
   Music.play(data, Bike.MUSIC_BICYCLE, true, { reason = "bike" })
   return true
 end
@@ -6213,8 +6245,20 @@ function World:spawnFlyLeaves(fa)
   end
 end
 
+-- engine/events/overworld.asm:597
+function World:flyHides()
+  local all = self.flyAnim ~= nil or self.flyHidden == "from"
+  return all, all or self.flyHidden ~= nil
+end
+
+-- engine/events/field_moves.asm:429-446
+function World:gbScreenOrigin()
+  return math.floor(((self.viewW or 160) - 160) / 2),
+    math.floor(((self.viewH or 144) - 144) / 2)
+end
+
 -- data/sprite_anims/oam.asm:485-487
-function World:drawFlyLeaves(s)
+function World:drawFlyLeaves(s, billboard)
   local fa = self.flyAnim
   local sheet = self.cutGrassImage
   if not (fa and fa.leaves and sheet and self.cutGrassQuad) then return end
@@ -6223,12 +6267,21 @@ function World:drawFlyLeaves(s)
     self.daytime or Palettes.daytimeFor(self.map and self.map.def,
       self:hour(), self.flashUsed),
     { paletteId = 6 })
+  local sox, soy = self:gbScreenOrigin()
   local function blit()
     G.setColor(1, 1, 1, 1)
     for _, leaf in ipairs(fa.leaves) do
       local lx, ly = World.leafScreenPos(leaf)
-      G.draw(sheet, self.cutGrassQuad,
-        math.floor(lx * s), math.floor(ly * s), 0, s, s)
+      lx, ly = lx + sox, ly + soy
+      local function one()
+        G.draw(sheet, self.cutGrassQuad,
+          math.floor(lx * s), math.floor(ly * s), 0, s, s)
+      end
+      if billboard then
+        billboard((lx + 4) * s, (ly + 4) * s, one)
+      else
+        one()
+      end
     end
   end
   if colors and GbcPalette.available() then
@@ -6263,7 +6316,7 @@ function World:drawFlyAnim(s, billboard)
   else
     body()
   end
-  self:drawFlyLeaves(s)
+  self:drawFlyLeaves(s, billboard)
 end
 
 -- .FlyScript: FlyFromAnim, WarpToSpawnPoint, `newloadmap MAPSETUP_TELEPORT`,
@@ -6277,11 +6330,20 @@ function World:flyTo(spawnId, mon)
   local function warp()
     self:applyPlayerState(FieldMoves.PLAYER_NORMAL)
     local ok = self:runMapSetup(MAPSETUP.TELEPORT, function()
+      -- data/maps/setup_scripts.asm:26
+      -- engine/overworld/map_setup.asm:93
+      self.flyHidden = "to"
       return self:setMap(spawn.map, spawn.x, spawn.y, "down")
-    end)
-    if self.mapSetup then self.mapSetup.flyIn = mon end
+    end, true)
+    if self.mapSetup then
+      self.mapSetup.flyIn = mon
+    else
+      self.flyHidden = nil
+    end
     return ok
   end
+  -- engine/events/overworld.asm:597
+  self.flyHidden = "from"
   if self:startFlyAnim("from", mon, warp) then return true end
   return warp()
 end
@@ -6442,6 +6504,11 @@ function World:pushBattleTransition(battle, opts, onDone)
   return true
 end
 
+-- ../pokecrystal/engine/overworld/events.asm:284-285
+function World:cancelMapNameSign()
+  MapNameSign.cancel(self)
+end
+
 -- Push the battle screen.  Kept here rather than in Game2 so a trainer
 -- script and a grass step start a battle the same way.
 --
@@ -6455,6 +6522,7 @@ function World:startBattle(opts, onDone)
     if onDone then onDone("win") end
     return false
   end
+  self:cancelMapNameSign()
   local battle = Battle.new({
     data = game.data,
     -- BATTLETYPE_TUTORIAL fights with an EMPTY party: engine/battle/core.asm
@@ -7958,6 +8026,7 @@ function World:startTrainerScript(npc, script, sight)
   end
   self.talkNpc = npc
   self:freezeNpc(npc)
+  self:cancelMapNameSign()
   self.vm.trainerObject = npc.def.trainer
   self.trainerSight = sight
   self.trainerNpc = npc
@@ -9273,16 +9342,7 @@ function World:setMap(mapId, cx, cy, facing, opts)
   self:rebuildPeople({ seamless = opts.seamless })
   -- rebuildPeople may have pooled fresh NPCs; give them their colors too.
   self:applyPalettes()
-  local audio = self.game and self.game.data and self.game.data.audio
-  -- PlayMapMusicBike / SpecialMapMusic (home/audio.asm:335, :397): a biking
-  -- player keeps the bike theme; Music.play dedupes seamless edge crossings.
-  if audio and audio.runtime then
-    if not (FieldMoves.isBiking(self.playerState) and self:playBikeMusic()) then
-      Music.playMap(self.game.data, mapId, nil,
-                    FieldMoves.isSurfing(self.playerState), nil,
-                    self:mapMusicSong(mapId))
-    end
-  end
+  self:setMapMusic(mapId, opts.seamless)
   -- Fires with the map fully built and BEFORE the map's own scene script, so a
   -- listener sees exactly the state that script does -- the position Gen 1's
   -- emit takes ahead of its onEnter chain.  `via` carries the same four words
@@ -9291,12 +9351,16 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- Ahead of the emit, so a map.entered listener already sees this load's
   -- follower (src/world/OverworldController.lua:446's position).
   Follower.onMapEntered(self.game, self, opts, true)
+  local via = opts.via
+    or (opts.continue and "continue")
+    or (opts.seamless and "connection")
+    or (fromMapId and "warp" or "boot")
+  -- ../pokecrystal/engine/overworld/warp_connection.asm:317
+  -- ../pokecrystal/data/maps/setup_scripts.asm:93
+  MapNameSign.init(self, via)
   Runtime.emit("map.entered", {
     mapId = mapId, map = self.map, fromMapId = fromMapId,
-    via = opts.via
-          or (opts.continue and "continue")
-          or (opts.seamless and "connection")
-          or (fromMapId and "warp" or "boot"),
+    via = via,
   })
   -- Map-enter scene scripts (e.g. Elm lab walk-up at scene 0).
   if not opts.seamless then
@@ -9545,8 +9609,7 @@ function World:tryConnection(dir)
   local destMap = self:connectionMap(conn.mapId)
   if not destMap then return false end
   -- home/map.asm:1946 GetMovementPermissions side-wall arm
-  if dir == "down"
-     and Permissions.neighborBlocksDown(dir, destMap:cellCollision(x, y)) then
+  if Permissions.neighborBlocks(dir, destMap:cellCollision(x, y)) == dir then
     return false
   end
   -- A surfing crossing lands on water, which isWalkable refuses; the arm the
@@ -9567,6 +9630,7 @@ function World:tryConnection(dir)
   p.facing = dir
   p.targetX, p.targetY = x, y
   p.moving = true
+  p.bumpFrames = nil
   p.progress = 0
   FixedStep:discardCatchup()
   return true
@@ -9630,6 +9694,7 @@ function World:tryLedgeJump(dir)
   p.targetX, p.targetY = tx, ty
   p.moving = true
   p.jumping = true
+  p.bumpFrames = nil
   -- JumpStep res IN_GRASS_F and calls neither UpdateTallGrassFlags nor
   -- ShakeGrass (engine/overworld/movement.asm:741-770).
   p.inGrass, p.grassShake = false, nil
@@ -10251,6 +10316,8 @@ function World:stepBody()
     self:updateMapSetup()
     return
   end
+  -- ../pokecrystal/engine/overworld/events.asm:212
+  MapNameSign.tick(self)
   if self.pendingMusic then self:updateMusicFade() end
   if self.moveState then self:updateMovement() end
   -- Above the VM tick: a `waitbutton` under a `pokepic` is parked on this
@@ -10437,6 +10504,8 @@ function World:stepBody()
   end
   if not dir then
     p.turnArmed = true
+    -- engine/overworld/player_movement.asm:108
+    p.bumpFrames = nil
     return
   end
   if p.moving then return end
@@ -10537,11 +10606,12 @@ function World:drawPeople(s, billboard)
   local G = love.graphics
   local p = self.player
   local cam = self.camera
-  -- .FlyScript hides the map's objects from HideSprites until its
-  -- LoadWalkingSpritesGFX tail -- engine/events/overworld.asm:597, :608
+  local hideAll, hidePlayer = self:flyHides()
   local drawList = {}
-  if not self.flyAnim then
-    drawList[1] = { kind = "player", py = p.py, ox = 0, oy = 0 }
+  if not hideAll then
+    if not hidePlayer then
+      drawList[1] = { kind = "player", py = p.py, ox = 0, oy = 0 }
+    end
     for _, npc in ipairs(self.npcs) do
       drawList[#drawList + 1] = {
         kind = "npc", npc = npc, ox = 0, oy = 0, py = npc.py,
@@ -10843,6 +10913,10 @@ function World:draw()
   else
     self:drawWorldBody(s)
   end
+
+  -- ../pokecrystal/engine/events/map_name_sign.asm:114
+  -- ../pokecrystal/constants/ram_constants.asm:389
+  MapNameSign.draw(self, w, h, posLift)
 
   -- Pokepic (engine/events/pokepic.asm:1-28): MenuBox at the header's coords,
   -- then the padded 7x7 frontpic at top+1, left+1.  UI, so fitScale not zoom.

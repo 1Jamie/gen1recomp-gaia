@@ -373,19 +373,47 @@ do
   check("the toss question starts on row 14", at("Throw away how"), "1,14")
   check("with a blank row under it", at("many?"), "1,16")
 
-  -- OakThisIsntTheTimeText is three lines, which two double-spaced rows cannot
-  -- hold: those pack one row apart so the last is inside the box.
-  pack.message = { "OAK: {PLAYER}!", "This isn't the", "time to use that!" }
+  -- home/text.asm:502
+  pack:showMessage({ "OAK: {PLAYER}!", "This isn't the", "\v",
+                     "time to use that!" })
   install()
   pack:drawPanel()
   restore()
-  check("a three-line message starts a row higher", at("OAK: GOLD!"), "1,13")
-  check("its second line is row 14", at("This isn't the"), "1,14")
-  check("and its third clears the bottom border",
-    at("time to use that!"), "1,15")
+  check("a cont message's first page starts on row 14", at("OAK: GOLD!"), "1,14")
+  check("its line row is 16", at("This isn't the"), "1,16")
+  check("and the cont row waits for the prompt",
+    at("time to use that!"), "absent")
+
+  pack.messagePage = 2
+  install()
+  pack:drawPanel()
+  restore()
+  check("the second page scrolls the line row up to 14",
+    at("This isn't the"), "1,14")
+  check("and prints the cont row on 16", at("time to use that!"), "1,16")
+  check("OAK's greeting has scrolled off", at("OAK: GOLD!"), "absent")
+
+  -- home/text.asm:479
+  pack:showMessage({ "There was a trophy", "inside!", "\f",
+                     "{PLAYER} sent the", "trophy home." })
+  install()
+  pack:drawPanel()
+  restore()
+  check("a para message's first page is rows 14",
+    at("There was a trophy"), "1,14")
+  check("and 16", at("inside!"), "1,16")
+  check("with nothing from the second page", at("trophy home."), "absent")
+
+  pack.messagePage = 2
+  install()
+  pack:drawPanel()
+  restore()
+  check("the second page restarts at row 14", at("GOLD sent the"), "1,14")
+  check("with its line on row 16", at("trophy home."), "1,16")
+  check("and the first page cleared", at("There was a trophy"), "absent")
 
   -- The yes/no prompt is printed in the same box by the same path.
-  pack.message = nil
+  pack.message, pack.messagePage = nil, nil
   pack.confirm = { prompt = { "Throw away 1", "POTION(S)?" }, choice = 1 }
   install()
   pack:drawPanel()

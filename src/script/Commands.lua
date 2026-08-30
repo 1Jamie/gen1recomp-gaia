@@ -135,7 +135,11 @@ function Commands.show_text(ctx, textId, subs, extraOpts)
     end
   end
   -- MONEY_BOX (engine/menus/text_box.asm:133) reads the live wallet
-  if opts and opts.money == true then
+  if opts and opts.money == "choice" then
+    -- scripts/MtMoonPokecenter.asm:30
+    opts.money = function() return ctx.save.money end
+    opts.moneyWithChoice = true
+  elseif opts and opts.money == true then
     opts.money = function() return ctx.save.money end
   end
   ctx.game.stack:push(TextBox.new(ctx.game, text, function()
@@ -295,7 +299,9 @@ end
 -- and battle music.
 function Commands.pushBattle(ctx, battle)
   if ctx.overworld and ctx.overworld.pushBattle then
-    ctx.overworld:pushBattle(battle)
+    -- engine/battle/battle_transitions.asm:28
+    ctx.overworld:pushBattle(battle,
+                             battle.kind == "trainer" and ctx.npc or nil)
   else
     Logger.warn("pushBattle: no overworld:pushBattle, skipping the transition wipe")
     ctx.game.stack:push(battle)
@@ -711,7 +717,7 @@ local function askNickname(ctx, mon)
       return
     end
     Screens.push(ctx.game, "NamingScreen", {
-      title = Strings("NICKNAME?"), maxLen = 10,
+      title = Strings("NICKNAME?"), maxLen = 10, mon = mon,
       onDone = function(nick)
         if nick and #nick > 0 then mon.nickname = nick end
         ctx.lastCheck = success

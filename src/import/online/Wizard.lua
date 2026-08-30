@@ -66,6 +66,7 @@ local function stepGame(imp, x, y, w, m)
     function(option)
       st.version, st.slotId, st.cartId, st.team = option.id, nil, nil, {}
       st.slotRead, st.ready, st.kind = nil, false, "vanilla"
+      st.versionPicked = true
       OnlinePanel.invalidate(imp)
     end)
 

@@ -58,14 +58,18 @@ function Room.draw(imp, x, y, w, availH, m)
   if not room then
     local pending = st.pending
     local line = Strings("You are not in a room.")
-    if pending and not pending.done then
+    if st.joinWant then
+      line = Strings("Joining room %s...", tostring(st.joinWant.code))
+    elseif pending and not pending.done then
       line = pending.code
         and Strings("Joining room %s...", tostring(pending.code))
         or Strings("Creating the room...")
     end
     local cy = y + Ui.header(imp, x, y, w, m, Strings("Room"))
     Kit.emptyBox(x, cy, w, rowH * 2, line)
-    return (cy - y) + rowH * 2
+    cy = cy + rowH * 2 + tiny
+    cy = cy + Ui.statusLine(imp, x, cy, w, m)
+    return cy - y
   end
 
   local stage = tostring(room.stage or "waiting")

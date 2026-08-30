@@ -123,7 +123,7 @@ M.MT_MOON_POKECENTER = {
       { "check_flag", "EVENT_BOUGHT_MAGIKARP" },
       { "jump_if_true", "no_refunds" },
       -- MONEY_BOX goes up between the offer and YesNoChoice -- MtMoonPokecenter.asm:31
-      { "text_opts", { money = true } },
+      { "text_opts", { money = "choice" } },
       { "ask", "_MtMoonPokecenterMagikarpSalesmanIGotADealText" },
       { "jump_if_false", "declined" },
       { "check_money", 500 },
@@ -513,51 +513,64 @@ M.CELADON_MART_ROOF = {
         or "I'm thirsty!\nI want something\nto drink!\fGive her a drink?",
         function(yes)
           if not yes then done() return end
-          push(game, t._CeladonMartRoofLittleGirlGiveHerWhichDrinkText
-            or "Give her which\ndrink?", function()
-            local items = {}
-            for _, g in ipairs(have) do
-              table.insert(items, {
-                label = game.data.items[g.drink].name, value = g,
-              })
+          local Menu = require("src.ui.Menu")
+          -- scripts/CeladonMartRoof.asm:242
+          local function closeAll()
+            game.stack:pop()
+            game.stack:pop()
+            done()
+          end
+          local function give(g)
+            if game.save.flags[g.flag] then
+              push(game, t._CeladonMartRoofLittleGirlImNotThirstyText
+                or "No thank you!\nI'm not thirsty\nafter all!", closeAll)
+              return
             end
-            local ListMenu = require("src.ui.ListMenu")
-            game.stack:push(ListMenu.new(game, "DRINKS", items, {
-              onChoose = function(item, list)
-                list:close()
-                local g = item.value
-                if game.save.flags[g.flag] then
-                  push(game, t._CeladonMartRoofLittleGirlImNotThirstyText
-                    or "No thank you!\nI'm not thirsty\nafter all!", done)
-                  return
+            push(game, t[g.yay]
+              or "Yay!\fThank you!\fYou can have this\nfrom me!", function()
+              local Bag = require("src.inventory.Bag")
+              Bag.remove(game.save, g.drink, 1)
+              if not Bag.add(game.save, g.tm, 1) then
+                push(game, t._CeladonMartRoofLittleGirlNoRoomText
+                  or "You don't have\nspace for this!", closeAll)
+                return
+              end
+              game.save.flags[g.flag] = true
+              local subs = { player = game.save.player.name,
+                             ram = game.data.items[g.tm].name }
+              local explain = fill(t[g.explain] or "", subs)
+                :gsub("^\f", "")
+              push(game, fill(t[g.received]
+                or "{PLAYER} received\n{RAM:}!", subs), function()
+                if #explain > 0 then
+                  push(game, explain, closeAll)
+                else
+                  closeAll()
                 end
-                push(game, t[g.yay]
-                  or "Yay!\fThank you!\fYou can have this\nfrom me!", function()
-                  local Bag = require("src.inventory.Bag")
-                  Bag.remove(game.save, g.drink, 1)
-                  if not Bag.add(game.save, g.tm, 1) then
-                    push(game, t._CeladonMartRoofLittleGirlNoRoomText
-                      or "You don't have\nspace for this!", done)
-                    return
-                  end
-                  game.save.flags[g.flag] = true
-                  local subs = { player = game.save.player.name,
-                                 ram = game.data.items[g.tm].name }
-                  local explain = fill(t[g.explain] or "", subs)
-                    :gsub("^\f", "")
-                  push(game, fill(t[g.received]
-                    or "{PLAYER} received\n{RAM:}!", subs), function()
-                    if #explain > 0 then
-                      push(game, explain, done)
-                    else
-                      done()
-                    end
-                  end, require("src.render.TextBox").soundOpts(game, "Get_Item1"))
-                end)
-              end,
-              onCancel = done,
-            }))
-          end)
+              end, require("src.render.TextBox").soundOpts(game, "Get_Item1"))
+            end)
+          end
+          local items = {}
+          for _, g in ipairs(have) do
+            table.insert(items, {
+              label = game.data.items[g.drink].name,
+              keepOpen = true,
+              onSelect = function() give(g) end,
+            })
+          end
+          -- scripts/CeladonMartRoof.asm:45
+          push(game, t._CeladonMartRoofLittleGirlGiveHerWhichDrinkText
+            or "Give her which\ndrink?", nil, {
+            instant = true,
+            stay = { onShown = function()
+              -- scripts/CeladonMartRoof.asm:56
+              game.stack:push(Menu.new(game, items, {
+                tx = 0, ty = 0, tw = 14, th = #have * 2 + 2, itemY = 2,
+                noWrap = true,
+                onCancel = function() game.stack:pop() done() end,
+              }))
+            end },
+          })
         end)
     end,
   },
@@ -698,9 +711,11 @@ M.NAME_RATERS_HOUSE = {
                   push(game, t._NameRatersHouseNameRaterWhatShouldWeNameItText
                     or "Fine! What should\nwe name it?", function()
                     local NamingScreen = require("src.ui.NamingScreen")
+                    -- engine/menus/naming_screen.asm:56
                     game.stack:push(NamingScreen.new(game, {
-                      title = (def.name or mon.species) .. "'s name?",
+                      title = require("src.core.Strings")("NICKNAME?"),
                       maxLen = 10,
+                      mon = mon,
                       default = mon.nickname,
                       onDone = function(name)
                         if name and #name > 0 and name ~= def.name then

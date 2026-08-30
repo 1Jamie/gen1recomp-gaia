@@ -195,6 +195,25 @@ local function runToMenu(screen, cap)
   return false
 end
 
+-- engine/items/item_effects.asm:1748
+local function drainItemResult(pushed)
+  for _ = 1, 400 do
+    local top = pushed[#pushed]
+    if not (top and top.itemResult) then return end
+    Input:overlayPressed("a")
+    Input:step()
+    top:update(1 / 60)
+    Input:overlayReleased("a")
+  end
+end
+
+local function pick(pushed, slot, mon)
+  local picker = pushed[#pushed]
+  picker.onChoose(slot, mon)
+  drainItemResult(pushed)
+  return picker
+end
+
 -- ---- StatusHealingEffect on a BENCHED mon ---------------------------------
 do
   local lead = Mon.new(DATA, "CYNDAQUIL", 10, { dvs = perfect })
@@ -215,7 +234,7 @@ do
   local picker = pushed[#pushed]
   eq(getmetatable(picker), PartyMenu, "and the pick is the party screen")
   eq(picker.prompt, PartyMenu.PROMPTS.useItem, "under the cart's own question")
-  picker.onChoose(2, bench)
+  pick(pushed, 2, bench)
   eq(bench.status, nil, "the ANTIDOTE cured the BENCHED mon")
   eq(bench.toxicCounter, nil, "and the toxic ramp went with the status byte")
   eq(save.inventory.ANTIDOTE, 1, "one ANTIDOTE left the bag")
@@ -244,7 +263,7 @@ do
 
   -- The berries carry the same StatusHealingActions rows as the shop cures.
   screen:useItem("PSNCUREBERRY")
-  pushed[#pushed].onChoose(2, bench)
+  pick(pushed, 2, bench)
   eq(bench.status, nil, "PSNCUREBERRY cures poison like an ANTIDOTE")
   eq(save.inventory.PSNCUREBERRY, nil, "and the berry is eaten")
   check(runToMenu(screen), "back to the menu")
@@ -296,7 +315,7 @@ do
   battle:volatile(player).confuseCount = 3
   local turn0 = battle.turn
   screen:useItem("FULL_HEAL")
-  pushed[#pushed].onChoose(1, player)
+  pick(pushed, 1, player)
   eq(battle:volatile(player).confuseCount, nil,
     "a $ff-mask item clears SUBSTATUS_CONFUSED on whoever is out")
   eq(save.inventory.FULL_HEAL, 1, "and it costs the FULL HEAL")
@@ -308,7 +327,7 @@ do
   player.status = "poison"
   battle:volatile(player).confuseCount = 3
   screen:useItem("ANTIDOTE")
-  pushed[#pushed].onChoose(1, player)
+  pick(pushed, 1, player)
   eq(player.status, nil, "the ANTIDOTE still cures the poison")
   eq(battle:volatile(player).confuseCount, 3,
     "but a masked cure leaves the confusion alone")
@@ -355,7 +374,7 @@ do
   local maxHp = bench.maxHp or bench.stats.hp
   local turn0 = battle.turn
   screen:useItem("REVIVE")
-  pushed[#pushed].onChoose(2, bench)
+  pick(pushed, 2, bench)
   eq(bench.hp, math.max(1, math.floor(maxHp / 2)),
     "REVIVE stands the BENCHED mon up at half max HP (ReviveHalfHP)")
   eq(bench.status, nil, "with its status byte cleared")
@@ -365,7 +384,7 @@ do
 
   bench.hp = 0
   screen:useItem("MAX_REVIVE")
-  pushed[#pushed].onChoose(2, bench)
+  pick(pushed, 2, bench)
   eq(bench.hp, maxHp, "MAX REVIVE takes ReviveFullHP instead")
   eq(save.inventory.MAX_REVIVE, nil, "and is spent")
   check(runToMenu(screen), "the turn drains")
@@ -406,7 +425,7 @@ do
 
   pushed[#pushed].onChoose(1, player)
   local turn0 = battle.turn
-  pushed[#pushed].onChoose(2)
+  pick(pushed, 2)
   eq(player.moves[2].pp, 14, "the ETHER put 10 PP back into the chosen slot")
   eq(player.moves[1].pp, 35, "and left the other slot alone")
   eq(save.inventory.ETHER, 1, "one ETHER spent")
@@ -427,7 +446,7 @@ do
   player.moves[2].pp = 14
   local depth = #pushed
   screen:useItem("ELIXER")
-  pushed[#pushed].onChoose(1, player)
+  pick(pushed, 1, player)
   eq(#pushed, depth, "the ELIXER opened no move list")
   eq(player.moves[1].pp, 35, "it filled the first slot (capped at max)")
   eq(player.moves[2].pp, 24, "and walked on to the second")
@@ -435,7 +454,7 @@ do
   check(runToMenu(screen), "the turn drains")
 
   screen:useItem("MAX_ELIXER")
-  pushed[#pushed].onChoose(1, player)
+  pick(pushed, 1, player)
   eq(player.moves[2].pp, 35, "MAX ELIXER takes the .restore_all arm")
   eq(save.inventory.MAX_ELIXER, nil, "and is spent")
 end

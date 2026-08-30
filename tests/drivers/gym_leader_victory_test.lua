@@ -97,6 +97,8 @@ return function(game)
          "the battle carries the armed badge line (#1606)")
   assert(battle.endBattleSound == "Get_Item1",
          "and the badge jingle beside it (sound_level_up, PewterGym.asm)")
+  assert(battle.endBattleSoundPage == 3,
+         "the jingle is armed for the BOULDERBADGE page (PewterGym.asm:156)")
   U.shot(game, DIR .. "/brock_real_battle.png")
   U.log("force-finishing Brock's battle to run the reward chain")
   battle.onFinish("win")

@@ -107,6 +107,8 @@ GameVersion.VERSIONS = {
       surfOntoNpc = true,
       -- pokecrystal/engine/battle/effect_commands.asm:2614
       reflectOverflow = true,
+      -- pokecrystal/home/map.asm:1638
+      sideWallArms = true,
     },
   },
 }

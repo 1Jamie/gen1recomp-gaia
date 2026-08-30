@@ -1336,8 +1336,15 @@ function BattleState:updateQueue()
   -- own clear window instead of letting the next beat play over it
   if self.waitingSound then
     local src = self.waitingSound
-    if src and src.isPlaying and src:isPlaying() then return true end
-    self.waitingSound = nil
+    if not self.waitSoundLeft then
+      local Sound = require("src.core.Sound")
+      self.waitSoundLeft = Sound.waitFrames and Sound.waitFrames(src) or 180
+    end
+    self.waitSoundLeft = self.waitSoundLeft - 1
+    local playing = src and src.isPlaying and src:isPlaying()
+    if playing and self.waitSoundLeft > 0 then return true end
+    if playing then pcall(src.stop, src) end
+    self.waitingSound, self.waitSoundLeft = nil, nil
   end
   -- an HP-bar drain holds the queue until the bar catches up
   if self.draining then
@@ -1607,7 +1614,9 @@ function BattleState:updateQueue()
       if (self.msgPromptWait or 0) > 0 then
         self.msgPromptWait = self.msgPromptWait - 1
       elseif input:wasPressed("a") or input:wasPressed("b") then
+        -- home/text.asm:218
         self.msgPrompt = nil
+        self.msgHold = true
         self.current = nil
       end
     end
@@ -4626,15 +4635,21 @@ function BattleState:enemyMonFainted()
               battle = self,
               party = self:playerPartyView(),
               forceSwitch = true,
-              onSwitch = function(mon)
+              keepOpen = true,
+              onSwitch = function(mon, menu)
+                local refusal
                 if mon == self.player.mon then
-                  reopenShift(self:romText("_AlreadyOutText",
-                    "%s is\nalready out!", self.player.name))
+                  refusal = self:romText("_AlreadyOutText",
+                    "%s is\nalready out!", self.player.name)
                 elseif mon.hp <= 0 then
-                  reopenShift(self:romText("_NoWillText", "There's no will\nto fight!"))
-                else
-                  shiftSwitchMon = mon
+                  refusal = self:romText("_NoWillText", "There's no will\nto fight!")
                 end
+                if refusal then
+                  if menu then menu:refuse(refusal) else reopenShift(refusal) end
+                  return
+                end
+                if menu then menu:close() end
+                shiftSwitchMon = mon
               end,
             }
             Screens.push(game, "PartyMenu", shiftOpts)
@@ -4756,14 +4771,16 @@ function BattleState:enemyMonFainted()
       -- TrainerNamePointers aims those entries at wTrainerName).  The tag
       -- prints once, so a `para` page carries no second copy (#566).
       local tag = self.trainer and self.trainer.name
-      -- the badge jingle (sound_get_item_1 and friends) rides the armed
-      -- line's first page, as the script's text command would (#1606)
+      -- scripts/PewterGym.asm:156-159
       local sfx = self.endBattleSound
+      local sfxPage = self.endBattleSoundPage or 1
+      local shown = 0
       local data = self.data
       for page in (self.endBattleText .. "\f"):gmatch("(.-)\f") do
         if page ~= "" then
+          shown = shown + 1
           local line = tag and (tag .. ": " .. page) or page
-          if sfx then
+          if sfx and shown >= sfxPage then
             local id = sfx
             self:sayNextWaitSfx(line, function()
               return require("src.core.Sound").play(data, id)
@@ -4907,11 +4924,18 @@ function BattleState:openReplacementMenu()
       party = self:playerPartyView(),
       -- ChooseNextMon: pick immediately (no SWITCH/STATS/CANCEL)
       forceSwitch = true,
-      onSwitch = function(mon)
+      keepOpen = true,
+      onSwitch = function(mon, menu)
+        -- core.asm:1473-1488
         if mon.hp <= 0 then
-          self:say(self:romText("_NoWillText", "There's no will\nto fight!"))
+          if menu then
+            menu:refuse(self:romText("_NoWillText", "There's no will\nto fight!"))
+          else
+            self:say(self:romText("_NoWillText", "There's no will\nto fight!"))
+          end
           return -- the menu-phase guard reopens the menu
         end
+        if menu then menu:close() end
         self:restoreMimicked(self.player)
         local previous = self.player
         self.player = makeBattler(self.data, mon, true,
@@ -5119,12 +5143,24 @@ function BattleState:openItems()
 end
 
 -- called by BagMenu after an item is used in battle (consumes the turn)
-function BattleState:itemUsed(messages)
+function BattleState:itemUsed(messages, opts)
   -- bag cures clear mon.status before the message UI; refresh the HUD
   -- once control returns (pokered DrawHUDsAndHPBars after item use)
   self:syncShownStatus()
+  -- engine/battle/core.asm:2280
+  local barShown = opts and opts.barShown
+  if barShown then
+    for _, b in ipairs({ self.player, self.enemy }) do
+      if b and b.shownHP then
+        b.shownHP = b.mon.hp
+        b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
+      end
+    end
+  end
   for _, m in ipairs(messages or {}) do self:say(m) end
-  table.insert(self.queue, { drain = true }) -- potions animate the bar
+  if not barShown then
+    table.insert(self.queue, { drain = true })
+  end
   self:act(function()
     self:executeAction(self.enemy, self.player, self:enemyAction())
   end)
@@ -5219,7 +5255,7 @@ function BattleState:askNicknameUI(mon, displayName)
       self.blankForAskName = false
       if not yes then return end
       pcall(Screens.push, game, "NamingScreen", {
-        title = Strings("NICKNAME?"), maxLen = 10,
+        title = Strings("NICKNAME?"), maxLen = 10, mon = mon,
         onDone = function(name)
           if name and #name > 0 then mon.nickname = name end
         end,
@@ -5460,18 +5496,27 @@ function BattleState:openParty()
     return self:buildScreen("PartyMenu", {
       battle = self,
       party = self:playerPartyView(),
-      onSwitch = function(mon)
+      keepOpen = true,
+      onSwitch = function(mon, menu)
         -- PartyMenuOrRockOrRun's SWITCH .partyMonDeselected (core.asm:2396-2408)
+        local refusal
         if mon == self.player.mon then
-          self:say(self:romText("_AlreadyOutText",
-            "%s is\nalready out!", self.player.name))
-          self:act(function() self:openParty() end)
+          refusal = self:romText("_AlreadyOutText",
+            "%s is\nalready out!", self.player.name)
         elseif mon.hp <= 0 then
-          self:say(self:romText("_NoWillText", "There's no will\nto fight!"))
-          self:act(function() self:openParty() end)
-        else
-          self:resolveSwitch(mon)
+          refusal = self:romText("_NoWillText", "There's no will\nto fight!")
         end
+        if refusal then
+          if menu then
+            menu:refuse(refusal)
+          else
+            self:say(refusal)
+            self:act(function() self:openParty() end)
+          end
+          return
+        end
+        if menu then menu:close() end
+        self:resolveSwitch(mon)
       end,
     })
   end)
@@ -5681,7 +5726,7 @@ end
 -- (2..3,4..5) / (3..4,4..5) of the 7x7 frame: screen (112,32) enemy,
 -- (32,72) player.
 local substDoll
-function BattleState:drawSubstituteDoll(battler)
+function BattleState:drawSubstituteDoll(battler, dx, dy)
   if substDoll == nil then
     local ok, img = pcall(love.graphics.newImage,
                           "assets/generated/sprites/monster.png")
@@ -5713,10 +5758,11 @@ function BattleState:drawSubstituteDoll(battler)
       end
     end
   end
+  dx, dy = dx or 0, dy or 0
   if battler.isPlayer then
-    love.graphics.draw(substDoll.img, substDoll.up, 32, 72)
+    love.graphics.draw(substDoll.img, substDoll.up, 32 + dx, 72 + dy)
   else
-    love.graphics.draw(substDoll.img, substDoll.down, 112, 32)
+    love.graphics.draw(substDoll.img, substDoll.down, 112 + dx, 32 + dy)
   end
   if shader then love.graphics.setShader() end
 end
@@ -5731,7 +5777,20 @@ local MINIMIZED_ROWS = {
   { 2, 5 },          -- ..XXXX..
   { 2, 2, 5, 5 },    -- ..X..X..
 }
-function BattleState:drawMinimizedBlob(battler, x, y)
+-- ../pokered/engine/battle/animations.asm:2120
+BattleState.PIC_SLOT_SIZE = 56
+function BattleState.picSlotOrigin(isPlayer)
+  if isPlayer then return 8, 40 end
+  return 96, 0
+end
+
+-- ../pokered/engine/battle/animations.asm:1731
+function BattleState.minimizedBlobOrigin(isPlayer)
+  local ox, oy = BattleState.picSlotOrigin(isPlayer)
+  return ox + 24, oy + 34
+end
+
+function BattleState:drawMinimizedBlob(battler, sx, sy)
   local r, g, b, a = love.graphics.getColor()
   local col = { 0, 0, 0, 1 }
   local pals = self:colorMode() and self:sgbBattlePals()
@@ -5741,13 +5800,23 @@ function BattleState:drawMinimizedBlob(battler, x, y)
     col = { shade[1] / 255, shade[2] / 255, shade[3] / 255, 1 }
   end
   love.graphics.setColor(col)
+  local bx, by = BattleState.minimizedBlobOrigin(battler.isPlayer)
+  bx, by = bx + (sx or 0), by + (sy or 0)
   for row, runs in ipairs(MINIMIZED_ROWS) do
     for i = 1, #runs, 2 do
-      love.graphics.rectangle("fill", x + 24 + runs[i], y + 34 + row - 1,
+      love.graphics.rectangle("fill", bx + runs[i], by + row - 1,
                               runs[i + 1] - runs[i] + 1, 1)
     end
   end
   love.graphics.setColor(r, g, b, a)
+end
+
+-- ../pokered/engine/battle/core.asm:1181
+function BattleState:faintPicKind(battler)
+  local pf = self.picFx and self.picFx[battler]
+  if pf and pf.minimized then return "blob" end
+  if battler.substituteHP then return "doll" end
+  return "pic"
 end
 
 -- Draw a battler pic, sinking it behind its own baseline while the
@@ -5757,15 +5826,41 @@ end
 -- pic effects (slides/squish/blink/minimize; see applyAnimEffect)
 -- offset, clip or replace the pic, and an active BGP fade swaps in a
 -- shade-remapped recolor of it.
-function BattleState:drawBattlerPic(battler, x, y, scale)
+function BattleState:drawBattlerPic(battler, x, y, scale, shakeX, shakeY)
   local img = self:picImage(battler.sprite)
+  shakeX, shakeY = shakeX or 0, shakeY or 0
   if battler.substituteHP and not self:fxFaintActive(battler)
      and not battler.fainted then
-    self:drawSubstituteDoll(battler)
+    self:drawSubstituteDoll(battler, shakeX, shakeY)
     return
   end
   if self:fxFaintActive(battler) then
     local off = self:fxFaintOffset(battler, scale)
+    local kind = self:faintPicKind(battler)
+    if kind ~= "pic" then
+      local ox, oy = BattleState.picSlotOrigin(battler.isPlayer)
+      local sz = BattleState.PIC_SLOT_SIZE
+      local clip = love.graphics.setScissor and love.graphics.intersectScissor
+                     and not self.wideRegion
+      local cs1, cs2, cs3, cs4
+      if clip then
+        cs1, cs2, cs3, cs4 = love.graphics.getScissor()
+        love.graphics.intersectScissor(ox + shakeX, oy + shakeY, sz, sz)
+      end
+      if kind == "blob" then
+        self:drawMinimizedBlob(battler, shakeX, shakeY + off)
+      else
+        self:drawSubstituteDoll(battler, shakeX, shakeY + off)
+      end
+      if clip then
+        if cs1 then
+          love.graphics.setScissor(cs1, cs2, cs3, cs4)
+        else
+          love.graphics.setScissor()
+        end
+      end
+      return
+    end
     local visible = img:getHeight() - math.floor(off / scale)
     if visible > 0 then
       local quad = love.graphics.newQuad(0, 0, img:getWidth(), visible,
@@ -5796,7 +5891,7 @@ function BattleState:drawBattlerPic(battler, x, y, scale)
   end
   if pf.hidden then return end
   if pf.minimized then
-    self:drawMinimizedBlob(battler, x, y)
+    self:drawMinimizedBlob(battler, shakeX, shakeY)
     return
   end
 
@@ -6239,7 +6334,7 @@ function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
     else
       local dx, dy = BattleState.frontPlacement(ex, ey,
         img:getWidth(), img:getHeight(), s)
-      self:drawBattlerPic(self.enemy, dx, dy, s)
+      self:drawBattlerPic(self.enemy, dx, dy, s, sx - slide, sy)
     end
   end
 
@@ -6294,7 +6389,7 @@ function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
       -- picOffset: StarterPikachuBattleEntranceAnimation walking the pic in
       -- from the left -- engine/battle/pikachu_entrance_anim.asm:1
       self:drawBattlerPic(self.player, dx + sx + self:picOffset("playerMon"),
-                          dy + sy, s)
+                          dy + sy, s, sx + self:picOffset("playerMon"), sy)
     end
   end
   if clipped then

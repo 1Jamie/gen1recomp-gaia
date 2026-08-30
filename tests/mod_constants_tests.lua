@@ -315,10 +315,16 @@ local vanillaSave = SaveData.newGame(Data.field.boot)
 -- special_warps.asm NewGameWarp is REDS_HOUSE_2F, 3, 6 -- the bedroom. This
 -- previously asserted PALLET_TOWN (5, 6), which is where you stand after
 -- walking out of the house, so a new game skipped Red's house entirely.
--- Red/Blue land facing up (#944); only Yellow keeps boot.startFacing.
+-- scripts/RedsHouse2F.asm:14 (#944)
 check(vanillaSave.player.map == "REDS_HOUSE_2F" and vanillaSave.player.x == 3
   and vanillaSave.player.y == 6 and vanillaSave.player.facing == "up",
   "the seeded boot config reproduces the NewGameWarp bedroom spawn")
+-- engine/menus/main_menu.asm:156
+local yellowBoot = {}
+for k, v in pairs(Data.field.boot) do yellowBoot[k] = v end
+yellowBoot.version = "yellow"
+check(SaveData.newGame(yellowBoot).player.facing == "up",
+  "Yellow's StartNewGame faces the player up in the bedroom too")
 check(vanillaSave.player.name == "RED" and vanillaSave.player.rival == "BLUE"
   and vanillaSave.money == 3000, "the seeded boot config reproduces the Red start")
 -- issue #109: vanilla New Game puts 1 Potion in the player's item PC

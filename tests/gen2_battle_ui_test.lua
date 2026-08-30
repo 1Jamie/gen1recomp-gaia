@@ -282,6 +282,18 @@ local function runToMenu(screen, cap)
   return false
 end
 
+-- engine/items/item_effects.asm:1748
+local function drainItemResult(picker)
+  for _ = 1, 400 do
+    if not picker.itemResult then return true end
+    Input:overlayPressed("a")
+    Input:step()
+    picker:update(1 / 60)
+    Input:overlayReleased("a")
+  end
+  return not picker.itemResult
+end
+
 do
   local screen = newScreen({ inventory = {
     MASTER_BALL = 1, POKE_BALL = 1,
@@ -493,6 +505,9 @@ do
 
   local benchBefore = bench.hp
   picker.onChoose(2, bench)
+  eq(picker.itemResult and picker.itemResult.shown, benchBefore,
+    "the picked row's bar starts at the pre-heal HP (wWhichHPBar = $2)")
+  check(drainItemResult(picker), "and the button drops the list")
   eq(bench.hp, math.min(bench.maxHp or bench.stats.hp, benchBefore + 20),
     "the POTION landed on the BENCHED mon")
   eq(save.inventory.POTION, 1, "and one POTION left the bag")
@@ -700,11 +715,16 @@ do
   screenSave.inventory.POTION = 1
   screen:useItem("POTION")
   local picker = screen.game.stack.top()
+  local hurt = player.hp
   picker.onChoose(1, player)
-  check(screen.hpAnim ~= nil and screen.hpAnim.side == "player",
-    "healing the ACTIVE mon arms the bar chase (HealHP_SFX_GFX's AnimateHPBar)")
+  -- engine/items/item_effects.asm:1671
+  check(picker.itemResult ~= nil and picker.itemResult.shown == hurt
+    and picker.itemResult.target == player.hp,
+    "healing the ACTIVE mon climbs the party row's bar")
+  eq(screen.hpAnim, nil, "with no HUD chase armed behind the list")
+  check(drainItemResult(picker), "the button drops the list")
   check(runToMenu(screen), "the heal turn drains")
-  eq(screen.shownHp.player, player.hp, "and the bar refilled to the new HP")
+  eq(screen.shownHp.player, player.hp, "and the HUD came back at the new HP")
 end
 
 -- ---- GROWL's sound comes from its own anim script (cache-fed) -------------
@@ -860,6 +880,36 @@ do
   check(runToMenu(screen), "the intro drains to the menu")
   eq(screen.showEnemyHud, true, "UpdateEnemyHUD has run by the menu")
   eq(screen.showPlayerHud, true, "and UpdatePlayerHUD after the send-out")
+end
+
+-- ../pokecrystal/engine/battle/core.asm:8063
+do
+  local screen = newScreen()
+  check(screen:introGrayscale(), "PREDEFPAL_BLACKOUT covers frame 0")
+  run(screen, BattleAnimView.SLIDE_FRAMES - 1)
+  check(screen:introGrayscale(), "and the last frame of the slide")
+  run(screen, 1)
+  check(not screen:introGrayscale(),
+    "SCGB_BATTLE_COLORS at the tail of InitBattleDisplay")
+end
+
+-- engine/battle/core.asm:8733
+do
+  local screen = newScreen()
+  eq(screen.ballRows.player, false, "no player ball row at construction")
+  eq(screen.ballRows.enemy, false, "nor an OT row")
+  run(screen, BattleAnimView.SLIDE_FRAMES)
+  eq(screen.ballRows.player, false, "and neither rode in with the bands")
+  eq(screen.ballRows.enemy, false, "on either side")
+  for _ = 1, 3000 do
+    Input:step()
+    screen:update(1 / 60)
+    if screen.message == "Wild PIDGEY appeared!" then break end
+  end
+  eq(screen.message, "Wild PIDGEY appeared!", "BattleStartMessage's own line")
+  eq(screen.ballRows.player, true, "ShowPlayerMonsRemaining rides that line")
+  eq(screen.ballRows.enemy, false,
+    "and wBattleMode skips ShowOTTrainerMonsRemaining in the wild")
 end
 
 -- ---- the wild mon cries with BattleStartMessage ----------------------------
@@ -1132,15 +1182,23 @@ do
   run(screen2, 1)
   check(siren, "the second battle's siren is up too")
   screen2:useItem("POTION")
-  screen2.game.stack.top().onChoose(1, player2)
+  local picker2 = screen2.game.stack.top()
+  picker2.onChoose(1, player2)
   check(not siren, "the POTION silences it where UseDisposableItem sits")
-  check(screen2.hpAnim and screen2.hpAnim.side == "player",
-    "with the bar only starting to climb")
+  check(picker2.itemResult and picker2.itemResult.shown == 2,
+    "with the party row's bar only starting to climb")
   local rangDuringClimb = false
+  for _ = 1, 600 do
+    if not picker2.itemResult then break end
+    Input:overlayPressed("a")
+    Input:step()
+    picker2:update(1 / 60)
+    Input:overlayReleased("a")
+    if picker2.itemResult and siren then rangDuringClimb = true end
+  end
   for _ = 1, 600 do
     Input:step()
     screen2:update(1 / 60)
-    if screen2.hpAnim and siren then rangDuringClimb = true end
     if screen2.phase == "menu" then break end
   end
   check(not rangDuringClimb, "and it stays silent for the whole climb")

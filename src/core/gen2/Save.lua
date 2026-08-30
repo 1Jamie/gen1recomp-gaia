@@ -454,6 +454,8 @@ function Save.crystalState(save)
   if crystal.moveTutor.used == nil then crystal.moveTutor.used = false end
   -- ../pokecrystal/ram/wram.asm:3445 wUnlockedUnowns.
   crystal.unownWords = crystal.unownWords or {}
+  -- ../pokecrystal/engine/menus/intro_menu.asm:69-70
+  crystal.mapSign = crystal.mapSign or { prev = "LANDMARK_NEW_BARK_TOWN" }
   return crystal
 end
 
