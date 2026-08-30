@@ -4257,19 +4257,19 @@ local function buildCartModal(imp, m)
   local pagerH = math.max(Kit.tapMin(), math.floor(30 * m.s))
   local notice = imp._cartNotice
   local canWebClip = webClipAvailable(imp)
-  local clipNotice = imp._webClipNotice
-  local clipPrefix = tostring(version) .. ":"
-  if not clipNotice or tostring(clipNotice.key):sub(1, #clipPrefix)
-      ~= clipPrefix then
-    clipNotice = nil
+  local webClipNotice = imp._webClipNotice
+  local webClipPrefix = tostring(version) .. ":"
+  if not webClipNotice or tostring(webClipNotice.key):sub(1, #webClipPrefix)
+      ~= webClipPrefix then
+    webClipNotice = nil
   end
   local noticeH = notice
     and (Kit.wrapHeight("small", notice, w - 2 * pad, 2) + gap) or 0
-  local clipNoticeH = clipNotice
-    and (Kit.wrapHeight("small", clipNotice.text, w - 2 * pad, 2) + gap) or 0
+  local webClipNoticeH = webClipNotice
+    and (Kit.wrapHeight("small", webClipNotice.text, w - 2 * pad, 2) + gap) or 0
   local emptyH = (#rows == 0) and (Kit.textHeight("small") + gap) or 0
   local fixed = pad + Kit.textHeight("button") + math.floor(12 * m.s)
-    + noticeH + clipNoticeH + emptyH + 2 * (rowH + gap) + rowH + pad
+    + noticeH + webClipNoticeH + emptyH + 2 * (rowH + gap) + rowH + pad
   local perPage = Kit.rowsThatFit(m.H - 2 * m.pad - fixed, rowH, gap, 1, 8)
   local pageKey = "cartpop-" .. tostring(version)
   local first, last, cur, pages = Kit.pageBounds(page(imp, pageKey), #rows, perPage)
@@ -4285,9 +4285,9 @@ local function buildCartModal(imp, m)
     cy = cy + Kit.textWrapped("small", notice, px + pad, cy,
       pw - 2 * pad, PAL.detail, 2) + gap
   end
-  if clipNotice then
-    cy = cy + Kit.textWrapped("small", clipNotice.text, px + pad, cy,
-      pw - 2 * pad, clipNotice.ok and PAL.green or PAL.red, 2) + gap
+  if webClipNotice then
+    cy = cy + Kit.textWrapped("small", webClipNotice.text, px + pad, cy,
+      pw - 2 * pad, webClipNotice.ok and PAL.green or PAL.red, 2) + gap
   end
   btn(imp, px + pad, cy, pw - 2 * pad, rowH, "cartpop-vanilla", baseName, {
     kind = (active == nil) and "primary" or "ghost", font = "small",
@@ -4301,26 +4301,26 @@ local function buildCartModal(imp, m)
   local expGap = math.floor(6 * m.s)
   local expW = math.min(chipWidth(Strings("Export"), m),
     math.floor((pw - 2 * pad) * 0.35))
-  local clipW = canWebClip
+  local webClipW = canWebClip
     and math.min(chipWidth(Strings("Home Screen"), m),
       math.floor((pw - 2 * pad) * 0.32)) or 0
   for i = first, last do
     local row = rows[i]
     local rowKey = "cartpop-id-" .. tostring(row.id)
     local pickW = pw - 2 * pad - expW - expGap
-    if canWebClip then pickW = pickW - clipW - expGap end
+    if canWebClip then pickW = pickW - webClipW - expGap end
     btn(imp, px + pad, cy, pickW, rowH, rowKey, cartRowLabel(row), {
         kind = (active == row.id) and "primary" or "ghost", font = "small",
         action = function() imp:_selectCart(version, row.id) end })
     if canWebClip then
-      btn(imp, px + pad + pickW + expGap, cy, clipW, rowH,
-        rowKey .. "-clip", Strings("Home Screen"), { kind = "accent", font = "small",
+      btn(imp, px + pad + pickW + expGap, cy, webClipW, rowH,
+        rowKey .. "-webclip", Strings("Home Screen"), { kind = "accent", font = "small",
           action = function()
             if requestWebClip(imp, version, row.id) then imp._cartPopup = nil end
           end })
     end
     local exportX = px + pad + pickW + expGap
-    if canWebClip then exportX = exportX + clipW + expGap end
+    if canWebClip then exportX = exportX + webClipW + expGap end
     btn(imp, exportX, cy, expW, rowH, rowKey .. "-export",
       Strings("Export"), { kind = "accent", font = "small",
         action = function() imp:exportCart(row.id) end })
@@ -4976,9 +4976,9 @@ local function buildGameManageModal(imp, m)
   -- open, and both already print their own transfer hint on the slot card.
   local canOpenFolder = saveDir and not imp.android and not imp.isNX
   local canWebClip = ready and webClipAvailable(imp)
-  local clipKey = tostring(version) .. ":" .. tostring(cartId or "")
-  local clipNotice = imp._webClipNotice
-  if not clipNotice or clipNotice.key ~= clipKey then clipNotice = nil end
+  local webClipKey = tostring(version) .. ":" .. tostring(cartId or "")
+  local webClipNotice = imp._webClipNotice
+  if not webClipNotice or webClipNotice.key ~= webClipKey then webClipNotice = nil end
 
   local pad = math.floor(18 * m.s)
   local w = math.floor(460 * m.s)
@@ -4989,8 +4989,8 @@ local function buildGameManageModal(imp, m)
     bodyW, 3)
   local pathH = saveDir
     and (Kit.textHeight("micro") + math.floor(8 * m.s)) or 0
-  local noticeH = clipNotice
-    and (Kit.wrapHeight("small", clipNotice.text, bodyW, 2) + gap) or 0
+  local noticeH = webClipNotice
+    and (Kit.wrapHeight("small", webClipNotice.text, bodyW, 2) + gap) or 0
   local nBtns = 1 + (canWebClip and 1 or 0) + (canOpenFolder and 1 or 0) + 1
   local h = pad + Kit.textHeight("button") + math.floor(8 * m.s) + detailH
     + math.floor(12 * m.s) + pathH + noticeH
@@ -5012,9 +5012,9 @@ local function buildGameManageModal(imp, m)
       px + pad, cy, PAL.faint)
     cy = cy + Kit.textHeight("micro") + math.floor(8 * m.s)
   end
-  if clipNotice then
-    cy = cy + Kit.textWrapped("small", clipNotice.text, px + pad, cy,
-      pw - 2 * pad, clipNotice.ok and PAL.green or PAL.red, 2) + gap
+  if webClipNotice then
+    cy = cy + Kit.textWrapped("small", webClipNotice.text, px + pad, cy,
+      pw - 2 * pad, webClipNotice.ok and PAL.green or PAL.red, 2) + gap
   end
 
   btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-rom",
@@ -5027,7 +5027,7 @@ local function buildGameManageModal(imp, m)
       end or nil })
   cy = cy + m.btnH + gap
   if canWebClip then
-    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-clip",
+    btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "manage-webclip",
       Strings("Add to Home Screen"), { kind = "accent", font = "small",
         action = function()
           if requestWebClip(imp, version, cartId) then imp._gameManage = nil end

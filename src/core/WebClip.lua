@@ -4,7 +4,7 @@ local CartStore = require("src.carts.CartStore")
 
 local WebClip = {}
 
-local CLIP_TITLES = {
+local WEB_CLIP_TITLES = {
   red = "Pokémon Red",
   blue = "Pokémon Blue",
   yellow = "Pokémon Yellow",
@@ -28,7 +28,7 @@ function WebClip.spec(version, cartId)
   local info = GameVersion.info(version)
   if not info then return nil end
 
-  local title = CLIP_TITLES[version] or info.displayName
+  local title = WEB_CLIP_TITLES[version] or info.displayName
   local artPath = "assets/labels/" .. tostring(version) .. ".png"
   if cartId then
     local ok, cart = pcall(CartStore.get, cartId)
