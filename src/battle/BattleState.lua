@@ -361,6 +361,8 @@ end
 local function namedPalette(data, name)
   local PaletteFX = require("src.render.PaletteFX")
   local colors = PaletteFX.pal(data, name)
+    or (data and data.palettes and data.palettes.palettes
+        and data.palettes.palettes[name])
   if not colors then return nil end
   local key = name
   if PaletteFX.usesGbcPack() then key = "redpp:" .. name end
@@ -371,6 +373,10 @@ end
 -- as their overworld walker. Vanilla trainers preserve the hardware-faithful
 -- MEWMON fallback used during the battle introduction.
 function BattleState.trainerPalette(data, trainer)
+  if trainer and trainer.palette then
+    local named = namedPalette(data, trainer.palette)
+    if named then return named end
+  end
   local source = trainer and trainer.paletteSource
   if source then
     local PaletteFX = require("src.render.PaletteFX")
@@ -851,6 +857,13 @@ function BattleState.newTrainer(game, oppClass, partyIndex, opts)
      or oppClass == "OPP_RIVAL3" then
     local rivalName = (game.save.player and game.save.player.rival) or "BLUE"
     self.trainer = setmetatable({ name = rivalName }, { __index = self.trainer })
+  end
+  local personal = self.trainer.partyNames
+    and self.trainer.partyNames[partyIndex or 1]
+  if personal and personal ~= "" then
+    self.trainer = setmetatable({ name = self.trainer.name .. " " .. personal,
+      className = self.trainer.name, personalName = personal },
+      { __index = self.trainer })
   end
   self.enemyAIMods = self.trainer.aiMods
   local partyDef = self.trainer.parties[partyIndex or 1]
@@ -1719,11 +1732,15 @@ function BattleState:computeMusicKind()
   return "wild"
 end
 
--- a mod-set per-trainer battle theme (trainers.battleTheme, an audio.songs
--- id); nil for vanilla trainers, so the kind default is untouched (#782)
+-- a mod-set battle theme (trainers.battleTheme, else the wild species'
+-- pokemon.battleTheme); nil for vanilla content (#782)
 function BattleState:battleTheme()
   local trainer = self.trainer
   if trainer and trainer.battleTheme then return trainer.battleTheme end
+  if self.kind == "wild" then
+    local def = self.enemy and self.enemy.def
+    if def and def.battleTheme then return def.battleTheme end
+  end
   return nil
 end
 

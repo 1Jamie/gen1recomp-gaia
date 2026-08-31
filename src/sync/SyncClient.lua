@@ -74,9 +74,13 @@ function SyncClient:send(method, path, body, opts)
   local headers = { ["Accept"] = "application/json" }
   local payload
   if body ~= nil then
-    local ok, encoded = pcall(Json.encode, body)
-    if not ok then return nil, "could not encode the request" end
-    payload = encoded
+    if type(body) == "table" and next(body) == nil then
+      payload = "{}"
+    else
+      local ok, encoded = pcall(Json.encode, body)
+      if not ok then return nil, "could not encode the request" end
+      payload = encoded
+    end
     headers["Content-Type"] = "application/json"
   end
   if not opts.noAuth then
@@ -190,8 +194,12 @@ function SyncClient:fetchShare(code)
     { noAuth = true, params = { code = trimmed } })
 end
 
-function SyncClient:lobbyTicket()
-  return self:send("POST", "/lobby/ticket", {})
+function SyncClient:lobbyTicket(displayName)
+  local body = {}
+  if type(displayName) == "string" and displayName ~= "" then
+    body.displayName = displayName
+  end
+  return self:send("POST", "/lobby/ticket", body)
 end
 
 function SyncClient:setDisplayName(name)

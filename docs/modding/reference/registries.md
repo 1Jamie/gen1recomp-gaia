@@ -386,7 +386,7 @@ accepted and merged as-is.
 | `hiddenItems` | map of string -> list of {item, x, y} |
 | `ledges` | list of {facing, input, ledgeTile, standingTile, tileset?} |
 | `playerPics` | {back?, demoBack?, front?, oakBack?} |
-| `townMap` | {background?, cursorOrder?, gridPixelSize?, locations?, nest?} |
+| `townMap` | {background?, cursorOrder?, gridPixelSize?, locations?, nest?, upArrow?} |
 
 ```lua
 mod.content.field:patch("boot", { startMap = "SABLE_COVE" })
@@ -818,6 +818,7 @@ mod.content.phone_contacts:patch("PHONE_YOUNGSTER_JOEY", { map = "ROUTE_31" })
 | `baseStats` | {attack, defense, hp, special, speed} | yes |
 | `battleScaleBack` | number 0.25..4 | no |
 | `battleScaleFront` | number 0.25..4 | no |
+| `battleTheme` | music id | no |
 | `catchRate` | integer 0..255 | yes |
 | `cry` | cries id | no |
 | `dex` | integer >= 1 | yes |
@@ -856,6 +857,7 @@ do not.
 | `baseStats` | {attack, defense, hp, specialAttack, specialDefense, speed} | yes |
 | `battleScaleBack` | number 0.25..4 | no |
 | `battleScaleFront` | number 0.25..4 | no |
+| `battleTheme` | music id | no |
 | `catchRate` | integer 0..255 | yes |
 | `cry` | cries id | no |
 | `dex` | integer >= 1 | yes |
@@ -1150,8 +1152,10 @@ mod.content.tokens:register("CLOCK", function(game) return "12" end)
 | `id` | string | yes |
 | `index` | integer 0..255 | no |
 | `name` | string | yes |
+| `palette` | palettes id | no |
 | `paletteSource` | string | no |
 | `parties` | list of list of {level, species} | yes |
+| `partyNames` | map of integer >= 1 -> string | no |
 | `pic` | file path | no |
 | `trueColor` | boolean | no |
 
@@ -1171,6 +1175,7 @@ do not.
 |---|---|---|
 | `attributes` | list of integer 0..255 | no |
 | `baseMoney` | integer >= 0 | no |
+| `battleTheme` | music id | no |
 | `encounterMusic` | music id | no |
 | `id` | string | no |
 | `index` | integer 0..255 | no |

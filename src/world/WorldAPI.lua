@@ -8,6 +8,7 @@
 local Collision = require("src.world.Collision")
 local Logger = require("src.core.Logger")
 local FieldDefaults = require("src.world.FieldDefaults")
+local Flags = require("src.script.Flags")
 local Map = require("src.world.Map")
 local MapLoader = require("src.world.MapLoader")
 local MapOverview = require("src.world.MapOverview")
@@ -389,7 +390,7 @@ end
 function WorldAPI:setFlag(name, value)
   local save = self.game and self.game.save
   if not save or not save.flags then return nil, "no save" end
-  save.flags[name] = value
+  if value then Flags.set(save, name) else Flags.clear(save, name) end
   return true
 end
 

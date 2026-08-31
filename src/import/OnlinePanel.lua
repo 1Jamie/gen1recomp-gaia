@@ -1763,6 +1763,8 @@ function OnlinePanel.doConnect(imp)
   if not ok then
     st.status = tostring(err or "the relay didn't answer")
     st.statusOk = false
+  else
+    st.status, st.statusOk = nil, false
   end
   return ok
 end
@@ -1776,7 +1778,7 @@ function OnlinePanel.connect(imp)
     st.connectWanted = true
     st.ticketState = "pending"
     local started = OnlinePanel.startJob(imp, "ticket", function(client)
-      return client:lobbyTicket()
+      return client:lobbyTicket(st.name)
     end)
     if started then return true end
     st.ticketState = "unsupported"
