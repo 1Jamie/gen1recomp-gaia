@@ -48,6 +48,7 @@ local function readFile(path)
 end
 
 for _, path in ipairs({ "src/world/OverworldController.lua",
+                        "src/world/WorldAPI.lua",
                         "src/script/Commands.lua",
                         "src/inventory/ItemEffects.lua" }) do
   local body = readFile(path)
