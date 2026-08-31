@@ -2202,11 +2202,7 @@ function Game2:applyOptions()
   Zoom.allowSurvey = caps.survey
   if not caps.survey and Zoom.offset < 0 then Zoom.offset = 0 end
   if caps.fpsMax then
-    local FrameCap = require("src.core.FrameCap")
-    if FrameCap.current == FrameCap.DISPLAY
-       or FrameCap.current > caps.fpsMax then
-      FrameCap.apply(caps.fpsMax)
-    end
+    require("src.core.FrameCap").clampToPerformance(caps.fpsMax)
   end
   if shaderfxCleared and self.save then
     -- applyOptions returns true when it had to clear an unresolved preset.

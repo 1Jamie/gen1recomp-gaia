@@ -13,6 +13,12 @@
 
 local FrameCap = {}
 
+local function isHandheldEnv()
+  return os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
+    or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
+    or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
+end
+
 -- Selectable steps: the normal framerate stops between the floor and the
 -- ceiling.  STEPS[1] == MIN and STEPS[#STEPS] == MAX, so the nearest-step
 FrameCap.STEPS = { 30, 40, 50, 60, 75, 90, 100, 120, 144, 160 }
@@ -74,7 +80,39 @@ function FrameCap.apply(value)
 end
 
 function FrameCap.applyOptions(opts)
-  FrameCap.apply(opts and opts.fpsCap)
+  local cap = opts and opts.fpsCap
+  -- Handheld KMSDRM builds follow the panel through PresentSync; the stored
+  -- default 60 would bypass DISPLAY pacing and force the software limiter.
+  if (cap == nil or cap == FrameCap.DEFAULT) and isHandheldEnv() then
+    cap = FrameCap.DISPLAY
+  end
+  return FrameCap.apply(cap)
+end
+
+-- Launcher / pre-save boot: same DISPLAY default before any save applies.
+function FrameCap.bootHandheld()
+  if isHandheldEnv() and FrameCap.current == FrameCap.DEFAULT then
+    return FrameCap.apply(FrameCap.DISPLAY)
+  end
+  return FrameCap.current
+end
+
+-- Performance LOW tier caps extras; do not rewrite DISPLAY to numeric 60 when
+-- the panel is already at or below the ceiling (that bypasses PresentSync).
+function FrameCap.clampToPerformance(fpsMax)
+  fpsMax = tonumber(fpsMax)
+  if not fpsMax then return FrameCap.current end
+  if FrameCap.current > fpsMax then
+    return FrameCap.apply(fpsMax)
+  end
+  if FrameCap.current == FrameCap.DISPLAY then
+    local ok, RR = pcall(require, "src.core.RefreshRate")
+    local hz = ok and RR.hz()
+    if hz and hz > fpsMax then
+      return FrameCap.apply(fpsMax)
+    end
+  end
+  return FrameCap.current
 end
 
 return FrameCap

@@ -49,6 +49,19 @@ function PresentSync.displaySyncConfirmed()
   return status.gated == true
 end
 
+-- True when vsync + a confirmed (or in-progress trusted) swapchain already
+-- gates at or above the numeric cap, so the 1 ms FrameCap poll adds nothing.
+function PresentSync.hardwarePacesCap(cap)
+  cap = tonumber(cap)
+  if not cap or cap <= 0 then return false end
+  if PresentSync.needsSoftwareCap() then return false end
+  local VSync = require("src.core.VSync")
+  if not VSync.isOn() then return false end
+  local hz = require("src.core.RefreshRate").hz()
+  if not hz or hz <= 0 then return false end
+  return cap >= hz
+end
+
 -- Vsync cannot be turned on usefully once the probe has failed; the row still
 -- allows stepping to OFF.  Warmup does not block the row.
 function PresentSync.vsyncEnableBlocked()

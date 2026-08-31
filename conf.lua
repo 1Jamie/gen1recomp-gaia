@@ -62,16 +62,10 @@ function love.conf(t)
     t.window.minheight = 360
   end
   t.version = love._os == "iOS" and "12.0" or "11.5"
-  -- On Linux handhelds with KMSDRM/EGL, driver vsync blocks the CPU thread with
-  -- busy-waiting spinloops inside eglSwapBuffers. Disabling driver vsync allows
-  -- love.run to perform kernel nanosleep(), dropping idle CPU from 25% to 4%.
-  if os.getenv("HANDHELD") == "1" or os.getenv("PORTMASTER") == "1"
-      or os.getenv("POKEPORT_HANDHELD") == "1" or os.getenv("TRIMUI") == "1"
-      or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1" then
-    t.window.vsync = 0
-  else
-    t.window.vsync = 1
-  end
+  -- Driver vsync stays on everywhere (including KMSDRM handhelds) so
+  -- PresentSync can probe cadence and pace via the panel.  Turning it off
+  -- here bypassed that stack and forced the FrameCap 1 ms polling loop.
+  t.window.vsync = 1
   t.modules.audio = not companion
   t.modules.joystick = not companion
   t.modules.physics = false

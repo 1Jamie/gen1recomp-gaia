@@ -358,9 +358,9 @@ export SDL_AUDIO_SAMPLES=1024
 # the handheld speaker sounds effectively identical.
 export POKEPORT_AUDIO_RATE=22050
 
-# Idle-power render governor: after 10s with no input on static screens,
-# presentation drops to IDLE_FPS, cutting idle CPU/GPU compositing ~6x.
-# Any button press restores full framerate next frame.
+# Idle-power render governor: after IDLE_AFTER seconds with no input on static
+# screens, presentation drops to IDLE_FPS (game logic and audio stay full speed).
+export POKEPORT_IDLE_AFTER=10
 export POKEPORT_IDLE_FPS=6
 
 # Memory allocator tuning (limit arena fragmentation on 1GB RAM SBCs)
