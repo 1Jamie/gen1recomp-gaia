@@ -1428,12 +1428,20 @@ function Game:restoreCheckpointSave(loaded)
   self.save = loaded
   self:adoptSave(loaded)
   while self.stack:top() do self.stack:pop() end
-  -- freshBoot unconditionally: Checkpoint.resume (src/core/Checkpoint.lua)
-  -- is this method's only caller, and it is itself gated to the title
-  -- session (isTitleSession).
+  -- setMap zeroes poisonSteps on every non-seamless map entry, mirroring
+  -- ClearVariablesOnEnterMap.  Re-entering the map is how a restore installs
+  -- the world, but it is not a map entry from the player's point of view, and
+  -- Checkpoint.restore verifies the applied state against the checkpoint --
+  -- so the discarded counter failed the comparison and rolled the whole
+  -- restore back three steps out of four (#1971).
+  local poisonSteps = loaded.poisonSteps
+  -- freshBoot unconditionally: both callers arrive through Checkpoint.apply
+  -- (src/core/Checkpoint.lua), which serves Checkpoint.resume from the title
+  -- session and Checkpoint.restore from a settled runtime.
   self.stack:push(self.overworld, loaded.player.map,
                   loaded.player.x, loaded.player.y, loaded.player.facing,
                   { via = "checkpoint", checkpoint = true, freshBoot = true })
+  self.save.poisonSteps = poisonSteps
 end
 
 -- Install a reconstructed battle without calling BattleState:enter(), whose
