@@ -46,6 +46,7 @@
 local Chrome = require("src.ui.gen2.Chrome")
 local CoinCase = require("src.core.gen2.CoinCase")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local SlotMachine = {}
 SlotMachine.__index = SlotMachine
@@ -609,20 +610,65 @@ local TEXT_X, TEXT_Y, TEXT_LINE = 1, 14, 2
 -- data/text/common_2.asm and common_3.asm.  None of these are in the cache's
 -- text.lua: no script bytecode points at them, so the extractor -- which walks
 -- reachable script pointers -- never reaches them.
+local function splitLines(text)
+  local out = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+-- `english` is derived from `source` once here rather than typed out a
+-- second time, so the two cannot drift apart when the English wording
+-- changes.
+local function staticText(source)
+  return { source = source, english = splitLines(source) }
+end
+
 local TEXTS = {
-  betHowMany = { "Bet how many", "coins?" },      -- _SlotsBetHowManyCoinsText
-  start = { "Start!" },                            -- _SlotsStartText
-  notEnough = { "Not enough", "coins." },          -- _SlotsNotEnoughCoinsText
-  ranOut = { "Darn… Ran out of", "coins…" },       -- _SlotsRanOutOfCoinsText
-  playAgain = { "Play again?" },                   -- _SlotsPlayAgainText
-  darn = { "Darn!" },                              -- _SlotsDarnText
+  betHowMany = staticText(Strings.source("Bet how many\ncoins?")),
+  start = staticText(Strings.source("Start!")),
+  notEnough = staticText(Strings.source("Not enough\ncoins.")),
+  ranOut = staticText(Strings.source("Darn… Ran out of\ncoins…")),
+  playAgain = staticText(Strings.source("Play again?")),
+  darn = staticText(Strings.source("Darn!")),
 }
 SlotMachine.TEXTS = TEXTS
+
+-- Keyed by the `lines` table itself (weak so a freshly built linedUpLines()
+-- table cannot leak): draw() calls localizedLines() every frame the bet/
+-- result screens are up, but the split only changes if the translated text
+-- does, so re-running the gmatch loop every frame is wasted work.
+local lineCache = setmetatable({}, { __mode = "k" })
+
+-- Deliberately \n-only, unlike CommonText.pages/pagesOf elsewhere in Gen2
+-- UI: every entry in TEXTS above is a fixed two-line (or shorter) cart
+-- message, and the box it draws into (TEXT_BOX_H = 6, TEXT_LINE = 2) only
+-- has room for two printed lines before a third would land past its bottom
+-- edge. The draw loops above have no page break at all, so a translation
+-- that needs a third line here would silently overflow instead of
+-- paginating -- route through CommonText.pages instead if that is ever
+-- needed.
+local function localizedLines(lines)
+  if not (lines and lines.source) then return lines or {} end
+  local translated
+  if lines.args then
+    translated = Strings(lines.source, unpack(lines.args))
+  else
+    translated = Strings(lines.source)
+  end
+  if translated == lines.source then return lines.english or splitLines(translated) end
+  local cached = lineCache[lines]
+  if cached and cached.text == translated then return cached.lines end
+  local out = splitLines(translated)
+  lineCache[lines] = { text = translated, lines = out }
+  return out
+end
 
 -- _SlotsLinedUpText: "lined up!" / "Won @<wStringBuffer2> coins!", with the
 -- matched symbol's 2x2 tiles printed to its left by .Text_PrintPayout.
 local function linedUpLines(payout)
-  return { "    lined up!", ("Won %d coins!"):format(payout) }
+  return { source = Strings.source("    lined up!\nWon %d coins!"), args = { payout } }
 end
 
 -- Slots_PlaySFX's labels, spelled the pokegold way (Sound.GEN2_ALIASES is what
@@ -1440,7 +1486,7 @@ end
 function SlotMachine:drawMessage()
   if not self.message then return end
   Chrome.textbox(TEXT_BOX_X, TEXT_BOX_Y, TEXT_BOX_W - 2, TEXT_BOX_H - 2)
-  for i, line in ipairs(self.message) do
+  for i, line in ipairs(localizedLines(self.message)) do
     Chrome.print(line, TEXT_X, TEXT_Y + (i - 1) * TEXT_LINE)
   end
   if self.matched and self.matched ~= SlotMachine.NO_MATCH
@@ -1492,8 +1538,9 @@ function SlotMachine:drawPanel()
   if self.phase == "bet" then
     -- Left speech textbox for "Bet how many coins?"
     Chrome.textbox(0, 12, 12, 4)
-    Chrome.print(TEXTS.betHowMany[1], 1, 14)
-    Chrome.print(TEXTS.betHowMany[2], 1, 16)
+    local betLines = localizedLines(TEXTS.betHowMany)
+    Chrome.print(betLines[1] or "", 1, 14)
+    Chrome.print(betLines[2] or "", 1, 16)
 
     -- Right menu for bet choices (14, 10 to 19, 17)
     Chrome.textbox(14, 10, 4, 6)
@@ -1506,19 +1553,19 @@ function SlotMachine:drawPanel()
     if self.message then
       -- If "Not enough coins." message is shown, overlay full speech box
       Chrome.textbox(0, 12, 18, 4)
-      for i, line in ipairs(self.message) do
+      for i, line in ipairs(localizedLines(self.message)) do
         Chrome.print(line, TEXT_X, TEXT_Y + (i - 1) * TEXT_LINE)
       end
     end
   elseif self.phase == "again" then
     -- Speech box: "Play again?"
     Chrome.textbox(0, 12, 18, 4)
-    Chrome.print(TEXTS.playAgain[1], TEXT_X, TEXT_Y)
+    Chrome.print(localizedLines(TEXTS.playAgain)[1] or "", TEXT_X, TEXT_Y)
 
     -- PlaceYesNoBox at (14, 12): 6x5 box with YES at (16,13), NO at (16,15)
     Chrome.textbox(14, 12, 4, 3)
-    Chrome.print("YES", 16, 13)
-    Chrome.print("NO", 16, 15)
+    Chrome.print(Strings("YES"), 16, 13)
+    Chrome.print(Strings("NO"), 16, 15)
     Chrome.cursor(15, 13 + (self.againChoice - 1) * 2)
   else
     self:drawMessage()

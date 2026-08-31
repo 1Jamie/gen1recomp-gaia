@@ -19,6 +19,7 @@ require("src.core.Logger").warn = function() end
 
 local GbcPalette = require("src.render.GbcPalette")
 local StartMenu = require("src.ui.gen2.StartMenu")
+local Strings = require("src.core.Strings")
 
 local calls
 local function spy(name)
@@ -61,6 +62,25 @@ do
   spy("resolve"); spy("use"); spy("with")
   local ok = pcall(StartMenu.draw, fakeMenu())
   T.check(ok, "StartMenu:draw() does not error with no shader available")
+end
+
+do
+  Strings.load({ strings = {
+    ["Change\nsettings"] = "Modifier les\nreglages",
+  } })
+  local save = { party = {}, inventory = {}, options = {} }
+  local menu = StartMenu.new({ save = save }, {
+    save = save,
+    unlocked = { pack = true },
+  })
+  local option
+  for _, item in ipairs(menu.items) do
+    if item.value == "option" then option = item end
+  end
+  T.check(option and option.desc[1] == "Modifier les"
+      and option.desc[2] == "reglages",
+    "START descriptions use one complete multiline key before splitting")
+  Strings.load({})
 end
 
 T.finish()

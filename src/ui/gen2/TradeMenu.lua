@@ -331,8 +331,8 @@ end
 
 function TradeMenu:drawYesNo(choice)
   Chrome.box(YESNO_X, YESNO_Y, YESNO_W, YESNO_H)
-  Chrome.print("YES", YESNO_X + 2, YESNO_Y + 1)
-  Chrome.print("NO", YESNO_X + 2, YESNO_Y + 3)
+  Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
+  Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)
   Chrome.cursor(YESNO_X + 1, YESNO_Y + (choice == 1 and 1 or 3))
 end
 

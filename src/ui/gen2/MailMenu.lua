@@ -29,6 +29,7 @@ local Chrome = require("src.ui.gen2.Chrome")
 local CommonText = require("src.core.gen2.CommonText")
 local Mail = require("src.core.gen2.Mail")
 local Screens = require("src.ui.Screens")
+local Strings = require("src.core.Strings")
 
 local MailMenu = {}
 MailMenu.__index = MailMenu
@@ -51,9 +52,9 @@ local ARROW_X, ARROW_Y = 18, 17
 
 -- .MenuData's three rows, verbatim.
 local ENTRIES = {
-  { id = "read", label = "READ" },
-  { id = "take", label = "TAKE" },
-  { id = "quit", label = "QUIT" },
+  { id = "read", label = Strings.source("READ") },
+  { id = "take", label = Strings.source("TAKE") },
+  { id = "quit", label = Strings.source("QUIT") },
 }
 
 local function page(...) return { ... } end
@@ -275,8 +276,8 @@ end
 
 function MailMenu:drawYesNo(choice)
   Chrome.box(YESNO_X, YESNO_Y, YESNO_W, YESNO_H)
-  Chrome.print("YES", YESNO_X + 2, YESNO_Y + 1)
-  Chrome.print("NO", YESNO_X + 2, YESNO_Y + 3)
+  Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
+  Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)
   Chrome.cursor(YESNO_X + 1, YESNO_Y + (choice == 1 and 1 or 3))
 end
 
@@ -303,7 +304,7 @@ function MailMenu:drawPanel()
   for row, entry in ipairs(ENTRIES) do
     local ty = MENU_LABEL_Y + (row - 1) * 2
     if row == self.index then Chrome.cursor(MENU_LABEL_X - 1, ty) end
-    Chrome.print(entry.label, MENU_LABEL_X, ty)
+    Chrome.print(Strings(entry.label), MENU_LABEL_X, ty)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

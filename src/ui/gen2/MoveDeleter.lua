@@ -16,6 +16,7 @@
 local Chrome = require("src.ui.gen2.Chrome")
 local ForgetMoveList = require("src.ui.gen2.ForgetMoveList")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local MoveDeleter = {}
 MoveDeleter.__index = MoveDeleter
@@ -111,7 +112,7 @@ function MoveDeleter:draw()
     local entry = self.list[slot]
     if entry then
       Chrome.print(self:moveName(entry), 2, nameY)
-      Chrome.print("PP", 10, ppY)
+      Chrome.print(Strings("PP"), 10, ppY)
       Chrome.print(Chrome.number(entry.pp, 2, true), 13, ppY)
       Chrome.print("/", 15, ppY)
       Chrome.print(Chrome.number(entry.maxPp or entry.pp, 2, true), 16, ppY)
