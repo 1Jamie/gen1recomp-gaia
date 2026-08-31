@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.43",
+          "date": "2026-08-31",
+          "size": 21536027,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.43/gen1recomp++-0.2.43-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2004 POKEPORT_AUDIO_RATE is never read by the engine — chip synth always renders at 44100 Hz\n- #2005 Constant walking stutter on weak ARM handhelds (RK3326) from per-frame allocation churn and forced per-frame GC step — jitter, not CPU load\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi\n- @laaledesiempre"
+        },
+        {
           "version": "0.2.42",
           "date": "2026-08-31",
           "size": 21534750,
