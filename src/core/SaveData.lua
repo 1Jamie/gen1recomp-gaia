@@ -1383,6 +1383,12 @@ local function deleteSlotIn(key, slotId)
     reg.active = reg.list[1]  -- may be nil when the list is now empty
   end
   putRegistry(opts, key, reg)
+  local ids = type(opts.playthroughIds) == "table" and opts.playthroughIds[key]
+  if type(ids) == "table" then
+    ids[slotId] = nil
+    if next(ids) == nil then opts.playthroughIds[key] = nil end
+    if next(opts.playthroughIds) == nil then opts.playthroughIds = nil end
+  end
   SaveData.saveOptions(opts, fs)
   slotsChecked[key] = true
   activeSlotCache[key] = reg.active or false
@@ -1665,10 +1671,7 @@ local function playthroughScope(version, injectedFs)
 end
 
 local function rememberPlaythroughId(save, opts, injectedFs)
-  local meta = type(save) == "table" and save.meta
-  local id = type(meta) == "table" and meta.playthroughId
-  if type(id) ~= "string" or id == "" then return opts, false end
-  local version = save.version or GameVersion.get()
+  local version = type(save) == "table" and save.version or GameVersion.get()
   local scope, key = playthroughScope(version, injectedFs)
   local persisted = SaveData.loadOptions(injectedFs)
   if opts then
@@ -1681,6 +1684,16 @@ local function rememberPlaythroughId(save, opts, injectedFs)
     opts.playthroughIds = deepCopy(persisted.playthroughIds)
   else
     opts = persisted
+  end
+  local meta = type(save) == "table" and save.meta
+  local id = type(meta) == "table" and meta.playthroughId
+  if type(id) ~= "string" or id == "" then
+    local byVersion = opts.playthroughIds and opts.playthroughIds[key]
+    local mapped = byVersion and byVersion[scope]
+    if type(meta) == "table" and type(mapped) == "string" and mapped ~= "" then
+      meta.playthroughId = mapped
+    end
+    return opts, false
   end
   opts.playthroughIds = opts.playthroughIds or {}
   opts.playthroughIds[key] = opts.playthroughIds[key] or {}
@@ -1726,6 +1739,26 @@ function SaveData.ensurePlaythroughId(save, injectedFs)
     end
   end
   save.meta.playthroughId = id
+  return id
+end
+
+function SaveData.slotPlaythroughId(version, slotId, save, injectedFs)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  if type(slotId) ~= "string" or slotId == "" then return nil end
+  local meta = type(save) == "table" and save.meta
+  local stamped = type(meta) == "table" and meta.playthroughId
+  local opts = SaveData.loadOptions(injectedFs)
+  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
+  local mapped = byVersion and byVersion[slotId]
+  local id = (type(stamped) == "string" and stamped ~= "") and stamped or mapped
+  if type(id) ~= "string" or id == "" then id = SaveData.newPlaythroughId() end
+  if mapped ~= id then
+    opts.playthroughIds = opts.playthroughIds or {}
+    opts.playthroughIds[version] = opts.playthroughIds[version] or {}
+    opts.playthroughIds[version][slotId] = id
+    SaveData.saveOptions(opts, injectedFs)
+  end
   return id
 end
 
@@ -2026,6 +2059,12 @@ end)
 
 -- ------- write
 
+function SaveData.saveLiveOptions(data)
+  if type(data) ~= "table" or type(data.options) ~= "table" then return nil end
+  data.options = rememberPlaythroughId(data, data.options)
+  return SaveData.saveOptions(data.options)
+end
+
 -- Game progress only; options are written separately via saveOptions.
 -- If `data.options` is present it is also flushed to options.lua so an
 -- F1 / in-game save keeps the live settings in sync, then stripped from
@@ -2036,19 +2075,14 @@ function SaveData.save(data, mods)
   -- write to the file matching this save's own version, not just the active
   -- one, so Blue/Yellow playthroughs land in save_blue.lua / save_yellow.lua
   local FILENAME, BACKUP_FILENAME, TMP_FILENAME = saveNames(data.version)
-  if data.options then
-    local opts = data.options
-    if data.meta and data.meta.playthroughId then
-      opts = rememberPlaythroughId(data, data.options)
-    end
-    data.options = opts
-    SaveData.saveOptions(opts)
-  elseif data.meta and data.meta.playthroughId then
-    local opts, changed = rememberPlaythroughId(data)
-    if changed then SaveData.saveOptions(opts) end
-  end
   if mods ~= nil or data.meta == nil then
     data.meta = SaveData.buildMeta(mods, data.meta)
+  end
+  if data.options then
+    SaveData.saveLiveOptions(data)
+  else
+    local opts, changed = rememberPlaythroughId(data)
+    if changed then SaveData.saveOptions(opts) end
   end
   if activeCart and activeCartHash and type(data.meta) == "table" then
     data.meta.cartHash = activeCartHash
@@ -2122,6 +2156,10 @@ function SaveData.load(version)
   end
   SaveData.runMigrations(data)
   data.options = SaveData.loadOptions()
+  local mapped = SaveData.selectedPlaythroughId(data)
+  if type(mapped) == "string" and mapped ~= "" then
+    data.meta.playthroughId = mapped
+  end
   Logger.info("loaded save")
   return data, recovered
 end

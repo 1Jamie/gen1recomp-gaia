@@ -308,6 +308,48 @@ raised:_pumpSync(0.016)
 eq(raised._syncModal, nil,
    "and a prompt the player dismissed does not reopen every frame")
 
+do
+  local SaveData = require("src.core.SaveData")
+  local realList, realOpts = SaveData.listSlots, SaveData.loadOptions
+  local dl = fakeEngine({ isLinked = true })
+  local got = launcher(dl)
+  got.slots.red = { { id = "slot1", exists = true } }
+  got.activeSlot.red = "slot1"
+  SaveData.listSlots = function(version)
+    if version ~= "red" then return {} end
+    return { { id = "slot1", exists = true }, { id = "slot2", exists = true } }
+  end
+  SaveData.loadOptions = function()
+    return { saveSlots = { red = { list = { "slot1", "slot2" }, active = "slot1" } } }
+  end
+  dl.changed = true
+  dl.lastDownloads = { { version = "red", slot = "slot2", created = true,
+                         device = "Android" } }
+  got:_pumpSync(0.016)
+  eq(dl.changed, nil, "the launcher consumes the change flag")
+  eq(dl.lastDownloads, nil, "and the download list")
+  eq(#got.slots.red, 2, "the slot list is re-read so the downloaded slot shows")
+  eq(got.activeSlot.red, "slot1", "without hijacking CONTINUE")
+  check(got.saveNotice.red and got.saveNotice.red.ok == true,
+        "a downloaded save is announced on the game's save card")
+  check(got.saveNotice.red and got.saveNotice.red.text:find(
+          "Downloaded a save from Android into slot2", 1, true) ~= nil,
+        "naming the device and the slot")
+  eq(got.slotScroll.red, math.huge, "and the list scrolls to the new row")
+
+  got.slotScroll.red = nil
+  dl.changed = true
+  dl.lastDownloads = { { version = "red", slot = "slot1", created = false } }
+  got:_pumpSync(0.016)
+  eq(got.slotScroll.red, nil, "a replace in place leaves the scroll alone")
+  check(got.saveNotice.red.text:find("Downloaded a save into slot1", 1, true) ~= nil,
+        "and says which slot changed")
+  got:_pumpSync(0.016)
+  eq(got.saveNotice.red.text:find("slot1", 1, true) ~= nil, true,
+     "a quiet frame does not disturb the notice")
+  SaveData.listSlots, SaveData.loadOptions = realList, realOpts
+end
+
 local view = read("src/import/LauncherView.lua")
 local impSrc = read("src/import/RomImporter.lua")
 
@@ -333,6 +375,8 @@ check(impSrc:find("_pumpSync(dt)", 1, true) ~= nil,
 local pump = impSrc:match("function RomImporter:_pumpSync%(dt%)(.-)\nend\n")
 check(pump and pump:find("self.launcher", 1, true) ~= nil,
       "only the interactive launcher boots an engine of its own")
+check(pump and pump:find("eng.changed", 1, true) ~= nil,
+      "and the pump relists slots when the engine wrote one")
 check(impSrc:find("_syncTypeInto", 1, true) ~= nil,
       "text input is routed through the code filter")
 

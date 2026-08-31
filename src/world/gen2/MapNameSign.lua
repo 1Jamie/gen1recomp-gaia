@@ -113,6 +113,17 @@ function MapNameSign.cancel(world)
   if world then world.mapSign = nil end
 end
 
+local function logicSpeed(world)
+  local game = world and world.game
+  if not game or not game.logicSpeed then return 1 end
+  local ok, n = pcall(game.logicSpeed, game)
+  if ok then
+    n = tonumber(n)
+    if n and n > 1 then return n end
+  end
+  return 1
+end
+
 -- ../pokecrystal/engine/events/map_name_sign.asm:99-117
 -- ../pokecrystal/home/window.asm:42
 function MapNameSign.tick(world)
@@ -122,6 +133,10 @@ function MapNameSign.tick(world)
     MapNameSign.cancel(world)
     return
   end
+  local speed = logicSpeed(world)
+  s.accum = (s.accum or 0) + 1
+  if s.accum < speed then return end
+  s.accum = s.accum - speed
   s.timer = s.timer - 1
   if s.timer <= 0 then world.mapSign = nil end
 end

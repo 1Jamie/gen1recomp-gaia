@@ -147,6 +147,51 @@ ns.anim, icons = 16, {}
 ns:draw()
 check(icons[1] and icons[1].alt == true, "frame 2 for the next 16")
 
+-- naming_screen.asm:326
+local Assets = require("src.render.Assets")
+local realImage, realDraw = Assets.image, love.graphics.draw
+local edDraws = {}
+love.graphics.draw = function(image, x, y)
+  local r, g, b, a = love.graphics.getColor()
+  edDraws[#edDraws + 1] = {
+    image = image, x = x, y = y, color = { r, g, b, a },
+  }
+end
+
+local edImage = { getDimensions = function() return 8, 8 end }
+Assets.image = function(path)
+  if path == "assets/generated/fonts/ed.png" then return edImage end
+  error("no such asset: " .. tostring(path))
+end
+NamingScreen.invalidate()
+ns = render({ title = "YOUR NAME?", maxLen = 7 })
+edDraws = {}
+ns:draw()
+
+eq(#edDraws, 1, "the confirm cell draws one ED tile")
+check(edDraws[1] and edDraws[1].image == edImage, "the tile is fonts/ed.png")
+eq(edDraws[1] and edDraws[1].x, 144, "ED at hlcoord 18 -> x 144")
+eq(edDraws[1] and edDraws[1].y, 104, "ED on the last letter row -> y 104")
+local ec = edDraws[1] and edDraws[1].color
+check(ec and ec[1] == 0 and ec[2] == 0 and ec[3] == 0,
+  "drawn in the grid's black, like every other cell")
+check(drawn("ED") == nil, "and never as the two ASCII glyphs E and D")
+
+Assets.image = function(path) error("no such asset: " .. tostring(path)) end
+NamingScreen.invalidate()
+ns = render({ title = "YOUR NAME?", maxLen = 7 })
+edDraws = {}
+ns:draw()
+
+eq(#edDraws, 0, "a cache without fonts/ed.png draws no tile")
+local edText = drawn("ED")
+check(edText ~= nil, "and falls back to the text cell instead of a blank")
+eq(edText and edText.x, 144, "at the same column")
+eq(edText and edText.y, 104, "and the same row")
+
+love.graphics.draw, Assets.image = realDraw, realImage
+NamingScreen.invalidate()
+
 -- naming_screen.asm:487
 local OakSpeech = require("src.ui.OakSpeech")
 local rival

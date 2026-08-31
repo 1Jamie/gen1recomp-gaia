@@ -113,7 +113,11 @@ return function(game)
   U.wait(6)
 
   U.tap(game, "a")
-  U.wait(3)
+  -- ExitAllMenus runs before .FlyScript (../pokecrystal/home/map.asm:1927)
+  for _ = 1, 120 do
+    if world.flyAnim then break end
+    U.wait(1)
+  end
   if not ok(world.flyAnim ~= nil and world.flyAnim.phase == "from",
       "A started FlyFromAnim") then
     error("fly1960: the flight collapsed into a warp")

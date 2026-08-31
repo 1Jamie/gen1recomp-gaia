@@ -164,6 +164,59 @@ do
   T.eq(eng.phase, "idle", "the engine settles")
   T.eq(transport.sent[2].url, "http://sync.test/sync/save?id=xyz&version=gold",
     "the download names the playthrough, not the slot")
+  T.eq(eng.changed, true, "and the launcher is told a slot changed")
+  T.eq(eng.lastDownloads and eng.lastDownloads[1].version, "gold",
+    "naming the game")
+  T.eq(eng.lastDownloads and eng.lastDownloads[1].slot, "slot1", "and the slot")
+end
+
+do
+  local eng, _, saves = engine({
+    ["GET /sync/state"] = { code = 200,
+      body = '{"saves":{"red/xyz":{"rev":2,"meta":{"savedAt":900}}}}' },
+    ["GET /sync/save"] = { code = 200,
+      body = '{"rev":2,"meta":{"savedAt":900,"device":"Android"},' ..
+             '"blob":"return { player = {} }"}' },
+  }, {})
+  saves.write = function() return "slot3", true end
+  eng:syncNow()
+  pump(eng)
+  T.eq(eng.changed, true, "a download into a fresh slot flags the launcher")
+  T.eq(eng.lastDownloads[1].slot, "slot3", "naming the slot")
+  T.eq(eng.lastDownloads[1].created, true, "as one it created")
+  T.eq(eng.lastDownloads[1].device, "Android",
+    "and the device whose save it holds")
+end
+
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 1, 500)
+  local eng, _, saves = engine({
+    ["GET /sync/state"] = { code = 200,
+      body = '{"saves":{"red/abc":{"rev":5,"meta":{"savedAt":900}}}}' },
+    ["GET /sync/save"] = { code = 200,
+      body = '{"rev":5,"meta":{"savedAt":900},"blob":"return { player = {} }"}' },
+  }, { saveEntry("red", "abc", 500, 400) }, state)
+  eng:protectPlaythrough("red", "abc")
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.writes, 0,
+    "while a playthrough is being played its moved rev is left alone")
+  T.eq(eng.phase, "idle", "and that sync still settles")
+  eng:protectPlaythrough(nil, nil)
+  T.eq(eng.protectedKey, nil, "leaving the game drops the protection")
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.writes, 1,
+    "so the launcher's next sync fetches the other device's progress")
+  T.eq(saves.writes[1].mode, "replace", "into this playthrough's slot")
+  T.eq(SyncState.rev(eng.state, "red/abc"), 5, "and adopts the served rev")
+
+  local main = assert(io.open("main.lua")):read("*a")
+  local body = main:match("local function returnToLauncher%(opts%)(.-)\nend\n")
+  T.check(body ~= nil, "main.lua still has returnToLauncher")
+  T.check(body and body:find("protectPlaythrough", 1, true) ~= nil,
+    "and returning to the launcher clears the played key on the shared engine")
 end
 
 do

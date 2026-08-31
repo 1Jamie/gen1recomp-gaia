@@ -410,11 +410,19 @@ end
 local function returnToLauncher(opts)
   if not Game then return end
 
+  if require("src.core.RequireGuard").repair() then
+    print("boot: restored love.filesystem searcher (see #2001)")
+  end
+
   local GameVersion = require("src.core.GameVersion")
   local currentVersion = GameVersion.get()
   SessionLifecycle.endGameSession(Game)
   Game = nil
   pcall(function() require("src.online.Trade").hostIsLive = nil end)
+  local syncEngine = package.loaded["src.sync.SyncEngine"]
+  if type(syncEngine) == "table" and type(syncEngine._shared) == "table" then
+    pcall(syncEngine._shared.protectPlaythrough, syncEngine._shared, nil, nil)
+  end
   autopilot = nil
   driverCo = nil
   -- Leave the cart's scope behind: the launcher's own settings and slots are
@@ -442,6 +450,9 @@ local pendingLauncherReturn
 
 function bootGame(version, cartId, opts)
   opts = opts or {}
+  if require("src.core.RequireGuard").repair() then
+    print("boot: restored love.filesystem searcher (see #2001)")
+  end
   pcall(function()
     require("src.online.Trade").hostIsLive = function() return true end
   end)
@@ -599,6 +610,8 @@ function love.load(args)
   -- claim one hidden console on Windows so those children inherit it instead
   -- of each flashing their own cmd.exe window (#606).  No-op elsewhere.
   require("src.core.HostShell").hideHostConsole()
+
+  require("src.core.RequireGuard").capture()
 
   -- Hang gen1tls on love.system before mods boot.  Android already has tls*
   -- from JNI; this is the desktop half.  No DLL / no FFI is fine -- ws://

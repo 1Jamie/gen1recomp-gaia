@@ -988,6 +988,23 @@ local function checkTurn(self, mon, moveId)
       end
     end
   end
+  -- engine/battle/effect_commands.asm:291-310, enemy twin :539-558
+  if vol.attract then
+    local partner = (mon == self.player) and self.enemy or self.player
+    -- data/text/battle.asm:484
+    self:emit({ kind = "message",
+      text = Strings("%s\nis in love with", name) })
+    self:emit({ kind = "message",
+      text = Strings("is in love with\n%s!", self:monName(partner)) })
+    if rand(self.random, 256) >= 128 then
+      -- data/text/battle.asm:490
+      self:emit({ kind = "message",
+        text = Strings("%s's\ninfatuation kept", name) })
+      self:emit({ kind = "message",
+        text = Strings("infatuation kept\nit from attacking!") })
+      return false
+    end
+  end
   if beforeMove then
     return beforeMove(self, mon, name) and true or false
   end
@@ -1054,6 +1071,15 @@ function Battle:clearVolatile(mon)
   if not mon then return end
   self:untransform(mon)
   mon.volatile = nil
+  -- engine/battle/core.asm:3871
+  if mon == self.player or mon == self.enemy then
+    if self.player and self.player.volatile then
+      self.player.volatile.attract = nil
+    end
+    if self.enemy and self.enemy.volatile then
+      self.enemy.volatile.attract = nil
+    end
+  end
 end
 
 -- The cart keeps every substatus in battle RAM (wPlayerSubStatus1-5), which
@@ -2668,6 +2694,24 @@ Battle.MOVE_EFFECTS.EFFECT_CURSE = function(self, attacker, defender)
       .. self:monName(defender) .. "!" })
 end
 
+-- engine/battle/move_effects/belly_drum.asm:1, data/moves/effects.asm:1835
+Battle.MOVE_EFFECTS.EFFECT_BELLY_DRUM = function(self, attacker)
+  local stages = self.stages[self:sideOf(attacker)]
+  if not Effects.applyStage(stages, "attack", 2) then return fail(self) end
+  local maxHp = attacker.maxHp or (attacker.stats and attacker.stats.hp) or 1
+  -- engine/battle/core.asm:1821, CheckUserHasEnoughHP :1874
+  local half = math.max(1, math.floor(maxHp / 2))
+  if (attacker.hp or 0) <= half then return fail(self) end
+  attacker.hp = attacker.hp - half
+  self:emit({ kind = "damage", side = self:sideOf(attacker), amount = half,
+    hp = attacker.hp, anim = false })
+  stages.attack = Effects.MAX_STAGE
+  -- data/text/battle.asm:1049
+  self:emit({ kind = "message",
+    text = Strings("%s\ncut its HP and", self:monName(attacker)) })
+  self:emit({ kind = "message", text = Strings("maximized ATTACK!") })
+end
+
 -- BattleCommand_LeechSeed (engine/battle/move_effects/leech_seed.asm): the
 -- flag sits on the SEEDED mon and ResidualDamage drains an eighth every turn
 -- into whoever stands on the other side by then.  A Grass target does not
@@ -2760,6 +2804,26 @@ Battle.MOVE_EFFECTS.EFFECT_MEAN_LOOK = function(self, attacker, defender)
   self:volatile(attacker).trapsTarget = true
   self:emit({ kind = "message",
     text = self:monName(defender) .. " can't escape now!" })
+end
+
+-- engine/battle/move_effects/attract.asm:1, CheckOppositeGender :24
+-- data/moves/effects.asm:1599
+Battle.MOVE_EFFECTS.EFFECT_ATTRACT = function(self, attacker, defender,
+    def, moveId, sureHit)
+  if not sureHit and not self:accuracyRoll(def, attacker, defender) then
+    return fail(self)
+  end
+  local mine = attacker.gender or "unknown"
+  local theirs = defender.gender or "unknown"
+  if mine == "unknown" or theirs == "unknown" or mine == theirs then
+    return fail(self)
+  end
+  local target = self:volatile(defender)
+  if target.vanished or target.attract then return fail(self) end
+  target.attract = true
+  -- data/text/battle.asm:1001
+  self:emit({ kind = "message",
+    text = Strings("%s\nfell in love!", self:monName(defender)) })
 end
 
 -- BattleCommand_ForceSwitch (effect_commands.asm:4913).  Fails outright for
@@ -5083,6 +5147,7 @@ Battle.LINK_STAGES = { "attack", "defense", "speed", "specialAttack",
   "specialDefense", "accuracy", "evasion" }
 
 Battle.LINK_VOLATILE = {
+  "attract",
   "bideStored", "bideTurns", "chargeMove", "confuseCount", "curled", "cursed",
   "disabled", "disabledTurns", "encore", "encoreTurns", "endure", "flinched",
   "focusEnergy", "futureSight", "futureSightDamage", "futureSightSide",

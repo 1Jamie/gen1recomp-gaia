@@ -456,6 +456,22 @@ function RomExtractor:extractFont()
     mainBase = 0x80, extraBase = 0x60, glyphsPerRow = 16,
     charmap = self.manifest.fontCharmap,
   }
+  -- engine/menus/naming_screen.asm:326
+  local edSymbol = self.symbols["ED_Tile"]
+  if edSymbol then
+    local edRaw = self.rom:bytes(edSymbol[1], edSymbol[2], 8)
+    local ed = ImageWriter.blank(8, 8, 0, 0, 0, 0)
+    for y = 0, 7 do
+      local row = edRaw[y + 1]
+      for x = 0, 7 do
+        if bit.band(row, 2 ^ (7 - x)) ~= 0 then
+          ed:setPixel(x, y, 0, 0, 0, 1)
+        end
+      end
+    end
+    self:save(ed, "fonts/ed.png")
+    data.imageEd = "assets/generated/fonts/ed.png"
+  end
   self:write("font", data)
   self:tick("Fonts", 2, 2)
   return data

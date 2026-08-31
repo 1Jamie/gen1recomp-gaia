@@ -107,10 +107,15 @@ return function(game)
   pass(#heard == mark, "SELECT arming the move is silent on the cart too")
   tap("down")
   tap("a")
-  pass(since(mark) == "Sfx_SwitchPokemon",
-    ("placing the item played %s"):format(since(mark)))
-  U.log("5. the party-swap chirp as POTION lands on the second row. the cart")
-  U.log("   plays it twice, one after the other; this port plays it once.")
+  local beeps = 0
+  for i = mark + 1, #heard do
+    if heard[i] == "Sfx_SwitchPokemon" then beeps = beeps + 1 end
+  end
+  -- engine/items/pack.asm:1309, :1311
+  pass(beeps == 2,
+    ("placing the item played the swap chirp %d time(s)"):format(beeps))
+  U.log("5. the party-swap chirp as POTION lands on the second row, TWICE --")
+  U.log("   the second only after the first has finished sounding.")
 
   Sound.play = realPlay
   U.log(("%d cue(s) missing"):format(failed))

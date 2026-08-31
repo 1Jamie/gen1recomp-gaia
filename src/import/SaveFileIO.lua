@@ -171,7 +171,12 @@ function SaveFileIO.exportActiveSlot(version)
   version = version or GameVersion.get()
   local save = SaveData.load(version)
   if not save then return false, "this game has no save to export yet" end
-  local slotId = SaveData.activeSlot(version) or "save"
+  local activeSlot = SaveData.activeSlot(version)
+  local slotId = activeSlot or "save"
+  if activeSlot and type(save.meta) == "table" then
+    local minted, id = pcall(SaveData.slotPlaythroughId, version, activeSlot, save)
+    if minted and type(id) == "string" then save.meta.playthroughId = id end
+  end
   local bytes, exportErr = SaveConvert.exportSav(save, version,
                                                  readCart(version, slotId))
   if not bytes then return false, exportErr end

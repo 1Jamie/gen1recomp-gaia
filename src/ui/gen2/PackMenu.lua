@@ -18,6 +18,7 @@ local PackGfx = require("src.ui.gen2.PackGfx")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local WaitPlaySFX = require("src.ui.gen2.WaitPlaySFX")
 local MenuRepeat = require("src.ui.MenuRepeat")
 
 -- constants/sfx_constants.asm:3, :28
@@ -333,6 +334,21 @@ function PackMenu:playSfx(name)
   local data = self.game and self.game.data
   local sfx = data and data.audio and data.audio.sfx
   if sfx and sfx[Sound.resolve(data, name)] then Sound.play(data, name) end
+end
+
+-- engine/items/pack.asm:1312, home/audio.asm:220
+function PackMenu:playSfxTwice(name)
+  self:playSfx(name)
+  self.repeatSfx = WaitPlaySFX.arm(name)
+end
+
+function PackMenu:tickRepeatSfx()
+  local pending = self.repeatSfx
+  if not pending then return false end
+  if WaitPlaySFX.waiting(pending) then return true end
+  self.repeatSfx = nil
+  self:playSfx(pending.name)
+  return false
 end
 
 function PackMenu:showMessage(lines)
@@ -778,6 +794,8 @@ function PackMenu:update(_dt)
     self.staleRows = nil
     self:rebuild()
   end
+  -- engine/items/pack.asm:1312, home/audio.asm:225
+  if self:tickRepeatSfx() then return end
   -- Pack_PrintTextNoScroll ends on a `prompt`, so the message holds the PACK
   -- until a button clears it and the list is untouchable underneath.  The
   -- quantity selector is the one thing drawn OVER a message rather than under
@@ -897,8 +915,8 @@ function PackMenu:placeSwitch()
     self:rebuild()
     self:storeCursor()
   end
-  -- engine/items/pack.asm:1309
-  self:playSfx("Sfx_SwitchPokemon")
+  -- engine/items/pack.asm:1309, :1311
+  self:playSfxTwice("Sfx_SwitchPokemon")
   self:endSwitch()
 end
 
@@ -1043,6 +1061,9 @@ end
 -- ScrollingMenu_PlaceCursor (engine/menus/scrolling_menu.asm:438) marks the
 -- row SELECT armed with the hollow ▷ while the solid ▶ goes on looking.
 function PackMenu:drawList(listX, listY)
+  -- engine/menus/scrolling_menu.asm:86 .a_button -> home/menu.asm:50
+  local picked = (self.submenu or self.qtyState or self.confirm or self.message)
+    and true or false
   for row = 1, VISIBLE_ROWS do
     local i = row + self.scroll
     local ty = listY + (row - 1) * LIST_SPACING
@@ -1053,7 +1074,7 @@ function PackMenu:drawList(listX, listY)
         Chrome.printThrough(entry.tmhmLabel, listX - 3, ty, Chrome.DEFAULT_BOX_PALETTE)
       end
       if i == self.index then
-        self:cursorAt(listX - 1, ty)
+        self:cursorAt(listX - 1, ty, picked)
       elseif i == self.switching then
         self:cursorAt(listX - 1, ty, true)
       end
@@ -1064,7 +1085,7 @@ function PackMenu:drawList(listX, listY)
           listX + 9, ty + 1, Chrome.DEFAULT_BOX_PALETTE)
       end
     elseif i == self:total() then
-      if i == self.index then self:cursorAt(listX - 1, ty) end
+      if i == self.index then self:cursorAt(listX - 1, ty, picked) end
       Chrome.printThrough("CANCEL", listX, ty, Chrome.DEFAULT_BOX_PALETTE)
     end
   end
@@ -1099,16 +1120,9 @@ function PackMenu:drawDescription(ty)
   if second then Chrome.printThrough(second, 1, ty + 2, Chrome.DEFAULT_BOX_PALETTE) end
 end
 
--- The submenu box.  Every one of the seven headers is `menu_coords 0, top,
--- SCREEN_WIDTH - 14, TEXTBOX_Y - 1` -- the left six columns, growing UPWARD
--- from the description box so its bottom edge never moves.  The five-row
--- header is the one exception, reaching one row further down (TEXTBOX_Y), so
--- the bottom is 12 there and 11 otherwise; either way the first label sits one
--- row inside (STATICMENU_NO_TOP_SPACING) with the cursor a column left of it.
--- ../pokecrystal/engine/items/pack.asm:810, :826 open at column 13;
--- ../pokegold/engine/items/pack.asm:810, :826 open at column 0.
+-- ../pokecrystal/engine/items/pack.asm:162, :178, :313, :335, :355, :371,
+-- TEXTBOX_Y - 1`; ../pokegold/engine/items/pack.asm has the same ten at
 function PackMenu:submenuColumn()
-  if not self:inBattle() then return 0 end
   local version = (self.save and self.save.version) or GameVersion.get()
   return GameVersion.engine(version) == "crystal" and 13 or 0
 end
@@ -1117,7 +1131,8 @@ function PackMenu:drawSubmenu()
   local menu = self.submenu
   local count = #menu.rows
   local x = self:submenuColumn()
-  local bottom = count >= 5 and 12 or 11
+  -- ../pokegold/engine/items/pack.asm:313 ends on TEXTBOX_Y, pokecrystal:313
+  local bottom = (count >= 5 and x == 0) and 12 or 11
   local top = bottom - count * 2
   Chrome.box(x, top, 7, bottom - top + 1)
   for i, id in ipairs(menu.rows) do

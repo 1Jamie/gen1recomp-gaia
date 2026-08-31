@@ -655,6 +655,42 @@ do
   love.graphics.draw = realDraw
 end
 
+-- (engine/pokemon/mon_menu.asm:1036-1042).  With no blocking WaitSFX the
+do
+  local Sound = require("src.core.Sound")
+  local realPlay, realBusy, realFrames =
+    Sound.play, Sound.sfxBusy, Sound.waitFramesFor
+  local rang = {}
+  Sound.play = function(_, name) rang[#rang + 1] = name end
+  DATA.audio = { sfx = { Sfx_SwitchPokemon = {} } }
+
+  local swap, swapInput = newSummary()
+  swap.page = SummaryMenu.GREEN_PAGE
+  swapInput:press("select")
+  swap:update(0)
+  check("the move screen is up", swap.moveDetail, true)
+  swapInput:press("a")
+  swap:update(0)
+  check("A picks a move up", swap.swapFrom, 1)
+  swapInput:press("down")
+  swap:update(0)
+  swapInput:press("a")
+  swap:update(0)
+  check("the moves swapped", swap.mon.moves[1].id, "EMBER")
+  check("and it beeps once in that frame", #rang, 1)
+  swap:update(0)
+  check("the second beep follows on the next tick", #rang, 2)
+  check("both are the switch cue",
+    rang[1] == "Sfx_SwitchPokemon" and rang[2] == "Sfx_SwitchPokemon", true)
+  swap:update(0)
+  check("and there is no third", #rang, 2)
+
+  swap:swapMoves(1, 2)
+  DATA.audio = nil
+  Sound.play, Sound.sfxBusy, Sound.waitFramesFor =
+    realPlay, realBusy, realFrames
+end
+
 print(("gen2 summary: %d checks, %d failures"):format(checks, failures))
 -- Raise rather than os.exit: tests/run_tests.lua dofiles this file, so an
 -- exit here takes the whole tier down with it and silently skips every

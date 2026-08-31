@@ -1126,6 +1126,15 @@ function BattleState:sayNextAuto(text, delay)
                { text = text, auto = true, autoDelay = delay or 0 })
 end
 
+-- sound_level_up then text_end, no prompt -- home/text.asm:506-531 (the sfx
+-- wait) then home/text.asm:328-334 (TX_END returns out of PrintText)
+function BattleState:sayNextAutoWaitSfx(text, sfx)
+  self.nextInsert = (self.nextInsert or 0) + 1
+  table.insert(self.queue, self.nextInsert,
+               { text = text, auto = true, autoDelay = 0,
+                 waitForLearningSfx = sfx })
+end
+
 -- insert a UI push right after the current queue item (dex page, the
 -- level-up stat box -- anything that must keep queue order)
 function BattleState:uiNext(factory)
@@ -1377,6 +1386,8 @@ function BattleState:updateQueue()
       end
     end
     if self.animPlayer:isDone() then
+      -- engine/battle/animations.asm:2639 PlayApplyingAttackSound
+      if self:holdForMoveSfx() then return true end
       self.animPlaying = false
       -- the target's hit blink + damage sound follow the animation
       -- (pokered plays them after PlayMoveAnimation returns)
@@ -1571,6 +1582,12 @@ function BattleState:updateQueue()
     end
   else
     local item = self.current
+    -- TextCommand_SOUND precedes the page's tail command -- home/text.asm:
+    if item and item.waitForLearningSfx and not item.soundStarted then
+      item.soundStarted = true
+      self.waitingSound = item.waitForLearningSfx()
+      return true
+    end
     -- TrainerAboutToUseText ends in `done` then DisplayTextBoxID: YES/NO
     -- overlays the still-visible "Will … change POKéMON?" page.
     if item and item.choice and not item.choiceOpen then
@@ -1604,11 +1621,6 @@ function BattleState:updateQueue()
         self.current = nil
       end
     elseif not (item and item.choice) then
-      if item and item.waitForLearningSfx and not item.soundStarted then
-        item.soundStarted = true
-        self.waitingSound = item.waitForLearningSfx()
-        return true
-      end
       -- The page is typed out and waiting on the player: PromptText
       -- (home/text.asm:209-217) writes '▼' at (18,16) and ManualTextScroll
       -- blinks it until A/B, so the arrow belongs on a finished page and not
@@ -3401,6 +3413,36 @@ function BattleState:applyAnimEffect(ev)
   -- battler.substituteHP is set (MoveEffects raises it with the move)
 end
 
+-- engine/battle/animations.asm:2639 PlayApplyingAttackSound
+-- -> home/delay.asm:15 WaitForSoundToFinish
+function BattleState:holdForMoveSfx()
+  local hit = self.pendingHit
+  local t = hit and hit.animType
+  if hit and not t and hit.blink then t = hit.blink.isPlayer and 1 or 4 end
+  -- engine/battle/animations.asm:492-499
+  if not (t == 1 or t == 2 or t == 4 or t == 5)
+     or self:lowHealthAlarmActive() then
+    self.hitSfxWait = nil
+    return false
+  end
+  local Sound = require("src.core.Sound")
+  if not (Sound.moveSfxBusy and Sound.moveSfxBusy()) then
+    self.hitSfxWait = nil
+    return false
+  end
+  if not self.hitSfxWait then
+    local budget = Sound.moveSfxWaitFrames and Sound.moveSfxWaitFrames() or 0
+    local cap = 180 * (Sound.rate and Sound.rate() or 1)
+    self.hitSfxWait = math.max(0, math.min(budget, cap))
+  end
+  if self.hitSfxWait <= 0 then
+    self.hitSfxWait = nil
+    return false
+  end
+  self.hitSfxWait = self.hitSfxWait - 1
+  return true
+end
+
 -- The post-animation applying-attack feedback (PlayApplyingAttackAnimation
 -- -> AnimationTypePointerTable, engine/battle/animations.asm:475-524).
 -- hit.animType is wAnimationType, 1..6:
@@ -4473,6 +4515,7 @@ function BattleState:awardExp()
   if participants == 0 and self.player.mon.hp > 0 then
     participants, alive = 1, { self.player.mon }
   end
+  local pendingStep = {}
   local function applyShare(mon, split, announce)
     local playerId = self.game.save.player and self.game.save.player.id
     -- GainExperience (engine/battle/experience.asm:69-88) compares the
@@ -4480,9 +4523,12 @@ function BattleState:awardExp()
     -- mon.traded covers otId-less mons (repairTradedOtIds, old link peers) #1488
     local traded = playerId ~= nil and ((mon.otId ~= nil and mon.otId ~= playerId)
       or (mon.otId == nil and mon.traded == true))
-    local levels, gained = Experience.apply(self.data, mon, self.enemy.def,
+    -- experience.asm:158-163: the level is recomputed only after GainedText
+    local levels, gained, steps = Experience.apply(self.data, mon, self.enemy.def,
                                             self.enemy.mon.level, self.kind == "trainer",
-                                            split, traded)
+                                            split, traded,
+                                            { defer = true, from = pendingStep[mon] })
+    if #steps > 0 then pendingStep[mon] = steps[#steps] end
     -- Track level-ups for EvolveAfterBattle (BattleState:finish ->
     -- Evolution.checkParty).  B-cancel leaves the mon at/above threshold;
     -- without this gate it re-triggers after every later fight (#213).
@@ -4514,32 +4560,30 @@ function BattleState:awardExp()
     -- per level: GrewLevelText -> the stats window (PrintStatsBox) ->
     -- the move-learn checks (experience.asm:245-256)
     local game = self.game
-    for _, lv in ipairs(levels) do
-      -- experience.asm:248 fires per grew-level text
-      require("src.world.PikachuFollower")
-        .modifyHappiness(game.save, "LEVELUP", mon)
+    for i, lv in ipairs(levels) do
+      -- experience.asm:168-239 -- the level write, CalcStats, the max-HP
+      self:actNext(function()
+        Experience.commit(self.data, mon, steps[i])
+        -- experience.asm:248 fires per grew-level text
+        require("src.world.PikachuFollower")
+          .modifyHappiness(game.save, "LEVELUP", mon)
+        -- engine/battle/experience.asm:209 (cp wPlayerMonNumber)
+        if mon == self.player.mon then
+          -- engine/battle/experience.asm:236-239
+          self.player.badgeExtraBoosts = nil
+          self.player.shownHP = mon.hp
+          self.player.shownPx = Timing.hpBarPixels(mon.hp,
+                                                   math.max(1, mon.stats.hp))
+          self.player.drainFloor = nil
+        end
+      end)
       -- GrewLevelText: text_far, sound_level_up, text_end (experience.asm:
-      -- 369-372); PrintStatsBox only runs once PrintText has returned
-      self:sayNextWaitSfx(Strings("%s grew\nto level %d!", name, lv),
+      -- WaitForSoundToFinish releases (experience.asm:243-249)
+      self:sayNextAutoWaitSfx(Strings("%s grew\nto level %d!", name, lv),
         function() return require("src.core.Sound").play(game.data, "Level_Up") end)
       self:uiNext(function()
         return StatBox.new(game, mon)
       end)
-      -- After PrintStatsBox, experience.asm reloads the active battler's
-      -- wBattleMon and runs DrawHUDsAndHPBars, so its HP bar reflects the
-      -- higher current HP.  Experience.lua:84 already raised mon.hp by
-      -- (newMaxHP - oldMaxHP); the party mon and the battler share one table
-      -- (makeBattler), so mon.stats.hp (the bar's denominator) jumps to the
-      -- new max instantly while the battler's shownHP numerator lags at the
-      -- old current HP -- the bar SHRINKS (#224).  Animate shownHP up to the
-      -- new current HP (house convention: potions drain the bar too, see
-      -- itemUsed) so the bar grows instead.  Only the active player battler
-      -- shares its table with the HUD; other party mons (EXP.ALL) have no bar.
-      if mon == self.player.mon then
-        -- engine/battle/experience.asm:236
-        self.player.badgeExtraBoosts = nil
-        self:drainNext()
-      end
       for _, moveId in ipairs(Experience.movesLearnedAt(
           self.data.pokemon[mon.species], lv)) do
         self:learnMove(mon, moveId)

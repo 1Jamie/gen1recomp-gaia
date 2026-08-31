@@ -211,4 +211,129 @@ do
     "kanto", "with no landmark table the Gold constants stand in")
 end
 
+-- (engine/pokemon/mon_menu.asm:609-626, engine/events/overworld.asm:556-568).
+-- the list, and the exit is ExitAllMenus' white (home/map.asm:2281).
+do
+  local World = require("src.world.gen2.World")
+  local PartyMenu = require("src.ui.gen2.PartyMenu")
+
+  local function fakeStack()
+    local stack = { states = {}, low = math.huge }
+    function stack:push(state)
+      self.states[#self.states + 1] = state
+      self.low = math.min(self.low, #self.states)
+    end
+    function stack:pop()
+      local state = table.remove(self.states)
+      self.low = math.min(self.low, #self.states)
+      return state
+    end
+    function stack:top() return self.states[#self.states] end
+    function stack:clear()
+      self.states = {}
+      self.low = math.min(self.low, 0)
+    end
+    return stack
+  end
+
+  local function flyFromParty()
+    local save = visited("SPAWN_NEW_BARK", "SPAWN_VIOLET", "SPAWN_GOLDENROD")
+    save.player = { badges = { STORM = true } }
+    local stack = fakeStack()
+    local game = { save = save, stack = stack, input = fakeInput() }
+    local mon = { species = 17, nickname = "PIDGEOTTO" }
+    local world = setmetatable({
+      game = game,
+      landmarks = LANDMARKS,
+      map = { def = { landmark = "LANDMARK_NEW_BARK_TOWN" } },
+    }, World)
+    game.world = world
+    local flown
+    world.flyTo = function(_self, spawnId, who)
+      flown = { spawn = spawnId, mon = who }
+      return true
+    end
+    world.useFieldMove = function(_self, moveId, who)
+      local result = FieldMoves.fromMenu(moveId,
+        { save = save, environment = "TOWN", mon = who })
+      result.mon = result.mon or who
+      if result.ok then _self.queuedFieldMove = result end
+      return result
+    end
+    local party = setmetatable({ game = game }, PartyMenu)
+    stack:push(party)
+    party:useFieldMove("FLY", mon)
+    return world, party, stack, mon, function() return flown end, game
+  end
+
+  do
+    local world, party, stack = flyFromParty()
+    eq(#stack.states, 2, "FLY opens a screen OVER the party list")
+    eq(stack.states[1], party, "which is still underneath")
+    eq(stack:top().screenId, "Gen2BlankScreen",
+      "_FlyMap's ClearBGPalettes blanks first")
+    eq(world.queuedFieldMove, nil, "and nothing is queued for the overworld yet")
+
+    local blank = stack:top()
+    for _ = 1, blank.left do blank:update(0) end
+    eq(stack:top(), blank, "the blank holds WaitBGMap's four frames")
+    blank:update(0)
+    eq(stack:top().screenId, "Gen2Pokegear", "then the town map takes over")
+    eq(#stack.states, 2, "still over the list")
+    eq(stack.low, 1, "and the stack never emptied on the way in")
+  end
+
+  do
+    local world, party, stack, _mon, _flown, game = flyFromParty()
+    local blank = stack:top()
+    for _ = 1, blank.left + 1 do blank:update(0) end
+    local gear = stack:top()
+    game.input:press("b")
+    gear:update(0)
+    eq(stack:top(), party, "B on the fly map returns to the party list")
+    eq(#stack.states, 1, "with nothing else left standing")
+    eq(world.queuedFieldMove, nil, "and no fly queued behind it")
+    eq(world.fade, nil, "nothing fades out for a cancel")
+  end
+
+  do
+    local world, _party, stack, mon, flown, game = flyFromParty()
+    local blank = stack:top()
+    for _ = 1, blank.left + 1 do blank:update(0) end
+    local gear = stack:top()
+    gear.flyIndex = 1
+    game.input:press("a")
+    gear:update(0)
+    eq(#stack.states, 0, "A takes the spawn and exits the menus")
+    eq(world.queuedFieldMove and world.queuedFieldMove.flySpawn, "SPAWN_NEW_BARK",
+      "with the chosen spawn on the queued script")
+    eq(world.fade, "white", "ExitAllMenus' ClearBGPalettes is already up")
+    eq(world.fadeLevel, 1, "at full white")
+    eq(world.mapSetup and world.mapSetup.phase, "in",
+      "and FadeInFromWhite is armed behind it")
+    check(world.mapSetup.wait > 2, "held for WaitBGMap's frames first")
+
+    world.mapSetup = nil
+    local queued = world.queuedFieldMove
+    world.queuedFieldMove = nil
+    world:runFieldMove(queued)
+    eq(flown() and flown().spawn, "SPAWN_NEW_BARK",
+      "the queued fly takes the spawn the picker chose")
+    eq(flown().mon, mon, "on the mon the list picked")
+  end
+
+  do
+    -- engine/events/overworld.asm:568
+    local world, _party, _stack, mon, _flown, game = flyFromParty()
+    game.stack = nil
+    local asked = false
+    world.showText = function() asked = true end
+    eq(world:openFlyMap(mon, { onChosen = function() end }), false,
+      "a picker with no screen refuses the menu-side open")
+    eq(asked, false, "and does not ask from under the list")
+    check(world:openFlyMap(mon) == true, "while the queued path still asks")
+    eq(asked, true, "through the same yesorno box")
+  end
+end
+
 S.finish()

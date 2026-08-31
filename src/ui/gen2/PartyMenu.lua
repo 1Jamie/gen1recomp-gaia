@@ -365,11 +365,30 @@ end
 -- (src/world/gen2/FieldMoves.lua and World:useFieldMove), because a field move
 -- is a question about the map, not about the menu.  All that is left here is
 -- the $2 / $3 branch.
+-- once a spawn is picked -- engine/pokemon/mon_menu.asm:609-626 over
+-- engine/events/overworld.asm:556-568.  B answers -1 and takes .Error's $0,
+-- which is StartMenu_Pokemon's .choosemenu (engine/menus/start_menu.asm:503).
 function PartyMenu:useFieldMove(moveId, mon)
   local world = self.game and self.game.world
   if not (world and world.useFieldMove) then return end
   local result = world:useFieldMove(moveId, mon)
-  if result and result.ok then self:exitToField() end
+  if not (result and result.ok) then return end
+  if result.action == "fly" and world.openFlyMap then
+    world.queuedFieldMove = nil
+    local opened = world:openFlyMap(mon, {
+      onChosen = function(spawnId)
+        result.flySpawn = spawnId
+        world.queuedFieldMove = result
+        -- home/map.asm:2281
+        if world.exitMenusFade then world:exitMenusFade() end
+        self:exitToField()
+      end,
+      onCancel = function() end,
+    })
+    if opened then return end
+    world.queuedFieldMove = result
+  end
+  self:exitToField()
 end
 
 -- ManagePokemonMoves (engine/pokemon/mon_menu.asm:858-873), the MOVE row: an

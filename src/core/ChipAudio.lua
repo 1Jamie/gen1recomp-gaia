@@ -68,6 +68,9 @@ local musicHeld = false
 
 local suspended = false
 
+local STATS = os.getenv("POKEPORT_AUDIO_STATS") == "1"
+local statFrames, statUnderruns, statRestarts = 0, 0, 0
+
 -- ---------------------------------------------------------------------------
 -- worker management
 -- ---------------------------------------------------------------------------
@@ -192,6 +195,21 @@ local musicGen = 0
 -- than playing out the ~6s stall-tolerance queue (#1471)
 local stereoEpoch = 0
 
+local MUSIC_PREROLL = 4
+ChipAudio.MUSIC_PREROLL = MUSIC_PREROLL
+
+local function queuedBuffers(source)
+  local ok, free = pcall(source.getFreeBufferCount, source)
+  if not ok or type(free) ~= "number" then return nil end
+  return MUSIC_BUFFER_COUNT - free
+end
+
+local function readyToStart(m)
+  local queued = queuedBuffers(m.source)
+  if not queued then return false end
+  return queued >= (m.preroll or 1) or (m.finished and queued > 0)
+end
+
 function ChipAudio.playMusic(data, header, allowLoops)
   if not ensureWorker() then
     return playMusicSync(data, header, allowLoops)
@@ -216,8 +234,8 @@ function ChipAudio.playMusic(data, header, allowLoops)
                stereoEpoch = stereoEpoch })
   currentMusic = { source = source, gen = gen, threaded = true,
                    started = false, finished = false,
-                   stereoEpoch = stereoEpoch }
-  -- playback starts in update() once the first buffer arrives (~1 frame)
+                   stereoEpoch = stereoEpoch,
+                   preroll = (allowLoops ~= false) and MUSIC_PREROLL or 1 }
   return source
 end
 
@@ -264,13 +282,22 @@ local function updateThreaded()
       end
     end
   end
-  if not m.started and not musicHeld then
-    local okFree, free = pcall(m.source.getFreeBufferCount, m.source)
-    if okFree and type(free) == "number"
-       and (MUSIC_BUFFER_COUNT - free) > 0 then
-      pcall(function() m.source:play() end)
-      m.started = true
-    end
+  if not m.started and not musicHeld and readyToStart(m) then
+    pcall(function() m.source:play() end)
+    m.started = true
+  end
+end
+
+local function noteStats(m)
+  statFrames = statFrames + 1
+  local depth = m.source and queuedBuffers(m.source) or nil
+  if depth == 0 then statUnderruns = statUnderruns + 1 end
+  if statFrames % 60 == 0 then
+    require("src.core.Logger").info(
+      "chipaudio: depth=%d/%d out=%d underruns=%d restarts=%d rate=%d",
+      depth or -1, MUSIC_BUFFER_COUNT,
+      (m.threaded and outCh) and outCh:getCount() or -1,
+      statUnderruns, statRestarts, SAMPLE_RATE)
   end
 end
 
@@ -283,6 +310,7 @@ function ChipAudio.update()
   else
     fillSync()
   end
+  if STATS then noteStats(m) end
 end
 
 -- Recover from a queue underrun caused by a long render stall.  Called after
@@ -296,10 +324,9 @@ function ChipAudio.ensureMusicPlaying()
     if not m.started then return end
     local ok, playing = pcall(function() return m.source:isPlaying() end)
     if not ok or playing then return end
-    local okFree, free = pcall(m.source.getFreeBufferCount, m.source)
-    if okFree and type(free) == "number"
-       and (MUSIC_BUFFER_COUNT - free) > 0 then
+    if readyToStart(m) then
       pcall(function() m.source:play() end)
+      statRestarts = statRestarts + 1
     end
   else
     if not m.engine or m.engine:finished() then return end
@@ -307,6 +334,7 @@ function ChipAudio.ensureMusicPlaying()
     if ok and not playing then
       fillSync(MUSIC_FILL_INITIAL)
       pcall(m.source.play, m.source)
+      statRestarts = statRestarts + 1
     end
   end
 end
@@ -559,6 +587,16 @@ end
 -- ---------------------------------------------------------------------------
 -- test hooks (headless): synchronous synthesis straight through ChipSynth
 -- ---------------------------------------------------------------------------
+
+function ChipAudio._setAudioStatsForTest(flag)
+  STATS = not not flag
+  statFrames, statUnderruns, statRestarts = 0, 0, 0
+end
+
+function ChipAudio._audioStatsForTest()
+  return { frames = statFrames, underruns = statUnderruns,
+           restarts = statRestarts }
+end
 
 -- Force the "threaded, first buffer not yet queued" window so Music's
 -- playOnce / pendingRestore race can be asserted without love.thread.

@@ -13,7 +13,8 @@
 --           mid-crawl, and only changes on the frame the bar tops out
 --           (wBattleMonLevel is written inside the level loop, :7267-7274),
 --           with the end-of-bar hit playing there.
---   06      "<mon> grew to level N!", which comes AFTER all of that.
+--           ../pokecrystal/engine/sprite_anims/core.asm:547-608).
+--           sparks (../pokecrystal/engine/battle/core.asm:7538).
 -- And by ear: the low-HP siren is loud on the way in (the player is left on 3
 -- HP on purpose), and is cut dead the moment the wild mon faints -- it must
 -- not blare on under the victory jingle and the exp lines
@@ -86,12 +87,31 @@ return function(game)
 
   -- Four stills across the crawl.  A bar that is already full in the first is
   -- the bug this driver exists for.
-  local seen = {}
+  local seen, burst, spread = {}, nil, false
+  local function watchBurst()
+    local frame = screen.expBurst and screen.expBurst.frame
+    if not frame then return end
+    if not burst then
+      burst = { screen.shownExp, screen.shownLevel, screen.message }
+      U.shot(game, out .. "/05b-end-of-bar-burst.png")
+    elseif not spread and frame >= 5 then
+      spread = true
+      U.shot(game, out .. "/05c-burst-spread.png")
+    end
+  end
   while screen.expAnim and shots < 4 do
     shots = shots + 1
     seen[shots] = { screen.shownExp, screen.shownLevel }
     U.shot(game, out .. ("/%02d-crawl.png"):format(shots + 1))
-    U.wait(18)
+    for _ = 1, 18 do
+      watchBurst()
+      U.wait(1)
+    end
+  end
+  for _ = 1, 900 do
+    if burst or not screen.expAnim then break end
+    watchBurst()
+    U.wait(1)
   end
   for i = 1, shots do
     print(("[driver] shot %d: bar %s/64, :L%s")
@@ -99,6 +119,11 @@ return function(game)
   end
   assert(shots >= 2, "the crawl was over before two frames could be shot")
   assert(seen[1][1] < 64, "the bar was already full on the first crawl frame")
+  assert(burst, "the end-of-bar burst never armed on the level crossing")
+  print(("[driver] burst: bar %s/64, :L%s, message %q")
+    :format(tostring(burst[1]), tostring(burst[2]), tostring(burst[3])))
+  assert(not tostring(burst[3] or ""):find("grew to level"),
+    "the grew-to-level line was already up while the sparks were on screen")
 
   -- The rest of the queue: the grew-to-level line and the way out.
   for _ = 1, 900 do

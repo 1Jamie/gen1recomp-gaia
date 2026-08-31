@@ -166,6 +166,104 @@ do
   SyncEngine.forgetShared()
 end
 
+local function onDisk(files, slot)
+  local body = files["saves/red/" .. slot .. ".lua"]
+  return body and SaveData.decode(body) or nil
+end
+
+do
+  local files = fresh()
+  local Game = require("src.core.Game")
+  local slot = SaveData.createSlot("red")
+  SaveData.setActiveSlot("red", slot)
+  local save = SaveData.newGame()
+  save.player.name = "ASH"
+  save.meta = SaveData.buildMeta({}, save.meta, os.time() - 60)
+  T.check(SaveData.writeSlot("red", slot, save), "a slot is written without an identity stamp")
+  local mapped = SaveData.slotPlaythroughId("red", slot, save)
+  T.check(type(mapped) == "string" and #mapped == 32,
+    "a launcher sync listing mints the slot's identity into the mapping")
+  T.eq(onDisk(files, slot).meta.playthroughId, nil,
+    "while the progress file still carries none")
+
+  local protected = {}
+  SyncEngine._shared = {
+    state = { enabled = true },
+    linked = function() return true end,
+    busy = function() return false end,
+    noteSaveWritten = function() end,
+    update = function() end,
+    protectPlaythrough = function(_, version, id)
+      protected.version, protected.id = version, id
+    end,
+  }
+  local loaded = SaveData.load("red")
+  T.eq(loaded and loaded.player.name, "ASH", "CONTINUE loads that slot")
+  local game = setmetatable({ save = loaded }, { __index = Game })
+  T.check(Game.syncEngine(game) ~= nil, "the running game reaches the engine")
+  T.eq(protected.version, "red", "and protects its own game")
+  T.eq(protected.id, mapped,
+    "under the mapped identity, so an in-game sync cannot replace the slot it is playing")
+  T.eq(onDisk(files, slot).meta.playthroughId, nil,
+    "loading never rewrites the progress bytes")
+  SyncEngine.forgetShared()
+end
+
+do
+  local files = fresh()
+  local Game = require("src.core.Game")
+  local slot = SaveData.createSlot("red")
+  SaveData.setActiveSlot("red", slot)
+  local provider = SyncEngine.defaultSaves()
+  local protected, busy, listed = {}, false, 0
+  SyncEngine._shared = {
+    state = { enabled = true },
+    linked = function() return true end,
+    busy = function() return busy end,
+    noteSaveWritten = function() busy = true end,
+    update = function()
+      if busy then
+        listed = listed + #provider.list()
+        busy = false
+      end
+    end,
+    protectPlaythrough = function(_, version, id)
+      protected.version, protected.id = version, id
+    end,
+  }
+  local game = setmetatable({ save = SaveData.newGame(),
+    sessionStartedAt = os.time() - 60 }, { __index = Game })
+  game.save.player.name = "ASH"
+  Game.updateSync(game, 0.1)
+  T.eq(protected.id, nil, "an unsaved New Game protects no key")
+
+  T.eq(Game.writeSave(game), true, "the first in-game save lands")
+  T.eq(game.save.meta.playthroughId, nil, "with no identity yet")
+  T.eq(onDisk(files, slot).meta.playthroughId, nil, "on disk either")
+  Game.updateSync(game, 0.1)
+  T.eq(listed, 1, "the debounced upload lists the new slot")
+  local mapped = SaveData.loadOptions().playthroughIds.red[slot]
+  T.check(type(mapped) == "string" and #mapped == 32,
+    "and mints its identity into the mapping")
+  T.eq(game.save.meta.playthroughId, mapped,
+    "the running save adopts the identity the sync minted for its slot")
+  Game.syncEngine(game)
+  T.eq(protected.id, mapped,
+    "so the next sync cannot replace the slot under the running game")
+  T.eq(onDisk(files, slot).meta.playthroughId, nil,
+    "adopting rewrites nothing on disk until the next SAVE")
+
+  local title = setmetatable({ save = SaveData.newGame() }, { __index = Game })
+  busy = true
+  Game.updateSync(title, 0.1)
+  T.eq(title.save.meta.playthroughId, nil,
+    "an unsaved skeleton never takes the slot's identity")
+  Game.syncEngine(title)
+  T.eq(protected.id, nil,
+    "and leaves the slot open for a download at the title")
+  SyncEngine.forgetShared()
+end
+
 love.filesystem = realFS
 
 T.finish("sync_session_meta")

@@ -7,7 +7,7 @@ local BattleSafety = {}
 
 local BATTLE_BUSY_FIELDS = {
   "current", "afterQueue", "nextInsert", "pendingHit", "waitingUI",
-  "waitingSound", "waitFrames", "draining", "animPlaying", "growIn",
+  "waitingSound", "waitFrames", "hitSfxWait", "draining", "animPlaying", "growIn",
   "shrinkOut",
   "introSlide", "ghostReveal", "mimicCtx", "mimicMoves", "result",
 }

@@ -3804,11 +3804,15 @@ end
 -- FlexLove.touch* or scroll containers never drag on phones.
 function RomImporter:mousepressed(x, y, button)
   self._padCursorActive = false
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then Kit.pointerUsed() end
   if button ~= 1 or not self._flex then return end
   require("src.import.LauncherView").mousepressed(self, x, y)
 end
 
 function RomImporter:touchpressed(id, x, y, dx, dy, pressure)
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit then Kit.pointerUsed() end
   if not self._flex then return end
   require("src.import.LauncherView").touchpressed(
     self, id, x, y, dx, dy, pressure)
@@ -4179,6 +4183,14 @@ function RomImporter:_pumpSync(dt)
   local eng = self._sync
   if not eng then return end
   pcall(eng.update, eng, dt)
+  if eng.changed then
+    eng.changed = nil
+    local rows = eng.lastDownloads
+    eng.lastDownloads = nil
+    for _, row in ipairs(type(rows) == "table" and rows or {}) do
+      self:_syncNoteDownload(row)
+    end
+  end
   if eng.phase == "conflict" and eng.conflicts and #eng.conflicts > 0 then
     if not self._syncModal and not self._syncConflictShown then
       self._syncConflictShown = true
@@ -4187,6 +4199,16 @@ function RomImporter:_pumpSync(dt)
   else
     self._syncConflictShown = nil
   end
+end
+
+function RomImporter:_syncNoteDownload(row)
+  local version = type(row) == "table" and row.version
+  if type(version) ~= "string" or not GameVersion.VERSIONS[version] then return end
+  self:_refreshSlots(version)
+  if row.created then self.slotScroll[version] = math.huge end
+  local from = row.device and (" from " .. tostring(row.device)) or ""
+  self.saveNotice[version] = { ok = true,
+    text = ("Downloaded a save%s into %s."):format(from, tostring(row.slot)) }
 end
 
 function RomImporter:_openSync()
@@ -6220,14 +6242,18 @@ end
 -- A cart is one .g1rcart file, so the bytes go whole to CartStore.install and
 -- never through the mod installer.  Shares the mod job's single-in-flight
 -- rule: either entry point refuses while the other is running.
-function RomImporter:_beginCartInstall(entry)
-  if self._modInstall or self._cartInstall or self._updateAll then return end
+function RomImporter:_beginCartInstall(entry, spec)
+  if self._modInstall or self._cartInstall then return end
+  if self._updateAll and not (spec and spec.fromUpdateAll) then return end
   local ModIndex = require("src.mods.ModIndex")
   local release, why = ModIndex.releaseFor(entry)
   if type(release) ~= "table" or not (release.zip and release.zip.url) then
-    self.findNotice = { ok = false,
-      text = ("%s: %s"):format(tostring(entry.title or entry.id),
-        tostring(why or "this cart has no downloadable release")) }
+    local text = ("%s: %s"):format(tostring(entry.title or entry.id),
+      tostring(why or "this cart has no downloadable release"))
+    if not (spec and spec.quiet) then
+      self.findNotice = { ok = false, text = text }
+    end
+    if spec and spec.done then spec.done(false, text) end
     return
   end
   local ModUpdate = require("src.mods.ModUpdate")
@@ -6237,16 +6263,21 @@ function RomImporter:_beginCartInstall(entry)
     require("src.carts.CartStore").EXT)
   self._cartInstall = {
     entry = entry, version = release.version or entry.version,
+    quiet = spec and spec.quiet or nil, done = spec and spec.done or nil,
     h = ModUpdate.beginDownloadZip(release.zip.url, tmpName, release.zip.size),
   }
   self:_setBusy(Strings("Downloading %s", tostring(entry.title or entry.id)),
     "v" .. tostring(release.version or entry.version or "?"))
 end
 
-function RomImporter:_cartInstallFailed(msg)
+function RomImporter:_cartInstallFailed(msg, job)
+  job = job or self._cartInstall
   self._cartInstall = nil
   self:_clearBusy()
-  self.findNotice = { ok = false, text = tostring(msg) }
+  if not (job and job.quiet) then
+    self.findNotice = { ok = false, text = tostring(msg) }
+  end
+  if job and job.done then job.done(false, tostring(msg)) end
 end
 
 function RomImporter:_pumpCartInstall()
@@ -6270,17 +6301,19 @@ function RomImporter:_pumpCartInstall()
   local read, bytes = pcall(love.filesystem.read, path)
   pcall(love.filesystem.remove, path)
   if not read or type(bytes) ~= "string" or bytes == "" then
-    return self:_cartInstallFailed(name .. ": the download could not be read back")
+    return self:_cartInstallFailed(name .. ": the download could not be read back",
+      job)
   end
   self:_setBusy(Strings("Installing %s", name))
   local CartStore = require("src.carts.CartStore")
   local ran, cart, installErr = pcall(CartStore.install, bytes)
   self:_clearBusy()
   if not ran then
-    return self:_cartInstallFailed(name .. ": install failed: " .. tostring(cart))
+    return self:_cartInstallFailed(name .. ": install failed: " .. tostring(cart),
+      job)
   end
   if not cart then
-    return self:_cartInstallFailed(name .. ": " .. tostring(installErr))
+    return self:_cartInstallFailed(name .. ": " .. tostring(installErr), job)
   end
   -- _refreshCarts caches per version, so the Custom Carts list for the game
   -- this cart plays as would keep its pre-install copy until a relaunch.
@@ -6288,10 +6321,13 @@ function RomImporter:_pumpCartInstall()
   self:_refreshCarts(cart.base)
   self._cartPlan = nil
   self._cartridgeLabels = nil
-  self.findNotice = { ok = true,
-    text = Strings("Installed %s v%s. It is in this game's cart list now.",
-      tostring(cart.title or cart.id), tostring(cart.version or "?")) }
-  self:_offerCartPins(cart)
+  if not job.quiet then
+    self.findNotice = { ok = true,
+      text = Strings("Installed %s v%s. It is in this game's cart list now.",
+        tostring(cart.title or cart.id), tostring(cart.version or "?")) }
+    self:_offerCartPins(cart)
+  end
+  if job.done then job.done(true, tostring(cart.version or "?")) end
 end
 
 -- The pins a cart is missing, answered without disturbing whichever cart the
@@ -6506,17 +6542,68 @@ function RomImporter:_installModVersion(modId, release)
 end
 
 
-function RomImporter:_updateAllRows()
-  if self.modCartPlan and self:modCartPlan() then return {} end
-  local rows = {}
-  for _, m in ipairs(self.mods or {}) do
-    local info = self:_modUpdateInfo(m.id)
-    if info and info.status == "available" and info.best
-        and info.best.zip and info.best.zip.url then
-      rows[#rows + 1] = { id = m.id, name = m.name, release = info.best,
-                          from = m.version }
+local function repoKey(...)
+  local Manifest = require("src.mods.Manifest")
+  for i = 1, select("#", ...) do
+    local value = select(i, ...)
+    if type(value) == "string" and value ~= "" then
+      local ok, key = pcall(Manifest.parseGithub, value)
+      if ok and type(key) == "string" then return key:lower() end
     end
   end
+  return nil
+end
+
+function RomImporter:_updateAllCartRows()
+  local feed = (self.findIndex and self.findIndex.carts) or nil
+  local seen = self:_findInstalledCarts()
+  local cache = self._cartUpdateCache
+  if cache and cache.feed == feed and cache.seen == seen then
+    return cache.rows
+  end
+  local rows = {}
+  self._cartUpdateCache = { feed = feed, seen = seen, rows = rows }
+  if type(feed) ~= "table" or #feed == 0 then return rows end
+  local listed = {}
+  for _, entry in ipairs(feed) do
+    if type(entry) == "table" and entry.id and seen[entry.id] then
+      listed[entry.id] = entry
+    end
+  end
+  if next(listed) == nil then return rows end
+  local ok, installed = pcall(function()
+    return require("src.carts.CartStore").list()
+  end)
+  if not ok or type(installed) ~= "table" then return rows end
+  local ModIndex = require("src.mods.ModIndex")
+  local ModUpdate = require("src.mods.ModUpdate")
+  for _, row in ipairs(installed) do
+    local entry = listed[row.id]
+    local mine = row.cart and repoKey(row.cart.repo)
+    if entry and mine and mine == repoKey(entry.github, entry.repo)
+        and ModIndex.canInstall(entry)
+        and ModUpdate.isNewer(row.version, ModIndex.displayVersion(entry)) then
+      rows[#rows + 1] = { kind = "cart", id = row.id, entry = entry,
+                          name = row.title or row.id, from = row.version,
+                          to = ModIndex.displayVersion(entry) }
+    end
+  end
+  return rows
+end
+
+function RomImporter:_updateAllRows()
+  local rows = {}
+  if not (self.modCartPlan and self:modCartPlan()) then
+    for _, m in ipairs(self.mods or {}) do
+      local info = self:_modUpdateInfo(m.id)
+      if info and info.status == "available" and info.best
+          and info.best.zip and info.best.zip.url then
+        rows[#rows + 1] = { kind = "mod", id = m.id, name = m.name,
+                            release = info.best, from = m.version }
+      end
+    end
+  end
+  for _, row in ipairs(self:_updateAllCartRows()) do rows[#rows + 1] = row end
   return rows
 end
 
@@ -6529,9 +6616,10 @@ function RomImporter:pressUpdateAllMods()
     return false
   end
   self._updateAll = { stage = "check", index = 0, updated = 0,
-                      updatedIds = {}, failures = {} }
+                      updatedIds = {}, updatedCarts = {}, failures = {} }
   self.modNotice = nil
   self:_syncModUpdateInfo(true)
+  self:_ensureFind()
   self:_setBusy(Strings("Checking for updates"), nil,
     function() self:_cancelUpdateAll() end)
   self:_pumpUpdateAll()
@@ -6542,8 +6630,8 @@ function RomImporter:_cancelUpdateAll()
   local job = self._updateAll
   if not job or job.cancelled then return end
   job.cancelled = true
-  if self._modInstall then
-    self:_setBusy(Strings("Finishing the last mod"))
+  if self._modInstall or self._cartInstall then
+    self:_setBusy(Strings("Finishing the last download"))
   else
     self:_finishUpdateAll(true)
   end
@@ -6554,7 +6642,7 @@ function RomImporter:_pumpUpdateAll()
   if not job then return end
 
   if job.stage == "check" then
-    if self._modInfoFetch then return end
+    if self._modInfoFetch or self._findFetch then return end
     job.rows = self:_updateAllRows()
     job.total = #job.rows
     if job.cancelled or job.total == 0 then
@@ -6571,24 +6659,35 @@ function RomImporter:_pumpUpdateAll()
   local row = job.rows[job.index]
   if not row then return self:_finishUpdateAll() end
   job.stage = "installing"
-  self:_beginModInstall({
-    modId = row.id, name = row.name, release = row.release,
-    verb = "Updated", notice = "mod", quiet = true,
-    done = function(ok, text)
-      if ok then
-        job.updated = job.updated + 1
-        job.updatedIds[#job.updatedIds + 1] = row.id
+  local function finished(ok, text)
+    if ok then
+      job.updated = job.updated + 1
+      if row.kind == "cart" then
+        job.updatedCarts[#job.updatedCarts + 1] =
+          { id = row.id, base = row.entry and row.entry.base,
+            name = row.name or row.id }
       else
-        job.failures[#job.failures + 1] =
-          ("%s: %s"):format(tostring(row.name or row.id), tostring(text))
+        job.updatedIds[#job.updatedIds + 1] = row.id
       end
-      job.stage = "next"
-    end,
-  })
-  if self._modInstall then
+    else
+      job.failures[#job.failures + 1] =
+        ("%s: %s"):format(tostring(row.name or row.id), tostring(text))
+    end
+    job.stage = "next"
+  end
+  if row.kind == "cart" then
+    self:_beginCartInstall(row.entry,
+      { quiet = true, fromUpdateAll = true, done = finished })
+  else
+    self:_beginModInstall({
+      modId = row.id, name = row.name, release = row.release,
+      verb = "Updated", notice = "mod", quiet = true, done = finished,
+    })
+  end
+  if self._modInstall or self._cartInstall then
     self:_setBusy(Strings("Updating %s (%d of %d)",
       tostring(row.name or row.id), job.index, job.total),
-      "v" .. tostring(row.release.version or "?"),
+      "v" .. tostring(row.to or (row.release and row.release.version) or "?"),
       function() self:_cancelUpdateAll() end)
   elseif job.stage == "installing" then
     job.stage = "next"
@@ -6603,16 +6702,28 @@ function RomImporter:_finishUpdateAll(cancelled)
   if not job then return end
   if cancelled then
     self.modNotice = { ok = true, failures = job.failures,
-      text = Strings("Stopped after updating %d mods.", job.updated) }
+      text = Strings("Stopped after updating %d items.", job.updated) }
   elseif (job.total or 0) == 0 then
-    self.modNotice = { ok = true, text = Strings("All mods are up to date.") }
+    self.modNotice = { ok = true, text = Strings("Everything is up to date.") }
   elseif #job.failures == 0 then
     self.modNotice = { ok = true,
-      text = Strings("Updated %d mods.", job.updated) }
+      text = Strings("Updated %d items.", job.updated) }
   else
     self.modNotice = { ok = false, failures = job.failures,
       text = Strings("Updated %d of %d. %d failed:", job.updated, job.total,
         #job.failures) }
+  end
+  for _, cart in ipairs(job.updatedCarts or {}) do
+    if cart.base then
+      local missing = #self:_cartPinsMissing(cart.base, cart.id)
+      if missing > 0 then
+        local lines = self.modNotice.failures or {}
+        lines[#lines + 1] = Strings(
+          "%s now pins %d mod(s) you do not have. Open it in Custom Carts to install them.",
+          tostring(cart.name), missing)
+        self.modNotice.failures = lines
+      end
+    end
   end
   local LauncherMods = require("src.mods.LauncherMods")
   for _, id in ipairs(job.updatedIds or {}) do

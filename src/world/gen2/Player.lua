@@ -184,7 +184,8 @@ function Player:walkPhase()
   if not self.moving then
     -- map_object_action.asm:45-69
     if (self.bumpFrames or 0) <= 0 then return 0 end
-    return (math.floor(self.animClock / 8) % 2 == 1) and 1 or 0
+    -- map_object_action.asm:98-119
+    return (math.floor(self.animClock / STEP_FRAMES) % 2 == 1) and 1 or 0
   end
   local p = self.animClock % STEP_FRAMES
   return (p >= 4 and p < 12) and 1 or 0
@@ -193,7 +194,7 @@ end
 -- map_object_action.asm:71-94
 function Player:drawFlip()
   if self.moving or (self.bumpFrames or 0) <= 0 then return self.stepFlip end
-  local mirrored = math.floor(self.animClock / 16) % 2 == 1
+  local mirrored = math.floor(self.animClock / (STEP_FRAMES * 2)) % 2 == 1
   return self.stepFlip ~= mirrored
 end
 

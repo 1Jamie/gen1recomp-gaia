@@ -538,6 +538,7 @@ DIRECT_SYMBOLS = {
     "CircleTile",
     "CryData",
     "DoorTileIDPointers",
+    "ED_Tile",
     "EvosMovesPointerTable",
     "FlowerTile1",
     "FlowerTile2",

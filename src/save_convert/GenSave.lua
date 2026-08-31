@@ -152,6 +152,10 @@ O.checksumStart = O.playerName
 O.checksumEnd = O.curBoxData + BOX_REGION_SIZE + 1        -- + sTileAnimations (1B)
 O.mainChecksum = O.checksumEnd                            -- 1B
 
+O.identityTag = 8192                                       -- ram/sram.asm:14
+GenSave.IDENTITY_MAGIC = "G1RC"
+GenSave.IDENTITY_ID_LENGTH = 32
+
 O.box1 = 16384                                             -- bank 2 start
 O.boxBank2Checksum = O.box1 + 6 * BOX_REGION_SIZE
 O.boxBank2IndividualChecksums = O.boxBank2Checksum + 1     -- 6B
@@ -673,7 +677,7 @@ function GenSave.decode(bytes, data, opts)
   end
 
   local save = {
-    meta = { format = "gen1_import" },
+    meta = { format = "gen1_import", playthroughId = GenSave.readIdentity(bytes) },
     player = {
       name = decodeName(bytes, O.playerName, NAME_LENGTH),
       rival = decodeName(bytes, O.rivalName, NAME_LENGTH),
@@ -874,6 +878,23 @@ end
 -- encode: save.lua-shaped table -> raw 32768-byte SRAM string
 -- ------------------------------------------------------------------
 
+local function identityOf(save)
+  local meta = type(save) == "table" and save.meta
+  local id = type(meta) == "table" and meta.playthroughId
+  if type(id) ~= "string" or #id ~= GenSave.IDENTITY_ID_LENGTH then return nil end
+  if not id:match("^%x+$") then return nil end
+  return id
+end
+
+function GenSave.readIdentity(bytes)
+  if type(bytes) ~= "string" or #bytes < GenSave.SAVE_SIZE then return nil end
+  local off = O.identityTag
+  local magic = GenSave.IDENTITY_MAGIC
+  if bytes:sub(off + 1, off + #magic) ~= magic then return nil end
+  return identityOf({ meta = { playthroughId =
+    bytes:sub(off + #magic + 1, off + #magic + GenSave.IDENTITY_ID_LENGTH) } })
+end
+
 function GenSave.encode(save, data, template)
   local cw = GenSave.crosswalks(data)
   local src = template or save.rawImport
@@ -883,6 +904,12 @@ function GenSave.encode(save, data, template)
   else
     local zero = string.char(0)
     for i = 1, GenSave.SAVE_SIZE do buf[i] = zero end
+  end
+
+  local identity = identityOf(save)
+  if identity then
+    local tag = GenSave.IDENTITY_MAGIC .. identity
+    for i = 1, #tag do buf[O.identityTag + i] = tag:sub(i, i) end
   end
 
   local padTail = not src
