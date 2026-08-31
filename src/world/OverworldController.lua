@@ -8,6 +8,7 @@ local Camera = require("src.render.Camera")
 local Collision = require("src.world.Collision")
 local Encounter = require("src.world.Encounter")
 local FieldDefaults = require("src.world.FieldDefaults")
+local Flags = require("src.script.Flags")
 local GameVersion = require("src.core.GameVersion")
 local Logger = require("src.core.Logger")
 local Map = require("src.world.Map")
@@ -2609,7 +2610,7 @@ function OverworldState:tryCardKeyDoor(fx, fy)
                                                "closedDoors")
   for _, door in ipairs(closedDoors and closedDoors[self.map.id] or {}) do
     if door.bx == bx and door.by == by then
-      Game.save.flags[door.event] = true
+      Flags.set(Game.save, door.event)
       break
     end
   end
@@ -3683,7 +3684,7 @@ function OverworldState:engageTrainer(npc, onDone, endBattleText, skipBattleText
       if result == "win" then
         Game.save.defeatedTrainers[npc.id] = true
         if header and header.event then
-          Game.save.flags[header.event] = true
+          Flags.set(Game.save, header.event)
         end
         -- checkVictoryRewards pushes the badge/prize box and starts the map's
         -- onVictory script UNDER whatever runs next, so the player still sees
@@ -3737,7 +3738,7 @@ local function giveVictoryItem(reward)
     return false
   end
   if reward.gotFlag then
-    Game.save.flags[reward.gotFlag] = true
+    Flags.set(Game.save, reward.gotFlag)
   end
   local idef = Game.data.items[reward.item]
   Game.stringBuffer = idef and idef.name or reward.item
@@ -3810,11 +3811,11 @@ function OverworldState:checkVictoryRewards(trainerClass, partyIndex,
   if not reward then return self:runVictoryHook() end
   if reward.flag then
     if Game.save.flags[reward.flag] then return self:runVictoryHook() end
-    Game.save.flags[reward.flag] = true
+    Flags.set(Game.save, reward.flag)
   end
   if reward.deactivate then
     for _, flag in ipairs(reward.deactivate) do
-      Game.save.flags[flag] = true
+      Flags.set(Game.save, flag)
     end
   end
   if reward.hide then
@@ -4431,7 +4432,7 @@ function OverworldState:checkBadgeGate()
       if p.cellX == c.x and p.cellY == c.y then
         if Game.save.inventory[g.badge] then
           if not Game.save.flags[passedFlag] then
-            Game.save.flags[passedFlag] = true
+            Flags.set(Game.save, passedFlag)
             -- Route22GateGuardGoRightAheadText carries sound_get_item_1
             Game.stack:push(TextBox.new(Game,
               t["_" .. g.passText] or Strings("Go right ahead!"),
@@ -4459,7 +4460,7 @@ function OverworldState:checkBadgeGate()
         local badgeName = Game.data.items[guard.badge]
                           and Game.data.items[guard.badge].name or guard.badge
         if Game.save.inventory[guard.badge] then
-          Game.save.flags[guard.event] = true
+          Flags.set(Game.save, guard.event)
           -- Route23OhThatIsTheBadgeText carries sound_get_item_1
           local text = (t["_" .. g.passText] or
                         Strings("Oh! That is the\n{RAM}!")):gsub("{RAM:wNameBuffer}", badgeName)
@@ -4619,7 +4620,7 @@ function OverworldState:boulderIntoHole(npc)
     local h = entry.hole
     if npc.cellX == h.x and npc.cellY == h.y then
       require("src.core.Sound").play(Game.data, "Faint_Thud")
-      Game.save.flags[h.boulderEvent] = true
+      Flags.set(Game.save, h.boulderEvent)
       local toggles = Game.save.objectToggles or {}
       Game.save.objectToggles = toggles
       if h.hideObject then
@@ -4778,7 +4779,7 @@ function OverworldState:restoreBattleContinuation(battle, origin)
   battle.onFinish = function(result)
     if result == "win" then
       game.save.defeatedTrainers[origin.npcId] = true
-      if origin.event then game.save.flags[origin.event] = true end
+      if origin.event then Flags.set(game.save, origin.event) end
       self:checkVictoryRewards(battle.oppClass, battle.partyIndex,
                                battle.rewardDialogueShown)
     end

@@ -70,6 +70,8 @@ function BattleMusic.battleSong(opts)
   local class = opts.class
   local kanto = BattleMusic.isKanto(opts.landmark)
 
+  if opts.battleTheme then return opts.battleTheme end
+
   -- ../pokecrystal/engine/battle/start_battle.asm:60-66
   if opts.crystal and (opts.battleType == BattleMusic.BATTLETYPE_SUICUNE
       or opts.battleType == BattleMusic.BATTLETYPE_ROAMING) then

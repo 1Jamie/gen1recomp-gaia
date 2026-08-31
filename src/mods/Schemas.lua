@@ -838,6 +838,7 @@ R.pokemon = {
                                         frames = f.opt(f.int(1)) } }),
     cry = f.opt(f.id("cries")), palette = f.opt(f.id("palettes")),
     trueColor = f.opt(f.bool),
+    battleTheme = f.opt(f.id("music")),
     -- battle-pic scale overrides for this species' own pics: front is the
     -- enemy pic (default 1x), back is the player pic (default 2x).  An
     -- image-level battle_sprite_scales entry for the same path beats these.
@@ -894,6 +895,7 @@ R.pokemon = {
     spriteFront = f.path, spriteBack = f.path, picSize = f.int(1, 7),
     source = f.opt(f.str),
     cry = f.opt(f.id("cries")), trueColor = f.opt(f.bool),
+    battleTheme = f.opt(f.id("music")),
     battleScaleFront = f.opt(f.numRange(0.25, 4.0)),
     battleScaleBack = f.opt(f.numRange(0.25, 4.0)),
   },
@@ -1120,6 +1122,7 @@ R.trainers = {
     -- Full-color portrait: skip the 4-shade SGB/GBC remap, same flag pokemon
     -- and sprites already carry.
     trueColor = f.opt(f.bool),
+    palette = f.opt(f.id("palettes")),
     -- Optional Advanced-mode OBJ palette source for a custom trainer portrait.
     -- It follows the same ROM crosswalk form as sprites.paletteSource.
     paletteSource = f.opt(f.str),
@@ -1128,6 +1131,7 @@ R.trainers = {
     baseMoney = f.opt(f.int(0)),
     parties = f.list(f.list(f.rec{ level = f.int(1),
                                    species = f.id("pokemon") })),
+    partyNames = f.opt(f.map(f.int(1), f.str)),
     aiMods = f.opt(f.any),
     aiClass = f.opt(f.id("ai_classes")),
     brain = f.opt(f.fn),
@@ -1177,10 +1181,11 @@ R.trainers = {
     -- trainers and pokemon already carry.
     trueColor = f.opt(f.bool),
     baseMoney = f.opt(f.int(0)),
-    -- the class's battle theme; Gen 1 spells the same idea `battleTheme`,
-    -- but this is the extractor's own key and a strict rename would reject
-    -- every one of Gold's 66 classes
+    -- data/trainers/encounter_music.asm: the walk-up jingle, not the
+    -- battle theme; the extractor's own key, and a strict rename would
+    -- reject every one of Gold's 66 classes
     encounterMusic = f.opt(f.id("music")),
+    battleTheme = f.opt(f.id("music")),
     -- the items the class's AI may use mid-battle, and the seven raw AI
     -- bytes behind them (pokegold data/trainers/attributes.asm)
     items = f.opt(f.list(f.id("items"))),

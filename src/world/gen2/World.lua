@@ -6460,6 +6460,7 @@ function World:battleMusicContext(opts)
   local trainer = opts and opts.trainer
   local save = self.game and self.game.save
   return {
+    battleTheme = World.modBattleTheme(self, opts),
     class = trainer and trainer.classId,
     member = trainer and trainer.memberId,
     members = trainer and trainer.classId and members
@@ -6475,6 +6476,26 @@ function World:battleMusicContext(opts)
     crystal = GameVersion.engine((save and save.version)
       or GameVersion.get()) == "crystal",
   }
+end
+
+-- a mod-set battle theme: the class' trainers.battleTheme, else the wild
+-- species' pokemon.battleTheme; nil for vanilla content
+function World:modBattleTheme(opts)
+  local data = self.game and self.game.data
+  if not data then return nil end
+  local trainer = opts and opts.trainer
+  if trainer then
+    -- classId keys data.trainers.classes; classIndex is keyed by the
+    -- numeric `class`
+    local classes = data.trainers and data.trainers.classes
+    local entry = (trainer.classId and classes and classes[trainer.classId])
+      or (trainer.class and Trainers.classIndex(data.trainers)[trainer.class])
+    return entry and entry.battleTheme or nil
+  end
+  local wild = opts and opts.wild
+  local def = wild and wild.species and data.pokemon
+    and data.pokemon[wild.species]
+  return def and def.battleTheme or nil
 end
 
 function World:playBattleMusic(opts)
