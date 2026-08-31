@@ -36,10 +36,10 @@ Suspend/resume uses the existing LÖVE focus/visibility lifecycle: input is rese
 
 ## Power and Performance Tuning
 
-The handheld build applies several optimizations to reduce power draw and ensure smooth 60 FPS frame pacing on low-power ARM SoCs:
+The handheld build applies several optimizations to reduce power draw while keeping smooth frame pacing on low-power ARM SoCs:
 
-- **KMSDRM / EGL Vsync Fix**: Handheld builds disable driver vsync (`vsync = 0`) to prevent GPU driver busy-wait spinloops in `eglSwapBuffers`, allowing `nanosleep()` and dropping idle CPU usage from ~25% to ~4%.
-- **Idle Render Governor**: Drops presentation rate when a static screen (menus, text dialogs, stationary scenes) receives no input, cutting compositing work ~6x while preserving full 60 Hz game and audio clocks. Any button press restores full framerate immediately.
+- **PresentSync / driver vsync**: Handheld builds keep driver vsync enabled so the unified present-sync stack can probe cadence and pace through the panel (KMSDRM page-flip wait). Disabling vsync here bypassed that path and forced the FrameCap 1 ms polling loop at 60 FPS.
+- **Idle Render Governor**: After `POKEPORT_IDLE_AFTER` seconds without input on static in-game screens, presentation drops to `POKEPORT_IDLE_FPS` while game logic and audio stay at full speed. Any button press restores full framerate on the next frame.
 - **Sample Rate Scaling**: Audio synthesis is tuned to 22.05 kHz by default (`POKEPORT_AUDIO_RATE=22050`), halving synthesis CPU overhead on Cortex-A53 cores with no audible quality loss on handheld speakers.
 - **Dynamic CPU Governor**: Defaults to `schedutil` instead of pinning `performance` on all cores, reducing thermals and extending battery life.
 

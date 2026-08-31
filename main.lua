@@ -1381,6 +1381,17 @@ local function pacingEnabled()
   return true
 end
 
+-- Shane #1830 idle render governor (POKEPORT_IDLE_*): drop presentation rate
+-- on static in-game screens; game logic and audio stay at full speed.
+local function idlePresentationCap(idleFor)
+  local after = tonumber(os.getenv("POKEPORT_IDLE_AFTER"))
+  local fps = tonumber(os.getenv("POKEPORT_IDLE_FPS"))
+  if not after or after <= 0 or not fps or fps <= 0 then return nil end
+  if idleFor < after then return nil end
+  if Importer or Prelaunch or editorMode or not Game then return nil end
+  return fps
+end
+
 function love.run()
   if love.load then love.load(love.arg.parseGameArguments(arg), arg) end
 
@@ -1388,6 +1399,7 @@ function love.run()
   if love.timer then love.timer.step() end
 
   local FrameCap = require("src.core.FrameCap")
+  FrameCap.bootHandheld()
   local RefreshRate = require("src.core.RefreshRate")
   local FixedStep = require("src.core.FixedStep")
   local VSync = require("src.core.VSync")
@@ -1400,6 +1412,18 @@ function love.run()
   local dt = 0
   local idleFor = 0
   local SLEEP_FLOOR = 0.001
+  -- Sleep until deadline with one or two kernel waits, not 1 ms polling.
+  local function sleepUntilFrame(deadline)
+    while true do
+      local remaining = deadline - love.timer.getTime()
+      if remaining <= SLEEP_FLOOR then break end
+      if remaining > 0.004 then
+        love.timer.sleep(remaining - 0.002)
+      else
+        love.timer.sleep(remaining)
+      end
+    end
+  end
   local WAKE = {
     keypressed = true, keyreleased = true, textinput = true,
     mousepressed = true, mousereleased = true, mousemoved = true,
@@ -1460,7 +1484,11 @@ function love.run()
       cap = 10
     elseif Importer and (not focused or idleFor > 30) then
       cap = 15
-    elseif cap == FrameCap.DISPLAY and not VSync.isOn() then
+    else
+      local idleCap = idlePresentationCap(idleFor)
+      if idleCap then cap = idleCap end
+    end
+    if cap == FrameCap.DISPLAY and not VSync.isOn() then
       cap = FrameCap.DEFAULT
     elseif cap == FrameCap.DISPLAY and PresentSync.needsSoftwareCap() then
       -- Fallback cascade: probe failed / wait abandoned / sync non-
@@ -1482,11 +1510,11 @@ function love.run()
     PresentSync.applyFixedStepPeriod()
 
     if love.timer then
-      if paced and cap ~= FrameCap.DISPLAY then
+      if paced and cap ~= FrameCap.DISPLAY and not PresentSync.hardwarePacesCap(cap) then
         -- Sleep out the remainder of the frame budget, measured from the
-        -- carried deadline, in small chunks so the OS timer stays
-        -- responsive.  The pacer yields to vsync inside a 1ms dead band, so
-        -- when the panel already paces at or below the cap it is a no-op.
+        -- carried deadline.  When vsync already gates at or above the cap,
+        -- hardwarePacesCap skips this entirely.  Otherwise one kernel sleep
+        -- covers the bulk; only the last couple ms re-check for overshoot.
         local budget = 1 / cap
         nextFrame = nextFrame + budget
         local now = love.timer.getTime()
@@ -1496,11 +1524,7 @@ function love.run()
         if now - nextFrame > budget then
           nextFrame = now
         end
-        while true do
-          local remaining = nextFrame - love.timer.getTime()
-          if remaining <= SLEEP_FLOOR then break end
-          love.timer.sleep(0.001)
-        end
+        sleepUntilFrame(nextFrame)
       else
         love.timer.sleep(0.001)
       end

@@ -48,7 +48,22 @@ T.check(PresentSync.displaySyncConfirmed(), "gated+clear softcap is confirmed sy
 FrameCap.apply(60)
 T.eq(PresentSync.logicRefreshPeriod(), nil,
   "a 60 cap on a 144Hz panel leaves refresh snapping off")
+T.check(not PresentSync.hardwarePacesCap(60),
+  "60 on 144Hz still needs software pacing headroom")
 
+measure(60)
+FrameCap.apply(60)
+PresentProbe._testSetState({ osLinux = true, ready = true, gated = true,
+  needsSoftwareCap = false, nest = "kmsdrm" })
+T.check(PresentSync.hardwarePacesCap(60),
+  "60 on 60Hz with working vsync skips the software pacer")
+FrameCap.apply(30)
+T.check(not PresentSync.hardwarePacesCap(30),
+  "30 on 60Hz still needs software pacing")
+
+measure(144)
+PresentProbe._testSetState({ osLinux = false, ready = true, gated = true,
+  needsSoftwareCap = false, nest = "windows" })
 FrameCap.apply(144)
 T.eq(PresentSync.logicRefreshPeriod(), 1 / 144,
   "a 144 cap on a 144Hz panel may snap logic to the panel")
