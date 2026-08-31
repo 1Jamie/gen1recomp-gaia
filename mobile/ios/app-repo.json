@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.45",
+          "date": "2026-08-31",
+          "size": 21546273,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.45/gen1recomp++-0.2.45-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1947 Naming screen inaccuracies\n- #1987 Player not looking at rival when he leaves lab\n- #1989 Rival's paths in the lab are different\n- #1994 [Crystal] Location banners when changing area disappear faster with faster game speed\n- #1996 Leveling up differs from original\n- #1998 Bind & Constrict animations aren't played correctly\n- #2010 Attract doesn't do anything\n- #2011 Cartridges don’t update with ‘update all mods’\n- #2012 (GSC) Various issues with the Bag and the item's PC\n- #2013 (GSC) Walking animation against obstacles is too fast\n- #2014 (GSC) Missing sparks when filling the xp bar in a battle\n- #2015 (GSC) The bird gets stuck at the top of the screen during the take off animation of FLY\n- #2017 (GSC) Text for Prof. Oak's PC pokédex evaluation overlapping\n- #2018 (GSC) Belly Drum not cutting user's HP by half\n- #2019 (GSC) Missing double beep when switching items\n- #2020 (GSC) The screen flashes when using FLY in the menu\n- #2021 (GSC) The intro effect before battling a trainer is slightly wrong\n- #2022 Syncing Issues\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.44",
           "date": "2026-08-31",
           "size": 21536649,
