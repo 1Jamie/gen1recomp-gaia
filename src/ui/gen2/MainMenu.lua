@@ -40,6 +40,7 @@ MainMenu.isOpaque = true
 -- InitClock.lua's DAYS), so this screen's clock box cannot drift from the
 -- Pokegear's own.
 local DAYS = Clock.DAY_NAMES
+local DAY_LABEL = Strings.source("DAY")
 
 -- MUSIC_MAIN_MENU; resolved by name so a cache without it just stays quiet.
 local MENU_MUSIC = "Music_MainMenu"
@@ -176,7 +177,7 @@ function MainMenu:drawClockBox()
   -- ../pokecrystal/engine/menus/main_menu.asm:286
   Chrome.textbox(0, 14, 18, 2)
   local hour, minute, weekday = self:clockParts()
-  Chrome.print(Clock.weekdayName(weekday) or "DAY", 1, 15)
+  Chrome.print(Clock.weekdayName(weekday) or Strings(DAY_LABEL), 1, 15)
   Chrome.print(MainMenu.timeString(hour, minute), 4, 16)
 end
 

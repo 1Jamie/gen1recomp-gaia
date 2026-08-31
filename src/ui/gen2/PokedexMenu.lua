@@ -40,12 +40,30 @@ local Sound = require("src.core.Sound")
 local Unown = require("src.core.gen2.Unown")
 local Strings = require("src.core.Strings")
 local MenuRepeat = require("src.ui.MenuRepeat")
+local TypeChart = require("src.battle.TypeChart")
 
 -- `db $3b, " OPTION ", $3c` / `db $3b, " SEARCH ", $3c"`: the panel titles
 -- drawn by drawOption/drawSearch below, declared here (rather than inline)
 -- so Strings.source puts them in the catalog harvest.
 local OPTION_LABEL = Strings.source(" OPTION ")
 local SEARCH_LABEL = Strings.source(" SEARCH ")
+local MODE_LABELS = {
+  NEW = Strings.source("NEW"),
+  OLD = Strings.source("OLD"),
+  ["A-Z"] = Strings.source("A-Z"),
+}
+local SEEN_LABEL = Strings.source("SEEN")
+local OWN_LABEL = Strings.source("OWN")
+local HEIGHT_LABEL = Strings.source("HT")
+local WEIGHT_LABEL = Strings.source("WT")
+local SEARCH_TYPE1_LABEL = Strings.source("TYPE1")
+local SEARCH_TYPE2_LABEL = Strings.source("TYPE2")
+local BEGIN_SEARCH_LABEL = Strings.source("BEGIN SEARCH!!")
+local CANCEL_LABEL = Strings.source("CANCEL")
+local NO_SEARCH_RESULTS = Strings.source("No <PK><MN> found!")
+local ENTRY_ACTION_LABEL = Strings.source(" PAGE AREA CRY PRNT")
+local POUND_LABEL = Strings.source("lb")
+local NEST_TITLE = Strings.source("%s'S NEST")
 
 local LIST_DIRS = { "up", "down" }
 
@@ -655,9 +673,9 @@ function PokedexMenu:drawMainBackground()
   self:border(0, 9, 6, 7)
 
   local seen, caught = self:totals()
-  self:text("SEEN", 1, 11)
+  self:text(Strings(SEEN_LABEL), 1, 11)
   self:text(printNumString(seen, 3), 5, 12)
-  self:text("OWN", 1, 14)
+  self:text(Strings(OWN_LABEL), 1, 14)
   self:text(printNumString(caught, 3), 5, 15)
 
   for i, id in ipairs(BOTTOM_CAPTION) do self:tile(id, i, 17) end
@@ -930,7 +948,7 @@ function PokedexMenu:drawArea()
     self:drawTilemap(cells)
   end
 
-  self:drawAreaHeader(self:monName(row.species) .. "'S NEST")
+  self:drawAreaHeader(Strings(NEST_TITLE, self:monName(row.species)))
 
   -- engine/pokegear/pokegear.asm:2385
   local on = ((self.areaBlink or 0) % 32) < 16
@@ -977,7 +995,7 @@ function PokedexMenu:drawEntryBody(row, entry)
   self:tile(0x3b, 0, 17)
   -- _NewPokedexEntry ByteFills the action row away (pokedex.asm:2540-2545).
   if not self.newEntry then
-    self:text(" PAGE AREA CRY PRNT", 1, 17)
+    self:text(Strings(ENTRY_ACTION_LABEL), 1, 17)
     -- Pokedex_InitArrowCursor parks an arrow on the selected action; without it
     -- the four words are decoration and there is no way to tell what A will do.
     --
@@ -1010,10 +1028,10 @@ function PokedexMenu:drawEntryBody(row, entry)
 
   -- .Height / .Weight are placeholder strings until the mon is caught:
   -- "HT  ?'??"" at (9,7) and "WT   ???lb" at (9,9).
-  self:text("HT", 9, 7)
-  self:text("WT", 9, 9)
+  self:text(Strings(HEIGHT_LABEL), 9, 7)
+  self:text(Strings(WEIGHT_LABEL), 9, 9)
   self:tile(TILE_FOOT, 14, 7)
-  self:text("lb", 17, 9)
+  self:text(Strings(POUND_LABEL), 17, 9)
 
   if not row.caught then
     self:text("  ?", 11, 7)
@@ -1085,8 +1103,10 @@ function PokedexMenu:drawPlain()
       Chrome.print(("%s  %s"):format(
         Chrome.number(entry.dex or 0, 3, true), self:monName(row.species)), 1, 1)
       Chrome.print(entry.kind or "", 1, 3)
-      Chrome.print("HT " .. printNumString(entry.height or 0, 4, false, 2), 1, 5)
-      Chrome.print("WT " .. printNumString(entry.weight or 0, 5, false, 4), 1, 7)
+      Chrome.print(Strings(HEIGHT_LABEL) .. " "
+        .. printNumString(entry.height or 0, 4, false, 2), 1, 5)
+      Chrome.print(Strings(WEIGHT_LABEL) .. " "
+        .. printNumString(entry.weight or 0, 5, false, 4), 1, 7)
       self:drawPic(row, 12, 1, true)
       Chrome.box(0, 10, 20, 8)
       local ty = 11
@@ -1113,10 +1133,10 @@ function PokedexMenu:drawPlain()
   self:drawPic(self:current(), 13, 1)
   Chrome.box(13, 11, 7, 7)
   local seen, caught = self:totals()
-  Chrome.print(self:mode(), 14, 12)
-  Chrome.print("SEEN", 14, 14)
+  Chrome.print(Strings(MODE_LABELS[self:mode()] or self:mode()), 14, 12)
+  Chrome.print(Strings(SEEN_LABEL), 14, 14)
   Chrome.printRight(tostring(seen), 19, 15)
-  Chrome.print("OWN", 14, 16)
+  Chrome.print(Strings(OWN_LABEL), 14, 16)
   Chrome.printRight(tostring(caught), 19, 17)
 end
 
@@ -1139,14 +1159,18 @@ PokedexMenu.SEARCH_TYPES = {
 -- `#` is the compression byte for POKé, four tiles either way, so the label
 -- is spelled out here the way every other Gen 2 screen in the port spells it.
 PokedexMenu.OPTION_MODES = {
-  { label = "NEW POKéDEX MODE", mode = "NEW",
-    lines = { "<PK><MN> are listed by", "evolution type." } },
-  { label = "OLD POKéDEX MODE", mode = "OLD",
-    lines = { "<PK><MN> are listed by", "official type." } },
-  { label = "A to Z MODE", mode = "A-Z",
-    lines = { "<PK><MN> are listed", "alphabetically." } },
-  { label = "UNOWN MODE", mode = "UNOWN", unown = true,
-    lines = { "UNOWN are listed", "in catching order." } },
+  { label = Strings.source("NEW POKéDEX MODE"), mode = "NEW",
+    lines = { Strings.source("<PK><MN> are listed by"),
+      Strings.source("evolution type.") } },
+  { label = Strings.source("OLD POKéDEX MODE"), mode = "OLD",
+    lines = { Strings.source("<PK><MN> are listed by"),
+      Strings.source("official type.") } },
+  { label = Strings.source("A to Z MODE"), mode = "A-Z",
+    lines = { Strings.source("<PK><MN> are listed"),
+      Strings.source("alphabetically.") } },
+  { label = Strings.source("UNOWN MODE"), mode = "UNOWN", unown = true,
+    lines = { Strings.source("UNOWN are listed"),
+      Strings.source("in catching order.") } },
 }
 
 -- Pokedex_CheckUnlockedUnownMode: `ld a, [wStatusFlags] / bit
@@ -1378,15 +1402,24 @@ end
 function PokedexMenu:searchTypeName(slot)
   local index = self.searchType[slot] or 0
   if index == 0 then return "-----" end
-  return PokedexMenu.SEARCH_TYPES[index] or "-----"
+  local id = PokedexMenu.SEARCH_TYPES[index]
+  return id and TypeChart.displayName(id, self.data) or "-----"
+end
+
+-- Search compares internal type ids, never their translated display names.
+-- Keeping this separate from searchTypeName lets a registry rename and even
+-- reorder the visible label without changing which species the wheel finds.
+function PokedexMenu:searchTypeId(slot)
+  local index = self.searchType[slot] or 0
+  return index ~= 0 and PokedexMenu.SEARCH_TYPES[index] or nil
 end
 
 -- Pokedex_SearchForMons: a mon matches when its two types cover both of the
 -- wanted ones, in either order; "-----" matches anything.  Only SEEN mon are
 -- searched, which is what makes the count meaningful.
 function PokedexMenu:beginSearch()
-  local want1 = self.searchType[1] ~= 0 and self:searchTypeName(1) or nil
-  local want2 = self.searchType[2] ~= 0 and self:searchTypeName(2) or nil
+  local want1 = self:searchTypeId(1)
+  local want2 = self:searchTypeId(2)
   local results = {}
   for _, entry in ipairs(self.rows) do
     if entry.seen then
@@ -1403,7 +1436,7 @@ function PokedexMenu:beginSearch()
   if #results == 0 then
     -- .MenuAction_BeginSearch redraws the search screen and stays put when
     -- nothing matched.
-    self.searchMessage = "No <PK><MN> found!"
+    self.searchMessage = NO_SEARCH_RESULTS
     return
   end
   self.searchMessage = nil
@@ -1426,13 +1459,13 @@ function PokedexMenu:drawOption()
   self:tile(0x3c, 9, 1)
   local rows = self:optionRows()
   for i, row in ipairs(rows) do
-    self:text(row.label, 3, 2 + i * 2)
+    self:text(Strings(row.label), 3, 2 + i * 2)
     if i == self.optionIndex then self:text("\xe2\x96\xb6", 2, 2 + i * 2) end
   end
   local current = rows[self.optionIndex]
   if current then
-    self:text(current.lines[1], 1, 14)
-    self:text(current.lines[2], 1, 15)
+    self:text(Strings(current.lines[1]), 1, 14)
+    self:text(Strings(current.lines[2]), 1, 15)
   end
 end
 
@@ -1444,8 +1477,8 @@ function PokedexMenu:drawSearch()
   self:tile(0x3b, 0, 1)
   self:text(Strings(SEARCH_LABEL), 1, 1)
   self:tile(0x3c, 9, 1)
-  self:text("TYPE1", 3, 4)
-  self:text("TYPE2", 3, 6)
+  self:text(Strings(SEARCH_TYPE1_LABEL), 3, 4)
+  self:text(Strings(SEARCH_TYPE2_LABEL), 3, 6)
   self:text(self:searchTypeName(1), 10, 4)
   self:text(self:searchTypeName(2), 10, 6)
   -- `.TypeLeftRightArrows: db $3d, "        ", $3e` -- two of the dex sheet's
@@ -1454,9 +1487,9 @@ function PokedexMenu:drawSearch()
     self:tile(0x3d, 8, y)
     self:tile(0x3e, 17, y)
   end
-  self:text("BEGIN SEARCH!!", 3, 13)
-  self:text("CANCEL", 3, 15)
-  if self.searchMessage then self:text(self.searchMessage, 3, 10) end
+  self:text(Strings(BEGIN_SEARCH_LABEL), 3, 13)
+  self:text(Strings(CANCEL_LABEL), 3, 15)
+  if self.searchMessage then self:text(Strings(self.searchMessage), 3, 10) end
   local rows = { 4, 6, 13, 15 }
   local y = rows[self.searchIndex] or 4
   self:text("\xe2\x96\xb6", 2, y)

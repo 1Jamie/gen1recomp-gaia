@@ -8,6 +8,11 @@ local index -- [atk][def] -> x10 multiplier
 local matchups -- ROM-ordered TypeEffects rows
 local types -- merged type records (physical/special category, display name)
 
+-- Identifiers whose cart-facing spelling differs even without loaded data.
+-- CURSE_TYPE is Gen 2's ??? type and is deliberately not a Gen 1 registry
+-- record; keeping it here avoids exposing a non-existent Gen 1 type.
+local DISPLAY_NAMES = { PSYCHIC_TYPE = "PSYCHIC", CURSE_TYPE = "???" }
+
 function TypeChart.load(data)
   index = {}
   matchups = data.type_chart.matchups
@@ -27,9 +32,15 @@ end
 
 -- display name for the move-select TYPE/ box (mod types render their
 -- name instead of their raw id)
-function TypeChart.displayName(typeId)
-  local record = types and types[typeId] or TypeChart.TYPES[typeId]
-  return record and record.name or typeId
+function TypeChart.displayName(typeId, data)
+  -- Menus can be opened before the first battle has called TypeChart.load.
+  -- Accept their live Data explicitly so a merged type_chart translation is
+  -- still visible there; battle callers retain the cached-table fast path.
+  local supplied = data and data.type_chart and data.type_chart.types
+  local record = supplied and supplied[typeId]
+    or types and types[typeId]
+    or TypeChart.TYPES[typeId]
+  return record and record.name or DISPLAY_NAMES[typeId] or typeId
 end
 
 -- The x10 multipliers of every TypeEffects row that applies, in ROM

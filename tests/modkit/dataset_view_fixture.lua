@@ -13,8 +13,8 @@ local GEN1_OPTIONAL_MODULES = { "audio", "palettes", "icons" }
 
 local GEN2_MODULES = {
   "pokemon", "moves", "items", "type_chart", "audio", "font", "maps",
-  "tilesets", "text", "trainers", "encounters", "sprites", "palettes",
-  "icons", "battle_anims", "constants", "landmarks",
+  "tilesets", "text", "rom_text", "trainers", "encounters", "sprites",
+  "palettes", "icons", "battle_anims", "constants", "landmarks",
 }
 
 local CONTINUATIONS = {
@@ -79,7 +79,8 @@ local function defaults(version)
       heldEffect = "HELD_LEFTOVERS", heldParameter = 0 }
   end
   return {
-    constants = {}, maps = {}, tilesets = {}, text = {}, text_pointers = {},
+    constants = {}, maps = {}, tilesets = {}, text = {}, rom_text = {},
+    text_pointers = {},
     trainer_headers = {}, font = {}, sprites = {}, pokemon = pokemon,
     moves = moves, items = items, type_chart = typeChart, trainers = {},
     encounters = {}, field = { oakSpeech = {} }, battle_anims = {},

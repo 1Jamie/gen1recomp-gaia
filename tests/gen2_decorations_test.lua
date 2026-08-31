@@ -11,6 +11,7 @@ local check, eq = S.check, S.eq
 
 local Decorations = require("src.core.gen2.Decorations")
 local Events = require("src.world.gen2.Events")
+local Strings = require("src.core.Strings")
 local Vm = require("src.script.gen2.Vm")
 
 -- constants/deco_constants.asm, the handful this file names.
@@ -52,6 +53,16 @@ do
     "the TOWN MAP poster is a DecorationNames string, not a mon plus POSTER")
   eq(Decorations.name(DECO_GOLD_TROPHY_DOLL), "GOLD TROPHY",
     "and so is the trophy")
+
+  -- The kind is a translated format template, not an English suffix welded
+  -- to the registry's base name.  A language may therefore put it first.
+  Strings.load({ strings = { ["%s BED"] = "BED <%s>",
+    ["BIG %s"] = "%s GIANT" } })
+  eq(Decorations.name(DECO_FEATHERY_BED), "BED <FEATHERY>",
+    "a translated bed template controls grammatical order")
+  eq(Decorations.name(DECO_BIG_SNORLAX_DOLL), "SNORLAX GIANT",
+    "and the big-doll template can move its modifier")
+  Strings.load(nil)
 end
 
 -- ---- owning ---------------------------------------------------------------

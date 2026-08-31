@@ -163,11 +163,16 @@ end
 do
   local save = Save.newGame()
   local game = newGame(save)
+  game.data.gen2RadioChannels = {
+    LUCKY_CHANNEL = { channel = 4, name = "CANAL CHANCE" },
+  }
   local mr = MapRadio.new(game, {
     channel = 4, radioData = RADIO_DATA, radioRng = rolls(0), save = save,
   })
   eq(mr.station, "LUCKY_CHANNEL",
     "Radio2Script's MAPRADIO_LUCKY_CHANNEL is index 4")
+  eq(mr:name(), "CANAL CHANCE",
+    "the wall radio consumes the registry-patched station name")
 end
 
 S.finish()
