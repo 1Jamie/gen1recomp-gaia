@@ -500,7 +500,7 @@ local function pickTargetAndUse(game, battle, id, list)
           right = ("%d"):format(mv.pp),
         })
       end
-      game.stack:push(ListMenu.new(game, "Which move?", rows, {
+      game.stack:push(ListMenu.new(game, Strings.source("Which move?"), rows, {
         onChoose = function(row, l)
           l:close()
           useOn(game, battle, id, mon, list, row.value)
@@ -557,7 +557,7 @@ function BagMenu.new(game, opts)
   opts = opts or {}
   local battle = opts.battle
   local list
-  list = ListMenu.new(game, "ITEMS", buildItems(game), {
+  list = ListMenu.new(game, Strings.source("ITEMS"), buildItems(game), {
     kind = "bag",
     -- StartMenu_Item zeroes wPrintItemPrices and draws no money box: the
     -- LIST_MENU_BOX floats over the map (engine/menus/start_sub_menus.asm)

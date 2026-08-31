@@ -1642,7 +1642,8 @@ function SurfingMinigame:drawTitleScreen()
   if self.titleBg then
     love.graphics.draw(self.titleBg, 0, 0)
   else
-    Font.draw("PIKACHU'S BEACH", 20, 32)
+    local title = Strings("PIKACHU'S BEACH")
+    Font.draw(title, math.max(0, math.floor((160 - Font.width(title)) / 2)), 32)
   end
 
   -- 2. Intro Pikachu paddling out (SurfingPikachu1Graphics3 / surf_1c.png)

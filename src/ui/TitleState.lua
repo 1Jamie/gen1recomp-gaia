@@ -727,9 +727,11 @@ function TitleState:draw()
     love.graphics.draw(self.logo, 16, 8 + scrollY)
   else
     love.graphics.setColor(0, 0, 0, 1)
-    local brand = self.yellow and "POKéMON YELLOW"
-               or (self.blue and "POKéMON BLUE" or Strings("POKéMON RED"))
-    Font.draw(brand, (160 - 12 * 8) / 2, 24 + scrollY)
+    local brand = self.yellow and Strings("POKéMON YELLOW")
+               or (self.blue and Strings("POKéMON BLUE")
+                             or Strings("POKéMON RED"))
+    Font.draw(brand, math.max(0, math.floor((160 - Font.width(brand)) / 2)),
+              24 + scrollY)
     love.graphics.setColor(1, 1, 1, 1)
   end
   if self.yellowLayout then
@@ -817,7 +819,8 @@ function TitleState:drawCopyright(y)
     return
   end
   love.graphics.setColor(0, 0, 0, 1)
-  Font.draw(self.title.copyrightText or Strings("GAME FREAK inc."), 16, y)
+  Font.draw(self.title.copyrightText and Strings(self.title.copyrightText)
+            or Strings("GAME FREAK inc."), 16, y)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

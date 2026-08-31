@@ -140,11 +140,11 @@ function Diploma.render(game)
 
   -- 5. Congratulations text: hlcoord 2, 6 double-spaced lines (rows 6, 8, 10, 12, 14)
   local congrats = {
-    { text = "Congrats! This",     y = 48 },   -- hlcoord 2, 6
-    { text = "diploma certifies",  y = 64 },   -- hlcoord 2, 8
-    { text = "that you have",      y = 80 },   -- hlcoord 2, 10
-    { text = "completed your",     y = 96 },   -- hlcoord 2, 12
-    { text = "POKéDEX.",           y = 112 },  -- hlcoord 2, 14
+    { text = Strings.source("Congrats! This"),    y = 48 },  -- hlcoord 2, 6
+    { text = Strings.source("diploma certifies"), y = 64 },  -- hlcoord 2, 8
+    { text = Strings.source("that you have"),     y = 80 },  -- hlcoord 2, 10
+    { text = Strings.source("completed your"),    y = 96 },  -- hlcoord 2, 12
+    { text = Strings.source("POKéDEX."),          y = 112 }, -- hlcoord 2, 14
   }
   for _, line in ipairs(congrats) do
     Font.draw(Strings(line.text), 16, line.y)
