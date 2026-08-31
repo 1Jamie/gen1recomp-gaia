@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.42",
+          "date": "2026-08-31",
+          "size": 21534750,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.42/gen1recomp++-0.2.42-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1990 Fx Sound Speeds Up\n- #1991 Sound fx speed x2\n- #1997 Sound effects buggy after update when speed up\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.41",
           "date": "2026-08-30",
           "size": 21533788,
