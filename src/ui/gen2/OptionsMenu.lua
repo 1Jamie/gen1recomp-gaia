@@ -32,11 +32,40 @@ OptionsMenu.__index = OptionsMenu
 OptionsMenu.isOpaque = true
 
 -- Music.setFilterLevel's ladder.
-local FILTERS = { "OFF", "1X", "2X", "3X" }
+local FILTERS = {
+  Strings.source("OFF"), Strings.source("1X"), Strings.source("2X"),
+  Strings.source("3X"),
+}
+
+-- Values returned by shared helper modules are dynamic at this callsite, so
+-- declare their finite labels explicitly for tools/modkit.py's catalog
+-- harvester.  Player palette names and shader filenames are deliberately not
+-- in this list: those are user content and stay verbatim.
+local FINITE_VALUE_SOURCES = {
+  Strings.source("AUTO"), Strings.source("HIGH"),
+  Strings.source("BALANCED"), Strings.source("LOW"),
+  Strings.source("NORMAL"), Strings.source("FIT"),
+  Strings.source("OUT%d"), Strings.source("IN%d"),
+  Strings.source("WATER"), Strings.source("TREES"), Strings.source("FADE "),
+  Strings.source("GEN 2"), Strings.source("DMG"), Strings.source("CLASSIC"),
+  Strings.source("GREEN"), Strings.source("LIME"), Strings.source("OLIVE"),
+  Strings.source("AMBER"), Strings.source("ORANGE"), Strings.source("RED"),
+  Strings.source("ROSE"), Strings.source("MAGENTA"),
+  Strings.source("PURPLE"), Strings.source("INDIGO"), Strings.source("BLUE"),
+  Strings.source("CYAN"), Strings.source("TEAL"), Strings.source("MINT"),
+  Strings.source("SAND"), Strings.source("BROWN"), Strings.source("SILVER"),
+  Strings.source("MONO"),
+  Strings.source("PALETTE"), Strings.source("FULL"),
+  Strings.source("WINDOWED"), Strings.source("CENTER"),
+  Strings.source("UPPER"), Strings.source("TOP"), Strings.source("SKIN"),
+  Strings.source("LIGHT"), Strings.source("STRONG"),
+  Strings.source("ADAPTIVE"), Strings.source("UNAVAILABLE"),
+  Strings.source("DISPLAY"), Strings.source("DISPLAY (%dHZ)"),
+}
 
 local function volLabel(v)
   v = v or 7
-  return v == 0 and "OFF" or tostring(v)
+  return v == 0 and Strings("OFF") or tostring(v)
 end
 
 local function stepVolume(v, delta)
@@ -170,7 +199,7 @@ local ROWS = {
       require("src.core.Music").setFilterLevel(options.musicFilter)
     end,
     text = function(options)
-      return FILTERS[(options.musicFilter or 0) + 1]
+      return Strings(FILTERS[(options.musicFilter or 0) + 1])
     end },
   -- Heads the port's display group, same spot src/ui/OptionsMenu.lua's own
   -- PERFORMANCE row occupies relative to ZOOM/VOID FILL/TILT/SHADER FX below
@@ -180,7 +209,7 @@ local ROWS = {
   -- `row.value` -- both written for exactly this kind of shared mod row.
   { id = "performance", label = Strings.source("PERFORMANCE"), port = true,
     value = function(g)
-      return Performance.label(g.options and g.options.performance)
+      return Strings(Performance.label(g.options and g.options.performance))
     end,
     step = function(g, dir)
       local o = g.options
@@ -194,7 +223,9 @@ local ROWS = {
       options.speed = GameSpeed.cycle(options.speed, delta)
     end,
     text = function(options)
-      return require("src.core.GameSpeed").levelLabel(options.speed)
+      local speed = tonumber(options.speed) or 1
+      if speed == 1 then return Strings("NORMAL") end
+      return Strings("%dX", speed)
     end },
   { label = Strings.source("ZOOM"), key = "zoom", port = true,
     cycle = function(options, delta, game)
@@ -206,7 +237,10 @@ local ROWS = {
       Zoom.nudgeOptions(options, delta, scale)
     end,
     text = function(options)
-      return require("src.render.Zoom").offsetLabel(options.zoom or 0)
+      local offset = math.floor(tonumber(options.zoom) or 0)
+      if offset == 0 then return Strings("FIT") end
+      return offset < 0 and Strings("OUT%d", -offset)
+        or Strings("IN%d", offset)
     end },
   -- VOID FILL: FADE is each map's own border block with the dissolve across
   -- a boundary; WATER / TREES force one outdoor block; BLACK is a flat void.
@@ -219,7 +253,7 @@ local ROWS = {
       options.voidFill = BorderFill.cycle(delta)
     end,
     text = function(options)
-      return require("src.world.gen2.BorderFill").voidFillLabel(options.voidFill)
+      return Strings(require("src.world.gen2.BorderFill").voidFillLabel(options.voidFill))
     end },
   { label = Strings.source("TILT"), key = "tilt", port = true,
     cycle = function(options, delta)
@@ -230,13 +264,19 @@ local ROWS = {
       Tilt.setLevel(level)
     end,
     text = function(options)
-      return require("src.render.Tilt").levelLabel(options.tilt or 0)
+      return Strings(require("src.render.Tilt").levelLabel(options.tilt or 0))
     end },
   { label = Strings.source("COLOR"), key = "color", port = true,
     text = function(options)
-      local name = Palette.label(options.palette)
-      if name then return name end
-      return require("src.render.GbcPalette").modeLabel(options.color or "gbc")
+      local palette = options.palette
+      local name = Palette.label(palette)
+      if name then
+        -- m: is the engine's finite monochrome ladder; p: is a named user
+        -- palette pack and its filename is user content.
+        return type(palette) == "string" and palette:sub(1, 2) == "m:"
+          and Strings(name) or name
+      end
+      return Strings(require("src.render.GbcPalette").modeLabel(options.color or "gbc"))
     end,
     activate = function(game)
       require("src.ui.Screens").push(game, "PaletteScreen", colorPickerOpts(game))
@@ -260,7 +300,7 @@ local ROWS = {
     text = function(options)
       local ShaderFX = require("src.render.ShaderFX")
       local entry = ShaderFX.activeEntry("main")
-      if not entry then return "OFF" end
+      if not entry then return Strings("OFF") end
       return (entry.name:gsub("%.slangp$", "")):upper()
     end,
     activate = function(game)
@@ -273,7 +313,7 @@ local ROWS = {
     text = function(options)
       local ShaderFX = require("src.render.ShaderFX")
       local entry = ShaderFX.activeEntry("secondary")
-      if not entry then return "OFF" end
+      if not entry then return Strings("OFF") end
       return (entry.name:gsub("%.slangp$", "")):upper()
     end,
     activate = function(game)
@@ -288,7 +328,7 @@ local ROWS = {
     text = function(options)
       local VideoMode = require("src.core.VideoMode")
       return VideoMode.normalize(options.videoMode) == "borderless"
-        and "FULL" or "WINDOWED"
+        and Strings("FULL") or Strings("WINDOWED")
     end },
   { label = Strings.source("SCREEN POS"), key = "screenPos", port = true,
     cycle = function(options, delta)
@@ -343,7 +383,14 @@ local ROWS = {
       FrameCap.apply(options.fpsCap)
     end,
     text = function(options)
-      return require("src.core.FrameCap").label(options.fpsCap)
+      local FrameCap = require("src.core.FrameCap")
+      local value = FrameCap.normalize(options.fpsCap)
+      if value == FrameCap.DISPLAY then
+        local label = FrameCap.label(value)
+        local hz = tonumber(label:match("^DISPLAY %((%d+)HZ%)$"))
+        return hz and Strings("DISPLAY (%dHZ)", hz) or Strings("DISPLAY")
+      end
+      return FrameCap.label(value)
     end },
   { label = Strings.source("VSYNC"), key = "vsync", port = true,
     cycle = function(options, delta)
@@ -365,11 +412,16 @@ local ROWS = {
     end },
   { label = Strings.source("BATTLE SIZE"), key = "battleFit", port = true,
     values = { "fixed", "fill" },
-    display = { fixed = "FIXED", fill = "FILL " } },
+    display = {
+      fixed = Strings.source("FIXED"), fill = Strings.source("FILL "),
+    } },
   -- BATTLE BG (#1709): the void around the battle screen.
   { label = Strings.source("BATTLE BG"), key = "battleBg", port = true,
     values = { "white", "black", "world" },
-    display = { white = "WHITE", black = "BLACK", world = "WORLD" } },
+    display = {
+      white = Strings.source("WHITE"), black = Strings.source("BLACK"),
+      world = Strings.source("WORLD"),
+    } },
   { label = Strings.source("BACK"), cancel = true },
 }
 
