@@ -1972,4 +1972,31 @@ do
   ArenaData.speciesIds = savedSpecies
 end
 
+-- ------------------------------------------- lobby ticket request shape
+
+do
+  local SyncClient = require("src.sync.SyncClient")
+  local sent
+  local transport = {
+    begin = function(_, req) sent = req return { req = req } end,
+    poll = function() return { status = "pending" } end,
+    release = function() end,
+  }
+  local client = SyncClient.new({ baseUrl = "http://relay.test",
+    transport = transport })
+  client:setAuth("account", "token")
+
+  client:lobbyTicket("RED#417")
+  T.eq(sent.body, '{"displayName":"RED#417"}',
+    "the ticket request carries the name the relay needs to mint one")
+
+  client:lobbyTicket(nil)
+  T.eq(sent.body, "{}",
+    "a nameless ticket request is still a JSON object, not an empty array")
+
+  client:send("POST", "/sync/unlink", {})
+  T.eq(sent.body, "{}", "any empty body is sent as an object")
+end
+
+
 T.finish("online panel")
