@@ -239,7 +239,7 @@ local st = LPS.status()
 T.eq(st.gated, false, "uncapped ~1ms cadence stays ungated")
 T.eq(LPS.needsSoftwareCap(), true, "so FrameCap becomes the thermal net")
 
-for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios" }) do
+for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios", "kmsdrm" }) do
   LPS.reset()
   LPS._testSetState({
     osLinux = (nest == "wayland"),

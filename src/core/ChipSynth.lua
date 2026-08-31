@@ -14,7 +14,15 @@ local bit = require("bit")
 
 local ChipSynth = {}
 
-local SAMPLE_RATE = 44100
+-- Handheld tunable: the sbc/portmaster launcher exports POKEPORT_AUDIO_RATE
+-- (22050) because synthesis cost scales linearly with the rate and the GB's
+-- DAC content sits well below 11 kHz.  Module-level so ChipAudio and the
+-- chip worker thread pick it up on load; unset/invalid falls back to 44100.
+local SAMPLE_RATE = (function()
+  local rate = tonumber(os.getenv("POKEPORT_AUDIO_RATE"))
+  if rate and rate >= 8000 and rate <= 48000 then return math.floor(rate) end
+  return 44100
+end)()
 local TICKS_PER_SECOND = 15360
 local FRAME_TICKS = 256
 local GB_CLOCK = 4194304
@@ -138,7 +146,11 @@ local LPF_ALPHA = 0.8
 local MIX_SCALE = 0.5
 
 local function snapTicks(ticks)
-  return math.floor((ticks * 1470 + 256) / 512)
+  -- ticks -> samples at the configured rate.  The original baked 44100/15360
+  -- in as the integer rational 1470/512; this form is identical at 44100
+  -- ((ticks*44100 + 7680)/15360 == (ticks*1470 + 256)/512) but follows
+  -- POKEPORT_AUDIO_RATE when the handheld build lowers the synth rate.
+  return math.floor((ticks * SAMPLE_RATE + TICKS_PER_SECOND / 2) / TICKS_PER_SECOND)
 end
 
 local cachedProgramFile

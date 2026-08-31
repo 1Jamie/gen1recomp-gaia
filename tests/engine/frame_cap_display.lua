@@ -32,16 +32,43 @@ FrameCap.apply(FrameCap.DISPLAY)
 T.eq(FrameCap.current, 0, "apply stores the uncapped value as-is")
 FrameCap.apply(before)
 
+local function measure(hz)
+  RefreshRate.reset()
+  for _ = 1, 31 do RefreshRate.sample(1 / hz) end
+end
+
+-- Handheld: default 60 follows the panel through PresentSync, not the software pacer.
+local savedGetenv = os.getenv
+os.getenv = function(name)
+  if name == "POKEPORT_HANDHELD" then return "1" end
+  return savedGetenv(name)
+end
+FrameCap.current = FrameCap.DEFAULT
+FrameCap.applyOptions({ fpsCap = 60 })
+T.eq(FrameCap.current, FrameCap.DISPLAY, "handheld default 60 maps to DISPLAY")
+FrameCap.applyOptions({ fpsCap = 144 })
+T.eq(FrameCap.current, 144, "handheld explicit caps are kept")
+FrameCap.current = FrameCap.DEFAULT
+FrameCap.bootHandheld()
+T.eq(FrameCap.current, FrameCap.DISPLAY, "bootHandheld picks DISPLAY before a save loads")
+os.getenv = savedGetenv
+FrameCap.apply(before)
+
+-- Performance LOW must not force DISPLAY → 60 on a 60 Hz panel.
+measure(60)
+FrameCap.apply(FrameCap.DISPLAY)
+FrameCap.clampToPerformance(60)
+T.eq(FrameCap.current, FrameCap.DISPLAY, "LOW tier leaves DISPLAY on a 60 Hz panel")
+FrameCap.apply(144)
+FrameCap.clampToPerformance(60)
+T.eq(FrameCap.current, 60, "LOW tier clamps 144 down to 60")
+FrameCap.apply(before)
+
 
 local opts = { fpsCap = 60 }
 FrameCap.applyOptions(opts)
 T.eq(opts.fpsCap, 60, "an unknown refresh leaves the 60 default alone")
 T.eq(FrameCap.current, 60, "and paces to it")
-
-local function measure(hz)
-  RefreshRate.reset()
-  for _ = 1, 31 do RefreshRate.sample(1 / hz) end
-end
 
 measure(90)
 T.eq(RefreshRate.mismatch(), 90, "90Hz is not a multiple of 60")
