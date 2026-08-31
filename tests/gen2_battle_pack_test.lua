@@ -354,12 +354,40 @@ do
   local silver = battlePack("silver")
   eq(silver:submenuColumn(), 0, "Silver runs Gold's engine and its column")
 
-  local field = PackMenu.new({ data = DATA, input = Input, options = {},
-    save = { player = { name = "GOLD" }, version = "crystal",
-      inventory = { POTION = 1 } },
-    stack = { push = function() end, pop = function() end,
-      top = function() return nil end } }, { items = ITEMS })
-  eq(field:submenuColumn(), 0, "the field pack keeps the column it drew in")
+  -- ../pokecrystal/engine/items/pack.asm:313 is menu_coords 13, 1, ...,
+  -- TEXTBOX_Y - 1 and ../pokegold/engine/items/pack.asm:313 is
+  local function fieldPack(version)
+    local save = { player = { name = "GOLD" }, version = version,
+      inventory = { POTION = 1 } }
+    local game = { data = DATA, save = save, input = Input, options = {},
+      stack = { push = function() end, pop = function() end,
+        top = function() return nil end } }
+    return PackMenu.new(game, { save = save, items = ITEMS })
+  end
+
+  local function fiveRowBox(pack)
+    pack.submenu = { rows = { "use", "give", "toss", "sel", "quit" }, index = 1 }
+    boxes = {}
+    pack:drawSubmenu()
+    return boxes[1]
+  end
+
+  local crystalField = fieldPack("crystal")
+  eq(crystalField:submenuColumn(), 13, "Crystal's field submenu is menu_coords 13")
+  local crystalFieldBox = fiveRowBox(crystalField)
+  eq(crystalFieldBox and crystalFieldBox[1], 13, "off the pack picture, on the right")
+  eq(crystalFieldBox and crystalFieldBox[2], 1, "MenuHeader_UsableKeyItem's row 1")
+  eq(crystalFieldBox and crystalFieldBox[4], 11, "eleven rows to TEXTBOX_Y - 1")
+
+  local goldField = fieldPack("gold")
+  eq(goldField:submenuColumn(), 0, "Gold's field submenu stays at menu_coords 0")
+  local goldFieldBox = fiveRowBox(goldField)
+  eq(goldFieldBox and goldFieldBox[1], 0, "over the pack picture, on the left")
+  eq(goldFieldBox and goldFieldBox[2], 2, "one row lower: menu_coords 0, 2")
+  eq(goldFieldBox and goldFieldBox[4], 11, "the same eleven rows, to TEXTBOX_Y")
+
+  local silverField = fieldPack("silver")
+  eq(silverField:submenuColumn(), 0, "Silver runs Gold's engine in the field too")
 
   Chrome.box = realBox
   Chrome.cursorThrough = realCursor

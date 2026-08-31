@@ -362,6 +362,7 @@ function BattleCheckpoint.restore(game, checkpoint, copy)
   battle.current, battle.afterQueue, battle.nextInsert = nil, nil, nil
   battle.pendingHit, battle.waitingUI, battle.waitingSound = nil, nil, nil
   battle.waitFrames, battle.draining, battle.animPlaying = nil, nil, nil
+  battle.hitSfxWait = nil
   battle.introText, battle.introBalls, battle.introSlide = nil, nil, nil
   battle.showPlayerBack, battle.showEnemyTrainer, battle.showEnemyBalls = nil, nil, nil
   battle.player.shownHP, battle.player.shownStatus =

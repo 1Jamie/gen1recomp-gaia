@@ -45,22 +45,47 @@ eq(p.cellX, 5, "and the player never left the cell")
 p = newPlayer()
 p.animClock = 0
 local phases, flips = {}, {}
-for i = 0, 31 do
+for i = 0, 63 do
   p:tryMove("right", MAP, nil)
   phases[i] = p:walkPhase()
   flips[i] = p:drawFlip()
   p:update()
 end
+-- map_object_action.asm:98-119
 eq(phases[0], 0, "the first pose is the standing one")
 eq(phases[6], 0, "still standing seven frames in")
-eq(phases[8], 1, "the walking pose lands on the eighth frame")
-eq(phases[14], 1, "and holds for eight frames")
-eq(phases[16], 0, "back to standing")
-eq(phases[24], 1, "the second walking pose is the mirrored one")
-check(flips[24] ~= flips[8], "which draws with the other leg forward")
+eq(phases[14], 0, "and still standing at fifteen frames")
+eq(phases[16], 1, "the walking pose lands on the sixteenth frame")
+eq(phases[30], 1, "and holds for sixteen frames")
+eq(phases[32], 0, "back to standing")
+eq(phases[48], 1, "the second walking pose is the mirrored one")
+check(flips[48] ~= flips[16], "which draws with the other leg forward")
+
+local function firstRunOfWalk(seq)
+  local start
+  for i = 0, #seq do
+    if seq[i] == 1 then
+      if not start then start = i end
+    elseif start then
+      return i - start
+    end
+  end
+end
+
+local walkPhases = {}
+local w = newPlayer()
+for i = 0, 63 do
+  if not w.moving then w:tryMove("right", OPEN, nil) end
+  walkPhases[i] = w:walkPhase()
+  w:update()
+end
+local bumpRun = firstRunOfWalk(phases)
+local walkRun = firstRunOfWalk(walkPhases)
+eq(walkRun, 8, "a walked step holds each pose eight frames")
+eq(bumpRun, walkRun * 2, "a bump holds each pose twice as long as a step")
 
 p = newPlayer()
-p.animClock = 8
+p.animClock = 16
 p:tryMove("right", MAP, nil)
 -- engine/overworld/movement.asm:315
 eq(p.bumpFrames, 1, "the bump lasts one OBJECT_STEP_DURATION frame")

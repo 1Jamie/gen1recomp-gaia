@@ -423,6 +423,45 @@ do
   check("and the same gap", at("POTION(S)?"), "1,16")
 end
 
+-- engine/menus/scrolling_menu.asm:86, home/menu.asm:50
+do
+  local pack = openPack({ POTION = 3 }, { "POTION" }, "ITEM")
+
+  local function listCursor()
+    install()
+    pack:drawPanel()
+    restore()
+    return cursors[1]
+  end
+
+  pack.index = 1
+  check("an idle list keeps the solid arrow", listCursor().hollow, false)
+
+  pack.submenu = { rows = { "use", "give", "toss", "quit" }, index = 1 }
+  check("the submenu hollows the row A picked", listCursor().hollow, true)
+  check("without moving it", listCursor().x, 7)
+
+  pack.submenu = nil
+  pack.qtyState = { qty = 1, max = 3 }
+  check("so does the toss quantity prompt", listCursor().hollow, true)
+
+  pack.qtyState = nil
+  pack.confirm = { prompt = { "Throw away 1", "POTION(S)?" }, choice = 1 }
+  check("so does the yes/no over it", listCursor().hollow, true)
+
+  pack.confirm = nil
+  pack.message, pack.messagePage = { "Threw away", "POTION." }, 1
+  check("and so does the text box it ends on", listCursor().hollow, true)
+
+  pack.message, pack.messagePage = nil, nil
+  check("the arrow fills back in once the list has the joypad again",
+    listCursor().hollow, false)
+
+  pack.index = pack:total()
+  pack.submenu = { rows = { "quit" }, index = 1 }
+  check("CANCEL's arrow hollows too", listCursor().hollow, true)
+end
+
 print(("gen2 pack rows: %d checks, %d failures"):format(checks, failures))
 -- Raise rather than os.exit: tests/run_tests.lua dofiles this file, so an
 -- exit here takes the whole tier down with it and silently skips every

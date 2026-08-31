@@ -69,6 +69,27 @@ local function starterBall(askText, species, choseFlag, ownBall,
   }
 end
 
+-- engine/overworld/pathfinding.asm:36-70 (FindPathToPlayer): step whichever
+local function findPathRows(rows, objIndex, sx, sy, tx, ty)
+  local rx, ry = math.abs(tx - sx), math.abs(ty - sy)
+  local xdir = tx < sx and "left" or "right"
+  local ydir = ty < sy and "up" or "down"
+  local last, count = nil, 0
+  local function flush()
+    if count > 0 then
+      rows[#rows + 1] = { "move_npc", objIndex, last, count }
+    end
+    last, count = nil, 0
+  end
+  while rx > 0 or ry > 0 do
+    local dir
+    if rx >= ry then dir, rx = xdir, rx - 1 else dir, ry = ydir, ry - 1 end
+    if dir ~= last then flush() end
+    last, count = dir, count + 1
+  end
+  flush()
+end
+
 return {
   talk = {
     -- Oak: OaksLabOak1Text.  Parcel delivery kicks SCRIPT_OAKSLAB_RIVAL_
@@ -305,7 +326,11 @@ return {
         end
       end
       if target then
-        table.insert(rows, { "move_npc_to", 1, target[1], target[2] })
+        if type(rival.cellX) == "number" and type(rival.cellY) == "number" then
+          findPathRows(rows, 1, rival.cellX, rival.cellY, target[1], target[2])
+        else
+          table.insert(rows, { "move_npc_to", 1, target[1], target[2] })
+        end
       end
       table.insert(rows, { "face_object", 1,
                            target and target[2] < y and "down"
@@ -327,7 +352,13 @@ return {
       -- departure (lines 144-146), and this exit should match (#596).
       table.insert(rows, { "stop_music" })
       table.insert(rows, { "play_music", "Music_MeetRival", { start = "rival" } })
-      table.insert(rows, { "move_npc_to", 1, 4, 11 })
+      -- scripts/OaksLab.asm:448-472 sidestep out of the player's column then
+      local side = x == 4 and "right" or "left"
+      table.insert(rows, { "move_npc", 1, side, 1 })
+      table.insert(rows, { "face_player_dir", side })
+      table.insert(rows, { "move_npc", 1, "down", 1 })
+      table.insert(rows, { "face_player_dir", "down" })
+      table.insert(rows, { "move_npc", 1, "down", 4 })
       table.insert(rows, { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" })
       table.insert(rows, { "play_music", "Music_OaksLab" })
       ow.runner:run(rows, { npc = rival })

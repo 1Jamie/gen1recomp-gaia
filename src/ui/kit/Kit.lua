@@ -447,6 +447,10 @@ function Kit.setFocus(id)
   Kit._ringShown = id ~= nil
 end
 
+function Kit.pointerUsed()
+  Kit._ringShown = false
+end
+
 function Kit._resolveNav()
   local dir = Kit._navQueue
   Kit._navQueue = nil

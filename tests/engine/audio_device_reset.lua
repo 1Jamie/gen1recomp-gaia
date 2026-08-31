@@ -130,6 +130,12 @@ local function audioReset()
 end
 
 local ChipAudio = freshChipAudio(true)
+local PREROLL = ChipAudio.MUSIC_PREROLL
+
+local function deliverPreroll(epoch)
+  for _ = 1, PREROLL do deliverBuffer(epoch) end
+end
+
 local data = fixtureData()
 Sound.invalidate()
 Music.reload()
@@ -142,12 +148,12 @@ check(src and src.queueable, "the map theme streams through ChipAudio")
 src.playing = false
 
 audioSuspend()
-deliverBuffer()
+deliverPreroll()
 ChipAudio.update()
 eq(src.free, BUFFERS, "a suspended update queues nothing onto the dead source")
 check(not src.playing, "a suspended update does not start playback")
-eq(channel("chipaudio_out"):getCount(), 1,
-   "the worker buffer waits in the channel instead of being dropped")
+eq(channel("chipaudio_out"):getCount(), PREROLL,
+   "the worker buffers wait in the channel instead of being dropped")
 
 ChipAudio.setSuspended(true)
 ChipAudio.setSuspended(false)
@@ -155,7 +161,7 @@ ChipAudio.setSuspended(false)
 check(not ChipAudio.isSuspended(), "the suspend flag is idempotent both ways")
 
 ChipAudio.update()
-eq(src.free, BUFFERS - 1, "the resumed update queues the waiting buffer")
+eq(src.free, BUFFERS - PREROLL, "the resumed update queues the waiting buffers")
 check(src.playing, "the resumed update starts playback")
 
 src.playing = false
@@ -177,15 +183,15 @@ check(fresh ~= nil and fresh ~= src, "rebuildPlayback swapped in a fresh source"
 check(not src.playing, "the source from the dead device was stopped")
 eq(fresh.free, BUFFERS, "the replacement source starts empty")
 
-deliverBuffer()
+deliverPreroll()
 ChipAudio.update()
-eq(fresh.free, BUFFERS - 1,
+eq(fresh.free, BUFFERS - PREROLL,
    "worker PCM tagged with the pre-reset gen and stereo epoch still queues")
-check(fresh.playing, "playback resumes on the first requeued buffer")
+check(fresh.playing, "playback resumes once the rebuilt queue is pre-rolled")
 
 deliverBuffer(lastEpoch + 1)
 ChipAudio.update()
-eq(fresh.free, BUFFERS - 1,
+eq(fresh.free, BUFFERS - PREROLL,
    "a buffer from another stereo epoch is still dropped after the reset")
 
 check(fresh.volume ~= nil, "Music re-applied volume to the replacement source")

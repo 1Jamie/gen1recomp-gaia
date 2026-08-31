@@ -1244,6 +1244,12 @@ function Game2:inFillBoot()
   return self.phase == "boot" and self.stack:top() ~= nil
 end
 
+function Game2:logicSpeed()
+  return math.max(1,
+    tonumber(self.speedOverride) or tonumber(self.options and self.options.speed)
+    or 1)
+end
+
 function Game2:update(dt)
   -- _UpdateSound is a VBlank job, so it runs at 60Hz off real time whatever the
   -- logic multiplier is (audio/engine.asm:84, home/vblank.asm:141-143).
@@ -1266,9 +1272,7 @@ function Game2:update(dt)
   -- tempo at every multiplier (#1990/#1991/#1997).  speedOverride is the
   -- driver/CLI hook and wins over the saved option.
   -- pokegold engine/menus/intro_menu.asm:848 IntroSequence: boot cinema runs on the same clock as the overworld
-  local speed = math.max(1,
-    tonumber(self.speedOverride) or tonumber(self.options and self.options.speed)
-    or 1)
+  local speed = self:logicSpeed()
   if self.phase == "boot" then
     FixedStep.maxAccum = FixedStep.catchupLimit(speed)
     FixedStep:update(dt, speed)

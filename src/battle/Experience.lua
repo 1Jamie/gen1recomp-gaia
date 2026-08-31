@@ -48,9 +48,10 @@ end
 
 -- Applies exp/stat exp; returns the list of levels gained plus the raw
 -- exp delta (wExpAmountGained, printed by _ExpPointsText -- captured
--- before the max-level cap, experience.asm:92-100).
+-- before the max-level cap, experience.asm:92-100), and the per-level
+-- Experience.commit -- engine/battle/experience.asm:158-200
 function Experience.apply(data, mon, defeatedDef, level, isTrainer,
-                          numParticipants, traded)
+                          numParticipants, traded, opts)
   local speciesDef = data.pokemon[mon.species]
   -- stat exp is divided among participants too
   -- (DivideExpDataByNumMonsGainingExp divides wEnemyMonBaseStats)
@@ -74,23 +75,46 @@ function Experience.apply(data, mon, defeatedDef, level, isTrainer,
   mon.exp = mon.exp + gained
 
   local cap = consts and consts.levelCap or 100
-  local levels = {}
+  local levels, steps = {}, {}
+  local defer = opts and opts.defer
   local newLevel = Growth.levelForExp(speciesDef.growthRate, mon.exp, cap,
                                       data.growth_rates)
-  while mon.level < math.min(newLevel, cap) do
-    mon.level = mon.level + 1
-    local old = mon.stats
-    mon.stats = Stats.calc(speciesDef, mon.level, mon.dvs, mon.statExp)
-    mon.hp = math.min(mon.stats.hp, mon.hp + (mon.stats.hp - old.hp))
-    table.insert(levels, mon.level)
-    if Runtime.wants("pokemon.level_up") then
-      Runtime.emit("pokemon.level_up", {
-        mon = mon, level = mon.level, prevLevel = mon.level - 1,
-        learnable = Experience.movesLearnedAt(speciesDef, mon.level),
-      })
+  local from = opts and opts.from
+  local lv, stats, hp = mon.level, mon.stats, mon.hp
+  if from then
+    lv, stats, hp = from.level, from.stats, from.hp
+  end
+  while lv < math.min(newLevel, cap) do
+    lv = lv + 1
+    local old = stats
+    stats = Stats.calc(speciesDef, lv, mon.dvs, mon.statExp)
+    hp = math.min(stats.hp, hp + (stats.hp - old.hp))
+    table.insert(levels, lv)
+    table.insert(steps, { level = lv, stats = stats, hp = hp })
+    if not defer then
+      mon.level, mon.stats, mon.hp = lv, stats, hp
+      if Runtime.wants("pokemon.level_up") then
+        Runtime.emit("pokemon.level_up", {
+          mon = mon, level = lv, prevLevel = lv - 1,
+          learnable = Experience.movesLearnedAt(speciesDef, lv),
+        })
+      end
     end
   end
-  return levels, gained
+  return levels, gained, steps
+end
+
+-- engine/battle/experience.asm:168-200
+function Experience.commit(data, mon, step)
+  mon.level, mon.stats = step.level, step.stats
+  mon.hp = math.min(step.stats.hp, step.hp)
+  if Runtime.wants("pokemon.level_up") then
+    Runtime.emit("pokemon.level_up", {
+      mon = mon, level = step.level, prevLevel = step.level - 1,
+      learnable = Experience.movesLearnedAt(data.pokemon[mon.species],
+                                            step.level),
+    })
+  end
 end
 
 -- Moves learned when reaching exactly `level`.

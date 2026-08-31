@@ -38,6 +38,8 @@ local Prize = require("src.battle.gen2.Prize")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+-- Only for Sprites_Sine / Sprites_Cosine: ../pokecrystal/engine/math/sine.asm
+local SpriteAnims = require("src.ui.gen2.SpriteAnims")
 -- Only for playerPic: the player.sprite raiser both generations share.
 local Sprites = require("src.pokemon.Sprites")
 local Strings = require("src.core.Strings")
@@ -1085,6 +1087,19 @@ local SFX_EXP_BAR = "Sfx_ExpBar"
 local SFX_END_OF_EXP_BAR = "Sfx_HitEndOfExpBar"
 local EXP_SOUND_FRAMES = 10
 
+-- (../pokecrystal/engine/sprite_anims/core.asm:547-608).  The `call WaitSFX`
+-- behind it (../pokecrystal/engine/battle/core.asm:7538) is what holds the
+local EXP_BURST_FRAMES = 8
+local EXP_BURST_SPRITES = 8
+local EXP_BURST_X = 10 * 8 + 4 - 8
+local EXP_BURST_Y = 13 * 8 - 16
+
+-- ../pokecrystal/engine/sprite_anims/core.asm:543 leaves a as a signed byte.
+local function signedByte(value)
+  if value >= 128 then return value - 256 end
+  return value
+end
+
 -- One tick of the exp bar crawl.  AnimateExpBar walks the bar one PIXEL at a
 -- time out of 64 (.LoopBarAnimation, engine/battle/core.asm:7325-7362): the
 -- gap starts at three frames a pixel and drops by one after every SECOND
@@ -1097,7 +1112,11 @@ local EXP_SOUND_FRAMES = 10
 -- way the cart's loop holds the game.
 function BattleState:stepExpAnim()
   local anim = self.expAnim
-  if not anim then return false end
+  if not anim then
+    self.expBurst = nil
+    return false
+  end
+  if self:stepExpBurst(anim) then return true end
   local mon = anim.mon
   local toLevel = (mon and mon.level) or self.shownLevel or 1
   local target = BattleHud.EXP_LENGTH_PX
@@ -1131,13 +1150,45 @@ function BattleState:stepExpAnim()
   Sound.stop(SFX_EXP_BAR)
   if (self.shownLevel or 1) < toLevel then
     self.shownLevel = (self.shownLevel or 1) + 1
-    self.shownExp = 0
     self:playSfx(SFX_END_OF_EXP_BAR)
-    anim.started = false
+    self.expBurst = { frame = 1 }
     return true
   end
   self.expAnim = nil
   return true
+end
+
+-- (../pokecrystal/engine/battle/core.asm:7536-7538).  The bar stays at $40
+function BattleState:stepExpBurst(anim)
+  local burst = self.expBurst
+  if not burst then return false end
+  burst.frame = burst.frame + 1
+  if burst.frame <= EXP_BURST_FRAMES then return true end
+  if not burst.left then
+    burst.left = (Sound.waitFramesFor and Sound.waitFramesFor(SFX_END_OF_EXP_BAR))
+      or 0
+  end
+  burst.left = burst.left - 1
+  if burst.left > 0 and Sound.isPlaying(SFX_END_OF_EXP_BAR) then return true end
+  self.expBurst = nil
+  self.shownExp = 0
+  anim.started = false
+  return true
+end
+
+-- (../pokecrystal/engine/sprite_anims/core.asm:558-608).
+function BattleState:drawExpBurst()
+  local burst = self.expBurst
+  if not burst or burst.frame > EXP_BURST_FRAMES then return end
+  local radius = (burst.frame - 1) * 2
+  local set = self.palettes and self.palettes.battleObjects
+  local colors = set and set.PAL_BATTLE_OB_BLUE or nil
+  for c = EXP_BURST_SPRITES - 1, 0, -1 do
+    local angle = c * 8
+    local y = EXP_BURST_Y + signedByte(SpriteAnims.sine(angle, radius))
+    local x = EXP_BURST_X + signedByte(SpriteAnims.cosine(angle, radius))
+    self.hud:drawExpBarEnd(x, y, colors)
+  end
 end
 
 -- The HP a side's HUD prints and fills its bar from: the chased value, not
@@ -1635,6 +1686,7 @@ function BattleState:advanceQueue()
       self.shownExp = self:expPixels(event.mon, level,
         event.experience or event.mon.experience)
       self.expAnim = nil
+      self.expBurst = nil
     end
   end
   -- ResetEnemyBattleVars' SlideBattlePicOut (engine/battle/core.asm:3027):
@@ -3809,6 +3861,8 @@ function BattleState:drawHud()
     self:drawFrame(9, 11, 10, true)
     HpBar.drawExp(self.palettes, expFraction, 10 * 8, 11 * 8 + 4)
   end
+  -- The OBJ layer over the bar (../pokecrystal/engine/battle/core.asm:7537).
+  if self.expBurst then self:drawExpBurst() end
   Font.useBattleExtra(wasBattle)
 end
 

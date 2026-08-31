@@ -7,11 +7,22 @@ local check, eq = T.check, T.eq
 local ModUpdate = require("src.mods.ModUpdate")
 local LauncherMods = require("src.mods.LauncherMods")
 local Platform = require("src.core.Platform")
+local CartStore = require("src.carts.CartStore")
 local RomImporter = require("src.import.RomImporter")
 
 local RELEASES = {
   { version = "2.0.0", zip = { url = "https://example.invalid/a.zip" } },
   { version = "1.0.0", zip = { url = "https://example.invalid/b.zip" } },
+}
+
+local FEED_CART = {
+  kind = "cart", id = "wild_green", title = "Wild Green", author = "Ren",
+  version = "0.29.1", base = "red", seal = "sealed",
+  repo = "https://github.com/ren/wild-green", github = "ren/wild-green",
+  update_check = "ok",
+  latest = { version = "0.29.1", tag = "v0.29.1",
+             zip = { name = "wild_green-0.29.1.g1rcart",
+                     url = "https://example.invalid/wild_green.g1rcart" } },
 }
 
 local oldBeginFetch = ModUpdate.beginFetchReleases
@@ -20,13 +31,23 @@ local oldPumpZip = ModUpdate.pumpDownloadZip
 local oldInstall = LauncherMods.installDownloadedZip
 local oldDeps = LauncherMods.checkDependencies
 local oldRemote = Platform.canFetchRemote
+local oldCartList = CartStore.list
+local oldCartIndex = CartStore.index
+local oldCartListFor = CartStore.listFor
+local oldCartInstall = CartStore.install
 
 local failId = nil
 local installs = {}
+local cartRows = {}
+local cartInstalls = {}
+local cartInstallErr = nil
 
 ModUpdate.beginFetchReleases = function() return {} end
 ModUpdate.beginDownloadZip = function() return {} end
-ModUpdate.pumpDownloadZip = function() return true, "install.zip" end
+ModUpdate.pumpDownloadZip = function()
+  love.filesystem.write("install.zip", "CART BYTES")
+  return true, "install.zip"
+end
 LauncherMods.installDownloadedZip = function(id, _, version)
   installs[#installs + 1] = id
   if id == failId then return nil, "the archive had no manifest" end
@@ -34,13 +55,32 @@ LauncherMods.installDownloadedZip = function(id, _, version)
 end
 LauncherMods.checkDependencies = function() return { hasIssues = false } end
 Platform.canFetchRemote = function() return true end
+CartStore.list = function() return cartRows end
+CartStore.listFor = function() return {} end
+CartStore.index = function()
+  local out = {}
+  for _, row in ipairs(cartRows) do
+    out[#out + 1] = { id = row.id, title = row.title, version = row.version }
+  end
+  return out
+end
+CartStore.install = function(bytes)
+  cartInstalls[#cartInstalls + 1] = tostring(bytes)
+  if cartInstallErr then return nil, cartInstallErr end
+  return { id = "wild_green", title = "Wild Green", version = "0.29.1",
+           base = "red" }
+end
+local function installedCart(version, repo)
+  return { { id = "wild_green", title = "Wild Green", version = version,
+             cart = { id = "wild_green", version = version, repo = repo } } }
+end
 
 local function info(status, best)
   return { status = status, latest = best and best.version or nil,
            best = best, releases = RELEASES }
 end
 
-local function launcher(secondStatus)
+local function launcher(secondStatus, feedCarts)
   local ri = setmetatable({
     mods = {
       { id = "one", name = "One", version = "1.0.0", github = "a/one" },
@@ -53,6 +93,9 @@ local function launcher(secondStatus)
         secondStatus == "available" and RELEASES[1] or nil),
     },
     activeCart = {},
+    carts = {},
+    findLoaded = true,
+    findIndex = { mods = {}, carts = feedCarts or {} },
   }, RomImporter)
   ri._refreshMods = function() end
   return ri
@@ -63,6 +106,7 @@ local function run(ri, frames)
     if not ri._updateAll then break end
     ri:_pumpUpdateAll()
     ri:_pumpModInstall()
+    ri:_pumpCartInstall()
   end
 end
 
@@ -75,6 +119,98 @@ do
 
   ri.modCartPlan = function() return "cart1", { pins = {} }, "gold" end
   eq(#ri:_updateAllRows(), 0, "a cart owns its mod set, so it offers no rows")
+end
+
+
+do
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  local ri = launcher(nil, { FEED_CART })
+  local rows = ri:_updateAllRows()
+  eq(#rows, 2, "an installed cart the index lists ahead of it is swept too")
+  eq(rows[1].kind, "mod", "mods keep their place at the front of the queue")
+  eq(rows[2].kind, "cart", "and the cart rows follow")
+  eq(rows[2].id, "wild_green", "named by the installed cart")
+  eq(rows[2].from, "0.2.0", "from what is on disk")
+  eq(rows[2].to, "0.29.1", "to what the feed lists")
+
+  cartRows = installedCart("0.2.0", "someoneelse/wild-green")
+  eq(#launcher(nil, { FEED_CART }):_updateAllCartRows(), 0,
+    "a cart of the same id from another repo is never overwritten")
+
+  cartRows = { { id = "wild_green", title = "Wild Green", version = "0.2.0" } }
+  eq(#launcher(nil, { FEED_CART }):_updateAllCartRows(), 0,
+    "nor one whose manifest names no repo at all")
+
+  cartRows = installedCart("0.29.1", "ren/wild-green")
+  eq(#launcher(nil, { FEED_CART }):_updateAllCartRows(), 0,
+    "a cart already at the listed version is not queued")
+
+  cartRows = installedCart("1.0.0", "ren/wild-green")
+  eq(#launcher(nil, { FEED_CART }):_updateAllCartRows(), 0,
+    "and one ahead of it is never downgraded")
+  cartRows = {}
+end
+
+
+do
+  installs, cartInstalls = {}, {}
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  local ri = launcher(nil, { FEED_CART })
+  check(ri:pressUpdateAllMods(), "the press starts the queue")
+
+  ri._modInfoFetch = nil
+  ri._findFetch = {}
+  ri:_pumpUpdateAll()
+  eq(ri._updateAll.stage, "check", "the queue waits for the index feed too")
+  eq(#cartInstalls, 0, "and installs nothing meanwhile")
+
+  ri._findFetch = nil
+  run(ri)
+  eq(ri._updateAll, nil, "the queue finishes")
+  eq(#installs, 1, "the mod went through the mod installer")
+  eq(installs[1], "one", "by id")
+  eq(#cartInstalls, 1, "and the cart through CartStore.install, not that one")
+  eq(ri.findNotice, nil, "with no FIND notice raised mid-sweep")
+  eq(ri._modConfirm, nil, "and no pin modal to click through")
+  check(ri.modNotice and ri.modNotice.ok, "the run is reported")
+  eq(ri.modNotice.text, "Updated 2 items.", "counting both kinds")
+end
+
+
+do
+  installs, cartInstalls = {}, {}
+  cartInstallErr = "the cart file was truncated"
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  local ri = launcher(nil, { FEED_CART })
+  ri:pressUpdateAllMods()
+  ri._modInfoFetch = nil
+  run(ri)
+  cartInstallErr = nil
+  eq(#installs, 1, "a failed cart does not stop the mod half")
+  eq(ri.modNotice.text, "Updated 1 of 2. 1 failed:", "and is counted")
+  eq(#ri.modNotice.failures, 1, "with one line")
+  check(ri.modNotice.failures[1]:find("Wild Green", 1, true) ~= nil,
+    "naming the cart")
+  cartRows = {}
+end
+
+
+do
+  cartInstalls = {}
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  local ri = launcher(nil, { FEED_CART })
+  local seen = {}
+  ri._updateAll = { stage = "installing" }
+  ri:_beginCartInstall(FEED_CART, { quiet = true, fromUpdateAll = true,
+    done = function(ok) seen[#seen + 1] = ok end })
+  check(ri._cartInstall ~= nil, "the queue's own cart install is let through")
+  ri:_pumpCartInstall()
+  eq(#cartInstalls, 1, "the bytes reach CartStore.install")
+  eq(ri.findNotice, nil, "a quiet cart install writes no FIND notice")
+  eq(ri._modConfirm, nil, "and raises no pin modal mid-queue")
+  eq(#seen, 1, "the queue is told the row is done")
+  eq(seen[1], true, "and that it worked")
+  cartRows = {}
 end
 
 
@@ -106,7 +242,7 @@ do
   eq(installs[1], "one", "in feed order")
   eq(installs[2], "two", "one after the other")
   check(ri.modNotice and ri.modNotice.ok, "and reports the run")
-  eq(ri.modNotice.text, "Updated 2 mods.", "as one summary")
+  eq(ri.modNotice.text, "Updated 2 items.", "as one summary")
   eq(ri._busy, nil, "with the overlay down")
 end
 
@@ -134,8 +270,8 @@ do
   ri:pressUpdateAllMods()
   ri._modInfoFetch = nil
   run(ri)
-  eq(ri.modNotice.text, "All mods are up to date.",
-    "a run with no outdated mod says so rather than going quiet")
+  eq(ri.modNotice.text, "Everything is up to date.",
+    "a run with no outdated mod or cart says so rather than going quiet")
 end
 
 do
@@ -268,8 +404,20 @@ do
   imp._modHeaderActionsPopup = true
   local popup = draw(imp)
   imp._modHeaderActionsPopup = nil
-  check(popup:find("Update all mods", 1, true) ~= nil,
+  check(popup:find("Update all", 1, true) ~= nil,
     "and More... is where a phone reaches Update all")
+
+  window(1400, 900)
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  imp.mods = {}
+  imp._modUpdateCountCache = nil
+  imp._cartUpdateCache = nil
+  imp._findCartMap = nil
+  imp.findIndex = { mods = {}, carts = { FEED_CART } }
+  local cartsOnly = draw(imp)
+  check(cartsOnly:find("Update all", 1, true) ~= nil,
+    "a launcher with carts but no mods still reaches the sweep")
+  cartRows = {}
 end
 
 ModUpdate.beginFetchReleases = oldBeginFetch
@@ -278,5 +426,9 @@ ModUpdate.pumpDownloadZip = oldPumpZip
 LauncherMods.installDownloadedZip = oldInstall
 LauncherMods.checkDependencies = oldDeps
 Platform.canFetchRemote = oldRemote
+CartStore.list = oldCartList
+CartStore.index = oldCartIndex
+CartStore.listFor = oldCartListFor
+CartStore.install = oldCartInstall
 
 T.finish("launcher update all")

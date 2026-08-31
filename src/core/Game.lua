@@ -1285,14 +1285,25 @@ function Game:updateSync(dt)
   local eng = self:syncEngine()
   if not eng then return end
   if not (eng.state.enabled and eng:linked()) and not eng:busy() then return end
+  local wasBusy = eng:busy()
   pcall(eng.update, eng, dt)
+  if wasBusy and not eng:busy() then self:adoptPlaythroughId() end
+end
+
+function Game:adoptPlaythroughId()
+  local save = self.save
+  local meta = type(save) == "table" and save.meta
+  if type(meta) ~= "table" or meta.savedAt == nil then return end
+  if type(meta.playthroughId) == "string" and meta.playthroughId ~= "" then return end
+  local id = SaveData.selectedPlaythroughId(save)
+  if type(id) == "string" and id ~= "" then meta.playthroughId = id end
 end
 
 -- Persist options.lua only (Options menu / hotkeys 2-5).  Keeps settings
 -- across New Game without touching the progress save.
 function Game:writeOptions()
   if not (self.save and self.save.options) then return end
-  SaveData.saveOptions(self.save.options)
+  SaveData.saveLiveOptions(self.save)
 end
 
 -- Push the live options table into audio + display subsystems.

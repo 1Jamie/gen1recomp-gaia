@@ -43,7 +43,10 @@ local GEN2 = {
   -- ../pokecrystal/engine/events/battle_tower/battle_tower.asm:1 the CHALLENGE
   -- / EXPLANATION / CANCEL desk menu, Crystal only.
   "BattleTowerMenu",
-  "BattleTransition", "BoxMenu",
+  "BattleTransition",
+  -- home/tilemap.asm:1 ClearBGPalettes, the white a page is built behind.
+  "BlankScreen",
+  "BoxMenu",
   -- ../pokecrystal/engine/events/buena.asm:1 the radio-password prompt behind
   -- `special BuenasPassword`, Crystal only.
   "BuenaPassword",

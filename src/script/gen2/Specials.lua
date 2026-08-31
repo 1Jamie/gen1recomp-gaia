@@ -1951,10 +1951,11 @@ H.DaisysGrooming = function(vm) haircut(vm, "daisy") end
 -- the cart puts them in two DIFFERENT buffers (wStringBuffer3,
 -- wStringBuffer4) in the one textbox, and the VM's {STRBUF} substitution
 -- only ever carries one value.
+-- `para` is `\f` (home/text.asm:403), `cont` is `\v` (home/text.asm:442), the
 local OAK_PC_TEXT = {
   completion = Strings.source("Current #DEX\ncompletion level:"),
   counts = Strings.source(
-    "%d #MON seen\n%d #MON owned\n\nPROF.OAK's\nRating:"),
+    "%d #MON seen\n%d #MON owned\fPROF.OAK's\nRating:"),
 }
 
 -- OakRatings (data/events/pokedex_ratings.asm).  Each row is (cap, sfx,
@@ -1967,39 +1968,39 @@ local OAK_RATINGS = {
   { max = 9, sfx = "Sfx_DexFanfareLessThan20", text = Strings.source(
     "Look for #MON\nin grassy areas!") },
   { max = 19, sfx = "Sfx_DexFanfareLessThan20", text = Strings.source(
-    "Good. I see you\nunderstand how to\nuse # BALLS.") },
+    "Good. I see you\nunderstand how to\vuse # BALLS.") },
   { max = 34, sfx = "Sfx_DexFanfare2049", text = Strings.source(
-    "You're getting\ngood at this.\n\nBut you have a\nlong way to go.") },
+    "You're getting\ngood at this.\fBut you have a\nlong way to go.") },
   { max = 49, sfx = "Sfx_DexFanfare2049", text = Strings.source(
-    "You need to fill\nup the #DEX.\n\nCatch different\nkinds of #MON!") },
+    "You need to fill\nup the #DEX.\fCatch different\nkinds of #MON!") },
   { max = 64, sfx = "Sfx_DexFanfare5079", text = Strings.source(
-    "You're trying--I\ncan see that.\n\nYour #DEX is\ncoming together.") },
+    "You're trying--I\ncan see that.\fYour #DEX is\ncoming together.") },
   { max = 79, sfx = "Sfx_DexFanfare5079", text = Strings.source(
-    "To evolve, some\n#MON grow,\n\nothers use the\neffects of STONES.") },
+    "To evolve, some\n#MON grow,\fothers use the\neffects of STONES.") },
   { max = 94, sfx = "Sfx_DexFanfare80109", text = Strings.source(
-    "Have you gotten a\nfishing ROD? You\n\ncan catch #MON\nby fishing.") },
+    "Have you gotten a\nfishing ROD? You\fcan catch #MON\nby fishing.") },
   { max = 109, sfx = "Sfx_DexFanfare80109", text = Strings.source(
-    "Excellent! You\nseem to like col-\nlecting things!") },
+    "Excellent! You\nseem to like col-\vlecting things!") },
   { max = 124, sfx = "Sfx_CaughtMon", text = Strings.source(
-    "Some #MON only\nappear during\n\ncertain times of\nthe day.") },
+    "Some #MON only\nappear during\fcertain times of\nthe day.") },
   { max = 139, sfx = "Sfx_CaughtMon", text = Strings.source(
-    "Your #DEX is\nfilling up. Keep\nup the good work!") },
+    "Your #DEX is\nfilling up. Keep\vup the good work!") },
   { max = 154, sfx = "Sfx_DexFanfare140169", text = Strings.source(
-    "I'm impressed.\nYou're evolving\n\n#MON, not just\ncatching them.") },
+    "I'm impressed.\nYou're evolving\f#MON, not just\ncatching them.") },
   { max = 169, sfx = "Sfx_DexFanfare140169", text = Strings.source(
-    "Have you met KURT?\nHis custom #\nBALLS should help.") },
+    "Have you met KURT?\nHis custom #\vBALLS should help.") },
   { max = 184, sfx = "Sfx_DexFanfare170199", text = Strings.source(
-    "Wow. You've found\nmore #MON than\n\nthe last #DEX\nresearch project.") },
+    "Wow. You've found\nmore #MON than\fthe last #DEX\nresearch project.") },
   { max = 199, sfx = "Sfx_DexFanfare170199", text = Strings.source(
-    "Are you trading\nyour #MON?\n\nIt's tough to do\nthis alone!") },
+    "Are you trading\nyour #MON?\fIt's tough to do\nthis alone!") },
   { max = 214, sfx = "Sfx_DexFanfare200229", text = Strings.source(
-    "Wow! You've hit\n200! Your #DEX\nis looking great!") },
+    "Wow! You've hit\n200! Your #DEX\vis looking great!") },
   { max = 229, sfx = "Sfx_DexFanfare200229", text = Strings.source(
-    "You've found so\nmany #MON!\n\nYou've really\nhelped my studies!") },
+    "You've found so\nmany #MON!\fYou've really\nhelped my studies!") },
   { max = 239, sfx = "Sfx_DexFanfare230Plus", text = Strings.source(
-    "Magnificent! You\ncould become a\n\n#MON professor\nright now!") },
+    "Magnificent! You\ncould become a\f#MON professor\nright now!") },
   { max = 248, sfx = "Sfx_DexFanfare230Plus", text = Strings.source(
-    "Your #DEX is\namazing! You're\n\nready to turn\nprofessional!") },
+    "Your #DEX is\namazing! You're\fready to turn\nprofessional!") },
   -- The top band (251 real species, the table's cap of 255 covers it): this
   -- is the ONLY place the ROM checks "has the player finished the #DEX", and
   -- it does it here rather than handing off to anything.  The actual diploma
@@ -2011,7 +2012,7 @@ local OAK_RATINGS = {
   -- A finished #DEX here just means every rating after this one is this
   -- same line.
   { max = 255, sfx = "Sfx_DexFanfare230Plus", text = Strings.source(
-    "Whoa! A perfect\n#DEX! I've\n\ndreamt about this!\nCongratulations!") },
+    "Whoa! A perfect\n#DEX! I've\fdreamt about this!\nCongratulations!") },
 }
 
 -- CountSetBits over wPokedexSeen/wPokedexCaught.  The port's dex is a

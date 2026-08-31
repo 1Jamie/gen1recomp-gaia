@@ -159,6 +159,11 @@ function BattleTransition.pokeballCells()
   return cells
 end
 
+-- ../pokecrystal/engine/battle/battle_transition.asm:266-290
+function BattleTransition.ballShade(byte)
+  return GbcPalette.bgpShades(byte)[4] + 1
+end
+
 --------------------------------------------------------------------------
 -- SpinToBlack
 --------------------------------------------------------------------------
@@ -682,8 +687,10 @@ function BattleTransition:drawWidescreen(w, h)
     G.rectangle("fill", 0, 0, w, h)
   end
 
-  if self.phase == "pokeball" then
-    self:drawCells(w, h, BattleTransition.pokeballCells())
+  -- ../pokecrystal/engine/battle/battle_transition.asm:584
+  if self.trainer then
+    self:drawCells(w, h, BattleTransition.pokeballCells(),
+      (not pal) and byte or nil, ly)
   end
 
   if pal then
@@ -735,20 +742,38 @@ end
 -- BATTLETRANSITION_SQUARE, the Poke Ball's own tile: a filled block in the
 -- text palette rather than the black the wipe uses, so the ball reads against
 -- the map behind it.
-function BattleTransition:drawCells(w, h, cells)
+function BattleTransition:drawCells(w, h, cells, byte, ly)
   local G = love.graphics
   local size, ox, oy = self:grid(w, h)
   -- Shade 3 of the text palette, through the COLOR mode like every other
   -- direct colour read.
   local ramp = self:trainerRamp()
-  local color = ramp and GbcPalette.color(ramp, 4) or GbcPalette.color(nil, 4)
+  local shade = BattleTransition.ballShade(byte)
+  local color = GbcPalette.color(ramp, shade)
   if color then
     G.setColor(color[1] / 255, color[2] / 255, color[3] / 255, 1)
   else
     G.setColor(0, 0, 0, 1)
   end
+  local scale = math.max(1, size / 8)
   for _, cell in ipairs(cells) do
-    G.rectangle("fill", ox + cell[1] * size, oy + cell[2] * size, size, size)
+    local x, y = ox + cell[1] * size, oy + cell[2] * size
+    if not ly then
+      G.rectangle("fill", x, y, size, size)
+    else
+      local base = math.floor(y / scale)
+      for line = 0, 7 do
+        local row = math.max(0, math.min(143, base + line))
+        local shift = (ly[row] or 0) * scale
+        local top = y + line * scale
+        G.rectangle("fill", x - shift, top, size, scale)
+        if shift > 0 then
+          G.rectangle("fill", x - shift + w, top, size, scale)
+        elseif shift < 0 then
+          G.rectangle("fill", x - shift - w, top, size, scale)
+        end
+      end
+    end
   end
 end
 

@@ -778,6 +778,9 @@ REQUIRED_SYMBOLS = {
     # nine fill cells.  "HP:" and the ten HP-bar cells come from
     # FontBattleExtra, which is already extracted.
     "EnemyHPBarBorderGFX", "HPExpBarBorderGFX", "ExpBarGFX",
+    # gfx/battle/expbarend.2bpp, the single OBJ tile AnimateEndOfExpBar bursts
+    # out of the bar (engine/sprite_anims/core.asm:547-608).
+    "EndOfExpBarGFX",
     # gfx/battle/balls.2bpp, the four party-ball OAM tiles
     # (engine/battle/trainer_huds.asm LoadBallIconGFX).
     "LoadBallIconGFX.gfx",

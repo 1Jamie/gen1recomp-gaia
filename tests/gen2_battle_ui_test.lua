@@ -418,6 +418,76 @@ do
     "and the bar landed on the mon's real place in level 6")
 end
 
+do
+  -- sparks have gone (../pokecrystal/engine/battle/core.asm:7529-7541).
+  local EXP_FULL = require("src.ui.gen2.BattleHud").EXP_LENGTH_PX
+  local player = Mon.new(DATA, "CYNDAQUIL", 5, { dvs = perfect })
+  player.moves = { { id = "TACKLE", pp = 35, maxPp = 35 } }
+  local growth = DATA.pokemon.growthRates.GROWTH_MEDIUM_SLOW
+  player.experience = Mon.experienceForLevel(growth, 6) - 1
+  local wild = Mon.new(DATA, "PIDGEY", 5, { dvs = perfect })
+  wild.moves = { { id = "TACKLE", pp = 35, maxPp = 35 } }
+  wild.hp = 1
+  local screen = newScreen({ player = player, wild = wild })
+  check(runToMenu(screen), "reached the menu")
+  screen:submit({ kind = "move", move = "TACKLE" })
+
+  local frames, full, quiet, level = {}, true, true, nil
+  for _ = 1, 3000 do
+    drainStep(screen)
+    local burst = screen.expBurst
+    if burst then
+      frames[#frames + 1] = burst.frame
+      level = level or screen.shownLevel
+      if screen.shownExp ~= EXP_FULL then full = false end
+      if tostring(screen.message or ""):find("grew to level") then
+        quiet = false
+      end
+    end
+    if screen.phase == "done" then break end
+  end
+  eq(#frames, 8, "the burst holds the queue for the eight frames of .loop")
+  eq(frames[1], 1, "opening on the frame the bar tops out")
+  eq(frames[#frames], 8, "and ending on the eighth")
+  check(full, "with the bar left full under it, PlaceExpBar not called again")
+  eq(level, 6, "the level number has already ticked over")
+  check(quiet, "and the grew-to-level line held off until the sparks clear")
+end
+
+do
+  -- OAM bias (../pokecrystal/engine/sprite_anims/core.asm:558-608).
+  local screen = newScreen()
+  local drawn = {}
+  screen.hud = { drawExpBarEnd = function(_, x, y)
+    drawn[#drawn + 1] = ("%d,%d"):format(x, y)
+  end }
+
+  screen.expBurst = { frame = 1 }
+  screen:drawExpBurst()
+  eq(#drawn, 8, "eight objects a frame")
+  local collapsed = true
+  for _, at in ipairs(drawn) do
+    if at ~= "76,88" then collapsed = false end
+  end
+  check(collapsed, "all on the bar's left end while the radius is still 0")
+
+  drawn = {}
+  screen.expBurst = { frame = 8 }
+  screen:drawExpBurst()
+  local seen = {}
+  for _, at in ipairs(drawn) do seen[at] = (seen[at] or 0) + 1 end
+  local ring = { "90,88", "85,97", "76,102", "67,97",
+    "62,88", "67,79", "76,74", "85,79" }
+  for _, at in ipairs(ring) do
+    eq(seen[at], 1, "a spark at " .. at .. " on the last frame")
+  end
+
+  drawn = {}
+  screen.expBurst = { frame = 9 }
+  screen:drawExpBurst()
+  eq(#drawn, 0, "and ClearSprites past the loop leaves nothing behind")
+end
+
 -- ---- a level-up REDRAWS the HP bar, it does not animate it ----------------
 do
   -- GiveExperiencePoints' `.skip_active_mon_update` guard
@@ -1511,6 +1581,43 @@ do
   check(text:find("30/35@5,11", 1, true) ~= nil,
     "and only the highlighted move's PP, at (5,11)")
   check(text:match("R:%d+/%d+@19,1%d") == nil, "no PP is printed per row")
+end
+
+-- data/text/battle.asm:484 InLoveWithText, :490 InfatuationText: three rows
+do
+  local Chrome = require("src.ui.gen2.Chrome")
+  local screen, battle = newScreen()
+  check(runToMenu(screen), "reached the menu")
+  battle:volatile(battle.player).attract = true
+  battle.random = function(n) return (n or 1) - 1 end
+  screen:submit({ kind = "move", move = "TACKLE" })
+  local seen, printed, widest, tallest = {}, {}, 0, 0
+  for _ = 1, 3000 do
+    local msg = screen.message
+    if msg and not seen[msg] then
+      seen[msg] = true
+      local rows = Chrome.wrap(msg, 18)
+      tallest = math.max(tallest, #rows)
+      for i = 1, math.min(#rows, 2) do
+        widest = math.max(widest, #rows[i])
+        printed[#printed + 1] = rows[i]
+      end
+      printed[#printed + 1] = "|"
+    end
+    drainStep(screen)
+    if screen.phase == "menu" then break end
+  end
+  local shown = table.concat(printed, "\n")
+  check(shown:find(battle:monName(battle.player) .. "\nis in love with",
+    1, true) ~= nil, "the in-love line opens on the user")
+  check(shown:find("is in love with\n" .. battle:monName(battle.enemy) .. "!",
+    1, true) ~= nil, "and scrolls onto the target it never used to reach")
+  check(shown:find("infatuation kept", 1, true) ~= nil,
+    "InfatuationText prints")
+  check(shown:find("it from attacking!", 1, true) ~= nil,
+    "and so does the row the two-row box used to cut")
+  eq(tallest, 2, "no drawn message runs past the box's two rows")
+  check(widest <= 18, "and no row past its 18 tiles")
 end
 
 S.finish()

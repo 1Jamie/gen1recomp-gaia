@@ -237,6 +237,23 @@ function BattleHud:drawExpBar(fraction, tx, ty, zero)
   return true
 end
 
+-- than on the tile grid (../pokecrystal/engine/sprite_anims/core.asm:547-608).
+function BattleHud:drawExpBarEnd(x, y, colors)
+  local image = self:image("expBarEnd")
+  if not image then return false end
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  local function body() G.draw(image, x, y) end
+  if colors and GbcPalette.available() then
+    GbcPalette.with(colors, body)
+  else
+    G.setColor(0, 0, 0, 1)
+    body()
+    G.setColor(1, 1, 1, 1)
+  end
+  return true
+end
+
 -- The mark sits inside the enemy HP block, which the battle attrmap fills with
 -- PAL_BATTLE_BG_ENEMY_HP (engine/gfx/cgb_layouts.asm:123-128).
 function BattleHud:drawCaughtIcon(tx, ty, hp, maxHp)

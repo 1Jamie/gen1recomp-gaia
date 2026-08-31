@@ -234,6 +234,12 @@ local function metadata(options, context)
   add("App", version ~= "" and ("gen1recomp v" .. version) or "gen1recomp")
   add("LÖVE", loveVersion())
   if safeMode then add("Safe mode", "on") end
+  local guardOk, guardPresent = pcall(function()
+    return require("src.core.RequireGuard").present()
+  end)
+  if guardOk and guardPresent == false then
+    add("Loader chain", "love searcher missing")
+  end
   return {
     rawOS = rawOS,
     os = formOS(rawOS),

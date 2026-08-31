@@ -54,7 +54,7 @@ return function(game)
     coroutine.yield()
     if p.moving then moved = true end
     phases[p:walkPhase()] = true
-    if f == 4 or f == 11 then
+    if f == 4 or f == 20 then
       shots[#shots + 1] = DIR .. "/1978-frame" .. f .. ".png"
       U.shot(game, shots[#shots])
     end

@@ -2502,6 +2502,71 @@ local function saveSfxChecks()
 end
 saveSfxChecks()
 
+-- engine/items/pack.asm:1307 .place_insert, home/audio.asm:220 WaitPlaySFX
+local function packSwitchSfxChecks()
+  local Sound = require("src.core.Sound")
+  local realPlay, realBusy, realFrames =
+    Sound.play, Sound.sfxBusy, Sound.waitFramesFor
+  local rang = {}
+  Sound.play = function(_, name) rang[#rang + 1] = name end
+
+  local save = Save.newGame()
+  save.inventory = { POTION = 1, ANTIDOTE = 1 }
+  local game, input = newGame(save)
+  game.data.items = {
+    POTION = { id = "POTION", name = "POTION", pocket = "ITEM", index = 1 },
+    ANTIDOTE = { id = "ANTIDOTE", name = "ANTIDOTE", pocket = "ITEM",
+      index = 2 },
+  }
+  game.data.audio = { sfx = { Sfx_SwitchPokemon = {} } }
+  local menu = PackMenu.new(game, { pocket = "ITEM" })
+  check("two rows to shuffle", #menu.rows, 2)
+
+  menu.index = 1
+  input:press("select")
+  menu:update(0)
+  check("SELECT picks the row up", menu.switching, 1)
+  input:press("down")
+  menu:update(0)
+  check("the cursor moves under it", menu.index, 2)
+  input:press("a")
+  menu:update(0)
+  check("the place ends the switch", menu.switching, nil)
+  check("and beeps once in that frame", #rang, 1)
+  menu:update(0)
+  check("the second beep follows on the next tick", #rang, 2)
+  check("both are the switch cue",
+    rang[1] == "Sfx_SwitchPokemon" and rang[2] == "Sfx_SwitchPokemon", true)
+  menu:update(0)
+  check("and there is no third", #rang, 2)
+
+  -- home/audio.asm:225 WaitSFX, home/delay.asm:14
+  Sound.sfxBusy = function() return true end
+  Sound.waitFramesFor = function() return 3 end
+  rang = {}
+  menu.index = 1
+  input:press("select")
+  menu:update(0)
+  input:press("down")
+  menu:update(0)
+  input:press("a")
+  menu:update(0)
+  check("the place beeps", #rang, 1)
+  local held = menu.index
+  input:press("down")
+  menu:update(0)
+  check("the pending beep holds the list", menu.index, held)
+  check("with no second beep yet", #rang, 1)
+  menu:update(0)
+  check("still waiting", #rang, 1)
+  menu:update(0)
+  check("the budget releases the second beep", #rang, 2)
+
+  Sound.play, Sound.sfxBusy, Sound.waitFramesFor = realPlay, realBusy,
+    realFrames
+end
+packSwitchSfxChecks()
+
 -- ------------------------------------------------- the mod row contract
 --
 -- Gold's screens raise the same three hooks the Gen 1 ones do, which is only

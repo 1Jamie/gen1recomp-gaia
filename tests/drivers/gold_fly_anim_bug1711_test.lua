@@ -214,7 +214,11 @@ return function(game)
 
   -- A commits, and .FlyScript starts on this map, not the far one.
   U.tap(game, "a")
-  U.wait(3)
+  -- ExitAllMenus runs before .FlyScript (home/map.asm:2281)
+  for _ = 1, 120 do
+    if world.flyAnim then break end
+    U.wait(1)
+  end
   if not ok(world.flyAnim ~= nil and world.flyAnim.phase == "from",
       "A started FlyFromAnim over the map being left") then
     error("gold fly: the flight collapsed into a warp")

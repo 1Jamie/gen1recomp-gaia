@@ -43,7 +43,6 @@ function SyncEngine.defaultSaves()
   return {
     list = function()
       local SaveData = saveApi()
-      local options = SaveData.loadOptions()
       local out = {}
       for _, version in ipairs(gameVersions()) do
         for _, slot in ipairs(SaveData.listSlots(version)) do
@@ -52,12 +51,7 @@ function SyncEngine.defaultSaves()
             local save = source and SaveData.decode(source)
             if type(save) == "table" then
               local meta = type(save.meta) == "table" and save.meta or {}
-              local id = meta.playthroughId
-              if type(id) ~= "string" or id == "" then
-                local byVersion = options.playthroughIds
-                  and options.playthroughIds[version]
-                id = byVersion and byVersion[slot.id] or nil
-              end
+              local id = SaveData.slotPlaythroughId(version, slot.id, save)
               if id then
                 local name, summary = SaveData.slotSummary(save)
                 out[#out + 1] = {
@@ -95,7 +89,7 @@ function SyncEngine.defaultSaves()
       if type(save) ~= "table" then return nil, "the downloaded save is unreadable" end
       save.version = save.version or version
       local options = SaveData.loadOptions()
-      local slotId
+      local slotId, created
       if mode == "new" then
         save.meta = type(save.meta) == "table" and save.meta or {}
         save.meta.playthroughId = SaveData.newPlaythroughId()
@@ -105,6 +99,7 @@ function SyncEngine.defaultSaves()
       if not slotId then
         slotId = SaveData.createSlot(version)
         if not slotId then return nil, "could not make a save slot" end
+        created = true
       end
       local ok, err = SaveData.writeSlot(version, slotId, save)
       if not ok then return nil, err or "could not write the save" end
@@ -114,7 +109,7 @@ function SyncEngine.defaultSaves()
       options.playthroughIds[version][slotId] =
         save.meta and save.meta.playthroughId or playthroughId
       SaveData.saveOptions(options)
-      return slotId
+      return slotId, created == true
     end,
   }
 end
@@ -621,16 +616,26 @@ function SyncEngine:_queueDownload(key, version, playthroughId, mode, knownRev)
         e:_fail("the server sent no save data")
         return
       end
-      local slotId, writeErr = e.saves.write(version, playthroughId, data.blob, mode)
+      local slotId, detail = e.saves.write(version, playthroughId, data.blob, mode)
       if not slotId then
-        e:_fail(writeErr or "could not write the downloaded save")
+        e:_fail(detail or "could not write the downloaded save")
         return
       end
+      local created = detail == true
+      local meta = type(data.meta) == "table" and data.meta or {}
       if mode ~= "new" then
-        local meta = type(data.meta) == "table" and data.meta or {}
         SyncState.setRev(e.state, key, tonumber(data.rev) or knownRev,
           unixSeconds(meta.savedAt))
       end
+      e.lastDownloads = e.lastDownloads or {}
+      e.lastDownloads[#e.lastDownloads + 1] = {
+        version = version,
+        slot = slotId,
+        created = created,
+        device = type(meta.device) == "string" and meta.device ~= ""
+          and meta.device or nil,
+      }
+      e.changed = true
       e:_persist()
       if not e:busy() then e:_finish() end
     end)

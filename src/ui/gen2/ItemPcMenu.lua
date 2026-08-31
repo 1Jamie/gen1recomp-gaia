@@ -32,6 +32,7 @@ local PcItems = require("src.core.gen2.PcItems")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local WaitPlaySFX = require("src.ui.gen2.WaitPlaySFX")
 
 local ItemPcMenu = {}
 ItemPcMenu.__index = ItemPcMenu
@@ -62,6 +63,10 @@ local function sameItems(_, items) return items end
 
 -- PCItemsJoypad's ScrollingMenu is `db 4, 8 ; rows, columns`.
 local VISIBLE_ROWS = 4
+
+-- .PCItemsMenuData is menu_coords 4, 1 (engine/events/pokecenter_pc.asm:641),
+-- and ScrollingMenu_UpdateDisplay (engine/menus/scrolling_menu.asm:359) adds
+local LIST_X = 5
 
 -- charmap.asm: the quantity glyph.
 local TIMES = "\xc3\x97"
@@ -133,6 +138,21 @@ end
 function ItemPcMenu:playPcSfx(name)
   Sound.waitSfxDone()
   self:playSfx(name)
+end
+
+-- engine/events/pokecenter_pc.asm:195
+function ItemPcMenu:playPcSfxTwice(name)
+  self:playPcSfx(name)
+  self.repeatSfx = WaitPlaySFX.arm(name)
+end
+
+function ItemPcMenu:tickRepeatSfx()
+  local pending = self.repeatSfx
+  if not pending then return false end
+  if WaitPlaySFX.waiting(pending) then return true end
+  self.repeatSfx = nil
+  self:playPcSfx(pending.name)
+  return false
 end
 
 function ItemPcMenu:playerName()
@@ -445,7 +465,7 @@ end
 function ItemPcMenu:placeSwitch()
   local held = self.rows[self.switching]
   local target = self.rows[self.listIndex]
-  self:playPcSfx("Sfx_SwitchPokemon")
+  self:playPcSfxTwice("Sfx_SwitchPokemon")
   if not target then return end
   if held and self.save and target.slot ~= held.slot then
     PcItems.move(self.save, held.id, target.slot, self.items)
@@ -459,6 +479,9 @@ end
 function ItemPcMenu:update(_dt)
   local input = self.game and self.game.input
   if not input then return end
+
+  -- engine/events/pokecenter_pc.asm:195
+  if self:tickRepeatSfx() then return end
 
   if self.message then
     if input:wasPressed("a") or input:wasPressed("b") then
@@ -582,6 +605,8 @@ end
 
 function ItemPcMenu:drawList()
   Chrome.box(0, 0, 20, 12)
+  -- engine/events/pokecenter_pc.asm:628 .a_1 -> home/menu.asm:50
+  local picked = (self.message or self.qtyState or self.confirm) and true or false
   for row = 1, VISIBLE_ROWS do
     local i = row + self.scroll
     local ty = row * 2
@@ -589,18 +614,18 @@ function ItemPcMenu:drawList()
       local entry = self.rows[i]
       -- home/menu.asm:50
       if i == self.listIndex then
-        Chrome.cursor(5, ty)
+        Chrome.cursor(LIST_X - 1, ty, picked)
       elseif i == self.switching then
-        Chrome.cursor(5, ty, true)
+        Chrome.cursor(LIST_X - 1, ty, true)
       end
-      Chrome.print(entry.name, 6, ty)
+      Chrome.print(entry.name, LIST_X, ty)
       -- PlaceMenuItemQuantity (engine/menus/menu_2.asm:18, :24)
       if not self:cantToss(entry.id) then
-        Chrome.print(TIMES .. Chrome.number(entry.count, 2), 7, ty + 1)
+        Chrome.print(TIMES .. Chrome.number(entry.count, 2), LIST_X + 9, ty + 1)
       end
     elseif i == self:listTotal() then
-      if i == self.listIndex then Chrome.cursor(5, ty) end
-      Chrome.print("CANCEL", 6, ty)
+      if i == self.listIndex then Chrome.cursor(LIST_X - 1, ty, picked) end
+      Chrome.print("CANCEL", LIST_X, ty)
     end
   end
   -- UpdateItemDescription under the list.
@@ -643,9 +668,10 @@ function ItemPcMenu:drawPanel()
   if self.qtyState then
     local q = self.qtyState
     self:drawBottomLines(q.prompt)
-    Chrome.box(7, 15, 13, 3)
-    Chrome.print(TIMES, 8, 16)
-    Chrome.print(Chrome.number(q.qty, 2, true), 9, 16)
+    -- engine/items/buy_sell_toss.asm:205 TossItem_MenuHeader, :133
+    Chrome.box(15, 9, 5, 3)
+    Chrome.print(TIMES, 16, 10)
+    Chrome.print(Chrome.number(q.qty, 2, true), 17, 10)
   elseif self.confirm then
     self:drawBottomLines(self.confirm.prompt)
     Chrome.box(14, 7, 6, 5)

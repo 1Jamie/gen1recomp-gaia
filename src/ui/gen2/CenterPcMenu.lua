@@ -34,16 +34,35 @@ local ENGINE_POKEDEX = 11
 function CenterPcMenu:wantsFillScale() return true end
 function CenterPcMenu:drawsWidescreen() return true end
 
--- A multi-page body: `para` (a blank line in the transcription) is a
--- screenful of its own, two lines to a page.
+-- `\f` = para (home/text.asm:403 Paragraph), `\v` = cont (home/text.asm:442
+-- _ContTextNoPause); two rows to a page (constants/text_constants.asm:32).
 local function pagesOf(body)
   local pages = {}
-  for chunk in (tostring(body) .. "\n\n"):gmatch("(.-)\n\n") do
-    local lines = {}
-    for line in (chunk .. "\n"):gmatch("(.-)\n") do
-      if line ~= "" then lines[#lines + 1] = line end
+  for chunk in (tostring(body) .. "\f"):gmatch("(.-)\f") do
+    local flat, pos, scrolled = {}, 1, false
+    while true do
+      local brk = chunk:find("[\n\v]", pos)
+      local line = brk and chunk:sub(pos, brk - 1) or chunk:sub(pos)
+      if line ~= "" then flat[#flat + 1] = { line, scrolled } end
+      if not brk then break end
+      scrolled = chunk:sub(brk, brk) == "\v"
+      pos = brk + 1
     end
-    if #lines > 0 then pages[#pages + 1] = lines end
+    local page
+    for _, entry in ipairs(flat) do
+      if not page then
+        page = { entry[1] }
+        pages[#pages + 1] = page
+      elseif entry[2] then
+        page = { page[#page], entry[1] }
+        pages[#pages + 1] = page
+      elseif #page >= 2 then
+        page = { entry[1] }
+        pages[#pages + 1] = page
+      else
+        page[#page + 1] = entry[1]
+      end
+    end
   end
   return pages
 end
@@ -67,8 +86,9 @@ function CenterPcMenu.new(game, opts)
   if not (party and #party > 0) then
     -- PC_CheckPartyForPokemon: SFX_CHOOSE_PC_OPTION, the refusal, and the PC
     -- never boots (`ret c` before PC_PlayBootSound).
+    -- data/text/common_2.asm:725 _PokecenterPCCantUseText ends in cont.
     self:playSfx("Sfx_ChoosePcOption")
-    self:say({ { "Bzzzzt! You must", "have a #MON to", "use this!" } },
+    self:say(pagesOf(Strings("Bzzzzt! You must\nhave a #MON to\vuse this!")),
       function() self:close() end)
   else
     -- PC_PlayBootSound + _PokecenterPCTurnOnText.
@@ -267,9 +287,9 @@ function CenterPcMenu:drawBottomLines(lines)
   Chrome.box(0, 12, 20, 6)
   if not lines then return end
   local name = self:playerName()
-  local startY = #lines >= 3 and 13 or 14
-  for i, line in ipairs(lines) do
-    Chrome.print((line:gsub("{PLAYER}", name)), 1, startY + (i - 1) * 2)
+  -- constants/text_constants.asm:32 TEXTBOX_INNERY: rows 14 and 16 only.
+  for i = 1, math.min(#lines, 2) do
+    Chrome.print((lines[i]:gsub("{PLAYER}", name)), 1, 14 + (i - 1) * 2)
   end
 end
 

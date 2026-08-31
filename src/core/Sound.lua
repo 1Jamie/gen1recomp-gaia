@@ -574,6 +574,32 @@ local function remainingFrames(src)
   return math.max(0, math.ceil((dur - pos) * 60))
 end
 
+-- home/delay.asm:15 WaitForSoundToFinish polls CHAN5/CHAN6/CHAN8
+function Sound.moveSfxBusy()
+  pruneMoveSfx()
+  for _ in pairs(moveSfxChannels) do return true end
+  return false
+end
+
+function Sound.moveSfxWaitFrames()
+  pruneMoveSfx()
+  local worst = 0
+  for _, cur in pairs(moveSfxChannels) do
+    local n = remainingFrames(cur.src)
+    if n then
+      local okp, pitch = pcall(cur.src.getPitch, cur.src)
+      if okp and type(pitch) == "number" and pitch > 0 then
+        n = math.ceil(n / pitch * rate)
+      end
+      n = n + 2
+    else
+      n = Sound.waitFrames(cur.src, 0)
+    end
+    if n > worst then worst = n end
+  end
+  return worst
+end
+
 -- audio/engine_2.asm:1077-1096, :991-1013, :1015-1033
 local function plainMoveFrames(data, def, channels)
   local id = sfxHeaderId(def)

@@ -197,9 +197,8 @@ local function buildGame()
   function translate.logicSpeed()
     return function()
       local g = live()
-      if not g then return 1 end
-      return math.max(1, tonumber(g.speedOverride)
-        or tonumber(g.options and g.options.speed) or 1)
+      if not g or not g.logicSpeed then return 1 end
+      return g:logicSpeed()
     end
   end
 

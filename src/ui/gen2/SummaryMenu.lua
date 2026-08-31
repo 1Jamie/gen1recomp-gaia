@@ -788,6 +788,30 @@ function SummaryMenu:playSwapSfx()
   end
 end
 
+local function waitPlaySfx()
+  local ok, mod = pcall(require, "src.ui.gen2.WaitPlaySFX")
+  return ok and mod or nil
+end
+
+-- mon_menu.asm:1040
+function SummaryMenu:playSwapSfxTwice()
+  self:playSwapSfx()
+  local WaitPlaySFX = waitPlaySfx()
+  if WaitPlaySFX then
+    self.repeatSfx = WaitPlaySFX.arm("Sfx_SwitchPokemon")
+  end
+end
+
+function SummaryMenu:tickRepeatSfx()
+  local pending = self.repeatSfx
+  if not pending then return false end
+  local WaitPlaySFX = waitPlaySfx()
+  if WaitPlaySFX and WaitPlaySFX.waiting(pending) then return true end
+  self.repeatSfx = nil
+  self:playSwapSfx()
+  return false
+end
+
 -- MoveScreenLoop's .joy_loop.  A picks a move up (.a_button stores wMenuCursorY
 -- in wSwappingMove and draws the hollow cursor) and puts it down (.place_move);
 -- B drops it back on the row it came from and only then exits.
@@ -800,7 +824,9 @@ function SummaryMenu:updateMoveDetail(input)
     self.moveIndex = self.moveIndex < count and self.moveIndex + 1 or 1
   elseif input:wasPressed("a") then
     if self.swapFrom then
-      if self:swapMoves(self.swapFrom, self.moveIndex) then self:playSwapSfx() end
+      if self:swapMoves(self.swapFrom, self.moveIndex) then
+        self:playSwapSfxTwice()
+      end
       self.swapFrom = nil
     elseif moves[self.moveIndex] then
       self.swapFrom = self.moveIndex
@@ -828,6 +854,8 @@ function SummaryMenu:update(_dt)
   self:stepPicAnim()
   local input = self.game and self.game.input
   if not input then return end
+  -- mon_menu.asm:1040
+  if self:tickRepeatSfx() then return end
   if self.moveDetail then
     self:updateMoveDetail(input)
     return

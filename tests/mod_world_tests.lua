@@ -971,7 +971,15 @@ do
   check(battle ~= nil, "the transition hands off to the battle")
 
   battle.participants = { [caterpie] = true }
+  local preAward = {}
+  for _, row in ipairs(battle.queue) do preAward[row] = true end
   battle:awardExp()
+  -- experience.asm:158-200: the level write rides a queued row, so run the
+  local awarded = {}
+  for _, row in ipairs(battle.queue) do
+    if row.fn and not preAward[row] then awarded[#awarded + 1] = row.fn end
+  end
+  for _, fn in ipairs(awarded) do battle.nextInsert = 0 fn() end
   check(caterpie.level >= 7, "the mon levels past its evolution threshold")
   check(battle.leveledUp and battle.leveledUp[caterpie],
     "awardExp records the level-up for EvolveAfterBattle")

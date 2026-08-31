@@ -231,6 +231,9 @@ local MAPSETUP_ROAM_JUMP = { [MAPSETUP.TELEPORT] = true }
 local FADE_STEPS = 4
 local FADE_STEP_FRAMES = 2
 
+-- ExitAllMenus opens on ClearBGPalettes (home/map.asm:2282), whose WaitBGMap
+local MENU_BLANK_FRAMES = 4
+
 -- A New Game starts in the bedroom, not outside: engine/menus/intro_menu.asm
 -- NewGame sets wDefaultSpawnpoint = SPAWN_HOME and warps there, and
 -- data/maps/spawn_points.asm puts SPAWN_HOME at PLAYERS_HOUSE_2F (3,3).
@@ -3514,6 +3517,14 @@ function World:runMapSetup(method, load, fly)
   return true
 end
 
+-- ramp with no load between the halves (home/map.asm:2281-2292).
+function World:exitMenusFade()
+  self.fade, self.fadeLevel = "white", 1
+  self.mapSetup = {
+    phase = "in", step = FADE_STEPS, wait = MENU_BLANK_FRAMES,
+  }
+end
+
 -- ---------------------------------------------------------------------------
 -- The three roaming beasts (engine/overworld/wildmons.asm).
 -- ---------------------------------------------------------------------------
@@ -5918,7 +5929,12 @@ function World:runFieldMove(result)
   elseif action == "waterfall" then
     self:runWaterfall(result)
   elseif action == "fly" then
-    self:openFlyMap(result.mon)
+    -- (engine/events/overworld.asm:565, :584); a picker that never opened
+    if result.flySpawn then
+      self:flyTo(result.flySpawn, result.mon)
+    else
+      self:openFlyMap(result.mon)
+    end
   elseif action == "headbutt" then
     self:runHeadbutt(result.facingX, result.facingY, result.mon)
   elseif action == "sweetscent" then
@@ -6122,6 +6138,10 @@ end
 local FLY = {
   FROM_FRAMES = 128, TO_FRAMES = 64, HOVER = 0x40,
   AMP_MAX = 0x40, TO_AMP = 11 * 8, RISE = 84,
+  -- engine/events/field_moves.asm:341 (depixel 31, 10, 4, 0 up to 10 * 8 + 4)
+  TO_RISE = 88,
+  -- engine/events/field_moves.asm:307 over data/sprite_anims/oam.asm:314
+  BIRD_OX = 80 - 8 - 8, BIRD_OY = 84 - 8 - 16,
   -- engine/sprite_anims/functions.asm:1389-1416
   LEAF_DEATH_X = 184, LEAF_AMP = 0x40,
   -- constants/sprite_anim_constants.asm:20
@@ -6133,6 +6153,16 @@ local FLY = {
 -- engine/sprite_anims/core.asm:216 (UpdateAnimFrame)
 function World.leafScreenPos(leaf)
   return leaf.x + (leaf.xoff or 0) + FLY.LEAF_OX, leaf.y + FLY.LEAF_OY
+end
+
+-- engine/sprite_anims/core.asm:216 (UpdateAnimFrame)
+function World.birdScreenPos(fa)
+  return FLY.BIRD_OX + (fa.xoff or 0), FLY.BIRD_OY + (fa.y or 0)
+end
+
+-- engine/sprite_anims/core.asm:229 (UpdateAnimFrame)
+function World.offGbScreen(x, y, w, h)
+  return x + w <= 0 or y + h <= 0 or x >= 160 or y >= 144
 end
 
 -- FlyFunction_InitGFX's GetSpeciesIcon (engine/events/field_moves.asm:390):
@@ -6171,12 +6201,12 @@ function World:startFlyAnim(phase, mon, onDone)
   local landing = phase == "to"
   self.flyAnim = {
     phase = phase, icon = icon, onDone = onDone, t = 0,
-    px = p.px, py = p.py, xoff = 0, wave = 0,
+    xoff = 0, wave = 0,
     leaves = {},
     left = landing and FLY.TO_FRAMES or FLY.FROM_FRAMES,
     hover = landing and 0 or FLY.HOVER,
     amp = landing and FLY.TO_AMP or 0,
-    y = landing and -FLY.RISE or 0,
+    y = landing and -FLY.TO_RISE or 0,
   }
   return true
 end
@@ -6272,15 +6302,17 @@ function World:drawFlyLeaves(s, billboard)
     G.setColor(1, 1, 1, 1)
     for _, leaf in ipairs(fa.leaves) do
       local lx, ly = World.leafScreenPos(leaf)
-      lx, ly = lx + sox, ly + soy
-      local function one()
-        G.draw(sheet, self.cutGrassQuad,
-          math.floor(lx * s), math.floor(ly * s), 0, s, s)
-      end
-      if billboard then
-        billboard((lx + 4) * s, (ly + 4) * s, one)
-      else
-        one()
+      if not World.offGbScreen(lx, ly, 8, 8) then
+        lx, ly = lx + sox, ly + soy
+        local function one()
+          G.draw(sheet, self.cutGrassQuad,
+            math.floor(lx * s), math.floor(ly * s), 0, s, s)
+        end
+        if billboard then
+          billboard((lx + 4) * s, (ly + 4) * s, one)
+        else
+          one()
+        end
       end
     end
   end
@@ -6297,24 +6329,23 @@ function World:drawFlyAnim(s, billboard)
   local fa = self.flyAnim
   if not (fa and fa.icon) then return end
   local G = love.graphics
-  local cam = self.camera
-  local px = fa.px + fa.xoff
-  local py = fa.py + fa.y
-  local ox = math.floor((0 - cam.x) * s)
-  local oy = math.floor((0 - cam.y) * s)
-  local beat = math.floor(fa.t / 8) % 4
-  local function body()
-    G.setColor(1, 1, 1, 1)
-    G.push()
-    G.translate(ox, oy)
-    G.scale(s, s)
-    fa.icon:draw(px, py, 0, 0, "down", 0, false, false, beat == 3, beat % 2)
-    G.pop()
-  end
-  if billboard then
-    billboard(ox + (px + 8) * s, oy + (py + 16) * s, body)
-  else
-    body()
+  local bx, by = World.birdScreenPos(fa)
+  if not World.offGbScreen(bx, by, 16, 16) then
+    local sox, soy = self:gbScreenOrigin()
+    local px, py = bx + sox, by + soy
+    local beat = math.floor(fa.t / 8) % 4
+    local function body()
+      G.setColor(1, 1, 1, 1)
+      G.push()
+      G.scale(s, s)
+      fa.icon:draw(px, py, 0, 0, "down", 0, false, false, beat == 3, beat % 2)
+      G.pop()
+    end
+    if billboard then
+      billboard((px + 8) * s, (py + 16) * s, body)
+    else
+      body()
+    end
   end
   self:drawFlyLeaves(s, billboard)
 end
@@ -6356,28 +6387,50 @@ end
 -- "Where?" plate over it instead of the card strip.  A run with no love at all
 -- (a headless probe) has no screen to push, so the destinations are offered
 -- one at a time through the same yesorno box every other field move uses.
-function World:openFlyMap(mon)
+-- list standing -- engine/events/overworld.asm:556, :578 over
+-- engine/pokemon/mon_menu.asm:624.
+function World:openFlyMap(mon, opts)
   local points = self:flyPoints()
   if #points == 0 then return false end
   -- Loaded on demand and through pcall: a headless run has no love, and this
   -- is the only place in the world that reaches for a screen module by hand.
   local okGear, Pokegear = pcall(require, "src.ui.gen2.Pokegear")
   if okGear and Pokegear.FLY_MAP and self.game and self.game.stack then
-    Screens.push(self.game, "Gen2Pokegear", {
-      save = self.game.save,
-      currentLandmark = self:currentLandmarkId(),
-      fly = points,
-      -- TownMapMon draws wCurPartyMon's icon as the cursor
-      -- (../pokecrystal/engine/pokegear/pokegear.asm:2708-2721).
-      flyMon = mon,
-      onFly = function(spawnId)
-        self.game.stack:pop()
-        self:flyTo(spawnId, mon)
-      end,
-      onClose = function() self.game.stack:pop() end,
-    })
+    local function pushGear()
+      Screens.push(self.game, "Gen2Pokegear", {
+        save = self.game.save,
+        currentLandmark = self:currentLandmarkId(),
+        fly = points,
+        -- (../pokecrystal/engine/pokegear/pokegear.asm:2708-2721).
+        flyMon = mon,
+        onFly = function(spawnId)
+          self.game.stack:pop()
+          if opts and opts.onChosen then
+            opts.onChosen(spawnId)
+          else
+            self:flyTo(spawnId, mon)
+          end
+        end,
+        onClose = function()
+          self.game.stack:pop()
+          if opts and opts.onCancel then opts.onCancel() end
+        end,
+      })
+    end
+    if opts then
+      -- engine/pokegear/pokegear.asm:1979
+      Screens.push(self.game, "Gen2BlankScreen", {
+        onDone = function()
+          self.game.stack:pop()
+          pushGear()
+        end,
+      })
+    else
+      pushGear()
+    end
     return true
   end
+  if opts then return false end
   self:askFlyPoint(points, 1, mon)
   return true
 end

@@ -5797,6 +5797,14 @@ function RomExtractorGen2:extractMenuGfx()
   hud.expBarFirstTile = 0x55
   hud.expBarCells = 9
 
+  -- (../pokecrystal/engine/sprite_anims/core.asm:547-557).
+  if self.symbols["EndOfExpBarGFX"] then
+    local expBarEnd = self:symbol("EndOfExpBarGFX")
+    self:write2bpp(self.rom:bytes(expBarEnd.bank, expBarEnd.address, 16),
+      8, 8, "battle/hud/exp_bar_end.png", true)
+    hud.expBarEnd = "assets/generated/battle/hud/exp_bar_end.png"
+  end
+
   -- Four OAM tiles at $31 -- normal, statused, fainted, empty -- and OBJ
   -- colour 0 is transparent (engine/battle/trainer_huds.asm:47-99, :225-232).
   local balls = self:symbol("LoadBallIconGFX.gfx")

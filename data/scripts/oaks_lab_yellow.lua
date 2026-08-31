@@ -14,6 +14,27 @@
 local OAK1 = 3
 local RIVAL = 1
 
+-- engine/overworld/pathfinding.asm:36-70 (FindPathToPlayer): step whichever
+local function findPathRows(rows, objIndex, sx, sy, tx, ty)
+  local rx, ry = math.abs(tx - sx), math.abs(ty - sy)
+  local xdir = tx < sx and "left" or "right"
+  local ydir = ty < sy and "up" or "down"
+  local last, count = nil, 0
+  local function flush()
+    if count > 0 then
+      rows[#rows + 1] = { "move_npc", objIndex, last, count }
+    end
+    last, count = nil, 0
+  end
+  while rx > 0 or ry > 0 do
+    local dir
+    if rx >= ry then dir, rx = xdir, rx - 1 else dir, ry = ydir, ry - 1 end
+    if dir ~= last then flush() end
+    last, count = dir, count + 1
+  end
+  flush()
+end
+
 return {
   talk = {
     TEXT_OAKSLAB_OAK1 = {
@@ -280,7 +301,12 @@ return {
         end
       end
       if target then
-        table.insert(rows, { "move_npc_to", RIVAL, target[1], target[2] })
+        if type(rival.cellX) == "number" and type(rival.cellY) == "number" then
+          findPathRows(rows, RIVAL, rival.cellX, rival.cellY,
+                       target[1], target[2])
+        else
+          table.insert(rows, { "move_npc_to", RIVAL, target[1], target[2] })
+        end
       end
       table.insert(rows, { "face_object", RIVAL,
                            target and target[2] < y and "down"
@@ -304,7 +330,14 @@ return {
       table.insert(rows, { "show_text", "_OaksLabRivalSmellYouLaterText" })
       table.insert(rows, { "stop_music" })
       table.insert(rows, { "play_music", "Music_MeetRival", { start = "rival" } })
-      table.insert(rows, { "move_npc_to", RIVAL, 4, 11 })
+      -- pokeyellow scripts/OaksLab.asm:411-436 sidestep out of the player's
+      local side = x == 4 and "right" or "left"
+      table.insert(rows, { "move_npc", RIVAL, side, 1 })
+      table.insert(rows, { "move_npc", RIVAL, "down", 1 })
+      table.insert(rows, { "face_player_dir", side })
+      table.insert(rows, { "move_npc", RIVAL, "down", 1 })
+      table.insert(rows, { "face_player_dir", "down" })
+      table.insert(rows, { "move_npc", RIVAL, "down", 4 })
       table.insert(rows, { "hide_object", "OAKS_LAB", "OAKSLAB_RIVAL" })
       table.insert(rows, { "play_music", "Music_OaksLab" })
       -- OaksLabPikachuEscapesPokeballScript: the follower reaches the map (#1009)

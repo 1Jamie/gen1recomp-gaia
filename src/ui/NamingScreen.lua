@@ -9,6 +9,7 @@
 -- ui.naming.grid may replace either page; keep an "ED" cell and a
 -- single-cell case-switch row so confirm / case-flip keep working.
 
+local Assets = require("src.render.Assets")
 local Font = require("src.render.Font")
 local HudTiles = require("src.render.HudTiles")
 local Runtime = require("src.mods.Runtime")
@@ -24,6 +25,23 @@ NamingScreen.isOpaque = true
 local UNDERSCORE, RAISED = 0x76, 0x77
 -- engine/gfx/mon_icons.asm:88
 local ICON_SPEED = 16
+
+-- engine/menus/naming_screen.asm:326
+local ED_IMAGE = "assets/generated/fonts/ed.png"
+local edTile
+
+local function drawEd(x, y)
+  if edTile == nil then
+    local ok, image = pcall(Assets.image, ED_IMAGE)
+    edTile = ok and image or false
+  end
+  if not edTile then return false end
+  love.graphics.draw(edTile, x, y)
+  return true
+end
+
+function NamingScreen.invalidate() edTile = nil end
+Assets.register(NamingScreen.invalidate)
 
 -- SGB: generic whole-screen palette (SET_PAL_GENERIC)
 function NamingScreen:sgbPalettes(game)
@@ -260,7 +278,10 @@ function NamingScreen:draw()
   -- engine/menus/naming_screen.asm:346
   for r, row in ipairs(self:grid()) do
     for c, cell in ipairs(row) do
-      Font.draw(Strings(cell), c * 16, 24 + r * 16)
+      local x, y = c * 16, 24 + r * 16
+      if cell ~= "ED" or not drawEd(x, y) then
+        Font.draw(Strings(cell), x, y)
+      end
     end
   end
   Font.drawCode(Theme.cursor, self.col * 16 - 8, 24 + self.row * 16)
