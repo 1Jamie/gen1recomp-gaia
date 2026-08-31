@@ -76,6 +76,17 @@ function VSync.applyOptions(opts)
   VSync.apply(opts and opts.vsync)
 end
 
+-- Drop the live swap interval without changing wanted and without re-entering
+-- PresentSync.reprobe.  Used by Android/iOS/UWP composited-GLES fail-closed:
+-- FrameCap cannot keep the swapchain engaged while eglSwapInterval stays 1,
+-- so vsync never locks unless the driver wait is silenced for the software path.
+function VSync.silenceDriver()
+  if love and love.window and love.window.setVSync then
+    pcall(love.window.setVSync, 0)
+  end
+  live = "off"
+end
+
 -- True when the user asked for sync (on/adaptive), even if the driver
 -- reported the interval as 0 afterwards.
 function VSync.isOn()

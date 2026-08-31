@@ -61,6 +61,19 @@ T.eq(calls[#calls], 1, "ON still asks the driver for interval 1")
 T.eq(VSync.isOn(), true, "requested ON stays wanted even if getVSync is 0")
 T.eq(VSync.effective(), "off", "while effective tracks the driver bit")
 
+-- BufferQueue fail-closed: silence live swapinterval without flipping wanted.
+VSync.reset()
+calls = {}
+interval = 1
+love.window.getVSync = function() return interval end
+love.window.setVSync = function(v) calls[#calls + 1] = v; interval = v end
+VSync.apply("on")
+calls = {}
+VSync.silenceDriver()
+T.eq(calls[#calls], 0, "silenceDriver asks for interval 0")
+T.eq(VSync.isOn(), true, "wanted stays ON after silenceDriver")
+T.eq(VSync.effective(), "off", "effective follows the silenced driver")
+
 love.window.getVSync, love.window.setVSync = nil, nil
 VSync.reset()
 
