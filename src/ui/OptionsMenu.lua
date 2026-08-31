@@ -37,6 +37,15 @@ local OptionsMenu = {}
 OptionsMenu.__index = OptionsMenu
 OptionsMenu.isOpaque = true
 
+-- Shared by the three GameSpeed rows below (overworld/battle/menu): mirrors
+-- src/ui/gen2/OptionsMenu.lua's own speed row so the translated "NORMAL"/
+-- "%dX" catalog keys apply on both generations' options screens.
+local function gameSpeedLabel(v)
+  local speed = tonumber(v) or GameSpeed.DEFAULT
+  if speed == 1 then return Strings("NORMAL") end
+  return Strings("%dX", speed)
+end
+
 -- Opaque full-screen menu: own MEWMON so opening OPTION from the title
 -- (or over the overworld) does not inherit TitleState's LOGO1 band -- that
 -- zone covers UI rows 8-9, which is the third options box label line
@@ -399,7 +408,9 @@ local function buildRows(game)
       end },
     { id = "zoom", label = Strings("ZOOM"),
       value = function(g)
-        return Zoom.offsetLabel(g.save.options.zoom or 0)
+        local offset = math.floor(tonumber(g.save.options.zoom) or 0)
+        if offset == 0 then return Strings("FIT") end
+        return offset < 0 and Strings("OUT%d", -offset) or Strings("IN%d", offset)
       end,
       step = function(g, dir)
         Zoom.nudgeOptions(g.save.options, dir, Renderer:fitScale())
@@ -473,7 +484,13 @@ local function buildRows(game)
     -- is fixed-step off dt, so this touches presentation only.
     { id = "fpsCap", label = Strings("MAX FPS"),
       value = function(g)
-        return FrameCap.label(g.save.options.fpsCap)
+        local value = FrameCap.normalize(g.save.options.fpsCap)
+        if value == FrameCap.DISPLAY then
+          local label = FrameCap.label(value)
+          local hz = tonumber(label:match("^DISPLAY %((%d+)HZ%)$"))
+          return hz and Strings("DISPLAY (%dHZ)", hz) or Strings("DISPLAY")
+        end
+        return FrameCap.label(value)
       end,
       step = function(g, dir)
         local o = g.save.options
@@ -507,7 +524,7 @@ local function buildRows(game)
     -- source of truth for which three rows exist.
     { id = "speedOverworld", label = Strings("OVERWORLD SPEED"),
       value = function(g)
-        return GameSpeed.levelLabel(g.save.options.speedOverworld)
+        return gameSpeedLabel(g.save.options.speedOverworld)
       end,
       step = function(g, dir)
         local o = g.save.options
@@ -516,7 +533,7 @@ local function buildRows(game)
       end },
     { id = "speedBattle", label = Strings("BATTLE SPEED"),
       value = function(g)
-        return GameSpeed.levelLabel(g.save.options.speedBattle)
+        return gameSpeedLabel(g.save.options.speedBattle)
       end,
       step = function(g, dir)
         local o = g.save.options
@@ -525,7 +542,7 @@ local function buildRows(game)
       end },
     { id = "speedMenu", label = Strings("MENU SPEED"),
       value = function(g)
-        return GameSpeed.levelLabel(g.save.options.speedMenu)
+        return gameSpeedLabel(g.save.options.speedMenu)
       end,
       step = function(g, dir)
         local o = g.save.options
