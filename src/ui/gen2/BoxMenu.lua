@@ -43,6 +43,7 @@
 local Assets = require("src.render.Assets")
 local Boxes = require("src.core.gen2.Boxes")
 local Chrome = require("src.ui.gen2.Chrome")
+local CommonText = require("src.core.gen2.CommonText")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local Mail = require("src.core.gen2.Mail")
@@ -50,6 +51,7 @@ local Palettes = require("src.world.gen2.Palettes")
 local PartyMenu = require("src.ui.gen2.PartyMenu")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 local Unown = require("src.core.gen2.Unown")
 
 local BoxMenu = {}
@@ -89,13 +91,21 @@ local PARTY_BOX = 0
 -- .MoveMonWOMailSubmenu's .MenuData, verbatim.  RELEASE is NOT one of these --
 -- it belongs to BillsPC_WithdrawMenu's four rows -- so nothing on this screen
 -- can destroy a mon.
-local MOVE_SUBMENU = { "MOVE", "STATS", "CANCEL" }
+local MOVE_SUBMENU = {
+  Strings.source("MOVE"), Strings.source("STATS"), Strings.source("CANCEL"),
+}
 
 -- engine/pokemon/bills_pc.asm:472-478: BillsPC_Withdraw's menu rows.
-local WITHDRAW_SUBMENU = { "WITHDRAW", "STATS", "RELEASE", "CANCEL" }
+local WITHDRAW_SUBMENU = {
+  Strings.source("WITHDRAW"), Strings.source("STATS"),
+  Strings.source("RELEASE"), Strings.source("CANCEL"),
+}
 
 -- BillsPCDepositMenuHeader's .MenuData (engine/pokemon/bills_pc.asm:234-240).
-local DEPOSIT_SUBMENU = { "DEPOSIT", "STATS", "RELEASE", "CANCEL" }
+local DEPOSIT_SUBMENU = {
+  Strings.source("DEPOSIT"), Strings.source("STATS"),
+  Strings.source("RELEASE"), Strings.source("CANCEL"),
+}
 
 function BoxMenu:submenuRows()
   if self.mode == "move" then return MOVE_SUBMENU end
@@ -107,11 +117,49 @@ end
 -- the mon is written into its new home.  It stays up here until a button
 -- clears it, because it is also the only confirmation the player gets that the
 -- mon moved and where it went.
-local SAVING_LEAVE_ON = "Saving\xe2\x80\xa6 Leave ON!"
+local SAVING_LEAVE_ON = Strings.source("Saving… Leave ON!")
 
 -- PCString_NoReleasingEGGS, printed by BillsPC_IsMonAnEgg with SFX_WRONG
 -- (engine/pokemon/bills_pc.asm:1615-1631, string at :2200).
-local NO_RELEASING_EGGS = "No releasing EGGS!"
+local NO_RELEASING_EGGS = Strings.source("No releasing EGGS!")
+local PARTY_TITLE = Strings.source("PARTY <PK><MN>")
+local DEFAULT_BOX_TITLE = Strings.source("BOX%d")
+local CHOOSE_PROMPT = Strings.source("Choose a <PK><MN>.")
+local WHATS_UP_PROMPT = Strings.source("What's up?")
+local MOVE_WHERE_PROMPT = Strings.source("Move to where?")
+local LAST_MON = Strings.source("It's your last <PK><MN>!")
+local NO_USABLE_MON = Strings.source("No more usable <PK><MN>!")
+local REMOVE_MAIL = Strings.source("Remove MAIL.")
+local NO_ROOM = Strings.source("There's no room!")
+local RELEASE_PROMPT = Strings.source("Release <PK><MN>?")
+local RELEASED = Strings.source("Released <PK><MN>.\fBye,\n%s!")
+local GOT_MON = Strings.source("Got %s!")
+local STORED_MON = Strings.source("Stored %s!")
+
+-- Boxes.lua owns the storage mutation, so its finite refusals arrive here as
+-- return values.  Mark their complete text for the catalog and look them up
+-- when they cross this UI boundary.
+local BOX_FAILURE_SOURCES = {
+  Strings.source("No save."),
+  Strings.source("There is no POKéMON there."),
+  Strings.source("The BOX is full."),
+  Strings.source("You can't deposit\nthe last POKéMON!"),
+  Strings.source("You can't take\nany more POKéMON."),
+  Strings.source("It's already there."),
+  -- CommonText.pages() (below) only treats \n as the box's second row, not
+  -- a page break: a THIRD line needs \f (or \v) like every other multi-page
+  -- message in this file, not a second bare \n -- which used to just glue
+  -- this line onto the one above with no separator.
+  Strings.source("You'll need a\nPOKéMON to call\fwith."),
+}
+
+-- \v (scroll-continue) needs the same page-break handling CommonText.pages
+-- already gives every other Gen 2 screen (PackMenu/PrizeMenu route their
+-- messages through it); this used to split only on \n/\f, so a translated
+-- message that needed a \v scroll break rendered wrong here.
+local function messagePages(text)
+  return CommonText.pages(text) or {}
+end
 
 function BoxMenu:wantsFillScale() return true end
 function BoxMenu:drawsWidescreen() return true end
@@ -172,8 +220,11 @@ end
 function BoxMenu:nameAt(index)
   -- .PartyPKMN is "PARTY <PK><MN>@" -- eight tiles, because <PK> and <MN> are
   -- one font glyph each.
-  if self:isParty(index) then return "PARTY <PK><MN>" end
-  return Boxes.name(self.save, index)
+  if self:isParty(index) then return Strings(PARTY_TITLE) end
+  local names = self.save and self.save.boxNames
+  local custom = names and names[index]
+  if type(custom) == "string" and custom ~= "" then return custom end
+  return Strings(DEFAULT_BOX_TITLE, index)
 end
 
 -- Which list this mode browses.
@@ -183,7 +234,7 @@ function BoxMenu:list()
 end
 
 function BoxMenu:title()
-  if self.mode == "deposit" then return "PARTY <PK><MN>" end
+  if self.mode == "deposit" then return Strings(PARTY_TITLE) end
   -- While the insert cursor is up the header names the DESTINATION: the whole
   -- screen has moved there (.PrepInsertCursor calls the same
   -- BillsPC_MoveMonWOMail_BoxNameAndArrows with the new wBillsPC_LoadedBox).
@@ -194,15 +245,15 @@ end
 -- is one row of 18 columns.
 function BoxMenu:prompt()
   -- engine/pokemon/bills_pc.asm:356-369: PrepSubmenu places PCString_WhatsUp.
-  if self.phase == "submenu" then return "What's up?" end
+  if self.phase == "submenu" then return Strings(WHATS_UP_PROMPT) end
   if self.mode == "move" then
     -- .Init and .PrepInsertCursor each place their own string.
-    if self.phase == "insert" then return "Move to where?" end
-    return "Choose a <PK><MN>."
+    if self.phase == "insert" then return Strings(MOVE_WHERE_PROMPT) end
+    return Strings(CHOOSE_PROMPT)
   end
   -- PCString_ChooseaPKMN: _DepositPKMN.Init and BillsPC_Withdraw.Init both
   -- place this exact string (engine/pokemon/bills_pc.asm:2185).
-  return "Choose a <PK><MN>."
+  return Strings(CHOOSE_PROMPT)
 end
 
 function BoxMenu:total()
@@ -260,7 +311,7 @@ function BoxMenu:checkMailPreventBlackout()
   local party = self.save.party or {}
   -- `cp $3 / jr c, .ItsYourLastPokemon`: a party of one or two may not send
   -- one away at all, however healthy the rest of it is.
-  if #party < 3 then return false, "It's your last <PK><MN>!" end
+  if #party < 3 then return false, LAST_MON end
   -- CheckCurPartyMonFainted (engine/pokemon/bills_pc_top.asm:171) walks the
   -- party skipping wCurPartyMon and answers carry when everything ELSE has
   -- fainted -- taking this one out would white the player out on the next step.
@@ -268,13 +319,13 @@ function BoxMenu:checkMailPreventBlackout()
   for i, mon in ipairs(party) do
     if i ~= self.index and (mon.hp or 0) > 0 then othersUsable = true break end
   end
-  if not othersUsable then return false, "No more usable <PK><MN>!" end
+  if not othersUsable then return false, NO_USABLE_MON end
   -- wBillsPC_MonHasMail, the byte PCMonInfo set while drawing the row.  The
   -- top menu already refused to open this screen at all while any party mon
   -- holds a letter (BillsPC_MovePKMNMenu's IsAnyMonHoldingMail,
   -- src/ui/gen2/PcMenu.lua), so this is the second of two nets.
   if Mail.monHoldsMail(party[self.index]) then
-    return false, "Remove MAIL."
+    return false, REMOVE_MAIL
   end
   return true
 end
@@ -290,7 +341,7 @@ function BoxMenu:beginMove()
     self.phase = nil
     -- engine/pokemon/bills_pc.asm:1607
     self:playRefusalSfx("Sfx_Wrong")
-    self.message = reason
+    self.message = Strings(reason)
     return
   end
   self.moveFrom = { box = self.boxIndex, slot = self.index }
@@ -319,28 +370,31 @@ function BoxMenu:doWithdraw()
   if not ok then
     -- engine/pokemon/bills_pc.asm:1845
     self:playRefusalSfx("Sfx_Wrong")
-    self.message = result
+    self.message = Strings(result)
     return
   end
   -- engine/pokemon/bills_pc.asm:1817
   self:playMonCry(result)
-  self.message = nil
+  local name = result.nickname or result.name or result.species or "?"
+  self.message = Strings(GOT_MON, name)
   self.phase = nil
   self:clampIndex()
 end
 
 -- engine/pokemon/bills_pc.asm:155 BillsPCDepositFuncDeposit
 function BoxMenu:doDeposit()
+  local mon = self:selected()
+  local name = mon and (mon.nickname or mon.name or mon.species) or "?"
   local ok, result = Boxes.deposit(self.save, self.index, self.boxIndex)
   if not ok then
     -- engine/pokemon/bills_pc.asm:1790
     self:playRefusalSfx("Sfx_Wrong")
-    self.message = result
+    self.message = Strings(result)
     return
   end
   -- engine/pokemon/bills_pc.asm:1762
   self:playMonCry(result)
-  self.message = nil
+  self.message = Strings(STORED_MON, name)
   self.phase = nil
   self.index, self.scroll = 1, 0
   self:clampIndex()
@@ -393,7 +447,7 @@ function BoxMenu:checkSpaceInDestination()
   local from = self.moveFrom
   if from and from.box == self.boxIndex then return true end
   if #self:listAt(self.boxIndex) >= self:capacityAt(self.boxIndex) then
-    return false, "There's no room!"
+    return false, NO_ROOM
   end
   return true
 end
@@ -437,7 +491,7 @@ function BoxMenu:insertMon()
   self.moveFrom, self.backup = nil, nil
   self.index, self.scroll = 1, 0
   self:clampIndex()
-  self.message = SAVING_LEAVE_ON
+  self.message = Strings(SAVING_LEAVE_ON)
 end
 
 -- .b_button_2: the backed-up scroll, cursor and loaded box all go back, and
@@ -470,7 +524,12 @@ function BoxMenu:update(_dt)
 
   if self.message then
     if input:wasPressed("a") or input:wasPressed("b") then
-      self.message = nil
+      local page = (self.messagePage or 1) + 1
+      if page <= #messagePages(self.message) then
+        self.messagePage = page
+      else
+        self.message, self.messagePage = nil, nil
+      end
     end
     return
   end
@@ -516,7 +575,7 @@ function BoxMenu:update(_dt)
         -- so the refusal leaves the cursor exactly where it was.
         -- engine/pokemon/bills_pc.asm:1567
         self:playRefusalSfx("Sfx_Wrong")
-        self.message = reason
+        self.message = Strings(reason)
       else
         self:insertMon()
       end
@@ -589,14 +648,14 @@ function BoxMenu:askRelease()
       self.phase = nil
       -- engine/pokemon/bills_pc.asm:1607
       self:playRefusalSfx("Sfx_Wrong")
-      self.message = refusal
+      self.message = Strings(refusal)
       return
     end
   end
   -- Both release paths run BillsPC_IsMonAnEgg first, so the question is never
   -- even asked over an egg (engine/pokemon/bills_pc.asm:186-187 and :427-428).
   if mon.isEgg then
-    self.message = NO_RELEASING_EGGS
+    self.message = Strings(NO_RELEASING_EGGS)
     self:playRefusalSfx("Sfx_Wrong")
     return
   end
@@ -604,7 +663,9 @@ function BoxMenu:askRelease()
   if not (game and game.stack) then return end
   local ChoiceBox = require("src.ui.ChoiceBox")
   local name = mon.nickname or mon.name or mon.species or "?"
+  self.message = Strings(RELEASE_PROMPT)
   game.stack:push(ChoiceBox.new(game, function(yes)
+    self.message = nil
     if not yes then return end
     local ok, err
     if self.mode == "deposit" then
@@ -613,12 +674,12 @@ function BoxMenu:askRelease()
       ok, err = Boxes.release(self.save, self.boxIndex, self.index)
     end
     if not ok then
-      self.message = err
+      self.message = Strings(err)
       return
     end
     -- engine/pokemon/bills_pc.asm:1866
     self:playMonCry(mon)
-    self.message = name .. " was released."
+    self.message = Strings(RELEASED, name)
     self.phase = nil
     self:clampIndex()
   end, { defaultNo = true }))
@@ -887,7 +948,7 @@ function BoxMenu:drawPanel()
       if i == self.index then self:drawInsertCursor(row) end
     elseif i == self:total() then
       if i == self.index then self:drawSelectionFrame(row) end
-      Chrome.print("CANCEL", LIST_X, ty)
+      Chrome.print(Strings("CANCEL"), LIST_X, ty)
     end
   end
 
@@ -922,10 +983,9 @@ function BoxMenu:drawPanel()
   if self.message then
     Chrome.box(0, 12, 20, 6)
     -- Two lines, two tile rows apart, the way every other text box lays out.
-    local line = 14
-    for part in (self.message .. "\n"):gmatch("(.-)\n") do
-      Chrome.print(part, 1, line)
-      line = line + 2
+    local page = messagePages(self.message)[self.messagePage or 1] or {}
+    for i, part in ipairs(page) do
+      Chrome.print(part, 1, 14 + (i - 1) * 2)
     end
   else
     Chrome.box(0, 15, 20, 3)
@@ -941,7 +1001,7 @@ function BoxMenu:drawPanel()
     for i, label in ipairs(self:submenuRows()) do
       local ty = 6 + (i - 1) * 2
       if i == self.submenuIndex then Chrome.cursor(10, ty) end
-      Chrome.print(label, 11, ty)
+      Chrome.print(Strings(label), 11, ty)
     end
   end
   love.graphics.setColor(1, 1, 1, 1)

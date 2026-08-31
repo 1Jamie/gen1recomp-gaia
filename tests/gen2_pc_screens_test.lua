@@ -63,9 +63,11 @@ local check, eq = S.check, S.eq
 local Bag = require("src.inventory.Bag")
 local CenterPcMenu = require("src.ui.gen2.CenterPcMenu")
 local ItemPcMenu = require("src.ui.gen2.ItemPcMenu")
+local PcMenu = require("src.ui.gen2.PcMenu")
 local Map = require("src.world.gen2.Map")
 local Save = require("src.core.gen2.Save")
 local Screens = require("src.ui.Screens")
+local Strings = require("src.core.Strings")
 local Vm = require("src.script.gen2.Vm")
 local World = require("src.world.gen2.World")
 
@@ -152,6 +154,142 @@ eq(Screens.get(sg, "Gen2CenterPcMenu"), CenterPcMenu,
   "Gen2CenterPcMenu resolves to its builtin")
 eq(Screens.get(sg, "Gen2ItemPcMenu"), ItemPcMenu,
   "Gen2ItemPcMenu resolves to its builtin")
+
+-- Built-in PC rows are finite UI labels.  The player's name remains raw and
+-- is interpolated only after the surrounding label has been translated.
+do
+  local Chrome = require("src.ui.gen2.Chrome")
+  local priorPrint = Chrome.print
+  local printed = {}
+  Chrome.print = function(text) printed[#printed + 1] = text end
+  Strings.load({ strings = {
+    ["BILL's PC"] = "PC DE LEO",
+    ["%s's PC"] = "PC DE %s",
+    ["TURN OFF"] = "ETEINDRE",
+    ["WITHDRAW <PK><MN>"] = "RETIRER <PK><MN>",
+    ["WITHDRAW ITEM"] = "RETIRER OBJET",
+    ["LOG OFF"] = "DECONNEXION",
+  } })
+
+  local save = newSave(1)
+  local game = newGame(save)
+  local center = CenterPcMenu.new(game, { save = save })
+  center.message = nil
+  -- drawPanel only draws the entry rows once booted (dev's PC boot-sequence
+  -- gate); this check is about label translation, not the boot animation.
+  center.booted = true
+  center:drawPanel()
+  local pc = PcMenu.new(game, { save = save, bills = true })
+  pc:drawPanel()
+  local items = ItemPcMenu.new(game, { save = save })
+  items:drawPanel()
+  local all = table.concat(printed, "|")
+  check(all:find("PC DE LEO", 1, true) ~= nil, "BILL's PC is translated")
+  check(all:find("PC DE GOLD", 1, true) ~= nil,
+    "the player name stays raw inside a translated PC label")
+  check(all:find("RETIRER <PK><MN>", 1, true) ~= nil,
+    "the storage PC action is translated")
+  check(all:find("RETIRER OBJET", 1, true) ~= nil,
+    "the item PC action is translated")
+  check(all:find("DECONNEXION", 1, true) ~= nil,
+    "the item PC exit is translated")
+
+  Strings.load({})
+  Chrome.print = priorPrint
+end
+
+-- PC messages are whole catalog keys, including the dynamic item-name and
+-- quantity templates. Names supplied by registries remain raw arguments.
+do
+  Strings.load({ strings = {
+    ["{PLAYER} turned on\nthe PC."] = "{PLAYER} ACTIVE\nPC-FR.",
+    ["BILL's PC\naccessed.\n\n#MON Storage\nSystem opened."] =
+      "PC LEO OUVERT.\n\nSTOCKAGE OUVERT.",
+    ["What do you want\nto do?"] = "QUE FAIRE?",
+    ["Withdrew %d\n%s(S)."] = "PRIS %d\n%s.",
+    ["Toss out how many\n%s(S)?"] = "JETER COMBIEN\n%s?",
+    POTION = "INTERDIT",
+  } })
+  local save = newSave(1)
+  save.pcItems.POTION = 2
+  local game = newGame(save)
+
+  local center = CenterPcMenu.new(game, { save = save })
+  eq(center.message.pages[1][1], "{PLAYER} ACTIVE",
+    "the Center PC boot message is translated as a whole key")
+  center.message = nil
+  center.index = 1
+  center:choose()
+  eq(center.message.pages[1][1], "PC LEO OUVERT.",
+    "the Center PC access flow is translated")
+
+  local itemPc = ItemPcMenu.new(game, { save = save, items = ITEMS })
+  itemPc:withdraw({ id = "POTION", name = "POTION" }, 1)
+  eq(itemPc.message.pages[1][1], "PRIS 1",
+    "the item PC quantity template is translated")
+  eq(itemPc.message.pages[1][2], "POTION.",
+    "an item name remains a raw template argument")
+  itemPc.message = nil
+  itemPc.rows = { { id = "POTION", name = "POTION", count = 1 } }
+  itemPc.listIndex = 1
+  itemPc:chooseToss()
+  eq(itemPc.qtyState.prompt[1], "JETER COMBIEN",
+    "the item PC toss prompt is translated")
+  eq(itemPc.qtyState.prompt[2], "POTION?",
+    "the toss prompt also preserves the item name argument")
+  Strings.load({})
+end
+
+-- A mod may intentionally reuse a built-in source label. Only rows marked by
+-- the engine are translated; collision labels injected through the hook stay
+-- byte-for-byte mod content.
+do
+  local Chrome = require("src.ui.gen2.Chrome")
+  local Hooks = require("src.mods.Hooks")
+  local Runtime = require("src.mods.Runtime")
+  local priorEvents, priorHooks, priorErrors =
+    Runtime.events, Runtime.hooks, Runtime.errors
+  local priorPrint = Chrome.print
+  local printed = {}
+  Chrome.print = function(text) printed[#printed + 1] = text end
+  Strings.load({ strings = {
+    ["WITHDRAW <PK><MN>"] = "RETIRER MON",
+    ["WITHDRAW ITEM"] = "RETIRER OBJET",
+  } })
+
+  local function hookedWith(label)
+    local hooks = Hooks.new()
+    hooks:wrap("ui.pc.items", function(nextFn, game, entries)
+      entries = nextFn(game, entries)
+      entries[#entries + 1] = { id = "collision", label = label }
+      return entries
+    end)
+    Runtime.install(priorEvents, hooks, priorErrors or {})
+  end
+
+  local save = newSave(1)
+  local game = newGame(save)
+  hookedWith("WITHDRAW <PK><MN>")
+  PcMenu.new(game, { save = save, bills = true }):drawPanel()
+  local all = table.concat(printed, "|")
+  check(all:find("RETIRER MON", 1, true) ~= nil,
+    "PcMenu translates its marked built-in row")
+  check(all:find("WITHDRAW <PK><MN>", 1, true) ~= nil,
+    "PcMenu leaves a colliding hook label raw")
+
+  printed = {}
+  hookedWith("WITHDRAW ITEM")
+  ItemPcMenu.new(game, { save = save }):drawPanel()
+  all = table.concat(printed, "|")
+  check(all:find("RETIRER OBJET", 1, true) ~= nil,
+    "ItemPcMenu translates its marked built-in row")
+  check(all:find("WITHDRAW ITEM", 1, true) ~= nil,
+    "ItemPcMenu leaves a colliding hook label raw")
+
+  Strings.load({})
+  Chrome.print = priorPrint
+  Runtime.install(priorEvents, priorHooks, priorErrors)
+end
 
 -- ------------------------------------------------- the whose-PC gating
 
@@ -899,6 +1037,43 @@ do
   press(menu, input, "select")
   eq(#game.stack._items, 0, "SELECT on the move screen opens nothing")
   eq(census(save), 5, "and releases nothing")
+end
+
+-- Box-screen labels and complete prompts are translated at draw/use time;
+-- box names and nicknames remain save content even when they collide with a
+-- catalog key.
+do
+  local BoxMenu = require("src.ui.gen2.BoxMenu")
+  local Boxes = require("src.core.gen2.Boxes")
+  local Strings = require("src.core.Strings")
+  Strings.load({ strings = {
+    ["PARTY <PK><MN>"] = "EQUIPE <PK><MN>",
+    ["Choose a <PK><MN>."] = "Choisissez un <PK><MN>.",
+    ["What's up?"] = "Que faire ?",
+    ["Release <PK><MN>?"] = "Relacher le <PK><MN> ?",
+    ["BOX CUSTOM"] = "NE PAS TRADUIRE",
+  } })
+  local save = newSave(3)
+  save.boxNames = save.boxNames or {}
+  save.boxNames[1] = "BOX CUSTOM"
+  Boxes.box(save, 1)[1] = { species = "PIDGEY", nickname = "BOX CUSTOM",
+    hp = 10, maxHp = 10, level = 3 }
+  local game = newGame(save)
+  local move = BoxMenu.new(game, { save = save, mode = "move" })
+  eq(move:prompt(), "Choisissez un <PK><MN>.",
+    "the complete choose-mon prompt passes through Strings")
+  move.phase = "submenu"
+  eq(move:prompt(), "Que faire ?", "the complete submenu prompt is translated")
+  move.boxIndex = 0
+  eq(move:title(), "EQUIPE <PK><MN>", "the built-in PARTY title is translated")
+  move.boxIndex = 1
+  eq(move:title(), "BOX CUSTOM", "a user-defined box name remains raw")
+
+  local withdraw = BoxMenu.new(game, { save = save, mode = "withdraw" })
+  withdraw:askRelease()
+  eq(withdraw.message, "Relacher le <PK><MN> ?",
+    "the complete release prompt passes through Strings")
+  Strings.load({})
 end
 
 S.finish()
