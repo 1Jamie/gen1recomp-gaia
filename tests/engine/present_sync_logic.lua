@@ -109,8 +109,8 @@ VSync.apply("on")
 PresentProbe._testSetState({ needsSoftwareCap = true, gated = false })
 T.check(PresentSync.vsyncEnableBlocked(), "broken sync blocks enabling vsync")
 T.check(PresentSync.vsyncStepAllowed("on", 1), "but one step to OFF is allowed")
-T.check(not PresentSync.vsyncStepAllowed("on", -1),
-  "while a step that stays on/adaptive is not")
+T.check(PresentSync.vsyncStepAllowed("on", -1),
+  "and stepping back is also OFF")
 
 -- FixedStep snaps wall-clock dt, then applies speed (not the reverse).
 FixedStep.refreshPeriod = 1 / 60
