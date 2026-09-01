@@ -1,6 +1,10 @@
 local VSync = {}
 
-VSync.MODES = { "on", "off", "adaptive" }
+-- Adaptive (swap interval -1) is parked.  EGL/KMSDRM reject it, and offering
+-- it on a mixed matrix sent PresentProbe into fail-closed after one OPTIONS
+-- step.  Saved "adaptive" keys fold to ON.  Restore by putting "adaptive"
+-- back on MODES and dropping the fold in normalize().
+VSync.MODES = { "on", "off" }
 
 local INTERVAL = { on = 1, off = 0, adaptive = -1 }
 local LABELS = { on = "ON", off = "OFF", adaptive = "ADAPTIVE" }
@@ -15,7 +19,8 @@ local live = nil
 local function fromInterval(interval)
   interval = tonumber(interval)
   if not interval then return nil end
-  if interval < 0 then return "adaptive" end
+  -- Parked adaptive: a driver still reporting -1 is treated as ON.
+  if interval < 0 then return "on" end
   if interval == 0 then return "off" end
   return "on"
 end
@@ -33,6 +38,7 @@ function VSync.default()
 end
 
 function VSync.normalize(mode)
+  if mode == "adaptive" then return "on" end
   for _, m in ipairs(VSync.MODES) do
     if mode == m then return m end
   end
@@ -73,7 +79,11 @@ function VSync.apply(mode)
 end
 
 function VSync.applyOptions(opts)
-  VSync.apply(opts and opts.vsync)
+  local mode = VSync.apply(opts and opts.vsync)
+  if type(opts) == "table" and opts.vsync == "adaptive" then
+    opts.vsync = mode
+  end
+  return mode
 end
 
 -- Drop the live swap interval without changing wanted and without re-entering
