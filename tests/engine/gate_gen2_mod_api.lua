@@ -399,7 +399,7 @@ local GEN2_HOOKS = {
   -- overworld
   "warp.destination", "movement.collision", "movement.speed",
   "encounter.roll", "encounter.species", "encounter.fishing",
-  "world.tod", "map.palette", "fieldmove.eligibility",
+  "encounter.table", "world.tod", "map.palette", "fieldmove.eligibility",
   -- menus and the battle intro
   "ui.start_menu.items", "ui.title_menu.items", "ui.options.rows",
   "ui.party.submenu", "ui.party.grid_navigation", "ui.naming.grid",

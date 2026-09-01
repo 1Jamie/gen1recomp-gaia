@@ -511,10 +511,15 @@ gains a field instead of the name gaining a prefix.
   `world.block_replaced`, `world.boulder_moved`, `world.tod_changed`,
   `world.object_toggled`, `flag.changed`; hooks `warp.destination`,
   `movement.collision`, `movement.speed`, `encounter.roll`,
-  `encounter.species`, `encounter.fishing`, `world.tod`, `map.palette`,
-  `fieldmove.eligibility`. `flag.changed` carries the numeric `wEventFlags`
-  id under Gen 1's `name` key, which is the one payload difference the
-  numeric flag space forces.
+  `encounter.species`, `encounter.fishing`, `encounter.table`, `world.tod`,
+  `map.palette`, `fieldmove.eligibility`. `flag.changed` carries the numeric
+  `wEventFlags` id under Gen 1's `name` key, which is the one payload
+  difference the numeric flag space forces. `encounter.table` is raised only
+  from `mod.world:effectiveEncounters(mapId, terrain, opts)`, a read-only
+  query with no RNG and no live World required, not from the roll path
+  itself; `opts.daytime` previews a specific Gen 2 time of day
+  (`"MORN"`/`"DAY"`/`"NITE"`/`"DARK"`), defaulting to the save's real current
+  time when omitted.
 - *Menus (`src/ui/gen2/`):* `ui.start_menu.items`, `ui.title_menu.items`,
   `ui.options.rows`, `ui.party.submenu`, `ui.party.grid_navigation`,
   `ui.naming.grid`, `ui.pc.items`, `ui.list_menu`, `transition.style`.
@@ -834,6 +839,13 @@ the same as "the hook sees everything":
   Those three read row shapes that are not `{ species, level }` slot lists, so
   a mod that reskins encounters misses headbutt trees, rock smash and the
   roamers.
+- `effectiveEncounters` (backing `encounter.table`) has the same roamer gap
+  for the same reason: it composes the static grass/water table with
+  `Roamers.Swarm.tables` (a swarm's persistent per-map substitution IS
+  reflected), but not with `Roamers.checkEncounter` (a roaming legendary's
+  dynamic, per-step override is not). A route overlay built on this query
+  should treat its answer as "the map's own encounters," not "guaranteed to
+  be what the next step produces."
 - `src/ui/gen2/BattleState.lua` builds a flat `opts` for `Catching.attempt`
   with no `data` in it, so a mod-registered ball is readable through
   `Catching.recordFor` but is not yet resolved at the real throw site.

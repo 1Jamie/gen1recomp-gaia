@@ -399,6 +399,60 @@ function WorldAPI:getFlag(name)
   return save and save.flags and save.flags[name]
 end
 
+local ENCOUNTER_TERRAIN = { grass = true, water = true, indoor = true }
+
+-- The effective wild-encounter distribution for a map/terrain, composed with
+-- any encounter.table wrapper, without touching the RNG. Unlike a real roll
+-- (encounter.roll/encounter.species), this needs no live overworld: mapId is
+-- an explicit argument, so a caller can ask about any map from a menu, not
+-- only the one the player is standing on.
+--
+-- "indoor" (caves) has no table of its own -- it reads the same grass table
+-- Encounter.roll already gives every cave floor; that is an existing engine
+-- behavior, not something new here.
+--
+-- Weights are the raw per-slot values the vanilla table already encodes
+-- (consecutive .buckets/encounterBuckets differences), not normalized to a
+-- probability, and are only comparable within one dist. chance is the
+-- separate vanilla probability that a step produces any encounter at all;
+-- it does not run through encounter.table -- biasing whether an encounter
+-- happens at all, as opposed to which species, is a different question this
+-- RFC scopes out the same way it scopes out fishing.
+function WorldAPI:effectiveEncounters(mapId, terrain, opts)
+  if not ENCOUNTER_TERRAIN[terrain] then
+    return nil, "invalid terrain: " .. tostring(terrain)
+  end
+  local data = self.game and self.game.data
+  local encDef = data and data.encounters and data.encounters[mapId]
+  local key = (terrain == "indoor") and "grass" or terrain
+  local slotDef = encDef and encDef[key]
+  local chance = (slotDef and tonumber(slotDef.rate) or 0) / 256
+  local dist = {}
+  if slotDef and chance > 0 and slotDef.slots then
+    local weights = slotDef.buckets
+      or FieldDefaults.constant(data, "encounterBuckets")
+    local prev = 0
+    for i, threshold in ipairs(weights) do
+      local slot = slotDef.slots[i]
+      if slot and slot.species then
+        dist[slot.species] = (dist[slot.species] or 0) + (threshold - prev)
+      end
+      prev = threshold
+    end
+  end
+  if Runtime.wantsHook("encounter.table") then
+    -- A wrapper that forgets to return anything makes Runtime.call itself
+    -- return nothing (Hooks:call unpacks an empty pcall result), which would
+    -- otherwise turn dist into nil here. Keep the pre-hook dist instead of
+    -- handing a caller a nil they will pairs() over and crash on.
+    local transformed = Runtime.call("encounter.table",
+      function(d) return d end, dist,
+      { mapId = mapId, terrain = terrain, preview = true })
+    if type(transformed) == "table" then dist = transformed end
+  end
+  return { chance = chance, dist = dist }
+end
+
 -- active map only: this mutates the runtime Map and rebuilds the renderer.
 -- A layout change that must survive a reload belongs in a maps patch.
 function WorldAPI:replaceBlock(bx, by, block)
