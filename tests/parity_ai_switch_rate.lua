@@ -90,9 +90,7 @@ do
         "the switch takes the first living reserve, skipping the fainted slot")
 end
 
--- End to end through the real battle: the action a Juggler picks has to
--- reach executeAction and actually swap the active mon plus print
--- _AIBattleWithdrawText, otherwise a correct roll is invisible in play.
+-- engine/battle/core.asm:416,454
 do
   local Game = {
     data = Data,
@@ -106,10 +104,10 @@ do
   local b = BattleState.newTrainer(Game, "OPP_JUGGLER", 2)
   eq(b.aiUses, 3, "wAICount seeded from the class record on send-out")
   b.rng = function(lo) return lo end -- roll 0: inside every threshold
-  local act = b:enemyAction()
+  local act = b:trainerAIAction()
   check(act and act.special == "aiSwitch", "the enemy turn resolves to a switch")
   local outgoing = b.enemy.name
-  b:executeAction(b.enemy, b.player, act)
+  b:executeAction(b.enemy, b.player, b:enemyAction())
   eq(b.enemyIndex, 2, "the active enemy slot moved to the reserve")
   check(b.enemy.name ~= outgoing, "a different mon is out")
   eq(b.aiUses, 3, "EnemySendOutFirstMon reseeds wAICount (core.asm:1305-1307)")

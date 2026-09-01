@@ -4203,9 +4203,11 @@ function OverworldState:applyFieldPoison()
         for _, mon in ipairs(save.party) do Pokemon.heal(mon) end
         save.money = math.floor(save.money
           / (FieldDefaults.world(Game.data, "blackoutMoneyDivisor") or 2))
+        local lm, lx, ly = self:escapeWarpTarget()
+        local landing = { map = lm, x = lx, y = ly }
         Runtime.emit("world.blacked_out",
-          { save = save, healTarget = self:healPoint() })
-        self:warpToHealPoint()
+          { save = save, healTarget = self:healPoint(), landing = landing })
+        self:warpToHealPoint(nil, { landing = landing })
       end))
     end
   end
@@ -4785,9 +4787,11 @@ function OverworldState:afterBattle(result, battle)
     end
     Game.save.money = math.floor(Game.save.money
       / (FieldDefaults.world(Game.data, "blackoutMoneyDivisor") or 2))
+    local lm, lx, ly = self:escapeWarpTarget()
+    local landing = { map = lm, x = lx, y = ly }
     Runtime.emit("world.blacked_out",
-      { save = Game.save, healTarget = self:healPoint() })
-    self:warpToHealPoint()
+      { save = Game.save, healTarget = self:healPoint(), landing = landing })
+    self:warpToHealPoint(nil, { landing = landing })
   else
     -- EndTrainerBattle sets BIT_CUR_MAP_LOADED_1 (home/trainers.asm), which
     -- re-runs the floor's door callback: beating the last Rocket Hideout guard
@@ -4917,71 +4921,43 @@ function OverworldState:rememberOutdoor(id, x, y)
   Game.save.lastOutdoor = self.lastOutdoor
 end
 
--- Warp to the last heal point (blackout, ESCAPE ROPE, DIG/TELEPORT).
--- The heal point is usually an interior, so LAST_MAP exits are re-pointed
--- at its remembered town door rather than wherever the player left from.
---
--- opts.arrive = "teleport" for Dig/Teleport/Escape Rope (LeaveMapAnim /
--- EnterMapAnim).  Blackouts omit it: pret HandleBlackOut only
--- GBFadeOutToBlack + PrepareForSpecialWarp + SpecialEnterMap, and never
--- sets BIT_FLY_WARP / BIT_DUNGEON_WARP, so EnterMap never runs EnterMapAnim.
-function OverworldState:warpToHealPoint(onDone, opts)
+-- engine/events/black_out.asm:39-43, engine/overworld/special_warps.asm:71-129
+function OverworldState:escapeWarpTarget()
   local heal = self:healPoint()
+  local out = heal.outdoor or { id = heal.map, x = heal.x, y = heal.y }
+  local fw = (Game.data.field.flyWarps or {})[out.id]
+  local outX = fw and fw.x or out.x
+  local outY = fw and fw.y or out.y
+  local outDef = Game.data.maps[out.id]
+  if not (outDef and outX and outY
+          and Map.isOutside(outDef,
+                FieldDefaults.field(Game.data, "outsideTilesets"))) then
+    local zeroFill = require("src.core.SaveData")
+                     .defaultHeal(Game.data.field.boot)
+    return zeroFill.map, zeroFill.x, zeroFill.y
+  end
+  return out.id, outX, outY
+end
+
+-- Warp to the last heal point (blackout, ESCAPE ROPE, DIG/TELEPORT).
+-- engine/events/black_out.asm:42, home/overworld.asm:23-30 (#96)
+function OverworldState:warpToHealPoint(onDone, opts)
   self.player.surfing = false
   self:syncSurfingPikachu()
   -- HandleFlyWarpOrDungeonWarp + DisplayPlayerBlackedOutText both clear
   -- BIT_ALWAYS_ON_BIKE (home/overworld.asm / home/text_script.asm)
   Game.save.forcedBike = nil
-  local map, x, y = heal.map, heal.x, heal.y
-  local teleport = opts and opts.arrive == "teleport"
-  if teleport then
-    self.arriveWarp = "teleport"
-    -- Dig/Teleport/Escape Rope land OUTSIDE at the last Pokemon Center TOWN
-    -- door, like Fly (#196) -- NOT the interior heal cell a blackout returns
-    -- to.  pret routes escape-warp and blackout both through wLastBlackoutMap
-    -- (LoadSpecialWarpData .usedFlyWarp, engine/overworld/special_warps.asm),
-    -- and that map is ALWAYS an outdoor one: SetLastBlackoutMap copies
-    -- wLastMap (engine/events/set_blackout_map.asm) and WarpFound2 only
-    -- writes wLastMap on outside maps (home/overworld.asm), with the landing
-    -- cell read from FlyWarpDataPtr.  Prefer the canonical Fly landing
-    -- (field.flyWarps, one tile south of the PC door warp), else the
-    -- remembered outdoor door cell.
-    --
-    -- A heal record naming no outdoor town, or naming a map that is not
-    -- outdoors at all, is never a legal escape-warp destination: a .sav
-    -- import stamps lastHeal from wherever the cartridge was saved
-    -- (SaveConvert mergeDefaults), so ESCAPE ROPE was dropping the player
-    -- into the dungeon that save sat in, whose LAST_MAP exits then still
-    -- pointed at the door they had walked in through (#805).  Vanilla's
-    -- zero-filled wLastBlackoutMap is map 0, so an unusable record falls
-    -- back to the boot heal town exactly as a never-healed game does.
-    local out = heal.outdoor or { id = heal.map, x = heal.x, y = heal.y }
-    local fw = (Game.data.field.flyWarps or {})[out.id]
-    local outX = fw and fw.x or out.x
-    local outY = fw and fw.y or out.y
-    local outDef = Game.data.maps[out.id]
-    if not (outDef and outX and outY
-            and Map.isOutside(outDef,
-                  FieldDefaults.field(Game.data, "outsideTilesets"))) then
-      local zeroFill = require("src.core.SaveData")
-                       .defaultHeal(Game.data.field.boot)
-      out, outX, outY = { id = zeroFill.map }, zeroFill.x, zeroFill.y
-    end
-    map, x, y = out.id, outX, outY
+  if opts and opts.arrive == "teleport" then self.arriveWarp = "teleport" end
+  local landing = opts and opts.landing
+  local map, x, y
+  if landing and landing.map then
+    map, x, y = landing.map, landing.x, landing.y
+  else
+    map, x, y = self:escapeWarpTarget()
   end
   self:startWarpTo(map, x, y, "down", onDone)
-  -- Blackouts land at the interior heal cell, so re-point LAST_MAP exits at
-  -- the remembered town door.  The teleport branch re-points at the town it
-  -- just landed on: PrepareForSpecialWarp (engine/overworld/special_warps.asm)
-  -- writes the special-warp destination straight back into wLastMap for every
-  -- fly/escape warp that is not a dungeon warp, so the next LAST_MAP exit
-  -- resolves against that town instead of the dungeon door the player walked
-  -- in through before using the rope (#805).
-  if teleport then
-    self:rememberOutdoor(map, x, y)
-  elseif heal.outdoor then
-    self:rememberOutdoor(heal.outdoor.id, heal.outdoor.x, heal.outdoor.y)
-  end
+  -- PrepareForSpecialWarp (engine/overworld/special_warps.asm:1-29) writes the
+  self:rememberOutdoor(map, x, y)
 end
 
 -- opts.keepMusic: scripted warps mid-cutscene keep the current song
