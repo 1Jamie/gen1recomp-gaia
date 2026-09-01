@@ -87,6 +87,8 @@ ADD_SYMBOLS = frozenset({
     # of the cart rather than written down.
     "LoadOpponentTrainerAndPokemon.resample",
     "LoadRandomBattleTowerMon.resample",
+    # data/wild/treemons_asleep.asm:3,17,25
+    "AsleepTreeMonsNite", "AsleepTreeMonsDay", "AsleepTreeMonsMorn",
 })
 
 # Mobile System GB art, all of it present in the international v1.0 object:

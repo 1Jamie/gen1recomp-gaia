@@ -34,6 +34,7 @@
 local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
 local GbcPalette = require("src.render.GbcPalette")
+local MonAnimView = require("src.render.MonAnimView")
 local Music = require("src.core.Music")
 local Palettes = require("src.world.gen2.Palettes")
 local Sound = require("src.core.Sound")
@@ -187,10 +188,19 @@ function EggHatchAnim:buildBeats()
     self:initFragments()
     self.showMon = true
   end)
-  -- WaitSFX then `ld a, [wJumptableIndex] / call PlayMonCry`.  The port has no
-  -- channel state to poll, so the cry simply follows the loop.
-  beat(0, function() self:playCry() end)
+  -- ../pokecrystal/engine/pokemon/breeding.asm:754-761
+  beat(0, function() self:startPicAnim() end)
   return beats
+end
+
+-- ../pokecrystal/engine/gfx/pic_animation.asm:74
+function EggHatchAnim:startPicAnim()
+  local def = self.species and self.data.pokemon
+    and self.data.pokemon[self.species]
+  self.picAnim = MonAnimView.start(def, self.mon, "hatch",
+    function(path) return self:image(path) end,
+    function() self:playCry() end)
+  if not self.picAnim then self:playCry() end
 end
 
 --------------------------------------------------------------------------
@@ -289,6 +299,15 @@ end
 function EggHatchAnim:update(_dt)
   if self.done then return end
 
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:79-89
+  if self.picAnim then
+    if self.picAnim:step() then
+      self.picAnim = nil
+      return self:finish()
+    end
+    return
+  end
+
   -- EggHatch_DoAnimFrame is PlaySpriteAnimations + DelayFrame, so the sprites
   -- advance on every frame the sequence spends anywhere.  A fragment that has
   -- run out its amplitude leaves the screen: AnimSeq_RevealNewMon's
@@ -310,6 +329,7 @@ function EggHatchAnim:update(_dt)
     if not beat then return self:finish() end
     self.beatLeft = beat.frames
     self:runBeat(beat)
+    if self.picAnim then return end
   end
   self.beatLeft = self.beatLeft - 1
 end
@@ -359,6 +379,10 @@ function EggHatchAnim:drawPic()
   if not image then return end
   local G = love.graphics
   local w = image:getWidth()
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:431-435
+  local sheet, quad, size
+  if self.picAnim then sheet, quad, size = self.picAnim:frame() end
+  if sheet then w = size end
   local tx = self.showMon and MON_TILE_X or EGG_TILE_X
   local ty = self.showMon and MON_TILE_Y or EGG_TILE_Y
   -- PadFrontpic's own placement, not a centring rule: the two agree at 7 and
@@ -368,7 +392,10 @@ function EggHatchAnim:drawPic()
   local py = ty * 8 + pad[2] * 8
   G.setColor(1, 1, 1, 1)
   local colors = self:picColors()
-  local function body() G.draw(image, px, py) end
+  local function body()
+    if sheet then return G.draw(sheet, quad, px, py) end
+    G.draw(image, px, py)
+  end
   if colors and GbcPalette.available() then
     GbcPalette.with(colors, body)
   else

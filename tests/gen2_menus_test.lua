@@ -201,16 +201,24 @@ confirmInput:press("a")
 confirm:update(0)
 check("A confirms", continued, true)
 
--- The clock box formats 12-hour time with an AM/PM half.
-check("midnight is 12 AM", (function()
-  local m = MainMenu.new(newGame(nil), { hasSave = false, save = false,
-    clock = { hour = 0, minute = 0, weekday = 1 } })
-  local hour = select(1, m:clockParts())
-  local display = hour % 12
-  if display == 0 then display = 12 end
-  return display .. (hour < 12 and " AM" or " PM")
-end)(), "12 AM")
+-- ../pokecrystal/engine/rtc/timeset.asm:675
+do
+  local function pinnedTime(hour, minute)
+    local m = MainMenu.new(newGame(nil), { hasSave = false, save = false,
+      clock = { hour = hour, minute = minute, weekday = 1 } })
+    return MainMenu.timeString(m:clockParts())
+  end
+  check("midnight is NITE 12", pinnedTime(0, 0), "NITE 12:00")
+  check("morning keeps its word", pinnedTime(5, 9), "MORN 5:09")
+  check("noon is DAY 12", pinnedTime(12, 30), "DAY 12:30")
+  check("evening wraps back to NITE", pinnedTime(20, 5), "NITE 8:05")
+end
 check("weekday names", MainMenu.DAYS[6], "FRIDAY")
+
+-- ../pokecrystal/engine/menus/intro_menu.asm:479
+check("CONTINUE reuses SAVE's panel constants",
+  MainMenu.PANEL == require("src.ui.gen2.SaveMenu").PANEL, true)
+check("CONTINUE offsets it to row 8", MainMenu.PANEL_Y, 8)
 
 -- ------------------------------------------------------- naming screen
 
@@ -1690,7 +1698,20 @@ local function newMart(save, opts)
   opts.save = save
   opts.items = martItems
   opts.marts = martData
-  return MartMenu.new(game, opts), input, game
+  local mart = MartMenu.new(game, opts)
+  -- ../pokecrystal/home/print_text.asm:1
+  local step = mart.update
+  function mart:update(dt)
+    local saved = input.wasPressed
+    input.wasPressed = function() return false end
+    for _ = 1, 600 do
+      if not (self.typer and not self.typer:done()) then break end
+      step(self, dt)
+    end
+    input.wasPressed = saved
+    return step(self, dt)
+  end
+  return mart, input, game
 end
 
 -- GetMart: only an id below NUM_MARTS is a mart at all, and everything else
@@ -2464,12 +2485,10 @@ end
 bagPocketChecks()
 
 -- ---------------------------------------------------------------------------
--- SaveMenu's write chime (engine/menus/save.asm:110, `ld de, SFX_SAVE / call
--- PlaySFX` right after ResumeGameLogic).
+-- SaveMenu's save chime (engine/menus/save.asm:259, `ld de, SFX_SAVE / call
 --
 -- SFX_SAVE is an INDEX into the sfx pointer table, so a wrong id plays the
 -- wrong sound rather than nothing, and no assertion here can see the mistake
--- from the number alone.  The check is therefore the resolution: writeNow ->
 -- SaveMenu:playSfx -> sfxOrder[id + 1], against the shipped Gold cache, must
 -- name Sfx_Save.  $1f used to sit there, which is SFX_ENTER_DOOR.
 -- Wrapped in a function for the same 200-local reason as the blocks above.
@@ -2495,7 +2514,7 @@ local function saveSfxChecks()
   local SaveMenu = require("src.ui.gen2.SaveMenu")
   local menu = SaveMenu.new({ data = { audio = audio } },
     { save = {}, existed = false, writer = function() return true end })
-  menu:writeNow()
+  menu:playSfx(SaveMenu.SFX_SAVE)
   Sound.play = realPlay
 
   check("saving rings SFX_SAVE", rang, "Sfx_Save")

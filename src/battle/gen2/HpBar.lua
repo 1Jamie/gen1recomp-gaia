@@ -78,10 +78,10 @@ end
 -- The cart builds it out of tiles -- $62 is an empty bar cell and $63..$6a are
 -- the eight partial fills, so the fill really does move one pixel at a time
 -- inside a fixed 48px frame, and the *unfilled* part is white, not tinted.
-function HpBar.draw(palettes, hp, maxHp, px, py)
+function HpBar.draw(palettes, hp, maxHp, px, py, pixels)
   local G = love and love.graphics
   if not G then return end
-  local pixels = HpBar.pixels(hp, maxHp)
+  pixels = pixels or HpBar.pixels(hp, maxHp)
   local _, fill = HpBar.colors(palettes, HpBar.palette(pixels))
   -- Frame: one pixel of black around the 48x2 channel the fill lives in.
   G.setColor(0, 0, 0, 1)
@@ -106,13 +106,13 @@ end
 --
 -- Returns the tile column just past the bar, so a caller can put the bar's end
 -- cap or the frame stub there.
-function HpBar.drawWithLabel(palettes, hp, maxHp, tx, ty, font)
+function HpBar.drawWithLabel(palettes, hp, maxHp, tx, ty, font, pixels)
   if font then
     love.graphics.setColor(0, 0, 0, 1)
     font.draw("HP:", tx * 8, ty * 8)
   end
   -- The bar's channel sits in the middle of the tile row, matching the tiles.
-  HpBar.draw(palettes, hp, maxHp, (tx + 2) * 8, ty * 8 + 2)
+  HpBar.draw(palettes, hp, maxHp, (tx + 2) * 8, ty * 8 + 2, pixels)
   return tx + 2 + HpBar.LENGTH_TILES
 end
 
@@ -151,6 +151,55 @@ function HpBar.stepToward(shown, target, maxHp)
   end
   if shown < target then return math.min(target, shown + step) end
   return math.max(target, shown - step)
+end
+
+-- ../pokecrystal/engine/battle/anim_hp_bar.asm:359
+function HpBar.shortFrameHp(pixels, maxHp, lowHp, highHp)
+  if pixels >= HpBar.LENGTH_PX then return maxHp end
+  if pixels <= 0 then return 0 end
+  local hp = math.floor(maxHp * pixels / HpBar.LENGTH_PX) + 1
+  if lowHp >= hp then return lowHp end
+  if highHp < hp then return highHp end
+  return hp
+end
+
+-- ../pokecrystal/engine/battle/anim_hp_bar.asm:56
+function HpBar.newAnim(from, to, maxHp)
+  from, to, maxHp = from or 0, to or 0, maxHp or 0
+  return {
+    hp = from, to = to, maxHp = maxHp,
+    px = HpBar.pixels(from, maxHp), toPx = HpBar.pixels(to, maxHp),
+    dir = (to < from) and -1 or 1,
+    long = maxHp >= HpBar.LENGTH_PX,
+    low = math.min(from, to), high = math.max(from, to),
+  }
+end
+
+-- ../pokecrystal/engine/battle/anim_hp_bar.asm:129
+local function shortStep(anim)
+  if anim.px == anim.toPx then return true end
+  anim.px = anim.px + anim.dir
+  anim.hp = HpBar.shortFrameHp(anim.px, anim.maxHp, anim.low, anim.high)
+  return false
+end
+
+-- ../pokecrystal/engine/battle/anim_hp_bar.asm:145
+local function longStep(anim)
+  while true do
+    if anim.hp == anim.to then return true end
+    anim.hp = anim.hp + anim.dir
+    local px = HpBar.pixels(anim.hp, anim.maxHp)
+    if px ~= anim.px then
+      anim.px = px
+      return false
+    end
+  end
+end
+
+-- ../pokecrystal/engine/battle/anim_hp_bar.asm:1
+function HpBar.animStep(anim)
+  if anim.long then return longStep(anim) end
+  return shortStep(anim)
 end
 
 -- How far along its current level a mon is, for the exp bar.

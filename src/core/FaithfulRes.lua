@@ -41,6 +41,7 @@ FaithfulRes.MIN_W, FaithfulRes.MIN_H = 480, 360
 
 -- whether this module currently owns the window size
 FaithfulRes.locked = false
+FaithfulRes.prevSize = nil
 
 -- The highest level this display can actually show.
 --
@@ -59,7 +60,7 @@ function FaithfulRes.maxLevel()
   -- means a different fraction of every device, and every level below the top
   -- is just a smaller picture for no reason.  ON means one thing instead:
   -- lock the viewport to the Game Boy's 10:9 and size it to this screen.
-  if FaithfulRes.isMobile() then return 1 end
+  if FaithfulRes.fixedDisplay() then return 1 end
   return 4
 end
 
@@ -82,7 +83,7 @@ function FaithfulRes.label(v)
   v = FaithfulRes.normalize(v)
   if v == 0 then return "OFF" end
   -- mobile has one ON: the level is chosen from the display, not the player
-  if FaithfulRes.isMobile() then return "ON" end
+  if FaithfulRes.fixedDisplay() then return "ON" end
   return tostring(v) .. "X"
 end
 
@@ -95,7 +96,7 @@ function FaithfulRes.cycle(v, dir)
   return levels[(cur - 1 + (dir or 1)) % #levels + 1]
 end
 
-function FaithfulRes.isMobile()
+function FaithfulRes.fixedDisplay()
   -- POKEPORT_FORCE_MOBILE=1: take the mobile branch on a desktop build, so the
   -- scale lock can be seen and driven without a device.  The window is still
   -- resizable, which is the point -- drag it to a phone aspect, rotate it by
@@ -104,8 +105,10 @@ function FaithfulRes.isMobile()
   if os.getenv("POKEPORT_FORCE_MOBILE") == "1" then return true end
   if not love or not love.system or not love.system.getOS then return false end
   local osName = love.system.getOS()
-  return osName == "Android" or osName == "iOS"
+  return osName == "Android" or osName == "iOS" or osName == "NX"
 end
+
+FaithfulRes.isMobile = FaithfulRes.fixedDisplay
 
 -- Physical pixels per LOVE unit for the CURRENT window.
 --
@@ -165,7 +168,7 @@ end
 -- phone.
 function FaithfulRes.scaleCap()
   if not FaithfulRes.locked then return nil end
-  if not FaithfulRes.isMobile() then return nil end
+  if not FaithfulRes.fixedDisplay() then return nil end
   return FaithfulRes.deviceScale()
 end
 
@@ -175,7 +178,7 @@ function FaithfulRes.apply(v)
   -- comes from the display (deviceScale), not from v -- v only says whether
   -- the lock is on.  Nothing to restore on release: the renderer simply goes
   -- back to filling the display.
-  if FaithfulRes.isMobile() then
+  if FaithfulRes.fixedDisplay() then
     FaithfulRes.locked = v > 0
     FaithfulRes.mobileScale = FaithfulRes.locked and FaithfulRes.deviceScale() or 0
     return FaithfulRes.locked
@@ -191,14 +194,23 @@ function FaithfulRes.apply(v)
     -- only touch the window if we were the one holding it: an OFF setting on
     -- boot must not resize a window the player sized themselves
     if not FaithfulRes.locked then return false end
+    local prev = FaithfulRes.prevSize
     flags.resizable = true
-    flags.minwidth, flags.minheight = FaithfulRes.MIN_W, FaithfulRes.MIN_H
-    love.window.setMode(curW, curH, flags)
+    flags.minwidth = (prev and prev.minwidth) or FaithfulRes.MIN_W
+    flags.minheight = (prev and prev.minheight) or FaithfulRes.MIN_H
+    love.window.setMode((prev and prev.w) or curW, (prev and prev.h) or curH,
+                        flags)
+    FaithfulRes.prevSize = nil
     FaithfulRes.locked = false
     return false
   end
 
   local w, h = FaithfulRes.size(v)
+  if not FaithfulRes.locked then
+    FaithfulRes.prevSize = { w = curW, h = curH,
+                             minwidth = flags.minwidth,
+                             minheight = flags.minheight }
+  end
   -- An exact size and a desktop-fullscreen mode cannot both hold.  The lock
   -- is the more specific request, so it wins and drops fullscreen; VIDEO MODE
   -- reads BORDERLESS until the player changes it, which then releases this.

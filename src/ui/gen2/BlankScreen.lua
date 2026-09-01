@@ -40,10 +40,8 @@ function BlankScreen:drawWidescreen(winW, winH)
 end
 
 function BlankScreen:update()
-  if self.left > 0 then
-    self.left = self.left - 1
-    return
-  end
+  self.left = self.left - 1
+  if self.left > 0 then return end
   local done = self.onDone
   self.onDone = nil
   if done then done() end

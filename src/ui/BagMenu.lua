@@ -376,7 +376,13 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       -- (engine/menus/party_menu.asm:289-293)
       showMessages(game, payload, function()
         local StatBox = require("src.battle.BattleState").StatBox
-        game.stack:push(StatBox.new(game, target, function()
+        local statBox
+        -- ../pokered/engine/pokemon/evos_moves.asm:126-128
+        local function dropStatBox()
+          if statBox and game.stack:top() == statBox then game.stack:pop() end
+          statBox = nil
+        end
+        statBox = StatBox.new(game, target, function()
           local Experience = require("src.battle.Experience")
           local def = game.data.pokemon[target.species]
           local moves = Experience.movesLearnedAt(def, extra.leveledTo)
@@ -391,9 +397,12 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
               -- the party menu stays up through TryEvolvingMon and only
               -- comes down at RemoveUsedItem (item_effects.asm:1392-1418)
               if evoTo then
-                Evolution.evolve(game, target, evoTo, closePicker,
-                                 evo and evo.method)
+                Evolution.evolve(game, target, evoTo, function()
+                  dropStatBox()
+                  closePicker()
+                end, evo and evo.method)
               else
+                dropStatBox()
                 closePicker()
               end
               return
@@ -413,7 +422,8 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
             end
           end
           nextStep()
-        end))
+        end, true)
+        game.stack:push(statBox)
       end, TextBox.soundOpts(game, "Get_Item1"))
       return
     end

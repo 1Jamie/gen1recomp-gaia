@@ -129,6 +129,77 @@ for tick = 1, 60 do
 end
 check(ran > 0, "but it does end")
 
+-- ../pokecrystal/engine/gfx/pic_animation.asm:65-71
+local hofLine = table.concat(timeline(ONESHOT, "hof", 60), ",")
+eq(hofLine, table.concat(timeline(ONESHOT, "menu", 60), ","),
+  "ANIM_MON_HOF is ANIM_MON_MENU's timeline")
+check(MonAnim.new(ONESHOT, "hof") ~= nil, "and the scene exists at all")
+
+
+-- ../pokecrystal/gfx/pokemon/bulbasaur/anim.asm, anim_idle.asm
+-- ../pokecrystal/gfx/pokemon/kadabra/anim.asm, anim_idle.asm
+local BULBASAUR_ANIM = {
+  tiles = 5, bitmasks = BULBASAUR.bitmasks, frames = BULBASAUR.frames,
+  play = { { 1, 10 }, { 2, 10 }, { 1, 8 }, { 2, 6 }, { 4, 20 }, { 3, 6 },
+    { 0, 5 }, { 5, 5 } },
+  idle = { { 5, 5 }, { 0, 5 }, { 5, 5 } },
+}
+local KADABRA_ANIM = {
+  tiles = 6, bitmasks = BULBASAUR.bitmasks, frames = BULBASAUR.frames,
+  play = { { 1, 8 }, { MonAnim.SETREPEAT, 4 }, { 2, 6 }, { 3, 6 },
+    { MonAnim.DOREPEAT, 2 }, { 1, 12 } },
+  idle = { { MonAnim.SETREPEAT, 3 }, { 0, 7 }, { 4, 7 },
+    { MonAnim.DOREPEAT, 1 } },
+}
+
+local function scene(data, name)
+  local cries = {}
+  local anim = MonAnim.new(data, name, function(kind)
+    cries[#cries + 1] = { kind = kind }
+  end)
+  if not anim then return nil, cries end
+  local out, tick = {}, 0
+  while not anim:finished() and tick < 600 do
+    tick = tick + 1
+    local before = #cries
+    anim:update()
+    if #cries > before then cries[#cries].tick = tick end
+    out[tick] = anim:currentFrame()
+  end
+  return out, cries
+end
+
+check(MonAnim.new(BULBASAUR_ANIM, "trade") ~= nil, "ANIM_MON_TRADE exists")
+check(MonAnim.new(BULBASAUR_ANIM, "evolve") ~= nil, "ANIM_MON_EVOLVE exists")
+check(MonAnim.new(BULBASAUR_ANIM, "hatch") ~= nil, "ANIM_MON_HATCH exists")
+
+local bulbaTrade, bulbaCries = scene(BULBASAUR_ANIM, "trade")
+eq(#bulbaTrade, 126, "BULBASAUR's trade scene is 126 iterations long")
+-- ../pokecrystal/engine/gfx/pic_animation.asm:196-215
+eq(bulbaTrade[17], 5, "Play2 leaves the idle script's last frame on screen")
+eq(bulbaTrade[34], 0, "the Play after it does put the base picture back")
+eq(#bulbaCries, 1, "the trade scene plays exactly one cry")
+eq(bulbaCries[1] and bulbaCries[1].kind, "cry",
+  "and it is PokeAnim_Cry, not CryNoWait")
+eq(bulbaCries[1] and bulbaCries[1].tick, 53,
+  "after Idle, Play2, Idle, Play and the eighteen SetWait frames")
+
+local kadabraTrade, kadabraCries = scene(KADABRA_ANIM, "trade")
+eq(#kadabraTrade, 181, "KADABRA's setrepeat/dorepeat idle runs three times")
+eq(kadabraTrade[45], 4, "and Play2 ends on `frame 4, 07`, its last one")
+eq(kadabraCries[1] and kadabraCries[1].tick, 109, "with the cry after that")
+
+local _, evolveCries = scene(BULBASAUR_ANIM, "evolve")
+eq(evolveCries[1] and evolveCries[1].kind, "cryNoWait",
+  "ANIM_MON_EVOLVE's cry does not wait")
+eq(evolveCries[1] and evolveCries[1].tick, 36,
+  "and lands after Idle, Play and the eighteen frames, before Setup, Play")
+
+local hatchLine, hatchCries = scene(BULBASAUR_ANIM, "hatch")
+eq(#hatchLine, 126, "ANIM_MON_HATCH runs the idle script at both ends")
+eq(hatchCries[1] and hatchCries[1].tick, 18,
+  "its CryNoWait comes straight after the first Play")
+
 -- ---- gating ---------------------------------------------------------------
 
 eq(MonAnim.new(nil, "battle"), nil, "no data means no sequencer")

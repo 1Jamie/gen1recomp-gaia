@@ -11,8 +11,10 @@ Font.load(Data)
 
 local scripts = require("data.scripts.init")
 local CASES = {
+  -- ../pokered/scripts/Route2Gate.asm:11
   { map = "ROUTE_2_GATE", text = "TEXT_ROUTE2GATE_OAKS_AIDE",
-    item = "HM_FLASH", label = "_Route2GateOaksAideFlashExplanationText",
+    item = "HM_FLASH", flag = "EVENT_GOT_HM05",
+    label = "_Route2GateOaksAideFlashExplanationText",
     value = "FLASH" },
   { map = "ROUTE_11_GATE_2F", text = "TEXT_ROUTE11GATE2F_OAKS_AIDE",
     item = "ITEMFINDER", label = "_Route11Gate2FOaksAideItemfinderDescriptionText",
@@ -27,7 +29,7 @@ for _, case in ipairs(CASES) do
   local game = {
     data = { items = { [case.item] = { name = case.item } },
              text = { [case.label] = case.value } },
-    save = { flags = { ["EVENT_GOT_" .. case.item] = true },
+    save = { flags = { [case.flag or ("EVENT_GOT_" .. case.item)] = true },
              player = { name = "RED" }, pokedex = { owned = {} } },
     stack = { push = function(_, state) pushed[#pushed + 1] = state end },
   }

@@ -130,10 +130,21 @@ do
     "no screen-space dot product is fed to sin(): GLSL ES leaves that undefined")
   check(src:find("mod(floor(cell), 512.0)", 1, true) ~= nil,
     "the fleck cell id is bounded before it reaches the hash")
-  check(src:find("precision highp float;", 1, true) ~= nil,
-    "the pixel stage claims highp where the driver offers it")
-  check(src:find("GL_FRAGMENT_PRECISION_HIGH", 1, true) ~= nil,
-    "and only where it offers it")
+  check(not src:find("precision%s+%a+%s+float%s*;"),
+    "no default precision statement: LOVE parses effect()'s prototype under mediump before user code")
+  check(not src:find("precision%s+%a+%s+int%s*;"),
+    "and no default int precision statement either")
+  check(src:find("varying CART_HP vec2 cart_screen_pos", 1, true) ~= nil,
+    "the sparkle input is a varying the vertex stage writes in highp")
+  check(src:find("sparkle(cart_screen_pos)", 1, true) ~= nil,
+    "and the sparkle reads that varying, not the mediump screen_coords")
+  check(src:find("!defined(GL_FRAGMENT_PRECISION_HIGH)", 1, true) ~= nil,
+    "highp is only named where the fragment stage offers it")
+  check(src:find("vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)", 1, true) ~= nil,
+    "effect() keeps the unqualified parameter list LOVE's prototype was parsed with")
+  local vertexBlock = src:match("#ifdef VERTEX(.-)#endif")
+  check(vertexBlock and vertexBlock:find("extern vec2 mouse_screen_pos;", 1, true) ~= nil,
+    "the hover uniforms live in the vertex stage only")
   check(not src:find("smoothstep(0.13, 0.0,", 1, true),
     "smoothstep is never called with edge0 > edge1")
   check(src:find("pow(max(tw, 0.0), 16.0)", 1, true) ~= nil,

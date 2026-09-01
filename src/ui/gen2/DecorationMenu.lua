@@ -22,10 +22,12 @@
 local Chrome = require("src.ui.gen2.Chrome")
 local Decorations = require("src.core.gen2.Decorations")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 local DecorationMenu = {}
 DecorationMenu.__index = DecorationMenu
-DecorationMenu.isOpaque = true
+-- ../pokecrystal/engine/overworld/decorations.asm:8
+DecorationMenu.isOpaque = false
 
 -- .category_pointers' eighth row, which is not a category and is always shown.
 local EXIT = Strings.source("EXIT")
@@ -98,14 +100,21 @@ function DecorationMenu:say(pages)
   if not pages or #pages == 0 then return end
   self.pages = pages
   self.pageIndex = 1
+  -- ../pokecrystal/home/menu.asm:328 MenuTextboxBackup
+  self.typer = Typer.new(self.game)
+  self.typer:start(pages[1])
 end
 
 -- MenuTextboxBackup returns to whatever menu was underneath, so a message is
 -- not a mode of its own: it sits over the list it was printed from.
 function DecorationMenu:advanceMessage()
   self.pageIndex = self.pageIndex + 1
-  if self.pageIndex <= #self.pages then return end
+  if self.pageIndex <= #self.pages then
+    if self.typer then self.typer:start(self.pages[self.pageIndex]) end
+    return
+  end
   self.pages = nil
+  self.typer = nil
 end
 
 -- One row of the item list chosen: DoDecorationAction2.  An ornament row asks
@@ -147,6 +156,8 @@ function DecorationMenu:update(_dt)
   if not (input and not self.done) then return end
 
   if self.pages then
+    Typer.step(self)
+    if Typer.typing(self) then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       self:advanceMessage()
     end
@@ -223,8 +234,6 @@ function DecorationMenu:drawList(x, y, w, h, labels, index, scroll)
 end
 
 function DecorationMenu:drawPanel()
-  Chrome.clear()
-
   if self.mode == "category" then
     local labels = {}
     for i, category in ipairs(self.categories) do labels[i] = category.label end
@@ -248,7 +257,14 @@ function DecorationMenu:drawPanel()
   if self.pages then
     Chrome.box(0, 12, 20, 6)
     local line = 14
-    for part in ((self.pages[self.pageIndex] or "") .. "\n"):gmatch("(.-)\n") do
+    local shown = self.typer and self.typer:lines()
+    if not shown then
+      shown = {}
+      for part in ((self.pages[self.pageIndex] or "") .. "\n"):gmatch("(.-)\n") do
+        shown[#shown + 1] = part
+      end
+    end
+    for _, part in ipairs(shown) do
       Chrome.print(part, 1, line)
       line = line + 2
     end
@@ -260,18 +276,5 @@ end
 function DecorationMenu:draw()
   self:drawPanel()
 end
-
-function DecorationMenu:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  G.push()
-  G.translate(Chrome.fitOrigin(winW, winH, scale))
-  G.scale(scale, scale)
-  self:drawPanel()
-  G.pop()
-end
-
-function DecorationMenu:drawsWidescreen() return true end
 
 return DecorationMenu

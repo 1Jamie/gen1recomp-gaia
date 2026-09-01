@@ -74,6 +74,8 @@ local BITTER = {
 -- _ItemWontHaveEffectText / _ItemCantUseOnEggText (data/text/common_3.asm).
 ItemEffects.TEXT_NO_EFFECT = "It won't have any\neffect."
 ItemEffects.TEXT_CANT_USE_ON_EGG = "That can't be used\non an EGG."
+-- _ItemCantUseOnMonText (data/text/common_3.asm:1265).
+ItemEffects.TEXT_CANT_USE_ON_MON = "That can't be used\non this #MON."
 -- _PPRestoredText (data/text/common_3.asm).
 ItemEffects.TEXT_PP_RESTORED = "PP was restored."
 -- _PPIsMaxedOutText / _PPsIncreasedText (data/text/common_3.asm).

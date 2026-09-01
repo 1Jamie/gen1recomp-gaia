@@ -110,13 +110,13 @@ do
 
   local H, i, comma, space, bang = 0x87, 0xa8, 0xf4, 0x7f, 0xe7
   local inString = { [0] = 0x00, H, i, comma, space, 0x14, bang, 0x57 }
-  eq(decode("crystal", inString), "Hi, {PLAYER}!",
+  eq(decode("crystal", inString), "Hi, {PLAYER}!{DONE}",
     "an in-string $14 decodes as the player's name")
-  eq(decode("gold", inString), "Hi, !",
+  eq(decode("gold", inString), "Hi, !{DONE}",
     "and only on Crystal, which is the only edition that writes one")
 
   local command = { [0] = 0x14, 0x03, 0x00, H, i, 0x57 }
-  eq(decode("crystal", command), "{STRBUF}Hi",
+  eq(decode("crystal", command), "{STRBUF}Hi{DONE}",
     "a $14 outside a string is still TX_STRINGBUFFER and eats its buffer id")
 end
 
@@ -161,8 +161,13 @@ do
     print("  (skipped: no rom_text.lua at " .. path .. ")")
   else
     file:close()
-    local texts = assert(loadfile(path))()
-    check(next(texts) ~= nil, "the imported cache carries strings")
+    local raw = assert(loadfile(path))()
+    check(next(raw) ~= nil, "the imported cache carries strings")
+    local texts = {}
+    for label, body in pairs(raw) do
+      texts[label] = type(body) == "string"
+        and (body:gsub("{DONE}$", ""):gsub("{PROMPT}$", "")) or body
+    end
     -- Wording taken from pokegold's data/text/battle.asm, with \n for `line`
     -- and \v for `cont`, which is what RomExtractorGen2 decodes those to.
     eq(texts.SuperEffectiveText, "It's super-\neffective!",

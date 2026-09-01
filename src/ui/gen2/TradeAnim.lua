@@ -47,6 +47,7 @@ local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
+local MonAnimView = require("src.render.MonAnimView")
 local Music = require("src.core.Music")
 local Palettes = require("src.world.gen2.Palettes")
 local Sound = require("src.core.Sound")
@@ -280,7 +281,25 @@ function TradeAnimView:step()
   if index ~= self.beatIndex then
     self.beatIndex = index
     self:cue(beat.cue)
+    -- ../pokecrystal/engine/movie/trade_animation.asm:64-65
+    if beat.id == "getmon_hold" then self:startPicAnim() end
   end
+end
+
+-- ../pokecrystal/engine/gfx/trademon_frontpic.asm:36-37
+function TradeAnimView:startPicAnim()
+  local record = self.get
+  local species = record and record.species
+  self.picAnim = MonAnimView.start(
+    species and self.data.pokemon and self.data.pokemon[species], record,
+    "trade", function(path) return self:image(path) end,
+    function() self:playCry(species) end)
+end
+
+function TradeAnimView:getAnimData()
+  local species = self.get and self.get.species
+  local def = species and self.data.pokemon and self.data.pokemon[species]
+  return MonAnimView.animData(def, self.get)
 end
 
 function TradeAnimView:cue(cue)
@@ -300,8 +319,10 @@ function TradeAnimView:cue(cue)
   elseif cue == "drop" then
     self:playSfx("Sfx_BallPoof")
   elseif cue == "show_get" then
+    -- ../pokecrystal/engine/movie/trade_animation.asm:787-800
     self:playSfx("Sfx_BallPoof")
-    self:playCry(self.get.species)
+    -- ../pokegold/engine/movie/trade_animation.asm:784-789
+    if not self:getAnimData() then self:playCry(self.get.species) end
   end
 end
 
@@ -318,6 +339,11 @@ function TradeAnimView:update(_dt)
   local input = self.game and self.game.input
   if input and (input:wasPressed("b") or input:wasPressed("start")) then
     return self:finish()
+  end
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:79-89
+  if self.picAnim then
+    if self.picAnim:step() then self.picAnim = nil end
+    return
   end
   if self.frame + 1 >= Anim.TOTAL then return self:finish() end
   self:step()
@@ -540,13 +566,22 @@ function TradeAnimView:drawPic(record, offset)
   if not image then return end
   local G = love.graphics
   local w, h = image:getDimensions()
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:431-435
+  local sheet, quad, size
+  if self.picAnim and record == self.get then
+    sheet, quad, size = self.picAnim:frame()
+  end
+  if sheet then w, h = size, size end
   local box = PIC_TILES * 8
   local px = PIC_TILE_X * 8 + math.floor((box - w) / 2) - offset
   local py = PIC_TILE_Y * 8 + (box - h)
   G.setColor(1, 1, 1, 1)
   local colors = Palettes.monColors(self.palettes, record.species,
     record.shiny)
-  local function body() G.draw(image, px, py) end
+  local function body()
+    if sheet then return G.draw(sheet, quad, px, py) end
+    G.draw(image, px, py)
+  end
   if colors and GbcPalette.available() then
     GbcPalette.with(colors, body)
   else

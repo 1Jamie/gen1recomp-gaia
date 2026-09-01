@@ -2346,8 +2346,8 @@ checkNear("0,0,0,0 is solid white",
   Transition.flashVeil({ 0, 0, 0, 0 }), -1, 0.001)
 checkNear("3,2,1,0 is the identity",
   Transition.flashVeil({ 3, 2, 1, 0 }), 0, 0.001)
-check("the flash runs 72 frames (12 palettes x 2 x 3 passes)",
-  Transition.FLASH_FRAMES, 72)
+check("the flash runs 75 frames (12 palettes x 2 + the terminator, x 3 slots)",
+  Transition.FLASH_FRAMES, 75)
 
 -- The twenty spin steps must black out the whole 20x18 tilemap between them,
 -- which is the point of the wedge table.

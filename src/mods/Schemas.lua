@@ -1098,7 +1098,11 @@ R.encounters = {
     trees = f.map(f.str, f.str),
     rocks = f.map(f.str, f.str),
     treeSets = f.map(f.str, f.rec{ common = f.list(gen2TreeSlot),
-                                   rare = f.list(gen2TreeSlot) }),
+                                   rare = f.opt(f.list(gen2TreeSlot)) }),
+    -- ../pokecrystal/data/wild/treemons_asleep.asm:3 AsleepTreeMonsNite
+    treeMonsAsleep = f.opt(f.rec{ MORN = f.list(f.id("pokemon")),
+                                  DAY = f.list(f.id("pokemon")),
+                                  NITE = f.list(f.id("pokemon")) }),
     -- the Bug-Catching Contest pool (min/max level, not one level per slot)
     bugContest = f.list(f.rec{ species = f.id("pokemon"),
                                min = f.int(1), max = f.int(1),

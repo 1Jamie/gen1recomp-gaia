@@ -35,6 +35,17 @@ return function(game)
 
   local function tap(btn) U.tap(game, btn) U.wait(3) end
   local function top() return game.stack:top() end
+  local function topId()
+    local state = top()
+    return state and state.screenId or nil
+  end
+  local function waitFor(id, limit)
+    for _ = 1, limit or 120 do
+      if topId() == id then return true end
+      U.wait(1)
+    end
+    return topId() == id
+  end
 
   U.wait(45)
   local world = game.world
@@ -146,6 +157,7 @@ return function(game)
   ok(menu.list:current().value == "pokemon", "the cursor found POKeMON")
   tap("a")
 
+  waitFor("Gen2PartyMenu", 90)
   local party = top()
   if not ok(party and party.screenId == "Gen2PartyMenu",
       "POKeMON opened the party list") then
@@ -172,6 +184,7 @@ return function(game)
   ok(sub.index == flyRow, "the cursor found FLY")
   tap("a")
   U.wait(10)
+  waitFor("Gen2Pokegear", 120)
 
   local picker = top()
   if not ok(picker and picker.screenId == "Gen2Pokegear",

@@ -145,8 +145,8 @@ end
 -- HUD's bar minus the "HP:" prefix -- same tiles, same HPBarPals colour, same
 -- one-pixel-at-a-time fill.  Sharing this method is what keeps the two screens
 -- from ever disagreeing about how full a bar looks.
-function BattleHud:drawBar(hp, maxHp, tx, ty, zero)
-  local pixels = HpBar.pixels(hp, maxHp)
+function BattleHud:drawBar(hp, maxHp, tx, ty, zero, pixels)
+  pixels = pixels or HpBar.pixels(hp, maxHp)
   local colors = self:barColors(HpBar.palette(pixels), zero)
   for cell = 0, HpBar.LENGTH_TILES - 1 do
     local remaining = pixels - cell * 8
@@ -162,8 +162,8 @@ end
 -- frame's vertical stub there.
 -- `zero` overrides colour 0: the stats screen puts the page tint there
 -- (engine/gfx/color.asm:386-390).  #1693
-function BattleHud:drawHpBar(hp, maxHp, tx, ty, zero)
-  local pixels = HpBar.pixels(hp, maxHp)
+function BattleHud:drawHpBar(hp, maxHp, tx, ty, zero, pixels)
+  pixels = pixels or HpBar.pixels(hp, maxHp)
   local colors = self:barColors(HpBar.palette(pixels), zero)
   -- The "HP:" badge sits inside the bar's own attrmap region, so it wears the
   -- HP palette too: its background is HPBarPals' light colour (the cream the
@@ -172,7 +172,7 @@ function BattleHud:drawHpBar(hp, maxHp, tx, ty, zero)
   self:drawTile("hpBar", FIRST_BATTLE_EXTRA, TILE_HP_LABEL, tx, ty, colors)
   self:drawTile("hpBar", FIRST_BATTLE_EXTRA, TILE_HP_LABEL + 1, tx + 1, ty,
     colors)
-  self:drawBar(hp, maxHp, tx + 2, ty, zero)
+  self:drawBar(hp, maxHp, tx + 2, ty, zero, pixels)
   self:drawTile("hpBar", FIRST_BATTLE_EXTRA, TILE_BAR_END,
     tx + 2 + HpBar.LENGTH_TILES, ty, colors)
   return tx + 3 + HpBar.LENGTH_TILES

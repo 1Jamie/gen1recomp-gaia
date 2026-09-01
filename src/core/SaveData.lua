@@ -1189,11 +1189,10 @@ function SaveData.listSlots(version)
   return listSlotsIn(version)
 end
 
-function SaveData.readSlotSource(version, slotId, injectedFs)
-  version = version or GameVersion.get()
-  if not knownVersion(version) or type(slotId) ~= "string" then return nil end
+local function readSlotSourceIn(key, slotId, injectedFs)
+  if type(slotId) ~= "string" then return nil end
   local fs = persistFs(injectedFs)
-  local main, bak, tmp = slotNames(version, slotId)
+  local main, bak, tmp = slotNames(key, slotId)
   for _, name in ipairs({ main, tmp, bak }) do
     if fs.getInfo(name) then
       local body = fs.read(name)
@@ -1203,6 +1202,12 @@ function SaveData.readSlotSource(version, slotId, injectedFs)
     end
   end
   return nil
+end
+
+function SaveData.readSlotSource(version, slotId, injectedFs)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  return readSlotSourceIn(version, slotId, injectedFs)
 end
 
 -- Give a registered slot a custom label (#205: "a way to name save slots so
@@ -1507,6 +1512,26 @@ function SaveData.listCartSlots(cartId)
   return listSlotsIn(key)
 end
 
+function SaveData.cartsWithSlots(injectedFs)
+  local opts = SaveData.loadOptions(injectedFs)
+  local root = type(opts.cartSlots) == "table" and opts.cartSlots or {}
+  local out = {}
+  for id, reg in pairs(root) do
+    if cartKey(id) and type(reg) == "table" and type(reg.list) == "table"
+        and #reg.list > 0 then
+      out[#out + 1] = id
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+function SaveData.readCartSlotSource(cartId, slotId, injectedFs)
+  local key = cartKey(cartId or activeCart)
+  if not key then return nil end
+  return readSlotSourceIn(key, slotId, injectedFs)
+end
+
 function SaveData.createCartSlot(cartId)
   local key = cartKey(cartId or activeCart)
   if not key then return nil end
@@ -1543,9 +1568,13 @@ function SaveData.writeCartSlot(cartId, slotId, saveTable)
   if not key then return false, "unknown cart" end
   local ok, err = writeSlotIn(key, slotId, saveTable)
   if not ok then return ok, err end
-  local hash = type(saveTable.meta) == "table" and saveTable.meta.cartHash or nil
+  local meta = type(saveTable.meta) == "table" and saveTable.meta or nil
+  local hash = meta and meta.cartHash or nil
   if type(hash) == "string" and hash ~= "" then
     SaveData.setSlotCartHash(cartId or activeCart, slotId, hash)
+  end
+  if meta and meta.sealBroken == true then
+    SaveData.markSlotSealBroken(cartId or activeCart, slotId)
   end
   return true
 end
@@ -1742,24 +1771,34 @@ function SaveData.ensurePlaythroughId(save, injectedFs)
   return id
 end
 
-function SaveData.slotPlaythroughId(version, slotId, save, injectedFs)
-  version = version or GameVersion.get()
-  if not knownVersion(version) then return nil end
+local function slotPlaythroughIdIn(key, slotId, save, injectedFs)
   if type(slotId) ~= "string" or slotId == "" then return nil end
   local meta = type(save) == "table" and save.meta
   local stamped = type(meta) == "table" and meta.playthroughId
   local opts = SaveData.loadOptions(injectedFs)
-  local byVersion = opts.playthroughIds and opts.playthroughIds[version]
-  local mapped = byVersion and byVersion[slotId]
+  local byScope = opts.playthroughIds and opts.playthroughIds[key]
+  local mapped = byScope and byScope[slotId]
   local id = (type(stamped) == "string" and stamped ~= "") and stamped or mapped
   if type(id) ~= "string" or id == "" then id = SaveData.newPlaythroughId() end
   if mapped ~= id then
     opts.playthroughIds = opts.playthroughIds or {}
-    opts.playthroughIds[version] = opts.playthroughIds[version] or {}
-    opts.playthroughIds[version][slotId] = id
+    opts.playthroughIds[key] = opts.playthroughIds[key] or {}
+    opts.playthroughIds[key][slotId] = id
     SaveData.saveOptions(opts, injectedFs)
   end
   return id
+end
+
+function SaveData.slotPlaythroughId(version, slotId, save, injectedFs)
+  version = version or GameVersion.get()
+  if not knownVersion(version) then return nil end
+  return slotPlaythroughIdIn(version, slotId, save, injectedFs)
+end
+
+function SaveData.cartSlotPlaythroughId(cartId, slotId, save, injectedFs)
+  local key = cartKey(cartId or activeCart)
+  if not key then return nil end
+  return slotPlaythroughIdIn(key, slotId, save, injectedFs)
 end
 
 -- Resolve the already-selected playthrough without changing the supplied save
@@ -1851,6 +1890,7 @@ function SaveData.buildMeta(mods, previous, sessionStart)
     savedAt = savedAt,
     sessionStart = started,
     playthroughId = type(previous) == "table" and previous.playthroughId or nil,
+    cartId = type(previous) == "table" and previous.cartId or nil,
     cartHash = type(previous) == "table" and previous.cartHash or nil,
     sealBroken = (type(previous) == "table" and previous.sealBroken == true) or nil,
     mods = list,
@@ -2084,8 +2124,9 @@ function SaveData.save(data, mods)
     local opts, changed = rememberPlaythroughId(data)
     if changed then SaveData.saveOptions(opts) end
   end
-  if activeCart and activeCartHash and type(data.meta) == "table" then
-    data.meta.cartHash = activeCartHash
+  if activeCart and type(data.meta) == "table" then
+    data.meta.cartId = activeCart
+    if activeCartHash then data.meta.cartHash = activeCartHash end
   end
   if sealBroken and type(data.meta) == "table" then
     data.meta.sealBroken = true

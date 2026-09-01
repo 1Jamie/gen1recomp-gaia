@@ -16,6 +16,7 @@ local Logger = require("src.core.Logger")
 local StatusRegistry = require("src.battle.StatusRegistry")
 local TurnOrder = require("src.battle.TurnOrder")
 local TypeChart = require("src.battle.TypeChart")
+local Timing = require("src.core.Timing")
 local romText = require("src.core.RomText")
 local Strings = require("src.core.Strings")
 
@@ -287,6 +288,10 @@ MoveEffects.primary = {
   -- battle (#644).  The failed flag rides the message list so performMove can
   -- peel the announcement-time anim row without matching on printed text.
   SUBSTITUTE_EFFECT = function(battle, user)
+    -- ../pokered/engine/battle/move_effects/substitute.asm:2-3
+    if battle.waitBeforeMoveAnim then
+      battle:waitBeforeMoveAnim(Timing.SUBSTITUTE_ENTRY)
+    end
     if user.substituteHP then
       return { romText(battle.data, "_HasSubstituteText", "%s\nhas a SUBSTITUTE!", displayName(user)),
                failed = true }
@@ -302,6 +307,15 @@ MoveEffects.primary = {
     end
     user.mon.hp = user.mon.hp - cost
     user.substituteHP = cost + 1
+    -- ../pokered/engine/battle/move_effects/substitute.asm:47-55
+    user.substitutePending = true
+    if battle.animationsOn and battle.cancelMoveAnim
+       and not battle:animationsOn() then
+      battle:cancelMoveAnim()
+    end
+    if battle.actNext then
+      battle:actNext(function() user.substitutePending = nil end)
+    end
     -- _SubstituteText
     return { romText(battle.data, "_SubstituteText", "It created a\nSUBSTITUTE!") }
   end,
@@ -322,12 +336,18 @@ MoveEffects.primary = {
   -- returned strings can't express.
 
   TRANSFORM_EFFECT = function(battle, user, target)
-    -- transform.asm:31-53 (AnimationTransformMon) morphs the user's
-    -- on-screen pic into the target species; the port swaps user.sprite
-    -- via the same getImage/monPalette path makeBattler uses so the
-    -- change is visible (the renderer draws battler.sprite directly).
-    user.sprite = battle:speciesSprite(target.mon.species, user.isPlayer)
-                  or user.sprite
+    -- transform.asm:37-45
+    local pic = battle:speciesSprite(target.mon.species, user.isPlayer)
+    if battle.animationsOn and battle.cancelMoveAnim and not battle:animationsOn() then
+      battle:cancelMoveAnim()
+    end
+    if pic and battle.actNext then
+      battle:actNext(function()
+        user.sprite = pic
+        local pf = battle.picFxFor and battle:picFxFor(user)
+        if pf then pf.minimized = nil end
+      end)
+    end
     user.curStats = {
       hp = user.mon.stats.hp, -- HP is kept
       attack = target.curStats.attack, defense = target.curStats.defense,

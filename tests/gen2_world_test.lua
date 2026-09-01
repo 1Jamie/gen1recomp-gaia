@@ -369,6 +369,16 @@ eq(seaGame.stack.cleared, 1, "rod on water quits the PACK")
 check(seaWorld.fishing ~= nil, "rod on water starts the cast")
 eq(seaWorld.fishing.outcome, "battle", "and the roll already hooked something")
 check(seaWorld:busy(), "the cast holds the world")
+-- ../pokecrystal/engine/menus/start_menu.asm:492
+check(seaWorld.mapSetup ~= nil, "the rod quits the PACK through ExitAllMenus")
+do
+  local exitGuard = 0
+  while seaWorld.mapSetup and exitGuard < 120 do
+    seaWorld:step()
+    exitGuard = exitGuard + 1
+  end
+end
+eq(seaWorld.fishing.phase, "cast", "the cast has not started under the white")
 -- pause 40, the bite, pause 40, then RodBiteText.
 runFrames(seaWorld, 41)
 eq(seaWorld.fishing.phase, "bite", "the cast runs out into the bite")
@@ -616,6 +626,8 @@ local hitWorld, hitGame = fakeWorld(treeCells, fakePlayer(5, 5, "up"), {
   { species = "HOOTHOOT", nickname = "OWL",
     moves = { { id = "HEADBUTT", pp = 15 } } },
 })
+-- ../pokecrystal/engine/events/treemons.asm:126 GetTreeMon
+hitWorld.treemonRandom = function() return 0 end
 check(hitWorld:interact(), "the ask opens again")
 advanceText(hitWorld)
 answerYesNo(hitWorld, true)
@@ -652,6 +664,64 @@ local pastWorld = fakeWorld(treeCells, fakePlayer(5, 5, "down"), {
     moves = { { id = "HEADBUTT", pp = 15 } } },
 })
 check(not pastWorld:interact(), "facing away from the tree does nothing")
+
+-- ../pokecrystal/engine/events/treemons.asm:199 GetTreeScore
+do
+  local Enc = require("src.battle.gen2.Encounter")
+  eq(Enc.treeScore(5, 4, 12345), Enc.TREEMON_SCORE_GOOD,
+    "diff 1..4 is a GOOD tree")
+  eq(Enc.treeScore(5, 4, 17), Enc.TREEMON_SCORE_RARE,
+    "diff 0 is the 1-in-10 RARE tree")
+  eq(Enc.treeScore(5, 4, 0), Enc.TREEMON_SCORE_BAD, "diff 5..9 is BAD")
+  check(Enc.treeScore(0, 0, 0) ~= Enc.treeScore(-4, -4, 0),
+    "RefreshPlayerCoords' +4 is in the coordinate half")
+  check(Enc.treeScore(5, 4, 12345) ~= Enc.treeScore(5, 4, 0),
+    "and wPlayerID is in the other half")
+
+  -- ../pokecrystal/engine/events/treemons.asm:96 GetTreeMons
+  eq(Enc.treeSetUsable("TREEMON_SET_NONE", "crystal"), false,
+    "TREEMON_SET_NONE never rolls")
+  eq(Enc.treeSetUsable("TREEMON_SET_CITY", "crystal"), true,
+    "Crystal has no CITY set to refuse")
+  eq(Enc.treeSetUsable("TREEMON_SET_CITY", "gs"), false,
+    "but G/S's CITY table is dead data")
+  eq(Enc.treeSetUsable("TREEMON_SET_UNUSED", "gs"), false, "so is UNUSED")
+
+  -- ../pokecrystal/engine/battle/core.asm:6422 CheckSleepingTreeMon
+  eq(Enc.treeMonAsleep("SPEAROW", "NITE", "crystal"), true,
+    "SPEAROW is on the Nite list")
+  eq(Enc.treeMonAsleep("SPEAROW", "DARK", "crystal"), true,
+    "DARKNESS_F falls through to Nite")
+  eq(Enc.treeMonAsleep("SPEAROW", "DAY", "crystal"), false,
+    "and is awake by day")
+  eq(Enc.treeMonAsleep("HOOTHOOT", "DAY", "crystal"), true,
+    "HOOTHOOT is on the Day list")
+  eq(Enc.treeMonAsleep("HOOTHOOT", "DAY", "gs"), false,
+    "pokegold has no asleep table at all")
+end
+
+-- ../pokecrystal/engine/events/treemons.asm:126 GetTreeMon's three gates
+do
+  local function headbutt(rolls, otId)
+    local world = fakeWorld(treeCells, fakePlayer(5, 5, "up"), {
+      { species = "HOOTHOOT", nickname = "OWL",
+        moves = { { id = "HEADBUTT", pp = 15 } } },
+    })
+    world.game.save.player.id = otId
+    local index = 0
+    world.treemonRandom = function()
+      index = index + 1
+      return rolls[index] or 0
+    end
+    return world:tryHeadbutt(5, 4)
+  end
+  eq(headbutt({ 0 }, 0), "battle", "a BAD tree gives up a mon on a 0")
+  eq(headbutt({ 1 }, 0), "nothing", "and nothing on a 1")
+  eq(headbutt({ 4 }, 12345), "battle", "a GOOD tree still answers a 4")
+  eq(headbutt({ 5 }, 12345), "nothing", "but not a 5")
+  eq(headbutt({ 7 }, 17), "battle", "a RARE tree answers a 7")
+  eq(headbutt({ 8 }, 17), "nothing", "and refuses an 8")
+end
 
 -- ---- C. the cave encounter gate ------------------------------------------
 -- CanEncounterWildMon (engine/overworld/events.asm): a CAVE or DUNGEON map

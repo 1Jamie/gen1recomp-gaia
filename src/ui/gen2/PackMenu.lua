@@ -401,6 +401,11 @@ function PackMenu:exitToField()
   local stack = self.game and self.game.stack
   if stack and stack.clear then
     stack:clear()
+    -- ../pokecrystal/home/map.asm:1927-1940
+    local world = self.game.world
+    if world and world.exitMenusFade and not world.mapSetup then
+      world:exitMenusFade()
+    end
   elseif self.onClose then
     -- No clear on this stack (a test harness, or a screen pushed on its own):
     -- at least give the pack back.
@@ -1062,7 +1067,9 @@ end
 -- row SELECT armed with the hollow ▷ while the solid ▶ goes on looking.
 function PackMenu:drawList(listX, listY)
   -- engine/menus/scrolling_menu.asm:86 .a_button -> home/menu.asm:50
-  local picked = (self.submenu or self.qtyState or self.confirm or self.message)
+  -- engine/items/pack.asm:1301 .select
+  local picked = not self.switching
+    and (self.submenu or self.qtyState or self.confirm or self.message)
     and true or false
   for row = 1, VISIBLE_ROWS do
     local i = row + self.scroll

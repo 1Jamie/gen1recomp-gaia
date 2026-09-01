@@ -135,14 +135,16 @@ do
     "a missed move arms the 40 frame delay (effect_commands.asm's MoveDelay)")
   T.eq(ui.messageTimer, 0, "no separate A/B hold on the move line itself")
 
-  local frames = 0
-  for _ = 1, 100 do
+  local frames, printed = 0, nil
+  for _ = 1, 400 do
     if ui.message == "But it failed!" then break end
+    if printed == nil and not ui:syncTyper() then printed = frames end
     ui:update(1 / 60)
     frames = frames + 1
   end
   T.eq(ui.message, "But it failed!", "the queue eventually reaches the failure line")
-  T.eq(frames, 41, "the used line held for exactly the 40 delay frames")
+  T.check(printed ~= nil and printed > 0, "the used line typed itself out")
+  T.eq(frames, printed + 41, "the used line held for exactly the 40 delay frames")
   T.check(ui.messageTimer > 0, "the failure line itself still holds for A/B")
 end
 

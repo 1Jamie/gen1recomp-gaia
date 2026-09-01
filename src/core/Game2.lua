@@ -33,6 +33,7 @@ local TextBox = require("src.render.TextBox")
 -- finds it in the same place in Gold.
 local TouchControls = require("src.core.TouchControls")
 local World = require("src.world.gen2.World")
+local MapNameSign = require("src.world.gen2.MapNameSign")
 
 -- The mod event/hook buses.  Gold reaches them through Runtime like every
 -- other engine file, so a call site here is the same call site Gen 1 has.
@@ -442,8 +443,29 @@ function Game2:openStartMenu()
   })
 end
 
+-- ../pokecrystal/engine/menus/start_menu.asm:444-518
 function Game2:openStartMenuItem(id)
-  local function back() self.stack:pop() end
+  local MenuFade = require("src.ui.gen2.MenuFade")
+  local party = self.save and self.save.party
+  local white = MenuFade.openWhite(id, party and #party or 0)
+  if not white then return self:pushStartMenuItem(id) end
+  Screens.push(self, "Gen2MenuFade", {
+    kind = "out", white = white,
+    onDone = function() self:pushStartMenuItem(id) end,
+  })
+end
+
+-- ../pokecrystal/home/map.asm:1919-1925
+function Game2:closeStartMenuItem(id)
+  local MenuFade = require("src.ui.gen2.MenuFade")
+  self.stack:pop()
+  local white = MenuFade.closeWhite(id)
+  if not white then return end
+  Screens.push(self, "Gen2MenuFade", { kind = "in", white = white })
+end
+
+function Game2:pushStartMenuItem(id)
+  local function back() self:closeStartMenuItem(id) end
   if id == "pokedex" then
     Screens.push(self, "Gen2PokedexMenu", { onClose = back })
   elseif id == "pokemon" then
@@ -1258,6 +1280,8 @@ function Game2:update(dt)
   while self.audioAccum >= step do
     self.audioAccum = self.audioAccum - step
     Music.update(self.data)
+    -- ../pokecrystal/engine/overworld/events.asm:177-191
+    if self.world and self.world.map then MapNameSign.frame(self.world) end
   end
   -- TILT eases toward its new angle in real time, not on the logic clock, so
   -- fast-forward does not fling the camera over.

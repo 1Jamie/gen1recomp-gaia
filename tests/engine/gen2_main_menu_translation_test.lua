@@ -1,6 +1,4 @@
 -- Gold's title/main menu (src/ui/gen2/MainMenu.lua) drew every row label
--- (CONTINUE/NEW GAME/OPTION/EXIT GAME), the clock box's AM/PM half, and the
--- CONTINUE save-summary panel's labels (PLAYER <name>/BADGES/POKéDEX/TIME,
 -- or NO SAVE FILE) as bare literals, invisible to a translation mod's
 -- `strings` registry -- unlike the Gen 1 port's own title menu
 -- (src/ui/TitleState.lua/StartMenu.lua), which already routes the same rows
@@ -38,14 +36,13 @@ end
 
 -- Chrome.print multiplies tile coordinates by 8 (src/ui/gen2/Chrome.lua).
 -- List item 1 lands at (self.x, self.y) = (2, 2); the clock box's day name
--- at (1, 14) and the hour:minute half at (4, 16); the save panel's PLAYER
--- row at (5, 2).
+-- (5, 10) -- ../pokecrystal/engine/menus/intro_menu.asm:487 offsets it by (4,8).
 local FIRST_ITEM_X, FIRST_ITEM_Y = 2 * 8, 2 * 8
 local CLOCK_HALF_X, CLOCK_HALF_Y = 4 * 8, 16 * 8
-local PANEL_PLAYER_X, PANEL_PLAYER_Y = 5 * 8, 2 * 8
+local PANEL_PLAYER_X, PANEL_PLAYER_Y = 5 * 8, 10 * 8
 
 local SAVE = { player = { name = "GOLD" } }
-local CLOCK = { hour = 13, minute = 5, weekday = 1 } -- 1 PM, SUNDAY
+local CLOCK = { hour = 13, minute = 5, weekday = 1 }
 
 -- ---------------------------------------------- vanilla: no mod catalog
 do
@@ -54,8 +51,8 @@ do
   menu:drawPanel()
   T.eq(drawnAt(FIRST_ITEM_X, FIRST_ITEM_Y), "CONTINUE",
     "the title menu's first row draws in English with no mod loaded")
-  T.eq(drawnAt(CLOCK_HALF_X, CLOCK_HALF_Y), " 1:05 PM",
-    "and the clock box's AM/PM half")
+  T.eq(drawnAt(CLOCK_HALF_X, CLOCK_HALF_Y), "DAY 1:05",
+    "and the clock box's time-of-day word")
 
   drawn = {}
   menu:drawSavePanel()
@@ -77,7 +74,7 @@ do
       ["NEW GAME"] = "NUEVA PARTIDA",
       ["OPTION"] = "OPCIÓN",
       ["EXIT GAME"] = "SALIR",
-      ["PM"] = "PM_ES",
+      ["DAY"] = "DIA_ES",
       ["PLAYER %s"] = "JUGADOR %s",
       ["BADGES"] = "MEDALLAS",
       ["POKéDEX"] = "POKéDEX_ES",
@@ -91,16 +88,16 @@ do
   menu:drawPanel()
   T.eq(drawnAt(FIRST_ITEM_X, FIRST_ITEM_Y), "CONTINUAR",
     "a mod catalog reaches the title menu's first row")
-  T.eq(drawnAt(CLOCK_HALF_X, CLOCK_HALF_Y), " 1:05 PM_ES",
-    "and the clock box's AM/PM half")
+  T.eq(drawnAt(CLOCK_HALF_X, CLOCK_HALF_Y), "DIA_ES 1:05",
+    "and the clock box's time-of-day word")
 
   drawn = {}
   menu:drawSavePanel()
   T.eq(drawnAt(PANEL_PLAYER_X, PANEL_PLAYER_Y), "JUGADOR GOLD",
     "the save-summary panel's PLAYER row takes the mod's own word order")
-  T.eq(drawnAt(5 * 8, 4 * 8), "MEDALLAS", "and BADGES")
-  T.eq(drawnAt(5 * 8, 6 * 8), "POKéDEX_ES", "and POKéDEX")
-  T.eq(drawnAt(5 * 8, 8 * 8), "TIEMPO", "and TIME")
+  T.eq(drawnAt(5 * 8, 12 * 8), "MEDALLAS", "and BADGES")
+  T.eq(drawnAt(5 * 8, 14 * 8), "POKéDEX_ES", "and POKéDEX")
+  T.eq(drawnAt(5 * 8, 16 * 8), "TIEMPO", "and TIME")
 
   local noSaveMenu = MainMenu.new({}, { hasSave = false, save = false, clock = CLOCK })
   drawn = {}

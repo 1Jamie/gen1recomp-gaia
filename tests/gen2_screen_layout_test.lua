@@ -253,6 +253,119 @@ check("leaving BUY unshadows isOpaque", mart.isOpaque, false)
 Chrome.clear, Chrome.box = martClear, martBox
 Chrome.print, Chrome.cursor = martPrint, martCursor
 
+-- ../pokecrystal/engine/events/pokecenter_pc.asm:15
+-- ../pokecrystal/engine/menus/save.asm:1
+-- ../pokecrystal/engine/overworld/decorations.asm:8
+local CenterPcMenu = require("src.ui.gen2.CenterPcMenu")
+local DecorationMenu = require("src.ui.gen2.DecorationMenu")
+local ItemPcMenu = require("src.ui.gen2.ItemPcMenu")
+local SaveMenu = require("src.ui.gen2.SaveMenu")
+
+local winBoxes, winClears = {}, 0
+local realClear, realBox = Chrome.clear, Chrome.box
+local realPrint, realCursor = Chrome.print, Chrome.cursor
+local realTextbox, realNumber = Chrome.textbox, Chrome.number
+Chrome.clear = function() winClears = winClears + 1 end
+Chrome.box = function(x, y, w, h)
+  winBoxes[#winBoxes + 1] = { x = x, y = y, w = w, h = h }
+end
+Chrome.textbox = function() end
+Chrome.print = function() end
+Chrome.cursor = function() end
+Chrome.number = function() return "" end
+
+local function hasBox(x, y, w, h)
+  for _, b in ipairs(winBoxes) do
+    if b.x == x and b.y == y and b.w == w and b.h == h then return true end
+  end
+  return false
+end
+
+local function reset() winBoxes, winClears = {}, 0 end
+
+local pcInput = { down = {} }
+function pcInput:wasPressed(button)
+  if self.down[button] then
+    self.down[button] = nil
+    return true
+  end
+  return false
+end
+function pcInput:isDown() return false end
+
+local pcSave = Save.newGame({ playerName = "GOLD", trainerId = 1 })
+pcSave.party[1] = { species = "CYNDAQUIL", nickname = "CYNDA", hp = 20,
+  maxHp = 20, level = 5 }
+local pcGame = { input = pcInput, save = pcSave,
+  data = { audio = {}, items = {} } }
+
+local pc = CenterPcMenu.new(pcGame, { save = pcSave, onClose = function() end })
+reset()
+pc:draw()
+check("the turn-on line does not blank the tilemap", winClears, 0)
+check("the whose-PC screen overlays the map", CenterPcMenu.isOpaque, false)
+check("and declares no widescreen layer of its own",
+  CenterPcMenu.drawsWidescreen, nil)
+check("the boot text has no menu window under it yet",
+  hasBox(0, 0, 16, 12), false)
+
+-- ../pokecrystal/home/print_text.asm:1
+local function settle(screen)
+  for _ = 1, 600 do
+    if not (screen.typer and not screen.typer:done()) then break end
+    screen:update(0)
+  end
+end
+
+settle(pc)
+pcInput.down.a = true
+pc:update(0)
+reset()
+pc:draw()
+check("the whose-PC menu frames .TopMenu at 0,0,15,12",
+  hasBox(0, 0, 16, 12), true)
+check("and still does not blank the tilemap", winClears, 0)
+
+pc:say({ { "BILL's PC", "accessed." } })
+reset()
+pc:draw()
+check("the .TopMenu window stays up under a PC_DisplayText line",
+  hasBox(0, 0, 16, 12), true)
+check("with the speech box over it", hasBox(0, 12, 20, 6), true)
+
+local saveMenu = SaveMenu.new({ save = pcSave, data = { audio = {} } },
+  { save = pcSave, existed = false, writer = function() return true end })
+reset()
+saveMenu:draw()
+check("SAVE does not blank the tilemap", winClears, 0)
+check("SAVE overlays the map", SaveMenu.isOpaque, false)
+check("and declares no widescreen layer of its own",
+  SaveMenu.drawsWidescreen, nil)
+check("the continue panel is framed at 4,0", hasBox(4, 0, 16, 10), true)
+
+local itemPc = ItemPcMenu.new(pcGame, { save = pcSave, items = {},
+  onClose = function() end })
+reset()
+itemPc:draw()
+check("the item PC top menu does not blank the tilemap", winClears, 0)
+check("and overlays the map", itemPc.isOpaque, false)
+itemPc:setPhase("withdraw")
+reset()
+itemPc:draw()
+check("ClearPCItemScreen shadows isOpaque for the lists",
+  itemPc.isOpaque, true)
+check("and the list phase does blank", winClears > 0, true)
+itemPc:setPhase("menu")
+check("leaving the list unshadows isOpaque", itemPc.isOpaque, false)
+
+check("the decoration menu overlays the room", DecorationMenu.isOpaque, false)
+check("and declares no widescreen layer of its own",
+  DecorationMenu.drawsWidescreen, nil)
+
+Chrome.clear, Chrome.box = realClear, realBox
+Chrome.print, Chrome.cursor = realPrint, realCursor
+Chrome.textbox, Chrome.number = realTextbox, realNumber
+
 -- ------------------------------------------------------- one blit scale
 --
 -- Every Gold screen paints its 160x144 panel through the same helper.  A

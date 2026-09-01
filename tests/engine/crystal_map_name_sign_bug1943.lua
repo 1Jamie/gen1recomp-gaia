@@ -122,12 +122,30 @@ for _, via in ipairs({ "boot", "continue" }) do
     "but .dont_do_map_sign still stamps wPrevLandmark")
 end
 
+-- ../pokecrystal/engine/overworld/events.asm:177-191
 local ticker = World.new("LANDMARK_NEW_BARK_TOWN")
 ticker:go("ROUTE_29", "LANDMARK_ROUTE_29")
-for _ = 1, 59 do Sign.tick(ticker) end
-check(ticker.mapSign ~= nil, "the sign is still up after 59 frames")
-Sign.tick(ticker)
-eq(ticker.mapSign, nil, "and gone on the 60th")
+eq(ticker.mapSign.shown, false, "the sign is armed hidden (hWY untouched)")
+for _ = 1, 3 do Sign.frame(ticker) end
+eq(ticker.mapSign.shown, false, "still hidden after 3 real frames (a = 60)")
+Sign.frame(ticker)
+eq(ticker.mapSign.shown, true, "shown on the 4th (second HandleMap, a = 59)")
+for _ = 5, 121 do Sign.frame(ticker) end
+check(ticker.mapSign ~= nil, "the sign is still up after 121 real frames")
+Sign.frame(ticker)
+eq(ticker.mapSign, nil, "and gone on the 122nd (61st call, a = 0)")
+
+local stepped = World.new("LANDMARK_NEW_BARK_TOWN")
+stepped:go("ROUTE_29", "LANDMARK_ROUTE_29")
+for _ = 1, 30 do Sign.tick(stepped) end
+eq(stepped.mapSign.timer, 60, "the logic step never counts the sign down")
+stepped.mapSetup = { phase = "in" }
+for _ = 1, 30 do Sign.frame(stepped) end
+eq(stepped.mapSign.timer, 60, "nor does a real frame under the map setup fade")
+stepped.mapSetup = nil
+Sign.frame(stepped)
+Sign.frame(stepped)
+eq(stepped.mapSign.timer, 59, "the countdown resumes once the setup is done")
 
 -- ../pokecrystal/home/window.asm:42
 local talked = World.new("LANDMARK_NEW_BARK_TOWN")
@@ -155,8 +173,8 @@ Sign.cancel(nil)
 local frozen = World.new("LANDMARK_NEW_BARK_TOWN")
 local held = frozen:go("ROUTE_29", "LANDMARK_ROUTE_29")
 if check(held ~= nil, "a sign raised before a push starts at 60") then
-  for _ = 1, 10 do Sign.tick(frozen) end
-  eq(held.timer, 50, "ten overworld frames burn ten frames of the timer")
+  for _ = 1, 20 do Sign.frame(frozen) end
+  eq(held.timer, 50, "twenty real frames are ten HandleMap calls: ten off the timer")
   Sign.cancel(frozen)
   eq(frozen.mapSign, nil,
     "and the remaining 50 are dropped rather than frozen under the push")
@@ -208,6 +226,9 @@ cw.palettes = { bg = { [8] = TEXT_ROW } }
 cw.fitScale = function() return 1 end
 cw:go("ROUTE_29", "LANDMARK_ROUTE_29")
 Sign.draw(cw, 160, 144, 0)
+eq(drawn, 0, "nothing is drawn before PlaceMapNameSign's second call")
+for _ = 1, 4 do Sign.frame(cw) end
+Sign.draw(cw, 160, 144, 0)
 eq(#withCalls, 1, "the sign blits through one GbcPalette.with")
 if check(withCalls[1] ~= nil, "with a palette") then
   eq(withCalls[1][1][1], 255, "PAL_BG_TEXT color 0 is cream")
@@ -219,6 +240,7 @@ check(drawn >= 80, "all 80 frame tiles were drawn inside the fold")
 local noPal = World.new("LANDMARK_NEW_BARK_TOWN")
 noPal.fitScale = function() return 1 end
 noPal:go("ROUTE_29", "LANDMARK_ROUTE_29")
+for _ = 1, 4 do Sign.frame(noPal) end
 drawn = 0
 Sign.draw(noPal, 160, 144, 0)
 eq(#withCalls, 1, "no palette table means a plain blit")

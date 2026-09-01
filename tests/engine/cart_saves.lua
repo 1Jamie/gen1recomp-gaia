@@ -348,6 +348,54 @@ do
     "seeding with no cart active does nothing")
 end
 
+do
+  local files = fresh()
+  T.eq(#SaveData.cartsWithSlots(), 0, "a fresh install owns no cart scopes")
+  local slot = SaveData.createCartSlot("nuzlocke")
+  SaveData.createCartSlot("alpha")
+  T.check(SaveData.writeCartSlot("nuzlocke", slot, plainSave("NUZ", "hash9")),
+    "seed a cart slot")
+
+  local ids = SaveData.cartsWithSlots()
+  T.eq(#ids, 2, "every cart with a registry is enumerable")
+  T.eq(ids[1], "alpha", "sorted")
+  T.eq(ids[2], "nuzlocke", "so a scope walk is stable")
+
+  local source = SaveData.readCartSlotSource("nuzlocke", slot)
+  T.check(type(source) == "string" and source ~= "",
+    "readCartSlotSource returns the raw bytes")
+  T.eq(SaveSerializer.decode(source).player.name, "NUZ",
+    "of that cart's own slot")
+  T.eq(SaveData.readCartSlotSource("nuzlocke", "slot9"), nil,
+    "and nothing for a slot with no file")
+  T.eq(SaveData.readCartSlotSource("../evil", slot), nil,
+    "an unusable cart id reads nothing")
+  T.eq(SaveData.readSlotSource("cart_nuzlocke", slot), nil,
+    "the version reader still refuses a cart scope")
+
+  local id = SaveData.cartSlotPlaythroughId("nuzlocke", slot)
+  T.check(type(id) == "string" and #id == 32,
+    "cartSlotPlaythroughId mints an opaque id for a cart slot")
+  T.eq(options(files).playthroughIds.cart_nuzlocke[slot], id,
+    "mapped under the cart scope")
+  T.eq(SaveData.cartSlotPlaythroughId("nuzlocke", slot), id,
+    "and answered the same on the next call")
+  T.eq(SaveData.slotPlaythroughId("cart_nuzlocke", slot), nil,
+    "which the version API cannot do")
+
+  T.eq(SaveData.slotSealBroken("nuzlocke", slot), false, "the seal starts intact")
+  local opened = plainSave("NUZ", "hash9")
+  opened.meta.sealBroken = true
+  T.check(SaveData.writeCartSlot("nuzlocke", slot, opened),
+    "writing a save whose seal is broken")
+  T.eq(SaveData.slotSealBroken("nuzlocke", slot), true,
+    "records it in the registry the launcher and boot read")
+  T.check(SaveData.writeCartSlot("nuzlocke", slot, plainSave("NUZ", "hash9")),
+    "and a later save with no flag")
+  T.eq(SaveData.slotSealBroken("nuzlocke", slot), true,
+    "never un-breaks it")
+end
+
 love.filesystem = realFS
 
 T.finish("cart_saves")

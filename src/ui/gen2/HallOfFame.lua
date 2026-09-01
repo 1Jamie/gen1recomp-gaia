@@ -47,6 +47,7 @@ local Core = require("src.core.gen2.HallOfFame")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local Gen2Save = require("src.core.gen2.Save")
+local MonAnimView = require("src.render.MonAnimView")
 local Music = require("src.core.Music")
 local Palettes = require("src.world.gen2.Palettes")
 local Sound = require("src.core.Sound")
@@ -75,6 +76,8 @@ local TRAINER_SCX_START = 0xc0
 
 -- .DisplayNewHallOfFamer: `ld c, 180 / call DelayFrames` after the cry.
 local FAMER_FRAMES = 180
+-- ../pokecrystal/engine/events/halloffame.asm:126-130
+local ANIM_FAMER_FRAMES = 60
 -- AnimateHallOfFame .done: RotateThreePalettesRight, then `ld c, 8`.
 local END_FRAMES = 8
 
@@ -178,7 +181,7 @@ end
 function HallOfFame.headerPlacements(mode, winCount, text)
   local out = {}
   local function line(label, fallback)
-    local extracted = CommonText.get(text, label)
+    local extracted = CommonText.plain(CommonText.get(text, label))
     return extracted or fallback
   end
   if mode == "induct" then
@@ -353,13 +356,38 @@ function HallOfFame:enterView()
   self.phase = "display"
   self.scx, self.scy = 0, 0
   self:playCry(mon.species)
+  self:startPicAnim()
 end
 
 function HallOfFame:enterDisplay()
   self.phase = "display"
   self.scx, self.scy = 0, 0
-  self.timer = FAMER_FRAMES
   self:playCry((self:currentMon() or {}).species)
+  self:startPicAnim()
+  self.timer = self.picAnim and ANIM_FAMER_FRAMES or FAMER_FRAMES
+end
+
+-- ../pokecrystal/engine/events/halloffame.asm:128, :394-395
+-- ../pokegold/engine/events/halloffame.asm:124-125
+function HallOfFame:startPicAnim()
+  local mon = self:currentMon()
+  self.picAnim = MonAnimView.start(
+    mon and self:speciesDef(mon.species), mon, "hof",
+    function(path) return self:image(path) end)
+end
+
+-- ../pokecrystal/engine/gfx/pic_animation.asm:79-89
+function HallOfFame:stepPicAnim()
+  local anim = self.picAnim
+  if not anim then return false end
+  if anim:step() then self.picAnim = nil end
+  return true
+end
+
+function HallOfFame:picAnimFrame()
+  local anim = self.picAnim
+  if not anim then return nil end
+  return anim:frame()
 end
 
 -- HOF_AnimatePlayerPic, which is where AnimateHallOfFame's .done arm lands
@@ -420,6 +448,7 @@ function HallOfFame:step()
   end
 
   if self.phase == "display" then
+    if self:stepPicAnim() then return false end
     if self.mode == "view" then return false end
     self.timer = self.timer - 1
     if self.timer > 0 then return false end
@@ -490,6 +519,8 @@ function HallOfFame:update(_dt)
   if self.done then return end
   if self.mode == "view" then
     self.frames = self.frames + 1
+    -- ../pokecrystal/engine/events/halloffame.asm:313-317
+    if self:stepPicAnim() then return end
     return self:viewInput(self.game and self.game.input)
   end
   self:step()
@@ -544,10 +575,10 @@ end
 
 -- Draw an image at a tile coordinate through the current scroll, padded into
 -- the 7x7 block the way PlaceGraphic pads it.
-function HallOfFame:drawScrolled(image, tileX, tileY, colors)
+function HallOfFame:drawScrolled(image, tileX, tileY, colors, quad, size)
   if not image then return end
   local G = love.graphics
-  local wide = math.floor(image:getWidth() / 8)
+  local wide = math.floor((size or image:getWidth()) / 8)
   local pad = PIC_PAD[wide] or PIC_PAD[PIC_TILES]
   local baseX = tileX * 8 + pad[1] * 8
   local baseY = tileY * 8 + pad[2] * 8
@@ -557,7 +588,7 @@ function HallOfFame:drawScrolled(image, tileX, tileY, colors)
   local function body()
     for _, x in ipairs({ x1, x2 }) do
       for _, y in ipairs({ y1, y2 }) do
-        G.draw(image, x, y)
+        if quad then G.draw(image, quad, x, y) else G.draw(image, x, y) end
       end
     end
   end
@@ -611,8 +642,14 @@ function HallOfFame:drawMonPanel()
   Chrome.textbox(0, 0, 18, 3)
   Chrome.textbox(0, 12, 18, 4)
   local def = mon and self:speciesDef(mon.species)
-  self:drawScrolled(self:monPic(mon, false),
-    FRONTPIC_X, FRONTPIC_Y, self:monColors(mon))
+  local sheet, quad, size = self:picAnimFrame()
+  if sheet then
+    self:drawScrolled(sheet, FRONTPIC_X, FRONTPIC_Y, self:monColors(mon),
+      quad, size)
+  else
+    self:drawScrolled(self:monPic(mon, false),
+      FRONTPIC_X, FRONTPIC_Y, self:monColors(mon))
+  end
   self:drawPlacements(HallOfFame.headerPlacements(self.mode,
     self.entry and self.entry.winCount, self.textData))
   self:drawPlacements(HallOfFame.monPlacements(mon, def))
@@ -673,6 +710,7 @@ end
 HallOfFame.WHITE = WHITE
 HallOfFame.PIC_PAD = PIC_PAD
 HallOfFame.FAMER_FRAMES = FAMER_FRAMES
+HallOfFame.ANIM_FAMER_FRAMES = ANIM_FAMER_FRAMES
 HallOfFame.END_FRAMES = END_FRAMES
 HallOfFame.SCY_START = SCY_START
 HallOfFame.BACKPIC_SCX_START = BACKPIC_SCX_START

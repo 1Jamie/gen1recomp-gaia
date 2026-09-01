@@ -43,6 +43,14 @@ return function(game)
     U.wait(4)
   end
   local function top() return game.stack:top() end
+  local function waitFor(id, limit)
+    for _ = 1, limit or 120 do
+      local state = top()
+      if (state and state.screenId or nil) == id then return true end
+      U.wait(1)
+    end
+    return false
+  end
 
   U.wait(45)
   if not (game.world and game.world.map) then
@@ -104,6 +112,7 @@ return function(game)
     tap("down")
   end
   tap("a")
+  waitFor("Gen2PartyMenu", 90)
   local party = top()
   if not claim(party and party.screenId == "Gen2PartyMenu",
       "that opened the party list") then

@@ -27,6 +27,8 @@ local Mon = require("src.battle.gen2.Mon")
 local INDUCT_INTERVAL = 20
 local CREDITS_INTERVAL = 60
 local LIMIT = 8000
+-- ../pokecrystal/engine/gfx/pic_animation.asm:75
+local PC_INTERVAL, PC_SAMPLES = 8, 8
 
 return function(game)
   local out = os.getenv("POKEPORT_SHOT_DIR") or "/tmp/gold-hof"
@@ -138,10 +140,20 @@ return function(game)
   })
   game.stack:push(viewer)
   for index = 1, #entry.mons do
-    U.wait(10)
-    U.shot(game, ("%s/pc-%02d-%s.png")
-      :format(out, index, tostring((viewer:currentMon() or {}).species)))
+    local species = tostring((viewer:currentMon() or {}).species)
+    for sample = 0, PC_SAMPLES - 1 do
+      U.shot(game, ("%s/pc-%02d-%s-%03d.png")
+        :format(out, index, species, sample * PC_INTERVAL))
+      U.wait(PC_INTERVAL)
+    end
+    -- ../pokecrystal/engine/events/halloffame.asm:313-317
+    local guard = 0
+    while viewer.picAnim and guard < 240 do
+      U.wait(1)
+      guard = guard + 1
+    end
     U.tap(game, "a")
+    U.wait(10)
   end
   U.log("roster viewer shot for " .. #entry.mons .. " mon(s) in " .. out)
 end

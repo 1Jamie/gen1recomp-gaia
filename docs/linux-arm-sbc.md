@@ -40,7 +40,7 @@ The handheld build applies several optimizations to reduce power draw while keep
 
 - **PresentSync / driver vsync**: Handheld builds keep driver vsync enabled so the unified present-sync stack can probe cadence and pace through the panel (KMSDRM page-flip wait). Disabling vsync here bypassed that path and forced the FrameCap 1 ms polling loop at 60 FPS.
 - **Idle Render Governor**: After `POKEPORT_IDLE_AFTER` seconds without input on static in-game screens, presentation drops to `POKEPORT_IDLE_FPS` while game logic and audio stay at full speed. Any button press restores full framerate on the next frame.
-- **Sample Rate Scaling**: Audio synthesis is tuned to 22.05 kHz by default (`POKEPORT_AUDIO_RATE=22050`), halving synthesis CPU overhead on Cortex-A53 cores with no audible quality loss on handheld speakers.
+- **Sample Rate Scaling**: Audio synthesis is tuned to 22.05 kHz by default (`POKEPORT_AUDIO_RATE=22050`), halving synthesis CPU overhead on Cortex-A53 cores with no audible quality loss on handheld speakers. The synth engine and its queueable source are built for one rate, so changing PERFORMANCE across the LOW boundary in OPTIONS switches the rate live and replays the current song from the start of its section; the rate never changes on its own during play.
 - **Dynamic CPU Governor**: Defaults to `schedutil` instead of pinning `performance` on all cores, reducing thermals and extending battery life.
 
 Environment variables for fine-tuning (configured in `gen1recomp-sbc.sh`):

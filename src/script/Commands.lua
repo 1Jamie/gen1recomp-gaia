@@ -816,6 +816,11 @@ function Commands.take_money(ctx, amount)
   ctx.save.money = math.max(0, (ctx.save.money or 0) - (amount or 0))
 end
 
+-- take_coins <amount>: SubBCDPredef (engine/events/prize_menu.asm:238-243)
+function Commands.take_coins(ctx, amount)
+  ctx.save.coins = math.max(0, (ctx.save.coins or 0) - (amount or 0))
+end
+
 -- Point LAST_MAP exits at an outdoor door (pokered wLastMap).  Keeps the
 -- live overworld memory in sync so a scripted home warp from the HoF PC
 -- does not leave Red's house mats aimed at Indigo Plateau (#103).

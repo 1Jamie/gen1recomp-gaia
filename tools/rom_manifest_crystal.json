@@ -14488,6 +14488,18 @@
       92,
       23985
     ],
+    "AsleepTreeMonsDay": [
+      15,
+      27497
+    ],
+    "AsleepTreeMonsMorn": [
+      15,
+      27503
+    ],
+    "AsleepTreeMonsNite": [
+      15,
+      27485
+    ],
     "AttackMissed2Text": [
       32,
       20531
@@ -15668,13 +15680,13 @@
       32,
       21622
     ],
-    "EnduredText": [
-      32,
-      20144
-    ],
     "EndOfExpBarGFX": [
       35,
       26612
+    ],
+    "EnduredText": [
+      32,
+      20144
     ],
     "EnemyHPBarBorderGFX": [
       62,

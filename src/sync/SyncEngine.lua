@@ -31,12 +31,90 @@ local function gameVersions()
   return require("src.core.GameVersion").ORDER
 end
 
-local function slotForPlaythrough(options, version, playthroughId)
-  local byVersion = options.playthroughIds and options.playthroughIds[version]
-  for slotId, id in pairs(byVersion or {}) do
-    if id == playthroughId then return slotId end
+local CART_PREFIX = "cart_"
+
+local function cartOfScope(key)
+  if type(key) ~= "string" then return nil end
+  if key:sub(1, #CART_PREFIX) ~= CART_PREFIX then return nil end
+  local id = key:sub(#CART_PREFIX + 1)
+  if id == "" then return nil end
+  return id
+end
+
+local function safeCartId(id)
+  if type(id) ~= "string" or id == "" or #id > 64 then return nil end
+  if not id:match("^[%w_%-]+$") then return nil end
+  return id
+end
+
+local function blobCart(save)
+  local meta = type(save) == "table" and save.meta or nil
+  return safeCartId(type(meta) == "table" and meta.cartId or nil)
+end
+
+local function cartInstalled(options, cartId)
+  local reg = type(options) == "table" and options.carts or nil
+  if type(reg) == "table" and type(reg[cartId]) == "table" then return true end
+  local ok, CartStore = pcall(require, "src.carts.CartStore")
+  if not ok or type(CartStore) ~= "table" then return false end
+  local fs = love and love.filesystem
+  if type(fs) ~= "table" or type(fs.getInfo) ~= "function" then return false end
+  local okInfo, info = pcall(fs.getInfo, CartStore.fileFor(cartId))
+  return okInfo and info ~= nil
+end
+
+local function syncScopes()
+  local SaveData = saveApi()
+  local out = {}
+  for _, version in ipairs(gameVersions()) do
+    out[#out + 1] = { key = version, version = version }
   end
-  return nil
+  local ok, ids = pcall(SaveData.cartsWithSlots)
+  if not ok or type(ids) ~= "table" then return out end
+  local okOpts, options = pcall(SaveData.loadOptions)
+  local reg = (okOpts and type(options) == "table"
+    and type(options.carts) == "table") and options.carts or {}
+  for _, id in ipairs(ids) do
+    local row = type(reg[id]) == "table" and reg[id] or nil
+    out[#out + 1] = { key = CART_PREFIX .. id, cart = id,
+                      version = row and row.base or nil }
+  end
+  return out
+end
+
+local function wireVersion(save, scope)
+  local GameVersion = require("src.core.GameVersion")
+  if not scope.cart and type(scope.version) == "string"
+      and GameVersion.VERSIONS[scope.version] then
+    return scope.version
+  end
+  local v = type(save) == "table" and save.version or nil
+  if type(v) == "string" and GameVersion.VERSIONS[v] then return v end
+  if type(scope.version) == "string" and GameVersion.VERSIONS[scope.version] then
+    return scope.version
+  end
+  return GameVersion.get()
+end
+
+local function slotForPlaythrough(options, version, playthroughId)
+  local root = (type(options) == "table" and type(options.playthroughIds) == "table")
+    and options.playthroughIds or {}
+  local byVersion = type(root[version]) == "table" and root[version] or nil
+  for slotId, id in pairs(byVersion or {}) do
+    if id == playthroughId then return version, slotId end
+  end
+  local bestKey, bestSlot
+  for key, byScope in pairs(root) do
+    if key ~= version and cartOfScope(key) and type(byScope) == "table" then
+      for slotId, id in pairs(byScope) do
+        if id == playthroughId and slotId ~= "legacy"
+            and (bestKey == nil or key < bestKey) then
+          bestKey, bestSlot = key, slotId
+        end
+      end
+    end
+  end
+  return bestKey, bestSlot
 end
 
 function SyncEngine.defaultSaves()
@@ -44,18 +122,31 @@ function SyncEngine.defaultSaves()
     list = function()
       local SaveData = saveApi()
       local out = {}
-      for _, version in ipairs(gameVersions()) do
-        for _, slot in ipairs(SaveData.listSlots(version)) do
+      for _, scope in ipairs(syncScopes()) do
+        local slots = scope.cart and SaveData.listCartSlots(scope.cart)
+          or SaveData.listSlots(scope.version)
+        for _, slot in ipairs(slots) do
           if slot.exists then
-            local source = SaveData.readSlotSource(version, slot.id)
+            local source
+            if scope.cart then
+              source = SaveData.readCartSlotSource(scope.cart, slot.id)
+            else
+              source = SaveData.readSlotSource(scope.version, slot.id)
+            end
             local save = source and SaveData.decode(source)
             if type(save) == "table" then
               local meta = type(save.meta) == "table" and save.meta or {}
-              local id = SaveData.slotPlaythroughId(version, slot.id, save)
+              local id
+              if scope.cart then
+                id = SaveData.cartSlotPlaythroughId(scope.cart, slot.id, save)
+              else
+                id = SaveData.slotPlaythroughId(scope.version, slot.id, save)
+              end
               if id then
                 local name, summary = SaveData.slotSummary(save)
                 out[#out + 1] = {
-                  version = version,
+                  version = wireVersion(save, scope),
+                  cart = scope.cart,
                   slot = slot.id,
                   playthroughId = id,
                   blob = source,
@@ -89,27 +180,49 @@ function SyncEngine.defaultSaves()
       if type(save) ~= "table" then return nil, "the downloaded save is unreadable" end
       save.version = save.version or version
       local options = SaveData.loadOptions()
-      local slotId, created
+      local scopeKey, slotId, created
       if mode == "new" then
         save.meta = type(save.meta) == "table" and save.meta or {}
         save.meta.playthroughId = SaveData.newPlaythroughId()
       else
-        slotId = slotForPlaythrough(options, version, playthroughId)
+        scopeKey, slotId = slotForPlaythrough(options, version, playthroughId)
       end
       if not slotId then
-        slotId = SaveData.createSlot(version)
+        local cartId = blobCart(save)
+        if cartId then
+          if not cartInstalled(options, cartId) then
+            return false, ("install the \"%s\" cart to receive its save")
+              :format(cartId)
+          end
+          scopeKey = CART_PREFIX .. cartId
+        else
+          scopeKey = version
+        end
+      end
+      local cart = cartOfScope(scopeKey)
+      if not slotId then
+        if cart then
+          slotId = SaveData.createCartSlot(cart)
+        else
+          slotId = SaveData.createSlot(version)
+        end
         if not slotId then return nil, "could not make a save slot" end
         created = true
       end
-      local ok, err = SaveData.writeSlot(version, slotId, save)
+      local ok, err
+      if cart then
+        ok, err = SaveData.writeCartSlot(cart, slotId, save)
+      else
+        ok, err = SaveData.writeSlot(version, slotId, save)
+      end
       if not ok then return nil, err or "could not write the save" end
       options = SaveData.loadOptions()
       options.playthroughIds = options.playthroughIds or {}
-      options.playthroughIds[version] = options.playthroughIds[version] or {}
-      options.playthroughIds[version][slotId] =
+      options.playthroughIds[scopeKey] = options.playthroughIds[scopeKey] or {}
+      options.playthroughIds[scopeKey][slotId] =
         save.meta and save.meta.playthroughId or playthroughId
       SaveData.saveOptions(options)
-      return slotId, created == true
+      return slotId, created == true, cart
     end,
   }
 end
@@ -253,6 +366,9 @@ function SyncEngine:_finish()
   self.error = nil
   self.state.lastSyncAt = self.now()
   self.status = self:defaultStatus()
+  if type(self.skipped) == "table" and #self.skipped > 0 then
+    self.status = self.skipped[1]
+  end
   self:_persist()
 end
 
@@ -470,6 +586,7 @@ function SyncEngine:syncNow()
   self.autoAt = self.clock + SyncEngine.AUTO_INTERVAL
   self.queue = {}
   self.conflicts = {}
+  self.skipped = nil
   self.state.pendingConflicts = {}
   self.phase = "checking"
   self.status = "Checking for changes..."
@@ -616,7 +733,15 @@ function SyncEngine:_queueDownload(key, version, playthroughId, mode, knownRev)
         e:_fail("the server sent no save data")
         return
       end
-      local slotId, detail = e.saves.write(version, playthroughId, data.blob, mode)
+      local slotId, detail, cartId =
+        e.saves.write(version, playthroughId, data.blob, mode)
+      if slotId == false then
+        e.skipped = e.skipped or {}
+        e.skipped[#e.skipped + 1] =
+          tostring(detail or "this save was skipped")
+        if not e:busy() then e:_finish() end
+        return
+      end
       if not slotId then
         e:_fail(detail or "could not write the downloaded save")
         return
@@ -630,6 +755,7 @@ function SyncEngine:_queueDownload(key, version, playthroughId, mode, knownRev)
       e.lastDownloads = e.lastDownloads or {}
       e.lastDownloads[#e.lastDownloads + 1] = {
         version = version,
+        cart = cartId,
         slot = slotId,
         created = created,
         device = type(meta.device) == "string" and meta.device ~= ""

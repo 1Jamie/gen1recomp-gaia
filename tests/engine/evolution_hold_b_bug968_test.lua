@@ -111,7 +111,7 @@ do
        "and this is a cancelable level-up evolution, so the movie really "
        .. "is reading the button (#290)")
     -- never released: no second edge ever reaches the movie
-    for _ = 1, 400 do
+    for _ = 1, 700 do
       if evo.done then break end
       step(game)
     end
@@ -158,7 +158,7 @@ do
   Input:keyreleased(B_KEY)
   check(evo.t <= 80, "the press landed inside the delay window")
   eq(evo.canceled, false, "a B press during the delay is never polled")
-  for _ = 1, 400 do
+  for _ = 1, 700 do
     if evo.done then break end
     step(game)
   end

@@ -17,7 +17,7 @@
 --     from the cursor and skips the blank row.
 --   SavingDontTurnOffThePower, which is a timed sequence and not a prompt:
 --     "SAVING… DON'T TURN / OFF THE POWER." for 16 frames, the write, 32
---     frames, "<PLAYER> saved / the game.", SFX_SAVE, then 30 more.
+--     more (SavedTheGame, engine/menus/save.asm:242-262).
 --
 -- Overwriting an existing file gets a second yes/no first
 -- (AskOverwriteSaveFile), which is the whole reason this is a state and not a
@@ -28,10 +28,12 @@ local Logger = require("src.core.Logger")
 local Save = require("src.core.gen2.Save")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 local SaveMenu = {}
 SaveMenu.__index = SaveMenu
-SaveMenu.isOpaque = true
+-- ../pokecrystal/engine/menus/save.asm:1
+SaveMenu.isOpaque = false
 
 -- SFX_SAVE ($25, constants/sfx_constants.asm:40) is what plays as the file is
 -- written: `ld de, SFX_SAVE / call PlaySFX` right after ResumeGameLogic in
@@ -42,8 +44,11 @@ SaveMenu.isOpaque = true
 local SFX_SAVE = 0x25
 
 -- SavingDontTurnOffThePower's DelayFrames counts, at the 60 Hz logic clock.
+-- ../pokecrystal/engine/menus/save.asm:242 SavedTheGame
 local SAVING_FRAMES = 16
-local SAVED_FRAMES = 32 + 30
+local SAVED_GAP_FRAMES = 32
+local SAVED_TAIL_FRAMES = 30
+local SAVED_FRAMES = SAVED_GAP_FRAMES + SAVED_TAIL_FRAMES
 
 -- MenuBox coordinates after _OffsetMenuHeader(4, 0).
 local PANEL_X, PANEL_Y, PANEL_W, PANEL_H = 4, 0, 16, 10
@@ -96,7 +101,6 @@ local function twoLines(text)
 end
 
 function SaveMenu:wantsFillScale() return true end
-function SaveMenu:drawsWidescreen() return true end
 
 -- opts: save, onDone(saved), existed (override), writer (injected for tests)
 function SaveMenu.new(game, opts)
@@ -137,10 +141,20 @@ function SaveMenu:playerName()
 end
 
 -- The write itself, which the cart does between the two messages.
+-- ../pokecrystal/engine/menus/save.asm:244 _SaveGameData
 function SaveMenu:writeNow()
   local ok = self.writer(self.save)
   self.saved = ok and true or false
-  if ok then self:playSfx(SFX_SAVE) end
+end
+
+-- ../pokecrystal/engine/menus/save.asm:346
+function SaveMenu:enterPhase(phase)
+  self.phase = phase
+  self.timer = 0
+  self.typedPhase = phase
+  local pinned = (phase == "saving" or phase == "done") and "MID" or nil
+  self.typer = Typer.new(self.game, { speed = pinned })
+  self.typer:start(self:prompt())
 end
 
 function SaveMenu:accept()
@@ -150,12 +164,11 @@ function SaveMenu:accept()
       return
     end
     if self.existed then
-      self.phase = "overwrite"
       self.choice = 1
+      self:enterPhase("overwrite")
       return
     end
-    self.phase = "saving"
-    self.timer = 0
+    self:enterPhase("saving")
     return
   end
   if self.phase == "overwrite" then
@@ -163,31 +176,45 @@ function SaveMenu:accept()
       self:finish(false)
       return
     end
-    self.phase = "saving"
-    self.timer = 0
+    self:enterPhase("saving")
   end
 end
 
 function SaveMenu:update(_dt)
+  if self.typedPhase ~= self.phase then self:enterPhase(self.phase) end
+  local typed = Typer.step(self)
+
   -- The saving and saved messages are DelayFrames, not prompts: no button
   -- does anything until the sequence runs out.
+  -- ../pokecrystal/engine/menus/save.asm:352
   if self.phase == "saving" then
+    if not typed then return end
     self.timer = self.timer + 1
-    if self.timer >= SAVING_FRAMES then
-      self:writeNow()
-      self.phase = "done"
-      self.timer = 0
+    if self.timer == SAVING_FRAMES then self:writeNow() end
+    if self.timer >= SAVING_FRAMES + SAVED_GAP_FRAMES then
+      self:enterPhase("done")
     end
     return
   end
   if self.phase == "done" then
+    if not typed then return end
+    -- ../pokecrystal/engine/menus/save.asm:259 WaitPlaySFX / home/audio.asm:220
+    if self.saved and not self.rang then
+      self.rang = true
+      Sound.waitSfxDone()
+      self:playSfx(SFX_SAVE)
+      return
+    end
+    -- ../pokecrystal/engine/menus/save.asm:260 WaitSFX
+    if Sound.sfxBusy() then return end
     self.timer = self.timer + 1
-    if self.timer >= SAVED_FRAMES then self:finish(self.saved) end
+    if self.timer >= SAVED_TAIL_FRAMES then self:finish(self.saved) end
     return
   end
 
   local input = self.game and self.game.input
   if not input then return end
+  if Typer.typing(self) then return end
   if input:wasPressed("up") or input:wasPressed("down") then
     self.choice = self.choice == 1 and 2 or 1
     return
@@ -222,7 +249,6 @@ function SaveMenu:prompt()
 end
 
 function SaveMenu:drawPanel()
-  Chrome.clear()
   local summary = Save.summary(self.save)
   Chrome.box(PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
   if summary then
@@ -242,6 +268,7 @@ function SaveMenu:drawPanel()
   -- and (1,16) -- `line` is the box's lower line, two rows down.
   Chrome.textbox(0, 12, 18, 4)
   local lines = self:prompt()
+  if self.typedPhase == self.phase then lines = Typer.text(self, lines) end
   Chrome.print(lines[1] or "", 1, 14)
   Chrome.print(lines[2] or "", 1, 16)
 
@@ -258,19 +285,19 @@ function SaveMenu:draw()
   self:drawPanel()
 end
 
-function SaveMenu:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  G.push()
-  G.translate(Chrome.fitOrigin(winW, winH, scale))
-  G.scale(scale, scale)
-  self:drawPanel()
-  G.pop()
-end
+-- ../pokecrystal/engine/menus/intro_menu.asm:479
+SaveMenu.PANEL = {
+  x = PANEL_X, y = PANEL_Y, w = PANEL_W, h = PANEL_H,
+  labelX = LABEL_X, labelDy = LABEL_Y,
+  badgesX = BADGES_X, badgesDy = BADGES_Y,
+  dexX = DEX_X, dexDy = DEX_Y,
+  timeX = TIME_X, timeDy = TIME_Y,
+}
 
 SaveMenu.SFX_SAVE = SFX_SAVE
 SaveMenu.SAVING_FRAMES = SAVING_FRAMES
+SaveMenu.SAVED_GAP_FRAMES = SAVED_GAP_FRAMES
+SaveMenu.SAVED_TAIL_FRAMES = SAVED_TAIL_FRAMES
 SaveMenu.SAVED_FRAMES = SAVED_FRAMES
 SaveMenu.OVERWRITE_PROMPT_SOURCE = OVERWRITE_PROMPT_SOURCE
 SaveMenu.SAVING_PROMPT_SOURCE = SAVING_PROMPT_SOURCE

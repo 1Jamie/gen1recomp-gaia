@@ -50,10 +50,14 @@ do
   local lit = make({ trainer = true })
   T.eq(lit:flashFrames(), Transition.FLASH_FRAMES, "the flash runs in full")
   local dark = make({ trainer = true, dark = true })
-  T.eq(dark:flashFrames(), 0, "DoFlashAnimation bails out on DARKNESS_PALSET")
+  T.eq(dark:flashFrames(), Transition.FLASH_CYCLES,
+    "DoFlashAnimation bails out on DARKNESS_PALSET: one frame per Flash slot")
   T.eq(dark.phase, "pokeball", "a trainer battle still stamps the ball")
   local darkWild = make({ trainer = false, dark = true })
-  T.eq(darkWild.phase, "outro", "and a wild one goes straight to the outro")
+  T.eq(darkWild.phase, "flash", "and a wild one walks the three empty slots")
+  T.eq(darkWild:flashPal(), nil, "...with no palette written")
+  for _ = 1, Transition.FLASH_CYCLES do darkWild:update() end
+  T.eq(darkWild.phase, "outro", "...and reaches the outro on the fourth frame")
 end
 
 do

@@ -8,7 +8,6 @@
 -- needs the link cable, so it is not offered here.
 --
 -- With a save present the menu also shows the clock box
--- (MainMenu_PrintCurrentTimeAndDay): a 4x13 textbox at (0,12) with the day of
 -- the week and the current time.  Its .PlaceTime calls UpdateTime before it
 -- reads hHours, so it prints the GAME clock -- the RTC through the save's own
 -- wStartHour / wStartMinute base -- and not the raw RTC.  That is the same
@@ -20,11 +19,17 @@
 
 local Chrome = require("src.ui.gen2.Chrome")
 local Clock = require("src.core.gen2.Clock")
+local InitClock = require("src.ui.gen2.InitClock")
 local Logger = require("src.core.Logger")
 local Music = require("src.core.Music")
 local Runtime = require("src.mods.Runtime")
 local Save = require("src.core.gen2.Save")
+local SaveMenu = require("src.ui.gen2.SaveMenu")
 local Strings = require("src.core.Strings")
+
+-- ../pokecrystal/engine/menus/intro_menu.asm:487
+local PANEL = SaveMenu.PANEL
+local PANEL_Y = 8
 
 local MainMenu = {}
 MainMenu.__index = MainMenu
@@ -162,36 +167,40 @@ function MainMenu:clockParts()
   return Clock.hour(save), Clock.minute(save), Clock.weekday(save) + 1
 end
 
+-- ../pokecrystal/engine/rtc/timeset.asm:675
+function MainMenu.timeString(hour, minute)
+  return InitClock.timeString(hour, minute)
+end
+
 function MainMenu:drawClockBox()
-  -- Textbox at (0,12) with 4 interior rows and 13 interior columns.
-  Chrome.textbox(0, 12, 13, 4)
+  -- ../pokecrystal/engine/menus/main_menu.asm:286
+  Chrome.textbox(0, 14, 18, 2)
   local hour, minute, weekday = self:clockParts()
-  Chrome.print(Clock.weekdayName(weekday) or "DAY", 1, 14)
-  -- PrintHour prints 1-12 with no leading zero, then ':' then two zero-padded
-  -- minutes; the AM/PM half is drawn by PrintHour itself.
-  local display = hour % 12
-  if display == 0 then display = 12 end
-  local half = Strings(hour < 12 and "AM" or "PM")
-  Chrome.print(("%s:%s %s"):format(
-    Chrome.number(display, 2), Chrome.number(minute, 2, true), half), 4, 16)
+  Chrome.print(Clock.weekdayName(weekday) or "DAY", 1, 15)
+  Chrome.print(MainMenu.timeString(hour, minute), 4, 16)
 end
 
 function MainMenu:drawSavePanel()
   local summary = Save.summary(self.save)
-  -- DisplaySaveInfoOnContinue: a box down the right side listing the trainer.
-  Chrome.textbox(4, 0, 14, 9)
+  Chrome.box(PANEL.x, PANEL_Y, PANEL.w, PANEL.h)
   if not summary then
-    Chrome.print(Strings("NO SAVE FILE"), 5, 2)
+    Chrome.print(Strings("NO SAVE FILE"), PANEL.labelX, PANEL_Y + PANEL.labelDy)
     return
   end
-  Chrome.print(Strings("PLAYER %s", summary.name), 5, 2)
-  Chrome.print(Strings("BADGES"), 5, 4)
-  Chrome.printRight(tostring(summary.badges), 17, 4)
-  Chrome.print(Strings("POKéDEX"), 5, 6)
-  Chrome.printRight(tostring(summary.caught), 17, 6)
-  Chrome.print(Strings("TIME"), 5, 8)
-  Chrome.printRight(("%d:%s"):format(
-    summary.hours, Chrome.number(summary.minutes, 2, true)), 17, 8)
+  local labelY = PANEL_Y + PANEL.labelDy
+  Chrome.print(Strings("PLAYER %s", summary.name), PANEL.labelX, labelY)
+  Chrome.print(Strings("BADGES"), PANEL.labelX, labelY + 2)
+  Chrome.print(Strings("POKéDEX"), PANEL.labelX, labelY + 4)
+  Chrome.print(Strings("TIME"), PANEL.labelX, labelY + 6)
+  -- ../pokecrystal/engine/menus/intro_menu.asm:555
+  Chrome.print(Chrome.number(summary.badges, 2), PANEL.badgesX,
+    PANEL_Y + PANEL.badgesDy)
+  Chrome.print(Chrome.number(summary.caught, 3), PANEL.dexX,
+    PANEL_Y + PANEL.dexDy)
+  local timeY = PANEL_Y + PANEL.timeDy
+  Chrome.print(Chrome.number(summary.hours, 3), PANEL.timeX, timeY)
+  Chrome.print(":", PANEL.timeX + 3, timeY)
+  Chrome.print(Chrome.number(summary.minutes, 2, true), PANEL.timeX + 4, timeY)
 end
 
 function MainMenu:drawPanel()
@@ -200,10 +209,9 @@ function MainMenu:drawPanel()
     self:drawSavePanel()
     return
   end
-  -- MenuHeader: menu_coords 0, 0, 14, 7 -- a box from (0,0) to (14,7), which
   -- is exactly two rows per entry plus the border.  The extra EXIT GAME row
   -- grows it the way AutomaticGetMenuBottomCoord would.
-  Chrome.box(0, 0, 15,
+  Chrome.box(0, 0, 17,
     math.min(#self.list.items * 2 + 2, Chrome.SCREEN_H))
   self.list:draw()
   if self.hasSave then self:drawClockBox() end
@@ -225,5 +233,7 @@ function MainMenu:drawWidescreen(winW, winH)
 end
 
 MainMenu.DAYS = DAYS
+MainMenu.PANEL = PANEL
+MainMenu.PANEL_Y = PANEL_Y
 
 return MainMenu

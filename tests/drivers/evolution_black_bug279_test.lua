@@ -72,8 +72,16 @@ return function(game)
     return z and z[1] and z[1].colors, z and z[1]
   end
 
+  -- ../pokered/engine/movie/evolution.asm:25-26
+  local graceCols = colorsFor({
+    done = false, canceled = false, t = 0,
+    mon = { species = "MAGIKARP" }, newSpecies = "GYARADOS",
+  })
+  check(samePal(graceCols, PaletteFX.monPal(game.data, "MAGIKARP")),
+        "during the 80-frame grace the OLD form wears its own palette (MAGIKARP/REDMON)")
+  -- ../pokered/engine/movie/evolution.asm:49-50
   local flashCols, flashZone = colorsFor({
-    done = false, canceled = false,
+    done = false, canceled = false, t = 100,
     mon = { species = "MAGIKARP" }, newSpecies = "GYARADOS",
   })
   check(samePal(flashCols, BLACK),
@@ -100,7 +108,7 @@ return function(game)
   -- other COLORS modes honest.  A hardcoded {0,0,0} passes everything above.
   PaletteFX.setMode("ogred")
   local ogFlash = colorsFor({
-    done = false, canceled = false,
+    done = false, canceled = false, t = 100,
     mon = { species = "WEEDLE" }, newSpecies = "KAKUNA",
   })
   check(samePal(ogFlash, PaletteFX.ogBg()),
@@ -199,6 +207,21 @@ return function(game)
     if st then st.t = 362 end
   end
 
+  -- evolution.asm:20-40 keeps the pic off screen until the load window ends
+  local function waitForPic()
+    return waitFor(function()
+      local st = evoTop()
+      return st ~= nil and st.loading == nil
+    end, 400)
+  end
+  -- evolution.asm:47-48: the cancel poll only opens after the 80-frame delay
+  local function waitPastGrace()
+    return waitFor(function()
+      local st = evoTop()
+      return st ~= nil and (st.t or 0) > 90
+    end, 700)
+  end
+
   local function startEvo(species, into)
     local mon = Pokemon.new(game.data, species, 7)
     table.insert(game.save.party, 1, mon)
@@ -212,7 +235,10 @@ return function(game)
 
   -- ---- case 1: the reported case, SGB, mid-flash --------------------------
   local weedle = startEvo("WEEDLE", "KAKUNA")
-  U.wait(24) -- into the flash, far short of FLASH_FRAMES = 368
+  waitForPic()
+  -- ../pokered/engine/movie/evolution.asm:49-50
+  waitFor(function() local e = evoTop() return e and (e.t or 0) > 80 end, 300)
+  U.wait(24)
   U.shot(game, DIR .. "/evo279_1_flash_sgb.png")
   local c1 = probe("flash/SGB", {
     monYellow1 = YELLOW[2], monYellow2 = YELLOW[3],
@@ -248,7 +274,7 @@ return function(game)
 
   -- ---- case 2: B-cancel settles on the OLD form's colours -----------------
   local karp = startEvo("MAGIKARP", "GYARADOS")
-  U.wait(100) -- past the 80-frame pre-animLoop delay before the poll starts
+  waitPastGrace()
   U.hold(game, "b", 20) -- evolution.asm Evolution_CheckForCancel
   if not waitFor(function() return findText("stopped evolving") ~= nil end, 240) then
     check(false, "holding B prints \"stopped evolving\"")
@@ -276,6 +302,8 @@ return function(game)
   PaletteFX.setMode("ogred")
   U.wait(20)
   startEvo("WEEDLE", "KAKUNA")
+  waitForPic()
+  waitFor(function() local e = evoTop() return e and (e.t or 0) > 80 end, 300)
   U.wait(24)
   U.shot(game, DIR .. "/evo279_4_flash_ogred.png")
   local c4 = probe("flash/OG RED", {

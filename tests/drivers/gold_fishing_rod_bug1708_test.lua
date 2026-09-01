@@ -235,7 +235,12 @@ return function(game)
       tap("down", 4)
     end
     tap("a", 10)
-    local pack = game.stack:top()
+    local pack
+    for _ = 1, 120 do
+      pack = game.stack:top()
+      if getmetatable(pack) == PackMenu then break end
+      U.wait(1)
+    end
     if not check(("%s: and the PACK is open"):format(facing),
                  getmetatable(pack) == PackMenu) then
       return false

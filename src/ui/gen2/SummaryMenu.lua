@@ -64,7 +64,7 @@ local GbcPalette = require("src.render.GbcPalette")
 local HpBar = require("src.battle.gen2.HpBar")
 local ItemEffects = require("src.core.gen2.ItemEffects")
 local Mon = require("src.battle.gen2.Mon")
-local MonAnim = require("src.render.MonAnim")
+local MonAnimView = require("src.render.MonAnimView")
 local Palettes = require("src.world.gen2.Palettes")
 local Pokerus = require("src.core.gen2.Pokerus")
 local Unown = require("src.core.gen2.Unown")
@@ -330,48 +330,25 @@ end
 -- with no `anim` row -- every Gold and Silver one -- leaves picAnim nil.
 -- ../pokecrystal/engine/pokemon/stats_screen.asm:889-901
 function SummaryMenu:startPicAnim()
-  self.picAnim = nil
   local mon = self.mon
-  local def = mon and self.pokemon and self.pokemon[mon.species]
-  if not def then return end
-  local data = def.anim
-  if mon.species == Unown.SPECIES and def.letters then
-    local entry = def.letters[Unown.name(Unown.monLetter(mon))]
-    if entry and entry.anim then data = entry.anim end
-  end
-  if not data then return end
-  local sheet = self:picImage(data.sheet)
-  if not sheet then return end
-  local runner = MonAnim.new(data, "menu")
-  if not runner then return end
-  self.picAnim = { runner = runner, sheet = sheet, size = data.tiles * 8,
-    quads = {} }
+  self.picAnim = MonAnimView.start(
+    mon and self.pokemon and self.pokemon[mon.species], mon, "menu",
+    function(path) return self:picImage(path) end)
 end
 
 -- AnimateFrontpic's .loop, one scene command per frame.
 -- ../pokecrystal/engine/gfx/pic_animation.asm:79-89
 function SummaryMenu:stepPicAnim()
-  local state = self.picAnim
-  if not state then return end
-  state.runner:update()
-  if state.runner:finished() then self.picAnim = nil end
+  local anim = self.picAnim
+  if not anim then return end
+  if anim:step() then self.picAnim = nil end
 end
 
 -- The sheet is one column of whole pictures, base picture first.
 function SummaryMenu:picAnimFrame()
-  local state = self.picAnim
-  if not state then return nil end
-  local frame = state.runner:currentFrame()
-  if frame <= 0 then return nil end
-  local quad = state.quads[frame]
-  if not quad then
-    local w, h = state.sheet:getDimensions()
-    if (frame + 1) * state.size > h then return nil end
-    quad = love.graphics.newQuad(0, frame * state.size, state.size, state.size,
-      w, h)
-    state.quads[frame] = quad
-  end
-  return state.sheet, quad, state.size
+  local anim = self.picAnim
+  if not anim then return nil end
+  return anim:frame()
 end
 
 function SummaryMenu:speciesDef()

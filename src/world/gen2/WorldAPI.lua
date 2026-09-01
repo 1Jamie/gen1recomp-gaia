@@ -31,6 +31,7 @@ local Bike = require("src.world.gen2.Bike")
 local FieldMoves = require("src.world.gen2.FieldMoves")
 local Permissions = require("src.world.gen2.Permissions")
 local Mail = require("src.core.gen2.Mail")
+local Strings = require("src.core.Strings")
 
 local WorldAPI = {}
 WorldAPI.__index = WorldAPI
@@ -50,9 +51,53 @@ local FIELD_ACTIONS = {
   { id = "teleport", move = "TELEPORT" },
 }
 
+-- ../pokecrystal/engine/pokemon/mon_menu.asm:138 MonMenu_Softboiled_MilkDrink
+local HEAL_ACTIONS = {
+  { id = "softboiled", move = "SOFTBOILED" },
+  { id = "milk_drink", move = "MILK_DRINK" },
+}
+
 local function validPartySlot(party, slot)
   return type(slot) == "number" and slot == math.floor(slot)
     and party[slot] ~= nil
+end
+
+local function maxHpOf(mon)
+  return (mon and (mon.maxHp or (mon.stats and mon.stats.hp))) or 0
+end
+
+local function knows(mon, moveId)
+  for _, move in ipairs((mon and mon.moves) or {}) do
+    if (type(move) == "table" and move.id or move) == moveId then return true end
+  end
+  return false
+end
+
+local function monInfo(game, mon, slot)
+  local def = (game.data.pokemon or {})[mon.species] or {}
+  return { slot = slot, species = mon.species,
+    name = mon.nickname or def.name or mon.species, level = mon.level,
+    hp = mon.hp, maxHp = maxHpOf(mon) }
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:2016 .SelectMilkDrinkRecipient
+local function healSources(game, moveId)
+  local party, sources = (game.save and game.save.party) or {}, {}
+  for sourceSlot, source in ipairs(party) do
+    local cost = math.floor(maxHpOf(source) / 5)
+    if knows(source, moveId) and (source.hp or 0) > cost then
+      local info = monInfo(game, source, sourceSlot)
+      info.cost = cost
+      info.targets = {}
+      for targetSlot, target in ipairs(party) do
+        if FieldMoves.softboiledTargetOk(source, target) then
+          info.targets[#info.targets + 1] = monInfo(game, target, targetSlot)
+        end
+      end
+      if #info.targets > 0 then sources[#sources + 1] = info end
+    end
+  end
+  return sources
 end
 
 function WorldAPI.new(game, modId)
@@ -157,6 +202,14 @@ function WorldAPI:availableFieldActions()
     end
   end
 
+  for _, row in ipairs(HEAL_ACTIONS) do
+    local sources = healSources(game, row.move)
+    if #sources > 0 then
+      out[#out + 1] = { id = row.id, label = row.move:gsub("_", " "),
+        sources = sources }
+    end
+  end
+
   if (inventory.SQUIRTBOTTLE or 0) > 0
       and world:squirtbottleTreeScript() then
     out[#out + 1] = { id = "squirtbottle",
@@ -192,6 +245,26 @@ function WorldAPI:useFieldAction(id, opts)
   elseif id == "squirtbottle" then
     local outcome = world:useFieldItem("SQUIRTBOTTLE")
     if outcome and outcome ~= "nowhere" then return true end
+  elseif id == "softboiled" or id == "milk_drink" then
+    local party = (self.game.save and self.game.save.party) or {}
+    local sourceSlot = opts and tonumber(opts.sourceSlot)
+    local targetSlot = opts and tonumber(opts.targetSlot)
+    local cost
+    for _, source in ipairs(found.sources or {}) do
+      if source.slot == sourceSlot then
+        for _, target in ipairs(source.targets or {}) do
+          if target.slot == targetSlot then cost = source.cost break end
+        end
+      end
+    end
+    if not cost then return nil, "softboiled target unavailable" end
+    local user, target = party[sourceSlot], party[targetSlot]
+    local before, after = FieldMoves.softboiledTransfer(user, target, cost)
+    if not before then return nil, "softboiled target unavailable" end
+    -- data/text/common_1.asm:40 _RecoveredSomeHPText
+    world:showText(Strings("%s\nrecovered %dHP!",
+      target.nickname or target.species, after - before))
+    return true
   end
   for _, row in ipairs(FIELD_ACTIONS) do
     if row.id == id then

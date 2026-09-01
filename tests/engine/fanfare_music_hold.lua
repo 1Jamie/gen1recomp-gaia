@@ -85,7 +85,10 @@ local threadStub = {
 }
 
 local function deliverBuffer()
-  channel("chipaudio_out"):push({ gen = lastGen, sd = true })
+  local preroll = require("src.core.ChipAudio").MUSIC_PREROLL or 1
+  for _ = 1, preroll do
+    channel("chipaudio_out"):push({ gen = lastGen, sd = true })
+  end
 end
 
 -- ------- fixture dataset

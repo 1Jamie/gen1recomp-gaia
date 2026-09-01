@@ -875,25 +875,28 @@ M.CINNABAR_LAB_FOSSIL_ROOM = {
             "Where were you?\fYour fossil is\nback to life!\fIt was {RAM:x}\nlike I think!",
             subs),
           function()
-            if species then
-              local Commands = require("src.script.Commands")
-              local ctx = { save = game.save, game = game, overworld = ow }
-              Commands.give_pokemon(ctx, species, 30)
-              if not ctx.lastCheck then
-                -- GivePokemon failed (party+box full): pokered's
-                -- `jr nc, .done` leaves the quest pending so the
-                -- scientist re-offers the mon next visit instead of
-                -- destroying it.
-                game.stack:push(TextBox.new(game,
-                  t._BoxIsFullText or "Box is full!", done))
-                return
-              end
+            if not species then
+              game.save.labFossilMon = nil
+              f.EVENT_GAVE_FOSSIL_TO_LAB = nil
+              f.EVENT_LAB_STILL_REVIVING_FOSSIL = nil
+              f.EVENT_LAB_HANDING_OVER_FOSSIL_MON = nil
+              done()
+              return
             end
-            game.save.labFossilMon = nil
-            f.EVENT_GAVE_FOSSIL_TO_LAB = nil
-            f.EVENT_LAB_STILL_REVIVING_FOSSIL = nil
-            f.EVENT_LAB_HANDING_OVER_FOSSIL_MON = nil
-            done()
+            -- ../pokered/scripts/CinnabarLabFossilRoom.asm:74-83
+            ow.runner:run({
+              { "give_pokemon", species, 30, false, true },
+              { "jump_if_false", "boxfull" },
+              { "set_field", "labFossilMon" },
+              { "clear_flag", "EVENT_GAVE_FOSSIL_TO_LAB" },
+              { "clear_flag", "EVENT_LAB_STILL_REVIVING_FOSSIL" },
+              { "clear_flag", "EVENT_LAB_HANDING_OVER_FOSSIL_MON" },
+              { "jump", "out" },
+              { "label", "boxfull" },
+              -- ../pokered/engine/events/give_pokemon.asm:40-42
+              { "show_text", "_BoxIsFullText" },
+              { "label", "out" },
+            }, { onDone = done })
           end))
         return
       end

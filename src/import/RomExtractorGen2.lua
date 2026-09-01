@@ -2898,7 +2898,11 @@ function RomExtractorGen2:decodeGen2Text(bank, address, charmap, buffers)
     if b == 0x50 then
       if not inString then break end -- TX_END
       inString = false               -- `@`: end of this chunk
-    elseif b == 0x57 or b == 0x58 then -- DONE / PROMPT, both PlaceString's
+    elseif b == 0x57 or b == 0x58 then
+      -- ../pokecrystal/home/text.asm:548 PromptText, :566 DoneText
+      if #out > 0 then
+        out[#out + 1] = (b == 0x58) and "{PROMPT}" or "{DONE}"
+      end
       break
     elseif b == 0x00 then
       inString = true -- TX_START
@@ -4734,6 +4738,65 @@ function RomExtractorGen2:readContestMons()
   return out
 end
 
+-- ../pokecrystal/data/wild/treemons.asm:1 TreeMons
+function RomExtractorGen2:readTreeMons()
+  local symbol = self:symbol("TreeMons")
+  local setOrder = self.manifest.constants.treeMonSetOrder or {}
+  local speciesOrder = self.manifest.constants.speciesOrder or {}
+  local out = {}
+  for index, name in ipairs(setOrder) do
+    local at = self.rom:word(symbol.bank, symbol.address + (index - 1) * 2)
+    local function list()
+      local rows = {}
+      for _ = 1, 16 do
+        if not romAddrOk(symbol.bank, at + 2) then break end
+        local chance = self.rom:byte(symbol.bank, at)
+        if chance == 0xff then
+          at = at + 1
+          break
+        end
+        rows[#rows + 1] = {
+          chance = chance,
+          species = speciesOrder[self.rom:byte(symbol.bank, at + 1)],
+          level = self.rom:byte(symbol.bank, at + 2),
+        }
+        at = at + 3
+      end
+      return rows
+    end
+    -- ../pokecrystal/engine/events/treemons.asm:28 RockMonEncounter
+    if name == "TREEMON_SET_ROCK" then
+      out[name] = { common = list() }
+    else
+      local common = list()
+      out[name] = { common = common, rare = list() }
+    end
+  end
+  return out
+end
+
+-- ../pokecrystal/data/wild/treemons_asleep.asm:3 AsleepTreeMonsNite
+function RomExtractorGen2:readAsleepTreeMons()
+  local speciesOrder = self.manifest.constants.speciesOrder or {}
+  local labels = { MORN = "AsleepTreeMonsMorn", DAY = "AsleepTreeMonsDay",
+                   NITE = "AsleepTreeMonsNite" }
+  local out = {}
+  for key, label in pairs(labels) do
+    local location = self.symbols[label]
+    if not location then return nil end
+    local bank, address = location[1], location[2]
+    local species = {}
+    for offset = 0, 63 do
+      if not romAddrOk(bank, address + offset) then break end
+      local b = self.rom:byte(bank, address + offset)
+      if b == 0xff then break end
+      if speciesOrder[b] then species[#species + 1] = speciesOrder[b] end
+    end
+    out[key] = species
+  end
+  return out
+end
+
 function RomExtractorGen2:extractEncounters()
   self:beginStage("Wild encounters")
   local grass = {}
@@ -4842,41 +4905,9 @@ function RomExtractorGen2:extractEncounters()
   local rocks = self.symbols.RockMonMaps
     and self:readTreeMonMaps("RockMonMaps") or nil
 
-  -- TreeMons: a pointer per TREEMON_SET_*, each aiming at TWO `db %, species,
-  -- level` lists back to back -- the common one and the rare one -- with a
-  -- -1 between them.  Which of the two is rolled comes from how hard the tree
-  -- was hit (engine/events/treemons.asm), so both are carried here.
-  local treeSets = {}
-  local treeMonsSymbol = self.symbols["TreeMons"] and self:symbol("TreeMons")
-  if treeMonsSymbol then
-    local setOrder = self.manifest.constants.treeMonSetOrder or {}
-    for index, name in ipairs(setOrder) do
-      local pointer = self.rom:word(treeMonsSymbol.bank,
-        treeMonsSymbol.address + (index - 1) * 2)
-      local at = pointer
-      local lists = {}
-      for _ = 1, 2 do
-        local rows = {}
-        for _ = 1, 16 do
-          local chance = self.rom:byte(treeMonsSymbol.bank, at)
-          if chance == 0xff then
-            at = at + 1
-            break
-          end
-          local species = self.rom:byte(treeMonsSymbol.bank, at + 1)
-          local level = self.rom:byte(treeMonsSymbol.bank, at + 2)
-          rows[#rows + 1] = {
-            chance = chance,
-            species = (self.manifest.constants.speciesOrder or {})[species],
-            level = level,
-          }
-          at = at + 3
-        end
-        lists[#lists + 1] = rows
-      end
-      treeSets[name] = { common = lists[1] or {}, rare = lists[2] or {} }
-    end
-  end
+  local treeSets = self.symbols.TreeMons and self:readTreeMons() or {}
+  local treeMonsAsleep = self.symbols.AsleepTreeMonsNite
+    and self:readAsleepTreeMons() or nil
 
   -- The Bug Catching Contest's own table.  It sits beside the grass rather
   -- than inside it because the park's encounters come from HERE for the
@@ -4915,6 +4946,7 @@ function RomExtractorGen2:extractEncounters()
     trees = trees,
     rocks = rocks,
     treeSets = treeSets,
+    treeMonsAsleep = treeMonsAsleep,
     bugContest = bugContest,
     swarmGrass = swarmGrass,
     swarmWater = swarmWater,

@@ -166,20 +166,52 @@ function Encounter.treeSet(encounters, mapId)
   return encounters and encounters.trees and encounters.trees[mapId] or nil
 end
 
--- A headbutt on the tree at (cx, cy).  Whether the COMMON or the RARE list is
--- rolled comes from the tree's own coordinates on the cart -- GetTreeMons
--- hashes them so the same tree always behaves the same way -- which is what
--- keeps a player from re-rolling one tree for a rare mon.
-function Encounter.treeIsRare(cx, cy)
-  return ((cx or 0) * 5 + (cy or 0) * 7) % 10 < 1
+-- ../pokecrystal/engine/events/treemons.asm:199 GetTreeScore
+Encounter.TREEMON_SCORE_BAD = 0
+Encounter.TREEMON_SCORE_GOOD = 1
+Encounter.TREEMON_SCORE_RARE = 2
+
+-- ../pokecrystal/engine/overworld/player_object.asm:102 RefreshPlayerCoords
+function Encounter.treeScore(cx, cy, otId)
+  local d = ((cx or 0) + 4) % 256
+  local e = ((cy or 0) + 4) % 256
+  local coord = math.floor(((e * (d + 1) + d) % 65536) / 5) % 10
+  local ot = math.floor(otId or 0) % 10
+  local diff = (coord - ot) % 10
+  if diff == 0 then return Encounter.TREEMON_SCORE_RARE end
+  if diff < 5 then return Encounter.TREEMON_SCORE_GOOD end
+  return Encounter.TREEMON_SCORE_BAD
 end
 
-function Encounter.treeSlot(encounters, mapId, cx, cy, random)
+-- ../pokegold/engine/events/treemons.asm:94 GetTreeMons
+local GS_DEAD_SETS = {
+  TREEMON_SET_NONE = true,
+  TREEMON_SET_UNUSED = true,
+  TREEMON_SET_CITY = true,
+}
+
+-- ../pokecrystal/engine/events/treemons.asm:96 GetTreeMons
+function Encounter.treeSetUsable(setName, engine)
+  if not setName or setName == "TREEMON_SET_NONE" then return false end
+  if engine == "gs" and GS_DEAD_SETS[setName] then return false end
+  return true
+end
+
+-- ../pokecrystal/engine/events/treemons.asm:126 GetTreeMon
+function Encounter.treeSlot(encounters, mapId, cx, cy, random, opts)
+  opts = opts or {}
   local setName = Encounter.treeSet(encounters, mapId)
-  if not setName then return nil end
+  if not Encounter.treeSetUsable(setName, opts.engine) then return nil end
   local set = encounters and encounters.treeSets and encounters.treeSets[setName]
   if not set then return nil end
-  local list = Encounter.treeIsRare(cx, cy) and set.rare or set.common
+  local score = Encounter.treeScore(cx, cy, opts.otId)
+  local list, gate = set.common, 1
+  if score == Encounter.TREEMON_SCORE_GOOD then
+    gate = 5
+  elseif score == Encounter.TREEMON_SCORE_RARE then
+    list, gate = set.rare, 8
+  end
+  if roll(random, 10) >= gate then return nil end
   if not list or #list == 0 then return nil end
   local value = roll(random, 100)
   local total = 0
@@ -191,6 +223,37 @@ function Encounter.treeSlot(encounters, mapId, cx, cy, random)
     end
   end
   return nil
+end
+
+-- ../pokecrystal/data/wild/treemons_asleep.asm:3 AsleepTreeMonsNite / Day / Morn
+Encounter.ASLEEP_TREEMONS = {
+  NITE = { CATERPIE = true, METAPOD = true, BUTTERFREE = true, WEEDLE = true,
+           KAKUNA = true, BEEDRILL = true, SPEAROW = true, EKANS = true,
+           EXEGGCUTE = true, LEDYBA = true, AIPOM = true },
+  DAY = { VENONAT = true, HOOTHOOT = true, NOCTOWL = true, SPINARAK = true,
+          HERACROSS = true },
+}
+Encounter.ASLEEP_TREEMONS.MORN = Encounter.ASLEEP_TREEMONS.DAY
+Encounter.ASLEEP_TREEMONS.DARK = Encounter.ASLEEP_TREEMONS.NITE
+
+-- ../pokecrystal/constants/battle_constants.asm:15 TREEMON_SLEEP_TURNS
+Encounter.TREEMON_SLEEP_TURNS = 7
+
+-- ../pokecrystal/engine/battle/core.asm:6422 CheckSleepingTreeMon
+function Encounter.treeMonAsleep(species, daytime, engine, encounters)
+  if engine ~= "crystal" then return false end
+  daytime = daytime or "DAY"
+  local extracted = encounters and encounters.treeMonsAsleep
+  if type(extracted) == "table" then
+    local key = (daytime == "MORN" and "MORN") or (daytime == "DAY" and "DAY")
+      or "NITE"
+    for _, name in ipairs(extracted[key] or {}) do
+      if name == species then return true end
+    end
+    return false
+  end
+  local list = Encounter.ASLEEP_TREEMONS[daytime]
+  return (list and list[species]) == true
 end
 
 return Encounter

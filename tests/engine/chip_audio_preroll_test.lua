@@ -208,9 +208,12 @@ ChipAudio.ensureMusicPlaying()
 eq(ChipAudio._audioStatsForTest().restarts, 1,
    "the restart the reporter hears as a click is counted")
 
+local logAfter = #Logger.history
 ChipAudio._setAudioStatsForTest(false)
 for _ = 1, 120 do ChipAudio.update() end
-eq(ChipAudio._audioStatsForTest().frames, 0,
-   "the counters cost an ungated session nothing")
+eq(ChipAudio._audioStatsForTest().frames, 120,
+   "the counters keep running with the per-second log gated off")
+eq(#Logger.history, logAfter,
+   "and an ungated session logs nothing")
 
 T.finish("chip audio pre-roll")

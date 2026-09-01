@@ -1699,16 +1699,8 @@ local function runCmd(self, cmd, op)
     self:noteUnknownOp(op)
   -- ---- commands with no engine behind them yet ---------------------------
   elseif op == "deactivatefacing" then
-    -- Script_deactivatefacing: wScriptDelay = the byte (left ALONE when the
-    -- byte is 0, the same `and a / jr z` idiom Script_pause uses), then
-    -- wScriptMode = SCRIPT_WAIT and StopScript.  WaitScript ticks that delay
-    -- down one per frame and calls UnfreezeAllObjects before reading again,
-    -- so what the command DOES is hold the script for N frames with the map's
-    -- objects released.  This port never freezes them in the first place
-    -- (World:step keeps updatePeople running while the VM is busy), so the
-    -- wait is the whole of it and it goes through the same waitFrames `pause`
-    -- uses.
-    self:waitFrames(cmd.frames or arg1(cmd) or 0)
+    -- ../pokecrystal/engine/overworld/scripting.asm:2237, :30 WaitScript
+    self:pauseFrames(cmd.frames or arg1(cmd) or 0)
   elseif op == "writeunusedbyte" then
     -- Script_writeunusedbyte stores its operand in wUnusedScriptByte, and
     -- nothing in the ROM ever reads it back: the label is pokegold's own name
@@ -2432,6 +2424,11 @@ function Vm:textStays()
   return self.nextOp == "yesorno"
 end
 
+-- ../pokecrystal/engine/overworld/scripting.asm:374 Script_promptbutton
+function Vm:textArrows()
+  return self.nextOp == "promptbutton"
+end
+
 -- `stay` is also settable per command, for the hand-ported scripts that hold
 -- the box open over something that is not `yesorno`: HiddenItems'
 -- FindItemInBallScript prints the found line, plays SFX_ITEM and then holds on
@@ -2458,6 +2455,7 @@ function Vm:showRaw(body, stay, hold, sfxWait)
       hold = hold,
       -- pokegold engine/overworld/scripting.asm:485 WaitSFX
       sfxWait = sfxWait and true or nil,
+      arrows = self:textArrows(),
     })
   end
 end
@@ -2477,7 +2475,8 @@ function Vm:showText(textKey)
     body = body:gsub("{STRBUF}", self.stringBuffer)
   end
   if self.showTextFn then
-    coroutine.yield({ kind = "text", text = body, stay = self:textStays() })
+    coroutine.yield({ kind = "text", text = body, stay = self:textStays(),
+                      arrows = self:textArrows() })
   end
 end
 
@@ -2496,13 +2495,7 @@ end
 -- itself (engine/overworld/scripting.asm:2110-2124, and ShowEmoteScript's
 -- `pause 0` reading the wScriptDelay Script_showemote just wrote).  Its inner
 -- loop is `ld c, 2 / call DelayFrames` ONCE PER UNIT, so the hardware holds
--- two frames per operand byte: `pause 60` is 120 frames.
---
--- The factor lives here and not in waitFrames because the other two waiters do
--- not share the routine.  `deactivatefacing` hands the byte to WaitScript,
--- which does one `dec [wScriptDelay]` per frame (:30-42), and `earthquake`
--- spends it as a step_sleep, which StepFunction_Sleep also decrements once per
--- frame -- both are already 1:1 and doubling them would be a new bug.
+-- HandleMap iteration -- MaxOverworldDelay 2 (engine/overworld/events.asm:177).
 function Vm:pauseFrames(n)
   self:waitFrames(Vm.pauseLength(n))
 end
@@ -2666,7 +2659,7 @@ function Vm:resume(resumeValue)
   if req and req.kind == "text" and self.showTextFn then
     self.showTextFn(req.text, function()
       self:resume()
-    end, req.stay, req.hold, req.sfxWait)
+    end, req.stay, req.hold, req.sfxWait, req.arrows)
   elseif req and req.kind == "wait" then
     self.waitLeft = req.frames or 0
   elseif req and req.kind == "waitbutton" then

@@ -62,6 +62,14 @@ local function stripPauses(text)
   return table.concat(out), marks
 end
 
+-- ../pokecrystal/home/text.asm:548 PromptText, :566 DoneText
+function TextBox.ending(text)
+  if type(text) ~= "string" then return nil end
+  if text:find("{PROMPT}%s*$") then return "prompt" end
+  if text:find("{DONE}%s*$") then return "done" end
+  return nil
+end
+
 -- glyph offsets into the whole text -> [page][line][char]
 local function mapPauses(pages, marks)
   local at, acc, mi = {}, 0, 1
@@ -123,6 +131,14 @@ function TextBox.new(game, text, onDone, opts)
   self.preSound = opts and opts.preSound
   -- pokegold engine/overworld/scripting.asm:485 WaitSFX
   self.sfxWait = opts and opts.sfxWait
+  -- ../pokecrystal/home/joypad.asm:302 WaitButton
+  self.waitButton = opts and opts.waitButton
+  local ending = TextBox.ending(text)
+  if ending == "prompt" then
+    self.waitButton = false
+  elseif ending == "done" and self.waitButton == nil then
+    self.waitButton = true
+  end
   -- opts.instant: put the LAST page up already typed, with no typewriter and
   -- no page waits.  A `yesorno` follows a `writetext` that has already been
   -- read, so re-typing the line under the YES/NO box would be wrong -- the
@@ -232,6 +248,10 @@ TextBox.TOKENS = {
     if arg == "wBoxMonNicks" then return game.boxMonNicks end
     return nil
   end,
+  -- ../pokecrystal/home/text.asm:566 DoneText
+  DONE = function() return nil end,
+  -- ../pokecrystal/home/text.asm:548 PromptText
+  PROMPT = function() return nil end,
 }
 
 function TextBox.registerInto(registry, _, owner)
@@ -351,6 +371,8 @@ end
 function TextBox:arrowVisible()
   if self.sfxWait then return false end
   if self.waiting then return true end
+  -- ../pokecrystal/home/text.asm:566 DoneText
+  if self.waitButton then return false end
   return not not (self.done and not self.choice
     and (not self.auto
          or (self.auto.promptFirst and not self.autoPrompted))
@@ -498,7 +520,9 @@ function TextBox:update(dt)
     if self:sfxHeld() then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       -- home/joypad.asm:292
-      require("src.core.Sound").playPress(self.game.data)
+      if not self.waitButton then
+        require("src.core.Sound").playPress(self.game.data)
+      end
       self.game.stack:pop()
       if self.onDone then self.onDone() end
     end

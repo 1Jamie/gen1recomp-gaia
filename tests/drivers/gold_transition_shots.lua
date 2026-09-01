@@ -6,7 +6,6 @@
 -- Ball overlay a trainer battle stamps over the map first.  POKEPORT_SHOT_INTERVAL
 -- picks the sampling; the default walks the whole thing at 6 frames.
 --
--- Shots land in /tmp/gold-transition/<style>/.
 local U = require("tests.drivers.util")
 
 local Transition = require("src.ui.gen2.BattleTransition")
@@ -21,7 +20,7 @@ return function(game)
   world:setMap("NEW_BARK_TOWN", 5, 8, "down")
   U.wait(20)
 
-  local function run(style, trainer)
+  local function run(style, trainer, every)
     local tag = style .. (trainer and "-trainer" or "-wild")
     local done = false
     game.stack:push(Transition.new(game, {
@@ -37,11 +36,16 @@ return function(game)
     for frame = 1, 600 do
       local outro = state.phase == "outro"
       local want = outro and (outroShots % interval == 0)
-        or (not outro and frame % 24 == 1)
+        or (not outro and (every or frame % 24 == 1))
       if want then
         shots = shots + 1
-        U.shot(game, ("%s/%s/%s-%02d.png")
-          :format(out, tag, outro and "outro" or "flash", shots))
+        if every and not outro then
+          U.shot(game, ("%s/%s/%s-%03d.png")
+            :format(out, tag, state.phase, state.frame))
+        else
+          U.shot(game, ("%s/%s/%s-%02d.png")
+            :format(out, tag, outro and "outro" or "flash", shots))
+        end
       end
       if outro then outroShots = outroShots + 1 end
       if done then break end
@@ -55,7 +59,7 @@ return function(game)
     U.wait(5)
   end
 
-  run("spin", true)
+  run("spin", true, true)
   run("spin", false)
   run("speckle", true)
   run("sine", true)

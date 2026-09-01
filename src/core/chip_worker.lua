@@ -23,6 +23,12 @@ require("love.timer")
 require("love.sound")
 require("love.filesystem")
 
+local jitEnabled = false
+if os.getenv("POKEPORT_AUDIO_JIT") == "1" and jit and jit.on then
+  pcall(jit.on)
+  jitEnabled = (jit.status and jit.status()) == true
+end
+
 -- Load the synth explicitly via love.filesystem (a fresh thread Lua state does
 -- not necessarily carry the package searcher that resolves "src.core..."):
 local ChipSynth = assert(love.filesystem.load("src/core/ChipSynth.lua"))()
@@ -31,6 +37,7 @@ local cmdCh = love.thread.getChannel("chipaudio_cmd")
 local outCh = love.thread.getChannel("chipaudio_out")
 
 local BUF = ChipSynth.MUSIC_BUFFER_SAMPLES
+local BUF_SECONDS = BUF / ChipSynth.SAMPLE_RATE
 -- how many finished buffers may sit in the hand-off channel before the worker
 -- pauses.  The deep (~6s) playback depth lives in the main-thread Source; this
 -- only bounds the worker's look-ahead (and its memory) between drains.
@@ -49,6 +56,9 @@ local function handle(cmd)
     engine = nil
     outCh:clear() -- drop any buffers left from the previous song
     data = { audio = cmd.audio }
+    if cmd.sampleRate ~= nil then
+      BUF_SECONDS = BUF / ChipSynth.setSampleRate(cmd.sampleRate)
+    end
     if cmd.channelVolumes ~= nil then
       ChipSynth.setChannelVolumes(cmd.channelVolumes)
     end
@@ -104,13 +114,16 @@ while true do
   if engine and not finished and gen and outCh:getCount() < LOOKAHEAD then
     idleWait = false
     local activeGen = gen
+    local began = love.timer.getTime()
     local ok, sd = pcall(ChipSynth.soundData, engine, BUF, 2)
     if not ok then
       outCh:push({ gen = activeGen, error = tostring(sd),
-                   stereoEpoch = stereoEpoch })
+                   stereoEpoch = stereoEpoch, jit = jitEnabled })
       finished = true
     else
-      outCh:push({ gen = activeGen, sd = sd, stereoEpoch = stereoEpoch })
+      outCh:push({ gen = activeGen, sd = sd, stereoEpoch = stereoEpoch,
+                   jit = jitEnabled,
+                   xrt = (love.timer.getTime() - began) / BUF_SECONDS })
       if engine:finished() then
         outCh:push({ gen = activeGen, done = true, stereoEpoch = stereoEpoch })
         finished = true

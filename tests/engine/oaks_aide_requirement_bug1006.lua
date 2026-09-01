@@ -25,7 +25,14 @@ Data.text._OaksAideHereYouGoText =
   "of POKéMON!\vCongratulations!\fHere you go!"
 Data.text._OaksAideGotItemText =
   "{PLAYER} got the\n{RAM:wOaksAideRewardItemName}!"
--- the two rewards this suite drives (Route2Gate / Route11Gate2F pass them
+Data.text._OaksAideNoRoomText =
+  "Oh! I see you\ndon't have any\vroom for the\v{RAM:wOaksAideRewardItemName}."
+-- ../pokered/scripts/Route2Gate.asm:34-36, Route11Gate2F.asm:45-47
+Data.text._Route2GateOaksAideFlashExplanationText =
+  "The HM FLASH\nlights even the\vdarkest dungeons."
+Data.text._Route11Gate2FOaksAideItemfinderDescriptionText =
+  "There are items on\nthe ground that\vcan't be seen.\fITEMFINDER will\n" ..
+  "detect an item\vclose to you."
 Data.items.HM_FLASH = { id = "HM_FLASH", index = 196, name = "HM FLASH" }
 Data.items.ITEMFINDER = { id = "ITEMFINDER", index = 6, name = "ITEMFINDER" }
 
@@ -33,10 +40,14 @@ local SaveData = require("src.core.SaveData")
 
 local pushed = {}
 local realTextBox = package.loaded["src.render.TextBox"]
--- story4's push/ask require TextBox lazily, so a package.loaded stub is
 package.loaded["src.render.TextBox"] = {
   new = function(_, text, onDone, opts)
     return { text = text, onDone = onDone, opts = opts }
+  end,
+  soundOpts = function(_, sound, opts)
+    opts = opts or {}
+    opts.auto = { wait = true, delay = 0, sound = function() return sound end }
+    return opts
   end,
 }
 
@@ -124,10 +135,22 @@ done = false
 ROUTE_11(game, {}, {}, function() done = true end)
 pushed[1].opts.choice(true)
 T.check(has("caught 30 kinds"), "congratulation line carries the owned count")
+T.eq(held("ITEMFINDER"), 0,
+  "the congratulation comes before GiveItem (oaks_aide.asm:18-25)")
 dismiss()
 T.check(has("RED got the\nITEMFINDER!"), "the item line names player and item")
+local gotBox = pushed[#pushed]
+T.check(gotBox.opts and gotBox.opts.auto
+  and type(gotBox.opts.auto.sound) == "function",
+  "the got-item box carries sound_get_item_1 (oaks_aide.asm:64-67)")
+T.check(gotBox.opts.auto.wait == true,
+  "the fanfare box still waits for the button press")
+T.check(not done, "the talk does not end on the got-item box")
 dismiss()
-T.check(done, "the reward branch completes the talk")
+T.check(has("ITEMFINDER will"),
+  "the aide explains the reward right after giving it (Route11Gate2F.asm:39-41)")
+dismiss()
+T.check(done, "the explanation box is what completes the talk")
 T.eq(held("ITEMFINDER"), 1, "ITEMFINDER lands in the bag")
 T.check(game.save.flags.EVENT_GOT_ITEMFINDER, "the aide's event flag is set")
 
@@ -138,7 +161,52 @@ ROUTE_11(game, {}, {}, function() done = true end)
 T.eq(#pushed, 1, "a served player gets exactly one box")
 T.check(pushed[1].opts == nil or pushed[1].opts.choice == nil,
   "the repeat line is not a question")
+T.check(has("ITEMFINDER will"), "the repeat line is the same explanation")
 T.eq(held("ITEMFINDER"), 1, "no second ITEMFINDER")
+
+-- === ../pokered/scripts/Route2Gate.asm:11 EVENT_GOT_HM05
+reset(10)
+done = false
+ROUTE_2(game, {}, {}, function() done = true end)
+pushed[1].opts.choice(true)
+dismiss()
+dismiss()
+T.check(has("The HM FLASH"), "Route 2 falls through to the FLASH explanation")
+dismiss()
+T.check(done, "Route 2 reward branch completes on the explanation")
+T.eq(held("HM_FLASH"), 1, "HM FLASH lands in the bag")
+T.check(game.save.flags.EVENT_GOT_HM05,
+  "Route 2 sets EVENT_GOT_HM05, the name the save crosswalk knows")
+T.check(not game.save.flags.EVENT_GOT_HM_FLASH,
+  "the port-local EVENT_GOT_HM_FLASH name is gone")
+
+-- === ../pokered/engine/events/oaks_aide.asm:18-32 .bagFull
+local Bag = require("src.inventory.Bag")
+reset(30)
+done = false
+for i = 1, Bag.capacity(Data, "ITEM") do
+  game.save.inventory["FILLER_" .. i] = 1
+end
+ROUTE_11(game, {}, {}, function() done = true end)
+pushed[1].opts.choice(true)
+T.check(has("caught 30 kinds"), "a full bag still gets the congratulation")
+dismiss()
+T.check(has("room for the\vITEMFINDER"), "then the no-room line")
+dismiss()
+T.check(done, "the no-room branch ends the talk with no explanation")
+T.eq(held("ITEMFINDER"), 0, "nothing is given when the bag is full")
+T.check(not game.save.flags.EVENT_GOT_ITEMFINDER,
+  "a failed give leaves the aide's flag clear (OAKS_AIDE_BAG_FULL)")
+
+reset(10)
+done = false
+game.save.flags.EVENT_GOT_HM_FLASH = true
+ROUTE_2(game, {}, {}, function() done = true end)
+T.eq(#pushed, 1, "the old EVENT_GOT_HM_FLASH name still serves one box")
+T.check(pushed[1].opts == nil or pushed[1].opts.choice == nil,
+  "an old save is not asked the question again")
+T.check(has("The HM FLASH"), "an old save gets the explanation line")
+T.eq(held("HM_FLASH"), 0, "an old save gets no second HM FLASH")
 
 if realTextBox ~= nil then
   package.loaded["src.render.TextBox"] = realTextBox
