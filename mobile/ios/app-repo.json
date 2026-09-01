@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.46",
+          "date": "2026-09-01",
+          "size": 21566558,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.46/gen1recomp++-0.2.46-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1971 Checkpoint restore fails 3 steps out of 4: the map-enter path zeroes save.poisonSteps, then verification rejects the mismatch\n- #2025 findPendingRom is unreachable on Linux: the file browser returns before it\n- #2029 [Crystal] Location banners disappear fast with normal/lower speeds and last very long with high speeds\n- #2030 Transform animation incorrect\n- #2031 Prof. Oak's Aides bugs\n- #2033 Evolution timing & sound issues\n- #2034 Celadon Game Corner\n- #2035 Can’t select update all on sealed cart. So still can’t properly use update all button to update cartridges.\n- #2038 Skins screen is extremely slow on handheld devices (options file re-read and decoded every frame)\n- #2040 Sealed cartridge saves not syncing\n- #2041 (GSC) Unable to use softboiled outside battles\n- #2042 (GSC) When switching items, both arrows are transparent\n- #2043 (GSC) Missing mechanics for headbutt trees\n- #2044 (GSC) Pokéball mosaic effect is broken\n- #2045 (GSC) The last text box before entering a battle shouldn't have an arrow\n- #2046 (GSC) Text speed is instant in a lot of situations\n- #2048 Mod checking for update graphic rotation\n- #2049 (GSC) The screen gets fully white when turning the PC on\n- #2050 (GSC) Pokémon not animating in the Hall of Fame PC\n- #2051 (GSC) The brief white screen before and after choosing the location for FLY is too quick\n- #2052 (GSC) Missing blue sparks when leveling up\n- #2053 (GSC) White screen when saving the game\n- #2054 (GSC) Missing details when continuing a game\n\n## Contributors\n\n- @1Jamie\n- @BountyHunterKanden\n- @bryanthaboi\n- @mleo2003"
+        },
+        {
           "version": "0.2.45",
           "date": "2026-08-31",
           "size": 21546273,
