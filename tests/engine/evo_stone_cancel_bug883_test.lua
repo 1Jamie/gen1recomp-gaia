@@ -111,7 +111,7 @@ end
 
 -- Open the bag, put the cursor on the stone, choose it, take USE off the
 -- USE/TOSS box, then press A on the party picker.
-local function useStone(game)
+local function pressAOnPicker(game)
   local list = BagMenu.new(game, {})
   game.stack:push(list)
   local row = rowFor(list, "THUNDER_STONE")
@@ -128,6 +128,17 @@ local function useStone(game)
   game.input.pressed = "a"
   picker:update(1 / 60)
   game.input.pressed = nil
+  return list, nil, picker
+end
+
+-- engine/items/item_effects.asm:772-782
+local function useStone(game)
+  local list, why, picker = pressAOnPicker(game)
+  if not list then return nil, why end
+  check(game.stack.states[#game.stack.states - 1] == picker,
+        "the party picker is still up under the is-evolving box: "
+        .. "ItemUseEvoStone never redraws the item menu before "
+        .. "TryEvolvingMon (#2070)")
   -- IsEvolvingText STAYS up; its onShown starts the DelayFrames 50 hold,
   -- which then pushes the movie over it (evos_moves.asm:120-134) (#1596)
   local intro = game.stack:top()
@@ -143,12 +154,12 @@ local function useStone(game)
     if pushed then break end
     if hold.update then hold.update() end
   end
-  return list
+  return list, nil, picker
 end
 
 do
   local game, mon = freshGame()
-  local list, why = useStone(game)
+  local list, why, picker = useStone(game)
   if check(list ~= nil, "the bag opened and reached the picker: " .. tostring(why)) then
     if check(pushed ~= nil, "the stone use pushed the evolution screen") then
       eq(pushed.newSpecies, "FIXMON_B", "and it is the stone's evolution")
@@ -160,6 +171,42 @@ do
     eq(game.save.inventory.THUNDER_STONE, nil,
        "the stone is already gone by then, so a cancel would cost it for "
        .. "nothing")
+    if pushed then
+      game.stack:pop()
+      pushed.onDone()
+      check(game.stack:top() ~= picker and not isPicker(game.stack:top()),
+            "and the picker comes down when the evolution finishes (#2070)")
+      eq(game.stack:top(), list,
+         "landing on the ITEM list, the way .useItem_partyMenu returns to "
+         .. "StartMenu_Item (engine/menus/start_sub_menus.asm:419)")
+    end
+  end
+end
+
+-- engine/items/item_effects.asm:793
+do
+  local game = freshGame()
+  game.save.party[1] = Pokemon.new(Data, "FIXMON_B", 20)
+  local list, why, picker = pressAOnPicker(game)
+  if check(list ~= nil,
+           "a stone with no matching evolution reaches the picker: "
+           .. tostring(why)) then
+    local box = game.stack:top()
+    if check(box ~= nil and box.textBox == true,
+             "ItemUseNoEffect prints its box") then
+      check(tostring(box.text):find("effect") ~= nil,
+            "and it is _ItemUseNoEffectText")
+    end
+    check(game.stack.states[#game.stack.states - 1] == picker,
+          "over the still-drawn party menu, not the item list (#2070)")
+    eq(game.save.inventory.THUNDER_STONE, 1,
+       "and the stone survives the refusal")
+    if box and box.done then
+      game.stack:pop()
+      box.done()
+    end
+    eq(game.stack:top(), list,
+       "closing the box drops the picker back to the ITEM list")
   end
 end
 

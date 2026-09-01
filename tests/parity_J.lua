@@ -387,9 +387,13 @@ do
   local finished = false
   demo.onFinish = function() finished = true end
   local origStart = demo.startMessage
+  local caughtCont = false
   demo.startMessage = function(self, item)
     table.insert(seen, item.text)
     origStart(self, item)
+    if (item.text or ""):find("caught!", 1, true) then
+      caughtCont = self.lines[#self.lines].cont == true
+    end
   end
   stack:push(demo)
   demo:enter()
@@ -461,7 +465,9 @@ do
     return false
   end
   check(sawText("OLD MAN used\nPOKé BALL!"), "the throw is credited to OLD MAN")
-  check(sawText("All right!\nWEEDLE was\ncaught!"), "the ball always catches (_ItemUseBallText05)")
+  check(sawText("All right!\nWEEDLE was\vcaught!"), "the ball always catches (_ItemUseBallText05)")
+  -- data/text/text_6.asm:29-35
+  check(caughtCont, "the 'caught!' line holds on CONT (ManualTextScroll)")
   eq(demo.enemy.mon.hp, enemyHP, "the old man never attacks (Weedle at full HP)")
   eq(#fg.save.party, 1, "the caught Weedle is NOT added to the party")
   check(not (fg.save.pokedex and fg.save.pokedex.owned and fg.save.pokedex.owned.WEEDLE),

@@ -279,6 +279,8 @@ function Player:pose()
     self.bobTimer = ((self.bobTimer or 0) + 1) % 32
     py = py + (self.bobTimer < 16 and 0 or 1)
   end
+  -- engine/overworld/player_animations.asm:453
+  py = py + (self.fishShakeDy or 0)
   local facing = self.facing
   local phase = self:walkPhase()
   -- alternate walk cycles mirror the up/down frame; derived from the

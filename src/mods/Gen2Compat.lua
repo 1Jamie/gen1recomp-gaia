@@ -1426,6 +1426,7 @@ COVERAGE[OW] = {
     .. "billsHouseBillExits tilesetHasWater surfBlockedHere "
     .. "checkSeafoamCurrent seafoamHolesFor boulderIntoHole openOaksPC "
     .. "dexRating cableClubReceptionist finishNurseHeal stepHealAnim "
+    .. "fishAnimFrames stepFishAnim tickFishAnim fishVerdict "
     .. "checkVictoryRewards offerGymTm runVictoryHook onStepComplete "
     .. "rollEncounter checkSpinner runSpinnerMoves rewrittenLastMap "
     .. "syncLastMapRewrite rememberOutdoor checkBadgeGate inSafariStepZone "

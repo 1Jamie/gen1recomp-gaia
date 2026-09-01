@@ -87,9 +87,31 @@ local function frameSheet(game)
   return frameCache[path]
 end
 
+-- engine/gfx/load_pokedex_tiles.asm:8-11: PokeballTileGraphics -> tile $72
+local ballCache
+local function ballSheet()
+  if ballCache == nil then
+    local ok, img = pcall(love.graphics.newImage,
+                          "assets/generated/battle/balls.png")
+    if ok and img then
+      ballCache = { img = img,
+                    quad = love.graphics.newQuad(0, 0, 8, 8,
+                                                 img:getDimensions()) }
+    else
+      ballCache = false
+    end
+  end
+  return ballCache or nil
+end
+
 -- one tile of the sheet, for the CONTENTS screen's divider column
 -- (engine/menus/pokedex.asm:350, DrawPokedexVerticalLine)
 function DexEntryMenu.tile(game, code, tx, ty)
+  if code == 0x72 then
+    local ball = ballSheet()
+    if ball then love.graphics.draw(ball.img, ball.quad, tx * 8, ty * 8) end
+    return
+  end
   local frame = frameSheet(game)
   if not (frame and code) then return end
   local quad = frame.quads[code - 0x60]

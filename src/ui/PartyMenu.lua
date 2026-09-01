@@ -329,6 +329,7 @@ function PartyMenu.new(game, opts)
   self.battle = opts.battle
   self.party = party -- link/scoped battles pass their local party view
   self.swapFrom = nil
+  self.swapAnim = nil
   self.submenu = nil
   self.subIndex = 1
   self.blink = 0
@@ -361,6 +362,11 @@ function PartyMenu:close()
   if self.game.stack:top() == self then self.game.stack:pop() end
 end
 
+-- engine/menus/party_menu.asm:12, engine/menus/start_sub_menus.asm:287
+function PartyMenu:eraseCursors()
+  self.cursorsErased = true
+end
+
 -- engine/battle/core.asm:2329
 function PartyMenu:refuse(text)
   self.submenu = nil
@@ -391,6 +397,25 @@ function PartyMenu:update(dt)
     end
     return
   end
+  -- SwitchPartyMon_ClearGfx (engine/menus/start_sub_menus.asm:690), then
+  -- RedrawPartyMenu_ (engine/menus/party_menu.asm:8)
+  local anim = self.swapAnim
+  if anim then
+    anim.frames = anim.frames + 1
+    local playing = false
+    if anim.src then
+      local ok, p = pcall(anim.src.isPlaying, anim.src)
+      playing = ok and p or false
+    end
+    if anim.frames < 10 or (playing and anim.frames < 30) then return end
+    self.swapAnim = nil
+    if self.game.data then
+      require("src.core.Sound").play(self.game.data, "Swap")
+    end
+    return
+  end
+  -- home/window.asm:119
+  self.cursorsErased = nil
   local input = self.game.input
   local party = self.party or self.game.save.party
 
@@ -656,11 +681,17 @@ function PartyMenu:update(dt)
       self.softboiledFrom = nil
       self.game.overworld:useSoftboiledFieldMove(user, mon)
     elseif self.swapFrom then
-      if self.swapFrom ~= self.index then
-        party[self.swapFrom], party[self.index] = party[self.index], party[self.swapFrom]
-        require("src.core.Sound").play(self.game.data, "Swap")
-      end
+      -- SwitchPartyMon (engine/menus/start_sub_menus.asm:660)
+      local from = self.swapFrom
       self.swapFrom = nil
+      if from ~= self.index then
+        party[from], party[self.index] = party[self.index], party[from]
+      end
+      self.swapAnim = { blank = { [from] = true }, frames = 0 }
+      if self.game.data then
+        self.swapAnim.src = require("src.core.Sound").play(self.game.data, "Swap")
+      end
+      return
     elseif self.onSwitch and (self.forceSwitch or self.pickOnly or not self.battle) then
       -- keepOpen callers (HP medicine) need the menu still drawn while the
       -- bar fills and the message prints, and close it themselves; everyone
@@ -792,6 +823,8 @@ function PartyMenu:draw()
   local barZoned = PaletteFX.shader() ~= nil
                    and PaletteFX.pal(self.game.data, "GREENBAR") ~= nil
   for i, mon in ipairs(party) do
+    -- SwitchPartyMon_ClearGfx (engine/menus/start_sub_menus.asm:668)
+    if not (self.swapAnim and self.swapAnim.blank[i]) then
     local def = self.game.data.pokemon[mon.species]
     local y = PartyMenu.entryY(i)
     love.graphics.setColor(1, 1, 1, 1)
@@ -873,13 +906,15 @@ function PartyMenu:draw()
     -- level with the middle of the two-row icon -- not on the name row that
     -- entryY returns.  Drawing it at y put it a tile too high (#278).
     local cursorY = y + 8
-    if i == self.index then
+    if i == self.index and not self.cursorsErased then
       Font.drawCode(Theme.cursor, 0, cursorY)
     end
     -- the unfilled swap arrow; the filled cursor replaces it in the tilemap
     -- when they share a row (PlaceMenuCursor, home/window.asm:184-185) (#814)
-    if (i == self.swapFrom or i == self.softboiledFrom) and i ~= self.index then
+    if (i == self.swapFrom or i == self.softboiledFrom) and i ~= self.index
+        and not self.cursorsErased then
       Font.drawCode(Theme.cursorHollow, 0, cursorY)
+    end
     end
   end
   -- every message id prints through PrintText, so it lands in the standard

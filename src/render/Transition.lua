@@ -159,10 +159,14 @@ local WhiteFlash = {}
 WhiteFlash.__index = WhiteFlash
 WhiteFlash.isOpaque = true
 
+-- engine/pokemon/status_screen.asm:82
+function Transition.flashFrames(game)
+  return styleOf(game, "white_flash").frames or FLASH_FRAMES
+end
+
 function Transition.whiteFlash(game, frames, onDone)
   return setmetatable({ game = game,
-                        frames = frames or styleOf(game, "white_flash").frames
-                                 or FLASH_FRAMES,
+                        frames = frames or Transition.flashFrames(game),
                         onDone = onDone, t = 0 }, WhiteFlash)
 end
 

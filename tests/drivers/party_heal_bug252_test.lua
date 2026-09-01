@@ -70,7 +70,7 @@ return function(game)
           type(extra) == "table" and extra.healedFrom == 3)
     check("...with the restored-HP message",
           type(msgs) == "table" and type(msgs[1]) == "string"
-          and msgs[1]:find("restored", 1, true) ~= nil)
+          and msgs[1]:find("recovered", 1, true) ~= nil)
     local _, _, cureExtra = ItemEffects.use(game.data, scratchSave,
                                             "ANTIDOTE", scratch)
     check("ANTIDOTE hands back no healedFrom (no fill)",
@@ -174,6 +174,9 @@ return function(game)
           isPicker(top()))
     check("the fill is running (picker.heal is set)",
           type(picker.heal) == "table")
+    -- engine/items/item_effects.asm:1209
+    check("the cursor is still drawn while the bar fills",
+          picker.cursorsErased ~= true)
     if type(picker.heal) == "table" then
       check("the fill starts from the pre-heal HP (wHPBarOldHP)",
             math.floor(picker.heal.shown + 0.5) == hpBefore)
@@ -224,6 +227,8 @@ return function(game)
     end
     check("the message box opened", isBox(top()))
     check("...over the STILL-drawn party menu", inStack(isPicker))
+    -- engine/items/item_effects.asm:1232 (#2062)
+    check("...with the menu cursor erased", picker.cursorsErased == true)
     U.wait(60) -- let the line type out, so the shot shows the text not an empty box
     U.shot(game, DIR .. "/bug252_message_over_party.png")
 

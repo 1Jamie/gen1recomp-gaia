@@ -95,10 +95,12 @@ end
 
 -- .useRareCandy prints over the still-drawn party menu
 -- (engine/items/item_effects.asm:1392-1418); .useVitamin ends at
--- RemoveUsedItem the same way (engine/items/item_effects.asm:1315-1322)
+-- RemoveUsedItem the same way (engine/items/item_effects.asm:1315-1322);
+-- stones keep the menu on screen (engine/items/item_effects.asm:772-793,
+-- engine/pokemon/evos_moves.asm:120-128)
 function ItemEffects.keepsPartyMenuOpen(id)
   return ItemEffects.healsHP(id) or id == "RARE_CANDY"
-      or VITAMINS[id] ~= nil
+      or VITAMINS[id] ~= nil or ItemEffects.isStone(id)
 end
 
 function ItemEffects.isBattleMedicine(id)
@@ -189,6 +191,8 @@ end
 local function itemUseLine(data, save, name)
   return romText(data, "_ItemUseText001", "%s used\n%s!", save.player.name, name)
 end
+
+ItemEffects.itemUseLine = itemUseLine
 
 -- PrintItemUseTextAndRemoveItem (item_effects.asm): used-line + SFX_HEAL_AILMENT.
 -- BagMenu plays Heal_Ailment via TextBox.soundOpts when extra.useJingle is set.
@@ -505,8 +509,14 @@ function ItemEffects.use(data, save, itemId, target, battle, moveIndex, ow)
     local speciesDef = data.pokemon[target.species]
     for _, evo in ipairs(speciesDef.evolutions) do
       if evo.method == "ITEM" and evo.item == itemId then
+        -- (engine/items/item_effects.asm:779-781)
+        require("src.core.Sound").play(data, "Heal_Ailment")
         return "consumed", nil, { evolveTo = evo.species }
       end
+    end
+    -- pokeyellow engine/items/item_effects.asm:810-830
+    if not require("src.core.GameVersion").isYellow() then
+      require("src.core.Sound").play(data, "Heal_Ailment")
     end
     return "failed", { noEffect(data) }
   end

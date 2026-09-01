@@ -57,6 +57,39 @@ return function(game)
   -- rng low: clean capture, ball stays shut
   throwAndShoot("caught", function(a, b) return a end)
 
+  -- data/text/text_6.asm:29-35
+  local function contHoldShoot()
+    local battle = BattleState.newWild(game, "PIDGEY", 8)
+    battle.onFinish = function() end
+    battle.rng = function(a, b) return a end
+    ow:pushBattle(battle)
+    for _ = 1, 14 do U.tap(game, "a"); U.wait(6) end
+    battle.phase = "messages"
+    battle.afterQueue = "menu"
+    battle:throwBall("POKE_BALL")
+    local held = false
+    for _ = 1, 900 do
+      local cur = battle.current
+      if battle.msgWaiting and cur and cur.text
+         and cur.text:find("All right!", 1, true) then
+        held = true
+        break
+      end
+      U.wait(1)
+    end
+    U.log("caught-line CONT hold:", held,
+          battle.current and battle.current.text or "nil")
+    U.wait(30)
+    U.shot(game, DIR .. "/catch_cont_hold.png")
+    U.tap(game, "a")
+    U.wait(45)
+    U.shot(game, DIR .. "/catch_cont_after.png")
+    for _ = 1, 30 do U.tap(game, "a"); U.wait(4) end
+    while game.stack:top() ~= ow do game.stack:pop() end
+    U.wait(5)
+  end
+  contHoldShoot()
+
   -- #159: party catch -> nickname ask on white (YES cursor, then NO)
   game.save.party = { Pokemon.new(game.data, "PIKACHU", 5) }
   game.save.pokedex = game.save.pokedex or { owned = {}, seen = {} }
@@ -127,6 +160,50 @@ return function(game)
   U.log("full-party box text:", sawBox,
         battle.current and battle.current.text or "nil")
   U.shot(game, DIR .. "/catch_fullparty_box.png")
+
+  for _ = 1, 30 do U.tap(game, "a"); U.wait(4) end
+  while game.stack:top() ~= ow do game.stack:pop() end
+  U.wait(5)
+
+  -- engine/menus/pokedex.asm:581-582 (#2069)
+  game.save.party = {}
+  for _ = 1, 6 do
+    table.insert(game.save.party, Pokemon.new(game.data, "RATTATA", 5))
+  end
+  game.save.pokedex.owned.SLOWPOKE = nil
+  game.save.pokedex.seen.SLOWPOKE = nil
+  game.save.flags.EVENT_MET_BILL = true
+
+  battle = BattleState.newWild(game, "SLOWPOKE", 15)
+  battle.onFinish = function() end
+  battle.rng = function(a, b) return a end
+  ow:pushBattle(battle)
+  for _ = 1, 14 do U.tap(game, "a"); U.wait(6) end
+  battle.phase = "messages"
+  battle.afterQueue = "menu"
+  battle:throwBall("POKE_BALL")
+
+  U.log("new-dex full-party nick ask:", mashUntil(onNicknameChoice, 900))
+  U.wait(4)
+  U.shot(game, DIR .. "/catch_newdex_fullparty_nickname.png")
+  if topIs(ChoiceBox) then
+    U.tap(game, "b")
+  end
+  for _ = 1, 8 do U.wait(1) end
+  sawBox = false
+  for _ = 1, 400 do
+    if game.stack:top() == battle and battle.current and battle.current.text
+       and battle.current.text:find("transferred", 1, true) then
+      sawBox = true
+      if (battle.charIndex or 0) >= math.floor((battle.total or 0) * 0.7) then
+        break
+      end
+    end
+    U.wait(1)
+  end
+  U.log("new-dex full-party box text:", sawBox,
+        battle.current and battle.current.text or "nil")
+  U.shot(game, DIR .. "/catch_newdex_fullparty_box.png")
 
   for _ = 1, 30 do U.tap(game, "a"); U.wait(4) end
   while game.stack:top() ~= ow do game.stack:pop() end

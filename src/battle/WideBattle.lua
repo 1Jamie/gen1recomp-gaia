@@ -158,6 +158,8 @@ local function drawIntroBalls(battle)
 end
 
 local function drawHUDs(battle, slide)
+  -- engine/menus/pokedex.asm:581-582
+  if battle.fieldCleared then return end
   local showStatus = battle:statusHUDVisible()
   if showStatus and battle.enemy and not battle.showEnemyTrainer
       and not battle.enemySendingOut and not battle:growInScale(battle.enemy)

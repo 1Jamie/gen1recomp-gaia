@@ -74,4 +74,40 @@ do
     "no catalog entry falls back to the English BILL's-PC literal")
 end
 
+-- engine/menus/pokedex.asm:581-582 (#2069)
+do
+  local battle = mkbattle(6, true)
+  battle:storeCaughtMon()
+  local dexAt, clearAt, transferAt
+  for i, entry in ipairs(battle.queue) do
+    if entry.ui and not dexAt then dexAt = i end
+    if entry.fn and dexAt and not clearAt then
+      entry.fn()
+      if battle.fieldCleared then clearAt = i end
+    end
+    if entry.text and not transferAt and entry.text:find("transferred", 1, true) then
+      transferAt = i
+    end
+  end
+  T.check(dexAt and clearAt and transferAt,
+    "the new-species catch queues the dex page, a clear and the transfer line")
+  T.check(dexAt < clearAt and clearAt < transferAt,
+    "the field is marked cleared after the dex page and before the transfer line")
+  T.eq(battle.fieldCleared, true, "the dex page leaves the battle field cleared")
+end
+
+-- engine/items/item_effects.asm:559-566 (#2069)
+do
+  local battle = mkbattle(6, true)
+  battle.game.save.pokedex.owned[battle.enemy.mon.species] = true
+  battle:storeCaughtMon()
+  for _, entry in ipairs(battle.queue) do
+    if entry.fn then entry.fn() end
+  end
+  T.eq(battle.fieldCleared, nil,
+    "an already-owned catch leaves the battle field drawn")
+  T.check(findText(battle, "transferred") ~= nil,
+    "the already-owned full-party catch still prints the transfer line")
+end
+
 T.finish("battle_catch_messages_romtext")

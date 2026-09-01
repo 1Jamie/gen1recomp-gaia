@@ -360,6 +360,21 @@ do
                       { pic = "mods/x/beauty.png", trueColor = true },
                       "patch", 2),
         "a Gold trainers patch can carry pic and trueColor")
+  check(Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "OPP_RIVAL1",
+                      { parties = { { { level = 70, species = "MEWTWO",
+                                        moves = { "PSYCHIC_M" } } } } },
+                      "patch"),
+        "a party slot's moves list validates against the catalog schema")
+  check(not Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "OPP_RIVAL1",
+                          { parties = { { { level = 70, species = "MEWTWO",
+                                            moves = "PSYCHIC_M" } } } },
+                          "patch"),
+        "a party slot's moves must still be a list of move ids")
+  check(Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "BEAUTY",
+                      { trainers = { { name = "GRACE", party = {
+                          { level = 20, species = "PIKACHU",
+                            moves = { "THUNDERSHOCK" } } } } } }, "patch", 2),
+        "the Gold party slot keeps its own moves list")
 end
 
 do

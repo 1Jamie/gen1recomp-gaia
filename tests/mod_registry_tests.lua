@@ -202,6 +202,52 @@ check(typoError:find('did you mean "baseStats"', 1, true) ~= nil,
 check(typoData.pokemon.PIKACHU.baseStats.attack == 55,
   "failed patch leaves the record untouched")
 
+local partyMoveFiles = {
+  ["mods/party_moves/manifest.json"] = manifestJson("party_moves", { api = 2 }),
+  ["mods/party_moves/main.lua"] = [[
+return function(mod)
+  mod.content.trainers:patch("OPP_RIVAL1", {
+    parties = { { { level = 70, species = "RAICHU",
+                    moves = { "THUNDER_WAVE", "GROWL" } } } },
+  })
+end
+]],
+}
+local partyMoveData = fixtureData()
+partyMoveData.trainers = {
+  OPP_RIVAL1 = { id = "OPP_RIVAL1", name = "RIVAL",
+    parties = { { { level = 5, species = "PIKACHU" } } } },
+}
+local partyMoveLoader = Loader.new({ fs = memfs(partyMoveFiles) })
+check(partyMoveLoader:load(partyMoveData) == true,
+  "an api 2 mod may patch a trainer party slot's moves")
+local slot = partyMoveData.trainers.OPP_RIVAL1.parties[1][1]
+check(slot.moves and #slot.moves == 2 and slot.moves[1] == "THUNDER_WAVE",
+  "the patched party slot keeps its moves list")
+check(slot.level == 70 and slot.species == "RAICHU",
+  "the rest of the patched party slot lands too")
+
+local badMoveFiles = {
+  ["mods/bad_party_move/manifest.json"] = manifestJson("bad_party_move", { api = 2 }),
+  ["mods/bad_party_move/main.lua"] = [[
+return function(mod)
+  mod.content.trainers:patch("OPP_RIVAL1", {
+    parties = { { { level = 70, species = "RAICHU", moves = { "NOT_A_MOVE" } } } },
+  })
+end
+]],
+}
+local badMoveData = fixtureData()
+badMoveData.trainers = {
+  OPP_RIVAL1 = { id = "OPP_RIVAL1", name = "RIVAL",
+    parties = { { { level = 5, species = "PIKACHU" } } } },
+}
+local badMoveLoader = Loader.new({ fs = memfs(badMoveFiles) })
+check(badMoveLoader:load(badMoveData) == false,
+  "a dangling party move id fails an api 2 mod")
+check(table.concat(badMoveLoader.errors, "\n"):find("NOT_A_MOVE", 1, true) ~= nil,
+  "the dangling party move id is named in the error")
+
 -- ------- remove: tombstones survive the merge as deletes; re-register
 -- after remove resurrects the id
 local removeFiles = {

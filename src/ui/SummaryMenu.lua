@@ -52,18 +52,36 @@ function SummaryMenu.new(game, mon)
     self.sprite = ok and img or nil
   end
   self.spriteTrueColor = self.sprite and trueColor or false
-  require("src.core.Sound").playCry(game.data, mon.species)
+  -- engine/pokemon/status_screen.asm:82,168-172
+  self.whiteHold = tonumber(require("src.render.Transition").flashFrames(game)) or 0
+  if self.whiteHold <= 0 then
+    self.whiteHold = 0
+    require("src.core.Sound").playCry(game.data, mon.species)
+  end
   return self
 end
 
 function SummaryMenu:update(dt)
+  if self.closing then return end
+  if self.whiteHold and self.whiteHold > 0 then
+    self.whiteHold = self.whiteHold - 1
+    if self.whiteHold == 0 then
+      require("src.core.Sound").playCry(self.game.data, self.mon.species)
+    end
+    return
+  end
   local input = self.game.input
   -- both A and B advance the pages (WaitForTextScrollButtonPress)
   if input:wasPressed("a") or input:wasPressed("b") then
     if self.page == 1 then
       self.page = 2
     else
-      self.game.stack:pop()
+      -- engine/pokemon/status_screen.asm:431, home/pokemon.asm:186
+      local Transition = require("src.render.Transition")
+      self.closing = true
+      self.game.stack:push(Transition.whiteFlash(self.game, nil, function()
+        self.game.stack:pop()
+      end))
     end
   end
 end
@@ -222,6 +240,10 @@ function SummaryMenu:draw()
     end
   end
   love.graphics.setColor(1, 1, 1, 1)
+  -- engine/pokemon/status_screen.asm:82
+  if self.whiteHold and self.whiteHold > 0 then
+    love.graphics.rectangle("fill", 0, 0, 160, 144)
+  end
 end
 
 return SummaryMenu
