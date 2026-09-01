@@ -32,11 +32,16 @@ local PcItems = require("src.core.gen2.PcItems")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local Typer = require("src.ui.gen2.Typer")
 local WaitPlaySFX = require("src.ui.gen2.WaitPlaySFX")
 
 local ItemPcMenu = {}
 ItemPcMenu.__index = ItemPcMenu
-ItemPcMenu.isOpaque = true
+-- ../pokecrystal/engine/events/pokecenter_pc.asm:231
+ItemPcMenu.isOpaque = false
+
+-- ../pokecrystal/engine/events/pokecenter_pc.asm:330
+local CLEARS_SCREEN = { withdraw = true, deposit = true, toss = true }
 
 -- MAX_PC_ITEMS stacks of at most MAX_ITEM_STACK (constants/item_constants.asm),
 -- the same pair src/core/gen2/MomShopping.lua enforces for Mom's deliveries.
@@ -72,7 +77,11 @@ local LIST_X = 5
 local TIMES = "\xc3\x97"
 
 function ItemPcMenu:wantsFillScale() return true end
-function ItemPcMenu:drawsWidescreen() return true end
+
+function ItemPcMenu:setPhase(phase)
+  self.phase = phase
+  self.isOpaque = CLEARS_SCREEN[phase] or false
+end
 
 -- opts: save, items (items.lua), house (PLAYERSPC_HOUSE: boot text,
 --       DECORATION row, TURN OFF), events (wEventFlags, for the decoration
@@ -111,7 +120,7 @@ function ItemPcMenu.new(game, opts)
   entries[#entries + 1] = self.house and TURN_OFF or LOG_OFF
   self.entries = entries
   self.index = 1
-  self.phase = "menu"
+  self:setPhase("menu")
   self.rows = {}
   self.listIndex = 1
   self.scroll = 0
@@ -164,7 +173,9 @@ end
 -- one runs onDone.  The item PC's messages never log off by themselves, which
 -- is _PlayersPC's `.loop`: a refusal drops back into the same menu.
 function ItemPcMenu:say(pages, onDone)
-  self.message = { pages = pages, page = 1, onDone = onDone }
+  Typer.say(self, pages, onDone, { expand = function(line)
+    return (line:gsub("{PLAYER}", self:playerName()))
+  end })
 end
 
 function ItemPcMenu:close()
@@ -302,7 +313,7 @@ end
 function ItemPcMenu:chooseWithdraw()
   local row = self.rows[self.listIndex]
   if not row then
-    self.phase = "menu"
+    self:setPhase("menu")
     return
   end
   -- .Submenu: an item without a quantity attribute (a KEY ITEM in the PC) is
@@ -332,7 +343,7 @@ function ItemPcMenu:enterDeposit()
     self:say({ { "No items here!" } })
     return
   end
-  self.phase = "deposit"
+  self:setPhase("deposit")
   -- DepositSellPack: the PACK as a chooser, held and drawn by this screen the
   -- way the mart holds its sell PACK.  `world = {}` keeps field items inert.
   self.pack = Screens.build(self.game, "Gen2PackMenu", {
@@ -346,7 +357,7 @@ end
 
 function ItemPcMenu:leaveDeposit()
   self.pack = nil
-  self.phase = "menu"
+  self:setPhase("menu")
 end
 
 function ItemPcMenu:offerToDeposit(id, count)
@@ -367,7 +378,7 @@ end
 function ItemPcMenu:chooseToss()
   local row = self.rows[self.listIndex]
   if not row then
-    self.phase = "menu"
+    self:setPhase("menu")
     return
   end
   -- TossItemFromPC .key_item -> .CantToss.
@@ -398,7 +409,7 @@ function ItemPcMenu:choose()
   if not entry then return end
   local game = self.game
   if entry.id == "withdraw" or entry.id == "toss" then
-    self.phase = entry.id
+    self:setPhase(entry.id)
     self.listIndex = 1
     self.scroll = 0
     -- engine/events/pokecenter_pc.asm:569
@@ -484,10 +495,12 @@ function ItemPcMenu:update(_dt)
   if self:tickRepeatSfx() then return end
 
   if self.message then
+    Typer.step(self)
+    if Typer.typing(self) then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       local m = self.message
       if m.page < #m.pages then
-        m.page = m.page + 1
+        Typer.turn(self, m)
         return
       end
       self.message = nil
@@ -540,7 +553,7 @@ function ItemPcMenu:update(_dt)
     if self.pack then
       self.pack:update(_dt)
     else
-      self.phase = "menu"
+      self:setPhase("menu")
     end
     return
   end
@@ -561,7 +574,7 @@ function ItemPcMenu:update(_dt)
     elseif input:wasPressed("b") then
       -- engine/menus/scrolling_menu.asm:24
       self:playSfx("Sfx_ReadText2")
-      self.phase = "menu"
+      self:setPhase("menu")
       self.switching = nil
     elseif input:wasPressed("a") then
       self:playSfx("Sfx_ReadText2")
@@ -606,7 +619,9 @@ end
 function ItemPcMenu:drawList()
   Chrome.box(0, 0, 20, 12)
   -- engine/events/pokecenter_pc.asm:628 .a_1 -> home/menu.asm:50
-  local picked = (self.message or self.qtyState or self.confirm) and true or false
+  -- engine/events/pokecenter_pc.asm:605 .moving_stuff_around
+  local picked = not self.switching
+    and (self.message or self.qtyState or self.confirm) and true or false
   for row = 1, VISIBLE_ROWS do
     local i = row + self.scroll
     local ty = row * 2
@@ -644,7 +659,8 @@ function ItemPcMenu:drawList()
 end
 
 function ItemPcMenu:drawPanel()
-  Chrome.clear()
+  -- ../pokecrystal/engine/pokemon/bills_pc_top.asm:231
+  if self.isOpaque then Chrome.clear() end
 
   if self.phase == "deposit" and self.pack then
     self.pack:drawPanel()
@@ -679,7 +695,8 @@ function ItemPcMenu:drawPanel()
     Chrome.print("NO", 16, 10)
     Chrome.cursor(15, self.confirm.choice == 1 and 8 or 10)
   elseif self.message then
-    self:drawBottomLines(self.message.pages[self.message.page])
+    self:drawBottomLines(
+      Typer.text(self, self.message.pages[self.message.page]))
   end
 
   love.graphics.setColor(1, 1, 1, 1)
@@ -687,17 +704,6 @@ end
 
 function ItemPcMenu:draw()
   self:drawPanel()
-end
-
-function ItemPcMenu:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  G.push()
-  G.translate(Chrome.fitOrigin(winW, winH, scale))
-  G.scale(scale, scale)
-  self:drawPanel()
-  G.pop()
 end
 
 ItemPcMenu.ENTRIES = ENTRIES

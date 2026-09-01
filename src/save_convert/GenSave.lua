@@ -386,7 +386,10 @@ local EXTRA_FLAG_BITS = {
 }
 
 -- port-local name -> the wEventFlags name it means (#396)
-local FLAG_ALIAS = { EVENT_RECEIVED_BIKE_VOUCHER = "EVENT_GOT_BIKE_VOUCHER" }
+local FLAG_ALIAS = {
+  EVENT_RECEIVED_BIKE_VOUCHER = "EVENT_GOT_BIKE_VOUCHER",
+  EVENT_GOT_HM_FLASH = "EVENT_GOT_HM05",
+}
 
 -- scripts/OaksLab.asm:797-825
 local PLAYER_TO_RIVAL = {

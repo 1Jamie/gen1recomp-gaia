@@ -431,4 +431,44 @@ do
   check(ok, "and every routine falls back to the shape it used to draw")
 end
 
+-- ../pokegold/engine/movie/trade_animation.asm:784-789
+-- ../pokecrystal/engine/movie/trade_animation.asm:64-65
+do
+  local Sound = require("src.core.Sound")
+  local realPlayCry = Sound.playCry
+  local cried = {}
+  Sound.playCry = function(_, species) cried[#cried + 1] = species end
+
+  local ANIM = { tiles = 5, sheet = "assets/generated/battle/anim/machop.png",
+    count = 1, bitmasks = { { 0, 0, 0, 0 } },
+    frames = { { bitmask = 1, tiles = {} } },
+    play = { { 1, 8 } }, idle = { { 1, 8 } } }
+  local function cryView(anim)
+    return TradeAnimView.new({
+      data = { audio = { cries = { MACHOP = true } },
+        pokemon = { DROWZEE = { name = "DROWZEE" },
+          MACHOP = { name = "MACHOP", anim = anim } } },
+      save = SAVE,
+    }, { row = ROW, given = GIVEN, received = RECEIVED, save = SAVE })
+  end
+
+  local gold = cryView(nil)
+  eq(gold:getAnimData(), nil, "a Gold cache has no anim row for the mon")
+  gold:cue("show_get")
+  eq(table.concat(cried, ","), "MACHOP",
+    "so ShowGetmonData's own cry plays on the show_get cue")
+  cried = {}
+  gold:startPicAnim()
+  eq(gold.picAnim, nil, "there is no frontpic animation to start")
+  eq(#cried, 0, "and the cry does not come again sixteen frames later")
+
+  cried = {}
+  local crystal = cryView(ANIM)
+  check(crystal:getAnimData() ~= nil, "a Crystal cache has one")
+  crystal:cue("show_get")
+  eq(#cried, 0, "and then show_get is silent, because the scene cries")
+
+  Sound.playCry = realPlayCry
+end
+
 S.finish()

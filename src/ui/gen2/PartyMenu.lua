@@ -17,6 +17,7 @@
 
 local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
+local FieldMoves = require("src.world.gen2.FieldMoves")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local HpBar = require("src.battle.gen2.HpBar")
@@ -27,6 +28,7 @@ local Mon = require("src.battle.gen2.Mon")
 local Runtime = require("src.mods.Runtime")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local PartyMenu = {}
 PartyMenu.__index = PartyMenu
@@ -139,6 +141,9 @@ function PartyMenu.new(game, opts)
   self.submenu = nil
   -- The held slot while SwitchPartyMons' second pick is open; nil otherwise.
   self.switchFrom = nil
+  -- ../pokecrystal/engine/items/item_effects.asm:2016
+  self.softboiledFrom = nil
+  self.softboiledCost = nil
   -- wPartyMenuCursor lives ACROSS openings: InitPartyMenuWithCancel /
   -- InitPartyMenuNoCancel seed wMenuCursorY from it and fall back to row 1 only
   -- when it is zero or no longer inside the party (`and a / jr z, .skip / inc b
@@ -160,7 +165,7 @@ end
 function PartyMenu:count()
   -- CANCEL is one past the last mon.  SwitchPartyMons reopens the list
   -- through InitPartyMenuNoCancel, which caps the cursor at the last mon.
-  if self.switchFrom then return #self.party end
+  if self.switchFrom or self.softboiledFrom then return #self.party end
   return #self.party + 1
 end
 
@@ -339,6 +344,55 @@ function PartyMenu:updateSwitch(input)
   end
 end
 
+-- ../pokecrystal/engine/items/item_effects.asm:2016 .SelectMilkDrinkRecipient
+function PartyMenu:beginSoftboiled(slot, cost)
+  self.softboiledFrom = slot
+  self.softboiledCost = cost
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:2020 .SelectMilkDrinkRecipient
+function PartyMenu:updateSoftboiled(input)
+  local total = #self.party
+  if input:wasPressed("up") then
+    self.index = self.index > 1 and self.index - 1 or total
+  elseif input:wasPressed("down") then
+    self.index = self.index < total and self.index + 1 or 1
+  elseif input:wasPressed("b") then
+    self.softboiledFrom, self.softboiledCost = nil, nil
+  elseif input:wasPressed("a") then
+    self:finishSoftboiled()
+  end
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:1986 Softboiled_MilkDrinkFunction
+function PartyMenu:finishSoftboiled()
+  local slot = self.index
+  local userSlot = self.softboiledFrom
+  local user = self.party[userSlot]
+  local target = self.party[slot]
+  local userBefore = user and user.hp or 0
+  local before, after =
+    FieldMoves.softboiledTransfer(user, target, self.softboiledCost or 0)
+  if not before then
+    self:showItemResult(slot, { text = ItemEffects.TEXT_CANT_USE_ON_MON })
+    return
+  end
+  self.softboiledFrom, self.softboiledCost = nil, nil
+  -- data/text/common_1.asm:40 _RecoveredSomeHPText
+  local climb = {
+    fromHp = before, toHp = after, sfx = "Sfx_Potion",
+    text = Strings("%s\nrecovered %dHP!",
+      target.nickname or target.name or target.species or "?",
+      after - before),
+  }
+  -- ../pokecrystal/engine/items/item_effects.asm:1999 HealHP_SFX_GFX
+  self:showItemResult(userSlot, {
+    fromHp = userBefore, toHp = user.hp, sfx = "Sfx_Potion", auto = true,
+    holdSlot = slot, holdHp = before,
+    onDone = function() self:showItemResult(slot, climb) end,
+  })
+end
+
 -- OpenPartyStats (engine/pokemon/mon_menu.asm): wMonType is cleared to
 -- PARTYMON, the volume is dropped for the cry, and StatsScreenInit runs over
 -- the party list -- so the summary is pushed on top rather than replacing it,
@@ -373,14 +427,35 @@ function PartyMenu:useFieldMove(moveId, mon)
   if not (world and world.useFieldMove) then return end
   local result = world:useFieldMove(moveId, mon)
   if not (result and result.ok) then return end
+  if result.inMenu then
+    self:beginSoftboiled(self.index, result.cost)
+    return
+  end
+  -- ../pokecrystal/engine/events/overworld.asm:1357 RockSmashFromMenuScript
+  if result.action == "rocksmash" then
+    world.queuedFieldMove = nil
+    local script = FieldMoves.rockSmashFromMenuScript(
+      world.stdScripts, world.vm and world.vm.scripts,
+      function(name) return world:specialIdNamed(name) end)
+    if not script then return end
+    -- ../pokecrystal/engine/events/overworld.asm:1341 GetFacingObject
+    if world.vm then world.vm.lastTalked = result.lastTalked end
+    world.queuedScript = script
+    self:exitToField()
+    return
+  end
   if result.action == "fly" and world.openFlyMap then
     world.queuedFieldMove = nil
     local opened = world:openFlyMap(mon, {
       onChosen = function(spawnId)
         result.flySpawn = spawnId
         world.queuedFieldMove = result
-        -- home/map.asm:2281
-        if world.exitMenusFade then world:exitMenusFade() end
+        -- engine/pokegear/pokegear.asm:2078, home/map.asm:1927
+        if world.exitMenusFadeForFly then
+          world:exitMenusFadeForFly()
+        elseif world.exitMenusFade then
+          world:exitMenusFade()
+        end
         self:exitToField()
       end,
       onCancel = function() end,
@@ -453,6 +528,11 @@ function PartyMenu:exitToField()
   local stack = self.game and self.game.stack
   if stack and stack.clear then
     stack:clear()
+    -- ../pokecrystal/home/map.asm:1927-1940
+    local world = self.game.world
+    if world and world.exitMenusFade and not world.mapSetup then
+      world:exitMenusFade()
+    end
   elseif self.onCancel then
     self.onCancel()
   end
@@ -528,6 +608,9 @@ function PartyMenu:showItemResult(slot, opts)
     text = opts.text,
     delay = PartyMenu.ACTION_TEXT_DELAY,
     onDone = opts.onDone,
+    auto = opts.auto,
+    holdSlot = opts.holdSlot,
+    holdHp = opts.holdHp,
   }
   if opts.sfx then self:playSfx(opts.sfx) end
 end
@@ -540,7 +623,10 @@ end
 -- engine/battle/anim_hp_bar.asm:246
 function PartyMenu:shownHpFor(slot, mon)
   local r = self.itemResult
-  if r and r.slot == slot and r.shown then return r.shown end
+  if r then
+    if r.slot == slot and r.shown then return r.shown end
+    if r.holdSlot == slot and r.holdHp then return r.holdHp end
+  end
   return mon and mon.hp
 end
 
@@ -550,6 +636,11 @@ function PartyMenu:updateItemResult(input)
     local mon = self.party[r.slot]
     local maxHp = mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
     r.shown = HpBar.stepToward(r.shown, r.target, maxHp)
+    return
+  end
+  if r.auto then
+    self.itemResult = nil
+    if r.onDone then r.onDone() end
     return
   end
   if r.delay > 0 then
@@ -576,6 +667,10 @@ function PartyMenu:update(_dt)
   end
   if self.switchFrom then
     self:updateSwitch(input)
+    return
+  end
+  if self.softboiledFrom then
+    self:updateSoftboiled(input)
     return
   end
   local total = self:count()
@@ -893,7 +988,9 @@ function PartyMenu:drawPanel()
     end
   else
     Chrome.box(0, 14, 20, 4)
-    local prompt = self.switchFrom and PartyMenu.PROMPTS.moveTo or self.prompt
+    -- ../pokecrystal/engine/items/item_effects.asm:2016
+    local prompt = self.switchFrom and PartyMenu.PROMPTS.moveTo
+      or (self.softboiledFrom and PartyMenu.PROMPTS.useItem) or self.prompt
     Chrome.print(#self.party == 0 and PartyMenu.PROMPTS.none or prompt, 1, 16)
   end
   -- PokemonActionSubmenu clears (1,15) 2x18 before MonSubmenu draws, so the

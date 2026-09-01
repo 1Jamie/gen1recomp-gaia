@@ -221,7 +221,8 @@ if not tf then
 else
   tf:close()
   local romText = assert(loadfile(textPath))()
-  eq(romText._CoinCaseCountText, "Coins:\n{NUM}",
+  eq((tostring(romText._CoinCaseCountText or ""):gsub("{DONE}$", "")),
+    "Coins:\n{NUM}",
     "the `done` terminator still ends the decoded string")
   check(not tostring(romText._CoinCaseCountText or ""):find("Raise the PP"),
     "and nothing from the next label runs into it")

@@ -624,6 +624,13 @@ local function buildRows(game)
     end
     rows = filtered
   end
+  if require("src.core.Platform").isNX() then
+    local filtered = {}
+    for _, row in ipairs(rows) do
+      if row.id ~= "videoMode" then filtered[#filtered + 1] = row end
+    end
+    rows = filtered
+  end
   -- TOUCH PAD and VIBRATION only where the overlay can appear (mobile, or
   -- desktop with POKEPORT_TOUCH=1).  POKEPORT_TOUCH=0 forces it off
   -- everywhere.  VIBRATION rides the same gate: nothing else in the port

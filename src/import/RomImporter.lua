@@ -985,6 +985,13 @@ local function findPendingRom(ready, wanted)
   return nil
 end
 
+local function importPendingRom(self)
+  local name, data = findPendingRom(self.ready, self.chooseVersion)
+  if not name then return false end
+  self:startData(data, name)
+  return true
+end
+
 -- GameActivity always writes the SAF pick to picked_rom.gb, so a leftover
 -- under that exact basename is the file the player just chose and
 -- findPendingRom silently refused: wrong size, or a hacked/overdumped cart
@@ -2742,6 +2749,7 @@ function RomImporter:choose(version)
     or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
 
   if isHandheld then
+    if importPendingRom(self) then return end
     local okKit, Kit = pcall(require, "src.ui.kit.Kit")
     if okKit and Kit.FileBrowser then
       self._padCursorActive = false
@@ -2761,6 +2769,7 @@ function RomImporter:choose(version)
     self:startPath(path)
     return
   end
+  if importPendingRom(self) then return end
   local okKit, Kit = pcall(require, "src.ui.kit.Kit")
   if okKit and Kit.FileBrowser then
     self._padCursorActive = false
@@ -2771,17 +2780,6 @@ function RomImporter:choose(version)
         self:startPath(pickedPath)
       end,
     })
-    return
-  end
-  -- Handheld Linux (Anbernic stock OS / PortMaster) rarely has zenity or
-  -- kdialog.  Fall back to the same "drop a .gb/.gbc next to the game" scan
-  -- used on Android, which works when the game is launched as an unpacked
-  -- directory (see build-rg34xxsp.sh).  Narrowed to the chosen version: with
-  -- four dumps in the folder the unnarrowed scan answered in listing order,
-  -- so Choose Red imported and decoded Blue (#1274).
-  local name, data = findPendingRom(self.ready, self.chooseVersion)
-  if name then
-    self:startData(data, name)
     return
   end
   if love.system.getOS() == "Linux" then
@@ -3167,6 +3165,7 @@ end
 function RomImporter:prepareOverlayHandoff()
   resetPointerCursor(self)
   self._padCursorActive = false
+  self:_forgetActiveSkin()
   -- Avoid requiring LauncherView from headless unit tests (no luautf8).  In
   -- a real session draw() has already loaded it, so detach runs normally.
   if self._flex and package.loaded["src.import.LauncherView"] then
@@ -3888,10 +3887,17 @@ function RomImporter:_ensureSkins(force)
   return out
 end
 
+function RomImporter:_forgetActiveSkin()
+  self._activeSkinCache = nil
+end
+
 function RomImporter:_activeSkin()
-  local opts = require("src.core.SaveData").loadOptions()
-  local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
-  return tc.enabled == false and nil or tc.skin
+  if self._activeSkinCache == nil then
+    local opts = require("src.core.SaveData").loadOptions()
+    local tc = type(opts.touchControls) == "table" and opts.touchControls or {}
+    self._activeSkinCache = (tc.enabled ~= false and tc.skin) or false
+  end
+  return self._activeSkinCache or nil
 end
 
 function RomImporter:_useSkin(id)
@@ -3902,6 +3908,7 @@ function RomImporter:_useSkin(id)
   tc.skin = id
   opts.touchControls = tc
   SaveData.saveOptions(opts)
+  self:_forgetActiveSkin()
   self._skinNotice = {
     ok = true,
     text = id and ("Now using " .. id) or "Now using the built-in pad",
@@ -3919,6 +3926,7 @@ function RomImporter:_disableSkins()
   tc.enabled, tc.skin = true, nil
   opts.touchControls = tc
   SaveData.saveOptions(opts)
+  self:_forgetActiveSkin()
   self._skinNotice = { ok = true, text = "Skins are off. Mobile will use the built-in pad when needed." }
 end
 
@@ -4204,11 +4212,21 @@ end
 function RomImporter:_syncNoteDownload(row)
   local version = type(row) == "table" and row.version
   if type(version) ~= "string" or not GameVersion.VERSIONS[version] then return end
-  self:_refreshSlots(version)
-  if row.created then self.slotScroll[version] = math.huge end
+  local cart = type(row.cart) == "string" and row.cart ~= "" and row.cart or nil
+  local scope = cart and (CART_SCOPE .. cart) or version
+  self:_refreshSlots(scope)
+  if row.created then self.slotScroll[scope] = math.huge end
   local from = row.device and (" from " .. tostring(row.device)) or ""
-  self.saveNotice[version] = { ok = true,
-    text = ("Downloaded a save%s into %s."):format(from, tostring(row.slot)) }
+  local what
+  if cart then
+    local ok, found = pcall(self._cartById, self, version, cart)
+    what = (ok and type(found) == "table" and found.title) or cart
+  end
+  self.saveNotice[scope] = { ok = true,
+    text = what
+      and ("Downloaded a %s save%s into %s."):format(
+        tostring(what), from, tostring(row.slot))
+      or ("Downloaded a save%s into %s."):format(from, tostring(row.slot)) }
 end
 
 function RomImporter:_openSync()
@@ -4460,6 +4478,7 @@ function RomImporter:_closeSettings()
     model.save()
   end
   self._settings = nil
+  self:_forgetActiveSkin()
 end
 
 function RomImporter:_safeModeEnabled()
@@ -5625,6 +5644,13 @@ function RomImporter:modCartPlan(listed)
   return id, report, version
 end
 
+function RomImporter:cartPinsNote(cartId, cartReport)
+  if not cartId then return nil end
+  return Strings(
+    "%s decides which mods run. Switch its pins one at a time, or pick the base game above.",
+    (cartReport and cartReport.title) or cartId)
+end
+
 local function missingPinRow(imp, id, pin)
   local version = type(pin) == "table" and pin.version or nil
   return { id = id, name = id, version = version, badge = "MOD",
@@ -5915,9 +5941,7 @@ function RomImporter:_setAllMods(want, confirmed)
   end
   local cartId, cartReport = self:modCartPlan()
   if cartId then
-    self.modNotice = { ok = false, text = Strings(
-      "%s decides which mods run. Switch its pins one at a time, or pick the base game above.",
-      (cartReport and cartReport.title) or cartId) }
+    self.modNotice = { ok = false, text = self:cartPinsNote(cartId, cartReport) }
     return
   end
   local LauncherMods = require("src.mods.LauncherMods")
@@ -6607,9 +6631,15 @@ function RomImporter:_updateAllRows()
   return rows
 end
 
-function RomImporter:pressUpdateAllMods()
+function RomImporter:updateAllAvailable()
+  if self.safeMode then return false end
   if self._updateAll or self._modInstall or self._cartInstall
       or self._cartFill then return false end
+  return true
+end
+
+function RomImporter:pressUpdateAllMods()
+  if not self:updateAllAvailable() then return false end
   if not Platform.canFetchRemote() then
     self.modNotice = { ok = false,
       text = "Remote mod download is unavailable on this platform. Install a mod .zip from storage instead." }

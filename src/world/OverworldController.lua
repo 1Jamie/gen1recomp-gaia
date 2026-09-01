@@ -2601,22 +2601,25 @@ function OverworldState:tryCardKeyDoor(fx, fy)
       t._CardKeyFailText or romText(Game.data, "_CardKeyFailText", "Darn! It needs a\nCARD KEY!")))
     return true
   end
-  require("src.core.Sound").play(Game.data, "Go_Inside")
   local bx, by = math.floor(fx / 2), math.floor(fy / 2)
-  self:replaceBlock(bx, by, openBlock)
-  -- opened doors stay open across reloads (the per-door unlock events
-  -- the floors' gate callbacks check, EVENT_SILPH_CO_n_UNLOCKED_DOOR*)
-  local closedDoors = FieldDefaults.fieldValue(Game.data, "cardKeyDoors",
-                                               "closedDoors")
-  for _, door in ipairs(closedDoors and closedDoors[self.map.id] or {}) do
-    if door.bx == bx and door.by == by then
-      Flags.set(Game.save, door.event)
-      break
+  -- ../pokered/engine/events/card_key.asm:29-56
+  local function openDoor()
+    self:replaceBlock(bx, by, openBlock)
+    local closedDoors = FieldDefaults.fieldValue(Game.data, "cardKeyDoors",
+                                                 "closedDoors")
+    for _, door in ipairs(closedDoors and closedDoors[self.map.id] or {}) do
+      if door.bx == bx and door.by == by then
+        Flags.set(Game.save, door.event)
+        break
+      end
     end
+    require("src.core.Sound").play(Game.data, "Go_Inside")
   end
+  -- ../pokered/engine/events/card_key.asm:63-67
   Game.stack:push(TextBox.new(Game,
     (t._CardKeySuccessText1 or Strings("Bingo!"))
-    .. (t._CardKeySuccessText2 or romText(Game.data, "_CardKeySuccessText2", "\nThe CARD KEY\nopened the door!"))))
+    .. (t._CardKeySuccessText2 or romText(Game.data, "_CardKeySuccessText2", "\nThe CARD KEY\nopened the door!")),
+    openDoor, TextBox.soundOpts(Game, "Get_Item1")))
   return true
 end
 

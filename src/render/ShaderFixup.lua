@@ -213,6 +213,13 @@ function Fixup.countUniformSlots(src)
   return total
 end
 
+local function rewriteGpuShader4(src)
+  src = src:gsub("#extension%s+GL_EXT_gpu_shader4[^\n]*\n?", "")
+  src = src:gsub("%f[%w_]uint%f[^%w_]", "int")
+  return src
+end
+Fixup.rewriteGpuShader4 = rewriteGpuShader4
+
 -- LIBRA_UBO_* (the uniform-buffer block) has the same
 -- LOVE-can't-address-a-struct-member problem as LIBRA_PUSH_*, so it is
 -- flattened the same way, with MVP alone special-cased. Deleting the block
@@ -229,6 +236,7 @@ local UBO_SPECIAL_MEMBERS = { MVP = "transform_projection" }
 
 function Fixup.fragment(src)
   src = stripVersion(src)
+  src = rewriteGpuShader4(src)
   src = rewriteArrayLiterals(src)
   src = rewriteIntegerModulo(src)
   local pushManifest, uboManifest
@@ -238,14 +246,14 @@ function Fixup.fragment(src)
   for _, entry in ipairs(uboManifest) do manifest[#manifest + 1] = entry end
   src = guardPrecision(src)
   src = src:gsub("void%s+main%s*%(%s*%)",
-    "vec4 effect(EFFECT_PREC vec4 love_UnusedColor, Image love_UnusedTex, "
+    "EFFECT_PREC vec4 effect(EFFECT_PREC vec4 love_UnusedColor, Image love_UnusedTex, "
     .. "EFFECT_PREC vec2 love_UnusedTc, EFFECT_PREC vec2 love_UnusedSc)")
   -- gl_FragData isn't available in LOVE's effect() convention. Rewrite EVERY
   -- occurrence, whatever operator follows: real presets (ds-hybrid-sabr) write
   -- it once with `=` and later accumulate with `+=`.
   src = src:gsub("gl_FragData%[0%]", "gbFragColor")
   src = src:gsub(
-    "(vec4 effect%(EFFECT_PREC vec4 love_UnusedColor, Image love_UnusedTex, "
+    "(EFFECT_PREC vec4 effect%(EFFECT_PREC vec4 love_UnusedColor, Image love_UnusedTex, "
     .. "EFFECT_PREC vec2 love_UnusedTc, EFFECT_PREC vec2 love_UnusedSc%)%s*\n{)",
     "%1\n    vec4 gbFragColor;")
   -- a bare early-exit `return;` needs a value now -- gbFragColor already
@@ -259,6 +267,7 @@ end
 
 function Fixup.vertex(src)
   src = stripVersion(src)
+  src = rewriteGpuShader4(src)
   src = rewriteArrayLiterals(src)
   src = rewriteIntegerModulo(src)
   local pushManifest, uboManifest

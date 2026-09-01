@@ -56,9 +56,24 @@ return function(game)
     end
     U.tap(game, "a")
     U.wait(3)
-    local pack = game.stack:top()
+    local pack
+    for _ = 1, 120 do
+      pack = game.stack:top()
+      if pack and pack.rows then break end
+      U.wait(1)
+    end
     assert(pack and pack.rows, "PACK did not open")
     return pack
+  end
+
+  local function unwind(msg)
+    for _ = 1, 20 do
+      local state = game.stack:top()
+      if state == nil then break end
+      if state.screenId ~= "Gen2MenuFade" then U.tap(game, "b") end
+      U.wait(4)
+    end
+    assert(game.stack:top() == nil, msg)
   end
 
   -- ---- 1. the escape rope --------------------------------------------------
@@ -133,11 +148,7 @@ return function(game)
     "the heal message did not return to the PACK")
   assert(mon.hp == 25, "POTION healed to " .. tostring(mon.hp) .. ", want 25")
   assert(save.inventory.POTION == nil, "the POTION was not consumed")
-  U.tap(game, "b")
-  U.wait(2)
-  U.tap(game, "b")
-  U.wait(2)
-  assert(game.stack:top() == nil, "the menus did not unwind after the heal")
+  unwind("the menus did not unwind after the heal")
   U.log("PASS potion: healed a party mon from the PACK, consumed")
 
   -- ---- 3. the .Oak refusal -------------------------------------------------
@@ -155,11 +166,7 @@ return function(game)
   U.tap(game, "b")
   U.wait(2)
   assert(save.inventory.X_ATTACK == 1, "backing out must not spend the item")
-  U.tap(game, "b")
-  U.wait(2)
-  U.tap(game, "b")
-  U.wait(2)
-  assert(game.stack:top() == nil, "the menus did not unwind after the submenu")
+  unwind("the menus did not unwind after the submenu")
 
   -- ...and an untossable one still gets USE, because .ItemBallsKey_LoadSubmenu's
   -- untossable arm never looks at the menu nibble -- so THAT is where
@@ -182,11 +189,7 @@ return function(game)
     "the refusal must not spend the item")
   U.tap(game, "a")
   U.wait(2)
-  U.tap(game, "b")
-  U.wait(2)
-  U.tap(game, "b")
-  U.wait(2)
-  assert(game.stack:top() == nil, "the menus did not unwind after the refusal")
+  unwind("the menus did not unwind after the refusal")
   U.log("PASS oak: field-NOUSE key item refused inside the PACK")
 
   -- ---- 4. the SELECT box ---------------------------------------------------
@@ -228,7 +231,12 @@ return function(game)
   end
   U.tap(game, "a")
   U.wait(3)
-  local list = game.stack:top()
+  local list
+  for _ = 1, 120 do
+    list = game.stack:top()
+    if list and list.wantsSubmenu then break end
+    U.wait(1)
+  end
   assert(list and list.wantsSubmenu, "the field party list did not open")
   U.tap(game, "a")
   U.wait(2)

@@ -33,6 +33,10 @@ do
   local world = flyWorld()
   check(world:startFlyAnim("from", { species = "PIDGEY" }), "FlyFromAnim runs")
   local fa = world.flyAnim
+  -- engine/events/field_moves.asm:305-311
+  eq(fa.preroll, World.FLY_FROM_PREROLL, "InitGFX's frames come first")
+  for _ = 1, fa.preroll do world:stepFlyAnim() end
+  eq(fa.left, 128, "and spend none of the 128-frame counter")
   local steps, culled = 0, nil
   while world.flyAnim and steps < 400 do
     world:stepFlyAnim()

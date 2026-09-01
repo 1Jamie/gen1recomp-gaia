@@ -693,29 +693,35 @@ local function cartLabelMesh(imp, key, label, points)
 end
 
 local CART_HOVER_SHADER = [[
+#if defined(GL_ES) && defined(PIXEL) && !defined(GL_FRAGMENT_PRECISION_HIGH)
+#define CART_HP mediump
+#else
+#define CART_HP highp
+#endif
+
+varying CART_HP vec2 cart_screen_pos;
+
+#ifdef VERTEX
 extern vec2 mouse_screen_pos;
 extern float hovering;
 extern float screen_scale;
 
-#ifdef VERTEX
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
+  vec4 clip = transform_projection * vertex_position;
+  cart_screen_pos = (clip.xy / clip.w * 0.5 + 0.5) * love_ScreenSize.xy;
   if (hovering <= 0.) {
-    return transform_projection * vertex_position;
+    return clip;
   }
   float mid_dist = length(vertex_position.xy - 0.5 * love_ScreenSize.xy)
     / length(love_ScreenSize.xy);
   vec2 mouse_offset = (vertex_position.xy - mouse_screen_pos.xy) / screen_scale;
   float scale = 0.2 * (-0.03 - 0.3 * max(0., 0.3 - mid_dist))
     * hovering * (length(mouse_offset) * length(mouse_offset)) / (2. - mid_dist);
-  return transform_projection * vertex_position + vec4(0.0, 0.0, 0.0, scale);
+  return clip + vec4(0.0, 0.0, 0.0, scale);
 }
 #endif
 
 #ifdef PIXEL
-#if defined(GL_ES) && defined(GL_FRAGMENT_PRECISION_HIGH)
-precision highp float;
-#endif
-
 // finish: 0 plain, 1 sparkle (glitter suspended in the shell), 2 holographic
 // label sweep.  Both are ours, not ported from anywhere.
 extern float finish;
@@ -725,8 +731,8 @@ extern float finish_wave;
 
 const float CART_TAU = 6.2831853;
 
-float sparkHash(vec2 p) {
-  float h = fract(p.x * 0.1031 + p.y * 0.3711 + 0.137);
+CART_HP float sparkHash(CART_HP vec2 p) {
+  CART_HP float h = fract(p.x * 0.1031 + p.y * 0.3711 + 0.137);
   h = fract(h * (h + 47.13));
   h = fract(h * (h + 19.77));
   return h;
@@ -734,18 +740,18 @@ float sparkHash(vec2 p) {
 
 // Flecks live on a jittered lattice so they read as suspended grains rather
 // than a regular grid, and each one twinkles on its own phase.
-vec3 sparkle(vec2 screen_coords) {
-  vec2 cell = screen_coords / 19.0;
-  vec2 id = mod(floor(cell), 512.0);
-  vec2 f = fract(cell);
+vec3 sparkle(CART_HP vec2 sc) {
+  CART_HP vec2 cell = sc / 19.0;
+  CART_HP vec2 id = mod(floor(cell), 512.0);
+  CART_HP vec2 f = fract(cell);
   float peak = 0.0;
   for (int oy = -1; oy <= 1; oy++) {
     for (int ox = -1; ox <= 1; ox++) {
-      vec2 n = vec2(float(ox), float(oy));
-      vec2 h = vec2(sparkHash(id + n), sparkHash(id + n + 17.0));
-      float phase = sparkHash(id + n + 71.0) * CART_TAU;
+      CART_HP vec2 n = vec2(float(ox), float(oy));
+      CART_HP vec2 h = vec2(sparkHash(id + n), sparkHash(id + n + 17.0));
+      CART_HP float phase = sparkHash(id + n + 71.0) * CART_TAU;
       float tw = sin(finish_twinkle + phase) * 0.5 + 0.5;
-      float d = length(f - (n + h));
+      CART_HP float d = length(f - (n + h));
       peak = max(peak, (1.0 - smoothstep(0.0, 0.13, d)) * pow(max(tw, 0.0), 16.0));
     }
   }
@@ -769,12 +775,20 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
     px.rgb = mix(px.rgb, px.rgb * (0.65 + sheen), 0.30 * (0.35 + 0.65 * lum));
     px.rgb += sheen * 0.05 * px.a;
   } else if (finish > 0.5) {
-    px.rgb += sparkle(screen_coords) * 0.70 * px.a;
+    px.rgb += sparkle(cart_screen_pos) * 0.70 * px.a;
   }
   return px;
 }
 #endif
 ]]
+
+local cartShaderError = nil
+
+local function cartShaderIsEs()
+  if not (love.system and love.system.getOS) then return false end
+  local osName = love.system.getOS()
+  return osName == "Android" or osName == "iOS"
+end
 
 local function cartHoverShader(imp)
   if imp._cartHoverShader ~= nil then
@@ -784,7 +798,20 @@ local function cartHoverShader(imp)
     imp._cartHoverShader = false
     return nil
   end
-  local ok, sh = pcall(love.graphics.newShader, CART_HOVER_SHADER)
+  local ok, err = true, nil
+  if love.graphics.validateShader then
+    ok, err = love.graphics.validateShader(cartShaderIsEs(), CART_HOVER_SHADER)
+  end
+  local sh
+  if ok then
+    ok, sh = pcall(love.graphics.newShader, CART_HOVER_SHADER)
+    if not ok then err, sh = sh, nil end
+  end
+  if not ok then
+    cartShaderError = tostring(err)
+    imp._cartShaderError = cartShaderError
+    require("src.core.Logger").error("cart shader: %s", cartShaderError)
+  end
   imp._cartHoverShader = ok and sh or false
   return imp._cartHoverShader or nil
 end
@@ -818,6 +845,7 @@ local function cartSendFinish(shader, mode, spin)
 end
 
 LauncherView.CART_HOVER_SHADER = CART_HOVER_SHADER
+LauncherView.cartShaderError = function() return cartShaderError end
 LauncherView.cartFinishPhases = cartFinishPhases
 LauncherView.cartHull = cartHull
 
@@ -2516,15 +2544,15 @@ local function cartsWithUpdates(imp)
   return (ok and type(rows) == "table") and rows or {}
 end
 
+local function updateAllRows(imp)
+  if not imp._updateAllRows then return {} end
+  local ok, rows = pcall(imp._updateAllRows, imp)
+  return (ok and type(rows) == "table") and rows or {}
+end
+
 local function modsWithUpdates(imp)
   local names = {}
-  for _, m in ipairs(imp.mods or {}) do
-    local info = imp._modUpdateInfo and imp:_modUpdateInfo(m.id)
-    if info and info.status == "available" and info.best then
-      names[#names + 1] = m.name or m.id
-    end
-  end
-  for _, row in ipairs(cartsWithUpdates(imp)) do
+  for _, row in ipairs(updateAllRows(imp)) do
     names[#names + 1] = row.name or row.id
   end
   return names
@@ -2533,18 +2561,17 @@ end
 local function modsWithUpdatesCount(imp)
   local mods = imp.mods or {}
   local rev = imp._modUpdateRev or 0
-  local carts = #cartsWithUpdates(imp)
+  local cartCache = imp._cartUpdateCache
   local cache = imp._modUpdateCountCache
-  if cache and cache.src == mods and cache.n == #mods and cache.rev == rev then
-    return cache.count + carts
+  if cache and cache.src == mods and cache.n == #mods and cache.rev == rev
+      and cartCache and cache.carts == cartCache.rows then
+    return cache.count
   end
-  local n = 0
-  for _, m in ipairs(mods) do
-    local info = imp._modUpdateInfo and imp:_modUpdateInfo(m.id)
-    if info and info.status == "available" and info.best then n = n + 1 end
-  end
-  imp._modUpdateCountCache = { src = mods, n = #mods, rev = rev, count = n }
-  return n + carts
+  local count = #updateAllRows(imp)
+  cartCache = imp._cartUpdateCache
+  imp._modUpdateCountCache = { src = mods, n = #mods, rev = rev,
+    carts = cartCache and cartCache.rows, count = count }
+  return count
 end
 
 local function askUpdateAllMods(imp)
@@ -2573,6 +2600,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
   if imp.modCartPlan then cartId, cartReport = imp:modCartPlan() end
   -- a cart owns its mod set: only the pins it already ships may be switched
   local bulkOk = not safeMode and cartId == nil
+  local updateOk = (imp.updateAllAvailable and imp:updateAllAvailable()) == true
 
   -- header: progressive action cluster. Surfaces primary/frequent actions
   -- (Import, Updates, Sort) directly on the bar across screen sizes, placing
@@ -2615,7 +2643,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
       btn(imp, place(updateAllW), cy, updateAllW, bh, "mods-update-all",
         Strings("Update all"), {
           kind = (modsWithUpdatesCount(imp) > 0) and "warn" or "ghost",
-          font = "small", enabled = bulkOk and imp._updateAll == nil,
+          font = "small", enabled = updateOk,
           action = function() askUpdateAllMods(imp) end })
       btn(imp, place(sortW), cy, sortW, bh, "mods-sort", Strings("Sort"), {
         font = "small",
@@ -2662,7 +2690,7 @@ local function buildModsPanel(imp, x, y, w, availH, m)
       btn(imp, place(updateAllW), cy, updateAllW, bh, "mods-update-all",
         Strings("Update all"), {
           kind = "warn", font = "small",
-          enabled = bulkOk and imp._updateAll == nil,
+          enabled = updateOk,
           action = function() askUpdateAllMods(imp) end })
     end
   end
@@ -4177,13 +4205,16 @@ local function buildModHeaderActionsModal(imp, m)
   local w = math.floor(380 * m.s)
   local gap = math.floor(8 * m.s)
   -- same gate as the header cluster: a cart's mod set is not bulk-editable
-  local bulkOk = not imp.safeMode
-    and not (imp.modCartPlan and imp:modCartPlan())
+  local cartId, cartReport
+  if imp.modCartPlan then cartId, cartReport = imp:modCartPlan() end
+  local bulkOk = not imp.safeMode and cartId == nil
+  local updateOk = (imp.updateAllAvailable and imp:updateAllAvailable()) == true
+  local note = (cartId and imp.cartPinsNote) and imp:cartPinsNote(cartId, cartReport) or nil
   local btns = {
     { label = Strings("Mod profiles..."), action = function() imp._profilesPopup = true end },
     { label = Strings("Check for updates"), action = function() imp:_syncModUpdateInfo(true) end },
     { label = Strings("Update all"), kind = "warn",
-      enabled = bulkOk and imp._updateAll == nil,
+      enabled = updateOk,
       action = function() askUpdateAllMods(imp) end },
     { label = Strings("Enable all mods"), kind = "good", enabled = bulkOk,
       action = function() imp:_setAllMods(true) end },
@@ -4191,12 +4222,19 @@ local function buildModHeaderActionsModal(imp, m)
       action = function() imp:_setAllMods(false) end },
     { label = Strings("Sort mods..."), action = function() imp._sortPopup = "mods" end },
   }
-  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s)
+  local noteW = math.floor(math.min(w, m.W - 2 * m.pad)) - 2 * pad
+  local noteH = note
+    and (Kit.wrapHeight("small", note, noteW, 3) + gap) or 0
+  local h = pad + Kit.textHeight("button") + math.floor(12 * m.s) + noteH
     + #btns * (m.btnH + gap) + m.btnH + pad
   local px, py, pw = modalPanel(m, w, h)
   local cy = py + pad
   Kit.text("button", Strings("More Mod Actions"), px + pad, cy, PAL.heading)
   cy = cy + Kit.textHeight("button") + math.floor(12 * m.s)
+  if note then
+    Kit.textWrapped("small", note, px + pad, cy, noteW, PAL.muted, 3)
+    cy = cy + noteH
+  end
 
   for i, b in ipairs(btns) do
     btn(imp, px + pad, cy, pw - 2 * pad, m.btnH, "modheadact-" .. i, b.label, {

@@ -32,9 +32,14 @@ return function(game)
   end
   check("the evolution screen opened",
         top and top.screenId == "EvolutionState")
+  -- engine/movie/evolution.asm:20-40 holds the pic off screen first
+  for _ = 1, 400 do
+    if top.loading == nil then break end
+    U.wait(1)
+  end
   U.shot(game, DIR .. "/bug1412_evo_old_pikachu.png")
 
-  for _ = 1, 600 do
+  for _ = 1, 900 do
     if top.done then break end
     U.wait(1)
   end

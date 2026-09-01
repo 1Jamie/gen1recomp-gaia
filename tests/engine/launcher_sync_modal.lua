@@ -347,6 +347,31 @@ do
   got:_pumpSync(0.016)
   eq(got.saveNotice.red.text:find("slot1", 1, true) ~= nil, true,
      "a quiet frame does not disturb the notice")
+
+  local realCartList = SaveData.listCartSlots
+  SaveData.listCartSlots = function(cartId)
+    if cartId ~= "nuzlocke" then return {} end
+    return { { id = "slot1", exists = true } }
+  end
+  SaveData.loadOptions = function()
+    return { cartSlots = { nuzlocke = { list = { "slot1" }, active = "slot1" } } }
+  end
+  dl.changed = true
+  dl.lastDownloads = { { version = "red", cart = "nuzlocke", slot = "slot1",
+                         created = true, device = "Android" } }
+  got:_pumpSync(0.016)
+  eq(#(got.slots.cart_nuzlocke or {}), 1,
+     "a cart download refreshes the cart's own slot list")
+  eq(got.activeSlot.cart_nuzlocke, "slot1", "and its active id")
+  check(got.saveNotice.cart_nuzlocke ~= nil,
+        "the notice lands on the cart's save card")
+  check(got.saveNotice.cart_nuzlocke.text:find("nuzlocke", 1, true) ~= nil,
+        "naming the cart it belongs to")
+  check(got.saveNotice.cart_nuzlocke.text:find("slot1", 1, true) ~= nil,
+        "and the slot it landed in")
+  eq(got.saveNotice.red.text:find("slot1", 1, true) ~= nil, true,
+     "without disturbing the vanilla card's notice")
+  SaveData.listCartSlots = realCartList
   SaveData.listSlots, SaveData.loadOptions = realList, realOpts
 end
 

@@ -399,6 +399,8 @@ function GbcPalette.remapTable(bgPalettes, byte, objPalettes, ramp, objRamped)
     local resolved = GbcPalette.resolve(colors)
     add(resolved, forcedBg or GbcPalette.remap(resolved, byte))
   end
+  -- ../pokecrystal/engine/battle/battle_transition.asm:100-122
+  if forced then add(forced, forcedBg) end
   for index, colors in ipairs(objPalettes or {}) do
     local resolved = GbcPalette.resolve(colors)
     if forced and objRamped and objRamped[index] then

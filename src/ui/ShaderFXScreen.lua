@@ -146,8 +146,19 @@ function ShaderFXScreen.new(game, slot)
         end
       end
       local overrides = opts and opts.shaderfxParams and opts.shaderfxParams[item.entry.name]
-      local ok = ShaderFX.activate(slot, item.entry, overrides)
+      local ok, err = ShaderFX.activate(slot, item.entry, overrides)
       if opts then opts[optKey] = ok and item.entry.name or nil end
+      if not ok then
+        require("src.core.Logger").error("ShaderFXScreen: activate failed for %s: %s",
+          item.entry.name, tostring(err))
+        item.right = Strings("FAILED")
+        if game.writeOptions then
+          game:writeOptions()
+        elseif game.persistOptions then
+          game:persistOptions()
+        end
+        return
+      end
     end
     if game.writeOptions then
       game:writeOptions()

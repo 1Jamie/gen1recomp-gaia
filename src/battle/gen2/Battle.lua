@@ -172,6 +172,39 @@ Battle.BATTLETYPE_SUICUNE = 12
 -- LostBattle's .canlose arm (engine/battle/core.asm:2766): the only battle
 -- type whose loss still prints the trainer's own line instead of a whiteout.
 Battle.BATTLETYPE_CANLOSE = 1
+-- ../pokecrystal/constants/battle_constants.asm:91-103
+Battle.BATTLETYPE_NORMAL = 0
+Battle.BATTLETYPE_DEBUG = 2
+Battle.BATTLETYPE_TUTORIAL = 3
+Battle.BATTLETYPE_FISH = 4
+Battle.BATTLETYPE_ROAMING = 5
+Battle.BATTLETYPE_CONTEST = 6
+Battle.BATTLETYPE_TREE = 8
+Battle.BATTLETYPE_FORCEITEM = 10
+
+local BATTLETYPE_NAMES = {
+  normal = Battle.BATTLETYPE_NORMAL,
+  canlose = Battle.BATTLETYPE_CANLOSE,
+  debug = Battle.BATTLETYPE_DEBUG,
+  tutorial = Battle.BATTLETYPE_TUTORIAL,
+  fish = Battle.BATTLETYPE_FISH,
+  roaming = Battle.BATTLETYPE_ROAMING,
+  contest = Battle.BATTLETYPE_CONTEST,
+  forceshiny = Battle.BATTLETYPE_FORCESHINY,
+  tree = Battle.BATTLETYPE_TREE,
+  trap = Battle.BATTLETYPE_TRAP,
+  forceitem = Battle.BATTLETYPE_FORCEITEM,
+  celebi = Battle.BATTLETYPE_CELEBI,
+  suicune = Battle.BATTLETYPE_SUICUNE,
+}
+
+function Battle.battleTypeId(value)
+  if value == nil then return nil end
+  if type(value) == "string" then
+    return BATTLETYPE_NAMES[value:lower()] or tonumber(value)
+  end
+  return value
+end
 
 -- BadgeStatBoosts (engine/battle/core.asm:6534): each of these Johto badges
 -- raises the PLAYER's in-battle stat by 1/8.  The routine walks every other
@@ -249,7 +282,7 @@ function Battle.new(opts)
   -- wBattleType, when the caller knows it: "fish" gates the Lure Ball's x3
   -- (BATTLETYPE_FISH is the one condition LureBallMultiplier reads), and the
   -- FORCESHINY / TRAP no-escape rules will hang off the same field.
-  self.battleType = opts.battleType
+  self.battleType = Battle.battleTypeId(opts.battleType)
   -- wInBattleTowerBattle (../pokecrystal/constants/ram_constants.asm:38), set
   -- around the Tower's own StartBattle (engine/events/battle_tower/
   -- battle_tower.asm:220-223) and cleared again at :253-254.
@@ -2364,8 +2397,6 @@ Battle.MOVE_EFFECTS.EFFECT_TRANSFORM = function(self, attacker, defender)
     stats[key] = theirs[key] or stats[key]
   end
   attacker.stats = stats
-  self:emit({ kind = "message", text = self:monName(attacker)
-    .. " TRANSFORMED into " .. (defender.species or "?") .. "!" })
   -- The moment itself, for the screen.  src/ui/gen2/BattleState.lua draws each
   -- side's pic and HUD from `shownMon`, which follows the EVENT QUEUE rather
   -- than the battle -- a whole round is resolved by Battle:takeTurn before its
@@ -2375,9 +2406,12 @@ Battle.MOVE_EFFECTS.EFFECT_TRANSFORM = function(self, attacker, defender)
   -- `shownHp` and a switch has the `send` event for exactly this; a transform
   -- is the third identity swap and this is its event.  `mon` is the battler
   -- whose pic changes (the same key `send` carries) and `from` is what it was.
+  -- ../pokecrystal/engine/battle/move_effects/transform.asm:118-136
   self:emit({ kind = "transform", side = self:sideOf(attacker),
     mon = attacker, species = attacker.species,
     from = state.preTransform.species })
+  self:emit({ kind = "message", text = self:monName(attacker)
+    .. " TRANSFORMED into " .. (defender.species or "?") .. "!" })
 end
 
 -- SwitchOutMon / PokeBallEffect's reload: the copy Transform wrote lives in

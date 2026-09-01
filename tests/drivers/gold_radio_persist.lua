@@ -71,10 +71,11 @@ return function(game)
   assert(gear, "the POKeGEAR row did not open the gear")
   assert(#gear.cards == 4, "expected all four cards, got " .. #gear.cards)
 
-  -- Strip: CLOCK, MAP, RADIO, PHONE.  Two rights and A is the radio card.
-  U.tap(game, "right") U.wait(2)
-  U.tap(game, "right") U.wait(2)
-  U.tap(game, "a") U.wait(2)
+  for _ = 1, 8 do
+    if gear:card().id == "radio" then break end
+    U.tap(game, "right") U.wait(3)
+  end
+  if gear.mode == "strip" then U.tap(game, "a") U.wait(3) end
   assert(gear.mode == "card" and gear:card().id == "radio",
     "did not land on the radio card")
 
@@ -96,9 +97,9 @@ return function(game)
   U.tap(game, "b") U.wait(3)
   U.tap(game, "b") U.wait(3)
   for _ = 1, 60 do
-    if not topIs("Gen2StartMenu") then break end
-    U.tap(game, "b")
-    U.wait(2)
+    if top() == nil then break end
+    if topIs("Gen2StartMenu") then U.tap(game, "b") end
+    U.wait(4)
   end
   U.wait(5)
   assert(Music.current() == "Music_PokeFluteChannel",

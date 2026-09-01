@@ -12,7 +12,10 @@ local MapNameSign = {}
 
 -- ../pokecrystal/engine/events/map_name_sign.asm:1
 MapNameSign.TILES = 14
+-- ../pokecrystal/engine/events/map_name_sign.asm:42-44
 MapNameSign.DURATION = 60
+-- ../pokecrystal/engine/overworld/events.asm:177-191
+MapNameSign.FRAMES_PER_TICK = 2
 MapNameSign.SHEET = "assets/generated/fonts/map_entry_sign.png"
 
 -- ../pokecrystal/engine/events/map_name_sign.asm:134-140
@@ -102,6 +105,8 @@ function MapNameSign.init(world, via)
   if id == false or NO_SIGN[id] then return end
   world.mapSign = {
     timer = MapNameSign.DURATION,
+    frames = 0,
+    shown = false,
     -- ../pokecrystal/engine/events/map_name_sign.asm:143-145
     -- ../pokecrystal/constants/charmap.asm:9
     name = ((world:landmarkName() or ""):gsub("\n", " ")),
@@ -113,32 +118,29 @@ function MapNameSign.cancel(world)
   if world then world.mapSign = nil end
 end
 
-local function logicSpeed(world)
-  local game = world and world.game
-  if not game or not game.logicSpeed then return 1 end
-  local ok, n = pcall(game.logicSpeed, game)
-  if ok then
-    n = tonumber(n)
-    if n and n > 1 then return n end
-  end
-  return 1
-end
-
--- ../pokecrystal/engine/events/map_name_sign.asm:99-117
--- ../pokecrystal/home/window.asm:42
-function MapNameSign.tick(world)
-  local s = world.mapSign
-  if not s then return end
-  if world.textbox then
-    MapNameSign.cancel(world)
+-- ../pokecrystal/engine/events/map_name_sign.asm:99-125
+local function place(world, s)
+  if s.timer <= 0 then
+    world.mapSign = nil
     return
   end
-  local speed = logicSpeed(world)
-  s.accum = (s.accum or 0) + 1
-  if s.accum < speed then return end
-  s.accum = s.accum - speed
   s.timer = s.timer - 1
-  if s.timer <= 0 then world.mapSign = nil end
+  if s.timer <= MapNameSign.DURATION - 2 then s.shown = true end
+end
+
+-- ../pokecrystal/engine/overworld/events.asm:177-191
+function MapNameSign.frame(world)
+  local s = world and world.mapSign
+  if not s or world.mapSetup or world.textbox then return end
+  s.frames = (s.frames or 0) + 1
+  if s.frames < MapNameSign.FRAMES_PER_TICK then return end
+  s.frames = 0
+  place(world, s)
+end
+
+-- ../pokecrystal/home/window.asm:42
+function MapNameSign.tick(world)
+  if world.mapSign and world.textbox then MapNameSign.cancel(world) end
 end
 
 -- ../pokecrystal/engine/events/map_name_sign.asm:197-233
@@ -177,7 +179,7 @@ end
 
 function MapNameSign.draw(world, w, h, posLift)
   local s = world.mapSign
-  if not s or GameVersion.engine() ~= "crystal" then return end
+  if not s or not s.shown or GameVersion.engine() ~= "crystal" then return end
   if world.textbox then return end
   local img = loadSheet(world)
   if not img then return end

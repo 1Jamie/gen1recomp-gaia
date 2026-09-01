@@ -408,12 +408,32 @@ identifier" and "unknown swizzle selection" errors on real Android hardware came
 from.
 
 **Fragment entry point.** `void main()` becomes LOVE's `effect()` signature.
-The parameter list is qualified by an `EFFECT_PREC` define rather than a literal
-precision, because LOVE forward-declares `effect()`'s prototype under its own
-header's precision default before this source runs, which can mismatch whatever
-the precision guard above raises the default to. `Fixup.PREC_HEADS` holds the
-two variants (`mediump`, then unqualified) and the caller tries them in order
-against `validateShader`, taking the first that passes.
+The parameter list *and the return type* are qualified by an `EFFECT_PREC`
+define rather than a literal precision, because LOVE forward-declares
+`effect()`'s prototype under its own header's precision default (`mediump` on
+ES) before this source runs, which can mismatch whatever the precision guard
+above raises the default to. glslang only checks the parameters, but GLSL ES
+3.00 §6.1 lets a driver reject a definition whose return precision differs from
+the prototype's too, so both carry the same head. `Fixup.PREC_HEADS` holds the
+two variants (`mediump`, then unqualified) and `ShaderFX.activate` tries them in
+order against `validateShader`, taking the first that passes. Every pass is
+compiled at activate time; a preset whose GLSL the device rejects fails
+`activate` (the picker row reads FAILED, the option is not persisted) and the
+error is kept in `ShaderFX.lastError()` and written to `shaderfx-error.log` in
+the save directory, next to `lua-error.log`. `validateShader` runs the same
+glslang the Android/iOS builds do, so `tests/drivers/shader_gles_validate.lua`
+runs every fixture artifact under `tests/data/shaderfx/{es,gl}` and every
+inline shader in `src/` through it in both dialects and both
+`getSupported().glsl3` states; that is the gate any ES-facing GLSL change has to
+pass on a desktop.
+
+**GL 1.20 gaps.** For the desktop dialect the bridge declares the UBO's
+`FrameCount` as `uint` and appends `#extension GL_EXT_gpu_shader4 : require`
+after the flattened uniforms. Under LOVE's `#version 330 core` glsl1on3 header
+both stages fail (`uint` is a syntax error, then the extension is unsupported),
+which silently took bevel, lcd3x, zfast-lcd, the gb-palette trio and
+gameboy-dark-mode's last pass out on macOS. `rewriteGpuShader4` strips the
+extension line and rewrites the `uint` token to `int` in both stages.
 
 **Fragment output.** `gl_FragData` does not exist in LOVE's `effect()`
 convention, so every `gl_FragData[0]` occurrence is rewritten to a local

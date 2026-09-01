@@ -64,7 +64,16 @@ return function(game)
     U.wait(2)
   end
 
+  local function waitFor(id, limit)
+    for _ = 1, limit or 120 do
+      if topId() == id then return true end
+      U.wait(1)
+    end
+    return topId() == id
+  end
+
   local function openFlyRow()
+    waitFor(nil, 240)
     local menu
     for _ = 1, 10 do
       tap("start")
@@ -81,6 +90,7 @@ return function(game)
       tap("down")
     end
     tap("a")
+    waitFor("Gen2PartyMenu", 90)
     local party = top()
     if not ok(party and party.screenId == "Gen2PartyMenu",
         "POKeMON opened the party list") then
@@ -143,14 +153,21 @@ return function(game)
   U.shot(game, out .. "/02-fly-map.png")
 
   tap("b")
-  U.wait(6)
+  -- engine/pokegear/pokegear.asm:2062-2078
+  for _ = 1, 120 do
+    if topId() == "Gen2PartyMenu" then break end
+    U.wait(1)
+  end
   ok(topId() == "Gen2PartyMenu", ("B returned to the party list (top is %s)")
     :format(tostring(topId())))
   ok(world.queuedFieldMove == nil, "with no fly queued behind it")
   U.shot(game, out .. "/03-b-back-to-party.png")
 
-  tap("b")
-  tap("b")
+  for _ = 1, 6 do
+    if topId() == nil then break end
+    tap("b")
+    waitFor(nil, 60)
+  end
   U.wait(10)
   party = openFlyRow()
   U.tap(game, "a")

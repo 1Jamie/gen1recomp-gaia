@@ -231,8 +231,16 @@ local MAPSETUP_ROAM_JUMP = { [MAPSETUP.TELEPORT] = true }
 local FADE_STEPS = 4
 local FADE_STEP_FRAMES = 2
 
--- ExitAllMenus opens on ClearBGPalettes (home/map.asm:2282), whose WaitBGMap
-local MENU_BLANK_FRAMES = 4
+-- home/map.asm:1927-1940 over home/tilemap.asm:12-25
+local MENU_EXIT_RELOAD_FRAMES = 9
+local MENU_EXIT_WHITE_FRAMES = 4 + MENU_EXIT_RELOAD_FRAMES + (4 + 4) + 2
+-- engine/pokegear/pokegear.asm:2074-2078, home/menu.asm:80-83
+local FLY_EXIT_WHITE_FRAMES = 4 + 4 + MENU_EXIT_WHITE_FRAMES
+-- engine/pokegear/pokegear.asm:2027-2046 over home/gfx.asm:189-262
+local FLY_MAP_BUILD_FRAMES = 4 + 4 + 7 + 1 + 7 + 3 + 2
+-- engine/events/overworld.asm:593-597, engine/menus/start_menu.asm:503-518
+local FLY_CANCEL_BLANK_FRAMES = 4 + 8 + 4 + 5
+local FLY_CANCEL_ICON_FRAMES = 3
 
 -- A New Game starts in the bedroom, not outside: engine/menus/intro_menu.asm
 -- NewGame sets wDefaultSpawnpoint = SPAWN_HOME and warps there, and
@@ -949,8 +957,8 @@ function World:load()
     -- `hold` is the same story one argument along: the cart `pause` a held box
     -- stands through (FindItemInBallScript's `pause 60`).  Dropping it made the
     -- box hand back the instant it finished typing.
-    showText = function(body, onDone, stay, hold, sfxWait)
-      self:showText(body, onDone, stay, hold, sfxWait)
+    showText = function(body, onDone, stay, hold, sfxWait, arrows)
+      self:showText(body, onDone, stay, hold, sfxWait, arrows)
     end,
     facePlayer = function()
       if self.talkNpc and self.player then
@@ -3518,11 +3526,24 @@ function World:runMapSetup(method, load, fly)
 end
 
 -- ramp with no load between the halves (home/map.asm:2281-2292).
-function World:exitMenusFade()
+function World:exitMenusFade(whiteFrames)
   self.fade, self.fadeLevel = "white", 1
   self.mapSetup = {
-    phase = "in", step = FADE_STEPS, wait = MENU_BLANK_FRAMES,
+    phase = "in", step = FADE_STEPS,
+    wait = whiteFrames or MENU_EXIT_WHITE_FRAMES,
   }
+end
+
+-- engine/pokegear/pokegear.asm:2078, home/menu.asm:83, home/map.asm:1928
+function World:exitMenusFadeForFly()
+  self:exitMenusFade(FLY_EXIT_WHITE_FRAMES)
+  -- engine/events/overworld.asm:569-572, :611
+  self.flyHidden = "from"
+end
+
+-- engine/menus/start_menu.asm:511, engine/gfx/mon_icons.asm:287-297
+function World.flyCancelBlankFrames(partySize)
+  return FLY_CANCEL_BLANK_FRAMES + FLY_CANCEL_ICON_FRAMES * (partySize or 0)
 end
 
 -- ---------------------------------------------------------------------------
@@ -5288,22 +5309,41 @@ function World:updateHeadbutt()
   self:showText(Strings(TEXT_HEADBUTT_NOTHING))
 end
 
+-- ../pokecrystal/engine/events/treemons.asm:126 GetTreeMon's two RandomRange
+function World:treeRandom(n)
+  if self.treemonRandom then return self.treemonRandom(n) end
+  if love and love.math and love.math.random then
+    return love.math.random(n) - 1
+  end
+  return math.random(n) - 1
+end
+
 -- Headbutt.  A tree's own map entry decides which of the two tree sets is
 -- rolled, and whether anything is home at all (engine/events/treemons.asm
 -- TreeMonEncounter).  Returns "battle", "nothing" or nil.
 function World:tryHeadbutt(cx, cy)
   local game, map = self.game, self.map
   if not (game and map and self.encounters) then return nil end
-  local roll = Encounter.treeSlot(self.encounters, map.id, cx, cy, nil)
+  local save = game.save
+  local GameVersion = require("src.core.GameVersion")
+  local engine = GameVersion.engine((save and save.version) or GameVersion.get())
+  local roll = Encounter.treeSlot(self.encounters, map.id, cx, cy,
+    function(n) return self:treeRandom(n) end,
+    { otId = (save and save.player and save.player.id) or 0, engine = engine })
   if not roll or not roll.species then return "nothing" end
   local wild = Mon.new(game.data, roll.species, roll.level)
   if not wild then return "nothing" end
-  local save = game.save
+  -- LoadEnemyMon's .TreeMon arm (../pokecrystal/engine/battle/core.asm:6249)
+  if Encounter.treeMonAsleep(roll.species, self.tod or self.daytime or "DAY",
+      engine, self.encounters) then
+    wild.status = "sleep"
+    wild.statusTurns = Encounter.TREEMON_SLEEP_TURNS
+  end
   if save then
     save.pokedex = save.pokedex or { seen = {}, caught = {} }
     save.pokedex.seen[roll.species] = true
   end
-  self:startBattle({ wild = wild })
+  self:startBattle({ wild = wild, battleType = "tree" })
   return "battle"
 end
 
@@ -6015,6 +6055,10 @@ function World:useFieldMove(moveId, mon)
   local ctx = self:fieldContext(mon)
   local result = withBlockIndex(FieldMoves.fromMenu(moveId, ctx), ctx)
   result.mon = result.mon or mon
+  -- ../pokecrystal/engine/pokemon/mon_menu.asm:735
+  if result.ok and result.inMenu then
+    return result
+  end
   if result.ok then
     self.queuedFieldMove = result
   elseif result.text then
@@ -6138,6 +6182,8 @@ end
 local FLY = {
   FROM_FRAMES = 128, TO_FRAMES = 64, HOVER = 0x40,
   AMP_MAX = 0x40, TO_AMP = 11 * 8, RISE = 84,
+  -- engine/tilesets/timeofday_pals.asm:289-299, engine/events/field_moves.asm:305-311
+  FROM_PREROLL = 2 + 4,
   -- engine/events/field_moves.asm:341 (depixel 31, 10, 4, 0 up to 10 * 8 + 4)
   TO_RISE = 88,
   -- engine/events/field_moves.asm:307 over data/sprite_anims/oam.asm:314
@@ -6207,6 +6253,7 @@ function World:startFlyAnim(phase, mon, onDone)
     hover = landing and 0 or FLY.HOVER,
     amp = landing and FLY.TO_AMP or 0,
     y = landing and -FLY.TO_RISE or 0,
+    preroll = landing and 0 or FLY.FROM_PREROLL,
   }
   return true
 end
@@ -6216,6 +6263,10 @@ end
 function World:stepFlyAnim()
   local fa = self.flyAnim
   if not fa then return end
+  if (fa.preroll or 0) > 0 then
+    fa.preroll = fa.preroll - 1
+    return
+  end
   local left = fa.left
   if left <= 0 then
     local done = fa.onDone
@@ -6328,6 +6379,7 @@ end
 function World:drawFlyAnim(s, billboard)
   local fa = self.flyAnim
   if not (fa and fa.icon) then return end
+  if (fa.preroll or 0) > 0 then return end
   local G = love.graphics
   local bx, by = World.birdScreenPos(fa)
   if not World.offGbScreen(bx, by, 16, 16) then
@@ -6356,6 +6408,7 @@ function World:flyTo(spawnId, mon)
   local spawn = self.landmarks and self.landmarks.spawns
     and self.landmarks.spawns[spawnId]
   if not (spawn and spawn.map and self.maps and self.maps[spawn.map]) then
+    if self.flyHidden == "from" then self.flyHidden = nil end
     return false
   end
   local function warp()
@@ -6413,13 +6466,22 @@ function World:openFlyMap(mon, opts)
         end,
         onClose = function()
           self.game.stack:pop()
+          if opts then
+            -- engine/pokegear/pokegear.asm:2062-2078, engine/menus/start_menu.asm:503-518
+            local party = self.game.save and self.game.save.party
+            Screens.push(self.game, "Gen2BlankScreen", {
+              frames = World.flyCancelBlankFrames(party and #party or 0),
+              onDone = function() self.game.stack:pop() end,
+            })
+          end
           if opts and opts.onCancel then opts.onCancel() end
         end,
       })
     end
     if opts then
-      -- engine/pokegear/pokegear.asm:1979
+      -- engine/pokegear/pokegear.asm:2027-2046
       Screens.push(self.game, "Gen2BlankScreen", {
+        frames = FLY_MAP_BUILD_FRAMES,
         onDone = function()
           self.game.stack:pop()
           pushGear()
@@ -7613,7 +7675,9 @@ end
 -- stack the overworld and the VM under it do not tick at all -- so the wait has
 -- to be counted by the box itself.  Frames, already doubled by Vm:pauseFrames
 -- the way Script_pause's `ld c, 2 / call DelayFrames` doubles the operand.
-function World:showText(body, onDone, stay, hold, sfxWait)
+-- ../pokecrystal/home/joypad.asm:302 WaitButton
+function World:showText(body, onDone, stay, hold, sfxWait, arrows)
+  local waitButton = not arrows
   local game = self.game
   -- The box a PREVIOUS `stay` left standing (TextBox's contract is "whoever
   -- pushed it owns the pop", src/render/TextBox.lua:40).  `yesorno` consumes it
@@ -7656,6 +7720,7 @@ function World:showText(body, onDone, stay, hold, sfxWait)
         end
         if onDone then onDone() end
       end },
+      waitButton = waitButton,
     })
     game.stack:push(box)
     return
@@ -7663,7 +7728,7 @@ function World:showText(body, onDone, stay, hold, sfxWait)
   game.stack:push(TextBox.new(game, body, function()
     self.textbox = nil
     if onDone then onDone() end
-  end, sfxWait and { sfxWait = true } or nil))
+  end, { sfxWait = sfxWait and true or nil, waitButton = waitButton }))
 end
 
 function World:pooledNpc(mapId, obj)
@@ -10681,20 +10746,27 @@ function World:drawPeople(s, billboard)
   local p = self.player
   local cam = self.camera
   local hideAll, hidePlayer = self:flyHides()
+  -- ../pokecrystal/engine/overworld/map_objects.asm:2191-2205
+  local filter = self.spriteFilter
   local drawList = {}
   if not hideAll then
     if not hidePlayer then
       drawList[1] = { kind = "player", py = p.py, ox = 0, oy = 0 }
     end
     for _, npc in ipairs(self.npcs) do
-      drawList[#drawList + 1] = {
-        kind = "npc", npc = npc, ox = 0, oy = 0, py = npc.py,
-      }
+      if not filter or filter(npc) then
+        drawList[#drawList + 1] = {
+          kind = "npc", npc = npc, ox = 0, oy = 0, py = npc.py,
+        }
+      end
     end
     for _, g in ipairs(self.ghosts) do
-      drawList[#drawList + 1] = {
-        kind = "npc", npc = g.npc, ox = g.ox, oy = g.oy, py = g.oy + g.npc.py,
-      }
+      if not filter or filter(g.npc) then
+        drawList[#drawList + 1] = {
+          kind = "npc", npc = g.npc, ox = g.ox, oy = g.oy,
+          py = g.oy + g.npc.py,
+        }
+      end
     end
   end
   table.sort(drawList, function(a, b) return a.py < b.py end)
@@ -10780,7 +10852,8 @@ end
 
 function World:drawWorldBody(s)
   self:drawGround(s)
-  self:drawPeople(s)
+  if self.bgOverlay then self.bgOverlay(s) end
+  if not self.peopleHidden then self:drawPeople(s) end
 end
 
 -- Gold's half of the world-pipeline seam: same ctx keys, same order and the
@@ -10871,6 +10944,7 @@ function World:drawTilted(w, h, s, gw, gh)
   G.push()
   G.origin()
   self:drawGround(s)
+  if self.bgOverlay then self.bgOverlay(s) end
   G.pop()
   G.setCanvas(previous)
 
@@ -11069,5 +11143,11 @@ end
 -- exported for the Gen 1 FieldDefaults facade (src/mods/Gen2Compat.lua)
 -- rather than duplicated there
 World.PLAYER_SPRITE = PLAYER_SPRITE
+
+World.FLY_MAP_BUILD_FRAMES = FLY_MAP_BUILD_FRAMES
+World.MENU_EXIT_RELOAD_FRAMES = MENU_EXIT_RELOAD_FRAMES
+World.MENU_EXIT_WHITE_FRAMES = MENU_EXIT_WHITE_FRAMES
+World.FLY_EXIT_WHITE_FRAMES = FLY_EXIT_WHITE_FRAMES
+World.FLY_FROM_PREROLL = FLY.FROM_PREROLL
 
 return World

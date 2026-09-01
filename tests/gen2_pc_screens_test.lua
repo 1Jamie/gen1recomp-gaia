@@ -122,8 +122,17 @@ local function newSave(partySize)
 end
 
 -- Drive a screen: press the buttons one at a time, updating after each.
+-- ../pokecrystal/home/print_text.asm:1
+local function settle(screen)
+  for _ = 1, 600 do
+    if not (screen.typer and not screen.typer:done()) then break end
+    screen:update(0)
+  end
+end
+
 local function press(screen, input, ...)
   for _, button in ipairs({ ... }) do
+    settle(screen)
     input:press(button)
     screen:update(0)
   end

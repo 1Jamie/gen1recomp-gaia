@@ -230,6 +230,10 @@ do
   -- the DUDE is handed the prompt on the first step that waits on it.
   screen:update(1 / 60)
   eq(screen.message, "Wild RATTATA appeared!", "the intro line is the cart's")
+  for _ = 1, 400 do
+    if not screen:syncTyper() then break end
+    screen:update(1 / 60)
+  end
   screen:update(1 / 60)
   eq(ring.bytes, AutoInput.STREAMS.DUDE_A,
     "and DudeAutoInput_A is armed to answer it")

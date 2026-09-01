@@ -803,7 +803,6 @@ end
 local function prizeCounter(window)
   return function(game, ow, npc, done)
     local PrizeCounter = require("src.ui.PrizeCounter")
-    local Commands = require("src.script.Commands")
     local TextBox = require("src.render.TextBox")
     local t = game.data.text
     -- IsItemInBag COIN_CASE: without the case, deny and open no window
@@ -826,9 +825,10 @@ local function prizeCounter(window)
             prize = p,
           }
         end
+        local whichBox, menu
         local function close()
-          game.stack:pop()
-          game.stack:pop()
+          local st = game.stack
+          while st:top() == menu or st:top() == whichBox do st:pop() end
         end
         local function finish(msg)
           close()
@@ -842,20 +842,26 @@ local function prizeCounter(window)
           -- HasEnoughCoins passed, so hand the prize over first and only
           -- subtract once it landed: the asm rets before .subtractCoins when
           -- the bag is full, or when both the party and every box are full
-          local roomless = t._OopsYouDontHaveEnoughRoomText
-                           or "Oops! You don't\nhave enough room."
           if p.kind == "mon" then
-            -- no runner here, so give_pokemon reports through ctx.lastCheck
-            -- and skips the AskName prompt (Commands.give_pokemon)
-            local ctx = { save = game.save, game = game }
-            Commands.give_pokemon(ctx, p.species, p.level)
-            if not ctx.lastCheck then
-              finish(roomless)
-              return
-            end
-          elseif not require("src.inventory.Bag").add(
+            -- engine/events/prize_menu.asm:217-243
+            close()
+            ow.runner:run({
+              { "give_pokemon", p.species, p.level, false, true },
+              { "jump_if_false", "boxfull" },
+              { "take_coins", p.cost },
+              { "jump", "out" },
+              { "label", "boxfull" },
+              -- engine/events/give_pokemon.asm:40-42
+              { "show_text", "_BoxIsFullText" },
+              { "label", "out" },
+            }, { onDone = done })
+            return
+          end
+          if not require("src.inventory.Bag").add(
               game.save, p.item, 1, game.data) then
-            finish(roomless)
+            -- engine/events/prize_menu.asm:245-246
+            finish(t._OopsYouDontHaveEnoughRoomText
+                   or "Oops! You don't\nhave enough room.")
             return
           end
           game.save.coins = game.save.coins - p.cost
@@ -864,11 +870,11 @@ local function prizeCounter(window)
           close()
           done()
         end
-        game.stack:push(TextBox.new(game,
+        whichBox = TextBox.new(game,
           t._WhichPrizeText or "Which prize do\nyou want?", nil, {
             instant = true,
             stay = { onShown = function()
-              game.stack:push(PrizeCounter.new(game, rows, {
+              menu = PrizeCounter.new(game, rows, {
                 onCancel = function()
                   close()
                   done()
@@ -889,9 +895,11 @@ local function prizeCounter(window)
                     end,
                   }))
                 end,
-              }))
+              })
+              game.stack:push(menu)
             end },
-          }))
+          })
+        game.stack:push(whichBox)
       end, { instant = true }))
   end
 end

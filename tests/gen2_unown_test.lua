@@ -638,7 +638,8 @@ end
 do
   local BattleState = require("src.ui.gen2.BattleState")
   local SummaryMenu = require("src.ui.gen2.SummaryMenu")
-  local animA, animI = { sheet = "sheet-a" }, { sheet = "sheet-i" }
+  local animA = { sheet = "sheet-a", tiles = 5 }
+  local animI = { sheet = "sheet-i", tiles = 5 }
   data.pokemon.UNOWN.anim = animA
   data.pokemon.UNOWN.letters.I.anim = animI
   local screen = { pokemon = data.pokemon }

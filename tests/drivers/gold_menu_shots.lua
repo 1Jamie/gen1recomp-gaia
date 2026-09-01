@@ -107,6 +107,13 @@ return function(game)
     hasSave = true, save = save,
     clock = { hour = 20, minute = 42, weekday = 6 },
   }))
+  -- ../pokecrystal/engine/menus/intro_menu.asm:479 DisplaySaveInfoOnContinue.
+  local contPanel = MainMenu.new(game, {
+    hasSave = true, save = save,
+    clock = { hour = 5, minute = 9, weekday = 2 },
+  })
+  contPanel.phase, contPanel.confirmDelay = "confirm", 0
+  show("02b-mainmenu-continue-panel", contPanel)
 
   local sprites = game.data.gen2Sprites
   local chris = sprites and sprites.SPRITE_CHRIS

@@ -32,11 +32,9 @@ return function(game)
 
   local player = Mon.new(game.data, "CYNDAQUIL", 9)
   assert(player and #player.moves > 0, "could not build a CYNDAQUIL")
-  -- One point short of the next level, so the single kill below crosses it and
-  -- the bar has to fill, restart at zero and finish the second segment.
   local def = game.data.pokemon[player.species]
   local growth = game.data.pokemon.growthRates[def.growthRate]
-  player.experience = Mon.experienceForLevel(growth, player.level + 1) - 1
+  player.experience = Mon.experienceForLevel(growth, player.level + 1) - 40
   -- Red bar on the way in, so the siren is up before the faint.
   player.hp = 3
   game.save.party = { player }
@@ -85,33 +83,30 @@ return function(game)
   print("[driver] crawl armed at level " .. tostring(screen.shownLevel)
     .. ", bar at " .. tostring(screen.shownExp) .. "/64")
 
-  -- Four stills across the crawl.  A bar that is already full in the first is
-  -- the bug this driver exists for.
-  local seen, burst, spread = {}, nil, false
-  local function watchBurst()
-    local frame = screen.expBurst and screen.expBurst.frame
-    if not frame then return end
-    if not burst then
-      burst = { screen.shownExp, screen.shownLevel, screen.message }
-      U.shot(game, out .. "/05b-end-of-bar-burst.png")
-    elseif not spread and frame >= 5 then
-      spread = true
-      U.shot(game, out .. "/05c-burst-spread.png")
+  -- ../pokecrystal/engine/battle/core.asm:7121-7128
+  local function printed()
+    for _ = 1, 400 do
+      if not screen:syncTyper() then return true end
+      U.wait(1)
     end
+    return false
   end
-  while screen.expAnim and shots < 4 do
+  assert(printed(), "the gained-EXP line never finished printing")
+  U.shot(game, out .. "/01b-gained-prompt.png")
+  U.tap(game, "a")
+  U.wait(1)
+  assert((screen.messageTimer or 0) == 0,
+    "the A on the gained-EXP line did not page it")
+
+  local seen = {}
+  while screen.expAnim and shots < 4 and (screen.shownExp or 0) < 62 do
     shots = shots + 1
     seen[shots] = { screen.shownExp, screen.shownLevel }
     U.shot(game, out .. ("/%02d-crawl.png"):format(shots + 1))
-    for _ = 1, 18 do
-      watchBurst()
+    for _ = 1, 10 do
+      if (screen.shownExp or 0) >= 62 then break end
       U.wait(1)
     end
-  end
-  for _ = 1, 900 do
-    if burst or not screen.expAnim then break end
-    watchBurst()
-    U.wait(1)
   end
   for i = 1, shots do
     print(("[driver] shot %d: bar %s/64, :L%s")
@@ -119,18 +114,56 @@ return function(game)
   end
   assert(shots >= 2, "the crawl was over before two frames could be shot")
   assert(seen[1][1] < 64, "the bar was already full on the first crawl frame")
-  assert(burst, "the end-of-bar burst never armed on the level crossing")
-  print(("[driver] burst: bar %s/64, :L%s, message %q")
-    :format(tostring(burst[1]), tostring(burst[2]), tostring(burst[3])))
-  assert(not tostring(burst[3] or ""):find("grew to level"),
-    "the grew-to-level line was already up while the sparks were on screen")
 
-  -- The rest of the queue: the grew-to-level line and the way out.
+  local logOnly = os.getenv("POKEPORT_EXP_BAR_LOG_ONLY") ~= nil
+  local function snap(path)
+    if logOnly then U.wait(1) return end
+    game.capturePath = path
+    for _ = 1, 120 do
+      U.wait(1)
+      if not game.capturePath then return end
+    end
+  end
+  local n, sparks, sparkLine, lineAt, zeroAt = 0, {}, nil, nil, nil
+  for _ = 1, 3000 do
+    if screen.phase == "stats-box" or screen.phase == "done" then break end
+    if (screen.shownExp or 0) >= 62 or n > 0 then
+      n = n + 1
+      local frame = screen.expBurst and screen.expBurst.frame
+      local msg = tostring(screen.message or "")
+      print(("[driver] f%03d bar %s/64 :L%s burst %s %q"):format(n,
+        tostring(screen.shownExp), tostring(screen.shownLevel),
+        tostring(frame), msg))
+      snap(out .. ("/f%03d.png"):format(n))
+      if frame and frame >= 1 and frame <= 8 then
+        sparks[frame] = true
+        if msg:find("grew to level") then sparkLine = msg end
+      end
+      if msg:find("grew to level") then
+        lineAt = lineAt or n
+        if not zeroAt and screen.shownExp == 0 then zeroAt = n end
+      end
+    else
+      U.wait(1)
+    end
+  end
+  local count = 0
+  for _ in pairs(sparks) do count = count + 1 end
+  print(("[driver] burst frames photographed: %d of 8"):format(count))
+  assert(count > 0, "the end-of-bar burst never armed on the level crossing")
+  assert(not sparkLine,
+    "the grew-to-level line was already up while the sparks were on screen")
+  assert(lineAt, "the grew-to-level line never printed inside the crawl")
+  assert(zeroAt and zeroAt > lineAt,
+    "the bar did not restart at 0 after the level line")
+  assert(screen.phase == "stats-box", "no stats box after segment 2 (phase "
+    .. tostring(screen.phase) .. ")")
+  print(("[driver] level line at f%03d, bar zero at f%03d, stats box at f%03d")
+    :format(lineAt, zeroAt, n))
+  U.shot(game, out .. "/07-stats-box.png")
+
   for _ = 1, 900 do
     if screen.phase == "done" then break end
-    if (screen.message or ""):find("grew to level") then
-      U.shot(game, out .. "/06-grew-to-level.png")
-    end
     U.tap(game, "a")
     U.wait(2)
   end

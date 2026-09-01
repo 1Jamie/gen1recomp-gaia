@@ -46,24 +46,33 @@ function MonAnim.duration(param, speed)
   return (scaled + param) % 256
 end
 
--- The PokeAnims programs less their cry commands; "wait" is SetWait's 18.
 -- ../pokecrystal/engine/gfx/pic_animation.asm:69-77, :150-164
 local SCENES = {
   battle = { "setup", "play" },
   battleSlow = { "setup2", "play" },
   menu = { "setup", "play", "wait", "idle", "play" },
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:72
+  trade = { "idle", "play2", "idle", "play", "wait", "cry", "setup", "play" },
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:73
+  evolve = { "idle", "play", "wait", "cryNoWait", "setup", "play" },
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:74
+  hatch = { "idle", "play", "cryNoWait", "setup", "play", "wait", "idle",
+    "play" },
+  -- ../pokecrystal/engine/gfx/pic_animation.asm:75
+  hof = { "setup", "play", "wait", "idle", "play" },
 }
 
 MonAnim.SCENE_WAIT = 18
 
 function MonAnim.scenes() return SCENES end
 
-function MonAnim.new(data, scene)
+function MonAnim.new(data, scene, onCry)
   local steps = SCENES[scene or "battle"]
   if not (data and steps and data.play and #data.play > 0) then return nil end
   return setmetatable({
     data = data,
     steps = steps,
+    onCry = onCry,
     step = 1,
     frame = 0,
     speed = 0,
@@ -154,9 +163,15 @@ function MonAnim:update()
     end
     return
   end
+  if step == "cry" or step == "cryNoWait" then
+    -- ../pokecrystal/engine/gfx/pic_animation.asm:230-244
+    if self.onCry then self.onCry(step) end
+    self.step = self.step + 1
+    return
+  end
   if self:runScript() then
-    -- PokeAnim_Play redraws the base picture as the script ends (:196-205).
-    self.frame = 0
+    -- ../pokecrystal/engine/gfx/pic_animation.asm:196-215
+    if step ~= "play2" then self.frame = 0 end
     self.step = self.step + 1
   end
 end

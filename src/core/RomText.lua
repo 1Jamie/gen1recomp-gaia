@@ -41,10 +41,13 @@ return function(data, label, fallback, ...)
     end))
   end
 
+  local ENDINGS = { ["{DONE}"] = true, ["{PROMPT}"] = true }
   local slots, named = 0, 0
   for token in text:gmatch("%b{}") do
-    slots = slots + 1
-    if token == "{PLAYER}" or token == "{RIVAL}" then named = named + 1 end
+    if not ENDINGS[token] then
+      slots = slots + 1
+      if token == "{PLAYER}" or token == "{RIVAL}" then named = named + 1 end
+    end
   end
   local fillNamed
   if #args == slots then
@@ -57,6 +60,7 @@ return function(data, label, fallback, ...)
 
   local index = 0
   return (text:gsub("%b{}", function(token)
+    if ENDINGS[token] then return token end
     if not fillNamed and (token == "{PLAYER}" or token == "{RIVAL}") then
       return token
     end

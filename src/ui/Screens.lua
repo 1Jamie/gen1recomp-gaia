@@ -79,7 +79,10 @@ local GEN2 = {
   "MailCompose", "MailMenu", "MailRead", "MailboxMenu",
   -- Gen2MapRadio is the in-house wall radio (`special MapRadio`), not a card.
   "MapRadio",
-  "MainMenu", "MartMenu", "MoveDeleter",
+  "MainMenu", "MartMenu",
+  -- ../pokecrystal/home/map.asm:1910-1925
+  "MenuFade",
+  "MoveDeleter",
   -- ../pokecrystal/engine/events/move_tutor.asm:1 the Goldenrod tutor's own
   -- move/party pages, Crystal only.
   "MoveTutor",

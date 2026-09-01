@@ -17,16 +17,8 @@ local function readCartSource(cartId, slotId)
     if row.id == slotId then registered = row.exists end
   end
   if not registered then return nil, "no save in that slot" end
-  local fs = SaveData.persistenceFs()
-  local main = "saves/cart_" .. cartId .. "/" .. slotId .. ".lua"
-  for _, name in ipairs({ main, main .. ".tmp", main .. ".bak" }) do
-    if fs.getInfo(name) then
-      local body = fs.read(name)
-      if type(body) == "string" and body ~= "" and SaveData.decode(body) then
-        return body
-      end
-    end
-  end
+  local body = SaveData.readCartSlotSource(cartId, slotId)
+  if type(body) == "string" and body ~= "" then return body end
   return nil, "no save in that slot"
 end
 

@@ -33,14 +33,27 @@ local function mkseq(vals)
 end
 
 -- (1) TRANSFORM: user.sprite morphs into the target species pic AND the
--- target's stat stages are copied (not cleared).  transform.asm:31-53
+-- target's stat stages are copied (not cleared).  transform.asm:37-45
 -- (AnimationTransformMon) + :57-132 (copies wEnemyMonStatMods).
+local function seenRows(tb)
+  local seen = {}
+  for _, item in ipairs(tb.queue) do seen[item] = true end
+  return seen
+end
+local function runNewFns(tb, seen)
+  for _, item in ipairs(tb.queue) do
+    if item.fn and not seen[item] then item.fn() end
+  end
+end
 do
   local tb = freshBattle()
+  local seen = seenRows(tb)
   local preSprite = tb.player.sprite
   tb.enemy.stages.attack = 2
   tb.enemy.stages.speed = -1
   MoveEffects.primary.TRANSFORM_EFFECT(tb, tb.player, tb.enemy)
+  eq(tb.player.sprite, preSprite, "transform does not swap the pic eagerly")
+  runNewFns(tb, seen)
   check(tb.player.sprite ~= preSprite, "transform swaps the user's sprite")
   eq(tb.player.sprite.path, Data.pokemon.PIDGEY.spriteBack,
      "player-side transform uses the target species BACK pic")
@@ -51,7 +64,9 @@ do
   eq(tb.player.stages.attack, 2, "transform stages are a deep copy")
   -- enemy-side transform uses the FRONT pic
   local tb2 = freshBattle()
+  local seen2 = seenRows(tb2)
   MoveEffects.primary.TRANSFORM_EFFECT(tb2, tb2.enemy, tb2.player)
+  runNewFns(tb2, seen2)
   eq(tb2.enemy.sprite.path, Data.pokemon.BULBASAUR.spriteFront,
      "enemy-side transform uses the target species FRONT pic")
 end

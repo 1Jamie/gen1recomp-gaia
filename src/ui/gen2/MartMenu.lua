@@ -68,6 +68,7 @@ local CommonText = require("src.core.gen2.CommonText")
 local Save = require("src.core.gen2.Save")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local Typer = require("src.ui.gen2.Typer")
 
 -- PlayTransactionSound (engine/items/mart.asm): `call WaitSFX` then
 -- SFX_TRANSACTION.  Both tills ring it -- the buy flow at BuyMenuLoop's
@@ -471,14 +472,17 @@ end
 -- mart.asm: the box holds until a button, and multi-page strings advance a
 -- page per press.
 function MartMenu:say(list, onDone)
-  self.message = { pages = list or {}, page = 1, onDone = onDone }
+  -- ../pokecrystal/engine/items/mart.asm:167
+  Typer.say(self, list, onDone)
 end
 
 function MartMenu:updateMessage(input)
+  Typer.step(self)
+  if Typer.typing(self) then return end
   if not (input:wasPressed("a") or input:wasPressed("b")) then return end
   local message = self.message
   if message.page < #message.pages then
-    message.page = message.page + 1
+    Typer.turn(self, message)
     return
   end
   self.message = nil
@@ -490,13 +494,16 @@ end
 function MartMenu:ask(list, onYes, onNo)
   self.confirm = { pages = list or {}, page = 1, choice = 1,
     onYes = onYes, onNo = onNo }
+  Typer.begin(self, self.confirm)
 end
 
 function MartMenu:updateConfirm(input)
   local confirm = self.confirm
+  Typer.step(self)
+  if Typer.typing(self) then return end
   if confirm.page < #confirm.pages then
     if input:wasPressed("a") or input:wasPressed("b") then
-      confirm.page = confirm.page + 1
+      Typer.turn(self, confirm)
     end
     return
   end
@@ -1002,13 +1009,14 @@ function MartMenu:drawPanel()
   end
 
   if self.message then
-    self:drawTextBox(self.message.pages[self.message.page])
+    self:drawTextBox(Typer.text(self, self.message.pages[self.message.page]))
     -- LoadBlinkingCursor puts the ▼ at hlcoord 18, 17 while a `para` waits.
-    if self.message.page < #self.message.pages then
+    if self.message.page < #self.message.pages
+      and (self.typer == nil or self.typer:done()) then
       Chrome.print(DOWN_ARROW, 18, 17)
     end
   elseif self.confirm then
-    self:drawTextBox(self.confirm.pages[self.confirm.page])
+    self:drawTextBox(Typer.text(self, self.confirm.pages[self.confirm.page]))
     if self.confirm.page >= #self.confirm.pages then
       self:drawYesNo(self.confirm.choice)
     end

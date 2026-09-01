@@ -75,6 +75,7 @@ local SEPARATORS = "([^" .. LINE .. PAGE .. SCROLL .. "]*)([" ..
 
 -- Split a decoded text stream into pages of up to two lines.
 function TradeMenu.paginate(body)
+  body = require("src.core.gen2.CommonText").plain(body)
   local pages, current = {}, {}
   local function flush(scroll)
     if #current > 0 then pages[#pages + 1] = current end

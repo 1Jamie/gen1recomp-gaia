@@ -275,22 +275,35 @@ do
     eq(world.queuedFieldMove, nil, "and nothing is queued for the overworld yet")
 
     local blank = stack:top()
-    for _ = 1, blank.left do blank:update(0) end
-    eq(stack:top(), blank, "the blank holds WaitBGMap's four frames")
+    eq(blank.left, 28,
+      "_FlyMap: ClearBGPalettes 4 + ClearTilemap 4 + LoadTownMapGFX 7 + border 1"
+        .. " + TownMapBGUpdate 7 + TownMapMon 3 + TownMapPlayerIcon 2 = 28 white")
+    for _ = 1, 27 do blank:update(0) end
+    eq(stack:top(), blank, "the blank is still up on its 28th drawn frame")
     blank:update(0)
-    eq(stack:top().screenId, "Gen2Pokegear", "then the town map takes over")
+    eq(stack:top().screenId, "Gen2Pokegear",
+      "the 28th update hands over: the town map is frame 29")
     eq(#stack.states, 2, "still over the list")
     eq(stack.low, 1, "and the stack never emptied on the way in")
   end
 
   do
-    local world, party, stack, _mon, _flown, game = flyFromParty()
+    local world, party, stack, mon, _flown, game = flyFromParty()
+    game.save.party = { mon, mon }
     local blank = stack:top()
-    for _ = 1, blank.left + 1 do blank:update(0) end
+    for _ = 1, blank.left do blank:update(0) end
     local gear = stack:top()
     game.input:press("b")
     gear:update(0)
-    eq(stack:top(), party, "B on the fly map returns to the party list")
+    local cancelBlank = stack:top()
+    eq(cancelBlank and cancelBlank.screenId, "Gen2BlankScreen",
+      "B on the fly map: .exit's ClearBGPalettes whites out first")
+    eq(cancelBlank.left, 21 + 3 * 2,
+      "held for .exit 4 + .illegal 8 + .choosemenu 4 + 3 per party icon + 5")
+    eq(#stack.states, 2, "over the party list")
+    eq(stack.states[1], party, "which is still underneath")
+    for _ = 1, cancelBlank.left do cancelBlank:update(0) end
+    eq(stack:top(), party, "then the party list is back")
     eq(#stack.states, 1, "with nothing else left standing")
     eq(world.queuedFieldMove, nil, "and no fly queued behind it")
     eq(world.fade, nil, "nothing fades out for a cancel")
@@ -299,7 +312,7 @@ do
   do
     local world, _party, stack, mon, flown, game = flyFromParty()
     local blank = stack:top()
-    for _ = 1, blank.left + 1 do blank:update(0) end
+    for _ = 1, blank.left do blank:update(0) end
     local gear = stack:top()
     gear.flyIndex = 1
     game.input:press("a")
@@ -311,7 +324,20 @@ do
     eq(world.fadeLevel, 1, "at full white")
     eq(world.mapSetup and world.mapSetup.phase, "in",
       "and FadeInFromWhite is armed behind it")
-    check(world.mapSetup.wait > 2, "held for WaitBGMap's frames first")
+    eq(world.mapSetup.wait, 31,
+      ".exit 4 + CloseWindow 4 + ExitAllMenus 4 + LCD-off reload 9"
+        .. " + WaitBGMap2 8 + fade entry 6 for 2 = 31 white")
+    for _ = 1, 30 do world:updateMapSetup() end
+    eq(world.fadeLevel, 1, "still full white after 30 updates")
+    world:updateMapSetup()
+    eq(world.fadeLevel, 0.75, "the 31st update starts the ramp")
+    for _ = 1, 2 do world:updateMapSetup() end
+    eq(world.fadeLevel, 0.5, "two frames a level")
+    for _ = 1, 2 do world:updateMapSetup() end
+    eq(world.fadeLevel, 0.25, "...and the third level")
+    for _ = 1, 2 do world:updateMapSetup() end
+    eq(world.fade, nil, "three levels at two frames each, then clear")
+    eq(world.mapSetup, nil, "and the setup chain is done")
 
     world.mapSetup = nil
     local queued = world.queuedFieldMove

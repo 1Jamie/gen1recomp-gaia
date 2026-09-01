@@ -37,8 +37,15 @@ function CommonText.get(text, label)
   return body
 end
 
+-- ../pokecrystal/home/text.asm:548 PromptText, :566 DoneText
+function CommonText.plain(body)
+  if type(body) ~= "string" then return body end
+  return (body:gsub("{DONE}", ""):gsub("{PROMPT}", ""))
+end
+
 -- One page is an array of one or two lines.
 function CommonText.pages(body)
+  body = CommonText.plain(body)
   if type(body) ~= "string" or body == "" then return nil end
   local out = {}
   local top, bottom = "", nil

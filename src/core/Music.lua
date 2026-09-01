@@ -313,7 +313,7 @@ function Music.play(data, song, loop, ctx)
   -- (update() starts it, like the paused-song resume)
   if fanfareActive() then
     state.fanfareResume = true
-  else
+  elseif not isChip then
     pcall(src.play, src)
   end
   local previous = state.current
@@ -519,6 +519,13 @@ function Music.applyOptions(opts)
   Music.setFilterLevel(opts and opts.musicFilter or 0)
   -- engine/menus/options_menu.asm SOUND row (wOptions STEREO bit)
   local ChipAudio = require("src.core.ChipAudio")
+  local data, song, loop = state.data, state.current, state.loop
+  local tempo, start, wasChip = state.tempo, state.start, state.chip
+  if ChipAudio.applyOptions(opts) and wasChip and data and song then
+    Music.stop()
+    Music.play(data, song, loop, { reason = "audiorate", selected = true,
+                                   tempo = tempo, start = start })
+  end
   ChipAudio.setStereo(opts and opts.sound == "STEREO")
   -- setStereo may swap the queueable source so the new pan is not sitting
   -- behind already-mixed buffers; re-bind so volume/filter follow (#1471)

@@ -72,7 +72,12 @@ return function(game)
     end
     U.tap(game, "a")
     U.wait(3)
-    local pack = game.stack:top()
+    local pack
+    for _ = 1, 120 do
+      pack = game.stack:top()
+      if pack and pack.rows then break end
+      U.wait(1)
+    end
     assert(pack and pack.rows, "PACK did not open")
     return pack
   end
@@ -136,7 +141,8 @@ return function(game)
   end)
   local screen = game.stack:top()
   assert(screen and screen.battle, "the rod's bite did not push a battle")
-  assert(screen.battle.battleType == "fish",
+  assert(screen.battle.battleType
+      == require("src.battle.gen2.Battle").BATTLETYPE_FISH,
     "the rod's battle carries battleType "
       .. tostring(screen.battle.battleType))
   U.log("PASS fishing: the rod's encounter carries BATTLETYPE_FISH")

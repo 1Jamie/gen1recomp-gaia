@@ -62,6 +62,8 @@ local FieldMoves = {}
 FieldMoves.TEXT = {
   BADGE_REQUIRED   = Strings.source("Sorry! A new BADGE\nis required."),
   CANT_USE_HERE    = Strings.source("Can't use that\nhere."),
+  -- ../pokecrystal/data/text/common_2.asm:1516 _PokemonNotEnoughHPText
+  NOT_ENOUGH_HP    = Strings.source("Not enough HP!"),
 
   USE_CUT          = Strings.source("{STRBUF} used\nCUT!"),
   CUT_NOTHING      = Strings.source("There's nothing to\nCUT here."),
@@ -714,6 +716,47 @@ function FieldMoves.headbuttFromMenu(ctx)
   return { ok = true, action = "headbutt" }
 end
 
+-- ../pokecrystal/constants/map_object_constants.asm:145
+local SPRITEMOVEDATA_SMASHABLE_ROCK = 0x18
+
+-- ../pokecrystal/engine/events/overworld.asm:1317 TryRockSmashFromMenu
+function FieldMoves.rockSmashFromMenu(ctx)
+  local object = ctx.facingObject
+  local def = object and object.def
+  if not def or def.movement ~= SPRITEMOVEDATA_SMASHABLE_ROCK then
+    return { ok = false, text = FieldMoves.TEXT.CANT_USE_HERE }
+  end
+  return {
+    ok = true, action = "rocksmash", object = object,
+    lastTalked = (def.index or 0) + 1,
+  }
+end
+
+-- ../pokecrystal/engine/events/std_scripts.asm:241 SmashRockScript
+function FieldMoves.rockSmashScriptKey(stdScripts, scripts)
+  local entry = stdScripts and stdScripts.scripts
+    and stdScripts.scripts.SmashRockScript
+  local smash = entry and entry.key and scripts and scripts[entry.key]
+  local jump = smash and smash[1]
+  local ask = jump and jump.op == "farsjump" and jump.script
+    and scripts[jump.script]
+  for _, cmd in ipairs(ask or {}) do
+    if cmd.op == "iftrue" and cmd.script then return cmd.script end
+  end
+  return nil
+end
+
+-- ../pokecrystal/engine/events/overworld.asm:1357 RockSmashFromMenuScript
+function FieldMoves.rockSmashFromMenuScript(stdScripts, scripts, specialId)
+  local key = FieldMoves.rockSmashScriptKey(stdScripts, scripts)
+  if not key then return nil end
+  local script = { { op = "refreshmap" } }
+  local id = specialId and specialId("UpdateTimePals")
+  if id then script[#script + 1] = { op = "special", id = id } end
+  script[#script + 1] = { op = "sjump", script = key }
+  return script
+end
+
 -- SweetScentFromMenu (engine/events/sweet_scent.asm): QueueScript then an
 -- unconditional `ld a, $1 / ld [wFieldMoveSucceeded], a` -- no badge, no
 -- tile test, nothing that can refuse the press.  Whether anything actually
@@ -750,6 +793,36 @@ function FieldMoves.teleportFromMenu(ctx)
   }
 end
 
+-- ../pokecrystal/engine/pokemon/mon_menu.asm:744 .CheckMonHasEnoughHP
+function FieldMoves.softboiledFromMenu(ctx)
+  local mon = ctx.mon
+  local maxHp = mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
+  local cost = math.floor(maxHp / 5)
+  if not mon or (mon.hp or 0) <= cost then
+    return { ok = false, text = FieldMoves.TEXT.NOT_ENOUGH_HP }
+  end
+  return { ok = true, action = "softboiled", cost = cost, inMenu = true }
+end
+
+local function softboiledMaxHp(mon)
+  return mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:2043 .cant_use
+function FieldMoves.softboiledTargetOk(user, target)
+  if not (user and target) or target == user or target.isEgg then return false end
+  return (target.hp or 0) > 0 and (target.hp or 0) < softboiledMaxHp(target)
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:1997 RemoveHP / :2005 RestoreHealth
+function FieldMoves.softboiledTransfer(user, target, cost)
+  if not FieldMoves.softboiledTargetOk(user, target) then return nil end
+  local before = target.hp or 0
+  user.hp = math.max(0, (user.hp or 0) - (cost or 0))
+  target.hp = math.min(softboiledMaxHp(target), before + (cost or 0))
+  return before, target.hp
+end
+
 FieldMoves.FROM_MENU = {
   CUT = FieldMoves.cutFromMenu,
   FLASH = FieldMoves.flashFromMenu,
@@ -759,14 +832,16 @@ FieldMoves.FROM_MENU = {
   WATERFALL = FieldMoves.waterfallFromMenu,
   WHIRLPOOL = FieldMoves.whirlpoolFromMenu,
   HEADBUTT = FieldMoves.headbuttFromMenu,
+  ROCK_SMASH = FieldMoves.rockSmashFromMenu,
   SWEET_SCENT = FieldMoves.sweetScentFromMenu,
   DIG = FieldMoves.digFromMenu,
   TELEPORT = FieldMoves.teleportFromMenu,
+  -- ../pokecrystal/engine/pokemon/mon_menu.asm:138 MonMenu_Softboiled_MilkDrink
+  SOFTBOILED = FieldMoves.softboiledFromMenu,
+  MILK_DRINK = FieldMoves.softboiledFromMenu,
 }
 
--- The party submenu's field-move row.  Anything the port has no routine for
--- (SOFTBOILED, ROCK_SMASH, MILK_DRINK) lands on FieldMoveFailed's line, which
--- is what the cart's own unimplemented-here branches print.
+-- ../pokecrystal/engine/events/overworld.asm:1330 TryRockSmashFromMenu .no_rock
 function FieldMoves.fromMenu(moveId, ctx)
   local fn = FieldMoves.FROM_MENU[moveId]
   if not fn then

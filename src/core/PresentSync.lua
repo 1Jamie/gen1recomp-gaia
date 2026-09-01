@@ -49,14 +49,13 @@ function PresentSync.displaySyncConfirmed()
   return status.gated == true
 end
 
--- True when vsync + a confirmed (or in-progress trusted) swapchain already
--- gates at or above the numeric cap, so the 1 ms FrameCap poll adds nothing.
+-- True when confirmed display sync already gates at or above the numeric
+-- cap, so FrameCap sleep adds nothing.  Requires a finished gated probe —
+-- never skip the limiter during warmup or on a guessed refresh rate.
 function PresentSync.hardwarePacesCap(cap)
   cap = tonumber(cap)
   if not cap or cap <= 0 then return false end
-  if PresentSync.needsSoftwareCap() then return false end
-  local VSync = require("src.core.VSync")
-  if not VSync.isOn() then return false end
+  if not PresentSync.displaySyncConfirmed() then return false end
   local hz = require("src.core.RefreshRate").hz()
   if not hz or hz <= 0 then return false end
   return cap >= hz

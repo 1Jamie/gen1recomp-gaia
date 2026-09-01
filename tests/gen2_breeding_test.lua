@@ -831,8 +831,17 @@ end
 
 -- Press A until the screen stops asking, so a page count never has to be
 -- hard-coded here (the strings' own shapes are asserted by reading TEXT).
+-- ../pokecrystal/home/print_text.asm:1
+local function settle(screen)
+  for _ = 1, 600 do
+    if not (screen.typer and not screen.typer:done()) then break end
+    screen:update(0)
+  end
+end
+
 local function pressA(screen, input, times)
   for _ = 1, times or 1 do
+    settle(screen)
     input:press("a")
     screen:update(0)
   end

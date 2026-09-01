@@ -21,7 +21,9 @@ local ChipSynth = require("src.core.ChipSynth")
 
 local ChipAudio = {}
 
-local SAMPLE_RATE = ChipSynth.SAMPLE_RATE
+local function sampleRate()
+  return ChipSynth.SAMPLE_RATE
+end
 local MUSIC_BUFFER_SAMPLES = ChipSynth.MUSIC_BUFFER_SAMPLES
 local MUSIC_BUFFER_COUNT = ChipSynth.MUSIC_BUFFER_COUNT
 
@@ -70,6 +72,10 @@ local suspended = false
 
 local STATS = os.getenv("POKEPORT_AUDIO_STATS") == "1"
 local statFrames, statUnderruns, statRestarts = 0, 0, 0
+local statDepthMin, statDepthSum, statDepthFrames = nil, 0, 0
+local statWorkerJit, statWorkerXrt = nil, nil
+local statXrtSum, statXrtCount, statXrtMax = 0, 0, nil
+local lastCosted
 
 -- ---------------------------------------------------------------------------
 -- worker management
@@ -176,7 +182,7 @@ local function playMusicSync(data, header, allowLoops)
                            { allowLoops = allowLoops })
   if not ok then return nil, engine end
   local ok2, source = pcall(
-    love.audio.newQueueableSource, SAMPLE_RATE, 16, 2, MUSIC_BUFFER_COUNT)
+    love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
   if not ok2 then return nil, source end
   ChipAudio.stopMusic()
   currentMusic = { source = source, engine = engine, threaded = false,
@@ -221,7 +227,7 @@ function ChipAudio.playMusic(data, header, allowLoops)
   if not ok then return nil, engine end
   -- build the new source before tearing the old song down
   local ok2, source = pcall(
-    love.audio.newQueueableSource, SAMPLE_RATE, 16, 2, MUSIC_BUFFER_COUNT)
+    love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
   if not ok2 then return nil, source end
   ChipAudio.stopMusic()
   musicGen = musicGen + 1
@@ -231,6 +237,7 @@ function ChipAudio.playMusic(data, header, allowLoops)
                channelVolumes = ChipSynth.getChannelVolumes(),
                channelPitches = ChipSynth.getChannelPitches(),
                stereo = ChipSynth.getStereo(),
+               sampleRate = sampleRate(),
                stereoEpoch = stereoEpoch })
   currentMusic = { source = source, gen = gen, threaded = true,
                    started = false, finished = false,
@@ -274,6 +281,16 @@ local function updateThreaded()
       require("src.core.Logger").warn("chip audio: %s", tostring(buf.error))
       m.finished = true
     elseif buf.sd then
+      if buf.jit ~= nil then statWorkerJit = buf.jit end
+      if type(buf.xrt) == "number" and buf ~= lastCosted then
+        lastCosted = buf
+        statWorkerXrt = buf.xrt
+        statXrtSum = statXrtSum + buf.xrt
+        statXrtCount = statXrtCount + 1
+        if statXrtMax == nil or buf.xrt > statXrtMax then
+          statXrtMax = buf.xrt
+        end
+      end
       if free > 0 then
         if not pcall(m.source.queue, m.source, buf.sd) then return end
       else
@@ -289,16 +306,63 @@ local function updateThreaded()
 end
 
 local function noteStats(m)
+  if not m.started or m.finished then return end
   statFrames = statFrames + 1
   local depth = m.source and queuedBuffers(m.source) or nil
+  if depth then
+    statDepthSum = statDepthSum + depth
+    statDepthFrames = statDepthFrames + 1
+    if statDepthMin == nil or depth < statDepthMin then statDepthMin = depth end
+  end
   if depth == 0 then statUnderruns = statUnderruns + 1 end
-  if statFrames % 60 == 0 then
+  if STATS and statFrames % 60 == 0 then
     require("src.core.Logger").info(
       "chipaudio: depth=%d/%d out=%d underruns=%d restarts=%d rate=%d",
       depth or -1, MUSIC_BUFFER_COUNT,
       (m.threaded and outCh) and outCh:getCount() or -1,
-      statUnderruns, statRestarts, SAMPLE_RATE)
+      statUnderruns, statRestarts, sampleRate())
   end
+end
+
+function ChipAudio.stats()
+  local m = currentMusic
+  local depth = (m and m.source) and queuedBuffers(m.source) or nil
+  local worker
+  if workerReady == nil then worker = "none"
+  elseif workerReady == false then worker = "sync"
+  elseif statWorkerJit == true then worker = "jit"
+  elseif statWorkerJit == false then worker = "interp"
+  else worker = "starting" end
+  local average = statDepthFrames > 0
+    and (statDepthSum / statDepthFrames) or nil
+  local stats = {
+    rate = sampleRate(),
+    worker = worker,
+    depth = depth,
+    depthMax = MUSIC_BUFFER_COUNT,
+    depthMin = statDepthMin,
+    depthAvg = average,
+    frames = statFrames,
+    underruns = statUnderruns,
+    restarts = statRestarts,
+    xrt = statWorkerXrt,
+    xrtAvg = statXrtCount > 0 and (statXrtSum / statXrtCount) or nil,
+    xrtMax = statXrtMax,
+    buffers = statXrtCount,
+  }
+  local function num(value, places)
+    if type(value) ~= "number" then return "-" end
+    return string.format("%." .. places .. "f", value)
+  end
+  stats.line = string.format(
+    "rate=%d worker=%s depth=%s/%d min=%s avg=%s underruns=%d restarts=%d "
+      .. "xrt=%s/%s/%s n=%d",
+    stats.rate, worker, depth and tostring(depth) or "-", MUSIC_BUFFER_COUNT,
+    statDepthMin and tostring(statDepthMin) or "-", num(average, 1),
+    statUnderruns, statRestarts,
+    num(statWorkerXrt, 3), num(stats.xrtAvg, 3), num(statXrtMax, 3),
+    statXrtCount)
+  return stats
 end
 
 function ChipAudio.update()
@@ -310,7 +374,7 @@ function ChipAudio.update()
   else
     fillSync()
   end
-  if STATS then noteStats(m) end
+  noteStats(m)
 end
 
 -- Recover from a queue underrun caused by a long render stall.  Called after
@@ -419,7 +483,7 @@ function ChipAudio.rebuildPlayback()
   if not m then return true end
   if not (love.audio and love.audio.newQueueableSource) then return false end
   local ok, source = pcall(
-    love.audio.newQueueableSource, SAMPLE_RATE, 16, 2, MUSIC_BUFFER_COUNT)
+    love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
   if not ok or not source then return false end
   pendingBuf = nil
   local old = m.source
@@ -458,7 +522,7 @@ function ChipAudio.setStereo(enabled)
   -- (mixed under the previous pan) do not have to play out first (#1471)
   if not love.audio then return end
   local ok, source = pcall(
-    love.audio.newQueueableSource, SAMPLE_RATE, 16, 2, MUSIC_BUFFER_COUNT)
+    love.audio.newQueueableSource, sampleRate(), 16, 2, MUSIC_BUFFER_COUNT)
   if not ok or not source then return end
   local old = m.source
   m.source = source
@@ -473,6 +537,37 @@ end
 
 function ChipAudio.getStereo()
   return ChipSynth.getStereo()
+end
+
+local envRate = os.getenv("POKEPORT_AUDIO_RATE")
+
+function ChipAudio._setEnvRateForTest(value)
+  envRate = value
+end
+
+function ChipAudio.selectSampleRate(options)
+  local forced = tonumber(envRate)
+  if forced and forced >= 8000 and forced <= 48000 then
+    return math.floor(forced)
+  end
+  local tier = require("src.core.Performance")
+    .resolve(options and options.performance)
+  if tier == "low" then return 22050 end
+  local osName = love and love.system and love.system.getOS
+    and love.system.getOS() or nil
+  if osName == "Android" and tier ~= "high" then return 22050 end
+  return 44100
+end
+
+function ChipAudio.setSampleRate(rate)
+  local before = sampleRate()
+  if ChipSynth.setSampleRate(rate) == before then return false end
+  ChipAudio.stopMusic()
+  return true
+end
+
+function ChipAudio.applyOptions(options)
+  return ChipAudio.setSampleRate(ChipAudio.selectSampleRate(options))
 end
 
 -- Runtime mix for one hardware channel (1..4).  Takes effect on the next
@@ -569,6 +664,7 @@ end
 -- frame 0 and DangerSoundLow on the `cp 16 / jr z, .halfway` frame 16, so the
 -- high tone owns 0..15 and the low tone 16..29.
 function ChipAudio.newLowHealthAlarm()
+  local SAMPLE_RATE = sampleRate()
   local samples = math.floor(SAMPLE_RATE * 60 / 60)
   local data = love.sound.newSoundData(samples, SAMPLE_RATE, 16, 2)
   local phase = 0
@@ -591,6 +687,9 @@ end
 function ChipAudio._setAudioStatsForTest(flag)
   STATS = not not flag
   statFrames, statUnderruns, statRestarts = 0, 0, 0
+  statDepthMin, statDepthSum, statDepthFrames = nil, 0, 0
+  statWorkerJit, statWorkerXrt = nil, nil
+  statXrtSum, statXrtCount, statXrtMax, lastCosted = 0, 0, nil, nil
 end
 
 function ChipAudio._audioStatsForTest()
@@ -614,10 +713,11 @@ end
 
 function ChipAudio._renderMusicForTest(data, header, seconds)
   local engine = ChipSynth.newEngine(data, header, { allowLoops = true })
-  return ChipSynth.soundData(engine, math.floor(seconds * SAMPLE_RATE), 2)
+  return ChipSynth.soundData(engine, math.floor(seconds * sampleRate()), 2)
 end
 
 function ChipAudio._renderMusicChannelForTest(data, header, seconds, number)
+  local SAMPLE_RATE = sampleRate()
   local engine = ChipSynth.newEngine(data, header, { allowLoops = true })
   local samples = math.floor(seconds * SAMPLE_RATE)
   local result = love.sound.newSoundData(samples, SAMPLE_RATE, 16, 1)
@@ -678,7 +778,7 @@ function ChipAudio._renderSfxForTest(data, header, seconds)
     sfx = true,
     allowLoops = false,
   })
-  return ChipSynth.soundData(engine, math.floor(seconds * SAMPLE_RATE), 1)
+  return ChipSynth.soundData(engine, math.floor(seconds * sampleRate()), 1)
 end
 
 return ChipAudio

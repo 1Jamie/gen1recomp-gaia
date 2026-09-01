@@ -383,6 +383,56 @@ eq(closed, false, "an empty roster does not call onDone during construction")
 empty:update(0)
 eq(closed, true, "it calls it on the first update instead")
 
+-- ../pokecrystal/engine/events/halloffame.asm:126-130, :392-395
+
+local CRYSTAL = {
+  TYPHLOSION = { name = "TYPHLOSION", index = 157, dex = 157,
+    spriteFront = "front/typhlosion.png", spriteBack = "back/typhlosion.png",
+    anim = { tiles = 7, sheet = "battle/anim/typhlosion.png", count = 1,
+      bitmasks = { { 0xff, 0, 0, 0, 0, 0, 0 } },
+      frames = { { bitmask = 1, tiles = { 0x31, 0x32, 0x33, 0x34,
+        0x35, 0x36, 0x37, 0x38 } } },
+      play = { { 1, 4 } }, idle = { { 1, 2 } } } },
+  LANTURN = POKEMON.LANTURN,
+  UMBREON = POKEMON.UMBREON,
+}
+
+closed = false
+local animView = HallOfFame.new(
+  { data = { pokemon = CRYSTAL }, input = input },
+  { mode = "view", save = save, onDone = function() closed = true end })
+check(animView.picAnim ~= nil, "a Crystal cache animates the HOF frontpic")
+input:press("a")
+animView:update(0)
+eq(animView.index, 1, "and the blocking predef holds the joypad loop off")
+input.pressed = {}
+local animTicks = 0
+while animView.picAnim and animTicks < 600 do
+  animView:update(0)
+  animTicks = animTicks + 1
+end
+eq(animView.picAnim, nil, "the scene does end")
+check(animTicks > 1, "after more than one frame of it")
+input:press("a")
+animView:update(0)
+eq(animView.index, 2, "and A walks the roster again once it has")
+
+local goldView = HallOfFame.new(
+  { data = { pokemon = POKEMON }, input = input },
+  { mode = "view", save = save, onDone = function() end })
+eq(goldView.picAnim, nil, "a Gold cache has no anim row and stays static")
+
+local animInduct = HallOfFame.new({ data = { pokemon = CRYSTAL } },
+  { save = save, entry = Core.team(save, 1), onDone = function() end })
+local inductTicks = 0
+while animInduct.phase ~= "display" and inductTicks < 300 do
+  animInduct:step()
+  inductTicks = inductTicks + 1
+end
+eq(animInduct.timer, HallOfFame.ANIM_FAMER_FRAMES,
+  "Crystal holds 60 frames after the animation where Gold holds 180")
+check(animInduct.picAnim ~= nil, "with the animation running first")
+
 -- ---- the credits: the script ----------------------------------------------
 
 eq(Credits.END, 0xff, "CREDITS_END")

@@ -1119,6 +1119,21 @@ do
   check(empty, "and none of them reaches the unknown-op path")
 end
 
+-- ../pokecrystal/engine/overworld/scripting.asm:2237, :30 WaitScript
+do
+  local vm = Vm.new({ generation = 2, ["s:t"] = {
+    { op = "deactivatefacing", args = { 3 } },
+    { op = "end" },
+  } }, {}, Events.new(), {})
+  vm:start("s:t")
+  local frames = 0
+  while vm:running() and frames < 60 do
+    vm:update()
+    frames = frames + 1
+  end
+  eq(frames, 6, "deactivatefacing 3 holds 3 HandleMap passes = 6 frames")
+end
+
 -- The unknown-op ledger itself.  A silent skip is what makes a missing opcode
 -- corrupt a branch instead of announcing itself, so this has to be observable.
 do

@@ -541,7 +541,7 @@ do
   end
   eq(world.fishing, nil, "PutTheRodAway clears the rod state before the battle")
   check(screen ~= nil, "the rod's encounter pushed a battle")
-  eq(screen.battle.battleType, "fish",
+  eq(screen.battle.battleType, Battle.BATTLETYPE_FISH,
     "carrying BATTLETYPE_FISH out of FishFunction's .goodtofish")
 
   -- LureBallMultiplier's x3, through the real throw.  A full-HP MAGIKARP at

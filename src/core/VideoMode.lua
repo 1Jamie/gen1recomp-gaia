@@ -1,8 +1,4 @@
 -- Windowed vs borderless (desktop) fullscreen.
---
--- Persisted as save.options.videoMode.  Applied from OptionsMenu and on
--- boot via Game:applyOptions.  No-ops on mobile and in headless stubs
--- that lack love.window.
 
 local VideoMode = {}
 
@@ -23,11 +19,13 @@ function VideoMode.modeLabel(mode)
   return LABELS[VideoMode.normalize(mode)] or LABELS[VideoMode.DEFAULT]
 end
 
-function VideoMode.isMobile()
+function VideoMode.fixedDisplay()
   if not love or not love.system or not love.system.getOS then return false end
   local osName = love.system.getOS()
-  return osName == "Android" or osName == "iOS"
+  return osName == "Android" or osName == "iOS" or osName == "NX"
 end
+
+VideoMode.isMobile = VideoMode.fixedDisplay
 
 -- Cycle windowed <-> borderless (dir ignored; two modes).
 function VideoMode.cycle(mode, _dir)
@@ -36,7 +34,7 @@ end
 
 -- Push the mode into the live window.  Safe when love.window is missing.
 function VideoMode.apply(mode)
-  if VideoMode.isMobile() then return end
+  if VideoMode.fixedDisplay() then return end
   if not love or not love.window or not love.window.setFullscreen then return end
   mode = VideoMode.normalize(mode)
   if mode == "borderless" then

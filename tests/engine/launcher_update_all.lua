@@ -355,16 +355,26 @@ do
   love.graphics.newShader = love.graphics.newShader or function() return {} end
   love.graphics.polygon = love.graphics.polygon or function() end
   local LauncherView = require("src.import.LauncherView")
+  local Kit = require("src.ui.kit.Kit")
 
   local realPrint = love.graphics.print
+  local realButton = Kit.button
+  local buttons, kinds = {}, {}
   local function draw(imp)
     local seen = {}
+    buttons, kinds = {}, {}
     love.graphics.print = function(str, ...)
       seen[#seen + 1] = tostring(str)
       return realPrint(str, ...)
     end
+    Kit.button = function(x, y, w, h, label, opts)
+      buttons[tostring(label)] = not (opts and opts.enabled == false)
+      kinds[tostring(label)] = opts and opts.kind or nil
+      return realButton(x, y, w, h, label, opts)
+    end
     local ok, err = pcall(LauncherView.draw, imp)
     love.graphics.print = realPrint
+    Kit.button = realButton
     check(ok, "the frame draws: " .. tostring(err))
     return table.concat(seen, "\n")
   end
@@ -417,6 +427,66 @@ do
   local cartsOnly = draw(imp)
   check(cartsOnly:find("Update all", 1, true) ~= nil,
     "a launcher with carts but no mods still reaches the sweep")
+
+  imp.mods = launcher("available").mods
+  imp.modUpdateInfo = { one = info("available", RELEASES[1]) }
+  imp._modUpdateCountCache = nil
+  imp.modScope = "red"
+  imp.activeCart = { red = "wild_green" }
+  imp.modCartPlan = function()
+    return "wild_green", { pins = {}, order = {}, seal = "sealed",
+                           title = "Wild Green" }, "red"
+  end
+  local underCart = draw(imp)
+  check(underCart:find("Update all", 1, true) ~= nil,
+    "a selected cart still shows the sweep in the header")
+  eq(buttons["Update all"], true,
+    "and it is live there: replacing a cart with a newer release is legal")
+  eq(buttons["Enable all"], false,
+    "while the bulk pair stays refused, since the cart owns its pins")
+  eq(buttons["Disable all"], false, "on both halves of that pair")
+  local underRows = imp:_updateAllRows()
+  eq(#underRows, 1, "the sweep queues the cart alone")
+  eq(underRows[1].kind, "cart", "and never a pinned mod")
+  eq(imp._modUpdateCountCache.count, 1,
+    "the header count is the sweep's own rows, not the pinned mods' badges")
+  eq(kinds["Update all"], "warn", "and the cart behind tints the button")
+
+  cartRows = installedCart("0.29.1", "ren/wild-green")
+  imp._modUpdateCountCache = nil
+  imp._cartUpdateCache = nil
+  imp._findCartMap = nil
+  draw(imp)
+  eq(buttons["Update all"], true,
+    "with nothing behind it the button stays live and says so when pressed")
+  eq(kinds["Update all"], "ghost",
+    "untinted: a pinned mod's own badge is not the sweep's business")
+  eq(#imp:_updateAllRows(), 0, "and the sweep has nothing to run")
+  cartRows = installedCart("0.2.0", "ren/wild-green")
+  imp._modUpdateCountCache = nil
+  imp._cartUpdateCache = nil
+  imp._findCartMap = nil
+
+  window(430, 860)
+  imp._modHeaderActionsPopup = true
+  local cartPopup = draw(imp)
+  imp._modHeaderActionsPopup = nil
+  eq(buttons["Update all"], true, "More... reaches the same live button")
+  eq(buttons["Enable all mods"], false, "with the bulk pair still refused")
+  eq(buttons["Disable all mods"], false, "on both rows")
+  check(cartPopup:find("decides which mods run", 1, true) ~= nil,
+    "and the modal says why those two are grey")
+
+  window(1400, 900)
+  imp._updateAll = { stage = "check" }
+  draw(imp)
+  eq(buttons["Update all"], false, "a sweep already in flight disables it")
+  imp._updateAll = nil
+  imp.safeMode = true
+  draw(imp)
+  eq(buttons["Update all"], false, "and safe mode disables it too")
+  imp.safeMode = false
+  imp.modCartPlan = nil
   cartRows = {}
 end
 

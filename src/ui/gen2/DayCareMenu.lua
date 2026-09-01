@@ -50,6 +50,7 @@ local Chrome = require("src.ui.gen2.Chrome")
 local CommonText = require("src.core.gen2.CommonText")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
+local Typer = require("src.ui.gen2.Typer")
 
 local DayCareMenu = {}
 DayCareMenu.__index = DayCareMenu
@@ -306,12 +307,14 @@ end
 -- (`prompt` and `done` both park until A or B here, because the script that
 -- calls the special does `waitbutton` straight after).
 function DayCareMenu:say(list, onDone)
-  self.message = { pages = list or {}, page = 1, onDone = onDone }
+  -- ../pokecrystal/engine/events/daycare.asm:262 PrintDayCareText
+  Typer.say(self, list, onDone)
 end
 
 function DayCareMenu:ask(list, onYes, onNo)
   self.confirm = { pages = list or {}, page = 1, choice = 1,
     onYes = onYes, onNo = onNo }
+  Typer.begin(self, self.confirm)
 end
 
 function DayCareMenu:close()
@@ -479,10 +482,12 @@ end
 -- ---------------------------------------------------------------- update
 
 function DayCareMenu:updateMessage(input)
+  Typer.step(self)
+  if Typer.typing(self) then return end
   if not (input:wasPressed("a") or input:wasPressed("b")) then return end
   local message = self.message
   if message.page < #message.pages then
-    message.page = message.page + 1
+    Typer.turn(self, message)
     return
   end
   self.message = nil
@@ -491,10 +496,12 @@ end
 
 function DayCareMenu:updateConfirm(input)
   local confirm = self.confirm
+  Typer.step(self)
+  if Typer.typing(self) then return end
   -- The yes/no box only comes up on the string's LAST page.
   if confirm.page < #confirm.pages then
     if input:wasPressed("a") or input:wasPressed("b") then
-      confirm.page = confirm.page + 1
+      Typer.turn(self, confirm)
     end
     return
   end
@@ -549,16 +556,17 @@ function DayCareMenu:drawYesNo(choice)
 end
 
 function DayCareMenu:drawPanel()
+  local typed = self.typer == nil or self.typer:done()
   if self.message then
-    self:drawTextBox(self.message.pages[self.message.page])
-    if self.message.page < #self.message.pages then
+    self:drawTextBox(Typer.text(self, self.message.pages[self.message.page]))
+    if typed and self.message.page < #self.message.pages then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
   elseif self.confirm then
-    self:drawTextBox(self.confirm.pages[self.confirm.page])
+    self:drawTextBox(Typer.text(self, self.confirm.pages[self.confirm.page]))
     if self.confirm.page >= #self.confirm.pages then
       self:drawYesNo(self.confirm.choice)
-    else
+    elseif typed then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
   else

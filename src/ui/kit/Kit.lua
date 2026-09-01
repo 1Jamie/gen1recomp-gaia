@@ -1189,7 +1189,7 @@ function Kit.spinner(cx, cy, r, t)
   local head = math.floor((t * 10) % ticks)
   if has("setLineWidth") then G.setLineWidth(math.max(2, 2 * Kit.scale)) end
   for i = 0, ticks - 1 do
-    local a = ((ticks - ((i - head) % ticks)) / ticks)
+    local a = ((ticks - ((head - i) % ticks)) / ticks)
     local ang = i * step - math.pi / 2
     local c, s = math.cos(ang), math.sin(ang)
     Theme.col(PAL.ink, a * a)

@@ -63,6 +63,8 @@ check(evolving.oldSpriteTrueColor == true,
       "evolution keeps the current Pokemon sprite's trueColor flag")
 check(evolving.newSpriteTrueColor == true,
       "evolution keeps the evolved Pokemon sprite's trueColor flag")
+-- engine/movie/evolution.asm:40
+evolving.loading = nil
 local evoRects = uiRects(function() evolving:draw() end)
 local ex = math.floor((160 - evolving.oldSprite:getWidth()) / 2)
 local ey = math.max(8, 64 - evolving.oldSprite:getHeight())

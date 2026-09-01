@@ -25,12 +25,24 @@ return function(game)
     return cond
   end
 
+  -- ../pokecrystal/home/print_text.asm:59
+  local function settle()
+    for _ = 1, 600 do
+      local top = game.stack:top()
+      local typer = top and top.typer
+      if not typer or typer:done() then break end
+      U.wait(1)
+    end
+  end
+
   local function tap(button, frames)
+    settle()
     game.input.pressQueue[#game.input.pressQueue + 1] = button
     game.input.state[button] = true
     U.wait(2)
     game.input.state[button] = false
     U.wait(frames or 4)
+    settle()
   end
 
   U.wait(45)

@@ -49,6 +49,12 @@ function ChipSynth.getStereo()
   return stereoEnabled
 end
 
+local monoFastPath = true
+
+function ChipSynth._setMonoFastPathForTest(enabled)
+  monoFastPath = not not enabled
+end
+
 -- Runtime mix per hardware channel (1 pulse, 2 pulse, 3 wave, 4 noise).
 -- Volume: 1 = authentic GB, 0 = mute.  Pitch: 1 = authentic, 2 = +1 octave,
 -- 0.5 = -1 octave.  Applied at sample time so a live change reaches the next
@@ -151,6 +157,20 @@ local function snapTicks(ticks)
   -- ((ticks*44100 + 7680)/15360 == (ticks*1470 + 256)/512) but follows
   -- POKEPORT_AUDIO_RATE when the handheld build lowers the synth rate.
   return math.floor((ticks * SAMPLE_RATE + TICKS_PER_SECOND / 2) / TICKS_PER_SECOND)
+end
+
+function ChipSynth.setSampleRate(rate)
+  rate = tonumber(rate)
+  if rate then
+    rate = math.floor(rate)
+    if rate < 8000 then rate = 8000 elseif rate > 48000 then rate = 48000 end
+    if rate ~= SAMPLE_RATE then
+      SAMPLE_RATE = rate
+      HPF_CHARGE = 0.999958 ^ (GB_CLOCK / SAMPLE_RATE)
+      ChipSynth.SAMPLE_RATE = SAMPLE_RATE
+    end
+  end
+  return SAMPLE_RATE
 end
 
 local cachedProgramFile
@@ -789,6 +809,7 @@ function Channel:nextEventGen2()
       local default = bit.bor(bit.lshift(mask, 4), mask)
       self.tracks = bit.band(packed, default)
       self.forcePanning = true
+      self.engine:refreshMonoMix()
     elseif command == 0xE5 then -- volume (global master; ignored for mix)
       self:byte()
     elseif command == 0xE6 then -- pitch_offset (big-endian)
@@ -1306,7 +1327,24 @@ function Engine.new(data, header, options)
       plainFrames = options.plainFrames,
     })
   end
+  engine:refreshMonoMix()
   return engine
+end
+
+function Engine:refreshMonoMix()
+  if self.generation ~= 2 or stereoEnabled then
+    self.monoMix = false
+    return
+  end
+  for _, channel in ipairs(self.channels) do
+    local mask = bit.lshift(1, channel.hardware - 1)
+    if channel.tracks ~= nil
+       and channel.tracks ~= bit.bor(bit.lshift(mask, 4), mask) then
+      self.monoMix = false
+      return
+    end
+  end
+  self.monoMix = true
 end
 
 function Engine:finished()
@@ -1333,6 +1371,14 @@ function Engine:sample()
 end
 
 function Engine:sampleStereo()
+  if monoFastPath and self.monoMix and not stereoEnabled then
+    local value = 0
+    local channels = self.channels
+    for index = 1, #channels do value = value + channels[index]:sample() end
+    local out = analogOut(self, value, "hpfCapLeft", "lpfLeft")
+    self.hpfCapRight, self.lpfRight = self.hpfCapLeft, self.lpfLeft
+    return out, out
+  end
   local left, right = 0, 0
   for _, channel in ipairs(self.channels) do
     local value = channel:sample()
@@ -1358,6 +1404,7 @@ function Engine:applyStereo()
   for _, channel in ipairs(self.channels) do
     channel:applyStereoMix()
   end
+  self:refreshMonoMix()
 end
 
 function Engine:sampleChannel(number)

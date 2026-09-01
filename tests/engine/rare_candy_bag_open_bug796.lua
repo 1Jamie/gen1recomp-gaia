@@ -182,7 +182,9 @@ do
     end,
   }
   package.loaded["src.battle.BattleState"] = {
-    StatBox = { new = function(_, _, cb) return { statBox = true, cb = cb } end },
+    StatBox = { new = function(_, _, cb, keepOpen)
+      return { statBox = true, cb = cb, keepOpen = keepOpen }
+    end },
   }
   local game = freshGame(3)
   local list = useFromBag(game, nil, "RARE_CANDY")
@@ -193,15 +195,22 @@ do
     box.done()
     local stat = game.stack:top()
     if check(stat and stat.statBox, "then the stat window") then
-      game.stack:pop() -- as does the stat window before its callback
+      -- ../pokered/engine/pokemon/evos_moves.asm:126-128
+      eq(stat.keepOpen, true,
+         "which stays up: nothing wipes rows 0-11 until ClearScreenArea, "
+         .. "inside TryEvolvingMon and 50 frames after 'is evolving!'")
       stat.cb()
       eq(#evolveCalls, 1, "the pending evolution starts")
+      check(inStack(game.stack, function(s) return s == stat end),
+            "with the stat window STILL up under the evolution movie")
       check(inStack(game.stack, isPicker),
             "with the party picker STILL up: the evolution prints over it, "
             .. "not over the bag list (#1594)")
       check(type(evolveCalls[1].onDone) == "function",
             "closePicker rides the evolution's completion callback")
       evolveCalls[1].onDone()
+      check(not inStack(game.stack, function(s) return s == stat end),
+            "and the stat window comes down with the picker")
       check(not inStack(game.stack, isPicker),
             "and the picker comes down once the evolution flow completes")
       check(inStack(game.stack, function(s) return s == list end),

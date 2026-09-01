@@ -97,4 +97,28 @@ screen = open()
 screen.onChoose(screen.items[3])
 eq(screen.items[3].right, "FAILED", "a real convert failure still reads FAILED")
 
+do
+  fake.can, fake.convertOk = true, true
+  local realActivate = fake.activate
+  fake.activate = function(_, entry)
+    activated[#activated + 1] = entry.name
+    return false, "pass0: variant 1 validate: ERROR: 0:9: 'uint' : syntax error"
+  end
+  local game = newGame()
+  local closed, writes = 0, 0
+  game.stack.pop = function() closed = closed + 1 end
+  game.writeOptions = function() writes = writes + 1 end
+  game.save.options.shaderfx = "bevel.slangp"
+  converts, activated = {}, {}
+  local s = ShaderFXScreen.new(game, "main")
+  s.close = function() closed = closed + 1 end
+  s.onChoose(s.items[2])
+  eq(activated[1], "bevel.slangp", "A on a converted row tries to activate it")
+  eq(s.items[2].right, "FAILED", "a preset the device's compiler rejects reads FAILED on its row")
+  eq(game.save.options.shaderfx, nil, "and the option is not persisted as on")
+  eq(writes, 1, "the cleared option is written back")
+  eq(closed, 0, "the picker stays open so the player sees the verdict")
+  fake.activate = realActivate
+end
+
 T.finish("shaderfx no-bridge picker")

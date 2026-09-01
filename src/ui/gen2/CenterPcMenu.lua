@@ -20,10 +20,12 @@ local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
 local Specials = require("src.script.gen2.Specials")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 local CenterPcMenu = {}
 CenterPcMenu.__index = CenterPcMenu
-CenterPcMenu.isOpaque = true
+-- ../pokecrystal/engine/events/pokecenter_pc.asm:15
+CenterPcMenu.isOpaque = false
 
 -- ENGINE_POKEDEX (constants/engine_flags.asm, index 11): the flag
 -- CheckReceivedDex reads and Mr.Pokemon's `setflag ENGINE_POKEDEX` writes.
@@ -32,7 +34,6 @@ CenterPcMenu.isOpaque = true
 local ENGINE_POKEDEX = 11
 
 function CenterPcMenu:wantsFillScale() return true end
-function CenterPcMenu:drawsWidescreen() return true end
 
 -- `\f` = para (home/text.asm:403 Paragraph), `\v` = cont (home/text.asm:442
 -- _ContTextNoPause); two rows to a page (constants/text_constants.asm:32).
@@ -81,6 +82,7 @@ function CenterPcMenu.new(game, opts)
   self.message = nil
   self.confirm = nil
   self.closed = false
+  self.booted = false
   self:buildEntries()
   local party = self.save and self.save.party
   if not (party and #party > 0) then
@@ -93,7 +95,9 @@ function CenterPcMenu.new(game, opts)
   else
     -- PC_PlayBootSound + _PokecenterPCTurnOnText.
     self:playSfx("Sfx_BootPc")
-    self:say({ { "{PLAYER} turned on", "the PC." } })
+    -- ../pokecrystal/engine/events/pokecenter_pc.asm:22
+    self:say({ { "{PLAYER} turned on", "the PC." } },
+      function() self.booted = true end)
   end
   return self
 end
@@ -136,7 +140,9 @@ end
 -- played the moment it comes up (FindOakRating hands PlaySFX its fanfare
 -- right before the rating text prints).
 function CenterPcMenu:say(pages, onDone)
-  self.message = { pages = pages, page = 1, onDone = onDone }
+  Typer.say(self, pages, onDone, { expand = function(line)
+    return (line:gsub("{PLAYER}", self:playerName()))
+  end })
   local first = pages[1]
   if first and first.sfx then self:playSfx(first.sfx) end
 end
@@ -236,10 +242,12 @@ function CenterPcMenu:update(_dt)
   if not input then return end
 
   if self.message then
+    Typer.step(self)
+    if Typer.typing(self) then return end
     if input:wasPressed("a") or input:wasPressed("b") then
       local m = self.message
       if m.page < #m.pages then
-        m.page = m.page + 1
+        Typer.turn(self, m)
         local page = m.pages[m.page]
         if page and page.sfx then self:playSfx(page.sfx) end
         return
@@ -294,32 +302,28 @@ function CenterPcMenu:drawBottomLines(lines)
 end
 
 function CenterPcMenu:drawPanel()
-  Chrome.clear()
+  if self.booted then
+    self:drawBottomLines({ "Access whose PC?" })
+    Chrome.box(0, 0, 16, math.max(12, #self.entries * 2 + 2))
+    for i, entry in ipairs(self.entries) do
+      local ty = i * 2
+      if i == self.index then Chrome.cursor(1, ty) end
+      Chrome.print(entry.label, 2, ty)
+    end
+  end
 
   if self.message then
-    self:drawBottomLines(self.message.pages[self.message.page])
-    love.graphics.setColor(1, 1, 1, 1)
-    return
-  end
-
-  -- _PokecenterPCWhoseText stays up under the menu
-  -- (PC_DisplayTextWaitMenu leaves it there); the menu window is drawn on
-  -- top of it, the way the cart's windows stack.
-  self:drawBottomLines({ "Access whose PC?" })
-  -- .TopMenu is menu_coords 0, 0, 15, 12.
-  Chrome.box(0, 0, 16, math.max(12, #self.entries * 2 + 2))
-  for i, entry in ipairs(self.entries) do
-    local ty = i * 2
-    if i == self.index then Chrome.cursor(1, ty) end
-    Chrome.print(entry.label, 2, ty)
-  end
-
-  if self.confirm then
+    -- ../pokecrystal/engine/events/pokecenter_pc.asm:652
+    self:drawBottomLines(
+      Typer.text(self, self.message.pages[self.message.page]))
+  elseif self.confirm then
     self:drawBottomLines(self.confirm.prompt)
     Chrome.box(14, 7, 6, 5)
     Chrome.print("YES", 16, 8)
     Chrome.print("NO", 16, 10)
     Chrome.cursor(15, self.confirm.choice == 1 and 8 or 10)
+  elseif not self.booted then
+    self:drawBottomLines(nil)
   end
 
   love.graphics.setColor(1, 1, 1, 1)
@@ -327,17 +331,6 @@ end
 
 function CenterPcMenu:draw()
   self:drawPanel()
-end
-
-function CenterPcMenu:drawWidescreen(winW, winH)
-  local G = love.graphics
-  Chrome.letterbox(winW, winH, 1, 1, 1)
-  local scale = Chrome.fitScale(winW, winH)
-  G.push()
-  G.translate(Chrome.fitOrigin(winW, winH, scale))
-  G.scale(scale, scale)
-  self:drawPanel()
-  G.pop()
 end
 
 CenterPcMenu.ENGINE_POKEDEX = ENGINE_POKEDEX

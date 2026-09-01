@@ -51,15 +51,20 @@ local function countOwned(save)
   return n
 end
 
-local function oaksAide(threshold, itemId, repeatText)
+local function oaksAide(threshold, itemId, repeatText, flagName)
   return function(game, ow, npc, done)
     local t = text(game)
     local flags = game.save.flags
     local itemName = game.data.items[itemId].name
-    local flag = "EVENT_GOT_" .. itemId
-    if flags[flag] then
+    local flag = flagName or ("EVENT_GOT_" .. itemId)
+    local portFlag = "EVENT_GOT_" .. itemId
+    -- ../pokered/scripts/Route2Gate.asm:28-30
+    local function explain()
       push(game, t[repeatText] or
         fill("I already gave\nyou the {RAM:}!", { ram = itemName }), done)
+    end
+    if flags[flag] or flags[portFlag] then
+      explain()
       return
     end
     ask(game, fill(t._OaksAideHiText or
@@ -73,18 +78,23 @@ local function oaksAide(threshold, itemId, repeatText)
         end
         local owned = countOwned(game.save)
         if owned >= threshold then
-          if not require("src.inventory.Bag").add(game.save, itemId, 1) then
-            push(game, fill(t._OaksAideNoRoomText or
-              "No room for the\n{RAM:}!", { ram = itemName }), done)
-            return
-          end
-          flags[flag] = true
+          -- ../pokered/engine/events/oaks_aide.asm:18-29
           push(game, fill(t._OaksAideHereYouGoText or "Here you go!",
               { num = owned, ram = itemName }),
             function()
+              if not require("src.inventory.Bag").add(
+                  game.save, itemId, 1, game.data) then
+                push(game, fill(t._OaksAideNoRoomText or
+                  "No room for the\n{RAM:}!", { ram = itemName }), done)
+                return
+              end
+              flags[flag] = true
+              -- ../pokered/engine/events/oaks_aide.asm:64-67
               push(game, fill(t._OaksAideGotItemText or
-                "{PLAYER} got the\n{RAM:}!",
-                { ram = itemName, player = game.save.player.name }), done)
+                  "{PLAYER} got the\n{RAM:}!",
+                  { ram = itemName, player = game.save.player.name }),
+                explain,
+                require("src.render.TextBox").soundOpts(game, "Get_Item1"))
             end)
         else
           -- .notEnoughOwnedMons prints owned then requirement, two counts
@@ -100,7 +110,7 @@ end
 
 M.ROUTE_2_GATE = {
   talk = { TEXT_ROUTE2GATE_OAKS_AIDE = oaksAide(10, "HM_FLASH",
-    "_Route2GateOaksAideFlashExplanationText") },
+    "_Route2GateOaksAideFlashExplanationText", "EVENT_GOT_HM05") },
 }
 M.ROUTE_11_GATE_2F = {
   talk = { TEXT_ROUTE11GATE2F_OAKS_AIDE = oaksAide(30, "ITEMFINDER",
@@ -185,14 +195,20 @@ local function dojoBall(species, ownBall, otherBall, askKey)
     game.stack:push(DexEntryMenu.new(game, species, function()
       ask(game, t[askKey] or ("You want\n" .. species .. "?"), function(yes)
         if not yes then done() return end
-        flags["EVENT_GOT_" .. species] = true
-        flags.EVENT_DEFEATED_FIGHTING_DOJO = true
-        Commands.give_pokemon(ctx, species, 30)
-        -- Hide ONLY the chosen ball; the other stays (FightingDojo.asm hides
-        -- just the picked object's index) and routes to the greedy line above
-        -- when talked to (#197).
-        Commands.hide_object(ctx, "FIGHTING_DOJO", ownBall)
-        push(game, ("%s got\n%s!"):format(game.save.player.name, species), done)
+        -- ../pokered/scripts/FightingDojo.asm:238-252
+        ow.runner:run({
+          { "give_pokemon", species, 30, false, true },
+          { "jump_if_false", "boxfull" },
+          -- ../pokered/scripts/FightingDojo.asm:248-251
+          { "hide_object", "FIGHTING_DOJO", ownBall },
+          { "set_flag", "EVENT_GOT_" .. species },
+          { "set_flag", "EVENT_DEFEATED_FIGHTING_DOJO" },
+          { "jump", "out" },
+          { "label", "boxfull" },
+          -- ../pokered/engine/events/give_pokemon.asm:40-42
+          { "show_text", "_BoxIsFullText" },
+          { "label", "out" },
+        }, { onDone = done })
       end)
     end))
   end
@@ -332,19 +348,26 @@ M.MR_PSYCHICS_HOUSE = {
   talk = {
     TEXT_MRPSYCHICSHOUSE_MR_PSYCHIC = function(game, ow, npc, done)
       local t = text(game)
+      local tmName = (game.data.items.TM_PSYCHIC_M or {}).name or "TM29"
       if game.save.flags.EVENT_GOT_TM29 then
-        push(game, t._MrPsychicsHouseMrPsychicNoMoreText
-          or "...Hmm...", done)
+        push(game, t._MrPsychicsHouseMrPsychicTM29ExplanationText
+          or "TM29 is PSYCHIC!", done)
         return
       end
-      push(game, t._MrPsychicsHouseMrPsychicText
-        or "...Wait!\nDon't say a word!\fYou came to get\nTM29!", function()
-        if not require("src.inventory.Bag").add(game.save, "TM_PSYCHIC_M", 1) then
-          push(game, "You don't have\nroom for TM29!", done)
+      push(game, t._MrPsychicsHouseMrPsychicYouWantedThisText
+        or "...Wait! Don't\nsay a word!\fYou wanted this!", function()
+        if not require("src.inventory.Bag").add(
+            game.save, "TM_PSYCHIC_M", 1, game.data) then
+          push(game, t._MrPsychicsHouseMrPsychicTM29NoRoomText
+            or "Where do you plan\nto put this?", done)
           return
         end
         game.save.flags.EVENT_GOT_TM29 = true
-        push(game, ("%s got\nTM29!"):format(game.save.player.name), done)
+        -- ../pokered/scripts/MrPsychicsHouse.asm:35-38
+        push(game, fill(t._MrPsychicsHouseMrPsychicReceivedTM29Text
+            or "{PLAYER} received\n{RAM:}!",
+            { player = game.save.player.name, ram = tmName }),
+          done, require("src.render.TextBox").soundOpts(game, "Get_Item1"))
       end)
     end,
   },
@@ -514,10 +537,12 @@ M.CELADON_MART_ROOF = {
         function(yes)
           if not yes then done() return end
           local Menu = require("src.ui.Menu")
+          local TextBox = require("src.render.TextBox")
+          local whichBox, menu
           -- scripts/CeladonMartRoof.asm:242
           local function closeAll()
-            game.stack:pop()
-            game.stack:pop()
+            local st = game.stack
+            while st:top() == menu or st:top() == whichBox do st:pop() end
             done()
           end
           local function give(g)
@@ -559,18 +584,21 @@ M.CELADON_MART_ROOF = {
             })
           end
           -- scripts/CeladonMartRoof.asm:45
-          push(game, t._CeladonMartRoofLittleGirlGiveHerWhichDrinkText
+          whichBox = TextBox.new(game,
+            t._CeladonMartRoofLittleGirlGiveHerWhichDrinkText
             or "Give her which\ndrink?", nil, {
             instant = true,
             stay = { onShown = function()
               -- scripts/CeladonMartRoof.asm:56
-              game.stack:push(Menu.new(game, items, {
+              menu = Menu.new(game, items, {
                 tx = 0, ty = 0, tw = 14, th = #have * 2 + 2, itemY = 2,
                 noWrap = true,
-                onCancel = function() game.stack:pop() done() end,
-              }))
+                onCancel = closeAll,
+              })
+              game.stack:push(menu)
             end },
           })
+          game.stack:push(whichBox)
         end)
     end,
   },

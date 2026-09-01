@@ -461,6 +461,7 @@ local function buildRows()
   local osName = love.system and love.system.getOS and love.system.getOS()
   local showTouch = env == "1"
     or (env ~= "0" and (osName == "Android" or osName == "iOS"))
+  local isNX = require("src.core.Platform").isNX()
   for i, row in ipairs(ROWS) do
     -- PRINT is wGBPrinterBrightness, how dark the Game Boy Printer prints
     -- (GBPRINTER_LIGHTEST..DARKEST, constants/ram_constants.asm:67-70).
@@ -470,6 +471,7 @@ local function buildRows()
     -- The descriptor and the save key stay, so a build that grows a printer
     -- only has to drop this test.
     local hidden = row.key == "print"
+      or (isNX and row.key == "videoMode")
       or (not showTouch and (row.id == "touchControls"
           or row.id == "touchLayout" or row.id == "haptics"
           or row.id == "hotbar"))

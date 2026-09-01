@@ -43,10 +43,8 @@ return function(game)
     .. " has no evolution to show -- pick another with POKEPORT_EVO_SPECIES")
   print(("[driver] %s -> %s"):format(species, entry.into))
 
-  -- One run of the screen, shooting every `interval` frames.  `cancelAt` is
-  -- the frame to tap B on, which .WaitFrames_CheckPressedB only honours during
   -- a hold; nil runs it through to the end.
-  local function run(prefix, cancelAt)
+  local function run(prefix, cancelPhase)
     game.save.party = { Mon.new(game.data, species, level) }
     local finished = nil
     local screen = EvolutionAnim.new(game, {
@@ -59,13 +57,14 @@ return function(game)
     })
     game.stack:push(screen)
 
-    local frame = 0
+    local frame, tapped = 0, false
     while not finished and frame < FRAME_LIMIT do
       if frame % interval == 0 then
         U.shot(game, ("%s/%s-%04d-%s.png"):format(out, prefix, frame,
           screen.phase or "?"))
       end
-      if cancelAt and frame == cancelAt then
+      if cancelPhase and not tapped and screen.phase == cancelPhase then
+        tapped = true
         U.tap(game, "b")
       else
         U.wait(1)
@@ -85,11 +84,8 @@ return function(game)
   assert(game.save.party[1].species == entry.into,
     "the party slot did not take the new species")
 
-  -- B during the very first hold, which is the 16 frames after the 50 + 80 of
-  -- text and music: .cancel_evo leaves the OLD pic on screen and prints
-  -- StoppedEvolvingText.
-  local canceled = run("cancel",
-    Evolution.EVOLVING_FRAMES + Evolution.MUSIC_FRAMES + 4)
+  -- ../pokecrystal/engine/movie/evolution_animation.asm:234-251
+  local canceled = run("cancel", "flash")
   assert(canceled.canceled, "the B press did not cancel the evolution")
   assert(game.save.party[1].species == species,
     "a cancelled evolution changed the species anyway")

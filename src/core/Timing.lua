@@ -101,6 +101,9 @@ Timing.MOVE_ANIM_OFF        = 30
 -- beat is paid on a large fraction of all turns.
 Timing.MOVE_STATUS_OR_MISS = 30
 
+-- ../pokered/engine/battle/move_effects/substitute.asm:2-3
+Timing.SUBSTITUTE_ENTRY = 50
+
 -- PlayApplyingAttackAnimation's six types (AnimationTypePointerTable,
 -- engine/battle/animations.asm:490-524).  The two shake families are
 -- `AnimationShakeScreenHorizontallySlow`, whose double push/pop makes each

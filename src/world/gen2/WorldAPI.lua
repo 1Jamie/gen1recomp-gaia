@@ -31,6 +31,7 @@ local Bike = require("src.world.gen2.Bike")
 local FieldMoves = require("src.world.gen2.FieldMoves")
 local Permissions = require("src.world.gen2.Permissions")
 local Mail = require("src.core.gen2.Mail")
+local Strings = require("src.core.Strings")
 
 local WorldAPI = {}
 WorldAPI.__index = WorldAPI
@@ -50,9 +51,53 @@ local FIELD_ACTIONS = {
   { id = "teleport", move = "TELEPORT" },
 }
 
+-- ../pokecrystal/engine/pokemon/mon_menu.asm:138 MonMenu_Softboiled_MilkDrink
+local HEAL_ACTIONS = {
+  { id = "softboiled", move = "SOFTBOILED" },
+  { id = "milk_drink", move = "MILK_DRINK" },
+}
+
 local function validPartySlot(party, slot)
   return type(slot) == "number" and slot == math.floor(slot)
     and party[slot] ~= nil
+end
+
+local function maxHpOf(mon)
+  return (mon and (mon.maxHp or (mon.stats and mon.stats.hp))) or 0
+end
+
+local function knows(mon, moveId)
+  for _, move in ipairs((mon and mon.moves) or {}) do
+    if (type(move) == "table" and move.id or move) == moveId then return true end
+  end
+  return false
+end
+
+local function monInfo(game, mon, slot)
+  local def = (game.data.pokemon or {})[mon.species] or {}
+  return { slot = slot, species = mon.species,
+    name = mon.nickname or def.name or mon.species, level = mon.level,
+    hp = mon.hp, maxHp = maxHpOf(mon) }
+end
+
+-- ../pokecrystal/engine/items/item_effects.asm:2016 .SelectMilkDrinkRecipient
+local function healSources(game, moveId)
+  local party, sources = (game.save and game.save.party) or {}, {}
+  for sourceSlot, source in ipairs(party) do
+    local cost = math.floor(maxHpOf(source) / 5)
+    if knows(source, moveId) and (source.hp or 0) > cost then
+      local info = monInfo(game, source, sourceSlot)
+      info.cost = cost
+      info.targets = {}
+      for targetSlot, target in ipairs(party) do
+        if FieldMoves.softboiledTargetOk(source, target) then
+          info.targets[#info.targets + 1] = monInfo(game, target, targetSlot)
+        end
+      end
+      if #info.targets > 0 then sources[#sources + 1] = info end
+    end
+  end
+  return sources
 end
 
 function WorldAPI.new(game, modId)
@@ -157,6 +202,14 @@ function WorldAPI:availableFieldActions()
     end
   end
 
+  for _, row in ipairs(HEAL_ACTIONS) do
+    local sources = healSources(game, row.move)
+    if #sources > 0 then
+      out[#out + 1] = { id = row.id, label = row.move:gsub("_", " "),
+        sources = sources }
+    end
+  end
+
   if (inventory.SQUIRTBOTTLE or 0) > 0
       and world:squirtbottleTreeScript() then
     out[#out + 1] = { id = "squirtbottle",
@@ -192,6 +245,26 @@ function WorldAPI:useFieldAction(id, opts)
   elseif id == "squirtbottle" then
     local outcome = world:useFieldItem("SQUIRTBOTTLE")
     if outcome and outcome ~= "nowhere" then return true end
+  elseif id == "softboiled" or id == "milk_drink" then
+    local party = (self.game.save and self.game.save.party) or {}
+    local sourceSlot = opts and tonumber(opts.sourceSlot)
+    local targetSlot = opts and tonumber(opts.targetSlot)
+    local cost
+    for _, source in ipairs(found.sources or {}) do
+      if source.slot == sourceSlot then
+        for _, target in ipairs(source.targets or {}) do
+          if target.slot == targetSlot then cost = source.cost break end
+        end
+      end
+    end
+    if not cost then return nil, "softboiled target unavailable" end
+    local user, target = party[sourceSlot], party[targetSlot]
+    local before, after = FieldMoves.softboiledTransfer(user, target, cost)
+    if not before then return nil, "softboiled target unavailable" end
+    -- data/text/common_1.asm:40 _RecoveredSomeHPText
+    world:showText(Strings("%s\nrecovered %dHP!",
+      target.nickname or target.species, after - before))
+    return true
   end
   for _, row in ipairs(FIELD_ACTIONS) do
     if row.id == id then
@@ -203,6 +276,96 @@ function WorldAPI:useFieldAction(id, opts)
     end
   end
   return nil, "field action unavailable"
+end
+
+local ENCOUNTER_TERRAIN = { grass = true, water = true }
+local DAYTIMES = { MORN = true, DAY = true, NITE = true, DARK = true }
+
+-- Same contract as the Gen 1 arm's effectiveEncounters: the effective wild
+-- encounter distribution for a map/terrain, composed with any
+-- encounter.table wrapper, with no RNG and no live World required.
+--
+-- Grass is genuinely three different distributions per map, one per time of
+-- day (Gold has no Gen 1 equivalent of this). opts.daytime previews a
+-- specific one ("MORN"/"DAY"/"NITE", or "DARK" which reads as NITE, the same
+-- fallback Encounter.grassSlot uses); omitted, this resolves the map's own
+-- actual current time the same way a real roll would, via Clock/Palettes
+-- rather than needing a live World instance.
+--
+-- The base table is run through Roamers.Swarm.tables first, the same
+-- substitution a real roll draws from, so an active swarm is reflected here
+-- too. An active ROAMING legendary is not: Roamers.checkEncounter overrides
+-- a single step at roll time, and this is a static-table query -- the same
+-- gap docs/mod-api-gen2-compat.md already documents for encounter.roll/
+-- encounter.species.
+function WorldAPI:effectiveEncounters(mapId, terrain, opts)
+  if not ENCOUNTER_TERRAIN[terrain] then
+    return nil, "invalid terrain: " .. tostring(terrain)
+  end
+  local game = self.game
+  local data = game and game.data
+  local encounters = data and data.encounters
+  local save = game and game.save
+  local tables = encounters
+  if encounters and save then
+    tables = require("src.core.gen2.Roamers").Swarm.tables(save, encounters, mapId)
+  end
+
+  local Encounter = require("src.battle.gen2.Encounter")
+  local dist = {}
+  local chance
+
+  if terrain == "water" then
+    local entry = tables and tables.water and tables.water[mapId]
+    chance = (entry and tonumber(entry.rate) or 0) / 256
+    if entry and chance > 0 and entry.slots then
+      local prev = 0
+      for i, cumulative in ipairs(Encounter.WATER_SLOT_CHANCES) do
+        local slot = entry.slots[i]
+        if slot and slot.species then
+          dist[slot.species] = (dist[slot.species] or 0) + (cumulative - prev)
+        end
+        prev = cumulative
+      end
+    end
+  else
+    local entry = tables and tables.grass and tables.grass[mapId]
+    local daytime = opts and opts.daytime
+    if daytime and not DAYTIMES[daytime] then
+      return nil, "invalid daytime: " .. tostring(daytime)
+    end
+    if not daytime then
+      local Clock = require("src.core.gen2.Clock")
+      local Palettes = require("src.world.gen2.Palettes")
+      daytime = save and Palettes.clockDaytime(Clock.hour(save)) or "DAY"
+    end
+    local key = (daytime == "DARK") and "NITE" or daytime
+    local rate = entry and entry.rates and (entry.rates[key] or entry.rates.DAY)
+    chance = (tonumber(rate) or 0) / 256
+    local slots = entry and entry.slots and entry.slots[key]
+    if slots and chance > 0 then
+      local prev = 0
+      for i, cumulative in ipairs(Encounter.GRASS_SLOT_CHANCES) do
+        local slot = slots[i]
+        if slot and slot.species then
+          dist[slot.species] = (dist[slot.species] or 0) + (cumulative - prev)
+        end
+        prev = cumulative
+      end
+    end
+  end
+
+  if Runtime.wantsHook("encounter.table") then
+    -- A wrapper that forgets to return anything makes Runtime.call itself
+    -- return nothing (Hooks:call unpacks an empty pcall result), which would
+    -- otherwise turn dist into nil here. Keep the pre-hook dist instead of
+    -- handing a caller a nil they will pairs() over and crash on.
+    local transformed = Runtime.call("encounter.table",
+      function(d) return d end, dist,
+      { mapId = mapId, terrain = terrain, preview = true })
+    if type(transformed) == "table" then dist = transformed end
+  end
+  return { chance = chance, dist = dist }
 end
 
 -- The same read-only minimap contract as Gen 1, with Gold's object/event
