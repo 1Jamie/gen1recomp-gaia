@@ -239,17 +239,18 @@ local st = LPS.status()
 T.eq(st.gated, false, "uncapped ~1ms cadence stays ungated")
 T.eq(LPS.needsSoftwareCap(), true, "so FrameCap becomes the thermal net")
 
-for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios", "kmsdrm" }) do
+for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios", "uwp", "kmsdrm" }) do
   LPS.reset()
   LPS._testSetState({
-    osLinux = (nest == "wayland"),
+    osLinux = (nest == "wayland" or nest == "kmsdrm"),
     ready = true,
     nest = nest,
     clearGated = true,
     needsSoftwareCap = false,
   })
   t = 0
-  for i = 1, 60 do
+  -- Composited GLES nests skip more warmup frames before sampling.
+  for i = 1, 80 do
     LPS.waitBeforePresent()
     LPS.notePresent()
     t = t + 1 / 60
@@ -259,6 +260,36 @@ for _, nest in ipairs({ "wayland", "windows", "macos", "android", "ios", "kmsdrm
     nest .. ": compositor-paced ~1/60 cadence counts as gated")
   T.eq(LPS.needsSoftwareCap(), false,
     nest .. ": does not force FrameCap when cadence is locked")
+  T.eq(st.silenceDriver, false,
+    nest .. ": does not silence driver vsync when gated")
+end
+
+-- Android/iOS/UWP composited-GLES fail-closed: soft-cap AND silence driver
+-- vsync so FrameCap can pace without fighting a half-locked swapinterval.
+for _, nest in ipairs({ "android", "uwp" }) do
+  local calls = {}
+  love.window = love.window or {}
+  love.window.setVSync = function(v) calls[#calls + 1] = v end
+  love.window.getVSync = function() return 1 end
+  local VSync = require("src.core.VSync")
+  VSync.reset()
+  VSync.apply("on")
+  calls = {}
+  LPS.reset()
+  LPS._testSetState({
+    osLinux = false, ready = true, nest = nest, gated = false,
+    needsSoftwareCap = false, silenceDriver = false, waitFn = false,
+  })
+  local strategy, soft = LPS._testPickStrategy()
+  T.eq(strategy, "none", "ungated " .. nest .. " drops to FrameCap")
+  T.eq(soft, true, "ungated " .. nest .. " needs the software cap")
+  T.eq(LPS.status().silenceDriver, true,
+    "ungated " .. nest .. " marks driver vsync for silence")
+  T.eq(calls[#calls], 0, nest .. " silenceDriver sets swap interval 0")
+  T.eq(VSync.isOn(), true, nest .. ": user wanted-ON is preserved")
+  T.eq(VSync.effective(), "off", nest .. ": live driver bit is off")
+  love.window.setVSync, love.window.getVSync = nil, nil
+  VSync.reset()
 end
 
 -- A bound wait that overruns abandons to FrameCap instead of wedging.

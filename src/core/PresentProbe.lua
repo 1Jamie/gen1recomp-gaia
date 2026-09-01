@@ -10,7 +10,15 @@
 --   windows   DWM / flip-model / VRR can return from Present early; the
 --             pacing shows up in the gap between presents (Ally X class).
 --   macos     Compositor / CVDisplayLink similarly; cadence is authoritative.
---   android/ios  Choreographer-style wait; same cadence probe, no GLX.
+--   android/ios  SurfaceFlinger BufferQueue back-pressure via eglSwapBuffers
+--             (LOVE/SDL does not use Choreographer).  Swap returns fast until
+--             the queue is full, then blocks on VSYNC.  Fail-closed must also
+--             silence driver vsync: sleeping under FrameCap while swapinterval
+--             stays 1 keeps the queue from staying full, so vsync never locks.
+--   uwp       Xbox (and other LOVE UWP) builds: ANGLE → D3D11 under the
+--             console compositor (Dev Mode sits in Hyper-V).  Not desktop
+--             DWM.  Same fail-closed rule as BufferQueue: soft-cap alone
+--             while swapinterval stays 1 prevents a clean lock.
 --   x11       GLX swapinterval often blocks in swap, but compositors
 --             (Picom, etc.) can defer — cadence still correct.  If ungated,
 --             try OML/SGI wait (native X11 only).
@@ -27,6 +35,9 @@ local PresentProbe = {}
 -- Cadence samples between presents while FrameCap is disabled.
 local PROBE_FRAMES = 45
 local PROBE_SKIP = 5          -- drop first samples (startup hitch)
+-- Android/iOS/UWP: early swaps return near-instant while the composed
+-- swapchain / BufferQueue fills before back-pressure engages.
+local PROBE_SKIP_COMPOSITED = 12
 local INSTANT_MS = 0.0005
 local BLOCK_MS = 0.002
 local WAIT_ABORT_S = 0.1
@@ -43,6 +54,9 @@ local state = {
   gated = nil,        -- nil while probing, then true/false
   strategy = "none",  -- "none" | "sdl" | "oml" | "sgi"
   needsSoftwareCap = false,
+  -- Composited GLES nests: drop swapinterval when soft-capping so FrameCap
+  -- is the sole pacer (android / ios / uwp).
+  silenceDriver = false,
   probeCount = 0,
   lastPresent = nil,  -- love.timer time of previous present end (cadence)
   intervals = nil,    -- inter-present cadence while probing
@@ -324,12 +338,23 @@ local function bindGlxWait(nest)
   return nil, nil
 end
 
+local function isCompositedGlesNest(nest)
+  return nest == "android" or nest == "ios" or nest == "uwp"
+end
+
+local function silenceDriverIfNeeded()
+  if not state.silenceDriver then return end
+  local okV, VSync = pcall(require, "src.core.VSync")
+  if okV and VSync.silenceDriver then pcall(VSync.silenceDriver) end
+end
+
 local function pickStrategy()
   -- Always drop any prior wait first.  While gated is nil we are probing
   -- unassisted present intervals — never re-bind mid-probe or the sample
   -- measures our own wait instead of the driver's raw behaviour.
   waitFn = nil
   state.needsSoftwareCap = false
+  state.silenceDriver = false
   state.strategy = "none"
 
   local vsyncOn = true
@@ -340,10 +365,29 @@ local function pickStrategy()
     return
   end
 
+  local nest = state.nest
+  if isCompositedGlesNest(nest) then
+    -- Android/iOS BufferQueue or Xbox UWP ANGLE→D3D11 composition.
+    -- Never bind GLX.  Fail-closed silences driver vsync so FrameCap alone
+    -- paces (soft-cap + swapinterval 1 prevents the composed swapchain
+    -- from locking cleanly).
+    if state.gated == true then
+      state.strategy = "sdl"
+    elseif state.gated == false then
+      state.needsSoftwareCap = true
+      state.silenceDriver = true
+      state.strategy = "none"
+      silenceDriverIfNeeded()
+    else
+      state.strategy = "sdl"
+    end
+    return
+  end
+
   if not state.osLinux then
-    -- windows / macos / android / ios: never bind GLX.  Cadence probe is the
-    -- authority (DWM, Cocoa compositor, Choreographer can all defer the wait
-    -- past present() return).  Ungated → FrameCap only.
+    -- windows / macos: never bind GLX.  Cadence probe is the authority
+    -- (DWM / Cocoa compositor can defer the wait past present() return).
+    -- Ungated → FrameCap only.  Desktop does not silence driver vsync.
     if state.gated == true then
       state.strategy = "sdl"
     elseif state.gated == false then
@@ -355,7 +399,6 @@ local function pickStrategy()
     return
   end
 
-  local nest = state.nest
   if nest == "wayland" then
     -- SDL owns wl_surface.frame.  Never duplicate it.
     state.strategy = "sdl"
@@ -420,6 +463,8 @@ local function platformNest()
   if osName == "OS X" or osName == "macOS" then return "macos" end
   if osName == "Android" then return "android" end
   if osName == "iOS" then return "ios" end
+  -- LOVE_WINDOWS_UWP (Xbox package): not desktop DWM.
+  if osName == "UWP" then return "uwp" end
   if osName == "Linux" then return detectNest(state.driver) end
   return osName:lower()
 end
@@ -455,6 +500,7 @@ function PresentProbe.reset()
   state.gated = nil
   state.strategy = "none"
   state.needsSoftwareCap = false
+  state.silenceDriver = false
   state.probeCount = 0
   state.lastPresent = nil
   state.intervals = nil
@@ -475,6 +521,7 @@ function PresentProbe.onDisplayChange()
   state.lastPresent = nil
   state.strategy = "none"
   state.needsSoftwareCap = false
+  state.silenceDriver = false
   glLib = nil
   -- Keep driver/nest; re-probe effectiveness and rebind on next presents.
   pickStrategy()
@@ -489,6 +536,7 @@ function PresentProbe.reprobe()
   waitFn = nil
   state.glxGen = state.glxGen + 1
   state.bindGen = -1
+  state.silenceDriver = false
   glLib = nil
   pickStrategy()
 end
@@ -499,6 +547,10 @@ local function abandonWait()
   state.needsSoftwareCap = true
   state.gated = false
   state.bindGen = state.glxGen
+  if isCompositedGlesNest(state.nest) then
+    state.silenceDriver = true
+    silenceDriverIfNeeded()
+  end
 end
 
 -- Hot path: must stay allocation-free and avoid ffi.C / require.
@@ -538,9 +590,11 @@ function PresentProbe.notePresent()
   local gap = now - last
   -- Discard hitches / timer glitches; keep sampling until we have clean ones.
   if gap <= 0 or gap > 0.25 then return end
-  -- Skip the first few presents so window/map boot cost does not widen IQR.
+  -- Skip early presents so window/map boot (and composed-swapchain /
+  -- BufferQueue fill on Android/iOS/UWP) does not widen IQR.
   state.probeCount = (state.probeCount or 0) + 1
-  if state.probeCount <= PROBE_SKIP then return end
+  local skip = isCompositedGlesNest(state.nest) and PROBE_SKIP_COMPOSITED or PROBE_SKIP
+  if state.probeCount <= skip then return end
   local intervals = state.intervals
   if not intervals then
     intervals = {}
@@ -567,6 +621,7 @@ function PresentProbe.status()
     gated = state.gated,
     strategy = state.strategy,
     needsSoftwareCap = state.needsSoftwareCap,
+    silenceDriver = state.silenceDriver,
     probeCount = state.probeCount,
   }
 end

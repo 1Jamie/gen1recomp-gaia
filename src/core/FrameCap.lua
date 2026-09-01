@@ -19,6 +19,21 @@ local function isHandheldEnv()
     or os.getenv("MUOS") == "1" or os.getenv("KNULLI") == "1"
 end
 
+-- Platforms where PresentSync should pace via the panel (DISPLAY), not a
+-- numeric FrameCap default.  Android/iOS/UWP need uncapped probe isolation
+-- so composed GLES swapchains can lock; PortMaster handhelds likewise
+-- follow KMSDRM through PresentSync.
+function FrameCap.prefersPanelSync()
+  if isHandheldEnv() then return true end
+  if love and love.system and love.system.getOS then
+    local osName = love.system.getOS()
+    if osName == "Android" or osName == "iOS" or osName == "UWP" then
+      return true
+    end
+  end
+  return false
+end
+
 -- Selectable steps: the normal framerate stops between the floor and the
 -- ceiling.  STEPS[1] == MIN and STEPS[#STEPS] == MAX, so the nearest-step
 FrameCap.STEPS = { 30, 40, 50, 60, 75, 90, 100, 120, 144, 160 }
@@ -81,21 +96,25 @@ end
 
 function FrameCap.applyOptions(opts)
   local cap = opts and opts.fpsCap
-  -- Handheld KMSDRM builds follow the panel through PresentSync; the stored
-  -- default 60 would bypass DISPLAY pacing and force the software limiter.
-  if (cap == nil or cap == FrameCap.DEFAULT) and isHandheldEnv() then
+  -- Handheld / Android / iOS / UWP follow the panel through PresentSync; the
+  -- stored default 60 would bypass DISPLAY pacing and force the software
+  -- limiter (and on composed GLES nests that also prevents vsync locking).
+  if (cap == nil or cap == FrameCap.DEFAULT) and FrameCap.prefersPanelSync() then
     cap = FrameCap.DISPLAY
   end
   return FrameCap.apply(cap)
 end
 
 -- Launcher / pre-save boot: same DISPLAY default before any save applies.
-function FrameCap.bootHandheld()
-  if isHandheldEnv() and FrameCap.current == FrameCap.DEFAULT then
+function FrameCap.bootPanelSync()
+  if FrameCap.prefersPanelSync() and FrameCap.current == FrameCap.DEFAULT then
     return FrameCap.apply(FrameCap.DISPLAY)
   end
   return FrameCap.current
 end
+
+-- Alias kept for existing call sites / docs.
+FrameCap.bootHandheld = FrameCap.bootPanelSync
 
 -- Performance LOW tier caps extras; do not rewrite DISPLAY to numeric 60 when
 -- the panel is already at or below the ceiling (that bypasses PresentSync).

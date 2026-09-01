@@ -61,6 +61,17 @@ FrameCap.apply(30)
 T.check(not PresentSync.hardwarePacesCap(30),
   "30 on 60Hz still needs software pacing")
 
+-- Warmup must not skip FrameCap on a guessed panel rate.
+PresentProbe._testSetState({ osLinux = false, ready = true, clearGated = true,
+  needsSoftwareCap = false, nest = "android" })
+FrameCap.apply(60)
+T.check(not PresentSync.hardwarePacesCap(60),
+  "Android still probing does not skip FrameCap via hardwarePacesCap")
+PresentProbe._testSetState({ nest = "uwp", clearGated = true,
+  needsSoftwareCap = false })
+T.check(not PresentSync.hardwarePacesCap(60),
+  "UWP still probing does not skip FrameCap via hardwarePacesCap")
+
 measure(144)
 PresentProbe._testSetState({ osLinux = false, ready = true, gated = true,
   needsSoftwareCap = false, nest = "windows" })
