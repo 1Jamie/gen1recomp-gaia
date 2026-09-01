@@ -5,27 +5,26 @@ local VSync = require("src.core.VSync")
 
 VSync.reset()
 
-T.same(VSync.MODES, { "on", "off", "adaptive" }, "three modes, in row order")
+T.same(VSync.MODES, { "on", "off" }, "two modes, in row order")
 
 T.eq(VSync.default(), "on", "with nothing to ask, vsync reads ON")
 T.eq(VSync.normalize(nil), "on", "so a save with no key is ON")
 T.eq(VSync.normalize("junk"), "on", "and so is garbage")
-T.eq(VSync.normalize("adaptive"), "adaptive", "a real mode is kept")
+T.eq(VSync.normalize("adaptive"), "on", "a parked adaptive key folds to ON")
 
 T.eq(VSync.label("on"), "ON", "ON prints as ON")
 T.eq(VSync.label("off"), "OFF", "OFF as OFF")
-T.eq(VSync.label("adaptive"), "ADAPTIVE", "and ADAPTIVE spells itself out")
+T.eq(VSync.label("adaptive"), "ON", "and a parked adaptive key prints as ON")
 
 T.eq(VSync.cycle("on", 1), "off", "ON cycles to OFF")
-T.eq(VSync.cycle("off", 1), "adaptive", "OFF to ADAPTIVE")
-T.eq(VSync.cycle("adaptive", 1), "on", "and ADAPTIVE wraps to ON")
-T.eq(VSync.cycle("on", -1), "adaptive", "stepping back wraps the other way")
+T.eq(VSync.cycle("off", 1), "on", "OFF wraps to ON")
+T.eq(VSync.cycle("on", -1), "off", "stepping back is also OFF")
 T.eq(VSync.cycle(nil, 1), "off", "a missing key normalizes before it steps")
 
 T.eq(VSync.apply("off"), "off", "apply answers with what it stored")
 T.eq(VSync.isOn(), false, "and OFF is not on")
-T.eq(VSync.apply("adaptive"), "adaptive", "adaptive applies")
-T.eq(VSync.isOn(), true, "and counts as on: it still syncs a frame in time")
+T.eq(VSync.apply("adaptive"), "on", "apply(adaptive) becomes ON")
+T.eq(VSync.isOn(), true, "and counts as on")
 VSync.applyOptions({})
 T.eq(VSync.isOn(), true, "an options table with no key falls back to the boot mode")
 
@@ -43,11 +42,15 @@ T.eq(VSync.isOn(), false, "and the run loop sees vsync off")
 VSync.apply("on")
 T.eq(calls[#calls], 1, "ON sets the swap interval to 1")
 T.eq(VSync.isOn(), true, "and the loop sees vsync on")
-VSync.apply("adaptive")
-T.eq(calls[#calls], -1, "ADAPTIVE asks for the late-swap interval")
+calls = {}
+T.eq(VSync.apply("adaptive"), "on", "parked adaptive applies as ON")
+T.eq(calls[#calls], 1, "and asks for interval 1, never -1")
 VSync.applyOptions({ vsync = "off" })
 T.eq(calls[#calls], 0, "and OFF turns it off")
-T.eq(#calls, 3, "one driver call per apply, no repeats")
+
+local opts = { vsync = "adaptive" }
+T.eq(VSync.applyOptions(opts), "on", "applyOptions folds a saved adaptive key")
+T.eq(opts.vsync, "on", "and rewrites it so later writes stay on the on/off ring")
 
 -- Driver reports 0 after we asked for ON (vblank_mode=0 / Gamescope quirk):
 -- isOn stays true so PresentProbe still tries a real wait on native X11.

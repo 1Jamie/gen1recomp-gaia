@@ -421,9 +421,7 @@ orow(om, "vsync").step(om.game, 1)
 check(om.game.save.options.vsync == "off", "VSYNC steps ON to OFF")
 check(orow(om, "vsync").value(om.game) == "OFF", "and renders it")
 orow(om, "vsync").step(om.game, 1)
-check(om.game.save.options.vsync == "adaptive", "then OFF to ADAPTIVE")
-orow(om, "vsync").step(om.game, 1)
-check(om.game.save.options.vsync == "on", "and ADAPTIVE wraps to ON")
+check(om.game.save.options.vsync == "on", "then OFF wraps to ON")
 
 do
   local PS = require("src.core.PresentSync")
