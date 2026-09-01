@@ -2974,9 +2974,53 @@ end
 
 -- vanilla registrations, engine-owned (Schemas.ENGINE), so a mod's register of
 -- one of these ids collides the way it does on Red and has to say override
-function Battle.registerMoveEffectsInto(registry, _, owner)
+--
+-- MOVE_EFFECT_RECORDS only carries the effects that have a standalone
+-- handler above -- by design, the "full" effects (a move's own damage-only
+-- EFFECT_NORMAL_HIT, the multi-hit/recoil/drain families...) have none and
+-- fall through to the generic damage path. But src/mods/Schemas.lua's
+-- `moves.effect = f.id("move_effects")` cross-check treats move_effects as
+-- the complete id space regardless, so every "full" effect the real movedex
+-- uses reads as a dangling reference the moment a mod touches `moves`.
+-- Registering a bare kind="full" marker for every effect id `data.moves`
+-- actually uses gives the validator that complete id space while staying a
+-- no-op at both of moveEffectRecordFor's call sites, which already treat a
+-- record with no run/status as a miss. kind="full", not "primary", to match
+-- both Schemas.lua's own R.move_effects enum and Gen 1's parallel
+-- src/battle/MoveEffects.lua, which label this same category the same way.
+--
+-- Two invariants keep this correct and safe to call from a DatasetViews lazy
+-- view: it must run synchronously, here, before Loader.lua's merge loop
+-- writes mod-patched values into `data.moves` in place (else a mod's own
+-- typo gets absorbed as if it were ROM data) and before that loop's
+-- `pairs(registry.ops)` traversal (inserting into move_effects any later
+-- than this is a Lua pairs()-mutation hazard); and it must read `data.moves`
+-- with `rawget`, not a plain index, so an unread DatasetViews root stays
+-- unread (tests/engine/dataset_views_lazy_validation.lua's "pokemon access
+-- leaves moves unused").
+function Battle.registerMoveEffectsInto(registry, data, owner)
   for id, record in pairs(Battle.MOVE_EFFECT_RECORDS) do
     registry:register(id, record, owner)
+  end
+  local moves = data and rawget(data, "moves")
+  if moves then
+    -- RomExtractorGen2:extractMoves seeds `out` with `generation`/`source`
+    -- alongside the move records themselves (src/import/RomExtractorGen2.lua),
+    -- so a bare `pairs(moves)` walks those two non-record entries too --
+    -- confirmed live: `generation` is the number 2, and indexing it as a
+    -- move crashed the whole mod boot the first time this ran for real.
+    -- Same extractor, same line: `effect = effects[row[2] + 1] or row[2]`
+    -- falls back to the raw effect BYTE (a number) when the ROM's own value
+    -- has no name in the manifest's moveEffectOrder, so `effect` itself can
+    -- be a non-string even once `move` is confirmed a real record --
+    -- registry:register asserts its id is a string, and an assert here
+    -- would take the same whole-boot fall the earlier `move`-shaped bug did.
+    for _, move in pairs(moves) do
+      local effect = type(move) == "table" and move.effect
+      if type(effect) == "string" and effect ~= "" and registry:get(effect) == nil then
+        registry:register(effect, { kind = "full" }, owner)
+      end
+    end
   end
 end
 

@@ -1001,6 +1001,87 @@ do
   T.eq(table.concat(order, ","), "c,b,a", "clear unwinds top-first")
 end
 
+-- ------- 7. move_effects: a "full" effect (no standalone handler) is a
+-- valid id, not a dangling reference
+--
+-- src/battle/gen2/Battle.lua's MOVE_EFFECT_RECORDS only carries the effects
+-- that have a standalone handler, by design -- a move whose effect is just
+-- "deal damage" (EFFECT_NORMAL_HIT and friends) falls through to the generic
+-- damage path and has no entry there.  registerMoveEffectsInto has to widen
+-- the id space it registers to match, or every "full" effect the real
+-- movedex uses reads as unresolved the moment any mod's `moves` patch (even
+-- one that only touches `name`) triggers the cross-reference scan.
+do
+  local data = gen2Fixtures()
+  data.moves.FIX_TACKLE.effect = "EFFECT_NORMAL_HIT"
+  -- RomExtractorGen2:extractMoves seeds `data.moves` with `generation`/
+  -- `source` alongside the move records (src/import/RomExtractorGen2.lua),
+  -- so `generation` is the NUMBER 2, not a move -- a real fixture for this
+  -- scan, or it never catches a bare pairs(moves) indexing it as one.
+  data.moves.generation = 2
+  data.moves.source = "ROM:Moves + MoveNames"
+  local run = T.sdk.loadMods({ "mods/fix_refs" }, {
+    fs = T.sdk.memfs(refsFixture([[
+      local mod = ...
+      mod.content.moves:patch("FIX_TACKLE", { name = "SLAP" })
+    ]])),
+    data = data,
+    generation = 2,
+  })
+  local dangling = danglingRefs(run)
+  T.eq(#dangling, 0,
+    "Gen 2: a handler-less effect id (EFFECT_NORMAL_HIT) resolves ("
+      .. table.concat(dangling, "; ") .. ")")
+  T.eq(run.data.moves.FIX_TACKLE.name, "SLAP", "Gen 2: the patch still landed")
+  run.release()
+end
+
+do
+  -- the base ROM data is never wrong here, so the realistic typo is a MOD's
+  -- own patch introducing an effect id nothing seeded -- registerMoveEffectsInto
+  -- only widens the space from data.moves as it stood before the merge, so
+  -- this still has to miss.
+  local data = gen2Fixtures()
+  data.moves.FIX_TACKLE.effect = "EFFECT_NORMAL_HIT"
+  local run = T.sdk.loadMods({ "mods/fix_refs" }, {
+    fs = T.sdk.memfs(refsFixture([[
+      local mod = ...
+      mod.content.moves:patch("FIX_TACKLE", { effect = "EFFECT_NOT_A_REAL_ID" })
+    ]])),
+    data = data,
+    generation = 2,
+  })
+  local dangling = danglingRefs(run)
+  T.eq(#dangling, 1,
+    "Gen 2: widening the id space does not stop catching a mod's real typo")
+  T.check(dangling[1] and dangling[1]:match("move_effects"),
+    "Gen 2: and the report still names move_effects")
+  run.release()
+end
+
+do
+  -- RomExtractorGen2:extractMoves' `effect = effects[row[2] + 1] or row[2]`
+  -- falls back to the raw effect BYTE (a number) when the ROM's value has no
+  -- name in the manifest's moveEffectOrder -- so `move` being a real record
+  -- table does not guarantee `move.effect` is a string. registry:register
+  -- asserts its id is a non-empty string; passing it a number would take the
+  -- whole boot down the same way the `generation`/`source` case above did.
+  local data = gen2Fixtures()
+  data.moves.FIX_TACKLE.effect = 27
+  local ok = pcall(function()
+    local run = T.sdk.loadMods({ "mods/fix_refs" }, {
+      fs = T.sdk.memfs(refsFixture([[
+        local mod = ...
+        mod.content.moves:patch("FIX_TACKLE", { name = "SLAP" })
+      ]])),
+      data = data,
+      generation = 2,
+    })
+    run.release()
+  end)
+  T.check(ok, "Gen 2: a numeric effect byte with no manifest name does not crash the boot")
+end
+
 -- Without this the file printed its FAILs and exited 0, so the runner marked
 -- the gate "ok" while it was red -- a gate that cannot fail is not a gate.
 T.finish("gate_gen2_mod_api")
