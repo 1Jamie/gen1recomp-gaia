@@ -28,6 +28,12 @@ local function sfxWaitFrames(src)
   return Sound.waitFrames(src)
 end
 
+local function sfxWaitStep(game)
+  local speed = game and game.logicSpeed and game:logicSpeed() or 1
+  if type(speed) ~= "number" or speed ~= speed or speed < 1 then speed = 1 end
+  return 1 / speed
+end
+
 -- theme-free fallbacks; geometry resolves against Theme.textBox at
 -- construction time, so an unthemed boot stays byte-identical
 local BOX_TX, BOX_TY, BOX_TW, BOX_TH = 0, 12, 20, 6
@@ -396,7 +402,7 @@ function TextBox:update(dt)
       self.preSrc = self.preSound()
       self.preSrcLeft = sfxWaitFrames(self.preSrc)
     end
-    self.preSrcLeft = (self.preSrcLeft or 0) - 1
+    self.preSrcLeft = (self.preSrcLeft or 0) - sfxWaitStep(self.game)
     local playing = self.preSrc and self.preSrc.isPlaying and self.preSrc:isPlaying()
     if playing and self.preSrcLeft > 0 then return end
     if playing then pcall(self.preSrc.stop, self.preSrc) end
@@ -466,7 +472,7 @@ function TextBox:update(dt)
       if self.auto.tick then self.auto.tick() end
       -- home/delay.asm:14
       if self.autoSrc then
-        self.autoSrcLeft = (self.autoSrcLeft or 0) - 1
+        self.autoSrcLeft = (self.autoSrcLeft or 0) - sfxWaitStep(self.game)
         if self.autoSrc.isPlaying and self.autoSrc:isPlaying() then
           if self.autoSrcLeft > 0 then return end
           pcall(self.autoSrc.stop, self.autoSrc)

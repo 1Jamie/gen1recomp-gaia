@@ -1,5 +1,4 @@
--- WaitForSoundToFinish must not stall logic at high GAME SPEED (#1952),
--- but one-shot SFX stay at natural pitch (#1990/#1991/#1997).
+-- home/delay.asm:15
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
@@ -83,6 +82,51 @@ check(st2:updateQueue(), "the gate holds while the sfx sounds")
 short.playing = false
 check(st2:updateQueue() == false, "and releases the frame the sfx goes quiet")
 eq(st2.waitSoundLeft, nil, "the budget is cleared with the source")
+
+local function gate4(src)
+  local st4 = gate(src)
+  st4.game.logicSpeed = function() return 4 end
+  return st4
+end
+
+local natural = stub(1, 1)
+local stopped = false
+natural.stop = function(self) stopped = true; self.playing = false end
+local steps = 0
+natural.isPlaying = function(self)
+  return self.playing and steps < 240
+end
+local st3 = gate4(natural)
+local held3 = 0
+for _ = 1, 1000 do
+  if not st3:updateQueue() then break end
+  steps = steps + 1
+  held3 = held3 + 1
+end
+check(not stopped, "at 4X a source that plays its full length is never stopped early")
+eq(held3, 240, "the gate holds every logic step of the sound's real length")
+eq(st3.waitingSound, nil, "and releases when the sound goes quiet on its own")
+
+local stuck4 = stub(1, 1)
+local st4 = gate4(stuck4)
+local held4 = 0
+for _ = 1, budget * 4 + 200 do
+  if not st4:updateQueue() then break end
+  held4 = held4 + 1
+end
+check(stuck4.playing == false, "at 4X the safety stop still lands on a stuck source")
+eq(held4, budget * 4 - 1, "after the same wall time, four times the logic steps")
+
+local quiet4 = stub(1, 1)
+local st5 = gate4(quiet4)
+check(st5:updateQueue(), "at 4X the gate holds while the sfx sounds")
+quiet4.playing = false
+check(st5:updateQueue() == false, "and releases the step the sfx goes quiet")
+
+local nanSpeed = gate(stub(1, 1))
+nanSpeed.game.logicSpeed = function() return 0 / 0 end
+check(nanSpeed:updateQueue(), "a NaN speed counts as 1X")
+eq(nanSpeed.waitSoundLeft, budget - 1, "and decrements by a whole frame")
 
 
 local Game = require("src.core.Game")

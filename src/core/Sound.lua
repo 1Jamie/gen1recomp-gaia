@@ -184,10 +184,7 @@ local function applyRate(src, base)
   return src
 end
 
--- WaitForSoundToFinish budget in logic frames (home/delay.asm:14).
--- At N× GAME SPEED the same budget passes N× sooner in wall time, so a
--- gate releases early instead of stalling the battle/script on a full-length
--- jingle -- without pitching the SFX (#1952 vs #1990).
+-- WaitForSoundToFinish budget in 60 Hz frames (home/delay.asm:14).
 function Sound.waitFrames(src, fallback)
   if not src then return 0 end
   local okd, dur = pcall(src.getDuration, src)
