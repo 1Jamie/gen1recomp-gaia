@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.49",
+          "date": "2026-09-02",
+          "size": 21583467,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.49/gen1recomp++-0.2.49-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2092 Games freeze and do not progress past the initial splash screen when launching\n- #2098 bug: Gen2 no longer loading on Android\n\n## Contributors\n\n- @bryanthaboi\n- @thibautbus"
+        },
+        {
           "version": "0.2.48",
           "date": "2026-09-02",
           "size": 21568319,
