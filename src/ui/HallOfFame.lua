@@ -306,10 +306,10 @@ function HallOfFame:drawMonInfo(mon)
   Font.draw(tostring(mon.level), 8 * 8, 7 * 8)
   -- PrintMonType at (3,9) / +2 rows for type 2
   if t1 then
-    Font.draw(TypeChart.displayName(t1), 3 * 8, 9 * 8)
+    Font.draw(TypeChart.displayName(t1, self.game.data), 3 * 8, 9 * 8)
   end
   if dual then
-    Font.draw(TypeChart.displayName(t2), 3 * 8, 11 * 8)
+    Font.draw(TypeChart.displayName(t2, self.game.data), 3 * 8, 11 * 8)
   end
 end
 

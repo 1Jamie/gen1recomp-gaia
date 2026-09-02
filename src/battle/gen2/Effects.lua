@@ -12,6 +12,8 @@
 -- returns a value or a small table, which is what lets the tests drive them
 -- directly.
 
+local Strings = require("src.core.Strings")
+
 local Effects = {}
 
 -- --------------------------------------------------------------- stat stages
@@ -64,9 +66,11 @@ Effects.ALL_UP_STATS = {
 }
 
 Effects.STAT_NAMES = {
-  attack = "ATTACK", defense = "DEFENSE", speed = "SPEED",
-  specialAttack = "SPCL.ATK", specialDefense = "SPCL.DEF",
-  accuracy = "ACCURACY", evasion = "EVASION",
+  attack = Strings.source("ATTACK"), defense = Strings.source("DEFENSE"),
+  speed = Strings.source("SPEED"),
+  specialAttack = Strings.source("SPCL.ATK"),
+  specialDefense = Strings.source("SPCL.DEF"),
+  accuracy = Strings.source("ACCURACY"), evasion = Strings.source("EVASION"),
 }
 
 -- Stages clamp at ±6 (BattleCommand_StatUp's .CantRaise / .CantLower).
@@ -88,10 +92,17 @@ end
 -- BattleCommand_StatUpMessage / StatDownMessage: one stage is "rose"/"fell",
 -- two are "sharply rose" / "sharply fell".
 function Effects.stageMessage(name, stat, applied)
-  local label = Effects.STAT_NAMES[stat] or stat
-  local sharply = math.abs(applied) >= 2 and "sharply " or ""
-  local verb = applied > 0 and "rose" or "fell"
-  return ("%s's %s %s%s!"):format(name, label, sharply, verb)
+  local label = Strings(Effects.STAT_NAMES[stat] or stat)
+  if applied > 0 then
+    if math.abs(applied) >= 2 then
+      return Strings("%s's %s sharply rose!", name, label)
+    end
+    return Strings("%s's %s rose!", name, label)
+  end
+  if math.abs(applied) >= 2 then
+    return Strings("%s's %s sharply fell!", name, label)
+  end
+  return Strings("%s's %s fell!", name, label)
 end
 
 -- ------------------------------------------------------------------ hit count
@@ -156,11 +167,11 @@ Effects.DRAIN = {
 -- stores the move, turn two attacks.  Fly and Dig also make the user
 -- untargetable in between, which is the `semi-invulnerable` flag here.
 Effects.CHARGE = {
-  EFFECT_RAZOR_WIND = { text = "%s made a whirlwind!" },
-  EFFECT_SOLARBEAM = { text = "%s took in sunlight!" },
-  EFFECT_SKULL_BASH = { text = "%s lowered its head!" },
-  EFFECT_SKY_ATTACK = { text = "%s is glowing!" },
-  EFFECT_FLY = { text = "%s flew up high!", vanish = true },
+  EFFECT_RAZOR_WIND = { text = Strings.source("%s made a whirlwind!") },
+  EFFECT_SOLARBEAM = { text = Strings.source("%s took in sunlight!") },
+  EFFECT_SKULL_BASH = { text = Strings.source("%s lowered its head!") },
+  EFFECT_SKY_ATTACK = { text = Strings.source("%s is glowing!") },
+  EFFECT_FLY = { text = Strings.source("%s flew up high!"), vanish = true },
 }
 
 -- CheckHit's .FlyDigMoves (effect_commands.asm:1713-1746): a vanished target
@@ -308,21 +319,21 @@ Effects.WEATHER = {
 Effects.WEATHER_TURNS = 5
 
 Effects.WEATHER_START_TEXT = {
-  rain = "It started to rain!",
-  sun = "The sunlight got bright!",
-  sandstorm = "A sandstorm brewed!",
+  rain = Strings.source("It started to rain!"),
+  sun = Strings.source("The sunlight got bright!"),
+  sandstorm = Strings.source("A sandstorm brewed!"),
 }
 
 Effects.WEATHER_TURN_TEXT = {
-  rain = "Rain continues to fall.",
-  sun = "The sunlight is strong.",
-  sandstorm = "The sandstorm rages.",
+  rain = Strings.source("Rain continues to fall."),
+  sun = Strings.source("The sunlight is strong."),
+  sandstorm = Strings.source("The sandstorm rages."),
 }
 
 Effects.WEATHER_END_TEXT = {
-  rain = "The rain stopped.",
-  sun = "The sunlight faded.",
-  sandstorm = "The sandstorm subsided.",
+  rain = Strings.source("The rain stopped."),
+  sun = Strings.source("The sunlight faded."),
+  sandstorm = Strings.source("The sandstorm subsided."),
 }
 
 -- data/battle/weather_modifiers.asm pairs each weather with MORE_EFFECTIVE or

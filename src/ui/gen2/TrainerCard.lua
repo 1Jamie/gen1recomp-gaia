@@ -38,8 +38,10 @@
 -- leader's own palette.
 
 local Chrome = require("src.ui.gen2.Chrome")
+local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local Gen2Save = require("src.core.gen2.Save")
+local Strings = require("src.core.Strings")
 local TileSheet = require("src.ui.gen2.TileSheet")
 
 local TrainerCard = {}
@@ -62,12 +64,38 @@ local TILE_COLON = 0x2e
 
 -- Johto then Kanto, in badge order.
 local JOHTO_BADGES = {
-  "ZEPHYR", "HIVE", "PLAIN", "FOG", "STORM", "MINERAL", "GLACIER", "RISING",
+  Strings.source("ZEPHYR"), Strings.source("HIVE"), Strings.source("PLAIN"),
+  Strings.source("FOG"), Strings.source("STORM"), Strings.source("MINERAL"),
+  Strings.source("GLACIER"), Strings.source("RISING"),
 }
 local KANTO_BADGES = {
-  "BOULDER", "CASCADE", "THUNDER", "RAINBOW", "SOUL", "MARSH", "VOLCANO",
-  "EARTH",
+  Strings.source("BOULDER"), Strings.source("CASCADE"),
+  Strings.source("THUNDER"), Strings.source("RAINBOW"), Strings.source("SOUL"),
+  Strings.source("MARSH"), Strings.source("VOLCANO"), Strings.source("EARTH"),
 }
+local JOHTO_BADGES_LABEL = Strings.source("JOHTO BADGES")
+local KANTO_BADGES_LABEL = Strings.source("KANTO BADGES")
+
+-- Badge captions have room for four font glyphs, not four Lua bytes.  The
+-- distinction matters as soon as a translation starts with an accented
+-- character (or uses a multi-byte charmap sequence).
+local function badgeCaption(text)
+  text = text or ""
+  local spans = Font.split(text)
+  if #spans <= 4 then return text end
+  -- Same "#" -> POKé trap src/ui/gen2/PrizeMenu.lua's clampToTiles guards
+  -- against: the 4-glyph cut can land inside a macro's multi-glyph expansion
+  -- (four spans sharing one source byte's `to`), and text:sub there would
+  -- still copy the whole source byte, re-expanding past the budget on the
+  -- next Font.split. Back up to the last span whose source byte the next
+  -- span does NOT share.
+  local cut = 4
+  while cut > 0 and spans[cut].to == spans[cut + 1].to do
+    cut = cut - 1
+  end
+  if cut == 0 then return "" end
+  return text:sub(1, spans[cut].to)
+end
 
 -- The two slots _CGB_TrainerCard swaps by gender: CHRIS and FALKNER/KrisPalette.
 -- ../pokecrystal/engine/gfx/cgb_layouts.asm:619-624, data/trainers/palettes.asm:9-12
@@ -282,12 +310,12 @@ end
 function TrainerCard:drawTopHalf()
   local player = (self.save or {}).player or {}
   self:frame(0, 5)
-  self:print("NAME/", 2, 2)
+  self:print(Strings("NAME/"), 2, 2)
   self:print(player.name or "GOLD", 7, 2)
   self:tile(self.card, TILE_ID_NO[1], 2, 4)
   self:tile(self.card, TILE_ID_NO[2], 3, 4)
   self:print(Chrome.number(player.id or 0, 5, true), 5, 4)
-  self:print("MONEY", 2, 6)
+  self:print(Strings("MONEY"), 2, 6)
   self:print(moneyText(player.money), 7, 6)
   for x = 1, 12 do self:tile(self.card, TILE_DIVIDER, x, 3) end
   self:tile(self.card, TILE_DIVIDER_END, 13, 3)
@@ -306,8 +334,8 @@ function TrainerCard:drawCard()
 
   -- `#` is the compression byte for POKé, four tiles, so spelling it out is
   -- what the cart actually draws.
-  self:print("POKéDEX", 2, 10)
-  self:print("PLAY TIME", 2, 12)
+  self:print(Strings("POKéDEX"), 2, 10)
+  self:print(Strings("PLAY TIME"), 2, 12)
   self:print(Chrome.number(self:caughtCount(), 3), 15, 10)
 
   local time = save.playTime or {}
@@ -320,7 +348,7 @@ function TrainerCard:drawCard()
   end
   self:print(Chrome.number(time.minutes or 0, 2, true), 16, 12)
 
-  self:print("BADGES", 12, 15)
+  self:print(Strings("BADGES"), 12, 15)
   self:cursor(18, 15)
 end
 
@@ -405,21 +433,21 @@ function TrainerCard:drawPlain()
   Chrome.clear()
   if self.page == 1 then
     Chrome.box(0, 0, 20, 9)
-    Chrome.printThrough("NAME/", 2, 2, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("NAME/"), 2, 2, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(player.name or "GOLD", 7, 2, Chrome.DEFAULT_BOX_PALETTE)
-    Chrome.printThrough("ID No", 2, 4, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("ID No"), 2, 4, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(Chrome.number(player.id or 0, 5, true), 5, 4, Chrome.DEFAULT_BOX_PALETTE)
-    Chrome.printThrough("MONEY", 2, 6, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("MONEY"), 2, 6, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(moneyText(player.money), 7, 6, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.box(0, 8, 20, 10)
-    Chrome.printThrough("POKéDEX", 2, 10, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("POKéDEX"), 2, 10, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(Chrome.number(self:caughtCount(), 3), 15, 10, Chrome.DEFAULT_BOX_PALETTE)
-    Chrome.printThrough("PLAY TIME", 2, 12, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("PLAY TIME"), 2, 12, Chrome.DEFAULT_BOX_PALETTE)
     local time = save.playTime or {}
     Chrome.printThrough(Chrome.number(time.hours or 0, 4), 11, 12, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(":", 15, 12, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.printThrough(Chrome.number(time.minutes or 0, 2, true), 16, 12, Chrome.DEFAULT_BOX_PALETTE)
-    Chrome.printThrough("BADGES", 12, 15, Chrome.DEFAULT_BOX_PALETTE)
+    Chrome.printThrough(Strings("BADGES"), 12, 15, Chrome.DEFAULT_BOX_PALETTE)
     Chrome.cursorThrough(18, 15, Chrome.DEFAULT_BOX_PALETTE)
     return
   end
@@ -431,14 +459,14 @@ function TrainerCard:drawPlain()
   -- player.badges on both pages to match.
   local held = player.badges or {}
   Chrome.box(0, 0, 20, 9)
-  Chrome.printThrough(self.page == 2 and "JOHTO BADGES" or "KANTO BADGES", 2, 2,
-    Chrome.DEFAULT_BOX_PALETTE)
+  Chrome.printThrough(Strings(self.page == 2 and JOHTO_BADGES_LABEL or
+    KANTO_BADGES_LABEL), 2, 2, Chrome.DEFAULT_BOX_PALETTE)
   Chrome.box(0, 8, 20, 10)
   for i, name in ipairs(names) do
     local tx = 2 + ((i - 1) % 4) * 4
     local ty = 10 + math.floor((i - 1) / 4) * 3
-    Chrome.printThrough((held[i] or held[name]) and name:sub(1, 4) or "----", tx, ty,
-      Chrome.DEFAULT_BOX_PALETTE)
+    local label = (held[i] or held[name]) and badgeCaption(Strings(name)) or "----"
+    Chrome.printThrough(label, tx, ty, Chrome.DEFAULT_BOX_PALETTE)
   end
 end
 

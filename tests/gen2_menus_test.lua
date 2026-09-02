@@ -784,9 +784,51 @@ dexGame.data.gen2Pokedex = {
   newOrder = { "BULBASAUR", "IVYSAUR" },
   alphabeticalOrder = { "BULBASAUR", "IVYSAUR" },
 }
+dexGame.data.pokemon.BULBASAUR = { types = { "GRASS", "POISON" } }
+dexGame.data.pokemon.IVYSAUR = { types = { "GRASS", "POISON" } }
 local dex = PokedexMenu.new(dexGame, {})
 check("dex lists every entry", #dex.rows, 2)
 check("dex starts in NEW mode", dex:mode(), "NEW")
+
+-- The dex's ROM `db` labels are catalog strings, resolved at draw time.  Stub
+-- its tile primitives and inspect the exact text writes without a GPU.
+require("src.core.Strings").load({ strings = {
+  SEEN = "VUS", OWN = "PRIS", HT = "TAILLE", WT = "POIDS",
+  NEW = "JOHTO", ["NEW POKéDEX MODE"] = "MODE JOHTO",
+  ["<PK><MN> are listed by"] = "Les POKéMON suivent",
+  ["evolution type."] = "leur évolution.", TYPE1 = "TYPE A",
+  TYPE2 = "TYPE B", ["BEGIN SEARCH!!"] = "CHERCHER !!",
+  CANCEL = "ANNULER",
+} })
+drawn = {}
+dex.text = function(_, text, x, y) drawn[x .. ":" .. y] = text end
+dex.fill, dex.border, dex.tile = function() end, function() end, function() end
+dex.blank, dex.drawPic, dex.drawFootprint = function() end, function() end,
+  function() end
+dex:drawMainBackground()
+check("SEEN is localizable", drawn["1:11"], "VUS")
+check("OWN is localizable", drawn["1:14"], "PRIS")
+drawn = {}
+dex.optionIndex = 1
+dex:drawOption()
+check("a mode label is localizable", drawn["3:4"], "MODE JOHTO")
+check("a mode description is localizable",
+  drawn["1:14"], "Les POKéMON suivent")
+drawn = {}
+dex:drawSearch()
+check("TYPE1 is localizable", drawn["3:4"], "TYPE A")
+check("TYPE2 is localizable", drawn["3:6"], "TYPE B")
+check("BEGIN SEARCH is localizable", drawn["3:13"], "CHERCHER !!")
+check("the dex CANCEL row is localizable", drawn["3:15"], "ANNULER")
+drawn = {}
+dex.newEntry = true
+dex:drawEntryBody(dex.rows[1], dex.data.gen2Pokedex.entries.BULBASAUR)
+check("HT is localizable", drawn["9:7"], "TAILLE")
+check("WT is localizable", drawn["9:9"], "POIDS")
+dex.text, dex.fill, dex.border, dex.tile = nil, nil, nil, nil
+dex.blank, dex.drawPic, dex.drawFootprint = nil, nil, nil
+dex.newEntry = nil
+require("src.core.Strings").load(nil)
 -- Pokedex_UpdateMainScreen: SELECT opens the OPTION screen and START the
 -- SEARCH screen.  Neither cycles anything in place -- the mode changes when
 -- the OPTION screen's own cursor picks one and A confirms it.
@@ -812,6 +854,23 @@ end)(), "search")
 -- Pokedex_InitSearchScreen: TYPE1 starts on NORMAL and TYPE2 on "-----".
 check("TYPE1 starts on NORMAL", dex:searchTypeName(1), "NORMAL")
 check("TYPE2 starts blank", dex:searchTypeName(2), "-----")
+-- Display names come from the type registry, while matching stays on the
+-- stable type id.  Translating GRASS must still find a GRASS species.
+dex.data.type_chart = { types = { GRASS = { name = "HERBE" } } }
+dex.searchType[1] = 12 -- GRASS in SEARCH_TYPES
+check("the search wheel draws the translated type name",
+  dex:searchTypeName(1), "HERBE")
+dexSave.pokedex.seen.BULBASAUR = true
+dex:rebuild()
+dex:beginSearch()
+check("translated type display does not change search identity",
+  #dex.searchResults, 1)
+dex.data.type_chart = nil
+dexSave.pokedex.seen.BULBASAUR = nil
+dex.searchType[1] = 1
+dex.searchResults = nil
+dex.searchMessage = nil
+dex.view = "search"
 check("B leaves the SEARCH screen", (function()
   dexGame.input:press("b")
   dex:update(0)

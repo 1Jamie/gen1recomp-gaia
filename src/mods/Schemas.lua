@@ -521,6 +521,10 @@ Schemas.GEN2 = {
   -- its walkability as `collision` where Gen 1 says `walkable`.
   maps = "gen2Maps", tilesets = "gen2Tilesets", sprites = "gen2Sprites",
   text = "gen2Text",
+  -- Label-keyed engine prose is extracted separately from the VM's
+  -- bank:address script text.  Keep a distinct public registry name while
+  -- landing it on the shared RomText helper's data.text lookup table.
+  rom_text = "text",
   -- Namespaced AND differently shaped, and the shape is what these waited on.
   -- Each carries a Gen 2 record schema in its catalog entry now, so the id
   -- space is the one Gold actually keys by: the encounter KIND (.grass), the
@@ -636,6 +640,7 @@ Schemas.GEN2 = {
 Schemas.GEN1 = {
   held_items = false, phone_contacts = false, decorations = false,
   apricorns = false, landmarks = false, radio_channels = false,
+  rom_text = false,
 }
 
 -- The routing table for a generation: which one is consulted is the only
@@ -1264,6 +1269,16 @@ R.text = {
   semantics = "record", target = "text",
   value = f.str,
   example = 'mod.content.text:override("_PalletTownText1", "HELLO!")',
+}
+
+-- Gen 2's data/generated/text.lua is VM script text keyed by bank:address;
+-- data/generated/rom_text.lua is engine prose keyed by disassembly label.
+-- They deliberately do not share a registry: `text` keeps targeting
+-- data.gen2Text on Gold, while this Gen 2-only surface targets data.text.
+R.rom_text = {
+  semantics = "record",
+  value = f.str,
+  example = 'mod.content.rom_text:override("_WokeUpText", "%s se réveille !")',
 }
 
 -- The engine's own authored text, the half of the game `text` does not
@@ -2152,6 +2167,11 @@ R.phone_contacts = {
     -- name are looked up by
     number = f.opt(f.int(0, 255)),
     class = f.opt(f.str), member = f.opt(f.str),
+    -- Optional display override.  The four non-trainer rows seed this from
+    -- NonTrainerCallerNames; trainer rows normally resolve their name from
+    -- the trainer table, but a translation or content mod may override it
+    -- without replacing the trainer identity used by rematches.
+    name = f.opt(f.str),
     map = f.opt(f.id("maps")),
     -- the SCRIPT1 / SCRIPT2 time masks: MORN | DAY | NITE, 0 for "never"
     calleeTime = f.opt(f.int(0, 7)), callerTime = f.opt(f.int(0, 7)),
@@ -2234,9 +2254,12 @@ R.landmarks = {
 R.radio_channels = {
   semantics = "record",
   fields = {
-    channel = f.int(0, 255),
-    -- the name quoted in the text box; without one the Pokegear's own
-    -- STATION_NAMES row is used, which is where the vanilla eight get theirs
+    -- MAPRADIO_* position for a wall-radio station.  Pokegear-only signals
+    -- (POKE_FLUTE_RADIO / EVOLUTION_RADIO) have no such byte and carry just
+    -- their display name.
+    channel = f.opt(f.int(0, 255)),
+    -- the name quoted in the text box; every vanilla Pokegear signal seeds
+    -- one, including the two that have no wall-radio channel
     name = f.opt(f.str),
   },
   example = 'mod.content.radio_channels:register("PIRATE_RADIO", '

@@ -157,7 +157,7 @@ for name, path in pairs({ maps = "gen2Maps", tilesets = "gen2Tilesets",
     "and Gen 1 is untouched by the routing: " .. name)
 end
 
--- The mirror set: six registries that exist because GOLD does.  They carry no
+-- The mirror set: registries that exist because GOLD does.  They carry no
 -- Gen 1 target at all, so the routed path is the only path they ever have, and
 -- Schemas.GEN1 gates them on Red the way Schemas.GEN2 gates `map_scripts` on Gold.
 -- Each is held to a live consumer, which is the claim that matters: a routed
@@ -171,12 +171,14 @@ end
 --   apricorns       src/core/gen2/Apricorns.lua:useRegistry
 --   landmarks       src/core/gen2/Nests.lua:landmarkId / landmark
 --   radio_channels  src/ui/gen2/MapRadio.lua:channelRecord
+--   rom_text        src/core/RomText.lua's label-keyed data.text lookup
 for name, path in pairs({ held_items = "gen2HeldItems",
                           phone_contacts = "gen2PhoneContacts",
                           decorations = "gen2Decorations",
                           apricorns = "gen2Apricorns",
                           landmarks = "gen2Landmarks.landmarks",
-                          radio_channels = "gen2RadioChannels" }) do
+                          radio_channels = "gen2RadioChannels",
+                          rom_text = "text" }) do
   local spec = Schemas.REGISTRIES[name]
   T.check(spec ~= nil, "catalog still has registry: " .. name)
   T.eq(Schemas.targetFor(name, spec, 2), path,

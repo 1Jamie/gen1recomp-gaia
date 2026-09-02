@@ -20,12 +20,27 @@ local S = require("tests.harness").suite("gen2 evolution anim")
 local check, eq = S.check, S.eq
 
 local EvolutionAnim = require("src.ui.gen2.EvolutionAnim")
+local Strings = require("src.core.Strings")
 
 -- No screen may use the stack's hook name for its own purposes.
 check(rawget(EvolutionAnim, "enter") == nil,
       "EvolutionAnim does not define `enter` (the stack lifecycle hook)")
 check(type(rawget(EvolutionAnim, "setPhase")) == "function",
       "its phase transition has a name of its own")
+
+do
+  Strings.load({ strings = {
+    ["What? %s\nis evolving!"] = "Quoi ? %s\nevolue !",
+  } })
+  local mon = { species = "OLD", nickname = "SURNOM", moves = {} }
+  local anim = EvolutionAnim.new({ data = { audio = {} } }, {
+    mon = mon, entry = { into = "NEW" }, party = { mon },
+  })
+  eq(anim.lines[1], "Quoi ? SURNOM",
+    "evolution messages use a complete translated template")
+  eq(anim.lines[2], "evolue !", "the translated template is split afterwards")
+  Strings.load({})
+end
 
 local cache = os.getenv("GOLD_CACHE")
 if not cache then

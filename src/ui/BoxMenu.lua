@@ -84,9 +84,9 @@ local function withdraw(game)
       if item.cancel then list:close() return end
       local mon = box[item.value]
       if not mon then return end
-      monSubmenu(game, "WITHDRAW", mon, function()
+      monSubmenu(game, Strings("WITHDRAW"), mon, function()
         if #game.save.party >= Party.MAX then
-          list.footer = "The party is full!"
+          list.footer = Strings("The party is full!")
           return
         end
         -- add_mon.asm _MoveMon's tail ("returning mon to party, compute
@@ -141,7 +141,7 @@ local function deposit(game)
           or Strings("There isn't any\nresponse...")))
         return
       end
-      monSubmenu(game, "DEPOSIT", mon, function()
+      monSubmenu(game, Strings("DEPOSIT"), mon, function()
         if #game.save.party <= 1 then
           list.footer = Strings("You need at least\none POKéMON!")
           return

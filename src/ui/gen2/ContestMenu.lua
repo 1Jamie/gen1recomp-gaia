@@ -33,6 +33,7 @@
 
 local BugContest = require("src.core.gen2.BugContest")
 local Chrome = require("src.ui.gen2.Chrome")
+local Strings = require("src.core.Strings")
 
 local ContestMenu = {}
 ContestMenu.__index = ContestMenu
@@ -64,15 +65,20 @@ local TEXT_X, TEXT_Y = 1, 14
 -- and trailing spaces, and data/text/common_2.asm's _ContestAskSwitchText.
 -- <PK> and <MN> are one tile each, so "<PK><MN>" is two tiles and not seven.
 ContestMenu.TEXT = {
-  stock = " STOCK <PK><MN> ",
-  this = " THIS <PK><MN> ",
-  health = "HEALTH",
-  askSwitch = "Switch #MON?",
+  stock = Strings.source(" STOCK <PK><MN> "),
+  this = Strings.source(" THIS <PK><MN> "),
+  health = Strings.source("HEALTH"),
+  askSwitch = Strings.source("Switch #MON?"),
   -- _ContestCaughtMonText and _ContestAlreadyCaughtText, the two lines that
   -- bracket this screen in BugContest_SetCaughtContestMon.
-  caught = function(name) return { ("Caught %s!"):format(name) } end,
+  caught = function(name) return { Strings("Caught %s!", name) } end,
   alreadyCaught = function(name)
-    return { "You already caught", ("a %s."):format(name) }
+    local text = Strings("You already caught\na %s.", name)
+    local lines = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = line
+    end
+    return lines
   end,
 }
 
@@ -139,9 +145,10 @@ end
 
 function ContestMenu:drawMonBox(boxY, label, mon)
   Chrome.textbox(STOCK_BOX_X, boxY, BOX_INNER_W, BOX_INNER_H)
-  Chrome.print(label, LABEL_X, boxY)
+  Chrome.print(Strings(label), LABEL_X, boxY)
   Chrome.print(nameAndLevel(mon), NAME_X, boxY + NAME_ROW_OFFSET)
-  Chrome.print(ContestMenu.TEXT.health, HEALTH_X, boxY + HEALTH_ROW_OFFSET)
+  Chrome.print(Strings(ContestMenu.TEXT.health), HEALTH_X,
+    boxY + HEALTH_ROW_OFFSET)
   -- `lb bc, 2, 3`: two source bytes into a three-digit field, space padded
   -- because PRINTNUM_LEADINGZEROS is not set, laid down FROM hlcoord 11 --
   -- so the field starts at HP_X and the padding is part of the string.
@@ -155,8 +162,8 @@ function ContestMenu:drawYesNo()
   -- STATICMENU_CURSOR, and YesNoMenuHeader sets STATICMENU_NO_TOP_SPACING so
   -- there is no third row of padding -- YES at (16,8), NO at (16,10), cursor
   -- column 15.
-  Chrome.print("YES", YESNO_X + 2, YESNO_Y + 1)
-  Chrome.print("NO", YESNO_X + 2, YESNO_Y + 3)
+  Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
+  Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)
   Chrome.cursor(YESNO_X + 1, YESNO_Y + (self.choice == 1 and 1 or 3))
 end
 
@@ -165,7 +172,7 @@ function ContestMenu:drawPanel()
   self:drawMonBox(STOCK_BOX_Y, ContestMenu.TEXT.stock, self.stock)
   self:drawMonBox(THIS_BOX_Y, ContestMenu.TEXT.this, self.caught)
   Chrome.box(TEXT_BOX_X, TEXT_BOX_Y, TEXT_BOX_W, TEXT_BOX_H)
-  Chrome.print(ContestMenu.TEXT.askSwitch, TEXT_X, TEXT_Y)
+  Chrome.print(Strings(ContestMenu.TEXT.askSwitch), TEXT_X, TEXT_Y)
   self:drawYesNo()
   love.graphics.setColor(1, 1, 1, 1)
 end

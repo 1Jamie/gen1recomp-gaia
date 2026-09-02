@@ -36,6 +36,8 @@ local STATIONS = {
   [8] = "ROCKET_RADIO",
 }
 
+local POKEGEAR_ONLY_STATIONS = { "POKE_FLUTE_RADIO", "EVOLUTION_RADIO" }
+
 -- The same eight as the `radio_channels` registry sees them (src/mods/
 -- Schemas.lua), one of the Gen 2-only six: Red has no radio, so the name is
 -- gated under Gen 1 and routed to data.gen2RadioChannels under Gen 2.  Id =
@@ -54,6 +56,13 @@ function MapRadio.registerInto(registry, _, owner)
                                  name = Pokegear.STATION_NAMES[station] }, owner)
     count = count + 1
   end
+  -- Two Pokegear-only signals have no MAPRADIO_* index.  They still belong in
+  -- the same registry because the tuner resolves their display names by id;
+  -- leaving `channel` absent keeps wall-radio lookup unambiguous.
+  for _, station in ipairs(POKEGEAR_ONLY_STATIONS) do
+    registry:register(station, { name = Pokegear.STATION_NAMES[station] }, owner)
+    count = count + 1
+  end
   return count
 end
 
@@ -68,6 +77,7 @@ function MapRadio.channelRecord(data, channel)
         return record, station
       end
     end
+    return nil
   end
   local station = STATIONS[channel]
   if not station then return nil end
@@ -150,11 +160,12 @@ function MapRadio:resolveStation(channel)
   return "OAKS_POKEMON_TALK"
 end
 
--- The name quoted in the text box: the registry record's own where it has one,
--- the Pokegear's STATION_NAMES row otherwise (which is where the vanilla eight
--- get theirs, so this is the same string the cart prints).
+-- The name quoted in the text box.  A loaded game resolves it through the
+-- same registry as the Pokegear; STATION_NAMES is only the loader-free fallback.
 function MapRadio:name()
-  return self.stationName or Pokegear.STATION_NAMES[self.station]
+  if self.stationName then return self.stationName end
+  return self.gear and self.gear:stationName(self.station)
+    or Pokegear.STATION_NAMES[self.station]
 end
 
 function MapRadio:close()

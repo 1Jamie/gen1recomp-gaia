@@ -3,6 +3,7 @@
 
 local ListMenu = require("src.ui.ListMenu")
 local Map = require("src.world.Map")
+local Strings = require("src.core.Strings")
 
 local FlyMenu = {}
 
@@ -20,11 +21,11 @@ function FlyMenu.new(game)
       seen[mapId] = true
       table.insert(items, {
         value = mapId,
-        label = mapId:gsub("_", " "),
+        label = Strings(mapId:gsub("_", " ")),
       })
     end
   end
-  return ListMenu.new(game, "FLY TO?", items, {
+  return ListMenu.new(game, Strings.source("FLY TO?"), items, {
     onChoose = function(item, list)
       list:close()
       game.overworld:flyTo(item.value)

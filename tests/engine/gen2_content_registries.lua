@@ -33,6 +33,7 @@ local Decorations = require("src.core.gen2.Decorations")
 local Apricorns = require("src.core.gen2.Apricorns")
 local Nests = require("src.core.gen2.Nests")
 local MapRadio = require("src.ui.gen2.MapRadio")
+local Pokegear = require("src.ui.gen2.Pokegear")
 
 local NAMES = { "held_items", "phone_contacts", "decorations", "apricorns",
                 "landmarks", "radio_channels" }
@@ -204,6 +205,8 @@ do
     "OAK's POKEMON TALK keeps its dial position")
   T.eq(channels.ROCKET_RADIO and channels.ROCKET_RADIO.channel, 8,
     "and ROCKET RADIO keeps its own")
+  T.eq(channels.POKE_FLUTE_RADIO and channels.POKE_FLUTE_RADIO.name,
+    "POKé FLUTE", "Pokegear-only stations are seeded in the same registry")
 
   -- held_items and landmarks merge onto a table that already existed, so the
   -- claim there is that the merge left it exactly as it found it
@@ -228,7 +231,7 @@ do
       -- an existing row edited, and a new one registered, for each registry
       mod.content.decorations:patch("deco:2", { name = "COZY" })
       mod.content.phone_contacts:patch("PHONE_YOUNGSTER_JOEY",
-        { map = "FIX_ROUTE" })
+        { map = "FIX_ROUTE", name = "JOJO" })
       mod.content.apricorns:override("RED_APRICORN",
         { apricorn = "RED_APRICORN", ball = "ULTRA_BALL", event = 600,
           index = 1 })
@@ -238,6 +241,8 @@ do
           index = 7 })
       mod.content.radio_channels:register("PIRATE_RADIO",
         { channel = 9, name = "PIRATE RADIO" })
+      mod.content.radio_channels:patch("POKE_FLUTE_RADIO",
+        { name = "FLÛTE RADIO" })
       mod.content.held_items:patch("FIX_LEFTOVERS", { heldParameter = 7 })
     ]]),
     data = data,
@@ -263,6 +268,8 @@ do
     "phone_contacts: the merged row reaches the contact table")
   T.eq(Phone.CONTACTS[15].class, "YOUNGSTER",
     "and the untouched fields survive the patch")
+  T.eq(Phone.contactName(15, data.gen2Trainers), "JOJO",
+    "and the registry's display name overrides trainer-table presentation")
   -- the cache overlay runs from src/world/gen2/World.lua AFTER this, and must
   -- not undo it
   Phone.useExtracted({ phone = { [15] = { map = "ROUTE_30",
@@ -314,6 +321,9 @@ do
   T.eq(record and record.name, "PIRATE RADIO", "with its own name")
   T.eq(select(2, MapRadio.channelRecord(run.data, 8)), "ROCKET_RADIO",
     "and the vanilla positions are unmoved")
+  local gear = setmetatable({ game = { data = run.data } }, Pokegear)
+  T.eq(gear:stationName("POKE_FLUTE_RADIO"), "FLÛTE RADIO",
+    "and the Pokegear reads a patched built-in name from that same registry")
 
   -- held items: the merged row is written back onto the item record, which is
   -- what src/battle/gen2/Battle.lua:itemDef reads
@@ -332,6 +342,28 @@ do
   -- module statics are process-wide; put them back before the next case
   Phone.useRegistry(nil)
   Decorations.useRegistry(nil)
+end
+
+-- A real loader keeps record semantics for the built-in radio ids: register
+-- collides, while the patch above succeeds and preserves the untouched
+-- channel.  This guards the distinction between content replacement and
+-- localization at the consumer.
+do
+  local run = T.sdk.loadMods({ "mods/fix_gen2_content" }, {
+    fs = memfsFor([[
+      local mod = ...
+      mod.content.radio_channels:register("POKE_FLUTE_RADIO",
+        { channel = 7, name = "SHADOW" })
+    ]]),
+    data = goldData(), generation = 2,
+  })
+  local collided = false
+  for _, message in ipairs(run.errors) do
+    if message:find("radio_channels already registered: POKE_FLUTE_RADIO", 1,
+        true) then collided = true end
+  end
+  T.check(collided, "registering over a built-in radio station is rejected")
+  run.release()
 end
 
 -- ------- 4. the mirror case, through a real load

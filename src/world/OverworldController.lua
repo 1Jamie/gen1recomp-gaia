@@ -3289,8 +3289,10 @@ function OverworldState:openPC(onDone)
   -- PC session (#695); the sub-PC screens (BoxMenu, PlayerPC) already
   -- use keepOpen for their own rows, matching the original ROM's flow
   -- where the main menu stays underneath.
+  local boxPcLabel = metBill and Strings.source("BILL'S PC")
+                              or Strings.source("SOMEONE'S PC")
   table.insert(items, {
-    label = metBill and "BILL'S PC" or Strings("SOMEONE'S PC"),
+    label = boxPcLabel,
     keepOpen = true,
     onSelect = function()
       require("src.core.Sound").play(Game.data, "Enter_PC")
@@ -3308,8 +3310,10 @@ function OverworldState:openPC(onDone)
   })
 
   -- the player's item storage is always available
+  local playerName = Game.save.player.name or "RED"
+  local playerPcLabel = Strings.source("%s's PC"):format(playerName)
   table.insert(items, {
-    label = (Game.save.player.name or "RED") .. "'s PC",
+    label = playerPcLabel,
     keepOpen = true,
     onSelect = function()
       -- pc.asm .playersPC plays SFX_ENTER_PC then prints AccessedMyPCText
@@ -3326,7 +3330,7 @@ function OverworldState:openPC(onDone)
   -- Prof. Oak's dex rating only appears once you have the Pokédex
   if flags.EVENT_GOT_POKEDEX then
     table.insert(items, {
-      label = Strings("PROF.OAK's PC"),
+      label = Strings.source("PROF.OAK's PC"),
       keepOpen = true,
       onSelect = function()
         -- pc.asm OaksPC plays SFX_ENTER_PC before the farcall (#960)
@@ -3338,7 +3342,7 @@ function OverworldState:openPC(onDone)
     -- engine/pokemon/bills_pc.asm:48-60 PKMN LEAGUE row (#1566)
     if #(Game.save.hallOfFame or {}) > 0 then
       table.insert(items, {
-        label = Strings("<PK><MN>LEAGUE"),
+        label = Strings.source("<PK><MN>LEAGUE"),
         keepOpen = true,
         onSelect = function()
           -- pc.asm PKMNLeague plays SFX_ENTER_PC, then PKMNLeaguePC prints
@@ -3360,6 +3364,22 @@ function OverworldState:openPC(onDone)
   else
     Logger.error("ui.pc.items returned %s; keeping the vanilla items",
                  type(hooked))
+  end
+
+  -- Hooks identify the vanilla rows by their English source labels.  Delay
+  -- localization until after ui.pc.items has inspected/reordered/replaced
+  -- them, then translate any source labels it chose to retain.
+  local translatedLabels = {
+    [boxPcLabel] = function()
+      return metBill and Strings("BILL'S PC") or Strings("SOMEONE'S PC")
+    end,
+    [playerPcLabel] = function() return Strings("%s's PC", playerName) end,
+    ["PROF.OAK's PC"] = function() return Strings("PROF.OAK's PC") end,
+    ["<PK><MN>LEAGUE"] = function() return Strings("<PK><MN>LEAGUE") end,
+  }
+  for _, item in ipairs(items) do
+    local translate = translatedLabels[item.label]
+    if translate then item.label = translate() end
   end
 
   local logOff = function()
@@ -3545,7 +3565,8 @@ function OverworldState:nurseHeal(onDone, npc)
         end
       end))
     end)
-  end, choiceLabels = { "HEAL", "CANCEL" }, choiceBox = Theme.healCancelBox }))
+  end, choiceLabels = { Strings("HEAL"), Strings("CANCEL") },
+    choiceBox = Theme.healCancelBox }))
 end
 
 -- pokecenter.asm bows the nurse between the two PrintText calls (#995)

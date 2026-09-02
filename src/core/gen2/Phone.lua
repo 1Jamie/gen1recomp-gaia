@@ -134,20 +134,30 @@ Phone.PERMANENT_NUMBERS = { Phone.PHONECONTACT_MOM, Phone.PHONECONTACT_ELM }
 -- The table is indexed from ZERO: PHONE_00 is a real row (the wrong-number
 -- filler that LoadCallerScript falls back to) and three of its siblings sit in
 -- the middle of the table as const_skip holes.
+--
+-- The non-trainer rows also carry their own `name`, copied verbatim from
+-- NON_TRAINER_NAMES rather than left for Phone.contactName() to look up
+-- there: the phone_contacts registry overrides `name` directly (see
+-- Phone.contactName below), so a row needs its vanilla value sitting in the
+-- same field a patch would replace, not in a separate table a patched row
+-- would silently keep falling through to.
 Phone.CONTACTS = {
-  [0]  = { number = 0, map = nil,
+  [0]  = { number = 0, name = "----------", map = nil,
            calleeTime = 0, callee = "UnusedPhoneScript",
            callerTime = 0, caller = "UnusedPhoneScript" },
-  [1]  = { number = Phone.PHONECONTACT_MOM, map = "PLAYERS_HOUSE_1F",
+  [1]  = { number = Phone.PHONECONTACT_MOM, name = "MOM",
+           map = "PLAYERS_HOUSE_1F",
            calleeTime = Phone.ANYTIME, callee = "MomPhoneCalleeScript",
            callerTime = 0, caller = "UnusedPhoneScript" },
-  [2]  = { number = Phone.PHONECONTACT_BIKESHOP, map = "OAKS_LAB",
+  [2]  = { number = Phone.PHONECONTACT_BIKESHOP, name = "BIKE SHOP",
+           map = "OAKS_LAB",
            calleeTime = 0, callee = "UnusedPhoneScript",
            callerTime = 0, caller = "UnusedPhoneScript" },
-  [3]  = { number = Phone.PHONECONTACT_BILL, map = nil,
+  [3]  = { number = Phone.PHONECONTACT_BILL, name = "BILL", map = nil,
            calleeTime = Phone.ANYTIME, callee = "BillPhoneCalleeScript",
            callerTime = 0, caller = "BillPhoneCallerScript" },
-  [4]  = { number = Phone.PHONECONTACT_ELM, map = "ELMS_LAB",
+  [4]  = { number = Phone.PHONECONTACT_ELM, name = "PROF.ELM",
+           map = "ELMS_LAB",
            calleeTime = Phone.ANYTIME, callee = "ElmPhoneCalleeScript",
            callerTime = 0, caller = "ElmPhoneCallerScript" },
   [5]  = { class = "SCHOOLBOY", member = "JACK1", map = "NATIONAL_PARK",
@@ -234,7 +244,7 @@ Phone.CONTACTS = {
 for index = 0, Phone.NUM_PHONE_CONTACTS do
   local row = Phone.CONTACTS[index]
   if row == false or row == nil then
-    row = { number = 0, map = nil,
+    row = { number = 0, name = "----------", map = nil,
             calleeTime = 0, callee = "UnusedPhoneScript",
             callerTime = 0, caller = "UnusedPhoneScript" }
     Phone.CONTACTS[index] = row
@@ -752,6 +762,19 @@ end
 function Phone.contactName(id, trainerData)
   local contact = Phone.CONTACTS[id or -1]
   if not contact then return Phone.NON_TRAINER_NAMES[0], nil end
+  -- `name` is presentation only.  Keeping class/member untouched preserves
+  -- trainer lookup, rematches and script identity while allowing both the
+  -- non-trainer names and an individual trainer contact to be localized by
+  -- the phone_contacts registry.
+  if contact.name then
+    local className
+    if contact.class then
+      local class = trainerData and trainerData.classes
+        and trainerData.classes[contact.class]
+      className = (class and class.name) or contact.class
+    end
+    return contact.name, className
+  end
   if not contact.class then
     return Phone.NON_TRAINER_NAMES[contact.number or 0]
       or Phone.NON_TRAINER_NAMES[0], nil

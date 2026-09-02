@@ -117,14 +117,11 @@ check(tm.fly == true, "the picker opens in fly mode")
 eq(tm.mode, "grid", "the picker draws the Kanto map, not the name list")
 
 local texts, codes, draws, polys = capture(tm)
-local to = findText(texts, "To")
-check(to ~= nil, "ToText is printed on its own")
-if to then eq(to.x, 0, "ToText sits at hlcoord 0, 0") end
-local name = findText(texts, "PALLET TOWN")
-check(name ~= nil, "the destination name is printed on its own")
-if name then eq(name.x, 24, "the name sits at hlcoord 3, 0") end
-check(findText(texts, "To PALLET TOWN") == nil,
-      "the banner is no longer one concatenated string at column 1")
+local banner = findText(texts, "To PALLET TOWN")
+check(banner ~= nil, "the fly prefix and destination are one format string")
+if banner then eq(banner.x, 0, "the composed banner starts at hlcoord 0, 0") end
+check(findText(texts, "To") == nil and findText(texts, "PALLET TOWN") == nil,
+      "the prefix and destination are not drawn at fixed separate columns")
 
 check(codeAt(codes, Theme.moreArrow, 152, 0),
       "the down arrow is drawn at hlcoord 19, 0")
@@ -160,11 +157,11 @@ local game7 = newGame()
 local tm7 = TownMap.new(game7, { fly = true, onFly = function() end })
 tm7.sel = 3
 local texts7 = capture(tm7)
-local long = findText(texts7, "CINNABAR ISLAND")
-check(long ~= nil, "the longest fly name is printed")
+local long = findText(texts7, "To CINNABAR ISLAND")
+check(long ~= nil, "the longest composed fly banner is printed")
 if long then
-  check(long.x + #"CINNABAR ISLAND" * 8 <= 144,
-        "a 15-column name ends before the arrow columns")
+  check(long.x + Font.width(long.text) <= 144,
+        "the composed banner ends before the arrow columns")
 end
 
 T.finish("fly map arrows bug 1892")

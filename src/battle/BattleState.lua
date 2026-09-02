@@ -6797,8 +6797,12 @@ function BattleState:drawTextArea()
       elseif def then
         Font.draw(Strings("TYPE/"), 8, 72)
         -- the type record's display name (a mod type shows its name, and
-        -- PSYCHIC_TYPE prints PSYCHIC like the original)
-        Font.draw(def.type and TypeChart.displayName(def.type) or "", 16, 80)
+        -- PSYCHIC_TYPE prints PSYCHIC like the original). self.data is
+        -- game.data by reference (set above TypeChart.load(game.data)), so
+        -- this is a no-op against TypeChart's own cache today -- kept for
+        -- the same call convention as the pre-battle screens (SummaryMenu,
+        -- HallOfFame) that genuinely need the explicit data.
+        Font.draw(def.type and TypeChart.displayName(def.type, self.data) or "", 16, 80)
         local maxPP = def.pp + (sel.ppUps or 0) * math.floor(def.pp / 5)
         Font.draw(("%2d/%2d"):format(sel.pp, maxPP), 40, 88)
       end

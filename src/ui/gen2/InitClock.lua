@@ -346,8 +346,8 @@ function InitClock:drawPanel()
   Chrome.printWrapped(self:pageText(), 1, 14, 18, 3)
   if self:confirming() then
     Chrome.box(14, 6, 6, 5)
-    Chrome.print("YES", 16, 7)
-    Chrome.print("NO", 16, 9)
+    Chrome.print(Strings("YES"), 16, 7)
+    Chrome.print(Strings("NO"), 16, 9)
     Chrome.cursor(15, self.yesNo == 1 and 7 or 9)
   end
 end

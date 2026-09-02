@@ -797,6 +797,7 @@ and reported. See the Gold subsection below for where it does land.
 | `index` | integer >= 0 | yes |
 | `map` | maps id | no |
 | `member` | string | no |
+| `name` | string | no |
 | `number` | integer 0..255 | no |
 
 ```lua
@@ -899,7 +900,7 @@ and reported. See the Gold subsection below for where it does land.
 
 | field | type | required |
 |---|---|---|
-| `channel` | integer 0..255 | yes |
+| `channel` | integer 0..255 | no |
 | `name` | string | no |
 
 ```lua
@@ -933,6 +934,25 @@ mod.content.radio_channels:register("PIRATE_RADIO", { channel = 9, name = "PIRAT
 ```lua
 mod.content.render_pipelines:register("voxel", { label = "VOXEL", levels = { "OFF", "15", "35", "50" }, drawWorld = fn })
 ```
+
+## rom_text
+
+- semantics: `record`
+- target: none
+
+Gen 2 only: Red, Blue and Yellow have no such system, so there is no
+Gen 1 table to merge into and a write here on a Gen 1 boot is dropped
+and reported. See the Gold subsection below for where it does land.
+- value: string
+
+```lua
+mod.content.rom_text:override("_WokeUpText", "%s se réveille !")
+```
+
+### On Gold (Gen 2)
+
+- semantics: `record`
+- target: `Data.text`
 
 ## rulesets
 

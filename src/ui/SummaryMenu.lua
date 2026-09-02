@@ -184,10 +184,10 @@ function SummaryMenu:draw()
     -- TYPE1/TYPE2/IDNo/OT column (10,9) with values indented (11,10)
     drawLineBox(19, 9, 8, 6)
     Font.draw(Strings("TYPE1/"), 80, 72)
-    Font.draw(def.types[1] and TypeChart.displayName(def.types[1]) or "", 88, 80)
+    Font.draw(def.types[1] and TypeChart.displayName(def.types[1], data) or "", 88, 80)
     if def.types[2] then
       Font.draw(Strings("TYPE2/"), 80, 88)
-      Font.draw(TypeChart.displayName(def.types[2]), 88, 96)
+      Font.draw(TypeChart.displayName(def.types[2], data), 88, 96)
     end
     -- TypesIDNoOTText's third row is "<ID>№/" (status_screen.asm:205-210):
     -- two single-tile glyphs and a slash, three columns wide, not the five
