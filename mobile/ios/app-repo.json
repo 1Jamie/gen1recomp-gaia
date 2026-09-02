@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.52",
+          "date": "2026-09-02",
+          "size": 21587460,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.52/gen1recomp++-0.2.52-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2087 SFX being cut off when battle speed is increased\n- #2107 Daycare bugs when taking Pokemon back\n- #2108 Cry not played when leaving Pokemon in the daycare\n- #2109 Poké Flute tune not played completely when waking Snorlax\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.51",
           "date": "2026-09-02",
           "size": 21587247,
