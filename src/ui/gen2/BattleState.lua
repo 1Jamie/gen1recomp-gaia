@@ -69,6 +69,9 @@ local MESSAGE_FRAMES = 48
 -- engine/battle/effect_commands.asm:6661
 local MOVE_DELAY_FRAMES = 40
 
+-- ../pokecrystal/home/text.asm:895
+local TEXT_PAUSE_FRAMES = 30
+
 -- home/hm_moves.asm:17-25 IsHMMove's .HMMoves.
 local HM_MOVES = {
   CUT = true, FLY = true, SURF = true, STRENGTH = true, FLASH = true,
@@ -345,6 +348,7 @@ function BattleState.new(game, opts)
   -- Which side's pic box stays EMPTY until a send-out redraws it: a catch
   -- latches from stepAnim (data/moves/animations.asm:379), a faint from the slide.
   self.picHidden = { player = false, enemy = false }
+  self.vanishReveal = {}
   -- engine/battle/sliding_intro.asm: 72 frames of the two halves sliding in
   -- from opposite sides before the first message.
   self.slideFrame = 0
@@ -625,12 +629,14 @@ function BattleState:push(event)
 end
 
 function BattleState:pushAll(events)
+  self:latchVanished(events)
   for _, event in ipairs(events or {}) do self:push(event) end
 end
 
 -- LearnMove returns before HandleEnemyMonFaint's send-out/prize arms
 -- (engine/battle/core.asm:1959-2010).
 function BattleState:pushFront(events)
+  self:latchVanished(events)
   for i = #(events or {}), 1, -1 do
     table.insert(self.queue, 1, events[i])
   end
@@ -1488,12 +1494,13 @@ function BattleState:playHitSound(effectiveness)
   else self:playSfx("Sfx_Damage") end
 end
 
-function BattleState:animForMove(moveId, side, param, effectiveness)
+function BattleState:animForMove(moveId, side, param, effectiveness, noAfterAnim)
   local key = self.anims and self.anims.moves and self.anims.moves[moveId]
   local started = self:startAnim(key, {
     turn = self:turnFor(side), animId = moveId, isMove = true, param = param,
   })
-  if started then
+  -- engine/battle/effect_commands.asm:5456
+  if started and not noAfterAnim then
     -- BattleAnimRunScript (anim_commands.asm:55-72): after the move script
     -- restores HUDs it immediately runs wBattleAfterAnim (the hit shake).
     -- Queue it so stepAnim chains without waiting on the next event.
@@ -1547,7 +1554,9 @@ function BattleState:stepAnim(input)
   if input and (input:wasPressed("b") or input:wasPressed("start")) then
     -- Cut short: only the explicit latches (a caught mon) survive a skip.
     self:latchCaughtPic()
+    local ended = self.anim
     self.anim = nil
+    self:clearVanishReveal(nil, ended)
     -- Cart still reaches the after-anim arm after a move script ends; a skip
     -- of the move should not drop the hit shake that follows it.
     if self:startPendingAfterAnim() then return end
@@ -1555,13 +1564,62 @@ function BattleState:stepAnim(input)
   end
   if not self.anim:step() then
     self:latchCaughtPic()
+    local ended = self.anim
     -- pokegold data/moves/animations.asm .Click: anim_keepsprites means
     -- the OAM outlives the script, so keep the runner for drawing too.
     if not self.anim.keepSprites then self.anim = nil end
+    self:clearVanishReveal(nil, ended)
     if self:startPendingAfterAnim() then return end
     return self:endSendOutAnim()
   end
   self:revealSentOut()
+  self:revealVanished()
+end
+
+local VANISH_SIDES = { "player", "enemy" }
+
+-- engine/battle/misc.asm:1-13
+function BattleState:latchVanished(events)
+  for _, event in ipairs(events or {}) do
+    if event.wasVanished and event.side then
+      self.picHidden[event.side] = true
+      self.vanishReveal[event.side] = { side = event.side }
+    end
+  end
+end
+
+function BattleState:armVanishReveal(side)
+  local latch = self.vanishReveal and self.vanishReveal[side]
+  if not latch then return false end
+  latch.anim = self.anim
+  return true
+end
+
+function BattleState:clearVanishReveal(side, ended)
+  local latches = self.vanishReveal
+  if not latches then return end
+  for _, key in ipairs(VANISH_SIDES) do
+    local latch = latches[key]
+    if latch and (side == nil or side == key)
+        and (ended == nil or latch.anim == ended) then
+      latches[key] = nil
+      self.picHidden[key] = false
+    end
+  end
+end
+
+-- engine/battle_anims/bg_effects.asm:377
+function BattleState:revealVanished()
+  local anim, latches = self.anim, self.vanishReveal
+  if not (anim and latches) then return end
+  for _, side in ipairs(VANISH_SIDES) do
+    local latch = latches[side]
+    if latch and latch.anim == anim and self.picHidden[side]
+        and anim.bg.picSize[side] ~= nil then
+      self.picHidden[side] = false
+      latches[side] = nil
+    end
+  end
 end
 
 -- ../pokecrystal/engine/battle_anims/bg_effects.asm:709-720
@@ -1954,6 +2012,10 @@ function BattleState:advanceQueue()
       if event.kind == "move" and (event.missed or event.animDelay) then
         self.messageDelay = MOVE_DELAY_FRAMES
       end
+    elseif event.textPause then
+      -- ../pokecrystal/home/text.asm:887-896
+      self.messageTimer = 0
+      self.messageDelay = TEXT_PAUSE_FRAMES
     else
       self.messageTimer = MESSAGE_FRAMES
     end
@@ -1983,15 +2045,24 @@ function BattleState:advanceQueue()
   -- data/moves/effects.asm:1705-1711
   local animId = event.moveAnim
     or (event.kind == "move" and not event.deferAnim and event.move)
+  if event.wasVanished and (not animId or event.missed) then
+    self:clearVanishReveal(event.side)
+  end
   if animId and not event.missed then
     self.afterAnimPlayed = nil
     self.pendingAfterAnim = nil
-    if not self:animForMove(animId, event.side, event.animParam,
-        event.effectiveness) then
+    local started = self:animForMove(animId, event.side, event.animParam,
+      event.effectiveness, event.noAfterAnim)
+    if event.wasVanished
+        and not (started and self:armVanishReveal(event.side)) then
+      self:clearVanishReveal(event.side)
+    end
+    if not started then
       -- BATTLE SCENE off skips the move script but still runs wBattleAfterAnim
       -- (anim_commands.asm:55-72 .disabled fallthrough).
       local options = self.game and self.game.options
-      if options and options.battleScene == false then
+      if options and options.battleScene == false
+          and not event.noAfterAnim then
         if self:animForId(self:afterAnimFor(event.side), event.side) then
           self:playHitSound(event.effectiveness)
           self.afterAnimPlayed = true
@@ -4355,8 +4426,8 @@ function BattleState:drawLiftedRows()
   self.liftedPass = true
   -- engine/battle_anims/anim_commands.asm:1308
   local previousBgp = GbcPalette.setBgp(self.anim and self.anim.bg.bgp or nil)
-  if enemyLift then self:drawPic(battle.enemy, false) end
-  if playerLift then self:drawPic(battle.player, true) end
+  if enemyLift then self:drawPic(self:activeMon("enemy"), false) end
+  if playerLift then self:drawPic(self:activeMon("player"), true) end
   GbcPalette.setBgp(previousBgp)
   self.liftedPass = nil
   G.pop()

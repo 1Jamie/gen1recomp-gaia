@@ -83,9 +83,9 @@ return function(game)
         end
         if dup then worst = "two source rows landed on one scanline" end
         if bg.lcdc then
-          local last = math.min(bg.lyEnd, BattleAnimView.SCREEN_H) - 1
-          for row = bg.lyStart, last do
-            if not seen[row] and (bg.lyBackup[row] or 0) ~= 0x90 then
+          local last = math.min(bg.lyEnd, BattleAnimView.SCREEN_H - 1)
+          for row = bg.lyStart + 1, last do
+            if not seen[row] and (bg.lyBackup[row - 1] or 0) ~= 0x90 then
               worst = "scanline " .. row .. " was left blank"
             end
           end

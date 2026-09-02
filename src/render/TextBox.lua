@@ -388,7 +388,7 @@ end
 
 function TextBox:update(dt)
   local input = self.game.input
-  self.blink = (self.blink + 1) % 60
+  self.blink = (self.blink + 1) % 480
   -- home/text.asm:506
   if self.preSound then
     if not self.preStarted then
@@ -691,12 +691,16 @@ function TextBox:draw()
       pen = pen + Font.advanceOf(code)
     end
   end
-  if self:arrowVisible() and self.blink < 30 then
+  -- pokegold home/joypad.asm:430
+  local arrowOn = self.blink % 60 < 30
+  if gold then arrowOn = self.blink % 32 < 16 end
+  if self:arrowVisible() and arrowOn then
     -- page-advance cursor: glyph $EE by default, the blinking down arrow
     -- the original prints via `ld a, "▼"` (home/text.asm)
+    -- pokegold home/text.asm:549
     drawGlyph(Theme.moreArrow or 0xEE,
               (self.boxTx + self.boxTw - 2) * 8,
-              (self.boxTy + self.boxTh - 1) * 8 - 4)
+              (self.boxTy + self.boxTh - 1) * 8 - (gold and 0 or 4))
   end
   if finishGlyph then finishGlyph() end
   love.graphics.setColor(1, 1, 1, 1)

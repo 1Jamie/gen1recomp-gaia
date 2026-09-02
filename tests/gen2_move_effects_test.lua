@@ -72,6 +72,8 @@ local MOVES = {
     effect = "EFFECT_DREAM_EATER" },
   TRANSFORM = { id = "TRANSFORM", name = "TRANSFORM", power = 0,
     type = "NORMAL", accuracy = 0, pp = 10, effect = "EFFECT_TRANSFORM" },
+  SWORDS_DANCE = { id = "SWORDS_DANCE", name = "SWORDS DANCE", power = 0,
+    type = "NORMAL", accuracy = 0, pp = 30, effect = "EFFECT_ATTACK_UP_2" },
   -- STRUGGLE is in the move table like any other move and in nobody's move
   -- list, which is the whole of what makes Battle.STRUGGLE work.
   STRUGGLE = { id = "STRUGGLE", name = "STRUGGLE", power = 50, type = "NORMAL",
@@ -242,6 +244,48 @@ do
   battle:useMove(player, wild, "CURSE")
   check(findText(battle:takeEvents(), "But it failed!"),
     "an already-cursed target refuses")
+end
+
+-- pokegold data/moves/effects.asm:1488
+do
+  local battle, player, wild = newBattle({
+    playerMoves = { { id = "CURSE", pp = 10, maxPp = 10 } },
+    random = rolls({}, 0) })
+  battle:volatile(wild).vanished = true
+  battle:useMove(player, wild, "CURSE")
+  eq(battle.stages.player.speed, -1,
+    "non-Ghost Curse ignores a dug-in target: Speed falls")
+  eq(battle.stages.player.attack, 1, "Attack rises")
+  eq(battle.stages.player.defense, 1, "Defense rises")
+  check(not findText(battle:takeEvents(), "MACHOP's attack missed!"),
+    "a chain without checkhit cannot miss")
+end
+
+-- pokegold engine/battle/move_effects/curse.asm:58
+do
+  local battle, player, wild = newBattle({ playerSpecies = "GASTLY",
+    playerMoves = { { id = "CURSE", pp = 10, maxPp = 10 } },
+    random = rolls({}, 0) })
+  battle:volatile(wild).vanished = true
+  local hpBefore = player.hp
+  battle:useMove(player, wild, "CURSE")
+  check(findText(battle:takeEvents(), "But it failed!"),
+    "CheckHiddenOpponent fails the Ghost arm")
+  eq(battle:volatile(wild).cursed, nil, "no curse lands")
+  eq(player.hp, hpBefore, "no HP cut on the failed arm")
+end
+
+-- pokegold data/moves/effects.asm:272
+do
+  local battle, player, wild = newBattle({
+    playerMoves = { { id = "SWORDS_DANCE", pp = 30, maxPp = 30 } },
+    random = rolls({}, 0) })
+  battle:volatile(wild).vanished = true
+  battle:useMove(player, wild, "SWORDS_DANCE")
+  eq(battle.stages.player.attack, 2,
+    "AttackUp2 has no checkhit and reaches its stat change")
+  check(not findText(battle:takeEvents(), "MACHOP's attack missed!"),
+    "no invented miss against a dug-in target")
 end
 
 -- ---- Reflect and Light Screen ---------------------------------------------

@@ -36,6 +36,13 @@ local function drawnAt(x, y)
   return nil
 end
 
+local function typeOut(menu)
+  for _ = 1, 600 do
+    menu:update(0)
+    if menu.typer and menu.typer:done() then return end
+  end
+end
+
 -- Chrome.print multiplies tile coordinates by 8 (src/ui/gen2/Chrome.lua).
 -- PLAYER row at (5, 2); the two prompt lines at (1, 14)/(1, 16); YES/NO at
 -- (2, 8)/(2, 10) (YESNO_X + 2, YESNO_Y + 1 / + 3).
@@ -50,6 +57,7 @@ local SAVE = { player = { name = "GOLD" } }
 -- ---------------------------------------------- vanilla: no mod catalog
 do
   local menu = SaveMenu.new({}, { save = SAVE, existed = false })
+  typeOut(menu)
   drawn = {}
   menu:drawPanel()
   T.eq(drawnAt(PANEL_PLAYER_X, PANEL_PLAYER_Y), "PLAYER GOLD",
@@ -103,6 +111,7 @@ do
   })
 
   local menu = SaveMenu.new({}, { save = SAVE, existed = false })
+  typeOut(menu)
   drawn = {}
   menu:drawPanel()
   T.eq(drawnAt(PANEL_PLAYER_X, PANEL_PLAYER_Y), "JOUEUR GOLD",

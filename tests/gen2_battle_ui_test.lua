@@ -1762,6 +1762,19 @@ do
   eq(screen.phase, "choose-forget", "YES opens the picker")
   tap("a")                      -- slot 1
   eq(lead.moves[1].id, "EMBER", "the move is learned")
+  eq(screen.message, "1, 2 and…", "the count line prints first")
+  -- ../pokecrystal/home/text.asm:887-896
+  eq(screen.messageTimer, 0, "and text_pause holds it for no button")
+  local poofed = false
+  for _ = 1, 400 do
+    Input:step()
+    screen:update(1 / 60)
+    if screen.message and screen.message:find("forgot", 1, true) then
+      poofed = true
+      break
+    end
+  end
+  check(poofed, "the forgot line follows the pause with no press between")
   check(screen.message and screen.message:find("forgot", 1, true) ~= nil,
     "and its line prints ahead of the send-out that was already queued")
 end

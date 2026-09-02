@@ -556,18 +556,26 @@ function DayCareMenu:drawYesNo(choice)
   Chrome.cursor(YESNO_X + 1, YESNO_Y + (choice == 1 and 1 or 3))
 end
 
+-- ../pokecrystal/engine/events/daycare.asm:107
+function DayCareMenu:yesNoVisible()
+  local confirm = self.confirm
+  if not confirm or confirm.page < #confirm.pages then return false end
+  return not Typer.typing(self)
+end
+
 function DayCareMenu:drawPanel()
   local typed = self.typer == nil or self.typer:done()
   if self.message then
     self:drawTextBox(Typer.text(self, self.message.pages[self.message.page]))
-    if typed and self.message.page < #self.message.pages then
+    if typed and self.message.page < #self.message.pages
+      and Typer.arrowOn(self) then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
   elseif self.confirm then
     self:drawTextBox(Typer.text(self, self.confirm.pages[self.confirm.page]))
-    if self.confirm.page >= #self.confirm.pages then
+    if self:yesNoVisible() then
       self:drawYesNo(self.confirm.choice)
-    elseif typed then
+    elseif typed and Typer.arrowOn(self) then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
   else

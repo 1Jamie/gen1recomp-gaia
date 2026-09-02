@@ -34,6 +34,8 @@
 local BugContest = require("src.core.gen2.BugContest")
 local Chrome = require("src.ui.gen2.Chrome")
 local Strings = require("src.core.Strings")
+local Font = require("src.render.Font")
+local GameVersion = require("src.core.GameVersion")
 
 local ContestMenu = {}
 ContestMenu.__index = ContestMenu
@@ -81,6 +83,19 @@ ContestMenu.TEXT = {
     return lines
   end,
 }
+
+-- pokecrystal engine/events/bug_contest/display_stats.asm:84-87
+-- pokecrystal home/text.asm:316,408
+ContestMenu.TEXT_CRYSTAL = {
+  stock = " STOCK <PK><MN> ",
+  this = " THIS <PK><MN>  ",
+}
+
+function ContestMenu.labels()
+  local text = GameVersion.engine() == "crystal" and ContestMenu.TEXT_CRYSTAL
+    or ContestMenu.TEXT
+  return text.stock, text.this
+end
 
 function ContestMenu:wantsFillScale() return true end
 function ContestMenu:drawsWidescreen() return true end
@@ -168,12 +183,16 @@ function ContestMenu:drawYesNo()
 end
 
 function ContestMenu:drawPanel()
+  -- pokecrystal engine/events/bug_contest/display_stats.asm:5
+  local wasBattle = Font.useBattleExtra(true)
   Chrome.clear()
-  self:drawMonBox(STOCK_BOX_Y, ContestMenu.TEXT.stock, self.stock)
-  self:drawMonBox(THIS_BOX_Y, ContestMenu.TEXT.this, self.caught)
+  local stock, this = ContestMenu.labels()
+  self:drawMonBox(STOCK_BOX_Y, stock, self.stock)
+  self:drawMonBox(THIS_BOX_Y, this, self.caught)
   Chrome.box(TEXT_BOX_X, TEXT_BOX_Y, TEXT_BOX_W, TEXT_BOX_H)
   Chrome.print(Strings(ContestMenu.TEXT.askSwitch), TEXT_X, TEXT_Y)
   self:drawYesNo()
+  Font.useBattleExtra(wasBattle)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

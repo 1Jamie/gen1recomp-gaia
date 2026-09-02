@@ -171,6 +171,16 @@ function Pool:setLCDStatCustoms1(register, st)
   end
 end
 
+-- engine/battle_anims/bg_effects.asm:2671
+function Pool:setLCDStatCustoms2(register, st)
+  self.lcdc = register
+  if self:playerSide(st) then
+    self.lyStart, self.lyEnd = 0x2d, 0x5e
+  else
+    self.lyStart, self.lyEnd = 0x00, 0x36
+  end
+end
+
 function Pool:resetLCDStatCustom(st)
   self.lyStart, self.lyEnd = 0, 0
   self:clearLYOverrides(0)
@@ -437,7 +447,7 @@ E.BATTLE_BG_EFFECT_CYCLE_BGPALS_INVERTED = function(self, st)
   if value then self.bgp = value end
 end
 
--- The mon's pic box is simply cleared, held for three frames and restored.
+-- engine/battle_anims/bg_effects.asm:343
 E.BATTLE_BG_EFFECT_HIDE_MON = function(self, st)
   local jt = st.jt
   if jt == 0 then
@@ -446,7 +456,6 @@ E.BATTLE_BG_EFFECT_HIDE_MON = function(self, st)
   elseif jt >= 1 and jt <= 3 then
     incJt(st)
   elseif jt == 4 then
-    self.hidden[self:sideKey(st)] = false
     endEffect(st)
   end
 end
@@ -832,6 +841,25 @@ E.BATTLE_BG_EFFECT_BETA_PURSUIT = function(self, st)
   end
 end
 
+-- engine/battle_anims/bg_effects.asm:1444
+E.BATTLE_BG_EFFECT_BODY_SLAM = function(self, st)
+  local jt = st.jt
+  if jt == 0 then
+    incJt(st)
+    self:clearLYOverrides(0)
+    self:setLCDStatCustoms2("SCX", st)
+    self.lyEnd = u8(self.lyEnd + 1)
+    st.param = 0
+    st.turn = self:playerSide(st) and u8(-2) or 2
+  elseif jt == 1 then
+    tackleMoveForward(self, st)
+  elseif jt == 2 then
+    tackleReturn(self, st)
+  elseif jt == 3 then
+    self:resetLCDStatCustom(st)
+  end
+end
+
 E.BATTLE_BG_EFFECT_WOBBLE_MON = function(self, st)
   local jt = st.jt
   if jt == 0 then
@@ -921,7 +949,7 @@ E.BATTLE_BG_EFFECT_BOUNCE_DOWN = function(self, st)
   if jt == 0 then
     incJt(st)
     self:clearLYOverrides(0)
-    self:setLCDStatCustoms1("SCY", st)
+    self:setLCDStatCustoms2("SCY", st)
     self.lyEnd = u8(self.lyEnd + 1)
     st.turn = 1
     st.param = 0x20
@@ -1285,8 +1313,24 @@ end
 -- Nothing is left unmodelled.  The name stays so a caller (and the tests) can
 -- still ask, and so the answer is checkable rather than a claim in a comment.
 local UNMODELLED = {}
-for _, name in ipairs(UNMODELLED) do
-  E[name] = function(_, st) endEffect(st) end
+local UNMODELLED_SET = {}
+for _, name in ipairs(UNMODELLED) do UNMODELLED_SET[name] = true end
+
+local DROPPED = {}
+BgEffects.DROPPED = DROPPED
+BgEffects.strict = os.getenv("POKEPORT_DEV") == "1"
+
+local function dropUnknown(st)
+  local name = st.func
+  endEffect(st)
+  if UNMODELLED_SET[name] then return end
+  if not DROPPED[name] then
+    DROPPED[name] = true
+    DROPPED[#DROPPED + 1] = name
+  end
+  if BgEffects.strict then
+    error("BgEffects: no entry for " .. tostring(name))
+  end
 end
 
 --------------------------------------------------------------------------
@@ -1302,7 +1346,7 @@ function Pool:playFrame()
       else
         -- An id with no entry would otherwise sit in the pool forever and
         -- keep the animation from ending.
-        endEffect(st)
+        dropUnknown(st)
       end
     end
   end

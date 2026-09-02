@@ -607,11 +607,13 @@ function Game2:learnMoveOn(mon, moveId, onDone)
         -- The slot is written here rather than through Mon.learnMove, so
         -- pokemon.move_learned is raised here too.
         ModRuntime.emit("pokemon.move_learned", { mon = mon, moveId = moveId })
-        -- engine/pokemon/learn.asm:115, data/text/common_3.asm:119
-        self:say(("1, 2 and… Poof!\f%s forgot\n%s.\fAnd…\f%s learned\n%s!")
+        -- engine/pokemon/learn.asm:225-229, data/text/common_3.asm:165-173
+        self:say(("1, 2 and…" .. TextBox.PAUSE .. " Poof!" .. TextBox.PAUSE
+            .. "\f%s forgot\n%s.\fAnd…\f%s learned\n%s!")
           :format(name, oldName, name, moveName),
           function() finish(true) end,
-          TextBox.soundOpts(self, "Sfx_DexFanfare5079"))
+          TextBox.soundOpts(self, "Sfx_DexFanfare5079",
+            { pauseSounds = { "Sfx_SwitchPokemon" } }))
       end,
     })
   end
