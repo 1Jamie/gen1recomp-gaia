@@ -3745,6 +3745,7 @@ runSuites(orderedGlob(
   "tests/gen2_crystal_anim_test.lua",
   "tests/gen2_crystal_caught_data_test.lua",
   "tests/gen2_crystal_gender_test.lua",
+  "tests/gen2_crystal_tile_attrs_test.lua",
   -- Pinned in the order the glob already ran them in, alphabetically last.
   "tests/gen2_battle_cursor_test.lua",
   "tests/gen2_battle_options_test.lua",
