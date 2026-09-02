@@ -2445,10 +2445,11 @@ end
     if it.value == "HYPER_POTION" then
       foundHyper = it
       local nameEnd = 16 + Font.width(it.label)
-      local rightX = 160 - 8 - Font.width(it.right)
+      local rightX = 112
       check(nameEnd <= rightX,
             "sell HYPER POTION name does not overlap quantity")
-      check(not tostring(it.right):find("¥", 1, true),
+      eq(it.count, 99, "sell list carries the quantity as a count")
+      check(it.right == nil and it.price == nil,
             "sell list keeps prices out of the right column")
       check(tostring(it.label):find("x", 1, true) == nil,
             "sell list does not glue quantity into the name")
