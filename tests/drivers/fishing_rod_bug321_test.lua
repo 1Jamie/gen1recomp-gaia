@@ -92,13 +92,20 @@ return function(game)
     return top, table.concat(shown, " / ")
   end
 
-  -- A press while the box is still typing only finishes the line, so tap
-  -- until the box on top is a different one (or we run out of patience).
+  -- engine/overworld/player_animations.asm:378
   local function advance(box)
-    for _ = 1, 12 do
-      U.tap(game, "a")
-      U.wait(12)
+    for _ = 1, 400 do
       if game.stack:top() ~= box then return true end
+      U.wait(1)
+    end
+    return false
+  end
+
+  -- engine/items/item_effects.asm:1893
+  local function waitCast(ow)
+    for _ = 1, 300 do
+      if ow.fishing then return true end
+      U.wait(1)
     end
     return false
   end
@@ -146,20 +153,35 @@ return function(game)
 
     useRod()
 
-    local dots, dotsText = topBox()
-    check(("%s: USE opened the fishing box"):format(spot.facing), dots ~= nil)
-    if dotsText then U.log("box reads:", dotsText) end
-    check(("%s: the rod is up (overworld.fishing is set)"):format(spot.facing),
-          ow.fishing ~= nil)
+    local used, usedText = topBox()
+    check(("%s: USE opened the fishing box"):format(spot.facing), used ~= nil)
+    if usedText then U.log("box reads:", usedText) end
+    check(("%s: the pose waits out the used line (#2064)"):format(spot.facing),
+          ow.fishing == nil)
+    check(("%s: the cast raises the rod on its own"):format(spot.facing),
+          waitCast(ow))
     check(("%s: the rod remembers this facing"):format(spot.facing),
           ow.fishing ~= nil and ow.fishing.facing == spot.facing)
-    if not U.shot(game, ("%s/bug321_rod_%s_dots.png"):format(SHOT_DIR, spot.facing)) then
-      check(("%s: dots screenshot reached disk"):format(spot.facing), false)
+    if not U.shot(game, ("%s/bug321_rod_%s_cast.png"):format(SHOT_DIR, spot.facing)) then
+      check(("%s: cast screenshot reached disk"):format(spot.facing), false)
     end
 
-    -- the timing half of #321: the dots box closes, the verdict box opens,
-    -- and the rod must still be in the player's hands the whole time
-    if dots then advance(dots) end
+    -- engine/overworld/player_animations.asm:453, engine/overworld/emotion_bubbles.asm:1
+    local shook = false
+    for _ = 1, 300 do
+      if ow.player.fishShakeDy == 1 then shook = true end
+      if ow.emote then break end
+      U.wait(1)
+    end
+    check(("%s: the sprite shakes on a bite"):format(spot.facing), shook)
+    check(("%s: the ! bubble comes up before the text"):format(spot.facing),
+          ow.emote ~= nil)
+    if ow.emote and not U.shot(game, ("%s/bug321_rod_%s_bubble.png")
+                                       :format(SHOT_DIR, spot.facing)) then
+      check(("%s: bubble screenshot reached disk"):format(spot.facing), false)
+    end
+
+    if used then advance(used) end
     local verdict, verdictText = topBox()
     check(("%s: the verdict box opened"):format(spot.facing), verdict ~= nil)
     if verdictText then U.log("box reads:", verdictText) end
@@ -180,9 +202,10 @@ return function(game)
   U.log("West shore of the Viridian pond, facing right, mid-cast.")
   U.log("Correct: one 8x8 rod stroke touching the player's hands, a mirror")
   U.log("image left vs right, still up for the whole verdict box (#321).")
-  U.log("Shots: " .. SHOT_DIR .. "/bug321_rod_<facing>_{dots,verdict}.png")
-  U.log("The pose swaps the sprite's bottom tile row (#384); the sprite shake")
-  U.log("and the ! bubble on a bite are still unported.")
+  U.log("Shots: " .. SHOT_DIR .. "/bug321_rod_<facing>_{cast,bubble,verdict}.png")
+  U.log("The pose swaps the sprite's bottom tile row (#384). On a bite the")
+  U.log("sprite shakes 1px for half a second and an ! bubble holds a second")
+  U.log("over it before the text, with no button pressed at any point (#2064).")
 
   while true do
     coroutine.yield()

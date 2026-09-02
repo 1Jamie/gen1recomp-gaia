@@ -140,8 +140,9 @@ if box and box.onDone then box.onDone() end
 eq(result(), "lose", "onFinish gets \"lose\", so afterBattle blacks out")
 eq(Game.save.party[1].hp, full, "the party is revived at the heal point")
 eq(Game.save.money, 1500, "half the money is lost, as on any blackout")
-check(warp ~= nil and warp.map == "VIRIDIAN_POKECENTER",
-      "and the player is warped to the last heal point")
+-- engine/events/black_out.asm:39-43
+check(warp ~= nil and warp.map == "VIRIDIAN_CITY",
+      "and the player is warped outside the last heal point (#2077)")
 -- the brick: before #425 the party was still at 0 HP here, so this second
 -- encounter took the same exit, and so did every one after it
 local ow2 = newWorld(MAP)

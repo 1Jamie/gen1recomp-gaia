@@ -36,7 +36,7 @@ return function(game)
   local function recordShot(mon, path)
     local summary = SummaryMenu.new(game, mon)
     game.stack:push(summary)
-    U.wait(4)
+    U.wait(20)
     local capturedId, capturedOt = nil, nil
     Font.draw = function(text, x, y)
       if x == 96 and y == 112 then capturedId = text end

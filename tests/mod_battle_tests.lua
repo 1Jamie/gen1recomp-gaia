@@ -360,6 +360,21 @@ do
                       { pic = "mods/x/beauty.png", trueColor = true },
                       "patch", 2),
         "a Gold trainers patch can carry pic and trueColor")
+  check(Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "OPP_RIVAL1",
+                      { parties = { { { level = 70, species = "MEWTWO",
+                                        moves = { "PSYCHIC_M" } } } } },
+                      "patch"),
+        "a party slot's moves list validates against the catalog schema")
+  check(not Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "OPP_RIVAL1",
+                          { parties = { { { level = 70, species = "MEWTWO",
+                                            moves = "PSYCHIC_M" } } } },
+                          "patch"),
+        "a party slot's moves must still be a list of move ids")
+  check(Schemas.check(Schemas.REGISTRIES.trainers, "trainers", "BEAUTY",
+                      { trainers = { { name = "GRACE", party = {
+                          { level = 20, species = "PIKACHU",
+                            moves = { "THUNDERSHOCK" } } } } } }, "patch", 2),
+        "the Gold party slot keeps its own moves list")
 end
 
 do
@@ -731,6 +746,38 @@ do
   check(actBattle:enemyAction().hooked == true,
         "battle.enemy_action hook rewrites the choice")
   unsub()
+
+  -- engine/battle/core.asm:416,454
+  unsub = hooks:wrap("battle.enemy_action", function()
+    return { id = "TACKLE", pp = 1, hooked = true }
+  end)
+  local forcedGame = makeGame({ Pokemon.new(Data, "BULBASAUR", 20) })
+  local forcedBattle = BattleState.newTrainer(forcedGame, "OPP_BROCK", 1)
+  forcedBattle.rng = mkseq({})
+  forcedBattle.performMove = function() end
+  forcedBattle.enemy.mon.status = "PSN"
+  local forcedUses = forcedBattle.aiUses
+  check((forcedUses or 0) > 0, "the trainer battle seeds wAICount")
+  local forcedAction = forcedBattle:enemyAction()
+  check(forcedAction.hooked == true,
+        "battle.enemy_action hook rewrites a trainer's choice too")
+  forcedBattle:executeAction(forcedBattle.enemy, forcedBattle.player, forcedAction)
+  check(forcedBattle.enemy.mon.status == "PSN"
+        and forcedBattle.aiUses == forcedUses
+        and not hasText(forcedBattle, "FULL HEAL"),
+        "a hook-forced trainer action suppresses the class item roll")
+  unsub()
+
+  local rollGame = makeGame({ Pokemon.new(Data, "BULBASAUR", 20) })
+  local rollBattle = BattleState.newTrainer(rollGame, "OPP_BROCK", 1)
+  rollBattle.rng = mkseq({})
+  rollBattle.performMove = function() end
+  rollBattle.enemy.mon.status = "PSN"
+  local rollUses = rollBattle.aiUses
+  rollBattle:executeAction(rollBattle.enemy, rollBattle.player,
+                           rollBattle:enemyAction())
+  check(rollBattle.enemy.mon.status == nil and rollBattle.aiUses == rollUses - 1,
+        "with no hook the class item roll still fires at the enemy's slot")
 
   -- battle.catch_exp: vanilla catches never grant exp; a mod can flip that
   unsub = hooks:wrap("battle.catch_exp", function() return true end)

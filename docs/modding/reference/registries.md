@@ -343,7 +343,8 @@ accepted and merged as-is.
 | `swarmGrass` | map of string -> {map?, rates, slots} |
 | `swarmWater` | map of string -> {map?, rate, slots} |
 | `timeFishGroups` | map of string | integer 0..255 -> {day, nite} |
-| `treeSets` | map of string -> {common, rare} |
+| `treeMonsAsleep` | {DAY, MORN, NITE} |
+| `treeSets` | map of string -> {common, rare?} |
 | `trees` | map of string -> string |
 | `water` | map of string -> {map?, rate, slots} |
 
@@ -1154,7 +1155,7 @@ mod.content.tokens:register("CLOCK", function(game) return "12" end)
 | `name` | string | yes |
 | `palette` | palettes id | no |
 | `paletteSource` | string | no |
-| `parties` | list of list of {level, species} | yes |
+| `parties` | list of list of {level, moves?, species} | yes |
 | `partyNames` | map of integer >= 1 -> string | no |
 | `pic` | file path | no |
 | `trueColor` | boolean | no |

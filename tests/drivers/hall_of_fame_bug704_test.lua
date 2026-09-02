@@ -126,7 +126,7 @@ return function(game)
   check("the wide battle took the 304x144 surface",
         Renderer.uiWidth == 304 and Renderer.uiHeight == 144)
   game.stack:push(SummaryMenu.new(game, game.save.party[1]))
-  U.wait(8)
+  U.wait(20)
   check("stats screenshot", U.shot(game, DIR .. "/hof637_wide_stats.png"))
   local statRect
   for _, r in ipairs(PaletteFX.trueColorRects("ui")) do

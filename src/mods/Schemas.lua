@@ -1133,8 +1133,10 @@ R.trainers = {
     -- Reuse a base trainer class's portrait without redistributing its asset.
     basePic = f.opt(f.id("trainers")),
     baseMoney = f.opt(f.int(0)),
+    -- data/trainers/special_moves.asm:5
     parties = f.list(f.list(f.rec{ level = f.int(1),
-                                   species = f.id("pokemon") })),
+                                   species = f.id("pokemon"),
+                                   moves = f.opt(f.list(f.id("moves"))) })),
     partyNames = f.opt(f.map(f.int(1), f.str)),
     aiMods = f.opt(f.any),
     aiClass = f.opt(f.id("ai_classes")),

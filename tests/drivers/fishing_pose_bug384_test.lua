@@ -86,6 +86,23 @@ return function(game)
     return top, table.concat(shown, " / ")
   end
 
+  -- engine/items/item_effects.asm:1893, engine/overworld/player_animations.asm:378
+  local function waitCast(ow)
+    for _ = 1, 300 do
+      if ow.fishing then return true end
+      U.wait(1)
+    end
+    return false
+  end
+
+  local function waitPop(box)
+    for _ = 1, 400 do
+      if game.stack:top() ~= box then return true end
+      U.wait(1)
+    end
+    return false
+  end
+
   local function shoreFor(map, spot)
     local d = DELTA[spot.facing]
     if map:inBounds(spot.x + d[1], spot.y + d[2])
@@ -107,7 +124,6 @@ return function(game)
     return spot.x, spot.y
   end
 
-  -- park on a shore, cast, and stop on the dots box
   local function castFrom(spot)
     U.teleport(game, MAP, spot.x, spot.y, spot.facing)
     U.wait(15)
@@ -117,22 +133,35 @@ return function(game)
       U.wait(15)
     end
     local ow = game.overworld
+    for _ = 1, 10 do
+      if game.stack:top() == ow then break end
+      game.stack:pop()
+    end
+    ow.fishing = nil
+    ow.player.fishing = nil
+    ow.fishPose = nil
+    U.wait(4)
     local fcx, fcy = ow.player:facingCell()
     check(("facing %s from (%d,%d), the %s: water in front")
             :format(spot.facing, sx, sy, spot.note),
           ow.map:inBounds(fcx, fcy) and ow.map:isWaterCell(fcx, fcy))
     useRod()
+    check(("%s: the pose is still DOWN while the used line types (#2064)")
+            :format(spot.facing),
+          ow.fishing == nil and ow.player.fishing == nil)
+    check(("%s: the cast comes up on its own, no button"):format(spot.facing),
+          waitCast(ow))
     return ow
   end
 
   -- ---- pose up, one facing at a time -------------------------------------
-  -- Every facing is left on its verdict box; the next teleport pops it, so no
   -- bite ever reaches a battle here.
 
   for _, spot in ipairs(SPOTS) do
     local ow = castFrom(spot)
-    local dots = topBox()
-    check(("%s: USE opened the fishing box"):format(spot.facing), dots ~= nil)
+    local used, usedText = topBox()
+    check(("%s: USE opened the fishing box"):format(spot.facing), used ~= nil)
+    if usedText then U.log("box reads:", usedText) end
     check(("%s: the rod OAM is up (overworld.fishing)"):format(spot.facing),
           ow.fishing ~= nil and ow.fishing.facing == spot.facing)
     check(("%s: the pose is up (player.fishing)"):format(spot.facing),
@@ -165,13 +194,9 @@ return function(game)
   if rodFishing then rodFishing.always = nil end
 
   local ow = castFrom(SPOTS[4])
-  local dots = topBox()
-  if dots then
-    for _ = 1, 12 do
-      U.tap(game, "a")
-      U.wait(12)
-      if game.stack:top() ~= dots then break end
-    end
+  local used = topBox()
+  if used then
+    check("the used-line box pops itself, unprompted", waitPop(used))
   end
   local verdict, verdictText = topBox()
   check("the no-bite verdict box opened", verdict ~= nil)
@@ -196,13 +221,7 @@ return function(game)
   local live = castFrom(SPOTS[4])
   if live.fishing then
     local box = topBox()
-    if box then
-      for _ = 1, 12 do
-        U.tap(game, "a")
-        U.wait(12)
-        if game.stack:top() ~= box then break end
-      end
-    end
+    if box then waitPop(box) end
   end
   U.log("West shore of the Viridian pond, mid-cast, verdict box open. OLD ROD")
   U.log("was set to never bite for this cast, so dismissing it stays on the map.")
@@ -211,6 +230,8 @@ return function(game)
   U.log("scanline, and the lower row the same shade as the torso above it.")
   U.log("Dismiss the box: the loose tile goes at once, the hands hold about ten")
   U.log("frames, then the sprite snaps back. Both going together is the bug.")
+  U.log("The cast itself now runs unprompted: RED used OLD ROD! with the heal")
+  U.log("jingle, ~80 frames standing, the rod up, ~100 more, then the verdict.")
   U.log("Shots: " .. SHOT_DIR .. "/bug384_pose_<facing>.png")
 
   while true do

@@ -54,9 +54,7 @@ function TrainerAI.classFor(battle)
   return require("data.scripts.ai_classes")[id]
 end
 
--- Item use / switching per trainer class (engine/battle/trainer_ai.asm
--- via the ai_classes registry).  Runs before move choice each enemy
--- turn; returns an action { special = "aiItem"/"aiSwitch", ... } or nil.
+-- engine/battle/trainer_ai.asm:290-320, engine/battle/core.asm:416,454
 -- battle.aiUses is initialized per enemy Pokémon (wAICount).
 function TrainerAI.classAction(battle)
   if battle.kind ~= "trainer" or not battle.trainer then return nil end

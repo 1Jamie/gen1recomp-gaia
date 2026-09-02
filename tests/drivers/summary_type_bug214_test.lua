@@ -28,7 +28,7 @@ return function(game)
   local function recordShot(game, mon, path)
     local summary = SummaryMenu.new(game, mon)
     game.stack:push(summary)
-    U.wait(4)
+    U.wait(20)
     captured = nil
     Font.draw = function(text, x, y)
       if x == 88 and y == 80 then captured = text end

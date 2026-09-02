@@ -112,20 +112,20 @@ eq(Game.save.lastOutdoor.id, bootHeal.map,
    "fallback landing is remembered as wLastMap too")
 
 -- --------------------------------------------------------------- 3. blackout
--- A blackout (no opts) still lands on the interior heal cell and re-points
--- LAST_MAP exits at the remembered town door: HandleBlackOut never sets
--- BIT_FLY_WARP, so it is not a special warp destination of its own.
+-- ResetStatusAndHalveMoneyOnBlackout (engine/events/black_out.asm:39-43) SETs
 Game.save.lastHeal = { map = "VIRIDIAN_POKECENTER", x = 3, y = 3,
                        outdoor = { id = "VIRIDIAN_CITY", x = 23, y = 27 } }
 ow:rememberOutdoor("ROUTE_23", 8, 60)
 dest = nil
 ow:warpToHealPoint()
 
-eq(dest.map, "VIRIDIAN_POKECENTER", "blackout still lands at the heal cell")
+eq(dest.map, "VIRIDIAN_CITY", "blackout lands outside, on the town (#2077)")
+eq(dest.x, flyWarps.VIRIDIAN_CITY.x, "blackout lands on the FlyWarpDataPtr x")
+eq(dest.y, flyWarps.VIRIDIAN_CITY.y, "blackout lands on the FlyWarpDataPtr y")
 eq(Game.save.lastOutdoor.id, "VIRIDIAN_CITY",
-   "blackout re-points wLastMap at the remembered town door")
-eq(Game.save.lastOutdoor.x, 23, "blackout keeps the recorded door x")
-eq(Game.save.lastOutdoor.y, 27, "blackout keeps the recorded door y")
+   "blackout re-points wLastMap at the town it landed in")
+eq(Game.save.lastOutdoor.x, dest.x, "blackout wLastMap x follows the landing")
+eq(Game.save.lastOutdoor.y, dest.y, "blackout wLastMap y follows the landing")
 
 ow.startWarpTo = realStart
 S.finish()

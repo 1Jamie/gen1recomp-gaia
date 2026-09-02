@@ -61,7 +61,7 @@ return function(game)
 
   local summary = SummaryMenu.new(game, mon)
   game.stack:push(summary)
-  U.wait(4)
+  U.wait(20)
   U.shot(game, DIR .. "/daycare_00_summary_p1.png")
   summary.page = 2
   U.wait(2)

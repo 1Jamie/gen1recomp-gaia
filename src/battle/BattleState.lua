@@ -2664,7 +2664,7 @@ function BattleState:oldManThrow()
     self:ballChain("TOSS_ANIM", true, 3, "POKE_BALL")
     -- ItemUseBallText05: text_far, sound_caught_mon, text_promptbutton --
     -- the fanfare follows the caught text and holds the prompt
-    self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+    self:sayNextWaitSfx(self:caughtText(),
       function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
   end)
 end
@@ -2751,13 +2751,21 @@ function BattleState:markParticipant()
   end
 end
 
--- the whole choke point is hooked (battle.enemy_action), so a mod can
 -- rewrite any trainer's choice without registering brains
+-- engine/battle/core.asm:339 (SelectEnemyMove)
 function BattleState:enemyAction()
+  self.enemyActionForced = nil
   if Runtime.wantsHook("battle.enemy_action") then
-    return Runtime.call("battle.enemy_action", function(battle)
-      return battle:vanillaEnemyAction()
+    local vanilla, sawVanilla = nil, false
+    local hooked = Runtime.call("battle.enemy_action", function(battle)
+      vanilla = battle:vanillaEnemyAction()
+      sawVanilla = true
+      return vanilla
     end, self)
+    if not sawVanilla or hooked ~= vanilla then
+      self.enemyActionForced = true
+    end
+    return hooked
   end
   return self:vanillaEnemyAction()
 end
@@ -2772,10 +2780,13 @@ function BattleState:vanillaEnemyAction()
     local brain = self.trainer.brain or (class and class.brain)
     if brain then return brain(self) end
   end
-  -- class AI may spend the turn on an item or a switch
-  local classAct = TrainerAI.classAction(self)
-  if classAct then return classAct end
   return TrainerAI.chooseMove(self.enemy, self.rng, self)
+end
+
+-- engine/battle/core.asm:416,454 (callfar TrainerAI)
+-- engine/battle/trainer_ai.asm:290-320, 453-456
+function BattleState:trainerAIAction()
+  return TrainerAI.classAction(self)
 end
 
 local function orderMove(action, data)
@@ -3902,6 +3913,13 @@ function BattleState:executeAction(user, target, action)
   -- faint cases are already covered by the HP guard below (#441)
   if self.result then return end
   if user.mon.hp <= 0 or target.mon.hp <= 0 then return end
+  -- engine/battle/core.asm:416,454
+  -- engine/battle/trainer_ai.asm:453-456
+  if user == self.enemy and not user.isPlayer then
+    local forced = self.enemyActionForced
+    self.enemyActionForced = nil
+    if not forced then action = self:trainerAIAction() or action end
+  end
   if not action then return end
 
   local function run()
@@ -5076,7 +5094,7 @@ function BattleState:safariAction(choice)
       if caught then
         -- ItemUseBallText05: text_far, sound_caught_mon, text_promptbutton --
         -- the fanfare follows the caught text and holds the prompt
-        self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+        self:sayNextWaitSfx(self:caughtText(),
           function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
         -- same ItemUseBall .captured flow as a regular ball
         self:act(function() self:storeCaughtMon() end)
@@ -5252,6 +5270,12 @@ function BattleState:itemUsed(messages, opts)
   self:act(function() self:endOfTurn() end)
 end
 
+-- data/text/text_6.asm:29-35
+function BattleState:caughtText()
+  return self:romText("_ItemUseBallText05", "All right!\n%s was\vcaught!",
+    self.enemy.name)
+end
+
 -- Wobble messages by shake count (ItemUseBallText01..04)
 function BattleState:ballMissMessage(shakes)
   local t = self.data.text
@@ -5394,6 +5418,8 @@ function BattleState:storeCaughtMon()
     self:uiNext(function()
       return self:buildScreen("DexEntryMenu", species)
     end)
+    -- engine/menus/pokedex.asm:581-582
+    self:actNext(function() self.fieldCleared = true end)
   end
   local function askCaughtNickname()
     self:offerNickname(self.enemy.mon, self.enemy.name)
@@ -5553,7 +5579,7 @@ function BattleState:throwBall(ball)
       -- ItemUseBallText05 carries sound_caught_mon (item_effects.asm:
       -- 608-614): text_far, sound_caught_mon, text_promptbutton -- the
       -- fanfare follows the caught message and holds the prompt
-      self:sayNextWaitSfx(Strings("All right!\n%s was\ncaught!", self.enemy.name),
+      self:sayNextWaitSfx(self:caughtText(),
         function() return require("src.core.Sound").play(self.data, "Caught_Mon") end)
       self:act(function() self:storeCaughtMon() end)
     else
@@ -6274,6 +6300,8 @@ end
 
 -- the OAM anim layer (subanimation sprites / the resting caught ball)
 function BattleState:drawAnimLayer(colorized)
+  -- engine/items/item_effects.asm:543
+  if self.fieldCleared then return end
   local colorFn
   if colorized then
     colorFn = function(s, px, py) return self:animSpriteColors(s, px, py) end
@@ -6369,6 +6397,8 @@ end
 -- composites each side into its own region of a taller battlefield, where
 -- neither the other side's pixels nor the classic menu rows apply.
 function BattleState:drawPicsLayer(slide, sx, sy, onlySide, skipMenuClip)
+  -- engine/menus/pokedex.asm:581-582
+  if self.fieldCleared then return end
   -- The move-select boxes are BG tiles on the GB, so they REPLACE the
   -- player pic's rows: the TYPE/PP box at (0,8) (PrintMenuItem) wipes
   -- pic rows 8+, and Mimic's copy menu at (0,7) (MoveSelectionMenu
@@ -6485,6 +6515,8 @@ end
 -- the BG-tile UI: HUDs, pokeball rows, safari ball count.  Grayscale;
 -- the zone pass colors it in colorized mode.
 function BattleState:drawHUDs(slide)
+  -- engine/menus/pokedex.asm:581-582
+  if self.fieldCleared then return end
   -- the HUD clears with the send-out text (ClearScreenArea,
   -- core.asm:1414-1417) and DrawEnemyHUDAndHPBar (1435) only redraws
   -- it after the grow-in + cry

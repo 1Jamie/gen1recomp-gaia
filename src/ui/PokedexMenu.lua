@@ -258,13 +258,11 @@ local function chooseEntry(item, dexList)
 end
 PokedexMenu.onChoose = chooseEntry
 
--- engine/menus/pokedex.asm:256 writes tile $72 in the column left of the
--- name; the port paints the same marker rather than carry a one-tile sheet
-local function drawBall(x, y)
-  love.graphics.circle("fill", x + 4, y + 4, 3.5)
+-- engine/menus/pokedex.asm:256, engine/gfx/load_pokedex_tiles.asm:8-11
+local function drawBall(game, x, y)
+  local DexEntryMenu = require("src.ui.DexEntryMenu")
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.rectangle("fill", x + 0.5, y + 3.5, 7, 1)
-  love.graphics.circle("fill", x + 4, y + 4, 1.2)
+  DexEntryMenu.tile(game, 0x72, x / 8, y / 8)
   love.graphics.setColor(0, 0, 0, 1)
 end
 
@@ -301,7 +299,7 @@ function PokedexMenu:draw()
     local y = FIRST_ROW_Y + (row - 1) * 16
     -- the number sits one row above its name (engine/menus/pokedex.asm:242-246)
     Font.draw(item.num, NUM_X, y - 8)
-    if item.ball then drawBall(BALL_X, y) end
+    if item.ball then drawBall(self.game, BALL_X, y) end
     Font.draw(item.name, NAME_X, y)
     if i == self.index then
       Font.drawCode(self.hollowIndex == i

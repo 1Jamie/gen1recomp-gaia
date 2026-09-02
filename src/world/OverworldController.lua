@@ -293,6 +293,7 @@ function OverworldState:enter(mapId, x, y, facing, opts)
   -- a fresh entry, or a stale flag can freeze player input forever
   self.engaging = false
   self.emote = nil
+  self.fishing = nil
   self.cancelledTrainerSight = nil
   -- volatile WRAM state in pokered; never serialize across save/load
   self.wildEncounterGraceSteps = 0
@@ -2050,6 +2051,61 @@ local function catchFrom(pool, always)
   return nil
 end
 
+-- engine/items/item_effects.asm:1893, engine/overworld/player_animations.asm:378
+local FISH_ANIM = { used = 80, cast = 10, wait = 100,
+                    shake = 30, shakeStep = 3, bubble = 60 }
+local FISH_CAST_AT = FISH_ANIM.used + FISH_ANIM.cast
+local FISH_VERDICT_AT = FISH_CAST_AT + FISH_ANIM.wait
+local FISH_SHAKE_END = FISH_VERDICT_AT + FISH_ANIM.shake
+
+-- engine/overworld/player_animations.asm:378
+function OverworldState.fishAnimFrames(bite)
+  if bite then return FISH_SHAKE_END + FISH_ANIM.bubble end
+  return FISH_VERDICT_AT
+end
+
+-- engine/overworld/player_animations.asm:378, :452
+function OverworldState.stepFishAnim(fa)
+  fa.frames = (fa.frames or 0) + 1
+  local n = fa.frames
+  if n == FISH_CAST_AT then return "cast" end
+  if n < FISH_VERDICT_AT then return nil end
+  if not fa.bite then
+    return n == FISH_VERDICT_AT and "verdict" or nil
+  end
+  if n <= FISH_SHAKE_END then
+    return ((n - FISH_VERDICT_AT) % FISH_ANIM.shakeStep == 1) and "shake" or nil
+  end
+  if n == FISH_SHAKE_END + 1 then return "bubble" end
+  if n == FISH_SHAKE_END + FISH_ANIM.bubble then return "verdict" end
+  return nil
+end
+
+-- engine/overworld/player_animations.asm:378
+function OverworldState:tickFishAnim(fa)
+  local ev = OverworldState.stepFishAnim(fa)
+  if ev == "cast" then
+    self.fishing = { facing = self.player.facing }
+    self.player.fishing = true
+  elseif ev == "shake" then
+    fa.dy = (fa.dy == 1) and 0 or 1
+    self.player.fishShakeDy = fa.dy
+  elseif ev == "bubble" then
+    self.player.fishShakeDy = nil
+    -- engine/overworld/player_animations.asm:424
+    if self.fishing and self.fishing.facing == "up" then
+      self.fishing.hideRod = true
+    end
+    -- engine/overworld/emotion_bubbles.asm:1
+    self.emote = { npc = self.player, frames = FISH_ANIM.bubble, bubble = 1 }
+  elseif ev == "verdict" then
+    self.emote = nil
+    self.player.fishShakeDy = nil
+    if self.fishing then self.fishing.hideRod = nil end
+  end
+  return ev
+end
+
 -- Fishing (engine/items/item_effects.asm FishingInit + engine/overworld):
 -- Old Rod always hooks a L5 Magikarp; Good Rod bites ~1/3 for
 -- Goldeen/Poliwag L10; Super Rod uses the map's extracted fishing group
@@ -2069,39 +2125,47 @@ function OverworldState:goFishing(rod)
   else
     enc = catchFrom(pool, always)
   end
-  -- the bobber waits a beat before the verdict (the original's
-  -- FishingInit dot animation); the rod pose draws in the meantime
-  self.fishing = { facing = self.player.facing }
-  self.player.fishing = true
-  Game.stack:push(TextBox.new(Game, ". . .", function()
-    -- FishingAnim (engine/overworld/player_animations.asm) holds
-    -- BIT_LEDGE_OR_FISHING -- the rod OAM and the fishing pose -- through
-    -- PrintText and only clears it once the verdict box is done, so the rod
-    -- must NOT vanish with the dots box (#321).
-    if not enc then
-      Game.stack:push(TextBox.new(Game, romText(Game.data, "_NoNibbleText", "Not even a nibble!"), function()
-        -- the rod OAM goes out with the verdict box (res BIT_LEDGE_OR_FISHING
-        -- straight after PrintText) but the player keeps the patched tiles
-        -- until the overworld reloads them a few frames later
-        -- (RestoreScreenTilesAndReloadTilePatterns, home/palettes.asm ->
-        -- ReloadMapSpriteTilePatterns, home/reload_sprites.asm) -- #384
-        self.fishing = nil
-        self.fishPose = 10
-      end))
-      return
-    end
-    Game.stack:push(TextBox.new(Game, romText(Game.data, "_ItsABiteText", "Oh!\nIt's a bite!"), function()
-      -- the bite goes straight into battle, which reloads the sprite tiles
+  -- engine/items/item_effects.asm:2855
+  local nothingHere = rod == "SUPER_ROD" and pool == nil
+  local def = (Game.data.items or {})[rod]
+  local used = require("src.inventory.ItemEffects")
+    .itemUseLine(Game.data, Game.save, (def and def.name) or rod)
+  local fa = { frames = 0, bite = enc ~= nil }
+  -- engine/items/item_effects.asm:1893
+  Game.stack:push(TextBox.new(Game, used, function()
+    self:fishVerdict(enc, nothingHere)
+  end, { auto = {
+    wait = false,
+    delay = OverworldState.fishAnimFrames(fa.bite),
+    sound = function()
+      require("src.core.Sound").play(Game.data, "Heal_Ailment")
+    end,
+    tick = function() self:tickFishAnim(fa) end,
+  } }))
+end
+
+function OverworldState:fishVerdict(enc, nothingHere)
+  if not enc then
+    -- engine/overworld/player_animations.asm:463
+    local text = nothingHere
+      and romText(Game.data, "_NothingHereText", "Looks like there's\nnothing here.")
+      or romText(Game.data, "_NoNibbleText", "Not even a nibble!")
+    Game.stack:push(TextBox.new(Game, text, function()
       self.fishing = nil
-      self.player.fishing = nil
-      local BattleState = require("src.battle.BattleState")
-      local battle = BattleState.newWild(Game, enc.species, enc.level, { hooked = true })
-      if Game.save.safari and Map.inRegion(self.map.def, "SAFARI", "SAFARI_ZONE") then
-        battle:makeSafari(Game.save.safari)
-      end
-      battle.onFinish = function(result) self:afterBattle(result, battle) end
-      self:pushBattle(battle)
+      self.fishPose = 10
     end))
+    return
+  end
+  Game.stack:push(TextBox.new(Game, romText(Game.data, "_ItsABiteText", "Oh!\nIt's a bite!"), function()
+    self.fishing = nil
+    self.player.fishing = nil
+    local BattleState = require("src.battle.BattleState")
+    local battle = BattleState.newWild(Game, enc.species, enc.level, { hooked = true })
+    if Game.save.safari and Map.inRegion(self.map.def, "SAFARI", "SAFARI_ZONE") then
+      battle:makeSafari(Game.save.safari)
+    end
+    battle.onFinish = function(result) self:afterBattle(result, battle) end
+    self:pushBattle(battle)
   end))
 end
 
@@ -4139,9 +4203,11 @@ function OverworldState:applyFieldPoison()
         for _, mon in ipairs(save.party) do Pokemon.heal(mon) end
         save.money = math.floor(save.money
           / (FieldDefaults.world(Game.data, "blackoutMoneyDivisor") or 2))
+        local lm, lx, ly = self:escapeWarpTarget()
+        local landing = { map = lm, x = lx, y = ly }
         Runtime.emit("world.blacked_out",
-          { save = save, healTarget = self:healPoint() })
-        self:warpToHealPoint()
+          { save = save, healTarget = self:healPoint(), landing = landing })
+        self:warpToHealPoint(nil, { landing = landing })
       end))
     end
   end
@@ -4721,9 +4787,11 @@ function OverworldState:afterBattle(result, battle)
     end
     Game.save.money = math.floor(Game.save.money
       / (FieldDefaults.world(Game.data, "blackoutMoneyDivisor") or 2))
+    local lm, lx, ly = self:escapeWarpTarget()
+    local landing = { map = lm, x = lx, y = ly }
     Runtime.emit("world.blacked_out",
-      { save = Game.save, healTarget = self:healPoint() })
-    self:warpToHealPoint()
+      { save = Game.save, healTarget = self:healPoint(), landing = landing })
+    self:warpToHealPoint(nil, { landing = landing })
   else
     -- EndTrainerBattle sets BIT_CUR_MAP_LOADED_1 (home/trainers.asm), which
     -- re-runs the floor's door callback: beating the last Rocket Hideout guard
@@ -4853,71 +4921,43 @@ function OverworldState:rememberOutdoor(id, x, y)
   Game.save.lastOutdoor = self.lastOutdoor
 end
 
--- Warp to the last heal point (blackout, ESCAPE ROPE, DIG/TELEPORT).
--- The heal point is usually an interior, so LAST_MAP exits are re-pointed
--- at its remembered town door rather than wherever the player left from.
---
--- opts.arrive = "teleport" for Dig/Teleport/Escape Rope (LeaveMapAnim /
--- EnterMapAnim).  Blackouts omit it: pret HandleBlackOut only
--- GBFadeOutToBlack + PrepareForSpecialWarp + SpecialEnterMap, and never
--- sets BIT_FLY_WARP / BIT_DUNGEON_WARP, so EnterMap never runs EnterMapAnim.
-function OverworldState:warpToHealPoint(onDone, opts)
+-- engine/events/black_out.asm:39-43, engine/overworld/special_warps.asm:71-129
+function OverworldState:escapeWarpTarget()
   local heal = self:healPoint()
+  local out = heal.outdoor or { id = heal.map, x = heal.x, y = heal.y }
+  local fw = (Game.data.field.flyWarps or {})[out.id]
+  local outX = fw and fw.x or out.x
+  local outY = fw and fw.y or out.y
+  local outDef = Game.data.maps[out.id]
+  if not (outDef and outX and outY
+          and Map.isOutside(outDef,
+                FieldDefaults.field(Game.data, "outsideTilesets"))) then
+    local zeroFill = require("src.core.SaveData")
+                     .defaultHeal(Game.data.field.boot)
+    return zeroFill.map, zeroFill.x, zeroFill.y
+  end
+  return out.id, outX, outY
+end
+
+-- Warp to the last heal point (blackout, ESCAPE ROPE, DIG/TELEPORT).
+-- engine/events/black_out.asm:42, home/overworld.asm:23-30 (#96)
+function OverworldState:warpToHealPoint(onDone, opts)
   self.player.surfing = false
   self:syncSurfingPikachu()
   -- HandleFlyWarpOrDungeonWarp + DisplayPlayerBlackedOutText both clear
   -- BIT_ALWAYS_ON_BIKE (home/overworld.asm / home/text_script.asm)
   Game.save.forcedBike = nil
-  local map, x, y = heal.map, heal.x, heal.y
-  local teleport = opts and opts.arrive == "teleport"
-  if teleport then
-    self.arriveWarp = "teleport"
-    -- Dig/Teleport/Escape Rope land OUTSIDE at the last Pokemon Center TOWN
-    -- door, like Fly (#196) -- NOT the interior heal cell a blackout returns
-    -- to.  pret routes escape-warp and blackout both through wLastBlackoutMap
-    -- (LoadSpecialWarpData .usedFlyWarp, engine/overworld/special_warps.asm),
-    -- and that map is ALWAYS an outdoor one: SetLastBlackoutMap copies
-    -- wLastMap (engine/events/set_blackout_map.asm) and WarpFound2 only
-    -- writes wLastMap on outside maps (home/overworld.asm), with the landing
-    -- cell read from FlyWarpDataPtr.  Prefer the canonical Fly landing
-    -- (field.flyWarps, one tile south of the PC door warp), else the
-    -- remembered outdoor door cell.
-    --
-    -- A heal record naming no outdoor town, or naming a map that is not
-    -- outdoors at all, is never a legal escape-warp destination: a .sav
-    -- import stamps lastHeal from wherever the cartridge was saved
-    -- (SaveConvert mergeDefaults), so ESCAPE ROPE was dropping the player
-    -- into the dungeon that save sat in, whose LAST_MAP exits then still
-    -- pointed at the door they had walked in through (#805).  Vanilla's
-    -- zero-filled wLastBlackoutMap is map 0, so an unusable record falls
-    -- back to the boot heal town exactly as a never-healed game does.
-    local out = heal.outdoor or { id = heal.map, x = heal.x, y = heal.y }
-    local fw = (Game.data.field.flyWarps or {})[out.id]
-    local outX = fw and fw.x or out.x
-    local outY = fw and fw.y or out.y
-    local outDef = Game.data.maps[out.id]
-    if not (outDef and outX and outY
-            and Map.isOutside(outDef,
-                  FieldDefaults.field(Game.data, "outsideTilesets"))) then
-      local zeroFill = require("src.core.SaveData")
-                       .defaultHeal(Game.data.field.boot)
-      out, outX, outY = { id = zeroFill.map }, zeroFill.x, zeroFill.y
-    end
-    map, x, y = out.id, outX, outY
+  if opts and opts.arrive == "teleport" then self.arriveWarp = "teleport" end
+  local landing = opts and opts.landing
+  local map, x, y
+  if landing and landing.map then
+    map, x, y = landing.map, landing.x, landing.y
+  else
+    map, x, y = self:escapeWarpTarget()
   end
   self:startWarpTo(map, x, y, "down", onDone)
-  -- Blackouts land at the interior heal cell, so re-point LAST_MAP exits at
-  -- the remembered town door.  The teleport branch re-points at the town it
-  -- just landed on: PrepareForSpecialWarp (engine/overworld/special_warps.asm)
-  -- writes the special-warp destination straight back into wLastMap for every
-  -- fly/escape warp that is not a dungeon warp, so the next LAST_MAP exit
-  -- resolves against that town instead of the dungeon door the player walked
-  -- in through before using the rope (#805).
-  if teleport then
-    self:rememberOutdoor(map, x, y)
-  elseif heal.outdoor then
-    self:rememberOutdoor(heal.outdoor.id, heal.outdoor.x, heal.outdoor.y)
-  end
+  -- PrepareForSpecialWarp (engine/overworld/special_warps.asm:1-29) writes the
+  self:rememberOutdoor(map, x, y)
 end
 
 -- opts.keepMusic: scripted warps mid-cutscene keep the current song
@@ -5593,6 +5633,8 @@ function OverworldState:drawWorld()
   -- fishing pose: the rod tile over the faced water (gfx/fishing.asm)
   local function fxRod()
     if not self.fishing then return end
+    -- engine/overworld/player_animations.asm:424
+    if self.fishing.hideRod then return end
     local fx = Game.data.field.overworldFx
     local rod = fx and fx.fishingRod
     if rod then
@@ -5620,7 +5662,8 @@ function OverworldState:drawWorld()
         local sprite, px, py = p.sprite, p.px, p.py
         local sx, sy = sprite:getScreenOrigin(px, py, cam.x, cam.y)
         local rx = sx + oam.dx
-        local ry = sy + oam.dy
+        -- engine/overworld/player_animations.asm:453
+        local ry = sy + oam.dy + (p.fishShakeDy or 0)
         love.graphics.setColor(1, 1, 1, 1)
         if quad and oam.flip then
           love.graphics.draw(self.rodImg, quad, rx + 8, ry, 0, -1, 1)

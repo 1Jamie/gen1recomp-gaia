@@ -360,7 +360,9 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       -- is what makes that non-cancelable here, same as the RARE_CANDY
       -- call below; without it the stone (already consumed above) could
       -- be cancelled out from under the player (#883)
-      Evolution.evolve(game, target, extra.evolveTo, nil, "ITEM")
+      -- returns to StartMenu_Item (engine/items/item_effects.asm:772-793,
+      -- engine/menus/start_sub_menus.asm:419) #2070
+      Evolution.evolve(game, target, extra.evolveTo, closePicker, "ITEM")
       return
     end
     -- RARE CANDY: after the level text, the stat window, any level-up
@@ -374,6 +376,8 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
       -- mashing A burns through a stack of them (#796)
       -- RareCandyText carries sound_get_item_1
       -- (engine/menus/party_menu.asm:289-293)
+      -- engine/items/item_effects.asm:1394
+      if picker and picker.eraseCursors then picker:eraseCursors() end
       showMessages(game, payload, function()
         local StatBox = require("src.battle.BattleState").StatBox
         local statBox
@@ -430,6 +434,8 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
     -- engine/items/item_effects.asm:1189
     if picker and picker.keepOpen and extra and extra.healedFrom and target then
       picker:animateTo(target, extra.healedFrom, function()
+        -- engine/items/item_effects.asm:1232
+        picker:eraseCursors()
         showMessages(game, payload, function()
           closePicker()
           if battle then
@@ -612,6 +618,8 @@ function BagMenu.new(game, opts)
       -- from the box alone, so this needs opts rather than a change to the
       -- shared Menu.  The old 12/10/8/6 box was a column too wide and a row
       -- too tall, which left the labels stranded near its top edge (#284).
+      -- (engine/menus/start_sub_menus.asm:330-337; home/window.asm:193-206)
+      list.hollowIndex = list.index
       local Menu = require("src.ui.Menu")
       game.stack:push(Menu.new(game, {
         { label = Strings("USE"), onSelect = function()

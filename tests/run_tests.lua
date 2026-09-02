@@ -1475,6 +1475,39 @@ do
     check(cancelled, "PartyMenu onCancel fires on B")
   end
 
+  -- (engine/menus/start_sub_menus.asm:660-693) #2059
+  do
+    local PartyMenu = require("src.ui.PartyMenu")
+    Game.save.party = { Pokemon.new(Data, "BULBASAUR", 5),
+                        Pokemon.new(Data, "CHARMANDER", 6),
+                        Pokemon.new(Data, "SQUIRTLE", 7) }
+    local pm = PartyMenu.new(Game, {})
+    StateStack:push(pm)
+    pm.swapFrom, pm.index = 1, 3
+    Input.pressed = { a = true }
+    StateStack:update(1 / 60)
+    Input.pressed = {}
+    eq(Game.save.party[1].species, "SQUIRTLE", "SWITCH swaps slot 1 with slot 3")
+    eq(Game.save.party[3].species, "BULBASAUR", "SWITCH swaps slot 3 with slot 1")
+    check(pm.swapFrom == nil, "the swap arrow clears on the confirming A")
+    check(pm.swapAnim ~= nil and pm.swapAnim.blank[1] == true,
+          "wSwappedMenuItem's row blanks while SFX_SWAP plays")
+    StateStack:update(1 / 60)
+    check(pm.swapAnim ~= nil, "the blank outlives the frame it started on")
+    for _ = 1, 12 do StateStack:update(1 / 60) end
+    check(pm.swapAnim == nil, "RedrawPartyMenu_ restores the row")
+    -- .pickedMonsToSwap (start_sub_menus.asm:711)
+    pm.swapFrom, pm.index = 2, 2
+    Input.pressed = { a = true }
+    StateStack:update(1 / 60)
+    Input.pressed = {}
+    eq(Game.save.party[2].species, "CHARMANDER", "self-swap leaves the party alone")
+    check(pm.swapAnim ~= nil and pm.swapAnim.blank[2] == true,
+          "self-swap still blanks its own row")
+    for _ = 1, 12 do StateStack:update(1 / 60) end
+    StateStack:pop()
+  end
+
   Game.save.party = savedParty
 end
 
