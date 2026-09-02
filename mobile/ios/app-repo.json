@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.51",
+          "date": "2026-09-02",
+          "size": 21587247,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.51/gen1recomp++-0.2.51-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.50",
           "date": "2026-09-02",
           "size": 21587041,
