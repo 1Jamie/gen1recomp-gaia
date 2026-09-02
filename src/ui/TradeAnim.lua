@@ -736,14 +736,14 @@ end
 function TradeAnim:drawMonInfo(mon, ot, otId, boxTy)
   Font.drawBox(4, boxTy, 12, 8)
   local y0 = boxTy * 8
-  local no = ("No.%03d"):format(dexOf(self.game, mon))
+  local no = Strings("No.%03d", dexOf(self.game, mon))
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 56, y0, Font.width(no), 8)
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(no, 56, y0)
   Font.draw(speciesName(self.game, mon), 40, y0 + 16)
   Font.draw(Strings("OT/%s", ot or "????"), 40, y0 + 32)
-  Font.draw(("IDNo.%05d"):format(otId or 0), 40, y0 + 48)
+  Font.draw(Strings("IDNo.%05d", otId or 0), 40, y0 + 48)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

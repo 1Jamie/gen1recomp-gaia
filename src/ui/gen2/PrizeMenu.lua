@@ -45,8 +45,11 @@
 local Bag = require("src.inventory.Bag")
 local Chrome = require("src.ui.gen2.Chrome")
 local CoinCase = require("src.core.gen2.CoinCase")
+local CommonText = require("src.core.gen2.CommonText")
+local Font = require("src.render.Font")
 local Save = require("src.core.gen2.Save")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local PrizeMenu = {}
 PrizeMenu.__index = PrizeMenu
@@ -93,44 +96,52 @@ end
 --
 -- The Goldenrod Pokemon counter branches on `checkver`: Gold sells EKANS where
 -- Silver sells SANDSHREW, which is the only version difference in the room.
--- The labels are the menu data's literal strings, spaces and all, because their
--- padding is what right-aligns the price column.
+-- The item/mon counters keep name and cost as separate fields (rather than
+-- one hand-padded label) and `priceRight` says which tile column the price's
+-- last digit lands on, so a translated name of a different length than the
+-- English original still leaves the price column right-aligned (#1642-adjacent:
+-- a translated name used to shift or overlap the padded price that followed it
+-- in the same literal).
 PrizeMenu.COUNTERS = {
   CELADON_TM = {
     kind = "item",
     menu = { x = 0, y = 2, w = 16, h = 10 },
+    priceRight = 13,
     prizes = {
-      { id = "TM_DOUBLE_TEAM", label = "TM32    1500", cost = 1500 },
-      { id = "TM_PSYCHIC_M",   label = "TM29    3500", cost = 3500 },
-      { id = "TM_HYPER_BEAM",  label = "TM15    7500", cost = 7500 },
+      { id = "TM_DOUBLE_TEAM", name = Strings.source("TM32"), cost = 1500 },
+      { id = "TM_PSYCHIC_M",   name = Strings.source("TM29"), cost = 3500 },
+      { id = "TM_HYPER_BEAM",  name = Strings.source("TM15"), cost = 7500 },
     },
   },
   CELADON_MON = {
     kind = "mon",
     menu = { x = 0, y = 2, w = 18, h = 10 },
+    priceRight = 16,
     prizes = {
-      { id = "MR__MIME", label = "MR.MIME    3333", cost = 3333, level = 15 },
-      { id = "EEVEE",    label = "EEVEE      6666", cost = 6666, level = 15 },
-      { id = "PORYGON",  label = "PORYGON    9999", cost = 9999, level = 20 },
+      { id = "MR__MIME", name = Strings.source("MR.MIME"), cost = 3333, level = 15 },
+      { id = "EEVEE",    name = Strings.source("EEVEE"),   cost = 6666, level = 15 },
+      { id = "PORYGON",  name = Strings.source("PORYGON"), cost = 9999, level = 20 },
     },
   },
   GOLDENROD_TM = {
     kind = "item",
     menu = { x = 0, y = 2, w = 16, h = 10 },
+    priceRight = 13,
     prizes = {
-      { id = "TM_THUNDER",    label = "TM25    5500", cost = 5500 },
-      { id = "TM_BLIZZARD",   label = "TM14    5500", cost = 5500 },
-      { id = "TM_FIRE_BLAST", label = "TM38    5500", cost = 5500 },
+      { id = "TM_THUNDER",    name = Strings.source("TM25"), cost = 5500 },
+      { id = "TM_BLIZZARD",   name = Strings.source("TM14"), cost = 5500 },
+      { id = "TM_FIRE_BLAST", name = Strings.source("TM38"), cost = 5500 },
     },
   },
   GOLDENROD_MON = {
     kind = "mon",
     menu = { x = 0, y = 2, w = 18, h = 10 },
+    priceRight = 16,
     prizes = {
-      { id = "ABRA",    label = "ABRA        200", cost = 200,  level = 10 },
-      { id = "EKANS",   label = "EKANS       700", cost = 700,  level = 10,
-        silver = { id = "SANDSHREW", label = "SANDSHREW   700" } },
-      { id = "DRATINI", label = "DRATINI    2100", cost = 2100, level = 10 },
+      { id = "ABRA",    name = Strings.source("ABRA"),    cost = 200,  level = 10 },
+      { id = "EKANS",   name = Strings.source("EKANS"),   cost = 700,  level = 10,
+        silver = { id = "SANDSHREW", name = Strings.source("SANDSHREW") } },
+      { id = "DRATINI", name = Strings.source("DRATINI"), cost = 2100, level = 10 },
     },
   },
   -- GameCornerCoinVendorScript's own menu: `menu_coords 0, 4, 15, TEXTBOX_Y - 1`
@@ -140,8 +151,10 @@ PrizeMenu.COUNTERS = {
     kind = "coins",
     menu = { x = 0, y = 4, w = 16, h = 8 },
     prizes = {
-      { amount = 50,  cost = 1000,  label = " 50 :  \xc2\xa51000" },
-      { amount = 500, cost = 10000, label = "500 : \xc2\xa510000" },
+      { amount = 50,  cost = 1000,
+        label = Strings.source(" 50 :  \xc2\xa51000") },
+      { amount = 500, cost = 10000,
+        label = Strings.source("500 : \xc2\xa510000") },
     },
   },
 }
@@ -152,52 +165,92 @@ PrizeMenu.COUNTERS = {
 -- five beats, and the coin vendor a third set again.  All three are transcribed
 -- from the map scripts / data/text/std_text.asm; none are in the cache's
 -- text.lua, because no script bytecode the extractor walks points at them.
-local function page(...) return { ... } end
-local function pages(...) return { ... } end
+local function sourcedPages(source, ...)
+  local args = { ... }
+  local rendered = #args > 0 and source:format(unpack(args)) or source
+  local value = CommonText.pages(rendered)
+  value.source, value.args = source, args
+  return value
+end
+
+local function sourcedPage(source, ...)
+  local value = sourcedPages(source, ...)
+  local first = value[1] or {}
+  first.source, first.args = value.source, value.args
+  return first
+end
+
+local function localizedPages(value)
+  if not (value and value.source) then return value or {} end
+  local translated = #value.args > 0
+    and Strings(value.source, unpack(value.args)) or Strings(value.source)
+  return CommonText.pages(translated) or {}
+end
+
+local function localizedPage(value)
+  if not (value and value.source) then return value or {} end
+  return localizedPages(value)[1] or {}
+end
 
 PrizeMenu.TEXTS = {
   CELADON = {
-    intro = pages(page("Welcome!"),
-      page("We exchange your", "coins for fabulous"),
-      page("prizes!")),
-    which = page("Which prize would", "you like?"),
+    -- gs.CeladonGameCornerPrizeRoom.CeladonPrizeRoom_PrizeVendorIntroText:
+    -- <PARA> then <LINE> then <CONT> -- the last transition scrolls, it does
+    -- not clear to a fresh page.
+    intro = sourcedPages(Strings.source(
+      "Welcome!\fWe exchange your\ncoins for fabulous\vprizes!")),
+    which = sourcedPage(Strings.source("Which prize would\nyou like?")),
     confirm = function(name)
-      return pages(page("OK, so you wanted", ("a %s?"):format(name)))
+      return sourcedPages(Strings.source("OK, so you wanted\na %s?"), name)
     end,
-    hereYouGo = pages(page("Here you go!")),
-    notEnoughCoins = pages(page("You don't have", "enough coins.")),
-    noRoom = pages(page("You have no room", "for it.")),
-    comeAgain = pages(page("Oh. Please come", "back with coins!")),
-    noCoinCase = pages(page("Oh? You don't have", "a COIN CASE.")),
+    hereYouGo = sourcedPages(Strings.source("Here you go!")),
+    notEnoughCoins = sourcedPages(Strings.source(
+      "You don't have\nenough coins.")),
+    noRoom = sourcedPages(Strings.source("You have no room\nfor it.")),
+    comeAgain = sourcedPages(Strings.source(
+      "Oh. Please come\nback with coins!")),
+    noCoinCase = sourcedPages(Strings.source(
+      "Oh? You don't have\na COIN CASE.")),
   },
   GOLDENROD = {
-    intro = pages(page("Welcome!"),
-      page("We exchange your", "game coins for"),
-      page("fabulous prizes!")),
-    which = page("Which prize would", "you like?"),
+    -- gs.GoldenrodGameCorner.GoldenrodGameCornerPrizeVendorIntroText: same
+    -- <PARA>/<LINE>/<CONT> shape as Celadon's above.
+    intro = sourcedPages(Strings.source(
+      "Welcome!\fWe exchange your\ngame coins for\vfabulous prizes!")),
+    which = sourcedPage(Strings.source("Which prize would\nyou like?")),
     confirm = function(name)
-      return pages(page(("%s."):format(name), "Is that right?"))
+      return sourcedPages(Strings.source("%s.\nIs that right?"), name)
     end,
-    hereYouGo = pages(page("Here you go!")),
-    notEnoughCoins = pages(page("Sorry! You need", "more coins.")),
-    noRoom = pages(page("Sorry. You can't", "carry any more.")),
-    comeAgain = pages(page("OK. Please save", "your coins and"),
-      page("come again!")),
-    noCoinCase = pages(page("Oh? You don't have", "a COIN CASE.")),
+    hereYouGo = sourcedPages(Strings.source("Here you go!")),
+    notEnoughCoins = sourcedPages(Strings.source(
+      "Sorry! You need\nmore coins.")),
+    noRoom = sourcedPages(Strings.source(
+      "Sorry. You can't\ncarry any more.")),
+    -- gs.GoldenrodGameCorner.GoldenrodGameCornerPrizeVendorQuitText:
+    -- <LINE> then <CONT>, a scroll, not a fresh page.
+    comeAgain = sourcedPages(Strings.source(
+      "OK. Please save\nyour coins and\vcome again!")),
+    noCoinCase = sourcedPages(Strings.source(
+      "Oh? You don't have\na COIN CASE.")),
   },
   COIN_VENDOR = {
-    intro = pages(page("Welcome to the", "GAME CORNER.")),
-    which = page("Do you need some", "game coins?"),
+    intro = sourcedPages(Strings.source("Welcome to the\nGAME CORNER.")),
+    which = sourcedPage(Strings.source("Do you need some\ngame coins?")),
     bought = {
-      [50] = pages(page("Thank you!", "Here are 50 coins.")),
-      [500] = pages(page("Thank you! Here", "are 500 coins.")),
+      [50] = sourcedPages(Strings.source("Thank you!\nHere are 50 coins.")),
+      [500] = sourcedPages(Strings.source(
+        "Thank you! Here\nare 500 coins.")),
     },
-    notEnoughMoney = pages(page("You don't have", "enough money.")),
-    caseFull = pages(page("Whoops! Your COIN", "CASE is full.")),
-    comeAgain = pages(page("No coins for you?", "Come again!")),
-    noCoinCase = pages(page("Do you need game", "coins?"),
-      page("Oh, you don't have", "a COIN CASE for"),
-      page("your coins.")),
+    notEnoughMoney = sourcedPages(Strings.source(
+      "You don't have\nenough money.")),
+    caseFull = sourcedPages(Strings.source(
+      "Whoops! Your COIN\nCASE is full.")),
+    comeAgain = sourcedPages(Strings.source(
+      "No coins for you?\nCome again!")),
+    -- gs.std_text.CoinVendor_NoCoinCaseText: <LINE>, <PARA>, <LINE>, <CONT> --
+    -- only the last transition scrolls.
+    noCoinCase = sourcedPages(Strings.source(
+      "Do you need game\ncoins?\fOh, you don't have\na COIN CASE for\vyour coins.")),
   },
 }
 
@@ -358,7 +411,7 @@ function PrizeMenu:buildPrizes()
       local swapped = {}
       for k, v in pairs(prize) do swapped[k] = v end
       swapped.id = prize.silver.id
-      swapped.label = prize.silver.label
+      swapped.name = prize.silver.name
       swapped.silver = nil
       out[i] = swapped
     else
@@ -366,16 +419,16 @@ function PrizeMenu:buildPrizes()
     end
   end
   -- Every counter's menu data ends with a literal CANCEL row.
-  out[#out + 1] = { cancel = true, label = "CANCEL" }
+  out[#out + 1] = { cancel = true, label = Strings.source("CANCEL") }
   self.prizes = out
 end
 
 function PrizeMenu:say(list, onDone)
-  self.message = { pages = list or {}, page = 1, onDone = onDone }
+  self.message = { pages = localizedPages(list), page = 1, onDone = onDone }
 end
 
 function PrizeMenu:ask(list, onYes, onNo)
-  self.confirm = { pages = list or {}, page = 1, choice = 1,
+  self.confirm = { pages = localizedPages(list), page = 1, choice = 1,
     onYes = onYes, onNo = onNo }
 end
 
@@ -529,9 +582,31 @@ end
 -- ------------------------------------------------------------------- draw
 function PrizeMenu:drawCoinBox()
   Chrome.textbox(COIN_BOX_X, COIN_BOX_Y, COIN_BOX_W - 2, COIN_BOX_H - 2)
-  Chrome.print("COIN", COIN_LABEL_X, COIN_LABEL_Y)
+  Chrome.print(Strings("COIN"), COIN_LABEL_X, COIN_LABEL_Y)
   Chrome.print(Chrome.number(PrizeMenu.coins(self.save), 4, true),
     COIN_VALUE_X, COIN_VALUE_Y)
+end
+
+-- Glyph-aware (Font.split), so a multi-byte UTF-8 character or a <PK><MN>
+-- macro is never cut mid-sequence: a translated name longer than the tile
+-- budget before the price column would otherwise overlap or run into the
+-- price digits Chrome.print draws right after it.
+local function clampToTiles(text, maxTiles)
+  local spans = Font.split(text)
+  if #spans <= maxTiles then return text end
+  -- maxTiles can land inside a macro's multi-glyph expansion (Font.split's
+  -- "#" -> POKé, four spans that all share one source byte's `to`); cutting
+  -- there with text:sub would still copy the whole source byte, which
+  -- re-expands to all four glyphs on the next Font.split and overshoots the
+  -- budget. Back up to the last span whose source byte the next span does
+  -- NOT share, so an in-progress expansion is dropped whole rather than
+  -- included whole past its budget.
+  local cut = maxTiles
+  while cut > 0 and spans[cut].to == spans[cut + 1].to do
+    cut = cut - 1
+  end
+  if cut == 0 then return "" end
+  return text:sub(1, spans[cut].to)
 end
 
 function PrizeMenu:drawPanel()
@@ -543,7 +618,16 @@ function PrizeMenu:drawPanel()
     for i, prize in ipairs(self.prizes) do
       local ty = menu.y + 2 + (i - 1) * 2
       if i == self.index then Chrome.cursor(menu.x + 1, ty) end
-      Chrome.print(prize.label, menu.x + 2, ty)
+      if prize.name then
+        local priceText = tostring(prize.cost)
+        -- -2, not -1: leaves at least one blank tile between the name and
+        -- the price, same as the original hand-padded literals always did.
+        local nameBudget = self.counter.priceRight - #priceText - 2
+        Chrome.print(clampToTiles(Strings(prize.name), nameBudget), menu.x + 2, ty)
+        Chrome.print(priceText, menu.x + self.counter.priceRight - #priceText + 1, ty)
+      else
+        Chrome.print(Strings(prize.label), menu.x + 2, ty)
+      end
     end
   end
   local lines = nil
@@ -552,7 +636,7 @@ function PrizeMenu:drawPanel()
   elseif self.message then
     lines = self.message.pages[self.message.page]
   elseif self.phase == "menu" then
-    lines = self.text.which
+    lines = localizedPage(self.text.which)
   end
   if lines then
     Chrome.textbox(TEXT_BOX_X, TEXT_BOX_Y, TEXT_BOX_W - 2, TEXT_BOX_H - 2)
@@ -562,8 +646,8 @@ function PrizeMenu:drawPanel()
   end
   if self.confirm and self.confirm.page >= #self.confirm.pages then
     Chrome.textbox(YESNO_X, YESNO_Y, YESNO_W - 2, YESNO_H - 2)
-    Chrome.print("YES", YESNO_X + 2, YESNO_Y + 1)
-    Chrome.print("NO", YESNO_X + 2, YESNO_Y + 3)
+    Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
+    Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)
     Chrome.cursor(YESNO_X + 1, YESNO_Y + 1 + (self.confirm.choice - 1) * 2)
   end
 end

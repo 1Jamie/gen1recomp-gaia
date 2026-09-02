@@ -52,6 +52,11 @@ require("src.core.Logger").warn = function() end
 local Mon = require("src.battle.gen2.Mon")
 local PartyMenu = require("src.ui.gen2.PartyMenu")
 local SummaryMenu = require("src.ui.gen2.SummaryMenu")
+local TypeChart = require("src.battle.TypeChart")
+local Gen2Battle = require("src.battle.gen2.Battle")
+local Registry = require("src.mods.Registry")
+local Schemas = require("src.mods.Schemas")
+local Strings = require("src.core.Strings")
 
 local failures, checks = 0, 0
 local function check(name, got, want)
@@ -148,6 +153,18 @@ local DATA = {
   },
   gen2MenuGfx = {},
 }
+
+local function mergedGen2Statuses()
+  local registry = Registry.new("statuses", Schemas.REGISTRIES.statuses)
+  registry.base = function() return Gen2Battle.STATUSES end
+  registry:patch("poison", { hudLabel = "TOX" }, "translation")
+  registry:register("dizzy", { id = "dizzy", label = "DZY",
+    hudLabel = "DIZ" }, "status_mod")
+  local merged = {}
+  for id in pairs(Gen2Battle.STATUSES) do merged[id] = registry:get(id) end
+  merged.dizzy = registry:get("dizzy")
+  return merged, registry
+end
 
 local function newGame(save)
   return {
@@ -315,6 +332,12 @@ check("a healthy mon reads OK at hlcoord 6,13", at(pink, 6, 13), "OK")
 -- 17 up onto row 16 -- so the second type ends one row under the first.
 check("type 1 at hlcoord 1,15", at(pink, 1, 15), "FIRE")
 check("a single-typed mon has no second type", at(pink, 1, 16), nil)
+DATA.type_chart = { types = { FIRE = { name = "FEU" } } }
+check("the Gen 2 summary uses the type registry's display name",
+  at(screen:pinkPlacements(), 1, 15), "FEU")
+DATA.type_chart = nil
+check("the unloaded Gen 2 curse type keeps its cart display name",
+  TypeChart.displayName("CURSE_TYPE"), "???")
 check("EXP POINTS at hlcoord 10,9", at(pink, 10, 9), "EXP POINTS")
 check("LEVEL UP at hlcoord 10,12", at(pink, 10, 12), "LEVEL UP")
 check("TO at hlcoord 14,14", at(pink, 14, 14), "TO")
@@ -343,6 +366,19 @@ check("type 2 one row below it", at(dualPink, 1, 16), "POISON")
 local sick = newSummary()
 sick.mon = mon("TOTODILE", 10, { fields = { status = "psn" } })
 check("a poisoned mon reads PSN", at(sick:pinkPlacements(), 6, 13), "PSN")
+local mergedStatuses, statusRegistry = mergedGen2Statuses()
+DATA.gen2Statuses = mergedStatuses
+check("a status registry translation reaches the Gen 2 summary",
+  at(sick:pinkPlacements(), 6, 13), "TOX")
+sick.mon.status = "dizzy"
+check("a registered Gen 2 status reaches the summary HUD",
+  at(sick:pinkPlacements(), 6, 13), "DIZ")
+sick.mon.status = "psn"
+check("registering over a built-in Gen 2 status collides",
+  pcall(function()
+    statusRegistry:register("poison", { id = "poison", label = "BAD" }, "bad")
+  end), false)
+DATA.gen2Statuses = nil
 local fainted = newSummary()
 fainted.mon = mon("TOTODILE", 10, { fields = { hp = 0, status = nil } })
 check("a fainted mon reads FNT", at(fainted:pinkPlacements(), 6, 13), "FNT")
@@ -367,6 +403,54 @@ local green = screen:greenPlacements()
 check("ITEM at hlcoord 0,8", at(green, 0, 8), "ITEM")
 check("the held item at hlcoord 6,8", at(green, 6, 8), "BERRY")
 check("MOVE at hlcoord 0,10", at(green, 0, 10), "MOVE")
+
+-- These labels are engine strings rather than ROM text records.  Resolve at
+-- placement time so a catalog loaded after the module still reaches them.
+Strings.load({ strings = {
+  ["STATUS/"] = "ÉTAT/", ["TYPE/"] = "GENRE/",
+  ["EXP POINTS"] = "POINTS EXP", ["LEVEL UP"] = "NIVEAU +",
+  ITEM = "OBJET", MOVE = "CAPACITÉ", ["Where?"] = "Où ?",
+  FNT = "K.O.", OK = "BIEN", ["POKéRUS"] = "POKéVIRUS", TO = "À",
+  PP = "PC", ["ATTK/"] = "ATQ/", ["OT/"] = "DO/",
+  ["<ID>№."] = "<ID>N°", ["№."] = "N°", EGG = "ŒUF",
+  ATTACK = "ATTAQUE",
+  DEFENSE = "DÉFENSE", ["SPCL.ATK"] = "ATQ.SPÉ",
+  ["SPCL.DEF"] = "DÉF.SPÉ", SPEED = "VITESSE",
+  ["This EGG needs a<NEXT>lot more time to<NEXT>hatch."] =
+    "Cet ŒUF demande<NEXT>encore beaucoup de<NEXT>temps.",
+} })
+local translatedPink = screen:pinkPlacements()
+check("STATUS/ is localizable", at(translatedPink, 0, 12), "ÉTAT/")
+check("TYPE/ is localizable", at(translatedPink, 0, 14), "GENRE/")
+check("EXP POINTS is localizable", at(translatedPink, 10, 9), "POINTS EXP")
+check("LEVEL UP is localizable", at(translatedPink, 10, 12), "NIVEAU +")
+check("OK is localizable", at(translatedPink, 6, 13), "BIEN")
+check("TO is localizable", at(translatedPink, 14, 14), "À")
+local translatedGreen = screen:greenPlacements()
+check("ITEM is localizable", at(translatedGreen, 0, 8), "OBJET")
+check("MOVE is localizable", at(translatedGreen, 0, 10), "CAPACITÉ")
+check("PP is localizable", at(translatedGreen, 12, 11), "PC")
+screen.swapFrom = 1
+check("the move destination prompt is localizable",
+  at(screen:moveDetailPlacements(), 1, 12), "Où ?")
+screen.swapFrom = nil
+check("FNT is localizable", at(fainted:pinkPlacements(), 6, 13), "K.O.")
+check("POKéRUS is localizable",
+  at(pkrs:pinkPlacements(), 1, 13), "POKéVIRUS")
+check("the ID label is localizable",
+  at(screen:bluePlacements(), 0, 9), "<ID>N°")
+check("the OT label is localizable", at(screen:bluePlacements(), 0, 12), "DO/")
+check("the dex number label is localizable",
+  at(screen:upperPlacements(), 8, 0), "N°")
+check("stat labels are localizable",
+  at(screen:bluePlacements(), 11, 8), "ATTAQUE")
+check("ATTK is localizable",
+  at(screen:moveDetailPlacements(), 11, 12), "ATQ/")
+screen.mon = { isEgg = true, eggSteps = 41 }
+check("EGG is localizable", at(screen:eggPlacements(), 8, 1), "ŒUF")
+check("complete egg prose is localizable",
+  at(screen:eggPlacements(), 1, 9), "Cet ŒUF demande")
+Strings.load(nil)
 -- ListMoves runs at (8,10) with wListMovesLineSpacing = SCREEN_WIDTH * 2.
 check("move 1 at hlcoord 8,10", at(green, 8, 10), "TACKLE")
 check("move 2 two rows down", at(green, 8, 12), "EMBER")

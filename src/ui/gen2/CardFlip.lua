@@ -56,6 +56,7 @@
 local Chrome = require("src.ui.gen2.Chrome")
 local CoinCase = require("src.core.gen2.CoinCase")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local CardFlip = {}
 CardFlip.__index = CardFlip
@@ -303,15 +304,39 @@ local TEXT_X, TEXT_Y, TEXT_LINE = 1, 14, 2
 -- data/text/common_3.asm; none of these are in the cache's text.lua, because no
 -- script bytecode the extractor walks points at them.
 CardFlip.TEXTS = {
-  playWithThree = { "Play with", "3 coins?" },
-  notEnough = { "Not enough", "coins." },
-  chooseACard = { "Choose a", "card." },
-  placeYourBet = { "Place", "your bet" },
-  playAgain = { "Play", "again?" },
-  shuffled = { "The cards", "shuffled." },
-  yeah = { "Yeah!" },
-  darn = { "Darn…" },
+  playWithThree = { "Play with", "3 coins?",
+    source = Strings.source("Play with\n3 coins?") },
+  notEnough = { "Not enough", "coins.",
+    source = Strings.source("Not enough\ncoins.") },
+  chooseACard = { "Choose a", "card.",
+    source = Strings.source("Choose a\ncard.") },
+  placeYourBet = { "Place", "your bet",
+    source = Strings.source("Place\nyour bet") },
+  playAgain = { "Play", "again?",
+    source = Strings.source("Play\nagain?") },
+  shuffled = { "The cards", "shuffled.",
+    source = Strings.source("The cards\nshuffled.") },
+  yeah = { "Yeah!", source = Strings.source("Yeah!") },
+  darn = { "Darn…", source = Strings.source("Darn…") },
 }
+
+-- Deliberately \n-only, unlike CommonText.pages/pagesOf elsewhere in Gen2
+-- UI: every entry in CardFlip.TEXTS above is a fixed two-line cart message,
+-- and the box it draws into (TEXT_BOX_H = 6, TEXT_LINE = 2) only has room
+-- for two printed lines before a third would land past its bottom edge. The
+-- draw loop has no page break at all, so a translation that needs a third
+-- line here would silently overflow instead of paginating -- route through
+-- CommonText.pages instead if that is ever needed.
+local function localizedLines(lines)
+  if not (lines and lines.source) then return lines or {} end
+  local translated = Strings(lines.source)
+  if translated == lines.source then return lines end
+  local out = {}
+  for line in (translated .. "\n"):gmatch("(.-)\n") do
+    out[#out + 1] = line
+  end
+  return out
+end
 
 local SFX_TRANSACTION = "Sfx_Transaction"
 local SFX_KINESIS = "Sfx_Kinesis"
@@ -935,14 +960,14 @@ function CardFlip:drawPanel()
   -- Dialogue / Message box at (0, 12), 10 wide, 6 tall (interior 8x4)
   if self.lines then
     Chrome.textbox(TEXT_BOX_X, TEXT_BOX_Y, 8, 4)
-    for i, line in ipairs(self.lines) do
+    for i, line in ipairs(localizedLines(self.lines)) do
       Chrome.print(line, TEXT_X, TEXT_Y + (i - 1) * TEXT_LINE)
     end
   end
 
   -- Coin box at (9, 15), 11 wide, 3 tall (interior 9x1)
   Chrome.textbox(COIN_BOX_X, COIN_BOX_Y, 9, 1)
-  Chrome.print("COIN", COIN_LABEL_X, COIN_LABEL_Y)
+  Chrome.print(Strings("COIN"), COIN_LABEL_X, COIN_LABEL_Y)
   Chrome.print(Chrome.number(self:coins(), 4, true), COIN_VALUE_X, COIN_VALUE_Y)
 
   if self.phase == "bet" then
@@ -956,8 +981,8 @@ function CardFlip:drawPanel()
   if self.phase == "ask" or self.phase == "again" then
     -- YesNoBox: a 6x5 box at (14,7) with YES at (16,8) and NO at (16,10).
     Chrome.textbox(14, 7, 4, 3)
-    Chrome.print("YES", 16, 8)
-    Chrome.print("NO", 16, 10)
+    Chrome.print(Strings("YES"), 16, 8)
+    Chrome.print(Strings("NO"), 16, 10)
     Chrome.cursor(15, 8 + (self.choice - 1) * 2)
   end
 end
@@ -978,4 +1003,3 @@ function CardFlip:drawWidescreen(winW, winH)
 end
 
 return CardFlip
-

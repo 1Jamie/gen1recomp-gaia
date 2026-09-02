@@ -121,6 +121,7 @@ function ShaderFXScreen.new(game, slot)
         self.footer = Strings("Reinstall the app")
         return
       end
+      ShaderFX.clearBridgeQuarantine()
       local ok, err = ShaderFX.convert(item.entry)
       if not ok then
         require("src.core.Logger").error("ShaderFXScreen: convert failed for %s: %s",
@@ -139,6 +140,7 @@ function ShaderFXScreen.new(game, slot)
       -- isConverted() is existence-only with no staleness check, so an explicit
       -- selection always reconverts. Human-paced, CPU-only, never per frame.
       if canConvert then
+        ShaderFX.clearBridgeQuarantine()
         local convOk, convErr = ShaderFX.convert(item.entry)
         if not convOk then
           require("src.core.Logger").error("ShaderFXScreen: reconvert failed for %s: %s",

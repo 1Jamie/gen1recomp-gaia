@@ -41,6 +41,7 @@ local GEN2_ROOTS = {
   pokemon = "pokemon", moves = "moves", items = "items",
   type_chart = "type_chart", audio = "audio", font = "font",
   gen2Maps = "maps", gen2Tilesets = "tilesets", gen2Text = "text",
+  text = "rom_text",
   gen2Trainers = "trainers", gen2Encounters = "encounters",
   gen2Sprites = "sprites", gen2Palettes = "palettes",
   gen2Icons = "icons", gen2BattleAnims = "battle_anims",

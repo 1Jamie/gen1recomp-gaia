@@ -300,6 +300,16 @@ function Decorations.useRegistry(data)
   return registryRows ~= nil
 end
 
+-- GetDecoName's grammar.  These are templates rather than translated suffix
+-- fragments so a language can move the kind before or after the authored
+-- colour/species name.  Strings.source keeps the templates visible to the
+-- translation catalog while the lookup stays at use time, after mods load.
+local BED_NAME = Strings.source("%s BED")
+local CARPET_NAME = Strings.source("%s CARPET")
+local POSTER_NAME = Strings.source("%s POSTER")
+local DOLL_NAME = Strings.source("%s DOLL")
+local BIG_DOLL_NAME = Strings.source("BIG %s")
+
 -- GetDecoName: the display name, built from the type and the name column.  The
 -- four types that name a SPECIES read the mon's name out of the data table,
 -- which is what `monName` is for; with no resolver the constant is already the
@@ -308,12 +318,12 @@ function Decorations.name(decoId, monName)
   local attr = Decorations.attributes(decoId)
   if not attr then return "" end
   local base = attr.name
-  if attr.type == BED then return base .. " BED" end
-  if attr.type == CARPET then return base .. " CARPET" end
+  if attr.type == BED then return Strings(BED_NAME, base) end
+  if attr.type == CARPET then return Strings(CARPET_NAME, base) end
   local mon = (monName and monName(base)) or base
-  if attr.type == POSTER then return mon .. " POSTER" end
-  if attr.type == DOLL then return mon .. " DOLL" end
-  if attr.type == BIGDOLL then return "BIG " .. mon end
+  if attr.type == POSTER then return Strings(POSTER_NAME, mon) end
+  if attr.type == DOLL then return Strings(DOLL_NAME, mon) end
+  if attr.type == BIGDOLL then return Strings(BIG_DOLL_NAME, mon) end
   return base
 end
 

@@ -31,6 +31,7 @@ local Assets = require("src.render.Assets")
 local Chrome = require("src.ui.gen2.Chrome")
 local Font = require("src.render.Font")
 local Mail = require("src.core.gen2.Mail")
+local Strings = require("src.core.Strings")
 
 local MailCompose = {}
 MailCompose.__index = MailCompose
@@ -73,8 +74,12 @@ local MAIL_INPUT_LOWER = {
 -- labels land on columns 1, 8 and 14.  The cursor is a sprite on the cart
 -- (.CaseDelEnd's $00/$30/$60 x offsets); here it is the same ▶ the naming
 -- screen falls back to, one column left of each label.
-local BOTTOM_LABELS = { "lower", "DEL", "END" }
-local BOTTOM_UPPER_LABELS = { "UPPER", "DEL", "END" }
+local BOTTOM_LABELS = {
+  Strings.source("lower"), Strings.source("DEL"), Strings.source("END"),
+}
+local BOTTOM_UPPER_LABELS = {
+  Strings.source("UPPER"), Strings.source("DEL"), Strings.source("END"),
+}
 local BOTTOM_LABEL_TX = { 1, 8, 14 }
 local BOTTOM_CURSOR_TX = { 0, 7, 13 }
 
@@ -311,7 +316,7 @@ function MailCompose:drawPanel()
   local labels = self.lower and BOTTOM_UPPER_LABELS or BOTTOM_LABELS
   local bottomY = KEYBOARD_TOP + BOTTOM_ROW * 2
   for i, label in ipairs(labels) do
-    Chrome.print(label, BOTTOM_LABEL_TX[i], bottomY)
+    Chrome.print(Strings(label), BOTTOM_LABEL_TX[i], bottomY)
   end
 
   local cursorTx, cursorTy

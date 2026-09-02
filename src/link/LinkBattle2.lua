@@ -10,6 +10,13 @@ local Strings = require("src.core.Strings")
 
 local LinkBattle2 = {}
 
+-- BattleState:refuseMenu already wraps its argument in Strings() (needed by
+-- every other caller, which passes a raw Strings.source() marker); these two
+-- used to pre-translate before that, which is now a harmless-in-practice but
+-- real double Strings() call on an already-translated string.
+local TEXT_NO_ITEMS_IN_LINK = Strings.source("Items can't be used in a link battle!")
+local TEXT_NO_RUNNING_IN_LINK = Strings.source("No running from a link battle!")
+
 local function makeRandom(seed, owner)
   local s = tonumber(seed) or 1
   if s ~= s or s == math.huge or s == -math.huge then s = 1 end
@@ -304,10 +311,10 @@ function LinkBattle2.new(game, net, opts)
   hooks.submit = function(s, action)
     if ended then return end
     if action.kind == "item" then
-      return s:refuseMenu(Strings("Items can't be used in a link battle!"))
+      return s:refuseMenu(TEXT_NO_ITEMS_IN_LINK)
     end
     if action.kind == "run" then
-      return s:refuseMenu(Strings("No running from a link battle!"))
+      return s:refuseMenu(TEXT_NO_RUNNING_IN_LINK)
     end
     local msg = encodeAction(battle, action)
     send(msg)
@@ -318,11 +325,11 @@ function LinkBattle2.new(game, net, opts)
 
   hooks.menuChoice = function(s, choice)
     if choice == "item" then
-      s:refuseMenu(Strings("Items can't be used in a link battle!"))
+      s:refuseMenu(TEXT_NO_ITEMS_IN_LINK)
       return true
     end
     if choice == "run" then
-      s:refuseMenu(Strings("No running from a link battle!"))
+      s:refuseMenu(TEXT_NO_RUNNING_IN_LINK)
       return true
     end
     return false

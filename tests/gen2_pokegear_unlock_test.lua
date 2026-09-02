@@ -29,6 +29,7 @@ require("src.core.Logger").warn = function() end
 
 local Pokegear = require("src.ui.gen2.Pokegear")
 local Save = require("src.core.gen2.Save")
+local Strings = require("src.core.Strings")
 local StartMenu = require("src.ui.gen2.StartMenu")
 local Vm = require("src.script.gen2.Vm")
 local World = require("src.world.gen2.World")
@@ -263,6 +264,59 @@ do
     "and 13.5 resolves the ????? station at the Ruins of Alph")
   local away = stationAt(save, "LANDMARK_NEW_BARK_TOWN", 52)
   eq(away and away.station, nil, "which is dead air anywhere else")
+end
+
+-- Station presentation is the radio_channels registry's concern; the show id
+-- and dial mechanics stay unchanged.  Fixed show prose resolves through the
+-- strings catalog only when the machine prints it.
+do
+  local save = Save.newGame()
+  local world = newWorld(save)
+  world:setEngineFlag(3, true)
+  local game = newGame(save)
+  game.data.gen2RadioChannels = {
+    POKE_FLUTE_RADIO = { channel = 7, name = "FLÛTE RADIO" },
+  }
+  local gear = Pokegear.new(game, { save = save, landmarks = LANDMARKS,
+    currentLandmark = "LANDMARK_VERMILION_CITY" })
+  eq(gear:stations()[7].name, "FLÛTE RADIO",
+    "the Pokegear consumes a registry-patched station name")
+
+  Strings.load({ strings = {
+    ["MARY: PROF.OAK'S"] = "MARIE : PROF.CHEN",
+    -- Registry-authored display values are complete content, not source keys.
+    ["FLÛTE RADIO"] = "THIS MUST NOT BE USED",
+  } })
+  eq(gear:stations()[7].name, "FLÛTE RADIO",
+    "a mod-authored station name is not translated a second time")
+
+  Strings.load({ strings = {
+    CLOCK = "HORLOGE", MAP = "CARTE", PHONE = "TÉLÉPHONE",
+    RADIO = "RADIO FR", FLY = "VOL", AM = "MATIN", PM = "SOIR",
+    ["Whom do you want to call?"] = "Qui voulez-vous appeler ?",
+  } })
+  eq(gear:cardLabel(Pokegear.CARDS[1]), "HORLOGE", "CLOCK is localizable")
+  eq(gear:cardLabel(Pokegear.CARDS[2]), "CARTE", "MAP is localizable")
+  eq(gear:cardLabel(Pokegear.CARDS[3]), "TÉLÉPHONE", "PHONE is localizable")
+  eq(gear:cardLabel(Pokegear.CARDS[4]), "RADIO FR", "RADIO is localizable")
+  local flyGear = Pokegear.new(game, {
+    save = save, landmarks = LANDMARKS,
+    currentLandmark = "LANDMARK_VERMILION_CITY",
+    fly = { { name = "VERMILION", landmark = "LANDMARK_VERMILION_CITY" } },
+  })
+  eq(flyGear:cardLabel(), "VOL", "FLY is localizable")
+  eq(gear:phoneText("AskWhoCall"), "Qui voulez-vous appeler ?",
+    "the complete built-in phone prompt is localizable")
+
+  Strings.load({ strings = {
+    ["MARY: PROF.OAK'S"] = "MARIE : PROF.CHEN",
+  } })
+  local radio = Pokegear.Radio.new()
+  radio:tune("OAKS_POKEMON_TALK")
+  radio:step()
+  eq(radio.top, "MARIE : PROF.CHEN",
+    "radio show prose resolves through the strings catalog")
+  Strings.load(nil)
 end
 
 -- ---- ExitPokegearRadio_HandleMusic -----------------------------------------

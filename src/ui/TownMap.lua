@@ -18,6 +18,7 @@ local GameVersion = require("src.core.GameVersion")
 local PaletteFX = require("src.render.PaletteFX")
 local Sound = require("src.core.Sound")
 local SpriteRenderer = require("src.render.SpriteRenderer")
+local Strings = require("src.core.Strings")
 local Theme = require("src.ui.Theme")
 
 local TownMap = {}
@@ -171,7 +172,22 @@ end
 -- the row-0 name banner; fly mode prefixes "To " like LoadTownMap_Fly
 -- (engine/menus/town_map.asm prints the destination as "To <NAME>")
 function TownMap:bannerText(loc)
-  return (self.fly and "To " or "") .. loc.name
+  local name = Strings(loc.name)
+  return self.fly and Strings("To %s", name) or name
+end
+
+-- The fly strip reserves its last two tiles for the up/down arrows.  Fit the
+-- composed translation as one unit so a wider/reordered prefix cannot collide
+-- with the destination or draw under those controls.
+local function fitFlyBanner(text)
+  local spans = Font.split(text)
+  local n = Font.spansFitting(spans, 144)
+  if n >= #spans then return text end
+  local out = {}
+  for i = 1, math.max(0, n - 1) do
+    out[#out + 1] = text:sub(spans[i].from, spans[i].to)
+  end
+  return table.concat(out) .. "."
 end
 
 -- Fly mode selection set (engine/menus/town_map.asm LoadTownMap_Fly): the
@@ -432,7 +448,7 @@ function TownMap:draw()
         -- engine/items/town_map.asm:403
         Font.drawBox(1, 7, 17, 4)
         love.graphics.setColor(0, 0, 0, 1)
-        Font.draw(" AREA UNKNOWN", 16, 72)
+        Font.draw(" " .. Strings("AREA UNKNOWN"), 16, 72)
         love.graphics.setColor(1, 1, 1, 1)
       end
       love.graphics.rectangle("fill", 0, 0, 160, 8)
@@ -440,7 +456,7 @@ function TownMap:draw()
       local def = self.game.data.pokemon[self.nestSpecies]
       local name = def and def.name or self.nestSpecies
       -- engine/items/town_map.asm:124
-      Font.draw(name .. "'s NEST", 8, 0)
+      Font.draw(Strings("%s's NEST", name), 8, 0)
       love.graphics.setColor(1, 1, 1, 1)
       return
     end
@@ -489,8 +505,9 @@ function TownMap:draw()
     love.graphics.setColor(0, 0, 0, 1)
     if self.fly then
       -- engine/items/town_map.asm:167, 176, 185
-      Font.draw("To", 0, 0)
-      if selected then Font.draw(selected.name, 24, 0) end
+      if selected then
+        Font.draw(fitFlyBanner(self:bannerText(selected)), 0, 0)
+      end
       self:drawFlyArrows()
     elseif selected then
       Font.draw(self:bannerText(selected), 8, 0)
@@ -541,18 +558,20 @@ function TownMap:draw()
       local loc = self.locs[first + i]
       if loc then
         local y = 40 + i * 16
+        local name = Strings(loc.name)
         -- cursor in list mode (Fly mode) is static in RBY (LoadTownMap_Fly)
         if first + i == self.sel then
           Font.drawCode(0xED, 8, y)  -- the "▶" cursor glyph
         end
-        Font.draw(loc.name, 24, y)
+        Font.draw(name, 24, y)
         -- player marker is static
         if loc == self.playerLoc then
           -- marker on the player's current town; force the palette-safe
           -- dark shade explicitly so the red-channel shade-remap keeps it
           -- visible regardless of Font.draw's leftover color (#152)
           love.graphics.setColor(0, 0, 0, 1)
-          love.graphics.rectangle("fill", 24 + #loc.name * 8 + 6, y + 2, 4, 4)
+          love.graphics.rectangle("fill", 24 + Font.width(name) + 6,
+                                  y + 2, 4, 4)
         end
       end
     end
@@ -561,7 +580,10 @@ function TownMap:draw()
   -- name banner across the top
   Font.drawBox(0, 0, 20, 3)
   love.graphics.setColor(0, 0, 0, 1)
-  if selected then Font.draw(self:bannerText(selected), 8, 8) end
+  if selected then
+    local text = self:bannerText(selected)
+    Font.draw(self.fly and fitFlyBanner(text) or text, 8, 8)
+  end
   love.graphics.setColor(1, 1, 1, 1)
 end
 

@@ -58,16 +58,16 @@ PcMenu.isOpaque = true
 -- draws two tiles rather than seven -- which is the only reason "MOVE <PK><MN>
 -- W/O MAIL" fits inside a 20-tile screen.
 local ENTRIES = {
-  { id = "withdraw", label = "WITHDRAW <PK><MN>" },
-  { id = "deposit", label = "DEPOSIT <PK><MN>" },
-  { id = "changebox", label = "CHANGE BOX" },
-  { id = "move", label = "MOVE <PK><MN> W/O MAIL" },
+  { id = "withdraw", label = Strings.source("WITHDRAW <PK><MN>"), builtin = true },
+  { id = "deposit", label = Strings.source("DEPOSIT <PK><MN>"), builtin = true },
+  { id = "changebox", label = Strings.source("CHANGE BOX"), builtin = true },
+  { id = "move", label = Strings.source("MOVE <PK><MN> W/O MAIL"), builtin = true },
   -- PLAYERSPCITEM_MAIL_BOX (engine/events/pokecenter_pc.asm), which BOTH
   -- .WhichPC lists carry: the MAILBOX is on the item PC in a Pokecenter and in
   -- the bedroom alike, unlike DECORATION below.  It sits here because this
   -- port folds the item PC's menu into the storage one.
-  { id = "mailbox", label = "MAIL BOX" },
-  { id = "seeya", label = "SEE YA!" },
+  { id = "mailbox", label = Strings.source("MAIL BOX"), builtin = true },
+  { id = "seeya", label = Strings.source("SEE YA!"), builtin = true },
 }
 
 -- PLAYERSPCITEM_DECORATION, the one row the bedroom's PC has that a
@@ -75,7 +75,9 @@ local ENTRIES = {
 -- carries it, PLAYERSPC_NORMAL does not).  It belongs to the item PC's menu on
 -- the cart, which this port folds into the storage menu the same way both PCs
 -- are folded -- so it hangs off the same list, gated on `house`.
-local DECORATION = { id = "decoration", label = "DECORATION" }
+local DECORATION = {
+  id = "decoration", label = Strings.source("DECORATION"), builtin = true,
+}
 
 -- The exit row.  It is a member of ENTRIES (it is one of _BillsPC's five), but
 -- the list is assembled without it and it is put back on the end AFTER the
@@ -155,8 +157,21 @@ function PcMenu.new(game, opts)
   -- .CheckCanUsePC: an empty party gets the "You'll need a POKéMON" line and
   -- the PC never opens.  Kept here rather than at the call site so every route
   -- into the PC (the overworld script, a driver, a mod) gets the same gate.
+  -- Boxes.lua's own \f is the same catalog key BoxMenu.lua's
+  -- BOX_FAILURE_SOURCES already declares for this string; split the
+  -- translated result on it into notice()'s page-per-string shape rather
+  -- than calling notice() itself, which would also reset messageCloses to
+  -- false -- this refusal closes the PC, the mail-holding one does not.
   local ok, reason = Boxes.canUsePc(self.save)
-  if not ok then self.message = reason end
+  if not ok then
+    local pages = {}
+    for page in (Strings(reason) .. "\f"):gmatch("(.-)\f") do
+      pages[#pages + 1] = page
+    end
+    self.message = pages[1]
+    self.messagePages = pages
+    self.messagePage = 1
+  end
   return self
 end
 
@@ -441,7 +456,7 @@ function PcMenu:drawPanel()
       return
     end
     Chrome.box(0, 14, 20, 4)
-    Chrome.print("Which BOX?", 1, 16)
+    Chrome.print(Strings("Which BOX?"), 1, 16)
     love.graphics.setColor(1, 1, 1, 1)
     return
   end
@@ -452,7 +467,7 @@ function PcMenu:drawPanel()
   -- the way the cart's windows stack (src/ui/gen2/ItemPcMenu.lua does the
   -- same with the house's six-row item list).
   Chrome.box(0, 12, 20, 6)
-  Chrome.print("What?", 1, 14)
+  Chrome.print(Strings("What?"), 1, 14)
 
   -- ClearPCItemScreen: Textbox at (0,0) with a 10x18 interior, and a second
   -- at (0,12) with a 4x18 one.  GetMenuTextStartCoord then puts the first
@@ -466,7 +481,7 @@ function PcMenu:drawPanel()
   for i, entry in ipairs(self.entries) do
     local ty = i * 2
     if i == self.index then Chrome.cursor(1, ty) end
-    Chrome.print(entry.label, 2, ty)
+    Chrome.print(entry.builtin and Strings(entry.label) or entry.label, 2, ty)
   end
   love.graphics.setColor(1, 1, 1, 1)
 end

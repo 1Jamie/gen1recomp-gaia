@@ -335,9 +335,51 @@ end
 local lib
 local libError
 
+-- Survives only when a previous run died inside the bridge (#2092, #2098).
+ShaderFX.PROBE_REL = "shaderfx-bridge.probe"
+
+local function probeFs()
+  return love and love.filesystem or nil
+end
+
+local function probeArmed()
+  local fs = probeFs()
+  if not (fs and fs.getInfo) then return nil end
+  local ok, info = pcall(fs.getInfo, ShaderFX.PROBE_REL)
+  if not ok or not info then return nil end
+  local okR, body = pcall(fs.read, ShaderFX.PROBE_REL)
+  return (okR and body and body ~= "") and body or "unknown"
+end
+
+local function armProbe(tag)
+  local fs = probeFs()
+  if not (fs and fs.write) then return end
+  pcall(fs.write, ShaderFX.PROBE_REL, tostring(tag))
+end
+
+local function disarmProbe()
+  local fs = probeFs()
+  if not (fs and fs.remove) then return end
+  pcall(fs.remove, ShaderFX.PROBE_REL)
+end
+
+-- A boot that died inside dlopen or the translate call leaves the probe file
+-- behind; the next boot refuses the bridge instead of freezing again.
+function ShaderFX.clearBridgeQuarantine()
+  disarmProbe()
+  if libError and libError:find("quarantined", 1, true) then libError = nil end
+end
+
 local function ensureLib()
   if lib then return lib end
   if libError then return nil, libError end
+  local armed = probeArmed()
+  if armed then
+    libError = "librashader bridge quarantined after a failed load (" .. armed
+      .. "); reinstalling the app or re-selecting the preset retries it"
+    ShaderFX.recordError("bridge", libError)
+    return nil, libError
+  end
   local okFfi, ffi = pcall(require, "ffi")
   if not okFfi or type(ffi) ~= "table" then
     libError = "this build has no ffi, so presets cannot be converted here"
@@ -352,7 +394,9 @@ local function ensureLib()
     -- A bare name goes to the system loader; a path only when a file is there.
     local bare = not path:find("[/\\]")
     if bare or fileReadable(path) then
+      armProbe("dlopen " .. path)
       local ok, loaded = pcall(ffi.load, path)
+      disarmProbe()
       if ok then lib = loaded; return lib end
     end
     tried[#tried + 1] = path
@@ -392,7 +436,9 @@ function ShaderFX.translate(fullPath, es)
   local ok, l, lerr = pcall(ensureLib)
   if not ok then return nil, "ffi.load failed: " .. tostring(l) end
   if not l then return nil, tostring(lerr or libError or "librashader bridge not available") end
+  armProbe("call " .. tostring(fullPath))
   local ptr = l.librashader_translate_preset(fullPath, es and 1 or 0)
+  disarmProbe()
   if ptr == nil then return nil, "librashader_translate_preset returned NULL" end
   local json = ffi.string(ptr)
   l.librashader_free_string(ptr)
@@ -960,15 +1006,21 @@ function ShaderFX.applyOptions(opts)
         ShaderFX.deactivate(slot)
         cleared = true
       else
-        -- isConverted() is existence-only with no staleness check, so a saved
-        -- choice reconverts here too -- at boot/options-save, never per frame.
-        local convOk, convErr = ShaderFX.convert(entry)
-        if not convOk then
-          require("src.core.Logger").error("ShaderFX.applyOptions: reconvert failed for %s (%s): %s",
-            want, slot, tostring(convErr))
+        -- A cached artifact boots without touching the native bridge; a
+        -- missing or stale one converts here, never per frame (#2092, #2098).
+        if not ShaderFX.isConverted(entry) then
+          local convOk, convErr = ShaderFX.convert(entry)
+          if not convOk then
+            require("src.core.Logger").error("ShaderFX.applyOptions: convert failed for %s (%s): %s",
+              want, slot, tostring(convErr))
+          end
         end
         local paramOverrides = opts.shaderfxParams and opts.shaderfxParams[entry.name]
         local ok, err = ShaderFX.activate(slot, entry, paramOverrides)
+        if not ok and ShaderFX.isConverted(entry) and ShaderFX.canConvert() then
+          local convOk = ShaderFX.convert(entry)
+          if convOk then ok, err = ShaderFX.activate(slot, entry, paramOverrides) end
+        end
         if not ok then
           require("src.core.Logger").error("ShaderFX.applyOptions: %s (%s) failed to activate: %s",
             want, slot, tostring(err))

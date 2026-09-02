@@ -167,8 +167,8 @@ local SEMANTIC_MODULES = {
   },
   [2] = {
     "pokemon", "moves", "items", "type_chart", "audio", "font", "maps",
-    "tilesets", "text", "trainers", "encounters", "sprites", "palettes",
-    "icons", "battle_anims", "constants", "landmarks",
+    "tilesets", "text", "rom_text", "trainers", "encounters", "sprites",
+    "palettes", "icons", "battle_anims", "constants", "landmarks",
   },
 }
 

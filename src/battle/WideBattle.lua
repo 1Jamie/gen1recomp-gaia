@@ -255,7 +255,12 @@ local function drawMoveDetails(battle, move)
   local maxPP = def.pp + (move.ppUps or 0) * math.floor(def.pp / 5)
   love.graphics.setColor(0, 0, 0, 1)
   Font.draw(("PP %2d/%2d"):format(move.pp or 0, maxPP), 232, 112)
-  Font.draw(fitName(TypeChart.displayName(def.type), 64), 232, 128)
+  -- battle.data is game.data by reference (BattleState:startBattle sets it
+  -- before TypeChart.load(game.data)), so this resolves through the exact
+  -- same merged table TypeChart's own cache already has -- a no-op today,
+  -- kept only for the same call convention as the pre-battle screens
+  -- (SummaryMenu, HallOfFame) that genuinely need the explicit data.
+  Font.draw(fitName(TypeChart.displayName(def.type, battle.data), 64), 232, 128)
 end
 
 local function drawMoveGrid(battle, moves, selected)

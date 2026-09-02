@@ -339,6 +339,13 @@ copies, so what a mod merges is what the game walks: a registered map is a map
 Gold can warp into, a patched tileset is the one `Map.new` reads, a patched
 encounter table is the one the grass rolls.
 
+Gold also exposes the Gen 2-only `rom_text` registry for label-keyed engine
+prose extracted to `data/generated/rom_text.lua`. It merges into `data.text`,
+the table `src/core/RomText.lua` reads. This is deliberately distinct from
+`text`, which remains the overworld VM's bank:address table at
+`data.gen2Text`: use `mod.content.rom_text:override(label, value)` for labels
+such as `_WokeUpText`, and `mod.content.text` for script pointers.
+
 The battle-rule six are the newer half and work slightly differently: there is
 no table on disk for them at all. They come into existence *as* the merge, and
 each consumer reads a record through a lookup that falls back to its own module
@@ -357,7 +364,7 @@ records when no loader ran, so a mod-free Gold boot behaves identically:
 rather than Red's. It has to: both games call it `GREAT_BALL`, and Red's record
 carries no `multiplier`, so seeding Red's would leave Gold's x1.5 reading nil.
 
-**Content registries that exist because Gold does.** Six systems Red has no
+**Content registries that exist because Gold does.** Seven systems Red has no
 counterpart for, so there is no Gen 1 table to share and none of these carries
 a Gen 1 target at all. The routed Gen 2 path is their only home, and
 `Schemas.GEN1` gates them on a Red boot the way `Schemas.GEN2` gates
@@ -371,17 +378,21 @@ a Gen 1 target at all. The routed Gen 2 path is their only home, and
 | `apricorns` | apricorn item ids | `Apricorns.useRegistry`, which rebuilds all three lookups and Kurt's menu order |
 | `landmarks` | `LANDMARK_*` | `Nests.landmarkId` / `Nests.landmark`, which resolve a map header's landmark byte |
 | `radio_channels` | station ids | `MapRadio.channelRecord`, which puts a registered station on the dial |
+| `rom_text` | disassembly text labels | `RomText(data, label, fallback)`, through `data.text` |
 
 `Game2:load` calls `Phone.useRegistry`, `Decorations.useRegistry`,
 `Apricorns.useRegistry` and `ItemEffects.applyHeldItems` immediately after
 `mods:load`, so the merge is live before the first frame. `landmarks` and
-`radio_channels` need no such call: their consumers take `data` at call time.
+`radio_channels` and `rom_text` need no such call: their consumers take `data`
+at call time.
 
 `landmarks` merges onto the cache's own `gen2Landmarks.landmarks` and
 `held_items` onto the view `Game2` builds from `data.items`, so both fold
 against the vanilla row -- a `register` for an existing id collides, a
-`patch` stacks. The other four come into existence as the merge, seeded from
-their module's literals by `src/mods/Builtins.lua`.
+`patch` stacks. Phone contacts, decorations, apricorns and radio channels come
+into existence as the merge, seeded from their module's literals by
+`src/mods/Builtins.lua`; `rom_text` folds against the extracted `data.text`
+table loaded by `Game2`.
 
 Four honest limits on that surface:
 
@@ -399,9 +410,14 @@ Four honest limits on that surface:
   (contact bytes 8, 9, 10 and 25). The manifest gives all four the same id, and
   one id cannot key four rows. They stay copies of the wrong-number filler,
   which is what the cart does with them.
+- `phone_contacts.name` is an optional display override. It does not replace
+  `class` / `member`, so trainer identity and rematch behavior stay stable;
+  when omitted, trainer contacts still resolve through the trainer table and
+  non-trainer contacts use their built-in caller name.
 - `radio_channels` and `phone_contacts` register *content*, not new UI: a
-  registered station gets a dial position and a name, and a registered contact
-  gets a row the Pokegear indexes, but neither invents a screen.
+  registered wall station gets a dial position and a name (Pokegear-only
+  signals may carry just a name), and a registered contact gets a row the
+  Pokegear indexes, but neither invents a screen.
 
 **Record shapes.** A registry whose Gen 2 records genuinely differ carries a
 Gen 2 schema beside its Gen 1 one (`gen2Fields` / `gen2Keys` / `gen2Write` in

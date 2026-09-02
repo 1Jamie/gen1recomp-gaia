@@ -195,10 +195,14 @@ function Boxes.move(save, fromBox, slot, toBox)
   return true, mon
 end
 
--- .CheckCanUsePC: "You'll need a POKéMON to call with."
+-- .CheckCanUsePC: "You'll need a POKéMON to call with." Three lines, and the
+-- box only has room for two before a `\n` here would just glue the third
+-- onto the second with no separator -- `\f` (BoxMenu.lua's own
+-- BOX_FAILURE_SOURCES entry for this exact string, already in the catalog
+-- under that key) breaks it into its own page instead.
 function Boxes.canUsePc(save)
   if not (save and save.party and #save.party > 0) then
-    return false, "You'll need a\nPOKéMON to call\nwith."
+    return false, "You'll need a\nPOKéMON to call\fwith."
   end
   return true
 end

@@ -175,6 +175,21 @@ function Status.hudLabelFor(statuses, id)
   return record and (record.hudLabel or record.label) or id
 end
 
+-- Gen 2's own statuses registry (src/battle/gen2/Battle.lua) uses the full
+-- names (poison/burn/freeze/paralyze/sleep) as ids; PartyMenu and SummaryMenu
+-- both read a mon's status byte as the three/four-letter cart abbreviation
+-- first (psn/brn/frz/par/paralysis/slp) and need this to look the record up.
+-- `paralysis` mirrors the same three-way spelling (par/paralysis/paralyze)
+-- src/core/gen2/ItemEffects.lua's STATUS_CLASS already recognizes for status
+-- cures; battle itself only ever sets mon.status to the full Gen 2 spelling
+-- ("paralyze"), so no live path produces "paralysis" today, but nothing
+-- guarantees a save-compat or Gen 1-side path never will, and the two
+-- tables should stay in sync either way.
+Status.GEN2_ID_ALIASES = {
+  psn = "poison", brn = "burn", frz = "freeze",
+  par = "paralyze", paralysis = "paralyze", slp = "sleep",
+}
+
 local function battleStatuses(battle)
   return battle and battle.data and battle.data.statuses
 end

@@ -257,7 +257,11 @@ function Credits:drawPage(screen, xoff, shade)
   if not screen then return end
   love.graphics.setColor(0, 0, 0, shade)
   for i, line in ipairs(screen.lines or {}) do
-    Font.draw(line.text, xoff + (line.column or 0) * 8, 48 + (i - 1) * 16)
+    -- Credits strings are extracted ROM data, not Lua literals.  Keep the
+    -- source in field.credits for layout/parity and translate only as it is
+    -- drawn, like the dynamic labels in the other data-backed screens.
+    Font.draw(Strings(line.text), xoff + (line.column or 0) * 8,
+              48 + (i - 1) * 16)
   end
   love.graphics.setColor(1, 1, 1, 1)
   if screen.copyright then self:drawCopyright(xoff) end
@@ -332,7 +336,8 @@ function Credits:drawTheEnd()
     end
   else
     love.graphics.setColor(0, 0, 0, 1)
-    Font.draw((te and te.display) or Strings("T H E  E N D"), 32, 64)
+    local text = te and Strings(te.display) or Strings("T H E  E N D")
+    Font.draw(text, math.max(0, math.floor((160 - Font.width(text)) / 2)), 64)
     love.graphics.setColor(1, 1, 1, 1)
   end
 end

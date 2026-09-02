@@ -29,6 +29,7 @@ local Chrome = require("src.ui.gen2.Chrome")
 local Font = require("src.render.Font")
 local GbcPalette = require("src.render.GbcPalette")
 local Screens = require("src.ui.Screens")
+local Strings = require("src.core.Strings")
 
 local NamePick = {}
 NamePick.__index = NamePick
@@ -60,7 +61,8 @@ local BOX_X1, BOX_Y1, BOX_X2, BOX_Y2 = 0, 0, 10, 11
 -- GetMenuTextStartCoord's answer for this header's flags.
 local TEXT_X, TEXT_Y = 2, 2
 local CURSOR_X = TEXT_X - 1
-local TITLE, TITLE_X, TITLE_Y = "NAME", 2, 0
+local TITLE, TITLE_X, TITLE_Y = Strings.source("NAME"), 2, 0
+local NEW_NAME = Strings.source("NEW NAME")
 
 -- Intro_PrepTrainerPic puts the 7x7 pic at hlcoord 6,4; MovePlayerPic walks
 -- it to 13,4 one tile per frame.
@@ -79,7 +81,7 @@ function NamePick.new(game, opts)
   self.onDone = opts.onDone
   self.gender = opts.gender
     or (game and game.save and game.save.player and game.save.player.gender)
-  self.items = { "NEW NAME" }
+  self.items = { NEW_NAME }
   for _, name in ipairs(opts.presets or presetsFor(self.gender)) do
     self.items[#self.items + 1] = name
   end
@@ -212,7 +214,8 @@ function NamePick:drawPanel()
     G.setColor(0, 0, 0, 1)
     for index, label in ipairs(self.items) do
       local prefix = (index == self.cursor) and "> " or "  "
-      G.print(prefix .. label, TEXT_X * 8, (TEXT_Y + (index - 1) * 2) * 8)
+      G.print(prefix .. (index == 1 and Strings(label) or label), TEXT_X * 8,
+        (TEXT_Y + (index - 1) * 2) * 8)
     end
     G.setColor(1, 1, 1, 1)
     return
@@ -224,10 +227,12 @@ function NamePick:drawPanel()
   -- on the box's top border -- so the border tiles under it have to go, or
   -- the letters sit on a line the cart does not draw there.
   G.setColor(1, 1, 1, 1)
-  G.rectangle("fill", TITLE_X * 8, TITLE_Y * 8, #TITLE * 8, 8)
-  Chrome.print(TITLE, TITLE_X, TITLE_Y)
+  local title = Strings(TITLE)
+  G.rectangle("fill", TITLE_X * 8, TITLE_Y * 8, #Font.split(title) * 8, 8)
+  Chrome.print(title, TITLE_X, TITLE_Y)
   for index, label in ipairs(self.items) do
-    Chrome.print(label, TEXT_X, TEXT_Y + (index - 1) * 2)
+    Chrome.print(index == 1 and Strings(label) or label,
+      TEXT_X, TEXT_Y + (index - 1) * 2)
   end
   Chrome.cursor(CURSOR_X, TEXT_Y + (self.cursor - 1) * 2)
   G.setColor(1, 1, 1, 1)

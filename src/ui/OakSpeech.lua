@@ -443,7 +443,7 @@ function OakSpeech:runStep(step)
     self.picTrueColor = self.demoTrueColor
     self:revealPic("wipe", function()
       Sound.playCry(self.game.data, self.demoSpecies)
-      self:say(Strings("_OakSpeechText2A"), function() self:advance() end)
+      self:say("_OakSpeechText2A", function() self:advance() end)
     end)
   elseif kind == "name" then
     local who = step.who or "player"

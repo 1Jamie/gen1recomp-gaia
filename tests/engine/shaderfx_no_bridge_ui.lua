@@ -45,6 +45,7 @@ fake = {
   end,
   activate = function(_, entry) activated[#activated + 1] = entry.name; return true end,
   deactivate = function() end,
+  clearBridgeQuarantine = function() end,
   downloadPresets = function() return {} end,
   downloadStatus = function() return { status = "pending" } end,
   installDownloaded = function() return 0 end,

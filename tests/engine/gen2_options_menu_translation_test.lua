@@ -103,6 +103,11 @@ do
       ["CONTROLS"] = "COMMANDES",
       ["SPEED"] = "VITESSE",
       ["BACK"] = "RETOUR",
+      ["AUTO"] = "AUTO-FR",
+      ["GEN 2"] = "GEN2-FR",
+      ["OFF"] = "SANS",
+      ["GREEN"] = "VERT",
+      ["DISPLAY (%dHZ)"] = "ECRAN %dHZ",
     },
   })
 
@@ -144,6 +149,54 @@ do
   local cancelSlot = cancelIndex - cancelMenu.scroll
   T.eq(drawnAt(LABEL_X, (2 + (cancelSlot - 1) * 2) * 8), "RETOUR",
     "CANCEL, the way out of the menu, is translated too")
+
+  -- Port-added finite values used to be returned by helper modules after the
+  -- only Strings lookup in drawPanel had already happened.  They must pass
+  -- through the catalog at draw time as well.
+  local performance = menu:focusRow("performance")
+  drawn = {}
+  performance:drawPanel()
+  local performanceSlot = performance.index - performance.scroll
+  T.eq(drawnAt(VALUE_X, (3 + (performanceSlot - 1) * 2) * 8),
+    "AUTO-FR", "a helper-produced PERFORMANCE value is translated")
+
+  local color = menu:focusRow("color")
+  color.options.palette = ""
+  color.options.color = "gbc"
+  drawn = {}
+  color:drawPanel()
+  local colorSlot = color.index - color.scroll
+  T.eq(drawnAt(VALUE_X, (3 + (colorSlot - 1) * 2) * 8), "GEN2-FR",
+    "a finite built-in COLOR mode is translated")
+
+  color.options.palette = "m:9bbc0f"
+  T.eq(color:row().text(color.options), "VERT",
+    "an engine-provided monochrome palette label is translated")
+
+  local filter = menu:focusRow("musicFilter")
+  filter.options.musicFilter = 0
+  T.eq(filter:row().text(filter.options), "SANS",
+    "MUSIC FILTER resolves its finite value through Strings at runtime")
+
+  local fps = menu:focusRow("fpsCap")
+  local RefreshRate = require("src.core.RefreshRate")
+  local priorMismatch = RefreshRate.mismatch
+  RefreshRate.mismatch = function() return 59 end
+  fps.options.fpsCap = 0
+  T.eq(fps:row().text(fps.options), "ECRAN 59HZ",
+    "DISPLAY retains its refresh-rate suffix through a localizable template")
+  RefreshRate.mismatch = priorMismatch
+
+  -- A user palette name is content, not a finite engine enum.  It must stay
+  -- verbatim even if a catalog happens to contain an identically named key.
+  Strings.load({ strings = {
+    ["My Palette"] = "NE PAS TRADUIRE",
+  } })
+  color.options.palette = "p:custom/My Palette"
+  drawn = {}
+  color:drawPanel()
+  T.eq(drawnAt(VALUE_X, (3 + (colorSlot - 1) * 2) * 8), "My Palet",
+    "a user palette name stays raw (and is only clipped to the value width)")
 
   -- Module state is process-global (see tests/gen2_clock_test.lua's own
   -- note); this suite gets its own process from tests/tier_runner.lua, but

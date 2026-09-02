@@ -23,6 +23,7 @@ local Chrome = require("src.ui.gen2.Chrome")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
 local Sound = require("src.core.Sound")
+local Strings = require("src.core.Strings")
 
 local StartMenu = {}
 StartMenu.__index = StartMenu
@@ -46,48 +47,48 @@ StartMenu.isOpaque = false
 -- exactly what kept POKéGEAR hanging off the menu box's right edge.
 local ITEMS = {
   {
-    id = "pokedex", label = "POKéDEX", need = "pokedex",
-    desc = { "POKéMON", "database" },
+    id = "pokedex", label = Strings.source("POKéDEX"), need = "pokedex",
+    desc = Strings.source("POKéMON\ndatabase"),
   },
   {
-    id = "pokemon", label = "POKéMON", need = "party",
-    desc = { "Party <PK><MN>", "status" },
+    id = "pokemon", label = Strings.source("POKéMON"), need = "party",
+    desc = Strings.source("Party <PK><MN>\nstatus"),
   },
   {
-    id = "pack", label = "PACK", need = "pack",
-    desc = { "Contains", "items" },
+    id = "pack", label = Strings.source("PACK"), need = "pack",
+    desc = Strings.source("Contains\nitems"),
   },
   {
-    id = "pokegear", label = "<PO><KE>GEAR", need = "pokegear",
-    desc = { "Trainer's", "key device" },
+    id = "pokegear", label = Strings.source("<PO><KE>GEAR"), need = "pokegear",
+    desc = Strings.source("Trainer's\nkey device"),
   },
   {
     -- The player's own name is the label (.StatusString is "<PLAYER>").
     id = "status", label = nil,
-    desc = { "Your own", "status" },
+    desc = Strings.source("Your own\nstatus"),
   },
   {
-    id = "save", label = "SAVE",
-    desc = { "Save your", "progress" },
+    id = "save", label = Strings.source("SAVE"),
+    desc = Strings.source("Save your\nprogress"),
   },
   {
-    id = "option", label = "OPTION",
-    desc = { "Change", "settings" },
+    id = "option", label = Strings.source("OPTION"),
+    desc = Strings.source("Change\nsettings"),
   },
   {
     -- The mod manager's discoverable home, exactly as the Gen 1 start menu
     -- carries it: the row only appears once at least one mod has been
     -- discovered, so a vanilla install's menu is the cart's.
-    id = "mods", label = "MODS", need = "mods",
-    desc = { "Installed", "add-ons" },
+    id = "mods", label = Strings.source("MODS"), need = "mods",
+    desc = Strings.source("Installed\nadd-ons"),
   },
   {
     -- The cart's EXIT just closed the menu (CloseStartMenu).  A window with a
     -- close button already covers that, so -- exactly as the Gen 1 port does
     -- (src/ui/StartMenu.lua) -- this row is QUIT and power-cycles back to the
     -- title after a confirmation that defaults to NO.
-    id = "quit", label = "QUIT",
-    desc = { "Return to", "the title" },
+    id = "quit", label = Strings.source("QUIT"),
+    desc = Strings.source("Return to\nthe title"),
   },
 }
 
@@ -125,6 +126,18 @@ function StartMenu.new(game, opts)
   else
     Logger.error("ui.start_menu.items returned %s; keeping the vanilla items",
                  type(hooked))
+  end
+  -- Let hooks inspect the cart's stable source labels. Translate only the
+  -- built-in rows afterwards; mod-supplied labels are content and stay raw.
+  for _, item in ipairs(items) do
+    if item.translateLabel then item.label = Strings(item.label) end
+    if item.translateDesc then
+      local translated = Strings(item.desc)
+      item.desc = {}
+      for line in (translated .. "\n"):gmatch("(.-)\n") do
+        item.desc[#item.desc + 1] = line
+      end
+    end
   end
   self.items = items
   local options = (self.save and self.save.options) or {}
@@ -189,6 +202,8 @@ function StartMenu:visibleItems()
         label = item.label or playerName,
         value = item.id,
         desc = item.desc,
+        translateLabel = item.label ~= nil,
+        translateDesc = item.desc ~= nil,
       }
     end
   end
@@ -279,11 +294,13 @@ function StartMenu:draw()
 
   if self.phase == "confirm" then
     Chrome.textbox(0, 12, 18, 4)
-    Chrome.print("Return to the", 1, 14)
-    Chrome.print("title screen?", 1, 16)
+    local prompt = Strings(Strings.source("Return to the\ntitle screen?"))
+    local first, second = prompt:match("^([^\n]*)\n?(.*)$")
+    Chrome.print(first or "", 1, 14)
+    Chrome.print(second or "", 1, 16)
     Chrome.box(YESNO_X, YESNO_Y, YESNO_W, YESNO_H)
-    Chrome.print("YES", YESNO_X + 2, YESNO_Y + 1)
-    Chrome.print("NO", YESNO_X + 2, YESNO_Y + 3)
+    Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
+    Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)
     Chrome.cursor(YESNO_X + 1,
       YESNO_Y + (self.confirmChoice == 1 and 1 or 3))
     return
