@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.48",
+          "date": "2026-09-02",
+          "size": 21568319,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.48/gen1recomp++-0.2.48-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2057 Trainer moves field crashes mod loading under api: 2\n- #2058 Gym Badge NPC Guy Layout\n- #2059 Switch Pokemon is missing Animation\n- #2060 Pokemon Watching Stats missing Whitescreen Transition\n- #2061 Arrow in item menu isn't blinking\n- #2062 Item Bag - Using Heal Items Arrows\n- #2063 Arrow pointing at selected item stays black\n- #2064 Fishing isn't accurate\n- #2066 Catch message skips to jingle automatically\n- #2067 Pokedex Pokeball color missing in Advanced\n- #2069 Returning to battle state after catching new Pokemon\n- #2070 Immediately exiting out of the Pokemon menu when using a stone to evolve a Pokemon\n- #2072 Sound effects for using evolution stones missing\n- #2076 Brock not using full heals.\n- #2077 Blacking out puts you in the pokecenter.\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.47",
           "date": "2026-09-01",
           "size": 21567009,
