@@ -10,6 +10,7 @@
 -- OPTION screen's equivalent rows), plus a vanilla no-mod case proving the
 -- fallback is unchanged.
 package.path = "./?.lua;./?/init.lua;" .. package.path
+_G.POKEPORT_LOOP_PANEL_SYNC = true
 
 local T = require("tests.harness")
 

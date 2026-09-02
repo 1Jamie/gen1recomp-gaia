@@ -1,6 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.modkit")
+_G.POKEPORT_LOOP_PANEL_SYNC = true
 local FrameCap = require("src.core.FrameCap")
 local RefreshRate = require("src.core.RefreshRate")
 

@@ -7,7 +7,7 @@ local Version = {
   engine = "0.0.0-dev",   -- game/engine release (semver).  Repo default is the
                           -- "-dev" placeholder; CI stamps the real X.Y.Z into
                           -- the packed game.love only, never the working tree.
-  shell = 1,              -- native-shell contract this build implements
+  shell = 2,              -- native-shell contract this build implements
   payloadHost = "love",   -- native host family for in-place Lua payloads.
                           -- A payload must name the same family; this prevents
                           -- mounting code packaged for a different native host.

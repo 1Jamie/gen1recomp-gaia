@@ -1421,6 +1421,7 @@ function love.run()
   if love.timer then love.timer.step() end
 
   local FrameCap = require("src.core.FrameCap")
+  _G.POKEPORT_LOOP_PANEL_SYNC = true
   FrameCap.bootPanelSync()
   local RefreshRate = require("src.core.RefreshRate")
   local FixedStep = require("src.core.FixedStep")
