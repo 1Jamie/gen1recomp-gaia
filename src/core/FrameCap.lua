@@ -23,7 +23,12 @@ end
 -- numeric FrameCap default.  Android/iOS/UWP need uncapped probe isolation
 -- so composed GLES swapchains can lock; PortMaster handhelds likewise
 -- follow KMSDRM through PresentSync.
+function FrameCap.loopSupportsPanelSync()
+  return rawget(_G, "POKEPORT_LOOP_PANEL_SYNC") == true
+end
+
 function FrameCap.prefersPanelSync()
+  if not FrameCap.loopSupportsPanelSync() then return false end
   if isHandheldEnv() then return true end
   if love and love.system and love.system.getOS then
     local osName = love.system.getOS()
@@ -56,7 +61,10 @@ FrameCap.current = FrameCap.DEFAULT
 function FrameCap.normalize(value)
   value = tonumber(value)
   if not value then return FrameCap.DEFAULT end
-  if value <= 0 then return FrameCap.DISPLAY end
+  if value <= 0 then
+    if FrameCap.loopSupportsPanelSync() then return FrameCap.DISPLAY end
+    return FrameCap.DEFAULT
+  end
   local best, bestDiff = FrameCap.DEFAULT, math.huge
   for _, step in ipairs(FrameCap.STEPS) do
     local diff = math.abs(step - value)
