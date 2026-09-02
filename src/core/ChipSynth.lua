@@ -1440,7 +1440,8 @@ local function renderEffectData(data, header, options)
   options.sfx = true
   options.allowLoops = false
   local engine = Engine.new(data, header, options)
-  local maximum = SAMPLE_RATE * 5
+  -- audio/sfx/pokeflute.asm:20
+  local maximum = SAMPLE_RATE * (options.maxSeconds or 12)
   local values = {}
   local count = 0
   while count < maximum and not engine:finished() do

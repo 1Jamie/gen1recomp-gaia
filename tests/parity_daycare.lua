@@ -16,10 +16,12 @@ local check, eq = S.check, S.eq
 
 local realTextBox = package.loaded["src.render.TextBox"]
 local shownTexts = {}
+local shownOpts = {}
 local choiceAnswer = true
 package.loaded["src.render.TextBox"] = {
   new = function(game, text, onDone, opts)
     table.insert(shownTexts, text)
+    table.insert(shownOpts, opts or {})
     if opts and opts.choice then
       opts.choice(choiceAnswer)
     elseif onDone then
@@ -49,6 +51,7 @@ end
 
 local function talk(game)
   shownTexts = {}
+  shownOpts = {}
   local doneCalled = false
   talkGentleman(game, {}, nil, function() doneCalled = true end)
   return doneCalled
@@ -218,5 +221,109 @@ do
   check(not hasTackle, "decline leaves moves unchanged (no Tackle yet)")
 end
 
+local function optsFor(needle)
+  for i, s in ipairs(shownTexts) do
+    if s:find(needle, 1, true) then return shownOpts[i] end
+  end
+end
+
+local Sound = require("src.core.Sound")
+local realPlay, realPlayCry, realPlayPika =
+  Sound.play, Sound.playCry, Sound.playPikaCry
+local sounds = {}
+Sound.play = function(_, name) sounds[#sounds + 1] = "sfx:" .. tostring(name) end
+Sound.playCry = function(_, species) sounds[#sounds + 1] = "cry:" .. tostring(species) end
+Sound.playPikaCry = function(_, n) sounds[#sounds + 1] = "pika:" .. tostring(n) end
+
+-- === 8) take-back: money box on OweMoney/HeresYourMon/GotMonBack, SFX_PURCHASE, cry (#2107 #2108) ===
+do
+  local game = newGame()
+  boardAtLevel(game, "RATTATA", 5, "SCRAPPY")
+  game.save.daycare.steps = stepsForLevels("RATTATA", 5, 2)
+  choiceAnswer = true
+  check(talk(game), "take-back sfx talk completes")
+  local owe = optsFor("owe me")
+  check(owe and type(owe.money) == "function", "OweMoney box carries money box")
+  eq(owe and owe.moneyWithChoice, true, "OweMoney money box waits for YES/NO")
+  local heres = optsFor("Here's")
+  check(heres and type(heres.money) == "function", "HeresYourMon keeps money box")
+  check(heres and type(heres.preSound) == "function", "HeresYourMon has preSound")
+  eq(heres and heres.money and heres.money(), 10000 - 300,
+     "money box reads debited wallet")
+  local got = optsFor("back!")
+  check(got and type(got.money) == "function", "GotMonBack keeps money box")
+  check(got and type(got.preSound) == "function", "GotMonBack has preSound")
+  sounds = {}
+  if heres and heres.preSound then heres.preSound() end
+  if got and got.preSound then got.preSound() end
+  eq(table.concat(sounds, ","), "sfx:Purchase,cry:RATTATA",
+     "take-back plays SFX_PURCHASE then the mon's cry")
+end
+
+-- === 9) deposit: cry between WillLookAfterMon and ComeSeeMeInAWhile (#2108) ===
+do
+  local realPartyMenu = package.loaded["src.ui.PartyMenu"]
+  package.loaded["src.ui.PartyMenu"] = {
+    new = function(game, o)
+      o.onSwitch(game.save.party[1])
+      return {}
+    end,
+  }
+  local game = newGame()
+  game.save.party = {
+    Pokemon.new(Data, "PIDGEY", 5), Pokemon.new(Data, "RATTATA", 5),
+  }
+  game.save.daycare = nil
+  choiceAnswer = true
+  check(talk(game), "deposit talk completes")
+  check(game.save.daycare and game.save.daycare.mon.species == "PIDGEY",
+        "PIDGEY deposited")
+  local come = optsFor("Come see me")
+  check(come and type(come.preSound) == "function", "ComeSeeMeInAWhile has preSound")
+  sounds = {}
+  if come and come.preSound then come.preSound() end
+  eq(table.concat(sounds, ","), "cry:PIDGEY", "deposit plays the mon's cry")
+  package.loaded["src.ui.PartyMenu"] = realPartyMenu
+end
+
+-- === 10) Yellow starter Pikachu: clip 28 on deposit, clip 35 on take-back (#2108) ===
+do
+  local GameVersion = require("src.core.GameVersion")
+  local realVersion = GameVersion.current
+  GameVersion.current = "yellow"
+  local realPartyMenu = package.loaded["src.ui.PartyMenu"]
+  package.loaded["src.ui.PartyMenu"] = {
+    new = function(game, o)
+      o.onSwitch(game.save.party[1])
+      return {}
+    end,
+  }
+  local game = newGame()
+  local pika = Pokemon.new(Data, "PIKACHU", 5)
+  pika.otId, pika.ot = game.save.player.id, game.save.player.name
+  game.save.party = { pika, Pokemon.new(Data, "RATTATA", 5) }
+  game.save.daycare = nil
+  choiceAnswer = true
+  check(talk(game), "Yellow deposit talk completes")
+  local come = optsFor("Come see me")
+  sounds = {}
+  if come and come.preSound then come.preSound() end
+  eq(table.concat(sounds, ","), "pika:28",
+     "starter PIKACHU deposit plays PikachuCry28")
+  package.loaded["src.ui.PartyMenu"] = realPartyMenu
+
+  check(game.save.daycare and game.save.daycare.mon == pika, "PIKACHU boarded")
+  game.save.daycare.steps = 0
+  choiceAnswer = true
+  check(talk(game), "Yellow take-back talk completes")
+  local got = optsFor("back!")
+  sounds = {}
+  if got and got.preSound then got.preSound() end
+  eq(table.concat(sounds, ","), "pika:35",
+     "starter PIKACHU take-back plays PikachuCry35")
+  GameVersion.current = realVersion
+end
+
+Sound.play, Sound.playCry, Sound.playPikaCry = realPlay, realPlayCry, realPlayPika
 package.loaded["src.render.TextBox"] = realTextBox
 S.finish()

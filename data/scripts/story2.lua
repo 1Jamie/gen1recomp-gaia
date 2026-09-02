@@ -1012,10 +1012,19 @@ M.DAYCARE = {
       local t = game.data.text
       local dc = game.save.daycare
       local playerName = game.save.player and game.save.player.name or "RED"
+      local Sound = require("src.core.Sound")
 
       local function monName(mon)
         local def = game.data.pokemon[mon.species]
         return mon.nickname or (def and def.name) or mon.species
+      end
+
+      local function showMoney() return game.save.money end
+
+      -- pokeyellow scripts/Daycare.asm:54
+      local function isStarterPika(mon)
+        return require("src.core.GameVersion").isYellow()
+          and require("src.world.PikachuFollower").isStarterPikachu(game.save, mon)
       end
 
       if dc and dc.mon then
@@ -1068,7 +1077,10 @@ M.DAYCARE = {
               t._DaycareGentlemanOweMoneyText
                 or "You owe me ¥{NUM:wDayCareTotalCost, 2 | LEADING_ZEROES | LEFT_ALIGN}\nfor the return\nof this POKéMON.",
               subs),
-            nil, { choice = function(yes)
+            nil, {
+            -- scripts/Daycare.asm:133
+            money = showMoney, moneyWithChoice = true,
+            choice = function(yes)
               if not yes then
                 -- .leaveMonInDayCare: revert any transient level bump
                 mon.level = startLevel
@@ -1104,8 +1116,22 @@ M.DAYCARE = {
                   fillDaycareText(
                     t._DaycareGentlemanGotMonBackText
                       or "{PLAYER} got\n{RAM:wDayCareMonName} back!",
-                    subs), done))
-              end))
+                    subs), done, {
+                  money = showMoney,
+                  -- scripts/Daycare.asm:202
+                  preSound = function()
+                    -- pokeyellow scripts/Daycare.asm:229
+                    if isStarterPika(mon) then
+                      return Sound.playPikaCry(game.data, 35)
+                    end
+                    return Sound.playCry(game.data, mon.species)
+                  end }))
+              end, {
+                -- scripts/Daycare.asm:161
+                preSound = function()
+                  return Sound.play(game.data, "Purchase")
+                end,
+                money = showMoney }))
             end }))
         end))
         return
@@ -1149,7 +1175,15 @@ M.DAYCARE = {
                     function()
                       game.stack:push(TextBox.new(game,
                         t._DaycareGentlemanComeSeeMeInAWhileText
-                          or "Come see me in\na while.", done))
+                          or "Come see me in\na while.", done, {
+                        -- scripts/Daycare.asm:58
+                        preSound = function()
+                          -- pokeyellow scripts/Daycare.asm:66
+                          if isStarterPika(mon) then
+                            return Sound.playPikaCry(game.data, 28)
+                          end
+                          return Sound.playCry(game.data, mon.species)
+                        end }))
                     end))
                 end,
               }))

@@ -1,5 +1,5 @@
--- Wait gates must release early at high GAME SPEED (#1952) without
--- pitching one-shot SFX (#1990/#1991/#1997).
+-- Wait gates hold for the sound's real length at high GAME SPEED
+-- (#1952/#2087) without pitching one-shot SFX (#1990/#1991/#1997).
 return function(game)
   local U = dofile("tests/drivers/util.lua")
   local DIR = os.getenv("SHOT_DIR") or os.getenv("POKEPORT_SHOT_DIR") or "/tmp/shots"
@@ -78,10 +78,15 @@ return function(game)
     dur or -1, tostring(pitch), held))
   U.shot(game, DIR .. "/bug1952_after.png")
 
-  if dur and held > dur * 0.75 then
-    error(("bug1952: the 4X battle still held the full fanfare (%.3fs of %.3fs)")
+  if not dur then error("bug1952: no duration for the level-up fanfare") end
+  if held < dur * 0.9 then
+    error(("bug2087: the 4X battle cut the fanfare short (%.3fs of %.3fs)")
       :format(held, dur))
   end
-  U.log("PASS the fanfare kept natural pitch and the hold released early")
+  if held > dur + 1 then
+    error(("bug1952: the fanfare dragged past its length (%.3fs of %.3fs)")
+      :format(held, dur))
+  end
+  U.log("PASS the fanfare kept natural pitch and played to completion at 4X")
   love.event.quit()
 end

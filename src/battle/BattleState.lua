@@ -1375,7 +1375,10 @@ function BattleState:updateQueue()
       local Sound = require("src.core.Sound")
       self.waitSoundLeft = Sound.waitFrames and Sound.waitFrames(src) or 180
     end
-    self.waitSoundLeft = self.waitSoundLeft - 1
+    local game = self.game
+    local speed = game and game.logicSpeed and game:logicSpeed() or 1
+    if type(speed) ~= "number" or speed ~= speed or speed < 1 then speed = 1 end
+    self.waitSoundLeft = self.waitSoundLeft - 1 / speed
     local playing = src and src.isPlaying and src:isPlaying()
     if playing and self.waitSoundLeft > 0 then return true end
     if playing then pcall(src.stop, src) end

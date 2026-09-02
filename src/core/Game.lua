@@ -409,8 +409,7 @@ function Game:update(dt)
   -- Audio runs off real time at a fixed 60Hz regardless of game speed or
   -- display refresh, so fades and chip synthesis keep their intended tempo
   -- whether we are at 1X, 10X, or running with vsync disabled.  One-shot
-  -- SFX stay at natural pitch too (#1990/#1991/#1997); WaitForSoundToFinish
-  -- gates still release early at high speed via their logic-frame budget.
+  -- SFX stay at natural pitch too (#1990/#1991/#1997).
   local step = FixedStep.STEP
   self.audioAccum = math.min((self.audioAccum or 0) + dt, 0.25)
   while self.audioAccum >= step do
