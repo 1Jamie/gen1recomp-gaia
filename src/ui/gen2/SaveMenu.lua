@@ -248,6 +248,12 @@ function SaveMenu:prompt()
   return twoLines(Strings("Would you like to\nsave the game?"))
 end
 
+-- ../pokecrystal/engine/menus/save.asm:209 SaveTheGame_yesorno
+function SaveMenu:yesNoVisible()
+  if self.phase ~= "confirm" and self.phase ~= "overwrite" then return false end
+  return self.typedPhase == self.phase and not Typer.typing(self)
+end
+
 function SaveMenu:drawPanel()
   local summary = Save.summary(self.save)
   Chrome.box(PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
@@ -272,7 +278,7 @@ function SaveMenu:drawPanel()
   Chrome.print(lines[1] or "", 1, 14)
   Chrome.print(lines[2] or "", 1, 16)
 
-  if self.phase == "confirm" or self.phase == "overwrite" then
+  if self:yesNoVisible() then
     Chrome.box(YESNO_X, YESNO_Y, YESNO_W, YESNO_H)
     Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
     Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)

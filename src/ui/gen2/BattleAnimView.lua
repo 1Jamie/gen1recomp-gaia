@@ -244,9 +244,10 @@ local function bgpBands(bg)
   local base = bg.bgp or GbcPalette.BGP_IDENTITY
   local order, bands = {}, {}
   for row = 0, SCREEN_H - 1 do
-    local inWindow = row >= bg.lyStart and row < bg.lyEnd
+    -- home/lcd.asm:12
+    local inWindow = row > bg.lyStart and row <= bg.lyEnd
     -- Outside the window the register still reads whatever wBGP holds.
-    local byte = inWindow and (bg.lyBackup[row] or base) or base
+    local byte = inWindow and (bg.lyBackup[row - 1] or base) or base
     local band = bands[byte]
     if not band then
       band = { byte = byte, rows = {} }
@@ -265,6 +266,7 @@ local function bgpBands(bg)
   end)
   return order
 end
+BattleAnimView.bgpBands = bgpBands
 
 -- engine/battle_anims/bg_effects.asm:2638
 function BattleAnimView.scanlines(bg)
@@ -272,9 +274,10 @@ function BattleAnimView.scanlines(bg)
   local scy = signed(bg.scy)
   for row = 0, SCREEN_H - 1 do
     local dx, src = 0, row + scy
+    -- home/lcd.asm:12
     local inWindow = bg.lcdc and bg.lcdc ~= "BGP"
-      and row >= bg.lyStart and row < bg.lyEnd
-    local byte = bg.lyBackup[row] or 0
+      and row > bg.lyStart and row <= bg.lyEnd
+    local byte = inWindow and (bg.lyBackup[row - 1] or 0) or 0
     if inWindow then
       local value = signed(byte)
       if bg.lcdc == "SCX" then dx = -value else src = src + value end
@@ -342,8 +345,8 @@ function BattleAnimView:present(runner, drawBg, battle)
   -- Shaderless boot: the panel is raw grayscale, so there are no palettes to
   -- permute and the entry's BRIGHTNESS is the only thing left to reproduce.
   if bg.lcdc == "BGP" then
-    for row = math.max(0, bg.lyStart), math.min(bg.lyEnd, SCREEN_H) - 1 do
-      local veil = BattleAnimView.palVeil(bg.lyBackup[row])
+    for row = bg.lyStart + 1, math.min(bg.lyEnd, SCREEN_H - 1) do
+      local veil = BattleAnimView.palVeil(bg.lyBackup[row - 1])
       if veil ~= 0 then
         local shade = veil > 0 and 0 or 1
         G.setColor(shade, shade, shade, math.min(1, math.abs(veil)))

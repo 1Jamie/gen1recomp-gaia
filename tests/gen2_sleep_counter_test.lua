@@ -167,6 +167,32 @@ do
   check(found(events, "woke up!"), "the next round wakes it")
   eq(wild.status, nil, "and clears the status byte")
   eq(wild.statusTurns, nil, "and the counter with it")
+  -- effect_commands.asm:175-181
+  for _, event in ipairs(events) do
+    if event.text and event.text:find("woke up!", 1, true) then
+      eq(event.kind, "status", "the wake line rides a status event")
+      eq(event.status, nil, "carrying the cleared byte")
+      eq(event.side, "enemy", "on the sleeper's side")
+    end
+  end
+end
+
+-- effect_commands.asm:6289-6290
+do
+  local battle, _, wild = newBattle()
+  wild.status = "freeze"
+  local events = battle:takeTurn({ kind = "move", move = "TACKLE" })
+  eq(wild.status, nil, "a zero roll thaws the target")
+  local seen = false
+  for _, event in ipairs(events) do
+    if event.text and event.text:find("thawed out!", 1, true) then
+      seen = true
+      eq(event.kind, "status", "the thaw line rides a status event")
+      eq(event.status, nil, "carrying the cleared byte")
+      eq(event.side, "enemy", "on the thawed side")
+    end
+  end
+  check(seen, "the thaw line was emitted")
 end
 
 -- Hypnosis shares EFFECT_SLEEP, so it shares the window.

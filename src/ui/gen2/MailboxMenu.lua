@@ -34,6 +34,7 @@ local CommonText = require("src.core.gen2.CommonText")
 local Mail = require("src.core.gen2.Mail")
 local Screens = require("src.ui.Screens")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 local MailboxMenu = {}
 MailboxMenu.__index = MailboxMenu
@@ -266,6 +267,7 @@ end
 -- ------------------------------------------------------------------ update
 
 function MailboxMenu:updateMessage(input)
+  Typer.step(self)
   if not (input:wasPressed("a") or input:wasPressed("b")) then return end
   local message = self.message
   if message.page < #message.pages then
@@ -277,6 +279,7 @@ function MailboxMenu:updateMessage(input)
 end
 
 function MailboxMenu:updateConfirm(input)
+  Typer.step(self)
   local confirm = self.confirm
   if confirm.page < #confirm.pages then
     if input:wasPressed("a") or input:wasPressed("b") then
@@ -388,7 +391,8 @@ end
 function MailboxMenu:drawPanel()
   if self.message then
     self:drawTextBox(self.message.pages[self.message.page])
-    if self.message.page < #self.message.pages then
+    if self.message.page < #self.message.pages
+      and Typer.arrowOn(self) then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
     love.graphics.setColor(1, 1, 1, 1)
@@ -398,7 +402,7 @@ function MailboxMenu:drawPanel()
     self:drawTextBox(self.confirm.pages[self.confirm.page])
     if self.confirm.page >= #self.confirm.pages then
       self:drawYesNo(self.confirm.choice)
-    else
+    elseif Typer.arrowOn(self) then
       Chrome.print(DOWN_ARROW, ARROW_X, ARROW_Y)
     end
     love.graphics.setColor(1, 1, 1, 1)

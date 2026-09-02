@@ -592,6 +592,9 @@ function World.new(game)
     -- STATUSFLAGS_NO_WILD_ENCOUNTERS_F, driven by the `wildoff` / `wildon`
     -- script commands.
     noWildEncounters = false,
+    -- ../pokegold/engine/battle/battle_transition.asm:164
+    staleBattleMonLevel = 0,
+    staleEnemyMonLevel = 0,
     -- Blocks CUT and WHIRLPOOL have swapped out on the loaded map, as
     -- { mapId = { [index] = original } }.  The cart edits wOverworldMapBlocks,
     -- a BUFFER, and LoadMapAttributes refills it from ROM on every map load --
@@ -1194,6 +1197,7 @@ function World:load()
     reloadMap = function(setup)
       if setup then
         self:forceMapMusic()
+        self:battleReturnFade()
         -- Script_reloadmap re-enters through MAPSTATUS_ENTER (engine/overworld/
         -- scripting.asm:1108-1116), so a wild battle re-arms EnterMap's cooldown.
         self.wildCooldown = 5
@@ -3544,6 +3548,32 @@ end
 -- engine/menus/start_menu.asm:511, engine/gfx/mon_icons.asm:287-297
 function World.flyCancelBlankFrames(partySize)
   return FLY_CANCEL_BLANK_FRAMES + FLY_CANCEL_ICON_FRAMES * (partySize or 0)
+end
+
+-- engine/tilesets/timeofday_pals.asm:65-91, home/fade.asm:22-120
+World.FADE_RAMP = {
+  white = { { 3, 2, 1, 0 }, { 2, 1, 0, 0 }, { 1, 0, 0, 0 }, { 0, 0, 0, 0 } },
+  black = { { 3, 2, 1, 0 }, { 3, 3, 2, 1 }, { 3, 3, 3, 2 }, { 3, 3, 3, 3 } },
+}
+
+function World.fadeRampRow(fade, level)
+  local ramp = fade and World.FADE_RAMP[fade]
+  if not ramp then return nil end
+  local step = math.max(1, math.min(FADE_STEPS,
+    math.ceil((level or 1) * FADE_STEPS)))
+  return ramp[step]
+end
+
+-- home/fade.asm:22
+function World.fadeRampByte(row)
+  return row[1] * 64 + row[2] * 16 + row[3] * 4 + row[4]
+end
+
+-- data/maps/setup_scripts.asm:124-139
+function World:battleReturnFade()
+  if self.mapSetup then return end
+  self.fade, self.fadeLevel = "white", 1
+  self.mapSetup = { phase = "in", step = FADE_STEPS, wait = FADE_STEP_FRAMES }
 end
 
 -- ---------------------------------------------------------------------------
@@ -6623,9 +6653,45 @@ function World:playBattleMusic(opts)
   return song
 end
 
+-- ../pokecrystal/engine/battle/start_battle.asm:15
+function World.transitionStatusByte(status, turns)
+  if status == "sleep" then return math.min(turns or 1, 7) end
+  if status == "poison" or status == "toxic" then return 8 end
+  if status == "burn" then return 16 end
+  if status == "freeze" then return 32 end
+  if status == "paralyze" then return 64 end
+  return 0
+end
+
+-- ../pokecrystal/engine/battle/start_battle.asm:15-35
+function World:transitionBattleMonLevel()
+  local GameVersion = require("src.core.GameVersion")
+  local save = self.game and self.game.save
+  local engine = GameVersion.engine((save and save.version) or GameVersion.get())
+  if engine ~= "crystal" then return self.staleBattleMonLevel or 0 end
+  for _, mon in ipairs((save and save.party) or {}) do
+    if (mon.hp or 0) > 0 then
+      return World.transitionStatusByte(mon.status, mon.statusTurns)
+    end
+  end
+  return 0
+end
+
+-- ../pokegold/engine/battle/core.asm:5995
+function World:recordStaleBattleLevels(battle)
+  if battle.enemy and battle.enemy.level then
+    self.staleEnemyMonLevel = battle.enemy.level
+  end
+  if battle.player and battle.player.level then
+    self.staleBattleMonLevel = battle.player.level
+  end
+end
+
 -- DoBattleTransition.  Returns true when the wipe took the screen, false when
 -- there is nothing to wipe (a headless run, or a battle started before the map
 -- is up) and the battle should just come straight in.
+-- ../pokegold/engine/battle/core.asm:7782-7783
+-- ../pokegold/engine/battle/battle_transition.asm:164
 function World:pushBattleTransition(battle, opts, onDone)
   local game = self.game
   if not (game and game.stack and self.map) then return false end
@@ -6633,8 +6699,8 @@ function World:pushBattleTransition(battle, opts, onDone)
     world = self,
     trainer = opts and opts.trainer and true or false,
     environment = self.map.def and self.map.def.environment,
-    playerLevel = battle and battle.player and battle.player.level,
-    enemyLevel = battle and battle.enemy and battle.enemy.level,
+    playerLevel = self:transitionBattleMonLevel(),
+    enemyLevel = self.staleEnemyMonLevel or 0,
     onDone = onDone,
   })
   return true
@@ -6704,10 +6770,13 @@ function World:startBattle(opts, onDone)
       -- World:startCatchTutorial sets it.
       tutorial = opts.tutorial,
       onDone = function(outcome)
+        self:recordStaleBattleLevels(battle)
         -- WildBattleScript's reloadmapafterbattle (engine/overworld/events.asm:1158-1162)
         self.wildCooldown = 5
         self.battleActive = nil
         game.stack:pop()
+        -- engine/overworld/events.asm:1158-1162, data/maps/setup_scripts.asm:124
+        if not self:scriptRunning() then self:battleReturnFade() end
         -- wBattleResult (constants/battle_constants.asm): WIN 0, LOSE 1, DRAW 2.
         -- The port never forfeits or draws a battle, so "lose" is the only
         -- other outcome startBattle's onDone hands back; VAR.BATTLERESULT
@@ -8750,10 +8819,8 @@ function World:drawGrassOver(entity, ox, oy, s)
   local tilePalettes = tileset.tilePalettes
   local tilesPerRow = tileset.tilesPerRow or 16
   local aw, ah = atlas:getDimensions()
-  -- Only draw the bottom 8px tile row of the cell (ty = py + 8) over the feet,
-  -- matching Gen 1's drawCellBottomRaw.  Starting at py + 4 sampled the top
-  -- tile row and drew grass tufts over the face and torso.
-  local rx, ry = entity.px, entity.py + 8
+  -- engine/overworld/map_objects.asm:2876, data/sprites/facings.asm:45-56
+  local rx, ry = entity.px, entity.py + 4
   self.grassQuad = self.grassQuad or G.newQuad(0, 0, 8, 8, aw, ah)
   local quad = self.grassQuad
   G.setColor(1, 1, 1, 1)
@@ -10988,6 +11055,69 @@ function World:refreshColorMode()
   self:rebuildNeighbors()
 end
 
+-- engine/tilesets/timeofday_pals.asm:65-91
+function World:drawFadeRemap(s, w, h)
+  local row = World.fadeRampRow(self.fade, self.fadeLevel)
+  if not row then return false end
+  local byte = World.fadeRampByte(row)
+  if byte == GbcPalette.BGP_IDENTITY then
+    self:drawWorldBody(s)
+    return true
+  end
+  if not GbcPalette.remapShader() then return false end
+  local def = self.map and self.map.def
+  if not (def and self.palettes) then return false end
+  local cache = self.fadeRemapCache
+  if not (cache and cache.byte == byte and cache.def == def
+      and cache.daytime == self.daytime and cache.palettes == self.palettes
+      and cache.mode == GbcPalette.mode
+      and cache.custom == GbcPalette.customRamp) then
+    local bg = Palettes.bgSet(self.palettes, def, self.daytime)
+    if not bg then return false end
+    -- home/fade.asm:32-38
+    local pals = {}
+    for _, colors in ipairs(bg) do pals[#pals + 1] = colors end
+    for _, colors in ipairs(Palettes.objectSet(self.palettes, self.daytime)
+        or {}) do
+      pals[#pals + 1] = colors
+    end
+    local uniforms = GbcPalette.remapUniforms(pals, byte)
+    if not uniforms then return false end
+    cache = { byte = byte, def = def, daytime = self.daytime,
+      palettes = self.palettes, mode = GbcPalette.mode,
+      custom = GbcPalette.customRamp, uniforms = uniforms }
+    self.fadeRemapCache = cache
+  end
+  local canvas = self.fadeCanvas
+  if canvas and (canvas:getWidth() ~= w or canvas:getHeight() ~= h) then
+    if canvas.release then canvas:release() end
+    canvas = nil
+    self.fadeCanvas = nil
+  end
+  if not canvas then
+    local ok, made = pcall(love.graphics.newCanvas, w, h)
+    if not ok or not made then return false end
+    made:setFilter("nearest", "nearest")
+    canvas = made
+    self.fadeCanvas = canvas
+  end
+  local G = love.graphics
+  local previous = G.getCanvas()
+  G.push()
+  G.origin()
+  G.setCanvas(canvas)
+  G.clear(0, 0, 0, 1)
+  self:drawWorldBody(s)
+  G.setCanvas(previous)
+  G.pop()
+  local bound = GbcPalette.useRemapUniforms(cache.uniforms)
+  G.setColor(1, 1, 1, 1)
+  G.draw(canvas, 0, 0)
+  if not bound then return false end
+  GbcPalette.clear()
+  return true
+end
+
 function World:draw()
   local G = love.graphics
   local w, h = Playfield.dimensions()
@@ -11053,13 +11183,17 @@ function World:draw()
   -- quad.  Everything after -- the encounter pic and the survey HUD -- stays
   -- flat, the same split the Gen 1 renderer makes; a pipeline's finished image
   -- lands in exactly the same place.
+  local fadeStepped = false
   if override then
     G.setColor(1, 1, 1, 1)
     G.draw(override, 0, 0)
   elseif tilt then
     self:drawTilted(w, h, s, gw, gh)
   else
-    self:drawWorldBody(s)
+    if self.fade and (self.fadeLevel or 1) < 1 then
+      fadeStepped = self:drawFadeRemap(s, w, h)
+    end
+    if not fadeStepped then self:drawWorldBody(s) end
   end
 
   -- ../pokecrystal/engine/events/map_name_sign.asm:114
@@ -11108,7 +11242,7 @@ function World:draw()
   -- doors, the Radio Tower takeover, Lugia's chamber); the port has no
   -- palette-cycle fade, so the honest stand-in is the flat sheet the cart's own
   -- fade ends on, over the world and under the text box the script is running.
-  if self.fade then
+  if self.fade and not fadeStepped then
     -- fadeLevel is the map setup chain's four-step ramp; a fade special sets it
     -- to 1 because RotateThreePalettes* has already finished by the time the
     -- script that called it runs on.

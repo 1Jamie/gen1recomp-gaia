@@ -20,9 +20,7 @@
 --
 -- Note the cart's own bug, kept here: the level test reads wEnemyMonLevel
 -- BEFORE the enemy mon is loaded, so "stronger" is decided against whatever
--- the previous battle left there.  This port has no such stale byte, so it
--- compares honestly -- the one place the port is deliberately not bug-exact,
--- because the alternative is emulating an uninitialised variable.
+-- the previous battle left there (engine/battle/battle_transition.asm:164).
 --
 -- Everything that decides WHICH tiles go black is a pure function below and is
 -- covered by tests; the state at the bottom is the only part that draws.

@@ -280,11 +280,16 @@ do
   check("the slot now holds the newcomer", learner.moves[1].id, "SPORE")
   check("the other three are untouched", learner.moves[2].id, "EMBER")
   local ev = b:takeEvents()
-  check("it queues a forgot line then a learned line", #ev, 2)
+  check("it queues count, forgot, learned lines", #ev, 3)
+  check("the count line leads", ev[1].text, "1, 2 and…")
+  -- ../pokecrystal/home/text.asm:887-896
+  check("and is a text_pause, not a prompt", ev[1].textPause, true)
   check("forgot text names the dropped move",
-    ev[1].text:find("forgot TACKLE") ~= nil, true)
+    ev[2].text:find("forgot TACKLE") ~= nil, true)
+  -- engine/pokemon/learn.asm:225-229
+  check("the poof rides the forgot line", ev[2].sfx, "Sfx_SwitchPokemon")
   check("learned text names the new move",
-    ev[2].text:find("learned SPORE") ~= nil, true)
+    ev[3].text:find("learned SPORE") ~= nil, true)
 
   -- Decline keeps the moveset and says so.
   b:declineForget(1, "SPORE")
@@ -1286,8 +1291,9 @@ do
   magWild.hp = 200
   magWild.maxHp = 200
   local magEvents = magBattle:takeTurn({ kind = "move", move = "MAGNITUDE" })
-  local announced, announceEvent, usedEvent
-  for _, ev in ipairs(magEvents) do
+  local announced, announceEvent, usedEvent, animEvent
+  local announceIndex, animIndex
+  for i, ev in ipairs(magEvents) do
     if ev.kind == "move" and ev.move == "MAGNITUDE" and not usedEvent then
       usedEvent = ev
     end
@@ -1295,6 +1301,12 @@ do
         and ev.text:match("^Magnitude %d+") and not announced then
       announced = ev.text
       announceEvent = ev
+      announceIndex = i
+    end
+    if ev.kind == "message" and ev.moveAnim == "MAGNITUDE"
+        and not animEvent then
+      animEvent = ev
+      animIndex = i
     end
   end
   check("magnitude announces rolled number", announced, "Magnitude 8!")
@@ -1304,12 +1316,52 @@ do
     usedEvent and usedEvent.animDelay, true)
   check("magnitude used-move line owns no animation",
     usedEvent and usedEvent.moveAnim, nil)
-  check("magnitude line carries the animation",
-    announceEvent and announceEvent.moveAnim, "MAGNITUDE")
-  check("magnitude line carries the attacking side",
-    announceEvent and announceEvent.side, "player")
+  -- data/text/battle.asm:1017-1021
+  check("magnitude number line holds without the animation",
+    announceEvent and announceEvent.moveAnim, nil)
+  -- data/moves/effects.asm:1705-1711
+  check("magnitude animation rides its own later event",
+    animIndex ~= nil and announceIndex ~= nil and announceIndex < animIndex,
+    true)
+  check("magnitude anim event carries no text", animEvent and animEvent.text,
+    nil)
+  check("magnitude anim event carries the attacking side",
+    animEvent and animEvent.side, "player")
   check("magnitude deals more than power-1 would",
     magWild.hp < 200, true)
+
+  local missBattle, missPlayer = newBattle({
+    random = function(n)
+      if n == 256 then return 200 end
+      if n == 100 then return 99 end
+      return 0
+    end,
+  })
+  missPlayer.moves = { { id = "MAGNITUDE", pp = 30, maxPp = 30 } }
+  missBattle.stages.enemy.evasion = 6
+  local missEvents = missBattle:takeTurn({ kind = "move", move = "MAGNITUDE" })
+  local missAnnounce, missAnim, missLine
+  for _, ev in ipairs(missEvents) do
+    if ev.kind == "message" and type(ev.text) == "string" then
+      if ev.text:match("^Magnitude %d+") and not missAnnounce then
+        missAnnounce = ev
+      end
+      if ev.text:find("attack missed", 1, true) and not missLine then
+        missLine = ev
+      end
+    end
+    if ev.kind == "message" and ev.moveAnim == "MAGNITUDE"
+        and not missAnim then
+      missAnim = ev
+    end
+  end
+  check("missed magnitude still announces the number",
+    missAnnounce and missAnnounce.text, "Magnitude 8!")
+  check("missed magnitude leaves the number line unmarked",
+    missAnnounce and missAnnounce.missed, nil)
+  check("missed magnitude marks the anim event",
+    missAnim and missAnim.missed, true)
+  check("missed magnitude prints the miss line", missLine ~= nil, true)
 end
 
 -- --------------------------------------------------------------- held items

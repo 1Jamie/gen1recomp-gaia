@@ -19,6 +19,7 @@
 -- hook name and the same (game, items) payload: Gold's POKEGEAR row is simply
 -- one more entry in the list the hook receives.
 
+local BugContest = require("src.core.gen2.BugContest")
 local Chrome = require("src.ui.gen2.Chrome")
 local Logger = require("src.core.Logger")
 local Runtime = require("src.mods.Runtime")
@@ -149,7 +150,8 @@ function StartMenu.new(game, opts)
     -- one more for the cursor column (STATICMENU_CURSOR) and one more for the
     -- top spacing this menu does not opt out of -- so (10,0) becomes (12,2),
     -- and Chrome.List puts the cursor at x - 1 = 11.
-    x = 12, y = 2, spacing = 2,
+    -- pokecrystal engine/menus/start_menu.asm:164
+    x = 12, y = self.contest and 4 or 2, spacing = 2,
     -- Two rows per entry inside an 18-row screen leaves room for eight, which
     -- is exactly the vanilla count.  A mod that adds a row scrolls rather than
     -- drawing off the bottom of the frame; Chrome.List puts the ▼ hint on.
@@ -193,18 +195,34 @@ end
 
 function StartMenu:visibleItems()
   local available = self:availability()
+  local contest = BugContest.isActive(self.save)
+  self.contest = contest
   local playerName = (self.save and self.save.player and self.save.player.name)
     or "GOLD"
   local out = {}
   for _, item in ipairs(ITEMS) do
-    if not item.need or available[item.need] then
-      out[#out + 1] = {
-        label = item.label or playerName,
-        value = item.id,
-        desc = item.desc,
-        translateLabel = item.label ~= nil,
-        translateDesc = item.desc ~= nil,
-      }
+    local id = item.id
+    -- pokecrystal engine/menus/start_menu.asm:309
+    local hidden = contest and (id == "pack" or id == "quit")
+    if not hidden and (not item.need or available[item.need]) then
+      if contest and id == "save" then
+        -- pokecrystal engine/menus/start_menu.asm:330
+        out[#out + 1] = {
+          label = Strings.source("QUIT"), value = "quitContest",
+          -- pokecrystal engine/menus/start_menu.asm:231
+          desc = Strings.source("Quit and\nbe judged."),
+          translateLabel = true,
+          translateDesc = true,
+        }
+      else
+        out[#out + 1] = {
+          label = item.label or playerName,
+          value = id,
+          desc = item.desc,
+          translateLabel = item.label ~= nil,
+          translateDesc = item.desc ~= nil,
+        }
+      end
     end
   end
   return out
@@ -241,6 +259,12 @@ function StartMenu:choose(id, index)
     self.confirmChoice = 2
     return
   end
+  if id == "quitContest" then
+    -- pokecrystal engine/menus/start_menu.asm:411
+    self.phase = "confirmContest"
+    self.confirmChoice = 1
+    return
+  end
   if self.onChoose then self.onChoose(id) end
 end
 
@@ -253,6 +277,14 @@ function StartMenu:confirmQuit()
   end
 end
 
+-- pokecrystal engine/events/bug_contest/contest.asm:31
+function StartMenu:confirmQuitContest()
+  self.phase = nil
+  self:close()
+  local world = self.game and self.game.world
+  if world and world.bugContestResults then world:bugContestResults() end
+end
+
 function StartMenu:close()
   StartMenu.lastIndex = self.list.index
   if self.onClose then self.onClose() end
@@ -261,14 +293,16 @@ end
 function StartMenu:update(_dt)
   local input = self.game and self.game.input
   if not input then return end
-  if self.phase == "confirm" then
+  if self.phase == "confirm" or self.phase == "confirmContest" then
     if input:wasPressed("up") or input:wasPressed("down") then
       self.confirmChoice = self.confirmChoice == 1 and 2 or 1
     elseif input:wasPressed("a") then
-      if self.confirmChoice == 1 then
-        self:confirmQuit()
-      else
+      if self.confirmChoice ~= 1 then
         self.phase = nil
+      elseif self.phase == "confirmContest" then
+        self:confirmQuitContest()
+      else
+        self:confirmQuit()
       end
     elseif input:wasPressed("b") or input:wasPressed("start") then
       self.phase = nil
@@ -283,14 +317,44 @@ function StartMenu:update(_dt)
   self.list:update(input)
 end
 
+-- pokecrystal engine/menus/menu_2.asm:145
+function StartMenu:drawContestStatus()
+  Chrome.textbox(0, 0, 17, 5)
+  Chrome.print("CAUGHT", 1, 1)
+  local mon = BugContest.caughtMon(self.save)
+  Chrome.print(mon and (mon.nickname or mon.name or mon.species) or "None",
+    8, 1)
+  if mon then
+    Chrome.print("LEVEL", 1, 3)
+    Chrome.print(tostring(mon.level or 1), 7, 3)
+  end
+  Chrome.print("BALLS:", 1, 5)
+  Chrome.print(tostring(BugContest.ballsLeft(self.save)), 8, 5)
+end
+
 function StartMenu:draw()
   -- AutomaticGetMenuBottomCoord: bottom = top + 2 * items + 1, so the box is
   -- two rows per entry plus its two border rows.  A menu that a mod has grown
   -- past the screen scrolls instead of overflowing (Chrome.List draws the ▼
   -- hint when there is more below).
-  local height = math.min(#self.items * 2 + 2, Chrome.SCREEN_H)
-  Chrome.box(10, 0, 10, height)
+  local top = self.contest and 2 or 0
+  local height = math.min(#self.items * 2 + 2, Chrome.SCREEN_H - top)
+  if self.contest then self:drawContestStatus() end
+  Chrome.box(10, top, 10, height)
   self.list:draw()
+
+  if self.phase == "confirmContest" then
+    -- pokecrystal data/text/common_2.asm:1381
+    Chrome.textbox(0, 12, 18, 4)
+    Chrome.print("Would you like to", 1, 14)
+    Chrome.print("end the Contest?", 1, 16)
+    -- pokecrystal home/menu.asm:418
+    Chrome.box(14, 7, 6, 5)
+    Chrome.print("YES", 16, 8)
+    Chrome.print("NO", 16, 10)
+    Chrome.cursor(15, self.confirmChoice == 1 and 8 or 10)
+    return
+  end
 
   if self.phase == "confirm" then
     Chrome.textbox(0, 12, 18, 4)

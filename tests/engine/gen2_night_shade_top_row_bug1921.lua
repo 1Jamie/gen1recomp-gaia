@@ -32,7 +32,7 @@ for _ = 1, 16 do
     if seen[line.dest] then duplicates = duplicates + 1 end
     seen[line.dest] = true
   end
-  for row = bg.lyStart, bg.lyEnd - 1 do
+  for row = bg.lyStart + 1, bg.lyEnd do
     if not seen[row] then gaps = gaps + 1 end
   end
 end
@@ -55,14 +55,14 @@ end
 
 do
   local lines = byRow(BattleAnimView.scanlines(panel({
-    lyBackup = { [0] = 0xff, [1] = 0xfe } })))
-  T.eq(lines[0] and lines[0].src, 0, "an rSCY of -1 on scanline 0 holds row 0")
-  T.eq(lines[1] and lines[1].src, 0, "and -2 on scanline 1 holds it too")
+    lyBackup = { [0] = 0xfe, [1] = 0xfd } })))
+  T.eq(lines[1] and lines[1].src, 0, "an rSCY of -2 stored on LY 0 holds row 0")
+  T.eq(lines[2] and lines[2].src, 0, "and -3 stored on LY 1 holds it too")
 end
 
 do
   local lines = byRow(BattleAnimView.scanlines(panel({
-    lyEnd = SCREEN_H, lyBackup = { [SCREEN_H - 1] = 4 } })))
+    lyEnd = SCREEN_H, lyBackup = { [SCREEN_H - 2] = 4 } })))
   T.eq(lines[SCREEN_H - 1] and lines[SCREEN_H - 1].src, SCREEN_H - 1,
     "a wobble past the bottom of the panel holds the last row")
 end
@@ -70,7 +70,7 @@ end
 do
   local lines = byRow(BattleAnimView.scanlines(panel({
     lyBackup = { [0] = 0x90 } })))
-  T.eq(lines[0], nil, "the $90 displacement still sinks its row into blank")
+  T.eq(lines[1], nil, "the $90 displacement still sinks its row into blank")
 end
 
 do

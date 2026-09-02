@@ -1470,6 +1470,8 @@ function Battle:useMove(attacker, defender, moveId)
   -- A mon locked into the second half of a two-turn move spends no PP and
   -- makes no new choice: it just lands the stored attack.
   local charging = state.chargeMove == moveId
+  -- engine/battle/effect_commands.asm:5421
+  local wasVanished = (charging and state.vanished) and true or nil
   if charging then
     state.chargeMove = nil
     state.vanished = nil
@@ -1545,7 +1547,7 @@ function Battle:useMove(attacker, defender, moveId)
   -- `ld a, [wAttackMissed] / and a / jp nz, BattleCommand_MoveDelay`, so a
   -- move that missed or failed burns the delay and plays nothing at all.
   self.moveEvent = self:emit({ kind = "move", side = self:sideOf(attacker),
-    move = moveId,
+    move = moveId, wasVanished = wasVanished,
     text = Strings("%s\nused %s!", name, def.name or moveId) })
 
   -- battle.move_used, where BattleState:executeMove raises it on Gen 1: after
@@ -1658,8 +1660,11 @@ function Battle:useMove(attacker, defender, moveId)
   if charge and not charging then
     state.chargeMove = moveId
     state.vanished = charge.vanish or nil
-    -- engine/battle/effect_commands.asm:5458
-    if self.moveEvent then self.moveEvent.animParam = 1 end
+    -- engine/battle/effect_commands.asm:5456-5458
+    if self.moveEvent then
+      self.moveEvent.animParam = 1
+      self.moveEvent.noAfterAnim = true
+    end
     -- BattleCommand_Charge picks the line off the MOVE, not the shared
     -- EFFECT_FLY (`cp DIG`, effect_commands.asm:5464).
     local text = charge.text
@@ -1691,7 +1696,8 @@ function Battle:useMove(attacker, defender, moveId)
   end
 
   -- Protect turns the whole move aside before accuracy is even rolled.
-  if self:volatile(defender).protect then
+  if self:volatile(defender).protect
+      and not Effects.NO_CHECKHIT[def.effect] then
     -- CheckHit's .Protect arm jumps to .Miss (effect_commands.asm:1557).
     if def.effect == "EFFECT_SELFDESTRUCT" then self:selfdestructUser(attacker) end
     self:markMissed()
@@ -1719,6 +1725,7 @@ function Battle:useMove(attacker, defender, moveId)
   -- .FlyDigMoves: four moves reach a flying target, three an underground one
   -- (effect_commands.asm:1566-1567, :1713-1746).
   if self:volatile(defender).vanished and not lockedThrough
+      and not Effects.NO_CHECKHIT[def.effect]
       and not Effects.hitsVanished(self:volatile(defender).chargeMove, moveId) then
     -- CheckHit's .Miss only sets wAttackMissed (effect_commands.asm:1619-1630),
     -- so `selfdestruct` still runs ahead of failuretext.
@@ -1765,9 +1772,11 @@ function Battle:useMove(attacker, defender, moveId)
       self.moveEvent.deferAnim = true
       self.moveEvent.animDelay = true
     end
-    self.moveEvent = self:emit({ kind = "message",
-      moveAnim = moveId, side = self:sideOf(attacker),
+    self:emit({ kind = "message",
       text = Strings("Magnitude %d!", number) })
+    -- data/moves/effects.asm:1705-1711
+    self.moveEvent = self:emit({ kind = "message",
+      moveAnim = moveId, side = self:sideOf(attacker) })
   end
 
   -- data/moves/effects.asm:1607, :1649
@@ -2720,6 +2729,8 @@ Battle.MOVE_EFFECTS.EFFECT_CURSE = function(self, attacker, defender)
         text = Strings("%s's ATTACK won't rise anymore!", name) })
       return
     end
+    -- engine/battle/move_effects/curse.asm:39
+    if self.moveEvent then self.moveEvent.animParam = 1 end
     -- The cart's own order: Speed down first, then the two raises.  The
     -- user's own drop is not Mist's business.
     self:changeStage(attacker, "speed", -1)
@@ -3149,7 +3160,9 @@ Battle.STATUSES = {
       if mon.statusTurns <= 0 then
         mon.status = nil
         mon.statusTurns = nil
-        battle:emit({ kind = "message", text = Strings("%s woke up!", name) })
+        -- engine/battle/effect_commands.asm:175-181
+        battle:emit({ kind = "status", side = battle:sideOf(mon), status = nil,
+          text = Strings("%s woke up!", name) })
         return true
       end
       battle:emit({ kind = "message",
@@ -3219,7 +3232,9 @@ Battle.STATUSES = {
     beforeMove = function(battle, mon, name)
       if rand(battle.random, Battle.THAW_CHANCE) == 0 then
         mon.status = nil
-        battle:emit({ kind = "message", text = Strings("%s thawed out!", name) })
+        -- engine/battle/effect_commands.asm:6289-6290
+        battle:emit({ kind = "status", side = battle:sideOf(mon), status = nil,
+          text = Strings("%s thawed out!", name) })
         return true
       end
       battle:emit({ kind = "message",
@@ -3911,8 +3926,11 @@ function Battle:resolveForget(index, slot, entry, moveName)
   if self.player == mon and self.player.moves ~= mon.moves then
     self.player.moves = mon.moves
   end
-  self:emit({ kind = "message",
-    text = Strings("1, 2 and… %s forgot %s!", self:monName(mon), oldName) })
+  -- ../pokecrystal/home/text.asm:887-896
+  self:emit({ kind = "message", text = Strings("1, 2 and…"), textPause = true })
+  -- engine/pokemon/learn.asm:225-229, data/text/common_3.asm:172-173
+  self:emit({ kind = "message", sfx = "Sfx_SwitchPokemon",
+    text = Strings("Poof! %s forgot %s!", self:monName(mon), oldName) })
   -- engine/pokemon/learn.asm:115, data/text/common_3.asm:119
   self:emit({ kind = "message",
     sfx = "Sfx_DexFanfare5079", waitSfx = true,

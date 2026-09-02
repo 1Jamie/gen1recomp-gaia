@@ -268,20 +268,26 @@ eq(overrideSide("minimize", 0), nil, "anim_minimize ($e9) is a cart dummy")
 -- battle screen, and the branch-heavy ones (Metronome, Bide, the multi-hit
 -- loops) are exactly where that would happen.
 local longest, longestName, stuck = 0, nil, 0
+local DroppedBg = require("src.battle.gen2.BgEffects").DROPPED
+eq(#DroppedBg, 0, "no BG effect id was dropped before the sweep")
 for move, key in pairs(data.moves) do
   for _, turn in ipairs({ 0, 1 }) do
-    local r = runner(key, { animId = move, turn = turn, param = 3 })
-    local frames = 0
-    local ok = pcall(function()
-      while r:step() and frames < 1500 do frames = frames + 1 end
-    end)
-    if not ok or frames >= 1500 then stuck = stuck + 1 end
-    if frames > longest then longest, longestName = frames, move end
+    for _, param in ipairs({ 0, 1, 2, 3 }) do
+      local r = runner(key, { animId = move, turn = turn, param = param })
+      local frames = 0
+      local ok = pcall(function()
+        while r:step() and frames < 1500 do frames = frames + 1 end
+      end)
+      if not ok or frames >= 1500 then stuck = stuck + 1 end
+      if frames > longest then longest, longestName = frames, move end
+    end
   end
 end
-eq(stuck, 0, "all 251 move animations terminate on both turns")
+eq(stuck, 0, "all 251 move animations terminate on both turns at params 0-3")
 check(longest > 0 and longest < 1500,
   ("the longest is %s at %d frames"):format(tostring(longestName), longest))
+eq(#DroppedBg, 0, "no BG effect id was dropped for want of an E entry ("
+  .. table.concat(DroppedBg, ", ") .. ")")
 
 -- BattleAnimObjects rows are six bytes and the struct's TILEID comes from the
 -- tile dict, not the row -- so an object queued before its sheet is loaded

@@ -1227,4 +1227,95 @@ do
   end
 end
 
+eq(BugContest.score(mon({ hp = 16 })), BugContest.score(mon()) - 3,
+  "the remaining HP term feeds the score")
+
+do
+  local GameVersion = require("src.core.GameVersion")
+  local prior = GameVersion.current
+  GameVersion.set("gold")
+  local stock, this = ContestMenu.labels()
+  eq(stock, " STOCK <PK><MN> ", "gold's STOCK label")
+  eq(this, " THIS <PK><MN> ", "gold's THIS label, one trailing space")
+  GameVersion.set("crystal")
+  stock, this = ContestMenu.labels()
+  eq(stock, " STOCK <PK><MN> ",
+    "crystal's STOCK expands <PKMN> to the same ten tiles")
+  eq(this, " THIS <PK><MN>  ",
+    "crystal's THIS keeps its second trailing space, ten tiles not nine")
+  GameVersion.set(prior)
+end
+
+do
+  local menuSource = sourceOf("src/ui/gen2/ContestMenu.lua")
+  check(menuSource ~= nil, "ContestMenu's source is readable")
+  check(menuSource:find("Font.useBattleExtra(true)", 1, true) ~= nil,
+    "the switch screen loads the battle-extra font page for its <LV> tile")
+end
+
+do
+  local StartMenu = require("src.ui.gen2.StartMenu")
+  local record = { party = party("CYNDAQUIL"), boxes = {}, inventory = {},
+    events = {}, player = { name = "GOLD" } }
+  BugContest.start(record, START)
+  BugContest.catch(record, mon({ species = "CATERPIE", level = 9 }))
+  local warped = 0
+  local game = { save = record, world = {
+    bugContestResults = function() warped = warped + 1; return true end } }
+
+  local menu = StartMenu.new(game, { save = record })
+  local function ids(m)
+    local out = {}
+    for _, item in ipairs(m.items) do out[#out + 1] = item.value end
+    return table.concat(out, ",")
+  end
+  eq(ids(menu), "pokemon,status,quitContest,option",
+    "mid-contest the menu swaps SAVE for QUIT and drops PACK and the title row")
+  check(menu.contest, "and knows the contest is on")
+  eq(menu.list.y, 4, "the list sits two rows lower, per .ContestMenuHeader")
+
+  local quitIndex
+  for index, item in ipairs(menu.items) do
+    if item.value == "quitContest" then quitIndex = index end
+  end
+  check(quitIndex ~= nil, "the QUIT row is findable")
+  eq(menu.items[quitIndex].label, "QUIT", "and is labeled QUIT")
+
+  menu.list.index = quitIndex
+  game.input = fakeInput("a")
+  menu:update(0)
+  eq(menu.phase, "confirmContest", "QUIT asks before ending the Contest")
+  eq(menu.confirmChoice, 1, "with the YesNoBox open on YES")
+  eq(warped, 0, "and nothing has ended yet")
+
+  game.input = fakeInput("b")
+  menu:update(0)
+  eq(menu.phase, nil, "B backs out")
+  eq(warped, 0, "without ending the contest")
+  check(BugContest.isActive(record), "which is still running")
+
+  menu.list.index = quitIndex
+  game.input = fakeInput("a")
+  menu:update(0)
+  game.input = fakeInput("a")
+  menu:update(0)
+  eq(warped, 1, "YES hands control to BugContestResultsWarpScript")
+  eq(menu.phase, nil, "and the confirmation is gone")
+
+  game.input = fakeInput("a")
+  local down = StartMenu.new(game, { save = record })
+  menu.list.index = quitIndex
+  game.input = fakeInput("start")
+  down.phase = "confirmContest"
+  down:update(0)
+  eq(down.phase, nil, "START backs out of the confirmation too")
+
+  BugContest.stop(record)
+  local after = StartMenu.new(game, { save = record })
+  eq(ids(after), "pokemon,pack,status,save,option,quit",
+    "stopping the contest restores SAVE, PACK and the title QUIT")
+  check(not after.contest, "and the contest flag clears")
+  eq(after.list.y, 2, "with the list back at menu_coords 10, 0")
+end
+
 S.finish()

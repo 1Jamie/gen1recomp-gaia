@@ -85,14 +85,14 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
 local REMAP_SOURCE = [[
 extern int remapCount;
 extern float remapTol;
-extern vec3 remapSrc[32];
-extern vec3 remapDst[32];
+extern vec3 remapSrc[64];
+extern vec3 remapDst[64];
 
 vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
   vec4 px = Texel(tex, uv);
   vec3 mapped = px.rgb;
   float best = remapTol;
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 64; i++) {
     if (i >= remapCount) { break; }
     vec3 d = px.rgb - remapSrc[i];
     float dist = dot(d, d);
@@ -108,9 +108,10 @@ vec4 effect(vec4 tint, Image tex, vec2 uv, vec2 screen) {
 }
 ]]
 
--- The compiled-in array length above.  A map's eight BG palettes are 32
--- colours before dedupe, which is the worst case this has to hold.
-GbcPalette.REMAP_MAX = 32
+-- The compiled-in array length above.  A map's eight BG palettes plus its
+-- eight OBJ palettes are 64 colours before dedupe, which is the worst case
+-- this has to hold (home/fade.asm:32-38).
+GbcPalette.REMAP_MAX = 64
 -- Squared RGB distance, in 0..1 units: three 8-bit steps.
 GbcPalette.REMAP_TOLERANCE = (3 / 255) ^ 2
 
@@ -362,10 +363,9 @@ end
 -- order -- the reading that matches "the whole picture flashes".  Nothing here
 -- is approximate when `ambiguous` is 0.
 --
--- A map's eight BG palettes are 32 entries, which is REMAP_MAX exactly, so a
--- map whose palettes share nothing at all fills the array and the OBJ list is
--- dropped.  BG is walked first for that reason too: losing the sprite guard
--- costs a few sprite pixels, losing a BG palette would cost the effect.
+-- BG and OBJ together are 64 entries before dedupe, which is REMAP_MAX.  BG
+-- is walked first anyway: losing the sprite guard costs a few sprite pixels,
+-- losing a BG palette would cost the effect.
 function GbcPalette.remapTable(bgPalettes, byte, objPalettes, ramp, objRamped)
   local src, dst = {}, {}
   local seen = {}
@@ -447,7 +447,7 @@ end
 function GbcPalette.useRemapUniforms(uniforms)
   local sh = GbcPalette.remapShader()
   if not (sh and uniforms) then return false end
-  -- pcall rather than an assert: a driver that will not take a 32-entry vec3
+  -- pcall rather than an assert: a driver that will not take a 64-entry vec3
   -- array should drop the effect, not take the battle down with it.
   local ok = pcall(function()
     sh:send("remapCount", uniforms.count)

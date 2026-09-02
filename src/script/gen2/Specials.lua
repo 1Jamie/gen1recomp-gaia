@@ -687,8 +687,8 @@ H.DayCareMon2 = function(vm) dayCareMon(vm, "lady") end
 -- its own common_* text: the extractor does not reach the common banks.
 local MOVE_DELETER_TEXT = {
   intro = Strings.source(
-    "Um… Oh, yes, I'm\nthe MOVE DELETER.\n\nI can make #MON\n"
-    .. "forget moves.\n\nShall I make a\n#MON forget?"),
+    "Um… Oh, yes, I'm\nthe MOVE DELETER.\fI can make #MON\n"
+    .. "forget moves.\fShall I make a\n#MON forget?"),
   declined = Strings.source("No? Come visit me\nagain."),
   whichMon = Strings.source("Which #MON?"),
   egg = Strings.source("An EGG doesn't\nknow any moves!"),
@@ -788,23 +788,23 @@ end
 -- `special` byte only points at the routine, not at the text bank behind it.
 local NAME_RATER_TEXT = {
   hello = Strings.source(
-    "Hello, hello! I'm\nthe NAME RATER.\n\nI rate the names\nof #MON.\n\n"
+    "Hello, hello! I'm\nthe NAME RATER.\fI rate the names\nof #MON.\f"
     .. "Would you like me\nto rate names?"),
   comeAgain = Strings.source("OK, then. Come\nagain sometime."),
-  whichMon = Strings.source("Which #MON's\nnickname should I\nrate for you?"),
+  whichMon = Strings.source("Which #MON's\nnickname should I\vrate for you?"),
   egg = Strings.source("Whoa… That's just\nan EGG."),
   perfectName = Strings.source(
-    "Hm… {STRBUF}?\nWhat a great name!\nIt's perfect.\n\nTreat {STRBUF}\n"
+    "Hm… {STRBUF}?\nWhat a great name!\vIt's perfect.\fTreat {STRBUF}\n"
     .. "with loving care."),
   betterName = Strings.source(
-    "Hm… {STRBUF}…\nThat's a fairly\ndecent name.\n\nBut, how about a\n"
-    .. "slightly better\nnickname?\n\nWant me to give it\na better name?"),
-  whatName = Strings.source("All right. What\nname should we\ngive it, then?"),
-  finished = Strings.source("That's a better\nname than before!\n\nWell done!"),
+    "Hm… {STRBUF}…\nThat's a fairly\vdecent name.\fBut, how about a\n"
+    .. "slightly better\vnickname?\fWant me to give it\na better name?"),
+  whatName = Strings.source("All right. What\nname should we\vgive it, then?"),
+  finished = Strings.source("That's a better\nname than before!\fWell done!"),
   sameName = Strings.source(
-    "It might look the\nsame as before,\n\nbut this new name\n"
-    .. "is much better!\n\nWell done!"),
-  named = Strings.source("All right. This\n#MON is now\nnamed {STRBUF}."),
+    "It might look the\nsame as before,\fbut this new name\n"
+    .. "is much better!\fWell done!"),
+  named = Strings.source("All right. This\n#MON is now\vnamed {STRBUF}."),
 }
 
 -- IsNewNameEmpty: the typed name is empty if every character up to the

@@ -49,6 +49,20 @@ Effects.STAT_CHANGES = {
   EFFECT_SPEED_DOWN_2 = { "speed", -2, "foe" },
 }
 
+-- pokegold data/moves/effects.asm:187-352, :1488, :2068
+Effects.NO_CHECKHIT = {
+  EFFECT_ATTACK_UP = true,
+  EFFECT_DEFENSE_UP = true,
+  EFFECT_SP_ATK_UP = true,
+  EFFECT_EVASION_UP = true,
+  EFFECT_ATTACK_UP_2 = true,
+  EFFECT_DEFENSE_UP_2 = true,
+  EFFECT_SPEED_UP_2 = true,
+  EFFECT_SP_DEF_UP_2 = true,
+  EFFECT_DEFENSE_CURL = true,
+  EFFECT_CURSE = true,
+}
+
 -- The secondary versions, rolled against the move's effect chance after a hit.
 Effects.STAT_CHANGES_ON_HIT = {
   EFFECT_ATTACK_UP_HIT = { "attack", 1, "self" },

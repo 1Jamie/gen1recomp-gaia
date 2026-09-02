@@ -24,16 +24,16 @@ end
 do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCY", lyStart = 0, lyEnd = 0x36, lyBackup = { [10] = 2 } })))
-  T.eq(lines[10] and lines[10].src, 12, "rSCY 2 on LY 10 samples BG row 12")
-  T.eq(lines[10] and lines[10].dest, 10, "and still draws on scanline 10")
-  T.eq(lines[10] and lines[10].dx, 0, "rSCY never moves the row sideways")
+  T.eq(lines[11] and lines[11].src, 13, "rSCY 2 stored on LY 10 lands on 11")
+  T.eq(lines[11] and lines[11].dest, 11, "and draws on scanline 11")
+  T.eq(lines[11] and lines[11].dx, 0, "rSCY never moves the row sideways")
 end
 
 do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCX", lyStart = 0, lyEnd = 0x36, lyBackup = { [10] = 2 } })))
-  T.eq(lines[10] and lines[10].src, 10, "rSCX leaves the sampled row alone")
-  T.eq(lines[10] and lines[10].dx, -2, "and shifts the destination x instead")
+  T.eq(lines[11] and lines[11].src, 11, "rSCX leaves the sampled row alone")
+  T.eq(lines[11] and lines[11].dx, -2, "and shifts the destination x instead")
 end
 
 do
@@ -52,7 +52,7 @@ do
       "scanline " .. line.dest .. " samples inside the panel")
   end
   local gaps = 0
-  for row = 0, 0x35 do
+  for row = 1, 0x36 do
     if not seen[row] then gaps = gaps + 1 end
   end
   T.eq(gaps, 0, "a per-scanline rSCY sine leaves no blank rows in the window")
@@ -62,7 +62,7 @@ do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCY", lyStart = 0, lyEnd = 0x36,
       lyBackup = { [10] = 0x90, [120] = 0x90 } })))
-  T.eq(lines[10], nil, "a $90 row inside the window is skipped")
+  T.eq(lines[11], nil, "a $90 stored on LY 10 skips scanline 11")
   T.check(lines[120] ~= nil, "a $90 row outside the window still draws")
 end
 
@@ -70,17 +70,17 @@ end
 do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCY", lyStart = 0, lyEnd = 0x36,
-      lyBackup = { [0] = 0xff, [1] = 0xfe } })))
-  T.eq(lines[0] and lines[0].src, 0,
+      lyBackup = { [0] = 0xfe, [1] = 0xfd } })))
+  T.eq(lines[1] and lines[1].src, 0,
     "a window row that wobbles above the panel clamps to row 0")
-  T.eq(lines[1] and lines[1].src, 0, "two rows above the panel clamp as well")
-  T.eq(lines[1] and lines[1].dest, 1, "and still land on their own scanline")
+  T.eq(lines[2] and lines[2].src, 0, "two rows above the panel clamp as well")
+  T.eq(lines[2] and lines[2].dest, 2, "and still land on their own scanline")
 end
 
 do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCY", lyStart = 0x80, lyEnd = SCREEN_H,
-      lyBackup = { [SCREEN_H - 1] = 2 } })))
+      lyBackup = { [SCREEN_H - 2] = 2 } })))
   T.eq(lines[SCREEN_H - 1] and lines[SCREEN_H - 1].src, SCREEN_H - 1,
     "and a window row that wobbles below it clamps to the last row")
 end
@@ -89,7 +89,7 @@ do
   local lines = byRow(BattleAnimView.scanlines(
     bg({ lcdc = "SCY", scy = 0xfc, lyStart = 0, lyEnd = 0x36,
       lyBackup = { [0] = 0xff } })))
-  T.eq(lines[0], nil, "an hSCY shake keeps its blank rows, window or not")
+  T.eq(lines[1], nil, "an hSCY shake keeps its blank rows, window or not")
 end
 
 do

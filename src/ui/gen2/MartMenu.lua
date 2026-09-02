@@ -976,6 +976,13 @@ function MartMenu:drawYesNo(choice)
   Chrome.cursor(YESNO_X + 1, YESNO_Y + (choice == 1 and 1 or 3))
 end
 
+-- ../pokecrystal/engine/items/mart.asm:517 MartConfirmPurchase
+function MartMenu:yesNoVisible()
+  local confirm = self.confirm
+  if not confirm or confirm.page < #confirm.pages then return false end
+  return not Typer.typing(self)
+end
+
 -- Whatever the overlays sit on top of.
 function MartMenu:drawUnder()
   local phase = self.phase
@@ -1015,12 +1022,13 @@ function MartMenu:drawPanel()
     self:drawTextBox(Typer.text(self, self.message.pages[self.message.page]))
     -- LoadBlinkingCursor puts the ▼ at hlcoord 18, 17 while a `para` waits.
     if self.message.page < #self.message.pages
-      and (self.typer == nil or self.typer:done()) then
+      and (self.typer == nil or self.typer:done())
+      and Typer.arrowOn(self) then
       Chrome.print(DOWN_ARROW, 18, 17)
     end
   elseif self.confirm then
     self:drawTextBox(Typer.text(self, self.confirm.pages[self.confirm.page]))
-    if self.confirm.page >= #self.confirm.pages then
+    if self:yesNoVisible() then
       self:drawYesNo(self.confirm.choice)
     end
   end

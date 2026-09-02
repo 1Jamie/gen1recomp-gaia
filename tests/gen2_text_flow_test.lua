@@ -430,4 +430,96 @@ do
   end
 end
 
+-- pokecrystal data/text/common_3.asm:1464, pokegold data/text/common_1.asm:1562
+do
+  local function pageIsPlayable(page, conts)
+    if #page <= 2 then return true end
+    for i = 3, #page do
+      if not (conts and conts[i]) then return false end
+    end
+    return true
+  end
+
+  local function assertPlayable(label, text)
+    local pages = TextBox.paginate(text, 18)
+    for i, page in ipairs(pages) do
+      check(pageIsPlayable(page, pages.contBefore and pages.contBefore[i]),
+        ("%s: page %d never runs past the box unattended"):format(label, i))
+    end
+    return pages
+  end
+
+  local function drive(handler, specials, answers)
+    local texts, stays = {}, {}
+    local ai = 0
+    local vm = Vm.new({}, {}, Events.new(), { specials = specials })
+    vm.showTextFn = function() end
+    vm.co = coroutine.create(function() Specials.HANDLERS[handler](vm) end)
+    local ok, req = coroutine.resume(vm.co)
+    while true do
+      if not ok then error(req) end
+      local answer = nil
+      if req and req.kind == "text" then
+        texts[#texts + 1] = req.text
+        stays[#texts] = req.stay
+      elseif req and req.kind == "yesorno" then
+        ai = ai + 1
+        answer = answers[ai]
+      end
+      if coroutine.status(vm.co) == "dead" then break end
+      ok, req = coroutine.resume(vm.co, answer)
+    end
+    return texts, stays
+  end
+
+  -- pokecrystal engine/events/move_deleter.asm:2-4
+  local texts, stays = drive("MoveDeletion", {}, { true })
+  eq(#texts, 3, "the deleter's intro, the mon prompt, then the decline")
+  check(stays[1] == true, "the intro's last page holds under the YES/NO")
+  local intro = assertPlayable("_DeleterIntroText", texts[1])
+  eq(#intro, 3, "the intro is three pages, one per cart `para` (#2095)")
+  for i, page in ipairs(intro) do
+    check(#page <= 2,
+      ("intro page %d holds at most the box's two lines"):format(i))
+  end
+  eq(intro[3][2], "#MON forget?", "the question is the last page")
+  assertPlayable("_DeleterWhichMonText", texts[2])
+  assertPlayable("_DeleterDeclinedText", texts[3])
+
+  -- pokecrystal engine/events/name_rater.asm:3-5
+  local rate = {
+    save = function() return { player = { name = "GOLD", id = 1 } } end,
+  }
+  rate.selectPartyMon = function(_, done)
+    done(1, { nickname = "SPOT", ot = "SOMEONE", otId = 2 })
+  end
+  texts, stays = drive("NameRater", rate, { true })
+  eq(#texts, 3, "hello, the pick prompt, then the traded-mon verdict")
+  check(stays[1] == true, "hello's last page holds under the YES/NO")
+  local hello = assertPlayable("_NameRaterHelloText", texts[1])
+  eq(#hello, 3, "hello is three pages, one per cart `para` (#2095)")
+  local which = assertPlayable("_NameRaterWhichMonText", texts[2])
+  eq(#which, 1, "the pick prompt is one page")
+  eq(#which[1], 3, "of three lines")
+  check(which.contBefore[1][3] == true,
+    "whose third scrolls in on a button press, not on its own")
+  assertPlayable("_NameRaterPerfectNameText", texts[3])
+
+  rate.selectPartyMon = function(_, done) done(1, { nickname = "SPOT" }) end
+  rate.renameMon = function(_, done) done("REX") end
+  texts, stays = drive("NameRater", rate, { true, true })
+  eq(#texts, 6, "hello, pick, offer, keyboard prompt, named, finished")
+  check(stays[3] == true, "the rename offer holds under its YES/NO")
+  assertPlayable("_NameRaterBetterNameText", texts[3])
+  assertPlayable("_NameRaterWhatNameText", texts[4])
+  local named = assertPlayable("_NameRaterNamedText", texts[5])
+  check(named.contBefore[1][3] == true, "the new name waits for a press")
+  assertPlayable("_NameRaterFinishedText", texts[6])
+
+  rate.renameMon = function(_, done) done("SPOT") end
+  texts = drive("NameRater", rate, { true, true })
+  eq(#texts, 6, "a re-typed name still runs the full conversation")
+  assertPlayable("_NameRaterSameNameText", texts[6])
+end
+
 S.finish()

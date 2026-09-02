@@ -139,9 +139,15 @@ function Typer.turn(screen, record)
 end
 
 function Typer.step(screen)
+  screen.arrowBlink = ((screen.arrowBlink or 0) + 1) % 32
   local typer = screen.typer
   if not typer then return true end
   return typer:tick()
+end
+
+-- ../pokegold/home/joypad.asm:430
+function Typer.arrowOn(screen)
+  return ((screen.arrowBlink or 0) % 32) < 16
 end
 
 -- ../pokecrystal/home/print_text.asm:59
