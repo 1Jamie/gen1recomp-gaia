@@ -56,8 +56,10 @@ jobs:
     needs: ios-changes
     if: needs.ios-changes.outputs.changed == 'true'
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
+    permissions:
+      contents: write
     outputs:
-      ipa_url: ${{ steps.upload-ipa.outputs.artifact-url || steps.upload-ipa-retry.outputs.artifact-url }}
+      ipa_url: ${{ steps.upload-ipa.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v7
       - name: import signing certificate
@@ -90,26 +92,32 @@ jobs:
           else
             scripts/build_ios.sh --fetch --release
           fi
-      - name: upload iOS release artifact
+      - name: publish iOS release artifact
         id: upload-ipa
         if: github.repository == 'bryanthaboi/gen1recomp'
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          name: gen1recomp++-ios-ipa
-          path: dist/ios/gen1recomp++.ipa
-          if-no-files-found: error
-          retention-days: 7
-      - name: upload iOS release artifact (retry)
-        id: upload-ipa-retry
-        if: github.repository == 'bryanthaboi/gen1recomp' && steps.upload-ipa.outcome == 'failure'
-        uses: actions/upload-artifact@v7
-        with:
-          name: gen1recomp++-ios-ipa
-          path: dist/ios/gen1recomp++.ipa
-          if-no-files-found: error
-          retention-days: 7
-          overwrite: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ipa=dist/ios/gen1recomp++.ipa
+          [ -f "$ipa" ]
+          tag="ci-ios-$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')"
+          notes="Rolling CI build of $GITHUB_SHA on $BRANCH; replaced on every push."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --prerelease --notes "$notes"
+          else
+            gh release create "$tag" --prerelease --target "$GITHUB_SHA" \
+              --title "CI iOS build ($BRANCH)" --notes "$notes"
+          fi
+          for attempt in 1 2 3 4; do
+            if gh release upload "$tag" "$ipa" --clobber; then break; fi
+            [ "$attempt" -lt 4 ] || exit 1
+            sleep $((attempt * 15))
+          done
+          url="$(gh release view "$tag" --json assets --jq '.assets[] | select(.name == "gen1recomp++.ipa") | .url')"
+          echo "artifact-url=$url" >> "$GITHUB_OUTPUT"
+          echo "$url"
       - name: clean up signing keychain
         if: ${{ always() && github.repository == 'bryanthaboi/gen1recomp' }}
         run: security delete-keychain "$RUNNER_TEMP/gen1recomp-ci-signing.keychain-db" 2>/dev/null || true
