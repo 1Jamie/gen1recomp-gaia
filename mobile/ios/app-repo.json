@@ -13,6 +13,55 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.52",
+          "date": "2026-09-02",
+          "size": 21587460,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.52/gen1recomp++-0.2.52-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2087 SFX being cut off when battle speed is increased\n- #2107 Daycare bugs when taking Pokemon back\n- #2108 Cry not played when leaving Pokemon in the daycare\n- #2109 Poké Flute tune not played completely when waking Snorlax\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
+          "version": "0.2.51",
+          "date": "2026-09-02",
+          "size": 21587247,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.51/gen1recomp++-0.2.51-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
+          "version": "0.2.50",
+          "date": "2026-09-02",
+          "size": 21587041,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.50/gen1recomp++-0.2.50-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2080 (GSC) Issues with grass transparency\n- #2082 (GSC) Sleep status only disappearing after woken pokemon attack\n- #2084 (GSC) Misplaced or static arrow in some dialogues\n- #2085 (GSC) YES or NO prompts should only appear at the end of the question\n- #2086 (GSC) Various issues in the Bug-Catching Contest\n- #2090 (GSC) Missing black dots animation after the pokéball mosaic and before some wild encounters\n- #2091 (GSC) Missing SFX when forgetting a move\n- #2093 (GSC) Magnitude missing confirmation after its level is defined\n- #2094 (GSC) Missing transition for entering/exiting places and finishing/running from battles\n- #2095 (GSC) Move deleter's dialogue advancing by itself\n- #2099 (GSC) Curse animation should be different for non-ghost type pokémon\n- #2100 (GSC) The move curse is missing when the opponent is dug in the ground\n- #2101 (GSC) Broken Dig animation in battles\n- #2102 (GSC) Broken Body Slam and Splash animation, broken Body Slam and Headbutt behavior when making the opponent faint\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
+          "version": "0.2.49",
+          "date": "2026-09-02",
+          "size": 21583467,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.49/gen1recomp++-0.2.49-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2092 Games freeze and do not progress past the initial splash screen when launching\n- #2098 bug: Gen2 no longer loading on Android\n\n## Contributors\n\n- @bryanthaboi\n- @thibautbus"
+        },
+        {
+          "version": "0.2.48",
+          "date": "2026-09-02",
+          "size": 21568319,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.48/gen1recomp++-0.2.48-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2057 Trainer moves field crashes mod loading under api: 2\n- #2058 Gym Badge NPC Guy Layout\n- #2059 Switch Pokemon is missing Animation\n- #2060 Pokemon Watching Stats missing Whitescreen Transition\n- #2061 Arrow in item menu isn't blinking\n- #2062 Item Bag - Using Heal Items Arrows\n- #2063 Arrow pointing at selected item stays black\n- #2064 Fishing isn't accurate\n- #2066 Catch message skips to jingle automatically\n- #2067 Pokedex Pokeball color missing in Advanced\n- #2069 Returning to battle state after catching new Pokemon\n- #2070 Immediately exiting out of the Pokemon menu when using a stone to evolve a Pokemon\n- #2072 Sound effects for using evolution stones missing\n- #2076 Brock not using full heals.\n- #2077 Blacking out puts you in the pokecenter.\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
+          "version": "0.2.47",
+          "date": "2026-09-01",
+          "size": 21567009,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.47/gen1recomp++-0.2.47-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Contributors\n\n- @1Jamie\n- @bryanthaboi"
+        },
+        {
+          "version": "0.2.46",
+          "date": "2026-09-01",
+          "size": 21566558,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.46/gen1recomp++-0.2.46-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #1971 Checkpoint restore fails 3 steps out of 4: the map-enter path zeroes save.poisonSteps, then verification rejects the mismatch\n- #2025 findPendingRom is unreachable on Linux: the file browser returns before it\n- #2029 [Crystal] Location banners disappear fast with normal/lower speeds and last very long with high speeds\n- #2030 Transform animation incorrect\n- #2031 Prof. Oak's Aides bugs\n- #2033 Evolution timing & sound issues\n- #2034 Celadon Game Corner\n- #2035 Can’t select update all on sealed cart. So still can’t properly use update all button to update cartridges.\n- #2038 Skins screen is extremely slow on handheld devices (options file re-read and decoded every frame)\n- #2040 Sealed cartridge saves not syncing\n- #2041 (GSC) Unable to use softboiled outside battles\n- #2042 (GSC) When switching items, both arrows are transparent\n- #2043 (GSC) Missing mechanics for headbutt trees\n- #2044 (GSC) Pokéball mosaic effect is broken\n- #2045 (GSC) The last text box before entering a battle shouldn't have an arrow\n- #2046 (GSC) Text speed is instant in a lot of situations\n- #2048 Mod checking for update graphic rotation\n- #2049 (GSC) The screen gets fully white when turning the PC on\n- #2050 (GSC) Pokémon not animating in the Hall of Fame PC\n- #2051 (GSC) The brief white screen before and after choosing the location for FLY is too quick\n- #2052 (GSC) Missing blue sparks when leveling up\n- #2053 (GSC) White screen when saving the game\n- #2054 (GSC) Missing details when continuing a game\n\n## Contributors\n\n- @1Jamie\n- @BountyHunterKanden\n- @bryanthaboi\n- @mleo2003"
+        },
+        {
           "version": "0.2.45",
           "date": "2026-08-31",
           "size": 21546273,
