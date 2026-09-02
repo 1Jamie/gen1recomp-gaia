@@ -57,7 +57,7 @@ jobs:
     if: needs.ios-changes.outputs.changed == 'true'
     runs-on: ${{ fromJSON(github.repository == 'bryanthaboi/gen1recomp' && '["self-hosted", "macOS"]' || '"macos-latest"') }}
     outputs:
-      ipa_url: ${{ steps.upload-ipa.outputs.artifact-url }}
+      ipa_url: ${{ steps.upload-ipa.outputs.artifact-url || steps.upload-ipa-retry.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v7
       - name: import signing certificate
@@ -93,12 +93,23 @@ jobs:
       - name: upload iOS release artifact
         id: upload-ipa
         if: github.repository == 'bryanthaboi/gen1recomp'
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: gen1recomp++-ios-ipa
           path: dist/ios/gen1recomp++.ipa
           if-no-files-found: error
           retention-days: 7
+      - name: upload iOS release artifact (retry)
+        id: upload-ipa-retry
+        if: github.repository == 'bryanthaboi/gen1recomp' && steps.upload-ipa.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gen1recomp++-ios-ipa
+          path: dist/ios/gen1recomp++.ipa
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - name: clean up signing keychain
         if: ${{ always() && github.repository == 'bryanthaboi/gen1recomp' }}
         run: security delete-keychain "$RUNNER_TEMP/gen1recomp-ci-signing.keychain-db" 2>/dev/null || true
