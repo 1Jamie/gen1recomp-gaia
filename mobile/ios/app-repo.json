@@ -13,6 +13,13 @@
       "category": "games",
       "versions": [
         {
+          "version": "0.2.50",
+          "date": "2026-09-02",
+          "size": 21587041,
+          "downloadURL": "https://github.com/bryanthaboi/gen1recomp/releases/download/v0.2.50/gen1recomp++-0.2.50-ios.ipa",
+          "localizedDescription": "Download the right version for your device below.\n\n## Issues closed\n\n- #2080 (GSC) Issues with grass transparency\n- #2082 (GSC) Sleep status only disappearing after woken pokemon attack\n- #2084 (GSC) Misplaced or static arrow in some dialogues\n- #2085 (GSC) YES or NO prompts should only appear at the end of the question\n- #2086 (GSC) Various issues in the Bug-Catching Contest\n- #2090 (GSC) Missing black dots animation after the pokéball mosaic and before some wild encounters\n- #2091 (GSC) Missing SFX when forgetting a move\n- #2093 (GSC) Magnitude missing confirmation after its level is defined\n- #2094 (GSC) Missing transition for entering/exiting places and finishing/running from battles\n- #2095 (GSC) Move deleter's dialogue advancing by itself\n- #2099 (GSC) Curse animation should be different for non-ghost type pokémon\n- #2100 (GSC) The move curse is missing when the opponent is dug in the ground\n- #2101 (GSC) Broken Dig animation in battles\n- #2102 (GSC) Broken Body Slam and Splash animation, broken Body Slam and Headbutt behavior when making the opponent faint\n\n## Contributors\n\n- @bryanthaboi"
+        },
+        {
           "version": "0.2.49",
           "date": "2026-09-02",
           "size": 21583467,
