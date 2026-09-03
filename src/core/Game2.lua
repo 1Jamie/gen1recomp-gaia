@@ -1205,7 +1205,7 @@ function Game2:load(opts)
     -- to be visible to THIS logic tick, not the next one, and the cart's own
     -- canned stream must be able to overwrite it the way GetJoypad's arm
     -- overwrites the mirrors.  Payload is Gen 1's exactly: (game, fixed dt).
-    ModRuntime.call("input.step", noop, self, dt or 1 / 60)
+    ModRuntime.call("input.step", noop, self, dt or FixedStep.STEP)
     -- GetJoypad's AUTO_INPUT arm runs ahead of everything that reads the pad,
     -- and it overwrites the mirrors outright, so a stream frame has to land
     -- before Input:step promotes this tick's edges -- otherwise the canned
@@ -1226,7 +1226,7 @@ function Game2:load(opts)
     -- (audio/engine.asm:84, home/vblank.asm:141-143), never off the logic clock.
     local top = self.stack:top()
     if top and top.update then
-      top:update(1 / 60)
+      top:update(FixedStep.STEP)
       return
     end
     if self.phase ~= "play" or not self.world then return end
@@ -2215,6 +2215,7 @@ function Game2:applyOptions()
   require("src.core.ScreenPosition").applyOptions(options)
   require("src.core.VSync").applyOptions(options)
   require("src.core.FrameCap").applyOptions(options)
+  require("src.core.LogicClock").applyOptions(options)
   require("src.core.PresentSync").applyFixedStepPeriod()
   require("src.world.gen2.BorderFill").applyOptions(options)
   -- returns true when a persisted preset name no longer resolves (deleted
