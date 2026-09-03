@@ -2019,6 +2019,44 @@ objWorld:appearObject(3)
 check(objWorld.objectMasks["TEST_MAP:2"] == false,
   "and appear unmasks it, so the pair is not one-way")
 
+-- maps/LancesRoom.asm:118
+do
+  local rebuildsBefore = objWorld.rebuilds or 0
+  objWorld:disappearObject(0)
+  check(objWorld.playerMasked == true,
+    "disappear PLAYER masks the player sprite")
+  check(objWorld.objectMasks["TEST_MAP:-1"] == nil, "and touches no map object")
+  eq(objWorld.rebuilds or 0, rebuildsBefore, "and rebuilds nobody")
+  objWorld:appearObject(0)
+  check(not objWorld.playerMasked, "appear PLAYER unmasks it")
+end
+
+-- NewBarkTown_RivalShovesYouOutMovement maps/NewBarkTown.asm:178-183
+do
+  local Player = require("src.world.gen2.Player")
+  local jw = hookWorld()
+  jw.player = Player.new(3, 4, "down")
+  local done = false
+  jw:beginMovement(0, { 0x01, 0x3b, 0x30, 0x3a, 0x47 }, function() done = true end)
+  jw:updateMovement()
+  eq(jw.player.facing, "up", "turn_head UP turns the player")
+  jw:updateMovement()
+  check(jw.player.moving and jw.player.jumping, "jump_step DOWN is a jump")
+  eq(jw.player.targetY, 6, "two cells long")
+  eq(jw.player.facing, "up", "under fix_facing the player keeps facing up")
+  eq(jw.moveState and jw.moveState.pendingStep, nil, "with no second walk queued")
+  local lowest = 0
+  for _ = 1, 32 do
+    jw.player:update()
+    lowest = math.min(lowest, jw.player.spriteYOffset or 0)
+    jw:updateMovement()
+  end
+  eq(lowest, -12, "the sprite arcs twelve pixels up on the way")
+  eq(jw.player.cellY, 6, "and lands two cells down")
+  check(done, "then the stream ends")
+  check(not jw.player.fixedFacing, "remove_fixed_facing released the facing")
+end
+
 -- Three object_events SHARING one MAPOBJECT_EVENT_FLAG is ordinary: the
 -- animated Burned Tower beasts all carry EVENT_BURNED_TOWER_B1F_BEASTS_1
 -- (maps/BurnedTowerB1F.asm:152) and ReleaseTheBeasts appears and jumps them
@@ -2351,8 +2389,11 @@ setupWorld.setMap = function() setupLoads = setupLoads + 1 return true end
 setupWorld:runMapSetup(0xf7, function() return setupWorld:setMap() end)
 eq(setupLoads, 1, "MAPSETUP_CONNECTION loads on the spot")
 check(setupWorld.mapSetup == nil, "with no chain behind it")
+setupWorld.playerMasked = true
 setupWorld:runMapSetup(0xf1, function() return setupWorld:setMap() end)
 eq(setupLoads, 2, "MAPSETUP_WARP opens on DisableLCD, so it loads at once too")
+check(setupWorld.playerMasked == nil,
+  "and the load respawns a `disappear`ed player")
 eq(setupWorld.mapSetup.phase, "in", "and only fades back in")
 setupWorld.mapSetup = nil
 setupWorld:runMapSetup(0xf6, function() return setupWorld:setMap() end)

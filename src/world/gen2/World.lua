@@ -1941,6 +1941,11 @@ end
 -- command -- unlike a plain `setevent`, which the cart only reads back on the
 -- next map load.
 function World:appearObject(objectId)
+  -- home/map_objects.asm:309
+  if objectId == 0 then
+    self.playerMasked = nil
+    return
+  end
   local index = (objectId or 0) - 1
   local def = self.map and self.map.def
   local obj = def and def.objects and def.objects[index]
@@ -3522,6 +3527,8 @@ function World:runMapSetup(method, load, fly)
   self:roamMonsBeforeLoad(method)
   local wrapped = function()
     local ok = load()
+    -- engine/overworld/map_objects_2.asm:1
+    self.playerMasked = nil
     self:roamMonsAfterLoad(method)
     return ok
   end
@@ -3893,6 +3900,11 @@ function World:turnObject(objectId, facing)
 end
 
 function World:disappearObject(objectId)
+  -- home/map_objects.asm:317
+  if objectId == 0 then
+    self.playerMasked = true
+    return
+  end
   local index = (objectId or 0) - 1
   local def = self.map and self.map.def
   local obj = def and def.objects and def.objects[index]
@@ -4021,9 +4033,7 @@ function World:updateMovement()
     return
   end
   if ent.moving then return end
-  -- StepFunction_NPCJump's `.Land` beat (engine/overworld/map_objects.asm:1150):
-  -- `.Jump` already walked one cell and ran GetNextTile again, so the second
-  -- cell belongs to the jump and not to the next movement byte.
+  -- engine/overworld/map_objects.asm:1150
   if st.pendingStep then
     local dir = st.pendingStep
     st.pendingStep = nil
@@ -4083,7 +4093,9 @@ function World:updateMovement()
       -- GetNextTile only record the tile for the grass flag and never block
       -- scripted movement.
       local fromX, fromY = ent.cellX, ent.cellY
-      if ent:scriptStep(act.dir) then
+      if ent.scriptJump and ent:scriptJump(act.dir) then
+        self:followStep(ent, fromX, fromY)
+      elseif not ent.scriptJump and ent:scriptStep(act.dir) then
         st.pendingStep = act.dir
         self:followStep(ent, fromX, fromY)
       end
@@ -9721,6 +9733,7 @@ function World:setMap(mapId, cx, cy, facing, opts)
   -- A follow pairing points at two live objects, and a map load rebuilds them
   -- (RefreshMapSprites); nothing on the cart survives that either.
   self.followState = nil
+  self.playerMasked = nil
   -- EnterMap's SetUpFiveStepWildEncounterCooldown (engine/overworld/events.asm:
   -- 110, :367-370): four encounter-free steps after every map entry.
   self.wildCooldown = 5
@@ -11102,7 +11115,7 @@ function World:drawPeople(s, billboard)
   local filter = self.spriteFilter
   local drawList = {}
   if not hideAll then
-    if not hidePlayer then
+    if not hidePlayer and not self.playerMasked then
       drawList[1] = { kind = "player", py = p.py, ox = 0, oy = 0 }
     end
     for _, npc in ipairs(self.npcs) do

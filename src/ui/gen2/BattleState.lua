@@ -228,10 +228,11 @@ local PAGE, SCROLL, LINE = "\f", "\v", "\n"
 local SEPARATORS = "([^" .. LINE .. PAGE .. SCROLL .. "]*)([" ..
   LINE .. PAGE .. SCROLL .. "])"
 local function paginate(text)
-  local pages, rows = {}, {}
+  local pages, rows, carried = {}, {}, {}
   local function flush(scroll)
     if #rows > 0 then pages[#pages + 1] = table.concat(rows, LINE) end
     rows = scroll and { rows[#rows] or "" } or {}
+    if scroll then carried[#pages + 1] = true end
   end
   for chunk, sep in (tostring(text or "") .. PAGE):gmatch(SEPARATORS) do
     rows[#rows + 1] = chunk
@@ -239,7 +240,23 @@ local function paginate(text)
     elseif sep == SCROLL then flush(true) end
   end
   if #pages == 0 then pages[1] = tostring(text or "") end
-  return pages
+  return pages, carried
+end
+
+-- ../pokecrystal/home/text.asm:517-526
+local function foldPages(pages, carried)
+  local out, outCarried = {}, {}
+  for i, page in ipairs(pages) do
+    local lines = Chrome.wrap(page, TEXT_WIDTH)
+    out[#out + 1] = #lines > TEXT_ROWS
+      and table.concat(lines, LINE, 1, TEXT_ROWS) or page
+    outCarried[#out] = carried[i]
+    for j = TEXT_ROWS + 1, #lines do
+      out[#out + 1] = table.concat(lines, LINE, j - TEXT_ROWS + 1, j)
+      outCarried[#out] = true
+    end
+  end
+  return out, outCarried
 end
 
 function BattleState.fillScale(winW, winH)
@@ -496,7 +513,7 @@ function BattleState.new(game, opts)
       -- (core.asm:2978-2980, 3354): this is where the mon's frontpic first
       -- appears, where ANIM_SEND_OUT_MON plays and where the HUD comes up.
       self:push({ kind = "send", side = "enemy", mon = enemy,
-        text = Strings("%s sent out %s!", trainerName, self:name(enemy)) })
+        text = Battle.sentOutText(trainerName, self:name(enemy)) })
     end
   end
   local player = self.battle and self.battle.player
@@ -1671,6 +1688,12 @@ end
 
 function BattleState:advanceQueue()
   local event = table.remove(self.queue, 1)
+  self.messagePages, self.messageCarry = nil, nil
+  local pendingSend = self.pendingSendOut
+  if pendingSend then
+    self.pendingSendOut = nil
+    self:startSendOut(pendingSend.side, pendingSend.mon)
+  end
   -- StartBattle runs `call z, UpdateEnemyHUD` AFTER BattleStartMessage returns,
   -- and only for a wild battle (engine/battle/core.asm:7808-7817): the appeared
   -- line is read against an empty HUD area and the bar comes up on the step
@@ -1995,7 +2018,7 @@ function BattleState:advanceQueue()
     end
   end
   if event.text and not event.lineShown then
-    self.message = event.text
+    self:showPages(event.text)
     self.typedText = nil
     -- engine/battle/core.asm:8733
     if self.startHuds then
@@ -2111,7 +2134,12 @@ function BattleState:advanceQueue()
     -- player's voluntary switch through SendOutPlayerMon (:3796).  Without it
     -- the replacement simply appeared, which with two of a species back to back
     -- reads as one mon growing a second health bar.
-    self:startSendOut(event.side, event.mon)
+    -- ../pokecrystal/engine/battle/core.asm:3146-3147
+    if self.messagePages then
+      self.pendingSendOut = { side = event.side, mon = event.mon }
+    else
+      self:startSendOut(event.side, event.mon)
+    end
   end
 end
 
@@ -3470,10 +3498,12 @@ end
 -- One prompt page in the box, with the rest held for the presses `para` and
 -- `cont` wait on (home/text.asm:403-448).
 function BattleState:showPages(text)
-  local pages = paginate(text)
+  local pages, carried = foldPages(paginate(text))
   self.messagePages = #pages > 1 and pages or nil
+  self.messageCarried = carried
   self.messagePage = 1
   self.message = pages[1]
+  self.messageCarry = nil
   self.messageTimer = MESSAGE_FRAMES
 end
 
@@ -3483,8 +3513,18 @@ function BattleState:nextPage()
   local i = self.messagePage + 1
   self.messagePage = i
   self.message = pages[i]
+  self.messageCarry = self.messageCarried and self.messageCarried[i]
+    and pages[i] or nil
   self.messageTimer = MESSAGE_FRAMES
-  if i >= #pages then self.messagePages = nil end
+  if i >= #pages then
+    self.messagePages = nil
+    -- ../pokecrystal/engine/battle/core.asm:3146-3147
+    local pending = self.pendingSendOut
+    if pending then
+      self.pendingSendOut = nil
+      self:startSendOut(pending.side, pending.mon)
+    end
+  end
   return true
 end
 
@@ -4209,7 +4249,14 @@ function BattleState:syncTyper()
       for i = #lines, TEXT_ROWS + 1, -1 do lines[i] = nil end
       self.typer = Typer.new(self.game)
       self.typer:start(lines)
+      -- ../pokecrystal/home/text.asm:521-523
+      if self.messageCarry == text and lines[1] then
+        local carried = Typer.new(self.game)
+        carried:start({ lines[1] })
+        self.typer.shown = math.max(self.typer.shown, carried.total)
+      end
     end
+    self.messageCarry = nil
   end
   return self.typer ~= nil and not self.typer:done()
 end

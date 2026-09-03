@@ -501,6 +501,11 @@ function Battle:monName(mon)
   return mon.nickname or mon.name or mon.species or "?"
 end
 
+-- ../pokecrystal/data/text/battle.asm:240-246
+function Battle.sentOutText(trainerName, monName)
+  return Strings("%s\nsent out\v%s!", trainerName, monName)
+end
+
 function Battle:moveDef(moveId)
   return self.data.moves and self.data.moves[moveId] or nil
 end
@@ -3554,8 +3559,7 @@ function Battle:resolveFaints()
       replacement = true,
       hp = self.enemy.hp or 0, status = self.enemy.status or false,
       level = self.enemy.level, experience = self.enemy.experience,
-      text = Strings("%s sent out %s!",
-        self.trainer and self.trainer.name or "Foe",
+      text = Battle.sentOutText(self.trainer and self.trainer.name or "Foe",
         self:monName(self.enemy)) })
     Runtime.emit("battle.battler_switched", {
       battle = self, side = self:sideRecord(self.enemy), battler = self.enemy,
@@ -4546,8 +4550,7 @@ function Battle:switchEnemy(index)
   self:emit({ kind = "send", side = "enemy", mon = self.enemy,
     hp = self.enemy.hp or 0, status = self.enemy.status or false,
     level = self.enemy.level, experience = self.enemy.experience,
-    text = Strings("%s sent out %s!", trainerName,
-      self:monName(self.enemy)) })
+    text = Battle.sentOutText(trainerName, self:monName(self.enemy)) })
   Runtime.emit("battle.battler_switched", {
     battle = self, side = self:sideRecord(self.enemy), battler = self.enemy,
     previous = outgoing,
@@ -5313,8 +5316,8 @@ function Battle:forcedReplacement(side, index)
     self:emit({ kind = "send", side = "enemy", mon = mon, replacement = true,
       hp = mon.hp or 0, status = mon.status or false,
       level = mon.level, experience = mon.experience,
-      text = Strings("%s sent out %s!",
-        (self.trainer and self.trainer.name) or "Foe", self:monName(mon)) })
+      text = Battle.sentOutText((self.trainer and self.trainer.name) or "Foe",
+        self:monName(mon)) })
     Runtime.emit("battle.battler_switched", {
       battle = self, side = self:sideRecord(mon), battler = mon,
       previous = previous,

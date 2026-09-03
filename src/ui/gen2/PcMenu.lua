@@ -29,6 +29,7 @@ local SaveMenu = require("src.ui.gen2.SaveMenu")
 local Screens = require("src.ui.Screens")
 local Sound = require("src.core.Sound")
 local Strings = require("src.core.Strings")
+local Typer = require("src.ui.gen2.Typer")
 
 -- _PCMonHoldingMailText (data/text/common_2.asm), the refusal
 -- BillsPC_MovePKMNMenu prints instead of opening the list.  Two pages, because
@@ -202,9 +203,8 @@ end
 -- engine/menus/save.asm:40 ChangeBoxSaveGame
 function PcMenu:beginChangeBox(index)
   self.changeBox = index
-  self.savePhase = "confirm"
+  self:setSavePhase("confirm")
   self.saveChoice = 1
-  self.saveTimer = 0
   self.saved = nil
   local existed = self.saveExists
   if existed == nil then existed = Save.exists() end
@@ -217,15 +217,20 @@ function PcMenu:refuseChangeBox()
   self.saveTimer = 0
 end
 
+function PcMenu:setSavePhase(phase)
+  self.savePhase = phase
+  self.savePage = 1
+  self.saveTimer = 0
+end
+
 function PcMenu:acceptChangeBox()
   if self.saveChoice == 2 then return self:refuseChangeBox() end
   if self.savePhase == "confirm" and self.existed then
-    self.savePhase = "overwrite"
+    self:setSavePhase("overwrite")
     self.saveChoice = 1
     return
   end
-  self.savePhase = "saving"
-  self.saveTimer = 0
+  self:setSavePhase("saving")
 end
 
 -- `pop de / ld a, e / ld [wCurBox], a` sits between SaveBox and
@@ -241,32 +246,54 @@ function PcMenu:writeChangeBox()
   end
 end
 
-function PcMenu:savePrompt()
+function PcMenu:savePromptText()
   if self.savePhase == "overwrite" then
-    return SaveMenu.twoLines(Strings(SaveMenu.OVERWRITE_PROMPT_SOURCE))
+    return Strings(SaveMenu.OVERWRITE_PROMPT_SOURCE)
   end
   if self.savePhase == "saving" then
-    return SaveMenu.twoLines(Strings(SaveMenu.SAVING_PROMPT_SOURCE))
+    return Strings(SaveMenu.SAVING_PROMPT_SOURCE)
   end
   if self.savePhase == "done" then
     if self.saved then
       local name = (self.save.player and self.save.player.name) or "GOLD"
-      return SaveMenu.twoLines(Strings("%s saved\nthe game.", name))
+      return Strings("%s saved\nthe game.", name)
     end
-    return SaveMenu.twoLines(Strings("Could not save."))
+    return Strings("Could not save.")
   end
-  return SaveMenu.twoLines(Strings(CHANGE_BOX_SAVE_SOURCE))
+  return Strings(CHANGE_BOX_SAVE_SOURCE)
+end
+
+function PcMenu:savePages()
+  local text = self:savePromptText()
+  if self.savePagesText ~= text or not self.savePagesCache then
+    self.savePagesText = text
+    self.savePagesCache = SaveMenu.pagesOf(text)
+  end
+  return self.savePagesCache
+end
+
+function PcMenu:savePrompt()
+  local pages = self:savePages()
+  return pages[self.savePage or 1] or pages[1]
+end
+
+-- ../pokecrystal/engine/menus/save.asm:209 SaveTheGame_yesorno
+function PcMenu:saveYesNoVisible(pages)
+  if self.savePhase ~= "confirm" and self.savePhase ~= "overwrite" then
+    return false
+  end
+  return (self.savePage or 1) >= #(pages or self:savePages())
 end
 
 function PcMenu:updateChangeBox()
+  Typer.step(self)
   -- SavingDontTurnOffThePower is DelayFrames, not a prompt: no button does
   -- anything until the sequence runs out (engine/menus/save.asm:55).
   if self.savePhase == "saving" then
     self.saveTimer = self.saveTimer + 1
     if self.saveTimer >= SaveMenu.SAVING_FRAMES then
       self:writeChangeBox()
-      self.savePhase = "done"
-      self.saveTimer = 0
+      self:setSavePhase("done")
     end
     return
   end
@@ -281,6 +308,14 @@ function PcMenu:updateChangeBox()
 
   local input = self.game and self.game.input
   if not input then return end
+  -- ../pokecrystal/home/text.asm:502 _ContText
+  if not self:saveYesNoVisible() then
+    if input:wasPressed("a") or input:wasPressed("b") then
+      self:playSfx("Sfx_ReadText2")
+      self.savePage = (self.savePage or 1) + 1
+    end
+    return
+  end
   if input:wasPressed("up") or input:wasPressed("down") then
     self.saveChoice = self.saveChoice == 1 and 2 or 1
   elseif input:wasPressed("a") then
@@ -442,10 +477,14 @@ function PcMenu:drawPanel()
     if self.savePhase then
       -- ChangeBoxSaveGame's MenuTextbox, then YesNoBox over the box list.
       Chrome.box(0, 12, 20, 6)
-      local lines = self:savePrompt()
+      local pages = self:savePages()
+      local lines = pages[self.savePage or 1] or pages[1]
       Chrome.print(lines[1] or "", 1, 14)
       Chrome.print(lines[2] or "", 1, 16)
-      if self.savePhase == "confirm" or self.savePhase == "overwrite" then
+      if (self.savePage or 1) < #pages and Typer.arrowOn(self) then
+        Chrome.print(SaveMenu.DOWN_ARROW, SaveMenu.ARROW_X, SaveMenu.ARROW_Y)
+      end
+      if self:saveYesNoVisible(pages) then
         Chrome.box(YESNO_X, YESNO_Y, YESNO_W, YESNO_H)
         Chrome.print(Strings("YES"), YESNO_X + 2, YESNO_Y + 1)
         Chrome.print(Strings("NO"), YESNO_X + 2, YESNO_Y + 3)

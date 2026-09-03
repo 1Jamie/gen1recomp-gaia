@@ -92,6 +92,60 @@ do
   T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "Could not save.", "the failed-save message")
 end
 
+-- ../pokecrystal/engine/menus/save.asm:39 ChangeBoxSaveGame
+local ARROW_X, ARROW_Y = 18 * 8, 17 * 8
+do
+  local input = { pressed = {} }
+  function input:press(button) self.pressed[button] = true end
+  function input:wasPressed(button)
+    if self.pressed[button] then
+      self.pressed[button] = nil
+      return true
+    end
+    return false
+  end
+  local menu = PcMenu.new({ input = input }, {
+    save = SAVE,
+    saveExists = true,
+    writer = function() return true end,
+  })
+  menu.picking = true
+  menu.pickIndex = 2
+  menu:beginChangeBox(2)
+  T.eq(menu.savePhase, "confirm", "CHANGE BOX asks to save first")
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(YES_X, YES_Y), "YES", "with its YES/NO up at once")
+
+  input:press("a")
+  menu:update(0)
+  T.eq(menu.savePhase, "overwrite", "YES on an existing file asks to overwrite")
+  T.eq(menu.savePage, 1, "on the prompt's first page")
+  menu.arrowBlink = 0
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "There is already a", "page one, first line")
+  T.eq(drawnAt(PROMPT2_X, PROMPT2_Y), "save file. Is it", "page one, second line")
+  T.eq(drawnAt(YES_X, YES_Y), nil, "no YES on page one")
+  T.eq(drawnAt(ARROW_X, ARROW_Y), "\xe2\x96\xbc", "the cont arrow blinks at (18,17)")
+
+  input:press("a")
+  menu:update(0)
+  T.eq(menu.savePhase, "overwrite", "A turns the page rather than answering")
+  T.eq(menu.savePage, 2, "to the cont page")
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "save file. Is it", "page two scrolls the second line up")
+  T.eq(drawnAt(PROMPT2_X, PROMPT2_Y), "OK to overwrite?", "and prints the cont line")
+  T.eq(drawnAt(YES_X, YES_Y), "YES", "YES is up on the last page")
+  T.eq(drawnAt(ARROW_X, ARROW_Y), nil, "and the arrow is gone")
+
+  input:press("b")
+  menu:update(0)
+  T.eq(menu.savePhase, nil, "B on the YES/NO is NO and drops the change")
+  T.eq(menu.picking, true, "with the box picker still up")
+end
+
 -- ------------------------------------------------- a translation mod's turn
 --
 -- Same catalog values as gen2_save_menu_translation_test.lua's own
@@ -105,7 +159,7 @@ do
       ["YES"] = "OUI",
       ["NO"] = "NON",
       ["#MON BOX, data\nwill be saved. OK?"] = "Les donnees de la\nBOITE seront sauv.",
-      ["There is already a\nsave file. Is it"] = "Un fichier existe\ndeja. Est-ce",
+      ["There is already a\nsave file. Is it\vOK to overwrite?"] = "Un fichier existe\ndeja. Est-ce\vOK pour ecraser?",
       ["SAVING… DON'T TURN\nOFF THE POWER."] = "SAUVEGARDE...\nN'ETEIGNEZ PAS.",
       ["%s saved\nthe game."] = "%s a sauvegarde\nla partie.",
       ["Could not save."] = "Echec de sauvegarde.",
