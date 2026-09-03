@@ -104,7 +104,7 @@ local function pagesOf(body)
         page = { entry[1] }
         pages[#pages + 1] = page
       elseif entry[2] then
-        page = { page[#page], entry[1] }
+        page = { page[#page], entry[1], scrolled = true }
         pages[#pages + 1] = page
       elseif #page >= 2 then
         page = { entry[1] }

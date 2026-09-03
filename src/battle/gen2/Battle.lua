@@ -1553,6 +1553,7 @@ function Battle:useMove(attacker, defender, moveId)
   -- move that missed or failed burns the delay and plays nothing at all.
   self.moveEvent = self:emit({ kind = "move", side = self:sideOf(attacker),
     move = moveId, wasVanished = wasVanished,
+    afterAnim = Effects.AFTER_ANIM[def.effect],
     text = Strings("%s\nused %s!", name, def.name or moveId) })
 
   -- battle.move_used, where BattleState:executeMove raises it on Gen 1: after
@@ -1668,7 +1669,7 @@ function Battle:useMove(attacker, defender, moveId)
     -- engine/battle/effect_commands.asm:5456-5458
     if self.moveEvent then
       self.moveEvent.animParam = 1
-      self.moveEvent.noAfterAnim = true
+      self.moveEvent.afterAnim = nil
     end
     -- BattleCommand_Charge picks the line off the MOVE, not the shared
     -- EFFECT_FLY (`cp DIG`, effect_commands.asm:5464).
@@ -2384,7 +2385,9 @@ end
 -- and stats, keeping its own HP and level.  Every copied move gets 5 PP.
 Battle.MOVE_EFFECTS.EFFECT_TRANSFORM = function(self, attacker, defender)
   local state = self:volatile(attacker)
-  if state.transformed or self:volatile(defender).substitute then
+  -- engine/battle/move_effects/transform.asm:7
+  if state.transformed or self:volatile(defender).substitute
+      or self:volatile(defender).vanished then
     return fail(self)
   end
   state.transformed = true

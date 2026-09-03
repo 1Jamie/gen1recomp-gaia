@@ -3713,6 +3713,7 @@ runSuites(orderedGlob(
   "tests/gen2_phone_call_test.lua",
   "tests/gen2_battle_items_test.lua",
   "tests/gen2_battle_ui_test.lua",
+  "tests/gen2_dig_pic_2139_test.lua",
   "tests/gen2_dig_warp_test.lua",
   "tests/gen2_repel_test.lua",
   "tests/gen2_swarm_test.lua",
@@ -3742,6 +3743,7 @@ runSuites(orderedGlob(
   -- a battle (and what a battle may not leave on the party), and BattlePack --
   -- which shares its screen with the field PACK but none of its jumptable.
   "tests/gen2_battle_end_test.lua",
+  "tests/gen2_battle_exit_fade_test.lua",
   "tests/gen2_battle_pack_test.lua",
   -- Battle core internals: where DoWeatherModifiers sits in the damage chain,
   -- which failures suppress the attack animation, and the Rollout /

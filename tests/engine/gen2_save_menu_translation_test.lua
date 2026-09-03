@@ -27,6 +27,7 @@ package.loaded["src.render.Font"] = {
 }
 
 local SaveMenu = require("src.ui.gen2.SaveMenu")
+local Typer = require("src.ui.gen2.Typer")
 local Strings = require("src.core.Strings")
 
 local function drawnAt(x, y)
@@ -219,6 +220,29 @@ do
   input:press("a")
   menu:update(0)
   T.eq(menu.page, 2, "A turns to the cont page")
+
+  -- ../pokecrystal/home/text.asm:520 _ContTextNoPause
+  T.check(menu.pages[2].scrolled, "the cont page is tagged scrolled")
+  T.eq(menu.pages[2][1], menu.pages[1][2], "its first row is page one's second line")
+  T.eq(menu.typer.shown, #"save file. Is it",
+    "the typer starts past the scrolled line, on the second row")
+  T.eq(menu.typer.total, #"save file. Is it" + #"OK to overwrite?",
+    "with only the cont line left to type")
+  T.check(Typer.typing(menu), "so the cont line is still typing")
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "save file. Is it",
+    "the scrolled line is whole before a single tick")
+  T.eq(drawnAt(PROMPT2_X, PROMPT2_Y) or "", "", "and the cont row is empty")
+  T.eq(drawnAt(YES_X, YES_Y), nil, "no YES while the cont line types")
+  for _ = 1, Typer.DELAYS.MID do menu:update(0) end
+  T.eq(menu.typer.shown, #"save file. Is it" + 1,
+    "the first letter delay prints the cont line's first letter")
+  drawn = {}
+  menu:drawPanel()
+  T.eq(drawnAt(PROMPT1_X, PROMPT1_Y), "save file. Is it", "the scrolled line stays whole")
+  T.eq(drawnAt(PROMPT2_X, PROMPT2_Y), "O", "and the cont row types from its first letter")
+
   typeOut(menu)
   drawn = {}
   menu:drawPanel()

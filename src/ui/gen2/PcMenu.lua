@@ -40,12 +40,9 @@ local MON_HOLDING_MAIL = {
   Strings.source("Please remove the\nMAIL."),
 }
 
--- _ChangeBoxSaveText (data/text/common_2.asm:1306) is three lines whose first
--- `cont` ("When you change a") has already scrolled by the time YesNoBox goes
--- up over its last two -- confirmed against poke-corpus GoldSilver
--- en_msg.txt:4897. One \n-joined translatable key, same pattern as
--- SaveMenu.lua's OVERWRITE_PROMPT_SOURCE/SAVING_PROMPT_SOURCE.
-local CHANGE_BOX_SAVE_SOURCE = Strings.source("#MON BOX, data\nwill be saved. OK?")
+-- ../pokecrystal/data/text/common_3.asm:219 _ChangeBoxSaveText
+-- ../pokegold/data/text/common_2.asm:1306 _ChangeBoxSaveText
+local CHANGE_BOX_SAVE_SOURCE = Strings.source("When you change a\n#MON BOX, data\vwill be saved. OK?")
 
 -- YesNoBox's own `lb bc, SCREEN_WIDTH - 6, 7` (home/menu.asm:382-383).
 local YESNO_X, YESNO_Y, YESNO_W, YESNO_H = 14, 7, 6, 5
@@ -215,12 +212,18 @@ end
 function PcMenu:refuseChangeBox()
   self.savePhase, self.changeBox = nil, nil
   self.saveTimer = 0
+  self.typer = nil
 end
 
+-- ../pokecrystal/engine/menus/save.asm:336 SavingDontTurnOffThePower
+-- ../pokecrystal/engine/menus/save.asm:241 SavedTheGame
 function PcMenu:setSavePhase(phase)
   self.savePhase = phase
   self.savePage = 1
   self.saveTimer = 0
+  local pinned = (phase == "saving" or phase == "done") and "MID" or nil
+  self.typer = Typer.new(self.game, { speed = pinned })
+  self.typer:start(self:savePages()[1])
 end
 
 function PcMenu:acceptChangeBox()
@@ -282,14 +285,16 @@ function PcMenu:saveYesNoVisible(pages)
   if self.savePhase ~= "confirm" and self.savePhase ~= "overwrite" then
     return false
   end
+  if Typer.typing(self) then return false end
   return (self.savePage or 1) >= #(pages or self:savePages())
 end
 
 function PcMenu:updateChangeBox()
-  Typer.step(self)
+  local typed = Typer.step(self)
   -- SavingDontTurnOffThePower is DelayFrames, not a prompt: no button does
   -- anything until the sequence runs out (engine/menus/save.asm:55).
   if self.savePhase == "saving" then
+    if not typed then return end
     self.saveTimer = self.saveTimer + 1
     if self.saveTimer >= SaveMenu.SAVING_FRAMES then
       self:writeChangeBox()
@@ -298,21 +303,25 @@ function PcMenu:updateChangeBox()
     return
   end
   if self.savePhase == "done" then
+    if not typed then return end
     self.saveTimer = self.saveTimer + 1
     if self.saveTimer >= SaveMenu.SAVED_FRAMES then
       self.savePhase, self.changeBox = nil, nil
       self.picking = false
+      self.typer = nil
     end
     return
   end
 
   local input = self.game and self.game.input
   if not input then return end
+  if Typer.typing(self) then return end
   -- ../pokecrystal/home/text.asm:502 _ContText
   if not self:saveYesNoVisible() then
     if input:wasPressed("a") or input:wasPressed("b") then
       self:playSfx("Sfx_ReadText2")
       self.savePage = (self.savePage or 1) + 1
+      if self.typer then self.typer:start(self:savePages()[self.savePage]) end
     end
     return
   end
@@ -478,10 +487,11 @@ function PcMenu:drawPanel()
       -- ChangeBoxSaveGame's MenuTextbox, then YesNoBox over the box list.
       Chrome.box(0, 12, 20, 6)
       local pages = self:savePages()
-      local lines = pages[self.savePage or 1] or pages[1]
+      local lines = Typer.text(self, pages[self.savePage or 1] or pages[1])
       Chrome.print(lines[1] or "", 1, 14)
       Chrome.print(lines[2] or "", 1, 16)
-      if (self.savePage or 1) < #pages and Typer.arrowOn(self) then
+      if not Typer.typing(self) and (self.savePage or 1) < #pages
+        and Typer.arrowOn(self) then
         Chrome.print(SaveMenu.DOWN_ARROW, SaveMenu.ARROW_X, SaveMenu.ARROW_Y)
       end
       if self:saveYesNoVisible(pages) then

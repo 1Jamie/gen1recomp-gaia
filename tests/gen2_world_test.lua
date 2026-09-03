@@ -2361,23 +2361,30 @@ eq(doorSfx[1], 3, "warpsound runs BEFORE the load, off the tile underfoot")
 check(doorLoad == nil, "and the map does not load on the frame it is taken")
 check(doorWorld:busy(),
   "the setup script is a blocking call, so the world is busy for it")
--- FadeOutToWhite / FadeInFromWhite are `ld b, $4` steps of ConvertTimePals*HL,
--- each followed by DelayFrames 2: four steps, eight frames, per half.
-for _ = 1, 7 do doorWorld:updateMapSetup() end
-check(doorLoad == nil, "seven frames in, the fade out is still running")
-eq(doorWorld.fade, "white", "and the sheet it fades to is FillWhiteBGColor's")
-doorWorld:updateMapSetup()
-check(doorLoad ~= nil, "the eighth frame is where the load lands")
-eq(doorLoad.id, "OTHER_MAP", "on the destination map")
-eq(doorLoad.x, 1, "at the destination WARP's own cell")
-eq(doorWorld.fadeLevel, 1,
-  "with the sheet re-armed, because the load cleared it")
-for _ = 1, 7 do doorWorld:updateMapSetup() end
-check(doorWorld.mapSetup ~= nil, "the fade in takes another eight")
-doorWorld:updateMapSetup()
-check(doorWorld.mapSetup == nil, "and the sixteenth frame ends the chain")
-check(doorWorld.fade == nil, "with nothing left over the world")
-check(not doorWorld:busy(), "and control back")
+-- engine/tilesets/timeofday_pals.asm:115-128
+do
+  local doorOut = World.FADE_STEPS * World.FADE_STEP_FRAMES
+  local doorHold = World.FADE_STEP_FRAMES + World.MAP_LOAD_WHITE_FRAMES
+    + World.FADE_STEP_FRAMES
+  local doorIn = (World.FADE_STEPS - 1) * World.FADE_STEP_FRAMES
+  local doorChain = doorOut + doorHold + doorIn
+  for _ = 1, doorOut - 1 do doorWorld:updateMapSetup() end
+  check(doorLoad == nil, "one frame short of the fade out, it is still running")
+  eq(doorWorld.fade, "white", "and the sheet it fades to is FillWhiteBGColor's")
+  doorWorld:updateMapSetup()
+  check(doorLoad ~= nil, "the last fade-out frame is where the load lands")
+  eq(doorLoad.id, "OTHER_MAP", "on the destination map")
+  eq(doorLoad.x, 1, "at the destination WARP's own cell")
+  eq(doorWorld.fadeLevel, 1,
+    "with the sheet re-armed, because the load cleared it")
+  for _ = 1, doorHold + doorIn - 1 do doorWorld:updateMapSetup() end
+  check(doorWorld.mapSetup ~= nil, "the fade in runs out the remaining rows")
+  doorWorld:updateMapSetup()
+  check(doorWorld.mapSetup == nil,
+    "and frame " .. doorChain .. " ends the chain")
+  check(doorWorld.fade == nil, "with nothing left over the world")
+  check(not doorWorld:busy(), "and control back")
+end
 
 -- MapSetupScript_Connection and _Submenu are the only two rows with no fade at
 -- all: an edge cross must not hitch.  Everything else fades back IN at least,

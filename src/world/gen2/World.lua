@@ -233,6 +233,8 @@ local MAPSETUP_ROAM_JUMP = { [MAPSETUP.TELEPORT] = true }
 -- World:draw already holds for the fade specials.
 local FADE_STEPS = 4
 local FADE_STEP_FRAMES = 2
+-- data/maps/setup_scripts.asm:102-139
+local MAP_LOAD_WHITE_FRAMES = 4
 
 -- home/map.asm:1927-1940 over home/tilemap.asm:12-25
 local MENU_EXIT_RELOAD_FRAMES = 9
@@ -3538,7 +3540,8 @@ function World:runMapSetup(method, load, fly)
     -- only the way back in is a fade.
     local ok = wrapped()
     self.fade, self.fadeLevel = "white", 1
-    self.mapSetup = { phase = "in", step = FADE_STEPS, wait = FADE_STEP_FRAMES }
+    self.mapSetup = { phase = "in", step = FADE_STEPS,
+      wait = MAP_LOAD_WHITE_FRAMES + FADE_STEP_FRAMES }
     return ok
   end
   self.mapSetup = {
@@ -3573,6 +3576,9 @@ World.FADE_RAMP = {
   white = { { 3, 2, 1, 0 }, { 2, 1, 0, 0 }, { 1, 0, 0, 0 }, { 0, 0, 0, 0 } },
   black = { { 3, 2, 1, 0 }, { 3, 3, 2, 1 }, { 3, 3, 3, 2 }, { 3, 3, 3, 3 } },
 }
+World.FADE_STEPS = FADE_STEPS
+World.FADE_STEP_FRAMES = FADE_STEP_FRAMES
+World.MAP_LOAD_WHITE_FRAMES = MAP_LOAD_WHITE_FRAMES
 
 function World.fadeRampRow(fade, level)
   local ramp = fade and World.FADE_RAMP[fade]
@@ -3591,7 +3597,8 @@ end
 function World:battleReturnFade()
   if self.mapSetup then return end
   self.fade, self.fadeLevel = "white", 1
-  self.mapSetup = { phase = "in", step = FADE_STEPS, wait = FADE_STEP_FRAMES }
+  self.mapSetup = { phase = "in", step = FADE_STEPS,
+    wait = MAP_LOAD_WHITE_FRAMES + FADE_STEP_FRAMES }
 end
 
 -- ---------------------------------------------------------------------------
@@ -3673,6 +3680,8 @@ function World:updateMapSetup()
       ms.load()
       ms.phase = "in"
       self.fade, self.fadeLevel = "white", 1
+      -- engine/tilesets/timeofday_pals.asm:277-299
+      ms.wait = FADE_STEP_FRAMES + MAP_LOAD_WHITE_FRAMES + FADE_STEP_FRAMES
     end
     return
   end

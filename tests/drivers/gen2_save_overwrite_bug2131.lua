@@ -81,24 +81,38 @@ return function(game)
   pc.picking = true
   pc.pickIndex = ((game.save.currentBox or 1) % 14) + 1
   pc:beginChangeBox(pc.pickIndex)
-  U.wait(3)
-  pass(pc.savePhase == "confirm" and pc:saveYesNoVisible(),
-    "CHANGE BOX asks '#MON BOX, data will be saved. OK?' with YES/NO up")
+  local function settlePc()
+    for _ = 1, 600 do
+      if not (pc.typer and not pc.typer:done()) then break end
+      U.wait(1)
+    end
+    U.wait(2)
+  end
+  settlePc()
+  pass(pc.savePhase == "confirm" and pc.savePage == 1 and not pc:saveYesNoVisible(),
+    "CHANGE BOX asks 'When you change a / #MON BOX, data' with the arrow first")
+  U.tap(game, "a")
+  U.wait(1)
+  settlePc()
+  pass(pc.savePhase == "confirm" and pc.savePage == 2 and pc:saveYesNoVisible(),
+    "then '#MON BOX, data / will be saved. OK?' with YES/NO up")
   U.shot(game, out .. "/04-changebox-confirm.png")
 
   U.tap(game, "a")
-  U.wait(3)
+  U.wait(1)
   pass(pc.savePhase == "overwrite" and pc.savePage == 1,
     "YES on an existing file opens the overwrite prompt on page 1")
+  settlePc()
   pass(not pc:saveYesNoVisible(), "no YES/NO while the cont page waits")
   U.log("05-changebox-page1: 'There is already a / save file. Is it', arrow,")
   U.log("no yes/no box.")
   U.shot(game, out .. "/05-changebox-page1.png")
 
   U.tap(game, "a")
-  U.wait(3)
+  U.wait(1)
   pass(pc.savePhase == "overwrite" and pc.savePage == 2,
     "A turns to the cont page without answering")
+  settlePc()
   pass(pc:saveYesNoVisible(), "YES/NO is up on 'OK to overwrite?'")
   U.log("06-changebox-page2: 'save file. Is it / OK to overwrite?' with the")
   U.log("YES/NO box at (14,7).")

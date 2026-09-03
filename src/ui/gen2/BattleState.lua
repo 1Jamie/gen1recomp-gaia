@@ -366,6 +366,8 @@ function BattleState.new(game, opts)
   -- latches from stepAnim (data/moves/animations.asm:379), a faint from the slide.
   self.picHidden = { player = false, enemy = false }
   self.vanishReveal = {}
+  -- engine/battle/effect_commands.asm:5475-5485
+  self.vanishSeen = { player = false, enemy = false }
   -- engine/battle/sliding_intro.asm: 72 frames of the two halves sliding in
   -- from opposite sides before the first message.
   self.slideFrame = 0
@@ -871,6 +873,13 @@ function BattleState.isVanished(mon)
   return (volatiles and volatiles.vanished) and true or false
 end
 
+-- engine/battle/effect_commands.asm:5475-5485
+function BattleState:isUnderground(side, mon)
+  if mon == nil then mon = self.battle and self.battle[side] end
+  return BattleState.isVanished(mon)
+    and (self.vanishSeen and self.vanishSeen[side]) and true or false
+end
+
 function BattleState:drawPic(mon, back)
   -- During the intro slide the player-side pic belongs to presentSlide's
   -- backpic overlay, not to the baked bands (see BattleAnimView).
@@ -900,7 +909,7 @@ function BattleState:drawPic(mon, back)
   -- Mid FLY / DIG the box is empty: DisappearUser ClearBoxes it
   -- (engine/battle/misc.asm:1-13), AppearUserRaiseSub puts it back on the
   -- stored attack (engine/battle/effect_commands.asm:2113-2117).
-  if not (trainerBack or enemyTrainer) and BattleState.isVanished(mon)
+  if not (trainerBack or enemyTrainer) and self:isUnderground(side, mon)
      and not (self.vanishAnim and self.vanishAnim == self.anim) then
     return
   end
@@ -1454,8 +1463,8 @@ function BattleState:startAnim(key, opts)
     -- (engine/battle_anims/bg_effects.asm:2838-2851); the port keeps that bit
     -- on the mon's volatile table, not on the mon itself.
     flying = {
-      player = BattleState.isVanished(self.battle and self.battle.player),
-      enemy = BattleState.isVanished(self.battle and self.battle.enemy),
+      player = self:isUnderground("player"),
+      enemy = self:isUnderground("enemy"),
     },
     hooks = {
       -- anim_sound (engine/battle_anims/anim_commands.asm:1105) calls
@@ -1496,9 +1505,13 @@ function BattleState:startAnim(key, opts)
   return true
 end
 
--- wBattleAfterAnim target for this attacker's turn
--- (effect_commands.asm:1963-1972): player swing -> enemy shake, and reverse.
-function BattleState:afterAnimFor(side)
+-- engine/battle/effect_commands.asm:1947-1961
+function BattleState:afterAnimFor(side, kind)
+  if kind == "statdown" then
+    if side == "player" then return "ANIM_ENEMY_STAT_DOWN" end
+    return "ANIM_WOBBLE"
+  end
+  if kind ~= "damage" then return nil end
   if side == "player" then return "ANIM_ENEMY_DAMAGE" end
   return "ANIM_PLAYER_DAMAGE"
 end
@@ -1511,18 +1524,16 @@ function BattleState:playHitSound(effectiveness)
   else self:playSfx("Sfx_Damage") end
 end
 
-function BattleState:animForMove(moveId, side, param, effectiveness, noAfterAnim)
+function BattleState:animForMove(moveId, side, param, effectiveness, afterAnim)
   local key = self.anims and self.anims.moves and self.anims.moves[moveId]
   local started = self:startAnim(key, {
     turn = self:turnFor(side), animId = moveId, isMove = true, param = param,
   })
-  -- engine/battle/effect_commands.asm:5456
-  if started and not noAfterAnim then
-    -- BattleAnimRunScript (anim_commands.asm:55-72): after the move script
-    -- restores HUDs it immediately runs wBattleAfterAnim (the hit shake).
-    -- Queue it so stepAnim chains without waiting on the next event.
-    self.pendingAfterAnim = { name = self:afterAnimFor(side), side = side,
-      effectiveness = effectiveness }
+  -- engine/battle_anims/anim_commands.asm:55-72
+  local name = self:afterAnimFor(side, afterAnim)
+  if started and name then
+    self.pendingAfterAnim = { name = name, side = side,
+      effectiveness = (afterAnim == "damage") and effectiveness or nil }
   end
   return started
 end
@@ -1601,6 +1612,12 @@ function BattleState:latchVanished(events)
     if event.wasVanished and event.side then
       self.picHidden[event.side] = true
       self.vanishReveal[event.side] = { side = event.side }
+    end
+  end
+  for _, side in ipairs(VANISH_SIDES) do
+    if self.vanishSeen
+        and not BattleState.isVanished(self.battle and self.battle[side]) then
+      self.vanishSeen[side] = false
     end
   end
 end
@@ -2075,7 +2092,7 @@ function BattleState:advanceQueue()
     self.afterAnimPlayed = nil
     self.pendingAfterAnim = nil
     local started = self:animForMove(animId, event.side, event.animParam,
-      event.effectiveness, event.noAfterAnim)
+      event.effectiveness, event.afterAnim)
     if event.wasVanished
         and not (started and self:armVanishReveal(event.side)) then
       self:clearVanishReveal(event.side)
@@ -2084,10 +2101,12 @@ function BattleState:advanceQueue()
       -- BATTLE SCENE off skips the move script but still runs wBattleAfterAnim
       -- (anim_commands.asm:55-72 .disabled fallthrough).
       local options = self.game and self.game.options
-      if options and options.battleScene == false
-          and not event.noAfterAnim then
-        if self:animForId(self:afterAnimFor(event.side), event.side) then
-          self:playHitSound(event.effectiveness)
+      local name = self:afterAnimFor(event.side, event.afterAnim)
+      if options and options.battleScene == false and name then
+        if self:animForId(name, event.side) then
+          if event.afterAnim == "damage" then
+            self:playHitSound(event.effectiveness)
+          end
           self.afterAnimPlayed = true
         end
       end
@@ -2098,6 +2117,7 @@ function BattleState:advanceQueue()
     -- only empties once THIS animation is done with.
     if BattleState.isVanished(self:activeMon(event.side)) then
       self.vanishAnim = self.anim
+      if self.vanishSeen then self.vanishSeen[event.side] = true end
     end
   elseif event.kind == "damage" and event.side then
     -- ANIM_x_DAMAGE is the MOVE's after-anim (effect_commands.asm:1963-1972),
@@ -2282,12 +2302,65 @@ function BattleState:givePokerus()
   return Pokerus.giveAfterBattle(self.save, party)
 end
 
--- .ReturnToMap, minus the RestartMapMusic the overworld's own onDone already
--- does (src/world/gen2/World.lua calls Music.restoreMap there).
+-- ../pokecrystal/home/fade.asm:35-62
+-- ../pokecrystal/engine/overworld/map_setup.asm:181-189
+BattleState.EXIT_FADE_ROWS = { 0x90, 0x40, 0x00 }
+BattleState.EXIT_FADE_FRAMES = 8
+BattleState.EXIT_MUSIC_FADE = 4
+-- ../pokecrystal/engine/events/whiteout.asm:12-13
+-- ../pokecrystal/engine/tilesets/timeofday_pals.asm:122-128
+BattleState.WHITEOUT_FADE_ROWS = { 0xe4, 0x90, 0x40, 0x00 }
+BattleState.WHITEOUT_FADE_FRAMES = 2
+BattleState.WHITEOUT_HOLD_FRAMES = 40
+
+-- ../pokecrystal/engine/overworld/scripting.asm:1174-1183
+function BattleState:whitesOut()
+  local battle = self.battle
+  return battle ~= nil and battle.outcome == "lose" and not self.link
+    and battle.battleType ~= Battle.BATTLETYPE_CANLOSE
+end
+
 function BattleState:finishBattle()
-  self.phase = "done"
+  self.phase = "fadeout"
+  self.fadeTick = 0
+  self.anim = nil
   self:stopAlarm()
   self:clearMenuCursors()
+  if self:whitesOut() then
+    self.exitFade = { rows = BattleState.WHITEOUT_FADE_ROWS,
+      frames = BattleState.WHITEOUT_FADE_FRAMES,
+      hold = BattleState.WHITEOUT_HOLD_FRAMES }
+    return
+  end
+  self.exitFade = { rows = BattleState.EXIT_FADE_ROWS,
+    frames = BattleState.EXIT_FADE_FRAMES, hold = 0 }
+  require("src.core.Music").fadeOut(BattleState.EXIT_MUSIC_FADE)
+end
+
+function BattleState:exitFadeLength()
+  local fade = self.exitFade
+  if not fade then return BattleState.EXIT_FADE_FRAMES * #BattleState.EXIT_FADE_ROWS end
+  return fade.frames * #fade.rows + fade.hold
+end
+
+-- ../pokecrystal/home/fade.asm:57
+function BattleState:stepExitFade()
+  self.fadeTick = (self.fadeTick or 0) + 1
+  if self.fadeTick < self:exitFadeLength() then return end
+  self:completeBattle()
+end
+
+function BattleState:exitFadeBgp()
+  if self.phase ~= "fadeout" then return nil end
+  local fade = self.exitFade
+  local rows = fade and fade.rows or BattleState.EXIT_FADE_ROWS
+  local frames = fade and fade.frames or BattleState.EXIT_FADE_FRAMES
+  local index = math.floor((self.fadeTick or 0) / frames) + 1
+  return rows[math.min(#rows, index)]
+end
+
+function BattleState:completeBattle()
+  self.phase = "done"
   self:givePokerus()
   -- CleanUpBattleRAM: every substatus the battle wrote goes with the battle.
   -- The party tables it wrote them on are the save's own, so this has to run
@@ -2470,6 +2543,7 @@ function BattleState:update(_dt)
   -- The evolution sweep owns the stack (and the low-HP alarm is long over);
   -- this state is only still here because ExitBattle has not cleaned up yet.
   if self.phase == "evolving" or self.phase == "done" then return end
+  if self.phase == "fadeout" then return self:stepExitFade() end
   self:updateAlarm()
   self:stepFrontAnim()
   local input = self.game and self.game.input
@@ -4313,7 +4387,7 @@ function BattleState:drawPanel()
   -- (engine/battle/core.asm:5074-5084) and MoveInfoBox's (:5407-5410).
   -- engine/gfx/cgb_layouts.asm:146
   -- engine/battle_anims/anim_commands.asm:1302
-  local previousBgp = GbcPalette.setBgp(nil)
+  local previousBgp = GbcPalette.setBgp(self:exitFadeBgp())
   local moveMenu = self.phase == "moves"
   local forgetting = self.phase == "choose-forget"
     and (self.messageTimer or 0) <= 0
@@ -4435,7 +4509,9 @@ end
 -- layer on top.  OBJs are not affected by SCX/SCY, which is why they are drawn
 -- after the scanline blit rather than into the canvas with everything else.
 function BattleState:drawScene()
+  local previousBgp = GbcPalette.setBgp(self:exitFadeBgp() or GbcPalette.bgp)
   self:drawSceneBody()
+  GbcPalette.setBgp(previousBgp)
   -- battle.overlay: shiny sparkles, custom HUD chrome, and so on.  Draw-only,
   -- and the same name, the same payload (the battle screen) and the same place
   -- in the frame as the Gen 1 site (src/battle/BattleState.lua's draw tail):
