@@ -2628,11 +2628,15 @@ do
   cb4.onFinish = function() end
   cb4.rng = function(a, b) return a end -- rng low: guaranteed capture
   local origStart = cb4.startMessage
-  local ballAtCaughtText
+  local ballAtCaughtText, ballObpAtCaughtText
   cb4.startMessage = function(s, item)
     log[#log + 1] = "text:" .. item.text:gsub("\n.*", "")
     if item.text:find("All right!", 1, true) then
       ballAtCaughtText = cb4.lockedBall and #cb4.lockedBall > 0
+      ballObpAtCaughtText = ballAtCaughtText
+      for _, sp in ipairs(cb4.lockedBall or {}) do
+        if sp.obp ~= "e4" then ballObpAtCaughtText = false end
+      end
     end
     return origStart(s, item)
   end
@@ -2670,6 +2674,9 @@ do
   -- assertion is sampled while the caught text is up
   check(ballAtCaughtText,
         "the resting closed ball stays compiled for the caught text")
+  -- engine/battle/animations.asm:258-260
+  check(ballObpAtCaughtText,
+        "the resting ball wears the popped rOBP0 ($e4), not wAnimPalette")
   Game.save.party = savedParty
 end
 
