@@ -11518,6 +11518,14 @@ function World:draw()
     if not fadeStepped then self:drawWorldBody(s) end
   end
 
+  -- Fixed-scale overlays go to the UI layer when Game2 split one off.
+  local uiLayer = self.game and self.game.fxUiDrawn and self.game.fxUiLayer
+  local worldCanvas
+  if uiLayer then
+    worldCanvas = G.getCanvas()
+    G.setCanvas(uiLayer)
+  end
+
   -- ../pokecrystal/engine/events/map_name_sign.asm:114
   -- ../pokecrystal/constants/ram_constants.asm:389
   MapNameSign.draw(self, w, h, posLift)
@@ -11546,6 +11554,7 @@ function World:draw()
     G.pop()
     G.setColor(1, 1, 1, 1)
   end
+  if uiLayer then G.setCanvas(worldCanvas) end
 
   -- engine/events/poisonstep_pals.asm:9-42
   if self.poisonFlash and self.poisonFlash > 0 then
