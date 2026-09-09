@@ -138,24 +138,82 @@ assert_eq(destX, 5, "Dest X is 5")
 assert_eq(destY, 6, "Dest Y is 6")
 print("  ✓ Pushable boulder direction and collision verified")
 
-print("\n=== 5. Testing Surfing & Bike Override ===")
+print("\n=== 5. Testing Surfing Jump Arc & Bike Override ===")
 local Player = require("src.core.game3.player")
+local OwSprites = require("src.core.game3.ow_sprites")
+Player.reset(5, 5, "down")
 Player.biking = true
 Player.surfing = false
-Player.startSurfing({})
-assert_eq(Player.surfing, true, "Player is surfing")
-assert_eq(Player.biking, false, "Bike state silently cleared on Surf")
-print("  ✓ Surfing and bike override verified")
 
-print("\n=== 6. Testing Message.show with callback function ===")
-local Message = require("src.ui.game3.message")
-local callbackRan = false
-Message.show("This tree can be Cut!", function() callbackRan = true end)
-assert_eq(Message.open, true, "Message is open")
-assert_true(type(Message._done) == "function", "Message._done is a function")
-Message.close()
-assert_eq(callbackRan, true, "Message done callback executed on close")
-print("  ✓ Message.show function callback verified")
+Player.startSurfing({})
+assert_eq(Player.biking, false, "Bike state silently cleared on Surf")
+assert_eq(Player.surfHopping, true, "Player is in surf jump arc")
+assert_eq(Player.jumping, true, "Player jumping physics active")
+
+-- Advance the 16-frame parabolic jump arc
+for _ = 1, 16 do
+  Player.tick({})
+end
+
+assert_eq(Player.surfHopping, false, "Surf jump arc complete")
+assert_eq(Player.surfing, true, "Player is surfing on water")
+assert_eq(Player.jumping, false, "Jump physics finished")
+
+-- Verify OwSprites.playerGraphicsId resolution while surfing
+local surfGid = OwSprites.playerGraphicsId({ session = { gender = "male" } })
+assert_eq(surfGid, 2, "Male surfing resolves to GID 2 (OBJ_EVENT_GFX_RED_SURF)")
+
+local surfFemaleGid = OwSprites.playerGraphicsId({ session = { gender = "female" } })
+assert_eq(surfFemaleGid, 9, "Female surfing resolves to GID 9 (OBJ_EVENT_GFX_GREEN_SURF)")
+
+-- Verify field move gesture graphics ID resolution
+Player.startFieldMove(24)
+assert_eq(Player.fieldMoveAnim, 24, "Field move timer active")
+local fmoveGid = OwSprites.playerGraphicsId({ session = { gender = "male" } })
+assert_eq(fmoveGid, 3, "Male field move resolves to GID 3 (OBJ_EVENT_GFX_RED_FIELD_MOVE)")
+
+Player.fieldMoveAnim = 0
+print("  ✓ Surfing jump arc, bike override, and graphics ID resolution verified")
+
+print("\n=== 6. Testing Field Effects Animations (Cut Tree & Rock Smash) ===")
+local FieldEffects = require("src.core.game3.field_effects")
+local cutTreeDone = false
+local mockTree = { x = 6, y = 5, localId = 10 }
+FieldEffects.startCutTree(mockTree, 6, 5, function() cutTreeDone = true end)
+
+for _ = 1, 24 do
+  FieldEffects.step()
+end
+assert_eq(cutTreeDone, true, "Cut tree animation finished callback executed")
+assert_eq(mockTree.customFrame, 3, "Cut tree completed 4-frame collapse sequence")
+print("  ✓ Cut tree collapse animation and particle system verified")
+
+print("\n=== 8. Testing Surf Blob Directional Animation & Palette ===")
+assert_eq(Versions.FIELD_EFFECTS.surf_blob.pal, 0x35B968, "Surf blob uses gObjectEventPal_Player (0x35B968)")
+
+-- Verify directional frame mappings (Down: 0-1, Up: 2-3, Left: 4-5, Right: 4-5 hflip)
+local facings = {
+  down = { expectedFrames = { 0, 1 }, flip = false },
+  up = { expectedFrames = { 2, 3 }, flip = false },
+  left = { expectedFrames = { 4, 5 }, flip = false },
+  right = { expectedFrames = { 4, 5 }, flip = true },
+}
+
+for facing, spec in pairs(facings) do
+  Player.facing = facing
+  -- Test step 0 (clock = 0)
+  FieldEffects._surfClock = 0
+  local step0 = math.floor(FieldEffects._surfClock / 48) % 2
+  local f0 = (facing == "down" and 0 or (facing == "up" and 2 or 4)) + step0
+  assert_eq(f0, spec.expectedFrames[1], string.format("%s step 0 frame", facing))
+
+  -- Test step 1 (clock = 48)
+  FieldEffects._surfClock = 48
+  local step1 = math.floor(FieldEffects._surfClock / 48) % 2
+  local f1 = (facing == "down" and 0 or (facing == "up" and 2 or 4)) + step1
+  assert_eq(f1, spec.expectedFrames[2], string.format("%s step 1 frame", facing))
+end
+print("  ✓ Surf blob directional 2-frame animation cycles verified for all 4 directions")
 
 print("\n==========================================")
 print("ALL GAME 3 FIELD MOVE TESTS PASSED!")

@@ -360,6 +360,7 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
       walkPhase = Objects.walkPhase(eo),
       stepFlip = eo.stepFlip and true or false,
       bow = eo.bowFrames and eo.bowFrames > 0,
+      frame = eo.customFrame,
       sprite = eo.sprite or spriteNameForObj(eo.def or {}),
       graphicsId = eo.graphicsId or (eo.def and (eo.def.graphicsId or eo.def.graphics)),
     }
@@ -387,6 +388,7 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
       facing = facing or "down",
       walkPhase = (walkPhase == 1 or walkPhase == true) and 1 or 0,
       stepFlip = stepFlip and true or false,
+      fieldMove = (PlayerMod and PlayerMod.fieldMoveAnim and PlayerMod.fieldMoveAnim > 0),
       sprite = playerSpriteName(game),
       graphicsId = useOw and OwSprites.playerGraphicsId(game) or nil,
     }
@@ -403,9 +405,13 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
   for _, a in ipairs(actors) do
     local drew = false
     if useOw and a.graphicsId ~= nil then
+      local opts = {
+        bow = a.bow,
+        fieldMove = a.fieldMove,
+        frame = a.frame,
+      }
       drew = OwSprites.draw(
-        a.graphicsId, a.x, a.y, camX, camY, a.facing, a.walkPhase, a.stepFlip,
-        a.bow and { bow = true } or nil)
+        a.graphicsId, a.x, a.y, camX, camY, a.facing, a.walkPhase, a.stepFlip, opts)
     end
     if not drew then
       local sr = getSpriteRenderer(

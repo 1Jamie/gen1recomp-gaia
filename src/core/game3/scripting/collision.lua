@@ -94,16 +94,22 @@ function Collision.classify(mid, mapColl, behavior, kind)
   if COUNTER_BEH[beh] then return "COUNTER", nil end
   if beh == 0x08 then return "CAVE", nil end
   if beh == MOUNTAIN_TOP_BEH then return "ROCK_DECK", nil end
-  -- Outdoor General-tileset tree IDs. Indoors the same numbers are carpets /
-  -- stair treads (Players House) — use mapColl, do not force TREE solids.
-  if TREE_MIDS[mid] and kind ~= "indoor" then return "TREE", nil end
+  -- Outdoor General-tileset tree IDs. If mapColl == 0, it is a walkable path behind tree tops.
+  if TREE_MIDS[mid] and kind ~= "indoor" then
+    if mapColl ~= 0 then return "TREE", nil end
+    return (kind == "town") and "TOWN_PATH" or "SHORT_GRASS", nil
+  end
   -- Shrub list is primary-tileset decoration only. On Sevii secondary those
   -- same numeric ids are house roofs/walls (were mis-tagged as grass road).
   if SHRUB_MIDS[mid] and mid < NUM_PRIMARY then
+    if mapColl ~= 0 then return "BLOCKED", nil end
     return (kind == "town") and "TOWN_PATH" or "SHORT_GRASS", nil
   end
   -- Cliff list is outdoor rock faces; indoor building tilesets reuse ids.
-  if CLIFF_MIDS[mid] and kind ~= "indoor" then return "CLIFF", nil end
+  if CLIFF_MIDS[mid] and kind ~= "indoor" then
+    if mapColl ~= 0 then return "CLIFF", nil end
+    return (kind == "town") and "TOWN_PATH" or "SHORT_GRASS", nil
+  end
   if PIER_MIDS[mid] and mapColl == 0 then return "PIER", nil end
   if beh >= 0x30 and beh <= 0x37 then return "CLIFF", nil end
   -- Secondary solids: houses in town; interior walls/furniture indoors.

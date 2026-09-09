@@ -363,18 +363,26 @@ function Field.executeFieldMove(payload)
 
   local act = payload.action
   if act == "cut_tree" then
+    Field.locked = true
+    P.startFieldMove(28)
     if payload.se then Audio.playSe(payload.se) end
     local target = payload.target
-    if target then
-      local lid = target.localId or (target.def and (target.def.localId or target.def.index))
-      if lid then Objects.removeObject(lid) end
-      FieldEffects.startCutGrass(target.x or (target.def and target.def.x) or P.cellX,
-        target.y or (target.def and target.def.y) or P.cellY)
-    end
-    if payload.text then
-      Message.show(payload.text, function() Message.close() end)
-    end
+    local tx = target and (target.cellX or target.x or (target.def and target.def.x)) or P.cellX
+    local ty = target and (target.cellY or target.y or (target.def and target.def.y)) or P.cellY
+
+    FieldEffects.startCutTree(target, tx, ty, function()
+      if target then
+        local lid = target.localId or (target.def and (target.def.localId or target.def.index))
+        if lid then Objects.removeObject(lid) end
+      end
+      Field.locked = false
+      if payload.text then
+        Message.show(payload.text, function() Message.close() end)
+      end
+    end)
   elseif act == "cut_grass" then
+    Field.locked = true
+    P.startFieldMove(24)
     if payload.se then Audio.playSe(payload.se) end
     local Map = require("src.core.game3.map")
     local def = Map.currentDef()
@@ -388,23 +396,33 @@ function Field.executeFieldMove(payload)
       local okFv, FieldView = pcall(require, "src.core.game3.field_view")
       if okFv and FieldView then FieldView._nativeDirty = true end
     end
-    FieldEffects.startCutGrass(P.cellX, P.cellY)
-    if payload.text then
-      Message.show(payload.text, function() Message.close() end)
-    end
+    FieldEffects.startCutGrass(P.cellX, P.cellY, function()
+      Field.locked = false
+      if payload.text then
+        Message.show(payload.text, function() Message.close() end)
+      end
+    end)
   elseif act == "rock_smash" then
+    Field.locked = true
+    P.startFieldMove(28)
     if payload.se then Audio.playSe(payload.se) end
     local target = payload.target
-    if target then
-      local lid = target.localId or (target.def and (target.def.localId or target.def.index))
-      if lid then Objects.removeObject(lid) end
-      FieldEffects.startRockSmash(target.x or (target.def and target.def.x) or P.cellX,
-        target.y or (target.def and target.def.y) or P.cellY)
-    end
-    if payload.text then
-      Message.show(payload.text, function() Message.close() end)
-    end
+    local tx = target and (target.cellX or target.x or (target.def and target.def.x)) or P.cellX
+    local ty = target and (target.cellY or target.y or (target.def and target.def.y)) or P.cellY
+
+    FieldEffects.startRockSmash(target, tx, ty, function()
+      if target then
+        local lid = target.localId or (target.def and (target.def.localId or target.def.index))
+        if lid then Objects.removeObject(lid) end
+      end
+      Field.locked = false
+      if payload.text then
+        Message.show(payload.text, function() Message.close() end)
+      end
+    end)
   elseif act == "strength" then
+    Field.locked = true
+    P.startFieldMove(24)
     if payload.flag then
       local Space = package.loaded["src.core.game3.scripting.space"]
       local Flags = require("src.core.game3.scripting.flags")
@@ -416,15 +434,24 @@ function Field.executeFieldMove(payload)
       end
     end
     if payload.text then
-      Message.show(payload.text, function() Message.close() end)
+      Message.show(payload.text, function()
+        Message.close()
+        Field.locked = false
+      end)
+    else
+      Field.locked = false
     end
   elseif act == "surf" then
-    P.startSurfing(Field._game)
-    P.forceStep(P.facing)
-    if payload.text then
-      Message.show(payload.text, function() Message.close() end)
-    end
+    Field.locked = true
+    P.startSurfing(Field._game, function()
+      Field.locked = false
+      if payload.text then
+        Message.show(payload.text, function() Message.close() end)
+      end
+    end)
   elseif act == "flash" then
+    Field.locked = true
+    P.startFieldMove(24)
     if payload.se then Audio.playSe(payload.se) end
     if payload.flag then
       local Space = package.loaded["src.core.game3.scripting.space"]
@@ -433,21 +460,28 @@ function Field.executeFieldMove(payload)
         Flags.setFlag(Space.store, nil, payload.flag, true)
       end
     end
-    FieldEffects.startFlash()
-    if payload.text then
-      Message.show(payload.text, function() Message.close() end)
-    end
+    FieldEffects.startFlash(function()
+      Field.locked = false
+      if payload.text then
+        Message.show(payload.text, function() Message.close() end)
+      end
+    end)
   elseif act == "teleport" or act == "dig" then
+    Field.locked = true
     if payload.se then Audio.playSe(payload.se) end
     FieldEffects.startWarpSpin(act, function()
+      Field.locked = false
       Field.respawnAtHeal()
     end)
     if payload.text then
       Message.show(payload.text, function() Message.close() end)
     end
   elseif act == "sweet_scent" then
+    Field.locked = true
+    P.startFieldMove(24)
     if payload.se then Audio.playSe(payload.se) end
     FieldEffects.startSweetScent(function()
+      Field.locked = false
       local okE, Encounters = pcall(require, "src.core.game3.encounters")
       if okE and Encounters and Encounters.tryBattle then
         Encounters.tryBattle(Field._game, true)

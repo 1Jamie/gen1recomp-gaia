@@ -133,33 +133,81 @@ end
 
 -- ---------------------------------------------------------------- Transient Animations
 
---- Cut grass leaves scattering animation
-function FieldEffects.startCutGrass(cx, cy, onDone)
-  load_sheet("cut_grass", 16, 16, 4)
+--- Cut tree animation: tree slices and collapses (pret EventScript_CutTreeDown / Movement_CutTreeDown)
+function FieldEffects.startCutTree(targetObj, cx, cy, onDone)
+  cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
   local anim = {
-    kind = "cut_grass",
+    kind = "cut_tree",
+    targetObj = targetObj,
     cx = cx,
     cy = cy,
-    frame = 0,
     timer = 0,
-    frameDur = 6,
-    maxFrames = 4,
+    maxDur = 24, -- 4 frames (0, 1, 2, 3) at 6 ticks per frame
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Cut grass leaves scattering animation across 3x3 tiles (pret FldEff_CutGrass)
+function FieldEffects.startCutGrass(cx, cy, onDone)
+  load_sheet("cut_grass", 8, 8, 1)
+  cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
+  local px = cx * CELL
+  local py = cy * CELL
+
+  local particles = {}
+  for i = 1, 8 do
+    local angle = (i - 1) * (math.pi / 4)
+    local spd = 1.2 + math.random() * 1.0
+    particles[#particles + 1] = {
+      x = px + 4,
+      y = py + 4,
+      vx = math.cos(angle) * spd,
+      vy = math.sin(angle) * spd - 1.0,
+      frame = 0,
+    }
+  end
+
+  local anim = {
+    kind = "cut_grass_scatter",
+    cx = cx,
+    cy = cy,
+    timer = 0,
+    maxDur = 24,
+    particles = particles,
     onDone = onDone,
   }
   table.insert(FieldEffects._anims, anim)
 end
 
 --- Rock smash rubble exploding animation
-function FieldEffects.startRockSmash(cx, cy, onDone)
+function FieldEffects.startRockSmash(targetObj, cx, cy, onDone)
   load_sheet("rock_smash", 16, 16, 4)
+  cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
+  local px = cx * CELL
+  local py = cy * CELL
+
+  local particles = {}
+  for i = 1, 8 do
+    local angle = (i - 1) * (math.pi / 4) + (math.random() * 0.3 - 0.15)
+    local spd = 1.2 + math.random() * 1.6
+    particles[#particles + 1] = {
+      x = px + 4,
+      y = py + 4,
+      vx = math.cos(angle) * spd,
+      vy = math.sin(angle) * spd - 1.5,
+      frame = math.random(0, 3),
+    }
+  end
+
   local anim = {
     kind = "rock_smash",
+    targetObj = targetObj,
     cx = cx,
     cy = cy,
-    frame = 0,
     timer = 0,
-    frameDur = 6,
-    maxFrames = 4,
+    maxDur = 24,
+    particles = particles,
     onDone = onDone,
   }
   table.insert(FieldEffects._anims, anim)
@@ -217,7 +265,6 @@ end
 
 --- Dig / Teleport warp spin
 function FieldEffects.startWarpSpin(kind, onDone)
-  local P = package.loaded["src.core.game3.player"]
   local anim = {
     kind = "warp_spin",
     warpKind = kind or "teleport",
@@ -260,8 +307,8 @@ function FieldEffects.step()
     end
   end
 
-  -- Surfing blob clock
-  FieldEffects._surfClock = (FieldEffects._surfClock + 1) % 48
+  -- Surfing blob clock (48 ticks per frame * 2 frames = 96 ticks per loop)
+  FieldEffects._surfClock = (FieldEffects._surfClock + 1) % 96
 
   -- Update active transient animations
   local active = {}
@@ -269,13 +316,45 @@ function FieldEffects.step()
     anim.timer = anim.timer + 1
     local finished = false
 
-    if anim.kind == "cut_grass" or anim.kind == "rock_smash" then
-      if anim.timer >= anim.frameDur then
-        anim.timer = 0
-        anim.frame = anim.frame + 1
-        if anim.frame >= anim.maxFrames then
-          finished = true
-        end
+    if anim.kind == "cut_tree" then
+      -- Animate tree object through frames 0..3 (6 ticks per frame)
+      local frame = math.min(3, math.floor(anim.timer / 6))
+      if anim.targetObj then
+        anim.targetObj.customFrame = frame
+      end
+      -- Update scattering leaf particles with gravity
+      for _, p in ipairs(anim.particles or {}) do
+        p.x = p.x + p.vx
+        p.y = p.y + p.vy
+        p.vy = p.vy + 0.12 -- gravity
+        p.frame = math.floor(anim.timer / 4) % 4
+      end
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    elseif anim.kind == "cut_grass_scatter" then
+      for _, p in ipairs(anim.particles or {}) do
+        p.x = p.x + p.vx
+        p.y = p.y + p.vy
+        p.vy = p.vy + 0.12
+        p.frame = math.floor(anim.timer / 4) % 4
+      end
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    elseif anim.kind == "rock_smash" then
+      local frame = math.min(3, math.floor(anim.timer / 6))
+      if anim.targetObj then
+        anim.targetObj.customFrame = frame
+      end
+      for _, p in ipairs(anim.particles or {}) do
+        p.x = p.x + p.vx
+        p.y = p.y + p.vy
+        p.vy = p.vy + 0.15 -- gravity
+        p.frame = math.floor(anim.timer / 4) % 4
+      end
+      if anim.timer >= anim.maxDur then
+        finished = true
       end
     elseif anim.kind == "flash" then
       anim.alpha = math.max(0, 1.0 - (anim.timer / anim.maxDur))
@@ -347,16 +426,48 @@ function FieldEffects.drawBehind(camX, camY)
 
   -- 1) Surfing water mount (pret FLDEFF_SURF_BLOB)
   local P = package.loaded["src.core.game3.player"]
-  if P and P.surfing then
+  if P and (P.surfing or P.surfHopping or P.dismounting) then
     local surfSheet = load_sheet("surf_blob", 32, 32, 6)
     if surfSheet then
-      local frameIdx = math.floor(FieldEffects._surfClock / 8) % 6
+      local facing = P.facing or "down"
+      local step = math.floor(FieldEffects._surfClock / 48) % 2
+      local frameIdx = 0
+      local flip = false
+
+      if facing == "down" then
+        frameIdx = 0 + step
+      elseif facing == "up" then
+        frameIdx = 2 + step
+      elseif facing == "left" then
+        frameIdx = 4 + step
+      elseif facing == "right" then
+        frameIdx = 4 + step
+        flip = true
+      end
+
       local q = surfSheet.quads[frameIdx]
       if q then
-        local sx = P.px - camX - 8
-        local sy = P.py - camY
+        local sx, sy
+        if P.surfHopping then
+          -- Player is hopping onto water: blob is in position on the destination tile
+          sx = (P.targetX or P.cellX) * CELL - camX - 8
+          sy = (P.targetY or P.cellY) * CELL - camY - 8
+        elseif P.dismounting then
+          -- Player is hopping off water to land: blob remains at origin tile
+          sx = P.cellX * CELL - camX - 8
+          sy = P.cellY * CELL - camY - 8
+        else
+          local bob = (not P.moving and not P.jumping) and ((step == 1) and -1 or 0) or 0
+          sx = P.px - camX - 8
+          sy = P.py - camY - 8 + bob
+        end
+
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(surfSheet.image, q, sx, sy)
+        if flip then
+          love.graphics.draw(surfSheet.image, q, sx + 32, sy, 0, -1, 1)
+        else
+          love.graphics.draw(surfSheet.image, q, sx, sy)
+        end
       end
     end
   end
@@ -411,21 +522,31 @@ function FieldEffects.drawFront(camX, camY, playerPy)
 
   -- 2) Transient particle animations
   for _, anim in ipairs(FieldEffects._anims) do
-    if anim.kind == "cut_grass" then
-      local sheet = load_sheet("cut_grass", 16, 16, 4)
-      if sheet and sheet.quads[anim.frame] then
-        local sx = anim.cx * CELL - camX
-        local sy = anim.cy * CELL - camY
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+    if anim.kind == "cut_grass_scatter" then
+      local sheet = load_sheet("cut_grass", 8, 8, 1)
+      if sheet then
+        for _, p in ipairs(anim.particles or {}) do
+          local q = sheet.quads[0]
+          if q then
+            local sx = p.x - camX
+            local sy = p.y - camY
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, sx, sy)
+          end
+        end
       end
     elseif anim.kind == "rock_smash" then
       local sheet = load_sheet("rock_smash", 16, 16, 4)
-      if sheet and sheet.quads[anim.frame] then
-        local sx = anim.cx * CELL - camX
-        local sy = anim.cy * CELL - camY
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+      if sheet then
+        for _, p in ipairs(anim.particles or {}) do
+          local q = sheet.quads[p.frame % 4]
+          if q then
+            local sx = p.x - camX
+            local sy = p.y - camY
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sheet.image, q, sx, sy)
+          end
+        end
       end
     elseif anim.kind == "fly_takeoff" or anim.kind == "fly_landing" then
       local sheet = load_sheet("fly_bird", 32, 32, 4)

@@ -115,17 +115,43 @@ function OwSprites.get(graphicsId)
   return spr
 end
 
+local FIELD_MOVE_POSE = { down = 3, up = 7, left = 4, right = 4 }
+
 --- Resolve frame index + hflip for facing / walk.
--- bow: pret ANIM_NURSE_BOW uses sheet frame 9 while bowFrames > 0.
-function OwSprites.pose(spr, facing, walkPhase, stepFlip, bow)
+-- opts: { bow = bool, fieldMove = bool, frame = number }
+function OwSprites.pose(spr, facing, walkPhase, stepFlip, opts)
   facing = facing or "down"
-  if not spr or spr.frameCount <= 1 or spr.inanimate then
+  if not spr then return 0, false end
+
+  local flip = (facing == "right")
+  if opts and opts.frame ~= nil then
+    local f = tonumber(opts.frame) or 0
+    if f < 0 then f = 0 end
+    if f >= spr.frameCount then f = spr.frameCount - 1 end
+    return f, flip
+  end
+
+  if spr.frameCount <= 1 or spr.inanimate then
     return 0, false
   end
-  local flip = (facing == "right")
-  if bow and spr.frameCount > 9 then
+
+  if opts and opts.bow and spr.frameCount > 9 then
     return 9, false
   end
+
+  if opts and opts.fieldMove and spr.frameCount >= 9 then
+    local f = FIELD_MOVE_POSE[facing] or 3
+    if f >= spr.frameCount then f = 0 end
+    return f, flip
+  end
+
+  if spr.frameCount == 3 then
+    -- Surfing mount pose (0 = down, 1 = up, 2 = left, 2 + hflip = right)
+    local f = STAND[facing] or 0
+    if f >= spr.frameCount then f = 0 end
+    return f, flip
+  end
+
   local walking = walkPhase == 1 or walkPhase == true
   local frame
   if walking and spr.frameCount >= 9 then
@@ -139,11 +165,12 @@ end
 
 --- Draw at world pixel position (cell top-left). Feet at bottom of sprite.
 -- opts.bow: use nurse bow frame (ANIM_NURSE_BOW).
+-- opts.fieldMove: use directional arm-raise field move frame.
+-- opts.frame: explicit frame index override.
 function OwSprites.draw(graphicsId, px, py, camX, camY, facing, walkPhase, stepFlip, opts)
   local spr = OwSprites.get(graphicsId)
   if not spr then return false end
-  local bow = opts and opts.bow
-  local frame, flip = OwSprites.pose(spr, facing, walkPhase, stepFlip, bow)
+  local frame, flip = OwSprites.pose(spr, facing, walkPhase, stepFlip, opts)
   local q = spr.quads[frame]
   if not q then return false end
   local sx = px - camX + (16 - spr.width) / 2
@@ -158,11 +185,34 @@ function OwSprites.draw(graphicsId, px, py, camX, camY, facing, walkPhase, stepF
 end
 
 function OwSprites.playerGraphicsId(game)
+  local P = package.loaded["src.core.game3.player"]
   local save = game and game.save
   local session = game and game.session
   local gender = (session and session.gender)
     or (save and (save.gender or (save.player and save.player.gender)))
-  if gender == "female" or gender == "F" or gender == 1 then
+  local isFemale = (gender == "female" or gender == "F" or gender == 1)
+
+  if P then
+    if P.fieldMoveAnim and P.fieldMoveAnim > 0 then
+      return isFemale and (Versions.OW_PLAYER_FEMALE_FIELD_MOVE or 10)
+                       or (Versions.OW_PLAYER_MALE_FIELD_MOVE or 3)
+    end
+    -- If jumping / hop onto/off water, maintain normal or surfing sprite during arc
+    if P.surfing and not P.dismounting then
+      return isFemale and (Versions.OW_PLAYER_FEMALE_SURF or 9)
+                       or (Versions.OW_PLAYER_MALE_SURF or 2)
+    end
+    if P.biking then
+      return isFemale and (Versions.OW_PLAYER_FEMALE_BIKE or 8)
+                       or (Versions.OW_PLAYER_MALE_BIKE or 1)
+    end
+    if P.fishing then
+      return isFemale and (Versions.OW_PLAYER_FEMALE_FISH or 11)
+                       or (Versions.OW_PLAYER_MALE_FISH or 4)
+    end
+  end
+
+  if isFemale then
     return Versions.OW_PLAYER_FEMALE or 7
   end
   return Versions.OW_PLAYER_MALE or 0

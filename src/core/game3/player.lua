@@ -42,9 +42,13 @@ Player.stepFlip = false
 Player.animClock = 0
 Player.running = false
 Player.jumping = false
+Player.surfHopping = false
+Player.dismounting = false
+Player.fieldMoveAnim = 0
 Player.spriteXOffset = 0
 Player.spriteYOffset = 0
 Player.biking = false
+Player.surfing = false
 Player.visible = true
 Player._logged = false
 
@@ -171,11 +175,19 @@ function Player.drawFlip()
   return Player.stepFlip and true or false
 end
 
+local SURF_HOP_Y = {
+  -2, -4, -6, -8, -9, -10, -10, -9, -8, -6, -4, -2, 0, 0, 0, 0,
+}
+
 --- pret DoJumpSpriteMovement y2 for JUMP_DISTANCE_FAR + JUMP_TYPE_HIGH.
 function Player.jumpSpriteY()
   if not Player.jumping then return 0 end
   local progress = Player.progress or 0
   if progress < 1 then return 0 end
+  if Player.surfHopping or Player.dismounting then
+    local idx = math.min(progress, #SURF_HOP_Y)
+    return SURF_HOP_Y[idx] or 0
+  end
   -- After frame N's Step1, sTimer == N; y2 = sJumpY_High[sTimer >> 1].
   local idx = math.floor((progress - 1) / 2)
   if idx < 0 then return 0 end
@@ -191,7 +203,10 @@ local function beginStep(tx, ty, run, ledge)
   Player.running = (not ledge) and run and true or false
   Player.jumping = ledge and true or false
   Player.spriteYOffset = 0
-  if ledge then
+  if Player.surfHopping or Player.dismounting then
+    Player.stepFrames = 16
+    Player.jumping = true
+  elseif ledge then
     Player.stepFrames = JUMP_FRAMES
   elseif Player.biking then
     Player.stepFrames = BIKE_FRAMES
@@ -327,6 +342,13 @@ function Player.tryMove(dir, game, run)
     end
     return "blocked", why
   end
+  local isDismount = Player.surfing and (not (Collision.isWater and Collision.isWater(tx, ty)))
+  if isDismount then
+    Player.dismounting = true
+  else
+    Player.dismounting = false
+  end
+
   beginStep(tx, ty, run, false)
   return "step"
 end
@@ -356,10 +378,23 @@ function Player.scriptFace(dir)
   if DELTA[dir] then Player.facing = dir end
 end
 
-function Player.startSurfing(game)
-  Player.surfing = true
+--- Parabolic hop into water when initiating Surf.
+function Player.startSurfing(game, onDone)
   Player.biking = false -- Bike override: clear bike state when using Surf
   Player.running = false
+  Player.surfHopping = true
+  Player.surfing = false
+  Player.dismounting = false
+  pcall(function()
+    local Audio = require("src.core.game3.audio")
+    local SE = require("src.core.game3.se_ids")
+    if Audio.playSe and SE.SE_LEDGE then Audio.playSe(SE.SE_LEDGE) end
+  end)
+  Player.forceStep(Player.facing, onDone)
+end
+
+function Player.startFieldMove(duration)
+  Player.fieldMoveAnim = duration or 28
 end
 
 local function finishStep(game)
@@ -375,8 +410,14 @@ local function finishStep(game)
   Player.spriteYOffset = 0
   Player.syncSavePosition(game)
 
-  -- Surf dismount check: stepped onto land from water
-  if Player.surfing then
+  -- Surf landing / dismount state transitions
+  if Player.surfHopping then
+    Player.surfHopping = false
+    Player.surfing = true
+  elseif Player.dismounting then
+    Player.dismounting = false
+    Player.surfing = false
+  elseif Player.surfing then
     local onWater = Collision.isWater and Collision.isWater(Player.cellX, Player.cellY)
     if not onWater then
       Player.surfing = false
@@ -448,10 +489,20 @@ local function finishStep(game)
 end
 
 function Player.tick(game)
+  if Player.fieldMoveAnim and Player.fieldMoveAnim > 0 then
+    Player.fieldMoveAnim = Player.fieldMoveAnim - 1
+  end
   if Player.turnTimer > 0 then
     Player.turnTimer = Player.turnTimer - 1
   end
   if not Player.moving then
+    if Player.surfing and not Player.jumping then
+      local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+      local clock = (okFx and FieldEffects and FieldEffects._surfClock) or 0
+      Player.spriteYOffset = (math.floor(clock / 48) % 2 == 1) and -1 or 0
+    else
+      Player.spriteYOffset = 0
+    end
     return false
   end
   Player.progress = Player.progress + 1
@@ -492,6 +543,7 @@ end
 function Player.update(game, input)
   Player.tick(game)
   if Player.moving then return end
+  if Player.fieldMoveAnim and Player.fieldMoveAnim > 0 then return end
 
   local Field = package.loaded["src.core.game3.field"]
   if Field and Field.locked then return end

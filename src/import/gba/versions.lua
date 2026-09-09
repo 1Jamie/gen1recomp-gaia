@@ -49,7 +49,15 @@ Versions.OW_SPRITE_PALETTES = 0x3A5158    -- sObjectEventSpritePalettes
 Versions.NUM_OBJ_EVENT_GFX = 152
 -- pret OBJ_EVENT_GFX_RED / OBJ_EVENT_GFX_GREEN (Leaf)
 Versions.OW_PLAYER_MALE = 0
+Versions.OW_PLAYER_MALE_BIKE = 1
+Versions.OW_PLAYER_MALE_SURF = 2
+Versions.OW_PLAYER_MALE_FIELD_MOVE = 3
+Versions.OW_PLAYER_MALE_FISH = 4
 Versions.OW_PLAYER_FEMALE = 7
+Versions.OW_PLAYER_FEMALE_BIKE = 8
+Versions.OW_PLAYER_FEMALE_SURF = 9
+Versions.OW_PLAYER_FEMALE_FIELD_MOVE = 10
+Versions.OW_PLAYER_FEMALE_FISH = 11
 -- FireRed USA 1.0 font (menu cursor = SelectorArrow2 / charmap ▶ = 0xEF).
 Versions.FONT_LATIN_NORMAL = 0x1FF300       -- sFontNormalLatinGlyphs
 Versions.FONT_LATIN_WIDTHS = 0x207300       -- sFontNormalLatinGlyphWidths
@@ -128,12 +136,13 @@ Versions.FISH_WILD_COUNT = 10
 Versions.FIELD_EFFECT_TALL_GRASS = 0x39A008      -- gFieldEffectObjectPic_TallGrass
 Versions.FIELD_EFFECT_PAL_GENERAL_1 = 0x398FC8 -- gFieldEffectObjectPalette1
 Versions.FIELD_EFFECT_PAL_GENERAL_0 = 0x398FA8 -- gFieldEffectObjectPalette0
+Versions.FIELD_EFFECT_PAL_PLAYER = 0x35B968    -- gObjectEventPal_Player (surf blob, etc.)
 
 Versions.FIELD_EFFECTS = {
   tall_grass   = { pic = 0x39A008, pal = 0x398FC8, w = 16, h = 16, frames = 5 },
-  cut_grass    = { pic = 0x3986A8, pal = 0x398FC8, w = 16, h = 16, frames = 4 },
+  cut_grass    = { pic = 0x398648, pal = 0x398FC8, w = 8,  h = 8,  frames = 1 },
   rock_smash   = { pic = 0x398928, pal = 0x398FA8, w = 16, h = 16, frames = 4 },
-  surf_blob    = { pic = 0x396B08, pal = 0x398FC8, w = 32, h = 32, frames = 6 },
+  surf_blob    = { pic = 0x396B08, pal = 0x35B968, w = 32, h = 32, frames = 6 },
   fly_bird     = { pic = 0x398048, pal = 0x398FA8, w = 32, h = 32, frames = 4 },
   ripple       = { pic = 0x398BA8, pal = 0x398FA8, w = 16, h = 16, frames = 8 },
 }
