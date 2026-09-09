@@ -537,7 +537,17 @@ function Extract.run(imports, cache, progressCb)
   -- game3 scripts/events/text/movements from ROM MapEvents + BFS
   local ExtractScripts = require("src.import.gba.extract_scripts")
   rom = assert(Rom.open(imports, importId))
-  local scriptBundle = ExtractScripts.writeBundleFromRom(rom, cache, Extract.CACHE_ROOT)
+  local scriptBundle = ExtractScripts.writeBundleFromRom(rom, cache, Extract.CACHE_ROOT, version)
+
+  -- Extract full trainer parties, AI flags, dialogs, and sprites
+  do
+    local TrainerExtract = require("src.import.gba.trainer_extract")
+    TrainerExtract.run(rom, cache, {
+      cacheRoot = Extract.CACHE_ROOT,
+      scripts = scriptBundle and scriptBundle.scripts,
+      text = scriptBundle and scriptBundle.text,
+    })
+  end
 
   -- Normalized map_tree mirror
   do
@@ -1858,7 +1868,17 @@ local function _dormant_quantize_run(imports, cache, progressCb)
   -- game3 scripts/events/text/movements from ROM MapEvents + BFS (primary).
   local ExtractScripts = require("src.import.gba.extract_scripts")
   rom = assert(Rom.open(imports, importId))
-  local scriptBundle = ExtractScripts.writeBundleFromRom(rom, cache, Extract.CACHE_ROOT)
+  local scriptBundle = ExtractScripts.writeBundleFromRom(rom, cache, Extract.CACHE_ROOT, version)
+
+  -- Extract full trainer parties, AI flags, dialogs, and sprites
+  do
+    local TrainerExtract = require("src.import.gba.trainer_extract")
+    TrainerExtract.run(rom, cache, {
+      cacheRoot = Extract.CACHE_ROOT,
+      scripts = scriptBundle and scriptBundle.scripts,
+      text = scriptBundle and scriptBundle.text,
+    })
+  end
 
   -- Normalized map_tree mirror (header/events/grid per slot + shared tilesets).
   do

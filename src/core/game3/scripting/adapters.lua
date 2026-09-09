@@ -1150,6 +1150,8 @@ function Adapters.host(mod, game, world)
       BattleBridge.start(mod, resolveGame(), foe, {
         wild = false,
         trainerId = battleOpts.trainerId or (foe and foe.trainerId),
+        defeatText = battleOpts.defeatText or (foe and foe.defeatText),
+        victoryText = battleOpts.victoryText or (foe and foe.victoryText),
         earlyRival = battleOpts.earlyRival,
         rivalFlags = battleOpts.rivalFlags,
         noWhiteout = battleOpts.noWhiteout,

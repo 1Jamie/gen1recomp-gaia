@@ -219,6 +219,8 @@ function BattleBridge.start(mod, game, foe, opts)
     mapKind = mapKind,
     terrain = opts.terrain,
     trainerId = opts.trainerId or (foe and foe.trainerId),
+    defeatText = opts.defeatText or (foe and foe.defeatText),
+    victoryText = opts.victoryText or (foe and foe.victoryText),
     rivalName = opts.rivalName or session.rivalName or (save and save.rivalName),
     playerGender = opts.playerGender or gender,
     onDone = function(result)

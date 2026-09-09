@@ -135,6 +135,9 @@ local function newEventObject(def)
     movement = movement,
     range = range,
     radius = radius or { x = 1, y = 1 },
+    sight = tonumber(def.sight or def.trainerRange) or 0,
+    trainerType = tonumber(def.trainerType) or 0,
+    scriptKey = def.scriptKey,
     flag = def.flag,
     visible = objectVisible(def),
     hidden = not objectVisible(def),
@@ -460,31 +463,44 @@ local function advanceTrack(lid, tr, game)
     return
   end
   tr.i = tr.i + 1
-  if act.kind == "step" then
-    if eo == Player() then
-      if Player().scriptStep then Player().scriptStep(act.dir) end
-    elseif eo then
-      Objects.scriptStep(eo, act.dir)
+  if type(act) == "string" then
+    local sdir = act:match("^walk_(.*)$") or act:match("^step_(.*)$")
+    if sdir then
+      act = { kind = "step", dir = sdir }
+    else
+      local tdir = act:match("^turn_(.*)$") or act:match("^face_(.*)$")
+      if tdir then
+        act = { kind = "turn", dir = tdir }
+      end
     end
-  elseif act.kind == "turn" then
-    Objects.scriptFace(eo, act.dir)
-  elseif act.kind == "bow" then
-    if eo and eo ~= Player() then
-      eo.bowFrames = act.frames or 48
-      eo.facing = "down"
-    end
-    tr.sleep = act.frames or 48
-  elseif act.kind == "sleep" then
-    tr.sleep = act.frames or 1
-  elseif act.kind == "hide" then
-    if eo and eo ~= Player() then
-      eo.hidden = true
-      eo.visible = false
-    end
-  elseif act.kind == "show" then
-    if eo and eo ~= Player() then
-      eo.hidden = false
-      eo.visible = true
+  end
+  if type(act) == "table" then
+    if act.kind == "step" then
+      if eo == Player() then
+        if Player().scriptStep then Player().scriptStep(act.dir) end
+      elseif eo then
+        Objects.scriptStep(eo, act.dir)
+      end
+    elseif act.kind == "turn" then
+      Objects.scriptFace(eo, act.dir)
+    elseif act.kind == "bow" then
+      if eo and eo ~= Player() then
+        eo.bowFrames = act.frames or 48
+        eo.facing = "down"
+      end
+      tr.sleep = act.frames or 48
+    elseif act.kind == "sleep" then
+      tr.sleep = act.frames or 1
+    elseif act.kind == "hide" then
+      if eo and eo ~= Player() then
+        eo.hidden = true
+        eo.visible = false
+      end
+    elseif act.kind == "show" then
+      if eo and eo ~= Player() then
+        eo.hidden = false
+        eo.visible = true
+      end
     end
   end
 end
@@ -496,6 +512,30 @@ function Objects.applyMovement(localId, stream, onDone)
   if eo and eo ~= Player() then
     eo.frozen = true
     eo.scriptBusy = true
+  end
+  Objects._tracks[lid] = {
+    actions = actions,
+    i = 1,
+    sleep = 0,
+    done = false,
+    onDone = onDone,
+  }
+  advanceTrack(lid, Objects._tracks[lid], nil)
+end
+
+function Objects.startTrack(localId, actions, onDone)
+  local lid = tonumber(localId) or localId
+  local eo = Objects.find(lid)
+  if eo and eo ~= Player() then
+    eo.frozen = true
+    eo.scriptBusy = true
+  end
+  if not actions or #actions == 0 then
+    if eo and eo ~= Player() then
+      eo.scriptBusy = false
+    end
+    if onDone then onDone() end
+    return
   end
   Objects._tracks[lid] = {
     actions = actions,
@@ -542,9 +582,16 @@ local function idleTick(eo, game)
   end
 
   local dirs = dirsForRange(eo.range)
-  if mv == "LOOK" then
+  if mv == "LOOK" or mv == "LOOK_AROUND" then
+    local oldFacing = eo.facing
     eo.facing = dirs[math.random(#dirs)]
     eo.idleTimer = 48 + math.random(48)
+    if eo.facing ~= oldFacing and eo.sight and eo.sight > 0 then
+      local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+      if okTs and TrainerSight and TrainerSight.check then
+        TrainerSight.check(game, eo)
+      end
+    end
     return
   end
 

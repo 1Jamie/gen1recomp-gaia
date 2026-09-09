@@ -60,14 +60,14 @@ local function moves_for_mon(mon)
     local entry = rawMoves[i]
     local moveId, pp, maxPp, mdef
     if type(entry) == "table" then
-      moveId = entry.id
+      moveId = entry.id or entry.move or entry.moveId or entry.num or entry.name or entry[1]
       pp = entry.pp
     else
       moveId = entry
       pp = rawPp[i]
     end
 
-    if moveId and moveId > 0 then
+    if moveId and (type(moveId) ~= "number" or moveId > 0) and moveId ~= "" and moveId ~= "-------" then
       mdef = Pokemon.battleMove(moveId)
       maxPp = (mdef and mdef.pp) or 5
       if not pp then pp = maxPp end

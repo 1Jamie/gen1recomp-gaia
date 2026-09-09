@@ -423,12 +423,26 @@ function Pokemon.applyStats(mon)
 end
 
 function Pokemon.moveName(moveId)
-  moveId = tonumber(moveId)
-  if not moveId or moveId < 1 then return "-------" end
+  if type(moveId) == "table" then
+    moveId = moveId.id or moveId.move or moveId.moveId or moveId.num or moveId.name or moveId[1]
+  end
+  local num = tonumber(moveId)
+  if not num and type(moveId) == "string" then
+    local Moves = package.loaded["src.core.game3.battle.moves"]
+    if Moves and Moves.numForName then
+      num = Moves.numForName(moveId)
+    end
+    if not num then
+      if moveId ~= "" and moveId ~= "-------" then
+        return tostring(moveId):gsub("_", " "):upper()
+      end
+    end
+  end
+  if not num or num < 1 then return "-------" end
   if not Pokemon._moveNames then Pokemon.install(Pokemon._cache) end
-  local n = Pokemon._moveNames and Pokemon._moveNames[moveId]
+  local n = Pokemon._moveNames and Pokemon._moveNames[num]
   if n and n ~= "" then return n end
-  return string.format("MOVE %d", moveId)
+  return string.format("MOVE %d", num)
 end
 
 function Pokemon.learnset(species)

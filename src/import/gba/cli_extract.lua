@@ -409,11 +409,13 @@ end
 if scriptsOnly then
   local Rom = require("src.import.gba.rom")
   local ExtractScripts = require("src.import.gba.extract_scripts")
+  local Versions = require("src.import.gba.versions")
   local outRoot = outDir
   local packCache = cache
   local rom = assert(Rom.open(imports, "firered"))
+  local version = Versions.lookup(rom.md5)
   print("Extracting scripts bundle →", outRoot .. "/data/generated/gba/scripts")
-  local bundle = ExtractScripts.writeBundleFromRom(rom, packCache, Extract.CACHE_ROOT)
+  local bundle = ExtractScripts.writeBundleFromRom(rom, packCache, Extract.CACHE_ROOT, version)
   rom:clearCache()
   imports:_close()
   print("OK scripts", bundle.scriptCount, "scripts →", Extract.CACHE_ROOT .. "/scripts")

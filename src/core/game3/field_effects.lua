@@ -287,6 +287,25 @@ function FieldEffects.startSweetScent(onDone)
   table.insert(FieldEffects._anims, anim)
 end
 
+--- Exclamation mark '!' emote animation over target object (pret FLDEFF_EXCLAMATION_MARK_ICON / sAnim_ExclamationMark)
+function FieldEffects.startExclamation(targetObj, onDone)
+  load_sheet("emoticons", 16, 16, 15)
+  pcall(function()
+    local Audio = require("src.core.game3.audio")
+    local SE = require("src.core.game3.se_ids")
+    if Audio.playSe and SE.SE_PIN then Audio.playSe(SE.SE_PIN) end
+  end)
+  local anim = {
+    kind = "exclamation",
+    targetObj = targetObj,
+    timer = 0,
+    maxDur = 36,
+    frame = 0,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
 -- ---------------------------------------------------------------- Step & Update
 function FieldEffects.step()
   -- Tall grass update
@@ -401,6 +420,17 @@ function FieldEffects.step()
       end
     elseif anim.kind == "sweet_scent" then
       anim.radius = (anim.timer / anim.maxDur) * 120
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    elseif anim.kind == "exclamation" then
+      if anim.timer < 4 then
+        anim.frame = 0
+      elseif anim.timer < 8 then
+        anim.frame = 1
+      else
+        anim.frame = 2
+      end
       if anim.timer >= anim.maxDur then
         finished = true
       end
@@ -553,6 +583,16 @@ function FieldEffects.drawFront(camX, camY, playerPy)
       if sheet and sheet.quads[anim.frame] then
         local sx = anim.px - camX
         local sy = anim.py - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+      end
+    elseif anim.kind == "exclamation" then
+      local sheet = load_sheet("emoticons", 16, 16, 15)
+      if sheet and sheet.quads[anim.frame] then
+        local ox = anim.targetObj and (anim.targetObj.px or (anim.targetObj.cellX and anim.targetObj.cellX * CELL)) or 0
+        local oy = anim.targetObj and (anim.targetObj.py or (anim.targetObj.cellY and anim.targetObj.cellY * CELL)) or 0
+        local sx = ox - camX
+        local sy = oy - 16 - camY
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
       end

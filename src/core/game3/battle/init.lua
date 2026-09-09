@@ -286,6 +286,8 @@ function Battle.start(opts)
   st.trainerPicId = (opts.trainerPicId)
     or (trainerInfo and trainerInfo.pic)
   st.trainerPartySize = trainerInfo and trainerInfo.partySize
+  st.defeatText = opts.defeatText
+  st.victoryText = opts.victoryText
   -- pret gTrainers[].aiFlags / items[4] — drive battle AI scripts + item use.
   st.aiFlags = opts.aiFlags
     or (trainerInfo and trainerInfo.aiFlags)
@@ -497,7 +499,22 @@ local function handle_enemy_faint()
 
   if not nextEnemyIdx then
     Battle._pendingEnd = "win"
-    thenMsgs = { "You won the battle!" }
+    thenMsgs = {}
+    if st and not st.wild and st.trainerId then
+      local Trainers = require("src.core.game3.scripting.trainers")
+      local dialogs = Trainers.dialogs(st.trainerId)
+      local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
+      if defeatSpeech and defeatSpeech ~= "" then
+        thenMsgs[#thenMsgs + 1] = defeatSpeech
+      end
+      local trName = (st.trainerClassName and st.trainerClassName ~= "")
+        and (st.trainerClassName .. " " .. (st.trainerName or ""))
+        or (st.trainerName or "TRAINER")
+      local pname = st.playerName or "PLAYER"
+      thenMsgs[#thenMsgs + 1] = string.format("%s defeated\n%s!", pname, trName)
+    else
+      thenMsgs[#thenMsgs + 1] = "You won the battle!"
+    end
     do
       local Audio = require("src.core.game3.audio")
       local role = (st and st.wild) and "victoryWild" or "victoryTrainer"

@@ -44,6 +44,8 @@ local function parse_objects(rom, ptr, count)
     local rangeWord = rom:u16(base + 10)
     local rangeX = rangeWord % 16
     local rangeY = math.floor(rangeWord / 16) % 16
+    local trainerType = rom:u16(base + 12)
+    local sight = rom:u16(base + 14)
     local scriptPtr = rom:u32(base + 16)
     local flag = rom:u16(base + 20)
     local host = GfxIds.hostMovement(movementType, rangeX, rangeY)
@@ -64,6 +66,9 @@ local function parse_objects(rom, ptr, count)
       movement = host.movement,
       range = host.range,
       radius = host.radius,
+      trainerType = trainerType,
+      sight = sight,
+      trainerRange = sight,
       scriptPtr = scriptPtr,
       scriptKey = scriptKey,
       flag = flag,

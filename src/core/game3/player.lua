@@ -50,6 +50,7 @@ Player.spriteYOffset = 0
 Player.biking = false
 Player.surfing = false
 Player.visible = true
+Player.elevation = 3
 Player._logged = false
 
 function Player.setVisible(vis)
@@ -91,6 +92,7 @@ function Player.reset(x, y, facing)
   Player.px = Player.cellX * CELL
   Player.py = Player.cellY * CELL
   Player.facing = facing or "down"
+  Player.elevation = 3
   Player.moving = false
   Player.progress = 0
   Player.stepFrames = WALK_FRAMES
@@ -115,6 +117,9 @@ end
 function Player.syncFromSession(session)
   if not session then return end
   Player.reset(session.x, session.y, session.facing)
+  if session.elevation ~= nil then
+    Player.elevation = tonumber(session.elevation) or 3
+  end
 end
 
 function Player.syncFromHost(game)
@@ -122,6 +127,9 @@ function Player.syncFromHost(game)
   local p = world and world.player
   if not p then return end
   Player.reset(p.cellX or p.x, p.cellY or p.y, p.facing or "down")
+  if p.elevation ~= nil then
+    Player.elevation = tonumber(p.elevation) or 3
+  end
 end
 
 --- Write avatar coords into save.position (ferry / host save). No host entity mirror.
@@ -450,6 +458,7 @@ local function finishStep(game)
   -- Wild encounters on grass when step completes (pret StandardWildEncounter).
   local onGrass = Collision.isGrass and Collision.isGrass(Player.cellX, Player.cellY)
   local okE, Encounters = pcall(require, "src.core.game3.encounters")
+  local triggeredBattle = false
   if onGrass and okE and Encounters and Encounters.onStep then
     local Battle = package.loaded["src.core.game3.battle"]
     local busy = (Battle and Battle.isActive and Battle.isActive()) or Field.locked
@@ -473,6 +482,8 @@ local function finishStep(game)
         local okB, errB = BattleBridge.startWild(mod, g, enc, {})
         if not okB then
           print("[game3/encounters] startWild failed: " .. tostring(errB))
+        else
+          triggeredBattle = true
         end
       end
     end
@@ -484,6 +495,14 @@ local function finishStep(game)
     local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.tallGrassAt then
       FieldEffects.tallGrassAt(Player.cellX, Player.cellY, true)
+    end
+  end
+
+  -- Trainer line of sight check on step completion (if not entering wild battle)
+  if not triggeredBattle and not Field.locked then
+    local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+    if okTs and TrainerSight and TrainerSight.check then
+      TrainerSight.check(game)
     end
   end
 end
@@ -554,6 +573,14 @@ function Player.update(game, input)
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.vm and Space.vm.isRunning and Space.vm:isRunning() then
     return
+  end
+
+  -- Menu Dismissal Frame Trap & Idle Sight Check: check sight before D-pad input polling
+  local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
+  if okTs and TrainerSight and TrainerSight.check then
+    if TrainerSight.check(game) then
+      return
+    end
   end
 
   local dir = dirs_from_input(input)

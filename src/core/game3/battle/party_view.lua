@@ -39,8 +39,14 @@ function PartyView.fromSession(sessionParty, moveOverlay)
           hostFallbackId = ov.frlgMoveId, -- identity; writeback keeps Gen3 id
         }
       else
-        copy.moves[mi] = mon.moves and mon.moves[mi]
-        copy.pp[mi] = mon.pp and mon.pp[mi]
+        local rawM = mon.moves and mon.moves[mi]
+        if type(rawM) == "table" then
+          copy.moves[mi] = rawM.id or rawM.move or rawM.num or rawM.moveId or rawM.name or rawM[1]
+          copy.pp[mi] = rawM.pp or (mon.pp and mon.pp[mi])
+        else
+          copy.moves[mi] = rawM
+          copy.pp[mi] = mon.pp and mon.pp[mi]
+        end
       end
     end
     battleParty[pi] = copy

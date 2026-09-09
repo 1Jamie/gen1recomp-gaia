@@ -98,6 +98,13 @@ Moves.BY_ID = {
   DOUBLESLAP = M("DOUBLESLAP", 15, T.NORMAL, "physical", 85, 10, { hits = { 2, 5 } }),
   PIN_MISSILE = M("PIN_MISSILE", 14, T.BUG, "physical", 85, 20, { hits = { 2, 5 } }),
   COMET_PUNCH = M("COMET_PUNCH", 18, T.NORMAL, "physical", 85, 15, { hits = { 2, 5 } }),
+  CUT = M("CUT", 50, T.NORMAL, "physical", 95, 30),
+  FLY = M("FLY", 70, T.FLYING, "physical", 95, 15),
+  STRENGTH = M("STRENGTH", 80, T.NORMAL, "physical", 100, 15),
+  FLASH = M("FLASH", 0, T.NORMAL, "status", 100, 20),
+  ROCK_SMASH = M("ROCK_SMASH", 20, T.FIGHTING, "physical", 100, 15),
+  WHIRLPOOL = M("WHIRLPOOL", 15, T.WATER, "special", 70, 15),
+  DIVE = M("DIVE", 60, T.WATER, "physical", 100, 10),
 }
 
 -- Numeric FRLG move id → curated name (for display / overlay).
@@ -120,6 +127,8 @@ Moves.BY_NUM = {
   [105] = "RECOVER", [135] = "SOFTBOILED", [116] = "FOCUS_ENERGY",
   [281] = "YAWN", [269] = "TAUNT", [212] = "MEAN_LOOK", [275] = "INGRAIN",
   [31] = "FURY_ATTACK", [3] = "DOUBLESLAP", [42] = "PIN_MISSILE", [4] = "COMET_PUNCH",
+  [15] = "CUT", [19] = "FLY", [70] = "STRENGTH", [148] = "FLASH",
+  [249] = "ROCK_SMASH", [250] = "WHIRLPOOL", [291] = "DIVE",
 }
 
 local function load_lua(rel)
@@ -176,12 +185,21 @@ function Moves.romReady()
   return Moves._rom ~= nil
 end
 
+local function unwrap_move(moveId)
+  if type(moveId) == "table" then
+    return moveId.id or moveId.move or moveId.moveId or moveId.num or moveId.name or moveId[1]
+  end
+  return moveId
+end
+
 function Moves.normalizeId(moveId)
+  moveId = unwrap_move(moveId)
   if moveId == nil or moveId == 0 or moveId == "" then return nil end
   if type(moveId) == "number" then
     return Moves.BY_NUM[moveId] or tostring(moveId)
   end
-  local s = tostring(moveId):upper():gsub("%s+", "_"):gsub("-", "_")
+  if type(moveId) ~= "string" then return nil end
+  local s = moveId:upper():gsub("%s+", "_"):gsub("-", "_")
   if s == "THUNDER_SHOCK" then return "THUNDERSHOCK" end
   if s == "WILLOWISP" then return "WILL_O_WISP" end
   if s == "DOUBLE_SLAP" then return "DOUBLESLAP" end
@@ -189,7 +207,10 @@ function Moves.normalizeId(moveId)
 end
 
 function Moves.numForName(name)
+  name = unwrap_move(name)
   if not name then return nil end
+  if type(name) == "number" then return name end
+  local cleanName = tostring(name):upper():gsub("%s+", "_"):gsub("-", "_")
   if not Moves._numByName then
     Moves._numByName = {}
     for nid, n in pairs(Moves.BY_NUM) do
@@ -208,7 +229,7 @@ function Moves.numForName(name)
       end
     end
   end
-  return Moves._numByName[name]
+  return Moves._numByName[cleanName] or Moves._numByName[name]
 end
 
 local function from_rom(numId)
@@ -237,7 +258,13 @@ local function from_rom(numId)
 end
 
 function Moves.get(moveId)
+  moveId = unwrap_move(moveId)
   local num = tonumber(moveId)
+  if not num and type(moveId) == "string" then
+    local norm = Moves.normalizeId(moveId)
+    num = Moves.numForName(norm)
+  end
+
   if num then
     local rom = from_rom(num)
     local name = Moves.BY_NUM[num]
@@ -293,7 +320,17 @@ function Moves.get(moveId)
 end
 
 function Moves.displayName(moveId)
+  moveId = unwrap_move(moveId)
+  if not moveId or moveId == 0 or moveId == "" or moveId == "-------" then
+    return "-------"
+  end
+
   local num = tonumber(moveId)
+  if not num and type(moveId) == "string" then
+    local norm = Moves.normalizeId(moveId)
+    num = Moves.numForName(norm)
+  end
+
   if num then
     local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
     if ok and Pokemon and Pokemon.moveName then
@@ -303,6 +340,7 @@ function Moves.displayName(moveId)
       end
     end
   end
+
   local m = Moves.get(moveId)
   local id = m and m.id or Moves.normalizeId(moveId) or "TACKLE"
   if type(id) == "number" then return "MOVE " .. tostring(id) end

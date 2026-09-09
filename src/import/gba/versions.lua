@@ -145,6 +145,7 @@ Versions.FIELD_EFFECTS = {
   surf_blob    = { pic = 0x396B08, pal = 0x35B968, w = 32, h = 32, frames = 6 },
   fly_bird     = { pic = 0x398048, pal = 0x398FA8, w = 32, h = 32, frames = 4 },
   ripple       = { pic = 0x398BA8, pal = 0x398FA8, w = 16, h = 16, frames = 8 },
+  emoticons    = { pic = 0x3C6AC8, pal = 0x35B968, w = 16, h = 16, frames = 15 },
 }
 
 -- Battle interface chrome (FireRed USA 1.0 file offsets; LZ unless noted).

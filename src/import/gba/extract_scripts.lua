@@ -309,8 +309,8 @@ local function write_tables(cache, root, scripts, text, movements, events, metaE
 end
 
 --- Primary write path: ROM MapEvents + BFS.
-function ExtractScripts.writeBundleFromRom(rom, cache, root)
-  local bundle = ExtractScripts.extractFromRom(rom)
+function ExtractScripts.writeBundleFromRom(rom, cache, root, version)
+  local bundle = ExtractScripts.extractFromRom(rom, version)
   write_tables(cache, root, bundle.scripts, bundle.text, bundle.movements, bundle.events, {
     source = "rom",
     opInventory = bundle.opInventory,

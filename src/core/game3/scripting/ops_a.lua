@@ -814,48 +814,96 @@ function Ops.dispatch(vm, row)
         }
       end
       foe.moves = foe.moves or row.moves
+
+      local dialogs = Trainers.dialogs(trainerId) or {}
+      local introText = nil
+      if battleType ~= 3 and battleType ~= 9 then
+        introText = (row.introText and resolve_text(vm, row.introText)) or dialogs.intro
+      end
+      local defeatText = (row.defeatText and resolve_text(vm, row.defeatText)) or dialogs.defeat
+      local victoryText = (row.victoryText and resolve_text(vm, row.victoryText)) or dialogs.victory
+
       ctx.mode = "native"
       ctx.status = "waiting"
       local done = false
       local pendingGoto = nil
+      local shouldHalt = false
+
       ctx.nativePoll = function()
         if not done then return false end
+        if shouldHalt then
+          ctx.status = "halted"
+          return false
+        end
         if pendingGoto then
           jump(vm, pendingGoto)
           pendingGoto = nil
         end
         return true
       end
-      a.startTrainerBattle(foe, function(result)
-        local lost = (result == "lose" or result == "whiteout" or result == "blackout")
-        -- pret: gSpecialVar_Result = TRUE if player defeated (early rival).
-        if earlyRival then
-          Flags.setVar(store, ctx, Ctx.VAR_RESULT, lost and 1 or 0)
-        end
-        if not lost then
-          Flags.setFlag(store, ctx, trainerFlag, true)
-          if a.onFlagChanged then a.onFlagChanged(trainerFlag, true) end
-          -- CONTINUE_SCRIPT*: gotobeatenscript after battle.
-          if eventScript and (battleType == 1 or battleType == 2
-              or battleType == 6 or battleType == 8) then
-            pendingGoto = eventScript
+
+      local function beginBattle()
+        a.startTrainerBattle(foe, function(result)
+          local lost = (result == "lose" or result == "whiteout" or result == "blackout")
+          -- pret: gSpecialVar_Result = TRUE if player defeated (early rival).
+          if earlyRival then
+            Flags.setVar(store, ctx, Ctx.VAR_RESULT, lost and 1 or 0)
+          end
+          if not lost then
+            Flags.setFlag(store, ctx, trainerFlag, true)
+            if a.onFlagChanged then a.onFlagChanged(trainerFlag, true) end
+            -- CONTINUE_SCRIPT*: gotobeatenscript after battle.
+            if eventScript and (battleType == 1 or battleType == 2
+                or battleType == 6 or battleType == 8) then
+              pendingGoto = eventScript
+            elseif battleType == 0 then
+              -- Single standard trainer: script ends after encounter
+              shouldHalt = true
+            end
+          end
+          done = true
+        end, {
+          trainerId = trainerId,
+          earlyRival = earlyRival,
+          rivalFlags = rivalFlags,
+          noWhiteout = earlyRival and (rivalFlags % 2 == 1),
+          defeatText = defeatText,
+          victoryText = victoryText,
+        })
+      end
+
+      if introText and introText ~= "" and a.openMessageAsync then
+        -- Play trainer encounter music if available
+        if foe.encounterMusic then
+          local musicCode = (tonumber(foe.encounterMusic) or 0) % 128
+          local okA, Audio = pcall(require, "src.core.game3.audio")
+          if okA and Audio and Audio.playSong then
+            local song = nil
+            if musicCode == 2 or musicCode == 3 or musicCode == 8 then
+              song = Audio.role("encounterGirl") or 273
+            elseif musicCode == 4 then
+              song = Audio.role("encounterRocket") or 276
+            else
+              song = Audio.role("encounterBoy") or 274
+            end
+            if song then Audio.playSong(song) end
           end
         end
-        done = true
-      end, {
-        trainerId = trainerId,
-        earlyRival = earlyRival,
-        rivalFlags = rivalFlags,
-        noWhiteout = earlyRival and (rivalFlags % 2 == 1),
-      })
+        a.openMessageAsync(introText, function()
+          beginBattle()
+        end)
+      else
+        beginBattle()
+      end
+
       if done then
         ctx.mode = "bytecode"
-        ctx.status = "running"
+        ctx.status = shouldHalt and "halted" or "running"
         ctx.nativePoll = nil
         if pendingGoto then
           jump(vm, pendingGoto)
         end
-        return false
+        return shouldHalt
       end
       return true
     end

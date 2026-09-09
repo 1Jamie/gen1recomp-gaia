@@ -286,9 +286,12 @@ function PartyMenu.movesFor(slot)
     if o and o.frlgMoveId then
       moves[i] = { id = o.frlgMoveId, pp = o.pp, quarantined = true }
     else
+      local rawM = mon.moves and mon.moves[i]
+      local mid = type(rawM) == "table" and (rawM.id or rawM.move or rawM.num or rawM.moveId or rawM.name or rawM[1]) or rawM
+      local mpp = type(rawM) == "table" and (rawM.pp or (mon.pp and mon.pp[i])) or (mon.pp and mon.pp[i])
       moves[i] = {
-        id = mon.moves and mon.moves[i],
-        pp = mon.pp and mon.pp[i],
+        id = mid,
+        pp = mpp,
         quarantined = false,
       }
     end
