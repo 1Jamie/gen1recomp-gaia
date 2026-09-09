@@ -307,7 +307,11 @@ function Adapters.host(mod, game, world)
         w:showText(text, finish)
         return
       end
-      HouseNpcs.pushText(g, text, finish)
+      if HouseNpcs and HouseNpcs.pushText then
+        HouseNpcs.pushText(g, text, finish)
+      else
+        finish()
+      end
     end,
     -- Hold the box open for yesnobox / MSGBOX_YESNO.
     openMessageStay = function(text, done)
@@ -336,7 +340,11 @@ function Adapters.host(mod, game, world)
         return
       end
       if w then w.lastText = text end
-      HouseNpcs.pushText(g, text, finish)
+      if HouseNpcs and HouseNpcs.pushText then
+        HouseNpcs.pushText(g, text, finish)
+      else
+        finish()
+      end
     end,
     closeMessage = function()
       boxOpen = false
@@ -364,6 +372,13 @@ function Adapters.host(mod, game, world)
       if Runtime and Runtime.isActive and Runtime.isActive() then
         local Hud = require("src.ui.game3.hud")
         Hud.armWaitButton(function()
+          -- Close the message box after button press (pret WaitForFieldInput).
+          -- Stay-mode messages (field item pickups, signs) remain open until
+          -- explicitly dismissed; without this they persist after the script ends.
+          local Message = package.loaded["src.ui.game3.message"]
+          if Message and Message.isOpen and Message.isOpen() then
+            Message.close()
+          end
           if cb then cb() end
           tick_vm()
         end)
@@ -791,7 +806,9 @@ function Adapters.host(mod, game, world)
       local ItemsData = require("src.core.game3.items_data")
       local Game3Bag = require("src.core.game3.bag")
       local Runtime = package.loaded["src.core.game3.runtime"]
-      local session = Runtime and Runtime.getSession and Runtime.getSession()
+      local session = (Runtime and Runtime.getSession and Runtime.getSession())
+        or (useGame3Session and useGame3Session())
+        or (package.loaded["src.core.game3.field"] and package.loaded["src.core.game3.field"]._session)
       qty = math.max(1, tonumber(qty) or 1)
 
       local num = ItemsData.toNumericId(itemId) or tonumber(itemId)

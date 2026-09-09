@@ -46,43 +46,117 @@ local function loadManifest()
   return Doors._manifest
 end
 
---- Get door metadata entry for a map tile at (x, y) if available
-function Doors.getDoorEntryAt(mapId, x, y)
-  local manifest = loadManifest()
-  if not manifest or not manifest.by_mid then return nil end
+Doors._layoutCache = {}
 
-  local layout = nil
-  local Map = package.loaded["src.core.game3.map"]
+local function isPairMatch(doorTileset, pair)
+  if not doorTileset or doorTileset == "primary" then return true end
+  local p = string.lower(tostring(pair or ""))
+  if p == "" then return false end
+  if doorTileset == "pallet" and (p:find("pallet") or p:find("oaks_lab")) then return true end
+  if doorTileset == "viridian" and p:find("viridian") then return true end
+  if doorTileset == "pewter" and p:find("pewter_outdoor") then return true end
+  if doorTileset == "saffron" and p:find("saffron") then return true end
+  if doorTileset == "cerulean" and p:find("cerulean") then return true end
+  if doorTileset == "lavender" and p:find("lavender") then return true end
+  if doorTileset == "vermilion" and p:find("vermilion") then return true end
+  if doorTileset == "celadon" and p:find("celadon") then return true end
+  if doorTileset == "fuchsia" and p:find("fuchsia") then return true end
+  if doorTileset == "cinnabar" and p:find("cinnabar") then return true end
+  if doorTileset == "sevii_123" and (p:find("sevii_outdoor") or p:find("sevii_123") or p:find("one_island") or p:find("two_island") or p:find("three_island")) then return true end
+  if doorTileset == "sevii_45" and (p:find("sevii_45") or p:find("four_island") or p:find("five_island") or p:find("rocket_warehouse")) then return true end
+  if doorTileset == "sevii_67" and (p:find("sevii_67") or p:find("six_island") or p:find("seven_island")) then return true end
+  if doorTileset == "dept_store" and (p:find("dept_store") or p:find("department_store")) then return true end
+  if doorTileset == "cable_club" and (p:find("cable_club") or p:find("network") or p:find("pokemon_center")) then return true end
+  if doorTileset == "silph_co" and (p:find("silph_co") or p:find("rocket_hideout")) then return true end
+  if doorTileset == "ss_anne" and p:find("ss_anne") then return true end
+  if doorTileset == "sea_cottage" and p:find("sea_cottage") then return true end
+  if doorTileset == "trainer_tower" and p:find("trainer_tower") then return true end
+  return false
+end
 
+local function resolveLayout(mapId)
+  if not mapId then return nil end
   local function norm(m)
     return tostring(m or ""):gsub("^FR_", ""):gsub("^MAP_", "")
   end
+  local key = norm(mapId)
 
+  local Map = package.loaded["src.core.game3.map"]
   if Map and Map._def and Map._def.midLayout then
-    if not mapId or norm(Map.current) == norm(mapId) then
-      layout = Map._def.midLayout
+    if norm(Map.current) == key or norm(Map._def.id or Map._def.name) == key then
+      return Map._def.midLayout, Map._def.pair
     end
   end
 
-  if not layout and Map and Map.neighbors then
+  if Map and Map.neighbors then
     for _, n in pairs(Map.neighbors) do
       if n.def and n.def.midLayout then
-        if norm(n.map or n.mapId) == norm(mapId) then
-          layout = n.def.midLayout
-          break
+        if norm(n.map or n.mapId) == key then
+          return n.def.midLayout, n.def.pair
         end
       end
     end
   end
 
-  if not layout and mapId then
-    local okD, Dataset = pcall(require, "src.core.game3.dataset")
-    if okD and Dataset and Dataset.map then
-      local m = Dataset.map(mapId) or Dataset.map("FR_" .. norm(mapId))
-      if m and m.midLayout then layout = m.midLayout end
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local g = Runtime and Runtime._game
+  if g and g.data and g.data.maps then
+    local m = g.data.maps[mapId] or g.data.maps["FR_" .. key] or g.data.maps[key]
+    if m and m.midLayout then
+      return m.midLayout, m.pair
     end
   end
 
+  if Doors._layoutCache[key] ~= nil then
+    local cached = Doors._layoutCache[key]
+    if cached then return cached, cached.pair end
+    return nil, nil
+  end
+
+  local okD, Dataset = pcall(require, "src.core.game3.dataset")
+  if okD and Dataset then
+    local cache = Dataset.cache and Dataset.cache()
+    if cache then
+      local rel1 = "data/generated/gba/native/layouts/" .. mapId .. ".mid"
+      local rel2 = "data/generated/gba/native/layouts/FR_" .. key .. ".mid"
+      local rel3 = "data/generated/gba/native/layouts/" .. key .. ".mid"
+      local blob = cache:read(rel1) or cache:read(rel2) or cache:read(rel3)
+      if blob then
+        local pair = nil
+        local okM, natManifest = pcall(require, "data.generated.gba.native.manifest")
+        if okM and natManifest and natManifest.layouts then
+          local info = natManifest.layouts[mapId] or natManifest.layouts["FR_" .. key] or natManifest.layouts[key]
+          pair = info and info.pair
+        end
+        if not pair then
+          local okV, Versions = pcall(require, "src.import.gba.versions")
+          if okV and Versions and Versions.MAPS then
+            local spec = Versions.MAPS[mapId] or Versions.MAPS["FR_" .. key] or Versions.MAPS[key]
+            pair = spec and spec.pair
+          end
+        end
+        local NativePack = require("src.import.gba.native_pack")
+        local LayoutNative = require("src.core.game3.layout_native")
+        local decoded = NativePack.decodeMidLayout(blob)
+        if decoded then
+          local layout = LayoutNative.fromDecoded(decoded, mapId, pair)
+          Doors._layoutCache[key] = layout
+          return layout, pair
+        end
+      end
+    end
+  end
+
+  Doors._layoutCache[key] = false
+  return nil, nil
+end
+
+--- Get door metadata entry for a map tile at (x, y) if available
+function Doors.getDoorEntryAt(mapId, x, y)
+  local manifest = loadManifest()
+  if not manifest or not manifest.by_mid then return nil end
+
+  local layout, pair = resolveLayout(mapId)
   local mid = nil
   if layout and layout.midAt then
     mid = layout:midAt(x, y)
@@ -90,8 +164,11 @@ function Doors.getDoorEntryAt(mapId, x, y)
 
   if mid and manifest.by_mid[mid] then
     local entry = manifest.by_mid[mid]
-    local doorInfo = manifest.doors and manifest.doors[entry.tile]
-    return entry, doorInfo
+    local p = pair or (layout and layout.pair)
+    if isPairMatch(entry.tileset, p) then
+      local doorInfo = manifest.doors and manifest.doors[entry.tile]
+      return entry, doorInfo
+    end
   end
 
   return nil
@@ -104,17 +181,12 @@ function Doors.getSoundForWarp(mapId, x, y, destMap, isDoor)
   end
 
   -- Check ROM metatile manifest first at (mapId, x, y)
-  local entry, _ = Doors.getDoorEntryAt(mapId, x, y)
-  if entry then
-    local snd = (entry.sound == "sliding") and Doors.SOUND_SLIDING or Doors.SOUND_NORMAL
-    return snd, entry.tile
-  end
-
-  -- Also check destination map at (x, y) if exiting a building
-  local destEntry, _ = Doors.getDoorEntryAt(destMap, x, y)
-  if destEntry then
-    local snd = (destEntry.sound == "sliding") and Doors.SOUND_SLIDING or Doors.SOUND_NORMAL
-    return snd, destEntry.tile
+  if x and y then
+    local entry, _ = Doors.getDoorEntryAt(mapId, x, y)
+    if entry then
+      local snd = (entry.sound == "sliding") and Doors.SOUND_SLIDING or Doors.SOUND_NORMAL
+      return snd, entry.tile
+    end
   end
 
   local mapUpper = string.upper(tostring(mapId or ""))
@@ -155,9 +227,11 @@ function Doors.getSoundForWarp(mapId, x, y, destMap, isDoor)
 end
 
 local function resolveDoorKind(mapId, x, y, destMap, sound)
-  local entry, _ = Doors.getDoorEntryAt(mapId, x, y)
-  if entry then
-    return entry.tile, entry.size
+  if x and y then
+    local entry, _ = Doors.getDoorEntryAt(mapId, x, y)
+    if entry then
+      return entry.tile, entry.size
+    end
   end
   if sound == Doors.SOUND_SLIDING then
     return "SlidingSingle", "1x1"

@@ -304,4 +304,122 @@ assert_true(oakAnim ~= nil, "Oak lab door anim created")
 assert_true(oakAnim.tile ~= nil, "Anim has tile name assigned")
 Doors.reset()
 
+-- 13. Gatehouse North & South Smooth Transitions (Route 2 East Building)
+print("[Test 13] Gatehouse North and South smooth passage transitions")
+Collision.clear()
+local mockGateMap = {
+  width = 15,
+  height = 12,
+  warps = {
+    { x = 6, y = 10, destMap = "FR_ROUTE_2", destWarp = 6 },
+    { x = 7, y = 10, destMap = "FR_ROUTE_2", destWarp = 6 },
+    { x = 8, y = 10, destMap = "FR_ROUTE_2", destWarp = 6 },
+    { x = 7, y = 1, destMap = "FR_ROUTE_2", destWarp = 7 },
+  }
+}
+Collision._mapId = "FR_ROUTE2_EAST_BUILDING"
+Collision._widthCells = 15
+Collision._heightCells = 12
+Collision._grid = {}
+for i = 1, 15 * 12 do Collision._grid[i] = 0x00 end
+-- Set North and South exits to standard warp mat / floor
+Collision._grid[1 * 15 + 7 + 1] = 0x72
+Collision._grid[10 * 15 + 7 + 1] = 0x72
+Collision._grid[0 * 15 + 7 + 1] = 0x07 -- solid wall above north exit
+Collision._grid[11 * 15 + 7 + 1] = 0x07 -- solid wall below south exit
+Collision.installWarps(mockGateMap)
+
+-- 1. Gatehouse entrances/exits are NOT classified as animated house doors
+assert_eq(Collision.isDoorWarp(nil, 7, 1), nil, "North exit (7, 1) is not an animated door")
+assert_eq(Collision.isDoorWarp(nil, 7, 10), nil, "South exit (7, 10) is not an animated door")
+assert_eq(Collision.isExitWarp(nil, 7, 10), nil, "South exit (7, 10) is not an animated door exit (outdoor landing has no door)")
+
+-- 2. Stepping on North exit (7, 1) triggers smooth fade warp
+local requestedWarp = nil
+Warp.request = function(mod, g, destMap, destX, destY, facing, opts)
+  requestedWarp = { destMap = destMap, destX = destX, destY = destY, facing = facing, opts = opts }
+  return true
+end
+
+local warpedNorth = Collision.tryWarpAt(nil, 7, 1, "up")
+assert_true(warpedNorth == true, "Stepping onto North exit (7, 1) warps player")
+assert_true(requestedWarp ~= nil, "Warp request created")
+assert_eq(requestedWarp.destMap, "FR_ROUTE_2", "Destination map is FR_ROUTE_2")
+assert_eq(requestedWarp.facing, "up", "Facing preserved as up")
+assert_eq(requestedWarp.opts.door, false, "door is false (smooth fade transition, not house door)")
+
+-- 3. Moving DOWN at South boundary (7, 10) triggers smooth fade warp
+requestedWarp = nil
+Player.reset(7, 10, "down")
+local result = Player.tryMove("down", nil, false)
+assert_eq(result, "warp", "Player moving down on south exit triggers boundary warp")
+assert_true(requestedWarp ~= nil, "Warp request created for south exit")
+assert_eq(requestedWarp.destMap, "FR_ROUTE_2", "Destination map is FR_ROUTE_2")
+assert_eq(requestedWarp.facing, "down", "Facing is down")
+assert_eq(requestedWarp.opts.door, false, "door is false for gatehouse south exit")
+
+-- 14. Live Map Door vs Non-Door Identification Tests (Route 2, Gatehouses, Town Doors)
+print("[Test 14] Live map door identification via ROM metatile lookup")
+local function checkDoorAt(mapId, x, y)
+  local entry, info = Doors.getDoorEntryAt(mapId, x, y)
+  return entry ~= nil, entry and entry.tile
+end
+
+-- Pallet Town houses & lab
+local ok1, t1 = checkDoorAt("FR_PALLET_TOWN", 6, 7)
+assert_true(ok1, "Player house is detected as door")
+assert_eq(t1, "Pallet", "Player house door is Pallet")
+
+local ok2, t2 = checkDoorAt("FR_PALLET_TOWN", 16, 13)
+assert_true(ok2, "Oak lab is detected as door")
+assert_eq(t2, "OaksLab", "Oak lab door is OaksLab")
+
+-- Route 2 house is a door, but Route 2 East Building entrances are NOT
+local ok3, t3 = checkDoorAt("FR_ROUTE_2", 17, 22)
+assert_true(ok3, "Route 2 house is detected as door")
+assert_eq(t3, "General", "Route 2 house door is General")
+
+local ok4, _ = checkDoorAt("FR_ROUTE_2", 18, 46)
+assert_eq(ok4, false, "Route 2 East Building south entrance is NOT an animated door")
+
+local ok5, _ = checkDoorAt("FR_ROUTE_2", 18, 41)
+assert_eq(ok5, false, "Route 2 East Building north entrance is NOT an animated door")
+
+-- Viridian City
+local ok6, t6 = checkDoorAt("FR_VIRIDIAN_CITY", 26, 26)
+assert_true(ok6, "Viridian Pokecenter is detected as door")
+assert_eq(t6, "SlidingSingle", "Viridian Pokecenter door is SlidingSingle")
+
+local ok7, t7 = checkDoorAt("FR_VIRIDIAN_CITY", 36, 10)
+assert_true(ok7, "Viridian Gym is detected as door")
+assert_eq(t7, "SlidingDouble", "Viridian Gym door is SlidingDouble")
+
+local ok8, t8 = checkDoorAt("FR_VIRIDIAN_CITY", 25, 11)
+assert_true(ok8, "Viridian House is detected as door")
+assert_eq(t8, "Viridian", "Viridian House door is Viridian")
+
+-- Pewter City Museum
+local ok9, _ = checkDoorAt("FR_PEWTER_CITY", 17, 6)
+assert_eq(ok9, false, "Pewter Museum glass front entrance is NOT an animated door (smooth passage)")
+
+local ok10, t10 = checkDoorAt("FR_PEWTER_CITY", 25, 4)
+assert_true(ok10, "Pewter Museum side door is detected as door")
+assert_eq(t10, "Pewter", "Pewter Museum side door is Pewter")
+
+-- Cave ladders (Diglett's Cave, Rock Tunnel, Mt. Moon)
+local ok11, _ = checkDoorAt("FR_DIGLETTS_CAVE_NORTH_ENTRANCE", 6, 4)
+assert_eq(ok11, false, "Digletts Cave North ladder is NOT a door")
+
+local ok12, _ = checkDoorAt("FR_DIGLETTS_CAVE_B1F", 3, 3)
+assert_eq(ok12, false, "Digletts Cave B1F ladder to North Room is NOT a door")
+
+local ok13, _ = checkDoorAt("FR_DIGLETTS_CAVE_B1F", 82, 71)
+assert_eq(ok13, false, "Digletts Cave B1F ladder to South Room is NOT a door")
+
+local ok14, _ = checkDoorAt("FR_ROCK_TUNNEL_1F", 45, 2)
+assert_eq(ok14, false, "Rock Tunnel ladder is NOT a door")
+
+local ok15, _ = checkDoorAt("FR_MT_MOON_1F", 5, 6)
+assert_eq(ok15, false, "Mt Moon ladder is NOT a door")
+
 print("--- All game3_doors_test PASSED! ---")

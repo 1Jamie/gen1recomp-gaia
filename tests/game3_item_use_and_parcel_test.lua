@@ -227,4 +227,57 @@ assert(PartyMenu.isOpen() == false, "PartyMenu closed after potion used")
 assert(BagMenu.mode == "list", "BagMenu returned to list mode")
 print("[ok] BagMenu USE Potion -> PartyMenu -> heal passed")
 
+print("[test] 7. Ground item ball pickup via std:1 sets object flag and removes object")
+local Space = require("src.core.game3.scripting.space")
+local Objects = require("src.core.game3.objects")
+local Flags = require("src.core.game3.scripting.flags")
+
+Space.store = Flags.newStore()
+Space.active = true
+
+local itemBallDef = {
+  localId = 5,
+  index = 5,
+  x = 17,
+  y = 54,
+  flag = 340,
+  graphics = 92,
+  graphicsId = 92,
+  sprite = "SPRITE_POKE_BALL",
+  scriptKey = "test_item_ball",
+}
+Objects.loadMap(nil, "TEST_MAP", { objects = { itemBallDef } })
+local spawned = Objects.find(5)
+assert(spawned ~= nil, "Item ball spawned")
+assert(spawned.visible == true, "Item ball initially visible")
+assert(Space.objectVisible(itemBallDef) == true, "objectVisible true before pickup")
+
+local testItemScript = {
+  { op = "setorcopyvar", [1] = 0x8000, [2] = 34 }, -- Great Ball
+  { op = "setorcopyvar", [1] = 0x8001, [2] = 1 },
+  { op = "callstd", [1] = 1, std = 1 },
+  { op = "end" },
+}
+
+local Field = require("src.core.game3.field")
+Field._session = { bag = testBag }
+
+local Adapters = require("src.core.game3.scripting.adapters")
+local adapters = Adapters.host(nil, nil, nil)
+Space.vm = Vm.new({
+  store = Space.store,
+  scripts = { test_item_ball = testItemScript },
+  adapters = adapters,
+})
+
+local prevCount = Bag.get(testBag, 34) or 0
+Space.startScript("test_item_ball", 5, 1)
+
+assert(Bag.get(testBag, 34) == prevCount + 1, "Great Ball added to bag")
+assert(Flags.getFlag(Space.store, nil, 340) == true, "Flag 340 set by item pickup")
+assert(spawned.visible == false, "Item ball object hidden")
+assert(Space.objectVisible(itemBallDef) == false, "objectVisible false after pickup")
+print("[ok] Ground item pickup sets flag and removes object")
+
 print("[test] all passed successfully!")
+

@@ -198,6 +198,7 @@ Std.SCRIPTS = {
     { op = "return" },
   },
   EventScript_PickUpItem = {
+    { op = "removeobject", [1] = 0x800F },
     { op = "additem", [1] = 0x8000, [2] = 0x8001 },
     { op = "loadword", dest = 0, value = "Text_FoundOneItem" },
     { op = "message", ptr = 0 },

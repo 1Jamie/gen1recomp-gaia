@@ -270,6 +270,16 @@ function Map.load(mod, game, mapId, opts)
   if Space and Space.activate then
     Space.activate(mod or Runtime._mod, mapId, game, world)
   end
+
+  -- Strength flag is map-instance local in FRLG (clears on map change / warp).
+  if Space and Space.store then
+    local Flags = require("src.core.game3.scripting.flags")
+    Flags.setFlag(Space.store, nil, 0x804, false)
+  end
+  if session and session.flags then
+    session.flags[0x804] = nil
+  end
+
   if def then Objects.loadMap(game, mapId, def) end
   if Space and Space.runEnterScripts then
     Space.runEnterScripts(mod or Runtime._mod, mapId, game, world)

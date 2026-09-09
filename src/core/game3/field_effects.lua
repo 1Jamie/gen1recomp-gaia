@@ -1,23 +1,21 @@
--- FRLG tall-grass field effect (pret FldEff_TallGrass / UpdateGrassFieldEffectSubpriority).
--- Layering: full frame behind the avatar, bottom strip in front (covers feet).
--- Frame 1 is a solid green pad in ROM art — must stay behind the body.
+-- FRLG field effects engine (pret fldeff_*.c).
+-- Handles pure ROM-extracted field effect sprites and animations:
+-- Tall grass, Cut grass leaves, Rock smash rubble, Surf blob, Fly bird, Ripples,
+-- Flash screen flash, Dig / Teleport warp spin, Sweet scent aroma.
 
 local Extract = require("src.import.gba.extract_island1")
 
 local FieldEffects = {}
 
 FieldEffects._cache = nil
-FieldEffects._image = nil
-FieldEffects._quads = nil -- [frame] = full 16×16
-FieldEffects._quadsFront = nil -- [frame] = bottom FEET_H strip
-FieldEffects._fx = nil
+FieldEffects._sheets = {} -- [name] = { image = ..., quads = ..., fw = ..., fh = ..., frames = ... }
+FieldEffects._fx = nil    -- tall grass
+FieldEffects._anims = {}  -- transient active field animations
+FieldEffects._surfClock = 0
 FieldEffects._logged = false
 
 local CELL = 16
-local FRAME_W, FRAME_H = 16, 16
-local FRAME_COUNT = 5
-local FEET_H = 8 -- pret: lower half covers feet; upper stays behind body
--- pret sAnim_TallGrass: frames 1,2,3,4,0 × 10 vblanks each.
+local FEET_H = 8
 local RUSTLE = { 1, 2, 3, 4, 0 }
 local FRAME_DUR = 10
 
@@ -45,7 +43,6 @@ end
 
 local function try_load_png(path)
   if not (love and love.graphics and love.graphics.newImage) then return nil end
-  -- Indexed PNGs: love honors transparency; prefer ROM rgba extract.
   local ok, img = pcall(love.graphics.newImage, path)
   if ok and img then
     if img.setFilter then img:setFilter("nearest", "nearest") end
@@ -54,72 +51,66 @@ local function try_load_png(path)
   return nil
 end
 
+local function load_sheet(name, fw, fh, frames)
+  if FieldEffects._sheets[name] then return FieldEffects._sheets[name] end
+  local totalH = fh * frames
+  local root = cache_root() .. "/field_effects/"
+  local img = try_load_rgba(FieldEffects._cache, root .. name .. ".rgba", fw, totalH)
+    or try_load_rgba(FieldEffects._cache, "field_effects/" .. name .. ".rgba", fw, totalH)
+    or try_load_png(root .. name .. ".png")
+  if not img then return nil end
+
+  local quads = {}
+  local quadsFront = {}
+  local iw, ih = img:getDimensions()
+  for i = 0, frames - 1 do
+    local y = i * fh
+    if y + fh <= ih then
+      quads[i] = love.graphics.newQuad(0, y, fw, fh, iw, ih)
+      if fh >= FEET_H then
+        quadsFront[i] = love.graphics.newQuad(0, y + (fh - FEET_H), fw, FEET_H, iw, ih)
+      end
+    end
+  end
+
+  local sheet = {
+    image = img,
+    quads = quads,
+    quadsFront = quadsFront,
+    fw = fw,
+    fh = fh,
+    frames = frames,
+  }
+  FieldEffects._sheets[name] = sheet
+  return sheet
+end
+
 function FieldEffects.install(cache)
   FieldEffects._cache = cache
-  FieldEffects._image = nil
-  FieldEffects._quads = nil
-  FieldEffects._quadsFront = nil
+  FieldEffects._sheets = {}
   FieldEffects._fx = nil
+  FieldEffects._anims = {}
+  FieldEffects._surfClock = 0
   FieldEffects._logged = false
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.install then Heal.install(cache) end
 end
 
 function FieldEffects.invalidate()
-  FieldEffects._image = nil
-  FieldEffects._quads = nil
-  FieldEffects._quadsFront = nil
+  FieldEffects._sheets = {}
   FieldEffects._fx = nil
+  FieldEffects._anims = {}
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.invalidate then Heal.invalidate() end
 end
 
-local function ensure_sheet()
-  if FieldEffects._image and FieldEffects._quads and FieldEffects._quadsFront then
-    return true
-  end
-  local img = try_load_rgba(
-    FieldEffects._cache, cache_root() .. "/field_effects/tall_grass.rgba", 16, 80)
-    or try_load_rgba(FieldEffects._cache, "field_effects/tall_grass.rgba", 16, 80)
-  if not img then
-    img = try_load_png(cache_root() .. "/field_effects/tall_grass.png")
-  end
-  if not img then
-    log("tall_grass sheet missing — re-run gba extract")
-    return false
-  end
-  local quads, quadsFront = {}, {}
-  local iw, ih = img:getDimensions()
-  for i = 0, FRAME_COUNT - 1 do
-    local y = i * FRAME_H
-    if y + FRAME_H <= ih then
-      quads[i] = love.graphics.newQuad(0, y, FRAME_W, FRAME_H, iw, ih)
-      quadsFront[i] = love.graphics.newQuad(
-        0, y + (FRAME_H - FEET_H), FRAME_W, FEET_H, iw, ih)
-    end
-  end
-  FieldEffects._image = img
-  FieldEffects._quads = quads
-  FieldEffects._quadsFront = quadsFront
-  log("tall_grass ready (behind+feet OAM split)")
-  return true
-end
-
-local function current_frame()
-  local fx = FieldEffects._fx
-  if not fx then return nil end
-  return RUSTLE[fx.step + 1] or 0
-end
-
---- Start / refresh tall grass rustle at map cell (cx, cy).
--- seekEnd: pret spawn-on-grass SeekSpriteAnim near anim end (idle feet cover).
+-- ---------------------------------------------------------------- Tall Grass
 function FieldEffects.tallGrassAt(cx, cy, seekEnd)
-  if not ensure_sheet() then return end
+  local sheet = load_sheet("tall_grass", 16, 16, 5)
+  if not sheet then return end
   cx, cy = tonumber(cx) or 0, tonumber(cy) or 0
   local fx = FieldEffects._fx
-  if fx and fx.cx == cx and fx.cy == cy and not fx.leaving then
-    return
-  end
+  if fx and fx.cx == cx and fx.cy == cy and not fx.leaving then return end
   FieldEffects._fx = {
     cx = cx,
     cy = cy,
@@ -140,7 +131,118 @@ function FieldEffects.leaveTallGrass()
   fx.leaving = true
 end
 
+-- ---------------------------------------------------------------- Transient Animations
+
+--- Cut grass leaves scattering animation
+function FieldEffects.startCutGrass(cx, cy, onDone)
+  load_sheet("cut_grass", 16, 16, 4)
+  local anim = {
+    kind = "cut_grass",
+    cx = cx,
+    cy = cy,
+    frame = 0,
+    timer = 0,
+    frameDur = 6,
+    maxFrames = 4,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Rock smash rubble exploding animation
+function FieldEffects.startRockSmash(cx, cy, onDone)
+  load_sheet("rock_smash", 16, 16, 4)
+  local anim = {
+    kind = "rock_smash",
+    cx = cx,
+    cy = cy,
+    frame = 0,
+    timer = 0,
+    frameDur = 6,
+    maxFrames = 4,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Screen flash animation (Flash HM)
+function FieldEffects.startFlash(onDone)
+  local anim = {
+    kind = "flash",
+    alpha = 1.0,
+    timer = 0,
+    maxDur = 30,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Fly Bird takeoff and landing animations
+function FieldEffects.startFlyTakeoff(onMidWarp, onDone)
+  load_sheet("fly_bird", 32, 32, 4)
+  local P = package.loaded["src.core.game3.player"]
+  local px = P and P.px or 0
+  local py = P and P.py or 0
+  local anim = {
+    kind = "fly_takeoff",
+    px = px - 8,
+    py = py - 40,
+    targetPy = py - 8,
+    state = "descend",
+    timer = 0,
+    frame = 0,
+    onMidWarp = onMidWarp,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+function FieldEffects.startFlyLanding(onDone)
+  load_sheet("fly_bird", 32, 32, 4)
+  local P = package.loaded["src.core.game3.player"]
+  local px = P and P.px or 0
+  local py = P and P.py or 0
+  local anim = {
+    kind = "fly_landing",
+    px = px - 8,
+    py = py - 60,
+    targetPy = py - 8,
+    state = "descend",
+    timer = 0,
+    frame = 0,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Dig / Teleport warp spin
+function FieldEffects.startWarpSpin(kind, onDone)
+  local P = package.loaded["src.core.game3.player"]
+  local anim = {
+    kind = "warp_spin",
+    warpKind = kind or "teleport",
+    timer = 0,
+    maxDur = 40,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+--- Sweet scent aroma waves
+function FieldEffects.startSweetScent(onDone)
+  local anim = {
+    kind = "sweet_scent",
+    timer = 0,
+    maxDur = 50,
+    radius = 0,
+    onDone = onDone,
+  }
+  table.insert(FieldEffects._anims, anim)
+end
+
+-- ---------------------------------------------------------------- Step & Update
 function FieldEffects.step()
+  -- Tall grass update
   local fx = FieldEffects._fx
   if fx and not fx.done then
     fx.timer = fx.timer + 1
@@ -152,93 +254,211 @@ function FieldEffects.step()
           fx.done = true
           FieldEffects._fx = nil
         else
-          fx.step = #RUSTLE - 1 -- hold frame 0 (feet cover only)
+          fx.step = #RUSTLE - 1
         end
       end
     end
   end
+
+  -- Surfing blob clock
+  FieldEffects._surfClock = (FieldEffects._surfClock + 1) % 48
+
+  -- Update active transient animations
+  local active = {}
+  for _, anim in ipairs(FieldEffects._anims) do
+    anim.timer = anim.timer + 1
+    local finished = false
+
+    if anim.kind == "cut_grass" or anim.kind == "rock_smash" then
+      if anim.timer >= anim.frameDur then
+        anim.timer = 0
+        anim.frame = anim.frame + 1
+        if anim.frame >= anim.maxFrames then
+          finished = true
+        end
+      end
+    elseif anim.kind == "flash" then
+      anim.alpha = math.max(0, 1.0 - (anim.timer / anim.maxDur))
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    elseif anim.kind == "fly_takeoff" then
+      anim.frame = math.floor(anim.timer / 4) % 4
+      if anim.state == "descend" then
+        anim.py = anim.py + 2
+        if anim.py >= anim.targetPy then
+          anim.py = anim.targetPy
+          anim.state = "ascend"
+        end
+      elseif anim.state == "ascend" then
+        anim.py = anim.py - 3
+        if anim.py <= -50 then
+          finished = true
+          if anim.onMidWarp then anim.onMidWarp() end
+        end
+      end
+    elseif anim.kind == "fly_landing" then
+      anim.frame = math.floor(anim.timer / 4) % 4
+      if anim.state == "descend" then
+        anim.py = anim.py + 2
+        if anim.py >= anim.targetPy then
+          anim.py = anim.targetPy
+          anim.state = "leave"
+        end
+      elseif anim.state == "leave" then
+        anim.py = anim.py - 3
+        if anim.py <= -50 then
+          finished = true
+        end
+      end
+    elseif anim.kind == "warp_spin" then
+      local P = package.loaded["src.core.game3.player"]
+      local facings = { "down", "left", "up", "right" }
+      if P then
+        P.facing = facings[(math.floor(anim.timer / 3) % 4) + 1]
+      end
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    elseif anim.kind == "sweet_scent" then
+      anim.radius = (anim.timer / anim.maxDur) * 120
+      if anim.timer >= anim.maxDur then
+        finished = true
+      end
+    end
+
+    if finished then
+      if anim.onDone then anim.onDone() end
+    else
+      table.insert(active, anim)
+    end
+  end
+  FieldEffects._anims = active
+
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.step then Heal.step() end
 end
 
---- pret dofieldeffect / waitfieldeffect for FLDEFF_POKECENTER_HEAL (25).
-function FieldEffects.doFieldEffect(id)
-  id = tonumber(id) or 0
-  local Heal = require("src.core.game3.pokecenter_heal")
-  if id == Heal.FLDEFF then
-    return Heal.start()
-  end
-  return false
-end
+-- ---------------------------------------------------------------- Drawing
 
-function FieldEffects.waitFieldEffect(id, done)
-  id = tonumber(id) or 0
-  local Heal = require("src.core.game3.pokecenter_heal")
-  if id == Heal.FLDEFF then
-    Heal.wait(done)
-    return
-  end
-  if done then done() end
-end
-
-function FieldEffects.isFieldEffectActive(id)
-  id = tonumber(id) or 0
-  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
-  if ok and Heal and id == Heal.FLDEFF then
-    return Heal.isActive()
-  end
-  return false
-end
-
-local function screen_xy(camX, camY)
-  local fx = FieldEffects._fx
-  if not fx then return nil end
-  return fx.cx * CELL - (camX or 0), fx.cy * CELL - (camY or 0)
-end
-
---- Pret: grass under avatar body (lower OAM priority / drawn first).
+--- Draw behind player (Surf blob, tall grass bottom, etc.)
 function FieldEffects.drawBehind(camX, camY)
-  local fx = FieldEffects._fx
-  if not fx or not FieldEffects._image then return end
-  local frameIdx = current_frame()
-  local q = FieldEffects._quads and FieldEffects._quads[frameIdx]
-  if not q then return end
-  local sx, sy = screen_xy(camX, camY)
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(FieldEffects._image, q, sx, sy)
-end
+  camX, camY = camX or 0, camY or 0
 
---- Pret: grass over feet (subpriority bumped above avatar).
--- playerPy: world Y of avatar cell origin (Player.py). Front strip is only
--- drawn when the feet sit in this grass cell — otherwise walking *up* into
--- the tile paints the destination's bottom strip over the hat/head.
-function FieldEffects.drawFront(camX, camY, playerPy)
-  local fx = FieldEffects._fx
-  if not fx or not FieldEffects._image then return end
-  if playerPy ~= nil then
-    local feetY = playerPy + CELL
-    local grassTop = fx.cy * CELL
-    local grassBot = grassTop + CELL
-    -- Feet must reach the lower half of the grass cell (cover zone).
-    if feetY < grassTop + FEET_H or feetY > grassBot + 2 then
-      return
+  -- 1) Surfing water mount (pret FLDEFF_SURF_BLOB)
+  local P = package.loaded["src.core.game3.player"]
+  if P and P.surfing then
+    local surfSheet = load_sheet("surf_blob", 32, 32, 6)
+    if surfSheet then
+      local frameIdx = math.floor(FieldEffects._surfClock / 8) % 6
+      local q = surfSheet.quads[frameIdx]
+      if q then
+        local sx = P.px - camX - 8
+        local sy = P.py - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(surfSheet.image, q, sx, sy)
+      end
     end
   end
-  local frameIdx = current_frame()
-  local q = FieldEffects._quadsFront and FieldEffects._quadsFront[frameIdx]
-  if not q then return end
-  local sx, sy = screen_xy(camX, camY)
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(FieldEffects._image, q, sx, sy + (FRAME_H - FEET_H))
+
+  -- 2) Tall grass base pad
+  local fx = FieldEffects._fx
+  if fx then
+    local sheet = load_sheet("tall_grass", 16, 16, 5)
+    if sheet then
+      local frameIdx = RUSTLE[fx.step + 1] or 0
+      local q = sheet.quads[frameIdx]
+      if q then
+        local sx = fx.cx * CELL - camX
+        local sy = fx.cy * CELL - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(sheet.image, q, sx, sy)
+      end
+    end
+  end
 end
 
---- Legacy single-pass (front only) — prefer drawBehind + drawFront.
+--- Draw in front of player (feet cover, cut grass particles, rock smash rubble, bird, ripples)
+function FieldEffects.drawFront(camX, camY, playerPy)
+  camX, camY = camX or 0, camY or 0
+
+  -- 1) Tall grass feet cover
+  local fx = FieldEffects._fx
+  if fx then
+    local sheet = load_sheet("tall_grass", 16, 16, 5)
+    if sheet and sheet.quadsFront then
+      local drawCover = true
+      if playerPy ~= nil then
+        local feetY = playerPy + CELL
+        local grassTop = fx.cy * CELL
+        local grassBot = grassTop + CELL
+        if feetY < grassTop + FEET_H or feetY > grassBot + 2 then
+          drawCover = false
+        end
+      end
+      if drawCover then
+        local frameIdx = RUSTLE[fx.step + 1] or 0
+        local q = sheet.quadsFront[frameIdx]
+        if q then
+          local sx = fx.cx * CELL - camX
+          local sy = fx.cy * CELL - camY + (16 - FEET_H)
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.draw(sheet.image, q, sx, sy)
+        end
+      end
+    end
+  end
+
+  -- 2) Transient particle animations
+  for _, anim in ipairs(FieldEffects._anims) do
+    if anim.kind == "cut_grass" then
+      local sheet = load_sheet("cut_grass", 16, 16, 4)
+      if sheet and sheet.quads[anim.frame] then
+        local sx = anim.cx * CELL - camX
+        local sy = anim.cy * CELL - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+      end
+    elseif anim.kind == "rock_smash" then
+      local sheet = load_sheet("rock_smash", 16, 16, 4)
+      if sheet and sheet.quads[anim.frame] then
+        local sx = anim.cx * CELL - camX
+        local sy = anim.cy * CELL - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+      end
+    elseif anim.kind == "fly_takeoff" or anim.kind == "fly_landing" then
+      local sheet = load_sheet("fly_bird", 32, 32, 4)
+      if sheet and sheet.quads[anim.frame] then
+        local sx = anim.px - camX
+        local sy = anim.py - camY
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
+      end
+    end
+  end
+end
+
 function FieldEffects.draw(camX, camY, playerPy)
   FieldEffects.drawFront(camX, camY, playerPy)
 end
 
---- Screen-space Pokemon Center heal machine (after actors).
+--- Screen-space overlay (Flash screen glow, Sweet scent aroma, Pokemon Center heal)
 function FieldEffects.drawOverlay(camX, camY)
+  -- 1) Flash screen illumination
+  for _, anim in ipairs(FieldEffects._anims) do
+    if anim.kind == "flash" and anim.alpha > 0 then
+      love.graphics.setColor(1, 1, 1, anim.alpha)
+      love.graphics.rectangle("fill", 0, 0, 240, 160)
+      love.graphics.setColor(1, 1, 1, 1)
+    elseif anim.kind == "sweet_scent" then
+      love.graphics.setColor(1, 0.7, 0.9, 0.6 * (1.0 - (anim.timer / anim.maxDur)))
+      love.graphics.circle("line", 120, 80, anim.radius)
+      love.graphics.circle("line", 120, 80, math.max(0, anim.radius - 20))
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+  end
+
   local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
   if ok and Heal and Heal.draw then Heal.draw(camX, camY) end
 end

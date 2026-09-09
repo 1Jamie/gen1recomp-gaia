@@ -17,10 +17,21 @@ function Vm.new(opts)
   self.text = opts.text or {}
   self.movements = opts.movements or {}
   self.adapters = opts.adapters or Adapters.stub(opts)
-  self.stdscripts = opts.stdscripts
-  if self.stdscripts then
-    for k, rows in pairs(self.stdscripts) do
-      self.scripts[k] = rows
+  local std = opts.stdscripts or require("src.core.game3.scripting.stdscripts")
+  self.stdscripts = std
+  local stdScripts = (std and std.SCRIPTS) or std
+  if type(stdScripts) == "table" then
+    for k, rows in pairs(stdScripts) do
+      if not self.scripts[k] then
+        self.scripts[k] = rows
+      end
+    end
+  end
+  if std and type(std.TEXT) == "table" then
+    for k, v in pairs(std.TEXT) do
+      if not self.text[k] then
+        self.text[k] = v
+      end
     end
   end
   return self

@@ -290,9 +290,36 @@ function Player.tryMove(dir, game, run)
     fromX = Player.cellX,
     fromY = Player.cellY,
     dir = dir,
+    surfing = Player.surfing,
   })
 
   if not ok then
+    if why == "entity" then
+      local Space = package.loaded["src.core.game3.scripting.space"]
+      local Flags = require("src.core.game3.scripting.flags")
+      local FieldMoves = require("src.core.game3.field_moves")
+      local isStrengthActive = Space and Space.store and Flags.getFlag(Space.store, nil, FieldMoves.SYS_FLAGS.USE_STRENGTH)
+      if isStrengthActive then
+        local Objects = require("src.core.game3.objects")
+        local obj = Objects.at(tx, ty)
+        if obj and (obj.def and (obj.def.graphicsId == FieldMoves.GFX_IDS.PUSHABLE_BOULDER or obj.def.gfx == FieldMoves.GFX_IDS.PUSHABLE_BOULDER)) then
+          local canPush, destBx, destBy = FieldMoves.canPushBoulder(obj, dir, function(bx, by)
+            return Collision.canEnter(game, bx, by, { fromX = tx, fromY = ty, dir = dir })
+          end)
+          if canPush then
+            obj.x = destBx
+            obj.y = destBy
+            if obj.def then obj.def.x = destBx; obj.def.y = destBy end
+            beginStep(tx, ty, false, false)
+            return "step"
+          end
+        end
+      end
+    end
+    if (why == "bounds" or why == "solid" or why == "tile") and Collision.tryWarpAt
+        and Collision.tryWarpAt(game, Player.cellX, Player.cellY, dir) then
+      return "warp"
+    end
     -- Outdoor map connection (Pallet north → Route 1, etc.).
     if why == "bounds" and Collision.tryConnection
         and Collision.tryConnection(game, Player.cellX, Player.cellY, dir, run) then
@@ -329,6 +356,12 @@ function Player.scriptFace(dir)
   if DELTA[dir] then Player.facing = dir end
 end
 
+function Player.startSurfing(game)
+  Player.surfing = true
+  Player.biking = false -- Bike override: clear bike state when using Surf
+  Player.running = false
+end
+
 local function finishStep(game)
   Player.cellX = Player.targetX
   Player.cellY = Player.targetY
@@ -341,6 +374,14 @@ local function finishStep(game)
   Player.jumping = false
   Player.spriteYOffset = 0
   Player.syncSavePosition(game)
+
+  -- Surf dismount check: stepped onto land from water
+  if Player.surfing then
+    local onWater = Collision.isWater and Collision.isWater(Player.cellX, Player.cellY)
+    if not onWater then
+      Player.surfing = false
+    end
+  end
 
   local session = package.loaded["src.core.game3.runtime"]
   session = session and session.getSession and session.getSession()

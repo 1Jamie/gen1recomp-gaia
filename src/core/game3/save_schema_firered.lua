@@ -31,6 +31,9 @@ function Schema.newGame(opts)
   end
   local session = {
     schemaVersion = Schema.VERSION,
+    engine = "game3",
+    version = opts.version or "firered",
+    generation = 3,
     party = {},
     bag = Bag.new(),
     dex = { seen = {}, owned = {}, national = false },

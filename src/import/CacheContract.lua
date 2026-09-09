@@ -215,6 +215,12 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/trainers/back_1.rgba",
     "data/generated/gba/trainer_card/manifest.lua",
     "data/generated/gba/trainer_card/bg.rgba",
+    "data/generated/gba/field_effects/tall_grass.rgba",
+    "data/generated/gba/field_effects/cut_grass.rgba",
+    "data/generated/gba/field_effects/rock_smash.rgba",
+    "data/generated/gba/field_effects/surf_blob.rgba",
+    "data/generated/gba/field_effects/fly_bird.rgba",
+    "data/generated/gba/field_effects/ripple.rgba",
   },
 }
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =

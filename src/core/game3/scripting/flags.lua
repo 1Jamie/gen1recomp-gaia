@@ -91,9 +91,15 @@ for _, b in ipairs(Flags.BADGES) do
   BADGE_LOOKUP[b.num] = b
   BADGE_LOOKUP[b.name] = b
   BADGE_LOOKUP[b.name:lower()] = b
+  BADGE_LOOKUP[b.name .. "BADGE"] = b
+  BADGE_LOOKUP[(b.name .. "BADGE"):lower()] = b
+  BADGE_LOOKUP[b.name .. "_BADGE"] = b
+  BADGE_LOOKUP[(b.name .. "_BADGE"):lower()] = b
   BADGE_LOOKUP[b.fieldMove] = b
   BADGE_LOOKUP[b.fieldMove:lower()] = b
   BADGE_LOOKUP[b.flag] = b
+  BADGE_LOOKUP[tostring(b.flag)] = b
+  BADGE_LOOKUP[string.format("FLAG_BADGE0%d_GET", b.num)] = b
 end
 
 function Flags.badgeInfo(badgeKey)
@@ -226,13 +232,35 @@ end
 function Flags.getFlag(store, ctx, id)
   id = tonumber(id) or (type(id) == "string" and Flags.IDS[id]) or 0
   if not store or not store.flags then return false end
-  return store.flags[id] == true
+  if store.flags[id] == true or store.flags[tostring(id)] == true then
+    return true
+  end
+  if type(id) == "number" and id > 0 then
+    local hexKey = string.format("0x%X", id)
+    if store.flags[hexKey] == true then return true end
+    local name = Flags.NAMES[id]
+    if name and store.flags[name] == true then return true end
+  end
+  return false
 end
 
 function Flags.setFlag(store, ctx, id, on)
   id = tonumber(id) or (type(id) == "string" and Flags.IDS[id]) or 0
   if not store or not store.flags then return end
-  if on then store.flags[id] = true else store.flags[id] = nil end
+  local strId = tostring(id)
+  if on then
+    store.flags[id] = true
+    store.flags[strId] = true
+  else
+    store.flags[id] = nil
+    store.flags[strId] = nil
+    if type(id) == "number" and id > 0 then
+      local hexKey = string.format("0x%X", id)
+      store.flags[hexKey] = nil
+      local name = Flags.NAMES[id]
+      if name then store.flags[name] = nil end
+    end
+  end
 end
 
 function Flags.getVar(store, ctx, id)
@@ -264,7 +292,7 @@ function Flags.onMapLoad(store)
   -- pret: Temp flags 0x01..0x1F are cleared on map load
   if store and store.flags then
     for fid = 0x01, 0x1F do
-      store.flags[fid] = nil
+      Flags.setFlag(store, nil, fid, false)
     end
   end
 end

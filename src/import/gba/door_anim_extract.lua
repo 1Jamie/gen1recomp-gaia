@@ -211,13 +211,50 @@ function DoorAnimExtract.run(rom, cache, opts)
       frames      = 3,
     }
 
+local DOOR_TILESETS = {
+  [0]  = "primary",           -- General
+  [1]  = "primary",           -- SlidingSingle
+  [2]  = "primary",           -- SlidingDouble
+  [3]  = "pallet",            -- Pallet
+  [4]  = "pallet",            -- OaksLab
+  [5]  = "viridian",          -- Viridian
+  [6]  = "pewter",            -- Pewter
+  [7]  = "saffron",           -- Saffron
+  [8]  = "saffron",           -- SilphCo
+  [9]  = "cerulean",          -- Cerulean
+  [10] = "lavender",          -- Lavender
+  [11] = "vermilion",         -- Vermilion
+  [12] = "vermilion",         -- PokemonFanClub
+  [13] = "celadon",           -- DeptStore
+  [14] = "fuchsia",           -- Fuchsia
+  [15] = "fuchsia",           -- SafariZone
+  [16] = "cinnabar",          -- CinnabarLab
+  [17] = "sevii_123",         -- Sevii123
+  [18] = "sevii_123",         -- JoyfulGameCorner
+  [19] = "sevii_123",         -- OneIslandPokeCenter
+  [20] = "sevii_45",          -- Sevii45
+  [21] = "sevii_45",          -- FourIslandDayCare
+  [22] = "sevii_45",          -- RocketWarehouse
+  [23] = "sevii_67",          -- Sevii67
+  [24] = "dept_store",        -- DeptStoreElevator
+  [25] = "cable_club",        -- CableClub
+  [26] = "silph_co",          -- HideoutElevator
+  [27] = "ss_anne",           -- SSAnne
+  [28] = "silph_co",          -- SilphCoElevator
+  [29] = "sea_cottage",       -- Teleporter
+  [30] = "trainer_tower",     -- TrainerTowerLobbyElevator
+  [31] = "trainer_tower",     -- TrainerTowerRoofElevator
+}
+
     local sound = SOUND_FOR_MID[mid] or "normal"
     local size  = is_large and "1x2" or "1x1"
+    local tset  = DOOR_TILESETS[i] or "primary"
     manifest_by_mid[mid] = {
-      mid   = mid,
-      tile  = name,
-      sound = sound,
-      size  = size,
+      mid     = mid,
+      tile    = name,
+      sound   = sound,
+      size    = size,
+      tileset = tset,
     }
 
     ::continue::
@@ -236,8 +273,8 @@ function DoorAnimExtract.run(rom, cache, opts)
   mlines[#mlines + 1] = "  by_mid = {"
   for mid, v in pairs(manifest_by_mid) do
     mlines[#mlines + 1] = string.format(
-      "    [%d] = { mid = %d, tile = %q, sound = %q, size = %q },",
-      mid, mid, v.tile, v.sound, v.size)
+      "    [%d] = { mid = %d, tile = %q, sound = %q, size = %q, tileset = %q },",
+      mid, mid, v.tile, v.sound, v.size, v.tileset or "primary")
   end
   mlines[#mlines + 1] = "  }"
   mlines[#mlines + 1] = "}"
@@ -255,29 +292,29 @@ end
 -- no ROM handle is available.
 function DoorAnimExtract._writeStub(cache, root)
   local STUB_ENTRIES = {
-    {0x03D,"General","normal","1x1"},{0x062,"SlidingSingle","sliding","1x1"},
-    {0x15B,"SlidingDouble","sliding","1x1"},{0x2A3,"Pallet","normal","1x1"},
-    {0x2AC,"OaksLab","normal","1x1"},{0x299,"Viridian","normal","1x1"},
-    {0x2CE,"Pewter","normal","1x1"},{0x284,"Saffron","normal","1x1"},
-    {0x2BC,"SilphCo","sliding","1x1"},{0x298,"Cerulean","normal","1x1"},
-    {0x2A2,"Lavender","normal","1x1"},{0x29E,"Vermilion","normal","1x1"},
-    {0x2E1,"PokemonFanClub","normal","1x1"},{0x294,"DeptStore","sliding","1x1"},
-    {0x2BF,"Fuchsia","normal","1x1"},{0x2D2,"SafariZone","sliding","1x1"},
-    {0x2AD,"CinnabarLab","normal","1x1"},{0x297,"Sevii123","normal","1x1"},
-    {0x29B,"JoyfulGameCorner","sliding","1x1"},{0x2EB,"OneIslandPokeCenter","normal","1x1"},
-    {0x29A,"Sevii45","normal","1x1"},{0x2B9,"FourIslandDayCare","normal","1x1"},
-    {0x2AF,"RocketWarehouse","normal","1x1"},{0x30C,"Sevii67","normal","1x1"},
-    {0x28D,"DeptStoreElevator","sliding","1x2"},{0x2DE,"CableClub","sliding","1x2"},
-    {0x2AB,"HideoutElevator","sliding","1x2"},{0x281,"SSAnne","normal","1x2"},
-    {0x2E2,"SilphCoElevator","sliding","1x2"},{0x296,"Teleporter","sliding","1x2"},
-    {0x2C3,"TrainerTowerLobbyElevator","sliding","1x2"},
-    {0x356,"TrainerTowerRoofElevator","sliding","1x2"},
+    {0x03D,"General","normal","1x1","primary"},{0x062,"SlidingSingle","sliding","1x1","primary"},
+    {0x15B,"SlidingDouble","sliding","1x1","primary"},{0x2A3,"Pallet","normal","1x1","pallet"},
+    {0x2AC,"OaksLab","normal","1x1","pallet"},{0x299,"Viridian","normal","1x1","viridian"},
+    {0x2CE,"Pewter","normal","1x1","pewter"},{0x284,"Saffron","normal","1x1","saffron"},
+    {0x2BC,"SilphCo","sliding","1x1","saffron"},{0x298,"Cerulean","normal","1x1","cerulean"},
+    {0x2A2,"Lavender","normal","1x1","lavender"},{0x29E,"Vermilion","normal","1x1","vermilion"},
+    {0x2E1,"PokemonFanClub","normal","1x1","vermilion"},{0x294,"DeptStore","sliding","1x1","celadon"},
+    {0x2BF,"Fuchsia","normal","1x1","fuchsia"},{0x2D2,"SafariZone","sliding","1x1","fuchsia"},
+    {0x2AD,"CinnabarLab","normal","1x1","cinnabar"},{0x297,"Sevii123","normal","1x1","sevii_123"},
+    {0x29B,"JoyfulGameCorner","sliding","1x1","sevii_123"},{0x2EB,"OneIslandPokeCenter","normal","1x1","sevii_123"},
+    {0x29A,"Sevii45","normal","1x1","sevii_45"},{0x2B9,"FourIslandDayCare","normal","1x1","sevii_45"},
+    {0x2AF,"RocketWarehouse","normal","1x1","sevii_45"},{0x30C,"Sevii67","normal","1x1","sevii_67"},
+    {0x28D,"DeptStoreElevator","sliding","1x2","dept_store"},{0x2DE,"CableClub","sliding","1x2","cable_club"},
+    {0x2AB,"HideoutElevator","sliding","1x2","silph_co"},{0x281,"SSAnne","normal","1x2","ss_anne"},
+    {0x2E2,"SilphCoElevator","sliding","1x2","silph_co"},{0x296,"Teleporter","sliding","1x2","sea_cottage"},
+    {0x2C3,"TrainerTowerLobbyElevator","sliding","1x2","trainer_tower"},
+    {0x356,"TrainerTowerRoofElevator","sliding","1x2","trainer_tower"},
   }
   local lines = {"return {", "  doors = {},", "  by_mid = {"}
   for _, e in ipairs(STUB_ENTRIES) do
     lines[#lines + 1] = string.format(
-      "    [%d] = { mid = %d, tile = %q, sound = %q, size = %q },",
-      e[1], e[1], e[2], e[3], e[4])
+      "    [%d] = { mid = %d, tile = %q, sound = %q, size = %q, tileset = %q },",
+      e[1], e[1], e[2], e[3], e[4], e[5])
   end
   lines[#lines + 1] = "  }"
   lines[#lines + 1] = "}"

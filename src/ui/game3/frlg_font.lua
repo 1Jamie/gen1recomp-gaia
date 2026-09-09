@@ -14,8 +14,10 @@ FrlgFont.LINE_PITCH = 15 -- maxLetterHeight(14) + lineSpacing(1)
 FrlgFont.COLOR = {
   NORMAL = { fg = { 98 / 255, 98 / 255, 98 / 255, 1 },
              shadow = { 213 / 255, 213 / 255, 205 / 255, 1 } },
-  -- MALE: GBA scrolling_bg.pal (color 4 #7BBDFF, shadow color 5 #007BFF)
+  -- MALE / BLUE: GBA scrolling_bg.pal (color 4 #7BBDFF, shadow color 5 #007BFF)
   MALE = { fg = { 123 / 255, 189 / 255, 255 / 255, 1 },
+           shadow = { 0 / 255, 123 / 255, 255 / 255, 1 } },
+  BLUE = { fg = { 123 / 255, 189 / 255, 255 / 255, 1 },
            shadow = { 0 / 255, 123 / 255, 255 / 255, 1 } },
   -- FEMALE: GBA scrolling_bg.pal (color 6 #FF8383, shadow color 7 #AC1818)
   FEMALE = { fg = { 255 / 255, 131 / 255, 131 / 255, 1 },

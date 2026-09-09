@@ -668,6 +668,14 @@ function Objects.removeObject(localId)
   localId = tonumber(localId) or 0
   local eo = Objects._byId[localId]
   if not eo then return false end
+  local flag = eo.def and (eo.def.flag or eo.def.flagId)
+  if flag and flag ~= 0 and flag ~= 0xFFFF and flag ~= 65535 then
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    if Space and Space.store then
+      local Flags = require("src.core.game3.scripting.flags")
+      Flags.setFlag(Space.store, nil, flag, true)
+    end
+  end
   eo.hidden = true
   eo.visible = false
   if eo.def then eo.def.hidden = true end

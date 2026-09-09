@@ -60,7 +60,11 @@ function Message.frameKind()
 end
 
 function Message.show(text, opts)
-  opts = opts or {}
+  if type(opts) == "function" then
+    opts = { done = opts }
+  elseif type(opts) ~= "table" then
+    opts = {}
+  end
   Message.open = true
   Message._stay = opts.stay and true or false
   Message._done = opts.done

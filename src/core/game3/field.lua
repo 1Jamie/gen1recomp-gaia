@@ -251,15 +251,72 @@ function Field.interact(game)
   local DIR_BY_FACING = { down = 1, up = 2, left = 3, right = 4 }
   local facingDir = DIR_BY_FACING[P.facing] or 1
 
-  -- 1) EventObject (nurse behind counter uses doubled cell)
+  local FieldMoves = require("src.core.game3.field_moves")
+  local party = Field._session and Field._session.party
+
+  -- 1) EventObject (nurse behind counter uses doubled cell; Cut tree / Rock / Boulder)
   local ox, oy = facing_object_cell(fx, fy, P.facing)
   local eo = Objects.at(ox, oy)
-  if eo and eo.def and eo.def.scriptKey then
-    local lid = eo.localId or eo.def.localId or eo.def.index or 0
-    Objects.freeze(lid)
-    Objects.facePlayer(lid, game)
-    Space.startScript(eo.def.scriptKey, lid, facingDir)
-    return true
+  if eo and eo.def then
+    local gfx = eo.def.graphicsId or eo.def.gfx
+    if gfx == FieldMoves.GFX_IDS.CUT_TREE then
+      local ctx = { party = party, store = Space.store, session = Field._session, facingObject = eo }
+      local res = FieldMoves.tryCutOW(ctx)
+      if res.ask then
+        local Message = require("src.ui.game3.message")
+        local Choice = require("src.ui.game3.choice")
+        Message.show(res.ask, function()
+          Choice.yesNo(function(yes)
+            if yes then Field.executeFieldMove(res) else Message.close() end
+          end)
+        end)
+        return true
+      elseif res.text then
+        local Message = require("src.ui.game3.message")
+        Message.show(res.text)
+        return true
+      end
+    elseif gfx == FieldMoves.GFX_IDS.ROCK_SMASH_ROCK then
+      local ctx = { party = party, store = Space.store, session = Field._session, facingObject = eo }
+      local res = FieldMoves.tryRockSmashOW(ctx)
+      if res.ask then
+        local Message = require("src.ui.game3.message")
+        local Choice = require("src.ui.game3.choice")
+        Message.show(res.ask, function()
+          Choice.yesNo(function(yes)
+            if yes then Field.executeFieldMove(res) else Message.close() end
+          end)
+        end)
+        return true
+      elseif res.text then
+        local Message = require("src.ui.game3.message")
+        Message.show(res.text)
+        return true
+      end
+    elseif gfx == FieldMoves.GFX_IDS.PUSHABLE_BOULDER then
+      local ctx = { party = party, store = Space.store, session = Field._session, facingObject = eo }
+      local res = FieldMoves.tryStrengthOW(ctx)
+      if res.ask then
+        local Message = require("src.ui.game3.message")
+        local Choice = require("src.ui.game3.choice")
+        Message.show(res.ask, function()
+          Choice.yesNo(function(yes)
+            if yes then Field.executeFieldMove(res) else Message.close() end
+          end)
+        end)
+        return true
+      elseif res.text then
+        local Message = require("src.ui.game3.message")
+        Message.show(res.text)
+        return true
+      end
+    elseif eo.def.scriptKey then
+      local lid = eo.localId or eo.def.localId or eo.def.index or 0
+      Objects.freeze(lid)
+      Objects.facePlayer(lid, game)
+      Space.startScript(eo.def.scriptKey, lid, facingDir)
+      return true
+    end
   end
 
   -- 2) Extracted bgEvents (signs) — face cell only, not doubled
@@ -269,7 +326,23 @@ function Field.interact(game)
     return true
   end
 
-  -- 3) Metatile-behavior std scripts (PC, …)
+  -- 3) Water / Surf interact on facing water tile
+  if not P.surfing and Collision.isWater and Collision.isWater(fx, fy) then
+    local ctx = { party = party, store = Space.store, session = Field._session, isFacingWater = true }
+    local res = FieldMoves.trySurfOW(ctx)
+    if res.ask then
+      local Message = require("src.ui.game3.message")
+      local Choice = require("src.ui.game3.choice")
+      Message.show(res.ask, function()
+        Choice.yesNo(function(yes)
+          if yes then Field.executeFieldMove(res) else Message.close() end
+        end)
+      end)
+      return true
+    end
+  end
+
+  -- 4) Metatile-behavior std scripts (PC, …)
   local coll = Collision.cell and Collision.cell(fx, fy)
   local stdKey = CollisionStd.scriptFor(coll)
   if stdKey then
@@ -278,6 +351,112 @@ function Field.interact(game)
   end
 
   return false
+end
+
+function Field.executeFieldMove(payload)
+  if not payload then return end
+  local Message = require("src.ui.game3.message")
+  local Audio = require("src.core.game3.audio")
+  local FieldEffects = require("src.core.game3.field_effects")
+  local P = require("src.core.game3.player")
+  local Objects = require("src.core.game3.objects")
+
+  local act = payload.action
+  if act == "cut_tree" then
+    if payload.se then Audio.playSe(payload.se) end
+    local target = payload.target
+    if target then
+      local lid = target.localId or (target.def and (target.def.localId or target.def.index))
+      if lid then Objects.removeObject(lid) end
+      FieldEffects.startCutGrass(target.x or (target.def and target.def.x) or P.cellX,
+        target.y or (target.def and target.def.y) or P.cellY)
+    end
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "cut_grass" then
+    if payload.se then Audio.playSe(payload.se) end
+    local Map = require("src.core.game3.map")
+    local def = Map.currentDef()
+    local layout = def and def.midLayout
+    if layout and layout.midAt and layout.setMidAt then
+      local Collision = require("src.core.game3.collision")
+      local FieldMoves = require("src.core.game3.field_moves")
+      FieldMoves.mowGrass3x3(P.cellX, P.cellY, function(x, y) return layout:midAt(x, y) end,
+        function(x, y, mid) layout:setMidAt(x, y, mid) end,
+        function(x, y) return Collision.isGrass(x, y) end)
+      local okFv, FieldView = pcall(require, "src.core.game3.field_view")
+      if okFv and FieldView then FieldView._nativeDirty = true end
+    end
+    FieldEffects.startCutGrass(P.cellX, P.cellY)
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "rock_smash" then
+    if payload.se then Audio.playSe(payload.se) end
+    local target = payload.target
+    if target then
+      local lid = target.localId or (target.def and (target.def.localId or target.def.index))
+      if lid then Objects.removeObject(lid) end
+      FieldEffects.startRockSmash(target.x or (target.def and target.def.x) or P.cellX,
+        target.y or (target.def and target.def.y) or P.cellY)
+    end
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "strength" then
+    if payload.flag then
+      local Space = package.loaded["src.core.game3.scripting.space"]
+      local Flags = require("src.core.game3.scripting.flags")
+      if Space and Space.store then
+        Flags.setFlag(Space.store, nil, payload.flag, true)
+      end
+      if Field._session and Field._session.flags then
+        Field._session.flags[payload.flag] = true
+      end
+    end
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "surf" then
+    P.startSurfing(Field._game)
+    P.forceStep(P.facing)
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "flash" then
+    if payload.se then Audio.playSe(payload.se) end
+    if payload.flag then
+      local Space = package.loaded["src.core.game3.scripting.space"]
+      local Flags = require("src.core.game3.scripting.flags")
+      if Space and Space.store then
+        Flags.setFlag(Space.store, nil, payload.flag, true)
+      end
+    end
+    FieldEffects.startFlash()
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "teleport" or act == "dig" then
+    if payload.se then Audio.playSe(payload.se) end
+    FieldEffects.startWarpSpin(act, function()
+      Field.respawnAtHeal()
+    end)
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  elseif act == "sweet_scent" then
+    if payload.se then Audio.playSe(payload.se) end
+    FieldEffects.startSweetScent(function()
+      local okE, Encounters = pcall(require, "src.core.game3.encounters")
+      if okE and Encounters and Encounters.tryBattle then
+        Encounters.tryBattle(Field._game, true)
+      end
+    end)
+    if payload.text then
+      Message.show(payload.text, function() Message.close() end)
+    end
+  end
 end
 
 --- White-out / heal respawn via game3 map loader (H7).

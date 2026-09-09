@@ -495,6 +495,64 @@ function PartyMenu.handleInput(input)
         se(5)
         PartyMenu.mode = "item_action"
         PartyMenu.itemActionCursor = 1
+      elseif PartyMenu._fieldMoveNames and PartyMenu._fieldMoveNames[act] then
+        local FieldMoves = require("src.core.game3.field_moves")
+        local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
+        if act == "SOFTBOILED" or act == "MILK DRINK" then
+          local maxHp = mon and (mon.maxHp or (mon.stats and mon.stats.hp)) or 0
+          local cost = math.floor(maxHp / 5)
+          local curHp = mon and (mon.hp or 0) or 0
+          if curHp <= cost or cost <= 0 then
+            se(9)
+            PartyMenu.showMessage("Not enough HP!", function()
+              PartyMenu.mode = "list"
+            end)
+            return
+          end
+          se(5)
+          PartyMenu._softboiledDonorSlot = PartyMenu.cursor
+          PartyMenu.mode = "softboiled"
+          return
+        else
+          local P = package.loaded["src.core.game3.player"] or require("src.core.game3.player")
+          local Collision = require("src.core.game3.collision")
+          local Objects = require("src.core.game3.objects")
+          local Map = require("src.core.game3.map")
+          local Space = package.loaded["src.core.game3.scripting.space"]
+          local DELTA = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
+          local d = DELTA[P.facing or "down"] or DELTA.down
+          local fx, fy = P.cellX + d[1], P.cellY + d[2]
+          local facingObj = Objects.at(fx, fy)
+          local isWater = Collision.isWater and Collision.isWater(fx, fy)
+          local isGrass = Collision.isGrass and Collision.isGrass(fx, fy)
+          local mapDef = Map.currentDef()
+          local ctx = {
+            party = PartyMenu._party,
+            mon = mon,
+            store = Space and Space.store,
+            session = PartyMenu._session,
+            facingObject = facingObj,
+            isFacingWater = isWater,
+            isSurfing = P.surfing == true,
+            hasCuttableGrass = isGrass or (Collision.isGrass and Collision.isGrass(P.cellX, P.cellY)),
+            mapType = mapDef and mapDef.type,
+          }
+          local res = FieldMoves.fromMenu(act, ctx)
+          if not res or not res.ok then
+            se(9)
+            PartyMenu.showMessage((res and res.text) or "Can't use that here.", function()
+              PartyMenu.mode = "list"
+            end)
+          else
+            se(5)
+            PartyMenu.close()
+            local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
+            if Field.executeFieldMove then
+              Field.executeFieldMove(res)
+            end
+          end
+          return
+        end
       else
         se(9)
         PartyMenu.mode = PartyMenu._previousMode or "list"
@@ -502,6 +560,34 @@ function PartyMenu.handleInput(input)
     elseif input:wasPressed("b") then
       se(9)
       PartyMenu.mode = PartyMenu._previousMode or "list"
+    end
+    return
+  end
+
+  if PartyMenu.mode == "softboiled" then
+    local FieldMoves = require("src.core.game3.field_moves")
+    if input:wasPressed("up") then
+      PartyMenu.cursor = ((PartyMenu.cursor - 2) % n) + 1
+      se(5)
+    elseif input:wasPressed("down") then
+      PartyMenu.cursor = (PartyMenu.cursor % n) + 1
+      se(5)
+    elseif input:wasPressed("a") then
+      local userMon = PartyMenu._party and PartyMenu._party[PartyMenu._softboiledDonorSlot]
+      local targetMon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
+      local ok, userHp, targetHp = FieldMoves.softboiledTransfer(userMon, targetMon)
+      if not ok then
+        se(9)
+        PartyMenu.showMessage("It won't have any effect.", function()
+          PartyMenu.mode = "softboiled"
+        end)
+      else
+        se(11)
+        PartyMenu.mode = "list"
+      end
+    elseif input:wasPressed("b") then
+      se(9)
+      PartyMenu.mode = "list"
     end
     return
   end
@@ -708,11 +794,30 @@ function PartyMenu.handleInput(input)
   elseif input:wasPressed("a") then
     se(5)
     local mon = PartyMenu._party and PartyMenu._party[PartyMenu.cursor]
-    if mon and mon.isEgg then
-      PartyMenu.ACTIONS = { "SUMMARY", "SWITCH", "CANCEL" }
-    else
-      PartyMenu.ACTIONS = { "SUMMARY", "SWITCH", "ITEM", "CANCEL" }
+    local FieldMoves = require("src.core.game3.field_moves")
+    local actions = {}
+    local fmNames = {}
+    if mon and not mon.isEgg and mon.moves then
+      for _, m in ipairs(mon.moves) do
+        local mId = FieldMoves.normalizeMoveId(m)
+        local mName = mId and FieldMoves.MOVE_NAME_BY_ID[mId]
+        if mName then
+          local label = mName:gsub("_", " ")
+          if not fmNames[label] then
+            actions[#actions + 1] = label
+            fmNames[label] = true
+          end
+        end
+      end
     end
+    actions[#actions + 1] = "SUMMARY"
+    actions[#actions + 1] = "SWITCH"
+    if not (mon and mon.isEgg) then
+      actions[#actions + 1] = "ITEM"
+    end
+    actions[#actions + 1] = "CANCEL"
+    PartyMenu.ACTIONS = actions
+    PartyMenu._fieldMoveNames = fmNames
     PartyMenu.mode = "action"
     PartyMenu.actionCursor = 1
   elseif input:wasPressed("b") or input:wasPressed("start") then
@@ -829,7 +934,9 @@ function PartyMenu.draw()
       if i == PartyMenu.actionCursor then
         Window.cursorPx(popX * 8 + 1, rowY)
       end
-      FrlgFont.draw(act, popX * 8 + 9, rowY, { colors = FrlgFont.COLOR.NORMAL })
+      local isFm = PartyMenu._fieldMoveNames and PartyMenu._fieldMoveNames[act]
+      local col = isFm and (FrlgFont.COLOR.BLUE or FrlgFont.COLOR.MALE) or FrlgFont.COLOR.NORMAL
+      FrlgFont.draw(act, popX * 8 + 9, rowY, { colors = col })
     end
   else
     Window.stdFrame(Window.template(1, 15, 28, 4))

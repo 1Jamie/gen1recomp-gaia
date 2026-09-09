@@ -717,7 +717,7 @@ end
 -- `getMetatileFn(x, y)`: returns numeric metatileId
 -- `setMetatileFn(x, y, newMetatileId)`: applies new metatileId
 -- Returns count of cut tiles
-function FieldMoves.mowGrass3x3(cx, cy, getMetatileFn, setMetatileFn)
+function FieldMoves.mowGrass3x3(cx, cy, getMetatileFn, setMetatileFn, isGrassFn)
   if not getMetatileFn or not setMetatileFn then return 0 end
   local count = 0
 
@@ -726,10 +726,16 @@ function FieldMoves.mowGrass3x3(cx, cy, getMetatileFn, setMetatileFn)
       local x = cx + dx
       local y = cy + dy
       local mid = getMetatileFn(x, y)
-      if mid and FieldMoves.CUT_GRASS_METATILES[mid] then
+      if mid then
         local newMid = FieldMoves.CUT_GRASS_METATILES[mid]
-        setMetatileFn(x, y, newMid)
-        count = count + 1
+        if not newMid and isGrassFn and isGrassFn(x, y) then
+          -- Default flat-ground replacement in general tileset
+          newMid = 0x001
+        end
+        if newMid then
+          setMetatileFn(x, y, newMid)
+          count = count + 1
+        end
       end
     end
   end

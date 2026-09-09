@@ -124,9 +124,19 @@ Versions.WATER_WILD_COUNT = 5
 Versions.ROCK_WILD_COUNT = 5
 Versions.FISH_WILD_COUNT = 10
 
--- Field-effect tall grass (FireRed USA 1.0): pic + FLDEFF general_1 palette.
+-- Field-effect graphics & palettes (FireRed USA 1.0)
 Versions.FIELD_EFFECT_TALL_GRASS = 0x39A008      -- gFieldEffectObjectPic_TallGrass
 Versions.FIELD_EFFECT_PAL_GENERAL_1 = 0x398FC8 -- gFieldEffectObjectPalette1
+Versions.FIELD_EFFECT_PAL_GENERAL_0 = 0x398FA8 -- gFieldEffectObjectPalette0
+
+Versions.FIELD_EFFECTS = {
+  tall_grass   = { pic = 0x39A008, pal = 0x398FC8, w = 16, h = 16, frames = 5 },
+  cut_grass    = { pic = 0x3986A8, pal = 0x398FC8, w = 16, h = 16, frames = 4 },
+  rock_smash   = { pic = 0x398928, pal = 0x398FA8, w = 16, h = 16, frames = 4 },
+  surf_blob    = { pic = 0x396B08, pal = 0x398FC8, w = 32, h = 32, frames = 6 },
+  fly_bird     = { pic = 0x398048, pal = 0x398FA8, w = 32, h = 32, frames = 4 },
+  ripple       = { pic = 0x398BA8, pal = 0x398FA8, w = 16, h = 16, frames = 8 },
+}
 
 -- Battle interface chrome (FireRed USA 1.0 file offsets; LZ unless noted).
 -- Healthbox pals are uncompressed INCBIN_U16 (pret graphics.c); matched to healthbox.pal.

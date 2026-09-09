@@ -359,15 +359,33 @@ end
 
 --- Can the avatar enter cell (tx, ty) on foot?
 -- Returns ok, reason ("bounds"|"tile"|"entity"|"water"|nil)
-function Collision.canEnter(game, tx, ty, _opts)
+function Collision.canEnter(game, tx, ty, opts)
+  opts = opts or {}
+  local surfing = opts.surfing
+  if surfing == nil then
+    local P = package.loaded["src.core.game3.player"]
+    surfing = P and P.surfing == true
+  end
+
   -- Prefer owned grid; fall back to host map if unbound.
   if Collision._grid then
     if not Collision.inBounds(tx, ty) then return false, "bounds" end
     if overrideBlocks(tx, ty) then return false, "tile" end
     if entityBlocks(game, tx, ty) then return false, "entity" end
-    if Collision.isWater(tx, ty) then return false, "water" end
-    if not Collision.isWalkable(tx, ty) then return false, "tile" end
-    return true, nil
+    local isW = Collision.isWater(tx, ty)
+    if surfing then
+      if isW then
+        return true, nil
+      else
+        -- Dismount onto land: verify land tile is walkable
+        if not Collision.isWalkable(tx, ty) then return false, "tile" end
+        return true, nil
+      end
+    else
+      if isW then return false, "water" end
+      if not Collision.isWalkable(tx, ty) then return false, "tile" end
+      return true, nil
+    end
   end
 
   local world = hostWorld(game)
@@ -477,26 +495,27 @@ function Collision.isDoorWarp(game, cx, cy)
   local destMap, destX, destY = resolveDest(game, w)
   if not destMap then return nil end
 
-  local coll = Collision.cell(cx, cy)
   local curMap = (game and game.currentMap) or (Collision._mapId)
-  local curUpper = string.upper(tostring(curMap or ""))
-  local destUpper = string.upper(tostring(destMap or ""))
-
-  local isDoor = (coll == 0x71) or (not isBuilding(curUpper) and isBuilding(destUpper))
-  if isDoor then
-    return {
-      warp = w,
-      destMap = destMap,
-      destX = destX,
-      destY = destY,
-      x = cx,
-      y = cy,
-    }
+  local okDoors, Doors = pcall(require, "src.core.game3.doors")
+  if okDoors and Doors and Doors.getDoorEntryAt then
+    local entry = Doors.getDoorEntryAt(curMap, cx, cy)
+    if entry then
+      return {
+        warp = w,
+        destMap = destMap,
+        destX = destX,
+        destY = destY,
+        x = cx,
+        y = cy,
+        doorEntry = entry,
+      }
+    end
   end
+
   return nil
 end
 
---- Check if cell (cx, cy) is an indoor exit mat warp
+--- Check if cell (cx, cy) is an indoor exit mat warp leading to an outdoor animated door
 function Collision.isExitWarp(game, cx, cy)
   local w = Collision.warpAt(cx, cy)
   if not w then
@@ -511,20 +530,22 @@ function Collision.isExitWarp(game, cx, cy)
   local destMap, destX, destY = resolveDest(game, w)
   if not destMap then return nil end
 
-  local curMap = (game and game.currentMap) or (Collision._mapId)
-  local curUpper = string.upper(tostring(curMap or ""))
-  local destUpper = string.upper(tostring(destMap or ""))
-
-  if isBuilding(curUpper) and not isBuilding(destUpper) then
-    return {
-      warp = w,
-      destMap = destMap,
-      destX = destX,
-      destY = destY,
-      x = cx,
-      y = cy,
-    }
+  local okDoors, Doors = pcall(require, "src.core.game3.doors")
+  if okDoors and Doors and Doors.getDoorEntryAt then
+    local entry = Doors.getDoorEntryAt(destMap, destX, destY)
+    if entry then
+      return {
+        warp = w,
+        destMap = destMap,
+        destX = destX,
+        destY = destY,
+        x = cx,
+        y = cy,
+        doorEntry = entry,
+      }
+    end
   end
+
   return nil
 end
 
@@ -603,18 +624,16 @@ function Collision.tryWarpAt(game, cx, cy, facing)
   local curMap = (game and game.currentMap) or (Collision._mapId)
   local curUpper = string.upper(tostring(curMap or ""))
   local destUpper = string.upper(tostring(destMap or ""))
-
-  -- Suppress auto-warp on landing for doors, exit mats & escalators
-  if isBuilding(curUpper) and not isBuilding(destUpper) then
-    return false
-  end
-  local isEscalator = (curUpper:find("POKECENTER") or curUpper:find("POKEMON_CENTER") or curUpper:find("DEPT_STORE"))
-      and (destUpper:find("POKECENTER") or destUpper:find("POKEMON_CENTER") or destUpper:find("DEPT_STORE"))
-  if isEscalator then
-    return false
-  end
   local coll = Collision.cell(cx, cy)
-  if (coll == 0x71) or (not isBuilding(curUpper) and isBuilding(destUpper)) then
+
+  -- Suppress auto-warp on landing for animated entrance doors, animated exit mats & escalators
+  if Collision.isDoorWarp and Collision.isDoorWarp(game, cx, cy) then
+    return false
+  end
+  if Collision.isExitWarp and Collision.isExitWarp(game, cx, cy) then
+    return false
+  end
+  if Collision.isEscalatorWarp and Collision.isEscalatorWarp(game, cx, cy, facing) then
     return false
   end
 
@@ -631,12 +650,6 @@ function Collision.tryWarpAt(game, cx, cy, facing)
         and (coll == 0x75 or coll == 0x72)
 
     local isFallHole = (coll == 0x76) or ((curUpper:find("SEAFOAM") or curUpper:find("MT_MOON") or curUpper:find("VICTORY_ROAD")) and coll == 0x76)
-
-    if isEscalator then
-      local escDir = (destUpper:find("2F") or destUpper:find("3F") or destUpper:find("4F") or destUpper:find("5F") or destUpper:find("6F")) and "up" or "down"
-      if curUpper:find("2F") and destUpper:find("1F") then escDir = "down" end
-      return Warp.startEscalator(mod, g, destMap, destX, destY, escDir)
-    end
 
     if isTeleport then
       return Warp.startTeleport(mod, g, destMap, destX, destY)
