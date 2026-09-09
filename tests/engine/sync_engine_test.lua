@@ -107,7 +107,10 @@ do
   T.eq(eng.state.account, "aa11", "and stores the account id")
   T.eq(eng.codes.code1, "1111-2222", "the first code is shown grouped")
   T.eq(eng.codes.code2, "3333-4444", "and so is the second")
-  T.eq(eng.state.code1, nil, "codes never enter the persisted state")
+  T.eq(eng.state.code1, "11112222", "the codes ride the persisted state")
+  T.eq(eng.state.code2, "33334444", "both of them")
+  T.eq(SyncEngine.formatCodes(SyncState.sanitize(eng.state)).code1, "1111-2222",
+    "so a relaunch can show them again")
   T.eq(transport.sent[2].url, "http://sync.test/sync/state",
     "creating the account starts a sync straight away")
   T.eq(transport.sent[3].method, "PUT",
@@ -127,6 +130,8 @@ do
   eng:linkDevice("1111-2222", "3333 4444", "phone")
   pump(eng)
   T.eq(eng:linked(), true, "linking with both codes links the device")
+  T.eq(eng.codes.code1, "1111-2222", "the codes typed to link are kept too")
+  T.eq(eng.state.code2, "33334444", "as bare digits in the state")
   T.eq(transport.sent[2].url, "http://sync.test/sync/state",
     "and a sync starts immediately")
   T.eq(transport.sent[3].method, "PUT",
@@ -507,6 +512,26 @@ do
     "creating an account records the id the server gave this device")
   T.eq(SyncState.sanitize(eng.state).deviceId, "0a1b2c3d",
     "and it survives being persisted")
+end
+
+do
+  local linked = SyncState.defaults()
+  linked.account, linked.deviceToken, linked.enabled = "aa11", "tok", true
+  local eng, transport = engine({
+    ["POST /sync/codes"] = { code = 200,
+      body = '{"account":"aa11","code1":"55556666","code2":"77778888"}' },
+  }, {}, linked)
+  T.eq(eng.codes, nil, "a device linked before codes were kept has none to show")
+  eng:reissueCodes()
+  pump(eng)
+  T.eq(transport.sent[1].url, "http://sync.test/sync/codes",
+    "asking for codes posts to the codes endpoint")
+  T.eq(eng.codes.code1, "5555-6666", "and the reissued pair is shown grouped")
+  T.eq(eng.state.code2, "77778888", "and kept in the state")
+  T.eq(eng.phase, "idle", "the engine settles")
+
+  local unlinked = engine({}, {}, SyncState.defaults())
+  T.eq(unlinked:reissueCodes(), false, "an unlinked device cannot ask for codes")
 end
 
 do

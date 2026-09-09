@@ -4340,6 +4340,12 @@ function RomImporter:_syncNow()
   return eng:syncNow()
 end
 
+function RomImporter:_syncCodes()
+  local eng = self:_syncEngine()
+  if not eng then return false end
+  return eng:reissueCodes()
+end
+
 function RomImporter:_syncUnlink()
   local eng = self:_syncEngine()
   if not eng then return false end

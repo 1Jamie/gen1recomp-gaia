@@ -209,6 +209,10 @@ function SyncClient:setDisplayName(name)
   return self:send("POST", "/sync/displayname", { displayName = name })
 end
 
+function SyncClient:reissueCodes()
+  return self:send("POST", "/sync/codes")
+end
+
 function SyncClient:unlink(device)
   return self:send("POST", "/sync/unlink", { device = device })
 end

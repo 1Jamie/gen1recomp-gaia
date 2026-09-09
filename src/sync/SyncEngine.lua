@@ -299,7 +299,7 @@ function SyncEngine.new(opts)
   eng.phase = "idle"
   eng.error = nil
   eng.conflicts = {}
-  eng.codes = nil
+  eng.codes = SyncEngine.formatCodes(eng.state)
   eng.modPlan = nil
   eng.shareCode = nil
   eng.clock = 0
@@ -450,6 +450,14 @@ function SyncEngine:update(dt)
   end
 end
 
+function SyncEngine.formatCodes(state)
+  if type(state) ~= "table" then return nil end
+  local a = SyncClient.formatCode(state.code1)
+  local b = SyncClient.formatCode(state.code2)
+  if not a or not b then return nil end
+  return { code1 = a, code2 = b }
+end
+
 function SyncEngine:createAccount(label)
   if self:busy() then return false, "sync is busy" end
   self.phase = "checking"
@@ -462,9 +470,11 @@ function SyncEngine:createAccount(label)
       eng:_fail("the server sent an unexpected reply")
       return
     end
-    eng.codes = {
-      code1 = SyncClient.formatCode(data.code1) or tostring(data.code1 or ""),
-      code2 = SyncClient.formatCode(data.code2) or tostring(data.code2 or ""),
+    eng.state.code1 = SyncClient.normalizeCode(data.code1)
+    eng.state.code2 = SyncClient.normalizeCode(data.code2)
+    eng.codes = SyncEngine.formatCodes(eng.state) or {
+      code1 = tostring(data.code1 or ""),
+      code2 = tostring(data.code2 or ""),
     }
     eng.state.account = data.account
     eng.state.deviceToken = data.deviceToken
@@ -502,6 +512,8 @@ function SyncEngine:linkDevice(code1, code2, label)
     eng.state.deviceId = type(data.device) == "string" and data.device or nil
     eng.state.deviceLabel = label
     eng.state.enabled = true
+    eng.state.code1, eng.state.code2 = a, b
+    eng.codes = SyncEngine.formatCodes(eng.state)
     eng.client:setAuth(data.account, data.deviceToken)
     eng.status = "This device is linked"
     eng:_persist()
@@ -557,6 +569,29 @@ function SyncEngine:unlinkDevice(deviceId)
     eng.status = "That device was unlinked"
     eng.phase = "idle"
     eng:syncNow()
+  end)
+end
+
+function SyncEngine:reissueCodes()
+  if not self:linked() then return false, "this device is not linked" end
+  if self:busy() then return false, "sync is busy" end
+  self.phase = "checking"
+  self.status = "Fetching new sync codes..."
+  self.error = nil
+  local handle, err = self.client:reissueCodes()
+  return self:_request(handle, err, function(eng, res)
+    local data = res.data or {}
+    local a = SyncClient.normalizeCode(data.code1)
+    local b = SyncClient.normalizeCode(data.code2)
+    if not a or not b then
+      eng:_fail("the server sent an unexpected reply")
+      return
+    end
+    eng.state.code1, eng.state.code2 = a, b
+    eng.codes = SyncEngine.formatCodes(eng.state)
+    eng.phase = "idle"
+    eng.status = "New sync codes issued, the old pair no longer links"
+    eng:_persist()
   end)
 end
 

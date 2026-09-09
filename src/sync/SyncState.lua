@@ -19,6 +19,13 @@ local function str(v)
   return nil
 end
 
+local function code(v)
+  if type(v) ~= "string" and type(v) ~= "number" then return nil end
+  local digits = tostring(v):gsub("[^%d]", "")
+  if #digits ~= 8 then return nil end
+  return digits
+end
+
 local function num(v)
   local n = tonumber(v)
   if type(n) ~= "number" or n ~= n or n == math.huge or n == -math.huge then
@@ -36,6 +43,8 @@ function SyncState.sanitize(raw)
   out.deviceId = str(raw.deviceId)
   out.deviceLabel = str(raw.deviceLabel)
   out.displayName = str(raw.displayName)
+  out.code1 = code(raw.code1)
+  out.code2 = code(raw.code2)
   out.lastSyncAt = num(raw.lastSyncAt) or 0
   if type(raw.revs) == "table" then
     for key, rev in pairs(raw.revs) do

@@ -2002,22 +2002,31 @@ function Game2:hotkey(key)
     return self:pipelineHotkey(key, options, persist)
   end
   if key == "-" or key == "kp-" then
-    self.world:zoomStep(-1)
-    options.zoom = require("src.render.Zoom").offset
-    persist()
+    self:zoomStep(-1)
     return true
   elseif key == "=" or key == "kp+" then
-    self.world:zoomStep(1)
-    options.zoom = require("src.render.Zoom").offset
-    persist()
+    self:zoomStep(1)
     return true
   elseif key == "4" then
     self.world:zoomCycle()
-    options.zoom = require("src.render.Zoom").offset
-    persist()
+    self:storeZoom()
     return true
   end
   return self:pipelineHotkey(key, options, persist)
+end
+
+function Game2:storeZoom()
+  local options = self.options or {}
+  self.options = options
+  options.zoom = require("src.render.Zoom").offset
+  if self.save then self.save.options = options end
+  self:persistOptions()
+end
+
+function Game2:zoomStep(delta)
+  if not (self.world and self.world.map) then return end
+  self.world:zoomStep(delta)
+  self:storeZoom()
 end
 
 -- The (top, overworld) pair src/render/Pipelines.lua's free-roam gate reads.
@@ -2086,11 +2095,10 @@ end
 function Game2:wheelmoved(_x, dy)
   local function vanilla()
     if self.phase == "boot" or self.stack:top() then return end
-    if not (self.world and self.world.map) then return end
     if dy > 0 then
-      self.world:zoomStep(1)
+      self:zoomStep(1)
     elseif dy < 0 then
-      self.world:zoomStep(-1)
+      self:zoomStep(-1)
     end
   end
   if not ModRuntime.wantsHook("input.wheel") then return vanilla() end
