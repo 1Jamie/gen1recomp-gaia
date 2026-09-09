@@ -44,24 +44,32 @@ FrlgFont._rev = nil -- UTF-8 char → glyph id
 FrlgFont._logged = false
 
 local FG_PATHS = {
-  "src/import/gba/chrome/fonts/latin_normal_fg.png",
-  "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_fg.png",
-  "sevii/gba/chrome/fonts/latin_normal_fg.png",
+  { path = "data/generated/gba/chrome/fonts/latin_normal_fg.rgba", w = 256, h = 512 },
+  { path = "data/generated/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
+  { path = "src/import/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
+  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
+  { path = "sevii/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
 }
 local SH_PATHS = {
-  "src/import/gba/chrome/fonts/latin_normal_shadow.png",
-  "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_shadow.png",
-  "sevii/gba/chrome/fonts/latin_normal_shadow.png",
+  { path = "data/generated/gba/chrome/fonts/latin_normal_shadow.rgba", w = 256, h = 512 },
+  { path = "data/generated/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
+  { path = "src/import/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
+  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
+  { path = "sevii/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
 }
 local SMALL_FG_PATHS = {
-  "src/import/gba/chrome/fonts/latin_small_fg.png",
-  "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_fg.png",
-  "sevii/gba/chrome/fonts/latin_small_fg.png",
+  { path = "data/generated/gba/chrome/fonts/latin_small_fg.rgba", w = 256, h = 288 },
+  { path = "data/generated/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
+  { path = "src/import/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
+  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
+  { path = "sevii/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
 }
 local SMALL_SH_PATHS = {
-  "src/import/gba/chrome/fonts/latin_small_shadow.png",
-  "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_shadow.png",
-  "sevii/gba/chrome/fonts/latin_small_shadow.png",
+  { path = "data/generated/gba/chrome/fonts/latin_small_shadow.rgba", w = 256, h = 288 },
+  { path = "data/generated/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
+  { path = "src/import/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
+  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
+  { path = "sevii/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
 }
 
 local function log(msg)
@@ -69,16 +77,35 @@ local function log(msg)
 end
 
 local function loadImage(candidates)
-  local okA, Assets = pcall(require, "src.render.Assets")
-  for _, path in ipairs(candidates) do
-    if okA and Assets and Assets.image then
-      local ok, img = pcall(Assets.image, path)
-      if ok and img then
-        if img.setFilter then img:setFilter("nearest", "nearest") end
-        return img, path
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  for _, item in ipairs(candidates) do
+    local path = type(item) == "table" and item.path or item
+    local w = type(item) == "table" and item.w or 256
+    local h = type(item) == "table" and item.h or 512
+    if okC and CacheFs and CacheFs.read then
+      local data = CacheFs.read(path)
+      if data and type(data) == "string" and #data > 0 then
+        if #data == w * h * 4 and love and love.image and love.graphics then
+          local okId, id = pcall(love.image.newImageData, w, h, "rgba8", data)
+          if okId and id then
+            local img = love.graphics.newImage(id)
+            if img and img.setFilter then img:setFilter("nearest", "nearest") end
+            return img, path
+          end
+        elseif love and love.filesystem and love.image and love.graphics then
+          local okFd, fd = pcall(love.filesystem.newFileData, data, path)
+          if okFd and fd then
+            local okId, id = pcall(love.image.newImageData, fd)
+            if okId and id then
+              local img = love.graphics.newImage(id)
+              if img and img.setFilter then img:setFilter("nearest", "nearest") end
+              return img, path
+            end
+          end
+        end
       end
     end
-    if love and love.graphics then
+    if love and love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(path) then
       local ok, img = pcall(love.graphics.newImage, path)
       if ok and img then
         if img.setFilter then img:setFilter("nearest", "nearest") end
@@ -95,6 +122,16 @@ local function ensure()
   end
   local widths = FrlgFont._widths
   if not widths then
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.read then
+      local src = CacheFs.read("data/generated/gba/chrome/fonts/latin_widths.lua")
+      if src and type(src) == "string" then
+        local chunk = load(src, "@latin_widths.lua", "t", {}) or load(src)
+        if chunk then widths = chunk() end
+      end
+    end
+  end
+  if not widths then
     local ok, w = pcall(require, "src.import.gba.chrome.fonts.latin_widths")
     if ok and type(w) == "table" then
       widths = w
@@ -103,8 +140,8 @@ local function ensure()
       local chunk = loadfile(path)
       if chunk then widths = chunk() end
     end
-    FrlgFont._widths = widths or {}
   end
+  FrlgFont._widths = widths or {}
 
   local fg, fgp = loadImage(FG_PATHS)
   local sh = loadImage(SH_PATHS)
@@ -137,12 +174,22 @@ local function ensure_small()
     return true
   end
   local widths
-  local ok, w = pcall(require, "src.import.gba.chrome.fonts.latin_small_widths")
-  if ok and type(w) == "table" then
-    widths = w
-  else
-    local chunk = loadfile("sevii/gba/chrome/fonts/latin_small_widths.lua")
-    if chunk then widths = chunk() end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.read then
+    local src = CacheFs.read("data/generated/gba/chrome/fonts/latin_small_widths.lua")
+    if src and type(src) == "string" then
+      local chunk = load(src, "@latin_small_widths.lua", "t", {}) or load(src)
+      if chunk then widths = chunk() end
+    end
+  end
+  if not widths then
+    local ok, w = pcall(require, "src.import.gba.chrome.fonts.latin_small_widths")
+    if ok and type(w) == "table" then
+      widths = w
+    else
+      local chunk = loadfile("sevii/gba/chrome/fonts/latin_small_widths.lua")
+      if chunk then widths = chunk() end
+    end
   end
   local fg, fgp = loadImage(SMALL_FG_PATHS)
   local sh = loadImage(SMALL_SH_PATHS)

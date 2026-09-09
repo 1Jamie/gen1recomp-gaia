@@ -22,24 +22,32 @@ Chrome._logged = false
 
 local PATHS = {
   dlg = {
-    "src/import/gba/chrome/menu_message_rgba.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/menu_message_rgba.png",
-    "sevii/gba/chrome/menu_message_rgba.png",
+    { path = "data/generated/gba/chrome/menu_message_rgba.rgba", w = 48, h = 24 },
+    { path = "data/generated/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
+    { path = "src/import/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
+    { path = "mods/Kanto-Reforged/sevii/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
+    { path = "sevii/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
   },
   std = {
-    "src/import/gba/chrome/std_rgba.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/std_rgba.png",
-    "sevii/gba/chrome/std_rgba.png",
+    { path = "data/generated/gba/chrome/std_rgba.rgba", w = 24, h = 24 },
+    { path = "data/generated/gba/chrome/std_rgba.png", w = 24, h = 24 },
+    { path = "src/import/gba/chrome/std_rgba.png", w = 24, h = 24 },
+    { path = "mods/Kanto-Reforged/sevii/gba/chrome/std_rgba.png", w = 24, h = 24 },
+    { path = "sevii/gba/chrome/std_rgba.png", w = 24, h = 24 },
   },
   sign = {
-    "src/import/gba/chrome/signpost_rgba.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/signpost_rgba.png",
-    "sevii/gba/chrome/signpost_rgba.png",
+    { path = "data/generated/gba/chrome/signpost_rgba.rgba", w = 40, h = 32 },
+    { path = "data/generated/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
+    { path = "src/import/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
+    { path = "mods/Kanto-Reforged/sevii/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
+    { path = "sevii/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
   },
   arrow = {
-    "src/import/gba/chrome/fonts/down_arrows_fg.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/fonts/down_arrows_fg.png",
-    "sevii/gba/chrome/fonts/down_arrows_fg.png",
+    { path = "data/generated/gba/chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
+    { path = "data/generated/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
+    { path = "src/import/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
+    { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
+    { path = "sevii/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
   },
 }
 
@@ -48,16 +56,35 @@ local function log(msg)
 end
 
 local function loadImage(candidates)
-  local okA, Assets = pcall(require, "src.render.Assets")
-  for _, path in ipairs(candidates) do
-    if okA and Assets and Assets.image then
-      local ok, img = pcall(Assets.image, path)
-      if ok and img then
-        if img.setFilter then img:setFilter("nearest", "nearest") end
-        return img, path
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  for _, item in ipairs(candidates) do
+    local path = type(item) == "table" and item.path or item
+    local w = type(item) == "table" and item.w or 48
+    local h = type(item) == "table" and item.h or 24
+    if okC and CacheFs and CacheFs.read then
+      local data = CacheFs.read(path)
+      if data and type(data) == "string" and #data > 0 then
+        if #data == w * h * 4 and love and love.image and love.graphics then
+          local okId, id = pcall(love.image.newImageData, w, h, "rgba8", data)
+          if okId and id then
+            local img = love.graphics.newImage(id)
+            if img and img.setFilter then img:setFilter("nearest", "nearest") end
+            return img, path
+          end
+        elseif love and love.filesystem and love.image and love.graphics then
+          local okFd, fd = pcall(love.filesystem.newFileData, data, path)
+          if okFd and fd then
+            local okId, id = pcall(love.image.newImageData, fd)
+            if okId and id then
+              local img = love.graphics.newImage(id)
+              if img and img.setFilter then img:setFilter("nearest", "nearest") end
+              return img, path
+            end
+          end
+        end
       end
     end
-    if love and love.graphics then
+    if love and love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(path) then
       local ok, img = pcall(love.graphics.newImage, path)
       if ok and img then
         if img.setFilter then img:setFilter("nearest", "nearest") end
