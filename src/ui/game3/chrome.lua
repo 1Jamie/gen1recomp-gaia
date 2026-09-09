@@ -1,0 +1,319 @@
+-- FRLG field UI chrome (pret graphics/text_window).
+-- Dialogue uses menu_message tiles (WindowFunc_DrawDialogueFrame).
+-- Menus use std 9-slice (WindowFunc_DrawStdFrameWithCustomTileAndPalette).
+-- Assets: sevii/gba/chrome/*_rgba.png (pret PNGs + stdpal_* baked).
+
+local Display = require("src.core.game3.display")
+
+local Chrome = {}
+
+Chrome.DLG_LEFT = 2
+Chrome.DLG_TOP = 15
+Chrome.DLG_W = 26
+Chrome.DLG_H = 4
+
+local T = Display.TILE -- 8
+
+Chrome._dlg = nil -- { image, quads[0..17] }
+Chrome._std = nil -- { image, quads[0..8] }
+Chrome._sign = nil
+Chrome._arrow = nil -- { image, quads[], frameW, frameH, count }
+Chrome._logged = false
+
+local PATHS = {
+  dlg = {
+    "src/import/gba/chrome/menu_message_rgba.png",
+    "mods/Kanto-Reforged/sevii/gba/chrome/menu_message_rgba.png",
+    "sevii/gba/chrome/menu_message_rgba.png",
+  },
+  std = {
+    "src/import/gba/chrome/std_rgba.png",
+    "mods/Kanto-Reforged/sevii/gba/chrome/std_rgba.png",
+    "sevii/gba/chrome/std_rgba.png",
+  },
+  sign = {
+    "src/import/gba/chrome/signpost_rgba.png",
+    "mods/Kanto-Reforged/sevii/gba/chrome/signpost_rgba.png",
+    "sevii/gba/chrome/signpost_rgba.png",
+  },
+  arrow = {
+    "src/import/gba/chrome/fonts/down_arrows_fg.png",
+    "mods/Kanto-Reforged/sevii/gba/chrome/fonts/down_arrows_fg.png",
+    "sevii/gba/chrome/fonts/down_arrows_fg.png",
+  },
+}
+
+local function log(msg)
+  print("[game3/chrome] " .. tostring(msg))
+end
+
+local function loadImage(candidates)
+  local okA, Assets = pcall(require, "src.render.Assets")
+  for _, path in ipairs(candidates) do
+    if okA and Assets and Assets.image then
+      local ok, img = pcall(Assets.image, path)
+      if ok and img then
+        if img.setFilter then img:setFilter("nearest", "nearest") end
+        return img, path
+      end
+    end
+    if love and love.graphics then
+      local ok, img = pcall(love.graphics.newImage, path)
+      if ok and img then
+        if img.setFilter then img:setFilter("nearest", "nearest") end
+        return img, path
+      end
+    end
+  end
+  return nil, nil
+end
+
+local function makeQuads(img, cols, rows)
+  local quads = {}
+  local iw, ih = img:getDimensions()
+  local i = 0
+  for ty = 0, rows - 1 do
+    for tx = 0, cols - 1 do
+      quads[i] = love.graphics.newQuad(tx * 8, ty * 8, 8, 8, iw, ih)
+      i = i + 1
+    end
+  end
+  return quads
+end
+
+local function ensureDlg()
+  if Chrome._dlg then return Chrome._dlg end
+  local img, path = loadImage(PATHS.dlg)
+  if not img then
+    if not Chrome._logged then
+      log("menu_message atlas missing — dialogue frame fallback")
+      Chrome._logged = true
+    end
+    return nil
+  end
+  Chrome._dlg = { image = img, quads = makeQuads(img, 6, 3), path = path }
+  log("dialogue chrome ready " .. tostring(path))
+  return Chrome._dlg
+end
+
+local function ensureStd()
+  if Chrome._std then return Chrome._std end
+  local img, path = loadImage(PATHS.std)
+  if not img then return nil end
+  Chrome._std = { image = img, quads = makeQuads(img, 3, 3), path = path }
+  return Chrome._std
+end
+
+local function blitTile(atlas, tile, px, py, vflip)
+  local q = atlas.quads[tile]
+  if not q then return end
+  if vflip then
+    love.graphics.draw(atlas.image, q, px, py + 8, 0, 1, -1)
+  else
+    love.graphics.draw(atlas.image, q, px, py)
+  end
+end
+
+local function fillRect(px, py, pw, ph, r, g, b, a)
+  love.graphics.setColor(r, g, b, a or 1)
+  love.graphics.rectangle("fill", px, py, pw, ph)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+--- pret WindowFunc_DrawDialogueFrame for the standard field textbox.
+-- Content window: (2,15) 26×4. Outer chrome occupies rows 14–19, cols 0–29.
+function Chrome.dialogueFrame()
+  local L, Top, W, H = Chrome.DLG_LEFT, Chrome.DLG_TOP, Chrome.DLG_W, Chrome.DLG_H
+  local atlas = ensureDlg()
+  if not atlas then
+    -- Soft fallback if assets missing (should not happen in-repo).
+    fillRect(0, 14 * T, 30 * T, 6 * T, 0.19, 0.32, 0.80, 1)
+    fillRect(2, 14 * T + 2, 30 * T - 4, 6 * T - 4, 1, 1, 1, 1)
+    return
+  end
+
+  love.graphics.setColor(1, 1, 1, 1)
+  local function cell(tile, tx, ty, vflip)
+    blitTile(atlas, tile, tx * T, ty * T, vflip)
+  end
+  local function row(tile, tx, ty, count, vflip)
+    for i = 0, count - 1 do
+      cell(tile, tx + i, ty, vflip)
+    end
+  end
+
+  -- Top edge (T-1)
+  cell(0, L - 2, Top - 1)
+  cell(1, L - 1, Top - 1)
+  row(2, L, Top - 1, W)
+  cell(3, L + W, Top - 1)
+  cell(4, L + W + 1, Top - 1)
+  -- Sides row T+0
+  cell(5, L - 2, Top)
+  cell(6, L - 1, Top)
+  cell(8, L + W, Top)
+  cell(9, L + W + 1, Top)
+  -- Sides row T+1
+  cell(10, L - 2, Top + 1)
+  cell(11, L - 1, Top + 1)
+  cell(12, L + W, Top + 1)
+  cell(13, L + W + 1, Top + 1)
+  -- Sides row T+2 (V-flip of T+1)
+  cell(10, L - 2, Top + 2, true)
+  cell(11, L - 1, Top + 2, true)
+  cell(12, L + W, Top + 2, true)
+  cell(13, L + W + 1, Top + 2, true)
+  -- Sides row T+3 (V-flip of T+0)
+  cell(5, L - 2, Top + 3, true)
+  cell(6, L - 1, Top + 3, true)
+  cell(8, L + W, Top + 3, true)
+  cell(9, L + W + 1, Top + 3, true)
+  -- Bottom edge (T+4 = V-flip of top)
+  cell(0, L - 2, Top + 4, true)
+  cell(1, L - 1, Top + 4, true)
+  row(2, L, Top + 4, W, true)
+  cell(3, L + W, Top + 4, true)
+  cell(4, L + W + 1, Top + 4, true)
+
+  -- Interior: PIXEL_FILL(1) white paper (stdpal_0 index 1).
+  fillRect(L * T, Top * T, W * T, H * T, 1, 1, 1, 1)
+end
+
+local function ensureSign()
+  if Chrome._sign then return Chrome._sign end
+  local img, path = loadImage(PATHS.sign)
+  if not img then return nil end
+  -- signpost atlas is 6×3 like menu_message (pret text_window/signpost.png).
+  Chrome._sign = { image = img, quads = makeQuads(img, 6, 3), path = path }
+  return Chrome._sign
+end
+
+local function ensureArrow()
+  if Chrome._arrow then return Chrome._arrow end
+  local img, path = loadImage(PATHS.arrow)
+  if not img then return nil end
+  local iw, ih = img:getDimensions()
+  -- pret down_arrows: 8 frames in a row (typically 8×8 each).
+  local count = 8
+  local fw = math.floor(iw / count)
+  if fw < 1 then fw = iw end
+  local fh = ih
+  local quads = {}
+  for i = 0, count - 1 do
+    quads[i] = love.graphics.newQuad(i * fw, 0, fw, fh, iw, ih)
+  end
+  Chrome._arrow = { image = img, quads = quads, frameW = fw, frameH = fh, count = count, path = path }
+  return Chrome._arrow
+end
+
+--- pret WindowFunc_DrawSignpostFrame — same geometry as dialogue, signpost tiles.
+function Chrome.signFrame()
+  local L, Top, W, H = Chrome.DLG_LEFT, Chrome.DLG_TOP, Chrome.DLG_W, Chrome.DLG_H
+  local atlas = ensureSign()
+  if not atlas then
+    -- Fall back to dialogue chrome if signpost missing.
+    return Chrome.dialogueFrame()
+  end
+
+  love.graphics.setColor(1, 1, 1, 1)
+  local function cell(tile, tx, ty, vflip)
+    blitTile(atlas, tile, tx * T, ty * T, vflip)
+  end
+  local function row(tile, tx, ty, count, vflip)
+    for i = 0, count - 1 do
+      cell(tile, tx + i, ty, vflip)
+    end
+  end
+
+  cell(0, L - 2, Top - 1)
+  cell(1, L - 1, Top - 1)
+  row(2, L, Top - 1, W)
+  cell(3, L + W, Top - 1)
+  cell(4, L + W + 1, Top - 1)
+  cell(5, L - 2, Top)
+  cell(6, L - 1, Top)
+  cell(8, L + W, Top)
+  cell(9, L + W + 1, Top)
+  cell(10, L - 2, Top + 1)
+  cell(11, L - 1, Top + 1)
+  cell(12, L + W, Top + 1)
+  cell(13, L + W + 1, Top + 1)
+  cell(10, L - 2, Top + 2, true)
+  cell(11, L - 1, Top + 2, true)
+  cell(12, L + W, Top + 2, true)
+  cell(13, L + W + 1, Top + 2, true)
+  cell(5, L - 2, Top + 3, true)
+  cell(6, L - 1, Top + 3, true)
+  cell(8, L + W, Top + 3, true)
+  cell(9, L + W + 1, Top + 3, true)
+  cell(0, L - 2, Top + 4, true)
+  cell(1, L - 1, Top + 4, true)
+  row(2, L, Top + 4, W, true)
+  cell(3, L + W, Top + 4, true)
+  cell(4, L + W + 1, Top + 4, true)
+
+  -- Sign interior is parchment / light tan (stdpal_1-ish).
+  fillRect(L * T, Top * T, W * T, H * T, 0.97, 0.94, 0.82, 1)
+end
+
+--- Bounce prompt arrow (pret down_arrows). px,py = top-left of glyph.
+function Chrome.promptArrow(px, py, frame)
+  local atlas = ensureArrow()
+  if not atlas then
+    love.graphics.setColor(98 / 255, 98 / 255, 98 / 255, 1)
+    love.graphics.polygon("fill",
+      px + 1, py + 2,
+      px + 7, py + 2,
+      px + 4, py + 7)
+    love.graphics.setColor(1, 1, 1, 1)
+    return
+  end
+  frame = tonumber(frame) or 0
+  frame = frame % atlas.count
+  local q = atlas.quads[frame]
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(atlas.image, q, px, py)
+end
+
+--- pret std 9-slice around content (tx,ty,tw,th) in tiles.
+function Chrome.stdFrame(tx, ty, tw, th)
+  local atlas = ensureStd()
+  if not atlas then
+    fillRect(tx * T - 8, ty * T - 8, (tw + 2) * T, (th + 2) * T, 98 / 255, 115 / 255, 123 / 255, 1)
+    fillRect(tx * T - 6, ty * T - 6, (tw + 2) * T - 4, (th + 2) * T - 4, 205 / 255, 213 / 255, 213 / 255, 1)
+    fillRect(tx * T, ty * T, tw * T, th * T, 1, 1, 1, 1)
+    return
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  local L, Top, W, H = tx, ty, tw, th
+  local function cell(tile, cx, cy)
+    blitTile(atlas, tile, cx * T, cy * T, false)
+  end
+  local function hspan(tile, cx, cy, n)
+    for i = 0, n - 1 do cell(tile, cx + i, cy) end
+  end
+  local function vspan(tile, cx, cy, n)
+    for i = 0, n - 1 do cell(tile, cx, cy + i) end
+  end
+
+  fillRect(L * T, Top * T, W * T, H * T, 1, 1, 1, 1)
+
+  cell(0, L - 1, Top - 1)
+  hspan(1, L, Top - 1, W)
+  cell(2, L + W, Top - 1)
+  vspan(3, L - 1, Top, H)
+  vspan(5, L + W, Top, H)
+  cell(6, L - 1, Top + H)
+  hspan(7, L, Top + H, W)
+  cell(8, L + W, Top + H)
+end
+
+function Chrome.invalidate()
+  Chrome._dlg = nil
+  Chrome._std = nil
+  Chrome._sign = nil
+  Chrome._arrow = nil
+  Chrome._logged = false
+end
+
+return Chrome

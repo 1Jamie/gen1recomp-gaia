@@ -491,7 +491,7 @@ end
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber, silver = PAL.railSilver,
-  crystal = PAL.railCrystal,
+  crystal = PAL.railCrystal, firered = PAL.railFireRed,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -1509,6 +1509,8 @@ local GAME_TABS = {
     label = "Silver" },
   { id = "crystal", key = "tab-crystal", letter = "C",
     color = PAL.railCrystal, label = "Crystal" },
+  { id = "firered", key = "tab-firered", letter = "F",
+    color = PAL.railFireRed, label = "Fire Red" },
 }
 
 local function drawOnlineGlyph(x, y, w, h, hot)

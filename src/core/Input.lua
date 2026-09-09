@@ -19,6 +19,11 @@ local DEFAULT_BINDINGS = {
   tab = "select",
   rshift = "select",
   lshift = "select",
+  -- FRLG shoulders: bag paging + L=A alias (Game3 field loop).
+  q = "l",
+  e = "r",
+  lctrl = "l",
+  rctrl = "r",
 }
 
 -- keys that map to "start" but also to "a" would conflict; keep Enter = a,
@@ -274,6 +279,12 @@ function Input:gamepadpressed(joystick, button)
   if btn then
     press(self, btn, "pad:" .. button)
   end
+  -- FRLG first-class shoulders (bag paging / L=A), independent of speed binds.
+  if button == "leftshoulder" then
+    press(self, "l", "pad:l")
+  elseif button == "rightshoulder" then
+    press(self, "r", "pad:r")
+  end
 end
 
 function Input:gamepadreleased(joystick, button)
@@ -281,6 +292,11 @@ function Input:gamepadreleased(joystick, button)
   local btn = self.padBindings[button]
   if btn then
     release(self, btn, "pad:" .. button)
+  end
+  if button == "leftshoulder" then
+    release(self, "l", "pad:l")
+  elseif button == "rightshoulder" then
+    release(self, "r", "pad:r")
   end
 end
 

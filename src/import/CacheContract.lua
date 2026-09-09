@@ -19,6 +19,7 @@ CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v12-crystal4:",
   -- engine/overworld/map_sprites.asm:181
   yellow = "rom-cache-v11-yellow1:",
+  firered = "rom-cache-v2-firered:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -157,6 +158,56 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     -- engine/pokegear/pokegear.asm:2298
     "assets/generated/pokegear/nest_icon.png",
   },
+  firered = {
+    "data/generated/gba/meta.json",
+    "data/generated/gba/maps.json",
+    "data/generated/gba/audio/meta.json",
+    "data/generated/intro.lua",
+    "data/generated/gba/intro/meta.json",
+    "data/generated/gba/intro/oak.png",
+    "data/generated/gba/intro/boy.png",
+    "data/generated/gba/intro/girl.png",
+    "data/generated/gba/intro/rival.png",
+    "data/generated/gba/intro/title_screen.png",
+    "data/generated/gba/intro/title_logo.png",
+    "data/generated/gba/intro/box_art_mon.png",
+    "data/generated/gba/intro/press_start.png",
+    "data/generated/gba/intro/platform.png",
+    "data/generated/gba/intro/oak_speech_bg.png",
+    "data/generated/gba/intro/controls_page1.png",
+    "data/generated/gba/intro/pikachu_intro_bg.png",
+    "data/generated/gba/intro/nidoran_f.png",
+    "data/generated/gba/naming/manifest.lua",
+    "data/generated/gba/ow/manifest.lua",
+    "data/generated/gba/ow/0.rgba",
+    "data/generated/gba/ow/7.rgba",
+    "data/generated/gba/pokemon/manifest.lua",
+    "data/generated/gba/pokemon/names.lua",
+    "data/generated/gba/pokemon/stats.lua",
+    "data/generated/gba/pokemon/learnsets.lua",
+    "data/generated/gba/pokemon/move_names.lua",
+    "data/generated/gba/pokemon/battle_moves.lua",
+    "data/generated/gba/pokemon/battle/manifest.lua",
+    "data/generated/gba/pokemon/battle/healthbox_player.rgba",
+    "data/generated/gba/pokemon/battle/terrain_building.rgba",
+    "data/generated/gba/pokemon/battle_transition/manifest.lua",
+    "data/generated/gba/pokemon/battle_transition/big_pokeball.rgba",
+    "data/generated/gba/pokemon/battle_transition/sliding_pokeball.rgba",
+    "data/generated/gba/pokemon/party/slot_main.rgba",
+    "data/generated/gba/items/bag/manifest.lua",
+    "data/generated/gba/items/bag/bg.rgba",
+    "data/generated/gba/items/shop/manifest.lua",
+    "data/generated/gba/items/shop/bg.rgba",
+    "data/generated/gba/doors/manifest.lua",
+    "data/generated/gba/doors/pallet.rgba",
+    "data/generated/gba/native/manifest.lua",
+    "data/generated/gba/pokemon/summary/manifest.lua",
+    "data/generated/gba/pokemon/storage/manifest.lua",
+    "data/generated/gba/pokedex/manifest.lua",
+    "data/generated/gba/trainers.lua",
+    "data/generated/gba/trainers/back_0.rgba",
+    "data/generated/gba/trainers/back_1.rgba",
+  },
 }
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =
   CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.gold
@@ -172,11 +223,13 @@ local SEMANTIC_MODULES = {
     "tilesets", "text", "rom_text", "trainers", "encounters", "sprites",
     "palettes", "icons", "battle_anims", "constants", "landmarks",
   },
+  [3] = { "maps", "intro", "audio" },
 }
 
 local OPTIONAL_SEMANTIC_MODULES = {
   [1] = { "audio", "palettes", "icons" },
   [2] = {},
+  [3] = {},
 }
 
 local function copy(values)
