@@ -101,8 +101,7 @@ function StorageChromeExtract.extract(romBytes, opts)
   }
 
   for _, file in ipairs(files) do
-    local srcPath = "src/import/gba/chrome/menus/storage/" .. file
-    local data = read_file(srcPath) or read_file("data/generated/gba/pokemon/storage/" .. file)
+    local data = read_file(outDir .. "/" .. file) or read_file("data/generated/gba/pokemon/storage/" .. file)
     if data then
       local dstPath = outDir .. "/" .. file
       write_file(cache, dstPath, data)

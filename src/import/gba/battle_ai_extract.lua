@@ -88,7 +88,6 @@ local function find_pret_root(opts)
     if f then f:close() return env end
   end
   local candidates = {
-    "/home/autumn/src/pokefirered",
     "pokefirered",
     "../pokefirered",
   }

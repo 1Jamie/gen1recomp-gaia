@@ -66,6 +66,54 @@ local function load_sprite_png(path, w, h)
   return img
 end
 
+local function create_pokeball_glow_imagedata()
+  if not (love and love.image and love.image.newImageData) then return nil end
+  local id = love.image.newImageData(8, 8)
+  id:mapPixel(function(x, y)
+    local dx = x - 3.5
+    local dy = y - 3.5
+    local dist = math.sqrt(dx * dx + dy * dy)
+    if dist <= 2.0 then
+      return 1, 1, 1, 1
+    elseif dist <= 3.5 then
+      local t = (3.5 - dist) / 1.5
+      return 1, 0.9, 0.2, t
+    else
+      return 0, 0, 0, 0
+    end
+  end)
+  return id
+end
+
+local function create_monitor_imagedata()
+  if not (love and love.image and love.image.newImageData) then return nil end
+  local id = love.image.newImageData(32, 64)
+  -- 4 frames of 32x16
+  id:mapPixel(function(x, y)
+    local frame = math.floor(y / 16)
+    local fy = y % 16
+    -- Outer bezel (transparent/dark)
+    if x < 2 or x >= 30 or fy < 2 or fy >= 14 then
+      return 0.15, 0.15, 0.2, 1
+    end
+    -- Screen background
+    local r, g, b = 0.25, 0.35, 0.55
+    -- Blinking light slots across the screen
+    for i = 0, 5 do
+      local lx = 6 + i * 4
+      if x >= lx and x <= lx + 2 and fy >= 6 and fy <= 8 then
+        if (frame + i) % 2 == 1 then
+          return 0.2, 0.95, 0.3, 1
+        else
+          return 0.1, 0.4, 0.15, 1
+        end
+      end
+    end
+    return r, g, b, 1
+  end)
+  return id
+end
+
 local function try_paths(names, w, h)
   for i = 1, #names do
     local img = load_sprite_png(names[i], w, h)
@@ -92,15 +140,30 @@ local function ensure_gfx()
   if PokecenterHeal._ballImg and PokecenterHeal._monImg then return true end
   local root = "data/generated/gba/field_effects"
   local ball = try_paths({
-    "src/import/gba/chrome/field_effects/pokeball_glow.png",
+    "field_effects/pokeball_glow.png",
     root .. "/pokeball_glow.png",
   }, 8, 8)
+  if not ball and love and love.graphics then
+    local id = create_pokeball_glow_imagedata()
+    if id then
+      ball = love.graphics.newImage(id)
+      if ball.setFilter then ball:setFilter("nearest", "nearest") end
+    end
+  end
+
   local mon = try_paths({
-    "src/import/gba/chrome/field_effects/pokemoncenter_monitor.png",
+    "field_effects/pokemoncenter_monitor.png",
     root .. "/pokemoncenter_monitor.png",
   }, 32, 16)
+  if not mon and love and love.graphics then
+    local id = create_monitor_imagedata()
+    if id then
+      mon = love.graphics.newImage(id)
+      if mon.setFilter then mon:setFilter("nearest", "nearest") end
+    end
+  end
+
   if not (ball and mon) then
-    log("heal gfx missing — vendor pokeball_glow / pokemoncenter_monitor PNGs")
     return false
   end
   PokecenterHeal._ballImg = ball
@@ -112,7 +175,6 @@ local function ensure_gfx()
     quads[i] = love.graphics.newQuad(0, i * 16, 32, 16, iw, ih)
   end
   PokecenterHeal._monQuads = quads
-  log("pokecenter heal gfx ready (centerToCorner screen OAM)")
   return true
 end
 

@@ -233,6 +233,13 @@ Versions.BAG_FEMALE_GFX = 0xE83DBC              -- gBagFemale_Gfx
 Versions.BAG_SPRITE_PAL = 0xE84560              -- gBag_Pal
 Versions.BAG_SWAP_GFX = 0xE84588                -- gSwapLine_Gfx
 Versions.BAG_SWAP_PAL = 0xE845C8                -- gSwapLine_Pal
+
+-- Trainer Card (LZ-compressed & raw; FireRed USA 1.0).
+Versions.TRAINER_CARD_BG_TILES = 0xE86240       -- sTrainerCard_BgTiles (LZ 4bpp, 7456 bytes)
+Versions.TRAINER_CARD_BG_MALE_MAP = 0xE86BE8    -- sTrainerCard_BgTilemap (LZ 32x20, 2048 bytes)
+Versions.TRAINER_CARD_BG_FEMALE_MAP = 0xE86D6C  -- sTrainerCard_BgFemaleTilemap (LZ 32x20, 2048 bytes)
+Versions.TRAINER_CARD_BG_PAL = 0xE86F98         -- sTrainerCard_BgPal (4 banks, 128 bytes)
+Versions.TRAINER_CARD_BADGES_TILES = 0x3A5348   -- sTrainerCard_BadgesTiles (32 tiles 4bpp, 1024 bytes)
 Versions.SHOP_BG_GFX = 0xE85DC8                 -- gBuyMenuFrame_Gfx
 Versions.SHOP_BG_TILEMAP = 0xE85EFC             -- gBuyMenuFrame_Tilemap
 Versions.SHOP_BG_TM_TILEMAP = 0xE86038          -- gBuyMenuFrame_TmHmTilemap

@@ -44,8 +44,8 @@ PcChrome.WALLPAPER_NAMES = {
 
 local function load_texture(name)
   local candidates = {
+    "pokemon/storage/" .. name,
     "data/generated/gba/pokemon/storage/" .. name,
-    "src/import/gba/chrome/menus/storage/" .. name,
   }
   local okA, Assets = pcall(require, "src.render.Assets")
   for _, path in ipairs(candidates) do

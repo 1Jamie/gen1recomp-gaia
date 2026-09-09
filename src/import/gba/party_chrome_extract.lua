@@ -9,15 +9,9 @@ local PartyChromeExtract = {}
 PartyChromeExtract.CACHE_SUB = "pokemon/party"
 
 local SLOT_PATHS = {
-  main = {
-    "src/import/gba/chrome/menus/party/slot_main.bin",
-  },
-  wide = {
-    "src/import/gba/chrome/menus/party/slot_wide.bin",
-  },
-  empty = {
-    "src/import/gba/chrome/menus/party/slot_wide_empty.bin",
-  },
+  main = {},
+  wide = {},
+  empty = {},
 }
 
 local DEFAULT_SLOT_MAIN = string.char(
@@ -42,9 +36,7 @@ local DEFAULT_SLOT_WIDE_EMPTY = string.char(
   37, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 39
 )
 
-local STATUS_ICON_PATHS = {
-  "src/import/gba/chrome/menus/party/status_icons.png",
-}
+local STATUS_ICON_PATHS = {}
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")

@@ -250,6 +250,8 @@ function RomExtractorGen3:runPokemonExtract(sha1)
     StorageExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
     local TextChromeExtract = require("src.import.gba.text_chrome_extract")
     TextChromeExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
+    local TrainerCardExtract = require("src.import.gba.trainer_card_extract")
+    TrainerCardExtract.run(rom, cache, { cacheRoot = GBA_ROOT })
     return pRes
   end)
 

@@ -102,7 +102,7 @@ function Ai.loadPack(opts)
       local detail = Extract.run({
         cache = cache,
         cacheRoot = "data/generated/gba",
-        pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+        pretRoot = os.getenv("POKEFIRERED"),
       })
       if detail then
         local t = load_lua_file(outRoot .. "/" .. (detail.path or rel))

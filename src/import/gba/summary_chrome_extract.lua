@@ -165,8 +165,7 @@ local function load_base_tilemap(kind)
   local list = names[kind] or names.info
   local candidates = {}
   for _, n in ipairs(list) do
-    candidates[#candidates + 1] = "pokefirered/graphics/summary_screen/" .. n
-    candidates[#candidates + 1] = "src/import/gba/chrome/summary/" .. n
+    candidates[#candidates + 1] = "data/generated/gba/pokemon/summary/" .. n
   end
   return read_bin(candidates)
 end
@@ -445,20 +444,14 @@ function SummaryChromeExtract.run(rom, cache, opts)
     cache:write(root .. "/pokerus.rgba", pkrsRgba)
   end
 
-  -- Copy menu_info.png for type badges if available
   local menuInfoBin = read_bin({
-    "pokefirered/graphics/interface/menu_info.png",
-    "src/import/gba/chrome/menus/menu_info.png",
+    "data/generated/gba/pokemon/summary/menu_info.png",
   })
   if menuInfoBin then
     cache:write(root .. "/menu_info.png", menuInfoBin)
   end
 
-  -- Fallback decomp graphics if ROM was absent or incomplete
-  if not (bgGfx and bgPal) then
-    local fbInfo = read_bin({ "pokefirered/graphics/summary_screen/page_info.bin" })
-    if fbInfo then cache:write(root .. "/page_info.bin", fbInfo) end
-  end
+
 
   -- Manifest: absolute screen coords derived from pret window templates + printers
   -- (pokemon_summary_screen.c PrintInfoPage / PrintSkillsPage / PrintMovesPage / etc.).

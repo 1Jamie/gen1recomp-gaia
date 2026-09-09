@@ -703,7 +703,7 @@ function PokemonExtract.run(rom, cache, opts)
   local battleAi = BattleAiExtract.run({
     cache = cache,
     cacheRoot = cacheRoot or default_cache_root(),
-    pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+    pretRoot = os.getenv("POKEFIRERED"),
   })
   if progress then progress("battle_ai", 1, 1) end
 

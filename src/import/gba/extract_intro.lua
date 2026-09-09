@@ -386,19 +386,6 @@ return {
   write(cache, root .. "/menu.lua",
     'return { "CONTINUE", "NEW GAME", "OPTION" }\n')
 
-  local fontSrc = {
-    { "src/import/gba/chrome/fonts/latin_normal_fg.png", root .. "/font_fg.png" },
-    { "src/import/gba/chrome/fonts/latin_normal_shadow.png", root .. "/font_shadow.png" },
-  }
-  for _, pair in ipairs(fontSrc) do
-    local f = io.open(pair[1], "rb")
-    if f then
-      local bytes = f:read("*a")
-      f:close()
-      if bytes then write(cache, pair[2], bytes) end
-    end
-  end
-
   if not data then
     write(cache, root .. "/meta.json",
       string.format('{"version":3,"sha1":"%s","has_rom":false}\n', tostring(opts.sha1 or "")))

@@ -22,32 +22,28 @@ Chrome._logged = false
 
 local PATHS = {
   dlg = {
+    { path = "chrome/menu_message_rgba.rgba", w = 48, h = 24 },
     { path = "data/generated/gba/chrome/menu_message_rgba.rgba", w = 48, h = 24 },
+    { path = "chrome/menu_message_rgba.png", w = 48, h = 24 },
     { path = "data/generated/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
-    { path = "src/import/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
-    { path = "mods/Kanto-Reforged/sevii/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
-    { path = "sevii/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
   },
   std = {
+    { path = "chrome/std_rgba.rgba", w = 24, h = 24 },
     { path = "data/generated/gba/chrome/std_rgba.rgba", w = 24, h = 24 },
+    { path = "chrome/std_rgba.png", w = 24, h = 24 },
     { path = "data/generated/gba/chrome/std_rgba.png", w = 24, h = 24 },
-    { path = "src/import/gba/chrome/std_rgba.png", w = 24, h = 24 },
-    { path = "mods/Kanto-Reforged/sevii/gba/chrome/std_rgba.png", w = 24, h = 24 },
-    { path = "sevii/gba/chrome/std_rgba.png", w = 24, h = 24 },
   },
   sign = {
+    { path = "chrome/signpost_rgba.rgba", w = 40, h = 32 },
     { path = "data/generated/gba/chrome/signpost_rgba.rgba", w = 40, h = 32 },
+    { path = "chrome/signpost_rgba.png", w = 40, h = 32 },
     { path = "data/generated/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
-    { path = "src/import/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
-    { path = "mods/Kanto-Reforged/sevii/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
-    { path = "sevii/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
   },
   arrow = {
+    { path = "chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
     { path = "data/generated/gba/chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
+    { path = "chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
     { path = "data/generated/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
-    { path = "src/import/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
-    { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
-    { path = "sevii/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
   },
 }
 

@@ -80,8 +80,9 @@ local function ensure_sheet()
   end
   local img = try_load_rgba(
     FieldEffects._cache, cache_root() .. "/field_effects/tall_grass.rgba", 16, 80)
+    or try_load_rgba(FieldEffects._cache, "field_effects/tall_grass.rgba", 16, 80)
   if not img then
-    img = try_load_png("src/import/gba/chrome/field_effects/tall_grass.png")
+    img = try_load_png(cache_root() .. "/field_effects/tall_grass.png")
   end
   if not img then
     log("tall_grass sheet missing — re-run gba extract")

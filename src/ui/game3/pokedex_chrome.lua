@@ -170,11 +170,18 @@ function PokedexChrome.drawKeypadIcon(iconName, x, y)
   if not (love and love.graphics and iconName) then return end
   local img = PokedexChrome.getImage("keypad_icons")
   if not img then
-    local ok, newImg = pcall(love.graphics.newImage, "src/import/gba/chrome/keypad_icons.png")
-    if ok and newImg then
-      if newImg.setFilter then newImg:setFilter("nearest", "nearest") end
-      img = newImg
-      PokedexChrome._images["keypad_icons"] = img
+    local candidates = {
+      "chrome/keypad_icons.png",
+      "data/generated/gba/chrome/keypad_icons.png",
+    }
+    for _, p in ipairs(candidates) do
+      local ok, newImg = pcall(love.graphics.newImage, p)
+      if ok and newImg then
+        if newImg.setFilter then newImg:setFilter("nearest", "nearest") end
+        img = newImg
+        PokedexChrome._images["keypad_icons"] = img
+        break
+      end
     end
   end
 
@@ -345,8 +352,8 @@ function PokedexChrome.drawDataCardBg()
   local img = PokedexChrome.getImage("dex_data_bg")
   if not img then
     local candidates = {
+      "pokemon/pokedex/dex_data_bg.png",
       "data/generated/gba/pokemon/pokedex/dex_data_bg.png",
-      "src/import/gba/chrome/pokedex/dex_data_bg.png",
     }
     for _, p in ipairs(candidates) do
       local ok, newImg = pcall(love.graphics.newImage, p)
@@ -375,8 +382,8 @@ function PokedexChrome.drawAreaCardBg()
   local img = PokedexChrome.getImage("dex_area_bg")
   if not img then
     local candidates = {
+      "pokemon/pokedex/dex_area_bg.png",
       "data/generated/gba/pokemon/pokedex/dex_area_bg.png",
-      "src/import/gba/chrome/pokedex/dex_area_bg.png",
     }
     for _, p in ipairs(candidates) do
       local ok, newImg = pcall(love.graphics.newImage, p)
@@ -504,7 +511,6 @@ function PokedexChrome.menuInfoImage()
     if PokedexChrome._menuInfo then return PokedexChrome._menuInfo end
   end
   local bytes = read_bytes("data/generated/gba/pokemon/summary/menu_info.png")
-    or read_bytes("src/import/gba/chrome/menus/menu_info.png")
   if bytes and love and love.image and love.graphics then
     local ok, img = pcall(function()
       local fd = love.filesystem.newFileData(bytes, "menu_info.png")
@@ -521,7 +527,6 @@ function PokedexChrome.menuInfoImage()
   if love and love.graphics and love.image and love.image.newImageData then
     local paths = {
       "data/generated/gba/pokemon/summary/menu_info.png",
-      "src/import/gba/chrome/menus/menu_info.png",
     }
     for _, p in ipairs(paths) do
       local ok, img = pcall(function()

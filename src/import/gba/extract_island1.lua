@@ -443,7 +443,7 @@ function Extract.run(imports, cache, progressCb)
       pcall(BattleAiExtract.run, {
         cache = cache,
         cacheRoot = Extract.CACHE_ROOT,
-        pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+        pretRoot = os.getenv("POKEFIRERED"),
       })
     end
     do
@@ -1755,7 +1755,7 @@ local function _dormant_quantize_run(imports, cache, progressCb)
       pcall(BattleAiExtract.run, {
         cache = cache,
         cacheRoot = Extract.CACHE_ROOT,
-        pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+        pretRoot = os.getenv("POKEFIRERED"),
       })
     end
     rom2:clearCache()
@@ -2029,7 +2029,7 @@ function Extract.runNativeOnly(imports, cache, progressCb)
       pcall(BattleAiExtract.run, {
         cache = cache,
         cacheRoot = Extract.CACHE_ROOT,
-        pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+        pretRoot = os.getenv("POKEFIRERED"),
       })
     end
     rom2:clearCache()

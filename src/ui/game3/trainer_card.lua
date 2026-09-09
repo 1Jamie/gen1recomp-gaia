@@ -20,43 +20,47 @@ local _picRed = nil
 local _picLeaf = nil
 local _assetsTried = false
 
-local PATHS = {
-  bgMale = {
-    "src/import/gba/chrome/menus/trainer_card/bg.png",
-    "data/generated/gba/trainer_card/bg.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/menus/trainer_card/bg.png",
-  },
-  bgFemale = {
-    "src/import/gba/chrome/menus/trainer_card/bg_female.png",
-    "data/generated/gba/trainer_card/bg_female.png",
-    "mods/Kanto-Reforged/sevii/gba/chrome/menus/trainer_card/bg_female.png",
-  },
-  badges = {
-    "src/import/gba/chrome/menus/trainer_card/badges.png",
-    "data/generated/gba/trainer_card/badges.png",
-  },
-  red = {
-    "src/import/gba/chrome/menus/trainer_card/red.png",
-    "data/generated/gba/trainer_card/red.png",
-  },
-  leaf = {
-    "src/import/gba/chrome/menus/trainer_card/leaf.png",
-    "data/generated/gba/trainer_card/leaf.png",
-  },
-}
+local function read_cache_file(path)
+  local ok, CacheFs = pcall(require, "src.util.CacheFs")
+  if ok and CacheFs and CacheFs.read then
+    local data = CacheFs.read(path)
+    if data and #data > 0 then return data end
+  end
+  local f = io.open(path, "rb")
+  if f then
+    local d = f:read("*a")
+    f:close()
+    if d and #d > 0 then return d end
+  end
+  return nil
+end
 
-local function tryLoad(candidates)
-  local okA, Assets = pcall(require, "src.render.Assets")
-  for _, path in ipairs(candidates) do
-    if okA and Assets and Assets.image then
-      local ok, img = pcall(Assets.image, path)
-      if ok and img then
-        if img.setFilter then img:setFilter("nearest", "nearest") end
-        return img
+local function load_rgba_image(candidates, w, h)
+  if not (love and love.graphics) then return nil end
+  for _, p in ipairs(candidates) do
+    if p:sub(-5) == ".rgba" then
+      local raw = read_cache_file(p)
+      if raw and #raw >= w * h * 4 and love.image and love.image.newImageData then
+        local ok, imgData = pcall(love.image.newImageData, w, h, "rgba8", raw)
+        if ok and imgData then
+          local img = love.graphics.newImage(imgData)
+          if img.setFilter then img:setFilter("nearest", "nearest") end
+          return img
+        end
       end
-    end
-    if love and love.graphics and love.graphics.newImage then
-      local ok, img = pcall(love.graphics.newImage, path)
+    else
+      local bytes = read_cache_file(p)
+      if bytes and #bytes > 0 and love.image and love.filesystem then
+        local ok, img = pcall(function()
+          local fd = love.filesystem.newFileData(bytes, p:match("[^/]+$") or "img.png")
+          local id = love.image.newImageData(fd)
+          local image = love.graphics.newImage(id)
+          if image.setFilter then image:setFilter("nearest", "nearest") end
+          return image
+        end)
+        if ok and img then return img end
+      end
+      local ok, img = pcall(love.graphics.newImage, p)
       if ok and img then
         if img.setFilter then img:setFilter("nearest", "nearest") end
         return img
@@ -69,9 +73,28 @@ end
 local function ensureAssets()
   if _assetsTried then return end
   _assetsTried = true
-  _bgMale = tryLoad(PATHS.bgMale)
-  _bgFemale = tryLoad(PATHS.bgFemale)
-  _badgesImg = tryLoad(PATHS.badges)
+
+  _bgMale = load_rgba_image({
+    "trainer_card/bg.rgba",
+    "data/generated/gba/trainer_card/bg.rgba",
+    "trainer_card/bg.png",
+    "data/generated/gba/trainer_card/bg.png",
+  }, 240, 160)
+
+  _bgFemale = load_rgba_image({
+    "trainer_card/bg_female.rgba",
+    "data/generated/gba/trainer_card/bg_female.rgba",
+    "trainer_card/bg_female.png",
+    "data/generated/gba/trainer_card/bg_female.png",
+  }, 240, 160)
+
+  _badgesImg = load_rgba_image({
+    "trainer_card/badges.rgba",
+    "data/generated/gba/trainer_card/badges.rgba",
+    "trainer_card/badges.png",
+    "data/generated/gba/trainer_card/badges.png",
+  }, 128, 16)
+
   if _badgesImg and love and love.graphics and love.graphics.newQuad then
     _badgeQuads = {}
     local iw, ih = _badgesImg:getDimensions()
@@ -79,8 +102,22 @@ local function ensureAssets()
       _badgeQuads[i + 1] = love.graphics.newQuad(i * 16, 0, 16, 16, iw, ih)
     end
   end
-  _picRed = tryLoad(PATHS.red)
-  _picLeaf = tryLoad(PATHS.leaf)
+
+  _picRed = load_rgba_image({
+    "trainers/front/0.rgba",
+    "data/generated/gba/trainers/front/0.rgba",
+    "trainer_card/red.png",
+    "data/generated/gba/trainer_card/red.png",
+    "data/generated/gba/trainers/front/0.png",
+  }, 64, 64)
+
+  _picLeaf = load_rgba_image({
+    "trainers/front/1.rgba",
+    "data/generated/gba/trainers/front/1.rgba",
+    "trainer_card/leaf.png",
+    "data/generated/gba/trainer_card/leaf.png",
+    "data/generated/gba/trainers/front/1.png",
+  }, 64, 64)
 end
 
 local function count_caught(dex)

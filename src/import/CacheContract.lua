@@ -213,6 +213,8 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/trainers.lua",
     "data/generated/gba/trainers/back_0.rgba",
     "data/generated/gba/trainers/back_1.rgba",
+    "data/generated/gba/trainer_card/manifest.lua",
+    "data/generated/gba/trainer_card/bg.rgba",
   },
 }
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =

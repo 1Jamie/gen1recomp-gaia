@@ -44,32 +44,28 @@ FrlgFont._rev = nil -- UTF-8 char → glyph id
 FrlgFont._logged = false
 
 local FG_PATHS = {
+  { path = "chrome/fonts/latin_normal_fg.rgba", w = 256, h = 512 },
   { path = "data/generated/gba/chrome/fonts/latin_normal_fg.rgba", w = 256, h = 512 },
+  { path = "chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
   { path = "data/generated/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
-  { path = "src/import/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
-  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
-  { path = "sevii/gba/chrome/fonts/latin_normal_fg.png", w = 256, h = 512 },
 }
 local SH_PATHS = {
+  { path = "chrome/fonts/latin_normal_shadow.rgba", w = 256, h = 512 },
   { path = "data/generated/gba/chrome/fonts/latin_normal_shadow.rgba", w = 256, h = 512 },
+  { path = "chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
   { path = "data/generated/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
-  { path = "src/import/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
-  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
-  { path = "sevii/gba/chrome/fonts/latin_normal_shadow.png", w = 256, h = 512 },
 }
 local SMALL_FG_PATHS = {
+  { path = "chrome/fonts/latin_small_fg.rgba", w = 256, h = 288 },
   { path = "data/generated/gba/chrome/fonts/latin_small_fg.rgba", w = 256, h = 288 },
+  { path = "chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
   { path = "data/generated/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
-  { path = "src/import/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
-  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
-  { path = "sevii/gba/chrome/fonts/latin_small_fg.png", w = 256, h = 288 },
 }
 local SMALL_SH_PATHS = {
+  { path = "chrome/fonts/latin_small_shadow.rgba", w = 256, h = 288 },
   { path = "data/generated/gba/chrome/fonts/latin_small_shadow.rgba", w = 256, h = 288 },
+  { path = "chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
   { path = "data/generated/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
-  { path = "src/import/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
-  { path = "mods/Kanto-Reforged/sevii/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
-  { path = "sevii/gba/chrome/fonts/latin_small_shadow.png", w = 256, h = 288 },
 }
 
 local function log(msg)

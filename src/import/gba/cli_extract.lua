@@ -257,7 +257,7 @@ if battleAiOnly then
   local detail = assert(AiExtract.run({
     cache = packCache,
     cacheRoot = "data/generated/gba",
-    pretRoot = os.getenv("POKEFIRERED") or "/home/autumn/src/pokefirered",
+    pretRoot = os.getenv("POKEFIRERED"),
   }))
   imports:_close()
   print("OK battle AI", detail.scriptCount or "?", "scripts →", detail.path or detail.root)

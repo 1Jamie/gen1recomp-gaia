@@ -77,17 +77,6 @@ local function bake_rgba(rom, picOff, palOff, frames)
   return table.concat(bytes), w, h
 end
 
-local function copy_vendor_png(cache, root, name)
-  local src = "src/import/gba/chrome/field_effects/" .. name
-  local f = io.open(src, "rb")
-  if not f then return false end
-  local data = f:read("*a")
-  f:close()
-  if not data or #data < 8 then return false end
-  cache:write(root .. "/field_effects/" .. name, data)
-  return true
-end
-
 function FieldEffectExtract.writeExtract(rom, cache, root, version)
   root = root or "data/generated/gba"
   version = version or {}
@@ -110,13 +99,6 @@ function FieldEffectExtract.writeExtract(rom, cache, root, version)
     FieldEffectExtract.FRAME_W, FieldEffectExtract.FRAME_H,
     FieldEffectExtract.FORMAT_VERSION))
   log(string.format("tall_grass %dx%d (%d frames) → %s", w, h, FieldEffectExtract.FRAME_COUNT, rel))
-
-  local n = 0
-  if copy_vendor_png(cache, root, "pokeball_glow.png") then n = n + 1 end
-  if copy_vendor_png(cache, root, "pokemoncenter_monitor.png") then n = n + 1 end
-  if n > 0 then
-    log(string.format("pokecenter heal gfx ×%d → %s", n, rel))
-  end
 
   return { path = rel .. "/tall_grass.rgba", w = w, h = h, frames = FieldEffectExtract.FRAME_COUNT }
 end

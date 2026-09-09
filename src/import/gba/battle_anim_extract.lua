@@ -24,8 +24,8 @@ local function pret_scripts_path()
     return env .. "/data/battle_anim_scripts.s"
   end
   local candidates = {
-    "/home/autumn/src/pokefirered/data/battle_anim_scripts.s",
     "../pokefirered/data/battle_anim_scripts.s",
+    "pokefirered/data/battle_anim_scripts.s",
   }
   for _, p in ipairs(candidates) do
     local f = io.open(p, "rb")
@@ -71,8 +71,8 @@ local function pret_sprites_dir()
   local env = os.getenv("POKEFIRERED") or os.getenv("POKEFIRE_RED")
   local bases = {}
   if env and #env > 0 then bases[#bases + 1] = env end
-  bases[#bases + 1] = "/home/autumn/src/pokefirered"
   bases[#bases + 1] = "../pokefirered"
+  bases[#bases + 1] = "pokefirered"
   for _, b in ipairs(bases) do
     local p = b .. "/graphics/battle_anims/sprites"
     local f = io.open(p .. "/impact.png", "rb")
