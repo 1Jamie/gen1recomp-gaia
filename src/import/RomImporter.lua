@@ -2670,6 +2670,12 @@ function RomImporter:_deleteSlot(scope, id)
   if self.workState == "working" then return end
   local SaveData = require("src.core.SaveData")
   local cart = cartOfScope(scope)
+  local eng = self:_syncEngine()
+  local syncKey
+  if eng and eng.saves and type(eng.saves.keyForSlot) == "function" then
+    local okKey, key = pcall(eng.saves.keyForSlot, scope, id)
+    syncKey = okKey and key or nil
+  end
   local ok, err
   if cart then
     ok, err = SaveData.deleteCartSlot(cart, id)
@@ -2677,6 +2683,7 @@ function RomImporter:_deleteSlot(scope, id)
     ok, err = SaveData.deleteSlot(scope, id)
   end
   if ok then
+    if eng and syncKey then pcall(eng.noteSaveDeleted, eng, syncKey) end
     self:_refreshSlots(scope)
     self.saveNotice[scope] = { ok = true, text = "Deleted " .. tostring(id) .. "." }
   else
@@ -4259,6 +4266,12 @@ function RomImporter:_syncNoteDownload(row)
   if cart then
     local ok, found = pcall(self._cartById, self, version, cart)
     what = (ok and type(found) == "table" and found.title) or cart
+  end
+  if row.removed then
+    self.saveNotice[scope] = { ok = true,
+      text = ("Removed %s, deleted%s."):format(tostring(row.slot),
+        row.device and (" on " .. tostring(row.device)) or " on another device") }
+    return
   end
   self.saveNotice[scope] = { ok = true,
     text = what

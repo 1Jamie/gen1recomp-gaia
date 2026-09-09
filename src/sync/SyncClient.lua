@@ -173,6 +173,11 @@ function SyncClient:getSave(version, id)
     { params = { version = version, id = id } })
 end
 
+function SyncClient:deleteSave(version, id, rev)
+  return self:send("DELETE", "/sync/save", nil,
+    { params = { version = version, id = id, rev = rev } })
+end
+
 function SyncClient:putMods(manifest)
   return self:send("PUT", "/sync/mods", { manifest = manifest })
 end

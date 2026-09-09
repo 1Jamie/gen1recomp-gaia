@@ -53,10 +53,21 @@ local function saveEntry(version, id, savedAt, sessionStart, slot)
 end
 
 local function fakeSaves(entries)
-  local writes = {}
+  local writes, removed = {}, {}
   return {
     writes = writes,
+    removed = removed,
     list = function() return entries end,
+    remove = function(version, id)
+      removed[#removed + 1] = { version = version, playthroughId = id }
+      for i, e in ipairs(entries) do
+        if e.version == version and e.playthroughId == id then
+          table.remove(entries, i)
+          break
+        end
+      end
+      return "slot1", nil
+    end,
     write = function(version, id, blob, mode)
       writes[#writes + 1] = { version = version, playthroughId = id,
                               blob = blob, mode = mode }
@@ -924,6 +935,101 @@ do
   T.eq(#transport.sent, 1,
     "an older Gold save with no stamp on either side is not dirty every boot")
   T.eq(eng.phase, "idle", "so the launcher settles")
+end
+
+-- ---- save deletion (#tombstones): a slot deleted here is deleted on the
+-- server, and a server tombstone removes the local copy on every other device.
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 3, 500)
+  local eng, transport = engine({
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{"red/abc":{"rev":3}}}' },
+    ["DELETE /sync/save"] = { code = 200, body = '{"ok":true,"key":"red/abc","rev":3}' },
+  }, {}, state)
+  T.eq(eng:noteSaveDeleted("red/abc"), true, "deleting a synced save is noted")
+  T.eq(eng.state.pendingDeletes["red/abc"].rev, 3, "with the rev this device knew")
+  T.eq(SyncState.rev(eng.state, "red/abc"), nil, "and the rev is forgotten")
+  T.check(eng.uploadAt ~= nil, "a sync is scheduled")
+  eng:syncNow()
+  pump(eng)
+  local del = transport.sent[2]
+  T.eq(del.method, "DELETE", "the server is told to delete the save")
+  T.check(del.url:find("version=red", 1, true) and del.url:find("id=abc", 1, true),
+    "by version and playthrough id")
+  T.eq(eng.state.pendingDeletes["red/abc"], nil, "the pending delete is cleared")
+  T.eq(#transport.sent, 2, "and nothing is downloaded back")
+  T.eq(eng.phase, "idle", "the engine settles")
+end
+
+do
+  local eng = engine({}, {}, SyncState.defaults())
+  T.eq(eng:noteSaveDeleted("red/never"), false,
+    "deleting a save the server never had is a local matter")
+  T.eq(next(eng.state.pendingDeletes), nil, "and leaves no pending delete")
+end
+
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 3, 500)
+  local eng, transport, saves = engine({
+    ["GET /sync/state"] = { code = 200, body =
+      '{"saves":{},"deleted":{"red/abc":{"rev":3,"deletedAt":900,"device":"phone"}}}' },
+  }, { saveEntry("red", "abc", 500, 400) }, state)
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.removed, 1, "a tombstone for an unchanged local save removes it")
+  T.eq(saves.removed[1].playthroughId, "abc", "the right one")
+  T.eq(SyncState.rev(eng.state, "red/abc"), nil, "and forgets its rev")
+  T.eq(eng.changed, true, "the launcher is told the slots changed")
+  T.eq(eng.lastDownloads[1].removed, true, "with a removal row")
+  T.eq(eng.lastDownloads[1].device, "phone", "naming the device that deleted it")
+  T.eq(#transport.sent, 1, "nothing is uploaded or downloaded")
+  T.eq(eng.phase, "idle", "the engine settles")
+end
+
+do
+  local state = linkedState()
+  SyncState.setRev(state, "red/abc", 3, 500)
+  local eng, transport, saves = engine({
+    ["GET /sync/state"] = { code = 200, body =
+      '{"saves":{},"deleted":{"red/abc":{"rev":3,"deletedAt":900}}}' },
+    ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":4}' },
+  }, { saveEntry("red", "abc", 1000, 950) }, state)
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.removed, 0, "a save played after the delete is kept")
+  T.eq(transport.sent[2] and transport.sent[2].method, "PUT", "and uploaded, reviving it")
+  T.eq(SyncState.rev(eng.state, "red/abc"), 4, "at the server's next rev")
+end
+
+do
+  local eng, transport, saves = engine({
+    ["GET /sync/state"] = { code = 200, body =
+      '{"saves":{},"deleted":{"red/abc":{"rev":3,"deletedAt":900}}}' },
+    ["PUT /sync/save"] = { code = 200, body = '{"ok":true,"rev":4}' },
+  }, { saveEntry("red", "abc", 500, 400) }, linkedState())
+  eng:syncNow()
+  pump(eng)
+  T.eq(#saves.removed, 0, "a tombstone never removes a save this device did not sync")
+  T.eq(transport.sent[2] and transport.sent[2].method, "PUT", "it is uploaded as usual")
+end
+
+do
+  local state = linkedState()
+  SyncState.markDeleted(state, "red/abc", 3, 900)
+  local eng, transport, saves = engine({
+    ["GET /sync/state"] = { code = 200, body = '{"saves":{"red/abc":{"rev":5}}}' },
+    ["GET /sync/save"] = { code = 200, body =
+      '{"key":"red/abc","rev":5,"meta":{"savedAt":1200},"blob":"return {}"}' },
+  }, {}, state)
+  eng:syncNow()
+  pump(eng)
+  T.eq(eng.state.pendingDeletes["red/abc"], nil,
+    "a pending delete yields to a save another device wrote afterwards")
+  T.eq(#saves.writes, 1, "which is downloaded")
+  for _, req in ipairs(transport.sent) do
+    T.check(req.method ~= "DELETE", "and never deleted")
+  end
 end
 
 T.finish("sync_engine")

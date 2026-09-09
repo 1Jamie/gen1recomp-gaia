@@ -11,6 +11,7 @@ function SyncState.defaults()
     revs = {},
     stamps = {},
     pendingConflicts = {},
+    pendingDeletes = {},
   }
 end
 
@@ -56,6 +57,14 @@ function SyncState.sanitize(raw)
     for key, at in pairs(raw.stamps) do
       local n = num(at)
       if type(key) == "string" and n then out.stamps[key] = n end
+    end
+  end
+  if type(raw.pendingDeletes) == "table" then
+    for key, row in pairs(raw.pendingDeletes) do
+      if type(key) == "string" and type(row) == "table" then
+        out.pendingDeletes[key] = { rev = num(row.rev) or 0,
+                                    deletedAt = num(row.deletedAt) or 0 }
+      end
     end
   end
   if type(raw.pendingConflicts) == "table" then
@@ -128,6 +137,17 @@ function SyncState.setRev(state, key, rev, savedAt)
   state.stamps = state.stamps or {}
   state.revs[key] = num(rev)
   state.stamps[key] = num(savedAt)
+end
+
+function SyncState.markDeleted(state, key, rev, deletedAt)
+  if type(state) ~= "table" or type(key) ~= "string" then return end
+  state.pendingDeletes = state.pendingDeletes or {}
+  state.pendingDeletes[key] = { rev = num(rev) or 0, deletedAt = num(deletedAt) or 0 }
+end
+
+function SyncState.clearDeleted(state, key)
+  if type(state) ~= "table" or type(state.pendingDeletes) ~= "table" then return end
+  state.pendingDeletes[key] = nil
 end
 
 function SyncState.forget(state, key)

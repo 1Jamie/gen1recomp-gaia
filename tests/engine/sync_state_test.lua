@@ -121,4 +121,16 @@ end
 
 love.filesystem = realFS
 
+do
+  local state = SyncState.defaults()
+  SyncState.markDeleted(state, "red/abc", 3, 900)
+  local back = SyncState.sanitize(state)
+  T.eq(back.pendingDeletes["red/abc"].rev, 3, "a pending delete survives sanitize")
+  T.eq(back.pendingDeletes["red/abc"].deletedAt, 900, "with its time")
+  SyncState.clearDeleted(back, "red/abc")
+  T.eq(next(back.pendingDeletes), nil, "and can be cleared")
+  T.eq(next(SyncState.sanitize({ pendingDeletes = { [7] = {}, x = "no" } })
+    .pendingDeletes), nil, "malformed pending deletes are dropped")
+end
+
 T.finish("sync_state")
