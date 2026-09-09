@@ -124,6 +124,9 @@ GameVersion.VERSIONS = {
     saveSuffix = "_firered",
     generation = 3,
     engine = "game3",
+    cartShape = "gba",
+    cartShell = "#e64110",
+    cartLabel = "assets/labels/firered.png",
   },
 }
 
