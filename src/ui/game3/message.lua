@@ -99,12 +99,16 @@ function Message.show(text, opts)
     Message._speedIdx = 0
   end
 
+  local maxW = (opts.frame == "battle" or opts.battle) and 212 or 208
+  local ctx = opts.ctx or {}
+  if not ctx.maxWidth then ctx.maxWidth = maxW end
+
   local plain
   if type(text) == "table" then
-    plain = TextIR.toTextBox(text, opts.ctx or {})
+    plain = TextIR.toTextBox(text, ctx)
   else
     local ir = TextIR.fromAscii(tostring(text or ""))
-    plain = TextIR.toTextBox(ir, opts.ctx or {})
+    plain = TextIR.toTextBox(ir, ctx)
   end
   Message._pages = split_pages(plain)
   Message._page = 1
@@ -239,7 +243,7 @@ function Message.drawText()
     baseY = Chrome.DLG_TOP * Display.TILE + 1
     maxW = Chrome.DLG_W * Display.TILE
   end
-  FrlgFont.draw(page, baseX, baseY, {
+  local drawn, endX, endY = FrlgFont.draw(page, baseX, baseY, {
     maxWidth = maxW,
     limitChars = Message._revealed,
     colors = (Message._frame == "battle") and FrlgFont.COLOR.WHITE or FrlgFont.COLOR.NORMAL,
@@ -247,14 +251,15 @@ function Message.drawText()
 
   if Message._waiting and not Message._stay then
     local t = love and love.timer and love.timer.getTime and love.timer.getTime() or 0
-    local frame = math.floor(t * 8) % 8
-    local bounce = ({ 0, 1, 2, 1 })[1 + (math.floor(t * 8) % 4)] or 0
-    local ax, ay
-    if Message._frame == "battle" then
-      ax, ay = 222, 148 - bounce
-    else
-      ax = (Chrome.DLG_LEFT + Chrome.DLG_W - 2) * Display.TILE
-      ay = (Chrome.DLG_TOP + Chrome.DLG_H - 1) * Display.TILE - bounce
+    -- Red arrow has 4 vertical bounce frames (0..3) in down_arrows.png
+    local bounceSeq = { 0, 1, 2, 3, 2, 1 }
+    local frame = bounceSeq[1 + (math.floor(t * 8) % #bounceSeq)] or 0
+
+    local ax = (endX or (baseX + 16)) + 2
+    local ay = (endY or baseY)
+    -- Clamp arrow within the dialog panel
+    if ax + 10 > baseX + maxW then
+      ax = baseX + maxW - 10
     end
     Chrome.promptArrow(ax, ay, frame)
   end

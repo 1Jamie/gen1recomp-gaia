@@ -192,33 +192,52 @@ function TextChromeExtract.extractLatinSmall(rom)
   }
 end
 
---- Decode down_arrows: 8 frames of 16x16
-function TextChromeExtract.extractDownArrows()
+--- Decode down_arrows: 8 frames of 16x16 (sDownArrowTiles @ 0x1EA14C in FireRed)
+function TextChromeExtract.extractDownArrows(rom)
+  local baseGfx = 0x1EA14C
   local sheetW, sheetH = 128, 16
-  local fgPixels = {}
-  for i = 1, sheetW * sheetH * 4 do fgPixels[i] = 0 end
-
-  -- Standard 9-7-5-3-1 downward triangle prompt arrow
-  local pattern = {
-    { 0, 8 }, -- row 0: x=0..8
-    { 1, 7 }, -- row 1: x=1..7
-    { 2, 6 }, -- row 2: x=2..6
-    { 3, 5 }, -- row 3: x=3..5
-    { 4, 4 }, -- row 4: x=4
+  local pal = {
+    [0] = { 0, 0, 0, 0 },
+    [1] = { 0, 0, 0, 0 },
+    [2] = { 48, 48, 48, 255 },    -- dark shadow
+    [3] = { 213, 213, 205, 255 }, -- highlight
+    [4] = { 230, 8, 8, 255 },      -- red arrow
+    [5] = { 255, 189, 115, 255 },
+    [6] = { 32, 156, 8, 255 },
+    [7] = { 148, 246, 148, 255 },
+    [8] = { 49, 82, 205, 255 },
+    [9] = { 164, 197, 246, 255 },  -- light blue shadow (for dark arrow)
   }
-  local yOffsets = { 2, 3, 4, 5, 2, 3, 4, 5 }
-  for f = 0, 7 do
-    local fx = f * 16
-    local yBase = yOffsets[f + 1]
-    for rowIdx, row in ipairs(pattern) do
-      local py = yBase + (rowIdx - 1)
-      for px = fx + row[1], fx + row[2] do
-        if px < sheetW and py < sheetH then
-          local pi = (py * sheetW + px) * 4 + 1
-          fgPixels[pi] = 255
-          fgPixels[pi + 1] = 255
-          fgPixels[pi + 2] = 255
-          fgPixels[pi + 3] = 255
+
+  local pixels = {}
+  for i = 1, sheetW * sheetH * 4 do pixels[i] = 0 end
+
+  for ty = 0, 1 do
+    for tx = 0, 15 do
+      local tileIdx = ty * 16 + tx
+      local tileOff = baseGfx + tileIdx * 32
+      for row = 0, 7 do
+        for col = 0, 7, 2 do
+          local byte = (rom and rom:get(tileOff + row * 4 + math.floor(col / 2))) or 0
+          local p0 = byte % 16
+          local p1 = math.floor(byte / 16) % 16
+
+          local px0 = tx * 8 + col
+          local py0 = ty * 8 + row
+          local pi0 = (py0 * sheetW + px0) * 4 + 1
+          local c0 = pal[p0] or pal[0]
+          pixels[pi0] = c0[1]
+          pixels[pi0 + 1] = c0[2]
+          pixels[pi0 + 2] = c0[3]
+          pixels[pi0 + 3] = c0[4]
+
+          local px1 = tx * 8 + col + 1
+          local pi1 = (py0 * sheetW + px1) * 4 + 1
+          local c1 = pal[p1] or pal[0]
+          pixels[pi1] = c1[1]
+          pixels[pi1 + 1] = c1[2]
+          pixels[pi1 + 2] = c1[3]
+          pixels[pi1 + 3] = c1[4]
         end
       end
     end
@@ -226,7 +245,7 @@ function TextChromeExtract.extractDownArrows()
 
   local chunks = {}
   for i = 1, sheetW * sheetH * 4 do
-    chunks[i] = string.char(fgPixels[i] or 0)
+    chunks[i] = string.char(pixels[i] or 0)
   end
   return {
     rgba = table.concat(chunks),
@@ -345,7 +364,7 @@ function TextChromeExtract.run(rom, cache, opts)
   write_cache(cache, fDir .. "/latin_small_shadow.rgba", small.shRgba)
   write_cache(cache, fDir .. "/latin_small_widths.lua", format_widths_lua(small.widths, "sFontSmallLatinGlyphWidths (FireRed @ 0x1EEF00)"))
 
-  local arrows = TextChromeExtract.extractDownArrows()
+  local arrows = TextChromeExtract.extractDownArrows(rom)
   write_cache(cache, fDir .. "/down_arrows_fg.rgba", arrows.rgba)
 
   -- 2) Window Chrome

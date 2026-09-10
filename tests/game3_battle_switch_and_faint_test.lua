@@ -363,4 +363,148 @@ do
   Battle.abort()
 end
 
+print("\n--- Testing SwitchSeq.beginShiftSwitch Interleaving & Timing ---")
+do
+  local st = State.new({
+    playerParty = {
+      { species = 1, level = 10, hp = 25, maxHp = 30, speed = 20 },
+      { species = 4, level = 10, hp = 30, maxHp = 30, speed = 25 },
+    },
+    foeParty = {
+      { species = 16, level = 10, hp = 0, maxHp = 30, speed = 15 },
+      { species = 19, level = 10, hp = 30, maxHp = 30, speed = 30 },
+    },
+    trainerName = "CAMPER",
+  })
+  local logged = {}
+  local pushMsg = function(t) logged[#logged + 1] = t end
+
+  -- Headless test
+  SwitchSeq.beginShiftSwitch(st, 2, 2, { headless = true, pushMsg = pushMsg })
+  eq(st.player.partyIndex, 2, "player active slot is 2")
+  eq(st.enemy.partyIndex, 2, "enemy active slot is 2")
+  check(logged[1]:find("that's enough!"), "step 1: player recall message")
+  check(logged[2]:find("sent\nout"), "step 2: enemy sendout message (BEFORE player sendout)")
+  check(logged[3]:find("Go!"), "step 3: player sendout message (AFTER enemy sendout)")
+
+  -- Non-headless step ordering test
+  SwitchSeq.beginShiftSwitch(st, 2, 2, { headless = false, pushMsg = pushMsg })
+  local kinds = {}
+  for _, s in ipairs(SwitchSeq._steps or {}) do
+    kinds[#kinds + 1] = s.kind
+  end
+
+  local function find_step(k, startI)
+    for i = (startI or 1), #kinds do
+      if kinds[i] == k then return i end
+    end
+    return nil
+  end
+
+  local iWithdraw = find_step("withdraw")
+  local iEnemySend = find_step("sendout_enemy")
+  local iPlayerSend = find_step("sendout_player")
+  local iEntryTriggers = find_step("entry_triggers")
+
+  check(iWithdraw ~= nil, "has withdraw step")
+  check(iEnemySend ~= nil, "has sendout_enemy step")
+  check(iPlayerSend ~= nil, "has sendout_player step")
+  check(iEntryTriggers ~= nil, "has entry_triggers step")
+
+  check(iWithdraw < iEnemySend, "player withdraws BEFORE enemy sends out")
+  check(iEnemySend < iPlayerSend, "enemy sends out BEFORE player sends out (retail FRLG)")
+  check(iPlayerSend < iEntryTriggers, "entry triggers fire AFTER both mons placed on field")
+end
+
+print("\n--- Testing SwitchSeq.beginTrainerSlideIn ---")
+do
+  local st = State.new({
+    trainerId = 326,
+    trainerName = "LASS",
+    foeParty = { { species = 16, hp = 0, maxHp = 20 } },
+  })
+  SwitchSeq.beginTrainerSlideIn(st, { headless = false })
+  check(SwitchSeq._steps ~= nil and #SwitchSeq._steps == 1, "trainer slide-in step created")
+  eq(SwitchSeq._steps[1].kind, "trainer_slide_in", "step is trainer_slide_in")
+end
+
+print("\n--- Testing Double KO / Mutual Faint Resolution ---")
+do
+  -- Player and Enemy both have 1 HP and player uses move with recoil
+  local pMon1 = Damage.ensureStats({ species = 1, level = 10, hp = 1, maxHp = 30, moves = { 33 }, pp = { 35 } })
+  local pMon2 = Damage.ensureStats({ species = 4, level = 10, hp = 30, maxHp = 30, moves = { 33 }, pp = { 35 } })
+  local eMon1 = Damage.ensureStats({ species = 16, level = 10, hp = 1, maxHp = 30, moves = { 33 }, pp = { 35 } })
+  local eMon2 = Damage.ensureStats({ species = 19, level = 10, hp = 30, maxHp = 30, moves = { 33 }, pp = { 35 } })
+
+  local ok = Battle.start({
+    headless = true,
+    autoFight = false,
+    playerParty = { pMon1, pMon2 },
+    foeParty = { eMon1, eMon2 },
+    foe = { trainerId = 326 },
+    wild = false,
+  })
+  check(ok, "Battle started for mutual faint test")
+  Battle.update(0, nil)
+
+  local st = Battle.getState()
+  -- Set both active mons to 0 HP simultaneously
+  st.player.mon.hp = 0
+  st.enemy.mon.hp = 0
+
+  Battle._actions = {}
+  Battle._actionI = 1
+  Battle._phase = "actions"
+  Battle.update(0, nil)
+
+  eq(st.over, false, "mutual faint does not end battle when both have reserves")
+  eq(st.enemy.partyIndex, 2, "enemy sent out next mon without shift prompt")
+  eq(st.player.partyIndex, 2, "player sent out next mon without shift prompt")
+
+  Battle.abort()
+end
+
+print("\n--- Testing Dialogue Formatting & 2-Line Pagination Bounds ---")
+do
+  local TextIR = require("src.core.game3.scripting.text_ir")
+  local Message = require("src.ui.game3.message")
+
+  -- Test 1: Shift prompt with \p formats into exactly 2 pages with <= 2 lines each
+  local rawPrompt = "BUG CATCHER DOUG is\nabout to use WEEDLE.\\pWill RED change\nPOKéMON?"
+  local ir = TextIR.fromAscii(rawPrompt)
+  local boxText = TextIR.toTextBox(ir)
+  Message.show(boxText, { frame = "battle" })
+
+  eq(#Message._pages, 2, "Shift prompt splits into exactly 2 pages")
+  for pi, p in ipairs(Message._pages) do
+    local lineCount = 1
+    for _ in p:gmatch("\n") do lineCount = lineCount + 1 end
+    check(lineCount <= 2, string.format("Page %d has at most 2 lines (got %d: %q)", pi, lineCount, p))
+  end
+  Message.close()
+
+  -- Test 2: Unformatted 3-line string with literal newlines automatically paginates without overflowing
+  local raw3Line = "Line 1\nLine 2\nLine 3"
+  local ir2 = TextIR.fromAscii(raw3Line)
+  local boxText2 = TextIR.toTextBox(ir2)
+  Message.show(boxText2, { frame = "battle" })
+  eq(#Message._pages, 2, "3-line string paginates across 2 pages")
+  check(not Message._pages[1]:find("Line 3"), "Page 1 does not contain Line 3")
+  check(Message._pages[2]:find("Line 3") ~= nil, "Page 2 contains Line 3")
+  Message.close()
+
+  -- Test 3: Long single sentence without newlines wraps and paginates at <= 2 lines per page
+  local longSentence = "In the world which you are about to enter, you will embark on a grand adventure with you as the hero."
+  local ir3 = TextIR.fromAscii(longSentence)
+  local boxText3 = TextIR.toTextBox(ir3, { maxWidth = 208 })
+  Message.show(boxText3, { frame = "dialogue" })
+  check(#Message._pages >= 2, "Long sentence paginates across multiple pages")
+  for pi, p in ipairs(Message._pages) do
+    local lineCount = 1
+    for _ in p:gmatch("\n") do lineCount = lineCount + 1 end
+    check(lineCount <= 2, string.format("Dialogue page %d has <= 2 lines (got %d: %q)", pi, lineCount, p))
+  end
+  Message.close()
+end
+
 print("\nALL BATTLE SWITCH & FAINT TESTS PASSED! (100%)")

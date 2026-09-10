@@ -283,10 +283,10 @@ end
 function Chrome.promptArrow(px, py, frame)
   local atlas = ensureArrow()
   if not atlas then
-    love.graphics.setColor(98 / 255, 98 / 255, 98 / 255, 1)
+    love.graphics.setColor(230 / 255, 8 / 255, 8 / 255, 1)
     love.graphics.polygon("fill",
-      px + 1, py + 2,
-      px + 7, py + 2,
+      px, py + 2,
+      px + 8, py + 2,
       px + 4, py + 7)
     love.graphics.setColor(1, 1, 1, 1)
     return

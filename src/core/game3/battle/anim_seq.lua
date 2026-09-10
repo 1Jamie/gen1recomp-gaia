@@ -125,7 +125,6 @@ function AnimSeq.begin(result, pushMsg)
   local faints = result.faints or {}
   for i = restStart, #msgs do
     local text = msgs[i]
-    add("msg", { text = text })
     if type(text) == "string" and text:find("fainted") then
       local side = faints[faintI] and faints[faintI].side
       if not side then
@@ -136,8 +135,11 @@ function AnimSeq.begin(result, pushMsg)
         end
       end
       faintI = faintI + 1
-      -- pret: waitmessage on faint line, then FaintAnimation (SE + sink).
+      -- pret: playfaintcry -> dofaintanimation (SE + sink) -> waitmessage on faint line
       add("faint", { side = side })
+      add("msg", { text = text })
+    else
+      add("msg", { text = text })
     end
   end
 

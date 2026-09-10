@@ -409,7 +409,7 @@ function FrlgFont.draw(text, x, y, opts)
     end
   end
   love.graphics.setColor(1, 1, 1, 1)
-  return drawn
+  return drawn, x + penX, y + penY
 end
 
 --- Draw a single glyph by FRLG charset id (e.g. 0x7C = CHAR_RIGHT_ARROW).

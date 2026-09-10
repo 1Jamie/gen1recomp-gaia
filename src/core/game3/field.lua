@@ -114,11 +114,6 @@ function Field.update(_dt)
     SpecialAnim.update()
   end
 
-  local okT, Task = pcall(require, "src.core.game3.task")
-  if okT and Task and Task.update then
-    Task.update()
-  end
-
   if Message and Message.tick then Message.tick() end
 end
 

@@ -1,5 +1,5 @@
 -- Mid-battle switch, withdraw, and send-out presentation sequencer.
--- Handles dynamic withdraw strings, sprite tweens, cry audio, shiny checks, and hazard triggers.
+-- Handles dynamic withdraw strings, sprite tweens, cry audio, shiny checks, and hazard/ability triggers.
 
 local Anim = require("src.core.game3.battle.anim")
 local State = require("src.core.game3.battle.state")
@@ -47,6 +47,8 @@ end
 
 local function advance()
   SwitchSeq._waiting = false
+  SwitchSeq._waitingMsg = false
+  SwitchSeq._waitingCry = false
   SwitchSeq._i = SwitchSeq._i + 1
 end
 
@@ -66,6 +68,53 @@ local function withdraw_text(battler)
     return string.format("%s, good job!\nCome back!", name)
   else
     return string.format("%s, you did it!\nCome back!", name)
+  end
+end
+
+local function apply_entry_triggers(st, side, pushMsg)
+  if not st then return end
+  local b = st[side]
+  if not b or not b.mon or (tonumber(b.mon.hp) or 0) <= 0 then return end
+
+  -- Hazards: Spikes
+  local sideState = (side == "player") and st.playerSide or st.enemySide
+  local hazards = sideState and sideState.hazards or {}
+  local spikesLayers = tonumber(hazards.spikes or hazards.SPIKES) or 0
+  if spikesLayers > 0 and b and b.mon then
+    local isFlying = (b.type1 == 2 or b.type2 == 2 or b.type1 == "FLYING" or b.type2 == "FLYING")
+    local hasLevitate = (b.ability == "LEVITATE" or b.ability == 26)
+    if not isFlying and not hasLevitate then
+      local maxHp = tonumber(b.mon.maxHp) or 1
+      local fraction = (spikesLayers == 1) and 8 or (spikesLayers == 2 and 6 or 4)
+      local dmg = math.max(1, math.floor(maxHp / fraction))
+      State.applyHpLoss(b, dmg)
+      local msg = State.displayName(b) .. " is hurt\nby the SPIKES!"
+      if pushMsg then pushMsg(msg) end
+      local p = Anim.present(side)
+      if p then
+        Anim.tweenHp(side, p.displayHp or maxHp, b.mon.hp, maxHp)
+      end
+    end
+  end
+
+  -- Ability: Intimidate (ability 22 or "INTIMIDATE")
+  if (b.ability == 22 or b.ability == "INTIMIDATE") and (tonumber(b.mon.hp) or 0) > 0 then
+    local oppSide = (side == "player") and "enemy" or "player"
+    local opp = st[oppSide]
+    if opp and opp.mon and (tonumber(opp.mon.hp) or 0) > 0 then
+      local oppName = State.displayName(opp)
+      local myName = State.displayName(b)
+      if opp.ability == "CLEAR_BODY" or opp.ability == 29 or opp.ability == "WHITE_SMOKE" or opp.ability == 73 or opp.substitute then
+        -- Immune to Intimidate
+      else
+        local cur = opp.stages and opp.stages.attack or 0
+        if cur > -6 then
+          opp.stages.attack = math.max(-6, cur - 1)
+          local msg = myName .. "'s INTIMIDATE\ncuts " .. oppName .. "'s ATTACK!"
+          if pushMsg then pushMsg(msg) end
+        end
+      end
+    end
   end
 end
 
@@ -98,12 +147,12 @@ function SwitchSeq.beginPlayerSwitch(st, newSlot, opts)
     { kind = "msg", data = { text = withdrawMsg } },
     { kind = "withdraw", data = { side = "player" } },
     { kind = "swap_data", data = { side = "player", newSlot = newSlot, batonPass = opts.batonPass } },
+    { kind = "msg_sendout", data = { side = "player" } },
     { kind = "sendout_player", data = { slot = newSlot } },
     { kind = "shiny_check", data = { side = "player" } },
     { kind = "cry", data = { side = "player" } },
-    { kind = "msg_sendout", data = { side = "player" } },
     { kind = "healthbox", data = { side = "player" } },
-    { kind = "hazard_check", data = { side = "player" } },
+    { kind = "entry_triggers", data = { side = "player" } },
   }
 
   SwitchSeq._steps = steps
@@ -146,12 +195,12 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
   if side == "player" then
     steps = {
       { kind = "swap_data", data = { side = "player", newSlot = newSlot } },
+      { kind = "msg_sendout", data = { side = "player" } },
       { kind = "sendout_player", data = { slot = newSlot } },
       { kind = "shiny_check", data = { side = "player" } },
       { kind = "cry", data = { side = "player" } },
-      { kind = "msg_sendout", data = { side = "player" } },
       { kind = "healthbox", data = { side = "player" } },
-      { kind = "hazard_check", data = { side = "player" } },
+      { kind = "entry_triggers", data = { side = "player" } },
     }
   else
     steps = {
@@ -161,10 +210,89 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
       { kind = "shiny_check", data = { side = "enemy" } },
       { kind = "cry", data = { side = "enemy" } },
       { kind = "healthbox", data = { side = "enemy" } },
-      { kind = "hazard_check", data = { side = "enemy" } },
+      { kind = "entry_triggers", data = { side = "enemy" } },
     }
   end
 
+  SwitchSeq._steps = steps
+  SwitchSeq._i = 1
+  return true
+end
+
+--- Retail Shift sequence: Player recalls active mon -> Enemy sends out replacement FIRST -> Player sends out replacement SECOND.
+function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
+  opts = opts or {}
+  SwitchSeq.reset()
+  SwitchSeq._st = st
+  SwitchSeq._headless = opts.headless and true or false
+  SwitchSeq._pushMsg = opts.pushMsg
+  SwitchSeq._onDone = opts.onDone
+
+  local oldBattler = st.player
+  local withdrawMsg = withdraw_text(oldBattler)
+
+  if SwitchSeq._headless then
+    if SwitchSeq._pushMsg then SwitchSeq._pushMsg(withdrawMsg) end
+    State.trackParticipant(st, st.enemy, oldBattler and oldBattler.partyIndex or 1)
+    State.syncBattlerToParty(st.player, st.playerParty)
+    State.wipeVolatilesAndStages(st.player)
+    st.enemy = State.makeBattler(st.foeParty[enemySlot], "enemy", { partyIndex = enemySlot })
+    local tname = (st.trainerClassName and st.trainerClassName ~= "")
+      and (st.trainerClassName .. " " .. (st.trainerName or ""))
+      or (st.trainerName or "TRAINER")
+    if SwitchSeq._pushMsg then SwitchSeq._pushMsg(tname .. " sent\nout " .. State.displayName(st.enemy) .. "!") end
+    st.player = State.makeBattler(st.playerParty[playerSlot], "player", { partyIndex = playerSlot })
+    State.trackParticipant(st, st.enemy, playerSlot)
+    Anim.syncDisplayFromState(st)
+    if SwitchSeq._pushMsg then SwitchSeq._pushMsg("Go! " .. State.displayName(st.player) .. "!") end
+    finish()
+    return false
+  end
+
+  local steps = {
+    -- 1. Player recall
+    { kind = "msg", data = { text = withdrawMsg } },
+    { kind = "withdraw", data = { side = "player" } },
+    -- 2. Enemy sendout first (retail FRLG order)
+    { kind = "swap_data", data = { side = "enemy", newSlot = enemySlot } },
+    { kind = "msg_sendout", data = { side = "enemy" } },
+    { kind = "sendout_enemy", data = { slot = enemySlot } },
+    { kind = "shiny_check", data = { side = "enemy" } },
+    { kind = "cry", data = { side = "enemy" } },
+    { kind = "healthbox", data = { side = "enemy" } },
+    -- 3. Player sendout second
+    { kind = "swap_data", data = { side = "player", newSlot = playerSlot } },
+    { kind = "msg_sendout", data = { side = "player" } },
+    { kind = "sendout_player", data = { slot = playerSlot } },
+    { kind = "shiny_check", data = { side = "player" } },
+    { kind = "cry", data = { side = "player" } },
+    { kind = "healthbox", data = { side = "player" } },
+    -- 4. Entry abilities and hazards in speed order
+    { kind = "entry_triggers", data = { sides = { "enemy", "player" } } },
+  }
+
+  SwitchSeq._steps = steps
+  SwitchSeq._i = 1
+  return true
+end
+
+--- Retail defeat slide-in: Front sprite of defeated enemy trainer slides in from right before defeat speech.
+function SwitchSeq.beginTrainerSlideIn(st, opts)
+  opts = opts or {}
+  SwitchSeq.reset()
+  SwitchSeq._st = st
+  SwitchSeq._headless = opts.headless and true or false
+  SwitchSeq._pushMsg = opts.pushMsg
+  SwitchSeq._onDone = opts.onDone
+
+  if SwitchSeq._headless then
+    finish()
+    return false
+  end
+
+  local steps = {
+    { kind = "trainer_slide_in", data = { side = "enemy" } },
+  }
   SwitchSeq._steps = steps
   SwitchSeq._i = 1
   return true
@@ -257,33 +385,38 @@ local function run_step(step)
     local pcx, pcy = Anim.PLAYER_MON.x, Anim.PLAYER_MON.y
     s.ball.visible = true
     s.ball.frame = 0
+    s.ball.rot = 0
     s.ball.side = "player"
     s.ball.x = 48
     s.ball.y = 70
     pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = -64 }) end)
     wait_busy()
-    Anim.tweenStage(20, function(u)
+    Anim.tweenStage(25, function(u, t)
+      local f = t.frames or (u * 25)
       local sx, sy = 48, 70
       local tx, ty = pcx, pcy + 24
       s.ball.x = sx + (tx - sx) * u
-      s.ball.y = sy + (ty - sy) * u + (-24 * 4 * u * (1 - u))
+      s.ball.y = sy + (ty - sy) * u + (-30 * 4 * u * (1 - u))
+      s.ball.rot = f * ((25 / 256) * math.pi * 2)
     end, function()
       s.ball.frame = 1
+      s.ball.rot = 0
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
       local p = Anim.present("player")
       p.visible = true
       p.ox = 0
       p.oy = 16
-      p.scale = 0.2
+      p.scale = 0.16
       p.darken = 0
       Anim.tweenStage(12, function(u)
         p.oy = 16 * (1 - u)
-        p.scale = 0.2 + 0.8 * u
+        p.scale = 0.16 + 0.84 * u
         s.ball.frame = (u < 0.5) and 1 or 2
       end, function()
         p.oy = 0
         p.scale = 1
         s.ball.visible = false
+        s.ball.rot = 0
         advance()
       end)
     end)
@@ -298,18 +431,18 @@ local function run_step(step)
     s.ball.x = cx
     s.ball.y = cy + 24
     wait_busy()
-    Anim.tweenStage(12, function() end, function()
+    Anim.tweenStage(16, function() end, function()
       s.ball.frame = 1
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
       local p = Anim.present("enemy")
       p.visible = true
       p.ox = 0
       p.oy = 16
-      p.scale = 0.2
+      p.scale = 0.16
       p.darken = 0
       Anim.tweenStage(12, function(u)
         p.oy = 16 * (1 - u)
-        p.scale = 0.2 + 0.8 * u
+        p.scale = 0.16 + 0.84 * u
         s.ball.frame = (u < 0.5) and 1 or 2
       end, function()
         p.oy = 0
@@ -367,29 +500,40 @@ local function run_step(step)
     return
   end
 
-  if kind == "hazard_check" then
-    local side = d.side or "player"
-    local sideState = (side == "player") and st.playerSide or st.enemySide
-    local hazards = sideState and sideState.hazards or {}
-    local spikesLayers = tonumber(hazards.spikes or hazards.SPIKES) or 0
-    local b = st and st[side]
-    if spikesLayers > 0 and b and b.mon then
-      local isFlying = (b.type1 == 2 or b.type2 == 2 or b.type1 == "FLYING" or b.type2 == "FLYING")
-      local hasLevitate = (b.ability == "LEVITATE" or b.ability == 26)
-      if not isFlying and not hasLevitate then
-        local maxHp = tonumber(b.mon.maxHp) or 1
-        local fraction = (spikesLayers == 1) and 8 or (spikesLayers == 2 and 6 or 4)
-        local dmg = math.max(1, math.floor(maxHp / fraction))
-        State.applyHpLoss(b, dmg)
-        local msg = State.displayName(b) .. " is hurt\nby the SPIKES!"
-        if SwitchSeq._pushMsg then SwitchSeq._pushMsg(msg) end
-        local p = Anim.present(side)
-        if p then
-          Anim.tweenHp(side, p.displayHp or maxHp, b.mon.hp, maxHp)
-        end
-      end
+  if kind == "entry_triggers" then
+    local sides = d.sides or { d.side or "player" }
+    if #sides > 1 then
+      table.sort(sides, function(a, bSide)
+        local spA = st and st[a] and st[a].speed or 0
+        local spB = st and st[bSide] and st[bSide].speed or 0
+        return spA > spB
+      end)
+    end
+    for _, sSide in ipairs(sides) do
+      apply_entry_triggers(st, sSide, SwitchSeq._pushMsg)
     end
     advance()
+    return
+  end
+
+  if kind == "trainer_slide_in" then
+    local p = Anim.present("enemy")
+    if p then p.visible = false end
+    local hb = s.healthbox and s.healthbox.enemy
+    if hb then hb.visible = false end
+    local Trainers = require("src.core.game3.scripting.trainers")
+    local info = st and st.trainerId and Trainers.info(st.trainerId)
+    local picId = (st and st.trainerPicId) or (info and info.pic) or 0
+    s.trainer.enemy.visible = true
+    s.trainer.enemy.picId = picId
+    s.trainer.enemy.ox = 240
+    wait_busy()
+    Anim.tweenStage(35, function(u)
+      s.trainer.enemy.ox = 240 * (1 - u)
+    end, function()
+      s.trainer.enemy.ox = 0
+      advance()
+    end)
     return
   end
 

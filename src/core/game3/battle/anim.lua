@@ -65,6 +65,10 @@ local function default_stage(headless)
       player = { visible = false, ox = 0, balls = {} },
       enemy = { visible = false, ox = 0, balls = {} },
     },
+    bgSlide = {
+      enemyOx = 0,
+      playerOx = 0,
+    },
   }
 end
 

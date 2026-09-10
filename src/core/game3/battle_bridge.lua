@@ -228,6 +228,47 @@ function BattleBridge.start(mod, game, foe, opts)
     end,
   }
 
+  local function resolve_battle_song(o, so)
+    if o and o.song then return o.song end
+    local okA, Audio = pcall(require, "src.core.game3.audio")
+    if not (okA and Audio) then return nil end
+    if (o and o.wild) or (so and so.wild) then
+      local f = (o and o.foe) or (so and so.foe)
+      local sp = f and (f.species or f.id or f.speciesId)
+      if sp == 150 then
+        return Audio.role("battleMewtwo") or 340
+      elseif sp == 386 then
+        return Audio.role("battleDeoxys") or 339
+      elseif sp == 144 or sp == 145 or sp == 146 or sp == 249 or sp == 250 then
+        return Audio.role("battleLegend") or 341
+      end
+      return Audio.role("battleWild") or 298
+    else
+      local tid = (so and so.trainerId) or (o and o.trainerId) or (o and o.foe and o.foe.trainerId)
+      local okTr, Trainers = pcall(require, "src.core.game3.scripting.trainers")
+      local info = okTr and Trainers and tid and Trainers.info(tid)
+      local classId = info and info.classId
+      if classId == 90 then
+        return Audio.role("battleChampion") or 299
+      elseif classId == 84 or classId == 87 then
+        return Audio.role("battleGymLeader") or 296
+      end
+      return Audio.role("battleTrainer") or 297
+    end
+  end
+
+  local battleSong = resolve_battle_song(opts, startOpts)
+  startOpts.song = battleSong
+
+  -- pret CreateBattleStartTask: PlayMapChosenOrBattleBGM starts immediately
+  -- on frame 1 of the battle transition on the overworld.
+  if not opts.headless and battleSong then
+    local okA, Audio = pcall(require, "src.core.game3.audio")
+    if okA and Audio and Audio.playSong then
+      Audio.playSong(battleSong)
+    end
+  end
+
   local function doStart()
     local ok, err = Battle.start(startOpts)
     if not ok then

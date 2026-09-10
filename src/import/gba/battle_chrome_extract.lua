@@ -216,6 +216,79 @@ local function read_raw(rom, off, n)
   return t
 end
 
+local function split_terrain_layers(fullRgba, mapBytes)
+  mapBytes = bytes_to_array(mapBytes)
+  local bgTilePerRow = {}
+  for ty = 0, 19 do
+    local counts = {}
+    for tx = 0, 31 do
+      local mi = (ty * 32 + tx) * 2 + 1
+      local entry = (mapBytes[mi] or 0) + (mapBytes[mi + 1] or 0) * 256
+      local tid = entry % 1024
+      counts[tid] = (counts[tid] or 0) + 1
+    end
+    local maxCount, bestTid = -1, 0
+    for tid, count in pairs(counts) do
+      if count > maxCount then maxCount, bestTid = count, tid end
+    end
+    bgTilePerRow[ty] = bestTid
+  end
+
+  local bgBytes = {}
+  local enemyBytes = {}
+  local playerBytes = {}
+
+  for ty = 0, 19 do
+    local bgTid = bgTilePerRow[ty]
+    local bgTx = 0
+    for tx = 0, 31 do
+      local mi = (ty * 32 + tx) * 2 + 1
+      local entry = (mapBytes[mi] or 0) + (mapBytes[mi + 1] or 0) * 256
+      if (entry % 1024) == bgTid then
+        bgTx = tx
+        break
+      end
+    end
+
+    for row = 0, 7 do
+      local srcY = ty * 8 + row
+      local bgTileRow = {}
+      for col = 0, 7 do
+        local srcIdx = (srcY * 256 + (bgTx * 8 + col)) * 4 + 1
+        bgTileRow[col] = fullRgba:sub(srcIdx, srcIdx + 3)
+      end
+
+      for tx = 0, 31 do
+        local mi = (ty * 32 + tx) * 2 + 1
+        local entry = (mapBytes[mi] or 0) + (mapBytes[mi + 1] or 0) * 256
+        local tid = entry % 1024
+        local isBg = (tid == bgTid)
+
+        for col = 0, 7 do
+          local srcIdx = (srcY * 256 + (tx * 8 + col)) * 4 + 1
+          local pixel = fullRgba:sub(srcIdx, srcIdx + 3)
+
+          table.insert(bgBytes, bgTileRow[col])
+
+          if not isBg and tx >= 10 and ty <= 10 then
+            table.insert(enemyBytes, pixel)
+          else
+            table.insert(enemyBytes, "\0\0\0\0")
+          end
+
+          if not isBg and tx <= 16 and ty >= 10 then
+            table.insert(playerBytes, pixel)
+          else
+            table.insert(playerBytes, "\0\0\0\0")
+          end
+        end
+      end
+    end
+  end
+
+  return table.concat(bgBytes), table.concat(enemyBytes), table.concat(playerBytes)
+end
+
 function BattleChromeExtract.run(rom, cache, opts)
   opts = opts or {}
   local cacheRoot = opts.cacheRoot or default_cache_root()
@@ -262,6 +335,10 @@ function BattleChromeExtract.run(rom, cache, opts)
         bgPalBase = 2,
       })
       cache:write(root .. "/terrain_" .. t.key .. ".rgba", rgba)
+      local bgRgba, enemyRgba, playerRgba = split_terrain_layers(rgba, tMap)
+      cache:write(root .. "/terrain_bg_" .. t.key .. ".rgba", bgRgba)
+      cache:write(root .. "/terrain_enemy_" .. t.key .. ".rgba", enemyRgba)
+      cache:write(root .. "/terrain_player_" .. t.key .. ".rgba", playerRgba)
       terrainMeta[t.key] = { w = trW, h = trH }
     end
   end

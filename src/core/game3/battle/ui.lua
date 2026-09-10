@@ -644,12 +644,12 @@ local function draw_party_bars(stage)
   local enemy = stage.partyBar.enemy
   if enemy and enemy.visible then
     local pos = m.partyBarOpponent or { x = 104, y = 40 }
-    BattleChrome.drawPartyBar(pos.x, pos.y, enemy.balls, enemy.ox)
+    BattleChrome.drawPartyBar(pos.x, pos.y, enemy.balls, enemy.ox, true)
   end
   local player = stage.partyBar.player
   if player and player.visible then
     local pos = m.partyBarPlayer or { x = 136, y = 96 }
-    BattleChrome.drawPartyBar(pos.x, pos.y, player.balls, player.ox)
+    BattleChrome.drawPartyBar(pos.x, pos.y, player.balls, player.ox, false)
   end
 end
 
@@ -658,15 +658,22 @@ function Ui.draw(w, h)
   w = w or Display.W
   h = h or Display.H
 
-  if not BattleBg.draw() then
+  local Anim = require("src.core.game3.battle.anim")
+  local st = Ui._st
+  local stage = Anim.stage and Anim.stage()
+
+  local enemyOx = 0
+  local playerOx = 0
+  if stage and stage.bgSlide then
+    enemyOx = stage.bgSlide.enemyOx or 0
+    playerOx = stage.bgSlide.playerOx or 0
+  end
+
+  if not BattleBg.draw(nil, enemyOx, playerOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
   end
 
-  local Anim = require("src.core.game3.battle.anim")
-  local st = Ui._st
-
-  local stage = Anim.stage and Anim.stage()
   -- pret-ish z: trainers → mons → particles → ball → healthboxes → party bars
   draw_trainer_sprites(stage)
   if st then

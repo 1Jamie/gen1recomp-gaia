@@ -10,6 +10,7 @@ local ExpSeq = {}
 ExpSeq._steps = nil
 ExpSeq._i = 1
 ExpSeq._waiting = false
+ExpSeq._waitingMsg = false
 ExpSeq._pushMsg = nil
 ExpSeq._askYesNo = nil
 ExpSeq._askForget = nil
@@ -20,6 +21,7 @@ function ExpSeq.reset()
   ExpSeq._steps = nil
   ExpSeq._i = 1
   ExpSeq._waiting = false
+  ExpSeq._waitingMsg = false
   ExpSeq._pushMsg = nil
   ExpSeq._askYesNo = nil
   ExpSeq._askForget = nil
@@ -39,10 +41,12 @@ local function finish()
   ExpSeq._steps = nil
   ExpSeq._i = 1
   ExpSeq._waiting = false
+  ExpSeq._waitingMsg = false
 end
 
 local function advance()
   ExpSeq._waiting = false
+  ExpSeq._waitingMsg = false
   ExpSeq._i = ExpSeq._i + 1
 end
 
@@ -124,6 +128,7 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
   ExpSeq._steps = steps
   ExpSeq._i = 1
   ExpSeq._waiting = false
+  ExpSeq._waitingMsg = false
   return true
 end
 
@@ -138,6 +143,11 @@ local function run_step(step)
   if kind == "msg" then
     if ExpSeq._pushMsg and d.text then
       ExpSeq._pushMsg(d.text)
+    end
+    if not ExpSeq._headless then
+      ExpSeq._waiting = true
+      ExpSeq._waitingMsg = true
+      return
     end
     advance()
     return
@@ -183,13 +193,17 @@ local function run_step(step)
     if ExpSeq._pushMsg and d.text then
       ExpSeq._pushMsg(d.text)
     end
+    if not ExpSeq._headless then
+      ExpSeq._waiting = true
+      ExpSeq._waitingMsg = true
+      return
+    end
     advance()
     return
   end
 
   if kind == "learn" then
     ExpSeq._waiting = true
-    local started = true
     LearnMove.begin({
       mon = d.mon,
       moveId = d.moveId,
@@ -204,7 +218,6 @@ local function run_step(step)
     })
     -- Free-slot teach may finish synchronously
     if not LearnMove.busy() and ExpSeq._waiting then
-      -- onDone already advanced
       if ExpSeq._waiting then advance() end
     end
     return
@@ -219,6 +232,25 @@ function ExpSeq.update()
     return false
   end
   if not ExpSeq._steps then return true end
+
+  if ExpSeq._waitingMsg then
+    local Ui = package.loaded["src.core.game3.battle.ui"]
+    local pending = false
+    if Ui then
+      if Ui.dialogPending then
+        pending = Ui.dialogPending()
+      elseif not Ui._headless then
+        pending = (Ui._showing == true) or (Ui._queue and #Ui._queue > 0)
+      end
+    end
+    if pending then
+      return false
+    end
+    ExpSeq._waitingMsg = false
+    ExpSeq._waiting = false
+    advance()
+  end
+
   if ExpSeq._waiting then
     if LearnMove.busy() then
       return false

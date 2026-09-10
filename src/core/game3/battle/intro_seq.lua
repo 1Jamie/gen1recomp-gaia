@@ -59,11 +59,31 @@ local function ball_status(mon)
   return "ok"
 end
 
-local function party_balls(party, count)
+local function player_party_balls(party)
   local balls = {}
-  count = math.max(1, math.min(6, tonumber(count) or 1))
-  for i = 1, count do
-    balls[i] = ball_status(party and party[i])
+  local count = #(party or {})
+  for i = 1, 6 do
+    if i <= count and party[i] then
+      balls[i] = ball_status(party[i])
+    else
+      balls[i] = "empty"
+    end
+  end
+  return balls
+end
+
+local function enemy_party_balls(foeParty, partySize)
+  local balls = {}
+  local count = math.max(1, math.min(6, tonumber(partySize) or (foeParty and #foeParty) or 1))
+  local s = 6
+  for i = 1, 6 do
+    if i <= count then
+      local mon = foeParty and foeParty[i]
+      balls[s] = mon and ball_status(mon) or "ok"
+    else
+      balls[s] = "empty"
+    end
+    s = s - 1
   end
   return balls
 end
@@ -97,6 +117,7 @@ local function build_wild(st, opts)
   add("msg", { text = "Go! " .. pname .. "!" })
   add("player_throw", {})
   add("healthbox", { side = "player", frames = 23, from = 115 })
+  add("wait", { frames = 3 })
   return steps
 end
 
@@ -112,10 +133,8 @@ local function build_trainer(st, opts)
     { rivalName = opts.rivalName })
   local info = strings.info or {}
   local pname = State.displayName(st.player)
-  local enemyBalls = party_balls(nil, info.partySize or 1)
-  -- Mark lead as ok; remaining unknown slots as ok (count only).
-  for i = 1, #enemyBalls do enemyBalls[i] = "ok" end
-  local playerBalls = party_balls(st.playerParty, #(st.playerParty or {}))
+  local enemyBalls = enemy_party_balls(st.foeParty, info.partySize or (st.foeParty and #st.foeParty) or 1)
+  local playerBalls = player_party_balls(st.playerParty or (st.player and { st.player.mon }))
 
   add("fade", { mode = "FROM_BLACK", speed = 1 })
   -- pret: DrawTrainerPic for both sides during BG slide; sprites wait off-screen
@@ -140,13 +159,13 @@ local function build_trainer(st, opts)
   })
   add("msg", { text = strings.wants })
   add("msg", { text = strings.sentOut })
-  add("trainerexit", { side = "enemy", toX = 280, frames = 35 })
-  add("opponent_sendout", {})
+  add("opponent_sendout", { toX = 280, frames = 35 })
   add("cry", { side = "enemy" })
   add("healthbox", { side = "enemy", frames = 23, from = -115 })
   add("msg", { text = "Go! " .. pname .. "!" })
   add("player_throw", {})
   add("healthbox", { side = "player", frames = 23, from = 115 })
+  add("wait", { frames = 3 })
   return steps
 end
 
@@ -180,9 +199,24 @@ function IntroSeq.begin(st, opts)
   Anim.present("player").scale = 1
   Anim.present("enemy").scale = 1
 
+  -- Park terrain and sliding sprites off-screen immediately so the first
+  -- rendered frame (and fade-in) starts with them in initial slide positions.
+  s.bgSlide = { enemyOx = -240, playerOx = 240 }
+  s.trainer.player.visible = true
+  s.trainer.player.gender = opts.playerGender or 0
+  s.trainer.player.ox = 240
+  s.trainer.player.frame = 0
+
   if st.wild then
+    local p = Anim.present("enemy")
+    p.visible = true
+    p.ox = -240
+    p.darken = 10 / 16
     IntroSeq._steps = build_wild(st, opts)
   else
+    s.trainer.enemy.visible = true
+    s.trainer.enemy.picId = opts.trainerPicId or st.trainerPicId
+    s.trainer.enemy.ox = -240
     IntroSeq._steps = build_trainer(st, opts)
   end
   IntroSeq._i = 1
@@ -220,6 +254,7 @@ local function run_step(step)
     local unlockAt = d.unlockAt or 8
     local slideFrames = d.slideFrames or 120
     local needSpriteSlide = d.slidePlayer or d.slideEnemy or d.slideEnemyMon
+    s.bgSlide = s.bgSlide or { enemyOx = 0, playerOx = 0 }
     -- pret DrawTrainersOrMonsSprites: park sprites off-screen immediately;
     -- SpriteCB_TrainerSlideIn starts once gIntroSlideFlags clears (unlockAt).
     if d.slidePlayer then
@@ -227,17 +262,20 @@ local function run_step(step)
       s.trainer.player.gender = d.gender or 0
       s.trainer.player.ox = d.playerFrom or 240
       s.trainer.player.frame = 0
+      s.bgSlide.playerOx = d.playerFrom or 240
     end
     if d.slideEnemy then
       s.trainer.enemy.visible = true
       s.trainer.enemy.picId = d.picId
       s.trainer.enemy.ox = d.enemyFrom or -240
+      s.bgSlide.enemyOx = d.enemyFrom or -240
     end
     if d.slideEnemyMon then
       local p = Anim.present("enemy")
       p.visible = true
       p.ox = d.enemyMonFrom or d.from or -240
       p.darken = d.darken or (10 / 16)
+      s.bgSlide.enemyOx = d.enemyMonFrom or d.from or -240
     end
     wait_busy()
     local spritesStarted = false
@@ -245,6 +283,8 @@ local function run_step(step)
     local bgDone = false
     local function try_advance()
       if bgDone and spritesDone then
+        s.bgSlide.enemyOx = 0
+        s.bgSlide.playerOx = 0
         advance()
       end
     end
@@ -260,18 +300,30 @@ local function run_step(step)
       Anim.tweenStage(slideFrames, function(u)
         if d.slidePlayer then
           s.trainer.player.ox = pFrom + (pTo - pFrom) * u
+          s.bgSlide.playerOx = pFrom + (pTo - pFrom) * u
         end
         if d.slideEnemy then
           s.trainer.enemy.ox = eFrom + (eTo - eFrom) * u
+          s.bgSlide.enemyOx = eFrom + (eTo - eFrom) * u
         end
         if d.slideEnemyMon then
           local p = Anim.present("enemy")
           p.ox = mFrom + (mTo - mFrom) * u
+          s.bgSlide.enemyOx = mFrom + (mTo - mFrom) * u
         end
       end, function()
-        if d.slidePlayer then s.trainer.player.ox = pTo end
-        if d.slideEnemy then s.trainer.enemy.ox = eTo end
-        if d.slideEnemyMon then Anim.present("enemy").ox = mTo end
+        if d.slidePlayer then
+          s.trainer.player.ox = pTo
+          s.bgSlide.playerOx = pTo
+        end
+        if d.slideEnemy then
+          s.trainer.enemy.ox = eTo
+          s.bgSlide.enemyOx = eTo
+        end
+        if d.slideEnemyMon then
+          Anim.present("enemy").ox = mTo
+          s.bgSlide.enemyOx = mTo
+        end
         spritesDone = true
         try_advance()
       end)
@@ -416,33 +468,64 @@ local function run_step(step)
 
   if kind == "opponent_sendout" then
     local cx, cy = Anim.ENEMY_MON.x, Anim.ENEMY_MON.y
+    local tr = s.trainer.enemy
+    local exitFrom = tr.ox or 0
+    local exitTo = (d.toX or 280) - 176
+    s.partyBar.enemy.visible = false
     s.ball.visible = true
     s.ball.frame = 0
+    s.ball.rot = 0
     s.ball.side = "enemy"
     s.ball.x = cx
     s.ball.y = cy + 24
     wait_busy()
-    -- pret SpriteCB_OpponentMonSendOut: ~16f delay then ReleaseMonFromBall
-    -- → AnimateBallOpenParticles → SE_BALL_OPEN.
-    Anim.tweenStage(16, function() end, function()
-      s.ball.frame = 1
-      pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
-      local p = Anim.present("enemy")
-      p.visible = true
-      p.ox = 0
-      p.oy = 16
-      p.scale = 0.2
-      p.darken = 0
-      Anim.tweenStage(14, function(u)
-        p.oy = 16 * (1 - u)
-        p.scale = 0.2 + 0.8 * u
-        s.ball.frame = (u < 0.5) and 1 or 2
-      end, function()
+    -- pret OpponentHandleIntroTrainerBallThrow: starts linear slide-out (35 frames)
+    -- AND StartSendOutAnim (16f delay + 12f emergence).
+    local totalFrames = d.frames or 35
+    local openedSe = false
+    Anim.tweenStage(totalFrames, function(u, t)
+      local f = t.frames
+      -- Opponent trainer slides offscreen (35 frames)
+      tr.ox = exitFrom + (exitTo - exitFrom) * math.min(1, f / totalFrames)
+      if f >= totalFrames then
+        tr.visible = false
+      end
+      -- Ball opens after 16 frames delay (SpriteCB_OpponentMonSendOut)
+      if f == 16 then
+        s.ball.frame = 1
+        if not openedSe then
+          openedSe = true
+          pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
+        end
+        local p = Anim.present("enemy")
+        p.visible = true
+        p.ox = 0
+        p.oy = 16
+        p.scale = 0.16
+        p.darken = 0
+      end
+      -- Emergence over 12 frames (frames 16..28) matching pret BATTLER_AFFINE_EMERGE
+      if f > 16 and f <= 28 then
+        local eu = (f - 16) / 12
+        local p = Anim.present("enemy")
+        p.oy = 16 * (1 - eu)
+        p.scale = 0.16 + 0.84 * eu
+        s.ball.frame = (eu < 0.5) and 1 or 2
+      end
+      if f > 28 then
+        local p = Anim.present("enemy")
         p.oy = 0
         p.scale = 1
         s.ball.visible = false
-        advance()
-      end)
+      end
+    end, function()
+      tr.visible = false
+      tr.ox = exitTo
+      s.ball.visible = false
+      local p = Anim.present("enemy")
+      p.oy = 0
+      p.scale = 1
+      advance()
     end)
     return
   end
@@ -456,7 +539,7 @@ local function run_step(step)
       tr.gender = (IntroSeq._opts and IntroSeq._opts.playerGender) or 0
     end
     s.partyBar.player.visible = false
-    -- Throw pose: 1(20) 2(6) 3(6) 4(24) 0(1) = 57f; exit ox 0→-120 over 50f.
+    -- pret sAnimCmd_Red_1: 1(20) 2(6) 3(6) 4(24) 0(1) = 57f; exit linear ox 0→-120 over 50f.
     local pose = { { 1, 20 }, { 2, 6 }, { 3, 6 }, { 4, 24 }, { 0, 1 } }
     local poseFrame, poseLeft, poseI = 0, 0, 0
     local exitTo = -120
@@ -475,49 +558,67 @@ local function run_step(step)
       end
       poseLeft = poseLeft - 1
       tr.frame = poseFrame
-      tr.ox = exitTo * math.min(1, f / 50)
-      if f == 31 then
+      if f <= 50 then
+        tr.ox = exitTo * (f / 50)
+      else
+        tr.visible = false
+        tr.ox = exitTo
+      end
+      -- pret Task_StartSendOutAnim (31f delay) + Task_DoPokeballSendOutAnim (1f delay) -> spawn at frame 32
+      if f == 32 then
         s.ball.visible = true
         s.ball.frame = 0
+        s.ball.rot = 0
         s.ball.side = "player"
         s.ball.x = 48
         s.ball.y = 70
         s.ball._sx, s.ball._sy = 48, 70
         s.ball._tx, s.ball._ty = pcx, pcy + 24
-        -- pret player throw / send-out arc: SE_BALL_THROW as the ball leaves.
         if not threwSe then
           threwSe = true
           pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = -64 }) end)
         end
       end
-      if f > 31 and f <= 56 and s.ball.visible then
-        local bu = (f - 31) / 25
+      -- pret SpriteCB_PlayerMonSendOut_1 / 2: 25 frames arc flight with affine rotation
+      if f > 32 and f <= 57 and s.ball.visible then
+        local bu = (f - 32) / 25
         local sx, sy = s.ball._sx, s.ball._sy
         local tx, ty = s.ball._tx, s.ball._ty
         s.ball.x = sx + (tx - sx) * bu
         s.ball.y = sy + (ty - sy) * bu + (-30 * 4 * bu * (1 - bu))
+        -- pret sAffineAnim_BallRotate_4: 25 units per frame (approx 0.613 rad/frame)
+        s.ball.rot = (f - 32) * ((25 / 256) * math.pi * 2)
       end
     end, function()
       tr.visible = false
       tr.ox = exitTo
       s.ball.frame = 1
+      s.ball.rot = 0
       if not openedSe then
         openedSe = true
         pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
+      end
+      local Battle = package.loaded["src.core.game3.battle"]
+      local st = Battle and Battle._st
+      local species = st and st.player and (st.player.species or (st.player.mon and (st.player.mon.species or st.player.mon.speciesId)))
+      if species then
+        pcall(function() Audio.playCry(species) end)
       end
       local p = Anim.present("player")
       p.visible = true
       p.ox = 0
       p.oy = 16
-      p.scale = 0.2
-      Anim.tweenStage(14, function(uu)
+      p.scale = 0.16
+      -- pret BATTLER_AFFINE_EMERGE: 12 frames scaling 40/256 to 256/256
+      Anim.tweenStage(12, function(uu)
         p.oy = 16 * (1 - uu)
-        p.scale = 0.2 + 0.8 * uu
+        p.scale = 0.16 + 0.84 * uu
         s.ball.frame = (uu < 0.5) and 1 or 2
       end, function()
         p.oy = 0
         p.scale = 1
         s.ball.visible = false
+        s.ball.rot = 0
         advance()
       end)
     end)

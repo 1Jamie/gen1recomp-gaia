@@ -117,8 +117,21 @@ function BattleChrome.install(cache)
   for key, info in pairs(terrains) do
     local rgba = read_bytes(root .. "/" .. (info.file or ("terrain_" .. key .. ".rgba")))
     local img = rgba_to_image(rgba, info.w or 256, info.h or 256)
+    local bgRgba = read_bytes(root .. "/terrain_bg_" .. key .. ".rgba")
+    local enemyPlatRgba = read_bytes(root .. "/terrain_enemy_" .. key .. ".rgba")
+    local playerPlatRgba = read_bytes(root .. "/terrain_player_" .. key .. ".rgba")
+    local bgImg = rgba_to_image(bgRgba, 256, 160)
+    local enemyPlatImg = rgba_to_image(enemyPlatRgba, 256, 160)
+    local playerPlatImg = rgba_to_image(playerPlatRgba, 256, 160)
     if img then
-      BattleChrome._terrains[key] = { image = img, w = info.w or 256, h = info.h or 256 }
+      BattleChrome._terrains[key] = {
+        image = img,
+        bgImage = bgImg,
+        enemyPlat = enemyPlatImg,
+        playerPlat = playerPlatImg,
+        w = info.w or 256,
+        h = info.h or 256,
+      }
     end
   end
 
@@ -146,21 +159,54 @@ function BattleChrome.manifest()
 end
 
 --- Draw terrain sheet ("grass" | "building"). Returns false if missing.
--- ox: optional horizontal scroll (intro slide).
-function BattleChrome.drawTerrain(key, ox)
+-- During intro slide-in:
+-- 1. Base clean wallpaper (continuous sky and ground, no platforms).
+-- 2. Transparent enemy platform oval sliding with enemyOx (no wrap, no solid bars).
+-- 3. Transparent player platform oval sliding with playerOx (no wrap, no solid bars).
+-- When at rest (enemyOx == 0, playerOx == 0), draws standard full terrain at (0, 0).
+function BattleChrome.drawTerrain(key, enemyOx, playerOx)
   key = key or "building"
-  ox = tonumber(ox) or 0
+  enemyOx = tonumber(enemyOx) or 0
+  playerOx = tonumber(playerOx) or 0
   local entry = BattleChrome._terrains[key] or BattleChrome._terrains.building
     or BattleChrome._terrains.grass
   if not entry or not entry.image then return false end
-  local qkey = "terrain_" .. key
-  if not BattleChrome._quads[qkey] and love and love.graphics then
-    BattleChrome._quads[qkey] = love.graphics.newQuad(0, 0, 240, 160, entry.w, entry.h)
+
+  local qFullKey = "terrain_full_" .. key
+  if not BattleChrome._quads[qFullKey] and love and love.graphics then
+    BattleChrome._quads[qFullKey] = love.graphics.newQuad(0, 0, 240, 160, entry.w, entry.h)
   end
-  local q = BattleChrome._quads[qkey]
+
+  if enemyOx == 0 and playerOx == 0 then
+    local q = BattleChrome._quads[qFullKey]
+    if q then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(entry.image, q, 0, 0)
+      return true
+    end
+    return false
+  end
+
+  -- During intro slide, use split transparent platforms over continuous wallpaper
+  if entry.bgImage and entry.enemyPlat and entry.playerPlat then
+    local qBgKey = "terrain_bg_view_" .. key
+    if not BattleChrome._quads[qBgKey] and love and love.graphics then
+      BattleChrome._quads[qBgKey] = love.graphics.newQuad(0, 0, 240, 160, 256, 160)
+    end
+    local qBg = BattleChrome._quads[qBgKey]
+    love.graphics.setColor(1, 1, 1, 1)
+    if qBg then
+      love.graphics.draw(entry.bgImage, qBg, 0, 0)
+    end
+    love.graphics.draw(entry.enemyPlat, enemyOx, 0)
+    love.graphics.draw(entry.playerPlat, playerOx, 0)
+    return true
+  end
+
+  local q = BattleChrome._quads[qFullKey]
   if q then
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(entry.image, q, ox, 0)
+    love.graphics.draw(entry.image, q, 0, 0)
     return true
   end
   return false
@@ -280,11 +326,16 @@ function BattleChrome.drawExpFill(x, y, ratio, _pixels)
 end
 
 -- Party summary balls: pret B_INTERFACE_GFX_BALL_PARTY_SUMMARY = tile 66.
+-- In pokefirered (battle_interface.c:1183-1202):
+--   tile 66 (+0): ok (filled normal Pokéball)
+--   tile 67 (+1): empty (empty circle outline)
+--   tile 68 (+2): status (status ailment circle)
+--   tile 69 (+3): faint (fainted dark circle)
 local PARTY_BALL_TILE = {
   ok = 66,
-  status = 67,
-  faint = 68,
-  empty = 69,
+  empty = 67,
+  status = 68,
+  faint = 69,
 }
 
 function BattleChrome.drawPartyBall(x, y, kind)
@@ -295,15 +346,34 @@ function BattleChrome.drawPartyBall(x, y, kind)
   love.graphics.draw(BattleChrome._elements, q, x, y)
 end
 
-function BattleChrome.drawPartyBar(x, y, balls, ox)
+--- Draw party summary bar and 6 ball slots (1:1 with pokefirered CreatePartyStatusSummarySprites).
+-- Player: base (136, 96), un-flipped bar (<=====), balls at y=92 from x=160..210 (left-to-right).
+-- Opponent: base (104, 40), H-flipped bar (=====>), balls at y=36 from x=30..80 (right-aligned).
+function BattleChrome.drawPartyBar(x, y, balls, ox, isOpponent)
   ox = tonumber(ox) or 0
-  x = x + ox
-  if BattleChrome._partyBar then
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(BattleChrome._partyBar, x, y)
-  end
-  for i, kind in ipairs(balls or {}) do
-    BattleChrome.drawPartyBall(x + 8 * (i - 1) + 8, y - 4, kind)
+  balls = balls or {}
+  if isOpponent then
+    local barX = x + ox
+    if BattleChrome._partyBar then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(BattleChrome._partyBar, barX, y, 0, -1, 1)
+    end
+    for i = 1, 6 do
+      local kind = balls[i] or "empty"
+      local bx = (x + ox) - 24 - 10 * (6 - i)
+      BattleChrome.drawPartyBall(bx, y - 7, kind)
+    end
+  else
+    local barX = x + ox
+    if BattleChrome._partyBar then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(BattleChrome._partyBar, barX, y, 0, 1, 1)
+    end
+    for i = 1, 6 do
+      local kind = balls[i] or "empty"
+      local bx = (x + ox) + 24 + 10 * (i - 1)
+      BattleChrome.drawPartyBall(bx, y - 8, kind)
+    end
   end
 end
 

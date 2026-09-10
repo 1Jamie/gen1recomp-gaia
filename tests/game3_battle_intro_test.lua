@@ -81,18 +81,41 @@ local okTr = IntroSeq.begin(stTr, {
 })
 check(okTr == true, "trainer begin")
 kinds = {}
+local partyStep
 for _, step in ipairs(IntroSeq._steps or {}) do
   kinds[#kinds + 1] = step.kind
+  if step.kind == "partybar" then partyStep = step end
 end
-check(has("partybar") and has("trainerexit") and has("opponent_sendout"), "trainer party+exit+sendout")
--- pret: wants → sentOut → (then) IntroTrainerBallThrow / slide-out
+check(has("partybar") and has("opponent_sendout"), "trainer party+sendout")
+check(partyStep and #partyStep.data.playerBalls == 6, "player has 6 ball slots")
+check(partyStep and partyStep.data.playerBalls[1] == "ok" and partyStep.data.playerBalls[2] == "empty", "player 1 mon has 1 ok on left and 5 empty")
+check(partyStep and #partyStep.data.enemyBalls == 6, "opponent has 6 ball slots")
+check(partyStep and partyStep.data.enemyBalls[1] == "empty" and partyStep.data.enemyBalls[6] == "ok", "opponent 1 mon has 5 empty on left and 1 ok on right")
+
+-- Test opponent with 3 mons
+local stTr3 = State.new({
+  wild = false,
+  playerParty = { { species = 1, hp = 20, maxHp = 20 } },
+  foeParty = { { species = 10, hp = 10 }, { species = 11, hp = 10 }, { species = 12, hp = 10 } },
+})
+IntroSeq.reset()
+IntroSeq.begin(stTr3, { headless = false })
+local partyStep3
+for _, step in ipairs(IntroSeq._steps or {}) do
+  if step.kind == "partybar" then partyStep3 = step break end
+end
+check(partyStep3 and partyStep3.data.enemyBalls[1] == "empty" and partyStep3.data.enemyBalls[3] == "empty"
+  and partyStep3.data.enemyBalls[4] == "ok" and partyStep3.data.enemyBalls[5] == "ok" and partyStep3.data.enemyBalls[6] == "ok",
+  "opponent 3 mons has 3 empty on left and 3 ok on right")
+
+-- pret: wants → sentOut → (then) IntroTrainerBallThrow (opponent_sendout)
 local wi, si, xi
 for i, k in ipairs(kinds) do
   if k == "msg" and not wi then wi = i
   elseif k == "msg" and wi and not si then si = i
-  elseif k == "trainerexit" then xi = i end
+  elseif k == "opponent_sendout" then xi = i end
 end
-check(wi and si and xi and wi < si and si < xi, "msgs before trainerexit (wants/sentOut then slide-out)")
+check(wi and si and xi and wi < si and si < xi, "msgs before opponent_sendout (wants/sentOut then sendout)")
 local bgTr
 for _, step in ipairs(IntroSeq._steps or {}) do
   if step.kind == "bgslide" then bgTr = step break end

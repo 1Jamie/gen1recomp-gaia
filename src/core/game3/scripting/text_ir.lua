@@ -182,8 +182,19 @@ function TextIR.fromAscii(s)
       if n == "n" then out[#out + 1] = { t = "nl" }
       elseif n == "p" then out[#out + 1] = { t = "para" }
       elseif n == "l" then out[#out + 1] = { t = "scroll" }
+      elseif n == "f" then out[#out + 1] = { t = "para" }
       else buf[#buf + 1] = "\\" .. n end
       i = i + 2
+    elseif ch == "\n" then
+      flush_text(out, buf); buf = {}
+      out[#out + 1] = { t = "nl" }
+      i = i + 1
+    elseif ch == "\f" then
+      flush_text(out, buf); buf = {}
+      out[#out + 1] = { t = "para" }
+      i = i + 1
+    elseif ch == "\r" then
+      i = i + 1
     elseif ch == "{" then
       local j = s:find("}", i)
       if not j then
@@ -251,11 +262,66 @@ function TextIR.toPlain(ir, ctx)
   return table.concat(pages, "\n\n")
 end
 
+local function wrap_subline(lineStr, maxW)
+  if not lineStr or lineStr == "" then return { "" } end
+  maxW = maxW or 208
+  local okF, FrlgFont = pcall(require, "src.ui.game3.frlg_font")
+  if okF and FrlgFont and FrlgFont.measure then
+    local curW = FrlgFont.measure(lineStr)
+    if curW <= maxW then
+      return { lineStr }
+    end
+    local spaceW = FrlgFont.measure(" ")
+    local words = {}
+    for word in lineStr:gmatch("%S+") do
+      words[#words + 1] = word
+    end
+    if #words == 0 then return { "" } end
+    local out = {}
+    local cur = words[1]
+    local curLineWidth = FrlgFont.measure(cur)
+    for i = 2, #words do
+      local w = words[i]
+      local wW = FrlgFont.measure(w)
+      if curLineWidth + spaceW + wW <= maxW then
+        cur = cur .. " " .. w
+        curLineWidth = curLineWidth + spaceW + wW
+      else
+        out[#out + 1] = cur
+        cur = w
+        curLineWidth = wW
+      end
+    end
+    out[#out + 1] = cur
+    return out
+  else
+    local maxChars = math.floor(maxW / 6)
+    if #lineStr <= maxChars then return { lineStr } end
+    local words = {}
+    for word in lineStr:gmatch("%S+") do words[#words + 1] = word end
+    if #words == 0 then return { "" } end
+    local out = {}
+    local cur = words[1]
+    for i = 2, #words do
+      local w = words[i]
+      if #cur + 1 + #w <= maxChars then
+        cur = cur .. " " .. w
+      else
+        out[#out + 1] = cur
+        cur = w
+      end
+    end
+    out[#out + 1] = cur
+    return out
+  end
+end
+
 --- Host TextBox string: always tap-per-page of at most two lines.
 -- `\n` joins the pair inside a page; `\f` clears for the next pair (wait A).
 -- Never emits `\v` CONT scroll — Gen1 column budgets make one-line scroll feel
 -- too fast. GBA `\p` / `\l` both force a page boundary like a filled pair.
 function TextIR.toTextBox(ir, ctx)
+  local maxW = (type(ctx) == "table" and ctx.maxWidth) or 208
   local lines, buf = {}, {}
   local function flush(hard)
     lines[#lines + 1] = { s = table.concat(buf), hard = hard }
@@ -276,9 +342,31 @@ function TextIR.toTextBox(ir, ctx)
   end
   if #buf > 0 then flush(false) end
 
+  local splitLines = {}
+  for _, row in ipairs(lines) do
+    local text = row.s or ""
+    local hard = row.hard
+    local sub = {}
+    for line in (text .. "\n"):gmatch("(.-)\r?\n") do
+      sub[#sub + 1] = line
+    end
+    if #sub == 0 then sub = { "" } end
+    for si, lineStr in ipairs(sub) do
+      local isLastSub = (si == #sub)
+      local wrappedList = wrap_subline(lineStr, maxW)
+      for wi, wLine in ipairs(wrappedList) do
+        local isLastWrap = (wi == #wrappedList)
+        splitLines[#splitLines + 1] = {
+          s = wLine,
+          hard = (isLastSub and isLastWrap) and hard or false,
+        }
+      end
+    end
+  end
+
   local parts = {}
   local onPage = 0
-  for _, row in ipairs(lines) do
+  for _, row in ipairs(splitLines) do
     if row.s ~= "" or row.hard then
       if onPage >= 2 then
         if #parts > 0 then parts[#parts + 1] = "\f" end

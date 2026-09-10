@@ -297,12 +297,36 @@ function Battle.start(opts)
     or { 0, 0, 0, 0 }
   st.playerGender = playerGender
 
-  -- Battle BGM
+  -- Battle BGM (if not already playing from transition start)
   do
     local Audio = require("src.core.game3.audio")
-    local role = st.wild and "battleWild" or "battleTrainer"
-    local song = Audio.role(role) or (st.wild and 298 or 297)
-    Audio.playSong(song)
+    local song = opts.song
+    if not song then
+      if st.wild then
+        local foeSpecies = foeMon and (foeMon.species or foeMon.speciesId or foeMon.id)
+        if foeSpecies == 150 then
+          song = Audio.role("battleMewtwo") or 340
+        elseif foeSpecies == 386 then
+          song = Audio.role("battleDeoxys") or 339
+        elseif foeSpecies == 144 or foeSpecies == 145 or foeSpecies == 146 or foeSpecies == 249 or foeSpecies == 250 then
+          song = Audio.role("battleLegend") or 341
+        else
+          song = Audio.role("battleWild") or 298
+        end
+      else
+        local classId = trainerInfo and trainerInfo.classId
+        if classId == 90 then
+          song = Audio.role("battleChampion") or 299
+        elseif classId == 84 or classId == 87 then
+          song = Audio.role("battleGymLeader") or 296
+        else
+          song = Audio.role("battleTrainer") or 297
+        end
+      end
+    end
+    if song then
+      Audio.playSong(song)
+    end
   end
 
   local Field = package.loaded["src.core.game3.field"]
@@ -416,7 +440,8 @@ local function send_out_enemy_next(nextEnemyIdx)
   end
 end
 
-local function handle_player_faint()
+local function handle_player_faint(opts)
+  opts = opts or {}
   local st = Battle._st
   if not st then return end
   if st.player and st.playerParty then
@@ -472,7 +497,8 @@ local function handle_player_faint()
   })
 end
 
-local function handle_enemy_faint()
+local function handle_enemy_faint(opts)
+  opts = opts or {}
   local st = Battle._st
   if not st then return end
   stop_low_hp_song()
@@ -494,62 +520,102 @@ local function handle_enemy_faint()
     })
   end
   Battle._leveledUp = {}
-  local thenMsgs = {}
   local nextEnemyIdx = (not st.wild) and Engine.nextLivingMonIndex(st.foeParty, st.enemy and st.enemy.partyIndex)
 
-  if not nextEnemyIdx then
-    Battle._pendingEnd = "win"
-    thenMsgs = {}
-    if st and not st.wild and st.trainerId then
-      local Trainers = require("src.core.game3.scripting.trainers")
-      local dialogs = Trainers.dialogs(st.trainerId)
-      local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
-      if defeatSpeech and defeatSpeech ~= "" then
-        thenMsgs[#thenMsgs + 1] = defeatSpeech
-      end
-      local trName = (st.trainerClassName and st.trainerClassName ~= "")
-        and (st.trainerClassName .. " " .. (st.trainerName or ""))
-        or (st.trainerName or "TRAINER")
-      local pname = st.playerName or "PLAYER"
-      thenMsgs[#thenMsgs + 1] = string.format("%s defeated\n%s!", pname, trName)
-    else
-      thenMsgs[#thenMsgs + 1] = "You won the battle!"
-    end
-    do
+  local onAwardsFinished = function()
+    if not nextEnemyIdx then
+      Battle._pendingEnd = "win"
       local Audio = require("src.core.game3.audio")
       local role = (st and st.wild) and "victoryWild" or "victoryTrainer"
       local song = Audio.role(role) or ((st and st.wild) and 311 or 310)
       Audio.playSong(song)
-    end
-  end
 
-  local onAwardsFinished = function()
-    if not nextEnemyIdx then
-      if st and not st.wild and st.trainerId then
-        local Prize = require("src.core.game3.battle.prize")
-        local Runtime = package.loaded["src.core.game3.runtime"]
-        local session = Runtime and Runtime.getSession and Runtime.getSession()
-        if session then
+      if not st.wild and st.trainerId and not Battle._headless then
+        SwitchSeq.beginTrainerSlideIn(st, {
+          headless = false,
+          onDone = function()
+            local Trainers = require("src.core.game3.scripting.trainers")
+            local dialogs = Trainers.dialogs(st.trainerId)
+            local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
+            if defeatSpeech and defeatSpeech ~= "" then
+              Ui.push(defeatSpeech)
+            end
+            local trName = (st.trainerClassName and st.trainerClassName ~= "")
+              and (st.trainerClassName .. " " .. (st.trainerName or ""))
+              or (st.trainerName or "TRAINER")
+            local pname = st.playerName or "PLAYER"
+            Ui.push(string.format("%s defeated\n%s!", pname, trName))
+
+            local Prize = require("src.core.game3.battle.prize")
+            local Runtime = package.loaded["src.core.game3.runtime"]
+            local session = Runtime and Runtime.getSession and Runtime.getSession()
+            if session then
+              local info = Trainers.info(st.trainerId)
+              local lastLevel = info and tonumber(info.lastLevel)
+              if not lastLevel or lastLevel < 1 then
+                lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
+              end
+              local gained = Prize.awardTrainerWin(session, st.trainerId, {
+                lastLevel = lastLevel,
+                double = st.double or false,
+                moneyMultiplier = st.moneyMultiplier or 1,
+              })
+              if gained > 0 then
+                Ui.push(Prize.moneyMessage(session.name or pname, gained))
+              end
+            end
+            begin_evo_or_end()
+          end,
+        })
+        Battle._phase = "switching"
+      else
+        if not st.wild and st.trainerId then
           local Trainers = require("src.core.game3.scripting.trainers")
-          local info = Trainers.info(st.trainerId)
-          local lastLevel = info and tonumber(info.lastLevel)
-          if not lastLevel or lastLevel < 1 then
-            lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
+          local dialogs = Trainers.dialogs(st.trainerId)
+          local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
+          if defeatSpeech and defeatSpeech ~= "" then
+            Ui.push(defeatSpeech)
           end
-          local gained = Prize.awardTrainerWin(session, st.trainerId, {
-            lastLevel = lastLevel,
-            double = st.double or false,
-            moneyMultiplier = st.moneyMultiplier or 1,
-          })
-          if gained > 0 then
-            local pname = session.name or "PLAYER"
-            Ui.push(Prize.moneyMessage(pname, gained))
+          local trName = (st.trainerClassName and st.trainerClassName ~= "")
+            and (st.trainerClassName .. " " .. (st.trainerName or ""))
+            or (st.trainerName or "TRAINER")
+          local pname = st.playerName or "PLAYER"
+          Ui.push(string.format("%s defeated\n%s!", pname, trName))
+
+          local Prize = require("src.core.game3.battle.prize")
+          local Runtime = package.loaded["src.core.game3.runtime"]
+          local session = Runtime and Runtime.getSession and Runtime.getSession()
+          if session then
+            local info = Trainers.info(st.trainerId)
+            local lastLevel = info and tonumber(info.lastLevel)
+            if not lastLevel or lastLevel < 1 then
+              lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
+            end
+            local gained = Prize.awardTrainerWin(session, st.trainerId, {
+              lastLevel = lastLevel,
+              double = st.double or false,
+              moneyMultiplier = st.moneyMultiplier or 1,
+            })
+            if gained > 0 then
+              Ui.push(Prize.moneyMessage(session.name or pname, gained))
+            end
           end
+        else
+          Ui.push("You won the battle!")
         end
+        begin_evo_or_end()
       end
-      begin_evo_or_end()
     else
-      if Battle._headless or Battle._auto then
+      send_out_enemy_next(nextEnemyIdx)
+      if opts.onFinished then
+        opts.onFinished()
+        return
+      end
+      local okO, Options = pcall(require, "src.core.game3.options")
+      local okR, Runtime = pcall(require, "src.core.game3.runtime")
+      local session = okR and Runtime.getSession and Runtime.getSession()
+      local battleStyle = (okO and session and Options.battleStyle and Options.battleStyle(session)) or "shift"
+      if Battle._headless or Battle._auto or opts.mutual or battleStyle == "set" or State.isFainted(st.player) then
         send_out_enemy_next(nextEnemyIdx)
       else
         local nextMon = st.foeParty[nextEnemyIdx]
@@ -559,37 +625,10 @@ local function handle_enemy_faint()
         local trName = (st.trainerClassName and st.trainerClassName ~= "")
           and (st.trainerClassName .. " " .. (st.trainerName or ""))
           or (st.trainerName or "TRAINER")
-        Ui.push(string.format("%s is\nabout to send in\n%s.", trName, nextName))
-        Ui.push(string.format("Will %s change\nPOKéMON?", (st.playerName or "PLAYER")))
-        Ui.askYesNo(function(yes)
-          if yes then
-            local PartyMenu = require("src.ui.game3.party_menu")
-            local Runtime = package.loaded["src.core.game3.runtime"]
-            local session = Runtime and Runtime.getSession and Runtime.getSession()
-            State.syncBattlerToParty(st.player, st.playerParty)
-            PartyMenu.show(st.playerParty or (session and session.party), session and session.move_overlay, {
-              mode = "battle_switch",
-              session = session,
-              activeSlot = st.player.partyIndex,
-              battle = true,
-              onSelect = function(pSlot)
-                SwitchSeq.beginSendOut(st, "player", pSlot, {
-                  headless = false,
-                  pushMsg = function(t) Ui.push(t) end,
-                  onDone = function()
-                    send_out_enemy_next(nextEnemyIdx)
-                  end,
-                })
-                Battle._phase = "switching"
-              end,
-              onClose = function()
-                send_out_enemy_next(nextEnemyIdx)
-              end,
-            })
-          else
-            send_out_enemy_next(nextEnemyIdx)
-          end
-        end)
+        Ui.push(string.format("%s is\nabout to use %s.\\pWill %s change\nPOKéMON?", trName, nextName, (st.playerName or "PLAYER")))
+        Battle._shiftEnemyIdx = nextEnemyIdx
+        Battle._shiftAsked = false
+        Battle._phase = "shift_prompt"
       end
     end
   end
@@ -617,20 +656,61 @@ local function handle_enemy_faint()
         end
       end
     end
-    push_msgs(thenMsgs)
     onAwardsFinished()
     return
   end
 
-  local started = ExpSeq.begin(awards, hooks.pushMsg, thenMsgs, hooks)
+  local started = ExpSeq.begin(awards, hooks.pushMsg, nil, hooks)
   if started then
     Battle._leveledUp = ExpSeq.leveledSet() or {}
     Battle._onExpDone = onAwardsFinished
     Battle._phase = "awarding"
   else
-    push_msgs(thenMsgs)
     onAwardsFinished()
   end
+end
+
+local function check_faints_and_end()
+  local st = Battle._st
+  local ad = Battle._adapter
+  if not st then return false end
+
+  local pFainted = State.isFainted(st.player)
+  local eFainted = State.isFainted(st.enemy)
+
+  if pFainted and eFainted then
+    local playerHasLiving = Engine.hasLivingMons(st.playerParty)
+    local enemyHasLiving = Engine.hasLivingMons(st.foeParty)
+    if not playerHasLiving then
+      handle_player_faint()
+      return true
+    elseif not enemyHasLiving then
+      handle_enemy_faint({ mutual = true })
+      return true
+    else
+      handle_enemy_faint({ mutual = true, onFinished = function()
+        handle_player_faint()
+      end })
+      return true
+    end
+  elseif eFainted then
+    handle_enemy_faint()
+    return true
+  elseif pFainted then
+    handle_player_faint()
+    return true
+  end
+
+  local endResult = Engine.checkEnd(st, ad)
+  if endResult == "win" then
+    handle_enemy_faint()
+    return true
+  elseif endResult == "lose" then
+    handle_player_faint()
+    return true
+  end
+
+  return false
 end
 
 local function begin_win_award()
@@ -654,23 +734,12 @@ local function after_actions()
     end
   end
   push_msgs(msgs)
-  if State.isFainted(st.enemy) then
-    handle_enemy_faint()
-    return
-  elseif State.isFainted(st.player) then
-    handle_player_faint()
+  if check_faints_and_end() then
     return
   end
-  local endResult = Engine.checkEnd(st, ad)
-  if endResult == "win" then
-    handle_enemy_faint()
-  elseif endResult == "lose" then
-    handle_player_faint()
-  else
-    Battle._phase = "command"
-    if not Battle._auto then
-      Ui.openMenu()
-    end
+  Battle._phase = "command"
+  if not Battle._auto then
+    Ui.openMenu()
   end
 end
 
@@ -865,20 +934,7 @@ local function step_action()
     return
   end
 
-  if State.isFainted(st.enemy) then
-    handle_enemy_faint()
-    return
-  elseif State.isFainted(st.player) then
-    handle_player_faint()
-    return
-  end
-
-  local ended = Engine.checkEnd(st, ad)
-  if ended == "win" then
-    handle_enemy_faint()
-    return
-  elseif ended == "lose" then
-    handle_player_faint()
+  if check_faints_and_end() then
     return
   end
   if not Battle._actions[Battle._actionI] then
@@ -887,25 +943,11 @@ local function step_action()
 end
 
 local function after_anim_sequence()
-  local st = Battle._st
-  local ad = Battle._adapter
-  if State.isFainted(st.enemy) then
-    handle_enemy_faint()
-    return
-  elseif State.isFainted(st.player) then
-    handle_player_faint()
-    return
-  end
-  local ended = Engine.checkEnd(st, ad)
-  if ended == "win" then
-    handle_enemy_faint()
-    return
-  elseif ended == "lose" then
-    handle_player_faint()
+  if check_faints_and_end() then
     return
   end
   Battle._phase = "actions"
-  if not Battle._actions[Battle._actionI] then
+  if not Battle._actions or not Battle._actions[Battle._actionI] then
     after_actions()
   end
 end
@@ -921,7 +963,6 @@ function Battle.update(dt, game)
   end
 
   if not Battle._headless then
-    Task.update(dt or 0)
     Anim.update(dt or 0)
     local okA, Audio = pcall(require, "src.core.game3.audio")
     if okA and Audio and Audio.tickCry then Audio.tickCry(dt or 1 / 60) end
@@ -952,7 +993,7 @@ function Battle.update(dt, game)
   end
 
   -- Choice input during award / shift prompt / evolution learn-move prompts
-  if (Battle._phase == "awarding" or Battle._phase == "evolving" or Battle._phase == "switching")
+  if (Battle._phase == "awarding" or Battle._phase == "evolving" or Battle._phase == "switching" or Battle._phase == "shift_prompt")
       and not Battle._auto and game and game.input then
     if Ui.choiceActive and Ui.choiceActive() then
       Ui.handleInput(game.input)
@@ -969,6 +1010,58 @@ function Battle.update(dt, game)
       else
         Ui.openMenu()
       end
+    end
+    return
+  end
+
+  -- Shift prompt: after dialog dismissed, open Yes/No box
+  if Battle._phase == "shift_prompt" then
+    if not Ui.pump() then return end
+    if Ui.choiceActive and Ui.choiceActive() then
+      if input then Ui.handleInput(input) end
+      return
+    end
+    if not Battle._shiftAsked then
+      Battle._shiftAsked = true
+      Ui.askYesNo(function(yes)
+        Battle._shiftAsked = false
+        local nextEnemyIdx = Battle._shiftEnemyIdx
+        Battle._shiftEnemyIdx = nil
+        local st = Battle._st
+        if yes and st then
+          local PartyMenu = require("src.ui.game3.party_menu")
+          local Runtime = package.loaded["src.core.game3.runtime"]
+          local session = Runtime and Runtime.getSession and Runtime.getSession()
+          State.syncBattlerToParty(st.player, st.playerParty)
+          PartyMenu.show(st.playerParty or (session and session.party), session and session.move_overlay, {
+            mode = "battle_switch",
+            session = session,
+            activeSlot = st.player.partyIndex,
+            battle = true,
+            onSelect = function(pSlot)
+              if pSlot == nil or pSlot == st.player.partyIndex then
+                send_out_enemy_next(nextEnemyIdx)
+              else
+                SwitchSeq.beginShiftSwitch(st, pSlot, nextEnemyIdx, {
+                  headless = false,
+                  pushMsg = function(t) Ui.push(t) end,
+                  onDone = function()
+                    Battle._phase = "command"
+                    Ui.openMenu()
+                  end,
+                })
+                Battle._phase = "switching"
+              end
+            end,
+            onClose = function()
+              send_out_enemy_next(nextEnemyIdx)
+            end,
+          })
+          Battle._phase = "switching"
+        else
+          send_out_enemy_next(nextEnemyIdx)
+        end
+      end)
     end
     return
   end

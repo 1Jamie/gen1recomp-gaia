@@ -62,12 +62,9 @@ function BattleBg.sheetKey(id)
   return TERRAIN_SHEET[id] or "building"
 end
 
-function BattleBg.draw(id)
+function BattleBg.draw(id, enemyOx, playerOx)
   local key = BattleBg.sheetKey(id)
-  -- Intro "bgslide" only gates sprite motion (Anim.stage().slideDone). Do not
-  -- scroll the terrain quad — our sheet is viewport-sized, so an ox shift
-  -- leaves a permanent black half-screen (unlike pret's wider VMap).
-  return BattleChrome.drawTerrain(key)
+  return BattleChrome.drawTerrain(key, enemyOx, playerOx)
 end
 
 return BattleBg
