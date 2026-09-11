@@ -149,7 +149,36 @@ end
 
 function ShopChromeExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. ShopChromeExtract.CACHE_SUB
-  return cache and cache.exists and cache:exists(root .. "/bg.rgba")
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
+  end
+
+  return valid_file(root .. "/bg.rgba", 240 * 160 * 4)
 end
 
 return ShopChromeExtract

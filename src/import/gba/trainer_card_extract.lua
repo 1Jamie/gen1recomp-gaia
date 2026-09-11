@@ -27,6 +27,12 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
+local function byte_len(buf)
+  if type(buf) == "string" then return #buf end
+  if type(buf) == "table" then return buf._len or #buf end
+  return 0
+end
+
 local function decode_tile_4bpp(tileBytes, out, baseX, baseY, stride, hflip, vflip)
   for row = 0, 7 do
     local srcRow = vflip and (7 - row) or row
@@ -47,7 +53,8 @@ end
 
 local function load_pal_banks(bytes, count)
   local banks = {}
-  for b = 0, count - 1 do
+  local n = count or math.max(1, math.floor(byte_len(bytes) / 32))
+  for b = 0, n - 1 do
     local colors = {}
     local off = b * 32
     for c = 0, 15 do
@@ -59,42 +66,50 @@ local function load_pal_banks(bytes, count)
   return banks
 end
 
-local function bake_card_rgba(gfx, palBytes, map, W, H)
-  local tileCount = math.floor(#gfx / 32)
-  local banks = load_pal_banks(palBytes, math.floor(#palBytes / 32))
-  local mapW = 32
+local function bake_card_composite_rgba(gfx, banks, mapFront, mapBg, W, H)
+  local tileCount = math.floor(byte_len(gfx) / 32)
+  local mapW, mapH = 30, 20
   local indices, pals = {}, {}
   for i = 1, W * H do indices[i] = 0; pals[i] = 0 end
 
-  local tilesH = math.min(32, math.floor(H / 8))
-  local tilesW = math.min(32, math.floor(W / 8))
-  for ty = 0, tilesH - 1 do
-    for tx = 0, tilesW - 1 do
-      local mi = (ty * mapW + tx) * 2 + 1
-      local entry = (map[mi] or 0) + (map[mi + 1] or 0) * 256
-      local tileId = entry % 1024
-      local hflip = math.floor(entry / 1024) % 2 == 1
-      local vflip = math.floor(entry / 2048) % 2 == 1
-      local palNum = math.floor(entry / 4096) % 16
-      if tileId >= tileCount then tileId = 0 end
-      local tile = {}
-      local base = tileId * 32
-      for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
-      local tmp = {}
-      for i = 1, 64 do tmp[i] = 0 end
-      decode_tile_4bpp(tile, tmp, 0, 0, 8, hflip, vflip)
-      for row = 0, 7 do
-        for col = 0, 7 do
-          local px, py = tx * 8 + col, ty * 8 + row
-          if px < W and py < H then
-            local di = py * W + px + 1
-            indices[di] = tmp[row * 8 + col + 1] or 0
-            pals[di] = palNum
+  local function render_layer(map)
+    local tilesH = math.min(mapH, math.floor(H / 8))
+    local tilesW = math.min(mapW, math.floor(W / 8))
+    for ty = 0, tilesH - 1 do
+      for tx = 0, tilesW - 1 do
+        local mi = (ty * mapW + tx) * 2 + 1
+        local entry = (map[mi] or 0) + (map[mi + 1] or 0) * 256
+        local tileId = entry % 1024
+        local hflip = math.floor(entry / 1024) % 2 == 1
+        local vflip = math.floor(entry / 2048) % 2 == 1
+        local palNum = math.floor(entry / 4096) % 16
+        if tileId < tileCount then
+          local tile = {}
+          local base = tileId * 32
+          for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
+          local tmp = {}
+          for i = 1, 64 do tmp[i] = 0 end
+          decode_tile_4bpp(tile, tmp, 0, 0, 8, hflip, vflip)
+          for row = 0, 7 do
+            for col = 0, 7 do
+              local px, py = tx * 8 + col, ty * 8 + row
+              if px < W and py < H then
+                local idx = tmp[row * 8 + col + 1] or 0
+                if idx ~= 0 or indices[py * W + px + 1] == 0 then
+                  local di = py * W + px + 1
+                  indices[di] = idx
+                  pals[di] = palNum
+                end
+              end
+            end
           end
         end
       end
     end
   end
+
+  if mapBg then render_layer(mapBg) end
+  if mapFront then render_layer(mapFront) end
 
   local chunks = {}
   for i = 1, W * H do
@@ -110,8 +125,11 @@ end
 --- Decode 8 gym badges (16x16 each, 4 tiles per badge in TL, TR, BL, BR order) into a 128x16 strip.
 local function bake_badges_rgba(badgeTiles, palBytes)
   local W, H = 128, 16
-  local banks = load_pal_banks(palBytes, math.floor(#palBytes / 32))
-  local pal = banks[3] or banks[0] or {}
+  local pal = {}
+  for c = 0, 15 do
+    local i = c * 2 + 1
+    pal[c] = (palBytes[i] or 0) + (palBytes[i + 1] or 0) * 256
+  end
   local pixels = {}
   for i = 1, W * H do pixels[i] = 0 end
 
@@ -155,24 +173,32 @@ function TrainerCardExtract.run(rom, cache, opts)
     return t
   end
 
-  local bgTiles = Lz77.decompress(get, Versions.TRAINER_CARD_BG_TILES or 0xE86240)
-  local mapMale = Lz77.decompress(get, Versions.TRAINER_CARD_BG_MALE_MAP or 0xE86BE8)
-  local mapFemale = Lz77.decompress(get, Versions.TRAINER_CARD_BG_FEMALE_MAP or 0xE86D6C)
-  local palBytes = read_bytes(Versions.TRAINER_CARD_BG_PAL or 0xE86F98, 128)
-  local badgeTiles = read_bytes(Versions.TRAINER_CARD_BADGES_TILES or 0x3A5348, 1024)
+  local bgTiles = Lz77.decompress(get, Versions.TRAINER_CARD_BG_TILES or 0xE991F8)
+  local mapFront = Lz77.decompress(get, Versions.TRAINER_CARD_FRONT_MAP or 0x3CC6F0)
+  local mapBg = Lz77.decompress(get, Versions.TRAINER_CARD_BG_MAP or 0x3CCEC8)
+  local palBytes = read_bytes(Versions.TRAINER_CARD_PAL or 0xE99198, 96)
+  local femalePalBytes = read_bytes(Versions.TRAINER_CARD_FEMALE_PAL or 0x3CD2A0, 32)
+  local badgePalBytes = read_bytes(Versions.TRAINER_CARD_BADGES_PAL or 0x3CD2C0, 32)
+  local badgeTiles = Lz77.decompress(get, Versions.TRAINER_CARD_BADGES_TILES or 0x3CD5E8)
 
-  if bgTiles and mapMale and palBytes then
-    local maleRgba = bake_card_rgba(bgTiles, palBytes, mapMale, W, H)
-    cache:write(root .. "/bg.rgba", maleRgba)
+  local maleBanks = load_pal_banks(palBytes, 3)
+  local femaleBanks = load_pal_banks(palBytes, 3)
+  femaleBanks[1] = {}
+  for c = 0, 15 do
+    local i = c * 2 + 1
+    femaleBanks[1][c] = (femalePalBytes[i] or 0) + (femalePalBytes[i + 1] or 0) * 256
   end
 
-  if bgTiles and mapFemale and palBytes then
-    local femaleRgba = bake_card_rgba(bgTiles, palBytes, mapFemale, W, H)
+  if bgTiles and mapFront and mapBg then
+    local maleRgba = bake_card_composite_rgba(bgTiles, maleBanks, mapFront, mapBg, W, H)
+    cache:write(root .. "/bg.rgba", maleRgba)
+
+    local femaleRgba = bake_card_composite_rgba(bgTiles, femaleBanks, mapFront, mapBg, W, H)
     cache:write(root .. "/bg_female.rgba", femaleRgba)
   end
 
-  if badgeTiles and palBytes then
-    local badgesRgba, bw, bh = bake_badges_rgba(badgeTiles, palBytes)
+  if badgeTiles and badgePalBytes then
+    local badgesRgba, bw, bh = bake_badges_rgba(badgeTiles, badgePalBytes)
     cache:write(root .. "/badges.rgba", badgesRgba)
   end
 
@@ -199,7 +225,30 @@ end
 function TrainerCardExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. TrainerCardExtract.CACHE_SUB
   local need = root .. "/bg.rgba"
-  if cache and cache.exists and cache:exists(need) then return true end
+  if cache then
+    if cache.read then
+      local d = cache:read(need)
+      return (d and #d >= 240 * 160 * 4) or false
+    elseif cache.exists then
+      return cache:exists(need) or false
+    end
+    return false
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.readActive then
+    local d = CacheFs.readActive(need)
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(need)
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
+  local f = io.open(need, "rb") or io.open("data/generated/gba/" .. TrainerCardExtract.CACHE_SUB .. "/bg.rgba", "rb")
+  if f then
+    local d = f:read("*a")
+    f:close()
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
   return false
 end
 

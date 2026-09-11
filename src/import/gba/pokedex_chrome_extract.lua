@@ -318,15 +318,39 @@ end
 function PokedexChromeExtract.ready(cache, cacheRoot)
   cacheRoot = cacheRoot or default_cache_root()
   local root = cacheRoot .. "/" .. PokedexChromeExtract.CACHE_SUB
-  if cache and cache.exists then
-    return cache:exists(root .. "/manifest.lua")
-      and cache:exists(root .. "/entries.lua")
-      and cache:exists(root .. "/categories.lua")
-      and cache:exists(root .. "/orders.lua")
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
   end
-  local f = io.open(root .. "/manifest.lua", "rb") or io.open("data/generated/gba/" .. PokedexChromeExtract.CACHE_SUB .. "/manifest.lua", "rb")
-  if f then f:close() return true end
-  return false
+
+  return valid_file(root .. "/manifest.lua", 20)
+    and valid_file(root .. "/entries.lua", 20)
+    and valid_file(root .. "/categories.lua", 20)
+    and valid_file(root .. "/orders.lua", 20)
 end
 
 return PokedexChromeExtract

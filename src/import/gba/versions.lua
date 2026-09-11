@@ -18,7 +18,10 @@ Versions.ROM_SIZE = 16777216
 -- v80: trainer tables + battle intro back pics / party summary bar
 -- v85: dual-layer native atlas (under/over) for pret BG2 sprite cover
 -- v86: battle_transition ROM gfx → pokemon/battle_transition/
-Versions.CACHE_VERSION = 86
+-- v87: standard Lua array LZ77 decompression + robust chrome extraction for Android
+-- v88: authentic 1:1 FRLG trainer card composite (BG0+BG2), badges & Red/Leaf trainer pic fix
+-- v89: summary base tilemaps from ROM (fix magenta bg on Android), keypad icons extracted from ROM
+Versions.CACHE_VERSION = 89
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -705,6 +708,9 @@ Versions.SUMMARY_PAGE_SKILLS_TILEMAP = 0xE9B750  -- gSummaryPage_Skills_Tilemap 
 Versions.SUMMARY_PAGE_MOVES_TILEMAP = 0xE9B950   -- gSummaryPage_Moves_Tilemap (LZ 32x32, 2048 bytes)
 Versions.SUMMARY_PAGE_MOVES_INFO_TILEMAP = 0xE9BA9C -- gSummaryPage_MovesInfo_Tilemap (LZ 32x20, 1280 bytes)
 Versions.SUMMARY_PAGE_EGG_TILEMAP = 0xE9BBCC     -- gSummaryPage_Egg_Tilemap (LZ 32x20, 1280 bytes)
+Versions.SUMMARY_PAGE_MOVES_INFO_BASE_TILEMAP = 0x463B88 -- sBgTilemap_MovesInfoPage (LZ 32x20, 1280 bytes)
+Versions.SUMMARY_PAGE_MOVES_BASE_TILEMAP = 0x463C80      -- sBgTilemap_MovesPage (LZ 32x32, 2048 bytes)
+Versions.KEYPAD_ICONS_GFX = 0x1EA700                     -- gKeypadIconTiles (4bpp, 2048 bytes = 128x32)
 Versions.SUMMARY_STATUS_ICONS_GFX = 0xE82EA0     -- gStatusGfx_Icons (LZ 4bpp, 1024 bytes)
 Versions.SUMMARY_STATUS_ICONS_PAL = 0xE9BF28     -- gSummaryStatus_Pal (32 bytes)
 Versions.SUMMARY_CURSOR_LEFT_GFX = 0x463740      -- sMoveSelectionCursor_Left_Gfx (288 bytes)
@@ -730,11 +736,15 @@ Versions.BAG_SWAP_GFX = 0xE84588                -- gSwapLine_Gfx
 Versions.BAG_SWAP_PAL = 0xE845C8                -- gSwapLine_Pal
 
 -- Trainer Card (LZ-compressed & raw; FireRed USA 1.0).
-Versions.TRAINER_CARD_BG_TILES = 0xE86240       -- sTrainerCard_BgTiles (LZ 4bpp, 7456 bytes)
-Versions.TRAINER_CARD_BG_MALE_MAP = 0xE86BE8    -- sTrainerCard_BgTilemap (LZ 32x20, 2048 bytes)
-Versions.TRAINER_CARD_BG_FEMALE_MAP = 0xE86D6C  -- sTrainerCard_BgFemaleTilemap (LZ 32x20, 2048 bytes)
-Versions.TRAINER_CARD_BG_PAL = 0xE86F98         -- sTrainerCard_BgPal (4 banks, 128 bytes)
-Versions.TRAINER_CARD_BADGES_TILES = 0x3A5348   -- sTrainerCard_BadgesTiles (32 tiles 4bpp, 1024 bytes)
+Versions.TRAINER_CARD_BG_TILES = 0xE991F8       -- gKantoTrainerCard_Gfx (LZ 4bpp, 6144 bytes)
+Versions.TRAINER_CARD_FRONT_MAP = 0x3CC6F0      -- sKantoTrainerCardFront_Tilemap (LZ 30x20, 1200 bytes)
+Versions.TRAINER_CARD_BG_MAP = 0x3CCEC8         -- sKantoTrainerCardBg_Tilemap (LZ 30x20, 1200 bytes)
+Versions.TRAINER_CARD_PAL = 0xE99198            -- gKantoTrainerCardBlue_Pal (3 banks, 96 bytes)
+Versions.TRAINER_CARD_FEMALE_PAL = 0x3CD2A0     -- sKantoTrainerCardFemaleBg_Pal (1 bank, 32 bytes)
+Versions.TRAINER_CARD_BADGES_TILES = 0x3CD5E8   -- sKantoTrainerCardBadges_Gfx (LZ 4bpp, 1024 bytes)
+Versions.TRAINER_CARD_BADGES_PAL = 0x3CD2C0     -- sKantoTrainerCardBadges_Pal (1 bank, 32 bytes)
+Versions.TRAINER_PIC_RED = 135
+Versions.TRAINER_PIC_LEAF = 136
 Versions.SHOP_BG_GFX = 0xE85DC8                 -- gBuyMenuFrame_Gfx
 Versions.SHOP_BG_TILEMAP = 0xE85EFC             -- gBuyMenuFrame_Tilemap
 Versions.SHOP_BG_TM_TILEMAP = 0xE86038          -- gBuyMenuFrame_TmHmTilemap

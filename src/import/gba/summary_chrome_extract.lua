@@ -35,6 +35,12 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
+local function byte_len(buf)
+  if type(buf) == "string" then return #buf end
+  if type(buf) == "table" then return buf._len or #buf end
+  return 0
+end
+
 local function decode_tile_4bpp(tileBytes, out, baseX, baseY, stride, hflip, vflip)
   for row = 0, 7 do
     local srcRow = vflip and (7 - row) or row
@@ -55,7 +61,8 @@ end
 
 local function load_pal_banks(bytes, count)
   local banks = {}
-  for b = 0, count - 1 do
+  local n = count or math.max(1, math.floor(byte_len(bytes) / 32))
+  for b = 0, n - 1 do
     local colors = {}
     local off = b * 32
     for c = 0, 15 do
@@ -69,11 +76,20 @@ end
 
 local function read_bin(candidates)
   for _, p in ipairs(candidates) do
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local d = CacheFs.readActive(p)
+      if d and #d > 0 then return d end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, d = pcall(love.filesystem.read, p)
+      if ok and d and #d > 0 then return d end
+    end
     local f = io.open(p, "rb")
     if f then
       local d = f:read("*a")
       f:close()
-      if d then return d end
+      if d and #d > 0 then return d end
     end
   end
   return nil
@@ -83,8 +99,8 @@ end
 -- On GBA, palette index 0 is transparent (shows lower BGs / backdrop).
 -- When transparent0 is true, index 0 is written with alpha 0.
 local function bake_bg_rgba(gfx, palBytes, map, W, H, transparent0)
-  local tileCount = math.floor(#gfx / 32)
-  local banks = load_pal_banks(palBytes, math.max(1, math.floor(#palBytes / 32)))
+  local tileCount = math.floor(byte_len(gfx) / 32)
+  local banks = load_pal_banks(palBytes, math.max(1, math.floor(byte_len(palBytes) / 32)))
   local mapW = 32
   local indices, pals = {}, {}
   for i = 1, W * H do indices[i] = 0; pals[i] = 0 end
@@ -155,11 +171,20 @@ local function composite_rgba(bottom, top)
 end
 
 --- Pret uses BG3 base tilemaps under the page overlays:
----   INFO/SKILLS/EGG → moves_info_page.bin
----   MOVES/MOVES_INFO → moves_page.bin
-local function load_base_tilemap(kind)
+---   INFO/SKILLS/EGG → sBgTilemap_MovesInfoPage (ROM 0x463B88, LZ 1280 B)
+---   MOVES/MOVES_INFO → sBgTilemap_MovesPage (ROM 0x463C80, LZ 2048 B)
+--- First try ROM decompress (works on Android), then fall back to external .bin files.
+local function load_base_tilemap(kind, get)
+  -- ROM path (always works on Android, iOS, etc.)
+  if get then
+    local off = (kind == "moves") and (Versions.SUMMARY_PAGE_MOVES_BASE_TILEMAP or 0x463C80)
+                                    or  (Versions.SUMMARY_PAGE_MOVES_INFO_BASE_TILEMAP or 0x463B88)
+    local dec = Lz77.decompress(get, off)
+    if dec and byte_len(dec) > 0 then return dec end
+  end
+  -- Fallback: pret source tree or pre-extracted cache
   local names = {
-    info = { "moves_info_page.bin" },
+    info  = { "moves_info_page.bin" },
     moves = { "moves_page.bin" },
   }
   local list = names[kind] or names.info
@@ -190,9 +215,9 @@ end
 local function bake_strip_rgba(gfx, palBytes, numTiles, palBank)
   local W = numTiles * 8
   local H = 8
-  local banks = load_pal_banks(palBytes, math.max(1, math.floor(#palBytes / 32)))
+  local banks = load_pal_banks(palBytes, math.max(1, math.floor(byte_len(palBytes) / 32)))
   local pal = banks[palBank or 0] or banks[0] or {}
-  local tileCount = math.floor(#gfx / 32)
+  local tileCount = math.floor(byte_len(gfx) / 32)
   local pixels = {}
   for i = 1, W * H do pixels[i] = 0 end
 
@@ -222,9 +247,9 @@ end
 local function bake_sheet_rgba(gfx, palBytes, tilesX, tilesY, palBank)
   local W = tilesX * 8
   local H = tilesY * 8
-  local banks = load_pal_banks(palBytes, math.max(1, math.floor(#palBytes / 32)))
+  local banks = load_pal_banks(palBytes, math.max(1, math.floor(byte_len(palBytes) / 32)))
   local pal = banks[palBank or 0] or banks[0] or {}
-  local tileCount = math.floor(#gfx / 32)
+  local tileCount = math.floor(byte_len(gfx) / 32)
   local pixels = {}
   for i = 1, W * H do pixels[i] = 0 end
 
@@ -274,8 +299,9 @@ end
 local function apply_page_progress_tiles(baseMapBytes, pageKind)
   if not baseMapBytes then return nil end
   local map = {}
-  for i = 1, #baseMapBytes do
-    map[i] = baseMapBytes:byte(i)
+  local blen = byte_len(baseMapBytes)
+  for i = 1, blen do
+    map[i] = get_byte(baseMapBytes, i)
   end
   local BASE = 345
 
@@ -371,8 +397,9 @@ function SummaryChromeExtract.run(rom, cache, opts)
   local mapEgg = rom and Lz77.decompress(get, Versions.SUMMARY_PAGE_EGG_TILEMAP)
 
   -- Pret stacks BG3 base (moves_info_page / moves_page) under page overlays.
-  local baseInfo = load_base_tilemap("info")
-  local baseMoves = load_base_tilemap("moves")
+  -- ROM decompression is tried first so Android never needs the pokefirered/ source tree.
+  local baseInfo  = load_base_tilemap("info",  get)
+  local baseMoves = load_base_tilemap("moves", get)
 
   if bgGfx and bgPal and mapInfo then
     local baseInfoP1 = apply_page_progress_tiles(baseInfo, "info")
@@ -446,6 +473,7 @@ function SummaryChromeExtract.run(rom, cache, opts)
   end
 
   local menuInfoBin = read_bin({
+    "src/import/gba/chrome/menus/menu_info.png",
     "data/generated/gba/pokemon/summary/menu_info.png",
   })
   if menuInfoBin then
@@ -532,7 +560,30 @@ end
 function SummaryChromeExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. SummaryChromeExtract.CACHE_SUB
   local need = root .. "/page_info.rgba"
-  if cache and cache.exists and cache:exists(need) then return true end
+  if cache then
+    if cache.read then
+      local d = cache:read(need)
+      return (d and #d >= 240 * 160 * 4) or false
+    elseif cache.exists then
+      return cache:exists(need) or false
+    end
+    return false
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.readActive then
+    local d = CacheFs.readActive(need)
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(need)
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
+  local f = io.open(need, "rb") or io.open("data/generated/gba/" .. SummaryChromeExtract.CACHE_SUB .. "/page_info.rgba", "rb")
+  if f then
+    local d = f:read("*a")
+    f:close()
+    if d and #d >= 240 * 160 * 4 then return true end
+  end
   return false
 end
 

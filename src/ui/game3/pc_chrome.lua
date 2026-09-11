@@ -46,7 +46,24 @@ local function load_texture(name)
   local candidates = {
     "pokemon/storage/" .. name,
     "data/generated/gba/pokemon/storage/" .. name,
+    "src/import/gba/chrome/menus/storage/" .. name,
   }
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.readActive then
+    for _, path in ipairs(candidates) do
+      local bytes = CacheFs.readActive(path)
+      if bytes and #bytes > 0 and love and love.image and love.graphics and love.filesystem then
+        local ok, img = pcall(function()
+          local fd = love.filesystem.newFileData(bytes, name)
+          local id = love.image.newImageData(fd)
+          local image = love.graphics.newImage(id)
+          if image.setFilter then image:setFilter("nearest", "nearest") end
+          return image
+        end)
+        if ok and img then return img end
+      end
+    end
+  end
   local okA, Assets = pcall(require, "src.render.Assets")
   for _, path in ipairs(candidates) do
     if okA and Assets and Assets.image then
@@ -54,6 +71,19 @@ local function load_texture(name)
       if ok and img then
         if img.setFilter then img:setFilter("nearest", "nearest") end
         return img
+      end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local bytes = love.filesystem.read(path)
+      if bytes and #bytes > 0 and love.image and love.graphics then
+        local ok, img = pcall(function()
+          local fd = love.filesystem.newFileData(bytes, name)
+          local id = love.image.newImageData(fd)
+          local image = love.graphics.newImage(id)
+          if image.setFilter then image:setFilter("nearest", "nearest") end
+          return image
+        end)
+        if ok and img then return img end
       end
     end
     if love and love.image and love.graphics and love.filesystem then

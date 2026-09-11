@@ -52,6 +52,25 @@ local function read_bytes(rel)
     local d = CacheFs.readActive(rel)
     if type(d) == "string" and #d > 0 then return d end
   end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(rel)
+    if type(d) == "string" and #d > 0 then return d end
+    local alt = "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", ""))
+    d = love.filesystem.read(alt)
+    if type(d) == "string" and #d > 0 then return d end
+  end
+  local candidates = {
+    rel,
+    "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", "")),
+  }
+  for _, p in ipairs(candidates) do
+    local f = io.open(p, "rb")
+    if f then
+      local d = f:read("*a")
+      f:close()
+      if d and #d > 0 then return d end
+    end
+  end
   return nil
 end
 
@@ -89,24 +108,30 @@ local function rgba_to_image(rgba, w, h)
 end
 
 local function load_status_png()
-  local rel = party_root() .. "/status_icons.png"
-  local bytes = read_bytes(rel)
-  if bytes and love and love.image and love.graphics then
-    local ok, img = pcall(function()
-      local fd = love.filesystem.newFileData(bytes, "status_icons.png")
-      local id = love.image.newImageData(fd)
-      local image = love.graphics.newImage(id)
-      if image.setFilter then image:setFilter("nearest", "nearest") end
-      return image
-    end)
-    if ok and img then return img end
-  end
-  if love and love.graphics and love.filesystem and love.filesystem.getInfo
-      and love.filesystem.getInfo(rel) then
-    local ok, img = pcall(love.graphics.newImage, rel)
-    if ok and img then
-      if img.setFilter then img:setFilter("nearest", "nearest") end
-      return img
+  local candidates = {
+    party_root() .. "/status_icons.png",
+    "src/import/gba/chrome/menus/party/status_icons.png",
+    "data/generated/gba/pokemon/summary/status_icons.png",
+  }
+  for _, rel in ipairs(candidates) do
+    local bytes = read_bytes(rel)
+    if bytes and love and love.image and love.graphics then
+      local ok, img = pcall(function()
+        local fd = love.filesystem.newFileData(bytes, "status_icons.png")
+        local id = love.image.newImageData(fd)
+        local image = love.graphics.newImage(id)
+        if image.setFilter then image:setFilter("nearest", "nearest") end
+        return image
+      end)
+      if ok and img then return img end
+    end
+    if love and love.graphics and love.filesystem and love.filesystem.getInfo
+        and love.filesystem.getInfo(rel) then
+      local ok, img = pcall(love.graphics.newImage, rel)
+      if ok and img then
+        if img.setFilter then img:setFilter("nearest", "nearest") end
+        return img
+      end
     end
   end
   return nil
@@ -264,15 +289,32 @@ end
 
 local function ensureStatus()
   if PartyChrome._status then return PartyChrome._status end
-  local img = load_status_png()
-  if not img then return nil end
-  local iw, ih = img:getDimensions()
-  local fw, fh = 16, 8
-  local entry = { image = img, quads = {}, frameW = fw, frameH = fh }
-  local cols = math.max(1, math.floor(iw / fw))
-  for i = 0, cols - 1 do
-    entry.quads[i] = love.graphics.newQuad(i * fw, 0, fw, fh, iw, ih)
+  local raw = read_bytes(party_root() .. "/status_icons.rgba")
+    or read_bytes(cache_root() .. "/pokemon/summary/status_icons.rgba")
+  local img
+  local fw, fh = 32, 8
+  local quads = {}
+  if raw and #raw >= 32 * 64 * 4 then
+    img = rgba_to_image(raw, 32, 64)
+    if img then
+      for i = 0, 7 do
+        quads[i] = love.graphics.newQuad(0, i * 8, 32, 8, 32, 64)
+      end
+    end
   end
+  if not img then
+    img = load_status_png()
+    if img then
+      local iw, ih = img:getDimensions()
+      fw, fh = (iw >= 32 and 32 or 16), 8
+      local cols = math.max(1, math.floor(iw / fw))
+      for i = 0, cols - 1 do
+        quads[i] = love.graphics.newQuad(i * fw, 0, fw, fh, iw, ih)
+      end
+    end
+  end
+  if not img then return nil end
+  local entry = { image = img, quads = quads, frameW = fw, frameH = fh }
   PartyChrome._status = entry
   return entry
 end
@@ -363,12 +405,13 @@ function PartyChrome.statusFrameFor(status)
     return 0
   end
   local s = tostring(status):lower()
-  if s:find("sleep") or s == "slp" or s == "1" then return 1 end
-  if s:find("poison") or s == "psn" or s == "2" then return 2 end
-  if s:find("burn") or s == "brn" or s == "3" then return 3 end
+  if s:find("poison") or s == "psn" or s:find("toxic") or s == "tox" or s == "1" then return 1 end
+  if s:find("paraly") or s == "par" or s == "prz" or s == "2" then return 2 end
+  if s:find("sleep") or s == "slp" or s == "3" then return 3 end
   if s:find("freeze") or s:find("frozen") or s == "frz" or s == "4" then return 4 end
-  if s:find("paraly") or s == "par" or s == "5" then return 5 end
-  if s:find("toxic") or s == "tox" then return 2 end
+  if s:find("burn") or s == "brn" or s == "5" then return 5 end
+  if s:find("pokerus") or s == "pkrs" or s == "6" then return 6 end
+  if s:find("faint") or s == "fnt" or s == "7" then return 7 end
   return 1
 end
 

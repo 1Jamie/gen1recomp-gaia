@@ -4,6 +4,7 @@
 
 local Versions = require("src.import.gba.versions")
 local TextIR = require("src.core.game3.scripting.text_ir")
+local Lz77 = require("src.import.gba.lz77")
 
 local PokemonExtract = {}
 
@@ -134,6 +135,53 @@ local function bake_icon_rgba(pixels, pal, w, h)
     else
       local c = rgb[idx] or rgb[0]
       chunks[i] = string.char(c[1], c[2], c[3], 255)
+    end
+  end
+  return table.concat(chunks)
+end
+
+local function decode_pic_sheet(tiles, palBytes)
+  if not tiles or not palBytes then return nil end
+  local pal = {}
+  for c = 0, 15 do
+    local lo = palBytes[c * 2 + 1] or 0
+    local hi = palBytes[c * 2 + 2] or 0
+    pal[c] = lo + hi * 256
+  end
+  local w, h = 64, 64
+  local rgb = {}
+  for c = 0, 15 do
+    local r, g, b = bgr555_to_rgb8(pal[c] or 0)
+    rgb[c] = { r, g, b }
+  end
+  local tilesW, tilesH = 8, 8
+  local chunks = {}
+  local ti = 0
+  for ty = 0, tilesH - 1 do
+    for tx = 0, tilesW - 1 do
+      local tileOff = ti * 32
+      for row = 0, 7 do
+        for bx = 0, 3 do
+          local bi = tileOff + row * 4 + bx + 1
+          local byte = tiles[bi] or 0
+          local p0 = byte % 16
+          local p1 = math.floor(byte / 16) % 16
+          local x0 = tx * 8 + bx * 2
+          local y0 = ty * 8 + row
+          local function put(x, y, idx)
+            local i = y * w + x + 1
+            if idx == 0 then
+              chunks[i] = string.char(0, 0, 0, 0)
+            else
+              local c = rgb[idx] or rgb[0]
+              chunks[i] = string.char(c[1], c[2], c[3], 255)
+            end
+          end
+          put(x0, y0, p0)
+          put(x0 + 1, y0, p1)
+        end
+      end
+      ti = ti + 1
     end
   end
   return table.concat(chunks)
@@ -436,6 +484,9 @@ function PokemonExtract.run(rom, cache, opts)
   local palIdxBase = Versions.MON_ICON_PAL_INDICES
   local pals = load_icon_pals(rom)
   local iconTable = Versions.MON_ICON_TABLE
+  local frontPicTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_front_pic_table) or 0x2350AC
+  local backPicTable = Versions.MON_BACK_PIC_TABLE or 0x23654C
+  local palTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_palette_table) or 0x23730C
 
   for sp = 0, num - 1 do
     if progress and sp % 40 == 0 then
@@ -482,6 +533,36 @@ function PokemonExtract.run(rom, cache, opts)
       rgba = string.rep(string.char(0, 0, 0, 0), w * iconH * 4)
     end
     cache:write(root .. "/icons/" .. sp .. ".rgba", rgba)
+
+    -- Front Pic (64x64 RGBA)
+    local frontPtr = rom:u32(frontPicTable + sp * 8)
+    local palPtr = rom:u32(palTable + sp * 8)
+    local frontOff = gba_off(frontPtr)
+    local palOff = gba_off(palPtr)
+    if frontOff and palOff then
+      local okT, tiles = pcall(Lz77.decompress, function(i) return rom:get(i) end, frontOff)
+      local okP, palBytes = pcall(Lz77.decompress, function(i) return rom:get(i) end, palOff)
+      if okT and okP and tiles and palBytes then
+        local frontRgba = decode_pic_sheet(tiles, palBytes)
+        if frontRgba then
+          cache:write(root .. "/front/" .. sp .. ".rgba", frontRgba)
+        end
+      end
+    end
+
+    -- Back Pic (64x64 RGBA)
+    local backPtr = rom:u32(backPicTable + sp * 8)
+    local backOff = gba_off(backPtr)
+    if backOff and palOff then
+      local okT, tiles = pcall(Lz77.decompress, function(i) return rom:get(i) end, backOff)
+      local okP, palBytes = pcall(Lz77.decompress, function(i) return rom:get(i) end, palOff)
+      if okT and okP and tiles and palBytes then
+        local backRgba = decode_pic_sheet(tiles, palBytes)
+        if backRgba then
+          cache:write(root .. "/back/" .. sp .. ".rgba", backRgba)
+        end
+      end
+    end
   end
 
   local abilityNames = {}
@@ -697,6 +778,21 @@ function PokemonExtract.run(rom, cache, opts)
   local shopChrome = ShopChromeExtract.run(rom, cache, { cacheRoot = cacheRoot })
   if progress then progress("shop_chrome", 1, 1) end
 
+  local TextChromeExtract = require("src.import.gba.text_chrome_extract")
+  pcall(function()
+    TextChromeExtract.run(rom, cache, { cacheRoot = cacheRoot })
+  end)
+
+  local ItemsExtract = require("src.import.gba.items_extract")
+  pcall(function()
+    ItemsExtract.run(rom, cache, { cacheRoot = cacheRoot })
+  end)
+
+  local TrainerCardExtract = require("src.import.gba.trainer_card_extract")
+  pcall(function()
+    TrainerCardExtract.run(rom, cache, { cacheRoot = cacheRoot })
+  end)
+
   if progress then progress("trainers", 0, 1) end
   local TrainerExtract = require("src.import.gba.trainer_extract")
   local trainers = TrainerExtract.run(rom, cache, { cacheRoot = cacheRoot })
@@ -733,12 +829,50 @@ function PokemonExtract.run(rom, cache, opts)
 end
 
 function PokemonExtract.ready(cache, cacheRoot)
-  local root = (cacheRoot or default_cache_root()) .. "/" .. PokemonExtract.CACHE_SUB
-  if cache and cache.exists and cache:exists(root .. "/manifest.lua")
-      and cache:exists(root .. "/names.lua")
-      and cache:exists(root .. "/stats.lua")
-      and cache:exists(root .. "/learnsets.lua")
-      and cache:exists(root .. "/move_names.lua") then
+  local baseRoot = cacheRoot or default_cache_root()
+  local root = baseRoot .. "/" .. PokemonExtract.CACHE_SUB
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
+  end
+
+  if valid_file(root .. "/manifest.lua", 20)
+      and valid_file(root .. "/names.lua", 20)
+      and valid_file(root .. "/stats.lua", 20)
+      and valid_file(root .. "/learnsets.lua", 20)
+      and valid_file(root .. "/move_names.lua", 20)
+      and valid_file(root .. "/party/slot_main.rgba", 80 * 56 * 4)
+      and valid_file(root .. "/summary/page_info.rgba", 240 * 160 * 4)
+      and valid_file(root .. "/storage/manifest.lua", 20)
+      and valid_file(baseRoot .. "/chrome/menu_message_rgba.rgba", 20)
+      and valid_file(baseRoot .. "/trainer_card/bg.rgba", 240 * 160 * 4)
+      and valid_file(baseRoot .. "/items/pack.lua", 20)
+      and valid_file(root .. "/front/1.rgba", 64 * 64 * 4)
+      and valid_file(root .. "/back/1.rgba", 64 * 64 * 4) then
     return true
   end
   return false

@@ -416,6 +416,17 @@ local function draw_header(mon)
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
   end
 
+  -- Pokéball icon: pret CreateBallIconObj → gBallSpriteTemplates[ballId] at (106, 88).
+  -- Only shown on non-moves pages (hidden by ShowOrHideBallIconObj on MOVES/MOVES_INFO pages).
+  if not isMovesPage and not mon.isEgg then
+    local bx, by = cxy("ball", 98, 80)
+    local okPC, PartyChrome = pcall(require, "src.ui.game3.party_chrome")
+    if okPC and PartyChrome and PartyChrome.drawBall then
+      if love and love.graphics then love.graphics.setColor(1, 1, 1, 1) end
+      PartyChrome.drawBall(bx, by, 0)
+    end
+  end
+
   -- In pret pokefirered (pokemon_summary_screen.c:1635, 1681, 1979-1984, 4139-4175):
   -- On PAGE_MOVES (Known Moves) and PAGE_MOVES_INFO (Move Details), the large 64x64 front pic is HIDDEN.
   -- Instead, the 32x32 party mon icon is displayed below the level/name plate at (24, 34).

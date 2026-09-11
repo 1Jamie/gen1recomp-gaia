@@ -239,25 +239,44 @@ local function loadImage(candidates)
     local path = type(item) == "table" and item.path or item
     local w = type(item) == "table" and item.w or 256
     local h = type(item) == "table" and item.h or 512
-    if okC and CacheFs and CacheFs.read then
-      local data = CacheFs.read(path)
-      if data and type(data) == "string" and #data > 0 then
-        if #data == w * h * 4 and love and love.image and love.graphics then
-          local okId, id = pcall(love.image.newImageData, w, h, "rgba8", data)
+    local data = nil
+    if okC and CacheFs then
+      if CacheFs.readActive then
+        data = CacheFs.readActive(path)
+      end
+      if not data and CacheFs.read then
+        data = CacheFs.read(path)
+      end
+    end
+    if not data and love and love.filesystem and love.filesystem.read then
+      data = love.filesystem.read(path)
+      if not data then
+        data = love.filesystem.read("data/generated/gba/" .. (path:gsub("^data/generated/gba/", "")))
+      end
+    end
+    if not data then
+      local f = io.open(path, "rb") or io.open("data/generated/gba/" .. (path:gsub("^data/generated/gba/", "")), "rb")
+      if f then
+        data = f:read("*a")
+        f:close()
+      end
+    end
+    if data and type(data) == "string" and #data > 0 then
+      if #data == w * h * 4 and love and love.image and love.graphics then
+        local okId, id = pcall(love.image.newImageData, w, h, "rgba8", data)
+        if okId and id then
+          local img = love.graphics.newImage(id)
+          if img and img.setFilter then img:setFilter("nearest", "nearest") end
+          return img, path
+        end
+      elseif love and love.filesystem and love.image and love.graphics then
+        local okFd, fd = pcall(love.filesystem.newFileData, data, path)
+        if okFd and fd then
+          local okId, id = pcall(love.image.newImageData, fd)
           if okId and id then
             local img = love.graphics.newImage(id)
             if img and img.setFilter then img:setFilter("nearest", "nearest") end
             return img, path
-          end
-        elseif love and love.filesystem and love.image and love.graphics then
-          local okFd, fd = pcall(love.filesystem.newFileData, data, path)
-          if okFd and fd then
-            local okId, id = pcall(love.image.newImageData, fd)
-            if okId and id then
-              local img = love.graphics.newImage(id)
-              if img and img.setFilter then img:setFilter("nearest", "nearest") end
-              return img, path
-            end
           end
         end
       end
@@ -280,12 +299,22 @@ local function ensure()
   local widths = FrlgFont._widths
   if not widths then
     local okC, CacheFs = pcall(require, "src.import.CacheFs")
-    if okC and CacheFs and CacheFs.read then
-      local src = CacheFs.read("data/generated/gba/chrome/fonts/latin_widths.lua")
-      if src and type(src) == "string" then
-        local chunk = load(src, "@latin_widths.lua", "t", {}) or load(src)
-        if chunk then widths = chunk() end
+    local src
+    if okC and CacheFs then
+      if CacheFs.readActive then
+        src = CacheFs.readActive("data/generated/gba/chrome/fonts/latin_widths.lua")
       end
+      if not src and CacheFs.read then
+        src = CacheFs.read("data/generated/gba/chrome/fonts/latin_widths.lua")
+      end
+    end
+    if not src and love and love.filesystem and love.filesystem.read then
+      src = love.filesystem.read("data/generated/gba/chrome/fonts/latin_widths.lua")
+        or love.filesystem.read("chrome/fonts/latin_widths.lua")
+    end
+    if src and type(src) == "string" then
+      local chunk = load(src, "@latin_widths.lua", "t", {}) or load(src)
+      if chunk then widths = chunk() end
     end
   end
   if not widths then
@@ -332,12 +361,22 @@ local function ensure_small()
   end
   local widths
   local okC, CacheFs = pcall(require, "src.import.CacheFs")
-  if okC and CacheFs and CacheFs.read then
-    local src = CacheFs.read("data/generated/gba/chrome/fonts/latin_small_widths.lua")
-    if src and type(src) == "string" then
-      local chunk = load(src, "@latin_small_widths.lua", "t", {}) or load(src)
-      if chunk then widths = chunk() end
+  local src
+  if okC and CacheFs then
+    if CacheFs.readActive then
+      src = CacheFs.readActive("data/generated/gba/chrome/fonts/latin_small_widths.lua")
     end
+    if not src and CacheFs.read then
+      src = CacheFs.read("data/generated/gba/chrome/fonts/latin_small_widths.lua")
+    end
+  end
+  if not src and love and love.filesystem and love.filesystem.read then
+    src = love.filesystem.read("data/generated/gba/chrome/fonts/latin_small_widths.lua")
+      or love.filesystem.read("chrome/fonts/latin_small_widths.lua")
+  end
+  if src and type(src) == "string" then
+    local chunk = load(src, "@latin_small_widths.lua", "t", {}) or load(src)
+    if chunk then widths = chunk() end
   end
   if not widths then
     local ok, w = pcall(require, "src.import.gba.chrome.fonts.latin_small_widths")

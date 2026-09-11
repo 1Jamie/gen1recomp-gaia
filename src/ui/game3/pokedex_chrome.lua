@@ -58,6 +58,13 @@ local function read_bytes(rel)
     local d = CacheFs.readActive(rel)
     if type(d) == "string" and #d > 0 then return d end
   end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(rel)
+    if type(d) == "string" and #d > 0 then return d end
+    local alt = "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", ""))
+    d = love.filesystem.read(alt)
+    if type(d) == "string" and #d > 0 then return d end
+  end
   local candidates = {
     rel,
     "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", "")),
@@ -169,6 +176,32 @@ local KEYPAD_ICON_QUADS = nil
 function PokedexChrome.drawKeypadIcon(iconName, x, y)
   if not (love and love.graphics and iconName) then return end
   local img = PokedexChrome.getImage("keypad_icons")
+  if not img then
+    -- Try rgba files (written by TextChromeExtract.extractKeypadIcons)
+    local rgba_candidates = {
+      "data/generated/gba/keypad_icons.rgba",
+      "data/generated/gba/chrome/keypad_icons.rgba",
+      "data/generated/gba/chrome/fonts/keypad_icons.rgba",
+    }
+    for _, p in ipairs(rgba_candidates) do
+      local d
+      local okC, CacheFs = pcall(require, "src.import.CacheFs")
+      if okC and CacheFs and CacheFs.readActive then d = CacheFs.readActive(p) end
+      if not d or #d == 0 then
+        if love and love.filesystem then
+          d = love.filesystem.read(p)
+        end
+      end
+      if d and #d > 0 then
+        local kpImg = rgba_to_image(d, 128, 32)
+        if kpImg then
+          img = kpImg
+          PokedexChrome._images["keypad_icons"] = img
+          break
+        end
+      end
+    end
+  end
   if not img then
     local candidates = {
       "chrome/keypad_icons.png",
@@ -510,25 +543,26 @@ function PokedexChrome.menuInfoImage()
     PokedexChrome._menuInfo = SummaryChrome.menuInfoImage()
     if PokedexChrome._menuInfo then return PokedexChrome._menuInfo end
   end
-  local bytes = read_bytes("data/generated/gba/pokemon/summary/menu_info.png")
-  if bytes and love and love.image and love.graphics then
-    local ok, img = pcall(function()
-      local fd = love.filesystem.newFileData(bytes, "menu_info.png")
-      local id = sanitize_menu_info_imagedata(love.image.newImageData(fd))
-      local image = love.graphics.newImage(id)
-      if image.setFilter then image:setFilter("nearest", "nearest") end
-      return image
-    end)
-    if ok and img then
-      PokedexChrome._menuInfo = img
-      return img
+  local paths = {
+    "data/generated/gba/pokemon/summary/menu_info.png",
+    "src/import/gba/chrome/menus/menu_info.png",
+  }
+  for _, p in ipairs(paths) do
+    local bytes = read_bytes(p)
+    if bytes and love and love.image and love.graphics then
+      local ok, img = pcall(function()
+        local fd = love.filesystem.newFileData(bytes, "menu_info.png")
+        local id = sanitize_menu_info_imagedata(love.image.newImageData(fd))
+        local image = love.graphics.newImage(id)
+        if image.setFilter then image:setFilter("nearest", "nearest") end
+        return image
+      end)
+      if ok and img then
+        PokedexChrome._menuInfo = img
+        return img
+      end
     end
-  end
-  if love and love.graphics and love.image and love.image.newImageData then
-    local paths = {
-      "data/generated/gba/pokemon/summary/menu_info.png",
-    }
-    for _, p in ipairs(paths) do
+    if love and love.graphics and love.image and love.image.newImageData then
       local ok, img = pcall(function()
         local id = sanitize_menu_info_imagedata(love.image.newImageData(p))
         local image = love.graphics.newImage(id)

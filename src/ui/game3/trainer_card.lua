@@ -21,10 +21,23 @@ local _picLeaf = nil
 local _assetsTried = false
 
 local function read_cache_file(path)
-  local ok, CacheFs = pcall(require, "src.util.CacheFs")
-  if ok and CacheFs and CacheFs.read then
-    local data = CacheFs.read(path)
-    if data and #data > 0 then return data end
+  local ok, CacheFs = pcall(require, "src.import.CacheFs")
+  if ok and CacheFs then
+    if CacheFs.readActive then
+      local data = CacheFs.readActive(path)
+      if data and #data > 0 then return data end
+    end
+    if CacheFs.read then
+      local data = CacheFs.read(path)
+      if data and #data > 0 then return data end
+    end
+  end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(path)
+    if d and #d > 0 then return d end
+    local alt = "data/generated/gba/" .. (path:gsub("^data/generated/gba/", ""))
+    d = love.filesystem.read(alt)
+    if d and #d > 0 then return d end
   end
   local f = io.open(path, "rb")
   if f then
@@ -104,19 +117,19 @@ local function ensureAssets()
   end
 
   _picRed = load_rgba_image({
-    "trainers/front/0.rgba",
-    "data/generated/gba/trainers/front/0.rgba",
+    "trainers/front/135.rgba",
+    "data/generated/gba/trainers/front/135.rgba",
     "trainer_card/red.png",
     "data/generated/gba/trainer_card/red.png",
-    "data/generated/gba/trainers/front/0.png",
+    "data/generated/gba/trainers/front/135.png",
   }, 64, 64)
 
   _picLeaf = load_rgba_image({
-    "trainers/front/1.rgba",
-    "data/generated/gba/trainers/front/1.rgba",
+    "trainers/front/136.rgba",
+    "data/generated/gba/trainers/front/136.rgba",
     "trainer_card/leaf.png",
     "data/generated/gba/trainer_card/leaf.png",
-    "data/generated/gba/trainers/front/1.png",
+    "data/generated/gba/trainers/front/136.png",
   }, 64, 64)
 end
 

@@ -481,6 +481,14 @@ function Pokemon.battleMove(moveId)
   return Pokemon._battleMoves and Pokemon._battleMoves[moveId]
 end
 
+function Pokemon.movePp(moveId)
+  moveId = tonumber(moveId)
+  if not moveId or moveId < 1 then return 5 end
+  local row = Pokemon.battleMove(moveId)
+  return (row and tonumber(row.pp)) or 5
+end
+Pokemon.moveMaxPp = Pokemon.movePp
+
 --- FRLG GiveBoxMonInitialMoveset: learn all ≤ level; if full, drop first.
 function Pokemon.movesAtLevel(species, level)
   if type(species) == "table" then species = Pokemon.speciesOf(species) end
@@ -826,6 +834,23 @@ local function load_rom_bytes()
         return data
       end
     end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, path)
+      if ok and data and #data >= 0x1000000 then
+        Pokemon._romBytes = data
+        return data
+      end
+    end
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.readActive then
+    for _, path in ipairs(candidates) do
+      local data = CacheFs.readActive(path)
+      if data and #data >= 0x1000000 then
+        Pokemon._romBytes = data
+        return data
+      end
+    end
   end
   return nil
 end
@@ -849,7 +874,7 @@ end
 local function decode_pic_rgba(species, picTable, palTable, cacheRel)
   species = tonumber(species)
   if not species or species < 1 then return nil end
-  local cache = Pokemon._cache
+  local cache = resolve_cache(Pokemon._cache)
   if cache and cache.read then
     local d = cache:read(cacheRel)
     if d and #d >= 64 * 64 * 4 then return d end

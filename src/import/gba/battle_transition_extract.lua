@@ -65,12 +65,18 @@ local function decode_tile_4bpp(tileBytes, out, baseX, baseY, stride, hflip, vfl
   end
 end
 
+local function byte_len(buf)
+  if type(buf) == "string" then return #buf end
+  if type(buf) ~= "table" then return 0 end
+  return buf._len or #buf
+end
+
 local function sheet_indices(gfx, tilesW, tilesH)
   gfx = type(gfx) == "table" and gfx or {}
   local w, h = tilesW * 8, tilesH * 8
   local indices = {}
   for i = 1, w * h do indices[i] = 0 end
-  local tileCount = math.floor(#gfx / 32)
+  local tileCount = math.floor(byte_len(gfx) / 32)
   for ty = 0, tilesH - 1 do
     for tx = 0, tilesW - 1 do
       local ti = ty * tilesW + tx
@@ -231,12 +237,38 @@ end
 
 function BattleTransitionExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. BattleTransitionExtract.CACHE_SUB
-  if cache and cache.exists and cache:exists(root .. "/manifest.lua")
-      and cache:exists(root .. "/big_pokeball.rgba")
-      and cache:exists(root .. "/sliding_pokeball.rgba") then
-    return true
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
   end
-  return false
+
+  return valid_file(root .. "/manifest.lua", 20)
+    and valid_file(root .. "/big_pokeball.rgba", 64 * 64 * 4)
+    and valid_file(root .. "/sliding_pokeball.rgba", 32 * 32 * 4)
 end
 
 return BattleTransitionExtract

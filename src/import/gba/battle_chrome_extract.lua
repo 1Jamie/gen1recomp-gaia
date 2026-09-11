@@ -28,10 +28,21 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
+local function byte_len(buf)
+  if type(buf) == "string" then return #buf end
+  if type(buf) ~= "table" then return 0 end
+  return buf._len or #buf
+end
+
 local function bytes_to_array(tbl)
   if type(tbl) == "string" then
     local t = {}
     for i = 1, #tbl do t[i] = tbl:byte(i) end
+    return t
+  end
+  if type(tbl) == "table" and tbl._ffi and tbl._len then
+    local t = {}
+    for i = 1, tbl._len do t[i] = tbl._ffi[i - 1] end
     return t
   end
   return tbl
@@ -82,7 +93,7 @@ end
 --- GBA OAM multi-tile blit: tiles arranged row-major in an (tilesW × tilesH) grid.
 local function blit_oam_rect(gfx, pal, tileStart, tilesW, tilesH, dest, destX, destY, destW)
   gfx = bytes_to_array(gfx)
-  local tileCount = math.floor(#gfx / 32)
+  local tileCount = math.floor(byte_len(gfx) / 32)
   for ty = 0, tilesH - 1 do
     for tx = 0, tilesW - 1 do
       local ti = tileStart + ty * tilesW + tx
@@ -390,12 +401,38 @@ end
 
 function BattleChromeExtract.ready(cache, cacheRoot)
   local root = (cacheRoot or default_cache_root()) .. "/" .. BattleChromeExtract.CACHE_SUB
-  if cache and cache.exists and cache:exists(root .. "/manifest.lua")
-      and cache:exists(root .. "/healthbox_player.rgba")
-      and cache:exists(root .. "/terrain_building.rgba") then
-    return true
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
   end
-  return false
+
+  return valid_file(root .. "/manifest.lua", 20)
+    and valid_file(root .. "/healthbox_player.rgba", 128 * 64 * 4)
+    and valid_file(root .. "/terrain_building.rgba", 100)
 end
 
 return BattleChromeExtract

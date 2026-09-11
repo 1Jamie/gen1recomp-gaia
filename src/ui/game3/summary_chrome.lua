@@ -55,6 +55,13 @@ local function read_bytes(rel)
     local d = CacheFs.readActive(rel)
     if type(d) == "string" and #d > 0 then return d end
   end
+  if love and love.filesystem and love.filesystem.read then
+    local d = love.filesystem.read(rel)
+    if type(d) == "string" and #d > 0 then return d end
+    local alt = "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", ""))
+    d = love.filesystem.read(alt)
+    if type(d) == "string" and #d > 0 then return d end
+  end
   local candidates = {
     rel,
     "data/generated/gba/" .. (rel:gsub("^data/generated/gba/", "")),
@@ -225,6 +232,9 @@ end
 function SummaryChrome.menuInfoImage()
   if SummaryChrome._menuInfo then return SummaryChrome._menuInfo end
   local img = load_png(summary_root() .. "/menu_info.png")
+  if not img then
+    img = load_png("src/import/gba/chrome/menus/menu_info.png")
+  end
   SummaryChrome._menuInfo = img
   return img
 end

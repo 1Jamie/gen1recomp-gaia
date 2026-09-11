@@ -121,6 +121,13 @@ function ItemsExtract.ready(cache, cacheRoot)
   if cache and cache.exists and cache:exists(need) then
     return true
   end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.exists and CacheFs.exists(need) then
+    return true
+  end
+  if love and love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(need) then
+    return true
+  end
   local f = io.open(need, "rb") or io.open("data/generated/gba/" .. ItemsExtract.CACHE_SUB .. "/pack.lua", "rb")
   if f then
     f:close()

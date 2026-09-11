@@ -18,10 +18,21 @@ end
 
 local function read_file(path)
   local f = io.open(path, "rb")
-  if not f then return nil end
-  local data = f:read("*a")
-  f:close()
-  return data
+  if f then
+    local data = f:read("*a")
+    f:close()
+    if data and #data > 0 then return data end
+  end
+  if love and love.filesystem and love.filesystem.read then
+    local ok, data = pcall(love.filesystem.read, path)
+    if ok and data and #data > 0 then return data end
+  end
+  local okC, CacheFs = pcall(require, "src.import.CacheFs")
+  if okC and CacheFs and CacheFs.readActive then
+    local data = CacheFs.readActive(path)
+    if data and #data > 0 then return data end
+  end
+  return nil
 end
 
 local function ensure_dir(dir)
@@ -44,22 +55,48 @@ local function write_file(cache, path, data)
     ensure_dir(dir)
   end
   local f = io.open(path, "wb")
-  if not f then return false end
-  f:write(data)
-  f:close()
-  return true
+  if f then
+    f:write(data)
+    f:close()
+    return true
+  end
+  return cache and cache.write and true or false
 end
 
 function StorageChromeExtract.ready(cache, root)
   root = root or default_cache_root()
   local outDir = root .. "/" .. StorageChromeExtract.CACHE_SUB
-  local manifestPath = outDir .. "/manifest.lua"
-  if cache and cache.exists then
-    return cache:exists(manifestPath)
+  local function valid_file(rel, minSize)
+    minSize = minSize or 1
+    if cache then
+      if cache.read then
+        local data = cache:read(rel)
+        return (data and #data >= minSize) or false
+      elseif cache.exists then
+        return cache:exists(rel) or false
+      end
+      return false
+    end
+    local okC, CacheFs = pcall(require, "src.import.CacheFs")
+    if okC and CacheFs and CacheFs.readActive then
+      local data = CacheFs.readActive(rel)
+      if data and #data >= minSize then return true end
+    end
+    if love and love.filesystem and love.filesystem.read then
+      local ok, data = pcall(love.filesystem.read, rel)
+      if ok and data and #data >= minSize then return true end
+    end
+    local f = io.open(rel, "rb")
+    if f then
+      local data = f:read(minSize)
+      f:close()
+      if data and #data >= minSize then return true end
+    end
+    return false
   end
-  local f = io.open(manifestPath, "rb")
-  if f then f:close() return true end
-  return false
+
+  return valid_file(outDir .. "/manifest.lua", 20)
+    and valid_file(outDir .. "/cursor.png", 30)
 end
 
 function StorageChromeExtract.run(rom, cache, opts)
@@ -101,7 +138,9 @@ function StorageChromeExtract.extract(romBytes, opts)
   }
 
   for _, file in ipairs(files) do
-    local data = read_file(outDir .. "/" .. file) or read_file("data/generated/gba/pokemon/storage/" .. file)
+    local data = read_file("src/import/gba/chrome/menus/storage/" .. file)
+      or read_file(outDir .. "/" .. file)
+      or read_file("data/generated/gba/pokemon/storage/" .. file)
     if data then
       local dstPath = outDir .. "/" .. file
       write_file(cache, dstPath, data)

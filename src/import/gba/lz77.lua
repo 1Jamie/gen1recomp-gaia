@@ -16,6 +16,12 @@ local function ensure_capacity(arr, n)
   end
 end
 
+function Lz77.len(buf)
+  if type(buf) == "string" then return #buf end
+  if type(buf) == "table" then return buf._len or #buf end
+  return 0
+end
+
 --- Decompress GBA LZ77 starting at `offset` in a byte source.
 -- @param get fun(i: integer): integer  -- 0-based absolute ROM index → byte
 -- @param offset integer  -- 0-based start of LZ header
@@ -32,43 +38,8 @@ function Lz77.decompress(get, offset)
   end
 
   local src = offset + 4
-  local out
-  local write
-  local read_out
-
-  if ffi then
-    local buf = ffi.new("uint8_t[?]", size)
-    local o = 0
-    write = function(b)
-      buf[o] = b
-      o = o + 1
-    end
-    read_out = function(i0) -- 0-based
-      return buf[i0]
-    end
-    out = {
-      _ffi = buf,
-      _len = size,
-    }
-    setmetatable(out, {
-      __len = function() return size end,
-      __index = function(_, i)
-        if type(i) ~= "number" then return nil end
-        return buf[i - 1]
-      end,
-    })
-  else
-    out = {}
-    ensure_capacity(out, size)
-    local o = 0
-    write = function(b)
-      o = o + 1
-      out[o] = b
-    end
-    read_out = function(i0)
-      return out[i0 + 1]
-    end
-  end
+  local out = {}
+  local o = 0
 
   local produced = 0
   while produced < size do
@@ -86,22 +57,20 @@ function Lz77.decompress(get, offset)
         local disp = (b1 % 16) * 256 + b2
         for _ = 1, length do
           if produced >= size then break end
-          local v = read_out(produced - disp - 1)
-          write(v)
+          local v = out[produced - disp] or 0
+          o = o + 1
+          out[o] = v
           produced = produced + 1
         end
       else
-        write(get(src))
+        o = o + 1
+        out[o] = get(src) or 0
         src = src + 1
         produced = produced + 1
       end
     end
   end
 
-  if not ffi then
-    -- trim
-    while #out > size do out[#out] = nil end
-  end
   return out, src - offset
 end
 
@@ -121,17 +90,14 @@ end
 --- Pack 1-based byte array to binary string (for cache writes).
 function Lz77.toString(arr)
   if type(arr) == "string" then return arr end
-  local n = #arr
-  if arr._ffi and arr._len then
-    n = arr._len
-  end
+  local n = (arr and arr._len) or (arr and #arr) or 0
   local parts = {}
   local CHUNK = 4096
   for i = 1, n, CHUNK do
     local last = math.min(i + CHUNK - 1, n)
     local t = {}
     for j = i, last do
-      t[#t + 1] = string.char(arr[j])
+      t[#t + 1] = string.char(arr[j] or 0)
     end
     parts[#parts + 1] = table.concat(t)
   end

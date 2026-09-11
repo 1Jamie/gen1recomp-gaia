@@ -45,11 +45,45 @@ function Display.ensureCanvas(which)
   return canvas
 end
 
+local SafeArea = require("src.core.SafeArea")
+
 function Display.fit(winW, winH)
-  local scale = math.max(1, math.floor(math.min(winW / Display.W, winH / Display.H)))
-  local pw, ph = Display.W * scale, Display.H * scale
-  local ox = math.floor((winW - pw) * 0.5)
-  local oy = math.floor((winH - ph) * 0.5)
+  local gw, gh = 0, 0
+  if love and love.graphics and love.graphics.getDimensions then
+    gw, gh = love.graphics.getDimensions()
+  end
+  winW = winW or (gw > 0 and gw or Display.W)
+  winH = winH or (gh > 0 and gh or Display.H)
+
+  local safeX, safeY, safeW, safeH = 0, 0, winW, winH
+  if gw > 0 and gh > 0 and winW == gw and winH == gh then
+    local sx, sy, sw, sh = SafeArea.windowRect()
+    if sw and sw > 0 and sh and sh > 0 then
+      safeX, safeY, safeW, safeH = sx, sy, sw, sh
+    end
+  end
+
+  local isPortrait = safeH > safeW
+  local scale, ox, oy, pw, ph
+
+  if isPortrait then
+    -- On mobile portrait, scale to fit the available safe width cleanly.
+    scale = safeW / Display.W
+    pw = Display.W * scale
+    ph = Display.H * scale
+    ox = safeX + math.floor((safeW - pw) * 0.5)
+    -- In portrait, center the screen in the upper deck area (above the touch controls deck).
+    local topDeckH = safeH * 0.48
+    oy = safeY + math.max(4, math.floor((topDeckH - ph) * 0.5))
+  else
+    -- Landscape / desktop: fit cleanly within safe area
+    scale = math.max(1, math.floor(math.min(safeW / Display.W, safeH / Display.H)))
+    pw = Display.W * scale
+    ph = Display.H * scale
+    ox = safeX + math.floor((safeW - pw) * 0.5)
+    oy = safeY + math.floor((safeH - ph) * 0.5)
+  end
+
   return scale, ox, oy, pw, ph
 end
 

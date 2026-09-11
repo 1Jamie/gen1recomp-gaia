@@ -317,6 +317,72 @@ function TextChromeExtract.extractStdFrame(rom)
   return decode_4bpp_frame(rom, 0x471A4C, 3, 3, pal3, 9)
 end
 
+local KEYPAD_PALETTE = {
+  { 255, 255, 255 }, -- 0: transparent (alpha = 0)
+  { 255, 255, 255 }, -- 1: white
+  { 98, 98, 98 },    -- 2: dark grey (outline/shadow)
+  { 213, 213, 205 }, -- 3: light grey
+  { 230, 8, 8 },     -- 4: red (A button)
+  { 255, 189, 115 }, -- 5: light orange
+  { 32, 156, 8 },    -- 6: green (B button)
+  { 148, 246, 148 }, -- 7: light green
+  { 49, 82, 205 },   -- 8: blue (DPAD arrows)
+  { 164, 197, 246 }, -- 9: light blue
+  { 0, 0, 0 },       -- 10
+  { 0, 0, 0 },       -- 11
+  { 0, 0, 0 },       -- 12
+  { 0, 0, 0 },       -- 13
+  { 0, 0, 0 },       -- 14
+  { 0, 0, 0 },       -- 15
+}
+
+function TextChromeExtract.extractKeypadIcons(rom)
+  local off = Versions.KEYPAD_ICONS_GFX or 0x1EA700
+  local w, h = 128, 32
+  local tilesX, tilesY = 16, 4
+  local chunks = {}
+  local get = function(i) return rom and rom.get and rom:get(i) or 0 end
+
+  local pixels = {}
+  for i = 1, w * h do pixels[i] = 0 end
+
+  local tileIdx = 0
+  for ty = 0, tilesY - 1 do
+    for tx = 0, tilesX - 1 do
+      local tileOff = off + tileIdx * 32
+      tileIdx = tileIdx + 1
+      for y = 0, 7 do
+        for bx = 0, 3 do
+          local byte = get(tileOff + y * 4 + bx)
+          local p0 = byte % 16
+          local p1 = math.floor(byte / 16) % 16
+          local px0 = tx * 8 + bx * 2
+          local px1 = px0 + 1
+          local py = ty * 8 + y
+          pixels[py * w + px0 + 1] = p0
+          pixels[py * w + px1 + 1] = p1
+        end
+      end
+    end
+  end
+
+  for i = 1, w * h do
+    local idx = pixels[i] or 0
+    if idx == 0 then
+      chunks[i] = string.char(0, 0, 0, 0)
+    else
+      local c = KEYPAD_PALETTE[idx + 1] or { 255, 255, 255 }
+      chunks[i] = string.char(c[1], c[2], c[3], 255)
+    end
+  end
+
+  return {
+    rgba = table.concat(chunks),
+    width = w,
+    height = h,
+  }
+end
+
 function TextChromeExtract.extractSignpostFrame(rom)
   local pal1 = read_pal(rom, 0x471E0C)
   return decode_4bpp_frame(rom, 0x470B0C, 5, 4, pal1, 19)
@@ -366,6 +432,11 @@ function TextChromeExtract.run(rom, cache, opts)
 
   local arrows = TextChromeExtract.extractDownArrows(rom)
   write_cache(cache, fDir .. "/down_arrows_fg.rgba", arrows.rgba)
+
+  local kp = TextChromeExtract.extractKeypadIcons(rom)
+  write_cache(cache, root .. "/keypad_icons.rgba", kp.rgba)
+  write_cache(cache, cDir .. "/keypad_icons.rgba", kp.rgba)
+  write_cache(cache, fDir .. "/keypad_icons.rgba", kp.rgba)
 
   -- 2) Window Chrome
   local dlg = TextChromeExtract.extractMenuMessage(rom)
