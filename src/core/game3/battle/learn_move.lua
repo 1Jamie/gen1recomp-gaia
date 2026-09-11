@@ -32,6 +32,7 @@ function LearnMove.reset()
   LearnMove._onDone = nil
   LearnMove._waitingChoice = false
   LearnMove._pending = nil
+  LearnMove._pendingResult = false
   LearnMove._forgetSlots = nil
   LearnMove._queue = nil
   LearnMove._queueIdx = 0
@@ -181,7 +182,10 @@ function LearnMove.pump()
     return false -- still active, waiting for finish from choice path or free teach
   end
   LearnMove._pending = nil
-  if pending == "delete" then
+  if pending == "done" then
+    local r = LearnMove._pendingResult
+    finish(r)
+  elseif pending == "delete" then
     open_delete_prompt()
   elseif pending == "stop" then
     open_stop_prompt()
@@ -225,8 +229,19 @@ function LearnMove.begin(opts)
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
         finish(ok)
       else
+        -- pushMsg in the battle context (Ui.push) does not honour the callback,
+        -- so we cannot rely on say(..., cb) to call finish().  Instead we queue
+        -- the message then set _pending="done" so pump() finishes us once the
+        -- battle dialog drains.  If pushMsg does honour the callback the say()
+        -- call fires it immediately and we finish inline; _pending is cleared
+        -- by finish() via reset() so the pump path is a safe no-op.
+        LearnMove._pendingResult = ok
+        LearnMove._pending = "done"
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
-          finish(ok)
+          if LearnMove._active and LearnMove._pending == "done" then
+            LearnMove._pending = nil
+            finish(ok)
+          end
         end)
       end
     else
