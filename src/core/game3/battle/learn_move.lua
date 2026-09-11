@@ -181,11 +181,19 @@ function LearnMove.pump()
   if not pending then
     return false -- still active, waiting for finish from choice path or free teach
   end
-  LearnMove._pending = nil
+  -- For "done": hold until the "X learned Y!" message has drained from the
+  -- battle dialog (i.e. the player pressed A to dismiss it).
   if pending == "done" then
-    local r = LearnMove._pendingResult
-    finish(r)
-  elseif pending == "delete" then
+    local Ui = package.loaded["src.core.game3.battle.ui"]
+    if Ui and Ui.dialogPending and Ui.dialogPending() then
+      return false -- message still on screen, keep waiting
+    end
+    LearnMove._pending = nil
+    finish(LearnMove._pendingResult)
+    return not LearnMove._active
+  end
+  LearnMove._pending = nil
+  if pending == "delete" then
     open_delete_prompt()
   elseif pending == "stop" then
     open_stop_prompt()
@@ -229,12 +237,14 @@ function LearnMove.begin(opts)
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
         finish(ok)
       else
-        -- pushMsg in the battle context (Ui.push) does not honour the callback,
-        -- so we cannot rely on say(..., cb) to call finish().  Instead we queue
-        -- the message then set _pending="done" so pump() finishes us once the
-        -- battle dialog drains.  If pushMsg does honour the callback the say()
-        -- call fires it immediately and we finish inline; _pending is cleared
-        -- by finish() via reset() so the pump path is a safe no-op.
+        -- Two contexts call LearnMove.begin:
+        --   * Battle (Ui.push): pushMsg ignores the callback → pump() watches
+        --     Ui.dialogPending() and calls finish() once the message is dismissed.
+        --   * Party menu / TM use (PartyMenu.showMessage): pushMsg DOES call cb
+        --     when the player presses A → finish() fires inline via the callback.
+        -- Both are handled: set _pending="done" for the pump() path, and also
+        -- pass a callback to say() for the direct path. The guard prevents
+        -- double-finish if both somehow fire.
         LearnMove._pendingResult = ok
         LearnMove._pending = "done"
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
