@@ -89,6 +89,29 @@ local function moves_for_mon(mon)
       }
     end
   end
+
+  if SummaryMenu._mode == "select_move" and SummaryMenu._moveToLearn then
+    local newId = tonumber(SummaryMenu._moveToLearn) or SummaryMenu._moveToLearn
+    local mdef = Pokemon.battleMove(newId)
+    local name = Pokemon.moveName(newId)
+    if not name or name == "" or name:match("^MOVE ") then
+      name = (mdef and mdef.name) or name or ("MOVE " .. tostring(newId))
+    end
+    local maxPp = (mdef and mdef.pp) or 5
+    local mType = (mdef and (mdef.type or mdef.kind)) or "NORMAL"
+    local power = (mdef and mdef.power and mdef.power > 0) and tostring(mdef.power) or "---"
+    local acc = (mdef and mdef.accuracy and mdef.accuracy > 0) and tostring(mdef.accuracy) or "---"
+    out[5] = {
+      id = newId,
+      name = name,
+      pp = maxPp,
+      maxPp = maxPp,
+      type = mType,
+      power = power,
+      accuracy = acc,
+    }
+  end
+
   return out
 end
 
@@ -104,6 +127,9 @@ function SummaryMenu.openMenu(party, startIndex, opts)
   SummaryMenu._playerState = opts.playerState or opts.session
   SummaryMenu._context = opts.context or "party"
   SummaryMenu._onClose = opts.onClose
+  SummaryMenu._mode = opts.mode -- "select_move" | "party" | nil
+  SummaryMenu._moveToLearn = opts.moveToLearn or opts.moveId
+  SummaryMenu._onSelectMove = opts.onSelectMove
   SummaryMenu._moveCursor = 1
   SummaryMenu._swapSlot = nil
   SummaryMenu._slide.active = false
@@ -111,6 +137,8 @@ function SummaryMenu.openMenu(party, startIndex, opts)
   local mon = current_mon()
   if mon and mon.isEgg then
     SummaryMenu._page = PAGE_EGG
+  elseif SummaryMenu._mode == "select_move" then
+    SummaryMenu._page = PAGE_MOVES_INFO
   else
     SummaryMenu._page = tonumber(opts.page) or PAGE_INFO
   end
@@ -123,11 +151,18 @@ function SummaryMenu.close()
   SummaryMenu.open = false
   SummaryMenu._slide.active = false
   SummaryMenu._swapSlot = nil
+  SummaryMenu._mode = nil
+  SummaryMenu._moveToLearn = nil
+  local selectCb = SummaryMenu._onSelectMove
+  SummaryMenu._onSelectMove = nil
   Stack.pop("summary")
   if SummaryMenu._onClose then
     local cb = SummaryMenu._onClose
     SummaryMenu._onClose = nil
     cb()
+  end
+  if selectCb then
+    selectCb(nil)
   end
 end
 
@@ -181,6 +216,50 @@ function SummaryMenu.handleInput(input)
   if not mon then
     if input:wasPressed("b") or input:wasPressed("a") or input:wasPressed("start") then
       SummaryMenu.close()
+    end
+    return
+  end
+
+  -- Select move mode for move replacement (1:1 pret ShowSelectMovePokemonSummaryScreen)
+  if SummaryMenu._mode == "select_move" then
+    local moves = moves_for_mon(mon)
+    local nMoves = #moves
+    if nMoves < 5 then nMoves = 5 end
+
+    if input:wasPressed("up") then
+      SummaryMenu._moveCursor = ((SummaryMenu._moveCursor - 2) % nMoves) + 1
+      pcall(function() require("src.core.game3.audio").playSe(5) end)
+    elseif input:wasPressed("down") then
+      SummaryMenu._moveCursor = (SummaryMenu._moveCursor % nMoves) + 1
+      pcall(function() require("src.core.game3.audio").playSe(5) end)
+    elseif input:wasPressed("a") then
+      if SummaryMenu._moveCursor <= 4 then
+        local chosenMove = moves[SummaryMenu._moveCursor]
+        local moveId = chosenMove and chosenMove.id
+        if moveId and Pokemon.isHmMove(moveId) then
+          pcall(function() require("src.core.game3.audio").playSe(9) end)
+        else
+          pcall(function() require("src.core.game3.audio").playSe(5) end)
+          local slotIdx = SummaryMenu._moveCursor - 1 -- 0-indexed (0..3)
+          local cb = SummaryMenu._onSelectMove
+          SummaryMenu._onSelectMove = nil
+          SummaryMenu.close()
+          if cb then cb(slotIdx) end
+        end
+      else
+        -- Selected 5th slot (the move to learn / cancel)
+        pcall(function() require("src.core.game3.audio").playSe(5) end)
+        local cb = SummaryMenu._onSelectMove
+        SummaryMenu._onSelectMove = nil
+        SummaryMenu.close()
+        if cb then cb(nil) end
+      end
+    elseif input:wasPressed("b") then
+      pcall(function() require("src.core.game3.audio").playSe(9) end)
+      local cb = SummaryMenu._onSelectMove
+      SummaryMenu._onSelectMove = nil
+      SummaryMenu.close()
+      if cb then cb(nil) end
     end
     return
   end
@@ -304,52 +383,77 @@ end
 local function draw_header(mon)
   local c = coords()
   local species = Pokemon.speciesOf(mon)
+  local isMovesPage = (SummaryMenu._page == PAGE_MOVES or SummaryMenu._page == PAGE_MOVES_INFO)
 
   -- Nickname + level + gender live in the left LVL_NICK strip (not the right pane).
   local nick = Pokemon.displayName(mon)
   local nx, ny = cxy("name", 40, 18)
   draw_text(nick, nx, ny, 64, "NORMAL")
 
-  local lv = tonumber(mon.level) or 1
-  local lx, ly = cxy("level", 4, 18)
-  draw_text(string.format("Lv%d", lv), lx, ly, 36, "NORMAL")
+  -- In pret pokefirered (pokemon_summary_screen.c:2430), Level is NOT printed on PAGE_MOVES_INFO
+  if SummaryMenu._page ~= PAGE_MOVES_INFO then
+    local lv = tonumber(mon.level) or 1
+    local lx, ly = cxy("level", 4, 18)
+    draw_text(string.format("Lv%d", lv), lx, ly, 36, "NORMAL")
+  end
 
   local gender = SummaryData.gender(mon)
   local gx, gy = cxy("gender", 105, 18)
   if gender == "M" then
-    FrlgFont.draw("♂", gx, gy, { colors = FrlgFont.COLOR.MALE, small = true })
+    FrlgFont.draw("♂", gx, gy, { colors = FrlgFont.COLOR.MALE, small = false })
   elseif gender == "F" then
-    FrlgFont.draw("♀", gx, gy, { colors = FrlgFont.COLOR.FEMALE, small = true })
+    FrlgFont.draw("♀", gx, gy, { colors = FrlgFont.COLOR.FEMALE, small = false })
   end
 
   if SummaryData.isShiny(mon) then
-    local sx, sy = cxy("shinyStar", 8, 40)
+    local sx, sy = isMovesPage and 8 or 8, isMovesPage and 24 or 40
     SummaryChrome.drawShinyStar(sx, sy)
   end
 
   local ailment = SummaryData.statusAilment(mon)
   if ailment > 0 then
-    local key = (SummaryMenu._page == PAGE_MOVES_INFO) and "statusMovesInfo" or "status"
-    local ax, ay = cxy(key, 16, 38)
+    local ax, ay = isMovesPage and 16 or 16, isMovesPage and 44 or 38
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
   end
 
-  -- pret CreateMonPicSprite(..., 60, 65): CreateSprite center of 64×64 (see mon_pic.lua).
-  local pic = c.monPic or { x = 60, y = 65 }
-  local cx, cy = pic.x or 60, pic.y or 65
-  local front = Pokemon.frontPic(species)
-  if front and front.image and love and love.graphics then
-    local iw = front.w or 64
-    local ih = front.h or 64
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(front.image, cx - iw / 2, cy - ih / 2)
-  else
+  -- In pret pokefirered (pokemon_summary_screen.c:1635, 1681, 1979-1984, 4139-4175):
+  -- On PAGE_MOVES (Known Moves) and PAGE_MOVES_INFO (Move Details), the large 64x64 front pic is HIDDEN.
+  -- Instead, the 32x32 party mon icon is displayed below the level/name plate at (24, 34).
+  if isMovesPage then
     local icon = Pokemon.icon(species)
     if icon and icon.image and love and love.graphics then
       local iw = icon.w or 32
       local ih = icon.h or 32
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(icon.image, cx - iw / 2, cy - ih / 2)
+      local q = icon.quads and icon.quads[0]
+      if q then
+        love.graphics.draw(icon.image, q, 24 - iw / 2, 34 - ih / 2)
+      else
+        love.graphics.draw(icon.image, 24 - iw / 2, 34 - ih / 2)
+      end
+    end
+  else
+    local pic = c.monPic or { x = 60, y = 65 }
+    local cx, cy = pic.x or 60, pic.y or 65
+    local front = Pokemon.frontPic(species)
+    if front and front.image and love and love.graphics then
+      local iw = front.w or 64
+      local ih = front.h or 64
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(front.image, cx - iw / 2, cy - ih / 2)
+    else
+      local icon = Pokemon.icon(species)
+      if icon and icon.image and love and love.graphics then
+        local iw = icon.w or 32
+        local ih = icon.h or 32
+        love.graphics.setColor(1, 1, 1, 1)
+        local q = icon.quads and icon.quads[0]
+        if q then
+          love.graphics.draw(icon.image, q, cx - iw / 2, cy - ih / 2)
+        else
+          love.graphics.draw(icon.image, cx - iw / 2, cy - ih / 2)
+        end
+      end
     end
   end
 end
@@ -459,8 +563,9 @@ end
 local function draw_page_moves(mon, isDetail)
   local moves = moves_for_mon(mon)
   local slots = move_slots()
+  local maxSlot = (SummaryMenu._mode == "select_move") and 5 or 4
 
-  for i = 1, 4 do
+  for i = 1, maxSlot do
     local slot = slots[i] or {
       nameX = 163, nameY = 21 + (i - 1) * 28,
       typeX = 123, typeY = 21 + (i - 1) * 28,
@@ -478,15 +583,11 @@ local function draw_page_moves(mon, isDetail)
   end
 
   if isDetail then
-    local cur = slots[SummaryMenu._moveCursor] or slots[1]
-    if cur then
-      SummaryChrome.drawMoveSelectionCursor(120, cur.nameY - 5, 114, 26, false)
-    end
+    local curY = 18 + (SummaryMenu._moveCursor - 1) * 28
+    SummaryChrome.drawMoveSelectionCursor(120, curY, false)
     if SummaryMenu._swapSlot then
-      local swap = slots[SummaryMenu._swapSlot]
-      if swap then
-        SummaryChrome.drawMoveSelectionCursor(120, swap.nameY - 5, 114, 26, true)
-      end
+      local swapY = 18 + (SummaryMenu._swapSlot - 1) * 28
+      SummaryChrome.drawMoveSelectionCursor(120, swapY, true)
     end
 
     local selMove = moves[SummaryMenu._moveCursor]
@@ -537,13 +638,22 @@ local PAGE_TITLES = {
 }
 
 local function get_controls_str(page, isEgg)
-  if isEgg then return "CANCEL" end
-  if page == PAGE_INFO then return "CANCEL   PAGE"
-  elseif page == PAGE_SKILLS then return "PAGE"
-  elseif page == PAGE_MOVES then return "PAGE   DETAIL"
-  elseif page == PAGE_MOVES_INFO then return "SWITCH   CANCEL"
+  if SummaryMenu._mode == "select_move" then
+    return "{DPAD_UPDOWN}PICK"
   end
-  return "PAGE"
+  if isEgg then
+    return "{A_BUTTON}CANCEL"
+  end
+  if page == PAGE_INFO then
+    return "{DPAD_RIGHT}PAGE {A_BUTTON}CANCEL"
+  elseif page == PAGE_SKILLS then
+    return "{DPAD_LEFTRIGHT}PAGE"
+  elseif page == PAGE_MOVES then
+    return "{DPAD_LEFT}PAGE {A_BUTTON}DETAIL"
+  elseif page == PAGE_MOVES_INFO then
+    return "{DPAD_UPDOWN}PICK {A_BUTTON}SWITCH"
+  end
+  return "{DPAD_LEFTRIGHT}PAGE"
 end
 
 local function draw_top_bar_text(page, isEgg)
@@ -554,11 +664,8 @@ local function draw_top_bar_text(page, isEgg)
   })
 
   local ctrl = get_controls_str(page, isEgg)
-  local w = FrlgFont.measure(ctrl, { small = true })
-  FrlgFont.draw(ctrl, 236 - w, 1, {
-    colors = FrlgFont.COLOR.WHITE,
-    small = true,
-  })
+  local PokedexChrome = require("src.ui.game3.pokedex_chrome")
+  PokedexChrome.drawControlInfo(ctrl, 236, 1)
 end
 
 function SummaryMenu.draw()

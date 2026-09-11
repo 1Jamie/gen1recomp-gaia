@@ -6,13 +6,6 @@ local Pokemon = require("src.core.game3.pokemon")
 
 local ItemUse = {}
 
-local function msg(text)
-  local Hud = require("src.ui.game3.hud")
-  if Hud and Hud.openMessage then
-    Hud.openMessage(nil, text)
-  end
-end
-
 local function heal_amount(id)
   local n = ItemsData.HEAL_AMOUNT[id]
   if n then return n end
@@ -138,9 +131,7 @@ function ItemUse.giveToMon(session, bag, id, partySlot)
   if not mon then return false, "noparty", "There's no POKéMON!" end
   local pocket = ItemsData.pocketOf(id)
   if pocket == "KEY_ITEMS" or pocket == "TM_CASE" then
-    local t = "This item can't be held."
-    msg(t)
-    return false, "cant_hold", t
+    return false, "cant_hold", "This item can't be held."
   end
   if not Bag.has(bag, id, 1) then
     return false, "none", "You don't have that item."
@@ -149,9 +140,7 @@ function ItemUse.giveToMon(session, bag, id, partySlot)
   if prev and prev ~= 0 and prev ~= "" and prev ~= "NONE" then
     -- Swap: return previous to bag if possible
     if not Bag.canAdd(bag, prev, 1) then
-      local t = "The BAG is full."
-      msg(t)
-      return false, "bag_full", t
+      return false, "bag_full", "The BAG is full."
     end
   end
   Bag.remove(bag, id, 1)
@@ -167,7 +156,6 @@ function ItemUse.giveToMon(session, bag, id, partySlot)
   else
     text = string.format("%s was given\nto %s.", ItemsData.displayName(id), monName)
   end
-  msg(text)
   return true, "give", text
 end
 
@@ -179,20 +167,15 @@ function ItemUse.takeFromMon(session, bag, partySlot)
   local held = mon.item or mon.heldItem
   local monName = Pokemon.displayMonName(mon)
   if not held or held == 0 or held == "" or held == "NONE" then
-    local t = monName .. " isn't\nholding anything."
-    msg(t)
-    return false, "none", t
+    return false, "none", monName .. " isn't\nholding anything."
   end
   if not Bag.canAdd(bag, held, 1) then
-    local t = "The BAG is full. The\nitem could not be removed."
-    msg(t)
-    return false, "bag_full", t
+    return false, "bag_full", "The BAG is full. The\nitem could not be removed."
   end
   mon.item = nil
   mon.heldItem = nil
   Bag.add(bag, held, 1)
   local text = string.format("Took the %s from\n%s and put it in the BAG.", ItemsData.displayName(held), monName)
-  msg(text)
   return true, "take", text
 end
 
@@ -231,9 +214,7 @@ end
 
 function ItemUse.useEscapeRope(session, bag, id)
   if not can_escape(session) then
-    local t = "OAK: This isn't the\ntime to use that!"
-    msg(t)
-    return false, "escape", t
+    return false, "escape", "OAK: This isn't the\ntime to use that!"
   end
   local Runtime = package.loaded["src.core.game3.runtime"]
   local mod = Runtime and Runtime._mod
@@ -241,7 +222,6 @@ function ItemUse.useEscapeRope(session, bag, id)
   local Field = package.loaded["src.core.game3.field"]
   Bag.remove(bag, id, 1)
   local t = tostring(session.name or "RED") .. " used\nESCAPE ROPE."
-  msg(t)
   local hx = session.healX or 8
   local hy = session.healY or 5
   local mapId = session.healMap
@@ -258,9 +238,7 @@ end
 
 function ItemUse.useBike(session)
   if not is_outdoor(session) then
-    local t = "OAK: This isn't the\ntime to use that!"
-    msg(t)
-    return false, "bike", t
+    return false, "bike", "OAK: This isn't the\ntime to use that!"
   end
   local Player = require("src.core.game3.player")
   Player.biking = not Player.biking
@@ -270,8 +248,28 @@ function ItemUse.useBike(session)
   else
     t = tostring(session.name or "RED") .. " got off the\nBICYCLE."
   end
-  msg(t)
   return true, "bike", t
+end
+
+--- Check TM pre-flight compatibility and known moves matching retail FRLG.
+-- Returns status ("knows" | "incompatible" | "ok"), messageText, moveId, moveName
+function ItemUse.checkTmPreflight(mon, tmId)
+  if not mon then return "none", "There's no POKéMON!", nil, nil end
+  local moveId = Pokemon.moveFromTmItem(tmId)
+  local monName = Pokemon.displayMonName(mon)
+  local moveName = Pokemon.moveName(moveId) or "MOVE"
+  if not moveId then
+    return "invalid", "This isn't the time to use\nthat!", nil, nil
+  end
+  if Pokemon.knowsMove(mon, moveId) then
+    return "knows", string.format("%s already knows\n%s.", monName, moveName), moveId, moveName
+  end
+  local species = tonumber(mon.species or mon.speciesId)
+  if not Pokemon.canLearnTmItem(species, tmId) then
+    return "incompatible", string.format("%s can't learn\n%s.", monName, moveName), moveId, moveName
+  end
+  local prompt = string.format("Booted up a TM.\nIt contained %s.\nTeach %s to %s?", moveName, moveName, monName)
+  return "ok", prompt, moveId, moveName
 end
 
 --- Teach TM/HM. partySlot required. Consumes TM (not HM).
@@ -279,31 +277,14 @@ function ItemUse.useTm(session, bag, id, partySlot)
   local party = session and session.party
   local mon = party and party[partySlot]
   if not mon then
-    local t = "There's no POKéMON!"
-    msg(t)
-    return false, "noparty", t
+    return false, "noparty", "There's no POKéMON!"
   end
-  local moveId = Pokemon.moveFromTmItem(id)
-  local tmName = ItemsData.displayName(id) or "TM"
+  local status, preflightMsg, moveId, moveName = ItemUse.checkTmPreflight(mon, id)
+  if status ~= "ok" then
+    return false, status, preflightMsg
+  end
   local monName = Pokemon.displayMonName(mon)
-  if not moveId then
-    local t = "This isn't the time to use\nthat!"
-    msg(t)
-    return false, "tm", t
-  end
-  local species = tonumber(mon.species or mon.speciesId)
-  if not Pokemon.canLearnTmItem(species, id) then
-    local t = string.format("%s and %s\nare not compatible.\nIt can't be learned.", monName, tmName)
-    msg(t)
-    return false, "cant_learn", t
-  end
-  if Pokemon.knowsMove(mon, moveId) then
-    local t = string.format("%s already knows\n%s.", monName, Pokemon.moveName(moveId) or "this move")
-    msg(t)
-    return false, "knows", t
-  end
 
-  local LearnMove = require("src.core.game3.battle.learn_move")
   local isHm = ItemsData.isHm(id)
   local consumed = false
 
@@ -318,29 +299,24 @@ function ItemUse.useTm(session, bag, id, partySlot)
     local ok = Pokemon.teachMove(mon, moveId)
     if ok then
       finish_consume(true)
-      local t = string.format("%s learned\n%s!", monName, Pokemon.moveName(moveId))
-      msg(t)
-      return true, "tm", t
+      return true, "tm", string.format("%s learned\n%s!", monName, moveName)
     end
   end
 
+  local LearnMove = require("src.core.game3.battle.learn_move")
   LearnMove.begin({
     mon = mon,
     moveId = moveId,
     displayName = monName,
     headless = true,
-    pushMsg = msg,
     onDone = function(learned)
       finish_consume(learned)
     end,
   })
   if Pokemon.moveSlotCount(mon) >= 4 then
-    local t = monName .. " can't learn\nmore than four moves."
-    msg(t)
-    return false, "full", t
+    return false, "full", monName .. " can't learn\nmore than four moves."
   end
-  local t = string.format("%s learned\n%s!", monName, Pokemon.moveName(moveId))
-  return true, "tm", t
+  return true, "tm", string.format("%s learned\n%s!", monName, moveName)
 end
 
 --- Check if using this item requires selecting a party Pokémon target.
@@ -360,36 +336,44 @@ end
 function ItemUse.useRareCandy(session, mon)
   if not mon then return false, "none", "There's no POKéMON!" end
   local lvl = tonumber(mon.level) or 1
-  if lvl >= 100 then
-    local t = "It won't have any effect."
-    msg(t)
-    return false, "max_level", t
+  local hp = tonumber(mon.hp) or 0
+  if lvl >= 100 or hp <= 0 then
+    return false, "no_effect", "It won't have any effect."
   end
-  mon.level = lvl + 1
   local oldMax = tonumber(mon.maxHp) or tonumber(mon.maxhp) or 1
-  local oldHp = tonumber(mon.hp) or oldMax
+  local oldHp = hp
+  mon.level = lvl + 1
   Pokemon.applyStats(mon)
   local newMax = tonumber(mon.maxHp) or tonumber(mon.maxhp) or oldMax
   mon.hp = math.min(newMax, oldHp + math.max(0, newMax - oldMax))
   local t = string.format("%s grew to\nLv. %d!", Pokemon.displayMonName(mon), mon.level)
-  msg(t)
   return true, "level", t
 end
 
-function ItemUse.useEvolutionStone(session, mon, itemId)
+function ItemUse.useEvolutionStone(session, mon, itemId, bag)
   local Evolution = require("src.core.game3.evolution")
   local target = Evolution.itemTarget and Evolution.itemTarget(mon, itemId, session)
   if not target then
-    local t = "It won't have any effect."
-    msg(t)
-    return false, "no_evo", t
+    return false, "no_evo", "It won't have any effect."
   end
   local oldName = Pokemon.displayMonName(mon)
-  Evolution.apply(mon, target)
   local newName = Pokemon.name(target) or "POKéMON"
-  local t = string.format("%s evolved into\n%s!", oldName, newName)
-  msg(t)
-  return true, "evo", t
+
+  local okEv, EvolutionScene = pcall(require, "src.ui.game3.evolution_scene")
+  if okEv and EvolutionScene and EvolutionScene.start and love and love.graphics then
+    local Audio = require("src.core.game3.audio")
+    EvolutionScene.start(mon, target, {
+      canStop = false,
+      session = session,
+      bag = bag,
+      savedSong = Audio._mapSong,
+    })
+    return true, "evo", "Evolving..."
+  else
+    Evolution.apply(mon, target, session, bag)
+    local t = string.format("%s evolved into\n%s!", oldName, newName)
+    return true, "evo", t
+  end
 end
 
 --- Try field use. partySlot optional for heal/status/revive/tm/give.
@@ -400,9 +384,7 @@ function ItemUse.useField(session, bag, id, partySlot)
   local use = ItemsData.fieldUseKind(id)
 
   if use == "battle" then
-    local t = "This can't be used outside\nof battle."
-    msg(t)
-    return false, "battle", t
+    return false, "battle", "This can't be used outside\nof battle."
   end
 
   if use == "map" then
@@ -426,7 +408,6 @@ function ItemUse.useField(session, bag, id, partySlot)
     session.repelSteps = steps
     Bag.remove(bag, id, 1)
     local t = "The repelling effect wore\non for a while."
-    msg(t)
     return true, "repel", t
   end
 
@@ -437,7 +418,6 @@ function ItemUse.useField(session, bag, id, partySlot)
       return false, "open_pocket", "Opened pocket."
     end
     local t = "OAK: This isn't the\ntime to use that!"
-    msg(t)
     return false, use, t
   end
 
@@ -445,18 +425,14 @@ function ItemUse.useField(session, bag, id, partySlot)
       or use == "pp" or use == "level" or use == "evo" or use == "vitamin" then
     local party = session and session.party
     if not party or #party < 1 then
-      local t = "There is no POKéMON."
-      msg(t)
-      return false, "noparty", t
+      return false, "noparty", "There is no POKéMON."
     end
     if not partySlot then
       return false, "need_slot", "Select a POKéMON."
     end
     local mon = party[partySlot]
     if not mon then
-      local t = "There is no POKéMON."
-      msg(t)
-      return false, "noparty", t
+      return false, "noparty", "There is no POKéMON."
     end
     local ok = false
     local text = nil
@@ -466,7 +442,7 @@ function ItemUse.useField(session, bag, id, partySlot)
     if use == "tm" then
       return ItemUse.useTm(session, bag, id, partySlot)
     elseif use == "evo" then
-      ok, _, text = ItemUse.useEvolutionStone(session, mon, id)
+      ok, _, text = ItemUse.useEvolutionStone(session, mon, id, bag)
     elseif use == "level" then
       ok, _, text = ItemUse.useRareCandy(session, mon)
     elseif use == "revive" then
@@ -495,13 +471,9 @@ function ItemUse.useField(session, bag, id, partySlot)
         text = string.format("%s recovered\nfrom illness!", monName)
       end
     elseif use == "pp" then
-      local t = "It won't have any effect."
-      msg(t)
-      return false, "pp", t
+      return false, "pp", "It won't have any effect."
     elseif use == "vitamin" then
-      local t = "It won't have any effect."
-      msg(t)
-      return false, "vitamin", t
+      return false, "vitamin", "It won't have any effect."
     else
       local healOk, restored = ItemUse.healMon(session, mon, id)
       ok = healOk
@@ -514,17 +486,12 @@ function ItemUse.useField(session, bag, id, partySlot)
 
     if ok then
       Bag.remove(bag, id, 1)
-      if text then msg(text) end
       return true, use, text or "It restored health!"
     end
-    local noEff = "It won't have any effect."
-    msg(noEff)
-    return false, "noeffect", noEff
+    return false, "noeffect", text or "It won't have any effect."
   end
 
-  local t = "OAK: This isn't the\ntime to use that!"
-  msg(t)
-  return false, "none", t
+  return false, "none", "OAK: This isn't the\ntime to use that!"
 end
 
 return ItemUse

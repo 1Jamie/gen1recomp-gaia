@@ -660,15 +660,18 @@ function Engine.planTurn(st, adapter)
   return Engine.planTurnFromActions(st, adapter, nil, nil)
 end
 
+function Engine.collectResidualEvents(_st, adapter)
+  return Residuals.collectEvents(adapter)
+end
+
 function Engine.runResiduals(adapter)
+  local events = Residuals.collectEvents(adapter)
   local captured = {}
-  local prev = adapter._say
-  -- Capture only; caller push_msgs after residual HP tweens.
-  adapter._say = function(text)
-    captured[#captured + 1] = text
+  for _, evt in ipairs(events or {}) do
+    for _, m in ipairs(evt.msgs or {}) do
+      captured[#captured + 1] = m
+    end
   end
-  Residuals.runTurn(adapter)
-  adapter._say = prev
   return captured
 end
 

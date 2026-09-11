@@ -225,23 +225,27 @@ if encountersOnly then
 end
 
 if battleAnimsOnly then
+  local Rom = require("src.import.gba.rom")
   local AnimExtract = require("src.import.gba.battle_anim_extract")
   local outRoot = os.getenv("HOME")
     and (os.getenv("HOME") .. "/.local/share/love/pokemon-love2d/firered")
     or "."
   local packCache = FileIO.makeCache(outRoot)
+  local rom = assert(Rom.open(imports, "firered"))
   print("Extracting battle anim IR →", outRoot .. "/data/generated/gba/pokemon/battle_anims")
-  local detail = assert(AnimExtract.run({
-    cache = {
-      write = function(_, rel, bytes)
-        local path = rel
-        if not path:match("^data/") then
-          path = "data/generated/gba/" .. path
-        end
-        return packCache:write(path, bytes)
-      end,
-    },
-  }))
+  local animCache = {
+    write = function(_, rel, bytes)
+      local path = rel
+      if not path:match("^data/") then
+        path = "data/generated/gba/" .. path
+      end
+      return packCache:write(path, bytes)
+    end,
+    exists = function(_, rel) return packCache.exists and packCache:exists(rel) end,
+    read   = function(_, rel) return packCache.read and packCache:read(rel) end,
+  }
+  local detail = assert(AnimExtract.run(rom, animCache, { cacheRoot = "data/generated/gba", force = true }))
+  rom:clearCache()
   imports:_close()
   print("OK battle anims", detail.moveCount, "→", detail.path)
   os.exit(0)

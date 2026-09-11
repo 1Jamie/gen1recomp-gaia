@@ -155,15 +155,22 @@ function Hud.update(game, _dt)
   local input = game and game.input
   if not input then return end
 
-  -- Active stack modal menu input takes top precedence
-  if Stack.busy() then
+  local inBattle = false
+  local Battle = package.loaded["src.core.game3.battle"]
+  if Battle and Battle.isActive and Battle.isActive() then
+    inBattle = true
+  end
+
+  -- Active stack modal menu input takes top precedence when NOT in battle.
+  -- When battle is active, Battle.update is the sole dispatcher for battle menus.
+  if not inBattle and Stack.busy() then
     if update_top_menu(input) then
       return
     end
   end
 
-  -- Choice first so yes/no works over a stayed message.
-  if Choice.active then
+  -- Choice in field/scripting (in battle, Choice is driven by Battle.update).
+  if not inBattle and Choice.active then
     if input:wasPressed("up") then Choice.move(-1)
     elseif input:wasPressed("down") then Choice.move(1)
     elseif input:wasPressed("a") then Choice.confirm()
@@ -202,9 +209,7 @@ function Hud.update(game, _dt)
     return
   end
 
-  local Battle = package.loaded["src.core.game3.battle"]
-  if Battle and Battle.isActive and Battle.isActive() then
-    -- When battle is active, Battle.update is the sole dispatcher for battle menus.
+  if inBattle then
     return
   end
 

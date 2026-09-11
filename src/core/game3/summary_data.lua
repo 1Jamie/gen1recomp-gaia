@@ -194,12 +194,23 @@ function SummaryData.statusAilment(mon)
   local curHp = tonumber(mon.hp or mon.currentHp)
   if curHp and curHp <= 0 then return 7 end -- FNT
 
-  local st = tonumber(mon.status or mon.status1) or 0
-  if bit.band(st, 0x08) ~= 0 or bit.band(st, 0x80) ~= 0 then return 1 end -- PSN / TOXIC
-  if bit.band(st, 0x40) ~= 0 then return 2 end -- PRZ
-  if bit.band(st, 0x07) ~= 0 then return 3 end -- SLP
-  if bit.band(st, 0x20) ~= 0 then return 4 end -- FRZ
-  if bit.band(st, 0x10) ~= 0 then return 5 end -- BRN
+  local st = mon.status or mon.status1
+  if type(st) == "string" then
+    local s = st:upper()
+    if s:find("PSN") or s:find("POISON") or s:find("TOX") then return 1 end
+    if s:find("PRZ") or s:find("PAR") then return 2 end
+    if s:find("SLP") or s:find("SLEEP") then return 3 end
+    if s:find("FRZ") or s:find("FREEZE") or s:find("FROZEN") then return 4 end
+    if s:find("BRN") or s:find("BURN") then return 5 end
+    if s:find("PKRS") or s:find("POKERUS") then return 6 end
+    if s:find("FNT") or s:find("FAINT") then return 7 end
+  elseif type(st) == "number" then
+    if bit.band(st, 0x08) ~= 0 or bit.band(st, 0x80) ~= 0 then return 1 end -- PSN / TOXIC
+    if bit.band(st, 0x40) ~= 0 then return 2 end -- PRZ
+    if bit.band(st, 0x07) ~= 0 then return 3 end -- SLP
+    if bit.band(st, 0x20) ~= 0 then return 4 end -- FRZ
+    if bit.band(st, 0x10) ~= 0 then return 5 end -- BRN
+  end
   if mon.pokerus and mon.pokerus > 0 then return 6 end -- PKRS
   return 0
 end

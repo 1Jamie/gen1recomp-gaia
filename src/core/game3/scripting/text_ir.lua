@@ -62,6 +62,8 @@ local function expand_seg(seg, ctx)
   elseif t == "strvar" then
     local sv = ctx and ctx.stringVars
     return (sv and sv[seg.n]) or ""
+  elseif t == "tag" then
+    return seg.tag
   elseif t == "ph" then
     -- Cached extracts may still store FD 06 as { t="ph", code=6 }.
     local code = tonumber(seg.code)
@@ -80,6 +82,10 @@ local function expand_seg(seg, ctx)
       local n = tonumber(name:sub(-1)) or 1
       local sv = ctx and ctx.stringVars
       return (sv and sv[n]) or ""
+    end
+    if name and (name == "FONT_MALE" or name == "FONT_FEMALE" or name == "FONT_NORMAL"
+        or name:find("^COLOR") or name:find("^SHADOW") or name:find("^HIGHLIGHT") or name:find("^BG")) then
+      return "{" .. name .. "}"
     end
     return ""
   end
@@ -135,15 +141,17 @@ function TextIR.decode(bytes)
       i = i + 2
     elseif c == 0xFC then
       flush_text(out, buf); buf = {}
-      -- EXT_CTRL: consume length-ish blindly (color=1 byte, pause=1, …).
       local cmd = b(i + 1) or 0
       local skip = 2
-      -- Common: FC 01 color, FC 08 pause, FC 04 wait SE — one arg byte each.
-      if cmd == 0x01 or cmd == 0x08 or cmd == 0x04 or cmd == 0x05
-          or cmd == 0x06 or cmd == 0x09 or cmd == 0x0A then
+      if cmd == 0x01 or cmd == 0x02 or cmd == 0x03 or cmd == 0x05 or cmd == 0x06
+          or cmd == 0x08 or cmd == 0x0C or cmd == 0x0D or cmd == 0x0E or cmd == 0x0F
+          or cmd == 0x11 or cmd == 0x12 or cmd == 0x13 or cmd == 0x14 then
         skip = 3
+      elseif cmd == 0x04 or cmd == 0x0B or cmd == 0x10 then
+        skip = 5
+        if cmd == 0x0B or cmd == 0x10 then skip = 4 end
       end
-      out[#out + 1] = { t = "ext", cmd = cmd }
+      out[#out + 1] = { t = "ext", cmd = cmd, raw = (type(bytes) == "string" and bytes:sub(i, i + skip - 1)) }
       i = i + skip
     else
       local g = CHARMAP[c]
@@ -212,6 +220,9 @@ function TextIR.fromAscii(s)
           out[#out + 1] = { t = "strvar", n = 2 }
         elseif name == "STR_VAR_3" then
           out[#out + 1] = { t = "strvar", n = 3 }
+        elseif name == "FONT_MALE" or name == "FONT_FEMALE" or name == "FONT_NORMAL"
+            or name:find("^COLOR") or name:find("^SHADOW") or name:find("^HIGHLIGHT") or name:find("^BG") then
+          out[#out + 1] = { t = "tag", tag = "{" .. name .. "}" }
         else
           out[#out + 1] = { t = "ph", name = name }
         end

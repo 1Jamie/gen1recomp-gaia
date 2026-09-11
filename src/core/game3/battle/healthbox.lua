@@ -26,12 +26,12 @@ local HB_TEXT = {
   shadow = { 216 / 255, 208 / 255, 176 / 255, 1 },
 }
 local HB_MALE = {
-  fg = { 64 / 255, 200 / 255, 248 / 255, 1 },
-  shadow = HB_TEXT.shadow,
+  fg = { 65 / 255, 205 / 255, 255 / 255, 1 },
+  shadow = { 0 / 255, 98 / 255, 148 / 255, 1 },
 }
 local HB_FEMALE = {
-  fg = { 248 / 255, 152 / 255, 144 / 255, 1 },
-  shadow = HB_TEXT.shadow,
+  fg = { 255 / 255, 156 / 255, 148 / 255, 1 },
+  shadow = { 156 / 255, 65 / 255, 57 / 255, 1 },
 }
 
 -- Inner cream right edge of assembled sheets (exclusive text end X).
@@ -222,9 +222,17 @@ function Healthbox.draw(side, battler)
   local textRight = isPlayer and PLAYER_TEXT_RIGHT or ENEMY_TEXT_RIGHT
   local gender = healthbox_gender(battler.mon)
 
+  local SummaryChrome = require("src.ui.game3.summary_chrome")
+  local SummaryData = require("src.core.game3.summary_data")
+  local stObj = battler.status or (battler.mon and (battler.mon.status or battler.mon.status1))
+  local ailment = SummaryData.statusAilment({ status = stObj, hp = battler.mon and battler.mon.hp })
+
   if isPlayer then
     draw_name_gender(name, gender, tlX + 16, ty)
     draw_level(lv, tlX, ty, textRight)
+    if ailment >= 1 and ailment <= 6 then
+      SummaryChrome.drawStatusIcon(tlX + 16, tlY + 19, ailment)
+    end
     local mon = battler.mon
     if mon then
       local cur, maxHp = display_hp_nums(side, battler)
@@ -245,6 +253,9 @@ function Healthbox.draw(side, battler)
   else
     draw_name_gender(name, gender, tlX + 8, ty)
     draw_level(lv, tlX, ty, textRight)
+    if ailment >= 1 and ailment <= 6 then
+      SummaryChrome.drawStatusIcon(tlX - 2, tlY + 17, ailment)
+    end
   end
 end
 

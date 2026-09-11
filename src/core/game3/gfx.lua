@@ -114,11 +114,14 @@ function Gfx.drawUi()
   end
 
   -- Dialog then choice on top (yesnobox overlays stayed message).
-  if Message.isOpen() and not Stack.has("box_storage") and not Stack.has("pc_menu") then
+  local top = Stack.top()
+  local suppressOverworldDialog = top and top.hideBelow
+
+  if Message.isOpen() and not suppressOverworldDialog and not Stack.has("box_storage") and not Stack.has("pc_menu") then
     Message.draw()
   end
 
-  if Choice.active and Choice.options then
+  if Choice.active and Choice.options and not suppressOverworldDialog then
     tryDraw(Choice)
   end
 

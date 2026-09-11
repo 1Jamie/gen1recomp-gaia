@@ -164,6 +164,220 @@ AnimTasks.REGISTRY.AnimTask_BlendColorCycle = AnimTasks.BlendColorCycle
 AnimTasks.REGISTRY.AnimTask_BlendColorCycleByTag = AnimTasks.BlendColorCycle
 AnimTasks.REGISTRY.AnimTask_BlendColorCycleExclude = AnimTasks.BlendColorCycle
 
+--- pret AnimTask_DefenseCurlDeformMon: squishes mon vertically/horizontally (2 cycles of 16 ticks = 32 ticks).
+function AnimTasks.DefenseCurlDeformMon(t, vm)
+  local side = vm:attackerSide()
+  local Anim = require("src.core.game3.battle.anim")
+  local p = Anim.present(side)
+  if not p then
+    destroy_task(t)
+    return
+  end
+  local frame = t.data[14] or 0
+  t.data[14] = frame + 1
+  if frame < 32 then
+    local phase = (frame % 16) / 16 * math.pi * 2
+    local deform = math.sin(phase) * 0.22
+    p.sx = 1.0 - deform * 0.8
+    p.sy = 1.0 + deform
+  else
+    p.sx = 1.0
+    p.sy = 1.0
+    destroy_task(t)
+  end
+end
+
+AnimTasks.REGISTRY.DefenseCurlDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.AnimTask_DefenseCurlDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.StockpileDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.AnimTask_StockpileDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.SwallowDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.AnimTask_SwallowDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.SpitUpDeformMon = AnimTasks.DefenseCurlDeformMon
+AnimTasks.REGISTRY.AnimTask_SpitUpDeformMon = AnimTasks.DefenseCurlDeformMon
+
+--- pret AnimTask_SlideMon: slides mon along vector (dx, dy) towards target and returns.
+function AnimTasks.SlideMon(t, vm)
+  local Anim = require("src.core.game3.battle.anim")
+  local side = vm:attackerSide()
+  local p = Anim.present(side)
+  if not p then
+    destroy_task(t)
+    return
+  end
+  local tx, ty = vm:battlerCenter(vm:resolveBattlerSide("target"))
+  local ax, ay = vm:battlerCenter(side)
+  local dx = (tx - ax) * 0.45
+  local dy = (ty - ay) * 0.45
+
+  local frame = t.data[14] or 0
+  t.data[14] = frame + 1
+  local totalFrames = 18
+
+  if frame < 8 then
+    local progress = frame / 8
+    p.ox = math.floor(dx * progress + 0.5)
+    p.oy = math.floor(dy * progress + 0.5)
+  elseif frame < 12 then
+    p.ox = math.floor(dx + 0.5)
+    p.oy = math.floor(dy + 0.5)
+  elseif frame < totalFrames then
+    local progress = 1.0 - ((frame - 12) / 6)
+    p.ox = math.floor(dx * progress + 0.5)
+    p.oy = math.floor(dy * progress + 0.5)
+  else
+    p.ox = 0
+    p.oy = 0
+    destroy_task(t)
+  end
+end
+
+AnimTasks.REGISTRY.SlideMon = AnimTasks.SlideMon
+AnimTasks.REGISTRY.SlideMonToOffset = AnimTasks.SlideMon
+AnimTasks.REGISTRY.SlideMonToOriginalPos = AnimTasks.SlideMon
+AnimTasks.REGISTRY.AnimTask_SlideMonToOffset = AnimTasks.SlideMon
+AnimTasks.REGISTRY.AnimTask_SlideMonToOriginalPos = AnimTasks.SlideMon
+
+--- pret AnimTask_DarkenBattleAnimBg: dims background during signature VFX.
+function AnimTasks.DarkenBattleAnimBg(t, _vm)
+  local Anim = require("src.core.game3.battle.anim")
+  local stage = Anim.stage and Anim.stage()
+  if not stage then
+    destroy_task(t)
+    return
+  end
+  local frame = t.data[14] or 0
+  t.data[14] = frame + 1
+  local dur = 32
+  if frame < 8 then
+    stage.bgDim = (frame / 8) * 0.85
+  elseif frame < 24 then
+    stage.bgDim = 0.85
+  elseif frame < dur then
+    stage.bgDim = (1.0 - (frame - 24) / 8) * 0.85
+  else
+    stage.bgDim = 0
+    destroy_task(t)
+  end
+end
+
+AnimTasks.REGISTRY.DarkenBattleAnimBg = AnimTasks.DarkenBattleAnimBg
+AnimTasks.REGISTRY.AnimTask_DarkenBattleAnimBg = AnimTasks.DarkenBattleAnimBg
+
+--- pret AnimTask_BowMon: squashes attacker vertically for meditation / calming.
+function AnimTasks.BowMon(t, vm)
+  local Anim = require("src.core.game3.battle.anim")
+  local side = vm:attackerSide()
+  local p = Anim.present(side)
+  if not p then
+    destroy_task(t)
+    return
+  end
+  local frame = t.data[14] or 0
+  t.data[14] = frame + 1
+  if frame < 10 then
+    p.sy = 1.0 - (frame / 10) * 0.18
+  elseif frame < 20 then
+    p.sy = 0.82 + ((frame - 10) / 10) * 0.18
+  else
+    p.sy = 1.0
+    destroy_task(t)
+  end
+end
+
+AnimTasks.REGISTRY.BowMon = AnimTasks.BowMon
+AnimTasks.REGISTRY.AnimTask_BowMon = AnimTasks.BowMon
+
+--- pret AnimTask_ShakeMonOrBattleTerrain: screen / ground shake.
+function AnimTasks.ShakeMonOrBattleTerrain(t, vm)
+  AnimTasks.ShakeMon(t, vm)
+end
+
+AnimTasks.REGISTRY.ShakeMonOrBattleTerrain = AnimTasks.ShakeMonOrBattleTerrain
+AnimTasks.REGISTRY.AnimTask_ShakeMonOrBattleTerrain = AnimTasks.ShakeMonOrBattleTerrain
+
+--- pret AnimTask_CreateSurfWave: creates surging wave of water across the battlefield.
+function AnimTasks.CreateSurfWave(t, vm)
+  local frame = t.data[14] or 0
+  t.data[14] = frame + 1
+  local totalDur = 40
+
+  local atkSide = vm:attackerSide()
+  local tgtSide = vm:resolveBattlerSide("target")
+  local Anim = require("src.core.game3.battle.anim")
+  local pTgt = Anim.present(tgtSide)
+
+  local ax, ay = vm:battlerCenter(atkSide)
+  local tx, ty = vm:battlerCenter(tgtSide)
+
+  -- Spawn water particles periodically across the wave path
+  if frame < 28 and frame % 2 == 0 then
+    local u = frame / 28
+    local waveX = ax + (tx - ax) * u
+    local waveY = ay + (ty - ay) * u
+
+    local tags = { "WATER_ORB", "BUBBLE", "WATER_DROPLET", "WATER_IMPACT", "WATER_COLUMN" }
+    local pack = vm._pack
+    for _, tagName in ipairs(tags) do
+      local imgMeta = pack and pack.tags and pack.tags[tagName]
+      if imgMeta and imgMeta.image then
+        local rndX = waveX + math.random(-24, 24)
+        local rndY = waveY + math.random(-16, 16)
+        local spr = AnimSprites.acquire({
+          x = rndX,
+          y = rndY,
+          z = AnimSprites.Z.FRONT,
+          image = imgMeta.image,
+          w = imgMeta.frameW or 16,
+          h = imgMeta.frameH or 16,
+          hFlip = math.random() > 0.5,
+          tag = tagName,
+          callback = function(s)
+            s.data[0] = (s.data[0] or 0) + 1
+            local lf = s.data[0]
+            s.oy = (s.oy or 0) - 1.2
+            s.alpha = math.max(0, 1 - lf / 16)
+            if lf >= 16 then
+              AnimSprites.release(s)
+            end
+          end,
+        })
+        if spr then
+          spr._baseW = imgMeta.frameW or 16
+          spr._baseH = imgMeta.frameH or 16
+        end
+        break
+      end
+    end
+  end
+
+  -- Target shakes when wave hits
+  if frame >= 18 and frame < 36 and pTgt then
+    local phase = frame % 4
+    local amp = 4
+    pTgt.ox = (phase == 0 or phase == 3) and amp or -amp
+    pTgt.flash = frame
+  elseif frame >= 36 and pTgt then
+    pTgt.ox = 0
+    pTgt.flash = 0
+  end
+
+  if frame >= totalDur then
+    if pTgt then pTgt.ox = 0 pTgt.flash = 0 end
+    destroy_task(t)
+  end
+end
+
+AnimTasks.REGISTRY.CreateSurfWave = AnimTasks.CreateSurfWave
+AnimTasks.REGISTRY.AnimTask_CreateSurfWave = AnimTasks.CreateSurfWave
+
+function AnimTasks.SetGrayscaleOrOriginalPal(t, _vm)
+  destroy_task(t)
+end
+
+AnimTasks.REGISTRY.SetGrayscaleOrOriginalPal = AnimTasks.SetGrayscaleOrOriginalPal
+AnimTasks.REGISTRY.AnimTask_SetGrayscaleOrOriginalPal = AnimTasks.SetGrayscaleOrOriginalPal
+
 function AnimTasks.spawn(name, priority, args, vm)
   AnimTasks.init()
   name = tostring(name or "stub")

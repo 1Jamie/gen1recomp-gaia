@@ -35,6 +35,9 @@ Battle._auto = false
 Battle._metaAct = nil
 Battle._headless = false
 Battle._lowHpSong = false
+Battle._residualEvents = nil
+Battle._residualIndex = 1
+Battle._residualStepState = nil
 
 -- pret GetHPBarLevel: red when scaled bar pixels are in (0, 20%] of 48.
 local HP_BAR_PIXELS = 48
@@ -165,6 +168,9 @@ local function finish(result)
   stop_low_hp_song()
   Battle._active = false
   Battle._phase = nil
+  Battle._residualEvents = nil
+  Battle._residualIndex = 1
+  Battle._residualStepState = nil
   local st = Battle._st
   if st then
     st.over = true
@@ -389,14 +395,16 @@ local function begin_evo_or_end()
     return
   end
   local leveled = Battle._leveledUp or ExpSeq.leveledSet()
-  local pending = Evolution.pending(st.playerParty, leveled)
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = (Runtime and Runtime.getSession and Runtime.getSession()) or (Battle._st and Battle._st.session)
+  local pending = Evolution.pending(st.playerParty, leveled, session)
   if Battle._headless then
     local Pokemon = require("src.core.game3.pokemon")
     for _, entry in ipairs(pending) do
       local fromName = Pokemon.displayMonName(entry.mon)
       local intoName = Pokemon.name(entry.toSpecies) or "?"
       Ui.push("What?\n" .. fromName .. " is evolving!")
-      Evolution.apply(entry.mon, entry.toSpecies)
+      Evolution.apply(entry.mon, entry.toSpecies, session)
       Ui.push("Congratulations! Your " .. fromName
         .. "\nevolved into " .. intoName .. "!")
     end
@@ -404,6 +412,7 @@ local function begin_evo_or_end()
     return
   end
   local hooks = choice_hooks()
+  hooks.session = session
   local started = EvoSeq.begin(pending, hooks)
   if started then
     Battle._phase = "evolving"
@@ -606,8 +615,8 @@ local function handle_enemy_faint(opts)
         begin_evo_or_end()
       end
     else
-      send_out_enemy_next(nextEnemyIdx)
       if opts.onFinished then
+        send_out_enemy_next(nextEnemyIdx)
         opts.onFinished()
         return
       end
@@ -720,27 +729,27 @@ end
 local function after_actions()
   local st = Battle._st
   local ad = Battle._adapter
-  local msgs = Engine.runResiduals(ad)
-  for _, side in ipairs({ "player", "enemy" }) do
-    local b = st[side]
-    local p = Anim.present(side)
-    if b and b.mon and p and p.displayHp ~= nil then
-      local logical = tonumber(b.mon.hp) or 0
-      if math.abs(logical - (p.displayHp or logical)) >= 1 then
-        Anim.tweenHp(side, p.displayHp, logical, b.mon.maxHp)
-      else
-        p.displayHp = logical
-      end
+  local events = Engine.collectResidualEvents(st, ad)
+  Battle._residualEvents = events
+  Battle._residualIndex = 1
+  Battle._residualStepState = "start"
+
+  if Battle._headless then
+    for _, evt in ipairs(events or {}) do
+      push_msgs(evt.msgs)
     end
-  end
-  push_msgs(msgs)
-  if check_faints_and_end() then
+    Ui.pump()
+    if check_faints_and_end() then
+      return
+    end
+    Battle._phase = "command"
+    if Battle._auto then
+      begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
+    end
     return
   end
-  Battle._phase = "command"
-  if not Battle._auto then
-    Ui.openMenu()
-  end
+
+  Battle._phase = "residuals"
 end
 
 local function step_action()
@@ -997,6 +1006,7 @@ function Battle.update(dt, game)
       and not Battle._auto and game and game.input then
     if Ui.choiceActive and Ui.choiceActive() then
       Ui.handleInput(game.input)
+      return
     end
   end
 
@@ -1166,6 +1176,66 @@ function Battle.update(dt, game)
       Battle._phase = "ending"
     end
     return
+  end
+
+  -- End-of-turn residual presentation (poison, burn, weather, leech seed, etc.)
+  if Battle._phase == "residuals" then
+    local events = Battle._residualEvents or {}
+    if Battle._residualIndex > #events then
+      Battle._residualEvents = nil
+      Battle._residualIndex = 1
+      Battle._residualStepState = nil
+      if check_faints_and_end() then
+        return
+      end
+      Battle._phase = "command"
+      if Battle._auto then
+        begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
+      else
+        Ui.openMenu()
+      end
+      return
+    end
+
+    local evt = events[Battle._residualIndex]
+    if Battle._residualStepState == "start" then
+      for _, hp in ipairs(evt.hpChanges or {}) do
+        Anim.tweenHp(hp.side, hp.from, hp.to, hp.maxHp)
+      end
+      for _, msg in ipairs(evt.msgs or {}) do
+        Ui.push(msg)
+      end
+      -- Trigger Ui.pump() simultaneously with HP tween so text appears immediately
+      Ui.pump()
+      Battle._residualStepState = "running"
+      return
+    end
+
+    if Battle._residualStepState == "running" then
+      if Anim.busy() then return end
+      if not Ui.pump() then return end
+
+      -- Check if any faints occurred in this event
+      if evt.faints and #evt.faints > 0 then
+        for _, f in ipairs(evt.faints) do
+          local p = Anim.present(f.side)
+          if p and p.visible ~= false and not Battle._headless then
+            Anim.faintMon(f.side)
+          end
+        end
+        if check_faints_and_end() then
+          Battle._residualEvents = nil
+          Battle._residualIndex = 1
+          Battle._residualStepState = nil
+          return
+        end
+      end
+
+      -- Advance to next residual event
+      Battle._residualIndex = Battle._residualIndex + 1
+      Battle._residualStepState = "start"
+      return
+    end
   end
 
   if Anim.busy() then return end

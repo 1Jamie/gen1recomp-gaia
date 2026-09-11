@@ -58,9 +58,11 @@ local function finish(learned)
   if cb then cb(learned == true) end
 end
 
-local function say(text)
+local function say(text, cb)
   if LearnMove._pushMsg and text then
-    LearnMove._pushMsg(text)
+    LearnMove._pushMsg(text, cb)
+  elseif cb then
+    cb()
   end
 end
 
@@ -68,51 +70,53 @@ local function move_name(moveId)
   return Pokemon.moveName(moveId) or ("MOVE " .. tostring(moveId))
 end
 
-local function schedule(kind)
-  LearnMove._pending = kind
-end
+local open_delete_prompt
+local open_stop_prompt
+local open_forget_list
 
-local function open_delete_prompt()
+function open_delete_prompt()
   if LearnMove._headless or not LearnMove._askYesNo then
-    say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".")
-    finish(false)
+    say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".", function()
+      finish(false)
+    end)
     return
   end
   LearnMove._waitingChoice = true
-  LearnMove._askYesNo(function(yes)
+  LearnMove._askYesNo("Should a move be deleted and\nreplaced with " .. LearnMove._moveName .. "?", function(yes)
     LearnMove._waitingChoice = false
     if not yes then
-      schedule("stop")
+      open_stop_prompt()
       return
     end
-    schedule("forget")
+    open_forget_list()
   end)
 end
 
-local function open_stop_prompt()
+function open_stop_prompt()
   if LearnMove._headless or not LearnMove._askYesNo then
-    say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".")
-    finish(false)
+    say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+      finish(false)
+    end)
     return
   end
-  say("Stop learning\n" .. LearnMove._moveName .. "?")
   LearnMove._waitingChoice = true
-  LearnMove._askYesNo(function(stop)
+  LearnMove._askYesNo("Stop trying to teach\n" .. LearnMove._moveName .. "?", function(stop)
     LearnMove._waitingChoice = false
     if stop then
-      say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".")
-      finish(false)
+      say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+        finish(false)
+      end)
     else
-      say("Delete an older move to\nmake room for " .. LearnMove._moveName .. "?")
-      schedule("delete")
+      open_delete_prompt()
     end
   end)
 end
 
-local function open_forget_list()
+function open_forget_list()
   if LearnMove._headless or not LearnMove._askForget then
-    say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".")
-    finish(false)
+    say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+      finish(false)
+    end)
     return
   end
   local opts, slots = {}, {}
@@ -130,26 +134,39 @@ local function open_forget_list()
   LearnMove._askForget(opts, function(idx)
     LearnMove._waitingChoice = false
     if idx == nil or idx < 0 or idx >= #slots then
-      schedule("stop")
+      open_stop_prompt()
       return
     end
     local slot = slots[idx + 1]
     local oldId = Pokemon.moveIdAt(LearnMove._mon, slot)
     if Pokemon.isHmMove(oldId) then
-      say("HM moves can't be\nforgotten now.")
-      say("Delete an older move to\nmake room for " .. LearnMove._moveName .. "?")
-      schedule("delete")
+      say("HM moves can't be\nforgotten now.", function()
+        open_delete_prompt()
+      end)
       return
     end
     local forgotten = Pokemon.replaceMove(LearnMove._mon, slot, LearnMove._moveId)
     if forgotten then
-      say("1, 2, and… Poof!")
-      say(LearnMove._name .. " forgot\n" .. move_name(forgotten) .. "!")
-      say("And…")
-      say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
-      finish(true)
+      pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+      if LearnMove._headless then
+        say("1, 2, and… Poof!")
+        say(LearnMove._name .. " forgot how to\nuse " .. move_name(forgotten) .. ".")
+        say("And...")
+        say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
+        finish(true)
+      else
+        say("1, 2, and… Poof!", function()
+          say(LearnMove._name .. " forgot how to\nuse " .. move_name(forgotten) .. ".", function()
+            say("And...", function()
+              say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
+                finish(true)
+              end)
+            end)
+          end)
+        end)
+      end
     else
-      schedule("delete")
+      open_delete_prompt()
     end
   end)
 end
@@ -203,20 +220,36 @@ function LearnMove.begin(opts)
   if Pokemon.moveSlotCount(mon) < 4 then
     local ok = Pokemon.teachMove(mon, moveId)
     if ok then
-      say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
+      pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+      if LearnMove._headless then
+        say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
+        finish(ok)
+      else
+        say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
+          finish(ok)
+        end)
+      end
+    else
+      finish(false)
     end
-    finish(ok)
     return
   end
 
-  say(LearnMove._name .. " is trying to\nlearn " .. LearnMove._moveName .. ".")
-  say("But, " .. LearnMove._name .. " can't learn\nmore than four moves.")
-  say("Delete an older move to\nmake room for " .. LearnMove._moveName .. "?")
-  schedule("delete")
+  if LearnMove._headless then
+    say(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".")
+    finish(false)
+    return
+  end
+
+  say(LearnMove._name .. " wants to learn the\nmove " .. LearnMove._moveName .. ".", function()
+    say("However, " .. LearnMove._name .. " already\nknows four moves.", function()
+      open_delete_prompt()
+    end)
+  end)
 end
 
 function LearnMove.movesForLevels(mon, levels)
-  local species = tonumber(mon and (mon.species or mon.speciesId))
+  local species = Pokemon.speciesOf(mon) or tonumber(mon and (mon.species or mon.speciesId))
   local out = {}
   if not species then return out end
   local seen = {}

@@ -307,28 +307,51 @@ local function sprite_source_quad(s, bw, bh)
   return q
 end
 
-function AnimVm:draw()
+function AnimVm:draw(minZ, maxZ)
   if not (love and love.graphics) then return end
-  local list = AnimSprites.sortedDrawList(self._drawList)
+  local list = AnimSprites.sortedDrawList(self._drawList, minZ, maxZ)
+  local activeBlend = "alpha"
+
   for _, s in ipairs(list) do
     if s.image then
-      local x = s.x + (s.ox or 0)
-      local y = s.y + (s.oy or 0)
+      local rawX = s.x + (s.ox or 0)
+      local rawY = s.y + (s.oy or 0)
+      local drawX = math.floor(rawX + 0.5)
+      local drawY = math.floor(rawY + 0.5)
       local a = s.alpha or 1
+
+      local desiredBlend = s.blendMode or "alpha"
+      if desiredBlend ~= activeBlend then
+        if desiredBlend == "add" then
+          love.graphics.setBlendMode("add", "alphamultiply")
+        else
+          love.graphics.setBlendMode("alpha", "alphamultiply")
+        end
+        activeBlend = desiredBlend
+      end
+
       love.graphics.setColor(1, 1, 1, a)
-      local sx = s.hFlip and -1 or 1
-      local sy = s.vFlip and -1 or 1
+      local flipX = s.hFlip and -1 or 1
+      local flipY = s.vFlip and -1 or 1
       local bw = s._baseW or s.w or 32
       local bh = s._baseH or s.h or 32
-      local dw = s.w or bw
-      local dh = s.h or bh
+      local scaleX = (s.scaleX or 1) * flipX
+      local scaleY = (s.scaleY or 1) * flipY
+      local rot = s.rotation or 0
+      local pivX = s.originX or (bw / 2)
+      local pivY = s.originY or (bh / 2)
+
       local q = sprite_source_quad(s, bw, bh)
       if q then
-        love.graphics.draw(s.image, q, x, y, 0, sx * (dw / bw), sy * (dh / bh), bw / 2, bh / 2)
+        love.graphics.draw(s.image, q, drawX, drawY, rot, scaleX, scaleY, pivX, pivY)
       else
-        love.graphics.draw(s.image, x, y, 0, sx * (dw / bw), sy * (dh / bh), bw / 2, bh / 2)
+        love.graphics.draw(s.image, drawX, drawY, rot, scaleX, scaleY, pivX, pivY)
       end
     end
+  end
+
+  if activeBlend ~= "alpha" then
+    love.graphics.setBlendMode("alpha", "alphamultiply")
   end
   love.graphics.setColor(1, 1, 1, 1)
 end
@@ -354,14 +377,19 @@ local function run_createsprite(vm, op)
   local noGfx = op.noGfx or (info and info.noGfx)
 
   -- Invisible helper templates → visual tasks (pret sprite CB moves battler)
-  if noGfx or cbName == "HorizontalLunge" or cbName == "VerticalDip"
-      or cbName == "SlideMonToOffset" or cbName == "SlideMonToOriginalPos" then
+  if noGfx or cbName == "HorizontalLunge" or cbName == "DoHorizontalLunge"
+      or cbName == "VerticalDip" or cbName == "DoVerticalDip"
+      or cbName == "SlideMonToOffset" or cbName == "SlideMonToOriginalPos"
+      or cbName == "BowMon" or cbName == "ShakeMonOrBattleTerrain" then
     local taskName = cbName or "HorizontalLunge"
-    if taskName == "HorizontalLunge" then
+    if taskName == "HorizontalLunge" or taskName == "DoHorizontalLunge" then
       AnimTasks.spawn("HorizontalLunge", 2, { args[1] or 4, args[2] or 4 }, vm)
     elseif taskName == "SlideMonToOffset" or taskName == "SlideMonToOriginalPos" then
-      -- Approximate with brief shake/lunge until full slide port
-      AnimTasks.spawn("HorizontalLunge", 2, { 4, 4 }, vm)
+      AnimTasks.spawn("SlideMon", 2, args, vm)
+    elseif taskName == "BowMon" then
+      AnimTasks.spawn("BowMon", 2, args, vm)
+    elseif taskName == "ShakeMonOrBattleTerrain" then
+      AnimTasks.spawn("ShakeMonOrBattleTerrain", 2, args, vm)
     else
       AnimTasks.spawn(taskName, 2, args, vm)
     end
@@ -371,18 +399,53 @@ local function run_createsprite(vm, op)
   local tag = op.tag or (info and info.tag) or "IMPACT"
   local img, tagInfo = tag_image(vm, tag)
   if not img then
-    -- No extracted sheet yet — skip particle (do not invent circles)
-    return
+    img = vm:getImpactFallback()
   end
 
-  -- Anchor: HitSplat args[3] is ANIM_TARGET/ATTACKER; Roar uses attacker
+  local isCutting = (cbName == "CuttingSlice" or cbName == "AirCutterSlice")
+  local isSlash = (cbName == "SlashSlice" or cbName == "FalseSwipeSlice" or cbName == "ClawSlash" or cbName == "FurySwipes")
+  local isBite = (cbName == "Bite" or cbName == "Fang" or cbName == "SuperFang")
+  local isProjectile = (cbName == "ThrowProjectile" or cbName == "BulletSeed" or cbName == "WaterBubbleProjectile" or cbName == "SludgeProjectile" or cbName == "BoneHitProjectile")
+
+  local isTargetAlways = (
+    isCutting or isBite or cbName == "AbsorptionOrb" or cbName == "BubbleEffect"
+    or cbName == "ConfuseRayBallSpiral" or cbName == "ConstrictBinding"
+    or cbName == "CrossChopHand" or cbName == "DizzyPunchDuck"
+    or cbName == "Electricity" or cbName == "EllipticalGust"
+    or cbName == "FlatterSpotlight" or cbName == "IceEffectParticle"
+    or cbName == "InitIceBallParticle" or cbName == "ItemSteal"
+    or cbName == "Lick" or cbName == "PresentHealParticle"
+    or cbName == "SlidingKick" or cbName == "SmallDriftingBubbles"
+    or cbName == "SpinningKickOrPunch" or cbName == "SporeParticle"
+    or cbName == "Spotlight" or cbName == "StompFoot"
+    or cbName == "TealAlert" or cbName == "WaterGunDroplet"
+    or cbName == "WaveFromCenterOfTarget"
+  )
+
+  local isDynamicArg3 = (
+    cbName == "SpriteOnMonPos" or cbName == "SpinningSparkle"
+    or cbName == "HitSplatBasic" or cbName == "HitSplatPersistent"
+    or cbName == "HitSplatRandom" or cbName == "CrossImpact"
+    or cbName == "FlashingHitSplat" or cbName == "BasicFistOrFoot"
+    or cbName == "RevengeScratch" or cbName == "ParticleInVortex"
+    or cbName == "SmallBubblePair" or cbName == "WhirlwindLine"
+  )
+
+  local isDynamicArg1 = (
+    isSlash or cbName == "EndureEnergy"
+  )
+
   local anchorSide = vm:resolveBattlerSide(op.animBattler or "attacker")
-  if cbName == "HitSplatBasic" then
+  local hFlip = false
+
+  if isTargetAlways then
+    anchorSide = vm:resolveBattlerSide("target")
+  elseif isDynamicArg3 then
     local which = args[3]
-    if which == "target" or which == 1 then
-      anchorSide = vm:resolveBattlerSide("target")
-    elseif which == "attacker" or which == 0 then
+    if which == 0 or which == "attacker" then
       anchorSide = vm:resolveBattlerSide("attacker")
+    elseif which == 1 or which == 2 or which == "target" or (which and which ~= 0) then
+      anchorSide = vm:resolveBattlerSide("target")
     else
       for _, a in ipairs(args) do
         if type(a) == "string" and a:lower():find("target") then
@@ -390,28 +453,68 @@ local function run_createsprite(vm, op)
         end
       end
     end
+  elseif isDynamicArg1 then
+    if args[1] == 0 or args[1] == "attacker" then
+      anchorSide = vm:resolveBattlerSide("attacker")
+    else
+      anchorSide = vm:resolveBattlerSide("target")
+    end
   elseif cbName == "RoarNoiseLine" then
     anchorSide = vm:attackerSide()
   end
 
   local cx, cy = vm:battlerCenter(anchorSide)
-  local ox = vm:x(tonumber(args[1]) or 0)
-  local oy = tonumber(args[2]) or 0
+  if isCutting and anchorSide == "player" then
+    cy = cy + 8
+  end
+
+  local ox = 0
+  local oy = 0
+  local dir = 0
+  if isCutting then
+    dir = tonumber(args[3]) or 0
+    ox = (dir == 0 and 40 or -40)
+    oy = tonumber(args[2]) or -32
+    hFlip = (dir == 1)
+  elseif isSlash then
+    ox = vm:x(tonumber(args[2]) or 0)
+    oy = tonumber(args[3]) or 0
+  elseif cbName == "RoarNoiseLine" then
+    local argX = tonumber(args[1]) or 24
+    if vm.isReversed then argX = -argX end
+    ox = argX
+    oy = tonumber(args[2]) or 0
+    dir = tonumber(args[3]) or 0
+  else
+    ox = vm:x(tonumber(args[1]) or 0)
+    oy = tonumber(args[2]) or 0
+  end
+
   local bw = op.w or (info and info.w) or 32
   local bh = op.h or (info and info.h) or 32
   -- noise_line sheet is 32x128; each frame is 32x32
-  if tag == "NOISE_LINE" then
+  if tag == "NOISE_LINE" or isCutting or isSlash or isBite then
     bw, bh = 32, 32
   end
+
+  local isBarrierShield = (cbName == "DefensiveWall" or cbName == "GuardRing" or cbName == "BlendThinRing" or cbName == "Protect")
+  local isBehindLayer = (cbName == "MudSportDirt" or cbName == "ShadowBall" or cbName == "Spikes")
+  local layer = isBehindLayer and "behind" or "front"
+  local zDepth = AnimSprites.slotZ(anchorSide, layer)
+  local blendMode = isBarrierShield and "add" or "alpha"
 
   local spr = AnimSprites.acquire({
     x = cx + ox,
     y = cy + oy,
-    z = z_for_priority(op.subpriority or 2),
+    z = zDepth,
+    priority = op.priority or 2,
+    subpriority = op.subpriority or 0,
+    hostId = anchorSide,
+    blendMode = blendMode,
     image = img,
     w = bw,
     h = bh,
-    hFlip = false,
+    hFlip = hFlip,
     template = template,
     tag = tag,
     callback = AnimCallbacks.get(cbName),
@@ -421,12 +524,21 @@ local function run_createsprite(vm, op)
     spr._baseW = bw
     spr._baseH = bh
     spr._reversed = vm.isReversed
+    spr._args = args
+    spr._anchorSide = anchorSide
+    spr._cbName = cbName
+    for k, v in ipairs(args) do
+      spr.data[k - 1] = v
+    end
     spr.data[0] = 0
     spr.data[1] = 0
-    spr.data[2] = tonumber(args[3]) or 0 -- roar direction
-    if cbName == "RoarNoiseLine" and vm.isReversed then
-      spr._reversed = true
-    end
+    spr.data[2] = isCutting and dir or (cbName == "RoarNoiseLine" and dir or (tonumber(args[3]) or 0))
+    local tx, ty = vm:battlerCenter(vm:resolveBattlerSide("target"))
+    local ax, ay = vm:battlerCenter(vm:resolveBattlerSide("attacker"))
+    spr._targetX, spr._targetY = tx, ty
+    spr._attackerX, spr._attackerY = ax, ay
+    spr._dx = tx - spr.x
+    spr._dy = ty - spr.y
   end
 end
 

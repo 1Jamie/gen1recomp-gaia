@@ -78,6 +78,26 @@ function Message.show(text, opts)
     -- (battle Ui draws its own textbox; field msgs need Chrome.dialogueFrame).
     Message._frame = "dialogue"
   end
+
+  -- Resolve default ambient text colors
+  if opts.colors then
+    Message._colors = opts.colors
+  elseif opts.gfxId then
+    Message._colors = FrlgFont.colorForNpc(opts.gfxId)
+  elseif opts.npcColor ~= nil then
+    if opts.npcColor == FrlgFont.NPC_TEXT_COLOR.MALE then
+      Message._colors = FrlgFont.COLOR.MALE_NPC
+    elseif opts.npcColor == FrlgFont.NPC_TEXT_COLOR.FEMALE then
+      Message._colors = FrlgFont.COLOR.FEMALE_NPC
+    else
+      Message._colors = FrlgFont.COLOR.NORMAL
+    end
+  elseif Message._frame == "battle" then
+    Message._colors = FrlgFont.COLOR.WHITE
+  else
+    Message._colors = FrlgFont.COLOR.NORMAL
+  end
+
   -- Prefer session options text speed when not overridden.
   local speed = opts.speed
   if speed == nil then
@@ -246,7 +266,7 @@ function Message.drawText()
   local drawn, endX, endY = FrlgFont.draw(page, baseX, baseY, {
     maxWidth = maxW,
     limitChars = Message._revealed,
-    colors = (Message._frame == "battle") and FrlgFont.COLOR.WHITE or FrlgFont.COLOR.NORMAL,
+    colors = (Message._frame == "battle") and FrlgFont.COLOR.WHITE or (Message._colors or FrlgFont.COLOR.NORMAL),
   })
 
   if Message._waiting and not Message._stay then

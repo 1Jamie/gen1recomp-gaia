@@ -165,6 +165,7 @@ local function load_base_tilemap(kind)
   local list = names[kind] or names.info
   local candidates = {}
   for _, n in ipairs(list) do
+    candidates[#candidates + 1] = "pokefirered/graphics/summary_screen/" .. n
     candidates[#candidates + 1] = "data/generated/gba/pokemon/summary/" .. n
   end
   return read_bin(candidates)

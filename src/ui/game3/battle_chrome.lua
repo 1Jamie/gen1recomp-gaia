@@ -212,6 +212,39 @@ function BattleChrome.drawTerrain(key, enemyOx, playerOx)
   return false
 end
 
+--- Draw clean background wallpaper without battle platforms (e.g. for evolution scene).
+function BattleChrome.drawCleanBg(key)
+  key = key or "building"
+  local entry = BattleChrome._terrains[key] or BattleChrome._terrains.building
+    or BattleChrome._terrains.grass
+  if not entry then return false end
+
+  if entry.bgImage and love and love.graphics then
+    local qBgKey = "terrain_bg_view_" .. key
+    if not BattleChrome._quads[qBgKey] then
+      BattleChrome._quads[qBgKey] = love.graphics.newQuad(0, 0, 240, 160, 256, 160)
+    end
+    local qBg = BattleChrome._quads[qBgKey]
+    love.graphics.setColor(1, 1, 1, 1)
+    if qBg then
+      love.graphics.draw(entry.bgImage, qBg, 0, 0)
+      return true
+    end
+  end
+
+  local qFullKey = "terrain_full_" .. key
+  if not BattleChrome._quads[qFullKey] and entry.image and love and love.graphics then
+    BattleChrome._quads[qFullKey] = love.graphics.newQuad(0, 0, 240, 160, entry.w, entry.h)
+  end
+  local q = BattleChrome._quads[qFullKey]
+  if q and entry.image then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(entry.image, q, 0, 0)
+    return true
+  end
+  return false
+end
+
 --- Draw textbox panel: message / action / fight.
 --- Tilemap chrome starts at y=112 (not 120); panels are 48px tall, 160px apart.
 function BattleChrome.drawPanel(mode)

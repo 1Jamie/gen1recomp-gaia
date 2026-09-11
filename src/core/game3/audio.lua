@@ -209,9 +209,11 @@ function Audio.playSong(id, opts)
   }
   Audio._mapSong = Audio._mapSong or id
 
-  -- A new song owns the bus — cancel stale fades (oak exit fade was killing lab BGM).
+  -- A new song owns the bus — cancel stale fades and fanfares (oak exit fade was killing lab BGM).
   Audio._fadeOut = nil
   Audio._fadeIn = nil
+  Audio._fanfareActive = false
+  Audio._fanfareFrames = 0
   Audio._bgmPaused = false
 
   if not Audio.isReady() then

@@ -40,6 +40,8 @@ local function default_present(side)
     hFlip = false,
     darken = 0,
     scale = 1,
+    sx = 1,
+    sy = 1,
     displayHp = nil,
     displayMaxHp = nil,
     displayExp = nil,
@@ -163,6 +165,8 @@ function Anim.faintMon(side, opts)
   local p = Anim.present(side)
   local stage = Anim.stage()
   local hb = stage and stage.healthbox and stage.healthbox[side]
+  local AnimSprites = require("src.core.game3.battle.anim_sprites")
+  AnimSprites.clearHost(side)
 
   local function hide_all()
     if p then
@@ -532,9 +536,9 @@ function Anim.update(dt)
   pump_status_queue()
 end
 
-function Anim.drawParticles()
+function Anim.drawParticles(minZ, maxZ)
   if Anim._headless then return end
-  if Anim._vm then Anim._vm:draw() end
+  if Anim._vm then Anim._vm:draw(minZ, maxZ) end
 end
 
 return Anim

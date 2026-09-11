@@ -38,6 +38,27 @@ local DEFAULT_SLOT_WIDE_EMPTY = string.char(
 
 local STATUS_ICON_PATHS = {}
 
+local BUTTON_PATHS = {
+  cancel = {
+    "pokefirered/graphics/party_menu/cancel_button.bin",
+    "graphics/party_menu/cancel_button.bin",
+  },
+  confirm = {
+    "pokefirered/graphics/party_menu/confirm_button.bin",
+    "graphics/party_menu/confirm_button.bin",
+  },
+}
+
+local DEFAULT_CANCEL_BUTTON = string.char(
+  0x0a, 0x10, 0x0b, 0x10, 0x0b, 0x10, 0x0b, 0x10, 0x0b, 0x10, 0x0b, 0x10, 0x0c, 0x10,
+  0x12, 0x10, 0x0b, 0x18, 0x0b, 0x18, 0x0b, 0x18, 0x0b, 0x18, 0x0b, 0x18, 0x13, 0x10
+)
+
+local DEFAULT_CONFIRM_BUTTON = string.char(
+  0x1b, 0x10, 0x1c, 0x10, 0x1c, 0x10, 0x1c, 0x10, 0x1c, 0x10, 0x1c, 0x10, 0x1d, 0x10,
+  0x23, 0x10, 0x1c, 0x18, 0x1c, 0x18, 0x1c, 0x18, 0x1c, 0x18, 0x1c, 0x18, 0x24, 0x10
+)
+
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
   if ok and Extract and Extract.CACHE_ROOT then
@@ -148,12 +169,51 @@ local function bake_bg_rgba(gfx, palBytes, map, W, H)
   return table.concat(chunks)
 end
 
---- Blit slot tilemap (u8 tile ids) using party BG gfx + one pal bank.
--- Color 0 → transparent (window chrome).
-local function bake_slot_rgba(gfx, palBytes, tilemap, tilesW, tilesH, palBank)
-  local W, H = tilesW * 8, tilesH * 8
+local function build_party_box_pal(palBytes, selected)
   local banks = load_pal_banks(palBytes, math.floor(#palBytes / 32))
-  local pal = banks[palBank] or banks[0] or {}
+  local base = banks[3] or banks[0] or {}
+  local pal = {}
+  for i = 0, 15 do pal[i] = base[i] or 0 end
+  local function get_pal_color(id)
+    local b = math.floor(id / 16)
+    local c = id % 16
+    return (banks[b] and banks[b][c]) or 0
+  end
+  if selected then
+    -- LOAD_PARTY_BOX_PAL(sPartyBoxCurrSelectionPalIds1, sPartyBoxPalOffsets1)
+    -- sPartyBoxCurrSelectionPalIds1 = {116, 117, 118}, sPartyBoxPalOffsets1 = {4, 5, 6}
+    pal[4] = get_pal_color(116)
+    pal[5] = get_pal_color(117)
+    pal[6] = get_pal_color(118)
+    -- LOAD_PARTY_BOX_PAL(sPartyBoxCurrSelectionPalIds2, sPartyBoxPalOffsets2)
+    -- sPartyBoxCurrSelectionPalIds2 = {97, 103, 104}, sPartyBoxPalOffsets2 = {1, 7, 8}
+    pal[1] = get_pal_color(97)
+    pal[7] = get_pal_color(103)
+    pal[8] = get_pal_color(104)
+  else
+    -- sPartyBoxEmptySlotPalIds1 = {52, 53, 54}, sPartyBoxPalOffsets1 = {4, 5, 6}
+    pal[4] = get_pal_color(52)
+    pal[5] = get_pal_color(53)
+    pal[6] = get_pal_color(54)
+    -- sPartyBoxEmptySlotPalIds2 = {49, 55, 56}, sPartyBoxPalOffsets2 = {1, 7, 8}
+    pal[1] = get_pal_color(49)
+    pal[7] = get_pal_color(55)
+    pal[8] = get_pal_color(56)
+  end
+  return pal
+end
+
+--- Blit slot tilemap (u8 tile ids) using party BG gfx + custom pal or pal bank.
+-- Color 0 → transparent (window chrome).
+local function bake_slot_rgba(gfx, palBytes, tilemap, tilesW, tilesH, customPalOrBank)
+  local W, H = tilesW * 8, tilesH * 8
+  local pal
+  if type(customPalOrBank) == "table" then
+    pal = customPalOrBank
+  else
+    local banks = load_pal_banks(palBytes, math.floor(#palBytes / 32))
+    pal = banks[customPalOrBank] or banks[0] or {}
+  end
   local tileCount = math.floor(#gfx / 32)
   local pixels = {}
   for i = 1, W * H do pixels[i] = 0 end
@@ -176,6 +236,44 @@ local function bake_slot_rgba(gfx, palBytes, tilemap, tilesW, tilesH, palBank)
       chunks[i] = string.char(0, 0, 0, 0)
     else
       local r, g, b = bgr555_to_rgb8(pal[idx] or 0)
+      chunks[i] = string.char(r, g, b, 255)
+    end
+  end
+  return table.concat(chunks), W, H
+end
+
+--- Blit button tilemap (16-bit tile entries) using party BG gfx + pal bank.
+-- Color 0 → transparent.
+local function bake_button_rgba(gfx, palBytes, tilemap16Bytes, tilesW, tilesH, palBank)
+  local W, H = tilesW * 8, tilesH * 8
+  local banks = load_pal_banks(palBytes, math.floor(#palBytes / 32))
+  local pal = (palBank and banks[palBank]) or banks[1] or {}
+  local tileCount = math.floor(#gfx / 32)
+  local pixels = {}
+  for i = 1, W * H do pixels[i] = 0 end
+
+  for ty = 0, tilesH - 1 do
+    for tx = 0, tilesW - 1 do
+      local idx = (ty * tilesW + tx) * 2 + 1
+      local entry = (tilemap16Bytes:byte(idx) or 0) + (tilemap16Bytes:byte(idx + 1) or 0) * 256
+      local tileId = entry % 1024
+      local hflip = math.floor(entry / 1024) % 2 == 1
+      local vflip = math.floor(entry / 2048) % 2 == 1
+      if tileId >= tileCount then tileId = 0 end
+      local tile = {}
+      local base = tileId * 32
+      for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
+      decode_tile_4bpp(tile, pixels, tx * 8, ty * 8, W, hflip, vflip)
+    end
+  end
+
+  local chunks = {}
+  for i = 1, W * H do
+    local cIdx = pixels[i] or 0
+    if cIdx == 0 then
+      chunks[i] = string.char(0, 0, 0, 0)
+    else
+      local r, g, b = bgr555_to_rgb8(pal[cIdx] or 0)
       chunks[i] = string.char(r, g, b, 255)
     end
   end
@@ -232,6 +330,9 @@ function PartyChromeExtract.run(rom, cache, opts)
   local map = Lz77.decompress(get, Versions.PARTY_MENU_BG_TILEMAP)
   cache:write(root .. "/bg.rgba", bake_bg_rgba(gfx, pal, map, W, H))
 
+  local palUnsel = build_party_box_pal(pal, false)
+  local palSel = build_party_box_pal(pal, true)
+
   local mainBin = read_bin(SLOT_PATHS.main) or DEFAULT_SLOT_MAIN
   local wideBin = read_bin(SLOT_PATHS.wide) or DEFAULT_SLOT_WIDE
   local emptyBin = read_bin(SLOT_PATHS.empty) or DEFAULT_SLOT_WIDE_EMPTY
@@ -239,17 +340,36 @@ function PartyChromeExtract.run(rom, cache, opts)
     error("party chrome: missing slot_main data")
   end
   if mainBin and #mainBin >= 70 then
-    -- Window pals 3–8 are remapped party-box colors; bank 3 is the blue unselected look.
-    local rgba = bake_slot_rgba(gfx, pal, mainBin, 10, 7, 3)
+    local rgba = bake_slot_rgba(gfx, pal, mainBin, 10, 7, palUnsel)
     cache:write(root .. "/slot_main.rgba", rgba)
+    local rgbaSel = bake_slot_rgba(gfx, pal, mainBin, 10, 7, palSel)
+    cache:write(root .. "/slot_main_selected.rgba", rgbaSel)
   end
   if wideBin and #wideBin >= 54 then
-    local rgba = bake_slot_rgba(gfx, pal, wideBin, 18, 3, 3)
+    local rgba = bake_slot_rgba(gfx, pal, wideBin, 18, 3, palUnsel)
     cache:write(root .. "/slot_wide.rgba", rgba)
+    local rgbaSel = bake_slot_rgba(gfx, pal, wideBin, 18, 3, palSel)
+    cache:write(root .. "/slot_wide_selected.rgba", rgbaSel)
   end
   if emptyBin and #emptyBin >= 54 then
-    local rgba = bake_slot_rgba(gfx, pal, emptyBin, 18, 3, 3)
+    local rgba = bake_slot_rgba(gfx, pal, emptyBin, 18, 3, palUnsel)
     cache:write(root .. "/slot_wide_empty.rgba", rgba)
+  end
+
+  local cancelBin = read_bin(BUTTON_PATHS.cancel) or DEFAULT_CANCEL_BUTTON
+  if cancelBin and #cancelBin >= 28 then
+    local cancelRgba = bake_button_rgba(gfx, pal, cancelBin, 7, 2, 1)
+    cache:write(root .. "/cancel_button.rgba", cancelRgba)
+    local cancelRgbaSel = bake_button_rgba(gfx, pal, cancelBin, 7, 2, 2)
+    cache:write(root .. "/cancel_button_selected.rgba", cancelRgbaSel)
+  end
+
+  local confirmBin = read_bin(BUTTON_PATHS.confirm) or DEFAULT_CONFIRM_BUTTON
+  if confirmBin and #confirmBin >= 28 then
+    local confirmRgba = bake_button_rgba(gfx, pal, confirmBin, 7, 2, 1)
+    cache:write(root .. "/confirm_button.rgba", confirmRgba)
+    local confirmRgbaSel = bake_button_rgba(gfx, pal, confirmBin, 7, 2, 2)
+    cache:write(root .. "/confirm_button_selected.rgba", confirmRgbaSel)
   end
 
   local ballGfx = Lz77.decompress(get, Versions.PARTY_MENU_BALL_GFX)
@@ -263,7 +383,7 @@ function PartyChromeExtract.run(rom, cache, opts)
   end
 
   local manifest = string.format(
-    "return {\n  width = %d, height = %d,\n  ballW = %d, ballSheetH = %d, ballFrames = %d,\n  slotMainW = 80, slotMainH = 56,\n  slotWideW = 144, slotWideH = 24,\n  pokemonVersion = %d,\n}\n",
+    "return {\n  width = %d, height = %d,\n  ballW = %d, ballSheetH = %d, ballFrames = %d,\n  slotMainW = 80, slotMainH = 56,\n  slotWideW = 144, slotWideH = 24,\n  cancelButtonW = 56, cancelButtonH = 16,\n  pokemonVersion = %d,\n}\n",
     W, H, bw, bh, frames or 2, Versions.POKEMON_VERSION or 1)
   cache:write(root .. "/manifest.lua", manifest)
 

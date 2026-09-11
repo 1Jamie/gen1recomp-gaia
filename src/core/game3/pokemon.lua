@@ -446,6 +446,8 @@ function Pokemon.moveName(moveId)
 end
 
 function Pokemon.learnset(species)
+  if type(species) == "table" then species = Pokemon.speciesOf(species) end
+  if type(species) == "string" then species = Pokemon.speciesFromName(species) or tonumber(species) end
   species = tonumber(species)
   if not species then return {} end
   if not Pokemon._learnsets then Pokemon.install(Pokemon._cache) end
@@ -453,6 +455,8 @@ function Pokemon.learnset(species)
 end
 
 function Pokemon.evolutions(species)
+  if type(species) == "table" then species = Pokemon.speciesOf(species) end
+  if type(species) == "string" then species = Pokemon.speciesFromName(species) or tonumber(species) end
   species = tonumber(species)
   if not species then return {} end
   if not Pokemon._evolutions then Pokemon.install(Pokemon._cache) end
@@ -460,6 +464,8 @@ function Pokemon.evolutions(species)
 end
 
 function Pokemon.dexEntry(species)
+  if type(species) == "table" then species = Pokemon.speciesOf(species) end
+  if type(species) == "string" then species = Pokemon.speciesFromName(species) or tonumber(species) end
   species = tonumber(species)
   if not species then return nil end
   if not Pokemon._dex then Pokemon.install(Pokemon._cache) end
@@ -477,26 +483,36 @@ end
 
 --- FRLG GiveBoxMonInitialMoveset: learn all ≤ level; if full, drop first.
 function Pokemon.movesAtLevel(species, level)
+  if type(species) == "table" then species = Pokemon.speciesOf(species) end
+  if type(species) == "string" then species = Pokemon.speciesFromName(species) or tonumber(species) end
   species = tonumber(species)
   level = tonumber(level) or 1
-  if not species then return {}, {} end
-  local list = Pokemon.learnset(species)
-  local moves, pp, maxPp = {}, {}, {}
-  for _, e in ipairs(list) do
+  local set = Pokemon.learnset(species)
+  local pool = {}
+  for _, e in ipairs(set) do
     local lv = e[1] or e.level or 0
-    local mv = e[2] or e.move or 0
-    if lv > level then break end
-    if mv and mv > 0 then
-      if #moves >= 4 then
-        table.remove(moves, 1)
-        table.remove(pp, 1)
-        table.remove(maxPp, 1)
-      end
-      local row = Pokemon.battleMove(mv)
-      local max = (row and row.pp) or 5
-      moves[#moves + 1] = mv
-      pp[#pp + 1] = max
-      maxPp[#maxPp + 1] = max
+    local mv = tonumber(e[2] or e.move) or 0
+    if lv <= level and mv > 0 then
+      pool[#pool + 1] = mv
+    end
+  end
+  local moves = {}
+  local pp = {}
+  local maxPp = {}
+  for _, m in ipairs(pool) do
+    if #moves < 4 then
+      moves[#moves + 1] = m
+      local mpp = Pokemon.movePp(m)
+      pp[#pp + 1] = mpp
+      maxPp[#maxPp + 1] = mpp
+    else
+      table.remove(moves, 1)
+      table.remove(pp, 1)
+      table.remove(maxPp, 1)
+      moves[4] = m
+      local mpp = Pokemon.movePp(m)
+      pp[4] = mpp
+      maxPp[4] = mpp
     end
   end
   return moves, pp, maxPp
@@ -504,6 +520,8 @@ end
 
 --- Moves learned at exactly `level` (ROM learnset). Order preserved.
 function Pokemon.movesLearnedAt(species, level)
+  if type(species) == "table" then species = Pokemon.speciesOf(species) end
+  if type(species) == "string" then species = Pokemon.speciesFromName(species) or tonumber(species) end
   species = tonumber(species)
   level = tonumber(level) or 0
   local out = {}
@@ -651,7 +669,7 @@ function Pokemon.displayMonName(mon)
   local nick = mon.nickname
   if type(nick) == "string" and nick ~= "" then return nick end
   if mon.name and mon.name ~= "" then return mon.name end
-  local sp = tonumber(mon.species or mon.speciesId)
+  local sp = Pokemon.speciesOf(mon)
   return (sp and Pokemon.name(sp)) or "POKéMON"
 end
 
@@ -767,9 +785,16 @@ function Pokemon.icon(species)
   local w = (Pokemon._manifest and Pokemon._manifest.iconW) or Versions.MON_ICON_W or 32
   local h = (Pokemon._manifest and Pokemon._manifest.iconH) or Versions.MON_ICON_H or 32
   local rgba = read_rgba(species)
-  local image = image_from_rgba(rgba, w, h)
+  if not rgba then return nil end
+  local actualH = (#rgba >= w * (h * 2) * 4) and (h * 2) or h
+  local image = image_from_rgba(rgba, w, actualH)
   if not image then return nil end
-  local entry = { image = image, w = w, h = h }
+  local frames = math.max(1, math.floor(actualH / h))
+  local quads = {}
+  for f = 0, frames - 1 do
+    quads[f] = love.graphics.newQuad(0, f * h, w, h, w, actualH)
+  end
+  local entry = { image = image, w = w, h = h, sheetH = actualH, frames = frames, quads = quads }
   Pokemon._icons[species] = entry
   return entry
 end

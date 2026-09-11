@@ -45,16 +45,16 @@ end)
 
 --- pret GetBattlerSpriteFinal_Y (a3=TRUE / BATTLER_COORD_Y_PIC_OFFSET).
 local function battler_sprite_center(side, species, base)
-  local cx, cy = base.x, base.y
+  local cx, cy = base.x, (side == "player") and (base.y - 4) or base.y
   if not PicCoords or not species then return cx, cy end
   local sp = tonumber(species) or 0
   if side == "player" then
     local yo = (PicCoords.back and PicCoords.back[sp]) or 0
-    cy = cy + yo + 8 -- player +8 when a3
+    cy = base.y + yo + 4 -- shifted up 4px
   else
     local yo = (PicCoords.front and PicCoords.front[sp]) or 0
     local elev = (PicCoords.elev and PicCoords.elev[sp]) or 0
-    cy = cy + yo - elev
+    cy = base.y + yo - elev
   end
   return cx, cy
 end
@@ -358,10 +358,11 @@ function Ui.handleInput(input)
   return false
 end
 
-local function draw_menu_text(text, x, y)
+local function draw_menu_text(text, x, y, opts)
+  opts = opts or {}
   FrlgFont.draw(tostring(text or ""), x, y, {
-    small = true,
-    colors = FrlgFont.COLOR.PARTY,
+    small = opts.small ~= nil and opts.small or false,
+    colors = opts.colors or FrlgFont.COLOR.NORMAL,
   })
 end
 
@@ -410,8 +411,9 @@ local function draw_mon_sprite(battler, base, back)
       love.graphics.setColor(shade, shade, shade, a)
     end
     local hFlip = (pres and pres.hFlip) and true or false
-    local sx = (hFlip and -1 or 1) * scale
-    love.graphics.draw(entry.image, cx, cy, 0, sx, scale, 32, 32)
+    local sx = (hFlip and -1 or 1) * ((pres and pres.sx) or scale)
+    local sy = (pres and pres.sy) or scale
+    love.graphics.draw(entry.image, cx, cy, 0, sx, sy, 32, 32)
   else
     -- Placeholder silhouette so lunge/shake is visible before full pic extract.
     local a = (pres and pres.alpha) or 1
@@ -450,7 +452,7 @@ local function draw_action_menu(st)
   local cp = cursorPos[c + 1] or cursorPos[1]
   Window.cursorPx(cp[1], cp[2], { colors = FrlgFont.COLOR.NORMAL })
   for i, pos in ipairs(positions) do
-    draw_menu_text(labels[i], pos[1], pos[2])
+    draw_menu_text(labels[i], pos[1], pos[2], { small = false, colors = FrlgFont.COLOR.NORMAL })
   end
 end
 
@@ -473,7 +475,7 @@ local function draw_move_menu(st)
     if mv and mv ~= 0 and mv ~= "" then
       label = Moves.displayName(mv)
     end
-    draw_menu_text(label, positions[i][1], positions[i][2])
+    draw_menu_text(label, positions[i][1], positions[i][2], { small = true, colors = FrlgFont.COLOR.NORMAL })
   end
   local slot = Ui._moveIndex
   local mv = mon and mon.moves and mon.moves[slot]
@@ -481,8 +483,8 @@ local function draw_move_menu(st)
     local def = Moves.get(mv)
     local pp = mon.pp and mon.pp[slot] or 0
     local maxPp = mon.maxPp and mon.maxPp[slot] or (def and def.pp) or pp
-    draw_menu_text(string.format("PP %d/%d", pp, maxPp), 168, 122)
-    draw_menu_text(Types.get(def and def.type) or "NORMAL", 168, 138)
+    draw_menu_text(string.format("PP %d/%d", pp, maxPp), 168, 122, { small = true, colors = FrlgFont.COLOR.NORMAL })
+    draw_menu_text(Types.get(def and def.type) or "NORMAL", 168, 138, { small = true, colors = FrlgFont.COLOR.NORMAL })
   end
 end
 
@@ -669,20 +671,36 @@ function Ui.draw(w, h)
     playerOx = stage.bgSlide.playerOx or 0
   end
 
+  local bgDim = (stage and stage.bgDim) or 0
+  if bgDim > 0 then
+    local s = math.max(0, 1 - bgDim * 0.65)
+    love.graphics.setColor(s, s, s, 1)
+  else
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+
   if not BattleBg.draw(nil, enemyOx, playerOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
   end
+  love.graphics.setColor(1, 1, 1, 1)
 
-  -- pret-ish z: trainers → mons → particles → ball → healthboxes → party bars
+  -- pret-ish 5-layer z:
+  -- 1. Behind Enemy & Background FX (Z: 0 .. 99)
+  -- 2. Enemy Mon (Z: 100)
+  -- 3. In front of Enemy / Behind Player / Mid-field (Z: 101 .. 199)
+  -- 4. Player Mon (Z: 200)
+  -- 5. In front of Player & Global Foreground (Z: 201 .. 999)
   draw_trainer_sprites(stage)
+  Anim.drawParticles(0, 99)
   if st then
     draw_mon_sprite(st.enemy, ENEMY_MON, false)
   end
-  Anim.drawParticles()
+  Anim.drawParticles(101, 199)
   if st then
     draw_mon_sprite(st.player, PLAYER_MON, true)
   end
+  Anim.drawParticles(201, 999)
   draw_intro_ball(stage)
   if st then
     Healthbox.draw("enemy", st.enemy)

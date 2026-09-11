@@ -442,21 +442,26 @@ function SummaryChrome.drawTypeBadge(typeId, x, y)
 end
 
 --- Draw Move Selection Cursor (Red for selecting, Blue for swap target)
+--- 1:1 pret PokeSum_CreateMoveSelectionCursorObjs (two 64x32 sprites at x, x+64)
 function SummaryChrome.drawMoveSelectionCursor(x, y, w, h, isBlue)
   if not (love and love.graphics) then return end
+  if type(w) == "boolean" then
+    isBlue = w
+    w, h = 128, 32
+  end
   local curL, curR = SummaryChrome.cursorImages()
   if curL and curR then
-    -- Frame 0 is Red (selecting), Frame 1 is Blue (swapping)
+    -- Frame 0 is Red (selecting: 0..31), Frame 1 is Blue (swapping: 32..63)
     local vOffset = isBlue and 32 or 0
-    local qL = get_quad("cur_l_" .. (isBlue and "b" or "r"), 0, vOffset, 16, 24, 64, 64)
-    local qR = get_quad("cur_r_" .. (isBlue and "b" or "r"), 0, vOffset, 16, 24, 64, 64)
+    local qL = get_quad("cur_l_" .. (isBlue and "b" or "r"), 0, vOffset, 64, 32, 64, 64)
+    local qR = get_quad("cur_r_" .. (isBlue and "b" or "r"), 0, vOffset, 64, 32, 64, 64)
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(curL, qL, x - 4, y - 2)
-    love.graphics.draw(curR, qR, x + w - 12, y - 2)
+    love.graphics.draw(curL, qL, x, y)
+    love.graphics.draw(curR, qR, x + 64, y)
   else
     -- Fallback outline
     love.graphics.setColor(isBlue and { 0.2, 0.4, 0.9, 1 } or { 0.9, 0.2, 0.2, 1 })
-    love.graphics.rectangle("line", x, y, w, h)
+    love.graphics.rectangle("line", x, y, w or 128, h or 32)
   end
 end
 

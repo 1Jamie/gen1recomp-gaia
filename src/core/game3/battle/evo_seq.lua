@@ -1,4 +1,5 @@
--- Post-win evolution presentation (pret TryEvolvePokemon, EVO_LEVEL MVP).
+-- Post-win evolution presentation (pret TryEvolvePokemon).
+-- Handles headless fast-path and visual EvolutionScene chaining.
 
 local Evolution = require("src.core.game3.evolution")
 local LearnMove = require("src.core.game3.battle.learn_move")
@@ -13,23 +14,32 @@ EvoSeq._pushMsg = nil
 EvoSeq._askYesNo = nil
 EvoSeq._askForget = nil
 EvoSeq._headless = false
+EvoSeq._session = nil
 
 function EvoSeq.reset()
   EvoSeq._steps = nil
   EvoSeq._i = 1
   EvoSeq._waiting = false
   EvoSeq._pushMsg = nil
+  EvoSeq._session = nil
   LearnMove.reset()
 end
 
 function EvoSeq.busy()
+  local okEv, EvolutionScene = pcall(require, "src.ui.game3.evolution_scene")
+  if okEv and EvolutionScene and EvolutionScene.isOpen and EvolutionScene.isOpen() then
+    return true
+  end
   return EvoSeq._steps ~= nil or LearnMove.busy()
 end
 
 local function finish()
+  local cb = EvoSeq._onDone
   EvoSeq._steps = nil
   EvoSeq._i = 1
   EvoSeq._waiting = false
+  EvoSeq._onDone = nil
+  if cb then cb() end
 end
 
 local function advance()
@@ -45,32 +55,12 @@ function EvoSeq.begin(pending, opts)
   EvoSeq._askYesNo = opts.askYesNo
   EvoSeq._askForget = opts.askForget
   EvoSeq._headless = opts.headless and true or false
+  EvoSeq._session = opts.session
+  EvoSeq._onDone = opts.onDone
 
   local steps = {}
-  local function add(kind, data)
-    steps[#steps + 1] = { kind = kind, data = data }
-  end
-
   for _, entry in ipairs(pending or {}) do
-    local mon = entry.mon
-    local fromName = Pokemon.displayMonName(mon)
-    -- If nicknamed, pret still says nickname is evolving / evolved into SPECIES
-    local intoName = Pokemon.name(entry.toSpecies) or ("POKéMON")
-    add("msg", { text = "What?\n" .. fromName .. " is evolving!" })
-    add("apply", {
-      mon = mon,
-      toSpecies = entry.toSpecies,
-      fromName = fromName,
-      intoName = intoName,
-    })
-    add("msg", {
-      text = "Congratulations! Your " .. fromName
-        .. "\nevolved into " .. intoName .. "!",
-    })
-    add("learn_evo", {
-      mon = mon,
-      displayName = fromName, -- nickname kept; species name changed after apply
-    })
+    steps[#steps + 1] = entry
   end
 
   if #steps == 0 then
@@ -82,32 +72,25 @@ function EvoSeq.begin(pending, opts)
   return true
 end
 
-local function run_step(step)
-  if not step then
+local function run_step(entry)
+  if not entry then
     finish()
     return
   end
-  local kind = step.kind
-  local d = step.data or {}
 
-  if kind == "msg" then
-    if EvoSeq._pushMsg and d.text then
-      EvoSeq._pushMsg(d.text)
+  local mon = entry.mon
+  local toSpecies = entry.toSpecies or entry.target
+  local fromName = Pokemon.displayMonName(mon)
+  local intoName = Pokemon.name(toSpecies) or "POKéMON"
+
+  if EvoSeq._headless then
+    if EvoSeq._pushMsg then
+      EvoSeq._pushMsg("What?\n" .. fromName .. " is evolving!")
     end
-    advance()
-    return
-  end
-
-  if kind == "apply" then
-    Evolution.apply(d.mon, d.toSpecies)
-    -- After evolve, display name for learn may still prefer nickname
-    advance()
-    return
-  end
-
-  if kind == "learn_evo" then
-    -- Learn moves the new species gets at the mon's current level (exact).
-    local mon = d.mon
+    Evolution.apply(mon, toSpecies, EvoSeq._session)
+    if EvoSeq._pushMsg then
+      EvoSeq._pushMsg("Congratulations! Your " .. fromName .. "\nevolved into " .. intoName .. "!")
+    end
     local lv = tonumber(mon and mon.level) or 1
     EvoSeq._waiting = true
     local started = LearnMove.beginQueue(mon, { lv }, {
@@ -115,38 +98,64 @@ local function run_step(step)
       pushMsg = EvoSeq._pushMsg,
       askYesNo = EvoSeq._askYesNo,
       askForget = EvoSeq._askForget,
-      headless = EvoSeq._headless,
+      headless = true,
       onDone = function()
         advance()
       end,
     })
     if not started then
       advance()
-    elseif not LearnMove.busy() and EvoSeq._waiting then
-      if EvoSeq._waiting then advance() end
     end
     return
   end
 
-  advance()
+  -- Visual mode: launch dedicated EvolutionScene
+  local okEv, EvolutionScene = pcall(require, "src.ui.game3.evolution_scene")
+  if okEv and EvolutionScene and EvolutionScene.start then
+    local Audio = require("src.core.game3.audio")
+    local victorySong = (Audio._currentSong and Audio._currentSong.id) or Audio.role("victoryWild") or 311
+    EvoSeq._waiting = true
+    EvolutionScene.start(mon, toSpecies, {
+      canStop = true,
+      headless = EvoSeq._headless,
+      session = EvoSeq._session,
+      isBattle = true,
+      savedSong = victorySong,
+      onDone = function(result)
+        advance()
+      end,
+    })
+  else
+    -- Fallback
+    Evolution.apply(mon, toSpecies, EvoSeq._session)
+    advance()
+  end
 end
 
 function EvoSeq.update()
+  local okEv, EvolutionScene = pcall(require, "src.ui.game3.evolution_scene")
+  if okEv and EvolutionScene and EvolutionScene.isOpen and EvolutionScene.isOpen() then
+    return false
+  end
+
   if LearnMove.busy() then
     LearnMove.pump()
     return false
   end
+
   if not EvoSeq._steps then return true end
+
   if EvoSeq._waiting then
-    if LearnMove.busy() then return false end
-    advance()
+    return false
   end
-  local step = EvoSeq._steps[EvoSeq._i]
-  if not step then
+
+  local entry = EvoSeq._steps[EvoSeq._i]
+  if not entry then
     finish()
     return true
   end
-  run_step(step)
+
+  run_step(entry)
   return false
 end
 

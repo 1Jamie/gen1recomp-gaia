@@ -33,7 +33,7 @@ local ROLES = {
   victoryWild = 311, victoryTrainer = 310, victoryGymLeader = 312,
   encounterBoy = 285, encounterGirl = 284, encounterRival = 315, encounterRocket = 283,
   encounterGymLeader = 342, pokeCenter = 303, heal = 256, surf = 305, cycling = 282,
-  caught = 322, caughtIntro = 319, evolution = 264, evolutionIntro = 263,
+  caught = 322, caughtIntro = 319, evolution = 264, evolutionIntro = 263, evolved = 259,
   levelUp = 257, obtainItem = 258, followMe = 272, title = 278,
 }
 

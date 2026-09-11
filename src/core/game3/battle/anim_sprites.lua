@@ -5,10 +5,45 @@ local AnimSprites = {}
 
 AnimSprites.MAX = 128
 AnimSprites.Z = {
-  BEHIND = 10,
-  MID = 30,
-  FRONT = 50,
+  GLOBAL_BEHIND = 10,
+  ENEMY_BEHIND  = 90,
+  ENEMY_MON     = 100,
+  ENEMY_FRONT   = 110,
+  MID_FIELD     = 150,
+  PLAYER_BEHIND = 190,
+  PLAYER_MON    = 200,
+  PLAYER_FRONT  = 210,
+  GLOBAL_FRONT  = 900,
 }
+
+--- Slot-based dynamic Z calculation (supports 1v1 and 2v2 double battles).
+function AnimSprites.slotZ(slot, layer)
+  local slotId = 1
+  if type(slot) == "number" then
+    slotId = slot
+  elseif slot == "player" or slot == "player_left" then
+    slotId = 2
+  elseif slot == "player_right" then
+    slotId = 4
+  elseif slot == "enemy_right" then
+    slotId = 3
+  else -- "enemy" or "enemy_left"
+    slotId = 1
+  end
+
+  if layer == "behind" then
+    return (slotId * 100) - 10
+  elseif layer == "mon" then
+    return (slotId * 100)
+  elseif layer == "front" then
+    return (slotId * 100) + 10
+  elseif layer == "global_behind" then
+    return 10
+  elseif layer == "global_front" then
+    return 900
+  end
+  return (slotId * 100) + 10
+end
 
 local function clear_slot(s)
   s.active = false
@@ -16,10 +51,19 @@ local function clear_slot(s)
   s.y = 0
   s.ox = 0
   s.oy = 0
-  s.z = AnimSprites.Z.MID
+  s.z = AnimSprites.Z.MID_FIELD
+  s.priority = 2
+  s.subpriority = 0
+  s.hostId = nil
   s.alpha = 1
   s.hFlip = false
   s.vFlip = false
+  s.rotation = 0
+  s.scaleX = 1
+  s.scaleY = 1
+  s.originX = nil
+  s.originY = nil
+  s.blendMode = "alpha" -- "alpha" | "add"
   s.visible = true
   s.tag = nil
   s.template = nil
@@ -69,6 +113,18 @@ function AnimSprites.reset()
   AnimSprites._overflowLogged = false
 end
 
+--- Sweep and destroy any active particles bound to a fainted/switched host battler.
+function AnimSprites.clearHost(hostId)
+  if not hostId then return end
+  AnimSprites.init()
+  for i = 1, AnimSprites.MAX do
+    local s = AnimSprites._pool[i]
+    if s.active and s.hostId == hostId then
+      clear_slot(s)
+    end
+  end
+end
+
 --- Acquire a free slot. Returns sprite or nil if pool exhausted.
 function AnimSprites.acquire(opts)
   AnimSprites.init()
@@ -80,7 +136,10 @@ function AnimSprites.acquire(opts)
       s.active = true
       s.x = opts.x or 0
       s.y = opts.y or 0
-      s.z = opts.z or AnimSprites.Z.MID
+      s.z = opts.z or AnimSprites.Z.MID_FIELD
+      s.priority = opts.priority or 2
+      s.subpriority = opts.subpriority or 0
+      s.hostId = opts.hostId
       s.tag = opts.tag
       s.template = opts.template
       s.image = opts.image
@@ -88,6 +147,13 @@ function AnimSprites.acquire(opts)
       s.w = opts.w or 16
       s.h = opts.h or 16
       s.hFlip = opts.hFlip and true or false
+      s.vFlip = opts.vFlip and true or false
+      s.rotation = opts.rotation or 0
+      s.scaleX = opts.scaleX or 1
+      s.scaleY = opts.scaleY or 1
+      s.originX = opts.originX
+      s.originY = opts.originY
+      s.blendMode = opts.blendMode or "alpha"
       s.callback = opts.callback
       s.palSlot = opts.palSlot or 0
       s.monoTint = opts.monoTint
@@ -142,19 +208,27 @@ function AnimSprites.update()
   end
 end
 
---- Collect active sprites sorted by z (stable by index).
-function AnimSprites.sortedDrawList(out)
+--- Collect active sprites sorted by z and subpriority, filtered by optional [minZ, maxZ] range.
+function AnimSprites.sortedDrawList(out, minZ, maxZ)
   out = out or {}
   for i = #out, 1, -1 do out[i] = nil end
   AnimSprites.init()
   for i = 1, AnimSprites.MAX do
     local s = AnimSprites._pool[i]
     if s.active and s.visible then
-      out[#out + 1] = s
+      local z = s.z or AnimSprites.Z.MID_FIELD
+      if (not minZ or z >= minZ) and (not maxZ or z <= maxZ) then
+        out[#out + 1] = s
+      end
     end
   end
   table.sort(out, function(a, b)
-    if a.z ~= b.z then return a.z < b.z end
+    local za = a.z or AnimSprites.Z.MID_FIELD
+    local zb = b.z or AnimSprites.Z.MID_FIELD
+    if za ~= zb then return za < zb end
+    local sa = a.subpriority or 0
+    local sb = b.subpriority or 0
+    if sa ~= sb then return sa < sb end
     return false
   end)
   return out

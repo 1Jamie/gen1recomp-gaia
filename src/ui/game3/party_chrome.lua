@@ -3,6 +3,7 @@
 local Display = require("src.core.game3.display")
 local Extract = require("src.import.gba.extract_island1")
 local PartyChromeExtract = require("src.import.gba.party_chrome_extract")
+local FrlgFont = require("src.ui.game3.frlg_font")
 
 local PartyChrome = {}
 
@@ -12,6 +13,10 @@ PartyChrome._balls = nil
 PartyChrome._slotMain = nil
 PartyChrome._slotWide = nil
 PartyChrome._slotEmpty = nil
+PartyChrome._cancelBtn = nil
+PartyChrome._cancelBtnSel = nil
+PartyChrome._confirmBtn = nil
+PartyChrome._confirmBtnSel = nil
 PartyChrome._status = nil
 PartyChrome._manifest = nil
 PartyChrome._logged = false
@@ -119,7 +124,13 @@ function PartyChrome.install(cache)
   PartyChrome._balls = nil
   PartyChrome._slotMain = nil
   PartyChrome._slotWide = nil
+  PartyChrome._slotMainSel = nil
+  PartyChrome._slotWideSel = nil
   PartyChrome._slotEmpty = nil
+  PartyChrome._cancelBtn = nil
+  PartyChrome._cancelBtnSel = nil
+  PartyChrome._confirmBtn = nil
+  PartyChrome._confirmBtnSel = nil
   PartyChrome._status = nil
   PartyChrome._manifest = load_lua(party_root() .. "/manifest.lua")
   PartyChrome._logged = false
@@ -137,6 +148,52 @@ local function man()
   return PartyChrome._manifest or {}
 end
 
+local function ensureCancelButton(selected)
+  if selected then
+    if PartyChrome._cancelBtnSel then return PartyChrome._cancelBtnSel end
+    local m = man()
+    local w, h = m.cancelButtonW or 56, m.cancelButtonH or 16
+    local img = rgba_to_image(read_bytes(party_root() .. "/cancel_button_selected.rgba"), w, h)
+    if img then
+      PartyChrome._cancelBtnSel = { image = img, w = w, h = h }
+      return PartyChrome._cancelBtnSel
+    end
+  else
+    if PartyChrome._cancelBtn then return PartyChrome._cancelBtn end
+    local m = man()
+    local w, h = m.cancelButtonW or 56, m.cancelButtonH or 16
+    local img = rgba_to_image(read_bytes(party_root() .. "/cancel_button.rgba"), w, h)
+    if img then
+      PartyChrome._cancelBtn = { image = img, w = w, h = h }
+      return PartyChrome._cancelBtn
+    end
+  end
+  return nil
+end
+
+local function ensureConfirmButton(selected)
+  if selected then
+    if PartyChrome._confirmBtnSel then return PartyChrome._confirmBtnSel end
+    local m = man()
+    local w, h = m.cancelButtonW or 56, m.cancelButtonH or 16
+    local img = rgba_to_image(read_bytes(party_root() .. "/confirm_button_selected.rgba"), w, h)
+    if img then
+      PartyChrome._confirmBtnSel = { image = img, w = w, h = h }
+      return PartyChrome._confirmBtnSel
+    end
+  else
+    if PartyChrome._confirmBtn then return PartyChrome._confirmBtn end
+    local m = man()
+    local w, h = m.cancelButtonW or 56, m.cancelButtonH or 16
+    local img = rgba_to_image(read_bytes(party_root() .. "/confirm_button.rgba"), w, h)
+    if img then
+      PartyChrome._confirmBtn = { image = img, w = w, h = h }
+      return PartyChrome._confirmBtn
+    end
+  end
+  return nil
+end
+
 local function ensureBg()
   if PartyChrome._bg then return PartyChrome._bg end
   local m = man()
@@ -151,25 +208,38 @@ local function ensureBg()
   return PartyChrome._bg
 end
 
-local function ensureSlot(kind)
-  if kind == "main" and PartyChrome._slotMain then return PartyChrome._slotMain end
-  if kind == "wide" and PartyChrome._slotWide then return PartyChrome._slotWide end
-  if kind == "empty" and PartyChrome._slotEmpty then return PartyChrome._slotEmpty end
+local function ensureSlot(kind, selected)
+  if selected then
+    if kind == "main" and PartyChrome._slotMainSel then return PartyChrome._slotMainSel end
+    if kind == "wide" and PartyChrome._slotWideSel then return PartyChrome._slotWideSel end
+  else
+    if kind == "main" and PartyChrome._slotMain then return PartyChrome._slotMain end
+    if kind == "wide" and PartyChrome._slotWide then return PartyChrome._slotWide end
+    if kind == "empty" and PartyChrome._slotEmpty then return PartyChrome._slotEmpty end
+  end
   local m = man()
   local file, w, h
   if kind == "main" then
-    file, w, h = "slot_main.rgba", m.slotMainW or 80, m.slotMainH or 56
+    file = selected and "slot_main_selected.rgba" or "slot_main.rgba"
+    w, h = m.slotMainW or 80, m.slotMainH or 56
   elseif kind == "empty" then
-    file, w, h = "slot_wide_empty.rgba", m.slotWideW or 144, m.slotWideH or 24
+    file = "slot_wide_empty.rgba"
+    w, h = m.slotWideW or 144, m.slotWideH or 24
   else
-    file, w, h = "slot_wide.rgba", m.slotWideW or 144, m.slotWideH or 24
+    file = selected and "slot_wide_selected.rgba" or "slot_wide.rgba"
+    w, h = m.slotWideW or 144, m.slotWideH or 24
   end
   local img = rgba_to_image(read_bytes(party_root() .. "/" .. file), w, h)
   if not img then return nil end
   local entry = { image = img, w = w, h = h }
-  if kind == "main" then PartyChrome._slotMain = entry
-  elseif kind == "empty" then PartyChrome._slotEmpty = entry
-  else PartyChrome._slotWide = entry end
+  if selected then
+    if kind == "main" then PartyChrome._slotMainSel = entry
+    else PartyChrome._slotWideSel = entry end
+  else
+    if kind == "main" then PartyChrome._slotMain = entry
+    elseif kind == "empty" then PartyChrome._slotEmpty = entry
+    else PartyChrome._slotWide = entry end
+  end
   return entry
 end
 
@@ -226,23 +296,27 @@ end
 
 --- Draw pret slot panel at window tile coords. kind: main|wide|empty
 function PartyChrome.drawSlot(kind, tileLeft, tileTop, selected)
-  local slot = ensureSlot(kind == "main" and "main" or (kind == "empty" and "empty" or "wide"))
+  local slot = ensureSlot(kind == "main" and "main" or (kind == "empty" and "empty" or "wide"), selected)
   local T = Display.TILE or 8
   local px, py = tileLeft * T, tileTop * T
   love.graphics.setColor(1, 1, 1, 1)
   if slot and slot.image then
     love.graphics.draw(slot.image, px, py)
-    if selected then
-      love.graphics.setColor(1, 1, 0.7, 0.18)
-      love.graphics.rectangle("fill", px, py, slot.w, slot.h)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
     return
   end
-  love.graphics.setColor(selected and 0.55 or 0.40, selected and 0.82 or 0.72, 0.88, 1)
   local pw = (kind == "main") and 80 or 144
   local ph = (kind == "main") and 56 or 24
-  love.graphics.rectangle("fill", px, py, pw, ph)
+  if selected then
+    love.graphics.setColor(0.48, 0.84, 0.94, 1)
+    love.graphics.rectangle("fill", px, py, pw, ph)
+    love.graphics.setColor(1.0, 0.45, 0.19, 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", px + 1, py + 1, pw - 2, ph - 2)
+    love.graphics.setLineWidth(1)
+  else
+    love.graphics.setColor(0.40, 0.72, 0.88, 1)
+    love.graphics.rectangle("fill", px, py, pw, ph)
+  end
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -296,6 +370,36 @@ function PartyChrome.statusFrameFor(status)
   if s:find("paraly") or s == "par" or s == "5" then return 5 end
   if s:find("toxic") or s == "tox" then return 2 end
   return 1
+end
+
+function PartyChrome.drawCancelButton(px, py, selected)
+  px = px or 184
+  py = py or 136
+  local btn = ensureCancelButton(selected)
+  love.graphics.setColor(1, 1, 1, 1)
+  if btn and btn.image then
+    love.graphics.draw(btn.image, px, py)
+  end
+  PartyChrome.drawBall(px - 2, py - 4, selected and 1 or 0)
+  FrlgFont.draw("CANCEL", px + 20, py + 1, {
+    colors = FrlgFont.COLOR.PARTY,
+    small = true,
+  })
+end
+
+function PartyChrome.drawConfirmButton(px, py, selected)
+  px = px or 184
+  py = py or 128
+  local btn = ensureConfirmButton(selected)
+  love.graphics.setColor(1, 1, 1, 1)
+  if btn and btn.image then
+    love.graphics.draw(btn.image, px, py)
+  end
+  PartyChrome.drawBall(px - 2, py - 4, selected and 1 or 0)
+  FrlgFont.draw("OK", px + 25, py + 2, {
+    colors = FrlgFont.COLOR.PARTY,
+    small = true,
+  })
 end
 
 return PartyChrome

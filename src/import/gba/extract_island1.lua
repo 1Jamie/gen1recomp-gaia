@@ -426,17 +426,16 @@ function Extract.run(imports, cache, progressCb)
     end
     do
       local AnimExtract = require("src.import.gba.battle_anim_extract")
-      AnimExtract.run({
-        cache = {
-          write = function(_, rel, bytes)
-            local path = rel
-            if not path:match("^data/") then
-              path = Extract.CACHE_ROOT .. "/" .. path
-            end
-            return cache:write(path, bytes)
-          end,
-        },
-      })
+      local animCache = {
+        write = function(_, rel, bytes)
+          local path = rel
+          if not path:match("^data/") then path = Extract.CACHE_ROOT .. "/" .. path end
+          return cache:write(path, bytes)
+        end,
+        exists = function(_, rel) return (cache.exists and cache:exists(rel)) or false end,
+        read   = function(_, rel) return (cache.read and cache:read(rel)) or nil end,
+      }
+      pcall(AnimExtract.run, rom2, animCache, { cacheRoot = Extract.CACHE_ROOT, force = true })
     end
     do
       local BattleAiExtract = require("src.import.gba.battle_ai_extract")
@@ -1748,17 +1747,16 @@ local function _dormant_quantize_run(imports, cache, progressCb)
     end
     do
       local AnimExtract = require("src.import.gba.battle_anim_extract")
-      AnimExtract.run({
-        cache = {
-          write = function(_, rel, bytes)
-            local path = rel
-            if not path:match("^data/") then
-              path = Extract.CACHE_ROOT .. "/" .. path
-            end
-            return cache:write(path, bytes)
-          end,
-        },
-      })
+      local animCache = {
+        write = function(_, rel, bytes)
+          local path = rel
+          if not path:match("^data/") then path = Extract.CACHE_ROOT .. "/" .. path end
+          return cache:write(path, bytes)
+        end,
+        exists = function(_, rel) return (cache.exists and cache:exists(rel)) or false end,
+        read   = function(_, rel) return (cache.read and cache:read(rel)) or nil end,
+      }
+      pcall(AnimExtract.run, rom2, animCache, { cacheRoot = Extract.CACHE_ROOT, force = true })
     end
     do
       local BattleAiExtract = require("src.import.gba.battle_ai_extract")
@@ -2032,17 +2030,18 @@ function Extract.runNativeOnly(imports, cache, progressCb)
     end
     do
       local AnimExtract = require("src.import.gba.battle_anim_extract")
-      AnimExtract.run({
-        cache = {
-          write = function(_, rel, bytes)
-            local path = rel
-            if not path:match("^data/") then
-              path = Extract.CACHE_ROOT .. "/" .. path
-            end
-            return cache:write(path, bytes)
-          end,
-        },
-      })
+      local animCache = {
+        write = function(_, rel, bytes)
+          local path = rel
+          if not path:match("^data/") then
+            path = Extract.CACHE_ROOT .. "/" .. path
+          end
+          return cache:write(path, bytes)
+        end,
+        exists = function(_, rel) return (cache.exists and cache:exists(rel)) or false end,
+        read   = function(_, rel) return (cache.read and cache:read(rel)) or nil end,
+      }
+      pcall(AnimExtract.run, rom2, animCache, { cacheRoot = Extract.CACHE_ROOT, force = true })
     end
     do
       local BattleAiExtract = require("src.import.gba.battle_ai_extract")

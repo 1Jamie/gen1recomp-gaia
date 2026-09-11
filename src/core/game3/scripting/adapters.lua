@@ -288,7 +288,21 @@ function Adapters.host(mod, game, world)
         local Hud = require("src.ui.game3.hud")
         local g = resolveGame()
         a.log("[game3] dialog via game3 HUD (not Gen2 showText)")
+        local gfxId = nil
+        local Space = package.loaded["src.core.game3.scripting.space"]
+        local Ctx = package.loaded["src.core.game3.scripting.context"]
+        local Objects = package.loaded["src.core.game3.objects"]
+        if Space and Space.vm and Space.vm.ctx and Ctx and Objects and Objects.get then
+          local lid = Space.vm.ctx.specialVars[Ctx.VAR_LAST_TALKED]
+          if lid and lid > 0 then
+            local obj = Objects.get(lid)
+            if obj and obj.def then
+              gfxId = obj.def.graphicsId or obj.def.gfx
+            end
+          end
+        end
         Hud.openMessage(g, text, {
+          gfxId = gfxId,
           done = function()
             boxOpen = false
             if done then done() end
@@ -321,7 +335,21 @@ function Adapters.host(mod, game, world)
         local Hud = require("src.ui.game3.hud")
         local g = resolveGame()
         a.log("[game3] stay-dialog via game3 HUD")
+        local gfxId = nil
+        local Space = package.loaded["src.core.game3.scripting.space"]
+        local Ctx = package.loaded["src.core.game3.scripting.context"]
+        local Objects = package.loaded["src.core.game3.objects"]
+        if Space and Space.vm and Space.vm.ctx and Ctx and Objects and Objects.get then
+          local lid = Space.vm.ctx.specialVars[Ctx.VAR_LAST_TALKED]
+          if lid and lid > 0 then
+            local obj = Objects.get(lid)
+            if obj and obj.def then
+              gfxId = obj.def.graphicsId or obj.def.gfx
+            end
+          end
+        end
         Hud.openMessageStay(g, text, {
+          gfxId = gfxId,
           done = function()
             if done then done() end
             tick_vm()

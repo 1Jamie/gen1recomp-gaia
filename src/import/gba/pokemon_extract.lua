@@ -285,13 +285,15 @@ end
 
 local function write_manifest(count, version)
   return string.format(
-    "return { magic = \"%s\", format = %d, pokemonVersion = %d, numSpecies = %d, iconW = %d, iconH = %d, abilitiesCount = %d, movesCount = %d }\n",
+    "return { magic = \"%s\", format = %d, pokemonVersion = %d, numSpecies = %d, iconW = %d, iconH = %d, iconSheetH = %d, iconFrames = %d, abilitiesCount = %d, movesCount = %d }\n",
     PokemonExtract.MAGIC,
     PokemonExtract.FORMAT_VERSION,
     version or Versions.POKEMON_VERSION,
     count,
-    Versions.MON_ICON_W,
-    Versions.MON_ICON_H,
+    Versions.MON_ICON_W or 32,
+    Versions.MON_ICON_H or 32,
+    64,
+    2,
     Versions.ABILITIES_COUNT or 78,
     Versions.MOVES_COUNT or 355)
 end
@@ -427,11 +429,13 @@ function PokemonExtract.run(rom, cache, opts)
   local nameBase = Versions.SPECIES_NAMES
   local infoBase = Versions.SPECIES_INFO
   local natBase = Versions.SPECIES_TO_NATIONAL
-  local iconTable = Versions.MON_ICON_TABLE
+  local w = Versions.MON_ICON_W or 32
+  local h = Versions.MON_ICON_H or 32
+  local iconH = h * 2 -- 64 (2 frames)
+  local iconBytes = Versions.MON_ICON_BYTES or math.floor(w * iconH / 2) -- 1024 for 32x64
   local palIdxBase = Versions.MON_ICON_PAL_INDICES
   local pals = load_icon_pals(rom)
-  local w, h = Versions.MON_ICON_W, Versions.MON_ICON_H
-  local frameBytes = math.floor(w * h / 2) -- 512 for 32x32
+  local iconTable = Versions.MON_ICON_TABLE
 
   for sp = 0, num - 1 do
     if progress and sp % 40 == 0 then
@@ -471,11 +475,11 @@ function PokemonExtract.run(rom, cache, opts)
     local pal = pals[palIdx] or pals[0]
     local rgba
     if off then
-      local bytes = rom:readBytes(off, frameBytes)
-      local pixels = decode_4bpp(bytes, w, h)
-      rgba = bake_icon_rgba(pixels, pal, w, h)
+      local bytes = rom:readBytes(off, iconBytes)
+      local pixels = decode_4bpp(bytes, w, iconH)
+      rgba = bake_icon_rgba(pixels, pal, w, iconH)
     else
-      rgba = string.rep(string.char(0, 0, 0, 0), w * h)
+      rgba = string.rep(string.char(0, 0, 0, 0), w * iconH * 4)
     end
     cache:write(root .. "/icons/" .. sp .. ".rgba", rgba)
   end
