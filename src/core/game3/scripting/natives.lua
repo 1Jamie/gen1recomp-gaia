@@ -31,6 +31,13 @@ Natives.ALLOW = {
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, adapters.openPc)
   end,
+  -- pokefirered/src/player_pc.c:151
+  ["special:" .. Std.SPECIAL.BedroomPC] = function(ctx, adapters)
+    if not (adapters and adapters.openPc) then return false end
+    return yield_host(ctx, adapters, function(done)
+      adapters.openPc(done, { bedroom = true })
+    end)
+  end,
   ["special:" .. Std.SPECIAL.AnimatePcTurnOn] = function() return false end,
   ["special:" .. Std.SPECIAL.AnimatePcTurnOff] = function() return false end,
   ["special:" .. Std.SPECIAL.CreatePCMenu] = function(ctx, adapters)

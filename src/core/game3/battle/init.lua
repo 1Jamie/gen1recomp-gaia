@@ -380,12 +380,13 @@ end
 
 local function choice_hooks()
   return {
-    pushMsg = function(text) Ui.push(text) end,
-    askYesNo = function(cb) Ui.askYesNo(cb) end,
+    pushMsg = function(text, cb) Ui.push(text, cb) end,
+    askYesNo = function(a, b) Ui.askYesNo(a, b) end,
     askForget = function(labels, cb) Ui.askForget(labels, cb) end,
     headless = Battle._headless,
   }
 end
+Battle._choiceHooksForTests = choice_hooks
 
 local function begin_evo_or_end()
   local st = Battle._st
@@ -539,79 +540,58 @@ local function handle_enemy_faint(opts)
       local song = Audio.role(role) or ((st and st.wild) and 311 or 310)
       Audio.playSong(song)
 
+      local pname = st.playerName or "PLAYER"
+      local function push_defeated()
+        local trName = (st.trainerClassName and st.trainerClassName ~= "")
+          and (st.trainerClassName .. " " .. (st.trainerName or ""))
+          or (st.trainerName or "TRAINER")
+        -- pokefirered/data/battle_scripts_1.s:2912
+        Ui.push(string.format("%s defeated\n%s!", pname, trName))
+      end
+      local function push_lose_text_and_money()
+        local Trainers = require("src.core.game3.scripting.trainers")
+        local dialogs = Trainers.dialogs(st.trainerId)
+        local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
+        -- pokefirered/data/battle_scripts_1.s:2915
+        if defeatSpeech and defeatSpeech ~= "" then
+          Ui.push(defeatSpeech)
+        end
+        local Prize = require("src.core.game3.battle.prize")
+        local Runtime = package.loaded["src.core.game3.runtime"]
+        local session = Runtime and Runtime.getSession and Runtime.getSession()
+        if session then
+          local info = Trainers.info(st.trainerId)
+          local lastLevel = info and tonumber(info.lastLevel)
+          if not lastLevel or lastLevel < 1 then
+            lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
+          end
+          local gained = Prize.awardTrainerWin(session, st.trainerId, {
+            lastLevel = lastLevel,
+            double = st.double or false,
+            moneyMultiplier = st.moneyMultiplier or 1,
+          })
+          if gained > 0 then
+            Ui.push(Prize.moneyMessage(session.name or pname, gained))
+          end
+        end
+      end
+
       if not st.wild and st.trainerId and not Battle._headless then
+        push_defeated()
         SwitchSeq.beginTrainerSlideIn(st, {
           headless = false,
           onDone = function()
-            local Trainers = require("src.core.game3.scripting.trainers")
-            local dialogs = Trainers.dialogs(st.trainerId)
-            local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
-            if defeatSpeech and defeatSpeech ~= "" then
-              Ui.push(defeatSpeech)
-            end
-            local trName = (st.trainerClassName and st.trainerClassName ~= "")
-              and (st.trainerClassName .. " " .. (st.trainerName or ""))
-              or (st.trainerName or "TRAINER")
-            local pname = st.playerName or "PLAYER"
-            Ui.push(string.format("%s defeated\n%s!", pname, trName))
-
-            local Prize = require("src.core.game3.battle.prize")
-            local Runtime = package.loaded["src.core.game3.runtime"]
-            local session = Runtime and Runtime.getSession and Runtime.getSession()
-            if session then
-              local info = Trainers.info(st.trainerId)
-              local lastLevel = info and tonumber(info.lastLevel)
-              if not lastLevel or lastLevel < 1 then
-                lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
-              end
-              local gained = Prize.awardTrainerWin(session, st.trainerId, {
-                lastLevel = lastLevel,
-                double = st.double or false,
-                moneyMultiplier = st.moneyMultiplier or 1,
-              })
-              if gained > 0 then
-                Ui.push(Prize.moneyMessage(session.name or pname, gained))
-              end
-            end
+            push_lose_text_and_money()
             begin_evo_or_end()
           end,
         })
         Battle._phase = "switching"
       else
         if not st.wild and st.trainerId then
-          local Trainers = require("src.core.game3.scripting.trainers")
-          local dialogs = Trainers.dialogs(st.trainerId)
-          local defeatSpeech = st.defeatText or (dialogs and dialogs.defeat)
-          if defeatSpeech and defeatSpeech ~= "" then
-            Ui.push(defeatSpeech)
-          end
-          local trName = (st.trainerClassName and st.trainerClassName ~= "")
-            and (st.trainerClassName .. " " .. (st.trainerName or ""))
-            or (st.trainerName or "TRAINER")
-          local pname = st.playerName or "PLAYER"
-          Ui.push(string.format("%s defeated\n%s!", pname, trName))
-
-          local Prize = require("src.core.game3.battle.prize")
-          local Runtime = package.loaded["src.core.game3.runtime"]
-          local session = Runtime and Runtime.getSession and Runtime.getSession()
-          if session then
-            local info = Trainers.info(st.trainerId)
-            local lastLevel = info and tonumber(info.lastLevel)
-            if not lastLevel or lastLevel < 1 then
-              lastLevel = st.enemy and st.enemy.mon and tonumber(st.enemy.mon.level) or 1
-            end
-            local gained = Prize.awardTrainerWin(session, st.trainerId, {
-              lastLevel = lastLevel,
-              double = st.double or false,
-              moneyMultiplier = st.moneyMultiplier or 1,
-            })
-            if gained > 0 then
-              Ui.push(Prize.moneyMessage(session.name or pname, gained))
-            end
-          end
-        else
-          Ui.push("You won the battle!")
+          push_defeated()
+          push_lose_text_and_money()
         end
+        -- pokefirered/src/battle_main.c:3764
         begin_evo_or_end()
       end
     else

@@ -49,9 +49,15 @@ function PcMenu.show(opts)
   PcMenu.open = true
   PcMenu._session = opts.session
   PcMenu._onClose = opts.onClose
-  PcMenu.mode = "root"
+  PcMenu._closeOnExit = opts.closeOnExit == true
   PcMenu.cursor = 1
-  PcMenu._status = "Which PC would you like to access?"
+  if opts.startMode == "player_pc" then
+    PcMenu.mode = "player_pc"
+    PcMenu._status = "What would you like to do?" -- pokefirered/src/player_pc.c:160
+  else
+    PcMenu.mode = "root"
+    PcMenu._status = "Which PC would you like to access?"
+  end
   Storage.ensure(PcMenu._session)
   se(2) -- SE_PC_ON / SE_PC_LOGIN
   Stack.push("pc_menu", PcMenu, { hideBelow = false })
@@ -261,10 +267,14 @@ function PcMenu.handleInput(input)
     elseif input:wasPressed("a") then
       local choice = playerOptions[PcMenu.cursor]
       if choice.id == "logoff" then
-        PcMenu.mode = "root"
-        PcMenu.cursor = 2
-        PcMenu._status = "Which PC would you like to access?"
-        se(5)
+        if PcMenu._closeOnExit then
+          PcMenu.close() -- pokefirered/src/player_pc.c:257
+        else
+          PcMenu.mode = "root"
+          PcMenu.cursor = 2
+          PcMenu._status = "Which PC would you like to access?"
+          se(5)
+        end
       elseif choice.id == "withdraw" then
         local storage = Storage.ensure(PcMenu._session)
         if #storage.items < 1 then
@@ -301,10 +311,14 @@ function PcMenu.handleInput(input)
         end
       end
     elseif input:wasPressed("b") then
-      PcMenu.mode = "root"
-      PcMenu.cursor = 2
-      PcMenu._status = "Which PC would you like to access?"
-      se(5)
+      if PcMenu._closeOnExit then
+        PcMenu.close()
+      else
+        PcMenu.mode = "root"
+        PcMenu.cursor = 2
+        PcMenu._status = "Which PC would you like to access?"
+        se(5)
+      end
     end
     return
   end

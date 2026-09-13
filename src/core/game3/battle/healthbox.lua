@@ -16,14 +16,19 @@ local Healthbox = {}
 Healthbox.ENEMY_CENTER = { x = 44, y = 30 }
 Healthbox.PLAYER_CENTER = { x = 158, y = 88 }
 
+local function c5(v)
+  return math.floor(v * 255 / 31 + 0.5) / 255
+end
+
 -- Cream fill matches healthbox pal index 2 (text bg).
-local CREAM = { 248 / 255, 248 / 255, 216 / 255, 1 }
+-- pokefirered/src/battle_interface.c:2204
+local CREAM = { c5(31), c5(31), c5(27), 1 }
 
 -- Healthbox OBJ pal text colors (gBattleInterface_Healthbox_Pal).
 -- Nick: fg=1 shadow=3; gender uses DYNAMIC_COLOR_2/1 (pal 11 / 10).
 local HB_TEXT = {
-  fg = { 64 / 255, 64 / 255, 64 / 255, 1 },
-  shadow = { 216 / 255, 208 / 255, 176 / 255, 1 },
+  fg = { c5(8), c5(8), c5(8), 1 },
+  shadow = { c5(27), c5(26), c5(22), 1 },
 }
 local HB_MALE = {
   fg = { 65 / 255, 205 / 255, 255 / 255, 1 },

@@ -65,6 +65,9 @@ function Schema.newGame(opts)
   local Rng = require("src.core.game3.rng")
   session.trainerId = Rng.seedNewGame({ seed = opts.rngSeed })
   Rng.captureToSession(session)
+  local Storage = require("src.core.game3.storage")
+  session.storage = Storage.new()
+  session.storage.items[1] = { id = 13, qty = 1 } -- pokefirered/src/player_pc.c:100
   Options.ensure(session)
   -- Plan naming: text_speed / l_equals_a aliases mirror Options fields.
   session.options.text_speed = session.options.textSpeed
@@ -104,6 +107,7 @@ function Schema.toSaveTable(session)
     playTime = session.playtime or session.playTime or { hours = 0, minutes = 0, seconds = 0 },
     options = session.options,
     pc = session.pc,
+    storage = session.storage and require("src.core.game3.storage").serialize(session.storage) or nil,
     registeredItem = session.registeredItem,
     move_overlay = session.move_overlay or {},
     trainerId = session.trainerId,
@@ -144,6 +148,7 @@ function Schema.fromSaveTable(save)
     playtime = save.playTime or save.playtime or { hours = 0, minutes = 0, seconds = 0 },
     options = save.options,
     pc = save.pc or { items = {} },
+    storage = type(save.storage) == "table" and require("src.core.game3.storage").deserialize(save.storage) or nil,
     registeredItem = save.registeredItem,
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,

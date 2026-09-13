@@ -584,7 +584,7 @@ function Adapters.host(mod, game, world)
       end
       finish()
     end,
-    openPc = function(done)
+    openPc = function(done, pcOpts)
       local function finish()
         local okMsg, Message = pcall(require, "src.ui.game3.message")
         if okMsg and Message and Message.close then Message.close() end
@@ -600,9 +600,12 @@ function Adapters.host(mod, game, world)
         if okHud and Hud and Hud.clearWaitButton then Hud.clearWaitButton() end
         a.log("[game3] openPc via game3 PcMenu")
         local PcMenu = require("src.ui.game3.pc_menu")
+        local bedroom = type(pcOpts) == "table" and pcOpts.bedroom == true
         PcMenu.show({
           session = Runtime.getSession(),
           onClose = finish,
+          startMode = bedroom and "player_pc" or nil,
+          closeOnExit = bedroom,
         })
         return
       end

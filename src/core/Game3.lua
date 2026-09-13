@@ -105,6 +105,9 @@ function Game3:load(opts)
   local continueOk = self:_hasContinueSave()
   self.boot = Boot.new()
   Boot.setHasContinue(self.boot, continueOk)
+  if continueOk then
+    Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
+  end
   self.phase = "boot"
   self.session = nil
 
@@ -245,11 +248,11 @@ function Game3:draw()
       Boot.draw(self.boot)
       love.graphics.setCanvas()
       love.graphics.pop()
-      local scale, ox, oy = Display.fit(w, h)
+      local scale, ox, oy, _, _, scaleY = Display.fit(w, h)
       love.graphics.setColor(0.02, 0.04, 0.08, 1)
       love.graphics.rectangle("fill", 0, 0, w, h)
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(canvas, ox, oy, 0, scale, scale)
+      love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
     else
       Boot.draw(self.boot)
     end

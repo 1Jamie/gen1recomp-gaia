@@ -32,6 +32,7 @@ Ui._menuIndex = 1
 Ui._moveIndex = 1
 Ui._st = nil
 Ui._pendingCommand = nil
+Ui._pendingYesNo = nil
 Ui._session = nil
 
 -- pret sBattlerCoords (singles) — CreateSprite CENTER before pic y_offset
@@ -70,6 +71,7 @@ function Ui.reset(opts)
   Ui._moveIndex = 1
   Ui._st = nil
   Ui._pendingCommand = nil
+  Ui._pendingYesNo = nil
   if not Ui._headless then
     pcall(BattleChrome.install, nil)
   end
@@ -84,10 +86,13 @@ function Ui.bindSession(session)
   Ui._session = session
 end
 
-function Ui.push(text)
-  if not text or text == "" then return end
+function Ui.push(text, cb)
+  if not text or text == "" then
+    if cb then cb() end
+    return
+  end
   Ui._log[#Ui._log + 1] = text
-  Ui._queue[#Ui._queue + 1] = text
+  Ui._queue[#Ui._queue + 1] = cb and { text = text, cb = cb } or text
 end
 
 function Ui.busy()
@@ -108,7 +113,9 @@ function Ui.dialogPending()
 end
 
 --- YES/NO during award/learn (Choice.yesNo). cb(true|false)
-function Ui.askYesNo(cb)
+function Ui.askYesNo(a, b)
+  local cb = (type(a) == "function") and a or b
+  local prompt = (type(a) == "string") and a or nil
   if Ui._headless then
     if cb then cb(false) end
     return
@@ -117,7 +124,35 @@ function Ui.askYesNo(cb)
     if cb then cb(false) end
     return
   end
+  if prompt and prompt ~= "" and Message and Message.show then
+    Ui._log[#Ui._log + 1] = prompt
+    Message.show(prompt, { frame = "battle", battle = true, stay = true })
+    -- pokefirered/data/battle_scripts_1.s:3127
+    Ui._pendingYesNo = cb or false
+    return
+  end
   Choice.yesNo(cb, { left = 22, top = 8 })
+end
+
+local function open_pending_yesno()
+  if Ui._pendingYesNo == nil then return false end
+  if not (Message and Message.isOpen and Message.isOpen()) then
+    Ui._pendingYesNo = nil
+    return false
+  end
+  if not (Message.isWaiting and Message.isWaiting()) then return true end
+  local cb = Ui._pendingYesNo
+  Ui._pendingYesNo = nil
+  -- pokefirered/data/battle_scripts_1.s:3129
+  Choice.yesNo(function(yes)
+    if Message.isOpen() and Message.close then Message.close() end
+    if cb then cb(yes) end
+  end, { left = 22, top = 8 })
+  return true
+end
+
+function Ui.yesNoPending()
+  return Ui._pendingYesNo ~= nil
 end
 
 --- Multi-choice forget list. cb(0-based index) or cb(-1)/cb(127) on cancel.
@@ -231,11 +266,20 @@ function Ui.takeCommand()
   return c
 end
 
+local function pop_queue()
+  local item = table.remove(Ui._queue, 1)
+  if type(item) == "table" then return item.text, item.cb end
+  return item, nil
+end
+
 local function show_next()
   if Ui._showing then return end
   if #Ui._queue == 0 then return end
-  local text = table.remove(Ui._queue, 1)
-  if Ui._headless then return end
+  local text, cb = pop_queue()
+  if Ui._headless then
+    if cb then cb() end
+    return
+  end
   if Message and Message.show then
     Ui._showing = true
     Message.show(text, {
@@ -243,17 +287,24 @@ local function show_next()
       battle = true,
       done = function()
         Ui._showing = false
+        if cb then cb() end
       end,
     })
+  elseif cb then
+    cb()
   end
 end
 
 function Ui.pump()
   if Ui._headless then
-    while #Ui._queue > 0 do table.remove(Ui._queue, 1) end
+    while #Ui._queue > 0 do
+      local _, cb = pop_queue()
+      if cb then cb() end
+    end
     Ui._showing = false
     return true
   end
+  if open_pending_yesno() then return false end
   if Message and Message.isOpen and Message.isOpen() then
     return false
   end
@@ -411,8 +462,8 @@ local function draw_mon_sprite(battler, base, back)
       love.graphics.setColor(shade, shade, shade, a)
     end
     local hFlip = (pres and pres.hFlip) and true or false
-    local sx = (hFlip and -1 or 1) * ((pres and pres.sx) or scale)
-    local sy = (pres and pres.sy) or scale
+    local sx = (hFlip and -1 or 1) * scale * ((pres and pres.sx) or 1)
+    local sy = scale * ((pres and pres.sy) or 1)
     love.graphics.draw(entry.image, cx, cy, 0, sx, sy, 32, 32)
   else
     -- Placeholder silhouette so lunge/shake is visible before full pic extract.
@@ -489,7 +540,7 @@ local function draw_move_menu(st)
 end
 
 
-local function draw_trainer_sprites(stage)
+local function draw_enemy_trainer(stage)
   if not stage or not stage.trainer then return end
   local TrainerPic = require("src.core.game3.trainer_pic")
   local te = stage.trainer.enemy
@@ -503,6 +554,11 @@ local function draw_trainer_sprites(stage)
       end
     end
   end
+end
+
+local function draw_player_trainer(stage)
+  if not stage or not stage.trainer then return end
+  local TrainerPic = require("src.core.game3.trainer_pic")
   local tp = stage.trainer.player
   if tp and tp.visible then
     local entry = TrainerPic.back(tp.gender or 0)
@@ -691,12 +747,14 @@ function Ui.draw(w, h)
   -- 3. In front of Enemy / Behind Player / Mid-field (Z: 101 .. 199)
   -- 4. Player Mon (Z: 200)
   -- 5. In front of Player & Global Foreground (Z: 201 .. 999)
-  draw_trainer_sprites(stage)
+  draw_enemy_trainer(stage)
   Anim.drawParticles(0, 99)
   if st then
     draw_mon_sprite(st.enemy, ENEMY_MON, false)
   end
   Anim.drawParticles(101, 199)
+  -- pokefirered/src/battle_anim_mons.c:1908
+  draw_player_trainer(stage)
   if st then
     draw_mon_sprite(st.player, PLAYER_MON, true)
   end

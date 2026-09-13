@@ -237,14 +237,6 @@ function LearnMove.begin(opts)
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
         finish(ok)
       else
-        -- Two contexts call LearnMove.begin:
-        --   * Battle (Ui.push): pushMsg ignores the callback → pump() watches
-        --     Ui.dialogPending() and calls finish() once the message is dismissed.
-        --   * Party menu / TM use (PartyMenu.showMessage): pushMsg DOES call cb
-        --     when the player presses A → finish() fires inline via the callback.
-        -- Both are handled: set _pending="done" for the pump() path, and also
-        -- pass a callback to say() for the direct path. The guard prevents
-        -- double-finish if both somehow fire.
         LearnMove._pendingResult = ok
         LearnMove._pending = "done"
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()

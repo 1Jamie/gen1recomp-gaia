@@ -30,7 +30,7 @@ function Display.ensureCanvas(which)
       return existing
     end
   end
-  local ok, canvas = pcall(love.graphics.newCanvas, Display.W, Display.H)
+  local ok, canvas = pcall(love.graphics.newCanvas, Display.W, Display.H, { dpiscale = 1 })
   if not ok or not canvas then
     log("FAILED canvas create")
     return nil
@@ -63,28 +63,42 @@ function Display.fit(winW, winH)
     end
   end
 
+  local dpiX, dpiY = 1, 1
+  if gw > 0 and gh > 0 and love.graphics.getPixelDimensions then
+    local fw, fh = love.graphics.getPixelDimensions()
+    if fw and fw > 0 then dpiX = fw / gw end
+    if fh and fh > 0 then dpiY = fh / gh end
+  elseif love and love.graphics and love.graphics.getDPIScale then
+    local d = tonumber(love.graphics.getDPIScale())
+    if d and d > 1e-6 then dpiX, dpiY = d, d end
+  end
+
   local isPortrait = safeH > safeW
-  local scale, ox, oy, pw, ph
+  local k, ox, oy, pw, ph, scaleX, scaleY
 
   if isPortrait then
     -- On mobile portrait, scale to fit the available safe width cleanly.
-    scale = safeW / Display.W
-    pw = Display.W * scale
-    ph = Display.H * scale
-    ox = safeX + math.floor((safeW - pw) * 0.5)
+    k = math.max(1, math.floor(safeW * dpiX / Display.W + 1e-9))
+    scaleX, scaleY = k / dpiX, k / dpiY
+    pw = Display.W * scaleX
+    ph = Display.H * scaleY
+    ox = safeX + (safeW - pw) * 0.5
     -- In portrait, center the screen in the upper deck area (above the touch controls deck).
     local topDeckH = safeH * 0.48
-    oy = safeY + math.max(4, math.floor((topDeckH - ph) * 0.5))
+    oy = safeY + math.max(4, (topDeckH - ph) * 0.5)
   else
     -- Landscape / desktop: fit cleanly within safe area
-    scale = math.max(1, math.floor(math.min(safeW / Display.W, safeH / Display.H)))
-    pw = Display.W * scale
-    ph = Display.H * scale
-    ox = safeX + math.floor((safeW - pw) * 0.5)
-    oy = safeY + math.floor((safeH - ph) * 0.5)
+    k = math.max(1, math.floor(math.min(safeW * dpiX / Display.W, safeH * dpiY / Display.H) + 1e-9))
+    scaleX, scaleY = k / dpiX, k / dpiY
+    pw = Display.W * scaleX
+    ph = Display.H * scaleY
+    ox = safeX + (safeW - pw) * 0.5
+    oy = safeY + (safeH - ph) * 0.5
   end
+  ox = math.floor(ox * dpiX + 1e-9) / dpiX
+  oy = math.floor(oy * dpiY + 1e-9) / dpiY
 
-  return scale, ox, oy, pw, ph
+  return scaleX, ox, oy, pw, ph, scaleY
 end
 
 local function beginOn(canvas)
@@ -194,9 +208,9 @@ function Display.present(game, winW, winH)
   -- Void bars + blit our frame (game3 letterbox, not Gen2 Playfield).
   love.graphics.setColor(0.02, 0.04, 0.08, 1)
   love.graphics.rectangle("fill", 0, 0, winW, winH)
-  local scale, ox, oy = Display.fit(winW, winH)
+  local scale, ox, oy, _, _, scaleY = Display.fit(winW, winH)
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.draw(canvas, ox, oy, 0, scale, scale)
+  love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
   return true
 end
 

@@ -55,8 +55,8 @@ function MonPic.draw()
   if not MonPic.active then return end
   local tx = MonPic.left or 10
   local ty = MonPic.top or 3
-  -- pret CreateWindowFromRect(x, y, 8, 8) then sprite at 8*x+40, 8*y+40.
-  Window.stdFrame(Window.template(tx, ty, 8, 8))
+  -- pokefirered/src/script_menu.c:1193
+  Window.stdFrame(Window.template(tx + 1, ty + 1, 8, 8))
   local cx = tx * Display.TILE + 40
   local cy = ty * Display.TILE + 40
   if MonPic._img then

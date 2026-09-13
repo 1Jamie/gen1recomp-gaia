@@ -22,6 +22,7 @@ Std.SPECIAL = {
   ShowRegionMap = 0xAF,
   AnimatePcTurnOn = 0xD6,
   AnimatePcTurnOff = 0xD7,
+  BedroomPC = 0xF9, -- pokefirered/data/specials.inc:260
   PlayerPC = 0xFA,
   CreatePCMenu = 0x106,
   EnterHallOfFame = 0x110, -- 272 (special HallOfFame / GameClear)

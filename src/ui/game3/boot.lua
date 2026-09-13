@@ -2,7 +2,7 @@
 -- Oak onboarding lives in oak_speech.lua (pret oak_speech.c task chain).
 
 local Display = require("src.core.game3.display")
-local FrlgFont = require("src.ui.game3.frlg_font")
+local Window = require("src.ui.game3.window")
 local Audio = require("src.core.game3.audio")
 local OakSpeech = require("src.ui.game3.oak_speech")
 local IntroGuide = require("src.ui.game3.intro_guide")
@@ -16,6 +16,7 @@ Boot.PHASE = {
   INTRO = "intro",
   COPYRIGHT = "copyright",
   TITLE = "title",
+  TITLE_CRY = "title_cry",
   MENU = "menu",
   CONTROLS = "controls",
   PIKACHU = "pikachu",
@@ -137,11 +138,62 @@ function Boot.setHasContinue(state, yes)
   state.menuIndex = 1
 end
 
+function Boot.setContinueInfo(state, info)
+  state.continueInfo = info
+end
+
+function Boot.continueInfoFromSave(save)
+  if type(save) ~= "table" then return nil end
+  local Flags = require("src.core.game3.scripting.flags")
+  local store = { flags = type(save.flags) == "table" and save.flags or {} }
+  local pt = type(save.playTime) == "table" and save.playTime
+    or type(save.playtime) == "table" and save.playtime or {}
+  local dex = type(save.dex) == "table" and save.dex or {}
+  local caught = dex.caught or dex.owned or {}
+  local counted, n = {}, 0
+  for sp, on in pairs(caught) do
+    local id = tonumber(sp)
+    if id and on and on ~= 0 and not counted[id] and (dex.national or id <= 151) then
+      counted[id] = true
+      n = n + 1
+    end
+  end
+  local name = tostring(save.name or save.playerName or "")
+  return {
+    name = name:sub(1, 7),
+    gender = tonumber(save.gender) or 0,
+    hours = tonumber(pt.hours) or 0,
+    minutes = tonumber(pt.minutes) or 0,
+    hasDex = Flags.getFlag(store, nil, Flags.IDS.SYS_POKEDEX_GET) == true,
+    dexCount = n,
+    badges = Flags.countBadges(store),
+  }
+end
+
 local function menuItems(state)
   if state.hasContinue then
-    return { "CONTINUE", "NEW GAME", "OPTION" }
+    return { "CONTINUE", "NEW GAME" }
   end
-  return { "NEW GAME", "OPTION" }
+  return { "NEW GAME" }
+end
+
+Boot.menuItems = menuItems
+
+local function beginNewGame(state)
+  NamingChrome.install()
+  state.phase = Boot.PHASE.CONTROLS
+  state.guide = IntroGuide.beginControls(state.assets)
+  IntroGuide.start(state.guide)
+  state.timer = 0
+  Audio.playSong(323)
+  return nil
+end
+
+local function beginMenuFade(state, color, from, to, after)
+  state.fadeColor = color
+  state.fadeT = from
+  state.fadeTarget = to
+  state.fadeThen = after
 end
 
 local function enterTitle(state)
@@ -199,13 +251,12 @@ function Boot.update(state, input, dt)
   if state.phase == Boot.PHASE.TITLE then
     TitleScreen.update(state, dt)
     if a() then
-      leaveTitle(state)
-      state.phase = Boot.PHASE.MENU
-      state.timer = 0
-      Audio.playSe(5)
-    end
-    -- Idle timeout: cycle back to intro after 30s
-    if state.timer > 30.0 then
+      state.phase = Boot.PHASE.TITLE_CRY
+      state.cryFrames = 0
+      state.white = 0
+      state.whiteFading = false
+      Audio.playCry(6, 0) -- pokefirered/src/title_screen.c:715
+    elseif state.timer >= 2700 / 60 then -- pokefirered/src/title_screen.c:435
       leaveTitle(state)
       state.phase = Boot.PHASE.INTRO
       state.introMovie = IntroMovie.new(state.assets)
@@ -214,31 +265,72 @@ function Boot.update(state, input, dt)
     return nil
   end
 
-  if state.phase == Boot.PHASE.MENU then
-    local items = menuItems(state)
-    if up() then
-      state.menuIndex = state.menuIndex - 1
-      if state.menuIndex < 1 then state.menuIndex = #items end
-      Audio.playSe(5)
-    elseif down() then
-      state.menuIndex = state.menuIndex + 1
-      if state.menuIndex > #items then state.menuIndex = 1 end
-      Audio.playSe(5)
-    elseif a() then
-      local choice = items[state.menuIndex]
-      Audio.playSe(5)
-      if choice == "CONTINUE" then
-        return { action = "continue" }
-      elseif choice == "NEW GAME" then
-        NamingChrome.install()
-        state.phase = Boot.PHASE.CONTROLS
-        state.guide = IntroGuide.beginControls(state.assets)
-        IntroGuide.start(state.guide)
-        state.timer = 0
-        Audio.playSong(323)
-      elseif choice == "OPTION" then
-        print("[game3/boot] OPTION selected (stub)")
+  if state.phase == Boot.PHASE.TITLE_CRY then
+    TitleScreen.update(state, dt)
+    if not state.whiteFading then
+      if state.cryFrames < 90 then -- pokefirered/src/title_screen.c:722
+        state.cryFrames = state.cryFrames + 1
+      else
+        state.whiteFading = true
+        Audio.fadeOutBgm(4) -- pokefirered/src/title_screen.c:728
       end
+    elseif state.white < 16 then
+      state.white = math.min(16, state.white + 2) -- pokefirered/src/palette.c:162
+    else
+      leaveTitle(state)
+      state.whiteFading = false
+      state.timer = 0
+      if not state.hasContinue then -- pokefirered/src/main_menu.c:317
+        return beginNewGame(state)
+      end
+      state.phase = Boot.PHASE.MENU
+      state.menuIndex = 1
+      beginMenuFade(state, "white", 16, 0, nil) -- pokefirered/src/main_menu.c:398
+    end
+    return nil
+  end
+
+  if state.phase == Boot.PHASE.MENU then
+    local t, target = state.fadeT or 0, state.fadeTarget or 0
+    if t ~= target then
+      if t < target then
+        state.fadeT = math.min(target, t + 2)
+      else
+        state.fadeT = math.max(target, t - 2)
+      end
+      return nil
+    end
+    local pending = state.fadeThen
+    if pending then
+      state.fadeThen = nil
+      if pending == "continue" then
+        state.fadeT, state.fadeTarget = 0, 0
+        return { action = "continue" }
+      elseif pending == "new_game" then
+        state.fadeT, state.fadeTarget = 0, 0
+        return beginNewGame(state)
+      elseif pending == "title" then
+        state.fadeT, state.fadeTarget = 0, 0
+        state.phase = Boot.PHASE.TITLE
+        state.timer = 0
+        enterTitle(state)
+        Audio.playSong(278) -- pokefirered/src/title_screen.c:389
+      end
+      return nil
+    end
+    local items = menuItems(state)
+    local pressed = function(k) return input and input.wasPressed and input:wasPressed(k) end
+    if pressed("a") then -- pokefirered/src/main_menu.c:570
+      Audio.playSe(5)
+      local choice = items[state.menuIndex]
+      beginMenuFade(state, "black", 0, 16, choice == "CONTINUE" and "continue" or "new_game")
+    elseif pressed("b") then -- pokefirered/src/main_menu.c:577
+      Audio.playSe(5)
+      beginMenuFade(state, "black", 0, 16, "title")
+    elseif up() and state.menuIndex > 1 then
+      state.menuIndex = state.menuIndex - 1
+    elseif down() and state.menuIndex < #items then
+      state.menuIndex = state.menuIndex + 1
     end
     return nil
   end
@@ -271,15 +363,58 @@ function Boot.update(state, input, dt)
   return nil
 end
 
-local function drawText(str, x, y, kind)
-  kind = kind or "NORMAL"
-  local colors = FrlgFont.COLOR and FrlgFont.COLOR[kind] or nil
-  if FrlgFont.draw then
-    FrlgFont.draw(str, x, y, { colors = colors, maxWidth = 220 })
-  else
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print(str, x, y)
+local MENU_BG = { 139 / 255, 148 / 255, 255 / 255 }
+local MENU_TEXT = { 98 / 255, 98 / 255, 98 / 255, 1 }
+local MENU_SHADOW = { 213 / 255, 213 / 255, 205 / 255, 1 }
+local MENU_FILL = { 1, 1, 1, 1 }
+local ACCENT_MALE = { 4 / 31, 16 / 31, 31 / 31, 1 }
+local ACCENT_FEMALE = { 31 / 31, 3 / 31, 21 / 31, 1 }
+local WIN0V = { { 0x02, 0x5E }, { 0x62, 0x7E } }
+
+local function darkenOutside(W, H, x0, y0, x1, y1)
+  love.graphics.setColor(0, 0, 0, 7 / 16) -- pokefirered/src/main_menu.c:231
+  love.graphics.rectangle("fill", 0, 0, W, y0)
+  love.graphics.rectangle("fill", 0, y1, W, H - y1)
+  love.graphics.rectangle("fill", 0, y0, x0, y1 - y0)
+  love.graphics.rectangle("fill", x1, y0, W - x1, y1 - y0)
+end
+
+local function drawMainMenu(state, W, H)
+  love.graphics.clear(MENU_BG[1], MENU_BG[2], MENU_BG[3], 1) -- pokefirered/src/main_menu.c:199
+  local info = state.continueInfo or {}
+  local head = { fg = MENU_TEXT, shadow = MENU_SHADOW, bg = MENU_FILL }
+  local stat = {
+    fg = (info.gender == 1) and ACCENT_FEMALE or ACCENT_MALE, -- pokefirered/src/main_menu.c:342
+    shadow = MENU_SHADOW,
+    bg = MENU_FILL,
+  }
+  Window.stdFrame(Window.template(3, 1, 24, 10)) -- pokefirered/src/main_menu.c:84
+  Window.stdFrame(Window.template(3, 13, 24, 2)) -- pokefirered/src/main_menu.c:93
+  local x, y = 24, 8
+  Window.printPx("CONTINUE", x + 2, y + 2, { colors = head })
+  Window.printPx("PLAYER", x + 2, y + 18, { colors = stat }) -- pokefirered/src/main_menu.c:623
+  Window.printPx(info.name or "", x + 62, y + 18, { colors = stat })
+  Window.printPx("TIME", x + 2, y + 34, { colors = stat }) -- pokefirered/src/main_menu.c:636
+  Window.printPx(string.format("%d:%02d", info.hours or 0, info.minutes or 0), x + 62, y + 34, { colors = stat })
+  if info.hasDex then -- pokefirered/src/main_menu.c:648
+    Window.printPx("POKéDEX", x + 2, y + 50, { colors = stat })
+    Window.printPx(tostring(info.dexCount or 0), x + 62, y + 50, { colors = stat })
   end
+  Window.printPx("BADGES", x + 2, y + 66, { colors = stat }) -- pokefirered/src/main_menu.c:672
+  Window.printPx(tostring(info.badges or 0), x + 62, y + 66, { colors = stat })
+  Window.printPx("NEW GAME", 24 + 2, 104 + 2, { colors = head })
+  local rows = WIN0V[state.menuIndex] or WIN0V[1] -- pokefirered/src/main_menu.c:565
+  darkenOutside(W, H, 18, rows[1], 222, rows[2])
+  local t = state.fadeT or 0
+  if t > 0 then
+    if state.fadeColor == "white" then
+      love.graphics.setColor(1, 1, 1, t / 16)
+    else
+      love.graphics.setColor(0, 0, 0, t / 16)
+    end
+    love.graphics.rectangle("fill", 0, 0, W, H)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
 end
 
 function Boot.draw(state)
@@ -296,39 +431,19 @@ function Boot.draw(state)
     return
   end
 
+  if state.phase == Boot.PHASE.TITLE_CRY then
+    TitleScreen.draw(state)
+    local white = state.white or 0
+    if white > 0 then
+      love.graphics.setColor(1, 1, 1, white / 16) -- pokefirered/src/title_screen.c:726
+      love.graphics.rectangle("fill", 0, 0, W, H)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    return
+  end
+
   if state.phase == Boot.PHASE.MENU then
-    -- Static title underlay (no particles) + dim
-    if state.titleBorder then
-      love.graphics.setColor(255 / 255, 255 / 255, 139 / 255, 1)
-      love.graphics.rectangle("fill", 0, 0, W, H)
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(state.titleBorder, 0, 0)
-      if state.titleMon then love.graphics.draw(state.titleMon, 0, 0) end
-      if state.copyrightLayer then love.graphics.draw(state.copyrightLayer, 0, 0) end
-      if state.titleLogo then love.graphics.draw(state.titleLogo, 0, 0) end
-    elseif state.titleScreen then
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(state.titleScreen, 0, 0)
-    else
-      love.graphics.setColor(0.1, 0.2, 0.4, 1)
-      love.graphics.rectangle("fill", 0, 0, W, H)
-    end
-    love.graphics.setColor(0, 0, 0, 0.55)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-    local items = menuItems(state)
-    local boxX, boxY = 56, 48
-    love.graphics.setColor(0.95, 0.95, 0.95, 1)
-    love.graphics.rectangle("fill", boxX, boxY, 128, 16 + #items * 18)
-    love.graphics.setColor(0.2, 0.35, 0.7, 1)
-    love.graphics.rectangle("line", boxX, boxY, 128, 16 + #items * 18)
-    for i, label in ipairs(items) do
-      local y = boxY + 8 + (i - 1) * 18
-      love.graphics.setColor(0.1, 0.1, 0.15, 1)
-      if i == state.menuIndex then
-        drawText(">", boxX + 8, y)
-      end
-      drawText(label, boxX + 24, y)
-    end
+    drawMainMenu(state, W, H)
     return
   end
 

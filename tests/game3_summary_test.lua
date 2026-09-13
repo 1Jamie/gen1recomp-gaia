@@ -6,7 +6,7 @@
 -- 4. Page transitions (INFO -> SKILLS -> MOVES -> MOVE_DETAIL)
 -- 5. Modal Stack integration with PartyMenu
 
-local Game3 = require("src.core.game3")
+local Game3 = require("src.core.game3.init")
 local PartyMenu = require("src.ui.game3.party_menu")
 local SummaryMenu = require("src.ui.game3.summary_menu")
 local SummaryData = require("src.core.game3.summary_data")
