@@ -34,6 +34,7 @@ return function(game)
   local LearnMove = require("src.core.game3.battle.learn_move")
   local Message = require("src.ui.game3.message")
   local Choice = require("src.ui.game3.choice")
+  local SummaryMenu = require("src.ui.game3.summary_menu")
 
   local session = Schema.newGame({ name = "RED", rivalName = "BLUE", gender = 0 })
 
@@ -62,7 +63,7 @@ return function(game)
     for f = 1, limit do
       U.wait(1)
       if pred() then return true end
-      if f % 6 == 0 and not Choice.active and not Message._stay then U.tap(game, "a") end
+      if f % 6 == 0 and not Choice.active and not Message._stay and not SummaryMenu.isOpen() then U.tap(game, "a") end
     end
     return false
   end
@@ -84,29 +85,55 @@ return function(game)
   game:_enterField(session, "new_game")
   U.wait(90)
 
+  local function countLines(needle)
+    local n = 0
+    for _, t in ipairs(Ui.log() or {}) do
+      if t:find(needle, 1, true) then n = n + 1 end
+    end
+    return n
+  end
+
   check(start_wild(), "u8 stop-path battle started")
-  if not check(advanceUntil(promptUp("Should a move be deleted"), 6000), "u8 delete prompt shows with YES/NO") then
-    U.shot(game, DIR .. "/u8_98_softlock_before_delete_prompt.png")
+  if not check(advanceUntil(promptUp("Delete a move to make"), 6000), "u8b TRYTOLEARNMOVE3 prompt shows with Yes/No") then
+    U.shot(game, DIR .. "/u8b_98_softlock_before_delete_prompt.png")
     return finish()
   end
-  check(anyLine("wants to learn") and anyLine("four moves"), "u8 wants-to-learn and four-moves lines shown first")
+  check(anyLine("is trying to\nlearn EMBER.") and anyLine("can't learn\nmore than four moves."),
+    "u8b TRYTOLEARNMOVE1 and TRYTOLEARNMOVE2 shown first")
+  check(Choice.style == "battle" and Choice.left == 24 and Choice.top == 9
+    and Choice.options[1] == "Yes" and Choice.options[2] == "No",
+    "u8b Yes/No window at cart tiles 23..29 x 8..13")
   U.wait(20)
-  U.shot(game, DIR .. "/u8_01_delete_prompt_yesno.png")
+  U.shot(game, DIR .. "/u8b_01_delete_prompt_yesno.png")
   U.tap(game, "down")
   U.wait(4)
   U.tap(game, "a")
-  if not check(advanceUntil(promptUp("Stop trying"), 600), "u8 NO opens stop-trying prompt") then
+  if not check(advanceUntil(promptUp("Stop learning\nEMBER?"), 600), "u8b NO opens Stop learning prompt") then
     return finish()
   end
   U.wait(20)
-  U.shot(game, DIR .. "/u8_02_stop_trying_prompt.png")
+  U.shot(game, DIR .. "/u8b_02_stop_learning_prompt.png")
+  U.tap(game, "down")
+  U.wait(4)
+  U.tap(game, "a")
+  if not check(advanceUntil(promptUp("Delete a move to make"), 900), "u8b NO to stop re-asks") then
+    return finish()
+  end
+  check(countLines("is trying to\nlearn EMBER.") == 2, "u8b re-ask reprints TRYTOLEARNMOVE1")
+  U.tap(game, "down")
+  U.wait(4)
+  U.tap(game, "a")
+  if not check(advanceUntil(promptUp("Stop learning\nEMBER?"), 600), "u8b second Stop learning prompt") then
+    return finish()
+  end
+  U.wait(10)
   U.tap(game, "a")
   local sawDidNot = advanceUntil(function()
-    return Message.isWaiting() and page():find("did not learn", 1, true) ~= nil
+    return Message.isWaiting() and page():find("did not learn\nEMBER.", 1, true) ~= nil
   end, 600)
-  if check(sawDidNot, "u8 YES to stop prints did-not-learn") then
+  if check(sawDidNot, "u8b YES to stop prints DIDNOTLEARNMOVE") then
     U.wait(10)
-    U.shot(game, DIR .. "/u8_03_did_not_learn.png")
+    U.shot(game, DIR .. "/u8b_03_did_not_learn.png")
   end
   check(advanceUntil(function() return not Battle.isActive() end, 3000), "u8 stop-path battle ended")
   local m1 = session.party[1]
@@ -116,24 +143,46 @@ return function(game)
 
   fresh_charmander()
   check(start_wild(), "u8 forget-path battle started")
-  if not check(advanceUntil(promptUp("Should a move be deleted"), 6000), "u8 forget path reaches delete prompt") then
+  if not check(advanceUntil(promptUp("Delete a move to make"), 6000), "u8 forget path reaches delete prompt") then
     return finish()
   end
   U.wait(10)
   U.tap(game, "a")
-  if not check(advanceUntil(function() return Choice.active and Choice.kind == "multi" end, 600), "u8 YES opens forget list") then
+  local function summaryUp()
+    return SummaryMenu.isOpen() and SummaryMenu._mode == "select_move"
+  end
+  if not check(advanceUntil(summaryUp, 600), "u8b YES opens summary move-select") then
+    return finish()
+  end
+  check(not (Choice.active and Choice.kind == "multi"), "u8b no Choice forget list")
+  check(tonumber(SummaryMenu._moveToLearn) == 52, "u8b summary fifth move is EMBER")
+  U.wait(30)
+  U.shot(game, DIR .. "/u8b_04_summary_select_move.png")
+  U.tap(game, "b")
+  if not check(advanceUntil(promptUp("Stop learning\nEMBER?"), 600), "u8b summary B goes to Stop learning") then
+    return finish()
+  end
+  U.tap(game, "down")
+  U.wait(4)
+  U.tap(game, "a")
+  if not check(advanceUntil(promptUp("Delete a move to make"), 900), "u8b NO re-asks after summary cancel") then
+    return finish()
+  end
+  U.wait(10)
+  U.tap(game, "a")
+  if not check(advanceUntil(summaryUp, 600), "u8b summary reopens") then
     return finish()
   end
   U.wait(20)
-  U.shot(game, DIR .. "/u8_04_forget_list.png")
   U.tap(game, "a")
   local sawLearned = advanceUntil(function()
-    return Message.isWaiting() and page():find("learned", 1, true) ~= nil and anyLine("Poof")
+    return Message.isWaiting() and page():find("learned", 1, true) ~= nil and anyLine("Poof!")
   end, 900)
   if check(sawLearned, "u8 Poof chain reaches learned EMBER") then
-    check(anyLine("forgot how to"), "u8 forgot-how-to line shown")
+    check(anyLine("1, 2, and… … … Poof!"), "u8b 123POOF text")
+    check(anyLine("CHARMANDER forgot\nSCRATCH.") and anyLine("And…"), "u8b PKMNFORGOTMOVE and ANDELLIPSIS text")
     U.wait(10)
-    U.shot(game, DIR .. "/u8_05_learned_ember.png")
+    U.shot(game, DIR .. "/u8b_05_learned_ember.png")
   end
   check(advanceUntil(function() return not Battle.isActive() end, 3000), "u8 forget-path battle ended")
   local m2 = session.party[1]

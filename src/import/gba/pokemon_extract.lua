@@ -744,6 +744,9 @@ function PokemonExtract.run(rom, cache, opts)
   })
   if progress then progress("battle_chrome", 1, 1) end
 
+  local BallOpenExtract = require("src.import.gba.ball_open_extract")
+  BallOpenExtract.run(rom, cache, { cacheRoot = cacheRoot })
+
   local PokedexChromeExtract = require("src.import.gba.pokedex_chrome_extract")
   pcall(function()
     PokedexChromeExtract.run(rom, cache, { cacheRoot = cacheRoot, progress = progress })

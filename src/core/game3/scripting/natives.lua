@@ -35,11 +35,25 @@ Natives.ALLOW = {
   ["special:" .. Std.SPECIAL.BedroomPC] = function(ctx, adapters)
     if not (adapters and adapters.openPc) then return false end
     return yield_host(ctx, adapters, function(done)
-      adapters.openPc(done, { bedroom = true })
+      adapters.openPc(function()
+        -- pokefirered/data/maps/PalletTown_PlayersHouse_2F/scripts.inc:46
+        local Flags = require("src.core.game3.scripting.flags")
+        Flags.setVar(nil, ctx, 0x8004, 1)
+        require("src.core.game3.pc_anim").turnOff(ctx)
+        if done then done() end
+      end, { bedroom = true })
     end)
   end,
-  ["special:" .. Std.SPECIAL.AnimatePcTurnOn] = function() return false end,
-  ["special:" .. Std.SPECIAL.AnimatePcTurnOff] = function() return false end,
+  -- pokefirered/src/field_specials.c:212
+  ["special:" .. Std.SPECIAL.AnimatePcTurnOn] = function(ctx)
+    require("src.core.game3.pc_anim").turnOn(ctx)
+    return false
+  end,
+  -- pokefirered/src/field_specials.c:286
+  ["special:" .. Std.SPECIAL.AnimatePcTurnOff] = function(ctx)
+    require("src.core.game3.pc_anim").turnOff(ctx)
+    return false
+  end,
   ["special:" .. Std.SPECIAL.CreatePCMenu] = function(ctx, adapters)
     -- Cart builds a menu; host PC UI is the whole menu — open it directly.
     if not (adapters and adapters.openPc) then return false end

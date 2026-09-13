@@ -71,6 +71,7 @@ function MonOps.create(data, species, level, gen)
       gender = gender,
       happiness = friendship,
       friendship = friendship,
+      pokeball = 4, -- pokefirered/src/pokemon.c:1820
     }
 
     PokemonG3.applyStats(mon)

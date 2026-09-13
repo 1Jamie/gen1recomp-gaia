@@ -1,12 +1,4 @@
--- In-battle Poké Ball catch presentation sequencer (pret SpriteCB_BallThrow state machine).
--- Paces:
---   1. "PLAYER used the BALL!"
---   2. Ball throw arc from player side towards foe Pokémon (SE_BALL_THROW)
---   3. Ball opens (SE_BALL_OPEN) & foe Pokémon shrinks into red energy into ball
---   4. Ball closes, falls to ground, and bounces twice (SE_BALL_BOUNCE_1, SE_BALL_BOUNCE_2)
---   5. Wobble / shake loop 0..4 times with SE_BALL sound effect
---   6. Capture success (SE_BALL_CLICK, Pokédex + PC storage, victory fanfare) OR
---      Breakout (SE_BALL_OPEN, foe Pokémon restored, breakout message)
+-- pokefirered/src/pokeball.c:441
 
 local Anim = require("src.core.game3.battle.anim")
 local State = require("src.core.game3.battle.state")
@@ -15,6 +7,10 @@ local SE = require("src.core.game3.se_ids")
 local ItemsData = require("src.core.game3.items_data")
 local Pokemon = require("src.core.game3.pokemon")
 local Catching = require("src.core.game3.battle.catching")
+local BallOpen = require("src.core.game3.battle.ball_open")
+
+local MUS_CAUGHT_INTRO = 319
+local MUS_CAUGHT = 322
 
 local CatchSeq = {}
 
@@ -45,6 +41,8 @@ function CatchSeq.reset()
   CatchSeq._caught = false
   CatchSeq._shakes = 0
   CatchSeq._catchResult = nil
+  CatchSeq._ball = nil
+  CatchSeq._waitingBall = false
 end
 
 function CatchSeq.busy()
@@ -140,38 +138,14 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
     steps[#steps + 1] = { kind = kind, data = data or {} }
   end
 
-  -- Step 1: "PLAYER used the BALL!"
   add("msg", { text = playerName .. " used\nthe " .. ballName .. "!" })
 
-  -- Step 2: Ball throw arc (72 frames for smooth, deliberate GBA flight arc)
+  -- pokefirered/src/battle_script_commands.c:9590
   add("throw", {
-    fromX = 36,
-    fromY = 85,
-    toX = 176,
-    toY = 28,
-    frames = 72,
+    caseId = caught and 4 or math.min(3, CatchSeq._shakes),
+    itemId = itemId,
   })
 
-  -- Step 3: Ball open & absorb foe into ball
-  add("absorb", {
-    delayFrames = 14,
-    shrinkFrames = 36,
-  })
-
-  -- Step 4: Ball drop & bounces
-  add("drop_and_bounce", {
-    groundY = 56,
-  })
-
-  -- Step 5: Wobble / shakes (max 3 in pret: 1, 2, or 3 shakes before breakout or capture confirmation)
-  local wobbleCount = caught and 3 or math.min(3, math.max(0, CatchSeq._shakes))
-  if wobbleCount > 0 then
-    for s = 1, wobbleCount do
-      add("wobble", { shakeIndex = s })
-    end
-  end
-
-  -- Step 6: Outcome
   if caught then
     add("capture_success", {
       ballId = itemId,
@@ -190,13 +164,530 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
   return true
 end
 
+local function play_se(id)
+  pcall(function() Audio.playSe(id) end)
+end
+
+-- pokefirered/src/pokeball.c:132
+local BALL_ANIMS = {
+  [0] = { { 0, 1 } },
+  [1] = { { 1, 5 }, { 2, 5 } },
+  [2] = { { 1, 5 }, { 0, 5 } },
+}
+
+-- pokefirered/src/pokeball.c:163
+local BALL_AFFINE = {
+  [0] = { { 0, 0, 0, 1 }, jump = 1 },
+  [1] = { { 0, 0, -3, 1 }, jump = 1 },
+  [2] = { { 0, 0, 3, 1 }, jump = 1 },
+  [3] = { { 256, 256, 0, 0 } },
+}
+
+-- pokefirered/src/data.c:112
+local MON_AFFINE = {
+  [0] = { { 0x100, 0x100, 0, 0 } },
+  [1] = { { 0x28, 0x28, 0, 0 }, { 0x12, 0x12, 0, 12 } },
+}
+
+-- pokefirered/src/battle_anim_special.c:98
+local CAPTURE_STARS = { { 10, 2, -3 }, { 15, 0, -4 }, { -10, 2, -4 } }
+
+-- pokefirered/src/sprite.c:1320
+local function affine_apply(a, cmd)
+  if cmd[4] > 0 then
+    a.scale = a.scale + cmd[1]
+    a.rotation = (a.rotation + cmd[3] * 256) % 65536
+    return cmd[4] - 1
+  end
+  a.scale = cmd[1]
+  a.rotation = (cmd[3] * 256) % 65536
+  return 0
+end
+
+-- pokefirered/src/sprite.c:1363
+local function affine_start(a, num)
+  a.num = num
+  a.idx = 1
+  a.delay = 0
+  a.scale = 0x100
+  a.rotation = 0
+  a.beginning = true
+  a.ended = false
+end
+
+-- pokefirered/src/sprite.c:1378
+local function affine_change(a, num)
+  a.num = num
+  a.beginning = true
+  a.ended = false
+end
+
+-- pokefirered/src/sprite.c:1063
+local function affine_step(a, anims)
+  local cmds = anims[a.num]
+  if a.beginning then
+    a.idx = 1
+    a.beginning = false
+    a.ended = false
+    a.delay = affine_apply(a, cmds[1])
+    return
+  end
+  -- pokefirered/src/sprite.c:1080
+  if a.delay > 0 then
+    if not a.paused then
+      a.delay = a.delay - 1
+      local c = cmds[a.idx]
+      a.scale = a.scale + c[1]
+      a.rotation = (a.rotation + c[3] * 256) % 65536
+    end
+    return
+  end
+  if a.paused then return end
+  if cmds[a.idx + 1] then
+    a.idx = a.idx + 1
+  elseif cmds.jump then
+    a.idx = cmds.jump
+  else
+    a.ended = true
+    return
+  end
+  a.delay = affine_apply(a, cmds[a.idx])
+end
+
+-- pokefirered/src/battle_anim_mons.c:988
+local function arc_init(s, speed, destX, destY, ampl)
+  local d = s.data
+  local dx, dy = destX - s.x, destY - s.y
+  local xd = math.floor((math.abs(dx) * 256) % 65536 / speed)
+  local yd = math.floor((math.abs(dy) * 256) % 65536 / speed)
+  xd = xd - xd % 2 + ((dx < 0) and 1 or 0)
+  yd = yd - yd % 2 + ((dy < 0) and 1 or 0)
+  d[0], d[1], d[2], d[3], d[4] = speed, xd, yd, 0, 0
+  d[5] = ampl
+  -- pokefirered/src/battle_anim_mons.c:757
+  d[6] = math.floor(0x8000 / speed)
+  d[7] = 0
+end
+
+-- pokefirered/src/battle_anim_mons.c:1034
+local function translate_linear(s)
+  local d = s.data
+  if d[0] == 0 then return true end
+  local x = (d[3] + d[1]) % 65536
+  local y = (d[4] + d[2]) % 65536
+  s.x2 = (d[1] % 2 == 1) and -math.floor(x / 256) or math.floor(x / 256)
+  s.y2 = (d[2] % 2 == 1) and -math.floor(y / 256) or math.floor(y / 256)
+  d[3], d[4] = x, y
+  d[0] = d[0] - 1
+  return false
+end
+
+-- pokefirered/src/battle_anim_mons.c:766
+local function translate_arc(s)
+  if translate_linear(s) then return true end
+  local d = s.data
+  d[7] = d[7] + d[6]
+  s.y2 = s.y2 + BallOpen.sin(math.floor(d[7] / 256) % 256, d[5])
+  return false
+end
+
+local CB = {}
+
+local function start_anim(b, num)
+  b.animNum, b.animBeginning, b.animEnded = num, true, false
+end
+
+-- pokefirered/src/battle_anim_special.c:810
+function CB.init(b)
+  arc_init(b, b.data[0], b.data[1], b.data[2], -40)
+  b.cb = CB.arcFlight
+end
+
+-- pokefirered/src/battle_anim_special.c:824
+function CB.arcFlight(b)
+  if not translate_arc(b) then return end
+  start_anim(b, 1)
+  b.x, b.y = b.x + b.x2, b.y + b.y2
+  b.x2, b.y2 = 0, 0
+  for i = 0, 7 do b.data[i] = 0 end
+  b.cb = CB.tenFrameDelay
+  -- pokefirered/src/battle_anim_special.c:857
+  BallOpen.start("enemy", b.x, b.y, b.itemId, false)
+  play_se(SE.SE_BALL_OPEN)
+end
+
+-- pokefirered/src/battle_anim_special.c:865
+function CB.tenFrameDelay(b)
+  b.data[5] = b.data[5] + 1
+  if b.data[5] == 10 then
+    b.task = { state = 0, count = 0, delta = 0, acc = 0, scale = 256 }
+    b.cb = CB.shrinkMon
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:875
+function CB.shrinkMon(b)
+  local t, p = b.task, b.mon
+  t.count = t.count + 1
+  if t.count == 11 then play_se(SE.SE_BALL_TRADE) end
+  if t.state == 0 then
+    t.scale = 256
+    local dist = (b.monY + (p.oy or 0)) - (b.y + b.y2)
+    local delta = dist * 256 / 28
+    t.delta = (delta < 0) and math.ceil(delta) or math.floor(delta)
+    t.state = 1
+  elseif t.state == 1 then
+    t.scale = t.scale + 0x20
+    p.scale = 256 / t.scale
+    t.acc = t.acc + t.delta
+    p.oy = math.floor(-t.acc / 256)
+    if t.scale >= 0x480 then t.state = 2 end
+  elseif t.state == 2 then
+    p.scale = 1
+    p.visible = false
+    t.state = 3
+  elseif t.count > 10 then
+    b.task = nil
+    start_anim(b, 2)
+    b.data[5] = 0
+    b.cb = CB.initialFall
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:921
+function CB.initialFall(b)
+  if not b.animEnded then return end
+  local d = b.data
+  d[3], d[4], d[5] = 0, 40, 0
+  b.y = b.y + BallOpen.cos(0, 40)
+  b.y2 = -BallOpen.cos(0, d[4])
+  b.cb = CB.bounce
+end
+
+local BOUNCE_SE = { SE.SE_BALL_BOUNCE_1, SE.SE_BALL_BOUNCE_2, SE.SE_BALL_BOUNCE_3 }
+
+-- pokefirered/src/battle_anim_special.c:937
+function CB.bounce(b)
+  local d = b.data
+  local lastBounce = false
+  local low, hi = d[3] % 256, math.floor(d[3] / 256)
+  if low == 0 then
+    b.y2 = -BallOpen.cos(d[5], d[4])
+    d[5] = d[5] + hi + 4
+    if d[5] >= 64 then
+      d[4] = d[4] - 10
+      d[3] = d[3] + 257
+      local count = math.floor(d[3] / 256)
+      if count == 4 then lastBounce = true end
+      play_se(BOUNCE_SE[count] or SE.SE_BALL_BOUNCE_4)
+    end
+  elseif low == 1 then
+    b.y2 = -BallOpen.cos(d[5], d[4])
+    d[5] = d[5] - (hi + 4)
+    if d[5] <= 0 then
+      d[5] = 0
+      d[3] = d[3] - low
+    end
+  end
+  if lastBounce then
+    d[3] = 0
+    b.y = b.y + BallOpen.cos(64, 40)
+    b.y2 = 0
+    d[5] = 0
+    if b.caseId == 0 then
+      b.cb = CB.delayThenBreakOut
+    else
+      d[4] = 1
+      b.cb = CB.initShake
+    end
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1005
+function CB.initShake(b)
+  local d = b.data
+  d[3] = d[3] + 1
+  if d[3] == 31 then
+    d[3] = 0
+    b.aff.paused = true
+    affine_start(b.aff, 1)
+    b.subpx = 0
+    b.cb = CB.doShake
+    play_se(SE.SE_BALL)
+  end
+end
+
+local function shake_move(b)
+  if b.subpx > 0xFF then
+    b.x2 = b.x2 + b.data[4]
+    b.subpx = b.subpx % 256
+  else
+    b.subpx = b.subpx + 0xB0
+  end
+  b.data[5] = b.data[5] + 1
+  b.aff.paused = false
+end
+
+local function shake_turn(b)
+  local d = b.data
+  d[5] = 0
+  d[4] = -d[4]
+  d[3] = d[3] + 1
+  b.aff.paused = false
+  affine_change(b.aff, (d[4] < 0) and 2 or 1)
+end
+
+-- pokefirered/src/battle_anim_special.c:1018
+function CB.doShake(b)
+  local d = b.data
+  local low = d[3] % 256
+  if low == 0 then
+    shake_move(b)
+    if d[5] + 7 > 14 then
+      b.subpx = 0
+      d[3] = d[3] + 1
+      d[5] = 0
+    end
+  elseif low == 1 then
+    d[5] = d[5] + 1
+    if d[5] == 1 then
+      shake_turn(b)
+    else
+      b.aff.paused = true
+    end
+  elseif low == 2 then
+    shake_move(b)
+    if d[5] + 12 > 24 then
+      b.subpx = 0
+      d[3] = d[3] + 1
+      d[5] = 0
+    end
+  elseif low == 3 or low == 4 then
+    if low == 3 then
+      local v = d[5]
+      d[5] = v + 1
+      if v < 0 then
+        b.aff.paused = true
+        return
+      end
+      shake_turn(b)
+    end
+    shake_move(b)
+    if d[5] + 4 > 8 then
+      b.subpx = 0
+      d[3] = d[3] + 1
+      d[5] = 0
+      d[4] = -d[4]
+    end
+  elseif low == 5 then
+    d[3] = d[3] + 0x100
+    local state = math.floor(d[3] / 256)
+    b.aff.paused = true
+    if state == b.caseId then
+      b.cb = CB.delayThenBreakOut
+    elseif b.caseId == 4 and state == 3 then
+      b.cb = CB.initClick
+    else
+      d[3] = d[3] + 1
+    end
+  else
+    d[5] = d[5] + 1
+    if d[5] == 31 then
+      d[5] = 0
+      d[3] = d[3] - low
+      affine_start(b.aff, 3)
+      affine_start(b.aff, (d[4] < 0) and 2 or 1)
+      play_se(SE.SE_BALL)
+    end
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1162
+function CB.delayThenBreakOut(b)
+  b.data[5] = b.data[5] + 1
+  if b.data[5] == 31 then
+    b.data[5] = 0
+    b.cb = CB.beginBreakOut
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1305
+function CB.beginBreakOut(b)
+  start_anim(b, 1)
+  affine_start(b.aff, 0)
+  b.cb = CB.runBreakOut
+  BallOpen.start("enemy", b.x, b.y, b.itemId, true)
+  play_se(SE.SE_BALL_OPEN)
+  b.mon.visible = true
+  b.monAff = { paused = false }
+  affine_start(b.monAff, 1)
+  affine_step(b.monAff, MON_AFFINE)
+  b.mon.scale = b.monAff.scale / 256
+  b.monData1 = 0x1000
+end
+
+-- pokefirered/src/battle_anim_special.c:1327
+function CB.runBreakOut(b)
+  local p = b.mon
+  local nextStep = false
+  if b.animEnded then b.invisible = true end
+  if b.monAff.ended then
+    affine_start(b.monAff, 0)
+    nextStep = true
+  else
+    b.monData1 = b.monData1 - 288
+    p.oy = math.floor(b.monData1 / 256)
+  end
+  if b.animEnded and nextStep then
+    p.oy = 0
+    p.visible = true
+    b.data[0] = 0
+    b.cb = CB.signalEnd
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1171
+function CB.initClick(b)
+  b.animPaused = true
+  b.cb = CB.doClick
+  b.data[3], b.data[4], b.data[5] = 0, 0, 0
+end
+
+-- pokefirered/src/battle_anim_special.c:1298
+local function star_cb(p)
+  p.invisible = not p.invisible
+  if translate_arc(p) then p.dead = true end
+end
+
+-- pokefirered/src/battle_anim_special.c:1180
+function CB.doClick(b)
+  local d = b.data
+  d[4] = d[4] + 1
+  if d[4] == 40 then
+    play_se(SE.SE_BALL_CLICK)
+    b.blend.coeff, b.blend.r, b.blend.g, b.blend.b = 6, 0, 0, 0
+    -- pokefirered/src/battle_anim_special.c:1266
+    for _, c in ipairs(CAPTURE_STARS) do
+      local p = BallOpen.spawnSprite(b.x, b.y, 1, star_cb)
+      p.invisible = false
+      arc_init(p, 24, b.x + c[1], b.y + c[2], c[3])
+    end
+  elseif d[4] == 60 then
+    BallOpen.beginFade(6, 0, { obj = b.blend, delay = 2, color = { 0, 0, 0 } })
+  elseif d[4] == 95 then
+    pcall(function()
+      Audio.stopAll()
+      Audio.playSe(MUS_CAUGHT_INTRO)
+    end)
+  elseif d[4] == 315 then
+    b.mon.visible = false
+    d[0] = 0
+    b.cb = CB.finishClick
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1211
+function CB.finishClick(b)
+  local d = b.data
+  if d[0] == 0 then
+    d[1], d[2] = 0, 0
+    b.alpha = 1
+    BallOpen.beginFade(0, 16, { obj = b.blend, color = { 31, 31, 31 } })
+    d[0] = 1
+  elseif d[0] == 1 then
+    local v = d[1]
+    d[1] = v + 1
+    if v > 0 then
+      d[1] = 0
+      d[2] = d[2] + 1
+      b.alpha = (16 - d[2]) / 16
+      if d[2] == 16 then d[0] = 2 end
+    end
+  elseif d[0] == 2 then
+    b.invisible = true
+    d[0] = 3
+  elseif not BallOpen.fadeActive() then
+    d[0] = 0
+    b.cb = CB.signalEnd
+  end
+end
+
+-- pokefirered/src/battle_anim_special.c:1253
+function CB.signalEnd(b)
+  if b.data[0] == 0 then
+    b.data[0] = -1
+    b.finished = true
+  else
+    b.dead = true
+  end
+end
+
+-- pokefirered/src/sprite.c:304
+local function ball_update(b)
+  if b.monAff then
+    affine_step(b.monAff, MON_AFFINE)
+    b.mon.scale = b.monAff.scale / 256
+  end
+  b.cb(b)
+  local s = b.stage
+  if b.dead then
+    s.visible, s.blend, s.alpha, s.rot = false, nil, nil, 0
+    return
+  end
+  BallOpen.animate(b)
+  affine_step(b.aff, BALL_AFFINE)
+  s.visible = not b.invisible
+  s.x, s.y = b.x + b.x2, b.y + b.y2
+  s.ox, s.oy = 0, 0
+  s.frame = b.frame
+  s.rot = -b.aff.rotation * math.pi / 32768
+  s.blend = (b.blend.coeff > 0) and b.blend or nil
+  s.alpha = b.alpha
+end
+
+-- pokefirered/src/battle_anim_special.c:734
+local function start_ball(d)
+  local st = CatchSeq._st
+  local enemy = st and st.enemy
+  local sp = enemy and enemy.species
+  if not sp and enemy and enemy.mon then
+    sp = Pokemon.speciesOf and Pokemon.speciesOf(enemy.mon) or enemy.mon.species or enemy.mon.speciesId
+  end
+  local Ui = require("src.core.game3.battle.ui")
+  local monY = Anim.ENEMY_MON.y
+  if Ui.battlerSpriteCenter then
+    local _, cy = Ui.battlerSpriteCenter("enemy", sp, Anim.ENEMY_MON)
+    monY = cy
+  end
+  local stage = Anim.stage().ball
+  stage.visible, stage.darken, stage.flash, stage.side = false, 0, 0, "enemy"
+  local b = {
+    x = 32, y = 80, x2 = 0, y2 = 0,
+    data = { [0] = 34, Anim.ENEMY_MON.x, Anim.ENEMY_MON.y - 16, 0, 0, 0, 0, 0 },
+    anims = BALL_ANIMS, animNum = 0, animBeginning = true, animEnded = false, animPaused = false,
+    frame = 0, hFlip = false, delay = 0, cmd = 1,
+    aff = { paused = false },
+    blend = { coeff = 0, r = 0, g = 0, b = 0 },
+    alpha = 1,
+    subpx = 0,
+    caseId = d.caseId or 0,
+    itemId = d.itemId,
+    mon = Anim.present("enemy"),
+    monY = monY,
+    stage = stage,
+    cb = CB.init,
+    update = ball_update,
+  }
+  affine_start(b.aff, 0)
+  return BallOpen.addSprite(b)
+end
+
 local function run_step(step)
   if not step then
     finish()
     return
   end
 
-  local s = Anim.stage()
   local kind = step.kind
   local d = step.data or {}
 
@@ -210,265 +701,52 @@ local function run_step(step)
   end
 
   if kind == "throw" then
-    s.ball.visible = true
-    s.ball.frame = 0
-    s.ball.side = "player"
-    s.ball.rot = 0
-    s.ball.ox = 0
-    s.ball.oy = 0
-    s.ball.darken = 0
-    s.ball.flash = 0
-    s.ball.x = d.fromX or 48
-    s.ball.y = d.fromY or 70
-
-    pcall(function()
-      Audio.playSe(SE.SE_BALL_THROW, { pan = -64 })
-    end)
-
-    wait_busy()
-    -- Deliberate, smooth GBA throw arc flight (72 frames)
-    Anim.tweenStage(d.frames or 72, function(u)
-      local sx, sy = d.fromX or 36, d.fromY or 85
-      local tx, ty = d.toX or 176, d.toY or 28
-      s.ball.x = sx + (tx - sx) * u
-      -- Parabolic arc: height boost -45px at apex
-      s.ball.y = sy + (ty - sy) * u - (45 * 4 * u * (1 - u))
-      -- Smooth ball rotation during flight (3 full spins)
-      s.ball.rot = u * math.pi * 6
-    end, function()
-      s.ball.x = d.toX or 176
-      s.ball.y = d.toY or 28
-      s.ball.rot = 0
+    if Anim._headless then
       advance()
-    end)
-    return
-  end
-
-  if kind == "absorb" then
-    s.ball.frame = 1
-    pcall(function()
-      Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 })
-    end)
-
-    local p = Anim.present("enemy")
-    if p then
-      p.flash = 12
-      p.darken = 0.6
+      return
     end
-    if s.healthbox and s.healthbox.enemy then
-      s.healthbox.enemy.visible = false
-    end
-
-    wait_busy()
-    -- Apex delay (14f) + Mon shrink into ball (36f)
-    Anim.tweenStage(d.delayFrames or 14, function() end, function()
-      Anim.tweenStage(d.shrinkFrames or 36, function(u)
-        if p then
-          p.scale = math.max(0, 1 - u)
-          p.oy = -14 * u
-          p.darken = 0.6 + 0.4 * u
-        end
-        s.ball.frame = (u < 0.6) and 1 or 2
-      end, function()
-        if p then
-          p.visible = false
-          p.scale = 1
-          p.oy = 0
-          p.darken = 0
-          p.flash = 0
-        end
-        s.ball.frame = 0
-        advance()
-      end)
-    end)
-    return
-  end
-
-  if kind == "drop_and_bounce" then
-    local groundY = d.groundY or 56
-    local startY = s.ball.y or 28
-    wait_busy()
-
-    -- 1. Drop to ground (14 frames)
-    Anim.tweenStage(14, function(u)
-      s.ball.y = startY + (groundY - startY) * (u * u)
-    end, function()
-      s.ball.y = groundY
-      pcall(function() Audio.playSe(SE.SE_BALL_BOUNCE_1, { pan = 63 }) end)
-
-      -- 2. Bounce 1 (hop up 12px, 14 frames)
-      Anim.tweenStage(14, function(u)
-        s.ball.y = groundY - (12 * 4 * u * (1 - u))
-      end, function()
-        s.ball.y = groundY
-        pcall(function() Audio.playSe(SE.SE_BALL_BOUNCE_2, { pan = 63 }) end)
-
-        -- 3. Bounce 2 (hop up 6px, 10 frames)
-        Anim.tweenStage(10, function(u)
-          s.ball.y = groundY - (6 * 4 * u * (1 - u))
-        end, function()
-          s.ball.y = groundY
-          pcall(function() Audio.playSe(SE.SE_BALL_BOUNCE_3 or SE.SE_BALL_BOUNCE_2, { pan = 63 }) end)
-
-          -- 4. Bounce 3 (hop up 2px, 8 frames)
-          Anim.tweenStage(8, function(u)
-            s.ball.y = groundY - (2 * 4 * u * (1 - u))
-          end, function()
-            s.ball.y = groundY
-            -- Pre-shake suspense pause: 45 frames of stillness on ground
-            Anim.tweenStage(45, function() end, function()
-              advance()
-            end)
-          end)
-        end)
-      end)
-    end)
-    return
-  end
-
-  if kind == "wobble" then
-    wait_busy()
-    pcall(function() Audio.playSe(SE.SE_BALL, { pan = 63 }) end)
-
-    -- Slow, heavy weighted wobble: 56 frames total
-    -- 0..18f: tilt smoothly to left (-0.42 rad / -24 deg, -4px)
-    -- 18..44f: rock across center all the way to right (+0.42 rad / +24 deg, +4px)
-    -- 44..56f: settle upright back to center (0 rad, 0px)
-    Anim.tweenStage(56, function(u)
-      if u < (18 / 56) then
-        local tu = u / (18 / 56)
-        s.ball.rot = -0.42 * math.sin(tu * math.pi * 0.5)
-        s.ball.ox = -4 * tu
-      elseif u < (44 / 56) then
-        local tu = (u - (18 / 56)) / (26 / 56)
-        s.ball.rot = -0.42 + 0.84 * tu
-        s.ball.ox = -4 + 8 * tu
-      else
-        local tu = (u - (44 / 56)) / (12 / 56)
-        s.ball.rot = 0.42 * (1 - tu)
-        s.ball.ox = 4 * (1 - tu)
-      end
-    end, function()
-      s.ball.rot = 0
-      s.ball.ox = 0
-      -- Motionless suspense pause between shakes: 45 frames
-      Anim.tweenStage(45, function() end, function()
-        advance()
-      end)
-    end)
+    pcall(function() Audio.playSe(SE.SE_BALL_THROW, { pan = 0 }) end)
+    CatchSeq._ball = start_ball(d)
+    CatchSeq._waitingBall = true
     return
   end
 
   if kind == "capture_success" then
-    wait_busy()
-    -- 48 frames suspense pause after 3rd wobble before capture click confirmation
-    Anim.tweenStage(48, function() end, function()
-      pcall(function() Audio.playSe(SE.SE_BALL_CLICK, { pan = 63 }) end)
-      s.ball.darken = 0.55
-      s.ball.flash = 6
-
-      -- Spawn pret 1:1 capture stars (sCaptureStar from battle_anim_special.c)
-      s.ball.stars = {
-        { ox = 0, oy = -4, dx = 12, dy = 1, amplitude = -6, rot = 0 },
-        { ox = 0, oy = -4, dx = 18, dy = -3, amplitude = -8, rot = 0.3 },
-        { ox = 0, oy = -4, dx = -14, dy = 0, amplitude = -7, rot = -0.3 },
-      }
-
-      local res = Catching.storeCaught(CatchSeq._session, CatchSeq._st and CatchSeq._st.enemy, d.ballId)
-      CatchSeq._catchResult = res
-      local ename = d.ename or "POKéMON"
-
-      -- Victory BGM
-      pcall(function()
-        local song = Audio.role("victoryWild") or 311
-        Audio.playSong(song)
-      end)
-
-      if CatchSeq._pushMsg then
-        CatchSeq._pushMsg("Gotcha!\n" .. ename .. " was caught!")
-        if res and res.firstTimeCaught then
-          CatchSeq._pushMsg(ename .. "'s data was\nadded to the POKéDEX.")
-        end
-        if res and res.location == "pc" then
-          CatchSeq._pushMsg(ename .. " was transferred\nto the PC.")
-        end
-      end
-
-      -- Animate stars hopping out in clear arcs around the ball over 36 frames
-      Anim.tweenStage(36, function(u, t)
-        if s.ball.stars then
-          for _, st in ipairs(s.ball.stars) do
-            st.ox = st.dx * u
-            st.oy = -4 + st.dy * u + (st.amplitude * 4 * u * (1 - u))
-            st.rot = (st.rot or 0) + 0.08
-            st.alpha = u < 0.75 and 1.0 or ((1.0 - u) / 0.25)
-            st.visible = true
-          end
-        end
-      end, function()
-        s.ball.stars = nil
-        -- 50 frames of held captured stillness on the darkened clicked ball
-        Anim.tweenStage(50, function(u)
-          s.ball.darken = 0.55 * (1 - u * 0.3)
-        end, function()
-          s.ball.darken = 0.38
-          advance()
-        end)
-      end)
+    local res = Catching.storeCaught(CatchSeq._session, CatchSeq._st and CatchSeq._st.enemy, d.ballId)
+    CatchSeq._catchResult = res
+    local ename = d.ename or "POKéMON"
+    -- pokefirered/src/battle_message.c:475
+    if CatchSeq._pushMsg then
+      CatchSeq._pushMsg("Gotcha!\n" .. ename .. " was caught!")
+    end
+    pcall(function()
+      Audio.waitSe(MUS_CAUGHT_INTRO, function() Audio.playSong(MUS_CAUGHT) end)
     end)
+    if CatchSeq._pushMsg then
+      if res and res.firstTimeCaught then
+        CatchSeq._pushMsg(ename .. "'s data was\nadded to the POKéDEX.")
+      end
+      if res and res.location == "pc" then
+        CatchSeq._pushMsg(ename .. " was transferred\nto the PC.")
+      end
+    end
+    advance()
     return
   end
 
   if kind == "breakout" then
-    wait_busy()
-    -- 40 frames suspense pause before pop-out breakout
-    Anim.tweenStage(40, function() end, function()
-      s.ball.frame = 1
-      pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
-
-      local p = Anim.present("enemy")
-      if p then
-        p.visible = true
-        p.scale = 0.2
-        p.oy = 12
-        p.darken = 0
+    if CatchSeq._pushMsg then
+      if d.shakes == 0 then
+        CatchSeq._pushMsg("Oh no! The POKéMON broke free!")
+      elseif d.shakes == 1 then
+        CatchSeq._pushMsg("Aww! It appeared to be caught!")
+      elseif d.shakes == 2 then
+        CatchSeq._pushMsg("Aargh! Almost had it!")
+      else
+        CatchSeq._pushMsg("Shoot! It was so close too!")
       end
-      if s.healthbox and s.healthbox.enemy then
-        s.healthbox.enemy.visible = true
-      end
-
-      -- 24 frames scale-up restoration
-      Anim.tweenStage(24, function(u)
-        if p then
-          p.scale = 0.2 + 0.8 * u
-          p.oy = 12 * (1 - u)
-        end
-        s.ball.frame = (u < 0.5) and 1 or 2
-      end, function()
-        if p then
-          p.scale = 1
-          p.oy = 0
-        end
-        s.ball.visible = false
-
-        if CatchSeq._pushMsg then
-          if d.shakes == 0 then
-            CatchSeq._pushMsg("Oh no! The POKéMON broke free!")
-          elseif d.shakes == 1 then
-            CatchSeq._pushMsg("Aww! It appeared to be caught!")
-          elseif d.shakes == 2 then
-            CatchSeq._pushMsg("Aargh! Almost had it!")
-          else
-            CatchSeq._pushMsg("Shoot! It was so close too!")
-          end
-        end
-
-        -- 20 frames settle pause before dialogue proceeds
-        Anim.tweenStage(20, function() end, function()
-          advance()
-        end)
-      end)
-    end)
+    end
+    advance()
     return
   end
 
@@ -477,6 +755,17 @@ end
 
 function CatchSeq.update()
   if not CatchSeq._steps then return true end
+
+  if CatchSeq._waitingBall then
+    local b = CatchSeq._ball
+    local alive = false
+    for _, s in ipairs(BallOpen._sprites) do
+      if s == b then alive = true end
+    end
+    if alive and not b.finished then return false end
+    CatchSeq._waitingBall = false
+    advance()
+  end
 
   if CatchSeq._waitingMsg then
     local Ui = require("src.core.game3.battle.ui")

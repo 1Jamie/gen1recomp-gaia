@@ -557,9 +557,12 @@ function Engine.resolveMove(user, target, moveId, slot, adapter, st, out, opts)
   end
 
   if tonumber(move.effect) == EffectIds.PAY_DAY and hitsLanded > 0 then
-    local uMon = user.mon or user
-    local uLvl = tonumber(uMon.level) or 1
-    st.payDayCoins = (st.payDayCoins or 0) + (uLvl * 5)
+    -- pokefirered/src/battle_script_commands.c:2455
+    if (user.side or "player") == "player" then
+      local uMon = user.mon or user
+      local uLvl = tonumber(uMon.level) or 1
+      st.payDayCoins = math.min(0xFFFF, (st.payDayCoins or 0) + (uLvl * 5))
+    end
     out[#out + 1] = "Coins scattered\neverywhere!"
   end
 

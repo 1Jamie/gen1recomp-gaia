@@ -40,13 +40,19 @@ local function build_entries(session)
   return entries
 end
 
+function StartMenu.resetCursor()
+  StartMenu.cursor = 1
+end
+
 function StartMenu.show(opts)
   opts = opts or {}
   StartMenu.open = true
-  StartMenu.cursor = 1
   StartMenu._session = opts.session
   StartMenu._onClose = opts.onClose
   StartMenu.ENTRIES = build_entries(opts.session)
+  local pos = tonumber(StartMenu.cursor) or 1
+  if pos < 1 or pos > #StartMenu.ENTRIES then pos = 1 end -- pokefirered/src/menu.c:276
+  StartMenu.cursor = pos -- pokefirered/src/start_menu.c:329
   Stack.push("start", StartMenu, { hideBelow = true })
   se(6) -- SE_WIN_OPEN
 end

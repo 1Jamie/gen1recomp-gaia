@@ -658,6 +658,10 @@ function Ops.dispatch(vm, row)
     return false
   elseif op == "playbgm" or op == "playsong" or op == "fadenewbgm" then
     local Audio = require("src.core.game3.audio")
+    -- pokefirered/src/scrcmd.c:927
+    if op == "playbgm" and (row[2] == 1 or row[2] == true) then
+      Audio.setSavedSong(row[1])
+    end
     if a.playBgm then
       a.playBgm(row[1] or 0)
     else
@@ -667,9 +671,10 @@ function Ops.dispatch(vm, row)
   elseif op == "fadedefaultbgm" or op == "fadeoutbgm" or op == "fadeinbgm" or op == "savebgm" then
     local Audio = require("src.core.game3.audio")
     if a.fadeBgm then
-      a.fadeBgm(op)
+      a.fadeBgm(op, row[1], row[2])
     elseif op == "savebgm" then
-      Audio._savedSong = Audio._currentSong and Audio._currentSong.id
+      -- pokefirered/src/scrcmd.c:935
+      Audio.setSavedSong(row[1])
     elseif op == "fadeoutbgm" then
       Audio.fadeOutBgm(row[1] or 4)
     elseif op == "fadeinbgm" then

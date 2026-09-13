@@ -77,6 +77,9 @@ return function(game)
 
   U.tap(game, "a")
   U.wait(15)
+  result(PcMenu.mode == "item_storage", "ITEM STORAGE opens the item submenu")
+  U.tap(game, "a")
+  U.wait(15)
   if result(PcMenu.mode == "withdraw_item", "WITHDRAW ITEM lists PC items") then
     U.shot(game, DIR .. "/u1_03_withdraw_list_potion.png")
   end
@@ -90,6 +93,8 @@ return function(game)
   end
 
   U.tap(game, "a")
+  U.wait(15)
+  U.tap(game, "b")
   U.wait(15)
   U.tap(game, "b")
   local closedOk = waitFor(function()

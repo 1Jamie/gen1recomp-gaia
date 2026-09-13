@@ -402,6 +402,7 @@ local function run_step(step)
       s.ball.frame = 1
       s.ball.rot = 0
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
+      Anim.ballOpen("player", s.ball.x, s.ball.y)
       local p = Anim.present("player")
       p.visible = true
       p.ox = 0
@@ -434,6 +435,7 @@ local function run_step(step)
     Anim.tweenStage(16, function() end, function()
       s.ball.frame = 1
       pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = 63 }) end)
+      Anim.ballOpen("enemy", s.ball.x, s.ball.y)
       local p = Anim.present("enemy")
       p.visible = true
       p.ox = 0

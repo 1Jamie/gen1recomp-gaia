@@ -19,7 +19,7 @@ CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v12-crystal4:",
   -- engine/overworld/map_sprites.asm:181
   yellow = "rom-cache-v11-yellow1:",
-  firered = "rom-cache-v5-firered:",
+  firered = "rom-cache-v6-firered:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -190,6 +190,8 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/pokemon/battle/manifest.lua",
     "data/generated/gba/pokemon/battle/healthbox_player.rgba",
     "data/generated/gba/pokemon/battle/terrain_building.rgba",
+    "data/generated/gba/pokemon/battle/ball_open/manifest.lua",
+    "data/generated/gba/pokemon/battle/ball_open/particles.rgba",
     "data/generated/gba/pokemon/battle_transition/manifest.lua",
     "data/generated/gba/pokemon/battle_transition/big_pokeball.rgba",
     "data/generated/gba/pokemon/battle_transition/sliding_pokeball.rgba",
@@ -208,6 +210,8 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/chrome/menu_message_rgba.rgba",
     "data/generated/gba/chrome/std_rgba.rgba",
     "data/generated/gba/chrome/signpost_rgba.rgba",
+    "data/generated/gba/chrome/user_frame_0.rgba",
+    "data/generated/gba/chrome/user_frame_9.rgba",
     "data/generated/gba/chrome/fonts/latin_normal_fg.rgba",
     "data/generated/gba/chrome/fonts/latin_widths.lua",
     "data/generated/gba/trainers.lua",

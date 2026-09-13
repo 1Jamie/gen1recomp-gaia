@@ -405,6 +405,24 @@ local function format_widths_lua(widths, comment)
   return table.concat(lines, "\n")
 end
 
+TextChromeExtract.USER_FRAMES_TABLE = 0x471E8C -- pokefirered/src/text_window_graphics.c:42
+TextChromeExtract.USER_FRAME_COUNT = 10
+
+local function read_ptr(rom, offset)
+  local v = 0
+  for i = 3, 0, -1 do
+    v = v * 256 + (rom:get(offset + i) or 0)
+  end
+  return v - 0x08000000
+end
+
+function TextChromeExtract.extractUserFrame(rom, frameType)
+  local entry = TextChromeExtract.USER_FRAMES_TABLE + frameType * 8
+  local tiles = read_ptr(rom, entry)
+  local pal = read_pal(rom, read_ptr(rom, entry + 4))
+  return decode_4bpp_frame(rom, tiles, 3, 3, pal, 9)
+end
+
 local function write_cache(cache, rel, data)
   if type(cache) == "table" and type(cache.write) == "function" then
     local ok, res = pcall(function() return cache:write(rel, data) end)
@@ -447,6 +465,11 @@ function TextChromeExtract.run(rom, cache, opts)
 
   local sign = TextChromeExtract.extractSignpostFrame(rom)
   write_cache(cache, cDir .. "/signpost_rgba.rgba", sign.rgba)
+
+  for i = 0, TextChromeExtract.USER_FRAME_COUNT - 1 do
+    local user = TextChromeExtract.extractUserFrame(rom, i)
+    write_cache(cache, cDir .. "/user_frame_" .. i .. ".rgba", user.rgba)
+  end
 
   -- 3) Manifest
   local manifestContent = table.concat({

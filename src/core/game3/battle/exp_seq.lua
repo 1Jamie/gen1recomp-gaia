@@ -63,6 +63,7 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
   ExpSeq._pushMsg = pushMsg or opts.pushMsg
   ExpSeq._askYesNo = opts.askYesNo
   ExpSeq._askForget = opts.askForget
+  ExpSeq._battleText = opts.battleText and true or false
   ExpSeq._headless = opts.headless and true or false
   ExpSeq._leveled = {}
 
@@ -212,6 +213,7 @@ local function run_step(step)
       askYesNo = ExpSeq._askYesNo,
       askForget = ExpSeq._askForget,
       headless = ExpSeq._headless,
+      battleText = ExpSeq._battleText,
       onDone = function()
         advance()
       end,

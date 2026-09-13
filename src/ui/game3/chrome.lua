@@ -298,15 +298,40 @@ function Chrome.promptArrow(px, py, frame)
   love.graphics.draw(atlas.image, q, px, py)
 end
 
+Chrome._user = {}
+
+local function ensureUser(frameType)
+  local n = tonumber(frameType) or 0
+  if n < 0 or n >= 10 or n ~= math.floor(n) then n = 0 end -- pokefirered/src/text_window_graphics.c:58
+  local cached = Chrome._user[n]
+  if cached ~= nil then return cached or nil end
+  local rel = "chrome/user_frame_" .. n .. ".rgba"
+  local img, path = loadImage({
+    { path = rel, w = 24, h = 24 },
+    { path = "data/generated/gba/" .. rel, w = 24, h = 24 },
+  })
+  Chrome._user[n] = img and { image = img, quads = makeQuads(img, 3, 3), path = path } or false
+  return Chrome._user[n] or nil
+end
+
+local drawNineSlice
+
+function Chrome.userFrame(frameType, tx, ty, tw, th)
+  local atlas = ensureUser(frameType)
+  if not atlas then return Chrome.stdFrame(tx, ty, tw, th) end
+  drawNineSlice(atlas, tx, ty, tw, th)
+end
+
 --- pret std 9-slice around content (tx,ty,tw,th) in tiles.
 function Chrome.stdFrame(tx, ty, tw, th)
   local atlas = ensureStd()
-  if not atlas then
-    fillRect(tx * T - 8, ty * T - 8, (tw + 2) * T, (th + 2) * T, 98 / 255, 115 / 255, 123 / 255, 1)
-    fillRect(tx * T - 6, ty * T - 6, (tw + 2) * T - 4, (th + 2) * T - 4, 205 / 255, 213 / 255, 213 / 255, 1)
-    fillRect(tx * T, ty * T, tw * T, th * T, 1, 1, 1, 1)
-    return
-  end
+  if atlas then return drawNineSlice(atlas, tx, ty, tw, th) end
+  fillRect(tx * T - 8, ty * T - 8, (tw + 2) * T, (th + 2) * T, 98 / 255, 115 / 255, 123 / 255, 1)
+  fillRect(tx * T - 6, ty * T - 6, (tw + 2) * T - 4, (th + 2) * T - 4, 205 / 255, 213 / 255, 213 / 255, 1)
+  fillRect(tx * T, ty * T, tw * T, th * T, 1, 1, 1, 1)
+end
+
+drawNineSlice = function(atlas, tx, ty, tw, th)
   love.graphics.setColor(1, 1, 1, 1)
   local L, Top, W, H = tx, ty, tw, th
   local function cell(tile, cx, cy)
@@ -336,6 +361,7 @@ function Chrome.invalidate()
   Chrome._std = nil
   Chrome._sign = nil
   Chrome._arrow = nil
+  Chrome._user = {}
   Chrome._logged = false
 end
 

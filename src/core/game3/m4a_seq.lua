@@ -458,6 +458,45 @@ function Seq.update(player, vblanks)
   return alive
 end
 
+function Seq.snapshot(player)
+  if not player then return nil end
+  local tracks = {}
+  for i, tr in ipairs(player.tracks or {}) do
+    local t = {}
+    for k, v in pairs(tr) do
+      if k == "callStack" then
+        local cs = {}
+        for j, pc in ipairs(v) do cs[j] = pc end
+        t.callStack = cs
+      elseif type(v) ~= "table" then
+        t[k] = v
+      end
+    end
+    tracks[i] = t
+  end
+  return { tracks = tracks, tempo = player.tempo, tempoC = player.tempoC }
+end
+
+function Seq.restore(player, snap)
+  if not (player and snap) then return end
+  for i, tr in ipairs(player.tracks or {}) do
+    local t = snap.tracks[i]
+    if t then
+      for k in pairs(tr) do
+        if k ~= "callStack" and type(tr[k]) ~= "table" and t[k] == nil then tr[k] = nil end
+      end
+      for k, v in pairs(t) do
+        if k ~= "callStack" then tr[k] = v end
+      end
+      local cs = {}
+      for j, pc in ipairs(t.callStack or {}) do cs[j] = pc end
+      tr.callStack = cs
+    end
+  end
+  player.tempo = snap.tempo
+  player.tempoC = snap.tempoC
+end
+
 function Seq.allDone(player)
   if not player then return true end
   for _, tr in ipairs(player.tracks) do

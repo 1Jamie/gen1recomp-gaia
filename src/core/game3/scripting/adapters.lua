@@ -1080,10 +1080,11 @@ function Adapters.host(mod, game, world)
     playBgm = function(id)
       require("src.core.game3.audio").playSong(id)
     end,
-    fadeBgm = function(op)
+    fadeBgm = function(op, arg)
       local Audio = require("src.core.game3.audio")
       if op == "savebgm" then
-        Audio._savedSong = Audio._currentSong and Audio._currentSong.id
+        -- pokefirered/src/scrcmd.c:935
+        Audio.setSavedSong(arg)
       elseif op == "fadeoutbgm" then
         Audio.fadeOutBgm(4)
       elseif op == "fadeinbgm" then
@@ -1109,8 +1110,14 @@ function Adapters.host(mod, game, world)
         def = tonumber(row.default or row[4] or row[5]) or 0
       end
       if layout and row then
-        if row.x or row[1] then layout.left = tonumber(row.x or row[1]) or layout.left end
-        if row.y or row[2] then layout.top = tonumber(row.y or row[2]) or layout.top end
+        -- pokefirered/src/script_menu.c:1195
+        local x, y = tonumber(row.x or row[1]), tonumber(row.y or row[2])
+        if x then layout.left = x + 1 end
+        if y then layout.top = y + 1 end
+        if row.op ~= "multichoicegrid" then
+          -- pokefirered/src/script_menu.c:737
+          layout.maxRight = 29
+        end
       end
       local Runtime = package.loaded["src.core.game3.runtime"]
       if Runtime and Runtime.isActive and Runtime.isActive() then

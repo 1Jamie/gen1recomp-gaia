@@ -20,6 +20,7 @@ local Healthbox = require("src.core.game3.battle.healthbox")
 local Pokemon = require("src.core.game3.pokemon")
 local Window = require("src.ui.game3.window")
 local Types = require("src.core.game3.battle.types")
+local BallOpen = require("src.core.game3.battle.ball_open")
 
 local Ui = {}
 
@@ -34,6 +35,9 @@ Ui._st = nil
 Ui._pendingCommand = nil
 Ui._pendingYesNo = nil
 Ui._session = nil
+
+-- pokefirered/src/battle_script_commands.c:5149
+local BATTLE_YESNO = { left = 24, top = 9, style = "battle" }
 
 -- pret sBattlerCoords (singles) — CreateSprite CENTER before pic y_offset
 local ENEMY_MON = { x = 176, y = 40 }
@@ -59,6 +63,7 @@ local function battler_sprite_center(side, species, base)
   end
   return cx, cy
 end
+Ui.battlerSpriteCenter = battler_sprite_center
 
 function Ui.reset(opts)
   opts = opts or {}
@@ -131,7 +136,7 @@ function Ui.askYesNo(a, b)
     Ui._pendingYesNo = cb or false
     return
   end
-  Choice.yesNo(cb, { left = 22, top = 8 })
+  Choice.yesNo(cb, BATTLE_YESNO)
 end
 
 local function open_pending_yesno()
@@ -147,7 +152,7 @@ local function open_pending_yesno()
   Choice.yesNo(function(yes)
     if Message.isOpen() and Message.close then Message.close() end
     if cb then cb(yes) end
-  end, { left = 22, top = 8 })
+  end, BATTLE_YESNO)
   return true
 end
 
@@ -156,10 +161,24 @@ function Ui.yesNoPending()
 end
 
 --- Multi-choice forget list. cb(0-based index) or cb(-1)/cb(127) on cancel.
-function Ui.askForget(labels, cb)
+function Ui.askForget(labels, cb, ctx)
   if Ui._headless then
     if cb then cb(-1) end
     return
+  end
+  if ctx and ctx.mon then
+    local ok, SummaryMenu = pcall(require, "src.ui.game3.summary_menu")
+    if ok and SummaryMenu and SummaryMenu.openMenu then
+      -- pokefirered/src/battle_script_commands.c:5194
+      SummaryMenu.openMenu({ ctx.mon }, 1, {
+        mode = "select_move",
+        moveToLearn = ctx.moveId,
+        onSelectMove = function(slotIdx)
+          if cb then cb(slotIdx) end
+        end,
+      })
+      return
+    end
   end
   if not Choice then
     if cb then cb(-1) end
@@ -464,7 +483,9 @@ local function draw_mon_sprite(battler, base, back)
     local hFlip = (pres and pres.hFlip) and true or false
     local sx = (hFlip and -1 or 1) * scale * ((pres and pres.sx) or 1)
     local sy = scale * ((pres and pres.sy) or 1)
+    local blended = BallOpen.setBlendShader(BallOpen.monBlend(side))
     love.graphics.draw(entry.image, cx, cy, 0, sx, sy, 32, 32)
+    if blended then love.graphics.setShader() end
   else
     -- Placeholder silhouette so lunge/shake is visible before full pic extract.
     local a = (pres and pres.alpha) or 1
@@ -591,10 +612,11 @@ local function draw_intro_ball(stage)
   local flash = tonumber(stage.ball.flash) or 0
   local shade = math.max(0, math.min(1, 1 - darken * (1 - 8 / 255)))
 
+  local alpha = tonumber(stage.ball.alpha) or 1
   if flash > 0 and flash % 2 == 0 then
-    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setColor(1, 1, 1, alpha)
   else
-    love.graphics.setColor(shade, shade, shade, 1)
+    love.graphics.setColor(shade, shade, shade, alpha)
   end
 
   Ui._ballPoke = Ui._ballPoke or nil
@@ -624,7 +646,10 @@ local function draw_intro_ball(stage)
       local iw, ih = img:getDimensions()
       Ui._ballQuads[key] = love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih)
     end
+    local blend = stage.ball.blend
+    local blended = blend and BallOpen.setBlendShader(blend.coeff, blend.r, blend.g, blend.b)
     love.graphics.draw(img, Ui._ballQuads[key], bx, by, rot, 1, 1, 8, 8)
+    if blended then love.graphics.setShader() end
   else
     -- Procedural 16x16 Poké Ball fallback
     love.graphics.push()
@@ -641,56 +666,6 @@ local function draw_intro_ball(stage)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.circle("fill", 0, 0, 1.2)
     love.graphics.pop()
-  end
-
-  -- Draw capture success stars / sparkles around the Poké Ball
-  if stage.ball.stars and #stage.ball.stars > 0 then
-    for _, star in ipairs(stage.ball.stars) do
-      if star.visible ~= false then
-        local sx = math.floor(bx + (star.ox or 0) + 0.5)
-        local sy = math.floor(by + (star.oy or 0) + 0.5)
-        local a = star.alpha or 1.0
-        local rot = star.rot or 0
-        local r = 4.5
-        local rIn = 1.3
-
-        -- 4-pointed sparkle star with contrast outline and bright white core
-        love.graphics.push()
-        love.graphics.translate(sx, sy)
-        if rot ~= 0 then love.graphics.rotate(rot) end
-
-        -- Dark border for clear contrast against any background
-        love.graphics.setColor(0.15, 0.1, 0.0, a * 0.7)
-        love.graphics.polygon("fill",
-          0, -(r + 1),
-          (rIn + 0.5), -(rIn + 0.5),
-          (r + 1), 0,
-          (rIn + 0.5), (rIn + 0.5),
-          0, (r + 1),
-          -(rIn + 0.5), (rIn + 0.5),
-          -(r + 1), 0,
-          -(rIn + 0.5), -(rIn + 0.5)
-        )
-
-        -- Vibrant golden star body
-        love.graphics.setColor(1.0, 0.88, 0.15, a)
-        love.graphics.polygon("fill",
-          0, -r,
-          rIn, -rIn,
-          r, 0,
-          rIn, rIn,
-          0, r,
-          -rIn, rIn,
-          -r, 0,
-          -rIn, -rIn
-        )
-
-        -- Bright white center sparkle / shine
-        love.graphics.setColor(1, 1, 1, a)
-        love.graphics.rectangle("fill", -1, -1, 2, 2)
-        love.graphics.pop()
-      end
-    end
   end
 
   love.graphics.setColor(1, 1, 1, 1)
@@ -735,10 +710,13 @@ function Ui.draw(w, h)
     love.graphics.setColor(1, 1, 1, 1)
   end
 
+  -- pokefirered/src/battle_anim_special.c:1888
+  local bgBlended = BallOpen.setBlendShader(BallOpen.bgCoeff(), 31, 31, 31)
   if not BattleBg.draw(nil, enemyOx, playerOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
   end
+  if bgBlended then love.graphics.setShader() end
   love.graphics.setColor(1, 1, 1, 1)
 
   -- pret-ish 5-layer z:
@@ -760,6 +738,8 @@ function Ui.draw(w, h)
   end
   Anim.drawParticles(201, 999)
   draw_intro_ball(stage)
+  -- pokefirered/src/pokeball.c:770
+  BallOpen.draw()
   if st then
     Healthbox.draw("enemy", st.enemy)
     Healthbox.draw("player", st.player)

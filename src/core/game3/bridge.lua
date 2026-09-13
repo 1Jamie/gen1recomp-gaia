@@ -17,6 +17,12 @@ local function sidecar(save)
   return save.modData[Bridge.SAVE_KEY]
 end
 
+function Bridge.storageToSidecar(sc, session)
+  if not (sc and session and session.storage) then return end
+  sc.storage = require("src.core.game3.storage").serialize(session.storage)
+  sc.pc = nil
+end
+
 local function snapshot_money(save)
   return tonumber(save.money) or 0
 end
@@ -55,7 +61,7 @@ function Bridge.enterFromHost(mod, game, opts)
     healY = sc.healY or 5,
     move_overlay = sc.move_overlay or {},
     options = sc.options or {},
-    pc = sc.pc or { items = {} },
+    storage = require("src.core.game3.storage").restore(sc.storage, sc.pc),
     enteredAt = os.time(),
   }
 
@@ -114,7 +120,7 @@ function Bridge.persistSessionOnly(mod, game)
   sc.healX = session.healX
   sc.healY = session.healY
   sc.options = session.options or sc.options
-  sc.pc = session.pc or sc.pc
+  Bridge.storageToSidecar(sc, session)
   if session.money ~= nil then save.money = session.money end
 end
 
@@ -171,7 +177,7 @@ function Bridge.returnToHost(mod, game, opts)
     sc.healX = session.healX
     sc.healY = session.healY
     sc.options = session.options or sc.options
-    sc.pc = session.pc or sc.pc
+    Bridge.storageToSidecar(sc, session)
     if session.money ~= nil then
       save.money = session.money
     end

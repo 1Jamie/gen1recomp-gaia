@@ -226,9 +226,6 @@ function Catching.storeCaught(session, foeBattler, ballId)
       location = "pc"
       boxId = bId
       boxSlot = sId
-      session.pc = session.pc or { items = {}, mons = {} }
-      session.pc.mons = session.pc.mons or {}
-      session.pc.mons[#session.pc.mons + 1] = mon
     else
       return {
         success = false,

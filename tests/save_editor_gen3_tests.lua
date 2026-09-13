@@ -458,7 +458,7 @@ do
   -- PC operations
   Ops.addToPc(S, "POKE_BALL")
   checkEq(save.pcItems["POKE_BALL"], 1, "POKE_BALL added to PC x1")
-  check(save.pc ~= nil and #save.pc.items > 0, "save.pc.items synced")
+  check(save.storage ~= nil and #save.storage.items > 0, "save.storage.items synced")
 
   Ops.pcAdjust(S, "POKE_BALL", 9)
   checkEq(save.pcItems["POKE_BALL"], 10, "POKE_BALL adjusted to x10 in PC")

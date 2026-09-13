@@ -459,4 +459,30 @@ function Storage.deserialize(data)
   return storage
 end
 
+function Storage.restore(data, legacyPc)
+  local hasData = type(data) == "table"
+  local hasPc = type(legacyPc) == "table"
+  if not hasData and not hasPc then return nil end
+  local storage = Storage.deserialize(hasData and data or nil)
+  if hasPc then
+    if not hasData then
+      for _, it in ipairs(legacyPc.items or {}) do
+        local id = type(it) == "table" and tonumber(it.id or it.itemId)
+        local qty = type(it) == "table" and (tonumber(it.qty or it.quantity) or 0) or 0
+        if id and qty > 0 and #storage.items < Storage.PC_ITEMS_COUNT then
+          storage.items[#storage.items + 1] = { id = id, qty = math.min(Storage.MAX_ITEM_QTY, qty) }
+        end
+      end
+    end
+    if Storage.countTotalMons(storage) == 0 then
+      for _, mon in ipairs(legacyPc.mons or {}) do
+        local b, s = Storage.findOpenSlot(storage)
+        if not b then break end
+        storage.boxes[b].mons[s] = mon
+      end
+    end
+  end
+  return storage
+end
+
 return Storage

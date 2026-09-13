@@ -281,6 +281,10 @@ function Map.load(mod, game, mapId, opts)
   end
 
   if def then Objects.loadMap(game, mapId, def) end
+  -- pokefirered/src/overworld.c:806
+  if not opts.seamless then
+    require("src.core.game3.audio").setSavedSong(nil)
+  end
   if Space and Space.runEnterScripts then
     Space.runEnterScripts(mod or Runtime._mod, mapId, game, world)
   elseif Space and Space.onMapEnter then
@@ -295,7 +299,9 @@ function Map.load(mod, game, mapId, opts)
       music = Audio._pack.index.mapSongs[mapId]
     end
     if music and music ~= 0xFFFF then
-      Audio.playMapSong(music)
+      -- pokefirered/src/overworld.c:1039
+      local id = (not opts.seamless and Audio._savedSong) or music
+      Audio.playMapSong(id, { mapSong = music })
     end
   end
 

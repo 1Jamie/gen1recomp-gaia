@@ -969,7 +969,13 @@ Ops.itemQty = itemQty
 
 local function syncG3Pc(S)
   if Gen.ofState(S) ~= 3 or not S.save then return end
-  S.save.pc = S.save.pc or { items = {} }
+  if type(S.save.storage) ~= "table" then
+    S.save.storage = { currentBox = 1, boxes = {}, items = {} }
+  end
+  if type(S.save.pc) == "table" then
+    S.save.pc.items = nil
+    if next(S.save.pc) == nil then S.save.pc = nil end
+  end
   local okD, ItemsData = pcall(require, "src.core.game3.items_data")
   local items = {}
   for id, val in pairs(S.save.pcItems or {}) do
@@ -979,7 +985,7 @@ local function syncG3Pc(S)
       items[#items + 1] = { id = num, qty = qty }
     end
   end
-  S.save.pc.items = items
+  S.save.storage.items = items
 end
 
 function Ops.addToBag(S, id)

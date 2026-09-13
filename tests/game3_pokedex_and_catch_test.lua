@@ -150,8 +150,9 @@ local resPc = Catching.storeCaught(session, foePidgey, 4)
 assert(resPc.location == "pc", "Pidgey transferred to PC when party is full")
 assert(resPc.firstTimeCaught == true, "First time Pidgey was caught")
 assert(#session.party == 6, "Party still has 6 Pokémon")
-assert(#session.pc.mons == 1, "PC box has 1 Pokémon")
-assert(session.pc.mons[1].species == 16, "PC mon is Pidgey")
+assert(session.pc == nil, "no parallel session.pc table")
+assert(require("src.core.game3.storage").countTotalMons(session.storage) == 1, "PC box has 1 Pokémon")
+assert(session.storage.boxes[resPc.box].mons[resPc.slot].species == 16, "PC mon is Pidgey")
 assert(Dex.isCaught(session.dex, 16) == true, "Pidgey marked caught in Dex")
 
 -- Second capture of Caterpie -> firstTimeCaught is false
@@ -348,15 +349,10 @@ CatchSeq.begin(mockBattleSt, 4, true, 4, {
   session = session,
 })
 assert(CatchSeq.busy() == true, "CatchSeq is busy after begin")
-assert(#CatchSeq._steps == 8, "8 steps in catch sequence (msg, throw, absorb, drop, 3 wobbles, success)")
+assert(#CatchSeq._steps == 3, "3 steps in catch sequence (msg, throw anim, success)")
 assert(CatchSeq._steps[1].kind == "msg", "Step 1 is msg")
-assert(CatchSeq._steps[2].kind == "throw", "Step 2 is throw arc")
-assert(CatchSeq._steps[3].kind == "absorb", "Step 3 is absorb")
-assert(CatchSeq._steps[4].kind == "drop_and_bounce", "Step 4 is drop and bounce")
-assert(CatchSeq._steps[5].kind == "wobble", "Step 5 is wobble 1")
-assert(CatchSeq._steps[6].kind == "wobble", "Step 6 is wobble 2")
-assert(CatchSeq._steps[7].kind == "wobble", "Step 7 is wobble 3")
-assert(CatchSeq._steps[8].kind == "capture_success", "Step 8 is capture_success")
+assert(CatchSeq._steps[2].kind == "throw" and CatchSeq._steps[2].data.caseId == 4, "Step 2 is the throw anim with BALL_3_SHAKES_SUCCESS")
+assert(CatchSeq._steps[3].kind == "capture_success", "Step 3 is capture_success")
 
 -- Step through tasks until completion
 local safety = 0
@@ -381,9 +377,9 @@ CatchSeq.begin(mockBattleSt, 4, false, 1, {
   session = session,
 })
 assert(CatchSeq.busy() == true, "Breakout CatchSeq is busy")
-assert(#CatchSeq._steps == 6, "6 steps in 1-shake breakout (msg, throw, absorb, drop, 1 wobble, breakout)")
-assert(CatchSeq._steps[5].kind == "wobble", "Step 5 is wobble 1")
-assert(CatchSeq._steps[6].kind == "breakout", "Step 6 is breakout")
+assert(#CatchSeq._steps == 3, "3 steps in 1-shake breakout (msg, throw anim, breakout)")
+assert(CatchSeq._steps[2].data.caseId == 1, "Step 2 throws with BALL_1_SHAKE")
+assert(CatchSeq._steps[3].kind == "breakout", "Step 3 is breakout")
 
 safety = 0
 while CatchSeq.busy() and safety < 2500 do

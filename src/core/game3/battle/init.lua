@@ -382,8 +382,9 @@ local function choice_hooks()
   return {
     pushMsg = function(text, cb) Ui.push(text, cb) end,
     askYesNo = function(a, b) Ui.askYesNo(a, b) end,
-    askForget = function(labels, cb) Ui.askForget(labels, cb) end,
+    askForget = function(labels, cb, ctx) Ui.askForget(labels, cb, ctx) end,
     headless = Battle._headless,
+    battleText = true,
   }
 end
 Battle._choiceHooksForTests = choice_hooks
@@ -576,12 +577,25 @@ local function handle_enemy_faint(opts)
         end
       end
 
+      local function give_payday_money_and_pickup()
+        local Prize = require("src.core.game3.battle.prize")
+        local Runtime = package.loaded["src.core.game3.runtime"]
+        local session = (Runtime and Runtime.getSession and Runtime.getSession()) or st.session
+        -- pokefirered/data/battle_scripts_1.s:2920
+        local bonus = Prize.payDay(session, st.payDayCoins, { moneyMultiplier = st.moneyMultiplier or 1 })
+        if bonus > 0 then
+          Ui.push(Prize.payDayMessage((session and session.name) or pname, bonus))
+        end
+        Prize.pickup((session and session.party) or st.playerParty)
+      end
+
       if not st.wild and st.trainerId and not Battle._headless then
         push_defeated()
         SwitchSeq.beginTrainerSlideIn(st, {
           headless = false,
           onDone = function()
             push_lose_text_and_money()
+            give_payday_money_and_pickup()
             begin_evo_or_end()
           end,
         })
@@ -592,6 +606,7 @@ local function handle_enemy_faint(opts)
           push_lose_text_and_money()
         end
         -- pokefirered/src/battle_main.c:3764
+        give_payday_money_and_pickup()
         begin_evo_or_end()
       end
     else
@@ -984,6 +999,14 @@ function Battle.update(dt, game)
   -- Choice input during award / shift prompt / evolution learn-move prompts
   if (Battle._phase == "awarding" or Battle._phase == "evolving" or Battle._phase == "switching" or Battle._phase == "shift_prompt")
       and not Battle._auto and game and game.input then
+    local SummaryMenu = package.loaded["src.ui.game3.summary_menu"]
+    local PartyMenu = package.loaded["src.ui.game3.party_menu"]
+    if (Battle._phase == "awarding" or Battle._phase == "evolving")
+        and SummaryMenu and SummaryMenu.isOpen and SummaryMenu.isOpen()
+        and not (PartyMenu and PartyMenu.isOpen and PartyMenu.isOpen()) then
+      SummaryMenu.handleInput(game.input)
+      return
+    end
     if Ui.choiceActive and Ui.choiceActive() then
       Ui.handleInput(game.input)
       return

@@ -135,8 +135,10 @@ local function unique_mids_by_pair(grids)
       end
     end
   end
+  local NativePack = require("src.import.gba.native_pack")
   local out = {}
   for pair, seen in pairs(byPair) do
+    NativePack.addPcOnMids(seen)
     local list = {}
     for mid in pairs(seen) do list[#list + 1] = mid end
     table.sort(list)

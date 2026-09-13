@@ -503,6 +503,7 @@ local function run_step(step)
         p.oy = 16
         p.scale = 0.16
         p.darken = 0
+        Anim.ballOpen("enemy", s.ball.x, s.ball.y)
       end
       -- Emergence over 12 frames (frames 16..28) matching pret BATTLER_AFFINE_EMERGE
       if f > 16 and f <= 28 then
@@ -598,6 +599,7 @@ local function run_step(step)
         openedSe = true
         pcall(function() Audio.playSe(SE.SE_BALL_OPEN, { pan = -64 }) end)
       end
+      Anim.ballOpen("player", s.ball.x, s.ball.y)
       local Battle = package.loaded["src.core.game3.battle"]
       local st = Battle and Battle._st
       local species = st and st.player and (st.player.species or (st.player.mon and (st.player.mon.species or st.player.mon.speciesId)))

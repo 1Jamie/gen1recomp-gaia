@@ -96,18 +96,32 @@ function Game3:load(opts)
     end
   end)
 
-  local rawSave = SaveData.load and select(2, pcall(SaveData.load))
+  local okLoad, rawSave, recovered = false, nil, nil
+  if SaveData.load then okLoad, rawSave, recovered = pcall(SaveData.load) end
+  if not okLoad then rawSave, recovered = nil, nil end
+  local saveStatus = "ok"
+  if recovered then
+    saveStatus = "error" -- pokefirered/src/main_menu.c:251
+  elseif okLoad and rawSave == nil and SaveData.persistenceFs and SaveData.saveFilename then
+    local okFs, exists = pcall(function()
+      local fs = SaveData.persistenceFs(nil)
+      return fs and fs.getInfo and fs.getInfo(SaveData.saveFilename()) ~= nil
+    end)
+    if okFs and exists then saveStatus = "invalid" end -- pokefirered/src/main_menu.c:246
+  end
   local opts = rawSave and rawSave.options or (SaveData.defaultOptions and SaveData.defaultOptions())
   self.options = opts
   self:applyOptions(opts)
 
   -- Never auto-skip boot into a legacy Sevii sidecar.
   local continueOk = self:_hasContinueSave()
+  require("src.ui.game3.start_menu").resetCursor() -- pokefirered/src/main.c:134
   self.boot = Boot.new()
   Boot.setHasContinue(self.boot, continueOk)
   if continueOk then
     Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
   end
+  Boot.setSaveStatus(self.boot, saveStatus)
   self.phase = "boot"
   self.session = nil
 

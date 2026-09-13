@@ -91,6 +91,11 @@ function Window.stdFrame(tpl)
   Chrome.stdFrame(L, Top, W, H)
 end
 
+function Window.userFrame(tpl, frameType)
+  Chrome.userFrame(frameType, tpl.left or tpl.tilemapLeft, tpl.top or tpl.tilemapTop,
+    tpl.w or tpl.width, tpl.h or tpl.height)
+end
+
 function Window.dialogueFrame()
   Chrome.dialogueFrame()
 end

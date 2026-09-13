@@ -55,7 +55,6 @@ function Schema.newGame(opts)
     vars = {},
     playtime = { hours = 0, minutes = 0, seconds = 0 },
     options = nil,
-    pc = { items = {} },
     registeredItem = nil,
     move_overlay = {},
     trainerId = nil,
@@ -106,7 +105,6 @@ function Schema.toSaveTable(session)
     vars = session.vars or {},
     playTime = session.playtime or session.playTime or { hours = 0, minutes = 0, seconds = 0 },
     options = session.options,
-    pc = session.pc,
     storage = session.storage and require("src.core.game3.storage").serialize(session.storage) or nil,
     registeredItem = session.registeredItem,
     move_overlay = session.move_overlay or {},
@@ -147,15 +145,33 @@ function Schema.fromSaveTable(save)
     vars = save.vars or {},
     playtime = save.playTime or save.playtime or { hours = 0, minutes = 0, seconds = 0 },
     options = save.options,
-    pc = save.pc or { items = {} },
-    storage = type(save.storage) == "table" and require("src.core.game3.storage").deserialize(save.storage) or nil,
+    storage = require("src.core.game3.storage").restore(save.storage, save.pc),
     registeredItem = save.registeredItem,
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,
     rng = save.rng,
   }
+  Schema.ensureMonBalls(session)
   Options.ensure(session)
   return session
+end
+
+function Schema.ensureMonBall(mon)
+  if type(mon) ~= "table" then return end
+  -- pokefirered/src/pokemon.c:1820
+  mon.pokeball = tonumber(mon.pokeball) or 4
+end
+
+function Schema.ensureMonBalls(session)
+  for _, mon in ipairs(session.party or {}) do
+    Schema.ensureMonBall(mon)
+  end
+  local storage = session.storage
+  for _, box in pairs(storage and storage.boxes or {}) do
+    for _, mon in pairs(type(box) == "table" and box.mons or {}) do
+      Schema.ensureMonBall(mon)
+    end
+  end
 end
 
 return Schema

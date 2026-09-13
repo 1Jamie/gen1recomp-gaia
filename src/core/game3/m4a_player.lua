@@ -335,6 +335,102 @@ function Player.renderBuffered(slot, n, opts)
   return sd
 end
 
+function Player.snapshotSlot(slot, at)
+  if not (slot and slot.seq) then return nil end
+  return { at = at, done = slot.done, seq = Seq.snapshot(slot.seq) }
+end
+
+-- pokefirered/src/m4a.c:668
+function Player.stopAt(slot, snaps, at, abs)
+  if not slot then return abs end
+  at = tonumber(at)
+  local snap
+  if at and slot.seq and snaps and (abs == nil or at < abs) then
+    for i = #snaps, 1, -1 do
+      if snaps[i].at <= at then snap = snaps[i]; break end
+    end
+  end
+  if snap then
+    Seq.restore(slot.seq, snap.seq)
+    slot.seq.voices = {}
+    slot.voices = {}
+    slot.done = snap.done
+    local left = at - snap.at
+    local q = Player.mixQuantum()
+    while left > 0 do
+      local n = math.min(q, left)
+      Player.updateSlot(slot, Mix.vblanksForSamples(n))
+      left = left - n
+    end
+    for i = #snaps, 1, -1 do
+      if snaps[i].at > at then table.remove(snaps, i) end
+    end
+    abs = at
+  end
+  -- pokefirered/src/m4a_1.s:1469
+  if slot.seq then slot.seq.voices = {} end
+  slot.voices = {}
+  return abs
+end
+
+function Player.bakeSong(pack, cache, songId, opts)
+  opts = opts or {}
+  local slot = { voices = {} }
+  if not Player.start(pack, cache, slot, songId, { forceSeq = true }) then return nil end
+  local rate = opts.sampleRate or Mix.SAMPLE_RATE
+  local quantum = Player.mixQuantum()
+  local maxN = math.floor(rate * (opts.maxSec or 8))
+  local myL, myR = 0, 0
+  local L, R = {}, {}
+  local total, idle, since = 0, 0, 0
+  while total < maxN do
+    local n = math.min(quantum, maxN - total)
+    local capL, capR = Mix._hpfCapL, Mix._hpfCapR
+    Mix._hpfCapL, Mix._hpfCapR = myL, myR
+    local outL, outR = Player.renderBuffered(slot, n, {
+      raw = true,
+      master = opts.master or 1,
+      sampleRate = rate,
+      quantum = quantum,
+    })
+    myL, myR = Mix._hpfCapL, Mix._hpfCapR
+    Mix._hpfCapL, Mix._hpfCapR = capL, capR
+    for i = 1, n do
+      L[#L + 1] = outL[i] or 0
+      R[#R + 1] = outR[i] or 0
+    end
+    total = total + n
+    since = since + n
+    if opts.yieldEvery and since >= opts.yieldEvery then
+      since = 0
+      coroutine.yield()
+    end
+    local any = false
+    for _, v in ipairs(slot.voices or {}) do
+      if v.alive then any = true; break end
+    end
+    if slot.done and not any then
+      idle = idle + 1
+      if idle >= 2 then break end
+    else
+      idle = 0
+    end
+  end
+  if #L == 0 then L[1], R[1] = 0, 0 end
+  if opts.raw or not (love and love.sound and love.sound.newSoundData) then
+    return L, R
+  end
+  local sd = love.sound.newSoundData(#L, rate, 16, 2)
+  for i = 1, #L do
+    local l, r = L[i], R[i]
+    if l > 1 then l = 1 elseif l < -1 then l = -1 end
+    if r > 1 then r = 1 elseif r < -1 then r = -1 end
+    sd:setSample(i - 1, 1, l)
+    sd:setSample(i - 1, 2, r)
+  end
+  return sd
+end
+
 --- Render a started slot through the sequencer into one SoundData (or raw L/R).
 function Player.bakeSlot(slot, opts)
   opts = opts or {}

@@ -652,6 +652,13 @@ Versions.BATTLE_UI = {
   party_summary_bar = 0xE7BB04,   -- gBattleInterface_PartySummaryBar_Gfx LZ → 512
 }
 
+Versions.BALL_OPEN = {
+  particle_sheets = 0x40BF48,     -- pokefirered/src/battle_anim_special.c:117
+  particle_palettes = 0x40BFA8,   -- pokefirered/src/battle_anim_special.c:133
+  fade_colors = 0x40C1C4,         -- pokefirered/src/battle_anim_special.c:345
+  sine_table = 0x25E074,          -- pokefirered/src/trig.c:4
+}
+
 -- Battle field→battle transitions (FireRed USA 1.0; uncompressed INCBINs in
 -- battle_transition.c). Fingerprinted vs pret graphics/battle_transitions/*.
 Versions.BATTLE_TRANSITION = {

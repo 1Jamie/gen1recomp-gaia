@@ -166,4 +166,69 @@ function Prize.moneyMessage(playerName, amount)
   return playerName .. " got ¥" .. tostring(amount) .. "\nfor winning!"
 end
 
+-- pokefirered/src/battle_script_commands.c:7064
+function Prize.payDay(session, coins, opts)
+  opts = opts or {}
+  coins = math.floor(tonumber(coins) or 0)
+  if coins <= 0 or opts.link then return 0 end
+  local mult = tonumber(opts.moneyMultiplier) or 1
+  if mult < 1 then mult = 1 end
+  local bonus = coins * mult
+  Prize.apply(session, bonus)
+  return bonus
+end
+
+-- pokefirered/src/battle_message.c:178
+function Prize.payDayMessage(playerName, amount)
+  playerName = playerName or "PLAYER"
+  amount = math.floor(tonumber(amount) or 0) % 65536
+  return playerName .. " picked up\n¥" .. tostring(amount) .. "!"
+end
+
+Prize.ABILITY_PICKUP = 53
+
+-- pokefirered/src/battle_script_commands.c:772
+Prize.PICKUP_ITEMS = {
+  { 139, 15 }, { 133, 25 }, { 134, 35 }, { 135, 45 }, { 136, 55 }, { 137, 65 },
+  { 140, 75 }, { 298, 80 }, { 69, 85 }, { 68, 90 }, { 110, 95 }, { 163, 96 },
+  { 164, 97 }, { 165, 98 }, { 166, 99 }, { 167, 1 },
+}
+
+local function no_item(v)
+  return v == nil or v == 0 or v == "" or v == "NONE"
+end
+
+-- pokefirered/src/battle_script_commands.c:9261
+function Prize.pickup(party, random)
+  local picked = {}
+  if type(party) ~= "table" then return picked end
+  random = random or require("src.core.game3.rng").Random
+  local Pokemon = require("src.core.game3.pokemon")
+  for i = 1, 6 do
+    local mon = party[i]
+    if type(mon) == "table" then
+      local species = Pokemon.speciesOf and Pokemon.speciesOf(mon) or tonumber(mon.species)
+      local ability = tonumber(mon.abilityId) or tonumber(mon.ability)
+      if not ability and species and Pokemon.abilityId then
+        ability = Pokemon.abilityId(species, mon.personality or 0)
+      end
+      if ability == Prize.ABILITY_PICKUP and species and species ~= 0
+        and not (mon.isEgg or mon.egg)
+        and no_item(mon.item) and no_item(mon.heldItem)
+        and random() % 10 == 0 then
+        local r = random() % 100
+        local j = 1
+        while j <= 15 and not (Prize.PICKUP_ITEMS[j][2] > r) do
+          j = j + 1
+        end
+        local itemId = Prize.PICKUP_ITEMS[j][1]
+        mon.item = itemId
+        mon.heldItem = itemId
+        picked[#picked + 1] = { slot = i, item = itemId }
+      end
+    end
+  end
+  return picked
+end
+
 return Prize

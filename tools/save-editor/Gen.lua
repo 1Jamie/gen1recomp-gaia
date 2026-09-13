@@ -318,7 +318,6 @@ function Gen.hydrateSave(data, save)
     save.inventory = save.inventory or {}
     save.bagOrder = save.bagOrder or {}
     save.pcItems = save.pcItems or {}
-    save.pc = save.pc or { items = {} }
     save.bag = save.bag or require("src.core.game3.bag").new()
 
     if save.inventory then
@@ -379,11 +378,17 @@ function Gen.hydrateSave(data, save)
       end
     end
 
-    if save.pc and type(save.pc.items) == "table" then
+    local pcLists = {}
+    if type(save.storage) == "table" and type(save.storage.items) == "table" then
+      pcLists[1] = save.storage.items
+    elseif type(save.pc) == "table" and type(save.pc.items) == "table" then
+      pcLists[1] = save.pc.items
+    end
+    for _, pcList in ipairs(pcLists) do
       local okD, ItemsData = pcall(require, "src.core.game3.items_data")
       local okI, Items = pcall(require, "src.core.game3.items")
       if okD and ItemsData and okI and Items then
-        for _, slot in ipairs(save.pc.items) do
+        for _, slot in ipairs(pcList) do
           local id = slot.id or slot.itemId
           local qty = slot.qty or slot.quantity or 1
           if id and (tonumber(qty) or 0) > 0 then

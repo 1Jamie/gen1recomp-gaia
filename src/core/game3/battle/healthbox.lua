@@ -45,8 +45,12 @@ local ENEMY_TEXT_RIGHT = 89
 
 -- pret AddTextPrinterAndCreateWindowOnHealthbox(..., y=3) for nick / level.
 local TEXT_Y = 3
--- HP printer y=5 within 16px tile row → ~20 on assembled player sheet.
-local HP_NUM_Y = 20
+-- pokefirered/src/battle_interface.c:813
+local HP_TEXT_Y = 21
+local HP_CUR_X = 60
+local HP_MAX_X = 80
+-- pokefirered/src/battle_interface.c:2221
+local HP_WIN_X, HP_WIN_W, HP_WIN_H = 56, 40, 11
 
 -- Baked placeholder ink + drop-shadow on healthbox sheets.
 -- Shadow is pal index 3 ≈ (222,214,181). Do NOT rectangle-fill (eats top border).
@@ -60,10 +64,6 @@ local PLAYER_PLACEHOLDER_INK = {
   { 65, 11 }, { 71, 11 }, { 65, 12 }, { 71, 12 }, { 65, 13 }, { 71, 13 },
   { 68, 14 }, { 70, 14 }, { 71, 14 },
   { 64, 15 }, { 65, 15 }, { 66, 15 }, { 67, 15 }, { 68, 15 }, { 69, 15 }, { 70, 15 },
-  -- "/" fg
-  { 69, 25 }, { 68, 26 }, { 67, 27 }, { 66, 28 }, { 65, 29 }, { 64, 30 },
-  -- "/" shadow
-  { 69, 26 }, { 68, 27 }, { 67, 28 }, { 66, 29 }, { 65, 30 }, { 64, 31 },
 }
 
 local ENEMY_PLACEHOLDER_INK = {
@@ -181,11 +181,16 @@ local function draw_level(lv, boxX, y, textRight)
   FrlgFont.draw(digits, x + lvW, y, small_opts(HB_TEXT))
 end
 
---- Pret singles HP text: current + CHAR_SLASH, max; visually "19/ 19" right-aligned.
-local function draw_hp_nums(cur, maxHp, boxX, y, textRight)
-  local text = string.format("%d/ %d", cur or 0, maxHp or 0)
-  local w = FrlgFont.measure(text, { small = true })
-  FrlgFont.draw(text, boxX + textRight - w, y, small_opts(HB_TEXT))
+local function erase_hp_window(boxX, boxY)
+  love.graphics.setColor(CREAM)
+  love.graphics.rectangle("fill", boxX + HP_WIN_X, boxY + HP_TEXT_Y, HP_WIN_W, HP_WIN_H)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- pokefirered/src/battle_interface.c:795
+local function draw_hp_nums(cur, maxHp, boxX, boxY)
+  FrlgFont.draw(string.format("%3d/", cur or 0), boxX + HP_CUR_X, boxY + HP_TEXT_Y, small_opts(HB_TEXT))
+  FrlgFont.draw(string.format("%3d", maxHp or 0), boxX + HP_MAX_X, boxY + HP_TEXT_Y, small_opts(HB_TEXT))
 end
 
 function Healthbox.draw(side, battler)
@@ -203,6 +208,7 @@ function Healthbox.draw(side, battler)
     tlX, tlY = player_top_left(c.x + ox, c.y)
     BattleChrome.drawPlayerBox(tlX, tlY)
     erase_placeholder_ink(tlX, tlY, PLAYER_PLACEHOLDER_INK)
+    erase_hp_window(tlX, tlY)
   else
     tlX, tlY = enemy_top_left(c.x + ox, c.y)
     BattleChrome.drawEnemyBox(tlX, tlY)
@@ -241,7 +247,7 @@ function Healthbox.draw(side, battler)
     local mon = battler.mon
     if mon then
       local cur, maxHp = display_hp_nums(side, battler)
-      draw_hp_nums(cur, maxHp, tlX, tlY + HP_NUM_Y, textRight)
+      draw_hp_nums(cur, maxHp, tlX, tlY)
     end
     local expRatio = 0
     do

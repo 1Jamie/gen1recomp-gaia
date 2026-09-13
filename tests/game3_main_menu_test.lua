@@ -110,6 +110,8 @@ local drewTitle, clearColor = false, nil
 local origFont, origFrame = FrlgFont.draw, Chrome.stdFrame
 FrlgFont.draw = function() return 0 end
 Chrome.stdFrame = function() end
+local origUser = Chrome.userFrame
+Chrome.userFrame = function() end
 _G.love = {
   graphics = {
     clear = function(r, g, b) clearColor = { r, g, b } end,
@@ -122,7 +124,7 @@ _G.love = {
 }
 Boot.draw(boot)
 _G.love = nil
-FrlgFont.draw, Chrome.stdFrame = origFont, origFrame
+FrlgFont.draw, Chrome.stdFrame, Chrome.userFrame = origFont, origFrame, origUser
 check(not drewTitle, "no title BG image drawn under the menu")
 check(clearColor and math.abs(clearColor[1] * 255 - 139) < 1 and math.abs(clearColor[3] * 255 - 255) < 1,
   "backdrop is main_menu bg.pal[0]")
@@ -172,12 +174,103 @@ check(info.hasDex == true, "FLAG_SYS_POKEDEX_GET read")
 check(info.badges == 2, "badge count 2 (got " .. tostring(info.badges) .. ")")
 check(info.dexCount == 2, "kanto caught count 2 (got " .. tostring(info.dexCount) .. ")")
 
-print("[test] 8. Title idle restart at 2700 frames")
+Audio.isBgmStopped = function() return true end
+
+print("[test] 8. Title idle restart fades to black before the intro")
 local idle = atTitle(false)
 step(idle, nil, 1790)
 check(idle.phase == Boot.PHASE.TITLE, "still TITLE at 30s")
+calls = {}
 step(idle, nil, 920)
-check(idle.phase == Boot.PHASE.INTRO, "restarts intro by 45s")
+check(idle.phase == Boot.PHASE.TITLE_RESTART, "45s idle -> title_restart, no hard cut (got " .. tostring(idle.phase) .. ")")
+local sawMapFade = false
+for _, c in ipairs(calls) do if c == "fadeout:10" then sawMapFade = true end end
+check(sawMapFade, "FadeOutMapMusic(10) on restart")
+step(idle, nil, 20)
+local rf = idle.restartFade
+check(rf and rf.bgY > 0 and rf.bgY < 16, "black fade in progress (bgY " .. tostring(rf and rf.bgY) .. ")")
+local restartFrames = 0
+while idle.phase == Boot.PHASE.TITLE_RESTART and restartFrames < 400 do
+  step(idle, nil)
+  restartFrames = restartFrames + 1
+end
+check(idle.phase == Boot.PHASE.INTRO, "intro after the black fade and wait")
+check(restartFrames >= 40, "fade + 20-frame wait took " .. restartFrames .. " more frames")
+
+local function drawSpy(state)
+  local userCalls, stdCalls = {}, 0
+  local oU, oS, oF = Chrome.userFrame, Chrome.stdFrame, FrlgFont.draw
+  Chrome.userFrame = function(ft) userCalls[#userCalls + 1] = ft end
+  Chrome.stdFrame = function() stdCalls = stdCalls + 1 end
+  FrlgFont.draw = function() return 0 end
+  _G.love = { graphics = {
+    clear = function() end, setColor = function() end,
+    rectangle = function() end, draw = function() end,
+  } }
+  Boot.draw(state)
+  _G.love = nil
+  Chrome.userFrame, Chrome.stdFrame, FrlgFont.draw = oU, oS, oF
+  return userCalls, stdCalls
+end
+
+print("[test] 9. Main menu windows use the user frame")
+local uf = atTitle(true)
+Boot.setContinueInfo(uf, { name = "RED", gender = 0, hours = 1, minutes = 2, badges = 0, frameType = 3 })
+step(uf, keys("start"))
+throughCry(uf)
+local userCalls, stdCalls = drawSpy(uf)
+check(#userCalls == 2 and userCalls[1] == 3 and userCalls[2] == 3, "CONTINUE + NEW GAME use user frame 3")
+check(stdCalls == 0, "no std frame on the menu")
+check(Boot.continueInfoFromSave({ options = { frameType = 5 } }).frameType == 5, "frameType read from save options")
+check(Boot.continueInfoFromSave({}).frameType == 0, "frameType defaults to 0")
+
+local function untilWaiting(state)
+  for _ = 1, 600 do
+    if not state.saveError or state.saveError.waiting then return end
+    step(state, nil)
+  end
+end
+
+print("[test] 10. Corrupted save shows the error window before the menu")
+local se = atTitle(true)
+Boot.setSaveStatus(se, "error")
+step(se, keys("start"))
+throughCry(se)
+check(se.phase == Boot.PHASE.MENU and se.saveError ~= nil, "error window after the white fade")
+check(se.saveError and se.saveError.pages[1] == "The save file is corrupted.", "page 1 wording")
+check(se.fadeT == 16 and se.fadeColor == "white", "error window fades in from white")
+local eu, es = drawSpy(se)
+check(es == 1 and #eu == 0, "error window uses the std frame only")
+step(se, nil, 8)
+check(se.fadeT == 0 and se.saveError.revealed == 0, "printer waits for the fade")
+local r0 = se.saveError.revealed
+step(se, nil, 4)
+check(se.saveError.revealed == r0 + 2, "2 frames per char (got " .. (se.saveError.revealed - r0) .. ")")
+untilWaiting(se)
+check(se.saveError.waiting == "prompt", "page 1 waits with the down arrow")
+step(se, nil, 1)
+check(se.saveError.arrowFrame == 0, "arrow drawn")
+calls = {}
+step(se, keys("b"))
+check(se.saveError.page == 2 and calls[1] == "se:5", "B advances the page with SE_SELECT")
+untilWaiting(se)
+check(se.saveError.waiting == "done", "last page waits")
+step(se, keys("b"))
+check(se.saveError ~= nil, "B does not close the last page")
+step(se, keys("a"))
+check(se.saveError == nil and se.phase == Boot.PHASE.MENU, "A closes the error window")
+check(se.fadeT == 16 and se.fadeColor == "white", "menu fades in from white")
+
+print("[test] 11. Deleted save shows the message then starts a new game")
+local inv = atTitle(false)
+Boot.setSaveStatus(inv, "invalid")
+step(inv, keys("start"))
+throughCry(inv)
+check(inv.phase == Boot.PHASE.MENU and inv.saveError and #inv.saveError.pages == 1, "deleted message shown")
+untilWaiting(inv)
+check(inv.saveError.waiting == "done", "single page waits for A")
+step(inv, keys("a"))
+check(inv.phase == Boot.PHASE.CONTROLS, "new game after the message (got " .. tostring(inv.phase) .. ")")
 
 if failed == 0 then
   print("\nAll game3 main menu tests passed.")

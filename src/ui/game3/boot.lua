@@ -9,6 +9,9 @@ local IntroGuide = require("src.ui.game3.intro_guide")
 local NamingChrome = require("src.ui.game3.naming_chrome")
 local IntroMovie = require("src.ui.game3.intro_movie")
 local TitleScreen = require("src.ui.game3.title_screen")
+local FrlgFont = require("src.ui.game3.frlg_font")
+local Chrome = require("src.ui.game3.chrome")
+local Strings = require("src.core.Strings")
 
 local Boot = {}
 
@@ -16,6 +19,7 @@ Boot.PHASE = {
   INTRO = "intro",
   COPYRIGHT = "copyright",
   TITLE = "title",
+  TITLE_RESTART = "title_restart",
   TITLE_CRY = "title_cry",
   MENU = "menu",
   CONTROLS = "controls",
@@ -142,6 +146,10 @@ function Boot.setContinueInfo(state, info)
   state.continueInfo = info
 end
 
+function Boot.setSaveStatus(state, status)
+  state.saveStatus = status
+end
+
 function Boot.continueInfoFromSave(save)
   if type(save) ~= "table" then return nil end
   local Flags = require("src.core.game3.scripting.flags")
@@ -167,6 +175,7 @@ function Boot.continueInfoFromSave(save)
     hasDex = Flags.getFlag(store, nil, Flags.IDS.SYS_POKEDEX_GET) == true,
     dexCount = n,
     badges = Flags.countBadges(store),
+    frameType = tonumber(type(save.options) == "table" and save.options.frameType or nil) or 0,
   }
 end
 
@@ -204,6 +213,107 @@ local function leaveTitle(state)
   if state._titleActive then
     TitleScreen.leave(state)
   end
+end
+
+local function stepPalFade(f)
+  if not f.active then return end
+  if f.finishing then
+    if f.finishing >= 4 then f.active = false else f.finishing = f.finishing + 1 end -- pokefirered/src/palette.c:761
+    return
+  end
+  if f.toggle == 0 then
+    if f.counter < f.delay then -- pokefirered/src/palette.c:408
+      f.counter = f.counter + 1
+      return
+    end
+    f.counter = 0
+    f.bgY = f.y
+    f.toggle = 1
+  else
+    f.objY = f.y
+    f.toggle = 0
+    if f.y == f.target then
+      f.finishing = 0
+    elseif f.y < f.target then
+      f.y = math.min(f.target, f.y + 2)
+    else
+      f.y = math.max(f.target, f.y - 2)
+    end
+  end
+end
+
+local function beginPalFade(delay, startY, targetY)
+  local f = { delay = delay, counter = delay, y = startY, target = targetY,
+    bgY = startY, objY = startY, toggle = 0, active = true }
+  stepPalFade(f) -- pokefirered/src/palette.c:180
+  return f
+end
+
+Boot.beginPalFade = beginPalFade
+Boot.stepPalFade = stepPalFade
+
+local function saveErrorPages(status)
+  if status == "invalid" then
+    return { Strings("The save file has been\ndeleted...") } -- pokefirered/src/strings.c:31
+  end
+  return { -- pokefirered/src/strings.c:30
+    Strings("The save file is corrupted."),
+    Strings("The previous save file will be\nloaded."),
+  }
+end
+
+local ARROW_FRAMES = { 0, 1, 2, 1 } -- pokefirered/src/text.c:35
+
+local function beginSaveError(state)
+  local pages = saveErrorPages(state.saveStatus)
+  state.saveError = {
+    pages = pages, page = 1, revealed = 0, delay = 0,
+    total = FrlgFont.countChars(pages[1]) + 1,
+    arrowIdx = 0, arrowDelay = 0,
+  }
+  state.menuIndex = 1
+  beginMenuFade(state, "white", 16, 0, nil) -- pokefirered/src/main_menu.c:283
+end
+
+local function tickSaveError(state, pressed)
+  local e = state.saveError
+  if e.waiting == "prompt" then
+    if e.arrowDelay ~= 0 then -- pokefirered/src/text.c:478
+      e.arrowDelay = e.arrowDelay - 1
+    else
+      e.arrowFrame = ARROW_FRAMES[e.arrowIdx + 1]
+      e.arrowIdx = (e.arrowIdx + 1) % 4
+      e.arrowDelay = 8 -- pokefirered/src/text.c:516
+    end
+    if pressed("a") or pressed("b") then -- pokefirered/src/text.c:560
+      Audio.playSe(5)
+      e.page = e.page + 1
+      e.revealed = 0
+      e.total = FrlgFont.countChars(e.pages[e.page]) + 1
+      e.waiting, e.arrowFrame, e.arrowIdx, e.arrowDelay = nil, nil, 0, 0
+    end
+    return nil
+  elseif e.waiting == "done" then
+    if pressed("a") then -- pokefirered/src/main_menu.c:293
+      state.saveError = nil
+      if state.saveStatus == "invalid" or not state.hasContinue then
+        return beginNewGame(state) -- pokefirered/src/main_menu.c:299
+      end
+      state.menuIndex = 1
+      beginMenuFade(state, "white", 16, 0, nil) -- pokefirered/src/main_menu.c:398
+    end
+    return nil
+  end
+  if e.delay > 0 then -- pokefirered/src/text.c:642
+    e.delay = e.delay - 1
+    return nil
+  end
+  e.delay = 1 -- pokefirered/src/text_printer.c:93
+  e.revealed = e.revealed + 1
+  if e.revealed >= e.total then
+    e.waiting = (e.page < #e.pages) and "prompt" or "done"
+  end
+  return nil
 end
 
 function Boot.update(state, input, dt)
@@ -257,8 +367,37 @@ function Boot.update(state, input, dt)
       state.whiteFading = false
       Audio.playCry(6, 0) -- pokefirered/src/title_screen.c:715
     elseif state.timer >= 2700 / 60 then -- pokefirered/src/title_screen.c:435
+      state.phase = Boot.PHASE.TITLE_RESTART
+      state.restartStep = 0
+      state.restartFade = nil
+      state.restartWait = 0
+    end
+    return nil
+  end
+
+  if state.phase == Boot.PHASE.TITLE_RESTART then
+    TitleScreen.update(state, dt)
+    local fade = state.restartFade
+    if fade then stepPalFade(fade) end
+    local step = state.restartStep or 0
+    if step == 0 then -- pokefirered/src/title_screen.c:672
+      state.restartStep = 1
+    elseif step == 1 then
+      Audio.fadeOutBgm(10) -- pokefirered/src/title_screen.c:678
+      state.restartFade = beginPalFade(3, 0, 16) -- pokefirered/src/title_screen.c:679
+      state.restartStep = 2
+    elseif step == 2 then
+      if Audio.isBgmStopped() and not (fade and fade.active) then -- pokefirered/src/title_screen.c:685
+        state.restartWait = 0
+        state.restartStep = 3
+      end
+    elseif step == 3 then
+      state.restartWait = state.restartWait + 1
+      if state.restartWait >= 20 then state.restartStep = 4 end -- pokefirered/src/title_screen.c:694
+    else
       leaveTitle(state)
-      state.phase = Boot.PHASE.INTRO
+      state.restartFade = nil
+      state.phase = Boot.PHASE.INTRO -- pokefirered/src/title_screen.c:703
       state.introMovie = IntroMovie.new(state.assets)
       state.timer = 0
     end
@@ -280,6 +419,11 @@ function Boot.update(state, input, dt)
       leaveTitle(state)
       state.whiteFading = false
       state.timer = 0
+      if state.saveStatus == "invalid" or state.saveStatus == "error" then -- pokefirered/src/main_menu.c:246
+        state.phase = Boot.PHASE.MENU
+        beginSaveError(state)
+        return nil
+      end
       if not state.hasContinue then -- pokefirered/src/main_menu.c:317
         return beginNewGame(state)
       end
@@ -320,6 +464,9 @@ function Boot.update(state, input, dt)
     end
     local items = menuItems(state)
     local pressed = function(k) return input and input.wasPressed and input:wasPressed(k) end
+    if state.saveError then
+      return tickSaveError(state, pressed)
+    end
     if pressed("a") then -- pokefirered/src/main_menu.c:570
       Audio.playSe(5)
       local choice = items[state.menuIndex]
@@ -363,10 +510,10 @@ function Boot.update(state, input, dt)
   return nil
 end
 
-local MENU_BG = { 139 / 255, 148 / 255, 255 / 255 }
-local MENU_TEXT = { 98 / 255, 98 / 255, 98 / 255, 1 }
-local MENU_SHADOW = { 213 / 255, 213 / 255, 205 / 255, 1 }
-local MENU_FILL = { 1, 1, 1, 1 }
+local MENU_BG = { 139 / 255, 148 / 255, 255 / 255 } -- pokefirered/graphics/main_menu/bg.pal:4
+local MENU_TEXT = { 98 / 255, 98 / 255, 98 / 255, 1 } -- pokefirered/graphics/main_menu/textbox.pal:15
+local MENU_SHADOW = { 213 / 255, 213 / 255, 205 / 255, 1 } -- pokefirered/graphics/main_menu/textbox.pal:16
+local MENU_FILL = { 1, 1, 1, 1 } -- pokefirered/graphics/main_menu/textbox.pal:14
 local ACCENT_MALE = { 4 / 31, 16 / 31, 31 / 31, 1 }
 local ACCENT_FEMALE = { 31 / 31, 3 / 31, 21 / 31, 1 }
 local WIN0V = { { 0x02, 0x5E }, { 0x62, 0x7E } }
@@ -388,8 +535,9 @@ local function drawMainMenu(state, W, H)
     shadow = MENU_SHADOW,
     bg = MENU_FILL,
   }
-  Window.stdFrame(Window.template(3, 1, 24, 10)) -- pokefirered/src/main_menu.c:84
-  Window.stdFrame(Window.template(3, 13, 24, 2)) -- pokefirered/src/main_menu.c:93
+  local frameType = info.frameType or 0 -- pokefirered/src/main_menu.c:680
+  Window.userFrame(Window.template(3, 1, 24, 10), frameType) -- pokefirered/src/main_menu.c:84
+  Window.userFrame(Window.template(3, 13, 24, 2), frameType) -- pokefirered/src/main_menu.c:93
   local x, y = 24, 8
   Window.printPx("CONTINUE", x + 2, y + 2, { colors = head })
   Window.printPx("PLAYER", x + 2, y + 18, { colors = stat }) -- pokefirered/src/main_menu.c:623
@@ -412,6 +560,29 @@ local function drawMainMenu(state, W, H)
     else
       love.graphics.setColor(0, 0, 0, t / 16)
     end
+    love.graphics.rectangle("fill", 0, 0, W, H)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function drawSaveError(state, W, H)
+  local e = state.saveError
+  love.graphics.clear(MENU_BG[1], MENU_BG[2], MENU_BG[3], 1)
+  Window.stdFrame(Window.template(3, 15, 24, 4)) -- pokefirered/src/main_menu.c:687
+  local page = e.pages[e.page] or ""
+  local limit = math.min(e.revealed, FrlgFont.countChars(page))
+  local _, endX, endY = FrlgFont.draw(page, 24, 120 + 2, { -- pokefirered/src/main_menu.c:603
+    maxWidth = 192,
+    limitChars = limit,
+    colors = { fg = MENU_TEXT, shadow = MENU_SHADOW, bg = MENU_FILL },
+  })
+  if e.waiting == "prompt" and e.arrowFrame and endX then
+    Chrome.promptArrow(endX, endY, e.arrowFrame) -- pokefirered/src/text.c:503
+  end
+  darkenOutside(W, H, 19, 115, 221, 157) -- pokefirered/src/main_menu.c:606
+  local t = state.fadeT or 0
+  if t > 0 then
+    love.graphics.setColor(1, 1, 1, t / 16)
     love.graphics.rectangle("fill", 0, 0, W, H)
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -442,8 +613,23 @@ function Boot.draw(state)
     return
   end
 
+  if state.phase == Boot.PHASE.TITLE_RESTART then
+    TitleScreen.draw(state)
+    local y = state.restartFade and state.restartFade.bgY or 0
+    if y > 0 then
+      love.graphics.setColor(0, 0, 0, y / 16) -- pokefirered/src/title_screen.c:679
+      love.graphics.rectangle("fill", 0, 0, W, H)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    return
+  end
+
   if state.phase == Boot.PHASE.MENU then
-    drawMainMenu(state, W, H)
+    if state.saveError then
+      drawSaveError(state, W, H)
+    else
+      drawMainMenu(state, W, H)
+    end
     return
   end
 

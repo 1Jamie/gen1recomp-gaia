@@ -319,6 +319,19 @@ local DYNAMIC_MIDS_BY_PAIR = {
   },
 }
 
+-- pokefirered/src/field_specials.c:283
+NativePack.PC_ON_BY_OFF = {
+  [0x062] = 0x063, -- pokefirered/include/constants/metatile_labels.h:6
+  [0x28F] = 0x28A, -- pokefirered/include/constants/metatile_labels.h:75
+}
+
+function NativePack.addPcOnMids(seen)
+  for off, on in pairs(NativePack.PC_ON_BY_OFF) do
+    if seen[off] then seen[on] = true end
+  end
+  return seen
+end
+
 --- Collect unique mids used by grids + borders for a pair.
 function NativePack.collectMidsForPair(grids, borders, pairName)
   local seen = {}
@@ -342,6 +355,7 @@ function NativePack.collectMidsForPair(grids, borders, pairName)
       seen[mid] = true
     end
   end
+  NativePack.addPcOnMids(seen)
   seen[0] = true -- void / default border
   local list = {}
   for mid in pairs(seen) do list[#list + 1] = mid end

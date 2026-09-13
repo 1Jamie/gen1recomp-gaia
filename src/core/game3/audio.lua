@@ -23,10 +23,20 @@ Audio._cryClock = 0
 Audio._cryUntil = nil
 Audio._fanfareFrames = 0
 Audio._fanfareActive = false
+Audio._fanfareSd = {}
+Audio._fanfareSrc = {}
+Audio._fanfareRoot = nil
+Audio._fanfareRestore = nil
+Audio._fanfareDeferred = nil
+Audio._fanfarePending = nil
+Audio._fanfareSource = nil
 Audio._bgmPaused = false
+Audio._bgmEpoch = 0
+Audio._bgmQueuedAt = {}
+Audio._bgmBaseAt = 0
 Audio._bgmVolume = 1
 Audio._sfxVolume = 1
--- Baked SE/fanfare sit under BGM: CGB voice scales are conservative for the
+-- Baked SE sit under BGM: CGB voice scales are conservative for the
 -- shared mix bus, but doors/UI play as separate sources and need to cut through.
 -- SE bake is quieter than hardware/mGBA mix under battle BGM; 3.5 keeps
 -- move hits readable without hard-clipping typical effectiveness/move SE.
@@ -88,8 +98,10 @@ local function ensure_worker()
   end
   Audio._cmdCh = love.thread.getChannel("game3_m4a_cmd")
   Audio._outCh = love.thread.getChannel("game3_m4a_out")
+  Audio._fanfareCh = love.thread.getChannel("game3_m4a_fanfare")
   Audio._cmdCh:clear()
   Audio._outCh:clear()
+  Audio._fanfareCh:clear()
   local started = pcall(function() thread:start() end)
   if not started then
     Audio._worker = false
@@ -127,6 +139,11 @@ function Audio.install(cache, opts)
   Audio._pack = pack
   Audio._meta = pack.index
   Audio._ready = true
+  if Audio._fanfareRoot ~= Audio._root then
+    Audio._fanfareSd = {}
+    Audio._fanfareSrc = {}
+    Audio._fanfareRoot = Audio._root
+  end
   if ensure_worker() then
     Audio._cmdCh:push({
       cmd = "install",
@@ -187,6 +204,8 @@ local function stop_bgm_source()
   Audio._bgmLocal = nil
   Audio._bgmGen = nil
   Audio._pendingBgm = nil
+  Audio._bgmQueuedAt = {}
+  Audio._bgmBaseAt = 0
 end
 
 function Audio.playSong(id, opts)
@@ -214,6 +233,9 @@ function Audio.playSong(id, opts)
   Audio._fadeIn = nil
   Audio._fanfareActive = false
   Audio._fanfareFrames = 0
+  Audio._fanfareRestore = nil
+  Audio._fanfareDeferred = nil
+  Audio._fanfarePending = nil
   Audio._bgmPaused = false
 
   if not Audio.isReady() then
@@ -224,7 +246,10 @@ function Audio.playSong(id, opts)
   if ensure_worker() then
     Audio._pendingBgm = nil
     if Audio._outCh then Audio._outCh:clear() end
-    Audio._cmdCh:push({ cmd = "play", id = id })
+    Audio._bgmEpoch = (Audio._bgmEpoch or 0) + 1
+    Audio._bgmQueuedAt = {}
+    Audio._bgmBaseAt = 0
+    Audio._cmdCh:push({ cmd = "play", id = id, epoch = Audio._bgmEpoch })
     Audio._cmdCh:push({ cmd = "volume", volume = bgm_gain() })
     Audio._bgmGen = id
     local src = ensure_bgm_source()
@@ -247,8 +272,11 @@ function Audio.playMapSong(id, opts)
   opts = opts or {}
   id = tonumber(id) or id
   if id == nil or id == 0xFFFF then return true end
-  Audio._mapSong = id
-  if Audio._fanfareActive then return true end
+  Audio._mapSong = opts.mapSong or id
+  if Audio._fanfareActive then
+    Audio._fanfareDeferred = id
+    return true
+  end
   if opts.fadeOut then
     Audio.fadeOutBgm(opts.fadeOut)
   end
@@ -259,16 +287,27 @@ function Audio.setMapSong(id)
   Audio._mapSong = tonumber(id) or id
 end
 
+-- pokefirered/src/overworld.c:1039
 function Audio.restoreMapSong(opts)
   local id = Audio._savedSong or Audio._mapSong
-  Audio._savedSong = nil
   if id then return Audio.playSong(id, opts) end
   return true
 end
 
+-- pokefirered/src/overworld.c:1048
+function Audio.setSavedSong(id)
+  id = tonumber(id) or id
+  if id == 0 or id == 0xFFFF then id = nil end
+  Audio._savedSong = id
+end
+
+-- pokefirered/src/overworld.c:1089
 function Audio.fadeDefaultBgm(speed)
+  local id = Audio._mapSong
+  if id and Audio._currentSong and Audio._currentSong.id == id then return true end
   Audio.fadeOutBgm(speed)
-  return Audio.restoreMapSong()
+  if id then return Audio.playSong(id) end
+  return true
 end
 
 function Audio.fadeOutBgm(speed)
@@ -302,21 +341,55 @@ function Audio.fadeInBgm(id, speed)
   return true
 end
 
-function Audio.pauseBgm()
-  Audio._bgmPaused = true
-  if Audio._cmdCh then Audio._cmdCh:push({ cmd = "pause" }) end
-  if Audio._bgmSource then pcall(function() Audio._bgmSource:pause() end) end
+function Audio.bgmHeardPosition()
+  local q = Audio._bgmQueuedAt or {}
+  if #q == 0 then return Audio._bgmBaseAt end
+  local src = Audio._bgmSource
+  if not src then return nil end
+  local okFree, free = pcall(src.getFreeBufferCount, src)
+  if not okFree or type(free) ~= "number" then return nil end
+  local inAl = (Player.BUFFER_COUNT or 32) - free
+  if inAl <= 0 then
+    local last = q[#q]
+    return last.at and (last.at + (last.n or 0)) or nil
+  end
+  local cur = q[#q - inAl + 1] or q[1]
+  if not cur.at then return nil end
+  local okTell, off = pcall(src.tell, src, "samples")
+  off = okTell and tonumber(off) or 0
+  if off < 0 then off = 0 end
+  return cur.at + off
 end
 
+-- pokefirered/src/m4a.c:668
+function Audio.pauseBgm()
+  if Audio._bgmPaused then return end
+  local at = Audio.bgmHeardPosition() or Audio._bgmBaseAt or 0
+  Audio._bgmPaused = true
+  Audio._bgmEpoch = (Audio._bgmEpoch or 0) + 1
+  if Audio._outCh then Audio._outCh:clear() end
+  if Audio._cmdCh then
+    Audio._cmdCh:push({ cmd = "stopAt", at = at, epoch = Audio._bgmEpoch })
+  end
+  if Audio._bgmSource then pcall(function() Audio._bgmSource:stop() end) end
+  Audio._pendingBgm = nil
+  Audio._bgmQueuedAt = {}
+  Audio._bgmBaseAt = at
+  local slot = Audio._bgmLocal
+  if slot then
+    if slot.seq then slot.seq.voices = {} end
+    slot.voices = {}
+  end
+end
+
+-- pokefirered/src/m4a.c:186
 function Audio.resumeBgm()
   Audio._bgmPaused = false
   if Audio._cmdCh then Audio._cmdCh:push({ cmd = "resume" }) end
   if Audio._bgmSource then
-    pcall(function()
-      Audio._bgmSource:setVolume(bgm_gain())
-      Audio._bgmSource:play()
-    end)
+    pcall(function() Audio._bgmSource:setVolume(bgm_gain()) end)
   end
+  Audio.pumpBgm()
 end
 
 function Audio.isBgmStopped()
@@ -379,7 +452,10 @@ function Audio.playSe(id, opts)
     Audio._seByPlayer[mplay] = src
     Audio._seMeta[src] = { id = id, player = mplay }
     while #Audio._seSources > 8 do
-      local old = table.remove(Audio._seSources, 1)
+      local idx = 1
+      if Audio._seSources[idx] == Audio._fanfareSource then idx = 2 end
+      local old = table.remove(Audio._seSources, idx)
+      if not old then break end
       Audio._forgetSeSource(old)
       pcall(function() old:stop() end)
     end
@@ -486,42 +562,106 @@ function Audio.waitSe(id, cb)
   Audio._waitSe[#Audio._waitSe + 1] = { id = id, cb = cb }
 end
 
+local function fanfare_entry(id)
+  local ff = Audio._pack and Audio._pack.index and Audio._pack.index.fanfares
+  if not ff then return nil, false end
+  return ff[id] or ff[tostring(id)], true
+end
+
+local function start_fanfare_source(id, mplay)
+  Audio._fanfarePending = nil
+  local old = Audio._fanfareSource
+  if old then
+    Audio._fanfareSource = nil
+    pcall(function() old:stop() end)
+    Audio._forgetSeSource(old)
+    for i = #Audio._seSources, 1, -1 do
+      if Audio._seSources[i] == old then table.remove(Audio._seSources, i) end
+    end
+  end
+  Audio._stopSePlayer(mplay)
+  local sd = Audio._fanfareSd[id]
+  if not sd then
+    if Audio._worker and Audio._cmdCh then
+      Audio._cmdCh:push({ cmd = "bakeFanfare", id = id })
+      Audio._fanfarePending = { id = id, player = mplay }
+      return false
+    end
+    if Audio._worker == false and Audio.isReady() then
+      local e = fanfare_entry(id)
+      local baked = Player.bakeSong(Audio._pack, Audio._cache, id, {
+        maxSec = ((e and e.frames) or 160) / 60 + 4,
+      })
+      if type(baked) == "userdata" then
+        sd = baked
+        Audio._fanfareSd[id] = sd
+      end
+    end
+  end
+  if not (sd and love and love.audio and love.audio.newSource) then return false end
+  local src = Audio._fanfareSrc[id]
+  if not src then
+    local ok, made = pcall(love.audio.newSource, sd, "static")
+    if not ok or not made then return false end
+    src = made
+    Audio._fanfareSrc[id] = src
+  end
+  pcall(function()
+    src:stop()
+    src:setVolume(Audio._bgmVolume or 1)
+    src:play()
+  end)
+  Audio._fanfareSource = src
+  Audio._seSources[#Audio._seSources + 1] = src
+  Audio._seByPlayer[mplay] = src
+  Audio._seMeta[src] = { id = id, player = mplay }
+  return true
+end
+
 function Audio.playFanfare(id)
   local SE = require("src.core.game3.se_ids")
   id = SE.resolve(id)
   if id == nil then return false end
-  local info = Audio.songInfo(id) or {}
-  local frames = info.fanfareFrames
-  if not frames then
-    local ff = Audio._pack and Audio._pack.index and Audio._pack.index.fanfares
-    frames = ff and ff[id] and ff[id].frames or 160
+  local entry, haveTable = fanfare_entry(id)
+  if haveTable and not entry then
+    -- pokefirered/src/sound.c:245
+    id = 257
+    entry = fanfare_entry(id)
   end
-  -- Remember what to restore; fade/stop may have cleared the worker mid-fanfare.
-  Audio._savedSong = Audio._savedSong
-    or (Audio._currentSong and Audio._currentSong.id)
-    or Audio._mapSong
-  Audio.pauseBgm()
+  local info = Audio.songInfo(id) or {}
+  -- pokefirered/src/sound.c:50
+  local frames = info.fanfareFrames or (entry and entry.frames) or 160
+  -- pokefirered/src/sound.c:199
+  if not Audio._fanfareActive then
+    Audio._fanfareRestore = Audio._bgmGen or (Audio._currentSong and Audio._currentSong.id)
+    Audio._fanfareDeferred = nil
+    Audio.pauseBgm()
+  end
   Audio._fanfareActive = true
   Audio._fanfareFrames = frames
-  -- Fanfares are sequenced songs (not a single voice0 sample).
-  local slot = { voices = {} }
   if Audio.isReady() then
-    if Player.start(Audio._pack, Audio._cache, slot, id, { forceSeq = true }) then
-      local sd = Player.bakeSlot(slot, {
-        master = (Audio._sfxVolume or 1) * (Audio._seBakeGain or 3.5),
-        mono = Audio._mono,
-        maxSec = math.max(1.5, (frames or 160) / 60 + 0.75),
-      })
-      if sd and love and love.audio and love.audio.newSource then
-        local src = love.audio.newSource(sd, "static")
-        src:setVolume(1)
-        src:play()
-        Audio._seSources[#Audio._seSources + 1] = src
-      end
-    end
+    start_fanfare_source(id, tonumber(info.player) or 2)
   end
   log(string.format("playFanfare id=%s frames=%s", tostring(id), tostring(frames)))
   return true
+end
+
+function Audio.pumpFanfares()
+  local ch = Audio._fanfareCh
+  if not ch then return end
+  local msg = ch:pop()
+  while msg do
+    if type(msg) == "table" and msg.id and msg.data and msg.root == Audio._root then
+      if not Audio._fanfareSd[msg.id] then
+        Audio._fanfareSd[msg.id] = msg.data
+      end
+      local p = Audio._fanfarePending
+      if p and p.id == msg.id and Audio._fanfareActive then
+        start_fanfare_source(msg.id, p.player)
+      end
+    end
+    msg = ch:pop()
+  end
 end
 
 function Audio.isFanfareFinished()
@@ -609,19 +749,25 @@ function Audio.update(dt)
   dt = dt or 1 / 60
   Audio.tickCry(dt)
 
+  Audio.pumpFanfares()
+
   -- Fanfare countdown (frame-exact)
   if Audio._fanfareActive then
     Audio._fanfareFrames = (Audio._fanfareFrames or 0) - dt * 60
     if Audio._fanfareFrames <= 0 then
       Audio._fanfareActive = false
-      local restore = Audio._savedSong or Audio._mapSong
-      Audio._savedSong = nil
-      -- If a stale fade/stop killed the worker, resume alone is silence —
-      -- replay map/saved BGM. If still loaded, just unpause.
-      if restore and (not Audio._bgmGen or Audio._bgmGen ~= restore) then
+      Audio._fanfarePending = nil
+      local deferred, restore = Audio._fanfareDeferred, Audio._fanfareRestore
+      Audio._fanfareDeferred, Audio._fanfareRestore = nil, nil
+      -- pokefirered/src/sound.c:264
+      if deferred and deferred ~= Audio._bgmGen then
+        Audio.playSong(deferred, { restart = true })
+      elseif Audio._bgmGen or Audio._bgmLocal then
+        Audio.resumeBgm()
+      elseif restore then
         Audio.playSong(restore, { restart = true })
       else
-        Audio.resumeBgm()
+        Audio._bgmPaused = false
       end
       local cb = Audio._waitFanfareCb
       Audio._waitFanfareCb = nil
@@ -672,7 +818,7 @@ function Audio.update(dt)
   Audio.pumpBgm()
 
   -- Sync BGM fallback
-  if Audio._bgmLocal and Audio._bgmSource and not Audio._worker then
+  if Audio._bgmLocal and Audio._bgmSource and not Audio._worker and not Audio._bgmPaused then
     local src = Audio._bgmSource
     local okFree, free = pcall(src.getFreeBufferCount, src)
     if okFree and type(free) == "number" and free > 0 then
@@ -715,8 +861,12 @@ function Audio.pumpBgm()
   local function accept(msg)
     if type(msg) ~= "table" or not msg.data then return true end
     if msg.gen ~= nil and msg.gen ~= Audio._bgmGen then return true end
-    local ok = pcall(src.queue, src, msg.data)
-    if not ok then return false end
+    if msg.epoch ~= nil and msg.epoch ~= Audio._bgmEpoch then return true end
+    local ok, res = pcall(src.queue, src, msg.data)
+    if not ok or res == false then return false end
+    local q = Audio._bgmQueuedAt
+    q[#q + 1] = { at = msg.at, n = msg.n }
+    while #q > (Player.BUFFER_COUNT or 32) + 8 do table.remove(q, 1) end
     if not src:isPlaying() then
       pcall(function()
         src:setVolume(bgm_gain())
@@ -779,9 +929,12 @@ function Audio.rebuildPlayback()
     love.audio.newQueueableSource,
     Audio._bgmRate or Mix.SAMPLE_RATE, 16, 2, Player.BUFFER_COUNT)
   if not ok or not src then return false end
+  local heard = Audio.bgmHeardPosition()
   local old = Audio._bgmSource
   Audio._bgmSource = src
   Audio._pendingBgm = nil
+  Audio._bgmQueuedAt = {}
+  Audio._bgmBaseAt = heard or Audio._bgmBaseAt or 0
   if old then pcall(function() old:stop() end) end
   if Audio._outCh then Audio._outCh:clear() end
   -- Ask worker to keep producing; drain whatever arrives next frames.

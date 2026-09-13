@@ -34,6 +34,7 @@ function LearnMove.reset()
   LearnMove._pending = nil
   LearnMove._pendingResult = false
   LearnMove._forgetSlots = nil
+  LearnMove._battleText = false
   LearnMove._queue = nil
   LearnMove._queueIdx = 0
   LearnMove._queueOpts = nil
@@ -74,6 +75,35 @@ end
 local open_delete_prompt
 local open_stop_prompt
 local open_forget_list
+local ask_to_learn
+
+local function T(battle, field)
+  if LearnMove._battleText then return battle end
+  return field
+end
+
+local function did_not_learn_text()
+  -- pokefirered/src/battle_message.c:63
+  return T(LearnMove._name .. " did not learn\n" .. LearnMove._moveName .. ".",
+    LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".")
+end
+
+function ask_to_learn()
+  if LearnMove._battleText then
+    -- pokefirered/data/battle_scripts_1.s:3124
+    say(LearnMove._name .. " is trying to\nlearn " .. LearnMove._moveName .. ".", function()
+      say("But, " .. LearnMove._name .. " can't learn\nmore than four moves.", function()
+        open_delete_prompt()
+      end)
+    end)
+    return
+  end
+  say(LearnMove._name .. " wants to learn the\nmove " .. LearnMove._moveName .. ".", function()
+    say("However, " .. LearnMove._name .. " already\nknows four moves.", function()
+      open_delete_prompt()
+    end)
+  end)
+end
 
 function open_delete_prompt()
   if LearnMove._headless or not LearnMove._askYesNo then
@@ -83,7 +113,9 @@ function open_delete_prompt()
     return
   end
   LearnMove._waitingChoice = true
-  LearnMove._askYesNo("Should a move be deleted and\nreplaced with " .. LearnMove._moveName .. "?", function(yes)
+  -- pokefirered/src/battle_message.c:60
+  LearnMove._askYesNo(T("Delete a move to make\nroom for " .. LearnMove._moveName .. "?",
+    "Should a move be deleted and\nreplaced with " .. LearnMove._moveName .. "?"), function(yes)
     LearnMove._waitingChoice = false
     if not yes then
       open_stop_prompt()
@@ -95,18 +127,23 @@ end
 
 function open_stop_prompt()
   if LearnMove._headless or not LearnMove._askYesNo then
-    say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+    say(did_not_learn_text(), function()
       finish(false)
     end)
     return
   end
   LearnMove._waitingChoice = true
-  LearnMove._askYesNo("Stop trying to teach\n" .. LearnMove._moveName .. "?", function(stop)
+  -- pokefirered/src/battle_message.c:62
+  LearnMove._askYesNo(T("Stop learning\n" .. LearnMove._moveName .. "?",
+    "Stop trying to teach\n" .. LearnMove._moveName .. "?"), function(stop)
     LearnMove._waitingChoice = false
     if stop then
-      say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+      say(did_not_learn_text(), function()
         finish(false)
       end)
+    elseif LearnMove._battleText then
+      -- pokefirered/data/battle_scripts_1.s:3133
+      ask_to_learn()
     else
       open_delete_prompt()
     end
@@ -115,7 +152,7 @@ end
 
 function open_forget_list()
   if LearnMove._headless or not LearnMove._askForget then
-    say(LearnMove._name .. " did not learn the\nmove " .. LearnMove._moveName .. ".", function()
+    say(did_not_learn_text(), function()
       finish(false)
     end)
     return
@@ -142,24 +179,43 @@ function open_forget_list()
     local oldId = Pokemon.moveIdAt(LearnMove._mon, slot)
     if Pokemon.isHmMove(oldId) then
       say("HM moves can't be\nforgotten now.", function()
-        open_delete_prompt()
+        if LearnMove._battleText then
+          -- pokefirered/src/battle_script_commands.c:5246
+          open_forget_list()
+        else
+          open_delete_prompt()
+        end
       end)
       return
     end
     local forgotten = Pokemon.replaceMove(LearnMove._mon, slot, LearnMove._moveId)
     if forgotten then
-      pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+      local battle = LearnMove._battleText
+      local function fanfare()
+        pcall(function() require("src.core.game3.audio").playFanfare(257) end)
+      end
+      if not battle then fanfare() end
+      -- pokefirered/src/battle_message.c:315
+      local poof = T("1, 2, and… … … Poof!", "1, 2, and… Poof!")
+      -- pokefirered/src/battle_message.c:61
+      local forgot = T(LearnMove._name .. " forgot\n" .. move_name(forgotten) .. ".",
+        LearnMove._name .. " forgot how to\nuse " .. move_name(forgotten) .. ".")
+      local andText = T("And…", "And...")
+      local learned = LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!"
       if LearnMove._headless then
-        say("1, 2, and… Poof!")
-        say(LearnMove._name .. " forgot how to\nuse " .. move_name(forgotten) .. ".")
-        say("And...")
-        say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
+        say(poof)
+        say(forgot)
+        say(andText)
+        if battle then fanfare() end
+        say(learned)
         finish(true)
       else
-        say("1, 2, and… Poof!", function()
-          say(LearnMove._name .. " forgot how to\nuse " .. move_name(forgotten) .. ".", function()
-            say("And...", function()
-              say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
+        say(poof, function()
+          say(forgot, function()
+            say(andText, function()
+              -- pokefirered/data/battle_scripts_1.s:3142
+              if battle then fanfare() end
+              say(learned, function()
                 finish(true)
               end)
             end)
@@ -169,7 +225,7 @@ function open_forget_list()
     else
       open_delete_prompt()
     end
-  end)
+  end, { mon = LearnMove._mon, moveId = LearnMove._moveId })
 end
 
 --- Call when message queue is idle. Opens deferred Choice prompts.
@@ -226,6 +282,7 @@ function LearnMove.begin(opts)
   LearnMove._askForget = opts.askForget
   LearnMove._onDone = opts.onDone
   LearnMove._headless = opts.headless and true or false
+  LearnMove._battleText = opts.battleText and true or false
   LearnMove._waitingChoice = false
   LearnMove._pending = nil
 
@@ -258,11 +315,7 @@ function LearnMove.begin(opts)
     return
   end
 
-  say(LearnMove._name .. " wants to learn the\nmove " .. LearnMove._moveName .. ".", function()
-    say("However, " .. LearnMove._name .. " already\nknows four moves.", function()
-      open_delete_prompt()
-    end)
-  end)
+  ask_to_learn()
 end
 
 function LearnMove.movesForLevels(mon, levels)
@@ -301,6 +354,7 @@ local function queue_next()
     askYesNo = opts.askYesNo,
     askForget = opts.askForget,
     headless = opts.headless,
+    battleText = opts.battleText,
     onDone = function()
       queue_next()
     end,

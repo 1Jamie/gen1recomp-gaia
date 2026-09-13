@@ -10,6 +10,7 @@ local FrlgFont = require("src.ui.game3.frlg_font")
 local Pokemon = require("src.core.game3.pokemon")
 local SummaryChrome = require("src.ui.game3.summary_chrome")
 local SummaryData = require("src.core.game3.summary_data")
+local Strings = require("src.core.Strings")
 
 local SummaryMenu = {}
 
@@ -130,6 +131,7 @@ function SummaryMenu.openMenu(party, startIndex, opts)
   SummaryMenu._mode = opts.mode -- "select_move" | "party" | nil
   SummaryMenu._moveToLearn = opts.moveToLearn or opts.moveId
   SummaryMenu._onSelectMove = opts.onSelectMove
+  SummaryMenu._hmNotice = false
   SummaryMenu._moveCursor = 1
   SummaryMenu._swapSlot = nil
   SummaryMenu._slide.active = false
@@ -228,9 +230,11 @@ function SummaryMenu.handleInput(input)
 
     if input:wasPressed("up") then
       SummaryMenu._moveCursor = ((SummaryMenu._moveCursor - 2) % nMoves) + 1
+      SummaryMenu._hmNotice = false
       pcall(function() require("src.core.game3.audio").playSe(5) end)
     elseif input:wasPressed("down") then
       SummaryMenu._moveCursor = (SummaryMenu._moveCursor % nMoves) + 1
+      SummaryMenu._hmNotice = false
       pcall(function() require("src.core.game3.audio").playSe(5) end)
     elseif input:wasPressed("a") then
       if SummaryMenu._moveCursor <= 4 then
@@ -238,6 +242,8 @@ function SummaryMenu.handleInput(input)
         local moveId = chosenMove and chosenMove.id
         if moveId and Pokemon.isHmMove(moveId) then
           pcall(function() require("src.core.game3.audio").playSe(9) end)
+          -- pokefirered/src/pokemon_summary_screen.c:3897
+          SummaryMenu._hmNotice = true
         else
           pcall(function() require("src.core.game3.audio").playSe(5) end)
           local slotIdx = SummaryMenu._moveCursor - 1 -- 0-indexed (0..3)
@@ -602,7 +608,11 @@ local function draw_page_moves(mon, isDetail)
     end
 
     local selMove = moves[SummaryMenu._moveCursor]
-    if selMove then
+    if SummaryMenu._hmNotice then
+      local descBox = moves_info_coords().desc or { x = 7, y = 98, w = 112 }
+      -- pokefirered/src/strings.c:844
+      draw_text(Strings("HM moves can't be\nforgotten now."), descBox.x, descBox.y, descBox.w or 112, "NORMAL")
+    elseif selMove then
       local mi = moves_info_coords()
       local power = mi.power or { x = 57, y = 57 }
       local accuracy = mi.accuracy or { x = 57, y = 71 }

@@ -85,6 +85,10 @@ function EvolutionScene.start(mon, postSpecies, opts)
   EvolutionScene._mon = mon
   EvolutionScene._preSpecies = Pokemon.speciesOf(mon) or 1
   EvolutionScene._postSpecies = Pokemon.speciesFromName(postSpecies) or tonumber(postSpecies) or EvolutionScene._preSpecies
+  -- pokefirered/src/evolution_scene.c:256
+  local nick = clean_string(mon.nickname)
+  if nick == "" then nick = clean_string(Pokemon.name(EvolutionScene._preSpecies)) end
+  EvolutionScene._nick = nick ~= "" and nick or "POKéMON"
   EvolutionScene._canStop = opts.canStop ~= false
   EvolutionScene._session = opts.session
   EvolutionScene._bag = opts.bag
@@ -176,6 +180,11 @@ local function finish_scene(result)
   local saved = EvolutionScene._savedSong or Audio._mapSong
   EvolutionScene._onDone = nil
   EvolutionScene._mon = nil
+  EvolutionScene._nick = nil
+  EvolutionScene._pendingYesNo = nil
+  EvolutionScene._learnWait = nil
+  EvolutionScene._learnQueue = nil
+  EvolutionScene._learnOpts = nil
 
   if Message.close then Message.close() end
 
@@ -191,48 +200,107 @@ local function finish_scene(result)
   if cb then cb(result, mon) end
 end
 
-local function start_learn_moves()
-  local mon = EvolutionScene._mon
-  local postSpecies = EvolutionScene._postSpecies
-  local level = tonumber(mon.level) or 1
-  local learnLevels = { level }
-  local displayName = Pokemon.displayMonName(mon)
+local function open_pending_yesno()
+  if EvolutionScene._pendingYesNo == nil then return end
+  if not (Message.isOpen and Message.isOpen()) then
+    EvolutionScene._pendingYesNo = nil
+    return
+  end
+  -- pokefirered/src/evolution_scene.c:912
+  if not (Message.isWaiting and Message.isWaiting()) then return end
+  local cb = EvolutionScene._pendingYesNo
+  EvolutionScene._pendingYesNo = nil
+  local Choice = require("src.ui.game3.choice")
+  -- pokefirered/src/evolution_scene.c:914
+  Choice.yesNo(function(yes)
+    if Message.isOpen() and Message.close then Message.close() end
+    if cb then cb(yes == true) end
+  end, { left = 24, top = 9, style = "battle" })
+end
 
-  local hasMoves = LearnMove.beginQueue(mon, learnLevels, {
+local learn_next
+
+local function learn_hooks(mon, displayName)
+  return {
+    mon = mon,
     displayName = displayName,
     headless = EvolutionScene._headless,
+    -- pokefirered/src/evolution_scene.c:887
+    battleText = true,
     pushMsg = function(text, cb)
       Message.show(text, { frame = "battle", done = cb })
     end,
     askYesNo = function(a, b)
       local cb = (type(a) == "function") and a or b
       local prompt = (type(a) == "string") and a or nil
-      if prompt then Message.show(prompt, { frame = "battle" }) end
+      if prompt and prompt ~= "" then
+        Message.show(prompt, { frame = "battle", stay = true })
+        EvolutionScene._pendingYesNo = cb or false
+        return
+      end
+      EvolutionScene._pendingYesNo = nil
       local Choice = require("src.ui.game3.choice")
       Choice.yesNo(function(yes)
         if cb then cb(yes == true) end
-      end)
+      end, { left = 24, top = 9, style = "battle" })
     end,
-    askForget = function(moves_or_prompt, maybe_cb, last_cb)
-      local cb = (type(maybe_cb) == "function") and maybe_cb or last_cb
+    askForget = function(_, cb, ctx)
       local SummaryMenu = require("src.ui.game3.summary_menu")
-      local LearnMove = require("src.core.game3.battle.learn_move")
+      -- pokefirered/src/evolution_scene.c:971
       SummaryMenu.openMenu({ mon }, 1, {
         mode = "select_move",
-        moveToLearn = LearnMove._moveId,
+        moveToLearn = (ctx and ctx.moveId) or LearnMove._moveId,
         onSelectMove = function(slotIdx)
           if cb then cb(slotIdx) end
         end,
       })
     end,
-    onDone = function()
-      finish_scene("evolved")
+  }
+end
+
+function learn_next()
+  if not EvolutionScene.open then return end
+  local q = EvolutionScene._learnQueue
+  EvolutionScene._learnIdx = (EvolutionScene._learnIdx or 0) + 1
+  local item = q and q[EvolutionScene._learnIdx]
+  if not item then
+    EvolutionScene._learnQueue = nil
+    finish_scene("evolved")
+    return
+  end
+  local opts = EvolutionScene._learnOpts
+  LearnMove.begin({
+    mon = opts.mon,
+    moveId = item.moveId,
+    displayName = opts.displayName,
+    headless = opts.headless,
+    battleText = opts.battleText,
+    pushMsg = opts.pushMsg,
+    askYesNo = opts.askYesNo,
+    askForget = opts.askForget,
+    onDone = function(learned)
+      if learned and not EvolutionScene._headless then
+        -- pokefirered/src/evolution_scene.c:871
+        EvolutionScene._learnWait = 0x40
+      else
+        learn_next()
+      end
     end,
   })
+end
 
-  if not hasMoves then
-    finish_scene("evolved")
-  end
+local function start_learn_moves()
+  local mon = EvolutionScene._mon
+  local level = tonumber(mon.level) or 1
+  local displayName = Pokemon.displayMonName(mon)
+
+  EvolutionScene._pendingYesNo = nil
+  EvolutionScene._learnWait = nil
+  EvolutionScene._learnOpts = learn_hooks(mon, displayName)
+  -- pokefirered/src/pokemon.c:2288
+  EvolutionScene._learnQueue = LearnMove.movesForLevels(mon, { level })
+  EvolutionScene._learnIdx = 0
+  learn_next()
 end
 
 function EvolutionScene.handleInput(input)
@@ -301,6 +369,10 @@ function EvolutionScene.update(dt)
   EvolutionScene._frame = EvolutionScene._frame + 1
   EvolutionScene._bgAngle = (EvolutionScene._bgAngle + 0.02) % (math.pi * 2)
 
+  if EvolutionScene._state == "learn_moves" then
+    open_pending_yesno()
+  end
+
   if Message.isOpen and Message.isOpen() then
     Message.tick()
   end
@@ -308,6 +380,13 @@ function EvolutionScene.update(dt)
   if EvolutionScene._state == "learn_moves" then
     if LearnMove.busy() then
       LearnMove.pump()
+    elseif EvolutionScene._learnWait and not (Message.isOpen and Message.isOpen()) then
+      -- pokefirered/src/evolution_scene.c:876
+      EvolutionScene._learnWait = EvolutionScene._learnWait - 1
+      if EvolutionScene._learnWait <= 0 then
+        EvolutionScene._learnWait = nil
+        learn_next()
+      end
     end
   end
 
@@ -432,7 +511,7 @@ function EvolutionScene.update(dt)
       EvolutionScene._timer = 0
       Audio.playSong(259, { restart = true, loop = false }) -- MUS_EVOLVED
 
-      local fromName = clean_string(EvolutionScene._mon.nickname or Pokemon.name(EvolutionScene._preSpecies))
+      local fromName = EvolutionScene._nick or clean_string(Pokemon.name(EvolutionScene._preSpecies))
       local intoName = Pokemon.name(EvolutionScene._postSpecies) or "POKéMON"
       Message.show("Congratulations! Your " .. fromName .. "\nevolved into " .. intoName .. "!", { frame = "battle" })
     end

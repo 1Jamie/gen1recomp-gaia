@@ -4,6 +4,7 @@
 local Task = require("src.core.game3.task")
 local AnimVm = require("src.core.game3.battle.anim_vm")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
+local BallOpen = require("src.core.game3.battle.ball_open")
 
 local Anim = {}
 
@@ -123,6 +124,15 @@ function Anim.reset(opts)
     Anim._vm:setPack(Anim._pack)
   end
   AnimSprites.reset()
+  BallOpen.reset()
+end
+
+-- pokefirered/src/pokeball.c:769
+function Anim.ballOpen(side, x, y)
+  if Anim._headless then return nil end
+  local Battle = package.loaded["src.core.game3.battle"]
+  local b = Battle and Battle._st and Battle._st[side]
+  return BallOpen.start(side, x, y, b and b.mon and b.mon.pokeball)
 end
 
 function Anim.setSeqBusy(v)
@@ -533,6 +543,7 @@ function Anim.update(dt)
   if Anim._vm then
     Anim._vm:update(dt)
   end
+  BallOpen.tick()
   pump_status_queue()
 end
 

@@ -20,6 +20,8 @@ function Field.start(mod, game, session)
   Field.locked = false
   Field.weather = 0
   Field.metatileOverrides = {}
+  local PcAnim = package.loaded["src.core.game3.pc_anim"]
+  if PcAnim then PcAnim.reset() end
   if session then
     Player.syncFromSession(session)
   else
@@ -72,6 +74,9 @@ function Field.update(_dt)
       end
     end
   end
+
+  local PcAnim = package.loaded["src.core.game3.pc_anim"]
+  if PcAnim then PcAnim.update() end
 
   -- Game3 owns locomotion + EventObjects (host World:step is paused).
   local Objects = require("src.core.game3.objects")
