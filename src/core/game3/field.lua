@@ -119,6 +119,11 @@ function Field.update(_dt)
     SpecialAnim.update()
   end
 
+  local okStep, StepEvents = pcall(require, "src.core.game3.step_events")
+  if okStep and StepEvents and StepEvents.update then
+    StepEvents.update(_dt, game)
+  end
+
   if Message and Message.tick then Message.tick() end
 end
 

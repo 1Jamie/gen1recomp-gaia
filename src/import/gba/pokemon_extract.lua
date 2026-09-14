@@ -796,6 +796,16 @@ function PokemonExtract.run(rom, cache, opts)
     TrainerCardExtract.run(rom, cache, { cacheRoot = cacheRoot })
   end)
 
+  local TmCaseExtract = require("src.import.gba.tm_case_extract")
+  pcall(function()
+    TmCaseExtract.run(rom, cache, { cacheRoot = cacheRoot })
+  end)
+
+  local BerryPouchExtract = require("src.import.gba.berry_pouch_extract")
+  pcall(function()
+    BerryPouchExtract.run(rom, cache, { cacheRoot = cacheRoot })
+  end)
+
   if progress then progress("trainers", 0, 1) end
   local TrainerExtract = require("src.import.gba.trainer_extract")
   local trainers = TrainerExtract.run(rom, cache, { cacheRoot = cacheRoot })

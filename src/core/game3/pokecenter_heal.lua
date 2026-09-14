@@ -180,7 +180,12 @@ end
 
 local function party_count()
   local Runtime = package.loaded["src.core.game3.runtime"]
-  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  local session = (Runtime and Runtime.getSession and Runtime.getSession())
+    or (Runtime and Runtime.session)
+  local Field = package.loaded["src.core.game3.field"]
+  if not session and Field and Field._session then
+    session = Field._session
+  end
   local Party = package.loaded["src.core.game3.party"]
     or require("src.core.game3.party")
   if session and session.party and Party.size then

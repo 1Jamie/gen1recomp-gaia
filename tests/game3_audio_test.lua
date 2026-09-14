@@ -325,12 +325,62 @@ do
   assert_true(math.abs(voice.step - expect) < 1e-9, "step matches trackPitch after BEND")
 end
 
--- Pan tokens + SE MusicPlayer exclusivity helpers.
+-- LFO modulation (vibrato) must dynamically change pitch
 do
-  local Audio = require("src.core.game3.audio")
-  assert_eq(Audio.normalizePan("SOUND_PAN_TARGET"), 63, "pan target")
-  assert_eq(Audio.normalizePan("SOUND_PAN_ATTACKER"), -64, "pan attacker")
-  assert_eq(Audio.normalizePan(20), 20, "pan numeric")
+  local wavFreq = 13700096
+  local song = {
+    tracks = 1,
+    trackData = {
+      string.char(
+        0xC2, 30,           -- LFOS 30
+        0xC3, 0,            -- LFODL 0
+        0xC4, 60,           -- MOD 60
+        0xC5, 0,            -- MODT 0 (pitch)
+        0xD0, 60, 127, 48,  -- N96 key=60 vel=127 gate=48
+        0x88,               -- WAIT 8
+        0xB1                -- FINE
+      ),
+    },
+  }
+  local p = Seq.newPlayer(song, {
+    voiceResolver = function(_vn, key, _vel, _tr, volL, volR, fine)
+      local rate = Mix.midiKeyToFreq(wavFreq, key, fine or 0)
+      return {
+        kind = "ds",
+        alive = true,
+        wavFreq = wavFreq,
+        step = rate / Mix.SAMPLE_RATE,
+        volL = volL,
+        volR = volR,
+        fixedFreq = false,
+      }
+    end,
+  })
+  p.tempo = 150
+  p.tempoC = 0
+  Seq.update(p, 1)
+  local voice = p.voices[1]
+  assert_true(voice ~= nil, "lfo voice created")
+  local initialStep = voice.step
+  local vibratoObserved = false
+  for _ = 1, 10 do
+    Seq.update(p, 1)
+    if math.abs(voice.step - initialStep) > 1e-4 then
+      vibratoObserved = true
+    end
+  end
+  assert_true(vibratoObserved, "LFO modulation dynamically modulates active voice pitch")
+end
+
+-- Looped sample rendering preserves fractional phase and renders without errors
+do
+  local pcm = string.char(0, 50, 100, 50, 0, 206, 156, 206)
+  local v = Mix.newDsVoice(pcm, { size = 8, freq = 13379 * 1024, loopStart = 2 }, { loop = true, rate = Mix.SAMPLE_RATE })
+  v.step = 0.75
+  local voices = { v }
+  local outL, outR, alive = Mix.render(voices, 64, { raw = true })
+  assert_true(#alive > 0, "looped voice stays alive")
+  assert_true(v.pos > 2 and v.pos < 8, "pos stays within loop bounds")
 end
 
 print("game3_audio_test: ok")

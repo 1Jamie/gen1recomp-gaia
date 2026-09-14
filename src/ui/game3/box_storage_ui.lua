@@ -709,12 +709,18 @@ function BoxStorageUI.draw()
 
       local isHovered = (BoxStorageUI.cursorSlot == s and BoxStorageUI.mode ~= "party_drawer" and not BoxStorageUI.holdingMon)
       local bounceY = (isHovered and BoxStorageUI.hoverFrame == 1) and -2 or 0
+      local f = (isHovered and BoxStorageUI.hoverFrame == 1) and 1 or 0
       local sp = Pokemon.speciesOf(mon)
       local icon = Pokemon.icon(sp)
 
       if icon and icon.image then
+        local q = icon.quads and (icon.quads[f] or icon.quads[0])
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(icon.image, px, py + bounceY)
+        if q then
+          love.graphics.draw(icon.image, q, px, py + bounceY)
+        else
+          love.graphics.draw(icon.image, px, py + bounceY)
+        end
       end
 
       -- Held Item indicator (small yellow dot/diamond)
@@ -773,8 +779,13 @@ function BoxStorageUI.draw()
     local hSp = Pokemon.speciesOf(BoxStorageUI.holdingMon)
     local hIcon = Pokemon.icon(hSp)
     if hIcon and hIcon.image then
+      local q = hIcon.quads and hIcon.quads[0]
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(hIcon.image, curX - 16, curY - 12)
+      if q then
+        love.graphics.draw(hIcon.image, q, curX - 16, curY - 12)
+      else
+        love.graphics.draw(hIcon.image, curX - 16, curY - 12)
+      end
       love.graphics.setColor(1, 1, 1, 1)
     end
   end

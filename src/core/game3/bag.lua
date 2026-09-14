@@ -26,16 +26,92 @@ function Bag.new()
   }
 end
 
-local function ensure(bag)
-  if not bag then return nil end
-  if type(bag.pockets) ~= "table" then
-    Bag.migrate(bag)
+local function slot_id_eq(a, b)
+  if a == nil or b == nil then return false end
+  local na, nb = ItemsData.toNumericId(a), ItemsData.toNumericId(b)
+  if na and nb then return na == nb end
+  return ItemsData.bagKey(a) == ItemsData.bagKey(b)
+end
+
+local function find_slot(slots, id)
+  if not slots then return nil, nil end
+  for i, slot in ipairs(slots) do
+    if slot_id_eq(slot.id, id) then
+      return i, slot
+    end
   end
+  return nil, nil
+end
+
+local function compact(slots)
+  local out = {}
+  if type(slots) ~= "table" then return out end
+  for _, slot in ipairs(slots) do
+    if slot.id and (tonumber(slot.qty) or 0) > 0 then
+      out[#out + 1] = { id = slot.id, qty = tonumber(slot.qty) or 0 }
+    end
+  end
+  return out
+end
+
+local function sort_tm_pocket(slots)
+  -- pret SortPocketAndPlaceHMsFirst: HMs first, then TMs, stable-ish by id.
+  table.sort(slots, function(a, b)
+    local ah, bh = ItemsData.isHm(a.id), ItemsData.isHm(b.id)
+    if ah ~= bh then return ah end
+    local na = ItemsData.toNumericId(a.id) or 0
+    local nb = ItemsData.toNumericId(b.id) or 0
+    return na < nb
+  end)
+end
+
+local function grant_key(bag, itemId)
+  local keySlots = bag.pockets.KEY_ITEMS
+  if not keySlots then return false end
+  for _, slot in ipairs(keySlots) do
+    if slot_id_eq(slot.id, itemId) then return true end
+  end
+  local cap = ItemsData.CAPACITY.KEY_ITEMS or 30
+  if #keySlots >= cap then return false end
+  keySlots[#keySlots + 1] = { id = itemId, qty = 1 }
+  return true
+end
+
+local function sanitize_pockets(bag)
+  if not bag or type(bag.pockets) ~= "table" then return end
+  local misplaced = {}
   for _, k in ipairs(POCKET_KEYS) do
-    bag.pockets[k] = bag.pockets[k] or {}
+    local slots = bag.pockets[k] or {}
+    local keep = {}
+    for _, slot in ipairs(slots) do
+      local correctPocket = ItemsData.pocketOf(slot.id)
+      if correctPocket ~= k then
+        misplaced[#misplaced + 1] = { id = slot.id, qty = tonumber(slot.qty) or 1, target = correctPocket }
+      else
+        keep[#keep + 1] = slot
+      end
+    end
+    bag.pockets[k] = compact(keep)
   end
-  bag.stacks = bag.stacks or {}
-  return bag
+
+  for _, m in ipairs(misplaced) do
+    local targetSlots = bag.pockets[m.target] or {}
+    local idx, slot = find_slot(targetSlots, m.id)
+    if slot then
+      slot.qty = (tonumber(slot.qty) or 0) + m.qty
+    else
+      targetSlots[#targetSlots + 1] = { id = m.id, qty = m.qty }
+    end
+    bag.pockets[m.target] = compact(targetSlots)
+  end
+
+  if bag.pockets.TM_CASE and #bag.pockets.TM_CASE > 0 then
+    sort_tm_pocket(bag.pockets.TM_CASE)
+    grant_key(bag, ItemsData.ITEM_TM_CASE)
+  end
+  if bag.pockets.BERRY_POUCH and #bag.pockets.BERRY_POUCH > 0 then
+    grant_key(bag, ItemsData.ITEM_BERRY_POUCH)
+  end
 end
 
 local function rebuild_stacks(bag)
@@ -57,41 +133,17 @@ local function rebuild_stacks(bag)
   end
 end
 
-local function slot_id_eq(a, b)
-  if a == nil or b == nil then return false end
-  local na, nb = ItemsData.toNumericId(a), ItemsData.toNumericId(b)
-  if na and nb then return na == nb end
-  return ItemsData.bagKey(a) == ItemsData.bagKey(b)
-end
-
-local function find_slot(slots, id)
-  for i, slot in ipairs(slots) do
-    if slot_id_eq(slot.id, id) then
-      return i, slot
-    end
+local function ensure(bag)
+  if not bag then return nil end
+  if type(bag.pockets) ~= "table" then
+    Bag.migrate(bag)
   end
-  return nil, nil
-end
-
-local function compact(slots)
-  local out = {}
-  for _, slot in ipairs(slots) do
-    if slot.id and (tonumber(slot.qty) or 0) > 0 then
-      out[#out + 1] = { id = slot.id, qty = tonumber(slot.qty) or 0 }
-    end
+  for _, k in ipairs(POCKET_KEYS) do
+    bag.pockets[k] = bag.pockets[k] or {}
   end
-  return out
-end
-
-local function sort_tm_pocket(slots)
-  -- pret SortPocketAndPlaceHMsFirst: HMs first, then TMs, stable-ish by id.
-  table.sort(slots, function(a, b)
-    local ah, bh = ItemsData.isHm(a.id), ItemsData.isHm(b.id)
-    if ah ~= bh then return ah end
-    local na = ItemsData.toNumericId(a.id) or 0
-    local nb = ItemsData.toNumericId(b.id) or 0
-    return na < nb
-  end)
+  sanitize_pockets(bag)
+  bag.stacks = bag.stacks or {}
+  return bag
 end
 
 --- Migrate legacy { stacks } or schema { items=… } into pockets.
@@ -203,14 +255,6 @@ function Bag.canAdd(bag, id, qty)
   return true
 end
 
-local function grant_key(bag, itemId)
-  local keySlots = bag.pockets.KEY_ITEMS
-  if find_slot(keySlots, itemId) then return true end
-  local cap = ItemsData.CAPACITY.KEY_ITEMS or 30
-  if #keySlots >= cap then return false end
-  keySlots[#keySlots + 1] = { id = itemId, qty = 1 }
-  return true
-end
 
 function Bag.add(bag, id, qty)
   bag = ensure(bag)
@@ -226,7 +270,6 @@ function Bag.add(bag, id, qty)
   end
 
   local pocket = ItemsData.pocketOf(storeId)
-  local slots = bag.pockets[pocket]
 
   if pocket == "TM_CASE" and not Bag.has(bag, ItemsData.ITEM_TM_CASE, 1) then
     if not grant_key(bag, ItemsData.ITEM_TM_CASE) then
@@ -242,6 +285,7 @@ function Bag.add(bag, id, qty)
     -- Flag handled by scripting later; bag just stores the key item.
   end
 
+  local slots = bag.pockets[pocket]
   local idx, slot = find_slot(slots, storeId)
   if slot then
     local have = tonumber(slot.qty) or 0
@@ -264,9 +308,11 @@ function Bag.remove(bag, id, qty)
   bag = ensure(bag)
   qty = math.max(1, math.floor(tonumber(qty) or 1))
   if not id then return false end
-  local pocket = ItemsData.pocketOf(id)
+  local num = ItemsData.toNumericId(id)
+  local storeId = num or id
+  local pocket = ItemsData.pocketOf(storeId)
   local slots = bag.pockets[pocket]
-  local idx, slot = find_slot(slots, id)
+  local idx, slot = find_slot(slots, storeId)
   if not slot then return false end
   local have = tonumber(slot.qty) or 0
   if have < qty then return false end
@@ -281,6 +327,7 @@ function Bag.remove(bag, id, qty)
   rebuild_stacks(bag)
   return true
 end
+
 
 function Bag.set(bag, id, qty)
   qty = Items.clampGame3(qty)
@@ -323,8 +370,11 @@ function Bag.mergeFromHost(bag, hostInventory)
   for id, qty in pairs(hostInventory) do
     if type(id) == "string" and not id:find("BADGE", 1, true) then
       local n = tonumber(qty) or 0
-      if n > 0 and Items.isHostSafe(id) then
-        Bag.add(bag, id, n)
+      if n > 0 then
+        local num = ItemsData.toNumericId(id)
+        if num or Items.isHostSafe(id) then
+          Bag.add(bag, num or id, n)
+        end
       end
     end
   end

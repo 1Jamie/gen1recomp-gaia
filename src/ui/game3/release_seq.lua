@@ -126,8 +126,13 @@ function ReleaseSeq.draw()
 
     local icon = ReleaseSeq.mon and Pokemon.icon(Pokemon.speciesOf(ReleaseSeq.mon))
     if icon and icon.image then
+      local q = icon.quads and icon.quads[0]
       love.graphics.setColor(1, 1, 1, alpha)
-      love.graphics.draw(icon.image, curX, curY, 0, scale, scale, 16, 16)
+      if q then
+        love.graphics.draw(icon.image, q, curX, curY, 0, scale, scale, 16, 16)
+      else
+        love.graphics.draw(icon.image, curX, curY, 0, scale, scale, 16, 16)
+      end
       love.graphics.setColor(1, 1, 1, 1)
     end
 

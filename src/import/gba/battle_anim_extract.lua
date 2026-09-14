@@ -32,7 +32,7 @@ local OP_FIXED = {
   [0x14]=2,[0x15]=1,[0x16]=1,[0x17]=1,[0x18]=2, -- fadetobg/restorebg/waitbgfadeout/waitbgfadein/changebg
   [0x19]=4,                          -- playsewithpan
   [0x1A]=2,                          -- setpan
-  [0x1B]=8,                          -- panse
+  [0x1B]=7,                          -- panse
   [0x1C]=6,                          -- loopsewithpan
   [0x1D]=5,                          -- waitplaysewithpan
   [0x1E]=3,                          -- setbldcnt
@@ -41,7 +41,7 @@ local OP_FIXED = {
   [0x22]=2,[0x23]=2,                 -- monbg_static / clearmonbg_static
   [0x24]=5,                          -- jumpifcontest
   [0x25]=4,                          -- fadetobgfromset
-  [0x26]=8,[0x27]=8,                 -- panse_adjustnone / panse_adjustall
+  [0x26]=7,[0x27]=7,                 -- panse_adjustnone / panse_adjustall
   [0x28]=2,[0x29]=1,[0x2A]=2,        -- splitbgprio / splitbgprio_all / splitbgprio_foes
   [0x2B]=2,[0x2C]=2,                 -- invisible / visible
   [0x2D]=2,[0x2E]=2,[0x2F]=1,        -- teamattack_moveback / movefwd / stopsound
@@ -239,6 +239,24 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       ops[#ops + 1] = { op = "setarg", argId = argId, value = val }
       i = i + 4
 
+    elseif op == 0x11 then  -- choosetwoturnanim
+      local ptr1 = rom:u32(i + 1)
+      local ptr2 = rom:u32(i + 5)
+      local off1 = rom:ptrOffset(ptr1)
+      local off2 = rom:ptrOffset(ptr2)
+      ops[#ops + 1] = { op = "choosetwoturnanim", label1 = tostring(off1), label2 = tostring(off2) }
+      i = i + 9
+      if off1 and not visited[off1] then decode_script(rom, off1, visited, labels, tag_dims) end
+      if off2 and not visited[off2] then decode_script(rom, off2, visited, labels, tag_dims) end
+
+    elseif op == 0x12 then  -- jumpifmoveturn
+      local toCheck = rom:get(i + 1)
+      local ptr = rom:u32(i + 2)
+      local off = rom:ptrOffset(ptr)
+      ops[#ops + 1] = { op = "jumpifmoveturn", turn = toCheck, label = tostring(off) }
+      i = i + 6
+      if off and not visited[off] then decode_script(rom, off, visited, labels, tag_dims) end
+
     elseif op == 0x13 then  -- goto
       local target_gba = rom:u32(i + 1)
       local target_off = rom:ptrOffset(target_gba)
@@ -249,11 +267,34 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       end
       break
 
+    elseif op == 0x14 then  -- fadetobg
+      local bgId = rom:get(i + 1)
+      ops[#ops + 1] = { op = "fadetobg", bg = bgId }
+      i = i + 2
+
+    elseif op == 0x15 then  -- restorebg
+      ops[#ops + 1] = { op = "restorebg" }
+      i = i + 1
+
+    elseif op == 0x18 then  -- changebg
+      local bgId = rom:get(i + 1)
+      ops[#ops + 1] = { op = "changebg", bg = bgId }
+      i = i + 2
+
     elseif op == 0x19 then  -- playsewithpan
       local se  = rom:u16(i + 1)
       local pan = s8(rom:get(i + 3))
       ops[#ops + 1] = { op = "playsewithpan", se = se, pan = pan }
       i = i + 4
+
+    elseif op == 0x1B then  -- panse
+      local se   = rom:u16(i + 1)
+      local pan1 = s8(rom:get(i + 3))
+      local pan2 = s8(rom:get(i + 4))
+      local step = s8(rom:get(i + 5))
+      local wait = rom:get(i + 6)
+      ops[#ops + 1] = { op = "panse", se = se, pan = pan1, targetPan = pan2, step = step, wait = wait }
+      i = i + 7
 
     elseif op == 0x1C then  -- loopsewithpan
       local se    = rom:u16(i + 1)
@@ -279,6 +320,33 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       end
       ops[#ops + 1] = { op = "nop" }  -- treat as nop; sound handled by SE ops
       i = i + 6 + argc * 2
+
+    elseif op == 0x21 then  -- jumpargeq
+      local argId = rom:get(i + 1)
+      local val   = s16(rom:u16(i + 2))
+      local ptr   = rom:u32(i + 4)
+      local off   = rom:ptrOffset(ptr)
+      ops[#ops + 1] = { op = "jumpargeq", argId = argId, value = val, label = tostring(off) }
+      i = i + 8
+      if off and not visited[off] then decode_script(rom, off, visited, labels, tag_dims) end
+
+    elseif op == 0x25 then  -- fadetobgfromset
+      ops[#ops + 1] = { op = "fadetobgfromset", bg1 = rom:get(i + 1), bg2 = rom:get(i + 2), bg3 = rom:get(i + 3) }
+      i = i + 4
+
+    elseif op == 0x26 or op == 0x27 then  -- panse_adjustnone / panse_adjustall
+      local se   = rom:u16(i + 1)
+      local pan1 = s8(rom:get(i + 3))
+      local pan2 = s8(rom:get(i + 4))
+      local step = s8(rom:get(i + 5))
+      local wait = rom:get(i + 6)
+      ops[#ops + 1] = { op = "panse", se = se, pan = pan1, targetPan = pan2, step = step, wait = wait }
+      i = i + 7
+
+    elseif op == 0x28 or op == 0x29 or op == 0x2A then  -- splitbgprio / splitbgprio_all / splitbgprio_foes
+      local b = (op == 0x28) and rom:get(i + 1) or 1
+      ops[#ops + 1] = { op = "splitbgprio", battler = BATTLER_NAMES[b] or "target" }
+      i = i + (op == 0x29 and 1 or 2)
 
     elseif op == 0x2B then  -- invisible
       ops[#ops + 1] = { op = "invisible", battler = BATTLER_NAMES[rom:get(i+1)] or "attacker" }

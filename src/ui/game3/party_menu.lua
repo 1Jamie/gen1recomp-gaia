@@ -419,6 +419,7 @@ end
 
 function PartyMenu.close()
   PartyMenu.open = false
+  PartyMenu.mode = "list"
   destroy_party_oam()
   Stack.pop("party")
   local cb = PartyMenu._onClose
@@ -471,10 +472,9 @@ function PartyMenu.dismissMessage()
     local cb = PartyMenu._onMessageDismiss
     PartyMenu._messageText = nil
     PartyMenu._onMessageDismiss = nil
+    PartyMenu.mode = "list"
     if cb then
       cb()
-    else
-      PartyMenu.mode = "list"
     end
   end
 end
@@ -1539,8 +1539,8 @@ function PartyMenu.draw()
       FrlgFont.draw(tostring(mv), popX * 8 + 9, rowY, { colors = FrlgFont.COLOR.NORMAL })
     end
   elseif PartyMenu.mode == "item_action" then
-    Window.stdFrame(Window.template(1, 17, 19, 2))
-    FrlgFont.draw("Do what with an\nitem?", 1 * 8 + 2, 17 * 8 + 1, { linePitch = 15, colors = FrlgFont.COLOR.NORMAL })
+    Window.stdFrame(Window.template(1, 17, 18, 2))
+    FrlgFont.draw("Do what with an item?", 1 * 8 + 2, 17 * 8 + 2, { colors = FrlgFont.COLOR.NORMAL })
 
     local actCount = #PartyMenu.ITEM_ACTIONS
     local popW = 7
@@ -1556,8 +1556,8 @@ function PartyMenu.draw()
       FrlgFont.draw(act, popX * 8 + 9, rowY, { colors = FrlgFont.COLOR.NORMAL })
     end
   elseif PartyMenu.mode == "action" then
-    Window.stdFrame(Window.template(1, 17, 16, 2))
-    FrlgFont.draw("Do what with this\nPOKéMON?", 1 * 8 + 2, 17 * 8 + 1, { linePitch = 15, colors = FrlgFont.COLOR.NORMAL })
+    Window.stdFrame(Window.template(1, 17, 17, 2))
+    FrlgFont.draw("Do what with this PKMN?", 1 * 8 + 2, 17 * 8 + 2, { colors = FrlgFont.COLOR.NORMAL })
 
     local actCount = #PartyMenu.ACTIONS
     local popW = 10
@@ -1589,9 +1589,6 @@ function PartyMenu.draw()
       promptText = "Give to which POKéMON?"
     end
     FrlgFont.draw(promptText, 1 * 8 + 2, 17 * 8 + 2, { colors = FrlgFont.COLOR.NORMAL })
-  end
-
-  if PartyMenu.mode ~= "message" and PartyMenu.mode ~= "stat_growth" and PartyMenu.mode ~= "yesno" then
     PartyChrome.drawCancelButton(184, 136, PartyMenu.cursor == 7)
   end
 end

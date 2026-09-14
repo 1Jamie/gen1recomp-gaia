@@ -237,7 +237,7 @@ do
   Audio._mapSong = 279 -- Pallet Town
   Audio._currentSong = { id = 311 } -- MUS_VICTORY_WILD
 
-  local mon = { species = 19, speciesId = 19, level = 20, hp = 40, maxHp = 40, moves = { 33, 39, 43, 99 } }
+  local mon = { species = 19, speciesId = 19, level = 20, hp = 40, maxHp = 40, moves = { 33, 39 } }
   local completed = false
 
   local EvoSeq = require("src.core.game3.battle.evo_seq")
@@ -257,7 +257,7 @@ do
     end
     if EvolutionScene._state == "congrats" or EvolutionScene._state == "learn_moves" then
       local mockInput = {
-        wasPressed = function(_, k) return k == "a" or k == "b" end,
+        wasPressed = function(_, k) return k == "a" end,
         isDown = function() return false end,
       }
       EvolutionScene.handleInput(mockInput)

@@ -501,6 +501,112 @@ do
   check(closed == true, "onClose callback invoked")
 end
 
+print("=== [TEST 11] Rare Candy Free-Slot Learn Move Dialog Persistence Across Frames ===")
+do
+  local bag = Bag.new()
+  Bag.add(bag, 68, 1) -- 1 Rare Candy
+  local party = {
+    {
+      species = 19, speciesId = 19, level = 6, -- Rattata Lv 6 -> 7 learns Quick Attack (98)
+      hp = 20, maxHp = 20,
+      moves = { 33 }, -- Tackle (1/4 slots)
+    }
+  }
+  local session = { party = party, bag = bag }
+
+  PartyMenu.show(party, nil, {
+    session = session,
+    bag = bag,
+    item = 68,
+    mode = "use",
+  })
+
+  local mockInputA = {
+    wasPressed = function(_, k) return k == "a" end,
+    isDown = function() return false end,
+  }
+
+  -- Use Rare Candy
+  PartyMenu.handleInput(mockInputA)
+  check(party[1].level == 7, "Rattata leveled up to 7")
+
+  -- Complete HP anim if active
+  if PartyMenu._hpAnim then PartyMenu.handleInput(mockInputA) end
+  check(PartyMenu.mode == "stat_growth", "PartyMenu showing stat growth window")
+  check(PartyMenu._statGrowthPage == 1, "stat growth on page 1")
+
+  -- Advance to Page 2
+  PartyMenu.handleInput(mockInputA)
+  check(PartyMenu._statGrowthPage == 2, "stat growth on page 2")
+
+  -- Advance to Learn Move queue
+  PartyMenu.handleInput(mockInputA)
+  check(PartyMenu.mode == "message", "PartyMenu entered 'message' mode for learned move")
+  check(PartyMenu._messageText ~= nil and PartyMenu._messageText:find("learned", 1, true) ~= nil,
+    "PartyMenu showing learned move message text (got: " .. tostring(PartyMenu._messageText) .. ")")
+
+  -- Simulate multiple update ticks (frames)
+  for _ = 1, 60 do
+    PartyMenu.update(1 / 60)
+  end
+  check(PartyMenu.mode == "message", "PartyMenu remained in 'message' mode across 60 update ticks")
+  check(PartyMenu._messageText ~= nil and PartyMenu._messageText:find("learned", 1, true) ~= nil,
+    "PartyMenu message text stayed on screen without being eaten")
+
+  -- Now player presses A to dismiss
+  PartyMenu.handleInput(mockInputA)
+  check(PartyMenu.mode ~= "message", "Message dismissed after user presses A")
+  check(Pokemon.knowsMove(party[1], 98), "Rattata knows Quick Attack")
+  PartyMenu.close()
+end
+
+print("=== [TEST 12] Bag Menu List-Mode SELECT Shortcut Quick-Register & Overwrite ===")
+do
+  local BagMenu = require("src.ui.game3.bag_menu")
+  local bag = Bag.new()
+  Bag.add(bag, 361, 1) -- Town Map (Key Item 361, registrability = 1)
+  Bag.add(bag, 360, 1) -- Bicycle (Key Item 360, registrability = 1)
+  local session = { bag = bag, registeredItem = nil }
+
+  BagMenu.show(session, {
+    bag = bag,
+    session = session,
+    pocket = "KEY_ITEMS",
+  })
+  check(BagMenu.isOpen() == true, "BagMenu is open in KEY_ITEMS pocket")
+  check(BagMenu.currentPocket() == "KEY_ITEMS", "current pocket is KEY_ITEMS")
+
+  local function press(btn)
+    local inp = {
+      wasPressed = function(_, k) return k == btn end,
+      isDown = function() return false end,
+    }
+    BagMenu.handleInput(inp)
+  end
+
+  -- Cursor starts on item 1 (Bicycle or Town Map depending on alphabetical sort)
+  local rows = BagMenu.list()
+  check(#rows >= 2, "at least 2 key items in bag")
+  local item1 = rows[1].id
+  local item2 = rows[2].id
+
+  -- 1. Press SELECT on item 1 -> registers item 1
+  press("select")
+  check(session.registeredItem == item1, "item 1 registered via SELECT (" .. tostring(item1) .. ")")
+
+  -- 2. Move cursor down to item 2 and press SELECT -> OVERWRITES to item 2
+  press("down")
+  check(BagMenu.cursor == 2, "cursor moved to item 2")
+  press("select")
+  check(session.registeredItem == item2, "item 2 overwrote registered item (" .. tostring(item2) .. ")")
+
+  -- 3. Press SELECT on item 2 again -> UNREGISTERS to nil
+  press("select")
+  check(session.registeredItem == nil, "pressing SELECT on already registered item unregisters to nil")
+
+  BagMenu.close()
+end
+
 if failed > 0 then
   print(string.format("\n[FAILED] %d test(s) failed", failed))
   os.exit(1)

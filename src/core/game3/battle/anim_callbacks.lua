@@ -784,6 +784,464 @@ AnimCallbacks.Conversion2 = AnimCallbacks.SpriteOnMonPos
 AnimCallbacks.RaiseSprite = AnimCallbacks.SpriteOnMonPos
 AnimCallbacks.ComplexPaletteBlend = AnimCallbacks.SpriteOnMonPos
 
+--- pret AnimLightning — 5-frame lightning bolt strike downward on target (Thunderbolt, Thunder, Spark).
+function AnimCallbacks.Lightning(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    sprite.z = AnimSprites.Z.GLOBAL_FRONT
+  end
+  sprite._step = sprite._step + 1
+  local cellH = sprite._baseH or 32
+  local totalFrames = 5
+  local frame = math.min(totalFrames - 1, math.floor((sprite._step - 1) / 4))
+  sprite.quadY = frame * cellH
+  if sprite._step >= totalFrames * 4 then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.ElectricPuff = AnimCallbacks.Lightning
+AnimCallbacks.ElectricBoltSegment = AnimCallbacks.Lightning
+AnimCallbacks.ShockWaveLightning = AnimCallbacks.Lightning
+
+--- pret AnimSparkElectricityFlashing — multi-spark rotating flash around battler (Thunder Punch, Zap Cannon).
+function AnimCallbacks.SparkElectricityFlashing(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    local args = sprite._args or {}
+    sprite._dur = math.max(12, tonumber(args[4]) or 24)
+    sprite._radius = tonumber(args[3]) or 20
+    sprite._speed = tonumber(args[6]) or 8
+    sprite._angle = (tonumber(args[5]) or 0) * (math.pi / 128)
+    sprite.z = AnimSprites.Z.GLOBAL_FRONT
+  end
+  sprite._step = sprite._step + 1
+  sprite._angle = sprite._angle + (sprite._speed * 0.05)
+  sprite.ox = math.floor(math.cos(sprite._angle) * sprite._radius)
+  sprite.oy = math.floor(math.sin(sprite._angle) * (sprite._radius * 0.6))
+  sprite.alpha = (sprite._step % 3 == 0) and 0.4 or 1.0
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.ZapCannonSpark = AnimCallbacks.SparkElectricityFlashing
+AnimCallbacks.SparkElectricity = AnimCallbacks.SparkElectricityFlashing
+AnimCallbacks.VoltTackleOrbSlide = AnimCallbacks.SparkElectricityFlashing
+
+--- pret AnimBasicFistOrFoot — physical punch/kick strike on attacker/target (Mega Punch, Fire/Ice/Thunder Punch, Mega Kick).
+function AnimCallbacks.BasicFistOrFoot(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    local args = sprite._args or {}
+    local animNum = tonumber(args[5]) or 0
+    local dur = math.max(12, tonumber(args[3]) or 18)
+    sprite._dur = dur
+    local cellH = sprite._baseH or 32
+    sprite.quadY = (animNum % 4) * cellH
+    sprite.z = AnimSprites.Z.GLOBAL_FRONT
+  end
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / (sprite._dur or 18))
+  local sc = (u < 0.3) and (0.7 + u * 1.5) or 1.0
+  sprite.w = math.floor((sprite._baseW or 32) * sc)
+  sprite.h = math.floor((sprite._baseH or 32) * sc)
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.SpinningKickOrPunch = AnimCallbacks.BasicFistOrFoot
+AnimCallbacks.SlidingKick = AnimCallbacks.BasicFistOrFoot
+AnimCallbacks.JumpKick = AnimCallbacks.BasicFistOrFoot
+AnimCallbacks.StompFoot = AnimCallbacks.BasicFistOrFoot
+AnimCallbacks.CrossChopHand = AnimCallbacks.BasicFistOrFoot
+
+--- pret AnimNeedleArmSpike — projectile spikes flying in linear trajectory (Needle Arm, Pin Missile, Poison Sting, Spikes).
+function AnimCallbacks.NeedleArmSpike(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    local args = sprite._args or {}
+    local dur = math.max(8, tonumber(args[5]) or 16)
+    sprite._dur = dur
+    local targetX = tonumber(args[3]) or 0
+    local targetY = tonumber(args[4]) or 0
+    sprite._dx = targetX
+    sprite._dy = targetY
+    sprite.rotation = math.atan2(targetY, targetX)
+    sprite.z = AnimSprites.Z.MID_FIELD
+  end
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / sprite._dur)
+  sprite.ox = math.floor((sprite._dx or 0) * u)
+  sprite.oy = math.floor((sprite._dy or 0) * u)
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.Spikes = AnimCallbacks.NeedleArmSpike
+AnimCallbacks.PoisonSting = AnimCallbacks.NeedleArmSpike
+AnimCallbacks.PinMissile = AnimCallbacks.NeedleArmSpike
+
+--- pret AnimHitSplatRandom / AnimHitSplatHandleInvert — scattered multi-hit splats (Fury Swipes, Double Slap).
+function AnimCallbacks.HitSplatRandom(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    sprite.ox = math.random(-16, 16)
+    sprite.oy = math.random(-16, 16)
+    sprite.z = AnimSprites.Z.GLOBAL_FRONT
+  end
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / 8)
+  local sc = 0.6 + 0.5 * u
+  sprite.w = math.floor((sprite._baseW or 32) * sc)
+  sprite.h = math.floor((sprite._baseH or 32) * sc)
+  sprite.alpha = (sprite._step <= 8) and 1.0 or math.max(0, 1 - (sprite._step - 8) / 6)
+  if sprite._step >= 14 then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.HitSplatHandleInvert = AnimCallbacks.HitSplatRandom
+
+--- pret AnimMudSportDirt — mud splatter arching and dripping (Mud-Slap, Mud Shot, Mud Sport).
+function AnimCallbacks.MudSportDirt(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    local args = sprite._args or {}
+    sprite._dur = math.max(10, tonumber(args[3]) or 20)
+    sprite._vx = math.random(-12, 12)
+    sprite._vy = -math.random(15, 30)
+    sprite.z = AnimSprites.Z.GLOBAL_BEHIND
+  end
+  sprite._step = sprite._step + 1
+  local t = sprite._step
+  sprite.ox = math.floor(sprite._vx * (t / 10))
+  sprite.oy = math.floor(sprite._vy * (t / 10) + (0.5 * 3.8 * (t / 10)^2))
+  sprite.alpha = math.max(0, 1 - sprite._step / sprite._dur)
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.MudSlap = AnimCallbacks.MudSportDirt
+AnimCallbacks.MudShot = AnimCallbacks.MudSportDirt
+
+--- pret AnimSmallDriftingBubbles (pokefirered/src/battle_anim_water.c:1011)
+-- args: [1]=dx, [2]=dy
+function AnimCallbacks.SmallDriftingBubbles(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local r1 = math.random(0, 255) + 256
+    local r2 = math.random(0, 511)
+    if r2 > 255 then r2 = 256 - r2 end
+    sprite.data[0] = 0   -- step counter
+    sprite.data[1] = r1  -- Q8.8 vx
+    sprite.data[2] = r2  -- Q8.8 vy
+    sprite.data[3] = 0   -- Q8.8 x accumulator
+    sprite.data[4] = 0   -- Q8.8 y accumulator
+    sprite.z = AnimSprites.Z.FRONT
+  end
+
+  sprite.data[3] = (sprite.data[3] or 0) + (sprite.data[1] or 256)
+  sprite.data[4] = (sprite.data[4] or 0) + (sprite.data[2] or 128)
+
+  if (sprite.data[1] % 2) == 1 then
+    sprite.ox = -math.floor((sprite.data[3] or 0) / 256)
+  else
+    sprite.ox = math.floor((sprite.data[3] or 0) / 256)
+  end
+  sprite.oy = math.floor((sprite.data[4] or 0) / 256)
+
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  if sprite.data[0] >= 21 then
+    destroy(sprite)
+  end
+end
+
+--- pret AnimBubbleEffect (pokefirered/src/battle_anim_water.c:286)
+-- Floating bubble with horizontal sine oscillation and pop
+function AnimCallbacks.BubbleEffect(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0  -- step
+    sprite.data[1] = 0  -- sine phase
+    sprite.data[2] = math.random(18, 28) -- duration
+    sprite.z = AnimSprites.Z.FRONT
+  end
+
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  sprite.data[1] = ((sprite.data[1] or 0) + 12) % 256
+  sprite.ox = math.floor(math.sin((sprite.data[1] / 256) * 2 * math.pi) * 6)
+  sprite.oy = -(sprite.data[0] * 1.2)
+
+  local u = sprite.data[0] / sprite.data[2]
+  local sc = 0.6 + 0.5 * u
+  sprite.w = math.floor((sprite._baseW or 16) * sc)
+  sprite.h = math.floor((sprite._baseH or 16) * sc)
+  sprite.alpha = math.max(0, 1.0 - u * 0.3)
+
+  if sprite.data[0] >= sprite.data[2] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.SmallBubblePair = AnimCallbacks.BubbleEffect
+AnimCallbacks.WaterPulseBubble = AnimCallbacks.BubbleEffect
+AnimCallbacks.WaterGunDroplet = AnimCallbacks.BubbleEffect
+AnimCallbacks.WaterPulseRing = AnimCallbacks.BubbleEffect
+
+--- pret AnimFirePlume (pokefirered/src/battle_anim_fire.c:486)
+-- arg 0: dx, arg 1: dy, arg 2: duration, arg 3: dy_step, arg 4: dx_step, arg 5: unused
+function AnimCallbacks.FirePlume(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    local dx = tonumber(args[1]) or 0
+    local dy = tonumber(args[2]) or 0
+    local dur = tonumber(args[3]) or 20
+    local dyStep = tonumber(args[4]) or -2
+    local dxStep = tonumber(args[5]) or 0
+    if sprite._reversed then
+      dxStep = -dxStep
+    end
+    sprite.data[0] = 0      -- step
+    sprite.data[1] = dur    -- lifetime
+    sprite.data[2] = dxStep -- x velocity
+    sprite.data[3] = dyStep -- y velocity
+    sprite.data[4] = dur    -- move duration
+    sprite.z = AnimSprites.Z.FRONT
+  end
+
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  if sprite.data[0] < (sprite.data[4] or 20) then
+    sprite.ox = (sprite.ox or 0) + (sprite.data[2] or 0)
+    sprite.oy = (sprite.oy or 0) + (sprite.data[3] or -2)
+  end
+
+  local cellH = sprite._baseH or 32
+  local totalFrames = 1
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor((sprite.data[0] - 1) / 3) % totalFrames) * cellH
+  sprite.alpha = math.max(0, 1.0 - (sprite.data[0] / (sprite.data[1] or 20)) * 0.4)
+
+  if sprite.data[0] >= (sprite.data[1] or 20) then
+    destroy(sprite)
+  end
+end
+
+--- pret AnimFireSpiralOutward (pokefirered/src/battle_anim_fire.c:703)
+-- arg 0: unused, arg 1: unused, arg 2: duration, arg 3: startDelay
+function AnimCallbacks.FireSpiralOutward(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    sprite.data[0] = tonumber(args[4]) or 0   -- delay
+    sprite.data[1] = tonumber(args[3]) or 24  -- duration
+    sprite.data[2] = 0                       -- radius Q8.8
+    sprite.data[3] = (tonumber(args[5]) or 0) * 32 -- angle
+    sprite.z = AnimSprites.Z.FRONT
+  end
+
+  if (sprite.data[0] or 0) > 0 then
+    sprite.data[0] = sprite.data[0] - 1
+    sprite.alpha = 0
+    return
+  end
+  sprite.alpha = 1
+
+  local angle = sprite.data[3] or 0
+  local radius = math.floor((sprite.data[2] or 0) / 256)
+  sprite.ox = math.floor(math.sin((angle / 256) * 2 * math.pi) * radius)
+  sprite.oy = math.floor(math.cos((angle / 256) * 2 * math.pi) * (radius * 0.6))
+  sprite.data[3] = (angle + 10) % 256
+  sprite.data[2] = (sprite.data[2] or 0) + 0xD0
+
+  local cellH = sprite._baseH or 16
+  local totalFrames = 1
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor(angle / 32) % totalFrames) * cellH
+
+  sprite.data[1] = (sprite.data[1] or 24) - 1
+  if sprite.data[1] <= 0 then
+    destroy(sprite)
+  end
+end
+
+--- pret AnimElectricity / AnimSparkElectricity (pokefirered/src/battle_anim_electric.c:85, 140)
+function AnimCallbacks.Electricity(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 16 -- duration
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  sprite.ox = math.random(-8, 8)
+  sprite.oy = math.random(-8, 8)
+  sprite.hFlip = (math.random() > 0.5)
+
+  local cellH = sprite._baseH or 32
+  local totalFrames = 1
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor((sprite.data[0] - 1) / 2) % totalFrames) * cellH
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.SparkElectricity = AnimCallbacks.Electricity
+AnimCallbacks.ThunderboltSegment = AnimCallbacks.Electricity
+
+--- pret AnimSolarBeamBigOrb / AnimSolarBeamSmallOrb (pokefirered/src/battle_anim_effects_2.c:400)
+function AnimCallbacks.SolarBeamBigOrb(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 24
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  local progress = sprite.data[0] / sprite.data[1]
+  local sc = 0.5 + 0.7 * math.min(1.0, progress * 1.5)
+  sprite.w = math.floor((sprite._baseW or 32) * sc)
+  sprite.h = math.floor((sprite._baseH or 32) * sc)
+  sprite.rotation = (sprite.rotation or 0) + 0.15
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.SolarBeamSmallOrb = AnimCallbacks.SolarBeamBigOrb
+AnimCallbacks.GrowingChargeOrb = AnimCallbacks.SolarBeamBigOrb
+
+--- pret AnimWeatherBallDown / AnimWeatherBallUp (pokefirered/src/battle_anim_effects_2.c:650)
+function AnimCallbacks.WeatherBallDown(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 20
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  local progress = sprite.data[0] / sprite.data[1]
+  sprite.oy = math.floor(progress * 48)
+  sprite.rotation = (sprite.rotation or 0) + 0.1
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.WeatherBallUp = AnimCallbacks.WeatherBallDown
+AnimCallbacks.ZapCannonBall = AnimCallbacks.WeatherBallDown
+
+--- pret AnimIceEffectParticle / AnimSwirlingSnowball (pokefirered/src/battle_anim_ice.c:95, 180)
+function AnimCallbacks.IceEffectParticle(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 20
+    sprite.data[2] = (math.random() - 0.5) * 1.5 -- vx
+    sprite.data[3] = 1.2 + math.random() * 0.8  -- vy
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  sprite.ox = math.floor((sprite.ox or 0) + sprite.data[2])
+  sprite.oy = math.floor((sprite.oy or 0) + sprite.data[3])
+  sprite.rotation = (sprite.rotation or 0) + 0.12
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.SwirlingSnowball = AnimCallbacks.IceEffectParticle
+AnimCallbacks.IceBallChunk = AnimCallbacks.IceEffectParticle
+
+--- pret AnimDirtPlumeParticle / AnimRockScatter / AnimDirtScatter (pokefirered/src/battle_anim_ground.c:110, 210)
+function AnimCallbacks.DirtPlumeParticle(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 22
+    sprite.data[2] = (math.random() - 0.5) * 2.0 -- vx
+    sprite.data[3] = -2.5 - math.random() * 1.5  -- vy initial upward
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  sprite.data[3] = sprite.data[3] + 0.25 -- gravity
+  sprite.ox = math.floor((sprite.ox or 0) + sprite.data[2])
+  sprite.oy = math.floor((sprite.oy or 0) + sprite.data[3])
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.RockScatter = AnimCallbacks.DirtPlumeParticle
+AnimCallbacks.DirtScatter = AnimCallbacks.DirtPlumeParticle
+AnimCallbacks.MudSportDirt = AnimCallbacks.DirtPlumeParticle
+AnimCallbacks.SandAttackMud = AnimCallbacks.DirtPlumeParticle
+AnimCallbacks.MudSand = AnimCallbacks.DirtPlumeParticle
+
+--- pret AnimWaveFromCenterOfTarget / AnimAirWaveCrescent / AnimSoundWave (pokefirered/src/battle_anim_sound.c:220, 270)
+function AnimCallbacks.WaveFromCenterOfTarget(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite.data[0] = 0
+    sprite.data[1] = 20
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite.data[0] = (sprite.data[0] or 0) + 1
+  local progress = sprite.data[0] / sprite.data[1]
+  local sc = 0.4 + 1.2 * progress
+  sprite.w = math.floor((sprite._baseW or 32) * sc)
+  sprite.h = math.floor((sprite._baseH or 32) * sc)
+  sprite.alpha = math.max(0, 1.0 - progress)
+
+  if sprite.data[0] >= sprite.data[1] then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.AirWaveCrescent = AnimCallbacks.WaveFromCenterOfTarget
+AnimCallbacks.SoundWave = AnimCallbacks.WaveFromCenterOfTarget
+
+--- pret AnimWillOWispFire / AnimWillOWispOrb — orbiting ghostly flames (Will-O-Wisp, Fire Spin).
+function AnimCallbacks.WillOWispFire(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    sprite._dur = 32
+    sprite._angle = (sprite.data[0] or 0) * (math.pi / 4)
+    sprite._radius = 28
+    sprite.z = AnimSprites.Z.FRONT
+  end
+  sprite._step = sprite._step + 1
+  sprite._angle = sprite._angle + 0.15
+  sprite._radius = math.max(4, sprite._radius - 0.7)
+  sprite.ox = math.floor(math.cos(sprite._angle) * sprite._radius)
+  sprite.oy = math.floor(math.sin(sprite._angle) * (sprite._radius * 0.6))
+  sprite.alpha = math.max(0, 1.0 - sprite._step / sprite._dur)
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.WillOWispOrb = AnimCallbacks.WillOWispFire
+AnimCallbacks.IngrainOrb = AnimCallbacks.WillOWispFire
+AnimCallbacks.IngrainRoot = AnimCallbacks.SpriteOnMonPos
+AnimCallbacks.FrenzyPlantRoot = AnimCallbacks.SpriteOnMonPos
+AnimCallbacks.ConstrictBinding = AnimCallbacks.SpriteOnMonPos
+AnimCallbacks.LeechSeed = AnimCallbacks.ThrowProjectile
+AnimCallbacks.ThunderWave = AnimCallbacks.SpriteOnMonPos
+AnimCallbacks.AssistPawprint = AnimCallbacks.SpriteOnMonPos
+
 function AnimCallbacks.SimpleFadeOut(sprite)
   sprite.data[0] = (sprite.data[0] or 0) + 1
   local life = sprite.data[0]

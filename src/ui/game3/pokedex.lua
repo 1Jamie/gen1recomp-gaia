@@ -964,8 +964,13 @@ local function draw_data_screen()
     -- 3. Top Left: Mon Icon (32x32) at (14, 20)
     local icon = Pokemon.icon and Pokemon.icon(sp)
     if icon and icon.image then
+      local q = icon.quads and icon.quads[0]
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(icon.image, 14, 20)
+      if q then
+        love.graphics.draw(icon.image, q, 14, 20)
+      else
+        love.graphics.draw(icon.image, 14, 20)
+      end
     end
 
     -- Top Left: Dex No & Species Name
@@ -1145,8 +1150,13 @@ local function draw_area_screen()
   -- Left Column: Mon Icon & Types & Name
   local icon = Pokemon.icon and Pokemon.icon(sp)
   if icon and icon.image then
+    local q = icon.quads and icon.quads[0]
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(icon.image, 14, 28)
+    if q then
+      love.graphics.draw(icon.image, q, 14, 28)
+    else
+      love.graphics.draw(icon.image, 14, 28)
+    end
   end
   FrlgFont.draw(name, 48, 34, { color = { 0.1, 0.1, 0.1, 1 } })
 

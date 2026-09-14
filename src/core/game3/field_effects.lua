@@ -624,4 +624,33 @@ function FieldEffects.drawOverlay(camX, camY)
   if ok and Heal and Heal.draw then Heal.draw(camX, camY) end
 end
 
+--- pret dofieldeffect / waitfieldeffect for FLDEFF_POKECENTER_HEAL (25).
+function FieldEffects.doFieldEffect(id)
+  id = tonumber(id) or 0
+  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
+  if ok and Heal and id == Heal.FLDEFF then
+    return Heal.start()
+  end
+  return false
+end
+
+function FieldEffects.waitFieldEffect(id, done)
+  id = tonumber(id) or 0
+  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
+  if ok and Heal and id == Heal.FLDEFF then
+    Heal.wait(done)
+    return
+  end
+  if done then done() end
+end
+
+function FieldEffects.isFieldEffectActive(id)
+  id = tonumber(id) or 0
+  local ok, Heal = pcall(require, "src.core.game3.pokecenter_heal")
+  if ok and Heal and id == Heal.FLDEFF then
+    return Heal.isActive()
+  end
+  return false
+end
+
 return FieldEffects

@@ -15,6 +15,12 @@ ItemsData.POCKET_ORDER = {
   "ITEMS", "KEY_ITEMS", "POKE_BALLS", "TM_CASE", "BERRY_POUCH",
 }
 
+-- Visible pockets in the main Bag UI (pret BAG_POCKETS_COUNT = 3).
+-- TM Case and Berry Pouch are sub-containers accessed via Key Items.
+ItemsData.BAG_POCKET_ORDER = {
+  "ITEMS", "KEY_ITEMS", "POKE_BALLS",
+}
+
 ItemsData.POCKET_LABEL = {
   ITEMS = "ITEMS",
   KEY_ITEMS = "KEY ITEMS",
@@ -42,6 +48,7 @@ ItemsData.CAPACITY = {
 
 ItemsData.ITEM_TM_CASE = 364
 ItemsData.ITEM_BERRY_POUCH = 365
+ItemsData.ITEM_VS_SEEKER = 374
 ItemsData.FIRST_TM = 289
 ItemsData.LAST_TM = 338
 ItemsData.FIRST_HM = 339
@@ -100,6 +107,7 @@ ItemsData.BY_HOST = {
   BICYCLE = { name = "BICYCLE", pocket = "KEY_ITEMS", fieldUse = "bike", frlg = 360 },
   TRI_PASS = { name = "TRI-PASS", pocket = "KEY_ITEMS", fieldUse = "key", frlg = 367 },
   RAINBOW_PASS = { name = "RAINBOW PASS", pocket = "KEY_ITEMS", fieldUse = "key", frlg = 368 },
+  VS_SEEKER = { name = "VS SEEKER", pocket = "KEY_ITEMS", fieldUse = "vs_seeker", frlg = 374 },
 }
 
 local FALLBACK = {
@@ -108,6 +116,7 @@ local FALLBACK = {
   [13] = { name = "POTION", pocket = "ITEMS", fieldUse = "heal" },
   [364] = { name = "TM CASE", pocket = "KEY_ITEMS", fieldUse = "key" },
   [365] = { name = "BERRY POUCH", pocket = "KEY_ITEMS", fieldUse = "key" },
+  [374] = { name = "VS SEEKER", pocket = "KEY_ITEMS", fieldUse = "vs_seeker" },
 }
 
 ItemsData.HEAL_AMOUNT = {
@@ -155,6 +164,52 @@ local function read_bytes(rel)
   return nil
 end
 
+ItemsData._byName = nil
+
+local GEN2_BERRY_ALIASES = {
+  BERRY = 139, -- ORAN BERRY
+  GOLD_BERRY = 142, -- SITRUS BERRY
+  GOLDBERRY = 142,
+  MYSTERYBERRY = 138, -- LEPPA BERRY
+  MIRACLEBERRY = 141, -- LUM BERRY
+  PSNCUREBERRY = 135, -- PECHA BERRY
+  PRZCUREBERRY = 133, -- CHERI BERRY
+  BURNT_BERRY = 136, -- RAWST BERRY
+  ICE_BERRY = 137, -- ASPEAR BERRY
+  BITTER_BERRY = 140, -- PERSIM BERRY
+  MINT_BERRY = 134, -- CHESTO BERRY
+}
+
+local function build_by_name(packItems)
+  local map = {}
+  if type(packItems) == "table" then
+    for id, it in pairs(packItems) do
+      if type(it) == "table" and it.name then
+        local n = it.name:upper()
+        map[n] = id
+        map[n:gsub("%s+", "_")] = id
+        map[n:gsub("[^%w]", "")] = id
+      end
+    end
+  end
+  for k, v in pairs(GEN2_BERRY_ALIASES) do
+    map[k] = v
+  end
+  for i = 1, 50 do
+    map[string.format("TM%02d", i)] = 288 + i
+    map[string.format("TM_%02d", i)] = 288 + i
+    map[string.format("TM%d", i)] = 288 + i
+    map[string.format("TM_%d", i)] = 288 + i
+  end
+  for i = 1, 8 do
+    map[string.format("HM%02d", i)] = 338 + i
+    map[string.format("HM_%02d", i)] = 338 + i
+    map[string.format("HM%d", i)] = 338 + i
+    map[string.format("HM_%d", i)] = 338 + i
+  end
+  return map
+end
+
 local function load_pack()
   if ItemsData._byId then return ItemsData._byId end
   local src = read_bytes("data/generated/gba/items/pack.lua")
@@ -165,6 +220,7 @@ local function load_pack()
       if ok and type(pack) == "table" and type(pack.items) == "table" then
         ItemsData._pack = pack
         ItemsData._byId = pack.items
+        ItemsData._byName = build_by_name(pack.items)
         if not ItemsData._logged then
           ItemsData._logged = true
           print("[game3/items] pack ready (" .. tostring(pack.count) .. ")")
@@ -174,6 +230,7 @@ local function load_pack()
     end
   end
   ItemsData._byId = FALLBACK
+  ItemsData._byName = build_by_name(FALLBACK)
   if not ItemsData._logged then
     ItemsData._logged = true
     print("[game3/items] pack missing — using fallback rows")
@@ -184,6 +241,7 @@ end
 function ItemsData.install(_cache)
   ItemsData._pack = nil
   ItemsData._byId = nil
+  ItemsData._byName = nil
   ItemsData._logged = false
   load_pack()
 end
@@ -196,6 +254,24 @@ local function normalize_id(id)
   end
   local num = tonumber(id)
   if num then return num, tostring(num) end
+
+  load_pack()
+  local sUpper = s:upper()
+  if ItemsData._byName and ItemsData._byName[sUpper] then
+    return ItemsData._byName[sUpper], s
+  end
+
+  local tm = sUpper:match("^TM_?(%d+)$")
+  if tm then
+    local n = tonumber(tm)
+    if n and n >= 1 and n <= 50 then return 288 + n, s end
+  end
+  local hm = sUpper:match("^HM_?(%d+)$")
+  if hm then
+    local n = tonumber(hm)
+    if n and n >= 1 and n <= 8 then return 338 + n, s end
+  end
+
   return nil, s
 end
 
@@ -243,6 +319,13 @@ function ItemsData.info(id)
       return { id = num, name = "BERRY", pocket = "BERRY_POUCH", fieldUse = "heal" }
     end
     return { id = num, name = "ITEM " .. num, pocket = "ITEMS", fieldUse = "none" }
+  end
+  local sUpper = s:upper()
+  if sUpper:find("BERRY", 1, true) then
+    return { id = s, name = s:gsub("_", " "), pocket = "BERRY_POUCH", fieldUse = "heal" }
+  end
+  if sUpper:find("^TM%d") or sUpper:find("^HM%d") or sUpper:find("^TM_") or sUpper:find("^HM_") then
+    return { id = s, name = s:gsub("_", " "), pocket = "TM_CASE", fieldUse = "tm" }
   end
   return { id = s, name = s:gsub("_", " "), pocket = "ITEMS", fieldUse = "none" }
 end
@@ -307,6 +390,51 @@ function ItemsData.isHm(id)
   return num and num >= ItemsData.FIRST_HM and num <= ItemsData.LAST_HM
 end
 
+ItemsData.FIRST_BERRY = 133
+ItemsData.LAST_BERRY = 175
+
+function ItemsData.isBerry(id)
+  local num = tonumber(id)
+  if not num then
+    num = ItemsData.toNumericId(id)
+  end
+  return num and num >= ItemsData.FIRST_BERRY and num <= ItemsData.LAST_BERRY
+end
+
+--- Get 1-based Berry index (1..43) from item ID.
+function ItemsData.berryNumber(id)
+  local num = tonumber(id)
+  if not num then
+    num = ItemsData.toNumericId(id)
+  end
+  if num and num >= ItemsData.FIRST_BERRY and num <= ItemsData.LAST_BERRY then
+    return num - ItemsData.FIRST_BERRY + 1
+  end
+  return 1
+end
+
+--- Get 1-based TM (1..50) or HM (1..8) index from item ID.
+function ItemsData.tmNumber(id)
+  local num = tonumber(id)
+  if not num then
+    num = ItemsData.toNumericId(id)
+  end
+  if num then
+    if num >= ItemsData.FIRST_TM and num <= ItemsData.LAST_TM then
+      return num - ItemsData.FIRST_TM + 1
+    elseif num >= ItemsData.FIRST_HM and num <= ItemsData.LAST_HM then
+      return num - ItemsData.FIRST_HM + 1
+    end
+  end
+  local s = tostring(id):upper()
+  local tm = s:match("TM_?(%d+)")
+  if tm then return tonumber(tm) end
+  local hm = s:match("HM_?(%d+)")
+  if hm then return tonumber(hm) end
+  return nil
+end
+
+
 --- Canonical bag key: prefer numeric FRLG id string.
 function ItemsData.bagKey(id)
   local num = select(1, normalize_id(id))
@@ -363,7 +491,7 @@ local PP_IDS = { [34] = true, [35] = true, [36] = true, [37] = true, [69] = true
 local ESCAPE_IDS = { [85] = true }
 local REPEL_IDS = { [83] = true, [84] = true, [86] = true }
 local BIKE_IDS = { [259] = true, [260] = true }
-local MAP_IDS = { [261] = true, [365] = true }
+local MAP_IDS = { [261] = true, [361] = true, [365] = true }
 
 --- Effective field-use kind (medicine refined).
 function ItemsData.fieldUseKind(id)

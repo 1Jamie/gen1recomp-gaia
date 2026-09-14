@@ -93,7 +93,7 @@ local function load_pair(cache, pair)
   local rgb, bgr = Palette.load(palBlob)
   if not rgb then return nil, bgr end
 
-  local hash = Palette.hash(bgr)
+  local hash = Palette.hash(bgr, idxBlob)
   local layered = cache:exists(NATIVE .. "/" .. pair .. "/mids_over.idx")
   local tag = layered and "u" or "flat"
   local image, imageData, err = bake_or_load(cache, pair, idxTbl, rgb, hash, tag, false)
@@ -128,7 +128,8 @@ local function load_pair(cache, pair)
     local overBlob = cache:read(NATIVE .. "/" .. pair .. "/mids_over.idx")
     local overTbl = overBlob and NativePack.decodeIdx(overBlob)
     if overTbl then
-      local oImg, oData = bake_or_load(cache, pair, overTbl, rgb, hash, "o", true)
+      local overHash = Palette.hash(bgr, overBlob)
+      local oImg, oData = bake_or_load(cache, pair, overTbl, rgb, overHash, "o", true)
       if oImg then
         ts.layered = true
         ts.overImage = oImg

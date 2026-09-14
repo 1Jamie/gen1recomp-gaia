@@ -483,8 +483,9 @@ local function draw_mon_sprite(battler, base, back)
     local hFlip = (pres and pres.hFlip) and true or false
     local sx = (hFlip and -1 or 1) * scale * ((pres and pres.sx) or 1)
     local sy = scale * ((pres and pres.sy) or 1)
+    local rot = (pres and pres.rotation) or 0
     local blended = BallOpen.setBlendShader(BallOpen.monBlend(side))
-    love.graphics.draw(entry.image, cx, cy, 0, sx, sy, 32, 32)
+    love.graphics.draw(entry.image, cx, cy, rot, sx, sy, 32, 32)
     if blended then love.graphics.setShader() end
   else
     -- Placeholder silhouette so lunge/shake is visible before full pic extract.
@@ -498,9 +499,21 @@ local function draw_mon_sprite(battler, base, back)
       love.graphics.setColor(0.95, 0.45, 0.35, a)
     end
     local hw = 24 * scale
-    love.graphics.rectangle("fill", cx - hw, cy - hw, hw * 2, hw * 2)
-    love.graphics.setColor(1, 1, 1, a * 0.9)
-    love.graphics.rectangle("line", cx - hw, cy - hw, hw * 2, hw * 2)
+    local rot = (pres and pres.rotation) or 0
+    if rot ~= 0 or sx ~= 1 or sy ~= 1 then
+      love.graphics.push()
+      love.graphics.translate(cx, cy)
+      love.graphics.rotate(rot)
+      love.graphics.scale(sx, sy)
+      love.graphics.rectangle("fill", -hw, -hw, hw * 2, hw * 2)
+      love.graphics.setColor(1, 1, 1, a * 0.9)
+      love.graphics.rectangle("line", -hw, -hw, hw * 2, hw * 2)
+      love.graphics.pop()
+    else
+      love.graphics.rectangle("fill", cx - hw, cy - hw, hw * 2, hw * 2)
+      love.graphics.setColor(1, 1, 1, a * 0.9)
+      love.graphics.rectangle("line", cx - hw, cy - hw, hw * 2, hw * 2)
+    end
   end
 end
 
@@ -710,13 +723,16 @@ function Ui.draw(w, h)
     love.graphics.setColor(1, 1, 1, 1)
   end
 
+  local screenFxActive = Anim.beginScreenEffect and Anim.beginScreenEffect()
+
   -- pokefirered/src/battle_anim_special.c:1888
-  local bgBlended = BallOpen.setBlendShader(BallOpen.bgCoeff(), 31, 31, 31)
+  local bgBlended = not screenFxActive and BallOpen.setBlendShader(BallOpen.bgCoeff(), 31, 31, 31)
   if not BattleBg.draw(nil, enemyOx, playerOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
   end
   if bgBlended then love.graphics.setShader() end
+  if screenFxActive then Anim.beginScreenEffect() end
   love.graphics.setColor(1, 1, 1, 1)
 
   -- pret-ish 5-layer z:
@@ -730,16 +746,19 @@ function Ui.draw(w, h)
   if st then
     draw_mon_sprite(st.enemy, ENEMY_MON, false)
   end
+  if screenFxActive then Anim.beginScreenEffect() end
   Anim.drawParticles(101, 199)
   -- pokefirered/src/battle_anim_mons.c:1908
   draw_player_trainer(stage)
   if st then
     draw_mon_sprite(st.player, PLAYER_MON, true)
   end
+  if screenFxActive then Anim.beginScreenEffect() end
   Anim.drawParticles(201, 999)
   draw_intro_ball(stage)
   -- pokefirered/src/pokeball.c:770
   BallOpen.draw()
+  if screenFxActive then Anim.endScreenEffect() end
   if st then
     Healthbox.draw("enemy", st.enemy)
     Healthbox.draw("player", st.player)

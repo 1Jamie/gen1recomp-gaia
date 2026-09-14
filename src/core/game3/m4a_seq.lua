@@ -108,6 +108,13 @@ local function new_track(data)
     bendRange = 2, -- pret MPlayTrack init
     tune = 0,      -- signed, C_V center = 0
     keyShift = 0,
+    lfoSpeed = 22, -- pret default
+    lfoDelay = 0,
+    lfoDelayC = 0,
+    lfoSpeedC = 0,
+    mod = 0,
+    modT = 0,
+    modM = 0,
     callStack = {},
     -- pret: commands >= 0xBD update runningStatus; bytes < 0x80 reuse it.
     runningStatus = nil,
@@ -120,7 +127,27 @@ function Seq.trackPitch(tr)
   local tune = tr.tune or 0
   local keyShift = tr.keyShift or 0
   local x = (tune + bend) * 4 + (keyShift * 256)
+  if (tr.modT or 0) == 0 and (tr.mod or 0) > 0 then
+    x = x + 16 * (tr.modM or 0)
+  end
   return math.floor(x / 256), (x % 256)
+end
+
+local function calc_track_vol(tr, vel)
+  vel = tonumber(vel) or tr.vel or 100
+  local vol = (tr.volume or 100) / 127 * (vel / 127)
+  if (tr.modT or 0) == 1 and (tr.mod or 0) > 0 then
+    local modVol = math.max(0, math.min(255, (tr.modM or 0) + 128)) / 128
+    vol = vol * modVol
+  end
+  local pan = ((tr.pan or 0x40) - 0x40) / 64
+  if (tr.modT or 0) == 2 and (tr.mod or 0) > 0 then
+    pan = pan + (tr.modM or 0) / 128
+  end
+  if pan < -1 then pan = -1 elseif pan > 1 then pan = 1 end
+  local volL = vol * (0.5 - pan * 0.5)
+  local volR = vol * (0.5 + pan * 0.5)
+  return volL, volR
 end
 
 function Seq.newPlayer(song, opts)
@@ -164,7 +191,7 @@ end
 
 local MAX_DS = 12
 
---- pret MPlayMain: after BEND/VOL/PAN, TrkVolPitSet + rewrite active channel freqs.
+--- pret MPlayMain: after BEND/VOL/PAN/MOD, TrkVolPitSet + rewrite active channel freqs.
 local function refresh_track_voices(player, tr)
   if not tr then return end
   local keyM, fine = Seq.trackPitch(tr)
@@ -172,10 +199,9 @@ local function refresh_track_voices(player, tr)
     if v.track == tr and v.alive ~= false then
       if tr._volDirty then
         local nvel = v.noteVel or tr.vel or 127
-        local vol = (tr.volume or 100) / 127 * (nvel / 127)
-        local pan = ((tr.pan or 0x40) - 0x40) / 64
-        v.volL = vol * (0.5 - pan * 0.5)
-        v.volR = vol * (0.5 + pan * 0.5)
+        local volL, volR = calc_track_vol(tr, nvel)
+        v.volL = volL
+        v.volR = volR
       end
       if tr._pitchDirty and not v.fixedFreq then
         local noteKey = v.noteKey or 60
@@ -211,16 +237,20 @@ end
 
 local function start_note(player, tr, key, vel, gate)
   vel = vel or tr.vel or 100
-  local vol = (tr.volume or 100) / 127 * (vel / 127)
-  local pan = ((tr.pan or 0x40) - 0x40) / 64
-  local volL = vol * (0.5 - pan * 0.5)
-  local volR = vol * (0.5 + pan * 0.5)
+  local volL, volR = calc_track_vol(tr, vel)
   if not player.voiceResolver then return end
   local rawKey = tonumber(key) or 60
   local keyM, fine = Seq.trackPitch(tr)
   local absKey = rawKey + keyM
   if absKey < 0 then absKey = 0 end
   if absKey > 178 then absKey = 178 end
+
+  -- Reset LFO delay on new note per pret ply_note
+  if (tr.lfoDelay or 0) > 0 then
+    tr.lfoDelayC = tr.lfoDelay
+    tr.modM = 0
+  end
+
   -- Resolver gets absKey for initial freq; we store raw note key for live BEND.
   local voice = player.voiceResolver(tr.voice, absKey, vel, tr, volL, volR, fine)
   if voice then
@@ -328,6 +358,28 @@ local function exec_cmd(player, tr, cmd)
   elseif cmd == 0xC1 then
     tr.bendRange = track_read(tr) or 2
     tr._pitchDirty = true
+  elseif cmd == 0xC2 then
+    tr.lfoSpeed = track_read(tr) or 22
+    if tr.lfoSpeed == 0 and (tr.modM or 0) ~= 0 then
+      tr.modM = 0
+      if (tr.modT or 0) == 0 then tr._pitchDirty = true else tr._volDirty = true end
+    end
+  elseif cmd == 0xC3 then
+    tr.lfoDelay = track_read(tr) or 0
+    tr.lfoDelayC = tr.lfoDelay
+  elseif cmd == 0xC4 then
+    tr.mod = track_read(tr) or 0
+    if tr.mod == 0 and (tr.modM or 0) ~= 0 then
+      tr.modM = 0
+      if (tr.modT or 0) == 0 then tr._pitchDirty = true else tr._volDirty = true end
+    end
+  elseif cmd == 0xC5 then
+    local oldT = tr.modT or 0
+    tr.modT = track_read(tr) or 0
+    if oldT ~= tr.modT then
+      tr._pitchDirty = true
+      tr._volDirty = true
+    end
   elseif cmd == 0xC8 then
     -- TUNE: signed around 0x40 (C_V)
     tr.tune = (track_read(tr) or 0x40) - 0x40
@@ -362,11 +414,10 @@ local function exec_cmd(player, tr, cmd)
     ply_note(player, tr, cmd)
   elseif cmd >= 0x80 and cmd <= 0xB0 then
     tr.wait = clock_at(cmd - 0x80)
-  elseif cmd == 0xBA or cmd == 0xC2 or cmd == 0xC3 or cmd == 0xC4
-      or cmd == 0xC5 or cmd == 0xC6 or cmd == 0xC7
+  elseif cmd == 0xBA or cmd == 0xC6 or cmd == 0xC7
       or cmd == 0xC9 or cmd == 0xCA or cmd == 0xCB or cmd == 0xCC
       or cmd == 0xB9 then
-    -- PRIO/LFOS/LFODL/MOD/MODT/… (1 arg); runningStatus already set if >= 0xBD
+    -- PRIO/… (1 arg); runningStatus already set if >= 0xBD
     track_read(tr)
   end
 end
@@ -424,9 +475,46 @@ local function seq_tick(player)
     end
     Mix.tickEnvelope(v)
   end
+
+  -- Tick LFO modulation per active track
+  for _, tr in ipairs(player.tracks) do
+    if not tr.done and (tr.lfoSpeed or 0) > 0 and (tr.mod or 0) > 0 then
+      if (tr.lfoDelayC or 0) > 0 then
+        tr.lfoDelayC = tr.lfoDelayC - 1
+      else
+        tr.lfoSpeedC = ((tr.lfoSpeedC or 0) + tr.lfoSpeed) % 256
+        local phase = tr.lfoSpeedC
+        local tri
+        if phase < 64 then
+          tri = phase
+        elseif phase < 192 then
+          tri = 128 - phase
+        else
+          tri = phase - 256
+        end
+        local newModM = math.floor((tr.mod * tri) / 64)
+        if newModM ~= (tr.modM or 0) then
+          tr.modM = newModM
+          if (tr.modT or 0) == 0 then
+            tr._pitchDirty = true
+          else
+            tr._volDirty = true
+          end
+        end
+      end
+    end
+  end
+
   for _, tr in ipairs(player.tracks) do
     tick_track(player, tr)
   end
+
+  for _, tr in ipairs(player.tracks) do
+    if tr._pitchDirty or tr._volDirty then
+      refresh_track_voices(player, tr)
+    end
+  end
+
   -- New notes get one envelope step so attack=instant voices are audible this frame.
   for _, v in ipairs(player.voices) do
     if v.adsr and v.envPhase == "attack" and (v.envVol or 0) == 0 then

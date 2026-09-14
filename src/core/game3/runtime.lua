@@ -30,35 +30,53 @@ function Runtime.getSession()
 end
 
 function Runtime.pumpRtc(game, dt)
-  if not game or not game.save then return end
-  local save = game.save
+  local session = Runtime.session or (game and game.session)
+  local save = game and game.save
+  if not session and not save then return end
   dt = tonumber(dt) or (1 / 60)
 
   -- Standalone FRLG playtime accumulator (no hardware RTC, no Gen2 Clock).
-  local session = Runtime.session
-  local pt = (session and session.playtime) or save.playTime or save.playtime
+  local pt = (session and (session.playtime or session.playTime))
+    or (save and (save.playTime or save.playtime))
   if type(pt) ~= "table" then
-    pt = { hours = 0, minutes = 0, seconds = 0 }
-    if session then session.playtime = pt end
-    save.playTime = pt
+    pt = { hours = 0, minutes = 0, seconds = 0, vblanks = 0 }
   end
+  pt.hours = tonumber(pt.hours) or 0
+  pt.minutes = tonumber(pt.minutes) or 0
+  pt.seconds = tonumber(pt.seconds) or 0
+  pt.vblanks = tonumber(pt.vblanks) or 0
+
   Runtime._playTimeAcc = (Runtime._playTimeAcc or 0) + dt
   while Runtime._playTimeAcc >= 1 do
     Runtime._playTimeAcc = Runtime._playTimeAcc - 1
-    local sec = (tonumber(pt.seconds) or 0) + 1
-    if sec >= 60 then
-      sec = 0
-      local min = (tonumber(pt.minutes) or 0) + 1
-      if min >= 60 then
-        min = 0
-        pt.hours = (tonumber(pt.hours) or 0) + 1
+    pt.seconds = pt.seconds + 1
+    if pt.seconds >= 60 then
+      pt.seconds = 0
+      pt.minutes = pt.minutes + 1
+      if pt.minutes >= 60 then
+        pt.minutes = 0
+        pt.hours = math.min(999, pt.hours + 1)
       end
-      pt.minutes = min
     end
-    pt.seconds = sec
   end
-  if session then session.playtime = pt end
-  save.playTime = pt
+
+  if session then
+    session.playtime = pt
+    session.playTime = pt
+    session.playTimeHours = pt.hours
+    session.playTimeMinutes = pt.minutes
+    session.playTimeSeconds = pt.seconds
+    session.hours = pt.hours
+    session.minutes = pt.minutes
+    session.seconds = pt.seconds
+  end
+  if save then
+    save.playTime = pt
+    save.playtime = pt
+    save.playTimeHours = pt.hours
+    save.playTimeMinutes = pt.minutes
+    save.playTimeSeconds = pt.seconds
+  end
 end
 
 local function mark_host_game3(game, on)

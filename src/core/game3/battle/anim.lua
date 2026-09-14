@@ -28,6 +28,88 @@ Anim._present = {
   enemy = nil,
 }
 Anim._stage = nil
+Anim._screenEffect = {
+  type = "none",
+  coeff = 0,
+  targetColor = { 1, 1, 1 },
+}
+Anim._screenShader = nil
+
+local SCREEN_SHADER_SRC = [[
+extern int effectType;
+extern float coeff;
+extern vec3 targetColor;
+
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec4 c = Texel(tex, tc) * color;
+  if (effectType == 1) {
+    return vec4(vec3(1.0) - c.rgb, c.a);
+  } else if (effectType == 2) {
+    return vec4(mix(c.rgb, vec3(1.0), coeff), c.a);
+  } else if (effectType == 3) {
+    return vec4(mix(c.rgb, vec3(0.0), coeff), c.a);
+  } else if (effectType == 4) {
+    float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+    return vec4(mix(c.rgb, vec3(luma), coeff), c.a);
+  } else if (effectType == 5) {
+    return vec4(mix(c.rgb, targetColor, coeff), c.a);
+  }
+  return c;
+}
+]]
+
+function Anim.setScreenEffect(opts)
+  if not opts or opts.type == "none" or opts.type == false then
+    Anim._screenEffect = { type = "none", coeff = 0, targetColor = { 1, 1, 1 } }
+    return
+  end
+  Anim._screenEffect = {
+    type = opts.type or "invert",
+    coeff = opts.coeff or 1,
+    targetColor = opts.targetColor or { 1, 1, 1 },
+  }
+end
+
+function Anim.screenEffect()
+  return Anim._screenEffect
+end
+
+function Anim.beginScreenEffect()
+  local fx = Anim._screenEffect
+  if not fx or fx.type == "none" then return false end
+  if not (love and love.graphics and love.graphics.newShader) then return false end
+
+  if Anim._screenShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, SCREEN_SHADER_SRC)
+    Anim._screenShader = ok and sh or false
+  end
+  local sh = Anim._screenShader
+  if not sh then return false end
+
+  local typeCode = 0
+  if fx.type == "invert" then typeCode = 1
+  elseif fx.type == "fade_white" then typeCode = 2
+  elseif fx.type == "fade_black" or fx.type == "darken" then typeCode = 3
+  elseif fx.type == "grayscale" then typeCode = 4
+  elseif fx.type == "custom_blend" then typeCode = 5
+  end
+
+  if typeCode == 0 then return false end
+
+  pcall(function()
+    sh:send("effectType", typeCode)
+    sh:send("coeff", fx.coeff or 1.0)
+    sh:send("targetColor", fx.targetColor or { 1, 1, 1 })
+    love.graphics.setShader(sh)
+  end)
+  return true
+end
+
+function Anim.endScreenEffect()
+  if love and love.graphics and love.graphics.setShader then
+    love.graphics.setShader()
+  end
+end
 
 local function default_present(side)
   local z = (side == "player") and Anim.Z.PLAYER or Anim.Z.ENEMY
@@ -43,6 +125,7 @@ local function default_present(side)
     scale = 1,
     sx = 1,
     sy = 1,
+    rotation = 0,
     displayHp = nil,
     displayMaxHp = nil,
     displayExp = nil,
@@ -122,6 +205,10 @@ function Anim.reset(opts)
   Anim._vm:reset()
   if Anim._pack then
     Anim._vm:setPack(Anim._pack)
+  end
+  Anim._screenEffect = { type = "none", coeff = 0, targetColor = { 1, 1, 1 } }
+  if love and love.graphics and love.graphics.setDefaultFilter then
+    pcall(love.graphics.setDefaultFilter, "nearest", "nearest")
   end
   AnimSprites.reset()
   BallOpen.reset()
@@ -490,9 +577,16 @@ local GENERIC_MISS = {
 
 function Anim.scriptForMove(moveId)
   local pack = load_pack()
-  moveId = tonumber(moveId) or moveId
+  local numId = tonumber(moveId)
+  if not numId then
+    local okM, Moves = pcall(require, "src.core.game3.battle.moves")
+    if okM and Moves and Moves.numForName then
+      numId = Moves.numForName(moveId)
+    end
+  end
+  numId = numId or tonumber(moveId) or moveId
   if pack and pack.moves then
-    local s = pack.moves[moveId] or pack.moves[tostring(moveId)]
+    local s = pack.moves[numId] or pack.moves[tostring(numId)] or pack.moves[moveId]
     if s then return s end
   end
   return GENERIC_HIT

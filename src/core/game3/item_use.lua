@@ -411,12 +411,29 @@ function ItemUse.useField(session, bag, id, partySlot)
     return true, "repel", t
   end
 
+  if use == "vs_seeker" or id == ItemsData.ITEM_VS_SEEKER or id == "VS_SEEKER"
+      or ItemsData.toNumericId(id) == ItemsData.ITEM_VS_SEEKER then
+    local VsSeeker = require("src.core.game3.vs_seeker")
+    local ok = VsSeeker.use(session, nil)
+    return ok, "vs_seeker", nil
+  end
+
+  if id == ItemsData.ITEM_TM_CASE or id == "TM_CASE"
+      or ItemsData.toNumericId(id) == ItemsData.ITEM_TM_CASE then
+    local TmCase = require("src.ui.game3.tm_case")
+    TmCase.show(session, bag)
+    return true, "tm_case", "Opened TM CASE."
+  end
+
+  if id == ItemsData.ITEM_BERRY_POUCH or id == "BERRY_POUCH"
+      or ItemsData.toNumericId(id) == ItemsData.ITEM_BERRY_POUCH then
+    local BerryPouch = require("src.ui.game3.berry_pouch")
+    BerryPouch.show(session, bag)
+    return true, "berry_pouch", "Opened BERRY POUCH."
+  end
+
   if use == "key" or use == "rod" or use == "berry" or use == "mail"
       or use == "flute" or use == "none" then
-    if ItemsData.toNumericId(id) == ItemsData.ITEM_TM_CASE
-        or ItemsData.toNumericId(id) == ItemsData.ITEM_BERRY_POUCH then
-      return false, "open_pocket", "Opened pocket."
-    end
     local t = "OAK: This isn't the\ntime to use that!"
     return false, use, t
   end

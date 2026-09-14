@@ -57,3 +57,17 @@ end
 check("two balls", maxBalls == 2)
 check("done", done)
 print("pokecenter heal OAM parity ok (" .. frames .. " frames)")
+
+-- Test FieldEffects routing
+local FieldEffects = require("src.core.game3.field_effects")
+check("FieldEffects.doFieldEffect starts heal", FieldEffects.doFieldEffect(25) == true)
+check("FieldEffects.isFieldEffectActive is true", FieldEffects.isFieldEffectActive(25) == true)
+local fldDone = false
+FieldEffects.waitFieldEffect(25, function() fldDone = true end)
+for i = 1, 800 do
+  FieldEffects.step()
+  if fldDone then break end
+end
+check("FieldEffects.waitFieldEffect completed", fldDone == true)
+check("FieldEffects.isFieldEffectActive is false after done", FieldEffects.isFieldEffectActive(25) == false)
+print("FieldEffects integration ok")

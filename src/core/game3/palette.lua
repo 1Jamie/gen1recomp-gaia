@@ -21,14 +21,17 @@ function Palette.load(blob)
   return NativePack.palsToRgb8(bgr), bgr
 end
 
---- Stable hash of BGR555 pals for RGBA disk cache keys.
-function Palette.hash(bgrPals)
+--- Stable hash of BGR555 pals (+ optional extraBlob) for RGBA disk cache keys.
+function Palette.hash(bgrPals, extraBlob)
   local parts = {}
   for p = 0, Palette.NUM_PALS_TOTAL - 1 do
     local colors = bgrPals[p] or bgrPals[0] or {}
     for c = 0, 15 do
       parts[#parts + 1] = string.format("%04x", (colors[c] or 0) % 65536)
     end
+  end
+  if extraBlob and type(extraBlob) == "string" then
+    parts[#parts + 1] = extraBlob
   end
   -- FNV-1a 32-bit over hex stream (stable, no bit lib).
   local h = 2166136261

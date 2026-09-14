@@ -133,12 +133,16 @@ local function bake_badges_rgba(badgeTiles, palBytes)
   local pixels = {}
   for i = 1, W * H do pixels[i] = 0 end
 
-  local tileOffsets = { {0, 0}, {8, 0}, {0, 8}, {8, 8} }
   for badge = 0, 7 do
-    local baseTile = badge * 4
-    for tIdx = 1, 4 do
-      local ox, oy = tileOffsets[tIdx][1], tileOffsets[tIdx][2]
-      local tileNum = baseTile + (tIdx - 1)
+    -- 4 tiles per badge: TL (badge*2), TR (badge*2+1), BL (16+badge*2), BR (16+badge*2+1)
+    local tiles = {
+      { badge * 2, 0, 0 },
+      { badge * 2 + 1, 8, 0 },
+      { 16 + badge * 2, 0, 8 },
+      { 16 + badge * 2 + 1, 8, 8 },
+    }
+    for _, t in ipairs(tiles) do
+      local tileNum, ox, oy = t[1], t[2], t[3]
       local base = tileNum * 32
       local tile = {}
       for i = 1, 32 do tile[i] = badgeTiles[base + i] or 0 end

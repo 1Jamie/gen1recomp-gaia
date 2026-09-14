@@ -104,23 +104,60 @@ local function resolve_tone(pack, vgId, voiceId, midiKey, depth)
     return resolve_tone(pack, tone.subVgId, idx, midiKey, depth + 1)
   end
   if rhy then
-    return resolve_tone(pack, tone.subVgId, midiKey, midiKey, depth + 1)
+    local sub = resolve_tone(pack, tone.subVgId, midiKey, midiKey, depth + 1)
+    if sub then
+      sub = {
+        type = sub.type,
+        key = sub.key,
+        length = sub.length,
+        pan = sub.pan,
+        sampleId = sub.sampleId,
+        attack = sub.attack,
+        decay = sub.decay,
+        sustain = sub.sustain,
+        release = sub.release,
+        wavParam = sub.wavParam,
+        wave = sub.wave,
+        isRhy = true,
+      }
+    end
+    return sub
   end
   return tone
 end
 
-local function make_voice_from_tone(pack, tone, key, volL, volR, fine)
+local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
   if not tone then return nil end
   fine = tonumber(fine) or 0
   local typ = tone.type or 0
   local kind = typ % 8
+  local noteKey = key
+  if tone.isRhy and tone.key then
+    local keyM = 0
+    if tr then
+      keyM = Seq.trackPitch(tr)
+    end
+    noteKey = tone.key + keyM
+  end
+
+  -- Rhythm pan override (if pan has bit 7 set)
+  if tone.isRhy and tone.pan and tone.pan >= 0x80 and tr then
+    local rpan = (tone.pan - 0xC0) * 2 -- -64..+62
+    local totalPan = ((tr.pan or 0x40) - 0x40) + rpan
+    if totalPan < -64 then totalPan = -64 elseif totalPan > 63 then totalPan = 63 end
+    local p = totalPan / 64
+    local vol = (tr.volume or 100) / 127 * ((tr.vel or 100) / 127)
+    volL = vol * (0.5 - p * 0.5)
+    volR = vol * (0.5 + p * 0.5)
+  end
+
   if kind == 0 and tone.sampleId then
     local meta = pack.samples[tone.sampleId] or pack.samples[tostring(tone.sampleId)]
     local pcm = Sample.loadPcm(pack.samplesBin, meta)
     if not pcm or not meta then return nil end
     local fixed = math.floor((tone.type or 0) / 8) % 2 == 1
     -- pret MidiKeyToFreq(wav, noteKey+keyM, fine) — returns playback Hz.
-    local rate = fixed and Mix.waveRate(meta.freq) or Mix.midiKeyToFreq(meta.freq, key, fine)
+    local rate = fixed and Mix.waveRate(meta.freq) or Mix.midiKeyToFreq(meta.freq, noteKey, fine)
     if rate < 100 then rate = Mix.waveRate(meta.freq) end
     local loop = (meta.loopStart or 0) > 0 and (meta.loopStart or 0) < (meta.size or 0)
     local v = Mix.newDsVoice(pcm, meta, {
@@ -141,7 +178,7 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine)
       local wp = tone.wavParam or 0
       if wp <= 3 then duty = wp end
       return Mix.newCgbPulse({
-        key = key,
+        key = noteKey,
         fine = fine,
         duty = duty,
         cgbChan = kind,
@@ -155,7 +192,7 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine)
         for i = 1, 32 do wave[i] = (i % 16) end
       end
       return Mix.newCgbWave({
-        key = key,
+        key = noteKey,
         fine = fine,
         wave = wave,
         volL = volL, volR = volR,
@@ -163,8 +200,8 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine)
       })
     elseif kind == 4 then
       return Mix.newCgbNoise({
-        key = key,
-        period = Mix.cgbNoisePeriod(key),
+        key = noteKey,
+        period = Mix.cgbNoisePeriod(noteKey),
         volL = volL, volR = volR,
         tone = tone,
       })
@@ -220,7 +257,7 @@ function Player.start(pack, cache, slot, songId, opts)
   slot.seq = Seq.newPlayer(song, {
     voiceResolver = function(voiceId, key, vel, tr, volL, volR, fine)
       local tone = resolve_tone(pack, vgId, voiceId, key)
-      return make_voice_from_tone(pack, tone, key, volL, volR, fine)
+      return make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
     end,
   })
   return true

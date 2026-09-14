@@ -54,7 +54,7 @@ function BagMenu.isOpen()
 end
 
 function BagMenu.currentPocket()
-  return ItemsData.POCKET_ORDER[BagMenu.pocketIdx] or "ITEMS"
+  return ItemsData.BAG_POCKET_ORDER[BagMenu.pocketIdx] or "ITEMS"
 end
 
 function BagMenu.list(pocket)
@@ -141,7 +141,7 @@ function BagMenu.show(sessionBag, opts)
   BagMenu.tossQty = 1
   BagMenu._onClose = opts.onClose
   if opts.pocket then
-    for i, p in ipairs(ItemsData.POCKET_ORDER) do
+    for i, p in ipairs(ItemsData.BAG_POCKET_ORDER) do
       if p == opts.pocket then BagMenu.pocketIdx = i; break end
     end
   elseif BagMenu._battle then
@@ -257,7 +257,38 @@ function BagMenu.handleInput(input)
             return
           end
         else
-          if ItemUse.needsPartyTarget(row.id) then
+          local numId = ItemsData.toNumericId(row.id)
+          if numId == ItemsData.ITEM_TM_CASE or row.id == "TM_CASE" then
+            local savedState = { pocketIdx = BagMenu.pocketIdx, cursor = BagMenu.cursor, scroll = BagMenu.scroll }
+            local TmCase = require("src.ui.game3.tm_case")
+            TmCase.show(BagMenu._session, BagMenu._bag, {
+              session = BagMenu._session,
+              bag = BagMenu._bag,
+              onClose = function()
+                BagMenu.pocketIdx = savedState.pocketIdx
+                BagMenu.cursor = savedState.cursor
+                BagMenu.scroll = savedState.scroll
+                BagMenu.mode = "list"
+                clamp_cursor()
+              end,
+            })
+            return
+          elseif numId == ItemsData.ITEM_BERRY_POUCH or row.id == "BERRY_POUCH" then
+            local savedState = { pocketIdx = BagMenu.pocketIdx, cursor = BagMenu.cursor, scroll = BagMenu.scroll }
+            local BerryPouch = require("src.ui.game3.berry_pouch")
+            BerryPouch.show(BagMenu._session, BagMenu._bag, {
+              session = BagMenu._session,
+              bag = BagMenu._bag,
+              onClose = function()
+                BagMenu.pocketIdx = savedState.pocketIdx
+                BagMenu.cursor = savedState.cursor
+                BagMenu.scroll = savedState.scroll
+                BagMenu.mode = "list"
+                clamp_cursor()
+              end,
+            })
+            return
+          elseif ItemUse.needsPartyTarget(row.id) then
             if #party == 0 then
               BagMenu.mode = "message"
               BagMenu.messageText = "There is no POKéMON."
@@ -353,12 +384,12 @@ function BagMenu.handleInput(input)
 
   -- list mode
   if input:wasPressed("left") or input:wasPressed("l") then
-    BagMenu.pocketIdx = ((BagMenu.pocketIdx - 2) % #ItemsData.POCKET_ORDER) + 1
+    BagMenu.pocketIdx = ((BagMenu.pocketIdx - 2) % #ItemsData.BAG_POCKET_ORDER) + 1
     BagMenu.cursor = 1
     BagMenu.scroll = 0
     se(5)
   elseif input:wasPressed("right") or input:wasPressed("r") then
-    BagMenu.pocketIdx = (BagMenu.pocketIdx % #ItemsData.POCKET_ORDER) + 1
+    BagMenu.pocketIdx = (BagMenu.pocketIdx % #ItemsData.BAG_POCKET_ORDER) + 1
     BagMenu.cursor = 1
     BagMenu.scroll = 0
     se(5)
@@ -383,6 +414,21 @@ function BagMenu.handleInput(input)
       BagMenu.actionCursor = 1
       refresh_actions()
       se(5)
+    end
+  elseif input:wasPressed("select") and not BagMenu._battle then
+    local rows = clamp_cursor()
+    local row = rows[BagMenu.cursor]
+    if row and BagMenu.currentPocket() == "KEY_ITEMS" then
+      local info = row.info or ItemsData.info(row.id)
+      local registrable = info and (tonumber(info.registrability) or 0) > 0
+      if registrable and BagMenu._session then
+        if BagMenu._session.registeredItem == row.id then
+          BagMenu._session.registeredItem = nil
+        else
+          BagMenu._session.registeredItem = row.id
+        end
+        se(5)
+      end
     end
   elseif input:wasPressed("b") or input:wasPressed("start") then
     se(9)

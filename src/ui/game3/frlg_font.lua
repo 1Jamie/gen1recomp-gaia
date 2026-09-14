@@ -72,9 +72,11 @@ FrlgFont.COLOR = {
   GREEN = { fg = FrlgFont.STDPAL[6], shadow = FrlgFont.STDPAL[7], bg = FrlgFont.STDPAL[0] },
   -- Party slot printers & Battle text (White fg, Dark Gray shadow)
   WHITE = { fg = FrlgFont.STDPAL[1], shadow = FrlgFont.STDPAL[2], bg = FrlgFont.STDPAL[0] },
+  LIGHT = { fg = FrlgFont.STDPAL[1], shadow = FrlgFont.STDPAL[2], bg = FrlgFont.STDPAL[0] },
   PARTY = { fg = FrlgFont.STDPAL[1], shadow = FrlgFont.STDPAL[2], bg = FrlgFont.STDPAL[0] },
   STAT = { fg = FrlgFont.STDPAL[4], shadow = FrlgFont.STDPAL[5], bg = FrlgFont.STDPAL[0] },
   DARK_GRAY = { fg = FrlgFont.STDPAL[2], shadow = FrlgFont.STDPAL[3], bg = FrlgFont.STDPAL[0] },
+  DARK = { fg = FrlgFont.STDPAL[2], shadow = FrlgFont.STDPAL[3], bg = FrlgFont.STDPAL[0] },
 }
 
 -- NPC Text Color Enums matching pokefirered/include/constants/event_objects.h
@@ -421,6 +423,9 @@ local function buildRev()
     ["‘"] = 0xB3,
     ["’"] = 0xB4,
     ["'"] = 0xB4,
+    ["$"] = 0xB7,
+    ["¥"] = 0xB7,
+    ["\xC2\xA5"] = 0xB7,
   }
   for code, ch in pairs(TextIR.CHARMAP or {}) do
     if type(ch) == "string" and #ch > 0 and not rev[ch] then
@@ -639,6 +644,7 @@ function FrlgFont.advance(glyphId, opts)
     local w = sw and sw[glyphId]
     if not w then
       if glyphId == 0x108 then return 8 end
+      if glyphId == 0xB7 then return 6 end
       w = (sw and sw[0]) or 5
     end
     return w
@@ -647,6 +653,7 @@ function FrlgFont.advance(glyphId, opts)
   local w = FrlgFont._widths[glyphId]
   if not w then
     if glyphId == 0x108 then return 9 end
+    if glyphId == 0xB7 then return 7 end
     w = FrlgFont._widths[0] or 6
   end
   return w

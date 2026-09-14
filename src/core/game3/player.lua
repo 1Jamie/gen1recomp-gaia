@@ -445,6 +445,13 @@ local function finishStep(game)
     return
   end
 
+  -- Evaluate Overworld Step Events (Happiness, VS Seeker, Poison, Egg/Daycare, Repel)
+  local StepEvents = package.loaded["src.core.game3.step_events"]
+    or require("src.core.game3.step_events")
+  if StepEvents and StepEvents.onStepTaken then
+    StepEvents.onStepTaken(session, game)
+  end
+
   -- Land-on-warp via owned warp table (mapDef.warps).
   Collision.tryWarpAt(game, Player.cellX, Player.cellY, Player.facing)
 
@@ -570,6 +577,8 @@ function Player.update(game, input)
   if Warp and Warp.isBusy and Warp.isBusy() then return end
   local Runtime = package.loaded["src.core.game3.runtime"]
   if Runtime and Runtime.uiBusy and Runtime.uiBusy() then return end
+  local StepEvents = package.loaded["src.core.game3.step_events"]
+  if StepEvents and StepEvents.busy and StepEvents.busy() then return end
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.vm and Space.vm.isRunning and Space.vm:isRunning() then
     return

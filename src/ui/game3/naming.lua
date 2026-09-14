@@ -259,9 +259,14 @@ local function drawPlayerIcon(st)
         end
         if entry and entry.image then
           local iw = entry.w or entry.image:getWidth()
-          local ih = entry.h or entry.image:getHeight()
+          local ih = entry.h or (entry.quads and entry.h) or entry.image:getHeight()
           local sc = math.min(L.iconW / iw, L.iconH / ih)
-          love.graphics.draw(entry.image, L.iconCX, L.iconCY, 0, sc, sc, iw / 2, ih / 2)
+          local q = entry.quads and entry.quads[0]
+          if q then
+            love.graphics.draw(entry.image, q, L.iconCX, L.iconCY, 0, sc, sc, iw / 2, ih / 2)
+          else
+            love.graphics.draw(entry.image, L.iconCX, L.iconCY, 0, sc, sc, iw / 2, ih / 2)
+          end
           return
         end
       end

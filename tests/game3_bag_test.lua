@@ -197,6 +197,38 @@ check(e2 == false, "escape rope refused outdoors")
 sess.registeredItem = 360
 check(sess.registeredItem == 360, "registered BICYCLE")
 
+print("[test] 8. Berry & TM pocket segregation and 3-pocket Bag UI")
+local testBag = Bag.new()
+Bag.add(testBag, "POTION", 2)
+Bag.add(testBag, "BERRY", 3)
+Bag.add(testBag, "ORAN_BERRY", 2)
+Bag.add(testBag, "CHESTO_BERRY", 1)
+Bag.add(testBag, "TM01", 1)
+Bag.add(testBag, "HM01", 1)
+
+local itemRows = Bag.listPocket(testBag, "ITEMS")
+local keyRows = Bag.listPocket(testBag, "KEY_ITEMS")
+local tmRows = Bag.listPocket(testBag, "TM_CASE")
+local berryRows = Bag.listPocket(testBag, "BERRY_POUCH")
+
+check(#itemRows == 1 and itemRows[1].name == "POTION", "ITEMS pocket only contains general items")
+check(Bag.has(testBag, ItemsData.ITEM_TM_CASE, 1), "TM CASE key item present in KEY_ITEMS")
+check(Bag.has(testBag, ItemsData.ITEM_BERRY_POUCH, 1), "BERRY POUCH key item present in KEY_ITEMS")
+check(#tmRows == 2, "TM_CASE pocket contains 2 machines")
+check(#berryRows == 2, "BERRY_POUCH pocket contains 2 berry kinds")
+check(Bag.get(testBag, 139) == 5, "BERRY + ORAN_BERRY merged to 5 Oran berries")
+
+local BagMenu = require("src.ui.game3.bag_menu")
+BagMenu.show(nil, testBag)
+check(BagMenu.currentPocket() == "ITEMS", "BagMenu initial pocket is ITEMS")
+BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
+check(BagMenu.currentPocket() == "KEY_ITEMS", "BagMenu second pocket is KEY_ITEMS")
+BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
+check(BagMenu.currentPocket() == "POKE_BALLS", "BagMenu third pocket is POKE_BALLS")
+BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
+check(BagMenu.currentPocket() == "ITEMS", "BagMenu wraps back to ITEMS (3 pockets only)")
+BagMenu.close()
+
 if failed > 0 then
   print(string.format("\n%d FAILED", failed))
   os.exit(1)

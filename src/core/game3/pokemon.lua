@@ -753,6 +753,11 @@ function Pokemon.swapMoves(mon, slotA, slotB)
   return true
 end
 
+function Pokemon.isEgg(mon)
+  if not mon then return false end
+  return (mon.isEgg == true) or (mon.egg == true) or (mon.species == 412)
+end
+
 local function read_rgba(species)
   local cache = resolve_cache(Pokemon._cache)
   local root = (Extract.CACHE_ROOT or "data/generated/gba") .. "/pokemon"

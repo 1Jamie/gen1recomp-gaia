@@ -224,15 +224,18 @@ function Mix.cgbNoisePeriod(key)
 end
 
 --- Attach MP2K ADSR. CGB uses 0..15 sustain; DS uses 0..255.
-function Mix.attachAdsr(voice, tone, isCgb)
+function Mix.attachAdsr(voice, tone, isCgb, opts)
   if not voice then return voice end
   tone = tone or {}
+  opts = opts or {}
   voice.adsr = {
     attack = tonumber(tone.attack) or (isCgb and 0 or 255),
     decay = tonumber(tone.decay) or 0,
     sustain = tonumber(tone.sustain) or (isCgb and 15 or 255),
     release = tonumber(tone.release) or 0,
     isCgb = isCgb and true or false,
+    pseudoEchoVolume = tonumber(opts.pseudoEchoVolume or tone.pseudoEchoVolume or 0) or 0,
+    pseudoEchoLength = tonumber(opts.pseudoEchoLength or tone.pseudoEchoLength or 0) or 0,
   }
   voice.envPhase = "attack"
   voice.envVol = 0
@@ -316,11 +319,21 @@ function Mix.tickEnvelope(v)
         v.alive = false
       else
         v.envVol = math.floor(((v.envVol or 0) * (a.release or 0)) / 256)
-        if v.envVol <= 0 then
+        local peVol = a.pseudoEchoVolume or 0
+        if peVol > 0 and (v.envVol or 0) <= peVol then
+          v.envVol = peVol
+          v.envPhase = "echo"
+        elseif (v.envVol or 0) <= 0 then
           v.envVol = 0
           v.alive = false
         end
       end
+    end
+  elseif phase == "echo" then
+    a.pseudoEchoLength = (a.pseudoEchoLength or 0) - 1
+    if a.pseudoEchoLength <= 0 then
+      v.envVol = 0
+      v.alive = false
     end
   end
   local maxv = a.isCgb and 15 or 255
@@ -455,14 +468,22 @@ local function s8_at(pcm, idx)
 end
 
 --- Linear interpolate s8 PCM (reduces stair-step harshness on upsample).
-local function s8_lerp(pcm, pos, size)
+local function s8_lerp(pcm, pos, size, loop, loopStart)
   if pos < 0 then return 0 end
   local i0 = math.floor(pos)
   if i0 >= size then return 0 end
   local frac = pos - i0
   local s0 = s8_at(pcm, i0)
-  if frac < 1e-6 or i0 + 1 >= size then return s0 end
-  local s1 = s8_at(pcm, i0 + 1)
+  if frac < 1e-6 then return s0 end
+  local i1 = i0 + 1
+  if i1 >= size then
+    if loop and loopStart and loopStart < size then
+      i1 = loopStart
+    else
+      return s0
+    end
+  end
+  local s1 = s8_at(pcm, i1)
   return s0 + (s1 - s0) * frac
 end
 
@@ -504,20 +525,30 @@ local function render_voice(v, n, outL, outR)
   if env == nil then env = 1 end
   if env <= 0 then return end
   if v.kind == "ds" then
+    local pcm = v.pcm
+    local size = v.size or #pcm
+    local loop = v.loop and true or false
+    local loopStart = (v.loopStart and v.loopStart >= 0 and v.loopStart < size) and v.loopStart or 0
+    local loopLen = size - loopStart
+    local step = v.step or 1
+    local pos = v.pos or 0
+    local volL = (v.volL or 0.5) * 0.45
+    local volR = (v.volR or 0.5) * 0.45
     for i = 1, n do
-      if v.pos >= v.size then
-        if v.loop and v.loopStart < v.size then
-          v.pos = v.loopStart
+      if pos >= size then
+        if loop and loopLen > 0 then
+          pos = loopStart + ((pos - loopStart) % loopLen)
         else
           v.alive = false
           break
         end
       end
-      local s = s8_lerp(v.pcm, v.pos, v.size) * env
-      outL[i] = outL[i] + s * v.volL * 0.35
-      outR[i] = outR[i] + s * v.volR * 0.35
-      v.pos = v.pos + v.step
+      local s = s8_lerp(pcm, pos, size, loop, loopStart) * env
+      outL[i] = outL[i] + s * volL
+      outR[i] = outR[i] + s * volR
+      pos = pos + step
     end
+    v.pos = pos
   elseif v.kind == "cgb_pulse" then
     local duty = DUTY[v.duty] or DUTY[2]
     local thresh, hi, lo = duty[1], duty[2], duty[3]

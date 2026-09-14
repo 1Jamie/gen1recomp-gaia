@@ -227,10 +227,8 @@ end
 if battleAnimsOnly then
   local Rom = require("src.import.gba.rom")
   local AnimExtract = require("src.import.gba.battle_anim_extract")
-  local outRoot = os.getenv("HOME")
-    and (os.getenv("HOME") .. "/.local/share/love/pokemon-love2d/firered")
-    or "."
-  local packCache = FileIO.makeCache(outRoot)
+  local outRoot = outDir
+  local packCache = cache
   local rom = assert(Rom.open(imports, "firered"))
   print("Extracting battle anim IR →", outRoot .. "/data/generated/gba/pokemon/battle_anims")
   local animCache = {

@@ -165,25 +165,32 @@ function AnimVm.new()
 end
 
 function AnimVm:attackerSide()
-  return self._attackerSide
+  return self._attackerSide or "player"
+end
+
+function AnimVm:targetSide()
+  return self._targetSide or (self._attackerSide == "player" and "enemy" or "player")
 end
 
 function AnimVm:resolveBattlerSide(token)
-  if token == nil then return self._targetSide end
+  if token == nil then return self:targetSide() end
   if type(token) == "number" then
-    -- pret ANIM_ATTACKER=0 ANIM_TARGET=1 style
-    if token == 0 then return self._attackerSide end
-    return self._targetSide
+    if token == 0 then return self:attackerSide()
+    elseif token == 1 then return self:targetSide()
+    else return nil end -- In singles, partners (2, 3) and values >= 2 do not exist
   end
   local s = tostring(token):lower()
   if s == "attacker" or s == "anim_attacker" or s == "0" then
-    return self._attackerSide
+    return self:attackerSide()
   end
   if s == "target" or s == "anim_target" or s == "1" then
-    return self._targetSide
+    return self:targetSide()
   end
   if s == "player" or s == "enemy" then return s end
-  return self._targetSide
+  if s == "atk_partner" or s == "anim_atk_partner" or s == "def_partner" or s == "anim_def_partner" then
+    return nil -- singles has no partner
+  end
+  return self:targetSide()
 end
 
 function AnimVm:x(v)
@@ -216,6 +223,9 @@ function AnimVm:reset()
   self.callStack = {}
   self.framesToWait = 0
   self.waitingVisual = false
+  self.waitingSprites = false
+  self._visualWaitFrames = 0
+  self._spriteWaitFrames = 0
   self.loadedTags = {}
   self._onEnd = nil
   for i = 0, ARG_COUNT - 1 do self.args[i] = 0 end
@@ -226,6 +236,9 @@ end
 local function finish(self)
   self.active = false
   self.waitingVisual = false
+  self.waitingSprites = false
+  self._visualWaitFrames = 0
+  self._spriteWaitFrames = 0
   self.framesToWait = 0
   local cb = self._onEnd
   self._onEnd = nil
@@ -256,7 +269,9 @@ function AnimVm:launch(script, opts)
   self._onEnd = opts.onEnd
   self.framesToWait = 0
   self.waitingVisual = false
+  self.waitingSprites = false
   self._visualWaitFrames = 0
+  self._spriteWaitFrames = 0
   return true
 end
 
@@ -309,26 +324,35 @@ end
 
 function AnimVm:draw(minZ, maxZ)
   if not (love and love.graphics) then return end
+
+  -- 1. Render active visual tasks at this Z layer
+  if AnimTasks and AnimTasks.draw then
+    AnimTasks.draw(minZ, maxZ, self)
+  end
+
+  -- 2. Render particle sprites
   local list = AnimSprites.sortedDrawList(self._drawList, minZ, maxZ)
   local activeBlend = "alpha"
 
   for _, s in ipairs(list) do
-    if s.image then
+    local desiredBlend = s.blendMode or "alpha"
+    if desiredBlend ~= activeBlend then
+      if desiredBlend == "add" then
+        love.graphics.setBlendMode("add", "alphamultiply")
+      else
+        love.graphics.setBlendMode("alpha", "alphamultiply")
+      end
+      activeBlend = desiredBlend
+    end
+
+    if s.customDraw then
+      s:customDraw(self)
+    elseif s.image then
       local rawX = s.x + (s.ox or 0)
       local rawY = s.y + (s.oy or 0)
       local drawX = math.floor(rawX + 0.5)
       local drawY = math.floor(rawY + 0.5)
       local a = s.alpha or 1
-
-      local desiredBlend = s.blendMode or "alpha"
-      if desiredBlend ~= activeBlend then
-        if desiredBlend == "add" then
-          love.graphics.setBlendMode("add", "alphamultiply")
-        else
-          love.graphics.setBlendMode("alpha", "alphamultiply")
-        end
-        activeBlend = desiredBlend
-      end
 
       love.graphics.setColor(1, 1, 1, a)
       local flipX = s.hFlip and -1 or 1
@@ -376,20 +400,45 @@ local function run_createsprite(vm, op)
   local cbName = op.callback or (info and info.callback)
   local noGfx = op.noGfx or (info and info.noGfx)
 
-  -- Invisible helper templates → visual tasks (pret sprite CB moves battler)
+  -- Invisible helper templates → visual tasks (pret sprite CB moves battler / blends pal)
   if noGfx or cbName == "HorizontalLunge" or cbName == "DoHorizontalLunge"
+      or cbName == "ReverseHorizontalLungeDirection"
       or cbName == "VerticalDip" or cbName == "DoVerticalDip"
+      or cbName == "ReverseVerticalDipDirection"
       or cbName == "SlideMonToOffset" or cbName == "SlideMonToOriginalPos"
-      or cbName == "BowMon" or cbName == "ShakeMonOrBattleTerrain" then
-    local taskName = cbName or "HorizontalLunge"
-    if taskName == "HorizontalLunge" or taskName == "DoHorizontalLunge" then
+      or cbName == "SlideMonToOffsetAndBack"
+      or cbName == "BowMon" or cbName == "AnimBowMon"
+      or cbName == "ShakeMonOrBattleTerrain" or cbName == "AnimShakeMonOrBattleTerrain"
+      or cbName == "SimplePaletteBlend" or cbName == "AnimSimplePaletteBlend"
+      or cbName == "ComplexPaletteBlend" or cbName == "AnimComplexPaletteBlend"
+      or template == "gSimplePaletteBlendSpriteTemplate"
+      or template == "gComplexPaletteBlendSpriteTemplate" then
+    local taskName = cbName
+    if not taskName or taskName == "" then
+      return
+    end
+    if taskName == "HorizontalLunge" or taskName == "DoHorizontalLunge" or taskName == "ReverseHorizontalLungeDirection" then
       AnimTasks.spawn("HorizontalLunge", 2, { args[1] or 4, args[2] or 4 }, vm)
-    elseif taskName == "SlideMonToOffset" or taskName == "SlideMonToOriginalPos" then
-      AnimTasks.spawn("SlideMon", 2, args, vm)
-    elseif taskName == "BowMon" then
+    elseif taskName == "VerticalDip" or taskName == "DoVerticalDip" or taskName == "ReverseVerticalDipDirection" then
+      AnimTasks.spawn("VerticalDip", 2, { args[1] or 4, args[2] or 4, args[3] or 0 }, vm)
+    elseif taskName == "SlideMonToOriginalPos" then
+      AnimTasks.spawn("SlideMonToOriginalPos", 2, args, vm)
+    elseif taskName == "SlideMonToOffset" then
+      AnimTasks.spawn("SlideMonToOffset", 2, args, vm)
+    elseif taskName == "SlideMonToOffsetAndBack" then
+      AnimTasks.spawn("SlideMonToOffsetAndBack", 2, args, vm)
+    elseif taskName == "BowMon" or taskName == "AnimBowMon" then
       AnimTasks.spawn("BowMon", 2, args, vm)
-    elseif taskName == "ShakeMonOrBattleTerrain" then
+    elseif taskName == "ShakeMonOrBattleTerrain" or taskName == "AnimShakeMonOrBattleTerrain" then
       AnimTasks.spawn("ShakeMonOrBattleTerrain", 2, args, vm)
+    elseif taskName == "SimplePaletteBlend" or taskName == "AnimSimplePaletteBlend"
+        or template == "gSimplePaletteBlendSpriteTemplate" then
+      AnimTasks.spawn("BlendBattleAnimPal", 2, args, vm)
+    elseif taskName == "ComplexPaletteBlend" or taskName == "AnimComplexPaletteBlend"
+        or template == "gComplexPaletteBlendSpriteTemplate" then
+      AnimTasks.spawn("ComplexPaletteBlend", 2, args, vm)
+    elseif taskName == "GrantingStars" and noGfx then
+      AnimTasks.spawn("BlendBattleAnimPal", 2, args, vm)
     else
       AnimTasks.spawn(taskName, 2, args, vm)
     end
@@ -398,7 +447,7 @@ local function run_createsprite(vm, op)
 
   local tag = op.tag or (info and info.tag) or "IMPACT"
   local img, tagInfo = tag_image(vm, tag)
-  if not img then
+  if not img and vm.getImpactFallback then
     img = vm:getImpactFallback()
   end
 
@@ -498,9 +547,29 @@ local function run_createsprite(vm, op)
   end
 
   local isBarrierShield = (cbName == "DefensiveWall" or cbName == "GuardRing" or cbName == "BlendThinRing" or cbName == "Protect")
-  local isBehindLayer = (cbName == "MudSportDirt" or cbName == "ShadowBall" or cbName == "Spikes")
-  local layer = isBehindLayer and "behind" or "front"
-  local zDepth = AnimSprites.slotZ(anchorSide, layer)
+  local isBehindLayer = (cbName == "MudSportDirt" or cbName == "MudSlap" or cbName == "MudShot"
+      or cbName == "WaterSport" or cbName == "ShadowBall" or cbName == "Spikes"
+      or cbName == "FrenzyPlantRoot" or cbName == "IngrainRoot")
+  local isForegroundLayer = (cbName == "BasicFistOrFoot" or cbName == "SpinningKickOrPunch"
+      or cbName == "SlidingKick" or cbName == "JumpKick" or cbName == "StompFoot"
+      or cbName == "CrossChopHand" or cbName == "Lightning" or cbName == "ElectricBolt"
+      or cbName == "VoltTackleBolt" or cbName == "HitSplatBasic" or cbName == "HitSplatRandom"
+      or cbName == "HitSplatHandleInvert" or cbName == "CrossImpact" or cbName == "FlashingHitSplat"
+      or cbName == "CuttingSlice" or cbName == "AirCutterSlice" or cbName == "SlashSlice"
+      or cbName == "Bite" or cbName == "Fang" or cbName == "SuperFang")
+
+  local zDepth
+  if op.z or op.depth then
+    zDepth = tonumber(op.z or op.depth)
+  elseif isBehindLayer then
+    zDepth = AnimSprites.Z.GLOBAL_BEHIND
+  elseif isForegroundLayer then
+    zDepth = AnimSprites.Z.GLOBAL_FRONT
+  else
+    local layer = "front"
+    zDepth = AnimSprites.slotZ(anchorSide, layer) + (tonumber(op.subpriority) or 0)
+  end
+
   local blendMode = isBarrierShield and "add" or "alpha"
 
   local spr = AnimSprites.acquire({
@@ -564,6 +633,9 @@ local function run_op(vm, op)
   elseif code == "waitforvisualfinish" then
     vm.waitingVisual = true
     return "wait"
+  elseif code == "waitanimation" or code == "waitsprites" or code == "waitforsprites" then
+    vm.waitingSprites = true
+    return "wait"
   elseif code == "nop" or code == "nop2" then
     return "ok"
   elseif code == "end" then
@@ -575,7 +647,7 @@ local function run_op(vm, op)
     return "ok"
   elseif code == "loopsewithpan" then
     local id = op.song or op.se or op.id or op[1]
-    spawn_loop_se(vm, id, op.pan, op.wait or op.frames or 10, op.plays or op.count or 1)
+    spawn_loop_se(vm, id, op.pan, op.wait or op.frames or 10, op.plays or op.count or op.times or 1)
     return "ok"
   elseif code == "waitplaysewithpan" then
     local id = op.song or op.se or op.id or op[1]
@@ -628,6 +700,49 @@ local function run_op(vm, op)
     local id = tonumber(op.argId) or 0
     vm.args[id] = tonumber(op.value) or 0
     return "ok"
+  elseif code == "choosetwoturnanim" then
+    local targetLabel = (vm._turn and (vm._turn % 2 == 1)) and op.label2 or (op.label1 or op.label2)
+    local sub = vm._pack and vm._pack.labels and vm._pack.labels[targetLabel]
+    if sub then
+      vm.script = sub
+      vm.pc = 0
+    end
+    return "ok"
+  elseif code == "jumpifmoveturn" then
+    if (vm._turn or 1) == op.turn then
+      local sub = vm._pack and vm._pack.labels and vm._pack.labels[op.label]
+      if sub then
+        vm.script = sub
+        vm.pc = 0
+      end
+    end
+    return "ok"
+  elseif code == "jumpargeq" then
+    local id = tonumber(op.argId) or 0
+    if (vm.args[id] or 0) == (tonumber(op.value) or 0) then
+      local sub = vm._pack and vm._pack.labels and vm._pack.labels[op.label]
+      if sub then
+        vm.script = sub
+        vm.pc = 0
+      end
+    end
+    return "ok"
+  elseif code == "panse" then
+    local id = op.song or op.se or op.id or op[1]
+    play_se_pan(vm, id, op.pan)
+    return "ok"
+  elseif code == "fadetobg" or code == "changebg" or code == "fadetobgfromset" then
+    local bgId = op.bg or op.bg1 or 0
+    AnimTasks.spawn("LoadBattleBgImage", 2, { bgId }, vm)
+    return "ok"
+  elseif code == "restorebg" then
+    return "ok"
+  elseif code == "splitbgprio" then
+    local Anim = require("src.core.game3.battle.anim")
+    local side = vm:resolveBattlerSide(op.battler or "target")
+    local p = Anim.present(side)
+    if p then p.z = AnimVm.Z.FRONT end
+    return "ok"
   elseif code == "invisible" or code == "visible" then
     local Anim = require("src.core.game3.battle.anim")
     local side = vm:resolveBattlerSide(op.battler or "attacker")
@@ -659,11 +774,8 @@ function AnimVm:update(_dt)
   if self.waitingVisual then
     self._visualWaitFrames = (self._visualWaitFrames or 0) + 1
     local tasks = AnimTasks.activeCount()
-    local sprs = AnimSprites.activeCount()
-    if (tasks == 0 and sprs == 0) or self._visualWaitFrames > 180 then
-      if self._visualWaitFrames > 180 then
-        -- Force-clear stuck particles/tasks so scripts cannot soft-lock
-        AnimSprites.reset()
+    if tasks == 0 or self._visualWaitFrames > 600 then
+      if self._visualWaitFrames > 600 then
         AnimTasks.reset()
       end
       self.waitingVisual = false
@@ -675,9 +787,25 @@ function AnimVm:update(_dt)
     self._visualWaitFrames = 0
   end
 
+  if self.waitingSprites then
+    self._spriteWaitFrames = (self._spriteWaitFrames or 0) + 1
+    local sprs = AnimSprites.activeCount()
+    if sprs == 0 or self._spriteWaitFrames > 600 then
+      if self._spriteWaitFrames > 600 then
+        AnimSprites.reset()
+      end
+      self.waitingSprites = false
+      self._spriteWaitFrames = 0
+    else
+      return
+    end
+  else
+    self._spriteWaitFrames = 0
+  end
+
   -- Run opcodes until wait or end (pret style burst)
   local guard = 0
-  while self.active and self.framesToWait <= 0 and not self.waitingVisual and guard < 64 do
+  while self.active and self.framesToWait <= 0 and not self.waitingVisual and not self.waitingSprites and guard < 64 do
     guard = guard + 1
     local op = self.script and self.script[self.pc]
     if not op then

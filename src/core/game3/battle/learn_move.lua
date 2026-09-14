@@ -17,7 +17,6 @@ LearnMove._askForget = nil
 LearnMove._onDone = nil
 LearnMove._headless = false
 LearnMove._waitingChoice = false
-LearnMove._pending = nil -- "delete" | "stop" | "forget"
 LearnMove._forgetSlots = nil
 
 function LearnMove.reset()
@@ -31,8 +30,6 @@ function LearnMove.reset()
   LearnMove._askForget = nil
   LearnMove._onDone = nil
   LearnMove._waitingChoice = false
-  LearnMove._pending = nil
-  LearnMove._pendingResult = false
   LearnMove._forgetSlots = nil
   LearnMove._battleText = false
   LearnMove._queue = nil
@@ -54,7 +51,6 @@ local function finish(learned)
   LearnMove._mon = nil
   LearnMove._moveId = nil
   LearnMove._waitingChoice = false
-  LearnMove._pending = nil
   LearnMove._onDone = nil
   -- Leave _queue / _queueOpts for beginQueue's onDone → queue_next
   if cb then cb(learned == true) end
@@ -231,31 +227,6 @@ end
 --- Call when message queue is idle. Opens deferred Choice prompts.
 -- Returns false while still busy.
 function LearnMove.pump()
-  if not LearnMove._active then return true end
-  if LearnMove._waitingChoice then return false end
-  local pending = LearnMove._pending
-  if not pending then
-    return false -- still active, waiting for finish from choice path or free teach
-  end
-  -- For "done": hold until the "X learned Y!" message has drained from the
-  -- battle dialog (i.e. the player pressed A to dismiss it).
-  if pending == "done" then
-    local Ui = package.loaded["src.core.game3.battle.ui"]
-    if Ui and Ui.dialogPending and Ui.dialogPending() then
-      return false -- message still on screen, keep waiting
-    end
-    LearnMove._pending = nil
-    finish(LearnMove._pendingResult)
-    return not LearnMove._active
-  end
-  LearnMove._pending = nil
-  if pending == "delete" then
-    open_delete_prompt()
-  elseif pending == "stop" then
-    open_stop_prompt()
-  elseif pending == "forget" then
-    open_forget_list()
-  end
   return not LearnMove._active
 end
 
@@ -284,7 +255,6 @@ function LearnMove.begin(opts)
   LearnMove._headless = opts.headless and true or false
   LearnMove._battleText = opts.battleText and true or false
   LearnMove._waitingChoice = false
-  LearnMove._pending = nil
 
   if Pokemon.moveSlotCount(mon) < 4 then
     local ok = Pokemon.teachMove(mon, moveId)
@@ -294,13 +264,8 @@ function LearnMove.begin(opts)
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!")
         finish(ok)
       else
-        LearnMove._pendingResult = ok
-        LearnMove._pending = "done"
         say(LearnMove._name .. " learned\n" .. LearnMove._moveName .. "!", function()
-          if LearnMove._active and LearnMove._pending == "done" then
-            LearnMove._pending = nil
-            finish(ok)
-          end
+          finish(ok)
         end)
       end
     else

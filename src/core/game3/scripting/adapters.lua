@@ -69,6 +69,15 @@ function Adapters.stub(opts)
   a.askYesNo = opts.askYesNo or function(cb) if cb then cb(true) end end
   a.fadeScreen = opts.fadeScreen or function(_mode, _speed, done) if done then done() end end
   a.openNaming = opts.openNaming or function(_opts, done) if done then done("RED") end end
+  a.hallOfFame = opts.hallOfFame or function(done)
+    local HallOfFame = require("src.ui.game3.hall_of_fame")
+    HallOfFame.start({
+      session = opts.session or (opts.game and opts.game.session),
+      onDone = function()
+        if done then done() end
+      end,
+    })
+  end
   a.bufferName = opts.bufferName or function(op, src)
     if op == "bufferspeciesname" then
       local ok, Pokemon = pcall(require, "src.core.game3.pokemon")
@@ -1165,22 +1174,29 @@ function Adapters.host(mod, game, world)
     end,
     showTownMap = function(done)
       local Runtime = package.loaded["src.core.game3.runtime"]
-      if Runtime and Runtime.isActive and Runtime.isActive() then
-        local RegionMap = require("src.ui.game3.region_map")
-        a.log("[game3] showTownMap via RegionMap")
-        RegionMap.show({
-          session = Runtime.getSession(),
-          onClose = function()
-            if done then done() end
-            tick_vm()
-          end,
-        })
-        return
-      end
-      local TownMap = require("src.core.game3.town_map_stub")
-      TownMap.open(mod, resolveGame(), resolveWorld())
-      if done then done() end
-      tick_vm()
+      local session = (Runtime and Runtime.getSession and Runtime.getSession()) or (resolveGame() and resolveGame().session)
+      local RegionMap = require("src.ui.game3.region_map")
+      a.log("[game3] showTownMap via RegionMap")
+      RegionMap.show({
+        session = session,
+        onClose = function()
+          if done then done() end
+          tick_vm()
+        end,
+      })
+    end,
+    hallOfFame = function(done)
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      local session = (Runtime and Runtime.getSession and Runtime.getSession()) or (resolveGame() and resolveGame().session)
+      local HallOfFame = require("src.ui.game3.hall_of_fame")
+      a.log("[game3] hallOfFame induction started")
+      HallOfFame.start({
+        session = session,
+        onDone = function()
+          if done then done() end
+          tick_vm()
+        end,
+      })
     end,
     startTrainerBattle = function(foe, done, battleOpts)
       local BattleBridge = require("src.core.game3.battle_bridge")

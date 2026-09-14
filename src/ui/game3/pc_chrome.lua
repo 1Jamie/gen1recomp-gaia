@@ -376,19 +376,26 @@ function PcChrome.drawPartyDrawer(party, partyCursor, hoverFrame, holdingSource)
   end
 
   -- 3. Party Pokémon Animated Mini-Icons
-  -- Slot 1 (Lead): centered at (104, 64) -> (88, 48)
+  -- Slot 1 (Lead): pret Center (104, 64) -> Top-Left (88, 48)
   local isLeadPickedUp = (holdingSource and holdingSource.loc == "party" and holdingSource.slot == 1)
   local leadMon = (not isLeadPickedUp) and party[1]
   if leadMon then
     local sp = Pokemon.speciesOf(leadMon)
     local icon = Pokemon.icon(sp)
     if icon and icon.image then
-      local bounce = (partyCursor == 1 and (hoverFrame % 2 == 1)) and -2 or 0
-      love.graphics.draw(icon.image, 88, 48 + bounce)
+      local isHovered = (partyCursor == 1)
+      local bounce = (isHovered and (hoverFrame % 2 == 1)) and -2 or 0
+      local f = (isHovered and (hoverFrame % 2 == 1)) and 1 or 0
+      local q = icon.quads and (icon.quads[f] or icon.quads[0])
+      if q then
+        love.graphics.draw(icon.image, q, 88, 48 + bounce)
+      else
+        love.graphics.draw(icon.image, 88, 48 + bounce)
+      end
     end
   end
 
-  -- Slots 2..6: centered at (152, 16 + (p - 2) * 24) -> (136, (p - 2) * 24)
+  -- Slots 2..6: pret Center (152, 16 + (p - 2) * 24) -> Top-Left (136, (p - 2) * 24)
   for p = 2, 6 do
     local isPickedUp = (holdingSource and holdingSource.loc == "party" and holdingSource.slot == p)
     local pMon = (not isPickedUp) and party[p]
@@ -396,8 +403,16 @@ function PcChrome.drawPartyDrawer(party, partyCursor, hoverFrame, holdingSource)
       local sp = Pokemon.speciesOf(pMon)
       local icon = Pokemon.icon(sp)
       if icon and icon.image then
-        local bounce = (partyCursor == p and (hoverFrame % 2 == 1)) and -2 or 0
-        love.graphics.draw(icon.image, 136, (p - 2) * 24 + bounce)
+        local isHovered = (partyCursor == p)
+        local bounce = (isHovered and (hoverFrame % 2 == 1)) and -2 or 0
+        local f = (isHovered and (hoverFrame % 2 == 1)) and 1 or 0
+        local q = icon.quads and (icon.quads[f] or icon.quads[0])
+        local iy = (p - 2) * 24
+        if q then
+          love.graphics.draw(icon.image, q, 136, iy + bounce)
+        else
+          love.graphics.draw(icon.image, 136, iy + bounce)
+        end
       end
     end
   end

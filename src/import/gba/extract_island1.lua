@@ -427,6 +427,28 @@ function Extract.run(imports, cache, progressCb)
       end
     end
     do
+      local TmCaseExtract = require("src.import.gba.tm_case_extract")
+      local okT, detailT = pcall(TmCaseExtract.run, rom2, cache, {
+        cacheRoot = Extract.CACHE_ROOT,
+      })
+      if okT and detailT then
+        print(string.format("[tm_case_extract] → %s", tostring(detailT.root)))
+      elseif not okT then
+        print("[tm_case_extract] warn: " .. tostring(detailT))
+      end
+    end
+    do
+      local BerryPouchExtract = require("src.import.gba.berry_pouch_extract")
+      local okP, detailP = pcall(BerryPouchExtract.run, rom2, cache, {
+        cacheRoot = Extract.CACHE_ROOT,
+      })
+      if okP and detailP then
+        print(string.format("[berry_pouch_extract] → %s", tostring(detailP.root)))
+      elseif not okP then
+        print("[berry_pouch_extract] warn: " .. tostring(detailP))
+      end
+    end
+    do
       local AnimExtract = require("src.import.gba.battle_anim_extract")
       local animCache = {
         write = function(_, rel, bytes)

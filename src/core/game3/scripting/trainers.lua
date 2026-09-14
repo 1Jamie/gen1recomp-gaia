@@ -90,6 +90,15 @@ function Trainers.get(trainerId)
   if row then
     local classNames = pack and pack.classNames
     local class = tonumber(row.class) or 0
+    local fb = FALLBACK_TRAINERS[trainerId]
+    local dlgs = row.dialogs or {}
+    if (not dlgs.defeat or dlgs.defeat == "") and fb and fb.dialogs and fb.dialogs.defeat then
+      dlgs = {
+        intro = dlgs.intro or fb.dialogs.intro,
+        defeat = dlgs.defeat or fb.dialogs.defeat,
+        victory = dlgs.victory or fb.dialogs.victory,
+      }
+    end
     return {
       id = trainerId,
       class = class,
@@ -106,7 +115,7 @@ function Trainers.get(trainerId)
       ai = decompose_ai_flags(row.aiFlags),
       items = row.items or { 0, 0, 0, 0 },
       party = row.party or {},
-      dialogs = row.dialogs or {},
+      dialogs = dlgs,
       scriptKey = row.scriptKey,
       introTextKey = row.introTextKey,
       defeatTextKey = row.defeatTextKey,
