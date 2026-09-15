@@ -136,7 +136,7 @@ local restored = Schema.fromSaveTable(saved)
 check(restored.storage and restored.storage.items[1] and restored.storage.items[1].id == 13,
   "fromSaveTable restores storage")
 local legacy = Schema.fromSaveTable({ map = "FR_PALLET_TOWN", x = 1, y = 1 })
-check(legacy.storage == nil, "legacy save without storage gets no seeded POTION")
+check(legacy.storage and legacy.storage.items[1] and legacy.storage.items[1].id == 13, "legacy save without storage gets seeded POTION")
 
 check(Storage.withdrawItem(session, 1, 1) == true, "withdrawItem POTION ok")
 check(Bag.has(session.bag, 13, 1), "bag has POTION")
@@ -156,6 +156,7 @@ check(joined(PcMenu.ITEM_STORAGE_ACTIONS) == "WITHDRAW ITEM/DEPOSIT ITEM/CANCEL"
 local seLog = {}
 package.loaded["src.core.game3.audio"].playSe = function(id) seLog[#seLog + 1] = id end
 local s6 = { bag = Bag.new(), storage = Storage.new() }
+s6.storage.items = {} -- clear to test empty WITHDRAW message
 local closed6 = 0
 PcMenu.show({ session = s6, startMode = "player_pc", closeOnExit = true,
   onClose = function() closed6 = closed6 + 1 end })

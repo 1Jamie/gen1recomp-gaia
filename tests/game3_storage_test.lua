@@ -45,6 +45,9 @@ for b = 1, 14 do
   assert_eq(s.boxes[b].wallpaper, ((b - 1) % 16) + 1, "Box wallpaper initialized")
   assert_eq(Storage.countBoxMons(s, b), 0, "Box starts empty")
 end
+assert_eq(#s.items, 1, "PC starts with 1 item (Potion)")
+assert_eq(s.items[1].id, 13, "PC starts with Potion (id 13)")
+assert_eq(s.items[1].qty, 1, "PC starts with 1 Potion")
 print("[ok] 14 boxes and 50-slot PC initialized successfully")
 
 print("=== [TEST 2] The PC Heal Exploit ===")
@@ -165,6 +168,7 @@ local pcItemSession = {
   bag = Bag.new(),
   storage = Storage.new(),
 }
+pcItemSession.storage.items = {}
 -- Give 50 Poké Balls to Bag
 Bag.add(pcItemSession.bag, 4, 50) -- POKE_BALL = 4
 assert_eq(Bag.get(pcItemSession.bag, 4), 50, "Bag has 50 Poké Balls")

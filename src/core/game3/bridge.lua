@@ -61,7 +61,7 @@ function Bridge.enterFromHost(mod, game, opts)
     healY = sc.healY or 5,
     move_overlay = sc.move_overlay or {},
     options = sc.options or {},
-    storage = require("src.core.game3.storage").restore(sc.storage, sc.pc),
+    storage = require("src.core.game3.storage").restore(sc.storage, sc.pc, sc.pcItems or save.pcItems or save.pc_items),
     enteredAt = os.time(),
   }
 

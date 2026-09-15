@@ -39,7 +39,7 @@ function Storage.new()
   local storage = {
     currentBox = 1,
     boxes = {},
-    items = {}, -- 50-slot Player PC item storage
+    items = { { id = 13, qty = 1 } }, -- 50-slot Player PC item storage (starts with 1 POTION, pokefirered/src/player_pc.c:100)
   }
   for b = 1, Storage.TOTAL_BOXES_COUNT do
     storage.boxes[b] = {
@@ -60,7 +60,7 @@ function Storage.ensure(session)
   if not session.storage.boxes or #session.storage.boxes < Storage.TOTAL_BOXES_COUNT then
     local fresh = Storage.new()
     fresh.currentBox = session.storage.currentBox or 1
-    fresh.items = session.storage.items or {}
+    fresh.items = session.storage.items or fresh.items
     for b = 1, Storage.TOTAL_BOXES_COUNT do
       if session.storage.boxes and session.storage.boxes[b] then
         fresh.boxes[b] = session.storage.boxes[b]
@@ -69,7 +69,7 @@ function Storage.ensure(session)
     session.storage = fresh
   end
   if not session.storage.items then
-    session.storage.items = {}
+    session.storage.items = { { id = 13, qty = 1 } }
   end
   return session.storage
 end
@@ -436,10 +436,12 @@ function Storage.deserialize(data)
   local storage = Storage.new()
   if not data then return storage end
   storage.currentBox = tonumber(data.currentBox) or 1
-  storage.items = {}
-  for _, item in ipairs(data.items or {}) do
-    if item and item.id and (tonumber(item.qty) or 0) > 0 then
-      storage.items[#storage.items + 1] = { id = item.id, qty = item.qty }
+  if data.items ~= nil then
+    storage.items = {}
+    for _, item in ipairs(data.items) do
+      if item and item.id and (tonumber(item.qty) or 0) > 0 then
+        storage.items[#storage.items + 1] = { id = item.id, qty = item.qty }
+      end
     end
   end
   for b = 1, Storage.TOTAL_BOXES_COUNT do
@@ -459,13 +461,17 @@ function Storage.deserialize(data)
   return storage
 end
 
-function Storage.restore(data, legacyPc)
+function Storage.restore(data, legacyPc, pcItems)
   local hasData = type(data) == "table"
   local hasPc = type(legacyPc) == "table"
-  if not hasData and not hasPc then return nil end
+  local hasPcItems = type(pcItems) == "table"
+  if not hasData and not hasPc and not hasPcItems then
+    return Storage.new()
+  end
   local storage = Storage.deserialize(hasData and data or nil)
   if hasPc then
     if not hasData then
+      storage.items = {}
       for _, it in ipairs(legacyPc.items or {}) do
         local id = type(it) == "table" and tonumber(it.id or it.itemId)
         local qty = type(it) == "table" and (tonumber(it.qty or it.quantity) or 0) or 0
@@ -479,6 +485,25 @@ function Storage.restore(data, legacyPc)
         local b, s = Storage.findOpenSlot(storage)
         if not b then break end
         storage.boxes[b].mons[s] = mon
+      end
+    end
+  elseif not hasData and hasPcItems then
+    storage.items = {}
+    for k, v in pairs(pcItems) do
+      local id = nil
+      local qty = 0
+      if type(k) == "number" and type(v) == "table" then
+        id = tonumber(v.id or v.itemId)
+        qty = tonumber(v.qty or v.quantity or v.count) or 0
+      elseif type(k) == "string" and type(v) == "number" then
+        id = ItemsData.toNumericId(k)
+        qty = v
+      elseif type(k) == "number" and type(v) == "number" then
+        id = k
+        qty = v
+      end
+      if id and qty > 0 and #storage.items < Storage.PC_ITEMS_COUNT then
+        storage.items[#storage.items + 1] = { id = id, qty = math.min(Storage.MAX_ITEM_QTY, qty) }
       end
     end
   end

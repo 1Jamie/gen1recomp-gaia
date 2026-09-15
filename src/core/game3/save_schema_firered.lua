@@ -145,7 +145,7 @@ function Schema.fromSaveTable(save)
     vars = save.vars or {},
     playtime = save.playTime or save.playtime or { hours = 0, minutes = 0, seconds = 0 },
     options = save.options,
-    storage = require("src.core.game3.storage").restore(save.storage, save.pc),
+    storage = require("src.core.game3.storage").restore(save.storage, save.pc, save.pcItems or save.pc_items),
     registeredItem = save.registeredItem,
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,

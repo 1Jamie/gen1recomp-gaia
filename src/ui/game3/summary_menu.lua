@@ -124,6 +124,7 @@ function SummaryMenu.openMenu(party, startIndex, opts)
   opts = opts or {}
   SummaryMenu.open = true
   SummaryMenu._party = party or {}
+  SummaryMenu._cursor = startIndex or 1
   local session = opts.playerState or opts.session
     or (package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"].getSession and package.loaded["src.core.game3.runtime"].getSession())
   SummaryMenu._playerState = session
