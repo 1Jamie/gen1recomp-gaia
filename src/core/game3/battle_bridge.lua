@@ -193,6 +193,10 @@ function BattleBridge.start(mod, game, foe, opts)
     pcall(function()
       require("src.core.game3.audio").restoreMapSong()
     end)
+    local okF, Fade = pcall(require, "src.ui.game3.fade")
+    if okF and Fade and Fade.begin and not opts.headless and opts.fade ~= false then
+      Fade.begin(Fade.MODE.FROM_BLACK, 1)
+    end
     if done then done(result or "win") end
   end
   BattleBridge._finish = finish
@@ -215,6 +219,7 @@ function BattleBridge.start(mod, game, foe, opts)
     playerParty = battleParty,
     foe = foe,
     headless = opts.headless,
+    fade = opts.fade,
     rng = opts.rng,
     mapKind = mapKind,
     terrain = opts.terrain,

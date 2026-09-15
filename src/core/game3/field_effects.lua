@@ -287,23 +287,50 @@ function FieldEffects.startSweetScent(onDone)
   table.insert(FieldEffects._anims, anim)
 end
 
---- Exclamation mark '!' emote animation over target object (pret FLDEFF_EXCLAMATION_MARK_ICON / sAnim_ExclamationMark)
-function FieldEffects.startExclamation(targetObj, onDone)
+local EMOTE_BASES = {
+  [0] = 0,
+  [1] = 6,
+  [2] = 3,
+  [3] = 9,
+  [4] = 12,
+  exclamation = 0,
+  double_exclamation = 6,
+  x = 3,
+  smile = 9,
+  question = 12,
+  question_mark = 12,
+  [0x62] = 0,
+  [0x63] = 12,
+  [0x64] = 3,
+  [0x65] = 6,
+  [0x66] = 9,
+}
+
+--- Start emote bubble animation over target object (pret FLDEFF_*_ICON / sSpriteAnimTable_Emoticons)
+function FieldEffects.startEmote(targetObj, emoteType, onDone)
   load_sheet("emoticons", 16, 16, 15)
-  pcall(function()
-    local Audio = require("src.core.game3.audio")
-    local SE = require("src.core.game3.se_ids")
-    if Audio.playSe and SE.SE_PIN then Audio.playSe(SE.SE_PIN) end
-  end)
+  local baseFrame = EMOTE_BASES[emoteType] or 0
   local anim = {
-    kind = "exclamation",
+    kind = "emote",
     targetObj = targetObj,
     timer = 0,
-    maxDur = 36,
-    frame = 0,
+    maxDur = 60, -- 4 + 4 + 52 frames matching pokefirered
+    baseFrame = baseFrame,
+    frame = baseFrame,
     onDone = onDone,
   }
   table.insert(FieldEffects._anims, anim)
+  return anim
+end
+
+--- Exclamation mark '!' emote animation over target object (pret FLDEFF_EXCLAMATION_MARK_ICON / sAnim_ExclamationMark)
+function FieldEffects.startExclamation(targetObj, onDone)
+  return FieldEffects.startEmote(targetObj, "exclamation", onDone)
+end
+
+--- Alias for vs_seeker and other callers
+function FieldEffects.spawnEmoticon(targetObj, emoteType, onDone)
+  return FieldEffects.startEmote(targetObj, emoteType, onDone)
 end
 
 -- ---------------------------------------------------------------- Step & Update
@@ -423,13 +450,14 @@ function FieldEffects.step()
       if anim.timer >= anim.maxDur then
         finished = true
       end
-    elseif anim.kind == "exclamation" then
+    elseif anim.kind == "emote" or anim.kind == "exclamation" then
+      local base = anim.baseFrame or 0
       if anim.timer < 4 then
-        anim.frame = 0
+        anim.frame = base
       elseif anim.timer < 8 then
-        anim.frame = 1
+        anim.frame = base + 1
       else
-        anim.frame = 2
+        anim.frame = base + 2
       end
       if anim.timer >= anim.maxDur then
         finished = true
@@ -586,11 +614,12 @@ function FieldEffects.drawFront(camX, camY, playerPy)
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(sheet.image, sheet.quads[anim.frame], sx, sy)
       end
-    elseif anim.kind == "exclamation" then
+    elseif anim.kind == "emote" or anim.kind == "exclamation" then
       local sheet = load_sheet("emoticons", 16, 16, 15)
       if sheet and sheet.quads[anim.frame] then
-        local ox = anim.targetObj and (anim.targetObj.px or (anim.targetObj.cellX and anim.targetObj.cellX * CELL)) or 0
-        local oy = anim.targetObj and (anim.targetObj.py or (anim.targetObj.cellY and anim.targetObj.cellY * CELL)) or 0
+        local t = anim.targetObj
+        local ox = t and (t.px or (t.cellX and t.cellX * CELL) or (t.x and t.x * CELL)) or 0
+        local oy = t and (t.py or (t.cellY and t.cellY * CELL) or (t.y and t.y * CELL)) or 0
         local sx = ox - camX
         local sy = oy - 16 - camY
         love.graphics.setColor(1, 1, 1, 1)

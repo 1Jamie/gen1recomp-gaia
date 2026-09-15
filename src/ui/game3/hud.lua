@@ -136,7 +136,8 @@ local function update_top_menu(input)
     if input:wasPressed("up") then StartMenu.move(-1)
     elseif input:wasPressed("down") then StartMenu.move(1)
     elseif input:wasPressed("a") then StartMenu.confirm()
-    elseif input:wasPressed("b") or input:wasPressed("start") then StartMenu.close()
+    elseif input:wasPressed("b") or input:wasPressed("start") then
+      if StartMenu.cancel then StartMenu.cancel() else StartMenu.close() end
     end
     return true
   end
@@ -152,6 +153,12 @@ function Hud.update(game, _dt)
     pcall(top.mod.update, dt)
   end
 
+  -- Tick location map name popup banner
+  local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+  if okPop and MapNamePopup and MapNamePopup.update then
+    MapNamePopup.update(dt)
+  end
+
   local input = game and game.input
   if not input then return end
 
@@ -159,6 +166,12 @@ function Hud.update(game, _dt)
   local Battle = package.loaded["src.core.game3.battle"]
   if Battle and Battle.isActive and Battle.isActive() then
     inBattle = true
+  end
+
+  if inBattle or Message.isOpen() or Stack.busy() then
+    if okPop and MapNamePopup and MapNamePopup.dismiss then
+      MapNamePopup.dismiss()
+    end
   end
 
   -- Active stack modal menu input takes top precedence when NOT in battle.
@@ -271,7 +284,7 @@ function Hud.openStartMenu(game, session)
     end
   end
   log("Start Menu on game3 display (FRLG 240x160)")
-  StartMenu.show({ session = session })
+  StartMenu.show({ session = session, game = game })
 end
 
 function Hud.openMessage(game, text, opts)

@@ -19,7 +19,7 @@ CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v12-crystal4:",
   -- engine/overworld/map_sprites.asm:181
   yellow = "rom-cache-v11-yellow1:",
-  firered = "rom-cache-v6-firered:",
+  firered = "rom-cache-v7-firered:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -225,6 +225,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "data/generated/gba/field_effects/surf_blob.rgba",
     "data/generated/gba/field_effects/fly_bird.rgba",
     "data/generated/gba/field_effects/ripple.rgba",
+    "data/generated/gba/field_effects/emoticons.rgba",
   },
 }
 CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.silver =

@@ -443,7 +443,7 @@ local function advanceTrack(lid, tr, game)
   local eo = Objects.find(lid)
   if tr.sleep and tr.sleep > 0 then
     tr.sleep = tr.sleep - 1
-    return
+    if tr.sleep > 0 then return end
   end
   -- Wait until current step finishes.
   if eo and eo.moving then return end
@@ -489,6 +489,18 @@ local function advanceTrack(lid, tr, game)
         eo.facing = "down"
       end
       tr.sleep = act.frames or 48
+    elseif act.kind == "emote" then
+      if eo then
+        local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+        if okFx and FieldEffects then
+          if FieldEffects.startEmote then
+            FieldEffects.startEmote(eo, act.emoteType or "exclamation")
+          elseif FieldEffects.startExclamation then
+            FieldEffects.startExclamation(eo)
+          end
+        end
+      end
+      tr.sleep = act.frames or 60
     elseif act.kind == "sleep" then
       tr.sleep = act.frames or 1
     elseif act.kind == "hide" then

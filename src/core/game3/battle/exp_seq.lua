@@ -16,6 +16,7 @@ ExpSeq._askYesNo = nil
 ExpSeq._askForget = nil
 ExpSeq._headless = false
 ExpSeq._leveled = nil -- {[partyIndex]=true}
+ExpSeq._pendingStatGrowth = nil
 
 function ExpSeq.reset()
   ExpSeq._steps = nil
@@ -26,10 +27,19 @@ function ExpSeq.reset()
   ExpSeq._askYesNo = nil
   ExpSeq._askForget = nil
   ExpSeq._leveled = nil
+  ExpSeq._pendingStatGrowth = nil
+  local okSG, StatGrowth = pcall(require, "src.ui.game3.stat_growth")
+  if okSG and StatGrowth and StatGrowth.close then
+    StatGrowth.close()
+  end
   LearnMove.reset()
 end
 
 function ExpSeq.busy()
+  local okSG, StatGrowth = pcall(require, "src.ui.game3.stat_growth")
+  if okSG and StatGrowth and StatGrowth.isOpen and StatGrowth.isOpen() then
+    return true
+  end
   return ExpSeq._steps ~= nil or LearnMove.busy()
 end
 
@@ -95,9 +105,12 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
           add("level", {
             side = "player",
             isBench = isBench,
+            mon = mon,
             level = step.grewTo,
             hp = step.hp or (mon and tonumber(mon.hp)),
             maxHp = step.maxHp or (mon and tonumber(mon.maxHp)),
+            oldStats = step.oldStats,
+            newStats = step.newStats,
             text = name .. " grew to\nLV. " .. tostring(step.grewTo) .. "!",
           })
           -- ROM learnset moves at this exact level
@@ -197,6 +210,11 @@ local function run_step(step)
     if not ExpSeq._headless then
       ExpSeq._waiting = true
       ExpSeq._waitingMsg = true
+      ExpSeq._pendingStatGrowth = (d.oldStats and d.newStats) and {
+        mon = d.mon,
+        oldStats = d.oldStats,
+        newStats = d.newStats,
+      } or nil
       return
     end
     advance()
@@ -249,6 +267,19 @@ function ExpSeq.update()
       return false
     end
     ExpSeq._waitingMsg = false
+    if ExpSeq._pendingStatGrowth and not ExpSeq._headless then
+      local sg = ExpSeq._pendingStatGrowth
+      ExpSeq._pendingStatGrowth = nil
+      local okSG, StatGrowth = pcall(require, "src.ui.game3.stat_growth")
+      if okSG and StatGrowth and StatGrowth.open then
+        ExpSeq._waiting = true
+        StatGrowth.open(sg.mon, sg.oldStats, sg.newStats, function()
+          ExpSeq._waiting = false
+          advance()
+        end)
+        return false
+      end
+    end
     ExpSeq._waiting = false
     advance()
   end

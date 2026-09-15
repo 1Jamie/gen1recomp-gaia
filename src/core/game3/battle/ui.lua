@@ -806,6 +806,11 @@ function Ui.draw(w, h)
     Pokedex.draw()
   end
 
+  local StatGrowth = package.loaded["src.ui.game3.stat_growth"]
+  if StatGrowth and StatGrowth.isOpen and StatGrowth.isOpen() and StatGrowth.draw then
+    StatGrowth.draw()
+  end
+
   love.graphics.setColor(1, 1, 1, 1)
 end
 

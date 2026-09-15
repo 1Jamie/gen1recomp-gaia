@@ -23,6 +23,7 @@ function Game3.new()
     phase = "boot", -- boot UI | field
     boot = nil,
     returnToLauncher = nil,
+    onExit = nil,
   }, Game3)
 end
 
@@ -78,6 +79,7 @@ end
 
 function Game3:load(opts)
   opts = opts or {}
+  self.onExit = opts.onExit or self.onExit
   Input:init()
   self.input = Input
   Dataset.hydrate(self)
@@ -109,9 +111,9 @@ function Game3:load(opts)
     end)
     if okFs and exists then saveStatus = "invalid" end -- pokefirered/src/main_menu.c:246
   end
-  local opts = rawSave and rawSave.options or (SaveData.defaultOptions and SaveData.defaultOptions())
-  self.options = opts
-  self:applyOptions(opts)
+  local options = rawSave and rawSave.options or (SaveData.defaultOptions and SaveData.defaultOptions())
+  self.options = options
+  self:applyOptions(options)
 
   -- Never auto-skip boot into a legacy Sevii sidecar.
   local continueOk = self:_hasContinueSave()
@@ -206,6 +208,17 @@ function Game3:_handleBootAction(action)
       start = action.start,
     })
     self:_enterField(session, "new_game")
+    return
+  end
+  if action.action == "exit" then
+    if self.returnToLauncher then
+      self.returnToLauncher()
+    elseif self.onExit then
+      self.onExit()
+    elseif love.event and love.event.quit then
+      love.event.quit()
+    end
+    return
   end
 end
 
@@ -418,6 +431,44 @@ function Game3:onResume()
   end
   if self.touchControls then self.touchControls:reset() end
   Audio.onFocusGained()
+end
+
+function Game3:returnToTitle()
+  Audio.stopAll()
+  local Stack = require("src.ui.game3.stack")
+  Stack.clear()
+  if Runtime.isActive() then
+    Runtime.stop(nil, self)
+  end
+  self.phase = "boot"
+  self.session = nil
+
+  local okLoad, rawSave, recovered = false, nil, nil
+  if SaveData.load then okLoad, rawSave, recovered = pcall(SaveData.load) end
+  if not okLoad then rawSave, recovered = nil, nil end
+  local saveStatus = "ok"
+  if recovered then
+    saveStatus = "error"
+  elseif okLoad and rawSave == nil and SaveData.persistenceFs and SaveData.saveFilename then
+    local okFs, exists = pcall(function()
+      local fs = SaveData.persistenceFs(nil)
+      return fs and fs.getInfo and fs.getInfo(SaveData.saveFilename()) ~= nil
+    end)
+    if okFs and exists then saveStatus = "invalid" end
+  end
+  local continueOk = self:_hasContinueSave()
+  require("src.ui.game3.start_menu").resetCursor()
+  self.boot = Boot.new()
+  Boot.setHasContinue(self.boot, continueOk)
+  if continueOk then
+    Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
+  end
+  Boot.setSaveStatus(self.boot, saveStatus)
+  self.boot.phase = Boot.PHASE.TITLE
+  self.boot.timer = 0
+  local TitleScreen = require("src.ui.game3.title_screen")
+  TitleScreen.enter(self.boot)
+  Audio.playSong(278)
 end
 
 function Game3:quit()

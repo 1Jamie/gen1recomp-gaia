@@ -181,9 +181,9 @@ end
 
 local function menuItems(state)
   if state.hasContinue then
-    return { "CONTINUE", "NEW GAME" }
+    return { "CONTINUE", "NEW GAME", "EXIT" }
   end
-  return { "NEW GAME" }
+  return { "NEW GAME", "EXIT" }
 end
 
 Boot.menuItems = menuItems
@@ -296,9 +296,7 @@ local function tickSaveError(state, pressed)
   elseif e.waiting == "done" then
     if pressed("a") then -- pokefirered/src/main_menu.c:293
       state.saveError = nil
-      if state.saveStatus == "invalid" or not state.hasContinue then
-        return beginNewGame(state) -- pokefirered/src/main_menu.c:299
-      end
+      state.phase = Boot.PHASE.MENU
       state.menuIndex = 1
       beginMenuFade(state, "white", 16, 0, nil) -- pokefirered/src/main_menu.c:398
     end
@@ -424,9 +422,6 @@ function Boot.update(state, input, dt)
         beginSaveError(state)
         return nil
       end
-      if not state.hasContinue then -- pokefirered/src/main_menu.c:317
-        return beginNewGame(state)
-      end
       state.phase = Boot.PHASE.MENU
       state.menuIndex = 1
       beginMenuFade(state, "white", 16, 0, nil) -- pokefirered/src/main_menu.c:398
@@ -453,6 +448,9 @@ function Boot.update(state, input, dt)
       elseif pending == "new_game" then
         state.fadeT, state.fadeTarget = 0, 0
         return beginNewGame(state)
+      elseif pending == "exit" then
+        state.fadeT, state.fadeTarget = 0, 0
+        return { action = "exit" }
       elseif pending == "title" then
         state.fadeT, state.fadeTarget = 0, 0
         state.phase = Boot.PHASE.TITLE
@@ -470,7 +468,9 @@ function Boot.update(state, input, dt)
     if pressed("a") then -- pokefirered/src/main_menu.c:570
       Audio.playSe(5)
       local choice = items[state.menuIndex]
-      beginMenuFade(state, "black", 0, 16, choice == "CONTINUE" and "continue" or "new_game")
+      local fadeAction = (choice == "CONTINUE") and "continue"
+        or ((choice == "NEW GAME") and "new_game" or "exit")
+      beginMenuFade(state, "black", 0, 16, fadeAction)
     elseif pressed("b") then -- pokefirered/src/main_menu.c:577
       Audio.playSe(5)
       beginMenuFade(state, "black", 0, 16, "title")
@@ -516,7 +516,8 @@ local MENU_SHADOW = { 213 / 255, 213 / 255, 205 / 255, 1 } -- pokefirered/graphi
 local MENU_FILL = { 1, 1, 1, 1 } -- pokefirered/graphics/main_menu/textbox.pal:14
 local ACCENT_MALE = { 4 / 31, 16 / 31, 31 / 31, 1 }
 local ACCENT_FEMALE = { 31 / 31, 3 / 31, 21 / 31, 1 }
-local WIN0V = { { 0x02, 0x5E }, { 0x62, 0x7E } }
+local WIN0V_CONTINUE = { { 0x02, 0x5E }, { 0x62, 0x7E }, { 0x82, 0x9E } }
+local WIN0V_NOCONTINUE = { { 0x02, 0x1E }, { 0x22, 0x3E } }
 
 local function darkenOutside(W, H, x0, y0, x1, y1)
   love.graphics.setColor(0, 0, 0, 7 / 16) -- pokefirered/src/main_menu.c:231
@@ -536,23 +537,36 @@ local function drawMainMenu(state, W, H)
     bg = MENU_FILL,
   }
   local frameType = info.frameType or 0 -- pokefirered/src/main_menu.c:680
-  Window.userFrame(Window.template(3, 1, 24, 10), frameType) -- pokefirered/src/main_menu.c:84
-  Window.userFrame(Window.template(3, 13, 24, 2), frameType) -- pokefirered/src/main_menu.c:93
   local x, y = 24, 8
-  Window.printPx("CONTINUE", x + 2, y + 2, { colors = head })
-  Window.printPx("PLAYER", x + 2, y + 18, { colors = stat }) -- pokefirered/src/main_menu.c:623
-  Window.printPx(info.name or "", x + 62, y + 18, { colors = stat })
-  Window.printPx("TIME", x + 2, y + 34, { colors = stat }) -- pokefirered/src/main_menu.c:636
-  Window.printPx(string.format("%d:%02d", info.hours or 0, info.minutes or 0), x + 62, y + 34, { colors = stat })
-  if info.hasDex then -- pokefirered/src/main_menu.c:648
-    Window.printPx("POKéDEX", x + 2, y + 50, { colors = stat })
-    Window.printPx(tostring(info.dexCount or 0), x + 62, y + 50, { colors = stat })
+
+  if state.hasContinue then
+    Window.userFrame(Window.template(3, 1, 24, 10), frameType) -- pokefirered/src/main_menu.c:84
+    Window.userFrame(Window.template(3, 13, 24, 2), frameType) -- pokefirered/src/main_menu.c:93
+    Window.userFrame(Window.template(3, 17, 24, 2), frameType) -- pokefirered/src/main_menu.c:102
+    Window.printPx("CONTINUE", x + 2, y + 2, { colors = head })
+    Window.printPx("PLAYER", x + 2, y + 18, { colors = stat }) -- pokefirered/src/main_menu.c:623
+    Window.printPx(info.name or "", x + 62, y + 18, { colors = stat })
+    Window.printPx("TIME", x + 2, y + 34, { colors = stat }) -- pokefirered/src/main_menu.c:636
+    Window.printPx(string.format("%d:%02d", info.hours or 0, info.minutes or 0), x + 62, y + 34, { colors = stat })
+    if info.hasDex then -- pokefirered/src/main_menu.c:648
+      Window.printPx("POKéDEX", x + 2, y + 50, { colors = stat })
+      Window.printPx(tostring(info.dexCount or 0), x + 62, y + 50, { colors = stat })
+    end
+    Window.printPx("BADGES", x + 2, y + 66, { colors = stat }) -- pokefirered/src/main_menu.c:672
+    Window.printPx(tostring(info.badges or 0), x + 62, y + 66, { colors = stat })
+    Window.printPx("NEW GAME", 24 + 2, 104 + 2, { colors = head })
+    Window.printPx("EXIT", 24 + 2, 136 + 2, { colors = head })
+    local rows = WIN0V_CONTINUE[state.menuIndex] or WIN0V_CONTINUE[1] -- pokefirered/src/main_menu.c:565
+    darkenOutside(W, H, 18, rows[1], 222, rows[2])
+  else
+    Window.userFrame(Window.template(3, 1, 24, 2), frameType)
+    Window.userFrame(Window.template(3, 5, 24, 2), frameType)
+    Window.printPx("NEW GAME", 24 + 2, 8 + 2, { colors = head })
+    Window.printPx("EXIT", 24 + 2, 40 + 2, { colors = head })
+    local rows = WIN0V_NOCONTINUE[state.menuIndex] or WIN0V_NOCONTINUE[1]
+    darkenOutside(W, H, 18, rows[1], 222, rows[2])
   end
-  Window.printPx("BADGES", x + 2, y + 66, { colors = stat }) -- pokefirered/src/main_menu.c:672
-  Window.printPx(tostring(info.badges or 0), x + 62, y + 66, { colors = stat })
-  Window.printPx("NEW GAME", 24 + 2, 104 + 2, { colors = head })
-  local rows = WIN0V[state.menuIndex] or WIN0V[1] -- pokefirered/src/main_menu.c:565
-  darkenOutside(W, H, 18, rows[1], 222, rows[2])
+
   local t = state.fadeT or 0
   if t > 0 then
     if state.fadeColor == "white" then

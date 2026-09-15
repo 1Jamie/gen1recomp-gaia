@@ -110,11 +110,13 @@ Content.STDSCRIPTS = {
     { op = "return" },
   },
   ["std:9"] = { -- STD_RECEIVED_ITEM
-    { op = "message", ptr = 0 },
-    { op = "waitmessage" },
-    { op = "waitfanfare" },
-    { op = "waitbuttonpress" },
-    { op = "return" },
+    { op = "compare_var_to_value", var = 0x8002, value = 318 },
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareKeyItem" },
+    { op = "compare_var_to_value", var = 0x8002, value = 258 },
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareItem" },
+    { op = "compare_var_to_value", var = 0x8002, value = 257 },
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareLevelUp" },
+    { op = "goto", target = "EventScript_ReceivedItemFanfareDefault" },
   },
 }
 for k, v in pairs(Std.SCRIPTS) do

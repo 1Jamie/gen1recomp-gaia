@@ -124,8 +124,9 @@ function SummaryMenu.openMenu(party, startIndex, opts)
   opts = opts or {}
   SummaryMenu.open = true
   SummaryMenu._party = party or {}
-  SummaryMenu._cursor = math.max(1, math.min(#SummaryMenu._party, tonumber(startIndex) or 1))
-  SummaryMenu._playerState = opts.playerState or opts.session
+  local session = opts.playerState or opts.session
+    or (package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"].getSession and package.loaded["src.core.game3.runtime"].getSession())
+  SummaryMenu._playerState = session
   SummaryMenu._context = opts.context or "party"
   SummaryMenu._onClose = opts.onClose
   SummaryMenu._mode = opts.mode -- "select_move" | "party" | nil
@@ -352,7 +353,6 @@ local function draw_text(str, x, y, maxW, colorKey)
   FrlgFont.draw(tostring(str or ""), x, y, {
     maxWidth = maxW,
     colors = colors,
-    small = true,
   })
 end
 
@@ -422,17 +422,6 @@ local function draw_header(mon)
     SummaryChrome.drawStatusIcon(ax, ay, ailment)
   end
 
-  -- Pokéball icon: pret CreateBallIconObj → gBallSpriteTemplates[ballId] at (106, 88).
-  -- Only shown on non-moves pages (hidden by ShowOrHideBallIconObj on MOVES/MOVES_INFO pages).
-  if not isMovesPage and not mon.isEgg then
-    local bx, by = cxy("ball", 98, 80)
-    local okPC, PartyChrome = pcall(require, "src.ui.game3.party_chrome")
-    if okPC and PartyChrome and PartyChrome.drawBall then
-      if love and love.graphics then love.graphics.setColor(1, 1, 1, 1) end
-      PartyChrome.drawBall(bx, by, 0)
-    end
-  end
-
   -- In pret pokefirered (pokemon_summary_screen.c:1635, 1681, 1979-1984, 4139-4175):
   -- On PAGE_MOVES (Known Moves) and PAGE_MOVES_INFO (Move Details), the large 64x64 front pic is HIDDEN.
   -- Instead, the 32x32 party mon icon is displayed below the level/name plate at (24, 34).
@@ -495,11 +484,13 @@ local function draw_page_info(mon)
     SummaryChrome.drawTypeBadge(t2, t2x, t2y)
   end
 
-  local otName = mon.otName or mon.originalTrainer or "RED"
+  local pState = SummaryMenu._playerState
+    or (package.loaded["src.core.game3.runtime"] and package.loaded["src.core.game3.runtime"].getSession and package.loaded["src.core.game3.runtime"].getSession())
+  local otName = mon.otName or mon.ot or mon.originalTrainer or (pState and (pState.name or pState.playerName)) or "RED"
   local ox, oy = cxy("otName", 167, 65)
   draw_text(otName, ox, oy, 60, "NORMAL")
 
-  local otId = tonumber(mon.otId) or 0
+  local otId = tonumber(mon.otId or mon.ot_id or mon.trainerId or (pState and (pState.trainerId or pState.id or pState.playerId))) or 0
   local ix, iy = cxy("otId", 167, 80)
   draw_text(string.format("%05d", bit.band(otId, 0xFFFF)), ix, iy, 48, "NORMAL")
 
@@ -522,8 +513,8 @@ local function draw_page_skills(mon)
   local hx, hy = cxy("hpText", 174, 20)
   draw_text(string.format("%d/%d", curHp, maxHp), hx, hy, 56, "NORMAL")
 
-  local bar = coords().hpBar or { x = 172, y = 34 }
-  SummaryChrome.drawHpBar(bar.x or 172, bar.y or 34, curHp, maxHp)
+  local bar = coords().hpBar or { x = 168, y = 32 }
+  SummaryChrome.drawHpBar(bar.x or 168, bar.y or 32, curHp, maxHp)
 
   local natureId = SummaryData.nature(mon)
   local stats = {
@@ -543,14 +534,19 @@ local function draw_page_skills(mon)
     draw_text(string.format("%d", tonumber(st.val) or 0), x, y, 32, color)
   end
 
+  local lx, ly = cxy("expPointsLabel", 74, 103)
+  draw_text("EXP. POINTS", lx, ly, 96, "NORMAL")
+  local nlx, nly = cxy("nextLvLabel", 74, 116)
+  draw_text("NEXT LV.", nlx, nly, 96, "NORMAL")
+
   local prog = SummaryData.expProgress(mon)
   local ex, ey = cxy("expTotal", 175, 103)
   draw_text(string.format("%d", prog.totalExp), ex, ey, 56, "NORMAL")
   local nx, ny = cxy("expNext", 175, 116)
   draw_text(string.format("%d", prog.expNeeded), nx, ny, 56, "NORMAL")
 
-  local expBar = coords().expBar or { x = 156, y = 130 }
-  SummaryChrome.drawExpBar(expBar.x or 156, expBar.y or 130, prog.progressPercent)
+  local expBar = coords().expBar or { x = 152, y = 128 }
+  SummaryChrome.drawExpBar(expBar.x or 152, expBar.y or 128, prog.progressPercent)
 
   -- Party stores ability as numeric id (e.g. 65 = OVERGROW); resolve to name.
   local abilityId = tonumber(mon.abilityId) or tonumber(mon.ability)

@@ -313,22 +313,20 @@ function AnimCallbacks.AbsorptionOrb(sprite)
 end
 AnimCallbacks.PowerAbsorptionOrb = AnimCallbacks.AbsorptionOrb
 
---- Linear / projectile translation to target mon location.
+--- Linear / projectile translation to target mon location (Ember, Water Gun, Heart, etc.).
+-- pokefirered/src/battle_anim_mons.c:1440 TranslateAnimSpriteToTargetMonLocation
 function AnimCallbacks.TranslateAnimSpriteToTargetMonLocation(sprite)
   if not sprite._inited then
     sprite._inited = true
     local args = sprite._args or {}
-    sprite._dur = math.max(8, tonumber(args[5]) or 16)
+    sprite._dur = math.max(1, tonumber(args[5]) or 20)
     sprite._step = 0
-    local tx, ty = sprite._targetX or sprite.x, sprite._targetY or sprite.y
-    sprite._dx = tx - sprite.x
-    sprite._dy = ty - sprite.y
   end
 
   sprite._step = sprite._step + 1
   local u = math.min(1, sprite._step / sprite._dur)
-  sprite.ox = math.floor(sprite._dx * u)
-  sprite.oy = math.floor(sprite._dy * u)
+  sprite.ox = math.floor((sprite._dx or 0) * u)
+  sprite.oy = math.floor((sprite._dy or 0) * u)
 
   if sprite._step >= sprite._dur then
     destroy(sprite)
@@ -336,6 +334,41 @@ function AnimCallbacks.TranslateAnimSpriteToTargetMonLocation(sprite)
 end
 AnimCallbacks.TranslateLinearSingleSineWave = AnimCallbacks.TranslateAnimSpriteToTargetMonLocation
 AnimCallbacks.PainSplitProjectile = AnimCallbacks.TranslateAnimSpriteToTargetMonLocation
+AnimCallbacks.RedHeartProjectile = AnimCallbacks.TranslateAnimSpriteToTargetMonLocation
+
+--- Diagonal travel with flame animation (Ember flare, Burn flame, TravelDiagonally).
+-- pokefirered/src/battle_anim_fire.c:603 & pokefirered/src/battle_anim_mons.c:1482
+function AnimCallbacks.AnimTravelDiagonally(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    sprite._dur = math.max(1, tonumber(args[5]) or 20)
+    sprite._step = 0
+  end
+
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / sprite._dur)
+  sprite.ox = math.floor((sprite._dx or 0) * u)
+  sprite.oy = math.floor((sprite._dy or 0) * u)
+
+  -- sAnim_BasicFire: 5 frames (32x32 each), 4 ticks per frame (20 ticks full loop)
+  local cellH = sprite._baseH or 32
+  local totalFrames = 5
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor((sprite._step - 1) / 4) % totalFrames) * cellH
+
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.TravelDiagonally = AnimCallbacks.AnimTravelDiagonally
+AnimCallbacks.AnimEmberFlare = AnimCallbacks.AnimTravelDiagonally
+AnimCallbacks.EmberFlare = AnimCallbacks.AnimTravelDiagonally
+AnimCallbacks.AnimBurnFlame = AnimCallbacks.AnimTravelDiagonally
+AnimCallbacks.BurnFlame = AnimCallbacks.AnimTravelDiagonally
 
 --- Floating / drifting particles (Petal Dance, Sweet Scent, Razor Leaf, Flying Particle).
 function AnimCallbacks.FlyingParticle(sprite)
@@ -1242,6 +1275,144 @@ AnimCallbacks.LeechSeed = AnimCallbacks.ThrowProjectile
 AnimCallbacks.ThunderWave = AnimCallbacks.SpriteOnMonPos
 AnimCallbacks.AssistPawprint = AnimCallbacks.SpriteOnMonPos
 
+--- Orbit attacker, translate to target, orbit target (Fire Blast Ring).
+-- pokefirered/src/battle_anim_fire.c:628
+function AnimCallbacks.AnimFireRing(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    sprite._angle = tonumber(args[3]) or 0
+    sprite._phase = 1
+    sprite._phaseTimer = 0
+    sprite._step = 0
+  end
+
+  sprite._phaseTimer = sprite._phaseTimer + 1
+  local rad = (sprite._angle / 256) * 2 * math.pi
+  local orbitX = math.floor(math.sin(rad) * 28)
+  local orbitY = math.floor(math.cos(rad) * 28)
+  sprite._angle = (sprite._angle + 20) % 256
+
+  if sprite._phase == 1 then
+    sprite.ox = orbitX
+    sprite.oy = orbitY
+    if sprite._phaseTimer >= 18 then
+      sprite._phase = 2
+      sprite._phaseTimer = 0
+    end
+  elseif sprite._phase == 2 then
+    local u = math.min(1, sprite._phaseTimer / 25)
+    local tx = math.floor((sprite._dx or 0) * u)
+    local ty = math.floor((sprite._dy or 0) * u)
+    sprite.ox = tx + orbitX
+    sprite.oy = ty + orbitY
+    if sprite._phaseTimer >= 25 then
+      sprite._phase = 3
+      sprite._phaseTimer = 0
+    end
+  elseif sprite._phase == 3 then
+    sprite.ox = (sprite._dx or 0) + orbitX
+    sprite.oy = (sprite._dy or 0) + orbitY
+    if sprite._phaseTimer >= 31 then
+      destroy(sprite)
+      return
+    end
+  end
+
+  local cellH = sprite._baseH or 32
+  local totalFrames = 5
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite._step = (sprite._step or 0) + 1
+  sprite.quadY = (math.floor((sprite._step - 1) / 4) % totalFrames) * cellH
+end
+AnimCallbacks.FireRing = AnimCallbacks.AnimFireRing
+
+--- Fire Blast Cross impact blast (pokefirered/src/battle_anim_fire.c:692).
+function AnimCallbacks.AnimFireCross(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    sprite._dur = math.max(1, tonumber(args[3]) or 13)
+    sprite._step = 0
+    local dxStep = tonumber(args[4]) or 0
+    local dyStep = tonumber(args[5]) or 0
+    if sprite._reversed then dxStep = -dxStep end
+    sprite._vx = dxStep
+    sprite._vy = dyStep
+  end
+
+  sprite._step = sprite._step + 1
+  sprite.ox = (sprite.ox or 0) + sprite._vx
+  sprite.oy = (sprite.oy or 0) + sprite._vy
+
+  local cellH = sprite._baseH or 32
+  local totalFrames = 5
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor((sprite._step - 1) / 3) % totalFrames) * cellH
+
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.FireCross = AnimCallbacks.AnimFireCross
+
+--- Fire spread blast for Blaze Kick / Fire Punch (pokefirered/src/battle_anim_fire.c:475).
+function AnimCallbacks.AnimFireSpread(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    local args = sprite._args or {}
+    sprite._dur = math.max(1, tonumber(args[5]) or 16)
+    sprite._step = 0
+    local txStep = tonumber(args[3]) or 0
+    local tyStep = tonumber(args[4]) or 0
+    if sprite._reversed then txStep = -txStep end
+    sprite._vx = txStep
+    sprite._vy = tyStep
+  end
+
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / sprite._dur)
+  sprite.ox = math.floor(sprite._vx * u)
+  sprite.oy = math.floor(sprite._vy * u)
+
+  local cellH = sprite._baseH or 32
+  local totalFrames = 5
+  if sprite.image and sprite.image.getDimensions then
+    local _, ih = sprite.image:getDimensions()
+    totalFrames = math.max(1, math.floor(ih / cellH))
+  end
+  sprite.quadY = (math.floor((sprite._step - 1) / 3) % totalFrames) * cellH
+
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.FireSpread = AnimCallbacks.AnimFireSpread
+
+--- Sunlight ray beam from Sunny Day (pokefirered/src/battle_anim_fire.c:583).
+function AnimCallbacks.AnimSunlight(sprite)
+  if not sprite._inited then
+    sprite._inited = true
+    sprite._step = 0
+    sprite._dur = 30
+  end
+
+  sprite._step = sprite._step + 1
+  local u = math.min(1, sprite._step / sprite._dur)
+  sprite.alpha = math.sin(u * math.pi)
+
+  if sprite._step >= sprite._dur then
+    destroy(sprite)
+  end
+end
+AnimCallbacks.Sunlight = AnimCallbacks.AnimSunlight
+
 function AnimCallbacks.SimpleFadeOut(sprite)
   sprite.data[0] = (sprite.data[0] or 0) + 1
   local life = sprite.data[0]
@@ -1257,7 +1428,11 @@ AnimCallbacks.SlideMonToOffset = nil
 
 function AnimCallbacks.get(name)
   if not name then return AnimCallbacks.HitSplatBasic end
-  return AnimCallbacks[name] or AnimCallbacks.SimpleFadeOut
+  if AnimCallbacks[name] then return AnimCallbacks[name] end
+  local clean = tostring(name):gsub("^Anim", "")
+  if AnimCallbacks[clean] then return AnimCallbacks[clean] end
+  if AnimCallbacks["Anim" .. clean] then return AnimCallbacks["Anim" .. clean] end
+  return AnimCallbacks.SimpleFadeOut
 end
 
 return AnimCallbacks

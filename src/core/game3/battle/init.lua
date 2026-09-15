@@ -34,6 +34,7 @@ Battle._pendingEnd = nil
 Battle._auto = false
 Battle._metaAct = nil
 Battle._headless = false
+Battle._fade = true
 Battle._lowHpSong = false
 Battle._residualEvents = nil
 Battle._residualIndex = 1
@@ -191,6 +192,10 @@ local function finish(result)
   end
   local Field = package.loaded["src.core.game3.field"]
   if Field and Field.unlock then Field.unlock() end
+  if Battle._headless then
+    local okF, Fade = pcall(require, "src.ui.game3.fade")
+    if okF and Fade and Fade.clear then Fade.clear() end
+  end
   -- Victory BGM starts in begin_win_award (while awards play). Map BGM is
   -- restored by battle_bridge on exit — do not clobber victory here.
   local cb = Battle._onDone
@@ -225,6 +230,7 @@ function Battle.start(opts)
   })
   Battle._headless = opts.headless and true or false
   Battle._auto = (opts.autoFight == true) or (opts.headless and opts.autoFight ~= false)
+  Battle._fade = (opts.fade ~= false) and not Battle._headless
   Ui.reset({ headless = opts.headless })
   do
     local Runtime = package.loaded["src.core.game3.runtime"]
@@ -999,6 +1005,12 @@ function Battle.update(dt, game)
   -- Choice input during award / shift prompt / evolution learn-move prompts
   if (Battle._phase == "awarding" or Battle._phase == "evolving" or Battle._phase == "switching" or Battle._phase == "shift_prompt")
       and not Battle._auto and game and game.input then
+    local StatGrowth = package.loaded["src.ui.game3.stat_growth"]
+    if StatGrowth and StatGrowth.isOpen and StatGrowth.isOpen() then
+      if StatGrowth.handleInput(game.input) then
+        return
+      end
+    end
     local SummaryMenu = package.loaded["src.ui.game3.summary_menu"]
     local PartyMenu = package.loaded["src.ui.game3.party_menu"]
     if (Battle._phase == "awarding" or Battle._phase == "evolving")
@@ -1246,14 +1258,34 @@ function Battle.update(dt, game)
 
   if Battle._phase == "actions" then
     step_action()
-    if Battle._headless and Battle._phase == "ending" then
+    if (Battle._headless or not Battle._fade) and Battle._phase == "ending" then
       finish(Battle._pendingEnd or "win")
     end
     return
   end
 
   if Battle._phase == "ending" then
-    finish(Battle._pendingEnd or "win")
+    if Battle._headless or not Battle._fade then
+      finish(Battle._pendingEnd or "win")
+    else
+      Battle._phase = "fade_out"
+      local okA, Audio = pcall(require, "src.core.game3.audio")
+      if okA and Audio and Audio.fadeOutBgm then
+        Audio.fadeOutBgm(5)
+      end
+      local okF, Fade = pcall(require, "src.ui.game3.fade")
+      if okF and Fade and Fade.begin then
+        Fade.begin(Fade.MODE.TO_BLACK, 1, function()
+          finish(Battle._pendingEnd or "win")
+        end)
+      else
+        finish(Battle._pendingEnd or "win")
+      end
+    end
+    return
+  end
+
+  if Battle._phase == "fade_out" then
     return
   end
 

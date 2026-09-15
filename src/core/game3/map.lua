@@ -305,6 +305,26 @@ function Map.load(mod, game, mapId, opts)
     end
   end
 
+  -- Location change overlay (pokefirered/src/overworld.c:785, 1687, 1922)
+  -- Strict arbiter: gMapHeader.showMapName == TRUE. If 0/false, strictly suppress popup.
+  do
+    local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+    if okPop and MapNamePopup then
+      local showFlag = def and (def.showMapName or def.show_map_name)
+      if showFlag == 0 or showFlag == false then
+        MapNamePopup.dismiss()
+      elseif showFlag == 1 or showFlag == true then
+        local currSec = def and (def.regionMapSectionId or def.region_map_section_id)
+        if Map._lastSectionId == nil or Map._lastSectionId ~= currSec or not opts.seamless then
+          MapNamePopup.show(def)
+        end
+      end
+    end
+    if def and def.regionMapSectionId then
+      Map._lastSectionId = def.regionMapSectionId
+    end
+  end
+
   if not opts.seamless then
     if not Space._pendingOnFrame
         and not (Space.vm and Space.vm.isRunning and Space.vm:isRunning()) then

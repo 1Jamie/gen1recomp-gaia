@@ -187,7 +187,9 @@ function Party.giveMon(session, species, level)
     gender = gender,
     happiness = friendship,
     friendship = friendship,
-    ot = session.name or "RED",
+    ot = session.name or session.playerName or "RED",
+    otName = session.name or session.playerName or "RED",
+    otId = session.trainerId or session.id or session.playerId or 12345,
     pokeball = 4, -- Poké Ball
   }
   Pokemon.applyStats(mon)

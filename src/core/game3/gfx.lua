@@ -107,6 +107,16 @@ function Gfx.drawUi()
     end
   end
 
+  -- Location change overlay / signpost popup banner (pokefirered/src/map_name_popup.c)
+  local okPop, MapNamePopup = pcall(require, "src.ui.game3.map_name_popup")
+  if okPop and MapNamePopup and MapNamePopup.isActive and MapNamePopup.isActive() then
+    local top = Stack.top()
+    local suppress = top and top.hideBelow
+    if not suppress and not Message.isOpen() then
+      tryDraw(MapNamePopup)
+    end
+  end
+
   -- Script mon pic (showmonpic) under dialogue / yes-no.
   local okPic, MonPic = pcall(require, "src.ui.game3.mon_pic")
   if okPic and MonPic and MonPic.active then

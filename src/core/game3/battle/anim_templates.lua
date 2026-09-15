@@ -35,6 +35,25 @@ local MAP = {
   -- Growl / Roar
   gRoarNoiseLineSpriteTemplate = T("NOISE_LINE", "RoarNoiseLine", 32, 32, { anchor = "attacker" }),
 
+  -- Fire family (pokefirered/src/battle_anim_fire.c)
+  gEmberSpriteTemplate = T("SMALL_EMBER", "TranslateAnimSpriteToTargetMonLocation", 32, 32, { anchor = "attacker" }),
+  gEmberFlareSpriteTemplate = T("SMALL_EMBER", "AnimEmberFlare", 32, 32, { anchor = "target" }),
+  gBurnFlameSpriteTemplate = T("SMALL_EMBER", "AnimBurnFlame", 32, 32, { anchor = "target" }),
+  gFireSpiralInwardSpriteTemplate = T("SMALL_EMBER", "AnimFireSpiralInward", 32, 32, { anchor = "target" }),
+  gFireSpreadSpriteTemplate = T("SMALL_EMBER", "AnimFireSpread", 32, 32, { anchor = "target" }),
+  gLargeFlameSpriteTemplate = T("FIRE", "AnimLargeFlame", 32, 32, { anchor = "attacker" }),
+  gLargeFlameScatterSpriteTemplate = T("FIRE", "AnimLargeFlame", 32, 32, { anchor = "attacker" }),
+  gFirePlumeSpriteTemplate = T("FIRE_PLUME", "AnimFirePlume", 32, 32, { anchor = "attacker" }),
+  gSunlightRaySpriteTemplate = T("SUNLIGHT", "AnimSunlight", 32, 32, { anchor = "target" }),
+  gFireBlastRingSpriteTemplate = T("SMALL_EMBER", "AnimFireRing", 32, 32, { anchor = "attacker" }),
+  gFireBlastCrossSpriteTemplate = T("SMALL_EMBER", "AnimFireCross", 32, 32, { anchor = "target" }),
+  gFireSpiralOutwardSpriteTemplate = T("SMALL_EMBER", "AnimFireSpiralOutward", 32, 32, { anchor = "attacker" }),
+  gWeatherBallFireDownSpriteTemplate = T("SMALL_EMBER", "AnimWeatherBallDown", 32, 32, { anchor = "target" }),
+  gEruptionLaunchRockSpriteTemplate = T("WARM_ROCK", "AnimEruptionLaunchRock", 32, 32, { anchor = "attacker" }),
+  gEruptionFallingRockSpriteTemplate = T("WARM_ROCK", "AnimEruptionFallingRock", 32, 32, { anchor = "target" }),
+  gWillOWispOrbSpriteTemplate = T("WISP_ORB", "AnimWillOWispOrb", 32, 32, { anchor = "attacker" }),
+  gWillOWispFireSpriteTemplate = T("WISP_FIRE", "AnimWillOWispFire", 32, 32, { anchor = "target" }),
+
   -- Common
   gLeerSpriteTemplate = T("LEER", "SimpleFadeOut", 32, 32, { anchor = "attacker" }),
   gMusicNotesSpriteTemplate = T("MUSIC_NOTES", "SimpleFadeOut", 16, 16),

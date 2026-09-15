@@ -217,7 +217,91 @@ test("StatsChange, FakeOut, GrowAndGrayscale, ShrinkTargetCopy", function()
 end)
 
 -- ---------------------------------------------------------------------------
--- 5. Move Execution Parity for Complex Multi-turn & Special Moves
+-- 5. Fire Primitives & Ember (MOVE_EMBER) Parity Tests
+-- ---------------------------------------------------------------------------
+
+test("TranslateAnimSpriteToTargetMonLocation - linear translation from attacker to target", function()
+  local vm = make_vm("player")
+  local pAtk = Anim.present("player")
+  local pTgt = Anim.present("enemy")
+  local ax, ay = vm:battlerCenter("player")
+  local tx, ty = vm:battlerCenter("enemy")
+
+  -- Emulate createsprite gEmberSpriteTemplate, ANIM_TARGET, 2, 20, 0, -16, 24, 20, 1
+  local op = {
+    op = "createsprite",
+    template = "gEmberSpriteTemplate",
+    callback = "TranslateAnimSpriteToTargetMonLocation",
+    tag = "SMALL_EMBER",
+    animBattler = "target",
+    subpriority = 2,
+    args = { 20, 0, -16, 24, 20, 1 },
+    w = 32,
+    h = 32,
+  }
+  vm:launch({ op, { op = "delay", frames = 30 }, { op = "end" } }, { attackerSide = "player" })
+  vm:update(1 / 60)
+
+  assert_eq(AnimSprites.activeCount(), 1, "One ember sprite should be spawned")
+  local s = AnimSprites._pool[1]
+  assert_eq(s.x, ax + 20, "Sprite must start at attacker X + 20")
+  assert_eq(s.y, ay, "Sprite must start at attacker Y")
+
+  -- Update through 20 frames
+  for i = 1, 10 do
+    AnimSprites.update(vm)
+  end
+  assert_true(s.ox > 0, "Sprite should be translating towards target mon")
+
+  for i = 11, 20 do
+    AnimSprites.update(vm)
+  end
+  -- At step 20, sprite has arrived and will be destroyed
+  assert_eq(AnimSprites.activeCount(), 0, "Sprite must be destroyed after 20 frames")
+end)
+
+test("AnimEmberFlare - diagonal drift on target and sAnim_BasicFire 5-frame animation", function()
+  local vm = make_vm("player")
+  local tx, ty = vm:battlerCenter("enemy")
+
+  -- Emulate EmberFireHit: createsprite gEmberFlareSpriteTemplate, ANIM_TARGET, 2, -24, 24, 24, 24, 20, ANIM_TARGET, 1
+  local op = {
+    op = "createsprite",
+    template = "gEmberFlareSpriteTemplate",
+    callback = "AnimEmberFlare",
+    tag = "SMALL_EMBER",
+    animBattler = "target",
+    subpriority = 2,
+    args = { -24, 24, 24, 24, 20, 1, 1 },
+    w = 32,
+    h = 32,
+  }
+  vm:launch({ op, { op = "delay", frames = 30 }, { op = "end" } }, { attackerSide = "player" })
+  vm:update(1 / 60)
+
+  assert_eq(AnimSprites.activeCount(), 1, "One ember flare sprite should be spawned")
+  local s = AnimSprites._pool[1]
+  assert_eq(s.x, tx - 24, "Flare must start at target X - 24")
+  assert_eq(s.y, ty + 24, "Flare must start at target Y + 24")
+
+  -- Frame animation check: quadY advances every 4 ticks
+  AnimSprites.update(vm) -- tick 1 -> frame 0 (quadY = 0)
+  assert_eq(s.quadY, 0, "Tick 1 must be frame 0 (quadY = 0)")
+
+  for _ = 2, 4 do AnimSprites.update(vm) end
+  AnimSprites.update(vm) -- tick 5 -> frame 1 (quadY = 32)
+  assert_eq(s.quadY, 32, "Tick 5 must be frame 1 (quadY = 32)")
+
+  for _ = 6, 8 do AnimSprites.update(vm) end
+  AnimSprites.update(vm) -- tick 9 -> frame 2 (quadY = 64)
+  assert_eq(s.quadY, 64, "Tick 9 must be frame 2 (quadY = 64)")
+
+  for _ = 10, 20 do AnimSprites.update(vm) end
+  assert_eq(AnimSprites.activeCount(), 0, "Flare must be destroyed after 20 frames")
+end)
+
+-- ---------------------------------------------------------------------------
+-- 6. Move Execution Parity for Complex Multi-turn & Special Moves
 -- ---------------------------------------------------------------------------
 
 local f = io.open("data/generated/gba/pokemon/battle_anims/pack.lua", "r")
@@ -245,6 +329,12 @@ local function run_move(moveId, moveName)
   end)
 end
 
+run_move(52, "Ember")
+run_move(7, "Fire Punch")
+run_move(53, "Flamethrower")
+run_move(83, "Fire Spin")
+run_move(126, "Fire Blast")
+run_move(172, "Flame Wheel")
 run_move(91, "Dig")
 run_move(130, "Skull Bash")
 run_move(245, "Extreme Speed")
@@ -261,3 +351,4 @@ print(string.format("\nPret Parity Results: %d passed, %d failed", passed, faile
 if failed > 0 then
   os.exit(1)
 end
+

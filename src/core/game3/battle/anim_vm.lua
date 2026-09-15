@@ -454,7 +454,28 @@ local function run_createsprite(vm, op)
   local isCutting = (cbName == "CuttingSlice" or cbName == "AirCutterSlice")
   local isSlash = (cbName == "SlashSlice" or cbName == "FalseSwipeSlice" or cbName == "ClawSlash" or cbName == "FurySwipes")
   local isBite = (cbName == "Bite" or cbName == "Fang" or cbName == "SuperFang")
-  local isProjectile = (cbName == "ThrowProjectile" or cbName == "BulletSeed" or cbName == "WaterBubbleProjectile" or cbName == "SludgeProjectile" or cbName == "BoneHitProjectile")
+  local isProjectile = (
+    cbName == "ThrowProjectile" or cbName == "BulletSeed"
+    or cbName == "WaterBubbleProjectile" or cbName == "SludgeProjectile"
+    or cbName == "BoneHitProjectile" or cbName == "TranslateAnimSpriteToTargetMonLocation"
+    or cbName == "TranslateLinearSingleSineWave" or cbName == "PainSplitProjectile"
+    or cbName == "RedHeartProjectile" or cbName == "ThrowMistBall"
+  )
+
+  local isTravelDiagonally = (
+    cbName == "AnimTravelDiagonally" or cbName == "TravelDiagonally"
+    or cbName == "AnimEmberFlare" or cbName == "EmberFlare"
+    or cbName == "AnimBurnFlame" or cbName == "BurnFlame"
+  )
+
+  local isAttackerAlways = (
+    isProjectile or cbName == "RoarNoiseLine" or cbName == "AnimFireRing"
+    or cbName == "FireRing" or cbName == "AnimFireSpiralOutward"
+    or cbName == "FireSpiralOutward" or cbName == "AnimFirePlume"
+    or cbName == "FirePlume" or cbName == "AnimLargeFlame" or cbName == "LargeFlame"
+    or cbName == "AnimEruptionLaunchRock" or cbName == "EruptionLaunchRock"
+    or cbName == "AnimWillOWispOrb" or cbName == "WillOWispOrb"
+  )
 
   local isTargetAlways = (
     isCutting or isBite or cbName == "AbsorptionOrb" or cbName == "BubbleEffect"
@@ -469,6 +490,13 @@ local function run_createsprite(vm, op)
     or cbName == "Spotlight" or cbName == "StompFoot"
     or cbName == "TealAlert" or cbName == "WaterGunDroplet"
     or cbName == "WaveFromCenterOfTarget"
+    or cbName == "AnimFireCross" or cbName == "FireCross"
+    or cbName == "AnimFireSpread" or cbName == "FireSpread"
+    or cbName == "AnimFireSpiralInward" or cbName == "FireSpiralInward"
+    or cbName == "AnimSunlight" or cbName == "Sunlight"
+    or cbName == "AnimWeatherBallDown" or cbName == "WeatherBallDown"
+    or cbName == "AnimEruptionFallingRock" or cbName == "EruptionFallingRock"
+    or cbName == "AnimWillOWispFire" or cbName == "WillOWispFire"
   )
 
   local isDynamicArg3 = (
@@ -487,7 +515,16 @@ local function run_createsprite(vm, op)
   local anchorSide = vm:resolveBattlerSide(op.animBattler or "attacker")
   local hFlip = false
 
-  if isTargetAlways then
+  if isAttackerAlways then
+    anchorSide = vm:resolveBattlerSide("attacker")
+  elseif isTravelDiagonally then
+    local battlerArg = args[6]
+    if battlerArg == 1 or battlerArg == "target" then
+      anchorSide = vm:resolveBattlerSide("target")
+    else
+      anchorSide = vm:resolveBattlerSide("attacker")
+    end
+  elseif isTargetAlways then
     anchorSide = vm:resolveBattlerSide("target")
   elseif isDynamicArg3 then
     local which = args[3]
@@ -508,8 +545,6 @@ local function run_createsprite(vm, op)
     else
       anchorSide = vm:resolveBattlerSide("target")
     end
-  elseif cbName == "RoarNoiseLine" then
-    anchorSide = vm:attackerSide()
   end
 
   local cx, cy = vm:battlerCenter(anchorSide)
@@ -604,10 +639,24 @@ local function run_createsprite(vm, op)
     spr.data[2] = isCutting and dir or (cbName == "RoarNoiseLine" and dir or (tonumber(args[3]) or 0))
     local tx, ty = vm:battlerCenter(vm:resolveBattlerSide("target"))
     local ax, ay = vm:battlerCenter(vm:resolveBattlerSide("attacker"))
-    spr._targetX, spr._targetY = tx, ty
     spr._attackerX, spr._attackerY = ax, ay
-    spr._dx = tx - spr.x
-    spr._dy = ty - spr.y
+
+    if isProjectile then
+      local targetOffsetX = vm:x(tonumber(args[3]) or 0)
+      local targetOffsetY = tonumber(args[4]) or 0
+      spr._targetX = tx + targetOffsetX
+      spr._targetY = ty + targetOffsetY
+    elseif isTravelDiagonally then
+      local targetOffsetX = vm:x(tonumber(args[3]) or 0)
+      local targetOffsetY = tonumber(args[4]) or 0
+      spr._targetX = cx + targetOffsetX
+      spr._targetY = cy + targetOffsetY
+    else
+      spr._targetX = tx
+      spr._targetY = ty
+    end
+    spr._dx = spr._targetX - spr.x
+    spr._dy = spr._targetY - spr.y
   end
 end
 

@@ -518,7 +518,7 @@ function bootGame(version, cartId, opts)
   -- connections) and the Gen 2 screens instead of src/core/Game.lua's Gen 1
   -- wiring.
   local arena = opts.arena
-  local loadOpts = { arena = arena, cartId = cartId }
+  local loadOpts = { arena = arena, cartId = cartId, onExit = opts.onExit }
   if GameVersion.generation() == 3 then
     Game = require("src.core.Game3").new()
     if arena then

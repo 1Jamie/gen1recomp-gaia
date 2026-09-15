@@ -25,6 +25,10 @@ assert(manifest.coords and manifest.coords.dexNo and manifest.coords.dexNo.x == 
   "INFO dexNo must sit in right pane (pret WIN_INFO_3)")
 assert(manifest.coords.atk and manifest.coords.atk.y == 38,
   "SKILLS atk Y must match pret PrintSkillsPage")
+assert(manifest.coords.expPointsLabel and manifest.coords.expPointsLabel.x == 74,
+  "SKILLS expPointsLabel must sit at X=74 (pret PokeSum_PrintExpPoints_NextLv)")
+assert(manifest.coords.nextLvLabel and manifest.coords.nextLvLabel.x == 74,
+  "SKILLS nextLvLabel must sit at X=74 (pret PokeSum_PrintExpPoints_NextLv)")
 assert(manifest.moveSlots and manifest.moveSlots[1].typeX == 123,
   "MOVES type badge X must match pret WIN_MOVES_5")
 print("[PASS] Asset Chrome & Manifest verified")
@@ -183,5 +187,23 @@ assert(is_yellow_bg(mr1, mg1, mb1), "Page MOVES slot 1 is yellow tab")
 assert(is_yellow_bg(mr2, mg2, mb2), "Page MOVES slot 2 is yellow tab")
 assert(is_yellow_bg(mr3, mg3, mb3), "Page MOVES slot 3 is active (yellow tab)")
 print("[PASS] Top bar page progress indicators across all pages verified")
+
+-- 6. Verify Party.giveMon & Catching.storeCaught attach OT Name and OT ID
+local Party = require("src.core.game3.party")
+local Catching = require("src.core.game3.battle.catching")
+local testSession = { name = "ASH", trainerId = 45678, party = {} }
+Party.giveMon(testSession, 1, 5)
+assert(#testSession.party == 1)
+assert(testSession.party[1].ot == "ASH", "giveMon must set ot name")
+assert(testSession.party[1].otName == "ASH", "giveMon must set otName")
+assert(testSession.party[1].otId == 45678, "giveMon must attach session trainerId")
+
+local foeBattler = { mon = { species = 19, level = 3, hp = 10, maxHp = 10 } }
+local catchRes = Catching.storeCaught(testSession, foeBattler, 4)
+assert(catchRes.success == true)
+assert(catchRes.mon.ot == "ASH", "storeCaught must set ot name")
+assert(catchRes.mon.otName == "ASH", "storeCaught must set otName")
+assert(catchRes.mon.otId == 45678, "storeCaught must attach session trainerId")
+print("[PASS] Party.giveMon and Catching.storeCaught OT Name and OT ID attachment verified")
 
 print("=== ALL TESTS PASSED SUCCESSFULLY! ===")

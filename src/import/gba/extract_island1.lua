@@ -1790,6 +1790,14 @@ local function _dormant_quantize_run(imports, cache, progressCb)
         pretRoot = os.getenv("POKEFIRERED"),
       })
     end
+    do
+      local TextChromeExtract = require("src.import.gba.text_chrome_extract")
+      local okTc, errTc = pcall(TextChromeExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
+      if not okTc then print("[text_chrome] warn: " .. tostring(errTc)) end
+      local MapSectionsExtract = require("src.import.gba.map_sections_extract")
+      local okMs, errMs = pcall(MapSectionsExtract.run, rom2, cache, { cacheRoot = Extract.CACHE_ROOT })
+      if not okMs then print("[map_sections] warn: " .. tostring(errMs)) end
+    end
     rom2:clearCache()
   end
 

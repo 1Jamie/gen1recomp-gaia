@@ -628,31 +628,36 @@ function Ops.dispatch(vm, row)
     end
     return false
   elseif op == "playse" or op == "playfanfare" or op == "waitfanfare" then
+    local Audio = require("src.core.game3.audio")
     if op == "waitfanfare" then
+      local isFinished = function()
+        if a.isFanfareFinished then return a.isFanfareFinished() end
+        if Audio.isFanfareFinished then return Audio.isFanfareFinished() end
+        return true
+      end
+      if isFinished() then
+        return false
+      end
       ctx.mode = "native"
       ctx.status = "waiting"
       local done = false
-      ctx.nativePoll = function() return done end
-      local Audio = require("src.core.game3.audio")
+      ctx.nativePoll = function() return done or isFinished() end
       local finish = function() done = true end
       if a.waitFanfare then
         a.waitFanfare(finish)
       else
         Audio.waitFanfare(finish)
       end
-      if done then
-        ctx.mode = "bytecode"
-        ctx.status = "running"
-        ctx.nativePoll = nil
-        return false
-      end
       return true
     else
-      local Audio = require("src.core.game3.audio")
       if op == "playfanfare" then
-        if a.playSe then a.playSe(row[1] or 0, true) else Audio.playFanfare(row[1] or 0) end
+        local songId = row[1] or row.song or row.id or 0
+        songId = var_get(store, ctx, songId)
+        if a.playSe then a.playSe(songId, true) else Audio.playFanfare(songId) end
       else
-        if a.playSe then a.playSe(row[1] or 0, false) else Audio.playSe(row[1] or 0) end
+        local seId = row[1] or row.id or 0
+        seId = var_get(store, ctx, seId)
+        if a.playSe then a.playSe(seId, false) else Audio.playSe(seId) end
       end
     end
     return false

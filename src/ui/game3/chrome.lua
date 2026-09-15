@@ -24,24 +24,28 @@ local PATHS = {
   dlg = {
     { path = "chrome/menu_message_rgba.rgba", w = 48, h = 24 },
     { path = "data/generated/gba/chrome/menu_message_rgba.rgba", w = 48, h = 24 },
+    { path = "src/import/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
     { path = "chrome/menu_message_rgba.png", w = 48, h = 24 },
     { path = "data/generated/gba/chrome/menu_message_rgba.png", w = 48, h = 24 },
   },
   std = {
     { path = "chrome/std_rgba.rgba", w = 24, h = 24 },
     { path = "data/generated/gba/chrome/std_rgba.rgba", w = 24, h = 24 },
+    { path = "src/import/gba/chrome/std_rgba.png", w = 24, h = 24 },
     { path = "chrome/std_rgba.png", w = 24, h = 24 },
     { path = "data/generated/gba/chrome/std_rgba.png", w = 24, h = 24 },
   },
   sign = {
     { path = "chrome/signpost_rgba.rgba", w = 40, h = 32 },
     { path = "data/generated/gba/chrome/signpost_rgba.rgba", w = 40, h = 32 },
+    { path = "src/import/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
     { path = "chrome/signpost_rgba.png", w = 40, h = 32 },
     { path = "data/generated/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
   },
   arrow = {
     { path = "chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
     { path = "data/generated/gba/chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
+    { path = "src/import/gba/chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
     { path = "chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
     { path = "data/generated/gba/chrome/fonts/down_arrows_fg.png", w = 128, h = 16 },
   },
@@ -354,6 +358,50 @@ drawNineSlice = function(atlas, tx, ty, tw, th)
   cell(6, L - 1, Top + H)
   hspan(7, L, Top + H, W)
   cell(8, L + W, Top + H)
+end
+
+--- pret MapNamePopupCreateWindow 9-slice banner at pixel coordinates (px, py).
+-- Content size is (widthTiles * 8) wide by 16 high.
+-- Outer border spans: x in [px, px + (widthTiles + 2)*8], y in [py - 8, py + 24].
+function Chrome.mapPopupFrame(px, py, widthTiles)
+  widthTiles = tonumber(widthTiles) or 14
+  local contentW = widthTiles * 8
+  local atlas = ensureStd()
+
+  if atlas then
+    love.graphics.setColor(1, 1, 1, 1)
+    local function cell(tile, cx, cy)
+      blitTile(atlas, tile, cx, cy, false)
+    end
+    local function hspan(tile, cx, cy, n)
+      for i = 0, n - 1 do cell(tile, cx + i * 8, cy) end
+    end
+
+    -- 1. Content background: pure white PIXEL_FILL(1)
+    fillRect(px + 8, py, contentW, 16, 1, 1, 1, 1)
+
+    -- 2. Top edge (row -1, y = py - 8)
+    cell(0, px, py - 8)
+    hspan(1, px + 8, py - 8, widthTiles)
+    cell(2, px + 8 + contentW, py - 8)
+
+    -- 3. Left & Right borders (height = 2 tiles / 16px)
+    cell(3, px, py)
+    cell(3, px, py + 8)
+    cell(5, px + 8 + contentW, py)
+    cell(5, px + 8 + contentW, py + 8)
+
+    -- 4. Bottom edge (row +2, y = py + 16)
+    cell(6, px, py + 16)
+    hspan(7, px + 8, py + 16, widthTiles)
+    cell(8, px + 8 + contentW, py + 16)
+    return
+  end
+
+  -- Fallback if atlas missing
+  fillRect(px, py - 8, contentW + 16, 32, 98 / 255, 115 / 255, 123 / 255, 1)
+  fillRect(px + 2, py - 6, contentW + 12, 28, 205 / 255, 213 / 255, 213 / 255, 1)
+  fillRect(px + 8, py, contentW, 16, 1, 1, 1, 1)
 end
 
 function Chrome.invalidate()

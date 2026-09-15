@@ -200,8 +200,11 @@ function Catching.storeCaught(session, foeBattler, ballId)
   session.dex = session.dex or Dex.new()
 
   local mon = clone_mon(foeBattler.mon)
-  mon.ot = session.name or session.playerName or "RED"
-  mon.otId = session.id or session.trainerId or 12345
+  local otName = session.name or session.playerName or "RED"
+  local trainerId = session.trainerId or session.id or session.playerId or 12345
+  mon.ot = otName
+  mon.otName = otName
+  mon.otId = trainerId
   mon.pokeball = ItemsData.toNumericId(ballId) or 4
   mon.nickname = mon.nickname or ""
   local species = foeBattler.species or mon.species or mon.speciesId

@@ -32,7 +32,12 @@ Movement.CMD = {
   WALK_FAST_LEFT = 0x1F,
   WALK_FAST_RIGHT = 0x20,
   SET_INVISIBLE = 0x60,
+  SET_VISIBLE = 0x61,
   EMOTE_EXCLAMATION = 0x62,
+  EMOTE_QUESTION = 0x63,
+  EMOTE_X = 0x64,
+  EMOTE_DOUBLE_EXCLAMATION = 0x65,
+  EMOTE_SMILE = 0x66,
   STEP_END = 0xFE,
 }
 
@@ -72,10 +77,12 @@ function Movement.decodeAction(b)
   end
   if b == 0x60 then return { kind = "hide" } end
   if b == 0x61 then return { kind = "show" } end
-  -- Emotes / delay48-ish: brief pause so cutscenes don't collapse.
-  if b == 0x62 or b == 0x63 or b == 0x64 or b == 0x65 or b == 0x66 then
-    return { kind = "sleep", frames = 24 }
-  end
+  -- Emotes: 60 frames animation in pokefirered (sAnimCmd_ExclamationMark1 etc.)
+  if b == 0x62 then return { kind = "emote", emoteType = "exclamation", frames = 60 } end
+  if b == 0x63 then return { kind = "emote", emoteType = "question", frames = 60 } end
+  if b == 0x64 then return { kind = "emote", emoteType = "x", frames = 60 } end
+  if b == 0x65 then return { kind = "emote", emoteType = "double_exclamation", frames = 60 } end
+  if b == 0x66 then return { kind = "emote", emoteType = "smile", frames = 60 } end
   -- MOVEMENT_ACTION_NURSE_JOY_BOW_DOWN (0x5B): ANIM_NURSE_BOW ≈ 48 frames.
   if b == 0x5B then
     return { kind = "bow", frames = 48 }

@@ -507,4 +507,72 @@ do
   Message.close()
 end
 
+print("\n--- Testing In-Battle Level Up Stat Growth Window ---")
+do
+  local Experience = require("src.core.game3.battle.experience")
+  local ExpSeq = require("src.core.game3.battle.exp_seq")
+  local StatGrowth = require("src.ui.game3.stat_growth")
+  local Ui = require("src.core.game3.battle.ui")
+
+  local mon = {
+    species = 1,
+    level = 5,
+    hp = 20,
+    maxHp = 20,
+    attack = 10,
+    defense = 10,
+    spAtk = 12,
+    spDef = 12,
+    speed = 9,
+    exp = Experience.expForLevel(3, 5),
+    growthRate = 3,
+  }
+
+  local res = Experience.apply(mon, 100)
+  check(#res.levels > 0, "experience award leveled up mon")
+  check(res.steps[1].oldStats ~= nil, "recorded oldStats before level up")
+  check(res.steps[1].newStats ~= nil, "recorded newStats after level up")
+
+  local messages = {}
+  local awards = {
+    { mon = mon, result = res, partyIndex = 1 },
+  }
+
+  Ui.reset({ headless = false })
+  local started = ExpSeq.begin(awards, function(t) table.insert(messages, t) end, nil, {
+    headless = false,
+  })
+  check(started, "ExpSeq started with level up steps")
+
+  -- Pump exp gain message
+  ExpSeq.update()
+  Ui._showing = false
+  Ui._queue = {}
+  ExpSeq.update()
+
+  -- Pump exp bar anim
+  local Anim = require("src.core.game3.battle.anim")
+  Anim.reset({ headless = false })
+  ExpSeq.update()
+
+  -- Clear level up message -> opens StatGrowth
+  Ui._showing = false
+  Ui._queue = {}
+  ExpSeq.update()
+  check(StatGrowth.isOpen(), "StatGrowth window opened on level up")
+  eq(StatGrowth._page, 1, "StatGrowth starts on Page 1 (diffs)")
+
+  -- Advance to Page 2
+  local fakeInput = {
+    wasPressed = function(self, key) return key == "a" end,
+  }
+  StatGrowth.handleInput(fakeInput)
+  check(StatGrowth.isOpen(), "StatGrowth still open on Page 2")
+  eq(StatGrowth._page, 2, "StatGrowth on Page 2 (new values)")
+
+  -- Confirm Page 2 -> closes window and advances sequence
+  StatGrowth.handleInput(fakeInput)
+  check(not StatGrowth.isOpen(), "StatGrowth closed after confirmation")
+end
+
 print("\nALL BATTLE SWITCH & FAINT TESTS PASSED! (100%)")

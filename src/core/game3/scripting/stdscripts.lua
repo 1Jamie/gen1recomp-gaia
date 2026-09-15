@@ -138,10 +138,11 @@ Std.SCRIPTS = {
     { op = "return" },
   },
   EventScript_ObtainedItem = {
+    { op = "playfanfare", [1] = 257 }, -- MUS_LEVEL_UP
     { op = "loadword", dest = 0, value = "Text_ObtainedTheX" },
     { op = "message", ptr = 0 },
+    { op = "waitfanfare" },
     { op = "waitmessage" },
-    { op = "waitbuttonpress" },
     { op = "loadword", dest = 0, value = "Text_PutItemAway" },
     { op = "message", ptr = 0 },
     { op = "waitmessage" },
@@ -201,10 +202,11 @@ Std.SCRIPTS = {
   EventScript_PickUpItem = {
     { op = "removeobject", [1] = 0x800F },
     { op = "additem", [1] = 0x8000, [2] = 0x8001 },
+    { op = "playfanfare", [1] = 257 }, -- MUS_LEVEL_UP
     { op = "loadword", dest = 0, value = "Text_FoundOneItem" },
     { op = "message", ptr = 0 },
+    { op = "waitfanfare" },
     { op = "waitmessage" },
-    { op = "waitbuttonpress" },
     { op = "loadword", dest = 0, value = "Text_PutItemAway" },
     { op = "message", ptr = 0 },
     { op = "waitmessage" },
@@ -229,10 +231,35 @@ Std.SCRIPTS = {
     { op = "return" },
   },
   ["std:9"] = { -- STD_RECEIVED_ITEM (msgreceiveditem)
+    { op = "compare_var_to_value", var = 0x8002, value = 318 }, -- MUS_OBTAIN_KEY_ITEM
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareKeyItem" },
+    { op = "compare_var_to_value", var = 0x8002, value = 258 }, -- MUS_OBTAIN_ITEM
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareItem" },
+    { op = "compare_var_to_value", var = 0x8002, value = 257 }, -- MUS_LEVEL_UP
+    { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareLevelUp" },
+    { op = "goto", target = "EventScript_ReceivedItemFanfareDefault" },
+  },
+  EventScript_ReceivedItemFanfareKeyItem = {
+    { op = "playfanfare", [1] = 318 }, -- MUS_OBTAIN_KEY_ITEM
+    { op = "goto", target = "EventScript_ReceivedItemShowMsg" },
+  },
+  EventScript_ReceivedItemFanfareItem = {
+    { op = "playfanfare", [1] = 258 }, -- MUS_OBTAIN_ITEM
+    { op = "goto", target = "EventScript_ReceivedItemShowMsg" },
+  },
+  EventScript_ReceivedItemFanfareLevelUp = {
+    { op = "playfanfare", [1] = 257 }, -- MUS_LEVEL_UP
+    { op = "goto", target = "EventScript_ReceivedItemShowMsg" },
+  },
+  EventScript_ReceivedItemFanfareDefault = {
+    { op = "playfanfare", [1] = 0x8002 }, -- VAR_0x8002 fallback
+    { op = "goto", target = "EventScript_ReceivedItemShowMsg" },
+  },
+  EventScript_ReceivedItemShowMsg = {
     { op = "message", ptr = 0 },
-    { op = "waitmessage" },
     { op = "waitfanfare" },
-    { op = "waitbuttonpress" },
+    { op = "waitmessage" },
+    { op = "callstd", std = 8 }, -- STD_PUT_ITEM_AWAY
     { op = "return" },
   },
 }

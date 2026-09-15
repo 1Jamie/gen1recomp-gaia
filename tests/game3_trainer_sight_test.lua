@@ -191,7 +191,7 @@ end
 check(TrainerSight.check(dummyGame) == true, "TrainerSight.check engaged")
 check(Field.locked == true, "Field locked on engagement")
 -- Drain field effect anim
-for _ = 1, 40 do
+for _ = 1, 65 do
   FieldEffects.step()
 end
 check(scriptFired == true, "Battle script fired instantly without walk hang")
@@ -253,7 +253,7 @@ end
 trainer1.facing = "down"
 TrainerSight.check(dummyGame, trainer1)
 check(Field.locked == true, "Field locked from spinning trainer turn")
-for _ = 1, 40 do FieldEffects.step() end
+for _ = 1, 65 do FieldEffects.step() end
 for _ = 1, 60 do Objects.update(dummyGame) end
 check(spottedFromSpin == true, "Script started from spinning trainer spot")
 

@@ -21,7 +21,8 @@ Versions.ROM_SIZE = 16777216
 -- v87: standard Lua array LZ77 decompression + robust chrome extraction for Android
 -- v88: authentic 1:1 FRLG trainer card composite (BG0+BG2), badges & Red/Leaf trainer pic fix
 -- v89: summary base tilemaps from ROM (fix magenta bg on Android), keypad icons extracted from ROM
-Versions.CACHE_VERSION = 89
+-- v90: fanfare audio cues, emote cues (0x62-0x66), pause menu YES/NO exit & main menu launcher exit
+Versions.CACHE_VERSION = 90
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
@@ -309,8 +310,15 @@ Versions.ANIM_CALLBACK_NAMES = {
   [0x080AC625] = "WaterPulseBubble",
   [0x080AC6D9] = "WaterPulseRing",
   [0x080AC90D] = "FireSpiralInward",
+  [0x080AC94D] = "AnimFireSpiralInward",
   [0x080AC991] = "MeteorMashStar",
   [0x080ACA01] = "LargeFlame",
+  [0x080ACBB1] = "AnimSunlight",
+  [0x080ACBDD] = "AnimEmberFlare",
+  [0x080ACC45] = "AnimBurnFlame",
+  [0x080ACC61] = "AnimFireRing",
+  [0x080ACDA9] = "AnimFireCross",
+  [0x080ACDE9] = "AnimFireSpiralOutward",
   [0x080AD455] = "EruptionFallingRock",
   [0x080AD541] = "WillOWispOrb",
   [0x080AD6F5] = "WillOWispFire",

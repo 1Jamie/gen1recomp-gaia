@@ -3,6 +3,9 @@
 
 local Stack = require("src.ui.game3.stack")
 local Window = require("src.ui.game3.window")
+local Chrome = require("src.ui.game3.chrome")
+local FrlgFont = require("src.ui.game3.frlg_font")
+local Strings = require("src.core.Strings")
 
 local StartMenu = {}
 
@@ -13,6 +16,8 @@ end
 StartMenu.open = false
 StartMenu.cursor = 1
 StartMenu.ENTRIES = {}
+StartMenu._confirmExit = false
+StartMenu._confirmCursor = 2 -- 1=YES, 2=NO (default NO)
 
 -- pret MENU_POKEDEX..MENU_EXIT order for normal field.
 local function build_entries(session)
@@ -47,7 +52,10 @@ end
 function StartMenu.show(opts)
   opts = opts or {}
   StartMenu.open = true
+  StartMenu._confirmExit = false
+  StartMenu._confirmCursor = 2
   StartMenu._session = opts.session
+  StartMenu._game = opts.game
   StartMenu._onClose = opts.onClose
   StartMenu.ENTRIES = build_entries(opts.session)
   local pos = tonumber(StartMenu.cursor) or 1
@@ -59,6 +67,7 @@ end
 
 function StartMenu.close()
   StartMenu.open = false
+  StartMenu._confirmExit = false
   Stack.pop("start")
   local cb = StartMenu._onClose
   StartMenu._onClose = nil
@@ -66,7 +75,21 @@ function StartMenu.close()
   if cb then cb() end
 end
 
+function StartMenu.cancel()
+  if StartMenu._confirmExit then
+    StartMenu._confirmExit = false
+    se(9) -- SE_EXIT
+    return
+  end
+  StartMenu.close()
+end
+
 function StartMenu.move(delta)
+  if StartMenu._confirmExit then
+    StartMenu._confirmCursor = (StartMenu._confirmCursor == 1) and 2 or 1
+    se(5) -- SE_SELECT
+    return
+  end
   local n = #StartMenu.ENTRIES
   if n < 1 then return end
   StartMenu.cursor = ((StartMenu.cursor - 1 + delta) % n) + 1
@@ -75,11 +98,30 @@ end
 
 function StartMenu.confirm()
   se(5)
+  if StartMenu._confirmExit then
+    if StartMenu._confirmCursor == 1 then -- YES
+      StartMenu.open = false
+      StartMenu._confirmExit = false
+      Stack.pop("start")
+      local Runtime = package.loaded["src.core.game3.runtime"]
+      local game = (StartMenu._session and StartMenu._session.game)
+        or (Runtime and Runtime._game)
+        or StartMenu._game
+      if game and game.returnToTitle then
+        game:returnToTitle()
+      end
+    else -- NO
+      StartMenu._confirmExit = false
+    end
+    return
+  end
+
   local e = StartMenu.ENTRIES[StartMenu.cursor]
   if not e then return end
   local session = StartMenu._session
   if e.id == "exit" then
-    StartMenu.close()
+    StartMenu._confirmExit = true
+    StartMenu._confirmCursor = 2 -- Default to NO
   elseif e.id == "bag" then
     local BagMenu = require("src.ui.game3.bag_menu")
     BagMenu.show(session and session.bag, {
@@ -128,10 +170,30 @@ function StartMenu.draw()
   for i, e in ipairs(StartMenu.ENTRIES) do
     -- pret: cursor (0, i*15), text (8, i*15) inside the window.
     local yPx = Window.menuRowPx(topPx, i)
-    if i == StartMenu.cursor then
+    if not StartMenu._confirmExit and i == StartMenu.cursor then
       Window.cursorPx(leftPx, yPx)
     end
     Window.printPx(e.label, leftPx + Window.CURSOR_WIDTH, yPx)
+  end
+
+  if StartMenu._confirmExit then
+    -- Bottom Dialogue Window
+    Chrome.dialogueFrame()
+    local prompt = Strings("RETURN TO MAIN\nMENU?")
+    FrlgFont.draw(prompt, 2 * 8 + 4, 15 * 8 + 2, { linePitch = 15, colors = FrlgFont.COLOR.NORMAL })
+
+    -- Right YES/NO Window
+    local popX = 21
+    local popY = 9
+    local popW = 6
+    local popH = 4
+    Window.stdFrame(Window.template(popX, popY, popW, popH))
+    local rowY1 = popY * 8 + 2
+    local rowY2 = popY * 8 + 18
+    local curY = (StartMenu._confirmCursor == 1) and rowY1 or rowY2
+    Window.cursorPx(popX * 8 + 1, curY)
+    FrlgFont.draw(Strings("YES"), popX * 8 + 9, rowY1, { colors = FrlgFont.COLOR.NORMAL })
+    FrlgFont.draw(Strings("NO"), popX * 8 + 9, rowY2, { colors = FrlgFont.COLOR.NORMAL })
   end
 end
 

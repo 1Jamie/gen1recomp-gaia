@@ -91,6 +91,17 @@ function Experience.gainFor(foeSpecies, foeLevel, opts)
   return amount
 end
 
+local function get_mon_stats(mon)
+  return {
+    maxHp = tonumber(mon and (mon.maxHp or mon.maxhp)) or 1,
+    atk = tonumber(mon and (mon.attack or mon.atk)) or 1,
+    def = tonumber(mon and (mon.defense or mon.def)) or 1,
+    spa = tonumber(mon and (mon.spAtk or mon.spa or mon.spatk)) or 1,
+    spd = tonumber(mon and (mon.spDef or mon.spd or mon.spdef)) or 1,
+    spe = tonumber(mon and (mon.speed or mon.spe)) or 1,
+  }
+end
+
 local function apply_level_stats(mon, newLevel)
   local oldMax = tonumber(mon.maxHp) or 1
   local oldHp = tonumber(mon.hp) or oldMax
@@ -142,6 +153,7 @@ function Experience.apply(mon, amount)
     local curThresh = SummaryData.expForLevel(growth, curLevel)
     local span = math.max(1, nextThresh - curThresh)
     local fromRatio = math.max(0, math.min(1, (curExp - curThresh) / span))
+    local oldStats = get_mon_stats(mon)
     steps[#steps + 1] = {
       level = curLevel,
       fromRatio = fromRatio,
@@ -152,8 +164,11 @@ function Experience.apply(mon, amount)
     curExp = nextThresh
     levels[#levels + 1] = curLevel
     apply_level_stats(mon, curLevel)
+    local newStats = get_mon_stats(mon)
     steps[#steps].hp = tonumber(mon.hp)
     steps[#steps].maxHp = tonumber(mon.maxHp)
+    steps[#steps].oldStats = oldStats
+    steps[#steps].newStats = newStats
   end
 
   -- Remainder into final level

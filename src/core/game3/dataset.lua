@@ -103,12 +103,74 @@ function Dataset.buildMaps(warps)
     or {}
   local connections = load_lua_rel(Extract.CACHE_ROOT .. "/connections.lua") or {}
   local manifest = load_lua_rel((Extract.NATIVE_ROOT or Extract.CACHE_ROOT .. "/native") .. "/manifest.lua") or {}
+  local MapCatalog = require("src.import.gba.map_catalog")
+  local MapSectionsExtract = require("src.import.gba.map_sections_extract")
+  local Json = nil
+  pcall(function() Json = require("src.link.Json") end)
   local maps = {}
 
   local function add(mapId, info)
     local spec = Versions.MAPS[mapId] or {}
     local pair = (info and info.pair) or spec.pair
     local tileset = pair and Versions.PAIR_TILESET and Versions.PAIR_TILESET[pair]
+
+    -- Load map header metadata if available in map_tree cache
+    local regionMapSectionId = spec.regionMapSectionId
+    local showMapName = spec.showMapName
+    local floorNum = spec.floorNum or 0
+    local weather = spec.weather
+    local mapType = spec.mapType
+
+    if regionMapSectionId == nil or showMapName == nil then
+      -- Try loading from data/generated/gba/map_tree/maps/{slot}/header.json
+      local cache = loveCache()
+      local candidates = {}
+      if spec.group ~= nil and spec.num ~= nil then
+        candidates[#candidates + 1] = string.format("%d_%d", spec.group, spec.num)
+      end
+      -- Try lookup in FRLG_MAP_TO_FR reverse
+      for k, v in pairs(Versions.FRLG_MAP_TO_FR or {}) do
+        if v == mapId then
+          candidates[#candidates + 1] = k:gsub(":", "_")
+        end
+      end
+      for k, v in pairs(Versions.FRLG_MAP_TO_SEVII or {}) do
+        if v == mapId then
+          candidates[#candidates + 1] = k:gsub(":", "_")
+        end
+      end
+
+      for _, slot in ipairs(candidates) do
+        local raw = cache:read("data/generated/gba/map_tree/maps/" .. slot .. "/header.json")
+          or cache:read(Extract.CACHE_ROOT .. "/map_tree/maps/" .. slot .. "/header.json")
+        if raw and Json and Json.decode then
+          local okH, h = pcall(Json.decode, raw)
+          if okH and type(h) == "table" then
+            regionMapSectionId = regionMapSectionId or h.regionMapSectionId
+            showMapName = showMapName or h.showMapName
+            floorNum = floorNum or h.floorNum
+            weather = weather or h.weather
+            mapType = mapType or h.mapType
+            break
+          end
+        end
+      end
+    end
+
+    -- Fallback inference if header.json was not loaded
+    if regionMapSectionId == nil then
+      local secInfo = MapSectionsExtract.getInfo(nil, mapId, floorNum)
+      regionMapSectionId = secInfo and secInfo.secId
+    end
+    if showMapName == nil then
+      local kind = spec.kind or (info and info.kind)
+      if kind == "indoor" or (spec.environment == "INDOOR") then
+        showMapName = 0
+      else
+        showMapName = 1
+      end
+    end
+
     maps[mapId] = {
       id = mapId,
       name = mapId,
@@ -120,6 +182,11 @@ function Dataset.buildMaps(warps)
       tileset = tileset,
       warps = warps[mapId] or {},
       connections = connections[mapId] or {},
+      regionMapSectionId = regionMapSectionId or 88,
+      showMapName = (showMapName == 1 or showMapName == true) and 1 or 0,
+      floorNum = tonumber(floorNum) or 0,
+      weather = weather or 0,
+      mapType = mapType or 1,
       native = true,
     }
   end
