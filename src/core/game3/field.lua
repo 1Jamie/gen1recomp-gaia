@@ -367,6 +367,15 @@ function Field.executeFieldMove(payload)
   local Objects = require("src.core.game3.objects")
 
   local act = payload.action
+  local questKeys={cut_tree="UsedCut",cut_grass="UsedCut",surf="UsedSurf",strength="UsedStrength",
+    flash="UsedFlash",rock_smash="UsedRockSmash",dig="UsedDigInLocation",
+    teleport="UsedTeleportToLocation",fly="UsedFly",sweet_scent="UsedSweetScent"}
+  local key=questKeys[act]
+  if key and Field._session then
+    local Q=require("src.core.game3.quest_log_recorder")
+    Q.event(Field._session,key,{require("src.core.game3.pokemon").displayMonName(payload.mon),
+      Q.location(Field._game,Field._session)})
+  end
   if act == "cut_tree" then
     Field.locked = true
     P.startFieldMove(28)

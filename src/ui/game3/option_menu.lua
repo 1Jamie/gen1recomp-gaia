@@ -14,7 +14,7 @@ local ROWS = {
   { key = "battleScene", label = "BATTLE SCENE", values = { "ON", "OFF" } },
   { key = "battleStyle", label = "BATTLE STYLE", values = { "SHIFT", "SET" } },
   { key = "sound", label = "SOUND", values = { "MONO", "STEREO" } },
-  { key = "buttonMode", label = "BUTTON MODE", values = { "NORMAL", "LR", "L=A" } },
+  { key = "buttonMode", label = "BUTTON MODE", values = { "HELP", "LR", "L=A" } },
   { key = "_cancel", label = "CANCEL", values = nil },
 }
 

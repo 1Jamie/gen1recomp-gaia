@@ -11,6 +11,10 @@ local Options = require("src.core.game3.options")
 local Dataset = require("src.core.game3.dataset")
 local Display = require("src.core.game3.display")
 local Boot = require("src.ui.game3.boot")
+local Help = require("src.ui.game3.help_system")
+
+local QuestLog = require("src.ui.game3.quest_log")
+local QuestRecorder = require("src.core.game3.quest_log_recorder")
 
 local Game3 = {}
 Game3.__index = Game3
@@ -65,6 +69,8 @@ function Game3:_enterField(session, reason)
     -- Come out of Oak's black screen onto the bedroom.
     if Fade.begin then Fade.begin(Fade.MODE.FROM_BLACK, 1) end
   end
+  session._questNewScene=true
+  if reason == "continue" then session._questMap=session.map end
   Runtime.start(nil, self, session, { reason = reason or "new_game" })
   -- Runtime.start already Map.loads unless alreadyOnMap; keep explicit reload for
   -- session x/y/facing in case start opts change.
@@ -83,6 +89,9 @@ function Game3:load(opts)
   Input:init()
   self.input = Input
   Dataset.hydrate(self)
+  Help.reset()
+  Help.install(Dataset.cache())
+  QuestLog.install(Dataset.cache())
 
   local TouchControls = require("src.core.TouchControls")
   TouchControls:init()
@@ -196,7 +205,14 @@ function Game3:_handleBootAction(action)
         print("[game3] ignoring legacy Sevii save map " .. session.map)
         session = Schema.newGame({ gender = 0 })
       end
-      self:_enterField(session, "continue")
+      self.questPlayback = QuestLog.begin(session)
+      if self.questPlayback then
+        self.session=session
+        self.phase="quest_log"
+        Audio.stopAll()
+      else
+        self:_enterField(session, "continue")
+      end
     end
     return
   end
@@ -223,14 +239,28 @@ function Game3:_handleBootAction(action)
 end
 
 function Game3:fixedUpdate(dt)
-  Audio.update(dt)
-  if self.session then
+  if self.input and self.input.step then self.input:step() end
+  if self.phase == "quest_log" then
+    local p=self.questPlayback
+    local scene=p:current()
     Audio.applyOptions(self.session)
+    if scene and scene.song then Audio.playSong(scene.song) end
+    Audio.pumpBgm()
+    p:update({a=self.input:wasPressed("a"),b=self.input:wasPressed("b")})
+    if p.done then
+      self.questPlayback=nil
+      self.input:reset()
+      self:_enterField(self.session,"continue")
+    end
+    return
   end
-
-  if self.input and self.input.step then
-    self.input:step()
+  if Help.update(self) then
+    -- Keep streaming BGM fed without advancing fanfare/script callbacks.
+    Audio.pumpBgm()
+    return
   end
+  Audio.update(dt)
+  if self.session then Audio.applyOptions(self.session) end
 
   local Rng = require("src.core.game3.rng")
   Rng.step()
@@ -246,6 +276,7 @@ function Game3:fixedUpdate(dt)
     self:_handleRegisteredItem()
     if Runtime.isActive() then
       Runtime.update(dt)
+      QuestRecorder.update(self)
     end
   end
 end
@@ -266,13 +297,14 @@ function Game3:draw()
   local w = love.graphics.getWidth()
   local h = love.graphics.getHeight()
 
-  if self.phase == "boot" and self.boot then
+  if self.phase == "quest_log" or (self.phase == "boot" and self.boot) then
     local canvas = Display.ensureCanvas("main")
     if canvas then
       love.graphics.push("all")
       love.graphics.setCanvas(canvas)
       love.graphics.origin()
-      Boot.draw(self.boot)
+      if self.phase == "quest_log" then QuestLog.draw(self.questPlayback,self.session)
+      elseif Help.isOpen() then Help.draw() else Boot.draw(self.boot) end
       love.graphics.setCanvas()
       love.graphics.pop()
       local scale, ox, oy, _, _, scaleY = Display.fit(w, h)
@@ -281,7 +313,8 @@ function Game3:draw()
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
     else
-      Boot.draw(self.boot)
+      if self.phase == "quest_log" then QuestLog.draw(self.questPlayback,self.session)
+      elseif Help.isOpen() then Help.draw() else Boot.draw(self.boot) end
     end
     if self.touchControls then
       self.touchControls:draw()
@@ -322,11 +355,12 @@ function Game3:gamepadreleased(joystick, button)
 end
 
 function Game3:saveGame()
-  if not self.session then return end
+  if not self.session or self.phase == "quest_log" then return end
   if Runtime.getSession then
     local s = Runtime.getSession()
     if s then self.session = s end
   end
+  QuestRecorder.save(self)
   self.save = Schema.toSaveTable(self.session)
   if SaveData.save then pcall(SaveData.save, self.save) end
 end
@@ -434,6 +468,8 @@ function Game3:onResume()
 end
 
 function Game3:returnToTitle()
+  self.questPlayback=nil
+  Help.reset()
   Audio.stopAll()
   local Stack = require("src.ui.game3.stack")
   Stack.clear()

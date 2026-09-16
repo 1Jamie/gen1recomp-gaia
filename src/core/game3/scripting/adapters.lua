@@ -548,6 +548,7 @@ function Adapters.host(mod, game, world)
         local Party = require("src.core.game3.party")
         if session and session.party then
           Party.healAll(session.party)
+
         end
         local Player = require("src.core.game3.player")
         Player.syncToHost(resolveGame())
@@ -870,6 +871,10 @@ function Adapters.host(mod, game, world)
         if ok and (id == "TOWN_MAP" or num == 361) then
           local tmOk, TownMap = pcall(require, "src.core.game3.town_map_stub")
           if tmOk and TownMap.unlockSeviiMap then TownMap.unlockSeviiMap(mod) end
+        end
+        if ok and ItemsData.pocketOf(storeId)=="KEY_ITEMS" then
+          local Q=require("src.core.game3.quest_log_recorder")
+          Q.event(session,"ObtainedItemInLocation",{Q.location(resolveGame(),session),ItemsData.displayName(storeId)})
         end
         return ok
       end

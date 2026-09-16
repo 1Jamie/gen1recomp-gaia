@@ -19,6 +19,52 @@ local function yield_host(ctx, adapters, startFn)
 end
 
 Natives.ALLOW = {
+  ["special:" .. Std.SPECIAL.SetUsedPkmnCenterQuestLogEvent] = function()
+    local rt=package.loaded["src.core.game3.runtime"]
+    require("src.core.game3.quest_log_recorder").event(rt and rt.getSession(),"MonsWereFullyRestoredAtCenter",{})
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.GetQuestLogState] = function(ctx)
+    -- Playback has no script VM; scripts executing here always belong to live play.
+    require("src.core.game3.scripting.flags").setVar(nil,ctx,0x800D,0)
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.QuestLog_CutRecording] = function()
+    local rt=package.loaded["src.core.game3.runtime"]
+    local session=rt and rt.getSession()
+    if session then session._questNewScene=true end
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.QuestLog_StartRecordingInputsAfterDeferredEvent] = function()
+    return false -- Events are captured at their completed engine transactions.
+  end,
+  ["special:" .. Std.SPECIAL.Script_SetHelpContext] = function(ctx)
+    local id = require("src.core.game3.scripting.flags").getVar(nil, ctx, 0x8004)
+    require("src.ui.game3.help_system").setContext(id)
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.BackupHelpContext] = function()
+    local Help = require("src.ui.game3.help_system")
+    Help.contextBackup = Help.contextOverride
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.RestoreHelpContext] = function()
+    local Help = require("src.ui.game3.help_system")
+    Help.contextOverride = Help.contextBackup
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.SetHelpContextForMap] = function()
+    require("src.ui.game3.help_system").setContext(nil)
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.HelpSystem_Disable] = function()
+    require("src.ui.game3.help_system").enabled = false
+    return false
+  end,
+  ["special:" .. Std.SPECIAL.HelpSystem_Enable] = function()
+    require("src.ui.game3.help_system").enabled = true
+    return false
+  end,
   ["special:" .. Std.SPECIAL.HealPlayerParty] = function(ctx, adapters)
     if not (adapters and adapters.nurseHeal) then return false end
     return yield_host(ctx, adapters, adapters.nurseHeal)

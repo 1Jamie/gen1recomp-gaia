@@ -8,7 +8,7 @@ Options.DEFAULTS = {
   battleScene = 0,   -- 0=ON 1=OFF
   battleStyle = 0,   -- 0=SHIFT 1=SET
   sound = 0,         -- 0=MONO 1=STEREO
-  buttonMode = 0,    -- 0=NORMAL 1=LR 2=L=A
+  buttonMode = 0,    -- 0=HELP 1=LR 2=L=A
   frameType = 0,
 }
 

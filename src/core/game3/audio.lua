@@ -191,7 +191,15 @@ function Audio.applyOptions(session)
 end
 
 local function bgm_gain()
-  return (Audio._bgmVolume or 1) * (Audio._duck or 1)
+  return (Audio._bgmVolume or 1) * (Audio._duck or 1) * (Audio._helpActive and 0.5 or 1)
+end
+
+-- Help lowers BGM without changing the user's volume or cry ducking state.
+function Audio.setHelpActive(active)
+  Audio._helpActive = active == true
+  local volume = bgm_gain()
+  if Audio._cmdCh then Audio._cmdCh:push({ cmd = "volume", volume = volume }) end
+  if Audio._bgmSource then Audio._bgmSource:setVolume(volume) end
 end
 
 local function stop_bgm_source()

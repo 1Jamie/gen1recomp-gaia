@@ -1,8 +1,6 @@
 -- Extract FRLG flag and var constants, new game reset states, and badge mappings
 -- from pret pokefirered headers into Lua tables.
 
-local FileIO = require("src.import.gba.file_io")
-
 local FlagsExtract = {}
 
 local function strip_comments(val)
@@ -256,14 +254,20 @@ end
 
 function FlagsExtract.write(cache, root, data)
   data = data or FlagsExtract.extract()
+  -- A release does not ship a pret checkout. Keep the bundled definitions
+  -- when optional headers are absent; never rewrite engine source on import.
+  if not next(data.flags or {}) or not next(data.vars or {}) then
+    local bundled = require("src.core.game3.scripting.flags_table")
+    data = {
+      flags = bundled.FLAGS, flagsById = bundled.FLAGS_BY_ID,
+      vars = bundled.VARS, varsById = bundled.VARS_BY_ID,
+      newGameHideFlags = bundled.NEW_GAME_HIDE_FLAGS,
+      newGameResetVars = bundled.NEW_GAME_RESET_VARS, badges = bundled.BADGES,
+    }
+  end
   local src = FlagsExtract.generateLuaSource(data)
   if cache and cache.write then
     cache:write((root or "data/generated/gba") .. "/flags_table.lua", src)
-  end
-  local f = io.open("src/core/game3/scripting/flags_table.lua", "w")
-  if f then
-    f:write(src)
-    f:close()
   end
   return true
 end

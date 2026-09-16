@@ -171,6 +171,8 @@ function Display.present(game, winW, winH)
 
   beginOn(canvas)
   local ok, err = xpcall(function()
+    local Help = require("src.ui.game3.help_system")
+    if Help.isOpen() then Help.draw(); return end
     love.graphics.clear(0.06, 0.12, 0.20, 1)
 
     local Oam = require("src.core.game3.oam")

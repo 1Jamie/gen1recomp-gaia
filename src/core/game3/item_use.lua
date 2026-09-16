@@ -156,6 +156,10 @@ function ItemUse.giveToMon(session, bag, id, partySlot)
   else
     text = string.format("%s was given\nto %s.", ItemsData.displayName(id), monName)
   end
+  local Q=require("src.core.game3.quest_log_recorder")
+  if prev and prev~=0 and prev~="" and prev~="NONE" then
+    Q.event(session,"SwappedHeldItemsOnMon",{monName,ItemsData.displayName(prev),ItemsData.displayName(id)})
+  else Q.event(session,"GaveMonHeldItem",{monName,ItemsData.displayName(id)}) end
   return true, "give", text
 end
 
@@ -176,6 +180,8 @@ function ItemUse.takeFromMon(session, bag, partySlot)
   mon.heldItem = nil
   Bag.add(bag, held, 1)
   local text = string.format("Took the %s from\n%s and put it in the BAG.", ItemsData.displayName(held), monName)
+  require("src.core.game3.quest_log_recorder").event(session,"TookHeldItemFromMon",
+    {monName,ItemsData.displayName(held)})
   return true, "take", text
 end
 
@@ -289,6 +295,10 @@ function ItemUse.useTm(session, bag, id, partySlot)
   local consumed = false
 
   local function finish_consume(learned)
+    if learned then
+      require("src.core.game3.quest_log_recorder").event(session,
+        isHm and "MonLearnedMoveFromHM" or "MonLearnedMoveFromTM",{monName,moveName})
+    end
     if learned and not isHm and not consumed then
       Bag.remove(bag, id, 1)
       consumed = true
@@ -378,7 +388,7 @@ end
 
 --- Try field use. partySlot optional for heal/status/revive/tm/give.
 -- Returns ok, reason, messageText
-function ItemUse.useField(session, bag, id, partySlot)
+local function useField(session, bag, id, partySlot)
   local info = ItemsData.info(id)
   if not info then return false, "unknown", "Unknown item." end
   local use = ItemsData.fieldUseKind(id)
@@ -511,4 +521,16 @@ function ItemUse.useField(session, bag, id, partySlot)
   return false, "none", "OAK: This isn't the\ntime to use that!"
 end
 
+function ItemUse.useField(session,bag,id,partySlot)
+  local ok,kind,text=useField(session,bag,id,partySlot)
+  if ok and kind~="tm" and kind~="tm_case" and kind~="berry_pouch" then
+    local Items=require("src.core.game3.items")
+    local Pokemon=require("src.core.game3.pokemon")
+    local mon=partySlot and session and session.party and session.party[partySlot]
+    require("src.core.game3.quest_log_recorder").event(session,
+      mon and "UsedItemOnMonAtThisLocation" or "UsedTheItem",
+      {Items.displayName(id),mon and Pokemon.displayMonName(mon)})
+  end
+  return ok,kind,text
+end
 return ItemUse

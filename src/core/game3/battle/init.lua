@@ -176,6 +176,11 @@ local function finish(result)
   if st then
     st.over = true
     st.result = result or st.result or "win"
+    local Runtime=package.loaded["src.core.game3.runtime"]
+    local session=Runtime and Runtime.getSession()
+    if session and not Battle._headless then
+      require("src.core.game3.quest_log_recorder").battle(session,st)
+    end
   end
   AnimSeq.reset()
   CatchSeq.reset()

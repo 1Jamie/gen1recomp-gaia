@@ -110,6 +110,7 @@ function Schema.toSaveTable(session)
     move_overlay = session.move_overlay or {},
     trainerId = session.trainerId,
     rng = session.rng,
+    questLog = require("src.core.game3.quest_log").export(session),
   }
 end
 
@@ -150,6 +151,7 @@ function Schema.fromSaveTable(save)
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,
     rng = save.rng,
+    questLog = require("src.core.game3.quest_log").restore(save.questLog),
   }
   Schema.ensureMonBalls(session)
   Options.ensure(session)

@@ -188,6 +188,8 @@ function Storage.deposit(session, partyIdx, targetBoxId, targetSlotIdx)
   local mon = table.remove(session.party, partyIdx)
   Storage.fullHealMon(mon)
   box.mons[slot] = mon
+  require("src.core.game3.quest_log_recorder").event(session,"DepositedMonInPC",
+    {D0=require("src.core.game3.pokemon").displayMonName(mon),D1=box.name})
   return true, bId, slot
 end
 
@@ -208,6 +210,8 @@ function Storage.withdraw(session, boxId, slotIdx)
   local mon = box.mons[slotIdx]
   box.mons[slotIdx] = nil
   session.party[#session.party + 1] = mon
+  require("src.core.game3.quest_log_recorder").event(session,"WithdrewMonFromPC",
+    {D0=box.name,D1=require("src.core.game3.pokemon").displayMonName(mon)})
   return true, #session.party
 end
 
@@ -271,6 +275,25 @@ function Storage.moveMon(session, srcLoc, srcIdx, destLoc, destIdx, srcBox, dest
     box.mons[srcIdx] = destMon
   end
 
+  local Q=require("src.core.game3.quest_log_recorder")
+  local Pokemon=require("src.core.game3.pokemon")
+  local srcName=Pokemon.displayMonName(srcMon)
+  local dstName=destMon and Pokemon.displayMonName(destMon)
+  local srcBoxName=storage.boxes[srcBox or storage.currentBox].name
+  local dstBoxName=storage.boxes[destBox or storage.currentBox].name
+  if srcLoc=="party" and destLoc=="party" then
+    Q.event(session,"SwitchMon1WithMon2",{srcName,dstName})
+  elseif srcLoc=="box" and destLoc=="box" then
+    local same=(srcBox or storage.currentBox)==(destBox or storage.currentBox)
+    local key=destMon and (same and "SwitchedMonsWithinBox" or "SwitchedMonsBetweenBoxes")
+      or (same and "MovedMonWithinBox" or "MovedMonToNewBox")
+    Q.event(session,key,{D0=srcBoxName,D1=srcName,D2=destMon and (same and dstName or dstBoxName) or dstBoxName,D3=dstName})
+  elseif destMon then
+    Q.event(session,"SwitchedPartyMonForPCMon",{D0=srcLoc=="box" and srcBoxName or dstBoxName,
+      D1=srcLoc=="box" and srcName or dstName,D2=srcLoc=="party" and srcName or dstName})
+  elseif srcLoc=="party" then
+    Q.event(session,"DepositedMonInPC",{D0=srcName,D1=dstBoxName})
+  else Q.event(session,"WithdrewMonFromPC",{D0=srcBoxName,D1=srcName}) end
   return true
 end
 
@@ -332,6 +355,8 @@ function Storage.depositItem(session, bagPocket, bagIdx, qty)
   end
 
   Bag.remove(session.bag, itemId, qty)
+  require("src.core.game3.quest_log_recorder").event(session,"StoredItemInPC",
+    {require("src.core.game3.items").displayName(itemId)})
   return true
 end
 
@@ -353,6 +378,8 @@ function Storage.withdrawItem(session, pcIdx, qty)
   local ok = Bag.add(session.bag, entry.id, qty)
   if not ok then return false, "bag_full" end
 
+  require("src.core.game3.quest_log_recorder").event(session,"WithdrewItemFromPC",
+    {require("src.core.game3.items").displayName(entry.id)})
   entry.qty = entry.qty - qty
   if entry.qty <= 0 then
     table.remove(storage.items, pcIdx)

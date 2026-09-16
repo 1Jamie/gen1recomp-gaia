@@ -235,6 +235,10 @@ local function commit_buy()
     return
   end
   set_money(session, curMoney - cost)
+  local Q=require("src.core.game3.quest_log_recorder")
+  local rt=package.loaded["src.core.game3.runtime"]
+  Q.event(session,ShopMenu.qty==1 and "BoughtItem" or "BoughtItemsIncludingItem",
+    {D0=Q.location(rt and rt._game,session),D1=ItemsData.displayName(p.id),D2=cost})
 
   -- The Premier Ball Cap: Strictly 1 Premier Ball when purchasing >= 10 standard Poké Balls (ID 4)
   local premierBonus = 0
@@ -261,6 +265,10 @@ local function commit_sell()
   local earn = (p.price or 0) * ShopMenu.qty
   Bag.remove(session.bag, p.id, ShopMenu.qty)
   set_money(session, money_of(session) + earn)
+  local Q=require("src.core.game3.quest_log_recorder")
+  local rt=package.loaded["src.core.game3.runtime"]
+  Q.event(session,"SoldItemsIncludingItem",
+    {D0=Q.location(rt and rt._game,session),D1=ItemsData.displayName(p.id),D2=earn})
   ShopMenu._status = string.format("Turned over the %s and\nreceived ¥%d.", p.name, earn)
   ShopMenu.mode = "sell_msg"
   ShopMenu._pending = nil

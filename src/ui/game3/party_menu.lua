@@ -460,6 +460,11 @@ end
 
 local function swap_slots(a, b)
   if not PartyMenu._party or a == b then return end
+  if not PartyMenu._battle then
+    local Pokemon=require("src.core.game3.pokemon")
+    require("src.core.game3.quest_log_recorder").event(PartyMenu._session,"SwitchMon1WithMon2",
+      {Pokemon.displayMonName(PartyMenu._party[a]),Pokemon.displayMonName(PartyMenu._party[b])})
+  end
   PartyMenu._party[a], PartyMenu._party[b] = PartyMenu._party[b], PartyMenu._party[a]
   if PartyMenu._overlay then
     PartyMenu._overlay[a], PartyMenu._overlay[b] =
@@ -1022,6 +1027,8 @@ function PartyMenu.handleInput(input)
             if Pokemon.moveSlotCount(mon) < 4 then
               local ok = Pokemon.teachMove(mon, moveId)
               if ok then
+                require("src.core.game3.quest_log_recorder").event(PartyMenu._session,
+                  isHm and "MonLearnedMoveFromHM" or "MonLearnedMoveFromTM",{monName,moveName})
                 if not isHm then
                   Bag.remove(PartyMenu._bag, PartyMenu._item, 1)
                 end
@@ -1064,6 +1071,8 @@ function PartyMenu.handleInput(input)
                 end,
                 onDone = function(learned)
                   if learned then
+                    require("src.core.game3.quest_log_recorder").event(PartyMenu._session,
+                      isHm and "MonLearnedMoveFromHM" or "MonLearnedMoveFromTM",{monName,moveName})
                     if not isHm then
                       Bag.remove(PartyMenu._bag, PartyMenu._item, 1)
                     end
@@ -1100,6 +1109,8 @@ function PartyMenu.handleInput(input)
         local oldHp = hp
 
         Bag.remove(PartyMenu._bag, PartyMenu._item, 1)
+        require("src.core.game3.quest_log_recorder").event(PartyMenu._session,
+          "UsedItemOnMonAtThisLocation",{ItemsData.displayName(PartyMenu._item),Pokemon.displayMonName(mon)})
         mon.level = lvl + 1
         Pokemon.applyStats(mon)
         local newStats = get_mon_stats(mon)

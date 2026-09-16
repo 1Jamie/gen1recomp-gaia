@@ -15,6 +15,10 @@ end
 -- specials.inc indices (FireRed)
 Std.SPECIAL = {
   HealPlayerParty = 0x00,
+  SetUsedPkmnCenterQuestLogEvent = 0x169,
+  QuestLog_StartRecordingInputsAfterDeferredEvent = 0x184,
+  GetQuestLogState = 0x187,
+  QuestLog_CutRecording = 0x188,
   ShowPokemonStorageSystemPC = 0x3C,
   BufferMonNickname = 0x7D, -- 125
   ChangePokemonNickname = 0x9F, -- 159
@@ -29,6 +33,12 @@ Std.SPECIAL = {
   EnableNationalPokedex = 0x179, -- 377
   SetUnlockedPokedexFlags = 0x18B, -- 395
   IsNationalPokedexEnabled = 0x19D, -- 413
+  Script_SetHelpContext = 0x17D,
+  BackupHelpContext = 0x17E,
+  RestoreHelpContext = 0x17F,
+  SetHelpContextForMap = 0x190,
+  HelpSystem_Disable = 0x198,
+  HelpSystem_Enable = 0x199,
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,

@@ -159,6 +159,8 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
     "assets/generated/pokegear/nest_icon.png",
   },
   firered = {
+    "data/generated/gba/help/pack.lua",
+    "data/generated/gba/quest_log/pack.lua",
     "data/generated/gba/meta.json",
     "data/generated/gba/maps.json",
     "data/generated/gba/audio/meta.json",
