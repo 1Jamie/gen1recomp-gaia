@@ -445,7 +445,7 @@ function Audio.playSe(id, opts)
   local sd = Player.bakeSlot(slot, {
     master = (Audio._sfxVolume or 1) * (opts.volume or 1) * (Audio._seBakeGain or 3.5),
     mono = Audio._mono,
-    maxSec = opts.maxSec or (loop and 2.5 or 2.0),
+    maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 2.0),
     stopOnGoto = loop and true or false,
     pan = pan,
   })

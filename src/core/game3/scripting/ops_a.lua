@@ -883,21 +883,11 @@ function Ops.dispatch(vm, row)
       end
 
       if introText and introText ~= "" and a.openMessageAsync then
-        -- Play trainer encounter music if available
-        if foe.encounterMusic then
-          local musicCode = (tonumber(foe.encounterMusic) or 0) % 128
-          local okA, Audio = pcall(require, "src.core.game3.audio")
-          if okA and Audio and Audio.playSong then
-            local song = nil
-            if musicCode == 2 or musicCode == 3 or musicCode == 8 then
-              song = Audio.role("encounterGirl") or 273
-            elseif musicCode == 4 then
-              song = Audio.role("encounterRocket") or 276
-            else
-              song = Audio.role("encounterBoy") or 274
-            end
-            if song then Audio.playSong(song) end
-          end
+        -- Play trainer encounter music if not already playing (pret PlayTrainerEncounterMusic / EventScript_TryDoNormalTrainerBattle)
+        local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(trainerId)
+        local okA, Audio = pcall(require, "src.core.game3.audio")
+        if okA and Audio and Audio.playSong and song then
+          Audio.playSong(song)
         end
         a.openMessageAsync(introText, function()
           beginBattle()

@@ -219,7 +219,19 @@ function TrainerSight.engage(game, eo, dist)
   -- 2. Turn trainer to face player directly
   local playerFacing = OPPOSITE_FACING[eo.facing] or "up"
 
-  -- 3. Play exclamation animation and sound effect SE_PIN (21)
+  -- 3. Play encounter music immediately when trainer spots player (pret PlayTrainerEncounterMusic / EventScript_DoTrainerBattleFromApproach)
+  local tid = TrainerSight.getTrainerId(eo)
+  local okT, Trainers = pcall(require, "src.core.game3.scripting.trainers")
+  local musicId = okT and Trainers and Trainers.getEncounterMusic and Trainers.getEncounterMusic(tid)
+  if not musicId then
+    musicId = 285 -- MUS_ENCOUNTER_BOY fallback
+  end
+  local okA, Audio = pcall(require, "src.core.game3.audio")
+  if okA and Audio and Audio.playSong then
+    Audio.playSong(musicId)
+  end
+
+  -- 4. Play exclamation animation and sound effect SE_PIN (21)
   Fx.startExclamation(eo, function()
     local scriptKey = eo.scriptKey or (eo.def and eo.def.scriptKey)
 

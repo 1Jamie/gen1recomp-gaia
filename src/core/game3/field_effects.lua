@@ -320,6 +320,13 @@ function FieldEffects.startEmote(targetObj, emoteType, onDone)
     onDone = onDone,
   }
   table.insert(FieldEffects._anims, anim)
+  if emoteType == "exclamation" or emoteType == 0 or emoteType == 0x62 or
+     emoteType == "double_exclamation" or emoteType == 1 or emoteType == 0x65 then
+    local okA, Audio = pcall(require, "src.core.game3.audio")
+    if okA and Audio and Audio.playSe then
+      Audio.playSe(21) -- SE_PIN
+    end
+  end
   return anim
 end
 

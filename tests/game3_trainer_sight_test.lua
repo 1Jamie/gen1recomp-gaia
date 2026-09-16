@@ -277,6 +277,49 @@ Player.update(dummyGame, mockInput)
 check(Field.locked == true, "Player.update trapped by trainer sight before D-pad step")
 check(Player.moving == false, "Player prevented from moving away")
 
+print("[test] 8. Trainer Spot Audio & SFX Choreography (SE_PIN + Encounter Music)")
+Field.locked = false
+FieldEffects.invalidate()
+Objects.clearMovements()
+
+local playedSeId = nil
+local playedSongId = nil
+local Audio = require("src.core.game3.audio")
+Audio.playSe = function(id)
+  playedSeId = id
+  return true
+end
+Audio.playSong = function(id)
+  playedSongId = id
+  return true
+end
+
+local sightTrainer = {
+  localId = 5,
+  cellX = 10,
+  cellY = 10,
+  px = 160,
+  py = 160,
+  facing = "down",
+  sight = 4,
+  elevation = 0,
+  visible = true,
+  hidden = false,
+  moving = false,
+  frozen = false,
+  scriptBusy = false,
+  trainerId = 10,
+  scriptKey = "trainer_battle_01",
+}
+Objects._byId[5] = sightTrainer
+Objects._order = { 5 }
+Player.reset(10, 14, "up") -- 4 tiles down
+
+-- Spot trainer
+TrainerSight.check(dummyGame)
+check(playedSeId == 21, "SE_PIN (21) played immediately on spot")
+check(playedSongId == 284 or playedSongId == 285 or playedSongId == 283, "Encounter theme started immediately on spot (song=" .. tostring(playedSongId) .. ")")
+
 if failed > 0 then
   print(string.format("\n%d FAILURE(S)", failed))
   os.exit(1)

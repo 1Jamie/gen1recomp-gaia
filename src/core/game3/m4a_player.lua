@@ -86,7 +86,7 @@ local function tone_at(vg, idx)
 end
 
 --- Resolve ToneData through SPL/RHY to a concrete DS or CGB tone.
-local function resolve_tone(pack, vgId, voiceId, midiKey, depth)
+local function resolve_tone(pack, vgId, voiceId, rawKey, depth)
   depth = depth or 0
   if depth > 6 or not vgId then return nil end
   local vg = pack.voicegroups[vgId] or pack.voicegroups[tostring(vgId)]
@@ -99,12 +99,16 @@ local function resolve_tone(pack, vgId, voiceId, midiKey, depth)
     local ks = tone.keySplit
     local idx = 0
     if ks then
-      idx = ks[midiKey] or ks[tostring(midiKey)] or 0
+      idx = ks[rawKey] or ks[tostring(rawKey)] or 0
     end
-    return resolve_tone(pack, tone.subVgId, idx, midiKey, depth + 1)
+    local subVg = pack.voicegroups[tone.subVgId] or pack.voicegroups[tostring(tone.subVgId)]
+    if subVg and not tone_at(subVg, idx) then
+      idx = 0
+    end
+    return resolve_tone(pack, tone.subVgId, idx, rawKey, depth + 1)
   end
   if rhy then
-    local sub = resolve_tone(pack, tone.subVgId, midiKey, midiKey, depth + 1)
+    local sub = resolve_tone(pack, tone.subVgId, rawKey, rawKey, depth + 1)
     if sub then
       sub = {
         type = sub.type,
@@ -126,19 +130,23 @@ local function resolve_tone(pack, vgId, voiceId, midiKey, depth)
   return tone
 end
 
-local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
+local function make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine, tr)
   if not tone then return nil end
   fine = tonumber(fine) or 0
   local typ = tone.type or 0
   local kind = typ % 8
-  local noteKey = key
+  local baseKey = rawKey or 60
+  local noteKey = absKey or rawKey or 60
   if tone.isRhy and tone.key then
     local keyM = 0
     if tr then
       keyM = Seq.trackPitch(tr)
     end
+    baseKey = tone.key
     noteKey = tone.key + keyM
   end
+  if noteKey < 0 then noteKey = 0 end
+  if noteKey > 178 then noteKey = 178 end
 
   -- Rhythm pan override (if pan has bit 7 set)
   if tone.isRhy and tone.pan and tone.pan >= 0x80 and tr then
@@ -151,16 +159,17 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
     volR = vol * (0.5 + p * 0.5)
   end
 
+  local v
   if kind == 0 and tone.sampleId then
     local meta = pack.samples[tone.sampleId] or pack.samples[tostring(tone.sampleId)]
     local pcm = Sample.loadPcm(pack.samplesBin, meta)
     if not pcm or not meta then return nil end
     local fixed = math.floor((tone.type or 0) / 8) % 2 == 1
-    -- pret MidiKeyToFreq(wav, noteKey+keyM, fine) — returns playback Hz.
+    -- pret MidiKeyToFreq(wav, noteKey, fine) — returns playback Hz.
     local rate = fixed and Mix.waveRate(meta.freq) or Mix.midiKeyToFreq(meta.freq, noteKey, fine)
     if rate < 100 then rate = Mix.waveRate(meta.freq) end
     local loop = (meta.loopStart or 0) > 0 and (meta.loopStart or 0) < (meta.size or 0)
-    local v = Mix.newDsVoice(pcm, meta, {
+    v = Mix.newDsVoice(pcm, meta, {
       rate = rate,
       loop = loop,
       volL = volL,
@@ -169,15 +178,13 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
     })
     v.wavFreq = meta.freq
     v.fixedFreq = fixed
-    return v
-  end
   -- CGB channels 1..4 (pulse uses MidiKeyToCgbFreq; wave is one octave below)
-  if kind >= 1 and kind <= 4 then
+  elseif kind >= 1 and kind <= 4 then
     if kind == 1 or kind == 2 then
       local duty = 2
       local wp = tone.wavParam or 0
       if wp <= 3 then duty = wp end
-      return Mix.newCgbPulse({
+      v = Mix.newCgbPulse({
         key = noteKey,
         fine = fine,
         duty = duty,
@@ -191,7 +198,7 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
         wave = {}
         for i = 1, 32 do wave[i] = (i % 16) end
       end
-      return Mix.newCgbWave({
+      v = Mix.newCgbWave({
         key = noteKey,
         fine = fine,
         wave = wave,
@@ -199,7 +206,7 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
         tone = tone,
       })
     elseif kind == 4 then
-      return Mix.newCgbNoise({
+      v = Mix.newCgbNoise({
         key = noteKey,
         period = Mix.cgbNoisePeriod(noteKey),
         volL = volL, volR = volR,
@@ -207,7 +214,10 @@ local function make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
       })
     end
   end
-  return nil
+  if v then
+    v.noteKey = baseKey
+  end
+  return v
 end
 
 --- Start a song on a player slot. For SE-first, also supports sample-only mode.
@@ -255,9 +265,13 @@ function Player.start(pack, cache, slot, songId, opts)
 
   local vgId = info and info.voicegroupId
   slot.seq = Seq.newPlayer(song, {
-    voiceResolver = function(voiceId, key, vel, tr, volL, volR, fine)
-      local tone = resolve_tone(pack, vgId, voiceId, key)
-      return make_voice_from_tone(pack, tone, key, volL, volR, fine, tr)
+    voiceResolver = function(voiceId, rawKey, vel, tr, volL, volR, fine, absKey)
+      if not absKey then
+        local keyM = tr and Seq.trackPitch(tr) or 0
+        absKey = rawKey + keyM
+      end
+      local tone = resolve_tone(pack, vgId, voiceId, rawKey)
+      return make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine, tr)
     end,
   })
   return true

@@ -28,6 +28,11 @@ function ExpSeq.reset()
   ExpSeq._askForget = nil
   ExpSeq._leveled = nil
   ExpSeq._pendingStatGrowth = nil
+  local okA, Audio = pcall(require, "src.core.game3.audio")
+  local okS, SE = pcall(require, "src.core.game3.se_ids")
+  if okA and okS and Audio.stopSe and SE and SE.SE_EXP then
+    Audio.stopSe(SE.SE_EXP)
+  end
   local okSG, StatGrowth = pcall(require, "src.ui.game3.stat_growth")
   if okSG and StatGrowth and StatGrowth.close then
     StatGrowth.close()
@@ -52,6 +57,11 @@ local function finish()
   ExpSeq._i = 1
   ExpSeq._waiting = false
   ExpSeq._waitingMsg = false
+  local okA, Audio = pcall(require, "src.core.game3.audio")
+  local okS, SE = pcall(require, "src.core.game3.se_ids")
+  if okA and okS and Audio.stopSe and SE and SE.SE_EXP then
+    Audio.stopSe(SE.SE_EXP)
+  end
 end
 
 local function advance()
@@ -179,10 +189,20 @@ local function run_step(step)
     Anim.tweenExp(d.side or "player", d.fromRatio, d.toRatio, {
       level = d.level,
       onComplete = function()
+        local okA, Audio = pcall(require, "src.core.game3.audio")
+        local okS, SE = pcall(require, "src.core.game3.se_ids")
+        if okA and okS and Audio.stopSe and SE and SE.SE_EXP then
+          Audio.stopSe(SE.SE_EXP)
+        end
         advance()
       end,
     })
     if not Anim.busy() and ExpSeq._waiting then
+      local okA, Audio = pcall(require, "src.core.game3.audio")
+      local okS, SE = pcall(require, "src.core.game3.se_ids")
+      if okA and okS and Audio.stopSe and SE and SE.SE_EXP then
+        Audio.stopSe(SE.SE_EXP)
+      end
       advance()
     end
     return

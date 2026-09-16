@@ -263,4 +263,21 @@ function Trainers.introStrings(trainerId, monName, opts)
   }
 end
 
+--- Resolve encounter BGM song ID for a trainer (pret PlayTrainerEncounterMusic / include/constants/trainers.h & songs.h).
+function Trainers.getEncounterMusic(trainerId)
+  local t = Trainers.get(trainerId)
+  if not t then return 285 end -- MUS_ENCOUNTER_BOY
+  local musicCode = (tonumber(t.encounterMusic) or 0) % 128
+  -- TRAINER_ENCOUNTER_MUSIC_FEMALE (1), GIRL (2), TWINS (9) -> MUS_ENCOUNTER_GIRL (284)
+  -- TRAINER_ENCOUNTER_MUSIC_MALE (0), INTENSE (4), COOL (5), SWIMMER (8), ELITE_FOUR (10), HIKER (11), INTERVIEWER (12), RICH (13) -> MUS_ENCOUNTER_BOY (285)
+  -- Default (SUSPICIOUS 3, AQUA 6, MAGMA 7, etc.) -> MUS_ENCOUNTER_ROCKET (283)
+  if musicCode == 1 or musicCode == 2 or musicCode == 9 then
+    return 284 -- MUS_ENCOUNTER_GIRL
+  elseif musicCode == 3 or musicCode == 6 or musicCode == 7 then
+    return 283 -- MUS_ENCOUNTER_ROCKET
+  else
+    return 285 -- MUS_ENCOUNTER_BOY
+  end
+end
+
 return Trainers

@@ -408,12 +408,24 @@ function Anim.tweenExp(side, fromRatio, toRatio, opts)
     return
   end
   local delta = math.abs(toRatio - fromRatio)
-  local frames = math.max(8, math.min(48, math.floor(delta * 40) + 8))
-  if opts.frames then frames = opts.frames end
+  local fillFrames = math.max(1, math.floor(delta * 64 + 0.5))
+  local leadIn = 13 -- pokefirered Task_GiveExpWithExpBar 13-frame sound pre-roll
+  local totalFrames = leadIn + fillFrames
+  if opts.frames then
+    totalFrames = opts.frames
+    leadIn = math.min(13, math.floor(totalFrames * 0.2))
+    fillFrames = math.max(1, totalFrames - leadIn)
+  end
   Anim._expTweening = true
   p.displayExp = fromRatio
-  Task.tween(frames, function(u)
-    p.displayExp = fromRatio + (toRatio - fromRatio) * u
+  Task.tween(totalFrames, function(_, t)
+    local curFrame = t.frames or 0
+    if curFrame <= leadIn then
+      p.displayExp = fromRatio
+    else
+      local u = math.min(1, (curFrame - leadIn) / fillFrames)
+      p.displayExp = fromRatio + (toRatio - fromRatio) * u
+    end
   end, function()
     p.displayExp = toRatio
     Anim._expTweening = false

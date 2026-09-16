@@ -154,7 +154,9 @@ function Seq.newPlayer(song, opts)
   opts = opts or {}
   local tracks = {}
   for i = 1, (song and song.tracks) or 0 do
-    tracks[i] = new_track(song.trackData[i])
+    local tr = new_track(song.trackData[i])
+    tr.index = i
+    tracks[i] = tr
   end
   return {
     song = song,
@@ -218,10 +220,6 @@ local function refresh_track_voices(player, tr)
           v.periodReg = period
           if not v.sweepEnabled then
             v.freq = Mix.periodToPulseHz(period)
-          else
-            -- Hardware sweep owns the shadow; still retarget from note pitch.
-            v.sweepShadow = period
-            v.freq = Mix.periodToPulseHz(period)
           end
         elseif v.kind == "cgb_wave" then
           v.freq = Mix.cgbWaveHz(absKey, fine)
@@ -251,21 +249,48 @@ local function start_note(player, tr, key, vel, gate)
     tr.modM = 0
   end
 
-  -- Resolver gets absKey for initial freq; we store raw note key for live BEND.
-  local voice = player.voiceResolver(tr.voice, absKey, vel, tr, volL, volR, fine)
+  -- Resolver gets standard args with absKey appended; voice stores base note key for live BEND.
+  local voice = player.voiceResolver(tr.voice, rawKey, vel, tr, volL, volR, fine, absKey)
   if voice then
     gate = tonumber(gate) or 0
-    if gate < 1 then gate = 1 end
-    voice.gateTicks = gate
+    if gate > 0 then
+      voice.gateTicks = gate
+    else
+      voice.gateTicks = nil -- TIE (cmd == 0xCF): sustains indefinitely until EOT (0xCE) or sound stop
+    end
     voice.track = tr
-    voice.noteKey = rawKey
+    if voice.noteKey == nil then
+      voice.noteKey = rawKey
+    end
     voice.noteVel = vel
 
-    -- CGB: one hardware channel each — new note replaces prior occupant.
+    -- CGB: 4 physical hardware channels (1..4).
+    -- pret MP2K (m4a_1.s lines 1648-1668): exactly one voice per CGB channel.
+    -- Priority check: higher priority steals; equal priority earlier track steals; lower priority is dropped.
     if voice.cgbChan then
+      local chan = voice.cgbChan
+      local active = nil
       for _, v in ipairs(player.voices) do
-        if v.cgbChan == voice.cgbChan then
-          v.alive = false
+        if v.alive ~= false and v.cgbChan == chan then
+          active = v
+          break
+        end
+      end
+      if active then
+        local oldPrio = (active.track and active.track.priority) or 0
+        local newPrio = tr.priority or 0
+        if newPrio > oldPrio then
+          active.alive = false
+        elseif newPrio < oldPrio then
+          return
+        else
+          local oldIdx = (active.track and active.track.index) or 999
+          local newIdx = tr.index or 999
+          if newIdx <= oldIdx then
+            active.alive = false
+          else
+            return
+          end
         end
       end
     elseif voice.kind == "ds" then

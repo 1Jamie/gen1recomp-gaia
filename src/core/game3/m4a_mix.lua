@@ -133,7 +133,7 @@ end
 local function ds_scale_freq(key)
   key = math.floor(tonumber(key) or 60)
   if key < 0 then key = 0 end
-  if key > 178 then key = 178 end
+  if key > 179 then key = 179 end
   local s = DS_SCALE[key] or 0
   return math.floor((DS_FREQ[s % 16] or 0) / (2 ^ math.floor(s / 16)))
 end

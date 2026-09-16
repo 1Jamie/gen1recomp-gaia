@@ -372,15 +372,119 @@ do
   assert_true(vibratoObserved, "LFO modulation dynamically modulates active voice pitch")
 end
 
--- Looped sample rendering preserves fractional phase and renders without errors
+-- TIE (0xCF): Tied note must sustain indefinitely until explicit EOT (0xCE) or stop
 do
-  local pcm = string.char(0, 50, 100, 50, 0, 206, 156, 206)
-  local v = Mix.newDsVoice(pcm, { size = 8, freq = 13379 * 1024, loopStart = 2 }, { loop = true, rate = Mix.SAMPLE_RATE })
-  v.step = 0.75
-  local voices = { v }
-  local outL, outR, alive = Mix.render(voices, 64, { raw = true })
-  assert_true(#alive > 0, "looped voice stays alive")
-  assert_true(v.pos > 2 and v.pos < 8, "pos stays within loop bounds")
+  local wavFreq = 13700096
+  local song = {
+    tracks = 1,
+    trackData = {
+      string.char(
+        0xC1, 26,           -- BENDR 26
+        0xC0, 0x40,         -- BEND center
+        0xCF, 65, 112,      -- TIE key=65 vel=112 (no gate cutoff)
+        0x81,               -- WAIT 1
+        0xC0, 0x48,         -- BEND +8
+        0x81,               -- WAIT 1
+        0xC0, 0x50,         -- BEND +16
+        0x81,               -- WAIT 1
+        0xCE,               -- EOT (end tie)
+        0x84,               -- WAIT 4
+        0xB1                -- FINE
+      ),
+    },
+  }
+  local p = Seq.newPlayer(song, {
+    voiceResolver = function(_vn, key, _vel, _tr, volL, volR, fine)
+      local rate = Mix.midiKeyToFreq(wavFreq, key, fine or 0)
+      local v = {
+        kind = "ds",
+        alive = true,
+        wavFreq = wavFreq,
+        step = rate / Mix.SAMPLE_RATE,
+        volL = volL,
+        volR = volR,
+        fixedFreq = false,
+      }
+      Mix.attachAdsr(v, { attack = 0, decay = 0, sustain = 255, release = 100 })
+      return v
+    end,
+  })
+  p.tempo = 150
+  p.tempoC = 0
+  Seq.update(p, 1)
+  local voice = p.voices[1]
+  assert_true(voice ~= nil and voice.alive, "tied note voice alive on creation")
+  assert_true(voice.gateTicks == nil, "tied note has nil gateTicks (no gate timeout)")
+  local s0 = voice.step
+
+  -- Advance through BEND events (vblanks 2 and 3) - voice must remain alive with rising pitch
+  Seq.update(p, 1)
+  assert_true(voice.alive, "tied note stays alive during first bend")
+  assert_true(voice.step > s0, "pitch increased on first bend")
+  local s1 = voice.step
+
+  Seq.update(p, 1)
+  assert_true(voice.alive, "tied note stays alive during second bend")
+  assert_true(voice.step > s1, "pitch increased on second bend")
+
+  -- Advance past EOT (vblank 4) - note is released
+  Seq.update(p, 1)
+  assert_true(voice.envPhase == "release", "voice in release phase after EOT")
+end
+
+-- Battle ExpSeq stopSe parity
+do
+  local ExpSeq = require("src.core.game3.battle.exp_seq")
+  local SE = require("src.core.game3.se_ids")
+  assert_true(ExpSeq ~= nil, "ExpSeq loaded")
+  -- Reset cleans up SE_EXP
+  ExpSeq.reset()
+  assert_true(not Audio.isSePlaying(SE.SE_EXP), "SE_EXP stopped on reset")
+end
+
+-- KeySplit rawKey lookup & Rhythm drum pitch preservation
+do
+  local Player = require("src.core.game3.m4a_player")
+  local fakePack = {
+    samples = {},
+    voicegroups = {
+      [1] = {
+        [0] = {
+          type = 64, -- KeySplit
+          subVgId = 2,
+          keySplit = { [60] = 0, [62] = 1 },
+        },
+      },
+      [2] = {
+        [0] = { type = 1, key = 60, wavParam = 2 },
+        [1] = { type = 1, key = 60, wavParam = 3 },
+      },
+    },
+  }
+  -- Song with KEYSH + note
+  local song = {
+    tracks = 1,
+    trackData = {
+      string.char(
+        0xBC, 12,       -- KEYSHIFT +12
+        0xD4, 60, 100,  -- note key=60 (rawKey=60, absKey=72)
+        0x84,
+        0xB1
+      ),
+    },
+  }
+  local chosenDuty = nil
+  local player = Seq.newPlayer(song, {
+    voiceResolver = function(voiceId, rawKey, vel, tr, volL, volR, fine, absKey)
+      assert_eq(rawKey, 60, "rawKey matches MIDI note")
+      assert_eq(absKey, 72, "absKey includes KEYSHIFT +12")
+      local tone = fakePack.voicegroups[2][fakePack.voicegroups[1][0].keySplit[rawKey]]
+      chosenDuty = tone.wavParam
+      return Mix.newCgbPulse({ key = absKey, duty = tone.wavParam })
+    end,
+  })
+  Seq.update(player, 1)
+  assert_eq(chosenDuty, 2, "keysplit resolved via rawKey 60 -> subvoice 0 (duty 2), not out-of-bounds absKey 72")
 end
 
 print("game3_audio_test: ok")

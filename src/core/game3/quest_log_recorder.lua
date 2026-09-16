@@ -41,7 +41,7 @@ end
 function R.event(session,key,args)
   local Runtime=package.loaded['src.core.game3.runtime']
   -- Ignore simulations/tests and sessions that aren't the active game.
-  if not session or not Runtime or not Runtime.isActive() or Runtime.getSession()~=session then return end
+  if not session or not Runtime or type(Runtime.isActive) ~= "function" or not Runtime.isActive() or (Runtime.getSession and Runtime.getSession() ~= session) then return end
   local game=Runtime._game
   local map=tostring(session.map):upper():gsub('_','')
   if map:find('TRAINERTOWER',1,true) or map:find('ELEVATOR',1,true)
