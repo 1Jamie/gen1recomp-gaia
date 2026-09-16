@@ -1229,6 +1229,27 @@ R.sprites = {
     -- top-left in pixels (default: bottom-center).
     frameWidth = f.opt(f.int(1)),
     frameHeight = f.opt(f.int(1)),
+    -- how many frames to skip from the start of the sheet, for art whose
+    -- usable frames do not begin at index 0
+    frameOffset = f.opt(f.int(0)),
+    -- frames per sheet row; 1 (the default) is the vanilla vertical strip
+    frameColumns = f.opt(f.int(1)),
+    -- Multi-part frames: `cells` is one list per animation frame, and each
+    -- cell blits a piece of the sheet at an offset inside the frame.  A sprite
+    -- whose parts move independently (a head over a body) is assembled here
+    -- rather than being baked into the sheet.  cellWidth/cellHeight give the
+    -- piece size and cellColumns how many pieces a sheet row holds, so `tile`
+    -- is an index into that grid.
+    cells = f.opt(f.list(f.list(f.rec{
+      tile = f.int(0),
+      dx = f.opt(f.int(-256, 256)),
+      dy = f.opt(f.int(-256, 256)),
+      flipX = f.opt(f.bool),
+      flipY = f.opt(f.bool),
+    }))),
+    cellWidth = f.opt(f.int(1)),
+    cellHeight = f.opt(f.int(1)),
+    cellColumns = f.opt(f.int(1)),
     anchorX = f.opt(f.num),
     anchorY = f.opt(f.num),
     trueColor = f.opt(f.bool),

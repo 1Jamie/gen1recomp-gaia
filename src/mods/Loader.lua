@@ -869,6 +869,17 @@ function Loader:_validate()
         end
       end
     end
+    if not reason and #(manifest.required_assets or {}) > 0 then
+      local Importers = engineRequire("src.import.Importers")
+      for _, spec in ipairs(Importers and manifest.required_assets or {}) do
+        local pack, packErr = Importers.resolve(spec, self.fs)
+        if not pack then
+          reason = "required asset pack unavailable: " .. tostring(packErr)
+            .. " -- import it from the launcher's IMPORTERS tab"
+          break
+        end
+      end
+    end
     if not reason and manifest.game_version and not devEngine() then
       local ok, err = Semver.satisfies(Version.engine, manifest.game_version)
       if not ok then
@@ -1245,6 +1256,8 @@ function Loader:_api(mod)
   local Checkpoint = engineRequire("src.core.Checkpoint")
   local ImportAccess = engineRequire("src.mods.ImportAccess")
   local importApi, installCache = ImportAccess.new(mod.manifest, loader.fs)
+  local AssetPacks = engineRequire("src.mods.AssetPacks")
+  local packApi = AssetPacks and AssetPacks.new(mod.manifest, loader.fs)
   local api = {
     id = modId,
     version = mod.manifest.version,
@@ -1460,6 +1473,7 @@ function Loader:_api(mod)
     -- Read-only bounded access to this mod's manifest-declared, launcher-validated
     -- imports. No host path is exposed; large sources are read in bounded ranges.
     imports = importApi,
+    packs = packApi,
     -- Installation-scoped generated data, independent from Pokémon save slots.
     -- This is where ROM-derived caches belong; mod.storage remains playthrough-scoped.
     cache = installCache,
