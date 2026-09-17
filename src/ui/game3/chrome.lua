@@ -326,8 +326,24 @@ function Chrome.userFrame(frameType, tx, ty, tw, th)
   drawNineSlice(atlas, tx, ty, tw, th)
 end
 
+Chrome._frameType = 0
+
+function Chrome.setFrameType(n)
+  n = tonumber(n) or 0
+  if n < 0 then n = 0 end
+  if n ~= Chrome._frameType then
+    Chrome._frameType = n
+    if Chrome.invalidate then Chrome.invalidate() end
+  end
+  return Chrome._frameType
+end
+
 --- pret std 9-slice around content (tx,ty,tw,th) in tiles.
 function Chrome.stdFrame(tx, ty, tw, th)
+  if (Chrome._frameType or 0) > 0 then
+    local user = ensureUser(Chrome._frameType)
+    if user then return drawNineSlice(user, tx, ty, tw, th) end
+  end
   local atlas = ensureStd()
   if atlas then return drawNineSlice(atlas, tx, ty, tw, th) end
   fillRect(tx * T - 8, ty * T - 8, (tw + 2) * T, (th + 2) * T, 98 / 255, 115 / 255, 123 / 255, 1)

@@ -81,6 +81,9 @@ function Field.update(_dt)
   -- Game3 owns locomotion + EventObjects (host World:step is paused).
   local Objects = require("src.core.game3.objects")
   Objects.update(game)
+  local Ghosts = require("src.core.game3.ghosts")
+  Ghosts.sync()
+  Ghosts.update(game)
 
   local input = game and game.input
   Player.update(game, input)

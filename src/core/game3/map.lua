@@ -48,6 +48,103 @@ function Map.loadNeighborsDepth1(game, primaryDef)
   return Map.neighbors
 end
 
+local function cell_size(def)
+  local L = def and def.midLayout
+  if L and L.width and L.height then return L.width or 0, L.height or 0 end
+  return (tonumber(def and def.width) or 0) * 2, (tonumber(def and def.height) or 0) * 2
+end
+
+Map.world = {}
+Map._worldRoot = nil
+Map._worldReachW = -1
+Map._worldReachH = -1
+Map.WORLD_HOPS = 2
+
+function Map.computeWorld(maps, rootId, hops, reachW, reachH, ensure)
+  local out = {}
+  local rootDef = maps and maps[rootId]
+  if not rootDef then return out end
+  ensure = ensure or function() end
+  ensure(rootId, rootDef)
+  local rootW, rootH = cell_size(rootDef)
+  local placed = { [rootId] = true }
+  local queue = { { id = rootId, def = rootDef, ox = 0, oy = 0, hops = 0 } }
+  local qi = 1
+  local function inReach(def, ox, oy)
+    if not (reachW and reachH) then return false end
+    local w, h = cell_size(def)
+    return ox + w > -reachW and ox < rootW + reachW
+       and oy + h > -reachH and oy < rootH + reachH
+  end
+  while queue[qi] do
+    local cur = queue[qi]
+    qi = qi + 1
+    local curW, curH = cell_size(cur.def)
+    for dir, conn in pairs(cur.def.connections or {}) do
+      local destId = type(conn) == "table" and conn.map or conn
+      local destDef = type(destId) == "string" and maps[destId] or nil
+      if destDef and destDef ~= rootDef and not placed[destId] then
+        local offset = (type(conn) == "table" and tonumber(conn.offset) or 0) or 0
+        ensure(destId, destDef)
+        local destW, destH = cell_size(destDef)
+        local ox, oy
+        if dir == "north" or dir == "up" then
+          ox, oy = offset, -destH
+        elseif dir == "south" or dir == "down" then
+          ox, oy = offset, curH
+        elseif dir == "west" or dir == "left" then
+          ox, oy = -destW, offset
+        elseif dir == "east" or dir == "right" then
+          ox, oy = curW, offset
+        end
+        if ox then
+          ox, oy = cur.ox + ox, cur.oy + oy
+          local reach = inReach(destDef, ox, oy)
+          if cur.hops + 1 <= (hops or 0) or reach then
+            placed[destId] = true
+            out[#out + 1] = { id = destId, def = destDef, ox = ox, oy = oy }
+            if cur.hops + 1 < (hops or 0) or reach then
+              queue[#queue + 1] = {
+                id = destId, def = destDef, ox = ox, oy = oy, hops = cur.hops + 1,
+              }
+            end
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
+function Map.refreshWorld(game, reachW, reachH, rootId)
+  rootId = rootId or Map.current
+  local maps = game and game.data and game.data.maps
+  if not (rootId and maps) then
+    Map.world = {}
+    Map._worldRoot = nil
+    return Map.world
+  end
+  reachW = math.floor(tonumber(reachW) or 0)
+  reachH = math.floor(tonumber(reachH) or 0)
+  if Map._worldRoot == rootId
+      and Map._worldReachW == reachW and Map._worldReachH == reachH then
+    return Map.world
+  end
+  Map.world = Map.computeWorld(maps, rootId, Map.WORLD_HOPS, reachW, reachH,
+    function(id, def)
+      Map.ensureMidLayout(game, id, def)
+    end)
+  for _, entry in ipairs(Map.world) do
+    Map._loadedLayouts[entry.id] = true
+  end
+  Map._worldRoot = rootId
+  Map._worldReachW = reachW
+  Map._worldReachH = reachH
+  local FieldView = package.loaded["src.core.game3.field_view"]
+  if FieldView then FieldView._nativeDirty = true end
+  return Map.world
+end
+
 function Map.overscanSlices()
   local slices = {}
   for dir, n in pairs(Map.neighbors) do
@@ -132,7 +229,17 @@ function Map.worldMidAt(cx, cy, primaryDef)
     end
   end
 
-  return layout:midAt(cx, cy), primaryPair
+  for _, entry in ipairs(Map.world) do
+    local L = entry.def ~= primaryDef and entry.def and entry.def.midLayout
+    if L then
+      local nx, ny = cx - entry.ox, cy - entry.oy
+      if nx >= 0 and ny >= 0 and nx < (L.width or 0) and ny < (L.height or 0) then
+        return L:midAt(nx, ny), L.pair or entry.def.pair or primaryPair
+      end
+    end
+  end
+
+  return layout:midAt(cx, cy), primaryPair, true
 end
 
 --- Ensure mapDef.midLayout is bound (lazy; Dataset.hydrate usually did this).
@@ -154,6 +261,10 @@ function Map.load(mod, game, mapId, opts)
   opts = opts or {}
   if not MapIds.isGame3Map(mapId) then
     return nil, "not a game3 map"
+  end
+  local Ghosts = require("src.core.game3.ghosts")
+  if Map.current and Map.current ~= mapId then
+    Ghosts.capture(Map.current)
   end
   Map.current = mapId
   Map._loadedLayouts = { [mapId] = true }
@@ -280,7 +391,10 @@ function Map.load(mod, game, mapId, opts)
     session.flags[0x804] = nil
   end
 
-  if def then Objects.loadMap(game, mapId, def) end
+  if def then
+    Objects.loadMap(game, mapId, def)
+    Ghosts.adopt(mapId)
+  end
   -- pokefirered/src/overworld.c:806
   if not opts.seamless then
     require("src.core.game3.audio").setSavedSong(nil)

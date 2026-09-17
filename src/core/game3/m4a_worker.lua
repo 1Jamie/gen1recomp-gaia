@@ -111,6 +111,10 @@ local function apply_cmd(msg)
     bgm.muted = false
   elseif msg.cmd == "volume" then
     bgm.volume = msg.volume or 1
+  elseif msg.cmd == "mix" then
+    bgm.mono = msg.mono and true or false
+  elseif msg.cmd == "dropFanfares" then
+    baked = {}
   end
 end
 
@@ -122,6 +126,7 @@ local function bake_fanfare(id, yieldEvery)
   local root = packRoot
   -- pokefirered/src/sound.c:50
   local sd = Player.bakeSong(pack, cache, id, {
+    mono = bgm.mono,
     sampleRate = sampleRate,
     maxSec = frames / 60 + 4,
     yieldEvery = yieldEvery,
@@ -162,6 +167,7 @@ while running do
     end
     local sd = Player.renderBuffered(bgm, BUFFER, {
       master = 1,
+      mono = bgm.mono,
       sampleRate = sampleRate,
     })
     bgm.abs = at + BUFFER

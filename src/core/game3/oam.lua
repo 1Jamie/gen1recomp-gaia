@@ -186,6 +186,7 @@ function Oam.createSprite(template, x, y, subpriority)
       s.image = template.image
       s.quad = template.quad
       s.animPaused = template.animPaused and true or false
+      s.layer = template.layer or Oam._layer or "ui"
       for d = 1, 8 do s.data[d] = 0 end
       Oam.applyCenterToCorner(s)
       s._id = i
@@ -271,17 +272,28 @@ function Oam.resetFrame()
   Oam._buffer = {}
 end
 
+Oam._layer = "ui"
+
+function Oam.setLayer(layer)
+  local prev = Oam._layer
+  Oam._layer = layer or "ui"
+  return prev
+end
+
+local function layer_of(sprite)
+  return sprite.layer or "ui"
+end
+
 function Oam.setCoordOffset(ox, oy)
   Oam._coordOffsetX = tonumber(ox) or 0
   Oam._coordOffsetY = tonumber(oy) or 0
 end
 
---- Run sprite callbacks (AnimateSprites).
-function Oam.animateSprites()
+function Oam.animateSprites(layer)
   ensure_pool()
   for i = 0, Oam.MAX_SPRITES - 1 do
     local s = Oam._sprites[i]
-    if s.inUse and s.callback then
+    if s.inUse and s.callback and (not layer or (s.layer or "ui") == layer) then
       s.callback(s)
     end
   end
@@ -346,20 +358,22 @@ local function blit_sprite(s)
 end
 
 --- Blit sorted OAM to the current Love canvas (all priorities).
-function Oam.flush()
+function Oam.flush(layer)
   if not love or not love.graphics then return end
   local buf = Oam._buffer
   if not buf then buf = Oam.buildOamBuffer() end
   love.graphics.setColor(1, 1, 1, 1)
   for _, s in ipairs(buf) do
-    blit_sprite(s)
+    if not layer or layer_of(s) == layer then
+      blit_sprite(s)
+    end
   end
   love.graphics.setColor(1, 1, 1, 1)
 end
 
 --- Blit only sprites at a given OAM priority (for BG×OBJ interleave).
 --- Buffer must already be sorted (buildOamBuffer). Same-pri order preserved.
-function Oam.flushPriority(priority)
+function Oam.flushPriority(priority, layer)
   if not love or not love.graphics then return end
   local buf = Oam._buffer
   if not buf then buf = Oam.buildOamBuffer() end
@@ -367,7 +381,7 @@ function Oam.flushPriority(priority)
   love.graphics.setColor(1, 1, 1, 1)
   for _, s in ipairs(buf) do
     local p = (s.oam and s.oam.priority) or 0
-    if p == priority then
+    if p == priority and (not layer or layer_of(s) == layer) then
       blit_sprite(s)
     end
   end

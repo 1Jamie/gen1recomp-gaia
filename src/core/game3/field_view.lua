@@ -322,6 +322,84 @@ local function drawWorldEntities(world, camX, camY)
   return true
 end
 
+local function neighborActorDefs(mapId, def)
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local ev = Space and Space.bundle and Space.bundle.events
+    and Space.bundle.events[mapId]
+  local defs = ev and (ev.objects or ev.objectEvents)
+  if type(defs) ~= "table" then defs = def and def.objects end
+  return type(defs) == "table" and defs or nil
+end
+
+local function collectNeighborActors(actors, baseIndex, hostMapId, hostDef)
+  local Map = package.loaded["src.core.game3.map"]
+  if not (Map and type(Map.world) == "table") then return baseIndex end
+  local Ghosts = package.loaded["src.core.game3.ghosts"]
+  local Objects = package.loaded["src.core.game3.objects"]
+  for _, entry in ipairs(Map.world) do
+    if entry.id ~= hostMapId and entry.def ~= hostDef then
+      local live = Ghosts and Ghosts.forDraw and Ghosts.forDraw(entry.id)
+      if live then
+        for _, eo in ipairs(live) do
+          baseIndex = baseIndex + 1
+          actors[#actors + 1] = {
+            kind = "npc",
+            i = baseIndex,
+            obj = eo.def,
+            ghost = entry.id,
+            x = (eo.px or (eo.cellX or 0) * CELL) + entry.ox * CELL,
+            y = (eo.py or (eo.cellY or 0) * CELL) + entry.oy * CELL,
+            facing = eo.facing or "down",
+            walkPhase = Objects and Objects.walkPhase and Objects.walkPhase(eo) or 0,
+            stepFlip = eo.stepFlip and true or false,
+            sprite = eo.sprite or spriteNameForObj(eo.def or {}),
+            graphicsId = eo.graphicsId
+              or (eo.def and (eo.def.graphicsId or eo.def.graphics)),
+          }
+        end
+      else
+        local defs = neighborActorDefs(entry.id, entry.def)
+        local bounds = Objects and Objects.layoutBounds
+          and Objects.layoutBounds(entry.def) or nil
+        if defs then
+          for _, obj in ipairs(defs) do
+            local ox, oy = tonumber(obj.x) or 0, tonumber(obj.y) or 0
+            local out = bounds and (ox < 0 or oy < 0
+              or ox >= bounds.w or oy >= bounds.h)
+            if objectVisible(obj) and not out then
+              baseIndex = baseIndex + 1
+              actors[#actors + 1] = {
+                kind = "npc",
+                i = baseIndex,
+                obj = obj,
+                ghost = entry.id,
+                x = (entry.ox + (tonumber(obj.x) or 0)) * CELL,
+                y = (entry.oy + (tonumber(obj.y) or 0)) * CELL,
+                facing = facingFromObj(obj),
+                sprite = spriteNameForObj(obj),
+                graphicsId = obj.graphicsId or obj.graphics,
+              }
+            end
+          end
+        end
+      end
+    end
+  end
+  return baseIndex
+end
+
+local function pushBillboard(x, y, camX, camY)
+  local bb = FieldView._billboard
+  if not bb then return false end
+  local Tilt = require("src.render.Tilt")
+  local fx = (x - camX) + CELL / 2
+  local fy = (y - camY) + CELL
+  local sx, sy = Tilt.groundPoint(fx, fy, bb.vw, bb.vh)
+  love.graphics.push()
+  love.graphics.translate(sx - fx, sy - fy)
+  return true
+end
+
 local function isPlayerAboveBg2(playerXOff, playerYOff)
   if (playerXOff and playerXOff ~= 0) or (playerYOff and playerYOff ~= 0) then
     return true
@@ -365,12 +443,14 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
       graphicsId = eo.graphicsId or (eo.def and (eo.def.graphicsId or eo.def.graphics)),
     }
   end
+  collectNeighborActors(actors, 10000, currentMapId(game),
+    resolveMapDef(game, currentMapId(game)))
   -- Resolve graphicsVar (Bill etc.) via Space when available.
   do
     local Space = package.loaded["src.core.game3.scripting.space"]
     if Space and Space.resolveObjectGraphicsId then
       for _, a in ipairs(actors) do
-        if a.obj then
+        if a.obj and not a.ghost then
           local gid = Space.resolveObjectGraphicsId(a.obj)
           if gid then a.graphicsId = gid end
         end
@@ -403,6 +483,7 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
 
   love.graphics.setColor(1, 1, 1, 1)
   for _, a in ipairs(actors) do
+    local billboarded = pushBillboard(a.x, a.y, camX, camY)
     local drew = false
     if useOw and a.graphicsId ~= nil then
       local opts = {
@@ -429,6 +510,7 @@ local function drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, step
         love.graphics.setColor(1, 1, 1, 1)
       end
     end
+    if billboarded then love.graphics.pop() end
   end
   return true
 end
@@ -565,8 +647,11 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
 
   local Map = package.loaded["src.core.game3.map"]
     or require("src.core.game3.map")
+  local VoidFill = require("src.core.game3.void_fill")
+  local voidMode = VoidFill.normalize(VoidFill.mode)
 
   if FieldView._nativeDirty
+      or FieldView._nativeVoid ~= voidMode
       or FieldView._nativeBx ~= cx0
       or FieldView._nativeBy ~= cy0
       or FieldView._nativePair ~= pair then
@@ -579,20 +664,31 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     local cellsByPair = {}
     for row = 0, rows - 1 do
       for col = 0, cols - 1 do
-        local mid, srcPair = layout:midAt(cx0 + col, cy0 + row), pair
+        local mid, srcPair, isVoid = layout:midAt(cx0 + col, cy0 + row), pair, false
         if Map.worldMidAt then
-          mid, srcPair = Map.worldMidAt(cx0 + col, cy0 + row, mapDef)
+          mid, srcPair, isVoid = Map.worldMidAt(cx0 + col, cy0 + row, mapDef)
           srcPair = srcPair or pair
+        end
+        local skip = false
+        if isVoid and voidMode ~= "map" then
+          local fill = VoidFill.midFor(mapDef, voidMode)
+          if fill == false then
+            skip = true
+          elseif fill then
+            mid, srcPair = fill, pair
+          end
         end
         if not NativeTileset.ready(srcPair) then
           srcPair = pair
         end
-        local list = cellsByPair[srcPair]
-        if not list then
-          list = {}
-          cellsByPair[srcPair] = list
+        if not skip then
+          local list = cellsByPair[srcPair]
+          if not list then
+            list = {}
+            cellsByPair[srcPair] = list
+          end
+          list[#list + 1] = { mid = mid, x = col * CELL, y = row * CELL }
         end
-        list[#list + 1] = { mid = mid, x = col * CELL, y = row * CELL }
       end
     end
     for srcPair, cells in pairs(cellsByPair) do
@@ -620,6 +716,7 @@ local function drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
     FieldView._nativeBx = cx0
     FieldView._nativeBy = cy0
     FieldView._nativePair = pair
+    FieldView._nativeVoid = voidMode
     FieldView._nativeDirty = false
   end
 
@@ -663,9 +760,10 @@ local function drawNativeOverTiles()
   end
 end
 
-function FieldView.draw(game, canvasW, canvasH)
+function FieldView.draw(game, canvasW, canvasH, opts)
   canvasW = canvasW or Display.W
   canvasH = canvasH or Display.H
+  opts = opts or {}
 
   local mapId = currentMapId(game)
   local mapDef = resolveMapDef(game, mapId)
@@ -710,47 +808,61 @@ function FieldView.draw(game, canvasW, canvasH)
     camY = (fTileY - 4) * CELL
   end
 
-  local usedNative = drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
-  if usedNative then
-    -- Native batch already covers viewport (+ overscan); wash skipped.
-  else
-    local tileset = resolveTileset(game, mapDef)
-    local atlas = loadAtlas(tileset)
-    if not atlas or not FieldView._blockTiles then
-      love.graphics.setColor(0.45, 0.2, 0.2, 1)
+  FieldView._billboard = opts.billboard
+    and { vw = canvasW, vh = canvasH } or nil
+
+  if not opts.actorsOnly then
+    local Map = package.loaded["src.core.game3.map"]
+      or require("src.core.game3.map")
+    if Map.refreshWorld then
+      Map.refreshWorld(game, math.ceil(canvasW / CELL), math.ceil(canvasH / CELL), mapId)
+    end
+  end
+
+  local usedNative = FieldView._nativeOverPair ~= nil
+  if not opts.actorsOnly then
+    usedNative = drawNativeTiles(mapDef, camX, camY, canvasW, canvasH)
+    if usedNative then
+      -- Native batch already covers viewport (+ overscan); wash skipped.
+    else
+      local tileset = resolveTileset(game, mapDef)
+      local atlas = loadAtlas(tileset)
+      if not atlas or not FieldView._blockTiles then
+        love.graphics.setColor(0.45, 0.2, 0.2, 1)
+        love.graphics.rectangle("fill", 0, 0, canvasW, canvasH)
+        love.graphics.print("game3: no tileset atlas", 8, 8)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+      end
+
+      local bgSet = resolveBgSet(game, mapDef, daytimeFor(game, mapDef))
+      local wr, wg, wb = washColor(bgSet)
+      love.graphics.setColor(wr, wg, wb, 1)
       love.graphics.rectangle("fill", 0, 0, canvasW, canvasH)
-      love.graphics.print("game3: no tileset atlas", 8, 8)
-      love.graphics.setColor(1, 1, 1, 1)
-      return
+
+      local bySlot = collectTileDraws(mapDef, camX, camY, canvasW, canvasH)
+      drawTilesColored(atlas, bySlot, bgSet)
     end
 
-    local bgSet = resolveBgSet(game, mapDef, daytimeFor(game, mapDef))
-    local wr, wg, wb = washColor(bgSet)
-    love.graphics.setColor(wr, wg, wb, 1)
-    love.graphics.rectangle("fill", 0, 0, canvasW, canvasH)
-
-    local bySlot = collectTileDraws(mapDef, camX, camY, canvasW, canvasH)
-    drawTilesColored(atlas, bySlot, bgSet)
-  end
-
-  -- Tall grass under body (pret lower OAM priority).
-  do
-    local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
-    if okFx and FieldEffects and FieldEffects.drawBehind then
-      FieldEffects.drawBehind(camX, camY)
+    -- Tall grass under body (pret lower OAM priority).
+    do
+      local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
+      if okFx and FieldEffects and FieldEffects.drawBehind then
+        FieldEffects.drawBehind(camX, camY)
+      end
     end
-  end
 
-  -- Door opening/closing animation overlays (under actors).
-  do
-    local okDoors, Doors = pcall(require, "src.core.game3.doors")
-    if okDoors and Doors and Doors.draw then
-      Doors.draw(camX, camY)
+    -- Door opening/closing animation overlays (under actors).
+    do
+      local okDoors, Doors = pcall(require, "src.core.game3.doors")
+      if okDoors and Doors and Doors.draw then
+        Doors.draw(camX, camY)
+      end
     end
   end
 
   -- Game3 EventObjects when spawned; else live World entities; else static defs.
-  if not drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, stepFlip, playerYOff, playerXOff)
+  if not opts.skipActors and not drawGame3Actors(game, camX, camY, px, py, facing, walkPhase, stepFlip, playerYOff, playerXOff)
       and not drawWorldEntities(world, camX, camY) then
     local daytime = daytimeFor(game, mapDef)
     local okOw, OwSprites = pcall(require, "src.core.game3.ow_sprites")
@@ -797,6 +909,7 @@ function FieldView.draw(game, canvasW, canvasH)
 
     love.graphics.setColor(1, 1, 1, 1)
     for _, a in ipairs(actors) do
+      local billboarded = pushBillboard(a.x, a.y, camX, camY)
       local drew = false
       if useOw and a.graphicsId ~= nil then
         drew = OwSprites.draw(
@@ -818,11 +931,12 @@ function FieldView.draw(game, canvasW, canvasH)
           love.graphics.setColor(1, 1, 1, 1)
         end
       end
+      if billboarded then love.graphics.pop() end
     end
   end
 
   -- Tall grass over feet (pret subpriority above avatar).
-  do
+  if not opts.actorsOnly then
     local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.drawFront then
       FieldEffects.drawFront(camX, camY, py)
@@ -830,12 +944,12 @@ function FieldView.draw(game, canvasW, canvasH)
   end
 
   -- pret BG2: metatile top layer covers OW sprites (roofs, desk counters).
-  if usedNative then
+  if usedNative and not opts.actorsOnly then
     drawNativeOverTiles()
   end
 
   -- When riding escalator or flagged above BG2, player sprite is in front of BG2 handrail
-  if isPlayerAboveBg2(playerXOff, playerYOff) then
+  if not opts.skipActors and isPlayerAboveBg2(playerXOff, playerYOff) then
     local PlayerMod = package.loaded["src.core.game3.player"]
     if not PlayerMod or (PlayerMod.isVisible and PlayerMod.isVisible()) then
       local daytime = daytimeFor(game, mapDef)
@@ -859,7 +973,7 @@ function FieldView.draw(game, canvasW, canvasH)
   end
 
   -- Pokemon Center heal machine (screen-space OAM, pret FLDEFF_POKECENTER_HEAL).
-  do
+  if not opts.actorsOnly then
     local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.drawOverlay then
       FieldEffects.drawOverlay(camX, camY)

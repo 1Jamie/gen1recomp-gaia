@@ -64,13 +64,7 @@ local function update_top_menu(input)
     return true
   end
   if OptionMenu.isOpen() then
-    if input:wasPressed("up") then OptionMenu.move(-1)
-    elseif input:wasPressed("down") then OptionMenu.move(1)
-    elseif input:wasPressed("left") then OptionMenu.adjust(-1)
-    elseif input:wasPressed("right") then OptionMenu.adjust(1)
-    elseif input:wasPressed("a") then OptionMenu.confirm()
-    elseif input:wasPressed("b") or input:wasPressed("start") then OptionMenu.close()
-    end
+    OptionMenu.handleInput(input)
     return true
   end
   if TrainerCard.isOpen() then

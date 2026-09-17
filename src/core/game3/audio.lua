@@ -117,6 +117,7 @@ local function ensure_bgm_source()
   if not (love and love.audio and love.audio.newQueueableSource) then return nil end
   Audio._bgmRate = Mix.SAMPLE_RATE
   Audio._bgmSource = love.audio.newQueueableSource(Audio._bgmRate, 16, 2, Player.BUFFER_COUNT)
+  if Audio.applyBgmFilter then Audio.applyBgmFilter() end
   return Audio._bgmSource
 end
 
@@ -182,8 +183,11 @@ end
 function Audio.applyOptions(session)
   local Options = require("src.core.game3.options")
   local o = Options.ensure(session)
-  Audio._mono = (tonumber(o.sound) or 0) == 0
-  -- volumes reserved for future option fields
+  local mono = (tonumber(o.sound) or 0) == 0
+  if mono ~= Audio._mono then
+    Audio._mono = mono
+    Audio.pushMixOptions()
+  end
 end
 
 local function bgm_gain(volume)
@@ -204,6 +208,65 @@ local function apply_bgm_gain()
     gain = gain * math.min(1, f.t / math.max(f.dur, 0.01))
   end
   Audio._bgmSource:setVolume(gain)
+end
+
+local function level_gain(level, default)
+  local n = tonumber(level)
+  if n == nil then n = default end
+  if n < 0 then n = 0 end
+  if n > 7 then n = 7 end
+  return n / 7
+end
+
+function Audio.pushMixOptions()
+  if Audio._mixMono ~= Audio._mono then
+    Audio._mixMono = Audio._mono
+    Audio._fanfareSd = {}
+    Audio._fanfareSrc = {}
+    if Audio._cmdCh then Audio._cmdCh:push({ cmd = "dropFanfares" }) end
+  end
+  if Audio._cmdCh then
+    Audio._cmdCh:push({ cmd = "mix", mono = Audio._mono and true or false })
+  end
+  Audio.applyBgmFilter()
+  Audio.applyGain()
+end
+
+local FILTER_HIGHGAIN = { 0.4, 0.16, 0.064 }
+
+local function set_filter(src, level)
+  if not (src and src.setFilter) then return end
+  local gain = FILTER_HIGHGAIN[level]
+  pcall(function()
+    if gain then
+      src:setFilter({ type = "lowpass", volume = 1, highgain = gain })
+    else
+      src:setFilter()
+    end
+  end)
+end
+
+function Audio.applyBgmFilter()
+  set_filter(Audio._bgmSource, Audio._filterLevel)
+  set_filter(Audio._fanfareSource, Audio._filterLevel)
+end
+
+function Audio.applyEngineOptions(opts)
+  if type(opts) ~= "table" then return end
+  Audio._bgmVolume = level_gain(opts.musicVol, 7)
+  Audio._sfxVolume = level_gain(opts.sfxVol, 7)
+  local filter = tonumber(opts.musicFilter) or 0
+  if filter < 0 then filter = 0 end
+  if filter > 3 then filter = 3 end
+  Audio._filterLevel = filter > 0 and filter or nil
+  Audio.pushMixOptions()
+end
+
+function Audio.applyGain()
+  if Audio._cmdCh then
+    Audio._cmdCh:push({ cmd = "volume", volume = bgm_gain() })
+  end
+  apply_bgm_gain()
 end
 
 -- Baked effects cannot steal a voice from already queued music. Until the
@@ -649,6 +712,7 @@ local function start_fanfare_source(id, mplay)
     if not ok or not made then return false end
     src = made
     Audio._fanfareSrc[id] = src
+    set_filter(src, Audio._filterLevel)
   end
   pcall(function()
     src:stop()
@@ -978,6 +1042,7 @@ function Audio.rebuildPlayback()
   local heard = Audio.bgmHeardPosition()
   local old = Audio._bgmSource
   Audio._bgmSource = src
+  Audio.applyBgmFilter()
   Audio._pendingBgm = nil
   Audio._bgmQueuedAt = {}
   Audio._bgmBaseAt = heard or Audio._bgmBaseAt or 0
@@ -991,5 +1056,69 @@ function Audio.rebuildPlayback()
   end)
   return true
 end
+
+function Audio.endSession()
+  Audio.stopAll()
+  if Audio._fanfareSource then
+    pcall(function() Audio._fanfareSource:stop() end)
+    Audio._fanfareSource = nil
+  end
+  for _, src in pairs(Audio._fanfareSrc or {}) do
+    pcall(function() src:stop() end)
+  end
+  Audio._fanfareSrc = {}
+  Audio._fanfareSd = {}
+  Audio._fanfareRoot = nil
+  Audio._fanfareRestore = nil
+  Audio._fanfareDeferred = nil
+  Audio._fanfarePending = nil
+  Audio._fanfareFrames = 0
+  Audio._fanfareActive = false
+  if Audio._bgmSource then
+    pcall(function() Audio._bgmSource:stop() end)
+    pcall(function() Audio._bgmSource:release() end)
+    Audio._bgmSource = nil
+  end
+  if Audio._cmdCh then
+    Audio._cmdCh:push({ cmd = "stop" })
+    Audio._cmdCh:push({ cmd = "dropFanfares" })
+  end
+  if Audio._outCh then Audio._outCh:clear() end
+  if Audio._fanfareCh then Audio._fanfareCh:clear() end
+  Audio._pack = nil
+  Audio._meta = nil
+  Audio._cache = nil
+  Audio._ready = false
+  Audio._currentSong = nil
+  Audio._mapSong = nil
+  Audio._savedSong = nil
+  Audio._bgmPaused = false
+  Audio._suspended = false
+  Audio._pendingBgm = nil
+  Audio._bgmQueuedAt = {}
+  Audio._bgmBaseAt = 0
+  Audio._bgmGen = nil
+  Audio._bgmLocal = nil
+  Audio._duck = 1
+  Audio._duckHold = 0
+  Audio._seDuck = 1
+end
+
+function Audio.shutdown()
+  pcall(Audio.endSession)
+  if Audio._cmdCh then Audio._cmdCh:push({ cmd = "quit" }) end
+  if Audio._worker then pcall(function() Audio._worker:wait() end) end
+  if Audio._cmdCh then Audio._cmdCh:clear() end
+  if Audio._outCh then Audio._outCh:clear() end
+  if Audio._fanfareCh then Audio._fanfareCh:clear() end
+  Audio._worker = nil
+  Audio._cmdCh = nil
+  Audio._outCh = nil
+  Audio._fanfareCh = nil
+end
+
+pcall(function()
+  require("src.core.SessionLifecycle").registerProcessShutdown(Audio.shutdown)
+end)
 
 return Audio

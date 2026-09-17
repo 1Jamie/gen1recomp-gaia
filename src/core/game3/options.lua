@@ -2,6 +2,8 @@
 
 local Options = {}
 
+Options.BLOCK = "firered"
+
 -- pret: textSpeed 0=SLOW 1=MID 2=FAST
 Options.DEFAULTS = {
   textSpeed = 1,
@@ -10,7 +12,59 @@ Options.DEFAULTS = {
   sound = 0,         -- 0=MONO 1=STEREO
   buttonMode = 0,    -- 0=HELP 1=LR 2=L=A
   frameType = 0,
+  voidFill = "map",
 }
+
+local function fill_defaults(o)
+  for k, v in pairs(Options.DEFAULTS) do
+    if o[k] == nil then o[k] = v end
+  end
+  return o
+end
+
+local CART_KEYS = {
+  "textSpeed", "battleScene", "battleStyle", "sound", "buttonMode", "frameType",
+}
+
+local function migrate_root(engine, o)
+  if type(engine.battleStyle) ~= "number" then return end
+  for _, k in ipairs(CART_KEYS) do
+    if type(engine[k]) == type(Options.DEFAULTS[k]) and o[k] == nil then
+      o[k] = engine[k]
+    end
+    engine[k] = nil
+  end
+  engine.text_speed = nil
+  engine.l_equals_a = nil
+end
+
+function Options.block(engine)
+  if type(engine) ~= "table" then return fill_defaults({}) end
+  local o = engine[Options.BLOCK]
+  if type(o) ~= "table" then
+    o = {}
+    engine[Options.BLOCK] = o
+    migrate_root(engine, o)
+  end
+  return fill_defaults(o)
+end
+
+function Options.bind(session, engine)
+  if type(session) ~= "table" then return nil end
+  if type(engine) ~= "table" then return Options.ensure(session) end
+  local o = Options.block(engine)
+  session.options = o
+  session.engineOptions = engine
+  o.text_speed = o.textSpeed
+  o.l_equals_a = (tonumber(o.buttonMode) == 2)
+  return o
+end
+
+function Options.engine(session)
+  local e = type(session) == "table" and session.engineOptions
+  if type(e) == "table" then return e end
+  return nil
+end
 
 function Options.ensure(session)
   session = session or {}
@@ -19,10 +73,12 @@ function Options.ensure(session)
     o = {}
     session.options = o
   end
-  for k, v in pairs(Options.DEFAULTS) do
-    if o[k] == nil then o[k] = v end
+  if type(o[Options.BLOCK]) == "table" then
+    session.engineOptions = o
+    o = Options.block(o)
+    session.options = o
   end
-  return o
+  return fill_defaults(o)
 end
 
 function Options.textSpeed(session)
@@ -40,6 +96,35 @@ function Options.lEqualsA(session)
   local o = Options.ensure(session)
   if o.l_equals_a ~= nil then return o.l_equals_a and true or false end
   return tonumber(o.buttonMode) == 2
+end
+
+-- pokefirered/src/battle_main.c
+function Options.battleStyle(session)
+  local o = Options.ensure(session)
+  return tonumber(o.battleStyle) == 1 and "set" or "shift"
+end
+
+-- pokefirered/src/option_menu.c
+function Options.battleScene(session)
+  local o = Options.ensure(session)
+  return tonumber(o.battleScene) ~= 1
+end
+
+function Options.frameType(session)
+  local o = Options.ensure(session)
+  return tonumber(o.frameType) or 0
+end
+
+function Options.mono(session)
+  local o = Options.ensure(session)
+  return tonumber(o.sound) == 0
+end
+
+function Options.voidFill(session)
+  local o = Options.ensure(session)
+  local v = o.voidFill
+  if v == "trees" or v == "water" or v == "black" then return v end
+  return "map"
 end
 
 function Options.set(session, key, value)

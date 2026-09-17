@@ -71,6 +71,9 @@ function Schema.newGame(opts)
   -- Plan naming: text_speed / l_equals_a aliases mirror Options fields.
   session.options.text_speed = session.options.textSpeed
   session.options.l_equals_a = (session.options.buttonMode == 2)
+  if type(opts.engineOptions) == "table" then
+    Options.bind(session, opts.engineOptions)
+  end
   return session
 end
 
@@ -104,7 +107,7 @@ function Schema.toSaveTable(session)
     flags = session.flags or {},
     vars = session.vars or {},
     playTime = session.playtime or session.playTime or { hours = 0, minutes = 0, seconds = 0 },
-    options = session.options,
+    options = Options.engine(session) or session.options,
     storage = session.storage and require("src.core.game3.storage").serialize(session.storage) or nil,
     registeredItem = session.registeredItem,
     move_overlay = session.move_overlay or {},
@@ -145,7 +148,7 @@ function Schema.fromSaveTable(save)
     flags = save.flags or {},
     vars = save.vars or {},
     playtime = save.playTime or save.playtime or { hours = 0, minutes = 0, seconds = 0 },
-    options = save.options,
+    options = nil,
     storage = require("src.core.game3.storage").restore(save.storage, save.pc, save.pcItems or save.pc_items),
     registeredItem = save.registeredItem,
     move_overlay = save.move_overlay or {},
@@ -154,7 +157,11 @@ function Schema.fromSaveTable(save)
     questLog = require("src.core.game3.quest_log").restore(save.questLog),
   }
   Schema.ensureMonBalls(session)
-  Options.ensure(session)
+  if type(save.options) == "table" then
+    Options.bind(session, save.options)
+  else
+    Options.ensure(session)
+  end
   return session
 end
 

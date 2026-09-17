@@ -19,6 +19,8 @@ local QuestRecorder = require("src.core.game3.quest_log_recorder")
 local Game3 = {}
 Game3.__index = Game3
 
+Game3.SKIN_FAST_FORWARD = 4
+
 function Game3.new()
   return setmetatable({
     input = Input,
@@ -40,6 +42,7 @@ end
 
 function Game3:_enterField(session, reason)
   self.session = session
+  Options.bind(session, self.options)
   -- Continue restores stream; new_game already seeded inside Schema.newGame.
   local Rng = require("src.core.game3.rng")
   if reason == "continue" then
@@ -97,12 +100,38 @@ function Game3:load(opts)
   TouchControls:init()
   self.touchControls = TouchControls
   TouchControls:setHotkeyHandler(function(action, pressed)
-    if action and action:sub(1, 4) == "key:" then
+    if not action then return end
+    if action:sub(1, 4) == "key:" then
       local key = action:sub(5)
       if pressed then
         if self.keypressed then self:keypressed(key) end
       else
         if self.keyreleased then self:keyreleased(key) end
+      end
+      return
+    end
+    if action == "fast_forward_hold" then
+      if pressed then
+        if self._skinSpeedPrev == nil then
+          self._skinSpeedPrev = self.speedOverride or false
+        end
+        self.speedOverride = Game3.SKIN_FAST_FORWARD
+      else
+        local prev = self._skinSpeedPrev
+        self._skinSpeedPrev = nil
+        self.speedOverride = (prev ~= false) and prev or nil
+      end
+    elseif action == "fast_forward_toggle" then
+      if pressed then self:_cycleSpeed(1) end
+    elseif action == "soft_reset" then
+      if pressed then
+        if self.input then self.input:reset() end
+        TouchControls:reset()
+        self:returnToTitle()
+      end
+    elseif action == "menu" then
+      if pressed and self.phase == "field" and self.session then
+        require("src.ui.game3.option_menu").show({ session = self.session, game = self })
       end
     end
   end)
@@ -120,7 +149,9 @@ function Game3:load(opts)
     end)
     if okFs and exists then saveStatus = "invalid" end -- pokefirered/src/main_menu.c:246
   end
-  local options = rawSave and rawSave.options or (SaveData.defaultOptions and SaveData.defaultOptions())
+  local options = (SaveData.loadOptions and SaveData.loadOptions())
+    or (rawSave and rawSave.options)
+    or (SaveData.defaultOptions and SaveData.defaultOptions())
   self.options = options
   self:applyOptions(options)
 
@@ -144,9 +175,57 @@ function Game3:load(opts)
   end)
 end
 
+function Game3:writeOptions()
+  if type(self.options) ~= "table" then return end
+  if SaveData.saveOptions then pcall(SaveData.saveOptions, self.options) end
+end
+Game3.persistOptions = Game3.writeOptions
+
 function Game3:applyOptions(opts)
-  opts = opts or {}
+  opts = opts or self.options or {}
   self.options = opts
+  local function try(mod, fn, ...)
+    local ok, m = pcall(require, mod)
+    if not ok or type(m) ~= "table" then return nil end
+    local f = m[fn]
+    if type(f) ~= "function" then return nil end
+    local okCall, res = pcall(f, ...)
+    if not okCall then return nil end
+    return res
+  end
+  Audio.applyEngineOptions(opts)
+  local cartOpts = Options.block(opts)
+  require("src.core.game3.void_fill").setMode(cartOpts.voidFill)
+  pcall(function()
+    require("src.ui.game3.chrome").setFrameType(cartOpts.frameType)
+  end)
+  try("src.render.Tilt", "applyOptions", opts)
+  try("src.render.Letterbox", "applyOptions", opts)
+  try("src.render.Zoom", "applyOptions", opts)
+  try("src.core.VideoMode", "applyOptions", opts)
+  try("src.core.Orientation", "applyOptions", opts)
+  local FaithfulRes = require("src.core.FaithfulRes")
+  if FaithfulRes.setNativeSize then
+    FaithfulRes.setNativeSize(Display.W, Display.H)
+  end
+  try("src.core.FaithfulRes", "applyOptions", opts)
+  try("src.core.ScreenPosition", "applyOptions", opts)
+  try("src.core.VSync", "applyOptions", opts)
+  try("src.core.FrameCap", "applyOptions", opts)
+  try("src.core.LogicClock", "applyOptions", opts)
+  try("src.core.PresentSync", "applyFixedStepPeriod")
+  local caps = try("src.core.Performance", "applyOptions", opts)
+  if type(caps) == "table" then
+    if not caps.tilt then try("src.render.Tilt", "setLevel", 0) end
+    local okZ, Zoom = pcall(require, "src.render.Zoom")
+    if okZ and Zoom then
+      Zoom.allowSurvey = caps.survey
+      if not caps.survey and (Zoom.offset or 0) < 0 then Zoom.offset = 0 end
+    end
+    if caps.fpsMax then
+      try("src.core.FrameCap", "clampToPerformance", caps.fpsMax)
+    end
+  end
   if self.touchControls then
     self.touchControls:applyOptions({
       touchControls = opts.touchControls,
@@ -154,8 +233,6 @@ function Game3:applyOptions(opts)
       hotbar = opts.hotbar,
     })
   end
-  local ScreenPosition = require("src.core.ScreenPosition")
-  ScreenPosition.applyOptions(opts)
   if self.input and opts.bindings then
     self.input:applyBindings(opts.bindings)
   end
@@ -200,6 +277,7 @@ function Game3:_handleBootAction(action)
     local ok, save = pcall(SaveData.load)
     if ok and save and save.engine == "game3" then
       local session = Schema.fromSaveTable(save)
+      Options.bind(session, self.options)
       -- Refuse Sevii leftovers.
       if type(session.map) == "string" and session.map:sub(1, 6) == "SEVII_" then
         print("[game3] ignoring legacy Sevii save map " .. session.map)
@@ -241,6 +319,12 @@ end
 
 function Game3:fixedUpdate(dt)
   if self.input and self.input.step then self.input:step() end
+  if self.input and self.input.softResetStep and self.input:softResetStep() then
+    self.input:reset()
+    if self.touchControls then self.touchControls:reset() end
+    self:returnToTitle()
+    return
+  end
   if self.phase == "quest_log" then
     local p=self.questPlayback
     local scene=p:current()
@@ -260,7 +344,6 @@ function Game3:fixedUpdate(dt)
     Audio.pumpBgm()
     return
   end
-  Audio.update(dt)
   if self.session then Audio.applyOptions(self.session) end
 
   local Rng = require("src.core.game3.rng")
@@ -282,16 +365,72 @@ function Game3:fixedUpdate(dt)
   end
 end
 
+function Game3:speedCategory()
+  local okB, Battle = pcall(require, "src.core.game3.battle")
+  if okB and Battle and Battle.isActive and Battle.isActive() then
+    return "battle"
+  end
+  local okS, Stack = pcall(require, "src.ui.game3.stack")
+  if okS and Stack and Stack.busy and Stack.busy() then return "menu" end
+  if Help.isOpen and Help.isOpen() then return "menu" end
+  if self.phase ~= "field" then return "menu" end
+  return "overworld"
+end
+
 function Game3:logicSpeed()
-  return math.max(1,
-    tonumber(self.speedOverride) or tonumber(self.options and self.options.speed)
-    or 1)
+  local override = tonumber(self.speedOverride)
+  if override then return math.max(1, override) end
+  local GameSpeed = require("src.core.GameSpeed")
+  local opts = self.options
+  if type(opts) ~= "table" then return 1 end
+  local key = GameSpeed.optionKey(self:speedCategory())
+  return math.max(1, GameSpeed.clamp(opts[key]))
+end
+
+function Game3:_cycleSpeed(dir)
+  if type(self.options) ~= "table" then return end
+  local GameSpeed = require("src.core.GameSpeed")
+  local key = GameSpeed.optionKey(self:speedCategory())
+  self.options[key] = GameSpeed.cycle(self.options[key], dir)
+  self:writeOptions()
+end
+
+function Game3:zoomGateOK()
+  if self.phase ~= "field" then return false end
+  local okB, Battle = pcall(require, "src.core.game3.battle")
+  if okB and Battle and Battle.isActive and Battle.isActive() then return false end
+  local Field = package.loaded["src.core.game3.field"]
+  if Field and Field.locked then return false end
+  local Shop = package.loaded["src.ui.game3.shop_menu"]
+  if Shop and Shop.isShopCamera and Shop.isShopCamera() then return false end
+  return true
+end
+
+function Game3:zoomStep(delta)
+  if not self:zoomGateOK() then return end
+  local Zoom = require("src.render.Zoom")
+  local Renderer = require("src.render.Renderer")
+  local offset = Zoom.step(delta, Renderer:fitScale())
+  if type(self.options) == "table" then
+    self.options.zoom = offset
+    self:writeOptions()
+  end
 end
 
 function Game3:update(dt)
   local speed = self:logicSpeed()
   FixedStep.maxAccum = FixedStep.catchupLimit(speed)
   FixedStep:update(dt, speed)
+  self._audioAccum = (self._audioAccum or 0) + dt
+  local STEP = 1 / 60
+  local guard = 0
+  while self._audioAccum >= STEP and guard < 8 do
+    self._audioAccum = self._audioAccum - STEP
+    guard = guard + 1
+    pcall(Audio.update, STEP)
+  end
+  if self._audioAccum > 0.25 then self._audioAccum = 0 end
+  pcall(function() require("src.render.Tilt").update(dt) end)
 end
 
 function Game3:draw()
@@ -299,23 +438,28 @@ function Game3:draw()
   local h = love.graphics.getHeight()
 
   if self.phase == "quest_log" or (self.phase == "boot" and self.boot) then
-    local canvas = Display.ensureCanvas("main")
-    if canvas then
-      love.graphics.push("all")
-      love.graphics.setCanvas(canvas)
-      love.graphics.origin()
+    local kind = (self.phase == "quest_log") and "quest" or "boot"
+    local function drawBootFrame()
       if self.phase == "quest_log" then QuestLog.draw(self.questPlayback,self.session)
       elseif Help.isOpen() then Help.draw() else Boot.draw(self.boot) end
-      love.graphics.setCanvas()
-      love.graphics.pop()
-      local scale, ox, oy, _, _, scaleY = Display.fit(w, h)
-      love.graphics.setColor(0.02, 0.04, 0.08, 1)
-      love.graphics.rectangle("fill", 0, 0, w, h)
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
-    else
-      if self.phase == "quest_log" then QuestLog.draw(self.questPlayback,self.session)
-      elseif Help.isOpen() then Help.draw() else Boot.draw(self.boot) end
+    end
+    if not Display.presentUi(self, w, h, kind, drawBootFrame) then
+      local canvas = Display.ensureCanvas("main")
+      if canvas then
+        love.graphics.push("all")
+        love.graphics.setCanvas(canvas)
+        love.graphics.origin()
+        drawBootFrame()
+        love.graphics.setCanvas()
+        love.graphics.pop()
+        local scale, ox, oy, _, _, scaleY = Display.fit(w, h)
+        love.graphics.setColor(0.02, 0.04, 0.08, 1)
+        love.graphics.rectangle("fill", 0, 0, w, h)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
+      else
+        drawBootFrame()
+      end
     end
     if self.touchControls then
       self.touchControls:draw()
@@ -341,18 +485,102 @@ function Game3:draw()
   end
 end
 
+function Game3:_hotkey(key)
+  if key == "f1" then
+    if self.phase == "field" then self:saveGame() end
+    return true
+  elseif key == "f2" then
+    if self.phase == "field" then
+      pcall(function() require("src.ui.game3.stack").clear() end)
+      pcall(function()
+        local R = require("src.core.game3.runtime")
+        if R.stop then R.stop(nil, self) end
+      end)
+      pcall(function() require("src.core.game3.ghosts").clear() end)
+      self:_handleBootAction({ action = "continue" })
+    end
+    return true
+  elseif key == "1" then
+    self:_cycleSpeed(1)
+    return true
+  elseif key == "3" then
+    if self:zoomGateOK() then
+      local Tilt = require("src.render.Tilt")
+      Tilt.cycle()
+      if type(self.options) == "table" then
+        self.options.tilt = Tilt.level
+        self:writeOptions()
+      end
+    end
+    return true
+  elseif key == "4" then
+    if self:zoomGateOK() then
+      local Zoom = require("src.render.Zoom")
+      local Renderer = require("src.render.Renderer")
+      local offset = Zoom.cycle(Renderer:fitScale())
+      if type(self.options) == "table" then
+        self.options.zoom = offset
+        self:writeOptions()
+      end
+    end
+    return true
+  elseif key == "-" or key == "kp-" then
+    self:zoomStep(-1)
+    return true
+  elseif key == "=" or key == "kp+" then
+    self:zoomStep(1)
+    return true
+  end
+  return false
+end
+
 function Game3:keypressed(key)
+  if self:_hotkey(key) then return end
   if self.input and self.input.keypressed then self.input:keypressed(key) end
 end
 function Game3:keyreleased(key)
   if self.input and self.input.keyreleased then self.input:keyreleased(key) end
 end
-function Game3:gamepadpressed(joystick, button)
+
+function Game3:_padPressedBody(joystick, button)
   if self.touchControls then self.touchControls:noteGamepad() end
-  if self.input and self.input.gamepadpressed then self.input:gamepadpressed(joystick, button) end
+  local Input2 = self.input
+  if not Input2 then return end
+  local selectHeld = Input2.isDown and Input2:isDown("select")
+  if not selectHeld and joystick and joystick.isGamepadDown then
+    local ok, down = pcall(function() return joystick:isGamepadDown("back") end)
+    selectHeld = ok and down == true
+  end
+  local isTrigger = button == "lefttrigger" or button == "righttrigger"
+  if not selectHeld and isTrigger and Input2.padAction then
+    local action = Input2:padAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
+  end
+  if selectHeld then
+    local GamepadMap = require("src.core.GamepadMap")
+    local digit = GamepadMap.displayChordDigit(button)
+    if digit and self:_hotkey(digit) then return end
+  end
+  if Input2.gamepadpressed then Input2:gamepadpressed(joystick, button) end
+end
+
+function Game3:_padReleasedBody(joystick, button)
+  if self.input and self.input.gamepadreleased then
+    self.input:gamepadreleased(joystick, button)
+  end
+end
+
+function Game3:gamepadpressed(joystick, button)
+  self:_padPressedBody(joystick, button)
 end
 function Game3:gamepadreleased(joystick, button)
-  if self.input and self.input.gamepadreleased then self.input:gamepadreleased(joystick, button) end
+  self:_padReleasedBody(joystick, button)
 end
 
 function Game3:saveGame()
@@ -389,7 +617,14 @@ function Game3:mousereleased(x, y, button, istouch)
   end
 end
 
-function Game3:wheelmoved() end
+function Game3:wheelmoved(_, dy)
+  if type(dy) ~= "number" then return end
+  if dy > 0 then
+    self:zoomStep(1)
+  elseif dy < 0 then
+    self:zoomStep(-1)
+  end
+end
 function Game3:textinput() end
 function Game3:filedropped() end
 
@@ -409,12 +644,35 @@ function Game3:gamepadaxis(joystick, axis, value)
   if math.abs(value) > 0.5 and self.touchControls then
     self.touchControls:noteGamepad()
   end
+  if self.input and self.input.triggerAxis then
+    local trigger, phase = self.input:triggerAxis(axis, value)
+    if trigger then
+      if phase == "pressed" then
+        self:_padPressedBody(joystick, trigger)
+      elseif phase == "released" then
+        self:_padReleasedBody(joystick, trigger)
+      end
+      return
+    end
+  end
   if self.input and self.input.gamepadaxis then self.input:gamepadaxis(joystick, axis, value) end
 end
 
 function Game3:joystickpressed(joystick, button)
   if self.touchControls then self.touchControls:noteGamepad() end
-  if self.input and self.input.joystickpressed then self.input:joystickpressed(joystick, button) end
+  local Input2 = self.input
+  if Input2 and Input2.joyAction
+      and not (Input2.isDown and Input2:isDown("select")) then
+    local action = Input2:joyAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
+  end
+  if Input2 and Input2.joystickpressed then Input2:joystickpressed(joystick, button) end
 end
 
 function Game3:joystickreleased(joystick, button)
@@ -506,6 +764,33 @@ function Game3:returnToTitle()
   local TitleScreen = require("src.ui.game3.title_screen")
   TitleScreen.enter(self.boot)
   Audio.playSong(278)
+end
+
+function Game3:reset()
+  self.questPlayback = nil
+  Help.reset()
+  Audio.endSession()
+  require("src.ui.game3.stack").clear()
+  if Runtime.isActive() then
+    pcall(function() Runtime.stop(nil, self) end)
+  end
+  local Ghosts = package.loaded["src.core.game3.ghosts"]
+  if Ghosts and Ghosts.clear then pcall(Ghosts.clear) end
+  for _, name in ipairs({ "src.core.game3.oam", "src.core.game3.bg" }) do
+    local mod = package.loaded[name]
+    if mod and mod.reset then pcall(mod.reset) end
+  end
+  Display.release()
+  if self.touchControls then
+    pcall(function() self.touchControls:setHotkeyHandler(nil) end)
+    self.touchControls = nil
+  end
+  self.boot = nil
+  self.session = nil
+  self.data = nil
+  self.phase = "boot"
+  self.returnToLauncher = nil
+  self.onExit = nil
 end
 
 function Game3:quit()

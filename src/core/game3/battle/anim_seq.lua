@@ -174,6 +174,19 @@ local function run_step(step)
   end
 
   if kind == "anim" then
+    -- pokefirered/src/option_menu.c
+    local okO, Options = pcall(require, "src.core.game3.options")
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local session = Runtime and Runtime.getSession and Runtime.getSession()
+    if okO and session and Options.battleScene and not Options.battleScene(session) then
+      if d.effectiveness ~= nil then
+        local pan = 63
+        if d.target and d.target.side == "player" then pan = -64 end
+        play_effectiveness_se(d.effectiveness, pan)
+      end
+      advance()
+      return
+    end
     AnimSeq._waiting = true
     local user = d.user
     local isReversed = user and user.side == "enemy"

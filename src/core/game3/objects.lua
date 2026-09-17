@@ -24,6 +24,7 @@ Objects._order = {} -- stable draw/list order
 Objects._tracks = {} -- [localId] = movement track
 Objects._mapId = nil
 Objects._defs = nil -- original mapDef.objects (for addobject)
+Objects._bounds = nil
 -- Permanent template overrides from setobjectxyperm / setobjectmovementtype.
 -- Survives loadMap within a session (pret objectEventTemplates).
 Objects._perm = {} -- [mapId] = { [localId] = { x=, y=, movementType= } }
@@ -32,6 +33,26 @@ Objects._logged = false
 local function log(msg)
   print("[game3/objects] " .. tostring(msg))
 end
+
+-- pokefirered/src/overworld.c
+local function layoutBounds(mapDef)
+  local L = mapDef and mapDef.midLayout
+  local w = L and L.width or 0
+  local h = L and L.height or 0
+  if w < 1 or h < 1 then return nil end
+  return { w = w, h = h }
+end
+
+Objects.layoutBounds = layoutBounds
+
+local function offMap(bounds, eo)
+  if not bounds then return false end
+  local x = eo.cellX or 0
+  local y = eo.cellY or 0
+  return x < 0 or y < 0 or x >= bounds.w or y >= bounds.h
+end
+
+Objects.offMap = offMap
 
 local function Collision()
   return package.loaded["src.core.game3.collision"]
@@ -161,6 +182,7 @@ function Objects.clear()
   Objects._tracks = {}
   Objects._mapId = nil
   Objects._defs = nil
+  Objects._bounds = nil
   -- Keep _perm across maps (templates are per-mapId keyed).
 end
 
@@ -269,6 +291,7 @@ function Objects.loadMap(game, mapId, mapDef)
     defs = mapDef and mapDef.objects
   end
   Objects._defs = defs or {}
+  Objects._bounds = layoutBounds(mapDef)
   -- House 1F never uses setobjectxyperm; clear stale perm + repair Mom template
   -- left by the old Map.load bug (Pallet ON_TRANSITION hit Mom as localId 1).
   if mapId == "FR_PLAYERS_HOUSE_1F" then
@@ -320,7 +343,8 @@ function Objects.forDraw()
   local list = {}
   for _, lid in ipairs(Objects._order) do
     local eo = Objects._byId[lid]
-    if eo and eo.visible and not eo.hidden then
+    if eo and eo.visible and not eo.hidden
+        and not offMap(Objects._bounds, eo) then
       list[#list + 1] = eo
     end
   end
@@ -580,7 +604,7 @@ function Objects.clearMovements()
   Objects._tracks = {}
 end
 
-local function idleTick(eo, game)
+local function idleTick(eo, game, ctx)
   if eo.frozen or eo.scriptBusy or eo.moving or eo.hidden or not eo.visible then
     return
   end
@@ -598,7 +622,7 @@ local function idleTick(eo, game)
     local oldFacing = eo.facing
     eo.facing = dirs[math.random(#dirs)]
     eo.idleTimer = 48 + math.random(48)
-    if eo.facing ~= oldFacing and eo.sight and eo.sight > 0 then
+    if not ctx and eo.facing ~= oldFacing and eo.sight and eo.sight > 0 then
       local okTs, TrainerSight = pcall(require, "src.core.game3.trainer_sight")
       if okTs and TrainerSight and TrainerSight.check then
         TrainerSight.check(game, eo)
@@ -617,12 +641,17 @@ local function idleTick(eo, game)
       eo.idleTimer = 30 + math.random(30)
       return
     end
-    local Coll = Collision()
-    local ok = Coll.canEnter(game, tx, ty, {})
-    -- Don't collide with player.
-    local P = Player()
-    if P.cellX == tx and P.cellY == ty then ok = false end
-    if Objects.blocks(tx, ty, eo.localId) then ok = false end
+    local ok
+    if ctx then
+      ok = ctx.canEnter(tx, ty) and not ctx.blocks(tx, ty, eo.localId)
+    else
+      local Coll = Collision()
+      ok = Coll.canEnter(game, tx, ty, {})
+      -- Don't collide with player.
+      local P = Player()
+      if P.cellX == tx and P.cellY == ty then ok = false end
+      if Objects.blocks(tx, ty, eo.localId) then ok = false end
+    end
     if ok then
       eo.facing = dir
       beginStep(eo, tx, ty)
@@ -649,6 +678,70 @@ function Objects.update(game)
       idleTick(eo, game)
     end
   end
+end
+
+function Objects.spawnFromDefs(defs, mapDef)
+  local pool = { byId = {}, order = {}, bounds = layoutBounds(mapDef) }
+  for _, def in ipairs(defs or {}) do
+    local eo = newEventObject(def)
+    if eo.localId > 0 then
+      pool.byId[eo.localId] = eo
+      pool.order[#pool.order + 1] = eo.localId
+    end
+  end
+  return pool
+end
+
+function Objects.tickPool(pool, game, ctx)
+  if type(pool) ~= "table" then return end
+  for _, lid in ipairs(pool.order or {}) do
+    local eo = pool.byId[lid]
+    if eo then
+      if eo.bowFrames and eo.bowFrames > 0 then
+        eo.bowFrames = eo.bowFrames - 1
+        if eo.bowFrames <= 0 then eo.bowFrames = nil end
+      end
+      tickMotion(eo)
+      idleTick(eo, game, ctx)
+    end
+  end
+end
+
+function Objects.poolForDraw(pool)
+  local list = {}
+  if type(pool) ~= "table" then return list end
+  for _, lid in ipairs(pool.order or {}) do
+    local eo = pool.byId[lid]
+    if eo and eo.visible and not eo.hidden and not offMap(pool.bounds, eo) then
+      list[#list + 1] = eo
+    end
+  end
+  return list
+end
+
+function Objects.snapshotPool()
+  return {
+    byId = Objects._byId, order = Objects._order,
+    mapId = Objects._mapId, bounds = Objects._bounds,
+  }
+end
+
+function Objects.adoptPool(pool)
+  if type(pool) ~= "table" then return false end
+  for _, lid in ipairs(pool.order or {}) do
+    local live = Objects._byId[lid]
+    local ghost = pool.byId[lid]
+    local wanders = live and tostring(live.movement or "STAY"):upper() == "WALK"
+    if live and ghost and wanders and not ghost.moving then
+      live.cellX, live.cellY = ghost.cellX, ghost.cellY
+      live.px, live.py = ghost.px, ghost.py
+      live.facing = ghost.facing
+      live.stepFlip = ghost.stepFlip
+      live.idleTimer = ghost.idleTimer
+      if live.def then live.def.x, live.def.y = live.cellX, live.cellY end
+    end
+  end
+  return true
 end
 
 function Objects.addObject(localId)

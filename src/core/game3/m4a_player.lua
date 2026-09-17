@@ -398,23 +398,23 @@ function Player.renderBuffered(slot, n, opts)
   if not (love and love.sound and love.sound.newSoundData) then
     return L, R
   end
-  local ch = opts.mono and 1 or 2
-  local sd = love.sound.newSoundData(#L, rate, 16, ch)
+  local sd = love.sound.newSoundData(#L, rate, 16, 2)
   local function clip(x)
     if x > 1 then return 1 end
     if x < -1 then return -1 end
     return x
   end
+  local mono = opts.mono and true or false
   -- master already applied in Mix.render; clip only here.
   for i = 1, #L do
     local l = clip(L[i] or 0)
     local r = clip(R[i] or 0)
-    if ch == 1 then
-      sd:setSample(i - 1, (l + r) * 0.5)
-    else
-      sd:setSample(i - 1, 1, l)
-      sd:setSample(i - 1, 2, r)
+    if mono then
+      local m = (l + r) * 0.5
+      l, r = m, m
     end
+    sd:setSample(i - 1, 1, l)
+    sd:setSample(i - 1, 2, r)
   end
   return sd
 end
@@ -505,10 +505,15 @@ function Player.bakeSong(pack, cache, songId, opts)
     return L, R
   end
   local sd = love.sound.newSoundData(#L, rate, 16, 2)
+  local mono = opts.mono and true or false
   for i = 1, #L do
     local l, r = L[i], R[i]
     if l > 1 then l = 1 elseif l < -1 then l = -1 end
     if r > 1 then r = 1 elseif r < -1 then r = -1 end
+    if mono then
+      local m = (l + r) * 0.5
+      l, r = m, m
+    end
     sd:setSample(i - 1, 1, l)
     sd:setSample(i - 1, 2, r)
   end

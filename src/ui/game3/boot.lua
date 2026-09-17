@@ -175,7 +175,8 @@ function Boot.continueInfoFromSave(save)
     hasDex = Flags.getFlag(store, nil, Flags.IDS.SYS_POKEDEX_GET) == true,
     dexCount = n,
     badges = Flags.countBadges(store),
-    frameType = tonumber(type(save.options) == "table" and save.options.frameType or nil) or 0,
+    frameType = tonumber(type(save.options) == "table"
+      and require("src.core.game3.options").block(save.options).frameType or nil) or 0,
   }
 end
 

@@ -164,8 +164,183 @@ function Display.composeHardware(opts)
   end
 end
 
---- Full present: build 240×160 frame (field + UI), letterbox to window.
-function Display.present(game, winW, winH)
+function Display.surround(game, kind)
+  local paper = nil
+  if kind == "boot" or kind == "quest" then
+    paper = { 0, 0, 0 }
+  elseif kind == "battle" then
+    paper = { 0.92, 0.94, 0.96 }
+  end
+  if not paper then return false, nil end
+  return { letterboxWhite = true }, function()
+    return paper[1], paper[2], paper[3]
+  end
+end
+
+Display.planesBroken = false
+
+local function prepareRenderer(game, kind)
+  local Renderer = require("src.render.Renderer")
+  if not Renderer.canvas then Renderer:init() end
+  local okP, PaletteFX = pcall(require, "src.render.PaletteFX")
+  if okP and PaletteFX then
+    if PaletteFX.mode ~= "gbc" and PaletteFX.setMode then
+      PaletteFX.setMode("gbc")
+    end
+    if PaletteFX.setCustomRamp then pcall(PaletteFX.setCustomRamp, nil) end
+  end
+  Renderer:setUISize(Display.W, Display.H)
+  local opts = (game and game.options) or {}
+  Renderer.uiCentered = (opts.uiLayout ~= "dynamic")
+  Renderer.uiFill = false
+  Renderer.uiWorldHold = false
+  Renderer.battleDim = nil
+  Renderer.extendedWorldBand = false
+  local state, paper = Display.surround(game, kind)
+  Renderer.surroundState = state
+  Renderer.paperShade = paper
+  return Renderer
+end
+
+function Display.presentUi(game, winW, winH, kind, drawFn)
+  if Display.planesBroken then return false end
+  local Renderer = require("src.render.Renderer")
+  local ok, err = pcall(function()
+    prepareRenderer(game, kind)
+    Renderer:beginFrame(false)
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setColor(1, 1, 1, 1)
+    drawFn()
+    love.graphics.pop()
+    Renderer:endFrame(nil, nil)
+  end)
+  if ok then return true end
+  love.graphics.setCanvas()
+  Display.planesBroken = true
+  log("plane present failed, falling back: " .. tostring(err))
+  return false
+end
+
+local function drawFieldPlane(game, vw, vh, Renderer)
+  local Bg = require("src.core.game3.bg")
+  local Oam = require("src.core.game3.oam")
+  local FieldView = require("src.core.game3.field_view")
+  local Tilt = require("src.render.Tilt")
+  Oam.resetFrame()
+  local prev = Oam.setLayer("world")
+  if Tilt.active() and Renderer and Renderer.beginUprightPass then
+    FieldView.draw(game, vw, vh, { skipActors = true })
+    Renderer:beginUprightPass()
+    FieldView.draw(game, vw, vh, { actorsOnly = true, billboard = true })
+    Renderer:endUprightPass()
+  else
+    FieldView.draw(game, vw, vh)
+  end
+  Oam.setLayer(prev)
+  Oam.animateSprites("world")
+  Oam.buildOamBuffer()
+  if Bg.hasVisible() then
+    for pri = 3, 0, -1 do
+      Bg.flushPriority(pri)
+      Oam.flushPriority(pri, "world")
+    end
+  else
+    Oam.flush("world")
+  end
+end
+
+local function drawUiPlane()
+  local Oam = require("src.core.game3.oam")
+  local Gfx = require("src.core.game3.gfx")
+  local Help = require("src.ui.game3.help_system")
+  local prev = Oam.setLayer("ui")
+  Gfx.drawUi()
+  if Help.isOpen() then Help.draw() end
+  Oam.setLayer(prev)
+  Oam.animateSprites("ui")
+  Oam.buildOamBuffer()
+  Oam.flush("ui")
+end
+
+local function presentPlanes(game)
+  local Help = require("src.ui.game3.help_system")
+  local Battle = require("src.core.game3.battle")
+  local Oam = require("src.core.game3.oam")
+  local Bg = require("src.core.game3.bg")
+  local Gfx = require("src.core.game3.gfx")
+
+  local battleActive = Battle.isActive()
+  local Renderer = prepareRenderer(game, battleActive and "battle" or "field")
+  Renderer:beginFrame(not battleActive)
+
+  if battleActive then
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.clear(0.06, 0.12, 0.20, 1)
+    Oam.resetFrame()
+    Battle.draw(game, Display.W, Display.H)
+    Gfx.drawUi()
+    if Help.isOpen() then Help.draw() end
+    Oam.animateSprites()
+    Oam.buildOamBuffer()
+    if Bg.hasVisible() then
+      for pri = 3, 0, -1 do
+        Bg.flushPriority(pri)
+        Oam.flushPriority(pri)
+      end
+    else
+      Oam.flush()
+    end
+    love.graphics.pop()
+    Renderer:endFrame(nil, nil)
+    Display.mirrorFlatFrame(Renderer)
+    return
+  end
+
+  Renderer:beginWorldPass()
+  love.graphics.push("all")
+  love.graphics.origin()
+  local vw, vh = Renderer:worldViewSize()
+  drawFieldPlane(game, vw, vh, Renderer)
+  love.graphics.pop()
+  Renderer:endWorldPass()
+
+  love.graphics.push("all")
+  love.graphics.origin()
+  drawUiPlane()
+  love.graphics.pop()
+  Renderer:endFrame(nil, nil)
+  Display.mirrorFlatFrame(Renderer)
+end
+
+function Display.mirrorFlatFrame(Renderer)
+  local canvas = Display.ensureCanvas("main")
+  if not canvas then return end
+  local world = Renderer.worldCanvas
+  local ui = Renderer.canvas
+  if not ui then return end
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.origin()
+  love.graphics.setBlendMode("alpha")
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  if world and Renderer.worldActive then
+    local ok, vw, vh = pcall(function()
+      return world:getWidth(), world:getHeight()
+    end)
+    if ok and vw and vh then
+      love.graphics.draw(world,
+        math.floor((Display.W - vw) / 2), math.floor((Display.H - vh) / 2))
+    end
+  end
+  love.graphics.draw(ui, 0, 0)
+  love.graphics.setCanvas()
+  love.graphics.pop()
+end
+
+local function presentFlat(game, winW, winH)
   local canvas = Display.ensureCanvas("main")
   if not canvas then return false end
 
@@ -214,6 +389,30 @@ function Display.present(game, winW, winH)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(canvas, ox, oy, 0, scale, scaleY)
   return true
+end
+
+Display.presentFlat = presentFlat
+
+function Display.present(game, winW, winH)
+  if not Display.planesBroken then
+    local ok, err = pcall(presentPlanes, game)
+    if ok then return true end
+    love.graphics.setCanvas()
+    Display.planesBroken = true
+    log("plane present failed, falling back: " .. tostring(err))
+  end
+  return presentFlat(game, winW, winH)
+end
+
+function Display.release()
+  for _, key in ipairs({ "_canvas", "_uiOnly" }) do
+    local canvas = Display[key]
+    if canvas then
+      pcall(function() canvas:release() end)
+      Display[key] = nil
+    end
+  end
+  Display._logged = false
 end
 
 return Display
