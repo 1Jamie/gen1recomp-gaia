@@ -250,8 +250,8 @@ repeat
   fake:_cycleTab(1)
   cycle = cycle + 1
 until fake.tab == "crystal" or cycle > 40
-eq(cycle, #GameVersion.ORDER + 3,
-  "the ring is the six games plus mods/find/skins")
+eq(cycle, #GameVersion.ORDER + 4,
+  "the ring is the six games plus mods/find/skins/importers")
 
 fake.tab = "crystal"
 fake:_cycleTab(-1)

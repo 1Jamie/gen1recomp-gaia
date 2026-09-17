@@ -7,6 +7,10 @@
 data/generated/
 assets/generated/
 
+# Decoded from a user-provided dump of another game they own (IMPORTERS tab).
+# Never committed and never redistributed; re-import from the launcher.
+asset_packs/
+
 # LÖVE packages & archives
 *.love
 *.zip

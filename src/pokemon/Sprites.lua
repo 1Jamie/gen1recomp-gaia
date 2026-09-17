@@ -18,22 +18,33 @@ local function samePath(path) return path end
 -- side: "front" | "back"
 -- opts.mon: the live mon when available (per-instance skins)
 -- opts.kind: "battle" | "summary" | "dex" | "evolution" | "hof" | "trade"
---            | "title" | "oak" | "credits" | "overworld" (informational
---            for wrappers)
+--            | "title" | "oak" | "credits" | "overworld" | "box" | "hatch"
+--            | "photo" | "unown_printer" | "online", or "<kind>_anim"
 -- Returns path, trueColor.
 function Sprites.path(data, species, side, opts)
   opts = opts or {}
   local def = data and data.pokemon and data.pokemon[species]
   if not def then return nil, false end
   local path = side == "back" and def.spriteBack or def.spriteFront
-  local ctx = {
+  return Sprites.pic(path, {
     species = species,
-    side = side == "back" and "back" or "front",
-    kind = opts.kind or "battle",
+    side = side,
+    kind = opts.kind,
     mon = opts.mon,
     trueColor = def.trueColor and true or false,
     data = data,
-  }
+  })
+end
+
+function Sprites.pic(path, ctx)
+  ctx = ctx or {}
+  ctx.side = ctx.side == "back" and "back" or "front"
+  ctx.kind = ctx.kind or "battle"
+  if ctx.trueColor == nil then
+    local def = ctx.data and ctx.data.pokemon and ctx.species
+      and ctx.data.pokemon[ctx.species]
+    ctx.trueColor = (def and def.trueColor) and true or false
+  end
   if path and Runtime.wantsHook("pokemon.sprite") then
     local hooked = Runtime.call("pokemon.sprite", samePath, path, ctx)
     if type(hooked) == "string" and hooked ~= "" then path = hooked end
@@ -102,11 +113,17 @@ end
 -- Resolve a party-menu icon image path for `mon`.
 -- vanillaPath is the path PartyMenu already picked from icons.bySpecies /
 -- def.icon / icons.byDex; the hook may replace it.
--- Returns path (possibly nil).
+-- opts.trueColor is the icon record's own flag: an icons.bySpecies table
+-- entry may carry one, the way a pokemon record carries it for a battle pic.
+-- A hook may also set ctx.trueColor, to flag art it substitutes for art that
+-- carried no flag -- the same ctx contract pokemon.sprite has, and the reason
+-- the flag is read back off ctx rather than trusted from opts alone.
+-- Returns path (possibly nil), trueColor.
 function Sprites.iconPath(data, mon, vanillaPath, opts)
   opts = opts or {}
+  local trueColor = opts.trueColor and true or false
   if not vanillaPath and not Runtime.wantsHook("pokemon.icon") then
-    return vanillaPath
+    return vanillaPath, trueColor
   end
   local species = mon and mon.species
   local ctx = {
@@ -115,12 +132,14 @@ function Sprites.iconPath(data, mon, vanillaPath, opts)
     name = opts.name,
     data = data,
     kind = "icon",
+    trueColor = trueColor,
   }
-  if not Runtime.wantsHook("pokemon.icon") then return vanillaPath end
+  if not Runtime.wantsHook("pokemon.icon") then return vanillaPath, trueColor end
   local hooked = Runtime.call("pokemon.icon", samePath, vanillaPath, ctx)
-  if type(hooked) == "string" and hooked ~= "" then return hooked end
-  if hooked == nil or hooked == false then return nil end
-  return vanillaPath
+  trueColor = ctx.trueColor and true or false
+  if type(hooked) == "string" and hooked ~= "" then return hooked, trueColor end
+  if hooked == nil or hooked == false then return nil, false end
+  return vanillaPath, trueColor
 end
 
 return Sprites

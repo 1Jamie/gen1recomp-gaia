@@ -14,6 +14,9 @@ Nothing here is transcribed.  Build pret/pokegold and pret/pokecrystal, then:
     python3 tools/gen2_sram_offsets.py \
         --gold  path/to/pokegold.sym \
         --crystal path/to/pokecrystal.sym \
+        --charmap path/to/pokegold/constants/charmap.asm \
+        --gold-scenes path/to/pokegold/data/maps/scenes.asm \
+        --crystal-scenes path/to/pokecrystal/data/maps/scenes.asm \
         > src/save_convert/Gen2Layout.lua
 
 Gold and Silver share a layout (pokesilver.sym agrees byte-exact); Crystal does
@@ -30,8 +33,18 @@ FIELDS = [
     "wXCoord", "wYCoord", "wEventFlags", "wPlayerState",
     "wStatusFlags", "wStatusFlags2", "wPokegearFlags", "wVisitedSpawns",
     "wVariableSprites", "wGameTimeHours", "wGameTimeMinutes",
+    # engine/menus/intro_menu.asm:28 _ResetWRAM, engine/overworld/player_object.asm:19
+    "wRedsName", "wGreensName", "wSavedAtLeastOnce", "wSpawnAfterChampion",
+    "wCenteredObject", "wPlayerStruct", "wMapObjects", "wNumPCItems",
+    "wMomItemTriggerBalance", "wRoamMon1MapGroup", "wRoamMon2MapGroup",
+    "wRoamMon3MapGroup", "wBestMagikarpLengthFeet", "wBestMagikarpLengthInches",
+    "wMagikarpRecordHoldersName", "wDecoBed", "wDecoPoster", "wScreenSave",
 ]
 GUARDS = ["sCheckValue1", "sCheckValue2", "sChecksum", "sGameData", "sGameDataEnd"]
+
+# ram/sram.asm -- bank 0 labels, outside the copied WRAM block: file offset is
+# bank * 0x2000 + (addr - $A000).
+RAW_SRAM = ["sOptions", "sMysteryGiftUnlocked"]
 
 # ram/sram.asm:138-144
 SRAM_FIELDS = [("wPlayerGender", "sCrystalData", "wCrystalData")]
@@ -58,21 +71,30 @@ def load(path):
 # out exactly like the primary, so it is the same table shifted. Gold and
 # Silver split theirs across three sections and are not derivable this way,
 # which is why only Crystal gets one.
+BACKUP_NEED = ["sBackupGameData", "sBackupGameDataEnd", "sBackupCheckValue1",
+               "sBackupCheckValue2", "sBackupChecksum", "sGameData"]
+
+
+def backup_delta(sym):
+    if any(n not in sym for n in BACKUP_NEED):
+        return None
+    off = lambda n: sym[n][0] * 0x2000 + (sym[n][1] - 0xA000)
+    return off("sBackupGameData") - off("sGameData")
+
+
 def backup_table(sym, rows, label):
-    need = ["sBackupGameData", "sBackupGameDataEnd", "sBackupCheckValue1",
-            "sBackupCheckValue2", "sBackupChecksum", "sGameData"]
-    if any(n not in sym for n in need):
+    if any(n not in sym for n in BACKUP_NEED):
         return None
     off = lambda n: sym[n][0] * 0x2000 + (sym[n][1] - 0xA000)
     # File offsets, not raw addresses: the backup lives in SRAM bank 0 and the
     # primary in bank 1, so an address-only delta is off by a bank.
-    delta = off("sBackupGameData") - off("sGameData")
+    delta = backup_delta(sym)
     guards = {"sCheckValue1": off("sBackupCheckValue1"),
               "sCheckValue2": off("sBackupCheckValue2"),
               "sChecksum": off("sBackupChecksum"),
               "sGameData": off("sBackupGameData"),
               "sGameDataEnd": off("sBackupGameDataEnd")}
-    absolute = {n for n, _, _ in SRAM_FIELDS}
+    absolute = {n for n, _, _ in SRAM_FIELDS} | set(RAW_SRAM)
     out = []
     for name, value in rows:
         if name in guards:
@@ -116,6 +138,11 @@ def table(sym, label):
         if name in sym and sbase in sym and wbase in sym:
             at = sym[sbase][0] * 0x2000 + (sym[sbase][1] - 0xA000)
             rows.append((name, at + (sym[name][1] - sym[wbase][1])))
+    for name in RAW_SRAM:
+        s = sym.get(name)
+        if not s:
+            sys.exit(f"{label}: {name} is missing from the symbol file")
+        rows.append((name, s[0] * 0x2000 + (s[1] - 0xA000)))
     boxes = []
     for i in range(1, BOX_COUNT + 1):
         b = sym.get("sBox%d" % i)
@@ -125,6 +152,37 @@ def table(sym, label):
         # file offset = bank * 0x2000 + (addr - $A000).
         boxes.append(b[0] * 0x2000 + (b[1] - 0xA000))
     return rows, skipped, boxes
+
+
+SCENE_RE = re.compile(r"^\s*scene_var\s+(\w+),\s*(\w+)")
+
+
+def scene_rows(sym, path, label):
+    base = sym["sPlayerData"][1] - 0xA000 + 0x2000
+    anchor = sym["wPlayerData"][1]
+    lo, hi = sym["sGameData"][1], sym["sGameDataEnd"][1]
+    out = []
+    for line in open(path):
+        m = SCENE_RE.match(line)
+        if not m:
+            continue
+        mapId, var = m.group(1), m.group(2)
+        w = sym.get(var)
+        if not w:
+            sys.exit(f"{label}: {var} for {mapId} is missing from the symbol file")
+        if not (lo <= w[1] - anchor + sym["sPlayerData"][1] < hi):
+            sys.exit(f"{label}: {var} is outside sGameData..sGameDataEnd")
+        out.append((mapId, base + (w[1] - anchor)))
+    if not out:
+        sys.exit(f"{label}: no scene_var rows in {path}")
+    return out
+
+
+def print_scenes(rows, indent):
+    print(f"{indent}sceneVars = {{")
+    for mapId, off in rows:
+        print(f"{indent}  {mapId} = 0x{off:04X},")
+    print(f"{indent}}},")
 
 
 # The cart's own text table, so a name with an apostrophe, an accent or the PK
@@ -162,20 +220,29 @@ def main():
     ap.add_argument("--charmap", required=False,
                     help="path to pokegold constants/charmap.asm; emits the "
                          "text table too when given")
+    ap.add_argument("--gold-scenes", required=False,
+                    help="path to pokegold data/maps/scenes.asm; emits the "
+                         "w<Map>SceneID offsets when given")
+    ap.add_argument("--crystal-scenes", required=False,
+                    help="path to pokecrystal data/maps/scenes.asm")
     a = ap.parse_args()
     print("-- GENERATED by tools/gen2_sram_offsets.py. Do not edit by hand.")
     print("-- Regenerate from a pret/pokegold + pret/pokecrystal build; see that")
     print("-- script's header for the derivation and the assertion behind it.")
     print("local Gen2Layout = {}\n")
-    for key, path in (("goldSilver", a.gold), ("crystal", a.crystal)):
+    for key, path, scenesPath in (("goldSilver", a.gold, a.gold_scenes),
+                                  ("crystal", a.crystal, a.crystal_scenes)):
         sym = load(path)
         rows, skipped, boxes = table(sym, key)
         backup = backup_table(sym, rows, key)
+        scenes = scene_rows(sym, scenesPath, key) if scenesPath else None
         print(f"Gen2Layout.{key} = {{")
         for n, off in rows:
             print(f"  {n} = 0x{off:04X},")
         print("  -- The 14 archived boxes, listed rather than strided (see BOX_COUNT).")
         print("  boxes = { " + ", ".join("0x%04X" % b for b in boxes) + " },")
+        if scenes:
+            print_scenes(scenes, "  ")
         if backup:
             print("  -- The backup copy the game falls back to when the primary")
             print("  -- checksum fails. Same shape, shifted.")
@@ -183,6 +250,9 @@ def main():
             for n, off in backup:
                 print(f"    {n} = 0x{off:04X},")
             print("    boxes = { " + ", ".join("0x%04X" % b for b in boxes) + " },")
+            if scenes:
+                delta = backup_delta(sym)
+                print_scenes([(m, off + delta) for m, off in scenes], "    ")
             print("  },")
         print("}")
         for s2 in skipped:

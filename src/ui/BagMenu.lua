@@ -99,6 +99,15 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
     game.stack:push(Transition.whiteFlash(game, BAG_RETURN_WHITE))
   end
 
+  -- spending the turn: the battle learns which item, on whom, and which
+  -- move -- a link battle that allows items puts exactly that on the wire
+  -- (src/link/LinkItems.lua); a local one reads none of it
+  local function spent(messages, o)
+    o = o or {}
+    o.item, o.target, o.moveIndex = id, target, moveIndex
+    battle:itemUsed(messages, o)
+  end
+
   -- .useItem_closeMenu ends at CloseStartMenu, so the START menu kept open
   -- behind the bag comes down with it (start_sub_menus.asm:400-407) #1745
   local function closeBag()
@@ -306,7 +315,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
         { auto = { wait = false, delay = 0, promptFirst = true } })
     end
     showMessages(game, head, function()
-      showMessages(game, tail, function() battle:itemUsed({}) end)
+      showMessages(game, tail, function() spent({}) end)
     end, opts)
     return
   end
@@ -341,7 +350,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
     if battle then
         list:close()
         showMessages(game, payload, function()
-            battle:itemUsed({})
+            spent({})
         end)
     else
         showMessages(game, payload, closePicker)
@@ -450,7 +459,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
           closePicker()
           if battle then
             list:close()
-            battle:itemUsed({}, { barShown = true })
+            spent({}, { barShown = true })
           end
         end)
       end)
@@ -459,7 +468,7 @@ local function vanillaUseOn(game, battle, id, target, list, moveIndex, picker)
     if battle then
       closePicker()
       list:close()
-      showUseMessages(game, payload, function() battle:itemUsed({}) end, extra)
+      showUseMessages(game, payload, function() spent({}) end, extra)
     else
       showUseMessages(game, payload, closePicker, extra)
     end
@@ -631,26 +640,48 @@ function BagMenu.new(game, opts)
         { label = Strings("USE"), onSelect = function()
             useItem(game, battle, id, list)
           end },
-        { label = Strings("TOSS"), onSelect = function()
+        { label = Strings("TOSS"), keepOpen = true, onSelect = function()
+            -- engine/menus/start_sub_menus.asm:362
+            local menu = game.stack:top()
+            menu.hollowIndex = menu.index
+            -- engine/menus/start_sub_menus.asm:298-300, 438-439
+            local function itemMenuLoop(pops)
+              for _ = 1, pops do game.stack:pop() end
+              list.items = buildItems(game)
+              list.index = math.min(list.index, math.max(1, #list.items))
+            end
             -- KeyItemFlags + HMs decide tossability (not price:
             -- MOON STONE is price 0 but tossable)
+            local t = game.data.text or {}
             if not def or def.keyItem or id:find("^HM_") then
-              showMessages(game, { Strings("That's too impor-\ntant to toss!") })
+              showMessages(game, { t._TooImportantToTossText
+                or Strings("That's too impor-\ntant to toss!") },
+                function() itemMenuLoop(1) end)
               return
             end
             local QuantityBox = require("src.ui.QuantityBox")
             game.stack:push(QuantityBox.new(game, {
               max = game.save.inventory[id] or 1,
+              keepOpen = true,
               onDone = function(qty)
-                if not qty then return end
-                local ChoiceBox = require("src.ui.ChoiceBox")
-                game.stack:push(ChoiceBox.new(game, function(yes)
-                  if not yes then return end
-                  Bag.remove(game.save, id, qty)
-                  list.items = buildItems(game)
-                  list.index = math.min(list.index, math.max(1, #list.items))
-                  showMessages(game, { Strings("Threw away\n%s.", def and def.name or id) })
-                end))
+                if not qty then itemMenuLoop(2) return end
+                local name = def and def.name or id
+                -- engine/items/item_effects.asm:2564-2591
+                game.stack:push(TextBox.new(game,
+                  (t._IsItOKToTossItemText or Strings("Is it OK to toss\n%s?", name))
+                    :gsub("{RAM:wStringBuffer}", name), nil,
+                  { stay = { prompt = true, onShown = function()
+                    local ChoiceBox = require("src.ui.ChoiceBox")
+                    game.stack:push(ChoiceBox.new(game, function(yes)
+                      game.stack:pop()
+                      if not yes then itemMenuLoop(2) return end
+                      Bag.remove(game.save, id, qty)
+                      showMessages(game, {
+                        ((t._ThrewAwayItemText or Strings("Threw away\n%s.", name))
+                          :gsub("{RAM:wNameBuffer}", name)) },
+                        function() itemMenuLoop(2) end)
+                    end, { anchor = "bottom" }))
+                  end } }))
               end,
             }))
           end },

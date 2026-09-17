@@ -1517,6 +1517,24 @@ function Game2:compose(scene, zones, w, h)
   return handled
 end
 
+function Game2:fxWorldOrigin(w, h, scale)
+  local cam = self.world and self.world.camera
+  if not cam then return nil end
+  local fx, fy = Playfield.rect(w, h)
+  return fx + math.floor(-cam.x * scale), fy + math.floor(-cam.y * scale)
+end
+
+function Game2:fxSplitsUi(w, h)
+  local world = self.world
+  if not (world and world.map) then return false end
+  local fs = world:fitScale()
+  if world:zoomScale() ~= fs then return true end
+  local wx, wy = self:fxWorldOrigin(w, h, fs)
+  if not wx then return false end
+  local ox, oy = Chrome.fitOrigin(w, h, fs)
+  return (ox - wx) % fs ~= 0 or (oy - wy) % fs ~= 0
+end
+
 -- Gold's frame, and then the passes that run over it.
 --
 -- The Gen 1 path gets these for free because everything it draws goes through
@@ -1591,8 +1609,7 @@ function Game2:drawViewportFrame()
   -- sits over it is drawn onto a transparent layer and shaded at FIT instead.
   self.fxUiLayer = nil
   self.fxUiDrawn = false
-  if shaderfx and self.world and self.world.map
-     and self.world:zoomScale() ~= self.world:fitScale() then
+  if shaderfx and self:fxSplitsUi(w, h) then
     self.fxUiLayer = self:presentCanvas(3, w, h)
   end
   self:drawContained(w, h)
@@ -1662,11 +1679,17 @@ function Game2:drawViewportFrame()
         -- when the UI was split off, otherwise everything at FIT.
         local s = scale * dpi
         local ws = uiLayer and self.world:zoomScale() * dpi or s
+        local wox, woy = ox * dpi, oy * dpi
+        if self.frameWorldActive then
+          local wx, wy = self:fxWorldOrigin(w, h, ws / dpi)
+          if wx then wox, woy = wx * dpi, wy * dpi end
+        end
         ShaderFX.render(source, { x = 0, y = 0, w = pw, h = ph, scale = ws },
-          { w = pw / ws, h = ph / ws }, dpi, dpi)
+          { w = pw / ws, h = ph / ws }, dpi, dpi, { originX = wox, originY = woy })
         if uiLayer then
           ShaderFX.render(uiLayer, { x = 0, y = 0, w = pw, h = ph, scale = s },
-            { w = pw / s, h = ph / s }, dpi, dpi, { layer = "ui", mask = true })
+            { w = pw / s, h = ph / s }, dpi, dpi,
+            { layer = "ui", mask = true, originX = ox * dpi, originY = oy * dpi })
         end
       else
         G.setColor(1, 1, 1, 1)
@@ -1762,12 +1785,32 @@ function Game2:paintBattleSurround(w, h)
     ox, oy = Chrome.fitOriginFor(w, h, scale, sw / 8, sh / 8)
   end
   local pw, ph = sw * scale, sh * scale
+  if owner and owner.extendedHUD and owner:extendedHUD()
+     and stack and stack.top and stack:top() == owner then
+    if mode == "world" then return end
+    G.setColor(0, 0, 0, 1)
+    if ox > 0 then G.rectangle("fill", 0, 0, ox, h) end
+    if ox + pw < w then G.rectangle("fill", ox + pw, 0, w - ox - pw, h) end
+    G.setColor(1, 1, 1, 1)
+    return
+  end
   G.setColor(0, 0, 0, alpha)
   if oy > 0 then G.rectangle("fill", 0, 0, w, oy) end
   if oy + ph < h then G.rectangle("fill", 0, oy + ph, w, h - oy - ph) end
   if ox > 0 then G.rectangle("fill", 0, oy, ox, ph) end
   if ox + pw < w then G.rectangle("fill", ox + pw, oy, w - ox - pw, ph) end
   G.setColor(1, 1, 1, 1)
+end
+
+-- Mirrored menus stay on the input stack. They must not trigger another
+-- panel pass over a completed widescreen scene when none is visible.
+local function hasVisibleOverlay(stack, base)
+  for i = #stack.states, 1, -1 do
+    local screen = stack.states[i]
+    if screen == base then return false end
+    if stack:renderVisible(screen) then return true end
+  end
+  return false
 end
 
 function Game2:drawScene(w, h)
@@ -1849,7 +1892,7 @@ function Game2:drawScene(w, h)
       self:paintBattleSurround(w, h)
       Chrome.worldSurround = false
       self:letterbox(w, h, false)
-      if wide ~= top then
+      if wide ~= top and hasVisibleOverlay(self.stack, wide) then
         local scale, ox, oy = panelBlit(self.stack, w, h)
         G.push()
         G.translate(ox, oy)
@@ -2319,6 +2362,47 @@ function Game2:_cycleSpeed(dir)
   self:persistOptions()
 end
 
+local function padPressedBody(self, joystick, button)
+  TouchControls:noteGamepad()
+  local selectHeld = Input:isDown("select")
+  if not selectHeld and joystick and joystick.isGamepadDown then
+    local ok, down = pcall(function()
+      return joystick:isGamepadDown("back")
+    end)
+    selectHeld = ok and down == true
+  end
+  local top = self.stack and self.stack:top()
+  if top and top.onGamepadPressed then
+    top:onGamepadPressed(button)
+    return
+  end
+  if not selectHeld then
+    local action = Input:padAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
+  end
+  if selectHeld then
+    local digit = GamepadMap.displayChordDigit(button)
+    if digit then
+      self:keypressed(digit)
+      return
+    end
+  end
+
+  Input:gamepadpressed(joystick, button)
+end
+
+local function padReleasedBody(self, joystick, button)
+  Input:gamepadreleased(joystick, button)
+  local top = self.stack and self.stack:top()
+  if top and top.onGamepadReleased then top:onGamepadReleased(button) end
+end
+
 -- `back` -- SDL's name for the small left-hand menu button: Xbox VIEW, the PS
 -- CREATE/SHARE beside the touchpad, the Switch MINUS -- is SELECT, and has been
 -- since src/core/GamepadMap.lua's DEFAULT_GAMEPAD_BINDINGS was written
@@ -2334,42 +2418,7 @@ end
 -- restores.
 function Game2:gamepadpressed(joystick, button)
   local function vanilla()
-    -- a controller is being used: the touch overlay steps aside until the next
-    -- screen touch (mobile only; a no-op elsewhere)
-    TouchControls:noteGamepad()
-    local selectHeld = Input:isDown("select")
-    if not selectHeld and joystick and joystick.isGamepadDown then
-      local ok, down = pcall(function()
-        return joystick:isGamepadDown("back")
-      end)
-      selectHeld = ok and down == true
-    end
-    local top = self.stack and self.stack:top()
-    if top and top.onGamepadPressed then
-      top:onGamepadPressed(button)
-      return
-    end
-    if not selectHeld then
-      local action = Input:padAction(button)
-      if action == "speedUp" then
-        self:_cycleSpeed(1)
-        return
-      elseif action == "speedDown" then
-        self:_cycleSpeed(-1)
-        return
-      end
-    end
-    if selectHeld then
-      local digit = GamepadMap.displayChordDigit(button)
-      if digit then
-        self:keypressed(digit)
-        return
-      end
-    end
-    -- START opens the start menu in the overworld; it used to quit, from before
-    -- there was a menu to open.
-
-    Input:gamepadpressed(joystick, button)
+    padPressedBody(self, joystick, button)
   end
   if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
   return ModRuntime.call("input.gamepad", vanilla, self,
@@ -2378,9 +2427,7 @@ end
 
 function Game2:gamepadreleased(joystick, button)
   local function vanilla()
-    Input:gamepadreleased(joystick, button)
-    local top = self.stack and self.stack:top()
-    if top and top.onGamepadReleased then top:onGamepadReleased(button) end
+    padReleasedBody(self, joystick, button)
   end
   if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
   return ModRuntime.call("input.gamepad", vanilla, self,
@@ -2391,6 +2438,15 @@ function Game2:gamepadaxis(joystick, axis, value)
   local function vanilla()
     -- past-deadzone only, so resting-stick drift cannot hide the overlay
     if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
+    local trigger, phase = Input:triggerAxis(axis, value)
+    if trigger then
+      if phase == "pressed" then
+        padPressedBody(self, joystick, trigger)
+      elseif phase == "released" then
+        padReleasedBody(self, joystick, trigger)
+      end
+      return
+    end
     Input:gamepadaxis(joystick, axis, value)
   end
   if not ModRuntime.wantsHook("input.gamepad") then return vanilla() end
@@ -2410,6 +2466,16 @@ function Game2:joystickpressed(joystick, button)
   if isRawStick(joystick) and top and top.onJoystickPressed then
     top:onJoystickPressed(button)
     return
+  end
+  if not Input:isDown("select") then
+    local action = Input:joyAction(button)
+    if action == "speedUp" then
+      self:_cycleSpeed(1)
+      return
+    elseif action == "speedDown" then
+      self:_cycleSpeed(-1)
+      return
+    end
   end
   Input:joystickpressed(joystick, button)
 end

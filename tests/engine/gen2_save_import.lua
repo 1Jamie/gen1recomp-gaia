@@ -102,6 +102,10 @@ local function build(version, bare, female)
     put(b, L.wVisitedSpawns + 1, 0x40)
     put(b, L.wVisitedSpawns + 2, 0x05)
     put(b, L.wVariableSprites + WEIRD_TREE_SLOT, SPRITE_TWIN)
+    put(b, L.sceneVars.ELMS_LAB, 2)
+    put(b, L.sceneVars.NEW_BARK_TOWN, 1)
+    put(b, L.sceneVars.ROUTE_27, 1)
+    put(b, L.sceneVars.VICTORY_ROAD, 1)
   end
   if L.wPlayerGender then put(b, L.wPlayerGender, female and 1 or 0) end
   put(b, L.wNumItems, 1); put(b, L.wItems, 20, 3); put(b, L.wItems + 2, 0xFF)
@@ -188,6 +192,14 @@ for _, version in ipairs({ "gold", "silver", "crystal" }) do
        version .. ": the SPRITE_WEIRD_TREE slot comes off the cart")
     eq(save.variableSprites[0], nil,
        version .. ": a slot the cart never filled stays absent for World's seed")
+
+    -- data/maps/scenes.asm:7
+    eq(save.mapScenes.ELMS_LAB, 2, version .. ": Elm's lab is past the starter")
+    eq(save.mapScenes.NEW_BARK_TOWN, 1, version .. ": the teacher no longer stops you")
+    eq(save.mapScenes.ROUTE_27, 1, version .. ": the Route 27 fisher stays put")
+    eq(save.mapScenes.VICTORY_ROAD, 1, version .. ": the Victory Road rival is done")
+    eq(save.mapScenes.POKECENTER_2F, nil, version .. ": a zero scene byte is no entry")
+    eq(next(bare.mapScenes), nil, version .. ": a fresh cart has every map on scene 0")
 
     -- constants/ram_constants.asm:177 (#1907)
     eq(save.player.gender, version == "crystal" and "male" or nil,
@@ -301,6 +313,9 @@ do
   save.engineFlags[66] = nil
   save.engineFlags[69] = true
   save.variableSprites[6] = 0x35
+  save.mapScenes.ELMS_LAB = 6
+  save.mapScenes.NEW_BARK_TOWN = 0
+  save.mapScenes.MAHOGANY_TOWN = 1
 
   local out = assert(Gen2Save.encode(save, "gold", cart, data))
   eq(#out, #cart, "the image keeps its size")
@@ -340,6 +355,23 @@ do
   eq(back.variableSprites[WEIRD_TREE_SLOT], SPRITE_TWIN,
      "the twins' slot survives the round trip")
   eq(back.variableSprites[6], 0x35, "and a slot filled inside the port is written")
+
+  -- data/maps/scenes.asm:7
+  eq(back.mapScenes.ELMS_LAB, 6, "a scene advanced in the port is written")
+  eq(back.mapScenes.NEW_BARK_TOWN, nil, "a cleared scene clears the cart byte")
+  eq(back.mapScenes.MAHOGANY_TOWN, 1, "and a newly set one reaches the cart")
+  eq(back.mapScenes.ROUTE_27, 1, "with the untouched ones left as they were")
+
+  local again = assert(Gen2Save.encode(back, "gold", out, data))
+  local L = Gen2Save.layoutFor("gold")
+  local startAt, stopAt = L.sceneVars.POKECENTER_2F, L.sceneVars.MOUNT_MOON_SQUARE
+  eq(again:sub(startAt + 1, stopAt + 1), out:sub(startAt + 1, stopAt + 1),
+     "import, export, import gives the same scene bytes")
+
+  back.mapScenes = {}
+  local untouched = assert(Gen2Save.encode(back, "gold", out, data))
+  eq(untouched:byte(L.sceneVars.ELMS_LAB + 1), 6,
+     "a save with no scene entries leaves the cart's scene bytes alone")
 end
 
 -- ram/sram.asm:138-144
@@ -362,6 +394,26 @@ do
      "a gender changed in the port reaches the cart image")
   eq(assert(Gen2Save.decode(male, "crystal")).player.gender, "male",
      "and reads back as Chris")
+end
+
+-- data/maps/scenes.asm:7
+do
+  local function shape(L, want, label)
+    local n = 0
+    for mapId, at in pairs(L.sceneVars) do
+      n = n + 1
+      check(at >= L.sGameData and at < L.sGameDataEnd,
+        ("%s: %s scene byte 0x%04X is inside the checksummed block"):format(label, mapId, at))
+    end
+    eq(n, want, label .. ": one scene byte per scene_var row")
+  end
+  shape(Gen2Layout.goldSilver, 59, "gold/silver")
+  shape(Gen2Layout.crystal, 79, "crystal")
+  shape(Gen2Layout.crystal.backup, 79, "crystal backup")
+  eq(Gen2Layout.goldSilver.sceneVars.ELMS_LAB, 0x2534, "gold wElmsLabSceneID")
+  eq(Gen2Layout.crystal.sceneVars.ELMS_LAB, 0x2515, "crystal wElmsLabSceneID")
+  eq(Gen2Layout.crystal.backup.sceneVars.ELMS_LAB,
+     Gen2Layout.crystal.sceneVars.ELMS_LAB - 0xE00, "the backup copy is the same byte shifted")
 end
 
 -- engine/pokemon/stats_screen.asm (#1899)
@@ -405,12 +457,29 @@ do
     "and a save from before the dex was given still hides it")
 end
 
--- A save with no cartridge image behind it is refused, not invented.
+-- A save with no cartridge image behind it gets one synthesized, but only
 do
   local out, err = Gen2Save.encode({ player = { name = "A" } }, "gold", nil, {})
-  eq(out, nil, "encode refuses a save with no lineage")
-  check(type(err) == "string" and err:find("no cartridge image", 1, true) ~= nil,
-    "and says why -- " .. tostring(err))
+  eq(out, nil, "encode refuses a save with no lineage AND no position")
+  check(type(err) == "string" and err:find("does not name one", 1, true) ~= nil,
+    "and says which half is missing -- " .. tostring(err))
+
+  local data = {
+    maps = { A_HOUSE = {
+      group = 21, map = 14, objectEventsAddr = 0x5A17,
+      width = 2, height = 2, blocks = { 1, 2, 3, 4 }, objects = {},
+    } },
+  }
+  local built, why = Gen2Save.encode({
+    player = { name = "A" },
+    position = { mapGroup = 21, mapNumber = 14, x = 1, y = 1 },
+  }, "gold", nil, data)
+  check(built ~= nil, "a positioned save builds its own image -- " .. tostring(why))
+  eq(#built, Gen2Save.SAVE_SIZE, "and it is a full battery image")
+  eq(Gen2Save.checksumValid(built, Gen2Save.layoutFor("gold")), true,
+    "sealed with the check values and sum the cartridge verifies")
+  local back = Gen2Save.decode(built, "gold")
+  check(back ~= nil and back.player.name == "A", "and decodes back to itself")
 end
 
 -- ------------------------------------------------------------------
@@ -438,6 +507,7 @@ do
   check(save ~= nil, "so the save still opens -- " .. tostring(err))
   if save then
     eq(save.player.name, "ASH", "and reads the same player out of the backup")
+    eq(save.mapScenes.ELMS_LAB, 2, "and the same map scenes out of the backup")
   end
 end
 
@@ -469,12 +539,15 @@ do
     check(type(save.mail) == "table", "mail falls back to the new-game default")
     check(type(save.hallOfFame) == "table", "so does the hall of fame")
     check(type(save.phoneContacts) == "table", "and the phone book")
+    eq(save.mapScenes.ELMS_LAB, 2, "and the cart's map scenes survive the merge")
   end
-  -- Export needs the cartridge image the save came from. Without one it is
-  -- refused rather than built from nothing.
-  local _, expErr = SaveConvert.exportSav({ meta = {} }, "gold")
-  check(type(expErr) == "string" and expErr:find("no cartridge image", 1, true) ~= nil,
-    "a save with no cartridge behind it is refused -- got: " .. tostring(expErr))
+  local out, expErr = SaveConvert.exportSav({ meta = {} }, "gold")
+  eq(out, nil, "a save that names no map is still refused")
+  check(type(expErr) == "string" and expErr:find("does not name one", 1, true) ~= nil,
+    "and the reason is the missing map, not a missing cartridge -- got: "
+      .. tostring(expErr))
+  check(type(expErr) == "string" and expErr:find("no cartridge image to write", 1, true) == nil,
+    "the old refusal is gone -- got: " .. tostring(expErr))
 end
 
 -- ------------------------------------------------------------------

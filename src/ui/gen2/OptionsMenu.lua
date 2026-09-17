@@ -259,12 +259,27 @@ local ROWS = {
     cycle = function(options, delta)
       local Tilt = require("src.render.Tilt")
       -- Four levels (OFF, 15, 35, 50); left steps back through them.
-      local level = ((options.tilt or 0) + delta) % 4
+      local caps = Performance.caps(options.performance)
+      local shown = options.tilt or 0
+      if not caps.tilt then shown = 0 end
+      local level = (shown + delta) % 4
       options.tilt = level
       Tilt.setLevel(level)
+      if level > 0 and not caps.tilt then
+        options.performance = "high"
+      end
     end,
     text = function(options)
-      return Strings(require("src.render.Tilt").levelLabel(options.tilt or 0))
+      local Tilt = require("src.render.Tilt")
+      local saved = options.tilt or 0
+      local live = Tilt.level or 0
+      if not Performance.caps(options.performance).tilt then
+        return Strings(Tilt.levelLabel(0))
+      end
+      if live ~= saved then
+        return Strings(Tilt.levelLabel(live))
+      end
+      return Strings(Tilt.levelLabel(saved))
     end },
   { label = Strings.source("COLOR"), key = "color", port = true,
     text = function(options)
@@ -423,7 +438,25 @@ local ROWS = {
     values = { "og", "wide" },
     display = {
       og = Strings.source("OG  "), wide = Strings.source("WIDE"),
-    } },
+    },
+    cycle = function(o, delta)
+      local at = o.battleLayout == "wide" and 2 or 1
+      local next_ = (at - 1 + (delta or 1)) % 2 + 1
+      o.battleLayout = next_ == 2 and "wide" or "og"
+      if o.battleLayout ~= "wide" then o.battleHud = "standard" end
+    end },
+  { label = Strings.source("BATTLE HUD"), key = "battleHud", port = true,
+    text = function(o)
+      return o.battleLayout == "wide" and o.battleHud == "extended"
+        and Strings("EXTENDED") or Strings("STANDARD")
+    end,
+    cycle = function(o)
+      if o.battleLayout ~= "wide" then
+        o.battleHud = "standard"
+        return
+      end
+      o.battleHud = o.battleHud == "extended" and "standard" or "extended"
+    end },
   { label = Strings.source("BATTLE SIZE"), key = "battleFit", port = true,
     values = { "fixed", "fill" },
     display = {
@@ -459,8 +492,8 @@ local GROUPS = {
   { id = "group.audio", label = Strings.source("AUDIO"),
     members = { "sound", "musicVol", "sfxVol", "musicFilter" } },
   { id = "group.battle", label = Strings.source("BATTLE OPTIONS"),
-    members = { "battleScene", "battleStyle", "battleLayout", "battleFit",
-      "battleBg" } },
+    members = { "battleScene", "battleStyle", "battleLayout", "battleHud",
+      "battleFit", "battleBg" } },
   { id = "group.extras", label = Strings.source("EXTRAS"),
     members = { "zoom", "voidFill", "tilt" } },
 }

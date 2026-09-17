@@ -1142,6 +1142,46 @@ local function chooseRom(promptName)
   return nil
 end
 
+-- chooseRom for an importer's own dump: same per-OS dialogs, but the file
+-- types come from the importer descriptor rather than being Game Boy ROMs.
+local function chooseImporterFile(promptName, exts)
+  local prompt = shellSafe("Choose your " .. (promptName or "game") .. " dump")
+  local platform = love.system.getOS()
+  local quoted, globs, semis = {}, {}, {}
+  for _, ext in ipairs(exts) do
+    quoted[#quoted + 1] = ('"%s"'):format(ext)
+    globs[#globs + 1] = "*." .. ext
+    semis[#semis + 1] = "*." .. ext
+  end
+  if platform == "OS X" then
+    return commandOutput(
+      ([[osascript -e 'POSIX path of (choose file with prompt "%s" of type {%s})' 2>/dev/null]])
+        :format(prompt, table.concat(quoted, ", ")))
+  elseif platform == "Windows" then
+    local script = table.concat({
+      "Add-Type -AssemblyName System.Windows.Forms;",
+      "$d=New-Object System.Windows.Forms.OpenFileDialog;",
+      "$d.Title='" .. prompt .. "';",
+      "$d.Filter='Cartridge dump (" .. table.concat(semis, ";") .. ")|"
+        .. table.concat(semis, ";") .. "|All files (*.*)|*.*';",
+      "if($d.ShowDialog() -eq 'OK'){",
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8;",
+      "[Console]::Write($d.FileName)}",
+    })
+    return commandOutput(
+      'powershell -NoProfile -STA -Command "' .. script .. '"')
+  elseif platform == "Linux" then
+    local path = commandOutput(
+      ([[zenity --file-selection --title="%s" --file-filter="Cartridge dump | %s" 2>/dev/null]])
+        :format(prompt, table.concat(globs, " ")))
+    if path then return path end
+    return commandOutput(
+      ([[kdialog --getopenfilename "$HOME" "%s|Cartridge dump" 2>/dev/null]])
+        :format(table.concat(globs, " ")))
+  end
+  return nil
+end
+
 -- Open a native picker for a mod .zip (mirrors chooseRom's per-OS dialogs).
 -- Returns the chosen absolute path or nil.  Android uses love.system.pickFile
 -- ("mod") instead -- see RomImporter:chooseMod.
@@ -2032,6 +2072,12 @@ function RomImporter:filedropped(file)
     self:setError("Could not read the dropped file: " .. tostring(readError))
     return
   end
+  if self._importerDropFor then
+    local importerId = self._importerDropFor
+    self._importerDropFor = nil
+    self:_runImporterData(importerId, data)
+    return
+  end
   self:startData(data, file:getFilename())
 end
 
@@ -2884,6 +2930,7 @@ end
 
 function RomImporter:update(dt)
   self.pulse = self.pulse + dt
+  if self._importerJob then self:_stepImporter() end
   if not Transition.armed then
     self._motionFrames = (self._motionFrames or 0) + 1
     if self._motionFrames > 1 then Transition.armed = true end
@@ -3073,6 +3120,11 @@ function RomImporter:update(dt)
         if Platform.isUWP() and self.modNotice and self.modNotice.ok then
           os.remove(path)
         end
+      elseif kind == "importer" then
+        local importerId = self.pickerPendingImporterId
+        self.pickerPendingImporterId = nil
+        if importerId then self:_runImporter(importerId, path) end
+        if Platform.isUWP() then os.remove(path) end
       elseif kind == "skin" then
         self:_installSkinZip(path)
         if Platform.isUWP() and self._skinNotice and self._skinNotice.ok then
@@ -3252,7 +3304,7 @@ function RomImporter:resumeAfterOverlay()
 end
 
 function RomImporter:_cycleTab(delta)
-  local order = { "mods", "find", "skins" }
+  local order = { "mods", "find", "skins", "importers" }
   for i = #GameVersion.ORDER, 1, -1 do
     table.insert(order, 1, GameVersion.ORDER[i])
   end
@@ -3894,6 +3946,104 @@ end
 -- Switch the active tab (chips, shoulder buttons).  The find search caret and
 -- the soft keyboard drop with the panel they belonged to; each tab's scroll
 -- offset persists inside the view's per-tab scroll container.
+function RomImporter:_beginImporterImport(importerId)
+  local Importers = require("src.import.Importers")
+  local desc = Importers.get(importerId)
+  if not desc or desc.status == "planned" then return end
+  if self._importerJob then return end
+  self._importerNotice = nil
+  if self.nativePicker and love.system.getPickedFile then
+    self.pickerPendingKind = "importer"
+    self.pickerPendingImporterId = importerId
+    if not pickFile("rom") then
+      self.pickerPendingKind, self.pickerPendingImporterId = nil, nil
+      self._importerNotice = { text = "Could not open the file picker." }
+    end
+    return
+  end
+  local path = chooseImporterFile(desc.name, desc.source.formats or { "sfc" })
+  if path then
+    self:_runImporter(importerId, path)
+    return
+  end
+  local okKit, Kit = pcall(require, "src.ui.kit.Kit")
+  if okKit and Kit.FileBrowser then
+    self._padCursorActive = false
+    Kit.FileBrowser.open({
+      title = "Select " .. desc.name,
+      mode = "rom",
+      onSelect = function(pickedPath)
+        self:_runImporter(importerId, pickedPath)
+      end,
+    })
+    return
+  end
+  self._importerNotice = {
+    text = "Drop your " .. desc.name .. " dump onto this window.",
+  }
+  self._importerDropFor = importerId
+end
+
+function RomImporter:_runImporter(importerId, path)
+  local data, readErr = readExternalPath(path)
+  if not data then
+    self._importerNotice = { text = "Could not read that file: "
+      .. tostring(readErr) }
+    return
+  end
+  return self:_runImporterData(importerId, data)
+end
+
+function RomImporter:_runImporterData(importerId, data)
+  local LttpImport = require("src.import.lttp.LttpImport")
+  if importerId ~= LttpImport.IMPORTER then return end
+  local source, err = LttpImport.identify(data)
+  if not source then
+    self._importerNotice = { text = tostring(err) }
+    return
+  end
+  self._importerJob = {
+    id = importerId,
+    co = LttpImport.job(data),
+    progress = 0,
+    status = "Reading " .. source.name,
+  }
+  self._importerNotice = nil
+end
+
+function RomImporter:_stepImporter()
+  local job = self._importerJob
+  if not job then return end
+  local budget = 24
+  while budget > 0 do
+    budget = budget - 1
+    if coroutine.status(job.co) == "dead" then break end
+    local ok, value = coroutine.resume(job.co)
+    if not ok then
+      self._importerJob = nil
+      self._importerNotice = { text = "Import failed: " .. tostring(value) }
+      self._importerRows = nil
+      return
+    end
+    if coroutine.status(job.co) == "dead" then
+      self._importerJob = nil
+      self._importerRows = nil
+      local packs = {}
+      for id, count in pairs(type(value) == "table" and value.packs or {}) do
+        packs[#packs + 1] = id .. " (" .. count .. ")"
+      end
+      table.sort(packs)
+      self._importerNotice = { ok = true,
+        text = "Imported " .. table.concat(packs, ", ") }
+      return
+    end
+    if type(value) == "table" and value.total and value.total > 0 then
+      job.progress = value.done / value.total
+      job.status = value.status or job.status
+    end
+  end
+end
+
 function RomImporter:_switchTab(id)
   if id == "bug" then return self:_openBugPanel() end
   if self.tab and self.tab ~= id then
@@ -3912,6 +4062,7 @@ function RomImporter:_switchTab(id)
   -- the skins list is cheap and can change behind the launcher's back
   -- (an export, a hand-dropped folder), so re-read it on every visit
   if id == "skins" then self:_ensureSkins(true) end
+  if id == "importers" then self._importerRows = nil end
   if GameVersion.VERSIONS[id] then
     self:_setModScope(id)
   end
@@ -6661,7 +6812,9 @@ function RomImporter:_updateAllCartRows()
     return cache.rows
   end
   local rows = {}
-  self._cartUpdateCache = { feed = feed, seen = seen, rows = rows }
+  local skipped = {}
+  self._cartUpdateCache = { feed = feed, seen = seen, rows = rows,
+                            skipped = skipped }
   if type(feed) ~= "table" or #feed == 0 then return rows end
   local listed = {}
   for _, entry in ipairs(feed) do
@@ -6679,12 +6832,17 @@ function RomImporter:_updateAllCartRows()
   for _, row in ipairs(installed) do
     local entry = listed[row.id]
     local mine = row.cart and repoKey(row.cart.repo)
-    if entry and mine and mine == repoKey(entry.github, entry.repo)
-        and ModIndex.canInstall(entry)
+    local theirs = entry and repoKey(entry.github, entry.repo)
+    if entry
         and ModUpdate.isNewer(row.version, ModIndex.displayVersion(entry)) then
-      rows[#rows + 1] = { kind = "cart", id = row.id, entry = entry,
-                          name = row.title or row.id, from = row.version,
-                          to = ModIndex.displayVersion(entry) }
+      if (mine == nil or mine == theirs) and ModIndex.canInstall(entry) then
+        rows[#rows + 1] = { kind = "cart", id = row.id, entry = entry,
+                            name = row.title or row.id, from = row.version,
+                            to = ModIndex.displayVersion(entry) }
+      elseif mine and theirs and mine ~= theirs then
+        skipped[#skipped + 1] = { id = row.id, name = row.title or row.id,
+                                  mine = mine, theirs = theirs }
+      end
     end
   end
   return rows
@@ -6724,7 +6882,18 @@ function RomImporter:pressUpdateAllMods()
                       updatedIds = {}, updatedCarts = {}, failures = {} }
   self.modNotice = nil
   self:_syncModUpdateInfo(true)
-  self:_ensureFind()
+  self:_setBusy(Strings("Checking for updates"), nil,
+    function() self:_cancelUpdateAll() end)
+  self:_pumpUpdateAll()
+  return true
+end
+
+function RomImporter:_confirmUpdateAll()
+  local job = self._updateAll
+  if not job or job.stage ~= "confirm" then return false end
+  if self._modConfirm == job.confirm then self._modConfirm = nil end
+  job.confirm = nil
+  job.stage = "next"
   self:_setBusy(Strings("Checking for updates"), nil,
     function() self:_cancelUpdateAll() end)
   self:_pumpUpdateAll()
@@ -6748,12 +6917,51 @@ function RomImporter:_pumpUpdateAll()
 
   if job.stage == "check" then
     if self._modInfoFetch or self._findFetch then return end
+    if not job.feedRefreshed then
+      job.feedRefreshed = true
+      if Platform.canFetchRemote() then
+        self:_refreshFindSources()
+        if #(self.findSources or {}) > 0 then
+          self:_refreshFind(true, { quiet = true })
+          if self._findFetch then
+            self:_setBusy(Strings("Checking for updates"), nil,
+              function() self:_cancelUpdateAll() end)
+            return
+          end
+        end
+      end
+    end
+    self._cartUpdateCache = nil
+    job.feedStale = job.feedStale
+      or (self.findIndex and self.findIndex.stale) == true
     job.rows = self:_updateAllRows()
+    job.skippedCarts = (self._cartUpdateCache or {}).skipped
     job.total = #job.rows
     if job.cancelled or job.total == 0 then
       return self:_finishUpdateAll(job.cancelled)
     end
-    job.stage = "next"
+    job.stage = "confirm"
+    local lines = { Strings("Update %d items?", job.total) }
+    for i = 1, math.min(3, job.total) do
+      local row = job.rows[i]
+      lines[#lines + 1] = tostring(row.name or row.id)
+    end
+    if job.total > 3 then
+      lines[#lines + 1] = Strings("and %d more", job.total - 3)
+    end
+    job.confirm = { kind = "updateAllRun", title = Strings("Update all"),
+      yesLabel = Strings("Update all"), lines = lines }
+    self._modConfirm = job.confirm
+    self:_clearBusy()
+    return
+  end
+
+  if job.stage == "confirm" then
+    if self._modConfirm ~= job.confirm then
+      self._updateAll = nil
+      self:_clearBusy()
+      pcall(self._refreshMods, self)
+    end
     return
   end
 
@@ -6809,7 +7017,17 @@ function RomImporter:_finishUpdateAll(cancelled)
     self.modNotice = { ok = true, failures = job.failures,
       text = Strings("Stopped after updating %d items.", job.updated) }
   elseif (job.total or 0) == 0 then
-    self.modNotice = { ok = true, text = Strings("Everything is up to date.") }
+    local skipped = #(job.skippedCarts or {})
+    local text
+    if job.feedStale then
+      text = Strings("Could not reach the mod index; compared against the cached listing.")
+    elseif skipped > 0 then
+      text = Strings("Nothing to update. %d cart(s) came from another repo:",
+        skipped)
+    else
+      text = Strings("Everything is up to date.")
+    end
+    self.modNotice = { ok = skipped == 0, text = text }
   elseif #job.failures == 0 then
     self.modNotice = { ok = true,
       text = Strings("Updated %d items.", job.updated) }
@@ -6817,6 +7035,13 @@ function RomImporter:_finishUpdateAll(cancelled)
     self.modNotice = { ok = false, failures = job.failures,
       text = Strings("Updated %d of %d. %d failed:", job.updated, job.total,
         #job.failures) }
+  end
+  for _, cart in ipairs(job.skippedCarts or {}) do
+    local lines = self.modNotice.failures or {}
+    lines[#lines + 1] = Strings(
+      "%s is listed by %s but this copy came from %s; update it from Find if that is the same cart.",
+      tostring(cart.name), tostring(cart.theirs), tostring(cart.mine))
+    self.modNotice.failures = lines
   end
   for _, cart in ipairs(job.updatedCarts or {}) do
     if cart.base then
@@ -6920,7 +7145,7 @@ end
 -- never ran.  The fetch now starts here and completes across later frames in
 -- _pumpFindFetch.  Only an explicit Refresh is blocking; boot prewarm and the
 -- first visit keep the launcher interactive while the listing arrives.
-function RomImporter:_refreshFind(force)
+function RomImporter:_refreshFind(force, opts)
   -- The notice is the fix, not the gate (#876).  This branch used to return an
   -- empty listing silently, and because the player had by then added a source,
   -- the panel skipped its "No mod index added" card and rendered the merged
@@ -6951,13 +7176,14 @@ function RomImporter:_refreshFind(force)
     handles[i] = { source = source,
       h = ModIndex.beginFetch(source, { force = force == true }) }
   end
+  local quiet = (opts and opts.quiet) == true
   self._findFetch = {
-    handles = handles, force = force == true,
+    handles = handles, force = force == true, quiet = quiet,
     mods = {}, seen = {}, cats = {}, catSeen = {}, errs = {},
     carts = {}, cartSeen = {}, bases = {}, baseSeen = {},
     stale = false, oldest = nil, at = 1,
   }
-  if force == true then
+  if force == true and not quiet then
     self:_setBusy(Strings("Fetching mod index"),
       #sources == 1 and (sources[1].label or sources[1].feed)
         or Strings("%d indexes", #sources))
@@ -7042,9 +7268,11 @@ function RomImporter:_pumpFindFetch()
                      baseGames = f.bases, stale = f.stale,
                      checkedAt = f.oldest }
   self.findLoaded = true
-  if #f.errs > 0 then
+  if #f.errs > 0 and f.quiet then
+    if self._updateAll then self._updateAll.feedStale = true end
+  elseif #f.errs > 0 then
     self.findNotice = { ok = false, text = table.concat(f.errs, "  -  ") }
-  elseif f.force then
+  elseif f.force and not f.quiet then
     self.findNotice = { ok = true,
       text = (#f.carts > 0)
         and Strings("Refreshed - %d mods and %d carts listed", #f.mods, #f.carts)

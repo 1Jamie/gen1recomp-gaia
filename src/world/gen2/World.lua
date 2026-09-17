@@ -49,6 +49,7 @@ local Movement = require("src.script.gen2.Movement")
 local Music = require("src.core.Music")
 local NPC = require("src.world.gen2.Npc")
 local Party = require("src.pokemon.Party")
+local Sprites = require("src.pokemon.Sprites")
 local Permissions = require("src.world.gen2.Permissions")
 local Pipelines = require("src.render.Pipelines")
 local PixelCanvas = require("src.render.PixelCanvas")
@@ -214,6 +215,12 @@ local MAPSETUP_NO_FADE = {
   [MAPSETUP.CONNECTION] = true, [MAPSETUP.SUBMENU] = true,
 }
 
+-- data/maps/setup_scripts.asm:48, :154, :175, :26-30; home/audio.asm:281, :335, :412
+local MAPSETUP_MUSIC_BIKE = {
+  [MAPSETUP.WARP] = true, [MAPSETUP.TELEPORT] = true,
+  [MAPSETUP.CONTINUE] = true, [MAPSETUP.LINKRETURN] = true,
+}
+
 -- MapSetupCommands $26 UpdateRoamMons and $27 JumpRoamMons, read off the same
 -- eleven scripts with the same fallthroughs honoured.  This is the ONLY thing
 -- that moves the three legendary beasts around Johto, and where each sits in
@@ -270,6 +277,10 @@ local SPAWN_HOME = "SPAWN_HOME"
 local START_MAP = "PLAYERS_HOUSE_2F"
 local START_X, START_Y, START_FACING = 3, 3, "down"
 local PLAYER_SPRITE = "SPRITE_CHRIS"
+
+-- engine/overworld/player_object.asm:29-41
+local PLAYER_PAL_MALE = { palette = 8 }
+local PLAYER_PAL_FEMALE = { palette = 9 }
 
 -- constants/event_flags.asm.  HatchEggs sets this one by hand, for exactly one
 -- species, right after SetSeenAndCaughtMon.  wEventFlags is keyed by NUMBER
@@ -2330,12 +2341,11 @@ function World:updateSkyfall()
   if not st then return end
   if st.phase == "hidden" then
     st.timer = st.timer - 1
-    if st.timer <= 0 then
-      st.phase = "fall"
-      st.timer = SKYFALL_BEAT_FRAMES
-      self.playerMasked = nil
-    end
-    return
+    if st.timer > 0 then return end
+    -- engine/overworld/map_objects.asm:1390-1402
+    st.phase = "fall"
+    st.timer = SKYFALL_BEAT_FRAMES
+    self.playerMasked = nil
   end
   st.height = st.height + 1
   if self.player then
@@ -2676,20 +2686,23 @@ function World:playMapMusic()
   end
 end
 
--- data/maps/setup_scripts.asm:48
+-- data/maps/setup_scripts.asm:48, :117
 -- home/audio.asm:335
 -- home/audio.asm:281
-function World:setMapMusic(mapId, seamless)
+-- engine/overworld/events.asm:993
+function World:setMapMusic(mapId, seamless, method)
   local data = self.game and self.game.data
   local audio = data and data.audio
   if not (audio and audio.runtime) then return end
-  local bike = not seamless
+  method = method or self.setupMethod or MAPSETUP.WARP
+  local bikeRow = (not seamless) and MAPSETUP_MUSIC_BIKE[method] or false
+  local bike = bikeRow
     and FieldMoves.isBiking(self.playerState)
     and self:playBikeMusic()
   if bike then return end
   Music.playMap(data, mapId, nil,
                 FieldMoves.isSurfing(self.playerState),
-                seamless and Music.MAP_FADE or nil,
+                (not bikeRow) and Music.MAP_FADE or nil,
                 self:mapMusicSong(mapId))
 end
 
@@ -3582,7 +3595,11 @@ function World:runMapSetup(method, load, fly)
   -- the cart puts it -- in the setup SCRIPT, not in the map load.
   self:roamMonsBeforeLoad(method)
   local wrapped = function()
+    -- data/maps/setup_scripts.asm
+    local prevMethod = self.setupMethod
+    self.setupMethod = method
     local ok = load()
+    self.setupMethod = prevMethod
     -- engine/overworld/map_objects_2.asm:1
     self.playerMasked = nil
     -- data/maps/setup_scripts.asm:100; engine/overworld/map_setup.asm:88
@@ -4326,8 +4343,16 @@ function World:showPokePic(speciesIndex)
     self.game and self.game.data and self.game.data.pokemon, speciesIndex)
   local path = def and def.spriteFront
   if not path then self.pokePic = nil return end
+  local trueColor
+  path, trueColor = Sprites.pic(path, {
+    species = id,
+    side = "front",
+    kind = "overworld",
+    data = self.game and self.game.data,
+  })
   local ok, img = pcall(Assets.image, path)
   self.pokePic = ok and img or nil
+  self.pokePicTrueColor = trueColor
   self.pokePicName = id
   -- _CGB_Pokepic (engine/gfx/cgb_layouts.asm:744) fills the whole menu box with
   -- PAL_BG_GRAY, so the window is the map's grey ramp, not the mon's colors.
@@ -5940,6 +5965,13 @@ function World:playerGender()
   return save and save.player and save.player.gender or nil
 end
 
+-- engine/overworld/player_object.asm:29-41; pokegold player_object.asm:19
+function World:playerObjectDef()
+  if not self:isCrystal() then return nil end
+  return FieldMoves.isFemale(self:playerGender())
+    and PLAYER_PAL_FEMALE or PLAYER_PAL_MALE
+end
+
 -- The Chris/Kris sheet the player wears with no state on it
 -- (data/sprites/player_sprites.asm:2, :9).
 function World:playerSpriteName()
@@ -6514,10 +6546,10 @@ function World:spawnFlyLeaves(fa)
   end
 end
 
--- engine/events/overworld.asm:597
+-- engine/events/overworld.asm:597; engine/overworld/warp_connection.asm:315-331
 function World:flyHides()
-  local all = self.flyAnim ~= nil or self.flyHidden == "from"
-  return all, all or self.flyHidden ~= nil
+  local all = self.flyAnim ~= nil or self.flyHidden ~= nil
+  return all, all
 end
 
 -- engine/events/field_moves.asm:429-446
@@ -9653,14 +9685,15 @@ function World:applySpritePalette(entity)
       self.flashUsed)
   -- entity.def is the object_event, whose own palette field OVERRIDES the
   -- sprite's (Palettes.objectPaletteId; AddMapObject, player_object.asm:187).
-  -- The player has no object_event here, so it falls through to the sheet.
+  local def = entity.def
+  if entity == self.player then def = self:playerObjectDef() end
   local colors = Palettes.spritePalette(self.palettes, daytime,
-    entity.spriteDef, entity.def)
+    entity.spriteDef, def)
   if not colors then return end
   -- The bake cache key has to be the palette actually chosen, or the three
   -- beasts -- one sheet, three object palettes -- would all share the first
   -- bake taken.
-  local id = Palettes.objectPaletteId(entity.def)
+  local id = Palettes.objectPaletteId(def)
     or entity.spriteDef.paletteId or 0
   entity.sprite:setObjPalette(colors,
     ("gen2:%s:%d"):format(tostring(daytime), id))
@@ -11486,16 +11519,23 @@ function World:drawTilted(w, h, s, gw, gh)
   end
 
   local previous = G.getCanvas()
+  local prevScissor = { G.getScissor() }
   G.setCanvas(self.tiltCanvas)
-  G.clear(0, 0, 0, 0)
+  G.clear(0, 0, 0, 1)
   -- A canvas does not reset the transform, so anything drawn into one from
   -- inside a draw call needs push()/origin() around it.
-  G.push()
+  G.push("all")
   G.origin()
+  G.setScissor()
   self:drawGround(s)
   if self.bgOverlay then self.bgOverlay(s) end
   G.pop()
   G.setCanvas(previous)
+  if prevScissor[1] then
+    G.setScissor(prevScissor[1], prevScissor[2], prevScissor[3], prevScissor[4])
+  else
+    G.setScissor()
+  end
 
   mesh:setTexture(self.tiltCanvas)
   mesh:setVertices(Tilt.meshCorners(gw, gh))
@@ -11703,16 +11743,21 @@ function World:draw()
       math.floor((h - 144 * sPic) / 2) - posLift)
     G.scale(sPic, sPic)
     G.setColor(1, 1, 1, 1)
-    local function body()
-      Font.drawBox(POKEPIC.left, POKEPIC.top, POKEPIC.w, POKEPIC.h)
+    local raw = self.pokePicTrueColor and GbcPalette.mode == "gbc"
+    local function pic()
       G.draw(self.pokePic, (POKEPIC.left + 1 + pad[1]) * 8,
         (POKEPIC.top + 1 + pad[2]) * 8)
+    end
+    local function body()
+      Font.drawBox(POKEPIC.left, POKEPIC.top, POKEPIC.w, POKEPIC.h)
+      if not raw then pic() end
     end
     if self.pokePicColors then
       GbcPalette.with(self.pokePicColors, body)
     else
       body()
     end
+    if raw then pic() end
     G.pop()
     G.setColor(1, 1, 1, 1)
   end

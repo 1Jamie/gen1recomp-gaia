@@ -175,6 +175,8 @@ function PartyMenu.mirrorsIcon(name)
 end
 
 local iconImages = {}
+-- engine/items/town_map.asm:514
+local OAM_XFLIP = { sx = -1 }
 
 -- Party icons are OBJs (engine/gfx/mon_icons.asm WriteMonPartySpriteOAM
 -- writes OAM blocks), so they render through OBP0, and GBPalNormal
@@ -208,7 +210,8 @@ end
 -- selection cursor of their own: Trade_AnimCircledMon
 -- (engine/movie/trade.asm) cycles the party sprite's two frames the whole
 -- time the mon rides the link cable (#750).
-function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt)
+-- `obp` overrides the OBP0 bake: engine/movie/trade.asm:385
+function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt, obp)
   local icons = game.data.icons
   if not icons then return end
   local def = game.data.pokemon[mon.species]
@@ -221,18 +224,20 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt)
   -- change its menu icon.
   local entry = (icons.bySpecies and icons.bySpecies[mon.species])
              or (def and def.icon)
-  local name, path
+  local name, path, trueColor
   if type(entry) == "string" then
     name = entry
     path = icons.icons and icons.icons[entry]
   elseif type(entry) == "table" then
     path = entry.image
+    trueColor = entry.trueColor
   end
   if not path then
     name = def and def.dex and icons.byDex and icons.byDex[def.dex]
     path = name and icons.icons and icons.icons[name]
   end
-  path = require("src.pokemon.Sprites").iconPath(game.data, mon, path, { name = name })
+  path, trueColor = require("src.pokemon.Sprites")
+    .iconPath(game.data, mon, path, { name = name, trueColor = trueColor })
   if not path then return end
   -- Built-in icon classes are DMG 2bpp OBJ art and get the OBP0 bake; a
   -- mod's own image (an entry table rather than an icon name) is authored
@@ -240,13 +245,32 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt)
   -- split PartyMenu.mirrorsIcon makes for the OAM mirror.  Both live in one
   -- cache under different keys, so a mod pointing a table entry at a
   -- built-in path still gets its unbaked copy. #274
-  local key = name and (path .. "#obp") or path
+  --
+  -- trueColor art is unbaked for the same reason it is unshaded: obpIcon is
+  -- itself a 4-shade remap keyed off the red channel, so running it over
+  -- full-colour art destroys exactly what the flag asks to keep.  The flag
+  -- overrides `name`, because a pokemon.icon hook can substitute full-colour
+  -- art for a path that resolved to a built-in class and still carries one.
+  local baked = name ~= nil and not trueColor
+  local PaletteFX = require("src.render.PaletteFX")
+  local ogColors, ogGroup
+  if baked and PaletteFX.usesSpriteObp() then
+    if obp then
+      ogColors, ogGroup = obp[1], obp[2]
+    else
+      ogColors, ogGroup = PaletteFX.ogObjNormal()
+    end
+  end
+  local key = baked and (path .. "#obp" .. (ogGroup or "")) or path
   if iconImages[key] == nil then
     -- resolve through Assets so an overrides/ or transform-derived icon
     -- (e.g. a per-species image at assets/generated/icons/<name>.png) is
     -- picked up the same way battle sprites are
     local ok, img
-    if name then
+    if ogColors then
+      ok, img = pcall(require("src.render.SpriteRenderer").obpImage,
+                      path, ogColors, ogGroup)
+    elseif baked then
       ok, img = pcall(obpIcon, path)
     else
       ok, img = pcall(love.graphics.newImage, Assets.resolve(path))
@@ -283,12 +307,29 @@ function PartyMenu.drawIcon(game, mon, x, y, selected, counter, forceAlt)
     -- sx = -1 about the block's right edge, so the flipped copy lands on
     -- x+8..x+16: the OAM_XFLIP half
     love.graphics.draw(img, half, x + 16, y, 0, -1, 1)
+    if ogColors then
+      PaletteFX.markUiSpriteRedraw(img, half, x, y)
+      PaletteFX.markUiSpriteRedraw(img, half, x + 16, y, OAM_XFLIP)
+    end
   elseif ih > 16 then
-    love.graphics.draw(img, love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih), x, y)
+    local quad = love.graphics.newQuad(0, frame * 16, 16, 16, iw, ih)
+    love.graphics.draw(img, quad, x, y)
+    if ogColors then PaletteFX.markUiSpriteRedraw(img, quad, x, y) end
   else
     -- HELIX and any mod art that is a single frame: drawn whole, at
     -- whatever size the file is (unchanged path)
     love.graphics.draw(img, x, y)
+    if ogColors then PaletteFX.markUiSpriteRedraw(img, nil, x, y) end
+  end
+  -- Report the covering rect so Renderer:endFrame can re-blit it unshaded
+  -- over the colorized pass.  Every branch above lays a frame into a 16x16
+  -- OAM block except the last, which draws the file at its own size.
+  -- No vanilla icon record sets the flag, so this stays dead code without a
+  -- mod and the zone lists are exactly the ones the states returned.
+  if trueColor then
+    local mw, mh = 16, 16
+    if not (PartyMenu.mirrorsIcon(name) or ih > 16) then mw, mh = iw, ih end
+    require("src.render.PaletteFX").markTrueColor(x, y, mw, mh)
   end
   return true
 end
@@ -512,6 +553,7 @@ function PartyMenu:update(dt)
           refuseBadge(self)
           return
         end
+        self.submenu = nil -- engine/menus/start_sub_menus.asm:66
         ow:useFlashFieldMove(function() self:close() end)
         return
       elseif action == "surf" then
@@ -530,6 +572,7 @@ function PartyMenu:update(dt)
           -- GBPalWhiteOutWithDelay3 + jp .goBackToMap only follow it, so
           -- trySurf closes this menu when its text does (#385)
           local fx, fy = ow.player:facingCell()
+          self.submenu = nil -- engine/menus/start_sub_menus.asm:66
           ow:trySurf(fx, fy, function() self:close() end)
           return
         end
@@ -602,6 +645,7 @@ function PartyMenu:update(dt)
             refuseBadge(self)
             return
           end
+          self.submenu = nil -- engine/menus/start_sub_menus.asm:66
           ow:useStrengthFieldMove(mon, function() self:close() end)
           return
         elseif ow and ow.useFieldMove then

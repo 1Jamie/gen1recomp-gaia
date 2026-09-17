@@ -1229,6 +1229,27 @@ R.sprites = {
     -- top-left in pixels (default: bottom-center).
     frameWidth = f.opt(f.int(1)),
     frameHeight = f.opt(f.int(1)),
+    -- how many frames to skip from the start of the sheet, for art whose
+    -- usable frames do not begin at index 0
+    frameOffset = f.opt(f.int(0)),
+    -- frames per sheet row; 1 (the default) is the vanilla vertical strip
+    frameColumns = f.opt(f.int(1)),
+    -- Multi-part frames: `cells` is one list per animation frame, and each
+    -- cell blits a piece of the sheet at an offset inside the frame.  A sprite
+    -- whose parts move independently (a head over a body) is assembled here
+    -- rather than being baked into the sheet.  cellWidth/cellHeight give the
+    -- piece size and cellColumns how many pieces a sheet row holds, so `tile`
+    -- is an index into that grid.
+    cells = f.opt(f.list(f.list(f.rec{
+      tile = f.int(0),
+      dx = f.opt(f.int(-256, 256)),
+      dy = f.opt(f.int(-256, 256)),
+      flipX = f.opt(f.bool),
+      flipY = f.opt(f.bool),
+    }))),
+    cellWidth = f.opt(f.int(1)),
+    cellHeight = f.opt(f.int(1)),
+    cellColumns = f.opt(f.int(1)),
     anchorX = f.opt(f.num),
     anchorY = f.opt(f.num),
     trueColor = f.opt(f.bool),
@@ -1416,6 +1437,7 @@ R.move_effects = {
   fields = {
     kind = f.enum{ "primary", "secondary", "full" },
     accuracyChecked = f.opt(f.bool),
+    missText = f.opt(f.enum{ "didntAffect", "butItFailed", "evadedAttack" }),
     run = f.opt(f.fn),
   },
   example = 'mod.content.move_effects:register("DRAIN_PP_EFFECT", { kind = "primary", run = fn })',
@@ -1819,14 +1841,19 @@ end
 
 R.icons = {
   semantics = "record", target = "icons.bySpecies",
-  value = f.union{ f.str, f.rec{ image = f.path, frames = f.opt(f.int(1)) } },
+  -- trueColor is the same 4-shade opt-out the pokemon and trainers records
+  -- carry: flagged art skips the OBP bake and reports its rect so the SGB
+  -- pass re-blits it unshaded, instead of being bucketed by red channel.
+  value = f.union{ f.str, f.rec{ image = f.path, frames = f.opt(f.int(1)),
+                                 trueColor = f.opt(f.bool) } },
   gen2Value = f.union{
     -- the assignment form: a species id mapped to a sheet name
     f.str,
     -- the sheet form: width/height are the sheet's pixel size, and every
     -- vanilla sheet is a 16x32 two-frame strip
     f.rec{ id = f.opt(f.str), index = f.opt(f.int(0, 255)), image = f.path,
-           width = f.int(1), height = f.int(1), frames = f.int(1) },
+           width = f.int(1), height = f.int(1), frames = f.int(1),
+           trueColor = f.opt(f.bool) },
   },
   gen2Extra = function(id, value)
     if gen2IconIsSheet(id) then

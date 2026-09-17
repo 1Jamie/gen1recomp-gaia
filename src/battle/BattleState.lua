@@ -2111,6 +2111,19 @@ function BattleState:menuLockedAction(battler)
   return nil
 end
 
+-- engine/battle/core.asm:293
+function BattleState:enterCommandMenu()
+  self.phase = "menu"
+  if self.kind == "link" or self.safari or self.demo then return end
+  if not (self.player and self.player.mon and self.player.mon.hp > 0) then return end
+  local locked = self:menuLockedAction(self.player)
+  if locked then
+    self:snapIdleBars()
+    self:clearTurnFlinches()
+    self:resolveTurn(locked)
+  end
+end
+
 -- After FIGHT: skip MoveSelectionMenu (core.asm:320-329).  Own
 -- trapping/Bide continues; foe trapping forces CANNOT_MOVE ($ff).
 function BattleState:fightLockedAction(battler)
@@ -2284,6 +2297,19 @@ function BattleState:tickFx()
   self:updateFx()
 end
 
+function BattleState:snapIdleBars()
+  for _, b in ipairs({ self.player, self.enemy }) do
+    if b then
+      if b.shownHP then
+        b.shownHP = b.mon.hp
+        b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
+      end
+      b.drainFloor = nil
+      b.shownStatus = b.mon.status
+    end
+  end
+end
+
 function BattleState:update(dt)
   self:tickFx()
   local input = self.game.input
@@ -2291,16 +2317,7 @@ function BattleState:update(dt)
   -- safety net: HP/status changed outside a queued drain (level-up heals,
   -- field effects, bag cures) snaps once the queue is idle
   if self.phase == "menu" then
-    for _, b in ipairs({ self.player, self.enemy }) do
-      if b then
-        if b.shownHP then
-          b.shownHP = b.mon.hp
-          b.shownPx = Timing.hpBarPixels(b.mon.hp, math.max(1, b.mon.stats.hp))
-        end
-        b.drainFloor = nil
-        b.shownStatus = b.mon.status
-      end
-    end
+    self:snapIdleBars()
   end
 
   if self.phase == "messages" then
@@ -2327,7 +2344,7 @@ function BattleState:update(dt)
         -- engine/battle/core.asm:2007
         self.msgHold = nil
         self.shown = nil
-        self.phase = "menu"
+        self:enterCommandMenu()
       elseif destination == "finish" then
         self:finish()
       end
@@ -4209,9 +4226,25 @@ local function primaryEffectFailed(msgs)
   if m:find("didn't affect", 1, true) then return true end
   if m:find("is unaffected", 1, true) then return true end
   if m:find("protected by MIST", 1, true) then return true end
+  -- engine/battle/move_effects/leech_seed.asm:28
+  if m:find("evaded attack", 1, true) then return true end
   -- engine/battle/effects.asm:46-47
   if m:lower():find("already asleep", 1, true) then return true end
   return false
+end
+
+-- engine/battle/effects.asm:67, :159, :1158, :712, :1366
+-- engine/battle/move_effects/paralyze.asm:40, leech_seed.asm:28
+local function statusMissText(self, record, user, target)
+  local kind = record and record.missText
+  if kind == "didntAffect" then
+    return self:romText("_DidntAffectText", "It didn't affect\n%s!", displayName(target))
+  elseif kind == "butItFailed" then
+    return self:romText("_ButItFailedText", "But, it failed!")
+  elseif kind == "evadedAttack" then
+    return self:romText("_EvadedAttackText", "%s\nevaded attack!", displayName(target))
+  end
+  return self:romText("_AttackMissedText", "%s's\nattack missed!", displayName(user))
 end
 
 function BattleState:performMove(user, target, moveInst, isCalled)
@@ -4351,7 +4384,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
     if ENEMY_STAT_DOWN_MISS[move.effect] and not user.isPlayer
        and self.kind ~= "link" and self.rng(0, 255) < 64 then
       self:cancelMoveAnim()
-      self:sayNext(self:romText("_AttackMissedText", "%s's\nattack missed!", displayName(user)))
+      self:sayNext(statusMissText(self, record, user, target))
       return
     end
     -- accuracy-checked status effects run MoveHitTest, which has no
@@ -4364,7 +4397,7 @@ function BattleState:performMove(user, target, moveInst, isCalled)
       -- SleepEffect/PoisonEffect/... call PlayCurrentMoveAnimation only
       -- after the effect lands; a miss skips it
       self:cancelMoveAnim()
-      self:sayNext(self:romText("_AttackMissedText", "%s's\nattack missed!", displayName(user)))
+      self:sayNext(statusMissText(self, record, user, target))
       return
     end
     local msgs = record.run(ctx)
