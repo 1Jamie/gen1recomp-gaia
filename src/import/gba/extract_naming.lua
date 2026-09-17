@@ -85,7 +85,7 @@ local function encodePng(W, H, setPixel)
   return fd:getString()
 end
 
-local function bake4bppSheet(tiles, pal, cols, rows, transparent0)
+local function bake4bppSheet(tiles, pal, cols, rows, transparent0, keep)
   local tileCount = math.floor(#tiles / 32)
   local W, H = cols * 8, rows * 8
   return encodePng(W, H, function(x, y)
@@ -97,6 +97,7 @@ local function bake4bppSheet(tiles, pal, cols, rows, transparent0)
     local px = x % 8
     local byte = tiles[base + row * 4 + math.floor(px / 2) + 1] or 0
     local idx = (px % 2 == 0) and (byte % 16) or math.floor(byte / 16) % 16
+    if keep and not keep[idx] then return 0, 0, 0, 0 end
     if transparent0 and idx == 0 then return 0, 0, 0, 0 end
     return bgr555_to_rgba(pal[idx] or 0, false)
   end)
@@ -211,19 +212,25 @@ function ExtractNaming.run(rom, cache, opts)
   local btnPal = menuBanks[4] or menuBanks[0]
   local curPal = menuBanks[5] or menuBanks[0]
 
-  local function sheet(off, nbytes, cols, rows, pal, fname, transparent0)
+  local function sheet(off, nbytes, cols, rows, pal, fname, transparent0, keep)
     local tiles = readRaw(get, off, nbytes)
-    local png = bake4bppSheet(tiles, pal, cols, rows, transparent0 ~= false)
+    local png = bake4bppSheet(tiles, pal, cols, rows, transparent0 ~= false, keep)
     if png then write(cache, out(fname), png) end
   end
 
+  local pill = { [12] = true, [13] = true }
   sheet(A.back_button, 0x1E0, 5, 3, btnPal, "back_button.png")
   sheet(A.ok_button, 0x1E0, 5, 3, btnPal, "ok_button.png")
+  sheet(A.back_button, 0x1E0, 5, 3, btnPal, "back_button_glow.png", true, pill)
+  sheet(A.ok_button, 0x1E0, 5, 3, btnPal, "ok_button_glow.png", true, pill)
   sheet(A.page_swap_frame, 0x280, 5, 4, btnPal, "page_swap_frame.png")
-  sheet(A.page_swap_button, 0x100, 4, 2, btnPal, "page_swap_button.png")
-  sheet(A.page_swap_upper, 0x60, 5, 1, menuBanks[1] or btnPal, "page_swap_upper.png")
-  sheet(A.page_swap_lower, 0x60, 5, 1, menuBanks[2] or btnPal, "page_swap_lower.png")
-  sheet(A.page_swap_others, 0x60, 5, 1, menuBanks[3] or btnPal, "page_swap_others.png")
+  sheet(A.page_swap_button, 0x100, 4, 2, menuBanks[1] or btnPal, "page_swap_button.png")
+  sheet(A.page_swap_button, 0x100, 4, 2, menuBanks[1] or btnPal, "page_swap_button_upper.png")
+  sheet(A.page_swap_button, 0x100, 4, 2, menuBanks[2] or btnPal, "page_swap_button_lower.png")
+  sheet(A.page_swap_button, 0x100, 4, 2, menuBanks[3] or btnPal, "page_swap_button_others.png")
+  sheet(A.page_swap_upper, 0x60, 5, 1, btnPal, "page_swap_upper.png")
+  sheet(A.page_swap_lower, 0x60, 5, 1, btnPal, "page_swap_lower.png")
+  sheet(A.page_swap_others, 0x60, 5, 1, btnPal, "page_swap_others.png")
   sheet(A.input_arrow, 0x20, 1, 1, btnPal, "input_arrow.png")
   sheet(A.underscore, 0x20, 1, 1, btnPal, "underscore.png")
 
@@ -263,9 +270,14 @@ return {
   ok_button = %q,
   page_swap_frame = %q,
   page_swap_button = %q,
+  page_swap_button_upper = %q,
+  page_swap_button_lower = %q,
+  page_swap_button_others = %q,
   page_swap_upper = %q,
   page_swap_lower = %q,
   page_swap_others = %q,
+  back_button_glow = %q,
+  ok_button_glow = %q,
   cursor = %q,
   input_arrow = %q,
   underscore = %q,
@@ -278,8 +290,11 @@ return {
 ]],
     out("bg.png"), out("kb_upper.png"), out("kb_lower.png"), out("kb_symbols.png"),
     out("back_button.png"), out("ok_button.png"), out("page_swap_frame.png"),
-    out("page_swap_button.png"), out("page_swap_upper.png"), out("page_swap_lower.png"),
-    out("page_swap_others.png"), out("cursor.png"), out("input_arrow.png"),
+    out("page_swap_button.png"), out("page_swap_button_upper.png"),
+    out("page_swap_button_lower.png"), out("page_swap_button_others.png"),
+    out("page_swap_upper.png"), out("page_swap_lower.png"), out("page_swap_others.png"),
+    out("back_button_glow.png"), out("ok_button_glow.png"),
+    out("cursor.png"), out("input_arrow.png"),
     out("underscore.png"), out("rival.png"))
   write(cache, out("manifest.lua"), manifest)
   return true

@@ -276,8 +276,16 @@ local function drawPlayerIcon(st)
   if st.template == "RIVAL" then
     local rival = NamingChrome.get("rival")
     if rival then
-      local q = love.graphics.newQuad and love.graphics.newQuad(0, 0, 16, 32, rival:getDimensions())
-      if q then
+      local tick = math.floor((st.blink or 0) * 60 / 10) % 4
+      local sy = ({ 0, 96, 0, 128 })[tick + 1] or 0
+      local q = Naming._rivalQuad
+      if love.graphics.newQuad then
+        if not q then
+          q = love.graphics.newQuad(0, sy, 16, 32, rival:getDimensions())
+          Naming._rivalQuad = q
+        else
+          q:setViewport(0, sy, 16, 32)
+        end
         love.graphics.draw(rival, q, tlX, tlY)
         return
       end
@@ -287,7 +295,10 @@ local function drawPlayerIcon(st)
   local gid = playerOwId(st.gender)
   local spr = OwSprites.get(gid)
   if spr and spr.image then
-    local frame = OwSprites.pose(spr, "down", false, false)
+    local tick = math.floor((st.blink or 0) * 60 / 8) % 4
+    local frame = OwSprites.pose(spr, "down", false, false, {
+      frame = ({ 3, 0, 4, 0 })[tick + 1] or 0,
+    })
     local q = spr.quads[frame]
     if q then
       local ox = tlX + (L.iconW - spr.width) / 2
@@ -463,6 +474,21 @@ local function blit(key, x, y)
   end
 end
 
+local function pulseAmt(st)
+  return 0.5 + 0.5 * math.sin((st.blink or 0) * math.pi * 3)
+end
+
+local function blitPillGlow(key, x, y)
+  local img = NamingChrome.get(key)
+  if not img then return end
+  local a = 0.22 + pulseAmt(Naming._state) * 0.55
+  love.graphics.setBlendMode("add")
+  love.graphics.setColor(a, a, a, 1)
+  love.graphics.draw(img, x, y)
+  love.graphics.setBlendMode("alpha")
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 function Naming.draw()
   if not Naming.openFlag or not Naming._state then return end
   local st = Naming._state
@@ -504,14 +530,23 @@ function Naming.draw()
   -- 3) Keyboard letters (fixed colX grid — same as pret cursor)
   drawKeyboardKeys(page, FrlgFont.COLOR.WHITE)
 
-  -- 4) Side buttons (subsprite / center-compensated top-lefts)
-  -- pret shows the *next* page on the swap button (PageToNextGfxId).
   local nextPage = st.page % #PAGES + 1
+  local onSide = onButtonCol(st)
+  local pageBtn = ({
+    "page_swap_button_upper",
+    "page_swap_button_lower",
+    "page_swap_button_others",
+  })[nextPage]
   blit("page_swap_frame", L.pageFrameX, L.pageFrameY)
-  blit("page_swap_button", L.pageBtnX, L.pageBtnY)
+  blit(pageBtn or "page_swap_button", L.pageBtnX, L.pageBtnY)
   blit(({ "page_swap_upper", "page_swap_lower", "page_swap_others" })[nextPage], L.pageLabelX, L.pageLabelY)
   blit("back_button", L.backX, L.backY)
   blit("ok_button", L.okX, L.okY)
+  if onSide and st.btn == 2 then
+    blitPillGlow("back_button_glow", L.backX, L.backY)
+  elseif onSide and st.btn == 3 then
+    blitPillGlow("ok_button_glow", L.okX, L.okY)
+  end
 
   -- 5) Title + icon + typed name (above KB)
   love.graphics.setColor(1, 1, 1, 1)
@@ -555,16 +590,18 @@ function Naming.draw()
     local y = L.cursorBaseY + (st.row - 1) * 16
     local img, q = NamingChrome.cursorQuad(0)
     if img and q then
-      love.graphics.setColor(1, 1, 1, 1)
+      local pulse = pulseAmt(st)
+      love.graphics.setColor(1, 1, 1, 12 / 16)
       love.graphics.draw(img, q, x, y)
+      love.graphics.setBlendMode("add")
+      love.graphics.setColor(pulse * 0.55, pulse * 0.55, pulse * 0.55, 1)
+      love.graphics.draw(img, q, x, y)
+      love.graphics.setBlendMode("alpha")
+      love.graphics.setColor(1, 1, 1, 1)
     else
-      love.graphics.setColor(1, 0.1, 0.1, 1)
+      love.graphics.setColor(1, 0.1, 0.1, 0.75)
       love.graphics.rectangle("line", x, y, 16, 16)
     end
-  else
-    local hy = ({ L.pageFrameY, L.backY, L.okY })[st.btn] or L.pageFrameY
-    love.graphics.setColor(1, 1, 0.35, 0.35)
-    love.graphics.rectangle("fill", L.pageFrameX, hy, 40, 24)
   end
 
   -- 7) Banner — pret PrintControls / WIN_BANNER (bg0, 30×2 tiles).

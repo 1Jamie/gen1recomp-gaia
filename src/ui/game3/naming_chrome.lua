@@ -40,7 +40,9 @@ function NamingChrome.install(_cache)
       local keys = {
         "bg", "kb_upper", "kb_lower", "kb_symbols",
         "back_button", "ok_button", "page_swap_frame", "page_swap_button",
+        "page_swap_button_upper", "page_swap_button_lower", "page_swap_button_others",
         "page_swap_upper", "page_swap_lower", "page_swap_others",
+        "back_button_glow", "ok_button_glow",
         "cursor", "input_arrow", "underscore", "rival",
       }
       for _, k in ipairs(keys) do
@@ -60,9 +62,14 @@ function NamingChrome.install(_cache)
       NamingChrome._images.ok_button = tryLoad(root .. "/ok_button.png")
       NamingChrome._images.page_swap_frame = tryLoad(root .. "/page_swap_frame.png")
       NamingChrome._images.page_swap_button = tryLoad(root .. "/page_swap_button.png")
+      NamingChrome._images.page_swap_button_upper = tryLoad(root .. "/page_swap_button_upper.png")
+      NamingChrome._images.page_swap_button_lower = tryLoad(root .. "/page_swap_button_lower.png")
+      NamingChrome._images.page_swap_button_others = tryLoad(root .. "/page_swap_button_others.png")
       NamingChrome._images.page_swap_upper = tryLoad(root .. "/page_swap_upper.png")
       NamingChrome._images.page_swap_lower = tryLoad(root .. "/page_swap_lower.png")
       NamingChrome._images.page_swap_others = tryLoad(root .. "/page_swap_others.png")
+      NamingChrome._images.back_button_glow = tryLoad(root .. "/back_button_glow.png")
+      NamingChrome._images.ok_button_glow = tryLoad(root .. "/ok_button_glow.png")
       NamingChrome._images.cursor = tryLoad(root .. "/cursor.png")
       NamingChrome._images.input_arrow = tryLoad(root .. "/input_arrow.png")
       NamingChrome._images.underscore = tryLoad(root .. "/underscore.png")
