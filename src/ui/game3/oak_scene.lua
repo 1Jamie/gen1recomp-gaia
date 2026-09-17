@@ -1,8 +1,11 @@
 -- Oak speech scene layer: BG, portrait, platform, scroll, simple fades.
 
 local Display = require("src.core.game3.display")
+local BallOpen = require("src.core.game3.battle.ball_open")
 
 local OakScene = {}
+
+OakScene.BALL_SIDE = "intro"
 
 function OakScene.new(assets)
   assets = assets or {}
@@ -109,7 +112,11 @@ function OakScene.draw(scene)
     local sc = scene.nidoranScale or 1
     local ox = (scene.nidoranX or 96) - 32 * sc
     local oy = (scene.nidoranY or 96) - 32 * sc
+    -- pokefirered/src/battle_anim_special.c:1865
+    local coeff, cr, cg, cb = BallOpen.monBlend(OakScene.BALL_SIDE)
+    local shaded = BallOpen.setBlendShader(coeff, cr, cg, cb)
     love.graphics.draw(scene.nidoran, ox, oy, 0, sc, sc)
+    if shaded then love.graphics.setShader() end
   end
 
   if scene.ballVisible and scene.ball then
@@ -121,6 +128,9 @@ function OakScene.draw(scene)
     if q then love.graphics.draw(scene.ball, q, bx, by)
     else love.graphics.draw(scene.ball, bx, by) end
   end
+
+  -- pokefirered/src/pokeball.c:1066
+  BallOpen.draw()
 
   if (scene.fade or 0) > 0 then
     love.graphics.setColor(0, 0, 0, scene.fade)

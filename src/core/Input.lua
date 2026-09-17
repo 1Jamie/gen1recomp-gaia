@@ -19,7 +19,7 @@ local DEFAULT_BINDINGS = {
   tab = "select",
   rshift = "select",
   lshift = "select",
-  -- FRLG shoulders: bag paging + L=A alias (Game3 field loop).
+  -- FRLG shoulders: bag paging + L=A alias.
   q = "l",
   e = "r",
   lctrl = "l",
@@ -155,6 +155,25 @@ function Input:reset()
   self.triggerHeld = {}
   self.captureArmed = false
   self.captureEvents = nil
+  self.aliases = nil
+  self.aliasHeld = nil
+end
+
+-- pokefirered/src/main.c:325
+function Input:setButtonAlias(src, dst)
+  local aliases = self.aliases
+  if dst == nil then
+    if aliases then
+      aliases[src] = nil
+      if next(aliases) == nil then self.aliases = nil end
+    end
+    return
+  end
+  if not aliases then
+    aliases = {}
+    self.aliases = aliases
+  end
+  aliases[src] = dst
 end
 
 function Input:armCapture()
@@ -256,6 +275,19 @@ function Input:step()
     end
   end
   self.pressQueue = {}
+  -- pokefirered/src/main.c:325
+  local aliases = self.aliases
+  local held = nil
+  if aliases then
+    for src, dst in pairs(aliases) do
+      if self.pressed[src] then self.pressed[dst] = true end
+      if self.state[src] then
+        held = held or {}
+        held[dst] = true
+      end
+    end
+  end
+  self.aliasHeld = held
 end
 
 -- The on-screen touch overlay (src/core/TouchControls.lua) presses GB
@@ -494,8 +526,11 @@ function Input:reconcile()
   end
 end
 
+-- pokefirered/src/main.c:325
 function Input:isDown(btn)
-  return self.state[btn] or false
+  if self.state[btn] then return true end
+  local held = self.aliasHeld
+  return (held and held[btn]) or false
 end
 
 -- True when the on-screen overlay is one of the live sources holding this

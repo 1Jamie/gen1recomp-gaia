@@ -62,9 +62,9 @@ function BattleBg.sheetKey(id)
   return TERRAIN_SHEET[id] or "building"
 end
 
-function BattleBg.draw(id, enemyOx, playerOx)
+function BattleBg.draw(id, enemyOx, playerOx, bgOx)
   local key = BattleBg.sheetKey(id)
-  return BattleChrome.drawTerrain(key, enemyOx, playerOx)
+  return BattleChrome.drawTerrain(key, enemyOx, playerOx, bgOx)
 end
 
 return BattleBg

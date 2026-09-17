@@ -99,26 +99,23 @@ local function hp_bar_top_left(barCx, barCy)
   return barCx - 16, barCy
 end
 
-local function hp_ratio(side, battler)
-  local ok, Anim = pcall(require, "src.core.game3.battle.anim")
-  if ok and Anim and Anim.displayHpRatio then
-    return Anim.displayHpRatio(side, battler)
-  end
-  if not battler or not battler.mon then return 0 end
-  local hp = tonumber(battler.mon.hp) or 0
-  local maxHp = tonumber(battler.mon.maxHp) or 1
-  if maxHp < 1 then maxHp = 1 end
-  return math.max(0, math.min(1, hp / maxHp))
-end
-
-local function display_hp_nums(side, battler)
+local function hp_values(side, battler)
   local ok, Anim = pcall(require, "src.core.game3.battle.anim")
   if ok and Anim and Anim.displayHpRatio then
     local _, hp, maxHp = Anim.displayHpRatio(side, battler)
-    return math.floor((hp or 0) + 0.5), math.floor((maxHp or 0) + 0.5)
+    return tonumber(hp) or 0, tonumber(maxHp) or 1
   end
   local mon = battler and battler.mon
-  return tonumber(mon and mon.hp) or 0, tonumber(mon and mon.maxHp) or 0
+  local hp = tonumber(mon and mon.hp) or 0
+  local maxHp = tonumber(mon and mon.maxHp) or 1
+  if maxHp < 1 then maxHp = 1 end
+  return hp, maxHp
+end
+
+-- pokefirered/src/battle_interface.c:2050
+local function display_hp_nums(side, battler)
+  local hp, maxHp = hp_values(side, battler)
+  return math.floor(hp), math.floor(maxHp)
 end
 
 local function small_opts(colors)
@@ -217,7 +214,7 @@ function Healthbox.draw(side, battler)
 
   local barCx, barCy = hp_bar_center(side, c.x + ox, c.y)
   local bx, by = hp_bar_top_left(barCx, barCy)
-  BattleChrome.drawHpBar(bx, by, hp_ratio(side, battler))
+  BattleChrome.drawHpBar(bx, by, hp_values(side, battler))
 
   local name = State.displayName(battler)
   local lv = battler.mon and battler.mon.level or 1

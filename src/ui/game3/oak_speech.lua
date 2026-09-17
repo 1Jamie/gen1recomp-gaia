@@ -9,6 +9,8 @@ local Choice = require("src.ui.game3.choice")
 local Fade = require("src.ui.game3.fade")
 local Naming = require("src.ui.game3.naming")
 local OakScene = require("src.ui.game3.oak_scene")
+local BallOpen = require("src.core.game3.battle.ball_open")
+local SE = require("src.core.game3.se_ids")
 
 local OakSpeech = {}
 
@@ -148,6 +150,13 @@ local function openNaming(state, template, done)
   end)
 end
 
+-- pokefirered/src/oak_speech.c:1177
+local RELEASE_DELAY = 32
+-- pokefirered/src/oak_speech.c:1216
+local RETURN_DELAY = 32
+local RETURN_SPRITE_TIMER = 64
+local RETURN_TIMER = 48
+
 -- Step table (ids stable for hooks)
 local STEPS = {
   { id = "init", kind = "fn" },
@@ -206,25 +215,41 @@ function OakSpeech._runStep(state)
   end
 
   if step.id == "release_nidoran" then
-    state.waiting = "task"
-    scene.nidoranVisible = true
-    scene.nidoranX, scene.nidoranY = 100, 66
-    scene.nidoranScale = 0.4
+    -- pokefirered/src/pokeball.c:1027
+    scene.nidoranVisible = false
+    scene.nidoranX, scene.nidoranY, scene.nidoranScale = 100, 66, 1
     scene.ballVisible = true
     scene.ballX, scene.ballY, scene.ballFrame = 100, 66, 0
-    Task.tween(32, function(u)
-      local trig = u * 128
-      local s = math.sin(trig * math.pi / 180)
-      scene.nidoranX = 100 + (96 - 100) * u
-      scene.nidoranY = 66 + (96 - 66) * u - s * 8
-      scene.nidoranScale = 0.4 + 0.6 * u
-      scene.ballFrame = u > 0.5 and 1 or 0
-    end, function()
-      scene.ballVisible = false
+    Task.spawn(function(t)
+      local f = t.frames - 1
+      -- pokefirered/src/pokeball.c:1052
+      if f < RELEASE_DELAY then return false end
+      local g = f - RELEASE_DELAY
+      if g == 0 then
+        BallOpen.start(OakScene.BALL_SIDE, scene.ballX, scene.ballY, nil, true)
+        scene.nidoranVisible = true
+      end
+      -- pokefirered/src/pokeball.c:138
+      if g < 5 then scene.ballFrame = 1
+      elseif g < 10 then scene.ballFrame = 2
+      else scene.ballVisible = false end
+      -- pokefirered/src/data.c:124
+      scene.nidoranScale = (0x28 + 0x12 * math.min(12, g)) / 256
+      -- pokefirered/src/pokeball.c:1083
+      local trig = math.max(0, math.min(128, 4 * (g - 1)))
+      scene.nidoranX = 100 + (96 - 100) * trig / 128
+      scene.nidoranY = 66 + (96 - 66) * trig / 128
+      if trig < 128 then
+        local sine = -BallOpen.sin(trig, 32)
+        scene.nidoranX = scene.nidoranX + sine
+        scene.nidoranY = scene.nidoranY + sine
+        return false
+      end
       scene.nidoranX, scene.nidoranY, scene.nidoranScale = 96, 96, 1
-      state.waiting = nil
-      advance(state)
+      scene.ballVisible = false
+      return true
     end)
+    advance(state)
     return
   end
 
@@ -254,24 +279,41 @@ function OakSpeech._runStep(state)
 
   if step.id == "return_nidoran" then
     state.waiting = "task"
+    -- pokefirered/src/pokeball.c:1132
+    scene.nidoranVisible = true
+    scene.nidoranX, scene.nidoranY, scene.nidoranScale = 96, 96, 1
     scene.ballVisible = true
-    scene.ballX, scene.ballY, scene.ballFrame = 100, 66, 1
-    local rise = 0
+    scene.ballX, scene.ballY, scene.ballFrame = 100, 66, 0
     Task.spawn(function(t)
-      if t.frames <= 32 then
-        scene.nidoranScale = 1 - t.frames / 40
+      local f = t.frames - 1
+      -- pokefirered/src/pokeball.c:1156
+      if f < RETURN_DELAY then return false end
+      local g = f - RETURN_DELAY
+      if g == 0 then
+        BallOpen.start(OakScene.BALL_SIDE, scene.ballX, scene.ballY, nil, true)
       end
-      if t.frames > 32 and t.frames <= 56 then
-        rise = rise + 1
-        scene.nidoranY = 96 - rise
-      end
-      if t.frames == 48 then
+      if g < 33 then
+        -- pokefirered/src/pokeball.c:138
+        scene.ballFrame = (g < 5) and 1 or 2
+        -- pokefirered/src/pokeball.c:1188
+        if g == 11 then Audio.playSe(SE.SE_BALL_TRADE) end
+        -- pokefirered/src/data.c:131
+        local s = (g <= 18) and (256 - 2 * g) or (220 - 16 * (g - 18))
+        scene.nidoranScale = math.max(0, s) / 256
+        -- pokefirered/src/pokeball.c:1196
+        scene.nidoranY = 96 - math.floor(96 * g / 256)
+      else
+        -- pokefirered/src/pokeball.c:145
         scene.nidoranVisible = false
-        scene.ballVisible = false
+        local h = g - 33
+        scene.ballFrame = (h < 5) and 1 or 0
+        if h >= 10 then scene.ballVisible = false end
       end
-      return t.frames >= 64
+      return f >= RETURN_SPRITE_TIMER + RETURN_TIMER
     end, {
       onDone = function()
+        scene.nidoranVisible = false
+        scene.ballVisible = false
         state.waiting = nil
         advance(state)
       end,
@@ -509,6 +551,7 @@ function OakSpeech.new(assets)
     scene = OakScene.new(assets),
     timer = 0,
   }
+  BallOpen.reset()
   Audio.playSong(292)
   OakSpeech._runStep(state)
   return state
@@ -528,6 +571,7 @@ function OakSpeech.update(state, input, dt)
 
   state.timer = (state.timer or 0) + (dt or 1 / 60)
   Task.update(dt)
+  BallOpen.tick()
   Fade.tick(dt)
 
   if Naming.isOpen() then

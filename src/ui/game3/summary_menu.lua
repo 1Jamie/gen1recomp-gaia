@@ -51,6 +51,18 @@ local function party_count()
   return #(SummaryMenu._party or {})
 end
 
+-- pokefirered/src/pokemon_summary_screen.c:5180
+local function play_mon_cry()
+  local mon = current_mon()
+  if not mon or mon.isEgg then return end
+  local species = Pokemon.speciesOf(mon)
+  if not species then return end
+  local okA, Audio = pcall(require, "src.core.game3.audio")
+  if okA and Audio and Audio.playCry then
+    Audio.playCry(species)
+  end
+end
+
 local function moves_for_mon(mon)
   if not mon then return {} end
   local out = {}
@@ -149,6 +161,8 @@ function SummaryMenu.openMenu(party, startIndex, opts)
 
   SummaryChrome.install(opts.cache)
   Stack.push("summary", SummaryMenu, { hideBelow = true })
+  -- pokefirered/src/pokemon_summary_screen.c:1111
+  play_mon_cry()
 end
 
 function SummaryMenu.close()
@@ -183,6 +197,8 @@ local function change_mon(delta)
   elseif SummaryMenu._page == PAGE_EGG then
     SummaryMenu._page = PAGE_INFO
   end
+  -- pokefirered/src/pokemon_summary_screen.c:5153
+  play_mon_cry()
 end
 
 local function start_page_slide(newPage, dir)

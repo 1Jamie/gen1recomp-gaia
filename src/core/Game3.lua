@@ -238,16 +238,17 @@ function Game3:applyOptions(opts)
   end
 end
 
+-- pokefirered/src/main.c:325
 function Game3:_aliasLA()
-  if not self.session then return end
-  if not Options.lEqualsA(self.session) then return end
   local input = self.input
-  if not input then return end
-  if input.wasPressed and input:wasPressed("l") then
-    input:sourcePress("a", "l_equals_a")
-  elseif input.isDown and input:isDown("l") then
-    input:sourcePress("a", "l_equals_a_hold")
+  if not input or not input.setButtonAlias then return end
+  local on
+  if self.session then
+    on = Options.lEqualsA(self.session)
+  elseif type(self.options) == "table" then
+    on = tonumber(Options.block(self.options).buttonMode) == 2
   end
+  input:setButtonAlias("l", on and "a" or nil)
 end
 
 function Game3:_handleRegisteredItem()
@@ -318,6 +319,7 @@ function Game3:_handleBootAction(action)
 end
 
 function Game3:fixedUpdate(dt)
+  self:_aliasLA()
   if self.input and self.input.step then self.input:step() end
   if self.input and self.input.softResetStep and self.input:softResetStep() then
     self.input:reset()
@@ -356,7 +358,6 @@ function Game3:fixedUpdate(dt)
   end
 
   if self.phase == "field" then
-    self:_aliasLA()
     self:_handleRegisteredItem()
     if Runtime.isActive() then
       Runtime.update(dt)

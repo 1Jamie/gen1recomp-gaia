@@ -646,6 +646,14 @@ Versions.FIELD_EFFECTS = {
   fly_bird     = { pic = 0x398048, pal = 0x398FA8, w = 32, h = 32, frames = 4 },
   ripple       = { pic = 0x398BA8, pal = 0x398FA8, w = 16, h = 16, frames = 8 },
   emoticons    = { pic = 0x3C6AC8, pal = 0x35B968, w = 16, h = 16, frames = 15 },
+  -- pokefirered/src/field_effect.c:326
+  pokeball_glow = {
+    pic = 0x3CAF90, pal = 0x3CAFB0, w = 8, h = 8, frames = 1, indexed = true,
+  },
+  -- pokefirered/src/field_effect.c:336
+  pokemoncenter_monitor = {
+    pic = 0x3CAFD0, pal = 0x3CAFB0, w = 32, h = 16, frames = 4,
+  },
 }
 
 -- Battle interface chrome (FireRed USA 1.0 file offsets; LZ unless noted).

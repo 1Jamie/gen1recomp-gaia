@@ -124,7 +124,7 @@ local INFO_RIGHT = {
 
 local function party_print(text, px, py, maxW)
   FrlgFont.draw(tostring(text or ""), px, py, {
-    maxWidth = maxW or 40,
+    maxWidth = maxW or 56,
     colors = FrlgFont.COLOR.PARTY,
     small = true,
   })
@@ -1429,7 +1429,7 @@ local function draw_filled_slot(i, mon, selected)
   PartyChrome.drawSlot(win.kind, win.left, win.top, selected)
 
   local name = Pokemon.displayName(mon)
-  party_print(name, baseX + info.nick[1], baseY + info.nick[2], 40)
+  party_print(name, baseX + info.nick[1], baseY + info.nick[2], 56)
   party_print("Lv" .. tostring(mon.level or 0), baseX + info.level[1], baseY + info.level[2], 32)
 
   local gender = mon.gender or (Pokemon.gender and Pokemon.gender(mon.species, mon.personality))

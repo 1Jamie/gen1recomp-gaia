@@ -21,7 +21,11 @@ local BALL_OFFSETS = {
   { 0, 8 }, { 6, 8 },
 }
 
-local GLOW = { 1.0, 0.75, 0.5, 0.0 }
+-- pokefirered/src/field_effect.c:900
+local GLOW_K = { 16, 12, 8, 0 }
+-- pokefirered/src/field_effect.c:949
+local GLOW_INDICES = { 8, 6, 2, 5, 3 }
+local GLOW_LEAD = { 3, 2, 1, 0, 0 }
 
 local STATE = {
   PLACE = 0,
@@ -35,12 +39,14 @@ local STATE = {
 }
 
 PokecenterHeal._fx = nil
-PokecenterHeal._ballImg = nil
-PokecenterHeal._ballQuad = nil
+PokecenterHeal._ballIdx = nil
+PokecenterHeal._ballPal = nil
+PokecenterHeal._ballImgs = nil
 PokecenterHeal._monImg = nil
 PokecenterHeal._monQuads = nil
 PokecenterHeal._cache = nil
 PokecenterHeal._logged = false
+PokecenterHeal._claimed = false
 
 local function log(msg)
   if PokecenterHeal._logged then return end
@@ -48,134 +54,136 @@ local function log(msg)
   print("[game3/pokecenter_heal] " .. tostring(msg))
 end
 
---- Force palette-0 / RGB-black → alpha 0 (GBA OBJ color 0 is always clear).
-local function load_sprite_png(path, w, h)
-  if not (love and love.image and love.graphics) then return nil end
-  local ok, data = pcall(love.image.newImageData, path)
-  if not ok or not data then return nil end
-  local dw, dh = data:getDimensions()
-  if dw < w or dh < h then return nil end
-  -- Punch through black / near-black so mis-exported indexed PNGs still clear.
-  data:mapPixel(function(_x, _y, r, g, b, a)
-    if a < 1 / 255 then return 0, 0, 0, 0 end
-    if r < 1 / 255 and g < 1 / 255 and b < 1 / 255 then return 0, 0, 0, 0 end
-    return r, g, b, a
-  end)
-  local img = love.graphics.newImage(data)
-  if img.setFilter then img:setFilter("nearest", "nearest") end
-  return img
+local function read_cache(rel)
+  local cache = PokecenterHeal._cache
+  if not (cache and cache.read) then return nil end
+  local ok, data = pcall(cache.read, cache, rel)
+  if not ok then return nil end
+  return data
 end
 
-local function create_pokeball_glow_imagedata()
-  if not (love and love.image and love.image.newImageData) then return nil end
-  local id = love.image.newImageData(8, 8)
-  id:mapPixel(function(x, y)
-    local dx = x - 3.5
-    local dy = y - 3.5
-    local dist = math.sqrt(dx * dx + dy * dy)
-    if dist <= 2.0 then
-      return 1, 1, 1, 1
-    elseif dist <= 3.5 then
-      local t = (3.5 - dist) / 1.5
-      return 1, 0.9, 0.2, t
-    else
-      return 0, 0, 0, 0
-    end
-  end)
-  return id
-end
-
-local function create_monitor_imagedata()
-  if not (love and love.image and love.image.newImageData) then return nil end
-  local id = love.image.newImageData(32, 64)
-  -- 4 frames of 32x16
-  id:mapPixel(function(x, y)
-    local frame = math.floor(y / 16)
-    local fy = y % 16
-    -- Outer bezel (transparent/dark)
-    if x < 2 or x >= 30 or fy < 2 or fy >= 14 then
-      return 0.15, 0.15, 0.2, 1
-    end
-    -- Screen background
-    local r, g, b = 0.25, 0.35, 0.55
-    -- Blinking light slots across the screen
-    for i = 0, 5 do
-      local lx = 6 + i * 4
-      if x >= lx and x <= lx + 2 and fy >= 6 and fy <= 8 then
-        if (frame + i) % 2 == 1 then
-          return 0.2, 0.95, 0.3, 1
-        else
-          return 0.1, 0.4, 0.15, 1
-        end
-      end
-    end
-    return r, g, b, 1
-  end)
-  return id
-end
-
-local function try_paths(names, w, h)
-  for i = 1, #names do
-    local img = load_sprite_png(names[i], w, h)
-    if img then return img end
-  end
-  return nil
+local function read_field_effect(name, ext)
+  return read_cache("data/generated/gba/field_effects/" .. name .. ext)
+    or read_cache("field_effects/" .. name .. ext)
 end
 
 function PokecenterHeal.install(cache)
   PokecenterHeal._cache = cache
-  PokecenterHeal._ballImg = nil
-  PokecenterHeal._monImg = nil
+  PokecenterHeal.invalidate()
   PokecenterHeal._logged = false
 end
 
 function PokecenterHeal.invalidate()
-  PokecenterHeal._ballImg = nil
+  PokecenterHeal._ballIdx = nil
+  PokecenterHeal._ballPal = nil
+  PokecenterHeal._ballImgs = nil
   PokecenterHeal._monImg = nil
-  PokecenterHeal._ballQuad = nil
   PokecenterHeal._monQuads = nil
 end
 
 local function ensure_gfx()
-  if PokecenterHeal._ballImg and PokecenterHeal._monImg then return true end
-  local root = "data/generated/gba/field_effects"
-  local ball = try_paths({
-    "field_effects/pokeball_glow.png",
-    root .. "/pokeball_glow.png",
-  }, 8, 8)
-  if not ball and love and love.graphics then
-    local id = create_pokeball_glow_imagedata()
-    if id then
-      ball = love.graphics.newImage(id)
-      if ball.setFilter then ball:setFilter("nearest", "nearest") end
+  if PokecenterHeal._ballIdx and PokecenterHeal._monImg then return true end
+  if not (love and love.image and love.graphics) then return false end
+
+  if not PokecenterHeal._ballIdx then
+    local idx = read_field_effect("pokeball_glow", ".idx")
+    local pal = read_field_effect("pokeball_glow", ".pal")
+    if idx and pal and #idx >= 64 and #pal >= 48 then
+      local px = {}
+      for i = 1, 64 do px[i] = idx:byte(i) % 16 end
+      local colors = {}
+      for i = 0, 15 do
+        local o = i * 3
+        colors[i] = { pal:byte(o + 1), pal:byte(o + 2), pal:byte(o + 3) }
+      end
+      PokecenterHeal._ballIdx = px
+      PokecenterHeal._ballPal = colors
+      PokecenterHeal._ballImgs = {}
     end
   end
 
-  local mon = try_paths({
-    "field_effects/pokemoncenter_monitor.png",
-    root .. "/pokemoncenter_monitor.png",
-  }, 32, 16)
-  if not mon and love and love.graphics then
-    local id = create_monitor_imagedata()
-    if id then
-      mon = love.graphics.newImage(id)
-      if mon.setFilter then mon:setFilter("nearest", "nearest") end
+  if not PokecenterHeal._monImg then
+    local mon = read_field_effect("pokemoncenter_monitor", ".rgba")
+    if mon and #mon >= 32 * 64 * 4 then
+      local ok, id = pcall(love.image.newImageData, 32, 64, "rgba8", mon)
+      if ok and id then
+        local img = love.graphics.newImage(id)
+        if img.setFilter then img:setFilter("nearest", "nearest") end
+        local quads = {}
+        for i = 0, 3 do
+          quads[i] = love.graphics.newQuad(0, i * 16, 32, 16, 32, 64)
+        end
+        PokecenterHeal._monImg = img
+        PokecenterHeal._monQuads = quads
+      end
     end
   end
 
-  if not (ball and mon) then
+  if not (PokecenterHeal._ballIdx and PokecenterHeal._monImg) then
+    log("field_effects/pokeball_glow + pokemoncenter_monitor missing; re-import the ROM cache")
     return false
   end
-  PokecenterHeal._ballImg = ball
-  PokecenterHeal._ballQuad = love.graphics.newQuad(0, 0, 8, 8, ball:getDimensions())
-  PokecenterHeal._monImg = mon
-  local quads = {}
-  local iw, ih = mon:getDimensions()
-  for i = 0, 3 do
-    quads[i] = love.graphics.newQuad(0, i * 16, 32, 16, iw, ih)
-  end
-  PokecenterHeal._monQuads = quads
   return true
+end
+
+-- pokefirered/src/field_effect.c:640
+local function multiply_inverted(c8, k)
+  local c5 = math.floor(c8 * 31 / 255 + 0.5)
+  c5 = c5 + math.floor(((31 - c5) * k) / 16)
+  if c5 > 31 then c5 = 31 end
+  return math.floor(c5 * 255 / 31 + 0.5)
+end
+
+-- pokefirered/src/field_effect.c:949
+local function glow_key(fx)
+  if not fx then return "n" end
+  if fx.state ~= STATE.FLASH_A and fx.state ~= STATE.FLASH_B then return "n" end
+  return (fx.state == STATE.FLASH_A and "a" or "b") .. tostring((fx.counter or 0) % 4)
+end
+
+local function phases_for(key)
+  if key == "n" then return nil end
+  local rolling = (key:sub(1, 1) == "a")
+  local counter = tonumber(key:sub(2)) or 0
+  local phases = {}
+  for i = 1, #GLOW_INDICES do
+    local lead = rolling and GLOW_LEAD[i] or 0
+    phases[GLOW_INDICES[i]] = (counter + lead) % 4
+  end
+  return phases
+end
+
+local function ball_image(key)
+  local imgs = PokecenterHeal._ballImgs
+  local px = PokecenterHeal._ballIdx
+  local pal = PokecenterHeal._ballPal
+  if not (imgs and px and pal) then return nil end
+  if imgs[key] then return imgs[key] end
+
+  local phases = phases_for(key)
+  local shaded = {}
+  for i = 0, 15 do
+    local c = pal[i] or { 0, 0, 0 }
+    local phase = phases and phases[i]
+    if phase then
+      local k = GLOW_K[phase + 1] or 0
+      shaded[i] = { multiply_inverted(c[1], k), multiply_inverted(c[2], k), c[3] }
+    else
+      shaded[i] = c
+    end
+  end
+
+  local id = love.image.newImageData(8, 8)
+  id:mapPixel(function(x, y)
+    local idx = px[y * 8 + x + 1] or 0
+    if idx == 0 then return 0, 0, 0, 0 end
+    local c = shaded[idx] or { 0, 0, 0 }
+    return c[1] / 255, c[2] / 255, c[3] / 255, 1
+  end)
+  local img = love.graphics.newImage(id)
+  if img.setFilter then img:setFilter("nearest", "nearest") end
+  imgs[key] = img
+  return img
 end
 
 local function party_count()
@@ -271,7 +279,6 @@ function PokecenterHeal.start()
     monitorVisible = false,
     monitorFrame = 0,
     monitorAnim = nil,
-    glowPhase = 0,
     waiters = {},
   }
   return true
@@ -382,7 +389,6 @@ function PokecenterHeal.step()
         fx.numFlashed = fx.numFlashed + 1
       end
     end
-    fx.glowPhase = fx.counter
     if fx.numFlashed >= 3 then
       fx.state = STATE.FLASH_B
       fx.timer = 8
@@ -398,7 +404,6 @@ function PokecenterHeal.step()
         fx.timer = 30
       end
     end
-    fx.glowPhase = fx.counter
   elseif st == STATE.WAIT_AFTER then
     fx.timer = fx.timer - 1
     if fx.timer <= 0 then
@@ -414,37 +419,56 @@ function PokecenterHeal.step()
   end
 end
 
---- Draw in absolute screen space (pret OAM; ignore camera).
-function PokecenterHeal.draw(_camX, _camY)
+-- pokefirered/src/field_effect.c:910
+local function draw_balls(fx)
+  if fx.state >= STATE.DUMMY then return end
+  local img = ball_image(glow_key(fx))
+  if not img then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  for _, b in ipairs(fx.balls) do
+    love.graphics.draw(img, b.x, b.y)
+  end
+end
+
+local function draw_monitor(fx)
+  if not (fx.monitorVisible and PokecenterHeal._monQuads) then return end
+  local q = PokecenterHeal._monQuads[fx.monitorFrame or 0]
+  if not q then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(PokecenterHeal._monImg, q, fx.monitorX or 0, fx.monitorY or 0)
+end
+
+-- pokefirered/src/field_effect.c:912
+function PokecenterHeal.drawBalls(_camX, _camY)
   local fx = PokecenterHeal._fx
   if not fx then return end
-  if not ensure_gfx() then
-    love.graphics.setColor(1, 0.2, 0.2, 1)
-    for _, b in ipairs(fx.balls) do
-      love.graphics.rectangle("fill", b.x, b.y, 8, 8)
-    end
-    love.graphics.setColor(1, 1, 1, 1)
+  PokecenterHeal._claimed = true
+  if not ensure_gfx() then return end
+  draw_balls(fx)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- pokefirered/src/field_effect.c:1024
+function PokecenterHeal.drawMonitor(_camX, _camY)
+  local fx = PokecenterHeal._fx
+  if not fx then return end
+  PokecenterHeal._claimed = true
+  if not ensure_gfx() then return end
+  draw_monitor(fx)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+--- Draw in absolute screen space (pret OAM; ignore camera).
+function PokecenterHeal.draw(_camX, _camY)
+  if PokecenterHeal._claimed then
+    PokecenterHeal._claimed = false
     return
   end
-
-  local phase = fx.glowPhase or 0
-  local g = GLOW[(phase % 4) + 1] or 1
-  if fx.state < STATE.FLASH_A then g = 1 end
-
-  love.graphics.setColor(1, g, g, 1)
-  for _, b in ipairs(fx.balls) do
-    love.graphics.draw(
-      PokecenterHeal._ballImg, PokecenterHeal._ballQuad, b.x, b.y)
-  end
-
-  if fx.monitorVisible and PokecenterHeal._monQuads then
-    local q = PokecenterHeal._monQuads[fx.monitorFrame or 0]
-    if q then
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.draw(
-        PokecenterHeal._monImg, q, fx.monitorX or 0, fx.monitorY or 0)
-    end
-  end
+  local fx = PokecenterHeal._fx
+  if not fx then return end
+  if not ensure_gfx() then return end
+  draw_balls(fx)
+  draw_monitor(fx)
   love.graphics.setColor(1, 1, 1, 1)
 end
 

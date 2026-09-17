@@ -612,7 +612,7 @@ function Anim.scriptForStatus(statusId)
   return GENERIC_STATUS
 end
 
---- Launch move anim. opts: { attackerSide, isReversed, onEnd, miss }
+--- Launch move anim. opts: { attackerSide, targetSide, attackerSpecies, targetSpecies, isReversed, onEnd, miss }
 function Anim.launchMove(moveId, opts)
   opts = opts or {}
   if not Anim._vm then Anim.reset({ headless = Anim._headless }) end

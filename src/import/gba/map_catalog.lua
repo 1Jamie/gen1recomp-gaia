@@ -8,6 +8,7 @@ local MapCatalog = {}
 local _byGroupNum = nil -- ["g:n"] = engineId
 local _byPret = nil -- pretName = engineId
 local _aliases = nil -- anyName = engineId
+local _slotByEngine = nil -- engineId = "g_n"
 
 local function pret_to_engine(pret)
   if type(pret) ~= "string" or pret == "" then return nil end
@@ -29,7 +30,12 @@ end
 --- Build (group,num) → engineId and pret → engineId tables from pret groups + hand FR map.
 function MapCatalog.rebuildIndex()
   local groups = require("src.import.gba.map_groups_firered")
-  _byGroupNum, _byPret, _aliases = {}, {}, {}
+  _byGroupNum, _byPret, _aliases, _slotByEngine = {}, {}, {}, {}
+  local function bindSlot(engine, key)
+    if engine and key and _slotByEngine[engine] == nil then
+      _slotByEngine[engine] = (key:gsub(":", "_"))
+    end
+  end
   for gi, info in pairs(groups.groups or {}) do
     for mi, pret in ipairs(info.maps or {}) do
       local num = mi - 1
@@ -42,16 +48,19 @@ function MapCatalog.rebuildIndex()
       _aliases[engine] = engine
       _aliases[pret] = engine
       _aliases[key] = engine
+      bindSlot(engine, key)
     end
   end
   -- Ensure hand FR_* keys alias to themselves.
   for key, engine in pairs(Versions.FRLG_MAP_TO_FR or {}) do
     _aliases[engine] = engine
     _byGroupNum[key] = engine
+    bindSlot(engine, key)
   end
   for key, engine in pairs(Versions.FRLG_MAP_TO_SEVII or {}) do
     _aliases[engine] = engine
     _byGroupNum[key] = engine
+    bindSlot(engine, key)
   end
   return _byGroupNum
 end
@@ -64,6 +73,12 @@ function MapCatalog.mapIdFor(group, num)
   ensure_index()
   local key = string.format("%d:%d", tonumber(group) or 0, tonumber(num) or 0)
   return _byGroupNum[key]
+end
+
+function MapCatalog.slotKeyFor(mapId)
+  ensure_index()
+  if type(mapId) ~= "string" then return nil end
+  return _slotByEngine[mapId] or _slotByEngine[_aliases[mapId] or ""]
 end
 
 function MapCatalog.resolve(nameOrGroup, num)

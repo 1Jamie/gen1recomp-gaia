@@ -32,6 +32,15 @@ FieldView._loggedNativeFallback = false
 local CELL = 16
 local BLOCK = 32
 
+-- pokefirered/src/event_object_movement.c:4992
+local PLAYER_SCREEN_X = 112
+-- pokefirered/src/field_camera.c:527
+local PLAYER_SCREEN_Y = 72
+
+local function screenAnchor(px, py, camX, camY)
+  return (px - camX) - PLAYER_SCREEN_X, (py - camY) - PLAYER_SCREEN_Y
+end
+
 local function log(msg)
   print("[game3/field] " .. tostring(msg))
 end
@@ -793,6 +802,9 @@ function FieldView.draw(game, canvasW, canvasH, opts)
   local camX = math.floor(px + CELL / 2 - canvasW / 2)
   local camY = math.floor(py + CELL / 2 - canvasH / 2)
 
+  local screenOx = math.floor((canvasW - Display.W) / 2)
+  local screenOy = math.floor((canvasH - Display.H) / 2)
+
   -- pret BuyMenuDrawMapBg (shop.c:731-734): Frame player & counter in left gap (X: 0..80, Y: 0..160)
   local okShop, ShopMenu = pcall(require, "src.ui.game3.shop_menu")
   if okShop and ShopMenu and ShopMenu.isShopCamera and ShopMenu.isShopCamera() then
@@ -858,6 +870,18 @@ function FieldView.draw(game, canvasW, canvasH, opts)
       if okDoors and Doors and Doors.draw then
         Doors.draw(camX, camY)
       end
+    end
+  end
+
+  -- pokefirered/src/field_effect.c:910
+  if not opts.actorsOnly then
+    local okHeal, Heal = pcall(require, "src.core.game3.pokecenter_heal")
+    if okHeal and Heal and Heal.drawBalls then
+      local sx, sy = screenAnchor(px, py, camX, camY)
+      love.graphics.push()
+      love.graphics.translate(sx, sy)
+      Heal.drawBalls(camX, camY)
+      love.graphics.pop()
     end
   end
 
@@ -943,6 +967,18 @@ function FieldView.draw(game, canvasW, canvasH, opts)
     end
   end
 
+  -- pokefirered/src/field_effect.c:1024
+  if not opts.actorsOnly then
+    local okHeal, Heal = pcall(require, "src.core.game3.pokecenter_heal")
+    if okHeal and Heal and Heal.drawMonitor then
+      local sx, sy = screenAnchor(px, py, camX, camY)
+      love.graphics.push()
+      love.graphics.translate(sx, sy)
+      Heal.drawMonitor(camX, camY)
+      love.graphics.pop()
+    end
+  end
+
   -- pret BG2: metatile top layer covers OW sprites (roofs, desk counters).
   if usedNative and not opts.actorsOnly then
     drawNativeOverTiles()
@@ -976,7 +1012,10 @@ function FieldView.draw(game, canvasW, canvasH, opts)
   if not opts.actorsOnly then
     local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
     if okFx and FieldEffects and FieldEffects.drawOverlay then
+      love.graphics.push()
+      love.graphics.translate(screenOx, screenOy)
       FieldEffects.drawOverlay(camX, camY)
+      love.graphics.pop()
     end
   end
 

@@ -188,10 +188,11 @@ end
 -- 2. Transparent enemy platform oval sliding with enemyOx (no wrap, no solid bars).
 -- 3. Transparent player platform oval sliding with playerOx (no wrap, no solid bars).
 -- When at rest (enemyOx == 0, playerOx == 0), draws standard full terrain at (0, 0).
-function BattleChrome.drawTerrain(key, enemyOx, playerOx)
+function BattleChrome.drawTerrain(key, enemyOx, playerOx, bgOx)
   key = key or "building"
   enemyOx = tonumber(enemyOx) or 0
   playerOx = tonumber(playerOx) or 0
+  bgOx = tonumber(bgOx) or 0
   local entry = BattleChrome._terrains[key] or BattleChrome._terrains.building
     or BattleChrome._terrains.grass
   if not entry or not entry.image then return false end
@@ -219,7 +220,21 @@ function BattleChrome.drawTerrain(key, enemyOx, playerOx)
     end
     local qBg = BattleChrome._quads[qBgKey]
     love.graphics.setColor(1, 1, 1, 1)
-    if qBg then
+    if bgOx ~= 0 then
+      -- pokefirered/src/battle_intro.c:139
+      local qWrapKey = "terrain_bg_wrap_" .. key
+      if not BattleChrome._quads[qWrapKey] and love and love.graphics then
+        BattleChrome._quads[qWrapKey] = love.graphics.newQuad(0, 0, 256, 160, 256, 160)
+      end
+      local qWrap = BattleChrome._quads[qWrapKey]
+      if qWrap then
+        local off = -(bgOx % 256)
+        love.graphics.draw(entry.bgImage, qWrap, off, 0)
+        love.graphics.draw(entry.bgImage, qWrap, off + 256, 0)
+      elseif qBg then
+        love.graphics.draw(entry.bgImage, qBg, 0, 0)
+      end
+    elseif qBg then
       love.graphics.draw(entry.bgImage, qBg, 0, 0)
     end
     love.graphics.draw(entry.enemyPlat, enemyOx, 0)
@@ -303,18 +318,46 @@ function BattleChrome.drawPlayerBox(x, y)
   love.graphics.draw(BattleChrome._playerBox, x, y)
 end
 
-function BattleChrome.hpColor(ratio)
-  if ratio > 0.5 then return "green" end
-  if ratio > 0.2 then return "yellow" end
-  return "red"
-end
-
 -- Element tile bases (pret B_INTERFACE_GFX_*)
 local HP_TEXT_TILE = 1
 local HP_BAR_BASE = { green = 3, yellow = 47, red = 56 }
 local HP_BAR_TILES = 6
+local HP_BAR_PIXELS = 48
 local EXP_BAR_TILE = 12
 local EXP_BAR_TILES = 8
+
+-- pokefirered/src/battle_interface.c:2155
+function BattleChrome.scaledHpFraction(hp, maxHp, scale)
+  hp = tonumber(hp) or 0
+  maxHp = tonumber(maxHp) or 0
+  scale = tonumber(scale) or HP_BAR_PIXELS
+  if maxHp <= 0 or hp <= 0 then return 0 end
+  if hp > maxHp then hp = maxHp end
+  local result = math.floor(hp * scale / maxHp)
+  if result == 0 then return 1 end
+  return result
+end
+
+-- pokefirered/src/battle_interface.c:2168
+function BattleChrome.hpBarLevel(hp, maxHp)
+  hp = tonumber(hp) or 0
+  maxHp = tonumber(maxHp) or 0
+  if maxHp <= 0 then return "empty" end
+  if hp >= maxHp then return "full" end
+  local fraction = BattleChrome.scaledHpFraction(hp, maxHp, HP_BAR_PIXELS)
+  if fraction > math.floor(HP_BAR_PIXELS * 50 / 100) then return "green" end
+  if fraction > math.floor(HP_BAR_PIXELS * 20 / 100) then return "yellow" end
+  if fraction > 0 then return "red" end
+  return "empty"
+end
+
+-- pokefirered/src/battle_interface.c:1907
+function BattleChrome.hpColor(hp, maxHp)
+  local level = BattleChrome.hpBarLevel(hp, maxHp)
+  if level == "full" then return "green" end
+  if level == "empty" then return "red" end
+  return level
+end
 
 local function elements_tile_quad(ti, sheet)
   sheet = sheet or BattleChrome._elements
@@ -328,11 +371,9 @@ local function elements_tile_quad(ti, sheet)
   return BattleChrome._quads[key]
 end
 
-local function filled_pixels_for_bar(ratio, numTiles)
-  local total = numTiles * 8
-  local filled = math.floor(total * ratio + 0.5)
-  if filled < 1 and ratio > 0 then filled = 1 end
-  local remaining = filled
+-- pokefirered/src/battle_interface.c:2050
+local function split_bar_pixels(filled, numTiles)
+  local remaining = math.max(0, math.min(numTiles * 8, math.floor(tonumber(filled) or 0)))
   local out = {}
   for i = 1, numTiles do
     local pix = math.max(0, math.min(8, remaining))
@@ -342,13 +383,19 @@ local function filled_pixels_for_bar(ratio, numTiles)
   return out
 end
 
+local function filled_pixels_for_bar(ratio, numTiles)
+  local total = numTiles * 8
+  local filled = math.floor(total * ratio)
+  if filled < 1 and ratio > 0 then filled = 1 end
+  return split_bar_pixels(filled, numTiles)
+end
+
 --- Draw pret HP bar: HP label tiles + 6 fill tiles (48px). Top-left of 64×8 strip.
-function BattleChrome.drawHpBar(x, y, ratio)
+function BattleChrome.drawHpBar(x, y, hp, maxHp)
   if not BattleChrome._elements then return end
-  ratio = math.max(0, math.min(1, ratio or 0))
-  local color = BattleChrome.hpColor(ratio)
+  local color = BattleChrome.hpColor(hp, maxHp)
   local base = HP_BAR_BASE[color] or HP_BAR_BASE.green
-  local pix = filled_pixels_for_bar(ratio, HP_BAR_TILES)
+  local pix = split_bar_pixels(BattleChrome.scaledHpFraction(hp, maxHp, HP_BAR_PIXELS), HP_BAR_TILES)
 
   love.graphics.setColor(1, 1, 1, 1)
   for i = 0, 1 do
@@ -361,8 +408,8 @@ function BattleChrome.drawHpBar(x, y, ratio)
   end
 end
 
-function BattleChrome.drawHpFill(x, y, ratio, _pixels)
-  BattleChrome.drawHpBar(x - 16, y, ratio)
+function BattleChrome.drawHpFill(x, y, hp, maxHp)
+  BattleChrome.drawHpBar(x - 16, y, hp, maxHp)
 end
 
 --- Pret EXP bar: 8 element tiles in healthbox VRAM (TAG_HEALTHBOX_PAL → blue).

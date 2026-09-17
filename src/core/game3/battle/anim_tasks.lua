@@ -564,9 +564,88 @@ function AnimTasks.SoundTaskWait(t, _vm)
   end
 end
 
-AnimTasks.REGISTRY.SoundTask_PlayDoubleCry = AnimTasks.SoundTaskWait
-AnimTasks.REGISTRY.SoundTask_WaitForCry = AnimTasks.SoundTaskWait
-AnimTasks.REGISTRY.PlayDoubleCry = AnimTasks.SoundTaskWait
+-- pokefirered/include/constants/sound.h:20-31
+local CRY_MODE_HIGH_PITCH = 3
+local CRY_MODE_ROAR_1 = 7
+local CRY_MODE_ROAR_2 = 8
+local CRY_MODE_GROWL_1 = 9
+local CRY_MODE_GROWL_2 = 10
+-- pokefirered/include/constants/sound.h:35
+local DOUBLE_CRY_GROWL = 255
+-- pokefirered/include/constants/battle_anim.h
+local SOUND_PAN_ATTACKER = -64
+
+local function cry_species(vm, battler)
+  if not (vm and vm.resolveBattlerSide and vm.speciesForSide) then return nil end
+  return vm:speciesForSide(vm:resolveBattlerSide(battler))
+end
+
+local function cry_pan(vm)
+  if vm and vm.adjustPanning then return vm:adjustPanning(SOUND_PAN_ATTACKER) end
+  return SOUND_PAN_ATTACKER
+end
+
+--- pokefirered/src/battle_anim_sound_tasks.c:158
+function AnimTasks.SoundTask_PlayDoubleCry(t, vm)
+  local Audio = require("src.core.game3.audio")
+  if not t._inited then
+    t._inited = true
+    t._species = cry_species(vm, t.data[0])
+    if not t._species then
+      destroy_task(t)
+      return
+    end
+    t._pan = cry_pan(vm)
+    local growl = (t.data[1] == DOUBLE_CRY_GROWL or t.data[1] == -1)
+    t._mode2 = growl and CRY_MODE_GROWL_2 or CRY_MODE_ROAR_2
+    t._frames = 0
+    Audio.playCry(t._species, {
+      pan = t._pan,
+      mode = growl and CRY_MODE_GROWL_1 or CRY_MODE_ROAR_1,
+    })
+    return
+  end
+  -- pokefirered/src/battle_anim_sound_tasks.c:201
+  t._frames = (t._frames or 0) + 1
+  if t._frames < 2 then return end
+  if (not Audio.isCryFinished) or Audio.isCryFinished() then
+    Audio.playCry(t._species, { pan = t._pan, mode = t._mode2 })
+    destroy_task(t)
+    return
+  end
+  if t._frames >= 150 then
+    destroy_task(t)
+  end
+end
+
+--- pokefirered/src/battle_anim_sound_tasks.c:228
+function AnimTasks.SoundTask_WaitForCry(t, _vm)
+  local Audio = require("src.core.game3.audio")
+  t.data[14] = (t.data[14] or 0) + 1
+  if t.data[14] < 2 then return end
+  if (not Audio.isCryFinished) or Audio.isCryFinished() then
+    destroy_task(t)
+    return
+  end
+  if t.data[14] >= 300 then
+    destroy_task(t)
+  end
+end
+
+--- pokefirered/src/battle_anim_sound_tasks.c:140
+function AnimTasks.SoundTask_PlayCryHighPitch(t, vm)
+  local Audio = require("src.core.game3.audio")
+  local species = cry_species(vm, t.data[0])
+  if species then
+    Audio.playCry(species, { pan = cry_pan(vm), mode = CRY_MODE_HIGH_PITCH })
+  end
+  destroy_task(t)
+end
+
+AnimTasks.REGISTRY.SoundTask_PlayDoubleCry = AnimTasks.SoundTask_PlayDoubleCry
+AnimTasks.REGISTRY.SoundTask_WaitForCry = AnimTasks.SoundTask_WaitForCry
+AnimTasks.REGISTRY.PlayDoubleCry = AnimTasks.SoundTask_PlayDoubleCry
+AnimTasks.REGISTRY.SoundTask_PlayCryHighPitch = AnimTasks.SoundTask_PlayCryHighPitch
 
 --- BlendColorCycle stub: nudge pal toward a tint for a few frames then restore.
 function AnimTasks.BlendColorCycle(t, vm)
@@ -4632,7 +4711,6 @@ AnimTasks.REGISTRY.LoadHealthboxPalsForLevelUp = stub_task
 AnimTasks.REGISTRY.AnimTask_LoadHealthboxPalsForLevelUp = stub_task
 AnimTasks.REGISTRY.FreeHealthboxPalsForLevelUp = stub_task
 AnimTasks.REGISTRY.AnimTask_FreeHealthboxPalsForLevelUp = stub_task
-AnimTasks.REGISTRY.SoundTask_PlayCryHighPitch = stub_task
 AnimTasks.REGISTRY.SoundTask_PlayCryWithEcho = stub_task
 AnimTasks.REGISTRY.SoundTask_PlaySE2WithPanning = stub_task
 

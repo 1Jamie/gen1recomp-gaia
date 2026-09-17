@@ -40,17 +40,11 @@ Battle._residualEvents = nil
 Battle._residualIndex = 1
 Battle._residualStepState = nil
 
--- pret GetHPBarLevel: red when scaled bar pixels are in (0, 20%] of 48.
-local HP_BAR_PIXELS = 48
-
+-- pokefirered/src/battle_interface.c:2168
 local function hp_bar_red(hp, maxHp)
-  hp = tonumber(hp) or 0
-  maxHp = tonumber(maxHp) or 0
-  if maxHp <= 0 or hp <= 0 then return false end
-  if hp >= maxHp then return false end
-  local fraction = math.floor(hp * HP_BAR_PIXELS / maxHp)
-  if fraction == 0 and hp > 0 then fraction = 1 end
-  return fraction > 0 and fraction <= math.floor(HP_BAR_PIXELS * 20 / 100)
+  local ok, BattleChrome = pcall(require, "src.ui.game3.battle_chrome")
+  if not ok or not BattleChrome or not BattleChrome.hpBarLevel then return false end
+  return BattleChrome.hpBarLevel(hp, maxHp) == "red"
 end
 
 local function stop_low_hp_song()
@@ -71,12 +65,9 @@ local function update_low_hp_music()
     stop_low_hp_song()
     return
   end
-  local hp = tonumber(mon.hp) or 0
-  local maxHp = tonumber(mon.maxHp) or 0
-  local p = Anim.present("player")
-  if p and p.displayHp ~= nil then
-    hp = tonumber(p.displayHp) or hp
-  end
+  if Anim.hpTweening and Anim.hpTweening() then return end
+  local hp = math.floor(tonumber(mon.hp) or 0)
+  local maxHp = math.floor(tonumber(mon.maxHp) or 0)
   local red = hp_bar_red(hp, maxHp)
   if red and not Battle._lowHpSong then
     Battle._lowHpSong = true

@@ -173,6 +173,51 @@ function Collision.behavior(cx,cy)
   return behaviors and behaviors[layout:midAt(cx,cy)]
 end
 
+-- pokefirered/include/constants/metatile_behaviors.h:82
+local MB_UP_ESCALATOR = 0x6A
+local MB_DOWN_ESCALATOR = 0x6B
+local MB_UP_RIGHT_STAIR_WARP = 0x6C
+local MB_UP_LEFT_STAIR_WARP = 0x6D
+local MB_DOWN_RIGHT_STAIR_WARP = 0x6E
+local MB_DOWN_LEFT_STAIR_WARP = 0x6F
+
+-- pokefirered/src/metatile_behavior.c:174
+function Collision.isStairWarpBehavior(beh)
+  return beh == MB_UP_RIGHT_STAIR_WARP or beh == MB_UP_LEFT_STAIR_WARP
+    or beh == MB_DOWN_RIGHT_STAIR_WARP or beh == MB_DOWN_LEFT_STAIR_WARP
+end
+
+-- pokefirered/src/field_control_avatar.c:924
+function Collision.stairWarpDir(beh)
+  if beh == MB_UP_LEFT_STAIR_WARP or beh == MB_DOWN_LEFT_STAIR_WARP then
+    return "left"
+  end
+  if beh == MB_UP_RIGHT_STAIR_WARP or beh == MB_DOWN_RIGHT_STAIR_WARP then
+    return "right"
+  end
+  return nil
+end
+
+-- pokefirered/src/overworld.c:921
+function Collision.stairArrivalFacing(beh)
+  if beh == MB_UP_RIGHT_STAIR_WARP or beh == MB_DOWN_RIGHT_STAIR_WARP then
+    return "left"
+  end
+  if beh == MB_UP_LEFT_STAIR_WARP or beh == MB_DOWN_LEFT_STAIR_WARP then
+    return "right"
+  end
+  return nil
+end
+
+-- pokefirered/src/field_fadetransition.c:866
+function Collision.stairSpeeds(beh)
+  if beh == MB_UP_RIGHT_STAIR_WARP then return 16, -10 end
+  if beh == MB_UP_LEFT_STAIR_WARP then return -17, -10 end
+  if beh == MB_DOWN_RIGHT_STAIR_WARP then return 17, 3 end
+  if beh == MB_DOWN_LEFT_STAIR_WARP then return -17, 3 end
+  return 0, 0
+end
+
 function Collision.cell(cx, cy)
   if not Collision._grid or not Collision.inBounds(cx, cy) then
     return 0xff
@@ -578,6 +623,21 @@ function Collision.isEscalatorWarp(game, cx, cy, dir)
   local curUpper = string.upper(tostring(curMap or ""))
   local destUpper = string.upper(tostring(destMap or ""))
 
+  -- pokefirered/src/metatile_behavior.c:126
+  local beh = Collision.behavior(cx, cy)
+  if beh ~= nil then
+    if beh ~= MB_UP_ESCALATOR and beh ~= MB_DOWN_ESCALATOR then return nil end
+    return {
+      warp = w,
+      destMap = destMap,
+      destX = destX,
+      destY = destY,
+      escDir = (beh == MB_DOWN_ESCALATOR) and "down" or "up",
+      x = cx,
+      y = cy,
+    }
+  end
+
   local isEscalator = (curUpper:find("POKECENTER") or curUpper:find("POKEMON_CENTER") or curUpper:find("DEPT_STORE"))
       and (destUpper:find("POKECENTER") or destUpper:find("POKEMON_CENTER") or destUpper:find("DEPT_STORE"))
 
@@ -605,6 +665,36 @@ function Collision.isEscalatorWarp(game, cx, cy, dir)
     }
   end
   return nil
+end
+
+-- pokefirered/src/field_control_avatar.c:839
+function Collision.isStairWarp(game, cx, cy, dir)
+  local beh = Collision.behavior(cx, cy)
+  if not Collision.isStairWarpBehavior(beh) then return nil end
+  if dir and Collision.stairWarpDir(beh) ~= dir then return nil end
+
+  local w = Collision.warpAt(cx, cy)
+  if not w then
+    local map = hostWorld(game) and hostWorld(game).map
+    if map and map.warpAt then
+      local hit = map:warpAt(cx, cy)
+      w = hit and hit.def
+    end
+  end
+  if not w then return nil end
+
+  local destMap, destX, destY = resolveDest(game, w)
+  if not destMap then return nil end
+
+  return {
+    warp = w,
+    destMap = destMap,
+    destX = destX,
+    destY = destY,
+    behavior = beh,
+    x = cx,
+    y = cy,
+  }
 end
 
 --- If standing on a warp cell, trigger game3 map load / host warp.
@@ -643,6 +733,10 @@ function Collision.tryWarpAt(game, cx, cy, facing)
     return false
   end
   if Collision.isEscalatorWarp and Collision.isEscalatorWarp(game, cx, cy, facing) then
+    return false
+  end
+  -- pokefirered/src/field_control_avatar.c:901
+  if Collision.isStairWarpBehavior(Collision.behavior(cx, cy)) then
     return false
   end
 

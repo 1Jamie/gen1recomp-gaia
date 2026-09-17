@@ -267,6 +267,112 @@ function Warp.startEscalator(mod, game, destMap, destX, destY, dir, approachDir,
   return true
 end
 
+-- pokefirered/src/field_fadetransition.c:794
+function Warp.startStairWarp(mod, game, destMap, destX, destY, behavior)
+  if Warp._busy then return false end
+  Warp._busy = true
+
+  local Field = package.loaded["src.core.game3.field"] or require("src.core.game3.field")
+  if Field and Field.lock then Field.lock() end
+
+  local Collision = require("src.core.game3.collision")
+  local Player = package.loaded["src.core.game3.player"] or require("src.core.game3.player")
+  local Fade = require("src.ui.game3.fade")
+  local Audio = package.loaded["src.core.game3.audio"] or require("src.core.game3.audio")
+  local SE = require("src.core.game3.se_ids")
+  local Map = require("src.core.game3.map")
+  local Task = require("src.core.game3.task")
+
+  local function finish()
+    Warp._busy = false
+    if Field and Field.unlock and not (package.loaded["src.core.game3.scripting.space"]
+        and package.loaded["src.core.game3.scripting.space"].vm
+        and package.loaded["src.core.game3.scripting.space"].vm.isRunning
+        and package.loaded["src.core.game3.scripting.space"].vm:isRunning()) then
+      Field.unlock()
+    end
+  end
+
+  -- pokefirered/src/field_fadetransition.c:922
+  local function exitStairs()
+    local destBeh = Collision.behavior(destX, destY)
+    local facing = Collision.stairArrivalFacing(destBeh)
+    if facing then
+      Player.facing = facing
+      Player.syncSavePosition(game)
+    end
+    local speedX, speedY = Collision.stairSpeeds(destBeh)
+    local offX, offY = speedX * 16, speedY * 16
+    local timer = 16
+    speedX, speedY = -speedX, -speedY
+    Player.walkInPlace = true
+    Player.walkInPlaceFast = true
+    Player.spriteXOffset = math.floor(offX / 32)
+    Player.spriteYOffset = math.floor(offY / 32)
+
+    Fade.begin(Fade.MODE.FROM_BLACK, 1, function() end)
+
+    Task.spawn(function()
+      if timer > 0 then
+        offX = offX + speedX
+        offY = offY + speedY
+        Player.spriteXOffset = math.floor(offX / 32)
+        Player.spriteYOffset = math.floor(offY / 32)
+        timer = timer - 1
+        return false
+      end
+      Player.spriteXOffset = 0
+      Player.spriteYOffset = 0
+      Player.walkInPlace = false
+      Player.walkInPlaceFast = false
+      finish()
+      return true
+    end)
+  end
+
+  local speedX, speedY = Collision.stairSpeeds(behavior)
+  local offX, offY, timer = 0, 0, 0
+  local fadeStarted, fadeDone = false, false
+
+  if Audio and Audio.playSe then
+    pcall(function() Audio.playSe(SE.SE_EXIT or 9) end)
+  end
+  Player.walkInPlace = true
+  Player.walkInPlaceFast = false
+
+  -- pokefirered/src/field_fadetransition.c:846
+  Task.spawn(function()
+    if speedY > 0 or timer > 6 then offY = offY + speedY end
+    offX = offX + speedX
+    timer = timer + 1
+    Player.spriteXOffset = math.floor(offX / 32)
+    Player.spriteYOffset = math.floor(offY / 32)
+
+    if timer >= 12 and not fadeStarted then
+      fadeStarted = true
+      Fade.begin(Fade.MODE.TO_BLACK, 1, function() fadeDone = true end)
+    end
+
+    if fadeDone then
+      Player.spriteXOffset = 0
+      Player.spriteYOffset = 0
+      Player.walkInPlace = false
+      Map.load(mod, game, destMap, {
+        x = destX,
+        y = destY,
+        facing = Player.facing,
+        depth1Connections = true,
+      })
+      Player.setVisible(true)
+      exitStairs()
+      return true
+    end
+    return false
+  end)
+
+  return true
+end
+
 --- Complete teleport spin sequence (Silph Co, Sabrina's Gym warp pads)
 function Warp.startTeleport(mod, game, destMap, destX, destY)
   if Warp._busy then return false end
@@ -456,6 +562,10 @@ function Warp.clear()
   Warp._isEscalatorActive = false
   local Player = package.loaded["src.core.game3.player"]
   if Player and Player.setVisible then
+    Player.walkInPlace = false
+    Player.walkInPlaceFast = false
+    Player.spriteXOffset = 0
+    Player.spriteYOffset = 0
     Player.setVisible(true)
   end
 end

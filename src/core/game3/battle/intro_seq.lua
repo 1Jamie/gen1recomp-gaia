@@ -95,12 +95,13 @@ local function build_wild(st, opts)
   end
   local ename = State.displayName(st.enemy)
   local pname = State.displayName(st.player)
-  add("fade", { mode = "FROM_BLACK", speed = 1 })
+  add("fade", { mode = "FROM_BLACK", instant = true })
   -- pret: player back sprite slides in with the BG intro even in wild battles
   -- (BattleIntroDrawTrainersOrMonsSprites → EmitDrawTrainerPic for PLAYER_LEFT).
+  -- pokefirered/src/battle_intro.c:145
   add("bgslide", {
-    frames = 24,
-    unlockAt = 8,
+    frames = 154,
+    unlockAt = 35,
     slidePlayer = true,
     slideEnemyMon = true,
     playerFrom = 240,
@@ -136,12 +137,13 @@ local function build_trainer(st, opts)
   local enemyBalls = enemy_party_balls(st.foeParty, info.partySize or (st.foeParty and #st.foeParty) or 1)
   local playerBalls = player_party_balls(st.playerParty or (st.player and { st.player.mon }))
 
-  add("fade", { mode = "FROM_BLACK", speed = 1 })
+  add("fade", { mode = "FROM_BLACK", instant = true })
   -- pret: DrawTrainerPic for both sides during BG slide; sprites wait off-screen
   -- until gIntroSlideFlags clears, then SpriteCB_TrainerSlideIn (~120f at 2px/frame).
+  -- pokefirered/src/battle_intro.c:145
   add("bgslide", {
-    frames = 24,
-    unlockAt = 8,
+    frames = 154,
+    unlockAt = 35,
     slidePlayer = true,
     slideEnemy = true,
     playerFrom = 240,
@@ -234,6 +236,12 @@ local function run_step(step)
 
   if kind == "fade" then
     local okF, Fade = pcall(require, "src.ui.game3.fade")
+    -- pokefirered/src/battle_main.c:648
+    if d.instant then
+      if okF and Fade and Fade.clear then Fade.clear() end
+      advance()
+      return
+    end
     if okF and Fade and Fade.begin then
       local mode = Fade.MODE and Fade.MODE[d.mode or "FROM_BLACK"] or 0
       IntroSeq._waiting = true
@@ -250,8 +258,8 @@ local function run_step(step)
   end
 
   if kind == "bgslide" then
-    local frames = d.frames or 24
-    local unlockAt = d.unlockAt or 8
+    local frames = d.frames or 154
+    local unlockAt = d.unlockAt or 35
     local slideFrames = d.slideFrames or 120
     local needSpriteSlide = d.slidePlayer or d.slideEnemy or d.slideEnemyMon
     s.bgSlide = s.bgSlide or { enemyOx = 0, playerOx = 0 }

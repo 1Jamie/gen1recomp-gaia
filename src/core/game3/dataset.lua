@@ -117,7 +117,7 @@ function Dataset.buildMaps(warps)
     -- Load map header metadata if available in map_tree cache
     local regionMapSectionId = spec.regionMapSectionId
     local showMapName = spec.showMapName
-    local floorNum = spec.floorNum or 0
+    local floorNum = spec.floorNum
     local weather = spec.weather
     local mapType = spec.mapType
 
@@ -125,6 +125,8 @@ function Dataset.buildMaps(warps)
       -- Try loading from data/generated/gba/map_tree/maps/{slot}/header.json
       local cache = loveCache()
       local candidates = {}
+      local slot = MapCatalog.slotKeyFor and MapCatalog.slotKeyFor(mapId)
+      if slot then candidates[#candidates + 1] = slot end
       if spec.group ~= nil and spec.num ~= nil then
         candidates[#candidates + 1] = string.format("%d_%d", spec.group, spec.num)
       end
@@ -159,16 +161,11 @@ function Dataset.buildMaps(warps)
 
     -- Fallback inference if header.json was not loaded
     if regionMapSectionId == nil then
-      local secInfo = MapSectionsExtract.getInfo(nil, mapId, floorNum)
+      local secInfo = MapSectionsExtract.getInfo(nil, mapId, floorNum or 0)
       regionMapSectionId = secInfo and secInfo.secId
     end
     if showMapName == nil then
-      local kind = spec.kind or (info and info.kind)
-      if kind == "indoor" or (spec.environment == "INDOOR") then
-        showMapName = 0
-      else
-        showMapName = 1
-      end
+      showMapName = 0
     end
 
     maps[mapId] = {
@@ -186,7 +183,7 @@ function Dataset.buildMaps(warps)
       showMapName = (showMapName == 1 or showMapName == true) and 1 or 0,
       floorNum = tonumber(floorNum) or 0,
       weather = weather or 0,
-      mapType = mapType or 1,
+      mapType = mapType or 0,
       native = true,
     }
   end

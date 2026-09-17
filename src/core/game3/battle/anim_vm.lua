@@ -199,6 +199,18 @@ function AnimVm:x(v)
   return v
 end
 
+function AnimVm:speciesForSide(side)
+  if side == nil then return nil end
+  if side == self:attackerSide() then return self._attackerSpecies end
+  if side == self:targetSide() then return self._targetSpecies end
+  return nil
+end
+
+--- pokefirered/src/battle_anim.c:1657
+function AnimVm:adjustPanning(pan)
+  return adjust_panning(self, pan)
+end
+
 function AnimVm:battlerCenter(side)
   local Anim = require("src.core.game3.battle.anim")
   return Anim.battlerCenter(side)
@@ -228,6 +240,8 @@ function AnimVm:reset()
   self._spriteWaitFrames = 0
   self.loadedTags = {}
   self._onEnd = nil
+  self._attackerSpecies = nil
+  self._targetSpecies = nil
   for i = 0, ARG_COUNT - 1 do self.args[i] = 0 end
   AnimSprites.reset()
   AnimTasks.reset()
@@ -266,6 +280,8 @@ function AnimVm:launch(script, opts)
   self.isReversed = opts.isReversed and true or false
   self._attackerSide = opts.attackerSide or (self.isReversed and "enemy" or "player")
   self._targetSide = opts.targetSide or (self.isReversed and "player" or "enemy")
+  self._attackerSpecies = opts.attackerSpecies
+  self._targetSpecies = opts.targetSpecies
   self._onEnd = opts.onEnd
   self.framesToWait = 0
   self.waitingVisual = false

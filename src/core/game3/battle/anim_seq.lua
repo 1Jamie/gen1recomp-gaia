@@ -13,6 +13,11 @@ AnimSeq._pushMsg = nil
 AnimSeq._hitSe = nil
 AnimSeq._pendingEff = nil -- { effectiveness, pan } until anim ends
 
+local function battler_species(b)
+  if type(b) ~= "table" then return nil end
+  return b.species or (b.mon and (b.mon.species or b.mon.speciesId))
+end
+
 local function play_effectiveness_se(eff, pan)
   local Audio = require("src.core.game3.audio")
   local SE = require("src.core.game3.se_ids")
@@ -201,6 +206,8 @@ local function run_step(step)
       isReversed = isReversed,
       attackerSide = user and user.side or "player",
       targetSide = d.target and d.target.side or "enemy",
+      attackerSpecies = battler_species(user),
+      targetSpecies = battler_species(d.target),
       onEnd = function()
         -- pret: waitanimation then Cmd_effectivenesssound.
         flush_pending_eff()

@@ -197,13 +197,26 @@ local function backspace(st)
   st.name = st.name:gsub("[%z\1-\127\194-\244][\128-\191]*$", "")
 end
 
-local function cyclePage(st)
-  st.page = st.page % #PAGES + 1
-  st.swapT = 0
+-- pokefirered/src/naming_screen.c:866
+local function gbaSin(idx, amp)
+  return math.floor(math.sin((idx % 256) * math.pi / 128) * amp + 0.5)
+end
+
+-- pokefirered/src/naming_screen.c:793
+local function commitPage(st)
+  st.page = st.swapTo or st.page
+  st.swapTo = nil
   if not onButtonCol(st) then
     local n = colCount(st)
     if st.col > n then st.col = n end
   end
+end
+
+-- pokefirered/src/naming_screen.c:768
+local function cyclePage(st)
+  if st.swapT ~= nil then return end
+  st.swapTo = st.page % #PAGES + 1
+  st.swapT = 0
   playSe(6)
 end
 
@@ -234,6 +247,40 @@ local function drawKeyboardKeys(page, colors)
       end
     end
   end
+end
+
+local KB_KEYS = { "kb_upper", "kb_lower", "kb_symbols" }
+
+-- pokefirered/src/naming_screen.c:2019
+local function drawKeyboardPage(pageIdx, dy)
+  local page = PAGES[pageIdx]
+  if not page then return end
+  love.graphics.push()
+  love.graphics.translate(0, -(dy or 0))
+
+  local kbKey = KB_KEYS[pageIdx] or "kb_upper"
+  local kb = NamingChrome.get(kbKey)
+  if kb then
+    love.graphics.setColor(1, 1, 1, 1)
+    local iw, ih = kb:getDimensions()
+    if iw >= 160 and ih >= 72 then
+      -- v3 frame crop (includes border/tab)
+      love.graphics.draw(kb, L.kbChromeX, L.kbChromeY)
+    elseif iw <= 160 and ih <= 70 then
+      -- v2 inner-only crop (missing border) — legacy fallback
+      love.graphics.draw(kb, L.kbX, L.kbY)
+    else
+      local img, q = NamingChrome.kbQuad(kbKey)
+      if img and q then
+        love.graphics.draw(img, q, L.kbChromeX, L.kbChromeY)
+      elseif img then
+        love.graphics.draw(img, L.kbChromeX, L.kbChromeY)
+      end
+    end
+  end
+
+  drawKeyboardKeys(page, FrlgFont.COLOR.WHITE)
+  love.graphics.pop()
 end
 
 local function playerOwId(gender)
@@ -366,7 +413,10 @@ function Naming.update(input, dt)
   st.blink = (st.blink or 0) + (dt or 1 / 60)
   if st.swapT ~= nil then
     st.swapT = st.swapT + 4
-    if st.swapT >= 128 then st.swapT = nil end
+    if st.swapT >= 128 then
+      commitPage(st)
+      st.swapT = nil
+    end
     return
   end
 
@@ -505,41 +555,50 @@ function Naming.draw()
     love.graphics.rectangle("fill", 0, 0, W, H)
   end
 
-  -- 2) Keyboard chrome (border + SELECT tab; extract v3 is 176×80 at 16,72)
-  local kbKey = (st.page == 1 and "kb_upper") or (st.page == 2 and "kb_lower") or "kb_symbols"
-  local kb = NamingChrome.get(kbKey)
-  if kb then
-    love.graphics.setColor(1, 1, 1, 1)
-    local iw, ih = kb:getDimensions()
-    if iw >= 160 and ih >= 72 then
-      -- v3 frame crop (includes border/tab)
-      love.graphics.draw(kb, L.kbChromeX, L.kbChromeY)
-    elseif iw <= 160 and ih <= 70 then
-      -- v2 inner-only crop (missing border) — legacy fallback
-      love.graphics.draw(kb, L.kbX, L.kbY)
+  -- 2/3) Keyboard chrome + letters (extract v3 is 176×80 at 16,72)
+  if st.swapT ~= nil and st.swapTo then
+    -- pokefirered/src/naming_screen.c:857
+    local dIn = gbaSin(st.swapT, 40)
+    local dOut = gbaSin(st.swapT + 128, 40)
+    if st.swapT < 64 then
+      drawKeyboardPage(st.swapTo, dIn)
+      drawKeyboardPage(st.page, dOut)
     else
-      local img, q = NamingChrome.kbQuad(kbKey)
-      if img and q then
-        love.graphics.draw(img, q, L.kbChromeX, L.kbChromeY)
-      elseif img then
-        love.graphics.draw(img, L.kbChromeX, L.kbChromeY)
-      end
+      drawKeyboardPage(st.page, dOut)
+      drawKeyboardPage(st.swapTo, dIn)
     end
+  else
+    drawKeyboardPage(st.page, 0)
   end
-
-  -- 3) Keyboard letters (fixed colX grid — same as pret cursor)
-  drawKeyboardKeys(page, FrlgFont.COLOR.WHITE)
 
   local nextPage = st.page % #PAGES + 1
   local onSide = onButtonCol(st)
+  -- pokefirered/src/naming_screen.c:1293
+  local labelPage, labelDy, labelShow = nextPage, 0, true
+  if st.swapT ~= nil and st.swapTo then
+    local f = st.swapT / 4
+    if f < 8 then
+      labelDy = f
+    else
+      labelPage = st.swapTo % #PAGES + 1
+      if f == 8 then
+        labelShow = false
+      else
+        labelDy = math.min(0, -4 + (f - 8))
+      end
+    end
+  end
   local pageBtn = ({
     "page_swap_button_upper",
     "page_swap_button_lower",
     "page_swap_button_others",
-  })[nextPage]
+  })[labelPage]
   blit("page_swap_frame", L.pageFrameX, L.pageFrameY)
   blit(pageBtn or "page_swap_button", L.pageBtnX, L.pageBtnY)
-  blit(({ "page_swap_upper", "page_swap_lower", "page_swap_others" })[nextPage], L.pageLabelX, L.pageLabelY)
+  if labelShow then
+    blit(({ "page_swap_upper", "page_swap_lower", "page_swap_others" })[labelPage],
+      L.pageLabelX, L.pageLabelY + labelDy)
+  end
   blit("back_button", L.backX, L.backY)
   blit("ok_button", L.okX, L.okY)
   if onSide and st.btn == 2 then
@@ -585,7 +644,8 @@ function Naming.draw()
   end
 
   -- 6) Cursor (pret center (38+colX, 88+row*16) → TL via -8,-8)
-  if not onButtonCol(st) then
+  -- pokefirered/src/naming_screen.c:773
+  if not onButtonCol(st) and st.swapT == nil then
     local x = L.cursorBaseX + (page.colX[st.col] or 0)
     local y = L.cursorBaseY + (st.row - 1) * 16
     local img, q = NamingChrome.cursorQuad(0)

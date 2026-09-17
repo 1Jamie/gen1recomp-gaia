@@ -5,7 +5,7 @@ local Versions = require("src.import.gba.versions")
 
 local FieldEffectExtract = {}
 
-FieldEffectExtract.FORMAT_VERSION = 1
+FieldEffectExtract.FORMAT_VERSION = 2
 
 local function log(msg)
   print("[gba/field_effects] " .. tostring(msg))
@@ -73,6 +73,29 @@ local function bake_rgba(rom, picOff, palOff, fw, fh, frames)
   return table.concat(bytes), w, h
 end
 
+-- pokefirered/src/field_effect.c:949
+local function bake_indexed(rom, picOff, fw, fh, frames)
+  local frameBytes = math.floor(fw / 8) * math.floor(fh / 8) * 32
+  local bytes = {}
+  for f = 0, frames - 1 do
+    local pix = decode_frame(rom, picOff + f * frameBytes, fw, fh)
+    for i = 1, fw * fh do
+      bytes[#bytes + 1] = string.char(pix[i] or 0)
+    end
+  end
+  return table.concat(bytes)
+end
+
+local function bake_pal(rom, palOff)
+  local rgb = load_palette(rom, palOff)
+  local bytes = {}
+  for i = 0, 15 do
+    local c = rgb[i] or { 0, 0, 0 }
+    bytes[#bytes + 1] = string.char(c[1], c[2], c[3])
+  end
+  return table.concat(bytes)
+end
+
 function FieldEffectExtract.writeExtract(rom, cache, root, version)
   root = root or "data/generated/gba"
   version = version or {}
@@ -91,9 +114,14 @@ function FieldEffectExtract.writeExtract(rom, cache, root, version)
       local frames = spec.frames or 1
       local rgba, w, h = bake_rgba(rom, picOff, palOff, fw, fh, frames)
       cache:write(rel .. "/" .. name .. ".rgba", rgba)
+      if spec.indexed then
+        cache:write(rel .. "/" .. name .. ".idx", bake_indexed(rom, picOff, fw, fh, frames))
+        cache:write(rel .. "/" .. name .. ".pal", bake_pal(rom, palOff))
+      end
       cache:write(rel .. "/" .. name .. ".meta", string.format(
-        "return { w = %d, h = %d, frames = %d, fw = %d, fh = %d, format = %d }\n",
-        w, h, frames, fw, fh, FieldEffectExtract.FORMAT_VERSION))
+        "return { w = %d, h = %d, frames = %d, fw = %d, fh = %d, indexed = %s, format = %d }\n",
+        w, h, frames, fw, fh, spec.indexed and "true" or "false",
+        FieldEffectExtract.FORMAT_VERSION))
       log(string.format("%s %dx%d (%d frames, %dx%d) → %s", name, w, h, frames, fw, fh, rel))
       results[name] = { path = rel .. "/" .. name .. ".rgba", w = w, h = h, frames = frames }
     end

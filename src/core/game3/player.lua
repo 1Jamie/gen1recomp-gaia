@@ -49,6 +49,9 @@ Player.spriteXOffset = 0
 Player.spriteYOffset = 0
 Player.biking = false
 Player.surfing = false
+-- pokefirered/src/field_fadetransition.c:860
+Player.walkInPlace = false
+Player.walkInPlaceFast = false
 Player.visible = true
 Player.elevation = 3
 Player._logged = false
@@ -107,6 +110,8 @@ function Player.reset(x, y, facing)
   Player.spriteXOffset = 0
   Player.spriteYOffset = 0
   Player.biking = false
+  Player.walkInPlace = false
+  Player.walkInPlaceFast = false
   if not Player._logged then
     log(string.format("avatar ready @ %d,%d %s",
       Player.cellX, Player.cellY, Player.facing))
@@ -170,9 +175,19 @@ function Player.syncToHost(game)
   p.spriteYOffset = Player.spriteYOffset or 0
 end
 
+local function walkInPlaceFrames()
+  return Player.walkInPlaceFast and RUN_FRAMES or WALK_FRAMES
+end
+
 function Player.walkPhase()
   if Player.turnTimer > 0 then return 1 end
-  if not Player.moving then return 0 end
+  if not Player.moving then
+    if not Player.walkInPlace then return 0 end
+    local wf = walkInPlaceFrames()
+    local wp = Player.animClock % wf
+    local wmid = math.floor(wf / 2)
+    return (wp >= math.floor(wf / 4) and wp < wmid + math.floor(wf / 4)) and 1 or 0
+  end
   local frames = Player.stepFrames or WALK_FRAMES
   local p = Player.animClock % frames
   local mid = math.floor(frames / 2)
@@ -248,6 +263,19 @@ function Player.tryMove(dir, game, run)
     end
   end
   if Player.turnTimer > 0 then return nil end
+
+  -- pokefirered/src/field_player_avatar.c:556
+  local stair = Collision.isStairWarp
+    and Collision.isStairWarp(game, Player.cellX, Player.cellY, dir)
+  if stair then
+    local Warp = require("src.core.game3.warp")
+    if Warp.isBusy() then return "stair_busy" end
+    local Runtime = package.loaded["src.core.game3.runtime"]
+    local mod = Runtime and Runtime._mod
+    local g = game or (Runtime and Runtime._game)
+    Warp.startStairWarp(mod, g, stair.destMap, stair.destX, stair.destY, stair.behavior)
+    return "stair"
+  end
 
   local d = DELTA[dir]
   local tx = Player.cellX + d[1]
@@ -522,11 +550,18 @@ function Player.tick(game)
     Player.turnTimer = Player.turnTimer - 1
   end
   if not Player.moving then
+    -- pokefirered/src/field_fadetransition.c:846
+    if Player.walkInPlace then
+      Player.animClock = Player.animClock + 1
+      if Player.animClock % walkInPlaceFrames() == 0 then
+        Player.stepFlip = not Player.stepFlip
+      end
+    end
     if Player.surfing and not Player.jumping then
       local okFx, FieldEffects = pcall(require, "src.core.game3.field_effects")
       local clock = (okFx and FieldEffects and FieldEffects._surfClock) or 0
       Player.spriteYOffset = (math.floor(clock / 48) % 2 == 1) and -1 or 0
-    else
+    elseif not Player.walkInPlace then
       Player.spriteYOffset = 0
     end
     return false

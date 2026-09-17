@@ -31,6 +31,7 @@ Ui._log = {}
 Ui._mode = "none" -- "none"|"menu"|"moves"|"bag"
 Ui._menuIndex = 1
 Ui._moveIndex = 1
+Ui._moveIndexBattler = nil
 Ui._st = nil
 Ui._pendingCommand = nil
 Ui._pendingYesNo = nil
@@ -74,6 +75,7 @@ function Ui.reset(opts)
   Ui._mode = "none"
   Ui._menuIndex = 1
   Ui._moveIndex = 1
+  Ui._moveIndexBattler = nil
   Ui._st = nil
   Ui._pendingCommand = nil
   Ui._pendingYesNo = nil
@@ -352,9 +354,34 @@ local function grid_nav(index, input, maxN)
   else
     return index, false
   end
-  if c < 0 then c = 0 end
-  if c >= maxN then c = maxN - 1 end
+  if c < 0 or c >= (maxN or 4) then return index, false end
   return c + 1, true
+end
+
+-- pokefirered/src/battle_controller_player.c:1381
+local function move_count(mon)
+  local n = 0
+  for i = 1, 4 do
+    local mv = mon and mon.moves and mon.moves[i]
+    if mv and mv ~= 0 and mv ~= "" then n = n + 1 end
+  end
+  if n < 1 then n = 1 end
+  return n
+end
+
+-- pokefirered/src/battle_main.c:2380
+local function open_move_menu()
+  local battler = Ui._st and Ui._st.player
+  if battler ~= Ui._moveIndexBattler then
+    Ui._moveIndexBattler = battler
+    Ui._moveIndex = 1
+  end
+  local n = move_count(battler and battler.mon)
+  local idx = tonumber(Ui._moveIndex) or 1
+  if idx < 1 then idx = 1 end
+  if idx > n then idx = n end
+  Ui._moveIndex = idx
+  Ui._mode = "moves"
 end
 
 function Ui.handleInput(input)
@@ -390,8 +417,7 @@ function Ui.handleInput(input)
       play_select()
       local kind = Commands.MENU[Ui._menuIndex]
       if kind == "FIGHT" then
-        Ui._mode = "moves"
-        Ui._moveIndex = 1
+        open_move_menu()
       elseif kind == "BAG" then
         open_battle_bag()
       elseif kind == "POKEMON" or kind == "POKéMON" then
@@ -408,7 +434,8 @@ function Ui.handleInput(input)
     -- Input owned by BagMenu / PartyMenu via Battle.update
     return true
   elseif Ui._mode == "moves" then
-    local idx, moved = grid_nav(Ui._moveIndex, input, 4)
+    -- pokefirered/src/battle_controller_player.c:526
+    local idx, moved = grid_nav(Ui._moveIndex, input, move_count(Ui._st and Ui._st.player and Ui._st.player.mon))
     if moved then
       Ui._moveIndex = idx
       play_select()
@@ -556,7 +583,8 @@ local function draw_move_menu(st)
   Window.cursorPx(cp[1], cp[2], { colors = FrlgFont.COLOR.NORMAL })
   for i = 1, 4 do
     local mv = mon and mon.moves and mon.moves[i]
-    local label = "—"
+    -- pokefirered/src/data/text/move_names.h:2
+    local label = "-"
     if mv and mv ~= 0 and mv ~= "" then
       label = Moves.displayName(mv)
     end
@@ -714,6 +742,11 @@ function Ui.draw(w, h)
     enemyOx = stage.bgSlide.enemyOx or 0
     playerOx = stage.bgSlide.playerOx or 0
   end
+  -- pokefirered/src/battle_intro.c:139
+  local bgOx = 0
+  if (enemyOx ~= 0 or playerOx ~= 0) and stage and stage.slide then
+    bgOx = math.floor((tonumber(stage.slide) or 0) * 154 * 6 + 0.5)
+  end
 
   local bgDim = (stage and stage.bgDim) or 0
   if bgDim > 0 then
@@ -727,7 +760,7 @@ function Ui.draw(w, h)
 
   -- pokefirered/src/battle_anim_special.c:1888
   local bgBlended = not screenFxActive and BallOpen.setBlendShader(BallOpen.bgCoeff(), 31, 31, 31)
-  if not BattleBg.draw(nil, enemyOx, playerOx) then
+  if not BattleBg.draw(nil, enemyOx, playerOx, bgOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
   end
