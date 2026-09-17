@@ -384,6 +384,14 @@ function ExtractScripts.loadBundle(cache, root, opts)
   local movements = load_lua(base .. "/movements.lua")
   local events = load_lua(base .. "/events.lua")
   if scripts and events then
+    local objects=load_lua(root .. "/objects/pack.lua")
+    require("src.core.game3.scripting.interaction_scripts").install(objects)
+    if objects then
+      text=text or {};movements=movements or {}
+      for k,v in pairs(objects.scripts or {}) do scripts[k]=v end
+      for k,v in pairs(objects.text or {}) do text[k]=v end
+      for k,v in pairs(objects.movements or {}) do movements[k]=v end
+    end
     -- Overlay stdscripts always (nurse/PC host arms).
     for k, v in pairs(merge_std_scripts()) do
       if scripts[k] == nil then scripts[k] = v end

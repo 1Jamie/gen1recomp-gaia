@@ -383,6 +383,7 @@ function Extract.run(imports, cache, progressCb)
     local rom2 = assert(Rom.open(imports, importId))
     require("src.import.gba.help_extract").writeExtract(rom2, cache)
     require("src.import.gba.quest_log_extract").writeExtract(rom2, cache)
+    require("src.import.gba.object_interactions_extract").writeExtract(rom2, cache, Extract.CACHE_ROOT, version)
     local midLists = {}
     for _, pairName in ipairs(pairNames) do
       midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName)
@@ -1738,6 +1739,7 @@ local function _dormant_quantize_run(imports, cache, progressCb)
     local rom2 = assert(Rom.open(imports, importId))
     require("src.import.gba.help_extract").writeExtract(rom2, cache)
     require("src.import.gba.quest_log_extract").writeExtract(rom2, cache)
+    require("src.import.gba.object_interactions_extract").writeExtract(rom2, cache, Extract.CACHE_ROOT, version)
     local midLists = {}
     local NativePack = require("src.import.gba.native_pack")
     for _, pairName in ipairs(pairNames) do
@@ -2032,6 +2034,7 @@ function Extract.runNativeOnly(imports, cache, progressCb)
     local rom2 = assert(Rom.open(imports, importId))
     require("src.import.gba.help_extract").writeExtract(rom2, cache)
     require("src.import.gba.quest_log_extract").writeExtract(rom2, cache)
+    require("src.import.gba.object_interactions_extract").writeExtract(rom2, cache, Extract.CACHE_ROOT, version)
     local midLists = {}
     for _, pairName in ipairs(pairNames) do
       midLists[pairName] = NativePack.collectMidsForPair(grids, borders, pairName)

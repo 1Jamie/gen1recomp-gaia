@@ -154,7 +154,7 @@ local function facing_object_cell(fx, fy, facing)
   return fx, fy
 end
 
-local function bg_event_at(game, fx, fy)
+local function bg_event_at(game, fx, fy, elevation, facingDir)
   local session = Field._session
   local mapId = session and session.map
   local data = game and game.data and game.data.maps
@@ -167,7 +167,7 @@ local function bg_event_at(game, fx, fy)
   end
   if not events then return nil end
   for _, ev in ipairs(events) do
-    if ev.x == fx and ev.y == fy and ev.scriptKey then
+    if ev.scriptKey and require("src.core.game3.scripting.interaction_scripts").backgroundMatches(ev,fx,fy,elevation,facingDir) then
       return ev
     end
   end
@@ -228,7 +228,7 @@ function Field.tryCoordEvents(game, cx, cy)
   return false
 end
 
---- A-button field interact: NPC talk → bgEvent → collision-std (PC).
+--- A-button field interact: NPC talk → bgEvent → metatile interaction → Surf.
 -- Returns true if a script (or handled action) started.
 function Field.interact(game)
   game = game or Field._game
@@ -325,13 +325,21 @@ function Field.interact(game)
   end
 
   -- 2) Extracted bgEvents (signs) — face cell only, not doubled
-  local sign = bg_event_at(game, fx, fy)
+  local layout=Collision._mapDef and Collision._mapDef.midLayout
+  local elevation=layout and layout:elevAt(P.cellX,P.cellY) or 0
+  if elevation==0 then elevation=P.elevation or 0 end
+  local sign = bg_event_at(game, fx, fy, elevation, facingDir)
   if sign and sign.scriptKey then
-    Space.startScript(sign.scriptKey, nil, facingDir)
-    return true
+    if Space.startScript(sign.scriptKey, nil, facingDir) then return true end
   end
 
-  -- 3) Water / Surf interact on facing water tile
+  -- 3) Original metatile interactions follow objects and map-specific scripts.
+  local behavior=Collision.behavior(fx,fy)
+  local key=require("src.core.game3.scripting.interaction_scripts").scriptFor(behavior,P.facing)
+  if behavior==nil then key=CollisionStd.scriptFor(Collision.cell(fx,fy)) end
+  if key and Space.startScript(key,nil,facingDir) then return true end
+
+  -- 4) Water / Surf interact on facing water tile
   if not P.surfing and Collision.isWater and Collision.isWater(fx, fy) then
     local ctx = { party = party, store = Space.store, session = Field._session, isFacingWater = true }
     local res = FieldMoves.trySurfOW(ctx)
@@ -347,13 +355,6 @@ function Field.interact(game)
     end
   end
 
-  -- 4) Metatile-behavior std scripts (PC, …)
-  local coll = Collision.cell and Collision.cell(fx, fy)
-  local stdKey = CollisionStd.scriptFor(coll)
-  if stdKey then
-    Space.startScript(stdKey, nil, facingDir)
-    return true
-  end
 
   return false
 end
