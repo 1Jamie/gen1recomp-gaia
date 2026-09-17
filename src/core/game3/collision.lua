@@ -164,6 +164,15 @@ function Collision.inBounds(cx, cy)
     and cx < Collision._widthCells and cy < Collision._heightCells
 end
 
+-- Preserve original MB semantics independently of the walkability COLL grid.
+function Collision.behavior(cx,cy)
+  local layout=Collision._mapDef and Collision._mapDef.midLayout
+  if not layout or cx<0 or cy<0 or cx>=layout.width or cy>=layout.height then return nil end
+  local pair=Collision._mapDef.pair or layout.pair
+  local behaviors=require("src.core.game3.scripting.interaction_scripts").behaviors[pair]
+  return behaviors and behaviors[layout:midAt(cx,cy)]
+end
+
 function Collision.cell(cx, cy)
   if not Collision._grid or not Collision.inBounds(cx, cy) then
     return 0xff

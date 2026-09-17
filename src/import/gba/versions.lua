@@ -23,7 +23,8 @@ Versions.ROM_SIZE = 16777216
 -- v89: summary base tilemaps from ROM (fix magenta bg on Android), keypad icons extracted from ROM
 -- v90: fanfare audio cues, emote cues (0x62-0x66), pause menu YES/NO exit & main menu launcher exit
 -- v91: ROM-native Help topics, context lists, text and chrome.
-Versions.CACHE_VERSION = 92
+-- v93: original furniture/sign scripts and metatile interaction behaviors.
+Versions.CACHE_VERSION = 93
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1

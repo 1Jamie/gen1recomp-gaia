@@ -162,6 +162,7 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE = {
   firered = {
     "data/generated/gba/help/pack.lua",
     "data/generated/gba/quest_log/pack.lua",
+    "data/generated/gba/objects/pack.lua",
     "data/generated/gba/meta.json",
     "data/generated/gba/maps.json",
     "data/generated/gba/audio/meta.json",
