@@ -3,11 +3,12 @@
 
 local Mix = {}
 
--- FireRed m4aSoundMode: SOUND_MODE_FREQ_13379 → 224 PCM samples per VBlank.
-Mix.GBA_MIX_RATE = 13379
+-- FireRed SampleFreqSet: timer 0 advances every 1254 CPU cycles.
+Mix.GBA_CLOCK = 16777216
+Mix.GBA_FRAME_CYCLES = 280896
 Mix.GBA_SAMPLES_PER_VBLANK = 224
--- True GBA refresh: 13379/224 ≈ 59.7275 Hz (not 60).
-Mix.GBA_VBLANK_HZ = Mix.GBA_MIX_RATE / Mix.GBA_SAMPLES_PER_VBLANK
+Mix.GBA_VBLANK_HZ = Mix.GBA_CLOCK / Mix.GBA_FRAME_CYCLES
+Mix.GBA_MIX_RATE = Mix.GBA_VBLANK_HZ * Mix.GBA_SAMPLES_PER_VBLANK
 
 local function load_chip_synth()
   -- love.thread workers often cannot resolve package.path requires; mirror chip_worker.
@@ -110,10 +111,10 @@ local DS_FREQ = {
   3408917802, 3611622603, 3826380858, 4053909305,
 }
 
--- ChipSynth-style GB capacitor HPF (restores brightness vs DC-coupled bus).
+-- Remove DC from the unipolar GBA PSG without the DMG capacitor's bass loss.
 local GB_CLOCK = 4194304
 local function hpf_charge()
-  return 0.999958 ^ (GB_CLOCK / Mix.SAMPLE_RATE)
+  return math.exp(-2 * math.pi * 5 / Mix.SAMPLE_RATE)
 end
 
 local function midi_to_hz(key)
@@ -138,7 +139,7 @@ local function ds_scale_freq(key)
   return math.floor((DS_FREQ[s % 16] or 0) / (2 ^ math.floor(s / 16)))
 end
 
---- pret MidiKeyToFreq → Q10 sample rate (divide by 1024 for Hz).
+--- pret MidiKeyToFreq returns playback Hz; only WaveData.freq is Q10.
 function Mix.midiKeyToFreq(wavFreq, key, fine)
   wavFreq = tonumber(wavFreq) or 0
   key = math.floor(tonumber(key) or 60)
@@ -159,7 +160,7 @@ function Mix.midiKeyToFreq(wavFreq, key, fine)
 end
 
 --- pret MidiKeyToCgbFreq for pulse/wave → 11-bit-ish period register.
-function Mix.cgbPeriod(key, fine)
+function Mix.cgbPeriod(key, fine, fixed)
   key = tonumber(key) or 60
   fine = math.floor(tonumber(fine) or 0)
   if fine < 0 then fine = 0 end
@@ -178,19 +179,22 @@ function Mix.cgbPeriod(key, fine)
   local val1 = math.floor((CGB_FREQ[s1 % 16] or 0) / (2 ^ math.floor(s1 / 16)))
   local s2 = CGB_SCALE[key + 1] or s1
   local val2 = math.floor((CGB_FREQ[s2 % 16] or 0) / (2 ^ math.floor(s2 / 16)))
-  return val1 + math.floor((fine * (val2 - val1)) / 256) + 2048
+  local period = val1 + math.floor((fine * (val2 - val1)) / 256) + 2048
+  -- CgbSound quantizes FIX tones to the 65536 Hz PWM grid in FireRed's mode.
+  if fixed then period = math.floor((period + 1) / 2) * 2 % 2048 end
+  return period
 end
 
-function Mix.cgbPulseHz(key, fine)
-  local p = Mix.cgbPeriod(key, fine)
+function Mix.cgbPulseHz(key, fine, fixed)
+  local p = Mix.cgbPeriod(key, fine, fixed)
   local denom = 2048 - p
   if denom < 1 then denom = 1 end
   return 131072 / denom
 end
 
 -- Hardware wave clock is half of pulse → one octave lower for same period.
-function Mix.cgbWaveHz(key, fine)
-  return Mix.cgbPulseHz(key, fine) * 0.5
+function Mix.cgbWaveHz(key, fine, fixed)
+  return Mix.cgbPulseHz(key, fine, fixed) * 0.5
 end
 
 function Mix.periodToPulseHz(periodReg)
@@ -215,12 +219,8 @@ function Mix.cgbNoisePeriod(key)
   local nr43 = Mix.cgbNoiseNr43(key)
   local shift = math.floor(nr43 / 16) % 16
   local div = NOISE_DIV[nr43 % 8] or 8
-  local hz = 524288 / (div * (2 ^ shift))
-  if hz < 1 then hz = 1 end
-  local period = math.floor(Mix.SAMPLE_RATE / hz + 0.5)
-  if period < 1 then period = 1 end
-  if period > 4096 then period = 4096 end
-  return period
+  -- mGBA GB audio: divisor is already in 4 MHz clocks, not 524288 Hz units.
+  return Mix.SAMPLE_RATE * div * (2 ^ shift) / GB_CLOCK
 end
 
 --- Attach MP2K ADSR. CGB uses 0..15 sustain; DS uses 0..255.
@@ -243,112 +243,135 @@ function Mix.attachAdsr(voice, tone, isCgb, opts)
   return voice
 end
 
---- One sequencer-tick envelope step (pret SoundMain cadence ≈ per MPlayMain).
-function Mix.tickEnvelope(v)
-  if not v or not v.alive then return end
+local function finish_envelope(v, cgb)
   local a = v.adsr
-  if not a then
-    v.env = 1
-    return
-  end
-  local phase = v.envPhase or "attack"
-  if phase == "attack" then
-    if a.isCgb then
-      if (a.attack or 0) == 0 then
-        v.envVol = 15
-        v.envPhase = "decay"
-      else
-        v.envVol = math.min(15, (v.envVol or 0) + 1)
-        if v.envVol >= 15 then v.envPhase = "decay" end
-      end
-    else
-      if (a.attack or 0) >= 255 then
-        v.envVol = 255
-        v.envPhase = "decay"
-      else
-        v.envVol = (v.envVol or 0) + (a.attack or 0) + 1
-        if v.envVol >= 255 then
-          v.envVol = 255
-          v.envPhase = "decay"
-        end
-      end
-    end
-  elseif phase == "decay" then
-    if a.isCgb then
-      local sus = a.sustain or 0
-      if (a.decay or 0) == 0 then
-        v.envVol = sus
-        v.envPhase = "sustain"
-      else
-        v.envVol = (v.envVol or 15) - 1
-        if v.envVol <= sus then
-          v.envVol = sus
-          v.envPhase = "sustain"
-        end
-      end
-    else
-      local sus = a.sustain or 0
-      if (a.decay or 0) == 0 then
-        v.envVol = sus
-        v.envPhase = "sustain"
-      else
-        v.envVol = math.floor(((v.envVol or 255) * (a.decay or 0)) / 256)
-        if v.envVol <= sus then
-          v.envVol = sus
-          v.envPhase = "sustain"
-        end
-      end
-    end
-  elseif phase == "sustain" then
-    -- hold until gate → release
-  elseif phase == "release" then
-    if a.isCgb then
-      if (a.release or 0) == 0 then
-        v.envVol = 0
-        v.alive = false
-      else
-        v.envVol = (v.envVol or 0) - 1
-        if v.envVol <= 0 then
-          v.envVol = 0
-          v.alive = false
-        end
-      end
-    else
-      if (a.release or 0) == 0 then
-        v.envVol = 0
-        v.alive = false
-      else
-        v.envVol = math.floor(((v.envVol or 0) * (a.release or 0)) / 256)
-        local peVol = a.pseudoEchoVolume or 0
-        if peVol > 0 and (v.envVol or 0) <= peVol then
-          v.envVol = peVol
-          v.envPhase = "echo"
-        elseif (v.envVol or 0) <= 0 then
-          v.envVol = 0
-          v.alive = false
-        end
-      end
-    end
-  elseif phase == "echo" then
-    a.pseudoEchoLength = (a.pseudoEchoLength or 0) - 1
-    if a.pseudoEchoLength <= 0 then
-      v.envVol = 0
-      v.alive = false
-    end
-  end
-  local maxv = a.isCgb and 15 or 255
-  if maxv < 1 then maxv = 1 end
-  v.env = (v.envVol or 0) / maxv
-end
-
-function Mix.releaseVoice(v)
-  if not v then return end
-  if v.adsr then
-    v.envPhase = "release"
-    v.gateTicks = nil
+  local echo = a.pseudoEchoVolume or 0
+  if cgb then echo = math.floor(((v.envGoal or 0) * echo + 255) / 256) end
+  v.envVol = echo
+  if echo > 0 then
+    v.envPhase = "echo"
   else
     v.alive = false
   end
+end
+
+-- pokefirered CgbModVol: PSG has routing bits and a 4-bit envelope, not
+-- independent continuous left/right gains. Wave volume is quantized further.
+function Mix.cgbVolume(v)
+  local l = math.floor((v.volL or 0) * 256)
+  local r = math.floor((v.volR or 0) * 256)
+  v.routeL, v.routeR = true, true
+  if r >= l and math.floor(r / 2) >= l then
+    v.routeL = false
+  elseif l > r and math.floor(l / 2) >= r then
+    v.routeR = false
+  end
+  v.envGoal = math.min(15, math.floor((l + r) / 16))
+  v.sustainGoal = math.floor((v.envGoal * v.adsr.sustain + 15) / 16)
+end
+
+local function cgb_decay(v)
+  local a = v.adsr
+  v.envVol = v.envGoal
+  v.envPhase = "decay"
+  v.envCounter = a.decay
+  if a.decay == 0 then
+    v.envVol = v.sustainGoal
+    v.envPhase = "sustain"
+    v.envCounter = 7
+    if a.sustain == 0 then finish_envelope(v, true) end
+  end
+end
+
+local function tick_cgb_envelope(v, extraClock)
+  local a = v.adsr
+  Mix.cgbVolume(v)
+  if not v.envStarted then
+    v.envStarted = true
+    if v.released then v.alive = false; return end
+    v.envCounter = a.attack
+    if a.attack == 0 then cgb_decay(v) end
+  elseif v.envPhase == "echo" then
+    a.pseudoEchoLength = a.pseudoEchoLength - 1
+    if a.pseudoEchoLength <= 0 then v.alive = false end
+    return
+  elseif v.released and v.envPhase ~= "release" then
+    v.envPhase = "release"
+    v.envCounter = a.release
+    if a.release == 0 then finish_envelope(v, true) end
+  else
+    -- CgbSound counts down once per VBlank and twice every fifteenth frame.
+    if (v.envCounter or 0) == 0 then
+      if v.envPhase == "attack" then
+        v.envVol = v.envVol + 1
+        v.envCounter = a.attack
+        if v.envVol >= v.envGoal then cgb_decay(v) end
+      elseif v.envPhase == "decay" then
+        v.envVol = v.envVol - 1
+        v.envCounter = a.decay
+        if v.envVol <= v.sustainGoal then
+          v.envVol = v.sustainGoal
+          v.envPhase = "sustain"
+          v.envCounter = 7
+          if a.sustain == 0 then finish_envelope(v, true) end
+        end
+      elseif v.envPhase == "sustain" then
+        v.envVol = v.sustainGoal
+        v.envCounter = 7
+      elseif v.envPhase == "release" then
+        v.envVol = v.envVol - 1
+        v.envCounter = a.release
+        if v.envVol <= 0 then finish_envelope(v, true) end
+      end
+    end
+  end
+  if v.alive and v.envPhase ~= "echo" then
+    v.envCounter = math.max(0, (v.envCounter or 0) - 1)
+    if extraClock then tick_cgb_envelope(v, false) end
+  end
+end
+
+--- SoundMain envelope step, once per GBA frame regardless of song tempo.
+function Mix.tickEnvelope(v, extraCgbClock)
+  if not v or not v.alive then return end
+  local a = v.adsr
+  if not a then v.env = 1; return end
+  if a.isCgb then
+    tick_cgb_envelope(v, extraCgbClock)
+    v.env = (v.envVol or 0) / 15
+    return
+  end
+  if not v.envStarted then
+    v.envStarted = true
+    if v.released then v.alive = false; return end
+  end
+  local phase = v.envPhase
+  if phase == "echo" then
+    a.pseudoEchoLength = a.pseudoEchoLength - 1
+    if a.pseudoEchoLength <= 0 then v.alive = false end
+  elseif v.released then
+    v.envPhase = "release"
+    v.envVol = math.floor(v.envVol * a.release / 256)
+    if v.envVol <= a.pseudoEchoVolume then finish_envelope(v, false) end
+  elseif phase == "attack" then
+    v.envVol = math.min(255, v.envVol + a.attack)
+    if v.envVol == 255 then v.envPhase = "decay" end
+  elseif phase == "decay" then
+    v.envVol = math.floor(v.envVol * a.decay / 256)
+    if v.envVol <= a.sustain then
+      v.envVol = a.sustain
+      v.envPhase = "sustain"
+      if a.sustain == 0 then finish_envelope(v, false) end
+    end
+  end
+  v.env = v.envVol / 255
+end
+
+function Mix.releaseVoice(v)
+  if not v or v.released then return end
+  v.released = true
+  v.gateTicks = nil
+  if not v.adsr then v.alive = false end
 end
 
 function Mix.newDsVoice(pcm, meta, opts)
@@ -381,16 +404,18 @@ function Mix.waveRate(freqField)
 end
 
 -- Hardware: 4 exclusive CGB channels (pulse1, pulse2, wave, noise).
-Mix.MAX_DS_CHANNELS = 12
+Mix.MAX_DS_CHANNELS = 5
 
 function Mix.newCgbPulse(opts)
   opts = opts or {}
   local key = opts.key or 60
   local fine = opts.fine or 0
-  local periodReg = opts.periodReg or Mix.cgbPeriod(key, fine)
+  local fixed = opts.tone and math.floor((opts.tone.type or 0) / 8) % 2 == 1
+  local periodReg = opts.periodReg or Mix.cgbPeriod(key, fine, fixed)
   local v = {
     kind = "cgb_pulse",
     cgbChan = opts.cgbChan or 1, -- 1 or 2
+    cgbFixed = fixed,
     duty = opts.duty or 2,
     phase = 0,
     periodReg = periodReg,
@@ -422,12 +447,14 @@ function Mix.newCgbWave(opts)
   local wave = opts.wave or {}
   local key = opts.key or 60
   local fine = opts.fine or 0
+  local fixed = opts.tone and math.floor((opts.tone.type or 0) / 8) % 2 == 1
   local v = {
     kind = "cgb_wave",
     cgbChan = 3,
+    cgbFixed = fixed,
     wave = wave,
     phase = 0,
-    freq = opts.freq or Mix.cgbWaveHz(key, fine),
+    freq = opts.freq or Mix.cgbWaveHz(key, fine, fixed),
     volL = opts.volL or 0.35,
     volR = opts.volR or 0.35,
     env = opts.env or 1,
@@ -443,6 +470,7 @@ function Mix.newCgbNoise(opts)
     kind = "cgb_noise",
     cgbChan = 4,
     lfsr = 0x7FFF,
+    shortNoise = opts.tone and (tonumber(opts.tone.wavParam) or 0) % 2 == 1,
     clock = 0,
     period = opts.period or Mix.cgbNoisePeriod(opts.key or 60),
     volL = opts.volL or 0.3,
@@ -521,9 +549,10 @@ end
 
 local function render_voice(v, n, outL, outR)
   if not v or not v.alive then return end
-  local env = v.env
-  if env == nil then env = 1 end
-  if env <= 0 then return end
+  if v.lengthRemaining then
+    n = math.min(n, math.max(0, math.ceil(v.lengthRemaining)))
+    v.lengthRemaining = v.lengthRemaining - n
+  end
   if v.kind == "ds" then
     local pcm = v.pcm
     local size = v.size or #pcm
@@ -532,8 +561,10 @@ local function render_voice(v, n, outL, outR)
     local loopLen = size - loopStart
     local step = v.step or 1
     local pos = v.pos or 0
-    local volL = (v.volL or 0.5) * 0.45
-    local volR = (v.volR or 0.5) * 0.45
+    -- SoundMain: masterVolume = 12, envelope gain = ((12 + 1) * env) >> 4.
+    local e = math.floor(13 * (v.envVol or 255) / 16)
+    local volL = math.floor((v.volL or 0.5) * e) / 256
+    local volR = math.floor((v.volR or 0.5) * e) / 256
     for i = 1, n do
       if pos >= size then
         if loop and loopLen > 0 then
@@ -543,7 +574,7 @@ local function render_voice(v, n, outL, outR)
           break
         end
       end
-      local s = s8_lerp(pcm, pos, size, loop, loopStart) * env
+      local s = s8_lerp(pcm, pos, size, loop, loopStart)
       outL[i] = outL[i] + s * volL
       outR[i] = outR[i] + s * volR
       pos = pos + step
@@ -557,12 +588,12 @@ local function render_voice(v, n, outL, outR)
       if not v.alive then break end
       local inc = v.freq / Mix.SAMPLE_RATE
       local s = (v.phase < thresh) and hi or lo
-      -- Was 0.12 — left CGB SE (doors/select) ~3× under DS; pret CGB is louder.
-      s = s * env * 0.28
-      outL[i] = outL[i] + s * v.volL
-      outR[i] = outR[i] + s * v.volR
+      -- SOUNDCNT_L=0x77, PSG ratio=100%: one envelope unit is 16/512.
+      s = (s + 1) * (v.envVol or 15) / 64
+      if v.routeL ~= false then outL[i] = outL[i] + s end
+      if v.routeR ~= false then outR[i] = outR[i] + s end
       v.phase = v.phase + inc
-      if v.phase >= 1 then v.phase = v.phase - 1 end
+      v.phase = v.phase % 1
     end
   elseif v.kind == "cgb_wave" then
     local wave = v.wave
@@ -570,27 +601,81 @@ local function render_voice(v, n, outL, outR)
     for i = 1, n do
       local idx = math.floor(v.phase * 32) % 32
       local nibble = wave[idx + 1] or 8
-      local s = ((nibble / 7.5) - 1) * 0.25 * env
-      outL[i] = outL[i] + s * v.volL
-      outR[i] = outR[i] + s * v.volR
+      -- gCgb3Vol: mute, 25%, 50%, 75%, 100% (hardware truncates nibbles).
+      local level = v.envVol or 15
+      local sample = 0
+      if level >= 14 then sample = nibble
+      elseif level >= 10 then sample = math.floor(nibble * 3 / 4)
+      elseif level >= 6 then sample = math.floor(nibble / 2)
+      elseif level >= 2 then sample = math.floor(nibble / 4) end
+      local s = sample / 32
+      if v.routeL ~= false then outL[i] = outL[i] + s end
+      if v.routeR ~= false then outR[i] = outR[i] + s end
       v.phase = v.phase + inc
-      if v.phase >= 1 then v.phase = v.phase - 1 end
+      v.phase = v.phase % 1
     end
   elseif v.kind == "cgb_noise" then
     for i = 1, n do
       v.clock = v.clock + 1
-      if v.clock >= v.period then
-        v.clock = 0
+      while v.clock >= v.period do
+        v.clock = v.clock - v.period
         local lo = v.lfsr % 2
         local hi = math.floor(v.lfsr / 2) % 2
         local bit = (lo == hi) and 0 or 1
         v.lfsr = math.floor(v.lfsr / 2) + bit * 0x4000
+        if v.shortNoise then
+          v.lfsr = v.lfsr - (math.floor(v.lfsr / 64) % 2) * 64 + bit * 64
+        end
       end
-      local s = ((v.lfsr % 2) == 0) and 0.14 or -0.14
-      s = s * env
-      outL[i] = outL[i] + s * v.volL
-      outR[i] = outR[i] + s * v.volR
+      local s = ((v.lfsr % 2) == 0) and (v.envVol or 15) / 32 or 0
+      if v.routeL ~= false then outL[i] = outL[i] + s end
+      if v.routeR ~= false then outR[i] = outR[i] + s end
     end
+  end
+  if v.lengthRemaining and v.lengthRemaining <= 0 then v.alive = false end
+end
+
+-- SoundMainRAM feeds the sum of both PCM sides, from six and seven frames
+-- ago, back into both sides at reverb/512. PSG never enters this buffer.
+-- The delay is resampled to the host clock; native s8 wrapping is not modeled.
+function Mix.newReverb(level, rate)
+  local frame = (rate or Mix.SAMPLE_RATE) / Mix.GBA_VBLANK_HZ
+  return {
+    level = math.max(0, math.min(127, tonumber(level) or 0)),
+    shortDelay = frame * 6,
+    longDelay = frame * 7,
+    size = math.ceil(frame * 7) + 1,
+    cursor = 0, left = {}, right = {}, energy = 0,
+  }
+end
+
+function Mix.reverbActive(state)
+  return state and state.level > 0 and state.energy > 1e-8
+end
+
+local function reverb_tap(state, delay)
+  local at = (state.cursor - delay) % state.size
+  local i = math.floor(at)
+  local frac = at - i
+  local j = (i + 1) % state.size
+  local a = (state.left[i] or 0) + (state.right[i] or 0)
+  local b = (state.left[j] or 0) + (state.right[j] or 0)
+  return a + (b - a) * frac
+end
+
+local function apply_reverb(state, left, right, n)
+  if not state or state.level <= 0 then return end
+  local gain = state.level / 512
+  for i = 1, n do
+    local echo = (reverb_tap(state, state.shortDelay)
+      + reverb_tap(state, state.longDelay)) * gain
+    local l, r = left[i] + echo, right[i] + echo
+    local at = state.cursor
+    local oldL, oldR = state.left[at] or 0, state.right[at] or 0
+    state.energy = math.max(0, state.energy + l * l + r * r - oldL * oldL - oldR * oldR)
+    state.left[at], state.right[at] = l, r
+    state.cursor = (at + 1) % state.size
+    left[i], right[i] = l, r
   end
 end
 
@@ -600,14 +685,18 @@ function Mix.render(voices, n, opts)
   local outL, outR = {}, {}
   for i = 1, n do outL[i] = 0; outR[i] = 0 end
   for _, v in ipairs(voices) do
-    render_voice(v, n, outL, outR)
+    if v.kind == "ds" then render_voice(v, n, outL, outR) end
+  end
+  apply_reverb(opts.reverbState, outL, outR, n)
+  for _, v in ipairs(voices) do
+    if v.kind ~= "ds" then render_voice(v, n, outL, outR) end
   end
   local alive = {}
   for _, v in ipairs(voices) do
     if v.alive then alive[#alive + 1] = v end
   end
 
-  -- Capacitor HPF (ChipSynth model) — restores highs vs a DC-coupled bus.
+  -- DC blocker; state belongs to the rendered player slot.
   local master = opts.master or 1
   local charge = hpf_charge()
   local capL = opts.hpfCapL

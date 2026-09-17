@@ -43,6 +43,7 @@ function Seq.parseSongBin(blob)
     reverb = u8(blob, 3),
     voicegroup = u32le(blob, 4),
     trackData = {},
+    trackEntries = {},
   }
   if tracks == 0 then return out end
 
@@ -50,12 +51,15 @@ function Seq.parseSongBin(blob)
   local packed = first > 0 and first < #blob and first < 0x01000000
 
   if packed then
+    local stride = (out.blocks or 0) >= 128 and 12 or 8
+    out.blocks = (out.blocks or 0) % 128
     for t = 0, tracks - 1 do
-      local base = 8 + t * 8
+      local base = 8 + t * stride
       local off = u32le(blob, base) or 0
       local len = u32le(blob, base + 4) or 0
       if off > 0 and len > 0 and off + len <= #blob then
         out.trackData[t + 1] = blob:sub(off + 1, off + len)
+        out.trackEntries[t + 1] = stride == 12 and (u32le(blob, base + 8) or 0) or 0
       else
         out.trackData[t + 1] = ""
       end
@@ -133,28 +137,33 @@ function Seq.trackPitch(tr)
   return math.floor(x / 256), (x % 256)
 end
 
-local function calc_track_vol(tr, vel)
+-- pokefirered TrkVolPitSet + ChnVolSetAsm, retaining the integer truncation
+-- and the separate rhythm pan multiplier. Gains are channel bytes / 256.
+function Seq.trackVolume(tr, vel, rhythmPan)
   vel = tonumber(vel) or tr.vel or 100
-  local vol = (tr.volume or 100) / 127 * (vel / 127)
-  if (tr.modT or 0) == 1 and (tr.mod or 0) > 0 then
-    local modVol = math.max(0, math.min(255, (tr.modM or 0) + 128)) / 128
-    vol = vol * modVol
+  local x = math.floor((tr.volume or 100) * 64 / 32)
+  if (tr.modT or 0) == 1 then
+    x = math.floor(x * ((tr.modM or 0) + 128) / 128)
   end
-  local pan = ((tr.pan or 0x40) - 0x40) / 64
-  if (tr.modT or 0) == 2 and (tr.mod or 0) > 0 then
-    pan = pan + (tr.modM or 0) / 128
-  end
-  if pan < -1 then pan = -1 elseif pan > 1 then pan = 1 end
-  local volL = vol * (0.5 - pan * 0.5)
-  local volR = vol * (0.5 + pan * 0.5)
-  return volL, volR
+  local pan = 2 * ((tr.pan or 0x40) - 0x40)
+  if (tr.modT or 0) == 2 then pan = pan + (tr.modM or 0) end
+  pan = math.max(-128, math.min(127, pan))
+  local ml = math.floor((127 - pan) * x / 256) % 256
+  local mr = math.floor((128 + pan) * x / 256) % 256
+  local rp = rhythmPan or 0
+  local l = math.min(255, math.floor((127 - rp) * vel * ml / 16384))
+  local r = math.min(255, math.floor((128 + rp) * vel * mr / 16384))
+  return l / 256, r / 256
 end
+
+local calc_track_vol = Seq.trackVolume
 
 function Seq.newPlayer(song, opts)
   opts = opts or {}
   local tracks = {}
   for i = 1, (song and song.tracks) or 0 do
     local tr = new_track(song.trackData[i])
+    tr.pc = song.trackEntries and song.trackEntries[i] or 0
     tr.index = i
     tracks[i] = tr
   end
@@ -163,6 +172,8 @@ function Seq.newPlayer(song, opts)
     tracks = tracks,
     tempo = 150, -- tempoD
     tempoC = 0,
+    frameC = 0,
+    c15 = 0,
     voices = {},
     voiceResolver = opts.voiceResolver,
     muted = false,
@@ -191,7 +202,7 @@ local function track_read32(tr)
   return b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
 end
 
-local MAX_DS = 12
+local MAX_DS = Mix.MAX_DS_CHANNELS
 
 --- pret MPlayMain: after BEND/VOL/PAN/MOD, TrkVolPitSet + rewrite active channel freqs.
 local function refresh_track_voices(player, tr)
@@ -201,7 +212,7 @@ local function refresh_track_voices(player, tr)
     if v.track == tr and v.alive ~= false then
       if tr._volDirty then
         local nvel = v.noteVel or tr.vel or 127
-        local volL, volR = calc_track_vol(tr, nvel)
+        local volL, volR = calc_track_vol(tr, nvel, v.rhythmPan)
         v.volL = volL
         v.volR = volR
       end
@@ -212,17 +223,15 @@ local function refresh_track_voices(player, tr)
         if absKey > 178 then absKey = 178 end
         if v.kind == "ds" and v.wavFreq then
           local rate = Mix.midiKeyToFreq(v.wavFreq, absKey, fine)
-          if rate >= 100 then
-            v.step = rate / Mix.SAMPLE_RATE
-          end
+          v.step = rate / Mix.SAMPLE_RATE
         elseif v.kind == "cgb_pulse" then
-          local period = Mix.cgbPeriod(absKey, fine)
+          local period = Mix.cgbPeriod(absKey, fine, v.cgbFixed)
           v.periodReg = period
           if not v.sweepEnabled then
             v.freq = Mix.periodToPulseHz(period)
           end
         elseif v.kind == "cgb_wave" then
-          v.freq = Mix.cgbWaveHz(absKey, fine)
+          v.freq = Mix.cgbWaveHz(absKey, fine, v.cgbFixed)
         elseif v.kind == "cgb_noise" then
           v.period = Mix.cgbNoisePeriod(absKey)
         end
@@ -235,19 +244,18 @@ end
 
 local function start_note(player, tr, key, vel, gate)
   vel = vel or tr.vel or 100
-  local volL, volR = calc_track_vol(tr, vel)
   if not player.voiceResolver then return end
+  if (tr.lfoDelay or 0) > 0 then
+    tr.lfoDelayC = tr.lfoDelay
+    tr.modM = 0
+    tr._pitchDirty, tr._volDirty = true, true
+  end
+  local volL, volR = calc_track_vol(tr, vel)
   local rawKey = tonumber(key) or 60
   local keyM, fine = Seq.trackPitch(tr)
   local absKey = rawKey + keyM
   if absKey < 0 then absKey = 0 end
   if absKey > 178 then absKey = 178 end
-
-  -- Reset LFO delay on new note per pret ply_note
-  if (tr.lfoDelay or 0) > 0 then
-    tr.lfoDelayC = tr.lfoDelay
-    tr.modM = 0
-  end
 
   -- Resolver gets standard args with absKey appended; voice stores base note key for live BEND.
   local voice = player.voiceResolver(tr.voice, rawKey, vel, tr, volL, volR, fine, absKey)
@@ -263,6 +271,8 @@ local function start_note(player, tr, key, vel, gate)
       voice.noteKey = rawKey
     end
     voice.noteVel = vel
+    voice.midiKey = rawKey
+    voice.priority = math.min(255, (player.song.priority or 0) + (tr.priority or 0))
 
     -- CGB: 4 physical hardware channels (1..4).
     -- pret MP2K (m4a_1.s lines 1648-1668): exactly one voice per CGB channel.
@@ -277,9 +287,9 @@ local function start_note(player, tr, key, vel, gate)
         end
       end
       if active then
-        local oldPrio = (active.track and active.track.priority) or 0
-        local newPrio = tr.priority or 0
-        if newPrio > oldPrio then
+        local oldPrio = active.priority or 0
+        local newPrio = voice.priority
+        if active.released or newPrio > oldPrio then
           active.alive = false
         elseif newPrio < oldPrio then
           return
@@ -294,16 +304,30 @@ local function start_note(player, tr, key, vel, gate)
         end
       end
     elseif voice.kind == "ds" then
-      -- DirectSound: pret maxChans (FireRed typically ≤12). Steal oldest.
-      local ds = {}
+      -- ply_note prefers a released voice, then the lowest priority and latest
+      -- track. A lower-priority note cannot evict a higher-priority active voice.
+      local count, victim = 0, nil
       for _, v in ipairs(player.voices) do
         if v.alive ~= false and v.kind == "ds" then
-          ds[#ds + 1] = v
+          count = count + 1
+          local eligible = v.released or (v.priority or 0) < voice.priority
+            or ((v.priority or 0) == voice.priority
+              and ((v.track and v.track.index) or 0) >= tr.index)
+          if eligible then
+            local vp, bp = v.priority or 0, victim and victim.priority or 0
+            local vi = (v.track and v.track.index) or 0
+            local bi = victim and victim.track and victim.track.index or 0
+            if not victim or (v.released and not victim.released)
+              or ((not not v.released) == (not not victim.released)
+                and (vp < bp or (vp == bp and vi >= bi))) then
+              victim = v
+            end
+          end
         end
       end
-      while #ds >= MAX_DS do
-        local victim = table.remove(ds, 1)
-        if victim then victim.alive = false end
+      if count >= MAX_DS then
+        if not victim then return end
+        victim.alive = false
       end
     end
 
@@ -347,23 +371,40 @@ end
 local function exec_cmd(player, tr, cmd)
   if cmd == 0xB1 then
     tr.done = true
+    for _, v in ipairs(player.voices) do
+      if v.track == tr then Mix.releaseVoice(v) end
+    end
   elseif cmd == 0xB2 then
     local addr = track_read32(tr)
-    tr.pc = (addr < #tr.data) and addr or 0
+    if addr < #tr.data then
+      if addr < tr.pc then tr.loopCount = (tr.loopCount or 0) + 1 end
+      tr.pc = addr
+    else
+      exec_cmd(player, tr, 0xB1)
+    end
   elseif cmd == 0xB3 then
     local addr = track_read32(tr)
-    tr.callStack[#tr.callStack + 1] = tr.pc
-    if addr < #tr.data then tr.pc = addr end
+    if addr < #tr.data and #tr.callStack < 3 then
+      tr.callStack[#tr.callStack + 1] = tr.pc
+      tr.pc = addr
+    else
+      exec_cmd(player, tr, 0xB1)
+    end
   elseif cmd == 0xB4 then
     if #tr.callStack > 0 then tr.pc = table.remove(tr.callStack) end
   elseif cmd == 0xB5 then
-    track_read(tr)
+    local count = track_read(tr) or 0
     local addr = track_read32(tr)
-    tr.callStack[#tr.callStack + 1] = tr.pc
-    if addr < #tr.data then tr.pc = addr end
+    tr.repN = (tr.repN or 0) + 1
+    if count == 0 or tr.repN < count then
+      if addr < #tr.data then tr.pc = addr end
+    else
+      tr.repN = 0
+    end
+  elseif cmd == 0xBA then
+    tr.priority = track_read(tr) or 0
   elseif cmd == 0xBB then
     local t = track_read(tr) or 75
-    if t < 1 then t = 75 end
     player.tempo = t * 2
   elseif cmd == 0xBC then
     tr.keyShift = track_read(tr) or 0
@@ -371,6 +412,7 @@ local function exec_cmd(player, tr, cmd)
     tr._pitchDirty = true
   elseif cmd == 0xBD then
     tr.voice = track_read(tr) or 0
+    tr.toneOverrides = nil
   elseif cmd == 0xBE then
     tr.volume = track_read(tr) or 100
     tr._volDirty = true
@@ -410,40 +452,75 @@ local function exec_cmd(player, tr, cmd)
     tr.tune = (track_read(tr) or 0x40) - 0x40
     tr._pitchDirty = true
   elseif cmd == 0xCD then
-    -- Extended commands: CD <op> <args…>. Arity from pret gXcmdTable.
     local xop = track_read(tr) or 0
-    local xargs = ({
-      [0] = 0,  -- xxx
-      [1] = 4,  -- xwave (pointer)
-      [2] = 1,  -- xtype
-      [3] = 0,  -- unused
-      [4] = 1,  -- xatta
-      [5] = 1,  -- xdeca
-      [6] = 1,  -- xsust
-      [7] = 1,  -- xrele
-      [8] = 1,  -- xiecv
-      [9] = 1,  -- xiecl
-      [10] = 1, -- xleng
-      [11] = 1, -- xswee
-      [12] = 2, -- xwait (u16)
-      [13] = 4, -- xcmd_0D
-    })[xop] or 1
-    for _ = 1, xargs do track_read(tr) end
-  elseif cmd == 0xCE then -- endtie: release this track's notes only
-    for _, v in ipairs(player.voices) do
-      if v.track == tr then
+    local fields = { [2] = "type", [4] = "attack", [5] = "decay",
+      [6] = "sustain", [7] = "release", [10] = "length", [11] = "pan" }
+    if fields[xop] then
+      tr.toneOverrides = tr.toneOverrides or {}
+      tr.toneOverrides[fields[xop]] = track_read(tr) or 0
+    elseif xop == 8 then
+      tr.pseudoEchoVolume = track_read(tr) or 0
+    elseif xop == 9 then
+      tr.pseudoEchoLength = track_read(tr) or 0
+    elseif xop == 12 then
+      local low = track_read(tr) or 0
+      local high = track_read(tr) or 0
+      tr.wait = low + high * 256
+    elseif xop == 13 then
+      tr.sampleStart = track_read32(tr)
+    elseif xop == 1 then
+      -- Raw ROM pointer is not represented by the existing sample cache.
+      track_read32(tr)
+    else
+      exec_cmd(player, tr, 0xB1)
+    end
+  elseif cmd == 0xCE then
+    local key = tr.data:byte(tr.pc + 1)
+    if key and key < 0x80 then
+      tr.pc = tr.pc + 1
+      tr.key = key
+    else
+      key = tr.key
+    end
+    -- ply_endtie releases the newest matching MIDI key, not the whole track.
+    for i = #player.voices, 1, -1 do
+      local v = player.voices[i]
+      if v.track == tr and v.midiKey == key and v.alive and not v.released then
         Mix.releaseVoice(v)
+        break
       end
     end
   elseif cmd >= 0xCF then
     ply_note(player, tr, cmd)
   elseif cmd >= 0x80 and cmd <= 0xB0 then
     tr.wait = clock_at(cmd - 0x80)
-  elseif cmd == 0xBA or cmd == 0xC6 or cmd == 0xC7
-      or cmd == 0xC9 or cmd == 0xCA or cmd == 0xCB or cmd == 0xCC
-      or cmd == 0xB9 then
-    -- PRIO/… (1 arg); runningStatus already set if >= 0xBD
+  elseif cmd == 0xCC then -- PORT register offset and value
     track_read(tr)
+    track_read(tr)
+  elseif cmd == 0xB9 then
+    local op = track_read(tr) or 0
+    local addr = track_read(tr) or 0
+    local data = track_read(tr) or 0
+    player.mem = player.mem or {}
+    local value = player.mem[addr] or 0
+    local operand = op >= 3 and op <= 5 or op >= 12
+    operand = operand and (player.mem[data] or 0) or data
+    if op <= 5 then
+      local action = op % 3
+      if action == 0 then value = operand
+      elseif action == 1 then value = value + operand
+      else value = value - operand end
+      player.mem[addr] = value % 256
+    elseif op <= 17 then
+      local target = track_read32(tr)
+      local cond = (op - 6) % 6
+      local take = (cond == 0 and value == operand) or (cond == 1 and value ~= operand)
+        or (cond == 2 and value > operand) or (cond == 3 and value >= operand)
+        or (cond == 4 and value <= operand) or (cond == 5 and value < operand)
+      if take and target < #tr.data then tr.pc = target end
+    end
+  else
+    exec_cmd(player, tr, 0xB1)
   end
 end
 
@@ -490,15 +567,15 @@ local function tick_track(player, tr)
 end
 
 local function seq_tick(player)
-  -- Age gates / envelopes at the start of the vblank (then new notes are added after).
-  for _, v in ipairs(player.voices) do
-    if v.gateTicks then
-      v.gateTicks = v.gateTicks - 1
-      if v.gateTicks <= 0 then
-        Mix.releaseVoice(v)
+  -- MPlayMain ages each track's gates immediately before its commands.
+  for _, tr in ipairs(player.tracks) do
+    for _, v in ipairs(player.voices) do
+      if v.track == tr and v.gateTicks then
+        v.gateTicks = v.gateTicks - 1
+        if v.gateTicks <= 0 then Mix.releaseVoice(v) end
       end
     end
-    Mix.tickEnvelope(v)
+    tick_track(player, tr)
   end
 
   -- Tick LFO modulation per active track
@@ -531,38 +608,31 @@ local function seq_tick(player)
   end
 
   for _, tr in ipairs(player.tracks) do
-    tick_track(player, tr)
-  end
-
-  for _, tr in ipairs(player.tracks) do
     if tr._pitchDirty or tr._volDirty then
       refresh_track_voices(player, tr)
     end
   end
 
-  -- New notes get one envelope step so attack=instant voices are audible this frame.
-  for _, v in ipairs(player.voices) do
-    if v.adsr and v.envPhase == "attack" and (v.envVol or 0) == 0 then
-      Mix.tickEnvelope(v)
-    end
-  end
 end
 
---- Advance by GBA VBlank units (one MPlayMain ≈ one vblank at 13379 Hz / 224 spv).
+--- Advance complete SoundMain frames. Tempo only governs MPlayMain ticks.
 function Seq.update(player, vblanks)
   vblanks = tonumber(vblanks) or 1
   if not player or player.muted then return player and player.voices or {} end
   if vblanks <= 0 then return player.voices end
-
-  local tempoI = player.tempo or 150
-  player.tempoC = (player.tempoC or 0) + tempoI * vblanks
-  local guard = 0
-  while player.tempoC >= 150 and guard < 64 do
-    guard = guard + 1
-    player.tempoC = player.tempoC - 150
-    seq_tick(player)
+  player.frameC = (player.frameC or 0) + vblanks
+  while player.frameC >= 1 do
+    player.frameC = player.frameC - 1
+    player.tempoC = (player.tempoC or 0) + (player.tempo or 150)
+    while player.tempoC >= 150 do
+      player.tempoC = player.tempoC - 150
+      seq_tick(player)
+    end
+    player.c15 = (player.c15 == 0) and 14 or player.c15 - 1
+    for _, v in ipairs(player.voices) do
+      Mix.tickEnvelope(v, player.c15 == 0)
+    end
   end
-
   local alive = {}
   for _, v in ipairs(player.voices) do
     if v.alive ~= false then alive[#alive + 1] = v end
@@ -581,13 +651,19 @@ function Seq.snapshot(player)
         local cs = {}
         for j, pc in ipairs(v) do cs[j] = pc end
         t.callStack = cs
+      elseif k == "toneOverrides" then
+        t.toneOverrides = {}
+        for field, value in pairs(v) do t.toneOverrides[field] = value end
       elseif type(v) ~= "table" then
         t[k] = v
       end
     end
     tracks[i] = t
   end
-  return { tracks = tracks, tempo = player.tempo, tempoC = player.tempoC }
+  local mem = {}
+  for k, v in pairs(player.mem or {}) do mem[k] = v end
+  return { tracks = tracks, tempo = player.tempo, tempoC = player.tempoC,
+    frameC = player.frameC, c15 = player.c15, mem = mem }
 end
 
 function Seq.restore(player, snap)
@@ -604,10 +680,19 @@ function Seq.restore(player, snap)
       local cs = {}
       for j, pc in ipairs(t.callStack or {}) do cs[j] = pc end
       tr.callStack = cs
+      tr.toneOverrides = nil
+      if t.toneOverrides then
+        tr.toneOverrides = {}
+        for k, v in pairs(t.toneOverrides) do tr.toneOverrides[k] = v end
+      end
     end
   end
   player.tempo = snap.tempo
   player.tempoC = snap.tempoC
+  player.frameC = snap.frameC or 0
+  player.c15 = snap.c15 or 0
+  player.mem = {}
+  for k, v in pairs(snap.mem or {}) do player.mem[k] = v end
 end
 
 function Seq.allDone(player)

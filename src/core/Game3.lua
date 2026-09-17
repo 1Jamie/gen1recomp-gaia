@@ -227,6 +227,7 @@ function Game3:_handleBootAction(action)
     return
   end
   if action.action == "exit" then
+    Audio.stopAll()
     if self.returnToLauncher then
       self.returnToLauncher()
     elseif self.onExit then

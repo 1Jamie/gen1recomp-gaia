@@ -342,68 +342,84 @@ local function dump_voicegroup(data, vgOff, sampleMap, sampleParts, sampleCursor
   return id
 end
 
---- Rewrite GOTO/PATT absolute ROM pointers to track-relative offsets.
-local function relocate_track_pointers(body, romBase)
-  if type(body) ~= "string" or #body == 0 or not romBase then return body end
-  local b = { body:byte(1, #body) }
-  local i = 1
-  local function u32_at(idx)
-    return b[idx] + b[idx + 1] * 256 + b[idx + 2] * 65536 + b[idx + 3] * 16777216
-  end
-  local function set_u32(idx, v)
-    v = math.max(0, math.floor(v))
-    b[idx] = v % 256
-    b[idx + 1] = math.floor(v / 256) % 256
-    b[idx + 2] = math.floor(v / 65536) % 256
-    b[idx + 3] = math.floor(v / 16777216) % 256
-  end
-  local function reloc(idx)
-    if idx + 3 > #b then return end
-    local ptr = u32_at(idx)
-    local off = gba_off(ptr)
-    if off and off >= romBase and off < romBase + #b then
-      set_u32(idx, off - romBase)
+-- Walk reachable bytecode, including patterns beyond FINE or before the entry.
+-- Operands may contain command-valued bytes, so only instruction boundaries
+-- can identify FINE or a pointer. Note/running-status operands are all < 0x80.
+local function collect_track(data, entry)
+  local pending, visited, pointers = { { pc = entry, pattern = false } }, {}, {}
+  local first, last = entry, entry
+  local budget = 65536
+  local hasGoto = false
+  local xargs = { [0]=0, 4, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 4 }
+  while #pending > 0 do
+    local branch = table.remove(pending)
+    local pc, pattern = branch.pc, branch.pattern
+    while pc and pc >= 0 and pc < #data do
+      local state = pc * 2 + (pattern and 1 or 0)
+      if visited[state] then break end
+      budget = budget - 1
+      if budget < 0 then error("M4A track exceeds bytecode limit") end
+      visited[state] = true
+      local cmd = ru8(data, pc)
+      local length, pointer, stop = 1, nil, false
+      if cmd == 0xB2 or cmd == 0xB3 then
+        length, pointer = 5, pc + 1
+        stop = cmd == 0xB2
+        if stop then hasGoto = true end
+      elseif cmd == 0xB5 then
+        length, pointer = 6, pc + 2
+      elseif cmd == 0xB4 then
+        -- Inline patterns fall through PEND on their first, uncalled pass.
+        stop = pattern
+      elseif cmd == 0xB9 then
+        length = 4
+        local op = ru8(data, pc + 1) or 0
+        if op >= 6 and op <= 17 then length, pointer = 8, pc + 4 end
+      elseif cmd == 0xCD then
+        local op = ru8(data, pc + 1) or 0
+        length = 2 + (xargs[op] or 0)
+        stop = op == 0 or op == 3 or xargs[op] == nil
+      elseif cmd == 0xCC then -- PORT: register offset, value
+        length = 3
+      elseif cmd >= 0xBA and cmd <= 0xC5 or cmd == 0xC8 then
+        length = 2
+      elseif cmd >= 0xB1 and cmd <= 0xB8 or cmd == 0xC6 or cmd == 0xC7
+        or cmd >= 0xC9 and cmd <= 0xCB then
+        stop = true -- FINE, PEND, or an unused command mapped to ply_fine
+      end
+      if pc + length > #data then error("Truncated M4A instruction") end
+      first = math.min(first, pc)
+      last = math.max(last, pc + length)
+      if last - first > 1024 * 1024 then error("M4A track span exceeds limit") end
+      if pointer then
+        local target = gba_off(ru32(data, pointer))
+        if not target or target >= #data then error("Invalid M4A branch pointer") end
+        pointers[pointer] = target
+        pending[#pending + 1] = { pc = target, pattern = cmd == 0xB3 or pattern }
+      end
+      if stop then break end
+      pc = pc + length
     end
   end
-  while i <= #b do
-    local cmd = b[i]
-    if cmd == 0xB2 or cmd == 0xB3 then -- GOTO / PATT
-      reloc(i + 1)
-      i = i + 5
-    elseif cmd == 0xB5 then -- REPT count, ptr
-      if i + 5 <= #b then reloc(i + 2) end
-      i = i + 6
-    elseif cmd == 0xB1 or cmd == 0xB4 then
-      i = i + 1
-    elseif cmd == 0xCF then -- EOT
-      i = i + 1
-    elseif cmd == 0xCE then -- XCMD + 2 args
-      i = i + 3
-    elseif cmd >= 0xD0 then
-      i = i + 1
-    elseif cmd >= 0x80 and cmd <= 0xB0 then
-      i = i + 1
-    elseif cmd < 0x80 then
-      i = i + 2 -- key + vel
-    elseif cmd >= 0xB9 and cmd <= 0xCC then
-      -- most take 1 data byte (TEMPO/VOICE/VOL/PAN/BEND/BENDR/LFO/…)
-      i = i + 2
-    else
-      i = i + 1
-    end
+  local function le32(value)
+    return string.char(value % 256, math.floor(value / 256) % 256,
+      math.floor(value / 65536) % 256, math.floor(value / 16777216) % 256)
   end
-  local parts = {}
-  local CHUNK = 512
-  for i = 1, #b, CHUNK do
-    local j = math.min(i + CHUNK - 1, #b)
-    parts[#parts + 1] = string.char(unpack(b, i, j))
+  local ordered = {}
+  for pointer in pairs(pointers) do ordered[#ordered + 1] = pointer end
+  table.sort(ordered)
+  local parts, cursor = {}, first
+  for _, pointer in ipairs(ordered) do
+    parts[#parts + 1] = data:sub(cursor + 1, pointer)
+    parts[#parts + 1] = le32(pointers[pointer] - first)
+    cursor = pointer + 4
   end
-  return table.concat(parts)
+  parts[#parts + 1] = data:sub(cursor + 1, last)
+  return table.concat(parts), entry - first, hasGoto
 end
 
---- Packed song bin: header + (offset,length)×tracks + tight track bodies.
--- Track table uses file-relative offsets (always < 1MiB), never ROM pointers.
--- GOTO/PATT targets are relocated to offsets within each track body.
+--- Packed song bin: header + (offset,length,entry) per track. Bit 7 of blocks
+-- marks the extended table; branch offsets and entries are relative to each body.
 local function dump_song_tracks(data, headerOff, songId, cache, root)
   local tracks = ru8(data, headerOff) or 0
   if tracks == 0 or tracks > 16 then tracks = 0 end
@@ -417,52 +433,25 @@ local function dump_song_tracks(data, headerOff, songId, cache, root)
     romOffs[t] = gba_off(ru32(data, headerOff + 8 + t * 4))
   end
 
-  local sorted = {}
-  for t = 0, tracks - 1 do
-    if romOffs[t] then
-      sorted[#sorted + 1] = { t = t, off = romOffs[t] }
-    end
-  end
-  table.sort(sorted, function(a, b) return a.off < b.off end)
-
-  local lenByTrack = {}
-  for i, e in ipairs(sorted) do
-    local nextOff = sorted[i + 1] and sorted[i + 1].off
-    local len
-    if nextOff and nextOff > e.off then
-      len = nextOff - e.off
-    else
-      len = 0
-      for j = 0, 16383 do
-        if e.off + j >= #data then break end
-        if ru8(data, e.off + j) == 0xB1 then -- FINE
-          len = j + 1
-          break
-        end
-      end
-      if len == 0 then len = math.min(4096, #data - e.off) end
-    end
-    lenByTrack[e.t] = math.max(1, len)
-  end
-
-  local headerSize = 8 + tracks * 8
+  local headerSize = 8 + tracks * 12
   local cursor = headerSize
-  local trackMeta = {}
-  local bodyParts = {}
+  local trackMeta, bodyParts = {}, {}
+  local hasGoto = false
   for t = 0, tracks - 1 do
     local off = romOffs[t]
-    local len = (off and lenByTrack[t]) or 0
-    trackMeta[t] = { offset = cursor, length = len }
-    if off and len > 0 then
-      local body = data:sub(off + 1, off + len)
-      body = relocate_track_pointers(body, off)
-      bodyParts[#bodyParts + 1] = body
-      cursor = cursor + len
+    local body, entry = "", 0
+    if off then
+      local loop
+      body, entry, loop = collect_track(data, off)
+      hasGoto = hasGoto or loop
     end
+    trackMeta[t] = { offset = cursor, length = #body, entry = entry }
+    bodyParts[#bodyParts + 1] = body
+    cursor = cursor + #body
   end
 
   local hdr = {
-    string.char(tracks % 256, blocks % 256, priority % 256, reverb % 256),
+    string.char(tracks % 256, blocks % 128 + 128, priority % 256, reverb % 256),
     string.char(
       vgPtr % 256,
       math.floor(vgPtr / 256) % 256,
@@ -472,15 +461,16 @@ local function dump_song_tracks(data, headerOff, songId, cache, root)
   }
   for t = 0, tracks - 1 do
     local m = trackMeta[t] or { offset = 0, length = 0 }
-    local o, l = m.offset, m.length
+    local o, l, e = m.offset, m.length, m.entry or 0
     hdr[#hdr + 1] = string.char(
       o % 256, math.floor(o / 256) % 256, math.floor(o / 65536) % 256, math.floor(o / 16777216) % 256,
-      l % 256, math.floor(l / 256) % 256, math.floor(l / 65536) % 256, math.floor(l / 16777216) % 256
+      l % 256, math.floor(l / 256) % 256, math.floor(l / 65536) % 256, math.floor(l / 16777216) % 256,
+      e % 256, math.floor(e / 256) % 256, math.floor(e / 65536) % 256, math.floor(e / 16777216) % 256
     )
   end
   local blob = table.concat(hdr) .. table.concat(bodyParts)
   write(cache, string.format("%s/songs/%d.bin", root, songId), blob)
-  return #blob, tracks
+  return #blob, tracks, hasGoto
 end
 
 local function build_map_songs(rom, data)
@@ -576,7 +566,8 @@ function ExtractAudio.run(rom, cache, opts)
         info.priority = ru8(data, headerOff + 2)
         info.reverb = ru8(data, headerOff + 3)
         info.loop = (info.kind == "bgm")
-        local nbytes = dump_song_tracks(data, headerOff, id, cache, root)
+        local nbytes, _, hasGoto = dump_song_tracks(data, headerOff, id, cache, root)
+        info.hasGoto = hasGoto
         info.songBytes = nbytes
         local sid = song_primary_sample(data, headerOff, sampleMap, sampleParts, sampleCursor)
         info.sampleId = sid

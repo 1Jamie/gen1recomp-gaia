@@ -521,9 +521,7 @@ function bootGame(version, cartId, opts)
   local loadOpts = { arena = arena, cartId = cartId, onExit = opts.onExit }
   if GameVersion.generation() == 3 then
     Game = require("src.core.Game3").new()
-    if arena then
-      Game.returnToLauncher = function(o) pendingLauncherReturn = o or {} end
-    end
+    Game.returnToLauncher = function(o) pendingLauncherReturn = o or {} end
     Game:load(loadOpts)
   elseif GameVersion.generation() == 2 then
     Game = require("src.core.Game2").new()

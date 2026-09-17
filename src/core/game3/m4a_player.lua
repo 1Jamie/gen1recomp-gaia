@@ -148,16 +148,11 @@ local function make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine
   if noteKey < 0 then noteKey = 0 end
   if noteKey > 178 then noteKey = 178 end
 
-  -- Rhythm pan override (if pan has bit 7 set)
-  if tone.isRhy and tone.pan and tone.pan >= 0x80 and tr then
-    local rpan = (tone.pan - 0xC0) * 2 -- -64..+62
-    local totalPan = ((tr.pan or 0x40) - 0x40) + rpan
-    if totalPan < -64 then totalPan = -64 elseif totalPan > 63 then totalPan = 63 end
-    local p = totalPan / 64
-    local vol = (tr.volume or 100) / 127 * ((tr.vel or 100) / 127)
-    volL = vol * (0.5 - p * 0.5)
-    volR = vol * (0.5 + p * 0.5)
+  local rhythmPan = 0
+  if tone.isRhy and tone.pan and tone.pan >= 0x80 then
+    rhythmPan = (tone.pan - 0xC0) * 2
   end
+  if tr then volL, volR = Seq.trackVolume(tr, tr.vel, rhythmPan) end
 
   local v
   if kind == 0 and tone.sampleId then
@@ -166,9 +161,10 @@ local function make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine
     if not pcm or not meta then return nil end
     local fixed = math.floor((tone.type or 0) / 8) % 2 == 1
     -- pret MidiKeyToFreq(wav, noteKey, fine) — returns playback Hz.
-    local rate = fixed and Mix.waveRate(meta.freq) or Mix.midiKeyToFreq(meta.freq, noteKey, fine)
-    if rate < 100 then rate = Mix.waveRate(meta.freq) end
-    local loop = (meta.loopStart or 0) > 0 and (meta.loopStart or 0) < (meta.size or 0)
+    local rate = fixed and Mix.GBA_MIX_RATE or Mix.midiKeyToFreq(meta.freq, noteKey, fine)
+    -- WaveData.flags is the high byte of cached status; loops may start at zero.
+    local loop = math.floor((meta.status or 0) / 16384) % 4 ~= 0
+      and (meta.loopStart or 0) < (meta.size or 0)
     v = Mix.newDsVoice(pcm, meta, {
       rate = rate,
       loop = loop,
@@ -216,6 +212,17 @@ local function make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine
   end
   if v then
     v.noteKey = baseKey
+    v.rhythmPan = rhythmPan
+    if v.adsr and tr then
+      v.adsr.pseudoEchoVolume = tr.pseudoEchoVolume or 0
+      v.adsr.pseudoEchoLength = tr.pseudoEchoLength or 0
+    end
+    if v.kind == "ds" then
+      v.pos = tr and tr.sampleStart or 0
+    elseif (tone.length or 0) > 0 then
+      local maxLength = kind == 3 and 256 or 64
+      v.lengthRemaining = (maxLength - tone.length % maxLength) * Mix.SAMPLE_RATE / 256
+    end
   end
   return v
 end
@@ -230,6 +237,12 @@ function Player.start(pack, cache, slot, songId, opts)
   slot.voices = {}
   slot.sampleOnly = false
   slot.done = false
+  slot.frameSamplesLeft = 0
+  slot.frameSampleCarry = 0
+  slot.hpfState = { l = 0, r = 0 }
+  local reverb = info and info.reverb or 0
+  if reverb >= 128 then slot.reverb = reverb % 128 end
+  slot.reverbState = Mix.newReverb(slot.reverb or 0)
 
   -- Prefer sequencer whenever track data exists. sampleOnly is only for
   -- explicit one-shots (cries) — SE like SE_SELECT are CGB sequences, not voice0 PCM.
@@ -271,6 +284,12 @@ function Player.start(pack, cache, slot, songId, opts)
         absKey = rawKey + keyM
       end
       local tone = resolve_tone(pack, vgId, voiceId, rawKey)
+      if tone and tr.toneOverrides then
+        local copy = {}
+        for k, value in pairs(tone) do copy[k] = value end
+        for k, value in pairs(tr.toneOverrides) do copy[k] = value end
+        tone = copy
+      end
       return make_voice_from_tone(pack, tone, rawKey, absKey, volL, volR, fine, tr)
     end,
   })
@@ -321,6 +340,7 @@ end
 
 function Player.renderSlot(slot, n, opts)
   opts = opts or {}
+  opts.reverbState = opts.reverbState or (slot and slot.reverbState)
   local voices = slot and slot.voices or {}
   if opts.raw then
     local outL, outR, alive = Mix.render(voices, n, opts)
@@ -339,20 +359,33 @@ function Player.renderBuffered(slot, n, opts)
   opts = opts or {}
   n = math.floor(tonumber(n) or Player.BUFFER_SAMPLES or 8192)
   if n < 1 then n = 1 end
-  local quantum = opts.quantum or Player.mixQuantum()
   local rate = opts.sampleRate or Mix.SAMPLE_RATE
   local master = opts.master or 1
   local L, R = {}, {}
   local produced = 0
   while produced < n do
-    local chunk = math.min(quantum, n - produced)
-    Player.updateSlot(slot, Mix.vblanksForSamples(chunk))
+    if (slot.frameSamplesLeft or 0) <= 0 then
+      Player.updateSlot(slot, 1)
+      local exact = rate / Mix.GBA_VBLANK_HZ + (slot.frameSampleCarry or 0)
+      slot.frameSamplesLeft = math.floor(exact)
+      slot.frameSampleCarry = exact - slot.frameSamplesLeft
+    end
+    local chunk = math.min(slot.frameSamplesLeft, n - produced)
+    slot.hpfState = slot.hpfState or { l = 0, r = 0 }
     local outL, outR, alive = Mix.render(slot.voices or {}, chunk, {
       raw = true,
       master = master,
       sampleRate = rate,
+      hpfCapL = slot.hpfState.l,
+      hpfCapR = slot.hpfState.r,
+      hpfState = slot.hpfState,
+      reverbState = slot.reverbState,
     })
-    if slot then slot.voices = alive or slot.voices end
+    if slot then
+      slot.voices = alive or slot.voices
+      if slot.seq then slot.seq.voices = slot.voices end
+      slot.frameSamplesLeft = slot.frameSamplesLeft - chunk
+    end
     for i = 1, chunk do
       L[#L + 1] = outL[i] or 0
       R[#R + 1] = outR[i] or 0
@@ -388,7 +421,8 @@ end
 
 function Player.snapshotSlot(slot, at)
   if not (slot and slot.seq) then return nil end
-  return { at = at, done = slot.done, seq = Seq.snapshot(slot.seq) }
+  return { at = at, done = slot.done, seq = Seq.snapshot(slot.seq),
+    frameSamplesLeft = slot.frameSamplesLeft, frameSampleCarry = slot.frameSampleCarry }
 end
 
 -- pokefirered/src/m4a.c:668
@@ -406,11 +440,13 @@ function Player.stopAt(slot, snaps, at, abs)
     slot.seq.voices = {}
     slot.voices = {}
     slot.done = snap.done
+    slot.frameSamplesLeft = snap.frameSamplesLeft or 0
+    slot.frameSampleCarry = snap.frameSampleCarry or 0
     local left = at - snap.at
     local q = Player.mixQuantum()
     while left > 0 do
       local n = math.min(q, left)
-      Player.updateSlot(slot, Mix.vblanksForSamples(n))
+      Player.renderBuffered(slot, n, { raw = true })
       left = left - n
     end
     for i = #snaps, 1, -1 do
@@ -421,6 +457,8 @@ function Player.stopAt(slot, snaps, at, abs)
   -- pokefirered/src/m4a_1.s:1469
   if slot.seq then slot.seq.voices = {} end
   slot.voices = {}
+  slot.hpfState = { l = 0, r = 0 }
+  slot.reverbState = Mix.newReverb(slot.reverb or 0)
   return abs
 end
 
@@ -431,21 +469,16 @@ function Player.bakeSong(pack, cache, songId, opts)
   local rate = opts.sampleRate or Mix.SAMPLE_RATE
   local quantum = Player.mixQuantum()
   local maxN = math.floor(rate * (opts.maxSec or 8))
-  local myL, myR = 0, 0
   local L, R = {}, {}
   local total, idle, since = 0, 0, 0
   while total < maxN do
     local n = math.min(quantum, maxN - total)
-    local capL, capR = Mix._hpfCapL, Mix._hpfCapR
-    Mix._hpfCapL, Mix._hpfCapR = myL, myR
     local outL, outR = Player.renderBuffered(slot, n, {
       raw = true,
       master = opts.master or 1,
       sampleRate = rate,
       quantum = quantum,
     })
-    myL, myR = Mix._hpfCapL, Mix._hpfCapR
-    Mix._hpfCapL, Mix._hpfCapR = capL, capR
     for i = 1, n do
       L[#L + 1] = outL[i] or 0
       R[#R + 1] = outR[i] or 0
@@ -460,7 +493,7 @@ function Player.bakeSong(pack, cache, songId, opts)
     for _, v in ipairs(slot.voices or {}) do
       if v.alive then any = true; break end
     end
-    if slot.done and not any then
+    if slot.done and not any and not Mix.reverbActive(slot.reverbState) then
       idle = idle + 1
       if idle >= 2 then break end
     else
@@ -493,8 +526,6 @@ function Player.bakeSlot(slot, opts)
   local L, R = {}, {}
   local total = 0
   local idle = 0
-  -- Fresh HPF state per bake so SE one-shots aren't coloured by BGM capacitors.
-  Mix._hpfCapL, Mix._hpfCapR = 0, 0
   local stopOnGoto = opts.stopOnGoto == true
   local sawGoto = false
   while total < maxN do
@@ -503,19 +534,17 @@ function Player.bakeSlot(slot, opts)
     if stopOnGoto and slot.seq and slot.seq.tracks then
       pcs = {}
       for i, tr in ipairs(slot.seq.tracks) do
-        pcs[i] = tr.pc or 0
+        pcs[i] = tr.loopCount or 0
       end
     end
-    Player.updateSlot(slot, Mix.vblanksForSamples(n))
+    local outL, outR = Player.renderBuffered(slot, n, { raw = true, sampleRate = rate })
     if pcs then
       for i, tr in ipairs(slot.seq.tracks) do
-        if (tr.pc or 0) < (pcs[i] or 0) then
+        if (tr.loopCount or 0) > (pcs[i] or 0) then
           sawGoto = true
         end
       end
     end
-    local outL, outR, alive = Mix.render(slot.voices or {}, n, { raw = true })
-    slot.voices = alive or slot.voices
     for i = 1, n do
       L[#L + 1] = outL[i] or 0
       R[#R + 1] = outR[i] or 0
@@ -528,7 +557,7 @@ function Player.bakeSlot(slot, opts)
     for _, v in ipairs(slot.voices or {}) do
       if v.alive then any = true; break end
     end
-    if slot.done and not any then
+    if slot.done and not any and not Mix.reverbActive(slot.reverbState) then
       idle = idle + 1
       if idle >= 2 then break end
     else

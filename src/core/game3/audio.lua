@@ -36,13 +36,9 @@ Audio._bgmQueuedAt = {}
 Audio._bgmBaseAt = 0
 Audio._bgmVolume = 1
 Audio._sfxVolume = 1
--- Baked SE sit under BGM: CGB voice scales are conservative for the
--- shared mix bus, but doors/UI play as separate sources and need to cut through.
--- SE bake is quieter than hardware/mGBA mix under battle BGM; 3.5 keeps
--- move hits readable without hard-clipping typical effectiveness/move SE.
-Audio._seBakeGain = 3.5
 Audio._duck = 1
 Audio._duckHold = 0
+Audio._seDuck = 1
 Audio._mono = false
 Audio._warned = {}
 
@@ -190,8 +186,42 @@ function Audio.applyOptions(session)
   -- volumes reserved for future option fields
 end
 
-local function bgm_gain()
-  return (Audio._bgmVolume or 1) * (Audio._duck or 1) * (Audio._helpActive and 0.5 or 1)
+local function bgm_gain(volume)
+  return (volume or Audio._bgmVolume or 1)
+    * math.min(Audio._duck or 1, Audio._seDuck or 1)
+    * (Audio._helpActive and 0.5 or 1)
+end
+
+local function apply_bgm_gain()
+  if not Audio._bgmSource then return end
+  local gain = bgm_gain()
+  local f = Audio._fadeOut
+  if f and (f.gen == nil or f.gen == Audio._bgmGen)
+    and (f.songId == nil or (Audio._currentSong and f.songId == Audio._currentSong.id)) then
+    gain = bgm_gain(f.start) * (1 - math.min(1, f.t / math.max(f.dur, 0.01)))
+  elseif Audio._fadeIn then
+    f = Audio._fadeIn
+    gain = gain * math.min(1, f.t / math.max(f.dur, 0.01))
+  end
+  Audio._bgmSource:setVolume(gain)
+end
+
+-- Baked effects cannot steal a voice from already queued music. Until the
+-- players share a live mixer, give one-shot effects headroom at playback time.
+-- Looping alarms do not hold the music down; cry ducking takes precedence.
+local function update_se_duck(startingSource)
+  local active = false
+  for _, src in ipairs(Audio._seSources) do
+    local meta = Audio._seMeta[src]
+    if meta and meta.duckBgm and (src == startingSource or src:isPlaying()) then
+      active = true
+      break
+    end
+  end
+  local target = active and 0.6 or 1
+  local old = Audio._seDuck or 1
+  Audio._seDuck = target
+  if target ~= old then apply_bgm_gain() end
 end
 
 -- Help lowers BGM without changing the user's volume or cry ducking state.
@@ -328,7 +358,7 @@ function Audio.fadeOutBgm(speed)
     Audio._fadeOut = {
       t = 0,
       dur = seconds,
-      start = bgm_gain(),
+      start = Audio._bgmVolume or 1,
       songId = songId,
       gen = Audio._bgmGen,
     }
@@ -443,7 +473,7 @@ function Audio.playSe(id, opts)
 
   local pan = Audio.normalizePan(opts.pan)
   local sd = Player.bakeSlot(slot, {
-    master = (Audio._sfxVolume or 1) * (opts.volume or 1) * (Audio._seBakeGain or 3.5),
+    master = (Audio._sfxVolume or 1) * (opts.volume or 1),
     mono = Audio._mono,
     maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 2.0),
     stopOnGoto = loop and true or false,
@@ -455,10 +485,14 @@ function Audio.playSe(id, opts)
     if loop then
       pcall(function() src:setLooping(true) end)
     end
-    src:play()
     Audio._seSources[#Audio._seSources + 1] = src
     Audio._seByPlayer[mplay] = src
-    Audio._seMeta[src] = { id = id, player = mplay }
+    Audio._seMeta[src] = { id = id, player = mplay,
+      duckBgm = not loop and id ~= SE.SE_SELECT
+        and (Audio._sfxVolume or 1) * (opts.volume or 1) > 0 }
+    update_se_duck(src)
+    src:play()
+    update_se_duck()
     while #Audio._seSources > 8 do
       local idx = 1
       if Audio._seSources[idx] == Audio._fanfareSource then idx = 2 end
@@ -491,6 +525,7 @@ function Audio.normalizePan(pan)
 end
 
 function Audio._songHasGoto(slot)
+  if slot and slot.info and slot.info.hasGoto ~= nil then return slot.info.hasGoto end
   local seq = slot and slot.seq
   if not seq or not seq.tracks then return false end
   for _, tr in ipairs(seq.tracks) do
@@ -509,6 +544,7 @@ function Audio._forgetSeSource(src)
     Audio._seByPlayer[meta.player] = nil
   end
   Audio._seMeta[src] = nil
+  update_se_duck()
 end
 
 function Audio._stopSePlayer(mplay)
@@ -706,17 +742,16 @@ function Audio.playCry(species, mode)
       rate = Mix.waveRate(meta.freq),
     })
     if src then
+      -- pokefirered PlayCry_Normal lowers BGM before starting the cry.
+      Audio._duck = 85 / 256
+      Audio._duckHold = 2
+      apply_bgm_gain()
       src:play()
       Audio._crySource = src
       local dur = (meta.size or 4000) / Mix.waveRate(meta.freq)
-      Audio._cryUntil = (Audio._cryClock or 0) + math.max(16, dur * 60)
+      Audio._cryUntil = (Audio._cryClock or 0) + dur * 60
     end
   end
-  -- Duck BGM to 85/256
-  Audio._duck = 85 / 256
-  Audio._duckHold = 2
-  if Audio._cmdCh then Audio._cmdCh:push({ cmd = "volume", volume = bgm_gain() }) end
-  if Audio._bgmSource then Audio._bgmSource:setVolume(bgm_gain()) end
   return true
 end
 
@@ -729,7 +764,7 @@ function Audio.isCryFinished()
   if Audio._cryUntil and (Audio._cryClock or 0) >= Audio._cryUntil then
     return true
   end
-  if Audio._crySource and Audio._crySource:isPlaying() then return false end
+  if Audio._crySource then return not Audio._crySource:isPlaying() end
   if not Audio._cryUntil then return true end
   return (Audio._cryClock or 0) >= Audio._cryUntil
 end
@@ -739,6 +774,8 @@ function Audio.stopCry()
   Audio._crySource = nil
   Audio._cryUntil = nil
   Audio._duck = 1
+  Audio._duckHold = 0
+  apply_bgm_gain()
 end
 
 function Audio.currentSong()
@@ -749,6 +786,7 @@ function Audio.stopAll()
   stop_bgm_source()
   Audio.stopSe()
   Audio.stopCry()
+  Audio._seDuck = 1
   Audio._currentSong = nil
   Audio._fanfareActive = false
 end
@@ -756,6 +794,7 @@ end
 function Audio.update(dt)
   dt = dt or 1 / 60
   Audio.tickCry(dt)
+  update_se_duck()
 
   Audio.pumpFanfares()
 
@@ -788,8 +827,7 @@ function Audio.update(dt)
     Audio._duckHold = Audio._duckHold - dt * 60
   elseif Audio._duck and Audio._duck < 1 and Audio.isCryFinished() then
     Audio._duck = 1
-    if Audio._cmdCh then Audio._cmdCh:push({ cmd = "volume", volume = bgm_gain() }) end
-    if Audio._bgmSource then Audio._bgmSource:setVolume(bgm_gain()) end
+    apply_bgm_gain()
   end
 
   -- Fade out/in
@@ -800,7 +838,7 @@ function Audio.update(dt)
     local stillSame = (f.gen == nil or f.gen == Audio._bgmGen)
       and (f.songId == nil or (Audio._currentSong and Audio._currentSong.id == f.songId))
     if stillSame and Audio._bgmSource then
-      local vol = f.start * (1 - u) * (Audio._duck or 1)
+      local vol = bgm_gain(f.start) * (1 - u)
       Audio._bgmSource:setVolume(vol)
     end
     if u >= 1 then
@@ -832,7 +870,7 @@ function Audio.update(dt)
     if okFree and type(free) == "number" and free > 0 then
       local n = Player.BUFFER_SAMPLES
       local sd = Player.renderBuffered(Audio._bgmLocal, n, {
-        master = bgm_gain(),
+        master = 1,
         sampleRate = Mix.SAMPLE_RATE,
       })
       if sd then

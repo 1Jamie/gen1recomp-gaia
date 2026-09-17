@@ -28,7 +28,7 @@ Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1
 -- Audio pack (M4A banks / DirectSound samples / cries).
-Versions.AUDIO_VERSION = 5
+Versions.AUDIO_VERSION = 6
 -- FireRed USA 1.0 (BPRE) — located by structural scan (entry0 ms=me=0, SE_SELECT ms=me=2).
 Versions.AUDIO = {
   song_table = 0x4A32CC,   -- gSongTable file offset

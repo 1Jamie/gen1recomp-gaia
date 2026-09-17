@@ -90,7 +90,8 @@ local function apply_cmd(msg)
     priority = tonumber(msg.id)
   elseif msg.cmd == "play" then
     if not pack then return end
-    bgm = { voices = {}, seq = nil, songId = msg.id, muted = false, volume = bgm.volume or 1, abs = 0, epoch = msg.epoch }
+    bgm = { voices = {}, seq = nil, songId = msg.id, muted = false,
+      volume = bgm.volume or 1, reverb = bgm.reverb, abs = 0, epoch = msg.epoch }
     snaps = {}
     Player.start(pack, cache, bgm, msg.id, { forceSeq = true })
   elseif msg.cmd == "stop" then
@@ -160,14 +161,14 @@ while running do
       if #snaps > SNAP_KEEP then table.remove(snaps, 1) end
     end
     local sd = Player.renderBuffered(bgm, BUFFER, {
-      master = bgm.volume or 1,
+      master = 1,
       sampleRate = sampleRate,
     })
     bgm.abs = at + BUFFER
     if sd then
       outCh:push({ gen = bgm.songId, epoch = bgm.epoch, at = at, n = BUFFER, data = sd, rate = sampleRate })
     end
-    if bgm.done and #(bgm.voices or {}) == 0 then
+    if bgm.done and #(bgm.voices or {}) == 0 and not Mix.reverbActive(bgm.reverbState) then
       outCh:push({
         gen = bgm.songId,
         epoch = bgm.epoch,
