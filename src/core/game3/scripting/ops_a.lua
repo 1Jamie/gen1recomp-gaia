@@ -433,7 +433,8 @@ local function dispatch(vm, row)
     Flags.setVar(store, ctx, Ctx.VAR_RESULT, ok and 0 or 2) -- 0=party, 2=fail
     return false
   elseif op == "textcolor" then
-    Flags.setVar(store, ctx, 0x8012, row.color or row[1] or 0)
+    Flags.setVar(store, ctx, Ctx.VAR_PREV_TEXT_COLOR, Flags.getVar(store, ctx, Ctx.VAR_TEXT_COLOR)) -- src/scrcmd.c:1257
+    Flags.setVar(store, ctx, Ctx.VAR_TEXT_COLOR, row.color or row[1] or 0)
     return false
   elseif op == "signmsg" or op == "normalmsg" then
     local Message = package.loaded["src.ui.game3.message"]
@@ -823,6 +824,24 @@ local function dispatch(vm, row)
     local earlyRival = (battleType == 9) -- TRAINER_BATTLE_EARLY_RIVAL
     local eventScript = row.eventScript
     local trainerFlag = Flags.trainerFlagId(trainerId)
+    local VsSeeker = require("src.core.game3.vs_seeker")
+    local isRematch = op == "trainerbattle" and (battleType == 5 or battleType == 7)
+    local trainerLocalId = tonumber(row.localId) or 0
+    if op == "trainerbattle" and battleType ~= 3 and not earlyRival and trainerLocalId ~= 0 then
+      -- src/battle_setup.c:778
+      Flags.setVar(store, ctx, Ctx.VAR_LAST_TALKED, trainerLocalId)
+      Ctx.selectObject(ctx, trainerLocalId)
+    end
+    local lastTalked = Flags.getVar(store, ctx, Ctx.VAR_LAST_TALKED)
+    local opponentA = trainerId
+    if op == "trainerbattle" then
+      if isRematch then
+        -- pokefirered/src/battle_setup.c:814
+        opponentA = VsSeeker.rematchTrainerId(trainerId, store)
+      end
+      ctx.trainerBattleMode = battleType
+      ctx.trainerBattleOpponentA = opponentA
+    end
 
     -- Remember post-battle / beaten scripts for gotopost/gotobeaten.
     -- VM already advanced PC past this op → current PC is post-battle addr.
@@ -832,8 +851,12 @@ local function dispatch(vm, row)
     }
     ctx.trainerBattleBeatenScript = eventScript
 
-    if op == "trainerbattle" and not earlyRival and Flags.getFlag(store, ctx, trainerFlag) then
+    if op == "trainerbattle" and not earlyRival and not isRematch and Flags.getFlag(store, ctx, trainerFlag) then
       -- Already defeated → fall through (gotopostbattlescript).
+      return false
+    end
+    -- pokefirered/data/scripts/trainer_battle.inc:52
+    if op == "trainerbattle" and isRematch and not VsSeeker.isTrainerReadyForRematch(opponentA, lastTalked) then
       return false
     end
 
@@ -869,19 +892,19 @@ local function dispatch(vm, row)
     end
 
     if a.startTrainerBattle then
-      local foe = Trainers.foeFromId(trainerId)
+      local foe = Trainers.foeFromId(opponentA)
       if not foe then
         local sp = tonumber(row.species)
         if not sp or sp < 1 then sp = nil end
         foe = {
           species = sp or 4,
           level = tonumber(row.level) or 5,
-          trainerId = trainerId,
+          trainerId = opponentA,
         }
       end
       foe.moves = foe.moves or row.moves
 
-      local dialogs = Trainers.dialogs(trainerId) or {}
+      local dialogs = Trainers.dialogs(opponentA) or Trainers.dialogs(trainerId) or {}
       local introText = nil
       if battleType ~= 3 and battleType ~= 9 then
         introText = (row.introText and resolve_text(vm, row.introText)) or dialogs.intro
@@ -915,7 +938,18 @@ local function dispatch(vm, row)
           if earlyRival then
             Flags.setVar(store, ctx, Ctx.VAR_RESULT, lost and 1 or 0)
           end
-          if not lost then
+          -- pokefirered/src/battle_main.c:3848
+          VsSeeker.clearRematchStateByTrainerId(opponentA, lastTalked, store)
+          if isRematch then
+            if not lost then
+              -- pokefirered/src/battle_setup.c:967
+              local rematchFlag = Flags.trainerFlagId(opponentA)
+              Flags.setFlag(store, ctx, rematchFlag, true)
+              if a.onFlagChanged then a.onFlagChanged(rematchFlag, true) end
+              VsSeeker.clearRematchStateOfLastTalked(lastTalked, opponentA, store)
+            end
+            shouldHalt = true
+          elseif not lost then
             Flags.setFlag(store, ctx, trainerFlag, true)
             if a.onFlagChanged then a.onFlagChanged(trainerFlag, true) end
             -- CONTINUE_SCRIPT*: gotobeatenscript after battle.
@@ -929,7 +963,7 @@ local function dispatch(vm, row)
           end
           done = true
         end, {
-          trainerId = trainerId,
+          trainerId = opponentA,
           earlyRival = earlyRival,
           rivalFlags = rivalFlags,
           noWhiteout = earlyRival and (rivalFlags % 2 == 1),
@@ -939,9 +973,18 @@ local function dispatch(vm, row)
         })
       end
 
+      if isRematch then
+        -- pokefirered/src/battle_setup.c:848
+        local Objects = package.loaded["src.core.game3.objects"]
+        local eo = Objects and Objects.find and Objects.find(lastTalked)
+        if eo and Objects.setTrainerMovementType and not (Objects.isPlayer and Objects.isPlayer(lastTalked)) then
+          Objects.setTrainerMovementType(eo, VsSeeker.faceTypeFor(eo.facing))
+        end
+      end
+
       if introText and introText ~= "" and a.openMessageAsync then
         -- Play trainer encounter music if not already playing (pret PlayTrainerEncounterMusic / EventScript_TryDoNormalTrainerBattle)
-        local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(trainerId)
+        local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(opponentA)
         local okA, Audio = pcall(require, "src.core.game3.audio")
         if okA and Audio and Audio.playSong and song then
           Audio.playSong(song)

@@ -1290,6 +1290,12 @@ Versions.BAG_FEMALE_GFX = 0xE83DBC              -- gBagFemale_Gfx
 Versions.BAG_SPRITE_PAL = 0xE84560              -- gBag_Pal
 Versions.BAG_SWAP_GFX = 0xE84588                -- gSwapLine_Gfx
 Versions.BAG_SWAP_PAL = 0xE845C8                -- gSwapLine_Pal
+Versions.BAG_LIST_TILEMAP = 0x452D08            -- sItemListTilemap (raw u16 18x12)
+Versions.BAG_LIST_TILES_W = 18
+Versions.BAG_LIST_TILES_H = 12
+Versions.BAG_LIST_BLANK_TILE = 0x02D             -- src/item_menu.c:1163
+Versions.RED_ARROW_PAL = 0x463308               -- sRedArrowPal (raw 32 bytes)
+Versions.RED_ARROW_OTHER_GFX = 0x463328         -- sRedArrowOtherGfx (LZ 4bpp 16x32)
 
 -- TM Case (LZ-compressed & raw; FireRed USA 1.0).
 Versions.TM_CASE_BG_GFX = 0xE845D8               -- gTMCase_Gfx (LZ 4bpp, 2912 bytes)

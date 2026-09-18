@@ -98,6 +98,12 @@ function Options.lEqualsA(session)
   return tonumber(o.buttonMode) == 2
 end
 
+-- src/menu_helpers.c:72
+function Options.lrMode(session)
+  local o = Options.ensure(session)
+  return tonumber(o.buttonMode) == 1
+end
+
 -- pokefirered/src/battle_main.c
 function Options.battleStyle(session)
   local o = Options.ensure(session)

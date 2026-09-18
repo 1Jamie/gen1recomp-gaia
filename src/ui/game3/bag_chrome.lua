@@ -10,6 +10,9 @@ BagChrome._bg = nil
 BagChrome._bagMale = nil
 BagChrome._bagFemale = nil
 BagChrome._bagQuads = {}
+BagChrome._bagData = {}
+BagChrome._rotated = {}
+BagChrome._images = {}
 BagChrome._icons = {} -- id → Image
 BagChrome._manifest = nil
 BagChrome._logged = false
@@ -76,6 +79,14 @@ local function load_lua(rel)
   return nil
 end
 
+local function rgba_to_imagedata(rgba, w, h)
+  if not (love and love.image) then return nil end
+  if not rgba or #rgba < w * h * 4 then return nil end
+  local ok, imageData = pcall(love.image.newImageData, w, h, "rgba8", rgba)
+  if ok and imageData then return imageData end
+  return nil
+end
+
 local function rgba_to_image(rgba, w, h)
   if not (love and love.image and love.graphics) then return nil end
   if not rgba or #rgba < w * h * 4 then return nil end
@@ -111,6 +122,9 @@ function BagChrome.install(cache)
   BagChrome._bagMale = nil
   BagChrome._bagFemale = nil
   BagChrome._bagQuads = {}
+  BagChrome._bagData = {}
+  BagChrome._rotated = {}
+  BagChrome._images = {}
   BagChrome._icons = {}
   BagChrome._manifest = nil
   BagChrome._logged = false
@@ -162,21 +176,131 @@ local function bag_quad(frame)
   return q
 end
 
---- Pocket index 1..5 → bag sprite frame 0..3 (TM/Berry share last frames).
-local function frame_for_pocket(pocketIdx)
-  pocketIdx = tonumber(pocketIdx) or 1
-  if pocketIdx <= 1 then return 0 end
-  if pocketIdx == 2 then return 1 end
-  if pocketIdx == 3 then return 2 end
-  return 3
+-- src/item_menu_icons.c:52
+local POCKET_FRAME = { 2, 3, 1 }
+
+function BagChrome.frameForPocket(pocketIdx)
+  return POCKET_FRAME[tonumber(pocketIdx) or 1] or 2
 end
 
-function BagChrome.drawBg(x, y)
-  local img = ensure_bg()
+local function named_image(name, w, h)
+  local img = BagChrome._images[name]
+  if img ~= nil then return img or nil end
+  img = rgba_to_image(read_bytes(bag_root() .. "/" .. name .. ".rgba"), w, h)
+  BagChrome._images[name] = img or false
+  return img
+end
+
+function BagChrome.drawBg(x, y, opts)
+  local img = (opts and opts.female) and named_image("bg_female", 240, 160) or nil
+  img = img or ensure_bg()
   if not img then return false end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(img, x or 0, y or 0)
   return true
+end
+
+-- src/item_menu.c:1163, 1332
+function BagChrome.drawListFrame(rows, female)
+  local suffix = female and "_female" or ""
+  local blank = named_image("list_blank" .. suffix, 144, 96) or named_image("list_blank", 144, 96)
+  local list = named_image("list" .. suffix, 144, 96) or named_image("list", 144, 96)
+  if not (blank and list) then return false end
+  rows = math.max(0, math.min(12, tonumber(rows) or 0))
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(blank, 88, 8)
+  if rows > 0 then
+    local key = "list_rows_" .. rows
+    local q = BagChrome._bagQuads[key]
+    if not q then
+      q = love.graphics.newQuad(0, (12 - rows) * 8, 144, rows * 8, 144, 96)
+      BagChrome._bagQuads[key] = q
+    end
+    love.graphics.draw(list, q, 88, 8 + (12 - rows) * 8)
+  end
+  return true
+end
+
+-- src/item_menu.c:1118
+function BagChrome.drawDescSelected()
+  local img = named_image("desc_sel", 240, 48)
+  if not img then return false end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, 0, 112)
+  return true
+end
+
+-- src/menu_indicators.c:259
+function BagChrome.drawArrow(dir, x, y)
+  local img = named_image("red_arrow", 16, 32)
+  if not img then return false end
+  local key = "arrow_" .. tostring(dir)
+  local q = BagChrome._bagQuads[key]
+  if not q then
+    local top = (dir == "up" or dir == "down") and 16 or 0
+    q = love.graphics.newQuad(0, top, 16, 16, 16, 32)
+    BagChrome._bagQuads[key] = q
+  end
+  local sx = (dir == "right") and -1 or 1
+  local sy = (dir == "down") and -1 or 1
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, q, x + (sx < 0 and 16 or 0), y + (sy < 0 and 16 or 0), 0, sx, sy)
+  return true
+end
+
+local BIOS_SIN = {}
+for i = 0, 255 do
+  BIOS_SIN[i] = math.floor(math.sin(i * 2 * math.pi / 256) * 16384 + 0.5)
+end
+
+local function bag_data(female)
+  local key = female and "f" or "m"
+  local d = BagChrome._bagData[key]
+  if d ~= nil then return d or nil end
+  local man = BagChrome._manifest or load_lua(bag_root() .. "/manifest.lua")
+  BagChrome._manifest = man
+  local w = (man and man.bagW) or 64
+  local h = (man and man.bagH) or 256
+  d = rgba_to_imagedata(read_bytes(bag_root() .. (female and "/bag_female.rgba" or "/bag_male.rgba")), w, h)
+  BagChrome._bagData[key] = d or false
+  return d
+end
+
+-- src/sprite.c:1292
+local function rotated_image(female, frame, rot)
+  local key = (female and "f" or "m") .. frame .. ":" .. rot
+  local img = BagChrome._rotated[key]
+  if img ~= nil then return img or nil end
+  local src = bag_data(female)
+  if not src then
+    BagChrome._rotated[key] = false
+    return nil
+  end
+  local idx = rot % 256
+  local sn, cs = BIOS_SIN[idx], BIOS_SIN[(idx + 64) % 256]
+  local pa = math.floor(256 * cs / 16384)
+  local pb = math.floor(-(256 * sn) / 16384)
+  local pc = math.floor(256 * sn / 16384)
+  local pd = math.floor(256 * cs / 16384)
+  local out = love.image.newImageData(64, 64)
+  local base = frame * 64
+  for y = 0, 63 do
+    local iy = y - 32
+    for x = 0, 63 do
+      local ix = x - 32
+      local tx = math.floor((pa * ix + pb * iy) / 256) + 32
+      local ty = math.floor((pc * ix + pd * iy) / 256) + 32
+      if tx >= 0 and tx < 64 and ty >= 0 and ty < 64 then
+        out:setPixel(x, y, src:getPixel(tx, base + ty))
+      else
+        out:setPixel(x, y, 0, 0, 0, 0)
+      end
+    end
+  end
+  img = love.graphics.newImage(out)
+  img:setFilter("nearest", "nearest")
+  BagChrome._rotated[key] = img
+  return img
 end
 
 --- Draw bag sprite. pret field position ≈ (40, 68).
@@ -185,17 +309,27 @@ function BagChrome.drawBag(px, py, opts)
   local female = opts.female == true
   local img = ensure_bag_sheet(female)
   if not img then
-    img = ensure_bag_sheet(not female)
+    female = not female
+    img = ensure_bag_sheet(female)
   end
   if not img then return false end
   local frame = opts.frame
-  if frame == nil then frame = frame_for_pocket(opts.pocketIdx) end
-  local q = bag_quad(frame)
+  if frame == nil then frame = BagChrome.frameForPocket(opts.pocketIdx) end
+  frame = math.max(0, math.min(3, math.floor(frame)))
+  local rot = math.floor(tonumber(opts.rotation) or 0)
   love.graphics.setColor(1, 1, 1, 1)
+  if rot % 256 ~= 0 then
+    local r = rotated_image(female, frame, rot)
+    if r then
+      love.graphics.draw(r, px or 8, py or 36)
+      return true
+    end
+  end
+  local q = bag_quad(frame)
   if q then
-    love.graphics.draw(img, q, px or 40, py or 68)
+    love.graphics.draw(img, q, px or 8, py or 36)
   else
-    love.graphics.draw(img, px or 40, py or 68)
+    love.graphics.draw(img, px or 8, py or 36)
   end
   return true
 end

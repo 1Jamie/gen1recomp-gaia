@@ -385,6 +385,10 @@ function Map.load(mod, game, mapId, opts)
   end
 
   local Objects = require("src.core.game3.objects")
+  -- pokefirered/src/overworld.c:800
+  if fromMapId and (fromMapId ~= mapId or opts.heal) then
+    require("src.core.game3.vs_seeker").mapReset(session)
+  end
   if Space and Space.activate then
     Space.activate(mod or Runtime._mod, mapId, game, world)
   end

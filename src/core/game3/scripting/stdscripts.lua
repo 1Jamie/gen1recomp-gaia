@@ -40,6 +40,15 @@ Std.SPECIAL = {
   HelpSystem_Disable = 0x198,
   HelpSystem_Enable = 0x199,
   StartMarowakBattle = 0x156, -- pokefirered/data/specials.inc:353
+  Script_HasTrainerBeenFought = 0x36, -- pokefirered/data/specials.inc:65
+  PlayTrainerEncounterMusic = 0x38, -- pokefirered/data/specials.inc:67
+  ShouldTryRematchBattle = 0x39, -- pokefirered/data/specials.inc:68
+  IsTrainerReadyForRematch = 0x3A, -- pokefirered/data/specials.inc:69
+  HasEnoughMonsForDoubleBattle = 0x3D, -- pokefirered/data/specials.inc:72
+  SetUpTrainerMovement = 0x13A, -- pokefirered/data/specials.inc:325
+  VsSeekerResetObjectMovementAfterChargeComplete = 0x164, -- pokefirered/data/specials.inc:367
+  VsSeekerFreezeObjectsAfterChargeComplete = 0x172, -- pokefirered/data/specials.inc:381
+  SetBattledTrainerFlag = 0x18F, -- pokefirered/data/specials.inc:410
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,
@@ -137,9 +146,20 @@ Std.SCRIPTS = {
     { op = "return" },
   },
   -- Economy / item stds (pret obtain_item.inc). Pocket name → STR_VAR_3.
-  ["std:0"] = { -- STD_OBTAIN_ITEM
+  EventScript_RestorePrevTextColor = { -- data/scripts/obtain_item.inc:6
+    { op = "copyvar", [1] = 0x8012, [2] = 0x8013 },
+    { op = "return" },
+  },
+  ["std:0"] = { -- STD_OBTAIN_ITEM, data/scripts/obtain_item.inc:10
+    { op = "copyvar", [1] = 0x8013, [2] = 0x8012 },
+    { op = "textcolor", color = 3, [1] = 3 },
     { op = "additem", [1] = 0x8000, [2] = 0x8001 },
     { op = "copyvar", [1] = 0x8007, [2] = 0x800D },
+    { op = "call", target = "EventScript_ObtainItemMessage" },
+    { op = "copyvar", [1] = 0x8012, [2] = 0x8013 },
+    { op = "return" },
+  },
+  EventScript_ObtainItemMessage = {
     { op = "bufferitemname", dest = 1, src = 0x8000 }, -- STR_VAR_2
     { op = "checkitemtype", [1] = 0x8000 },
     { op = "call", target = "EventScript_BufferPocketName" },
@@ -242,6 +262,7 @@ Std.SCRIPTS = {
     { op = "return" },
   },
   ["std:9"] = { -- STD_RECEIVED_ITEM (msgreceiveditem)
+    { op = "textcolor", color = 3, [1] = 3 }, -- data/scripts/std_msgbox.inc:30
     { op = "compare_var_to_value", var = 0x8002, value = 318 }, -- MUS_OBTAIN_KEY_ITEM
     { op = "goto_if", cond = 1, target = "EventScript_ReceivedItemFanfareKeyItem" },
     { op = "compare_var_to_value", var = 0x8002, value = 258 }, -- MUS_OBTAIN_ITEM
@@ -271,6 +292,7 @@ Std.SCRIPTS = {
     { op = "waitfanfare" },
     { op = "waitmessage" },
     { op = "callstd", std = 8 }, -- STD_PUT_ITEM_AWAY
+    { op = "call", target = "EventScript_RestorePrevTextColor" },
     { op = "return" },
   },
 }

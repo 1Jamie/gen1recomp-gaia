@@ -29,6 +29,7 @@ Objects._bounds = nil
 -- Permanent template overrides from setobjectxyperm / setobjectmovementtype.
 -- Survives loadMap within a session (pret objectEventTemplates).
 Objects._perm = {} -- [mapId] = { [localId] = { x=, y=, movementType= } }
+Objects._templateMt = {}
 Objects._logged = false
 
 local function log(msg)
@@ -276,6 +277,7 @@ function Objects.loadMap(game, mapId, mapDef)
   -- Never wipe in-flight applymovement on a same-map rebind (host setMap echo).
   if not sameMap then
     Objects._tracks = {}
+    Objects._templateMt = {}
   end
   Objects._byId = {}
   Objects._order = {}
@@ -308,6 +310,12 @@ function Objects.loadMap(game, mapId, mapDef)
     local eo = newEventObject(def)
     if eo.localId > 0 then
       applyPerm(eo, mapId)
+      local tmt = Objects._templateMt[eo.localId]
+      if tmt then
+        Objects.setTrainerMovementType(eo, tmt)
+        local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[tmt]
+        if face then eo.facing = face end
+      end
       Objects._byId[eo.localId] = eo
       Objects._order[#Objects._order + 1] = eo.localId
       if announce then
@@ -609,8 +617,56 @@ function Objects.clearMovements()
   Objects._tracks = {}
 end
 
+local function sine(i)
+  local v = 256 * math.sin((i % 256) * math.pi / 128)
+  return v >= 0 and math.floor(v + 0.5) or -math.floor(-v + 0.5)
+end
+
+-- src/event_object_movement.c:7812
+local function raiseHandTick(eo)
+  local rh = eo.raiseHandState
+  if not rh then
+    rh = { mode = 0, angle = 0, hops = 0, timer = 0, swing = 0 }
+    eo.raiseHandState = rh
+    eo.raiseHand = true
+  end
+  local mt = tonumber(eo.movementType) or 0
+  if mt == 0x4F then
+    rh.swing = (rh.swing + 4) % 256
+    eo.raiseX = math.floor(sine(rh.swing) / 128)
+    return
+  end
+  if mt ~= 0x4E then return end
+  if rh.mode == 0 then
+    rh.angle = rh.angle + 10
+    if rh.angle > 127 then
+      rh.angle = 0
+      rh.hops = rh.hops + 1
+      rh.mode = rh.hops
+      eo.raiseHand = false
+    end
+    eo.raiseY = -math.floor(3 * sine(rh.angle) / 128)
+  elseif rh.mode == 1 then
+    rh.timer = rh.timer + 1
+    if rh.timer > 16 then
+      rh.timer = 0
+      eo.raiseHand = true
+      rh.mode = 0
+    end
+  else
+    rh.timer = rh.timer + 1
+    if rh.timer > 80 then
+      eo.raiseHandState = nil
+    end
+  end
+end
+
 local function idleTick(eo, game, ctx)
   if eo.frozen or eo.scriptBusy or eo.moving or eo.hidden or not eo.visible then
+    return
+  end
+  if eo.movement == "RAISE_HAND" then
+    raiseHandTick(eo)
     return
   end
   eo.idleTimer = (eo.idleTimer or 0) - 1
@@ -884,6 +940,23 @@ function Objects.setMovementType(localId, mt)
   local mapKey = (Sp and Sp.mapId) or Objects._mapId
   rememberPerm(mapKey, lid, { movementType = mt })
   if not eo then return end
+  Objects.setTrainerMovementType(eo, mt)
+  local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[mt]
+  if face then eo.facing = face end
+end
+
+local function clearRaiseHand(eo)
+  eo.raiseHandState = nil
+  eo.raiseHand = nil
+  eo.raiseX = nil
+  eo.raiseY = nil
+end
+
+-- src/event_object_movement.c:4806
+function Objects.setTrainerMovementType(localId, mt)
+  local eo = type(localId) == "table" and localId or Objects._byId[tonumber(localId) or 0]
+  if not eo then return end
+  mt = tonumber(mt) or 0
   eo.movementType = mt
   local hostMv = GfxIds.hostMovement and GfxIds.hostMovement(mt)
   if hostMv then
@@ -891,8 +964,29 @@ function Objects.setMovementType(localId, mt)
     eo.range = hostMv.range
     if hostMv.radius then eo.radius = hostMv.radius end
   end
-  local face = ({ [7] = "up", [8] = "down", [9] = "left", [10] = "right" })[mt]
-  if face then eo.facing = face end
+  clearRaiseHand(eo)
+  if eo.movement == "RAISE_HAND" then
+    eo.facing = "down"
+  end
+end
+
+-- src/event_object_movement.c:2640
+function Objects.overrideTemplateMovementType(localId, mt)
+  local lid = tonumber(localId) or 0
+  if lid <= 0 then return end
+  Objects._templateMt[lid] = tonumber(mt)
+end
+
+function Objects.templateMovementType(localId)
+  local lid = tonumber(localId) or 0
+  local o = Objects._templateMt[lid]
+  if o then return o end
+  for _, def in ipairs(Objects._defs or {}) do
+    if tonumber(def.localId or def.index) == lid then
+      return tonumber(def.movementType) or 0
+    end
+  end
+  return nil
 end
 
 function Objects.facePlayer(localId, game)

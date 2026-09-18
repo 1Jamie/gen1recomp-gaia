@@ -442,8 +442,10 @@ local function useField(session, bag, id, partySlot)
   if use == "vs_seeker" or id == ItemsData.ITEM_VS_SEEKER or id == "VS_SEEKER"
       or ItemsData.toNumericId(id) == ItemsData.ITEM_VS_SEEKER then
     local VsSeeker = require("src.core.game3.vs_seeker")
-    local ok = VsSeeker.use(session, nil)
-    return ok, "vs_seeker", nil
+    if not VsSeeker.canUseHere(session) then
+      return false, "vs_seeker", VsSeeker.notTimeText(session)
+    end
+    return true, "vs_seeker", nil
   end
 
   if id == ItemsData.ITEM_TM_CASE or id == "TM_CASE"
@@ -549,7 +551,7 @@ function ItemUse.useField(session,bag,id,partySlot)
   else
     ok,kind,text=useField(session,bag,id,partySlot)
   end
-  if ok and kind~="tm" and kind~="tm_case" and kind~="berry_pouch" then
+  if ok and kind~="tm" and kind~="tm_case" and kind~="berry_pouch" and kind~="vs_seeker" then
     local Items=require("src.core.game3.items")
     local Pokemon=require("src.core.game3.pokemon")
     local mon=partySlot and session and session.party and session.party[partySlot]

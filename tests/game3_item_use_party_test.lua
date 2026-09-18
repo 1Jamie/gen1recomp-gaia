@@ -573,6 +573,7 @@ do
     session = session,
     pocket = "KEY_ITEMS",
   })
+  BagMenu.settle()
   check(BagMenu.isOpen() == true, "BagMenu is open in KEY_ITEMS pocket")
   check(BagMenu.currentPocket() == "KEY_ITEMS", "current pocket is KEY_ITEMS")
 

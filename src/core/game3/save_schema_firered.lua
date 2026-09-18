@@ -60,6 +60,7 @@ function Schema.newGame(opts)
     move_overlay = {},
     trainerId = nil,
     rng = nil,
+    vsSeeker = { steps = 0, charging = 0, rematches = {} },
   }
   -- pret new_game.c: SeedWildEncounterRng(Random()) after title SeedRngAndSetTrainerId.
   local Rng = require("src.core.game3.rng")
@@ -119,6 +120,7 @@ function Schema.toSaveTable(session)
     move_overlay = session.move_overlay or {},
     trainerId = session.trainerId,
     rng = session.rng,
+    vsSeeker = session.vsSeeker,
     questLog = require("src.core.game3.quest_log").export(session),
     modData = session.modData,
     meta = session.meta,
@@ -162,6 +164,7 @@ function Schema.fromSaveTable(save)
     move_overlay = save.move_overlay or {},
     trainerId = save.trainerId,
     rng = save.rng,
+    vsSeeker = type(save.vsSeeker) == "table" and save.vsSeeker or { steps = 0, charging = 0, rematches = {} },
     questLog = require("src.core.game3.quest_log").restore(save.questLog),
     modData = type(save.modData) == "table" and save.modData or {},
     meta = save.meta,

@@ -7,7 +7,7 @@ local Lz77 = require("src.import.gba.lz77")
 local BagChromeExtract = {}
 
 BagChromeExtract.CACHE_SUB = "items/bag"
-BagChromeExtract.FORMAT_VERSION = 1
+BagChromeExtract.FORMAT_VERSION = 2
 
 local function default_cache_root()
   local ok, Extract = pcall(require, "src.import.gba.extract_island1")
@@ -65,51 +65,76 @@ local function load_pal_banks(bytes, count)
   return banks
 end
 
-local function bake_bg_rgba(gfx, palBytes, map, W, H)
+local function bake_tiles_rgba(gfx, banks, W, H, entryAt)
   local tileCount = math.floor(byte_len(gfx) / 32)
-  local banks = load_pal_banks(palBytes)
-  local mapW = 32
-  local indices, pals = {}, {}
-  for i = 1, W * H do indices[i] = 0; pals[i] = 0 end
-  local tilesH = math.min(32, math.floor(H / 8))
-  local tilesW = math.min(32, math.floor(W / 8))
-  for ty = 0, tilesH - 1 do
-    for tx = 0, tilesW - 1 do
-      local mi = (ty * mapW + tx) * 2 + 1
-      local entry = (map[mi] or 0) + (map[mi + 1] or 0) * 256
+  local chunks = {}
+  local tmp = {}
+  for ty = 0, math.floor(H / 8) - 1 do
+    for tx = 0, math.floor(W / 8) - 1 do
+      local entry = entryAt(tx, ty) or 0
       local tileId = entry % 1024
       local hflip = math.floor(entry / 1024) % 2 == 1
       local vflip = math.floor(entry / 2048) % 2 == 1
-      local palNum = math.floor(entry / 4096) % 16
+      local bank = banks[math.floor(entry / 4096) % 16] or banks[0]
       if tileId >= tileCount then tileId = 0 end
       local tile = {}
       local base = tileId * 32
       for i = 1, 32 do tile[i] = gfx[base + i] or 0 end
-      local tmp = {}
       for i = 1, 64 do tmp[i] = 0 end
       decode_tile_4bpp(tile, tmp, 0, 0, 8, hflip, vflip)
       for row = 0, 7 do
         for col = 0, 7 do
-          local px, py = tx * 8 + col, ty * 8 + row
-          if px < W and py < H then
-            local di = py * W + px + 1
-            indices[di] = tmp[row * 8 + col + 1] or 0
-            pals[di] = palNum
-          end
+          local c = bank and bank[tmp[row * 8 + col + 1] or 0] or 0
+          local r, g, b = bgr555_to_rgb8(c)
+          chunks[(ty * 8 + row) * W + tx * 8 + col + 1] = string.char(r, g, b, 255)
         end
       end
     end
   end
+  return table.concat(chunks)
+end
+
+local function map_entry(map, tx, ty)
+  local mi = (ty * 32 + tx) * 2 + 1
+  return (map[mi] or 0) + (map[mi + 1] or 0) * 256
+end
+
+local function bake_bg_rgba(gfx, banks, map, W, H)
+  return bake_tiles_rgba(gfx, banks, W, H, function(tx, ty)
+    return map_entry(map, tx, ty)
+  end)
+end
+
+local function female_banks(palBytes, femaleBytes)
+  local banks = load_pal_banks(palBytes)
+  local over = load_pal_banks(femaleBytes, 1)
+  if over[0] then banks[0] = over[0] end
+  return banks
+end
+
+local function bake_red_arrow(gfx, palBytes)
+  local W, H = 16, 32
+  local pal = load_pal_banks(palBytes, 1)[0] or {}
+  local pixels = {}
+  for i = 1, W * H do pixels[i] = 0 end
+  local ti = 0
+  for ty = 0, 3 do
+    for tx = 0, 1 do
+      local tile = {}
+      for i = 1, 32 do tile[i] = gfx[ti * 32 + i] or 0 end
+      decode_tile_4bpp(tile, pixels, tx * 8, ty * 8, W, false, false)
+      ti = ti + 1
+    end
+  end
   local chunks = {}
   for i = 1, W * H do
-    local idx = indices[i] or 0
-    local bank = banks[pals[i] or 0] or banks[0]
-    local c = bank and bank[idx] or 0
-    local r, g, b = bgr555_to_rgb8(c)
-    local a = (idx == 0) and 0 or 255
-    -- Bag BG uses opaque black for index0 in most cells; keep opaque for full-screen.
-    a = 255
-    chunks[i] = string.char(r, g, b, a)
+    local idx = pixels[i] or 0
+    if idx == 0 then
+      chunks[i] = string.char(0, 0, 0, 0)
+    else
+      local r, g, b = bgr555_to_rgb8(pal[idx] or 0)
+      chunks[i] = string.char(r, g, b, 255)
+    end
   end
   return table.concat(chunks)
 end
@@ -200,7 +225,31 @@ function BagChromeExtract.run(rom, cache, opts)
   local gfx = Lz77.decompress(get, Versions.BAG_BG_GFX)
   local pal = Lz77.decompress(get, Versions.BAG_BG_PAL)
   local map = Lz77.decompress(get, Versions.BAG_BG_TILEMAP)
-  cache:write(root .. "/bg.rgba", bake_bg_rgba(gfx, pal, map, W, H))
+  local femalePal = Lz77.decompress(get, Versions.BAG_BG_PAL_FEMALE)
+  local maleBanks = load_pal_banks(pal)
+  local femaleBanks = female_banks(pal, femalePal)
+  cache:write(root .. "/bg.rgba", bake_bg_rgba(gfx, maleBanks, map, W, H))
+  cache:write(root .. "/bg_female.rgba", bake_bg_rgba(gfx, femaleBanks, map, W, H))
+
+  local LW, LH = Versions.BAG_LIST_TILES_W, Versions.BAG_LIST_TILES_H
+  local listMap = rom:readBytes(Versions.BAG_LIST_TILEMAP, LW * LH * 2)
+  local function list_entry(tx, ty)
+    local i = (ty * LW + tx) * 2 + 1
+    return (listMap[i] or 0) + (listMap[i + 1] or 0) * 256
+  end
+  local function blank_entry() return Versions.BAG_LIST_BLANK_TILE end
+  cache:write(root .. "/list.rgba", bake_tiles_rgba(gfx, maleBanks, LW * 8, LH * 8, list_entry))
+  cache:write(root .. "/list_female.rgba", bake_tiles_rgba(gfx, femaleBanks, LW * 8, LH * 8, list_entry))
+  cache:write(root .. "/list_blank.rgba", bake_tiles_rgba(gfx, maleBanks, LW * 8, LH * 8, blank_entry))
+  cache:write(root .. "/list_blank_female.rgba", bake_tiles_rgba(gfx, femaleBanks, LW * 8, LH * 8, blank_entry))
+  -- src/item_menu.c:1118
+  cache:write(root .. "/desc_sel.rgba", bake_tiles_rgba(gfx, maleBanks, W, 48, function(tx, ty)
+    return map_entry(map, tx, ty + 14) % 4096 + 2 * 4096
+  end))
+
+  local arrowGfx = Lz77.decompress(get, Versions.RED_ARROW_OTHER_GFX)
+  local arrowPal = rom:readBytes(Versions.RED_ARROW_PAL, 32)
+  cache:write(root .. "/red_arrow.rgba", bake_red_arrow(arrowGfx, arrowPal))
 
   local maleGfx = Lz77.decompress(get, Versions.BAG_MALE_GFX)
   local femaleGfx = Lz77.decompress(get, Versions.BAG_FEMALE_GFX)
@@ -258,6 +307,8 @@ return {
   bagW = %d,
   bagH = %d,
   bagFrames = %d,
+  listW = %d,
+  listH = %d,
   iconW = 24,
   iconH = 24,
   itemCount = %d,
@@ -266,7 +317,7 @@ return {
 }
 ]],
     BagChromeExtract.FORMAT_VERSION, W, H, bw, bh, frames or 4,
-    itemCount, baked, failed)
+    LW * 8, LH * 8, itemCount, baked, failed)
   cache:write(root .. "/manifest.lua", manifest)
 
   print(string.format("[bag_chrome] bg + bag sprites + %d icons (%d fail) → %s",

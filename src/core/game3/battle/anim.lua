@@ -24,6 +24,7 @@ Anim._packLoaded = false
 Anim._hpTweening = false
 Anim._expTweening = false
 Anim._introTweening = 0
+Anim._stageTasks = {}
 Anim._seqBusy = false
 Anim._statusQueue = {}
 Anim._present = AnimCoords.idTable()
@@ -239,6 +240,8 @@ end
 
 function Anim.reset(opts)
   opts = opts or {}
+  for id in pairs(Anim._stageTasks) do Task.cancel(id) end
+  Anim._stageTasks = {}
   Anim._headless = opts.headless and true or false
   Anim._hpTweening = false
   Anim._expTweening = false
@@ -457,10 +460,14 @@ function Anim.tweenStage(frames, onStep, onComplete)
     return nil
   end
   Anim._introTweening = (Anim._introTweening or 0) + 1
-  return Task.tween(frames, onStep, function()
+  local t
+  t = Task.tween(frames, onStep, function()
+    Anim._stageTasks[t.id] = nil
     Anim._introTweening = math.max(0, (Anim._introTweening or 1) - 1)
     if onComplete then onComplete() end
   end)
+  Anim._stageTasks[t.id] = true
+  return t
 end
 
 function Anim.seqBusy()
@@ -513,13 +520,16 @@ function Anim.tweenHp(side, fromHp, toHp, maxHp, opts)
   if opts.frames then frames = opts.frames end
   Anim._hpTweening = true
   p.displayHp = fromHp
-  Task.tween(frames, function(u)
+  local t
+  t = Task.tween(frames, function(u)
     p.displayHp = fromHp + (toHp - fromHp) * u
   end, function()
+    Anim._stageTasks[t.id] = nil
     p.displayHp = toHp
     Anim._hpTweening = false
     if opts.onComplete then opts.onComplete() end
   end)
+  Anim._stageTasks[t.id] = true
 end
 
 --- Lerp player EXP bar ratio 0..1 within current level band.
@@ -550,7 +560,8 @@ function Anim.tweenExp(side, fromRatio, toRatio, opts)
   end
   Anim._expTweening = true
   p.displayExp = fromRatio
-  Task.tween(totalFrames, function(_, t)
+  local task
+  task = Task.tween(totalFrames, function(_, t)
     local curFrame = t.frames or 0
     if curFrame <= leadIn then
       p.displayExp = fromRatio
@@ -559,10 +570,12 @@ function Anim.tweenExp(side, fromRatio, toRatio, opts)
       p.displayExp = fromRatio + (toRatio - fromRatio) * u
     end
   end, function()
+    Anim._stageTasks[task.id] = nil
     p.displayExp = toRatio
     Anim._expTweening = false
     if opts.onComplete then opts.onComplete() end
   end)
+  Anim._stageTasks[task.id] = true
 end
 
 function Anim.displayExpRatio(side, battler)

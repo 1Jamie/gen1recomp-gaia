@@ -58,6 +58,7 @@ BagMenu.show(testBag, {
   session = session,
   onClose = function() closed = true end,
 })
+BagMenu.settle()
 check(BagMenu.isOpen() == true, "bag menu is open")
 check(BagMenu.currentPocket() == "ITEMS", "starts in ITEMS pocket")
 
@@ -83,8 +84,10 @@ mockInput:set("right")
 BagMenu.handleInput(mockInput)
 check(BagMenu.currentPocket() == "POKE_BALLS", "right advances to POKE_BALLS pocket")
 
+BagMenu.settle()
 mockInput:set("b")
 BagMenu.handleInput(mockInput)
+BagMenu.settle()
 check(BagMenu.isOpen() == false, "B closes bag menu")
 check(closed == true, "onClose called")
 

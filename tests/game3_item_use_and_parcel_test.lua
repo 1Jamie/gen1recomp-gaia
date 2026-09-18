@@ -207,10 +207,12 @@ testParty[1].hp = 5
 Bag.add(testBag, "POTION", 1)
 BagMenu.show({ party = testParty, bag = testBag }, { bag = testBag })
 assert(BagMenu.isOpen() == true, "BagMenu is open")
+BagMenu.settle()
 BagMenu.mode = "action"
 BagMenu.actionCursor = 1 -- USE
 mockInput:press("a")
 BagMenu.handleInput(mockInput)
+BagMenu.settle()
 assert(PartyMenu.isOpen() == true, "PartyMenu opened from BagMenu USE")
 assert(PartyMenu.mode == "use", "PartyMenu is in use mode")
 -- Select Mon 1 with A

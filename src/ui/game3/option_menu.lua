@@ -8,10 +8,15 @@ local OptionMenu = {}
 OptionMenu.open = false
 OptionMenu.cursor = 1
 
-local FIRST_ROW = 4
-local VISIBLE = 6
-local LABEL_COL = 3
-local VALUE_COL = 17
+local VISIBLE = 7
+local WIN_X, WIN_Y, WIN_W, WIN_H = 16, 56, 208, 96
+local ROW_Y0 = WIN_Y + 2
+local ROW_STEP = 13
+local ROW_H = 14
+local LABEL_X = WIN_X + 8
+local VALUE_X = WIN_X + 0x82
+local HELP_BG = { 0 / 255, 123 / 255, 197 / 255, 1 }
+local HELP_TEXT = "{DPAD_UPDOWN}PICK {DPAD_LEFTRIGHT}SWITCH {A_BUTTON}{B_BUTTON}CANCEL"
 
 local function ctx()
   return OptionMenu._ctx
@@ -150,46 +155,104 @@ function OptionMenu.handleInput(input)
   end
 end
 
+function OptionMenu.update()
+  if OptionMenu.open then
+    OptionMenu._arrowK = (OptionMenu._arrowK or 0) + 1
+  end
+end
+
+local function valueColors()
+  local FrlgFont = require("src.ui.game3.frlg_font")
+  return { fg = FrlgFont.STDPAL[5], shadow = FrlgFont.STDPAL[4], bg = FrlgFont.STDPAL[0] } -- src/option_menu.c:180
+end
+
+-- src/menu_indicators.c:289
+local function bob(k, freq)
+  local Trig = require("src.core.game3.trig")
+  local v = Trig.sin(((k or 0) * freq) % 256) * 2 / 256
+  return v < 0 and math.ceil(v) or math.floor(v)
+end
+
+local function scrollArrow(dir, x, y)
+  local ok, BagChrome = pcall(require, "src.ui.game3.bag_chrome")
+  if ok and BagChrome and BagChrome.drawArrow then
+    local drew, res = pcall(BagChrome.drawArrow, dir, x, y)
+    if drew and res then return end
+  end
+  local FrlgFont = require("src.ui.game3.frlg_font")
+  FrlgFont.drawGlyph(dir == "up" and FrlgFont.CHAR_UP_ARROW or FrlgFont.CHAR_DOWN_ARROW,
+    x + 4, y + 1, { colors = FrlgFont.COLOR.RED })
+end
+
+-- src/option_menu.c:316
+local function drawHelpBar()
+  love.graphics.setColor(HELP_BG)
+  love.graphics.rectangle("fill", 0, 0, 240, 16)
+  love.graphics.setColor(1, 1, 1, 1)
+  local PokedexChrome = require("src.ui.game3.pokedex_chrome")
+  PokedexChrome.drawControlInfo(HELP_TEXT, 0xE4, 0)
+end
+
 function OptionMenu.draw()
   if not OptionMenu.open then return end
   local p = page()
   if not p then return end
   local c = ctx()
+  local Chrome = require("src.ui.game3.chrome")
+  local FrlgFont = require("src.ui.game3.frlg_font")
+
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.rectangle("fill", 0, 0, 240, 160)
+  love.graphics.setColor(1, 1, 1, 1)
+  drawHelpBar()
+
+  Chrome.fixedStdFrame(2, 3, 26, 2) -- src/option_menu.c:537
+  Window.printPx(p.title or "OPTION", 16 + 8, 24 + 1, { colors = FrlgFont.COLOR.NORMAL })
+
   local frameType = tonumber(Options.block(c.options).frameType) or 0
-  Window.userFrame(Window.template(1, 1, 28, 17), frameType)
-  Window.print(p.title or "OPTION", 2, 2)
+  Window.userFrame(Window.template(2, 7, 26, 12), frameType)
 
   local total = rowCount(p)
   clampScroll(p)
+  local vcol = valueColors()
   for slot = 1, VISIBLE do
     local idx = p.scroll + slot
     if idx <= total then
-      local y = Window.menuRowY(FIRST_ROW, slot)
-      if idx == p.index then Window.cursor(2, y) end
+      local y = ROW_Y0 + (slot - 1) * ROW_STEP -- src/option_menu.c:563
       if idx > #p.rows then
-        Window.print("BACK", LABEL_COL, y)
+        Window.printPx("CANCEL", LABEL_X, y, { colors = FrlgFont.COLOR.NORMAL })
       else
         local row = p.rows[idx]
-        Window.print(row.label or "?", LABEL_COL, y)
+        Window.printPx(row.label or "?", LABEL_X, y, { colors = FrlgFont.COLOR.NORMAL })
         if row.value then
           local ok, text = pcall(row.value, c)
-          Window.print(ok and tostring(text) or "----", VALUE_COL, y)
+          Window.printPx(ok and tostring(text) or "----", VALUE_X, y, { colors = vcol })
         end
       end
     end
   end
 
+  -- src/option_menu.c:572
+  local selTop = ROW_Y0 + (p.index - p.scroll - 1) * ROW_STEP
+  local selBot = selTop + ROW_H
+  love.graphics.setColor(0, 0, 0, 2 / 16)
+  if selTop > WIN_Y then
+    love.graphics.rectangle("fill", WIN_X, WIN_Y, WIN_W, selTop - WIN_Y)
+  end
+  if selBot < WIN_Y + WIN_H then
+    love.graphics.rectangle("fill", WIN_X, selBot, WIN_W, WIN_Y + WIN_H - selBot)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+
   if total > VISIBLE then
-    local FrlgFont = require("src.ui.game3.frlg_font")
+    local k = OptionMenu._arrowK or 0
     if p.scroll > 0 then
-      FrlgFont.drawGlyph(FrlgFont.CHAR_UP_ARROW, 224, 26)
+      scrollArrow("up", 208, WIN_Y + bob(k, 8))
     end
     if p.scroll + VISIBLE < total then
-      FrlgFont.drawGlyph(FrlgFont.CHAR_DOWN_ARROW, 224, 106)
+      scrollArrow("down", 208, WIN_Y + WIN_H - 16 + bob(k, -8))
     end
   end
-
-  Window.print("LEFT/RIGHT:CHANGE  B:BACK", 2, 16)
 end
 
 return OptionMenu

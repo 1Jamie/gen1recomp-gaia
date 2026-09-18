@@ -227,9 +227,11 @@ local function drawFieldPlane(game, vw, vh, Renderer)
   local Oam = require("src.core.game3.oam")
   local FieldView = require("src.core.game3.field_view")
   local Tilt = require("src.render.Tilt")
+  local Transition = package.loaded["src.core.game3.battle_transition"]
+  local transitioning = Transition and Transition.isActive and Transition.isActive()
   Oam.resetFrame()
   local prev = Oam.setLayer("world")
-  if Tilt.active() and Renderer and Renderer.beginUprightPass then
+  if Tilt.active() and not transitioning and Renderer and Renderer.beginUprightPass then
     FieldView.draw(game, vw, vh, { skipActors = true })
     Renderer:beginUprightPass()
     FieldView.draw(game, vw, vh, { actorsOnly = true, billboard = true })
@@ -304,6 +306,10 @@ local function presentPlanes(game)
   local vw, vh = Renderer:worldViewSize()
   drawFieldPlane(game, vw, vh, Renderer)
   love.graphics.pop()
+  local Transition = package.loaded["src.core.game3.battle_transition"]
+  if Transition and Transition.isActive and Transition.isActive() then
+    Transition.drawWorld(Renderer.worldCanvas, vw, vh)
+  end
   Renderer:endWorldPass()
 
   love.graphics.push("all")

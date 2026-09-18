@@ -288,7 +288,7 @@ assert(Pokedex.isOpen() == false, "Registration screen closed on A press")
 assert(regClosed == true, "onDone callback invoked")
 print("[ok] Pokédex UI navigation, chrome entries, and registration view passed")
 
-print("[test] 6. Battle Bag pocket navigation (ITEMS <-> POKE_BALLS) and action back-out")
+print("[test] 6. Battle Bag pocket navigation (ITEMS -> KEY_ITEMS -> POKE_BALLS) and action back-out")
 local BagMenu = require("src.ui.game3.bag_menu")
 local battleBag = Bag.new()
 Bag.add(battleBag, "POTION", 3)
@@ -301,10 +301,15 @@ BagMenu.show(battleBag, {
 assert(BagMenu.isOpen() == true, "BagMenu is open in battle")
 assert(BagMenu.mode == "list", "BagMenu starts in list mode (not action mode)")
 assert(BagMenu.currentPocket() == "ITEMS", "Starts on ITEMS pocket")
+BagMenu.settle()
 
 -- Swap to POKé_BALLS pocket with right arrow
 mockInput:press("right")
 BagMenu.handleInput(mockInput)
+assert(BagMenu.currentPocket() == "KEY_ITEMS", "Swapped to KEY_ITEMS pocket")
+mockInput:press("right")
+BagMenu.handleInput(mockInput)
+BagMenu.settle()
 assert(BagMenu.currentPocket() == "POKE_BALLS", "Swapped to POKE_BALLS pocket")
 assert(#BagMenu.list() == 1, "1 ball item in pocket")
 assert(BagMenu.list()[1].id == 4 or BagMenu.list()[1].name == "POKé BALL", "Poke ball in list")
@@ -324,11 +329,15 @@ assert(BagMenu.currentPocket() == "POKE_BALLS", "Still in POKE_BALLS pocket")
 -- Swap back to ITEMS pocket with left arrow
 mockInput:press("left")
 BagMenu.handleInput(mockInput)
+mockInput:press("left")
+BagMenu.handleInput(mockInput)
+BagMenu.settle()
 assert(BagMenu.currentPocket() == "ITEMS", "Swapped back to ITEMS pocket")
 
 -- Close bag with B in list mode
 mockInput:press("b")
 BagMenu.handleInput(mockInput)
+BagMenu.settle()
 assert(BagMenu.isOpen() == false, "BagMenu closed on B in list mode")
 print("[ok] Battle bag pocket navigation and action back-out passed")
 

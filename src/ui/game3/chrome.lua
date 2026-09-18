@@ -363,6 +363,15 @@ function Chrome.stdFrame(tx, ty, tw, th)
   fillRect(tx * T, ty * T, tw * T, th * T, 1, 1, 1, 1)
 end
 
+-- src/text_window.c:35
+function Chrome.fixedStdFrame(tx, ty, tw, th)
+  local atlas = ensureStd()
+  if atlas then return drawNineSlice(atlas, tx, ty, tw, th) end
+  fillRect(tx * T - 8, ty * T - 8, (tw + 2) * T, (th + 2) * T, 98 / 255, 115 / 255, 123 / 255, 1)
+  fillRect(tx * T - 6, ty * T - 6, (tw + 2) * T - 4, (th + 2) * T - 4, 205 / 255, 213 / 255, 213 / 255, 1)
+  fillRect(tx * T, ty * T, tw * T, th * T, 1, 1, 1, 1)
+end
+
 drawNineSlice = function(atlas, tx, ty, tw, th)
   love.graphics.setColor(1, 1, 1, 1)
   local L, Top, W, H = tx, ty, tw, th

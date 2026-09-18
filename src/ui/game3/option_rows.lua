@@ -124,7 +124,9 @@ function Rows.build(ctx)
   })
   add({
     id = "frameType", label = Strings("FRAME"),
-    value = function(c) return tostring((tonumber(cart(c).frameType) or 0) + 1) end,
+    value = function(c)
+      return Strings("TYPE") .. string.format("%2d", (tonumber(cart(c).frameType) or 0) + 1) -- src/option_menu.c:496
+    end,
     step = function(c, dir)
       cartCycle(c, "frameType", 10, dir)
       local okC, Chrome = pcall(require, "src.ui.game3.chrome")

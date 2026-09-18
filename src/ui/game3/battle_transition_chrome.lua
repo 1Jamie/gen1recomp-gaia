@@ -11,6 +11,7 @@ BattleTransitionChrome._bigPokeball = nil
 BattleTransitionChrome._slidingPokeball = nil
 BattleTransitionChrome._gridSquare = nil
 BattleTransitionChrome._gridQuads = {}
+BattleTransitionChrome._gridFrames = {}
 BattleTransitionChrome._vsbars = {}
 BattleTransitionChrome._banners = {}
 BattleTransitionChrome._logged = false
@@ -73,14 +74,31 @@ local function load_lua(rel)
   return nil
 end
 
-local function rgba_to_image(rgba, w, h)
+local function rgba_to_data(rgba, w, h, keyed)
   if not (love and love.image and love.graphics) then return nil end
   if not rgba or #rgba < w * h * 4 then return nil end
   local ok, imageData = pcall(love.image.newImageData, w, h, "rgba8", rgba)
   if not ok or not imageData then return nil end
+  if keyed then
+    local kr, kg, kb = imageData:getPixel(0, 0)
+    imageData:mapPixel(function(_, _, r, g, b, a)
+      if r == kr and g == kg and b == kb then return r, g, b, 0 end
+      return r, g, b, a
+    end)
+  end
+  return imageData
+end
+
+local function data_to_image(imageData, wrap)
+  if not imageData then return nil end
   local image = love.graphics.newImage(imageData)
   if image.setFilter then image:setFilter("nearest", "nearest") end
+  if wrap and image.setWrap then pcall(image.setWrap, image, "repeat", "repeat") end
   return image
+end
+
+local function rgba_to_image(rgba, w, h, keyed, wrap)
+  return data_to_image(rgba_to_data(rgba, w, h, keyed), wrap)
 end
 
 function BattleTransitionChrome.install(cache)
@@ -90,6 +108,7 @@ function BattleTransitionChrome.install(cache)
   BattleTransitionChrome._slidingPokeball = nil
   BattleTransitionChrome._gridSquare = nil
   BattleTransitionChrome._gridQuads = {}
+  BattleTransitionChrome._gridFrames = {}
   BattleTransitionChrome._vsbars = {}
   BattleTransitionChrome._banners = {}
   BattleTransitionChrome._logged = false
@@ -101,9 +120,17 @@ function BattleTransitionChrome.install(cache)
   local sp = read_bytes(root .. "/sliding_pokeball.rgba")
   local gs = read_bytes(root .. "/grid_square.rgba")
 
-  BattleTransitionChrome._bigPokeball = rgba_to_image(bp, 240, 160)
+  BattleTransitionChrome._bigPokeball = rgba_to_image(bp, 240, 160, true)
   BattleTransitionChrome._slidingPokeball = rgba_to_image(sp, 32, 32)
-  BattleTransitionChrome._gridSquare = rgba_to_image(gs, 8, 120)
+  local gridData = rgba_to_data(gs, 8, 120, true)
+  BattleTransitionChrome._gridSquare = data_to_image(gridData)
+  if gridData and love.image.newImageData then
+    for frame = 0, 14 do
+      local fd = love.image.newImageData(8, 8)
+      fd:paste(gridData, 0, 0, 0, frame * 8, 8, 8)
+      BattleTransitionChrome._gridFrames[frame] = data_to_image(fd, true)
+    end
+  end
 
   if BattleTransitionChrome._gridSquare and love and love.graphics and love.graphics.newQuad then
     for frame = 0, 14 do
@@ -118,7 +145,7 @@ function BattleTransitionChrome.install(cache)
       local vsKey = key .. "_" .. gender
       local vsRgba = read_bytes(root .. "/vsbar_" .. vsKey .. ".rgba")
       if vsRgba then
-        BattleTransitionChrome._vsbars[vsKey] = rgba_to_image(vsRgba, 256, 160)
+        BattleTransitionChrome._vsbars[vsKey] = rgba_to_image(vsRgba, 256, 160, true, true)
       end
     end
     local bRgba = read_bytes(root .. "/banner_" .. key .. ".rgba")
@@ -156,6 +183,11 @@ end
 function BattleTransitionChrome.gridSquare()
   BattleTransitionChrome.ensureInstalled()
   return BattleTransitionChrome._gridSquare, BattleTransitionChrome._gridQuads
+end
+
+function BattleTransitionChrome.gridFrame(stage)
+  BattleTransitionChrome.ensureInstalled()
+  return BattleTransitionChrome._gridFrames[stage]
 end
 
 function BattleTransitionChrome.vsbar(mugshotKey, genderKey)

@@ -66,6 +66,9 @@ GfxIds.MOVEMENT = {
   [0x1A] = { movement = "WALK", range = "UP_DOWN" },
   [0x1B] = { movement = "WALK", range = "LEFT_RIGHT" },
   [0x1C] = { movement = "WALK", range = "LEFT_RIGHT" },
+  [0x4D] = { movement = "RAISE_HAND", range = "DOWN" },
+  [0x4E] = { movement = "RAISE_HAND", range = "DOWN" },
+  [0x4F] = { movement = "RAISE_HAND", range = "DOWN" },
 }
 
 function GfxIds.spriteFor(graphicsId)

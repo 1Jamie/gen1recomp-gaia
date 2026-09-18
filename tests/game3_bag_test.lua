@@ -220,13 +220,14 @@ check(Bag.get(testBag, 139) == 5, "BERRY + ORAN_BERRY merged to 5 Oran berries")
 
 local BagMenu = require("src.ui.game3.bag_menu")
 BagMenu.show(nil, testBag)
+BagMenu.settle()
 check(BagMenu.currentPocket() == "ITEMS", "BagMenu initial pocket is ITEMS")
 BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
 check(BagMenu.currentPocket() == "KEY_ITEMS", "BagMenu second pocket is KEY_ITEMS")
 BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
 check(BagMenu.currentPocket() == "POKE_BALLS", "BagMenu third pocket is POKE_BALLS")
 BagMenu.handleInput({ wasPressed = function(s, k) return k == "right" end })
-check(BagMenu.currentPocket() == "ITEMS", "BagMenu wraps back to ITEMS (3 pockets only)")
+check(BagMenu.currentPocket() == "POKE_BALLS", "BagMenu does not wrap past POKE_BALLS (3 pockets only)")
 BagMenu.close()
 
 if failed > 0 then

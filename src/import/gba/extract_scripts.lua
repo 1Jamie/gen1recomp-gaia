@@ -394,7 +394,7 @@ function ExtractScripts.loadBundle(cache, root, opts)
     end
     -- Overlay stdscripts always (nurse/PC host arms).
     for k, v in pairs(merge_std_scripts()) do
-      if scripts[k] == nil then scripts[k] = v end
+      scripts[k] = v
     end
     local stdText = merge_std_text()
     text = text or {}

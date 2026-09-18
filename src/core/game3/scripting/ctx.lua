@@ -13,6 +13,9 @@ Ctx.VAR_FACING = 0x800C
 Ctx.VAR_RESULT = 0x800D
 Ctx.VAR_ITEM_ID = 0x800E
 Ctx.VAR_LAST_TALKED = 0x800F
+Ctx.VAR_TEXT_COLOR = 0x8012
+Ctx.VAR_PREV_TEXT_COLOR = 0x8013
+Ctx.TEXT_COLOR_DEFAULT = 255
 
 function Ctx.isSpecial(id)
   id = tonumber(id) or 0
@@ -38,7 +41,7 @@ function Ctx.new(opts)
     comparisonResult = 0,
     data = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 },
     stringVars = { [1] = "", [2] = "", [3] = "" },
-    specialVars = {},
+    specialVars = { [Ctx.VAR_TEXT_COLOR] = Ctx.TEXT_COLOR_DEFAULT },
     lockSnapshots = {},
     lockKind = nil,         -- "single" | "all" | nil
     activeMoves = {},
@@ -53,7 +56,18 @@ function Ctx.new(opts)
 end
 
 function Ctx.wipeSpecial(ctx)
-  ctx.specialVars = {}
+  ctx.specialVars = { [Ctx.VAR_TEXT_COLOR] = Ctx.TEXT_COLOR_DEFAULT } -- src/field_specials.c:1542
+end
+
+function Ctx.selectObject(ctx, localId)
+  localId = tonumber(localId) or 0
+  ctx.selectedLocalId = localId ~= 0 and localId or nil
+  ctx.selectedGfx = nil
+  if ctx.selectedLocalId then
+    local Objects = package.loaded["src.core.game3.objects"]
+    local obj = Objects and Objects.find and Objects.find(localId)
+    ctx.selectedGfx = obj and (obj.graphicsId or (obj.def and (obj.def.graphicsId or obj.def.graphics))) or nil
+  end
 end
 
 function Ctx.clearLocks(ctx)
@@ -68,6 +82,7 @@ end
 
 function Ctx.haltCleanup(ctx)
   Ctx.wipeSpecial(ctx)
+  Ctx.selectObject(ctx, 0)
   Ctx.clearLocks(ctx)
   Ctx.clearMoves(ctx)
   ctx.messageOpen = false

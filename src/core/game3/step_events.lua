@@ -2,7 +2,7 @@
 -- Features:
 -- 1. Lockstep Event Queue: Prevents simultaneous tick collisions; flushes on party white-out.
 -- 2. Happiness Step Counter (128 steps): +1 friendship to all party Pokémon.
--- 3. VS Seeker Battery (100 steps): Increments on all movement states (Walk, Run, Bike, Surf).
+-- 3. VS Seeker Battery (100 steps): Increments while the VS SEEKER is in the bag.
 -- 4. Overworld Poison (4 steps): 4-frame reddish screen flash, SE_FIELD_POISON, lethal faint at 0 HP.
 -- 5. Egg Cycles & Daycare (256 steps): Decrements egg cycles -> EggHatchScene; +1 EXP per step in Daycare.
 -- 6. Repel Counter: Decrements steps -> "Repel's effect wore off..." on expiration.
@@ -44,6 +44,18 @@ end
 
 local push_event = StepEvents.queueEvent
 
+-- pokefirered/src/metatile_behavior.c:266
+local function forced_step()
+  local Player = package.loaded["src.core.game3.player"]
+  local Collision = package.loaded["src.core.game3.collision"]
+  if not (Player and Collision and Collision.behavior) then return false end
+  local ok, mb = pcall(Collision.behavior, Player.cellX, Player.cellY)
+  mb = ok and tonumber(mb) or nil
+  if not mb then return false end
+  return (mb >= 0x40 and mb <= 0x48) or (mb >= 0x50 and mb <= 0x53)
+    or mb == 0x13 or mb == 0x23 or (mb >= 0x54 and mb <= 0x57)
+end
+
 local function party_is_wiped(party)
   if not party or #party == 0 then return false end
   local hasAlive = false
@@ -73,8 +85,8 @@ local function trigger_white_out(session, game)
   local playerName = (session and (session.name or session.playerName)) or "PLAYER"
   local msg = playerName .. " is out of usable\nPOKéMON!\n\n" .. playerName .. " whited out!"
 
-  Hud.showDialogue(msg, {
-    onDone = function()
+  Hud.openMessage(game, msg, {
+    done = function()
       -- 2. Fade to black and warp to last heal location (or Pallet Town player house)
       Fade.begin(Fade.MODE.TO_BLACK, 0.5, function()
         local healMap = (session and session.healMap) or "FR_PALLET_TOWN_PLAYERS_HOUSE_2F"
@@ -133,12 +145,18 @@ function StepEvents.onStepTaken(session, game)
   session.vars[0x403F] = hapSteps
   session.happinessSteps = hapSteps
 
-  -- 2. VS Seeker Battery Counter (up to 100 steps on any movement mode)
-  local vsCharge = tonumber(session.vsSeekerCharge or session.vars[0x4044]) or 0
-  if vsCharge < 100 then
-    vsCharge = math.min(100, vsCharge + 1)
-    session.vsSeekerCharge = vsCharge
-    session.vars[0x4044] = vsCharge
+  -- pokefirered/src/field_control_avatar.c:658
+  local vsChargeDone = false
+  if not forced_step() then
+    local VsSeeker = require("src.core.game3.vs_seeker")
+    if VsSeeker.onStep(session) then
+      vsChargeDone = true
+      push_event(VsSeeker.chargingDoneEvent())
+    end
+  end
+  if vsChargeDone then
+    StepEvents.onRepelStep(session, game)
+    return
   end
 
   -- 3. Overworld Poison Counter (every 4 steps, pret field_poison.c)
@@ -188,8 +206,8 @@ function StepEvents.onStepTaken(session, game)
             end)
 
             local Hud = require("src.ui.game3.hud")
-            Hud.showDialogue(fainted.name .. " fainted...", {
-              onDone = function()
+            Hud.openMessage(game, fainted.name .. " fainted...", {
+              done = function()
                 if party_is_wiped(party) then
                   trigger_white_out(session, game)
                 else
@@ -242,6 +260,10 @@ function StepEvents.onStepTaken(session, game)
   end
   session.eggSteps = eggSteps
 
+  StepEvents.onRepelStep(session, game)
+end
+
+function StepEvents.onRepelStep(session, game)
   -- 5. Repel Step Counter (VAR_REPEL_STEP_COUNT)
   local repelSteps = tonumber(session.repelSteps or session.vars[0x4021]) or 0
   if repelSteps > 0 then
@@ -255,8 +277,8 @@ function StepEvents.onStepTaken(session, game)
         run = function(onDone)
           se(67) -- SE_REPEL
           local Hud = require("src.ui.game3.hud")
-          Hud.showDialogue("Repel's effect wore off...", {
-            onDone = onDone,
+          Hud.openMessage(game, "Repel's effect wore off...", {
+            done = onDone,
           })
         end,
       })
@@ -270,7 +292,11 @@ function StepEvents.update(dt, game)
     StepEvents._poisonFlashTimer = math.max(0, StepEvents._poisonFlashTimer - (dt or 1 / 60))
   end
 
-  if StepEvents._activeEvent then return end
+  if StepEvents._activeEvent then
+    local active = StepEvents._activeEvent
+    if active.tick then active.tick(dt, game) end
+    return
+  end
   if #StepEvents._queue == 0 then return end
 
   local ev = table.remove(StepEvents._queue, 1)

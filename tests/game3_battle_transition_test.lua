@@ -121,20 +121,64 @@ end)
 check(BattleTransition.isActive() == true, "transition active on start")
 check(BattleTransition._phase == "intro", "starts in intro phase")
 
--- Tick intro phase (32 frames)
-for f = 1, 32 do
+-- src/battle_transition.c:703
+for f = 1, 33 do
   BattleTransition.tick(1 / 60)
 end
-check(BattleTransition._phase == "main", "advances to main phase after 32 intro frames")
+check(BattleTransition._phase == "intro", "intro still running after 33 frames")
+BattleTransition.tick(1 / 60)
+check(BattleTransition._phase == "main", "advances to main phase after 34 intro frames")
 
--- Tick main phase to completion
 local ticks = 0
-while BattleTransition.isActive() and ticks < 100 do
+while BattleTransition.isActive() and ticks < 300 do
   BattleTransition.tick(1 / 60)
   ticks = ticks + 1
 end
 check(doneCalled == true, "transition completes and invokes done callback")
 check(BattleTransition.isActive() == false, "transition inactive after finish")
+
+print("[test] 8. Coverage never stops short or reverses")
+local function run(id)
+  local covs, finished = {}, false
+  BattleTransition.start(id, { skipIntro = true }, function() finished = true end)
+  local guard = 0
+  while not finished and guard < 600 do
+    BattleTransition.tick(1 / 60)
+    if BattleTransition._fx then covs[#covs + 1] = BattleTransition.screenCoverage() end
+    guard = guard + 1
+  end
+  return covs, finished
+end
+
+local covs, finished = run(ID.SLICE)
+local monotonic = true
+for i = 2, #covs do
+  if covs[i] < covs[i - 1] then monotonic = false end
+end
+check(finished, "SLICE finishes")
+check(covs[1] < 0.02, "SLICE starts uncovered (no instant black)")
+check(monotonic, "SLICE coverage never reverses")
+check(covs[#covs] == 1, "SLICE ends fully covered")
+local firstFull
+for i, c in ipairs(covs) do
+  if c == 1 and not firstFull then firstFull = i end
+end
+check(firstFull ~= nil and #covs - firstFull <= 2, "SLICE hands off right after full coverage")
+
+for _, id in ipairs({ ID.WAVE, ID.ANGLED_WIPES, ID.CLOCKWISE_WIPE, ID.GRID_SQUARES, ID.WHITE_BARS_FADE,
+  ID.BLUR, ID.SWIRL, ID.SHUFFLE, ID.RIPPLE, ID.BIG_POKEBALL, ID.POKEBALLS_TRAIL, ID.BLUE }) do
+  local c, done = run(id)
+  check(done and c[#c] == 1, "transition " .. id .. " ends on a black screen")
+end
+
+print("[test] 9. SLICE rows extend to the full window width")
+BattleTransition.start(ID.SLICE, { skipIntro = true })
+for _ = 1, 20 do BattleTransition.tick(1 / 60) end
+local even = BattleTransition.blackSpans(0, -120, 360)
+local odd = BattleTransition.blackSpans(1, -120, 360)
+check(even[1] == -120 and even[2] > -120, "even rows grow from the left window edge")
+check(odd[2] == 360 and odd[1] < 360, "odd rows grow from the right window edge")
+BattleTransition.abort()
 
 if failed > 0 then
   print(string.format("[FAIL] %d test(s) failed", failed))

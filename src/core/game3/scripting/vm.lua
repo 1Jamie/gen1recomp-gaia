@@ -78,6 +78,7 @@ end
 --- Stamp LAST_TALKED and VAR_FACING then start script.
 function Vm:startTalk(scriptKey, localId, facing)
   Flags.setVar(self.store, self.ctx, Ctx.VAR_LAST_TALKED, localId or 0)
+  Ctx.selectObject(self.ctx, localId) -- src/field_control_avatar.c:426
   if facing then
     Flags.setVar(self.store, self.ctx, Ctx.VAR_FACING, facing)
   end

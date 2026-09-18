@@ -339,7 +339,15 @@ function Game3:_handleRegisteredItem()
     session.registeredItem = nil
     return
   end
-  ItemUse.useField(session, session.bag, item, nil)
+  local ok, kind, text = ItemUse.useField(session, session.bag, item, nil)
+  if kind == "vs_seeker" then
+    -- pokefirered/src/item_use.c:712
+    if ok then
+      require("src.core.game3.vs_seeker").use(session, self)
+    elseif text then
+      require("src.ui.game3.hud").openMessage(self, text)
+    end
+  end
 end
 
 function Game3:_handleBootAction(action)

@@ -135,6 +135,39 @@ function Adapters.stub(opts)
   return a
 end
 
+function Adapters.resolveNpcColor(ctx, store)
+  local Ctx = require("src.core.game3.scripting.ctx")
+  local sv = ctx and ctx.specialVars or {}
+  local tc = sv[Ctx.VAR_TEXT_COLOR]
+  if tc == nil then tc = Ctx.TEXT_COLOR_DEFAULT end
+  -- src/field_specials.c:1548
+  if tc ~= Ctx.TEXT_COLOR_DEFAULT then return tc end
+  local sel = ctx and tonumber(ctx.selectedLocalId) or 0
+  if sel == 0 then return 3 end
+  local gfx = nil
+  local Objects = package.loaded["src.core.game3.objects"]
+  local obj = Objects and Objects.find and not (Objects.isPlayer and Objects.isPlayer(sel)) and Objects.find(sel)
+  if obj then
+    gfx = obj.graphicsId or (obj.def and (obj.def.graphicsId or obj.def.graphics))
+  end
+  gfx = tonumber(gfx) or tonumber(ctx.selectedGfx)
+  if gfx and gfx >= 240 and gfx <= 255 then
+    local Flags = require("src.core.game3.scripting.flags")
+    local Space = package.loaded["src.core.game3.scripting.space"]
+    local v = Flags.getVar(store or (Space and Space.store), ctx, Ctx.GFX_VAR_LO + (gfx - 240))
+    gfx = (type(v) == "number" and v > 0) and v or gfx
+  end
+  local FrlgFont = require("src.ui.game3.frlg_font")
+  return FrlgFont.getNpcTextColor(gfx)
+end
+
+local function current_npc_color()
+  local Space = package.loaded["src.core.game3.scripting.space"]
+  local ctx = Space and Space.vm and Space.vm.ctx
+  if not ctx then return nil end
+  return Adapters.resolveNpcColor(ctx, Space.store)
+end
+
 local function tick_vm()
   local Space = package.loaded["src.core.game3.scripting.space"]
   if Space and Space.vm then Space.vm:tick() end
@@ -297,21 +330,9 @@ function Adapters.host(mod, game, world)
         local Hud = require("src.ui.game3.hud")
         local g = resolveGame()
         a.log("[game3] dialog via game3 HUD (not Gen2 showText)")
-        local gfxId = nil
-        local Space = package.loaded["src.core.game3.scripting.space"]
-        local Ctx = package.loaded["src.core.game3.scripting.context"]
-        local Objects = package.loaded["src.core.game3.objects"]
-        if Space and Space.vm and Space.vm.ctx and Ctx and Objects and Objects.get then
-          local lid = Space.vm.ctx.specialVars[Ctx.VAR_LAST_TALKED]
-          if lid and lid > 0 then
-            local obj = Objects.get(lid)
-            if obj and obj.def then
-              gfxId = obj.def.graphicsId or obj.def.gfx
-            end
-          end
-        end
+        local npcColor = current_npc_color()
         Hud.openMessage(g, text, {
-          gfxId = gfxId,
+          npcColor = npcColor,
           done = function()
             boxOpen = false
             if done then done() end
@@ -344,21 +365,9 @@ function Adapters.host(mod, game, world)
         local Hud = require("src.ui.game3.hud")
         local g = resolveGame()
         a.log("[game3] stay-dialog via game3 HUD")
-        local gfxId = nil
-        local Space = package.loaded["src.core.game3.scripting.space"]
-        local Ctx = package.loaded["src.core.game3.scripting.context"]
-        local Objects = package.loaded["src.core.game3.objects"]
-        if Space and Space.vm and Space.vm.ctx and Ctx and Objects and Objects.get then
-          local lid = Space.vm.ctx.specialVars[Ctx.VAR_LAST_TALKED]
-          if lid and lid > 0 then
-            local obj = Objects.get(lid)
-            if obj and obj.def then
-              gfxId = obj.def.graphicsId or obj.def.gfx
-            end
-          end
-        end
+        local npcColor = current_npc_color()
         Hud.openMessageStay(g, text, {
-          gfxId = gfxId,
+          npcColor = npcColor,
           done = function()
             if done then done() end
             tick_vm()

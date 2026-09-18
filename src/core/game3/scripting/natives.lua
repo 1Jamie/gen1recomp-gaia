@@ -18,7 +18,91 @@ local function yield_host(ctx, adapters, startFn)
   return not finished -- true = caller should yield
 end
 
+local function vsSeeker()
+  return require("src.core.game3.vs_seeker")
+end
+
+local function flagsMod()
+  return require("src.core.game3.scripting.flags")
+end
+
+local function lastTalked(ctx)
+  return flagsMod().getVar(nil, ctx, 0x800F)
+end
+
+local function setResult(ctx, v)
+  flagsMod().setVar(nil, ctx, 0x800D, v)
+end
+
 Natives.ALLOW = {
+  -- pokefirered/src/battle_setup.c:865
+  ["special:" .. Std.SPECIAL.Script_HasTrainerBeenFought] = function(ctx)
+    local Flags = flagsMod()
+    local fid = Flags.trainerFlagId(ctx.trainerBattleOpponentA or 0)
+    setResult(ctx, Flags.getFlag(vsSeeker().store(), ctx, fid) and 1 or 0)
+    return false
+  end,
+  -- pokefirered/src/battle_setup.c:1007
+  ["special:" .. Std.SPECIAL.PlayTrainerEncounterMusic] = function(ctx)
+    if ctx.trainerBattleMode == 1 or ctx.trainerBattleMode == 8 then return false end
+    local Trainers = require("src.core.game3.scripting.trainers")
+    local song = Trainers.getEncounterMusic and Trainers.getEncounterMusic(ctx.trainerBattleOpponentA or 0)
+    local okA, Audio = pcall(require, "src.core.game3.audio")
+    if okA and Audio and Audio.playSong and song then Audio.playSong(song) end
+    return false
+  end,
+  -- pokefirered/src/vs_seeker.c:1013
+  ["special:" .. Std.SPECIAL.ShouldTryRematchBattle] = function(ctx)
+    local VsSeeker = vsSeeker()
+    local ok = VsSeeker.shouldTryRematchBattle(ctx.trainerBattleOpponentA or 0, lastTalked(ctx), VsSeeker.store())
+    setResult(ctx, ok and 1 or 0)
+    return false
+  end,
+  -- pokefirered/src/vs_seeker.c:1086
+  ["special:" .. Std.SPECIAL.IsTrainerReadyForRematch] = function(ctx)
+    local ok = vsSeeker().isTrainerReadyForRematch(ctx.trainerBattleOpponentA or 0, lastTalked(ctx))
+    setResult(ctx, ok and 1 or 0)
+    return false
+  end,
+  -- pokefirered/src/script_pokemon_util.c:90
+  ["special:" .. Std.SPECIAL.HasEnoughMonsForDoubleBattle] = function(ctx)
+    local Party = require("src.core.game3.party")
+    local rt = package.loaded["src.core.game3.runtime"]
+    local session = rt and rt.getSession and rt.getSession()
+    setResult(ctx, Party.monsStateToDoubles(session and session.party))
+    return false
+  end,
+  -- pokefirered/src/battle_setup.c:848
+  ["special:" .. Std.SPECIAL.SetUpTrainerMovement] = function(ctx)
+    local Objects = package.loaded["src.core.game3.objects"]
+    local lid = lastTalked(ctx)
+    local eo = Objects and not Objects.isPlayer(lid) and Objects.find(lid)
+    if eo and Objects.setTrainerMovementType then
+      Objects.setTrainerMovementType(eo, vsSeeker().faceTypeFor(eo.facing))
+    end
+    return false
+  end,
+  -- pokefirered/src/vs_seeker.c:636
+  ["special:" .. Std.SPECIAL.VsSeekerResetObjectMovementAfterChargeComplete] = function()
+    vsSeeker().resetObjectMovementAfterChargeComplete()
+    return false
+  end,
+  -- pokefirered/src/vs_seeker.c:598
+  ["special:" .. Std.SPECIAL.VsSeekerFreezeObjectsAfterChargeComplete] = function()
+    local Objects = package.loaded["src.core.game3.objects"]
+    for _, lid in ipairs(Objects and Objects._order or {}) do
+      local eo = Objects._byId[lid]
+      if eo then eo.frozen = true end
+    end
+    return false
+  end,
+  -- pokefirered/src/battle_setup.c:870
+  ["special:" .. Std.SPECIAL.SetBattledTrainerFlag] = function(ctx)
+    local Flags = flagsMod()
+    local store = vsSeeker().store()
+    if store then Flags.setFlag(store, ctx, Flags.trainerFlagId(ctx.trainerBattleOpponentA or 0), true) end
+    return false
+  end,
   ["special:" .. Std.SPECIAL.SetUsedPkmnCenterQuestLogEvent] = function()
     local rt=package.loaded["src.core.game3.runtime"]
     require("src.core.game3.quest_log_recorder").event(rt and rt.getSession(),"MonsWereFullyRestoredAtCenter",{})

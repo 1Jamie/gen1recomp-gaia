@@ -386,7 +386,8 @@ function Space.startScript(scriptKey, localId, facing)
   if localId then
     return Space.vm:startTalk(scriptKey, localId, facing)
   end
-  return Space.vm:start(scriptKey, facing)
+  -- src/field_control_avatar.c:200
+  return Space.vm:startTalk(scriptKey, 0, facing)
 end
 
 function Space.install(mod)

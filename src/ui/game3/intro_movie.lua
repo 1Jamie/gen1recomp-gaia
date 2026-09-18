@@ -151,10 +151,10 @@ local function composeGfWindow(text, logo)
   love.graphics.setShader()
   love.graphics.clear(0, 0, 0, 0)
   love.graphics.setColor(1, 1, 1, 1)
-  -- pokefirered/src/intro.c:1127
-  if text then love.graphics.draw(text, 48, 72) end
   -- pokefirered/src/intro.c:1251
   if logo then love.graphics.draw(logo, 104, 38) end
+  -- pokefirered/src/intro.c:1127
+  if text then love.graphics.draw(text, 48, 72) end
   love.graphics.pop()
   return canvas
 end

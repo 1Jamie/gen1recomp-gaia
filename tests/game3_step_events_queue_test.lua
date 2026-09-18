@@ -1,7 +1,7 @@
 #!/usr/bin/env luajit
 -- Comprehensive unit and integration test for:
 -- 1. StepEvents Engine (lockstep queue, lethal poison, whiteout flush, repel, happiness, egg cycles, vs seeker charge)
--- 2. VS Seeker Engine (battery charge across movement modes, indoor rejection, outdoor ping, battery drain)
+-- 2. VS Seeker Engine (battery charge only with the item in the bag, map gate, uncharged use)
 -- 3. TM Case & Berry Pouch Sub-Containers & Bag state persistence
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -64,12 +64,19 @@ check(not StepEvents.busy(), "Queue drained, StepEvents is no longer busy")
 print("=== 2. VS Seeker Battery Management across Locomotion Modes ===")
 
 local session = {
-  vsSeekerCharge = 0,
   repelSteps = 10,
+  bag = Bag.new(),
   party = {
     { species = 25, nickname = "PIKACHU", hp = 20, maxHp = 20, friendship = 70 },
   },
 }
+
+for i = 1, 5 do
+  StepEvents.onStep(session, {})
+end
+check(VsSeeker.getBattery(session) == 0, "VS Seeker does not charge while it is not in the bag")
+session.repelSteps = 10
+Bag.add(session.bag, ItemsData.ITEM_VS_SEEKER, 1)
 
 -- Step counting across locomotion modes
 for i = 1, 50 do
@@ -98,11 +105,11 @@ check(session.repelSteps == 0, "Repel wore off after 10 steps (started at 10)")
 check(StepEvents.busy(), "Repel wear-off event queued")
 local handledRepel = false
 local mockHud = {
-  showDialogue = function(msg, opts)
+  openMessage = function(_game, msg, opts)
     if msg:find("Repel's effect wore off") then
       handledRepel = true
     end
-    if opts and opts.onDone then opts.onDone() end
+    if opts and opts.done then opts.done() end
   end
 }
 package.loaded["src.ui.game3.hud"] = mockHud
@@ -144,11 +151,11 @@ check(poisonedMon2.hp == 0, "Poisoned mon 2 dropped to 0 HP and fainted")
 
 -- Process queued poison faint dialogue
 local faintedMsg = false
-mockHud.showDialogue = function(msg, opts)
+mockHud.openMessage = function(_game, msg, opts)
   if msg:find("CHAR fainted") or msg:find("fainted") then
     faintedMsg = true
   end
-  if opts and opts.onDone then opts.onDone() end
+  if opts and opts.done then opts.done() end
 end
 StepEvents.update(0.1)
 check(faintedMsg, "Lethal poison faint event processed")
@@ -167,36 +174,42 @@ StepEvents.update(0.1)
 check(whiteoutTriggered, "Whiteout triggered and StepEvents queue cleanly flushed")
 check(not StepEvents.busy(), "StepEvents queue completely empty after whiteout")
 
-print("=== 6. VS Seeker Outdoor Ping & Indoor Rejection ===")
+print("=== 6. VS Seeker Map Gate & Uncharged Use ===")
 
+local mapType = 8
+package.loaded["src.core.game3.map"] = {
+  current = "FR_ROUTE_8",
+  currentDef = function() return { mapType = mapType } end,
+}
+session.map = "FR_ROUTE_8"
+session.name = "RED"
+session.bag = Bag.new()
+Bag.add(session.bag, ItemsData.ITEM_VS_SEEKER, 1)
 VsSeeker.setBattery(session, 100)
-session.map = "VIRIDIAN_FOREST" -- Invalid indoor/cave map
 
-local indoorDenied = false
-mockHud.showDialogue = function(msg, opts)
-  if msg:find("can't be used here") then
-    indoorDenied = true
-  end
-  if opts and opts.onDone then opts.onDone() end
+local okIndoor, kindIndoor, textIndoor = ItemUse.useField(session, session.bag, ItemsData.ITEM_VS_SEEKER)
+check(not okIndoor and kindIndoor == "vs_seeker", "VS Seeker refused on an indoor map type")
+check(textIndoor == "OAK: RED!\nThis isn't the time to use that!", "refusal uses the OAK forbids text")
+check(VsSeeker.getBattery(session) == 100, "Battery preserved at 100 on refusal")
+
+mapType = 3
+local okRoute, kindRoute = ItemUse.useField(session, session.bag, ItemsData.ITEM_VS_SEEKER)
+check(okRoute and kindRoute == "vs_seeker", "VS Seeker accepted on a ROUTE map type")
+check(VsSeeker.mapAllowed("FR_ROUTE_8", 1) and VsSeeker.mapAllowed("FR_ROUTE_8", 2), "TOWN and CITY map types allowed")
+check(not VsSeeker.mapAllowed("FR_ROUTE_8", 4), "UNDERGROUND map type refused")
+check(not VsSeeker.mapAllowed("ViridianForest", 3), "Viridian Forest excluded by name")
+
+VsSeeker.setBattery(session, 40)
+local notChargedMsg
+mockHud.openMessage = function(_game, msg, opts)
+  notChargedMsg = msg
+  if opts and opts.done then opts.done() end
 end
-
-local okUse = VsSeeker.use(session, nil)
-check(not okUse and indoorDenied, "VS Seeker rejected in indoor/forest map")
-check(VsSeeker.getBattery(session) == 100, "Battery preserved at 100 on indoor rejection")
-
--- Outdoor route with no trainers
-session.map = "MAP_ROUTE_1"
-local noResponseMsg = false
-mockHud.showDialogue = function(msg, opts)
-  if msg:find("no response") then
-    noResponseMsg = true
-  end
-  if opts and opts.onDone then opts.onDone() end
-end
-
-local okOutdoor = VsSeeker.use(session, nil)
-check(not okOutdoor and noResponseMsg, "Outdoor ping returned 'There is no response...'")
-check(VsSeeker.getBattery(session) == 0, "Battery drained to 0 on valid outdoor radar ping")
+local okUse, code = VsSeeker.use(session, nil)
+check(not okUse and code == VsSeeker.NOT_CHARGED, "uncharged VS Seeker reports NOT_CHARGED")
+check(notChargedMsg and notChargedMsg:find("charge the battery: 60", 1, true) ~= nil, "uncharged text prints 100 - charge")
+check(VsSeeker.getBattery(session) == 40, "uncharged use does not drain the battery")
+package.loaded["src.core.game3.map"] = nil
 
 print("=== 7. TM Case & Berry Pouch Sub-Containers & Bag State Persistence ===")
 
@@ -229,6 +242,7 @@ check(not BerryPouch.isOpen(), "BerryPouch closed cleanly")
 
 -- BagMenu sub-container transition & state preservation
 BagMenu.show(session, { bag = bag })
+BagMenu.settle()
 BagMenu.pocketIdx = 2 -- KEY_ITEMS
 BagMenu.cursor = 1
 BagMenu.scroll = 0
@@ -246,6 +260,7 @@ local mockInput = {
   end
 }
 BagMenu.handleInput(mockInput)
+BagMenu.settle()
 check(TmCase.isOpen(), "Using TM CASE from BagMenu opens TmCase UI")
 
 -- Close TM Case and verify BagMenu state restored

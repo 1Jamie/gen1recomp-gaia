@@ -175,4 +175,187 @@ assert_eq(Message._colors.fg, FrlgFont.STDPAL[1], "Battle message gets WHITE tex
 Message.close()
 print("[ok] Message.show color resolution verified")
 
+print("=== [TEST 7] NPC_TEXT_COLOR enum + full sTextColorTable (pret numbering) ===")
+-- include/constants/vars.h:340
+assert_eq(FrlgFont.NPC_TEXT_COLOR.MALE, 0, "MALE is 0")
+assert_eq(FrlgFont.NPC_TEXT_COLOR.FEMALE, 1, "FEMALE is 1")
+assert_eq(FrlgFont.NPC_TEXT_COLOR.MON, 2, "MON is 2")
+assert_eq(FrlgFont.NPC_TEXT_COLOR.NEUTRAL, 3, "NEUTRAL is 3")
+assert_eq(FrlgFont.NPC_TEXT_COLOR.DEFAULT, 255, "DEFAULT is 255")
+
+-- src/dynamic_placeholder_text_util.c:9
+local PRET_TABLE = {
+  0x00, 0x00, 0x00, 0x10, 0x11, 0x11, 0x11, 0x10, 0x10, 0x00, 0x00, 0x11,
+  0x01, 0x00, 0x11, 0x10, 0x00, 0x10, 0x10, 0x00, 0x01, 0x01, 0x01, 0x01,
+  0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00,
+  0x00, 0x10, 0x11, 0x00, 0x10, 0x10, 0x10, 0x00, 0x01, 0x00, 0x33, 0x33,
+  0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x23, 0x22, 0x22, 0x22, 0x22, 0x22,
+  0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+  0x22, 0x22, 0x22, 0x32,
+}
+assert_eq(#PRET_TABLE, 76, "pret table has 76 bytes")
+for gfx = 0, 151 do
+  local b = PRET_TABLE[math.floor(gfx / 2) + 1]
+  local want = (gfx % 2 == 0) and (b % 16) or math.floor(b / 16)
+  assert_eq(FrlgFont.getNpcTextColor(gfx), want, "gfx " .. gfx .. " color")
+end
+assert_eq(FrlgFont.getNpcTextColor(152), 3, "past table is NEUTRAL (3)")
+assert_eq(FrlgFont.getNpcTextColor(108), FrlgFont.NPC_TEXT_COLOR.NEUTRAL, "SEAGALLOP is NEUTRAL")
+assert_eq(FrlgFont.getNpcTextColor(150), FrlgFont.NPC_TEXT_COLOR.MON, "DEOXYS_N is MON")
+assert_eq(FrlgFont.getNpcTextColor(151), FrlgFont.NPC_TEXT_COLOR.NEUTRAL, "SS_ANNE is NEUTRAL")
+assert_eq(FrlgFont.getNpcTextColor(95), FrlgFont.NPC_TEXT_COLOR.NEUTRAL, "CUT_TREE is NEUTRAL")
+print("[ok] enum and all 152 table entries match pret")
+
+print("=== [TEST 8] Message.show npcColor (field_message_box.c:103) ===")
+Message.show("x", { npcColor = 0 })
+assert_eq(Message._colors.fg, FrlgFont.STDPAL[8], "npcColor MALE is BLUE")
+Message.show("x", { npcColor = 1 })
+assert_eq(Message._colors.fg, FrlgFont.STDPAL[4], "npcColor FEMALE is RED")
+Message.show("x", { npcColor = 2 })
+assert_eq(Message._colors.fg, FrlgFont.STDPAL[2], "npcColor MON is DARK_GRAY")
+Message.show("x", { npcColor = 3 })
+assert_eq(Message._colors.fg, FrlgFont.STDPAL[2], "npcColor NEUTRAL is DARK_GRAY")
+Message.close()
+print("[ok] npcColor maps to pret printer colors")
+
+print("=== [TEST 9] VAR_TEXT_COLOR / ContextNpcGetTextColor resolver ===")
+pcall(function() require("src.core.GameVersion").set("firered") end)
+local Ctx = require("src.core.game3.scripting.ctx")
+local Flags = require("src.core.game3.scripting.flags")
+local Adapters = require("src.core.game3.scripting.adapters")
+local Vm = require("src.core.game3.scripting.vm")
+local Std = require("src.core.game3.scripting.stdscripts")
+
+local c0 = Ctx.new()
+assert_eq(c0.specialVars[0x8012], 255, "fresh ctx VAR_TEXT_COLOR is DEFAULT")
+c0.specialVars[0x8012] = 1
+Ctx.wipeSpecial(c0)
+assert_eq(c0.specialVars[0x8012], 255, "wipeSpecial reseeds DEFAULT")
+
+local realObjects = package.loaded["src.core.game3.objects"]
+local fakeObjs = {
+  [1] = { localId = 1, graphicsId = 64 },  -- NURSE
+  [2] = { localId = 2, graphicsId = 71 },  -- PROF_OAK
+  [3] = { localId = 3, graphicsId = 92 },  -- ITEM_BALL
+  [4] = { localId = 4, graphicsId = 120 }, -- PIKACHU
+  [5] = { localId = 5, graphicsId = 240 }, -- OBJ_EVENT_GFX_VAR_0
+}
+package.loaded["src.core.game3.objects"] = {
+  find = function(lid) return fakeObjs[tonumber(lid)] end,
+  isPlayer = function(lid) return tonumber(lid) == 255 end,
+}
+
+local r = Ctx.new()
+assert_eq(Adapters.resolveNpcColor(r), 3, "no selection + DEFAULT is NEUTRAL")
+Ctx.selectObject(r, 1)
+assert_eq(Adapters.resolveNpcColor(r), 1, "nurse selected is FEMALE")
+Ctx.selectObject(r, 2)
+assert_eq(Adapters.resolveNpcColor(r), 0, "oak selected is MALE")
+Ctx.selectObject(r, 3)
+assert_eq(Adapters.resolveNpcColor(r), 3, "item ball selected is NEUTRAL")
+Ctx.selectObject(r, 4)
+assert_eq(Adapters.resolveNpcColor(r), 2, "pikachu selected is MON")
+Ctx.selectObject(r, 1)
+r.specialVars[0x8012] = 0
+assert_eq(Adapters.resolveNpcColor(r), 0, "explicit textcolor beats sprite")
+r.specialVars[0x8012] = 255
+Ctx.selectObject(r, 5)
+local gfxStore = Flags.newStore()
+Flags.setVar(gfxStore, r, 0x4010, 64)
+assert_eq(Adapters.resolveNpcColor(r, gfxStore), 1, "OBJ_EVENT_GFX_VAR_0 resolves through VAR_OBJ_GFX_ID_0")
+Ctx.selectObject(r, 1)
+fakeObjs[1] = nil
+assert_eq(Adapters.resolveNpcColor(r), 1, "removed object keeps its cached sprite color")
+fakeObjs[1] = { localId = 1, graphicsId = 64 }
+Ctx.selectObject(r, 0)
+assert_eq(Adapters.resolveNpcColor(r), 3, "cleared selection is NEUTRAL")
+print("[ok] resolver mirrors field_specials.c:1548")
+
+print("=== [TEST 10] textcolor saves prev, restore, release keeps color ===")
+local TextIR2 = require("src.core.game3.scripting.text_ir")
+local seen = {}
+local vmRef
+local adapters = Adapters.stub({
+  onMessage = function() seen[#seen + 1] = Adapters.resolveNpcColor(vmRef.ctx) end,
+})
+local scripts = {}
+for k, v in pairs(Std.SCRIPTS) do scripts[k] = v end
+scripts.test_npc = {
+  { op = "message", ptr = "T" },
+  { op = "textcolor", color = 3 },
+  { op = "message", ptr = "T" },
+  { op = "call", target = "EventScript_RestorePrevTextColor" },
+  { op = "message", ptr = "T" },
+  { op = "textcolor", color = 0 },
+  { op = "closemessage" },
+  { op = "release" },
+  { op = "message", ptr = "T" },
+  { op = "end" },
+}
+scripts.test_sign = {
+  { op = "message", ptr = "T" },
+  { op = "end" },
+}
+vmRef = Vm.new({ scripts = scripts, text = { T = TextIR2.fromAscii("hi") }, adapters = adapters })
+vmRef:startTalk("test_npc", 1, 1)
+assert_eq(seen[1], 1, "nurse line is FEMALE")
+assert_eq(seen[2], 3, "forced NEUTRAL line")
+assert_eq(seen[3], 1, "RestorePrevTextColor returns to DEFAULT, nurse FEMALE again")
+assert_eq(seen[4], 0, "closemessage/release keep textcolor")
+assert_eq(vmRef.ctx.specialVars[0x8012], 255, "script end resets VAR_TEXT_COLOR to DEFAULT")
+assert_eq(vmRef.ctx.selectedLocalId, nil, "script end clears selection")
+
+seen = {}
+vmRef:startTalk("test_sign", 0, 1)
+assert_eq(seen[1], 3, "sign/trigger (LAST_TALKED 0) is NEUTRAL")
+print("[ok] textcolor / RestorePrevTextColor / reset rules")
+
+print("=== [TEST 11] std bookends (obtain_item.inc:10, std_msgbox.inc:29) ===")
+local s0 = Std.SCRIPTS["std:0"]
+assert_eq(s0[1].op, "copyvar", "std:0 saves text color first")
+assert_eq(s0[1][1], 0x8013, "std:0 copies into VAR_PREV_TEXT_COLOR")
+assert_eq(s0[1][2], 0x8012, "std:0 copies from VAR_TEXT_COLOR")
+assert_eq(s0[2].op, "textcolor", "std:0 forces textcolor")
+assert_eq(s0[2].color, 3, "std:0 forces NEUTRAL")
+assert_eq(s0[#s0].op, "return", "std:0 returns")
+assert_eq(s0[#s0 - 1].op, "copyvar", "std:0 restores before return")
+assert_eq(s0[#s0 - 1][1], 0x8012, "std:0 restores VAR_TEXT_COLOR")
+assert_eq(s0[#s0 - 1][2], 0x8013, "std:0 restores from VAR_PREV_TEXT_COLOR")
+local s9 = Std.SCRIPTS["std:9"]
+assert_eq(s9[1].op, "textcolor", "std:9 starts with textcolor")
+assert_eq(s9[1].color, 3, "std:9 forces NEUTRAL")
+local show = Std.SCRIPTS.EventScript_ReceivedItemShowMsg
+assert_eq(show[#show - 1].target, "EventScript_RestorePrevTextColor", "std:9 restores after putitemaway")
+
+seen = {}
+scripts.test_received = {
+  { op = "textcolor", color = 0 },
+  { op = "message", ptr = "T" },
+  { op = "textcolor", color = 3 },
+  { op = "message", ptr = "T" },
+  { op = "call", target = "EventScript_RestorePrevTextColor" },
+  { op = "message", ptr = "T" },
+  { op = "end" },
+}
+vmRef:startTalk("test_received", 3, 1)
+assert_eq(seen[1], 0, "cutscene speaker MALE")
+assert_eq(seen[2], 3, "{PLAYER} received line NEUTRAL")
+assert_eq(seen[3], 0, "speaker MALE restored")
+print("[ok] std bookends match pret")
+
+print("=== [TEST 12] trainerbattle stamps trainer as selected (battle_setup.c:778) ===")
+local store = vmRef.store
+Flags.setFlag(store, vmRef.ctx, Flags.trainerFlagId(102), true)
+scripts.test_trainer = {
+  { op = "trainerbattle", type = 0, trainer = 102, localId = 1, [1] = 102, [2] = 1 },
+  { op = "message", ptr = "T" },
+  { op = "end" },
+}
+seen = {}
+vmRef:startTalk("test_trainer", 0, 1)
+assert_eq(seen[1], 1, "post-battle text keeps the trainer's sprite color")
+print("[ok] trainerbattle keeps trainer color")
+
+package.loaded["src.core.game3.objects"] = realObjects
+
 print("\nALL TEXT COLORS & ROM PARITY TESTS PASSED CLEANLY!")
