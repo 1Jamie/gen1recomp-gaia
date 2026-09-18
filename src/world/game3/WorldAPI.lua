@@ -435,6 +435,20 @@ function WorldAPI:spawnNpc(_mapId, _objDef)
   return nil, UNSUPPORTED
 end
 
+function WorldAPI:liveMaps()
+  if not self:_field() then return nil, NO_OVERWORLD end
+  local M = loaded("map")
+  local mapId = (M and M.current) or session().map
+  if not mapId then return nil, NO_OVERWORLD end
+  local out = { { mapId = mapId, ox = 0, oy = 0, active = true } }
+  for _, e in ipairs((M and M.world) or {}) do
+    if e.id ~= mapId then
+      out[#out + 1] = { mapId = e.id, ox = e.ox, oy = e.oy, active = false }
+    end
+  end
+  return out
+end
+
 function WorldAPI:removeNpc(npcId)
   if not self:_field() then return nil, NO_OVERWORLD end
   local Objects = loaded("objects")
