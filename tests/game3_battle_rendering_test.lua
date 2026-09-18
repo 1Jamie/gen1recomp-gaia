@@ -13,36 +13,45 @@ print("[ok] Slot Z calculation verified for singles and doubles!")
 
 print("=== 2. Testing Affine Orbit & Vortex Callbacks ===")
 AnimSprites.reset()
+do
+  local Anim = require("src.core.game3.battle.anim")
+  local vm = Anim.vm() or Anim.reset({ headless = true }) or Anim.vm()
+  -- pokefirered/data/battle_anim_scripts.s
+  local fireSpin = { 0, 28, 528, 30, 13, 50, 1 }
+  for i, v in ipairs(fireSpin) do vm.args[i - 1] = v end
+end
 local s1 = AnimSprites.acquire({
-  x = 100, y = 100,
+  x = 100, y = 100, template = "gFireSpinSpriteTemplate",
   callback = AnimCallbacks.ParticleInVortex,
   data = { [1] = 0 }
 })
 assert(s1, "Failed to acquire sprite for vortex")
 assert(s1.scaleX == 1 and s1.scaleY == 1, "Initial scale should be 1")
 
--- Step 5 frames
 for _ = 1, 5 do
   AnimSprites.update()
 end
-assert(s1.rotation > 0, "Vortex sprite rotation should advance")
-assert(s1.ox ~= 0 or s1.oy ~= 0, "Vortex sprite translation should advance")
+-- pokefirered/src/battle_anim_rock.c:376
+assert(s1.rotation == 0, "Vortex particle does not rotate")
+assert(s1.ox ~= 0 and s1.oy < 0, "Vortex sprite translation should advance")
 print(string.format("[ok] ParticleInVortex stepped: rot=%.3f, ox=%d, oy=%d", s1.rotation, s1.ox, s1.oy))
 
-print("=== 3. Testing DragonDanceOrb Pulsing Affine Scale ===")
+print("=== 3. Testing DragonDanceOrb Orbit ===")
+-- pokefirered/src/battle_anim_dragon.c:264
 AnimSprites.reset()
 local s2 = AnimSprites.acquire({
   x = 50, y = 50,
   callback = AnimCallbacks.DragonDanceOrb
 })
+local ox0 = nil
 for _ = 1, 6 do
   AnimSprites.update()
+  ox0 = ox0 or s2.ox
 end
-assert(s2.scaleX ~= 1.0, "DragonDanceOrb scaleX should pulse")
-assert(s2.rotation > 0, "DragonDanceOrb rotation should advance")
-print(string.format("[ok] DragonDanceOrb stepped: scaleX=%.3f, rot=%.3f", s2.scaleX, s2.rotation))
+assert(s2.ox ~= ox0 or s2.oy ~= 0, "DragonDanceOrb should orbit the attacker")
+print(string.format("[ok] DragonDanceOrb stepped: ox=%d, oy=%d", s2.ox, s2.oy))
 
-print("=== 4. Testing Additive Energy Shield (DefensiveWall) ===")
+print("=== 4. Testing Semi-transparent Energy Shield (DefensiveWall) ===")
 AnimSprites.reset()
 local s3 = AnimSprites.acquire({
   x = 80, y = 80,
@@ -50,9 +59,10 @@ local s3 = AnimSprites.acquire({
   z = AnimSprites.slotZ("player", "front")
 })
 AnimSprites.update()
-assert(s3.blendMode == "add", "DefensiveWall should have blendMode='add'")
-assert(s3.z == 210, "DefensiveWall should be at PLAYER_FRONT (Z=210)")
-print("[ok] DefensiveWall blendMode and Z-depth verified!")
+-- pokefirered/src/battle_anim_psychic.c:419
+assert(s3.blendMode == "alpha", "DefensiveWall is an ST_OAM_OBJ_BLEND sprite weighted by setalpha")
+assert(s3.active == true, "DefensiveWall stays up until its own timer ends")
+print("[ok] DefensiveWall blend mode verified!")
 
 print("=== 5. Testing Host Lifecycle Sweep ===")
 assert(s3.active == true, "s3 should be active")

@@ -49,6 +49,9 @@ local function clear_task(t)
   t._origZ = nil
   t._alpha = nil
   t._particles = nil
+  for k in pairs(t) do
+    if type(k) == "string" and k:sub(1, 1) == "_" then t[k] = nil end
+  end
   for i = 0, 15 do
     t.data[i] = 0
   end
@@ -76,7 +79,7 @@ function AnimTasks.activeCount()
   AnimTasks.init()
   local n = 0
   for i = 1, AnimTasks.MAX do
-    if AnimTasks._pool[i].active then n = n + 1 end
+    if AnimTasks._pool[i].active and not AnimTasks._pool[i]._uncounted then n = n + 1 end
   end
   return n
 end
@@ -4630,32 +4633,86 @@ end
 AnimTasks.REGISTRY.StartSlidingBg = AnimTasks.StartSlidingBg
 AnimTasks.REGISTRY.AnimTask_StartSlidingBg = AnimTasks.StartSlidingBg
 
-function AnimTasks.StatsChange(t, vm)
-  local frame = t.data[14] or 0
-  t.data[14] = frame + 1
-  local dur = 32
-  t.z = AnimSprites.Z.GLOBAL_FRONT
-  local tx, ty = vm:battlerCenter("target")
-  local isBoost = (tonumber(t.data[0]) or 0) == 0
+local STAT_ANIM_ID = { [1] = 0, [2] = 1, [3] = 3, [4] = 5, [5] = 6, [6] = 2, [7] = 4 }
 
-  t.draw = function(task, _vm)
-    if not (love and love.graphics) then return end
-    local f = task.data[14] or 1
-    local a = (f <= 6) and (f / 6) or ((f >= dur - 6) and ((dur - f) / 6) or 1.0)
-    if isBoost then
-      love.graphics.setColor(0.95, 0.30, 0.20, a * 0.70)
-    else
-      love.graphics.setColor(0.30, 0.40, 0.95, a * 0.70)
-    end
-    for i = -2, 2 do
-      local sx = tx + (i * 12)
-      local sy = isBoost and (ty + 20 - (f * 2.5 + i * 3) % 40) or (ty - 20 + (f * 2.5 + i * 3) % 40)
-      love.graphics.circle("fill", sx, sy, 3)
-    end
-    love.graphics.setColor(1, 1, 1, 1)
+-- pokefirered/src/battle_anim_status_effects.c:455
+local function stats_change_params(arg)
+  arg = tonumber(arg) or 0
+  if arg >= 55 and arg <= 58 then
+    return arg >= 57, 0xFF, (arg == 56 or arg == 58)
   end
+  for _, row in ipairs({ { 15, false, false }, { 22, true, false }, { 39, false, true }, { 46, true, true } }) do
+    local stat = arg - row[1] + 1
+    if stat >= 1 and stat <= 7 then return row[2], STAT_ANIM_ID[stat], row[3] end
+  end
+  return nil
+end
 
-  if frame >= dur then destroy_task(t) end
+-- pokefirered/src/battle_anim_utility_funcs.c:444
+local STAT_MASK_PAL = { [0] = 2, [1] = 1, [2] = 3, [3] = 4, [4] = 6, [5] = 7, [6] = 8 }
+
+-- pokefirered/src/battle_anim_utility_funcs.c:526
+function AnimTasks.StatsChange(t, vm)
+  local d = t.data
+  local Anim = require("src.core.game3.battle.anim")
+  if not t._sc then
+    local goesDown, statId, sharply = stats_change_params(vm and vm.animArg)
+    if goesDown == nil then
+      destroy_task(t)
+      return
+    end
+    local side = vm:attackerSide()
+    local mask = {
+      tilemap = goesDown and 2 or 1,
+      pal = STAT_MASK_PAL[statId] or 5,
+      x = goesDown and 64 or 0,
+      y = 0,
+      eva = 0,
+    }
+    t._sc = { side = side, mask = mask, dy = goesDown and -3 or 3, wait = 2, down = goesDown }
+    d[4] = sharply and 13 or 10
+    d[5] = sharply and 30 or 20
+    d[10], d[11], d[12], d[15] = 0, 0, 0, 0
+    return
+  end
+  local sc = t._sc
+  if sc.wait > 0 then
+    sc.wait = sc.wait - 1
+    if sc.wait == 0 then
+      local p = Anim.present(sc.side)
+      if p then p.statMask = sc.mask end
+      local SE = require("src.core.game3.se_ids")
+      vm:playSe12(sc.down and SE.SE_M_STAT_DECREASE or SE.SE_M_STAT_INCREASE, vm:adjustPanning2(-64))
+    end
+    return
+  end
+  local mask = sc.mask
+  mask.y = (mask.y + sc.dy) % 256
+  if d[15] == 0 then
+    d[11] = d[11] + 1
+    if d[11] > 1 then
+      d[11] = 0
+      d[12] = d[12] + 1
+      mask.eva = d[12]
+      if d[12] == d[4] then d[15] = d[15] + 1 end
+    end
+  elseif d[15] == 1 then
+    d[10] = d[10] + 1
+    if d[10] == d[5] then d[15] = d[15] + 1 end
+  elseif d[15] == 2 then
+    d[11] = d[11] + 1
+    if d[11] > 1 then
+      d[11] = 0
+      d[12] = d[12] - 1
+      mask.eva = d[12]
+      if d[12] == 0 then d[15] = d[15] + 1 end
+    end
+  else
+    local p = Anim.present(sc.side)
+    if p and p.statMask == mask then p.statMask = nil end
+    t._sc = nil
+    destroy_task(t)
+  end
 end
 AnimTasks.REGISTRY.StatsChange = AnimTasks.StatsChange
 AnimTasks.REGISTRY.AnimTask_StatsChange = AnimTasks.StatsChange
@@ -4714,6 +4771,25 @@ AnimTasks.REGISTRY.AnimTask_FreeHealthboxPalsForLevelUp = stub_task
 AnimTasks.REGISTRY.SoundTask_PlayCryWithEcho = stub_task
 AnimTasks.REGISTRY.SoundTask_PlaySE2WithPanning = stub_task
 
+
+AnimTasks._destroy = destroy_task
+AnimTasks._clear = clear_task
+AnimTasks._stub = stub_task
+AnimTasks._Sin = Sin
+AnimTasks._Cos = Cos
+for _, group in ipairs({ "g1", "g2", "g3", "g4", "g5" }) do
+  local ok, mod = pcall(require, "src.core.game3.battle.anim_port." .. group .. "_tasks")
+  if ok and type(mod) == "function" then mod = mod(AnimTasks) end
+  if ok and type(mod) == "table" then
+    for k, fn in pairs(mod) do
+      local short = tostring(k):gsub("^AnimTask_", "")
+      AnimTasks.REGISTRY[short] = fn
+      AnimTasks.REGISTRY["AnimTask_" .. short] = fn
+    end
+  elseif not ok and not tostring(mod):find("not found") then
+    print("[battle.anim] " .. group .. "_tasks: " .. tostring(mod))
+  end
+end
 
 function AnimTasks.spawn(name, priority, args, vm)
   AnimTasks.init()

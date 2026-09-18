@@ -209,41 +209,76 @@ function Experience.apply(mon, amount)
   }
 end
 
+-- pokefirered/src/battle_script_commands.c:3232
+function Experience.recipientOpts(st, mon)
+  local HeldItems = require("src.core.game3.battle.held_items")
+  local Engine = require("src.core.game3.battle.engine")
+  return {
+    luckyEgg = HeldItems.effectOf(mon and (mon.item or mon.heldItem)) == HeldItems.HOLD.LUCKY_EGG,
+    traded = Engine.isTradedMon(st, mon),
+  }
+end
+
 --- Award XP for a defeated foe to participant party mons.
 -- opts: trainer, participants (count), getOpts(mon, partyIndex) → luckyEgg/traded
 -- Returns list of { mon, partyIndex, battler?, result }
+-- pokefirered/src/battle_script_commands.c:3113
 function Experience.awardFoe(st, foeBattler, opts)
   opts = opts or {}
   if not st or not foeBattler then return {} end
+  local HeldItems = require("src.core.game3.battle.held_items")
   local foeMon = foeBattler.mon
   local foeSpecies = foeBattler.species or (foeMon and (foeMon.species or foeMon.speciesId))
   local foeLevel = (foeMon and foeMon.level) or foeBattler.level or 1
   local isTrainer = opts.trainer
   if isTrainer == nil then isTrainer = not st.wild end
 
-  local indices = opts.partyIndices
-  if not indices then
-    -- MVP: active player participant if alive
-    indices = {}
-    local p = st.player
-    if p and p.mon and (tonumber(p.mon.hp) or 0) > 0 then
-      indices[1] = p.partyIndex or 1
+  local sentIn = {}
+  if opts.partyIndices then
+    for _, pi in ipairs(opts.partyIndices) do sentIn[pi] = true end
+  elseif st.player and st.player.mon and (tonumber(st.player.mon.hp) or 0) > 0 then
+    sentIn[st.player.partyIndex or 1] = true
+  end
+  local party = st.playerParty or {}
+  local function alive(mon)
+    return mon and (tonumber(mon.species or mon.speciesId) or 0) ~= 0 and (tonumber(mon.hp) or 0) > 0
+  end
+  local function has_share(mon)
+    return HeldItems.effectOf(mon and (mon.item or mon.heldItem)) == HeldItems.HOLD.EXP_SHARE
+  end
+  local viaSentIn, viaExpShare = 0, 0
+  for i = 1, 6 do
+    local mon = party[i]
+    if alive(mon) then
+      if sentIn[i] then viaSentIn = viaSentIn + 1 end
+      if has_share(mon) then viaExpShare = viaExpShare + 1 end
     end
   end
-  local nPart = math.max(1, #indices)
+  local calculated = math.floor(Experience.expYield(foeSpecies) * math.max(1, tonumber(foeLevel) or 1) / 7)
+  local exp, shareExp
+  if viaExpShare > 0 then
+    exp = (viaSentIn > 0) and math.floor(math.floor(calculated / 2) / viaSentIn) or 0
+    if exp == 0 then exp = 1 end
+    shareExp = math.floor(math.floor(calculated / 2) / viaExpShare)
+    if shareExp == 0 then shareExp = 1 end
+  else
+    exp = (viaSentIn > 0) and math.floor(calculated / viaSentIn) or 0
+    if exp == 0 then exp = 1 end
+    shareExp = 0
+  end
+
   local out = {}
-  for _, pi in ipairs(indices) do
-    local mon = st.playerParty and st.playerParty[pi]
-    if mon and (tonumber(mon.hp) or 0) > 0 and (tonumber(mon.level) or 1) < Experience.MAX_LEVEL then
-      local per = opts.getOpts and opts.getOpts(mon, pi) or {}
-      local amount = Experience.gainFor(foeSpecies, foeLevel, {
-        participants = nPart,
-        trainer = isTrainer,
-        luckyEgg = per.luckyEgg,
-        traded = per.traded,
-      })
+  for pi = 1, 6 do
+    local mon = party[pi]
+    local share = mon and has_share(mon)
+    if mon and (sentIn[pi] or share) and (tonumber(mon.level) or 1) < Experience.MAX_LEVEL and alive(mon) then
+      local per = opts.getOpts and opts.getOpts(mon, pi) or Experience.recipientOpts(st, mon)
+      local amount = sentIn[pi] and exp or 0
+      if share then amount = amount + shareExp end
+      if per.luckyEgg then amount = math.floor(amount * 150 / 100) end
+      if isTrainer then amount = math.floor(amount * 150 / 100) end
+      if per.traded then amount = math.floor(amount * 150 / 100) end
       local result = Experience.apply(mon, amount)
-      -- Keep active battler fields in sync
       if st.player and st.player.partyIndex == pi then
         st.player.mon = mon
         st.player.fainted = (tonumber(mon.hp) or 0) <= 0
@@ -253,6 +288,7 @@ function Experience.awardFoe(st, foeBattler, opts)
         partyIndex = pi,
         battler = (st.player and st.player.partyIndex == pi) and st.player or nil,
         amount = amount,
+        boosted = per.traded and true or false,
         result = result,
       }
     end

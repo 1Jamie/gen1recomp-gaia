@@ -29,13 +29,13 @@ function FileIO.makeCache(root)
   local lfs_ok, lfs = pcall(require, "lfs")
   local function mkdir_p(dir)
     if lfs_ok then
-      local path = ""
+      local path = dir:sub(1, 1) == "/" and "" or nil
       for part in dir:gmatch("[^/]+") do
-        path = path == "" and part or (path .. "/" .. part)
+        path = path and (path .. "/" .. part) or part
         lfs.mkdir(path)
       end
     else
-      os.execute("mkdir -p " .. dir)
+      os.execute("mkdir -p '" .. dir:gsub("'", "'\\''") .. "'")
     end
   end
   mkdir_p(root)

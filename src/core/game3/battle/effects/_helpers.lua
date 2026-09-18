@@ -7,6 +7,8 @@ function H.displayName(ctx, battler)
 end
 
 function H.sayFail(ctx)
+  local M = H.move(ctx)
+  if M then M.failed = true end
   ctx.adapter:sayFail()
 end
 
@@ -16,6 +18,23 @@ end
 
 function H.foeSide(ctx)
   return ctx.adapter:foeSide(ctx.user)
+end
+
+function H.move(ctx)
+  local o = ctx and ctx.opts
+  if type(o) == "table" and o.isMoveContext then return o end
+  return nil
+end
+
+function H.attackAnim(ctx)
+  local M = H.move(ctx)
+  if M and M.attackAnimation then M:attackAnimation() end
+end
+
+function H.accuracy(ctx, mode)
+  local M = H.move(ctx)
+  if not M or not M.accuracyCheck then return true end
+  return M:accuracyCheck(mode or "normal", true)
 end
 
 function H.findHazard(adapter, side, id)
@@ -28,20 +47,16 @@ function H.findHazard(adapter, side, id)
 end
 
 function H.hasType(ctx, battler, typeId)
-  local types = ctx.adapter:types(battler) or {}
+  if not battler then return false end
   local Types = require("src.core.game3.battle.types")
-  local want = typeId
-  if type(typeId) == "number" then
-    want = Types.name(typeId)
+  local id = typeId
+  if type(typeId) == "string" then id = Types.ID[typeId:upper()] end
+  local t1, t2 = battler.type1, battler.type2
+  if battler.expTransform then
+    t1 = battler.expTransform.type1 or t1
+    t2 = battler.expTransform.type2 or t2
   end
-  for _, t in ipairs(types) do
-    if t == want or t == typeId then return true end
-  end
-  -- Also check raw battler type ids.
-  if battler then
-    if battler.type1 == typeId or battler.type2 == typeId then return true end
-  end
-  return false
+  return t1 == id or t2 == id
 end
 
 function H.lastMove(ctx, battler)
@@ -63,6 +78,26 @@ function H.preparedMoves(ctx, battler)
     end
   end
   return out
+end
+
+function H.moveNum(ref)
+  if ref == nil then return nil end
+  if type(ref) == "table" then ref = ref.numId or ref.id or ref.move end
+  local n = tonumber(ref)
+  if n then return n end
+  local Moves = require("src.core.game3.battle.moves")
+  local m = Moves.get(ref)
+  return tonumber(m and m.numId) or Moves.numForName(ref)
+end
+
+function H.slotOf(battler, moveRef)
+  local mon = battler and battler.mon
+  local want = H.moveNum(moveRef)
+  if not mon or not mon.moves or not want then return nil end
+  for i = 1, 4 do
+    if H.moveNum(mon.moves[i]) == want then return i end
+  end
+  return nil
 end
 
 return H

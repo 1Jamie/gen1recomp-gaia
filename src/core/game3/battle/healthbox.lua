@@ -190,6 +190,45 @@ local function draw_hp_nums(cur, maxHp, boxX, boxY)
   FrlgFont.draw(string.format("%3d", maxHp or 0), boxX + HP_MAX_X, boxY + HP_TEXT_Y, small_opts(HB_TEXT))
 end
 
+local LEVEL_UP_SRC = [[
+extern vec3 k1;
+extern vec3 k2;
+extern vec3 target;
+extern float coeff;
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec4 c = Texel(tex, tc) * color;
+  if (distance(c.rgb, k1) < 0.04 || distance(c.rgb, k2) < 0.04) c.rgb = mix(c.rgb, target, coeff);
+  return c;
+}
+]]
+local levelUpShader = nil
+-- pokefirered/graphics/battle_interface/healthbox.pal
+local HB_PAL = {
+  [2] = { { 255, 255, 222 }, { 222, 213, 180 } },
+  [6] = { { 82, 106, 98 }, { 32, 57, 0 } },
+}
+
+-- pokefirered/src/battle_anim_special.c:569
+local function set_level_up_shader(blend)
+  if not (blend and (tonumber(blend.coeff) or 0) > 0) then return false end
+  if levelUpShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, LEVEL_UP_SRC)
+    levelUpShader = ok and sh or false
+  end
+  if not levelUpShader then return false end
+  local keys = HB_PAL[blend.colorIndex or 6] or HB_PAL[6]
+  local col = tonumber(blend.color) or 0
+  local ok = pcall(function()
+    levelUpShader:send("k1", { keys[1][1] / 255, keys[1][2] / 255, keys[1][3] / 255 })
+    levelUpShader:send("k2", { keys[2][1] / 255, keys[2][2] / 255, keys[2][3] / 255 })
+    levelUpShader:send("target", { (col % 32) / 31, (math.floor(col / 32) % 32) / 31, (math.floor(col / 1024) % 32) / 31 })
+    levelUpShader:send("coeff", math.min(1, blend.coeff / 16))
+  end)
+  if not ok then return false end
+  love.graphics.setShader(levelUpShader)
+  return true
+end
+
 function Healthbox.draw(side, battler)
   if not battler then return end
   local Anim = require("src.core.game3.battle.anim")
@@ -203,7 +242,9 @@ function Healthbox.draw(side, battler)
   local tlX, tlY
   if isPlayer then
     tlX, tlY = player_top_left(c.x + ox, c.y)
+    local lvl = love and love.graphics and set_level_up_shader(hb and hb.levelUpBlend)
     BattleChrome.drawPlayerBox(tlX, tlY)
+    if lvl then love.graphics.setShader() end
     erase_placeholder_ink(tlX, tlY, PLAYER_PLACEHOLDER_INK)
     erase_hp_window(tlX, tlY)
   else
@@ -229,6 +270,20 @@ function Healthbox.draw(side, battler)
   local ty = tlY + TEXT_Y
   local textRight = isPlayer and PLAYER_TEXT_RIGHT or ENEMY_TEXT_RIGHT
   local gender = healthbox_gender(battler.mon)
+  -- pokefirered/src/battle_interface.c:1506
+  local Battle = package.loaded["src.core.game3.battle"]
+  local bst = Battle and Battle._st
+  if not isPlayer and bst and bst.ghostBattle and name == "GHOST" then
+    local okA, AnimG = pcall(require, "src.core.game3.battle.anim")
+    local pg = okA and AnimG.present and AnimG.present("enemy")
+    if pg and pg.ghostUnveiled then
+      -- pokefirered/src/battle_gfx_sfx_util.c:686
+      local Pokemon = require("src.core.game3.pokemon")
+      name = Pokemon.name(battler.species) or name
+    else
+      gender = nil
+    end
+  end
 
   local SummaryChrome = require("src.ui.game3.summary_chrome")
   local SummaryData = require("src.core.game3.summary_data")

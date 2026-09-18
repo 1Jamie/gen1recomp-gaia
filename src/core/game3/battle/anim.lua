@@ -5,6 +5,7 @@ local Task = require("src.core.game3.task")
 local AnimVm = require("src.core.game3.battle.anim_vm")
 local AnimSprites = require("src.core.game3.battle.anim_sprites")
 local BallOpen = require("src.core.game3.battle.ball_open")
+local AnimPal = require("src.core.game3.battle.anim_pal")
 
 local Anim = {}
 
@@ -207,6 +208,10 @@ function Anim.reset(opts)
     Anim._vm:setPack(Anim._pack)
   end
   Anim._screenEffect = { type = "none", coeff = 0, targetColor = { 1, 1, 1 } }
+  Anim._bgPalAffine = nil
+  Anim._bgBlend = nil
+  Anim._g1BgBlend = nil
+  Anim._bg3Scroll = nil
   if love and love.graphics and love.graphics.setDefaultFilter then
     pcall(love.graphics.setDefaultFilter, "nearest", "nearest")
   end
@@ -510,6 +515,9 @@ local function hydrate_tag_images(pack)
               info.image = image
               info.w = image:getWidth()
               info.h = image:getHeight()
+              AnimPal.hydrateIndex(info, tag, image, function(f)
+                return cache and cache.read and (cache:read(root .. f) or cache:read("firered/" .. root .. f))
+              end)
             end
           end
         end
@@ -561,6 +569,7 @@ end
 function Anim.loadPack(pack)
   Anim._pack = pack
   Anim._packLoaded = true
+  AnimPal.setPack(pack)
   if Anim._vm then Anim._vm:setPack(pack) end
 end
 
@@ -623,16 +632,158 @@ function Anim.launchMove(moveId, opts)
   return Anim._vm:launch(script, opts)
 end
 
---- Status: only when primary idle; else queue.
+local STATUS_PACK_NAME = {
+  POISON = "STATUS_PSN", BURN = "STATUS_BRN", SLEEP = "STATUS_SLP", PARALYSIS = "STATUS_PRZ",
+  FREEZE = "STATUS_FRZ", CONFUSION = "STATUS_CONFUSION", INFATUATION = "STATUS_INFATUATION",
+  CURSED = "STATUS_CURSED", NIGHTMARE = "STATUS_NIGHTMARE",
+}
+
+function Anim.tableIndex(kind, name)
+  if type(name) == "number" then return name end
+  local pack = load_pack()
+  local names = pack and pack[kind .. "Names"]
+  if not names then return nil end
+  local want = tostring(name or "")
+  if kind == "status" then want = STATUS_PACK_NAME[want] or want end
+  for i = 0, 63 do
+    local n = names[i]
+    if n == nil and i > 0 and names[i + 1] == nil then break end
+    if n == want or n == "B_ANIM_" .. want then return i end
+  end
+  return nil
+end
+
+function Anim.tableScript(kind, name)
+  local pack = load_pack()
+  local idx = Anim.tableIndex(kind, name)
+  local tbl = pack and pack[kind]
+  return idx and tbl and tbl[idx] or nil, idx
+end
+
+local function launch_table(kind, name, opts)
+  opts = opts or {}
+  if not Anim._vm then Anim.reset({ headless = Anim._headless }) end
+  local script = Anim.tableScript(kind, name)
+  if not script then
+    if opts.onEnd then opts.onEnd() end
+    return false
+  end
+  local o = {}
+  for k, v in pairs(opts) do o[k] = v end
+  if o.targetSide == nil then o.targetSide = o.attackerSide end
+  if kind == "status" and o.statusAnim == nil then o.statusAnim = true end
+  if Anim._vm.launchScript then return Anim._vm:launchScript(script, o) end
+  return Anim._vm:launch(script, o)
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:208
+function Anim.launchGeneral(name, opts)
+  return launch_table("general", name, opts)
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:266
+function Anim.launchSpecial(name, opts)
+  return launch_table("special", name, opts)
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:171
 function Anim.launchStatus(statusId, opts)
   opts = opts or {}
   if not Anim._vm then Anim.reset({ headless = Anim._headless }) end
-  if Anim._vm:busy() then
+  if Anim._vm:busy() and not opts.force then
     Anim._statusQueue[#Anim._statusQueue + 1] = { statusId = statusId, opts = opts }
     return false
   end
-  local script = Anim.scriptForStatus(statusId)
-  return Anim._vm:launch(script, opts)
+  return launch_table("status", statusId, opts)
+end
+
+-- pokefirered/src/battle_controller_player.c:1351
+function Anim.blinkMon(side, opts)
+  opts = opts or {}
+  local p = Anim.present(side)
+  if Anim._headless or not p or p.visible == false then
+    if opts.onComplete then opts.onComplete() end
+    return
+  end
+  Anim.tweenStage(32, function(_, t)
+    local f = (t and t.frames or 1) - 1
+    p.blinkHidden = (math.floor(f / 4) % 2) == 0
+  end, function()
+    p.blinkHidden = false
+    if opts.onComplete then opts.onComplete() end
+  end)
+end
+
+function Anim.setShown(side, battler)
+  local p = Anim.present(side)
+  if p then p.shown = battler end
+end
+
+function Anim.shownBattler(side, battler)
+  local p = Anim._present[side]
+  if p and p.shown then return p.shown end
+  return battler
+end
+
+-- pokefirered/src/battle_anim_mons.c:286
+function Anim.substituteY(side)
+  if side == "player" then return Anim.PLAYER_MON.y + 17 end
+  return Anim.ENEMY_MON.y + 16
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:762
+function Anim.substituteImage(side)
+  local pack = load_pack()
+  local tags = pack and pack.tags
+  local info = tags and tags[(side == "player") and "SUBSTITUTE_DOLL_BACK" or "SUBSTITUTE_DOLL_FRONT"]
+  return info and info.image or nil
+end
+
+function Anim.setSubstitute(side, on)
+  local p = Anim.present(side)
+  if not p then return end
+  p.substitute = on and true or false
+  p.substituteY = on and Anim.substituteY(side) or nil
+end
+
+Anim._statMaskImgs = {}
+
+-- pokefirered/src/battle_anim_utility_funcs.c:464
+function Anim.statMaskImage(tilemap, pal)
+  if type(tilemap) == "string" and not tonumber(tilemap) then
+    load_pack()
+    local img = AnimPal.bgImages(tilemap)
+    return img
+  end
+  local key = (tonumber(tilemap) or 1) * 16 + (tonumber(pal) or 5)
+  local hit = Anim._statMaskImgs[key]
+  if hit ~= nil then return hit or nil end
+  Anim._statMaskImgs[key] = false
+  if not (love and love.image and love.graphics) then return nil end
+  local pack = load_pack()
+  local sm = pack and pack.statMask
+  local rel = sm and sm.files and sm.files[tonumber(tilemap) or 1]
+  local row = sm and sm.pals and sm.pals[tonumber(pal) or 5]
+  if not (rel and row) then return nil end
+  local ok, Dataset = pcall(require, "src.core.game3.dataset")
+  local cache = ok and Dataset.cache and Dataset.cache() or nil
+  local path = "data/generated/gba/pokemon/battle_anims/" .. rel
+  local bytes = cache and cache.read and (cache:read(path) or cache:read("firered/" .. path))
+  if type(bytes) ~= "string" or #bytes == 0 then return nil end
+  local okD, data = pcall(function()
+    return love.image.newImageData(love.filesystem.newFileData(bytes, rel))
+  end)
+  if not okD or not data then return nil end
+  data:mapPixel(function(_, _, r, _, _, a)
+    if a < 0.5 then return 0, 0, 0, 0 end
+    local c = row[math.floor(r * 255 / 16 + 0.5) + 1] or row[1]
+    return c[1] / 255, c[2] / 255, c[3] / 255, 1
+  end)
+  local img = love.graphics.newImage(data)
+  img:setFilter("nearest", "nearest")
+  img:setWrap("repeat", "repeat")
+  Anim._statMaskImgs[key] = img
+  return img
 end
 
 local function pump_status_queue()
@@ -648,6 +799,11 @@ function Anim.update(dt)
   -- HP tweens live on shared Task list
   if Anim._vm then
     Anim._vm:update(dt)
+    if not Anim._vm.active then
+      for _, p in pairs(Anim._present) do
+        if p then p.statMask = nil end
+      end
+    end
   end
   BallOpen.tick()
   pump_status_queue()

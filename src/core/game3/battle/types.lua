@@ -113,6 +113,65 @@ function Types.effectiveness(atkType, defType1, defType2)
   return (m1 * m2) / 100
 end
 
+-- pokefirered/src/battle_main.c:312
+Types.TABLE = {
+  N, RO, 5, N, ST, 5, FIR, FIR, 5, FIR, WA, 5, FIR, GS, 20, FIR, IC, 20, FIR, BU, 20,
+  FIR, RO, 5, FIR, DR, 5, FIR, ST, 20, WA, FIR, 20, WA, WA, 5, WA, GS, 5, WA, GR, 20,
+  WA, RO, 20, WA, DR, 5, EL, WA, 20, EL, EL, 5, EL, GS, 5, EL, GR, 0, EL, FL, 20,
+  EL, DR, 5, GS, FIR, 5, GS, WA, 20, GS, GS, 5, GS, PO, 5, GS, GR, 20, GS, FL, 5,
+  GS, BU, 5, GS, RO, 20, GS, DR, 5, GS, ST, 5, IC, WA, 5, IC, GS, 20, IC, IC, 5,
+  IC, GR, 20, IC, FL, 20, IC, DR, 20, IC, ST, 5, IC, FIR, 5, FI, N, 20, FI, IC, 20,
+  FI, PO, 5, FI, FL, 5, FI, PSY, 5, FI, BU, 5, FI, RO, 20, FI, DA, 20, FI, ST, 20,
+  PO, GS, 20, PO, PO, 5, PO, GR, 5, PO, RO, 5, PO, GH, 5, PO, ST, 0, GR, FIR, 20,
+  GR, EL, 20, GR, GS, 5, GR, PO, 20, GR, FL, 0, GR, BU, 5, GR, RO, 20, GR, ST, 20,
+  FL, EL, 5, FL, GS, 20, FL, FI, 20, FL, BU, 20, FL, RO, 5, FL, ST, 5, PSY, FI, 20,
+  PSY, PO, 20, PSY, PSY, 5, PSY, DA, 0, PSY, ST, 5, BU, FIR, 5, BU, GS, 20, BU, FI, 5,
+  BU, PO, 5, BU, FL, 5, BU, PSY, 20, BU, GH, 5, BU, DA, 20, BU, ST, 5, RO, FIR, 20,
+  RO, IC, 20, RO, FI, 5, RO, GR, 5, RO, FL, 20, RO, BU, 20, RO, ST, 5, GH, N, 0,
+  GH, PSY, 20, GH, DA, 5, GH, ST, 5, GH, GH, 20, DR, DR, 20, DR, ST, 5, DA, FI, 5,
+  DA, PSY, 20, DA, GH, 20, DA, DA, 5, DA, ST, 5, ST, FIR, 5, ST, WA, 5, ST, EL, 5,
+  ST, IC, 20, ST, RO, 20, ST, ST, 5, -1, -1, 0, N, GH, 0, FI, GH, 0,
+}
+
+-- pokefirered/src/battle_script_commands.c:1274
+function Types.typeCalc(atkType, def1, def2, dmg, foresight)
+  atkType = tonumber(atkType) or 0
+  def1 = tonumber(def1) or 0
+  def2 = tonumber(def2)
+  if def2 == nil then def2 = def1 end
+  local flags = { super = false, notVery = false, immune = false }
+  local product = 1
+  local t = Types.TABLE
+  local function modulate(mult)
+    product = product * mult / 10
+    if dmg then
+      dmg = math.floor(dmg * mult / 10)
+      if dmg == 0 and mult ~= 0 then dmg = 1 end
+    end
+    if mult == 0 then
+      flags.immune = true
+      flags.super = false
+      flags.notVery = false
+    elseif mult == 5 and not flags.immune then
+      if flags.super then flags.super = false else flags.notVery = true end
+    elseif mult == 20 and not flags.immune then
+      if flags.notVery then flags.notVery = false else flags.super = true end
+    end
+  end
+  local i = 1
+  while i <= #t do
+    local a, d, m = t[i], t[i + 1], t[i + 2]
+    if a == -1 then
+      if foresight then break end
+    elseif a == atkType then
+      if d == def1 then modulate(m) end
+      if d == def2 and def1 ~= def2 then modulate(m) end
+    end
+    i = i + 3
+  end
+  return dmg, flags, product
+end
+
 -- pret AI_EFFECTIVENESS_* (battle_ai.h) — units used by if_type_effectiveness.
 -- TypeCalc starts at 40 (x1), multiplies by matchups (+ optional STAB 1.5),
 -- then remaps STAB-distorted values back to the enum (Cmd_if_type_effectiveness).

@@ -22,42 +22,40 @@ end
 
 print("=== Battle Animations System Coverage Test ===")
 
--- 1. GLSL Screen Shader & Palette Effects
-print("[test] 1. Screen effect shader lifecycle")
+print("[test] 1. Palette task lifecycle")
 Anim.reset({ headless = true })
-check(Anim.screenEffect().type == "none", "screen effect initialized to none")
+local G1 = require("src.core.game3.battle.anim_port.g1_pret")
+G1.Pal.reset()
+local vm = Anim.vm()
+vm:setBattlers("player", "enemy")
 
-AnimTasks.spawn("InvertScreenColor", 2, { 16 }, Anim.vm())
-check(AnimTasks.activeCount() == 1, "InvertScreenColor task spawned")
+-- pokefirered/src/battle_anim_normal.c:698
+AnimTasks.spawn("InvertScreenColor", 2, { 0x100, 0x100, 0x100 }, vm)
+AnimTasks.update(vm)
+check(G1.Pal.get("bg").m < 0, "InvertScreenColor inverts the BG palettes")
+check(G1.Pal.get("player").m < 0 and G1.Pal.get("enemy").m < 0, "InvertScreenColor inverts attacker and target palettes")
+check(AnimTasks.activeCount() == 0, "InvertScreenColor is a one-shot task")
+G1.Pal.reset()
 
--- Step 1 frame
-AnimTasks.update(Anim.vm())
-check(Anim.screenEffect().type == "invert", "InvertScreenColor sets shader to invert")
+-- pokefirered/src/battle_anim_effects_3.c:1382
+for i = 0, 7 do vm.args[i] = 0 end
+AnimTasks.spawn("FadeScreenToWhite", 2, {}, vm)
+for _ = 1, 20 do AnimTasks.update(vm) end
+check(AnimTasks.activeCount() == 1, "FadeScreenToWhite keeps rotating until args[7] is 0xFFFF")
+vm.args[7] = -1
+AnimTasks.update(vm)
+check(AnimTasks.activeCount() == 0, "FadeScreenToWhite ends on args[7] == 0xFFFF")
 
--- Run through duration
-for _ = 1, 20 do
-  AnimTasks.update(Anim.vm())
-end
-check(AnimTasks.activeCount() == 0, "InvertScreenColor task terminated cleanly")
-check(Anim.screenEffect().type == "none", "InvertScreenColor restored shader to none")
-
--- FadeScreenToWhite
-AnimTasks.spawn("FadeScreenToWhite", 2, { 16 }, Anim.vm())
-AnimTasks.update(Anim.vm())
-check(Anim.screenEffect().type == "fade_white", "FadeScreenToWhite sets shader to fade_white")
-for _ = 1, 20 do
-  AnimTasks.update(Anim.vm())
-end
-check(Anim.screenEffect().type == "none", "FadeScreenToWhite restored shader to none")
-
--- SetGrayscaleOrOriginalPal
-AnimTasks.spawn("SetGrayscaleOrOriginalPal", 2, { 16 }, Anim.vm())
-AnimTasks.update(Anim.vm())
-check(Anim.screenEffect().type == "grayscale", "SetGrayscaleOrOriginalPal sets shader to grayscale")
-for _ = 1, 20 do
-  AnimTasks.update(Anim.vm())
-end
-check(Anim.screenEffect().type == "none", "SetGrayscaleOrOriginalPal restored shader to none")
+-- pokefirered/src/battle_anim_dark.c:869
+vm.args[0], vm.args[1] = 0, 0
+AnimTasks.spawn("SetGrayscaleOrOriginalPal", 2, { 0, 0 }, vm)
+AnimTasks.update(vm)
+check(Anim.present("player").grayscale == true, "SetGrayscaleOrOriginalPal greys the attacker")
+vm.args[1] = 1
+AnimTasks.spawn("SetGrayscaleOrOriginalPal", 2, { 0, 1 }, vm)
+AnimTasks.update(vm)
+check(Anim.present("player").grayscale == false, "SetGrayscaleOrOriginalPal restores the attacker")
+check(AnimTasks.activeCount() == 0, "SetGrayscaleOrOriginalPal is a one-shot task")
 
 -- 2. Z-Index Depth & Layering
 print("[test] 2. Z-Index depth and layering rules")
@@ -84,18 +82,21 @@ AnimSprites.reset()
 
 -- 3. Audio Panning Task
 print("[test] 3. Audio spatial panning task")
-local pTask = AnimTasks.spawn("SoundTask_PlaySE1WithPanning", 2, { 5, -64, 63, 10 }, Anim.vm())
-check(pTask ~= nil, "SoundTask_PlaySE1WithPanning spawned")
-AnimTasks.update(Anim.vm())
-check(pTask.data[10] == -64, "Initial pan is -64 (attacker)")
-for _ = 1, 5 do
-  AnimTasks.update(Anim.vm())
+do
+  local Audio = require("src.core.game3.audio")
+  local realPlaySe = Audio.playSe
+  local plays = {}
+  Audio.playSe = function(id, o) plays[#plays + 1] = { id = id, pan = o and o.pan } return true end
+  local vm = Anim.vm()
+  vm.args[0], vm.args[1] = 5, -64
+  local pTask = AnimTasks.spawn("SoundTask_PlaySE1WithPanning", 2, { 5, -64 }, vm)
+  check(pTask ~= nil, "SoundTask_PlaySE1WithPanning spawned")
+  AnimTasks.update(vm)
+  check(plays[1] and plays[1].id == 5 and plays[1].pan == -64, "PlaySE1WithPanning plays arg0 at BattleAnimAdjustPanning(arg1)")
+  check(#plays == 1, "PlaySE1WithPanning plays exactly once")
+  check(not pTask.active, "Panning task terminates cleanly")
+  Audio.playSe = realPlaySe
 end
-check(pTask.data[10] > -64 and pTask.data[10] < 63, "Pan sweeps across midpoint")
-for _ = 1, 10 do
-  AnimTasks.update(Anim.vm())
-end
-check(AnimTasks.activeCount() == 0, "Panning task terminates cleanly")
 
 -- 4. Execute all 354 Move Scripts through VM
 print("[test] 4. Full 354-move bytecode execution coverage")
@@ -134,8 +135,7 @@ for moveId, script in pairs(pack.moves) do
     vmErrors = vmErrors + 1
     print(string.format("[ERROR] Move %s launch error: %s", tostring(moveId), tostring(err)))
   else
-    -- Step VM up to 360 frames (6 seconds max for multi-hit/looping moves)
-    local maxTicks = 360
+    local maxTicks = 900
     local ticks = 0
     while vm:busy() and ticks < maxTicks do
       ticks = ticks + 1

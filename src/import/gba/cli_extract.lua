@@ -20,7 +20,7 @@ add_path("../../..")
 
 -- Map mods.Kanto-Reforged.* → local sevii when running inside mod tree.
 local real_require = require
-table.insert(package.searchers, 1, function(name)
+table.insert(package.searchers or package.loaders, 1, function(name)
   local prefix = "mods.Kanto-Reforged."
   if name:sub(1, #prefix) == prefix then
     local rel = name:sub(#prefix + 1):gsub("%.", "/")
@@ -132,12 +132,13 @@ end
 local md5
 do
   -- Engine identity is SHA-1; fall back to md5sum (Versions.BY_MD5 aliases).
-  local p = io.popen('sha1sum "' .. romPath .. '" 2>/dev/null || shasum -a 1 "' .. romPath .. '"')
+  local q = "'" .. romPath:gsub("'", "'\\''") .. "'"
+  local p = io.popen("sha1sum " .. q .. " 2>/dev/null || shasum -a 1 " .. q)
   local line = p and p:read("*l")
   if p then p:close() end
   md5 = line and line:match("^(%x+)")
   if not md5 then
-    p = io.popen('md5sum "' .. romPath .. '"')
+    p = io.popen("md5sum " .. q)
     line = p and p:read("*l")
     if p then p:close() end
     md5 = line and line:match("^(%x+)")

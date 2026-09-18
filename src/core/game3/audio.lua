@@ -535,13 +535,13 @@ function Audio.playSe(id, opts)
   end
 
   local pan = Audio.normalizePan(opts.pan)
-  local sd = Player.bakeSlot(slot, {
-    master = (Audio._sfxVolume or 1) * (opts.volume or 1),
-    mono = Audio._mono,
+  local master = (Audio._sfxVolume or 1) * (opts.volume or 1)
+  local rawL, rawR = Player.bakeSlot(slot, {
+    raw = true,
     maxSec = opts.maxSec or ((loop or id == SE.SE_EXP) and 2.5 or 2.0),
     stopOnGoto = loop and true or false,
-    pan = pan,
   })
+  local sd = Audio._buildSeSoundData(rawL, rawR, master, pan, Audio._mono)
   if sd and love and love.audio and love.audio.newSource then
     local src = love.audio.newSource(sd, "static")
     src:setVolume(1)
@@ -552,7 +552,9 @@ function Audio.playSe(id, opts)
     Audio._seByPlayer[mplay] = src
     Audio._seMeta[src] = { id = id, player = mplay,
       duckBgm = not loop and id ~= SE.SE_SELECT
-        and (Audio._sfxVolume or 1) * (opts.volume or 1) > 0 }
+        and (Audio._sfxVolume or 1) * (opts.volume or 1) > 0,
+      rawL = rawL, rawR = rawR, master = master, pan = pan,
+      mono = Audio._mono, loop = loop and true or false }
     update_se_duck(src)
     src:play()
     update_se_duck()
@@ -585,6 +587,87 @@ function Audio.normalizePan(pan)
   local n = tonumber(s)
   if n then return Audio.normalizePan(n) end
   return 0
+end
+
+function Audio._seGains(pan)
+  pan = tonumber(pan) or 0
+  if pan > 63 then pan = 63 end
+  if pan < -64 then pan = -64 end
+  local panN = pan / 64
+  return 1 - math.max(0, panN), 1 - math.max(0, -panN)
+end
+
+function Audio._buildSeSoundData(L, R, master, pan, mono)
+  if type(L) ~= "table" then return nil end
+  if not (love and love.sound and love.sound.newSoundData) then return nil end
+  local n = math.max(1, #L)
+  local ch = mono and 1 or 2
+  local sd = love.sound.newSoundData(n, Mix.SAMPLE_RATE, 16, ch)
+  master = master or 1
+  local gainL, gainR = Audio._seGains(pan)
+  local gl, gr = master * gainL, master * gainR
+  local ptr
+  local ffiOk, ffi = pcall(require, "ffi")
+  if ffiOk and sd.getFFIPointer then
+    local okP, p = pcall(sd.getFFIPointer, sd)
+    if okP and p then ptr = ffi.cast("int16_t *", p) end
+  end
+  for i = 1, n do
+    local l = (L[i] or 0) * gl
+    local r = (R[i] or 0) * gr
+    if l > 1 then l = 1 elseif l < -1 then l = -1 end
+    if r > 1 then r = 1 elseif r < -1 then r = -1 end
+    if ptr then
+      if ch == 1 then
+        ptr[i - 1] = (l + r) * 0.5 * 32767
+      else
+        ptr[(i - 1) * 2] = l * 32767
+        ptr[(i - 1) * 2 + 1] = r * 32767
+      end
+    elseif ch == 1 then
+      sd:setSample(i - 1, (l + r) * 0.5)
+    else
+      sd:setSample(i - 1, 1, l)
+      sd:setSample(i - 1, 2, r)
+    end
+  end
+  return sd
+end
+
+-- pokefirered/src/sound.c:606
+function Audio.setSePan(pan)
+  pan = Audio.normalizePan(pan)
+  for _, mplay in ipairs({ 1, 2 }) do
+    local old = Audio._seByPlayer[mplay]
+    local meta = old and Audio._seMeta[old]
+    if meta and meta.rawL and meta.pan ~= pan then
+      local playing = false
+      pcall(function() playing = old:isPlaying() end)
+      meta.pan = pan
+      if playing and not meta.mono then
+        local sd = Audio._buildSeSoundData(meta.rawL, meta.rawR, meta.master, pan, meta.mono)
+        if sd and love and love.audio and love.audio.newSource then
+          local okN, src = pcall(love.audio.newSource, sd, "static")
+          if okN and src then
+            local pos = 0
+            pcall(function() pos = old:tell("samples") end)
+            pcall(function() src:setVolume(old:getVolume()) end)
+            if meta.loop then pcall(function() src:setLooping(true) end) end
+            pcall(function() src:seek(pos, "samples") end)
+            Audio._seMeta[src] = meta
+            Audio._seMeta[old] = nil
+            Audio._seByPlayer[mplay] = src
+            for i = 1, #Audio._seSources do
+              if Audio._seSources[i] == old then Audio._seSources[i] = src end
+            end
+            pcall(function() old:stop() end)
+            src:play()
+          end
+        end
+      end
+    end
+  end
+  return pan
 end
 
 function Audio._songHasGoto(slot)
@@ -784,8 +867,18 @@ end
 -- pokefirered/src/sound.c:333
 function Audio.playCry(species, mode, pan)
   species = tonumber(species) or species
-  local doubles = mode == 1
-  log(string.format("playCry species=%s", tostring(species)))
+  local volume
+  if type(mode) == "table" then
+    local o = mode
+    mode = o.mode
+    if pan == nil then pan = o.pan end
+    volume = o.volume
+  end
+  mode = tonumber(mode) or 0
+  local params = Sample.cryParams(mode, volume)
+  local doubles = params.mode == 1
+  Audio._cryParams = params
+  log(string.format("playCry species=%s mode=%d", tostring(species), params.mode))
   if not Audio.isReady() then
     Audio._cryUntil = (Audio._cryClock or 0) + 64
     return true
@@ -802,23 +895,26 @@ function Audio.playCry(species, mode, pan)
     local c = Audio._pack.index.cries[cry.cryIndex]
     if c then meta = Audio._pack.samples[c.sampleId] end
   end
-  if meta then
-    local src = Sample.makeSource(Audio._pack.samplesBin, meta, {
-      volume = (Audio._sfxVolume or 1) * 0.9,
-      rate = Mix.waveRate(meta.freq),
+  local pcm = meta and Sample.loadPcm(Audio._pack.samplesBin, meta)
+  if pcm then
+    Audio._crySource = nil
+    if not doubles then
+      Audio._duck = 85 / 256
+      Audio._duckHold = 2
+      apply_bgm_gain()
+    end
+    local sd, info = Sample.renderCry(pcm, Mix.waveRate(meta.freq), params, {
+      outRate = Mix.SAMPLE_RATE,
       pan = pan and pan ~= 0 and Audio.normalizePan(pan) or nil,
-      envelope = doubles and { length = 20, release = 225 } or nil, -- pokefirered/src/sound.c:386
     })
-    if src then
-      if not doubles then
-        Audio._duck = 85 / 256
-        Audio._duckHold = 2
-        apply_bgm_gain()
-      end
+    if info then
+      Audio._cryUntil = (Audio._cryClock or 0) + info.frames
+    end
+    if sd and love and love.audio and love.audio.newSource then
+      local src = love.audio.newSource(sd, "static")
+      src:setVolume(Audio._sfxVolume or 1)
       src:play()
       Audio._crySource = src
-      local dur = (meta.size or 4000) / Mix.waveRate(meta.freq)
-      Audio._cryUntil = (Audio._cryClock or 0) + dur * 60
     end
   end
   return true

@@ -876,7 +876,7 @@ local function rom_u32(data, off)
 end
 
 --- Linear 4bpp decode helper shared by front/back.
-local function decode_pic_rgba(species, picTable, palTable, cacheRel)
+local function decode_pic_rgba(species, picTable, palTable, cacheRel, form, fileOffs)
   species = tonumber(species)
   if not species or species < 1 then return nil end
   local cache = resolve_cache(Pokemon._cache)
@@ -888,13 +888,15 @@ local function decode_pic_rgba(species, picTable, palTable, cacheRel)
   local data = load_rom_bytes()
   if not data then return nil end
   local Lz77 = require("src.import.gba.lz77")
-  local sheetOff = picTable + species * 8
-  local palOff = palTable + species * 8
-  local tilePtr = rom_u32(data, sheetOff)
-  local palPtr = rom_u32(data, palOff)
-  local tileFile = Versions.gbaToFile(tilePtr)
-  local palFile = Versions.gbaToFile(palPtr)
+  local tileFile, palFile
+  if fileOffs then
+    tileFile, palFile = fileOffs[1], fileOffs[2]
+  else
+    tileFile = Versions.gbaToFile(rom_u32(data, picTable + species * 8))
+    palFile = Versions.gbaToFile(rom_u32(data, palTable + species * 8))
+  end
   if not tileFile or not palFile then return nil end
+  form = tonumber(form) or 0
   local function get(i)
     return rom_u8(data, i)
   end
@@ -905,8 +907,8 @@ local function decode_pic_rgba(species, picTable, palTable, cacheRel)
   end
   local pal = {}
   for c = 0, 15 do
-    local lo = palBytes[c * 2 + 1] or 0
-    local hi = palBytes[c * 2 + 2] or 0
+    local lo = palBytes[form * 32 + c * 2 + 1] or 0
+    local hi = palBytes[form * 32 + c * 2 + 2] or 0
     pal[c] = lo + hi * 256
   end
   local w, h = 64, 64
@@ -920,7 +922,7 @@ local function decode_pic_rgba(species, picTable, palTable, cacheRel)
   local ti = 0
   for ty = 0, tilesH - 1 do
     for tx = 0, tilesW - 1 do
-      local tileOff = ti * 32
+      local tileOff = form * 2048 + ti * 32
       for row = 0, 7 do
         for bx = 0, 3 do
           local bi = tileOff + row * 4 + bx + 1
@@ -952,50 +954,78 @@ local function decode_pic_rgba(species, picTable, palTable, cacheRel)
   return rgba
 end
 
-local function decode_front_rgba(species)
+local SPECIES_CASTFORM = 385
+
+local function form_of(species, form)
+  form = tonumber(form) or 0
+  if species ~= SPECIES_CASTFORM or form < 1 or form > 3 then return 0 end
+  return form
+end
+
+local function pic_rel(kind, species, form)
+  local root = (Extract.CACHE_ROOT or "data/generated/gba") .. "/pokemon/" .. kind .. "/"
+  if form > 0 then return root .. species .. "_" .. form .. ".rgba" end
+  return root .. species .. ".rgba"
+end
+
+local function decode_front_rgba(species, form)
   species = tonumber(species)
   if not species or species < 1 then return nil end
-  local root = (Extract.CACHE_ROOT or "data/generated/gba") .. "/pokemon"
   local picTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_front_pic_table) or 0x2350AC
   local palTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_palette_table) or 0x23730C
-  return decode_pic_rgba(species, picTable, palTable, root .. "/front/" .. species .. ".rgba")
+  return decode_pic_rgba(species, picTable, palTable, pic_rel("front", species, form), form)
 end
 
-local function decode_back_rgba(species)
+local function decode_back_rgba(species, form)
   species = tonumber(species)
   if not species or species < 1 then return nil end
-  local root = (Extract.CACHE_ROOT or "data/generated/gba") .. "/pokemon"
   local picTable = Versions.MON_BACK_PIC_TABLE or 0x23654C
   local palTable = (Versions.OAK_SPEECH and Versions.OAK_SPEECH.mon_palette_table) or 0x23730C
-  return decode_pic_rgba(species, picTable, palTable, root .. "/back/" .. species .. ".rgba")
+  return decode_pic_rgba(species, picTable, palTable, pic_rel("back", species, form), form)
 end
 
---- 64×64 front pic for showmonpic (ROM-lazy or cache), else nil.
-function Pokemon.frontPic(species)
-  species = tonumber(species)
-  if not species or species < 1 then return nil end
-  if Pokemon._front[species] then return Pokemon._front[species] end
-  local rgba = decode_front_rgba(species)
+local function pic_entry(store, key, rgba)
   local image = image_from_rgba(rgba, 64, 64)
   if not image then return nil end
   local entry = { image = image, w = 64, h = 64 }
-  Pokemon._front[species] = entry
+  store[key] = entry
+  return entry
+end
+
+--- 64×64 front pic for showmonpic (ROM-lazy or cache), else nil.
+-- pokefirered/src/battle_gfx_sfx_util.c:354
+function Pokemon.frontPic(species, form)
+  species = tonumber(species)
+  if not species or species < 1 then return nil end
+  form = form_of(species, form)
+  local key = form > 0 and (species .. "_" .. form) or species
+  if Pokemon._front[key] then return Pokemon._front[key] end
+  local entry = pic_entry(Pokemon._front, key, decode_front_rgba(species, form))
+  if not entry and form > 0 then return Pokemon.frontPic(species) end
   return entry
 end
 Pokemon.frontSprite = Pokemon.frontPic
 
 --- 64×64 back pic for battle (ROM-lazy or cache).
-function Pokemon.backPic(species)
+function Pokemon.backPic(species, form)
   species = tonumber(species)
   if not species or species < 1 then return nil end
   Pokemon._back = Pokemon._back or {}
-  if Pokemon._back[species] then return Pokemon._back[species] end
-  local rgba = decode_back_rgba(species)
-  local image = image_from_rgba(rgba, 64, 64)
-  if not image then return nil end
-  local entry = { image = image, w = 64, h = 64 }
-  Pokemon._back[species] = entry
+  form = form_of(species, form)
+  local key = form > 0 and (species .. "_" .. form) or species
+  if Pokemon._back[key] then return Pokemon._back[key] end
+  local entry = pic_entry(Pokemon._back, key, decode_back_rgba(species, form))
+  if not entry and form > 0 then return Pokemon.backPic(species) end
   return entry
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:422
+function Pokemon.ghostPic()
+  if Pokemon._front.ghost then return Pokemon._front.ghost end
+  local offs = Versions.GHOST_FRONT_PIC and Versions.GHOST_PALETTE
+    and { Versions.GHOST_FRONT_PIC, Versions.GHOST_PALETTE } or nil
+  local rgba = decode_pic_rgba(1, 0, 0, pic_rel("front", "ghost", 0), 0, offs or { false, false })
+  return pic_entry(Pokemon._front, "ghost", rgba)
 end
 
 --- Resolve display species for a host/opaque mon table.

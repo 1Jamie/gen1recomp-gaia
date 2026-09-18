@@ -406,6 +406,7 @@ function PartyMenu.show(sessionParty, moveOverlay, opts)
   PartyMenu.switchFrom = nil
   PartyMenu._onClose = opts.onClose
   PartyMenu._onSelect = opts.onSelect
+  PartyMenu._validate = opts.validate
   PartyMenu._messageText = nil
   PartyMenu._onMessageDismiss = nil
   PartyMenu.actionCursor = 1
@@ -746,6 +747,12 @@ function PartyMenu.handleInput(input)
         se(5)
         local cb = PartyMenu._onSelect
         local chosen = PartyMenu.cursor
+        local why = PartyMenu._validate and PartyMenu._validate(chosen)
+        if why then
+          local back = PartyMenu._previousMode
+          PartyMenu.showMessage(why, function() PartyMenu.mode = back end)
+          return
+        end
         PartyMenu.close()
         if cb then cb(chosen, PartyMenu._party and PartyMenu._party[chosen]) end
       elseif act == "SUMMARY" then
@@ -1335,6 +1342,12 @@ function PartyMenu.handleInput(input)
       else
         se(5)
         local cb = PartyMenu._onSelect
+        local why = PartyMenu._validate and PartyMenu._validate(PartyMenu.cursor)
+        if why then
+          local back = PartyMenu._previousMode
+          PartyMenu.showMessage(why, function() PartyMenu.mode = back end)
+          return
+        end
         PartyMenu.close()
         if cb then cb(PartyMenu.cursor, PartyMenu._party and PartyMenu._party[PartyMenu.cursor]) end
       end

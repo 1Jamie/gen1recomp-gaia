@@ -39,6 +39,7 @@ Std.SPECIAL = {
   SetHelpContextForMap = 0x190,
   HelpSystem_Disable = 0x198,
   HelpSystem_Enable = 0x199,
+  StartMarowakBattle = 0x156, -- pokefirered/data/specials.inc:353
   -- Engine-extension specials (not cart indices) for shared primitives.
   FadeScreen = 0xF001,
   OpenNaming = 0xF002,

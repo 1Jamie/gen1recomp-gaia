@@ -28,6 +28,7 @@ function ExpSeq.reset()
   ExpSeq._askForget = nil
   ExpSeq._leveled = nil
   ExpSeq._pendingStatGrowth = nil
+  ExpSeq._lvlAnimWait = false
   local okA, Audio = pcall(require, "src.core.game3.audio")
   local okS, SE = pcall(require, "src.core.game3.se_ids")
   if okA and okS and Audio.stopSe and SE and SE.SE_EXP then
@@ -100,7 +101,8 @@ function ExpSeq.begin(awards, pushMsg, thenMsgs, opts)
     local pi = entry.partyIndex or 1
     local isBench = (entry.battler == nil)
     if gained > 0 then
-      add("msg", { text = name .. " gained\n" .. tostring(gained) .. " EXP. Points!" })
+      -- pokefirered/src/battle_message.c:53
+      add("msg", { text = name .. " gained" .. (entry.boosted and " a boosted" or "") .. "\n" .. tostring(gained) .. " EXP. Points!" })
       for _, step in ipairs(result.steps or {}) do
         if not isBench then
           add("exp", {
@@ -209,6 +211,18 @@ local function run_step(step)
   end
 
   if kind == "level" then
+    if not d.isBench and not ExpSeq._headless and not d._lvlAnim then
+      -- pokefirered/src/battle_controller_player.c:1143
+      d._lvlAnim = true
+      local side = d.side or "player"
+      ExpSeq._lvlAnimWait = true
+      Anim.launchSpecial("LVL_UP", {
+        attackerSide = side,
+        targetSide = side,
+        onEnd = function() ExpSeq._lvlAnimWait = false end,
+      })
+      return
+    end
     if not d.isBench then
       local p = Anim.present(d.side or "player")
       if p then
@@ -272,6 +286,11 @@ function ExpSeq.update()
     return false
   end
   if not ExpSeq._steps then return true end
+
+  if ExpSeq._lvlAnimWait then
+    if Anim.busy() then return false end
+    ExpSeq._lvlAnimWait = false
+  end
 
   if ExpSeq._waitingMsg then
     local Ui = package.loaded["src.core.game3.battle.ui"]

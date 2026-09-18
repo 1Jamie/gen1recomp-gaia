@@ -101,11 +101,16 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
   local ename = (st and st.enemy and st.enemy.mon and (st.enemy.mon.nickname or st.enemy.mon.name))
     or Pokemon.name(st and st.enemy and st.enemy.species) or "POKéMON"
 
+  -- pokefirered/data/battle_scripts_2.s:124
+  local DODGE = "It dodged the thrown BALL!\nThis POKéMON can't be caught!"
+  if opts.ghostDodge then CatchSeq._result = "fail_catch" end
   if CatchSeq._headless then
     if CatchSeq._pushMsg then
       CatchSeq._pushMsg(playerName .. " used\nthe " .. ballName .. "!")
     end
-    if caught then
+    if opts.ghostDodge then
+      if CatchSeq._pushMsg then CatchSeq._pushMsg(DODGE) end
+    elseif caught then
       local res = Catching.storeCaught(session, st and st.enemy, itemId)
       if CatchSeq._pushMsg then
         CatchSeq._pushMsg("Gotcha!\n" .. ename .. " was caught!")
@@ -138,15 +143,17 @@ function CatchSeq.begin(st, itemId, caught, shakes, opts)
     steps[#steps + 1] = { kind = kind, data = data or {} }
   end
 
-  add("msg", { text = playerName .. " used\nthe " .. ballName .. "!" })
+  add("msg", { text = playerName .. " used\nthe " .. ballName .. "!", wait = opts.ghostDodge and 0 or nil })
 
   -- pokefirered/src/battle_script_commands.c:9590
   add("throw", {
-    caseId = caught and 4 or math.min(3, CatchSeq._shakes),
+    caseId = opts.ghostDodge and "ghost" or (caught and 4 or math.min(3, CatchSeq._shakes)),
     itemId = itemId,
   })
 
-  if caught then
+  if opts.ghostDodge then
+    add("msg", { text = DODGE, wait = 64 })
+  elseif caught then
     add("capture_success", {
       ballId = itemId,
       ename = ename,
@@ -291,6 +298,15 @@ local function translate_arc(s)
   return false
 end
 
+-- pokefirered/src/battle_anim_mons.c:775
+local function translate_vertical_arc(s)
+  if translate_linear(s) then return true end
+  local d = s.data
+  d[7] = d[7] + d[6]
+  s.x2 = s.x2 + BallOpen.sin(math.floor(d[7] / 256) % 256, d[5])
+  return false
+end
+
 local CB = {}
 
 local function start_anim(b, num)
@@ -304,8 +320,28 @@ function CB.init(b)
 end
 
 -- pokefirered/src/battle_anim_special.c:824
+-- pokefirered/src/battle_anim_special.c:1404
+function CB.ghostDodge2(b)
+  if not translate_vertical_arc(b) and (b.y + b.y2) < 65 then return end
+  b.data[0] = 0
+  b.cb = CB.signalEnd
+end
+
+-- pokefirered/src/battle_anim_special.c:1388
+function CB.ghostDodge(b)
+  b.x, b.y = b.x + b.x2, b.y + b.y2
+  b.x2, b.y2 = 0, 0
+  arc_init(b, 0x22, b.x - 8, 0x90, 0x20)
+  translate_vertical_arc(b)
+  b.cb = CB.ghostDodge2
+end
+
 function CB.arcFlight(b)
   if not translate_arc(b) then return end
+  if b.caseId == "ghost" then
+    b.cb = CB.ghostDodge
+    return
+  end
   start_anim(b, 1)
   b.x, b.y = b.x + b.x2, b.y + b.y2
   b.x2, b.y2 = 0, 0
@@ -681,6 +717,7 @@ local function start_ball(d)
   affine_start(b.aff, 0)
   return BallOpen.addSprite(b)
 end
+CatchSeq.startBall = start_ball
 
 local function run_step(step)
   if not step then
@@ -693,7 +730,7 @@ local function run_step(step)
 
   if kind == "msg" then
     if CatchSeq._pushMsg and d.text then
-      CatchSeq._pushMsg(d.text)
+      CatchSeq._pushMsg(d.text, d.wait)
     end
     CatchSeq._waiting = true
     CatchSeq._waitingMsg = true

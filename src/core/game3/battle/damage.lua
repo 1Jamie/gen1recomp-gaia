@@ -7,21 +7,29 @@ local EffectIds = require("src.core.game3.battle.effect_ids")
 
 local Damage = {}
 
-local STAGE_MULT = {
-  [-6] = 2 / 8, [-5] = 2 / 7, [-4] = 2 / 6, [-3] = 2 / 5, [-2] = 2 / 4, [-1] = 2 / 3,
-  [0] = 1,
-  [1] = 3 / 2, [2] = 4 / 2, [3] = 5 / 2, [4] = 6 / 2, [5] = 7 / 2, [6] = 8 / 2,
+-- pokefirered/src/pokemon.c:1442
+local STAGE_RATIO = {
+  [-6] = { 10, 40 }, [-5] = { 10, 35 }, [-4] = { 10, 30 }, [-3] = { 10, 25 },
+  [-2] = { 10, 20 }, [-1] = { 10, 15 }, [0] = { 10, 10 }, [1] = { 15, 10 },
+  [2] = { 20, 10 }, [3] = { 25, 10 }, [4] = { 30, 10 }, [5] = { 35, 10 }, [6] = { 40, 10 },
 }
 
 local function clamp_stage(s)
-  s = tonumber(s) or 0
+  s = math.floor(tonumber(s) or 0)
   if s < -6 then return -6 end
   if s > 6 then return 6 end
   return s
 end
 
 function Damage.stageMul(stage)
-  return STAGE_MULT[clamp_stage(stage)] or 1
+  local r = STAGE_RATIO[clamp_stage(stage)]
+  return r[1] / r[2]
+end
+
+-- pokefirered/src/pokemon.c:2374
+function Damage.applyStage(stat, stage)
+  local r = STAGE_RATIO[clamp_stage(stage)]
+  return math.floor((tonumber(stat) or 0) * r[1] / r[2])
 end
 
 local function mon_stat(mon, key, fallback)
@@ -34,6 +42,7 @@ local function mon_stat(mon, key, fallback)
   if v == nil and key == "speed" then v = mon.spe end
   return tonumber(v) or fallback
 end
+Damage.monStat = mon_stat
 
 --- Fill missing battle stats from extracted species base stats + IVs.
 function Damage.ensureStats(mon, level)
@@ -51,7 +60,6 @@ function Damage.ensureStats(mon, level)
       mon.evs = { hp = 0, atk = 0, def = 0, spe = 0, spa = 0, spd = 0 }
     end
     if mon.personality == nil then mon.personality = 0 end
-    -- Only recompute when battle stats are missing.
     local need = (not mon.maxHp or mon.maxHp <= 0)
       or (mon_stat(mon, "attack", 0) <= 0)
       or (mon_stat(mon, "defense", 0) <= 0)
@@ -72,7 +80,6 @@ function Damage.ensureStats(mon, level)
     return mon
   end
 
-  -- Fallback when species pack missing.
   local base = 50
   if not mon.maxHp or mon.maxHp <= 0 then
     mon.maxHp = math.floor(((2 * base) * level) / 100) + level + 10
@@ -92,310 +99,430 @@ function Damage.ensureStats(mon, level)
   return mon
 end
 
-function Damage.calc(attacker, defender, moveId, opts)
+local function roll_from(rng, lo, hi)
+  if type(rng) == "function" then
+    local ok, v = pcall(rng, lo, hi)
+    if ok and type(v) == "number" then return v end
+  end
+  return math.random(lo, hi)
+end
+
+local function ability_of(battler, adapter)
+  if adapter and adapter.abilityOf then return adapter:abilityOf(battler) end
+  if not battler then return nil end
+  if battler.expTracedAbility then return battler.expTracedAbility end
+  local id = battler.ability or (battler.mon and (battler.mon.ability or battler.mon.abilityId))
+  if type(id) == "string" then return (id:upper():gsub("%s+", "_")) end
+  local ok, Adapter = pcall(require, "src.core.game3.battle.adapter")
+  if ok and Adapter and Adapter.ABILITY_BY_ID and tonumber(id) then return Adapter.ABILITY_BY_ID[tonumber(id)] end
+  return nil
+end
+
+local function status_of(battler)
+  local s = battler and (battler.status or (battler.mon and battler.mon.status))
+  if s == 0 then return nil end
+  return s
+end
+
+-- pokefirered/src/battle_script_commands.c:8503
+function Damage.hiddenPower(mon)
+  local iv = mon and (mon.ivs or mon.dvs) or {}
+  local function g(k1, k2) return math.floor(tonumber(iv[k1] or iv[k2]) or 0) end
+  local hp, atk, def = g("hp", "HP"), g("atk", "attack"), g("def", "defense")
+  local spe, spa, spd = g("spe", "speed"), g("spa", "spAtk"), g("spd", "spDef")
+  local function b(v, bit) return math.floor(v / bit) % 2 end
+  local powerBits = b(hp, 2) + 2 * b(atk, 2) + 4 * b(def, 2) + 8 * b(spe, 2) + 16 * b(spa, 2) + 32 * b(spd, 2)
+  local typeBits = b(hp, 1) + 2 * b(atk, 1) + 4 * b(def, 1) + 8 * b(spe, 1) + 16 * b(spa, 1) + 32 * b(spd, 1)
+  local power = math.floor(40 * powerBits / 63) + 30
+  local t = math.floor(15 * typeBits / 63) + 1
+  if t >= 9 then t = t + 1 end
+  return power, t
+end
+
+-- pokefirered/src/battle_script_commands.c:7928
+function Damage.flailPower(hp, maxHp)
+  hp = tonumber(hp) or 1
+  maxHp = math.max(1, tonumber(maxHp) or 1)
+  local n = math.floor(hp * 48 / maxHp)
+  if n == 0 and hp > 0 then n = 1 end
+  if n <= 1 then return 200 end
+  if n <= 4 then return 150 end
+  if n <= 9 then return 100 end
+  if n <= 16 then return 80 end
+  if n <= 32 then return 40 end
+  return 20
+end
+
+-- pokefirered/src/battle_script_commands.c:9074
+function Damage.lowKickPower(dMon, defender)
+  local wt
+  if dMon and dMon.weight then
+    wt = tonumber(dMon.weight) or 0
+  else
+    local Pokemon = require("src.core.game3.pokemon")
+    local sp = (defender and defender.species) or Pokemon.speciesOf(dMon)
+    local dex = sp and Pokemon.dexEntry(sp)
+    wt = dex and tonumber(dex.weight) or 0
+  end
+  local tbl = { { 100, 20 }, { 250, 40 }, { 500, 60 }, { 1000, 80 }, { 2000, 100 } }
+  for _, row in ipairs(tbl) do
+    if row[1] > wt then return row[2] end
+  end
+  return 120
+end
+
+-- pokefirered/src/pokemon.c:2385
+function Damage.base(attacker, defender, move, opts)
   opts = opts or {}
-  local move = Moves.get(moveId)
-  local power = tonumber(move.power) or 0
-  if power <= 0 then
-    return 0, { move = move, effectiveness = 1, critical = false, status = true }
+  local aMon = attacker.mon or attacker
+  local dMon = defender.mon or defender
+  local power = tonumber(opts.power) or tonumber(move.power) or 0
+  local moveType = tonumber(opts.moveType) or tonumber(move.type) or 0
+  local crit = opts.crit and true or false
+  local adapter = opts.adapter
+
+  local attack = mon_stat(aMon, "attack", 50)
+  local defense = mon_stat(dMon, "defense", 50)
+  local spAttack = mon_stat(aMon, "spAtk", 50)
+  local spDefense = mon_stat(dMon, "spDef", 50)
+  if attacker.expTransform then
+    local t = attacker.expTransform
+    attack, spAttack = t.attack or attack, t.spAtk or spAttack
+  end
+  if defender.expTransform then
+    local t = defender.expTransform
+    defense, spDefense = t.defense or defense, t.spDef or spDefense
   end
 
+  local aAb = ability_of(attacker, adapter)
+  local dAb = ability_of(defender, adapter)
+  if aAb == "HUGE_POWER" or aAb == "PURE_POWER" then attack = attack * 2 end
+  local st = adapter and adapter._st
+  local Engine = package.loaded["src.core.game3.battle.engine"]
+  if st and Engine and Engine.hasBadge then
+    if attacker.side == "player" and Engine.hasBadge(st, 1) then attack = math.floor(110 * attack / 100) end
+    if defender.side == "player" and Engine.hasBadge(st, 5) then defense = math.floor(110 * defense / 100) end
+    if attacker.side == "player" and Engine.hasBadge(st, 7) then spAttack = math.floor(110 * spAttack / 100) end
+    if defender.side == "player" and Engine.hasBadge(st, 7) then spDefense = math.floor(110 * spDefense / 100) end
+  end
+  local HeldItems = require("src.core.game3.battle.held_items")
+  local HOLD = HeldItems.HOLD
+  local aHe, aParam = HeldItems.of(attacker)
+  local dHe = HeldItems.of(defender)
+  if HeldItems.TYPE_BOOST[aHe] == moveType then
+    if Types.isPhysical(moveType) then
+      attack = math.floor(attack * (aParam + 100) / 100)
+    else
+      spAttack = math.floor(spAttack * (aParam + 100) / 100)
+    end
+  end
+  local aSp = tonumber(attacker.species or aMon.species) or 0
+  local dSp = tonumber(defender.species or dMon.species) or 0
+  if aHe == HOLD.CHOICE_BAND then attack = math.floor(150 * attack / 100) end
+  if aHe == HOLD.SOUL_DEW and (aSp == 407 or aSp == 408) then spAttack = math.floor(150 * spAttack / 100) end
+  if dHe == HOLD.SOUL_DEW and (dSp == 407 or dSp == 408) then spDefense = math.floor(150 * spDefense / 100) end
+  if aHe == HOLD.DEEP_SEA_TOOTH and aSp == 373 then spAttack = spAttack * 2 end
+  if dHe == HOLD.DEEP_SEA_SCALE and dSp == 373 then spDefense = spDefense * 2 end
+  if aHe == HOLD.LIGHT_BALL and aSp == 25 then spAttack = spAttack * 2 end
+  if dHe == HOLD.METAL_POWDER and dSp == 132 then defense = defense * 2 end
+  if aHe == HOLD.THICK_CLUB and (aSp == 104 or aSp == 105) then attack = attack * 2 end
+  if dAb == "THICK_FAT" and (moveType == Types.ID.FIRE or moveType == Types.ID.ICE) then
+    spAttack = math.floor(spAttack / 2)
+  end
+  if aAb == "HUSTLE" then attack = math.floor(150 * attack / 100) end
+  if (aAb == "PLUS" or aAb == "MINUS") and adapter and adapter.activeBattlers then
+    local want = (aAb == "PLUS") and "MINUS" or "PLUS"
+    for _, b in ipairs(adapter:activeBattlers()) do
+      if ability_of(b, adapter) == want then spAttack = math.floor(150 * spAttack / 100); break end
+    end
+  end
+  if aAb == "GUTS" and status_of(attacker) then attack = math.floor(150 * attack / 100) end
+  if dAb == "MARVEL_SCALE" and status_of(defender) then defense = math.floor(150 * defense / 100) end
+  if moveType == Types.ID.ELECTRIC and opts.mudSport then power = math.floor(power / 2) end
+  if moveType == Types.ID.FIRE and opts.waterSport then power = math.floor(power / 2) end
+  local aHp = tonumber(aMon.hp) or 0
+  local aMax = math.max(1, tonumber(aMon.maxHp) or 1)
+  local pinch = aHp <= math.floor(aMax / 3)
+  if pinch and ((moveType == Types.ID.GRASS and aAb == "OVERGROW")
+      or (moveType == Types.ID.FIRE and aAb == "BLAZE")
+      or (moveType == Types.ID.WATER and aAb == "TORRENT")
+      or (moveType == Types.ID.BUG and aAb == "SWARM")) then
+    power = math.floor(150 * power / 100)
+  end
+
+  if tonumber(move.effect) == EffectIds.EXPLOSION then
+    defense = math.floor(defense / 2)
+  end
+
+  local aStages = attacker.stages or {}
+  local dStages = defender.stages or {}
+  local level = tonumber(aMon.level or attacker.level) or 5
+  local levelFactor = math.floor(2 * level / 5) + 2
+  local damage = 0
+
+  if Types.isPhysical(moveType) then
+    local atkStage = aStages.attack or 0
+    if crit and atkStage <= 0 then atkStage = 0 end
+    damage = Damage.applyStage(attack, atkStage)
+    damage = damage * power
+    damage = damage * levelFactor
+    local defStage = dStages.defense or 0
+    if crit and defStage >= 0 then defStage = 0 end
+    local helper = math.max(1, Damage.applyStage(defense, defStage))
+    damage = math.floor(damage / helper)
+    damage = math.floor(damage / 50)
+    if status_of(attacker) == "BRN" and aAb ~= "GUTS" then damage = math.floor(damage / 2) end
+    if opts.reflect and not crit then damage = math.floor(damage / 2) end
+    if damage == 0 then damage = 1 end
+  end
+
+  if moveType == Types.ID.MYSTERY then damage = 0 end
+
+  if not Types.isPhysical(moveType) and moveType ~= Types.ID.MYSTERY then
+    local atkStage = aStages.spAtk or 0
+    if crit and atkStage <= 0 then atkStage = 0 end
+    damage = Damage.applyStage(spAttack, atkStage)
+    damage = damage * power
+    damage = damage * levelFactor
+    local defStage = dStages.spDef or 0
+    if crit and defStage >= 0 then defStage = 0 end
+    local helper = math.max(1, Damage.applyStage(spDefense, defStage))
+    damage = math.floor(damage / helper)
+    damage = math.floor(damage / 50)
+    if opts.lightScreen and not crit then damage = math.floor(damage / 2) end
+    local weather = opts.weatherKind
+    if weather == "RAIN" then
+      if moveType == Types.ID.FIRE then damage = math.floor(damage / 2)
+      elseif moveType == Types.ID.WATER then damage = math.floor(15 * damage / 10) end
+    end
+    if (weather == "RAIN" or weather == "SAND" or weather == "HAIL") and opts.isSolarBeam then
+      damage = math.floor(damage / 2)
+    end
+    if weather == "SUN" then
+      if moveType == Types.ID.FIRE then damage = math.floor(15 * damage / 10)
+      elseif moveType == Types.ID.WATER then damage = math.floor(damage / 2) end
+    end
+    if attacker.expFlashFire and moveType == Types.ID.FIRE then
+      damage = math.floor(15 * damage / 10)
+    end
+  end
+
+  return damage + 2
+end
+
+local function fixed_info(move, eff, flags, physical, extra)
+  local info = {
+    move = move,
+    effectiveness = eff,
+    critical = false,
+    physical = physical,
+    fixed = true,
+    typeFlags = flags,
+  }
+  for k, v in pairs(extra or {}) do info[k] = v end
+  return info
+end
+
+function Damage.calc(attacker, defender, moveId, opts)
+  opts = opts or {}
+  local move = type(moveId) == "table" and moveId.effect ~= nil and moveId or Moves.get(moveId)
   local aMon = attacker.mon or attacker
   local dMon = defender.mon or defender
   Damage.ensureStats(aMon, aMon.level)
   Damage.ensureStats(dMon, dMon.level)
 
   local effectByte = tonumber(move.effect)
-  local moveType = move.type
+  local power = tonumber(opts.power) or tonumber(move.power) or 0
+  local moveType = tonumber(opts.moveType) or tonumber(move.type) or 0
+  local dmgMultiplier = tonumber(opts.dmgMultiplier) or 1
   local magnitudeVal = nil
-
-  -- Dynamic power and type calculations (Phase 3 moves)
-  if effectByte == EffectIds.MAGNITUDE then
-    local rng = opts.rng or math.random
-    local r
-    local ok, v = pcall(rng, 0, 99)
-    if ok and type(v) == "number" then r = v else r = math.random(0, 99) end
-    if r < 5 then
-      magnitudeVal, power = 4, 10
-    elseif r < 15 then
-      magnitudeVal, power = 5, 30
-    elseif r < 35 then
-      magnitudeVal, power = 6, 50
-    elseif r < 65 then
-      magnitudeVal, power = 7, 70
-    elseif r < 85 then
-      magnitudeVal, power = 8, 90
-    elseif r < 95 then
-      magnitudeVal, power = 9, 110
-    else
-      magnitudeVal, power = 10, 150
-    end
-  elseif effectByte == EffectIds.RETURN then
-    local friendship = tonumber(aMon.friendship) or 70
-    power = math.max(1, math.floor(friendship * 2 / 5))
-  elseif effectByte == EffectIds.FRUSTRATION then
-    local friendship = tonumber(aMon.friendship) or 70
-    power = math.max(1, math.floor((255 - friendship) * 2 / 5))
-  elseif effectByte == EffectIds.ERUPTION then
-    local curHp = aMon.hp or attacker.hp or 1
-    local maxHp = aMon.maxHp or attacker.maxHp or 1
-    power = math.max(1, math.floor(150 * curHp / maxHp))
-  elseif effectByte == EffectIds.FLAIL then
-    local curHp = aMon.hp or attacker.hp or 1
-    local maxHp = aMon.maxHp or attacker.maxHp or 1
-    local n = math.floor(48 * curHp / maxHp)
-    if n <= 1 then
-      power = 200
-    elseif n <= 4 then
-      power = 150
-    elseif n <= 9 then
-      power = 100
-    elseif n <= 16 then
-      power = 80
-    elseif n <= 32 then
-      power = 40
-    else
-      power = 20
-    end
-  elseif effectByte == EffectIds.PURSUIT and opts.pursuitSwitch then
-    power = power * 2
-  elseif effectByte == EffectIds.FACADE then
-    local st = aMon.status or attacker.status or attacker.expStatus
-    if st == "BRN" or st == "PAR" or st == "PSN" or st == "TOX" then
-      power = power * 2
-    end
-  elseif effectByte == EffectIds.REVENGE then
-    if (attacker.damageTakenThisTurn or 0) > 0 then
-      power = power * 2
-    end
-  elseif effectByte == EffectIds.SMELLINGSALT then
-    local st = dMon.status or defender.status or defender.expStatus
-    if st == "PAR" then
-      power = power * 2
-    end
-  elseif effectByte == EffectIds.WEATHER_BALL then
-    local weather = opts.weather
-    if weather == "sun" or weather == "sunny" then
-      power = 100
-      moveType = Types.ID.FIRE
-    elseif weather == "rain" or weather == "rainy" then
-      power = 100
-      moveType = Types.ID.WATER
-    elseif weather == "sand" or weather == "sandstorm" then
-      power = 100
-      moveType = Types.ID.ROCK
-    elseif weather == "hail" then
-      power = 100
-      moveType = Types.ID.ICE
-    end
-  elseif effectByte == EffectIds.LOW_KICK then
-    local wt = 0
-    if dMon.weight then
-      wt = tonumber(dMon.weight) or 0
-    else
-      local Pokemon = require("src.core.game3.pokemon")
-      local sp = Pokemon.speciesOf(dMon)
-      local dex = sp and Pokemon.dexEntry(sp)
-      if dex and dex.weight then
-        wt = tonumber(dex.weight) or 0
-      end
-    end
-    -- Gen 3 Low Kick weight thresholds (wt is in tenths of a kg: 100 = 10.0kg)
-    if wt < 100 then
-      power = 20
-    elseif wt < 250 then
-      power = 40
-    elseif wt < 500 then
-      power = 60
-    elseif wt < 1000 then
-      power = 80
-    elseif wt < 2000 then
-      power = 100
-    else
-      power = 120
-    end
-  end
-
-  local physical = move.category == "physical"
-    or (move.category ~= "special" and Types.isPhysical(moveType))
-
-  local aStages = attacker.stages or {}
-  local dStages = defender.stages or {}
-  local atkStat, defStat
-  if physical then
-    atkStat = mon_stat(aMon, "attack", 50) * Damage.stageMul(aStages.attack)
-    defStat = mon_stat(dMon, "defense", 50) * Damage.stageMul(dStages.defense)
-    local aSt = aMon.status or attacker.status or attacker.expStatus
-    if aSt == "BRN" and effectByte ~= EffectIds.FACADE then
-      atkStat = math.floor(atkStat * 0.5)
-    end
-  else
-    atkStat = mon_stat(aMon, "spAtk", 50) * Damage.stageMul(aStages.spAtk)
-    defStat = mon_stat(dMon, "spDef", 50) * Damage.stageMul(dStages.spDef)
-  end
-  if defStat < 1 then defStat = 1 end
+  local weatherKind = opts.weatherKind or Rules.weather.kind(opts.weather)
+  local rng = opts.rng or math.random
   local level = tonumber(aMon.level or attacker.level) or 5
-  local base = math.floor(math.floor((2 * level / 5 + 2) * power * atkStat / defStat) / 50) + 2
 
-  -- STAB
-  local stab = 1
-  local t1, t2 = attacker.type1, attacker.type2
-  if t1 == moveType or t2 == moveType then stab = 1.5 end
-
-  local eff = Types.effectiveness(moveType, defender.type1, defender.type2)
-  if eff == 0 then
-    return 0, {
-      move = move,
-      effectiveness = 0,
-      critical = false,
-      physical = physical,
-      stab = stab,
-      magnitude = magnitudeVal,
-    }
+  if power <= 0 and not opts.power then
+    return 0, { move = move, effectiveness = 1, critical = false, status = true }
   end
 
-  local effectByte = tonumber(move.effect)
+  if effectByte == EffectIds.MAGNITUDE and not opts.power then
+    local r = opts.magnitudeRoll or roll_from(rng, 0, 99)
+    -- pokefirered/src/battle_script_commands.c:8284
+    if r < 5 then magnitudeVal, power = 4, 10
+    elseif r < 15 then magnitudeVal, power = 5, 30
+    elseif r < 35 then magnitudeVal, power = 6, 50
+    elseif r < 65 then magnitudeVal, power = 7, 70
+    elseif r < 85 then magnitudeVal, power = 8, 90
+    elseif r < 95 then magnitudeVal, power = 9, 110
+    else magnitudeVal, power = 10, 150 end
+  elseif effectByte == EffectIds.RETURN and not opts.power then
+    local friendship = tonumber(aMon.friendship or aMon.happiness) or 70
+    power = math.floor(10 * friendship / 25)
+  elseif effectByte == EffectIds.FRUSTRATION and not opts.power then
+    local friendship = tonumber(aMon.friendship or aMon.happiness) or 70
+    power = math.floor(10 * (255 - friendship) / 25)
+  elseif effectByte == EffectIds.ERUPTION and not opts.power then
+    local curHp = tonumber(aMon.hp) or 1
+    local maxHp = math.max(1, tonumber(aMon.maxHp) or 1)
+    power = math.floor(curHp * power / maxHp)
+    if power == 0 then power = 1 end
+  elseif effectByte == EffectIds.FLAIL and not opts.power then
+    power = Damage.flailPower(aMon.hp, aMon.maxHp)
+  elseif effectByte == EffectIds.LOW_KICK and not opts.power then
+    power = Damage.lowKickPower(dMon, defender)
+  elseif effectByte == EffectIds.HIDDEN_POWER and not opts.power then
+    local p, t = Damage.hiddenPower(aMon)
+    power = p
+    if not opts.moveType then moveType = t end
+  elseif effectByte == EffectIds.WEATHER_BALL and not opts.moveType then
+    -- pokefirered/src/battle_script_commands.c:9345
+    if weatherKind then
+      dmgMultiplier = dmgMultiplier * 2
+      if weatherKind == "RAIN" then moveType = Types.ID.WATER
+      elseif weatherKind == "SAND" then moveType = Types.ID.ROCK
+      elseif weatherKind == "SUN" then moveType = Types.ID.FIRE
+      elseif weatherKind == "HAIL" then moveType = Types.ID.ICE end
+    end
+  end
+
+  if effectByte == EffectIds.PURSUIT and opts.pursuitSwitch then
+    dmgMultiplier = dmgMultiplier * 2
+  elseif effectByte == EffectIds.FACADE and not opts.dmgMultiplier then
+    local st = status_of(attacker)
+    if st == "BRN" or st == "PAR" or st == "PSN" or st == "TOX" then
+      dmgMultiplier = dmgMultiplier * 2
+    end
+  elseif effectByte == EffectIds.REVENGE and not opts.dmgMultiplier then
+    -- pokefirered/src/battle_script_commands.c:8946
+    if (attacker.damageTakenThisTurn or 0) > 0
+        and (attacker.expHurtBy == nil or attacker.expHurtBy == defender.side) then
+      dmgMultiplier = dmgMultiplier * 2
+    end
+  elseif effectByte == EffectIds.SMELLINGSALT and not opts.dmgMultiplier then
+    if status_of(defender) == "PAR" and (defender.substituteHP or 0) <= 0 then
+      dmgMultiplier = dmgMultiplier * 2
+    end
+  end
+
+  local physical = Types.isPhysical(moveType)
+  local foresight = opts.foresight
+  if foresight == nil then foresight = defender.expIdentified and true or false end
+  local dType1 = defender.type1
+  local dType2 = defender.type2
+  if defender.expTransform then
+    dType1 = defender.expTransform.type1 or dType1
+    dType2 = defender.expTransform.type2 or dType2
+  end
+  local _, flags, eff = Types.typeCalc(moveType, dType1, dType2, nil, foresight)
+
+  local fixedAmount = nil
   if effectByte == EffectIds.COUNTER then
     local taken = attacker.lastPhysicalDamageTaken or 0
     if taken <= 0 then
-      return 0, {
-        move = move,
-        effectiveness = eff,
-        critical = false,
-        physical = physical,
-        failed = true,
-      }
+      return 0, { move = move, effectiveness = eff, critical = false, physical = physical, failed = true }
     end
-    return taken * 2, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
+    return (flags.immune and 0 or taken * 2), {
+      move = move, effectiveness = eff, critical = false, physical = physical,
+      typeFlags = flags, setDamage = true,
     }
   elseif effectByte == EffectIds.MIRROR_COAT then
     local taken = attacker.lastSpecialDamageTaken or 0
     if taken <= 0 then
-      return 0, {
-        move = move,
-        effectiveness = eff,
-        critical = false,
-        physical = physical,
-        failed = true,
-      }
+      return 0, { move = move, effectiveness = eff, critical = false, physical = physical, failed = true }
     end
-    return taken * 2, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
+    return (flags.immune and 0 or taken * 2), {
+      move = move, effectiveness = eff, critical = false, physical = physical,
+      typeFlags = flags, setDamage = true,
     }
   elseif effectByte == EffectIds.DRAGON_RAGE then
-    return 40, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    fixedAmount = 40
   elseif effectByte == EffectIds.SONICBOOM then
-    return 20, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    fixedAmount = 20
   elseif effectByte == EffectIds.LEVEL_DAMAGE then
-    return level, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    fixedAmount = level
   elseif effectByte == EffectIds.SUPER_FANG then
-    local dHp = defender.mon and defender.mon.hp or defender.hp or 1
-    return math.max(1, math.floor(dHp / 2)), {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    fixedAmount = math.max(1, math.floor((tonumber(dMon.hp) or 1) / 2))
   elseif effectByte == EffectIds.ENDEAVOR then
-    local uHp = attacker.mon and attacker.mon.hp or attacker.hp or 0
-    local dHp = defender.mon and defender.mon.hp or defender.hp or 0
-    if uHp >= dHp then
-      return 0, {
-        move = move,
-        effectiveness = eff,
-        critical = false,
-        physical = physical,
-        failed = true,
-      }
+    local uHp = tonumber(aMon.hp) or 0
+    local dHp = tonumber(dMon.hp) or 0
+    if dHp <= uHp then
+      return 0, { move = move, effectiveness = eff, critical = false, physical = physical, failed = true }
     end
-    return dHp - uHp, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    fixedAmount = dHp - uHp
   elseif effectByte == EffectIds.PSYWAVE then
-    local rng = opts.rng or math.random
-    local r
-    local ok, v = pcall(rng, 0, 100)
-    if ok and type(v) == "number" then r = v else r = math.random(0, 100) end
-    local dmg = math.max(1, math.floor(level * (r + 50) / 100))
-    return dmg, {
-      move = move,
-      effectiveness = eff,
-      critical = false,
-      physical = physical,
-      fixed = true,
-    }
+    -- pokefirered/src/battle_script_commands.c:7557
+    local r = opts.psywaveRoll or roll_from(rng, 0, 10)
+    r = math.max(0, math.min(10, math.floor(r)))
+    fixedAmount = math.floor(level * (r * 10 + 50) / 100)
+  elseif opts.fixedDamage then
+    fixedAmount = opts.fixedDamage
+  end
+  if fixedAmount then
+    if flags.immune then
+      return 0, fixed_info(move, 0, flags, physical)
+    end
+    return fixedAmount, fixed_info(move, eff, flags, physical)
   end
 
-  local weather = opts.weather
-  local wmod = Rules.weather.typeModifier(weather, Types.name(move.type))
-
   local crit = false
+  local defAb = ability_of(defender, opts.adapter)
   if opts.forceCrit ~= nil then
     crit = opts.forceCrit and true or false
-  else
-    crit = Rules.crit.roll(attacker, move.id, opts.highCrit, opts.rng)
+  elseif defAb ~= "BATTLE_ARMOR" and defAb ~= "SHELL_ARMOR" and not opts.noCrit then
+    crit = Rules.crit.roll(attacker, move, opts.highCrit, rng)
   end
   local critMul = crit and Rules.crit.multiplier() or 1
 
-  local dmg = math.floor(base * stab * eff * wmod * critMul)
-
-  -- Random 85–100%
-  local rng = opts.rng or math.random
-  local roll
-  if opts.forceRoll then
-    roll = opts.forceRoll
-  else
-    local ok, r = pcall(rng, 85, 100)
-    if ok and type(r) == "number" then
-      roll = r
-    else
-      roll = 85 + (math.random(0, 15))
-    end
+  local dmg = Damage.base(attacker, defender, move, {
+    power = power,
+    moveType = moveType,
+    crit = crit,
+    adapter = opts.adapter,
+    reflect = opts.reflect,
+    lightScreen = opts.lightScreen,
+    weatherKind = weatherKind,
+    isSolarBeam = effectByte == EffectIds.SOLAR_BEAM,
+    mudSport = opts.mudSport,
+    waterSport = opts.waterSport,
+  })
+  -- pokefirered/src/battle_script_commands.c:1209
+  dmg = dmg * critMul * dmgMultiplier
+  if attacker.expCharged and tonumber(move.type) == Types.ID.ELECTRIC then
+    dmg = dmg * 2
   end
-  dmg = math.floor(dmg * roll / 100)
-  if dmg < 1 and eff > 0 then dmg = 1 end
-  if eff == 0 then dmg = 0 end
 
-  if effectByte == EffectIds.FALSE_SWIPE and eff > 0 then
-    local dMon = defender.mon or defender
-    local curHp = tonumber(dMon.hp) or 1
-    if curHp <= 1 then
-      dmg = 0
-    elseif dmg >= curHp then
-      dmg = curHp - 1
+  local stab = 1
+  local aT1, aT2 = attacker.type1, attacker.type2
+  if attacker.expTransform then
+    aT1 = attacker.expTransform.type1 or aT1
+    aT2 = attacker.expTransform.type2 or aT2
+  end
+  if move.id ~= "STRUGGLE" and tonumber(move.numId) ~= 165 then
+    if aT1 == moveType or aT2 == moveType then
+      stab = 1.5
+      dmg = math.floor(dmg * 15 / 10)
     end
+    dmg, flags, eff = Types.typeCalc(moveType, dType1, dType2, dmg, foresight)
+  else
+    flags = { super = false, notVery = false, immune = false }
+    eff = 1
+  end
+  if flags.immune then
+    return 0, {
+      move = move, effectiveness = 0, critical = false, physical = physical,
+      stab = stab, magnitude = magnitudeVal, moveType = moveType, typeFlags = flags,
+    }
+  end
+
+  -- pokefirered/src/battle_script_commands.c:1558
+  if dmg ~= 0 and not opts.noRandom then
+    local roll = tonumber(opts.forceRoll) or roll_from(rng, 85, 100)
+    dmg = math.floor(dmg * roll / 100)
+    if dmg == 0 then dmg = 1 end
+  end
+
+  if effectByte == EffectIds.FALSE_SWIPE and (defender.substituteHP or 0) <= 0 then
+    local curHp = tonumber(dMon.hp) or 1
+    if dmg >= curHp then dmg = math.max(0, curHp - 1) end
   end
 
   return dmg, {
@@ -406,6 +533,8 @@ function Damage.calc(attacker, defender, moveId, opts)
     stab = stab,
     magnitude = magnitudeVal,
     moveType = moveType,
+    typeFlags = flags,
+    power = power,
   }
 end
 

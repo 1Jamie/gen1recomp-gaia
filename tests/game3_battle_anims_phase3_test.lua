@@ -50,25 +50,29 @@ test("SmallDriftingBubbles - Q8.8 drift and 21-frame lifetime", function()
     callback = AnimCallbacks.SmallDriftingBubbles
   })
   assert_eq(AnimSprites.activeCount(), 1)
-  for _ = 1, 20 do
+  -- pokefirered/src/battle_anim_water.c:1027
+  for _ = 1, 21 do
     AnimSprites.update()
   end
   assert_eq(AnimSprites.activeCount(), 1)
   AnimSprites.update()
-  assert_eq(AnimSprites.activeCount(), 0, "should destroy at frame 21")
+  assert_eq(AnimSprites.activeCount(), 0, "should destroy after the init frame + 21 steps")
 end)
 
 test("BubbleEffect - sine wave oscillation and burst", function()
   local spr = AnimSprites.acquire({
-    x = 100, y = 80, z = AnimSprites.Z.FRONT,
+    x = 100, y = 80, z = AnimSprites.Z.FRONT, template = "gPoisonBubbleSpriteTemplate",
     callback = AnimCallbacks.BubbleEffect
   })
-  AnimSprites.update()
-  assert_eq(spr.oy < 0, true, "bubble rises upward")
-  for _ = 2, 35 do
+  -- pokefirered/src/battle_anim_poison.c:290
+  for _ = 1, 10 do
     AnimSprites.update()
   end
-  assert_eq(AnimSprites.activeCount(), 0, "bubble bursts")
+  assert_eq(spr.oy < 0, true, "bubble rises upward")
+  for _ = 11, 35 do
+    AnimSprites.update()
+  end
+  assert_eq(AnimSprites.activeCount(), 0, "bubble bursts when its affine anim ends")
 end)
 
 test("CreateSurfWave - surging wave with scanline traversal and collision", function()
@@ -78,14 +82,15 @@ test("CreateSurfWave - surging wave with scanline traversal and collision", func
   assert_eq(AnimTasks.activeCount(), 1)
   AnimTasks.update(vm)
   assert_eq(type(t.draw), "function", "CreateSurfWave must attach a draw function")
+  -- pokefirered/src/battle_anim_water.c:877
   for f = 2, 25 do
     AnimTasks.update(vm)
     AnimSprites.update()
-    assert_eq(t.data[10] < 0, true, "wave scrolls horizontally across arena")
-    assert_eq(t._alpha > 0, true, "alpha blend is active")
+    assert_eq(t._bg1x < 0, true, "wave scrolls horizontally across arena")
   end
+  assert_eq(bit.band(t._scan[1], 0x1F) > 0, true, "scanline blend band is active")
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 26, 50 do
+  for _ = 26, 200 do
     AnimTasks.update(vm)
     AnimSprites.update()
   end
@@ -100,7 +105,10 @@ test("LoadSandstormBackground - swirling sandstorm background and dust streaks",
   assert_eq(AnimTasks.activeCount(), 1)
   AnimTasks.update(vm)
   assert_eq(type(t.draw), "function", "LoadSandstormBackground must attach a draw function")
-  for _ = 2, 35 do
+  -- pokefirered/src/battle_anim_rock.c:416
+  for _ = 2, 40 do AnimTasks.update(vm) end
+  assert_eq(vm.bldAlpha and vm.bldAlpha.eva, 7, "sandstorm fades BG1 in to eva 7")
+  for _ = 41, 200 do
     AnimTasks.update(vm)
   end
   assert_eq(AnimTasks.activeCount(), 0, "sandstorm finishes cleanly")
@@ -117,28 +125,31 @@ end)
 
 -- 2. Fire & Volcano Callbacks
 test("FirePlume - flame pillar with upward velocity", function()
+  -- pokefirered/src/battle_anim_fire.c:486
   local spr = AnimSprites.acquire({
     x = 100, y = 100, z = AnimSprites.Z.FRONT,
-    _args = { 0, 0, 20, -3, 0 },
     callback = AnimCallbacks.FirePlume
   })
+  spr._args = { 0, 0, 20, 10, 0, -3 }
+  AnimSprites.update()
   AnimSprites.update()
   assert_eq(spr.oy < 0, true, "flame moves upward")
-  for _ = 2, 22 do
+  for _ = 3, 21 do
     AnimSprites.update()
   end
   assert_eq(AnimSprites.activeCount(), 0, "flame extinguishes")
 end)
 
 test("FireSpiralOutward - spiral vortex expanding trajectory", function()
+  -- pokefirered/src/battle_anim_fire.c:703
   local spr = AnimSprites.acquire({
     x = 100, y = 100, z = AnimSprites.Z.FRONT,
-    _args = { 0, 0, 24, 0, 0 },
     callback = AnimCallbacks.FireSpiralOutward
   })
+  spr._args = { 0, 0, 24, 0, 0 }
   AnimSprites.update()
   assert_eq(spr.ox ~= nil and spr.oy ~= nil, true)
-  for _ = 2, 26 do
+  for _ = 2, 27 do
     AnimSprites.update()
   end
   assert_eq(AnimSprites.activeCount(), 0, "spiral finishes")
@@ -148,7 +159,8 @@ test("EruptionLaunchRocks - volcanic ballistic rock launch", function()
   local vm = make_vm("player")
   AnimTasks.spawn("EruptionLaunchRocks", 2, {}, vm)
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 1, 40 do
+  -- pokefirered/src/battle_anim_fire.c:770
+  for _ = 1, 200 do
     AnimTasks.update(vm)
     AnimSprites.update()
   end
@@ -171,10 +183,14 @@ test("ShockWaveProgressingBolt - progressing electrical arcs", function()
   local vm = make_vm("player")
   AnimTasks.spawn("ShockWaveProgressingBolt", 2, {}, vm)
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 1, 25 do
+  local sawBolts = false
+  -- pokefirered/src/battle_anim_electric.c:1107
+  for _ = 1, 200 do
     AnimTasks.update(vm)
     AnimSprites.update()
+    if AnimSprites.activeCount() > 0 then sawBolts = true end
   end
+  assert_eq(sawBolts, true, "bolt segments spawned")
   assert_eq(AnimTasks.activeCount(), 0, "shock wave progresses and finishes")
 end)
 
@@ -207,35 +223,45 @@ end)
 -- 4. Ice, Ground & Acoustic FX
 test("IceEffectParticle - falling crystals and shatter", function()
   local spr = AnimSprites.acquire({
-    x = 100, y = 20, z = AnimSprites.Z.FRONT,
+    x = 100, y = 20, z = AnimSprites.Z.FRONT, template = "gIceCrystalHitLargeSpriteTemplate",
     callback = AnimCallbacks.IceEffectParticle
   })
-  AnimSprites.update()
-  assert_eq(spr.oy > 0, true, "falls downward")
-  for _ = 2, 22 do
+  -- pokefirered/src/battle_anim_ice.c:615
+  for _ = 1, 10 do
     AnimSprites.update()
   end
+  assert_eq(spr.active and spr.visible ~= false, true, "crystal holds while its affine anim grows")
+  local flicker = false
+  for _ = 11, 45 do
+    AnimSprites.update()
+    if spr.active and spr.visible == false then flicker = true end
+  end
+  assert_eq(flicker, true, "crystal flickers after the affine anim ends")
   assert_eq(AnimSprites.activeCount(), 0, "ice crystal shatters")
 end)
 
 test("FrozenIceCube - encasement in ice matrix", function()
   local vm = make_vm("player")
   local pTgt = Anim.present("enemy")
-  AnimTasks.spawn("FrozenIceCube", 2, {}, vm)
+  local t = AnimTasks.spawn("FrozenIceCube", 2, {}, vm)
   AnimTasks.update(vm)
-  assert_eq(pTgt.blendCoeff > 0, true, "ice shimmer active")
-  for _ = 2, 35 do
+  assert_eq(type(t.draw), "function", "ice cube sprite drawn")
+  -- pokefirered/src/battle_anim_status_effects.c:372
+  for _ = 2, 11 do AnimTasks.update(vm) end
+  assert_eq(t._cube.eva, 9, "ice cube fades in")
+  for _ = 12, 120 do
     AnimTasks.update(vm)
   end
   assert_eq(AnimTasks.activeCount(), 0, "ice cube thaws")
-  assert_eq(pTgt.blendCoeff, 0, "blend restored")
+  assert_eq(pTgt.blendCoeff or 0, 0, "target palette untouched")
 end)
 
 test("Hail - falling hailstorm", function()
   local vm = make_vm("player")
   AnimTasks.spawn("Hail", 2, {}, vm)
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 1, 35 do
+  -- pokefirered/src/battle_anim_ice.c:1260
+  for _ = 1, 400 do
     AnimTasks.update(vm)
     AnimSprites.update()
   end
@@ -243,13 +269,19 @@ test("Hail - falling hailstorm", function()
 end)
 
 test("DirtPlumeParticle - ground explosion with gravity", function()
+  local vm = Anim.vm()
+  -- pokefirered/data/battle_anim_scripts.s
+  vm.args[0], vm.args[1], vm.args[2], vm.args[3], vm.args[4], vm.args[5] = 0, 0, 12, 4, -16, 18
   local spr = AnimSprites.acquire({
-    x = 100, y = 100, z = AnimSprites.Z.FRONT,
+    x = 100, y = 100, z = AnimSprites.Z.FRONT, template = "gDirtPlumeSpriteTemplate",
     callback = AnimCallbacks.DirtPlumeParticle
   })
-  AnimSprites.update()
+  spr._vm = vm
+  for _ = 1, 6 do
+    AnimSprites.update()
+  end
   assert_eq(spr.oy < 0, true, "initial upward blast")
-  for _ = 2, 25 do
+  for _ = 7, 25 do
     AnimSprites.update()
   end
   assert_eq(AnimSprites.activeCount(), 0, "dirt falls back and clears")
@@ -257,12 +289,17 @@ end)
 
 test("WaveFromCenterOfTarget - expanding acoustic shockwave", function()
   local spr = AnimSprites.acquire({
-    x = 120, y = 80, z = AnimSprites.Z.FRONT,
+    x = 120, y = 80, z = AnimSprites.Z.FRONT, template = "gIceGroundSpikeSpriteTemplate",
     callback = AnimCallbacks.WaveFromCenterOfTarget
   })
   AnimSprites.update()
   assert_eq(spr.w > 0, true)
-  for _ = 2, 22 do
+  -- pokefirered/src/battle_anim_ice.c:272
+  for _ = 2, 34 do
+    AnimSprites.update()
+  end
+  assert_eq(AnimSprites.activeCount(), 1, "ice spike still animating")
+  for _ = 35, 40 do
     AnimSprites.update()
   end
   assert_eq(AnimSprites.activeCount(), 0, "sound wave expands and dissipates")
@@ -272,7 +309,8 @@ test("AtmosphericFog - mist and spore clouds", function()
   local vm = make_vm("player")
   AnimTasks.spawn("MistBallFog", 2, { 20 }, vm)
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 1, 25 do
+  -- pokefirered/src/battle_anim_ice.c:1053
+  for _ = 1, 200 do
     AnimTasks.update(vm)
     AnimSprites.update()
   end
@@ -330,7 +368,7 @@ for _, m in ipairs(phase3Moves) do
       AnimSprites.reset()
       Anim.reset({ headless = true })
       vm:launch(pack.moves[m.id], { attackerSide = "player", isReversed = false })
-      local maxFrames = 360
+      local maxFrames = 900
       local frames = 0
       while vm:busy() and frames < maxFrames do
         frames = frames + 1

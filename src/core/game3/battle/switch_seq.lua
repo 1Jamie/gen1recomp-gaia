@@ -28,6 +28,7 @@ function SwitchSeq.reset()
   SwitchSeq._pushMsg = nil
   SwitchSeq._onDone = nil
   SwitchSeq._st = nil
+  SwitchSeq._waitAnimSeq = false
 end
 
 function SwitchSeq.busy()
@@ -118,6 +119,56 @@ local function apply_entry_triggers(st, side, pushMsg)
   end
 end
 
+local function battle_adapter()
+  local Battle = package.loaded["src.core.game3.battle"]
+  return Battle and Battle._adapter
+end
+
+local function capture_events(fn)
+  local ad = battle_adapter()
+  if not ad then return nil end
+  local mark = ad:eventMark()
+  local prev = ad._say
+  ad._say = function() end
+  local ok = pcall(fn, ad)
+  ad._say = prev
+  if not ok then return {} end
+  return ad:eventsSince(mark)
+end
+
+-- pokefirered/src/battle_script_commands.c:9197
+local function switch_out_effects(st, battler)
+  local Engine = package.loaded["src.core.game3.battle.engine"]
+  if not (Engine and Engine.switchOutEffects and battler) then return end
+  capture_events(function(ad) Engine.switchOutEffects(st, ad, battler) end)
+end
+
+-- pokefirered/src/battle_script_commands.c:4960
+local function engine_entry_events(st, sides)
+  local Engine = package.loaded["src.core.game3.battle.engine"]
+  if not (Engine and Engine.switchInEffects and battle_adapter()) then return nil end
+  return capture_events(function(ad)
+    for _, side in ipairs(sides) do
+      local b = st and st[side]
+      if b and b.mon and (tonumber(b.mon.hp) or 0) > 0 then
+        Engine.switchInEffects(st, ad, b, { spikes = true })
+      end
+    end
+  end)
+end
+
+local function headless_entry(st, sides)
+  local evs = engine_entry_events(st, sides)
+  if evs == nil then
+    for _, side in ipairs(sides) do apply_entry_triggers(st, side, SwitchSeq._pushMsg) end
+    return
+  end
+  for _, e in ipairs(evs) do
+    if e.kind == "msg" and SwitchSeq._pushMsg then SwitchSeq._pushMsg(e.text) end
+  end
+  Anim.syncDisplayFromState(st)
+end
+
 function SwitchSeq.beginPlayerSwitch(st, newSlot, opts)
   opts = opts or {}
   SwitchSeq.reset()
@@ -131,6 +182,7 @@ function SwitchSeq.beginPlayerSwitch(st, newSlot, opts)
 
   if SwitchSeq._headless then
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg(withdrawMsg) end
+    switch_out_effects(st, oldBattler)
     State.trackParticipant(st, st.enemy, oldBattler and oldBattler.partyIndex or 1)
     State.syncBattlerToParty(st.player, st.playerParty)
     State.wipeVolatilesAndStages(st.player, { batonPass = opts.batonPass })
@@ -139,6 +191,7 @@ function SwitchSeq.beginPlayerSwitch(st, newSlot, opts)
     Anim.syncDisplayFromState(st)
     local newName = State.displayName(st.player)
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg("Go! " .. newName .. "!") end
+    headless_entry(st, { "player" })
     finish()
     return false
   end
@@ -187,6 +240,7 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
         SwitchSeq._pushMsg(tname .. " sent\nout " .. State.displayName(st.enemy) .. "!")
       end
     end
+    headless_entry(st, { side })
     finish()
     return false
   end
@@ -219,6 +273,28 @@ function SwitchSeq.beginSendOut(st, side, newSlot, opts)
   return true
 end
 
+-- pokefirered/src/battle_controller_player.c:2105
+function SwitchSeq.beginEventSwitchIn(st, side, opts)
+  opts = opts or {}
+  SwitchSeq.reset()
+  SwitchSeq._st = st
+  SwitchSeq._headless = opts.headless and true or false
+  SwitchSeq._pushMsg = opts.pushMsg
+  SwitchSeq._onDone = opts.onDone
+  if SwitchSeq._headless then
+    finish()
+    return false
+  end
+  SwitchSeq._steps = {
+    { kind = (side == "player") and "sendout_player" or "sendout_enemy", data = { side = side } },
+    { kind = "shiny_check", data = { side = side } },
+    { kind = "cry", data = { side = side } },
+    { kind = "healthbox", data = { side = side } },
+  }
+  SwitchSeq._i = 1
+  return true
+end
+
 --- Retail Shift sequence: Player recalls active mon -> Enemy sends out replacement FIRST -> Player sends out replacement SECOND.
 function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
   opts = opts or {}
@@ -233,6 +309,7 @@ function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
 
   if SwitchSeq._headless then
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg(withdrawMsg) end
+    switch_out_effects(st, oldBattler)
     State.trackParticipant(st, st.enemy, oldBattler and oldBattler.partyIndex or 1)
     State.syncBattlerToParty(st.player, st.playerParty)
     State.wipeVolatilesAndStages(st.player)
@@ -245,6 +322,7 @@ function SwitchSeq.beginShiftSwitch(st, playerSlot, enemySlot, opts)
     State.trackParticipant(st, st.enemy, playerSlot)
     Anim.syncDisplayFromState(st)
     if SwitchSeq._pushMsg then SwitchSeq._pushMsg("Go! " .. State.displayName(st.player) .. "!") end
+    headless_entry(st, { "enemy", "player" })
     finish()
     return false
   end
@@ -329,7 +407,10 @@ local function run_step(step)
         or (st and st.trainerName or "TRAINER")
       text = tname .. " sent\nout " .. State.displayName(st and st.enemy) .. "!"
     end
-    if SwitchSeq._pushMsg then
+    if side == "player" and not SwitchSeq._headless then
+      -- pokefirered/src/battle_message.c:399
+      require("src.core.game3.battle.ui").pushTimed(text, 0)
+    elseif SwitchSeq._pushMsg then
       SwitchSeq._pushMsg(text)
     end
     SwitchSeq._waiting = true
@@ -361,6 +442,20 @@ local function run_step(step)
   if kind == "swap_data" then
     local side = d.side or "player"
     local newSlot = d.newSlot or 1
+    local Engine = package.loaded["src.core.game3.battle.engine"]
+    local party = st and ((side == "player") and st.playerParty or st.foeParty)
+    local pres = Anim.present(side)
+    -- pokefirered/src/battle_gfx_sfx_util.c:997
+    if pres then pres.castformForm, pres.castformMon = nil, nil end
+    if Engine and Engine.performSwitch and battle_adapter() and st and st[side] and party and party[newSlot] then
+      capture_events(function(ad)
+        Engine.performSwitch(st, ad, side, newSlot, { batonPass = d.batonPass, reason = "switch" })
+      end)
+      Anim.syncDisplayFromState(st)
+      advance()
+      return
+    end
+    switch_out_effects(st, st and st[side])
     if side == "player" then
       if st and st.player then
         State.trackParticipant(st, st.enemy, st.player.partyIndex or 1)
@@ -478,8 +573,9 @@ local function run_step(step)
     local b = st and st[side]
     local sp = b and (b.species or (b.mon and (b.mon.species or b.mon.speciesId)))
     if sp then
-      local pan = (side == "player") and -64 or 63
-      Audio.playCry(sp, { pan = pan })
+      -- pokefirered/src/pokeball.c:782
+      local IntroSeq = require("src.core.game3.battle.intro_seq")
+      Audio.playCry(sp, IntroSeq.releaseCryMode(b.mon), (side == "player") and -25 or 25)
     end
     SwitchSeq._waiting = true
     SwitchSeq._waitingCry = true
@@ -506,13 +602,29 @@ local function run_step(step)
     local sides = d.sides or { d.side or "player" }
     if #sides > 1 then
       table.sort(sides, function(a, bSide)
-        local spA = st and st[a] and st[a].speed or 0
-        local spB = st and st[bSide] and st[bSide].speed or 0
+        local spA = st and st[a] and (st[a].speed or (st[a].mon and st[a].mon.speed)) or 0
+        local spB = st and st[bSide] and (st[bSide].speed or (st[bSide].mon and st[bSide].mon.speed)) or 0
         return spA > spB
       end)
     end
-    for _, sSide in ipairs(sides) do
-      apply_entry_triggers(st, sSide, SwitchSeq._pushMsg)
+    local evs = engine_entry_events(st, sides)
+    if evs == nil then
+      for _, sSide in ipairs(sides) do
+        apply_entry_triggers(st, sSide, SwitchSeq._pushMsg)
+      end
+    elseif #evs > 0 then
+      local AnimSeq = require("src.core.game3.battle.anim_seq")
+      local Ui = require("src.core.game3.battle.ui")
+      if not AnimSeq.busy() then
+        AnimSeq.beginEvents(evs, function(text, wait) Ui.pushTimed(text, tonumber(wait) or 64) end)
+        SwitchSeq._waitAnimSeq = true
+        advance()
+        return
+      end
+      for _, e in ipairs(evs) do
+        if e.kind == "msg" and SwitchSeq._pushMsg then SwitchSeq._pushMsg(e.text) end
+      end
+      Anim.syncDisplayFromState(st)
     end
     advance()
     return
@@ -545,6 +657,12 @@ end
 function SwitchSeq.update()
   if not SwitchSeq._steps then return true end
 
+  if SwitchSeq._waitAnimSeq then
+    local AnimSeq = require("src.core.game3.battle.anim_seq")
+    if not AnimSeq.update() then return false end
+    SwitchSeq._waitAnimSeq = false
+  end
+
   if SwitchSeq._waitingCry then
     if Audio.isCryPlaying and Audio.isCryPlaying() then
       return false
@@ -556,7 +674,7 @@ function SwitchSeq.update()
 
   if SwitchSeq._waitingMsg then
     local Ui = package.loaded["src.core.game3.battle.ui"]
-    local pending = Ui and (Ui.isShowing and Ui.isShowing() or (Ui.busy and Ui.busy()))
+    local pending = Ui and ((Ui.dialogPending and Ui.dialogPending()) or (Ui.busy and Ui.busy()))
     if pending then
       return false
     end
@@ -574,7 +692,7 @@ function SwitchSeq.update()
 
   while SwitchSeq._steps and SwitchSeq._i <= #SwitchSeq._steps do
     run_step(SwitchSeq._steps[SwitchSeq._i])
-    if SwitchSeq._waiting or SwitchSeq._waitingCry or SwitchSeq._waitingMsg then
+    if SwitchSeq._waiting or SwitchSeq._waitingCry or SwitchSeq._waitingMsg or SwitchSeq._waitAnimSeq then
       return false
     end
   end

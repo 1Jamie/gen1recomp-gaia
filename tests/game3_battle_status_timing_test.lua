@@ -44,7 +44,7 @@ do
   local events = Engine.collectResidualEvents(st, ad)
   eq(#events, 2, "collected exactly 2 discrete residual events")
   eq(events[1].target.side, "player", "event 1 resolved for faster battler (player Charizard)")
-  eq(events[1].msgs[1], "CHARIZARD is hurt by poison!", "event 1 has correct poison text")
+  eq(events[1].msgs[1], "CHARIZARD is hurt\nby poison!", "event 1 has correct poison text")
   eq(events[1].hpChanges[1].side, "player", "event 1 hp change is on player")
   eq(events[1].hpChanges[1].from, 100, "event 1 hp from 100")
   local pLoss = math.max(1, math.floor(ad:maxHp(st.player) / 8))
@@ -52,7 +52,7 @@ do
   eq(events[1].hpChanges[1].to, 100 - pLoss, "event 1 hp to 100 - pLoss")
 
   eq(events[2].target.side, "enemy", "event 2 resolved for slower battler (enemy Blastoise)")
-  eq(events[2].msgs[1], "BLASTOISE is hurt by its burn!", "event 2 has correct burn text")
+  eq(events[2].msgs[1], "BLASTOISE is hurt\nby its burn!", "event 2 has correct burn text")
   eq(events[2].hpChanges[1].side, "enemy", "event 2 hp change is on enemy")
   eq(events[2].hpChanges[1].from, 80, "event 2 hp from 80")
   eq(events[2].hpChanges[1].to, 80 - eLoss, "event 2 hp to 80 - eLoss")
@@ -153,7 +153,7 @@ do
   -- Verify Ui.log recorded the hurt by poison message during the turn
   local foundPoisonMsg = false
   for _, msg in ipairs(Ui.log() or {}) do
-    if msg:find("hurt by poison") then
+    if msg:find("hurt\nby poison", 1, true) then
       foundPoisonMsg = true
       break
     end

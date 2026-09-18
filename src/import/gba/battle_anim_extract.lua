@@ -9,7 +9,7 @@ local Lz77      = require("src.import.gba.lz77")
 
 local BattleAnimExtract = {}
 
-BattleAnimExtract.FORMAT_VERSION = 3
+BattleAnimExtract.FORMAT_VERSION = 5
 BattleAnimExtract.CACHE_SUB      = "pokemon/battle_anims"
 
 local V = Versions.BATTLE_ANIMS or {}
@@ -81,7 +81,7 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
 
   local i = startOff
   local guard = 0
-  while guard < 512 do
+  while guard < 4096 do
     guard = guard + 1
     if i >= rom.size then break end
 
@@ -113,6 +113,8 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       local tile_idx  = tile_id - SPRITES_START
       local tag_name  = (tile_id >= SPRITES_START) and (TAG_NAMES[tile_idx] or ("TAG_" .. tile_idx)) or nil
       local noGfx     = (tile_id < SPRITES_START)  -- tileTag = 0 means TAG_NONE → no gfx
+      local pal_id    = tmpl_off and rom:u16(tmpl_off + 2) or 0
+      local pal_name  = (pal_id >= SPRITES_START) and (TAG_NAMES[pal_id - SPRITES_START] or ("TAG_" .. (pal_id - SPRITES_START))) or nil
 
       -- OAM dimensions from SpriteTemplate.oam pointer
       local w, h = 32, 32
@@ -139,6 +141,7 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
 
       local cb_gba = tmpl_off and rom:u32(tmpl_off + 20) or 0
       local cb_name = Versions.ANIM_CALLBACK_NAMES and Versions.ANIM_CALLBACK_NAMES[cb_gba]
+      local tmpl_name = Versions.ANIM_TEMPLATE_NAMES and Versions.ANIM_TEMPLATE_NAMES[tmpl_gba]
 
       if tag_name and tag_dims and not tag_dims[tag_name] then
         tag_dims[tag_name] = { w = w, h = h }
@@ -157,7 +160,9 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
 
       ops[#ops + 1] = {
         op           = "createsprite",
+        template     = tmpl_name,
         tag          = tag_name,
+        palTag       = (pal_name ~= tag_name) and pal_name or nil,
         callback     = cb_name,
         noGfx        = noGfx or nil,
         w            = w,
@@ -318,7 +323,12 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       for ai = 0, argc - 1 do
         args[ai + 1] = s16(rom:u16(i + 6 + ai * 2))
       end
-      ops[#ops + 1] = { op = "nop" }  -- treat as nop; sound handled by SE ops
+      local snd_name = Versions.ANIM_TASK_NAMES and Versions.ANIM_TASK_NAMES[fn_gba]
+      ops[#ops + 1] = {
+        op   = "createsoundtask",
+        task = snd_name or string.format("0x%08X", fn_gba),
+        args = args,
+      }
       i = i + 6 + argc * 2
 
     elseif op == 0x21 then  -- jumpargeq
@@ -340,13 +350,37 @@ local function decode_script(rom, startOff, visited, labels, tag_dims)
       local pan2 = s8(rom:get(i + 4))
       local step = s8(rom:get(i + 5))
       local wait = rom:get(i + 6)
-      ops[#ops + 1] = { op = "panse", se = se, pan = pan1, targetPan = pan2, step = step, wait = wait }
+      ops[#ops + 1] = { op = "panse", se = se, pan = pan1, targetPan = pan2, step = step, wait = wait,
+        mode = (op == 0x26) and "adjustnone" or "adjustall" }
       i = i + 7
 
     elseif op == 0x28 or op == 0x29 or op == 0x2A then  -- splitbgprio / splitbgprio_all / splitbgprio_foes
-      local b = (op == 0x28) and rom:get(i + 1) or 1
-      ops[#ops + 1] = { op = "splitbgprio", battler = BATTLER_NAMES[b] or "target" }
+      local b = (op == 0x28 or op == 0x2A) and rom:get(i + 1) or 1
+      ops[#ops + 1] = { op = "splitbgprio", battler = BATTLER_NAMES[b] or "target",
+        mode = (op == 0x29) and "all" or ((op == 0x2A) and "foes" or nil) }
       i = i + (op == 0x29 and 1 or 2)
+
+    elseif op == 0x16 or op == 0x17 or op == 0x20 or op == 0x2F then
+      local names = { [0x16] = "waitbgfadeout", [0x17] = "waitbgfadein", [0x20] = "waitsound", [0x2F] = "stopsound" }
+      ops[#ops + 1] = { op = names[op] }
+      i = i + 1
+
+    elseif op == 0x1A then
+      ops[#ops + 1] = { op = "setpan", pan = s8(rom:get(i + 1)) }
+      i = i + 2
+
+    elseif op == 0x1E then
+      ops[#ops + 1] = { op = "setbldcnt", value = rom:u16(i + 1) }
+      i = i + 3
+
+    elseif op == 0x22 or op == 0x23 then
+      local b = rom:get(i + 1)
+      ops[#ops + 1] = { op = (op == 0x22) and "monbg_static" or "clearmonbg_static", battler = BATTLER_NAMES[b] or "target" }
+      i = i + 2
+
+    elseif op == 0x24 then
+      ops[#ops + 1] = { op = "jumpifcontest" }
+      i = i + 5
 
     elseif op == 0x2B then  -- invisible
       ops[#ops + 1] = { op = "invisible", battler = BATTLER_NAMES[rom:get(i+1)] or "attacker" }
@@ -407,6 +441,15 @@ end
 
 local bit = require("bit")
 local band, bor, bxor, rshift, lshift = bit.band, bit.bor, bit.bxor, bit.rshift, bit.lshift
+
+local function pal_ints(pal_bytes, off)
+  off = off or 0
+  local out = {}
+  for ci = 0, 15 do
+    out[ci + 1] = band((pal_bytes[off + ci * 2 + 1] or 0) + (pal_bytes[off + ci * 2 + 2] or 0) * 256, 0x7FFF)
+  end
+  return out
+end
 
 -- CRC-32 table for PNG chunk checksums
 local crc_table = {}
@@ -528,7 +571,6 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
   for idx = 0, anim.tag_count - 1 do
     local name = TAG_NAMES[idx]
     if not name then goto continue_tag end
-    if not usedTags[name] then goto continue_tag end
 
     -- Read pic pointer (8-byte stride: ptr at +0, size at +4)
     local pic_gba = rom:u32(pic_base + idx * 8)
@@ -556,6 +598,7 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
     if not pal_bytes then goto continue_tag end
 
     local pal = decode_palette(pal_bytes)
+    local palInts = pal_ints(pal_bytes)
 
     -- tile_bytes: raw 4bpp tile data. Each tile = 32 bytes = 8×8 pixels.
     -- Tiles are arranged in columns determined by frame width.
@@ -581,6 +624,8 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
     -- Decode all tiles to RGBA
     local pixels = {}
     for pi = 1, img_w * img_h * 4 do pixels[pi] = 0 end
+    local ipx = {}
+    for pi = 1, img_w * img_h * 4 do ipx[pi] = (pi % 4 == 0) and 255 or 0 end
 
     local tiles_wide = math.floor(img_w / 8)
     for ti = 0, tile_count - 1 do
@@ -599,9 +644,11 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
           local base = px * 4 + 1
           pixels[base]   = cl[1]; pixels[base+1] = cl[2]
           pixels[base+2] = cl[3]; pixels[base+3] = cl[4]
+          ipx[base], ipx[base + 1], ipx[base + 2] = lo * 17, lo * 17, lo * 17
           base = base + 4
           pixels[base]   = ch[1]; pixels[base+1] = ch[2]
           pixels[base+2] = ch[3]; pixels[base+3] = ch[4]
+          ipx[base], ipx[base + 1], ipx[base + 2] = hi * 17, hi * 17, hi * 17
         end
       end
     end
@@ -612,8 +659,16 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
       if cache and cache.write then
         cache:write(rel, png)
       end
+      local ipng = encode_png(ipx, img_w, img_h)
+      local idxRel = nil
+      if ipng and #ipng > 0 and cache and cache.write then
+        idxRel = "tags/" .. name .. ".idx.png"
+        cache:write(root .. "/" .. idxRel, ipng)
+      end
       tags[name] = {
         file   = "tags/" .. name .. ".png",
+        idxFile = idxRel,
+        pal    = palInts,
         w      = img_w,
         h      = img_h,
         frameW = frame_w or (best_w * 8),
@@ -624,6 +679,219 @@ local function extract_tag_sheets(rom, cache, root, usedTags, tag_dims)
     ::continue_tag::
   end
   return tags
+end
+
+local function lz_at(rom, ptr)
+  local off = rom:ptrOffset(ptr)
+  if not (off and rom:get(off) == 0x10) then return nil end
+  local ok, bytes = pcall(Lz77.decompress, function(j) return rom:get(j) end, off)
+  if ok and bytes then return bytes end
+  return nil
+end
+
+local function raw_at(rom, off, n)
+  local out = {}
+  for i = 0, n - 1 do out[i + 1] = rom:get(off + i) end
+  return out
+end
+
+local function pal_bytes_at(rom, ptr)
+  local b = lz_at(rom, ptr)
+  if b then return b end
+  local po = rom:ptrOffset(ptr)
+  if not po then return nil end
+  return raw_at(rom, po, 32)
+end
+
+local function tag_pal_ints(rom, idx)
+  local anim = Versions.BATTLE_ANIMS
+  if not (anim and anim.pal_table) then return nil end
+  local b = pal_bytes_at(rom, rom:u32(anim.pal_table + idx * 8))
+  if not (b and #b >= 32) then return nil end
+  local out = {}
+  for k = 0, math.floor(#b / 32) - 1 do
+    local row = pal_ints(b, k * 32)
+    for i = 1, 16 do out[k * 16 + i] = row[i] end
+  end
+  return out
+end
+
+local function decode_bg(tiles, map, palInts, opaque0)
+  local entries = math.floor(#map / 2)
+  local mw = (entries >= 2048) and 64 or 32
+  local mh = math.max(1, math.min(32, math.floor(entries / mw)))
+  local w, h = mw * 8, mh * 8
+  local rgba, idx = {}, {}
+  for i = 1, w * h * 4 do
+    rgba[i] = 0
+    idx[i] = (i % 4 == 0) and 255 or 0
+  end
+  local cols = {}
+  for ci = 0, 15 do
+    local c = palInts[ci + 1] or 0
+    cols[ci] = { band(c, 31) * 8, band(rshift(c, 5), 31) * 8, band(rshift(c, 10), 31) * 8 }
+  end
+  local ntiles = math.floor(#tiles / 32)
+  for e = 0, mw * mh - 1 do
+    local v = (map[e * 2 + 1] or 0) + (map[e * 2 + 2] or 0) * 256
+    local tile = v % 1024
+    local hf = math.floor(v / 1024) % 2 == 1
+    local vf = math.floor(v / 2048) % 2 == 1
+    local sbx = math.floor(e / 1024)
+    local inb = e % 1024
+    local tx = (inb % 32) + sbx * 32
+    local ty = math.floor(inb / 32)
+    if tile < ntiles then
+      for row = 0, 7 do
+        for col = 0, 7 do
+          local b = tiles[tile * 32 + row * 4 + math.floor(col / 2) + 1] or 0
+          local ci = (col % 2 == 0) and (b % 16) or math.floor(b / 16)
+          local dx = hf and (7 - col) or col
+          local dy = vf and (7 - row) or row
+          local o = ((ty * 8 + dy) * w + tx * 8 + dx) * 4 + 1
+          local c = cols[ci]
+          rgba[o], rgba[o + 1], rgba[o + 2] = c[1], c[2], c[3]
+          rgba[o + 3] = (ci == 0 and not opaque0) and 0 or 255
+          idx[o], idx[o + 1], idx[o + 2] = ci * 17, ci * 17, ci * 17
+        end
+      end
+    end
+  end
+  return rgba, idx, w, h
+end
+
+local function write_bg(cache, root, key, tiles, map, palInts, opaque0)
+  local rgba, idx, w, h = decode_bg(tiles, map, palInts, opaque0)
+  local rel = "animbg/" .. key .. ".png"
+  local irel = "animbg/" .. key .. ".idx.png"
+  local png = encode_png(rgba, w, h)
+  local ipng = encode_png(idx, w, h)
+  if not (png and ipng and cache and cache.write) then return nil end
+  cache:write(root .. "/" .. rel, png)
+  cache:write(root .. "/" .. irel, ipng)
+  return { file = rel, idxFile = irel, pal = palInts, w = w, h = h, opaque0 = opaque0 or nil }
+end
+
+-- pokefirered/src/graphics.c:705
+local function extract_named_bgs(rom, cache, root, out)
+  local anim = Versions.BATTLE_ANIMS
+  local named = anim and anim.named_bgs
+  if not named then return out end
+  for key, e in pairs(named) do
+    local tiles
+    if e.gfx_raw then
+      tiles = raw_at(rom, e.gfx_raw, e.gfx_size or 0x800)
+    else
+      tiles = lz_at(rom, e.gfx + 0x08000000)
+    end
+    local map = lz_at(rom, e.map + 0x08000000)
+    local palInts
+    if e.pal_tag then
+      for i = 0, (anim.tag_count or 289) - 1 do
+        if TAG_NAMES[i] == e.pal_tag then palInts = tag_pal_ints(rom, i) end
+      end
+    elseif e.pal_raw then
+      palInts = pal_ints(raw_at(rom, e.pal_raw, 32))
+    elseif e.pal_white1 then
+      palInts = {}
+      for ci = 1, 16 do palInts[ci] = 0 end
+      palInts[2] = 0x7FFF
+    elseif e.pal then
+      local pb = lz_at(rom, e.pal + 0x08000000)
+      palInts = pb and pal_ints(pb)
+    end
+    if tiles and map and palInts then
+      out[key] = write_bg(cache, root, key, tiles, map, palInts, false)
+    end
+  end
+  return out
+end
+
+-- pokefirered/src/data/battle_anim.h:1596
+local function extract_anim_bgs(rom, cache, root)
+  local anim = Versions.BATTLE_ANIMS
+  local base = anim and (anim.bg_table or (anim.pal_table and anim.tag_count and anim.pal_table + anim.tag_count * 8))
+  local count = anim and anim.bg_count or 27
+  local out = {}
+  if not base then return out end
+  local done = {}
+  for id = 0, count - 1 do
+    local imgPtr = rom:u32(base + id * 12)
+    local palPtr = rom:u32(base + id * 12 + 4)
+    local mapPtr = rom:u32(base + id * 12 + 8)
+    local key = string.format("%08X_%08X_%08X", imgPtr, palPtr, mapPtr)
+    if done[key] then
+      out[id] = done[key]
+    else
+      local tiles = lz_at(rom, imgPtr)
+      local map = lz_at(rom, mapPtr)
+      local palBytes = lz_at(rom, palPtr)
+      if not palBytes then
+        local po = rom:ptrOffset(palPtr)
+        if po then
+          palBytes = {}
+          for pi = 0, 31 do palBytes[pi + 1] = rom:get(po + pi) end
+        end
+      end
+      if tiles and map and palBytes and #palBytes >= 32 then
+        local e = write_bg(cache, root, tostring(id), tiles, map, pal_ints(palBytes), true)
+        if e then
+          out[id] = e
+          done[key] = e
+        end
+      end
+    end
+  end
+  return out
+end
+
+-- pokefirered/src/battle_anim_utility_funcs.c:459
+local function extract_stat_mask(rom, cache, root)
+  local anim = Versions.BATTLE_ANIMS
+  if not (anim and anim.stat_mask_gfx) then return nil end
+  local tiles = lz_at(rom, anim.stat_mask_gfx + 0x08000000)
+  if not tiles then return nil end
+  local out = { files = {}, pals = {} }
+  for k = 1, 8 do
+    local pb = lz_at(rom, anim.stat_mask_pal + (k - 1) * 0x20 + 0x08000000)
+    if not pb then return nil end
+    local pal = decode_palette(pb)
+    local row = {}
+    for ci = 0, 15 do row[ci + 1] = { pal[ci][1], pal[ci][2], pal[ci][3] } end
+    out.pals[k] = row
+  end
+  local ntiles = math.floor(#tiles / 32)
+  for mi, off in ipairs({ anim.stat_mask_tilemap1, anim.stat_mask_tilemap2 }) do
+    local map = lz_at(rom, off + 0x08000000)
+    if not map then return nil end
+    local pixels = {}
+    for i = 1, 256 * 256 * 4 do pixels[i] = 0 end
+    for e = 0, 1023 do
+      local v = map[e * 2 + 1] + map[e * 2 + 2] * 256
+      local tile = v % 1024
+      local hf = math.floor(v / 1024) % 2 == 1
+      local vf = math.floor(v / 2048) % 2 == 1
+      local tx, ty = e % 32, math.floor(e / 32)
+      if tile < ntiles then
+        for r = 0, 7 do
+          for c = 0, 7 do
+            local b = tiles[tile * 32 + r * 4 + math.floor(c / 2) + 1] or 0
+            local ci = (c % 2 == 0) and (b % 16) or math.floor(b / 16)
+            local dx = hf and (7 - c) or c
+            local dy = vf and (7 - r) or r
+            local i = ((ty * 8 + dy) * 256 + tx * 8 + dx) * 4 + 1
+            pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3] = ci * 16, ci * 16, ci * 16, (ci == 0) and 0 or 255
+          end
+        end
+      end
+    end
+    local png = encode_png(pixels, 256, 256)
+    if not png then return nil end
+    local rel = "statmask/" .. mi .. ".png"
+    cache:write(root .. "/" .. rel, png)
+    out.files[mi] = rel
+  end
+  return out
 end
 
 -- ── Lua serializer ────────────────────────────────────────────────────────
@@ -763,6 +1031,26 @@ function BattleAnimExtract.run(rom, cache, opts)
     end
   end
 
+  local tag_count = 0
+  local function decode_table(base, count, names)
+    local out, outNames = {}, {}
+    if not base then return out, outNames end
+    for idx = 0, count - 1 do
+      local off = rom:ptrOffset(rom:u32(base + idx * 4))
+      if off then
+        out[idx] = decode_script(rom, off, visited, labels, tagDims)
+      else
+        out[idx] = GENERIC
+      end
+      outNames[idx] = names and names[idx] or tostring(idx)
+    end
+    return out, outNames
+  end
+
+  local general, generalNames = decode_table(anim.general_table, anim.general_count or 28, Versions.BATTLE_ANIM_GENERAL_NAMES)
+  local special, specialNames = decode_table(anim.special_table, anim.special_count or 7, Versions.BATTLE_ANIM_SPECIAL_NAMES)
+  local status, statusNames   = decode_table(anim.status_table, anim.status_count or 9, Versions.BATTLE_ANIM_STATUS_NAMES)
+
   -- Collect tags from all label scripts too
   for _, script in pairs(labels) do
     for _, op in ipairs(script) do
@@ -770,7 +1058,6 @@ function BattleAnimExtract.run(rom, cache, opts)
     end
   end
 
-  local tag_count = 0
   for _ in pairs(usedTags) do tag_count = tag_count + 1 end
   print(string.format("[battle_anim_extract] %d moves decoded, %d unique tags", move_count, tag_count))
 
@@ -785,6 +1072,86 @@ function BattleAnimExtract.run(rom, cache, opts)
     for _ in pairs(tagMeta) do extracted = extracted + 1 end
     print(string.format("[battle_anim_extract] wrote %d tag PNGs", extracted))
   end
+  local animBgs = cache and extract_anim_bgs(rom, cache, root) or {}
+  if cache then extract_named_bgs(rom, cache, root, animBgs) end
+  local tagPals = {}
+  for i = 0, (anim.tag_count or 289) - 1 do
+    local nm = TAG_NAMES[i]
+    if nm then tagPals[nm] = tag_pal_ints(rom, i) end
+  end
+  local bgPals = {}
+  if anim.muddy_water_pal then
+    local pb = lz_at(rom, anim.muddy_water_pal + 0x08000000)
+    if pb then bgPals.MUDDY_WATER = pal_ints(pb) end
+  end
+  if cache and anim.smokescreen_gfx and anim.smokescreen_pal then
+    local tb = lz_at(rom, anim.smokescreen_gfx + 0x08000000)
+    local pb = lz_at(rom, anim.smokescreen_pal + 0x08000000)
+    if tb and pb then
+      local pal = decode_palette(pb)
+      local palInts = pal_ints(pb)
+      local ntiles = math.floor(#tb / 32)
+      local w, h = 16, math.ceil(ntiles / 2) * 8
+      local px, ipx = {}, {}
+      for i = 1, w * h * 4 do
+        px[i] = 0
+        ipx[i] = (i % 4 == 0) and 255 or 0
+      end
+      for ti = 0, ntiles - 1 do
+        local tx, ty = ti % 2, math.floor(ti / 2)
+        for row = 0, 7 do
+          for col = 0, 7 do
+            local b = tb[ti * 32 + row * 4 + math.floor(col / 2) + 1] or 0
+            local ci = (col % 2 == 0) and (b % 16) or math.floor(b / 16)
+            local o = ((ty * 8 + row) * w + tx * 8 + col) * 4 + 1
+            local c = pal[ci]
+            px[o], px[o + 1], px[o + 2], px[o + 3] = c[1], c[2], c[3], c[4]
+            ipx[o], ipx[o + 1], ipx[o + 2] = ci * 17, ci * 17, ci * 17
+          end
+        end
+      end
+      local png, ipng = encode_png(px, w, h), encode_png(ipx, w, h)
+      if png and ipng then
+        cache:write(root .. "/tags/TAG_SMOKESCREEN.png", png)
+        cache:write(root .. "/tags/TAG_SMOKESCREEN.idx.png", ipng)
+        tagMeta.TAG_SMOKESCREEN = { file = "tags/TAG_SMOKESCREEN.png", idxFile = "tags/TAG_SMOKESCREEN.idx.png",
+          pal = palInts, w = w, h = h, frameW = 16, frameH = 16 }
+        tagPals.TAG_SMOKESCREEN = palInts
+      end
+    end
+  end
+  if cache and anim.substitute_pal then
+    local palBytes = lz_at(rom, anim.substitute_pal + 0x08000000)
+    if palBytes then
+      local pal = decode_palette(palBytes)
+      for key, off in pairs({ SUBSTITUTE_DOLL_FRONT = anim.substitute_front, SUBSTITUTE_DOLL_BACK = anim.substitute_back }) do
+        local tb = off and lz_at(rom, off + 0x08000000)
+        if tb and #tb >= 2048 then
+          local pixels = {}
+          for i = 1, 64 * 64 * 4 do pixels[i] = 0 end
+          for ti = 0, 63 do
+            local tx, ty = ti % 8, math.floor(ti / 8)
+            for row = 0, 7 do
+              for col = 0, 3 do
+                local b = tb[ti * 32 + row * 4 + col + 1] or 0
+                local px = ((ty * 8 + row) * 64 + tx * 8 + col * 2) * 4 + 1
+                local cl, ch = pal[b % 16], pal[math.floor(b / 16) % 16]
+                pixels[px], pixels[px + 1], pixels[px + 2], pixels[px + 3] = cl[1], cl[2], cl[3], cl[4]
+                pixels[px + 4], pixels[px + 5], pixels[px + 6], pixels[px + 7] = ch[1], ch[2], ch[3], ch[4]
+              end
+            end
+          end
+          local png = encode_png(pixels, 64, 64)
+          if png and #png > 0 then
+            cache:write(root .. "/tags/" .. key .. ".png", png)
+            tagMeta[key] = { file = "tags/" .. key .. ".png", w = 64, h = 64, frameW = 64, frameH = 64 }
+          end
+        end
+      end
+    end
+  end
+
+  local statMask = cache and extract_stat_mask(rom, cache, root) or nil
 
   -- ── Step 3: Serialize pack ──────────────────────────────────────────
   local pack = {
@@ -792,6 +1159,16 @@ function BattleAnimExtract.run(rom, cache, opts)
     moves   = moves,
     labels  = labels,
     tags    = tagMeta,
+    general = general,
+    special = special,
+    status  = status,
+    generalNames = generalNames,
+    specialNames = specialNames,
+    statusNames  = statusNames,
+    animBgs      = animBgs,
+    tagPals      = tagPals,
+    bgPals       = bgPals,
+    statMask     = statMask,
   }
 
   local lua = "return " .. serialize(pack) .. "\n"

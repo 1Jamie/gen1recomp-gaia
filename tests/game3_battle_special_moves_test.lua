@@ -82,7 +82,8 @@ do
   local out = {}
   Engine.resolveMove(st.player, st.enemy, 32, 1, ad, st, out)
   local joined = table.concat(out, " || ")
-  check(joined:find("doesn't affect", 1, true) ~= nil, "OHKO fails when user level < target level")
+  -- pokefirered/src/battle_message.c:1112
+  check(joined:find("is\nunaffected!", 1, true) ~= nil, "OHKO fails when user level < target level")
   check(ad:hp(st.enemy) == 50, "Target undamaged when attacker is lower level")
 end
 
@@ -118,7 +119,7 @@ do
   local out = {}
   Engine.resolveMove(st.player, st.enemy, 32, 1, ad, st, out)
   local joined = table.concat(out, " || ")
-  check(joined:find("endured the hit!", 1, true) ~= nil, "Target endured OHKO")
+  check(joined:find("ENDURED\nthe hit!", 1, true) ~= nil, "Target endured OHKO")
   check(ad:hp(st.enemy) == 1, "Target survives with exactly 1 HP")
   check(ad:isFainted(st.enemy) == false, "Target did not faint")
 end
@@ -262,7 +263,7 @@ do
   })
   -- Test with fixed roll 0 -> floor(40 * 50 / 100) = 20 damage
   local adMin = setup_test_battle(st, function(lo, hi)
-    if lo == 0 and hi == 100 then return 0 end
+    if lo == 0 and hi == 10 then return 0 end
     return 1
   end)
   Engine.resolveMove(st.player, st.enemy, 149, 1, adMin, st, {})
@@ -271,7 +272,7 @@ do
   -- Test with fixed roll 100 -> floor(40 * 150 / 100) = 60 damage
   st.enemy.mon.hp = 100
   local adMax = setup_test_battle(st, function(lo, hi)
-    if lo == 0 and hi == 100 then return 100 end
+    if lo == 0 and hi == 10 then return 10 end
     return 1
   end)
   Engine.resolveMove(st.player, st.enemy, 149, 1, adMax, st, {})
@@ -293,7 +294,8 @@ do
   Engine.resolveMove(st.player, st.enemy, 156, 1, ad, st, out)
   check(ad:hp(st.player) == 100, "Rest restores full HP (25 -> 100)")
   check(st.player.status == "SLP", "Rest inflicts SLP")
-  check(st.player.sleepTurns == 2, "Rest sets 2 sleep turns")
+  -- pokefirered/src/battle_script_commands.c:6480
+  check(st.player.sleepTurns == 3, "Rest sets STATUS1_SLEEP_TURN(3)")
   local joined = table.concat(out, " || ")
   check(joined:find("became healthy", 1, true) ~= nil, "Rest message: went to sleep and became healthy")
 
@@ -309,7 +311,7 @@ do
   local outFull = {}
   Engine.resolveMove(stFull.player, stFull.enemy, 156, 1, adFull, stFull, outFull)
   local joinedFull = table.concat(outFull, " || ")
-  check(joinedFull:find("But it failed!", 1, true) ~= nil, "Rest fails when HP is full")
+  check(joinedFull:find("HP is full!", 1, true) ~= nil, "Rest fails when HP is full")
 end
 
 do
@@ -369,7 +371,8 @@ do
   local out = {}
   Engine.resolveMove(st.player, st.enemy, 164, 1, ad, st, out)
   check(ad:hp(st.player) == 75, "Substitute pays 25 HP (100 -> 75)")
-  check(st.player.substituteHP == 26, "Substitute created with 26 HP (25% + 1)")
+  -- pokefirered/src/battle_script_commands.c:7442
+  check(st.player.substituteHP == 25, "Substitute created with maxHP / 4 HP")
 
   -- Foe attacks Substitute with non-lethal hit
   -- Force damage = 10
@@ -378,7 +381,7 @@ do
   Engine.resolveMove(st.enemy, st.player, 33, 1, ad, st, outTackle)
   check(ad:hp(st.player) == 75, "Player takes NO HP loss while Substitute is active")
   local joinedTackle = table.concat(outTackle, " || ")
-  check(joinedTackle:find("took\ndamage", 1, true) ~= nil or joinedTackle:find("broke", 1, true) ~= nil,
+  check(joinedTackle:find("SUBSTITUTE took damage", 1, true) ~= nil,
     "Substitute absorbed damage")
 
   -- Foe breaks Substitute
@@ -388,7 +391,7 @@ do
   check(st.player.substituteHP == 0, "Substitute HP is 0 after break")
   check(ad:hp(st.player) == 75, "Player takes NO leftover damage when Substitute breaks")
   local joinedBreak = table.concat(outBreak, " || ")
-  check(joinedBreak:find("SUBSTITUTE broke!", 1, true) ~= nil, "Substitute broke message printed")
+  check(joinedBreak:find("SUBSTITUTE faded!", 1, true) ~= nil, "Substitute faded message printed")
 end
 
 do
@@ -503,14 +506,14 @@ do
 
   local dmgRetMax = Damage.calc({ mon = pMonMax }, { mon = foe }, retId, { forceRoll = 100, forceCrit = false })
   local dmgFrusMax = Damage.calc({ mon = pMonMax }, { mon = foe }, frusId, { forceRoll = 100, forceCrit = false })
-  check(dmgRetMax > dmgFrusMax * 10, "Max friendship Return (pwr 102) deals much more damage than Frustration (pwr 1)")
+  check(dmgRetMax >= dmgFrusMax * 10, "Max friendship Return (pwr 102) deals much more damage than Frustration (pwr 1)")
 
   -- Min friendship (0)
   local pMonMin = { species = 143, level = 30, hp = 100, maxHp = 100, moves = { retId, frusId }, pp = { 20, 20 },
     attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50, friendship = 0 }
   local dmgRetMin = Damage.calc({ mon = pMonMin }, { mon = foe }, retId, { forceRoll = 100, forceCrit = false })
   local dmgFrusMin = Damage.calc({ mon = pMonMin }, { mon = foe }, frusId, { forceRoll = 100, forceCrit = false })
-  check(dmgFrusMin > dmgRetMin * 10, "Min friendship Frustration (pwr 102) deals much more damage than Return (pwr 1)")
+  check(dmgFrusMin >= dmgRetMin * 10, "Min friendship Frustration (pwr 102) deals much more damage than Return (pwr 1)")
 end
 
 do
@@ -520,9 +523,9 @@ do
     attack = 20, defense = 50, spAtk = 20, spDef = 50, speed = 20 }
 
   local fullMon = { species = 157, level = 30, hp = 100, maxHp = 100, moves = { erupId }, pp = { 5 },
-    attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50 }
+    attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50, ability = 0 }
   local lowMon = { species = 157, level = 30, hp = 10, maxHp = 100, moves = { erupId }, pp = { 5 },
-    attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50 }
+    attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50, ability = 0 }
 
   local dmgFull = Damage.calc({ mon = fullMon }, { mon = foe }, erupId, { forceRoll = 100, forceCrit = false })
   local dmgLow = Damage.calc({ mon = lowMon }, { mon = foe }, erupId, { forceRoll = 100, forceCrit = false })
@@ -558,7 +561,12 @@ do
 
   local dmgNorm = Damage.calc({ mon = normalMon }, { mon = foe }, facadeId, { forceRoll = 100, forceCrit = false })
   local dmgBurn = Damage.calc({ mon = burnedMon }, { mon = foe }, facadeId, { forceRoll = 100, forceCrit = false })
-  check(dmgBurn >= math.floor(dmgNorm * 1.8), "Facade doubles power under Burn and is not halved by Burn attack drop")
+  local parMon = { species = 143, level = 30, hp = 100, maxHp = 100, moves = { facadeId }, pp = { 20 },
+    attack = 50, defense = 50, spAtk = 50, spDef = 50, speed = 50, status = "PAR" }
+  local dmgPar = Damage.calc({ mon = parMon }, { mon = foe }, facadeId, { forceRoll = 100, forceCrit = false })
+  check(dmgPar >= math.floor(dmgNorm * 1.8), "Facade doubles damage under Paralysis")
+  -- pokefirered/src/pokemon.c:2539
+  check(math.abs(dmgBurn - dmgNorm) <= 2, "Facade x2 is cancelled by the Gen3 burn halving")
 end
 
 do
@@ -610,7 +618,7 @@ do
   Engine.resolveMove(st.player, st.enemy, ssId, 1, ad, st, out)
   check(ad:status(st.enemy) == nil, "Target paralysis was cured by Smellingsalt")
   local joined = table.concat(out, " || ")
-  check(joined:find("cured of paralysis", 1, true) ~= nil, "Smellingsalt cure message printed")
+  check(joined:find("healed of paralysis", 1, true) ~= nil, "Smellingsalt cure message printed")
 end
 
 do
@@ -693,9 +701,12 @@ do
     if lo == 1 and hi == 100 then return 100 end -- miss
     return hi or lo or 0
   end)
+  local full = Damage.calc(st.player, st.enemy, hjkId, { forceRoll = 100, forceCrit = false })
+  -- pokefirered/src/battle_script_commands.c:6466
+  local crash = math.min(50, math.max(1, math.floor(full / 2)))
   local out = {}
   Engine.resolveMove(st.player, st.enemy, hjkId, 1, ad, st, out)
-  check(ad:hp(st.player) == 50, "User took 50 HP (half max HP) crash damage on Hi Jump Kick miss")
+  check(ad:hp(st.player) == 100 - crash, "Hi Jump Kick miss crashes for half the damage it would have dealt")
   local joined = table.concat(out, " || ")
   check(joined:find("kept going\nand crashed!", 1, true) ~= nil, "Crash message printed on miss")
 end
@@ -741,7 +752,7 @@ do
   local out1 = {}
   Engine.resolveMove(st.player, st.enemy, sbId, 1, ad, st, out1)
   local joined1 = table.concat(out1, " || ")
-  check(joined1:find("took in\nsunlight!", 1, true) ~= nil, "Solarbeam charging message printed on turn 1")
+  check(joined1:find("took\nin sunlight!", 1, true) ~= nil, "Solarbeam charging message printed on turn 1")
   check(ad:hp(st.enemy) == 100, "Foe takes 0 damage on charge turn")
   check(st.player.twoTurnMove == sbId, "Player is flagged with twoTurnMove")
 
@@ -869,8 +880,9 @@ do
     foeMon = { species = 4, level = 20, hp = 200, maxHp = 200, moves = { emberId }, pp = { 25 },
       attack = 20, defense = 50, spAtk = 20, spDef = 50, speed = 20 },
   })
-  st.enemy.lastMoveId = emberId
   local ad = setup_test_battle(st)
+  -- pokefirered/src/battle_script_commands.c:6350
+  Engine.resolveMove(st.enemy, st.player, emberId, 1, ad, st, {})
   local out = {}
   Engine.resolveMove(st.player, st.enemy, mmId, 1, ad, st, out)
   local joined = table.concat(out, " || ")

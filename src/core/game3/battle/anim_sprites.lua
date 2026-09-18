@@ -16,6 +16,15 @@ AnimSprites.Z = {
   GLOBAL_FRONT  = 900,
 }
 
+AnimSprites.RESET_KEYS = {
+  customDraw = true, invisible = true, objBlend = true, palBlend = true,
+  affineMode = true, aff = true, animNum = true, animCmdIndex = true,
+  animDelayCounter = true, animLoopCounter = true, animEnded = true,
+  animPaused = true, animBeginning = true, affineAnimPaused = true,
+  affineAnimEnded = true, affineAnimBeginning = true, pretHFlip = true,
+  pretVFlip = true, oamPriority = true, cb = true,
+}
+
 --- Slot-based dynamic Z calculation (supports 1v1 and 2v2 double battles).
 function AnimSprites.slotZ(slot, layer)
   local slotId = 1
@@ -46,6 +55,9 @@ function AnimSprites.slotZ(slot, layer)
 end
 
 local function clear_slot(s)
+  for k in pairs(s) do
+    if k ~= "data" then s[k] = nil end
+  end
   s.active = false
   s.x = 0
   s.y = 0
@@ -84,6 +96,13 @@ local function clear_slot(s)
   s._baseH = nil
   s._reversed = nil
   s._inited = nil
+  for k in pairs(s) do
+    if k ~= "data" and type(k) == "string" and (k:sub(1, 1) == "_" or AnimSprites.RESET_KEYS[k]) then
+      s[k] = nil
+    end
+  end
+  s.visible = true
+  s.alpha = 1
   for i = 0, 7 do
     s.data[i] = 0
   end
@@ -204,6 +223,10 @@ function AnimSprites.update()
         print("[battle.anim] sprite cb: " .. tostring(err))
         AnimSprites.release(s)
       end
+    end
+    if s.active and s._g4anim and AnimSprites.animate then
+      local ok, err = pcall(AnimSprites.animate, s)
+      if not ok then print("[battle.anim] sprite anim: " .. tostring(err)) end
     end
   end
 end

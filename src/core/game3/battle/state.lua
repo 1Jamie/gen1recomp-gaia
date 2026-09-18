@@ -23,6 +23,11 @@ local function types_for(species)
   return t[1] or 0, t[2] or 0
 end
 
+local function held_item(mon)
+  if not mon then return 0 end
+  return tonumber(mon.item or mon.heldItem) or 0
+end
+
 function State.makeBattler(mon, side, opts)
   opts = opts or {}
   mon = Damage.ensureStats(mon, mon and mon.level)
@@ -40,12 +45,15 @@ function State.makeBattler(mon, side, opts)
     type1 = t1,
     type2 = (t2 ~= t1) and t2 or nil,
     ability = ability,
+    item = held_item(mon),
     stages = {
       attack = 0, defense = 0, spAtk = 0, spDef = 0, speed = 0,
       accuracy = 0, evasion = 0,
     },
     status = mon.status,
     fainted = (tonumber(mon.hp) or 0) <= 0,
+    -- pokefirered/src/battle_main.c:2228
+    isFirstTurn = 2,
   }
 end
 
@@ -65,6 +73,7 @@ function State.new(opts)
     enemySide = { hazards = {}, id = "enemy" },
     weather = opts.weather,
     weatherTurns = 0,
+    terrain = opts.terrain,
     turn = 0,
     over = false,
     result = nil,
@@ -104,14 +113,8 @@ function State.applyHpLoss(battler, amount)
   local lost = math.min(hp, amount)
   battler.mon.hp = hp - lost
   if battler.mon.hp <= 0 then
-    if battler.expEnduring and hp > 0 then
-      battler.mon.hp = 1
-      battler.expEnduring = nil
-      lost = hp - 1
-    else
-      battler.mon.hp = 0
-      battler.fainted = true
-    end
+    battler.mon.hp = 0
+    battler.fainted = true
   end
   return lost
 end
@@ -126,6 +129,30 @@ function State.heal(battler, amount)
   battler.mon.hp = nextHp
   if nextHp > 0 then battler.fainted = false end
   return gained
+end
+
+function State.ensureBattleMoves(battler)
+  if not battler or not battler.mon then return nil end
+  if battler._partyMon then return battler.mon end
+  local base = battler.mon
+  local moves, pp = {}, {}
+  for i = 1, 4 do
+    moves[i] = base.moves and base.moves[i] or nil
+    pp[i] = base.pp and base.pp[i] or nil
+  end
+  local proxy = setmetatable({ moves = moves, pp = pp }, {
+    __index = base,
+    __newindex = base,
+  })
+  battler._partyMon = base
+  battler.mon = proxy
+  battler.permanentSlots = battler.permanentSlots or { true, true, true, true }
+  return proxy
+end
+
+function State.partyMon(battler)
+  if not battler then return nil end
+  return battler._partyMon or battler.mon
 end
 
 function State.wipeVolatilesAndStages(battler, opts)
@@ -166,10 +193,27 @@ function State.syncBattlerToParty(battler, party)
   if not bMon then return end
   mon.hp = tonumber(bMon.hp) or 0
   mon.maxHp = tonumber(bMon.maxHp) or mon.maxHp
-  mon.status = battler.status or bMon.status
+  local status = battler.status or bMon.status
+  if status == 0 then status = nil end
+  mon.status = status
   mon.sleep = bMon.sleep
   mon.level = bMon.level or mon.level
   mon.exp = bMon.exp or mon.exp
+  if battler._partyMon then
+    -- pokefirered/include/battle.h:28
+    local perm = battler.permanentSlots or {}
+    mon.pp = mon.pp or {}
+    mon.moves = mon.moves or {}
+    for i = 1, 4 do
+      if perm[i] and not battler.transformed then
+        mon.pp[i] = bMon.pp and bMon.pp[i] or mon.pp[i]
+        if battler.sketched and battler.sketched[i] then
+          mon.moves[i] = bMon.moves[i]
+        end
+      end
+    end
+    return
+  end
   if bMon.pp then mon.pp = bMon.pp end
   if bMon.moves then mon.moves = bMon.moves end
 end

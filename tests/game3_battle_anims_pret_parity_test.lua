@@ -55,7 +55,11 @@ print("=== Pret (pokefirered) 1:1 Parity Audit Tests ===")
 
 test("Visual Tasks Registry - all 213 pret visual tasks are registered", function()
   local f = io.open("pokefirered/data/battle_anim_scripts.s", "r")
-  assert_true(f ~= nil, "pokefirered/data/battle_anim_scripts.s must exist")
+    or io.open("../pokefirered/data/battle_anim_scripts.s", "r")
+  if not f then
+    print("    skip: no pokefirered checkout beside the repo")
+    return
+  end
   local text = f:read("*a")
   f:close()
 
@@ -84,12 +88,19 @@ test("DigDownMovement - 3-step subterranean bounce and invisible toggle", functi
   local t = AnimTasks.spawn("DigDownMovement", 2, { 0 }, vm)
   assert_true(t ~= nil and t.active, "DigDownMovement should spawn")
 
+  -- pokefirered/src/battle_anim_ground.c:293
   for _ = 1, 24 do AnimTasks.update(vm) end
   assert_true(p.oy > 0, "should have descended downward into ground")
+  assert_true(type(p.hShift) == "table", "rows outside the dig window are scrolled away")
 
-  AnimTasks.update(vm)
-  assert_true(not t.active, "DigDownMovement should complete in 24 frames")
+  local n = 0
+  while t.active and n < 400 do
+    AnimTasks.update(vm)
+    n = n + 1
+  end
+  assert_true(not t.active, "DigDownMovement should complete")
   assert_true(p.invisible, "Mon should be invisible while underground")
+  assert_true(p.hShift == nil, "scanline effect stops")
 end)
 
 test("DigUpMovement - emergence from underground with coordinate recovery", function()
@@ -98,15 +109,20 @@ test("DigUpMovement - emergence from underground with coordinate recovery", func
   p.oy = 32
   p.invisible = true
 
+  -- pokefirered/src/battle_anim_ground.c:387
+  local t0 = AnimTasks.spawn("DigUpMovement", 2, { 0 }, vm)
+  AnimTasks.update(vm)
+  assert_true(not p.invisible, "Mon becomes visible underground")
+  assert_true(p.oy > 32, "Mon sits below the screen")
+  AnimTasks.update(vm)
+  assert_true(not t0.active, "set-visible step ends")
+
   local t = AnimTasks.spawn("DigUpMovement", 2, { 1 }, vm)
   assert_true(t ~= nil and t.active, "DigUpMovement should spawn")
-
-  AnimTasks.update(vm)
-  assert_true(not p.invisible, "Mon becomes visible immediately upon rising")
-
-  for _ = 2, 20 do AnimTasks.update(vm) end
-  AnimTasks.update(vm)
-  assert_true(not t.active, "DigUpMovement should complete in 20 frames")
+  for _ = 1, 3 do AnimTasks.update(vm) end
+  assert_eq(p.oy, 96, "rise starts 96px down")
+  for _ = 1, 13 do AnimTasks.update(vm) end
+  assert_true(not t.active, "DigUpMovement should complete")
   assert_eq(p.oy, 0, "Mon oy must restore to 0 upon completion")
 end)
 
@@ -138,20 +154,24 @@ test("ExtremeSpeedImpact & Reappear - rapid target shudder and 14-frame flicker"
   local pTgt = Anim.present("enemy")
   pTgt.ox = 0
 
+  -- pokefirered/src/battle_anim_effects_2.c:2848
   local tImpact = AnimTasks.spawn("ExtremeSpeedImpact", 2, {}, vm)
+  AnimTasks.update(vm)
   AnimTasks.update(vm)
   assert_true(pTgt.ox ~= 0, "Target should shudder during ExtremeSpeed impact")
 
-  for _ = 2, 19 do AnimTasks.update(vm) end
-  assert_true(not tImpact.active, "ExtremeSpeedImpact should finish after 18 frames")
+  for _ = 3, 70 do AnimTasks.update(vm) end
+  assert_true(not tImpact.active, "ExtremeSpeedImpact should finish after 3 shake cycles and slide back")
   assert_eq(pTgt.ox, 0, "Target ox should restore to 0")
 
+  -- pokefirered/src/battle_anim_effects_2.c:2909
   local pAtk = Anim.present("player")
   local tReappear = AnimTasks.spawn("ExtremeSpeedMonReappear", 2, {}, vm)
-  for _ = 1, 14 do AnimTasks.update(vm) end
+  for _ = 1, 28 do AnimTasks.update(vm) end
+  assert_true(tReappear.active, "ExtremeSpeedMonReappear still flickering at frame 28")
   AnimTasks.update(vm)
-  assert_true(not tReappear.active, "ExtremeSpeedMonReappear should finish in 14 frames")
-  assert_eq(pAtk.invisible, false, "Attacker must be visible after reappearing")
+  assert_true(not tReappear.active, "ExtremeSpeedMonReappear should finish after 14 two-frame toggles")
+  assert_true(pAtk.visible ~= false, "Attacker must be visible after reappearing")
 end)
 
 -- ---------------------------------------------------------------------------
@@ -160,30 +180,55 @@ end)
 
 test("WaterSpoutLaunch & Rain - water geyser and falling cascade", function()
   local vm = make_vm("player")
+  -- pokefirered/src/battle_anim_water.c:1040
   local tLaunch = AnimTasks.spawn("WaterSpoutLaunch", 2, {}, vm)
   assert_true(tLaunch ~= nil and tLaunch.active, "WaterSpoutLaunch should spawn")
-  for _ = 1, 33 do AnimTasks.update(vm) end
-  assert_true(not tLaunch.active, "WaterSpoutLaunch should finish after 32 frames")
+  local n = 0
+  while tLaunch.active and n < 300 do
+    AnimTasks.update(vm)
+    AnimSprites.update()
+    n = n + 1
+  end
+  assert_true(not tLaunch.active, "WaterSpoutLaunch ends once its droplets land")
+  assert_eq(Anim.present("player").sx or 1, 1, "WaterSpoutLaunch restores the attacker scale")
 
   local tRain = AnimTasks.spawn("WaterSpoutRain", 2, {}, vm)
   assert_true(tRain ~= nil and tRain.active, "WaterSpoutRain should spawn")
-  AnimTasks.update(vm)
-  assert_true(tRain._particles ~= nil and #tRain._particles > 0, "WaterSpoutRain should generate particles")
-  for _ = 2, 37 do AnimTasks.update(vm) end
-  assert_true(not tRain.active, "WaterSpoutRain should finish after 36 frames")
+  n = 0
+  local most = 0
+  while tRain.active and n < 300 do
+    AnimTasks.update(vm)
+    AnimSprites.update()
+    most = math.max(most, AnimSprites.activeCount())
+    n = n + 1
+  end
+  assert_true(most > 0, "WaterSpoutRain drops rain sprites")
+  assert_true(not tRain.active, "WaterSpoutRain ends once every drop is gone")
 end)
 
 test("DoomDesireLightBeam & AirCutterProjectile - celestial beam and razor crescent", function()
   local vm = make_vm("player")
+  -- pokefirered/src/battle_anim_effects_3.c:2495
   local tBeam = AnimTasks.spawn("DoomDesireLightBeam", 2, {}, vm)
   assert_true(tBeam ~= nil and tBeam.active, "DoomDesireLightBeam should spawn")
-  for _ = 1, 37 do AnimTasks.update(vm) end
-  assert_true(not tBeam.active, "DoomDesireLightBeam should finish after 36 frames")
+  for _ = 1, 117 do AnimTasks.update(vm) end
+  assert_true(tBeam.active, "DoomDesireLightBeam still running at frame 117")
+  AnimTasks.update(vm)
+  assert_true(not tBeam.active, "DoomDesireLightBeam should finish after 118 frames")
 
-  local tCutter = AnimTasks.spawn("AirCutterProjectile", 2, {}, vm)
+  -- pokefirered/src/battle_anim_effects_2.c:1644
+  local tCutter = AnimTasks.spawn("AirCutterProjectile", 2, { 32, -24, 1536, 2, 128 }, vm)
   assert_true(tCutter ~= nil and tCutter.active, "AirCutterProjectile should spawn")
-  for _ = 1, 21 do AnimTasks.update(vm) end
-  assert_true(not tCutter.active, "AirCutterProjectile should finish after 20 frames")
+  for _ = 1, 30 do
+    AnimTasks.update(vm)
+    AnimSprites.update()
+  end
+  assert_true(tCutter.active, "AirCutterProjectile waits for its three crescents")
+  for _ = 1, 120 do
+    AnimTasks.update(vm)
+    AnimSprites.update()
+  end
+  assert_true(not tCutter.active, "AirCutterProjectile ends once all crescents are gone")
 end)
 
 test("StatsChange, FakeOut, GrowAndGrayscale, ShrinkTargetCopy", function()
@@ -202,16 +247,25 @@ test("StatsChange, FakeOut, GrowAndGrayscale, ShrinkTargetCopy", function()
   assert_true(not tStats.active, "StatsChange should finish in 32 frames")
 
   -- GrowAndGrayscale
+  -- pokefirered/src/battle_anim_effects_2.c:2019
   local tGrow = AnimTasks.spawn("GrowAndGrayscale", 2, {}, vm)
-  for _ = 1, 25 do AnimTasks.update(vm) end
-  assert_true(not tGrow.active, "GrowAndGrayscale should finish in 24 frames")
-  assert_eq(pAtk.sx, 1.0, "sx must restore to 1.0")
-  assert_eq(pAtk.grayscale, 0, "grayscale must restore to 0")
+  for _ = 1, 81 do AnimTasks.update(vm) end
+  assert_true(tGrow.active, "GrowAndGrayscale still running at frame 81")
+  AnimTasks.update(vm)
+  assert_true(not tGrow.active, "GrowAndGrayscale should finish after 82 frames")
+  assert_eq(pTgt.sx, 1.0, "target sx untouched")
+  assert_true(not pTgt.grayscale, "target palette restored")
 
   -- ShrinkTargetCopy
-  local tShrink = AnimTasks.spawn("ShrinkTargetCopy", 2, {}, vm)
-  for _ = 1, 21 do AnimTasks.update(vm) end
-  assert_true(not tShrink.active, "ShrinkTargetCopy should finish in 20 frames")
+  -- pokefirered/src/battle_anim_effects_1.c:2830
+  vm.args[0], vm.args[1], vm.args[7] = 128, 24, 0
+  local tShrink = AnimTasks.spawn("ShrinkTargetCopy", 5, { 128, 24 }, vm)
+  for _ = 1, 30 do AnimTasks.update(vm) end
+  assert_true(tShrink.active, "ShrinkTargetCopy holds until the script sets args[7]")
+  assert_true(pTgt.sx < 1.0, "ShrinkTargetCopy grows the affine matrix (shrinks the copy)")
+  vm.args[7] = -1
+  for _ = 1, 3 do AnimTasks.update(vm) end
+  assert_true(not tShrink.active, "ShrinkTargetCopy ends 3 frames after args[7] is 0xFFFF")
   assert_eq(pTgt.sx, 1.0, "sx must restore to 1.0")
   assert_eq(pTgt.alpha, 1.0, "alpha must restore to 1.0")
 end)
@@ -245,7 +299,8 @@ test("TranslateAnimSpriteToTargetMonLocation - linear translation from attacker 
   assert_eq(AnimSprites.activeCount(), 1, "One ember sprite should be spawned")
   local s = AnimSprites._pool[1]
   assert_eq(s.x, ax + 20, "Sprite must start at attacker X + 20")
-  assert_eq(s.y, ay, "Sprite must start at attacker Y")
+  -- pokefirered/src/battle_anim_mons.c:233
+  assert_eq(s.y, ay + 8, "Sprite must start at the attacker's BATTLER_COORD_Y_PIC_OFFSET")
 
   -- Update through 20 frames
   for i = 1, 10 do
@@ -256,8 +311,11 @@ test("TranslateAnimSpriteToTargetMonLocation - linear translation from attacker 
   for i = 11, 20 do
     AnimSprites.update(vm)
   end
-  -- At step 20, sprite has arrived and will be destroyed
-  assert_eq(AnimSprites.activeCount(), 0, "Sprite must be destroyed after 20 frames")
+  assert_eq(AnimSprites.activeCount(), 1, "Sprite still translating on its 20th step")
+  -- pokefirered/src/battle_anim_mons.c:1061
+  AnimSprites.update(vm)
+  AnimSprites.update(vm)
+  assert_eq(AnimSprites.activeCount(), 0, "Sprite hands off to DestroyAnimSprite once the translation ends")
 end)
 
 test("AnimEmberFlare - diagonal drift on target and sAnim_BasicFire 5-frame animation", function()
@@ -307,6 +365,11 @@ end)
 local f = io.open("data/generated/gba/pokemon/battle_anims/pack.lua", "r")
 local packSrc = f and f:read("*a")
 if f then f:close() end
+if not packSrc then
+  local okDs, Dataset = pcall(require, "src.core.game3.dataset")
+  local cache = okDs and Dataset.cache and Dataset.cache() or nil
+  packSrc = cache and cache.read and cache:read("data/generated/gba/pokemon/battle_anims/pack.lua")
+end
 local chunk = loadstring and loadstring(packSrc) or load(packSrc)
 local pack = chunk()
 

@@ -9,6 +9,7 @@ local Healing = require("src.core.game3.battle.effects.healing")
 local Setup = require("src.core.game3.battle.effects.setup")
 local Volatiles = require("src.core.game3.battle.effects.volatiles")
 local Weather = require("src.core.game3.battle.effects.weather")
+local Special = require("src.core.game3.battle.effects.special")
 local EffectCtx = require("src.core.game3.battle.effect_ctx")
 local Moves = require("src.core.game3.battle.moves")
 local EffectIds = require("src.core.game3.battle.effect_ids")
@@ -67,9 +68,22 @@ reg("EXP_SUBSTITUTE_EFFECT", Setup.substitute)
 reg("EXP_TEETER_DANCE", Setup.teeterDance)
 reg("EXP_MIST_EFFECT", Screens.mist)
 reg("EXP_REST_EFFECT", Healing.rest)
-reg("EXP_SPLASH_EFFECT", function(ctx)
-  ctx.adapter:say("But nothing happened!")
-end)
+reg("EXP_SPLASH_EFFECT", Setup.splash)
+reg("EXP_BATON_PASS_EFFECT", Special.batonPass)
+reg("EXP_ROAR_EFFECT", Special.roar)
+reg("EXP_CONVERSION_EFFECT", Special.conversion)
+reg("EXP_CONVERSION_2_EFFECT", Special.conversion2)
+reg("EXP_TRANSFORM_EFFECT", Special.transform)
+reg("EXP_MIMIC_EFFECT", Special.mimic)
+reg("EXP_DISABLE_EFFECT", Special.disable)
+reg("EXP_SKETCH_EFFECT", Special.sketch)
+reg("EXP_TELEPORT_EFFECT", Special.teleport)
+reg("EXP_FOLLOW_ME_EFFECT", Special.followMe)
+reg("EXP_TRICK_EFFECT", Special.trick)
+reg("EXP_RECYCLE_EFFECT", Special.recycle)
+reg("EXP_MORNING_SUN_EFFECT", Healing.morningSun)
+reg("EXP_MINIMIZE_EFFECT", Stats.minimize)
+reg("EXP_DEFENSE_CURL_EFFECT", Stats.defenseCurl)
 reg("EXP_PROTECT_EFFECT", Volatiles.protect)
 reg("EXP_ENDURE_EFFECT", Volatiles.endure)
 reg("EXP_ENCORE_EFFECT", Volatiles.encore)
@@ -98,22 +112,23 @@ function Effects.get(id)
   return registry[id]
 end
 
-function Effects.run(id, adapter, user, target, move, moveId)
+function Effects.run(id, adapter, user, target, move, moveId, moveCtx)
   local fn = registry[id]
   if not fn then return false end
-  local ctx = EffectCtx.push(adapter, user, target, move, moveId or id, adapter:rng(), nil)
-  fn(ctx)
+  local ctx = EffectCtx.push(adapter, user, target, move, moveId or id, adapter:rng(), moveCtx)
+  local ok, err = pcall(fn, ctx)
   EffectCtx.pop()
+  if not ok then error(err, 0) end
   return true
 end
 
 --- Prefer ROM effect byte → STATUS_SETUP.
-function Effects.runForMove(adapter, user, target, moveId)
-  local move = Moves.get(moveId)
+function Effects.runForMove(adapter, user, target, moveId, moveCtx)
+  local move = (moveCtx and moveCtx.move) or Moves.get(moveId)
   local effectByte = tonumber(move and move.effect)
   local effectId = effectByte and EffectIds.STATUS_SETUP[effectByte]
   if not effectId then return false end
-  return Effects.run(effectId, adapter, user, target, move, moveId)
+  return Effects.run(effectId, adapter, user, target, move, moveId, moveCtx)
 end
 
 function Effects.ids()

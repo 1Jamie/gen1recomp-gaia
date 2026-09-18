@@ -66,8 +66,9 @@ local function update_low_hp_music()
     return
   end
   if Anim.hpTweening and Anim.hpTweening() then return end
-  local hp = math.floor(tonumber(mon.hp) or 0)
-  local maxHp = math.floor(tonumber(mon.maxHp) or 0)
+  local pres = Anim.present("player")
+  local hp = math.floor(tonumber(pres and pres.displayHp) or tonumber(mon.hp) or 0)
+  local maxHp = math.floor(tonumber(pres and pres.displayMaxHp) or tonumber(mon.maxHp) or 0)
   local red = hp_bar_red(hp, maxHp)
   if red and not Battle._lowHpSong then
     Battle._lowHpSong = true
@@ -79,6 +80,13 @@ local function update_low_hp_music()
   elseif not red then
     stop_low_hp_song()
   end
+end
+
+-- pokefirered/src/battle_script_commands.c:1108
+local function seq_push(text, wait)
+  local t = tostring(text or "")
+  local used = t:find(" used\n", 1, true) or t:find(" used ", 1, true)
+  Ui.pushTimed(t, tonumber(wait) or (used and 0 or 64))
 end
 
 local function push_msgs(list)
@@ -143,6 +151,40 @@ local function foe_mon_from(foe)
   return Damage.ensureStats(mon, mon.level)
 end
 
+local ITEM_SILPH_SCOPE = 359
+
+-- pokefirered/src/battle_setup.c:220
+local function ghost_battle(opts, st)
+  if opts.ghost ~= nil then return opts.ghost and true or false end
+  if type(opts.foe) == "table" and opts.foe.ghost ~= nil then return opts.foe.ghost and true or false end
+  if not st.wild then return false end
+  local Map = package.loaded["src.core.game3.map"]
+  local mapId = opts.mapId or (Map and Map.current)
+  if type(mapId) ~= "string" then return false end
+  local okC, MapCatalog = pcall(require, "src.import.gba.map_catalog")
+  local tower = false
+  for f = 1, 7 do
+    local id = okC and MapCatalog.pretToEngine("PokemonTower_" .. f .. "F") or ("FR_POKEMON_TOWER_" .. f .. "F")
+    if mapId == id then tower = true break end
+  end
+  if not tower then return false end
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = opts.session or (Runtime and Runtime.getSession and Runtime.getSession())
+  local okB, Bag = pcall(require, "src.core.game3.bag")
+  if okB and session and session.bag and Bag.has and Bag.has(session.bag, ITEM_SILPH_SCOPE, 1) then return false end
+  return true
+end
+
+-- pokefirered/src/battle_util.c:1709
+local function overworld_weather()
+  local W = package.loaded["src.core.game3.weather"]
+  local id = W and tonumber(W.get and W.get() or W.current) or 0
+  if id == 3 or id == 5 or id == 13 then return "RAIN" end
+  if id == 8 then return "SAND" end
+  if id == 12 then return "SUN" end
+  return nil
+end
+
 function Battle.isActive()
   return Battle._active == true
 end
@@ -163,6 +205,7 @@ local function finish(result)
   Battle._residualEvents = nil
   Battle._residualIndex = 1
   Battle._residualStepState = nil
+  Battle._pendingChoice = nil
   local st = Battle._st
   if st then
     st.over = true
@@ -216,6 +259,9 @@ function Battle.start(opts)
       foeParty[#foeParty + 1] = foe_mon_from(fm)
     end
   end
+  if foeParty and foeParty[1] and type(opts.foe) == "table" and opts.foe.species == nil and opts.foe.id == nil then
+    foeMon = foeParty[1]
+  end
   Moves.loadRomPack(opts.cache)
   local st = State.new({
     wild = opts.wild,
@@ -224,6 +270,13 @@ function Battle.start(opts)
     foeParty = foeParty,
     rng = opts.rng,
   })
+  st.ghostBattle = ghost_battle(opts, st)
+  if st.ghostBattle then
+    -- pokefirered/src/battle_setup.c:326
+    st.ghostUnveiled = (opts.ghostUnveiled or (type(opts.foe) == "table" and opts.foe.ghostUnveiled)) and true or nil
+    -- pokefirered/src/battle_setup.c:334
+    if st.enemy and st.enemy.mon then st.enemy.mon.nickname = "GHOST" end
+  end
   Battle._headless = opts.headless and true or false
   Battle._auto = (opts.autoFight == true) or (opts.headless and opts.autoFight ~= false)
   Battle._fade = (opts.fade ~= false) and not Battle._headless
@@ -234,7 +287,9 @@ function Battle.start(opts)
       or (Runtime and Runtime.getSession and Runtime.getSession())
     Ui.bindState(st, session)
     st.playerName = session and session.name or "PLAYER"
-    if session and session.dex and foeMon and (foeMon.species or foeMon.speciesId) then
+    -- pokefirered/src/battle_main.c:2618
+    if session and session.dex and foeMon and (foeMon.species or foeMon.speciesId)
+        and not (st.ghostBattle and not st.ghostUnveiled) then
       local Dex = require("src.core.game3.dex")
       Dex.setSeen(session.dex, foeMon.species or foeMon.speciesId)
     end
@@ -266,6 +321,7 @@ function Battle.start(opts)
   Battle._actionI = 1
   Battle._pendingEnd = nil
   Battle._metaAct = nil
+  Battle._pendingChoice = nil
 
   local BattleBg = require("src.core.game3.battle.bg")
   local terrain = opts.terrain
@@ -304,6 +360,7 @@ function Battle.start(opts)
     or (trainerInfo and trainerInfo.items)
     or { 0, 0, 0, 0 }
   st.playerGender = playerGender
+  st.overworldWeather = opts.overworldWeather or overworld_weather()
 
   -- Battle BGM (if not already playing from transition start)
   do
@@ -351,7 +408,9 @@ function Battle.start(opts)
   if not IntroSeq.begin(st, introOpts) then
     -- Headless / skip: push FRLG strings for log parity.
     local ename = State.displayName(st.enemy)
-    if st.wild then
+    if st.ghostBattle then
+      for _, t in ipairs(IntroSeq.headlessGhostIntro(st)) do Ui.push(t) end
+    elseif st.wild then
       Ui.push("Wild " .. ename .. " appeared!")
     else
       local strings = Trainers.introStrings(trainerId, ename, { rivalName = rivalName })
@@ -368,6 +427,73 @@ function Battle.start(opts)
   return true
 end
 
+local function end_if_over()
+  local st = Battle._st
+  if not st or not st.over then return false end
+  if not st.endReason and not AnimSeq.ended() then return false end
+  Battle._actions = {}
+  Battle._metaAct = nil
+  Battle._pendingEnd = st.result or "run"
+  Battle._phase = "ending"
+  return true
+end
+
+-- pokefirered/src/battle_main.c:3682
+local function focus_punch_prelude()
+  local st, ad = Battle._st, Battle._adapter
+  local list = st._focusPunchSetup
+  st._focusPunchSetup = nil
+  if not list then
+    list = {}
+    for _, a in ipairs(Battle._actions or {}) do
+      local u = a.user
+      if type(u) == "string" then u = st[u] end
+      local mv = a.move and Moves.get(a.move)
+      if u and mv and tonumber(mv.effect) == 170 and not u.expLockedMove and not ad:hasStatus(u, "SLP") then
+        list[#list + 1] = u
+      end
+    end
+  end
+  if #list == 0 then return nil end
+  table.sort(list, function(a, b) return (a.expTurnOrder or 9) < (b.expTurnOrder or 9) end)
+  local mark = ad:eventMark()
+  local prev = ad._say
+  ad._say = function() end
+  for _, b in ipairs(list) do
+    if not ad:isFainted(b) then
+      ad:playAnim("general", "FOCUS_PUNCH_SETUP", b, b)
+      ad:say(ad:displayName(b) .. " is tightening\nits focus!")
+    end
+  end
+  ad._say = prev
+  return ad:eventsSince(mark)
+end
+
+-- pokefirered/src/battle_main.c:2856
+local function begin_start_effects()
+  local st, ad = Battle._st, Battle._adapter
+  if not (st and ad and Engine.battleStartEffects) or st._startEffectsDone then return false end
+  st._startEffectsDone = true
+  local mark = ad:eventMark()
+  local prev = ad._say
+  ad._say = function() end
+  local ok = pcall(Engine.battleStartEffects, st, ad)
+  ad._say = prev
+  if not ok then return false end
+  local evs = ad:eventsSince(mark)
+  if #evs == 0 then return false end
+  if Battle._headless then
+    for _, e in ipairs(evs) do
+      if e.kind == "msg" then Ui.push(e.text) end
+    end
+    Anim.syncDisplayFromState(st)
+    return false
+  end
+  AnimSeq.beginEvents(evs, seq_push)
+  Battle._phase = "startfx"
+  return true
+end
+
 local function begin_turn_with(playerAct)
   local st = Battle._st
   local ad = Battle._adapter
@@ -378,6 +504,17 @@ local function begin_turn_with(playerAct)
   Battle._actionI = 1
   Battle._metaAct = meta
   Battle._phase = "actions"
+  local evs = focus_punch_prelude()
+  if evs and #evs > 0 then
+    if Battle._headless then
+      for _, e in ipairs(evs) do
+        if e.kind == "msg" then Ui.push(e.text) end
+      end
+    else
+      AnimSeq.beginEvents(evs, seq_push)
+      Battle._phase = "preturn"
+    end
+  end
 end
 
 local function choice_hooks()
@@ -490,12 +627,14 @@ local function handle_player_faint(opts)
   local Runtime = package.loaded["src.core.game3.runtime"]
   local session = Runtime and Runtime.getSession and Runtime.getSession()
   State.syncBattlerToParty(st.player, st.playerParty)
+  if Ui.clearLinger then Ui.clearLinger() end
   Battle._phase = "switching"
   PartyMenu.show(st.playerParty or (session and session.party), session and session.move_overlay, {
     mode = "battle_faint",
     session = session,
     activeSlot = st.player.partyIndex,
     battle = true,
+    validate = function(slot) return Commands.switchError(st, slot, true) end,
     onSelect = function(slot)
       SwitchSeq.beginSendOut(st, "player", slot, {
         headless = false,
@@ -534,6 +673,13 @@ local function handle_enemy_faint(opts)
   end
   Battle._leveledUp = {}
   local nextEnemyIdx = (not st.wild) and Engine.nextLivingMonIndex(st.foeParty, st.enemy and st.enemy.partyIndex)
+  if nextEnemyIdx then
+    -- pokefirered/src/battle_controller_opponent.c:1416
+    local okS, pick = pcall(Engine.mostSuitableMon, st, Battle._adapter, "enemy")
+    if okS and pick and st.foeParty[pick] and (tonumber(st.foeParty[pick].hp) or 0) > 0 then
+      nextEnemyIdx = pick
+    end
+  end
 
   local onAwardsFinished = function()
     if not nextEnemyIdx then
@@ -647,7 +793,7 @@ local function handle_enemy_faint(opts)
       if (r.gained or 0) > 0 then
         local name = entry.battler and State.displayName(entry.battler)
           or Pokemon.displayMonName(entry.mon)
-        Ui.push(name .. " gained\n" .. tostring(r.gained) .. " EXP. Points!")
+        Ui.push(name .. " gained" .. (entry.boosted and " a boosted" or "") .. "\n" .. tostring(r.gained) .. " EXP. Points!")
         for _, lv in ipairs(r.levels or {}) do
           Ui.push(name .. " grew to\nLV. " .. tostring(lv) .. "!")
           Battle._leveledUp[entry.partyIndex or 1] = true
@@ -726,6 +872,7 @@ end
 local function after_actions()
   local st = Battle._st
   local ad = Battle._adapter
+  if end_if_over() then return end
   local events = Engine.collectResidualEvents(st, ad)
   Battle._residualEvents = events
   Battle._residualIndex = 1
@@ -746,27 +893,55 @@ local function after_actions()
     return
   end
 
+  local stream = {}
+  for _, evt in ipairs(events or {}) do
+    for _, e in ipairs(evt.events or {}) do stream[#stream + 1] = e end
+  end
+  AnimSeq.beginEvents(stream, seq_push)
   Battle._phase = "residuals"
 end
 
 local function step_action()
   local st = Battle._st
   local ad = Battle._adapter
+  if end_if_over() then return end
 
   if Battle._metaAct then
     local meta = Battle._metaAct
     Battle._metaAct = nil
     if meta.kind == "run" then
-      if Commands.tryFlee(st, ad) then
+      local mark = ad:eventMark()
+      local prev = ad._say
+      ad._say = function() end
+      local fled = Commands.tryFlee(st, ad)
+      ad._say = prev
+      local evs = ad:eventsSince(mark)
+      if fled then
         st.over = true
         st.result = "run"
-        Battle._pendingEnd = "run"
-        Battle._phase = "ending"
-        pcall(function()
-          local Audio = require("src.core.game3.audio")
-          local SE = require("src.core.game3.se_ids")
-          Audio.playSe(SE.SE_FLEE)
-        end)
+        st.endReason = "flee"
+      end
+      -- pokefirered/src/battle_message.c:320
+      local function flee_push(text)
+        if fled then
+          pcall(function()
+            require("src.core.game3.audio").playSe(require("src.core.game3.se_ids").SE_FLEE)
+          end)
+        end
+        seq_push(text)
+      end
+      if Battle._headless then
+        for _, e in ipairs(evs) do
+          if e.kind == "msg" then Ui.push(e.text) end
+        end
+        if fled then
+          Battle._pendingEnd = "run"
+          Battle._phase = "ending"
+          return
+        end
+      else
+        AnimSeq.beginEvents(evs, flee_push)
+        Battle._phase = "animating"
         return
       end
     elseif meta.kind == "bag" then
@@ -775,7 +950,22 @@ local function step_action()
       local session = Runtime and Runtime.getSession and Runtime.getSession()
       local bag = session and session.bag
 
-      if Catching.isBall(meta.itemId) then
+      if Catching.isBall(meta.itemId) and st.ghostBattle then
+        -- pokefirered/src/battle_script_commands.c:9473
+        local Bag = require("src.core.game3.bag")
+        if bag and Bag.has(bag, meta.itemId, 1) then Bag.remove(bag, meta.itemId, 1) end
+        local pushFn = function(text, wait)
+          if wait then Ui.pushTimed(text, wait) else Ui.push(text) end
+        end
+        local headless = Battle._headless or (Ui and Ui._headless)
+        CatchSeq.begin(st, meta.itemId, false, 0, {
+          pushMsg = pushFn, headless = headless, session = session, ghostDodge = true,
+        })
+        if not headless then
+          Battle._phase = "catching"
+          return
+        end
+      elseif Catching.isBall(meta.itemId) then
         if not st.wild then
           Ui.push("The TRAINER blocked\nthe BALL!")
           Battle._actions = {}
@@ -874,7 +1064,7 @@ local function step_action()
             return
           end
         else
-          AnimSeq.begin(animMeta, function(text) Ui.push(text) end)
+          AnimSeq.begin(animMeta, seq_push)
           Battle._phase = "animating"
           return
         end
@@ -930,12 +1120,16 @@ local function step_action()
   end
 
   local out = {}
+  st.interactiveChoices = not (Battle._headless or Battle._auto)
   Engine.resolveMove(act.user, act.target, act.move, act.slot, ad, st, out)
+  st.interactiveChoices = nil
+  Battle._pendingChoice = out.pendingChoice
   local animMeta = out._anim
   if Battle._headless or not animMeta then
     push_msgs(out)
+    if end_if_over() then return end
   else
-    AnimSeq.begin(animMeta, function(text) Ui.push(text) end)
+    AnimSeq.begin(animMeta, seq_push)
     Battle._phase = "animating"
     return
   end
@@ -948,7 +1142,51 @@ local function step_action()
   end
 end
 
+-- pokefirered/src/battle_script_commands.c:4626
+local function open_pending_choice()
+  local st, ad = Battle._st, Battle._adapter
+  local req = Battle._pendingChoice
+  Battle._pendingChoice = nil
+  local function resume(slot)
+    st.interactiveChoices = true
+    local out = Engine.resumeChoice(st, ad, slot)
+    st.interactiveChoices = nil
+    Battle._pendingChoice = out and out.pendingChoice
+    if out and out._anim and not Battle._headless then
+      AnimSeq.begin(out._anim, seq_push)
+      Battle._phase = "animating"
+    else
+      for _, t in ipairs(out or {}) do Ui.push(t) end
+      Battle._phase = "actions"
+    end
+  end
+  if Battle._headless or Battle._auto or not (req and req.kind == "baton_pass") then
+    resume(req and req.candidates and req.candidates[1])
+    return
+  end
+  local PartyMenu = require("src.ui.game3.party_menu")
+  local Runtime = package.loaded["src.core.game3.runtime"]
+  local session = Runtime and Runtime.getSession and Runtime.getSession()
+  State.syncBattlerToParty(st.player, st.playerParty)
+  if Ui.clearLinger then Ui.clearLinger() end
+  Battle._phase = "switching"
+  PartyMenu.show(st.playerParty or (session and session.party), session and session.move_overlay, {
+    mode = "battle_faint",
+    session = session,
+    activeSlot = st.player.partyIndex,
+    battle = true,
+    validate = function(slot) return Commands.switchError(st, slot, true) end,
+    onSelect = function(slot) resume(slot) end,
+  })
+end
+Battle._openPendingChoiceForTests = open_pending_choice
+
 local function after_anim_sequence()
+  if Battle._pendingChoice then
+    open_pending_choice()
+    return
+  end
+  if end_if_over() then return end
   if check_faints_and_end() then
     return
   end
@@ -990,10 +1228,24 @@ function Battle.update(dt, game)
       if input then PartyMenu.handleInput(input) end
       return
     end
+    if Ui.selectionPump() then
+      local scmd = Ui.takeCommand()
+      if scmd then begin_turn_with(scmd) end
+      return
+    end
     if input then Ui.handleInput(input) end
     local cmd = Ui.takeCommand()
     if cmd then
       begin_turn_with(cmd)
+    end
+    return
+  end
+
+  if Battle._phase == "preturn" then
+    if Anim.busy() then return end
+    if not Ui.pump() then return end
+    if AnimSeq.update() then
+      Battle._phase = "actions"
     end
     return
   end
@@ -1025,12 +1277,26 @@ function Battle.update(dt, game)
   if Battle._phase == "intro" then
     if not Ui.pump() then return end
     if IntroSeq.update() then
+      if begin_start_effects() then return end
       Battle._phase = "command"
       if Battle._auto then
         begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
       else
         Ui.openMenu()
       end
+    end
+    return
+  end
+
+  if Battle._phase == "startfx" then
+    if Anim.busy() then return end
+    if not Ui.pump() then return end
+    if not AnimSeq.update() then return end
+    Battle._phase = "command"
+    if Battle._auto then
+      begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
+    else
+      Ui.openMenu()
     end
     return
   end
@@ -1059,6 +1325,10 @@ function Battle.update(dt, game)
             session = session,
             activeSlot = st.player.partyIndex,
             battle = true,
+            validate = function(slot)
+              if slot == st.player.partyIndex then return nil end
+              return Commands.switchError(st, slot, true)
+            end,
             onSelect = function(pSlot)
               if pSlot == nil or pSlot == st.player.partyIndex then
                 send_out_enemy_next(nextEnemyIdx)
@@ -1189,64 +1459,23 @@ function Battle.update(dt, game)
     return
   end
 
-  -- End-of-turn residual presentation (poison, burn, weather, leech seed, etc.)
   if Battle._phase == "residuals" then
-    local events = Battle._residualEvents or {}
-    if Battle._residualIndex > #events then
-      Battle._residualEvents = nil
-      Battle._residualIndex = 1
-      Battle._residualStepState = nil
-      if check_faints_and_end() then
-        return
-      end
-      Battle._phase = "command"
-      if Battle._auto then
-        begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
-      else
-        Ui.openMenu()
-      end
+    if Anim.busy() then return end
+    if not Ui.pump() then return end
+    if not AnimSeq.update() then return end
+    Battle._residualEvents = nil
+    Battle._residualIndex = 1
+    Battle._residualStepState = nil
+    if check_faints_and_end() then
       return
     end
-
-    local evt = events[Battle._residualIndex]
-    if Battle._residualStepState == "start" then
-      for _, hp in ipairs(evt.hpChanges or {}) do
-        Anim.tweenHp(hp.side, hp.from, hp.to, hp.maxHp)
-      end
-      for _, msg in ipairs(evt.msgs or {}) do
-        Ui.push(msg)
-      end
-      -- Trigger Ui.pump() simultaneously with HP tween so text appears immediately
-      Ui.pump()
-      Battle._residualStepState = "running"
-      return
+    Battle._phase = "command"
+    if Battle._auto then
+      begin_turn_with(Commands.playerAction(Battle._st, 1, 1))
+    else
+      Ui.openMenu()
     end
-
-    if Battle._residualStepState == "running" then
-      if Anim.busy() then return end
-      if not Ui.pump() then return end
-
-      -- Check if any faints occurred in this event
-      if evt.faints and #evt.faints > 0 then
-        for _, f in ipairs(evt.faints) do
-          local p = Anim.present(f.side)
-          if p and p.visible ~= false and not Battle._headless then
-            Anim.faintMon(f.side)
-          end
-        end
-        if check_faints_and_end() then
-          Battle._residualEvents = nil
-          Battle._residualIndex = 1
-          Battle._residualStepState = nil
-          return
-        end
-      end
-
-      -- Advance to next residual event
-      Battle._residualIndex = Battle._residualIndex + 1
-      Battle._residualStepState = "start"
-      return
-    end
+    return
   end
 
   if Anim.busy() then return end

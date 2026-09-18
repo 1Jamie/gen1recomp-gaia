@@ -30,6 +30,8 @@ local function bgr555_to_rgb8(c)
     math.floor(b5 * 255 / 31 + 0.5)
 end
 
+local SPECIES_CASTFORM = 385
+
 local function gba_off(ptr)
   return Versions.gbaToFile(ptr)
 end
@@ -140,12 +142,14 @@ local function bake_icon_rgba(pixels, pal, w, h)
   return table.concat(chunks)
 end
 
-local function decode_pic_sheet(tiles, palBytes)
+local function decode_pic_sheet(tiles, palBytes, frame, bank)
   if not tiles or not palBytes then return nil end
+  local palBase = (tonumber(bank) or 0) * 32
+  local tileBase = (tonumber(frame) or 0) * 2048
   local pal = {}
   for c = 0, 15 do
-    local lo = palBytes[c * 2 + 1] or 0
-    local hi = palBytes[c * 2 + 2] or 0
+    local lo = palBytes[palBase + c * 2 + 1] or 0
+    local hi = palBytes[palBase + c * 2 + 2] or 0
     pal[c] = lo + hi * 256
   end
   local w, h = 64, 64
@@ -162,7 +166,7 @@ local function decode_pic_sheet(tiles, palBytes)
       local tileOff = ti * 32
       for row = 0, 7 do
         for bx = 0, 3 do
-          local bi = tileOff + row * 4 + bx + 1
+          local bi = tileBase + tileOff + row * 4 + bx + 1
           local byte = tiles[bi] or 0
           local p0 = byte % 16
           local p1 = math.floor(byte / 16) % 16
@@ -547,6 +551,13 @@ function PokemonExtract.run(rom, cache, opts)
         if frontRgba then
           cache:write(root .. "/front/" .. sp .. ".rgba", frontRgba)
         end
+        -- pokefirered/graphics_file_rules.mk:29
+        if sp == SPECIES_CASTFORM then
+          for form = 1, 3 do
+            local rgba = decode_pic_sheet(tiles, palBytes, form, form)
+            if rgba then cache:write(root .. "/front/" .. sp .. "_" .. form .. ".rgba", rgba) end
+          end
+        end
       end
     end
 
@@ -561,7 +572,25 @@ function PokemonExtract.run(rom, cache, opts)
         if backRgba then
           cache:write(root .. "/back/" .. sp .. ".rgba", backRgba)
         end
+        if sp == SPECIES_CASTFORM then
+          for form = 1, 3 do
+            local rgba = decode_pic_sheet(tiles, palBytes, form, form)
+            if rgba then cache:write(root .. "/back/" .. sp .. "_" .. form .. ".rgba", rgba) end
+          end
+        end
       end
+    end
+  end
+
+  -- pokefirered/src/battle_gfx_sfx_util.c:422
+  local ghostPic = Versions.GHOST_FRONT_PIC
+  local ghostPal = Versions.GHOST_PALETTE
+  if ghostPic and ghostPal then
+    local okT, tiles = pcall(Lz77.decompress, function(i) return rom:get(i) end, ghostPic)
+    local okP, palBytes = pcall(Lz77.decompress, function(i) return rom:get(i) end, ghostPal)
+    if okT and okP and tiles and palBytes then
+      local rgba = decode_pic_sheet(tiles, palBytes)
+      if rgba then cache:write(root .. "/front/ghost.rgba", rgba) end
     end
   end
 

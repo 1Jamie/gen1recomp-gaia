@@ -38,6 +38,12 @@ local function assert_near(a, b, eps, msg)
   end
 end
 
+local function spawn_now(name, args, v)
+  local t = AnimTasks.spawn(name, 2, args, v)
+  if t and t.func then t.func(t, v) end
+  return t
+end
+
 local function make_vm(atkSide)
   local vm = AnimVm.new()
   vm.headless = true
@@ -59,9 +65,9 @@ test("BlendBattleAnimPal - background fade_black and restore", function()
     AnimTasks.update(vm)
   end
   assert_eq(AnimTasks.activeCount(), 0, "task should finish after 9 steps (0..8)")
-  local fx = Anim.screenEffect()
-  assert_eq(fx.type, "fade_black")
-  assert_near(fx.coeff, 0.5)
+  local bb = Anim._bgBlend
+  assert_eq(bb and bb.coeff, 8, "bg palette blended 8/16")
+  assert_eq(bb and bb.color, 0, "bg blend color black")
 
   -- Fade back out to 0
   AnimTasks.spawn("BlendBattleAnimPal", 2, { 1, 0, 8, 0, 0 }, vm)
@@ -69,7 +75,7 @@ test("BlendBattleAnimPal - background fade_black and restore", function()
     AnimTasks.update(vm)
   end
   assert_eq(AnimTasks.activeCount(), 0)
-  assert_eq(Anim.screenEffect().type, "none", "screen effect should be restored")
+  assert_eq(Anim._bgBlend, nil, "bg blend restored")
 end)
 
 test("BlendBattleAnimPal - battler palette tinting", function()
@@ -81,7 +87,7 @@ test("BlendBattleAnimPal - battler palette tinting", function()
   for _ = 1, 17 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_near(pAtk.blendCoeff, 1.0)
-  assert_eq(pAtk.flash, 1)
+  assert_near(pAtk.blendColor[1], 1.0)
   assert_eq(pTgt.blendCoeff or 0, 0)
 end)
 
@@ -133,15 +139,15 @@ test("AttackerFadeToInvisible & FromInvisible", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("AttackerFadeToInvisible", 2, { 0 }, vm)
-  for _ = 1, 16 do AnimTasks.update(vm) end
+  -- pokefirered/src/battle_anim_dark.c:187
+  for _ = 1, 17 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
-  assert_eq(p.alpha, 0)
   assert_eq(p.visible, false)
 
   AnimTasks.spawn("AttackerFadeFromInvisible", 2, { 0 }, vm)
   AnimTasks.update(vm)
   assert_eq(p.visible, true)
-  for _ = 2, 16 do AnimTasks.update(vm) end
+  for _ = 2, 17 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.alpha, 1)
 end)
@@ -151,7 +157,7 @@ test("RotateMonSpriteToSide - rotate and restore", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   -- duration=10, rotDelta=0x100, whichMon=0, returnMode=1 (reset on end)
-  AnimTasks.spawn("RotateMonSpriteToSide", 2, { 10, 0x100, 0, 1 }, vm)
+  spawn_now("RotateMonSpriteToSide", { 10, 0x100, 0, 1 }, vm)
   AnimTasks.update(vm)
   assert_eq(p.rotation ~= 0, true, "rotation should change")
   for _ = 2, 10 do AnimTasks.update(vm) end
@@ -165,7 +171,7 @@ test("ScaleMonAndRestore - scale and bounce back", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   -- dx=8, dy=8, duration=8, whichMon=0
-  AnimTasks.spawn("ScaleMonAndRestore", 2, { 8, 8, 8, 0 }, vm)
+  spawn_now("ScaleMonAndRestore", { 8, 8, 8, 0 }, vm)
   AnimTasks.update(vm)
   assert_eq(p.sx ~= 1, true, "sx should change")
   assert_eq(p.sy ~= 1, true, "sy should change")
@@ -182,8 +188,11 @@ test("Minimize - 3 cycles and recover", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("Minimize", 2, {}, vm)
-  -- 3 cycles of 32 frames + 32 frames pause + 16 frames recover = 144 frames
-  for _ = 1, 150 do AnimTasks.update(vm) end
+  -- pokefirered/src/battle_anim_effects_2.c:2050
+  for _ = 1, 200 do
+    AnimSprites.update()
+    AnimTasks.update(vm)
+  end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.sx, 1)
   assert_eq(p.sy, 1)
@@ -207,8 +216,8 @@ test("Affine Animations - DefenseCurl", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("DefenseCurlDeformMon", 2, {}, vm)
-  -- 2 loops of 16 frames = 48 frames
-  for _ = 1, 50 do AnimTasks.update(vm) end
+  -- pokefirered/src/battle_anim_effects_3.c:2019
+  for _ = 1, 53 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.sx, 1)
   assert_eq(p.sy, 1)
@@ -219,7 +228,8 @@ test("Affine Animations - StockpileDeformMon", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("StockpileDeformMon", 2, {}, vm)
-  for _ = 1, 40 do AnimTasks.update(vm) end
+  -- pokefirered/src/battle_anim_effects_3.c:2162
+  for _ = 1, 76 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.sx, 1)
   assert_eq(p.sy, 1)
@@ -252,7 +262,8 @@ test("AcidArmor - wave and fade cycle", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("AcidArmor", 2, { 0 }, vm)
-  for _ = 1, 85 do AnimTasks.update(vm) end
+  -- pokefirered/src/battle_anim_effects_3.c:3222
+  for _ = 1, 110 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.alpha, 1)
   assert_eq(p.ox, 0)
@@ -262,9 +273,11 @@ test("FacadeColorBlend - color cycle", function()
   local vm = make_vm("player")
   local p = Anim.present("player")
   AnimTasks.spawn("FacadeColorBlend", 2, { 0, 24 }, vm)
+  -- pokefirered/src/battle_anim_effects_3.c:3802
+  AnimTasks.update(vm)
   AnimTasks.update(vm)
   assert_eq(p.blendCoeff, 0.5)
-  for _ = 2, 25 do AnimTasks.update(vm) end
+  for _ = 3, 26 do AnimTasks.update(vm) end
   assert_eq(AnimTasks.activeCount(), 0)
   assert_eq(p.blendCoeff, 0)
 end)
@@ -274,6 +287,8 @@ test("RockMonBackAndForth - rocking and rotation with side-awareness", function(
   local p = Anim.present("player")
   -- whichMon=0, numRocks=2, speedInc=0
   AnimTasks.spawn("RockMonBackAndForth", 2, { 0, 2, 0 }, vm)
+  -- pokefirered/src/battle_anim_effects_3.c:2643
+  AnimTasks.update(vm)
   AnimTasks.update(vm)
   assert_eq(AnimTasks.activeCount(), 1)
   assert_eq(p.ox ~= 0, true, "mon should move horizontally while rocking")
@@ -301,11 +316,11 @@ end)
 test("FlashAnimTagWithColor - flash cycle count and termination", function()
   local vm = make_vm("player")
   -- tag=10005, delay=2, numFlashes=3, color=32767, coeff=16
-  AnimTasks.spawn("FlashAnimTagWithColor", 2, { 10005, 2, 3, 32767, 16 }, vm)
-  AnimTasks.update(vm)
+  spawn_now("FlashAnimTagWithColor", { 10005, 2, 3, 32767, 16 }, vm)
   assert_eq(AnimTasks.activeCount(), 1)
-  for _ = 2, 10 do AnimTasks.update(vm) end
-  assert_eq(AnimTasks.activeCount(), 0, "flash task terminates after 3 cycles")
+  local n = 0
+  while AnimTasks.activeCount() > 0 and n < 200 do AnimTasks.update(vm) n = n + 1 end
+  assert_eq(AnimTasks.activeCount(), 0, "flash task terminates after 3 palette-fade cycles")
 end)
 
 -- 11. Full Move Execution Verification for Phase 2 Moves

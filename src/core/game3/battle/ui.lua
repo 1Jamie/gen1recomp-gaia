@@ -50,24 +50,93 @@ pcall(function()
 end)
 
 --- pret GetBattlerSpriteFinal_Y (a3=TRUE / BATTLER_COORD_Y_PIC_OFFSET).
-local function battler_sprite_center(side, species, base)
+local SPECIES_CASTFORM = 385
+-- pokefirered/src/battle_anim_mons.c:48
+local CASTFORM_FRONT_Y = { [0] = 17, 9, 9, 8 }
+-- pokefirered/src/battle_anim_mons.c:56
+local CASTFORM_ELEV = { [0] = 13, 14, 13, 13 }
+-- pokefirered/src/battle_anim_mons.c:65
+local CASTFORM_BACK_Y = { [0] = 0, 0, 0, 0 }
+
+local function live_battler(side)
+  local Battle = package.loaded["src.core.game3.battle"]
+  local st = Battle and Battle._st
+  local Anim = package.loaded["src.core.game3.battle.anim"]
+  local b = st and st[side]
+  if Anim and Anim.shownBattler then b = Anim.shownBattler(side, b) end
+  return b, st
+end
+
+-- pokefirered/src/battle_gfx_sfx_util.c:1000
+local function castform_form(side, battler)
+  local Anim = package.loaded["src.core.game3.battle.anim"]
+  local pres = Anim and Anim._present and Anim._present[side]
+  if not (pres and battler and pres.castformForm ~= nil) then return 0 end
+  if pres.castformMon ~= nil and pres.castformMon ~= battler.mon then return 0 end
+  local f = (tonumber(pres.castformForm) or 0) % 128
+  if f < 0 or f > 3 then return 0 end
+  return f
+end
+Ui.castformForm = castform_form
+
+-- pokefirered/src/pokemon.c:6247
+local function shows_ghost(side, st)
+  if side ~= "enemy" or not (st and st.ghostBattle) then return false end
+  local Anim = package.loaded["src.core.game3.battle.anim"]
+  local pres = Anim and Anim._present and Anim._present.enemy
+  return not (pres and pres.ghostUnveiled)
+end
+Ui.showsGhost = shows_ghost
+
+local function battler_sprite_center(side, species, base, form, ghost)
   local cx, cy = base.x, (side == "player") and (base.y - 4) or base.y
   if not PicCoords or not species then return cx, cy end
   local sp = tonumber(species) or 0
+  if ghost == nil or (form == nil and sp == SPECIES_CASTFORM) then
+    local b, st = live_battler(side)
+    if ghost == nil then ghost = shows_ghost(side, st) end
+    if form == nil and sp == SPECIES_CASTFORM then form = castform_form(side, b) end
+  end
   if side == "player" then
     local yo = (PicCoords.back and PicCoords.back[sp]) or 0
+    if sp == SPECIES_CASTFORM then yo = CASTFORM_BACK_Y[form or 0] or 0 end
     cy = base.y + yo + 4 -- shifted up 4px
+  elseif ghost then
+    -- pokefirered/src/battle_anim_mons.c:297
+    cy = base.y
   else
     local yo = (PicCoords.front and PicCoords.front[sp]) or 0
     local elev = (PicCoords.elev and PicCoords.elev[sp]) or 0
+    if sp == SPECIES_CASTFORM then
+      yo = CASTFORM_FRONT_Y[form or 0] or yo
+      elev = CASTFORM_ELEV[form or 0] or elev
+    end
     cy = base.y + yo - elev
   end
   return cx, cy
 end
 Ui.battlerSpriteCenter = battler_sprite_center
 
+function Ui.battlerPic(side, battler, species)
+  local b, st = live_battler(side)
+  battler = battler or b
+  if shows_ghost(side, st) and Pokemon.ghostPic then
+    local g = Pokemon.ghostPic()
+    if g then return g, 0, true end
+  end
+  local sp = tonumber(species) or (battler and tonumber(battler.species))
+  if not sp then return nil, 0, false end
+  local form = (sp == SPECIES_CASTFORM) and castform_form(side, battler) or 0
+  local entry
+  if side == "player" and Pokemon.backPic then entry = Pokemon.backPic(sp, form) end
+  if not entry and Pokemon.frontPic then entry = Pokemon.frontPic(sp, form) end
+  return entry, form, false
+end
+
 function Ui.reset(opts)
   opts = opts or {}
+  Ui._timed = nil
+  Ui._linger = false
   Ui._queue = {}
   Ui._showing = false
   Ui._headless = opts.headless and true or false
@@ -102,10 +171,26 @@ function Ui.push(text, cb)
   Ui._queue[#Ui._queue + 1] = cb and { text = text, cb = cb } or text
 end
 
+-- pokefirered/src/battle_script_commands.c:2041
+function Ui.pushTimed(text, waitFrames, cb)
+  if not text or text == "" then
+    if cb then cb() end
+    return
+  end
+  Ui._log[#Ui._log + 1] = text
+  Ui._queue[#Ui._queue + 1] = { text = text, cb = cb, timed = true, wait = waitFrames or 64 }
+end
+
+local function message_blocking()
+  if not (Message and Message.isOpen and Message.isOpen()) then return false end
+  return not Ui._linger
+end
+
 function Ui.busy()
   if Ui._headless then return false end
   if Choice and Choice.active then return true end
-  if Message and Message.isOpen and Message.isOpen() then return true end
+  if Ui._timed then return true end
+  if message_blocking() then return true end
   if Ui._showing then return true end
   if #Ui._queue > 0 then return true end
   return false
@@ -114,7 +199,8 @@ end
 --- True while battle text is queued or on screen (intro / turn messages).
 function Ui.dialogPending()
   if Ui._headless then return false end
-  if Message and Message.isOpen and Message.isOpen() then return true end
+  if Ui._timed then return true end
+  if message_blocking() then return true end
   if Ui._showing then return true end
   return #Ui._queue > 0
 end
@@ -253,6 +339,7 @@ local function open_battle_party()
     session = session,
     activeSlot = activeSlot,
     battle = true,
+    validate = function(slot) return Commands.switchError(Ui._st, slot) end,
     onSelect = function(slot)
       if slot == nil or slot == activeSlot then
         Ui._mode = "menu"
@@ -272,6 +359,8 @@ local function open_battle_party()
 end
 
 function Ui.openMenu()
+  Ui._linger = false
+  Ui._timed = nil
   Ui._mode = "menu"
   Ui._menuIndex = 1
   Ui._pendingCommand = nil
@@ -279,6 +368,25 @@ function Ui.openMenu()
     Message.open = false
   end
   Ui._showing = false
+end
+
+function Ui.clearLinger()
+  if Ui._linger and Message and Message.close then Message.close() end
+  Ui._linger = false
+end
+
+function Ui.selectionPump()
+  if Ui._mode ~= "selmsg" then return false end
+  if not Ui.pump() then return true end
+  if Ui._selCmd then
+    Ui._pendingCommand = Ui._selCmd
+    Ui._selCmd = nil
+    Ui._mode = "none"
+  else
+    Ui._mode = Ui._selReturn or "moves"
+  end
+  Ui._selReturn = nil
+  return true
 end
 
 function Ui.takeCommand()
@@ -289,16 +397,23 @@ end
 
 local function pop_queue()
   local item = table.remove(Ui._queue, 1)
-  if type(item) == "table" then return item.text, item.cb end
-  return item, nil
+  if type(item) == "table" then return item.text, item.cb, item end
+  return item, nil, nil
 end
 
 local function show_next()
   if Ui._showing then return end
   if #Ui._queue == 0 then return end
-  local text, cb = pop_queue()
+  local text, cb, item = pop_queue()
   if Ui._headless then
     if cb then cb() end
+    return
+  end
+  Ui._linger = false
+  if item and item.timed and Message and Message.show then
+    Ui._showing = true
+    Ui._timed = { frames = 0, wait = item.wait or 64, cb = cb }
+    Message.show(text, { frame = "battle", battle = true, stay = true })
     return
   end
   if Message and Message.show then
@@ -316,6 +431,21 @@ local function show_next()
   end
 end
 
+local function tick_timed()
+  local t = Ui._timed
+  if not t then return false end
+  local onLast = Message and Message.isWaiting and Message.isWaiting()
+    and (Message._page or 1) >= #(Message._pages or {})
+  if not onLast then return true end
+  t.frames = t.frames + 1
+  if t.frames < t.wait then return true end
+  Ui._timed = nil
+  Ui._showing = false
+  Ui._linger = true
+  if t.cb then t.cb() end
+  return false
+end
+
 function Ui.pump()
   if Ui._headless then
     while #Ui._queue > 0 do
@@ -323,10 +453,12 @@ function Ui.pump()
       if cb then cb() end
     end
     Ui._showing = false
+    Ui._timed = nil
     return true
   end
+  if tick_timed() then return false end
   if open_pending_yesno() then return false end
-  if Message and Message.isOpen and Message.isOpen() then
+  if message_blocking() then
     return false
   end
   Ui._showing = false
@@ -417,14 +549,39 @@ function Ui.handleInput(input)
       play_select()
       local kind = Commands.MENU[Ui._menuIndex]
       if kind == "FIGHT" then
-        open_move_menu()
+        local act, msg = Commands.fightShortcut(Ui._st)
+        if act and msg then
+          Ui._selCmd = act
+          Ui._mode = "selmsg"
+          Ui.push(msg)
+        elseif act then
+          Ui._pendingCommand = act
+          Ui._mode = "none"
+        else
+          open_move_menu()
+        end
       elseif kind == "BAG" then
         open_battle_bag()
       elseif kind == "POKEMON" or kind == "POKéMON" then
         open_battle_party()
       else
-        Ui._pendingCommand = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
-        Ui._mode = "none"
+        -- pokefirered/src/battle_main.c:3246
+        local Engine = package.loaded["src.core.game3.battle.engine"]
+        local BattleMod = package.loaded["src.core.game3.battle"]
+        local ad = BattleMod and BattleMod._adapter
+        local canRun, why = true, nil
+        if Engine and Engine.canRun and ad and Ui._st then
+          canRun, why = Engine.canRun(Ui._st, ad, Ui._st.player)
+        end
+        if not canRun and why then
+          Ui._selCmd = nil
+          Ui._selReturn = "menu"
+          Ui._mode = "selmsg"
+          Ui.push(why)
+        else
+          Ui._pendingCommand = Commands.playerAction(Ui._st, Ui._menuIndex, nil)
+          Ui._mode = "none"
+        end
       end
       return true
     elseif input:wasPressed("b") then
@@ -443,6 +600,14 @@ function Ui.handleInput(input)
     end
     if input:wasPressed("a") then
       play_select()
+      -- pokefirered/src/battle_main.c:3277
+      local err = Commands.selectionError(Ui._st, Ui._moveIndex)
+      if err then
+        Ui._selCmd = nil
+        Ui._mode = "selmsg"
+        Ui.push(err)
+        return true
+      end
       Ui._pendingCommand = Commands.playerAction(Ui._st, 1, Ui._moveIndex)
       Ui._mode = "none"
       return true
@@ -469,6 +634,177 @@ local function draw_prompt_text(text, x, y)
   })
 end
 
+local GRAY_SHADER_SRC = [[
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec4 c = Texel(tex, tc) * color;
+  vec3 c5 = floor(c.rgb * 31.0 + 0.5);
+  float g = floor((c5.r + c5.g + c5.b) / 3.0);
+  return vec4(vec3(g / 31.0), c.a);
+}
+]]
+local grayShader = nil
+
+-- pokefirered/src/battle_anim_mons.c:1287
+local function set_gray_shader()
+  if grayShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, GRAY_SHADER_SRC)
+    grayShader = ok and sh or false
+  end
+  if not grayShader then return false end
+  love.graphics.setShader(grayShader)
+  return true
+end
+
+local STAT_MASK_SRC = [[
+extern Image maskTex;
+extern vec2 origin;
+extern vec2 size;
+extern vec2 scroll;
+extern float flip;
+extern float eva;
+extern float darken;
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec4 m = Texel(tex, tc);
+  if (m.a < 0.01) discard;
+  vec2 t = tc;
+  if (flip > 0.5) t.x = 1.0 - t.x;
+  vec2 pos = floor(origin + t * size);
+  vec4 k = Texel(maskTex, (pos + scroll + vec2(0.5)) / 256.0);
+  if (k.a < 0.01) discard;
+  if (darken > 0.5) return vec4(0.0, 0.0, 0.0, eva);
+  return vec4(k.rgb, eva);
+}
+]]
+local statMaskShader = nil
+
+-- pokefirered/src/battle_anim_utility_funcs.c:526
+local function draw_stat_mask(pres, img, cx, cy, sx, sy)
+  local sm = pres and pres.statMask
+  if not (sm and (tonumber(sm.eva) or 0) > 0) then return end
+  local Anim = require("src.core.game3.battle.anim")
+  local vm = Anim.vm and Anim.vm()
+  if not (vm and vm.active) then return end
+  local mask = Anim.statMaskImage(sm.tilemap, sm.pal)
+  if not mask then return end
+  if statMaskShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, STAT_MASK_SRC)
+    statMaskShader = ok and sh or false
+  end
+  if not statMaskShader then return end
+  local iw, ih = img:getDimensions()
+  local w, h = iw * math.abs(sx), ih * math.abs(sy)
+  local ok = pcall(function()
+    statMaskShader:send("maskTex", mask)
+    statMaskShader:send("origin", { cx - 32 * math.abs(sx), cy - 32 * math.abs(sy) })
+    statMaskShader:send("size", { w, h })
+    statMaskShader:send("scroll", { tonumber(sm.x) or 0, tonumber(sm.y) or 0 })
+    statMaskShader:send("flip", sx < 0 and 1 or 0)
+    statMaskShader:send("eva", math.min(1, (tonumber(sm.eva) or 0) / 16))
+    statMaskShader:send("darken", 0)
+  end)
+  if not ok then return end
+  local eva = math.min(16, tonumber(sm.eva) or 0)
+  local evb = sm.evb and math.min(16, tonumber(sm.evb) or 0) or (16 - eva)
+  love.graphics.setShader(statMaskShader)
+  love.graphics.setColor(1, 1, 1, 1)
+  if eva + evb ~= 16 then
+    -- pokefirered/src/battle_anim_utility_funcs.c:306
+    pcall(function()
+      statMaskShader:send("darken", 1)
+      statMaskShader:send("eva", 1 - evb / 16)
+    end)
+    love.graphics.draw(img, cx, cy, 0, sx, sy, 32, 32)
+    pcall(function()
+      statMaskShader:send("darken", 0)
+      statMaskShader:send("eva", eva / 16)
+    end)
+    love.graphics.setBlendMode("add", "alphamultiply")
+    love.graphics.draw(img, cx, cy, 0, sx, sy, 32, 32)
+    love.graphics.setBlendMode("alpha", "alphamultiply")
+  else
+    love.graphics.draw(img, cx, cy, 0, sx, sy, 32, 32)
+  end
+  love.graphics.setShader()
+end
+
+local MOSAIC_SRC = [[
+extern vec2 texSize;
+extern float block;
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec2 px = floor(tc * texSize / block) * block;
+  return Texel(tex, (px + vec2(0.5)) / texSize) * color;
+}
+]]
+local mosaicShader = nil
+
+-- pokefirered/src/battle_anim_effects_3.c:2223
+local function set_mosaic_shader(img, level)
+  if mosaicShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, MOSAIC_SRC)
+    mosaicShader = ok and sh or false
+  end
+  if not mosaicShader then return false end
+  local iw, ih = img:getDimensions()
+  local ok = pcall(function()
+    mosaicShader:send("texSize", { iw, ih })
+    mosaicShader:send("block", (tonumber(level) or 0) + 1)
+  end)
+  if not ok then return false end
+  love.graphics.setShader(mosaicShader)
+  return true
+end
+
+local AFFINE_SRC = [[
+extern float m;
+extern vec3 off;
+vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+  vec4 c = Texel(tex, tc) * color;
+  return vec4(clamp(c.rgb * m + off, 0.0, 1.0), c.a);
+}
+]]
+local affineShader = nil
+
+-- pokefirered/src/palette.c:471
+local function set_affine_shader(st)
+  if type(st) ~= "table" then return false end
+  if affineShader == nil then
+    local ok, sh = pcall(love.graphics.newShader, AFFINE_SRC)
+    affineShader = ok and sh or false
+  end
+  if not affineShader then return false end
+  local ok = pcall(function()
+    affineShader:send("m", tonumber(st.m) or 1)
+    affineShader:send("off", { tonumber(st.r) or 0, tonumber(st.g) or 0, tonumber(st.b) or 0 })
+  end)
+  if not ok then return false end
+  love.graphics.setShader(affineShader)
+  return true
+end
+
+local rowQuads = {}
+local function row_quad(iw, ih, r)
+  local key = iw * 100000 + ih * 100 + r
+  local q = rowQuads[key]
+  if not q then
+    q = love.graphics.newQuad(0, r, iw, 1, iw, ih)
+    rowQuads[key] = q
+  end
+  return q
+end
+
+local function bg_blend_params(bb)
+  if type(bb) ~= "table" then return nil end
+  local coeff = tonumber(bb.coeff) or 0
+  if coeff <= 0 then return nil end
+  local c = bb.color
+  if type(c) == "number" then
+    return coeff, c % 32, math.floor(c / 32) % 32, math.floor(c / 1024) % 32
+  elseif type(c) == "table" then
+    return coeff, (c[1] or 0) * 31, (c[2] or 0) * 31, (c[3] or 0) * 31
+  end
+  return coeff, 0, 0, 0
+end
+
 --- Draw mon pic at GetBattlerSpriteFinal_Y center (64×64 → TL = center−32).
 -- Applies Anim present offsets / alpha / visibility / z (Dig/Fly hide).
 local function draw_mon_sprite(battler, base, back)
@@ -476,7 +812,8 @@ local function draw_mon_sprite(battler, base, back)
   local side = back and "player" or "enemy"
   local Anim = require("src.core.game3.battle.anim")
   local pres = Anim.present(side)
-  if pres and pres.visible == false then return end
+  if pres and (pres.visible == false or pres.blinkHidden or pres.battlerInvisible or pres.invisible) then return end
+  battler = Anim.shownBattler(side, battler) or battler
 
   local sp = battler.species
   if not sp and battler.mon and Pokemon.speciesOf then
@@ -484,7 +821,15 @@ local function draw_mon_sprite(battler, base, back)
   elseif not sp and battler.mon then
     sp = battler.mon.species or battler.mon.speciesId
   end
-  local cx, cy = battler_sprite_center(side, sp, base)
+  local tf = nil
+  if battler.expTransform then
+    tf = pres and pres.transformSpecies
+    if not tf and not (pres and pres.pendingTransform) then tf = battler.expTransform.species end
+  end
+  if tf then sp = tf end
+  local ghost = shows_ghost(side, Ui._st)
+  local form = (tonumber(sp) == SPECIES_CASTFORM) and castform_form(side, battler) or 0
+  local cx, cy = battler_sprite_center(side, sp, base, form, ghost)
   if pres then
     cx = cx + (pres.ox or 0)
     cy = cy + (pres.oy or 0)
@@ -492,11 +837,21 @@ local function draw_mon_sprite(battler, base, back)
   local scale = (pres and pres.scale) or 1
   local darken = (pres and pres.darken) or 0
   local entry
-  if back and Pokemon.backPic then
-    entry = Pokemon.backPic(sp)
+  local dollImg = pres and pres.substitute and Anim.substituteImage(side)
+  if dollImg then
+    -- pokefirered/src/battle_gfx_sfx_util.c:794
+    entry = { image = dollImg }
+    cx = base.x + (pres.ox or 0)
+    cy = (pres.substituteY or Anim.substituteY(side)) + (pres.oy or 0)
+  end
+  if not entry and ghost and Pokemon.ghostPic then
+    entry = Pokemon.ghostPic()
+  end
+  if not entry and back and Pokemon.backPic then
+    entry = Pokemon.backPic(sp, form)
   end
   if not entry then
-    entry = Pokemon.frontPic and Pokemon.frontPic(sp)
+    entry = Pokemon.frontPic and Pokemon.frontPic(sp, form)
   end
   if entry and entry.image then
     local a = (pres and pres.alpha) or 1
@@ -512,8 +867,36 @@ local function draw_mon_sprite(battler, base, back)
     local sy = scale * ((pres and pres.sy) or 1)
     local rot = (pres and pres.rotation) or 0
     local blended = BallOpen.setBlendShader(BallOpen.monBlend(side))
-    love.graphics.draw(entry.image, cx, cy, rot, sx, sy, 32, 32)
+    if not blended and pres then
+      if pres.palAffine then
+        blended = set_affine_shader(pres.palAffine)
+      elseif (tonumber(pres.mosaic) or 0) > 0 then
+        blended = set_mosaic_shader(entry.image, pres.mosaic)
+      elseif pres.grayscale then
+        blended = set_gray_shader()
+      elseif (tonumber(pres.blendCoeff) or 0) > 0 then
+        local c = pres.blendColor or { 1, 1, 1 }
+        blended = BallOpen.setBlendShader(pres.blendCoeff * 16, (c[1] or 0) * 31, (c[2] or 0) * 31, (c[3] or 0) * 31)
+      end
+    end
+    if not blended and tf and not dollImg then
+      -- pokefirered/src/battle_gfx_sfx_util.c:747
+      blended = BallOpen.setBlendShader(6, 31, 31, 31)
+    end
+    if pres and type(pres.hShift) == "table" and rot == 0 and sy == 1 then
+      local img = entry.image
+      local iw, ih = img:getDimensions()
+      local top = math.floor(cy - 32 + 0.5)
+      for r = 0, ih - 1 do
+        local q = row_quad(iw, ih, r)
+        local dx = tonumber(pres.hShift[top + r]) or 0
+        love.graphics.draw(img, q, cx + dx, top + r, 0, sx, 1, 32, 0)
+      end
+    else
+      love.graphics.draw(entry.image, cx, cy, rot, sx, sy, 32, 32)
+    end
     if blended then love.graphics.setShader() end
+    if pres and pres.statMask and not dollImg then draw_stat_mask(pres, entry.image, cx, cy, sx, sy) end
   else
     -- Placeholder silhouette so lunge/shake is visible before full pic extract.
     local a = (pres and pres.alpha) or 1
@@ -760,9 +1143,30 @@ function Ui.draw(w, h)
 
   -- pokefirered/src/battle_anim_special.c:1888
   local bgBlended = not screenFxActive and BallOpen.setBlendShader(BallOpen.bgCoeff(), 31, 31, 31)
+  if not bgBlended and not screenFxActive and Anim._bgPalAffine then
+    bgBlended = set_affine_shader(Anim._bgPalAffine)
+  end
+  if not bgBlended and not screenFxActive then
+    local bc, br, bg_, bb = bg_blend_params(Anim._bgBlend)
+    if bc then bgBlended = BallOpen.setBlendShader(bc, br, bg_, bb) end
+  end
+  local bg3 = Anim._bg3Scroll
+  if bg3 == nil then
+    local vm = Anim.vm and Anim.vm()
+    bg3 = vm and vm.active and vm.bg3 or nil
+  end
+  local bg3x = (type(bg3) == "table" and tonumber(bg3.x)) or 0
+  local bg3y = (type(bg3) == "table" and tonumber(bg3.y)) or 0
+  if bg3x ~= 0 or bg3y ~= 0 then
+    love.graphics.push()
+    love.graphics.translate(-bg3x, -bg3y)
+  end
   if not BattleBg.draw(nil, enemyOx, playerOx, bgOx) then
     love.graphics.setColor(0.92, 0.94, 0.96, 1)
     love.graphics.rectangle("fill", 0, 0, w, 112)
+  end
+  if bg3x ~= 0 or bg3y ~= 0 then
+    love.graphics.pop()
   end
   if bgBlended then love.graphics.setShader() end
   if screenFxActive then Anim.beginScreenEffect() end
@@ -793,8 +1197,8 @@ function Ui.draw(w, h)
   BallOpen.draw()
   if screenFxActive then Anim.endScreenEffect() end
   if st then
-    Healthbox.draw("enemy", st.enemy)
-    Healthbox.draw("player", st.player)
+    Healthbox.draw("enemy", Anim.shownBattler("enemy", st.enemy))
+    Healthbox.draw("player", Anim.shownBattler("player", st.player))
   end
   draw_party_bars(stage)
 

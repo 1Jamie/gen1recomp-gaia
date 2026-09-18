@@ -65,6 +65,30 @@ Natives.ALLOW = {
     require("src.ui.game3.help_system").enabled = true
     return false
   end,
+  -- pokefirered/src/battle_setup.c:320
+  ["special:" .. Std.SPECIAL.StartMarowakBattle] = function(ctx, adapters)
+    local Enc = require("src.core.game3.encounters")
+    local foe = Enc.takePendingWild()
+    if not (foe and adapters and adapters.startWildBattle) then return false end
+    local rt = package.loaded["src.core.game3.runtime"]
+    local session = rt and rt.getSession and rt.getSession()
+    local okB, Bag = pcall(require, "src.core.game3.bag")
+    local scope = okB and session and session.bag and Bag.has(session.bag, 359, 1) or false
+    foe.ghost = true
+    foe.ghostUnveiled = scope
+    if scope then
+      -- pokefirered/src/battle_setup.c:327
+      foe.gender, foe.nature = "F", 12
+      foe.ivs = { hp = 31, atk = 31, def = 31, spe = 31, spa = 31, spd = 31 }
+    end
+    return yield_host(ctx, adapters, function(done)
+      adapters.startWildBattle(foe, function(result)
+        -- pokefirered/src/battle_setup.c:458
+        require("src.core.game3.scripting.flags").setVar(nil, ctx, 0x800D, (result == "win") and 0 or 1)
+        if done then done() end
+      end)
+    end)
+  end,
   ["special:" .. Std.SPECIAL.HealPlayerParty] = function(ctx, adapters)
     if not (adapters and adapters.nurseHeal) then return false end
     return yield_host(ctx, adapters, adapters.nurseHeal)

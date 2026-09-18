@@ -21,7 +21,7 @@ check(chunk ~= nil, "pack.lua loads without syntax errors: " .. tostring(err))
 
 local pack = chunk and chunk() or {}
 check(type(pack) == "table", "pack is a table")
-check(pack.version == 3, "pack version is 3 (ROM-native)")
+check(pack.version == 5, "pack version is 5 (ROM-native, indexed sheets)")
 check(type(pack.moves) == "table", "pack.moves is a table")
 check(type(pack.labels) == "table", "pack.labels is a table")
 check(type(pack.tags) == "table", "pack.tags is a table")

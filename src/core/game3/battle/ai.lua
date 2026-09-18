@@ -228,6 +228,17 @@ function Ai.chooseMove(st, opts)
     end
     simulatedRNG[i] = 100 - (roll(rng, 0, 15))
   end
+  -- pokefirered/src/battle_ai_script_commands.c:302
+  local Engine = package.loaded["src.core.game3.battle.engine"]
+  local Battle = package.loaded["src.core.game3.battle"]
+  if Engine and Engine.moveLimitations and st and st.enemy then
+    local okL, bad = pcall(Engine.moveLimitations, st.enemy, opts.adapter or (Battle and Battle._adapter))
+    if okL and type(bad) == "table" then
+      for i = 1, 4 do
+        if bad[i] then scores[i] = 0 end
+      end
+    end
+  end
 
   local logicId = 0
   local flags = aiFlags

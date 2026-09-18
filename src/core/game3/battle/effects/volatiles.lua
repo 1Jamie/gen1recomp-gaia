@@ -4,141 +4,130 @@ local H = require("src.core.game3.battle.effects._helpers")
 
 local Volatiles = {}
 
-local ENCORE_BLOCK = {
-  [90] = true, -- ENCORE
-  [83] = true, -- METRONOME
-  [9] = true,  -- MIRROR_MOVE
-  [95] = true, -- SKETCH
-}
+local function name(ctx, b) return ctx.adapter:displayName(b) end
+
+-- pokefirered/src/battle_script_commands.c:6220
+local function protect_like(ctx, onSuccess)
+  local user = ctx.user
+  local last = user.expLastResulting and H.moveNum(user.expLastResulting)
+  if last ~= 182 and last ~= 197 and last ~= 203 then user.expProtectStreak = 0 end
+  local streak = user.expProtectStreak or 0
+  local ok = user.expTurnOrder ~= 2
+  if ok and streak > 0 then
+    local denom = 2 ^ math.min(streak, 3)
+    ok = ctx.adapter:roll(0, denom - 1) == 0
+  end
+  if not ok then
+    user.expProtectStreak = 0
+    return H.sayFail(ctx)
+  end
+  user.expProtectStreak = streak + 1
+  H.attackAnim(ctx)
+  onSuccess(user)
+end
 
 function Volatiles.protect(ctx)
-  local user = ctx.user
-  local streak = user.expProtectStreak or 0
-  if streak > 0 then
-    local denom = 2 ^ math.min(streak, 8)
-    local rng = ctx.rng or ctx.adapter:rng()
-    local roll
-    if type(rng) == "function" then
-      local ok, v = pcall(rng, 0, denom - 1)
-      roll = ok and v or math.random(0, denom - 1)
-    else
-      roll = math.random(0, denom - 1)
-    end
-    if roll ~= 0 then
-      user.expProtectStreak = 0
-      return H.sayFail(ctx)
-    end
-  end
-  user.expProtected = true
-  user.expProtectStreak = streak + 1
-  ctx.adapter:say(H.displayName(ctx, user) .. "\nprotected itself!")
+  protect_like(ctx, function(user)
+    user.expProtected = true
+    ctx.adapter:say(name(ctx, user) .. " protected\nitself!")
+  end)
 end
 
 function Volatiles.endure(ctx)
-  local user = ctx.user
-  local streak = user.expProtectStreak or 0
-  if streak > 0 then
-    local denom = 2 ^ math.min(streak, 8)
-    local rng = ctx.rng or ctx.adapter:rng()
-    local roll
-    if type(rng) == "function" then
-      local ok, v = pcall(rng, 0, denom - 1)
-      roll = ok and v or math.random(0, denom - 1)
-    else
-      roll = math.random(0, denom - 1)
-    end
-    if roll ~= 0 then
-      user.expProtectStreak = 0
-      return H.sayFail(ctx)
-    end
-  end
-  user.expEnduring = true
-  user.expProtectStreak = streak + 1
-  ctx.adapter:say(H.displayName(ctx, user) .. " braced\nitself!")
+  protect_like(ctx, function(user)
+    user.expEnduring = true
+    ctx.adapter:say(name(ctx, user) .. " braced\nitself!")
+  end)
 end
 
+-- pokefirered/src/battle_script_commands.c:7642
 function Volatiles.encore(ctx)
   local target = ctx.target
-  local last = H.lastMove(ctx, target)
-  if not last then return H.sayFail(ctx) end
-  local Moves = require("src.core.game3.battle.moves")
-  local lastMove = Moves.get(last)
-  if lastMove and ENCORE_BLOCK[tonumber(lastMove.effect) or -1] then
-    return H.sayFail(ctx)
-  end
-  if tostring(last):upper() == "STRUGGLE" then return H.sayFail(ctx) end
-  local has = false
-  for _, mv in ipairs(H.preparedMoves(ctx, target)) do
-    local id = mv.id or mv
-    if id == last and (mv.pp or 0) > 0 then has = true break end
-  end
-  if not has then return H.sayFail(ctx) end
-  target.expEncoreMove = last
-  local rng = ctx.rng or ctx.adapter:rng()
-  local turns
-  if type(rng) == "function" then
-    local ok, v = pcall(rng, 2, 6)
-    turns = ok and v or math.random(2, 6)
-  else
-    turns = math.random(2, 6)
-  end
-  target.expEncoreTurns = turns
-  ctx.adapter:say(H.displayName(ctx, target) .. "\ngot an ENCORE!")
+  if not H.accuracy(ctx, "normal") then return end
+  local last = H.moveNum(H.lastMove(ctx, target))
+  if not last or last == 0 or last == 165 or last == 227 or last == 119 then return H.sayFail(ctx) end
+  if (target.expEncoreTurns or 0) > 0 then return H.sayFail(ctx) end
+  local slot = H.slotOf(target, last)
+  local mon = target.mon
+  if not slot or not mon or not mon.pp or (tonumber(mon.pp[slot]) or 0) <= 0 then return H.sayFail(ctx) end
+  target.expEncoreMove = mon.moves[slot]
+  target.expEncoreSlot = slot
+  target.expEncoreTurns = ctx.adapter:roll(0, 3) % 4 + 3
+  H.attackAnim(ctx)
+  ctx.adapter:say(name(ctx, target) .. " got\nan ENCORE!")
 end
 
+-- pokefirered/src/battle_script_commands.c:8133
 function Volatiles.perishSong(ctx)
-  for _, b in ipairs({ ctx.user, ctx.target }) do
-    if b and ctx.adapter:mon(b) and not b.expPerishTurns then
-      local ab = ctx.adapter:abilityOf(b)
-      if ab ~= "SOUNDPROOF" then
-        b.expPerishTurns = 4
-      end
+  local ad = ctx.adapter
+  local affected = 0
+  local blocked = {}
+  for _, b in ipairs(ad:activeBattlers()) do
+    if b.expPerishTurns or ad:abilityOf(b) == "SOUNDPROOF" then
+      if ad:abilityOf(b) == "SOUNDPROOF" then blocked[#blocked + 1] = b end
+    else
+      b.expPerishTurns = 3
+      b.perishSong = true
+      affected = affected + 1
     end
   end
-  ctx.adapter:say("All affected POKEMON\nwill faint in three\nturns!")
+  if affected == 0 then return H.sayFail(ctx) end
+  H.attackAnim(ctx)
+  ad:say("All affected POKéMON will\nfaint in three turns!")
+  for _, b in ipairs(blocked) do
+    ad:say(name(ctx, b) .. "'s SOUNDPROOF\nblocks PERISH SONG!")
+  end
 end
 
+-- pokefirered/src/battle_script_commands.c:7275
 function Volatiles.attract(ctx)
-  local target = ctx.target
-  if ctx.adapter:abilityOf(target) == "OBLIVIOUS" then return H.sayFail(ctx) end
-  if target.expInfatuated then return H.sayFail(ctx) end
-  local userMon = ctx.adapter:mon(ctx.user)
-  local targetMon = ctx.adapter:mon(target)
+  local ad, target = ctx.adapter, ctx.target
+  if not H.accuracy(ctx, "normal") then return end
+  if ad:abilityOf(target) == "OBLIVIOUS" then
+    return ad:say(name(ctx, target) .. "'s OBLIVIOUS\nprevents romance!")
+  end
+  local userMon = ad:mon(ctx.user)
+  local targetMon = ad:mon(target)
   local ug = userMon and userMon.gender
   local tg = targetMon and targetMon.gender
-  if not ug or not tg or ug == "U" or tg == "U" or ug == tg then
+  if target.expInfatuated or not ug or not tg or ug == "U" or tg == "U" or ug == tg then
     return H.sayFail(ctx)
   end
   target.expInfatuated = true
-  ctx.adapter:say(H.displayName(ctx, target) .. " fell in love!")
+  target.expInfatuatedBy = ctx.user.side
+  target.expInfatuatedWith = ctx.user
+  H.attackAnim(ctx)
+  ad:say(name(ctx, target) .. "\nfell in love!")
 end
 
+-- pokefirered/src/battle_script_commands.c:7943
 function Volatiles.spite(ctx)
-  local target = ctx.target
+  local ad, target = ctx.adapter, ctx.target
+  if not H.accuracy(ctx, "normal") then return end
   local last = H.lastMove(ctx, target)
-  if not last then return H.sayFail(ctx) end
-  local cut = 0
-  local mon = ctx.adapter:mon(target)
-  if mon and mon.moves and mon.pp then
-    for i = 1, 4 do
-      if mon.moves[i] == last and (mon.pp[i] or 0) > 0 then
-        local lost = math.min(mon.pp[i], 4)
-        mon.pp[i] = mon.pp[i] - lost
-        cut = lost
-        break
-      end
-    end
+  local slot = last and H.slotOf(target, last)
+  local mon = target.mon
+  if not slot or not mon or not mon.pp or (tonumber(mon.pp[slot]) or 0) <= 1 then return H.sayFail(ctx) end
+  local cut = ad:roll(0, 3) % 4 + 2
+  if mon.pp[slot] < cut then cut = mon.pp[slot] end
+  mon.pp[slot] = mon.pp[slot] - cut
+  if mon.pp[slot] == 0 then
+    local Engine = require("src.core.game3.battle.engine")
+    Engine.cancelMultiTurnMoves(target)
   end
-  if cut <= 0 then return H.sayFail(ctx) end
+  H.attackAnim(ctx)
   local Moves = require("src.core.game3.battle.moves")
-  ctx.adapter:say(string.format("Reduced %s's\n%s by %d!",
-    H.displayName(ctx, target), Moves.displayName(last), cut))
+  ad:say(string.format("Reduced %s's\n%s by %d!", name(ctx, target), Moves.displayName(last), cut))
 end
 
+-- pokefirered/src/battle_script_commands.c:8744
 function Volatiles.torment(ctx)
+  if not H.accuracy(ctx, "normal") then return end
   if ctx.target.expTormented then return H.sayFail(ctx) end
   ctx.target.expTormented = true
-  ctx.adapter:say(H.displayName(ctx, ctx.target) .. " was\nsubjected to TORMENT!")
+  ctx.target.torment = true
+  H.attackAnim(ctx)
+  ctx.adapter:say(name(ctx, ctx.target) .. " was subjected\nto TORMENT!")
 end
 
 return Volatiles

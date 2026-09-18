@@ -1426,6 +1426,17 @@ AnimCallbacks.VerticalDip = nil
 AnimCallbacks.SlideMonToOriginalPos = nil
 AnimCallbacks.SlideMonToOffset = nil
 
+AnimCallbacks._destroy = destroy
+for _, group in ipairs({ "g1", "g2", "g3", "g4" }) do
+  local ok, mod = pcall(require, "src.core.game3.battle.anim_port." .. group .. "_callbacks")
+  if ok and type(mod) == "function" then mod = mod(AnimCallbacks) end
+  if ok and type(mod) == "table" then
+    for k, fn in pairs(mod) do AnimCallbacks[k] = fn end
+  elseif not ok and not tostring(mod):find("not found") then
+    print("[battle.anim] " .. group .. "_callbacks: " .. tostring(mod))
+  end
+end
+
 function AnimCallbacks.get(name)
   if not name then return AnimCallbacks.HitSplatBasic end
   if AnimCallbacks[name] then return AnimCallbacks[name] end

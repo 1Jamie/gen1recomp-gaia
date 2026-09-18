@@ -22,6 +22,7 @@ function IntroSeq.reset()
   IntroSeq._waitingMsg = false
   IntroSeq._waitingFade = false
   IntroSeq._waitingCry = false
+  IntroSeq._waitingGen = false
   IntroSeq._pendingSlideIn = nil
   IntroSeq._pushMsg = nil
   IntroSeq._opts = nil
@@ -88,6 +89,42 @@ local function enemy_party_balls(foeParty, partySize)
   return balls
 end
 
+-- pokefirered/src/battle_gfx_sfx_util.c:1045
+local function release_cry_mode(mon)
+  if not mon then return 0 end
+  local status = mon.status
+  if status and status ~= 0 and status ~= "" then return 11 end
+  local ok, BattleChrome = pcall(require, "src.ui.game3.battle_chrome")
+  if ok and BattleChrome and BattleChrome.hpBarLevel then
+    local lvl = BattleChrome.hpBarLevel(mon.hp, mon.maxHp)
+    if lvl ~= "green" and lvl ~= "full" then return 11 end
+  end
+  return 0
+end
+IntroSeq.releaseCryMode = release_cry_mode
+
+local GHOST_CANT_ID = "The GHOST appeared!\\pDarn!\nThe GHOST can't be ID'd!"
+local GHOST_APPEARED = "The GHOST appeared!"
+local SCOPE_UNVEILED = "SILPH SCOPE unveiled the GHOST's\nidentity!"
+local GHOST_WAS = "The GHOST was MAROWAK!"
+
+-- pokefirered/src/battle_setup.c:320
+local function unveil_ghost(st)
+  local p = Anim.present("enemy")
+  if p then p.ghostUnveiled = true end
+  if st and st.enemy and st.enemy.mon and st.enemy.mon.nickname == "GHOST" then
+    st.enemy.mon.nickname = nil
+  end
+end
+
+-- pokefirered/src/battle_message.c:1574
+function IntroSeq.headlessGhostIntro(st)
+  if not (st and st.ghostBattle) then return {} end
+  if not st.ghostUnveiled then return { GHOST_CANT_ID } end
+  unveil_ghost(st)
+  return { GHOST_APPEARED, SCOPE_UNVEILED, GHOST_WAS }
+end
+
 local function build_wild(st, opts)
   local steps = {}
   local function add(kind, data)
@@ -114,8 +151,22 @@ local function build_wild(st, opts)
   })
   add("cry", { side = "enemy" })  add("undarken", { side = "enemy", frames = 10 })
   add("healthbox", { side = "enemy", frames = 23, from = -115 })
-  add("msg", { text = "Wild " .. ename .. " appeared!" })
-  add("msg", { text = "Go! " .. pname .. "!" })
+  if st.ghostBattle and st.ghostUnveiled then
+    add("msg", { text = GHOST_APPEARED })
+    -- pokefirered/data/battle_scripts_1.s:3820
+    add("wait", { frames = 32 })
+    add("msg", { text = SCOPE_UNVEILED, linger = true })
+    add("general", { name = "SILPH_SCOPED", side = "enemy" })
+    add("unveil", {})
+    add("wait", { frames = 32 })
+    add("msg", { text = GHOST_WAS })
+  elseif st.ghostBattle then
+    add("msg", { text = GHOST_CANT_ID })
+  else
+    add("msg", { text = "Wild " .. ename .. " appeared!" })
+  end
+  -- pokefirered/src/battle_message.c:399
+  add("msg", { text = "Go! " .. pname .. "!", linger = true })
   add("player_throw", {})
   add("healthbox", { side = "player", frames = 23, from = 115 })
   add("wait", { frames = 3 })
@@ -162,9 +213,9 @@ local function build_trainer(st, opts)
   add("msg", { text = strings.wants })
   add("msg", { text = strings.sentOut })
   add("opponent_sendout", { toX = 280, frames = 35 })
-  add("cry", { side = "enemy" })
+  add("cry", { side = "enemy", release = true })
   add("healthbox", { side = "enemy", frames = 23, from = -115 })
-  add("msg", { text = "Go! " .. pname .. "!" })
+  add("msg", { text = "Go! " .. pname .. "!", linger = true })
   add("player_throw", {})
   add("healthbox", { side = "player", frames = 23, from = 115 })
   add("wait", { frames = 3 })
@@ -440,7 +491,9 @@ local function run_step(step)
   end
 
   if kind == "msg" then
-    if IntroSeq._pushMsg and d.text then
+    if d.linger and d.text then
+      require("src.core.game3.battle.ui").pushTimed(d.text, 0)
+    elseif IntroSeq._pushMsg and d.text then
       IntroSeq._pushMsg(d.text)
     end
     -- pret waits for PrintString / controller exec before send-out / slide-out.
@@ -612,7 +665,8 @@ local function run_step(step)
       local st = Battle and Battle._st
       local species = st and st.player and (st.player.species or (st.player.mon and (st.player.mon.species or st.player.mon.speciesId)))
       if species then
-        pcall(function() Audio.playCry(species) end)
+        -- pokefirered/src/pokeball.c:782
+        pcall(function() Audio.playCry(species, release_cry_mode(st.player.mon), -25) end)
       end
       local p = Anim.present("player")
       p.visible = true
@@ -635,6 +689,40 @@ local function run_step(step)
     return
   end
 
+  if kind == "general" then
+    local side = d.side or "enemy"
+    local Battle = package.loaded["src.core.game3.battle"]
+    local st = Battle and Battle._st
+    local b = st and st[side]
+    local sp = b and (b.species or (b.mon and b.mon.species))
+    local AnimCtx = require("src.core.game3.battle.anim_ctx")
+    wait_busy()
+    IntroSeq._waitingGen = true
+    Anim.launchGeneral(d.name, {
+      attackerSide = side,
+      targetSide = side,
+      isReversed = side == "enemy",
+      attackerSpecies = sp,
+      targetSpecies = sp,
+      animArg = 0,
+      ctx = AnimCtx.build(side, side, { animArg = 0 }),
+      onEnd = function()
+        if IntroSeq._waitingGen then
+          IntroSeq._waitingGen = false
+          advance()
+        end
+      end,
+    })
+    return
+  end
+
+  if kind == "unveil" then
+    local Battle = package.loaded["src.core.game3.battle"]
+    unveil_ghost(Battle and Battle._st)
+    advance()
+    return
+  end
+
   if kind == "cry" then
     local side = d.side or "enemy"
     local Battle = package.loaded["src.core.game3.battle"]
@@ -643,7 +731,9 @@ local function run_step(step)
     local species = battler and (battler.species
       or (battler.mon and (battler.mon.species or battler.mon.speciesId)))
     if species then
-      Audio.playCry(species)
+      -- pokefirered/src/battle_main.c:1899
+      local mode = d.release and release_cry_mode(battler.mon) or 0
+      Audio.playCry(species, mode, (side == "player") and -25 or 25)
     end
     IntroSeq._waiting = true
     IntroSeq._waitingCry = true
@@ -679,6 +769,7 @@ end
 
 function IntroSeq.update()
   if not IntroSeq._steps then return true end
+  if IntroSeq._waitingGen then return false end
 
   if IntroSeq._pendingSlideIn and Anim.introSlideDone() then
     local fn = IntroSeq._pendingSlideIn
