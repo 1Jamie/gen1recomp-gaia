@@ -491,7 +491,7 @@ end
 local CART_COLOR = {
   red = PAL.railRed, blue = PAL.railBlue, yellow = PAL.railGold,
   gold = PAL.railAmber, silver = PAL.railSilver,
-  crystal = PAL.railCrystal,
+  crystal = PAL.railCrystal, firered = PAL.railFireRed,
 }
 local function cartColor(version)
   return CART_COLOR[version] or PAL.green
@@ -1535,6 +1535,8 @@ local GAME_TABS = {
     label = "Silver" },
   { id = "crystal", key = "tab-crystal", letter = "C",
     color = PAL.railCrystal, label = "Crystal" },
+  { id = "firered", key = "tab-firered", letter = "F",
+    color = PAL.railFireRed, label = "Fire Red" },
 }
 
 local function drawOnlineGlyph(x, y, w, h, hot)
@@ -2385,6 +2387,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
   local skin = cartSkin(imp, version)
   local gameName = skin.name or (info and (info.launcherName or info.displayName))
     or tostring(version)
+  if info and info.beta then gameName = gameName .. " (Beta)" end
   local ready = (not locked) and imp.ready[version] or false
 
   -- title + status tag.  Ready is a check chip (the font has no tick glyph);
@@ -2456,17 +2459,20 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
     local mgW = math.max(Kit.tapMin(), math.floor(34 * m.s))
     local bgap = math.floor(8 * m.s)
     local cartAreaW = lw - mgW - bgap
+    local cartH = playH
     local cartW
     if skin.shape == "gba" then
-      -- Reserve hover clearance.
-      cartW = math.min(cartAreaW * 0.90, playH * CartShape.GBA_ASPECT)
-      playH = cartW / CartShape.GBA_ASPECT
-      ly = ly + math.floor(cartW * 0.07)
+      -- GBA carts are wider (aspect 1.74:1) but have a smaller physical footprint than GB carts.
+      -- Scale height to ~62% of column height budget so visual mass is balanced and doesn't overwhelm the column.
+      local targetH = playH * 0.62
+      cartW = math.min(cartAreaW * 0.72, targetH * CartShape.GBA_ASPECT)
+      cartH = cartW / CartShape.GBA_ASPECT
+      ly = ly + math.floor((playH - cartH) * 0.35)
     else
       cartW = math.min(cartAreaW, math.floor(playH * 0.88))
     end
     local cartX = lx + math.floor((cartAreaW - cartW) / 2)
-    cartridgeButton(imp, cartX, ly, cartW, playH, "play-" .. version,
+    cartridgeButton(imp, cartX, ly, cartW, cartH, "play-" .. version,
       skin, function() imp:play(version, true) end, version)
     imp._gearIcon = imp._gearIcon
       or love.graphics.newImage("assets/launcher/gear.png")
@@ -2474,7 +2480,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
       face = "invert", image = imp._gearIcon,
       action = function() imp._gameManage = version end,
     })
-    ly = ly + playH + gap
+    ly = ly + cartH + gap
     btn(imp, lx, ly, lw, m.btnH, "carts-" .. version,
       Strings("Custom Carts"), {
         kind = "accent", font = "small",

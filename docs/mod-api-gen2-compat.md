@@ -528,7 +528,8 @@ gains a field instead of the name gaining a prefix.
   `map.reloaded`, `player.warped`, `world.stepped`, `world.interacted`,
   `world.npc_spawned`, `world.trainer_engaged`, `world.blacked_out`,
   `world.block_replaced`, `world.boulder_moved`, `world.tod_changed`,
-  `world.object_toggled`, `flag.changed`; hooks `warp.destination`,
+  `world.object_toggled`, `world.live_maps_preparing`,
+  `world.live_maps_updated`, `flag.changed`; hooks `warp.destination`,
   `movement.collision`, `movement.speed`, `encounter.roll`,
   `encounter.species`, `encounter.fishing`, `encounter.table`, `world.tod`,
   `map.palette`, `fieldmove.eligibility`. `flag.changed` carries the numeric
