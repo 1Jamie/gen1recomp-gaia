@@ -26,6 +26,9 @@ local function new_layer(id)
     offsetX = 0,
     offsetY = 0,
     alpha = 1,
+    fx = nil,
+    blend = nil,
+    clip = nil,
   }
 end
 
@@ -54,6 +57,9 @@ function Bg.reset()
     L.offsetX = 0
     L.offsetY = 0
     L.alpha = 1
+    L.fx = nil
+    L.blend = nil
+    L.clip = nil
   end
 end
 
@@ -175,14 +181,30 @@ local function modPositive(a, n)
   return ((a % n) + n) % n
 end
 
-local function blitLayer(L)
+local Fx = require("src.core.game3.gba_fx")
+
+function Bg.setFx(bg, fx)
+  local L = Bg.get(bg)
+  if L then L.fx = fx end
+end
+
+function Bg.setBlend(bg, blend)
+  local L = Bg.get(bg)
+  if L then L.blend = blend end
+end
+
+function Bg.setClip(bg, clip)
+  local L = Bg.get(bg)
+  if L then L.clip = clip end
+end
+
+local function blitRaw(L)
   local img = L.image
-  if not img then return end
   local a = L.alpha or 1
   love.graphics.setColor(1, 1, 1, a)
 
-  local scrollX = L.scrollX or 0
-  local scrollY = L.scrollY or 0
+  local scrollX = math.floor(L.scrollX or 0)
+  local scrollY = math.floor(L.scrollY or 0)
   local ox = (L.offsetX or 0) - scrollX
   local oy = (L.offsetY or 0) - scrollY
   local wrapW = L.wrapW
@@ -230,6 +252,14 @@ local function blitLayer(L)
   else
     drawAt(ox, oy)
   end
+end
+
+local function blitLayer(L)
+  if not L.image then return end
+  if L.clip and (L.clip.w <= 0 or L.clip.h <= 0) then return end
+  Fx.withClip(L.clip, function()
+    Fx.draw(function() blitRaw(L) end, L.fx, L.blend)
+  end)
 end
 
 --- Draw all visible BGs with the given hardware priority (back-to-front caller loops 3→0).

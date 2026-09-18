@@ -34,10 +34,31 @@ function Sample.s8ToSoundData(pcm, sampleRate, opts)
     step = sampleRate / outRate
   end
 
-  local sd = love.sound.newSoundData(nOut, outRate, 16, 1)
+  local pan = opts.pan
+  local env = opts.envelope
+  local channels = pan and 2 or 1
+  local sd = love.sound.newSoundData(nOut, outRate, 16, channels)
+  local gainL, gainR = 1, 1
+  if pan then
+    gainL = (127 - pan) / 191
+    gainR = (128 + pan) / 191
+  end
+  local frameRate = 16777216 / 280896
   local pos = 0
   for i = 0, nOut - 1 do
-    sd:setSample(i, s8_at(pcm, pos))
+    local v = s8_at(pcm, pos)
+    if env then
+      local frame = math.floor(i * frameRate / outRate)
+      if frame >= env.length then
+        v = v * (env.release / 256) ^ (frame - env.length + 1)
+      end
+    end
+    if channels == 2 then
+      sd:setSample(i, 1, v * gainL)
+      sd:setSample(i, 2, v * gainR)
+    else
+      sd:setSample(i, v)
+    end
     pos = pos + step
   end
   return sd
@@ -72,7 +93,7 @@ function Sample.makeSource(samplesBin, meta, opts)
     local MixOk, Mix = pcall(require, "src.core.game3.m4a_mix")
     outRate = (MixOk and Mix and Mix.SAMPLE_RATE) or 44100
   end
-  local sd = Sample.s8ToSoundData(pcm, rate, { outRate = outRate })
+  local sd = Sample.s8ToSoundData(pcm, rate, { outRate = outRate, pan = opts.pan, envelope = opts.envelope })
   if not sd then return nil end
   if not (love and love.audio and love.audio.newSource) then return nil end
   local src = love.audio.newSource(sd, "static")

@@ -115,8 +115,6 @@ function Boot.new()
     titleBorder = loadImage(path("titleBorder", "title_border_bg.png")),
   }
 
-  local introMovie = IntroMovie.new(assets)
-
   local state = {
     phase = Boot.PHASE.INTRO,
     timer = 0,
@@ -125,7 +123,7 @@ function Boot.new()
     hasContinue = false,
     introIndex = index,
     assets = assets,
-    introMovie = introMovie,
+    introMovie = nil,
     oak = nil,
     titleScreen = loadImage(path("titleScreen", "title_screen.png")),
     titleLogo = loadImage(path("titleLogo", "title_logo.png")),
@@ -216,43 +214,6 @@ local function leaveTitle(state)
   end
 end
 
-local function stepPalFade(f)
-  if not f.active then return end
-  if f.finishing then
-    if f.finishing >= 4 then f.active = false else f.finishing = f.finishing + 1 end -- pokefirered/src/palette.c:761
-    return
-  end
-  if f.toggle == 0 then
-    if f.counter < f.delay then -- pokefirered/src/palette.c:408
-      f.counter = f.counter + 1
-      return
-    end
-    f.counter = 0
-    f.bgY = f.y
-    f.toggle = 1
-  else
-    f.objY = f.y
-    f.toggle = 0
-    if f.y == f.target then
-      f.finishing = 0
-    elseif f.y < f.target then
-      f.y = math.min(f.target, f.y + 2)
-    else
-      f.y = math.max(f.target, f.y - 2)
-    end
-  end
-end
-
-local function beginPalFade(delay, startY, targetY)
-  local f = { delay = delay, counter = delay, y = startY, target = targetY,
-    bgY = startY, objY = startY, toggle = 0, active = true }
-  stepPalFade(f) -- pokefirered/src/palette.c:180
-  return f
-end
-
-Boot.beginPalFade = beginPalFade
-Boot.stepPalFade = stepPalFade
-
 local function saveErrorPages(status)
   if status == "invalid" then
     return { Strings("The save file has been\ndeleted...") } -- pokefirered/src/strings.c:31
@@ -331,92 +292,44 @@ function Boot.update(state, input, dt)
   end
 
   if state.phase == Boot.PHASE.INTRO then
-    if state.introMovie then
-      local done = state.introMovie:update(input, dt)
-      if done then
-        if state.introMovie.destroy then state.introMovie:destroy() end
-        state.phase = Boot.PHASE.TITLE
-        state.timer = 0
-        enterTitle(state)
-        Audio.playSong(278) -- MUS_TITLE
-      end
-    else
+    if not state.introMovie then
+      state.introMovie = IntroMovie.new(state.assets)
+    end
+    if state.introMovie:update(input, dt) then
+      state.introMovie:destroy()
+      state.introMovie = nil
       state.phase = Boot.PHASE.TITLE
       state.timer = 0
       enterTitle(state)
-      Audio.playSong(278)
     end
     return nil
   end
 
   if state.phase == Boot.PHASE.COPYRIGHT then
-    state.phase = Boot.PHASE.TITLE
+    state.phase = Boot.PHASE.INTRO
+    state.introMovie = IntroMovie.new(state.assets)
     state.timer = 0
-    enterTitle(state)
-    Audio.playSong(278)
     return nil
   end
 
-  if state.phase == Boot.PHASE.TITLE then
-    TitleScreen.update(state, dt)
-    if a() then
+  if state.phase == Boot.PHASE.TITLE or state.phase == Boot.PHASE.TITLE_CRY
+      or state.phase == Boot.PHASE.TITLE_RESTART then
+    local result = TitleScreen.update(state, input, dt)
+    local scene = TitleScreen.scene(state)
+    if scene == TitleScreen.SCENE.CRY then
       state.phase = Boot.PHASE.TITLE_CRY
-      state.cryFrames = 0
-      state.white = 0
-      state.whiteFading = false
-      Audio.playCry(6, 0) -- pokefirered/src/title_screen.c:715
-    elseif state.timer >= 2700 / 60 then -- pokefirered/src/title_screen.c:435
+    elseif scene == TitleScreen.SCENE.RESTART then
       state.phase = Boot.PHASE.TITLE_RESTART
-      state.restartStep = 0
-      state.restartFade = nil
-      state.restartWait = 0
-    end
-    return nil
-  end
-
-  if state.phase == Boot.PHASE.TITLE_RESTART then
-    TitleScreen.update(state, dt)
-    local fade = state.restartFade
-    if fade then stepPalFade(fade) end
-    local step = state.restartStep or 0
-    if step == 0 then -- pokefirered/src/title_screen.c:672
-      state.restartStep = 1
-    elseif step == 1 then
-      Audio.fadeOutBgm(10) -- pokefirered/src/title_screen.c:678
-      state.restartFade = beginPalFade(3, 0, 16) -- pokefirered/src/title_screen.c:679
-      state.restartStep = 2
-    elseif step == 2 then
-      if Audio.isBgmStopped() and not (fade and fade.active) then -- pokefirered/src/title_screen.c:685
-        state.restartWait = 0
-        state.restartStep = 3
-      end
-    elseif step == 3 then
-      state.restartWait = state.restartWait + 1
-      if state.restartWait >= 20 then state.restartStep = 4 end -- pokefirered/src/title_screen.c:694
     else
+      state.phase = Boot.PHASE.TITLE
+    end
+    if result == "restart" then
       leaveTitle(state)
-      state.restartFade = nil
       state.phase = Boot.PHASE.INTRO -- pokefirered/src/title_screen.c:703
       state.introMovie = IntroMovie.new(state.assets)
       state.timer = 0
-    end
-    return nil
-  end
-
-  if state.phase == Boot.PHASE.TITLE_CRY then
-    TitleScreen.update(state, dt)
-    if not state.whiteFading then
-      if state.cryFrames < 90 then -- pokefirered/src/title_screen.c:722
-        state.cryFrames = state.cryFrames + 1
-      else
-        state.whiteFading = true
-        Audio.fadeOutBgm(4) -- pokefirered/src/title_screen.c:728
-      end
-    elseif state.white < 16 then
-      state.white = math.min(16, state.white + 2) -- pokefirered/src/palette.c:162
-    else
+    elseif result == "menu" then
       leaveTitle(state)
-      state.whiteFading = false
       state.timer = 0
       if state.saveStatus == "invalid" or state.saveStatus == "error" then -- pokefirered/src/main_menu.c:246
         state.phase = Boot.PHASE.MENU
@@ -457,7 +370,6 @@ function Boot.update(state, input, dt)
         state.phase = Boot.PHASE.TITLE
         state.timer = 0
         enterTitle(state)
-        Audio.playSong(278) -- pokefirered/src/title_screen.c:389
       end
       return nil
     end
@@ -612,30 +524,9 @@ function Boot.draw(state)
     return
   end
 
-  if state.phase == Boot.PHASE.TITLE then
+  if state.phase == Boot.PHASE.TITLE or state.phase == Boot.PHASE.TITLE_CRY
+      or state.phase == Boot.PHASE.TITLE_RESTART then
     TitleScreen.draw(state)
-    return
-  end
-
-  if state.phase == Boot.PHASE.TITLE_CRY then
-    TitleScreen.draw(state)
-    local white = state.white or 0
-    if white > 0 then
-      love.graphics.setColor(1, 1, 1, white / 16) -- pokefirered/src/title_screen.c:726
-      love.graphics.rectangle("fill", 0, 0, W, H)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
-    return
-  end
-
-  if state.phase == Boot.PHASE.TITLE_RESTART then
-    TitleScreen.draw(state)
-    local y = state.restartFade and state.restartFade.bgY or 0
-    if y > 0 then
-      love.graphics.setColor(0, 0, 0, y / 16) -- pokefirered/src/title_screen.c:679
-      love.graphics.rectangle("fill", 0, 0, W, H)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
     return
   end
 

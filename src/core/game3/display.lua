@@ -141,7 +141,7 @@ function Display.composeHardware(opts)
     Oam.animateSprites()
   end
   if opts.build ~= false then
-    Oam.buildOamBuffer()
+    Oam.buildOamBuffer(opts.pretOrder)
   end
 
   if opts.scissor then

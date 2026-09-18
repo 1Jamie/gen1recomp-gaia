@@ -381,6 +381,11 @@ end
 function Game3:logicSpeed()
   local override = tonumber(self.speedOverride)
   if override then return math.max(1, override) end
+  local b = self.phase == "boot" and self.boot
+  if b and (b.phase == Boot.PHASE.INTRO or b.phase == Boot.PHASE.TITLE
+      or b.phase == Boot.PHASE.TITLE_CRY or b.phase == Boot.PHASE.TITLE_RESTART) then
+    return 1
+  end
   local GameSpeed = require("src.core.GameSpeed")
   local opts = self.options
   if type(opts) ~= "table" then return 1 end
@@ -764,7 +769,6 @@ function Game3:returnToTitle()
   self.boot.timer = 0
   local TitleScreen = require("src.ui.game3.title_screen")
   TitleScreen.enter(self.boot)
-  Audio.playSong(278)
 end
 
 function Game3:reset()

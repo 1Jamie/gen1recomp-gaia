@@ -696,7 +696,7 @@ return {
         local tiles = decompress(get, M.scene2_plants_tiles)
         local map = decompress(get, M.scene2_plants_map)
         local plants = bake4bppMapPng(tiles, pal, map, 32, 20, true, 0)
-        saveAsset("intro_scene2_plants.png", cropPng(plants, 256, 160, 0, 0, 240, 160) or plants)
+        saveAsset("intro_scene2_plants.png", plants)
       end
       if M.gengar_pal and M.scene2_gengar_close_tiles and M.scene2_gengar_close_map then
         local pal = readPal(get, M.gengar_pal, 16)
@@ -737,7 +737,7 @@ return {
         local tiles = decompress(get, M.scene3_bg_tiles)
         local map = decompress(get, M.scene3_bg_map)
         local s3Bg = bake4bppMapPng(tiles, pal, map, 32, 20, false, 0)
-        saveAsset("intro_scene3_bg.png", cropPng(s3Bg, 256, 160, 0, 0, 240, 160) or s3Bg)
+        saveAsset("intro_scene3_bg.png", s3Bg)
       end
       if M.gengar_pal and M.scene3_gengar_anim_tiles and M.scene3_gengar_anim_map then
         local pal = readPal(get, M.gengar_pal, 16)

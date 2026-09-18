@@ -1,6 +1,8 @@
 -- pret-faithful GBA sprite pool + OAM blit for game3 (240×160).
 -- CreateSprite x/y are CENTER; hardware TL = x+x2+centerToCornerVec.
 
+local Fx = require("src.core.game3.gba_fx")
+
 local Oam = {}
 
 Oam.MAX_SPRITES = 64
@@ -60,6 +62,7 @@ local CENTER_TO_CORNER = {
 }
 
 local function dummy_callback(_sprite) end
+Oam.DUMMY_CALLBACK = dummy_callback
 
 local function new_slot()
   return {
@@ -112,8 +115,13 @@ function Oam.reset()
     s.callback = dummy_callback
     s.invisible = false
     s.x2, s.y2 = 0, 0
+    s.fx, s.blend, s.clip = nil, nil, nil
+    s.anims, s.animQuads, s.affineAnim = nil, nil, nil
   end
   Oam._buffer = nil
+  Oam._clip = nil
+  Oam._fx = nil
+  Oam._blend = nil
 end
 
 --- pret CalcCenterToCornerVec (signed).
@@ -167,6 +175,9 @@ function Oam.createSprite(template, x, y, subpriority)
     local s = Oam._sprites[i]
     if not s.inUse then
       s.inUse = true
+      s.oam.affineMode = 0
+      s.oam.hFlip, s.oam.vFlip = false, false
+      s.oam.matrixNum = 0
       copy_oam(s.oam, template.oam)
       if template.shape ~= nil then s.oam.shape = template.shape end
       if template.size ~= nil then s.oam.size = template.size end
@@ -187,6 +198,21 @@ function Oam.createSprite(template, x, y, subpriority)
       s.quad = template.quad
       s.animPaused = template.animPaused and true or false
       s.layer = template.layer or Oam._layer or "ui"
+      s.fx, s.blend, s.clip = nil, nil, nil
+      s.anims = template.anims
+      s.animQuads = template.animQuads
+      s.animNum = 0
+      s.animBeginning = template.anims ~= nil
+      s.animEnded = false
+      s.animCmdIndex = 0
+      s.animDelayCounter = 0
+      s.affineAnim = nil
+      s.affineScale = nil
+      s.affineMatrixA = nil
+      s.affineAnimEnded = false
+      s.anchored = false
+      s.anchorX, s.anchorY = nil, nil
+      s.objWindow, s.palSlot, s.objBlend = nil, nil, nil
       for d = 1, 8 do s.data[d] = 0 end
       Oam.applyCenterToCorner(s)
       s._id = i
@@ -289,12 +315,148 @@ function Oam.setCoordOffset(ox, oy)
   Oam._coordOffsetY = tonumber(oy) or 0
 end
 
+local function applyAnimFrame(s, cmd)
+  local dur = cmd.dur or 0
+  if dur > 0 then dur = dur - 1 end
+  s.animDelayCounter = dur
+  if s.animQuads and s.animQuads[cmd.img] then
+    s.quad = s.animQuads[cmd.img]
+  end
+end
+
+local function stepAnim(s)
+  local list = s.anims[s.animNum]
+  if not list then return end
+  if s.animBeginning then
+    s.animBeginning = false
+    s.animCmdIndex = 1
+    s.animEnded = false
+    applyAnimFrame(s, list[1])
+    return
+  end
+  if s.animDelayCounter > 0 then
+    if not s.animPaused then s.animDelayCounter = s.animDelayCounter - 1 end
+    return
+  end
+  if s.animPaused then return end
+  s.animCmdIndex = s.animCmdIndex + 1
+  local cmd = list[s.animCmdIndex]
+  if cmd == nil or cmd == "end" then
+    s.animCmdIndex = s.animCmdIndex - 1
+    s.animEnded = true
+  elseif cmd.jump then
+    s.animCmdIndex = cmd.jump + 1
+    applyAnimFrame(s, list[s.animCmdIndex])
+  else
+    applyAnimFrame(s, cmd)
+  end
+end
+
+-- pokefirered/src/sprite.c:1066
+function Oam.startAnim(s, animNum)
+  s.animNum = animNum or 0
+  s.animBeginning = true
+  s.animEnded = false
+end
+
+local SPRITE_DIMS = {
+  [0] = { [0] = { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+  [1] = { [0] = { 16, 8 }, { 32, 8 }, { 32, 16 }, { 64, 32 } },
+  [2] = { [0] = { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } },
+}
+
+local function idiv(a, b)
+  local q = a / b
+  return q >= 0 and math.floor(q) or math.ceil(q)
+end
+
+-- pokefirered/src/sprite.c:1233
+local function anchorCoord(baseDim, xformed, modifier)
+  local sub = xformed - baseDim
+  local shift
+  if sub < 0 then
+    shift = math.floor(-sub / 512)
+  else
+    shift = -math.floor(sub / 512)
+  end
+  return modifier - (math.floor((modifier * xformed) / baseDim) + shift)
+end
+
+local function updateAnchor(s)
+  local a = s.affineMatrixA or 0x100
+  local dims = SPRITE_DIMS[s.oam.shape][s.oam.size]
+  if s.anchorX then
+    local dim = dims[1]
+    s.x2 = anchorCoord(dim * 256, idiv(dim * 65536, a), s.anchorX)
+  end
+  if s.anchorY then
+    local dim = dims[2]
+    s.y2 = anchorCoord(dim * 256, idiv(dim * 65536, a), s.anchorY)
+  end
+end
+
+local function setAffineScale(s, scale)
+  s.affineScaleRaw = scale
+  local a = scale ~= 0 and idiv(0x10000, scale) or 0x100
+  s.affineMatrixA = a
+  s.affineScale = 256 / a
+end
+
+-- pokefirered/src/sprite.c:1203
+function Oam.setMatrixAnchor(s, x, y)
+  s.anchorX, s.anchorY = x, y
+  s.anchored = true
+end
+
+-- pokefirered/src/sprite.c:1062
+function Oam.startAffineAnim(s, cmds)
+  s.affineAnim = { cmds = cmds, index = 1, delay = 0, begin = true }
+end
+
+local function stepAffine(s)
+  local st = s.affineAnim
+  local cmds = st.cmds
+  if st.begin then
+    st.begin = false
+    st.index = 1
+    local c = cmds[1]
+    st.scale = c.scale
+    setAffineScale(s, st.scale)
+    st.delay = c.dur or 0
+  elseif st.delay > 0 then
+    st.delay = st.delay - 1
+    local c = cmds[st.index]
+    st.scale = st.scale + (c.add or 0)
+    setAffineScale(s, st.scale)
+  else
+    st.index = st.index + 1
+    local c = cmds[st.index]
+    if c == nil or c == "end" then
+      st.index = st.index - 1
+      s.affineAnimEnded = true
+    else
+      local dur = c.dur or 0
+      if dur > 0 then
+        dur = dur - 1
+        st.scale = st.scale + (c.add or 0)
+      else
+        st.scale = c.scale or st.scale
+      end
+      setAffineScale(s, st.scale)
+      st.delay = dur
+    end
+  end
+  if s.anchored then updateAnchor(s) end
+end
+
 function Oam.animateSprites(layer)
   ensure_pool()
   for i = 0, Oam.MAX_SPRITES - 1 do
     local s = Oam._sprites[i]
     if s.inUse and s.callback and (not layer or (s.layer or "ui") == layer) then
       s.callback(s)
+      if s.inUse and s.anims then stepAnim(s) end
+      if s.inUse and s.affineAnim then stepAffine(s) end
     end
   end
 end
@@ -316,7 +478,17 @@ local function sort_sprites(a, b)
 end
 
 --- Collect visible sprites into draw buffer (BuildOamBuffer).
-function Oam.buildOamBuffer()
+local function sort_sprites_pret(a, b)
+  -- pokefirered/src/sprite.c:368
+  local pa, pb = sprite_priority_key(a), sprite_priority_key(b)
+  if pa ~= pb then return pa > pb end
+  local _, ya = Oam.oamTopLeft(a)
+  local _, yb = Oam.oamTopLeft(b)
+  if ya ~= yb then return ya < yb end
+  return (a._id or 0) > (b._id or 0)
+end
+
+function Oam.buildOamBuffer(pretOrder)
   ensure_pool()
   local buf = {}
   for i = 0, Oam.MAX_SPRITES - 1 do
@@ -325,12 +497,54 @@ function Oam.buildOamBuffer()
       buf[#buf + 1] = s
     end
   end
-  table.sort(buf, sort_sprites)
+  table.sort(buf, pretOrder and sort_sprites_pret or sort_sprites)
   Oam._buffer = buf
   return buf
 end
 
+function Oam.setClip(clip)
+  Oam._clip = clip
+end
+
+function Oam.setFx(fx, blend)
+  Oam._fx = fx
+  Oam._blend = blend
+end
+
+local blit_plain
+
+local function blit_affine(s)
+  local img, q = s.image, s.quad
+  local dims = SPRITE_DIMS[s.oam.shape][s.oam.size]
+  local w, h = dims[1], dims[2]
+  local m = s.affineScale or 1
+  local cx = (s.x or 0) + (s.x2 or 0) + (Oam._coordOffsetX or 0)
+  local cy = (s.y or 0) + (s.y2 or 0) + (Oam._coordOffsetY or 0)
+  if not (math.floor(s.oam.affineMode / 2) % 2 == 1) then
+    cx = cx + (s.centerToCornerVecX or 0) + w / 2
+    cy = cy + (s.centerToCornerVecY or 0) + h / 2
+  end
+  if q then
+    love.graphics.draw(img, q, cx, cy, 0, m, m, w / 2, h / 2)
+  else
+    love.graphics.draw(img, cx, cy, 0, m, m, w / 2, h / 2)
+  end
+end
+
 local function blit_sprite(s)
+  local fx = s.fx or Oam._fx
+  local blend = s.blend or Oam._blend
+  local clip = s.clip or Oam._clip
+  if clip and (clip.w <= 0 or clip.h <= 0) then return end
+  local draw = s.affineScale and function() blit_affine(s) end or function() blit_plain(s) end
+  if not fx and not blend and not clip then
+    draw()
+    return
+  end
+  Fx.withClip(clip, function() Fx.draw(draw, fx, blend) end)
+end
+
+blit_plain = function(s)
   local tlx, tly = Oam.oamTopLeft(s)
   local img, q = s.image, s.quad
   if not img then return end

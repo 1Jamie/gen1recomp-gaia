@@ -781,8 +781,10 @@ function Audio.waitFanfare(cb)
   if not Audio._fanfareActive and cb then cb() end
 end
 
-function Audio.playCry(species, mode)
+-- pokefirered/src/sound.c:333
+function Audio.playCry(species, mode, pan)
   species = tonumber(species) or species
+  local doubles = mode == 1
   log(string.format("playCry species=%s", tostring(species)))
   if not Audio.isReady() then
     Audio._cryUntil = (Audio._cryClock or 0) + 64
@@ -804,12 +806,15 @@ function Audio.playCry(species, mode)
     local src = Sample.makeSource(Audio._pack.samplesBin, meta, {
       volume = (Audio._sfxVolume or 1) * 0.9,
       rate = Mix.waveRate(meta.freq),
+      pan = pan and pan ~= 0 and Audio.normalizePan(pan) or nil,
+      envelope = doubles and { length = 20, release = 225 } or nil, -- pokefirered/src/sound.c:386
     })
     if src then
-      -- pokefirered PlayCry_Normal lowers BGM before starting the cry.
-      Audio._duck = 85 / 256
-      Audio._duckHold = 2
-      apply_bgm_gain()
+      if not doubles then
+        Audio._duck = 85 / 256
+        Audio._duckHold = 2
+        apply_bgm_gain()
+      end
       src:play()
       Audio._crySource = src
       local dur = (meta.size or 4000) / Mix.waveRate(meta.freq)
