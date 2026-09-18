@@ -504,8 +504,11 @@ respawns on `map.entered`. `queueScript` takes a small allowlist of verbs Gold
 has its own entry points for (`start_battle "wild" species level`, `warp`,
 `text`, `setflag`, `clearflag`) and refuses a list containing anything else
 **by name, before the first row runs**, so a mod never gets a half-run queue.
-`marchInPlace` still has no Gen 2 equivalent (the Gen 2 movement stream has no
-byte for it) and returns `nil, reason` rather than approximating one.
+The NPC handle carries the full Gen 1 set (`scriptMove`, `marchInPlace`,
+`stepNow`, `canStep`, `placeAt`, `isMoving`, `setPassable`, `setAppearance`),
+on the active map and on neighbor-strip ghosts alike. `marchInPlace` and a
+ghost's `scriptMove` run outside the movement stream, so they do not lock
+player input the way Gen 1's queue does.
 `availableFieldActions` and `useFieldAction` expose the same contextual field
 item and move records in both games. Gold extends the shared ids with its own
 `headbutt`, `whirlpool`, `waterfall`, `sweet_scent`, and `squirtbottle`
