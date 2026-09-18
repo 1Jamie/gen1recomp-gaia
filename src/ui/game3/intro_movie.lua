@@ -85,7 +85,7 @@ local ANIMS_RECOIL_DUST = {
   [0] = { { img = 0, dur = 10 }, { img = 4, dur = 10 }, { img = 8, dur = 10 }, { img = 12, dur = 8 }, "end" },
 }
 -- pokefirered/src/intro.c:647
-local AFFINE_ZOOM = { { scale = 256, dur = 0 }, { add = 32, dur = 8 }, "end" }
+local AFFINE_ZOOM = { { v = 256, dur = 0 }, { v = 32, dur = 8 }, "end" }
 
 -- pokefirered/src/intro.c:436
 local TEXT_SPARKLE_COORDS = {

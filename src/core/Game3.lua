@@ -71,6 +71,7 @@ function Game3:_enterField(session, reason)
     if Fade.clear then Fade.clear() end
     -- Come out of Oak's black screen onto the bedroom.
     if Fade.begin then Fade.begin(Fade.MODE.FROM_BLACK, 1) end
+    Fade.lockInput = true -- pokefirered/src/field_fadetransition.c:441
   end
   session._questNewScene=true
   if reason == "continue" then session._questMap=session.map end
@@ -164,6 +165,7 @@ function Game3:load(opts)
     Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
   end
   Boot.setSaveStatus(self.boot, saveStatus)
+  Boot.setTextSpeed(self.boot, Options.block(self.options).textSpeed)
   self.phase = "boot"
   self.session = nil
 
@@ -765,6 +767,7 @@ function Game3:returnToTitle()
     Boot.setContinueInfo(self.boot, Boot.continueInfoFromSave(rawSave))
   end
   Boot.setSaveStatus(self.boot, saveStatus)
+  Boot.setTextSpeed(self.boot, Options.block(self.options).textSpeed)
   self.boot.phase = Boot.PHASE.TITLE
   self.boot.timer = 0
   local TitleScreen = require("src.ui.game3.title_screen")

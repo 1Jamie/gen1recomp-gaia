@@ -74,6 +74,7 @@ end
 
 function Fade:_finish()
   Fade.active = false
+  Fade.lockInput = nil
   local cb = Fade.doneCb
   Fade.doneCb = nil
   if cb then cb() end
@@ -91,6 +92,7 @@ end
 
 --- Instant clear (no anim).
 function Fade.clear()
+  Fade.lockInput = nil
   Fade.active = false
   Fade.t = 0
   Fade.doneCb = nil

@@ -254,6 +254,35 @@ function TextChromeExtract.extractDownArrows(rom)
   }
 end
 
+-- pokefirered/src/text.c:32
+function TextChromeExtract.extractTextCursor(rom)
+  local baseGfx, basePal = 0x1EA54C, 0x3CC2E4
+  local pal = { [0] = { 0, 0, 0, 0 } }
+  for i = 1, 15 do
+    local lo = (rom and rom:get(basePal + i * 2)) or 0
+    local hi = (rom and rom:get(basePal + i * 2 + 1)) or 0
+    local v = lo + hi * 256
+    local function c5(n) return math.floor((n % 32) * 255 / 31 + 0.5) end
+    pal[i] = { c5(v), c5(math.floor(v / 32)), c5(math.floor(v / 1024)), 255 }
+  end
+  local pixels = {}
+  for t = 0, 3 do
+    local ox, oy = (t % 2) * 8, math.floor(t / 2) * 8
+    for row = 0, 7 do
+      for col = 0, 7 do
+        local byte = (rom and rom:get(baseGfx + t * 32 + row * 4 + math.floor(col / 2))) or 0
+        local idx = (col % 2 == 0) and (byte % 16) or math.floor(byte / 16)
+        local c = pal[idx]
+        local pi = ((oy + row) * 16 + ox + col) * 4
+        pixels[pi + 1], pixels[pi + 2], pixels[pi + 3], pixels[pi + 4] = c[1], c[2], c[3], c[4]
+      end
+    end
+  end
+  local chunks = {}
+  for i = 1, 16 * 16 * 4 do chunks[i] = string.char(pixels[i] or 0) end
+  return { rgba = table.concat(chunks), width = 16, height = 16 }
+end
+
 --- Decode 4bpp tile frame with given palette
 local function decode_4bpp_frame(rom, offset, tilesW, tilesH, pal, maxTiles)
   local w = tilesW * 8
@@ -450,6 +479,7 @@ function TextChromeExtract.run(rom, cache, opts)
 
   local arrows = TextChromeExtract.extractDownArrows(rom)
   write_cache(cache, fDir .. "/down_arrows_fg.rgba", arrows.rgba)
+  write_cache(cache, fDir .. "/text_cursor.rgba", TextChromeExtract.extractTextCursor(rom).rgba)
 
   local kp = TextChromeExtract.extractKeypadIcons(rom)
   write_cache(cache, root .. "/keypad_icons.rgba", kp.rgba)

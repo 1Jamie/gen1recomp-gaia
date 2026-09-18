@@ -24,7 +24,7 @@ Versions.ROM_SIZE = 16777216
 -- v90: fanfare audio cues, emote cues (0x62-0x66), pause menu YES/NO exit & main menu launcher exit
 -- v91: ROM-native Help topics, context lists, text and chrome.
 -- v93: original furniture/sign scripts and metatile interaction behaviors.
-Versions.CACHE_VERSION = 94
+Versions.CACHE_VERSION = 95
 Versions.NATIVE_VERSION = 5
 Versions.OW_VERSION = 1
 Versions.ANIM_VERSION = 1

@@ -42,6 +42,10 @@ local PATHS = {
     { path = "chrome/signpost_rgba.png", w = 40, h = 32 },
     { path = "data/generated/gba/chrome/signpost_rgba.png", w = 40, h = 32 },
   },
+  textCursor = {
+    { path = "chrome/fonts/text_cursor.rgba", w = 16, h = 16 },
+    { path = "data/generated/gba/chrome/fonts/text_cursor.rgba", w = 16, h = 16 },
+  },
   arrow = {
     { path = "chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
     { path = "data/generated/gba/chrome/fonts/down_arrows_fg.rgba", w = 128, h = 16 },
@@ -283,6 +287,14 @@ function Chrome.signFrame()
   fillRect(L * T, Top * T, W * T, H * T, 0.97, 0.94, 0.82, 1)
 end
 
+-- pokefirered/src/text.c:1313
+function Chrome.textCursorImage()
+  if Chrome._textCursor == nil then
+    Chrome._textCursor = loadImage(PATHS.textCursor) or false
+  end
+  return Chrome._textCursor or nil
+end
+
 --- Bounce prompt arrow (pret down_arrows). px,py = top-left of glyph.
 function Chrome.promptArrow(px, py, frame)
   local atlas = ensureArrow()
@@ -425,6 +437,7 @@ function Chrome.invalidate()
   Chrome._std = nil
   Chrome._sign = nil
   Chrome._arrow = nil
+  Chrome._textCursor = nil
   Chrome._user = {}
   Chrome._logged = false
 end

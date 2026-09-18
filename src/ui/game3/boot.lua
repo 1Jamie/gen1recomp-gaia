@@ -4,9 +4,9 @@
 local Display = require("src.core.game3.display")
 local Window = require("src.ui.game3.window")
 local Audio = require("src.core.game3.audio")
-local OakSpeech = require("src.ui.game3.oak_speech")
-local IntroGuide = require("src.ui.game3.intro_guide")
+local NewGameScene = require("src.ui.game3.new_game_scene")
 local NamingChrome = require("src.ui.game3.naming_chrome")
+local Pal = require("src.core.game3.pal_fade")
 local IntroMovie = require("src.ui.game3.intro_movie")
 local TitleScreen = require("src.ui.game3.title_screen")
 local FrlgFont = require("src.ui.game3.frlg_font")
@@ -190,18 +190,22 @@ Boot.menuItems = menuItems
 local function beginNewGame(state)
   NamingChrome.install()
   state.phase = Boot.PHASE.CONTROLS
-  state.guide = IntroGuide.beginControls(state.assets)
-  IntroGuide.start(state.guide)
+  state.newGame = NewGameScene.new(state.assets, { textSpeed = state.textSpeed })
   state.timer = 0
-  Audio.playSong(323)
   return nil
+end
+
+function Boot.setTextSpeed(state, speed)
+  state.textSpeed = tonumber(speed)
 end
 
 local function beginMenuFade(state, color, from, to, after)
   state.fadeColor = color
-  state.fadeT = from
   state.fadeTarget = to
   state.fadeThen = after
+  state.menuFade = Pal.new()
+  state.menuFade:beginFade(Pal.ALL, 0, from, to, color == "white" and Pal.WHITE or Pal.BLACK) -- pokefirered/src/main_menu.c:574
+  state.fadeT = state.menuFade.slots[0].y
 end
 
 local function enterTitle(state)
@@ -344,13 +348,10 @@ function Boot.update(state, input, dt)
   end
 
   if state.phase == Boot.PHASE.MENU then
-    local t, target = state.fadeT or 0, state.fadeTarget or 0
-    if t ~= target then
-      if t < target then
-        state.fadeT = math.min(target, t + 2)
-      else
-        state.fadeT = math.max(target, t - 2)
-      end
+    local mf = state.menuFade
+    if mf and mf:fadeActive() then
+      mf:updateFade()
+      state.fadeT = mf.slots[0].y
       return nil
     end
     local pending = state.fadeThen
@@ -395,29 +396,18 @@ function Boot.update(state, input, dt)
     return nil
   end
 
-  if state.phase == Boot.PHASE.CONTROLS and state.guide then
-    if IntroGuide.update(state.guide, input, dt) then
-      state.phase = Boot.PHASE.PIKACHU
-      state.guide = IntroGuide.beginPikachu(state.assets)
-      IntroGuide.start(state.guide)
-      state.timer = 0
+  if state.newGame and (state.phase == Boot.PHASE.CONTROLS or state.phase == Boot.PHASE.PIKACHU
+      or state.phase == Boot.PHASE.OAK) then
+    local result = state.newGame:update(input, dt)
+    local section = state.newGame.section
+    state.phase = (section == "pikachu" and Boot.PHASE.PIKACHU)
+      or (section == "oak" and Boot.PHASE.OAK) or Boot.PHASE.CONTROLS
+    if result then
+      state.newGame:destroy()
+      state.newGame = nil
+      return result
     end
     return nil
-  end
-
-  if state.phase == Boot.PHASE.PIKACHU and state.guide then
-    if IntroGuide.update(state.guide, input, dt) then
-      Audio.playSong(325)
-      state.phase = Boot.PHASE.OAK
-      state.oak = OakSpeech.new(state.assets)
-      state.guide = nil
-      state.timer = 0
-    end
-    return nil
-  end
-
-  if state.phase == Boot.PHASE.OAK and state.oak then
-    return OakSpeech.update(state.oak, input, dt)
   end
 
   return nil
@@ -539,13 +529,8 @@ function Boot.draw(state)
     return
   end
 
-  if state.phase == Boot.PHASE.CONTROLS or state.phase == Boot.PHASE.PIKACHU then
-    IntroGuide.draw(state.guide)
-    return
-  end
-
-  if state.phase == Boot.PHASE.OAK and state.oak then
-    OakSpeech.draw(state.oak)
+  if state.newGame then
+    state.newGame:draw()
   end
 end
 

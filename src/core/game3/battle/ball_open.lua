@@ -420,6 +420,17 @@ function BallOpen.start(side, x, y, ballItem, unfadeLater)
   return ballId
 end
 
+-- pokefirered/src/pokeball.c:1006
+function BallOpen.startParticles(x, y, ballItem)
+  local tasks = BallOpen._tasks
+  tasks[#tasks + 1] = {
+    kind = "particles", ballId = BallOpen.ballIdForItem(ballItem),
+    x = math.floor(tonumber(x) or 0) % 256,
+    y = (math.floor(tonumber(y) or 0) - 5) % 256,
+    data0 = 0, data7 = 0,
+  }
+end
+
 function BallOpen.addSprite(s)
   local list = BallOpen._sprites
   list[#list + 1] = s

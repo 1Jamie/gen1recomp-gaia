@@ -410,7 +410,20 @@ end
 
 -- pokefirered/src/sprite.c:1062
 function Oam.startAffineAnim(s, cmds)
-  s.affineAnim = { cmds = cmds, index = 1, delay = 0, begin = true }
+  s.affineAnim = { cmds = cmds, index = 1, delay = 0, begin = true, scale = 256 }
+  s.affineAnimEnded = false
+end
+
+-- pokefirered/src/sprite.c:1274
+local function applyAffineFrame(s, st, c)
+  if (c.dur or 0) > 0 then
+    st.delay = c.dur - 1
+    st.scale = st.scale + c.v
+  else
+    st.delay = 0
+    st.scale = c.v
+  end
+  setAffineScale(s, st.scale)
 end
 
 local function stepAffine(s)
@@ -419,14 +432,11 @@ local function stepAffine(s)
   if st.begin then
     st.begin = false
     st.index = 1
-    local c = cmds[1]
-    st.scale = c.scale
-    setAffineScale(s, st.scale)
-    st.delay = c.dur or 0
+    s.affineAnimEnded = false
+    applyAffineFrame(s, st, cmds[1])
   elseif st.delay > 0 then
     st.delay = st.delay - 1
-    local c = cmds[st.index]
-    st.scale = st.scale + (c.add or 0)
+    st.scale = st.scale + (cmds[st.index].v or 0)
     setAffineScale(s, st.scale)
   else
     st.index = st.index + 1
@@ -435,18 +445,15 @@ local function stepAffine(s)
       st.index = st.index - 1
       s.affineAnimEnded = true
     else
-      local dur = c.dur or 0
-      if dur > 0 then
-        dur = dur - 1
-        st.scale = st.scale + (c.add or 0)
-      else
-        st.scale = c.scale or st.scale
-      end
-      setAffineScale(s, st.scale)
-      st.delay = dur
+      applyAffineFrame(s, st, c)
     end
   end
   if s.anchored then updateAnchor(s) end
+end
+
+function Oam.animateSprite(s)
+  if s.inUse and s.anims then stepAnim(s) end
+  if s.inUse and s.affineAnim then stepAffine(s) end
 end
 
 function Oam.animateSprites(layer)
@@ -569,6 +576,11 @@ blit_plain = function(s)
       love.graphics.draw(img, tlx, tly)
     end
   end
+end
+
+function Oam.flushOne(s)
+  love.graphics.setColor(1, 1, 1, 1)
+  blit_sprite(s)
 end
 
 --- Blit sorted OAM to the current Love canvas (all priorities).

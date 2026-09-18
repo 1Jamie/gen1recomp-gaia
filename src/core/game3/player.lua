@@ -608,6 +608,8 @@ function Player.update(game, input)
 
   local Field = package.loaded["src.core.game3.field"]
   if Field and Field.locked then return end
+  local Fade = package.loaded["src.ui.game3.fade"]
+  if Fade and Fade.lockInput then return end
   local Warp = package.loaded["src.core.game3.warp"]
   if Warp and Warp.isBusy and Warp.isBusy() then return end
   local Runtime = package.loaded["src.core.game3.runtime"]

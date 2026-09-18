@@ -387,6 +387,7 @@ function Naming.open(opts)
     species = opts.species,
     personality = opts.personality,
     onDone = opts.onDone,
+    hold = opts.hold,
   }
   Naming._state = st
   Naming.openFlag = true
@@ -400,6 +401,12 @@ end
 
 function Naming.close(result)
   local st = Naming._state
+  if st and st.hold then
+    if st.finished then return end
+    st.finished = true
+    if st.onDone then st.onDone(result) end
+    return
+  end
   local cb = st and st.onDone
   Naming.openFlag = false
   Naming._state = nil
@@ -407,9 +414,16 @@ function Naming.close(result)
   if cb then cb(result) end
 end
 
+function Naming.dismiss()
+  Naming.openFlag = false
+  Naming._state = nil
+  Stack.pop("naming")
+end
+
 function Naming.update(input, dt)
   if not Naming.openFlag or not Naming._state then return end
   local st = Naming._state
+  if st.finished then return end
   st.blink = (st.blink or 0) + (dt or 1 / 60)
   if st.swapT ~= nil then
     st.swapT = st.swapT + 4
@@ -437,12 +451,10 @@ function Naming.update(input, dt)
     st.col = colCount(st) + 1
     st.row = 4
     st.btn = 3
-    playSe(5)
     return
   end
 
   if pressed("up") then
-    playSe(5)
     if onButtonCol(st) then
       st.btn = st.btn - 1
       if st.btn < 1 then st.btn = 3 end
@@ -453,7 +465,6 @@ function Naming.update(input, dt)
       clampCursor(st)
     end
   elseif pressed("down") then
-    playSe(5)
     if onButtonCol(st) then
       st.btn = st.btn + 1
       if st.btn > 3 then st.btn = 1 end
@@ -464,7 +475,6 @@ function Naming.update(input, dt)
       clampCursor(st)
     end
   elseif pressed("left") then
-    playSe(5)
     if onButtonCol(st) then
       st.col = colCount(st)
       st.row = BTN_TO_KEY[st.btn] + 1
@@ -476,7 +486,6 @@ function Naming.update(input, dt)
       end
     end
   elseif pressed("right") then
-    playSe(5)
     if onButtonCol(st) then
       st.col = 1
       st.row = BTN_TO_KEY[st.btn] + 1
@@ -490,7 +499,6 @@ function Naming.update(input, dt)
       end
     end
   elseif pressed("a") then
-    playSe(5)
     if onButtonCol(st) then
       local role = SIDE[st.btn]
       if role == "PAGE" then
@@ -499,9 +507,11 @@ function Naming.update(input, dt)
         playSe(23)
         backspace(st)
       elseif role == "OK" then
+        playSe(5) -- pokefirered/src/naming_screen.c:1535
         Naming.close(confirm(st))
       end
     else
+      playSe(5) -- pokefirered/src/naming_screen.c:1837
       appendChar(st, cellAt(st))
     end
   end
