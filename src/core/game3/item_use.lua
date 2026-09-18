@@ -483,6 +483,7 @@ local function useField(session, bag, id, partySlot)
     end
     local ok = false
     local text = nil
+    local _
     local num = ItemsData.toNumericId(id) or tonumber(id)
     local monName = Pokemon.displayMonName(mon)
 

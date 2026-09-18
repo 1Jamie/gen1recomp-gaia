@@ -1927,7 +1927,7 @@ function AnimTasks.AttackerFadeFromInvisible(t, vm)
       destroy_task(t)
       return
     end
-    p = t._p
+    local p = t._p
     p.visible = true
     t._delay = delay
     t._timer = delay

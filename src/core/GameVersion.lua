@@ -116,6 +116,7 @@ GameVersion.VERSIONS = {
     label = "FireRed",
     displayName = "Pokemon FireRed",
     launcherName = "Fire Red",
+    beta = true,
     sha1 = "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc",
     manifest = "tools/rom_manifest_firered.json",
     cachePrefix = "firered/",

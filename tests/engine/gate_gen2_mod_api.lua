@@ -383,6 +383,7 @@ local GEN2_EVENTS = {
   "world.stepped", "world.interacted", "world.npc_spawned",
   "world.trainer_engaged", "world.blacked_out", "world.block_replaced",
   "world.boulder_moved", "world.tod_changed", "world.object_toggled",
+  "world.live_maps_preparing", "world.live_maps_updated",
   "flag.changed",
   -- battle
   "battle.started", "battle.ended", "battle.turn_started", "battle.turn_ended",

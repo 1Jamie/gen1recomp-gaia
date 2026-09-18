@@ -1607,6 +1607,8 @@ local function draw_mon_sprite(battler, base, back, id)
     end
     local hw = 24 * scale
     local rot = (pres and pres.rotation) or 0
+    local sx = (pres and pres.sx) or 1
+    local sy = (pres and pres.sy) or 1
     if rot ~= 0 or sx ~= 1 or sy ~= 1 then
       love.graphics.push()
       love.graphics.translate(cx, cy)

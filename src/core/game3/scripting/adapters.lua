@@ -857,7 +857,6 @@ function Adapters.host(mod, game, world)
       local Game3Bag = require("src.core.game3.bag")
       local Runtime = package.loaded["src.core.game3.runtime"]
       local session = (Runtime and Runtime.getSession and Runtime.getSession())
-        or (useGame3Session and useGame3Session())
         or (package.loaded["src.core.game3.field"] and package.loaded["src.core.game3.field"]._session)
       qty = math.max(1, tonumber(qty) or 1)
 

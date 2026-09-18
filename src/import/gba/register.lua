@@ -315,6 +315,7 @@ function Register.apply(mod, MapsModule)
     end
   end
 
+  local Assets = package.loaded["src.render.Assets"]
   if Assets and Assets.flush then pcall(Assets.flush) end
   return true
 end

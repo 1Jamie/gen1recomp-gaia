@@ -2387,6 +2387,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
   local skin = cartSkin(imp, version)
   local gameName = skin.name or (info and (info.launcherName or info.displayName))
     or tostring(version)
+  if info and info.beta then gameName = gameName .. " (Beta)" end
   local ready = (not locked) and imp.ready[version] or false
 
   -- title + status tag.  Ready is a check chip (the font has no tick glyph);
@@ -2459,6 +2460,7 @@ local function buildGamePanel(imp, x, y, w, availH, m, version, budgetH)
     local bgap = math.floor(8 * m.s)
     local cartAreaW = lw - mgW - bgap
     local cartH = playH
+    local cartW
     if skin.shape == "gba" then
       -- GBA carts are wider (aspect 1.74:1) but have a smaller physical footprint than GB carts.
       -- Scale height to ~62% of column height budget so visual mass is balanced and doesn't overwhelm the column.
